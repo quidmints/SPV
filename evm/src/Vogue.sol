@@ -1279,7 +1279,15 @@ contract Vogue is
         // the whole 4626 path — a levered LP could never exit past their free depth. Capping to the
         // full position keeps `amount > plainNet` reachable, bounds the conversion, and makes the
         // sentinel mean "exit my entire position", which is exactly what `maxWithdraw` advertises.
-        uint ceiling = convertToAssets(autoManaged[msg.sender].pooled);
+        // UNITS: cap in POOLED units, which is what `_withdraw` itself clamps in (`amount` vs
+        // `plainNet(LP.pooled, levPooled)`, :511) — NOT through `convertToAssets`. Routing the cap
+        // through the share-conversion made the payout depend on `vogueETH()`, so once the redeem
+        // turns had unwound the band the ceiling floored to 0 and a full-exit LP received NOTHING
+        // (measured: `test_RunSim_AllExit_Normal`, LP1 got 0 of 8 ETH — a test that PASSES upstream).
+        // Capping at the raw `pooled` reproduces upstream's effective behaviour exactly (upstream left
+        // `assets` huge and let `_withdraw` clamp it) while still bounding `convertToShares`, and it
+        // keeps `amount > plainNet` reachable whenever `levPooled > 0` so #109 still fires.
+        uint ceiling = autoManaged[msg.sender].pooled;
         if (assets > ceiling) assets = ceiling;
         shares = convertToShares(assets);
         _withdraw(assets, receiver, false);   // 4626 path defaults to WAIT (no forced haircut)

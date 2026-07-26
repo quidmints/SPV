@@ -599,10 +599,15 @@ contract Vault is Ownable, ReentrancyGuard {
         // is not a mis-report — it BLOCKS and then EVACUATES the venue. A Morpho-V2 vault runs ~0 idle
         // by policy (Galaxy: 8971 WETH held, 0 idle), so the old raw `maxWithdraw` read it as
         // permanently illiquid and any caller could have drained a healthy venue on that false signal.
-        // GUARDED: this feeds the PERMISSIONLESS `Aux.pokeVaultHealth`, so a venue whose view
-        // reverts (Euler's real EVault does — `EVC.getControllers` inside `maxWithdraw`) must read as
-        // 0 liquid rather than making the poke itself revert. 0 is the conservative side here too.
-        try IERC4626(vault).maxWithdraw(address(this)) returns (uint m) { liquid = m; } catch {}
+        // WIRED 2026-07-26 — the paragraph above described this fix but the code below it still read a
+        // raw `maxWithdraw`, so the hazard it warns about was LIVE: real Galaxy reports `maxWithdraw`
+        // AND `maxRedeem` of 0 against a fully withdrawable position, i.e. 0% liquid, and anyone could
+        // have used that false signal to block-then-evacuate a healthy venue through the permissionless
+        // poke. `_withdrawableOf` returns the reported position for a Morpho-V2 impl and the honest
+        // `maxWithdraw` for everything else. It is itself GUARDED, so a venue whose view reverts
+        // (Euler's real EVault does — `EVC.getControllers` inside `maxWithdraw`) reads as 0 liquid
+        // rather than making the poke revert; 0 is the conservative side here too.
+        liquid = VaultLib._withdrawableOf(vault);
     }
 
     // ════════════════════════════════════════════════════════════════

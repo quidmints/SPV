@@ -640,31 +640,40 @@ contract Alles is Test, Fixtures {
             "frozen-but-solvent 4626 leg no longer inflates redeemable (Strand-1/Gov-C)");
     }
 
-    /// @notice Strand-2: a frozen-but-UNFLAGGED Galaxy ETH venue (maxWithdraw==0,
-    ///         convertToAssets>0, not yet blocked) must not be valued at PAR for the
-    ///         redemption ETH leg. deliverableETH caps Galaxy at maxWithdraw always
-    ///         (vogueETH only does so when blocked), so the ETH leg defers the
-    ///         undeliverable slice instead of over-burning QU!D for it.
-    function testStrand2_FrozenGalaxyCapsDeliverableETH() public {
-        vm.prank(User01); V4.deposit{value: 50 ether}(0, User01);
-        address galaxy = ETH.GALAXY_VAULT();
-        assertGt(IERC20(galaxy).balanceOf(address(ETH)), 0, "ETH deposit landed in Galaxy");
+    /// @notice Strand-2: a frozen-but-UNFLAGGED ETH venue (maxWithdraw==0, convertToAssets>0, not yet
+    ///         blocked) must not be valued at PAR for the redemption ETH leg. `deliverableETH` caps the
+    ///         venue at its withdrawable amount ALWAYS (vogueETH only does so when blocked), so the ETH
+    ///         leg DEFERS the undeliverable slice instead of over-burning QU!D for it.
+    ///
+    ///         RETARGETED TO EULER (2026-07-26). This used to freeze GALAXY, which no longer expresses
+    ///         the property: Galaxy is Morpho-V2, and `_withdrawableOf` deliberately ignores its
+    ///         max-views because they report 0 against a fully withdrawable position (probed —
+    ///         `withdraw` and `redeem` both succeed at `maxWithdraw == 0`). Freezing a V2 vault's
+    ///         `maxWithdraw` is therefore a NON-EVENT by design, and asserting on it was asserting the
+    ///         opposite of the intended behaviour. Euler is the venue whose views we MEASURED as honest
+    ///         (real EVault reports `maxWithdraw` equal to the full position), so it is where a
+    ///         maxWithdraw freeze is a real solvent-but-undeliverable signal. The Strand-2 property is
+    ///         unchanged — only the venue that can legitimately exhibit it.
+    function testStrand2_FrozenEulerCapsDeliverableETH() public {
+        address euler = ETH.EULER_VAULT();
+        vm.prank(User01); V4.deposit{value: 50 ether}(0, User01, 5);   // VENUE_EULER (honest 4626 views)
+        assertGt(IERC20(euler).balanceOf(address(ETH)), 0, "ETH deposit landed in Euler");
 
         uint vogueBefore = ETH.vogueETH();
         uint delivBefore = ETH.deliverableETH();
         assertLe(delivBefore, vogueBefore, "deliverable never exceeds solvency");
         assertGt(delivBefore, 0, "baseline deliverable > 0");
 
-        // Freeze Galaxy maxWithdraw - solvent (convertToAssets untouched) but
+        // Freeze Euler's maxWithdraw - solvent (convertToAssets untouched) but
         // undeliverable, and NOT blocked (the Strand-2 unflagged window).
-        vm.mockCall(galaxy,
+        vm.mockCall(euler,
             abi.encodeWithSignature("maxWithdraw(address)", address(ETH)), abi.encode(uint(0)));
 
         // vogueETH (unblocked) reads convertToAssets -> unaffected; deliverableETH
-        // reads maxWithdraw -> caps below, so the redemption ETH leg defers it.
+        // reads the withdrawable amount -> caps below, so the redemption ETH leg defers it.
         assertEq(ETH.vogueETH(), vogueBefore, "vogueETH (solvency) unaffected by maxWithdraw");
         assertLt(ETH.deliverableETH(), delivBefore,
-            "frozen-but-unflagged Galaxy: deliverableETH caps below vogueETH (Strand-2)");
+            "frozen-but-unflagged Euler: deliverableETH caps below vogueETH (Strand-2)");
     }
 
     /// @notice TODO #1 char test - Galaxy fallback (Batch-1 `b554c7d`). Closes the
