@@ -4,7 +4,7 @@
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SPV_DIR="$(cd "$HARNESS_DIR/.." && pwd)"
 
-BITCOIN_VERSION="28.1"
+BITCOIN_VERSION="30.2"
 CORE_DIR="$HARNESS_DIR/.bitcoin-core/bitcoin-$BITCOIN_VERSION"
 BITCOIND="$CORE_DIR/bin/bitcoind"
 BITCOIN_CLI="$CORE_DIR/bin/bitcoin-cli"
@@ -15,7 +15,17 @@ WALLET="quid"
 ZMQ_BLOCK=28332
 ZMQ_TX=28333
 
-LND_VERSION="v0.20.1-beta"
+# bitcoin-cli bound to THIS node — the Bitcoin-side counterparts of the LN
+# `ln_ports`/`lncli_node` helpers below. Defined once here because the same three
+# invocations were open-coded across start/start-ln/stop/gen-fixture: `cli` (node
+# only), `wcli` (node + wallet), and the "is it up?" guard.
+cli()  { "$BITCOIN_CLI" -datadir="$DATADIR" "$@"; }
+wcli() { cli -rpcwallet="$WALLET" "$@"; }
+mine() { wcli -generate "${1:-1}" >/dev/null; }
+node_up() { cli getblockchaininfo >/dev/null 2>&1; }
+require_node() { node_up || { echo "regtest not running — ./start.sh first" >&2; exit 1; }; }
+
+LND_VERSION="v0.21.1-beta"
 
 # ── Release-artifact platform — ONE table, both downloaders derive from it ──
 # bitcoin-core and LND name their releases differently (and bitcoin uses `aarch64`

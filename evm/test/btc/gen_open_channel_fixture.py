@@ -7,14 +7,17 @@ into exactly what BTCChannels.openChannel / SPVGateway verify. The merkle branch
 is recomputed here ONLY to self-check that it folds to the block's real
 merkleroot before we ever feed it to Solidity (hashlib, not custom Rust).
 
-Run with a regtest bitcoind already up (see the test's shell harness):
-    BTC_CLI=/tmp/bitcoin-28.1/bin/bitcoin-cli DATADIR=/tmp/btcreg \
+Run it via `regtest/gen-fixture.sh`, which sources regtest/env.sh and passes
+BTC_CLI/DATADIR/WALLET for the pinned node — so the bitcoin-core version lives in
+exactly ONE place (env.sh `BITCOIN_VERSION`) and is never spelled out here.
+Standalone (regtest bitcoind already up):
+    BTC_CLI=/path/to/bitcoin-cli DATADIR=/path/to/datadir \
       python3 gen_open_channel_fixture.py > open_channel_fixture.json
 """
 import hashlib, json, os, subprocess
 from decimal import Decimal
 
-CLI = os.environ.get("BTC_CLI", "/tmp/bitcoin-28.1/bin/bitcoin-cli")
+CLI = os.environ.get("BTC_CLI", "bitcoin-cli")   # harness always sets it; PATH fallback
 DD = os.environ.get("DATADIR", "/tmp/btcreg")
 WALLET = os.environ.get("WALLET", "")  # optional -rpcwallet (regtest harness sets it)
 AMOUNT_SATS = 5_000_000   # 0.05 BTC channel
@@ -84,14 +87,22 @@ def main():
     hop = bytes.fromhex(newpub())
     assert len(lp) == 33 and len(hop) == 33
 
-    # Sorted plain 2-of-2 — matches BitcoinTx.buildChannelRedeemScript + LDK's
-    # make_funding_redeemscript: OP_2 <key_lo> <key_hi> OP_2 OP_CHECKMULTISIG,
-    # keys lexicographically sorted (unsigned). No CLTV self-refund branch (§9b
-    # removed the grief path — unilateral recovery is an LDK force-close).
-    lo, hi = (lp, hop) if lp < hop else (hop, lp)
-    redeem = bytes([0x52, 0x21]) + lo + bytes([0x21]) + hi + bytes([0x52, 0xae])
-    spk = bytes([0x00, 0x20]) + sha256(redeem)            # P2WSH: single sha256
-    addr = clij("decodescript", spk.hex())["address"]
+    # SIMPLE-TAPROOT (BOLT #995): the funding output is a KEY-PATH-ONLY P2TR
+    # `OP_1 PUSH32 || Q` (0x5120||Q, 34 bytes) — see BitcoinTx.buildTaprootScriptPubKey
+    # and ChannelLib._verifyAndLocate. NOT the old P2WSH 2-of-2: key-path taproot
+    # reveals no script on-chain, so there is no redeem script to reconstruct, and
+    # `BitcoinTx.buildChannelRedeemScript` no longer exists in the contracts.
+    #
+    # Q is the MuSig2 key-path aggregate in production. The contract does NO EC math
+    # on it (_verifyAndLocate: "Q is lpAuth-committed and byte-matched, NOT
+    # reconstructed from the keys"), so for the fixture we take a real bech32m output
+    # from bitcoind and read Q straight out of its scriptPubKey. That keeps the
+    # invariant this file was written for: no custom Bitcoin crypto here either.
+    addr = cli("getnewaddress", "", "bech32m")
+    spk = bytes.fromhex(clij("getaddressinfo", addr)["scriptPubKey"])
+    assert len(spk) == 34 and spk[0] == 0x51 and spk[1] == 0x20, \
+        f"expected key-path P2TR 0x5120||Q, got {spk.hex()}"
+    q = spk[2:]                                           # 32-byte x-only aggregate Q
 
     txid = cli("sendtoaddress", addr, "%.8f" % (AMOUNT_SATS / 1e8))
     cli("generatetoaddress", 7, cli("getnewaddress"))     # 7 confirmations (>=6)
@@ -101,7 +112,7 @@ def main():
     blk = clij("getblock", blockhash, 1)
     tx_index = blk["tx"].index(txid)
 
-    # funding output must exist with exactly AMOUNT_SATS at our P2WSH spk.
+    # funding output must exist with exactly AMOUNT_SATS at our key-path P2TR spk.
     fund_sats = next(int((o["value"] * Decimal(1e8)).to_integral_value())
                      for o in tx["vout"] if o["scriptPubKey"]["hex"] == spk.hex())
     assert fund_sats == AMOUNT_SATS, f"funding value {fund_sats} != {AMOUNT_SATS}"
@@ -121,6 +132,7 @@ def main():
         "lpPubkey": x(lp.hex()),
         "hopPubkey": x(hop.hex()),
         "amountSats": AMOUNT_SATS,
+        "fundingTaproot": x(q.hex()),                      # 32-byte x-only Q (OpenParams field 7)
         "rawFundingTx": x(legacy.hex()),
         "fundingTxidDisplay": x(txid),
         "fundingBlockHashBE": x(blockhash),                # display/BE (gateway key + OpenParams)

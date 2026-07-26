@@ -47,9 +47,14 @@ Together: full coverage, no chain to download.
 
 ## What the e2e proves
 
-`gen-fixture.sh` → `gen_open_channel_fixture.py` builds the protocol's P2WSH
-2-of-2 (LP + hop) funding output (byte-for-byte the script
-`BitcoinTx.buildChannelRedeemScript` reconstructs), funds + confirms it, and
+`gen-fixture.sh` → `gen_open_channel_fixture.py` builds the protocol's SIMPLE-TAPROOT
+(BOLT #995) **key-path P2TR** funding output `0x5120||Q` — byte-for-byte what
+`BitcoinTx.buildTaprootScriptPubKey` emits and `ChannelLib.locateChannelOutput`
+matches. Key-path taproot reveals no script on-chain, so there is nothing to
+reconstruct and the contract does NO EC math: `Q` is lpAuth-committed (signed into
+the OpenParams digest) and byte-matched. (This replaced the old P2WSH 2-of-2 +
+`buildChannelRedeemScript`, which no longer exist in the contracts.) It funds +
+confirms that output, and
 shapes the witness-stripped legacy tx (so `double-sha256 == txid`), the merkle
 branch (self-checked to fold to the block's real merkleroot), and the header
 chain. `OpenChannelE2E.t.sol` then runs that real data through the **actual**

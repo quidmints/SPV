@@ -3,4 +3,4 @@
 # e.g.  ./cli.sh getblockcount   ./cli.sh getbalance   ./cli.sh -generate 1
 set -euo pipefail
 source "$(dirname "$0")/env.sh"
-exec "$BITCOIN_CLI" -datadir="$DATADIR" -rpcwallet="$WALLET" "$@"
+wcli "$@"   # `wcli` (node + wallet) lives in env.sh — one definition, every script

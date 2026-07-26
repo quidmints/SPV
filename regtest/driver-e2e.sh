@@ -23,8 +23,14 @@ set -euo pipefail
 
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HARNESS_DIR/.." && pwd)"
+# env.sh owns the pinned bitcoin-core/LND versions + the platform table. Source it
+# so BITCOIND comes from the ONE pin (BITCOIN_VERSION) instead of a copy-pasted
+# path literal that silently desyncs the moment the pin moves.
+source "$HARNESS_DIR/env.sh"
 EVM_DIR="$REPO/evm"
-LN_DIR="$REPO/quid-ln"
+# NB: the cargo workspace, NOT env.sh's `LN_DIR` (which is the LND *data* dir,
+# $HARNESS_DIR/.lnd). Deliberately a different name — the two were colliding.
+RUST_WS="$REPO/quid-ln"
 ANVIL_PORT="${ANVIL_PORT:-8545}"
 ANVIL_RPC="http://127.0.0.1:$ANVIL_PORT"
 FORK_RPC="${QUID_FORK_RPC:-https://ethereum-rpc.publicnode.com}"
@@ -44,7 +50,7 @@ if ! command -v anvil >/dev/null || ! command -v forge >/dev/null; then
 fi
 
 # bitcoin-core (bitcoind) — reuse the pinned, checksum-verified downloader.
-BITCOIND="$HARNESS_DIR/.bitcoin-core/bitcoin-28.1/bin/bitcoind"
+# $BITCOIND comes from env.sh (sourced above), so it always tracks BITCOIN_VERSION.
 if [ ! -x "$BITCOIND" ]; then
   log "bitcoind not found — running setup.sh (downloads + verifies bitcoin-core)"
   "$HARNESS_DIR/setup.sh"
@@ -110,7 +116,7 @@ deploy_and_run() {
   ch="$(echo "$deploy_out" | grep -E "^\s*QUID_BTC_CHANNELS " | tail -1 | awk '{print $2}')"
   [ -n "$gw" ] && [ -n "$ch" ] || { log "deploy did not yield addresses"; exit 1; }
   log "SPVGateway=$gw BTCChannels=$ch  → running $test_name"
-  ( cd "$LN_DIR" && \
+  ( cd "$RUST_WS" && \
     QUID_RPC_URL="$ANVIL_RPC" \
     QUID_CHAIN_ID="31337" \
     QUID_BTC_CHANNELS="$ch" \

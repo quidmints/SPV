@@ -21,9 +21,6 @@ zmqpubrawtx=tcp://127.0.0.1:$ZMQ_TX
 rpcport=$RPC_PORT
 EOF
 
-cli() { "$BITCOIN_CLI" -datadir="$DATADIR" "$@"; }
-wcli() { "$BITCOIN_CLI" -datadir="$DATADIR" -rpcwallet="$WALLET" "$@"; }
-
 if cli getblockchaininfo >/dev/null 2>&1; then
   echo "bitcoind already running (height $(cli getblockcount))"
 else
@@ -54,7 +51,7 @@ fi
 # and the whole swap-in orchestration reports a spurious failure. Mining one block
 # with a current timestamp bumps the tip to "now" and clears IBD, so re-runs
 # against an old datadir sync cleanly (no wipe required — the harness is idempotent).
-if "$BITCOIN_CLI" -datadir="$DATADIR" getblockchaininfo | grep -q '"initialblockdownload": true'; then
+if cli getblockchaininfo | grep -q '"initialblockdownload": true'; then
   ADDR=$(wcli getnewaddress)
   cli generatetoaddress 1 "$ADDR" >/dev/null
   echo "mined a fresh block to clear IBD (persisted datadir had a stale tip)"

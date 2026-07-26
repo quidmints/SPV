@@ -44,7 +44,7 @@ jobs:
       #   The harness (quid-hop/src/harness.rs) first checks the env vars
       #   BITCOIND_EXE and ELECTRS_EXE; if unset it falls back to the binaries
       #   AUTO-DOWNLOADED by the `electrsd`/`bitcoind` crates (enabled via the
-      #   `bitcoind_download` + `bitcoind_28_2` / `esplora_a33e97e1` features).
+      #   `bitcoind_download` + `bitcoind_30_2` / `esplora_a33e97e1` features).
       #   So on a clean CI runner you do NOT need to set them — the download
       #   features provide the executables. If you want to use system-installed
       #   binaries instead (faster, no download), export e.g.:

@@ -6,12 +6,8 @@ set -euo pipefail
 source "$(dirname "$0")/env.sh"
 
 [ -x "$LND" ] || { echo "run ./setup-ln.sh first" >&2; exit 1; }
-"$BITCOIN_CLI" -datadir="$DATADIR" getblockchaininfo >/dev/null 2>&1 \
-  || { echo "regtest not running — ./start.sh first" >&2; exit 1; }
+require_node
 command -v jq >/dev/null || { echo "jq required" >&2; exit 1; }
-
-wcli() { "$BITCOIN_CLI" -datadir="$DATADIR" -rpcwallet="$WALLET" "$@"; }
-mine() { wcli -generate "${1:-1}" >/dev/null; }
 
 # A node counts as ready only when its RPC is up AND it is synced to the CURRENT
 # regtest chain. Bare `getinfo` succeeding is NOT enough: a node left over from a
@@ -53,7 +49,13 @@ EOF
   # Fully DETACH the daemon (new session, no controlling tty, stdin from
   # /dev/null, disowned) so the orchestrator — and its callers (forge vm.ffi, a
   # CI runner) — can exit cleanly without waiting on a child that never returns.
-  setsid "$LND" --lnddir="$d" >"$d/lnd.log" 2>&1 </dev/null &
+  # `setsid` is util-linux and does NOT exist on macOS, where it aborted the whole
+  # script; `nohup` is POSIX and gives the same practical detachment here (stdin is
+  # already </dev/null so there's no controlling tty, SIGHUP is ignored, and the job
+  # is disowned so nothing waits on it). Prefer setsid where present — Linux keeps
+  # its exact prior behaviour.
+  DETACH="$(command -v setsid || command -v nohup)"
+  "$DETACH" "$LND" --lnddir="$d" >"$d/lnd.log" 2>&1 </dev/null &
   disown 2>/dev/null || true
   echo -n "  starting $n"
   for _ in $(seq 1 120); do node_synced "$n" && break; echo -n "."; sleep 1; done

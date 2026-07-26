@@ -43,7 +43,7 @@ alloy-primitives = "0.8"
 electrsd = { version = "0.40", default-features = false, optional = true, features = [
     "esplora_a33e97e1",
     "bitcoind_download",
-    "bitcoind_28_2",
+    "bitcoind_30_2",
     "anyhow",
 ] }
 tracing-subscriber = { version = "0.3", optional = true, features = ["fmt", "env-filter"] }
@@ -85,7 +85,7 @@ quid-cvm = { path = "../quid-cvm" }
 electrsd = { version = "0.40", default-features = false, features = [
     "esplora_a33e97e1",
     "bitcoind_download",
-    "bitcoind_28_2",
+    "bitcoind_30_2",
     "anyhow",
 ] }
 reqwest = { workspace = true }
