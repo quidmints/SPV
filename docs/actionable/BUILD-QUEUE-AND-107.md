@@ -1492,3 +1492,32 @@ carried forward for a whole session without anyone measuring the primitive quant
 ratio across independent tests should have prompted "what is 80% OF?" immediately — a shared
 denominator usually means a shared MEASUREMENT, not a shared bug. Measure the primitive before
 theorising about the system.
+
+## A.10 EXIT-ORDER FAIRNESS — the 19.4% was the §A.9 artifact; a REAL ~2% first-mover edge sits under it
+
+`test_EthLp_RedeemConservationAndFairness` was the last suspected exit defect. It does NOT use
+`_lpReceived` (an earlier claim that it did was wrong) — it measured `User01.balance` only, so it
+was Group A after all. Counting ETH+WETH makes the fairness assertion PASS: **the 19.4% exit-order
+skim does not exist.** Two real effects were hiding beneath it, both measured:
+
+**1. A genuine ~2.15% FIRST-MOVER ADVANTAGE.** Re-run with the flow ROUND-TRIPPED (alternate
+buy/sell instead of the test's monotonic 6× ETH→USDC), LP1 = 99.962 and LP2 = 97.856 — first out
+gets MORE. The test's own one-directional flow masks this, because under monotonic flow the payout
+composition difference dominates. This is the real fairness question and it is UNRESOLVED.
+⇒ Likely mechanism: the first exit is served from the most liquid legs (idle WETH, honest-view
+venues) and the second bears the residual. That is the §A.5c view/ladder question in its ONLY
+empirically-supported form — note it is ~2%, NOT the ~20% §A.5c was built to explain.
+
+**2. PRINCIPAL IS NOT PRESERVED under real flow.** With the test's own one-directional flow, total
+out is 199.963 vs 200.000 in (−1.86 bps): IL slightly EXCEEDS fees. The test asserts an "IL-free
+normal regime", but a monotonic 6 ETH walk of the price is not IL-free — the premise contradicts
+the scenario. Under round-tripped flow the total is 197.8, i.e. worse, so this is not a one-off.
+
+⚠️ **The scenario change was REVERTED and is NOT in the tree.** Reshaping a test's flow until it
+passes is tuning, not fixing; the alternating run above was a diagnostic only. Only the ETH+WETH
+MEASUREMENT correction was kept. The test still fails, now on `total out >= total in` — an honest
+economic result rather than a phantom.
+⇒ **Decision needed (user):** is a small net-IL outcome under one-directional flow ACCEPTABLE (then
+the assertion's "IL-free" premise should be restated to bound IL rather than forbid it), or is
+fee capture expected to cover it (then the fee/band math is the defect)? Do not silently relax the
+bound — that is the assertion that would have caught real value leakage.

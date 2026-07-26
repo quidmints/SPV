@@ -2762,12 +2762,16 @@ contract Alles is Test, Fixtures {
         vm.stopPrank();
 
         // User01 exits FIRST, User02 SECOND.
-        uint b1 = User01.balance;
+        // ETH+WETH (BUILD-QUEUE §A.9). The FIRST LP out is served partly from idle WETH and so
+        // receives a WETH-heavy mix, while the second is paid in native ETH. Counting native ETH
+        // alone therefore reads as a 19.4% "exit-order skim" that is purely a composition
+        // difference -- the total value each LP receives is equal.
+        uint b1 = User01.balance + WETH.balanceOf(User01);
         vm.prank(User01); V4.withdraw(type(uint).max, User01, User01);
-        uint got1 = User01.balance - b1;
-        uint b2 = User02.balance;
+        uint got1 = (User01.balance + WETH.balanceOf(User01)) - b1;
+        uint b2 = User02.balance + WETH.balanceOf(User02);
         vm.prank(User02); V4.withdraw(type(uint).max, User02, User02);
-        uint got2 = User02.balance - b2;
+        uint got2 = (User02.balance + WETH.balanceOf(User02)) - b2;
 
         // FAIRNESS: equal LPs, equal accrual ⇒ equal payout, no first-mover skim.
         assertApproxEqRel(got1, got2, 0.01e18, "equal LPs must get equal payout (no exit-order skim)");
