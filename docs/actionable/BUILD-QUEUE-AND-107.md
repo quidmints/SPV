@@ -1521,3 +1521,38 @@ economic result rather than a phantom.
 the assertion's "IL-free" premise should be restated to bound IL rather than forbid it), or is
 fee capture expected to cover it (then the fee/band math is the defect)? Do not silently relax the
 bound — that is the assertion that would have caught real value leakage.
+
+## A.11 ✅ RESOLVED — the "IL / principal loss" was a DEFERRED position the assertion ignored
+
+Closes §A.10's open question. The user pushed back on "IL slightly exceeds fees" — correctly, because
+that was INFERRED, never measured. Measured, accounting for every asset in the exact scenario:
+
+| | native ETH | WETH | QUID | **still pooled** | total |
+|---|---|---|---|---|---|
+| LP1 | 80.583 | 19.380 | 0 | **3.0013** | 102.96 |
+| LP2 | 100.000 | 0 | 0 | **3.0013** | 103.00 |
+
+- **NOT a levered route** — `levPooled == 0` for both LPs. (The user asked; it had been assumed.)
+- **NO IL and NO leakage.** 199.963 delivered **+ 6.003 still pooled** = ~205.97 against 200.000 in.
+  The LPs GAINED ~5.97 in fees. Nothing is unaccounted.
+- **Fairness is fine** — 99.963 vs 100.000, equal to 0.04%. Combined with §A.10, BOTH the 19.4% skim
+  and the "principal loss" were artifacts of what the assertions counted.
+- **The 2.15% "first-mover advantage" in §A.10 is therefore also suspect** — it was measured with the
+  same delivered-only accounting and did NOT include the retained position. Do not treat it as a
+  confirmed defect; re-measure with delivered+retained before acting. §A.10 amended accordingly.
+
+**Root cause: the test asserted on DELIVERED value while neither LP fully exits.**
+`withdraw(type(uint).max)` delivers what the ETH ladder can source and DEFERS the remainder as a
+live, recoverable `pooled` claim — here each LP's share of the 6 ETH User03 swapped in, part of which
+is a USD-denominated claim the ETH ladder correctly refuses to pay out as ETH. Reading that deferral
+as a loss is what produced the phantom IL.
+
+**Fixed** by asserting over `delivered + retained`. Kept rather than deleted, after checking overlap:
+`test_RunSim_AllExit_Normal` covers principal-back BETTER (uses `_lpReceived`, i.e. ETH+WETH+QUID, and
+asserts the stronger no-stuck-bag property `rem < 1e9`), but this test uniquely covers **exit-order
+fairness** and the **conservation UPPER bound**. Those two are its reason to exist.
+
+⚠️ **Residual worth knowing:** LPs do NOT fully exit in this scenario (3.0013 each deferred), whereas
+`test_RunSim_AllExit_Normal` asserts they DO (`rem < 1e9`) and passes. The difference is that runsim
+has redeemers burning QU!D first, which frees stables. Whether a deferral with no redeemer present is
+acceptable-by-design or a liquidity gap is NOT settled here — but it is a deferral, not a loss.
