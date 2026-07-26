@@ -1,0 +1,65 @@
+
+[profile.default]
+src = "src"
+out = "out"
+
+libs = ["lib"]
+ffi = true
+
+# Frozen explicitly: forge's auto-merge was dropping the base
+# `@openzeppelin/` mapping once `@openzeppelin/contracts-upgradeable/`
+# was added, breaking every @openzeppelin/contracts import.
+remappings = [
+    "@uniswap/v4-core/=lib/v4-core/",
+    "forge-gas-snapshot/=lib/v4-core/lib/forge-gas-snapshot/src/",
+    "forge-std/=lib/v4-core/lib/forge-std/src/",
+    "permit2/=lib/v4-periphery/lib/permit2/",
+    "solmate/=lib/v4-core/lib/solmate/",
+    "solady/=lib/solady/",
+    "@solarity/solidity-lib/=lib/solidity-lib/contracts/",
+    "@openzeppelin/contracts-upgradeable/=lib/v4-core/lib/openzeppelin-contracts/contracts/",
+    "@openzeppelin/contracts/=lib/v4-core/lib/openzeppelin-contracts/contracts/",
+    "v4-core/=lib/v4-core/",
+    "v4-periphery/=lib/v4-periphery/",
+    "@ensdomains/=lib/v4-core/node_modules/@ensdomains/",
+    "ds-test/=lib/v4-core/lib/forge-std/lib/ds-test/src/",
+    "erc4626-tests/=lib/v4-core/lib/openzeppelin-contracts/lib/erc4626-tests/",
+    "hardhat/=lib/v4-core/node_modules/hardhat/",
+    "openzeppelin-contracts/=lib/v4-core/lib/openzeppelin-contracts/"
+]
+
+gas_reports = ["*"]
+fs_permissions = [
+    { access = "read-write", path = ".forge-snapshots/"},
+    { access = "read-write", path = "src/contracts/"},
+    { access = "read-write", path = "deployments/"},
+    { access = "read-write", path = "./"}
+]
+
+solc_version = "0.8.30"
+evm_version = "cancun"
+# Default fork RPC for the e2e/fork test suite (Ankr mainnet archive).
+eth_rpc_url = "https://rpc.ankr.com/eth/abc1c9e1ba906a35c59e62a69c80cf77219499b3cd05752d53c0ed17d14cbfc3"
+
+via_ir = false
+optimizer = true
+optimizer_runs = 200
+dynamic_test_linking = true
+
+bytecode_hash = "none"
+deny_warnings = false
+cbor_metadata = false
+sparse_mode = false
+build_info = true
+
+[rpc_endpoints]
+# forge script scripts/DeployL1.s.sol:Deploy --rpc-url mainnet --broadcast --verify
+mainnet = "https://rpc.ankr.com/eth/abc1c9e1ba906a35c59e62a69c80cf77219499b3cd05752d53c0ed17d14cbfc3"
+
+[etherscan]
+mainnet = { key = "${ETHERSCAN_L1}" }
+
+[profile.dependencies]
+v4-core = { git = "https://github.com/uniswap/v4-core" }
+v4-periphery = { git = "https://github.com/uniswap/v4-periphery" }
+solady = { git = "https://github.com/Vectorized/solady" }

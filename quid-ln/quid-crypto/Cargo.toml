@@ -1,0 +1,53 @@
+[package]
+name = "quid-crypto"
+version = "0.1.11"
+license = "MIT"
+description = "Quid cryptography library (ring wrapper)"
+documentation = "https://docs.rs/quid-crypto"
+authors = { workspace = true }
+edition = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+publish = true
+
+# Default config for testing in SGX
+[package.metadata.fortanix-sgx]
+
+[features]
+# Explicitly specify that no features should be enabled by default.
+default = []
+# Enables various test hooks and utilities. Should be disabled in staging/prod.
+test-utils = [
+    "dep:proptest",
+]
+
+[dependencies]
+
+
+quid-byte-array = { workspace = true }
+quid-hex = { workspace = true }
+quid-serde = { workspace = true }
+quid-sha256 = { workspace = true }
+quid-std = { workspace = true }
+
+# --- WORKSPACE --- #
+
+# TODO(phlip9): figure out how to remove this dep
+bcs = { workspace = true }
+rand_core = { workspace = true }
+# TODO(phlip9): figure out how to remove this dep
+ref-cast = { workspace = true }
+ring = { workspace = true }
+serde_core = { workspace = true }
+zeroize = { workspace = true }
+
+# --- OPTIONAL --- #
+
+proptest = { workspace = true, optional = true, features = ["alloc"] }
+
+[dev-dependencies]
+proptest = { workspace = true, features = ["alloc"] }
+proptest-derive = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

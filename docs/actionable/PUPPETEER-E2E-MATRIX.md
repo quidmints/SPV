@@ -1,0 +1,100 @@
+# Puppeteer E2E Permutation Matrix (#18)
+
+Exhaustive front-end fuzz over **every integrated SPA path × happy + sad**, driven by the puppeteer MCP
+tools against the anvil mainnet-fork. Goal: no permutation left unexercised before slither/echidna (final gate).
+
+**Do NOT run until the other thread's contracts land.** This is the pre-scoped plan; execution waits.
+
+## Harness (once, per run)
+1. `anvil --fork-url $MAINNET --auto-impersonate` (mainnet fork).
+2. `BROADCAST=1 RPC_URL=http://127.0.0.1:8545 PRIVATE_KEY=<anvil[0]> deploy/deploy-l1.sh` — now self-grants ANGEL
+   on anvil (`b22e38b`), so the full ANGEL-committed stack deploys + finalizes (Aux/Basket renounced, ANGEL burned).
+3. `spa/e2e-faucet.sh` — fund the SPA wallet (anvil acct[0] `0xf39F…2266`) with ETH + every basket stable + WBTC.
+4. `spa` env → deployed addresses (env-overridable, #17); `npm run dev`; puppeteer_navigate `/app`.
+5. Assert on: on-chain state (`cast call`), toast/error text, button disabled/enabled, balance deltas, tab state.
+
+Each case: **precondition → action → assert (happy)** and its **failure twin → assert revert/guard**.
+
+---
+
+## 0. Cross-cutting (apply to every tab)
+- **No wallet**: action buttons gated/disabled; connect prompt. Read-only tabs (info) still render.
+- **Wrong network**: network-switch prompt; no tx sent.
+- **Tx rejected** (puppeteer cancels the wallet shim): graceful error toast, no state change.
+- **Deep-link** `/app?tab={mint,deposit,withdraw,swap,redeem,channel}` selects the tab.
+- **Amount edge**: `0`, empty, negative, `>` balance, dust (1 wei), max (full balance), scientific notation.
+- **Allowance**: unapproved → approve step appears; exact-allowance; infinite-allowance; re-approve.
+- **Loading/stale**: stats spinner; RPC error → retry; balances refresh post-tx.
+
+## 1. MINT (stables → QUID)
+Vote-gate: a `voteBtcShare` in the CURRENT month is required before mint (NotVoted).
+| # | Path | Happy | Sad twin |
+|---|------|-------|----------|
+|1.1| Mint per stable (×12: USDC…AUSD, USDT0, BOLD) | approve→mint, QUID balance ↑, fee applied | mint w/o vote → `NotVoted`; mint > balance; mint 0 |
+|1.2| Mint large (drain fee) | scaled outflow fee (`scaledFeeL1`) charged, still succeeds | mint that under-mints below minOut |
+|1.3| Mint depegged stable | haircut valuation (severity), less QUID | depeg > deadband → reduced/blocked |
+|1.4| Mint at CAP (seed) | seed projection ≤ CAP | mint pushing `seeded+norm > CAP` → normal projection |
+|1.5| Approve-then-mint | 2-tx flow; button state transitions | approve reverts / insufficient allowance |
+
+## 2. REDEEM (QUID → stables)
+Mature-only; per-QD `min(par, solvent-share)` cap; stables-only (band-unwind frees committed USD).
+| # | Path | Happy | Sad twin |
+|---|------|-------|----------|
+|2.1| Redeem to chosen stable | QUID burned, stable received at `min(par,share)` | redeem > QUID balance; redeem 0 |
+|2.2| Redeem immature QUID | only mature portion redeemable | redeem when all immature → 0/blocked |
+|2.3| Redeem under depeg/haircut | value quoted down (solvent < par) | redeem when solvent share < requested |
+|2.4| Redeem full balance | drains to 0 cleanly, no stuck QD (#51) | redeem leaving dust below min |
+|2.5| Redeem routing (multi-stable) | splits across held stables | one stable illiquid → routes around |
+
+## 3. SWAP
+### 3a. Stable↔stable (`auxSwap`)
+|3a.1| Each direction pair | minOut honored, fee applied | minOut too high → revert |
+|3a.2| Partial-fill refund (#105) | consumed-signal, unfilled refunded | refund unit/cap correctness |
+### 3b. Swap-OUT to BTC (`requestSwapOutOnchain`, rail A Lightning / B on-chain splice)
+|3b.1| USD→BTC deliver | sats delivered, LP paid once | minSats too high; no BTC liquidity |
+|3b.2| Partial fill | SOR-difference refund + warning (#110) | wrong scriptPubKey; below-min sats |
+### 3c. Swap-IN from BTC (`requestOnchainSwapIn` via hop, poll)
+|3c.1| BTC→QUID | poll → credited; CLTV refund path | hop API off (`hopApiConfigured`=false) → gated |
+|3c.2| Underpay / timeout | refund via CLTV; no partial credit unless signalled | replay / double-spend rejected |
+
+## 4. DEPOSIT (LP — ETH venues via `Vogue.deposit(amt, recip, venue)`)
+Venues: Galaxy(0), ether.fi, Aave-v4, Rover, Euler, Split (per-LP hard-wall, #37/ETH-multivenue).
+|4.1| Deposit per venue | LP share ↑ at chosen venue, net-equity accounting | venue maxWithdraw=0 mock (Galaxy) handled |
+|4.2| Split ETH/WETH (`splitEthForDeposit`) | raw ETH wrapped + WETH combined | mismatch raw/weth amounts |
+|4.3| Allocation slider + comfort knob | maps to venue + magnitude | slider 0 (passive LP) = pure in-range |
+|4.4| Deposit 0 / > balance | — | reverts / disabled |
+
+## 5. WITHDRAW (LP — `Vogue.withdraw`, instant vs queued)
+|5.1| Withdraw (instant) | `setWithdrawInstant(true)` → immediate | withdraw > deposited |
+|5.2| Withdraw (queued) | ether.fi redeem buffer / queue fallback (#38) | venue illiquid → queue, not revert |
+|5.3| Partial / full | share math correct, IL realized on repack | withdraw 0 |
+|5.4| Withdraw under leverage | net-equity-direct, de-lever if needed | withdraw needs BOLD availability (Liquity) |
+
+## 6. CHANNEL (BTC LP via hop — `submitOpenChannel`→poll→`openChannel`)
+|6.1| Open channel happy | funding confirms → SPV proof + `lpAuth` (ecrecover) → QUID minted | hop API off → gated |
+|6.2| lpAuth binding | LP signs `openChannelDigest`; hop relays | wrong lpAuth → credited-owner mismatch reject |
+|6.3| SPV proof | valid merkle proof accepted | invalid/replayed proof rejected (#22 holes) |
+|6.4| autoManagedBTC | opts the LP position into keeper mgmt | — |
+
+## 7. LEVERAGE (`LeverageCard` + `LeverageActionPanel` + `PnLPanel` + `ComfortPanel`)
+ETH (weETH: Morpho/Euler/Aave-v4/Liquity) + BTC (vBTC native / WBTC-fallback AaveV3). Target ≤ `TARGET_LTV_CAP=7500`.
+|7.1| Open lev per venue/collateral | position opens at 0 debt; net-equity synced to band | cap > 7500 → `BadTarget`; below `MIN_OPEN` |
+|7.2| Target 2× (IL-hedge) | keeper holds `ilTargetLtvBps` (sold-fraction ramp) | — |
+|7.3| Target >2× (directional) | SPA labels directional (`levL>2.001`, isolated-risk warning); on-chain the keeper still targets the IL ramp clamped at cap — the hold-and-ride branch is [pending] | liquidation guard de-levers near LLTV |
+|7.4| Close / unwind | returns ≥ HODL − costs across a move (#82); flash-close BOLD | close with residual debt; over-collat reserve |
+|7.5| WBTC-mode fold/de-lever | `rebalanceWbtc` fold-up + Morpho-flash de-lever (#90) | rebalanceWbtc on native venue → `BadTarget` |
+|7.6| protectFromQuid | near-liq → redeem opted-in QUID → repay own debt | not near-liq → no-op |
+|7.7| Stress test / P&L | ComfortPanel stress bake-in; PnLPanel live | extreme move → bounds shown |
+
+## 8. INFO / DASHBOARD (read-only)
+|8.1| Regime brain, net-flow (`fetchNetFlow`), BTC inventory (`fetchBtcInventory`) render | no-wallet render OK |
+|8.2| Stats reconcile with on-chain (`cast call` cross-check) | RPC error → retry, no crash |
+
+---
+
+## Coverage ledger (fill during execution)
+- [ ] §0 cross-cutting (7) · §1 mint (5) · §2 redeem (5) · §3 swap (6) · §4 deposit (4)
+- [ ] §5 withdraw (4) · §6 channel (4) · §7 leverage (7) · §8 dashboard (2)
+- Every row has BOTH its happy assertion AND its sad twin exercised. Log any permutation intentionally skipped.
+
+**Next after 100% green:** slither (static) + echidna (property fuzz) on the contracts — the final gate.

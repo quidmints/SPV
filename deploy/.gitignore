@@ -1,0 +1,3 @@
+# Filled-in env files hold secrets — never commit. Templates are tracked.
+*.env
+!*.env.example

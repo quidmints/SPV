@@ -1,0 +1,38 @@
+[package]
+name = "quid-std"
+version = "0.1.11"
+license = "MIT"
+description = "Quid extended Rust std"
+documentation = "https://docs.rs/quid-std"
+authors = { workspace = true }
+edition = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+publish = true
+
+# Default config for testing in SGX
+[package.metadata.fortanix-sgx]
+
+[features]
+default = []
+ref-cast = ["dep:ref-cast"]
+
+[dependencies]
+
+### NOTE: NO DEPENDENCIES ARE ALLOWED for `quid-std` ###
+#
+# The purpose of this crate is to extract "std extensions" into a crate that
+# other Quid crates can depend on without having to pull in any dependencies.
+# 
+# Any dependencies added here should be strictly test-only or optional.
+
+ref-cast = { optional = true, workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true, features = ["alloc"] }
+proptest-derive = { workspace = true }
+
+[target.'cfg(not(target_env = "sgx"))'.dev-dependencies]
+# Include std impls when testing outside of SGX
+proptest = { workspace = true, features = ["std"] }

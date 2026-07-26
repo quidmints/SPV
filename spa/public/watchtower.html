@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>QU!D dead-man watchtower — keyless BTC recovery</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.3rem; }
+  label { display: block; margin: .6rem 0 .15rem; font-weight: 600; font-size: .85rem; }
+  input { width: 100%; padding: .5rem; box-sizing: border-box; border: 1px solid #8886; border-radius: 6px; background: transparent; color: inherit; font-family: ui-monospace, monospace; font-size: .8rem; }
+  button { margin-top: 1rem; padding: .6rem 1.1rem; border: 0; border-radius: 6px; background: #2563eb; color: #fff; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  .note { font-size: .8rem; opacity: .75; border-left: 3px solid #8886; padding: .5rem .8rem; margin: 1rem 0; }
+  .row { border: 1px solid #8884; border-radius: 8px; padding: .7rem .9rem; margin: .6rem 0; font-size: .8rem; }
+  .matured { border-color: #dc2626; }
+  .live { opacity: .6; }
+  code { font-family: ui-monospace, monospace; word-break: break-all; }
+  .bcast { background: #16a34a; }
+  #out:empty::before { content: "No scan yet."; opacity: .5; }
+</style>
+</head>
+<body>
+<h1>QU!D dead-man watchtower</h1>
+<p>Keyless BTC recovery. If the QU!D fleet goes dark, the fully-signed unilateral-exit
+transaction is already public in the on-chain <code>DeadManExitEmitted</code> event. This
+page reads it and — once its CLTV timelock has matured — broadcasts the raw bytes to a
+public Bitcoin mempool. <strong>No wallet, no key, no signing.</strong></p>
+
+<div class="note">Security: read-only EVM reads + a public Bitcoin broadcast. It <em>cannot</em>
+redirect funds — the payout is pinned to the LP's <code>btcRecipientOf</code> inside the
+already-signed bytes. Broadcasting before maturity just wastes a POST (the mempool rejects a
+non-final tx). Nothing sensitive is ever handled here. Host this file anywhere (IPFS, a gist,
+a USB stick); run several copies for redundancy.</div>
+
+<label>EVM RPC URL</label>
+<input id="rpc" placeholder="https://…  (any public Ethereum RPC)" />
+<label>BTCChannels contract address</label>
+<input id="contract" placeholder="0x…" />
+<label>Esplora base URL (public Bitcoin API)</label>
+<input id="esplora" value="https://blockstream.info/api" />
+<label>Channel id (optional — leave blank to scan ALL channels)</label>
+<input id="channel" placeholder="0x… (32-byte channelId)" />
+
+<button id="scan">Scan &amp; recover matured exits</button>
+
+<div id="out"></div>
+
+<script>
+// keccak256("DeadManExitEmitted(bytes32,address,uint64,uint256,bytes)") — the event topic0.
+// Hardcoded so this page needs NO crypto library (verify: `cast keccak "<sig>"`).
+const TOPIC0 = "0x2bbac4dfcf8e8f12145e6b294eb6fc5145f3b8b81f9a5b450168f874ec848190";
+
+const $ = id => document.getElementById(id);
+const strip0x = s => s.startsWith("0x") ? s.slice(2) : s;
+
+async function rpc(url, method, params) {
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+  });
+  const j = await r.json();
+  if (j.error) throw new Error(method + ": " + JSON.stringify(j.error));
+  return j.result;
+}
+
+// Decode abi.encode(uint64 cltvDeadline, uint256 checkpointSats, bytes signedExitTx).
+function decodeData(dataHex) {
+  const d = strip0x(dataHex);
+  const word = i => d.slice(i * 64, i * 64 + 64);
+  const cltvDeadline = BigInt("0x" + word(0));      // low bytes hold the uint64
+  const checkpointSats = BigInt("0x" + word(1));
+  const offBytes = Number(BigInt("0x" + word(2)));  // = 96
+  const lenAt = offBytes * 2;
+  const len = Number(BigInt("0x" + d.slice(lenAt, lenAt + 64)));
+  const signedExitTx = d.slice(lenAt + 64, lenAt + 64 + len * 2);
+  return { cltvDeadline, checkpointSats, signedExitTx };
+}
+
+async function tipHeight(esplora) {
+  const r = await fetch(esplora.replace(/\/$/, "") + "/blocks/tip/height");
+  return BigInt((await r.text()).trim());
+}
+
+async function broadcast(esplora, rawHex, btn) {
+  btn.disabled = true; btn.textContent = "Broadcasting…";
+  try {
+    const r = await fetch(esplora.replace(/\/$/, "") + "/tx", { method: "POST", body: rawHex });
+    const txt = (await r.text()).trim();
+    if (!r.ok) throw new Error(txt);
+    btn.textContent = "Broadcast ✓ — txid " + txt;
+  } catch (e) {
+    btn.disabled = false; btn.textContent = "Broadcast failed: " + e.message;
+  }
+}
+
+async function scan() {
+  const out = $("out"); out.innerHTML = "";
+  const rpcUrl = $("rpc").value.trim(), contract = $("contract").value.trim();
+  const esplora = $("esplora").value.trim(), channel = $("channel").value.trim();
+  if (!rpcUrl || !contract || !esplora) { out.textContent = "Fill RPC, contract, and Esplora."; return; }
+  const btn = $("scan"); btn.disabled = true; btn.textContent = "Scanning…";
+  try {
+    const topics = channel ? [TOPIC0, channel] : [TOPIC0];
+    const logs = await rpc(rpcUrl, "eth_getLogs",
+      [{ address: contract, fromBlock: "0x0", toBlock: "latest", topics }]);
+    // LATEST emission per channel (topic1) — later logs are fresher heartbeats.
+    const latest = new Map();
+    for (const l of logs) latest.set(l.topics[1], l);
+    if (latest.size === 0) { out.textContent = "No dead-man exit has ever been emitted."; return; }
+    const tip = await tipHeight(esplora);
+    for (const [ch, log] of latest) {
+      const { cltvDeadline, checkpointSats, signedExitTx } = decodeData(log.data);
+      const matured = tip >= cltvDeadline;
+      const row = document.createElement("div");
+      row.className = "row " + (matured ? "matured" : "live");
+      row.innerHTML =
+        `<div><strong>channel</strong> <code>${ch}</code></div>` +
+        `<div>checkpoint ${checkpointSats} sats · CLTV deadline block ${cltvDeadline} · tip ${tip}</div>` +
+        `<div>${matured ? "⚠️ MATURED — fleet is dark, broadcastable now" : "fleet still alive (timelock not reached)"}</div>`;
+      if (matured) {
+        const b = document.createElement("button");
+        b.className = "bcast"; b.textContent = "Broadcast exit to Bitcoin";
+        b.onclick = () => broadcast(esplora, signedExitTx, b);
+        row.appendChild(b);
+      }
+      out.appendChild(row);
+    }
+  } catch (e) {
+    out.textContent = "Error: " + e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = "Scan & recover matured exits";
+  }
+}
+$("scan").onclick = scan;
+</script>
+</body>
+</html>

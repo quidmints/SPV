@@ -1,0 +1,33 @@
+[package]
+name = "quid-tls-core"
+version = "0.1.11"
+license = "MIT"
+description = "Quid rustls extension crate"
+documentation = "https://docs.rs/quid-tls-core"
+authors = { workspace = true }
+edition = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+publish = true
+
+# Default config for testing in SGX
+[package.metadata.fortanix-sgx]
+
+[features]
+default = []
+webpki-roots = ["dep:webpki-roots"]
+
+[dependencies]
+# This crate is meant to have minimal dependencies.
+# Beyond `rustls`, please only add dependencies behind a feature flag.
+
+
+# --- WORKSPACE --- #
+
+rustls = { workspace = true }
+rustls-webpki = { workspace = true }
+
+# --- OPTIONAL --- #
+
+webpki-roots = { optional = true, workspace = true }

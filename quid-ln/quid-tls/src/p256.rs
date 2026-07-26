@@ -1,0 +1,130 @@
+//! ECDSA P-256 key pairs, used for webpki TLS certificates.
+//!
+//! Sadly `ed25519` certs aren't widely supported in webpki TLS yet, so we have
+//! to use P-256 keys for now.
+
+use std::borrow::Cow;
+
+use base64::Engine;
+use ring::{
+    rand::SystemRandom,
+    signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair},
+};
+use rustls::pki_types::pem::{self, PemObject};
+use secrecy::{ExposeSecret, Secret};
+use thiserror::Error;
+
+/// An ECDSA P-256 key pair.
+pub struct KeyPair {
+    key_pair: EcdsaKeyPair,
+    pkcs8_bytes: Secret<Vec<u8>>,
+}
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("derived public key doesn't match expected public key")]
+    PublicKeyMismatch,
+
+    #[error("failed deserializing PKCS#8-encoded key pair")]
+    KeyDeserializeError,
+}
+
+// --- impl KeyPair --- //
+
+impl KeyPair {
+    pub fn from_sysrng() -> Result<Self, Error> {
+        // We can't impl ring::rand::SecureRandom for any of our rngs because
+        // it's a sealed trait...
+        let rng = SystemRandom::new();
+        // The ring API here is pretty wacky, but whatever.
+        let pkcs8_document =
+            EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &rng)
+                .map_err(|_| Error::PublicKeyMismatch)?;
+        Self::deserialize_pkcs8_der(Cow::Borrowed(pkcs8_document.as_ref()))
+    }
+
+    pub fn deserialize_pkcs8_der(bytes: Cow<[u8]>) -> Result<Self, Error> {
+        // We can't impl ring::rand::SecureRandom for any of our rngs because
+        // it's a sealed trait...
+        let rng = SystemRandom::new();
+        let key_pair = EcdsaKeyPair::from_pkcs8(
+            &ECDSA_P256_SHA256_ASN1_SIGNING,
+            bytes.as_ref(),
+            &rng,
+        )
+        .map_err(|_| Error::KeyDeserializeError)?;
+        let pkcs8_bytes = Secret::new(bytes.into_owned());
+        Ok(Self {
+            key_pair,
+            pkcs8_bytes,
+        })
+    }
+
+    pub fn into_ring(self) -> EcdsaKeyPair {
+        self.key_pair
+    }
+
+    pub fn into_pkcs8_der(self) -> Secret<Vec<u8>> {
+        self.pkcs8_bytes
+    }
+
+    pub fn as_pkcs8_der(&self) -> &[u8] {
+        self.pkcs8_bytes.expose_secret()
+    }
+
+    pub fn serialize_pkcs8_pem(&self) -> String {
+        // Reserve enough space to always avoid reallocs (and thus avoid secrets
+        // smeared around the heap).
+        let mut pem = String::with_capacity(239);
+
+        pem.push_str("-----BEGIN PRIVATE KEY-----\n");
+        // TODO(phlip9): b64_ct
+        base64::engine::general_purpose::STANDARD
+            .encode_string(self.pkcs8_bytes.expose_secret(), &mut pem);
+        pem.push_str("\n-----END PRIVATE KEY-----\n");
+
+        pem
+    }
+
+    pub fn deserialize_pkcs8_pem(pem: &[u8]) -> Result<Self, Error> {
+        Self::from_pem_slice(pem).map_err(|_| Error::KeyDeserializeError)
+    }
+}
+
+impl PemObject for KeyPair {
+    fn from_pem(kind: pem::SectionKind, der: Vec<u8>) -> Option<Self> {
+        match kind {
+            pem::SectionKind::PrivateKey =>
+                Self::deserialize_pkcs8_der(Cow::Owned(der)).ok(),
+            // We could also deserialize from SEC1 format here, if we ever need
+            // that for some reason.
+            // pem::SectionKind::EcPrivateKey => ..,
+            _ => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_keypair_pkcs8_der_roundtrip() {
+        let keypair_1 = KeyPair::from_sysrng().unwrap();
+        let pkcs8_1 = keypair_1.as_pkcs8_der();
+        let keypair_2 = KeyPair::deserialize_pkcs8_der(pkcs8_1.into()).unwrap();
+        let pkcs8_2 = keypair_2.as_pkcs8_der();
+        assert_eq!(pkcs8_1, pkcs8_2);
+    }
+
+    #[test]
+    fn test_keypair_pkcs8_pem_roundtrip() {
+        let keypair_1 = KeyPair::from_sysrng().unwrap();
+        let pem = keypair_1.serialize_pkcs8_pem();
+        let keypair_2 = KeyPair::deserialize_pkcs8_pem(pem.as_bytes()).unwrap();
+
+        let pkcs8_1 = keypair_1.as_pkcs8_der();
+        let pkcs8_2 = keypair_2.as_pkcs8_der();
+        assert_eq!(pkcs8_1, pkcs8_2);
+    }
+}

@@ -1,0 +1,55 @@
+name: e2e-harness (slow, optional)
+
+# The full bitcoind + esplora-electrs end-to-end test for quid-hop.
+#
+# This is SEPARATE from the default CI because it is slow and heavy: the
+# `harness` feature pulls in `electrsd`, which downloads a real bitcoind +
+# electrs and spins up a regtest backend. That is minutes of wall-clock and
+# network I/O — too costly to gate every push/PR on. Trigger it manually
+# (workflow_dispatch) or on a schedule when you want the deep check.
+#
+# The test itself is `#![cfg(feature = "harness")]`, so it only compiles/runs
+# with `--features harness`.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Nightly at 04:17 UTC — off-peak, gives a daily signal without taxing PRs.
+    - cron: "17 4 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  harness-e2e:
+    name: quid-hop bitcoind+electrs e2e
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: quid-ln
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Install Rust 1.90.0 (matches rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@1.90.0
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: quid-ln
+
+      # BITCOIND_EXE / ELECTRS_EXE discovery:
+      #   The harness (quid-hop/src/harness.rs) first checks the env vars
+      #   BITCOIND_EXE and ELECTRS_EXE; if unset it falls back to the binaries
+      #   AUTO-DOWNLOADED by the `electrsd`/`bitcoind` crates (enabled via the
+      #   `bitcoind_download` + `bitcoind_28_2` / `esplora_a33e97e1` features).
+      #   So on a clean CI runner you do NOT need to set them — the download
+      #   features provide the executables. If you want to use system-installed
+      #   binaries instead (faster, no download), export e.g.:
+      #     BITCOIND_EXE=/usr/local/bin/bitcoind
+      #     ELECTRS_EXE=/usr/local/bin/electrs
+      #   before the test step.
+      - name: cargo test (quid-hop e2e, --features harness)
+        run: cargo test -p quid-hop --test e2e --features harness --locked -- --nocapture

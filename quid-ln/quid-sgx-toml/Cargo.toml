@@ -1,0 +1,11 @@
+[package]
+name = "quid-sgx-toml"
+license = "PolyForm-Noncommercial-1.0.0"
+authors = { workspace = true }
+edition = { workspace = true }
+version = { workspace = true }
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+toml1 = { workspace = true }

@@ -1,0 +1,97 @@
+name: CI
+
+# Regression guard for the QU!D monorepo:
+#   - rust:     builds + runs the quid-ln workspace tests (29 proptests + units)
+#   - solidity: forge build, the EIP-170 size gate, then forge test
+#
+# The bitcoind+electrs e2e (cargo --features harness) is intentionally NOT here;
+# it downloads bitcoind/electrs and takes minutes. It lives in its own
+# manual/optional workflow (.github/workflows/e2e-harness.yml).
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    name: rust (quid-ln workspace)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        # The Cargo workspace root is quid-ln/ (its Cargo.toml lists the members
+        # quid-ln, quid-hop, quid-bridge, ...). rust-toolchain.toml also lives here.
+        working-directory: quid-ln
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The LDK fork is vendored in-tree (lib/rust-lightning), not a
+          # submodule, so a normal checkout is sufficient. submodules: false is
+          # the default; left explicit for clarity.
+          submodules: false
+
+      # Pin the EXACT toolchain the repo uses. rust-toolchain.toml pins
+      # stable 1.90.0 (+ clippy, rustfmt, minimal profile); dtolnay's action
+      # honours that file automatically, but we name it to be unambiguous and to
+      # fail loudly if the file ever drifts.
+      - name: Install Rust 1.90.0 (matches rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@1.90.0
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: quid-ln
+
+      # Plain build of the whole workspace. NO via_ir / optimizer concerns here
+      # (that constraint is the Solidity side); we just must not pass --features
+      # harness, which would pull electrsd's bitcoind/electrs download surface.
+      - name: cargo build (workspace)
+        run: cargo build --workspace --locked
+
+      # Runs every unit test + the 29 proptests across the workspace. The
+      # bitcoind/electrs e2e is `#![cfg(feature = "harness")]`, so WITHOUT the
+      # feature it compiles to nothing and is skipped here — exactly what we want
+      # for a fast default job.
+      - name: cargo test (workspace, no harness)
+        run: cargo test --workspace --locked
+
+  solidity:
+    name: solidity (evm)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: evm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive # forge libs (v4-core, solady, ...) are submodules
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      # foundry.toml deliberately keeps via_ir = false (optimizer on, 200 runs).
+      # Do not change that here.
+      - name: forge build
+        run: forge build
+
+      # HARD EIP-170 size gate — the regression guard the team flagged as
+      # missing. forge's own test EVM does NOT enforce the 24,576-byte runtime
+      # limit, so an oversize (undeployable) contract would otherwise pass the
+      # whole suite. This script parses `forge build --sizes --json` and FAILS
+      # the job if any contract's runtime bytecode exceeds the limit.
+      - name: EIP-170 size gate
+        run: ./scripts/ci/check-sizes.sh
+
+      - name: forge test
+        run: forge test

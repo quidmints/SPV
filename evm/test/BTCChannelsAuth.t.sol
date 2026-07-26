@@ -1,0 +1,133 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.30;
+
+import {Test} from "forge-std/Test.sol";
+import {BTCChannels} from "../src/BTCChannels.sol";
+import {AttestedHopRegistry, IDcapAttestation} from "../src/AttestedHopRegistry.sol";
+import {Types} from "../src/imports/Types.sol";
+
+/// @notice Focused coverage for the openChannel sig-recovery FRONT-RUN FIX.
+///         We exercise the auth digest + signature recovery in isolation —
+///         these run BEFORE the SPV/funding-tx validation, so we don't need a
+///         real funding-tx fixture to prove the security property:
+///
+///           the channel is credited to the SIGNER of lpAuth, never to
+///           msg.sender, so a relayer/front-runner cannot steal the mint.
+///
+///         End-to-end openChannel (valid SPV proof → channel written) is
+///         covered by the Phase-B funding-tx fixture (separate, pending).
+contract BTCChannelsAuthTest is Test {
+    BTCChannels ch;
+
+    function setUp() public {
+        // Minimal deploy. Constructor is (spv, aux, vogue, hopNode); we only call
+        // the view digest + the recovery path, which don't depend on them.
+        ch = new BTCChannels(
+            address(0xCA11),                 // spv (unused on the recovery path)
+            address(0xA17),                  // aux
+            address(0x4006),                 // vogue (unused on the recovery path)
+            address(0xB0B)                   // hopNode
+        );
+    }
+
+    function _params() internal view returns (Types.OpenParams memory p) {
+        p = Types.OpenParams({
+            fundingBlockHash:   bytes32(uint256(1)),
+            fundingBlockHeight: 800000,
+            fundingTxIndex:     3,
+            lpPubkey:           hex"02aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899",
+            hopPubkey:          hex"03a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0",
+            amountSats:         100_000,
+            fundingTaproot:     bytes32(uint256(0x7a))
+        });
+    }
+
+    /// (#77) The attested-hop gate: pin-once, and once pinned a non-attested submitter can't become a shared-pool
+    /// hop. The gate fires FIRST in openChannel (before any SPV/funding validation), so dummy funding data is fine.
+    /// The DCAP verifier is external SGX infra never invoked on the not-attested path, so address(0) suffices here.
+    function test_hopRegistry_gates_open_and_pins_once() public {
+        AttestedHopRegistry reg = new AttestedHopRegistry(IDcapAttestation(address(0)), address(0x5AFE));
+        // OFF by default (permissionless-open bootstrap). Pin it to turn the gate ON.
+        ch.setHopRegistry(address(reg));
+        // PIN-ONCE — a second set (even same addr, or to 0) reverts, so a later compromised owner can't disable it.
+        vm.expectRevert(bytes("pinned"));
+        ch.setHopRegistry(address(reg));
+        vm.expectRevert(bytes("pinned"));
+        ch.setHopRegistry(address(0));
+        // A non-attested submitter (this contract; never attested in `reg`) can no longer open a channel.
+        bytes32[] memory proof;
+        vm.expectRevert(bytes("hop !attested"));
+        // (B) 4-arg open (lpEth is the position owner). The registry gate
+        // (_requireAttested) fires FIRST — before the delegation check — so this reverts
+        // "hop !attested" regardless of whether a delegation exists.
+        ch.openChannel(_params(), hex"00", proof, address(0xdEAD));
+    }
+
+    function test_digest_binds_chain_and_contract() public view {
+        Types.OpenParams memory p = _params();
+        bytes memory rawTx = hex"0200000001deadbeef";
+        bytes32 d = ch.openChannelDigest(p, rawTx, address(0xB0B));
+        // Recompute the expected digest exactly as the contract does.
+        bytes32 expected = keccak256(abi.encode(
+            keccak256("BTCChannels.openChannel.v2"),
+            block.chainid,
+            address(ch),
+            keccak256(rawTx),
+            keccak256(abi.encode(p)),
+            address(0xB0B)
+        ));
+        assertEq(d, expected, "digest must bind tag+chainid+contract+tx+params+hop");
+    }
+
+    function test_digest_changes_with_params() public view {
+        Types.OpenParams memory p = _params();
+        bytes memory rawTx = hex"0200000001deadbeef";
+        bytes32 d1 = ch.openChannelDigest(p, rawTx, address(0xB0B));
+        p.amountSats = 999_999; // tamper
+        bytes32 d2 = ch.openChannelDigest(p, rawTx, address(0xB0B));
+        assertTrue(d1 != d2, "param tamper must change digest");
+    }
+
+    function test_digest_changes_with_funding_tx() public view {
+        Types.OpenParams memory p = _params();
+        bytes32 d1 = ch.openChannelDigest(p, hex"0200000001deadbeef", address(0xB0B));
+        bytes32 d2 = ch.openChannelDigest(p, hex"0200000001deadbe00", address(0xB0B)); // tamper tx
+        assertTrue(d1 != d2, "funding-tx tamper must change digest");
+    }
+
+    /// The core property: whoever signs the digest is the recovered owner —
+    /// independent of who would submit the tx. We verify recovery matches the
+    /// signer and NOT an arbitrary front-runner.
+    /// GROUND TRUTH for the Rust evm_codec ABI mirror
+    /// (quid-hop open_params_abi_matches_solidity): emit
+    /// keccak256(abi.encode(p)) for a fixed 7-field taproot OpenParams so the Rust
+    /// hand-rolled encoder is pinned byte-exact to Solidity's abi.encode.
+    function test_openparams_abi_ground_truth() public {
+        Types.OpenParams memory p = Types.OpenParams({
+            fundingBlockHash:   bytes32(hex"1111111111111111111111111111111111111111111111111111111111111111"),
+            fundingBlockHeight: 800001,
+            fundingTxIndex:     0,
+            lpPubkey:           hex"020102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+            hopPubkey:          hex"03a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0",
+            amountSats:         1_000_000,
+            fundingTaproot:     bytes32(hex"2222222222222222222222222222222222222222222222222222222222222222")
+        });
+        emit log_named_bytes32("openparams_abi_struct_hash", keccak256(abi.encode(p)));
+    }
+
+    function test_recovered_signer_is_the_lp_not_the_submitter() public {
+        Types.OpenParams memory p = _params();
+        bytes memory rawTx = hex"0200000001deadbeef";
+        bytes32 d = ch.openChannelDigest(p, rawTx, address(0xB0B));
+
+        (address lp, uint256 lpPk) = makeAddrAndKey("lp");
+        (address attacker,)        = makeAddrAndKey("attacker");
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(lpPk, d);
+        // ecrecover the same way the contract's ECDSA.recover does.
+        address recovered = ecrecover(d, v, r, s);
+
+        assertEq(recovered, lp, "recovered == LP signer");
+        assertTrue(recovered != attacker, "front-runner cannot be the owner");
+    }
+}

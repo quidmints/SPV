@@ -1,0 +1,64 @@
+name: "release"
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  id-token: write
+
+jobs:
+  state:
+    runs-on: ubuntu-latest
+    if: ${{ contains(github.event.head_commit.message, 'chore(release):') }}
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v5
+
+      - name: Set up environment
+        uses: ./.github/actions/setup
+
+      - id: state
+        name: Compute release state
+        uses: actions/github-script@v7
+        with:
+          result-encoding: string
+          script: |
+            require('ts-node/register/transpile-only');
+            await require('./scripts/release/get-release-state.cts').default(core);
+    outputs:
+      local_version: ${{ steps.state.outputs.local_version }}
+      notes: ${{ steps.state.outputs.notes }}
+
+  release:
+    runs-on: ubuntu-latest
+    needs: state
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v5
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.ARVOLEAR_RELEASER }}
+          tag_name: v${{ needs.state.outputs.local_version }}
+          name: Release v${{ needs.state.outputs.local_version }}
+          body: |
+            # Release notes v${{ needs.state.outputs.local_version }} 🎉
+            
+            ${{ needs.state.outputs.notes }}
+          draft: false
+          prerelease: false
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: state
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v5
+
+      - name: Set up environment
+        uses: ./.github/actions/setup
+
+      - name: Publish to npm
+        run: npm run publish-to-npm

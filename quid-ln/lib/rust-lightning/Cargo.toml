@@ -1,0 +1,71 @@
+[workspace]
+resolver = "2"
+
+# When the workspace members change, make sure to update the list here as well
+# as in `ci/ci-tests.sh`.
+members = [
+    "lightning",
+    "lightning-types",
+    "lightning-block-sync",
+    "lightning-invoice",
+    "lightning-net-tokio",
+    "lightning-persister",
+    "lightning-background-processor",
+    "lightning-rapid-gossip-sync",
+    "lightning-custom-message",
+    "lightning-macros",
+    "lightning-dns-resolver",
+    "lightning-liquidity",
+    "possiblyrandom",
+]
+
+exclude = [
+    "lightning-transaction-sync",
+    "lightning-tests",
+    "ext-functional-test-demo",
+    "no-std-check",
+    "msrv-no-dev-deps-check",
+    "bench",
+]
+
+# Our tests do actual crypto and lots of work, the tradeoff for -O2 is well
+# worth it. Note that we only apply optimizations to dependencies, not workspace
+# crates themselves.
+# https://doc.rust-lang.org/cargo/reference/profiles.html#profile-selection
+[profile.dev.package."*"]
+opt-level = 2
+
+# It appears some minimal optimizations are required to inline many std methods
+# and reduce the otherwise-substantial time spent in std self-checks. We do so
+# here but ensure we keep LTO disabled as otherwise we're re-optimizing all our
+# dependencies every time we make any local changes.
+[profile.dev]
+opt-level = 1
+lto = "off"
+
+[profile.release]
+opt-level = 3
+lto = true
+panic = "abort"
+
+[workspace.lints.rust.unexpected_cfgs]
+level = "forbid"
+# When adding a new cfg attribute, ensure that it is added to this list.
+#
+# Note that Cargo automatically declares corresponding cfgs for every feature
+# defined in the member-level [features] tables as "expected".
+check-cfg = [
+    "cfg(fuzzing)",
+    "cfg(secp256k1_fuzz)",
+    "cfg(hashes_fuzz)",
+    "cfg(test)",
+    "cfg(debug_assertions)",
+    "cfg(c_bindings)",
+    "cfg(ldk_bench)",
+    "cfg(ldk_test_vectors)",
+    "cfg(taproot)",
+    "cfg(require_route_graph_test)",
+    "cfg(simple_close)",
+    "cfg(peer_storage)",
+    "cfg(dual_funding)",
+]

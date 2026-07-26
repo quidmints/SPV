@@ -1,0 +1,38 @@
+[package]
+name = "quid-sgx-test"
+version = "0.1.0"
+license = "PolyForm-Noncommercial-1.0.0"
+authors = { workspace = true }
+edition = { workspace = true }
+publish = false
+
+[dependencies]
+
+# --- QUID --- #
+
+quid-crypto = { workspace = true }
+quid-enclave = { workspace = true }
+quid-hex = { workspace = true }
+quid-tls = { workspace = true }
+quid-tls-attest-server = { path = "../quid-tls-attest-server" }
+
+[package.metadata.fortanix-sgx]
+# When true, return panics w/ backtraces to the host via the shared "debug
+# buffer". We need this to debug panics in prod. rust-std also currently saves
+# some registers so a debugger can reconstruct the stack.
+# NOTE: this is not the same as the SGX platform DEBUG mode, which disables all
+# memory protections.
+# TODO(phlip9): patch rust-std so it always saves panics w/ backtraces but only
+# dumps registers if `debug = true`.
+debug = true
+# Heap size in bytes. Default: 0x200_0000.
+# Current: 128 KiB
+heap-size = 0x2_0000
+# SSA frame size (in pages) for each thread. Default: 1.
+# You normally don't need to change the SSA frame size.
+ssaframesize = 1
+# Stack size (in bytes) for each thread. Default: 0x2_0000.
+# Current: 128 KiB
+stack-size = 0x2_0000
+# The max number of threads we can spawn concurrently inside the SGX enclave.
+threads = 1

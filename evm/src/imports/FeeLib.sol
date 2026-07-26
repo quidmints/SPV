@@ -1,0 +1,360 @@
+
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.28;
+
+import {FullMath} from "v4-core/src/libraries/FullMath.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
+
+interface IHook {
+    function getDepegSeverityBps(address) external view returns (uint);
+}
+
+/// @notice Aux surface the multi-venue withdraw cluster (relocated from BasketLib)
+///         calls back into via DELEGATECALL self-call (address(this)==Aux).
+interface IAuxFee {
+    function aaveBalance(address token) external view returns (uint);
+    function withdrawAaveLeg(address stable, uint amount, address to) external returns (uint);
+}
+
+interface IAggregatorV3 {
+    function decimals() external view returns (uint8);
+    function latestRoundData() external view returns (
+        uint80 roundId, int256 answer, uint256 startedAt,
+        uint256 updatedAt, uint80 answeredInRound);
+}
+
+/// @title  FeeLib — protocol fee model + depeg-aware haircut helpers
+/// @notice Stripped of LMSR / prediction-market machinery (was several
+///         hundred LOC of exp/log internals, market price/cost, weight
+///         and payout calculations for the now-removed depeg market).
+///         The remaining surface is the fee/haircut math Aux uses on
+///         deposits and pro-rata withdrawals, plus the risk-discount
+///         factor consumed in Aux pricing paths.
+library FeeLib {
+    uint public constant WAD = 1e18;
+
+    /// @dev x^n by binary exponentiation in 1e18 fixed point (Liquity _decPow).
+    ///      Extracted from Aux (baseRate decay) to free Aux bytecode. `cap` is
+    ///      the decay-exponent ceiling (Aux passes BR_MAX_MIN).
+    function decPow(uint base, 
+        uint mins, uint cap) public 
+        pure returns (uint) {
+        if (mins > cap) mins = cap;
+        if (mins == 0) return 1e18;
+        uint y = 1e18; 
+        uint x = base; 
+        uint n = mins;
+        while (n > 1) {
+            if (n % 2 == 0) { 
+                x = FullMath.mulDiv(
+                         x, x, 1e18); 
+                              n /= 2;
+            } else { 
+                y = FullMath.mulDiv(
+                         x, y, 1e18); 
+                x = FullMath.mulDiv(
+                         x, x, 1e18); 
+                n = (n - 1) / 2; 
+            }
+        } return FullMath.mulDiv(
+                      x, y, 1e18);
+    }
+
+    // baseRate (Liquity-style directional redemption velocity toll) + BR_DECAY/BR_MAX_MIN + touchBaseRate
+    // REMOVED — QU!D has no peg-arb loop to defend (see Aux._takeArgs); peg-defense redemptions are scheduled
+    // by 6909. `decPow` is KEPT (Core still uses it for the 48h FLOW_DECAY flow-EWMA).
+
+    uint public constant DEPEG_DEADBAND_BPS = 50; // live-feed peg tolerance (bps);
+                                            // below this a stable is "healthy" (absorbs
+                                            // Chainlink's deviation band + heartbeat noise)
+    uint public constant BASE = 3;          // 0.03% baseline outflow fee (bps)
+    uint public constant MAX_FEE = 30;      // 0.3% cap on the composite outflow fee
+                                            // (the ether.fi-redeem-equivalent ceiling;
+                                            // the depeg HAIRCUT via calcRisk is separate
+                                            // and uncapped — fee ≠ pass-through loss)
+
+    /// @notice Per-stable risk score in bps, sourced from the simplified
+    ///         Link oracle. 0 if not depegged; otherwise the severity bps
+    ///         (capped at 10000). No prior, no Bayesian blend — Link is
+    ///         the authoritative signal.
+    function calcRisk(address token, address hook)
+        internal view returns (uint)
+    {
+        if (hook == address(0) || token == address(0)) return 0;
+        try IHook(hook).getDepegSeverityBps(token) returns (uint s) {
+            if (s == 0) return 0;
+            return s > 10000 ? 10000 : s;   // Recognize FULL severity (was capped at 3500/65c)
+        } catch {
+            return 0;
+        }
+    }
+
+    /// @notice Composite fee on a specific stable, factoring in
+    ///         basket-wide exposure (Σ share_i × risk_i).
+    ///         When no stable is depegged, totalExposure = 0 → BASE fee.
+    /// @notice Composite L1 fee on draining `idx`-th stable, driven by the
+    ///         YIELD-vs-weighted-average BASELINE (this REPLACES the old
+    ///         risk-weighted concentration term).
+    ///
+    ///   baseline = basket weighted-average yield factor  = Σyieldᵢ / Σdepᵢ
+    ///   mine     = this stable's yield factor            = yieldᵢ / depᵢ
+    ///
+    ///         Draining a stable whose factor is ABOVE the basket average
+    ///         lowers that average, so it's taxed in proportion to the
+    ///         excess (the "reduces the weighted-average yield" measure).
+    ///         At/below average → BASE (cheap: draining it heals or is
+    ///         neutral to basket yield). A depegged stable's `yield` is
+    ///         already discounted upstream in get_deposits, which drags
+    ///         `mine` down to/under baseline → it lands at BASE here too,
+    ///         so "cheap to drain the bad collateral" is preserved with no
+    ///         separate risk term. All inputs are in memory (no vault re-
+    ///         read): `yields` is the per-stable yield-weighted array that
+    ///         get_deposits already computed.
+    function calcFeeL1(uint idx, uint[15] memory deps, uint[15] memory yields)
+        public pure returns (uint)
+    {
+        uint total = deps[14];
+        if (total == 0) return BASE;
+        uint myDep = deps[idx + 1];
+        if (myDep == 0) return BASE;
+        uint baseline = FullMath.mulDiv(deps[0], WAD, total);
+        uint mine     = FullMath.mulDiv(yields[idx + 1], WAD, myDep);
+        if (mine <= baseline) return BASE;
+        uint feeBps = FullMath.mulDiv(mine - baseline, 10000, WAD);
+        if (feeBps < BASE) return BASE;
+        return feeBps > MAX_FEE ? MAX_FEE : feeBps;
+    }
+
+    /// @notice `calcFeeL1` scaled by DRAW MAGNITUDE. The yield-vs-baseline fee
+    ///         prices the basket-average degradation a draw causes — which is
+    ///         magnitude-dependent, not flat. A pro-rata slice shifts the mix by
+    ///         zero (priced separately, at BASE/baseRate only); a PREFERRED draw
+    ///         of `amount` from ONE stable shifts it in proportion to how much of
+    ///         that stable it depletes. So scale the per-unit excess (the part of
+    ///         calcFeeL1 above BASE) by the drained fraction `amount/depᵢ`: a
+    ///         small cherry-pick ≈ BASE, draining the whole stable → full
+    ///         calcFeeL1. Convex in draw size, so it stops overcharging small
+    ///         redemptions and stops under-pricing basket-cratering ones.
+    function scaledFeeL1(uint idx, uint amount,
+        uint[15] memory deps, uint[15] memory yields) public pure returns (uint)
+    {
+        uint full = calcFeeL1(idx, deps, yields);     // [BASE, MAX_FEE] per-unit rate
+        uint depI = deps[idx + 1];
+        if (depI == 0 || full <= BASE) return full;   // nothing above BASE to scale
+        uint frac = FullMath.mulDiv(amount, WAD, depI);
+        if (frac > WAD) frac = WAD;
+        return BASE + FullMath.mulDiv(full - BASE, frac, WAD);
+    }
+
+    /// @notice Gross-up the amount a depositor must send to net the
+    ///         requested amount after fee + depeg haircut. Aux uses this
+    ///         to compute the deposit size needed to honour a mint at
+    ///         book value when the target stable is currently discounted.
+    /// @notice Immutable fee-context bundle threaded through calcNeeded/allocate.
+    ///         Bundling these three (vs passing them individually) keeps the
+    ///         redemption path (BasketLib.takeBody) within the legacy stack — no
+    ///         via_ir crutch. The MUTATED deps/yields arrays stay SEPARATE
+    ///         by-reference args (a fixed-array member would be COPIED into the
+    ///         struct, silently breaking the loop's in-place mutation semantics).
+    struct FeeCtx {
+        address[] stables;
+        address hook;
+    }
+
+    /// @notice Gross up `amount` for a depegged leg — deliver more units of the cheap collateral for the same
+    ///         USD value. `sev` = depeg severity bps (0 or ≥10000 ⇒ no-op). ONE definition shared by calcNeeded
+    ///         / applyFeeAndHaircut / allocate.
+    function grossUpForDepeg(uint amount, uint sev) internal pure returns (uint) {
+        return (sev > 0 && sev < 10000) ? FullMath.mulDiv(amount, 10000, 10000 - sev) : amount;
+    }
+
+    function calcNeeded(address token, uint amount,
+        uint[15] memory deps, uint[15] memory yields, FeeCtx memory c)
+        external view returns (uint needed)
+    {
+        // Concentration/cherry-pick fee is NO LONGER CHARGED to the user (baseRate already removed). The
+        // concentration `calcFeeL1` signal (yield-vs-baseline) survives ONLY as a ROUTING input: SOR
+        // (`_pickBestPath`) still ranks paths by concentration + hop-count for best-execution/rebalancing.
+        // The sole outflow COST is the depeg haircut, and only during an actual depeg. deps/yields/c.stables
+        // are retained in the signature for the SOR/lens seam (unused here).
+        deps; yields;
+        needed = grossUpForDepeg(amount, calcRisk(token, c.hook));
+    }
+
+    /// @notice Apply fee + depeg haircut to a paid-out amount in one call.
+    function applyFeeAndHaircut(address token, uint idx,
+        uint amount, uint[15] memory deps, uint[15] memory yields,
+        address hook) external view returns (uint)
+    {
+        // Concentration/cherry-pick fee no longer charged (only the depeg haircut is). idx/deps/yields kept in
+        // the signature for callers; concentration survives as a SOR routing signal only.
+        idx; deps; yields;
+        return grossUpForDepeg(amount, calcRisk(token, hook));
+    }
+
+    /// @notice Pro-rata allocation + fee + haircut in one call. Computes
+    ///         each slot's share of `totalAmount` proportional to
+    ///         slotDep/totalDep, then applies fee and haircut.
+    function allocate(address token, uint totalAmount, uint slotDep,
+        uint totalDep, FeeCtx memory c) external view returns (uint amount)
+    {
+        if (totalDep == 0 || slotDep == 0) return 0;
+        amount = FullMath.mulDiv(totalAmount,
+            FullMath.mulDiv(WAD, slotDep, totalDep), WAD);
+        if (amount == 0) return 0;
+        // Pro-rata draws the SAME fraction of every stable → the basket mix (and its weighted-avg yield) is
+        // unchanged → ZERO cherry-pick externality, so NO fee here (the concentration/cherry-pick fee is priced
+        // only on a PREFERRED draw; the baseRate velocity toll was removed — no peg-arb loop). Only the depeg
+        // haircut grosses up an impaired leg (more units of the cheap collateral for the same value).
+        amount = grossUpForDepeg(amount, calcRisk(token, c.hook));
+    }
+
+    /// @notice Risk-weighted discount factor for a stablecoin's basket
+    ///         valuation. Returns bps in [0, 10000]: 10000 = no discount, lower =
+    ///         larger discount, 0 = worthless (recognizes the FULL live severity;
+    ///         the old 6500/65c floor understated severe depegs). When NORMAL, Link
+    ///         returns severity 0 → 10000 (no-op).
+    function riskFactor(
+        address token,
+        address hook
+    ) external view returns (uint factorBps) {
+        if (token == address(0)) return 10000;
+        // `hook` is Aux itself (getDepegSeverityBps reads the per-stable Chainlink
+        // feed via liveDepegBps). The CRE that once answered this was removed; the
+        // on-chain feed IS the depeg signal now. A revert is treated as healthy.
+        uint sev;
+        try IHook(hook).getDepegSeverityBps(token) returns (uint s) {
+            sev = s;
+        } catch {
+            return 10000;
+        }
+        if (sev == 0) return 10000;
+        factorBps = sev >= 10000 ? 0 : 10000 - sev;   // full severity, clamped to [0, 10000]
+    }
+
+    /// @notice Downside deviation (bps) of a stable's USD feed below $1 — the depeg
+    ///         severity, sourced directly from the pinned Chainlink feed (this is what
+    ///         Aux.getDepegSeverityBps returns). A feed that is stale / reverting /
+    ///         zero / at-or-above peg returns 0 (healthy). A deadband absorbs benign
+    ///         sub-peg noise (Chainlink's deviation band + heartbeat lag). Deliberately
+    ///         NOT treating a stale feed as max-severity: a benign heartbeat lapse must
+    ///         not inflict a redemption haircut on an otherwise-healthy stable.
+    function liveDepegBps(address feed, uint maxAge)
+        public view returns (uint)
+    {
+        try IAggregatorV3(feed).latestRoundData() returns (
+            uint80, int256 answer, uint256, uint256 updatedAt, uint80
+        ) {
+            if (answer <= 0) return 0;
+            if (maxAge != 0 && block.timestamp > updatedAt
+                && block.timestamp - updatedAt > maxAge) return 0; // stale → defer to CRE
+            uint8 dec;
+            try IAggregatorV3(feed).decimals() returns (uint8 d) { dec = d; }
+            catch { return 0; }
+            uint peg = 10 ** dec;
+            uint price = uint(answer);
+            if (price >= peg) return 0;             // at/above peg → no risk
+            uint down = ((peg - price) * 10000) / peg;   // downside bps
+            // Deadband: Chainlink stable feeds carry a deviation band (~0.25–0.5%)
+            // and update on deviation OR a ~24h heartbeat, so a perfectly healthy
+            // stable routinely sits a few–tens of bps below $1 between updates.
+            // Without a deadband the live leg would haircut EVERY deposit/redeem on
+            // that benign noise (and diverge from the CRE, which medians+quantizes
+            // to ≈0 in steady state). Treat anything within DEADBAND of peg as
+            // healthy; a real depeg (hundreds–thousands of bps) clears it easily.
+            return down <= DEPEG_DEADBAND_BPS ? 0 : down;
+        } catch {
+            return 0;
+        }
+    }
+
+    /// @dev Multi-venue 4626 withdraw (the INNER pro-rata dimension), relocated
+    ///      from BasketLib to even out the EIP-170 budget. Single-vault collapses
+    ///      to the legacy single redeem; multi draws each vault in proportion to its
+    ///      balance (pass 1, floored) then sweeps the remainder (pass 2). Runs in
+    ///      Aux's context (delegatecall → address(this)==Aux holds the shares).
+    /// @param aaveSpoke  the AAVE-v4 spoke sentinel; a `vs[j] == aaveSpoke`
+    ///                   entry is the dual-venue (USDC/USDT) Aave leg — its
+    ///                   balance is read via aaveBalance(stable) and it is
+    ///                   withdrawn via withdrawAaveLeg(stable,…) instead of an
+    ///                   ERC4626 redeem. For 4626-only stables (aaveSpoke not
+    ///                   present in vs) behavior is IDENTICAL to before.
+    /// @param stable     the underlying stable (only needed for the Aave leg's
+    ///                   reserve-id resolution + delivery token).
+    function multiVaultWithdrawBody(address[] memory vs, uint amount, address to,
+        address aaveSpoke, address stable)
+        external returns (uint sent) {
+        if (vs.length == 1) {
+            if (vs[0] == aaveSpoke) {
+                uint cap = IAuxFee(address(this)).aaveBalance(stable);
+                if (cap == 0) return 0;
+                uint want = Math.min(amount, cap);
+                return IAuxFee(address(this)).withdrawAaveLeg(stable, want, to);
+            }
+            uint shares = _shareCap(vs[0], amount);
+            if (shares == 0) return 0;
+            return IERC4626(vs[0]).redeem(shares, to, address(this));
+        }
+        uint n = vs.length;
+        uint total;
+        uint[] memory bals = new uint[](n);
+        for (uint j; j < n; j++) {
+            if (vs[j] == aaveSpoke) {
+                // Aave leg balance = our reserve-supplied (asset-denominated),
+                // the same read get_deposits/_valueStable uses.
+                bals[j] = IAuxFee(address(this)).aaveBalance(stable);
+            } else {
+                // Reverting vault → bals[j]=0 → skipped in both passes below.
+                try IERC4626(vs[j]).balanceOf(address(this)) returns (uint sh) {
+                    try IERC4626(vs[j]).convertToAssets(sh) returns (uint a) { bals[j] = a; } catch {}
+                } catch {}
+            }
+            total += bals[j];
+        }
+        if (total == 0) return 0;
+        uint remaining = amount;
+        for (uint j; j < n && remaining > 0; j++) {
+            if (bals[j] == 0) continue;
+            uint want = FullMath.mulDiv(amount, bals[j], total);
+            if (want > remaining) want = remaining;
+            if (want == 0) continue;
+            uint got = _withdrawLeg(vs[j], aaveSpoke, stable, want, to);
+            sent += got;
+            remaining = got >= remaining ? 0 : remaining - got;
+        }
+        for (uint j; j < n && remaining > 0; j++) {
+            if (bals[j] == 0) continue;   // Skip empty / reverting-read vaults
+            uint got = _withdrawLeg(vs[j], aaveSpoke, stable, remaining, to);
+            sent += got;
+            remaining = got >= remaining ? 0 : remaining - got;
+        }
+        return sent;
+    }
+
+    /// @dev Withdraw `want` (asset-denominated) from one venue leg of a stable.
+    ///      The Aave spoke leg goes through withdrawAaveLeg (capped at our
+    ///      supplied balance); every other leg is a 4626 redeem of the
+    ///      share-capped amount. Returns assets actually delivered to `to`.
+    function _withdrawLeg(address v, address aaveSpoke, address stable,
+        uint want, address to) private returns (uint) {
+        if (v == aaveSpoke) {
+            uint cap = IAuxFee(address(this)).aaveBalance(stable);
+            if (cap == 0) return 0;
+            uint w = Math.min(want, cap);
+            if (w == 0) return 0;
+            return IAuxFee(address(this)).withdrawAaveLeg(stable, w, to);
+        }
+        uint shares = _shareCap(v, want);
+        if (shares == 0) return 0;
+        return IERC4626(v).redeem(shares, to, address(this));
+    }
+
+    /// @dev convertToShares(amount) capped at the holder's balance — the share
+    ///      side of a 4626 withdrawal, used by multiVaultWithdrawBody above.
+    function _shareCap(address vault, uint amount) private view returns (uint) {
+        uint bal = IERC4626(vault).balanceOf(address(this));
+        uint sh = IERC4626(vault).convertToShares(amount);
+        return Math.min(bal, sh);
+    }
+}

@@ -1,0 +1,24 @@
+[package]
+name = "quid-hex"
+version = "0.1.11"
+license = "MIT"
+description = "Opinionated hex encode/decode utilities"
+documentation = "https://docs.rs/quid-hex"
+authors = { workspace = true }
+edition = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+publish = true
+
+# Default config for testing in SGX
+[package.metadata.fortanix-sgx]
+
+[dependencies]
+
+[dev-dependencies]
+proptest = { workspace = true, features = ["alloc"] }
+
+[target.'cfg(not(target_env = "sgx"))'.dev-dependencies]
+# Include std impls when testing outside of SGX
+proptest = { workspace = true, features = ["std"] }

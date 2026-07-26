@@ -1,0 +1,7 @@
+# Downloaded binaries + local chain/node data — reproduced by setup*.sh / start*.sh.
+.bitcoin-core/
+.regtest/
+.lnd-dist/
+.lnd/
+.anvil.log
+.hop-processed

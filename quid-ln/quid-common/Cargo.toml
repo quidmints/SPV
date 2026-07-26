@@ -1,0 +1,104 @@
+[package]
+name = "quid-common"
+version = "0.1.11"
+license = "MIT"
+description = "Quid common types, traits, and utilities"
+documentation = "https://docs.rs/quid-common"
+authors = { workspace = true }
+edition = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+publish = true
+
+# Config for testing in SGX
+[package.metadata.fortanix-sgx]
+# Need larger stacks for tokio threads (Default: 0x2_0000)
+stack-size = 0x20_0000
+# The max number of threads we can spawn concurrently inside the SGX enclave.
+# We give some extra room because the fortanix rust-sgx `async_usercalls`
+# implementation requires an extra thread (its queue worker).
+threads = 4
+
+[features]
+# Explicitly specify that no features should be enabled by default.
+default = []
+# Enables various test hooks and utilities. Should be disabled in staging/prod.
+test-utils = [
+  "dep:chrono",
+  "dep:proptest",
+  "dep:proptest-derive",
+  "dep:serde_urlencoded",
+  "quid-crypto/test-utils",
+  "quid-enclave/test-utils",
+]
+
+[dependencies]
+
+
+quid-byte-array = { workspace = true }
+quid-crypto = { workspace = true }
+quid-enclave = { workspace = true }
+quid-hex = { workspace = true }
+quid-serde = { workspace = true }
+quid-sha256 = { workspace = true }
+quid-std = { workspace = true, features = ["ref-cast"] }
+
+# --- WORKSPACE --- #
+
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+base64 = { workspace = true }
+bcs = { workspace = true }
+bip39 = { workspace = true }
+bitcoin = { workspace = true, features = ["serde"] }
+bytes = { workspace = true }
+cfg-if = { workspace = true }
+dotenvy = { workspace = true }
+http = { workspace = true }
+http-body-util = { workspace = true }
+lightning = { workspace = true }
+lightning-invoice = { workspace = true }
+lightning-types = { workspace = true }
+rand_core = { workspace = true }
+ref-cast = { workspace = true }
+ring = { workspace = true }
+rust_decimal = { workspace = true }
+secrecy = { workspace = true }
+semver = { workspace = true, features = ["serde"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_with = { workspace = true }
+sgx-isa = { workspace = true }
+strum = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+# --- OPTIONAL --- #
+# These must have `optional = true` to prevent infecting production binaries.
+
+chrono = { optional = true, workspace = true }
+proptest = { optional = true, workspace = true, features = ["alloc"] }
+proptest-derive = { optional = true, workspace = true }
+serde_urlencoded = { optional = true, workspace = true }
+
+[target.'cfg(not(target_env = "sgx"))'.dependencies]
+# Include std impls when testing outside of SGX
+proptest = { optional = true, workspace = true, features = ["std"] }
+
+[dev-dependencies]
+quid-crypto = { workspace = true, features = ["test-utils"] }
+quid-enclave = { workspace = true, features = ["test-utils"] }
+
+asn1-rs = { workspace = true }
+chrono = { workspace = true }
+proptest = { workspace = true, features = ["alloc"] }
+proptest-derive = { workspace = true }
+serde_urlencoded = { workspace = true }
+tempfile = { workspace = true }
+x509-parser = { workspace = true }
+yasna = { workspace = true }
+
+[target.'cfg(not(target_env = "sgx"))'.dev-dependencies]
+# Include std impls when testing outside of SGX
+proptest = { workspace = true, features = ["std"] }

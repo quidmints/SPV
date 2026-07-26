@@ -1,0 +1,154 @@
+use std::{fmt, fmt::Display, str::FromStr};
+
+use anyhow::Context;
+use quid_common::{
+    api::user::NodePk,
+    ln::{addr::LxSocketAddress, amount::Amount},
+    ppm::Ppm,
+};
+#[cfg(test)]
+use proptest_derive::Arbitrary;
+use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
+
+/// Information about the LSP which the user node needs to connect and to
+/// generate route hints when no channel exists.
+#[cfg_attr(test, derive(Arbitrary))]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct LspInfo {
+    pub node_pk: NodePk,
+    /// The socket on which the LSP accepts P2P LN connections from user nodes
+    pub private_p2p_addr: LxSocketAddress,
+
+    // -- LSP -> User fees -- //
+    /// LSP's configured base fee for forwarding over LSP -> User channels.
+    ///
+    /// - For inbound payments, this fee is encoded in the invoice route hints
+    ///   (as part of the `RoutingFees` struct)
+    /// - Also used to estimate how much can be sent to another Quid user.
+    pub lsp_usernode_base_fee_msat: u32,
+    /// LSP's configured prop fee for forwarding over LSP -> User channels.
+    ///
+    /// - For inbound payments, this fee is encoded in the invoice route hints
+    ///   (as part of the `RoutingFees` struct)
+    /// - Also used to estimate how much can be sent to another Quid user.
+    //
+    // node-v0.9.7: Renamed to `lsp_usernode_prop_fee`
+    #[serde(
+        rename = "lsp_usernode_prop_fee_ppm",
+        alias = "lsp_usernode_prop_fee"
+    )]
+    pub lsp_usernode_prop_fee: Ppm,
+
+    // -- LSP -> External fees -- //
+    /// LSP's configured prop fee for forwarding over LSP -> External channels.
+    //
+    // node-v0.9.7: Renamed to `lsp_external_prop_fee`
+    #[serde(
+        rename = "lsp_external_prop_fee_ppm",
+        alias = "lsp_external_prop_fee"
+    )]
+    pub lsp_external_prop_fee: Ppm,
+    /// LSP's configured base fee for forwarding over LSP -> External channels.
+    pub lsp_external_base_fee_msat: u32,
+
+    // -- RouteHintHop fields -- //
+    pub cltv_expiry_delta: u16,
+    pub htlc_minimum_msat: u64,
+    pub htlc_maximum_msat: u64,
+}
+
+/// Information about Quid's LSP's fees.
+// TODO(max): It would be nice if these were included in `LspInfo` as
+// `LspInfo::lsp_fees` with `#[serde(flatten)]` for forward compatibility,
+// but this struct uses newtypes, so we'd have to write some custom serde
+// attributes to (de)serialize as msat / ppm to make that work.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct LspFees {
+    /// The Lsp -> User base fee as an [`Amount`].
+    pub lsp_usernode_base_fee: Amount,
+    /// The Lsp -> User prop fee as a [`Decimal`], i.e. ppm / 1_000_000.
+    pub lsp_usernode_prop_fee: Decimal,
+    /// The Lsp -> External base fee as an [`Amount`].
+    pub lsp_external_base_fee: Amount,
+    /// The Lsp -> External prop fee as a [`Decimal`], i.e. ppm / 1_000_000.
+    pub lsp_external_prop_fee: Decimal,
+}
+
+// --- impl LspInfo --- //
+
+impl LspInfo {
+    /// Get the [`LspFees`] from this [`LspInfo`].
+    pub fn lsp_fees(&self) -> LspFees {
+        let lsp_usernode_base_fee =
+            Amount::from_msat(u64::from(self.lsp_usernode_base_fee_msat));
+        let lsp_usernode_prop_fee = self.lsp_usernode_prop_fee.to_decimal();
+
+        let lsp_external_base_fee =
+            Amount::from_msat(u64::from(self.lsp_external_base_fee_msat));
+        let lsp_external_prop_fee = self.lsp_external_prop_fee.to_decimal();
+
+        LspFees {
+            lsp_usernode_base_fee,
+            lsp_usernode_prop_fee,
+            lsp_external_base_fee,
+            lsp_external_prop_fee,
+        }
+    }
+
+    /// Returns a dummy [`LspInfo`] which can be used in tests.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn dummy() -> Self {
+        use std::net::Ipv6Addr;
+
+        use quid_common::{ppm, root_seed::RootSeed};
+        use quid_crypto::rng::FastRng;
+
+        let mut rng = FastRng::from_u64(20230216);
+        let node_pk = RootSeed::from_rng(&mut rng).derive_node_pk();
+        let addr = LxSocketAddress::TcpIpv6 {
+            ip: Ipv6Addr::LOCALHOST,
+            port: 42069,
+        };
+
+        Self {
+            node_pk,
+            private_p2p_addr: addr,
+            lsp_usernode_base_fee_msat: 0,
+            lsp_usernode_prop_fee: ppm!(0.425%),
+            lsp_external_base_fee_msat: 0,
+            lsp_external_prop_fee: ppm!(0.075%),
+            cltv_expiry_delta: 72,
+            htlc_minimum_msat: 1,
+            htlc_maximum_msat: u64::MAX,
+        }
+    }
+}
+
+impl FromStr for LspInfo {
+    type Err = anyhow::Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        serde_json::from_str(s).context("Invalid JSON")
+    }
+}
+
+impl Display for LspInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let json_str = serde_json::to_string(&self)
+            .expect("Does not contain map with non-string keys");
+        write!(f, "{json_str}")
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use quid_common::test_utils::roundtrip;
+
+    use super::*;
+
+    #[test]
+    fn lsp_info_roundtrip() {
+        roundtrip::json_value_roundtrip_proptest::<LspInfo>();
+        roundtrip::fromstr_display_roundtrip_proptest::<LspInfo>();
+    }
+}

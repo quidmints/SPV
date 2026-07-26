@@ -1,0 +1,2119 @@
+use std::{
+    collections::HashMap,
+    convert::Infallible,
+    num::NonZeroU64,
+    ops::Deref,
+    pin::Pin,
+    sync::{Arc, RwLock},
+    time::Duration,
+};
+
+use anyhow::{Context, anyhow, bail, ensure};
+use bitcoin::hashes::{Hash as _, sha256};
+use either::Either;
+use futures::Future;
+use quid_api::{
+    cli::{LspFees, LspInfo},
+    models::command::{
+        CloseChannelRequest, CreateInvoiceRequest, CreateInvoiceResponse,
+        CreateOfferRequest, CreateOfferResponse, ListChannelsResponse,
+        NodeInfo, NodeInfoV1, OpenChannelResponse, PayInvoiceRequest,
+        PayInvoiceResponse, PayOfferRequest, PayOfferResponse,
+        PayOnchainRequest, PayOnchainResponse, PreflightCloseChannelRequest,
+        PreflightCloseChannelResponse, PreflightOpenChannelRequest,
+        PreflightOpenChannelResponse, PreflightPayInvoiceRequest,
+        PreflightPayInvoiceResponse, PreflightPayOfferRequest,
+        PreflightPayOfferResponse, PreflightPayOnchainRequest,
+        PreflightPayOnchainResponse, ResyncRequest,
+    },
+    rest::API_REQUEST_TIMEOUT,
+    types::{
+        Empty,
+        bounded_string::BoundedString,
+        invoice::Invoice,
+        offer::{MaxQuantity, Offer},
+        partners::PartnersInfo,
+        payments::{
+            PartnerFeeFields, PaymentDirection, PaymentId, PaymentKind,
+        },
+    },
+    vfs::{REVOCABLE_CLIENTS_FILE_ID, Vfs},
+};
+use quid_common::{
+    api::{
+        revocable_clients::{
+            CreateRevocableClientRequest, CreateRevocableClientResponse,
+            RevocableClient, RevocableClients, UpdateClientRequest,
+            UpdateClientResponse,
+        },
+        user::{NodePk, Scid, UserPk},
+    },
+    debug_panic_release_log,
+    ln::{
+        amount::Amount,
+        channel::{LxChannelDetails, LxChannelId, LxUserChannelId},
+        network::Network,
+        route::LxRoute,
+    },
+    ppm::Ppm,
+    time::TimestampMs,
+};
+use quid_crypto::{ed25519, rng::SysRng};
+use quid_enclave::enclave::Measurement;
+use quid_std::{Apply, const_assert};
+use quid_tls::{
+    shared_seed::certs::{RevocableClientCert, RevocableIssuingCaCert},
+    types::LxCertificateDer,
+};
+use quid_tokio::events_bus::{EventsBus, EventsRx};
+use lightning::{
+    ln::{
+        channel_state::ChannelDetails,
+        channelmanager::{
+            OptionalOfferPaymentParams, RecipientOnionFields,
+            RetryableSendFailure,
+        },
+        msgs::RoutingMessageHandler,
+        types::ChannelId,
+    },
+    routing::{gossip::NodeId, router::Route},
+    sign::{NodeSigner, Recipient},
+    util::config::UserConfig,
+};
+use lightning_invoice::{Bolt11Invoice, Currency, InvoiceBuilder};
+use tokio::sync::{mpsc, oneshot};
+use tracing::{debug, info, instrument, warn};
+
+use crate::{
+    alias::{ChainMonitorType, NetworkGraphType, RouterType},
+    balance,
+    channel::ChannelEvent,
+    close_fee, constants,
+    esplora::FeeEstimates,
+    keys_manager::QuidKeysManager,
+    payments::{
+        PaymentWithMetadata,
+        inbound::InboundInvoicePaymentV2,
+        manager::{PaymentsManager, recipient_onion_fields},
+        outbound::{
+            DEFAULT_MAX_RETRY_ATTEMPTS, LxOutboundPaymentFailure,
+            OUTBOUND_PAYMENT_RETRY_STRATEGY, OutboundInvoicePaymentV2,
+            OutboundOfferPaymentV2,
+        },
+    },
+    route::{self, LastHopHint, RoutingContext},
+    sync::BdkSyncRequest,
+    traits::{QuidChannelManager, QuidPeerManager, QuidPersister},
+    tx_broadcaster::TxBroadcaster,
+    wallet::OnchainWallet,
+};
+
+/// The max # of route hints containing intercept scids we'll add to invoices.
+// NOTE: We previously had issues failing to route Quid -> Quid MPPs with only
+// one route hint because LDK's routing algorithm includes a hack which disables
+// the central hop in any found routes for subsequent MPP iterations, which
+// happens to be the LSP -> Payee hop in a two hop path. A lot of work was done
+// to migrate to multiple SCIDs per user, but it turns out we can just comment
+// out the hack in LDK to fix the Quid -> Quid MPP routing issue. Removing the
+// hack should also make Quid user -> External MPPs more reliable as well, as
+// multiple shards can use the same (reliable) path, instead of being forced to
+// diversify to longer, higher cost, less liquid paths.
+//
+// Issue: https://github.com/lightningdevkit/rust-lightning/issues/3685
+pub const MAX_INTERCEPT_HINTS: usize = 1;
+
+/// Async closure that checks whether a user with the given [`UserPk`] exists.
+pub type UserExistsFn = Arc<
+    dyn Fn(UserPk) -> Pin<Box<dyn Future<Output = anyhow::Result<bool>> + Send>>
+        + Send
+        + Sync,
+>;
+
+/// Specifies whether it is the user node or the LSP calling the
+/// [`create_invoice`] fn. There are some differences between how the user node
+/// and LSP generate invoices which this tiny enum makes clearer.
+pub enum CreateInvoiceCaller<'a> {
+    /// When a user node calls [`create_invoice`], it must provide an
+    /// [`LspInfo`], which is required for generating a [`RouteHintHop`] for
+    /// receiving a payment (possibly while offline, or over a JIT channel)
+    /// routed to us by the LSP.
+    ///
+    /// [`RouteHintHop`]: lightning::routing::router::RouteHintHop
+    UserNode {
+        lsp_info: &'a LspInfo,
+        intercept_scids: &'a [Scid],
+        /// Async closure to check whether a given [`UserPk`] exists.
+        user_exists_fn: &'a UserExistsFn,
+        partners: &'a PartnersInfo,
+    },
+    Lsp,
+}
+
+#[instrument(skip_all, name = "(node-info)")]
+pub fn node_info<CM, PM, PS, RMH>(
+    version: semver::Version,
+    measurement: Measurement,
+    user_pk: UserPk,
+    channel_manager: &CM,
+    peer_manager: &PM,
+    wallet: &OnchainWallet,
+    chain_monitor: &ChainMonitorType<PS>,
+    channels: &[ChannelDetails],
+    lsp_fees: LspFees,
+) -> NodeInfo
+where
+    CM: QuidChannelManager<PS>,
+    PM: QuidPeerManager<CM, PS, RMH>,
+    PS: QuidPersister,
+    RMH: Deref,
+    RMH::Target: RoutingMessageHandler,
+{
+    let node_pk = NodePk(channel_manager.get_our_node_id());
+    let num_peers = peer_manager.list_peers().len();
+    let num_channels = channels.len();
+
+    let (lightning_balance, num_usable_channels) =
+        balance::all_channel_balances(chain_monitor, channels, lsp_fees);
+
+    let onchain_balance = wallet.get_balance();
+    let best_block_height = channel_manager.current_best_block().height;
+
+    NodeInfo {
+        version,
+        measurement,
+        user_pk,
+        node_pk,
+        num_peers,
+        num_usable_channels,
+        num_channels,
+        lightning_balance,
+        onchain_balance,
+        best_block_height,
+    }
+}
+
+/// Wrapper around [`node_info`] that adds the deprecated debug fields.
+#[deprecated(note = "since node-v0.9.4: Use node_info instead")]
+#[instrument(skip_all, name = "(node-info-v1)")]
+pub fn node_info_v1<CM, PM, PS, RMH>(
+    version: semver::Version,
+    measurement: Measurement,
+    user_pk: UserPk,
+    channel_manager: &CM,
+    peer_manager: &PM,
+    wallet: &OnchainWallet,
+    chain_monitor: &ChainMonitorType<PS>,
+    channels: &[ChannelDetails],
+    lsp_fees: LspFees,
+) -> NodeInfoV1
+where
+    CM: QuidChannelManager<PS>,
+    PM: QuidPeerManager<CM, PS, RMH>,
+    PS: QuidPersister,
+    RMH: Deref,
+    RMH::Target: RoutingMessageHandler,
+{
+    let info = node_info(
+        version,
+        measurement,
+        user_pk,
+        channel_manager,
+        peer_manager,
+        wallet,
+        chain_monitor,
+        channels,
+        lsp_fees,
+    );
+
+    // Debug fields
+    let utxo_counts = wallet.get_utxo_counts();
+    let pending_monitor_updates = chain_monitor
+        .list_pending_monitor_updates()
+        .values()
+        .map(|v| v.len())
+        .sum();
+
+    NodeInfoV1 {
+        version: info.version,
+        measurement: info.measurement,
+        user_pk: info.user_pk,
+        node_pk: info.node_pk,
+        num_peers: info.num_peers,
+        num_usable_channels: info.num_usable_channels,
+        num_channels: info.num_channels,
+        lightning_balance: info.lightning_balance,
+        onchain_balance: info.onchain_balance,
+        best_block_height: info.best_block_height,
+        num_utxos: utxo_counts.total,
+        num_confirmed_utxos: utxo_counts.confirmed,
+        num_unconfirmed_utxos: utxo_counts.unconfirmed,
+        pending_monitor_updates,
+    }
+}
+
+#[instrument(skip_all, name = "(list-channels)")]
+pub fn list_channels<PS: QuidPersister>(
+    network_graph: &NetworkGraphType,
+    chain_monitor: &ChainMonitorType<PS>,
+    channels: impl IntoIterator<Item = ChannelDetails>,
+) -> anyhow::Result<ListChannelsResponse> {
+    let read_only_network_graph = network_graph.read_only();
+
+    let channels = channels
+        .into_iter()
+        .map(|channel| {
+            let channel_id = channel.channel_id;
+            let channel_balance =
+                balance::channel_balance(chain_monitor, &channel)?;
+
+            let counterparty_node_id =
+                NodeId::from_pubkey(&channel.counterparty.node_id);
+            let counterparty_alias = read_only_network_graph
+                .node(&counterparty_node_id)
+                .and_then(|node_info| node_info.announcement_info.as_ref())
+                // The Display impl here handles non-printable chars safely.
+                .map(|ann_info| ann_info.alias().to_string());
+
+            LxChannelDetails::from_ldk(
+                channel,
+                channel_balance,
+                counterparty_alias,
+            )
+            .context(channel_id)
+        })
+        .collect::<anyhow::Result<Vec<LxChannelDetails>>>()
+        .context("Error listing channel details")?;
+    Ok(ListChannelsResponse { channels })
+}
+
+/// Open and fund a new channel with `channel_value` and `counterparty_node_pk`.
+///
+/// After checking that we have enough balance for the new channel, we'll await
+/// on `ensure_counterparty_connected()`, which should proactively try to
+/// connect to the new channel counterparty if we're not already connected.
+///
+/// Once the new channel is registered with LDK, we wait for the channel to
+/// become `Pending` (success) or `Closed` (failure). If the new channel
+/// `is_jit_channel` (an LSP->User JIT channel), it will wait for full channel
+/// `Ready`.
+#[instrument(skip_all, name = "(open-channel)")]
+pub async fn open_channel<CM, PS, F>(
+    channel_manager: &CM,
+    channel_events_bus: &EventsBus<ChannelEvent>,
+    wallet: &OnchainWallet,
+    ensure_counterparty_connected: impl FnOnce() -> F,
+    user_channel_id: LxUserChannelId,
+    channel_value: Amount,
+    counterparty_node_pk: &NodePk,
+    user_config: UserConfig,
+    is_jit_channel: bool,
+    push_amount: Option<Amount>,
+) -> anyhow::Result<OpenChannelResponse>
+where
+    CM: QuidChannelManager<PS>,
+    PS: QuidPersister,
+    F: Future<Output = anyhow::Result<()>>,
+{
+    info!(
+        %counterparty_node_pk, %user_channel_id,
+        %channel_value, ?push_amount, %is_jit_channel,
+        "Opening channel"
+    );
+
+    // Check if we've already opened a channel with this `user_channel_id`.
+    //
+    // NOTE(phlip9): The idempotency here is not perfect; there's still a race
+    // if we send multiple `open_channel` requests with the same
+    // `user_channel_id` concurrently. But we mostly care about serial retries,
+    // for which this is good enough^tm.
+    {
+        // Start listening for channel events. Do this before we look at our
+        // channels so we pick up any events that occur while we're looking.
+        let mut channel_events_rx = channel_events_bus.subscribe();
+
+        let uid = user_channel_id.to_u128();
+        let maybe_channel = channel_manager
+            .list_channels_with_counterparty(&counterparty_node_pk.0)
+            .into_iter()
+            .find(|channel| channel.user_channel_id == uid);
+
+        // Check if there's an existing channel with this `user_channel_id`.
+        if let Some(channel) = maybe_channel {
+            let temp_channel_id =
+                ChannelId::from(user_channel_id.derive_temporary_channel_id());
+
+            // If the channel doesn't have the `temp_channel_id` anymore, it
+            // must be `Pending`. We can return it.
+            let channel_id = channel.channel_id;
+            if channel_id != temp_channel_id {
+                // If it's a JIT channel, it also needs to be `Ready`
+                #[allow(clippy::nonminimal_bool)] // More readable IMO
+                if !is_jit_channel
+                    || (is_jit_channel && channel.is_channel_ready)
+                {
+                    return Ok(OpenChannelResponse {
+                        channel_id: LxChannelId::from(channel_id),
+                    });
+                }
+            }
+
+            // Wait for the next relevant channel event with this
+            // `user_channel_id`.
+            return wait_for_our_channel_open_event(
+                &mut channel_events_rx,
+                is_jit_channel,
+                &user_channel_id,
+            )
+            .await;
+        }
+
+        // No existing channel, proceed normally.
+    }
+
+    // Check if we actually have enough on-chain funds for this channel +
+    // on-chain fees. This check isn't safety critical; it just lets us quickly
+    // avoid a lot of unnecessary work.
+    let _fees = wallet.preflight_channel_funding_tx(channel_value)?;
+
+    // Ensure channel counterparty is connected.
+    ensure_counterparty_connected()
+        .await
+        .context("Failed to connect to channel counterparty")?;
+
+    // Start listening for channel events. Do this before we notify LDK so we
+    // definitely pick up any events.
+    let mut channel_events_rx = channel_events_bus.subscribe();
+
+    // Tell LDK to start the open channel process.
+    let push_msat = push_amount.map(|a| a.msat()).unwrap_or(0);
+    let temp_channel_id =
+        ChannelId::from(user_channel_id.derive_temporary_channel_id());
+    channel_manager
+        .create_channel(
+            counterparty_node_pk.0,
+            channel_value.sats_u64(),
+            push_msat,
+            user_channel_id.to_u128(),
+            Some(temp_channel_id),
+            Some(user_config),
+        )
+        .map_err(|e| anyhow!("Failed to create channel: {e:?}"))?;
+
+    // Wait for the next relevant channel event with this `user_channel_id`.
+    wait_for_our_channel_open_event(
+        &mut channel_events_rx,
+        is_jit_channel,
+        &user_channel_id,
+    )
+    .await
+}
+
+/// Wait for the next relevant channel event for a new `open_channel` with this
+/// `user_channel_id`.
+///
+/// For JIT channel opens, we specifically wait for `Ready` since the channel
+/// opens quickly. For regular opens, we return on any channel event.
+async fn wait_for_our_channel_open_event(
+    channel_events_rx: &mut EventsRx<'_, ChannelEvent>,
+    is_jit_channel: bool,
+    user_channel_id: &LxUserChannelId,
+) -> anyhow::Result<OpenChannelResponse> {
+    let channel_event = channel_events_rx
+        .recv_filtered(|event| {
+            if event.user_channel_id() != user_channel_id {
+                return false;
+            }
+
+            if is_jit_channel {
+                // JIT channels open quickly; skip Pending, wait for Ready
+                matches!(
+                    event,
+                    ChannelEvent::Ready { .. } | ChannelEvent::Closed { .. }
+                )
+            } else {
+                // Regular opens: return on any event
+                true
+            }
+        })
+        .apply(|fut| tokio::time::timeout(Duration::from_secs(15), fut))
+        .await
+        .context("Waiting for channel event")?;
+
+    match channel_event {
+        ChannelEvent::Pending { .. } =>
+            debug!(%user_channel_id, "Received ChannelEvent::Pending"),
+        ChannelEvent::Ready { .. } =>
+            debug!(%user_channel_id, "Received ChannelEvent::Ready"),
+        ChannelEvent::Closed { reason, .. } =>
+            return Err(anyhow!("Channel open failed: {reason}")),
+    }
+
+    Ok(OpenChannelResponse {
+        channel_id: *channel_event.channel_id(),
+    })
+}
+
+/// Check if we actually have enough on-chain funds for this channel and return
+/// the on-chain fees required.
+pub async fn preflight_open_channel(
+    wallet: &OnchainWallet,
+    req: PreflightOpenChannelRequest,
+) -> anyhow::Result<PreflightOpenChannelResponse> {
+    let fee_estimate = wallet.preflight_channel_funding_tx(req.value)?;
+    Ok(PreflightOpenChannelResponse { fee_estimate })
+}
+
+/// Close a channel and wait for the corresponding [`Event::ChannelClosed`].
+///
+/// For a co-operative channel close, we'll first call
+/// `ensure_counterparty_connected`, which should proactively connect to the
+/// counterparty (if not already connected).
+///
+/// If `req.force_close` is set, this will begin channel force closure, without
+/// first trying to connect to the counterparty.
+///
+/// If `req.maybe_counterparty` is unset, we'll look it up from the channels
+/// list. Note that this is somewhat expensive--ideally the caller should
+/// provide the channel counterparty.
+///
+/// [`Event::ChannelClosed`]: lightning::events::Event::ChannelClosed
+#[instrument(skip_all, name = "(close-channel)")]
+pub async fn close_channel<CM, PS, F>(
+    channel_manager: &CM,
+    channel_events_bus: &EventsBus<ChannelEvent>,
+    ensure_counterparty_connected: impl FnOnce(NodePk) -> F,
+    req: CloseChannelRequest,
+) -> anyhow::Result<()>
+where
+    CM: QuidChannelManager<PS>,
+    PS: QuidPersister,
+    F: Future<Output = anyhow::Result<()>>,
+{
+    let CloseChannelRequest {
+        channel_id,
+        force_close,
+        maybe_counterparty,
+    } = req;
+    let lx_channel_id = channel_id;
+    let ln_channel_id = ChannelId::from(lx_channel_id);
+
+    info!(%channel_id, ?force_close, "closing channel");
+
+    // Lookup the counterparty's NodePk from our channels, if the request
+    // didn't specify.
+    let counterparty = maybe_counterparty
+        .or_else(|| {
+            // TODO(phlip9): this is fairly inefficient...
+            channel_manager
+                .list_channels()
+                .into_iter()
+                .find(|c| c.channel_id.0 == channel_id.0)
+                .map(|c| NodePk(c.counterparty.node_id))
+        })
+        .context("No channel exists with this channel id")?;
+
+    // Before cooperatively closing the channel, we need to ensure we're
+    // connected with the counterparty.
+    if !force_close {
+        ensure_counterparty_connected(counterparty)
+            .await
+            .with_context(|| format!("{counterparty}"))
+            .context("Failed to connect to channel counterparty")?;
+    }
+
+    // Start subscribing to `ChannelEvent`s.
+    let mut channel_events_rx = channel_events_bus.subscribe();
+
+    // Tell the channel manager to begin co-op or forced channel close.
+    if !force_close {
+        // Co-operative close
+        channel_manager
+            .close_channel(&ln_channel_id, &counterparty.0)
+            .map_err(|e| anyhow!("{e:?}"))
+            .context("Channel manager failed to begin coop channel close")?;
+    } else {
+        // Force close
+        let error_msg = "User-initiated force close".to_owned();
+        channel_manager
+            .force_close_broadcasting_latest_txn(
+                &ln_channel_id,
+                &counterparty.0,
+                error_msg,
+            )
+            .map_err(|e| anyhow!("{e:?}"))
+            .context("Channel manager failed to force close channel")?;
+    }
+
+    // Wait for the corresponding ChannelClosed event
+    channel_events_rx
+        .recv_filtered(|event| {
+            matches!(
+                event,
+                ChannelEvent::Closed { channel_id, .. }
+                    if channel_id == &lx_channel_id,
+            )
+        })
+        .apply(|fut| tokio::time::timeout(Duration::from_secs(15), fut))
+        .await
+        .context("Waiting for channel close event")?;
+
+    // TODO(phlip9): return txid so user can track close
+    info!(%channel_id, "channel closed");
+
+    Ok(())
+}
+
+/// Estimate the on-chain fees required to close this channel.
+pub async fn preflight_close_channel<CM, PS>(
+    channel_manager: &CM,
+    chain_monitor: &ChainMonitorType<PS>,
+    fee_estimates: &FeeEstimates,
+    req: PreflightCloseChannelRequest,
+) -> anyhow::Result<PreflightCloseChannelResponse>
+where
+    CM: QuidChannelManager<PS>,
+    PS: QuidPersister,
+{
+    let channels = match &req.maybe_counterparty {
+        Some(counterparty) =>
+            channel_manager.list_channels_with_counterparty(&counterparty.0),
+        None => channel_manager.list_channels(),
+    };
+    let channel = channels
+        .into_iter()
+        .find(|chan| chan.channel_id.0 == req.channel_id.0)
+        .context("No channel with this id")?;
+
+    // If we haven't negotiated a funding_txo, the channel is free to close.
+    let monitor = chain_monitor.get_monitor(channel.channel_id).ok();
+    let monitor = match monitor {
+        Some(x) => x,
+        None =>
+            return Ok(PreflightCloseChannelResponse {
+                fee_estimate: Amount::ZERO,
+            }),
+    };
+
+    // TODO(phlip9): handle force_close=true
+    let fee_estimate =
+        close_fee::our_close_tx_fees_sats(fee_estimates, &channel, monitor);
+    let fee_estimate = Amount::try_from_sats_u64(fee_estimate)?;
+
+    // TODO(phlip9): include est. blocks to confirmation? Esp. for force close.
+    Ok(PreflightCloseChannelResponse { fee_estimate })
+}
+
+/// Uses the given `[bdk|ldk]_resync_tx` to retrigger BDK and LDK sync, and
+/// returns once sync has either completed or timed out.
+pub async fn resync(
+    req: ResyncRequest,
+    bdk_resync_tx: &mpsc::Sender<BdkSyncRequest>,
+    ldk_resync_tx: &mpsc::Sender<oneshot::Sender<()>>,
+) -> anyhow::Result<Empty> {
+    /// How long we'll wait to hear a callback before giving up.
+    // NOTE: Our default reqwest::Client timeout is 30 seconds.
+    const SYNC_TIMEOUT: Duration = Duration::from_secs(27);
+    const_assert!(SYNC_TIMEOUT.as_millis() < API_REQUEST_TIMEOUT.as_millis());
+
+    let (bdk_tx, bdk_rx) = oneshot::channel();
+    let bdk_sync_req = BdkSyncRequest {
+        full_sync: req.full_sync,
+        tx: bdk_tx,
+    };
+    bdk_resync_tx
+        .try_send(bdk_sync_req)
+        .map_err(|_| anyhow!("Failed to retrigger BDK sync"))?;
+    let (ldk_tx, ldk_rx) = oneshot::channel();
+    ldk_resync_tx
+        .try_send(ldk_tx)
+        .map_err(|_| anyhow!("Failed to retrigger LDK sync"))?;
+
+    let bdk_fut = tokio::time::timeout(SYNC_TIMEOUT, bdk_rx);
+    let ldk_fut = tokio::time::timeout(SYNC_TIMEOUT, ldk_rx);
+    let (try_bdk, try_ldk) = tokio::join!(bdk_fut, ldk_fut);
+    try_bdk
+        .context("BDK sync timed out")?
+        .context("BDK recv errored")?;
+    try_ldk
+        .context("LDK sync timed out")?
+        .context("LDK recv errored")?;
+
+    debug!("resync successful");
+    Ok(Empty {})
+}
+
+#[instrument(skip_all, name = "(create-invoice)")]
+pub async fn create_invoice<CM, PS>(
+    req: CreateInvoiceRequest,
+    user_pk: &UserPk,
+    channel_manager: &CM,
+    keys_manager: &QuidKeysManager,
+    payments_manager: &PaymentsManager<CM, PS>,
+    caller: CreateInvoiceCaller<'_>,
+    network: Network,
+) -> anyhow::Result<CreateInvoiceResponse>
+where
+    CM: QuidChannelManager<PS>,
+    PS: QuidPersister,
+{
+    let amount = &req.amount;
+    info!("Handling create_invoice command for {amount:?} msats");
+
+    let cltv_expiry = match caller {
+        CreateInvoiceCaller::UserNode { .. } =>
+            constants::USER_MIN_FINAL_CLTV_EXPIRY_DELTA,
+        CreateInvoiceCaller::Lsp => constants::LSP_MIN_FINAL_CLTV_EXPIRY_DELTA,
+    };
+
+    // Ensure that description and description_hash are mutually
+    // exclusive. rust-lightning crate enforces this constraint.
+    if req.description.is_some() && req.description_hash.is_some() {
+        return Err(anyhow!(
+            "Cannot specify both description and description_hash"
+        ));
+    }
+
+    // Enforce maximum invoice expiration of one day
+    let expiry_time = Duration::from_secs(u64::from(req.expiry_secs));
+    if expiry_time > constants::MAX_INVOICE_EXPIRY {
+        return Err(anyhow!(
+            "Invoice expiration exceeds maximum duration of {}s",
+            constants::MAX_INVOICE_EXPIRY.as_secs()
+        ));
+    }
+
+    // We use ChannelManager::create_inbound_payment because this method allows
+    // the channel manager to store the hash and preimage for us, instead of
+    // having to manage a separate inbound payments storage outside of LDK.
+    // NOTE that `handle_payment_claimable` will panic if the payment preimage
+    // is not known by (and therefore cannot be provided by) LDK.
+    let (hash, secret) = channel_manager
+        .create_inbound_payment(
+            req.amount.map(|amt| amt.msat()),
+            req.expiry_secs,
+            Some(cltv_expiry),
+        )
+        .map_err(|()| anyhow!("Supplied amount > total bitcoin supply!"))?;
+    let preimage = channel_manager
+        .get_payment_preimage(hash, secret)
+        .map_err(|e| anyhow!("Could not get preimage: {e:?}"))?;
+
+    let currency = Currency::from(network);
+    let sha256_hash = sha256::Hash::from_slice(&hash.0)
+        .expect("Should never fail with [u8;32]");
+
+    let our_node_pk = channel_manager.get_our_node_id();
+
+    // Add most parts of the invoice, except for the route hints.
+    // This is modeled after lightning_invoice's internal utility function
+    // _create_invoice_from_channelmanager_and_duration_since_epoch_with_payment_hash
+    let builder = InvoiceBuilder::new(currency); // <D, H, T, C, S>
+    #[rustfmt::skip]
+    let builder = if let Some(description_hash) = req.description_hash {
+        let description_hash = sha256::Hash::from_slice(&description_hash)
+            .expect("Should never fail with [u8;32]");
+        builder.description_hash(description_hash)               // D: False -> True
+    } else {
+        builder.description(req.description.unwrap_or_default()) // D: False -> True
+    };
+
+    #[rustfmt::skip] // Nicer for the generic annotations to be aligned
+    let mut builder = builder
+        .payment_hash(sha256_hash)                               // H: False -> True
+        .current_timestamp()                                     // T: False -> True
+        .min_final_cltv_expiry_delta(u64::from(cltv_expiry))     // C: False -> True
+        .payment_secret(secret)                                  // S: False -> True
+        .basic_mpp()                                             // S: _ -> True
+        .expiry_time(expiry_time)
+        .payee_pub_key(our_node_pk);
+
+    if let Some(amount) = req.amount {
+        builder = builder.amount_milli_satoshis(amount.invoice_safe_msat()?);
+    }
+
+    if let CreateInvoiceCaller::UserNode {
+        intercept_scids, ..
+    } = &caller
+    {
+        ensure!(
+            !intercept_scids.is_empty(),
+            "User node must include intercept hints to receive payments"
+        );
+    }
+
+    // Construct the route hint(s).
+    let route_hints = match &caller {
+        // If the LSP is calling create_invoice, include no hints and let
+        // the sender route to us by looking at the lightning network graph.
+        CreateInvoiceCaller::Lsp => Vec::new(),
+        // If a user node is calling create_invoice, always include at least one
+        // intercept hint. We do this even when the user already has a channel
+        // with enough balance to service the payment, because it allows the LSP
+        // to intercept the HTLC and wake the user if a payment comes in while
+        // the user is offline.
+        CreateInvoiceCaller::UserNode {
+            lsp_info,
+            intercept_scids,
+            ..
+        } => {
+            let channels = channel_manager.list_channels();
+
+            // If there are multiple intercept scids, just pick the last one, as
+            // it is likely the most recently generated.
+            let intercept_scid = intercept_scids
+                .last()
+                .context("No intercept SCID provided")
+                .inspect_err(|err| debug_panic_release_log!("{err:#}"))?;
+
+            // Build the last hop hint for the payer to route with.
+            let last_hop_hint =
+                LastHopHint::new(lsp_info, *intercept_scid, &channels);
+            last_hop_hint.invoice_route_hints()
+        }
+    };
+    debug!("Including route hints: {route_hints:?}");
+    for hint in route_hints {
+        builder = builder.private_route(hint);
+    }
+
+    // Build, sign, and return the invoice
+    let raw_invoice =
+        builder.build_raw().context("Could not build raw invoice")?;
+    let recipient = Recipient::Node;
+    let raw_invoice_signature = keys_manager
+        .sign_invoice(&raw_invoice, recipient)
+        .map_err(|()| anyhow!("Failed to sign invoice"))?;
+    let signed_raw_invoice = raw_invoice
+        .sign(|_| Ok::<_, Infallible>(raw_invoice_signature))
+        .expect("Infallible");
+    let invoice = Bolt11Invoice::from_signed(signed_raw_invoice)
+        .map(Invoice)
+        .context("Invoice was semantically incorrect")?;
+
+    // If a partner is setting the payment fee, validate and compute their
+    // revshare.
+    let partner_fee = match (&req.partner_pk, &caller) {
+        (
+            Some(partner_pk),
+            CreateInvoiceCaller::UserNode {
+                user_exists_fn,
+                partners,
+                ..
+            },
+        ) => {
+            let partner_fee = validate::partner_fee(
+                user_exists_fn,
+                partners,
+                *amount,
+                user_pk,
+                partner_pk,
+                req.partner_prop_fee,
+                req.partner_base_fee,
+            )
+            .await?;
+            Some(partner_fee)
+        }
+        (Some(_), CreateInvoiceCaller::Lsp) =>
+            bail!("partner fees unsupported"),
+        (None, _) => {
+            ensure!(
+                req.partner_prop_fee.is_none()
+                    && req.partner_base_fee.is_none(),
+                "You must include a `partner_pk` in order to set partner fees"
+            );
+            None
+        }
+    };
+
+    let kind = PaymentKind::Invoice;
+    let iipwm = InboundInvoicePaymentV2::new(
+        invoice.clone(),
+        hash.into(),
+        secret.into(),
+        preimage.into(),
+        kind,
+        req.message,
+        partner_fee,
+    )
+    .context("Failed to create payment")?;
+    let pwm = iipwm.into_enum();
+    let created_index = payments_manager
+        .new_payment(pwm)
+        .await
+        .context("Could not register new payment")?;
+
+    info!("Success: Generated invoice {invoice}");
+
+    Ok(CreateInvoiceResponse {
+        invoice,
+        created_index: Some(created_index),
+    })
+}
+
+#[instrument(skip_all, name = "(pay-invoice)")]
+pub async fn pay_invoice<CM, PS>(
+    req: PayInvoiceRequest,
+    router: &RouterType,
+    channel_manager: &CM,
+    payments_manager: &PaymentsManager<CM, PS>,
+    network_graph: &NetworkGraphType,
+    chain_monitor: &ChainMonitorType<PS>,
+    lsp_fees: LspFees,
+) -> anyhow::Result<PayInvoiceResponse>
+where
+    CM: QuidChannelManager<PS>,
+    PS: QuidPersister,
+{
+    // Pre-flight the invoice payment (verify and route).
+    let PreflightedPayInvoice {
+        oipwm,
+        ldk_route,
+        recipient_fields,
+        ..
+    } = preflight_pay_invoice_inner(
+        req,
+        router,
+        channel_manager,
+        payments_manager,
+        network_graph,
+        chain_monitor,
+        lsp_fees,
+    )
+    .await?;
+    let hash = oipwm.payment.hash;
+    let id = oipwm.payment.id();
+    let amount = oipwm.payment.amount;
+
+    // Extract invoice for retry state. For outbound invoice payments, the
+    // invoice should always be present in metadata.
+    let invoice = oipwm
+        .metadata
+        .invoice
+        .clone()
+        .expect("Outbound invoice payment must have invoice in metadata");
+
+    // Pre-flight looks good, now we can register this payment in the Quid
+    // payments manager.
+    let pwm = oipwm.into_enum();
+    let created_index = payments_manager
+        .new_payment(pwm)
+        .await
+        .context("Already tried to pay this invoice")?;
+    let created_at = created_index.created_at;
+
+    // TODO(phlip9): handle the case where we crash here before the channel
+    // manager persists. We'll be left with a payment that gets stuck `Pending`
+    // -> `Abandoning` forever, since the `channel_manager` doesn't know about
+    // it and so won't emit a `PaymentFailed` event to finalize.
+    //
+    // Maybe we can check `channel_manager.list_recent_payments()` sometime
+    // after startup to see if we have any `Pending` or `Abandoning` LN payments
+    // that aren't tracked by the CM?
+    //
+    // With send_payment_with_route, we track in-flight state in-memory.
+    // Handle crash scenario where payment is in-flight but status is `Pending`.
+
+    // NOTE(phlip9): we rely on `payment_id == payment_hash` to disambiguate
+    // invoice/spontaneous payments from offer payments.
+    let ldk_payment_id = lightning::ln::channelmanager::PaymentId::from(hash);
+
+    // Send the payment using send_payment_with_route (Quid manages retries).
+    match channel_manager.send_payment_with_route(
+        ldk_route,
+        lightning::types::payment::PaymentHash::from(hash),
+        recipient_fields,
+        ldk_payment_id,
+    ) {
+        Ok(()) => {
+            payments_manager
+                .start_in_flight(
+                    id,
+                    DEFAULT_MAX_RETRY_ATTEMPTS,
+                    invoice,
+                    amount,
+                )
+                .await;
+            info!(%hash, "Success: OIP initiated with Quid-managed retries");
+            Ok(PayInvoiceResponse { created_at })
+        }
+        Err(RetryableSendFailure::DuplicatePayment) => {
+            // This should never happen because we should have already checked
+            // for uniqueness when registering the new payment above. If it
+            // somehow does, we should let the first payment follow its course,
+            // and wait for a PaymentSent or PaymentFailed event.
+            Err(anyhow!("Somehow got DuplicatePayment error (OIP {hash})"))
+        }
+        Err(RetryableSendFailure::PaymentExpired) => {
+            // We've already checked the expiry of the invoice to be paid, but
+            // perhaps there was a TOCTOU race? Regardless, if this variant is
+            // returned, LDK does not track the payment and thus will not emit a
+            // PaymentFailed later, so we should fail the payment now.
+            payments_manager
+                .payment_failed(id, LxOutboundPaymentFailure::Expired)
+                .await
+                .context("(PaymentExpired) Could not register failure")?;
+            Err(anyhow!("LDK returned PaymentExpired (OIP {hash})"))
+        }
+        Err(RetryableSendFailure::RouteNotFound) => {
+            // It appears that if this variant is returned, LDK does not track
+            // the payment, so we should fail the payment immediately.
+            // If the user wants to retry, they'll need to ask the recipient to
+            // generate a new invoice. TODO(max): Is this really what we want?
+            payments_manager
+                .payment_failed(id, LxOutboundPaymentFailure::NoRoute)
+                .await
+                .context("(RouteNotFound) Could not register failure")?;
+            Err(anyhow!("LDK returned RouteNotFound (OIP {hash})"))
+        }
+        Err(RetryableSendFailure::OnionPacketSizeExceeded) => {
+            // If the metadata causes us to exceed the maximum onion packet
+            // size, it probably isn't possible to pay this. Fail the payment.
+            payments_manager
+                .payment_failed(id, LxOutboundPaymentFailure::MetadataTooLarge)
+                .await
+                .context(
+                    "(OnionPacketSizeExceeded) Could not register failure",
+                )?;
+            Err(anyhow!("LDK returned OnionPacketSizeExceeded (OIP {hash})"))
+        }
+    }
+}
+
+#[instrument(skip_all, name = "(preflight-pay-invoice)")]
+pub async fn preflight_pay_invoice<CM, PS>(
+    req: PreflightPayInvoiceRequest,
+    router: &RouterType,
+    channel_manager: &CM,
+    payments_manager: &PaymentsManager<CM, PS>,
+    network_graph: &NetworkGraphType,
+    chain_monitor: &ChainMonitorType<PS>,
+    lsp_fees: LspFees,
+) -> anyhow::Result<PreflightPayInvoiceResponse>
+where
+    CM: QuidChannelManager<PS>,
+    PS: QuidPersister,
+{
+    let req = PayInvoiceRequest {
+        invoice: req.invoice,
+        fallback_amount: req.fallback_amount,
+        message: None,
+        // User note not relevant for pre-flight.
+        personal_note: None,
+    };
+    let preflight = preflight_pay_invoice_inner(
+        req,
+        router,
+        channel_manager,
+        payments_manager,
+        network_graph,
+        chain_monitor,
+        lsp_fees,
+    )
+    .await?;
+    Ok(PreflightPayInvoiceResponse {
+        amount: preflight.oipwm.payment.amount,
+        fees: preflight.oipwm.payment.routing_fee,
+        route: preflight.lx_route,
+    })
+}
+
+/// Creates a [`CreateOfferRequest`] for an HBA (Human Bitcoin Address).
+///
+/// The resulting offer will have:
+/// - Description: `"Pay to ₿{username}@quid.io"`
+/// - Issuer: `"₿{username}@quid.io"`
+pub fn hba_offer_request(username: &str) -> anyhow::Result<CreateOfferRequest> {
+    let issuer = BoundedString::new(format!("₿{username}@quid.io"))
+        .context("Issuer too long")?;
+    let description = BoundedString::new(format!("Pay to {issuer}"))
+        .context("Description too long")?;
+    Ok(CreateOfferRequest {
+        description: Some(description),
+        min_amount: None,
+        expiry_secs: None,
+        max_quantity: None,
+        issuer: Some(issuer),
+    })
+}
+
+#[instrument(skip_all, name = "(create-offer)")]
+pub async fn create_offer<CM, PS>(
+    req: CreateOfferRequest,
+    channel_manager: &CM,
+) -> anyhow::Result<CreateOfferResponse>
+where
+    CM: QuidChannelManager<PS>,
+    PS: QuidPersister,
+{
+    // Create the initial `OfferBuilder` with:
+    // + a blinded message path to us. built via
+    //   `QuidMessageRouter::create_blinded_paths`.
+    // + automatically derived offer metadata and signing keys.
+    // + the given `max_quantity` (if unset, defaults to 1).
+    let issuer = req
+        .issuer
+        .map(BoundedString::into_inner)
+        .unwrap_or_else(|| "quid.io".to_owned());
+    let mut builder = channel_manager
+        .create_offer_builder()
+        .map_err(|e| anyhow!("Failed to create offer builder: {e:?}"))?
+        .supported_quantity(req.max_quantity.unwrap_or(MaxQuantity::ONE).into())
+        .issuer(issuer);
+
+    // Set absolute expiry deadline if requested.
+    if let Some(expiry_secs) = req.expiry_secs {
+        let expiry = Duration::from_secs(u64::from(expiry_secs));
+        let expires_at = TimestampMs::now().saturating_add(expiry);
+        builder = builder.absolute_expiry(expires_at.to_duration());
+    }
+
+    // TODO(phlip9): don't add `chains` param when mainnet to save space
+
+    // TODO(phlip9): can we condense the blinded path? default offer is ~489B.
+    // right now the default offer blinded path has
+    //   + ~  54B (1) introductory node pk (LSP NodePk, clear)
+    //   + ~  54B (2) blinding point pk
+    //   + ~  54B (3) blinded issuer signing pk (user NodePk, blinded)
+    //   + ~ 137B (4) hop 1: blinded pk + 51 B encrypted payload
+    //   + ~ 137B (5) hop 2: blinded pk + 51 B encrypted payload
+    //   = ~ 436B blinded path overhead
+
+    if let Some(min_amount) = req.min_amount {
+        if min_amount == Amount::ZERO {
+            return Err(anyhow!("Offer minimum amount can't be zero."));
+        }
+        builder = builder.amount_msats(min_amount.msat());
+    }
+    if let Some(description) = req.description {
+        builder = builder.description(description.into_inner());
+    }
+
+    let offer = builder
+        .build()
+        .map(Offer)
+        .map_err(|e| anyhow!("Failed to build offer: {e:?}"))?;
+
+    Ok(CreateOfferResponse { offer })
+}
+
+#[instrument(skip_all, name = "(pay-offer)")]
+pub async fn pay_offer<CM, PS>(
+    req: PayOfferRequest,
+    router: &RouterType,
+    channel_manager: &CM,
+    payments_manager: &PaymentsManager<CM, PS>,
+    chain_monitor: &ChainMonitorType<PS>,
+    network_graph: &NetworkGraphType,
+    lsp_fees: LspFees,
+    lsp_node_pk: &NodePk,
+) -> anyhow::Result<PayOfferResponse>
+where
+    CM: QuidChannelManager<PS>,
+    PS: QuidPersister,
+{
+    let offer = req.offer.clone();
+
+    // Pre-flight the offer payment (verify and partially route).
+    let PreflightedPayOffer {
+        oopwm,
+        route: _,
+        routing_context,
+    } = preflight_pay_offer_inner(
+        req,
+        router,
+        channel_manager,
+        payments_manager,
+        chain_monitor,
+        network_graph,
+        lsp_fees,
+        lsp_node_pk,
+    )
+    .await?;
+
+    // TODO(max): We should call chan_man.pay_for_offer_from_human_readable_name
+    // below if the offer was resolved via BIP353.
+    let _payer_name = &oopwm.metadata.payer_name;
+    let message = oopwm.metadata.message.clone();
+
+    let id = oopwm.payment.id();
+
+    // Pre-flight looks good, now we can register this payment in the Quid
+    // payments manager.
+    let created_index = payments_manager
+        .new_payment(oopwm.clone().into_enum())
+        .await
+        .context("Already tried to pay this offer")?;
+    let created_at = created_index.created_at;
+
+    // Instruct the LDK channel manager to pay this offer, letting LDK handle
+    // fetching the BOLT12 Invoice, routing, and retrying.
+
+    let params = OptionalOfferPaymentParams {
+        route_params_config: routing_context.route_params_config(),
+        payer_note: message,
+        retry_strategy: OUTBOUND_PAYMENT_RETRY_STRATEGY,
+    };
+
+    let result = channel_manager.pay_for_offer(
+        &offer.0,
+        Some(oopwm.payment.amount.msat()),
+        oopwm.payment.ldk_id(),
+        params,
+    );
+
+    // Channel manager returned an error
+    if let Err(err) = result {
+        use lightning::offers::parse::Bolt12SemanticError as LdkErr;
+
+        use crate::payments::outbound::LxOutboundPaymentFailure as LxErr;
+
+        let reason = match err {
+            // This should never happen, since we already checked for this
+            // payment id in the payments manager.
+            LdkErr::DuplicatePaymentId => {
+                debug_panic_release_log!(
+                    "LDK believes offer payment is a duplicate, but Quid does not"
+                );
+                LxErr::QuidErr
+            }
+            // Should be very rare, but may be a TOCTOU issue
+            LdkErr::AlreadyExpired => LxErr::Expired,
+            // Offer uses unknown features
+            LdkErr::UnknownRequiredFeatures => LxErr::UnknownFeatures,
+            // LDK didn't like something about the offer
+            _ => LxErr::InvalidOffer,
+        };
+
+        // Fail the payment
+        payments_manager
+            .payment_failed(id, reason)
+            .await
+            .context("Could not register failure")?;
+
+        return Err(anyhow!("Invalid offer: {err:?}"));
+    }
+
+    info!("Success: outbound offer payment initiated");
+    return Ok(PayOfferResponse { created_at });
+}
+
+#[instrument(skip_all, name = "(preflight-pay-offer)")]
+pub async fn preflight_pay_offer<CM, PS>(
+    req: PreflightPayOfferRequest,
+    router: &RouterType,
+    channel_manager: &CM,
+    payments_manager: &PaymentsManager<CM, PS>,
+    chain_monitor: &ChainMonitorType<PS>,
+    network_graph: &NetworkGraphType,
+    lsp_fees: LspFees,
+    lsp_node_pk: &NodePk,
+) -> anyhow::Result<PreflightPayOfferResponse>
+where
+    CM: QuidChannelManager<PS>,
+    PS: QuidPersister,
+{
+    let req = PayOfferRequest {
+        cid: req.cid,
+        offer: req.offer,
+        amount: req.amount,
+        message: None,
+        // User note not relevant for pre-flight.
+        personal_note: None,
+    };
+    let PreflightedPayOffer {
+        oopwm,
+        route,
+        routing_context: _,
+    } = preflight_pay_offer_inner(
+        req,
+        router,
+        channel_manager,
+        payments_manager,
+        chain_monitor,
+        network_graph,
+        lsp_fees,
+        lsp_node_pk,
+    )
+    .await?;
+    Ok(PreflightPayOfferResponse {
+        amount: oopwm.payment.amount,
+        fees: oopwm.payment.routing_fee,
+        route,
+    })
+}
+
+#[instrument(skip_all, name = "(pay-onchain)")]
+pub async fn pay_onchain<CM, PS>(
+    req: PayOnchainRequest,
+    network: Network,
+    wallet: &OnchainWallet,
+    tx_broadcaster: &TxBroadcaster,
+    payments_manager: &PaymentsManager<CM, PS>,
+) -> anyhow::Result<PayOnchainResponse>
+where
+    CM: QuidChannelManager<PS>,
+    PS: QuidPersister,
+{
+    // Create and sign the onchain send tx.
+    let oswm = wallet
+        .create_onchain_send(req, network)
+        .context("Error while creating outbound tx")?;
+    let tx = oswm.payment.tx.clone();
+    let id = oswm.payment.id();
+    let txid = oswm.payment.txid;
+    let pwm = oswm.into_enum();
+
+    // Register the transaction.
+    let created_index = payments_manager
+        .new_payment(pwm)
+        .await
+        .context("Could not register new onchain send")?;
+    let created_at = created_index.created_at;
+
+    // Broadcast.
+    tx_broadcaster
+        .broadcast_transaction(tx.as_ref().clone())
+        .await
+        .context("Failed to broadcast tx")?;
+
+    // Register the successful broadcast.
+    payments_manager
+        .onchain_send_broadcasted(&id, &txid)
+        .await
+        .context("Could not register broadcast of tx")?;
+
+    // NOTE: The reason why we call into the payments manager twice (and thus
+    // persist the payment twice) instead of simply registering the new payment
+    // after it has been successfully broadcast is so that we don't end up in a
+    // situation where a payment is successfully sent but we have no record of
+    // it; i.e. the broadcast succeeds but our registration doesn't. This also
+    // ensures that the txid is unique before we broadcast in case there is a
+    // txid collision for some reason (e.g. duplicate requests)
+
+    Ok(PayOnchainResponse { created_at, txid })
+}
+
+#[instrument(skip_all, name = "(estimate-fee-send-onchain)")]
+pub fn preflight_pay_onchain(
+    req: PreflightPayOnchainRequest,
+    wallet: &OnchainWallet,
+    network: Network,
+) -> anyhow::Result<PreflightPayOnchainResponse> {
+    wallet.preflight_pay_onchain(req, network)
+}
+
+// A preflighted BOLT11 invoice payment. That is, this is the outcome of
+// validating and routing a BOLT11 invoice, without actually paying yet.
+struct PreflightedPayInvoice {
+    oipwm: PaymentWithMetadata<OutboundInvoicePaymentV2>,
+    /// The raw LDK route, needed for `send_payment_with_route`.
+    ldk_route: Route,
+    /// The Quid route wrapper with node alias annotations.
+    lx_route: LxRoute,
+    recipient_fields: RecipientOnionFields,
+}
+
+// Preflight (validate and route) a new potential BOLT11 invoice that we might
+// pay.
+async fn preflight_pay_invoice_inner<CM, PS>(
+    req: PayInvoiceRequest,
+    router: &RouterType,
+    channel_manager: &CM,
+    payments_manager: &PaymentsManager<CM, PS>,
+    network_graph: &NetworkGraphType,
+    chain_monitor: &ChainMonitorType<PS>,
+    lsp_fees: LspFees,
+) -> anyhow::Result<PreflightedPayInvoice>
+where
+    CM: QuidChannelManager<PS>,
+    PS: QuidPersister,
+{
+    let invoice = req.invoice;
+
+    // Fail early if invoice is expired.
+    ensure!(!invoice.is_expired(), "Invoice has expired");
+
+    // Fail early if we already tried paying this invoice,
+    // or we are trying to pay ourselves (yes, users actually do this).
+    let payment_id = PaymentId::Lightning(invoice.payment_hash());
+    let maybe_existing_payment = payments_manager
+        .get_payment(&payment_id)
+        .await
+        .context("Couldn't check for existing payment")?;
+    if let Some(existing_payment) = maybe_existing_payment {
+        match existing_payment.payment.direction() {
+            PaymentDirection::Outbound =>
+                return Err(anyhow!("We've already tried paying this invoice")),
+            // Yes, users actually hit this case...
+            PaymentDirection::Inbound => bail!("We cannot pay ourselves"),
+            PaymentDirection::Info =>
+                bail!("Unexpected Info direction for invoice payment"),
+        }
+    }
+
+    // If `invoiced_amount` is set, `fallback_amount` shouldn't be set.
+    if invoice.amount().is_some() && req.fallback_amount.is_some() {
+        return Err(anyhow!(
+            "Only provide fallback amount for amountless invoices"
+        ));
+    }
+
+    // Resolve the amount.
+    let amount = invoice
+        .amount()
+        .or(req.fallback_amount)
+        .context("Missing fallback amount for amountless invoice")?;
+
+    // Compute Lightning balances
+    let channels = channel_manager.list_channels();
+    let num_channels = channels.len();
+    let (lightning_balance, num_usable_channels) =
+        balance::all_channel_balances(chain_monitor, &channels, lsp_fees);
+
+    // Check that the user has at least one usable channel.
+    validate::has_usable_channels(num_channels, num_usable_channels)?;
+
+    // Construct payment parameters, which are amount-agnostic.
+    let payment_params = route::build_payment_params(
+        Either::Right(&invoice),
+        Some(num_usable_channels),
+        // For initial sends, we don't have any failed channels to avoid.
+        Vec::new(),
+    )
+    .context("Couldn't build payment parameters")?;
+
+    // Construct payment routing context
+    let routing_context =
+        RoutingContext::from_payment_params(channel_manager, payment_params);
+
+    // Check that the amount is OK wrt `max_sendable`.
+    validate::max_sendable_ok(
+        router,
+        &routing_context,
+        amount,
+        &lightning_balance,
+    )
+    .await?;
+
+    // Try to find a Route with the full intended amount.
+    let (ldk_route, lx_route) = validate::can_route_amount(
+        router,
+        network_graph,
+        &routing_context,
+        amount,
+    )
+    .await?;
+
+    let recipient_fields = recipient_onion_fields(&invoice);
+
+    let kind = PaymentKind::Invoice;
+    let amount = lx_route.amount();
+    let fees = lx_route.fees();
+    let oipwm = OutboundInvoicePaymentV2::new(
+        invoice,
+        kind,
+        amount,
+        fees,
+        req.message,
+        req.personal_note,
+    )
+    .context("Failed to create payment")?;
+
+    Ok(PreflightedPayInvoice {
+        oipwm,
+        ldk_route,
+        lx_route,
+        recipient_fields,
+    })
+}
+
+/// An outbound offer payment that we preflighted (validated and routed) but
+/// haven't paid yet.
+struct PreflightedPayOffer {
+    oopwm: PaymentWithMetadata<OutboundOfferPaymentV2>,
+    route: LxRoute,
+    // TODO(phlip9): remove this when we route and retry BOLT12 offer payments
+    // ourselves.
+    routing_context: RoutingContext,
+}
+
+async fn preflight_pay_offer_inner<CM, PS>(
+    req: PayOfferRequest,
+    router: &RouterType,
+    channel_manager: &CM,
+    payments_manager: &PaymentsManager<CM, PS>,
+    chain_monitor: &ChainMonitorType<PS>,
+    network_graph: &NetworkGraphType,
+    lsp_fees: LspFees,
+    lsp_node_pk: &NodePk,
+) -> anyhow::Result<PreflightedPayOffer>
+where
+    CM: QuidChannelManager<PS>,
+    PS: QuidPersister,
+{
+    let offer = req.offer;
+
+    // Fail early if offer is expired.
+    ensure!(!offer.is_expired(), "Offer has expired");
+
+    // We only support paying BTC-denominated offers at the moment.
+    ensure!(
+        !offer.is_fiat_denominated(),
+        "Fiat-denominated offers are not supported yet"
+    );
+
+    // Fail early if we already tried paying with this client ID.
+    let payment_id = PaymentId::OfferSend(req.cid);
+    let maybe_existing_payment = payments_manager
+        .get_payment(&payment_id)
+        .await
+        .context("Couldn't check for existing payment")?;
+    ensure!(
+        maybe_existing_payment.is_none(),
+        "Detected duplicate attempt trying to pay this offer. \
+         Please refresh and try again."
+    );
+
+    // TODO(phlip9): support user choosing quantity. For now just assume
+    // quantity=1, but in a way that works.
+    let quantity = if offer.expects_quantity() {
+        Some(const { NonZeroU64::new(1).unwrap() })
+    } else {
+        None
+    };
+
+    // Ensure that the to-be-paid amount >= min amount
+    if let Some(min_amount) = offer.min_amount()
+        && req.amount < min_amount
+    {
+        return Err(anyhow!(
+            "Payment amount must be greater than the minimum amount \
+             ({min_amount} sats) specified by the offer."
+        ));
+    }
+
+    // TODO(phlip9): actual_amount = amount * quantity
+    let amount = req.amount;
+
+    // Compute Lightning balances
+    let channels = channel_manager.list_channels();
+    let num_channels = channels.len();
+    let (lightning_balance, num_usable_channels) =
+        balance::all_channel_balances(chain_monitor, &channels, lsp_fees);
+
+    // Check that the user has at least one usable channel.
+    validate::has_usable_channels(num_channels, num_usable_channels)?;
+
+    // Construct payment parameters, which are amount-agnostic.
+    //
+    // Since we don't fetch the BOLT12 invoice in preflight yet, we can only
+    // simulate routing to the first public node in the offer. We also don't
+    // have the blinded path info yet, so this is clearly imperfect as we don't
+    // know the full routing fees, min/max htlc, etc...
+    let route_target = offer
+        .preflight_routable_node(&network_graph.read_only(), lsp_node_pk)?;
+    let payment_params = route::build_payment_params(
+        Either::Left(route_target),
+        Some(num_usable_channels),
+        // For initial sends, we don't have any failed channels to avoid.
+        Vec::new(),
+    )
+    .context("Couldn't build payment parameters")?;
+
+    // Construct payment routing context
+    let routing_context =
+        RoutingContext::from_payment_params(channel_manager, payment_params);
+
+    // Check that the amount is OK wrt `max_sendable`.
+    validate::max_sendable_ok(
+        router,
+        &routing_context,
+        amount,
+        &lightning_balance,
+    )
+    .await?;
+
+    // Try to find a Route with the full intended amount (well, to the first
+    // publicly routable node so this will underestimate the route cost by
+    // whatever the blinded hops charge).
+    let (_ldk_route, lx_route) = validate::can_route_amount(
+        router,
+        network_graph,
+        &routing_context,
+        amount,
+    )
+    .await?;
+
+    let amount = lx_route.amount();
+    let routing_fee = lx_route.fees();
+    let kind = PaymentKind::Offer;
+
+    // TODO(max): Include `payer_name` in `PayOfferRequest`
+    let payer_name = None;
+    let oopwm = OutboundOfferPaymentV2::new(
+        req.cid,
+        offer,
+        kind,
+        amount,
+        quantity,
+        routing_fee,
+        payer_name,
+        req.message,
+        req.personal_note,
+    )
+    .context("Failed to create payment")?;
+
+    Ok(PreflightedPayOffer {
+        oopwm,
+        route: lx_route,
+        routing_context,
+    })
+}
+
+/// Payments validation helpers.
+mod validate {
+    use quid_api::types::partners::{PartnersInfo, RevshareSchedule};
+    use quid_common::ln::balance::LightningBalance;
+
+    use super::*;
+
+    /// Check that the user has at least one usable channel.
+    pub(super) fn has_usable_channels(
+        num_channels: usize,
+        num_usable_channels: usize,
+    ) -> anyhow::Result<()> {
+        if num_channels == 0 {
+            // Noob error: Take the opportunity to teach the user about LN
+            // channels.
+            return Err(anyhow!(
+                "You don't have any Lightning channels, which are required \
+                 to send funds. Consider opening a new channel using on-chain \
+                 funds, or receiving funds to your wallet via Lightning."
+            ));
+        }
+        if num_usable_channels == 0 {
+            // The user has at least one channel, but none of them are usable.
+            // Maybe their channel is being closed or something.
+            return Err(anyhow!(
+                "You don't have any usable Lightning channels. Consider \
+                 opening a new channel using on-chain funds, or receiving \
+                 funds to your wallet directly via Lightning."
+            ));
+        }
+        Ok(())
+    }
+
+    /// Check various bounds on the amount w.r.t. `max_sendable`:
+    /// - They don't have a zero usable Lightning balance, in which case they
+    ///   can't send anything.
+    /// - If their usable balance is non-zero but `max_sendable` is zero, return
+    ///   an error telling them their funds are in the channel reserve.
+    /// - If the amount they're trying to send is greater than `max_sendable`,
+    ///   return an error telling them the maximum they can send.
+    pub(super) async fn max_sendable_ok(
+        router: &RouterType,
+        routing_context: &RoutingContext,
+        amount: Amount,
+        lightning_balance: &LightningBalance,
+    ) -> anyhow::Result<()> {
+        let max_sendable = lightning_balance.max_sendable;
+        let usable_lightning_balance = lightning_balance.usable;
+
+        // If the user has no usable Lightning balance, they can't send
+        // anything. Not sure how the user can even get here tbh.
+        if usable_lightning_balance == Amount::ZERO {
+            warn!("User has usable channels but zero usable balance?");
+            return Err(anyhow!(
+                "Insufficient balance: You have no usable Lightning balance. \
+                 Add to your Lightning balance in order to send payments.",
+            ));
+        }
+
+        // If they have a balance but not enough to exceed the channel reserve,
+        // return a dedicated error message, instead of "cannot find route".
+        if usable_lightning_balance > Amount::ZERO
+            && max_sendable == Amount::ZERO
+        {
+            return Err(anyhow!(
+                "Insufficient balance: Tried to pay {amount} sats, but all of \
+                 your Lightning balance is tied up in the channel reserve. \
+                 Consider adding to your Lightning balance in order to send \
+                 this amount.",
+            ));
+        }
+
+        if amount <= max_sendable {
+            return Ok(());
+        }
+
+        // Since we know the recipient, we can compute a more accurate maximum
+        // sendable amount to this recipient (i.e. max flow) and expose that to
+        // the user as a suggestion.
+        //
+        // TODO(max): We should also calculate the max flow from the *LSP*, so
+        // we can tell whether (1) `max_flow` is limited by the user's balance
+        // or (2) there simply isn't enough liquidity from LSP to recipient.
+        let max_flow_result = route::compute_max_flow_to_recipient(
+            router,
+            routing_context,
+            amount,
+        )
+        .await;
+
+        match max_flow_result {
+            Ok(max_flow) => Err(anyhow!(
+                "Insufficient balance: Tried to pay {amount} sats, but the \
+                 maximum amount you can send is {max_sendable} sats, after 
+                 accounting for the channel reserve. The maximum amount that \
+                 you can route to this recipient is {max_flow} sats. Consider \
+                 adding to your Lightning balance or sending a smaller amount.",
+            )),
+            Err(e) => Err(anyhow!(
+                "Couldn't route to this recipient with any amount: {e:#}"
+            )),
+        }
+    }
+
+    // Ensure we can find a Route with the full intended amount.
+    pub(super) async fn can_route_amount(
+        router: &RouterType,
+        network_graph: &NetworkGraphType,
+        routing_context: &RoutingContext,
+        amount: Amount,
+    ) -> anyhow::Result<(Route, LxRoute)> {
+        let route_result = routing_context.find_route(router, amount);
+        let route = match route_result {
+            Ok((route, _route_params)) => route,
+            // This error is just "Failed to find a path to the given
+            // destination", which is not helpful, so we don't include it in our
+            // error message.
+            Err(_) => {
+                // We couldn't find a route with the full intended amount.
+                // But since we know the recipient, we can compute a more
+                // accurate maximum sendable amount to this recipient
+                // (i.e. max flow).
+                let max_flow_result = route::compute_max_flow_to_recipient(
+                    router,
+                    routing_context,
+                    amount,
+                )
+                .await;
+
+                let error = match max_flow_result {
+                    Ok(max_flow) => {
+                        // TODO(max): We should also calculate the max flow from
+                        // the *LSP*, so we can tell whether (1) `max_flow` is
+                        // limited by the user's balance or (2) there simply
+                        // isn't enough liquidity from the LSP to the recipient.
+                        //
+                        // This call to action could then be one of:
+                        // 1) "You must add to your Lightning balance in order
+                        //    to send this amount to this recipient"
+                        // 2) "Consider sending a smaller amount or asking the
+                        //    recipient to increase their inbound liquidity."
+                        anyhow!(
+                            "Tried to pay {amount} sats. The maximum amount \
+                             that you can route to this recipient is {max_flow} \
+                             sats, after accounting for the channel reserve. \
+                             Consider adding to your Lightning balance or \
+                             sending a smaller amount.",
+                        )
+                    }
+                    Err(e) => anyhow!(
+                        "Couldn't route to this recipient with any amount: {e:#}"
+                    ),
+                };
+
+                return Err(error);
+            }
+        };
+
+        let lx_route = LxRoute::from_ldk(route.clone(), network_graph);
+        // TODO(max): Don't log for privacy; instead, expose in app.
+        info!("Preflighted route: {lx_route}");
+        Ok((route, lx_route))
+    }
+
+    /// Validate a partner's requested payment prop fee. Compute their revshare
+    /// of the payment fee according to the current [`RevshareSchedule`].
+    pub(super) async fn partner_fee(
+        user_exists_fn: &UserExistsFn,
+        partners: &PartnersInfo,
+        amount: Option<Amount>,
+        user_pk: &UserPk,
+        partner_pk: &UserPk,
+        partner_prop_fee: Option<Ppm>,
+        partner_base_fee: Option<Amount>,
+    ) -> anyhow::Result<PartnerFeeFields> {
+        ensure!(
+            partner_pk != user_pk,
+            "Cannot set your own node as the partner public key"
+        );
+
+        // Ensure the partner_pk points to a real Quid user.
+        //
+        // TODO(phlip9): A client credential should be tied to a single partner.
+        // Here we could cross-check with the partner_pk registered with the
+        // credential at creation time. Requires URI-redirect/QR-scan credential
+        // request flow make this usable.
+        let user_exists = user_exists_fn(*partner_pk)
+            .await
+            .context("Couldn't check if partner_pk exists")?;
+        ensure!(user_exists, "No partner exists with the given partner_pk");
+
+        // Compute the total prop fee on the payment
+        // `total_partner_fee := partner_prop_fee + partner_base_fee / amount`
+        let total_partner_fee = match amount {
+            // Let's be defensive and avoid div-by-zero
+            Some(amount) if amount != Amount::ZERO => {
+                let partner_prop_fee = partner_prop_fee.unwrap_or(Ppm::ZERO);
+                let partner_base_fee = partner_base_fee.unwrap_or(Amount::ZERO);
+                let total_partner_fee = partner_prop_fee.to_decimal()
+                    + (partner_base_fee.sats() / amount.sats());
+                Ppm::try_from(total_partner_fee).map_err(|_| {
+                    anyhow!(
+                        "Total partner fee ({total_partner_fee}) exceeds >100% \
+                         of the payment value"
+                    )
+                })?
+            }
+            _ => {
+                // From a Lightning protocol standpoint, it's difficult to
+                // for us to charge a per-payment base fee on inbound payments.
+                // Since a payment may be composed of multiple HTLCs and the LSP
+                // can't see the sender-intended amount nor determine what retry
+                // the HTLCs are associated with, it's non-trivial for the LSP
+                // to reliably correlate all successful HTLCs in a payment in
+                // order to charge a single base fee.
+                ensure!(
+                    partner_base_fee.is_none(),
+                    "To include a partner_base_fee you must specify an amount \
+                     to receive"
+                );
+                partner_prop_fee.unwrap_or(Ppm::ZERO)
+            }
+        };
+
+        // TODO(phlip9): support dynamic per-tier revshare. Partners would have
+        // an associated by-partner/by-volume/by-promo/by-plan tier that
+        // determines which revshare schedule they use.
+        let schedule_name = RevshareSchedule::DEFAULT_NAME;
+
+        // Lookup the partner's revshare from the corresponding partner
+        // revshare schedule.
+        let revshare = partners
+            .revshare_for_partner_fee(schedule_name, total_partner_fee)
+            .map_err(|err| anyhow!("{err}, total prop fee: {total_partner_fee} ppm"))?
+            .with_context(|| anyhow!(
+                "Failed to find revshare schedule with name: {schedule_name}"
+            ))?;
+
+        let pff = PartnerFeeFields {
+            user_pk: *partner_pk,
+            prop_fee: partner_prop_fee,
+            base_fee: partner_base_fee,
+            revshare: Some(revshare.to_decimal()),
+        };
+        pff.validate()?;
+
+        Ok(pff)
+    }
+}
+
+#[instrument(skip_all, name = "(create-revocable-client)")]
+pub async fn create_revocable_client(
+    user_pk: UserPk,
+    persister: &impl QuidPersister,
+    eph_ca_cert_der: LxCertificateDer,
+    rev_ca_cert: &RevocableIssuingCaCert,
+    revocable_clients: &RwLock<RevocableClients>,
+    req: CreateRevocableClientRequest,
+) -> anyhow::Result<CreateRevocableClientResponse> {
+    let mut rng = SysRng::new();
+
+    if let Some(label) = &req.label
+        && label.len() > RevocableClient::MAX_LABEL_LEN
+    {
+        return Err(anyhow!(
+            "Label must not be longer than {} bytes",
+            RevocableClient::MAX_LABEL_LEN
+        ));
+    }
+
+    // Scope: the node owner (`user_pk`) holds full authority (`Scope::All`), so it may grant
+    // the client any `req.scope`. Client creation is owner-only — a delegated client cannot
+    // reach here — so no granter-attenuation is required at this call; `RevocableClient::update`
+    // separately enforces that an existing client's scope can never be broadened.
+
+    let rev_client_cert = RevocableClientCert::generate_from_rng(&mut rng);
+    let pubkey = *rev_client_cert.public_key();
+    let now = TimestampMs::now();
+    let revocable_client = RevocableClient {
+        pubkey,
+        created_at: now,
+        expires_at: req.expires_at,
+        label: req.label,
+        scope: req.scope,
+        is_revoked: false,
+    };
+
+    let rev_client_cert_der = rev_client_cert
+        .serialize_der_ca_signed(rev_ca_cert)
+        .context("Failed to serialize revocable client cert")?;
+    let rev_client_cert_key_der = rev_client_cert.serialize_key_der();
+
+    let updated_file = {
+        let mut revocable_clients = revocable_clients.write().unwrap();
+
+        // We don't allow more than `MAX_LEN` clients for DoS reasons. We also
+        // don't delete revoked clients immediately. If we're above the limit,
+        // we'll prune the oldest revoked client(s).
+        maybe_evict_revoked_clients(
+            &mut revocable_clients.clients,
+            now,
+            RevocableClients::MAX_LEN,
+        )?;
+
+        let existing =
+            revocable_clients.clients.insert(pubkey, revocable_client);
+
+        if existing.is_some() {
+            debug_panic_release_log!(
+                "Somehow overwrote existing client {pubkey}"
+            );
+        }
+
+        persister.encrypt_json::<RevocableClients>(
+            REVOCABLE_CLIENTS_FILE_ID.clone(),
+            &revocable_clients,
+        )
+    };
+
+    let retries = 0;
+    persister
+        .persist_file(updated_file, retries)
+        .await
+        .context("Failed to persisted updated RevocableClients")?;
+
+    Ok(CreateRevocableClientResponse {
+        // Always `Some` since `node-v0.8.11`.
+        user_pk: Some(user_pk),
+        pubkey,
+        created_at: now,
+        eph_ca_cert_der: eph_ca_cert_der.0,
+        rev_client_cert_der: rev_client_cert_der.0,
+        rev_client_cert_key_der: rev_client_cert_key_der.0,
+    })
+}
+
+/// Evicts old revoked/expired clients if we have too many. Returns an `Err`
+/// if we have too many clients and can't evict any.
+fn maybe_evict_revoked_clients(
+    clients: &mut HashMap<ed25519::PublicKey, RevocableClient>,
+    now: TimestampMs,
+    limit: usize,
+) -> anyhow::Result<()> {
+    if clients.len() < limit {
+        return Ok(());
+    }
+
+    // We'll almost never be at the limit, and if we are, we'll likely only
+    // remove one client. However this while loop handles the case where we
+    // reduce the limit and need to remove multiple clients.
+    let target_len = limit.saturating_sub(1);
+    while clients.len() > target_len {
+        // Find the oldest revoked or expired clients
+        let oldest_revoked_client = clients
+            .values()
+            .filter(|client| !client.is_valid_at(now))
+            .min_by_key(|client| client.created_at)
+            .map(|client| client.pubkey);
+
+        match oldest_revoked_client {
+            Some(pubkey) => {
+                // Evict old, revoked client
+                clients.remove(&pubkey).expect("Client should exist");
+            }
+            None =>
+                return Err(anyhow!(
+                    "Reached maximum # of API clients. For more clients, please \
+                 contact Quid to explain why you need more than {} clients.",
+                    RevocableClients::MAX_LEN,
+                )),
+        }
+    }
+
+    Ok(())
+}
+
+/// Update an existing [`RevocableClient`] (revoke, set expiration, etc...).
+#[instrument(skip_all, name = "(update-revocable-client)")]
+pub async fn update_revocable_client(
+    persister: &impl QuidPersister,
+    revocable_clients: &RwLock<RevocableClients>,
+    req: UpdateClientRequest,
+) -> anyhow::Result<UpdateClientResponse> {
+    let (updated_file, response) = {
+        let mut revocable_clients = revocable_clients.write().unwrap();
+
+        // Get the client
+        let pubkey = req.pubkey;
+        let client = revocable_clients
+            .clients
+            .get_mut(&pubkey)
+            .ok_or_else(|| anyhow!("No revocable client with pk {pubkey}"))?;
+
+        // Update
+        let updated_client = client.update(req)?;
+        *client = updated_client.clone();
+        let response = UpdateClientResponse {
+            client: updated_client,
+        };
+
+        // Generate the new file
+        let updated_file = persister.encrypt_json::<RevocableClients>(
+            REVOCABLE_CLIENTS_FILE_ID.clone(),
+            &revocable_clients,
+        );
+
+        (updated_file, response)
+    };
+
+    // NOTE: If persist fails, the persisted state will be out of sync until the
+    // next successful persist (or until the next boot). Ideally we ensure
+    // consistency by holding a `tokio::sync::RwLock` during the persist, but
+    // `RevocableClients` is read in the `ClientCertVerifier` which is sync.
+    // Since the in-memory struct represents the user's intention and is
+    // sufficient to enforce the server's client policies, this is probably OK.
+    // Using `Arc<tokio::sync::RwLock<Arc<RwLock<RevocableClients>>>>` or
+    // similar doesn't seem worth the minimal consistency benefit.
+    let retries = 0;
+    persister
+        .persist_file(updated_file, retries)
+        .await
+        .context("Failed to persisted updated RevocableClients")?;
+
+    Ok(response)
+}
+
+#[cfg(test)]
+mod test {
+    use futures::{FutureExt, future};
+    use quid_common::{ppm, sat};
+    use proptest::proptest;
+
+    use super::*;
+
+    #[test]
+    fn test_maybe_evict_revoked_clients() {
+        use proptest::{arbitrary::any, collection::vec};
+        proptest!(|(
+            clients in vec(any::<RevocableClient>(), 0..10),
+            now: TimestampMs,
+            limit in 0_usize..10,
+        )| {
+            // setup
+            let mut clients = clients
+                .into_iter()
+                .map(|client| (client.pubkey, client))
+                .collect::<HashMap<_, _>>();
+            let num_before = clients.len();
+            let num_evictable = clients
+                .values()
+                .filter(|client| !client.is_valid_at(now))
+                .count();
+
+            // evict bad clients
+            let result = maybe_evict_revoked_clients(&mut clients, now, limit);
+
+            // (rough) can't evict more than we expect
+            let num_after = clients.len();
+            let num_evicted = num_before - num_after;
+            assert!(num_evicted <= num_evictable);
+
+            // (precise) evict exactly what we expect
+            let target_len = limit.saturating_sub(1);
+            let expected_len = if num_before <= target_len {
+                num_before
+            } else {
+                std::cmp::max(num_before - num_evictable, target_len)
+            };
+            assert_eq!(num_after, expected_len);
+
+            // if we didn't evict enough, should return Err
+            if num_after > target_len {
+                result.unwrap_err();
+            } else {
+                result.unwrap();
+            }
+        });
+    }
+
+    #[test]
+    fn test_validate_partner_fee() {
+        let user_exists_fn: UserExistsFn =
+            Arc::new(|_| future::ready(Ok(true)).boxed());
+        let partners = PartnersInfo::current();
+        let user_pk = UserPk::from_u64(123);
+        let partner_pk = UserPk::from_u64(456);
+        let test =
+            |amount, prop_fee, base_fee| -> anyhow::Result<PartnerFeeFields> {
+                futures::executor::block_on(validate::partner_fee(
+                    &user_exists_fn,
+                    &partners,
+                    amount,
+                    &user_pk,
+                    &partner_pk,
+                    prop_fee,
+                    base_fee,
+                ))
+            };
+
+        // ERR: partner_pk set but no fees set
+        test(Some(sat!(120_000)), None, None).unwrap_err();
+        test(None, None, None).unwrap_err();
+
+        // ERR: base fee with amount=None
+        test(None, Some(ppm!(0.50%)), Some(sat!(50))).unwrap_err();
+
+        // ERR: base fee only
+        test(Some(sat!(120_000)), None, Some(sat!(10_000))).unwrap_err();
+
+        // ERR: total fee too small
+        test(Some(sat!(120_000)), Some(ppm!(0.49%)), None).unwrap_err();
+        test(Some(sat!(120_000)), Some(ppm!(0.25%)), Some(sat!(100)))
+            .unwrap_err();
+        test(None, Some(ppm!(0.01%)), None).unwrap_err();
+        test(None, Some(ppm!(0.49%)), None).unwrap_err();
+
+        // ERR: total fee too large
+        test(Some(sat!(120_000)), Some(ppm!(50.0%)), None).unwrap_err();
+        test(None, Some(ppm!(50.0%)), None).unwrap_err();
+        test(None, Some(ppm!(99.0%)), None).unwrap_err();
+        test(Some(sat!(120_000)), Some(ppm!(1.0%)), Some(sat!(59_000)))
+            .unwrap_err();
+
+        // OK:
+        assert_eq!(
+            test(None, Some(ppm!(0.5%)), None).unwrap(),
+            PartnerFeeFields {
+                user_pk: partner_pk,
+                prop_fee: Some(ppm!(0.5%)),
+                base_fee: None,
+                revshare: Some(ppm!(20.0%).to_decimal()),
+            }
+        );
+
+        // OK:
+        assert_eq!(
+            test(Some(sat!(120_000)), Some(ppm!(0.5%)), Some(sat!(1_200)))
+                .unwrap(),
+            PartnerFeeFields {
+                user_pk: partner_pk,
+                prop_fee: Some(ppm!(0.5%)),
+                base_fee: Some(sat!(1_200)),
+                revshare: Some(ppm!(50.0%).to_decimal()),
+            }
+        );
+    }
+}

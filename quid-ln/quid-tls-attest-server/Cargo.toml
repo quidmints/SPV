@@ -1,0 +1,44 @@
+[package]
+name = "quid-tls-attest-server"
+license = "PolyForm-Noncommercial-1.0.0"
+authors = { workspace = true }
+edition = { workspace = true }
+version = { workspace = true }
+publish = false
+
+[dependencies]
+
+# --- QU!D --- #
+
+quid-common = { workspace = true }
+quid-crypto = { workspace = true }
+quid-enclave = { workspace = true }
+quid-hex = { workspace = true }
+quid-tls = { workspace = true }
+quid-tls-core = { workspace = true }
+quid-sha256 = { workspace = true }
+
+# --- WORKSPACE --- #
+
+anyhow = { workspace = true }
+rcgen = { workspace = true }
+rustls = { workspace = true }
+time = { workspace = true }
+
+[target.'cfg(target_env = "sgx")'.dependencies]
+aes = { workspace = true }
+aesm-client = { workspace = true }
+bytemuck = { workspace = true }
+cmac = { workspace = true }
+sgx-isa = { workspace = true }
+
+[dev-dependencies]
+quid-tls = { workspace = true, features = ["test-utils"] }
+
+# `macros` + `rt` for `#[tokio::test]`; the handshake helper's `io-util`/`macros`
+# come transitively via `quid-tls/test-utils`.
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+# Only needed by the SGX-only `dump_attest_cert` test.
+[target.'cfg(target_env = "sgx")'.dev-dependencies]
+base64 = { workspace = true }

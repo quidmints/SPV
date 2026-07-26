@@ -1,0 +1,86 @@
+[package]
+name = "quid-tls"
+version = "0.1.11"
+license = "MIT"
+description = "Quid TLS configs, certs, and utilities"
+documentation = "https://docs.rs/quid-tls"
+authors = { workspace = true }
+edition = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+exclude = [
+    "/test_data"
+]
+publish = true
+
+# Config for testing in SGX
+# Need more threads and more stack for tokio. See: quid-common/Cargo.toml.
+[package.metadata.fortanix-sgx]
+stack-size = 0x20_0000
+threads = 4
+
+[features]
+default = []
+# Enables various test hooks and utilities. Should be disabled in staging/prod.
+test-utils = [
+  "quid-common/test-utils",
+  "quid-crypto/test-utils",
+  "dep:proptest",
+  "dep:proptest-derive",
+  "dep:tokio-rustls",
+  # `do_tls_handshake` needs these tokio sub-features; enabling them here keeps
+  # the helper compilable for any external consumer of `test-utils` (not only
+  # under a whole-workspace build where feature unification supplied them).
+  "tokio/io-util",
+  "tokio/macros",
+]
+
+[dependencies]
+
+
+quid-byte-array = { workspace = true }
+quid-common = { workspace = true }
+quid-crypto = { workspace = true }
+quid-enclave = { workspace = true }
+quid-hex = { workspace = true }
+quid-serde = { workspace = true }
+quid-sha256 = { workspace = true }
+quid-tls-core = { workspace = true, features = ["webpki-roots"] }
+
+# --- WORKSPACE --- #
+
+anyhow = { workspace = true }
+asn1-rs = { workspace = true }
+base64 = { workspace = true }
+dcap-ql = { workspace = true }
+num-bigint = { workspace = true }
+rcgen = { workspace = true }
+ring = { workspace = true }
+rustls = { workspace = true }
+rustls-webpki = { workspace = true }
+secrecy = { workspace = true }
+serde = { workspace = true }
+sgx-isa = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
+webpki-roots = { workspace = true }
+x509-parser = { workspace = true }
+yasna = { workspace = true }
+
+# --- OPTIONAL --- #
+# These must have `optional = true` to prevent infecting production binaries.
+
+proptest = { optional = true, workspace = true, features = ["alloc"] }
+proptest-derive = { optional = true, workspace = true }
+tokio-rustls = { optional = true, workspace = true }
+
+[dev-dependencies]
+quid-common = { workspace = true, features = ["test-utils"] }
+quid-crypto = { workspace = true, features = ["test-utils"] }
+
+proptest = { workspace = true, features = ["alloc"] }
+proptest-derive = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "macros", "test-util"] }
+tokio-rustls = { workspace = true }

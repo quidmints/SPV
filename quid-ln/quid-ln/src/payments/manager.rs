@@ -1,0 +1,2164 @@
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
+
+use anyhow::{Context, anyhow, bail, ensure};
+use bdk_wallet::KeychainKind;
+use either::Either;
+use quid_api::{
+    models::command::UpdatePersonalNote,
+    types::{
+        bounded_string::BoundedString,
+        invoice::Invoice,
+        payments::{
+            LnClaimId, PaymentCreatedIndex, PaymentHash, PaymentId,
+            PaymentKind, PaymentPreimage, PaymentStatus,
+        },
+    },
+};
+use quid_common::{
+    api::test_event::TestEvent,
+    ln::{amount::Amount, hashes::Txid},
+    time::TimestampMs,
+};
+use quid_tokio::{notify, notify_once::NotifyOnce, task::LxTask};
+#[cfg(doc)]
+use lightning::events::Event::PaymentFailed;
+use lightning::{
+    events::PaymentPurpose,
+    ln::channelmanager::{
+        FailureCode, RecipientOnionFields, RetryableSendFailure,
+    },
+};
+use tokio::{sync::MutexGuard, time::Instant};
+use tracing::{debug, error, info, info_span, instrument, warn};
+
+use crate::{
+    esplora::{Esplora, TxConfStatus},
+    payments::{
+        PaymentV2, PaymentWithMetadata,
+        inbound::{
+            ClaimableError, InboundOfferReusablePaymentV2,
+            InboundSpontaneousPaymentV2, LnClaimCtx,
+        },
+        onchain::OnchainReceiveV2,
+        outbound::{ExpireError, LxOutboundPaymentFailure},
+    },
+    persister::PersisterMethods,
+    route::{self, QuidRouter, RoutingContext},
+    test_event::TestEventSender,
+    traits::{QuidChannelManager, QuidPersister},
+    wallet::OnchainWallet,
+};
+
+/// The interval at which we check our pending payments for expired
+/// invoices/offers.
+const PAYMENT_EXPIRY_CHECK_INTERVAL: Duration = Duration::from_secs(120);
+/// The interval at which we check our onchain payments for confirmations.
+const ONCHAIN_PAYMENT_CHECK_INTERVAL: Duration = Duration::from_secs(120);
+const PAYMENT_EXPIRY_CHECK_DELAY: Duration = Duration::from_secs(1);
+const ONCHAIN_PAYMENT_CHECK_DELAY: Duration = Duration::from_secs(2);
+/// Annotates that a given [`PaymentV2`] was returned by a `check_*` method
+/// which successfully validated a proposed state transition.
+/// [`CheckedPayment`]s should be persisted in order to transform into
+/// [`PersistedPayment`]s.
+#[must_use]
+#[cfg_attr(test, derive(Debug, Eq, PartialEq))]
+// TODO(max): This should be PaymentV2
+// pub struct CheckedPayment(pub PaymentV2);
+pub struct CheckedPayment(pub PaymentWithMetadata);
+
+/// Annotates that a given [`PaymentV2`] was successfully persisted.
+/// `created_at` and `updated_at` are assigned at the time of persistence.
+/// [`PersistedPayment`]s should be committed to the local payments state.
+#[must_use]
+pub struct PersistedPayment {
+    // TODO(max): This should be PaymentV2
+    // pub payment: PaymentV2,
+    pub pwm: PaymentWithMetadata,
+    pub created_at: TimestampMs,
+    pub updated_at: TimestampMs,
+}
+
+/// The top-level, cloneable actor which exposes the main entrypoints for
+/// various payment actions, including creating, updating, and finalizing
+/// payments.
+///
+/// The primary responsibility of the [`PaymentsManager`] is to manage shared
+/// access to the underlying payments state machine, and to coordinate callers,
+/// the persister, and LDK to ensure that state updates are in sync, and that
+/// there are no update / persist races.
+#[derive(Clone)]
+pub struct PaymentsManager<CM: QuidChannelManager<PS>, PS: QuidPersister> {
+    data: Arc<tokio::sync::Mutex<PaymentsData>>,
+    persister: PS,
+    channel_manager: CM,
+    router: Arc<QuidRouter>,
+    test_event_tx: TestEventSender,
+}
+
+/// The main payments state machine, exposing private methods available only to
+/// the [`PaymentsManager`].
+///
+/// Each state update consists of three stages:
+///
+/// 1) Check: We validate the proposed state transition, returning a
+///    [`CheckedPayment`] if everything is OK. This is handled by the `check_*`
+///    methods, which in turn delegate the heavy lifting to the corresponding
+///    `check_*` methods available on each specific payment type.
+/// 2) Persist: We persist the validated state transition, returning a
+///    [`PersistedPayment`] if persistence succeeded. This is handled by the
+///    [`upsert_payment`] and [`upsert_payment_batch`] methods.
+/// 3) Commit: We commit the validated + persisted state transition to the local
+///    state. This is done by [`PaymentsData::commit`].
+///
+/// To prevent update and persist races, a (Tokio) lock to the [`PaymentsData`]
+/// struct (or at least the [`PaymentId`] of the payment) should be held
+/// throughout the entirety of the state update, including the all of the check,
+/// persist, and commit stages. TODO(max): If this turns out to be a performance
+/// bottleneck, we should switch to per-payment or per-payment-type locks.
+///
+/// [`upsert_payment`]: PersisterMethods::upsert_payment
+/// [`upsert_payment_batch`]: PersisterMethods::upsert_payment_batch
+#[cfg_attr(test, derive(Clone, Debug))]
+struct PaymentsData {
+    pending: HashMap<PaymentId, PaymentWithMetadata>,
+    /// A non-exhaustive cache of finalized payments.
+    finalized_payments_cache:
+        quick_cache::unsync::Cache<PaymentId, PaymentWithMetadata>,
+    /// In-memory retry state for outbound payments currently in-flight.
+    in_flight: HashMap<PaymentId, InFlightRetryState>,
+}
+
+/// In-memory state for an outbound payment that is currently being retried.
+#[cfg_attr(test, derive(Clone, Debug))]
+pub(crate) struct InFlightRetryState {
+    /// Maximum number of retry attempts for this payment.
+    pub max_attempts: u8,
+    /// Number of send attempts made so far (starts at 1 after initial send).
+    pub attempts_count: u8,
+    /// SCIDs of channels that failed during previous attempts.
+    /// Used to exclude these channels when computing retry routes.
+    pub failed_channel_scids: HashSet<u64>,
+    /// The invoice being paid (contains hash and secret).
+    pub invoice: Arc<Invoice>,
+    /// The amount being sent (excluding fees).
+    pub amount: Amount,
+}
+
+impl<CM: QuidChannelManager<PS>, PS: QuidPersister> PaymentsManager<CM, PS> {
+    /// Instantiates a new [`PaymentsManager`] and spawns associated tasks.
+    pub fn new(
+        persister: PS,
+        channel_manager: CM,
+        router: Arc<QuidRouter>,
+        finalized_cache_capacity: usize,
+        esplora: Arc<Esplora>,
+        pending_payments: Vec<PaymentWithMetadata>,
+        wallet: OnchainWallet,
+        onchain_recv_rx: notify::Receiver,
+        test_event_tx: TestEventSender,
+        shutdown: NotifyOnce,
+    ) -> (Self, [LxTask<()>; 2]) {
+        let pending = pending_payments
+            .into_iter()
+            // Check that payments are indeed pending before adding to hashmap
+            .filter_map(|pwm| {
+                let id = pwm.payment.id();
+                let status = pwm.payment.status();
+
+                if matches!(status, PaymentStatus::Pending) {
+                    Some((id, pwm))
+                } else if cfg!(debug_assertions) {
+                    panic!("Payment {id} should've been pending, was {status}");
+                } else {
+                    error!("Payment {id} should've been pending, was {status}");
+                    None
+                }
+            })
+            .collect::<HashMap<PaymentId, PaymentWithMetadata>>();
+
+        let finalized_payments_cache =
+            quick_cache::unsync::Cache::new(finalized_cache_capacity);
+
+        let data = Arc::new(tokio::sync::Mutex::new(PaymentsData {
+            pending,
+            finalized_payments_cache,
+            in_flight: HashMap::new(),
+        }));
+
+        let this = Self {
+            data,
+            persister,
+            channel_manager,
+            router,
+            test_event_tx,
+        };
+
+        let payments_tasks = [
+            this.spawn_payment_expiry_checker(shutdown.clone()),
+            this.spawn_onchain_checker(
+                esplora,
+                wallet,
+                onchain_recv_rx,
+                shutdown.clone(),
+            ),
+        ];
+
+        (this, payments_tasks)
+    }
+
+    fn spawn_payment_expiry_checker(
+        &self,
+        mut shutdown: NotifyOnce,
+    ) -> LxTask<()> {
+        let payman = self.clone();
+        LxTask::spawn_with_span(
+            "payment expiry checker",
+            info_span!("(payment-expiry-checker)"),
+            async move {
+                let mut check_timer = tokio::time::interval_at(
+                    Instant::now() + PAYMENT_EXPIRY_CHECK_DELAY,
+                    PAYMENT_EXPIRY_CHECK_INTERVAL,
+                );
+
+                loop {
+                    tokio::select! {
+                        _ = check_timer.tick() => (),
+                        () = shutdown.recv() => break,
+                    }
+
+                    let check_result = tokio::select! {
+                        res = payman.check_payment_expiries() => res,
+                        () = shutdown.recv() => break,
+                    };
+
+                    if let Err(e) = check_result {
+                        error!("Error checking payment expiries: {e:#}");
+                    }
+                }
+
+                info!("Invoice payment checker task shutting down");
+            },
+        )
+    }
+
+    /// Spawns a task that calls `check_onchain` periodically, or when notified
+    /// by BDK sync completion.
+    ///
+    /// We only check for new / previously unknown payments after a successful
+    /// BDK sync.
+    fn spawn_onchain_checker(
+        &self,
+        esplora: Arc<Esplora>,
+        wallet: OnchainWallet,
+        mut onchain_recv_rx: notify::Receiver,
+        mut shutdown: NotifyOnce,
+    ) -> LxTask<()> {
+        let payman = self.clone();
+        LxTask::spawn_with_span(
+            "onchain checker",
+            info_span!("(onchain-checker)"),
+            async move {
+                let mut timer = tokio::time::interval_at(
+                    Instant::now() + ONCHAIN_PAYMENT_CHECK_DELAY,
+                    ONCHAIN_PAYMENT_CHECK_INTERVAL,
+                );
+                loop {
+                    // only check for new payments after BDK sync
+                    let check_new = tokio::select! {
+                        // triggered when we complete an on-chain BDK sync
+                        () = onchain_recv_rx.recv() => {
+                            timer.reset();
+                            true
+                        },
+                        // triggered periodically. don't try to look for new
+                        // onchain recvs until we complete the next sync.
+                        _ = timer.tick() => false,
+                        () = shutdown.recv() => break,
+                    };
+
+                    let res = tokio::select! {
+                        res = payman.check_onchain(&esplora, &wallet, check_new) => res,
+                        () = shutdown.recv() => break,
+                    };
+
+                    if let Err(e) = res {
+                        error!("Error checking onchain: {e:#}");
+                    }
+                }
+
+                info!("Onchain receive checker task shutting down");
+            },
+        )
+    }
+
+    /// Attempts to retry a failed outbound invoice payment.
+    ///
+    /// Gets the in-flight state, computes a new route avoiding previously
+    /// failed channels, and sends the payment again.
+    ///
+    /// NOTE: This performs full routing and should only be called from
+    /// out-of-line `Event` handlers.
+    ///
+    /// Returns `Ok(())` if the payment was sent or is already in-flight.
+    /// Returns `Err(failure)` if the payment should be failed permanently;
+    /// the caller is responsible for persisting the failure.
+    //
+    // Event sources:
+    // - `payment_failed` handler (after PaymentFailed event)
+    #[instrument(skip_all, name = "(retry-payment)", fields(%id))]
+    async fn retry_payment(
+        &self,
+        id: PaymentId,
+    ) -> Result<(), LxOutboundPaymentFailure> {
+        debug!("Attempting retry");
+
+        struct RetryInfo {
+            invoice: Arc<Invoice>,
+            amount: Amount,
+            failed_channel_scids: HashSet<u64>,
+        }
+
+        // Loop until we either send successfully or exhaust retries.
+        loop {
+            // Get in-flight state and extract info needed for routing.
+            // Clone the necessary info to avoid holding the lock during
+            // routing.
+            let retry_info = {
+                let locked_data = self.data.lock().await;
+                locked_data.get_in_flight(&id).map(|state| RetryInfo {
+                    invoice: state.invoice.clone(),
+                    amount: state.amount,
+                    failed_channel_scids: state.failed_channel_scids.clone(),
+                })
+            };
+
+            // Can't retry without in-flight state.
+            let Some(retry_info) = retry_info else {
+                info!("No in-flight state found");
+                return Err(LxOutboundPaymentFailure::NoRetries);
+            };
+
+            let payment_params = match route::build_payment_params(
+                Either::Right(retry_info.invoice.as_ref()),
+                // TODO(a-mpch): Review if we should compute
+                // `num_usable_channels` here.
+                None, // Don't need channel count for retry
+                retry_info.failed_channel_scids.into_iter().collect(),
+            ) {
+                Ok(params) => params,
+                // Failed to build params (unlikely).
+                Err(_) => return Err(LxOutboundPaymentFailure::QuidErr),
+            };
+
+            // Create routing context and find a new route.
+            let routing_context = RoutingContext::from_payment_params(
+                &self.channel_manager,
+                payment_params,
+            );
+
+            let route_result =
+                routing_context.find_route(&self.router, retry_info.amount);
+            let (route, _route_params) = match route_result {
+                Ok(r) => r,
+                Err(_) => {
+                    // No route found. Retry immediately if under max attempts.
+                    let should_retry = {
+                        let mut locked_data = self.data.lock().await;
+                        locked_data.increment_attempt(&id);
+                        locked_data.has_remaining_attempts(&id)
+                    };
+
+                    if should_retry {
+                        debug!("No route found, retrying immediately");
+                        self.test_event_tx.send(TestEvent::PaymentRetried);
+                        continue;
+                    }
+
+                    debug!("No route found, no more retries");
+                    return Err(LxOutboundPaymentFailure::NoRoute);
+                }
+            };
+
+            // Build recipient onion fields (includes payment_metadata if
+            // present).
+            let recipient_fields = recipient_onion_fields(&retry_info.invoice);
+
+            let (payment_id, payment_hash) = match id {
+                PaymentId::Lightning(hash) => (
+                    lightning::ln::channelmanager::PaymentId::from(hash),
+                    lightning::types::payment::PaymentHash::from(hash),
+                ),
+                _ => return Err(LxOutboundPaymentFailure::QuidErr),
+            };
+
+            // Send the payment.
+            let send_result = self.channel_manager.send_payment_with_route(
+                route,
+                payment_hash,
+                recipient_fields,
+                payment_id,
+            );
+
+            match send_result {
+                Ok(()) => {
+                    self.data.lock().await.increment_attempt(&id);
+                    info!("Retry send succeeded, waiting for events");
+                    return Ok(());
+                }
+                Err(RetryableSendFailure::DuplicatePayment) => {
+                    // Payment is already in-flight with LDK. We'll receive
+                    // PaymentSent or PaymentFailed events when it completes.
+                    debug!("Payment already in-flight, waiting for events");
+                    return Ok(());
+                }
+                Err(RetryableSendFailure::PaymentExpired) => {
+                    return Err(LxOutboundPaymentFailure::Expired);
+                }
+                Err(RetryableSendFailure::RouteNotFound) => {
+                    // Shouldn't happen after find_route succeeded.
+                    return Err(LxOutboundPaymentFailure::NoRoute);
+                }
+                Err(RetryableSendFailure::OnionPacketSizeExceeded) => {
+                    return Err(LxOutboundPaymentFailure::MetadataTooLarge);
+                }
+            }
+        }
+    }
+
+    /// Register a new, globally-unique payment.
+    ///
+    /// Errors if the payment already exists.
+    ///
+    /// Returns the newly-assigned [`PaymentCreatedIndex`] for convenience.
+    //
+    // TODO(phlip9): might be clearer semantics if we assign the
+    // new payment's `created_at` _inside_ the lock... this would make
+    // payments properly append-only with a strictly increasing `created_at`
+    #[instrument(skip_all, name = "(new-payment)")]
+    pub async fn new_payment(
+        &self,
+        payment: PaymentWithMetadata,
+    ) -> anyhow::Result<PaymentCreatedIndex> {
+        let mut locked_data = self.data.lock().await;
+        self.new_payment_inner(&mut locked_data, payment).await
+    }
+
+    /// [`Self::new_payment`] with a pre-acquired lock.
+    async fn new_payment_inner(
+        &self,
+        locked_data: &mut MutexGuard<'_, PaymentsData>,
+        payment: PaymentWithMetadata,
+    ) -> anyhow::Result<PaymentCreatedIndex> {
+        let id = payment.payment.id();
+        info!(%id, "Registering new payment");
+
+        let existing_payment = self
+            .get_cow_payment(locked_data, &id)
+            .await
+            .context("Could not get existing payment")?;
+        if let Some(existing_payment) = existing_payment {
+            let status = existing_payment.payment.status();
+            return Err(anyhow!("Payment already exists: {status}"));
+        }
+
+        let checked = CheckedPayment(payment);
+
+        let persisted = self
+            .persister
+            .upsert_payment(checked)
+            .await
+            .context("Could not persist new payment")?;
+        let created_at = persisted.created_at;
+
+        locked_data.commit(persisted);
+
+        Ok(PaymentCreatedIndex { id, created_at })
+    }
+
+    /// Start tracking in-flight retry state for an outbound invoice payment.
+    ///
+    /// Called after `send_payment_with_route` succeeds to record the retry
+    /// strategy and initial state. This state is purely in-memory and will be
+    /// lost on restart (by design - payments should fail fast after restart).
+    //
+    // Event sources:
+    // - `pay_invoice` API (after send_payment_with_route)
+    pub async fn start_in_flight(
+        &self,
+        id: PaymentId,
+        max_attempts: u8,
+        invoice: Arc<Invoice>,
+        amount: Amount,
+    ) {
+        let state = InFlightRetryState {
+            max_attempts,
+            attempts_count: 1,
+            failed_channel_scids: HashSet::new(),
+            invoice,
+            amount,
+        };
+
+        debug!(%id, "Starting in-flight retry tracking");
+        let mut locked_data = self.data.lock().await;
+        locked_data.start_in_flight(id, state);
+    }
+
+    /// Get a [`PaymentWithMetadata`] by its [`PaymentId`].
+    /// Returns the in-memory payment if cached, fetches from the DB otherwise.
+    pub async fn get_payment(
+        &self,
+        id: &PaymentId,
+    ) -> anyhow::Result<Option<PaymentWithMetadata>> {
+        let mut locked_data = self.data.lock().await;
+        self.get_cow_payment(&mut locked_data, id)
+            .await
+            .map(|maybe_payment| maybe_payment.map(|p| p.into_owned()))
+    }
+
+    /// Given a locked [`PaymentsData`], get either a reference to an in-memory
+    /// payment or an owned payment fetched from the DB, if it exists.
+    async fn get_cow_payment<'param>(
+        &self,
+        locked_data: &'param mut MutexGuard<'_, PaymentsData>,
+        id: &PaymentId,
+    ) -> anyhow::Result<Option<Cow<'param, PaymentWithMetadata>>> {
+        // Check if payment exists WITHOUT borrowing the data. This convinces
+        // the borrow checker that the code paths are mutually exclusive:
+        //
+        // - If in_memory=true: we only do an immutable borrow (get ref, return)
+        // - If in_memory=false: we only do mutable borrows (insert into cache)
+        //
+        // Without this, the compiler can't prove the borrows don't overlap.
+        let in_memory = locked_data.pending.contains_key(id)
+            || locked_data.finalized_payments_cache.contains_key(id);
+
+        if in_memory {
+            let payment = locked_data
+                .pending
+                .get(id)
+                .or_else(|| locked_data.finalized_payments_cache.get(id))
+                .expect("Just checked it exists above");
+            return Ok(Some(Cow::Borrowed(payment)));
+        }
+
+        let maybe_pwm =
+            self.persister.get_payment_with_metadata_by_id(*id).await?;
+
+        if let Some(ref pwm) = maybe_pwm {
+            locked_data
+                .finalized_payments_cache
+                .insert(*id, pwm.clone());
+        }
+
+        Ok(maybe_pwm.map(Cow::Owned))
+    }
+
+    /// Attempt to update the personal note on a payment.
+    #[instrument(skip_all, name = "(update-personal-note)")]
+    pub async fn update_personal_note(
+        &self,
+        update: UpdatePersonalNote,
+    ) -> anyhow::Result<()> {
+        let id = update.index.id;
+        info!(%id, "Updating payment note");
+        let mut locked_data = self.data.lock().await;
+
+        // TODO(max): During the payments v2 logic migration, we have to hold
+        // the lock for consistency. Once we move to payments v2 persistence,
+        // this method should not exist; the `update_personal_note` API handler
+        // should call into the `PaymentMetadataManager` which manages all
+        // payment metadata reads/writes.
+        //
+        // For now, we intentionally *don't* read from our PaymentsData cache,
+        // since the note won't be in the PaymentV2 type in the future.
+
+        // Update
+        let mut pwm = self
+            .persister
+            .get_payment_with_metadata_by_id(update.index.id)
+            .await
+            .context("Could not get payment to update note")?
+            .context("Payment not found")?;
+        pwm.metadata.personal_note =
+            update.personal_note.map(BoundedString::into_inner);
+
+        // Persist
+        let persisted = self
+            .persister
+            .upsert_payment(CheckedPayment(pwm))
+            .await
+            .context("Could not persist updated payment note")?;
+
+        // Commit
+        locked_data.commit(persisted);
+
+        debug!(%id, "Successfully updated payment note");
+        Ok(())
+    }
+
+    /// Handles a [`PaymentClaimable`] event.
+    ///
+    /// [`PaymentClaimable`]: lightning::events::Event::PaymentClaimable
+    //
+    // Event sources:
+    // - `EventHandler` -> `Event::PaymentClaimable` (replayable)
+    #[instrument(skip_all, name = "(payment-claimable)")]
+    pub async fn payment_claimable(
+        &self,
+        purpose: PaymentPurpose,
+        hash: PaymentHash,
+        // TODO(phlip9): make non-Option once replaying events drain in prod
+        claim_id: Option<LnClaimId>,
+        amt_msat: u64,
+        skimmed_fee: Option<Amount>,
+    ) -> anyhow::Result<()> {
+        // MUST call one of these before this function returns:
+        // - `channel_manager.claim_funds*`
+        // - `channel_manager.fail_htlc_backwards*`
+
+        let now = TimestampMs::now();
+        let amount = Amount::from_msat(amt_msat);
+        info!(%amount, %hash, "Handling PaymentClaimable");
+
+        // TODO(max): Get offer from out-of-line storage
+        let offer = None;
+
+        // The conversion can only fail if the preimage is unknown.
+        let claim_ctx = LnClaimCtx::new(purpose, hash, claim_id, offer)
+            .inspect_err(|_| {
+                self.channel_manager.fail_htlc_backwards_with_reason(
+                    &hash.into(),
+                    FailureCode::IncorrectOrUnknownPaymentDetails,
+                )
+            })?;
+
+        let preimage = claim_ctx.preimage();
+
+        // NOTE: avoid touching the ChannelManager while holding the lock
+        let handle_claimable = || async {
+            let mut locked_data = self.data.lock().await;
+
+            // The PaymentClaimable docs have a note that LDK will not stop an
+            // inbound payment from being paid multiple times. We should fail
+            // the payment in this case because:
+            // - This messes up (or significantly complicates) our accounting
+            // - This likely reflects an error on the receiver's part (reusing
+            //   the same invoice for multiple payments, which would allow any
+            //   nodes along the first payment path to steal later payments)
+            // - We should not allow payments to go through, in order to teach
+            //   users that this is not an acceptable way to use lightning,
+            //   because it is not safe. It is not hard to imagine users
+            //   developing the misconception that it is safe to reuse invoices
+            //   if duplicate payments actually do succeed.
+            let is_finalized = self
+                .get_cow_payment(&mut locked_data, &claim_ctx.id())
+                .await
+                .context("Could not get payment")
+                // Couldn't check if finalized; have to retry handling later.
+                .map_err(ClaimableError::Replay)?
+                .is_some_and(|p| p.payment.status().is_finalized());
+            if is_finalized {
+                warn!(%amount, %hash, "Already finalized");
+                // Clear these pending HTLCs (if they still exist) so they don't
+                // stick around until expiration
+                return Err(ClaimableError::FailBackHtlcsTheirFault);
+            }
+
+            // Check
+            let checked =
+                // `check_payment_claimable` precondition: must not be finalized
+                locked_data.check_payment_claimable(claim_ctx, amount, skimmed_fee, now)?;
+
+            // Persist
+            let persisted = self
+                .persister
+                .upsert_payment(checked)
+                .await
+                .map_err(ClaimableError::Persist)?;
+
+            // Commit
+            locked_data.commit(persisted);
+
+            Ok::<(), ClaimableError>(())
+        };
+
+        // Callback into the channel manager
+        let hash = hash.into();
+        match handle_claimable().await {
+            Ok(()) => {
+                // Everything ok; claim the payment.
+                self.channel_manager.claim_funds(preimage.into());
+                self.test_event_tx.send(TestEvent::PaymentClaimable);
+            }
+            Err(ClaimableError::IgnoreAndReclaim) => {
+                // Maybe we crashed before channel manager could persist;
+                // re-claim the payment.
+                self.channel_manager.claim_funds(preimage.into());
+            }
+            Err(ClaimableError::Replay(e)) => {
+                self.channel_manager.fail_htlc_backwards_with_reason(
+                    &hash,
+                    FailureCode::IncorrectOrUnknownPaymentDetails,
+                );
+                return Err(e);
+            }
+            Err(ClaimableError::Persist(e)) => {
+                warn!("Failed to persist payment after claimable: {e:#}");
+                self.channel_manager.fail_htlc_backwards_with_reason(
+                    &hash,
+                    FailureCode::TemporaryNodeFailure,
+                );
+            }
+            Err(ClaimableError::FailBackHtlcsTheirFault) => {
+                self.channel_manager.fail_htlc_backwards_with_reason(
+                    &hash,
+                    FailureCode::IncorrectOrUnknownPaymentDetails,
+                );
+            }
+        }
+
+        // Q: What about if we handle a `PaymentClaimable` event, call
+        // claim_funds, handle a `PaymentClaimed` event, then crash before the
+        // channel manager is persisted? Wouldn't that mean that when we replay
+        // the `PaymentClaimable` event upon restart, that the state transition
+        // would be rejected because the `Payment` is persisted as already
+        // `Completed`, when we actually need to call `claim_funds` again?
+        //
+        // A: `PaymentClaimable` will never appear in the same
+        // `ChannelManager::pending_events` batch as the `PaymentClaimed` event,
+        // since `claim_funds` generates `MessageSendEvent`s which the
+        // `PeerManager` needs to handle before the payment is actually claimed
+        // (source: claim_funds docs). After the event handler (which is what
+        // calls this function) returns, the channel manager gets repersisted
+        // (in the BGP). Thus, if a persisted `Payment` is already `Completed`,
+        // then it must be true that the persisted channel manager is aware that
+        // we have already called `claim_funds`, and thus it does not need to be
+        // called again.
+
+        info!("Handled PaymentClaimable");
+        Ok(())
+    }
+
+    /// Handles a [`PaymentClaimed`] event.
+    ///
+    /// [`PaymentClaimed`]: lightning::events::Event::PaymentClaimed
+    //
+    // Event sources:
+    // - `EventHandler` -> `Event::PaymentClaimed` (replayable)
+    #[instrument(skip_all, name = "(payment-claimed)")]
+    pub async fn payment_claimed(
+        &self,
+        purpose: PaymentPurpose,
+        hash: PaymentHash,
+        claim_id: Option<LnClaimId>,
+        amt_msat: u64,
+    ) -> anyhow::Result<()> {
+        let amount = Amount::from_msat(amt_msat);
+        info!(%amount, %hash, "Handling PaymentClaimed");
+
+        // TODO(max): Get offer from out-of-line storage
+        let offer = None;
+        let claim_ctx = LnClaimCtx::new(purpose, hash, claim_id, offer)?;
+
+        let mut locked_data = self.data.lock().await;
+
+        // check_payment_claimed precondition: Must not be finalized
+        let is_finalized = self
+            .get_cow_payment(&mut locked_data, &claim_ctx.id())
+            .await
+            .context("Could not get payment")?
+            .is_some_and(|p| p.payment.status().is_finalized());
+        if is_finalized {
+            warn!(%amount, %hash, "Already finalized");
+            // Idempotency: If the payment was already finalized,
+            //              we don't need to do anything.
+            return Ok(());
+        }
+
+        // Check
+        let checked = locked_data
+            .check_payment_claimed(claim_ctx, amount)
+            .context("Error validating PaymentClaimed")?;
+
+        // Persist
+        let persisted = self
+            .persister
+            .upsert_payment(checked)
+            .await
+            .context("Could not persist payment")?;
+
+        // Commit
+        locked_data.commit(persisted);
+
+        // TODO(phlip9): test event is not the right approach for observing
+        // a payment's status.
+        self.test_event_tx.send(TestEvent::PaymentClaimed);
+
+        Ok(())
+    }
+
+    /// Handles an `EventHandler` -> [`PaymentSent`] event (replayable).
+    ///
+    /// [`PaymentSent`]: lightning::events::Event::PaymentSent
+    //
+    // Event sources:
+    // - `EventHandler` -> `Event::PaymentSent` (replayable)
+    #[instrument(skip_all, name = "(payment-sent)", fields(%hash), err)]
+    pub async fn payment_sent(
+        &self,
+        id: PaymentId,
+        hash: PaymentHash,
+        preimage: PaymentPreimage,
+        maybe_amount_msat: Option<u64>,
+        fees_paid_msat: u64,
+    ) -> anyhow::Result<()> {
+        let maybe_amount = maybe_amount_msat.map(Amount::from_msat);
+        let fees_paid = Amount::from_msat(fees_paid_msat);
+        info!(?maybe_amount, %fees_paid, "Handling PaymentSent");
+
+        let mut locked_data = self.data.lock().await;
+
+        // check_payment_sent precondition: Must not be finalized
+        let is_finalized = self
+            .get_cow_payment(&mut locked_data, &id)
+            .await
+            .context("Could not get payment")?
+            .is_some_and(|p| p.payment.status().is_finalized());
+        if is_finalized {
+            warn!(%hash, "Already finalized");
+            // Idempotency: If the payment was already finalized,
+            //              we don't need to do anything.
+            return Ok(());
+        }
+
+        // Check
+        let checked = locked_data
+            .check_payment_sent(id, hash, preimage, maybe_amount, fees_paid)
+            .context("Error validating PaymentSent")?;
+
+        // Persist
+        let persisted = self
+            .persister
+            .upsert_payment(checked)
+            .await
+            .context("Could not persist payment")?;
+
+        // Commit
+        locked_data.commit(persisted);
+
+        // Clean up in-flight retry state since payment succeeded
+        locked_data.remove_in_flight(&id);
+
+        // TODO(phlip9): test event is not the right approach for observing
+        // a payment's status.
+        self.test_event_tx.send(TestEvent::PaymentSent);
+
+        Ok(())
+    }
+
+    /// Registers that an outbound Lightning payment has failed. Should be
+    /// called in response to a [`PaymentFailed`] event, or if the initial send
+    /// in [`pay_invoice`] failed outright, resulting in no pending payments
+    /// being registered with LDK (which means that no [`PaymentFailed`] or
+    /// [`PaymentSent`] events will be emitted by LDK later).
+    ///
+    /// [`pay_invoice`]: crate::command::pay_invoice
+    /// [`PaymentSent`]: lightning::events::Event::PaymentSent
+    /// [`PaymentFailed`]: lightning::events::Event::PaymentFailed
+    //
+    // Event sources:
+    // - `EventHandler` -> `Event::PaymentFailed` (replayable)
+    // - `pay_invoice` API
+    #[instrument(skip_all, name = "(payment-failed)", fields(?failure, %id), err)]
+    pub async fn payment_failed(
+        &self,
+        id: PaymentId,
+        // TODO(phlip9): Option<PaymentHash>,
+        failure: LxOutboundPaymentFailure,
+    ) -> anyhow::Result<()> {
+        warn!("handling PaymentFailed");
+
+        let should_retry = {
+            let mut locked_data = self.data.lock().await;
+
+            let is_finalized = self
+                .get_cow_payment(&mut locked_data, &id)
+                .await
+                .context("Could not get payment")?
+                .is_some_and(|p| p.payment.status().is_finalized());
+
+            if is_finalized {
+                warn!(%id, "Already finalized");
+                return Ok(());
+            }
+
+            locked_data.should_retry(&id, &failure)
+        };
+
+        let final_failure = if should_retry {
+            debug!("Payment should be retried, attempting retry inline");
+            self.test_event_tx.send(TestEvent::PaymentRetried);
+
+            match self.retry_payment(id).await {
+                // Retry succeeded, payment is in-flight.
+                Ok(()) => return Ok(()),
+                // Retry failed, use this as the latest failure reason.
+                Err(retry_failure) => retry_failure,
+            }
+        } else {
+            // No retry attempted, use the original failure.
+            failure
+        };
+
+        // Persist the payment as Failed.
+        let mut locked_data = self.data.lock().await;
+        locked_data.remove_in_flight(&id);
+
+        // Check
+        let checked = locked_data
+            .check_payment_failed(id, final_failure)
+            .context("Error validating PaymentFailed")?;
+
+        // Persist
+        let persisted = self
+            .persister
+            .upsert_payment(checked)
+            .await
+            .context("Could not persist payment")?;
+
+        // Commit
+        locked_data.commit(persisted);
+
+        // TODO(phlip9): test event is not the right approach for observing
+        // a payment's status.
+        self.test_event_tx.send(TestEvent::PaymentFailed);
+
+        Ok(())
+    }
+
+    /// Records a path failure for an in-flight payment.
+    ///
+    /// Called in response to [`PaymentPathFailed`] events. Adds the SCID to the
+    /// set of failed channels to avoid on retry. Silently ignores if the
+    /// payment is not in-flight.
+    ///
+    /// [`PaymentPathFailed`]: lightning::events::Event::PaymentPathFailed
+    pub async fn record_path_failure(&self, id: &PaymentId, scid: u64) {
+        let mut locked_data = self.data.lock().await;
+        locked_data.record_path_failure(id, scid);
+    }
+
+    /// Times out any pending inbound or outbound payments that have expired.
+    /// This function should be called regularly.
+    //
+    // Event sources:
+    // - `PaymentsManager::spawn_payment_expiry_checker` task
+    #[instrument(skip_all, name = "(check-payment-expiries)")]
+    pub async fn check_payment_expiries(&self) -> anyhow::Result<()> {
+        debug!("Checking payment expiries");
+
+        // NOTE: avoid touching the ChannelManager while holding the lock
+        let ops_to_abandon = {
+            // Check
+            let mut locked_data = self.data.lock().await;
+
+            // Call TimestampMs::now() just once then pass it in everywhere.
+            let now = TimestampMs::now();
+
+            let (all_checked, ops_to_abandon) = locked_data
+                .check_payment_expiries(now)
+                .context("Error checking payment expiries")?;
+
+            // Persist
+            let all_persisted = self
+                .persister
+                .upsert_payment_batch(all_checked)
+                .await
+                .context("Couldn't persist payment batch")?;
+
+            // Commit
+            for persisted in all_persisted {
+                locked_data.commit(persisted);
+            }
+
+            ops_to_abandon
+        };
+
+        // Abandon all expired outbound payments.
+        // We'll also abandon any abandoning payments to handle the case where
+        // we crash after persisting above, but before the channel manager
+        // persists.
+        for payment_id in ops_to_abandon {
+            self.channel_manager.abandon_payment(payment_id);
+        }
+
+        debug!("Successfully checked payment expiries");
+        Ok(())
+    }
+
+    /// Register the successful broadcast of an onchain send tx.
+    #[instrument(skip_all, name = "(onchain-send-broadcasted)")]
+    pub async fn onchain_send_broadcasted(
+        &self,
+        id: &PaymentId,
+        txid: &Txid,
+    ) -> anyhow::Result<()> {
+        debug!(%id, "Registering that an onchain send has been broadcasted");
+        let mut locked_data = self.data.lock().await;
+
+        let pwm = self
+            .get_cow_payment(&mut locked_data, id)
+            .await
+            .context("Could not get payment")?
+            .context("Payment does not exist")?;
+
+        // TODO(phlip9): races with sync after broadcast
+        ensure!(
+            !pwm.payment.status().is_finalized(),
+            "Onchain send was already finalized",
+        );
+        // From here, we know the payment is pending.
+
+        // Check
+        let checked = match &pwm.payment {
+            PaymentV2::OnchainSend(os) => os
+                .broadcasted(txid)
+                .map(|os_checked| {
+                    let oswm = PaymentWithMetadata {
+                        payment: os_checked,
+                        metadata: pwm.metadata.clone(),
+                    };
+                    CheckedPayment(oswm.into_enum())
+                })
+                .context("Invalid state transition")?,
+            _ => bail!("Payment was not an onchain send"),
+        };
+
+        // Persist
+        let persisted = self
+            .persister
+            .upsert_payment(checked)
+            .await
+            .context("Persist failed")?;
+
+        // Commit
+        locked_data.commit(persisted);
+
+        debug!("Successfully registered successful broadcast");
+        Ok(())
+    }
+
+    /// After a BDK sync, or periodically, sync onchain state with the payment
+    /// manager.
+    ///
+    /// These used to be driven by two separate tasks, but then we would have
+    /// onchain confs potentially delayed, even though we just BDK sync'd a new
+    /// block.
+    async fn check_onchain(
+        &self,
+        esplora: &Esplora,
+        wallet: &OnchainWallet,
+        check_new: bool,
+    ) -> anyhow::Result<()> {
+        // if we completed a BDK sync, check wallet for any new onchain recvs
+        if check_new {
+            self.check_onchain_recvs(wallet).await.context("recvs")?;
+        }
+
+        // query the conf status of our known, pending onchain payments, both
+        // send and recv.
+        self.check_onchain_confs(esplora).await.context("confs")?;
+
+        Ok(())
+    }
+
+    /// Checks the confirmation status of our onchain payments.
+    /// This function should be called regularly.
+    #[instrument(skip_all, name = "(check-onchain-confs)")]
+    async fn check_onchain_confs(
+        &self,
+        // TODO(max): Since these checks aren't security critical, and since
+        // there may be lots of API calls, this esplora client should point to
+        // Quid's 'internal' instance.
+        esplora: &Esplora,
+    ) -> anyhow::Result<()> {
+        debug!("Checking onchain confs");
+
+        // We drop the lock here so that off-chain payments can make progress
+        // while we make multiple Esplora API calls. It's okay if a new onchain
+        // tx is added before the lock is reacquired because the onchain confs
+        // checker will update the new tx the next time its timer ticks.
+        let payment_ids_pending_queries = {
+            let locked_data = self.data.lock().await;
+
+            // Construct a `(PaymentId, TxConfQuery)` for every pending
+            // onchain payment.
+            locked_data
+                .pending
+                .values()
+                .map(|pwm: &PaymentWithMetadata| -> anyhow::Result<_> {
+                    match &pwm.payment {
+                        PaymentV2::OnchainSend(os) => {
+                            let tx_query = os
+                                .to_tx_conf_query()
+                                .context("OnchainSend::to_tx_conf_query")?;
+                            Ok(Some((os.id(), tx_query)))
+                        }
+                        PaymentV2::OnchainReceive(or) => {
+                            let tx_query = or
+                                .to_tx_conf_query()
+                                .context("OnchainReceive::to_tx_conf_query")?;
+                            Ok(Some((or.id(), tx_query)))
+                        }
+                        _ => Ok(None),
+                    }
+                })
+                .collect::<anyhow::Result<Vec<Option<_>>>>()?
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+        };
+
+        // Determine the conf statuses of all our pending payments.
+        let pending_queries =
+            payment_ids_pending_queries.iter().map(|(_, q)| q);
+        let tx_conf_statuses = esplora
+            .get_tx_conf_statuses(pending_queries)
+            .await
+            .context("Error while computing conf statuses")?;
+
+        // Check
+        let ids = payment_ids_pending_queries.iter().map(|(id, _)| id);
+        let mut locked_data = self.data.lock().await;
+        let all_checked = locked_data
+            .check_onchain_confs(ids, tx_conf_statuses)
+            .context("Invalid tx conf state transition")?;
+
+        // Persist
+        let all_persisted = self
+            .persister
+            .upsert_payment_batch(all_checked)
+            .await
+            .context("Couldn't persist payment batch")?;
+
+        // Commit
+        for persisted in all_persisted {
+            locked_data.commit(persisted);
+        }
+
+        debug!("Successfully checked onchain confs");
+        Ok(())
+    }
+
+    /// Queries the [`bdk_wallet::Wallet`] to see if there are any onchain
+    /// receives that the [`PaymentsManager`] doesn't yet know about. If so,
+    /// the [`OnchainReceiveV2`] is constructed and registered with the
+    /// [`PaymentsManager`].
+    ///
+    /// This function should be called regularly.
+    #[instrument(skip_all, name = "(check-onchain-recvs)")]
+    async fn check_onchain_recvs(
+        &self,
+        wallet: &OnchainWallet,
+    ) -> anyhow::Result<()> {
+        debug!("Checking for onchain recvs");
+        let mut locked_data = self.data.lock().await;
+
+        // List the txids of UTXOs owned by us (from BDK's perspective).
+        let unspent_txids = {
+            let locked_wallet = wallet.read();
+            locked_wallet
+                .list_unspent()
+                // Only register payments to the external descriptor, so there
+                // aren't entries for channel closes / splices / etc.
+                // TODO(max): We actually want to remove this in the future, so
+                // that we can track the sweeping of funds from closed channels;
+                // OnchainRecv would include channel sweeps and anything that
+                // spends to the BDK wallet. We should match the channel sweep
+                // credit with the channel close debit, but channel opens /
+                // closes need to be tracked separately.
+                .filter(|o| matches!(o.keychain, KeychainKind::External))
+                .map(|local_output| local_output.outpoint.txid)
+                .collect::<Vec<_>>()
+        };
+
+        // Filter out txids we've already seen (already registered).
+        let unseen_txids = {
+            let mut unseen = Vec::new();
+            for txid in &unspent_txids {
+                let id = PaymentId::OnchainRecv(Txid(*txid));
+                let is_unseen_txid = self
+                    .get_cow_payment(&mut locked_data, &id)
+                    .await
+                    .with_context(|| *txid)
+                    .context("Could not check whether txid already exists")?
+                    .is_none();
+                if is_unseen_txid {
+                    unseen.push(*txid);
+                }
+            }
+            unseen
+        };
+
+        // Construct new `OnchainReceive`s for each unseen txid.
+        let onchain_recvs = {
+            let locked_wallet = wallet.read();
+            unseen_txids
+                .into_iter()
+                .map(|txid| {
+                    let canonical_tx = locked_wallet
+                        .get_tx(txid)
+                        .context("Missing full tx for owned output")?;
+                    let raw_tx = canonical_tx.tx_node.tx;
+                    let (_, received) =
+                        locked_wallet.sent_and_received(&raw_tx);
+                    let kind = PaymentKind::Onchain;
+                    let amount =
+                        Amount::try_from(received).context("Overflowed")?;
+                    OnchainReceiveV2::new(raw_tx, kind, amount)
+                        .context("Failed to create payment")
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?
+        };
+
+        // Register all of the new onchain receives.
+        for orwm in onchain_recvs {
+            self.new_payment_inner(&mut locked_data, orwm.into_enum())
+                .await
+                .context("Failed to register new onchain recv")?;
+        }
+        debug!("Successfully checked for and registered new onchain recvs");
+
+        // The PaymentsData lock is finally dropped here.
+        Ok(())
+    }
+}
+
+impl PaymentsData {
+    /// Commits a [`PersistedPayment`] to the local state.
+    fn commit(&mut self, persisted: PersistedPayment) {
+        let pwm = persisted.pwm;
+        let id = pwm.payment.id();
+
+        pwm.payment.debug_assert_invariants();
+        self.debug_assert_invariants();
+
+        match pwm.payment.status() {
+            PaymentStatus::Pending => {
+                self.pending.insert(id, pwm);
+            }
+            PaymentStatus::Completed | PaymentStatus::Failed => {
+                self.pending.remove(&id);
+            }
+        }
+
+        self.debug_assert_invariants();
+    }
+
+    /// Assert invariants about the internal state of the [`PaymentsData`] when
+    /// `cfg!(debug_assertions)` is enabled. This is a no-op in production.
+    fn debug_assert_invariants(&self) {
+        if cfg!(not(debug_assertions)) {
+            return;
+        }
+
+        for (id, pwm) in &self.pending {
+            assert_eq!(pwm.payment.id(), *id);
+            assert_eq!(pwm.payment.status(), PaymentStatus::Pending);
+            pwm.payment.debug_assert_invariants();
+        }
+
+        for (id, pwm) in self.finalized_payments_cache.iter() {
+            assert_eq!(pwm.payment.id(), *id);
+            assert!(pwm.payment.status().is_finalized());
+            assert!(!self.pending.contains_key(id));
+            pwm.payment.debug_assert_invariants();
+        }
+    }
+
+    // --- In-flight retry state management ---
+
+    /// Store retry state when a payment starts.
+    fn start_in_flight(&mut self, id: PaymentId, state: InFlightRetryState) {
+        self.in_flight.insert(id, state);
+    }
+
+    /// Get a reference to the in-flight retry state for a payment.
+    fn get_in_flight(&self, id: &PaymentId) -> Option<&InFlightRetryState> {
+        self.in_flight.get(id)
+    }
+
+    /// Get a mutable reference to the in-flight retry state for a payment.
+    fn get_in_flight_mut(
+        &mut self,
+        id: &PaymentId,
+    ) -> Option<&mut InFlightRetryState> {
+        self.in_flight.get_mut(id)
+    }
+
+    /// Remove and return the in-flight retry state for a payment.
+    fn remove_in_flight(
+        &mut self,
+        id: &PaymentId,
+    ) -> Option<InFlightRetryState> {
+        self.in_flight.remove(id)
+    }
+
+    /// Record a path failure for an in-flight payment.
+    ///
+    /// Adds the SCID to the set of failed channels to avoid on retry.
+    /// Silently ignores if the payment is not in-flight.
+    fn record_path_failure(&mut self, id: &PaymentId, scid: u64) {
+        let Some(state) = self.get_in_flight_mut(id) else {
+            return;
+        };
+        state.failed_channel_scids.insert(scid);
+    }
+
+    /// Determines whether a failed payment should be retried.
+    fn should_retry(
+        &self,
+        id: &PaymentId,
+        failure: &LxOutboundPaymentFailure,
+    ) -> bool {
+        !failure.is_permanent() && self.has_remaining_attempts(id)
+    }
+
+    /// Increments the attempt count for an in-flight payment.
+    fn increment_attempt(&mut self, id: &PaymentId) {
+        if let Some(state) = self.get_in_flight_mut(id) {
+            state.attempts_count = state.attempts_count.saturating_add(1);
+        }
+    }
+
+    /// Returns whether the payment has remaining retry attempts.
+    fn has_remaining_attempts(&self, id: &PaymentId) -> bool {
+        self.get_in_flight(id)
+            .is_some_and(|s| s.attempts_count < s.max_attempts)
+    }
+
+    /// Precondition: Payment must not be finalized (Completed | Failed).
+    ///               It's OK for the payment to not exist (new payment).
+    //
+    // Event sources:
+    // - `EventHandler` -> `Event::PaymentClaimable` (replayable)
+    fn check_payment_claimable(
+        &self,
+        claim_ctx: LnClaimCtx,
+        amount: Amount,
+        skimmed_fee: Option<Amount>,
+        now: TimestampMs,
+    ) -> Result<CheckedPayment, ClaimableError> {
+        let id = claim_ctx.id();
+
+        let maybe_pending_payment = self.pending.get(&id);
+
+        match maybe_pending_payment {
+            // Pending payment exists; update it
+            Some(pending_pwm) => pending_pwm.check_payment_claimable(
+                claim_ctx,
+                amount,
+                skimmed_fee,
+                now,
+            ),
+            None => match claim_ctx {
+                LnClaimCtx::Bolt11Invoice { .. } =>
+                    Err(ClaimableError::Replay(anyhow!(
+                        "Tried to claim non-existent inbound invoice payment"
+                    ))),
+                LnClaimCtx::Bolt12Offer(ctx) => {
+                    let kind = PaymentKind::Offer;
+                    let iorpwm = InboundOfferReusablePaymentV2::new(
+                        ctx,
+                        kind,
+                        amount,
+                        skimmed_fee,
+                    )
+                    .map_err(ClaimableError::Replay)?;
+                    Ok(CheckedPayment(iorpwm.into_enum()))
+                }
+                LnClaimCtx::Spontaneous {
+                    hash,
+                    preimage,
+                    claim_id: _,
+                } => {
+                    // We just got a new spontaneous payment!
+                    // Create the new payment.
+                    let kind = PaymentKind::Spontaneous;
+                    let ispwm = InboundSpontaneousPaymentV2::new(
+                        hash,
+                        preimage,
+                        kind,
+                        amount,
+                        skimmed_fee,
+                    )
+                    .map_err(ClaimableError::Replay)?;
+                    Ok(CheckedPayment(ispwm.into_enum()))
+                }
+            },
+        }
+    }
+
+    /// Precondition: Payment must not be finalized (Completed | Failed).
+    //
+    // Event sources:
+    // - `EventHandler` -> `Event::PaymentClaimed` (replayable)
+    fn check_payment_claimed(
+        &self,
+        claim_ctx: LnClaimCtx,
+        amount: Amount,
+    ) -> anyhow::Result<CheckedPayment> {
+        let id = claim_ctx.id();
+
+        let pending_pwm = self
+            .pending
+            .get(&id)
+            .context("Pending payment does not exist")?;
+
+        let checked = match (&pending_pwm.payment, claim_ctx) {
+            (
+                PaymentV2::InboundInvoice(iip),
+                LnClaimCtx::Bolt11Invoice {
+                    preimage,
+                    hash,
+                    secret,
+                    claim_id: _,
+                },
+            ) => {
+                let checked_iip = iip
+                    .check_payment_claimed(hash, secret, preimage, amount)
+                    .context("Error finalizing inbound invoice payment")?;
+                let iipwm = PaymentWithMetadata {
+                    payment: checked_iip,
+                    metadata: pending_pwm.metadata.clone(),
+                };
+                CheckedPayment(iipwm.into_enum())
+            }
+            (
+                PaymentV2::InboundOfferReusable(iorp),
+                LnClaimCtx::Bolt12Offer(ctx),
+            ) => {
+                let checked_iorp =
+                    iorp.check_payment_claimed(ctx, amount).context(
+                        "Error finalizing reusable inbound offer payment",
+                    )?;
+                let iorpwm = PaymentWithMetadata {
+                    payment: checked_iorp,
+                    metadata: pending_pwm.metadata.clone(),
+                };
+                CheckedPayment(iorpwm.into_enum())
+            }
+            (
+                PaymentV2::InboundSpontaneous(isp),
+                LnClaimCtx::Spontaneous {
+                    preimage,
+                    hash,
+                    claim_id: _,
+                },
+            ) => {
+                let checked_isp = isp
+                    .check_payment_claimed(hash, preimage, amount)
+                    .context("Error finalizing inbound spontaneous payment")?;
+                let ispwm = PaymentWithMetadata {
+                    payment: checked_isp,
+                    metadata: pending_pwm.metadata.clone(),
+                };
+                CheckedPayment(ispwm.into_enum())
+            }
+            // TODO(phlip9): impl BOLT 12 refunds
+            _ => bail!(
+                "Not an inbound LN payment, or claim context didn't match"
+            ),
+        };
+
+        Ok(checked)
+    }
+
+    /// Precondition: Payment must not be finalized (Completed | Failed).
+    //
+    // Event sources:
+    // - `EventHandler` -> `Event::PaymentSent` (replayable)
+    fn check_payment_sent(
+        &self,
+        id: PaymentId,
+        hash: PaymentHash,
+        preimage: PaymentPreimage,
+        maybe_amount: Option<Amount>,
+        fees_paid: Amount,
+    ) -> anyhow::Result<CheckedPayment> {
+        let pending_pwm = self
+            .pending
+            .get(&id)
+            .context("Pending payment does not exist")?;
+
+        let checked = match &pending_pwm.payment {
+            PaymentV2::OutboundInvoice(oip) => {
+                let checked_oip = oip
+                    .check_payment_sent(hash, preimage, maybe_amount, fees_paid)
+                    .context("Error checking outbound invoice payment")?;
+                let oipwm = PaymentWithMetadata {
+                    payment: checked_oip,
+                    metadata: pending_pwm.metadata.clone(),
+                };
+                CheckedPayment(oipwm.into_enum())
+            }
+            PaymentV2::OutboundOffer(oop) => {
+                let checked_oop = oop
+                    .check_payment_sent(hash, preimage, maybe_amount, fees_paid)
+                    .context("Error checking outbound offer payment")?;
+                let oopwm = PaymentWithMetadata {
+                    payment: checked_oop,
+                    metadata: pending_pwm.metadata.clone(),
+                };
+                CheckedPayment(oopwm.into_enum())
+            }
+            // The QU!D hop never originates spontaneous (keysend) payments —
+            // swap-out delivery pays the swapper's BOLT11 invoice (or settles
+            // on-chain), so this variant is never created and never reaches here.
+            PaymentV2::OutboundSpontaneous(_) => unreachable!(
+                "QU!D hop does not originate spontaneous (keysend) payments"
+            ),
+            _ => bail!("Not an outbound Lightning payment"),
+        };
+
+        Ok(checked)
+    }
+
+    /// Precondition: Payment must not be finalized (Completed | Failed).
+    //
+    // Event sources:
+    // - `EventHandler` -> `Event::PaymentFailed` (replayable)
+    // - `pay_invoice` API
+    fn check_payment_failed(
+        &self,
+        id: PaymentId,
+        failure: LxOutboundPaymentFailure,
+    ) -> anyhow::Result<CheckedPayment> {
+        let pending_pwm = self
+            .pending
+            .get(&id)
+            .context("Pending payment does not exist")?;
+
+        let checked = match &pending_pwm.payment {
+            PaymentV2::OutboundInvoice(oip) => {
+                let checked_oip = oip
+                    .check_payment_failed(id, failure)
+                    .context("Error checking outbound invoice payment")?;
+                let oipwm = PaymentWithMetadata {
+                    payment: checked_oip,
+                    metadata: pending_pwm.metadata.clone(),
+                };
+                CheckedPayment(oipwm.into_enum())
+            }
+            PaymentV2::OutboundOffer(oop) => {
+                let checked_oop = oop
+                    .check_payment_failed(failure)
+                    .context("Error checking outbound offer payment")?;
+                let oopwm = PaymentWithMetadata {
+                    payment: checked_oop,
+                    metadata: pending_pwm.metadata.clone(),
+                };
+                CheckedPayment(oopwm.into_enum())
+            }
+            // The QU!D hop never originates spontaneous (keysend) payments —
+            // swap-out delivery pays the swapper's BOLT11 invoice (or settles
+            // on-chain), so this variant is never created and never reaches here.
+            PaymentV2::OutboundSpontaneous(_) => unreachable!(
+                "QU!D hop does not originate spontaneous (keysend) payments"
+            ),
+            _ => bail!("Not an outbound Lightning payment"),
+        };
+
+        Ok(checked)
+    }
+
+    /// Returns all _newly_ expired payments and the hashes of all outbound
+    /// payments which should be passed to [`abandon_payment`].
+    ///
+    /// [`abandon_payment`]: lightning::ln::channelmanager::ChannelManager::abandon_payment
+    //
+    // Event sources:
+    // - `PaymentsManager::spawn_payment_expiry_checker` task
+    fn check_payment_expiries(
+        &self,
+        now: TimestampMs,
+    ) -> anyhow::Result<(
+        Vec<CheckedPayment>,
+        Vec<lightning::ln::channelmanager::PaymentId>,
+    )> {
+        let mut ops_to_abandon = Vec::new();
+        let all_expired = self
+            .pending
+            .values()
+            .filter_map(|pwm| match &pwm.payment {
+                // Precondition: payment is not finalized (Completed | Failed).
+                PaymentV2::InboundInvoice(iip) =>
+                    iip.check_invoice_expiry(now).map(|checked_iip| {
+                        let iipwm = PaymentWithMetadata {
+                            payment: checked_iip,
+                            metadata: pwm.metadata.clone(),
+                        };
+                        CheckedPayment(iipwm.into_enum())
+                    }),
+                PaymentV2::OutboundInvoice(oip) => {
+                    match oip.check_invoice_expiry(now) {
+                        Ok(checked_oip) => {
+                            ops_to_abandon.push(checked_oip.ldk_id());
+                            let oipwm = PaymentWithMetadata {
+                                payment: checked_oip,
+                                metadata: pwm.metadata.clone(),
+                            };
+                            Some(CheckedPayment(oipwm.into_enum()))
+                        }
+                        Err(ExpireError::Ignore) => None,
+                        Err(ExpireError::IgnoreAndAbandon) => {
+                            ops_to_abandon.push(oip.ldk_id());
+                            None
+                        }
+                    }
+                }
+                PaymentV2::OutboundOffer(oop) => {
+                    match oop.check_offer_expiry(now) {
+                        Ok(checked_oop) => {
+                            ops_to_abandon.push(checked_oop.ldk_id());
+                            let oopwm = PaymentWithMetadata {
+                                payment: checked_oop,
+                                metadata: pwm.metadata.clone(),
+                            };
+                            Some(CheckedPayment(oopwm.into_enum()))
+                        }
+                        Err(ExpireError::Ignore) => None,
+                        Err(ExpireError::IgnoreAndAbandon) => {
+                            ops_to_abandon.push(oop.ldk_id());
+                            None
+                        }
+                    }
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        Ok((all_expired, ops_to_abandon))
+    }
+
+    // Event sources:
+    // - `PaymentsManager::spawn_onchain_confs_checker` task
+    fn check_onchain_confs<'id>(
+        &self,
+        ids: impl Iterator<Item = &'id PaymentId>,
+        conf_statuses: Vec<TxConfStatus>,
+    ) -> anyhow::Result<Vec<CheckedPayment>> {
+        ids.zip(conf_statuses)
+            // Fetch the pending onchain payment by its id and call
+            // `check_onchain_conf()` on it to validate the state transition.
+            .map(|(id, conf_status)| {
+                let pwm = self
+                    .pending
+                    .get(id)
+                    .context("Received conf status but payment was missing")?;
+                let maybe_checked = match &pwm.payment {
+                    PaymentV2::OnchainSend(os) => os
+                        .check_onchain_conf(conf_status)
+                        .map(|(maybe_os, maybe_update)| {
+                            maybe_os.map(|checked_os| {
+                                let mut metadata = pwm.metadata.clone();
+                                if let Some(update) = maybe_update {
+                                    metadata = metadata.apply_update(update);
+                                }
+                                let oswm = PaymentWithMetadata {
+                                    payment: checked_os,
+                                    metadata,
+                                };
+                                CheckedPayment(oswm.into_enum())
+                            })
+                        })
+                        .context("Error checking onchain send conf")?,
+                    PaymentV2::OnchainReceive(or) => or
+                        .check_onchain_conf(conf_status)
+                        .map(|(maybe_or, maybe_update)| {
+                            maybe_or.map(|checked_or| {
+                                let mut metadata = pwm.metadata.clone();
+                                if let Some(update) = maybe_update {
+                                    metadata = metadata.apply_update(update);
+                                }
+                                let orwm = PaymentWithMetadata {
+                                    payment: checked_or,
+                                    metadata,
+                                };
+                                CheckedPayment(orwm.into_enum())
+                            })
+                        })
+                        .context("Error checking onchain receive conf")?,
+                    _ => bail!("Wasn't an onchain payment"),
+                };
+                Ok(maybe_checked)
+            })
+            // Filter `anyhow::Result<Option<T>>` to `anyhow::Result<T>`
+            .filter_map(|maybe_checked| match maybe_checked {
+                Ok(Some(checked)) => Some(Ok(checked)),
+                Ok(None) => None,
+                Err(e) => Some(Err(e)),
+            })
+            .collect::<anyhow::Result<Vec<CheckedPayment>>>()
+            .context("Error while checking onchain confs in PaymentsData")
+    }
+}
+
+/// Build [`RecipientOnionFields`] from an invoice.
+pub(crate) fn recipient_onion_fields(
+    invoice: &Invoice,
+) -> RecipientOnionFields {
+    let payment_secret = invoice.payment_secret().into();
+    let mut fields = RecipientOnionFields::secret_only(payment_secret);
+    fields.payment_metadata = invoice.0.payment_metadata().map(|m| m.to_vec());
+    fields
+}
+
+#[cfg(test)]
+mod arbitrary_impl {
+    use proptest::{
+        arbitrary::{Arbitrary, any},
+        strategy::{BoxedStrategy, Strategy},
+    };
+
+    use super::*;
+
+    impl Arbitrary for PaymentsData {
+        type Parameters = ();
+        type Strategy = BoxedStrategy<Self>;
+
+        fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+            proptest::collection::vec(any::<PaymentV2>(), 0..10)
+                .prop_map(PaymentsData::from_vec)
+                .boxed()
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use quid_common::ByteArray;
+    use proptest::{
+        arbitrary::{any, any_with},
+        prop_assert_eq, proptest,
+    };
+
+    use super::*;
+    use crate::payments::{
+        PaymentMetadata,
+        inbound::{
+            InboundInvoicePaymentV2, InboundOfferReusablePaymentV2,
+            OfferClaimCtx,
+        },
+        outbound::{
+            OutboundInvoicePaymentStatus, OutboundInvoicePaymentV2,
+            OutboundOfferPaymentV2, arbitrary_impl::OipParamsV2,
+        },
+    };
+
+    impl PaymentsData {
+        pub(super) fn from_vec(mut payments: Vec<PaymentV2>) -> Self {
+            // Remove duplicates
+            payments.sort_unstable_by_key(PaymentV2::id);
+            payments.dedup_by_key(|p| p.id());
+
+            let pending = HashMap::default();
+            let cache_capacity = 256;
+            let finalized_payments_cache =
+                quick_cache::unsync::Cache::new(cache_capacity);
+
+            // Insert all payments
+            let mut out = Self {
+                pending,
+                finalized_payments_cache,
+                in_flight: HashMap::new(),
+            };
+            for payment in payments {
+                let id = payment.id();
+                // TODO(max): Eventually this will just use PaymentV2
+                let pwm = PaymentWithMetadata {
+                    payment,
+                    metadata: PaymentMetadata::empty(id),
+                };
+                out.insert_payment(pwm);
+            }
+
+            // Check invariants
+            out.debug_assert_invariants();
+
+            out
+        }
+
+        /// Insert a payment into `PaymentsData` without running through the
+        /// full state machine.
+        fn insert_payment(&mut self, pwm: PaymentWithMetadata) {
+            let id = pwm.payment.id();
+            if pwm.payment.status().is_pending() {
+                self.pending.insert(id, pwm);
+            } else {
+                self.finalized_payments_cache.insert(id, pwm);
+            }
+        }
+
+        /// Forcibly insert a payment into the `PaymentsData`, removing any
+        /// existing payment with the same ID.
+        fn force_insert_payment(&mut self, payment: PaymentV2) {
+            let id = payment.id();
+            self.pending.remove(&id);
+            self.finalized_payments_cache.remove(&id);
+            let pwm = PaymentWithMetadata {
+                payment,
+                metadata: PaymentMetadata::empty(id),
+            };
+            self.insert_payment(pwm);
+            self.debug_assert_invariants();
+        }
+    }
+
+    impl CheckedPayment {
+        /// Assert that a `CheckedPayment` was persisted without actually
+        /// persisting.
+        fn persisted(self) -> PersistedPayment {
+            PersistedPayment {
+                pwm: self.0,
+                // Set some dummy values for these
+                created_at: TimestampMs::MIN,
+                updated_at: TimestampMs::MAX,
+            }
+        }
+    }
+
+    #[test]
+    fn prop_inbound_spontaneous_payment_idempotency() {
+        let pending_only = true;
+        proptest!(|(
+            mut data in any::<PaymentsData>(),
+            // check_payment_claimable precondition: Must not be finalized
+            //   check_payment_claimed precondition: Must not be finalized
+            isp in any_with::<InboundSpontaneousPaymentV2>(pending_only),
+            // currently does nothing for spontaneous payments, but could catch
+            // an unintended change.
+            claim_id in any::<Option<LnClaimId>>(),
+            now in any::<TimestampMs>(),
+        )| {
+            let payment = PaymentV2::InboundSpontaneous(isp.clone());
+            data.force_insert_payment(payment.clone());
+
+            let amount = isp.amount;
+            let claim_ctx = LnClaimCtx::Spontaneous {
+                preimage: isp.preimage,
+                hash: isp.hash,
+                claim_id,
+            };
+
+            // NOTE: New payment duplicate check moved to manager/DB layer.
+            let skimmed_fee = None;
+            let _ = data
+                .check_payment_claimable(
+                    claim_ctx.clone(),
+                    amount,
+                    skimmed_fee,
+                    now,
+                )
+                .inspect_err(|err| assert!(!err.is_replay()));
+
+            let _ = data
+                .check_payment_claimed(claim_ctx, amount)
+                .unwrap();
+        });
+    }
+
+    #[test]
+    fn prop_inbound_invoice_payment_idempotency() {
+        let pending_only = true;
+        proptest!(|(
+            mut data in any::<PaymentsData>(),
+            // check_payment_claimable precondition: Must not be finalized
+            //   check_payment_claimed precondition: Must not be finalized
+            iip in any_with::<InboundInvoicePaymentV2>(pending_only),
+            recvd_amount in any::<Amount>(),
+            claim_id in any::<Option<Option<LnClaimId>>>(),
+            now in any::<TimestampMs>(),
+        )| {
+            let payment = PaymentV2::InboundInvoice(iip.clone());
+            data.force_insert_payment(payment.clone());
+
+            let recvd_amount = iip.recvd_amount.unwrap_or(recvd_amount);
+
+            // Support 3 cases:
+            // 1. same claim_id as the payment
+            // 2. different claim_id from the payment
+            // 3. pre- node-v0.7.0 with no claim_id
+            let claim_id = claim_id.unwrap_or(iip.claim_id);
+
+            let claim_ctx = LnClaimCtx::Bolt11Invoice {
+                preimage: iip.preimage,
+                hash: iip.hash,
+                secret: iip.secret,
+                claim_id,
+            };
+
+            // NOTE: New payment duplicate check moved to manager/DB layer.
+            let skimmed_fee = None;
+            let _ = data
+                .check_payment_claimable(
+                    claim_ctx.clone(),
+                    recvd_amount,
+                    skimmed_fee,
+                    now,
+                )
+                .inspect_err(|err| assert!(!err.is_replay()));
+
+            let _ = data
+                .check_payment_claimed(claim_ctx, recvd_amount)
+                .unwrap();
+
+            data.check_payment_expiries(TimestampMs::MAX).unwrap();
+        });
+    }
+
+    #[test]
+    fn prop_inbound_offer_reuse_payment_idempotency() {
+        let pending_only = true;
+        proptest!(|(
+            mut data in any::<PaymentsData>(),
+            // check_payment_claimable precondition: Must not be finalized
+            //   check_payment_claimed precondition: Must not be finalized
+            iorp in any_with::<InboundOfferReusablePaymentV2>(pending_only),
+            now in any::<TimestampMs>(),
+        )| {
+            let payment = PaymentV2::InboundOfferReusable(iorp.clone());
+            data.force_insert_payment(payment.clone());
+
+            let claim_ctx = LnClaimCtx::Bolt12Offer(OfferClaimCtx {
+                preimage: iorp.preimage,
+                claim_id: iorp.claim_id,
+                offer_id: iorp.offer_id,
+                offer: None,
+                payer_name: None,
+                message: None,
+                quantity: None,
+            });
+
+            // NOTE: New payment duplicate check moved to manager/DB layer.
+            let skimmed_fee = None;
+            let _ = data
+                .check_payment_claimable(
+                    claim_ctx.clone(),
+                    iorp.amount,
+                    skimmed_fee,
+                    now,
+                )
+                .inspect_err(|err| assert!(!err.is_replay()));
+
+            let _ = data
+                .check_payment_claimed(claim_ctx, iorp.amount)
+                .unwrap();
+        });
+    }
+
+    #[test]
+    fn prop_outbound_invoice_payment_idempotency() {
+        let preimage = PaymentPreimage::from_array([0x42; 32]);
+        proptest!(|(
+            mut data in any::<PaymentsData>(),
+            //   check_payment_sent precondition: Must not be finalized
+            // check_payment_failed precondition: Must not be finalized
+            oip in any_with::<OutboundInvoicePaymentV2>(OipParamsV2 {
+                payment_preimage: Some(preimage),
+                pending_only: true,
+            }),
+            failure in any::<LxOutboundPaymentFailure>(),
+        )| {
+            let payment = PaymentV2::OutboundInvoice(oip.clone());
+            let id = payment.id();
+            data.force_insert_payment(payment);
+
+            let _ = data.check_payment_sent(
+                    id, oip.hash, preimage, Some(oip.amount), oip.routing_fee
+                ).unwrap();
+            let _ = data.check_payment_failed(id, failure).unwrap();
+            data.check_payment_expiries(TimestampMs::MAX).unwrap();
+        });
+    }
+
+    #[test]
+    fn prop_outbound_offer_payment_idempotency() {
+        let pending_only = true;
+        proptest!(|(
+            mut data in any::<PaymentsData>(),
+            //   check_payment_sent precondition: Must not be finalized
+            // check_payment_failed precondition: Must not be finalized
+            oop in any_with::<OutboundOfferPaymentV2>(pending_only),
+            preimage in any::<PaymentPreimage>(),
+            fees in any::<Amount>(),
+            failure in any::<LxOutboundPaymentFailure>(),
+        )| {
+            let payment = PaymentV2::OutboundOffer(oop.clone());
+            let id = payment.id();
+            data.force_insert_payment(payment);
+
+            let hash = preimage.compute_hash();
+            let _ = data.check_payment_sent(
+                    id, hash, preimage, Some(oop.amount), fees
+                ).unwrap();
+            let _ = data.check_payment_failed(id, failure).unwrap();
+            data.check_payment_expiries(TimestampMs::MAX).unwrap();
+        });
+    }
+
+    #[test]
+    fn prop_outbound_invoice_payment() {
+        use OutboundInvoicePaymentStatus::*;
+
+        let preimage = PaymentPreimage::from_array([0x42; 32]);
+        proptest!(|(
+            oip in any_with::<OutboundInvoicePaymentV2>(OipParamsV2 {
+                payment_preimage: Some(preimage),
+                //   check_payment_sent precondition: Must not be finalized
+                // check_payment_failed precondition: Must not be finalized
+                pending_only: true,
+            }),
+            failure in any::<LxOutboundPaymentFailure>(),
+        )| {
+
+            let hash = oip.hash;
+            let fees = oip.routing_fee;
+            let status = oip.status;
+
+            let payment = PaymentV2::OutboundInvoice(oip.clone());
+            let id = payment.id();
+            let data = PaymentsData::from_vec(vec![payment]);
+
+            // NOTE: New payment duplicate check moved to manager/DB layer.
+
+            // (_, PaymentSent event) -> _
+            let checked = data
+                .check_payment_sent(id, hash, preimage, Some(oip.amount), fees)
+                .unwrap();
+            prop_assert_eq!(
+                PaymentStatus::Completed,
+                checked.0.payment.status()
+            );
+            data.clone().commit(checked.persisted());
+
+            // (_, PaymentFailed event) -> _
+            let checked = data.check_payment_failed(id, failure)
+                .unwrap();
+            prop_assert_eq!(PaymentStatus::Failed, checked.0.payment.status());
+            data.clone().commit(checked.persisted());
+
+            // (_, Invoice expires) -> _
+            let (mut checked_payments, _ids) = data
+                .check_payment_expiries(TimestampMs::MAX)
+                .unwrap();
+            match status {
+                Pending => {
+                    assert_eq!(1, checked_payments.len());
+                    let checked = checked_payments.pop().unwrap();
+                    match &checked.0.payment {
+                        PaymentV2::OutboundInvoice(oip) =>
+                            prop_assert_eq!(Abandoning, oip.status),
+                        _ => unreachable!(),
+                    }
+                    data.clone().commit(checked.persisted());
+                }
+                Abandoning =>
+                    prop_assert_eq!(0, checked_payments.len()),
+                _ => unreachable!("pending_only was set to true"),
+            }
+
+            // [Idempotency]
+            // (_, Invoice not expired) -> do nothing
+            let expires_at = oip.expires_at.unwrap_or(TimestampMs::MAX);
+            let (checked_payments, _ids) = data
+                .check_payment_expiries(expires_at)
+                .unwrap();
+            prop_assert_eq!(0, checked_payments.len());
+        });
+    }
+
+    #[test]
+    fn prop_record_path_failure() {
+        proptest!(|(
+            id in any::<PaymentId>(),
+            unknown_id in any::<PaymentId>(),
+            invoice in any::<Invoice>(),
+            amount in any::<Amount>(),
+            scids in proptest::collection::vec(any::<u64>(), 1..10),
+        )| {
+            let mut data = PaymentsData::from_vec(vec![]);
+
+            // Unknown ID is a silent no-op
+            data.record_path_failure(&unknown_id, scids[0]);
+            assert!(data.get_in_flight(&unknown_id).is_none());
+
+            // Start in-flight state
+            let state = InFlightRetryState {
+                max_attempts: 3,
+                attempts_count: 1,
+                failed_channel_scids: HashSet::new(),
+                invoice: Arc::new(invoice),
+                amount,
+            };
+            data.start_in_flight(id, state);
+
+            // Adding SCIDs accumulates them
+            for scid in &scids {
+                data.record_path_failure(&id, *scid);
+            }
+
+            let state = data.get_in_flight(&id).unwrap();
+            let expected: HashSet<u64> = scids.into_iter().collect();
+            assert_eq!(state.failed_channel_scids, expected);
+        });
+    }
+
+    #[test]
+    fn test_should_retry() {
+        // Test invoice from quid-api-core tests
+        const TEST_INVOICE: &str = "lnbc1pnap4p0dqqpp5e6wxwnkvtsf9eehvqg3\
+            q04wm0rv2vlmaswky4naakc083kxa439qcqpcsp5k8vexrcrthdcdyazfv3c7r8za\
+            7mw3sl9c6hefwu0ll3ef8uwzu0q9qyysgqxqyz5vqnp4q0w73a6xytxxrhuuvqnqj\
+            ckemyhv6avveuftl64zzm5878vq3zr4jrzjqv22wafr68wtchd4vzq7mj7zf2uzpv\
+            67xsaxcemfzak7wp7p0r29wz0nfsqq0mgqqvqqqqqqqqqqhwqqfqawdgj4wyt2gcp\
+            2k6yqwzdpymmlgearh5hu8vz24r5my73vdv3zuyyra8yxa9zkf26fvjf8ru3rfjam\
+            q9agkw6ta9wect076du6p3mvcp9w4lu3";
+
+        let mut data = PaymentsData::from_vec(vec![]);
+        let id = PaymentId::from_u8(1);
+        let unknown_id = PaymentId::from_u8(2);
+        let invoice: Invoice = TEST_INVOICE.parse().unwrap();
+        let amount = Amount::from_sats_u32(1000);
+        let transient = LxOutboundPaymentFailure::NoRetries;
+        let permanent = LxOutboundPaymentFailure::Rejected;
+
+        // No in-flight state: should NOT retry
+        assert!(!data.should_retry(&unknown_id, &transient));
+
+        // Start in-flight state with max_attempts=3, attempts_count=1
+        let state = InFlightRetryState {
+            max_attempts: 3,
+            attempts_count: 1,
+            failed_channel_scids: HashSet::new(),
+            invoice: Arc::new(invoice),
+            amount,
+        };
+        data.start_in_flight(id, state);
+
+        // Retries remaining + transient failure: should retry
+        assert!(data.should_retry(&id, &transient));
+
+        // Retries remaining + permanent failure: should NOT retry
+        assert!(!data.should_retry(&id, &permanent));
+
+        // Max retries exceeded: should NOT retry
+        data.get_in_flight_mut(&id).unwrap().attempts_count = 3;
+        assert!(!data.should_retry(&id, &transient));
+    }
+}

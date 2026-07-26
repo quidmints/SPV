@@ -1,0 +1,39 @@
+name: "tests"
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+      - dev
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, 'chore(release):') }}
+    strategy:
+      matrix:
+        node-version: [22]
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v5
+
+      - name: Setup
+        uses: ./.github/actions/setup
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Run linter
+        run: npm run eslint-check
+
+      - name: Run tests
+        env:
+          NODE_OPTIONS: "--max_old_space_size=16384"
+        run: npm run test

@@ -1,0 +1,21 @@
+# Confidential-VM backend implementations using battle-tested VENDOR crates
+# (AMD `virtee/sev` for SEV-SNP; TDX via `tss-esapi`, Nitro via the AWS crates to
+# follow). Host-only — deliberately kept OUT of dependency-minimal, SGX-built
+# `quid-enclave`; that crate defines the `Sealer` trait this one implements.
+[package]
+name = "quid-cvm"
+version.workspace = true
+edition.workspace = true
+license = "PolyForm-Noncommercial-1.0.0"
+publish = false
+
+[dependencies]
+# AMD's reference SEV / SEV-SNP library. default-features=false keeps the heavy
+# verification crypto (openssl/rsa/p384) OUT of the guest-side (derive-key +
+# get-report) path we use here.
+sev = { version = "6", default-features = false, features = ["snp"] }
+quid-enclave = { workspace = true }
+anyhow = { workspace = true }
+# battle-tested AEAD/HKDF for the seal (same crate quid-enclave uses); NOT a
+# hand-rolled cipher.
+ring = { workspace = true }

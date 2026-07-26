@@ -1,0 +1,45 @@
+[package]
+name = "quid-tokio"
+version = "0.1.11"
+license = "MIT"
+description = "Quid tokio extension crate"
+documentation = "https://docs.rs/quid-tokio"
+authors = { workspace = true }
+edition = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+publish = true
+
+# Config for testing in SGX
+# Need more threads and more stack for tokio. See: quid-common/Cargo.toml.
+[package.metadata.fortanix-sgx]
+stack-size = 0x20_0000
+threads = 4
+
+[dependencies]
+
+
+# --- WORKSPACE --- #
+
+futures = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = [
+    "io-util",
+    "macros",
+    "rt",
+    "sync",
+    "time",
+] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = [
+    "io-util",
+    "macros",
+    "rt",
+    "sync",
+    "test-util",
+    "time"
+] }
+tokio-test = { workspace = true }

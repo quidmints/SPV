@@ -1,0 +1,110 @@
+[package]
+name = "quid-ln"
+license = "PolyForm-Noncommercial-1.0.0"
+authors = { workspace = true }
+edition = { workspace = true }
+version = { workspace = true }
+publish = false
+
+# Config for testing in SGX
+# Need more threads for tokio. See: quid-common/Cargo.toml.
+# Need more stack and heap for LN router tests...
+# TODO(phlip9): why is router allocating 150MiB heap and 4MiB stack for
+# routing on a simple 1 node graph?
+[package.metadata.fortanix-sgx]
+stack-size = 0x40_0000 # 4 MiB
+heap-size = 0x1000_0000 # 256 MiB
+threads = 4
+
+[features]
+default = []
+# Enables various test hooks and utilities. Should be disabled in staging/prod.
+test-utils = [
+    "quid-api/test-utils",
+    "quid-common/test-utils",
+]
+
+[dependencies]
+
+
+quid-api = { workspace = true }
+quid-common = { workspace = true }
+quid-crypto = { workspace = true }
+quid-enclave = { workspace = true }
+quid-hex = { workspace = true }
+quid-std = { workspace = true }
+quid-tls = { workspace = true }
+quid-tls-core = { workspace = true, features = ["webpki-roots"] }
+quid-tokio = { workspace = true }
+
+# --- WORKSPACE --- #
+
+anyhow = { workspace = true }
+arc-swap = { workspace = true }
+async-trait = { workspace = true }
+base64 = { workspace = true }
+bdk_chain = { workspace = true }
+bdk_esplora = { workspace = true }
+bdk_wallet = { workspace = true }
+bech32 = { workspace = true }
+bitcoin = { workspace = true }
+bytes = { workspace = true }
+cfg-if = { workspace = true }
+either = { workspace = true }
+esplora-client = { workspace = true }
+futures = { workspace = true }
+lightning = { workspace = true }
+lightning-invoice = { workspace = true }
+# MuSig2 (BIP327) for simple taproot channels. conduition 0.1.2 rides our exact
+# secp256k1 0.29 (no shim). NOT cfg-gated: the key-path signing core + its
+# load-bearing roundtrip test build/run on every `cargo test -p quid-ln`.
+musig2 = { workspace = true }
+lightning-transaction-sync = { workspace = true }
+quick_cache = { workspace = true }
+reqwest = { workspace = true }
+rust_decimal = { workspace = true }
+secrecy = { workspace = true }
+semver = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_with = { workspace = true, features = ["alloc", "hex"] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = [
+    "io-util",
+    "macros",
+    "net",
+    "rt",
+    "sync",
+    "time"
+] }
+tracing = { workspace = true }
+tracing-core = { workspace = true }
+tracing-subscriber = { workspace = true, features = [
+    # Enable colored log outputs
+    "ansi",
+    "fmt",
+    "registry",
+    "std",
+    "tracing-log",
+] }
+webpki-roots = { workspace = true }
+
+[dev-dependencies]
+quid-api = { workspace = true, features = ["test-utils"] }
+quid-common = { workspace = true, features = ["test-utils"] }
+
+bcs = { workspace = true }
+proptest = { workspace = true, features = ["alloc"] }
+proptest-derive = { workspace = true }
+strum = { workspace = true }
+# Enable test-util feature in tests
+tokio = { workspace = true, features = [
+    "io-util",
+    "macros",
+    "rt",
+    "sync",
+    "test-util",
+    "time"
+] }
+# Utilities for testing futures
+tokio-test = { workspace = true }

@@ -1,0 +1,103 @@
+[package]
+name = "quid-hop"
+version = "0.1.0"
+edition = "2021"
+license = "PolyForm-Noncommercial-1.0.0"
+description = "QU!D Lightning hop — funding/SPV/swap over the vendored quid-ln (LDK) node"
+
+[dependencies]
+quid-ln = { path = "../quid-ln" }
+quid-crypto = { path = "../quid-crypto" }
+quid-api = { path = "../quid-api" }
+quid-api-core = { path = "../quid-api-core" }
+quid-common = { path = "../quid-common" }
+quid-enclave = { path = "../quid-enclave" }
+quid-hex = { path = "../quid-hex" }
+quid-std = { path = "../quid-std" }
+quid-tokio = { path = "../quid-tokio" }
+bitcoin = { workspace = true }
+# Recoverable ECDSA over secp256k1 — for verifying k-of-n EVM/EIP-712 operator
+# (Gnosis Safe owner) signatures over a MigrationAuth (migration.rs). Same 0.29
+# binding bitcoin rides; `recovery` for ecrecover. Mirrors quid-bridge.
+secp256k1 = { version = "0.29", features = ["recovery"] }
+# MuSig2 (BIP327) key aggregation for the P2TR channel-funding scriptPubKey.
+# NOT cfg-gated — funding.rs is always built. Single secp256k1 0.29 (no shim).
+musig2 = { workspace = true }
+lightning = { workspace = true }
+lightning-invoice = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+zeroize = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+bytes = { workspace = true }
+bdk_wallet = { workspace = true }
+alloy-primitives = "0.8"
+
+# Regtest harness deps, pulled in only by the `harness` feature (so a plain
+# `quid-hop` build stays lean). `electrsd`/`tracing-subscriber` are ALSO listed
+# under [dev-dependencies] (unconditional) so `cargo test` keeps working when the
+# feature is off; here they are OPTIONAL and activated by `harness`.
+electrsd = { version = "0.40", default-features = false, optional = true, features = [
+    "esplora_a33e97e1",
+    "bitcoind_download",
+    "bitcoind_28_2",
+    "anyhow",
+] }
+tracing-subscriber = { version = "0.3", optional = true, features = ["fmt", "env-filter"] }
+# The e2e_ffi bin pulls block headers / raw txs / merkle data straight from the
+# esplora REST client (same client the node uses). Optional → harness-only.
+esplora-client = { workspace = true, optional = true }
+
+[features]
+# The reusable regtest harness (`pub mod harness`) + the `e2e_ffi` bin. Gated so
+# it isn't compiled (and its electrsd/bitcoind download surface isn't pulled) for
+# a normal hop build. Enables the `test-utils` cuts on quid-ln/quid-common
+# (`RootSeed::from_u64`, the esplora http:// regtest path) the harness needs.
+harness = [
+    "dep:electrsd",
+    "dep:tracing-subscriber",
+    "dep:esplora-client",
+    "quid-ln/test-utils",
+    "quid-common/test-utils",
+    "tokio/rt-multi-thread",
+    "tokio/macros",
+]
+
+# The FFI bin: one invocation drives the regtest LN/BTC side and prints an
+# ABI-encoded bundle for the forge cross-chain e2e test.
+[[bin]]
+name = "e2e_ffi"
+required-features = ["harness"]
+
+# Host-only: confidential-VM sealers (SEV-SNP via battle-tested virtee/sev). NOT in
+# the SGX enclave build, which uses EGETKEY (the native sealer in quid-enclave).
+[target.'cfg(not(target_env = "sgx"))'.dependencies]
+quid-cvm = { path = "../quid-cvm" }
+
+[dev-dependencies]
+# Regtest harness: bitcoind (auto-downloaded) + Blockstream esplora-electrs
+# (serves the REST API our QuidEsplora client speaks). Used by tests/e2e.rs.
+# (Unconditional dev-deps so `cargo test -p quid-hop --test e2e` works without
+# `--features harness`; the same crates are optional above for the bin path.)
+electrsd = { version = "0.40", default-features = false, features = [
+    "esplora_a33e97e1",
+    "bitcoind_download",
+    "bitcoind_28_2",
+    "anyhow",
+] }
+reqwest = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+# Enables RootSeed::from_u64 + the esplora client's http:// path (regtest) for the
+# e2e harness.
+quid-common = { path = "../quid-common", features = ["test-utils"] }
+quid-ln = { path = "../quid-ln", features = ["test-utils"] }
+lightning-invoice = { workspace = true }
+# The e2e test drives a multi-thread runtime (concurrent node tasks).
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
+# Property-based fuzzing of the UNTRUSTED-input parsers (lp_auth, evm_codec).
+# `std` re-enables the default test harness bits (the workspace dep is
+# default-features=false); same convention quid-common uses.
+proptest = { workspace = true, features = ["std"] }

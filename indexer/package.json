@@ -1,0 +1,23 @@
+{
+  "name": "quid-indexer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Self-hosted QU!D protocol event indexer (ERC20 Transfer + BTCChannels open/close) → SQLite, with a NetFlow HTTP API for the dashboard.",
+  "type": "commonjs",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "backfill": "node dist/main.js --backfill-only",
+    "dev": "tsc && node dist/main.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "ethers": "^6.16.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.15.0",
+    "typescript": "^5.8.0"
+  }
+}

@@ -1,0 +1,35 @@
+# Set our baseline x86-64 support to CPUs 2015+ with standard crypto intrinsics.
+
+[doc.extern-map.registries]
+# Allows `cargo doc` to generate links to external documentation for crates
+# sourced from crates.io that don't have the `html_root_url` doc attribute defined.
+# See the `rustdoc-map` Cargo feature for more details:
+# <https://doc.rust-lang.org/nightly/cargo/reference/unstable.html#rustdoc-map>
+crates-io = "https://docs.rs/"
+
+[target.x86_64-fortanix-unknown-sgx]
+# Use our custom SGX runner
+runner = "run-sgx-cargo"
+# Build with crypto intrinsics required at compile time. SGX enclaves don't
+# support runtime feature detection with cpuid.
+# NOTE: `-Zoom=panic` was removed here — current rustc rejects it ("unknown unstable
+# option: `oom`"; the flag was deleted upstream). An enclave OOM aborts, which is the
+# correct fatal behaviour anyway. Re-add a modern OOM handler only if we need to unwind.
+rustflags = ["-Ctarget-cpu=x86-64-v3", "-Ctarget-feature=+adx,+aes,+pclmulqdq,+sha,+vaes"]
+
+# NOTE(phlip9): This was too aggressive for our cheaper dev VMs. We'll just
+# enable these flags manually for prod-relevant build artifacts.
+#
+# # Might as well do the same for everything else. `vaes` is too aggressive
+# # (Ice Lake 2021+) to mandate outside of our enclaves.
+# [target.x86_64-unknown-linux-gnu]
+# rustflags = ["-Ctarget-cpu=x86-64-v3", "-Ctarget-feature=+adx,+aes,+pclmulqdq,+sha"]
+
+[env]
+# secp256k1-sys (and other C deps) compile their C against the host glibc headers,
+# whose _FORTIFY_SOURCE redirects memcpy -> __memcpy_chk (bits/string_fortified.h). The
+# fortanix-sgx libc has no fortified `*_chk` symbols, so the enclave otherwise fails to
+# LINK with "undefined symbol: __memcpy_chk". Disabling fortify for the SGX C build emits
+# plain memcpy/memset, which the SGX libc provides. Target-scoped, so host builds (which
+# keep fortification) are unaffected.
+CFLAGS_x86_64_fortanix_unknown_sgx = "-U_FORTIFY_SOURCE"

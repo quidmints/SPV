@@ -1,0 +1,91 @@
+
+evm/node_modules/*
+evm/out/*
+evm/.env
+
+# Local Claude Code session state (permissions, worktrees) - machine-local tooling, not
+# project content; ibiza doesn't track this either.
+.claude/
+
+svm/node_modules/*
+svm/target/*
+svm/test-ledger/*
+svm/.yarn/*
+svm/.anchor/*
+
+node_modules/*
+/.pnp
+.pnp.js
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# local env files
+.env*.local
+.env
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+# Public attestation test fixtures consumed by quid-tls's tests via `include_str!`
+# (the Intel SGX root CA + a sample SGX attestation cert). These are NOT secrets;
+# they MUST be tracked or a fresh clone cannot compile `cargo test -p quid-tls`.
+# Negate the blanket `*.pem` above for exactly these two files.
+!quid-ln/quid-tls/test_data/attest_cert.pem
+!quid-ln/quid-tls/test_data/intel-sgx-root-ca.pem
+regtest/.lnd/bob/tls.key
+regtest/.lnd/alice/tls.key
+# SGX production signing key DER must NEVER be committed (offline/HSM only).
+# The dev key (dev-sgxs-signer.der) is intentionally tracked — it only signs
+# --debug enclaves.
+quid-ln/quid-sgxs-sign/data/prod-*.der
+quid-ln/quid-sgxs-sign/data/*PLACEHOLDER*
+# Operator (deployer) PROD secret keys for 2-of-3 migration auth — NEVER commit
+# (offline/HSM, distinct custodians). dev-operator-*.key are tracked (dev only).
+quid-ln/quid-hop/data/prod-operator-*.key
+
+# ── build / runtime artifacts — never commit (added during blank-slate cleanup) ──
+**/node_modules/
+**/target/
+**/.next/
+**/out/
+evm/out/
+evm/cache/
+# forge broadcast output: ignore everything EXCEPT the canonical mainnet deploy's
+# run-latest.json — the SPA is deno-deployed from the commit carrying the deployment
+# records, and the site pins the running JS to that commit. (evm/deployments/l1.json —
+# the compact {name: address} record DeployL1_s writes — is tracked outright.) Local
+# e2e runs (DriverE2E/HopDemo, chain 31337) and timestamped archives stay ignored.
+evm/broadcast/**
+!evm/broadcast/DeployL1_s.sol/
+!evm/broadcast/DeployL1_s.sol/**/
+!evm/broadcast/DeployL1_s.sol/**/run-latest.json
+**/.lnd/
+**/.bitcoin/
+**/.electrs/
+**/.anvil/
+**/dist/
+.DS_Store
+*.log
+# NOTE: regtest/ is NOT blanket-ignored — its scripts (setup.sh, start.sh,
+# driver-e2e.sh, …) are integrity-relevant and tracked. Only the downloaded
+# binaries + local chain/node data are ignored, via regtest/.gitignore.

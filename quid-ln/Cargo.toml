@@ -1,0 +1,417 @@
+[workspace]
+resolver = "2"
+
+members = [
+    "quid-ln",
+    "quid-api",
+    "quid-api-core",
+    "quid-common",
+    "quid-crypto",
+    "quid-enclave",
+    "quid-cvm",
+    "quid-hex",
+    "quid-std",
+    "quid-tls",
+    "quid-tls-attest-server",
+    "quid-tls-core",
+    "quid-sgxs-sign",
+    "quid-tokio",
+    "quid-byte-array",
+    "quid-serde",
+    "quid-sha256",
+    "quid-hop",
+    "quid-bridge",
+    "quid-sgx-toml",
+    "quid-run-sgx",
+    "quid-sgx-test",
+]
+# Vendored LDK fork (patched via [patch.crates-io] below) is its own workspace;
+# keep it out of this one.
+exclude = [
+    "lib/rust-lightning",
+    # cargo-fuzz scaffold — a detached (nightly + sanitizer) workspace, kept out
+    # of the normal build/test. See quid-hop/fuzz/README.md.
+    "quid-hop/fuzz",
+]
+
+[workspace.package]
+authors = [
+    "QuidMint Foundation <dev@quid.io>",
+]
+edition = "2024"
+# A default README for "internal" Quid SDK crates published to crates.io
+readme = "crates-io.md"
+# Link published crates to the QU!D repo.
+repository = "https://github.com/quidmints/SPV"
+# The MSRV of our published Rust crates. For now this is the same as our repo
+# `rust-toolchain.toml`.
+rust-version = "1.90"
+# This is just a default version which can be inherited by workspace members
+# that don't actually need semver versioning. Crates that require versioning
+# will specify their version in their Cargo.toml as usual.
+version = "0.0.0"
+
+# --- LICENSE --- #
+# All crates are licensed on a crate-by-crate basis:
+# - Crates that the SDKs depend on are `license = "MIT"`.
+# - All other crates are `license = "PolyForm-Noncommercial-1.0.0"`.
+
+[workspace.dependencies]
+# Crates published to crates.io can't depend on workspace crates using just
+# `{ path = "<...>"}`; they also need to declare the version range. To avoid
+# repeating each crate's version range across many Cargo.toml's, we'll declare
+# it once here and use e.g. `quid-common = { workspace = true }` in dependent
+# crates.
+#
+# Regenerate:
+# ```bash
+# $ cargo tree -p sdk-uniffi -e build,normal --depth workspace --prefix none --format '{p}' \
+#   | rg '([^ ]+) v([^ ]+) .*' --replace '$1 = { version = "$2", path = "$1" }' \
+#   | LC_ALL=C sort -u
+# ```
+quid-api = { version = "0.1.11", path = "quid-api" }
+quid-api-core = { version = "0.1.11", path = "quid-api-core" }
+quid-byte-array = { version = "0.1.11", path = "quid-byte-array" }
+quid-common = { version = "0.1.11", path = "quid-common" }
+quid-crypto = { version = "0.1.11", path = "quid-crypto" }
+quid-enclave = { version = "0.1.11", path = "quid-enclave" }
+quid-hex = { version = "0.1.11", path = "quid-hex" }
+quid-serde = { version = "0.1.11", path = "quid-serde" }
+quid-sha256 = { version = "0.1.11", path = "quid-sha256" }
+quid-std = { version = "0.1.11", path = "quid-std" }
+quid-tls = { version = "0.1.11", path = "quid-tls" }
+quid-tls-core = { version = "0.1.11", path = "quid-tls-core" }
+quid-tokio = { version = "0.1.11", path = "quid-tokio" }
+sdk-uniffi = { version = "0.1.1", path = "sdk-uniffi" }
+
+# --- EXTERNAL DEPENDENCIES --- #
+# Use this section to declare dependencies used across multiple quid crates.
+# Quid crates can then inherit the dependency using `workspace = true`.
+# This makes it easier to keep dependency versions in sync. More info:
+# https://doc.rust-lang.org/cargo/reference/workspaces.html#the-dependencies-table
+
+# For verifying SGX Report MACs
+aes = { version = "0.8", features = ["zeroize"] }
+# Ad hoc error definition, easy error propagation, error chains
+anyhow = "1"
+# Like `RwLock<Arc<T>>` for read-mostly, write-seldom scenarios.
+arc-swap = "1.7"
+# Derive-based command line argument parsing
+argh = "0.1"
+# BER and DER parsers / encoders
+asn1-rs = { version = "0.7", default-features = false }
+# Wrap futures so they can be polled outside of a tokio runtime.
+# NOTE: keep in sync with the version used by uniffi_core.
+async-compat = "0.2"
+# async fn's in trait methods
+async-trait = "0.1"
+# Web framework from tokio-rs community based on tokio, hyper, and tower.
+axum = { version = "0.8", default-features = false, features = [
+    "http1",
+    "http2",
+    "macros" # Exposes `#[debug_handler]` and other useful macros
+] }
+# Converting to/from base 64.
+# Make sure this tracks `bitcoin`'s version.
+base64 = "0.21"
+# Binary canonical serialization format
+bcs = "0.2"
+# BDK (Bitcoin Dev Kit) libraries
+bdk_wallet = { version = "2", default-features = false, features = ["std"] }
+bdk_chain = { version = "0.23", default-features = false, features = ["std"] }
+bdk_esplora = { version = "0.22", default-features = false, features = ["std", "async"] }
+# Encoding and decoding of the Bech32 format.
+# Make sure this tracks `bitcoin`'s version.
+bech32 = "0.11"
+# BIP39 mnemonic codes
+bip39 = { version = "2", default-features = false, features = ["zeroize"] }
+# rust-bitcoin suite of libraries
+bitcoin = { version = "0.32.7", features = ["serde"] }
+# For casting byte buffers to/from the AESM client from/to structured data.
+bytemuck = { version = "1", default-features = false, features = ["derive", "min_const_generics"] }
+# Abstractions for working with bytes
+bytes = { version = "1", features = ["serde"] }
+# Write #[cfg(..)] if-else statements without repeating clauses
+cfg-if = "1"
+# Datetime utilities
+chrono = { version = "0.4", default-features = false, features = [
+    "std",
+    "clock"
+] }
+# Derive-based command line argument parsing (used by cli)
+clap = { version = "4", default-features = false }
+# For verifying SGX Report MACs
+cmac = { version = "0.7", features = ["std", "zeroize"] }
+# Create and validate transferable DNS proofs (by BlueMatt)
+dnssec-prover = { version = "0.6", default-features = false }
+# Allows setting environment variables using a .env file.
+# dotenvy is a better maintained fork of dotenv
+dotenvy = "0.15"
+# General purpose sum type with two cases (left and right)
+either = "1"
+# QR code generation on the app
+fast_qr = { version = "0.12", default-features = false }
+# High-level memory-safe Rust<->Dart FFI bindings.
+# Keep this version in sync with `app_rs_dart/pubspec.yaml`.
+flutter_rust_bridge = { version = "=2.11.1", default-features = false }
+# The Rust+Dart codegen for flutter_rust_bridge
+# Keep this version in sync with `app_rs_dart/pubspec.yaml`.
+flutter_rust_bridge_codegen = { version = "=2.11.1", default-features = false, features = [] }
+# Utils for working with futures
+futures = "0.3"
+# Core HTTP types and utils
+http = "1"
+http-body-util = "0.1"
+# Low-level async HTTP library and server
+hyper = { version = "1", default-features = false, features = ["http2"] }
+# Recursively walk directory, respecting .gitignore and other glob filters.
+ignore = "0.4"
+# Cross-platform access to host secret storage
+keyring = { version = "2.0", default-features = false }
+# Efficient LRU cache backed by a linked list.
+lru = { version = "0.16", default-features = false }
+# For symbolizing backtrace frames from the enclave
+object = { version = "0.38", default-features = false, features = ["read_core", "compression", "elf"] }
+# Small conversion from fixed ECDSA signature to ASN.1 format
+num-bigint = { version = "0.4", default-features = false, features = [] }
+# Encode/decode URLs with %-escaped characters
+percent-encoding = "2.3"
+# Property-based testing
+proptest = { version = "1", default-features = false }
+# Arbitrary derive macro
+proptest-derive = "0.5"
+# High-performance concurrent cache
+quick_cache = "0.6"
+# Traits for generating randomness
+rand_core = { version = "0.6", default-features = false, features = ["alloc"] }
+# Easily generate x509 certs with ring
+rcgen = { version = "0.14", default-features = false }
+# Safely cast &T to &U when T is a single field new-type
+ref-cast = "1"
+# High-level HTTP client
+reqwest = { version = "0.12", default-features = false, features = ["http2", "rustls-tls-manual-roots"] }
+# Pure Rust RSA implementation by RustCrypto. Used for SGX .sigstruct signing.
+rsa = { version = "0.9.6", default-features = false, features = ["u64_digit"] }
+# Decimal number representation suitable for financial calculations
+rust_decimal = { version = "1", default-features = false, features = ["serde"] }
+# For demangling backtrace symbols into human-readable format
+rustc-demangle = "0.1"
+# TLS library
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+# Verify x509 certificates. Required to name our signature algorithms.
+# The version should match that used by rustls.
+rustls-webpki = "0.103"
+# Rust bindings to libsecp256k1. Implements ECDSA and BIP 340 signatures.
+# Version should match that used by the `bitcoin` crate.
+secp256k1 = "0.29"
+# A wrapper type for carefully handling secrets
+secrecy = "0.8"
+# SemVer version newtype for parsing and precedence
+semver = "1"
+# Serialization / deserialization framework
+serde = { version = "1", features = ["derive"] }
+serde_core = { version = "1", default-features = false }
+serde_json = "1"
+serde_urlencoded = "0.7" # keep in sync with axum version
+serde_with = { version = "3", default-features = false, features = ["macros"] }
+# Enum #[derive(..)] helpers
+strum = { version = "0.26", features = ["derive"] }
+# Temporary files and directories
+tempfile = "3"
+# Text wrapping and indentation
+textwrap = { version = "0.16", default-features = false }
+# Easy error definition
+thiserror = "2"
+# Datetime library used by rcgen. Should match rcgen's `time` version
+time = "0.3"
+# Lower-level async TLS interface
+tokio-rustls = { version = "0.26", default-features = false }
+# Utilities for testing futures
+tokio-test = "0.4"
+# serde-compatible TOML-parsing library
+toml = { version = "0.8", default-features = false, features = ["parse"] }
+toml1 = { version = "1", package = "toml", default-features = false, features = ["parse"] }
+# `Service` and `Layer`-based async middleware
+tower = "0.5"
+tower-http = "0.6"
+tower-service = "0.3"
+# Scoped, structured logging for asynchronous systems
+tracing = "0.1"
+tracing-core = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["smallvec"] }
+# Generate bindings to our SDK in other languages.
+# NOTE: when upgrading, keep async-compat version in sync with uniffi_core.
+uniffi = { version = "0.30", default-features = false }
+# Mozilla's set of trusted webpki root certificates hard-coded into a const
+webpki-roots = "1"
+# Parsing x509 cert extensions
+x509-parser = { version = "0.18", default-features = false }
+# For constructing/parsing ASN.1 data in x509 certs
+yasna = { version = "0.5", default-features = false, features = ["num-bigint"] }
+# Zeroize secrets in memory
+zeroize = { version = "1", default-features = false, features = [] }
+
+# --- PATCHED DEPENDENCIES --- #
+# Use this section to declare patched dependencies.
+# - See the following [patch.crates-io] section for patch declarations.
+# - The version should use `=` to pin the exact version our patch applies to.
+#   `=` ensures `cargo update` doesn't accidentally update the dependency,
+#   leading to it becoming incompatible with our patch.
+
+# A client for the Intel AESM service. Used during attestation to get quoted.
+aesm-client = { version = "0.6", default-features = false }
+# High level webserver based on axum, tokio, hyper, and tower
+axum-server = { version = "0.7", default-features = false, features = ["tls-rustls-no-provider"] }
+# SGX Quote types
+dcap-ql = { version = "0.4", default-features = false }
+# Fortanix EDP crate for running SGX applications, includes usercall extensions
+enclave-runner = { version = "0.7", default-features = false }
+# Async Esplora client
+esplora-client = { version = "0.12", default-features = false, features = ["async", "tokio"] }
+# Hyper-related utilities
+hyper-util = { version = "0.1", default-features = false, features = ["http2"] }
+# LDK (rust-lightning) libraries
+lightning = { version = "0.2", features = [] }
+lightning-invoice = { version = "0.34", features = ["std"] }
+lightning-transaction-sync = { version = "0.2", features = ["esplora-async", "time"] }
+lightning-types = "0.3"
+# Required by tokio
+mio = "0.8"
+# MuSig2 (BIP327) key aggregation for taproot channel funding. The 0.1.x line
+# rides `secp256k1 ^0.29` (our exact version) → native types, no shim, no second
+# secp256k1. `features=["secp256k1"]` runs the EC math on libsecp256k1. Pin exact
+# (unaudited protocol code — the one accepted residual; see TAPROOT spec §0).
+musig2 = { version = "0.1.2", default-features = false, features = ["secp256k1"] }
+# Used by node to encode and decode NWC requests
+# Safe and small crypto primitives based on BoringSSL
+ring = "0.17"
+# Core SGX types and platform intrinsics (for sealing, reports, etc...)
+sgx-isa = "0.4"
+sgxs = "0.8"
+sgxs-loaders = "0.5"
+# Asynchronous runtime
+tokio = { version = "1", default-features = false }
+
+[patch.crates-io]
+# NOTE: Make sure to duplicate any changes to the root Cargo.toml.
+
+# SGX-toolchain + related forks are git-referenced from OUR org (quidmints) — see
+# the block after the LDK patches below. Re-homed from quid-app with zero quid refs.
+
+# * license: Add dual license information
+# * ln: onion-messenger: just queue forwards to offline peers
+# * onion-messenger: bump MAX_TIMER_TICKS to 3 (~30 sec)
+# * log: silence some especially chatty logs
+# * types: fix zero conf feature missing `clear_zero_conf` (on master)
+# * Bypass channel monitor sync requests when no partition key given (on master)
+# * util: add helper ChannelHandshakeConfig -> ChannelHandshakeConfigUpdate (on master)
+# * Add missing `OffersMessageHandler::best_block` updating (on master)
+# VENDORED + PATCHED: lib/rust-lightning is the quid LDK fork (branch
+# quid-v0.2.2-2026_04_28, commit 027c6a1) copied in-tree so QU!D can carry the
+# ChannelMonitor::funding_pubkeys() accessor. See lib/rust-lightning/QUID_PATCHES.md.
+lightning = { path = "lib/rust-lightning/lightning" }
+lightning-invoice = { path = "lib/rust-lightning/lightning-invoice" }
+lightning-transaction-sync = { path = "lib/rust-lightning/lightning-transaction-sync" }
+lightning-types = { path = "lib/rust-lightning/lightning-types" }
+# lightning.path = "../../ldk/lightning"
+# lightning-invoice.path = "../../ldk/lightning-invoice"
+# lightning-transaction-sync.path = "../../ldk/lightning-transaction-sync"
+# lightning-types.path = "../../ldk/lightning-types"
+
+# SGX-toolchain + related forks, git-referenced from OUR org (quidmints). Re-homed
+# from quid-app with ALL quid references scrubbed (refs/branches/comments/history) —
+# only the legally-required LICENSE attribution is kept. Single `main` commit each.
+# Needed for the SGX (Fortanix EDP) target (M11); they also compile for x86_64-linux
+# so the normal build uses them too.
+aesm-client     = { git = "https://github.com/quidmints/rust-sgx", branch = "main" }
+async-usercalls = { git = "https://github.com/quidmints/rust-sgx", branch = "main" }
+dcap-ql         = { git = "https://github.com/quidmints/rust-sgx", branch = "main" }
+enclave-runner  = { git = "https://github.com/quidmints/rust-sgx", branch = "main" }
+sgx-isa         = { git = "https://github.com/quidmints/rust-sgx", branch = "main" }
+sgxs            = { git = "https://github.com/quidmints/rust-sgx", branch = "main" }
+sgxs-loaders    = { git = "https://github.com/quidmints/rust-sgx", branch = "main" }
+axum-server     = { git = "https://github.com/quidmints/axum-server", branch = "main" }
+esplora-client  = { git = "https://github.com/quidmints/rust-esplora-client", branch = "main" }
+hyper-util      = { git = "https://github.com/quidmints/hyper-util", branch = "main" }
+mio             = { git = "https://github.com/quidmints/mio", branch = "main" }
+ring            = { git = "https://github.com/quidmints/ring", branch = "main" }
+tokio           = { git = "https://github.com/quidmints/tokio", branch = "main" }
+
+[profile.release]
+# Enable "thin" LTO (link-time optimization) for better perf+binary size. "fat"
+# LTO is marginally better perf-wise but much slower linking time.
+lto = "thin"
+strip = "debuginfo"
+
+# For some reason, the `ring` build via nix + x86_64-unknown-linux-gnu is
+# failing in its `build.rs` because it's compiling the native code with `-O0`
+# (no optimizations)...
+[profile.release.build-override]
+opt-level = 3
+
+# The Rust profile used when building the node SGX enclave in release mode.
+# These options are tuned through trial and error to minimize reproducibility
+# issues :)
+[profile.release-sgx]
+inherits = "release"
+# panic = "unwind" # sometimes repro diff?
+# TODO(phlip9): fix `panic` -> `catch_unwind` -> `resume_unwind` swallowing
+# panic message and backtrace in enclave.
+panic = "abort"
+codegen-units = 1
+# lto = "fat" # big repro diff
+lto = "thin"
+# opt-level = 3 # big repro diff
+opt-level = 2
+debug = 0
+strip = "debuginfo"
+
+# NOTE: dev includes `check`, `clippy`, `test`, etc
+[profile.dev]
+# Our debug binaries are seriously bloated with sections like `.debug_pubtypes`
+# eating literally _hundreds_ of MiB. All this debug info is useless outside of
+# a debugger, which we rarely use.
+#
+# > Generates the minimal amount of debug info for backtraces with filename/line
+# > number info, but not anything else, i.e. no variable or function parameter
+# > info.
+debug = "line-tables-only"
+# This fixes 'warning: can't find symbol' when debugging, but breaks the
+# server's build.rs, so it should always be commented out in git. More info:
+# https://github.com/rust-lang/rust/issues/40787#issuecomment-1019465942
+# https://doc.rust-lang.org/cargo/reference/profiles.html#split-debuginfo
+# split-debuginfo = "packed"
+
+#
+# optimize some hot crypto/low-level packages even in debug mode
+#
+
+# ring
+[profile.dev.package.ring]
+opt-level = 3
+[profile.dev.package.spin]
+opt-level = 3
+[profile.dev.package.untrusted]
+opt-level = 3
+
+# bitcoin
+[profile.dev.package.secp256k1]
+opt-level = 3
+[profile.dev.package.secp256k1-sys]
+opt-level = 3
+[profile.dev.package.bitcoin_hashes]
+opt-level = 3
+
+# misc encoding
+[profile.dev.package.base64]
+opt-level = 3
+[profile.dev.package.bytes]
+opt-level = 3
+
+# proptest
+[profile.dev.package.proptest]
+opt-level = 3
+[profile.dev.package.rand_chacha]
+opt-level = 3
+[profile.dev.package.rand_xorshift]
+opt-level = 3

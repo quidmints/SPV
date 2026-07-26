@@ -1,0 +1,77 @@
+name: enclave
+
+# Secure-enclave build-hygiene CI (the gap flagged in BUILD-QUEUE §V.8).
+#
+# Two jobs, split by what actually needs SGX silicon:
+#   measure    — HARDWARE-FREE: reproducible SGX build → MRENCLAVE. Runs on a stock
+#                runner. This is what makes the on-chain AttestedHopRegistry whitelist
+#                auditable ("pinned MRENCLAVE == a build of this commit?") and catches
+#                SGX-fork / toolchain drift.
+#   dcap-smoke — needs REAL SGX (AESM + quoting enclave). Stub/gated until a self-hosted
+#                or cloud SGX runner is wired; stock GitHub runners cannot do it.
+#
+# Runs on ANY pushed branch + manual dispatch — it does NOT touch or require `main`
+# beyond being present in the tree. Authored 2026-07-25; VALIDATED ON FIRST RUN.
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "quid-ln/**"
+      - ".github/workflows/enclave.yml"
+      - "scripts/ci/enclave-measurement.sh"
+  workflow_dispatch: {}
+
+jobs:
+  measure:
+    name: reproducible MRENCLAVE (hardware-free)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install nightly + Fortanix SGX target
+        run: |
+          rustup toolchain install nightly --profile minimal
+          rustup +nightly target add x86_64-fortanix-unknown-sgx
+
+      - name: Cargo cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            quid-ln/target
+          key: enclave-${{ runner.os }}-${{ hashFiles('quid-ln/Cargo.lock') }}
+
+      - name: Install fortanix-sgx-tools + sgxs-tools (ftxsgx-elf2sgxs, sgxs-hash)
+        run: cargo install fortanix-sgx-tools sgxs-tools --locked
+
+      - name: Build enclave → MRENCLAVE → sign smoke
+        run: ./scripts/ci/enclave-measurement.sh
+
+      - name: Upload MRENCLAVE measurement
+        uses: actions/upload-artifact@v4
+        with:
+          name: mrenclave
+          path: mrenclave.txt
+
+  dcap-smoke:
+    name: DCAP attestation smoke (REQUIRES a real SGX runner)
+    needs: measure
+    # Gated: only runs once a self-hosted / cloud SGX runner is wired and the repo
+    # variable SGX_RUNNER_AVAILABLE is set to 'true'. Stock GitHub runners are NOT
+    # SGX machines, so this stays a documented stub until then (the same hardware
+    # tail as the G4 M11 residuals).
+    if: ${{ vars.SGX_RUNNER_AVAILABLE == 'true' }}
+    runs-on: ${{ vars.SGX_RUNNER_LABEL || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: DCAP quote + verify (real SGX)
+        run: |
+          echo "A real DCAP quote needs SGX silicon (AESM service + a quoting enclave)."
+          echo "Wire a self-hosted SGX runner or a cloud SGX VM, set repo vars"
+          echo "SGX_RUNNER_AVAILABLE=true and SGX_RUNNER_LABEL=<runner-label>, then this"
+          echo "job generates a real DCAP quote for the built enclave and verifies it."
+          echo "STUB until an SGX runner exists — build/MRENCLAVE/sign are covered by 'measure'."

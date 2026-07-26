@@ -1,0 +1,29 @@
+[package]
+name = "quid-sha256"
+version = "0.1.11"
+license = "MIT"
+description = "Opinionated sha256 hashing via ring"
+documentation = "https://docs.rs/quid-sha256"
+authors = { workspace = true }
+edition = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+publish = true
+
+# Default config for testing in SGX
+[package.metadata.fortanix-sgx]
+
+[dependencies]
+
+
+quid-byte-array = { workspace = true }
+quid-std = { workspace = true, features = ["ref-cast"] }
+
+# --- WORKSPACE --- #
+
+ref-cast = { workspace = true }
+ring = { workspace = true }
+
+[dev-dependencies]
+quid-hex = { workspace = true }

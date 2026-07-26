@@ -1,0 +1,30 @@
+[package]
+name = "quid-run-sgx"
+license = "PolyForm-Noncommercial-1.0.0"
+authors = { workspace = true }
+edition = { workspace = true }
+version = { workspace = true }
+publish = false
+
+[dependencies]
+
+# --- QUID --- #
+
+quid-sgx-toml = { path = "../quid-sgx-toml" }
+
+# --- WORKSPACE --- #
+
+anyhow = { workspace = true }
+argh = { workspace = true }
+object = { workspace = true }
+rustc-demangle = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true, features = ["net"] }
+
+[target.'cfg(all(target_arch = "x86_64", target_os = "linux"))'.dependencies]
+quid-enclave = { workspace = true }
+quid-sgxs-sign = { path = "../quid-sgxs-sign" }
+
+enclave-runner = { workspace = true }
+sgx-isa = { workspace = true }
+sgxs-loaders = { workspace = true }

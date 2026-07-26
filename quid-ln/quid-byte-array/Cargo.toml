@@ -1,0 +1,20 @@
+[package]
+name = "quid-byte-array"
+version = "0.1.11"
+license = "MIT"
+description = "Byte array newtype trait"
+documentation = "https://docs.rs/quid-byte-array"
+authors = { workspace = true }
+edition = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+publish = true
+
+# Default config for testing in SGX
+[package.metadata.fortanix-sgx]
+
+[dependencies]
+
+
+quid-hex = { workspace = true }

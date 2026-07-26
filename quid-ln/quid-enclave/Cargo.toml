@@ -1,0 +1,51 @@
+[package]
+name = "quid-enclave"
+version = "0.1.11"
+license = "MIT"
+description = "Quid Intel SGX enclave types and platform functions"
+documentation = "https://docs.rs/quid-enclave"
+authors = { workspace = true }
+edition = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+publish = true
+
+# Default config for testing in SGX
+[package.metadata.fortanix-sgx]
+
+[features]
+# Explicitly specify that no features should be enabled by default.
+default = []
+# Enables various test hooks and utilities. Should be disabled in staging/prod.
+test-utils = [
+    "dep:proptest",
+    "dep:proptest-derive",
+]
+
+[dependencies]
+
+
+quid-byte-array = { workspace = true }
+quid-hex = { workspace = true }
+quid-serde = { workspace = true }
+quid-sha256 = { workspace = true }
+quid-std = { workspace = true, features = ["ref-cast"] }
+
+# --- WORKSPACE --- #
+
+cfg-if = { workspace = true }
+ref-cast = { workspace = true }
+ring = { workspace = true }
+sgx-isa = { workspace = true }
+
+# --- OPTIONAL --- #
+
+proptest = { workspace = true, optional = true, features = ["alloc"] }
+proptest-derive = { workspace = true, optional = true }
+
+[dev-dependencies]
+proptest = { workspace = true, features = ["alloc"] }
+proptest-derive = { workspace = true }
+serde_core = { workspace = true }
+serde_json = { workspace = true }

@@ -1,0 +1,575 @@
+use std::{borrow::Cow, str::FromStr};
+
+use anyhow::{Context, anyhow, ensure};
+use quid_api::types::payments::{DbPaymentMetadata, DbPaymentV2, PaymentId};
+use quid_common::time::TimestampMs;
+use quid_crypto::{aes::AesMasterKey, rng::Crng};
+use quid_std::{const_assert, fmt::DisplayOption};
+use tracing::warn;
+
+use crate::payments::{
+    PaymentMetadata, PaymentV2, PaymentWithMetadata, v1::PaymentV1,
+};
+
+/// The payments schema version we currently use to serialize payments.
+///
+/// V1 format stores metadata inside the payment blob; there is no metadata.
+/// V2 format stores metadata separately; metadata is optional.
+const CURRENT_PAYMENTS_VERSION: i16 = 2;
+const_assert!(CURRENT_PAYMENTS_VERSION == 1 || CURRENT_PAYMENTS_VERSION == 2);
+
+// --- Public API --- //
+
+/// Encrypts a [`PaymentV2`] and optional [`PaymentMetadata`].
+///
+/// Returns the encrypted payment and optionally the encrypted metadata.
+/// V1 format stores metadata inside the payment blob and returns `None`.
+/// V2 format stores metadata separately and returns `Some` if provided.
+pub fn encrypt_pwm(
+    rng: &mut impl Crng,
+    vfs_master_key: &AesMasterKey,
+    payment: &PaymentV2,
+    metadata: Option<&PaymentMetadata>,
+    created_at: TimestampMs,
+    updated_at: TimestampMs,
+) -> anyhow::Result<(DbPaymentV2, Option<DbPaymentMetadata>)> {
+    match CURRENT_PAYMENTS_VERSION {
+        1 => {
+            let pwm = PaymentWithMetadata {
+                payment: payment.clone(),
+                metadata: metadata
+                    .cloned()
+                    .unwrap_or_else(|| PaymentMetadata::empty(payment.id())),
+            };
+            let payment_v1 = PaymentV1::try_from(pwm)
+                .context("Failed to convert payment to v1")?;
+            let db_payment = encrypt_payment_v1(
+                rng,
+                vfs_master_key,
+                &payment_v1,
+                created_at,
+                updated_at,
+            );
+            Ok((db_payment, None))
+        }
+        2 => {
+            let db_payment = encrypt_payment_v2(
+                rng,
+                vfs_master_key,
+                payment,
+                created_at,
+                updated_at,
+            );
+            let db_metadata = metadata
+                .map(|m| encrypt_metadata(rng, vfs_master_key, m, updated_at));
+            Ok((db_payment, db_metadata))
+        }
+        v => Err(anyhow!("Unexpected CURRENT_PAYMENTS_VERSION: {v}")),
+    }
+}
+
+/// Decrypts a [`DbPaymentV2`] and optional [`DbPaymentMetadata`] into a
+/// [`PaymentWithMetadata`].
+pub fn decrypt_pwm(
+    vfs_master_key: &AesMasterKey,
+    db_payment: DbPaymentV2,
+    db_metadata: Option<DbPaymentMetadata>,
+) -> anyhow::Result<PaymentWithMetadata> {
+    let version = db_payment.version;
+    match version {
+        1 => {
+            // V1 metadata was inside the payment blob; it *should* be None.
+            if db_metadata.is_some() {
+                warn!("v1 payment has metadata; likely a partial migration");
+            }
+            decrypt_payment_v1(vfs_master_key, db_payment)
+                .map(PaymentWithMetadata::from)
+        }
+        2 => {
+            let payment = decrypt_payment_v2(vfs_master_key, db_payment)?;
+            let metadata = match db_metadata {
+                Some(db_meta) => decrypt_metadata(vfs_master_key, db_meta)?,
+                None => PaymentMetadata::empty(payment.id()),
+            };
+            Ok(PaymentWithMetadata { payment, metadata })
+        }
+        v => Err(anyhow!("Unsupported payment version: {v}")),
+    }
+}
+
+/// Decrypts a [`DbPaymentV2`] into a [`PaymentV2`].
+pub fn decrypt_payment(
+    vfs_master_key: &AesMasterKey,
+    db_payment: DbPaymentV2,
+) -> anyhow::Result<PaymentV2> {
+    let version = db_payment.version;
+    match version {
+        1 => {
+            let payment_v1 = decrypt_payment_v1(vfs_master_key, db_payment)?;
+            let pwm = PaymentWithMetadata::from(payment_v1);
+            Ok(pwm.payment)
+        }
+        2 => decrypt_payment_v2(vfs_master_key, db_payment),
+        v => Err(anyhow!("Unsupported payment version: {v}")),
+    }
+}
+
+/// Encrypts a [`PaymentMetadata`] to a [`DbPaymentMetadata`].
+pub fn encrypt_metadata(
+    rng: &mut impl Crng,
+    vfs_master_key: &AesMasterKey,
+    metadata: &PaymentMetadata,
+    updated_at: TimestampMs,
+) -> DbPaymentMetadata {
+    let aad = &[];
+    let data_size_hint = None;
+    let write_data_cb: &dyn Fn(&mut Vec<u8>) = &|buf| {
+        serde_json::to_writer(buf, metadata)
+            .expect("PaymentMetadata serialization always succeeds")
+    };
+
+    let data = vfs_master_key.encrypt(rng, aad, data_size_hint, write_data_cb);
+
+    DbPaymentMetadata {
+        id: metadata.id.to_string(),
+        data,
+        updated_at: updated_at.to_i64(),
+    }
+}
+
+/// Decrypts a [`DbPaymentMetadata`] to [`PaymentMetadata`].
+pub fn decrypt_metadata(
+    vfs_master_key: &AesMasterKey,
+    db_metadata: DbPaymentMetadata,
+) -> anyhow::Result<PaymentMetadata> {
+    let aad = &[];
+    let plaintext_bytes = vfs_master_key
+        .decrypt(aad, db_metadata.data)
+        .context("Could not decrypt PaymentMetadata")?;
+
+    serde_json::from_slice(&plaintext_bytes)
+        .context("Could not deserialize PaymentMetadata")
+}
+
+// --- PaymentV1 / PaymentV2 --- //
+
+/// Encrypts a [`PaymentV1`] to a [`DbPaymentV2`].
+fn encrypt_payment_v1(
+    rng: &mut impl Crng,
+    vfs_master_key: &AesMasterKey,
+    payment: &PaymentV1,
+    created_at: TimestampMs,
+    updated_at: TimestampMs,
+) -> DbPaymentV2 {
+    let aad = &[];
+    let data_size_hint = None;
+    let write_data_cb: &dyn Fn(&mut Vec<u8>) = &|buf| {
+        serde_json::to_writer(buf, payment)
+            .expect("PaymentV1 serialization always succeeds")
+    };
+
+    let data = vfs_master_key.encrypt(rng, aad, data_size_hint, write_data_cb);
+
+    DbPaymentV2 {
+        id: payment.id().to_string(),
+        kind: Some(payment.kind().to_str()),
+        direction: Some(Cow::Borrowed(payment.direction().as_str())),
+        amount: payment.amount(),
+        fee: Some(payment.fees()),
+        partner: None,
+        status: Cow::Borrowed(payment.status().as_str()),
+        data,
+        version: 1,
+        created_at: created_at.to_i64(),
+        updated_at: updated_at.to_i64(),
+    }
+}
+
+/// Encrypts a [`PaymentV2`] to a [`DbPaymentV2`].
+fn encrypt_payment_v2(
+    rng: &mut impl Crng,
+    vfs_master_key: &AesMasterKey,
+    payment: &PaymentV2,
+    created_at: TimestampMs,
+    updated_at: TimestampMs,
+) -> DbPaymentV2 {
+    let version_bytes = 2_i16.to_le_bytes();
+    let aad = &[version_bytes.as_slice()];
+    let data_size_hint = None;
+    let write_data_cb: &dyn Fn(&mut Vec<u8>) = &|buf| {
+        serde_json::to_writer(buf, payment)
+            .expect("PaymentV2 serialization always succeeds")
+    };
+
+    let data = vfs_master_key.encrypt(rng, aad, data_size_hint, write_data_cb);
+
+    DbPaymentV2 {
+        id: payment.id().to_string(),
+        kind: Some(payment.kind().to_str()),
+        direction: Some(Cow::Borrowed(payment.direction().as_str())),
+        amount: payment.amount(),
+        fee: Some(payment.fee()),
+        partner: payment.partner(),
+        status: Cow::Borrowed(payment.status().as_str()),
+        data,
+        version: 2,
+        created_at: created_at.to_i64(),
+        updated_at: updated_at.to_i64(),
+    }
+}
+
+/// Decrypts [`DbPaymentV2`] into [`PaymentV1`].
+fn decrypt_payment_v1(
+    vfs_master_key: &AesMasterKey,
+    db_payment: DbPaymentV2,
+) -> anyhow::Result<PaymentV1> {
+    // Destructure so can update the validation below when a new field is added.
+    let DbPaymentV2 {
+        id: db_id,
+        kind,
+        direction,
+        amount,
+        fee,
+        partner: _,
+        status: db_status,
+        data,
+        version,
+        created_at: _,
+        updated_at: _,
+    } = db_payment;
+
+    ensure!(version == 1, "expected version 1, got {version}");
+
+    let aad = &[];
+    let plaintext_bytes = vfs_master_key
+        .decrypt(aad, data)
+        .context("Could not decrypt Payment")?;
+
+    let payment =
+        serde_json::from_slice::<PaymentV1>(plaintext_bytes.as_slice())
+            .context("Could not deserialize PaymentV1")?;
+
+    // Validate plaintext fields match decrypted values
+    let db_id = PaymentId::from_str(&db_id).context("invalid db id")?;
+    ensure!(
+        payment.id() == db_id,
+        "Payment id mismatch: db={db_id}, payment={}",
+        payment.id(),
+    );
+    ensure!(
+        payment.status().as_str() == db_status,
+        "Payment status mismatch: db={db_status}, payment={}",
+        payment.status().as_str(),
+    );
+    if let Some(db_kind) = kind {
+        ensure!(
+            payment.kind().to_str() == db_kind,
+            "Payment kind mismatch: db={db_kind}, payment={}",
+            payment.kind().to_str(),
+        );
+    }
+    if let Some(db_direction) = direction {
+        ensure!(
+            payment.direction().as_str() == db_direction,
+            "Payment direction mismatch: db={db_direction}, payment={}",
+            payment.direction().as_str(),
+        );
+    }
+    if let Some(db_amount) = amount {
+        ensure!(
+            payment.amount() == Some(db_amount),
+            "Payment amount mismatch: db={db_amount}, payment={}",
+            DisplayOption(payment.amount()),
+        );
+    }
+    if let Some(db_fee) = fee {
+        ensure!(
+            payment.fees() == db_fee,
+            "Payment fee mismatch: db={db_fee:?}, payment={:?}",
+            payment.fees(),
+        );
+    }
+
+    Ok(payment)
+}
+
+/// Decrypts [`DbPaymentV2`] into [`PaymentV2`].
+fn decrypt_payment_v2(
+    vfs_master_key: &AesMasterKey,
+    db_payment: DbPaymentV2,
+) -> anyhow::Result<PaymentV2> {
+    // Destructure so can update the validation below when a new field is added.
+    let DbPaymentV2 {
+        id: db_id,
+        kind,
+        direction,
+        amount,
+        fee,
+        partner,
+        status: db_status,
+        data,
+        version,
+        created_at: _,
+        updated_at: _,
+    } = db_payment;
+
+    ensure!(version == 2, "expected version 2, got {version}");
+
+    let version_bytes = version.to_le_bytes();
+    let aad = &[version_bytes.as_slice()];
+    let plaintext_bytes = vfs_master_key
+        .decrypt(aad, data)
+        .context("Could not decrypt Payment")?;
+
+    let payment = serde_json::from_slice::<PaymentV2>(&plaintext_bytes)
+        .context("Could not deserialize PaymentV2")?;
+
+    // Validate all plaintext fields match
+    let db_id = PaymentId::from_str(&db_id).context("invalid db id")?;
+    let db_kind = kind.context("version 2 payment missing 'kind' field")?;
+    let db_direction =
+        direction.context("version 2 payment missing 'direction' field")?;
+    // Normally, we'd `amount.context()?` here, but amount can be None for
+    // amountless inbound invoice payments.
+    let db_fee = fee.context("version 2 payment missing 'fee' field")?;
+
+    ensure!(
+        payment.id() == db_id,
+        "id mismatch: db={db_id}, payment={}",
+        payment.id(),
+    );
+    ensure!(
+        payment.status().as_str() == db_status,
+        "status mismatch: db={db_status}, payment={}",
+        payment.status().as_str(),
+    );
+    ensure!(
+        payment.kind().to_str() == db_kind,
+        "kind mismatch: db={db_kind}, payment={}",
+        payment.kind().to_str(),
+    );
+    ensure!(
+        payment.direction().as_str() == db_direction,
+        "direction mismatch: db={db_direction}, payment={}",
+        payment.direction().as_str(),
+    );
+    // amount can be None for amountless inbound invoice payments
+    ensure!(
+        payment.amount() == amount,
+        "amount mismatch: db={}, payment={}",
+        DisplayOption(amount),
+        DisplayOption(payment.amount()),
+    );
+    ensure!(
+        payment.fee() == db_fee,
+        "fee mismatch: db={db_fee:?}, payment={:?}",
+        payment.fee(),
+    );
+    ensure!(
+        payment.partner() == partner,
+        "partner_fee mismatch: db={partner:?}, payment={:?}",
+        payment.partner(),
+    );
+
+    Ok(payment)
+}
+
+#[cfg(test)]
+mod test {
+    use quid_common::time::TimestampMs;
+    use quid_crypto::{aes::AesMasterKey, rng::FastRng};
+    use proptest::{arbitrary::any, prop_assert_eq, proptest};
+
+    use super::*;
+
+    // encrypt_payment_v1 -> decrypt_payment_v1 = id
+    #[test]
+    fn payment_v1_encryption_roundtrip() {
+        proptest!(|(
+            mut rng in any::<FastRng>(),
+            vfs_master_key in any::<AesMasterKey>(),
+            payment in any::<PaymentV1>(),
+            now in any::<TimestampMs>(),
+        )| {
+            let created_at = payment.created_at();
+            let updated_at = now;
+
+            let encrypted = encrypt_payment_v1(
+                &mut rng,
+                &vfs_master_key,
+                &payment,
+                created_at,
+                updated_at,
+            );
+
+            let decrypted =
+                decrypt_payment_v1(&vfs_master_key, encrypted).unwrap();
+
+            prop_assert_eq!(payment, decrypted);
+        })
+    }
+
+    // encrypt_payment_v2 -> decrypt_payment_v2 = id
+    #[test]
+    fn payment_v2_encryption_roundtrip() {
+        proptest!(|(
+            mut rng in any::<FastRng>(),
+            vfs_master_key in any::<AesMasterKey>(),
+            payment in any::<PaymentV2>(),
+            now in any::<TimestampMs>(),
+        )| {
+            let created_at = payment.created_at().unwrap_or(now);
+            let updated_at = now;
+
+            let encrypted = encrypt_payment_v2(
+                &mut rng,
+                &vfs_master_key,
+                &payment,
+                created_at,
+                updated_at,
+            );
+
+            let decrypted =
+                decrypt_payment_v2(&vfs_master_key, encrypted).unwrap();
+
+            prop_assert_eq!(payment, decrypted);
+        })
+    }
+
+    // encrypt_metadata -> decrypt_metadata = id
+    #[test]
+    fn payment_metadata_encryption_roundtrip() {
+        proptest!(|(
+            mut rng in any::<FastRng>(),
+            vfs_master_key in any::<AesMasterKey>(),
+            metadata in any::<PaymentMetadata>(),
+            now in any::<TimestampMs>(),
+        )| {
+            let encrypted = encrypt_metadata(
+                &mut rng,
+                &vfs_master_key,
+                &metadata,
+                now,
+            );
+
+            let decrypted =
+                decrypt_metadata(&vfs_master_key, encrypted).unwrap();
+
+            prop_assert_eq!(metadata, decrypted);
+        })
+    }
+
+    // encrypt_pwm -> decrypt_pwm = id (for PaymentV1 input)
+    #[test]
+    fn pwm_v1_roundtrip() {
+        proptest!(|(
+            mut rng in any::<FastRng>(),
+            vfs_master_key in any::<AesMasterKey>(),
+            payment_v1 in any::<PaymentV1>(),
+            now in any::<TimestampMs>(),
+        )| {
+            let pwm = PaymentWithMetadata::from(payment_v1);
+            let created_at = pwm.payment.created_at().unwrap_or(now);
+            let updated_at = now;
+
+            let (db_payment, db_metadata) = encrypt_pwm(
+                &mut rng,
+                &vfs_master_key,
+                &pwm.payment,
+                Some(&pwm.metadata),
+                created_at,
+                updated_at,
+            ).unwrap();
+
+            let decrypted =
+                decrypt_pwm(&vfs_master_key, db_payment, db_metadata).unwrap();
+
+            prop_assert_eq!(pwm, decrypted);
+        })
+    }
+
+    // encrypt_pwm -> decrypt_pwm = id (for PaymentV2 + metadata input)
+    #[test]
+    fn pwm_v2_roundtrip() {
+        proptest!(|(
+            mut rng in any::<FastRng>(),
+            vfs_master_key in any::<AesMasterKey>(),
+            payment in any::<PaymentV2>(),
+            mut metadata in any::<PaymentMetadata>(),
+            now in any::<TimestampMs>(),
+        )| {
+            metadata.id = payment.id();
+            let pwm = PaymentWithMetadata { payment, metadata };
+            let created_at = pwm.payment.created_at().unwrap_or(now);
+            let updated_at = now;
+
+            let (db_payment, db_metadata) = encrypt_pwm(
+                &mut rng,
+                &vfs_master_key,
+                &pwm.payment,
+                Some(&pwm.metadata),
+                created_at,
+                updated_at,
+            ).unwrap();
+
+            let decrypted =
+                decrypt_pwm(&vfs_master_key, db_payment, db_metadata).unwrap();
+
+            prop_assert_eq!(pwm, decrypted);
+        })
+    }
+
+    // encrypt_payment_v1 -> decrypt_payment extracts correct PaymentV2
+    #[test]
+    fn decrypt_payment_v1_roundtrip() {
+        proptest!(|(
+            mut rng in any::<FastRng>(),
+            vfs_master_key in any::<AesMasterKey>(),
+            payment_v1 in any::<PaymentV1>(),
+            now in any::<TimestampMs>(),
+        )| {
+            let created_at = payment_v1.created_at();
+            let updated_at = now;
+
+            let encrypted_v1 = encrypt_payment_v1(
+                &mut rng,
+                &vfs_master_key,
+                &payment_v1,
+                created_at,
+                updated_at,
+            );
+
+            let decrypted_v2 =
+                decrypt_payment(&vfs_master_key, encrypted_v1).unwrap();
+
+            let expected_v2 = PaymentWithMetadata::from(payment_v1).payment;
+            prop_assert_eq!(expected_v2, decrypted_v2);
+        })
+    }
+
+    // encrypt_payment_v2 -> decrypt_payment = id
+    #[test]
+    fn decrypt_payment_v2_roundtrip() {
+        proptest!(|(
+            mut rng in any::<FastRng>(),
+            vfs_master_key in any::<AesMasterKey>(),
+            payment in any::<PaymentV2>(),
+            now in any::<TimestampMs>(),
+        )| {
+            let created_at = payment.created_at().unwrap_or(now);
+            let updated_at = now;
+
+            let encrypted = encrypt_payment_v2(
+                &mut rng,
+                &vfs_master_key,
+                &payment,
+                created_at,
+                updated_at,
+            );
+
+            let decrypted = decrypt_payment(&vfs_master_key, encrypted).unwrap();
+
+            prop_assert_eq!(payment, decrypted);
+        })
+    }
+}

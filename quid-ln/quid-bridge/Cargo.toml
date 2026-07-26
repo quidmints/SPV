@@ -1,0 +1,97 @@
+[package]
+name = "quid-bridge"
+version = "0.1.0"
+edition = "2021"
+description = "QU!D EVM-sender bridge daemon — drives BTCChannels settleSwapIn/markSwapOutPaid from the hop node's swap events (the LN↔EVM glue, run as a parallel daemon on the hop box)."
+
+[features]
+# Enables the hop regtest harness (bitcoind+LDK) for the hop↔bridge integration
+# test (tests/hop_bridge_e2e.rs). Off by default so a normal build stays lean.
+harness = ["quid-hop/harness"]
+
+# --- SGX enclave entrypoint config ---
+# Read by `quid-sgx-toml` / the `run-sgx-cargo` runner when building the daemon
+# binaries (quid-bridge-daemon, quid-lp-daemon) for the
+# `x86_64-fortanix-unknown-sgx` target. These bins ARE the enclave: the channel
+# root seed is born + sealed inside (see quid-hop::seed). Values mirror quid's
+# proven LDK-node enclave and are tunable once profiled on real SGX hardware.
+[package.metadata.fortanix-sgx]
+# Return panics w/ backtraces to the host via the shared debug buffer (NOT the
+# SGX platform DEBUG mode, which disables memory protections).
+debug = true
+# Heap (bytes). MUST be profiled on real SGX hardware under load — heap
+# exhaustion inside an enclave is a fatal abort, so over-provision deliberately.
+# Set ABOVE quid's proven 1.5 GiB LDK node (0x6000_0000): our hop is heavier —
+# the single custody channel carries EVERY swap HTLC (up to the 483 in-flight
+# cap) plus channel monitors, BDK wallet, and esplora sync buffers. The network
+# graph/scorer is kept fresh per boot (cheaper than a full pathfinding node),
+# which only partly offsets that. 2 GiB is a safety-margin starting point.
+heap-size = 0x8000_0000   # 2 GiB  (TUNE on hardware)
+# SSA frame size (pages) per thread. Leave at the default.
+ssaframesize = 1
+# Stack (bytes) per thread. Matches quid's proven node.
+stack-size = 0x0080_0000  # 8 MiB
+# Max concurrent enclave threads (TCS slots). The daemon runs several tokio
+# tasks (node + esplora sync + reconnect + rebalancer / bridge); allow a few
+# workers + async_usercalls (+1). Each slot costs enclave memory — tune on hw.
+threads = 6
+
+[dependencies]
+quid-hop = { path = "../quid-hop" }
+# Daemon assembly: boot the hop + build the esplora header source + load config.
+quid-ln = { path = "../quid-ln" }
+quid-common = { path = "../quid-common" }
+# (#69) name LDK's ChannelId in the reconciler's hop-funded fee-splice (initiate_splice
+# takes &ChannelId). The workspace [patch] unifies this with quid-hop's LDK fork, so it
+# is the SAME type the chain monitor / channel manager already yield.
+lightning = { workspace = true }
+quid-api = { path = "../quid-api" }
+# Attested provisioning endpoint (the enclave serves an RA-TLS cert with its
+# quote; an operator CLI verifies it then POSTs a seed which is sealed in-enclave).
+quid-tls = { path = "../quid-tls" }
+quid-tls-attest-server = { path = "../quid-tls-attest-server" }
+quid-crypto = { path = "../quid-crypto" }
+quid-enclave = { path = "../quid-enclave" }
+# Serve axum over the attested rustls ServerConfig (the quidmints-forked axum-server).
+axum-server = { workspace = true }
+# Operator-CLI provisioning client (verifies the enclave via a preconfigured
+# rustls ClientConfig from quid-tls, then POSTs the seed). json for the body.
+reqwest = { workspace = true, features = ["json"] }
+# Block-header (de)serialization for the esplora-backed BtcHeaderSource.
+bitcoin = { workspace = true }
+# Daemon logging.
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+# Swap-in request ingrid (B-1): a small authenticated HTTP endpoint that issues
+# swap-in invoices. Same axum version the workspace API server uses.
+axum = { version = "0.8", default-features = false, features = ["json", "tokio", "http1"] }
+# EVM word/address/hash types + calldata shaping (reuses quid-hop::swap helpers).
+alloy-primitives = "0.8"
+anyhow = "1"
+tracing = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Recoverable ECDSA over secp256k1 — the SAME vetted libsecp256k1 binding quid
+# uses for Bitcoin/LN signing (sign_ecdsa_recoverable). Already in the lock.
+secp256k1 = { version = "0.29", features = ["recovery"] }
+# Durable atomic state persistence (write temp → fsync → atomic rename) without
+# hand-rolling it — the ubiquitous, audited temp-file crate (already in the lock).
+tempfile = "3"
+# Blocking HTTP for the JSON-RPC transport (self-contained rustls+webpki roots,
+# so it doesn't entangle the workspace reqwest's manual-roots TLS config).
+ureq = { version = "2", features = ["json"] }
+# Shares the hop's runtime (same in-process mpsc). EVM I/O is BLOCKING on
+# spawn_blocking, so NO alloy-provider async stack is pulled here.
+# Use the most recent tokio; cargo unifies it with quid-hop's registry tokio
+# (the in-process mpsc types must match). The quid 1.36 fork is only for the
+# enclave path. FALLBACK if unification ever breaks: pin to the workspace
+# version instead — `tokio = { workspace = true, features = [...] }`.
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync", "time", "signal"] }
+
+[dev-dependencies]
+# For the hop↔bridge integration test only (paying a swap-in invoice via the
+# hop's channel manager). The workspace [patch] unifies this with quid-hop's fork.
+lightning = { version = "0.2" }
+# Property-based fuzzing of the UNTRUSTED on-chain log / eth_call decoders
+# (swap_out, lp_fees, client, channel_driver, relayer). `std` re-enables the
+# default test-harness bits (the workspace dep is default-features=false).
+proptest = { workspace = true, features = ["std"] }
