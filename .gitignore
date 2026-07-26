@@ -89,3 +89,7 @@ evm/broadcast/**
 # NOTE: regtest/ is NOT blanket-ignored — its scripts (setup.sh, start.sh,
 # driver-e2e.sh, …) are integrity-relevant and tracked. Only the downloaded
 # binaries + local chain/node data are ignored, via regtest/.gitignore.
+
+# Python bytecode caches (never source)
+__pycache__/
+*.py[cod]

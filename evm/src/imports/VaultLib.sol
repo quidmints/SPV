@@ -323,7 +323,15 @@ library VaultLib {
                 uint conservative;
                 try IERC4626(vault).maxWithdraw(address(this)) returns (uint m) { conservative = m; } catch {}
                 if (conservative > need) conservative = need;
-                if (conservative > 0) IERC4626(vault).withdraw(conservative, address(this), address(this));
+                // MUST NOT swallow a zero fallback. On a Morpho-V2 venue `maxWithdraw` is ALWAYS 0, so
+                // `conservative == 0` is the GUARANTEED case there, not an edge one — and simply
+                // skipping would hand the LP a short delivery reported as success (`withdrawETH`'s
+                // `sent = wethBal >= amount ? amount : wethBal`). That is precisely the SILENT LP VALUE
+                // LOSS this function's own comment forbids, on 2 of our 3 ETH venues. If the venue
+                // cannot fill the optimistic amount AND admits no smaller number, it is genuinely
+                // faulted: surface it rather than paying the LP short and calling it done.
+                require(conservative > 0, "ethv:venuePullFailed");
+                IERC4626(vault).withdraw(conservative, address(this), address(this));
             }
         }
     }
