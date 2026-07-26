@@ -676,6 +676,30 @@ contract Alles is Test, Fixtures {
             "frozen-but-unflagged Euler: deliverableETH caps below vogueETH (Strand-2)");
     }
 
+    /// @notice GAUNTLET end-to-end (added 2026-07-26). Gauntlet is 1 of our 3 ETH venues and had NO
+    ///         coverage at all — every probe up to now used venue selectors 3/4/5, and `VENUE_GAUNTLET`
+    ///         is 6, so it had literally never been exercised. It is also a SECOND Morpho-V2 vault, so
+    ///         this independently confirms `_withdrawableOf` on a venue that was not part of the
+    ///         diagnosis: the raw `maxWithdraw` reads 0 while `deliverableETH` correctly reports the
+    ///         full position and the LP exits whole.
+    function testGauntletVenue_DepositAndFullExit() public {
+        address gauntlet = ETH.GAUNTLET_VAULT();
+        vm.prank(User01); V4.deposit{value: 20 ether}(0, User01, 6);   // VENUE_GAUNTLET
+
+        uint shares = IERC4626(gauntlet).balanceOf(address(ETH));
+        assertGt(shares, 0, "the 20 ETH actually landed in Gauntlet");
+        assertEq(IERC4626(gauntlet).maxWithdraw(address(ETH)), 0,
+            "precondition: Gauntlet is Morpho-V2, so its raw max-view reads 0 against a live position");
+        assertApproxEqRel(ETH.deliverableETH(), 20 ether, 0.01e18,
+            "deliverableETH counts it in full anyway (this is the _withdrawableOf fix)");
+
+        vm.roll(block.number + 1);                                     // JIT-lock: no same-block exit
+        uint before = User01.balance + WETH.balanceOf(User01);
+        vm.prank(User01); V4.withdraw(type(uint).max, User01, User01);
+        assertGt((User01.balance + WETH.balanceOf(User01)) - before, 19 ether,
+            "a Gauntlet-routed LP exits ~whole (the venue self-deallocates inside withdraw)");
+    }
+
     /// @notice TODO #1 char test - Galaxy fallback (Batch-1 `b554c7d`). Closes the
     ///         green-by-masking gap: a reverting Galaxy deposit is CAUGHT and the ETH
     ///         reroutes to AAVE/hold (no strand); a Galaxy deposit that mints 0 shares
