@@ -64,6 +64,10 @@ interface ISwapRouter02M {
 ///         come in via the cfg structs; the swaps reuse the basket SOR (`sorSelfFunded`, UniV3-backed).
 ///         (The below-entry SHORT / inverse-venue subsystem was removed — up-side-only is the design.)
 library LevMath {
+
+    /// Zero oracle anchor. A named error, NOT a string require: the string form cost enough
+    /// bytecode to push this library 38 bytes past EIP-170 (measured).
+    error NoPrice();
     uint256 internal constant WAD = 1e18;
 
     /// @notice The LTV (bps) of `debt` against a position worth `collValue` (same unit); `collValue==0 ⇒ 0`.
@@ -546,6 +550,13 @@ library LevMath {
     ///         manager) to keep the manager under EIP-170. `cfg.weeth` doubles as the weETH rate source.
     function freeAndDeliverBody(ILevVenue venue, address lp, uint256 usedUsd, address recipient,
         uint256 minWethOut, uint256 pxWeth, ExtractCfg memory cfg) public returns (uint256 wethDelivered) {
+        // A ZERO oracle price must never PANIC. `Aux.getTWAPforAsset` deliberately NEVER reverts
+        // (that is what makes #101's degrade-to-partial-fill work), so an unset/stale Chainlink anchor
+        // propagates `pxWeth == 0` straight into these divisors — measured: testReal_Morpho_OpenAndDelever
+        // and testReal_Euler_OpenAndDelever both died on `panic: division or modulo by zero (0x12)` here,
+        // via twapResolve(feed=0x0, price=0). A panic burns all gas and is undiagnosable; a named revert
+        // is the correct failure for an operation that genuinely cannot be sized without a price.
+        if (pxWeth == 0) revert NoPrice();
         uint256 freeEth = (usedUsd * 1e18) / pxWeth;                              // WETH-equivalent to free
         uint256 coll = venue.collateralOf(lp);
         uint256 collInEth = cfg.isWethVenue ? coll : IWeETHM(cfg.weeth).getEETHByWeETH(coll);
@@ -790,6 +801,7 @@ library LevMath {
         private returns (uint256 pulled) {
         IERC20Min(stable).transfer(venueAddr, assets);
         uint256 repaid = ILevVenue(venueAddr).repay(lp, assets);                 // == assets (capped ≤ debt upstream)
+        if (pxWeth == 0) revert NoPrice();     // see the note above — never panic on a zero anchor
         uint256 ethAmt = (_toUsd18(stable, repaid) * 1e18) / pxWeth;
         uint256 collUnits = cfg.isWethVenue ? ethAmt : (ethAmt * 1e18) / IWeETHM(cfg.weeth).getEETHByWeETH(1e18);
         pulled = ILevVenue(venueAddr).withdraw(lp, (collUnits * 10_000) / (10_000 - cfg.maxSlippageBps));

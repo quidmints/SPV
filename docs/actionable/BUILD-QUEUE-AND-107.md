@@ -1556,3 +1556,38 @@ fairness** and the **conservation UPPER bound**. Those two are its reason to exi
 `test_RunSim_AllExit_Normal` asserts they DO (`rem < 1e9`) and passes. The difference is that runsim
 has redeemers burning QU!D first, which frees stables. Whether a deferral with no redeemer present is
 acceptable-by-design or a liquidity gap is NOT settled here — but it is a deferral, not a loss.
+
+## A.12 THE 3 REMAINING FAILURES — diagnosed to root cause (2026-07-26); 2 are ONE bug, not "pre-existing noise"
+
+They were being written off as "pre-existing testReal_* lever cases". Traced properly:
+
+### `testReal_Morpho_OpenAndDelever` + `testReal_Euler_OpenAndDelever` — ONE bug: zero TWAP inside the flash-loan callback
+Both died on `panic: division or modulo by zero (0x12)`. Cause: `LevMath.deleverSettleBody` is called
+with **`pxWeth == 0`**, and divided by it unguarded at `LevMath:549` and `:793`.
+`Aux.getTWAPforAsset` deliberately NEVER reverts (that is what makes #101's degrade-to-partial-fill
+work), so a zero price is a VALUE it can return, and two divisors trusted it blindly.
+
+**FIXED (defensively):** both divisions now `revert NoPrice()`. A panic burns all gas and is
+undiagnosable; a named revert is the correct failure for an op that cannot be sized without a price.
+⚠️ It had to be a CUSTOM ERROR, not `require(..., "lev:noPrice")` — the string form measured 38 bytes
+PAST EIP-170 for `LevMath`. With the custom error it sits at 24,556 with **20 bytes free**. Anything
+added to `LevMath` from here must check `forge build --sizes` first.
+
+**FIXED (fixture):** `_setupMorpho`/`_setupEuler` now pin the ETH/USD anchor exactly as the real deploy
+does (`DeployL1_s:326`) — they never did, so `rpx` was silently 0. An `assertGt(rpx, 0)` now guards it.
+
+🔴 **STILL OPEN — the real defect, now precisely located.** The anchor resolves NON-ZERO at setup (the
+new assert passes), yet the TWAP returns 0 *later*, inside `onMorphoFlashLoan`. From the trace,
+`BasketLib.ticksToPrice(1161326410, 2758414210, 1800, true)`: the average tick is
+`(2758414210-1161326410)/1800 = 887271`, i.e. **essentially MAX_TICK (887272)**. The pool is pinned at
+its boundary, the price is not representable, and `ticksToPrice` yields 0.
+⇒ Two candidate readings, NOT yet distinguished: (a) the fixture's V4 pool is initialised/pushed to an
+extreme so this is a TEST-POOL artifact; or (b) the levered open genuinely walks this thin pool to the
+tick boundary, in which case reading the TWAP mid-flash-loan is unsound in production too.
+⇒ **Do not "fix" this by widening a tolerance.** Distinguish (a) from (b) first — log the pool tick
+immediately before the flash loan.
+
+### `testReal_Euler_RebalanceMany_BatchHoldsTarget` — a strict-inequality assert on an unchanged value
+`5314620473 <= 5314620473`: the batch rebalance moved the target by EXACTLY ZERO. Distinct from the
+two above (no panic, no price involvement). Either `rebalanceMany` is a no-op in this fixture, or the
+position already sat at target so there was nothing to do. Unresolved; needs its own look.

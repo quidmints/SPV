@@ -164,7 +164,14 @@ contract LevYbRealProbe is Alles {
 
     function _setupMorpho() internal {
         _seedBasket();
+        // PIN THE ETH/USD ANCHOR, as the real deploy does (DeployL1_s:326). Without it
+        // `getTWAPforAsset` resolves through twapResolve(feed=0x0, price=0) and returns ZERO —
+        // and because it deliberately never reverts (#101 degrade-to-partial-fill), that zero
+        // propagated as `pxWeth` into LevMath's divisors and killed these tests with
+        // `panic: division or modulo by zero`. The fixture must match the deployed config.
+        if (AUX.assetPriceFeed(address(WETH)) == address(0)) AUX.setAssetFeed(address(WETH), CL_ETH_USD);
         rpx = AUX.getTWAPforAsset(address(WETH), 1800);            // 1e18 USD/ETH (real)
+        assertGt(rpx, 0, "ETH/USD anchor must resolve non-zero (pxWeth feeds LevMath divisors)");
         RealRateMorphoOracle oracle = new RealRateMorphoOracle(WEETH, CL_ETH_USD); // REAL ether.fi rate × Chainlink
         mOracle = address(oracle);
         MarketParams memory mp = MarketParams({
@@ -410,7 +417,14 @@ contract LevYbRealProbe is Alles {
 
     function _setupEuler() internal {
         _seedBasket();
+        // PIN THE ETH/USD ANCHOR, as the real deploy does (DeployL1_s:326). Without it
+        // `getTWAPforAsset` resolves through twapResolve(feed=0x0, price=0) and returns ZERO —
+        // and because it deliberately never reverts (#101 degrade-to-partial-fill), that zero
+        // propagated as `pxWeth` into LevMath's divisors and killed these tests with
+        // `panic: division or modulo by zero`. The fixture must match the deployed config.
+        if (AUX.assetPriceFeed(address(WETH)) == address(0)) AUX.setAssetFeed(address(WETH), CL_ETH_USD);
         rpx = AUX.getTWAPforAsset(address(WETH), 1800);
+        assertGt(rpx, 0, "ETH/USD anchor must resolve non-zero (pxWeth feeds LevMath divisors)");
         eoracle = new RealRateEulerOracle(WEETH, address(USDC), CL_ETH_USD); // REAL sources: ether.fi rate × Chainlink
         IGenericFactory f = IGenericFactory(EVK_FACTORY);
         // Collateral vault (weETH ESCROW-style) + debt vault (USDC), real EVK proxies (default impl).
