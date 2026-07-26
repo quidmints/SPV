@@ -1247,9 +1247,23 @@ contract Alles is Test, Fixtures {
     ///      is exactly what it did: 4 tests degraded to bare `EvmError: Revert` and 2 more to
     ///      "nothing moved" assertions. Mocking the ONE view under test is layout-independent, and
     ///      `vm.clearMockedCalls()` is the thaw (no code to restore).
-    function _mockGalaxyIlliquid(address gv) internal {
-        uint solvent = IERC4626(gv).convertToAssets(IERC4626(gv).balanceOf(address(ETH)));
-        vm.mockCall(gv, abi.encodeWithSelector(IERC4626.maxWithdraw.selector, address(ETH)),
+    /// @dev Report only 30% of the Vault's position in `venue` as withdrawable — illiquid but SOLVENT.
+    ///
+    ///      TWO mocks, because `VaultLib._withdrawableOf` deliberately IGNORES the ERC-4626 max-views on
+    ///      a Morpho-V2 impl (they report 0 against a fully withdrawable position, so trusting them let
+    ///      any caller block a healthy venue). Mocking `maxWithdraw` alone on Galaxy/Gauntlet is a
+    ///      NON-EVENT — it silently makes the "illiquid" premise inert and the test passes for the wrong
+    ///      reason. Neutralising the V2 MARKER (`liquidityAdapter() -> address(0)`) makes the venue take
+    ///      the honest-view branch, so the 30% below is a real constraint again. Solvency
+    ///      (`convertToAssets`) is untouched, so this stays "illiquid but solvent" as intended.
+    ///
+    ///      Do NOT use this to test the permissionless poke on a V2 venue: neutralising the marker is
+    ///      precisely the false signal `_withdrawableOf` exists to reject (see
+    ///      test_PokeVaultHealth_HealthyMorphoV2_NotBlocked).
+    function _mockVenueIlliquid(address venue) internal {
+        uint solvent = IERC4626(venue).convertToAssets(IERC4626(venue).balanceOf(address(ETH)));
+        vm.mockCall(venue, abi.encodeWithSignature("liquidityAdapter()"), abi.encode(address(0)));
+        vm.mockCall(venue, abi.encodeWithSelector(IERC4626.maxWithdraw.selector, address(ETH)),
             abi.encode(solvent * 30 / 100));
     }
 
@@ -1266,28 +1280,55 @@ contract Alles is Test, Fixtures {
     ///         layout is nothing like that, so an etch would silently corrupt every balance read.
     ///         Mocking the single view that the health check consults is both layout-independent
     ///         and strictly more surgical — it changes exactly the read under test and nothing else.
-    function test_PokeVaultHealth_IlliquidGalaxy_BlocksThenEvacuates() public {
-        address gv = ETH.GALAXY_VAULT();
-        vm.prank(User01); V4.deposit{value: 20 ether}(0, User01, 3); // VENUE_GALAXY (explicit all-Galaxy)
-        uint balBefore = IERC4626(gv).balanceOf(address(ETH));
-        assertGt(balBefore, 0, "the Vault holds a real Galaxy WETH position");
-        uint solvent = IERC4626(gv).convertToAssets(balBefore);
+    ///
+    ///         RETARGETED GALAXY -> EULER (2026-07-26), same reason as Strand-2. `pokeVaultHealth`
+    ///         reads `Vault.venuePosition`, which now uses `VaultLib._withdrawableOf`; that returns the
+    ///         REPORTED position for a Morpho-V2 impl because its max-views report 0 against a fully
+    ///         withdrawable position (probed: `withdraw`/`redeem` both succeed at `maxWithdraw == 0`).
+    ///         Mocking Galaxy's `maxWithdraw` is therefore a non-event, and treating a healthy V2 venue
+    ///         as 0% liquid is exactly the false signal the permissionless poke must NOT act on. Euler
+    ///         is the venue measured to have honest views, so it is where a 30%-liquid read is real.
+    function test_PokeVaultHealth_IlliquidEuler_BlocksThenEvacuates() public {
+        address venue = ETH.EULER_VAULT();
+        vm.prank(User01); V4.deposit{value: 20 ether}(0, User01, 5); // VENUE_EULER (honest 4626 views)
+        uint balBefore = IERC4626(venue).balanceOf(address(ETH));
+        assertGt(balBefore, 0, "the Vault holds a real Euler WETH position");
+        uint solvent = IERC4626(venue).convertToAssets(balBefore);
 
         // Report only 30% of the position as withdrawable — illiquid but SOLVENT.
-        _mockGalaxyIlliquid(gv);
-        assertLt(IERC4626(gv).maxWithdraw(address(ETH)) * 10000 / solvent, 5000,
+        _mockVenueIlliquid(venue);
+        assertLt(IERC4626(venue).maxWithdraw(address(ETH)) * 10000 / solvent, 5000,
             "on-chain read now sees illiquid (<50%)");
 
         // Poke 1 (permissionless): flags + blocks; NO evac (dwell not elapsed).
-        AUX.pokeVaultHealth(gv);
-        assertTrue(AUX.vaultBlocked(gv), "illiquid vault blocked on first poke");
-        assertEq(IERC4626(gv).balanceOf(address(ETH)), balBefore, "no evac before dwell");
+        AUX.pokeVaultHealth(venue);
+        assertTrue(AUX.vaultBlocked(venue), "illiquid vault blocked on first poke");
+        assertEq(IERC4626(venue).balanceOf(address(ETH)), balBefore, "no evac before dwell");
 
         // Poke 2 past EVAC_DWELL: evacuates the withdrawable WETH out of the vault.
         vm.warp(block.timestamp + 31 minutes);
-        AUX.pokeVaultHealth(gv);
-        assertLt(IERC4626(gv).balanceOf(address(ETH)), balBefore,
+        AUX.pokeVaultHealth(venue);
+        assertLt(IERC4626(venue).balanceOf(address(ETH)), balBefore,
             "second poke past dwell evacuated the withdrawable WETH out of the illiquid vault");
+    }
+
+    /// @notice Companion to the above: a HEALTHY Morpho-V2 venue must survive the permissionless poke.
+    ///         This is the security property behind the `_withdrawableOf` change — real Galaxy reports
+    ///         `maxWithdraw == 0` AND `maxRedeem == 0` while being fully withdrawable, so a poke keyed
+    ///         on the raw max-view would read 0% liquid and let ANY caller block-then-evacuate a healthy
+    ///         venue. Nothing is mocked here; the venue is simply left as mainnet has it.
+    function test_PokeVaultHealth_HealthyMorphoV2_NotBlocked() public {
+        address venue = ETH.GALAXY_VAULT();
+        vm.prank(User01); V4.deposit{value: 20 ether}(0, User01, 3); // VENUE_GALAXY (Morpho V2)
+        uint balBefore = IERC4626(venue).balanceOf(address(ETH));
+        assertGt(balBefore, 0, "the Vault holds a real Galaxy WETH position");
+        assertEq(IERC4626(venue).maxWithdraw(address(ETH)), 0,
+            "precondition: the V2 max-view really does report 0 against a live position");
+
+        AUX.pokeVaultHealth(venue);
+        assertFalse(AUX.vaultBlocked(venue),
+            "a HEALTHY Morpho-V2 venue must NOT be blockable off its idle-only max-view");
+        assertEq(IERC4626(venue).balanceOf(address(ETH)), balBefore, "and must not be evacuated");
     }
 
     /// @notice EMPTIED weETH/WETH pool e2e: with the Rover funded AND the v3 router
@@ -3622,7 +3663,7 @@ contract Alles is Test, Fixtures {
     function test_RunSim_B_LiquidityRace_SimultaneousRush() public {
         (address lp1, address lp2) = _stageRunSim(8 ether);
         address gv = ETH.GALAXY_VAULT();
-        _mockGalaxyIlliquid(gv);   // 30%-liquid; the THAW below just un-mocks it
+        _mockVenueIlliquid(gv);    // 30%-liquid (marker neutralised); the THAW below un-mocks it
         _freezeUsdcLegs();
 
         // The rush - same block. Nothing may revert (liveness). Each LP's
@@ -3684,7 +3725,7 @@ contract Alles is Test, Fixtures {
     function test_RunSim_B_LiquidityRace_SequentialRush() public {
         (address lp1, address lp2) = _stageRunSim(8 ether);
         address gv = ETH.GALAXY_VAULT();
-        _mockGalaxyIlliquid(gv);   // 30%-liquid; the THAW below just un-mocks it
+        _mockVenueIlliquid(gv);    // 30%-liquid (marker neutralised); the THAW below un-mocks it
         _freezeUsdcLegs();
 
         // Turn-taking with real blocks between exits. Each LP's before-
