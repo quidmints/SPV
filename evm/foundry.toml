@@ -52,6 +52,19 @@ cbor_metadata = false
 sparse_mode = false
 build_info = true
 
+# Echidna/crytic profile — inherits default, DISABLES dynamic test linking.
+#
+# WHY: with `dynamic_test_linking = true` (the default profile, above) forge emits VIRTUAL source
+# units for its test preprocessor — `foundry-pp/DeployHelper<N>.sol`, `VmContractHelper<N>` — which
+# exist only inside build-info, never on disk. crytic-compile then tries to OPEN them as real files
+# and dies with `Unknown file: foundry-pp/DeployHelper224.sol`, so Echidna reports "Couldn't compile
+# given file" (while still exiting 0 — the failure is easy to miss). Verified 2026-07-26: flipping
+# this off makes `crytic-compile . --foundry-compile-all` succeed on the whole tree, tests included.
+#
+# Use:  FOUNDRY_PROFILE=echidna echidna . --contract <Harness> --config echidna.yaml
+[profile.echidna]
+dynamic_test_linking = false
+
 [rpc_endpoints]
 # forge script scripts/DeployL1.s.sol:Deploy --rpc-url mainnet --broadcast --verify
 mainnet = "https://rpc.ankr.com/eth/abc1c9e1ba906a35c59e62a69c80cf77219499b3cd05752d53c0ed17d14cbfc3"

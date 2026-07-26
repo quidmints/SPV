@@ -1,0 +1,39 @@
+# Echidna config for the QU!D money-path invariants (§C#20).
+#
+# Run:  cd evm && FOUNDRY_DYNAMIC_TEST_LINKING=false \
+#         echidna . --contract <Harness> --config echidna.yaml
+#
+# THE ENV VAR IS REQUIRED, and it must be the ENV VAR — not `FOUNDRY_PROFILE=echidna`.
+# Without it, forge's test preprocessor emits VIRTUAL `foundry-pp/DeployHelper<N>.sol` sources that
+# exist only in build-info; crytic-compile tries to open them as real files and dies, and Echidna
+# then reports "Couldn't compile given file" WHILE STILL EXITING 0 (so never trust the exit code
+# alone — always read the output).
+#
+# Measured 2026-07-26: `FOUNDRY_PROFILE=echidna forge config` DOES report
+# `dynamic_test_linking = false` (the [profile.echidna] in foundry.toml is correct and inherits
+# src/out/libs), yet an Echidna run under that profile STILL failed on DeployHelper327 — the
+# profile does not survive the echidna -> crytic-compile -> forge spawn chain. The env var does.
+# [profile.echidna] is kept because it makes a plain `forge build` reproducible for the same
+# purpose, but it is NOT sufficient for Echidna itself.
+#
+# WHY --foundry-compile-all: crytic-compile's foundry driver skips ./test/** by default, which
+# would exclude the harnesses themselves. Without this, Echidna reports "contract not found".
+#
+# WHY the foundry framework is forced: the standalone `solc` on PATH may be an unrelated version
+# (it was 0.6.7 from nix on the macOS build box) while foundry.toml pins 0.8.30 via svm. Driving
+# crytic through forge guarantees the pinned compiler, matching what `forge build`/CI use.
+testMode: assertion
+corpusDir: echidna-corpus
+
+cryticArgs: ["--foundry-compile-all", "--compile-force-framework", "foundry"]
+
+# Pure-math harnesses are cheap; the whole-protocol crash-drain campaign is the one that wants
+# 8-16 GB (§C#20). Raise workers/testLimit for that, and keep them low here so this stays
+# runnable on any box.
+workers: 2
+testLimit: 200000
+seqLen: 1
+
+# Assertion-mode harnesses are stateless `pure` wrappers, so there is nothing to bias toward and
+# no value in shrinking sequences — every failure is a single call with concrete arguments.
+shrinkLimit: 1000
