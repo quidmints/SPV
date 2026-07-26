@@ -15,6 +15,7 @@ import {BasketLib} from "./BasketLib.sol";
 import {FeeLib} from "./FeeLib.sol";
 import {IAaveV4Spoke} from "./Interfaces.sol";
 import {IAaveV4Hub} from "./Interfaces.sol";
+import {IEthVenue} from "./Interfaces.sol";
 
 /// @notice Aux self-surface that depositBody calls back into (delegatecall →
 ///         msg.sender == address(this) == Aux on every self-call). The public
@@ -40,10 +41,6 @@ interface IAuxDep {
 interface IQuidTarget { function target() external view returns (uint); }
 
 /// @notice Aave-v4 reserve-id resolution + supply surface (subset of Aux.IAaveV4Spoke).
-interface IEthVenueCL {
-    function supplyFromAux(uint amount) external returns (uint);
-    function withdrawForAux(uint amount, address to) external returns (uint);
-}
 
 /// @notice Minimal interface for Liquity V2 StabilityPool
 /// @dev 0x5721cbbd64fc7Ae3Ef44A0A3F9a790A9264Cf9BF (WETH)
@@ -201,7 +198,7 @@ library ChannelLib {
         if (amount == 0) return 0;
         IAuxDep aux = IAuxDep(address(this));
         if (token == cfg.weth) {
-            return IEthVenueCL(cfg.ethVenue).supplyFromAux(amount);
+            return IEthVenue(cfg.ethVenue).supplyFromAux(amount);
         }
         if (token == cfg.gho || token == cfg.usdg) {
             if (cfg.aaveSpoke == address(0)) revert GHOIsAaveWired();
@@ -264,7 +261,7 @@ library ChannelLib {
         if (amount == 0) return 0;
         IAuxDep aux = IAuxDep(address(this));
         if (token == cfg.weth) {
-            return IEthVenueCL(cfg.ethVenue).withdrawForAux(amount, to);
+            return IEthVenue(cfg.ethVenue).withdrawForAux(amount, to);
         }
         if (token == cfg.gho || token == cfg.usdg) {
             if (cfg.aaveSpoke == address(0)) return 0;

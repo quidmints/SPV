@@ -15,6 +15,7 @@ import {Types} from "./imports/Types.sol";
 import {Core} from "./Core.sol";
 import {Basket} from "./Basket.sol";
 import {Aux} from "./Aux.sol";
+import {ILevHost} from "./imports/Interfaces.sol";
 
 /// EthVenue — the ETH yield-venue custody (Galaxy/AAVE/ether.fi WETH) carved out
 /// of Aux. Vogue routes its WETH venue ops here. vogueETH() is still read via AUX
@@ -32,7 +33,6 @@ interface IEthVenueV {
 /// IL-protect fee lane: Vogue reads the LevManager through the Vault's already-secure one-shot pin
 /// (`ethVenue.LEV_MANAGER()`), so `syncLev` needs NO new trust surface of its own (Vogue renounces ownership
 /// at setup). `netEquityEth(lp)` is the LIVE net-of-debt equity the levered slice is sized to.
-interface ILevHost   { function LEV_MANAGER() external view returns (address); }
 // §4.2 / #109: force-close an LP's OWN in-band levered slice on band-exit (gated to the vogueSyncHook == this
 // Vogue). Repays debt + hands the freed collateral (LP's full residual) back to the LP. See §G.7.
 interface ILevClose  { function closeLevFor(address lp, uint256 minOut) external; }

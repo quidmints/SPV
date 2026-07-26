@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+import {IAuxTwap} from "./imports/Interfaces.sol";
+
 /// @title  LevOracles — the Morpho `IOracle` price sources DeployL1_s deploys INLINE for the
 ///         lev-overlay markets that CANNOT pre-exist the stack (they price through AUX / are
 ///         markets only QU!D creates), promoted verbatim from their fork-proof tests.
@@ -11,7 +13,6 @@ pragma solidity ^0.8.28;
 ///         The long weETH/WETH markets are NOT here: those join the LIVE deep Morpho markets
 ///         (their battle-tested oracles are the env defaults in DeployL1_s).
 
-interface IAuxTwap { function getTWAPforAsset(address asset, uint32 period) external view returns (uint256); }
 interface IChainlinkFeed { function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80); }
 
 /// @notice REAL Morpho IOracle for the vBTC/USDC market (collateral→loan, 1e36-scaled), from the SAME live

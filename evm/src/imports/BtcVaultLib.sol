@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {SwapLib} from "./SwapLib.sol";
 import {Types} from "./Types.sol";
 import {LevMath} from "../libraries/LevMath.sol";
+import {ICore} from "./Interfaces.sol";
 
 interface ILevBtc_V {   // full-2×: BtcLevManager reads for the BTC two-leg split
     function netEquityBtc(address lp) external view returns (uint);   // 8-dec sats
@@ -23,18 +24,6 @@ interface IVaultCtx_V {
 // BTC-side callbacks (delegatecall → address(this)==Vault; these external calls
 // leave from the Vault exactly as the former in-Vault bodies did).
 interface IBasketMint_V { function mint(address pledge, uint amount, address token, uint when) external returns (uint); }
-interface ICore_V {
-    function drawPooledUsdBtc(uint usd6) external;
-    function subPendingSwapOut(uint usd6) external;
-    function committedUsd18() external view returns (uint);
-    function modLP(bool isBTC, uint160 sqrtPriceX96, uint delta, uint deltaUSD,
-        int24 tickLower, int24 tickUpper, address sender) external returns (uint);
-    function outOfRange(bool isBTC, address sender, int liquidity,
-        int24 tickLower, int24 tickUpper, address token) external returns (uint);
-    function token1isBTC() external view returns (bool);
-    function POOLED_BTC() external view returns (uint);          // GROSS BTC band depth (theta cap denominator)
-    function btcThetaBacking() external view returns (uint);     // native IL-bearing backing (lpSharesBTC + gross buffer): theta numerator
-}
 interface IAuxBtc_V {
     function getTWAPforAsset(address asset, uint32 period) external view returns (uint);
     function WBTC() external view returns (address);
@@ -91,8 +80,8 @@ library BtcVaultLib {
         address core, address quid) public returns (uint deliveredSlice) {
         deliveredSlice = deliveredRaw;
         if (exactUsd == 0) return deliveredSlice; // close/withdrawal: all native
-        ICore_V(core).drawPooledUsdBtc(exactUsd);          // proceeds leave POOLED_USD_BTC
-        ICore_V(core).subPendingSwapOut(exactUsd);         // obligation cleared (matches request +=)
+        ICore(core).drawPooledUsdBtc(exactUsd);          // proceeds leave POOLED_USD_BTC
+        ICore(core).subPendingSwapOut(exactUsd);         // obligation cleared (matches request +=)
         IBasketMint_V(quid).mint(lpEth, exactUsd * 1e12, quid, 0); // 6-dec → 18-dec QUI
     }
 
@@ -108,7 +97,7 @@ library BtcVaultLib {
     function addLiqChannel(address core, address aux, uint sats, uint price)
         public returns (uint usdOut, uint outDelta) {
         (uint[15] memory deposits,,,) = IAuxDeposits_V(aux).get_deposits();
-        uint committedBoth = ICore_V(core).committedUsd18();
+        uint committedBoth = ICore(core).committedUsd18();
         (uint deltaTok, uint targetUSD, uint surplus) =
             SwapLib.sizeBySurplus(deposits[14], committedBoth, sats, price);
         if (surplus == 0) return (0, 0);
@@ -139,7 +128,7 @@ library BtcVaultLib {
         // shared verbatim with the reseat clamp (VogueLib.addLiq) and the ETH band. backing = the native
         // capital (Core.btcThetaBacking = lpSharesBTC + gross buffer) + THIS add's `sats` (not yet credited
         // to lpSharesBTC at clamp time — see the long note above).
-        return SwapLib.clampByBacking(thetaEff, ICore_V(core).btcThetaBacking() + sats, ICore_V(core).POOLED_BTC(), deltaTok);
+        return SwapLib.clampByBacking(thetaEff, ICore(core).btcThetaBacking() + sats, ICore(core).POOLED_BTC(), deltaTok);
     }
 
     /// @dev Scalar args for the resize/close tail, bundled to keep the Vault
@@ -312,7 +301,7 @@ library BtcVaultLib {
     ) public returns (uint next) {
         if (a.token == address(0)) revert NotAStable();
         SwapLib.validateOorParams(a.range, a.distance);
-        bool t1 = ICore_V(c.core).token1isBTC();
+        bool t1 = ICore(c.core).token1isBTC();
         SwapLib.Oor memory t = SwapLib.oorTicks(a.sqrtP, a.range, a.distance, t1, a.curLo, a.curUp);
         // Deposit the stable backing via AUX (pool-agnostic), normalize to 6-dec USD.
         uint amt = SwapLib.scaleTo6(IAuxBtc_V(c.aux).deposit(a.owner, a.token, a.amount), a.token);
@@ -323,7 +312,7 @@ library BtcVaultLib {
             created: block.number, owner: a.owner,
             lower: t.newLo, upper: t.newUp, liq: int(uint(liquidity)) });
         positionsBtc[a.owner].push(next);
-        ICore_V(c.core).outOfRange(true, a.owner, int(uint(liquidity)), t.newLo, t.newUp, address(0));
+        ICore(c.core).outOfRange(true, a.owner, int(uint(liquidity)), t.newLo, t.newUp, address(0));
     }
 
     /// @notice Body of Vault.pullBtc — close/partially-reduce a self-managed BTC
@@ -357,7 +346,7 @@ library BtcVaultLib {
             position.liq -= liquidity;
             if (position.liq == 0) revert Dust();
         }
-        ICore_V(core).outOfRange(true, owner, -liquidity, lower, upper, token);
+        ICore(core).outOfRange(true, owner, -liquidity, lower, upper, token);
     }
 
     /// @notice Full body of Vault.registerBtcLp (prologue + rebalance moved here):
@@ -408,7 +397,7 @@ library BtcVaultLib {
     ) private returns (uint) {
         LP.pooled += deltaBTC;
         SwapLib.refreshBookmarks(LP, weight + deltaBTC, p.feesPerShareBTC, p.usdFeesBtc);
-        ICore_V(core).modLP(true, p.sqrtP, deltaBTC, deltaUSD, p.tl, p.tu, lpEth);
+        ICore(core).modLP(true, p.sqrtP, deltaBTC, deltaUSD, p.tl, p.tu, lpEth);
         return deltaBTC;
     }
 
@@ -485,7 +474,7 @@ library BtcVaultLib {
     /// @dev modLP for the NET BTC leg in its own frame (legacy-pipeline stack: the 7-arg call otherwise
     ///      overflows levAddNetBtc). Net leg pairs basket surplus (no debt-funded buffer USD).
     function _modLpNetBtc(address core, LevParams memory p, uint deltaBTC, uint deltaUSD, address lp) private {
-        ICore_V(core).modLP(true, p.sqrtP, deltaBTC, deltaUSD, p.tl, p.tu, lp);
+        ICore(core).modLP(true, p.sqrtP, deltaBTC, deltaUSD, p.tl, p.tu, lp);
     }
 
     /// @dev BUFFER BTC leg — the debt-funded half. Fee-earning V4 DEPTH but NOT equity: grows levBufBTC (fee
@@ -507,7 +496,7 @@ library BtcVaultLib {
 
     /// @dev modLP for the BUFFER BTC leg in its own frame (legacy stack). Buffer USD folds into POOLED_USD_BTC.
     function _modLpBufBtc(address core, LevParams memory p, uint bufSats, uint bufUsd, address lp) private {
-        ICore_V(core).modLP(true, p.sqrtP, bufSats, bufUsd, p.tl, p.tu, lp);
+        ICore(core).modLP(true, p.sqrtP, bufSats, bufUsd, p.tl, p.tu, lp);
     }
     function _bufUsdBtc(address aux, uint bufSats, address mgr, address lp) private view returns (uint bufUsd) {
         uint price = IAuxBtc_V(aux).getTWAPforAsset(IAuxBtc_V(aux).WBTC(), 1800);
@@ -612,7 +601,7 @@ library BtcVaultLib {
             c.core, c.aux, IAuxBtc_V(c.aux).WBTC(), isBTC, upperTick, lowerTick);
         o.feesPerShareBTC = feesPerShareBTC; o.usdFeesBtc = usdFeesBtc; o.reseatEpochBTC = reseatEpochBTC;
         if (r.didRepack) {
-            bool t1 = ICore_V(c.core).token1isBTC();
+            bool t1 = ICore(c.core).token1isBTC();
             uint feesTok = t1 ? r.fees1 : r.fees0;
             uint feesUsd = t1 ? r.fees0 : r.fees1;
             (uint tokInc, uint usdInc) = SwapLib.feeIncrements(feesTok, feesUsd, feeDenom);
@@ -658,6 +647,6 @@ library BtcVaultLib {
     /// @dev modLP burn (no delivery) for a levered BTC slice in its own frame (legacy stack). Recipient is
     ///      address(0) (tokenless burn); buffer USD un-pairs from POOLED_USD_BTC as part of the gross burn.
     function _burnLpBtc(address core, LevParams memory p, uint grossRem) private {
-        ICore_V(core).modLP(true, p.sqrtP, grossRem, 0, p.tl, p.tu, address(0));
+        ICore(core).modLP(true, p.sqrtP, grossRem, 0, p.tl, p.tu, address(0));
     }
 }

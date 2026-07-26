@@ -18,6 +18,9 @@ import {Types} from "./Types.sol";
 import {LevMath} from "../libraries/LevMath.sol";
 import {IV3SwapRouter} from "./v3/IV3SwapRouter.sol";
 import {IRover} from "./Interfaces.sol";
+import {IAuxTwap} from "./Interfaces.sol";
+import {IAggregatorV3} from "./Interfaces.sol";
+import {IAuxSwap} from "./Interfaces.sol";
 
 // ether.fi offramp interfaces (suffixed `_L` to avoid clashing with Aux's own
 // copies, since Aux imports SwapLib). Same signatures as Aux's.
@@ -27,41 +30,12 @@ interface IWeEth_L { function getWeETHByeETH(uint a) external view returns (uint
 interface IRedeem_L { function redeemWeEth(uint weEthAmount, address receiver, address outputToken) external; }
 interface ILiq_L { function requestWithdraw(address r, uint a) external returns (uint); }
 /// Chainlink-style USD feed — the external anchor for the TWAP cross-check.
-interface IAggregatorV3 {
-    function decimals() external view returns (uint8);
-    function latestRoundData() external view returns (
-        uint80 roundId, int256 answer, uint256 startedAt,
-        uint256 updatedAt, uint80 answeredInRound);
-}
 
 /// @notice Subset of Aux's public surface that SwapLib calls back into
 ///         via DELEGATECALL → external self-CALL pattern. See Aux's
 ///         supplySelf / withdrawSelf docblock for the security invariants
 ///         that gate these entries.
 interface IWethDeposit { function deposit() external payable; }
-interface IAuxSwap {
-    function supplySelf(address token, uint amount) external returns (uint);
-    function withdrawSelf(address token, uint amount, address to) external returns (uint);
-    function get_deposits() external returns (uint[15] memory amounts, uint[15] memory yieldW, uint avgYield, uint depegLoss);
-    function checkBacking() external returns (uint committedSum, uint totalLiquid);
-    function _tryPath(bytes calldata encodedPath, uint amountIn,
-        address output, address recipient, uint minOut) external returns (uint);
-    function toIndex(address token) external view returns (uint);
-    function takeToSettle(address who, uint amount, address token) external returns (uint); // soft-backing settle drain
-    function getTWAPforAsset(address asset, uint32 period) external view returns (uint);
-    function auxSwap(uint amountIn, address output, address recipient, uint minOut)
-        external returns (uint);
-    function deposit(address from, address token, uint amount) external returns (uint usd);
-    function WBTC() external view returns (address);
-    // ── merged from the former IAuxSwap (same Aux self-delegatecall target) ──
-    function tokens(address vault) external view returns (address);
-    function tranche(address token) external view returns (uint);
-    function get_metricsWith(uint raw, uint yieldWeighted) external returns (uint total, uint avgYield);
-    function illiquidLoss() external view returns (uint);
-    function _depositVol(bool isBTC, address sender, uint amount) external payable returns (uint sent);
-    function tipSelf(uint cut, address token, int sign) external;
-    function bumpVogueBTC(uint amount) external;
-}
 
 interface ICoreObs {
     function observe(uint32[] memory secondsAgos) external view returns (int56[] memory);
@@ -1615,11 +1589,6 @@ library SwapLib {
 
 }
 
-interface IAuxTwap {
-    function getTWAPforAsset(address asset, uint32 period) external view returns (uint);
-    function resolvedTwap(address asset, uint32 period)
-        external view returns (uint price, bool stale);
-}
 
 interface IV4 {
     function poolStats(int24 tickLower, int24 tickUpper, bool isBTC)

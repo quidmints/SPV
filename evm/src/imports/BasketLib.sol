@@ -10,64 +10,10 @@ import {Types} from "./Types.sol";
 import {FeeLib} from "./FeeLib.sol";
 import {ShareMath} from "./ShareMath.sol";
 import {IAaveV4Spoke} from "./Interfaces.sol";
+import {IAux} from "./Interfaces.sol";
+import {IEthVenue} from "./Interfaces.sol";
 
 
-interface IAux {
-    function vaults(address) external returns (address);
-    function tranche(address) external returns (uint);
-    function take(address who,
-        uint amount, address token,
-        uint seed) external returns (uint);
-    /// @notice Targeted-draw redemption overload: `preferred` (a basket stable,
-    ///         or address(0) for pure pro-rata) is drawn FIRST, then the remainder
-    ///         pro-rata. Mirrors the swap path's named-stable branch; the cherry-
-    ///         pick concentration fee rides along on the preferred leg.
-    function take(address who,
-        uint amount, address token,
-        uint seed, address preferred) external returns (uint);
-    /// @notice take() with pre-fetched deposit vectors (redeem dedup): skips a second
-    ///         get_deposits by reusing the haircut-pass fetch. See Aux.takeWith.
-    function takeWith(address who, uint amount, address token, uint seed, address preferred,
-        uint[15] memory amounts, uint[15] memory yieldW) external returns (uint);
-    /// @notice Per-stable yield-factor in basis points (10000 = no
-    /// adjustment). Applied as a multiplier on yieldWeighted in
-    /// get_deposits — routes the depeg-market signal through the
-    /// basket's time-averaged yield rather than the mint-time discount
-    /// path. Defined on Aux, read here.
-    function riskFactor(address token) external view returns (uint);
-    function getDepegSeverityBps(address token) external view returns (uint);
-
-    /// @notice AAVE-routed stables (GHO, USDG): live asset-denominated
-    /// balance held by Aux on the AAVE v4 spoke. get_deposits uses this
-    /// for both AAVE-routed stables; the rest of the basket uses
-    /// IERC4626(vault).convertToAssets.
-    function GHO() external view returns (address);
-    function USDG() external view returns (address);
-    function aaveBalance(address token) external view returns (uint);
-    function aaveShares(address token) external view returns (uint);
-    /// @notice Self-gated dual-venue (USDC/USDT) Aave-leg withdraw. Called by
-    ///         multiVaultWithdrawBody via the library delegatecall (msg.sender
-    ///         == Aux). Mirrors the 4626 redeem leg for the spoke member.
-    function withdrawAaveLeg(address stable, uint amount, address to) external returns (uint);
-    function get_metrics(bool force) external returns (uint total, uint avgYield);
-    /// @notice get_metrics(true) with pre-fetched totals (redeem dedup): recomputes the
-    ///         par-backing metric from the caller's already-fresh get_deposits pass
-    ///         instead of a second internal scan. See Aux.get_metricsWith.
-    function get_metricsWith(uint raw, uint yieldWeighted) external returns (uint total, uint avgYield);
-    function getTWAPforAsset(address asset, uint32 period) external view returns (uint);
-    function vogueETH() external view returns (uint);
-    function deliverableETH() external view returns (uint);
-    function get_deposits() external returns (uint[15] memory amounts, uint[15] memory yieldW, uint avgYield, uint depegLoss);
-    function getStables() external view returns (address[] memory);
-    function getVaults(address stable) external view returns (address[] memory);
-    function AAVE_SPOKE() external view returns (address);
-    function ethVenue() external view returns (address);
-    function GHO_RESERVE_ID() external view returns (uint256);
-    function USDG_RESERVE_ID() external view returns (uint256);
-    /// @notice Generalized Aave-v4 reserve-id for dual-venue stables (USDC/USDT);
-    ///         0 for stables with no Aave leg. (GHO/USDG use the immutables above.)
-    function aaveReserveId(address stable) external view returns (uint256);
-}
 
 /// AAVE-v4 GHO spoke (vault-health evac haven). Mirrors Aux.IAaveV4Spoke.
 /// The two reserve-level reads are asset-denominated (verified live: GHO reserve
@@ -75,10 +21,6 @@ interface IAux {
 /// EthVenue — the ETH-venue custody (Galaxy/AAVE WETH). vault-health STATE
 /// stays Aux-owned, but the Galaxy WETH position is custodied on EthVenue after
 /// the venue carve, so the evac/poke Galaxy leg reads + drains via this handle.
-interface IEthVenue {
-    function evacuateVenue(address vault) external;
-    function venuePosition(address vault) external view returns (uint reported, uint liquid);
-}
 interface IVogueRepack { function repack(bool isBTC) external; }
 interface IVogueUnwind { function unwindForRedeem(uint usdWanted) external returns (uint usdFreed); }
 // §G.6 redeem shortfall sweep: the ETH LevManager's ONE reactive de-lever entry (SHARED with swap-out). Reached

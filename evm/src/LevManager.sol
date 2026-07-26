@@ -5,6 +5,8 @@ import {LevMath} from "./libraries/LevMath.sol";
 import {ILevVenue, IERC20Min, IWETH9} from "./imports/ILevVenue.sol";
 import {IWeETH} from "./imports/Interfaces.sol";
 import {IMorphoFlash} from "./imports/Interfaces.sol";
+import {ILevSyncHook} from "./imports/Interfaces.sol";
+import {ILevVenueColl} from "./imports/Interfaces.sol";
 
 interface ISwapAux { // the real Aux SOR surface (imports/ISwap.sol)
     function swap(address token, address asset, bool forVolatile, uint256 amount, uint256 minOut)
@@ -26,14 +28,7 @@ interface ISwapAux { // the real Aux SOR surface (imports/ISwap.sol)
 /// @notice The venue's collateral ERC20 — BOTH escrow adapters (Morpho/Euler) expose this public immutable,
 ///         so the manager DERIVES the collateral type per position (weETH vs WETH) from the venue itself,
 ///         never storing it on `Pos` (the public struct ABI stays a stable 6-tuple).
-interface ILevVenueColl { function COLLATERAL() external view returns (address); }
 
-interface ILevSyncHook { // Vogue.syncLev — reconcile the LP's levered band slice to its (now-changed) net-equity
-    function syncLev(address lp) external;
-    function soldFractionWad(uint160 entrySqrtP) external view returns (uint256); // (B) actual sold fraction (LONG)
-    function bandSqrtP(bool isBTC) external view returns (uint160);               // band spot √P at open
-    function reseatEpoch() external view returns (uint64);                        // (B) bumps when band ticks recenter
-}
 
 /// @notice weETH↔WETH legs of the leverage swap (stable↔WETH is the basket SOR — `ISwapAux.sorSelfFunded`).
 ///         UP: MINT weETH via the ether.fi adapter at the fair rate (zero-slippage; never the thin pool).

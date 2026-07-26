@@ -8,6 +8,7 @@ import {IAaveV4Spoke} from "./Interfaces.sol";
 import {IWeETH} from "./Interfaces.sol";
 import {IRover} from "./Interfaces.sol";
 import {IDepositAdapter} from "./Interfaces.sol";
+import {ILevEquity} from "./Interfaces.sol";
 
 // ── Minimal external surfaces the ETH-venue ladder touches (the library can't
 //    read Vault's immutables, so every handle is passed in via EthCfg). Mirror
@@ -27,7 +28,6 @@ interface IAuxView_V { function vaultBlocked(address vault) external view return
 interface IMorphoV2_V {
     function liquidityAdapter() external view returns (address);
 }
-interface ILevEquity_V { function totalNetEquityEth() external view returns (uint256); }
 
 /// @title  VaultLib — the ETH yield-venue custody ladder extracted from Vault
 ///         to free bytecode under the EIP-170 limit. DELEGATECALL'd by Vault:
@@ -141,7 +141,7 @@ library VaultLib {
         // `closeLev` returns after auto-repaying the debt). The 2x band depth is untouched -- it lives in
         // `levPooled = gross`, not here. try/catch degrades to "no lev credit". Unified with the BTC model.
         if (c.levManager != address(0)) {
-            try ILevEquity_V(c.levManager).totalNetEquityEth() returns (uint n) { total += n; } catch {}
+            try ILevEquity(c.levManager).totalNetEquityEth() returns (uint n) { total += n; } catch {}
         }
     }
 
@@ -181,7 +181,7 @@ library VaultLib {
         // not from redemption). Exclude the same net-equity term vogueETH added, so deliverableETH == base
         // (non-levered venue ETH), byte-identical to the prior gross-in/gross-out result. Redemptions never draw it.
         if (c.levManager != address(0)) {
-            try ILevEquity_V(c.levManager).totalNetEquityEth() returns (uint n) {
+            try ILevEquity(c.levManager).totalNetEquityEth() returns (uint n) {
                 total = total > n ? total - n : 0;
             } catch {}
         }

@@ -8,6 +8,11 @@ import {LiquidityAmounts} from "v4-periphery/src/libraries/LiquidityAmounts.sol"
 import {SwapLib} from "./SwapLib.sol";
 import {Types} from "./Types.sol";
 import {LevMath} from "../libraries/LevMath.sol";
+import {ILevEquity} from "./Interfaces.sol";
+import {ILevHost} from "./Interfaces.sol";
+import {IAux} from "./Interfaces.sol";
+import {ICore} from "./Interfaces.sol";
+import {IEthVenue} from "./Interfaces.sol";
 
 // ── Minimal external surfaces the extracted Vogue bodies touch. The library is
 //    DELEGATECALL'd (public fns), so `address(this)` is Vogue: every immutable
@@ -16,52 +21,11 @@ import {LevMath} from "../libraries/LevMath.sol";
 //    levBufferUsd/ethfiBacked/aaveBacked mappings) is passed by STORAGE REF so
 //    writes land on Vogue's slots. Value-type state (lpShares) is mutated by
 //    RETURNING the delta, applied by the thin Vogue forwarder. ─────────────────
-interface ICore_VG {
-    function modLP(bool isBTC, uint160 sqrtPriceX96, uint delta, uint deltaUSD,
-        int24 tickLower, int24 tickUpper, address sender) external returns (uint);
-    function poolStats(int24 tickLower, int24 tickUpper, bool isBTC)
-        external view returns (uint160 sqrtPriceX96, int24 currentTick, uint128 liquidity);
-    function observe(uint32[] calldata secondsAgos) external view returns (int56[] memory);
-    function observeBTC(uint32[] calldata secondsAgos) external view returns (int56[] memory);
-    function committedUsd18() external view returns (uint);
-    function POOLED_ETH() external view returns (uint);
-    function POOLED_BTC() external view returns (uint);
-    function btcThetaBacking() external view returns (uint);   // native BTC backing (lpSharesBTC + gross buffer): theta DEPTH clamp basis
-    function outOfRange(bool isBTC, address sender, int liquidity, int24 tickLower, int24 tickUpper, address token) external returns (uint);
-    // θ numerator inputs (#107/D3) — retained band premium as a decayed rate, over the band's own
-    // in-range USD. Both 6-dec, so `_bandFeeYieldWad` needs no scale conversion.
-    function premiumEwmaUsd(bool isBTC) external view returns (uint);
-    function POOLED_USD_ETH() external view returns (uint);
-    function POOLED_USD_BTC() external view returns (uint);
-}
-interface IAux_VG {
-    function getTWAPforAsset(address asset, uint32 period) external view returns (uint);
-    function ethVenue() external view returns (address);
-    function deposit(address from, address token, uint amount) external returns (uint);
-    function avgYield() external view returns (uint);
-    function vogueETH() external view returns (uint);
-    function get_deposits() external returns (uint[15] memory amounts, uint[15] memory yieldW, uint avgYield, uint depegLoss);
-}
-interface ILevHost_VG   { function LEV_MANAGER() external view returns (address); }
-interface ILevEquity_VG {
-    function netEquityEth(address lp) external view returns (uint);
-    function grossCollateralEth(address lp) external view returns (uint);
-    function debtUsd(address lp) external view returns (uint);
-    function totalNetEquityEth() external view returns (uint);   // book-wide lev net-equity (subtracted from vogueETH)
-}
 interface IVogue_VG {
     function addLiq(uint deltaTok, uint price, bool isBTC) external returns (uint usdOut, uint outDelta);
     function derivedThetaWad(bool isBTC) external view returns (uint);
 }
 interface IVogueView_VG { function pendingRewards(address user) external view returns (uint ethReward, uint usdReward); }
-interface IEthVenue_VG {
-    function vogueOp(bool isBTC, uint amount, uint8 op, bytes32 ctx) external returns (uint);
-    function supplyEtherFi(uint amount) external returns (uint);
-    function supplyAaveEth(uint amount) external returns (uint);
-    function supplyEulerEth(uint amount) external returns (uint);
-    function supplyGauntlet(uint amount) external returns (uint);
-    function supplyEtherFiToRover(uint amount) external returns (uint);
-}
 interface IWETH_VG {
     function deposit() external payable;
     function allowance(address, address) external view returns (uint);
@@ -103,9 +67,9 @@ library VogueLib {
     ///      single internal use of the direct-weETH path. Returns 0 only if BOTH paths place nothing
     ///      (⇒ caller reverts VenueUnavailable, no silent strand).
     function _supplyEtherFi(address ev, uint amount) private returns (uint placed) {
-        try IEthVenue_VG(ev).supplyEtherFiToRover(amount) returns (uint p) { placed = p; }
+        try IEthVenue(ev).supplyEtherFiToRover(amount) returns (uint p) { placed = p; }
         catch { placed = 0; }                                     // self-liquidated: Rover deposit reverted
-        if (placed == 0) placed = IEthVenue_VG(ev).supplyEtherFi(amount); // → direct weETH fallback
+        if (placed == 0) placed = IEthVenue(ev).supplyEtherFi(amount); // → direct weETH fallback
     }
 
     // Mirror Vogue's selectors (name-derived) for the delegatecalled bodies.
@@ -127,11 +91,11 @@ library VogueLib {
     struct LevP { uint160 sqrtP; int24 tl; int24 tu; address lm; uint gross; }
 
     function levManager(address aux) public view returns (address) {
-        address host = aux == address(0) ? address(0) : IAux_VG(aux).ethVenue();
-        return host == address(0) ? address(0) : ILevHost_VG(host).LEV_MANAGER();
+        address host = aux == address(0) ? address(0) : IAux(aux).ethVenue();
+        return host == address(0) ? address(0) : ILevHost(host).LEV_MANAGER();
     }
     function bufTarget(address lm, address lp) public view returns (uint) {
-        return lm == address(0) ? 0 : ILevEquity_VG(lm).debtUsd(lp) / 1e12; // 1e18 USD -> 6-dec
+        return lm == address(0) ? 0 : ILevEquity(lm).debtUsd(lp) / 1e12; // 1e18 USD -> 6-dec
     }
 
     /// @notice Burn the current slice then re-add the gross target as two legs.
@@ -168,7 +132,7 @@ library VogueLib {
         bufBurned = levBuf[lp];
         uint grossRem = netRem + bufBurned;
         if (grossRem == 0) { levBufferUsd[lp] = 0; return (0, 0); }
-        ICore_VG(c.core).modLP(false, p.sqrtP, grossRem, 0, p.tl, p.tu, address(0));
+        ICore(c.core).modLP(false, p.sqrtP, grossRem, 0, p.tl, p.tu, address(0));
         LP.pooled -= netRem; levPooled[lp] -= netRem;  // net leg leaves pooled/lpShares
         levBuf[lp] = 0; levBufferUsd[lp] = 0;          // buffer leg leaves totalBuffer (bufBurned)
         return (netRem, bufBurned);
@@ -183,9 +147,9 @@ library VogueLib {
         mapping(address => uint) storage levBuf,
         address lp, LevP memory p
     ) public returns (uint addedNet, uint bufAdded) {
-        uint price = IAux_VG(c.aux).getTWAPforAsset(c.weth, 1800);
+        uint price = IAux(c.aux).getTWAPforAsset(c.weth, 1800);
         if (price == 0) return (0, 0);
-        uint netEq = ILevEquity_VG(p.lm).netEquityEth(lp);
+        uint netEq = ILevEquity(p.lm).netEquityEth(lp);
         addedNet = levAddNet(c, LP, levPooled, lp, netEq, price, p);
         if (p.gross > netEq)
             bufAdded = levAddBuf(c, LP, levBufferUsd, levBuf, lp, p.gross - netEq, price, p);
@@ -201,7 +165,7 @@ library VogueLib {
         (uint netUsd, uint netEth) = IVogue_VG(address(this)).addLiq(netEq, price, false);
         if (netEth == 0) return 0;
         LP.pooled += netEth; levPooled[lp] += netEth;
-        ICore_VG(c.core).modLP(false, p.sqrtP, netEth, netUsd, p.tl, p.tu, lp);
+        ICore(c.core).modLP(false, p.sqrtP, netEth, netUsd, p.tl, p.tu, lp);
         return netEth;
     }
 
@@ -214,10 +178,10 @@ library VogueLib {
         mapping(address => uint) storage levBuf,
         address lp, uint bufEth, uint price, LevP memory p
     ) public returns (uint added) {
-        uint bufUsd = LevMath.capBufferUsd(bufEth, price, ILevEquity_VG(p.lm).debtUsd(lp));
+        uint bufUsd = LevMath.capBufferUsd(bufEth, price, ILevEquity(p.lm).debtUsd(lp));
         if (bufUsd == 0) return 0;
         levBuf[lp] += bufEth; levBufferUsd[lp] += bufUsd;   // depth + fee weight, NOT equity
-        ICore_VG(c.core).modLP(false, p.sqrtP, bufEth, bufUsd, p.tl, p.tu, lp);
+        ICore(c.core).modLP(false, p.sqrtP, bufEth, bufUsd, p.tl, p.tu, lp);
         return bufEth;
     }
 
@@ -266,15 +230,15 @@ library VogueLib {
                 placed = _supplyEtherFi(ev, toDeposit);
                 if (placed > 0 && attrib) ethfiBacked[pledge] += Math.min(placed, sent);
             } else if (v == VENUE_AAVE) {
-                placed = IEthVenue_VG(ev).supplyAaveEth(toDeposit);
+                placed = IEthVenue(ev).supplyAaveEth(toDeposit);
             } else if (v == VENUE_EULER) {
-                placed = IEthVenue_VG(ev).supplyEulerEth(toDeposit);
+                placed = IEthVenue(ev).supplyEulerEth(toDeposit);
             } else if (v == VENUE_GAUNTLET) {
-                placed = IEthVenue_VG(ev).supplyGauntlet(toDeposit);
+                placed = IEthVenue(ev).supplyGauntlet(toDeposit);
             } else if (v == VENUE_GALAXY) {
                 // Explicit Galaxy (its own Morpho vault, via vogueOp). vogueOp REVERTS if that vault is
                 // paused/de-allowlisted, so a down Galaxy fails loud right here — no fallback.
-                IEthVenue_VG(ev).vogueOp(false, toDeposit, 0, bytes32(0));
+                IEthVenue(ev).vogueOp(false, toDeposit, 0, bytes32(0));
                 placed = toDeposit;
             } else if (v == VENUE_SPLIT) {
                 // User TODO: split EQUALLY across ALL venues {AAVE, Euler, Rover, Galaxy, Gauntlet} to
@@ -283,14 +247,14 @@ library VogueLib {
                 // Rover (ether.fi) fifth is attributed.
                 uint fifth = toDeposit / 5;
                 uint extSum;                              // the 4 curated 4626 legs (return the WETH placed)
-                extSum += IEthVenue_VG(ev).supplyAaveEth(fifth);
-                extSum += IEthVenue_VG(ev).supplyEulerEth(fifth);
+                extSum += IEthVenue(ev).supplyAaveEth(fifth);
+                extSum += IEthVenue(ev).supplyEulerEth(fifth);
                 uint roverPut = _supplyEtherFi(ev, fifth);   // ether.fi leg: Rover, or direct-weETH if Rover self-liquidated
                 if (roverPut > 0 && attrib) ethfiBacked[pledge] += Math.min(roverPut, sent);
                 extSum += roverPut;
-                extSum += IEthVenue_VG(ev).supplyGauntlet(fifth);
+                extSum += IEthVenue(ev).supplyGauntlet(fifth);
                 if (extSum < fifth * 4) revert VenueUnavailable();   // a curated leg placed short ⇒ fail loud
-                IEthVenue_VG(ev).vogueOp(false, toDeposit - extSum, 0, bytes32(0)); // Galaxy leg = its fifth + dust; reverts if paused
+                IEthVenue(ev).vogueOp(false, toDeposit - extSum, 0, bytes32(0)); // Galaxy leg = its fifth + dust; reverts if paused
                 placed = toDeposit;
             }
             if (placed == 0) revert VenueUnavailable();   // chosen venue placed nothing ⇒ paused/unwired ⇒ NO fallback
@@ -309,7 +273,7 @@ library VogueLib {
 
     /// @notice The LVR coefficient K (WAD), derived LIVE from band geometry.
     function kLvrWad(address core, int24 lo, int24 up, bool isBTC) public view returns (uint) {
-        (uint160 sqrtP,,) = ICore_VG(core).poolStats(0, 0, isBTC);
+        (uint160 sqrtP,,) = ICore(core).poolStats(0, 0, isBTC);
         if (lo >= up) return 0;
         uint sqrtPa = TickMath.getSqrtPriceAtTick(lo);
         uint sqrtPb = TickMath.getSqrtPriceAtTick(up);
@@ -324,7 +288,7 @@ library VogueLib {
 
     /// @notice The band's LIVE realized concavity α (WAD).
     function realizedAlphaWad(address core, int24 lo, int24 up, bool isBTC) public view returns (uint) {
-        (uint160 sqrtP,,) = ICore_VG(core).poolStats(0, 0, isBTC);
+        (uint160 sqrtP,,) = ICore(core).poolStats(0, 0, isBTC);
         if (lo >= up) return 0;
         uint sqrtPa = TickMath.getSqrtPriceAtTick(lo);
         uint sqrtPb = TickMath.getSqrtPriceAtTick(up);
@@ -367,9 +331,9 @@ library VogueLib {
     uint internal constant PREMIUM_ANNUALIZE = 127;
 
     function _bandFeeYieldWad(address core, bool isBTC) internal view returns (uint) {
-        uint prem6 = ICore_VG(core).premiumEwmaUsd(isBTC);
+        uint prem6 = ICore(core).premiumEwmaUsd(isBTC);
         if (prem6 == 0) return 0;                       // unmeasured ⇒ caller fails OPEN
-        uint pooled6 = isBTC ? ICore_VG(core).POOLED_USD_BTC() : ICore_VG(core).POOLED_USD_ETH();
+        uint pooled6 = isBTC ? ICore(core).POOLED_USD_BTC() : ICore(core).POOLED_USD_ETH();
         if (pooled6 == 0) return 0;                     // no band capital at risk ⇒ nothing to size
         return FullMath.mulDiv(prem6 * PREMIUM_ANNUALIZE, 1e18, pooled6);
     }
@@ -429,8 +393,8 @@ library VogueLib {
         // lets the BTC path call derivedThetaWad DIRECTLY (BtcVaultLib.addLiqChannel) without bricking on a
         // cold ring. Net-identical for ETH (revert -> 1e18 either way).
         int56[] memory cum;
-        if (isBTC) { try ICore_VG(core).observeBTC(ago) returns (int56[] memory c) { cum = c; } catch { return 0; } }
-        else       { try ICore_VG(core).observe(ago)    returns (int56[] memory c) { cum = c; } catch { return 0; } }
+        if (isBTC) { try ICore(core).observeBTC(ago) returns (int56[] memory c) { cum = c; } catch { return 0; } }
+        else       { try ICore(core).observe(ago)    returns (int56[] memory c) { cum = c; } catch { return 0; } }
         int[] memory avgTick = new int[](THETA_N);
         for (uint i = 0; i < THETA_N; i++)
             avgTick[i] = int(cum[i + 1] - cum[i]) / int(uint(THETA_STEP));
@@ -456,8 +420,8 @@ library VogueLib {
     // ════════════════════════════════════════════════════════════════════
     function addLiq(address core, address aux, uint deltaTok, uint price, bool isBTC, uint grossBuffer)
         public returns (uint usdOut, uint outDelta) {
-        (uint[15] memory deposits,,,) = IAux_VG(aux).get_deposits();
-        uint committedBoth = ICore_VG(core).committedUsd18();
+        (uint[15] memory deposits,,,) = IAux(aux).get_deposits();
+        uint committedBoth = ICore(core).committedUsd18();
         uint targetUSD; uint surplus;
         (deltaTok, targetUSD, surplus) =
             SwapLib.sizeBySurplus(deposits[14], committedBoth, deltaTok, price);
@@ -475,8 +439,8 @@ library VogueLib {
         // the call to keep this frame off the legacy-pipeline stack (no via-IR).
         uint capped = SwapLib.clampByBacking(
             _liveTheta(isBTC),
-            isBTC ? ICore_VG(core).btcThetaBacking() : IAux_VG(aux).vogueETH() + grossBuffer,
-            isBTC ? ICore_VG(core).POOLED_BTC() : ICore_VG(core).POOLED_ETH(),
+            isBTC ? ICore(core).btcThetaBacking() : IAux(aux).vogueETH() + grossBuffer,
+            isBTC ? ICore(core).POOLED_BTC() : ICore(core).POOLED_ETH(),
             deltaTok);
         if (capped < deltaTok) {
             deltaTok = capped;
@@ -517,10 +481,10 @@ library VogueLib {
     /// @dev Plain-venue ETH balance = vogueETH − lev net-equity (replica of Vogue._venueBalance; that one STAYS in
     ///      Vogue for its _withdraw/_depositImpl callers). No-op subtraction when no leverage.
     function _venueBalanceLib(address ev, address aux) internal returns (uint total) {
-        total = IEthVenue_VG(ev).vogueOp(false, 0, 2, bytes32(0));
+        total = IEthVenue(ev).vogueOp(false, 0, 2, bytes32(0));
         address lm = levManager(aux);
         if (lm != address(0)) {
-            try ILevEquity_VG(lm).totalNetEquityEth() returns (uint n) { total = total > n ? total - n : 0; } catch {}
+            try ILevEquity(lm).totalNetEquityEth() returns (uint n) { total = total > n ? total - n : 0; } catch {}
         }
     }
 
@@ -652,7 +616,7 @@ library VogueLib {
             position.liq -= liquidity;
             if (position.liq == 0) revert Dust();
         }
-        ICore_VG(core).outOfRange(false, owner, -liquidity, lower, upper, token);
+        ICore(core).outOfRange(false, owner, -liquidity, lower, upper, token);
     }
 
     // ════════════════════════════════════════════════════════════════════
@@ -680,7 +644,7 @@ library VogueLib {
                     TickMath.getSqrtPriceAtTick(t.newLo), TickMath.getSqrtPriceAtTick(t.newUp), amount);
             }
         } else {
-            amount = SwapLib.scaleTo6(IAux_VG(aux).deposit(msg.sender, token, amount), token);
+            amount = SwapLib.scaleTo6(IAux(aux).deposit(msg.sender, token, amount), token);
             if (token1isETH) {
                 require(t.newUp < t.curLo);
                 liquidity = LiquidityAmounts.getLiquidityForAmount0(

@@ -26,6 +26,8 @@ import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 import {SafeCallback} from "v4-periphery/src/base/SafeCallback.sol";
 import {IAaveV4Spoke} from "./imports/Interfaces.sol";
 import {IAaveV4Hub} from "./imports/Interfaces.sol";
+import {ICollection} from "./imports/Interfaces.sol";
+import {IEthVenue} from "./imports/Interfaces.sol";
 
 
 /// AAVE-v4 GHO spoke. Aux self-supplies via the self-allow trampoline.
@@ -50,20 +52,8 @@ interface IBtcVault {
 /// out of Aux. Aux keeps thin forwarders (vogueETH/arbETH) for callers that
 /// must not change target (BasketLib IAux read, Core), drives the Galaxy
 /// vault-health drain (state stays Aux-owned), and reads GALAXY_VAULT off it.
-interface IEthVenue {
-    function vogueETH() external view returns (uint);
-    function deliverableETH() external view returns (uint);
-    function GALAXY_VAULT() external view returns (address);
-    function EULER_VAULT() external view returns (address);
-    function GAUNTLET_VAULT() external view returns (address);
-    function supplyFromAux(uint amount) external returns (uint);
-    function withdrawForAux(uint amount, address to) external returns (uint);
-    function ROVER() external view returns (address);
-    function btcChannels() external view returns (address);
-}
 
 // Deploy-finalize helpers (see Aux.finalize; linkage asserts live in BasketLib.assertFullyWired).
-interface ICollection { function transferFrom(address from, address to, uint256 tokenId) external; }
 
 // (ether.fi / Rover interfaces moved to EthVenue with the venue custody; the
 //  Chainlink IAggregatorV3 anchor interface moved to SwapLib with twapAnchorBody.)

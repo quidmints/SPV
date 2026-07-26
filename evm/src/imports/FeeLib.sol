@@ -5,6 +5,7 @@ pragma solidity ^0.8.28;
 import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
+import {IAggregatorV3} from "./Interfaces.sol";
 
 interface IHook {
     function getDepegSeverityBps(address) external view returns (uint);
@@ -17,12 +18,6 @@ interface IAuxFee {
     function withdrawAaveLeg(address stable, uint amount, address to) external returns (uint);
 }
 
-interface IAggregatorV3 {
-    function decimals() external view returns (uint8);
-    function latestRoundData() external view returns (
-        uint80 roundId, int256 answer, uint256 startedAt,
-        uint256 updatedAt, uint80 answeredInRound);
-}
 
 /// @title  FeeLib — protocol fee model + depeg-aware haircut helpers
 /// @notice Stripped of LMSR / prediction-market machinery (was several

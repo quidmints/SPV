@@ -24,6 +24,7 @@ import {IWeETH} from "./imports/Interfaces.sol";
 import {IRover} from "./imports/Interfaces.sol";
 import {IDepositAdapter} from "./imports/Interfaces.sol";
 import {IAaveV4Hub} from "./imports/Interfaces.sol";
+import {ILevEquity} from "./imports/Interfaces.sol";
 
 // ════════════════════════════════════════════════════════════════════════
 //  Vault — the unified ETH-venue custody + BTC LP/hop side, merged from the
@@ -73,9 +74,6 @@ interface IPermit2Approve {
 /// so it earns fees on the gross weight but never inflates the LP's redeemable claim. The buffer's debt is
 /// excluded from committed via `committedUsd18`'s live-debt subtraction (no separate POOLED_USD_*_LEV bucket),
 /// so a venue liquidation un-pairs the buffer (`levBurnAll`) without stranding basket `POOLED_USD`.
-interface ILevEquity {
-    function totalGrossCollateralEth() external view returns (uint256);
-}
 
 /// BTC IL-protect: the BtcLevManager's per-LP net-of-debt equity IS protocol BTC backing (8-dec
 /// sats), so `syncLevBTC` pairs it as tokenless band depth INTO `POOLED_BTC` (LP.pooled) — that is where

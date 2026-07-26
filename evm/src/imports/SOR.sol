@@ -12,6 +12,7 @@ import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol
 import {SafeERC20}   from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {FeeLib}      from "./FeeLib.sol";
 import {IV3SwapRouter} from "./v3/IV3SwapRouter.sol";
+import {IAuxSwap} from "./Interfaces.sol";
 
 /// @notice A swap path is a chain of V4 hops sharing an entry stable +
 ///         4626 source vault. The token sequence has length N+1; the
@@ -44,12 +45,6 @@ struct UnlockData {
 ///         identically-named entries on SwapLib's IAuxSwap; only the methods the
 ///         moved SOR router cluster needs. Named imports everywhere ⇒ no clash with
 ///         SwapLib's own file-scope IAuxSwap.
-interface IAuxSwap {
-    function _tryPath(bytes calldata encodedPath, uint amountIn,
-        address output, address recipient, uint minOut) external returns (uint);
-    function toIndex(address token) external view returns (uint);
-    function get_deposits() external returns (uint[15] memory amounts, uint[15] memory yieldW, uint avgYield, uint depegLoss);
-}
 
 /// @title SOR — Smart Order Router (V4 only, stable → ETH)
 ///

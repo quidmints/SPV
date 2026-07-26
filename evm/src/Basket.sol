@@ -13,9 +13,7 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
-interface ICollection {
-    function getApproved(uint tokenId) external view returns (address);
-}
+import {ICollection} from "./imports/Interfaces.sol";
 
 contract Basket is ERC20, ERC6909, 
     ReentrancyGuard, Ownable {
