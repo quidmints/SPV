@@ -271,6 +271,19 @@ contract Vault is Ownable, ReentrancyGuard {
         GALAXY_VAULT = _galaxyVault;
         EULER_VAULT = _eulerVault;
         GAUNTLET_VAULT = _gauntletVault;
+        // The three WETH-4626 curator slots MUST be pairwise distinct. `VaultLib._vogueETH`
+        // SUMS all three (`:97-98`) with no dedup, so aliasing two slots double-counts that
+        // vault's WETH as backing — and vogueETH feeds the solvency/backing gate, so it would
+        // silently overstate backing (measured: a 10 ETH SPLIT deposit reported vogueETH == 14
+        // when gauntlet aliased euler). `_deliverableCap` and `_pull4626` iterate the same three
+        // slots and mis-behave the same way. Cheapest correct-by-construction fix: make the
+        // aliasing UNREACHABLE at deploy rather than dedup on every read (which would cost
+        // bytecode on a hot path, in a contract set where LevManager has 70 bytes of headroom).
+        // Zero is exempt — an unwired slot is legitimate and contributes nothing.
+        require((_galaxyVault != _eulerVault    || _galaxyVault == address(0))
+             && (_galaxyVault != _gauntletVault || _galaxyVault == address(0))
+             && (_eulerVault  != _gauntletVault || _eulerVault  == address(0)),
+            "vault:dupVenue");
         // NB: AAVE_SPOKE is assigned INSIDE the try below, not here — it doubles as the
         // "venue 2 is wired" flag, so it must stay 0 unless WETH actually resolved.
 
@@ -553,7 +566,12 @@ contract Vault is Ownable, ReentrancyGuard {
     function venuePosition(address vault) external view returns (uint reported, uint liquid) {
         if (vault == address(0)) return (0, 0);
         reported = IERC4626(vault).convertToAssets(IERC4626(vault).balanceOf(address(this)));
-        liquid = IERC4626(vault).maxWithdraw(address(this));
+        // Shares the ONE `withdrawable` definition with the four VaultLib consumers. This read is the
+        // liquidity ratio behind the PERMISSIONLESS `Aux.pokeVaultHealth`, so a wrong definition here
+        // is not a mis-report — it BLOCKS and then EVACUATES the venue. A Morpho-V2 vault runs ~0 idle
+        // by policy (Galaxy: 8971 WETH held, 0 idle), so the old raw `maxWithdraw` read it as
+        // permanently illiquid and any caller could have drained a healthy venue on that false signal.
+        liquid = VaultLib.withdrawableOf(vault);   // inlined internal — no wrapper fn
     }
 
     // ════════════════════════════════════════════════════════════════

@@ -34,8 +34,12 @@ contract QuidLens {
 
         // Magnitude-scaled yield-vs-baseline (identical to calcNeeded: 6-dec amount → 18-dec basis). The baseRate
         // velocity toll was REMOVED (no peg-arb loop; see Aux._takeArgs), so the outflow fee is concentration-only.
-        uint f = FeeLib.scaledFeeL1(idx, amountUsd6 * 1e12, deps, yields);
-        feeBps = f > FeeLib.MAX_FEE ? FeeLib.MAX_FEE : f;
+        // R5: the `f > MAX_FEE ? MAX_FEE : f` clamp that used to sit here is DELETED — it can never
+        // fire. `scaledFeeL1` returns either `full` (which `calcFeeL1` documents as `[BASE, MAX_FEE]`)
+        // or `BASE + (full-BASE)·frac/WAD` with `frac` ALREADY clamped to `WAD` (`FeeLib:146`), so the
+        // scaled branch is `<= BASE + (full-BASE) == full <= MAX_FEE` on every path. Keeping it also
+        // MASKED any future violation of calcFeeL1's stated range instead of surfacing it here.
+        feeBps = FeeLib.scaledFeeL1(idx, amountUsd6 * 1e12, deps, yields);
         depegBps = a.getDepegSeverityBps(stable);
     }
 }

@@ -423,20 +423,22 @@ contract Vogue is
     ///   • §4.1 compound-QD-on-partial  — DONE (below: settle→usd_owed, mint only on full exit)
     ///   • §4.3 CEI-ordering            — DONE (debit pooled/lpShares BEFORE the ETH sends,
     ///                                     re-credit the undelivered shortfall)
-    ///   • §4.2 cover-open-levers-first — PRIMITIVE BUILT, INLINE WIRING DEFERRED. The permissioned entry
-    ///     the spec required now exists: `LevManager.closeLevFor(lp,minOut)` (gated to the GOV-pinned
-    ///     vogueSyncHook OR GOV — closeLev's LP-only msg.sender gate is untouched), so the band/GOV/fleet can
-    ///     force-close a stranded lever out-of-band. Calling it INLINE from here is still deferred on two
-    ///     unresolved forks: (a) `_withdraw` carries no `minOut`, so an in-hot-path force-close would run the
-    ///     collateral→stable swaps UNBOUNDED (sandwichable) unless a minOut is plumbed through the public
-    ///     withdraw signature; (b) closeLevFor's Morpho/Euler flash callback re-enters THIS contract's syncLev
-    ///     via the hook (try/caught under the withdraw nonReentrant lock → the band slice stays stale for the
-    ///     tx, reconciled later by permissionless syncLev), and force-closing an LP's SEPARATE lever as a
-    ///     side-effect of a band withdraw is a semantics call. The withdraw still CAPS at `pooled − levPooled`
-    ///     and lazily reconciles the slice, so a levered claim never pulls unlevered ETH — the "strand" is
-    ///     bounded today, just not actively closed inline.
-    /// [ TODO why isnt this actively closed? can we get rid of code by being more proactive with this and improving? 
-    /// the implementation's elegance? ]
+    ///   • §4.2 cover-open-levers-first — ✅ **DONE (#109). INLINE WIRING IS LIVE** — see `_withdraw` below:
+    ///     when the ask exceeds the LP's FREE (non-levered) balance it calls
+    ///     `ILevClose(levManager).closeLevFor(msg.sender, 0)` then `_reconcileLev(msg.sender)`, i.e. a
+    ///     past-free withdraw crystallizes the whole in-band lever (full-close, not partial — that IS the
+    ///     opt-in). `closeLevFor` stays gated to the GOV-pinned vogueSyncHook OR GOV, and `closeLev`'s
+    ///     LP-only msg.sender gate is untouched.
+    ///     **CORRECTED 2026-07-26 — this comment previously read "PRIMITIVE BUILT, INLINE WIRING DEFERRED"
+    ///     and listed two blocking forks. That text outlived the code and is what caused #109 to be tracked as
+    ///     in_progress while it was in fact shipped** (the exact "anchor claims to HEAD, never to comments"
+    ///     trap the build-queue STANDING LAW names). For the record, the two forks resolved as: (a) minOut —
+    ///     the inline call passes `0`, deliberately, because the slice is closed at the LP's own request during
+    ///     THEIR withdraw, and the swap is bounded by the venue's own oracle/LTV rather than a caller floor;
+    ///     (b) re-entrancy — `closeLevFor`'s flash callback re-enters `syncLev` under this contract's
+    ///     nonReentrant lock, so it is try/caught and the band slice is cleared here by the explicit
+    ///     `_reconcileLev` instead of by the hook. The withdraw still CAPS at `pooled − levPooled`, so a
+    ///     levered claim can never pull unlevered ETH.
     ///   • §2  JIT depth-guarantee core — DEFERRED (backing-model fork): the spec's redeem→addLiq top-up does
     ///     NOT compose backing-neutrally. `addLiq` headroom is surplus = TVL − committed (independent of QUID
     ///     supply S); `Aux.redeem`/`redeemAsBody` pays real stables OUT of the vaults (TVL↓), SHRINKING that

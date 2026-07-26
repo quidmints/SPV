@@ -26,8 +26,13 @@ interface ICore_VG {
     function committedUsd18() external view returns (uint);
     function POOLED_ETH() external view returns (uint);
     function POOLED_BTC() external view returns (uint);
-    function btcThetaBacking() external view returns (uint);   // native BTC backing (lpSharesBTC + gross buffer): theta numerator
+    function btcThetaBacking() external view returns (uint);   // native BTC backing (lpSharesBTC + gross buffer): theta DEPTH clamp basis
     function outOfRange(bool isBTC, address sender, int liquidity, int24 tickLower, int24 tickUpper, address token) external returns (uint);
+    // θ numerator inputs (#107/D3) — retained band premium as a decayed rate, over the band's own
+    // in-range USD. Both 6-dec, so `_bandFeeYieldWad` needs no scale conversion.
+    function premiumEwmaUsd(bool isBTC) external view returns (uint);
+    function POOLED_USD_ETH() external view returns (uint);
+    function POOLED_USD_BTC() external view returns (uint);
 }
 interface IAux_VG {
     function getTWAPforAsset(address asset, uint32 period) external view returns (uint);
@@ -330,7 +335,70 @@ library VogueLib {
         return FullMath.mulDiv(1e18 - r1, 1e18, 2e18 - r1 - r2);
     }
 
-    /// @notice θ derived live: yield / (K·σ²), clamped to <=1.
+    /// @dev Annualized WAD yield the BAND itself earned on the capital it put at risk — θ's
+    ///      numerator (#107/D3). Both inputs come off Core and are 6-dec USD, so the ratio is
+    ///      unitless and needs no scale plumbing:
+    ///        • numerator   = `premiumEwmaUsd` — retained scarcity premium, decayed over ~48h.
+    ///        • denominator = that pool's in-range band USD (`POOLED_USD_*`), i.e. the capital that
+    ///          actually bore the IL. Using the band's own capital (not TVL, not backing) is what
+    ///          makes this a YIELD ON THE BET rather than a yield on the whole reserve.
+    ///      Returns 0 when either side is unmeasured, which `derivedThetaWad` turns into fail-open.
+    ///
+    ///      ⛔ DO NOT "SIMPLIFY" THIS TO `skewWad × flowEwmaUsd / pooled`. It looks strictly better —
+    ///      `premium = amount·skew` (`retainSkewPremium`) and `flowEwmaUsd` is ALREADY the decayed
+    ///      Σamount, so the product derives this yield with ZERO new storage and no hot-path write,
+    ///      which is why it was considered first. It is WRONG: `skewWad = Γ·σ²·q/(1−q)^ρ` already
+    ///      CONTAINS σ², so feeding a skew-derived numerator into `θ = numerator/(K·σ²)` makes σ²
+    ///      CANCEL — θ would collapse to a vol-independent function of scarcity and flow and stop
+    ///      measuring risk at all. That cancellation is the Avellaneda–Stoikov property (fees are
+    ///      priced to scale with vol) and it would silently gut θ's purpose.
+    ///      The stored register avoids it by measuring REALIZED premium — what flow actually paid —
+    ///      against POTENTIAL LVR (`K·σ²`). Those are independent: the numerator moves with whether
+    ///      flow arrived, the denominator with how much IL we were exposed to. θ therefore answers
+    ///      "did realized fees cover the IL we bore?" (`spec.md` §3.8), whereas the derived form would
+    ///      only answer "does our own pricing formula contain σ²" — i.e. nothing.
+    ///
+    ///      ⚠️ `PREMIUM_ANNUALIZE` is the ONE number here worth reviewing. An exponential EWMA with
+    ///      half-life H has mean lifetime H/ln2, so it represents roughly that much accrual: for the
+    ///      48h `FLOW_DECAY`, 48/ln2 ≈ 69.25h, and a year is 8760/69.25 ≈ 126.5 such windows. σ² is
+    ///      ANNUALIZED (see `realizedVarianceWad`), so the numerator must be annualized too or θ is
+    ///      dimensionally wrong and would systematically under-size the band. 126 is that factor,
+    ///      not a tuning knob — if `FLOW_DECAY`'s half-life ever changes, this must change with it.
+    uint internal constant PREMIUM_ANNUALIZE = 126;
+
+    function _bandFeeYieldWad(address core, bool isBTC) internal view returns (uint) {
+        uint prem6 = ICore_VG(core).premiumEwmaUsd(isBTC);
+        if (prem6 == 0) return 0;                       // unmeasured ⇒ caller fails OPEN
+        uint pooled6 = isBTC ? ICore_VG(core).POOLED_USD_BTC() : ICore_VG(core).POOLED_USD_ETH();
+        if (pooled6 == 0) return 0;                     // no band capital at risk ⇒ nothing to size
+        return FullMath.mulDiv(prem6 * PREMIUM_ANNUALIZE, 1e18, pooled6);
+    }
+
+    /// @notice θ derived live: **band fee yield** / (K·σ²), clamped to <=1.
+    ///
+    /// @dev #107/D3 (2026-07-26): the numerator is the BAND's realized market-making yield, NOT the
+    ///      reserve `avgYield` it used to read. θ is Merton's `μ/(K·σ²)` — the optimal fraction of
+    ///      capital to commit to a RISKY bet — and the bet being sized here is IL-bearing in-range
+    ///      band depth. The compensation for that bet is the retained scarcity premium, full stop.
+    ///      Reserve `avgYield` is earned whether the dollar leg is banded or sits idle (`spec.md`),
+    ///      so it is NOT marginal compensation for IL and using it over-sized the band. Per the user:
+    ///      *"the size of the band should have nothing to do with avgYield at all — that is only a
+    ///      number that tells us how much QUI to mint upfront."* Two different jobs, two inputs.
+    ///      Kept θ-LOCAL (read straight off Core) rather than folded into `avgYield`, precisely
+    ///      because `avgYield` also feeds `seedFee` mint-valuation — folding would have moved mint
+    ///      pricing as a side effect.
+    ///
+    ///      This makes θ encode the protocol's own rationality test directly: premium in the
+    ///      numerator over σ² in the denominator IS "are fees beating LVR?" (`spec.md` §3.8).
+    ///
+    ///      FAILS OPEN on an unmeasured register (`premium == 0` ⇒ return 1e18), matching every
+    ///      other unmeasured path here (`sigmaSq == 0`, `kWad == 0`, cold oracle ring) and the
+    ///      documented "θ≥1 fails open (calm/unmeasured) → only HEADROOM binds". That is what lets a
+    ///      cold band BOOTSTRAP: a fresh band has earned no premium, and failing CLOSED would clamp
+    ///      it to zero depth forever (no depth ⇒ no fees ⇒ no depth). Failing open is safe rather
+    ///      than unbounded because `SwapLib.clampByBacking` applies the PHYSICAL
+    ///      `backing − pooled` headroom independently — audit #8 was closed so that "every path
+    ///      stays bounded at the real backing even when θ fails open".
     function derivedThetaWad(address core, address aux, int24 lo, int24 up, bool isBTC) public view returns (uint) {
         uint sigmaSq = realizedVarianceWad(core, isBTC);
         if (sigmaSq == 0) return 1e18;
@@ -338,8 +406,18 @@ library VogueLib {
         if (kWad == 0) return 1e18;
         uint work = FullMath.mulDiv(kWad, sigmaSq, 1e18);
         if (work == 0) return 1e18;
-        uint theta = FullMath.mulDiv(IAux_VG(aux).avgYield(), 1e18, work);
-        return theta > 1e18 ? 1e18 : theta;
+        // The `theta > 1e18 ? 1e18 : theta` clamp that used to close this function is DELETED — it
+        // adds no safety. EVERY consumer already short-circuits at the same threshold:
+        // `SwapLib.applyTheta:1299` is `if (thetaEff >= 1e18) return available;` (so 1e18 and 12e18
+        // are byte-identical no-ops), `VogueLib:470` and `BtcVaultLib:136` both document and treat
+        // ">= 1e18 ⇒ no-op / fail-open", and the real bound on band depth is the PHYSICAL
+        // `backing − pooled` headroom in `clampByBacking` (audit #8), which θ never gates.
+        // Removing it also makes the external views (`Vogue.derivedThetaWad`,
+        // `Vault.derivedThetaWadBtc`) strictly MORE informative: they now report HOW FAR above the
+        // no-throttle threshold the band is, instead of flattening everything to exactly 1.0 — which
+        // matters more post-#107/D3, since a band earning real premium in a calm tape clears 1e18
+        // routinely where the old reserve-`avgYield` numerator rarely did.
+        return FullMath.mulDiv(_bandFeeYieldWad(core, isBTC), 1e18, work);
     }
 
     /// @notice Annualized realized variance (WAD) from Core's oracle ring.

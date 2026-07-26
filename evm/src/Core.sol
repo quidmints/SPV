@@ -167,29 +167,52 @@ contract Core is SafeCallback {
     uint internal constant FLOW_DECAY   = 999759352855809024; // per-min → 48h half-life (0.5^(1/2880)). The well's flow-EWMA / inventory-skew target wants a wide, manipulation-resistant memory. (The Aux redeem-fee `baseRate`, a separate 12h register, was REMOVED — QU!D has no peg-arb loop; this 48h flow decay is unrelated and stays.)
     uint internal constant FLOW_MAX_MIN = 525600000;          // decay-exponent cap (Liquity)
 
-    /// @notice Fold a swap's USD notional into this pool's flow EWMA: decay the
-    ///         stored volume over elapsed minutes, then add `usd6`. Internal (called
-    ///         only from _handleSwap). Saturates at uint128 (unreachable in practice).
-    function _bumpFlow(bool isBTC, uint usd6) internal {
-        Flow storage f = isBTC ? _flowBTC : _flowETH;
-        uint v = f.vol;
-        if (f.ts != 0) {
-            uint mins = (block.timestamp - f.ts) / 60;
-            v = Math.mulDiv(v, FeeLib.decPow(FLOW_DECAY, mins, FLOW_MAX_MIN), 1e18);
-        }
-        v += usd6;
+    /// @notice Retained band market-making premium per pool, as a DECAYED EWMA (6-dec USD) — the
+    ///         θ NUMERATOR source (#107/D3). Deliberately the SAME `Flow` struct, the SAME
+    ///         `FLOW_DECAY` (48h) and the SAME read/bump helpers as the swap-volume register:
+    ///         premium accrues on exactly the same swap events and wants exactly the same memory,
+    ///         so a THIRD decay constant would be an unjustified magic number. (This does NOT
+    ///         re-tie the 48h flow window to the 12h `BR_DECAY` — those stay un-tied by design;
+    ///         this is a SECOND consumer of the 48h window, not a merge of two windows.)
+    Flow internal _premETH;
+    Flow internal _premBTC;
+
+    /// @dev ONE decay implementation, shared by both EWMA registers (was duplicated between
+    ///      `_bumpFlow` and `flowEwmaUsd`). Decay the stored value over elapsed whole minutes.
+    function _decayed(Flow storage f) internal view returns (uint) {
+        if (f.ts == 0) return f.vol;
+        uint mins = (block.timestamp - f.ts) / 60;
+        return Math.mulDiv(f.vol, FeeLib.decPow(FLOW_DECAY, mins, FLOW_MAX_MIN), 1e18);
+    }
+
+    /// @dev Decay-then-add into an EWMA register. Saturates at uint128 (unreachable in practice).
+    function _bumpEwma(Flow storage f, uint usd6) internal {
+        uint v = _decayed(f) + usd6;
         f.vol = v > type(uint128).max ? type(uint128).max : uint128(v);
         f.ts  = uint64(block.timestamp);
+    }
+
+    /// @notice Fold a swap's USD notional into this pool's flow EWMA. Called only from _handleSwap.
+    function _bumpFlow(bool isBTC, uint usd6) internal {
+        _bumpEwma(isBTC ? _flowBTC : _flowETH, usd6);
     }
 
     /// @notice This pool's decayed swap-flow EWMA (6-dec USD) — the adaptive
     ///         normal-flow buffer the skew target is built on. Pure decay of the stored
     ///         register to now; NO governance constant.
     function flowEwmaUsd(bool isBTC) public view returns (uint) {
-        Flow storage f = isBTC ? _flowBTC : _flowETH;
-        if (f.ts == 0) return f.vol;
-        uint mins = (block.timestamp - f.ts) / 60;
-        return Math.mulDiv(f.vol, FeeLib.decPow(FLOW_DECAY, mins, FLOW_MAX_MIN), 1e18);
+        return _decayed(isBTC ? _flowBTC : _flowETH);
+    }
+
+    /// @notice This pool's decayed RETAINED-PREMIUM EWMA (6-dec USD) — the band's realized
+    ///         market-making earnings over the trailing ~48h window. θ's numerator (#107/D3):
+    ///         the compensation the band actually receives for bearing IL. Reserve `avgYield` is
+    ///         deliberately NOT part of this — that number sizes how much QUI to mint up front and
+    ///         has nothing to do with how big the band should be (user, 2026-07-26); the dollar leg
+    ///         earns the reserve baseline whether it is banded or idle (`spec.md`), so reserve yield
+    ///         is not marginal compensation for IL risk and must not inflate the risk budget.
+    function premiumEwmaUsd(bool isBTC) public view returns (uint) {
+        return _decayed(isBTC ? _premBTC : _premETH);
     }
 
     /// @notice Aggregate leverage claim on this pool (6-dec USD) — the well's
@@ -255,6 +278,9 @@ contract Core is SafeCallback {
         uint256 cum;
         if (isBTC) { skewPremiumBTC += premiumUsd; cum = skewPremiumBTC; }
         else       { skewPremiumETH += premiumUsd; cum = skewPremiumETH; }
+        // Also fold it into the decaying RATE register (#107/D3). The cumulative counters above
+        // are monotonic totals — useless as a yield; θ needs a rate, which is what this provides.
+        _bumpEwma(isBTC ? _premBTC : _premETH, premiumUsd);
         emit SkewPremiumRetained(isBTC, premiumUsd, cum);
     }
 

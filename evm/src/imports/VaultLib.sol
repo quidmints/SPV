@@ -20,6 +20,15 @@ interface IRover_V { function take(uint amount) external returns (uint wethAmoun
 interface IRoverDep_V { function deposit(uint amount) external payable; }                       // supply-leg: fund the Rover
 interface IDepositAdapter_V { function depositWETHForWeETH(uint _amount, address _referral) external; } // ether.fi stake
 interface IAuxView_V { function vaultBlocked(address vault) external view returns (bool); }
+/// Morpho-V2 vault surface (NOT MetaMorpho v1.1, which has a withdrawQueue instead). A V2 vault keeps
+/// its assets in ADAPTERS and auto-allocates on deposit, so `maxWithdraw` tracks IDLE rather than what
+/// the holder owns; these three reads are the published hatch for pulling allocated liquidity back.
+interface IMorphoV2_V {
+    function liquidityAdapter() external view returns (address);
+    function liquidityData() external view returns (bytes memory);
+    function forceDeallocate(address adapter, bytes memory data, uint assets, address onBehalf)
+        external returns (uint penaltyAssets);
+}
 interface ILevEquity_V { function totalNetEquityEth() external view returns (uint256); }
 
 /// @title  VaultLib — the ETH yield-venue custody ladder extracted from Vault
@@ -72,7 +81,7 @@ library VaultLib {
         try IERC20(vault).balanceOf(address(this)) returns (uint shares) {
             if (shares == 0) return 0;
             if (IAuxView_V(aux).vaultBlocked(vault)) {
-                try IERC4626(vault).maxWithdraw(address(this)) returns (uint m) { return m; } catch { return 0; }
+                return withdrawableOf(vault);   // ONE definition of withdrawable
             }
             try IERC4626(vault).convertToAssets(shares) returns (uint v) { return v; } catch { return 0; }
         } catch { return 0; }
@@ -91,11 +100,51 @@ library VaultLib {
         return _aaveBal(c);
     }
 
+    /// @dev THE one answer to "how much can we actually get out of this venue", replacing five
+    ///      independent `try maxWithdraw catch {}` reads that each silently meant something slightly
+    ///      different: `_venue4626Value` (blocked-venue valuation), `_deliverableCap` (the gap it
+    ///      subtracts), `_pull4626` (the pull size), `evacuate` (the drain size) and `Vault:569`
+    ///      (the liquidity ratio behind the permissionless `pokeVaultHealth`).
+    ///
+    ///      Unified FIRST, behaviour-identical, on purpose: the definition of "withdrawable" is wrong
+    ///      for Morpho-V2 venues (see below) and five copies cannot be corrected once. With one
+    ///      accessor the correction lands in a single place and every consumer inherits it.
+    ///
+    ///      ⚠️ KNOWN-INCOMPLETE — the Morpho-V2 term is NOT included yet, and this is why:
+    ///      a V2 vault allocates on deposit and runs ~0 idle by POLICY, so `maxWithdraw` reports IDLE,
+    ///      not what we own. MEASURED on mainnet: Galaxy holds 8971 WETH, 0 idle, `maxWithdraw == 0`
+    ///      against a real 2 WETH position; its permissionless `forceDeallocate(adapter, data, assets,
+    ///      onBehalf)` SUCCEEDS with **zero penalty** (probe-verified), so that 2 WETH is genuinely
+    ///      recoverable. But Gauntlet's identical-shaped call REVERTS, so "V2 ⇒ assume recoverable"
+    ///      would OVER-promise deliverable ETH — the opposite failure, and worse (over-issue vs
+    ///      under-deliver). An honest view term needs the adapter's own market position, which means
+    ///      decoding `liquidityData` (160 bytes: WETH / weETH / market / IRM / LLTV) and reading
+    ///      Morpho — i.e. MORE code, so it is deliberately not bolted on here.
+    ///      The state-changing deallocate attempt stays in `_pull4626` where it can fail loudly.
+    ///      `internal`, NOT a `public` wrapper: internal library fns are INLINED into the importing
+    ///      contract, so `Vault.venuePosition` calls this one directly — no second function, no
+    ///      external dispatcher, nothing added just to carry the name across a file boundary.
+    function withdrawableOf(address vault) internal view returns (uint) {
+        try IERC4626(vault).maxWithdraw(address(this)) returns (uint withdrawable) { return withdrawable; }
+        catch { return 0; }
+    }
+
+    /// @dev The WETH-4626 curator set, in ONE place. Every consumer (`_vogueETH` value sum,
+    ///      `deliverableETH` caps, the `withdrawETH` pull ladder, the `evacuate` membership check)
+    ///      used to enumerate `c.galaxy`/`c.euler`/`c.gauntlet` by hand — 9 sites over 3 addresses,
+    ///      so a 4th curator meant editing every one and an omission was silent. Now they loop.
+    ///      NOTE the slots MUST stay pairwise distinct: these are SUMMED into backing, so aliasing
+    ///      two of them double-counts (measured: vogueETH 14 for a 10 ETH deposit when gauntlet
+    ///      aliased euler). `Vault`'s ctor enforces distinctness ("vault:dupVenue").
+    function _venues(EthCfg memory c) internal pure returns (address[3] memory) {
+        return [c.galaxy, c.euler, c.gauntlet];
+    }
+
     /// @dev Body of Vault.vogueETH — AGGREGATE ETH-equivalent backing across the
     ///      depositor-chosen venues.
     function _vogueETH(EthCfg memory c) internal view returns (uint total) {
-        total = _venue4626Value(c.galaxy, c.aux) + _venue4626Value(c.euler, c.aux)
-            + _venue4626Value(c.gauntlet, c.aux);
+        address[3] memory venues = _venues(c);
+        for (uint i; i < 3; ++i) total += _venue4626Value(venues[i], c.aux);
         if (c.weeth != address(0)) {
             uint w = IERC20(c.weeth).balanceOf(address(this));
             if (w > 0) total += IWeETH_V(c.weeth).getEETHByWeETH(w);
@@ -138,19 +187,20 @@ library VaultLib {
         if (vault == address(0)) return total;
         uint shares = IERC20(vault).balanceOf(address(this));
         if (shares == 0 || IAuxView_V(aux).vaultBlocked(vault)) return total;
-        uint solv = IERC4626(vault).convertToAssets(shares);
-        uint deliv;
-        try IERC4626(vault).maxWithdraw(address(this)) returns (uint m) { deliv = m; } catch {}
-        if (solv > deliv) { uint gap = solv - deliv; return total > gap ? total - gap : 0; }
+        uint solvent = IERC4626(vault).convertToAssets(shares);
+        uint withdrawable = withdrawableOf(vault);   // ONE definition of withdrawable
+        if (solvent > withdrawable) {
+            uint undeliverable = solvent - withdrawable;
+            return total > undeliverable ? total - undeliverable : 0;
+        }
         return total;
     }
 
     /// @notice Body of Vault.deliverableETH — DELIVERABLE ETH backing.
     function deliverableETH(EthCfg memory c) public view returns (uint total) {
         total = _vogueETH(c);
-        total = _deliverableCap(c.galaxy, c.aux, total);
-        total = _deliverableCap(c.euler, c.aux, total);
-        total = _deliverableCap(c.gauntlet, c.aux, total);
+        address[3] memory venues = _venues(c);
+        for (uint i; i < 3; ++i) total = _deliverableCap(venues[i], c.aux, total);
         // The leverage net-equity is solvency backing (now counted in vogueETH as net) but NOT deliverable
         // from this Vault (unwind-only via closeLev -- the LP gets it back by repaying debt + withdrawing coll,
         // not from redemption). Exclude the same net-equity term vogueETH added, so deliverableETH == base
@@ -244,10 +294,35 @@ library VaultLib {
         if (vault == address(0)) return;
         uint bal = IERC20(c.weth).balanceOf(address(this));
         if (bal >= amount) return;
-        uint maxOut = IERC4626(vault).maxWithdraw(address(this));
-        uint pull = (amount - bal) > maxOut ? maxOut : (amount - bal);
+        uint need = amount - bal;
+        uint maxOut = withdrawableOf(vault);
+        // MORPHO-V2 DEALLOCATE (2026-07-26). A Morpho-V2 vault parks its assets in ADAPTERS and
+        // AUTO-ALLOCATES on deposit, so `maxWithdraw` is bounded by IDLE, not by what we own.
+        // MEASURED on mainnet: Galaxy holds 8971 WETH with **0 idle** and Gauntlet 4720 with ~0 —
+        // that is their steady-state POLICY, so our own fresh deposit raised `totalAssets` but stayed
+        // un-withdrawable and this pull silently returned nothing. Left unfixed, LP exits can NEVER
+        // source from those venues even though `vogueETH` counts them as backing (the ~20% exit
+        // shortfall class). Morpho-V2 publishes `liquidityAdapter()`/`liquidityData()` precisely so an
+        // integrator can pull allocated liquidity back to idle on demand; the penalty is currently 0,
+        // so this is value-neutral. try/catch because a v1.1 MetaMorpho has no such surface (it keeps
+        // a withdrawQueue instead) and must fall through unchanged.
+        if (maxOut < need) {
+            try IMorphoV2_V(vault).liquidityAdapter() returns (address adapter) {
+                if (adapter != address(0)) {
+                    try IMorphoV2_V(vault).forceDeallocate(
+                        adapter, IMorphoV2_V(vault).liquidityData(), need - maxOut, address(this)
+                    ) { maxOut = withdrawableOf(vault); } catch {}
+                }
+            } catch {}
+        }
+        uint pull = need > maxOut ? maxOut : need;
         if (pull > 0) {
-            try IERC4626(vault).withdraw(pull, address(this), address(this)) {} catch {}
+            // NOT swallowed: a venue that reports `pull` withdrawable and then fails to deliver it is
+            // a venue fault, and letting it degrade into a short `sent` turns it into SILENT LP value
+            // loss (see withdrawETH's `sent = wethBal >= amount ? amount : wethBal`). The ladder's
+            // liveness is preserved by the maxWithdraw clamp above — we only ask for what the venue
+            // itself says it can pay — so a revert here is a real fault worth surfacing, not routine.
+            IERC4626(vault).withdraw(pull, address(this), address(this));
         }
     }
 
@@ -272,9 +347,8 @@ library VaultLib {
         }
         if (wethBal < amount) {
             // Galaxy + Euler are fungible; pull from each at its maxWithdraw.
-            _pull4626(c, c.galaxy, amount);
-            _pull4626(c, c.euler, amount);
-            _pull4626(c, c.gauntlet, amount);
+            address[3] memory venues = _venues(c);
+            for (uint i; i < 3; ++i) _pull4626(c, venues[i], amount);
             wethBal = IERC20(c.weth).balanceOf(address(this));
             // Still short → pull from the AAVE-v4 WETH venue (ETH venue 2).
             if (wethBal < amount && c.aaveSpoke != address(0)) {   // reserve 0 is valid
@@ -307,9 +381,13 @@ library VaultLib {
     ///         4626 curator (Galaxy or Euler): pull the WITHDRAWABLE WETH to the
     ///         AAVE haven (or hold at the Vault if AAVE-WETH is unwired).
     function evacuate(EthCfg memory c, address vault) public {
-        require(vault == c.galaxy || (vault == c.euler && vault != address(0))
-            || (vault == c.gauntlet && vault != address(0)), "ethv:notVenue");
-        uint maxW = IERC4626(vault).maxWithdraw(address(this));
+        // Membership over the ONE curator set (see `_venues`). The old hand-rolled disjunction had to
+        // special-case `vault != address(0)` per slot to stop an UNWIRED (zero) venue matching a zero
+        // `vault` argument; hoisting that single check covers all slots at once.
+        require(vault != address(0), "ethv:notVenue");
+        address[3] memory venues = _venues(c);
+        require(vault == venues[0] || vault == venues[1] || vault == venues[2], "ethv:notVenue");
+        uint maxW = withdrawableOf(vault);
         if (maxW == 0) return; // frozen → blocked; vogueETH writes it down
         try IERC4626(vault).withdraw(maxW, address(this), address(this))
             returns (uint got) {

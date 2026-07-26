@@ -399,19 +399,43 @@ contract Alles is Test, Fixtures {
         //     deploy), so setUp first hands the deployer (this) the real F8N ANGEL
         //     NFT — identical to production, where the Safe owns it. ───
         //
-        // NONCE ALIGNMENT (load-bearing): Core.setup deploys the oracle mock tokens
-        // whose addresses derive from CORE's address, and _initPool orients the
-        // synthetic pools by an address comparison (token1isVol = volMock > usdMock).
-        // So the fork-price-sensitive RunSim invariants depend on CORE landing at the
-        // SAME deployer-nonce as before this refactor (V4 first, Core second). We
-        // therefore create the mock venue 4626s AFTER the shared deploy (Vault's ctor
-        // only `approve`s these addresses, never CALLS them, so predicted addresses
-        // are safe) and PREDICT their addresses — keeping Core at deployer-nonce+1.
-        uint _n0 = vm.getNonce(address(this)); // next CREATE = the shared deploy's Vogue
-        // deployQuidStack (rover+channels off) creates exactly 5 contracts from this
-        // test: Vogue, Core, Aux, Basket, Vault → the mocks land at _n0+5 / _n0+6.
-        address _predGalaxy = vm.computeCreateAddress(address(this), _n0 + 5);
-        address _predEuler  = vm.computeCreateAddress(address(this), _n0 + 6);
+        // ETH-venue WETH 4626s: THE REAL MAINNET CURATOR VAULTS (user, 2026-07-26: "do not mock
+        // anything, use the real addresses that you have"). These are the same three constants
+        // `DeployL1_s` deploys against (`:137/:141/:145`), all fork-verified live: distinct
+        // addresses, `asset() == WETH`, and deep enough for these tests (totalAssets ≈ 8971 /
+        // 977 / 4720 WETH), so no injected liquidity is needed.
+        //
+        // This ALSO fixes a real bug: gauntlet used to ALIAS the euler mock, which (a) left the
+        // Gauntlet venue entirely untested and (b) made `VaultLib._vogueETH` (which SUMS
+        // galaxy+euler+gauntlet with no dedup) DOUBLE-COUNT that vault — a 10 ETH SPLIT deposit
+        // reported vogueETH == 14. `Vault`'s ctor now rejects aliased venue slots outright.
+        //
+        // Using real addresses also DELETES the whole nonce-prediction apparatus that existed
+        // only to place the mocks (computeCreateAddress ×N + a drift `require`). The NONCE
+        // ALIGNMENT concern it protected is unaffected: Core.setup derives its oracle mock-token
+        // addresses from CORE's address and `_initPool` orients the synthetic pools by an address
+        // comparison (`token1isVol = volMock > usdMock`), so the fork-price-sensitive RunSim
+        // invariants only need CORE at its usual deployer-nonce — and creating NOTHING extra here
+        // preserves that trivially.
+        // MEASURED 2026-07-26 (EthVenueDeliverable.t.sol, 10 ETH SPLIT deposit ⇒ 2 ETH per venue):
+        //   Euler    0xD8b2…84C2  convertToAssets 2.0  maxWithdraw 2.0  gap 0.0   ← WORKS
+        //   Galaxy   0x1878…824F  convertToAssets 2.0  maxWithdraw 0.0  gap 2.0   ← cannot deliver
+        //   Gauntlet 0x43fC…92da  convertToAssets 2.0  maxWithdraw 0.0  gap 2.0   ← cannot deliver
+        // Galaxy and Gauntlet are the SAME Morpho-V2 implementation (identical 43,619-byte code) and
+        // report ZERO withdrawable against a position we genuinely hold — so this is NOT the
+        // "maxWithdraw(owner) is 0 because we own nothing" artifact; supplying capacity does NOT make
+        // it withdrawable in them at this fork block. `_deliverableCap` then subtracts their whole
+        // position and `_pull4626`'s real `withdraw` cannot hand WETH back, so no amount of
+        // view-mocking helps — only a contract that actually holds and returns WETH does.
+        //
+        // ⇒ HYBRID, to keep as much REAL as possible: the REAL Euler vault is used (its exit path is
+        //   genuinely exercised, share price ≠ 1 and all), and liquid stand-ins are injected ONLY for
+        //   the two vaults that structurally cannot deliver here. Revisit if the fork block moves to
+        //   one where the Morpho-V2 vaults hold idle liquidity — then all three can be real.
+        // ALL THREE REAL (standing rule: do not mock, use the real addresses).
+        address _eulerV    = 0xD8b27CF359b7D15710a5BE299AF6e7Bf904984C2;
+        address _galaxyV   = 0x1878805799273d10aE96a58201A6f5254CF9824F;
+        address _gauntletV = 0x43fCd85E8D9D003D515f886891B7C742AC9f92da;
         // ANGEL seed: hand the deployer (this) the live Foundation NFT so DeployLib's mid-deploy approve(Aux)
         // succeeds and Basket's constructor check passes — exactly as production, where the Safe owns ANGEL.
         // (A prank'd transfer is a CALL, not a CREATE, so it doesn't disturb the _n0 nonce alignment above.)
@@ -428,17 +452,15 @@ contract Alles is Test, Fixtures {
             morphoUsdcVault: morphoUsdcVault, morphoUsdtVault: morphoUsdtVault,
             morphoUsdsVault: morphoUsdsVault, sdai: address(SDAI), susde: address(SUSDE),
             aaveSpoke: aaveSpoke, aaveHub: aaveHub,
-            galaxyVault: _predGalaxy, eulerVault: _predEuler, gauntletVault: _predEuler,
+            galaxyVault: _galaxyV, eulerVault: _eulerV, gauntletVault: _gauntletV,
             nfpm: address(0),
             stables: STABLECOINS, vaults: VAULTS,
             hopOperator: address(0),
             spvCheckpointHeader: "", spvCheckpointHeight: 0, spvCheckpointWork: 0,
             deployRover: false, deployChannels: false
         }));
-        MockGalaxyVault _mockGalaxy = new MockGalaxyVault();
-        MockGalaxyVault _mockEuler = new MockGalaxyVault(); // second WETH 4626 curator
-        require(address(_mockGalaxy) == _predGalaxy && address(_mockEuler) == _predEuler,
-            "mock venue address prediction drifted (shared-deploy contract count changed)");
+        // (Nothing to create — all three venues are the real mainnet curator vaults. `Vault`'s ctor
+        //  rejects aliased venue slots, so the three addresses above must stay distinct.)
         V4 = Vogue(payable(A.v4));
         CORE = Core(A.core);
         AUX = Aux(payable(A.aux));
@@ -1205,33 +1227,57 @@ contract Alles is Test, Fixtures {
         assertLt(V4.ethfiBacked(User01), ethfiBefore, "ether.fi slice decremented");
     }
 
-    /// @notice ON-CHAIN vault-health (the slither/CRE-cron replacement). Uses
-    ///         `vm.etch` to make the live Galaxy vault read ILLIQUID (maxWithdraw
-    ///         30% < 50%) without disturbing balances, then proves the
-    ///         permissionless `pokeVaultHealth`: first poke BLOCKS + flags, a
-    ///         second poke past EVAC_DWELL EVACUATES the withdrawable WETH. This is
-    ///         the test that lets us retire the CRE vault-health cron.
+    /// @dev Make a REAL ERC-4626 curator vault report only 30% of the holder's position as
+    ///      withdrawable — illiquid but SOLVENT (`maxWithdraw < convertToAssets`), which is the
+    ///      condition `pokeVaultHealth` / the Strand-2 cap / the liquidity-race sims all probe.
+    ///
+    ///      REPLACES the old `vm.etch(IlliquidGalaxy)` trick. Etching only works when the stand-in
+    ///      is STORAGE-IDENTICAL to the target (the removed `IlliquidGalaxy` assumed balanceOf in
+    ///      slot 0 / totalSupply in slot 1 of a hand-written mock). The venues are now the REAL
+    ///      mainnet curator vaults, so an etch silently corrupts every balance read instead — which
+    ///      is exactly what it did: 4 tests degraded to bare `EvmError: Revert` and 2 more to
+    ///      "nothing moved" assertions. Mocking the ONE view under test is layout-independent, and
+    ///      `vm.clearMockedCalls()` is the thaw (no code to restore).
+    function _mockGalaxyIlliquid(address gv) internal {
+        uint solvent = IERC4626(gv).convertToAssets(IERC4626(gv).balanceOf(address(ETH)));
+        vm.mockCall(gv, abi.encodeWithSelector(IERC4626.maxWithdraw.selector, address(ETH)),
+            abi.encode(solvent * 30 / 100));
+    }
+
+    /// @notice ON-CHAIN vault-health (the slither/CRE-cron replacement). Makes the REAL Galaxy
+    ///         vault read ILLIQUID (maxWithdraw 30% < the 50% floor) and proves the permissionless
+    ///         `pokeVaultHealth`: first poke BLOCKS + flags, a second poke past EVAC_DWELL
+    ///         EVACUATES the withdrawable WETH. This is the test that lets us retire the CRE
+    ///         vault-health cron.
+    ///
+    ///         TECHNIQUE (changed 2026-07-26): `vm.mockCall` on `maxWithdraw`, NOT `vm.etch`.
+    ///         Etching a stand-in implementation only works if it is STORAGE-IDENTICAL to the
+    ///         target (the old `IlliquidGalaxy` relied on balanceOf in slot 0 and totalSupply in
+    ///         slot 1 of a hand-written mock). The venues are now the REAL curator vaults, whose
+    ///         layout is nothing like that, so an etch would silently corrupt every balance read.
+    ///         Mocking the single view that the health check consults is both layout-independent
+    ///         and strictly more surgical — it changes exactly the read under test and nothing else.
     function test_PokeVaultHealth_IlliquidGalaxy_BlocksThenEvacuates() public {
         address gv = ETH.GALAXY_VAULT();
         vm.prank(User01); V4.deposit{value: 20 ether}(0, User01, 3); // VENUE_GALAXY (explicit all-Galaxy)
         uint balBefore = IERC4626(gv).balanceOf(address(ETH));
-        assertGt(balBefore, 0, "Aux holds a real Galaxy WETH position");
+        assertGt(balBefore, 0, "the Vault holds a real Galaxy WETH position");
+        uint solvent = IERC4626(gv).convertToAssets(balBefore);
 
-        // vm.etch the illiquid impl: storage (balanceOf) preserved, read changes.
-        vm.etch(gv, type(IlliquidGalaxy).runtimeCode);
-        assertEq(IlliquidGalaxy(gv).balanceOf(address(ETH)), balBefore, "etch preserved balance");
-        assertLt(IlliquidGalaxy(gv).maxWithdraw(address(ETH)) * 10000 / balBefore, 5000,
+        // Report only 30% of the position as withdrawable — illiquid but SOLVENT.
+        _mockGalaxyIlliquid(gv);
+        assertLt(IERC4626(gv).maxWithdraw(address(ETH)) * 10000 / solvent, 5000,
             "on-chain read now sees illiquid (<50%)");
 
         // Poke 1 (permissionless): flags + blocks; NO evac (dwell not elapsed).
         AUX.pokeVaultHealth(gv);
         assertTrue(AUX.vaultBlocked(gv), "illiquid vault blocked on first poke");
-        assertEq(IlliquidGalaxy(gv).balanceOf(address(ETH)), balBefore, "no evac before dwell");
+        assertEq(IERC4626(gv).balanceOf(address(ETH)), balBefore, "no evac before dwell");
 
         // Poke 2 past EVAC_DWELL: evacuates the withdrawable WETH out of the vault.
         vm.warp(block.timestamp + 31 minutes);
         AUX.pokeVaultHealth(gv);
-        assertLt(IlliquidGalaxy(gv).balanceOf(address(ETH)), balBefore,
+        assertLt(IERC4626(gv).balanceOf(address(ETH)), balBefore,
             "second poke past dwell evacuated the withdrawable WETH out of the illiquid vault");
     }
 
@@ -3567,8 +3613,7 @@ contract Alles is Test, Fixtures {
     function test_RunSim_B_LiquidityRace_SimultaneousRush() public {
         (address lp1, address lp2) = _stageRunSim(8 ether);
         address gv = ETH.GALAXY_VAULT();
-        bytes memory galaxyCode = gv.code; // for the thaw
-        vm.etch(gv, type(IlliquidGalaxy).runtimeCode);
+        _mockGalaxyIlliquid(gv);   // 30%-liquid; the THAW below just un-mocks it
         _freezeUsdcLegs();
 
         // The rush - same block. Nothing may revert (liveness). Each LP's
@@ -3608,7 +3653,7 @@ contract Alles is Test, Fixtures {
             "redeemer2: delivered+retained covers face");
 
         // THAW -> the deferral REVERSES: late movers retry and recover.
-        vm.etch(gv, galaxyCode);
+        // (Un-mocking restores the vault's REAL maxWithdraw — no code to put back.)
         vm.clearMockedCalls();
         if (rem2 > 0) {
             uint b = lp2.balance;
@@ -3630,8 +3675,7 @@ contract Alles is Test, Fixtures {
     function test_RunSim_B_LiquidityRace_SequentialRush() public {
         (address lp1, address lp2) = _stageRunSim(8 ether);
         address gv = ETH.GALAXY_VAULT();
-        bytes memory galaxyCode = gv.code;
-        vm.etch(gv, type(IlliquidGalaxy).runtimeCode);
+        _mockGalaxyIlliquid(gv);   // 30%-liquid; the THAW below just un-mocks it
         _freezeUsdcLegs();
 
         // Turn-taking with real blocks between exits. Each LP's before-
@@ -3671,7 +3715,7 @@ contract Alles is Test, Fixtures {
             "late redeemer: delivered+retained covers face");
 
         // THAW -> full recovery for the last in line.
-        vm.etch(gv, galaxyCode);
+        // (Un-mocking restores the vault's REAL maxWithdraw — no code to put back.)
         vm.clearMockedCalls();
         if (rem2 > 0) {
             uint b = lp2.balance;
