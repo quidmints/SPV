@@ -79,8 +79,15 @@ library VaultLib {
         try IERC20(vault).balanceOf(address(this)) returns (uint shares) {
             if (shares == 0) return 0;
             if (IAuxView_V(aux).vaultBlocked(vault)) {
-                try IERC4626(vault).maxWithdraw(address(this)) returns (uint m) { return m; }
-                catch { return 0; }   // throwing venue ⇒ value at 0 (see note above)
+                // ONE definition (2026-07-26). This was the LAST raw `maxWithdraw` reader and the most
+                // dangerous one left: it is the SOLVENCY read (feeds vogueETH / get_deposits /
+                // tryCheckBacking), so on a Morpho-V2 venue — whose max-view reports 0 against a fully
+                // recoverable position — blocking Galaxy or Gauntlet would have written their ENTIRE
+                // backing to zero in one call and broken `D >= S + L` on a healthy protocol. Since the
+                // poke that sets `blocked` now uses this same definition, a V2 venue can no longer be
+                // blocked off that false signal either; the two fixes have to agree or the write-down
+                // contradicts the trigger.
+                return _withdrawableOf(vault, address(this));
             }
             try IERC4626(vault).convertToAssets(shares) returns (uint v) { return v; } catch { return 0; }
         } catch { return 0; }
