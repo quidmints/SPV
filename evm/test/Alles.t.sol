@@ -1300,12 +1300,17 @@ contract Alles is Test, Fixtures {
 
     /// @notice ETH venue 2 = AAVE-v4. The plumbing (`WETH_RESERVE_ID`,
     ///         `supplyAaveEth`, `aaveEthBalance`, the AAVE secondary withdraw
-    ///         source, the `aaveBacked` slice) is wired off the AAVE-v4 spoke. On
-    ///         THIS fork the configured spoke (0x94e7…, GHO/USDG) doesn't list
-    ///         WETH, so `WETH_RESERVE_ID == 0` -> venue 2 is inert and deposits
-    ///         gracefully fall back to Galaxy (no strand, no mis-attribution).
-    ///         If the WETH-listing AAVE-v4 spoke is wired at deploy, the LIVE
-    ///         branch below exercises the real supply/attribution path.
+    ///         source, the `aaveBacked` slice) is wired off the AAVE-v4 spoke.
+    ///         **CORRECTED 2026-07-26 — the claim that used to sit here was FALSE.** It said this
+    ///         spoke (0x94e7..., GHO/USDG) "doesn't list WETH, so WETH_RESERVE_ID == 0 -> venue 2
+    ///         is inert and deposits gracefully fall back to Galaxy". Chain-verified: WETH **IS**
+    ///         listed -- it is asset **0**, hence reserve **0**. `getAssetId` REVERTS for a truly
+    ///         unlisted asset (checked with SHIB + a dead address), so a 0 return means "index 0",
+    ///         not "absent" -- and `AaveV4Venue` supplies/borrows against that very reserve in a
+    ///         PASSING fork test. The old zero-id check was a SENTINEL COLLISION that silently
+    ///         disabled a live venue; the Galaxy sweep hid it until that sweep was removed.
+    ///         Wiring is now keyed off `AAVE_SPOKE`, so venue 2 is LIVE and the real
+    ///         supply/attribution path below is the one that executes.
     /// @notice Rover->Aux integration: fund the protocol-owned weETH/WETH LP via
     ///         supplyEtherFiToRover (weETH leg minted by the adapter), then an
     ///         ether.fi offramp fills from Rover (rung-0) - fee to our position.

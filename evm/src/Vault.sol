@@ -112,7 +112,9 @@ contract Vault is Ownable, ReentrancyGuard {
 
 
     address public immutable AAVE_SPOKE;
-    uint256 public immutable WETH_RESERVE_ID; // AAVE-v4 WETH (ETH venue 2); 0 = disabled
+    /// @notice AAVE-v4 WETH reserve id (ETH venue 2). **0 IS A VALID RESERVE** (mainnet WETH is
+    ///         asset 0 → reserve 0), so this is NOT a wiring flag — test `AAVE_SPOKE != 0` instead.
+    uint256 public immutable WETH_RESERVE_ID;
 
     /// @notice WETH yield vault (Galaxy Morpho-V2 in production = 0x1878805799273d10aE96a58201A6f5254CF9824F).
     /// Injected via constructor so tests can swap in a liquid mock when
@@ -269,15 +271,27 @@ contract Vault is Ownable, ReentrancyGuard {
         GALAXY_VAULT = _galaxyVault;
         EULER_VAULT = _eulerVault;
         GAUNTLET_VAULT = _gauntletVault;
-        AAVE_SPOKE = _aaveSpoke;
+        // NB: AAVE_SPOKE is assigned INSIDE the try below, not here — it doubles as the
+        // "venue 2 is wired" flag, so it must stay 0 unless WETH actually resolved.
 
         if (_aaveSpoke != address(0) && _aaveHub != address(0)) {
-            // AAVE-v4 WETH (ETH venue 2). Optional — 0 if WETH isn't listed on
-            // this spoke (then ETH-venue 2 stays disabled). No revert.
-            WETH_RESERVE_ID = IAaveV4Spoke(_aaveSpoke).getReserveId(
-                _aaveHub, IAaveV4Hub(_aaveHub).getAssetId(address(WETH)));
-            if (WETH_RESERVE_ID != 0)
+            // AAVE-v4 WETH (ETH venue 2). Optional — unwired if WETH isn't listed.
+            //
+            // WIRING IS KEYED OFF `AAVE_SPOKE`, *NOT* off a nonzero reserve id. Reserve id 0 is a
+            // LEGITIMATE reserve: on live mainnet WETH is asset 0 → reserve 0 (chain-verified, and
+            // `AaveV4Venue` supplies/borrows against exactly that reserve in a passing fork test).
+            // The former `WETH_RESERVE_ID != 0` test therefore read a perfectly-wired venue as
+            // "absent" and silently disabled ETH venue 2 — masked for a long time by the old
+            // fall-back-to-Galaxy sweep, and fatal once that sweep was removed.
+            //
+            // `getAssetId` REVERTS for an unlisted asset (it does NOT return 0), so the try/catch —
+            // not a zero-check — is the real listedness probe. On revert we leave AAVE_SPOKE at 0
+            // and venue 2 stays unwired, with no revert propagated to the deploy.
+            try IAaveV4Hub(_aaveHub).getAssetId(address(WETH)) returns (uint256 assetId) {
+                WETH_RESERVE_ID = IAaveV4Spoke(_aaveSpoke).getReserveId(_aaveHub, assetId);
+                AAVE_SPOKE = _aaveSpoke;
                 IERC20(address(WETH)).approve(_aaveSpoke, type(uint).max);
+            } catch {}
         }
 
         // One-time unlimited WETH→Galaxy approval. WETH9 returns bool on approve

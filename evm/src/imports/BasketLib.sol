@@ -1116,7 +1116,8 @@ library BasketLib {
         // handle it here. We move only `maxWithdraw` — the on-chain-measurable
         // withdrawable amount (no fuzzy solvency oracle) — and any frozen remainder
         // stays in the blocked venue, written down in vogueETH (valued at
-        // maxWithdraw). If AAVE-WETH isn't wired (WETH_RESERVE_ID==0) the pulled
+        // maxWithdraw). If AAVE-WETH isn't wired (AAVE_SPOKE==0 — NOT a zero reserve
+        // id, which is a VALID reserve: mainnet WETH is asset 0) the pulled
         // WETH simply rests at Aux — still OUT of the failing venue.
         if (vault == cfg.galaxyVault
             || (cfg.eulerVault != address(0) && vault == cfg.eulerVault)

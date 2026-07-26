@@ -79,8 +79,10 @@ library VaultLib {
     }
 
     /// @dev WETH currently supplied to AAVE-v4 (yield-accrued). 0 if unwired.
+    ///      Gate on `aaveSpoke`, NOT on `wethReserveId`: reserve 0 is a legitimate reserve
+    ///      (mainnet WETH == asset 0 == reserve 0), so a zero-id check disables a live venue.
     function _aaveBal(EthCfg memory c) internal view returns (uint) {
-        if (c.wethReserveId == 0) return 0;
+        if (c.aaveSpoke == address(0)) return 0;
         return IAaveV4Spoke_V(c.aaveSpoke).getUserSuppliedAssets(c.wethReserveId, address(this));
     }
 
@@ -173,7 +175,7 @@ library VaultLib {
                 return amount;
             } catch {}
         }
-        if (c.wethReserveId != 0)
+        if (c.aaveSpoke != address(0))   // reserve 0 is valid — spoke is the wiring flag
             IAaveV4Spoke_V(c.aaveSpoke).supply(c.wethReserveId, amount, address(this));
         return amount;
     }
@@ -214,7 +216,7 @@ library VaultLib {
             return amount;
         }
         if (kind == 2) {
-            if (c.wethReserveId == 0) return 0;
+            if (c.aaveSpoke == address(0)) return 0;   // reserve 0 is valid — see _aaveBal
             IERC20(c.weth).transferFrom(from, address(this), amount);
             IAaveV4Spoke_V(c.aaveSpoke).supply(c.wethReserveId, amount, address(this));
             return amount;
@@ -275,7 +277,7 @@ library VaultLib {
             _pull4626(c, c.gauntlet, amount);
             wethBal = IERC20(c.weth).balanceOf(address(this));
             // Still short → pull from the AAVE-v4 WETH venue (ETH venue 2).
-            if (wethBal < amount && c.wethReserveId != 0) {
+            if (wethBal < amount && c.aaveSpoke != address(0)) {   // reserve 0 is valid
                 uint need = amount - wethBal;
                 uint aaveBalance = IAaveV4Spoke_V(c.aaveSpoke)
                     .getUserSuppliedAssets(c.wethReserveId, address(this));
@@ -311,7 +313,7 @@ library VaultLib {
         if (maxW == 0) return; // frozen → blocked; vogueETH writes it down
         try IERC4626(vault).withdraw(maxW, address(this), address(this))
             returns (uint got) {
-            if (got > 0 && c.wethReserveId != 0)
+            if (got > 0 && c.aaveSpoke != address(0))   // reserve 0 is valid — see _aaveBal
                 IAaveV4Spoke_V(c.aaveSpoke).supply(c.wethReserveId, got, address(this));
         } catch { /* froze mid-pull: blocked + written down */ }
     }
