@@ -584,7 +584,7 @@ contract Vault is Ownable, ReentrancyGuard {
         // `maxWithdraw` for everything else. It is itself GUARDED, so a venue whose view reverts
         // (Euler's real EVault does — `EVC.getControllers` inside `maxWithdraw`) reads as 0 liquid
         // rather than making the poke revert; 0 is the conservative side here too.
-        liquid = VaultLib._withdrawableOf(vault);
+        liquid = VaultLib._withdrawableOf(vault, address(this));
     }
 
     // ════════════════════════════════════════════════════════════════

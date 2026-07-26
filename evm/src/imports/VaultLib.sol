@@ -163,7 +163,7 @@ library VaultLib {
         // `maxWithdraw` read it as 0 withdrawable and haircut the ENTIRE position, which is what made
         // `deliverableETH` return 0 against 16 solvent ETH in Galaxy. Still fully guarded: a venue whose
         // view reverts is treated as 0 withdrawable = the CONSERVATIVE side (defers, never over-promises).
-        uint withdrawable = _withdrawableOf(vault);
+        uint withdrawable = _withdrawableOf(vault, address(this));
         if (solvent > withdrawable) {
             uint undeliverable = solvent - withdrawable;
             return total > undeliverable ? total - undeliverable : 0;
@@ -278,17 +278,21 @@ library VaultLib {
     ///         `maxWithdraw` equal to the full position — and keeps the conservative read. Both branches
     ///         are try/catch'd: a venue whose view REVERTS (Euler's EVault calls `EVC.getControllers`
     ///         inside `maxWithdraw`; fork-traced) must value at 0 rather than brick every ETH withdraw.
-    function _withdrawableOf(address vault) internal view returns (uint) {
+    ///         `holder` is parameterised so the STABLE side (`BasketLib`, whose holder is `Aux`) shares
+    ///         this ONE definition rather than keeping a second copy. 6 of our 8 registered stable
+    ///         vaults are Morpho-V2 — measured, holding ~124M of ~126M total stable TVL — so the stable
+    ///         side had the same understatement, and there it feeds the REDEMPTION haircut.
+    function _withdrawableOf(address vault, address holder) internal view returns (uint) {
         try IMorphoV2_V(vault).liquidityAdapter() returns (address adapter) {
             if (adapter != address(0)) {
-                try IERC20(vault).balanceOf(address(this)) returns (uint shares) {
+                try IERC20(vault).balanceOf(holder) returns (uint shares) {
                     if (shares == 0) return 0;
                     try IERC4626(vault).convertToAssets(shares) returns (uint v) { return v; }
                     catch { return 0; }
                 } catch { return 0; }
             }
         } catch {}
-        try IERC4626(vault).maxWithdraw(address(this)) returns (uint m) { return m; } catch { return 0; }
+        try IERC4626(vault).maxWithdraw(holder) returns (uint m) { return m; } catch { return 0; }
     }
 
     function _pull4626(EthCfg memory c, address vault, uint amount) internal {
@@ -296,7 +300,7 @@ library VaultLib {
         uint bal = IERC20(c.weth).balanceOf(address(this));
         if (bal >= amount) return;
         uint need = amount - bal;
-        uint maxOut = _withdrawableOf(vault);
+        uint maxOut = _withdrawableOf(vault, address(this));
         uint pull = need > maxOut ? maxOut : need;
         if (pull > 0) {
             // OPTIMISTIC-THEN-FALL-BACK. For a Morpho-V2 venue `pull` is the REPORTED position, which
@@ -383,7 +387,7 @@ library VaultLib {
         // Galaxy and Gauntlet both sit at 0 idle by policy, so the old bare `maxWithdraw` read returned
         // early and made this emergency rescue a NO-OP on 2 of our 3 ETH venues. Guarded, so a failing
         // venue's own reverting view is not what prevents its rescue.
-        uint maxW = _withdrawableOf(vault);
+        uint maxW = _withdrawableOf(vault, address(this));
         if (maxW == 0) return; // genuinely frozen → blocked; vogueETH writes it down
         try IERC4626(vault).withdraw(maxW, address(this), address(this))
             returns (uint got) {
