@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {LevMath} from "./libraries/LevMath.sol";
 import {ILevVenue, IERC20Min} from "./imports/ILevVenue.sol";
+import {IMorphoFlash} from "./imports/Interfaces.sol";
 
 interface IAuxTWAP_BView { function getTWAPforAsset(address a, uint32 p) external view returns (uint); }  // USD18/BTC — Aux is public view
 interface ILevSyncHookB  {
@@ -12,7 +13,7 @@ interface ILevSyncHookB  {
     function reseatEpoch() external view returns (uint64);                     // (B) bumps when BTC band ticks recenter
 }
 interface ILevVenueCollB { function COLLATERAL() external view returns (address); }   // branch open on the venue's collateral token
-interface IMorphoFlashB   { function flashLoan(address token, uint256 assets, bytes calldata data) external; } // zero-fee flash (WBTC flash-repay-first de-lever)
+ // zero-fee flash (WBTC flash-repay-first de-lever)
 /// SAME-BTC leverage: the vBTC token IS the Vault, which exposes/un-exposes the LP's own channel band
 /// BTC as levered collateral (no separate mint/transferFrom roundtrip). See Vault.exposeBtcToLev.
 interface IVaultExposeB {
@@ -484,7 +485,7 @@ contract BtcLevManager {
     ///      WBTC → SOR→stable → returns the flash + surplus. `repayUsd` (= deltaUsd) is already ≤ debt.
     function _flashDeleverWbtc(ILevVenue venue, address lp, address stable, uint repayUsd, uint minOut) internal {
         if (repayUsd == 0) return;
-        IMorphoFlashB(flashProvider).flashLoan(stable, LevMath._fromUsd(stable, repayUsd),
+        IMorphoFlash(flashProvider).flashLoan(stable, LevMath._fromUsd(stable, repayUsd),
             abi.encode(lp, address(venue), stable, minOut));
     }
 

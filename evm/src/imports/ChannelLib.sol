@@ -13,6 +13,8 @@ import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {BasketLib} from "./BasketLib.sol";
 import {FeeLib} from "./FeeLib.sol";
+import {IAaveV4Spoke} from "./Interfaces.sol";
+import {IAaveV4Hub} from "./Interfaces.sol";
 
 /// @notice Aux self-surface that depositBody calls back into (delegatecall →
 ///         msg.sender == address(this) == Aux on every self-call). The public
@@ -38,17 +40,6 @@ interface IAuxDep {
 interface IQuidTarget { function target() external view returns (uint); }
 
 /// @notice Aave-v4 reserve-id resolution + supply surface (subset of Aux.IAaveV4Spoke).
-interface IAaveV4SpokeCL {
-    function getReserveId(address hub, uint256 assetId) external view returns (uint256);
-    function supply(uint256 reserveId, uint256 amount, address onBehalfOf)
-        external returns (uint256, uint256);
-    function withdraw(uint256 reserveId, uint256 amount, address onBehalfOf)
-        external returns (uint256, uint256);
-    function getUserSuppliedAssets(uint256 reserveId, address user) external view returns (uint256);
-}
-interface IAaveV4HubCL {
-    function getAssetId(address underlying) external view returns (uint256);
-}
 interface IEthVenueCL {
     function supplyFromAux(uint amount) external returns (uint);
     function withdrawForAux(uint amount, address to) external returns (uint);
@@ -215,7 +206,7 @@ library ChannelLib {
         if (token == cfg.gho || token == cfg.usdg) {
             if (cfg.aaveSpoke == address(0)) revert GHOIsAaveWired();
             uint256 reserveId = token == cfg.gho ? cfg.ghoReserveId : cfg.usdgReserveId;
-            (, deposited) = IAaveV4SpokeCL(cfg.aaveSpoke).supply(
+            (, deposited) = IAaveV4Spoke(cfg.aaveSpoke).supply(
                 reserveId, amount, address(this));
             aux.refreshHoldingsSelf(token);
             return deposited;
@@ -248,7 +239,7 @@ library ChannelLib {
         }
         if (vault == address(0)) revert VaultUnwired();
         if (vault == cfg.aaveSpoke) {
-            (, deposited) = IAaveV4SpokeCL(cfg.aaveSpoke).supply(
+            (, deposited) = IAaveV4Spoke(cfg.aaveSpoke).supply(
                 aux.reserveIdOf(token), amount, address(this));
         } else {
             deposited = IERC4626(vault).convertToAssets(
@@ -278,7 +269,7 @@ library ChannelLib {
         if (token == cfg.gho || token == cfg.usdg) {
             if (cfg.aaveSpoke == address(0)) return 0;
             uint256 reserveId = token == cfg.gho ? cfg.ghoReserveId : cfg.usdgReserveId;
-            uint max = IAaveV4SpokeCL(cfg.aaveSpoke).getUserSuppliedAssets(
+            uint max = IAaveV4Spoke(cfg.aaveSpoke).getUserSuppliedAssets(
                 reserveId, address(this));
             amount = amount > 0 ? Math.min(amount, max) : max;
             if (amount == 0) return 0;
@@ -321,7 +312,7 @@ library ChannelLib {
     function aaveWithdrawTo(address spoke, uint256 reserveId, address token, uint amount, address to)
         external returns (uint drawn) {
         if (spoke == address(0) || amount == 0 || reserveId == 0) return 0;
-        (, drawn) = IAaveV4SpokeCL(spoke).withdraw(reserveId, amount, address(this));
+        (, drawn) = IAaveV4Spoke(spoke).withdraw(reserveId, amount, address(this));
         if (to != address(this) && drawn > 0) IERC20OZ(token).safeTransfer(to, drawn);
     }
 
@@ -438,8 +429,8 @@ library ChannelLib {
         if (vault == cfg.aaveSpoke) {
             for (uint j; j < set.length; j++)
                 if (set[j] == cfg.aaveSpoke) revert VaultAlreadySet();
-            uint256 assetId = IAaveV4HubCL(cfg.aaveHub).getAssetId(stable);
-            uint256 rid = IAaveV4SpokeCL(cfg.aaveSpoke).getReserveId(cfg.aaveHub, assetId);
+            uint256 assetId = IAaveV4Hub(cfg.aaveHub).getAssetId(stable);
+            uint256 rid = IAaveV4Spoke(cfg.aaveSpoke).getReserveId(cfg.aaveHub, assetId);
             if (rid == 0) revert GHONotOnAAVE();
             aaveReserveId[stable] = rid;
             stable.call(abi.encodeWithSelector(0x095ea7b3,

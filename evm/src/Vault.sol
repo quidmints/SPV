@@ -19,6 +19,11 @@ import {IUniswapV3Pool} from "./imports/v3/IUniswapV3Pool.sol";
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
+import {IAaveV4Spoke} from "./imports/Interfaces.sol";
+import {IWeETH} from "./imports/Interfaces.sol";
+import {IRover} from "./imports/Interfaces.sol";
+import {IDepositAdapter} from "./imports/Interfaces.sol";
+import {IAaveV4Hub} from "./imports/Interfaces.sol";
 
 // ════════════════════════════════════════════════════════════════════════
 //  Vault — the unified ETH-venue custody + BTC LP/hop side, merged from the
@@ -41,14 +46,6 @@ import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 // ════════════════════════════════════════════════════════════════════════
 
 /// AAVE-v4 GHO spoke. Vault self-supplies WETH (ETH venue 2).
-interface IAaveV4Spoke {
-    function supply(uint256 reserveId, uint256 amount, address onBehalfOf)
-        external returns (uint256, uint256);
-    function withdraw(uint256 reserveId, uint256 amount, address onBehalfOf)
-        external returns (uint256, uint256);
-    function getReserveId(address hub, uint256 assetId) external view returns (uint256);
-    function getUserSuppliedAssets(uint256 reserveId, address user) external view returns (uint256);
-}
 
 /// Canonical Permit2's allowance-grant surface — the ONLY part of it we need. Euler's `EVault.deposit`
 /// pulls via `Permit2.transferFrom`, so the depositor must both approve Permit2 on the token AND grant
@@ -58,31 +55,13 @@ interface IPermit2Approve {
     function approve(address token, address spender, uint160 amount, uint48 expiration) external;
 }
 
-interface IAaveV4Hub {
-    function getAssetId(address underlying) external view returns (uint256);
-}
 
 /// ether.fi venue (ETH-side, depositor-chosen). Stake WETH → weETH (restaking
 /// yield); value weETH in ETH via getEETHByWeETH; instant-redeem (0.3%) as the
 /// deterministic exit (see docs/ETH-MULTI-VENUE.md).
-interface IDepositAdapter {
-    function depositWETHForWeETH(uint _amount, address _referral) external;
-    function weETH() external view returns (address);
-}
-interface IWeETH {
-    function getEETHByWeETH(uint _weETHAmount) external view returns (uint);
-    function getWeETHByeETH(uint _eETHAmount) external view returns (uint);
-    function unwrap(uint _weETHAmount) external returns (uint); // weETH → eETH
-}
 // Protocol-owned weETH/WETH v3 LP (Rover): deposit funds it (mints the position,
 // weETH leg via the adapter), take pulls WETH back for the offramp (fee captured
 // on our own position). See docs/ETHERFI.md.
-interface IRover {
-    function deposit(uint amount) external payable;
-    function take(uint amount) external returns (uint wethAmount);
-    function valueWeth() external view returns (uint); // WETH-equiv of the Rover's holdings
-    function setLevManager(address lm) external;       // pin the LevManager as an allowed Rover.absorb caller
-}
 
 /// Aux read surface the Vault needs: WBTC handle (for the shared arbBody
 /// signature) and the Galaxy block flag (vault-health state stays Aux-owned).

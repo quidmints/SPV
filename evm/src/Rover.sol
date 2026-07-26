@@ -15,10 +15,10 @@ import {SafeTransferLib} from "solmate/src/utils/SafeTransferLib.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 import {IV3SwapRouter as ISwapRouter} from "./imports/v3/IV3SwapRouter.sol";
 import {INonfungiblePositionManager} from "./imports/v3/INonfungiblePositionManager.sol";
+import {IDepositAdapter} from "./imports/Interfaces.sol";
 
 // ether.fi: mint the weETH leg at the FAIR protocol rate (never swap WETH→weETH
 // on the thin pool side). `getEETHByWeETH` is the unmanipulable fair-value anchor.
-interface IDepositAdapter { function depositWETHForWeETH(uint amount, address referral) external; }
 interface IWeETHRate { function getEETHByWeETH(uint w) external view returns (uint); }
 // Minimal view over INonfungiblePositionManager.positions: declares only the
 // 8-value prefix (same selector). Decoding the full 12-value tuple is 1 slot too

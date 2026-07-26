@@ -4,21 +4,16 @@ pragma solidity ^0.8.28;
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {SwapLib} from "./SwapLib.sol";
+import {IAaveV4Spoke} from "./Interfaces.sol";
+import {IWeETH} from "./Interfaces.sol";
+import {IRover} from "./Interfaces.sol";
+import {IDepositAdapter} from "./Interfaces.sol";
 
 // ── Minimal external surfaces the ETH-venue ladder touches (the library can't
 //    read Vault's immutables, so every handle is passed in via EthCfg). Mirror
 //    the interfaces Vault declares; same signatures. ──────────────────────────
-interface IAaveV4Spoke_V {
-    function supply(uint256 reserveId, uint256 amount, address onBehalfOf)
-        external returns (uint256, uint256);
-    function withdraw(uint256 reserveId, uint256 amount, address onBehalfOf)
-        external returns (uint256, uint256);
-    function getUserSuppliedAssets(uint256 reserveId, address user) external view returns (uint256);
-}
-interface IWeETH_V { function getEETHByWeETH(uint _weETHAmount) external view returns (uint); }
-interface IRover_V { function take(uint amount) external returns (uint wethAmount); function valueWeth() external view returns (uint); }
 interface IRoverDep_V { function deposit(uint amount) external payable; }                       // supply-leg: fund the Rover
-interface IDepositAdapter_V { function depositWETHForWeETH(uint _amount, address _referral) external; } // ether.fi stake
+ // ether.fi stake
 interface IAuxView_V { function vaultBlocked(address vault) external view returns (bool); }
 /// Morpho-V2 MARKER (NOT MetaMorpho v1.1, which has a withdrawQueue instead). A V2 vault keeps its
 /// assets in ADAPTERS and auto-allocates on deposit, so its ERC-4626 max-views track IDLE rather than
@@ -96,7 +91,7 @@ library VaultLib {
     ///      (mainnet WETH == asset 0 == reserve 0), so a zero-id check disables a live venue.
     function _aaveBal(EthCfg memory c) internal view returns (uint) {
         if (c.aaveSpoke == address(0)) return 0;
-        return IAaveV4Spoke_V(c.aaveSpoke).getUserSuppliedAssets(c.wethReserveId, address(this));
+        return IAaveV4Spoke(c.aaveSpoke).getUserSuppliedAssets(c.wethReserveId, address(this));
     }
 
     /// @notice Public AAVE-WETH balance read (Vault.aaveEthBalance forwards here).
@@ -122,7 +117,7 @@ library VaultLib {
         for (uint i; i < 3; ++i) total += _venue4626Value(venues[i], c.aux);
         if (c.weeth != address(0)) {
             uint w = IERC20(c.weeth).balanceOf(address(this));
-            if (w > 0) total += IWeETH_V(c.weeth).getEETHByWeETH(w);
+            if (w > 0) total += IWeETH(c.weeth).getEETHByWeETH(w);
         }
         total += _aaveBal(c);
         // Idle WETH is still ETH backing — count it at BOTH the Vault (venue
@@ -138,7 +133,7 @@ library VaultLib {
         // Rover (protocol-owned weETH/WETH LP) — WETH-equiv value; try/catch so a
         // broken Rover defers to 0 (conservative).
         if (c.rover != address(0)) {
-            try IRover_V(c.rover).valueWeth() returns (uint rv) { total += rv; } catch {}
+            try IRover(c.rover).valueWeth() returns (uint rv) { total += rv; } catch {}
         }
         // IL-protect: count the leveraged book's net-equity (gross collateral - debt), not gross. The buffer
         // half is debt-funded (offset by the LP's borrow), so counting gross would overstate solvency by the debt
@@ -206,7 +201,7 @@ library VaultLib {
             } catch {}
         }
         if (c.aaveSpoke != address(0))   // reserve 0 is valid — spoke is the wiring flag
-            IAaveV4Spoke_V(c.aaveSpoke).supply(c.wethReserveId, amount, address(this));
+            IAaveV4Spoke(c.aaveSpoke).supply(c.wethReserveId, amount, address(this));
         return amount;
     }
 
@@ -242,13 +237,13 @@ library VaultLib {
         if (kind == 1) {
             if (ETHERFI_ADAPTER_VL == address(0)) return 0;
             IERC20(c.weth).transferFrom(from, address(this), amount);
-            IDepositAdapter_V(ETHERFI_ADAPTER_VL).depositWETHForWeETH(amount, address(this));
+            IDepositAdapter(ETHERFI_ADAPTER_VL).depositWETHForWeETH(amount, address(this));
             return amount;
         }
         if (kind == 2) {
             if (c.aaveSpoke == address(0)) return 0;   // reserve 0 is valid — see _aaveBal
             IERC20(c.weth).transferFrom(from, address(this), amount);
-            IAaveV4Spoke_V(c.aaveSpoke).supply(c.wethReserveId, amount, address(this));
+            IAaveV4Spoke(c.aaveSpoke).supply(c.wethReserveId, amount, address(this));
             return amount;
         }
         if (kind == 3) {
@@ -349,18 +344,18 @@ library VaultLib {
             // Still short → pull from the AAVE-v4 WETH venue (ETH venue 2).
             if (wethBal < amount && c.aaveSpoke != address(0)) {   // reserve 0 is valid
                 uint need = amount - wethBal;
-                uint aaveBalance = IAaveV4Spoke_V(c.aaveSpoke)
+                uint aaveBalance = IAaveV4Spoke(c.aaveSpoke)
                     .getUserSuppliedAssets(c.wethReserveId, address(this));
                 uint apull = need > aaveBalance ? aaveBalance : need;
                 if (apull > 0) {
-                    try IAaveV4Spoke_V(c.aaveSpoke).withdraw(
+                    try IAaveV4Spoke(c.aaveSpoke).withdraw(
                         c.wethReserveId, apull, address(this)) {} catch {}
                 }
                 wethBal = IERC20(c.weth).balanceOf(address(this));
             }
             // Last source → unwind the protocol-owned Rover. Non-blocking.
             if (wethBal < amount && c.rover != address(0)) {
-                try IRover_V(c.rover).take(amount - wethBal) {} catch {}
+                try IRover(c.rover).take(amount - wethBal) {} catch {}
                 wethBal = IERC20(c.weth).balanceOf(address(this));
             }
         }
@@ -393,7 +388,7 @@ library VaultLib {
         try IERC4626(vault).withdraw(maxW, address(this), address(this))
             returns (uint got) {
             if (got > 0 && c.aaveSpoke != address(0))   // reserve 0 is valid — see _aaveBal
-                IAaveV4Spoke_V(c.aaveSpoke).supply(c.wethReserveId, got, address(this));
+                IAaveV4Spoke(c.aaveSpoke).supply(c.wethReserveId, got, address(this));
         } catch { /* froze mid-pull: blocked + written down */ }
     }
 

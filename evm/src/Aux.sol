@@ -24,25 +24,12 @@ import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 import {SafeCallback} from "v4-periphery/src/base/SafeCallback.sol";
+import {IAaveV4Spoke} from "./imports/Interfaces.sol";
+import {IAaveV4Hub} from "./imports/Interfaces.sol";
 
 
 /// AAVE-v4 GHO spoke. Aux self-supplies via the self-allow trampoline.
-interface IAaveV4Spoke {
-    function supply(uint256 reserveId, uint256 amount, address onBehalfOf)
-        external returns (uint256, uint256);
-    function withdraw(uint256 reserveId, uint256 amount, address onBehalfOf)
-        external returns (uint256, uint256);
-    function getReserveId(address hub, uint256 assetId) external view returns (uint256);
-    function getUserSuppliedAssets(uint256 reserveId, address user) external view returns (uint256);
-    /// Scaled (principal-basis) supply shares — the Aave-v4 analog of a 4626's
-    /// share balance. `suppliedAssets/suppliedShares` is the reserve's liquidity
-    /// index = its cumulative yield factor (same role as 4626 share price).
-    function getUserSuppliedShares(uint256 reserveId, address user) external view returns (uint256);
-}
 
-interface IAaveV4Hub {
-    function getAssetId(address underlying) external view returns (uint256);
-}
 
 /// Read-only view into BTCChannels for swap-out recipient resolution.
 interface IBTCChannels {

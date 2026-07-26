@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {FixedPointMathLib} from "solady/src/utils/FixedPointMathLib.sol";
 import {ILevVenue, IERC20Min, IWETH9} from "../imports/ILevVenue.sol";
+import {IMorphoFlash} from "../imports/Interfaces.sol";
 
 /// @dev Token/SOR surfaces the leg mechanics touch. IERC20Min + IWETH9 come from ILevVenue (shared).
 /// ONE Aux surface for everything LevMath touches on it (redeem / stables / TWAP / SOR both directions / venue /
@@ -35,7 +36,6 @@ interface ILevMintVenueM {
 }
 /// Morpho Blue zero-fee flash surface — the ONLY flash source (see LevManager.IMorphoFlash). Mirrored here so the
 /// moved de-lever bodies (`deleverFlashBody`) can invoke it from the manager's delegatecall context.
-interface IMorphoFlash { function flashLoan(address token, uint256 assets, bytes calldata data) external; }
 /// The band sync-hook surface the sold-fraction target + reseat reads. Mirrors the managers'
 /// ILevSyncHook/ILevSyncHookB — a delegatecall'd library can't read their immutables, so the manager passes the
 /// hook address in. All view: the Vogue impls are all view (soldFractionWad/bandSqrtP are

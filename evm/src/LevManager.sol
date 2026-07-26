@@ -3,6 +3,8 @@ pragma solidity ^0.8.28;
 
 import {LevMath} from "./libraries/LevMath.sol";
 import {ILevVenue, IERC20Min, IWETH9} from "./imports/ILevVenue.sol";
+import {IWeETH} from "./imports/Interfaces.sol";
+import {IMorphoFlash} from "./imports/Interfaces.sol";
 
 interface ISwapAux { // the real Aux SOR surface (imports/ISwap.sol)
     function swap(address token, address asset, bool forVolatile, uint256 amount, uint256 minOut)
@@ -20,9 +22,6 @@ interface ISwapAux { // the real Aux SOR surface (imports/ISwap.sol)
     function ethVenue() external view returns (address);
 }
 
-interface IWeETH { // ether.fi weETH rate — view valuation, no swap
-    function getEETHByWeETH(uint256 weethAmount) external view returns (uint256); // ETH(eETH) per weETH, 1e18
-}
 
 /// @notice The venue's collateral ERC20 — BOTH escrow adapters (Morpho/Euler) expose this public immutable,
 ///         so the manager DERIVES the collateral type per position (weETH vs WETH) from the venue itself,
@@ -50,9 +49,6 @@ interface ILevSyncHook { // Vogue.syncLev — reconcile the LP's levered band sl
 ///         of the old "withdraw only the health-safe slice and iterate" band-aid. One Morpho flash covers
 ///         BOTH Euler and Morpho positions (Morpho lends from its global stable liquidity, independent of
 ///         where the position lives), so a single pinned provider serves every venue.
-interface IMorphoFlash {
-    function flashLoan(address token, uint256 assets, bytes calldata data) external;
-}
 
 /// @title  LevManager — the IL-protect: a per-LP, isolated, weETH-collateral leverage overlay
 /// @notice Each LP's leverage is an ISOLATED position on an external `ILevVenue` (real Euler EVK or Morpho

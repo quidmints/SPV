@@ -9,6 +9,7 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {Types} from "./Types.sol";
 import {FeeLib} from "./FeeLib.sol";
 import {ShareMath} from "./ShareMath.sol";
+import {IAaveV4Spoke} from "./Interfaces.sol";
 
 
 interface IAux {
@@ -71,12 +72,6 @@ interface IAux {
 /// AAVE-v4 GHO spoke (vault-health evac haven). Mirrors Aux.IAaveV4Spoke.
 /// The two reserve-level reads are asset-denominated (verified live: GHO reserve
 /// supplied/debt in 1e18); available cash = supplied − debt.
-interface IAaveV4Spoke {
-    function supply(uint256 reserveId, uint256 amount, address onBehalfOf)
-        external returns (uint256, uint256);
-    function getReserveSuppliedAssets(uint256 reserveId) external view returns (uint256);
-    function getReserveTotalDebt(uint256 reserveId) external view returns (uint256);
-}
 /// EthVenue — the ETH-venue custody (Galaxy/AAVE WETH). vault-health STATE
 /// stays Aux-owned, but the Galaxy WETH position is custodied on EthVenue after
 /// the venue carve, so the evac/poke Galaxy leg reads + drains via this handle.

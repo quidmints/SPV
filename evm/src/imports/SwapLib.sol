@@ -17,11 +17,11 @@ import {SOR} from "./SOR.sol";
 import {Types} from "./Types.sol";
 import {LevMath} from "../libraries/LevMath.sol";
 import {IV3SwapRouter} from "./v3/IV3SwapRouter.sol";
+import {IRover} from "./Interfaces.sol";
 
 // ether.fi offramp interfaces (suffixed `_L` to avoid clashing with Aux's own
 // copies, since Aux imports SwapLib). Same signatures as Aux's.
 interface IWeEth_L { function getWeETHByeETH(uint a) external view returns (uint); function unwrap(uint a) external returns (uint); }
-interface IRover_L { function take(uint amount) external returns (uint); }
 // EtherFiRedemptionManager.redeemWeEth(weEthAmount, receiver, outputToken);
 // outputToken ∈ {0xEeee…EEeE native-ETH sentinel, stETH} — else InvalidOutputToken.
 interface IRedeem_L { function redeemWeEth(uint weEthAmount, address receiver, address outputToken) external; }
@@ -616,7 +616,7 @@ library SwapLib {
         }
         // Rung 2 — Rover unwind (no Aux weETH needed) + NAV-neutral weETH absorb.
         if (c.rover != address(0)) {
-            try IRover_L(c.rover).take(amount) returns (uint got) {
+            try IRover(c.rover).take(amount) returns (uint got) {
                 if (got > 0) {
                     IERC20(c.weth).transfer(recipient, got);
                     uint absorbed = got >= amount ? weethIn
