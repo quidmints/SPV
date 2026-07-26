@@ -213,12 +213,27 @@ contract LevYbRealProbe is Alles {
 
     /// Real DOWN move: sell ETH into the band so the mark crashes ~`dropBps` (drives the venue-safety de-lever).
     /// Feed tracks the pool each step, so getCurrentLtvBps (weETH mark) falls for real — no getTWAPforAsset mock.
+    /// @dev Walk the mark DOWN by `dropBps` by selling ETH into the band.
+    ///
+    ///      DEPTH GUARD (added 2026-07-26 — see BUILD-QUEUE §A.12). This loop used to watch only the
+    ///      PRICE, never the band's remaining USD depth, and so it drained the band and pinned the V4
+    ///      pool at MAX_SQRT_RATIO. MEASURED: after `_openLp` the band holds ~27,268 USDC (~14 ETH
+    ///      worth) against 2.13 ETH, and the callers asked for up to 12x30 = 360 ETH of selling — so
+    ///      the USD side was exhausted (down to 3.36 USDC) long before `dropBps` was reached. Once the
+    ///      pool sits at the tick boundary the price is unrepresentable, `getTWAPforAsset` returns 0,
+    ///      and that zero propagated into LevMath's divisors as `pxWeth` — the
+    ///      `panic: division or modulo by zero` that killed testReal_Morpho/Euler_OpenAndDelever.
+    ///      Even 1-ETH steps destroyed it, so this is about TOTAL size vs depth, not step granularity.
     function _crashBand(uint dropBps, uint maxSteps, uint ethPerStep) internal {
         uint start = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint usdStart = CORE.POOLED_USD_ETH();
         vm.deal(address(this), maxSteps * ethPerStep);
         for (uint i; i < maxSteps; i++) {
             uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px == 0) break;
             if (px <= start - start * dropBps / 10000) break;
+            // Stop while the band can still quote: below ~20% of its starting USD depth the next
+            // sale walks the pool to the boundary and the oracle stops resolving entirely.
+            if (CORE.POOLED_USD_ETH() * 5 < usdStart) break;
             _setEthFeed(px / 1e10);
             try AUX.swap{value: ethPerStep}(address(USDC), address(WETH), false, 0, 0) {} catch { break; }
             vm.roll(block.number + 1); vm.warp(block.timestamp + 31 minutes);

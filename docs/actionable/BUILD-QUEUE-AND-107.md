@@ -1591,3 +1591,48 @@ immediately before the flash loan.
 `5314620473 <= 5314620473`: the batch rebalance moved the target by EXACTLY ZERO. Distinct from the
 two above (no panic, no price involvement). Either `rebalanceMany` is a no-op in this fixture, or the
 position already sat at target so there was nothing to do. Unresolved; needs its own look.
+
+## A.13 🔴🔴 REAL PROTOCOL DEFECT — the band's restoration is DISABLED BY THE CONDITION IT EXISTS TO FIX
+
+Answers "why is this failure happening" for §A.12's two `testReal_*` deaths. It is **NOT a fixture
+artifact** — I first proposed a test-side "depth guard" and the user rejected it as masking the
+question. Correctly: the guard would have hidden a genuine self-reinforcing failure loop.
+
+**The mechanism, measured end-to-end:**
+1. One-directional selling into the band drains its USD side (`POOLED_USD_ETH` 27,290 → 0;
+   `committedUsd18` → 0). The band correctly absorbs ETH (`POOLED_ETH` 2.13 → 8.25).
+2. As it drains, the pool spot walks toward the tick boundary — measured `sqrtPriceX96` =
+   1461446703485210103287273052203988822378723970341, i.e. **`MAX_SQRT_RATIO − 1`**.
+3. At the boundary the price is unrepresentable, so `BasketLib.ticksToPrice` yields **0** and
+   `getTWAPforAsset` returns 0 (it deliberately never reverts — #101 degrade-to-partial-fill).
+4. **`SwapLib.sol:1531` — `if (twap == 0) return r; // didRepack stays false → keep current range`.**
+5. `didRepack == false` ⇒ `Core._handleRepack`/`_repackAdd` never run ⇒ **`Vogue.addLiq` is never
+   called**, so the band is never re-paired with Aux dollars. Measured: 8 `Vogue::repack` calls during
+   the crash but only 3 `addLiq`, all of them during setup/open — **zero during the crash**.
+6. The drain therefore cannot stop, the pool pins, and every price consumer downstream reads 0 —
+   including `LevMath`'s divisors, which panicked before §A.12's `NoPrice()` guard.
+
+**The dollars and the headroom were BOTH available the whole time** — which is what makes this a
+defect rather than a limit: basket surplus **$176,779**, and `clampByBacking` headroom
+`backing 16.13 − pooled 8.25 = 7.88 ETH`. Neither `sizeBySurplus` nor `clampByBacking` nor θ
+(measured 1e18 fail-open at every stage) was the throttle. Restoration was simply never reached.
+
+⇒ **Fix direction (needs a decision, do NOT guess):** step 4 is the load-bearing line. `twap == 0`
+currently means "don't touch the range", but at the boundary that is exactly backwards — a pinned pool
+is precisely when a reseat onto the Chainlink anchor is needed. `Vogue.reseat()` already exists for
+this ("PERMISSIONLESS deadlock-recovery poke… moves the spot onto the oracle so swaps resume") and the
+anchor IS pinned and healthy (`assetPriceFeed(WETH)` = Chainlink, resolving 1927–1942 throughout).
+So the material question: should `twap == 0` route to the RESEAT path (heal onto Chainlink) instead of
+returning early? That inverts a guard on the swap hot path, so it needs its own review — but the
+current behaviour is a deadlock the recovery mechanism cannot reach.
+
+### A.13b `RebalIn` cannot be shrunk safely (asked 2026-07-26)
+All 11 fields are READ by `rebalanceBody` (measured: core 1, aux 2, ev 1, weth 1, token1isETH 1,
+lpShares 3, totalLevPooled 1, totalBuffer 2, lowerTick 2, upperTick 2, bookmark 3) — no dead fields.
+The struct is the DELEGATECALL-BOUNDARY TAX, not bloat: VogueLib can read neither Vogue's immutables
+(baked into Vogue's bytecode) nor Vogue's storage (libraries cannot declare state), so every value
+must cross explicitly. Rejected alternatives: library self-calls (`IVogue(address(this)).AUX()`) move
+bytecode INTO Vogue, the EIP-170-critical contract — spending headroom where it is scarcest to save it
+where it is not; and collapsing `lpShares`+`totalLevPooled` into `plainDepth` fails because `lpShares`
+is read 3× independently. The struct also exists to avoid stack-too-deep on the legacy pipeline, so
+flattening it to positional args breaks the build.
