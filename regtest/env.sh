@@ -15,10 +15,23 @@ WALLET="quid"
 ZMQ_BLOCK=28332
 ZMQ_TX=28333
 
-# ── Lightning (LND) — two nodes: alice (LP/seller) + bob (hop) ──
 LND_VERSION="v0.20.1-beta"
-case "$(uname -m)" in aarch64|arm64) LND_ARCH=arm64 ;; *) LND_ARCH=amd64 ;; esac
-LND_DIST="$HARNESS_DIR/.lnd-dist/lnd-linux-$LND_ARCH-$LND_VERSION"
+
+# ── Release-artifact platform — ONE table, both downloaders derive from it ──
+# bitcoin-core and LND name their releases differently (and bitcoin uses `aarch64`
+# on linux but `arm64` on darwin), so the mapping is spelled out per host rather
+# than string-munged from `uname`. setup.sh and setup-ln.sh consume these; neither
+# does its own detection.
+case "$(uname -s)/$(uname -m)" in
+  Linux/x86_64|Linux/amd64)   BTC_PLAT=x86_64-linux-gnu    ; LND_PLAT=linux-amd64  ;;
+  Linux/aarch64|Linux/arm64)  BTC_PLAT=aarch64-linux-gnu   ; LND_PLAT=linux-arm64  ;;
+  Darwin/x86_64)              BTC_PLAT=x86_64-apple-darwin ; LND_PLAT=darwin-amd64 ;;
+  Darwin/arm64)               BTC_PLAT=arm64-apple-darwin  ; LND_PLAT=darwin-arm64 ;;
+  *) echo "unsupported host $(uname -s)/$(uname -m) — install bitcoin-core $BITCOIN_VERSION into $CORE_DIR and LND $LND_VERSION into .lnd-dist/ manually" >&2; exit 1 ;;
+esac
+
+# ── Lightning (LND) — two nodes: alice (LP/seller) + bob (hop) ──
+LND_DIST="$HARNESS_DIR/.lnd-dist/lnd-$LND_PLAT-$LND_VERSION"
 LND="$LND_DIST/lnd"
 LNCLI="$LND_DIST/lncli"
 LN_DIR="$HARNESS_DIR/.lnd"
