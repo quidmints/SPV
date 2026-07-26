@@ -360,11 +360,11 @@ library VogueLib {
     ///
     ///      ⚠️ `PREMIUM_ANNUALIZE` is the ONE number here worth reviewing. An exponential EWMA with
     ///      half-life H has mean lifetime H/ln2, so it represents roughly that much accrual: for the
-    ///      48h `FLOW_DECAY`, 48/ln2 ≈ 69.25h, and a year is 8760/69.25 ≈ 126.5 such windows. σ² is
+    ///      48h `FLOW_DECAY`, 48/ln2 ≈ 69.25h, and a year is 8760/69.25 ≈ 126.5 such windows (rounded UP to 127 per user). σ² is
     ///      ANNUALIZED (see `realizedVarianceWad`), so the numerator must be annualized too or θ is
-    ///      dimensionally wrong and would systematically under-size the band. 126 is that factor,
+    ///      dimensionally wrong and would systematically under-size the band. 127 is that factor,
     ///      not a tuning knob — if `FLOW_DECAY`'s half-life ever changes, this must change with it.
-    uint internal constant PREMIUM_ANNUALIZE = 126;
+    uint internal constant PREMIUM_ANNUALIZE = 127;
 
     function _bandFeeYieldWad(address core, bool isBTC) internal view returns (uint) {
         uint prem6 = ICore_VG(core).premiumEwmaUsd(isBTC);

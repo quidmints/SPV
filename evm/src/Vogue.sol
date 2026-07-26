@@ -1265,6 +1265,22 @@ contract Vogue is
     function withdraw(uint assets, address receiver, address owner)
         external nonReentrant returns (uint shares) {
         if (owner != msg.sender) revert AllowanceFlow();
+        // CAP FIRST, then convert (2026-07-26). `convertToShares` used to run on the RAW `assets`, so
+        // the standard "exit everything" sentinel `withdraw(type(uint).max)` REVERTED with no message:
+        // it is `FullMath.mulDiv(assets, lpShares, vogueETH())`, whose overflow guard is a bare
+        // `require`, and `type(uint).max * lpShares` trips it unconditionally. 10+ call sites use the
+        // sentinel, so this reverted in NORMAL operation.
+        //
+        // The cap is the LP's FULL position (≡ `maxWithdraw`), NOT their free/plain slice. That
+        // distinction is load-bearing: `_withdraw` fires #109's auto-de-lever on the strict test
+        // `amount > plainNet(pooled, levPooled)` (:504) and only THEN clamps (:511), re-reading
+        // `plainNet` after `_reconcileLev` has zeroed the closed slice. Capping to `plainNet` here
+        // would make that test unsatisfiable by construction and silently disable auto-de-lever on
+        // the whole 4626 path — a levered LP could never exit past their free depth. Capping to the
+        // full position keeps `amount > plainNet` reachable, bounds the conversion, and makes the
+        // sentinel mean "exit my entire position", which is exactly what `maxWithdraw` advertises.
+        uint ceiling = convertToAssets(autoManaged[msg.sender].pooled);
+        if (assets > ceiling) assets = ceiling;
         shares = convertToShares(assets);
         _withdraw(assets, receiver, false);   // 4626 path defaults to WAIT (no forced haircut)
         emit Withdraw(msg.sender, receiver, owner, assets, shares);

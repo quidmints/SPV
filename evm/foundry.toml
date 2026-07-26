@@ -6,27 +6,19 @@ out = "out"
 libs = ["lib"]
 ffi = true
 
-# Frozen explicitly: forge's auto-merge was dropping the base
-# `@openzeppelin/` mapping once `@openzeppelin/contracts-upgradeable/`
-# was added, breaking every @openzeppelin/contracts import.
-remappings = [
-    "@uniswap/v4-core/=lib/v4-core/",
-    "forge-gas-snapshot/=lib/v4-core/lib/forge-gas-snapshot/src/",
-    "forge-std/=lib/v4-core/lib/forge-std/src/",
-    "permit2/=lib/v4-periphery/lib/permit2/",
-    "solmate/=lib/v4-core/lib/solmate/",
-    "solady/=lib/solady/",
-    "@solarity/solidity-lib/=lib/solidity-lib/contracts/",
-    "@openzeppelin/contracts-upgradeable/=lib/v4-core/lib/openzeppelin-contracts/contracts/",
-    "@openzeppelin/contracts/=lib/v4-core/lib/openzeppelin-contracts/contracts/",
-    "v4-core/=lib/v4-core/",
-    "v4-periphery/=lib/v4-periphery/",
-    "@ensdomains/=lib/v4-core/node_modules/@ensdomains/",
-    "ds-test/=lib/v4-core/lib/forge-std/lib/ds-test/src/",
-    "erc4626-tests/=lib/v4-core/lib/openzeppelin-contracts/lib/erc4626-tests/",
-    "hardhat/=lib/v4-core/node_modules/hardhat/",
-    "openzeppelin-contracts/=lib/v4-core/lib/openzeppelin-contracts/"
-]
+# Remappings live in `remappings.txt` (the standard location every solc-based tool reads: IDEs,
+# slither/crytic, plain solc). There is deliberately NO `remappings = [...]` here — having BOTH is
+# what caused the bug this comment used to record: the two lists had DIVERGED (remappings.txt mapped
+# the broad `@openzeppelin/`, this mapped the narrow `@openzeppelin/contracts/`) and forge MERGES the
+# auto-detected file with an explicit list, which is how the base `@openzeppelin/` mapping got dropped
+# once `@openzeppelin/contracts-upgradeable/` was added, breaking every @openzeppelin/contracts import.
+# ONE list, in the conventional file, no merge to go wrong.
+#
+# Four entries were dropped while consolidating, each provably dead (0 refs in src/ or test/, 0
+# TRANSITIVE imports in any compiled lib source, and 3 of 4 pointed at paths absent from disk):
+#   @ensdomains/ (we do nothing with ENS) · hardhat/ · ds-test/ · erc4626-tests/
+# `openzeppelin-contracts/` was KEPT — it has 3 transitive imports inside compiled lib sources, so it
+# is load-bearing even though src/ never names it directly.
 
 gas_reports = ["*"]
 fs_permissions = [

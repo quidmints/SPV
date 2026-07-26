@@ -14,9 +14,17 @@
 >   `Aux.pokeVaultHealth` + `setVaultHealth(vault, blocked)` (bool only; the value-moving graded
 >   haircut/`evac` was deleted). No off-chain key to compromise. (memory [[project-quid-cre-flow-sensor]])
 > - **External-oracle cross-check (RISK-1):** `assetPriceFeed` (Chainlink ETH/USD + WBTC/USD) is
->   pinned-once and `getTWAPforAsset`/`twapAnchorBody` now **reverts on deviation** vs the internal
+>   pinned-once and `getTWAPforAsset`/`twapAnchorBody` ~~now **reverts on deviation** vs the internal
 >   TWAP (`Aux.sol:203-215`). The internal-only-oracle manipulation gap is closed (also resolves the
->   MED "internal-only BTC TWAP").
+>   MED "internal-only BTC TWAP").~~
+>   🟠 **CORRECTED 2026-07-26 — the gap is NOT closed, and this contradicted INTERFACE-DEDUP MED-2
+>   (which is the accurate one).** `SwapLib.twapResolve:186-204` **NEVER reverts**: the Chainlink read
+>   is `try/catch {}` and every path returns, including the `feed == address(0) || price == 0` early
+>   return. So with an UNSET WETH/WBTC feed it silently returns the raw internal V4 TWAP with **no
+>   anchor check at all** — exactly the manipulation surface this claimed to have closed. (Never
+>   reverting is itself deliberate and correct — it is what makes #101's degrade-to-partial-fill work —
+>   so the fix is NOT to add a revert.) **REAL RESIDUAL: pin the WETH/WBTC Chainlink feeds BEFORE
+>   renounce**, since after renounce they can no longer be set and the anchor would be permanently absent.
 > - **§10#2 `recordClose` over-mint (was CONFIRMED HIGH):** clamped (`deliveredSlice ≤ netDel`,
 >   `claim6 ≤ swapUsdBtc`) + `checkBacking()` on the close path. (memory [[feedback-quid-only-minted-against-basket-dollars]])
 > - **§10#1 swap-OUT non-atomicity:** the N-conf **burn-finality gate** `evm_final` is built + tested
@@ -55,8 +63,15 @@
   4626 share-price held past the averaging horizon. Accepted cold-start tradeoff; maturity-lock
   contains redeemability. Watch alongside the §6 backing invariant.
 
-- 🧹 **Cleanup / dedup backlog (verify still applicable before acting).** Candidate dead code:
-  `imports/Interfaces.sol` ICourt, `Basket.deployed`, `Aux.ghoBalance()`+IAux decl,
+- 🛑 **`Basket.deployed` IS NOT DEAD — DO NOT DELETE IT (verified 2026-07-26).** It was listed below as
+  a dead-code candidate; that is WRONG and acting on it would break month/maturity accounting, i.e.
+  QD's entire redemption schedule. `_deployed` is declared `Basket.sol:26`, WRITTEN at `:124`
+  (`_deployed = block.timestamp`) and READ at `:166` — `month = (block.timestamp - _deployed) / MONTH`
+  — and again at `:383`. The "verify still applicable before acting" caveat on the list below is doing
+  real work: this entry is a live-code false positive, not merely stale text. Struck from the list.
+- 🧹 **Cleanup / dedup backlog (verify still applicable before acting — see the strike above; at least
+  one entry on this list names LIVE code).** Candidate dead code:
+  `imports/Interfaces.sol` ICourt, ~~`Basket.deployed`~~ (LIVE — see above), `Aux.ghoBalance()`+IAux decl,
   `Aux.pathCount()`/`getPathEncoded()`, `BTCChannels.RefundTimelockNotElapsed`, unused consts
   (`Aux.SOURCE_MIN_OUT_BPS`/`BPS_DENOM`, `Vogue.RAY`, `BTCChannels.SELF_REFUND_MIN_SECS`), stale
   `forceCloseByLP` in `spa/abi.ts`. Dedup: `addLiq`/`_addLiqChannel` surplus-sizing → shared

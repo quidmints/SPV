@@ -50,6 +50,14 @@ interface IAaveV4Spoke {
     function getUserSuppliedAssets(uint256 reserveId, address user) external view returns (uint256);
 }
 
+/// Canonical Permit2's allowance-grant surface — the ONLY part of it we need. Euler's `EVault.deposit`
+/// pulls via `Permit2.transferFrom`, so the depositor must both approve Permit2 on the token AND grant
+/// Permit2 an allowance naming the vault as spender. Declared minimally rather than importing
+/// `IAllowanceTransfer` (which drags the whole permit/signature surface we never touch).
+interface IPermit2Approve {
+    function approve(address token, address spender, uint160 amount, uint48 expiration) external;
+}
+
 interface IAaveV4Hub {
     function getAssetId(address underlying) external view returns (uint256);
 }
@@ -142,6 +150,8 @@ contract Vault is Ownable, ReentrancyGuard {
     // IMMUTABLY in the constructor. The protocol holds only weETH; ETHERFI_LP/EETH
     // are the last-resort no-fee withdrawal NFT queue.
     address public constant ETHERFI_ADAPTER  = 0xcfC6d9Bd7411962Bfe7145451A7EF71A24b6A7A2;
+    /// Canonical Permit2 — same address on every chain. Euler's EVault pulls deposits through it.
+    address public constant PERMIT2          = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
     address public constant ETHERFI_REDEEMER = 0xDadEf1fFBFeaAB4f68A9fD181395F68b4e4E7Ae0;
     address public constant ETHERFI_V3ROUTER = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45;
     address public constant ETHERFI_POOL_A   = 0x7A415B19932c0105c82FDB6b720bb01B0CC2CAe3; // weETH/WETH 0.05%
@@ -311,8 +321,26 @@ contract Vault is Ownable, ReentrancyGuard {
         // so a direct call is safe.
         IERC20(address(WETH)).approve(GALAXY_VAULT, type(uint).max);
         // Same standing approval for the second 4626 curator (Euler), if wired.
-        if (_eulerVault != address(0))
+        if (_eulerVault != address(0)) {
             IERC20(address(WETH)).approve(_eulerVault, type(uint).max);
+            // ── PERMIT2 (2026-07-26) — REQUIRED for the real Euler EVault, and the plain allowance
+            //    above is NOT enough on its own. Euler's `EVault.deposit` pulls the asset through
+            //    canonical Permit2, not `WETH.transferFrom`: the fork backtrace is
+            //      Permit2.transferFrom <- EVault.deposit <- EthereumVaultConnector.call
+            //      <- VaultLib.supplyVenueBody <- Vault.supplyEulerEth <- Vogue.deposit
+            //    and a DIRECT transferFrom is never even attempted, so it routes via Permit2
+            //    unconditionally when configured. Without these two grants every Euler deposit
+            //    REVERTS — which also reverts every VENUE_SPLIT deposit, since SPLIT has an Euler leg
+            //    and (post the no-sink refactor) fails loud instead of sweeping to Galaxy.
+            //    Permit2 needs BOTH: an ERC-20 allowance to Permit2 itself, then a Permit2 allowance
+            //    naming the vault as spender. Max uint160 amount / max uint48 expiration = standing.
+            //    NEVER exercised before today: `supplyEulerEth` had only ever run against an injected
+            //    stand-in vault, so this integration was unvalidated on mainnet — the same shape as
+            //    the reserve-0 sentinel bug (code that never met its real counterparty).
+            IERC20(address(WETH)).approve(PERMIT2, type(uint).max);
+            IPermit2Approve(PERMIT2).approve(
+                address(WETH), _eulerVault, type(uint160).max, type(uint48).max);
+        }
         // Same standing approval for the third 4626 curator (Gauntlet), if wired.
         if (_gauntletVault != address(0))
             IERC20(address(WETH)).approve(_gauntletVault, type(uint).max);
@@ -571,7 +599,10 @@ contract Vault is Ownable, ReentrancyGuard {
         // is not a mis-report — it BLOCKS and then EVACUATES the venue. A Morpho-V2 vault runs ~0 idle
         // by policy (Galaxy: 8971 WETH held, 0 idle), so the old raw `maxWithdraw` read it as
         // permanently illiquid and any caller could have drained a healthy venue on that false signal.
-        liquid = VaultLib.withdrawableOf(vault);   // inlined internal — no wrapper fn
+        // GUARDED: this feeds the PERMISSIONLESS `Aux.pokeVaultHealth`, so a venue whose view
+        // reverts (Euler's real EVault does — `EVC.getControllers` inside `maxWithdraw`) must read as
+        // 0 liquid rather than making the poke itself revert. 0 is the conservative side here too.
+        try IERC4626(vault).maxWithdraw(address(this)) returns (uint m) { liquid = m; } catch {}
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -755,8 +786,13 @@ contract Vault is Ownable, ReentrancyGuard {
     ///         capture for the entering LP. That mechanism already exists; there is NO
     ///         bespoke pump/keeper/RFQ — the reservoir self-refills through ordinary LP
     ///         entry. The on-chain swap skew (see {SwapLib-wellSkew}) only PRICES the
-    ///         scarcity so this entry is attractive exactly when the reservoir needs it; the
-    ///         transient swap-in refill bonus is the fast top-up BETWEEN LP-stake arrivals.
+    ///         scarcity so this entry is attractive exactly when the reservoir needs it.
+    ///         CORRECTED 2026-07-26: the trailing clause used to say "the transient swap-in refill
+    ///         bonus is the fast top-up BETWEEN LP-stake arrivals". That bonus was REMOVED
+    ///         (`payRefillBonus`, 2026-07-22) precisely so the drain premium STAYS with LPs
+    ///         (`retainSkewPremium` -> `Core.skewPremium*`), so there is no swapper-facing bonus to
+    ///         top up with. THIS path (LP entry) is the refill; the remaining unbuilt piece is the
+    ///         ACTIVE flash-serve (#100 / J.3), which is a flash-and-repay, NOT a bonus.
     function registerBtcLp(address lpEth, uint sats) external nonReentrant onlyBtcChannels {
         // Whole body (checkBacking/TWAP/_rebalance-via-repack + settle + in-range
         // pairing + out-of-range remainder) in BtcVaultLib.registerBtcLp (delegatecall):

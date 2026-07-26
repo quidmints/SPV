@@ -3241,8 +3241,8 @@ contract Alles is Test, Fixtures {
             vm.stopPrank();
             (uint[15] memory aft,,,) = AUX.get_deposits();
             // SP leg fired: BOLD's slot (amounts[11]) + TVL grew.
-            console.log("BOLD slot before/after", before[11], aft[11]);
-            assertGt(aft[11], before[11], "SP leg fired (BOLD valued via calcSPValue)");
+            console.log("BOLD slot before/after", before[13], aft[13]);
+            assertGt(aft[13], before[13], "SP leg fired (BOLD valued via calcSPValue)");
             // Cache EXCLUDES BOLD: storedHoldings[BOLD] stays 0 (SP-routed).
             (uint cbBold,) = AUX.storedHoldings(bold);
             assertEq(cbBold, 0, "BOLD correctly excluded from the storedHoldings cache");

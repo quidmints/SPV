@@ -546,7 +546,11 @@ contract Deploy is Script {
         // LONG Liquity V2 (BOLD) trove venue {collateral: WETH, debt: BOLD} — per-LP isolated Trove, fork-verified
         // against live Liquity V2 (test/LiquityVenue.t.sol). Classified LONG by LevManager.init (stable()==BOLD !=
         // WETH, COLLATERAL()==WETH ⇒ 1:1 valuation, SOR-only legs). Borrowed BOLD is swapped to WETH collateral via
-        // the external SOR to build the levered LONG; the down-side hedge is the generic inverse shortVenue, not this.
+        // the external SOR to build the levered LONG. (CORRECTED 2026-07-26: the trailing clause used
+        // to say "the down-side hedge is the generic inverse shortVenue, not this" — there IS no short
+        // venue; the whole down-side short subsystem was REMOVED 2026-07-24, as `:459`/`:561` already
+        // state. The built down-side behaviour is HOLD, not hedge; a delta-1-maintained down-side is an
+        // OPEN product decision, spec'd in docs/actionable/IMPAIRMENT-DERISK-TRIGGER.md.)
         address ltv = address(new LiquityTroveVenue(
             liquityBorrowerOps, liquityTroveManager, address(BOLD), address(WETH), lm, 0.05e18, 2000e18));
         // SorExchange: the QU!D-side `IExchange` for Liquity's OWN `LeverageWETHZapper` — routes the zapper's

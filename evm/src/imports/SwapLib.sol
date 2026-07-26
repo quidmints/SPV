@@ -749,17 +749,17 @@ library SwapLib {
         rp.token        = token;                            // USD-side output stable → seller
         rp.amount       = sats;                             // exact BTC input
         rp.pooled       = ICoreObs(core).POOLED_USD_BTC() * 1e10;
-        // SWAP-IN REFILL PRICING (see {SwapLib-wellSkew} RESERVOIR REFILL DESIGN). Today this
-        // leg settles FLAT at the honest oracle. The corrected design -- the SYMMETRIC skew
-        // bonus, mirror of the swap-OUT drain penalty (creditSwapOutBody) -- lands with the
-        // on-chain refill change once the EIP-170 slimming frees room in this library: a swap-in
-        // that refills a SCARCE pool earns a bonus applied as a SEPARATE output scalar (routeSwap
-        // stays at the honest v4Price, so the manip-guard stays unskewed), paid from and CLAMPED
-        // to the retained drain premium (Core.skewPremiumBTC) so the pool never pays out more
-        // refill bonus than it collected (conserves; flat when the pot is empty). It is the FAST
-        // transient top-up; LP staking (Vault.registerBtcLp) is the PRIMARY refill. Permissionless:
-        // a public reservation price captured by whoever swaps in first (a gas race), NOT an
-        // RFQ / external-MM subsidy (the discarded model this comment previously described).
+        // SWAP-IN REFILL PRICING. This leg settles FLAT at the honest oracle, and that is FINAL —
+        // not a placeholder. CORRECTED 2026-07-26: this comment used to describe a SYMMETRIC skew
+        // BONUS (mirror of the swap-OUT drain penalty) as a "corrected design" that would "land with
+        // the on-chain refill change once EIP-170 slimming frees room". That design was REJECTED and
+        // its implementation REMOVED (`payRefillBonus`, 2026-07-22): paying a swapper a bonus is
+        // exactly what the removal was meant to stop, so that the retained drain premium STAYS with
+        // LPs as backing (`retainSkewPremium` -> `Core.skewPremium*`, refilling direction exempt at
+        // `:452`/`:962`). Do NOT rebuild it. The refill mechanism is: LP entry
+        // (`Vault.registerBtcLp`) as the PRIMARY, self-funding path, plus the still-unbuilt ACTIVE
+        // flash-serve (#100 / J.3) — flash the scarce asset, serve the opposite flow, repay, premium
+        // stays with LPs. A flash-and-repay, never a subsidy to whoever swaps in first.
         rp.v4Price = _priceOr(v4p, aux, wbtc);
         rp.recipient    = seller;
         rp.isBTC        = true;

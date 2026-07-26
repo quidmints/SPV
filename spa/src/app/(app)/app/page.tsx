@@ -1769,10 +1769,15 @@ export default function QuidApp() {
               but transferable. At maturity, redemption clips to{' '}
               <code>Aux.redeemableAmount()</code>.
             </p>
+            {/* CORRECTED 2026-07-26: this cited a weighted-median VOTE and `Basket.getHaircut()`.
+                Neither exists — the vote subsystem was deleted (#12), and `getHaircut`/`K_btc`/
+                `WEIGHTS_btc` are absent from evm/src entirely. The haircut is now driven by the
+                ORACLE-measured depeg severity (`Aux.getDepegSeverityBps`, the single source of
+                truth), not by any governance vote. */}
             <p>
-              Depeg of any underlying stable haircuts redeemable QUI on a
-              weighted-median vote (<code>Basket.getHaircut()</code>). Worst-case
-              recovery is the residual non-depegged basket value.
+              Depeg of any underlying stable haircuts redeemable QUI by that
+              stable&apos;s oracle-measured severity (<code>Aux.getDepegSeverityBps()</code>).
+              Worst-case recovery is the residual non-depegged basket value.
             </p>
             <p>
               You are solely responsible for the keys to your wallet, gas costs,

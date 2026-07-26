@@ -116,4 +116,74 @@ contract LevYbWethProbe is LevYbRealProbe {
         (,,,,, bool stillOpen) = wlm.pos(LP);
         assertTrue(!stillOpen, "close: position deleted");
     }
+
+    /// @notice #113 — the MISSING ETH-side de-lever test. `LevManager.swapOutDelever` (`:799`) mirrors
+    ///         `BtcLevManager.swapOutDelever` but DELIVERS WETH instead of un-encumbering sats, and until
+    ///         now ONLY the BTC mirror was exercised (`VBtcLevFeeLane::testReal_DeliverSideDelever_...`).
+    ///         The impl has been live since LevManager:781-810; this closes the test half.
+    ///
+    ///         The money-path invariant under test (same seven properties the BTC mirror asserts):
+    ///         the Vault pre-transfers `stableUsd` of the swap's OWN proceeds to the venue, the manager
+    ///         repays the LP's debt with it, frees EXACTLY the repaid value of collateral and delivers it
+    ///         as WETH. VALUE-NEUTRAL: -collateral -debt of equal oracle value, so net-equity is
+    ///         preserved and LTV can only improve. Real Morpho WETH/USDC market, real Chainlink oracle,
+    ///         real Vogue band — no mocks.
+    function testReal_DeleverEthBacking_SwapOutTapsLeveredSlice() public {
+        _setupMorphoWeth();
+        _openWethLp();
+
+        uint debtBefore = wvenue.debtOf(LP);
+        uint collBefore = wvenue.collateralOf(LP);
+        uint netBefore  = wlm.netEquityEth(LP);
+        uint ltvBefore  = wlm.getCurrentLtvBps(LP);
+        assertGt(debtBefore, 0, "position carries real Morpho USDC debt (levered by _openWethLp)");
+        assertGt(collBefore, 0, "position holds real WETH collateral");
+
+        // De-lever a quarter of the debt. The Vault would pre-transfer the swap's own proceeds; here the
+        // test plays the Vault, so fund the venue with that stable directly (same custody the real settle
+        // uses -- ILevVenue takes the stable IN before repay).
+        // UNITS: `debtOf` returns the venue's NATIVE stable decimals (Morpho borrow assets = USDC 6-dec),
+        // NOT USD 1e18. `swapOutDelever` takes USD 1e18 and runs it through `LevMath._fromUsd`, which
+        // divides by 1e12 — so passing the raw 6-dec debt floored BOTH the repay and the `deal` to zero.
+        uint debtUsd18  = debtBefore * 1e12;                       // USDC 6-dec -> USD 1e18
+        uint repayUsd18 = debtUsd18 / 4;                           // de-lever a quarter of the debt
+        uint repayUsdc  = repayUsd18 / 1e12;                       // back to 6-dec to fund the venue
+        deal(address(USDC), address(wvenue), repayUsdc);
+
+        address swapper = address(0xE711);
+        uint swapperWethBefore = IERC20R(address(WETH)).balanceOf(swapper);
+
+        // Gated to the band: vogueSyncHook == address(V4) (set by wlm.init in _setupMorphoWeth).
+        vm.prank(address(V4));
+        (uint usedUsd, uint wethDelivered) = wlm.swapOutDelever(LP, repayUsd18, swapper, 0);
+
+        // (a) It actually fired, and delivered WETH to the swapper (not to the LP, not stranded).
+        assertGt(usedUsd, 0, "repaid a real USD amount from the pre-transferred stable");
+        assertGt(wethDelivered, 0, "freed collateral was DELIVERED as WETH (the ETH-side difference vs BTC)");
+        assertEq(IERC20R(address(WETH)).balanceOf(swapper) - swapperWethBefore, wethDelivered,
+            "the swapper received exactly the reported WETH");
+
+        // (b) DE-LEVERED: BOTH debt and collateral fell (equal oracle value removed).
+        assertLt(wvenue.debtOf(LP), debtBefore, "debt reduced -- the swap's own proceeds repaid it");
+        assertLt(wvenue.collateralOf(LP), collBefore, "collateral reduced -- WETH freed to deliver");
+        assertApproxEqRel(collBefore - wvenue.collateralOf(LP), wethDelivered, 0.02e18,
+            "collateral freed ~= WETH delivered (nothing retained in the venue)");
+
+        // (c) VALUE-NEUTRAL: net-equity preserved. This is THE #113 invariant -- a de-lever that moved
+        //     net-equity would be silently taxing or subsidising the LP on someone else's swap.
+        assertApproxEqRel(wlm.netEquityEth(LP), netBefore, 0.03e18,
+            "net-equity preserved (value-neutral: -collateral -debt of equal value)");
+
+        // (d) LTV IMPROVES -- removing ~1:1 value from a levered position lowers the ratio.
+        assertLe(wlm.getCurrentLtvBps(LP), ltvBefore, "LTV improved (LP only ever DE-levers here)");
+
+        // (e) NO PHANTOM band depth behind the delivered WETH: the levered band slice must not exceed the
+        //     LP's live net-equity, which would double-count the ETH just handed to the swapper.
+        assertLe(V4.levPooled(LP), wlm.netEquityEth(LP) + 1e12,
+            "levered band depth <= net-equity (no phantom depth behind delivered ETH)");
+
+        // (f) The position stays OPEN (partial de-lever) so the keeper can re-lever next tick.
+        (,,,,, bool open) = wlm.pos(LP);
+        assertTrue(open, "partial de-lever keeps the position open for the keeper to re-lever");
+    }
 }
