@@ -265,10 +265,16 @@ Three variants of the same `bitcoin-cli` invocation were open-coded across five 
 **Mechanism:** Galaxy/Gauntlet are **Morpho V2** vaults (`withdrawQueueLength()` REVERTS ⇒ not MetaMorpho v1.1) that hold liquidity in ADAPTERS and **auto-allocate on deposit** — our 2 WETH raised `totalAssets` but left `idle` at 0, so `maxWithdraw` is honestly 0. They run at ~zero idle as POLICY (0 of 8971; 3.6e-12 of 4720), so this is a steady state, NOT a fork-block artifact — **pinning a different block will NOT fix it.** Euler works only because it maintains a large idle buffer.
 - ⚠️ Two of my earlier conclusions were WRONG and are retracted: (1) "real vaults structurally cannot deliver" — they can, via the hatch below; (2) `maxWithdraw == 0` is NOT the "owner holds nothing" artifact I hypothesised — we hold real shares (`convertToAssets == 2.0`) and the selector returns 0 cleanly without reverting.
 
-**THE FIX — Morpho V2 publishes the escape hatch we never call:**
-`forceDeallocatePenalty(...)` returns **0** (zero penalty), `adaptersLength()` = 1, and the vault exposes `liquidityAdapter()` (`0xa8B218Ed…BFD0`) + `liquidityData()` (decodes to WETH / weETH / IRM `0x870aC11D…` / LLTV `0.945e18`) precisely so an integrator can pull allocated liquidity back to idle on demand. `VaultLib._pull4626` does none of this: it reads `maxWithdraw` (0), skips, and the empty `catch {}` at `:286-294` turns that into a SILENT LP shortfall (`sent = wethBal >= amount ? amount : wethBal` at `:297` returns short as success).
-⇒ **Build: `_pull4626` must, when `maxWithdraw < need` and the venue is Morpho-V2, `forceDeallocate(liquidityAdapter(), liquidityData(), need, address(this))` and then withdraw.** Zero penalty today, so it is value-neutral. This makes EVERY Morpho-V2 venue usable, removes the deliverability gap for real, and is what lets the "no mocks / real addresses" standing rule hold with all three venues real.
-⇒ **Also fix the silent-shortfall defect independently** (§A.5): a venue pull that fails must not degrade into quiet LP value loss.
+**🔴 THE `forceDeallocate` FIX PRESCRIBED HERE WAS WRONG — DO NOT IMPLEMENT IT (disproven by direct probe, 2026-07-26; ✅ RESOLVED a different way in `f4a1c2a`).**
+
+The original prescription was: *"`_pull4626` must, when `maxWithdraw < need` and the venue is Morpho-V2, `forceDeallocate(liquidityAdapter(), liquidityData(), need, address(this))` and then withdraw."* It was built, and then **PROBED against the real Galaxy vault: the call SUCCEEDS, returns `penaltyAssets: 0`, and leaves `maxWithdraw` at 0 — before and after, identical.** `liquidityData()` names exactly ONE market (loan=WETH, LLTV 0.945e18) and the vault's 8971 WETH is allocated across OTHERS, so that one hatch frees nothing. It cost ~113k gas per pull for zero effect. **Removed** (VaultLib 9,791 → 9,355 bytes).
+
+**THE ACTUAL MECHANISM — the max-views are conservative, `withdraw()` self-deallocates:**
+Probed on real Galaxy holding our 20 ETH: `maxWithdraw == 0` **AND `maxRedeem == 0`**, yet `withdraw(1 ether)` **SUCCEEDS** (burning 0.9939 shares) and `redeem` returns **1.875 ETH**. Morpho V2 pulls from its adapters *inside* `withdraw`. Both ERC-4626 max-views are idle-only. **Nothing was ever stuck — we simply never TRIED**, because every read clamped by `maxWithdraw`.
+⇒ **Landed:** `VaultLib._withdrawableOf` is the ONE definition — reported position (`convertToAssets(balanceOf)`) for a Morpho-V2 impl detected via the `liquidityAdapter()` marker, honest `maxWithdraw` for everything else — shared by `_pull4626`, `_deliverableCap`, `evacuate` and `Vault.venuePosition`. `_pull4626` gained optimistic-then-fall-back (retry at the venue's conservative number on revert) since the reported amount is no longer a figure the venue promised.
+⇒ **SECURITY, fixed in the same commit:** `Vault.venuePosition` feeds the **permissionless** `Aux.pokeVaultHealth`. Its comment already described the hazard — a healthy Morpho-V2 venue reads 0% liquid, so ANY caller could block-then-evacuate it — but the code below still did the raw `maxWithdraw` read, i.e. the documented fix had never been applied. Now wired, with `test_PokeVaultHealth_HealthyMorphoV2_NotBlocked` pinning it.
+⇒ **Measured effect:** `deliverableETH` had been returning **0** against 16 solvent ETH in Galaxy; every ETH LP exit paid out NOTHING while the LP retained a full pooled balance. LevYbWeth 98 pass/22 fail (clean baseline) → **111 pass/11 fail**.
+⇒ **Still open:** the silent-shortfall defect (§A.5) — a venue pull that fails must not degrade into quiet LP value loss (`sent = wethBal >= amount ? amount : wethBal`).
 
 ## A.5c 🔴 DESIGN — `deliverableETH` IS INCONSISTENT IN PRINCIPLE (user question, 2026-07-26: *"maybe deliverableETH is not correct in principle? it has to do with leverage and what else?"*)
 
@@ -1367,3 +1373,59 @@ These mark things a later thread already BUILT, so no one re-does them (the reve
 - S12/S13 — LOW ≤50bps IL-leak refinements (oracle-price withdraw burn Vogue:551; oracle-center normal-repack).
 - S40 C1/S37 — #104 cross-tx double-pay design fork — USER-OWNED.
 **❓ NEEDS FRESH BUILD/RUN:** S24 & S40-C2 (EIP-170 sizes — `out/` STALE Jul-22; run `forge build --sizes`), S31 (rev_client_ser_basic), S32 (LN↔EVM FFI e2e — bitcoind CI).
+
+## A.8 UNRECORDED-WORK SWEEP (2026-07-26, end of session) — items that existed only in-thread
+
+Written after the user asked *"all the remaining todos are now in the build queue?"* and the honest
+answer was NO. The queue was **three commits stale** (last touched at `86f31f5`, missing everything
+from `f4a1c2a`/`4d11f6f`/`9efcf04`), and the items below existed only in conversation. Recording them
+is the point: anything not in this file does not survive the thread.
+
+### A.8a ✅ LANDED this session (do NOT redo)
+- **`_withdrawableOf`** — one Morpho-V2-aware withdrawable definition (`f4a1c2a`). See the corrected §A.5b.
+- **`forceDeallocate` REMOVED** — probed ineffective. §A.5b now says DO NOT IMPLEMENT; it previously
+  prescribed exactly that. VaultLib 9,791 → 9,355 bytes.
+- **`venuePosition` security fix** — permissionless-poke false-signal, was documented-but-unapplied.
+- **Interface consolidation STARTED** (`9efcf04`) — `src/imports/Interfaces.sol` created; 20 decls → 6
+  (`IAaveV4Spoke` 5→1, `IWeETH`/`IRover`/`IDepositAdapter`/`IAaveV4Hub`/`IMorphoFlash` 3→1). 144 → 130.
+- **`withdraw(type(uint).max)` cap** (`86f31f5`) — cap at the FULL position, NOT the free slice, or
+  #109's auto-de-lever becomes unsatisfiable by construction.
+- **#113 ETH de-lever test** — had NEVER been executed; the failure was a unit error in the TEST
+  (`debtOf` returns native stable decimals, not USD 1e18). Now passes.
+- **Test retargeting** (`4d11f6f`) — Strand-2 and the poke test moved Galaxy → Euler.
+
+### A.8b 🔴 OPEN — discovered this session, NOT yet actioned
+1. **`BasketLib` stable-side has the SAME Morpho-V2 bug, and it is NOT fixed.** `_withdrawableOf` was
+   applied to the ETH path only (that is what was measured). `BasketLib:824` and `:1082` still read a
+   raw `maxWithdraw` for the STABLE 4626 vaults. If any stable vault is a Morpho-V2 impl, its
+   deliverability is being understated exactly as the ETH side was — and `:824` feeds the redemption
+   haircut. ⇒ **Measure which stable vaults are V2 before changing anything** (do not assume).
+2. **Gauntlet venue is UNVERIFIED.** Every probe this session left it at 0 shares — a deposit with
+   venue selector 6 never landed. Unknown whether that is a supply cap, a routing bug, or the selector.
+   It is 1 of our 3 ETH venues and has never been exercised end-to-end.
+3. **Remaining interface consolidation.** `ILevEquity` (no single superset variant: union 5, largest 4)
+   plus `IAux`/`ICore`/`IEthVenue`/`IAuxSwap` (16–27 members). `IAux.take` is a GENUINE 4-arg vs 5-arg
+   overload, not naming variance — needs judgement, not the script. Method that worked: normalise
+   `uint`→`uint256`, strip param names, compare selectors, take the superset variant's body verbatim.
+4. **`PREMIUM_ANNUALIZE = 127` is unvalidated.** The θ-local numerator (#107/D3) swapped `avgYield` for
+   a band-fee EWMA and DELETED the `theta > 1e18` ceiling, so θ is now unbounded above. No test
+   exercises either change. θ gates in-range band depth ⇒ this is not cosmetic.
+5. **Two LiquidityRace thaw tests were passing VACUOUSLY** until `4d11f6f` — their LP-side
+   "Galaxy 30%-liquid" premise had gone inert. Fixed by neutralising the V2 marker in the mock, but the
+   general lesson is unaudited: **other tests may pass for reasons unrelated to their premise.** No
+   sweep has been done for this class.
+
+### A.8c 🟠 OPEN — carried from earlier, absent from this file until now
+- **MISS 1** — JIT-DEPTH §4/§5-step-2 built but still marked TODO.
+- **MISS 4** — INTERFACE-DEDUP §0; partially resolved by `9efcf04`, see A.8b#3 for the remainder.
+- **MISS 6** — dangling spec refs, incl. `LevManager.sol:78`.
+- **`__pycache__` is not gitignored anywhere.**
+- **Doc verdicts still owed:** `HOP-CUSTODY-SGX.md`, `BTC-MARKET-MAKING-SPEC.md`, `AUDIT-TODO.md`;
+  `LEVERAGE-RISK-SURFACE.md` recommended for deletion (0 open markers) and awaiting the user's word.
+
+### A.8d ⚠️ The 11 remaining suite failures — triage, so nobody re-derives it
+- **4 pre-existing** (`testReal_*` lever cases) — fail IDENTICALLY on the clean `364b3ff` baseline.
+  Includes two `panic: division or modulo by zero (0x12)`. Not caused by this session's work.
+- **The fairness / bank-run / churn cluster** — `test_EthLp_RedeemConservationAndFairness` improved from
+  a **210% skew to 19.4%** (both LPs now paid alike, but ~19% short). §A.5c already names the cause and
+  the target: make `deliverableETH` the VIEW TWIN of the withdraw ladder. **That is the next work item.**
