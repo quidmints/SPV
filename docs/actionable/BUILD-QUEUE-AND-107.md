@@ -1454,3 +1454,41 @@ came from asserting without mutating: #113 (written, never run), `forceDeallocat
 nothing), θ (shipped untested, had this bug), and both θ tests. Revert the fix; if the test still
 passes, it pins nothing. Use `--match-contract <OneProbe> --match-test <name>` (~30s), NOT a full
 suite run (~150s x N) — the cheap check is what makes this habit affordable.
+
+## A.9 🔴 THE "~20% LP-EXIT SHORTFALL" DOES NOT EXIST — it is a TEST MEASUREMENT ARTIFACT (MEASURED 2026-07-26)
+
+**Retracts the framing of §A.5b/§A.5c.** Six failing tests all reported the LP receiving ~80% of
+expected — 80.0 / 80.2 / 80.3 / 80.5 / 80.6 / 80.8%. That uniformity was read as one systemic
+value loss ("the ~20% exit shortfall class") and §A.5c built a design theory on it: that
+`deliverableETH` over-counts legs the ladder cannot convert. **The premise was never measured
+at the primitive.** Measured now, replicating `testDepositImmediateWithdraw` exactly:
+
+```
+POOLED_ETH drop  : 4.999999999999999976
+native ETH recvd : 4.009905234387772624   <- the ONLY thing the assertion counts
+WETH       recvd : 0.988208510413466412   <- ignored by the assertion
+                   ─────────────────────
+             total 4.998113744801239036   = 99.96% of 5.0
+```
+
+**No value is lost.** The withdraw ladder legitimately pays part of an exit as WETH (idle WETH at
+the Vault is handed over directly) and part unwrapped to native ETH. The recurring "~80%" is simply
+the ETH/WETH SPLIT RATIO. The assertions read `User01.balance` only.
+
+⇒ **Group A — measurement artifact, NOT protocol bugs.** `testDepositImmediateWithdraw`,
+`testWithdrawWithAccruedFees`, `testAlternatingSwaps`, `test_BankRun_VaultLiquidity`,
+`testFuzz_VogueDepositWithdraw`. Fix the ASSERTIONS to count ETH+WETH (the tree already has the
+right helper — `_lpReceived` sums eth + weth + QUID-as-ETH). Do NOT "fix" the contracts for these.
+⇒ **Group B — GENUINELY REAL, and now the only open exit defect.**
+`test_EthLp_RedeemConservationAndFairness` uses `_lpReceived`, i.e. it ALREADY counts WETH and QUID,
+and still reports LP1 80.58 vs LP2 100.00 — a 19.4% EXIT-ORDER asymmetry between two equal LPs, with
+the FIRST-out receiving LESS. That is a distinct defect and must not be lumped with Group A.
+⇒ **§A.5c's redesign is NOT justified by this evidence.** It may still be worth doing on its own
+merits (the view/ladder divergence is real as a code-duplication argument), but the empirical
+motivation it cited is withdrawn. Re-derive before building.
+
+**METHOD — the blindspot this exposes.** The ~20% framing was inherited from an earlier doc and
+carried forward for a whole session without anyone measuring the primitive quantity. A uniform
+ratio across independent tests should have prompted "what is 80% OF?" immediately — a shared
+denominator usually means a shared MEASUREMENT, not a shared bug. Measure the primitive before
+theorising about the system.
