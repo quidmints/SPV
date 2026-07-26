@@ -159,7 +159,18 @@ library SwapLib {
     ///         post-swap drift, so there's no churn.
     function twapResolve(address feed, uint price, bool isWbtc,
         uint maxDevBps, uint maxAge) external view returns (uint, bool stale) {
-        if (feed == address(0) || price == 0) return (price, false);
+        // `price == 0` MUST fall through to the anchor, not short-circuit past it (fixed 2026-07-26,
+        // BUILD-QUEUE §A.13). The Chainlink feed exists exactly for an unusable internal TWAP, and
+        // price==0 is the MOST unusable state — yet it was the one case that skipped the anchor. That
+        // caused a self-reinforcing deadlock: a one-directional drain walks the pool to
+        // MAX_SQRT_RATIO, `ticksToPrice` yields 0, this returned 0, and `rebalanceCore:1531`'s
+        // `if (twap == 0) return r` then left `didRepack == false` — so `addLiq` was never called and
+        // the band could never be re-paired (measured: 8 repacks during the crash, 0 addLiq, with
+        // $176,779 of basket surplus and 7.88 ETH of headroom sitting unused).
+        // No new logic is needed below: with price==0, `diff == ext18`, so the deviation test trips and
+        // it already returns (ext18, true) = "stale TWAP → trust Chainlink", which is precisely the
+        // signal the curve-reseat auto-heal keys off.
+        if (feed == address(0)) return (price, false);
         try IAggregatorV3(feed).latestRoundData() returns (
             uint80, int256 ans, uint256, uint256 updatedAt, uint80
         ) {
