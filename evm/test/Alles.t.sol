@@ -1103,10 +1103,12 @@ contract Alles is Test, Fixtures {
             vm.roll(vm.getBlockNumber() + 1); vm.warp(block.timestamp + 15 minutes);
         }
 
-        uint balanceBefore = User01.balance;
+        // ETH+WETH: the ladder pays part of an exit as WETH (BUILD-QUEUE §A.9). Counting native ETH
+        // alone read as a ~20% shortfall that does NOT exist -- measured, ETH+WETH is ~99.96%.
+        uint balanceBefore = User01.balance + WETH.balanceOf(User01);
         uint pooledBeforeWithdraw = CORE.POOLED_ETH();
         V4.withdraw(5 ether, User01, User01);
-        uint received = User01.balance - balanceBefore;
+        uint received = (User01.balance + WETH.balanceOf(User01)) - balanceBefore;
 
         assertGe(received, 4.5 ether, "withdraw returns ~the principal");
         // RIGOR: V4 liquidity actually removed - POOLED_ETH falls by ~the
@@ -1769,9 +1771,9 @@ contract Alles is Test, Fixtures {
         assertGt(sells, 0, "sell-side swaps cleared");
         assertGt(buys, 0, "buy-side swaps cleared");
 
-        uint balBefore = User01.balance;
+        uint balBefore = User01.balance + WETH.balanceOf(User01);       // ETH+WETH, §A.9
         V4.withdraw(50 ether, User01, User01);
-        assertGt(User01.balance - balBefore, 45 ether,
+        assertGt((User01.balance + WETH.balanceOf(User01)) - balBefore, 45 ether,
             "LP exits ~whole after the alternating churn");
         vm.stopPrank();
     }
@@ -2290,11 +2292,11 @@ contract Alles is Test, Fixtures {
         vm.roll(vm.getBlockNumber() + 1); vm.warp(block.timestamp + 15 minutes);
         AUX.swap{value: 0.1 ether}(address(USDC), address(WETH), false, 0, 0);
 
-        uint balanceBefore = User01.balance;
+        uint balanceBefore = User01.balance + WETH.balanceOf(User01);   // ETH+WETH, §A.9
         uint pooledBeforeWithdraw = CORE.POOLED_ETH();
         // Direct call - a revert here is a REAL failure, not something to skip.
         V4.withdraw(5 ether, User01, User01);
-        uint received = User01.balance - balanceBefore;
+        uint received = (User01.balance + WETH.balanceOf(User01)) - balanceBefore;
 
         assertGt(received, 4 ether, "withdraw returns most of the principal");
         // RIGOR: the V4 liquidity was actually removed (modLP burned it) - not
@@ -2869,9 +2871,10 @@ contract Alles is Test, Fixtures {
     }
 
     function test_BankRun_VaultLiquidity() public {
-        uint bal1Before = User01.balance;
-        uint bal2Before = User02.balance;
-        uint bal3Before = User03.balance;
+        // ETH+WETH -- see BUILD-QUEUE §A.9.
+        uint bal1Before = User01.balance + WETH.balanceOf(User01);
+        uint bal2Before = User02.balance + WETH.balanceOf(User02);
+        uint bal3Before = User03.balance + WETH.balanceOf(User03);
 
         vm.prank(User01);
         V4.deposit{value: 100 ether}(0, User01);
@@ -2888,9 +2891,9 @@ contract Alles is Test, Fixtures {
         vm.prank(User03);
         V4.withdraw(type(uint).max, User03, User03);
 
-        uint total1 = User01.balance - (bal1Before - 100 ether);
-        uint total2 = User02.balance - (bal2Before - 100 ether);
-        uint total3 = User03.balance - (bal3Before - 100 ether);
+        uint total1 = (User01.balance + WETH.balanceOf(User01)) - (bal1Before - 100 ether);
+        uint total2 = (User02.balance + WETH.balanceOf(User02)) - (bal2Before - 100 ether);
+        uint total3 = (User03.balance + WETH.balanceOf(User03)) - (bal3Before - 100 ether);
 
         assertGt(total1, 99 ether, "User01 underpaid");
         assertGt(total2, 99 ether, "User02 underpaid");
@@ -3859,9 +3862,9 @@ contract Alles is Test, Fixtures {
 
         vm.roll(block.number + 1); // JIT-lock: withdraw must be a later block than deposit
         if (toWithdraw > 0) {
-            uint balBefore = User01.balance;
+            uint balBefore = User01.balance + WETH.balanceOf(User01);   // ETH+WETH, §A.9
             V4.withdraw(toWithdraw, User01, User01);
-            uint received = User01.balance - balBefore;
+            uint received = (User01.balance + WETH.balanceOf(User01)) - balBefore;
             assertGt(received, toWithdraw * 99 / 100, "Received too little");
         }
         vm.stopPrank();
