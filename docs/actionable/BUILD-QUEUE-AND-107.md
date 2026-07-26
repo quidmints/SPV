@@ -1429,3 +1429,28 @@ is the point: anything not in this file does not survive the thread.
 - **The fairness / bank-run / churn cluster** — `test_EthLp_RedeemConservationAndFairness` improved from
   a **210% skew to 19.4%** (both LPs now paid alike, but ~19% short). §A.5c already names the cause and
   the target: make `deliverableETH` the VIEW TWIN of the withdraw ladder. **That is the next work item.**
+
+### A.8e 🟠 θ FAIL-OPEN — fix landed, but NOT PINNED BY A TEST (be honest about this)
+
+`derivedThetaWad`'s docstring promised *"FAILS OPEN on an unmeasured register (`premium == 0` ⇒
+return 1e18)"*, but the code did `mulDiv(_bandFeeYieldWad(...), 1e18, work)`, and
+`_bandFeeYieldWad` returns 0 for BOTH `premium == 0` and `pooled == 0` — so θ failed **CLOSED**.
+That is the deadlock the docstring itself warns about: θ=0 ⇒ `applyTheta` clamps in-range depth to
+zero ⇒ no fees ⇒ no premium ⇒ no depth, permanently. A cold band could never bootstrap. **Fixed**
+(2-line guard, matches the sibling `sigmaSq == 0` / `kWad == 0` / `work == 0` early-returns).
+
+⚠️ **TWO attempts to test it BOTH passed with the fix REVERTED** — i.e. both were vacuous. On this
+fixture `derivedThetaWad` returns 1e18 from an EARLIER short-circuit (`sigmaSq == 0`, or `kWad == 0`
+once flow exists), so the premium branch is never reached and the mutation is invisible. The tests
+were deleted rather than kept: a test that passes against the mutation is worse than no test,
+because it advertises coverage that does not exist (same class as the LiquidityRace thaw tests).
+⇒ **To pin it, a future attempt must first establish `sigmaSq > 0 AND kWad > 0` and verify BOTH are
+non-zero before asserting** — do not assume flow produces them. Then zero only `premiumEwmaUsd`.
+⇒ **`PREMIUM_ANNUALIZE = 127` remains unvalidated**, and the `theta > 1e18` ceiling is still deleted
+(argued safe: every consumer short-circuits at >=1e18 and `clampByBacking` is the real bound).
+
+**METHOD NOTE — mutation-test your tests.** Every "verified" claim this session that later collapsed
+came from asserting without mutating: #113 (written, never run), `forceDeallocate` ("works" — frees
+nothing), θ (shipped untested, had this bug), and both θ tests. Revert the fix; if the test still
+passes, it pins nothing. Use `--match-contract <OneProbe> --match-test <name>` (~30s), NOT a full
+suite run (~150s x N) — the cheap check is what makes this habit affordable.

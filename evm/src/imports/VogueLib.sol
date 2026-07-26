@@ -381,7 +381,16 @@ library VogueLib {
         // no-throttle threshold the band is, instead of flattening everything to exactly 1.0 — which
         // matters more post-#107/D3, since a band earning real premium in a calm tape clears 1e18
         // routinely where the old reserve-`avgYield` numerator rarely did.
-        return FullMath.mulDiv(_bandFeeYieldWad(core, isBTC), 1e18, work);
+        // FAIL OPEN on an unmeasured premium register. This was MISSING (fixed 2026-07-26): the
+        // docstring above already promised it, and `_bandFeeYieldWad` returns 0 for both
+        // `premium == 0` and `pooled == 0`, so `mulDiv(0, ...)` made θ fail CLOSED — the exact
+        // deadlock the docstring warns about (no depth ⇒ no fees ⇒ no premium ⇒ no depth, forever).
+        // A cold band could never bootstrap. Matches every other unmeasured path here
+        // (`sigmaSq == 0`, `kWad == 0`, `work == 0`), and is safe for the same reason they are:
+        // `SwapLib.clampByBacking` applies the PHYSICAL `backing − pooled` headroom independently.
+        uint bandFeeYield = _bandFeeYieldWad(core, isBTC);
+        if (bandFeeYield == 0) return 1e18;
+        return FullMath.mulDiv(bandFeeYield, 1e18, work);
     }
 
     /// @notice Annualized realized variance (WAD) from Core's oracle ring.
