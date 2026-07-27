@@ -2868,3 +2868,30 @@ WHY IT RANKS FIRST: that single blunt rule is what simultaneously blocks (a) an 
 vBTC market — a liquidator who seizes vBTC today has no way to exit — and (b) the privacy story, since
 there is no bearer instrument. Both unblock together.
 
+### §A.43 — CORRECTED 2026-07-27. Mostly BUILT. The note that started this item was STALE.
+
+User: *"i thought this was partially done"* — right, and more than partially. The claim carried into
+this session was *"RootSeed derives no EVM key, so the EVM signer is not enclave-born/sealed/attested
+like the BTC keys."* **The first half of that is false.** Verified in code:
+
+BUILT — enclave-born and sealed:
+  • `RootSeed::derive_eth_wallet_key()` (`quid-common/src/root_seed.rs:301`) — labelled HKDF
+    (`b"ethereum wallet key"`) → BIP32 master → `private_key`. Pinned by a SNAPSHOT TEST (`:1089`),
+    so the address is stable across builds.
+  • `quid_bridge::boot::evm_signing_key(root_seed, env_name)` — derivation is the DEFAULT source.
+  • Under SGX a host-supplied `QUID_HOT_KEY` / `QUID_LP_EVM_KEY` is **REFUSED** (`cfg!(target_env =
+    "sgx")`), with the right reasoning recorded inline: a host-supplied key carries no enclave
+    binding, so honouring it would let the untrusted host sign with a key IT controls. Off-SGX the
+    env override remains, deliberately, for host-trusted self-host / dev / e2e.
+  ⇒ The EVM signer IS enclave-born and sealed, on the same footing as the BTC keys. The hot-key
+    concern that opened this item applies only to the off-SGX convenience path.
+
+REMAINING — ATTESTATION, and only that. A search for the EVM address inside any attestation /
+quote / provisioning payload found nothing, so a relying party appears to have no way to verify that
+a given EVM address was born in a specific enclave build. NOT asserted as conclusive — the search
+required an eth-term and an attest-term on the same line. NEXT STEP: read the provisioning/quote
+payload construction directly and confirm whether the derived EVM address is bound into it; if not,
+binding it there is the whole remaining job.
+⇒ Re-rank: this is NOT a from-scratch prerequisite blocking the hosted-fleet ETH path. It is one
+  binding step on an otherwise finished identity.
+
