@@ -2631,3 +2631,44 @@ verdicts. The stale-bytecode flaw did not, in the end, produce a wrong conclusio
 not method, and the rule stands: force the rebuild and check that GAS MOVED, or the result means nothing.
 §A.20's session-wide audit is the remaining item that was never re-run under the rule; its per-test
 claims are "red-before/green-after by construction", which is a weaker but independent form of evidence.
+
+## A.45 🔴 §J.2's vBTC SEGREGATION HAS TWO HARD CONSTRAINTS THE QUEUE NEVER RECORDED (2026-07-27)
+
+Investigated before touching code. §J.2 says *"`Vault.sol` should NOT contain vBTC ERC-20 functions —
+segregate them out (into the vBTC 4626)"*. Both constraints below must be answered FIRST; neither is a
+reason not to do it, but doing it blind would strand a market and undo a deliberate optimisation.
+
+### 1. The collateral token IS the Vault — segregating CHANGES THE MORPHO MARKET ID
+`DeployL1_s:486`: `collateralToken: address(ETH)` with the comment *"vBTC == the merged Vault"*. A
+Morpho market id is `keccak256(abi.encode(MarketParams))`, so moving the ERC-20 face to a new `VBtc`
+contract changes `collateralToken`, therefore the id, therefore **the market**. The old market would be
+orphaned and any position in it stranded.
+⇒ **This gives the refactor a DEADLINE: it is free BEFORE a real deployment and a MIGRATION after.**
+`createMarket` is already conditional (`if (luB == 0)`), so pre-deployment the new id simply creates a
+new market and nothing is lost. Confirm the live-deployment status before scheduling this.
+
+### 2. The merge is a DELIBERATE optimisation, not an accident
+`BtcLevManager:13-14` and `Vault:639` both state it: *"SAME-BTC leverage: the vBTC token IS the Vault…
+(no separate mint/transferFrom roundtrip)"*, and `exposeBtcToLev` *"replaces the 'LP pre-holds vBTC +
+transferFrom' roundtrip"*. The mechanism reclassifies the LP's ALREADY-BANKED channel BTC
+(funded → lev) with `LP.pooled` UNCHANGED, so no BTC enters or leaves and there is no double-count.
+Concretely, `BtcVaultLib.vbtcExposeBody` takes **three Vault storage mappings** — `balanceOf`,
+`autoManagedBTC`, `levPooledBTC` — and mutates them in one frame. A segregated `VBtc` cannot touch
+`autoManagedBTC`/`levPooledBTC` directly, so segregation necessarily re-introduces a cross-contract
+call and a new trust boundary between the token face and the band accounting — i.e. it partially undoes
+what the merge bought.
+⇒ **So §J.2's bullet is a real TRADE, not a pure cleanup:** cleaner separation and an independently
+addressable token, paid for with a cross-contract hop on every expose/unexpose plus a new auth seam.
+
+### 3. 🟢 BUT the privacy/liquidator synthesis makes the trade WORTH IT
+Per §A.19b + the user's synthesis: the liquidator blocker and the anonymity blocker are ONE problem,
+both held by *"The LP never receives loose vBTC (that would double-claim the same channel BTC)"*. A
+segregated `VBtc` with its own identity is **exactly where a bearer `redeemVBtc(sats, p2trScript)`
+belongs** — it can own the Σ-outstanding ≤ Σ-free-capacity invariant that must replace the blunt
+never-hold-loose-vBTC rule, without that logic living inside the Vault's band accounting.
+⇒ **Recommended sequencing:** do the segregation and the bearer-redemption design TOGETHER, not
+separately. Segregating first and adding redemption later means touching the same seam twice, and the
+redemption requirement is what determines whether `VBtc` needs to own supply accounting (it does) or
+can be a thin façade (it cannot).
+⇒ **Do NOT start until the deployment status in (1) is confirmed** — that single fact decides whether
+this is a refactor or a migration.
