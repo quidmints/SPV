@@ -90,6 +90,17 @@ contract LevCascadeProbe is Alles {
         venue = new MorphoEscrowVenue(MORPHO, mp, address(lm));
         address[] memory vs = new address[](1); vs[0] = address(venue);
         lm.init(address(V4), MORPHO, vs);
+
+        // PIN THE ETH/USD ANCHOR (2026-07-26, BUILD-QUEUE §A.13). This fixture already maintains
+        // `ETH_FEED` as a pool-tracking mock (`_setEthFeed`, refreshed every crash/rally step) but never
+        // registered it with Aux, so `assetPriceFeed(WETH)` was address(0) — MEASURED. With no anchor,
+        // once a crash walks the pool to its tick boundary `getTWAPforAsset` returns 0 and
+        // `rebalanceCore`'s `if (twap == 0) return r` leaves `didRepack == false`, so `addLiq` never
+        // runs and the band can never be re-paired. Registering the tracking feed is what lets the
+        // twapResolve anchor fall-through actually rescue this fixture, exactly as the real deploy
+        // pins Chainlink (DeployL1_s:326).
+        _setEthFeed(AUX.getTWAPforAsset(address(WETH), 1800) / 1e10);   // seed it before pinning
+        AUX.setAssetFeed(address(WETH), ETH_FEED);
     }
 
     /// Seed REAL basket POOLED_USD surplus (mint QUID against USDC) so syncLev can pair the levered band slice.
