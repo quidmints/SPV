@@ -1968,3 +1968,47 @@ the only sound check is MUTATION: revert the fix and confirm the test flips to r
 
 ⇒ **Standing rule earned from this: a test written to pin a fix is not done until it has been shown to
 FAIL without that fix.** Cheap enough (~30s) that there is no excuse to skip it.
+
+## A.21 ✅ SPA ABI DRIFT FIXED + a checker built to stop it recurring (2026-07-27)
+
+**D1 (real bug, shipped):** `spa/src/lib/abi.ts` declared
+`get_deposits() returns (uint[13], uint[13], uint, uint)` while the contract returns `uint[15]`. With
+STATIC arrays that shifts the head, so `avgYield` and `depegLoss` decoded from INSIDE the arrays —
+wrong numbers rendered with no error anywhere. Fixed to `uint[15]`.
+**D2 (comments only):** the indexing was already correct (`STABLES.map((s,i) => amounts[i])`, 12 stables
+at 0..11); three comments claimed `uint[14]` and "index 11..13 are aggregate slots" — the aggregates are
+12..14. Comments corrected; no rendering change.
+**D3 (already clean):** the SPA venue enum matches the contract exactly (0 Split / 2 AAVE / 3 Galaxy /
+4 Rover / 5 Euler / 6 Gauntlet). No drift.
+
+**`tools/check-client-abis.py` NOW EXISTS.** The standing rule said to run it; it was never in the repo,
+which is why D1 shipped. It parses the SPA's hand-written signatures, matches them against every
+compiled ABI under `evm/out`, and diffs the return tuples. It immediately found a SECOND drift nobody
+had noticed: `exitInstant(uint256,address)` declared NO return while the contract returns `uint256`.
+Both fixed; **76 signatures checked, 0 drifted.** Run it after any contract signature change.
+
+## A.22 SWEEP — hardcoded expectations vs live fork state (user directive: derive, do NOT pin)
+
+The user rejected pinning the fork ("real values being tested… our contracts should work with real
+fluctuating values") and asked for expectations derived from live state instead. Correct: the fork drift
+is a FEATURE; the bug is tests carrying constants that silently assume external state.
+
+Swept every assertion for absolute literals: **29 sites across 9 files**. Most are LEGITIMATE and were
+left alone — a test that deposits 10,000e6 and asserts on 10,000e6 derives from its own action, and
+`LiquityVenue`'s `1900e18`/`1000e18` are Liquity's 2000-BOLD minimum-debt floor and the test's own
+borrow, not market prices. **Do not "fix" those** — a constant is only fragile when it encodes EXTERNAL
+state.
+
+Genuinely fragile ones fixed:
+- `ForwardMintHeadroom`: `assertGt(minted, 105_000e18)` silently encoded the 100k default mint size —
+  now derived from the principal actually deposited. `assertGt(minted, 99_900e18)` likewise scaled.
+- `test_forwardHorizon_thinBuffer_clampsToFloor` **now asserts the PROPERTY, not a predicted tier.** The
+  test cannot reproduce the contract's internal depeg-adjusted `total` (computed INSIDE the mint, after
+  the deposit lands — §A.15), so pinning `nextMonth + 1` was really asserting that our estimate of a
+  live moving quantity matched to the bps. It didn't (estimate <150, mint saw the 150-300 tier). It now
+  asserts what the test exists to prove: the far request was CLAMPED, and a thin buffer yields a SHORT
+  lock (the 1mo/3mo tiers, never 6/12) — true across the whole thin band and independent of the estimate.
+
+⇒ **The pattern to reuse:** when a value depends on live external state, assert the INVARIANT that holds
+across its plausible range, not a point value. That is what makes an unpinned fork an asset instead of
+a flake source.

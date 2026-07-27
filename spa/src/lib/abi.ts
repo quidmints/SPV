@@ -80,7 +80,7 @@ export const AUX_ABI = [
   // per-stable deposit amounts + yield weights (uint[13]: stables + aggregate slots),
   // basket avg yield, and the redemption depeg loss. DO NOT use uint[14]/3-tuple — the
   // contract returns uint[13] + a 4th `depegLoss`; a wrong arity misaligns the decode.
-  'function get_deposits() returns (uint[13] amounts, uint[13] yieldW, uint avgYield, uint depegLoss)',
+  'function get_deposits() returns (uint[15] amounts, uint[15] yieldW, uint avgYield, uint depegLoss)',
   'function avgYield() view returns (uint)',
   'function riskFactor(address token) view returns (uint)',
   // Stable↔stable swap (e.g. USDC→DAI) routed through the basket vaults.
@@ -141,7 +141,7 @@ export const VOGUE_ABI = [
   // (0=Split 1=ether.fi 2=AAVE 3=Galaxy 4=Rover 5=Euler). 4-arg encoding now reverts.
   'function outOfRange(uint amount, address token, int24 distance, int24 range, uint8 venue) payable returns (uint next)',
   // ether.fi LPs: instant-redeem (~0.3% fee) vs free withdrawal-NFT queue preference.
-  'function exitInstant(uint256 assets, address receiver)',
+  'function exitInstant(uint256 assets, address receiver) returns (uint256 shares)',
   // percent: 1..100 (signed int per Solidity decl, but contract validates 1..100)
   // token: 0x0 = receive as ETH, stable addr = receive as that stable
   'function pull(uint id, int percent, address token)',

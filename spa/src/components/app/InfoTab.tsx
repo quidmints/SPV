@@ -91,7 +91,7 @@ export default function InfoTab({ address }: { address?: string | null }) {
       setInv(tot > 0 ? Math.max(-1, Math.min(1, (ethVal - usdSide) / tot)) : null)
     } else setInv(null)
 
-    // ── Composition of stables in Aux (get_deposits → uint[14] USD-normalized) ──
+    // ── Composition of stables in Aux (get_deposits → uint[15] USD-normalized; 0..11 = stables) ──
     const dep = await readOne(CONTRACTS.aux, 'get_deposits')
     if (dep) {
       const amounts: any[] = dep[0]

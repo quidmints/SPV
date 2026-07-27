@@ -390,7 +390,7 @@ export default function QuidApp() {
     } catch {}
     // redeemableAmount
     try { setRedeemable(BigInt(await ethCall(CONTRACTS.aux, enc.redeemable())).toString()) } catch {}
-    // per-stable deposits (uint[14])
+    // per-stable deposits: get_deposits returns uint[15] — 12 stables at 0..11, aggregates at 12..14
     try {
       const d = await ethCall(CONTRACTS.aux, enc.deposits())
       const dec = iface.decodeFunctionResult('get_deposits', d)
@@ -1069,7 +1069,7 @@ export default function QuidApp() {
                 <div className="font-mono">{fmt(perStable[i] || 0, 0)}</div>
               </div>
             ))}
-            {/* Index 11..13 are aggregate slots in get_deposits */}
+            {/* 12 stables occupy 0..11; indices 12..14 are get_deposits' aggregate slots */}
           </div>
         )}
       </div>
