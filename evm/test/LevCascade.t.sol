@@ -256,7 +256,14 @@ contract LevCascadeProbe is Alles {
         V4.syncLev(lps[0]);                                     // mint the levered band slice (tokenless)
         uint lev = V4.levPooled(lps[0]);
         assertGt(lev, 0, "syncLev minted the levered slice into the band");
-        assertGt(CORE.POOLED_ETH(), pe0, "POOLED_ETH grew by the levered slice");
+        // The levered slice is IN the band's depth. NOT "grew at this instant": `lm.rebalance` above
+        // already minted it through the manager's syncLev HOOK, so the explicit `V4.syncLev` here is
+        // IDEMPOTENT and `pe0` (captured after the rebalance) already contains the slice. MEASURED:
+        // levPooled 5.503 and levBuf 1.507 are both already live, while POOLED_ETH moves by -23 wei of
+        // modLP rounding — so the old `assertGt(POOLED_ETH, pe0)` was asserting a transition that had
+        // already happened, and could only ever pass or fail on rounding noise.
+        assertGe(CORE.POOLED_ETH(), lev, "the levered slice is part of the band's in-range depth");
+        assertGt(V4.levBuf(lps[0]), 0, "the debt-funded buffer is live and fee-earning");
         assertGt(CORE.POOLED_USD_ETH(), pu0, "POOLED_USD paired against it (in-range, fee-earning)");
 
         // (a) small swaps generate band fees; the levered LP IS band depth.
