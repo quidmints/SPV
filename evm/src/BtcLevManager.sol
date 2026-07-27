@@ -17,6 +17,11 @@ interface IVaultExposeB {
     function unexposeBtcFromLev(address lp, uint sats) external returns (bool);
 }
 
+/// §J.2: the vBTC TOKEN's back-pointer to the Vault that owns its supply. `VBtc.VAULT` is immutable and
+/// set to its deployer (the Vault), so reading it once at construction gives a binding that CANNOT be
+/// misconfigured — no extra constructor arg, no deploy-site change, no runtime cost after the ctor.
+interface IVBtcToken { function VAULT() external view returns (address); }
+
 /// @title  BtcLevManager — the BTC IL-protect: per-LP isolated vBTC-collateral leverage overlay
 /// @notice The BTC analogue of `LevManager`, sharing its economics via `LevMath` but with the acquisition
 ///         model corrected for BTC: the collateral is **vBTC** (an
@@ -36,7 +41,10 @@ contract BtcLevManager {
     address public immutable AUX;    // oracle (getTWAPforAsset(WBTC), public view)
     address public immutable WBTC;   // oracle key
     address public immutable GOV;
-    address public immutable QUID;   // basket stablecoin — redeemed via AUX to repay a levered LP's OWN debt
+    address public immutable QUID;
+    /// The Vault behind `VBTC` — band authority for expose/unexpose. Distinct from `VBTC` since §J.2
+    /// split the token face out of the Vault; before that split one address served as both.
+    address public immutable VAULT;   // basket stablecoin — redeemed via AUX to repay a levered LP's OWN debt
     address internal constant SWAP_ROUTER_02 = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45; // UniV3 protect-consolidation fallback
     uint32  public constant TWAP_WINDOW        = 1800;
     // QU!D policy ceiling on the LP's CHOSEN target LTV. 50%=2× is IL-neutral (delta-1); above = opt-in
@@ -128,7 +136,7 @@ contract BtcLevManager {
     modifier nonReentrant() { if (_lock != 1) revert Reentrancy(); _lock = 2; _; _lock = 1; }
 
     constructor(address vbtc, address aux, address wbtc, address gov, address quid) {
-        VBTC = IERC20Min(vbtc); AUX = aux; WBTC = wbtc; GOV = gov; QUID = quid;
+        VBTC = IERC20Min(vbtc); VAULT = IVBtcToken(vbtc).VAULT(); AUX = aux; WBTC = wbtc; GOV = gov; QUID = quid;
     }
 
     // ═══════════════════════════ VALUATION (8-dec vBTC / sats basis) ═══════════════════════════
@@ -331,7 +339,7 @@ contract BtcLevManager {
         // this manager — no pre-mint/transferFrom roundtrip). WBTC (fallback): the caller/SPA already SOR'd its USD
         // equity → WBTC; pull it in. `initialVbtc` is the collateral amount (8-dec) in either token.
         if (ILevVenueColl(address(venue)).COLLATERAL() == address(VBTC)) {
-            IVaultExposeB(address(VBTC)).exposeBtcToLev(msg.sender, initialVbtc);
+            IVaultExposeB(VAULT).exposeBtcToLev(msg.sender, initialVbtc);
             VBTC.transfer(address(venue), initialVbtc);
         } else {
             IERC20Min(WBTC).transferFrom(msg.sender, address(venue), initialVbtc);  // WBTC-mode: LP-brought equity
@@ -534,7 +542,7 @@ contract BtcLevManager {
             // Burn the withdrawn vBTC + convert the LP's levered slice back to FREE channel band depth
             // (lev→funded), so the Vault settle path's funded/lev clamp delivers the settled shrink. Same
             // primitive closeBtcLev uses; msg.sender==this==LEV_MANAGER_BTC satisfies the Vault gate.
-            if (freedSats > 0) IVaultExposeB(address(VBTC)).unexposeBtcFromLev(lp, freedSats);
+            if (freedSats > 0) IVaultExposeB(VAULT).unexposeBtcFromLev(lp, freedSats);
         }
     }
 
@@ -569,7 +577,7 @@ contract BtcLevManager {
         // (lev→funded) — grown/shrunk by the realized leverage P&L. The LP keeps its channel band position; it
         // never receives loose vBTC (that would double-claim the same channel BTC). No post-sync needed: the
         // slice is zeroed here, and the position is gone.
-        if (back > 0) IVaultExposeB(address(VBTC)).unexposeBtcFromLev(lp, back);
+        if (back > 0) IVaultExposeB(VAULT).unexposeBtcFromLev(lp, back);
         emit Closed(lp, back);
     }
 }

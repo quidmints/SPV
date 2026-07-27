@@ -258,10 +258,10 @@ contract VBtcLevFeeLane is Alles {
     /// ERC-20 face, collateral; USDC debt; a REAL-source vBTC/USD oracle). Seeds USDC borrow liquidity. No mock
     /// venue — the BTC twin of LevCascade's real-Morpho setup.
     function _setupBtcLev() internal {
-        lm = new BtcLevManager(address(ETH), address(AUX), address(WBTC), address(this), address(QUID));
+        lm = new BtcLevManager(address(ETH.VBTC()), address(AUX), address(WBTC), address(this), address(QUID));
         RealRateBtcMorphoOracle oracle = new RealRateBtcMorphoOracle(address(AUX), address(WBTC));
         mOracle = address(oracle);
-        mp = MarketParams({loanToken: address(USDC), collateralToken: address(ETH),  // vBTC == the Vault
+        mp = MarketParams({loanToken: address(USDC), collateralToken: address(ETH.VBTC()),  // §J.2: the vBTC TOKEN, not the Vault
             oracle: address(oracle), irm: ADAPTIVE_IRM, lltv: 0.86e18});   // Morpho-enabled LLTV (0.8 is not whitelisted)
         IMorphoTest morpho = IMorphoTest(MORPHO);
         morpho.createMarket(mp);
@@ -318,7 +318,7 @@ contract VBtcLevFeeLane is Alles {
     /// provider is still Morpho (bm.init flash=MORPHO) ⇒ cross-protocol: flash USDC from Morpho, repay/withdraw
     /// on Aave. This is the exact venue the keeper's atomic `rebalanceWbtc` drives on-chain.
     function _setupBtcLevWbtc() internal {
-        lmW = new BtcLevManager(address(ETH), address(AUX), address(WBTC), address(this), address(QUID));
+        lmW = new BtcLevManager(address(ETH.VBTC()), address(AUX), address(WBTC), address(this), address(QUID));
         address dataProvider = IAaveV3AddrProviderT(AAVE_V3_ADDR).getPoolDataProvider();
         wvenue = new AaveV3Venue(AAVE_V3_POOL, dataProvider, address(WBTC), address(USDC), address(lmW), 7800);
         address[] memory vs = new address[](1); vs[0] = address(wvenue);
@@ -840,13 +840,13 @@ contract VBtcLevFeeLane is Alles {
         assertApproxEqAbs(venue.debtOf(lp), debt0 - payUsdc, debt0 / 50, "repay reduced the isolated Morpho debt");
 
         // ── manager `deleverWithdraw` (LP-gated): the half-repay freed LTV headroom to withdraw vBTC to the LP. ──
-        uint lpVbtc0 = IERC20V(address(ETH)).balanceOf(lp);
+        uint lpVbtc0 = IERC20V(address(ETH.VBTC())).balanceOf(lp);
         uint wantSats = 1e7;                                        // 0.1 BTC — well within the freed headroom
         vm.prank(lp);
         uint out = lm.deleverWithdraw(wantSats);
         assertApproxEqAbs(out, wantSats, 2, "deleverWithdraw returned the requested vBTC");
         assertApproxEqAbs(venue.collateralOf(lp), coll0 - wantSats, 2, "deleverWithdraw reduced the venue collateral");
-        assertEq(IERC20V(address(ETH)).balanceOf(lp) - lpVbtc0, out, "the withdrawn vBTC landed with the LP/keeper");
+        assertEq(IERC20V(address(ETH.VBTC())).balanceOf(lp) - lpVbtc0, out, "the withdrawn vBTC landed with the LP/keeper");
     }
 
     // ─────────────────────────── #36 venue safety gates (REAL Morpho vBTC venue) ───────────────────────────
@@ -861,7 +861,7 @@ contract VBtcLevFeeLane is Alles {
     /// would silently misvalue into phantom BTC backing. WETH is such a collateral.
     function test_BtcLevVenueGate_InitRejectsUnvaluableCollateral() public {
         _setupBtcLev();   // establishes mOracle + the good (vBTC) reference stack
-        BtcLevManager lm2 = new BtcLevManager(address(ETH), address(AUX), address(WBTC), address(this), address(QUID));
+        BtcLevManager lm2 = new BtcLevManager(address(ETH.VBTC()), address(AUX), address(WBTC), address(this), address(QUID));
         MarketParams memory badMp = MarketParams({
             loanToken: address(USDC), collateralToken: address(WETH),   // neither vBTC nor WBTC => unvaluable as BTC
             oracle: mOracle, irm: ADAPTIVE_IRM, lltv: 0.86e18});

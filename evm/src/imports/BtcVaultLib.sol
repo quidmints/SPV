@@ -505,77 +505,40 @@ library BtcVaultLib {
     }
 
     // ════════════════════════════════════════════════════════════════════
-    //  vBTC ERC-20 (BTC-lev collateral face). Standard-semantics token
-    //  bodies extracted here so the Vault carries only thin event-emitting
-    //  forwarders (EIP-170 headroom). DELEGATECALL'd: the passed-by-STORAGE-REF
-    //  balanceOf / allowance mappings ARE the Vault's slots, so the writes land
-    //  on the Vault. Each returns bool (the forwarder emits the event). vBTC is
-    //  sats-denominated (8-dec); supply only ever moves via the SAME-BTC
-    //  expose/unexpose bodies below (gated to the LevManager in the Vault).
+    //  vBTC BAND BODIES (BTC-lev collateral). The ERC-20 face that used to
+    //  live here moved to `VBtc.sol` (§J.2) along with the Vault's supply
+    //  slots, so `vbtcTransfer`/`vbtcTransferFrom` are GONE — VBtc owns its
+    //  own balances and does not need a delegatecall'd body. What remains is
+    //  band accounting ONLY: the funded↔lev reclassification. DELEGATECALL'd,
+    //  so the passed-by-STORAGE-REF mappings are the Vault's real slots.
+    //  vBTC is sats-denominated (8-dec); supply moves only via the SAME-BTC
+    //  expose/unexpose path, gated to the LevManager in the Vault forwarder.
     // ════════════════════════════════════════════════════════════════════
 
-    /// @notice Body of Vault.transfer. Reverts on insufficient balance.
-    function vbtcTransfer(
-        mapping(address => uint) storage balanceOf,
-        address from, address to, uint amt
-    ) public returns (bool) {
-        uint bal = balanceOf[from];
-        require(bal >= amt, "vbtc:bal");
-        unchecked { balanceOf[from] = bal - amt; }
-        balanceOf[to] += amt;
-        return true;
-    }
-
-    /// @notice Body of Vault.transferFrom. type(uint).max allowance = infinite
-    ///         (no decrement); else reverts on insufficient allowance/balance.
-    function vbtcTransferFrom(
-        mapping(address => uint) storage balanceOf,
-        mapping(address => mapping(address => uint)) storage allowance,
-        address from, address spender, address to, uint amt
-    ) public returns (bool) {
-        uint allowed = allowance[from][spender];
-        if (allowed != type(uint).max) {
-            require(allowed >= amt, "vbtc:allow");
-            unchecked { allowance[from][spender] = allowed - amt; }
-        }
-        uint bal = balanceOf[from];
-        require(bal >= amt, "vbtc:bal");
-        unchecked { balanceOf[from] = bal - amt; }
-        balanceOf[to] += amt;
-        return true;
-    }
-
     /// @notice Body of Vault.exposeBtcToLev — reclassify `sats` of the LP's FREE channel band BTC as the levered
-    ///         slice (funded→lev; LP.pooled untouched, single-count) and mint the matching vBTC face to `manager`.
-    ///         Returns the new totalSupply. `NotLevManagerBtc` gate stays in the Vault forwarder.
+    ///         slice (funded→lev; LP.pooled untouched, single-count). The matching vBTC SUPPLY mutation is the
+    ///         token's own (`VBtc.mintTo`, called by the Vault forwarder right after this) — this body owns band
+    ///         state only. The `NotLevManagerBtc` gate stays in the Vault forwarder.
     function vbtcExposeBody(
-        mapping(address => uint) storage balanceOf,
         mapping(address => Types.Deposit) storage autoManagedBTC,
         mapping(address => uint) storage levPooledBTC,
-        address manager, address lp, uint sats, uint ts
-    ) public returns (uint) {
+        address lp, uint sats
+    ) public {
         uint pooled = autoManagedBTC[lp].pooled;
         uint free = SwapLib.plainNet(pooled, levPooledBTC[lp]);
         if (sats == 0 || sats > free) revert InsufficientChannelBtc();
-        levPooledBTC[lp] += sats;                              // funded → lev; LP.pooled untouched (single-count)
-        balanceOf[manager] += sats;                           // vBTC face → the manager (→ venue collateral)
-        return ts + sats;
+        levPooledBTC[lp] += sats;                            // funded → lev; LP.pooled untouched (single-count)
     }
 
-    /// @notice Body of Vault.unexposeBtcFromLev — burn the `sats` vBTC the manager withdrew and convert the LP's
-    ///         levered slice back to FREE channel band depth (lev→funded; LP.pooled untouched). Returns the new
-    ///         totalSupply. Gate stays in the Vault forwarder.
+    /// @notice Body of Vault.unexposeBtcFromLev — convert the LP's levered slice back to FREE channel band depth
+    ///         (lev→funded; LP.pooled untouched). The burn is the token's own (`VBtc.burnFrom`), and the Vault
+    ///         forwarder runs it BEFORE this so an under-funded manager reverts without the band having moved.
     function vbtcUnexposeBody(
-        mapping(address => uint) storage balanceOf,
         mapping(address => uint) storage levPooledBTC,
-        address manager, address lp, uint sats, uint ts
-    ) public returns (uint) {
-        uint bal = balanceOf[manager];
-        require(bal >= sats, "vbtc:bal");
-        unchecked { balanceOf[manager] = bal - sats; }
+        address lp, uint sats
+    ) public {
         uint lev = levPooledBTC[lp];
         levPooledBTC[lp] = sats >= lev ? 0 : lev - sats;      // lev → funded; LP.pooled untouched
-        return ts - sats;
     }
 
     /// @dev rebalanceBody output — the 5 caller returns + the 3 value-type storage slots the forwarder writes

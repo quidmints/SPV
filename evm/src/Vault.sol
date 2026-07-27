@@ -10,6 +10,7 @@ import {Basket} from "./Basket.sol";
 import {SwapLib} from "./imports/SwapLib.sol";
 import {VaultLib} from "./imports/VaultLib.sol";
 import {BtcVaultLib} from "./imports/BtcVaultLib.sol";
+import {VBtc} from "./VBtc.sol";
 import {Types} from "./imports/Types.sol";
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
@@ -254,6 +255,7 @@ contract Vault is Ownable, ReentrancyGuard {
         V4 = Vogue(payable(_vogue));
         CORE = Core(_core);
         AUX = Aux(payable(_aux));
+        VBTC = new VBtc(address(this), address(Aux(payable(_aux)).WBTC()));
         WETH = WETH9(payable(_weth));
         GALAXY_VAULT = _galaxyVault;
         EULER_VAULT = _eulerVault;
@@ -596,42 +598,20 @@ contract Vault is Ownable, ReentrancyGuard {
         btcChannels = b;
     }
 
-    // ═══════════════════════════ vBTC ERC-20 + 4626 face (BTC-lev collateral) ═══════════════════════════
-    // The EVM representation of LN-custodied BTC used as the BTC IL-protect collateral.
-    // vBTC is sats-denominated (8-dec) and vBTC IS sats, so the 4626 valuation is a pure 1:1 identity
-    // (`convertToAssets/Shares` return the argument) priced against WBTC via `getTWAPforAsset(WBTC)` at the
-    // venue. Supply only ever moves via the SAME-BTC expose/unexpose path (`exposeBtcToLev`/`unexposeBtcFromLev`,
-    // gated to the pinned LevManager) against real channel BTC. transfer/approve accounting lives in VaultLib
-    // (delegatecall over the Vault's own balanceOf/allowance slots); the forwarders here just emit the events.
+    // ═══════════════════════ vBTC — the TOKEN face now lives in `VBtc` (§J.2) ═══════════════════════
+    // The EVM representation of LN-custodied BTC used as the BTC IL-protect collateral. The ERC-20 + 4626
+    // face (supply, balances, transferability) was SEGREGATED out of this contract into `VBtc.sol`; what
+    // stays HERE is the BAND ACCOUNTING (`autoManagedBTC`, `levPooledBTC`) plus the expose/unexpose gate.
+    // THE SPLIT IS EXACT, not a redesign: `exposeBtcToLev` still performs the whole funded→lev
+    // reclassification and its `InsufficientChannelBtc` check — it delegates ONLY the supply mutation, so
+    // `LP.pooled` stays untouched and the single-count property that made the original merge worth having
+    // is preserved. WHY: supply-level invariants (a future `redeemVBtc(sats, p2trScript)`, and
+    // `Σ outstanding vBTC ≤ Σ free channel capacity`) belong WITH supply, not buried in band accounting.
 
-    string public constant name = "QuidMint vBTC";
-    string public constant symbol = "vBTC";
-    uint8  public constant decimals = 8;
-    uint public totalSupply;
-    mapping(address => uint) public balanceOf;
-    mapping(address => mapping(address => uint)) public allowance;
-
-    event Transfer(address indexed from, address indexed to, uint value);
-    event Approval(address indexed owner, address indexed spender, uint value);
-
-    /// @notice 4626 valuation face (venue oracle). asset() = the WBTC handle; vBTC IS sats so shares==assets.
-    function asset() external view returns (address) { return address(AUX.WBTC()); }
-    function convertToAssets(uint shares) public pure returns (uint) { return shares; }
-    function convertToShares(uint assets) public pure returns (uint) { return assets; }
-
-    function transfer(address to, uint amt) external returns (bool ok) {
-        ok = BtcVaultLib.vbtcTransfer(balanceOf, msg.sender, to, amt);
-        emit Transfer(msg.sender, to, amt);
-    }
-    function transferFrom(address from, address to, uint amt) external returns (bool ok) {
-        ok = BtcVaultLib.vbtcTransferFrom(balanceOf, allowance, from, msg.sender, to, amt);
-        emit Transfer(from, to, amt);
-    }
-    function approve(address spender, uint amt) external returns (bool) {
-        allowance[msg.sender][spender] = amt;   // one-store body: cheaper inline than a lib forward
-        emit Approval(msg.sender, spender, amt);
-        return true;
-    }
+    /// The vBTC token. Deployed BY this contract, so `VBtc.VAULT == address(this)` holds BY CONSTRUCTION —
+    /// no setter, no deploy-ordering hazard, and supply authority can never be misconfigured. Venues and
+    /// the Morpho market take THIS address as `collateralToken` (it is the token; the Vault is not).
+    VBtc public immutable VBTC;
 
     error NotLevManagerBtc();
     error InsufficientChannelBtc();
@@ -646,8 +626,8 @@ contract Vault is Ownable, ReentrancyGuard {
     function exposeBtcToLev(address lp, uint sats) external returns (bool) {
         if (msg.sender != LEV_MANAGER_BTC) revert NotLevManagerBtc();
         // Storage-mutation body in BtcVaultLib.vbtcExposeBody (delegatecall — EIP-170); gate + emit stay here.
-        totalSupply = BtcVaultLib.vbtcExposeBody(balanceOf, autoManagedBTC, levPooledBTC, msg.sender, lp, sats, totalSupply);
-        emit Transfer(address(0), msg.sender, sats);
+        BtcVaultLib.vbtcExposeBody(autoManagedBTC, levPooledBTC, lp, sats);
+        VBTC.mintTo(msg.sender, sats);   // the Transfer event is the TOKEN's to emit, not ours
         return true;
     }
 
@@ -659,8 +639,8 @@ contract Vault is Ownable, ReentrancyGuard {
     function unexposeBtcFromLev(address lp, uint sats) external returns (bool) {
         if (msg.sender != LEV_MANAGER_BTC) revert NotLevManagerBtc();
         // Storage-mutation body in BtcVaultLib.vbtcUnexposeBody (delegatecall — EIP-170); gate + emit stay here.
-        totalSupply = BtcVaultLib.vbtcUnexposeBody(balanceOf, levPooledBTC, msg.sender, lp, sats, totalSupply);
-        emit Transfer(msg.sender, address(0), sats);
+        VBTC.burnFrom(msg.sender, sats);   // reverts if the manager lacks the sats — checked BEFORE the band moves
+        BtcVaultLib.vbtcUnexposeBody(levPooledBTC, lp, sats);
         return true;
     }
 

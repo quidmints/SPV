@@ -475,7 +475,7 @@ contract Deploy is Script {
         ETH.setLevManager(address(lm));                    // BACKING: vogueETH counts the ETH lev book
 
         // ── BTC lev: vBTC-collateral (vBTC == the Vault). External+async acquisition ⇒ no swapper/flash ──
-        BtcLevManager bm = new BtcLevManager(address(ETH), address(AUX), address(WBTC), gov, address(QUID));
+        BtcLevManager bm = new BtcLevManager(address(ETH.VBTC()), address(AUX), address(WBTC), gov, address(QUID));
         address mvB;
         {
             // The vBTC oracle prices the Vault through AUX (deployed THIS broadcast) — it can only
@@ -483,7 +483,11 @@ contract Deploy is Script {
             address vbOracle = vm.envOr("MORPHO_VBTC_ORACLE", address(0));
             if (vbOracle == address(0)) vbOracle = address(new RealRateBtcMorphoOracle(address(AUX), address(WBTC)));
             MarketParams memory mpB = MarketParams({
-                loanToken: address(USDC), collateralToken: address(ETH),   // vBTC == the merged Vault
+                loanToken: address(USDC),
+                // §J.2: the collateral is the vBTC TOKEN, not the Vault. The Vault deploys VBtc in its
+                // own constructor and no longer carries balances, so pointing this at `ETH` would give
+                // the market a collateral token where every balance reads zero.
+                collateralToken: address(ETH.VBTC()),
                 oracle: vbOracle, irm: vm.envOr("MORPHO_VBTC_IRM", ADAPTIVE_IRM),
                 lltv: vm.envOr("MORPHO_VBTC_LLTV", MORPHO_LLTV_86)
             });
