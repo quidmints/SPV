@@ -2813,3 +2813,29 @@ ladder. This is a COHERENCE issue for readers/integrators, not a delivery defect
 is to document the semantics at the definition (it is a SOLVENCY-side view with partial liquidity
 haircuts, not a promptness guarantee) rather than to rebuild it as a ladder twin.
 
+### §A.35 — Rust dead-code audit: DONE for what this machine can check. Suspicion refuted.
+
+CRATE LEVEL — CLEAN. All 20 workspace members were checked with `cargo tree -i`, not guessed at.
+  • **`quid-api` is NOT dead** — the item's stated suspicion. It has 8 dependents (`quid-bridge`,
+    `quid-hop`, `quid-ln`). Refuted.
+  • Exactly two crates have ZERO dependents, and both are ROOTS, not orphans:
+      – `quid-bridge` owns `src/bin/`: quid-bridge-daemon, quid-watchtower, quid-provision,
+        quid-migrate-auth, quid-recover-exit — the production binaries.
+      – `quid-sgxs-sign` exposes the `gen-signer` build-time tool.
+  ⇒ There is no dead crate to delete.
+
+WITHIN-CRATE — 16 of 20 crates check clean on darwin with ZERO dead-code warnings. One unused import
+(`quid-api-core/src/types/sealed_seed.rs:12`, `enclave::{self, ..}`) found and removed.
+
+🔴 COVERAGE LIMIT, STATED PLAINLY — 4 crates CANNOT be checked on this machine, and it is not a bug.
+`quid-cvm` imports `sev::firmware::guest::Firmware`, which is `#[cfg(target_os = "linux")]` in sev
+6.3.1 (verified in the vendored source) because it wraps the SEV-SNP GUEST device — a Linux-only
+ioctl handle that exists only inside a confidential VM. `cargo check --workspace` therefore aborts
+with `unresolved import`, and everything downstream of it is unchecked:
+`quid-cvm → quid-hop → quid-bridge` — i.e. the crate that owns the production binaries.
+NOTE the trap: a bare `cargo check --workspace | grep dead_code` returns EMPTY here, which reads as
+"clean" but actually means "never compiled". The empty result must not be reported as a pass.
+⇒ The dead-code audit for those 4 crates is OWED ON A LINUX HOST and is NOT claimed as done. `sev` is
+  a crates.io dep and was NOT among the 13 git deps pinned to `rev` earlier this session — this
+  breakage is pre-existing and platform-inherent, not a regression from the pinning work.
+

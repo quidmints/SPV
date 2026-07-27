@@ -9,7 +9,7 @@ use quid_crypto::{
     ed25519,
     rng::{Crng, RngExt},
 };
-use quid_enclave::enclave::{self, MachineId, Measurement, Sealed, Sealer};
+use quid_enclave::enclave::{MachineId, Measurement, Sealed, Sealer};
 use quid_serde_util::hexstr_or_bytes;
 use quid_std::array;
 #[cfg(test)]
