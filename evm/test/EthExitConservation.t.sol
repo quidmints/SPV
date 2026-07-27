@@ -33,7 +33,10 @@ contract EthExitConservationProbe is Alles {
         // (JIT-DEPTH §4.1). An accounting that reads only `pooled` + QUID balance therefore MISSES
         // the USD leg entirely and looks like an ~18% loss when nothing was lost.
         (uint pooledBefore, uint owedBefore,,) = V4.autoManaged(User01);
-        uint ethBefore  = User01.balance;
+        // ETH **+ WETH**: the ladder pays part of an exit as WETH (BUILD-QUEUE §A.9). This test was
+        // written to prove conservation and then measured only NATIVE ETH — so it reported the ~19%
+        // ETH/WETH split ratio as missing value, which is the very artifact it exists to rule out.
+        uint ethBefore  = User01.balance + WETH.balanceOf(User01);
         uint quidBefore = QUID.balanceOf(User01);
         uint poolEthBefore = CORE.POOLED_ETH();
 
@@ -47,7 +50,7 @@ contract EthExitConservationProbe is Alles {
 
         (uint pooledAfter, uint owedAfter,,) = V4.autoManaged(User01);
         uint owedGained = owedAfter > owedBefore ? owedAfter - owedBefore : 0;
-        uint ethGained  = User01.balance - ethBefore;
+        uint ethGained  = (User01.balance + WETH.balanceOf(User01)) - ethBefore;
         uint quidGained = QUID.balanceOf(User01) - quidBefore;
         uint poolEthDrop = poolEthBefore - CORE.POOLED_ETH();
         // Re-credited deferral: pooled should fall by LESS than 5 if part was re-credited.

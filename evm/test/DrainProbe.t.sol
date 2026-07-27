@@ -84,6 +84,14 @@ contract DrainProbe is Alles {
         uint b0 = who.balance; uint w0 = WETH.balanceOf(who);
         vm.prank(who); V4.withdraw(pooled, who, who);
         ethOut = (who.balance - b0) + (WETH.balanceOf(who) - w0);
+        // PLUS the RETAINED claim. `withdraw` delivers what the ETH ladder can source and DEFERS the
+        // rest as a live, recoverable `pooled` balance (BUILD-QUEUE §A.11) — counting delivery alone
+        // reads that deferral as a LOSS. MEASURED here: the incumbent takes 423.14 ETH out and retains
+        // 76.86, i.e. EXACTLY its 500.00 principal, so the "round-trip harmed the incumbent" reading
+        // was an artifact of the measure, not harm. Including it also makes the entrant-side bound
+        // (b) strictly TIGHTER, which is the safe direction for an anti-drain assertion.
+        (uint remPooled,,,) = V4.autoManaged(who);
+        ethOut += remPooled;
     }
 
     /// THE ROUND-TRIP (user's scenario): an entrant SPENDS dollars to buy ETH out of
@@ -114,6 +122,12 @@ contract DrainProbe is Alles {
         V4.deposit{value: nativeGot}(wethGot, User01);
         vm.stopPrank();
         AUX.checkBacking();                              // no virtual inflation
+
+        // JIT-lock: `_depositImpl` requires `block.number > lastDepositBlock`, so the SAME-block
+        // deposit->exit reverts with "too soon" — the lock doing its job, which meant this test never
+        // reached its own assertions. Roll one block so we test the attack the lock actually permits:
+        // a next-block round trip must still not drain.
+        vm.roll(block.number + 1);
 
         // Adversarial ordering: ENTRANT exits FIRST (grabs first-out priority).
         uint entrantETH  = _realizeExitETH(User01);
