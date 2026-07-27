@@ -1823,3 +1823,46 @@ land first without foreclosing option 3.
 detector of this in the tree. A `syncLev` call was ADDED to the test during diagnosis and REMOVED again
 before commit — with it in place the test passes, which would have masked the defect exactly as §A.13's
 depth guard nearly did.
+
+## A.16c ✅ FIXED (option 3, structural) — share price now isolates the levered book
+
+User chose the STRUCTURAL fix over reconcile-before-extract. Implemented in `Vogue._plainPool()`:
+the share price is computed over the PLAIN pool only — `vogueETH − totalNetEquityEth` over
+`lpShares − totalLevPooled` — instead of the shared `vogueETH / lpShares`.
+
+**Why this is the right basis, not an invention:** the codebase ALREADY nets the levered book out of
+the venue-yield denominator, and `_venueBalance()`'s own docstring makes the identical argument —
+subtract lev net-equity "so this is the pure plain-venue value: the lev collateral earns its own yield
+via the LevManager, so including it would **(a) skim plain LPs' venue yield** and (b) make a lev
+open/close appear as fake venue yield." Share pricing was simply the last place the levered claim was
+still commingled. `testReal_VenueYield_LevExcludedFromDenominator` documents the two-denominator design.
+
+**Why it fixes it by construction, not by timing:** a seizure now moves ONLY excluded terms
+(`totalNetEquityEth` in the numerator, `levPooled` in the denominator), so the unlevered price cannot
+move at all. The old race — live numerator vs lazily-reconciled denominator — is gone rather than
+narrowed.
+
+**`maxWithdraw` moved with it:** it now values `plainNet(pooled, levPooled)`. Feeding the plain price a
+pooled that still contains `levPooled` would value the levered slice at the plain price AND leave it in
+the levered book (double count). `_withdraw` already capped at exactly this quantity.
+
+### User's constraints, checked
+- **No dilution of prior shareholders by future ones.** Preserved and pre-existing: fees are NOT paid
+  through the share price, they ride per-share accumulators with PER-LP bookmarks (`venueBm`,
+  `fees_tok`/`fees_usd`), so a new depositor cannot capture prior accruals. `Vogue.sol:160-169` states
+  it: paid on weight `pooled - levPooled`, "never diluting plain LPs to the lev/buffer depth."
+- **Swap fees / venue yield / refill bonus still accurate.** Untouched — the two denominators are
+  deliberate and remain: VENUE yield over PLAIN depth (`lpShares - totalLevPooled`), TRADING fees over
+  GROSS depth (`lpShares + totalBuffer`, "the buffer IS real V4 depth"). Share price values a
+  REDEEMABLE claim, and the buffer is already excluded from equity, so the plain/net basis is the
+  consistent one for it.
+
+**Measured:** `test_PassiveLp_NotExpensedByLeveredLpLifecycle` PASSES. LevYbWeth 123/0/2 skipped.
+Full tree: 1 residual (`test_forwardHorizon_thinBuffer_clampsToFloor`), caused by this change shifting
+the buffer into the next tier — the test's deposit is now sized 0.1% of supply instead of 1% so the
+thin tier holds with margin. Vogue 24,119 bytes, 457 free (cost 211).
+
+⚠️ **Still worth a dedicated review before mainnet:** this is the formula that gates redemption value
+and the backing invariant. The suite is green, but green tests are not a proof — the specific thing to
+re-derive is whether any consumer of `convertToAssets`/`convertToShares` other than `maxWithdraw` also
+passes a pooled that includes `levPooled`.

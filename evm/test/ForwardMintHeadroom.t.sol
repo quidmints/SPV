@@ -89,7 +89,12 @@ contract ForwardMintHeadroom is Alles {
         // Size the deposit so the buffer the MINT sees stays under the 150-bps tier — otherwise this
         // test cannot exercise the thin-buffer floor at all. 1% of supply keeps `deposit/(sup+deposit)`
         // ~99 bps, comfortably inside the tier.
-        uint depositUsdc = sup / 1e12 / 100;               // 18-dec supply -> USDC 6-dec, then 1%
+        // 0.1% of supply, not 1%. The test's own bufBps estimate cannot exactly reproduce the
+        // contract's internal `total` (it is depeg-adjusted inside the mint), so the deposit must be
+        // small enough that the tier holds under that divergence. At 1% the measured estimate said
+        // <150 bps while the mint computed >=150 and granted maxFwd 3 (cohort landed at nextMonth+3,
+        // not +1). 0.1% keeps it deep inside the thin tier with margin.
+        uint depositUsdc = sup / 1e12 / 1000;              // 18-dec supply -> USDC 6-dec, then 0.1%
         uint totalSeen = total + depositUsdc * 1e12;
         uint bufBpsSeen = totalSeen > sup ? (totalSeen - sup) * 10_000 / totalSeen : 0;
         console.log("buffer (bps) pre-deposit:", bufBps);
