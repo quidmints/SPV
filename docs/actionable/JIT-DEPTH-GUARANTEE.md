@@ -66,6 +66,20 @@ Recommendation: **(A)** for the guarantee (must be always-available), with (B) a
 
 ## 4. The `_withdraw` folding (the rest of the TODO)
 
+> ✅ **STATUS CORRECTED 2026-07-27 (MISS 1): ALL THREE ARE BUILT.** This section had marked them TODO
+> long after they shipped, which is why MISS 1 kept resurfacing. Verified in `Vogue.sol`:
+> 1. **Compound the QD** — BUILT. `_settlePending` is called with `mintRecipient == 0`, so the USD fee
+>    leg accrues to `usd_owed` (a deferred, unrealized claim — no mint) and is realized only on a FULL
+>    exit. The code carries the `§4.1 COMPOUND-not-transfer` marker.
+> 2. **Cover open levers first** — BUILT. `_withdraw` fires `closeLevFor` + `_reconcileLev` when the ask
+>    exceeds the LP's free depth (`amount > plainNet(pooled, levPooled)`), i.e. #109's auto-de-lever.
+>    (7 `closeLevFor` / 8 `_reconcileLev` references.)
+> 3. **CEI-ordering fix** — BUILT on the main path: `LP.pooled -= amount; lpShares -= amount;` (`:562`)
+>    precedes the `_burnInRange` send (`:566`), so state is decremented before the external call.
+>
+> The section is kept for its DESIGN rationale (Vogue:419 cites §4.1 for live semantics); only the
+> status was wrong.
+
 Independent of the JIT core, three `_withdraw` (`Vogue.sol:403`) changes from the TODO:
 1. **Compound the QD, don't transfer it** — `_settlePending` (`:340`) currently `QUID.mint(recipient, usdR)` for the USD-fee leg. On a **partial** withdraw, compound `usdR` into the remaining position (mirror the token leg's `LP.pooled += tokR`) instead of minting out; only mint-out the fee on a **full** exit. (Money-path: compounding = not realizing the mint, strictly conservative.)
 2. **Cover open levers first** — before the free-ladder burn, ensure the LP's open lev (`levPooled[msg.sender]`) is settled/covered (today the withdraw only *caps* at `pooled − levPooled`; the TODO wants it to actively cover/close first so a withdrawing LP can't strand a lever).

@@ -38,7 +38,7 @@ interface IEVC {
 /// @notice Per-LP ISOLATED leverage on a real Euler EVK market: each LP gets its OWN EVC **sub-account**
 ///         (`address(this) ^ subId`), so one LP's liquidation can never cascade into another's — and it
 ///         hits that LP's external account, never the QU!D basket. This is the on-chain arm of the
-///         keeper-managed `L=1/α` IL-protect (see docs/actionable/LEVERAGE-ENGINE-SPEC.md).
+///         keeper-managed `L=1/α` IL-protect (design now lives in LevManager.sol's header).
 ///
 ///         INVARIANT #1 (rehypothecation): `collVault` MUST be an **escrow** EVK vault — it holds the
 ///         weETH and never re-lends it (weETH still earns ether.fi staking *intrinsically*, since the

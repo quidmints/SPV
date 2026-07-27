@@ -55,7 +55,7 @@ interface ISwapAux { // the real Aux SOR surface (imports/ISwap.sol)
 ///         in band via `rebalance` and proactively de-levers via `deleverOne`/`cascadeDelever` so the
 ///         venue's liquidation engine never fires; a position it can't save falls to the venue's OWN
 ///         isolated liquidation (that LP only, never the basket). No QUI is minted; nothing touches
-///         `POOLED_USD`. Canonical design: docs/actionable/LEVERAGE-ENGINE-SPEC.md.
+///         `POOLED_USD`. (The old LEVERAGE-ENGINE-SPEC.md is gone; this file is the canonical design.)
 contract LevManager {
     // ── immutables ──
     IERC20Min public immutable WEETH;   // collateral token (ether.fi weETH)
@@ -487,7 +487,7 @@ contract LevManager {
         // separate unlevered band position. FIXED at open (the over-hedge fix): the collateral grows as the keeper
         // levers, but E0 stays = the deposit, so `targetDebt = E0·soldFrac` cancels the band's IL exactly. (Unlike
         // the old (B) two-pool model, there is no separate deliverable principal band — that isolation is traded
-        // for capital efficiency; the whole deposit is levered. See LEVERAGE-ENGINE-SPEC.md 2026-07-03.) SAFETY:
+        // for capital efficiency; the whole deposit is levered.) SAFETY:
         // the up-side-only clamp de-levers this toward 0 debt below entry, so the deposit is never held at 2× into
         // a crash. `entrySqrtP` still tracks the band for the sold-fraction reference.
         uint256 e0 = _collToEth(venue, collWeeth);   // (A): the deposit (weETH→ETH rate, or WETH 1:1) is the IL base

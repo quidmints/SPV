@@ -806,6 +806,14 @@ contract Core is SafeCallback {
             abi.decode(data, (uint128, uint160, int24, int24, int24, int24));
         BalanceDelta delta;
         (delta, fees) = _modifyLiquidity(-int(uint(myLiquidity)), oldLo, oldHi, isBTC);
+        // TRUSTED-ARG CHECK (audit residual, §A.24). `myLiquidity` is supplied by the caller (from
+        // `poolStats`), and `onlyUs` puts it inside the Vogue keeper trust boundary — but a STALE value
+        // fails ASYMMETRICALLY: too HIGH already reverts inside `_modifyLiquidity` (cannot remove more
+        // than exists), while too LOW silently under-removes and STRANDS liquidity in the old range,
+        // where the repack then re-seats around it and POOLED_* no longer equals realized depth.
+        // Assert the burn actually emptied the old position — the cheap, direct invariant.
+        require(StateLibrary.getPositionLiquidity(poolManager, _poolId(isBTC),
+            keccak256(abi.encodePacked(address(this), oldLo, oldHi, bytes32(0)))) == 0, "repack:stale");
         (delta0, delta1) = _handleDelta(delta, false, true, address(0), address(0), isBTC);
     }
 
