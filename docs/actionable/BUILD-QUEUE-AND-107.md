@@ -2921,3 +2921,33 @@ were checked before any of them is built against.
     depends on the ORDERING of the backing update vs the mint, which was NOT verified here.
     DO NOT build a fix until that ordering is read directly; the claim may be inverted.
 
+### §A.5f — IS PER-ACTION DELEGATION NEEDED? (user, 2026-07-28). Answer: yes, but NOT first.
+
+THE EXPOSURE IS REAL. `BtcLevManager.sol:361` — the fleet keeper "holds the LP key"; there is no
+separate on-chain keeper role. `Vogue.withdraw(assets, receiver, owner)` requires
+`owner == msg.sender` but leaves **`receiver` ARBITRARY**. So a keeper key = the ability to withdraw
+that LP's funds anywhere. On-chain the protocol cannot distinguish the LP from a keeper acting as it.
+
+DOES THE OFF-CHAIN SCOPE LAYER ALREADY COVER IT? **NO — checked, and this corrects an earlier guess.**
+`Scope` (`quid-common/src/api/auth.rs:173`) has exactly TWO variants, and `has_permission_for` is
+`(All, _) => true`, `(NodeConnect, All) => false`, `(NodeConnect, NodeConnect) => true`. That is
+coarse API-CLIENT authorisation, with no notion of EVM actions — there is no scope meaning "may
+re-lever but may NOT withdraw", and `quid-ln/src/command.rs:1843` notes the node owner holds
+`Scope::All`. `revocable_clients` gates API ACCESS, not transaction CONTENT.
+
+⇒ THE ACTUAL SECURITY MODEL TODAY: the ONLY thing constraining what the keeper signs is that the
+  enclave runs ATTESTED CODE which only ever builds bounded transactions. That is a property of the
+  code, not an enforced authorisation. Break the attestation chain and nothing else stands between a
+  keeper key and `withdraw(all, attacker, lp)`.
+
+RANKING:
+  1. **§A.43's attestation binding is LOAD-BEARING** — it is currently the SOLE mechanism constraining
+     keeper signing, so without it the non-custodial claim has no verifiable basis. One binding step
+     on otherwise-finished code (see the §A.43 correction above).
+  2. **§A.5f is the only layer that survives an enclave / attested-code compromise.** Genuine
+     defence-in-depth, NOT redundant with the off-chain scopes. But it is a new on-chain auth surface
+     (scheme, scope encoding, revocation, replay protection) protecting against enclave failure rather
+     than a currently-open hole.
+  3. **CHEAP PARTIAL** — constrain `receiver` on the LP-gated withdraw path (owner, or a
+     pre-registered address). Closes the drain vector without a general delegation framework.
+
