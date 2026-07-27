@@ -2566,3 +2566,43 @@ WITHOUT `--force` may have tested the ORIGINAL bytecode, making a perfectly good
 ⇒ **STANDING RULE: a mutation check MUST be `forge build --force` between the edit and the run.**
 Without it a green result means nothing. Budget for it — it is minutes, and the alternative is deleting
 good tests and shipping unpinned fixes, both of which happened here.
+
+## A.42 ✅ §A.39 RE-VERIFIED UNDER §A.41's RULE — the verdict stands, now on sound evidence
+
+§A.41 put §A.39 in doubt (its mutation may have tested stale bytecode). Re-run properly:
+- guard genuinely removed — **0 `_requireFreshHoldings()` call sites** confirmed before the run
+- **`forge build --force`** between mutation and test
+- **gas moved 3,357,235 → 3,155,875**, which PROVES different bytecode executed (this is the check that
+  was missing the first time — a mutation that does not move gas did not run)
+- payouts still byte-identical: `201000002771` stale vs `201000002771` fresh
+
+⇒ **§A.39 is CORRECT: a stale valuation does not let a redeemer extract more.** The harm is bounded
+downstream exactly as hypothesised — the take is limited by live availability and `_settleRedeem`
+derives the burn FROM delivery, so a stale-high quote yields a short delivery, a smaller burn, and a
+retained remainder. Four for four this session on "claimed loss turns out to be an accounting artifact".
+
+**The test is KEPT** (`test/A5eStaleCache.t.sol`) but labelled for what it actually is: it pins the
+PROPERTY (a stale cache cannot over-draw) — which holds because of downstream bounding — NOT the guard.
+That is a legitimate regression test; it is only misleading if described as pinning `_requireFreshHoldings`.
+The guard itself remains correct-but-unpinned, and cheap enough (77 B) to keep on its merits.
+
+⇒ **§A.8e and §A.20 still need the same treatment** before their verdicts are trusted: both deleted θ
+tests and the session-wide mutation audit were run WITHOUT `--force`.
+
+## A.43 🔴 DEDUP/BUILD — the EVM signer is NOT enclave-born, unlike the BTC keys (user, 2026-07-27)
+
+**User's finding, banked verbatim in substance:** `LocalSigner` IS built and is signing swaps/channels
+today inside `quid-bridge-daemon` — but it runs off an **env hot key (`QUID_HOT_KEY`)**. `RootSeed`
+derives **no EVM key**, so the EVM signer is *not* enclave-born / sealed / attested the way the BTC keys
+are. Two separate to-builds follow, and the second gates a product claim:
+1. 🔴 **The strat/leverage executor task** (the off-chain half of §A.5f's delegated-permission story).
+2. 🔴 **An enclave-sealed EVM identity** — derive the EVM key from `RootSeed` so it is born in the
+   enclave, `EGETKEY`-sealed and attested, exactly as the taproot/BTC signing keys already are.
+⇒ **This is a PREREQUISITE for the hosted-fleet ETH path to be genuinely non-custodial.** With an env
+hot key the operator can extract it, so the "operator can never extract the key" property that the BTC
+custody model provides does NOT currently hold on the ETH side. Do not describe the hosted ETH path as
+non-custodial until this lands.
+⇒ **Dedup angle (why it is filed here):** the BTC side already has the whole pattern — born-in-enclave
+seed, `EGETKEY` sealing, DCAP/RA-TLS attestation, Safe-authed migration. The EVM identity should REUSE
+that machinery rather than grow a parallel one; the work is extending `RootSeed`'s derivation and
+routing `LocalSigner` at it, not building a second custody stack.
