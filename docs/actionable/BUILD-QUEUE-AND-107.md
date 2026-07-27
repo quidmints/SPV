@@ -2496,3 +2496,34 @@ fresh at assert time in BOTH worlds. The marker is not a discriminator.
 the bound; make a stable vault report a LOWER value (`vm.mockCall` on its `convertToAssets`); redeem.
 WITHOUT the guard the redeemer values against the stale-HIGH backing and draws MORE; with it, the
 in-line refresh yields the smaller, correct payout. Assert on the PAYOUT DELTA between those two worlds.
+
+## A.39 ⚠️ §A.5e's *harm* COULD NOT BE DEMONSTRATED — the guard stays, the claim is downgraded
+
+Three independent attempts to pin the over-draw, each failing for a different and instructive reason:
+1. **Marker-based** (`holdingsRefreshedAt` within the bound after a redeem) — VACUOUS: passes with the
+   guard reverted, because `_refreshAllHoldings()` runs after `redeemAsBody` regardless, so the marker
+   is fresh in both worlds. The marker is not a discriminator.
+2. **Payout-based, devaluing via `convertToAssets(shares)`** — the mock never bit (payouts byte-identical
+   at 402000005559): it is ARG-MATCHED, and the code calls `convertToAssets` with different share
+   amounts. (Same lesson as §A.20's inert-mock class.)
+3. **Payout-based, devaluing via `balanceOf(AUX)`** — the mock DID bite (payout halved to 201000002780,
+   confirming the devaluation reached the valuation) — **and the payout was STILL byte-identical with
+   the guard reverted.**
+
+**Verified premise, unverified harm.** `BasketLib.get_deposits` genuinely reads the CACHE
+(`Holding storage h = storedHoldings[stable]; balance = h.balance;`), so a stale VALUATION is real. What
+could not be shown is the step from stale valuation to extra value extracted.
+⇒ **Most likely explanation, and it should be checked before anyone acts on §A.5e:** the take path is
+bounded by LIVE availability — a stale-high valuation lets a redeemer QUOTE more, but the draw can only
+deliver what is actually there, and `_settleRedeem` derives the burn FROM delivery ("burn follows
+delivery, never assumed ahead of it"), so a short delivery burns less and the remainder is RETAINED.
+That is the SAME shape as §A.9's phantom "~20% shortfall" and §A.29's "silent short": a claimed loss
+that turns out to be bounded or deferred downstream. **Three for three this session — treat
+"accounting artifact" as the default hypothesis for any claimed value loss here.**
+
+**The guard is KEPT anyway** — it is cheap (77 B), synchronous, self-healing, and valuing against
+bounded-fresh data is correct regardless of whether the specific over-draw is reachable. But §A.5e
+should no longer be described as a demonstrated over-draw.
+⇒ **To settle it definitively:** instrument `_settleRedeem` to log the QUOTED `perShare`/`freeUsd`
+against the DELIVERED amount under a stale cache. If quoted > delivered, the bound is doing the work and
+there is no extractable harm; if they are equal and both stale-high, the harm is real and reachable.
