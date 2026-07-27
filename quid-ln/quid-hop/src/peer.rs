@@ -21,7 +21,7 @@ use quid_ln::{
     logger::TracingLogger,
     p2p::{spawn_process_events_task, ConnectionTx, PeerManagerTrait},
 };
-use quid_tokio::{notify, notify_once::NotifyOnce, task::LxTask};
+use quid_async_util::{notify, notify_once::NotifyOnce, task::LxTask};
 use zeroize::Zeroizing;
 
 use crate::node::{

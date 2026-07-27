@@ -2359,3 +2359,55 @@ reads like "our fork of tokio" when it is "our helpers built on tokio". A rename
 would remove the ambiguity — cosmetic, non-urgent, and NOT done here.
 ⇒ The genuine hygiene issue in this area was the UNPINNED forks, now fixed in §A.32 (all 13 moved to
 explicit `rev =`).
+
+## A.35 🔴 TODO — audit the Rust workspace for dead crates/code, then E2E the BTC core (user, 2026-07-27)
+
+**User's ask, verbatim intent:** *"im not sure we need quid-api, there might be a lot [of] dead code in
+the rust folder — eventually we should check all those with e2e tests for all our solidity core work
+with BTC after we do these [other in-flight] items."*
+
+- 🔴 **`quid-api` may be unnecessary.** Suspected dead. Do NOT delete on suspicion — this session
+  produced two hard lessons about exactly that: `RevertingV3Router` looked dead to a `new X(` counter
+  but is used via `vm.etch(type(X).runtimeCode)`, and `LST-PEG-MONITOR` was deleted on its own status
+  line and had to be restored. **Test: is the crate in any binary's dependency graph?**
+  `cargo tree -i -p quid-api` answers it directly (cargo IS available — verified 2026-07-27).
+- 🔴 **Broader Rust dead-code sweep.** 25 workspace crates. Use the compiler, not greps: `cargo check`
+  emits `dead_code` warnings, and `#[allow(dead_code)]` markers already flag deliberate reservations
+  (e.g. `usd_to_vbtc_sats` is reserved for the #59/#74 native rail — NOT dead-by-accident). Anything
+  reachable only from `#[cfg(test)]` is also a candidate.
+- 🔴 **THEN E2E the BTC core against Solidity.** Sequence matters: prune first so the E2E covers what
+  actually ships. The rails already exist — `quid-hop`'s `evm_final` finality gate,
+  `decode_swap_out_requested`, `quid-bridge-daemon.rs`, `quid-watchtower.rs`, and the fork tests in
+  `VBtcLevFeeLane.t.sol` — so this is wiring an end-to-end path over built pieces, not new machinery.
+- **ORDERING (user):** do this AFTER the in-flight items below. It is a cleanup+coverage pass, not a
+  blocker for them.
+
+### Status correction — several items previously listed as open are now DONE
+Recorded so this list is not re-litigated from a stale quote:
+- ✅ **SPA drift D1/D2/D3** — FIXED (§A.21). D1 was the real bug (`uint[13]` vs the contract's
+  `uint[15]`, silently misdecoding `avgYield`/`depegLoss`); D2 was comments-only (indexing was already
+  correct); D3 was already clean. Plus `tools/check-client-abis.py` now EXISTS and found a second drift
+  (`exitInstant`) — 76 signatures, 0 drifted.
+- ✅ **§A.16 leverage cross-subsidy** — FIXED (§A.16b/c/d then the same-clock fix): the share price now
+  reads the levered book on the SAME CLOCK as the denominator. Steady state is byte-identical to the
+  old formula; the passive-LP test passes.
+- ✅ **The "guard that short-circuits past its own recovery path" sweep** — DONE (§A.17). Two detectors,
+  13 + 22 candidates; only the four already-fixed were real, and it caught my own θ overstatement.
+- ✅ **Doc verdicts + deletions** — DONE (§A.23 + §A.33): 18 docs → 7, each deletion verified in code.
+- ✅ **Interface consolidation, `__pycache__`, Gauntlet coverage, #113** — all done earlier this session.
+
+### Genuinely still open (the accurate list)
+§A.5e redeem stale-cache (needs a user decision) · §A.5f on-chain per-action delegation · §A.5g hop
+reconnector · §J.8 weETH-on-Aave venue leg · `VogueLib.depositETH` venue-share cap (LST-PEG-MONITOR's
+one surviving lever) · #12 POOLED_USD · MISS 1/4/6 · §J.2 Vogue/Vault refactor (gated on the round-trip
+proof) · §A.5c deliverableETH view-twin · §A.15 self-authorising forward tenor · §A.24 repack
+`myLiquidity` assertion · the native BTC rail #59/#74 + its force-close LLTV data gap · JIT-DEPTH §4
+status.
+
+### The vBTC synthesis worth keeping (user)
+**The liquidator blocker and the anonymity blocker are ONE problem.** Both reduce to vBTC having no
+bearer redemption, and both are held in place by the same explicit invariant — *"The LP never receives
+loose vBTC (that would double-claim the same channel BTC)."* Swap-out already proves the protocol can
+pay an arbitrary bearer at an arbitrary P2TR address with no channel (§A.19b), so what is missing is an
+entrypoint plus a source-of-funds rule — not a capability. Solve the invariant (aggregate
+Σ vBTC ≤ Σ free channel capacity) and BOTH blockers fall together.

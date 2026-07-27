@@ -82,7 +82,7 @@ use quid_common::{
     time::TimestampMs,
 };
 use quid_crypto::rng::RngCore;
-use quid_tokio::{notify, notify_once::NotifyOnce, task::LxTask};
+use quid_async_util::{notify, notify_once::NotifyOnce, task::LxTask};
 use tracing::{debug, info, instrument, warn};
 
 use crate::{

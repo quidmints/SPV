@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Instant};
 
 use anyhow::{Context, anyhow};
 use futures::future::Either;
-use quid_tokio::{notify, notify_once::NotifyOnce, task::LxTask};
+use quid_async_util::{notify, notify_once::NotifyOnce, task::LxTask};
 use lightning::chain::Confirm;
 use tokio::{
     sync::{mpsc, oneshot},

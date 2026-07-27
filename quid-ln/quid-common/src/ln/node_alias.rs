@@ -1,6 +1,6 @@
 use std::fmt::{self, Write};
 
-use quid_serde::hexstr_or_bytes;
+use quid_serde_util::hexstr_or_bytes;
 use lightning::routing::gossip::NodeAlias;
 use lightning_types::string::PrintableString;
 #[cfg(any(test, feature = "test-utils"))]

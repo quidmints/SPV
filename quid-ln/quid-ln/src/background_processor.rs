@@ -7,7 +7,7 @@ use std::{
 
 use quid_common::time::DisplayMs;
 use quid_crypto::rng::{RngExt, ThreadFastRng};
-use quid_tokio::{
+use quid_async_util::{
     events_bus::EventsBus, notify_once::NotifyOnce, task::LxTask,
 };
 use lightning::ln::msgs::RoutingMessageHandler;

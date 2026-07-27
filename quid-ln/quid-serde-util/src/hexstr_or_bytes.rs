@@ -4,7 +4,7 @@
 //! ## Example:
 //!
 //! ```rust
-//! use quid_serde::hexstr_or_bytes;
+//! use quid_serde_util::hexstr_or_bytes;
 //! use serde::{Deserialize, Serialize};
 //!
 //! #[derive(Serialize, Deserialize)]
@@ -82,7 +82,7 @@ where
 /// ```ignore
 /// struct PublicKey([u8; 32]);
 ///
-/// quid_serde::impl_serde_hexstr_or_bytes!(PublicKey);
+/// quid_serde_util::impl_serde_hexstr_or_bytes!(PublicKey);
 /// ```
 #[macro_export]
 macro_rules! impl_serde_hexstr_or_bytes {

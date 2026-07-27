@@ -110,7 +110,7 @@ use quid_common::{api::user::NodePk, ln::addr::LxSocketAddress};
 use quid_crypto::rng::{RngExt, ThreadFastRng};
 use quid_hex::hex;
 use quid_std::{Apply, backoff};
-use quid_tokio::{
+use quid_async_util::{
     notify,
     notify_once::NotifyOnce,
     task::{LxTask, MaybeLxTask},
@@ -1169,7 +1169,7 @@ mod test {
 
     use io::BufRead;
     use quid_crypto::rng::{RngCore, RngExt, RngSliceExt, ThreadFastRng};
-    use quid_tokio::task::LxTask;
+    use quid_async_util::task::LxTask;
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
         sync::oneshot,
@@ -1729,7 +1729,7 @@ mod ldk_test {
     };
     use quid_common::secp256k1_ctx::SECP256K1;
     use quid_crypto::rng::{FastRng, RngExt, ThreadFastRng};
-    use quid_tokio::task::LxTask;
+    use quid_async_util::task::LxTask;
     use lightning::{
         ln::{
             inbound_payment::ExpandedKey,

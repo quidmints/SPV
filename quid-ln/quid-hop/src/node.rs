@@ -85,7 +85,7 @@ use quid_ln::{
     tx_broadcaster::TxBroadcaster,
     wallet::{self, ChangeSet, CoinSelector, OnchainWallet},
 };
-use quid_tokio::{
+use quid_async_util::{
     events_bus::EventsBus, notify, notify_once::NotifyOnce, task::LxTask,
 };
 

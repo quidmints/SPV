@@ -35,7 +35,7 @@ quid-hex = { workspace = true }
 quid-std = { workspace = true }
 quid-tls = { workspace = true }
 quid-tls-core = { workspace = true, features = ["webpki-roots"] }
-quid-tokio = { workspace = true }
+quid-async-util = { workspace = true }
 
 # --- WORKSPACE --- #
 

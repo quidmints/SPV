@@ -1,9 +1,9 @@
 [package]
-name = "quid-tokio"
+name = "quid-async-util"
 version = "0.1.11"
 license = "MIT"
 description = "Quid tokio extension crate"
-documentation = "https://docs.rs/quid-tokio"
+documentation = "https://docs.rs/quid-async-util"
 authors = { workspace = true }
 edition = { workspace = true }
 readme = { workspace = true }

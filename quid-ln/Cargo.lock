@@ -3064,11 +3064,11 @@ dependencies = [
  "proptest",
  "proptest-derive",
  "quid-api-core",
+ "quid-async-util",
  "quid-common",
  "quid-crypto",
  "quid-std",
  "quid-tls",
- "quid-tokio",
  "rand_core 0.6.4",
  "reqwest",
  "rustls",
@@ -3104,7 +3104,7 @@ dependencies = [
  "quid-crypto",
  "quid-enclave",
  "quid-hex",
- "quid-serde",
+ "quid-serde-util",
  "quid-sha256",
  "quid-std",
  "ref-cast",
@@ -3118,6 +3118,17 @@ dependencies = [
  "serde_with",
  "strum",
  "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
+name = "quid-async-util"
+version = "0.1.11"
+dependencies = [
+ "futures",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-test",
  "tracing",
 ]
 
@@ -3184,7 +3195,7 @@ dependencies = [
  "quid-crypto",
  "quid-enclave",
  "quid-hex",
- "quid-serde",
+ "quid-serde-util",
  "quid-sha256",
  "quid-std",
  "rand_core 0.6.4",
@@ -3215,7 +3226,7 @@ dependencies = [
  "proptest-derive",
  "quid-byte-array",
  "quid-hex",
- "quid-serde",
+ "quid-serde-util",
  "quid-sha256",
  "quid-std",
  "rand_core 0.6.4",
@@ -3246,7 +3257,7 @@ dependencies = [
  "proptest-derive",
  "quid-byte-array",
  "quid-hex",
- "quid-serde",
+ "quid-serde-util",
  "quid-sha256",
  "quid-std",
  "ref-cast",
@@ -3281,6 +3292,7 @@ dependencies = [
  "proptest",
  "quid-api",
  "quid-api-core",
+ "quid-async-util",
  "quid-common",
  "quid-crypto",
  "quid-cvm",
@@ -3288,7 +3300,6 @@ dependencies = [
  "quid-hex",
  "quid-ln",
  "quid-std",
- "quid-tokio",
  "reqwest",
  "secp256k1",
  "serde",
@@ -3326,6 +3337,7 @@ dependencies = [
  "proptest-derive",
  "quick_cache",
  "quid-api",
+ "quid-async-util",
  "quid-common",
  "quid-crypto",
  "quid-enclave",
@@ -3333,7 +3345,6 @@ dependencies = [
  "quid-std",
  "quid-tls",
  "quid-tls-core",
- "quid-tokio",
  "reqwest",
  "rust_decimal",
  "secrecy",
@@ -3370,7 +3381,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "quid-serde"
+name = "quid-serde-util"
 version = "0.1.11"
 dependencies = [
  "base64 0.21.7",
@@ -3449,7 +3460,7 @@ dependencies = [
  "quid-crypto",
  "quid-enclave",
  "quid-hex",
- "quid-serde",
+ "quid-serde-util",
  "quid-sha256",
  "quid-tls-core",
  "rcgen",
@@ -3499,17 +3510,6 @@ dependencies = [
  "rustls",
  "rustls-webpki",
  "webpki-roots 1.0.7",
-]
-
-[[package]]
-name = "quid-tokio"
-version = "0.1.11"
-dependencies = [
- "futures",
- "thiserror 2.0.18",
- "tokio",
- "tokio-test",
- "tracing",
 ]
 
 [[package]]

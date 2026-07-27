@@ -19,7 +19,7 @@ use quid_common::{
 };
 use quid_crypto::rng::{RngCore, RngSliceExt};
 use quid_tls_core::rustls;
-use quid_tokio::{notify_once::NotifyOnce, task::LxTask};
+use quid_async_util::{notify_once::NotifyOnce, task::LxTask};
 use lightning::chain::chaininterface::{
     ConfirmationTarget, FEERATE_FLOOR_SATS_PER_KW, FeeEstimator,
 };

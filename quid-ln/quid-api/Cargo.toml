@@ -33,7 +33,7 @@ quid-common = { workspace = true }
 quid-crypto = { workspace = true }
 quid-std = { workspace = true }
 quid-tls = { workspace = true }
-quid-tokio = { workspace = true }
+quid-async-util = { workspace = true }
 
 # --- WORKSPACE --- #
 

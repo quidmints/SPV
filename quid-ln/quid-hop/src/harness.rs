@@ -147,7 +147,7 @@ pub async fn connect(
     from: &HopNode,
     to_pk: &quid_common::api::user::NodePk,
     to_port: u16,
-) -> quid_tokio::task::MaybeLxTask<()> {
+) -> quid_async_util::task::MaybeLxTask<()> {
     use quid_common::ln::addr::LxSocketAddress;
     let addr = LxSocketAddress::TcpIpv4 {
         ip: std::net::Ipv4Addr::LOCALHOST,

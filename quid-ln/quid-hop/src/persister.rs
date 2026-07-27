@@ -17,7 +17,7 @@ use anyhow::{anyhow, bail};
 use async_trait::async_trait;
 use serde::Serialize;
 use tracing::{error, warn};
-use quid_tokio::notify_once::NotifyOnce;
+use quid_async_util::notify_once::NotifyOnce;
 
 use lightning::{
     chain::{

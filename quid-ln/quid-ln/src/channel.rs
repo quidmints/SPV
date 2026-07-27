@@ -5,7 +5,7 @@ use lightning::events::ClosureReason;
 ///
 /// Tail these events using the [`EventsBus`].
 ///
-/// [`EventsBus`]: quid_tokio::events_bus::EventsBus
+/// [`EventsBus`]: quid_async_util::events_bus::EventsBus
 #[derive(Clone)]
 pub enum ChannelEvent {
     Pending {

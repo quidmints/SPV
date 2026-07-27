@@ -1,9 +1,9 @@
 [package]
-name = "quid-serde"
+name = "quid-serde-util"
 version = "0.1.11"
 license = "MIT"
 description = "Quid SDK serde derive helpers"
-documentation = "https://docs.rs/quid-serde"
+documentation = "https://docs.rs/quid-serde-util"
 authors = { workspace = true }
 edition = { workspace = true }
 readme = { workspace = true }

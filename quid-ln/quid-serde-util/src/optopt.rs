@@ -13,7 +13,7 @@
 //! 3. "set" the label (rust: `Some(Some("foo"))`, json: `{"label": "foo"}`)
 //!
 //! ```rust
-//! use quid_serde::optopt::{self, none};
+//! use quid_serde_util::optopt::{self, none};
 //! use serde::{Deserialize, Serialize};
 //! #[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
 //! struct UpdateRequest {

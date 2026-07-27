@@ -44,7 +44,7 @@ quid-common = { workspace = true }
 quid-crypto = { workspace = true }
 quid-enclave = { workspace = true }
 quid-hex = { workspace = true }
-quid-serde = { workspace = true }
+quid-serde-util = { workspace = true }
 quid-sha256 = { workspace = true }
 quid-tls-core = { workspace = true, features = ["webpki-roots"] }
 

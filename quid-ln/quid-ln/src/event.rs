@@ -12,7 +12,7 @@ use quid_common::{
     time::TimestampMs,
 };
 use quid_crypto::rng::{RngExt, SysRng};
-use quid_tokio::{notify_once::NotifyOnce, task::LxTask};
+use quid_async_util::{notify_once::NotifyOnce, task::LxTask};
 use lightning::{
     chain::{
         chaininterface::{ConfirmationTarget, FeeEstimator},

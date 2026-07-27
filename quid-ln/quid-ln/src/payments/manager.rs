@@ -24,7 +24,7 @@ use quid_common::{
     ln::{amount::Amount, hashes::Txid},
     time::TimestampMs,
 };
-use quid_tokio::{notify, notify_once::NotifyOnce, task::LxTask};
+use quid_async_util::{notify, notify_once::NotifyOnce, task::LxTask};
 #[cfg(doc)]
 use lightning::events::Event::PaymentFailed;
 use lightning::{

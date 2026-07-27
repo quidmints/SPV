@@ -3,7 +3,7 @@ use std::{ops::Deref, sync::Arc, time::Duration};
 use anyhow::{Context, anyhow};
 use quid_common::api::test_event::TestEvent;
 use quid_std::const_assert;
-use quid_tokio::{DEFAULT_CHANNEL_SIZE, notify_once::NotifyOnce, task::LxTask};
+use quid_async_util::{DEFAULT_CHANNEL_SIZE, notify_once::NotifyOnce, task::LxTask};
 use lightning::chain::chaininterface::BroadcasterInterface;
 use thiserror::Error;
 use tokio::sync::{

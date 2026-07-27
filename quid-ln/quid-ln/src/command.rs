@@ -65,7 +65,7 @@ use quid_tls::{
     shared_seed::certs::{RevocableClientCert, RevocableIssuingCaCert},
     types::LxCertificateDer,
 };
-use quid_tokio::events_bus::{EventsBus, EventsRx};
+use quid_async_util::events_bus::{EventsBus, EventsRx};
 use lightning::{
     ln::{
         channel_state::ChannelDetails,

@@ -4,7 +4,7 @@
 //! ## Example:
 //!
 //! ```rust
-//! use quid_serde::base64_or_bytes;
+//! use quid_serde_util::base64_or_bytes;
 //! use serde::{Deserialize, Serialize};
 //!
 //! #[derive(Serialize, Deserialize)]
@@ -24,7 +24,7 @@ use serde_core::{Deserializer, Serializer, de, ser};
 ///
 /// ```
 /// # use std::borrow::Cow;
-/// use quid_serde::base64_or_bytes::FromBase64;
+/// use quid_serde_util::base64_or_bytes::FromBase64;
 /// let s = String::from("gVX5KuLzr9SI4grp0P1mq1ABHCXXleQA/rPIqofhlxE=");
 ///
 /// let vec = <Vec<u8>>::from_base64(&s).unwrap();

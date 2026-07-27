@@ -24,7 +24,7 @@ use quid_common::{
     time::TimestampMs,
 };
 use quid_crypto::rng::{RngCore, ThreadFastRng};
-use quid_serde::{base64_or_bytes, hexstr_or_bytes};
+use quid_serde_util::{base64_or_bytes, hexstr_or_bytes};
 use quid_std::const_assert_mem_size;
 #[cfg(any(test, feature = "test-utils"))]
 use proptest::{

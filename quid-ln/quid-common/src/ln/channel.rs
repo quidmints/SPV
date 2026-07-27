@@ -3,7 +3,7 @@ use std::{fmt, str::FromStr};
 use anyhow::Context;
 use quid_byte_array::ByteArray;
 use quid_crypto::rng::{RngCore, RngExt};
-use quid_serde::hexstr_or_bytes;
+use quid_serde_util::hexstr_or_bytes;
 use quid_sha256::sha256;
 use quid_std::Apply;
 use lightning::{

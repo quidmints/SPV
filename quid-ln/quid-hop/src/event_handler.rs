@@ -38,7 +38,7 @@ use quid_ln::{
     wallet::OnchainWallet,
 };
 use quid_common::ln::channel::LxChannelId;
-use quid_tokio::notify_once::NotifyOnce;
+use quid_async_util::notify_once::NotifyOnce;
 
 use quid_common::api::user::NodePk;
 

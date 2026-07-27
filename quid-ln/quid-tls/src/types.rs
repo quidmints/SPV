@@ -6,7 +6,7 @@ use anyhow::Context;
 use base64::Engine as _;
 #[cfg(any(test, feature = "test-utils"))]
 use quid_common::test_utils::arbitrary;
-use quid_serde::hexstr_or_bytes;
+use quid_serde_util::hexstr_or_bytes;
 #[cfg(any(test, feature = "test-utils"))]
 use proptest_derive::Arbitrary;
 use rustls::pki_types::{

@@ -14,7 +14,7 @@ quid-common = { path = "../quid-common" }
 quid-enclave = { path = "../quid-enclave" }
 quid-hex = { path = "../quid-hex" }
 quid-std = { path = "../quid-std" }
-quid-tokio = { path = "../quid-tokio" }
+quid-async-util = { path = "../quid-async-util" }
 bitcoin = { workspace = true }
 # Recoverable ECDSA over secp256k1 — for verifying k-of-n EVM/EIP-712 operator
 # (Gnosis Safe owner) signatures over a MigrationAuth (migration.rs). Same 0.29

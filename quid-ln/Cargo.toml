@@ -15,9 +15,9 @@ members = [
     "quid-tls-attest-server",
     "quid-tls-core",
     "quid-sgxs-sign",
-    "quid-tokio",
+    "quid-async-util",
     "quid-byte-array",
-    "quid-serde",
+    "quid-serde-util",
     "quid-sha256",
     "quid-hop",
     "quid-bridge",
@@ -76,12 +76,12 @@ quid-common = { version = "0.1.11", path = "quid-common" }
 quid-crypto = { version = "0.1.11", path = "quid-crypto" }
 quid-enclave = { version = "0.1.11", path = "quid-enclave" }
 quid-hex = { version = "0.1.11", path = "quid-hex" }
-quid-serde = { version = "0.1.11", path = "quid-serde" }
+quid-serde-util = { version = "0.1.11", path = "quid-serde-util" }
 quid-sha256 = { version = "0.1.11", path = "quid-sha256" }
 quid-std = { version = "0.1.11", path = "quid-std" }
 quid-tls = { version = "0.1.11", path = "quid-tls" }
 quid-tls-core = { version = "0.1.11", path = "quid-tls-core" }
-quid-tokio = { version = "0.1.11", path = "quid-tokio" }
+quid-async-util = { version = "0.1.11", path = "quid-async-util" }
 sdk-uniffi = { version = "0.1.1", path = "sdk-uniffi" }
 
 # --- EXTERNAL DEPENDENCIES --- #

@@ -40,7 +40,7 @@ quid-byte-array = { workspace = true }
 quid-common = { workspace = true }
 quid-crypto = { workspace = true }
 quid-enclave = { workspace = true }
-quid-serde = { workspace = true }
+quid-serde-util = { workspace = true }
 quid-sha256 = { workspace = true }
 quid-std = { workspace = true }
 

@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use anyhow::anyhow;
 use quid_crypto::ed25519;
-use quid_serde::{
+use quid_serde_util::{
     base64_or_bytes,
     optopt::{self, none},
 };

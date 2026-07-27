@@ -5,7 +5,7 @@ use std::{
 use anyhow::{Context, anyhow};
 use futures::{StreamExt, stream::FuturesUnordered};
 use quid_common::ln::channel::{LxChannelId, LxOutPoint};
-use quid_tokio::{notify_once::NotifyOnce, task::LxTask};
+use quid_async_util::{notify_once::NotifyOnce, task::LxTask};
 use lightning::{
     chain::transaction::OutPoint, ln::types::ChannelId,
     util::persist::MonitorName,

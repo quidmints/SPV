@@ -43,7 +43,7 @@ use std::{
 
 use quid_byte_array::ByteArray;
 use quid_hex::hex::{self, FromHex};
-use quid_serde::impl_serde_hexstr_or_bytes;
+use quid_serde_util::impl_serde_hexstr_or_bytes;
 use quid_sha256::sha256;
 use quid_std::const_utils;
 use ref_cast::RefCast;

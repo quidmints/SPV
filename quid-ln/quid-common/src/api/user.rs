@@ -6,7 +6,7 @@ use quid_crypto::ed25519::{self, Signable};
 #[cfg(any(test, feature = "test-utils"))]
 use quid_crypto::rng::FastRng;
 use quid_hex::hex;
-use quid_serde::hexstr_or_bytes;
+use quid_serde_util::hexstr_or_bytes;
 use quid_sha256::sha256;
 use quid_std::array;
 #[cfg(any(test, feature = "test-utils"))]

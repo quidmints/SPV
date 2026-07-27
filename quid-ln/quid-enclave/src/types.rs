@@ -2,7 +2,7 @@ use std::{borrow::Cow, error::Error as StdError, fmt, io, mem};
 
 use quid_byte_array::ByteArray;
 use quid_hex::hex;
-use quid_serde::impl_serde_hexstr_or_bytes;
+use quid_serde_util::impl_serde_hexstr_or_bytes;
 use quid_sha256::sha256;
 #[cfg(any(test, feature = "test-utils"))]
 use proptest_derive::Arbitrary;

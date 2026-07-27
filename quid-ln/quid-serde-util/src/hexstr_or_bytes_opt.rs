@@ -4,7 +4,7 @@
 //! ## Example:
 //!
 //! ```rust
-//! use quid_serde::hexstr_or_bytes_opt;
+//! use quid_serde_util::hexstr_or_bytes_opt;
 //! use serde::{Deserialize, Serialize};
 //!
 //! #[derive(Serialize, Deserialize)]

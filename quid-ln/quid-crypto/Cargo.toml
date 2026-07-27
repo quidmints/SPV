@@ -27,7 +27,7 @@ test-utils = [
 
 quid-byte-array = { workspace = true }
 quid-hex = { workspace = true }
-quid-serde = { workspace = true }
+quid-serde-util = { workspace = true }
 quid-sha256 = { workspace = true }
 quid-std = { workspace = true }
 
