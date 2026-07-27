@@ -2110,3 +2110,33 @@ depth simultaneously (they must shuttle real assets vault↔pool every swap); an
 value-bearing attack surface (mock tokens are worthless outside the system), which is why we need none
 of their `emergencyRevokeVault`/vault-vetting/native-ETH-rejection machinery. Gas remains UNMEASURED
 against their implementation — do not claim it.
+
+## A.27 ✅ THE `_effectiveAssets` QUESTION, ANSWERED — we DO over-quote, but we MATERIALISE rather than cap
+
+Prompted by DualPoolStableHook capping quotes at `_effectiveAssets` to prevent over-claiming against
+reserves. **Yes, our band can quote depth it cannot immediately deliver** — and the code already knew,
+at `Vogue.sol:954`: the swap prices against `POOLED_ETH`, which INCLUDES the levered slice, while
+`deliverableETH` EXCLUDES lev net-equity. That gap is the "§M phantom depth".
+
+**We take the opposite approach to Uniswap's, deliberately:**
+- **They CAP** the quote at effective reserves — the taker simply gets less.
+- **We OVERDRAW then MATERIALISE**: when the venue base is exhausted mid-delivery,
+  `SwapLib.deleverEthOnDelivery` de-levers the levered book **with the swap's own proceeds**, converting
+  phantom depth into real deliverable ETH. Value-neutral per LP (−collateral −debt of equal oracle
+  value), and explicitly NOT the removed toxic `arbETH` (which spent shared basket surplus) — it repays
+  each LP's OWN debt.
+⇒ Ours quotes MORE usable depth for the same reserves; theirs is simpler and cannot short-deliver.
+The tradeoff is real work on the delivery path, so it must actually work — which is why the marker
+below mattered.
+
+**Stale marker cleared.** That paragraph was tagged `🔴 UNVERIFIED — fork-test w/ DeleverEthBackingProbe`.
+The test it asks for is `testReal_DeleverEthBacking_SwapOutTapsLeveredSlice` — written earlier in THIS
+session, found never to have been executed, fixed (its `debtOf` units were native-decimals, not USD
+1e18), and now passing on a real Morpho/Euler fork with value-neutrality, LTV improvement and
+no-phantom-depth all asserted. Marker updated to ✅ VERIFIED.
+
+⚠️ **Residual worth noting:** materialising depends on the levered book HAVING room to de-lever. With no
+levered positions open, the phantom depth is simply absent (POOLED_ETH == deliverable, no gap), so this
+is self-consistent — but a fully de-levered book plus exhausted venue base is the case where a taker
+CAN still be short-delivered (`sent = wethBal >= amount ? amount : wethBal`). That silent-short path is
+§A.5's open item and is NOT closed by this.

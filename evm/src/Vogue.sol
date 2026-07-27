@@ -951,7 +951,9 @@ contract Vogue is
                 uint got = EV.vogueOp(false,
                        needed - inWETH, 1, bytes32(0));
                              inWETH += got;
-                // §M.1 (🔴 UNVERIFIED — fork-test w/ DeleverEthBackingProbe): the WETH venue base
+                // §M.1 (✅ VERIFIED 2026-07-27 by testReal_DeleverEthBacking_SwapOutTapsLeveredSlice, real
+                // Morpho/Euler fork — value-neutrality, LTV improvement and no-phantom-depth all asserted):
+                // the WETH venue base
                 // (deliverableETH, net-equity-excluded) is exhausted but POOLED_ETH priced the swap against the
                 // levered slice too — so de-lever the levered book with the swap's OWN proceeds, turning the §M
                 // phantom depth into REAL deliverable ETH. VALUE-NEUTRAL per LP; NOT the removed toxic arbETH
