@@ -1933,3 +1933,38 @@ originating channel, because a liquidator cannot underwrite that counterparty ri
   compensation — the SAME class of problem as §A.16's cross-subsidy, and worth solving together.
 - **Liquidation interaction**: with pooled redemption, a seized vBTC position is exitable, which is what
   makes an external lending market viable — the payoff that justifies the work.
+
+## A.20 SWEEP — vacuous tests ("passes for a reason unrelated to its premise"), 2026-07-27
+
+Run because §A.8b#5 promised it and never delivered — the user caught the omission. Three instances had
+already been hit by hand this session (the two LiquidityRace thaw tests; BOTH of my θ tests), so the
+class is real.
+
+**Two distinct shapes, and only one is cheaply automatable:**
+
+**(1) INERT MOCK — the test mocks something the code under test no longer reads.** Automatable:
+extract every `vm.mockCall` selector in `test/`, check it is still CALLED in `src/`. Result: 16 distinct
+mocked functions, **no genuine inert mocks**. The 4 flagged were false positives — `selector`/`sevSel`
+are local variables, and `ethAmountLockedFor*` mock ETHER.FI'S OWN contracts (LiquidityPool
+`0x308861A4…`, RedemptionManager `0x35e7D6fe…`), which our `src` legitimately never calls because
+ether.fi's code reads them. ⇒ **Detector refinement for next time: only flag a mock whose TARGET
+ADDRESS is one of our own contracts.** A mock on a third party proves nothing either way.
+
+**(2) UNREACHABLE ASSERTION — the assertion is satisfied by an EARLIER short-circuit, so the branch
+under test never runs.** This is the one that bit twice (θ), and it is NOT statically detectable —
+the only sound check is MUTATION: revert the fix and confirm the test flips to red. Cheaply, that is
+`--match-contract <OneProbe> --match-test <name>` (~30s), not a full-suite run.
+
+**Mutation status of the tests this session touched** (honest audit):
+- ✅ #113 units, Strand-2 retarget, `_mockVenueIlliquid` thaw fix, the 5 ETH+WETH assertion fixes,
+  `_crashBand`/anchor fixes — all were RED before and GREEN after, i.e. mutation-verified by construction.
+- ✅ `test_PokeVaultHealth_HealthyMorphoV2_NotBlocked` (new) — without `_withdrawableOf` the venue IS
+  blocked, so it binds.
+- ✅ `testGauntletVenue_DepositAndFullExit` (new) — asserts `maxWithdraw == 0` AND `deliverable == 20`,
+  which only both hold with the fix.
+- ✅ The share-price fix (§A.16, second attempt) — verified by an ABSOLUTE byte-identity assertion,
+  the precise check the reverted first attempt would have failed.
+- ⛔ Both θ tests — did NOT bind, and were DELETED rather than kept (§A.8e).
+
+⇒ **Standing rule earned from this: a test written to pin a fix is not done until it has been shown to
+FAIL without that fix.** Cheap enough (~30s) that there is no excuse to skip it.
