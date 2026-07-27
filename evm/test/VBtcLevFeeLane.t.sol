@@ -671,7 +671,7 @@ contract VBtcLevFeeLane is Alles {
     }
 
     function _levDelivSwapId() internal pure returns (bytes32) { return keccak256("delever54-swapout"); }
-    function _levDelivScript() internal pure returns (bytes memory) { return abi.encodePacked(hex"0014", bytes20(uint160(0x54))); }
+    function _levDelivScript() internal pure returns (bytes memory) { return abi.encodePacked(hex"5120", keccak256(abi.encode(0x54))); }
 
     /// Pre-delivery snapshot: funded band, venue debt/collateral, net-equity, LTV, levered slice, LP QUID.
     function _snapLevPosition(LevDelivery memory d) internal {

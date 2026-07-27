@@ -1154,15 +1154,42 @@ contract Vogue is
         return AUX.vogueETH();
     }
 
+    /// @dev Pricing backing: `vogueETH` with the levered book restated onto the SAME CLOCK as the
+    ///      denominator. `vogueETH` adds `totalNetEquityEth()` read LIVE from the venues
+    ///      (`VaultLib:150`), but the matching term inside `lpShares` is `totalLevPooled`, which is
+    ///      STORED and only refreshed by `_reconcileLev`/`syncLev` — i.e. on the levered LP's own next
+    ///      action. Live numerator over lazy denominator is the whole defect (§A.16b): an external
+    ///      Morpho liquidation cut the numerator instantly while the denominator still carried the
+    ///      seized collateral, so the price fell 32% for EVERY holder and a passive LP absorbed ~half
+    ///      of a liquidation it had no part in.
+    ///
+    ///      Swapping the LIVE term for the RECORDED one makes both sides move together: while the book
+    ///      is stale the price is simply unchanged, and when reconciliation lands, the levered LP's own
+    ///      shares burn alongside the backing. NOT the same as netting the levered book OUT — that was
+    ///      tried and REVERTED (§A.16d): the levered capital is commingled in the band, so removing it
+    ///      strips backing that genuinely supports plain claims (measured: 69% under-pricing).
+    ///      In steady state (`totalNetEquityEth == totalLevPooled`) this is EXACTLY `vogueETH`, so
+    ///      normal-case pricing is byte-identical to before.
+    function _pricingBacking() internal view returns (uint total) {
+        total = AUX.vogueETH();
+        address lm = VogueLib.levManager(address(AUX));
+        if (lm == address(0)) return total;
+        // GUARDED like every other lev read: a broken manager must not brick share pricing.
+        try ILevEquityV(lm).totalNetEquityEth() returns (uint live) {
+            total = total > live ? total - live : 0;   // drop the LIVE term
+            total += totalLevPooled;                   // restore the RECORDED one (denominator's clock)
+        } catch {}
+    }
+
     function convertToShares(uint assets) 
         public view returns (uint) {
-        uint total = AUX.vogueETH();
+        uint total = _pricingBacking();
         if (lpShares == 0 || total == 0) return assets;
         return FullMath.mulDiv(assets, lpShares, total);
     }
 
     function convertToAssets(uint shares) public view returns (uint) {
-        uint total = AUX.vogueETH();
+        uint total = _pricingBacking();
         if (lpShares == 0 || total == 0) return shares;
         return FullMath.mulDiv(shares, total, lpShares);
     }

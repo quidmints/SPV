@@ -2002,7 +2002,7 @@ contract Alles is Test, Fixtures {
         // drain POOLED_BTC below shares -> arb refill, which routes to a recipient).
         vm.prank(swapper); ch.setBtcRecipient(bytes32(uint(0xB7C2)));
 
-        bytes memory swapperScript = abi.encodePacked(hex"0014", bytes20(uint160(0x5A7C))); // P2WPKH
+        bytes memory swapperScript = abi.encodePacked(hex"5120", keccak256(abi.encode(0x5A7C))); // P2WPKH
         bytes32 swapId = keccak256("quid-swap-out-onchain");
 
         // Edge (on fresh price, before the main swap moves it): an unreachable
@@ -2084,7 +2084,7 @@ contract Alles is Test, Fixtures {
         address swapper = User02;
         vm.prank(swapper); USDC.approve(address(AUX), type(uint).max);
         vm.prank(swapper); ch.setBtcRecipient(bytes32(uint(0xB7C3)));
-        bytes memory swapperScript = abi.encodePacked(hex"0014", bytes20(uint160(0x5A7D)));
+        bytes memory swapperScript = abi.encodePacked(hex"5120", keccak256(abi.encode(0x5A7D)));
         bytes32 swapId = keccak256("quid-swap-out-timeout-refund");
 
         vm.prank(swapper);
