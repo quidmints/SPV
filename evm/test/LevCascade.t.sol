@@ -262,7 +262,6 @@ contract LevCascadeProbe is Alles {
         lm.rebalance(lps[0], 0);                                 // real levered position
         _calmVol();                                             // θ recovers ⇒ syncLev can add the depth
 
-        uint pe0 = CORE.POOLED_ETH();
         uint pu0 = CORE.POOLED_USD_ETH();
         V4.syncLev(lps[0]);                                     // mint the levered band slice (tokenless)
         uint lev = V4.levPooled(lps[0]);

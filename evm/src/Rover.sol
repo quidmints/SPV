@@ -388,7 +388,7 @@ contract Rover is ReentrancyGuard, Ownable {
             deadline: block.timestamp }));
     }
 
-    function _collect(uint price) internal
+    function _collect(uint /*unused*/) internal
         returns (uint amount0, uint amount1) {
         (amount0, amount1) = NFPM.collect(
             INonfungiblePositionManager.CollectParams(ID,
@@ -550,7 +550,7 @@ contract Rover is ReentrancyGuard, Ownable {
 
     function deposit(uint amount)
         external nonReentrant payable {
-        (uint128 liq, uint price, uint160 sqrtPrice) = fetch(msg.sender);
+        ( , uint price, uint160 sqrtPrice) = fetch(msg.sender);
         if (amount > 0) ERC20(weth).safeTransferFrom(msg.sender, address(this), amount);
         if (msg.value > 0) { require(nativeWETH, "no native wrap");
             weth.deposit{value: msg.value}();
@@ -662,8 +662,7 @@ contract Rover is ReentrancyGuard, Ownable {
     // if msg.sender != address(AUX)
     function withdraw(uint amount) public nonReentrant {
         require(amount > 0 && amount <= 1000, "%");
-        (uint128 liq, uint price,
-         uint160 sqrtPrice) = fetch(msg.sender);
+        (uint128 liq, , ) = fetch(msg.sender);   // price/sqrtPrice unused here (compiler-flagged)
         require(liq > 0, "nothing to withdraw");
         uint128 withdrawingShares = uint128(FullMath.mulDiv(
                                     amount, uint(liq), 1000));

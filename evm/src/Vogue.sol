@@ -822,14 +822,14 @@ contract Vogue is
     /// @notice θ derived live: yield / (K·σ²), clamped to ≤1. Body in VogueLib
     ///         (EIP-170 headroom); band ticks + Core/Aux handles passed in.
     function derivedThetaWad(bool isBTC) public view returns (uint) {
-        return VogueLib.derivedThetaWad(address(V4), address(AUX), LOWER_TICK, UPPER_TICK, isBTC);
+        return VogueLib.derivedThetaWad(address(V4), LOWER_TICK, UPPER_TICK, isBTC);
     }
 
     /// @notice θ for an EXPLICIT band range. The BTC band ticks live in the Vault (LOWER_TICK_BTC/
     ///         UPPER_TICK_BTC), so it passes them in here -- Vogue stays the single home of the band-θ
     ///         math for BOTH pools, and the Vault needs no VogueLib link of its own.
     function derivedThetaWadAt(int24 lo, int24 up, bool isBTC) public view returns (uint) {
-        return VogueLib.derivedThetaWad(address(V4), address(AUX), lo, up, isBTC);
+        return VogueLib.derivedThetaWad(address(V4), lo, up, isBTC);
     }
 
     /// @notice Annualized realized variance (WAD) from Core's oracle ring. Body in VogueLib.

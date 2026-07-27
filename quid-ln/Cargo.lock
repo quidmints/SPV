@@ -23,7 +23,7 @@ dependencies = [
 [[package]]
 name = "aesm-client"
 version = "0.6.1"
-source = "git+https://github.com/quidmints/rust-sgx?branch=main#08048855108b993b70bc5cab9aa190036cc48242"
+source = "git+https://github.com/quidmints/rust-sgx?rev=08048855108b993b70bc5cab9aa190036cc48242#08048855108b993b70bc5cab9aa190036cc48242"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -449,7 +449,7 @@ dependencies = [
 [[package]]
 name = "async-usercalls"
 version = "0.6.0"
-source = "git+https://github.com/quidmints/rust-sgx?branch=main#08048855108b993b70bc5cab9aa190036cc48242"
+source = "git+https://github.com/quidmints/rust-sgx?rev=08048855108b993b70bc5cab9aa190036cc48242#08048855108b993b70bc5cab9aa190036cc48242"
 dependencies = [
  "crossbeam-channel",
  "fnv",
@@ -546,7 +546,7 @@ dependencies = [
 [[package]]
 name = "axum-server"
 version = "0.7.3"
-source = "git+https://github.com/quidmints/axum-server?branch=main#5535031529b13247aa0c30e25db92c4787e49aec"
+source = "git+https://github.com/quidmints/axum-server?rev=5535031529b13247aa0c30e25db92c4787e49aec#5535031529b13247aa0c30e25db92c4787e49aec"
 dependencies = [
  "arc-swap",
  "bytes",
@@ -1494,7 +1494,7 @@ dependencies = [
 [[package]]
 name = "enclave-runner"
 version = "0.7.3"
-source = "git+https://github.com/quidmints/rust-sgx?branch=main#08048855108b993b70bc5cab9aa190036cc48242"
+source = "git+https://github.com/quidmints/rust-sgx?rev=08048855108b993b70bc5cab9aa190036cc48242#08048855108b993b70bc5cab9aa190036cc48242"
 dependencies = [
  "anyhow",
  "crossbeam",
@@ -1552,7 +1552,7 @@ dependencies = [
 [[package]]
 name = "esplora-client"
 version = "0.12.3"
-source = "git+https://github.com/quidmints/rust-esplora-client?branch=main#575ce5f426948011b30c3ea7d777b3a7fa88226a"
+source = "git+https://github.com/quidmints/rust-esplora-client?rev=575ce5f426948011b30c3ea7d777b3a7fa88226a#575ce5f426948011b30c3ea7d777b3a7fa88226a"
 dependencies = [
  "bitcoin",
  "hex-conservative",
@@ -1663,7 +1663,7 @@ dependencies = [
 [[package]]
 name = "fortanix-sgx-abi"
 version = "0.6.1"
-source = "git+https://github.com/quidmints/rust-sgx?branch=main#08048855108b993b70bc5cab9aa190036cc48242"
+source = "git+https://github.com/quidmints/rust-sgx?rev=08048855108b993b70bc5cab9aa190036cc48242#08048855108b993b70bc5cab9aa190036cc48242"
 
 [[package]]
 name = "fs-err"
@@ -2023,7 +2023,7 @@ dependencies = [
 [[package]]
 name = "hyper-util"
 version = "0.1.20"
-source = "git+https://github.com/quidmints/hyper-util?branch=main#919f77344d67f2cfc486b741231000e2c37e8b16"
+source = "git+https://github.com/quidmints/hyper-util?rev=919f77344d67f2cfc486b741231000e2c37e8b16#919f77344d67f2cfc486b741231000e2c37e8b16"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -2225,7 +2225,7 @@ dependencies = [
 [[package]]
 name = "insecure-time"
 version = "0.2.0"
-source = "git+https://github.com/quidmints/rust-sgx?branch=main#08048855108b993b70bc5cab9aa190036cc48242"
+source = "git+https://github.com/quidmints/rust-sgx?rev=08048855108b993b70bc5cab9aa190036cc48242#08048855108b993b70bc5cab9aa190036cc48242"
 dependencies = [
  "clap",
 ]
@@ -2239,7 +2239,7 @@ checksum = "d8972d5be69940353d5347a1344cb375d9b457d6809b428b05bb1ca2fb9ce007"
 [[package]]
 name = "ipc-queue"
 version = "0.4.0"
-source = "git+https://github.com/quidmints/rust-sgx?branch=main#08048855108b993b70bc5cab9aa190036cc48242"
+source = "git+https://github.com/quidmints/rust-sgx?rev=08048855108b993b70bc5cab9aa190036cc48242#08048855108b993b70bc5cab9aa190036cc48242"
 dependencies = [
  "fortanix-sgx-abi",
 ]
@@ -2554,7 +2554,7 @@ dependencies = [
 [[package]]
 name = "mio"
 version = "1.2.1"
-source = "git+https://github.com/quidmints/mio?branch=main#4253db466dc27fd819644d4833b55c73bfd41339"
+source = "git+https://github.com/quidmints/mio?rev=4253db466dc27fd819644d4833b55c73bfd41339#4253db466dc27fd819644d4833b55c73bfd41339"
 dependencies = [
  "async-usercalls",
  "crossbeam-channel",
@@ -3793,7 +3793,7 @@ dependencies = [
 [[package]]
 name = "ring"
 version = "0.17.14"
-source = "git+https://github.com/quidmints/ring?branch=main#12d3b388dada2f0f340ce70baac92e8ce01762be"
+source = "git+https://github.com/quidmints/ring?rev=12d3b388dada2f0f340ce70baac92e8ce01762be#12d3b388dada2f0f340ce70baac92e8ce01762be"
 dependencies = [
  "cc",
  "cfg-if 1.0.4",
@@ -4267,7 +4267,7 @@ dependencies = [
 [[package]]
 name = "sgx-isa"
 version = "0.4.1"
-source = "git+https://github.com/quidmints/rust-sgx?branch=main#08048855108b993b70bc5cab9aa190036cc48242"
+source = "git+https://github.com/quidmints/rust-sgx?rev=08048855108b993b70bc5cab9aa190036cc48242#08048855108b993b70bc5cab9aa190036cc48242"
 dependencies = [
  "bitflags 1.3.2",
 ]
@@ -4284,7 +4284,7 @@ dependencies = [
 [[package]]
 name = "sgxs"
 version = "0.8.0"
-source = "git+https://github.com/quidmints/rust-sgx?branch=main#08048855108b993b70bc5cab9aa190036cc48242"
+source = "git+https://github.com/quidmints/rust-sgx?rev=08048855108b993b70bc5cab9aa190036cc48242#08048855108b993b70bc5cab9aa190036cc48242"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -4296,7 +4296,7 @@ dependencies = [
 [[package]]
 name = "sgxs-loaders"
 version = "0.5.0"
-source = "git+https://github.com/quidmints/rust-sgx?branch=main#08048855108b993b70bc5cab9aa190036cc48242"
+source = "git+https://github.com/quidmints/rust-sgx?rev=08048855108b993b70bc5cab9aa190036cc48242#08048855108b993b70bc5cab9aa190036cc48242"
 dependencies = [
  "anyhow",
  "bitflags 1.3.2",
@@ -4655,7 +4655,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 [[package]]
 name = "tokio"
 version = "1.52.3"
-source = "git+https://github.com/quidmints/tokio?branch=main#73c3acb9de93e37f6453d47e8881751650b49599"
+source = "git+https://github.com/quidmints/tokio?rev=73c3acb9de93e37f6453d47e8881751650b49599#73c3acb9de93e37f6453d47e8881751650b49599"
 dependencies = [
  "bytes",
  "libc",
@@ -5763,4 +5763,4 @@ checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
 [[patch.unused]]
 name = "dcap-ql"
 version = "0.4.1"
-source = "git+https://github.com/quidmints/rust-sgx?branch=main#08048855108b993b70bc5cab9aa190036cc48242"
+source = "git+https://github.com/quidmints/rust-sgx?rev=08048855108b993b70bc5cab9aa190036cc48242#08048855108b993b70bc5cab9aa190036cc48242"

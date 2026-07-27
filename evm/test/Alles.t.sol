@@ -2187,12 +2187,12 @@ contract Alles is Test, Fixtures {
 
         QUID.mint(User01, rack, address(USDC), 0);
 
-        (uint total1, uint yield1) = AUX.get_metrics(true);
+        (uint total1, ) = AUX.get_metrics(true);
         assertGt(total1, 0, "Total should be > 0");
 
         vm.warp(block.timestamp + 1 hours);
 
-        (uint total2, uint yield2) = AUX.get_metrics(true);
+        (uint total2, ) = AUX.get_metrics(true);
         assertApproxEqAbs(total2, total1, total1 / 20, "Total should be relatively stable");
 
         vm.stopPrank();

@@ -733,7 +733,7 @@ contract Aux is // Auxiliary
     ///      try/catch in auxSwap catches reverts from any path attempt.
     function _tryPath(
         bytes calldata encodedPath,
-        uint amountIn, address output,
+        uint amountIn, address /*unused*/,
         address recipient, uint minOut
     ) external returns (uint outAmount) {
         if (msg.sender != address(this)) revert NotSelf();

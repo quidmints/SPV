@@ -173,7 +173,7 @@ library VogueLib {
     ///      levBuf (fee weight + totalBuffer via the return) and the V4 position, but NOT pooled/lpShares.
     ///      USD = buffer collateral at band price, CAPPED at the LP's OWN debt (debt-backed; folds into POOLED_USD).
     function levAddBuf(
-        LevCfg memory c, Types.Deposit storage LP,
+        LevCfg memory c, Types.Deposit storage /*unused*/,
         mapping(address => uint) storage levBufferUsd,
         mapping(address => uint) storage levBuf,
         address lp, uint bufEth, uint price, LevP memory p
@@ -363,7 +363,10 @@ library VogueLib {
     ///      than unbounded because `SwapLib.clampByBacking` applies the PHYSICAL
     ///      `backing − pooled` headroom independently — audit #8 was closed so that "every path
     ///      stays bounded at the real backing even when θ fails open".
-    function derivedThetaWad(address core, address aux, int24 lo, int24 up, bool isBTC) public view returns (uint) {
+    /// @dev `aux` was DROPPED (2026-07-27): the only thing that read it was the old `avgYield`
+    ///      numerator, which #107/D3 replaced with the band-fee premium EWMA read off `core`. The
+    ///      parameter has been dead since that change — the compiler flagged it as unused.
+    function derivedThetaWad(address core, int24 lo, int24 up, bool isBTC) public view returns (uint) {
         uint sigmaSq = realizedVarianceWad(core, isBTC);
         if (sigmaSq == 0) return 1e18;
         uint kWad = kLvrWad(core, lo, up, isBTC);

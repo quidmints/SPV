@@ -323,19 +323,19 @@ lightning-types = { path = "lib/rust-lightning/lightning-types" }
 # only the legally-required LICENSE attribution is kept. Single `main` commit each.
 # Needed for the SGX (Fortanix EDP) target (M11); they also compile for x86_64-linux
 # so the normal build uses them too.
-aesm-client     = { git = "https://github.com/quidmints/rust-sgx", branch = "main" }
-async-usercalls = { git = "https://github.com/quidmints/rust-sgx", branch = "main" }
-dcap-ql         = { git = "https://github.com/quidmints/rust-sgx", branch = "main" }
-enclave-runner  = { git = "https://github.com/quidmints/rust-sgx", branch = "main" }
-sgx-isa         = { git = "https://github.com/quidmints/rust-sgx", branch = "main" }
-sgxs            = { git = "https://github.com/quidmints/rust-sgx", branch = "main" }
-sgxs-loaders    = { git = "https://github.com/quidmints/rust-sgx", branch = "main" }
-axum-server     = { git = "https://github.com/quidmints/axum-server", branch = "main" }
-esplora-client  = { git = "https://github.com/quidmints/rust-esplora-client", branch = "main" }
-hyper-util      = { git = "https://github.com/quidmints/hyper-util", branch = "main" }
-mio             = { git = "https://github.com/quidmints/mio", branch = "main" }
-ring            = { git = "https://github.com/quidmints/ring", branch = "main" }
-tokio           = { git = "https://github.com/quidmints/tokio", branch = "main" }
+aesm-client     = { git = "https://github.com/quidmints/rust-sgx", rev = "08048855108b993b70bc5cab9aa190036cc48242" }
+async-usercalls = { git = "https://github.com/quidmints/rust-sgx", rev = "08048855108b993b70bc5cab9aa190036cc48242" }
+dcap-ql         = { git = "https://github.com/quidmints/rust-sgx", rev = "08048855108b993b70bc5cab9aa190036cc48242" }
+enclave-runner  = { git = "https://github.com/quidmints/rust-sgx", rev = "08048855108b993b70bc5cab9aa190036cc48242" }
+sgx-isa         = { git = "https://github.com/quidmints/rust-sgx", rev = "08048855108b993b70bc5cab9aa190036cc48242" }
+sgxs            = { git = "https://github.com/quidmints/rust-sgx", rev = "08048855108b993b70bc5cab9aa190036cc48242" }
+sgxs-loaders    = { git = "https://github.com/quidmints/rust-sgx", rev = "08048855108b993b70bc5cab9aa190036cc48242" }
+axum-server     = { git = "https://github.com/quidmints/axum-server", rev = "5535031529b13247aa0c30e25db92c4787e49aec" }
+esplora-client  = { git = "https://github.com/quidmints/rust-esplora-client", rev = "575ce5f426948011b30c3ea7d777b3a7fa88226a" }
+hyper-util      = { git = "https://github.com/quidmints/hyper-util", rev = "919f77344d67f2cfc486b741231000e2c37e8b16" }
+mio             = { git = "https://github.com/quidmints/mio", rev = "4253db466dc27fd819644d4833b55c73bfd41339" }
+ring            = { git = "https://github.com/quidmints/ring", rev = "12d3b388dada2f0f340ce70baac92e8ce01762be" }
+tokio           = { git = "https://github.com/quidmints/tokio", rev = "73c3acb9de93e37f6453d47e8881751650b49599" }
 
 [profile.release]
 # Enable "thin" LTO (link-time optimization) for better perf+binary size. "fat"

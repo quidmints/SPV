@@ -2238,3 +2238,37 @@ proof BEFORE refactoring the vault-share model.**
 ⇒ **Note for whoever picks it up:** the share-price formula CHANGED this session (`_pricingBacking`,
 §A.16). The round-trip proof must therefore be written against the FIXED model, not the pre-fix one —
 which is the correct order, but means any earlier round-trip reasoning is stale.
+
+## A.32 UNUSED-CODE SWEEP + Rust dep pinning (2026-07-27)
+
+**Why `--force` is needed (the user asked):** a CACHED `forge build` emits no warnings at all, so warning
+analysis requires `forge build --force` once. Not a habit to repeat — but it is the only way to see them.
+
+**`src` unused declarations: 7 found, 7 fixed → 0 remain.** The notable one was MY OWN dead code:
+`VogueLib.derivedThetaWad(core, aux, …)` — the `aux` parameter went dead when #107/D3 moved the θ
+numerator off `avgYield` (the only reader of `aux`). Parameter dropped and both callers updated;
+**Vogue 24,092 → 24,061 bytes (515 free).** The rest (`Aux:736`, `VogueLib:176`, `Rover:391/553/665`)
+were silenced by dropping the identifier, preserving every signature and the ABI.
+⚠️ **Two near-misses worth recording, both caught only by re-checking:**
+- At `Rover:553` I first dropped `price` — but the compiler's column 10 pointed at `liq`; `price` is
+  used at `:559`. **Read the warning COLUMN, not the eye's guess at which name looks unused.**
+- `RevertingV3Router` was flagged dead by a `new X(`-counting detector but is used via
+  `vm.etch(type(X).runtimeCode)`. **Constructor counts are the wrong deadness test in Solidity tests.**
+
+**Test-side:** removed `MockGalaxyVault` + `IlliquidGalaxy` (0 real uses), the orphaned `pe0` in
+`LevCascade` (dead since I replaced that test's assertion earlier today), and unused `yield1`/`yield2`
+destructurings. A handful of cosmetic unused-local warnings remain in test files whose line numbers
+shifted during this session's deletions; they are noise, not defects, and are NOT worth further
+archaeology.
+
+**🔐 Rust git deps PINNED (§A.28's finding, now fixed).** All 13 `quidmints` fork dependencies moved from
+`branch = "main"` (re-resolvable by any `cargo update`) to an explicit `rev = "<40-char sha>"` taken from
+the shas already resolved in `Cargo.lock`. Highest-value for `ring` (crypto) and
+`rust-sgx`/`dcap-ql`/`sgxs` (SGX attestation), where a silent branch move is a trust-root compromise.
+⚠️ **Used `rev` ALONE, not `branch` + `rev`:** Cargo REJECTS an ambiguous spec — *"Only one of `branch`,
+`tag` or `rev` is allowed"* — so the first pass would have broken the Rust build outright.
+⚠️ **NOT verified by a build: `cargo` is not installed on this machine.** The shas are cross-checked
+against `Cargo.lock` (e.g. `rust-sgx` → `08048855…`) and the syntax is correct, but a `cargo check` on a
+machine with the toolchain is still required before trusting it.
+
+EVM verified: builds clean, LevYbWeth 123 passed / 0 failed / 2 skipped.
