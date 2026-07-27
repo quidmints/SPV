@@ -1154,47 +1154,17 @@ contract Vogue is
         return AUX.vogueETH();
     }
 
-    /// @dev The PLAIN (unlevered) pool — the ONLY pool the share price is computed over.
-    ///
-    ///      WHY (§A.16b): the old price was `vogueETH / lpShares`, one shared numerator over one shared
-    ///      denominator, with the levered book inside BOTH. Those two sides update on DIFFERENT clocks:
-    ///      `vogueETH` adds `ILevEquity.totalNetEquityEth()` read LIVE from the venues (`VaultLib:150`),
-    ///      while a levered LP's `levPooled` inside `lpShares` is STORED and only refreshed when
-    ///      `_reconcileLev`/`syncLev` runs — i.e. on that LP's OWN next action. So an external Morpho
-    ///      liquidation cut the numerator instantly while the denominator kept the seized collateral:
-    ///      MEASURED vogueETH 16.443 -> 11.217 with lpShares pinned at 20.503, dropping the share price
-    ///      32% for EVERY holder. A passive LP with 10.0 of 20.503 shares absorbed ~half of a
-    ///      liquidation it had no part in.
-    ///
-    ///      Netting the levered book out of BOTH sides makes that impossible BY CONSTRUCTION rather
-    ///      than by timing: a seizure moves only excluded terms, so the unlevered price cannot move.
-    ///      This is not a new concept here — `_syncYield` already divides venue yield over exactly this
-    ///      `lpShares - totalLevPooled` plain depth, and `_withdraw` already routes the levered slice
-    ///      out via `closeLevFor` and never the free ladder. Pricing was the last place the levered
-    ///      claim was still commingled.
-    function _plainPool() internal view returns (uint backing, uint shares) {
-        backing = AUX.vogueETH();
-        address lm = VogueLib.levManager(address(AUX));
-        if (lm != address(0)) {
-            // GUARDED like every other lev read: a broken manager must not brick share pricing.
-            try ILevEquityV(lm).totalNetEquityEth() returns (uint n) {
-                backing = backing > n ? backing - n : 0;
-            } catch {}
-        }
-        shares = SwapLib.plainNet(lpShares, totalLevPooled);
-    }
-
     function convertToShares(uint assets) 
         public view returns (uint) {
-        (uint total, uint sh) = _plainPool();
-        if (sh == 0 || total == 0) return assets;
-        return FullMath.mulDiv(assets, sh, total);
+        uint total = AUX.vogueETH();
+        if (lpShares == 0 || total == 0) return assets;
+        return FullMath.mulDiv(assets, lpShares, total);
     }
 
     function convertToAssets(uint shares) public view returns (uint) {
-        (uint total, uint sh) = _plainPool();
-        if (sh == 0 || total == 0) return shares;
-        return FullMath.mulDiv(shares, total, sh);
+        uint total = AUX.vogueETH();
+        if (lpShares == 0 || total == 0) return shares;
+        return FullMath.mulDiv(shares, total, lpShares);
     }
 
     function maxDeposit(address) external pure returns (uint) {
@@ -1210,10 +1180,7 @@ contract Vogue is
         return convertToAssets(shares);
     }
     function maxWithdraw(address owner) external view returns (uint) {
-        // PLAIN slice only: `_plainPool` prices the unlevered pool, so feeding it a pooled that still
-        // contains `levPooled` would value the levered slice at the plain price AND leave it in the
-        // levered book — double-counting. `_withdraw` already caps at exactly this quantity (:511).
-        return convertToAssets(SwapLib.plainNet(autoManaged[owner].pooled, levPooled[owner]));
+        return convertToAssets(autoManaged[owner].pooled);
     }
     function previewWithdraw(uint assets) external view returns (uint) {
         return convertToShares(assets);
