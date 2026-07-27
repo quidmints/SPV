@@ -2951,3 +2951,28 @@ RANKING:
   3. **CHEAP PARTIAL** — constrain `receiver` on the LP-gated withdraw path (owner, or a
      pre-registered address). Closes the drain vector without a general delegation framework.
 
+### §A.5f CORRECTION (2026-07-28) — the "cheap partial" proposed one turn earlier DOES NOT WORK.
+
+Two corrections, both to my own claims:
+
+1. **The off-chain scope layer is NOT dead code.** User: *"we use the API internally to make different
+   aspects of the fleet work."* A grep showing `Scope`/`revocable_clients` unreferenced from
+   `quid-bridge/src` and `quid-hop/src` proves nothing — it is internal fleet plumbing reached through
+   the other crates, not a public API surface. Do not treat it as removable.
+
+2. **"Constrain `receiver` on the LP-gated withdraw path" is UNSOUND AS STATED.** The threat is a
+   compromised keeper HOLDING THE LP KEY. Any recipient pin that the LP key can SET, the LP key can
+   also UNSET — a keeper simply calls the setter, then withdraws. It closes nothing.
+
+THE MINIMAL DESIGN THAT ACTUALLY HOLDS — a TIMELOCK, not a second key:
+```solidity
+mapping(address => address) public pinnedRecipient;
+mapping(address => uint)    public recipientUnlockAt;   // a change takes effect only after N days
+```
+A stolen key may still REQUEST a recipient change but cannot act on it during the window, giving the
+real LP time to notice and exit. One mapping + a timestamp check in `withdraw`/`redeem`. This is a
+genuine SUBSET of §A.5f, not a substitute for it.
+
+⚠️ SCOPE WARNING before starting: this touches the withdraw path — 41 `withdraw` call sites plus the
+full suite. It is not a drive-by edit.
+
