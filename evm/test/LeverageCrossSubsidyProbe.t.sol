@@ -73,6 +73,17 @@ contract LeverageCrossSubsidyProbe is Alles {
         venue = new MorphoEscrowVenue(MORPHO, mp, address(lm));
         address[] memory vs = new address[](1); vs[0] = address(venue);
         lm.init(address(V4), MORPHO, vs);
+
+        // PIN THE ETH/USD ANCHOR (BUILD-QUEUE §A.13). This fixture maintains ETH_FEED as a
+        // pool-tracking mock (`_setEthFeed`) but never registered it with Aux, so assetPriceFeed(WETH)
+        // was address(0). Without an anchor, a rally that walks the pool toward its tick boundary makes
+        // getTWAPforAsset return 0, `rebalanceCore`'s `if (twap == 0) return r` blocks the repack, and
+        // the band stops being re-paired — which also makes `_realignBandToReal`'s `V4.reseat()` a
+        // no-op. For a TREATMENT-vs-CONTROL comparison that is fatal: the two arms can diverge on
+        // oracle availability rather than on the levered LP's actual effect, which is the only thing
+        // this probe is trying to measure.
+        _setEthFeed(AUX.getTWAPforAsset(address(WETH), 1800) / 1e10);
+        AUX.setAssetFeed(address(WETH), ETH_FEED);
     }
 
     function _seedBasket() internal {

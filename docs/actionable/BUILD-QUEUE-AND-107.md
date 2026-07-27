@@ -1689,3 +1689,31 @@ incoming deposit is a design call. Sizing matters: the effect scales with deposi
 largest exactly when the basket is small.
 ⇒ Test now sizes its deposit to 1% of supply so the thin-buffer path is genuinely exercised, and
 `_mintFarDated` takes the mint size as a parameter with the interaction documented.
+
+## A.16 🔴 REAL FINDING — a levered LP's lifecycle EXPENSES the passive LP by ~7.5% (2026-07-26)
+
+The last failing test in the tree, and it is **NOT a test bug**. `test_PassiveLp_NotExpensedByLeveredLpLifecycle`
+is a treatment-vs-control probe and it is detecting exactly what it was built to detect.
+
+- **TREATMENT:** band rally → levered LP opens/rebalances → REAL Morpho liquidation (`_seizeReal`) → realign.
+- **CONTROL:** `vm.revertToState` back, then the SAME rally price path with NO levered LP at all.
+- **RESULT:** passive LP value 10,619 (treatment) vs 11,482 (control) — the passive LP ends **~7.5%
+  worse off** purely because a levered LP existed and was liquidated. The assertion allows 0.1%.
+
+**Verified NOT an oracle/fixture artifact.** This fixture also never registered its pool-tracking
+`ETH_FEED` with Aux (`assetPriceFeed(WETH) == address(0)`), which is the §A.13 confound that broke
+three other tests — a treatment/control comparison is especially vulnerable to it, since the arms
+could diverge on oracle availability rather than on the levered LP. The anchor is now pinned here too,
+and the result is **unchanged to 4 significant figures** (10,619,232 → 10,619,445). So the cross-subsidy
+is real, not a measurement divergence.
+
+⇒ **DELIBERATELY NOT "FIXED".** Relaxing this bound would delete the only automated detector of
+leverage cross-subsidy in the tree — the exact "mask the question" failure mode the user named. The
+assertion stays red until the mechanism is understood.
+⇒ **Where to look:** the liquidation is the prime suspect — a Morpho seizure takes collateral at a
+discount, and if any part of that loss lands on shared band/backing rather than solely on the levered
+LP's own net equity, passive LPs absorb it. Related: §A.11 established that `vogueETH` counts levered
+positions at NET while the debt-funded gross sits in `totalBuffer`; a seizure changes gross and net by
+DIFFERENT amounts, so the split is where a leak would hide. `_seizeReal` + `syncLev`'s reconciliation
+after an external seizure (`_reconcileLev`, "self-heal a levered position seized by an EXTERNAL venue
+liquidation") is the code path to audit.
