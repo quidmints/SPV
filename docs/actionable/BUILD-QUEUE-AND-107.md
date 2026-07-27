@@ -2140,3 +2140,63 @@ levered positions open, the phantom depth is simply absent (POOLED_ETH == delive
 is self-consistent — but a fully de-levered book plus exhausted venue base is the case where a taker
 CAN still be short-delivered (`sent = wethBal >= amount ? amount : wethBal`). That silent-short path is
 §A.5's open item and is NOT closed by this.
+
+## A.28 RUST FORKS vs LOCAL CRATES — no duplication to remove; the real finding is UNPINNED deps
+
+User asked whether the local Rust duplicates the `quidmints` forks and could be replaced by dynamic
+git imports. **Measured — the premise does not hold, and the safety question inverts.**
+
+**There are TWO categories and they are already correct:**
+- **Third-party forks are ALREADY git deps, not vendored.** `rust-sgx`, `axum-server`,
+  `rust-esplora-client`, `hyper-util`, `tokio`, `mio`, `ring` — all `git = "https://github.com/quidmints/…"`
+  in `quid-ln/Cargo.toml`. There is no local copy of any of them to delete.
+- **The 25 local `quid-*` folders are OUR OWN crates**, workspace members via `path =`, **710 files
+  tracked inside the SPV repo**. `quid-ln` has no `.git` of its own. They are first-party SOURCE, not
+  duplicates of anything.
+
+**Replacing our own crates with git deps would be actively harmful, not a cleanup:**
+- No local edits without `[patch]` overrides — every change becomes push-then-pull.
+- Chicken-and-egg: a change must be PUBLISHED before it can be tested.
+- Loses workspace-shared incremental builds; adds a network fetch to every clean build.
+- The source has to live somewhere regardless — this moves code between repos, it does not remove it.
+
+🔴 **THE REAL SAFETY ISSUE, and it is the opposite of the question: our git deps are NOT PINNED.**
+**16** fork dependencies, **13 declared `branch = "main"`, ZERO with `rev =`.** `Cargo.lock` currently
+pins exact commits (e.g. `ring#12d3b388`, `rust-sgx#08048855`), so builds are reproducible TODAY — but
+`branch` without `rev` means any `cargo update` silently re-resolves to whatever that branch points at,
+and a rewritten/compromised fork branch changes what we build.
+⇒ **This matters most for exactly the wrong crates: `ring` (crypto) and `rust-sgx`/`dcap-ql`/`sgxs`
+(SGX ATTESTATION).** A silent move there is a supply-chain compromise of the enclave trust root.
+⇒ **Fix: add `rev = "<sha>"` alongside each `branch`, taking the sha already in `Cargo.lock`.** One line
+per dep, no behaviour change, makes the pin explicit and immune to `cargo update`. Pairs with the
+recorded `lexe_ca.rs` un-migrated CA-constants issue — same trust-root class.
+
+## A.29 THE OVER-QUOTE, FROM ALL SIDES — and why §A.5's "silent short" must NOT be "fixed" with a revert
+
+User: *"look at this from all sides, don't break our existing code."* Traced the whole ETH delivery
+chain (`Vogue.sol:949-971`):
+```
+inWETH = balance
+if (needed > inWETH)  → pull from venues (vogueOp)
+if (inWETH < needed)  → deleverEthOnDelivery   ← materialise the phantom depth (§A.27)
+sent = inWETH + alreadyInETH                    ← CAN be < needed
+```
+So `sent` can be short. The question is whether that is ever SILENT, and **on both consumer paths it is
+already guarded:**
+1. **SWAPPERS — protected by `minOut`.** `SwapLib:262` `if (amountOut < minOut) revert SlippageExceeded()`
+   and `:493` `if (max == 0 || max < r.minOut) revert SlippageMaxS()`. A short fill below the caller's
+   own bound reverts the entire swap. Not silent, and the swapper sets the tolerance.
+2. **LP WITHDRAWALS — the shortfall is DEFERRED, not lost.** MEASURED in §A.11: 423.14 delivered +
+   76.86 retained as live `pooled` = exactly the 500.00 principal. The LP keeps a recoverable claim.
+3. **Before either fires**, `deleverEthOnDelivery` converts levered phantom depth into real ETH (§A.27).
+
+⇒ **DO NOT add a revert-on-short to `withdrawETH`.** It would convert a partial fill + deferral into a
+hard failure, and the scenario where it fires is a BANK RUN — exactly when reverting everyone is worse
+than paying each LP what is available and deferring the rest. The existing `_withdraw` comment already
+argues this ("gridlock during a stress event is worse than first-out unfairness"). The design is right.
+
+⇒ **§A.5's "silent short" framing is mostly wrong for the SAME reason §A.9's "~20% shortfall" was:** the
+value is not lost, it is deferred, or the caller is protected by their own bound. The genuine residual
+is narrow and should be stated precisely rather than as a general hazard: **is there any caller of
+`withdrawETH` that neither sets a `minOut` nor defers the remainder?** That is the only question worth
+auditing here, and it is a bounded audit rather than an open-ended risk.
