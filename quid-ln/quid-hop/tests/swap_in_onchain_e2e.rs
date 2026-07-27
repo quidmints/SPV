@@ -7,7 +7,7 @@
 //! bitcoind RPC + the taproot primitives from `quid_hop::swap_in_onchain` (the SAME
 //! functions the daemon watcher signs with) — it runs NO node, so it needs none of the
 //! esplora/electrs chain-sync layer the node harness (`Regtest`) bundles for the
-//! LDK/lexe-derived node. Hence no `ElectrsD` here.
+//! LDK-based node. Hence no `ElectrsD` here.
 //!
 //! Run: `cargo test -p quid-hop --test swap_in_onchain_e2e --features harness -- --nocapture`
 #![cfg(feature = "harness")]

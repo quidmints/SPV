@@ -49,87 +49,7 @@ contract MockSPV {
         external pure returns (bool) { return true; }
 }
 
-/// @dev Minimal ERC4626-over-WETH used in test setUp via `vm.etch` at
-/// GALAXY_VAULT. The real Galaxy Morpho-V2 vault has `maxWithdraw=0` at the
-/// current fork block (markets fully utilized), which would block every
-/// LP withdraw and the redemption ETH-fallback. This mock is 1:1 shares
-/// and lets withdrawals deliver freely. Aux's existing WETH->GALAXY_VAULT
-/// approval continues to work since `vm.etch` only swaps code.
-contract MockGalaxyVault {
-    address constant ASSET = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
-    mapping(address => uint256) public balanceOf;   // slot 0
-    uint256 public totalSupply;                     // slot 1
 
-    function asset() external pure returns (address) { return ASSET; }
-    function decimals() external pure returns (uint8) { return 18; }
-    function totalAssets() external view returns (uint256) { return IERC20(ASSET).balanceOf(address(this)); }
-    function convertToShares(uint256 a) external pure returns (uint256) { return a; }
-    function convertToAssets(uint256 s) external pure returns (uint256) { return s; }
-    function maxDeposit(address) external pure returns (uint256) { return type(uint256).max; }
-    function maxMint(address) external pure returns (uint256) { return type(uint256).max; }
-    function maxWithdraw(address o) external view returns (uint256) { return balanceOf[o]; }
-    function maxRedeem(address o) external view returns (uint256) { return balanceOf[o]; }
-    function previewDeposit(uint256 a) external pure returns (uint256) { return a; }
-    function previewMint(uint256 s) external pure returns (uint256) { return s; }
-    function previewWithdraw(uint256 a) external pure returns (uint256) { return a; }
-    function previewRedeem(uint256 s) external pure returns (uint256) { return s; }
-    function allowance(address, address) external pure returns (uint256) { return type(uint256).max; }
-    function approve(address, uint256) external pure returns (bool) { return true; }
-    function transfer(address, uint256) external pure returns (bool) { return true; }
-    function transferFrom(address, address, uint256) external pure returns (bool) { return true; }
-
-    function deposit(uint256 assets, address receiver) external returns (uint256) {
-        IERC20(ASSET).transferFrom(msg.sender, address(this), assets);
-        balanceOf[receiver] += assets; totalSupply += assets;
-        return assets;
-    }
-    function mint(uint256 shares, address receiver) external returns (uint256) {
-        IERC20(ASSET).transferFrom(msg.sender, address(this), shares);
-        balanceOf[receiver] += shares; totalSupply += shares;
-        return shares;
-    }
-    function withdraw(uint256 assets, address receiver, address owner) external returns (uint256) {
-        require(balanceOf[owner] >= assets, "exceeds");
-        balanceOf[owner] -= assets; totalSupply -= assets;
-        IERC20(ASSET).transfer(receiver, assets);
-        return assets;
-    }
-    function redeem(uint256 shares, address receiver, address owner) external returns (uint256) {
-        require(balanceOf[owner] >= shares, "exceeds");
-        balanceOf[owner] -= shares; totalSupply -= shares;
-        IERC20(ASSET).transfer(receiver, shares);
-        return shares;
-    }
-}
-
-/// @dev STORAGE-IDENTICAL to MockGalaxyVault (balanceOf slot0, totalSupply slot1)
-///      but maxWithdraw returns only 30% of the position - so `vm.etch`ing this
-///      onto a live MockGalaxyVault makes the on-chain pokeVaultHealth read see
-///      `liq = 3000bps < 5000` (illiquid-but-solvent) WITHOUT disturbing balances.
-contract IlliquidGalaxy {
-    address constant ASSET = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
-    mapping(address => uint256) public balanceOf;   // slot 0
-    uint256 public totalSupply;                     // slot 1
-    function asset() external pure returns (address) { return ASSET; }
-    function decimals() external pure returns (uint8) { return 18; }
-    function totalAssets() external view returns (uint256) { return IERC20(ASSET).balanceOf(address(this)); }
-    function convertToShares(uint256 a) external pure returns (uint256) { return a; }
-    function convertToAssets(uint256 s) external pure returns (uint256) { return s; }
-    function maxWithdraw(address o) external view returns (uint256) { return balanceOf[o] * 30 / 100; } // 30% liquid
-    function maxRedeem(address o) external view returns (uint256) { return balanceOf[o] * 30 / 100; }
-    function withdraw(uint256 assets, address receiver, address owner) external returns (uint256) {
-        require(balanceOf[owner] >= assets, "exceeds");
-        balanceOf[owner] -= assets; totalSupply -= assets;
-        IERC20(ASSET).transfer(receiver, assets);
-        return assets;
-    }
-    function redeem(uint256 shares, address receiver, address owner) external returns (uint256) {
-        require(balanceOf[owner] >= shares, "exceeds");
-        balanceOf[owner] -= shares; totalSupply -= shares;
-        IERC20(ASSET).transfer(receiver, shares);
-        return shares;
-    }
-}
 
 /// @dev v3 SwapRouter that ALWAYS reverts on exactInput - simulates an EMPTIED
 ///      weETH/WETH pool (no swappable liquidity). `vm.etch` onto ETHERFI_V3ROUTER.
@@ -1266,8 +1186,6 @@ contract Alles is Test, Fixtures {
     ///      withdrawable — illiquid but SOLVENT (`maxWithdraw < convertToAssets`), which is the
     ///      condition `pokeVaultHealth` / the Strand-2 cap / the liquidity-race sims all probe.
     ///
-    ///      REPLACES the old `vm.etch(IlliquidGalaxy)` trick. Etching only works when the stand-in
-    ///      is STORAGE-IDENTICAL to the target (the removed `IlliquidGalaxy` assumed balanceOf in
     ///      slot 0 / totalSupply in slot 1 of a hand-written mock). The venues are now the REAL
     ///      mainnet curator vaults, so an etch silently corrupts every balance read instead — which
     ///      is exactly what it did: 4 tests degraded to bare `EvmError: Revert` and 2 more to
@@ -1301,7 +1219,6 @@ contract Alles is Test, Fixtures {
     ///
     ///         TECHNIQUE (changed 2026-07-26): `vm.mockCall` on `maxWithdraw`, NOT `vm.etch`.
     ///         Etching a stand-in implementation only works if it is STORAGE-IDENTICAL to the
-    ///         target (the old `IlliquidGalaxy` relied on balanceOf in slot 0 and totalSupply in
     ///         slot 1 of a hand-written mock). The venues are now the REAL curator vaults, whose
     ///         layout is nothing like that, so an etch would silently corrupt every balance read.
     ///         Mocking the single view that the health check consults is both layout-independent

@@ -2040,9 +2040,12 @@ Redone by testing each claim against the code.
 - `LST-PEG-MONITOR` — **KEEP.** Its one surviving lever, the ex-ante weETH venue-share cap, is
   **NOT in the code** (grep: no cap in `VogueLib`/`Vogue`). The doc's "don't build the monitor"
   conclusion is not the same as "nothing here is open". The user had already said keep; I ignored that.
-- `HOP-CUSTODY-SGX` — **KEEP.** 116 Rust files reference SGX/enclave/lexe: the subject is extensively
-  alive, and memory records `lexe_ca.rs` still hard-referencing Lexe's CA constants as an un-migrated
-  trust root (a Staging/Prod misconfig risk). That is a LIVE bug in this doc's domain.
+- `HOP-CUSTODY-SGX` — **KEEP, but on WEAKER grounds than first stated.** 116 Rust files reference
+  SGX/enclave, so the subject is alive. ⚠️ **RETRACTED:** I also cited "`lexe_ca.rs` still hard-references
+  Lexe's CA constants" as a live bug in this doc's domain. **That is FALSE — verified 2026-07-27:**
+  `lexe_ca.rs` does not exist, and the only three "lexe" hits are two vendored-upstream LDK comments and
+  one prose comment. The migration was completed. The claim came from a STALE MEMORY of mine, which is
+  now corrected — the same "trust the record over the code" error the user has caught repeatedly.
 - `EIP170-MIGRATION` — **KEEP.** Headroom is critical RIGHT NOW: `LevManager` 70 bytes free, `LevMath`
   20 bytes free. Guidance for the tightest constraint in the tree is not stale.
 - `PUPPETEER-E2E-MATRIX` — **TRIM, don't delete.** Voting IS gone from the code (0 hits for
@@ -2200,3 +2203,38 @@ value is not lost, it is deferred, or the caller is protected by their own bound
 is narrow and should be stated precisely rather than as a general hazard: **is there any caller of
 `withdrawETH` that neither sets a `minOut` nor defers the remainder?** That is the only question worth
 auditing here, and it is a bounded audit rather than an open-ended risk.
+
+## A.30 CLEANUP + a memory correction the user caught (2026-07-27)
+
+**Deleted (dead code, verified):**
+- `IlliquidGalaxy` and `MockGalaxyVault` test helpers — **0 real uses**. `IlliquidGalaxy` was made dead
+  THIS session when `vm.etch` was replaced by `vm.mockCall` (§A.20's inert-mock class); only stale
+  doc-comments referenced them, and those are removed too.
+  ⚠️ **Method note:** my first detector counted `new X(` only and flagged `RevertingV3Router` as dead —
+  it is NOT: it is used via `vm.etch(..., type(RevertingV3Router).runtimeCode)` at `Alles.t.sol:1387`.
+  Counting constructor calls is the wrong test for a Solidity helper; check `type(X).runtimeCode` too.
+- `evm/broadcast/DeployL1_s.sol/1/run-latest.json` — a regenerable deploy artifact that was tracked;
+  now gitignored.
+
+**🔴 MEMORY CORRECTION — the Lexe trust root is GONE, and I claimed otherwise.** I told the user
+`lexe_ca.rs` "still hard-references Lexe's CA constants (a live bug)". The user challenged it
+(*"i thought we deleted everything lexe related"*) and was right. VERIFIED: `lexe_ca.rs` does not exist;
+only three files mention "lexe" at all, two are VENDORED UPSTREAM LDK (`lib/rust-lightning/`, 441
+tracked files, not a submodule) where the hits are test-fixture attributions in comments, and one was a
+prose comment in `quid-hop/tests/swap_in_onchain_e2e.rs` — **now removed, so our own source has ZERO
+lexe mentions.** The vendored LDK comments are deliberately left alone: editing upstream would conflict
+on every LDK update.
+⇒ This came from a STALE MEMORY of mine, now corrected. Same failure mode as trusting doc status lines
+(§A.23) — **the record is not evidence; the code is.** It also weakens §A.23's stated grounds for
+keeping `HOP-CUSTODY-SGX` (the "live bug in its domain" justification is void); it is kept only because
+116 Rust files still reference SGX/enclave.
+
+## A.31 §J.2 IS THE VOGUE/VAULT CLEANUP TODO — still NOT STARTED, and gated
+User asked where the Vogue/Vault cleanup lives. It is **§J.2 Refactors (structural)**: Vogue should not
+be a 4626 if vBTC is its own segregated 4626; `Vault.sol` should not carry vBTC ERC-20 functions; plus
+the full-2× buffer-as-band-depth unification.
+**PREREQ (user, unchanged): complete + VERIFY the deposit→band→withdraw round-trip behaviour-neutrality
+proof BEFORE refactoring the vault-share model.**
+⇒ **Note for whoever picks it up:** the share-price formula CHANGED this session (`_pricingBacking`,
+§A.16). The round-trip proof must therefore be written against the FIXED model, not the pre-fix one —
+which is the correct order, but means any earlier round-trip reasoning is stale.
