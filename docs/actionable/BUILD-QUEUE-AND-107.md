@@ -2839,3 +2839,32 @@ NOTE the trap: a bare `cargo check --workspace | grep dead_code` returns EMPTY h
   a crates.io dep and was NOT among the 13 git deps pinned to `rev` earlier this session — this
   breakage is pre-existing and platform-inherent, not a regression from the pinning work.
 
+### §A.19b — SCOPED 2026-07-27. It is a WIRING job over a proven rail, not a new capability.
+
+User: *"was it partially implemented then? i remember it being handled to some extent."* Correct —
+verified in code. The queue's "NOT BUILT" reading is misleading.
+
+ALREADY BUILT (the hard part — paying a party with NO channel):
+  • `BTCChannels.PendingOnchainSwapOut{swapper, sats, swapperScriptHash, usd}` — the obligation record.
+  • `creditSwapOut(swapper, token, usdAmount, minSats)`, `addPendingSwapOut`/`subPendingSwapOut`.
+  • `swapOutDeliverDigest(...)` — the signed delivery attestation.
+  • P2TR-ONLY script enforcement (landed this session): 34 bytes, `0x5120 || 32-byte x-only key`.
+  ⇒ The protocol ALREADY pays an arbitrary Bitcoin script whose owner holds no channel. Bearer
+    redemption needs no new payment capability.
+
+STILL MISSING (all three, and they are one change):
+  1. ENTRYPOINT — `VBtc.redeemVBtc(sats, p2trScript)`. Belongs on `VBtc` because it is a SUPPLY
+     operation (burn against delivery), and §J.2 put supply there precisely so this could land.
+  2. SOURCE-OF-FUNDS RULE — which channel BTC backs the redemption. Swap-out sources from a
+     swapper's committed USD; a redemption must instead consume FREE channel capacity.
+  3. THE AGGREGATE INVARIANT — `Σ outstanding vBTC <= Σ free channel capacity` — which must REPLACE
+     the blunt rule "the LP never receives loose vBTC (that would double-claim the same channel BTC)".
+     ⚠️ That rule is asserted in THREE places and all three must move together, or the blunt rule and
+     the aggregate rule will contradict each other: `Vault.sol:638`, `BtcLevManager.sol:578`,
+     `VBtc.sol:19`. This is the constraint that makes it a multi-contract change rather than a
+     one-file addition.
+
+WHY IT RANKS FIRST: that single blunt rule is what simultaneously blocks (a) an open Morpho/Euler
+vBTC market — a liquidator who seizes vBTC today has no way to exit — and (b) the privacy story, since
+there is no bearer instrument. Both unblock together.
+
