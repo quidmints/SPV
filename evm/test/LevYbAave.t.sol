@@ -62,7 +62,14 @@ contract LevYbAaveProbe is LevYbRealProbe {
         assertGt(netEq, 0, "net-equity is positive");
         assertLt(netEq, coll0, "debt buffers gross above net-equity");
         assertGt(alm.totalDebtUsd(), 0, "book debt includes the Aave position");
-        assertGe(AUX.vogueETH(), coll0, "band deliverable ETH counts the Aave gross collateral");
+        // Same correction as testReal_Weth_OpenLeverClose (BUILD-QUEUE §A.14): assert against the
+        // protocol's OWN ETH-backing composition, `vogueETH + totalBuffer` (VogueLib.addLiq:
+        // `IAux(aux).vogueETH() + grossBuffer`). `vogueETH` counts a levered position at NET equity by
+        // design; the debt-funded remainder is tracked in `totalBuffer` and excluded from equity so it
+        // cannot be withdrawn as if it were the LP's. Asking `vogueETH` alone to cover GROSS made one
+        // term do two jobs, and it failed by exactly the debt (5.893 vs 7.507).
+        assertGe(AUX.vogueETH() + V4.totalBuffer(), coll0,
+            "ETH backing (vogueETH net + totalBuffer gross) counts the Aave gross collateral");
 
         // Close unwinds through the SAME manager path: sell WETH -> repay all USDC -> return the remaining WETH.
         _realignBandToReal();
