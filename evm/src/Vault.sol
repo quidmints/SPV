@@ -597,7 +597,7 @@ contract Vault is Ownable, ReentrancyGuard {
     }
 
     // ═══════════════════════════ vBTC ERC-20 + 4626 face (BTC-lev collateral) ═══════════════════════════
-    // The EVM representation of LN-custodied BTC used as the BTC IL-protect collateral (LEVERAGE-BTC-M11-SPEC).
+    // The EVM representation of LN-custodied BTC used as the BTC IL-protect collateral.
     // vBTC is sats-denominated (8-dec) and vBTC IS sats, so the 4626 valuation is a pure 1:1 identity
     // (`convertToAssets/Shares` return the argument) priced against WBTC via `getTWAPforAsset(WBTC)` at the
     // venue. Supply only ever moves via the SAME-BTC expose/unexpose path (`exposeBtcToLev`/`unexposeBtcFromLev`,

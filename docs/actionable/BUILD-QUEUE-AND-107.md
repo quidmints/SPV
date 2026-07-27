@@ -2272,3 +2272,90 @@ against `Cargo.lock` (e.g. `rust-sgx` → `08048855…`) and the syntax is corre
 machine with the toolchain is still required before trusting it.
 
 EVM verified: builds clean, LevYbWeth 123 passed / 0 failed / 2 skipped.
+
+## A.33 📁 SECOND PURGE — verified against code (2026-07-27). 12 docs → 7.
+
+Per user: drop `FAMILY-PLAN` + `KHALANI`, and re-verify "stale" claims IN THE CODE before deleting.
+
+### Deleted, each with the code check that proved it
+- `FAMILY-PLAN`, `KHALANI-SOLVER-INTEGRATION` — dropped on the user's explicit call (unbuilt forward
+  designs; recoverable from git if either is revived).
+- `HOP-CUSTODY-SGX` — **every claim verified stale.** It self-declares "PARTIALLY SUPERSEDED", is the
+  OLDEST doc (2026-06-05) and says it "predates the taproot build; key mechanics changed". Verified:
+  the superseding `deploy/PRODUCTION-LAUNCH.md` EXISTS; the "still-unbuilt service glue" IS built
+  (`evm_final` 3 files, `decode_swap_out_requested` 2 files, plus `quid-bridge-daemon.rs` and
+  `quid-watchtower.rs`); and it cited `AUDIT-TODO.md`, already deleted, so that reference dangled.
+- `EIP170-MIGRATION` — its stated GOAL ("enough headroom that ALL remaining BUILD-QUEUE work fits
+  without re-breaching") is **measurably NOT met**: LevMath 20 B free, LevManager 70 B, SwapLib 306 B,
+  Vogue 515 B, Core 663 B. So it is not a completed record, and the live constraint is already tracked
+  (§A.12) and measurable in seconds via `forge inspect <C> deployedBytecode`. Its one durable method
+  note is preserved below.
+- `LEVERAGE-BTC-M11-SPEC` — its "genuinely open" item #1 describes a stub that **no longer exists**:
+  `lev_keeper_btc.rs:71` records that the `BtcLevAcquirer` trait + `UnwiredNativeAcquirer` stub "was
+  REMOVED (2026-07-22, #8)… the acquirer indirection was dead", with native positions now failing SAFE
+  INLINE. The SUBSTANCE survives and is migrated below; the doc's specifics were stale, and it also
+  cited two already-deleted docs.
+
+### Migrated residuals (do not lose)
+- 🔴 **Native BTC rail (#59/#74) is UNWIRED.** WBTC mode is the workhorse and rebalances fully on-chain
+  (`rebalance_wbtc`, atomic). A native position fails SAFE inline in `do_delever`/`do_relever` — a loud
+  no-op that falls through to the venue's ISOLATED liquidation. A `usd_to_vbtc_sats` helper is kept
+  `#[allow(dead_code)] // reserved for the #59/#74 native rail`.
+- 🔴 **Native force-close LLTV buffer vs Bitcoin-confirmation latency (DATA GAP).** A native force-close
+  cannot finalize until Bitcoin confirms (potentially hours), so the keeper-trigger LTV must sit far
+  enough under the venue LLTV to cover that latency. Sizing it needs a **measured channel-close-time
+  distribution** — the one genuinely BTC-specific risk parameter still unmeasured. Does NOT apply to
+  WBTC mode (atomic de-lever).
+- 🟡 **Freeze `levPooledBTC` fee accrual during a pending native force-close** — clean-up, and only
+  relevant once native-mode force-close exists.
+- 📏 **EIP-170 method note (worth keeping):** read sizes from the artifact
+  (`forge inspect <C> deployedBytecode`), NOT `forge build --sizes`, which rebuilds everything and
+  thrashes a small box. Current tightest: **LevMath 20 B, LevManager 70 B** — check before adding
+  anything to either.
+
+### Kept (7, incl. the queue) — each verified live
+`BUILD-QUEUE` · `TAPROOT-CHANNELS-BUILD-SPEC` (Rust-cited, shipped model) · `JIT-DEPTH-GUARANTEE`
+(Vogue:419 cites §4.1 for live semantics; ⚠️ its §4 STATUS is stale — marks built work as TODO) ·
+`IMPAIRMENT-DERISK-TRIGGER` (DeployL1_s:553 cites it as an OPEN product decision) ·
+`SOR-SIGNIFICANCE-DESIGN` (SOR.sol:362 cites it as "⚠️ PARTIAL") · `LST-PEG-MONITOR` (its ex-ante weETH
+venue-share cap is NOT in the code) · `PUPPETEER-E2E-MATRIX` (live E2E runbook — TRIMMED below).
+
+### PUPPETEER trimmed, and one real error fixed
+Verified its API references against code: `requestSwapOutOnchain` ✓, `Vogue.deposit(assets, receiver,
+venue)` ✓ — but **`requestOnchainSwapIn` has ZERO hits in `evm/src`.** Corrected: swap-IN is
+hop-initiated and settles through `BTCChannels.settleSwapIn` → `Vault.creditSwapIn`. Also collapsed the
+two long strikethrough corrections (vote gate, USDT0) into one compact "settled, do not re-raise" note,
+both re-verified against code. 109 → 102 lines.
+
+## A.34 WHY `quid-tls` & friends live locally while forks live on GitHub (user, 2026-07-27)
+
+User: *"i dont understand why we need quid-tls code and so many deps directly in our quid-ln folder if
+they exist as separate repos (forks) on our github account"*. **Measured — they are NOT the same things,
+and the naming is what makes it look like duplication.**
+
+**The GitHub forks** (`quidmints/tokio`, `mio`, `ring`, `rust-sgx`, `hyper-util`, `axum-server`,
+`rust-esplora-client`) are UPSTREAM crates patched to build for the SGX target. `quid-ln/.cargo/config.toml`
+declares `[target.x86_64-fortanix-unknown-sgx]` with a custom `run-sgx-cargo` runner and compile-time
+crypto intrinsics (`+adx,+aes,+pclmulqdq,+sha,+vaes` — enclaves cannot do runtime cpuid feature
+detection). Upstream tokio/mio/ring do not support that target, which is the entire reason the forks
+exist. They are consumed as git deps and there is **no local copy of any of them.**
+
+**The local `quid-*` crates are OUR OWN code that USES those deps** — small, and clearly so once
+measured:
+
+| crate | lines | what it actually is |
+|---|---|---|
+| `quid-tls` | 3,318 | our TLS/attestation config, certs and utilities (`rcgen`, `x509_parser`, `quid_crypto`) |
+| `quid-tokio` | 855 | *"utilities and extensions built ON TOP OF Tokio"* — `pub use tokio;` + `events_bus`/`notify`/`task` |
+| `quid-std` | 823 | our std-shim for the enclave target |
+| `quid-serde` | 706 | our serde helpers |
+| `quid-hex`/`quid-sha256`/`quid-byte-array` | 322/100/222 | tiny leaf utilities |
+
+For scale: a real vendored `tokio` fork is ~100k lines. `quid-tokio` is 855. **These are wrappers, not
+copies.** Deleting them would delete first-party code, not remove duplication.
+
+⇒ **The confusion is naming, and it is worth fixing separately if it keeps costing time:** `quid-tokio`
+reads like "our fork of tokio" when it is "our helpers built on tokio". A rename (e.g. `quid-async-util`)
+would remove the ambiguity — cosmetic, non-urgent, and NOT done here.
+⇒ The genuine hygiene issue in this area was the UNPINNED forks, now fixed in §A.32 (all 13 moved to
+explicit `rev =`).

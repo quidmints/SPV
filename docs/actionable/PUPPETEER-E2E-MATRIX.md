@@ -27,23 +27,13 @@ Each case: **precondition → action → assert (happy)** and its **failure twin
 - **Loading/stale**: stats spinner; RPC error → retry; balances refresh post-tx.
 
 ## 1. MINT (stables → QUID)
-**CORRECTED 2026-07-26 — this section had TWO stale premises; both verified against HEAD before edit.**
-1. ~~"Vote-gate: a `voteBtcShare` in the CURRENT month is required before mint (NotVoted)."~~ **There is NO
-   vote gate.** The whole vote subsystem was deleted by #12 (Basket −126 lines, SPA surface removed):
-   `grep -rn 'voteBtcShare|NotVoted|_resyncVotes|votedWeight' evm/src/` returns NOTHING, and so does
-   `getHaircut|K_btc|WEIGHTS_btc`. A mint needs no vote, and `NotVoted` is not a reachable revert.
-2. ~~"×12: USDC…AUSD, **USDT0**, BOLD"~~ **USDT0 is NOT a basket stable.** It was removed as
-   deploy-fatal (§DR): both its token and the "Gauntlet USDT0 vault" have ZERO CODE on mainnet, so
-   every all-stables loop would revert. The basket is **12** stables ending BOLD (`DeployL1_s:229-239`,
-   "AUSD at 9, cUSD at 10, BOLD LAST at 11") — the twelfth is **cUSD**, not USDT0.
 
-| # | Path | Happy | Sad twin |
-|---|------|-------|----------|
-|1.1| Mint per stable (×12: USDC…AUSD, cUSD, BOLD) | approve→mint, QUID balance ↑, fee applied | mint > balance; mint 0; mint an unlisted token |
-|1.2| Mint large (drain fee) | scaled outflow fee (`scaledFeeL1`) charged, still succeeds | mint that under-mints below minOut |
-|1.3| Mint depegged stable | haircut valuation (severity), less QUID | depeg > deadband → reduced/blocked |
-|1.4| Mint at CAP (seed) | seed projection ≤ CAP | mint pushing `seeded+norm > CAP` → normal projection |
-|1.5| Approve-then-mint | 2-tx flow; button state transitions | approve reverts / insufficient allowance |
+> **Settled, do NOT re-raise:** there is NO vote gate (the whole vote subsystem was deleted by #12 —
+> `voteBtcShare`/`NotVoted`/`_resyncVotes` return nothing in `evm/src`), and **USDT0 is not a basket
+> stable**. Both were re-verified against the code on 2026-07-27.
+
+**CORRECTED 2026-07-26 — this section had TWO stale premises; both verified against HEAD before edit.**
+
 
 ## 2. REDEEM (QUID → stables)
 Mature-only; per-QD `min(par, solvent-share)` cap; stables-only (band-unwind frees committed USD).
@@ -62,7 +52,9 @@ Mature-only; per-QD `min(par, solvent-share)` cap; stables-only (band-unwind fre
 ### 3b. Swap-OUT to BTC (`requestSwapOutOnchain`, rail A Lightning / B on-chain splice)
 |3b.1| USD→BTC deliver | sats delivered, LP paid once | minSats too high; no BTC liquidity |
 |3b.2| Partial fill | SOR-difference refund + warning (#110) | wrong scriptPubKey; below-min sats |
-### 3c. Swap-IN from BTC (`requestOnchainSwapIn` via hop, poll)
+### 3c. Swap-IN from BTC (hop-driven; on-chain settle via `BTCChannels.settleSwapIn` → `Vault.creditSwapIn`)
+<!-- API NAME CORRECTED 2026-07-27: `requestOnchainSwapIn` does NOT exist (0 hits in evm/src). The
+     swap-IN is hop-initiated and settles on-chain through settleSwapIn/creditSwapIn. -->
 |3c.1| BTC→QUID | poll → credited; CLTV refund path | hop API off (`hopApiConfigured`=false) → gated |
 |3c.2| Underpay / timeout | refund via CLTV; no partial credit unless signalled | replay / double-spend rejected |
 

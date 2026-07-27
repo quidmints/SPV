@@ -8,7 +8,9 @@ the master sequence.
 
 - Contract deploy commands + env templates: [`deploy/README.md`](./README.md)
 - Bitcoin Core anti-eclipse config: [`quid-ln/ops/README.md`](../quid-ln/ops/README.md)
-- SGX custody model (design): [`docs/actionable/HOP-CUSTODY-SGX.md`](../docs/actionable/HOP-CUSTODY-SGX.md)
+- SGX custody model: implemented — born-in-enclave seed, `EGETKEY` sealing, DCAP/RA-TLS, Safe-authed
+  migration and taproot signing all live in `quid-ln/` (see `quid-enclave/`, `quid-tls-attest-server/`,
+  `quid-bridge/src/bin/quid-bridge-daemon.rs`). The old design doc was removed as superseded by this file.
   — NOTE: its swap-OUT-"watcher"/`decode_swap_out_requested` (§4/§7) and "Model B"
   framing are **historical**; the LN swap-out rail was removed and the custody key
   is **born-in-enclave (Model A)** per `TAPROOT-CHANNELS-BUILD-SPEC.md` §11.

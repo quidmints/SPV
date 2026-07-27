@@ -19,7 +19,7 @@ interface IVaultExposeB {
 
 /// @title  BtcLevManager — the BTC IL-protect: per-LP isolated vBTC-collateral leverage overlay
 /// @notice The BTC analogue of `LevManager`, sharing its economics via `LevMath` but with the acquisition
-///         model corrected for BTC (docs/actionable/LEVERAGE-BTC-M11-SPEC.md): the collateral is **vBTC** (an
+///         model corrected for BTC: the collateral is **vBTC** (an
 ///         8-dec token, 1e8 = 1 BTC = 1 sat-unit — matching the internal 8-dec BTC pool token — minted 1:1 by
 ///         the bridge/enclave against attested channel state, NOT a public deposit). Because acquiring BTC crosses Bitcoin
 ///         confirmation, there is **no synchronous swap loop** like `openLev`'s — the fleet keeper drives the
