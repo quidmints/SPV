@@ -1717,3 +1717,45 @@ positions at NET while the debt-funded gross sits in `totalBuffer`; a seizure ch
 DIFFERENT amounts, so the split is where a leak would hide. `_seizeReal` + `syncLev`'s reconciliation
 after an external seizure (`_reconcileLev`, "self-heal a levered position seized by an EXTERNAL venue
 liquidation") is the code path to audit.
+
+
+## A.17 ✅ SWEEP — "a guard that short-circuits past its own recovery path" (2026-07-26)
+
+Run because THREE instances turned up in one session (§A.13 `twapResolve`, `Vault.venuePosition`'s
+documented-but-unapplied fix, `_pull4626`'s swallowed zero fallback). Two detectors, both over `src/`:
+
+**Detector 1 — an early `return`/`break` on a zero/sentinel that PRECEDES a recovery mechanism in the
+same function.** 13 candidates. It re-found all four defects already fixed this session (which is the
+validation), and **every remaining one is sound**:
+- `SwapLib.sourceWethBody` — returning 0 means "this rung sourced nothing"; `withdrawETH`'s ladder
+  moves to the next rung. The empty catch falls through to the second fee tier BY DESIGN.
+- `LevManager.deleverOne` — its `require(debt < debtBefore)` deliberately SURFACES "sourced nothing"
+  so `cascadeDelever` catches and skips that LP. That is the fault-tolerance, not a swallow.
+- `LevMath._roverAbsorb` — returns 0 so the caller falls to `_weethToWethDex`.
+- `VaultLib._supply4626` — try 4626 → else AAVE → else HOLD IDLE, and idle WETH is counted by
+  `_vogueETH`, so all three outcomes are accounted.
+- `Core._levDebtUsd18` / `levGrossNative`, `Vault.totalNetEquityBtc` — view fail-safes whose direction
+  is documented and conservative ("subtract 0 debt … only RAISES committed ⇒ STRICTER gate").
+
+**Detector 2 — a DOCSTRING promising a fallback the body may not implement** (the shape that caught
+`venuePosition`). 22 candidates; the θ family and the `falls back` promises audited. All implement what
+they promise: `BtcVaultLib._thetaClampBtc` has `if (thetaEff == 0) thetaEff = 1e18`, `v3SwapTiered`
+explicitly assigns the fallback to the CALLER, `_aaveYieldWeighted` has `shares > 0 ? … : assets`.
+
+### 🔴 SELF-CORRECTION — §A.8e OVERSTATED the θ fail-closed bug
+The sweep's real find is that **my own claim was wrong**. §A.8e and commit `54d9077` said `derivedThetaWad`
+failing closed would cause "θ=0 ⇒ applyTheta clamps depth to zero ⇒ no fees ⇒ no premium ⇒ no depth,
+permanently. A cold band could never bootstrap." **That deadlock was NOT reachable.** Both consumers
+already normalise 0 → 1e18 BEFORE `applyTheta` sees it:
+- `VogueLib._liveTheta:467` — `try … returns (uint t) { return t == 0 ? 1e18 : t; }` (this is what
+  `addLiq` calls, i.e. the ETH band-sizing path)
+- `BtcVaultLib._thetaClampBtc:125` — `if (thetaEff == 0) thetaEff = 1e18;`
+
+The fix is still correct and stays — the function must match its own docstring, and the EXTERNAL views
+(`Vogue.derivedThetaWad`, `Vault.derivedThetaWadBtc`) were reporting a bare 0 that reads as "throttle to
+zero" to any off-chain consumer. But it is **belt-and-braces, not a deadlock preventer**, and it was
+never load-bearing. Recorded so nobody cites §A.8e as evidence of a bug that could fire.
+
+**Conclusion:** the codebase's fallback discipline is sound. The three instances that motivated this
+sweep were genuine outliers, not the tip of a pattern — and the sweep was still worth running, because
+it is what caught the overstatement above.
