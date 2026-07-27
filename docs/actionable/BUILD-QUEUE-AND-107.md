@@ -2672,3 +2672,42 @@ redemption requirement is what determines whether `VBtc` needs to own supply acc
 can be a thin façade (it cannot).
 ⇒ **Do NOT start until the deployment status in (1) is confirmed** — that single fact decides whether
 this is a refactor or a migration.
+
+## A.46 §J.2 STEP 1 — `VBtc.sol` created; §J.7 TODO catalog CLEARED to one open item
+
+**Deployment status RESOLVED (user): the deploy script deploys the FIRST market, so there is no live
+market to strand.** §A.45's constraint (1) is therefore satisfied — this is a REFACTOR, not a migration.
+It stays that way only until a real deploy, so it should land before one.
+
+**Step 1 done — `src/VBtc.sol` (2,052 B), additive and non-breaking.** Owns the ERC-20 face + the 4626
+identity view + Vault-gated `mintTo`/`burnFrom`. The split is EXACT: `Vault.exposeBtcToLev` keeps the
+whole funded→lev reclassification and its `InsufficientChannelBtc` check and delegates only the supply
+mutation, so `LP.pooled` stays untouched and the single-count property the merge bought is preserved.
+Written REDEMPTION-READY per §A.45: a future `redeemVBtc(sats, p2trScript)` and the aggregate invariant
+that must replace "the LP never receives loose vBTC" (Σ outstanding ≤ Σ free channel capacity) are
+SUPPLY-level properties, so they belong in this contract, not buried in the Vault's band accounting.
+
+⚠️ **Steps 2-4 NOT done and deliberately not started:** rewiring `Vault` to call `VBtc`, splitting
+`BtcVaultLib.vbtcExposeBody`/`vbtcUnexposeBody`, and repointing `DeployL1_s`'s `collateralToken` at the
+new contract. Left as a clean seam rather than a half-finished refactor.
+
+### §J.2's OTHER bullet is much larger than the queue implies
+User: *"vogue handles both vETH and vBTC so it shouldn't be 4626 itself if it handles two of those."*
+Correct, and the reason is exactly that: ERC-4626 models ONE asset per vault, so a Vogue that manages
+both legs cannot honestly implement it — `convertToAssets`/`maxWithdraw` have no single well-defined
+asset. **MEASURED SCOPE: 16 4626-shaped functions in `Vogue.sol` and 149 call sites in `test/`, plus the
+SPA ABI.** That is a large, cross-cutting change and must not be started casually mid-session — but the
+§A.40 round-trip proof now exists as its safety net, and it is mutation-verified against the exact
+share-model regression class this refactor risks.
+
+### §J.7 — the user's manual [TODO] catalog is now down to ONE open item
+Verified against code: **9 of 10 markers are gone**, and the survivor (`Vogue.sol:66`) has been TRIMMED
+to only what is still true. Of its three original asks:
+- ✅ ether.fi is NOT a distinct user-selectable venue — there is deliberately no `VENUE_ETHERFI`
+  dispatch tag; it is a fallback reached only when the Rover has self-liquidated.
+- ✅ `VENUE_SPLIT` splits EQUALLY across all five venues {AAVE, Euler, Rover, Galaxy, Gauntlet} —
+  `toDeposit / 5` in VogueLib's split branch.
+- 🔴 **STILL OPEN — fee attribution vs venue direction:** an LP may withdraw only from the venues they
+  directed their deposit to, but their accrued FEE slices were never part of that deposit and we do not
+  track which venues those slices landed in. Needs a decision: attribute fees per-venue on accrual, or
+  let a withdrawal source fee value from any venue.

@@ -63,21 +63,17 @@ contract Vogue is
     // 3-arg deposit/mint overloads — no standing per-address setting, no separate
     // setter tx. The 2-arg 4626 entrypoints route to the SPLIT default.
 
-    // [ TODO there is are a couple problems with only letting the LP withdraw
-    // from venues where they directed their deposit: fee attribution was never
-    // part of their original deposit, and dont even know which venues these 
-    // fee slices might be deposited in; also there is an edge case with Ether.fi
-    // but before i explain the edge case I want you do take heed of the following:
-    // never do VENUE_ETHERFI as a separate venue, this shouldn't even be 
-    // a distinct user choice, we just know to use it as a fallback if the
-    // user wants ether.fi and Rover NFT has already liquidated itself into
-    // Vogue because the v3 LPs have drained the pool (the liquidation means
-    // all the WETH from the LP position controlled by Rover goes to VENUE_SPLIT
-    // and all the weETH gets slowly unwound through redeemNFT); if all is well with 
-    // Rover and fallback is not needed then all ether.fi interaction passes 
-    // through our Rover automatically without user choice; FINALLY...VENUE_SPLIT 
-    // should actually be split equally between all the venues: EULER,
-    // AAVEv4, Rover, and there are two Morpho vaults: Galaxy and Gauntlet ]  
+    // [ TODO — TRIMMED 2026-07-27 to the ONE part that is still open. Two of the three original asks
+    // are BUILT and verified: (a) ether.fi is NOT a distinct user-selectable venue — there is
+    // deliberately no VENUE_ETHERFI dispatch tag, it is a fallback reached only when the Rover has
+    // self-liquidated; (b) VENUE_SPLIT does split EQUALLY across all five venues
+    // {AAVE, Euler, Rover, Galaxy, Gauntlet} — see `toDeposit / 5` in VogueLib's split branch.
+    //
+    // STILL OPEN — FEE ATTRIBUTION vs VENUE DIRECTION: an LP may withdraw only from the venues they
+    // directed their deposit to, but their accrued FEE slices were never part of that original deposit
+    // and we do not track which venues those slices landed in. So a withdrawal can be venue-constrained
+    // in a way the fee accrual never was. Needs a decision: either attribute fees per-venue on accrual,
+    // or let a withdrawal source fee value from any venue. ]  
 
     // Venue codes (per-deposit; NO default sink): 0 = SPLIT (equal 5-way, below), 2 = AAVE-v4 (spoke
     // supply/withdraw — 4626-LIKE, aToken/spoke, not a true ERC4626), 3 = Galaxy (its OWN Morpho WETH
