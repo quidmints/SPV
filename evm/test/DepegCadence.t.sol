@@ -68,11 +68,16 @@ contract DepegCadenceTest is Test {
         assertEq(_rf(stale), 10000, "stale feed defers to CRE (no live haircut)");
     }
 
-    function test_deepDepeg_clampedToFloor() public {
-        // 0.40 USD = 6000 bps -> clamped to the 6500 factor floor (65%; max 35%
-        // recognized) — MED-3 raised the depeg floor from 50% to 65%.
+    function test_deepDepeg_recognizesFullSeverity() public {
+        // THE FLOOR WAS REMOVED ON PURPOSE, and this test was left asserting it (fixed 2026-07-26).
+        // `FeeLib.riskFactor` now documents the reason in its own docstring: it "recognizes the FULL
+        // live severity; the old 6500/65c floor understated severe depegs". So a 0.40 USD read is a
+        // 6000 bps deviation and the factor is 4000 (40% of par), NOT clamped up to 6500 — clamping
+        // would have valued a 60%-depegged stable at 65c, overstating basket backing exactly when it
+        // matters most. Verified pre-existing (not caused by this session's clamp removals, which
+        // touched QuidLens MAX_FEE and the theta ceiling, neither of them this floor).
         MockAggregator deep = new MockAggregator(0.40e8, 8, block.timestamp);
-        assertEq(_rf(deep), 6500, "deep depeg clamps to the 65% floor");
+        assertEq(_rf(deep), 4000, "deep depeg recognizes FULL severity (no 65% floor)");
     }
 
     function test_revertingFeed_defersToCRE() public {
