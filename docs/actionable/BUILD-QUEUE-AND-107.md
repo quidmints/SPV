@@ -2776,3 +2776,40 @@ returndata. The checkable property is "returns nothing". Two natural assertions 
 `try/catch` does not catch return-data DECODING failures at all. `VEthIdentity.t.sol` asserts empty
 returndata instead, and pins that Vogue has STOPPED answering — the half that could silently rot.
 
+### §A.5c — RE-DERIVED 2026-07-27. PREMISE WITHDRAWN; downgraded from 🔴 to a semantics note.
+
+§A.9 withdrew this item's original justification, so it was re-derived from the CODE and from live
+test measurement rather than from the doc text. The claimed harm does not occur.
+
+WHAT §A.5c CLAIMED: `deliverableETH` haircuts three legs and counts four at face value, therefore LPs
+are left ~19% short, therefore it must be made "the VIEW TWIN of the withdraw ladder" — recorded in
+§A.8d as **"the next work item"**.
+
+WHY THAT IS WRONG. `deliverableETH` is not load-bearing for delivery. It has exactly two consumers:
+  1. `Vogue:565` — it caps `firstBurn`, i.e. how much of a withdrawal is sourced from the IN-RANGE
+     BAND BURN before the venue ladder takes the rest. The shortfall is then computed from the ACTUAL
+     `sent` (`if (amount > sent) shortfall = amount - sent`), NOT from this view. So an over-statement
+     changes the SOURCING ORDER (band-first vs venue-first) and nothing else — it is self-correcting.
+  2. `SwapLib.deleverEthOnDelivery` — gates the swap-out de-lever when the venue base cannot cover a
+     delivery. An over-statement here under-triggers the orchestrator, which is caught downstream by
+     `minOut` + deferral (the §A.29 finding).
+
+MEASURED TODAY (not inferred):
+  • `test_EthLp_RedeemConservationAndFairness` PASSES. Fairness holds to 1% (`got1 ≈ got2`), and its
+    own recorded measurement is LP1 99.963 delivered + 3.001 retained, LP2 100.000 + 3.001 — ~205.97
+    against 200 in, i.e. the LPs GAINED ~5.97 in fees. Retention is ~3%, and it is DEFERRAL (a live,
+    recoverable `pooled` claim), not loss.
+  • `test_RunSim_AllExit_Normal` PASSES, and it asserts the strictly stronger property: after a full
+    exit the stranded remainder is **< 1 gwei**. Nothing is stuck.
+
+⇒ THE 19.4% FIGURE IN §A.8d IS STALE and is corrected here. Fairness, conservation and full-exit
+  drainage all hold. "Make `deliverableETH` the view twin of the withdraw ladder" is NOT the next work
+  item and should not be treated as one.
+
+WHAT REMAINS TRUE (the residual, and it is small): the NAME over-promises. `deliverableETH` caps the
+three 4626 venues and subtracts lev net equity, but counts the AAVE leg, weETH, raw eETH and Rover at
+full face. Anyone reading it as "instantly deliverable" is misled — the ether.fi legs need the offramp
+ladder. This is a COHERENCE issue for readers/integrators, not a delivery defect. The cheap honest fix
+is to document the semantics at the definition (it is a SOLVENCY-side view with partial liquidity
+haircuts, not a promptness guarantee) rather than to rebuild it as a ladder twin.
+
