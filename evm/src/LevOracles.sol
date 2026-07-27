@@ -15,6 +15,17 @@ import {IAuxTwap} from "./imports/Interfaces.sol";
 
 interface IChainlinkFeed { function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80); }
 
+/// @notice No usable price. These are Morpho `IOracle` implementations, so MORPHO calls them — which
+///         makes the failure mode a security decision, not a style one (BUILD-QUEUE §A.13/§A.25):
+///           • RETURNING 0 would have Morpho value collateral at zero ⇒ EVERY position instantly
+///             liquidatable ⇒ irreversible value destruction.
+///           • PANICKING (division by zero) reverts Morpho's calls too, but with an undiagnosable
+///             `Panic(0x12)` and after burning all forwarded gas.
+///         REVERTING with a named error is the safe failure: Morpho cannot price, so new borrows and
+///         liquidations halt, and everything RESUMES once the feed recovers. A frozen market is
+///         recoverable; a mass liquidation at a false zero is not.
+error NoPrice();
+
 /// @notice REAL Morpho IOracle for the vBTC/USDC market (collateral→loan, 1e36-scaled), from the SAME live
 ///   source the manager values vBTC through: `getTWAPforAsset(WBTC)` (USD18 per 1e18-raw, WBTC-lifted ×1e10).
 ///   vBTC is 8-dec sats: `sats · twap / 1e18 = USD18`; Morpho wants `sats · price / 1e36 = USDC6 = USD18/1e12`
@@ -24,7 +35,9 @@ contract RealRateBtcMorphoOracle {
     address public immutable WBTC;
     constructor(address aux, address wbtc) { AUX = aux; WBTC = wbtc; }
     function price() external view returns (uint256) {
-        return IAuxTwap(AUX).getTWAPforAsset(WBTC, 1800) * 1e6;
+        uint256 twap = IAuxTwap(AUX).getTWAPforAsset(WBTC, 1800);
+        if (twap == 0) revert NoPrice();   // 0 would value all vBTC collateral at zero — see NoPrice
+        return twap * 1e6;
     }
 }
 
@@ -38,7 +51,9 @@ contract InverseRateBtcMorphoOracle {
     address public immutable WBTC;
     constructor(address aux, address wbtc) { AUX = aux; WBTC = wbtc; }
     function price() external view returns (uint256) {
-        return 1e66 / IAuxTwap(AUX).getTWAPforAsset(WBTC, 1800);
+        uint256 twap = IAuxTwap(AUX).getTWAPforAsset(WBTC, 1800);
+        if (twap == 0) revert NoPrice();   // would PANIC (div-by-zero) and freeze the market opaquely
+        return 1e66 / twap;
     }
 }
 
@@ -52,6 +67,10 @@ contract InverseRateMorphoOracle {
     constructor(address ethUsd) { ETH_USD = IChainlinkFeed(ethUsd); }
     function price() external view returns (uint256) {
         (, int256 p,,,) = ETH_USD.latestRoundData();
+        // `p <= 0` is the real hazard, not just `p == 0`: Chainlink returns int256, and `uint256(p)` on
+        // a NEGATIVE answer wraps to ~2^256, driving price to ~0 — the mass-liquidation case — while
+        // `p == 0` panics. One check covers both.
+        if (p <= 0) revert NoPrice();
         return 1e56 / uint256(p);
     }
 }

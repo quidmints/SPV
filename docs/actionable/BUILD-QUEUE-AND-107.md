@@ -2068,3 +2068,45 @@ status; do not delete.
 - **Accepted/won't-fix, carried forward:** §9a `recordClose` co-signed STALE close (`finalBalance` is
   hop-trusted); RISK-3 cross-LP close fairness (inherent to the pooled model); BTC-share median
   staleness (sizing cap only, self-correcting on churn).
+
+## A.25 🔴 PRICING-INTEGRITY CLASS CLOSED AT THE MORPHO ORACLES (2026-07-27)
+
+§A.13 fixed the ROOT (a zero internal TWAP now falls through to the Chainlink anchor). This closes the
+same failure class at the most dangerous CONSUMERS: the three Morpho `IOracle` implementations in
+`LevOracles.sol`, which EXTERNAL PROTOCOL CODE calls. Found by sweeping all 55 `getTWAPforAsset`
+consumers for unguarded zero handling.
+
+| oracle | old behaviour on a zero price | consequence |
+|---|---|---|
+| `RealRateBtcMorphoOracle` | returns **0** | Morpho values ALL vBTC collateral at zero ⇒ **every position instantly liquidatable** |
+| `InverseRateBtcMorphoOracle` | `1e66 / 0` ⇒ **panic** | Morpho's calls revert with an opaque `Panic(0x12)`, after burning all forwarded gas |
+| `InverseRateMorphoOracle` | `1e56 / uint256(p)` with **`p <= 0`** | Chainlink returns `int256`; a NEGATIVE answer casts to ~2^256 ⇒ price ~0 ⇒ the mass-liquidation case. `p == 0` panics. |
+
+All three now `revert NoPrice()`. **The choice is a security decision, not style:** returning 0 causes
+irreversible mass liquidation; reverting halts new borrows AND liquidations and everything RESUMES when
+the feed recovers. A frozen market is recoverable; a mass liquidation at a false zero is not.
+
+Note the third oracle's bug was NOT a zero-TWAP issue at all — it is a raw `int256`→`uint256` cast on a
+Chainlink answer, and `p <= 0` (not `p == 0`) is the correct guard. It would have survived a
+zero-TWAP-only sweep.
+
+Verified: LevYbWeth 123/0/2, VBtcLevFeeLane 125/0/2.
+
+## A.26 CORRECTIONS to the DualPoolStableHook comparison (user, 2026-07-27)
+
+Two claims of mine were wrong and are retracted:
+1. **"We can't serve external order flow" — FALSE.** `Aux.swap` is `public payable` with NO caller gate
+   and sends output to `msg.sender`. Any router, aggregator or searcher can call it today. What we lack
+   is DISCOVERABILITY by V4-native routing — our pool's currencies are mock tokens nobody else holds, so
+   Uniswap's own router cannot path through us. That is an INTEGRATION gap (an adapter/aggregator
+   listing would close it), not a capability gap.
+2. **The IL comparison was apples-to-oranges.** `DualPoolStableHook` is STABLE-to-STABLE, so IL is
+   near-zero by construction — it is not that JIT eliminated IL. Our band is ETH/USD, where IL is real
+   and unavoidable, so the IL-protect leverage stack is a REQUIREMENT of the pair, not overhead versus
+   their design.
+
+Standing where the comparison is still favourable: the same capital earns venue yield AND provides band
+depth simultaneously (they must shuttle real assets vault↔pool every swap); and the V4 pool is not a
+value-bearing attack surface (mock tokens are worthless outside the system), which is why we need none
+of their `emergencyRevokeVault`/vault-vetting/native-ETH-rejection machinery. Gas remains UNMEASURED
+against their implementation — do not claim it.
