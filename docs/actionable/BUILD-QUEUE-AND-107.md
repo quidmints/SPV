@@ -1759,3 +1759,67 @@ never load-bearing. Recorded so nobody cites §A.8e as evidence of a bug that co
 **Conclusion:** the codebase's fallback discipline is sound. The three instances that motivated this
 sweep were genuine outliers, not the tip of a pattern — and the sweep was still worth running, because
 it is what caught the overstatement above.
+
+## A.16b 🔴🔴 MECHANISM FOUND — the SHARE FORMULA socialises a levered LP's liquidation (2026-07-26)
+
+Answers §A.16. **MEASURED end-to-end**, and the user's framing is the correct one: *"the share formula
+is broken — a levered LP's shares should not affect what the other LPs get out with respect to their
+own positions."*
+
+### How it happens (measured, not theorised)
+`_seizeReal(LEVR)` = a REAL Morpho liquidation of the levered LP. Across that single call:
+
+| | before seizure | after seizure | after `syncLev(LEVR)` |
+|---|---|---|---|
+| `vogueETH` (backing, shared numerator) | 16.443 | **11.217** (−5.226) | 11.217 |
+| `lpShares` (shared denominator) | 20.503 | **20.503 — UNCHANGED** | **15.277** (−5.226) |
+| `levPooled[LEVR]` | 5.503 | **5.503 — UNCHANGED** | 0.277 |
+| `autoManaged[PASSIVE].pooled` | 10.000 | 10.000 | **10.000 — untouched** |
+| implied share price | 0.802 | **0.547 (−32%)** | 0.734 |
+
+**The seizure destroys 5.226 ETH of backing and burns NOBODY's shares.** Share price is
+`vogueETH / lpShares` — ONE shared numerator over ONE shared denominator — so the entire 32% drop lands
+on every holder. The passive LP holds 10.0 of 20.503 shares and therefore eats ~half of a liquidation
+they had no part in. That is the ~7.5% of §A.16.
+
+`_reconcileLev` exists for exactly this ("self-heal a levered position seized by an EXTERNAL venue
+liquidation"), and it works: forcing `syncLev(LEVR)` burns **exactly 5.226** of the LEVERED LP's shares,
+leaves PASSIVE's 10.000 intact, and **the test PASSES**. But it is LAZY — reached only from
+`Vogue._withdraw` (`if (levPooled[msg.sender] > 0) _reconcileLev(msg.sender)`) and `syncLev`, i.e. on the
+LEVERED LP's OWN next action. Until then the loss sits socialised.
+⇒ **So it is a RACE**: whoever exits before the levered LP is reconciled absorbs a share of someone
+else's liquidation. Nothing prevents a passive LP from being that party — and a liquidation is exactly
+when everyone tries to exit.
+
+### Q1 (user): can unlevered LPs be prevented from taking the loss? — YES, proven
+`syncLev` already charges the loss to precisely the right party. The gap is only that nothing GUARANTEES
+it runs before value is extracted. Options, cheapest first:
+1. **Reconcile-before-extract (targeted).** In `Vogue._withdraw`/`redeem`, before pricing shares, force
+   reconciliation of any STALE levered slice. Cheap staleness probe already exists: compare the live
+   `ILevEquity.totalGrossCollateralEth()` against the recorded gross — `_reconcileLev`'s own docstring
+   says it "reconciles the (possibly stale) levered slice to the live gross". Invariant to enforce:
+   **nobody extracts at a share price computed from stale levered collateral.**
+2. **Permissionless `syncLev(lp)` + keeper.** Already permissionless-shaped; make the liquidation path
+   or a keeper call it. Weakness: still depends on someone calling it, so the race narrows but survives.
+3. **STRUCTURAL (the user's point, strongest).** Stop pricing a levered LP's claim out of the shared
+   `vogueETH/lpShares` pool at all. Their gross collateral already lives in an ISOLATED per-LP
+   `MorphoEscrowVenue`, and the debt-funded part is already tracked apart in `totalBuffer` — so the
+   isolation exists everywhere EXCEPT the share formula. Making the levered slice price off its own
+   position removes the race by construction rather than by timing.
+
+### Q2 (user): is forcing everyone to be a levered LP a solution? — NO, and it is not needed
+It would make things worse: it does not remove the shared denominator, it just enrols everyone in
+each other's liquidation risk. The isolation architecture ALREADY exists (per-LP escrow venues,
+net-equity accounting in `vogueETH`, gross segregated in `totalBuffer`). **The only leak is that the
+share formula prices a levered claim against shared backing.** This is a bookkeeping-scope bug, not a
+missing-architecture problem — no product change is required to fix it.
+
+### Status / scope warning
+🔴 **NOT FIXED — expected to be a long task, banked deliberately.** Option 3 touches share pricing, the
+most safety-critical formula in the system (it gates redemption value and the backing invariant), so it
+needs its own design pass, not a same-turn edit. Option 1 is the smaller, shippable mitigation and can
+land first without foreclosing option 3.
+⚠️ **`test_PassiveLp_NotExpensedByLeveredLpLifecycle` stays RED on purpose.** It is the only automated
+detector of this in the tree. A `syncLev` call was ADDED to the test during diagnosis and REMOVED again
+before commit — with it in place the test passes, which would have masked the defect exactly as §A.13's
+depth guard nearly did.
