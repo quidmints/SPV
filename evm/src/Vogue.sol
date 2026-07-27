@@ -221,6 +221,62 @@ contract Vogue is
     // BtcVault.sol — Vogue is the ETH vault; its helpers are ETH-only now.
 
     mapping(address => Types.Deposit) public autoManaged;
+
+    // ─── §A.5f (subset): TIMELOCKED WITHDRAWAL-RECIPIENT PIN ────────────────
+    // THREAT: the hosted fleet keeper HOLDS THE LP KEY (BtcLevManager:361), and `withdraw`/`redeem`
+    // leave `receiver` arbitrary — so a compromised keeper can send an LP's funds anywhere. Nothing
+    // off-chain constrains this: the Rust `Scope` layer is coarse API-client auth with no notion of
+    // EVM actions, so today the ONLY constraint is that the enclave runs attested code.
+    //
+    // WHY A TIMELOCK AND NOT JUST A PIN. A pin that the LP key can SET, the LP key can also UNSET —
+    // a keeper would simply unpin, then withdraw. The delay is the entire mechanism: a stolen key may
+    // REQUEST a change but cannot act on it inside the window, which is the LP's chance to notice and
+    // exit. This is a genuine SUBSET of §A.5f, not a substitute for per-action authorisation.
+    //
+    // ADDITIVE BY CONSTRUCTION: zero == unpinned == unrestricted, which is every existing LP, so no
+    // current behaviour changes and no call site moves.
+    mapping(address => address) public pinnedRecipient;
+    mapping(address => address) public pendingRecipient;
+    mapping(address => uint)    public recipientUnlockAt;
+    uint public constant RECIPIENT_TIMELOCK = 3 days;
+
+    error RecipientNotPinned();
+    error RecipientTimelocked();
+    event RecipientPinRequested(address indexed lp, address indexed to, uint effectiveAt);
+    event RecipientPinned(address indexed lp, address indexed to);
+
+    /// @notice Pin (or re-point) the only address this LP's withdrawals may pay.
+    ///         FIRST pin applies IMMEDIATELY — going from unrestricted to restricted cannot make an
+    ///         LP worse off, and making opt-in instant is what gets it adopted. Every SUBSEQUENT
+    ///         change is delayed, because that is the direction an attacker needs.
+    function pinRecipient(address to) external {
+        if (pinnedRecipient[msg.sender] == address(0)) {
+            pinnedRecipient[msg.sender] = to;
+            emit RecipientPinned(msg.sender, to);
+        } else {
+            pendingRecipient[msg.sender] = to;
+            recipientUnlockAt[msg.sender] = block.timestamp + RECIPIENT_TIMELOCK;
+            emit RecipientPinRequested(msg.sender, to, block.timestamp + RECIPIENT_TIMELOCK);
+        }
+    }
+
+    /// @notice Apply a previously requested re-point, once its window has elapsed.
+    function applyPinnedRecipient() external {
+        uint at = recipientUnlockAt[msg.sender];
+        if (at == 0 || block.timestamp < at) revert RecipientTimelocked();
+        address to = pendingRecipient[msg.sender];
+        pinnedRecipient[msg.sender] = to;
+        delete pendingRecipient[msg.sender];
+        delete recipientUnlockAt[msg.sender];
+        emit RecipientPinned(msg.sender, to);
+    }
+
+    /// @dev Unpinned (zero) LPs are unaffected — this is the additive default.
+    function _requirePinnedRecipient(address owner, address receiver) internal view {
+        address pin = pinnedRecipient[owner];
+        if (pin != address(0) && receiver != pin) revert RecipientNotPinned();
+    }
+
     mapping(uint => Types.SelfManaged) public selfManaged;
     /// (JIT-lock) block of the position's most recent auto-managed deposit; `_withdraw`
     /// refuses a same-block exit so an atomic deposit→swap→withdraw can't snipe a swap fee.
@@ -1255,6 +1311,7 @@ contract Vogue is
         // to msg.sender, then redeem normally. Reverts AllowanceFlow on
         // owner != msg.sender to keep the surface honest.
         if (owner != msg.sender) revert AllowanceFlow();
+        _requirePinnedRecipient(owner, receiver);
         assets = convertToAssets(shares);
         _withdraw(assets, receiver, false);   // 4626 path defaults to WAIT (no forced haircut)
         emit Withdraw(msg.sender, receiver, owner, assets, shares);
@@ -1263,6 +1320,7 @@ contract Vogue is
     function withdraw(uint assets, address receiver, address owner)
         external nonReentrant returns (uint shares) {
         if (owner != msg.sender) revert AllowanceFlow();
+        _requirePinnedRecipient(owner, receiver);
         // CAP FIRST, then convert (2026-07-26). `convertToShares` used to run on the RAW `assets`, so
         // the standard "exit everything" sentinel `withdraw(type(uint).max)` REVERTED with no message:
         // it is `FullMath.mulDiv(assets, lpShares, vogueETH())`, whose overflow guard is a bare
