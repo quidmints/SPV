@@ -213,27 +213,12 @@ contract LevYbRealProbe is Alles {
 
     /// Real DOWN move: sell ETH into the band so the mark crashes ~`dropBps` (drives the venue-safety de-lever).
     /// Feed tracks the pool each step, so getCurrentLtvBps (weETH mark) falls for real — no getTWAPforAsset mock.
-    /// @dev Walk the mark DOWN by `dropBps` by selling ETH into the band.
-    ///
-    ///      DEPTH GUARD (added 2026-07-26 — see BUILD-QUEUE §A.12). This loop used to watch only the
-    ///      PRICE, never the band's remaining USD depth, and so it drained the band and pinned the V4
-    ///      pool at MAX_SQRT_RATIO. MEASURED: after `_openLp` the band holds ~27,268 USDC (~14 ETH
-    ///      worth) against 2.13 ETH, and the callers asked for up to 12x30 = 360 ETH of selling — so
-    ///      the USD side was exhausted (down to 3.36 USDC) long before `dropBps` was reached. Once the
-    ///      pool sits at the tick boundary the price is unrepresentable, `getTWAPforAsset` returns 0,
-    ///      and that zero propagated into LevMath's divisors as `pxWeth` — the
-    ///      `panic: division or modulo by zero` that killed testReal_Morpho/Euler_OpenAndDelever.
-    ///      Even 1-ETH steps destroyed it, so this is about TOTAL size vs depth, not step granularity.
     function _crashBand(uint dropBps, uint maxSteps, uint ethPerStep) internal {
         uint start = AUX.getTWAPforAsset(address(WETH), 1800);
-        uint usdStart = CORE.POOLED_USD_ETH();
         vm.deal(address(this), maxSteps * ethPerStep);
         for (uint i; i < maxSteps; i++) {
             uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px == 0) break;
             if (px <= start - start * dropBps / 10000) break;
-            // Stop while the band can still quote: below ~20% of its starting USD depth the next
-            // sale walks the pool to the boundary and the oracle stops resolving entirely.
-            if (CORE.POOLED_USD_ETH() * 5 < usdStart) break;
             _setEthFeed(px / 1e10);
             try AUX.swap{value: ethPerStep}(address(USDC), address(WETH), false, 0, 0) {} catch { break; }
             vm.roll(block.number + 1); vm.warp(block.timestamp + 31 minutes);
@@ -553,8 +538,19 @@ contract LevYbRealProbe is Alles {
     function testReal_Euler_RebalanceMany_BatchHoldsTarget() public {
         _setupEuler();
         _openEulerLp();
-        // Rally further so the band sells more ETH ⇒ IL grows ⇒ the batch has real lever-up work.
-        _rallyBand(_entrySqrt(elm, LP), 0.4e18, 20, 8_000 * USDC_PRECISION);
+        // Create REAL lever-up work for the batch. The previous `_rallyBand(.., 0.4e18, ..)` here was a
+        // NO-OP and the assertion below could never pass. MEASURED: after `_openEulerLp` the band's sold
+        // fraction is ALREADY 0.821e18, so `_rallyBand`'s first check (`soldFractionWad >= targetWad`,
+        // 0.821 >= 0.4) breaks on iteration 0 — and the position is already AT its IL target anyway,
+        // because `_openEulerLp` ends with `elm.rebalance(LP, 0)` and the target is capped at the LP's
+        // chosen 5000 bps. So `debtDeltaToTarget` correctly returned (false, 0) = "in band, nothing to
+        // do", and debt moved by EXACTLY zero.
+        //
+        // Raising the LP's OWN leverage cap is the real product path that creates headroom: the IL
+        // target is `min(soldFraction, cap)`, so 5000 -> 7500 lifts it above the current LTV and gives
+        // the batch actual work. `setTargetLtv` is LP-permissioned (the cap is a risk choice) while
+        // `rebalance` toward it stays permissionless — which is exactly what this test exercises.
+        vm.prank(LP); elm.setTargetLtv(7500);
         uint debtBefore = evenue.debtOf(LP);
 
         address[] memory lps = new address[](1); lps[0] = LP;

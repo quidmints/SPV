@@ -99,8 +99,15 @@ contract LevYbWethProbe is LevYbRealProbe {
         assertEq(wlm.totalNetEquityEth(), netEq, "book net-equity includes the WETH position");
         assertGt(wlm.totalDebtUsd(), 0, "book debt (the buffer USD ceiling) includes the WETH position");
 
-        // The band actually counts it: vogueETH >= the gross this position contributes.
-        assertGe(AUX.vogueETH(), coll0, "band deliverable ETH counts the WETH gross collateral");
+        // The band actually counts it — but against the SAME composition of ETH backing the protocol
+        // itself uses, `vogueETH + totalBuffer` (VogueLib.addLiq: `IAux(aux).vogueETH() + grossBuffer`).
+        // `vogueETH` counts a levered position at NET equity BY DESIGN (§A.5c: "lev net equity is
+        // solvency backing, counted in vogueETH as net"); the debt-funded remainder is tracked
+        // separately in `totalBuffer` and excluded from equity precisely so it cannot be withdrawn as
+        // if it were the LP's. So asserting `vogueETH >= GROSS` asked one term to cover two, and failed
+        // by exactly the debt (measured: vogueETH 5.920 vs gross 7.506, and netEquity == vogueETH).
+        assertGe(AUX.vogueETH() + V4.totalBuffer(), coll0,
+            "ETH backing (vogueETH net + totalBuffer gross) counts the WETH gross collateral");
 
         // Close unwinds cleanly. Realign the band oracle to real first (the rally elevated the mock band feed;
         // the WETH->USDC close leg executes on REAL Uniswap) — same fork-artifact fix the weETH close test uses.

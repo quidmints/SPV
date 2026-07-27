@@ -1636,3 +1636,31 @@ bytecode INTO Vogue, the EIP-170-critical contract — spending headroom where i
 where it is not; and collapsing `lpShares`+`totalLevPooled` into `plainDepth` fails because `lpShares`
 is read 3× independently. The struct also exists to avoid stack-too-deep on the legacy pipeline, so
 flattening it to positional args breaks the build.
+
+
+## A.14 ✅ SUITE GREEN — 123 passed / 0 failed / 2 skipped (2026-07-26)
+
+From the clean `364b3ff` baseline of 98 passed / 22 failed. The last two failures were fixed at their
+root, and one earlier masking change was REMOVED.
+
+**`testReal_Weth_OpenLeverClose`** asserted `vogueETH >= GROSS collateral` (5.920 vs 7.506) — one term
+covering two. `vogueETH` counts a levered position at NET equity BY DESIGN; the debt-funded remainder
+lives in `totalBuffer`, deliberately excluded from equity so it cannot be withdrawn as if it were the
+LP's. The protocol's own ETH-backing composition is `vogueETH + grossBuffer` (`VogueLib.addLiq`), and
+the assertion now uses exactly that. It failed by precisely the debt.
+
+**`testReal_Euler_RebalanceMany_BatchHoldsTarget`** — debt moved by EXACTLY zero, and `debtDelta` was
+RIGHT to do nothing. MEASURED: after `_openEulerLp` the band's sold fraction is already 0.821e18, so
+the test's own `_rallyBand(.., 0.4e18, ..)` broke on iteration 0 (`0.821 >= 0.4`); and the position was
+already AT its IL target because `_openEulerLp` ends with `rebalance(LP, 0)` and the target is capped
+at the LP's chosen 5000 bps. `debtDeltaToTarget` returned `(false, 0)` = in band. The test could never
+pass. Fixed via the real product path: `setTargetLtv(7500)` raises the LP's own cap, lifting the IL
+target `min(soldFraction, cap)` above current LTV so the batch has genuine work. (LP-permissioned cap,
+permissionless rebalance toward it — which is what the test exercises.)
+
+**🔴 A REJECTED CHANGE HAD LANDED AND IS NOW REMOVED.** The `_crashBand` "depth guard" of §A.12 was
+rejected by the user as masking the question, but it reached the tree and was swept into commit
+`324d2f9` by a `git add -A`. It has been reverted. Both `testReal_*_OpenAndDelever` tests PASS WITHOUT
+it, which proves §A.13's one-line anchor fix (`twapResolve` no longer skipping Chainlink when the
+internal TWAP is 0) was the real fix and the guard was pure masking. Lesson: after a rejected edit,
+verify the file — do not assume rejection reverted it.
