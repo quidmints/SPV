@@ -853,11 +853,17 @@ contract VBtcLevFeeLane is Alles {
 
     /// @notice (#36a) init must REJECT a real venue whose collateral isn't vBTC (== the Vault): a WBTC-collateral
     ///   market would inject phantom BTC backing into vogueBTC. GOV can't pin it even though it's a real venue.
-    function test_BtcLevVenueGate_InitRejectsNonVbtcCollateral() public {
+    /// RETARGETED 2026-07-26: WBTC collateral is ALLOWED by policy, so asserting its rejection was
+    /// asserting the opposite of the documented behaviour. `BtcLevManager.init` passes WBTC as `c1` to
+    /// `LevMath.vetVenue` and its own comment states it: "vBTC sats OR WBTC — SAME oracle price, so
+    /// valuation is identical … c1=WBTC => WBTC venue allowed". The real guard is against collateral
+    /// the manager cannot VALUE as 8-dec BTC (LevMath:280, `coll != c0 && coll != c1`), which is what
+    /// would silently misvalue into phantom BTC backing. WETH is such a collateral.
+    function test_BtcLevVenueGate_InitRejectsUnvaluableCollateral() public {
         _setupBtcLev();   // establishes mOracle + the good (vBTC) reference stack
         BtcLevManager lm2 = new BtcLevManager(address(ETH), address(AUX), address(WBTC), address(this), address(QUID));
         MarketParams memory badMp = MarketParams({
-            loanToken: address(USDC), collateralToken: address(WBTC),   // WBTC collateral: NOT vBTC (== the Vault)
+            loanToken: address(USDC), collateralToken: address(WETH),   // neither vBTC nor WBTC => unvaluable as BTC
             oracle: mOracle, irm: ADAPTIVE_IRM, lltv: 0.86e18});
         MorphoEscrowVenue bad = new MorphoEscrowVenue(MORPHO, badMp, address(lm2));
         vm.expectRevert(LevMath.BadCollateral.selector);
