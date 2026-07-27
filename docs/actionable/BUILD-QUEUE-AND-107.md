@@ -2465,3 +2465,34 @@ as the fix.
 ⚠️ **Open sub-question before building:** whether the quote reads the AGGREGATE `amounts[14]`; if it
 does, a per-stable refresh is insufficient and the bound must cover the aggregate too. **Measure that
 first** — it decides whether (4) is viable or collapses into (1).
+
+## A.38 ✅ §A.5e FIXED (options 4+5 as one mechanism) — ⚠️ but NOT pinned by a test
+
+**Implemented.** `Aux.holdingsRefreshedAt` (one global marker, set inside `_refreshAllHoldings`) +
+`HOLDINGS_MAX_STALE = 1 hours` + `_requireFreshHoldings()`, called **BEFORE** `redeemAsBody` — the
+placement IS the fix, since the whole bug was value → draw → refresh.
+
+**Why ONE global marker rather than a per-`Holding` timestamp:** measured — the redeem quote reads the
+AGGREGATE (`_redeemQuote(r, amts[14], …)`), and `amounts[14]` is ACCUMULATED across every stable inside
+`get_deposits` (`BasketLib:184 amounts[14] += balance`). Freshness is therefore an all-or-nothing
+property of the whole basket, so 12 extra slots would buy nothing. This also collapsed option 4's
+"refresh only the touched stables" into "refresh all" — which is FINE, because option 5 makes it rare:
+the refresh fires only when the bound is actually breached, so the cost is amortised onto the unlucky
+redeemer instead of charged to every redeem (option 1).
+
+**It heals rather than reverts** — no liveness cliff. Scheduling `pokeVaultHealth` (§S39 GAP-1) makes
+the bound rarely bind, but stays a COMPLEMENT: an async poke cannot close a synchronous window
+(the user's §J.3 constraint).
+
+Aux 22,742 → 22,819 B (1,757 free). LevYbWeth 123/0/2; redeem-path tests pass.
+
+### ⚠️ THE FIX IS NOT PINNED — and the attempt was VACUOUS (recorded per §A.20)
+I wrote `testA5e_RedeemRefreshesStaleCacheBeforeValuing`, asserting the refresh marker was inside the
+bound after a redeem. **It PASSED with the guard REVERTED**, so it pinned nothing, and it was DELETED
+rather than kept (a test that survives the mutation advertises coverage that does not exist).
+**Why it cannot work:** `_refreshAllHoldings()` runs AFTER `redeemAsBody` regardless, so the marker is
+fresh at assert time in BOTH worlds. The marker is not a discriminator.
+⇒ **What a real pin requires:** observe the VALUE, not the marker. Seed and refresh the cache; warp past
+the bound; make a stable vault report a LOWER value (`vm.mockCall` on its `convertToAssets`); redeem.
+WITHOUT the guard the redeemer values against the stale-HIGH backing and draws MORE; with it, the
+in-line refresh yields the smaller, correct payout. Assert on the PAYOUT DELTA between those two worlds.

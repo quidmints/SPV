@@ -377,8 +377,31 @@ contract Aux is // Auxiliary
     function _refreshHoldings(address stable) internal {
         BasketLib.refreshHoldingsBody(stable, storedHoldings, toIndex, stables.length);
     }
+    /// @notice Wall-clock of the last FULL holdings refresh, and the maximum age a redeem will value
+    ///         against. §A.5e: `redeemAsBody` values off the `storedHoldings` CACHE and the refresh ran
+    ///         only AFTER it returned — order was value → draw → refresh — so a redeemer inside that
+    ///         window valued against stale-HIGH backing and OVER-DREW, concentrating the loss on
+    ///         remaining holders. Detection was never the gap (`pokeVaultHealth` reads live); the cache was.
+    ///
+    ///         ONE global marker, not a per-`Holding` timestamp: the redeem quote reads the AGGREGATE
+    ///         (`amounts[14]`, accumulated from every stable in `get_deposits`), so freshness is an
+    ///         all-or-nothing property of the whole basket and 12 extra slots would buy nothing.
+    uint public holdingsRefreshedAt;
+    uint internal constant HOLDINGS_MAX_STALE = 1 hours;
+
     function _refreshAllHoldings() internal {
         BasketLib.refreshAllHoldingsBody(storedHoldings, stables);
+        holdingsRefreshedAt = block.timestamp;
+    }
+
+    /// @dev SYNCHRONOUS staleness guard for any path that VALUES against the cache. Refreshes in-line
+    ///      when the cache is older than the bound, then proceeds — it does NOT revert, so there is no
+    ///      liveness cliff: the redeem heals its own staleness. Cost is amortised, because the refresh
+    ///      only fires when the bound is actually breached; scheduling `pokeVaultHealth` (§S39 GAP-1)
+    ///      makes that rare, but is a COMPLEMENT and never a substitute — an async poke cannot close a
+    ///      synchronous window (the user's §J.3 constraint).
+    function _requireFreshHoldings() internal {
+        if (block.timestamp - holdingsRefreshedAt > HOLDINGS_MAX_STALE) _refreshAllHoldings();
     }
 
     // Hardening: the irreversible, fund-MOVING evacuate is SPLIT from the
@@ -901,6 +924,8 @@ contract Aux is // Auxiliary
         // Body extracted to BasketLib.redeemAsBody. Redemption is STABLES-ONLY: when the
         // free stables can't cover it, redeemAsBody unwinds the band to free QU!D's own committed
         // dollars (Vogue.unwindForRedeem) -- no volatile leg, no LP ETH sold.
+        // §A.5e: value against a bounded-fresh cache. MUST precede redeemAsBody — that is the whole bug.
+        _requireFreshHoldings();
         BasketLib.redeemAsBody(BasketLib.RedeemArgs(
             amount, source, recipient,
             address(CORE), address(QUID), address(V4), address(WETH), preferred));
