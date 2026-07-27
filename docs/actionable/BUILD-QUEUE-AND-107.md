@@ -2895,3 +2895,29 @@ binding it there is the whole remaining job.
 ⇒ Re-rank: this is NOT a from-scratch prerequisite blocking the hosted-fleet ETH path. It is one
   binding step on an otherwise finished identity.
 
+### Verification sweep of the remaining items (2026-07-27) — verify-before-building, per the pattern
+
+Four items this session had premises that did not survive contact with the code (§A.5c, §A.35,
+§A.19b, §A.43), all in the direction of the queue being MORE PESSIMISTIC than reality. So the rest
+were checked before any of them is built against.
+
+  • **§A.5f — CONFIRMED OPEN.** No `perActionAuth` / `actionScope` / EIP-712 / `permitAction` surface
+    exists anywhere in `evm/src`. The on-chain per-action delegation gap is real.
+
+  • **§A.5g — CONFIRMED OPEN (on the EVM side).** The string `reconnect` does not appear in
+    `evm/src` at all. NOTE the reconnector is off-chain by nature, so absence from Solidity is
+    expected and is NOT evidence either way about the Rust side — that half is still unverified.
+
+  • **§J.8 — CONFIRMED OPEN.** `Vault.sol:457` enumerates the backing legs as "...ether.fi weETH
+    valued in ETH + AAVE-v4 WETH + idle + Rover", i.e. weETH and the AAVE-v4 leg are SEPARATE
+    positions. weETH is not supplied to Aave-v4, which is exactly what §J.8 asks for. Real.
+
+  • **§A.15 — MECHANISM CONFIRMED, DIRECTION NOT YET.** The gate is real and tiered:
+    `bufBps = (total - totalSupply()) * 10_000 / total`, then `maxFwd = bufBps >= 500 ? 12 :
+    bufBps >= 300 ? 6 : ...` (`Basket.sol:282-285`) — so buffer ratio does gate forward tenor.
+    ⚠️ BUT the item's claim is that a deposit INFLATES that buffer. If a deposit mints at par it adds
+    equally to `total` and `totalSupply()`, leaving the numerator flat while the denominator grows —
+    which would move `bufBps` DOWN, the opposite of the claim. Whether the claim holds therefore
+    depends on the ORDERING of the backing update vs the mint, which was NOT verified here.
+    DO NOT build a fix until that ordering is read directly; the claim may be inverted.
+
