@@ -2748,3 +2748,31 @@ unnecessarily heavy, am i wrong?" They are not wrong, and the code already agree
 ⇒ ether.fi isolation is principal-only and opt-in by routing; every other venue is already
   fungible on exit. This was the last surviving user `[TODO]` marker in the tree.
 
+### §J.2b — DONE. `VEth.sol` landed; Vogue no longer claims ERC-4626.
+
+WHAT SHIPPED. `VEth.sol` (stateless projection) now carries `name`/`symbol`/`decimals`/`asset`/
+`totalAssets`/`convertTo*`/`preview*`/`max*`, reading balances, supply and conversions back THROUGH
+Vogue. Those same members were REMOVED from Vogue, which keeps the share math and the entrypoints
+(`deposit`/`mint`/`withdraw`/`redeem`) as its native two-asset LP API. Wired into `DeployL1_s` as
+`VETH`. Suite 3445/0; check-client-abis 0 drift; SPA never read the identity.
+
+WHY IT IS A PROJECTION, NOT A VAULT (the asymmetry with `VBtc`): vETH's balances ARE
+`autoManaged[].pooled` and its supply IS `lpShares` — load-bearing band state read by `exposeToLev`,
+the withdraw ladder, `ethfiBacked` and the `_pricingBacking` numerator. Owning a second copy would
+move the accounting core across a call boundary and put an external call inside the §A.16b same-clock
+invariant. Conversions DELEGATE so that pricing has exactly one implementation.
+
+SCOPE NOTE — entrypoints deliberately stayed on Vogue. They carry the per-deposit `venue` selector,
+the payable ETH path, and the `_depositImpl`/`_withdraw` machinery. Forwarding them through VEth would
+add a WETH pull-and-re-approve hop and change the allowance flow users already have. That is a
+separate decision, not a free side effect of splitting the identity. CONSEQUENCE: VEth is a complete
+4626 READ surface but not a transactional 4626 — an aggregator that wants to `deposit()` through it
+still needs the forwarders. Open if/when a real 4626 integration is wanted.
+
+TESTING NOTE (§A.13-class trap avoided). Vogue has `fallback() external payable {}`, so a REMOVED
+function does not make a raw call fail — the fallback swallows it and returns SUCCESS with EMPTY
+returndata. The checkable property is "returns nothing". Two natural assertions are wrong here:
+`vm.expectRevert()` sees a non-reverting call (the decode fails later, in the caller's frame), and
+`try/catch` does not catch return-data DECODING failures at all. `VEthIdentity.t.sol` asserts empty
+returndata instead, and pins that Vogue has STOPPED answering — the half that could silently rot.
+

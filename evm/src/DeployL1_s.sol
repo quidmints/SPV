@@ -9,6 +9,7 @@ import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 
 import {Vogue} from "../src/Vogue.sol";
 import {Rover} from "../src/Rover.sol";
+import {VEth} from "./VEth.sol";
 
 import {Basket} from "../src/Basket.sol";
 import {Core} from "../src/Core.sol";
@@ -210,6 +211,10 @@ contract Deploy is Script {
     Vault public BTC;   // ...and BTC face (same instance, BTC == ETH)
     Rover public V3;
 
+    /// §J.2b: the vETH ERC-4626 IDENTITY (stateless projection over Vogue). Integrators PRICE against
+    /// this and TRANSACT against Vogue, which is the two-asset band manager and not itself a 4626.
+    VEth public VETH;
+
     function run() public {
         string memory privateKeyStr = vm.envString("PRIVATE_KEY");
         uint deployerPrivateKey;
@@ -311,6 +316,7 @@ contract Deploy is Script {
         ETH = Vault(payable(A.vault));
         BTC = ETH;
         V3 = Rover(payable(A.rover));
+        VETH = new VEth(A.v4, address(WETH), A.aux);
         SPVGateway spvGateway = SPVGateway(A.spvGateway);
         BTCChannels btcChannels = BTCChannels(A.btcChannels);
 

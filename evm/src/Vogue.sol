@@ -1074,8 +1074,6 @@ contract Vogue is
     // per-LP proportional ownership. ERC-20 transfer just rebalances
     // the mapping — no V4-side coordination needed.
 
-    string public constant name = "QU!D Vogue ETH LP";
-    string public constant symbol = "vETH";
     uint8  public constant decimals = 18;
 
     mapping(address => mapping(address => uint)) public allowance;
@@ -1144,18 +1142,13 @@ contract Vogue is
         emit Transfer(from, to, amount);
     }
 
-    // ─── ERC-4626 views ─────────────────────────────────────────────
-
-    function asset() external view returns (address) {
-        return address(WETH);
-    }
-
-    /// @notice Total ETH-equivalent backing all LP positions.
-    /// Includes principal + ALL accrued V4/Morpho fees, claimed or not.
-    /// AUX.vogueETH() returns Vogue's live Morpho-vault ETH balance.
-    function totalAssets() external view returns (uint) {
-        return AUX.vogueETH();
-    }
+    // ─── share math (NOT a 4626 — see VEth.sol) ─────────────────────
+    // Vogue is the band manager for BOTH asset classes (its math is parameterised by `isBTC`
+    // throughout), so it cannot honestly implement ERC-4626, which is defined around ONE `asset()`.
+    // §J.2b moved that identity — `asset`, `totalAssets`, `name`, `symbol`, and the whole
+    // `max*`/`preview*` surface — to `VEth.sol`, which reads it all back THROUGH this contract.
+    // What stays here is the share MATH and the entrypoints, which are the protocol's native LP API
+    // (per-deposit `venue` selector, payable ETH path, `_depositImpl`/`_withdraw` machinery).
 
     /// @dev Pricing backing: `vogueETH` with the levered book restated onto the SAME CLOCK as the
     ///      denominator. `vogueETH` adds `totalNetEquityEth()` read LIVE from the venues
@@ -1195,31 +1188,6 @@ contract Vogue is
         uint total = _pricingBacking();
         if (lpShares == 0 || total == 0) return shares;
         return FullMath.mulDiv(shares, total, lpShares);
-    }
-
-    function maxDeposit(address) external pure returns (uint) {
-        return type(uint).max;
-    }
-    function previewDeposit(uint assets) external view returns (uint) {
-        return convertToShares(assets);
-    }
-    function maxMint(address) external pure returns (uint) {
-        return type(uint).max;
-    }
-    function previewMint(uint shares) external view returns (uint) {
-        return convertToAssets(shares);
-    }
-    function maxWithdraw(address owner) external view returns (uint) {
-        return convertToAssets(autoManaged[owner].pooled);
-    }
-    function previewWithdraw(uint assets) external view returns (uint) {
-        return convertToShares(assets);
-    }
-    function maxRedeem(address owner) external view returns (uint) {
-        return autoManaged[owner].pooled;
-    }
-    function previewRedeem(uint shares) external view returns (uint) {
-        return convertToAssets(shares);
     }
 
     // ─── ERC-4626 deposit / redeem (thin wrappers) ──────────────────

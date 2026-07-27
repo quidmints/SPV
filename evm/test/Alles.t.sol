@@ -3100,11 +3100,11 @@ contract Alles is Test, Fixtures {
         // NB: read maxWithdraw BEFORE the prank - evaluating it as a call
         // argument would consume the vm.prank, so the withdraw would run as the
         // test contract (owner != msg.sender → AllowanceFlow).
-        uint maxW = V4.maxWithdraw(lp);
+        uint maxW = V4.convertToAssets(V4.balanceOf(lp));
         uint e = lp.balance; uint w = WETH.balanceOf(lp); uint q = QUID.balanceOf(lp);
         vm.prank(lp); V4.withdraw(maxW, lp, lp);
         uint got = _lpReceived(lp, e, w, q);
-        uint residual = V4.maxWithdraw(lp); // any pooled left behind (deferral)
+        uint residual = V4.convertToAssets(V4.balanceOf(lp)); // any pooled left behind (deferral)
         console.log("chop LP delivered / residual-pooled", got, residual);
 
         // FORK LIMIT: the thin fork pool cannot model a BENIGN chop. The test's
@@ -3157,7 +3157,7 @@ contract Alles is Test, Fixtures {
 
         // Exit the LP's ACTUAL position (maxWithdraw, not uint.max - see chop).
         // maxWithdraw read BEFORE the prank (else it consumes the prank).
-        uint maxW = V4.maxWithdraw(lp);
+        uint maxW = V4.convertToAssets(V4.balanceOf(lp));
         uint e = lp.balance; uint w = WETH.balanceOf(lp); uint q = QUID.balanceOf(lp);
         vm.prank(lp); try V4.withdraw(maxW, lp, lp) {} catch {}
         uint got = _lpReceived(lp, e, w, q);
