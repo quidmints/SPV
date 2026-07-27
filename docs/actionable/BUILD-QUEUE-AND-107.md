@@ -2411,3 +2411,57 @@ loose vBTC (that would double-claim the same channel BTC)."* Swap-out already pr
 pay an arbitrary bearer at an arbitrary P2TR address with no channel (§A.19b), so what is missing is an
 entrypoint plus a source-of-funds rule — not a capability. Solve the invariant (aggregate
 Σ vBTC ≤ Σ free channel capacity) and BOTH blockers fall together.
+
+## A.36 CORRECTION — the BTC lev MARKET rail IS built; only ACQUISITION is not (user, 2026-07-27)
+
+User: *"i believe we built the native BTC rail? we create euler and morpho markets in the deploy script?"*
+**Correct — my §A.33 migration overstated this and is corrected here.** Verified in `DeployL1_s.sol`:
+- The vBTC Morpho market is CREATED by the deploy (`:492 IMorphoMkt(morpho).createMarket(mpB)`, skipped
+  when the id already exists), with `RealRateBtcMorphoOracle` deployed inline because it prices vBTC
+  through AUX, which is deployed in the same broadcast.
+- Optional Euler venue via `EULER_VBTC_COLL_VAULT`/`EULER_VBTC_DEBT_VAULT`, selected by
+  `LEV_BTC_VENUE` ("morpho"|"euler", default morpho).
+- Full wiring: `BtcLevManager` → escrow venue → `pinVenue` (frozen) → `setSyncHook(Vault.syncLevBTC)`
+  → `Vault.setLevManagerBTC`, with `vogueBTC` counting the book.
+
+**What is genuinely NOT built is narrower, and the deploy docstring states it exactly:**
+*"No swapper / no flash — **BTC acquisition is external+async**."* i.e. the market/venue/oracle rail is
+live; the leg that SOURCES real BTC is not. Everything else in §A.33's migrated residual (the
+force-close LLTV data gap, the `levPooledBTC` accrual freeze) stands.
+
+⇒ **And the user's synthesis is the unlock:** the missing acquisition leg and the liquidator blocker are
+the SAME gap — vBTC has no bearer redemption. Connect vBTC redemption to the existing swap-out rail
+(which already pays an arbitrary P2TR address with no channel, §A.19b) and the deployed markets become
+viable, because a liquidator can finally exit. **Security bar the user set, which any design must meet:**
+if the hop is hacked, all LPs must still be repayable, profit attribution must survive, and no funds may
+be lost.
+
+## A.37 §A.5e — ALTERNATIVES WEIGHED (the decision the user asked for)
+
+**The defect, restated precisely:** `redeemAsBody` values off `storedHoldings` (a CACHE), and `Aux`
+calls `_refreshAllHoldings()` only AFTER the redeem returns. Order is **value → draw → refresh**, so a
+redeemer inside that window values against stale-HIGH backing and OVER-DRAWS, concentrating the loss on
+remaining holders. Detection is NOT the problem (`pokeVaultHealthBody` reads live) — the cache is.
+
+**Key enabling fact for costing these: `Aux._refreshHoldings(address stable)` ALREADY EXISTS** — a
+per-stable refresh, not just the full `_refreshAllHoldings()`. So a bounded refresh needs no new
+mechanism.
+
+| # | Option | Pros | Cons |
+|---|---|---|---|
+| 1 | **Refresh-all BEFORE valuing** | Closes the window completely; smallest conceptual change | Full refresh on EVERY redeem — 12 stables × up to `MAX_VAULTS` external reads. Worse: it puts a large external-call surface on the hot path, so ONE broken vault view can brick ALL redeems (the exact failure mode `_venue4626Value`'s try/catch exists to prevent). |
+| 2 | **Live-sum for redeem only** | Targeted; other paths keep the cheap cache | Same read cost as (1) minus the writes, AND it creates a SECOND way to value backing — precisely the divergence §A.5c already condemns ("the same quantity computed in more than one place with divergent forms"). |
+| 3 | **Schedule `pokeVaultHealth`** (§S39 GAP-1) | Addresses the amplifier; redeem stays cheap | **Does not CLOSE the window, only narrows it.** An adversary still acts between the last poke and their redeem. It is an ASYNC mitigation for a SYNCHRONOUS hole, and the user's own standing constraint (§J.3) forbids exactly that: *"you CANNOT retire a SYNCHRONOUS safety guard on the strength of an asynchronous fix."* |
+| 4 | **Refresh only the stables the redeem TOUCHES** | Bounded gas; reuses the existing `_refreshHoldings(stable)`; no second valuation path | Needs the touched set before valuing; a partial refresh still leaves the AGGREGATE (`amounts[14]`) stale if the quote reads the total. |
+| 5 | **Staleness BOUND — refuse/haircut if the cache is older than N** | Very cheap on the hot path; converts a silent over-draw into an explicit refusal; fails SAFE | Adds a liveness cliff (redeems blocked when nobody has poked); needs a per-holding timestamp. |
+
+⇒ **RECOMMENDED: 4 + 5 as one mechanism, explicitly NOT 3 alone.**
+Bound the cache age; on breach, refresh **just the stables this redeem will touch** via the existing
+`_refreshHoldings(stable)` and proceed. That gives: a SYNCHRONOUS guarantee (the value used is never
+older than the bound), BOUNDED gas (only touched stables, not all 12), NO second valuation path (§A.5c
+stays satisfied), and NO liveness cliff (the redeem heals its own staleness instead of reverting).
+Option 3 remains worth doing as a *complement* — it makes the bound rarely bind — but must not be sold
+as the fix.
+⚠️ **Open sub-question before building:** whether the quote reads the AGGREGATE `amounts[14]`; if it
+does, a per-stable refresh is insufficient and the bound must cover the aggregate too. **Measure that
+first** — it decides whether (4) is viable or collapses into (1).
