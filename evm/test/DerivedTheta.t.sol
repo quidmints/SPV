@@ -74,7 +74,16 @@ contract DerivedThetaProbe is Alles {
         //     deterministic central value; later regimes move spot and K tracks it (correctly) live.
         assertGt(kCalm, 0, "K must be measurable from the live band (not 0/degenerate)");
         assertGt(kCalm, 4e18, "live band-geometry K must be O(10) for a concentrated band, NOT the old ~0.71/2.24 constant");
-        assertLt(kCalm, 100e18, "live K must stay in the band's finite closed-form range");
+        // CEILING CORRECTED (2026-07-26) — the old 100e18 encoded a band width the fixture does not
+        // have. The comment above assumes "K_center ~= 12.56 for the +/-2% band", but the live band is
+        // MEASURED at LOWER_TICK 200570 / UPPER_TICK 200610 = 40 ticks ~ +/-0.2%, i.e. TEN TIMES
+        // narrower. K rises as the band narrows (denom = 2 - r1 - r2 shrinks), so ~125e18 is the
+        // correct central value for THIS geometry — exactly the 10x of 12.56, so the closed form is
+        // right and only the assumed width was stale. Verified pre-existing: upstream origin/main
+        // fails identically at 125131291560419227605, to the wei.
+        // The ceiling still does its real job — catching a DEGENERATE K (spot pinned at a band edge
+        // drives denom -> 0 and K -> infinity) — with headroom above the measured central value.
+        assertLt(kCalm, 400e18, "live K must stay in the band\'s finite closed-form range (non-degenerate)");
         // cross-check θ@5% is exactly yield/(K·σ²) at the live K (no clamp in this regime).
         if (sigCalm > 0) assertEq(th5Calm, _thetaAt(kCalm, sigCalm, 5e16), "theta must be yield/(K*sigma^2) at the live K");
         // (2) MORE realized vol ⇒ SMALLER safe θ (the entire point of deriving θ live).
