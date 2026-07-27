@@ -2527,3 +2527,42 @@ should no longer be described as a demonstrated over-draw.
 ⇒ **To settle it definitively:** instrument `_settleRedeem` to log the QUOTED `perShare`/`freeUsd`
 against the DELIVERED amount under a stale cache. If quoted > delivered, the bound is doing the work and
 there is no extractable harm; if they are equal and both stale-high, the harm is real and reachable.
+
+## A.40 ✅ §J.2 GATE MET — the round-trip proof exists AND is mutation-verified
+
+`test/RoundTripNeutrality.t.sol`, 4 assertions, all ABSOLUTE (§A.16d — a relative round-trip assertion
+applies the same price on both sides and CANCELS a wrong one, which is exactly how a 69% under-valuation
+survived a green 123/0 suite):
+1. **Entry identity** — a deposit credits `pooled` 1:1 with assets, `lpShares` moves by EXACTLY that,
+   and `balanceOf(user) == pooled`. This pins `pooled` AS the share unit, which is the thing §J.2 moves.
+2. **Round-trip conservation** — delivered **+ RETAINED** == principal. The retained term is
+   load-bearing: `withdraw` defers what the ladder cannot source, and asserting delivery alone reads a
+   deferral as a loss (the §A.9 mistake).
+3. **Bystander neutrality** — one LP's FULL round-trip moves neither another LP's share count nor its
+   redeemable value. This IS "behaviour-neutral" for a share model, i.e. the property §J.2 must preserve.
+4. **Share-price identity UNDER LEVERAGE** — with the book in sync the price is EXACTLY
+   `vogueETH/lpShares`, because `_pricingBacking` restates the levered book onto the denominator's clock.
+
+**MUTATION-VERIFIED against the real bug:** reintroducing the reverted §A.16d separation (drop the live
+term, do NOT restore the recorded one) turns #4 RED — `83535187673151592 != 607738539679782365`, an 86%
+under-valuation. The gate can therefore detect the exact regression class §J.2 risks.
+⚠️ **#4 MUST keep its leverage precondition.** The unlevered version of the same assertion is BLIND:
+with no position open `totalNetEquityEth == 0`, so the mutant subtracts nothing and passes. My first
+draft asserted `totalLevPooled == 0` as a precondition and was vacuous for exactly that reason.
+
+## A.41 🔴🔴 METHOD ALERT — STALE BYTECODE INVALIDATES MUTATION CHECKS (and may have invalidated mine)
+
+**The above nearly went the wrong way.** The mutant PASSED twice; only a `forge build --force` between
+mutation and test made it fail. `forge test` did NOT reliably recompile the mutated source — the exact
+trap §A.12 recorded ("suspect STALE BYTECODE before suspecting your own logic"), which I then failed to
+apply to my own verification method.
+
+⇒ **CONSEQUENCE — earlier "vacuous" verdicts in this session are UNRELIABLE.** Every mutation check run
+WITHOUT `--force` may have tested the ORIGINAL bytecode, making a perfectly good test look vacuous:
+- §A.39's conclusion that §A.5e's harm "could not be demonstrated" — **the payout test may have been
+  fine and the mutant simply never compiled.** RE-RUN IT WITH `--force` BEFORE TRUSTING §A.39.
+- §A.8e's two deleted θ tests — same doubt.
+- §A.20's mutation-status audit of this session's tests — same doubt.
+⇒ **STANDING RULE: a mutation check MUST be `forge build --force` between the edit and the run.**
+Without it a green result means nothing. Budget for it — it is minutes, and the alternative is deleting
+good tests and shipping unpinned fixes, both of which happened here.
