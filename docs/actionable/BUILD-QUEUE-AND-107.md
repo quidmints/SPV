@@ -2606,3 +2606,28 @@ non-custodial until this lands.
 seed, `EGETKEY` sealing, DCAP/RA-TLS attestation, Safe-authed migration. The EVM identity should REUSE
 that machinery rather than grow a parallel one; the work is extending `RootSeed`'s derivation and
 routing `LocalSigner` at it, not building a second custody stack.
+
+## A.44 ✅ §A.8e RE-VERIFIED under §A.41's rule — verdict CONFIRMED, and the reason is now known
+
+Re-ran the θ fail-open pin properly (mutant confirmed present, `forge build --force` between mutation
+and run). **It still passes with the fix removed — so §A.8e's original "vacuous" verdict was CORRECT.**
+
+**And this time the ROOT CAUSE is established, not guessed.** Added a reachability precondition
+(`assertTrue(theta != 1e18)` BEFORE mocking the premium) and it FAILS: θ is **already 1e18** at that
+point, so an earlier short-circuit (`sigmaSq == 0` / `kWad == 0` / `work == 0`) returns first and the
+premium branch is NEVER EVALUATED. Extending the flow to 70 minutes — past the
+`THETA_N(8) × THETA_STEP(5min) = 40min` variance horizon — did not change it, so insufficient ring
+history is not the only cause: the 0.3-ETH swaps are simply too small to move `kLvrWad`/`work` off zero.
+
+⇒ **Concrete lead for anyone who wants the pin:** `DerivedTheta.t.sol` DOES reach a live
+`kCalm ≈ 125e18`, using `_moveEth` with **40-ETH** steps. A θ pin has to live in that fixture's flow
+regime, not in a gentle Alles-style loop. Until then the fix stays correct-but-unpinned — and it is
+belt-and-braces anyway, since §A.17 established that BOTH consumers (`VogueLib._liveTheta`,
+`BtcVaultLib._thetaClampBtc`) already normalise 0 → 1e18 before `applyTheta` sees it. Only the EXTERNAL
+views would have surfaced the raw 0.
+
+**Net on §A.41's doubt:** both re-checks (§A.42 for §A.5e, this one for §A.8e) CONFIRM the original
+verdicts. The stale-bytecode flaw did not, in the end, produce a wrong conclusion — but that was luck,
+not method, and the rule stands: force the rebuild and check that GAS MOVED, or the result means nothing.
+§A.20's session-wide audit is the remaining item that was never re-run under the rule; its per-test
+claims are "red-before/green-after by construction", which is a weaker but independent form of evidence.
