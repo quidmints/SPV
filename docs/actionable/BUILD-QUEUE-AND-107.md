@@ -1823,3 +1823,72 @@ land first without foreclosing option 3.
 detector of this in the tree. A `syncLev` call was ADDED to the test during diagnosis and REMOVED again
 before commit — with it in place the test passes, which would have masked the defect exactly as §A.13's
 depth guard nearly did.
+
+## A.18 🔴🔴 THE FORK IS NOT PINNED — the whole fork suite is NON-REPRODUCIBLE (found 2026-07-27)
+
+`vm.createSelectFork(vm.rpcUrl("mainnet"))` — **no block number**. Every run forks at the current
+mainnet HEAD, so results depend on live external state at the moment of the run.
+
+**Caught red-handed:** `test_forwardHorizon_*` passed at `fe1246c`, then failed hours later with
+`AbsoluteCapExceeded()` from a Morpho-V2 stable vault — with `git diff fe1246c HEAD -- evm/src/` EMPTY
+and the test file byte-identical. Nothing in the repo changed; the vault's cap utilisation moved on
+real mainnet. Also explains the debt drift observed all session across identical runs:
+5278077636 → 5288115014 → 5298701298 → 5314620473 → 5384222951.
+
+**Consequences, all of which bit today:**
+- Green today ≠ green tomorrow. A CI pass proves nothing about a later run.
+- `git bisect` and before/after comparisons are unsound. My "upstream fails identically, to the wei"
+  checks (§A.12, §A.16) only held because the two runs were minutes apart — that was luck, not method.
+- A test can fail for reasons with no cause in the diff, which is exactly the trap that burns hours.
+
+⇒ **FIX: pin the block** (`vm.createSelectFork(vm.rpcUrl("mainnet"), BLOCK)`). Note the standing rule
+already assumes a pinned block exists ("when a real dependency can't satisfy a test at the current fork
+block, MOVE THE FORK BLOCK, don't mock") — the rule is right, the wiring never implemented it.
+⇒ Pin ONE constant in the shared fixture; per-file `createSelectFork` calls should read it. Expect some
+tests to need the block moved rather than mocked, per the standing rule.
+
+## A.16d ⛔ REVERTED — the structural share-price fix was WRONG (2026-07-27)
+
+`477dfae` (§A.16c) is **reverted in `2e5a0fa`**. The user challenged it — *"why does share price isolate
+the levered book if levered assets are in the band?"* — and was right.
+
+MEASURED in a HEALTHY, perfectly in-sync state (`levPooled == netEquity`, gap exactly 0):
+
+| formula | plain share price |
+|---|---|
+| shared `vogueETH / lpShares` (original) | 0.614 |
+| plain `(vogueETH − netEq) / (lpShares − levPooled)` (my change) | **0.1886 — 69% LOWER** |
+
+`vogueETH` 6.453 minus `totalNetEquityEth` 5.510 leaves **0.943 of backing against 5.000 plain shares**.
+The two terms DO NOT cancel: `totalNetEquityEth` is not a separable additive component matching
+`totalLevPooled` on the same basis, because the levered capital is COMMINGLED in the band (its buffer is
+real V4 depth). Netting it out therefore strips backing that genuinely supports plain claims and would
+have cut plain-LP redemption value by ~69% in normal operation.
+
+🔴 **The full suite passed (123/0) with this change in.** That is the lesson: the cross-subsidy test went
+green because the price became INSENSITIVE to the levered book — correct in relative terms, catastrophic
+in absolute terms — and round-trip tests apply the same wrong price on both sides, so they cancel. Green
+tests are not a proof of a pricing formula. Any future attempt MUST assert an ABSOLUTE price against a
+hand-computed expected value, not just relative invariants.
+
+⇒ **Back to option 1 (reconcile-before-extract) as the live candidate**, and the user's reasoning is why:
+the assets ARE shared, so they cannot be separated by construction — the accounting must instead be kept
+SYNCHRONISED. Enforce "nobody extracts at a share price computed from stale levered collateral" by
+forcing `_reconcileLev` on any stale slice before pricing in `_withdraw`/`redeem`.
+
+## A.19 BTC swap-out: how a swapper with NO channel receives real BTC (answers user, 2026-07-27)
+
+`BTCChannels.requestSwapOutOnchain` takes a raw **scriptPubKey** (validated as 22/25/34 bytes =
+P2WPKH/P2PKH/P2WSH/P2TR), and `deliverSwapOutOnchain` is gated to `msg.sender == channels[channelId].hop`.
+So: **the HOP sends real on-chain BTC to the swapper's plain Bitcoin address, and the swapper never
+touches Lightning at all.** They need no channel, no LN node — only an address. The protocol settles the
+hop afterwards; `swapOutOwedUsd` tracks the undelivered obligation.
+
+**Why this matters for the vBTC-market question (§A.19b below):** redemption today is bound to a SPECIFIC
+`channelId` and its hop. That is the per-LP binding. A liquidator who seizes vBTC has no channel and
+therefore no redemption route — which is precisely why an OPEN Morpho/Euler market for vBTC cannot
+attract liquidators or, consequently, lenders. The user's framing is exact: we enable BTC redemption
+**de facto** (any address can be paid) but **not de jure** (no channel-independent claim exists).
+⇒ The pooled-backing BTC token dissolves the binding by construction — redeemable against AGGREGATE
+channel capacity rather than the originating LP — but it needs its own accounting to prevent the
+double-claim that `exposeBtcToLev`'s "the LP never receives loose vBTC" invariant currently guards.
