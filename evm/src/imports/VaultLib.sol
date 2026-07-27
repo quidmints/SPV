@@ -178,7 +178,27 @@ library VaultLib {
         return total;
     }
 
-    /// @notice Body of Vault.deliverableETH — DELIVERABLE ETH backing.
+    /// @notice Body of Vault.deliverableETH — SOLVENCY-side ETH backing with PARTIAL liquidity haircuts.
+    ///
+    /// @dev    READ THE NAME NARROWLY (§A.5c, re-derived 2026-07-27). This is NOT a promptness
+    ///         guarantee and NOT a view-twin of the withdraw ladder. It caps the three WETH-4626
+    ///         venues via `_deliverableCap` and subtracts the levered net equity, but it counts the
+    ///         AAVE-v4 leg, weETH at the Vault, raw eETH, and Rover at FULL FACE — none of which is
+    ///         instantly convertible (the ether.fi legs need the offramp ladder, whose rung 3 costs
+    ///         ~0.3% and rung 4 is a multi-day wait NFT).
+    ///
+    ///         WHY THAT IS SAFE RATHER THAN A BUG — it is not load-bearing for delivery. Its two
+    ///         consumers both tolerate over-statement:
+    ///           • `Vogue` uses it ONLY to cap `firstBurn`, i.e. how much of a withdrawal is sourced
+    ///             from the in-range band burn before the venue ladder takes the remainder. The
+    ///             shortfall is then derived from the ACTUAL `sent`, never from this number, so an
+    ///             over-statement shifts the sourcing ORDER and self-corrects.
+    ///           • `SwapLib.deleverEthOnDelivery` gates the swap-out de-lever; under-triggering there
+    ///             is caught downstream by `minOut` + deferral (§A.29).
+    ///         Measured: exit fairness holds to 1%, and a full exit strands < 1 gwei
+    ///         (`test_RunSim_AllExit_Normal`). Do NOT "fix" this by rebuilding it as a ladder twin
+    ///         without first re-establishing a harm — the previous attempt to do so rested on a
+    ///         19.4%-short figure that measurement showed to be stale (~3%, and DEFERRED not lost).
     function deliverableETH(EthCfg memory c) public view returns (uint total) {
         total = _vogueETH(c);
         address[3] memory venues = _venues(c);
