@@ -1186,9 +1186,15 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // (settleSwapIn reverts on swapInUsed) → the swapper's USD would strand with no
         // recovery. Reject it up front, BEFORE creditSwapOut pulls the USD.
         if (swapInUsed[swapId]) revert SwapOutReplay();
-        // A scriptPubKey is 22 (P2WPKH) / 25 (P2PKH) / 34 (P2WSH/P2TR) bytes — require
-        // a plausible script so a delivery output can actually match it.
-        if (swapperScript.length < 22 || swapperScript.length > 34) revert InvalidParam();
+        // P2TR ONLY (tightened 2026-07-27). This was a loose 22..34 length range that also admitted
+        // P2WPKH (22), P2PKH (25) and P2WSH (34) — the last outlier in a protocol that is taproot
+        // everywhere else: the funding output is byte-matched as `0x5120||Q` (BitcoinTx:281,
+        // ChannelLib:529) and the LP payout script is built as `0x51 0x20 || btcRecipientOf` (:506).
+        // A key-path P2TR scriptPubKey is EXACTLY `OP_1 (0x51) PUSH32 (0x20) || 32-byte x-only key`,
+        // so check the prefix, not just a plausible length — a length-only test accepts any 34-byte
+        // blob, including a P2WSH script the rest of the stack cannot produce or match.
+        if (swapperScript.length != 34
+            || swapperScript[0] != bytes1(0x51) || swapperScript[1] != bytes1(0x20)) revert InvalidParam();
         swapOutUsed[swapId] = true;
         uint usd6;
         (sats, usd6) = btcVault.creditSwapOut(msg.sender, token, usdAmount, minSats);

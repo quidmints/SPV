@@ -1892,3 +1892,44 @@ attract liquidators or, consequently, lenders. The user's framing is exact: we e
 ⇒ The pooled-backing BTC token dissolves the binding by construction — redeemable against AGGREGATE
 channel capacity rather than the originating LP — but it needs its own accounting to prevent the
 double-claim that `exposeBtcToLev`'s "the LP never receives loose vBTC" invariant currently guards.
+
+
+## A.19b 🔴 CORRECTION + TODO — vBTC redemption is MECHANICALLY the same as swap-out (user, 2026-07-27)
+
+**§A.19 was too pessimistic and is corrected here.** I said a vBTC holder "has no redemption route".
+The user's challenge — *"isn't a swap out the same as bearer redemption mechanically? why would it work
+any differently for any vBTC holder to redeem to any address?"* — is correct.
+
+**Swap-out is ALREADY bearer-shaped:** `requestSwapOutOnchain` takes USD + a raw P2TR scriptPubKey and
+the hop delivers real on-chain BTC to it. The recipient needs no channel, no LN node, no prior
+relationship. So the protocol demonstrably CAN pay an arbitrary bearer at an arbitrary address. The
+recipient side is a solved problem, not a blocker.
+
+**What is actually missing is therefore only TWO things, not a redemption capability:**
+1. **An entrypoint.** `exposeBtcToLev`/`unexposeBtcFromLev` are gated to `LEV_MANAGER_BTC`, so no third
+   party can burn vBTC at all. A `redeemVBtc(sats, p2trScript, channelId)` that burns the caller's vBTC
+   and enqueues the SAME `pendingOnchainSwapOut` delivery would reuse the existing rail wholesale.
+2. **Source-of-funds binding — the REAL open question.** Swap-out names a `channelId` and is delivered
+   by THAT channel's hop. A liquidator holding vBTC minted against LP-A's channel is bound to LP-A: if
+   that channel is drained or its hop is unresponsive, the claim is stuck even though aggregate channel
+   capacity exists elsewhere. **The binding is about WHICH channel pays, NOT about whether a bearer can
+   be paid.** That is the precise thing a pooled-backing model dissolves.
+
+⇒ **This also softens the "no open Morpho/Euler market" conclusion**: a liquidator CAN be paid, so the
+market is not structurally impossible — it is impossible only while redemption is pinned to the
+originating channel, because a liquidator cannot underwrite that counterparty risk.
+
+### TODO — what a POOLED-backing vBTC would entail (context banked, user will return to this)
+- **Redeem against AGGREGATE capacity**: pick any channel/hop with free capacity rather than the
+  originator. Needs a capacity index + selection (cheapest/most-liquid hop) and a fallback when the
+  chosen hop fails mid-delivery (the existing `settleSwapIn` reversal is the model).
+- **The double-claim invariant is the hard part.** Today's guard is structural and blunt: "the LP never
+  receives loose vBTC (that would double-claim the same channel BTC)" (`exposeBtcToLev`). Pooling
+  DELIBERATELY breaks the 1:1 token↔channel binding, so that guard must be replaced by an aggregate
+  one: Σ outstanding vBTC ≤ Σ free channel capacity, enforced on mint AND on every channel
+  close/splice/drain that reduces capacity.
+- **Per-LP fairness**: if any LP's channel can service any redemption, an LP whose channel is chosen
+  bears the outflow while the fee/risk accrued to another. Needs either pro-rata assignment or
+  compensation — the SAME class of problem as §A.16's cross-subsidy, and worth solving together.
+- **Liquidation interaction**: with pooled redemption, a seized vBTC position is exitable, which is what
+  makes an external lending market viable — the payoff that justifies the work.
