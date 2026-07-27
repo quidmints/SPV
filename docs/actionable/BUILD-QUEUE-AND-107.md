@@ -2012,3 +2012,59 @@ Genuinely fragile ones fixed:
 ⇒ **The pattern to reuse:** when a value depends on live external state, assert the INVARIANT that holds
 across its plausible range, not a point value. That is what makes an unpinned fork an asset instead of
 a flake source.
+
+## A.23 📁 ACTIONABLE-FOLDER TRIAGE (2026-07-27) — verified against CODE, not against doc text
+
+User: *"do not trust the docs… check the logic of the items and the code"* — after I deleted
+`LST-PEG-MONITOR` on the strength of its own "don't build it" status line, which the user had ALREADY
+told me to keep. That first pass was wrong in method: it scored docs by their self-description and by
+citation count. **Citation count is not a keep signal and a doc's own status line is not evidence.**
+Redone by testing each claim against the code.
+
+### PROVEN STALE BY CODE → deleted
+- `AUDIT-TODO` — its residuals are mostly DEAD, verified:
+  · "Link ownership → multisig before mainnet" and "`Link.onGovernanceReport` arbitrary-call" both
+    reference a contract **THAT NO LONGER EXISTS** — no `Link.sol`, and zero hits for
+    `onGovernanceReport`/`setForwarder` anywhere in `evm/src`.
+  · "`settleSwapIn` not `nonReentrant`" — **FALSE**: `BTCChannels.sol:1086` already declares
+    `external nonReentrant`.
+  Only two items survived and are migrated to §A.24.
+- `INTERFACE-DEDUP-AND-CONSOLIDATION` — landed this session (144 → 116 declarations); remainder in §A.17.
+- `LEVERAGE-COLLATERAL-ROUTE-SPEC` — the route is shipped (`LevManager.openLev` + generic venue legs).
+- `LEVERAGE-RISK-SURFACE` — 0 open markers; superseded by the live leverage code and §A.16/§A.16b.
+- `BTC-MARKET-MAKING-SPEC` — its ONLY code citation was a historical aside in `Core.sol:158`; not
+  load-bearing. Comment reworded to stand on its own.
+- `DISCUSSION-DIGEST` — a conversation log, superseded by this queue.
+
+### VERIFIED LIVE → KEPT (my first pass had these wrong)
+- `LST-PEG-MONITOR` — **KEEP.** Its one surviving lever, the ex-ante weETH venue-share cap, is
+  **NOT in the code** (grep: no cap in `VogueLib`/`Vogue`). The doc's "don't build the monitor"
+  conclusion is not the same as "nothing here is open". The user had already said keep; I ignored that.
+- `HOP-CUSTODY-SGX` — **KEEP.** 116 Rust files reference SGX/enclave/lexe: the subject is extensively
+  alive, and memory records `lexe_ca.rs` still hard-referencing Lexe's CA constants as an un-migrated
+  trust root (a Staging/Prod misconfig risk). That is a LIVE bug in this doc's domain.
+- `EIP170-MIGRATION` — **KEEP.** Headroom is critical RIGHT NOW: `LevManager` 70 bytes free, `LevMath`
+  20 bytes free. Guidance for the tightest constraint in the tree is not stale.
+- `PUPPETEER-E2E-MATRIX` — **TRIM, don't delete.** Voting IS gone from the code (0 hits for
+  `castVote`/`function vote`), so those sections are stale, but the rest is E2E coverage mapping.
+- `TAPROOT`, `JIT-DEPTH`, `LEVERAGE-BTC-M11`, `IMPAIRMENT-DERISK`, `SOR-SIGNIFICANCE` — all cited for
+  LIVE semantics or open decisions, and their subjects verified present in code.
+- `FAMILY-PLAN`, `KHALANI-SOLVER-INTEGRATION` — UNBUILT FORWARD DESIGNS. Deleting these destroys design
+  work rather than removing rot; needs the user's explicit call, not a sweep.
+
+⚠️ **`JIT-DEPTH-GUARANTEE` status is stale even though the doc is load-bearing** — its §4 list marks
+work as TODO that is already built (§4.1 COMPOUND-not-transfer is present in `Vogue.sol`). Fix the
+status; do not delete.
+
+## A.24 THE TWO SURVIVING AUDIT-TODO RESIDUALS (the rest were dead — see §A.23)
+- 🟡 **`repack` `myLiquidity` trusted-arg.** VERIFIED still open: `Core.repack` takes `myLiquidity` from
+  the caller with no `poolStats`-vs-arg assertion. POOLED desync is structurally safe (mutated only from
+  realized V4 `BalanceDelta`) and it is inside the Vogue keeper trust boundary, but add the assertion +
+  a POOLED-equals-realized invariant test to close it.
+- ⚠️ **RISK-2 bootstrap-year forward-yield over-mint (by-design, watch).** The 1:1 cap is skipped for
+  `currentMonth() < 12` and `avgYield` is grindable via a 4626 share-price held past the averaging
+  horizon. Accepted cold-start tradeoff; maturity-lock contains redeemability. **Directly related to
+  §A.15** (a deposit inflating the buffer that gates its own tenor) — solve them together.
+- **Accepted/won't-fix, carried forward:** §9a `recordClose` co-signed STALE close (`finalBalance` is
+  hop-trusted); RISK-3 cross-LP close fairness (inherent to the pooled model); BTC-share median
+  staleness (sizing cap only, self-correcting on churn).

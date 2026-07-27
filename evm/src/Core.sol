@@ -155,7 +155,8 @@ contract Core is SafeCallback {
     //
     // The skew curve (SwapLib.skewWad) prices scarce volatile inventory UP on the
     // swap-OUT (well) path, re-admitting the BENIGN inventory-rebalancing arber that
-    // oracle-only pricing killed alongside toxic LVR (BTC-MARKET-MAKING-SPEC).
+    // oracle-only pricing killed alongside toxic LVR (a swap must never price off the oracle alone:
+    // that is a free option to the taker and the LVR it feeds is exactly what the band fee exists to price).
     // Its adaptive TARGET = "the buffer needed to serve normal flow" is an EWMA of
     // two-sided swap volume — decayed exactly like the Aux.BaseRate register (same
     // FeeLib.decPow half-life), NO governance constant, the market's own volume sets
