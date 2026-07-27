@@ -63,17 +63,22 @@ contract Vogue is
     // 3-arg deposit/mint overloads — no standing per-address setting, no separate
     // setter tx. The 2-arg 4626 entrypoints route to the SPLIT default.
 
-    // [ TODO — TRIMMED 2026-07-27 to the ONE part that is still open. Two of the three original asks
-    // are BUILT and verified: (a) ether.fi is NOT a distinct user-selectable venue — there is
-    // deliberately no VENUE_ETHERFI dispatch tag, it is a fallback reached only when the Rover has
-    // self-liquidated; (b) VENUE_SPLIT does split EQUALLY across all five venues
-    // {AAVE, Euler, Rover, Galaxy, Gauntlet} — see `toDeposit / 5` in VogueLib's split branch.
+    // RESOLVED 2026-07-27 (was the last surviving user [TODO]). The concern was that an LP withdraws
+    // only from the venues they directed to, while their FEE slices were never part of that deposit and
+    // we do not track where those slices landed. USER'S CALL: let withdrawals source fee value from ANY
+    // venue — the direction constraint existed only so nobody is forced into ether.fi's wait time, and
+    // anything broader is unnecessarily heavy.
     //
-    // STILL OPEN — FEE ATTRIBUTION vs VENUE DIRECTION: an LP may withdraw only from the venues they
-    // directed their deposit to, but their accrued FEE slices were never part of that original deposit
-    // and we do not track which venues those slices landed in. So a withdrawal can be venue-constrained
-    // in a way the fee accrual never was. Needs a decision: either attribute fees per-venue on accrual,
-    // or let a withdrawal source fee value from any venue. ]  
+    // VERIFIED: THE CODE ALREADY DOES EXACTLY THIS.
+    //  • Non-ether.fi venues are FUNGIBLE on exit — "Galaxy + Euler are fungible; pull from each at its
+    //    maxWithdraw" (VaultLib) — so a withdrawal already sources from whichever venue can pay.
+    //  • `ethfiBacked` is annotated "the ONLY" per-LP isolated slice, and an LP with `ethfiBacked == 0`
+    //    "skips this and never touches the offramp/wait/fee".
+    //  • That slice is credited ONLY on the deposit path (`ethfiBacked[pledge] += min(placed, sent)`),
+    //    sized by principal actually routed to ether.fi/Rover. FEES ARE NEVER ADDED TO IT, so accrued
+    //    fee value can never drag an LP into the offramp.
+    // ⇒ ether.fi isolation is principal-only and opt-in by routing; everything else is fungible. No code
+    //   change was required — the design already matched the intent.  
 
     // Venue codes (per-deposit; NO default sink): 0 = SPLIT (equal 5-way, below), 2 = AAVE-v4 (spoke
     // supply/withdraw — 4626-LIKE, aToken/spoke, not a true ERC4626), 3 = Galaxy (its OWN Morpho WETH

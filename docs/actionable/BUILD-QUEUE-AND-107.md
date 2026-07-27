@@ -2711,3 +2711,40 @@ to only what is still true. Of its three original asks:
   directed their deposit to, but their accrued FEE slices were never part of that deposit and we do not
   track which venues those slices landed in. Needs a decision: attribute fees per-venue on accrual, or
   let a withdrawal source fee value from any venue.
+
+### §J.2b — `VEth.sol` is REQUIRED, and it is NOT symmetric with `VBtc.sol`
+
+USER CAUGHT THIS: "are you telling me we dont need a vETH.sol?" No — the §J.2 bullet
+"make Vogue not-a-4626" was incomplete as written. It said the ETH 4626 face leaves Vogue
+but never said where it LANDS. It lands in `VEth.sol`. Verified Vogue IS vETH today:
+`balanceOf(user) => autoManaged[user].pooled` (:1100), `totalSupply() => lpShares` (:1105),
+`asset() => WETH` (:1149).
+
+THE ASYMMETRY IS THE WHOLE DESIGN POINT — do not copy `VBtc.sol`:
+  • `VBtc` OWNS its balances/supply. It could, because the vBTC token face was merely FUSED
+    onto Vault; nothing else read it.
+  • `VEth` MUST NOT own balances. vETH shares are `autoManaged[].pooled` / `lpShares`, which are
+    LOAD-BEARING BAND STATE read by `exposeToLev`, the withdraw ladder, `ethfiBacked`, and the
+    `_pricingBacking` numerator. Relocating that storage is not a face-split — it moves the
+    accounting core across a call boundary, and it would put an external call inside the
+    same-clock invariant repaired in §A.16 (live numerator over lazy denominator).
+
+SHAPE: `VEth` is a PROJECTION FACE — it holds the ERC-20/4626 IDENTITY (`name`, `symbol`,
+`decimals`, `asset`, `convertToAssets/Shares`) and reads `balanceOf`/`totalSupply` THROUGH Vogue.
+Vogue keeps `pooled`/`lpShares` and remains the transfer authority. Result: Vogue is not a 4626,
+it MANAGES two — which is the architecture the original bullet was reaching for.
+
+### §J.7 — fee attribution vs venue direction: RESOLVED, no code change needed
+
+USER'S CALL: "let withdrawals source fee value from any venue... the purpose was not to force
+anyone to ever have to potentially be faced with the wait time of etherfi. otherwise it is
+unnecessarily heavy, am i wrong?" They are not wrong, and the code already agrees:
+  • `VaultLib:359` — "Galaxy + Euler are FUNGIBLE; pull from each at its maxWithdraw."
+  • `Vogue.sol:94` — `ethfiBacked` is annotated "the ONLY" per-LP isolated slice.
+  • `Vogue.sol:509` — an LP with `ethfiBacked == 0` "never touches the offramp/wait/fee".
+  • Credits are DEPOSIT-PATH ONLY (`ethfiBacked[pledge] += min(placed, sent)`, VogueLib:231/253),
+    sized by principal actually routed to ether.fi/Rover. FEES ARE NEVER ADDED, so accrued fee
+    value can never drag an LP into the offramp.
+⇒ ether.fi isolation is principal-only and opt-in by routing; every other venue is already
+  fungible on exit. This was the last surviving user `[TODO]` marker in the tree.
+
