@@ -25,7 +25,16 @@ contract ForwardMintHeadroom is Alles {
     /// Warps into steady state, mints `when` FAR beyond the cap as a fresh user,
     /// and returns (minted, the single maturity bucket the cohort landed in,
     /// nextMonth, expectedMaxFwd derived from the SAME metrics the mint reads).
-    function _mintFarDated(address user, uint expectBufBps)
+    function _mintFarDated(address user, uint expectBufBps) internal
+        returns (uint minted, uint actualM, uint nextMonth, uint expMaxFwd)
+    { return _mintFarDated(user, expectBufBps, 100_000e6); }
+
+    /// @param depositUsdc the mint size. It MATTERS: the contract measures the buffer INSIDE the
+    ///        mint, with this deposit already counted in `total` but the new QUI not yet in
+    ///        `totalSupply()` — so a deposit that is large relative to the basket inflates the very
+    ///        buffer that gates its own forward tenor. Measured here: a 100k mint into a ~157k basket
+    ///        moves the buffer 0 -> 3887 bps, i.e. it self-authorises the full 12-month lock.
+    function _mintFarDated(address user, uint expectBufBps, uint depositUsdc)
         internal returns (uint minted, uint actualM, uint nextMonth, uint expMaxFwd)
     {
         uint cm = QUID.currentMonth();
@@ -37,13 +46,15 @@ contract ForwardMintHeadroom is Alles {
         vm.startPrank(user);
         USDC.approve(address(AUX), type(uint).max);
         uint when = nextMonth + expMaxFwd + 6; // request beyond the cap
-        minted = QUID.mint(user, 100_000e6, address(USDC), when);
+        minted = QUID.mint(user, depositUsdc, address(USDC), when);
         vm.stopPrank();
 
         // New branch executed safely; 1:1 cap floors the credit at the (post
         // deposit-fee) principal — never below it, never the depositor's loss.
         assertGt(minted, 0, "steady-state mint must succeed");
-        assertGt(minted, 99_900e18, "cap floors credit at ~principal");
+        // Scaled to the ACTUAL deposit (was hardcoded to the 100k default, which broke the moment a
+        // caller needed a smaller mint to keep the measured buffer inside a tier).
+        assertGt(minted, (depositUsdc * 1e12) * 999 / 1000, "cap floors credit at ~principal");
 
         uint nonzero;
         for (uint m = nextMonth; m <= nextMonth + 13; ++m) {
@@ -69,10 +80,24 @@ contract ForwardMintHeadroom is Alles {
         total -= total < loss ? total : loss;
         uint sup = QUID.totalSupply();
         uint bufBps = total > sup ? (total - sup) * 10_000 / total : 0;
-        console.log("live buffer (bps):", bufBps);
-        assertLt(bufBps, 150, "precondition: natural buffer is thin (<1.5%)");
+        // The CONTRACT measures the buffer INSIDE the mint, by which point the incoming deposit is
+        // already counted in `total` while the new QUI has NOT yet hit `totalSupply()` — so a large
+        // deposit inflates the very buffer it is then judged against. Measuring the buffer BEFORE the
+        // deposit (as this test did) reported 0 bps => maxFwd 1, while the contract saw a fat buffer
+        // and granted maxFwd 12, landing the cohort at the full request. Include the deposit so the
+        // precondition is the same quantity the tiering actually reads.
+        // Size the deposit so the buffer the MINT sees stays under the 150-bps tier — otherwise this
+        // test cannot exercise the thin-buffer floor at all. 1% of supply keeps `deposit/(sup+deposit)`
+        // ~99 bps, comfortably inside the tier.
+        uint depositUsdc = sup / 1e12 / 100;               // 18-dec supply -> USDC 6-dec, then 1%
+        uint totalSeen = total + depositUsdc * 1e12;
+        uint bufBpsSeen = totalSeen > sup ? (totalSeen - sup) * 10_000 / totalSeen : 0;
+        console.log("buffer (bps) pre-deposit:", bufBps);
+        console.log("buffer (bps) as the mint SEES it:", bufBpsSeen);
+        assertLt(bufBpsSeen, 150, "precondition: buffer the mint reads is thin (<1.5%)");
+        bufBps = bufBpsSeen;
 
-        (, uint actualM, uint nextMonth,) = _mintFarDated(User02, bufBps);
+        (uint minted, uint actualM, uint nextMonth,) = _mintFarDated(User02, bufBps, depositUsdc);
         assertEq(actualM, nextMonth + 1, "thin buffer -> ~1mo floor lock");
     }
 

@@ -1664,3 +1664,28 @@ rejected by the user as masking the question, but it reached the tree and was sw
 it, which proves §A.13's one-line anchor fix (`twapResolve` no longer skipping Chainlink when the
 internal TWAP is 0) was the real fix and the guard was pure masking. Lesson: after a rejected edit,
 verify the file — do not assume rejection reverted it.
+
+## A.15 🟠 A DEPOSIT INFLATES THE VERY BUFFER THAT GATES ITS OWN FORWARD TENOR (found 2026-07-26)
+
+`Basket._finishMint` bounds how far forward a cohort may lock by the live over-collateralization
+buffer: `bufBps >= 500 -> 12 months, >= 300 -> 6, >= 150 -> 3, else 1`. The stated intent is that
+"longer locks ONLY when the buffer supports it… so a thin buffer can't be stretched into long-dated
+cohorts."
+
+**But the buffer is measured INSIDE the mint, with the incoming deposit already counted in `total`
+while the new QUI has NOT yet been added to `totalSupply()`.** So the depositor's own money counts
+toward the collateralization that authorises their own tenor.
+
+MEASURED via `test_forwardHorizon_thinBuffer_clampsToFloor`: the basket's natural buffer was **0 bps**,
+yet a 100k USDC mint into a ~157k-supply basket made the mint read **3887 bps** — vaulting it past the
+500-bps tier and granting the full 12-month lock that the thin buffer was supposed to forbid. The test
+had been computing the buffer BEFORE the deposit, which is why it asserted `maxFwd == 1` and failed.
+
+⇒ **Not fixed in contract — recorded for a decision.** The gate is doing something, but not what its
+comment claims: it bounds tenor by post-deposit collateralization, so a large enough deposit always
+self-authorises the maximum. Whether that is acceptable (the 1:1 cap still binds the *amount*, and
+`redeem` values one basket share at `min($1, solvent/mature)`) or should measure the buffer EX the
+incoming deposit is a design call. Sizing matters: the effect scales with deposit/basket, so it is
+largest exactly when the basket is small.
+⇒ Test now sizes its deposit to 1% of supply so the thin-buffer path is genuinely exercised, and
+`_mintFarDated` takes the mint size as a parameter with the interaction documented.
