@@ -121,7 +121,6 @@ contract Alles is Test, Fixtures {
     using StateLibrary for IPoolManager;
 
     uint public constant WAD = 1e18;
-    uint public SWAP_SIZE_PROBE = 40 ether;
     uint public constant USDC_PRECISION = 1e6;
     address public User01 = address(0x1001);
     address public User02 = address(0x1002);
@@ -729,73 +728,84 @@ contract Alles is Test, Fixtures {
     }
 
     // Grinding removed (no per-swap 0.5% cap / no manip revert): a LARGE swap now walks the real
-    // curve, skewing the pool's composition (excess of one side). The permissionless reseat must
-    // re-band that skewed pool WITHOUT reverting and re-center the spot onto the anchored TWAP.
-    // Proves _repackAdd handles a composition-skewed re-band + the reseat is capital-neutral.
-    function testZZProbe80()   public { SWAP_SIZE_PROBE = 80 ether;  testGrindRemoval_LargeSwapThenReseatRebandsSkewed(); }
-    function testZZProbe160()  public { SWAP_SIZE_PROBE = 160 ether; testGrindRemoval_LargeSwapThenReseatRebandsSkewed(); }
-    function testZZProbe400()  public { SWAP_SIZE_PROBE = 400 ether; testGrindRemoval_LargeSwapThenReseatRebandsSkewed(); }
-    function testZZProbe1000() public { SWAP_SIZE_PROBE = 1000 ether; testGrindRemoval_LargeSwapThenReseatRebandsSkewed(); }
-
+    // curve, skewing the pool's composition (excess of one side). The reseat must survive that
+    // skewed pool WITHOUT reverting, and must not move capital.
+    //
+    // WHAT THIS FIXTURE ACTUALLY REACHES (measured — see the premise assertions below, which
+    // previously did not exist; the 0.06e18 / 0.15e18 tolerances hid all of it):
+    //   • The swap DOES maximally skew composition: POOLED_USD_ETH goes 50_692_000_843 → 46_595_116,
+    //     i.e. the band's USD leg is 99.91% drained. That part of the premise is real.
+    //   • The swap CANNOT push the tick out of the band. It saturates at the band edge: measured
+    //     band [200660, 200700], post-swap tick 200699 — one tick inside. Verified by sweeping the
+    //     swap size over 40 / 80 / 160 / 400 / 1000 ETH: ALL FIVE produce a bit-identical end
+    //     state (same tick, same POOLED_USD_ETH 46_595_116, same POOLED_ETH). A concentrated
+    //     position cannot trade itself past its own band edge — there is no liquidity beyond it.
+    //   • Therefore NEITHER reseat branch in SwapLib.rebalanceCore fires. The repack branch needs
+    //     `currentTick > tickUpper || currentTick < tickLower` (false, by 1 tick). The auto-heal
+    //     branch needs `stale` — internal TWAP >5% off Chainlink — and the gap here is 0.0999%.
+    //     `reseatEpoch` is 0 both before AND after the reseat: nothing was re-centered.
+    //
+    // So `V4.reseat()` is a verified NO-OP here and the assertions below pin exactly that. This
+    // test does NOT prove "_repackAdd handles a composition-skewed re-band" — that path is not
+    // reachable from this fixture, so the old comment claiming it did was wrong. See the report:
+    // a band drained to 99.9% one-sided is functionally dead (no USD depth for the next swapper)
+    // yet is still "in range" by one tick, so the permissionless deadlock-recovery poke cannot
+    // heal it. That is a suspected REAL defect in the repack trigger (it tests the tick boundary,
+    // not the composition) and is deliberately NOT papered over with a loose tolerance here.
     function testGrindRemoval_LargeSwapThenReseatRebandsSkewed() public {
         vm.prank(User01); V4.deposit{value: 200 ether}(0, User01);
         vm.roll(vm.getBlockNumber() + 1);
 
-        (, uint160 sp0, int24 t0) = CORE.poolTicks(false);
-        emit log_named_uint("MEASURE spotAfterDeposit", _getPrice(sp0, V4.token1isETH()));
-        emit log_named_int("MEASURE tickAfterDeposit", t0);
-        emit log_named_uint("MEASURE pooledUsdAfterDeposit", CORE.POOLED_USD_ETH());
-        emit log_named_uint("MEASURE pooledEthAfterDeposit", CORE.POOLED_ETH());
+        uint pooledUsdAtSeed = CORE.POOLED_USD_ETH();
+        assertGt(pooledUsdAtSeed, 0, "PREMISE: deposit seeded a USD leg to skew");
 
         // Sizeable swap: pre-grind-removal this partial-filled at the 0.5% cap; now it walks the
-        // curve, skewing the pool's composition (moderate — enough to skew, not fully drain).
+        // curve until the band's USD leg is exhausted at the upper edge.
         vm.prank(User02);
-        AUX.swap{value: SWAP_SIZE_PROBE}(address(USDC), address(WETH), false, 0, 0);
+        AUX.swap{value: 40 ether}(address(USDC), address(WETH), false, 0, 0);
 
-        (, uint160 sp1, int24 t1) = CORE.poolTicks(false);
-        emit log_named_uint("MEASURE spotAfterSwap", _getPrice(sp1, V4.token1isETH()));
-        emit log_named_int("MEASURE tickAfterSwap", t1);
-        emit log_named_int("MEASURE bandLowerAfterSwap", V4.LOWER_TICK());
-        emit log_named_int("MEASURE bandUpperAfterSwap", V4.UPPER_TICK());
-        emit log_named_uint("MEASURE reseatEpochAfterSwap", V4.reseatEpoch());
-        emit log_named_uint("MEASURE pooledUsdAfterSwap", CORE.POOLED_USD_ETH());
-        emit log_named_uint("MEASURE pooledEthAfterSwap", CORE.POOLED_ETH());
-
-        // Measure POOLED right BEFORE the reseat so we isolate the RESEAT's effect (the swap's
-        // own consumption is not the reseat's fault).
+        // PREMISE: the swap really did skew the pool's composition — without this the whole test
+        // is inert, and nothing downstream would have noticed (it passed for both reasons before).
+        // Derived from live state, not a literal: the USD leg must be ≥99% consumed.
         uint pooledBeforeReseat = CORE.POOLED_USD_ETH();
+        assertLt(pooledBeforeReseat, pooledUsdAtSeed / 100,
+            "PREMISE: swap drained >=99% of the band's USD leg (composition really is skewed)");
 
-        // The permissionless reseat must re-band the skewed pool without reverting.
+        // PREMISE: the swap saturated AT the band edge — it did not leave the band. This is what
+        // makes the reseat a structural no-op below, so assert it rather than letting it hide.
+        (,, int24 tickBefore) = CORE.poolTicks(false);
+        assertLe(tickBefore, V4.UPPER_TICK(), "PREMISE: swap saturates inside the band (upper)");
+        assertGe(tickBefore, V4.LOWER_TICK(), "PREMISE: swap saturates inside the band (lower)");
+        uint64 epochBefore = V4.reseatEpoch();
+
+        // The permissionless reseat must handle the skewed pool without reverting.
         V4.reseat();
 
-        // Re-centered onto the anchored TWAP (not stuck at the shifted price).
+        // Spot vs the anchor. BOUND DERIVED FROM LIVE STATE, not a fitted literal: the swap can
+        // only walk the spot to the band edge, and the band is built by SwapLib.updateTicks with
+        // BAND_DELTA = 20bps, so |spot/twap - 1| is structurally capped at 20bps = 0.002e18.
+        // Measured residual is 0.0999% (9.99bps) — the centre-to-edge distance after tick
+        // alignment — and it is bit-stable across fork blocks (the fork is unpinned, so the
+        // absolute price moves run to run, but this RATIO does not). Old bound was 0.06e18 (6%),
+        // i.e. 60x the measured value and 30x the structural maximum.
         (, uint160 sp,) = CORE.poolTicks(false);
         uint spot = _getPrice(sp, V4.token1isETH());
         uint twap = AUX.getTWAPforAsset(address(WETH), 1800);
-        assertApproxEqRel(spot, twap, 0.06e18, "reseat re-centered spot onto the anchor");
+        assertApproxEqRel(spot, twap, 0.002e18, "spot within one BAND_DELTA (20bps) of the anchor");
 
-        // Capital-neutral: the reseat repositions the SAME dollars (burn → reprice → re-add), so
-        // POOLED across the reseat is ~unchanged — it does NOT drain backing.
-        emit log_named_uint("MEASURE spot", spot);
-        emit log_named_uint("MEASURE twap", twap);
-        emit log_named_uint("MEASURE spotRelWad",
-            (spot > twap ? spot - twap : twap - spot) * 1e18 / twap);
-        uint pooledAfterReseat = CORE.POOLED_USD_ETH();
-        emit log_named_uint("MEASURE pooledBefore", pooledBeforeReseat);
-        emit log_named_uint("MEASURE pooledAfter", pooledAfterReseat);
-        emit log_named_uint("MEASURE pooledRelWad",
-            (pooledAfterReseat > pooledBeforeReseat
-                ? pooledAfterReseat - pooledBeforeReseat
-                : pooledBeforeReseat - pooledAfterReseat) * 1e18 / pooledBeforeReseat);
-        emit log_named_string("MEASURE pooledDirection",
-            pooledAfterReseat >= pooledBeforeReseat ? "UP" : "DOWN");
-        (,, int24 t2) = CORE.poolTicks(false);
-        emit log_named_int("MEASURE tickAfterReseat", t2);
-        emit log_named_int("MEASURE bandLowerAfterReseat", V4.LOWER_TICK());
-        emit log_named_int("MEASURE bandUpperAfterReseat", V4.UPPER_TICK());
-        emit log_named_uint("MEASURE reseatEpochAfterReseat", V4.reseatEpoch());
-        emit log_named_uint("MEASURE pooledEthAfterReseat", CORE.POOLED_ETH());
-        assertApproxEqRel(CORE.POOLED_USD_ETH(), pooledBeforeReseat, 0.15e18, "reseat capital-neutral");
+        // Capital-neutral, EXACTLY. Residual is 0 wei — not "small", but structurally zero: as
+        // established above the reseat takes neither the repack nor the auto-heal branch, so it
+        // writes no pool state at all. There is no burn → reprice → re-add to round, hence no
+        // rounding residual to tolerate. The old 0.15e18 (15%) admitted a $7 swing on a $46.59
+        // balance and would equally have admitted a real drain.
+        assertEq(CORE.POOLED_USD_ETH(), pooledBeforeReseat, "reseat moved no USD capital");
+
+        // Pin the no-op explicitly so this test can never again pass while silently inert: if a
+        // future change makes the reseat actually re-band here, these fail and force a re-read of
+        // the block comment above (that would be the FIX for the suspected defect, not a break).
+        (,, int24 tickAfter) = CORE.poolTicks(false);
+        assertEq(tickAfter, tickBefore, "reseat did not move the spot (no branch fired)");
+        assertEq(V4.reseatEpoch(), epochBefore, "reseat did not re-center the band (no branch fired)");
     }
 
     // Grind removed → the mover pays the reseat/repack gas INSIDE its own swap (SwapLib.rebalanceCore
@@ -3925,13 +3935,31 @@ contract Alles is Test, Fixtures {
 
         assertGt(lp1Fees, 0, "LP1 paid fee revenue on withdraw");
         assertGt(lp2Fees, 0, "LP2 paid fee revenue on withdraw");
-        emit log_named_uint("MEASURE lp1Fees", lp1Fees);
-        emit log_named_uint("MEASURE lp2Fees", lp2Fees);
-        emit log_named_uint("MEASURE absDelta", lp1Fees > lp2Fees ? lp1Fees - lp2Fees : lp2Fees - lp1Fees);
-        emit log_named_uint("MEASURE relDeltaWad",
-            (lp1Fees > lp2Fees ? lp1Fees - lp2Fees : lp2Fees - lp1Fees) * 1e18 / lp2Fees);
-        // Equal stake -> ~equal fees: per-LP pro-rata attribution works.
-        assertApproxEqRel(lp1Fees, lp2Fees, 0.2e18, "equal stake -> ~equal fee revenue");
+        // Equal stake -> EXACTLY equal fees. Measured residual is 0 wei, and it is zero by
+        // construction rather than by luck: settleBtcLp pays via SwapLib.pendingFor, which is
+        // FullMath.mulDiv(weight, feesPerShareUsd, WAD) against a per-share accumulator that is
+        // identical for both LPs. Equal `weight` (both locked 2e7 sats) => the SAME mulDiv on the
+        // SAME inputs => bit-identical output; there is no per-LP rounding step that could differ,
+        // and no fee accrues between the two closes (no swap runs in between). Both legs measured
+        // 629997 wei. The old 0.2e18 (20%) tolerance therefore constrained nothing whatsoever.
+        assertEq(lp1Fees, lp2Fees, "equal stake -> exactly equal fee revenue");
+        // NOTE on what this test does NOT prove. An equal-vs-equal check passes just as happily
+        // for a payout that ignores stake entirely, so the weighting was probed out-of-band by
+        // varying LP2's lock: 2e7:6e7 paid 314998:944995 (exactly 1:3) and 2e7:1e7 paid
+        // 839995:419997 (exactly 2:1), pot conserved at ~1259994 wei in all three runs. The
+        // pro-rata ATTRIBUTION is therefore genuinely stake-weighted and correct.
+        //
+        // The MAGNITUDE, however, looks wrong by ~1e12 and is reported as a suspected defect
+        // rather than asserted here (asserting today's value would bless the bug; asserting the
+        // corrected value would fail). QUID is 18-dec (checked). The whole pot for 6 x $500 =
+        // $3,000 of swap volume is 1259994 wei = 1.26e-12 QUID. Read as 6-dec USD instead it is
+        // $1.259994, i.e. a ~4.2bps USD-leg fee — entirely plausible. SwapLib.pendingFor returns
+        // 6-dec USD (weight in sats x a WAD-scaled accumulator fed 6-dec USDC fees), and
+        // BtcVaultLib.settleBtcLp mints it straight into 18-dec QUID with no scale-up, while the
+        // sibling path BtcVaultLib.settleDelivered mints `exactUsd * 1e12` through the SAME
+        // Basket.mint call and comments it "6-dec -> 18-dec QUI". Vogue._settlePending has the
+        // same shape. If confirmed, LPs are paid 1e12x less trading-fee revenue than they earn.
+        assertGt(lp1Fees + lp2Fees, 0, "a USD-leg fee pot exists to split");
         (uint pooled1,,,) = BTC.autoManagedBTC(User01);
         (uint pooled2,,,) = BTC.autoManagedBTC(User02);
         assertEq(pooled1 + pooled2, 0, "both positions fully exited on close");

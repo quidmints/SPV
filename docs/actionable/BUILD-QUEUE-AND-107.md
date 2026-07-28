@@ -3821,3 +3821,59 @@ each must be justified individually, not by suffix.
 NOTE the accessor twins `netEquity{Eth,Btc}` etc. are still candidates BUT must get the same test —
 check whether an `isBTC`-parameterised internal already exists beneath them, as it did here.
 
+## §A.57 🔴🔴 THIRD 1e12 UNIT BUG — trading-fee revenue may be under-paid 1e12x to LPs
+
+Found while tightening `testBtcLp_FeeAccrualAndWithdraw`. `SwapLib.pendingFor` returns **6-dec USD**
+(sats weight x a WAD-scaled accumulator fed 6-dec USDC fees). `BtcVaultLib.settleBtcLp:54` mints that
+straight into **18-dec QU!D with NO scale-up**, while its SIBLING `BtcVaultLib.settleDelivered:71`
+mints `exactUsd * 1e12` through the SAME `Basket.mint` call, commented *"6-dec → 18-dec QUI"*.
+`Vogue._settlePending:437` has the same shape as the broken one. `Basket.mint`'s `auth` branch does no
+normalisation — it `_mint`s the raw amount.
+
+EVIDENCE: the entire fee pot for 6 x \$500 = \$3,000 of volume is **1,259,994 wei = 1.26e-12 QU!D**.
+Read as 6-dec USD that is **\$1.26, a ~4.2bps fee — exactly plausible**. So the magnitude says the
+value is correct-as-6-dec and simply never scaled.
+⇒ IF CONFIRMED, LPs are paid 1e12x less trading-fee revenue than they earn, on BOTH the BTC and ETH
+  paths. NOT FIXED and NOT ASSERTED — pinning today's value would BLESS the bug; pinning the correct
+  value would fail. Verify against `settleDelivered` (the sibling that does it right) before changing.
+
+⚠️ THIS IS THE THIRD 1e12 SCALING BUG TODAY (§A.50 redeem `preferred`, §A.55 `takeToSettle` de-lever,
+   now fee settlement). That is a PATTERN, not three coincidences: 6-dec stables and 18-dec QU!D meet
+   at many seams and the conversion is done ad-hoc at each. RECOMMENDED: a dedicated audit of every
+   6↔18 boundary, and a single named helper (`toQuid18`/`toNative`) so the conversion is impossible to
+   omit silently. File as its own task before Echidna.
+
+## §A.58 🔴 `reseat()` CANNOT HEAL THE DEADLOCK IT DOCUMENTS — trigger tests ticks, not composition
+
+Found while tightening `testGrindRemoval_LargeSwapThenReseatRebandsSkewed`. In that fixture `V4.reseat()`
+is a **TOTAL NO-OP**: tick, sqrtPrice, `POOLED_USD_ETH`, `POOLED_ETH` all bit-identical across the call,
+`reseatEpoch` 0 before and after. Swap size swept **40 / 80 / 160 / 400 / 1000 ETH — all five produce a
+bit-identical end state**, because the swap saturates at the band edge; a concentrated position cannot
+trade itself past its own band.
+WHY NEITHER BRANCH FIRES: repack needs `currentTick > tickUpper || currentTick < tickLower` — band
+`[200660, 200700]`, post-swap tick `200699`, **inside by ONE tick**. Auto-heal needs `stale` (TWAP >5%
+off Chainlink); actual gap 0.0999%.
+⇒ A band drained to **99.9% one-sided has no USD depth for the next swapper — functionally dead** — yet
+  is still "in range" by one tick, so nothing fires. `reseat()` is documented as the permissionless
+  deadlock-recovery poke but CANNOT heal exactly this deadlock. The trigger is a TICK-BOUNDARY test
+  where a COMPOSITION test appears to be wanted. Left in place and reported, not papered over.
+
+## §A.46 — tolerance work COMPLETE. Both were vacuous; both are now exact.
+  • `testBtcLp_FeeAccrualAndWithdraw`: 20% → **`assertEq`**. Measured divergence **0 wei**, and it is
+    STRUCTURAL: equal-weight LPs hit the same `mulDiv` on the same accumulator. Attribution verified
+    genuinely stake-weighted by probing unequal locks — 2e7:6e7 → exactly 1:3, 2e7:1e7 → exactly 2:1,
+    pot conserved.
+  • `testGrindRemoval_...`: 15% → **`assertEq`** (residual structurally zero — no branch fires, so
+    there is no burn→reprice→re-add to round), and the 6% spot/TWAP check → **0.002e18 DERIVED from
+    live state**: `SwapLib.updateTicks` builds the band with `BAND_DELTA = 20bps`, so the gap is
+    structurally capped at 20bps; measured 9.99bps and bit-stable across fork blocks.
+  • PREMISE assertions added to both (none existed), including pinning the no-op explicitly
+    (`tickAfter == tickBefore`, `reseatEpoch` unchanged) so neither can pass while silently inert.
+
+## §A.56 — `POOLED_USD_*` merge STRUCK, second confirmation from the user
+User: *"POOLED_USD unification is a huge ordeal. it means one swap affects the pool balances of both
+pools"* and *"they are different equities also, different LPs, etc."* ⇒ The two pools are COUPLED
+(a swap moves both) but represent **distinct equity owned by distinct LP sets**. That is precisely why
+`Core.sol:48`'s invariant `POOLED_USD_ETH + POOLED_USD_BTC <= TVL` needs them separate: it checks the
+coupling. Merging destroys the quantity being checked. Confirmed struck.
+

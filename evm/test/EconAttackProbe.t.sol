@@ -68,7 +68,7 @@ contract EconAttackProbe is Alles {
         uint startSeeded = QUID.trancheTotal();
         // Pick a principal whose seed projection alone blows past whatever
         // CAP headroom remains: 500k * ~2.08 = ~1.04M ≫ 600k CAP.
-        uint big = 100_000 * USDC_PRECISION;
+        uint big = 500_000 * USDC_PRECISION;
         deal(address(USDC), User01, big);
         vm.startPrank(User01);
         USDC.approve(address(AUX), type(uint).max);
@@ -98,7 +98,15 @@ contract EconAttackProbe is Alles {
             "PREMISE: the seed projection must breach CAP, else the drop-to-normal branch never fires");
 
         // (1) did NOT get the 100%-APR seed bonus (used avgYield instead of WAD).
-        assertLt(minted, seedAmt, "CAP-breaching mint must NOT get the 100%-APR seed bonus");
+        //     `assertLt(minted, seedAmt)` ALONE is not a discriminator: a mint that received the
+        //     FULL seed bonus still lands ~2e12 below `seedAmt` purely from 4626 deposit dust, so
+        //     that comparison passes either way (verified by shrinking `big` until the seed path
+        //     was taken — the strict `<` still held). The real separator is the same 1.5x line A3
+        //     asserts from the other side: the seed path is 25/12x principal, the normal path is
+        //     (1 + avgYield*13/12)x ≈ 1x, so 1.5x of the MEASURED principal cleanly divides them.
+        //     A2 and A3 are now exact complements across that threshold.
+        assertLt(minted, prin18 * 15 / 10, "CAP-breaching mint must NOT get the 100%-APR seed bonus");
+        assertLt(minted, seedAmt, "no mint may exceed the 100%-APR seed projection");
         // (2) principal is never lost to the CAP mechanism (tolerate 4626
         //     vault-deposit rounding dust, which shaves ~1e-6 USDC off every
         //     deposit regardless of this fix).

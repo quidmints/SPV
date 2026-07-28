@@ -76,8 +76,9 @@ interface ILevEquity {
 }
 
 /// Canonical ILevEquityBtc — the BTC mirror of ILevEquity (BtcLevManager's per-LP book).
-/// Union of the former `ILevEquityBtc` (Vault) and `ILevBtc_V` (BtcVaultLib), which were the same
-/// four reads minus `totalNetEquityBtc`. NOT mergeable into `ILevEquity`: every member is a distinct
+/// Union of the former `ILevEquityBtc` (Vault, all four) and `ILevBtc_V` (BtcVaultLib, the same set
+/// minus `totalNetEquityBtc`) — a strict subset, so no signature moved. NOT mergeable into
+/// `ILevEquity` despite the mirrored shape: every member is a distinct
 /// selector on a distinct manager contract (BtcLevManager, sats/8-dec) — only `debtUsd` is shared,
 /// and a single interface would let a caller reach a BTC read on the ETH manager (and vice versa).
 interface ILevEquityBtc {
