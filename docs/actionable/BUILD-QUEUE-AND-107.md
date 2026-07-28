@@ -3944,3 +3944,31 @@ gate against the AMM's range convention. Same failure the user corrected earlier
 code behaves as it does instead of asking whether it SHOULD. Check invariants against the external
 standard, not just against the failing fixture.
 
+## §A.58(1) STRUCK — NOT an off-by-one. The legacy stress-tested repo uses the IDENTICAL condition.
+
+User: *"if you check that repo i mentioned before i can tell you the outOfRange implementation in it has
+been stress tested absolutely exhaustively — github.com/quidmints/quid"*. Checked. `evm/src/Vogue.sol`
+in that repo, inside `_repack()`:
+```solidity
+if (currentTick > tickUpper || currentTick < tickLower) {
+```
+**BYTE-IDENTICAL to `SwapLib.sol:1539`.** Strict inequality on BOTH bounds. My claimed off-by-one is
+WRONG and is struck. Do NOT change `>` to `>=`.
+
+WHY STRICT IS RIGHT HERE (the angle I missed): this gate does not ask *"is the LP position active in
+Uniswap's accounting sense"* — it asks *"should we REPACK the band"*. Those are different questions.
+Firing at exactly `tickUpper` would repack on EVERY boundary touch; price oscillating around the edge
+would churn gas and realise LVR on each move. The strict comparison is HYSTERESIS, and it is deliberate.
+
+📌 MY ERROR, and it is worth naming precisely because it is the SECOND wrong verdict on this one item:
+I reasoned from an EXTERNAL convention (Uniswap's half-open `[lower, upper)` range semantics) to a
+conclusion about code whose PURPOSE was different (rebalance triggering, not liquidity accounting).
+Matching an external standard is only evidence when the code is doing the same JOB as that standard.
+A battle-tested reference implementation outranks convention-reasoning — CHECK THE REFERENCE FIRST.
+
+⇒ §A.58 reduces to ITEM (2) ONLY, and it stands unchanged: a band ~99.9% one-sided but genuinely
+  in-range has no USD depth for the next swapper, and no tick-based test can catch that because nothing
+  about the tick is wrong. Whether to add a composition/depth trigger is a PROTOCOL DESIGN decision.
+  📌 Before designing one: check whether the legacy repo handles this case some other way — it may
+     already have a mechanism (its `Rover.sol` UniV3 path, or a keeper leg) that was never ported.
+
