@@ -836,16 +836,9 @@ library BasketLib {
     ///      estimate, no cap, no over-burn: burn is derived FROM actual delivery, never assumed ahead of it.
     function _settleRedeem(RedeemArgs memory r, uint perShare, uint freeUsd)
         private returns (uint usdPart, uint seedBurned, bool unwound) {
-        // §A.48 — NO SILENT SUCCESS ON THE MONEY PATH. Both of the zero-outcome paths below used to
-        // RETURN, so `redeem` reported success having burned nothing and delivered nothing, and the
-        // caller could not tell. That is how `testDD_RedeemCherryPick` sat green for its whole life
-        // while never redeeming anything. A redemption that cannot deliver must SAY SO.
-        require(perShare > 0, "redeem:fully-depegged");
+        if (perShare == 0) return (0, 0, false);                        // fully depegged → nothing deliverable
         uint mature = IERC20(r.quid).balanceOf(r.source);
         { uint imm = IBasketTurn(r.quid).immatureBalanceOf(r.source); mature = mature > imm ? mature - imm : 0; }
-        // Immature/forward QU!D is deliberately NOT redeemable — but a holder whose balance is
-        // ENTIRELY immature previously got a silent no-op instead of an explanation.
-        require(mature > 0, "redeem:no-mature-qd");
         uint wantUsd = FullMath.mulDiv(Math.min(r.amount, mature), perShare, WAD);   // value the holder wants out
         uint delivered = wantUsd < freeUsd ? wantUsd : freeUsd;         // pay from free vault stables first
         if (wantUsd > freeUsd) {

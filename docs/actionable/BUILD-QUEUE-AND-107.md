@@ -3337,3 +3337,39 @@ MUST be measured before this is trusted. NEXT ACTIONS, in order:
   3. If the blast radius is large, the fix still stands — the failures are the point — but each test
      needs a real verdict, not a blanket warp.
 
+## §A.48 FINAL — THERE IS NO PROTOCOL BUG. The silent no-op is the AUDIT'S FIX. My guards REVERTED.
+
+I was wrong twice on this item and both are struck. The correction matters more than the original
+claim, so it is recorded in full.
+
+WHAT `testRedeem` ACTUALLY SAYS (read at last, and it is a SPECIFICATION, not a vacuous test):
+```
+// Immature redeem MUST release nothing (and burn nothing) - the audit's
+// immature-drain fix. Call directly (no try/catch that would hide a
+// revert/regression) and assert the exact outcome.
+assertEq(USDC.balanceOf(User01) - USDCbalanceBefore, 0, "immature redeem releases NO USDC");
+assertEq(QUID.balanceOf(User01), qdBeforeImmature,      "immature redeem burns NO QUI");
+```
+⇒ The zero-delivery-on-immature behaviour is DELIBERATE — the audit's fix for an IMMATURE-DRAIN
+  vulnerability — and the test calls `redeem` WITHOUT `try/catch` **specifically so that a revert
+  would show up as a regression**. My `require(mature > 0, ...)` WAS that regression, and the test
+  caught it exactly as designed. Guards REVERTED; audited behaviour restored; both tests pass.
+
+MY TWO STRUCK CLAIMS:
+  1. "`AUX.redeem` reverts on an unknown sDAI selector" — WRONG. `0xad468d11` is `liquidityAdapter()`,
+     the Morpho-V2 probe, correctly caught by the `try` at `VaultLib.sol:313`. I read a nested CAUGHT
+     revert as the top-level cause.
+  2. "`testRedeem` was a silent no-op that passed regardless / a second vacuous test" — WRONG, and it
+     is the inverse of the truth: it is one of the most deliberate tests in the suite. It ASSERTS the
+     no-op, on purpose, with an audit rationale.
+
+WHAT REMAINS TRUE, and it is only a TEST defect: **`testDD_RedeemCherryPick` never matures its QU!D**,
+so both of its redeem legs correctly no-op and it has never exercised cherry-picking. `testA` and
+`test_Redeem_DustAndWholeSupply` WARP and redeem for real. FIX = warp `testDD` to maturity so it
+actually tests the depeg cherry-pick property it is named for. NOT a protocol change.
+
+📌 THE LESSON, which is the user's own warning turned around: *"make sure the tests don't distort your
+perception of reality"* — here the test WAS the reality. Two assertions plus one comment encoded an
+audit finding, and I nearly shipped a money-path change that undid it. A test asserting a
+surprising-looking behaviour is a claim about intent; READ IT before overriding it.
+
