@@ -35,6 +35,21 @@ contract EconAttackProbe is Alles {
         emit log_named_int ("A: USDC out from redeem (6d)", int(USDC.balanceOf(User01)) - int(u0));
         emit log_named_uint("A: QUI stuck after redeem (18d)", QUID.balanceOf(User01));
         vm.stopPrank();
+
+        // PREMISE 1 (§A.46): the ATTACK must actually be set up. `when=13` is supposed to grant the
+        // seed bonus — minting MORE QU!D than dollars deposited. If that bonus never applied there is
+        // no drain to attempt and the whole test is decorative.
+        assertGt(minted, usdIn18, "PREMISE: the seed bonus must actually mint above the deposit");
+
+        // PREMISE 2 (§A.48): the redeem must actually DELIVER. This is the exact hazard found in
+        // testDD — `AUX.redeem` can return SUCCESS having burned nothing and delivered nothing, and
+        // the `try/catch` above would hide it. Without this, "no drain occurred" would be trivially
+        // true because no redemption occurred at all.
+        assertGt(USDC.balanceOf(User01) - u0, 0,
+            "PREMISE: the redeem must deliver USDC, else no drain is being tested (cf. A.48)");
+
+        // SAFETY: the backing invariant must survive a fully-matured seed-bonus redemption. This call
+        // REVERTS if backing is violated, so it is the real assertion here — kept last, deliberately.
         AUX.checkBacking();
     }
 

@@ -3280,3 +3280,28 @@ TALLY so far: 3 of 11 assertion-free tests resolved — `testB` (donation inflat
 8 remain. Note the hit rate: de-vacuuming has confirmed two genuine defences and surfaced one genuine
 money-path defect — none of which the green suite was telling anyone.
 
+### §A.46/§A.48 — `testA_BootstrapSeedMaturityDrain` asserts; and it LARGELY SETTLES §A.48.
+
+`testA` differed from the others: it ended with `AUX.checkBacking()`, which REVERTS on a broken
+invariant, so it was never fully hollow — what it lacked was proof its SETUP happened. Added two
+premise assertions (the seed bonus actually minted above the deposit; the redeem actually delivered).
+
+MEASURED — the seed-drain defence HOLDS:
+  • USD in **50,000e18** → QU!D minted **104,166e18** (a 108% seed bonus, so the attack IS set up).
+  • Redeemed after a 14-month warp → **52,000.005 USDC** out, **1 wei** QU!D stuck, `checkBacking()` OK.
+  ⇒ The bonus QU!D is NOT redeemable at par: redemption is bounded by BACKING (~\$0.50/unit), so the
+    outcome is ~\$2,000 over 14 months, not a drain. The bootstrap bonus cannot be farmed.
+
+🔑 AND THE PART THAT MATTERS FOR §A.48 — **redeem WORKED here.** It delivered \$52,000 and left 1 wei,
+   on a fixture that WARPS 14 MONTHS TO MATURE THE BATCH. `testDD` delivers ZERO and warps NOTHING.
+   Two fixtures, same call, opposite outcomes, and maturity is the difference.
+   ⇒ STRONGLY SUPPORTS reading (a): `totalSupply()` was simply the wrong burn measure, and the ONLY
+     real no-op is `testDD`'s — where the QU!D is IMMATURE, so the redeem clips to zero.
+   ⇒ REMAINING STEP (small, and now well-posed): confirm `testDD`'s User01 holds no MATURE QU!D at
+     redeem time (`matureSupply` / the maturity buckets). If confirmed, §A.48's fix is NOT a supply
+     guard but: **`redeem` must REVERT when the clip reaches zero instead of returning success.**
+     A user redeeming immature QU!D deserves a clear error, not a silent no-op.
+
+TALLY: 4 of 11 assertion-free tests resolved. THREE defences confirmed real (donation inflation, JIT
+fee capture, seed-bonus drain) and ONE real defect found (§A.48 silent no-op). 7 remain.
+
