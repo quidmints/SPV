@@ -3373,3 +3373,36 @@ perception of reality"* — here the test WAS the reality. Two assertions plus o
 audit finding, and I nearly shipped a money-path change that undid it. A test asserting a
 surprising-looking behaviour is a claim about intent; READ IT before overriding it.
 
+## §A.50 🔴 UNVERIFIED FINDING — cherry-pick redemption appears to beat pro-rata ~8x under a depeg
+
+Surfaced by fixing §A.48's real defect: `testDD_RedeemCherryPick` never matured its QU!D, so both
+redeem legs no-op'd and it had NEVER exercised cherry-picking. Added `vm.warp(35 days)` (matching
+`testRedeem`) so the comparison is real. With DAI mocked 20% depegged
+(`getDepegSeverityBps(DAI) = 2000`), redeeming the SAME `amt` two ways:
+
+| route | fair value (18d), DAI marked at 80% |
+|---|---|
+| pro-rata `AUX.redeem(amt)` | **15,268.99e18** |
+| cherry-pick `AUX.redeem(amt, USDC)` | **122,151.88e18** |
+| advantage | **106,882.90e18 (~8x)** |
+
+IF REAL, this is a first-out advantage: a redeemer who names the SOUND asset extracts far more value
+than one taking the mix, externalising the depegged asset onto everyone who redeems later — a
+bank-run accelerant precisely when the basket is stressed.
+
+⚠️ EXPLICITLY NOT YET CONFIRMED, and I have been wrong on this item TWICE already (see §A.48 final),
+so this must be verified before it is believed or acted on. Verify in this order:
+ 1. **Is the pro-rata leg actually delivering?** An ~8x gap is larger than a 20% haircut can explain.
+    A partial/failed pro-rata delivery would produce this signature WITHOUT any cherry-pick advantage
+    existing. Log the per-asset deltas (USDC and DAI separately) on BOTH legs before concluding.
+ 2. **Is the fair-value formula right?** It is
+    `(USDC delta) * 1e12 + (DAI delta) * 80 / 100`. Confirm the decimal handling and that marking DAI
+    at 80% is the correct like-for-like basis given the 2000bps mock.
+ 3. **Is the mock faithful?** `vm.mockCall` overrides `getDepegSeverityBps(DAI)` only. Confirm the
+    pro-rata path actually consults THAT function (and not a different depeg source), or the two legs
+    are not being compared under the same conditions.
+ 4. Only if 1–3 hold: this is a real economic defect on the redemption path.
+
+STATUS: `testDD_RedeemCherryPick` left FAILING deliberately — it now exercises the property it is
+named for, and the assertion it fails is the correct one to keep.
+

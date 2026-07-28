@@ -179,6 +179,11 @@ contract EconAttackProbe is Alles {
     function testDD_RedeemCherryPick() public {
         vm.mockCall(address(AUX),
             abi.encodeWithSignature("getDepegSeverityBps(address)", address(DAI)), abi.encode(uint(2000)));
+        // §A.48: this test never matured its QU!D, so BOTH redeem legs correctly no-op'd (immature
+        // redemption releases and burns nothing — the audit's immature-drain fix, asserted verbatim by
+        // `testRedeem`). The result was that a test named for cherry-picking had never once exercised
+        // a redeem. Mature the balance so the comparison below is real. Matches `testRedeem`'s warp.
+        vm.warp(block.timestamp + 35 days);
         vm.startPrank(User01);
         uint amt = QUID.balanceOf(User01) / 8;
         require(amt > 0, "no QUI");
