@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Alles} from "./Alles.t.sol";
+import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
 /// @notice Empirical probes for two value-extraction attacks "of this nature":
@@ -99,7 +100,17 @@ contract EconAttackProbe is Alles {
         address vault = vs[0];
         uint donate = 1_000_000 * USDC_PRECISION;     // $1M donation
         deal(address(USDC), address(this), donate);
+        // PROVE THE DONATION LANDED before drawing any conclusion from `b1 - b0`. A delta of zero is
+        // ambiguous on its own: it means either "attack defended" or "fixture never exercised the
+        // attack". Measuring the venue's OWN reported value disambiguates -- if this moves and backing
+        // does not, the defence is real (§A.46).
+        uint venueBefore = IERC4626(vault).totalAssets();
         IERC20(address(USDC)).transfer(vault, donate); // inflate the 4626's convertToAssets
+        uint venueAfter = IERC4626(vault).totalAssets();
+        emit log_named_uint("B: venue totalAssets before", venueBefore);
+        emit log_named_uint("B: venue totalAssets after ", venueAfter);
+        assertGt(venueAfter, venueBefore,
+            "PREMISE: the donation must actually inflate the venue, else this test proves nothing");
         (uint b1,) = AUX.get_metrics(true);
         emit log_named_uint("B: backing before (18d)", b0);
         emit log_named_uint("B: backing after donate (18d)", b1);

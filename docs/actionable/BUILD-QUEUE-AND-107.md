@@ -3133,3 +3133,21 @@ MEASURED: `b0 == b1` EXACTLY — a $1M USDC donation straight into the 4626 move
   NOT prove the donation path was live.
 STATUS: 1 of 11 assertion-free tests now asserts; 10 remain.
 
+### §A.46 — `testB` AMBIGUITY RESOLVED. The defence is real, and the test now proves it.
+
+The zero-delta was ambiguous, so a PREMISE assertion was added before the safety assertion: measure
+the venue's OWN `totalAssets` across the donation and require it to move. Both now hold:
+  • venue `totalAssets` 36,547,639,688,533 → 36,551,714,382,676 — the donation DID inflate the venue.
+  • recognized backing delta — still **0**.
+⇒ Case (a) confirmed: the attack is genuinely defended. `get_metrics` does not propagate a venue's
+  inflated `convertToAssets` into recognized backing, and the test now FAILS if either half breaks —
+  if the fixture goes inert (premise assertion) or if backing starts tracking donations (safety
+  assertion). That is the shape every one of the remaining 10 should take.
+
+📌 SIDE OBSERVATION, unexplained, worth a look but NOT a claim: the venue's `totalAssets` rose by only
+~4.07e9 against a 1e12 (\$1M) donation. A direct ERC-20 transfer into a 4626 normally raises
+`totalAssets` by the full amount, so either this venue does not count idle tokens (plausible for a
+Morpho-style vault that reports only supplied positions) or something else absorbs it. Does not
+affect the verdict above — the premise assertion only needs the venue to move — but it is the kind of
+discrepancy worth understanding before relying on `totalAssets` elsewhere.
+
