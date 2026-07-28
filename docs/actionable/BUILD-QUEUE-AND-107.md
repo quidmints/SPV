@@ -3792,3 +3792,32 @@ Do §A.56 together with §A.52 (interface `_V` shims) and §A.54 (`tl`/`tu` → 
 one pass over the same files, one suite run. ALL of it gates Echidna: duplicate surfaces mean
 invariants get written twice or miss a path.
 
+### §A.56 CORRECTION — `POOLED_USD_*` must NOT be merged. #12 already did the right unification.
+
+User asked whether there is a "#12" item. There is, and it changes §A.56 item 3.
+  • Line 15: **`#12 drop-voting` — DONE** (EVM vote subsystem deleted, Basket −126 lines; SPA surface
+    removed). That part is closed.
+  • Line 428 refers to a SECOND sense: *"after the #12 unify: `committedUsd18` counts the shared pool
+    ONCE"* — a POOLED_USD accounting unification, and it has ALREADY LANDED:
+```solidity
+function committedUsd18() public view returns (uint) { return _bandEquityUsd18(false) + _bandEquityUsd18(true); }
+function _bandEquityUsd18(bool isBTC) internal view returns (uint) {
+    uint pooled18 = (isBTC ? POOLED_USD_BTC : POOLED_USD_ETH) * 1e12;
+```
+⇒ `_bandEquityUsd18(bool isBTC)` IS the parameterised accessor. The unification happened in the
+  ACCOUNTING, which is where it belonged.
+
+**STRIKE `POOLED_{ETH,BTC}` / `POOLED_USD_{ETH,BTC}` from the §A.56 merge list.** Applying the test I
+set myself — *should* this split exist? — the answer here is YES: they are two genuinely DISTINCT
+quantities (the ETH band's committed USD vs the BTC band's), not one concept spelled twice. `Core.sol:48`
+states the invariant that depends on their separateness: `POOLED_USD_ETH + POOLED_USD_BTC <= basket TVL`.
+Merging them would destroy the very quantity that invariant checks.
+
+📌 THE LESSON, and it cuts against the previous entry: I put these on the merge list by PATTERN-MATCHING
+the `_ETH`/`_BTC` suffix, which is the mirror-image of the error the user corrected. "Ask whether the
+split should exist" must be applied in BOTH directions — some splits are load-bearing. The remaining
+§A.56 candidates (`OorTicks`/`Oor`, the out-of-range path, and the four accessor twins) still stand;
+each must be justified individually, not by suffix.
+NOTE the accessor twins `netEquity{Eth,Btc}` etc. are still candidates BUT must get the same test —
+check whether an `isBTC`-parameterised internal already exists beneath them, as it did here.
+
