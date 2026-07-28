@@ -3756,3 +3756,39 @@ the result hides a wrong request.
 FIX SHAPE: same as §A.50 — convert at the call site (`scaleTokenAmount(..., stable, false)`), not
 inside the shared helper. MUST re-verify the full suite; delivery-side de-lever is a money path.
 
+## §A.56 🔴 UNIFY THE PARALLEL BTC/ETH SURFACES — the merge inventory (user, 2026-07-29)
+
+User: *"'My pattern has been to explain why a difference exists rather than ask whether it should.'
+fix this. unify the out of range path itself and other paths as well … there is much room to merge if
+you look properly."* The instruction is a METHOD correction, and it is recorded as such: for every
+BTC/ETH split below, the question is NOT "why does this differ" but "should it exist at all". Default
+answer is NO unless the asset genuinely behaves differently.
+
+### CONFIRMED MERGE CANDIDATES
+1. **`OorTicks` / `Oor`** — byte-identical structs, `VogueLib.sol:640` and `SwapLib.sol:1429`
+   (`int24 newLo; newUp; curLo; curUp`). One canonical declaration.
+2. **The out-of-range PATH itself.** `Core.outOfRange(bool isBTC, address sender, int liquidity,
+   int24 tickLower, int24 tickUpper, address token)` ALREADY services both assets from one function.
+   Above it the paths diverge for no design reason: `Vogue.outOfRange(...)` passes args INLINE, while
+   `BtcVaultLib.outOfRangeBtc` bundles into `OorArgs` (almost certainly stack-depth, since the repo
+   avoids `via_ir`). ⇒ ONE args struct (or one signature) for both, `isBTC` + position id as
+   fields/params, mirroring Core. If bundling is load-bearing, ETH adopts the SAME struct.
+3. **Six accessor twins** that are pure `isBTC` parameterisation:
+   `netEquity{Eth,Btc}` · `grossCollateral{Eth,Btc}` · `totalNetEquity{Eth,Btc}` ·
+   `totalGrossCollateral{Eth,Btc}` · `POOLED_{ETH,BTC}` · `POOLED_USD_{ETH,BTC}`.
+   Collapse to `netEquity(bool isBTC)` etc. NOTE: the `POOLED_*` pair are public state vars, not
+   functions — collapsing those changes storage layout and the client ABI, so treat separately and
+   re-run `tools/check-client-abis.py`.
+
+### METHOD NOTE FOR WHOEVER DOES THIS
+My shell scan for bare/`Btc` function pairs returned EMPTY even though `outOfRange`/`outOfRangeBtc`
+both exist — so it was BROKEN, and its silence is NOT evidence of absence. Do not treat "the grep found
+nothing" as "there is nothing" (this is the §A.35 empty-grep lesson again). Enumerate from the ABI
+(`forge build` artifacts / `jq` over `out/*.json`) rather than regexing source, or diff the two bodies
+directly.
+
+### ORDERING
+Do §A.56 together with §A.52 (interface `_V` shims) and §A.54 (`tl`/`tu` → `tickLower`/`tickUpper`) —
+one pass over the same files, one suite run. ALL of it gates Echidna: duplicate surfaces mean
+invariants get written twice or miss a path.
+
