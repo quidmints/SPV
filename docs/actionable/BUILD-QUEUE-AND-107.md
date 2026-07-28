@@ -3877,3 +3877,38 @@ pools"* and *"they are different equities also, different LPs, etc."* ⇒ The tw
 `Core.sol:48`'s invariant `POOLED_USD_ETH + POOLED_USD_BTC <= TVL` needs them separate: it checks the
 coupling. Merging destroys the quantity being checked. Confirmed struck.
 
+### §A.57 — the EXACT verification chain, so the fix is one session's work and zero guesswork
+
+The fix itself is almost certainly one token: `mint(payTo, usdR * 1e12, quid, 0)` at
+`BtcVaultLib.settleBtcLp:54`, mirroring `settleDelivered:71`. IT WAS NOT APPLIED because the last link
+is unverified, and **being wrong mints 1e12x TOO MUCH QU!D — unbacked supply on a live mint path,
+strictly worse than the under-payment it fixes.**
+
+CHAIN VERIFIED SO FAR:
+  1. `settleBtcLp:54` → `IBasketMint(quid).mint(payTo, usdR, quid, 0)` — NO scale-up.
+  2. `settleDelivered:71` → `mint(lpEth, exactUsd * 1e12, quid, 0)` — SAME call, explicit `* 1e12`,
+     commented "6-dec → 18-dec QUI". Same mint, same token, one scales.
+  3. `usdR` comes from `SwapLib.pendingFor` → `usdOwed = mulDiv(weight, feePerShareUsd, WAD)`, so
+     `usdR`'s units are `feePerShareUsd`'s units.
+  4. `feePerShareUsd` is `usdFeesBtc`, incremented at `BtcVaultLib:557` / `:561` by `usdInc`.
+  5. ❌ **UNVERIFIED: what units is `usdInc`?** ← THE ONE REMAINING LINK. Trace its source (the swap
+     fee credit). If it is 6-dec USDC, the fix is confirmed.
+MAGNITUDE COROBORATION (supporting, not sufficient): the whole pot for \$3,000 volume is 1,259,994 wei;
+as 6-dec that is \$1.26 ≈ 4.2bps — plausible. As 18-dec it is 1.26e-12 QU!D — implausible as a fee.
+
+BEFORE CHANGING IT: (a) settle step 5; (b) check whether `Vogue._settlePending:437` (the ETH path) has
+the SAME shape and must move WITH it; (c) note `LP.usd_owed` accumulates the same `usdR`, so the
+deferred branch stays in the pre-scale unit and only the MINT scales — do not scale both; (d) run the
+FULL suite (a mint change touches backing invariants and `checkBacking`).
+
+## REMAINING FIXES NOT ATTEMPTED — and why (2026-07-29)
+User asked to fix all findings. Attempted §A.57 and STOPPED at the unverified link above. §A.55 and
+§A.58 were not started. Honest status so nobody assumes they are done:
+  • **§A.55** (`takeToSettle` 1e12 over-request on de-lever) — fix shape is known and mirrors §A.50
+    (convert at the CALL SITE, never inside the shared helper — doing it inside broke 302 tests).
+    Money path: requires a full-suite run.
+  • **§A.57** (fee under-payment) — one token, blocked on one unverified unit. See chain above.
+  • **§A.58** (`reseat()` cannot heal a composition deadlock) — NOT a scaling bug and NOT mechanical:
+    it needs a DESIGN decision on the trigger (add a composition/depth test alongside the tick-boundary
+    test), which is a protocol change, not a repair. Should be decided deliberately, not patched.
+
