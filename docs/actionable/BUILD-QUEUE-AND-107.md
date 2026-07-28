@@ -3178,3 +3178,29 @@ OPEN QUESTIONS — do NOT guess, both are cheap to settle:
      (PROTOCOL BUG on the money path). The second would mean redemptions fail for real users.
      Settle this BEFORE anything else in the queue — it outranks every remaining test-hygiene item.
 
+## §A.48 CORRECTED — `AUX.redeem` does NOT revert. It SUCCEEDS AND DELIVERS ZERO. (2026-07-28)
+
+My first diagnosis was WRONG and is struck. Selector `0xad468d11` = **`liquidityAdapter()`** (confirmed
+via `cast sig`) — the Morpho-V2 detection marker in `_withdrawableOf`. That call IS correctly wrapped
+in `try` at `VaultLib.sol:313`, so its revert against a plain 4626 (sDAI) is EXPECTED AND CAUGHT. It
+is the detection probe working as designed, not a failure. I read a nested, caught revert in the trace
+as the top-level cause — the exact trace-reading error this queue already warns about.
+
+WHAT IS ACTUALLY TRUE (trace lines 929 / 1307): `Aux::redeem(1.925e22)` shows NO revert at its own
+level, and the test's `catch` never fired (no revert log emitted). Yet
+`USDC.balanceOf(User01)` and `DAI.balanceOf(User01)` are UNCHANGED — both fair values are 0.
+
+⇒ **`AUX.redeem` RETURNS SUCCESSFULLY WHILE TRANSFERRING NOTHING.** That is worse than a revert: a
+  revert is safe and loud, a silent zero-delivery is neither.
+
+🔴 THE QUESTION THAT DECIDES SEVERITY — NOT YET ANSWERED, ANSWER IT FIRST:
+  **Does the redeem BURN the user's QU!D while delivering nothing?**
+    • If YES — a user destroys QU!D and receives zero assets. Direct, silent user loss on the money
+      path. Highest severity in this queue.
+    • If NO — it is an expensive no-op: bad, but not value-destroying.
+  Check `QUID.balanceOf(User01)` / `matureSupply()` across the call. It is one assertion, and the
+  fixture that exposes it is already written (`testDD_RedeemCherryPick`).
+
+STILL TRUE, and the reason any of this surfaced: the test had NO assertion and swallowed both legs in
+`try/catch`, so it reported PASS while `AUX.redeem` delivered nothing. Suite remains RED by choice.
+
