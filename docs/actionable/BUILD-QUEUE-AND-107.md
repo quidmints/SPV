@@ -3590,3 +3590,62 @@ https://github.com/quidmints/quid (user: is this version more gas-efficient / el
 depart?) — the legacy `_take` may show what the scaling and the fee were originally meant to be, which
 bears on BOTH §A.50 and this item.
 
+## §A.50 — DIAGNOSIS CONFIRMED, FIX LOCATION WRONG. Reverted. (2026-07-29)
+
+THE UNIT BUG IS REAL and the fix WORKS at the redeem site. In `_takePreferred`, `needed` (USD, 18d) is
+passed straight to `withdrawSelf`, which takes NATIVE units — so for a 6-dec stable the request is
+1e12x too large and the withdrawal drains whatever the venue holds. Pro-rata never had this: it passes
+`amounts[i] / divisor`, already native. Adding `needed = scaleTokenAmount(needed, token, false)` gave
+EXACTLY the intended behaviour on an identical burn (19,254.839e18):
+  • pro-rata fair value 15,269.03e18 · preferred 15,093.98e18 → preferred is **1.1% CHEAPER**, i.e. it
+    now COSTS to decline pro-rata (the user's stated intent), instead of paying ~8x.
+  • cherry-leg DAI drain fell 150,178 → 16,356.
+
+🔴 BUT IT BROKE 302 TESTS AND WAS REVERTED. `_takePreferred` is SHARED WITH THE SWAP PATH (the user
+flagged this: "it also concerns stable-to-stable swaps as they go through the same fee mechanism").
+Swaps evidently pass `amount` ALREADY IN NATIVE UNITS, so scaling unconditionally inside the shared
+helper corrupts them. ⇒ The unit contract of `_takePreferred` is CALLER-DEPENDENT, which is the deeper
+defect: one helper, two incompatible conventions.
+CORRECT FIX (not yet applied): normalise at the REDEEM CALL SITE (or give `_takePreferred` an explicit
+units flag / convert before the call), leaving the swap path untouched. Then re-run the FULL suite —
+this is the second money-path change today that looked right on one test and broke the suite.
+
+## §A.52 — INTERFACE DEDUP IS NOT DONE (user, 2026-07-29)
+User: *"it still left residual stuff like `IAuxBtc_V` AND `IAuxDeposits_V` in Vault.sol so we are far
+from done with it."* Correct — the earlier pass (144 → 116 declarations) consolidated the biggest
+offenders but left per-file `*_V` shims behind. TODO: sweep every `_V`-suffixed local interface in
+`src/` and fold into `imports/Interfaces.sol`, Vault.sol first. Not a mechanical delete: check each
+shim is a strict subset of the canonical interface before removing.
+
+## §A.53 — PARALLELISATION MAP (user, 2026-07-29): 4 lanes, safe to run concurrently.
+Grouped by FILES TOUCHED, since that is what actually collides. Within a lane: SERIAL. Across lanes:
+safe to run in separate threads/agents.
+
+**LANE A — Rust only. Zero Solidity overlap. Fully independent.**
+  • §A.43 attestation binding (bind the derived EVM address into the quote payload).
+  • §A.35 remainder: dead-code audit for quid-cvm/quid-hop/quid-bridge/quid-ln ON A LINUX HOST.
+
+**LANE B — tests only, and SPLIT BY FILE so two agents never touch one file.**
+  • B1: `test/EconAttackProbe.t.sol` — remaining assertion-free probes.
+  • B2: `test/Alles.t.sol` — the 2 genuinely loose tolerances (20% `testBtcLp_FeeAccrualAndWithdraw`,
+        15% `testGrindRemoval_...`) + `Alles`-resident assertion-free tests.
+  • B3: the other assertion-free tests in their own files (`BTCChannelsAuth`, `LevYbReal`,
+        `LeveragePnLProbe`, `VaultDonationClassify`).
+  ⚠️ B2 and B3 must not both edit `Alles.t.sol`.
+
+**LANE C — the MONEY PATH (Basket / Aux / BasketLib / FeeLib / ChannelLib). STRICTLY SERIAL, one
+  worker only.** These all mutate the same value math and WILL conflict:
+  • §A.50 redeem unit fix (do FIRST — everything else here is priced off it).
+  • Seed fee + full-refresh move into `Basket.mint` (§A.47).
+  • §A.15 buffer/tenor (verify the possibly-INVERTED claim first).
+  • §A.49 FRAX/sFRAX listing + Chainlink feed.
+  • §A.51 re-wire `calcFeeL1` (LAST — a fee on mis-scaled payouts is meaningless).
+
+**LANE D — Vault.sol / VaultLib / Interfaces. SERIAL within the lane.**
+  • §A.52 interface dedup residual (do FIRST — it edits Vault.sol wholesale and would conflict).
+  • §J.8 weETH-on-Aave-v4 leg.
+  • §A.19b `redeemVBtc` (Vault.sol:638 + BtcLevManager.sol:578 + VBtc.sol:19 move together).
+
+CROSS-LANE NOTE: Lane C's §A.50 and Lane D are independent TODAY, but §A.19b (D) touches redemption
+semantics — sequence it after §A.50 lands if both are in flight.
+
