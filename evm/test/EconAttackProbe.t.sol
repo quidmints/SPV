@@ -188,6 +188,7 @@ contract EconAttackProbe is Alles {
         uint amt = QUID.balanceOf(User01) / 8;
         require(amt > 0, "no QUI");
 
+        uint qStart = QUID.balanceOf(User01);
         uint snap = vm.snapshotState();
         uint u0 = USDC.balanceOf(User01); uint d0 = DAI.balanceOf(User01);
         // §A.48 SEVERITY PROBE: does a zero-delivery redeem still BURN the user's QU!D? A revert would
@@ -197,11 +198,17 @@ contract EconAttackProbe is Alles {
         emit log_named_uint("D: QUID before redeem", q0);
         emit log_named_uint("D: QUID after  redeem", QUID.balanceOf(User01));
         emit log_named_int ("D: QUID burned        ", int(q0) - int(QUID.balanceOf(User01)));
+        emit log_named_uint("D: [prorata] USDC out (6d)", USDC.balanceOf(User01) - u0);
+        emit log_named_uint("D: [prorata] DAI  out (18d)", DAI.balanceOf(User01) - d0);
+        emit log_named_uint("D: [prorata] QUID burned    ", qStart - QUID.balanceOf(User01));
         uint pFair = (USDC.balanceOf(User01) - u0) * 1e12 + (DAI.balanceOf(User01) - d0) * 80 / 100;
         vm.revertToState(snap);
 
         u0 = USDC.balanceOf(User01); d0 = DAI.balanceOf(User01);
         try AUX.redeem(amt, address(USDC)) {} catch (bytes memory e) { emit log_named_bytes("D: cherry revert", e); }
+        emit log_named_uint("D: [cherry ] USDC out (6d)", USDC.balanceOf(User01) - u0);
+        emit log_named_uint("D: [cherry ] DAI  out (18d)", DAI.balanceOf(User01) - d0);
+        emit log_named_uint("D: [cherry ] QUID burned    ", qStart - QUID.balanceOf(User01));
         uint cFair = (USDC.balanceOf(User01) - u0) * 1e12 + (DAI.balanceOf(User01) - d0) * 80 / 100;
         vm.stopPrank();
 

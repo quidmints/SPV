@@ -3406,3 +3406,32 @@ so this must be verified before it is believed or acted on. Verify in this order
 STATUS: `testDD_RedeemCherryPick` left FAILING deliberately — it now exercises the property it is
 named for, and the assertion it fails is the correct one to keep.
 
+## §A.50 UPGRADED 🔴🔴 — it is NOT a first-out advantage. `redeem(amount, preferred)` OVER-DELIVERS ~8x.
+
+Check #1 (per-asset + per-burn deltas on BOTH legs) is done, and it re-frames the finding. THE BURN IS
+IDENTICAL ON BOTH LEGS — **19,254.836849896205410935e18 QU!D** — so this is a like-for-like comparison:
+
+| leg | USDC out (6d) | DAI out (18d) | ≈ nominal | ≈ per QU!D |
+|---|---|---|---|---|
+| pro-rata `redeem(amt)` | 201,532,478 (\$201.53) | 18,834.30 | ~\$19,036 | **~\$0.99** |
+| cherry `redeem(amt, USDC)` | 2,008,696,691 (\$2,008.70) | 150,178.89 | ~\$152,187 | **~\$7.90** |
+
+⇒ Pro-rata pays ~PAR, which is CORRECT. The preferred-asset route pays **~8x par for the SAME BURN**.
+  That is not redistribution between redeemers — it is VALUE CREATED FROM NOTHING on the redemption
+  path, which is strictly worse than the first-out advantage originally suspected.
+  🔎 AND THE TELL: the cherry leg delivered MORE DAI (150,178) than the pro-rata leg (18,834) despite
+     `preferred == USDC`. A route asked for USDC should not out-deliver pro-rata *in DAI*. That points
+     at a SCALING/UNIT error in the preferred path, not at policy — most likely a per-share or
+     decimals term applied once too few/many times when `preferred` is set.
+
+WHERE TO LOOK: `BasketLib.redeemAsBody` / `_deliverAndBurn`, the `preferred != address(0)` branch —
+compare how `wantUsd` → per-asset amounts are scaled there vs the pro-rata branch. `perShare` is WAD
+and USDC is 6-dec, so a missing/extra `1e12` is the first candidate.
+
+⚠️ NOT FIXED. I did NOT attempt the fix: it is redemption MATH, I have already made one wrong
+money-path change today (§A.48, reverted), and a wrong fix here mints or destroys user value. It needs
+a session with the headroom to change it AND run the full suite. The failing test is the reproduction
+and should stay failing until it is fixed.
+STILL WORTH CONFIRMING FIRST (cheap): that `checkBacking()` fails after the cherry leg — if backing
+survives an 8x payout, the accounting is compensating somewhere and the diagnosis changes again.
+
