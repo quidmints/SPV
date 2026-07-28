@@ -3236,3 +3236,31 @@ fix is for redeem to REVERT on a zero clip instead of returning success.
 STATUS: `testDD_RedeemCherryPick` left FAILING deliberately (never mask). `testB` de-vacuumed and
 passing with a premise assertion. 9 assertion-free tests remain.
 
+## §A.49 🟠 TODO — ADD FRAX / sFRAX AS A STABLE + its Chainlink depeg signal (user, 2026-07-28)
+
+ADDRESSES SUPPLIED BY THE USER (asset, then its ERC-4626 venue):
+```solidity
+IERC20   public FRAX  = IERC20(0xCAcd6fd266aF91b8AeD52aCCc382b4e165586E29);
+IERC4626 public SFRAX = IERC4626(0xcf62F905562626CfcDD2261162a51fd02Fc9c5b6);
+```
+
+WORK:
+ 1. Wire FRAX into the stable set (`getStables`/`toIndex`) and sFRAX as its venue, mirroring how
+    DAI/sDAI is wired. NOTE sFRAX is a PLAIN ERC-4626 like sDAI — so `_withdrawableOf`'s
+    `liquidityAdapter()` Morpho-V2 probe WILL revert against it and be caught by the `try` at
+    `VaultLib.sol:313`. That is expected behaviour, NOT a bug (§A.48 corrected). Do not "fix" it.
+ 2. 🔴 THE MISSING PIECE — a **Chainlink FRAX/USD feed** for the depeg signal. Redemption haircuts
+    read depeg severity live per stable via `getDepegSeverityBps → liveDepegBps` off a PINNED
+    Chainlink feed. Without a feed FRAX defers to 0 (NO HAIRCUT) by design — which means a DEPEGGED
+    FRAX would be redeemed at FULL FACE, and cherry-pickers could drain the sound stables against it.
+    So the feed is a PREREQUISITE for listing, not a follow-up.
+    CANDIDATE (from memory — **MUST be verified on-chain before wiring, do not paste it in blind**):
+    mainnet FRAX/USD aggregator `0xB9E1E3A9feFf48998E45Fa90847ed4D467E8BcfD`. Verify: it answers
+    `latestRoundData()`, `decimals()`, its heartbeat/deviation, and that it is the FRAX/USD (not
+    FRAX/ETH) pair. Per the no-mocks rule use the real feed, and if none is suitable, DO NOT list FRAX.
+ 3. Extend the depeg tests to cover FRAX once the feed is pinned.
+
+⚠️ ORDERING: §A.48 is OPEN — a redeem path that can deliver ZERO while returning success. Listing a
+   new stable onto that path before §A.48 is settled adds surface to an unverified mechanism. Settle
+   §A.48 first.
+
