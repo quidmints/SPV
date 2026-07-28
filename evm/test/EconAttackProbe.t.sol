@@ -210,6 +210,10 @@ contract EconAttackProbe is Alles {
         emit log_named_uint("D: [cherry ] DAI  out (18d)", DAI.balanceOf(User01) - d0);
         emit log_named_uint("D: [cherry ] QUID burned    ", qStart - QUID.balanceOf(User01));
         uint cFair = (USDC.balanceOf(User01) - u0) * 1e12 + (DAI.balanceOf(User01) - d0) * 80 / 100;
+        // §A.50 check: if an ~8x payout leaves BACKING intact, something is compensating elsewhere and
+        // the "value from nothing" reading is wrong. checkBacking REVERTS when the invariant breaks.
+        try AUX.checkBacking() { emit log_string("D: checkBacking SURVIVED the cherry leg"); }
+        catch { emit log_string("D: checkBacking FAILED after the cherry leg"); }
         vm.stopPrank();
 
         emit log_named_uint("D: prorata fair value (18d)", pFair);

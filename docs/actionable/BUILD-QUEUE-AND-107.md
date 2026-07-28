@@ -3435,3 +3435,32 @@ and should stay failing until it is fixed.
 STILL WORTH CONFIRMING FIRST (cheap): that `checkBacking()` fails after the cherry leg — if backing
 survives an 8x payout, the accounting is compensating somewhere and the diagnosis changes again.
 
+## §A.50 RE-FRAMED AGAIN — `checkBacking()` SURVIVES the cherry leg. Direction of the defect is OPEN.
+
+Ran the cheap prior check. Result: **"checkBacking SURVIVED the cherry leg."** The protocol's own
+backing invariant holds after the ~8x payout.
+
+⇒ That CONTRADICTS the "value created from nothing" reading in the previous entry, which is struck as
+  premature. If backing survives paying ~\$7.90/QU!D, then either the QU!D really IS worth ~\$7.90
+  here (accrued value — `testA` showed per-share is fixture-dependent, ~\$0.50 there), or
+  `checkBacking` is too weak to see this.
+
+🔴 THE OPEN QUESTION IS NOW *WHICH LEG IS WRONG*, and both readings are serious:
+  (a) **Pro-rata UNDER-delivers.** If per-share is genuinely ~\$7.90, the default `redeem(amt)` route
+      pays ~\$0.99 — users taking the OBVIOUS path get ~1/8 of their claim, and the preferred route is
+      correct. This is the reading `checkBacking` surviving actually supports.
+  (b) **Cherry OVER-delivers and `checkBacking` cannot detect it.** Then the invariant itself is the
+      bug, which is worse, because it is what everything else relies on.
+
+NEXT — settle it by reading `perShare` DIRECTLY, do not infer it from payouts:
+ 1. Log `perShare` inside `_deliverAndBurn` (or compute it: solvency / matureSupply) for THIS fixture.
+    If per-share ≈ \$7.90 → reading (a): fix pro-rata. If ≈ \$1 → reading (b): fix the preferred branch
+    AND `checkBacking`.
+ 2. Cross-check against `testA`, where 104,166 QU!D redeemed for \$52,000 (~\$0.50/QU!D) and backing
+    also held — so per-share genuinely does vary by fixture and cannot be assumed to be \$1.
+ 3. Only then change code.
+
+⚠️ THIS ITEM HAS NOW BEEN RE-DIAGNOSED THREE TIMES (sDAI-selector revert → protocol no-op bug →
+   over-delivery → direction unknown). Every re-diagnosis came from ONE more measurement. Do not act
+   on the current reading without doing step 1 — that is the measurement that actually decides it.
+
