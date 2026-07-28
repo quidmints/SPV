@@ -3000,14 +3000,25 @@ verdict: give it a real assertion, or rename it out of the `test` prefix so it s
 something. **`EconAttackProbe`'s four are the worrying ones — they are named for ATTACKS
 (donation-inflation, JIT fee capture, redeem cherry-pick) and currently assert nothing.**
 
-### 3. 🔴 FOUR `assertApproxEqRel` tolerances >= 10%, TWO of them 100% (vacuous)
-  • `Alles:test_Redeem_WithBtcBand_NoOverBurn` — **tol = 100%** on a SAFETY property. A 100% relative
-    tolerance admits a 2x over-burn, i.e. the exact thing the test is named for.
-  • `Alles:test_RunSim_C_DepegFee_Evaluation` — **tol = 100%**.
-  • `Alles:testBtcLp_FeeAccrualAndWithdraw` — 20%.
-  • `Alles:testGrindRemoval_LargeSwapThenReseatRebandsSkewed` — 15%.
-Per the standing rule (a tolerance that makes a test pass is the tell that the real defect is still
-there), each must be tightened to a derived bound or justified in a comment with the measurement.
+### 3. TOLERANCES — CORRECTED. My own scanner produced two FALSE POSITIVES; only 2 of 4 are real.
 
-STATUS: class 1 fixed; classes 2 and 3 (15 items) enumerated, NOT yet fixed.
+⚠️ SELF-CORRECTION, and the irony is not lost: a sweep for tests that pass for the wrong reason was
+itself reported with the wrong reason. The scan regex
+`assertApproxEqRel\([^;]*?,\s*([0-9_.]+e1[0-9])\s*[,)]` matched NON-GREEDILY across arguments and
+captured the trailing `1e18` of a `FullMath.mulDiv(x, y, 1e18)` INSIDE the assertion as if it were the
+tolerance — reporting 100% where the real tolerance is tight. Verified by reading each call:
+  • `test_Redeem_WithBtcBand_NoOverBurn` — REAL TOLERANCE **3%** (`0.03e18`). The `1e18` was mulDiv's
+    denominator. NOT vacuous. The alarm that this admitted a 2x over-burn was WRONG.
+  • `test_RunSim_C_DepegFee_Evaluation` — REAL TOLERANCE **1%** (`0.01e18`), on
+    `mulDiv(vA,1e18,burnA)` vs `mulDiv(vB,1e18,burnB)`. NOT vacuous.
+  • `testBtcLp_FeeAccrualAndWithdraw` — **20%** (`0.2e18`). GENUINELY LOOSE, still open.
+  • `testGrindRemoval_LargeSwapThenReseatRebandsSkewed` — **15%** (`0.15e18`). GENUINELY LOOSE, still
+    open (it also carries a tight 6% assertion).
+LESSON FOR THE NEXT SWEEP: a regex over Solidity arguments cannot be trusted to identify WHICH
+argument it matched. Any future scan of this kind must print the matched call text for eyeballing,
+not just the captured number — the same discipline demanded of the tests being audited.
+
+STATUS: class 1 FIXED (4 sites). Class 3 CORRECTED — 2 of 4 were scanner artifacts; 2 remain
+(20% and 15%). Class 2 (11 assertion-free tests) stands as reported and is NOT yet fixed.
+REVISED REAL BACKLOG: 13 items, not 15.
 
