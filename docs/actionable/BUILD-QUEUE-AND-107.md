@@ -3151,3 +3151,30 @@ Morpho-style vault that reports only supplied positions) or something else absor
 affect the verdict above — the premise assertion only needs the venue to move — but it is the kind of
 discrepancy worth understanding before relying on `totalAssets` elsewhere.
 
+## §A.48 🔴🔴 FINDING — `AUX.redeem` REVERTS on the fork: unknown selector on sDAI. Hidden by a `try/catch`.
+
+FOUND by applying the §A.46 two-part template to `testDD_RedeemCherryPick`, which had NO assertion and
+wrapped BOTH redeem legs in `try { } catch { }`. Adding the PREMISE assertion ("the redeem must
+actually deliver") turned a green test red immediately:
+
+    pFair == 0 and cFair == 0  — NEITHER redeem ever delivered anything.
+    ← [Revert] unrecognized function selector 0xad468d11
+                for contract 0x83F20F44975D03b1b09e64809B757c47f942BE59   (sDAI, mainnet)
+
+So the test named "RedeemCherryPick" has never once exercised a redeem. It reported PASS for the
+entire time it has existed, and its stated purpose — proving a cherry-picking redeemer cannot beat
+pro-rata during a depeg — has NEVER been tested.
+
+⚠️ THE SUITE IS NOW RED BY CHOICE. Per the standing rule (never mask the question), the test is left
+FAILING rather than re-muted: a red test that names a real unknown is worth more than a green one that
+proves nothing. Do not "fix" it by restoring the swallow.
+
+OPEN QUESTIONS — do NOT guess, both are cheap to settle:
+  1. WHOSE selector is `0xad468d11`? Identify it, then determine whether `AUX.redeem` legitimately
+     needs it from a 4626. sDAI IS a conforming ERC-4626, so a missing selector suggests we call
+     something OUTSIDE the 4626 interface (a Morpho/Metamorpho-specific method?) on a plain 4626.
+  2. IS THIS FIXTURE OR PROTOCOL? Either sDAI is wired into a venue slot expecting a richer interface
+     (fixture bug), or `AUX.redeem` genuinely cannot service a plain-4626 stable venue on mainnet
+     (PROTOCOL BUG on the money path). The second would mean redemptions fail for real users.
+     Settle this BEFORE anything else in the queue — it outranks every remaining test-hygiene item.
+

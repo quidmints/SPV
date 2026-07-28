@@ -157,17 +157,30 @@ contract EconAttackProbe is Alles {
 
         uint snap = vm.snapshotState();
         uint u0 = USDC.balanceOf(User01); uint d0 = DAI.balanceOf(User01);
-        try AUX.redeem(amt) {} catch { emit log_string("D: prorata revert"); }
+        try AUX.redeem(amt) {} catch (bytes memory e) { emit log_named_bytes("D: prorata revert", e); }
         uint pFair = (USDC.balanceOf(User01) - u0) * 1e12 + (DAI.balanceOf(User01) - d0) * 80 / 100;
         vm.revertToState(snap);
 
         u0 = USDC.balanceOf(User01); d0 = DAI.balanceOf(User01);
-        try AUX.redeem(amt, address(USDC)) {} catch { emit log_string("D: cherry revert"); }
+        try AUX.redeem(amt, address(USDC)) {} catch (bytes memory e) { emit log_named_bytes("D: cherry revert", e); }
         uint cFair = (USDC.balanceOf(User01) - u0) * 1e12 + (DAI.balanceOf(User01) - d0) * 80 / 100;
         vm.stopPrank();
 
         emit log_named_uint("D: prorata fair value (18d)", pFair);
         emit log_named_uint("D: cherrypick fair value (18d)", cFair);
         emit log_named_int ("D: cherry advantage (18d)", int(cFair) - int(pFair));
+
+        // PREMISE FIRST (§A.46). Both redeems sit behind `try/catch`, so if BOTH revert the two fair
+        // values are 0 and ANY comparison below would pass while proving nothing. Require real
+        // delivery on both legs before comparing them.
+        assertGt(pFair, 0, "PREMISE: the prorata redeem must actually deliver, else nothing is compared");
+        assertGt(cFair, 0, "PREMISE: the cherry-pick redeem must actually deliver, else nothing is compared");
+
+        // THE SAFETY PROPERTY. With DAI mocked 20% depegged, a redeemer who cherry-picks the SOUND
+        // asset must not walk away with more fair value than one who takes the pro-rata mix —
+        // otherwise the cherry-picker externalises the depegged asset onto everyone who redeems later,
+        // which is a first-out advantage. Compared in like-for-like fair value (DAI marked at 80%).
+        assertLe(cFair, pFair,
+            "cherry-picking the sound asset must not beat pro-rata in fair value (first-out advantage)");
     }
 }
