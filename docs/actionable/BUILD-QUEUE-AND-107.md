@@ -3040,3 +3040,24 @@ suggests fees raise BACKING (value per QU!D) rather than being distributed as a 
 i.e. 6909 holders would benefit by appreciation, not by a claimable balance. NOT VERIFIED. Needs the
 stable-to-stable swap fee path traced end-to-end before anyone states how holders are paid.
 
+### Seed fee — CORRECTION (user, 2026-07-28): *"the charge should occur in the basket contract itself.
+### why is there ChannelLib.sol stuff?"* The user is right; my "no change needed" was incomplete.
+
+WHAT I CONFIRMED FIRST (still true): the fee is MINT-ONLY in effect. One call site, gated by
+`msg.sender == quid`, so a swap-triggered deposit pays nothing.
+
+WHAT I MISSED: `ChannelLib.sol:395` sits inside **`ChannelLib.depositBody`** (`:359`), and `Aux.sol`
+calls `ChannelLib.depositBody(from, token, amount, address(QUID), stables.length)` with the inline
+comment "to free Aux bytecode". So `depositBody` IS `Aux.deposit`'s body, extracted only for EIP-170
+headroom — the seed fee is therefore charged in the DEPOSIT path and merely GATED to mints.
+
+⇒ REVISED VERDICT: functionally correct, STRUCTURALLY INVERTED. `Basket.mint` should charge its own
+  fee; instead the deposit body RECONSTRUCTS "am I inside a mint?" from `msg.sender == quid`.
+  WHY THIS IS MORE THAN TASTE: the gate infers CALLER INTENT. It mis-fires if Basket ever gains a
+  second entrypoint that deposits, or if any other path calls with `quid` as sender — the fee would
+  fire (or stop firing) with no change to the fee logic itself. A charge levied at its ORIGIN cannot
+  drift that way. Secondary: `ChannelLib` is a MISNOMER — it holds Aux's deposit body, not channel
+  logic (naming rule).
+  MOVE: lift the seed-fee charge into `Basket.mint`, delete the `msg.sender == quid` reconstruction,
+  and leave `depositBody` doing only deposit work. Cheap, and it removes an intent-inference.
+
