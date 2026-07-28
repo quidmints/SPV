@@ -588,7 +588,16 @@ library BasketLib {
             skip = a.preferred;
             require(a.prefIndex > 0 && a.prefIndex <= a.stables.length, "unknown-stable");
             bool done;
-            (sent, a.amount, done) = _takePreferred(aux, a.who, a.preferred, a.amount, a.seed, amounts, yieldW, fc);
+            // UNIT BOUNDARY (§A.50). `_takePreferred` asks for the withdrawal in the token's NATIVE
+            // units — it hands `needed` straight to withdrawSelf. A redemption's `a.amount` is USD
+            // 1e18 (it is a share of amounts[14]); the pro-rata leg below divides by the same power
+            // of ten before ITS withdrawSelf, which is why it never had this bug. Without the
+            // conversion a 6-decimal stable was asked for 1e12x the intended draw, the leg emptied
+            // whatever the venue held, and declining pro-rata PAID the redeemer instead of costing
+            // them. The swap branch above already hands over native units, so the conversion belongs
+            // at this call site rather than inside the shared helper.
+            (sent, a.amount, done) = _takePreferred(aux, a.who, a.preferred,
+                scaleTokenAmount(a.amount, a.preferred, false), a.seed, amounts, yieldW, fc);
             if (done) return sent;
         }
         if (amounts[14] == 0 || a.amount == 0) { _finalBacking(aux, a.softBacking); return sent; }
@@ -611,6 +620,12 @@ library BasketLib {
     ///      QUID redemption that names that stable). Returns (sent, remaining 18-dec
     ///      amount, done); done=true means the seed (turn) path already settled and
     ///      takeBody must return immediately.
+    ///
+    ///      UNITS — ASYMMETRIC, and the caller owns the input side: `amount` must be in
+    ///      `token`'s NATIVE units (it reaches withdrawSelf unchanged, only grossed up for
+    ///      depeg), while `sent`/`remaining` come back as USD 1e18 so the pro-rata leg and
+    ///      takeBody's return value stay in one currency. The redeem call site converts;
+    ///      the swap call site already holds native units.
     function _takePreferred(
         IAuxOps aux, address who, address token, uint amount, uint seed,
         uint[15] memory amounts, uint[15] memory yieldW, FeeLib.FeeCtx memory fc

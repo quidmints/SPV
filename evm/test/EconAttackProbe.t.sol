@@ -14,6 +14,11 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 /// Run: forge test --match-contract EconAttackProbe -vv
 contract EconAttackProbe is Alles {
     uint constant MONTH = 2420000;
+    /// Mirrors `Basket.CAP` (src/Basket.sol:25), which is `internal constant` and so has no
+    /// getter to read live. This is the SPEC value the tests below are written against, not a
+    /// number chosen to make anything pass — every bound derived from it is compared against
+    /// measured `QUID.trancheTotal()`.
+    uint constant SEED_CAP = 600_000 * 1e18;
 
     function testA_BootstrapSeedMaturityDrain() public {
         uint X = 50_000 * USDC_PRECISION;
@@ -77,6 +82,21 @@ contract EconAttackProbe is Alles {
         emit log_named_uint("A2: seed-path would-mint (18d)", seedAmt);
         emit log_named_uint("A2: trancheTotal after (18d)", QUID.trancheTotal());
 
+        // PREMISE 1 (§A.46): the seed window must still be OPEN when this mint lands. `isSeed` is
+        // `month == 13 && seeded < CAP` (Basket.sol:291) — if the fixture already carried `seeded`
+        // at/above CAP, the mint drops to the normal projection via the ELIGIBILITY gate and every
+        // assertion below passes without the hard-bound branch this test is named for ever running.
+        assertLt(startSeeded, SEED_CAP,
+            "PREMISE: the seed window must be open, else the CAP-breach branch is never reached");
+
+        // PREMISE 2 (§A.46): the seed projection must ACTUALLY breach CAP. This is the trigger for
+        // `if (isSeed && seeded + normalized > CAP)` (Basket.sol:307). If the chosen principal were
+        // small enough to fit, the mint would seed normally and "did not get the bonus" would be a
+        // false reading of a test that never breached anything. Bound is the measured pre-mint
+        // `startSeeded` plus the projection the seed path would have produced.
+        assertGt(startSeeded + seedAmt, SEED_CAP,
+            "PREMISE: the seed projection must breach CAP, else the drop-to-normal branch never fires");
+
         // (1) did NOT get the 100%-APR seed bonus (used avgYield instead of WAD).
         assertLt(minted, seedAmt, "CAP-breaching mint must NOT get the 100%-APR seed bonus");
         // (2) principal is never lost to the CAP mechanism (tolerate 4626
@@ -84,7 +104,7 @@ contract EconAttackProbe is Alles {
         //     deposit regardless of this fix).
         assertGe(minted, prin18 - 1e15, "depositor keeps principal (mod vault dust)");
         // (3) the senior tranche never exceeds CAP (the hard bound holds).
-        assertLe(QUID.trancheTotal(), 600_000 * 1e18, "senior tranche stays <= CAP");
+        assertLe(QUID.trancheTotal(), SEED_CAP, "senior tranche stays <= CAP");
         // (4) since the mint dropped out of the seed path, seeded is unchanged.
         assertEq(QUID.trancheTotal(), startSeeded, "breaching mint adds nothing to the seed tranche");
     }
@@ -93,7 +113,6 @@ contract EconAttackProbe is Alles {
     /// the full 100%-APR bonus (the fix doesn't neuter the bootstrap incentive).
     function testA3_WithinCapStillSeeds() public {
         uint startSeeded = QUID.trancheTotal();
-        require(startSeeded + 208_000 * 1e18 <= 600_000 * 1e18, "fixture seeded too high for control");
         uint small = 100_000 * USDC_PRECISION;   // 100k * ~2.08 = ~208k < 600k CAP
         deal(address(USDC), User01, small);
         vm.startPrank(User01);
@@ -101,11 +120,35 @@ contract EconAttackProbe is Alles {
         uint minted = QUID.mint(User01, small, address(USDC), 13);
         vm.stopPrank();
 
-        uint prin18 = small * 1e12;
+        uint prin18  = small * 1e12;
+        uint seedAmt = prin18 + prin18 * 13 / 12;  // the 100%-APR seed projection (Basket.sol:502)
         emit log_named_uint("A3: minted (18d)", minted);
-        // Got the seed bonus: ~2.08x principal (well above any avgYield projection).
+        emit log_named_uint("A3: seed-path projection (18d)", seedAmt);
+        emit log_named_uint("A3: tranche delta (18d)", QUID.trancheTotal() - startSeeded);
+
+        // PREMISE 1 (§A.46): the seed window must be OPEN. Same eligibility gate as A2 — if the
+        // fixture arrived with `seeded >= CAP` this control would measure the NORMAL path and its
+        // "the bonus survives" claim would be inverted, not merely weak.
+        assertLt(startSeeded, SEED_CAP,
+            "PREMISE: the seed window must be open for this control to mean anything");
+
+        // PREMISE 2 (§A.46): this control only controls for A2 if the projection FITS under CAP.
+        // Was a bare `require(... 208_000e18 ...)` with a hardcoded projection; derived from the
+        // measured `startSeeded` and the actual seed formula instead. If this fails, the fixture
+        // drifted and A3 has silently become a duplicate of A2 rather than its counterexample.
+        assertLe(startSeeded + seedAmt, SEED_CAP,
+            "PREMISE: the projection must FIT under CAP, else this is a duplicate of A2, not a control");
+
+        // SAFETY (the fix must not neuter the bootstrap incentive). Two-sided and derived from the
+        // measured principal: the seed path is exactly 25/12x, the normal path is (1 + avgYield*t)x
+        // which is ~1x here, so 1.5x separates them; `seedAmt` is the hard ceiling no mint can pass.
         assertGt(minted, prin18 * 15 / 10, "within-CAP mint keeps the ~2.08x seed bonus");
-        assertGt(QUID.trancheTotal(), startSeeded, "within-CAP mint accrues the seed tranche");
+        assertLe(minted, seedAmt, "no mint may exceed the 100%-APR seed projection");
+        // SAFETY: `seeded += normalized` (Basket.sol:341) accrues the WHOLE mint, so the tranche
+        // delta must equal `minted` exactly. Under-accrual would let a seeder mint bonus QU!D that
+        // the CAP never counts — the same unbounded-seed hole A2 guards, entered from the other side.
+        assertEq(QUID.trancheTotal() - startSeeded, minted,
+            "the seed tranche must accrue exactly the amount minted");
     }
 
     function testB_BackingInflationByDonation() public {

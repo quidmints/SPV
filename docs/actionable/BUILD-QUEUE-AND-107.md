@@ -3649,3 +3649,39 @@ safe to run in separate threads/agents.
 CROSS-LANE NOTE: Lane C's §A.50 and Lane D are independent TODAY, but §A.19b (D) touches redemption
 semantics — sequence it after §A.50 lands if both are in flight.
 
+## §A.54 🔴 CODEBASE-WIDE DEDUP + NAMING PASS — PREREQUISITE FOR ECHIDNA (user, 2026-07-29)
+
+User: *"why does out of range btc need its own struct and cant reuse the eth one … i dont understand
+what tu and tl mean, do not use short abbreviations like that (standing rule) and correct the ones
+everywhere. there is a huge dedup pass that needs to be done across the entire codebase before we do
+echidna stuff."*
+
+### 1. CONFIRMED DUPLICATE STRUCT — two names, one shape
+```solidity
+struct OorTicks { int24 newLo; int24 newUp; int24 curLo; int24 curUp; }   // VogueLib.sol:640
+struct Oor      { int24 newLo; int24 newUp; int24 curLo; int24 curUp; }   // SwapLib.sol:1429
+```
+BYTE-IDENTICAL. Collapse to ONE canonical declaration (`imports/Types.sol` or `Interfaces.sol`).
+
+### 2. THE BTC QUESTION — PARTIALLY ANSWERED, one half still open
+`BtcVaultLib.OorArgs` (`:280`) is NOT a duplicate of the ETH TICK struct — it is an ARGUMENT BUNDLE
+(`amount, token, distance, range, owner, sqrtP, curLo, curUp, idBtc`). So the answer to "why can't BTC
+reuse the ETH one" is: for TICKS it should (see #1), but `OorArgs` is a different concept.
+⚠️ STILL OPEN, and this is the user's real question: does the ETH `outOfRange` path have its OWN
+equivalent args bundle? If it does, and the two differ only by `idBtc`/`idEth`, they should be ONE
+struct with the id passed separately. NOT YET VERIFIED — check `Vogue.outOfRange` / `SwapLib`'s ETH
+path before concluding.
+
+### 3. `tl` / `tu` → `tickLower` / `tickUpper` — 23 occurrences in `src/`
+Violates the standing no-cryptic-names rule. Declared at `BtcVaultLib.sol:146-147` and threaded
+through `burnInRange` call sites and `repack` destructuring. Mechanical but touches several files, so
+do it when no other agent owns them. While there, sweep for the same class: `sqrtP`, `curLo`, `curUp`,
+`newLo`, `newUp`, `amts`, `yW`, `fc`, `rf`, `dl`, `il`, `ts`, `imm` — judge each (some, like `sqrtP`,
+are established domain shorthand and may be worth keeping; `tl`/`tu` are not).
+
+### 4. WHY THIS GATES ECHIDNA
+Echidna explores state via the PUBLIC surface and reports counterexamples as call sequences. Duplicate
+structs/interfaces mean the same concept is reachable by two names, so invariants get written twice
+(or once, missing a path), and counterexamples are harder to read. Dedup FIRST, then write properties
+against ONE canonical surface. §A.52 (interface `_V` shims) is the same pass — merge these two efforts.
+
