@@ -712,13 +712,16 @@ contract Alles is Test, Fixtures {
         vm.startPrank(User01);
         V4.deposit{value: 25 ether}(0, User01);
 
-        vm.expectRevert();
+        // EXACT selector, not a bare `vm.expectRevert()`. Each line claims a DISTINCT parameter is
+        // rejected, so a bare form would let one shared incidental revert (a cooldown, a TWAP gate)
+        // satisfy all four and prove nothing. Verified: all four really do reach `BadOorParam`.
+        vm.expectRevert(SwapLib.BadOorParam.selector);
         V4.outOfRange{value: 1 ether}(0, address(0), -1000, 50, 0);
-        vm.expectRevert();
+        vm.expectRevert(SwapLib.BadOorParam.selector);
         V4.outOfRange{value: 1 ether}(0, address(0), -1000, 1500, 0);
-        vm.expectRevert();
+        vm.expectRevert(SwapLib.BadOorParam.selector);
         V4.outOfRange{value: 1 ether}(0, address(0), -6000, 100, 0);
-        vm.expectRevert();
+        vm.expectRevert(SwapLib.BadOorParam.selector);
         V4.outOfRange{value: 1 ether}(0, address(0), -1050, 100, 0);
 
         vm.stopPrank();

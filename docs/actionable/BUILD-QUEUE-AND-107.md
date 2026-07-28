@@ -2976,3 +2976,38 @@ genuine SUBSET of §A.5f, not a substitute for it.
 ⚠️ SCOPE WARNING before starting: this touches the withdraw path — 41 `withdraw` call sites plus the
 full suite. It is not a drive-by edit.
 
+## §A.46 🔴 VACUOUS-TEST SWEEP (user, 2026-07-28: *"we need every PASS to prove something"*)
+
+Triggered because `RecipientPin.t.sol`'s load-bearing case PASSED for the wrong reason on its first
+run — all three `expectRevert`s were catching Vogue:538's post-deposit cooldown, not the guard under
+test. That is a CLASS, so the suite was swept for it.
+
+### 1. Bare `vm.expectRevert()` — DONE, 4 sites fixed
+Only 4 real sites existed, all in `testInvalidOutOfRangeParams` (a 5th grep hit is a comment).
+Each line there claims a DISTINCT invalid parameter is rejected, so a bare form would let ONE shared
+incidental revert satisfy all four. Verified by trace that all four genuinely reach `BadOorParam()`,
+then tightened to `SwapLib.BadOorParam.selector` so they cannot silently degrade later.
+
+### 2. 🔴 ELEVEN test functions contain NO ASSERTION AT ALL — every PASS is vacuous by construction
+`EconAttackProbe`: testA_BootstrapSeedMaturityDrain, testB_BackingInflationByDonation,
+testCC_JITLPFeeCapture, testDD_RedeemCherryPick · `BTCChannelsAuth`: test_openparams_abi_ground_truth ·
+`LevYbReal`: testDiag_WeethSellRoute · `LeveragePnLProbe`: testLeverage_BoldAccumulationCurve,
+testLeverage_LvrControlVsTreatment · `Alles`: testTaprootQ, test_HoldingsCache_ReconcilesToLive ·
+`VaultDonationClassify`: test_ClassifyAllVenues
+⚠️ Several are named `*Probe`/`*Diag` and may be intentional console-log diagnostics — but a probe
+that can never fail still reports PASS, which is exactly what the user is objecting to. EACH needs a
+verdict: give it a real assertion, or rename it out of the `test` prefix so it stops claiming to prove
+something. **`EconAttackProbe`'s four are the worrying ones — they are named for ATTACKS
+(donation-inflation, JIT fee capture, redeem cherry-pick) and currently assert nothing.**
+
+### 3. 🔴 FOUR `assertApproxEqRel` tolerances >= 10%, TWO of them 100% (vacuous)
+  • `Alles:test_Redeem_WithBtcBand_NoOverBurn` — **tol = 100%** on a SAFETY property. A 100% relative
+    tolerance admits a 2x over-burn, i.e. the exact thing the test is named for.
+  • `Alles:test_RunSim_C_DepegFee_Evaluation` — **tol = 100%**.
+  • `Alles:testBtcLp_FeeAccrualAndWithdraw` — 20%.
+  • `Alles:testGrindRemoval_LargeSwapThenReseatRebandsSkewed` — 15%.
+Per the standing rule (a tolerance that makes a test pass is the tell that the real defect is still
+there), each must be tightened to a derived bound or justified in a comment with the measurement.
+
+STATUS: class 1 fixed; classes 2 and 3 (15 items) enumerated, NOT yet fixed.
+
