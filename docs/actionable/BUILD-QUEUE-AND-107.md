@@ -3486,3 +3486,29 @@ two redemption routes is UNDIAGNOSED — it is not yet known WHICH leg is wrong 
 vs preferred over-paying). Tuning redemption before that is settled would be optimising a number
 nobody has established the correct value of. Settle §A.50 step 1 (read `perShare` DIRECTLY) first.
 
+### §A.50 SHARPENED by the user's design context (2026-07-28) — the DISCREPANCY is the defect.
+
+USER: *"QUI is not always 1:1 with dollars, we claw back from the band (vogue) and assess the value of
+1 QUI to determine how much to pay."* That is `perShare`, and it means a per-share of ~\$7.90 (or the
+~\$0.50 seen in `testA`) is BY DESIGN, not evidence of a bug. My earlier readings all leaned on an
+unstated assumption that par ≈ \$1 — struck.
+
+🔑 BUT IT MAKES THE FINDING STRONGER, NOT WEAKER, AND REMOVES THE BLOCKER:
+   Whatever the correct per-share is, it is ONE number at ONE instant. **Both redemption routes must
+   therefore pay the SAME VALUE PER QU!D BURNED.** In `testDD` the burn is IDENTICAL on both legs
+   (19,254.836849896205410935e18) while the payouts differ ~8x. So ONE PATH MISCOMPUTES — and that
+   conclusion holds WITHOUT knowing what per-share actually is.
+   ⇒ `perShare` is no longer needed to establish THAT there is a defect. It is needed only to decide
+     WHICH leg to fix: if per-share ≈ \$7.90 the pro-rata leg under-pays; if ≈ \$1 the preferred leg
+     over-pays. Either way one of them is wrong TODAY.
+
+TERMINOLOGY (for the record, since "preferred"/"cherry-pick" was my shorthand): `preferred` is the
+code's own parameter — `AUX.redeem(uint amount, address preferred)`, the asset the redeemer names,
+validated by `require(preferred != address(WETH) && toIndex[preferred] > 0, "bad-preferred")`. The
+one-arg `redeem(amt)` is the pro-rata route.
+
+REVISED NEXT STEP (unchanged in substance, but now clearly bounded): log `perShare` inside
+`_deliverAndBurn` on both legs of `testDD`. If it is the SAME on both legs, the divergence is downstream
+in the per-asset scaling of the `preferred` branch (the missing/extra `1e12` candidate). If it DIFFERS
+between legs, the valuation itself is route-dependent, which is the deeper bug.
+
