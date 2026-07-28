@@ -3912,3 +3912,35 @@ User asked to fix all findings. Attempted §A.57 and STOPPED at the unverified l
     it needs a DESIGN decision on the trigger (add a composition/depth test alongside the tick-boundary
     test), which is a protocol change, not a repair. Should be decided deliberately, not patched.
 
+## §A.58 CORRECTED — I was partly wrong. It is TWO issues, and one is a concrete OFF-BY-ONE.
+
+User: *"are you sure about 58? double check, look at it from all angles."* Re-checked; my "needs a
+design decision, not a patch" verdict folded together two DIFFERENT problems.
+
+### (1) 🔴 REAL BUG — the repack gate is off by one against Uniswap's own range convention
+```solidity
+if (currentTick > tickUpper || currentTick < tickLower) {   // SwapLib.sol:1539
+```
+Uniswap ranges are **HALF-OPEN**: a position over `[tickLower, tickUpper)` is active iff
+`tickLower <= tick < tickUpper`. **At `tick == tickUpper` the position is ALREADY 100% one-sided and out
+of range** — the pool itself treats it as inactive — yet `> tickUpper` evaluates FALSE, so repack does
+NOT fire at exactly the boundary. The lower bound is CORRECT (`< tickLower` matches the closed lower
+end); only the upper comparison is wrong.
+FIX: `currentTick >= tickUpper || currentTick < tickLower`.
+⚠️ NOT APPLIED — one character, but it changes BAND behaviour on the money path, and every prior
+  money-path change today needed a full-suite run to be trusted (one broke 302 tests). Verify with:
+  a fixture that lands the tick EXACTLY on `tickUpper` (currently untested — that is why this survived),
+  then the full suite.
+
+### (2) 🟠 STILL A DESIGN QUESTION — one-sided-but-in-range
+The measured case (tick 200699 in band `[200660, 200700]`) is genuinely IN range even under the
+corrected `>=`, yet the band is ~99.9% one-sided and has no USD depth for the next swapper. No
+tick-based test can catch that, because nothing about the tick is wrong. It needs a COMPOSITION/DEPTH
+trigger alongside the boundary test — a protocol change, and the user's call.
+📌 The two are independent: fixing (1) does NOT address (2), and (2) is not a reason to delay (1).
+
+📌 METHOD NOTE: I reached "design decision" by reasoning about the OBSERVED case and never checked the
+gate against the AMM's range convention. Same failure the user corrected earlier — explaining why the
+code behaves as it does instead of asking whether it SHOULD. Check invariants against the external
+standard, not just against the failing fixture.
+
