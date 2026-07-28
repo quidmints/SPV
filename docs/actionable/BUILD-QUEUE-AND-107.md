@@ -4005,3 +4005,30 @@ reasoning about the fixture; (b) "off-by-one" — from an external convention; (
 came from the USER pointing at something real. ASK WHAT ELSE IS IN THE SYSTEM before declaring
 something unhandled.
 
+## §A.59 🔴 STALE-COMMENT CONTRADICTION — user says the auto-trigger WAS built; two comments say it was not
+
+User: *"we built the on automatic trigger several compactions ago in this thread."* I could not confirm
+it, and the disagreement is itself worth recording because the comments are load-bearing.
+
+WHAT THE CODE COMMENTS CLAIM (both would tell a future reader the feature is MISSING):
+  • `SwapLib.sol:419` — *"JIT-DEPTH-GUARANTEE.md §2 hook site (DEFERRED — design gap, NOT built)"*
+  • `Vogue.sol:499`  — *"§2 JIT depth-guarantee core — DEFERRED (backing-model fork)"*
+
+WHAT I DID FIND that IS automatic: `SwapLib.deleverEthOnDelivery` — *"DELEGATECALL'd by Vogue from
+`_sendETH` when the venue base (`deliverableETH`) can't cover a swap-out delivery"*. Real auto-trigger,
+but it heals a DELIVERY SHORTFALL by de-levering, which is not obviously the same as restoring a
+one-sided band's USD DEPTH.
+
+⇒ TWO POSSIBILITIES, and they need different actions:
+   (a) The trigger WAS built this session and these two comments went STALE — then the code is fine and
+       the COMMENTS must be corrected, because as written they will make the next reader rebuild
+       something that already exists (or conclude a shipped guarantee is absent).
+   (b) What was built is `deleverEthOnDelivery` (delivery-side), and the §2 depth-guarantee core really
+       is still deferred — then the comments are accurate and §A.58(2)'s composition case is covered
+       only by the KEEPER refill, as previously recorded.
+   ⚠️ RESOLVE BY READING THE CODE AT BOTH SITES, not by trusting either the comments or my summary —
+     this is the fourth verdict attempt on this area and the previous three were all wrong.
+📌 NOTE FOR THE STALE-DOC SWEEP: if (a), this is a case of OUR OWN comments going stale within a single
+session — the same class as the LST-PEG-MONITOR issue. Deferral markers must be cleared when the
+deferral ends, or they become false evidence of absence.
+
