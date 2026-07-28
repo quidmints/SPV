@@ -3548,3 +3548,45 @@ mis-scales, the stable-to-stable swap path may inherit it — CHECK BOTH when fi
    https://github.com/quidmints/quid — is this version more gas-efficient / more elegant, and where
    has it DEPARTED from `_take`? Not yet examined.
 
+## §A.51 🔑 THE `preferred` FEE ALREADY EXISTS AND WAS DELIBERATELY DISCONNECTED (user, 2026-07-28)
+
+User's ask: *"preferred shouldn't over-deliver, but consider concentration, the stable's yield over
+baseline, and have a fee mechanism similar to the way uniswap charges swap fees … the fee should be as
+low as possible unless it imposes a real cost on the basket."*
+
+FOUND — the mechanism is BUILT, and TURNED OFF ON PURPOSE. `FeeLib.calcNeeded`:
+```solidity
+// Concentration/cherry-pick fee is NO LONGER CHARGED to the user (baseRate alrea…
+// concentration `calcFeeL1` signal (yield-vs-baseline) survives ONLY as a ROUTIN…
+// (`_pickBestPath`) still ranks paths by concentration + hop-count for best-exec…
+// The sole outflow COST is the depeg haircut, and only during an actual depeg.
+deps; yields;        // <- params deliberately unused
+```
+and `FeeLib.applyFeeAndHaircut` repeats it: *"Concentration/cherry-pick fee no longer charged (only the
+depeg haircut is) … concentration survives as a SOR routing signal only."*
+
+⇒ `calcFeeL1` already computes CONCENTRATION + YIELD-VS-BASELINE — precisely the two inputs the user
+  named. It is not missing; it is DISCONNECTED from pricing and demoted to route ranking. So this is a
+  RE-WIRING + CALIBRATION task, not a from-scratch fee design.
+⚠️ BUT FIRST, READ THE REMOVAL RATIONALE IN FULL (truncated above at "baseRate alrea…"). Someone
+  removed this deliberately and gave a reason — most likely that `baseRate` already prices it, i.e.
+  re-adding a user-facing fee could DOUBLE-CHARGE. Reinstating it without settling that is how the
+  same cost gets levied twice. Read `baseRate`'s definition before wiring anything.
+
+UNISWAP COMPARISON (user asked): their fee is a STATIC per-pool tier (0.01/0.05/0.30/1.00%), NOT a
+function of concentration. Concentration does not remove slippage — it reduces it IN-RANGE — and the
+fee is charged independently of it. v4 hooks are what enable DYNAMIC fees, which is the shape the user
+is describing. So "static because no slippage" is not the reason: the fee compensates LP risk, while
+slippage is a separate position-dependent cost.
+
+DESIGN TARGET (user): fee as low as possible UNLESS it imposes a real cost on the basket. That maps
+cleanly onto `calcFeeL1`'s existing inputs — charge when the named stable is SCARCE (concentration) or
+is the HIGH-YIELDING one (yield over baseline), i.e. when shedding it genuinely costs the basket;
+charge ~0 otherwise.
+
+ORDERING: fix the §A.50 over-delivery FIRST (a fee on a mis-scaled payout is meaningless), then re-wire
+`calcFeeL1`, then calibrate. Also still open: compare against `_take` in the legacy repo
+https://github.com/quidmints/quid (user: is this version more gas-efficient / elegant, and where did it
+depart?) — the legacy `_take` may show what the scaling and the fee were originally meant to be, which
+bears on BOTH §A.50 and this item.
+
