@@ -3709,3 +3709,50 @@ then the ETH path should adopt the SAME struct rather than each side keeping its
 `BtcVaultLib` are not merely cryptic — they are INCONSISTENT WITH THE CODEBASE'S OWN NAMING one layer
 down. The rename is restoring consistency, not imposing a new convention.
 
+## §A.50 FIXED (landed in commit `1371b23` — see HISTORY NOTE below)
+
+FIX: convert to native units AT THE REDEEM CALL SITE, leaving the shared helper and the swap path
+untouched (`BasketLib.sol:600`):
+```solidity
+(sent, a.amount, done) = _takePreferred(aux, a.who, a.preferred,
+    scaleTokenAmount(a.amount, a.preferred, false), a.seed, amounts, yieldW, fc);
+```
+`_takePreferred`'s docblock now STATES the contract that was the whole trap: **`amount` is NATIVE units
+of `token`, while `sent`/`remaining` return as USD 1e18.** The helper converts on the way OUT but not on
+the way IN, so it read as "18-dec in, 18-dec out". No body/signature change.
+
+VERIFIED UNIT CONVENTIONS (this is why the shared helper could not be fixed internally — `amount` is
+PER-CALLER, not one convention):
+  • REDEEM: `usdPart = mulDiv(burned, perShare, WAD)` → **USD 1e18**. Corroborated: the pro-rata leg
+    feeds `a.amount` to `FeeLib.allocate` against 18-dec `amounts[i]`/`amounts[14]`, and
+    `a.amount = min(amounts[14], a.amount)` compares against 18-dec TVL. Redeem is also the ONLY path
+    that passes a non-zero `preferred` (Core's drains all pass `address(0)`).
+  • SWAP: `Core._settleUsdSide → AUX.take(who, usdAmount, token, 0)` where `usdAmount` is a V4 delta on
+    `mockUSD_{ETH,BTC}` built at **6 decimals** (`OracleLib.sol:147-150`) — i.e. NATIVE, which is what
+    `withdrawSelf` wants. `QuidLens.sol:35` independently documents calcNeeded as "6-dec amount →
+    18-dec basis".
+
+RESULT — identical burn 19,254.84 QU!D both legs: pro-rata fair value **15,269.03e18**, preferred
+**15,093.98e18** ⇒ preferred is **1.146% CHEAPER**, i.e. it now COSTS to decline pro-rata, as intended.
+`checkBacking` survives. FULL SUITE **3560 passed / 0 failed / 60 skipped**, matching baseline.
+
+⚠️ HISTORY NOTE: this fix is committed inside `1371b23`, whose message concerns the §A.54 dedup pass.
+Cause: `git add -A` was run while the agent's edit was in the working tree. The code is correct; only
+the attribution is wrong. Do not look for a standalone §A.50 commit.
+
+## §A.55 🔴 NEW — the SAME 1e12 over-request exists on the DE-LEVER path (`takeToSettle`)
+
+Found while fixing §A.50; deliberately NOT touched (outside that scope). `SwapLib.sol:1166` and
+`SwapLib.sol:1216` call `Aux.takeToSettle(venue, takeUsd18, stable)` / `(venue, fundUsd, stable)` with
+**USD 1e18** amounts. `takeToSettle` builds the same `TakeArgs` with `token = stable != quid`, so it
+lands on the **SWAP branch** of `_takePreferred` — which expects **NATIVE**. For a 6-dec stable that is
+the identical 1e12x over-request, so the de-lever DRAINS whatever the basket holds of that stable
+instead of the intended amount.
+
+🔎 WHY IT LOOKS FINE TODAY: at `:1166` the caller measures the OUTCOME (`got = balanceOf(venue) - bal0`)
+rather than trusting the request, so it reads as "worked" — but the repay is then sized off the FULL
+DRAIN, not the intended `takeUsd18`. This is the same masking pattern as §A.48's `try/catch`: measuring
+the result hides a wrong request.
+FIX SHAPE: same as §A.50 — convert at the call site (`scaleTokenAmount(..., stable, false)`), not
+inside the shared helper. MUST re-verify the full suite; delivery-side de-lever is a money path.
+
