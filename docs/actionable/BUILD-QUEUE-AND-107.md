@@ -4032,3 +4032,28 @@ one-sided band's USD DEPTH.
 session — the same class as the LST-PEG-MONITOR issue. Deferral markers must be cleared when the
 deferral ends, or they become false evidence of absence.
 
+## §A.59 RESOLVED — no contradiction. The comments are ACCURATE; §4 status ≠ §2 mechanism.
+
+Traced what this thread actually did on JIT (commit `dd10b0a`, "MISS 1"): it CORRECTED A STALE STATUS
+MARKER in `docs/actionable/JIT-DEPTH-GUARANTEE.md` **§4 (`_withdraw` folding)**, which had marked three
+already-built items as TODO:
+  1. Compound the QD — BUILT (`_settlePending` with `mintRecipient == 0`)
+  2. Cover open levers first — BUILT (`_withdraw` fires `closeLevFor` + `_reconcileLev`)
+  3. CEI-ordering fix — BUILT on the main path (`LP.pooled -= amount; lpShares -= amount;`)
+Those three predate this thread. NO new mechanism was built here.
+
+**§2 ("Mechanism" — the depth-guarantee CORE) is a DIFFERENT SECTION and remains deferred.** That is
+precisely what `SwapLib.sol:419` and `Vogue.sol:499` state, so those comments are ACCURATE and must NOT
+be cleared. §A.59's suspected stale-comment problem does not exist. Struck.
+
+WHAT *IS* AUTOMATIC TODAY (likely the source of the recollection — real triggers, wrong scope):
+  • `_withdraw` → `closeLevFor` + `_reconcileLev` — auto-fires on withdrawal (§4 item 2).
+  • `SwapLib.deleverEthOnDelivery` — auto-fires from `_sendETH` when `deliverableETH` cannot cover a
+    swap-out delivery; heals by DE-LEVERING.
+  ⇒ Neither restores a one-sided band's USD DEPTH. §A.58(2)'s composition case is still the KEEPER JIT
+    refill's job, funded by the skew premium. Position unchanged.
+
+📌 LESSON: "§4 is built" and "§2 is built" are one character apart in conversation and completely
+different claims in the code. When a status marker is corrected, say WHICH SECTION — otherwise the
+correction itself becomes a source of false recollection later.
+
