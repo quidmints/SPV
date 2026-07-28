@@ -26,6 +26,7 @@ import {IRover} from "./imports/Interfaces.sol";
 import {IDepositAdapter} from "./imports/Interfaces.sol";
 import {IAaveV4Hub} from "./imports/Interfaces.sol";
 import {ILevEquity} from "./imports/Interfaces.sol";
+import {ILevEquityBtc} from "./imports/Interfaces.sol";
 
 // ════════════════════════════════════════════════════════════════════════
 //  Vault — the unified ETH-venue custody + BTC LP/hop side, merged from the
@@ -81,12 +82,7 @@ interface IPermit2Approve {
 /// the net-equity is counted for solvency. `vogueBTC` is WBTC-only (swept donations + swap deltas) and is
 /// NEVER credited the net-equity, so `POOLED_BTC + vogueBTC` (Core shortfall read) is single-counted. Net
 /// (not gross): a venue liquidation can't strand POOLED_USD_BTC. Mirrors the ETH `ILevEquity` over the BTC band.
-interface ILevEquityBtc {
-    function netEquityBtc(address lp) external view returns (uint256);   // 8-dec sats
-    function totalNetEquityBtc() external view returns (uint256);        // 8-dec sats
-    function grossCollateralBtc(address lp) external view returns (uint256); // full-2× band CAPACITY (sats)
-    function debtUsd(address lp) external view returns (uint256);        // 1e18 USD (short-stable leg)
-}
+/// Declared once, in imports/Interfaces.sol (it was also BtcVaultLib's `ILevBtc_V`).
 
 contract Vault is Ownable, ReentrancyGuard {
 

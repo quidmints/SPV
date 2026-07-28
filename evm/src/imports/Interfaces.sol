@@ -75,6 +75,18 @@ interface ILevEquity {
     function debtUsd(address lp) external view returns (uint);
 }
 
+/// Canonical ILevEquityBtc — the BTC mirror of ILevEquity (BtcLevManager's per-LP book).
+/// Union of the former `ILevEquityBtc` (Vault) and `ILevBtc_V` (BtcVaultLib), which were the same
+/// four reads minus `totalNetEquityBtc`. NOT mergeable into `ILevEquity`: every member is a distinct
+/// selector on a distinct manager contract (BtcLevManager, sats/8-dec) — only `debtUsd` is shared,
+/// and a single interface would let a caller reach a BTC read on the ETH manager (and vice versa).
+interface ILevEquityBtc {
+    function netEquityBtc(address lp) external view returns (uint256);   // 8-dec sats
+    function totalNetEquityBtc() external view returns (uint256);        // 8-dec sats
+    function grossCollateralBtc(address lp) external view returns (uint256); // full-2× band CAPACITY (sats)
+    function debtUsd(address lp) external view returns (uint256);        // 1e18 USD (short-stable leg)
+}
+
 /// Canonical ILevHost — union of ILevHost, ILevHost_VG.
 interface ILevHost {
     function LEV_MANAGER() external view returns (address);
@@ -167,6 +179,9 @@ interface IAux {
     function aaveReserveId(address stable) external view returns (uint256);
     function deposit(address from, address token, uint amount) external returns (uint);
     function avgYield() external view returns (uint);
+    /// Per-4626-venue write-down flag. Vault-health state is Aux-owned, so the ETH custody ladder
+    /// (VaultLib) has to ask Aux before counting or pulling from a venue. Merged from `IAuxView_V`.
+    function vaultBlocked(address vault) external view returns (bool);
 }
 
 /// Canonical ICore — union of ICore_V, ICore_VG.
@@ -191,8 +206,24 @@ interface ICore {
     function POOLED_USD_BTC() external view returns (uint);
 }
 
-/// Canonical IEthVenue — union of IEthVenue, IEthVenue, IEthVenue_VG, IEthVenueCL.
+/// Canonical IEthVenue — the WHOLE external surface of `Vault`, not just its ETH-venue half.
+/// Union of IEthVenue, IEthVenue_VG, IEthVenueCL and (2026-07) `IVaultCtx_V` (BtcVaultLib's
+/// self-callback surface). The name is historical — `Vault` is the merged EthVenue+BtcVault, so
+/// the BTC-band reads below live on the same address; it is NOT renamed to `IVault` only because
+/// five consumers (Vogue, Aux, BasketLib, ChannelLib, VogueLib) would have to move with it.
+///
+/// WHY the BTC members belong here: the second declaration could not drift-detect. `IVaultCtx_V`
+/// named Vault's own functions, so a return-shape change in Vault.sol would compile clean and
+/// mis-decode at runtime in the delegatecalled library instead of failing the build.
 interface IEthVenue {
+    // ── BTC-band self-callbacks (delegatecall ⇒ address(this)==Vault; the extracted BtcVaultLib
+    //    bodies drive the tick rebalance via Vault's public `repack` and read back the
+    //    value-type fee accumulators, which cannot be handed over as storage refs) ──
+    function repack(bool isBTC) external returns (uint160, int24, int24, uint128, uint);
+    function feesPerShareBTC() external view returns (uint);
+    function USD_FEES_BTC() external view returns (uint);
+    function derivedThetaWadBtc() external view returns (uint);   // live BTC-band theta (asks Vogue w/ BTC ticks)
+    function totalBufferBTC() external view returns (uint);       // aggregate debt-funded buffer (gross-consistency)
     function vogueETH() external view returns (uint);
     function deliverableETH() external view returns (uint);
     function GALAXY_VAULT() external view returns (address);

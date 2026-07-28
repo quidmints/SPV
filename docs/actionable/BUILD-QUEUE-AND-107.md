@@ -3685,3 +3685,27 @@ structs/interfaces mean the same concept is reachable by two names, so invariant
 (or once, missing a path), and counterexamples are harder to read. Dedup FIRST, then write properties
 against ONE canonical surface. §A.52 (interface `_V` shims) is the same pass — merge these two efforts.
 
+### §A.54 CORRECTION — "why would it be a different animal?" The user is right; my framing was wrong.
+
+I claimed `BtcVaultLib.OorArgs` was a different CONCEPT from the ETH out-of-range path. Checked, and it
+is not. Evidence:
+  • **`Core.outOfRange(bool isBTC, address sender, int liquidity, int24 tickLower, int24 tickUpper,
+    address token)`** — Core already services BOTH sides from ONE function, switching on `isBTC`. The
+    operation is unified at the bottom of the stack.
+  • **`Vogue.outOfRange(uint amount, address token, int24 distance, int24 range, uint8 venue)`** — the
+    ETH path passes its arguments INLINE.
+  • There is NO `*Args` struct in `VogueLib` or `SwapLib`. **Only the BTC side has one.**
+⇒ `OorArgs` is the SAME concept, merely BUNDLED — almost certainly to avoid stack-too-deep without
+  `via_ir` (the repo avoids via_ir elsewhere for the same reason). That is an IMPLEMENTATION ARTIFACT,
+  not a design distinction, and my "different animal" answer obscured the very duplication being asked
+  about. STRUCK.
+
+REVISED TASK: unify the out-of-range path — ONE args struct (or one inline signature) serving BOTH
+sides, with `isBTC` and the position id as fields/params, mirroring what `Core.outOfRange` already
+does. Collapse `OorTicks`/`Oor` at the same time. If the BTC bundling is load-bearing for stack depth,
+then the ETH path should adopt the SAME struct rather than each side keeping its own convention.
+
+📌 REINFORCES #3: `Core.outOfRange` already spells them **`tickLower`/`tickUpper`**. So `tl`/`tu` in
+`BtcVaultLib` are not merely cryptic — they are INCONSISTENT WITH THE CODEBASE'S OWN NAMING one layer
+down. The rename is restoring consistency, not imposing a new convention.
+

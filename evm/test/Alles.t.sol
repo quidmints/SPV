@@ -121,6 +121,7 @@ contract Alles is Test, Fixtures {
     using StateLibrary for IPoolManager;
 
     uint public constant WAD = 1e18;
+    uint public SWAP_SIZE_PROBE = 40 ether;
     uint public constant USDC_PRECISION = 1e6;
     address public User01 = address(0x1001);
     address public User02 = address(0x1002);
@@ -731,14 +732,34 @@ contract Alles is Test, Fixtures {
     // curve, skewing the pool's composition (excess of one side). The permissionless reseat must
     // re-band that skewed pool WITHOUT reverting and re-center the spot onto the anchored TWAP.
     // Proves _repackAdd handles a composition-skewed re-band + the reseat is capital-neutral.
+    function testZZProbe80()   public { SWAP_SIZE_PROBE = 80 ether;  testGrindRemoval_LargeSwapThenReseatRebandsSkewed(); }
+    function testZZProbe160()  public { SWAP_SIZE_PROBE = 160 ether; testGrindRemoval_LargeSwapThenReseatRebandsSkewed(); }
+    function testZZProbe400()  public { SWAP_SIZE_PROBE = 400 ether; testGrindRemoval_LargeSwapThenReseatRebandsSkewed(); }
+    function testZZProbe1000() public { SWAP_SIZE_PROBE = 1000 ether; testGrindRemoval_LargeSwapThenReseatRebandsSkewed(); }
+
     function testGrindRemoval_LargeSwapThenReseatRebandsSkewed() public {
         vm.prank(User01); V4.deposit{value: 200 ether}(0, User01);
         vm.roll(vm.getBlockNumber() + 1);
 
+        (, uint160 sp0, int24 t0) = CORE.poolTicks(false);
+        emit log_named_uint("MEASURE spotAfterDeposit", _getPrice(sp0, V4.token1isETH()));
+        emit log_named_int("MEASURE tickAfterDeposit", t0);
+        emit log_named_uint("MEASURE pooledUsdAfterDeposit", CORE.POOLED_USD_ETH());
+        emit log_named_uint("MEASURE pooledEthAfterDeposit", CORE.POOLED_ETH());
+
         // Sizeable swap: pre-grind-removal this partial-filled at the 0.5% cap; now it walks the
         // curve, skewing the pool's composition (moderate — enough to skew, not fully drain).
         vm.prank(User02);
-        AUX.swap{value: 40 ether}(address(USDC), address(WETH), false, 0, 0);
+        AUX.swap{value: SWAP_SIZE_PROBE}(address(USDC), address(WETH), false, 0, 0);
+
+        (, uint160 sp1, int24 t1) = CORE.poolTicks(false);
+        emit log_named_uint("MEASURE spotAfterSwap", _getPrice(sp1, V4.token1isETH()));
+        emit log_named_int("MEASURE tickAfterSwap", t1);
+        emit log_named_int("MEASURE bandLowerAfterSwap", V4.LOWER_TICK());
+        emit log_named_int("MEASURE bandUpperAfterSwap", V4.UPPER_TICK());
+        emit log_named_uint("MEASURE reseatEpochAfterSwap", V4.reseatEpoch());
+        emit log_named_uint("MEASURE pooledUsdAfterSwap", CORE.POOLED_USD_ETH());
+        emit log_named_uint("MEASURE pooledEthAfterSwap", CORE.POOLED_ETH());
 
         // Measure POOLED right BEFORE the reseat so we isolate the RESEAT's effect (the swap's
         // own consumption is not the reseat's fault).
@@ -755,6 +776,25 @@ contract Alles is Test, Fixtures {
 
         // Capital-neutral: the reseat repositions the SAME dollars (burn → reprice → re-add), so
         // POOLED across the reseat is ~unchanged — it does NOT drain backing.
+        emit log_named_uint("MEASURE spot", spot);
+        emit log_named_uint("MEASURE twap", twap);
+        emit log_named_uint("MEASURE spotRelWad",
+            (spot > twap ? spot - twap : twap - spot) * 1e18 / twap);
+        uint pooledAfterReseat = CORE.POOLED_USD_ETH();
+        emit log_named_uint("MEASURE pooledBefore", pooledBeforeReseat);
+        emit log_named_uint("MEASURE pooledAfter", pooledAfterReseat);
+        emit log_named_uint("MEASURE pooledRelWad",
+            (pooledAfterReseat > pooledBeforeReseat
+                ? pooledAfterReseat - pooledBeforeReseat
+                : pooledBeforeReseat - pooledAfterReseat) * 1e18 / pooledBeforeReseat);
+        emit log_named_string("MEASURE pooledDirection",
+            pooledAfterReseat >= pooledBeforeReseat ? "UP" : "DOWN");
+        (,, int24 t2) = CORE.poolTicks(false);
+        emit log_named_int("MEASURE tickAfterReseat", t2);
+        emit log_named_int("MEASURE bandLowerAfterReseat", V4.LOWER_TICK());
+        emit log_named_int("MEASURE bandUpperAfterReseat", V4.UPPER_TICK());
+        emit log_named_uint("MEASURE reseatEpochAfterReseat", V4.reseatEpoch());
+        emit log_named_uint("MEASURE pooledEthAfterReseat", CORE.POOLED_ETH());
         assertApproxEqRel(CORE.POOLED_USD_ETH(), pooledBeforeReseat, 0.15e18, "reseat capital-neutral");
     }
 
@@ -3885,6 +3925,11 @@ contract Alles is Test, Fixtures {
 
         assertGt(lp1Fees, 0, "LP1 paid fee revenue on withdraw");
         assertGt(lp2Fees, 0, "LP2 paid fee revenue on withdraw");
+        emit log_named_uint("MEASURE lp1Fees", lp1Fees);
+        emit log_named_uint("MEASURE lp2Fees", lp2Fees);
+        emit log_named_uint("MEASURE absDelta", lp1Fees > lp2Fees ? lp1Fees - lp2Fees : lp2Fees - lp1Fees);
+        emit log_named_uint("MEASURE relDeltaWad",
+            (lp1Fees > lp2Fees ? lp1Fees - lp2Fees : lp2Fees - lp1Fees) * 1e18 / lp2Fees);
         // Equal stake -> ~equal fees: per-LP pro-rata attribution works.
         assertApproxEqRel(lp1Fees, lp2Fees, 0.2e18, "equal stake -> ~equal fee revenue");
         (uint pooled1,,,) = BTC.autoManagedBTC(User01);

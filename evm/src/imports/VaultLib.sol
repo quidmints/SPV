@@ -9,13 +9,12 @@ import {IWeETH} from "./Interfaces.sol";
 import {IRover} from "./Interfaces.sol";
 import {IDepositAdapter} from "./Interfaces.sol";
 import {ILevEquity} from "./Interfaces.sol";
+import {IAux} from "./Interfaces.sol";
 
-// ── Minimal external surfaces the ETH-venue ladder touches (the library can't
-//    read Vault's immutables, so every handle is passed in via EthCfg). Mirror
-//    the interfaces Vault declares; same signatures. ──────────────────────────
-interface IRoverDep_V { function deposit(uint amount) external payable; }                       // supply-leg: fund the Rover
- // ether.fi stake
-interface IAuxView_V { function vaultBlocked(address vault) external view returns (bool); }
+// The ETH-venue ladder's external surfaces are the canonical ones in Interfaces.sol: `IRover`
+// (supply-leg: fund the Rover) and `IAux` (`vaultBlocked` — vault-health state stays Aux-owned).
+// The former `IRoverDep_V`/`IAuxView_V` shims were strict subsets of those and are gone.
+//
 /// Morpho-V2 MARKER (NOT MetaMorpho v1.1, which has a withdrawQueue instead). A V2 vault keeps its
 /// assets in ADAPTERS and auto-allocates on deposit, so its ERC-4626 max-views track IDLE rather than
 /// what the holder owns. `liquidityAdapter()` is the cheapest published read that only a V2 exposes, so
@@ -25,7 +24,7 @@ interface IAuxView_V { function vaultBlocked(address vault) external view return
 /// SUCCEEDS and returns `penaltyAssets: 0` while leaving `maxWithdraw` at 0, because `liquidityData()`
 /// names ONE market and the vault's assets sit in others. It cost ~113k gas per pull and freed nothing.
 /// It is also unnecessary — `withdraw()` self-deallocates (see `_withdrawableOf`).
-interface IMorphoV2_V {
+interface IMorphoV2 {
     function liquidityAdapter() external view returns (address);
 }
 
@@ -78,7 +77,7 @@ library VaultLib {
         // undelivered slice stays a recoverable deferral (re-withdrawn once the venue is fixed).
         try IERC20(vault).balanceOf(address(this)) returns (uint shares) {
             if (shares == 0) return 0;
-            if (IAuxView_V(aux).vaultBlocked(vault)) {
+            if (IAux(aux).vaultBlocked(vault)) {
                 // ONE definition (2026-07-26). This was the LAST raw `maxWithdraw` reader and the most
                 // dangerous one left: it is the SOLVENCY read (feeds vogueETH / get_deposits /
                 // tryCheckBacking), so on a Morpho-V2 venue — whose max-view reports 0 against a fully
@@ -163,7 +162,7 @@ library VaultLib {
     function _deliverableCap(address vault, address aux, uint total) internal view returns (uint) {
         if (vault == address(0)) return total;
         uint shares = IERC20(vault).balanceOf(address(this));
-        if (shares == 0 || IAuxView_V(aux).vaultBlocked(vault)) return total;
+        if (shares == 0 || IAux(aux).vaultBlocked(vault)) return total;
         uint solvent = IERC4626(vault).convertToAssets(shares);
         // ONE definition, shared with `_pull4626` and `evacuate` (see `_withdrawableOf`). For a
         // Morpho-V2 venue this equals `solvent`, so the haircut below is correctly ZERO — the old raw
@@ -221,7 +220,7 @@ library VaultLib {
     ///      A SUCCESS that mints 0 shares reverts (never credit unbacked WETH).
     function _supply4626(EthCfg memory c, address vault, uint amount) internal returns (uint) {
         if (amount == 0) return 0;
-        if (vault != address(0) && !IAuxView_V(c.aux).vaultBlocked(vault)) {
+        if (vault != address(0) && !IAux(c.aux).vaultBlocked(vault)) {
             try IERC4626(vault).deposit(amount, address(this)) returns (uint sh) {
                 require(sh > 0, "v4626:0");
                 return amount;
@@ -258,7 +257,7 @@ library VaultLib {
         if (kind == 0) {
             if (c.rover == address(0)) return 0;
             IERC20(c.weth).transferFrom(from, address(this), amount);
-            IRoverDep_V(c.rover).deposit(amount);
+            IRover(c.rover).deposit(amount);
             return amount;
         }
         if (kind == 1) {
@@ -310,7 +309,7 @@ library VaultLib {
     ///         vaults are Morpho-V2 — measured, holding ~124M of ~126M total stable TVL — so the stable
     ///         side had the same understatement, and there it feeds the REDEMPTION haircut.
     function _withdrawableOf(address vault, address holder) internal view returns (uint) {
-        try IMorphoV2_V(vault).liquidityAdapter() returns (address adapter) {
+        try IMorphoV2(vault).liquidityAdapter() returns (address adapter) {
             if (adapter != address(0)) {
                 try IERC20(vault).balanceOf(holder) returns (uint shares) {
                     if (shares == 0) return 0;

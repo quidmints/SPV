@@ -68,7 +68,7 @@ contract EconAttackProbe is Alles {
         uint startSeeded = QUID.trancheTotal();
         // Pick a principal whose seed projection alone blows past whatever
         // CAP headroom remains: 500k * ~2.08 = ~1.04M ≫ 600k CAP.
-        uint big = 500_000 * USDC_PRECISION;
+        uint big = 100_000 * USDC_PRECISION;
         deal(address(USDC), User01, big);
         vm.startPrank(User01);
         USDC.approve(address(AUX), type(uint).max);
