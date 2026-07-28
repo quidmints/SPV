@@ -3061,3 +3061,52 @@ headroom — the seed fee is therefore charged in the DEPOSIT path and merely GA
   MOVE: lift the seed-fee charge into `Basket.mint`, delete the `msg.sender == quid` reconstruction,
   and leave `depositBody` doing only deposit work. Cheap, and it removes an intent-inference.
 
+## §A.47 — CALLER-INTENT RECONSTRUCTION SWEEP + QUEUE PURGE (user, 2026-07-28)
+
+### 1. The `depositBody` pattern — SWEPT. Exactly TWO instances, both the same root cause.
+User: *"we cant have duplication like that depositBody in our code. check everywhere."* Swept every
+library body for `msg.sender ==` identity checks. Result:
+  • `ChannelLib.sol:393` — `msg.sender == quid` gates the SEED FEE.
+  • `ChannelLib.sol:400` — `if (msg.sender == quid) aux.refreshAllHoldingsSelf();` gates the FULL
+    REFRESH. **Same defect, second instance, same function.**
+  Both are `depositBody` INFERRING "am I inside a mint?" instead of `Basket.mint` stating it.
+NOT defects (checked, do not touch):
+  • `LevVenueBase.sol:28` — `onlyManager` is a genuine auth modifier on a base contract, not a
+    delegatecall'd body reconstructing intent.
+  • `SwapLib.sol:279` — "Wrapper enforces `msg.sender == V4`" is the CORRECT shape: caller enforces,
+    body computes. This is the pattern `depositBody` should be converted to.
+⇒ FIX (one change, both instances): move the seed-fee charge AND the full-refresh trigger into
+  `Basket.mint`; delete both `msg.sender == quid` reconstructions; leave `depositBody` doing deposit
+  work only. Blast radius is one function.
+
+### 2. QUEUE PURGE — premises that did not survive contact with the code. STRUCK.
+These are struck so nobody re-derives them. Each was verified in code, not by reading doc text:
+  1. **§A.5c** — "make deliverableETH the view twin of the withdraw ladder / next work item". STRUCK.
+     It is not load-bearing for delivery; fairness holds; full exit strands < 1 gwei. The 19.4% figure
+     was stale (~3%, deferred not lost). Residual = a doc comment, already written.
+  2. **§A.35** — "quid-api suspected dead". STRUCK. 8 dependents. No dead crate exists.
+  3. **§A.19b** — "vBTC redemption NOT BUILT". STRUCK AS WRITTEN. The payment rail exists and already
+     pays a party with no channel; what remains is wiring (entrypoint + source-of-funds + invariant).
+  4. **§A.43** — "RootSeed derives no EVM key". STRUCK. `derive_eth_wallet_key` exists, is snapshot
+     tested, is the default source, and host-supplied keys are refused under SGX. Only attestation
+     remains.
+  5. **My own §A.5f "cheap partial"** — "constrain `receiver`". STRUCK AS UNSOUND. A pin the LP key
+     can set, that key can unset. Superseded by the timelocked pin, now SHIPPED.
+  6. **Two of four tolerance findings** (§A.46) — STRUCK as my own scanner artifacts (3% and 1%, not
+     100%).
+
+### 3. REMAINING ACTUAL EFFORT — verified, not estimated from doc text.
+| item | state | why this size |
+|---|---|---|
+| Seed fee + full refresh → `Basket.mint` | READY | one function, both instances, no new logic |
+| 4 × `EconAttackProbe` assertions | READY | each already COMPUTES its quantity; one derived line each. Treat as potential FINDINGS — `try/catch` may be masking real reverts |
+| 7 × other assertion-free tests | READY | verdict each: assert, or rename out of the `test` prefix |
+| 2 × loose tolerances (20%, 15%) | READY | derive the bound from live state, never a number picked to pass |
+| 6909 stable→stable fee path | INVESTIGATE FIRST | partial signal only (`tipSelf`, "haircut accrues to backing"). Do NOT state how holders are paid until traced |
+| §A.15 | INVESTIGATE FIRST | the claim may be INVERTED — a par mint moves `bufBps` DOWN |
+| §A.43 attestation binding | READY-ish | read quote construction, bind the derived EVM address |
+| §J.8 weETH-on-Aave-v4 | REAL, unstarted | confirmed genuinely open at `Vault.sol:457` |
+| §A.5f proper (per-action auth) | REAL, unstarted | new on-chain auth surface; ranks BEHIND §A.43 |
+| §A.19b redeemVBtc | REAL, unstarted | 3 contracts must move together (Vault:638, BtcLevManager:578, VBtc:19) |
+NOTE: "READY" means the investigation is done and the change is specified — not that it is trivial.
+
