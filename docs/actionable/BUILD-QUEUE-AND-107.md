@@ -3204,3 +3204,35 @@ level, and the test's `catch` never fired (no revert log emitted). Yet
 STILL TRUE, and the reason any of this surfaced: the test had NO assertion and swallowed both legs in
 `try/catch`, so it reported PASS while `AUX.redeem` delivered nothing. Suite remains RED by choice.
 
+## §A.48 (cont.) — "WHY ARE THERE NO-OPS? ARE THEY INTENTIONAL?" (user, 2026-07-28) — UNRESOLVED.
+
+Attempted the loud-failure fix, MEASURED, and REVERTED it. Recording the evidence because the result
+is ambiguous in an important way and must not be guessed at.
+
+THE FIX TRIED: at the `_redeemAs` boundary, `require(QUID.totalSupply() < supplyBefore,
+"redeem:nothing-redeemed")` — a burn being the one unambiguous evidence that a redemption happened.
+
+WHAT HAPPENED: **64 tests failed**, including `testRedeem` and `test_Redeem_DustAndWholeSupply`,
+which assert successful redemption. Guard REVERTED; money path restored; all redeem tests pass again.
+(§A.41 struck again en route: the first run after adding the guard tested STALE BYTECODE and showed
+nothing. Only `forge build --force` revealed the guard firing. Any future check here needs --force.)
+
+⇒ TWO READINGS, AND THEY ARE VERY DIFFERENT. Settle by TRACING BASKET'S BURN ACCOUNTING:
+   (a) **`totalSupply()` is simply the wrong measure.** Basket does MATURITY-BUCKET accounting
+       (`balanceOf[who][maturity]`, `matureSupply = totalSupply − immatureSupply`), so a redemption may
+       burn from a bucket without moving the aggregate I sampled. Then my guard was wrong and the only
+       real no-op is the `testDD` one. MOST LIKELY, but NOT verified.
+   (b) **Redeems genuinely do not reduce supply.** Then value leaves while claims do not — serious.
+   HARD DATA CONSTRAINING BOTH: in `testDD` the redeem moved NOTHING — 0 stables delivered AND
+   `QUID.balanceOf(User01)` unchanged. So at least THAT path is a true no-op regardless of which
+   reading holds.
+
+NEXT STEP (cheap, and it settles it): find where `redeemAsBody` burns, and assert on THAT quantity
+(the maturity-bucket balance or `matureSupply`) rather than `totalSupply()`. If the correct measure
+moves in `testRedeem` but not in `testDD`, reading (a) is confirmed and the remaining question shrinks
+to "why does testDD's redeem clip to zero?" — most likely NO MATURE QU!D, in which case the correct
+fix is for redeem to REVERT on a zero clip instead of returning success.
+
+STATUS: `testDD_RedeemCherryPick` left FAILING deliberately (never mask). `testB` de-vacuumed and
+passing with a premise assertion. 9 assertion-free tests remain.
+
