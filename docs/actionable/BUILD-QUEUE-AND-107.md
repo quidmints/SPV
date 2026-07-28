@@ -3512,3 +3512,39 @@ REVISED NEXT STEP (unchanged in substance, but now clearly bounded): log `perSha
 in the per-asset scaling of the `preferred` branch (the missing/extra `1e12` candidate). If it DIFFERS
 between legs, the valuation itself is route-dependent, which is the deeper bug.
 
+## §A.50 🔴🔴 DIRECTION SETTLED — the `preferred` branch OVER-DELIVERS. Confirmed from the definition.
+
+No runtime logging was needed. `BasketLib.sol:796` defines it outright:
+> `perShare` — what ONE mature QU!D is worth: **`min(par, SOLVENT backing / matureSupply)`** … only
+> depeg/drift moves perShare BELOW par.
+
+`perShare` is CAPPED AT PAR, and `redeemAsBody` computes it ONCE (`:823`,
+`ShareMath.qdShareValue(WAD, solvent, mature)`) and passes the same value into `_settleRedeem`. So both
+routes price off one par-capped number, and the MAXIMUM legitimate payout is `burned x par`.
+
+MEASURED IN `testDD` (identical burn 19,254.836849896205410935e18 on both legs):
+  • pro-rata ~\$0.99/QU!D — at par. **CORRECT.**
+  • preferred ~\$7.90/QU!D — **~8x par, which the definition makes impossible.** ⇒ THE `preferred`
+    BRANCH OVER-DELIVERS. Direction settled; readings (a)/(b) resolved in favour of (b)-variant:
+    the preferred leg is wrong, and `checkBacking()` did NOT catch it (see below).
+
+USER'S DESIGN CONTEXT MAKES IT STRICTLY WORSE: `preferred` is a **FEE** — the cost of declining
+pro-rata allocation. So the preferred route should pay *below* pro-rata, not 8x above. The observed
+sign is BACKWARDS from intent, which is why this reads as a scaling/unit error rather than policy.
+FIRST CANDIDATE remains a missing/extra `1e12` (perShare is WAD; USDC is 6-dec) in the
+`preferred != address(0)` path of `_settleRedeem`/`_deliverAndBurn`.
+
+🔴 SECOND, INDEPENDENT DEFECT — **`checkBacking()` SURVIVED an ~8x-par payout.** Whatever it checks, it
+does not catch a redemption paying 8x the par cap. That invariant is relied on across the protocol
+(it is the closing assertion of `testA`), so its blind spot is its own finding and must not be lost
+behind the redeem fix.
+
+🔗 CONNECTS TO THE OPEN 6909 STABLE-TO-STABLE QUESTION (user): the same docstring says *"The IDENTICAL
+perShare prices a QD-in swap (SwapLib), so QD is never worth more swapped than redeemed."* So swaps and
+redemptions share this valuation, and `preferred` is the same fee mechanism. If the preferred branch
+mis-scales, the stable-to-stable swap path may inherit it — CHECK BOTH when fixing.
+
+📌 ALSO TO DO (user): compare against `_take` in the legacy pre-Bitcoin repo
+   https://github.com/quidmints/quid — is this version more gas-efficient / more elegant, and where
+   has it DEPARTED from `_take`? Not yet examined.
+
