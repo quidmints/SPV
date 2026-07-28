@@ -3305,3 +3305,35 @@ MEASURED — the seed-drain defence HOLDS:
 TALLY: 4 of 11 assertion-free tests resolved. THREE defences confirmed real (donation inflation, JIT
 fee capture, seed-bonus drain) and ONE real defect found (§A.48 silent no-op). 7 remain.
 
+## §A.48 RESOLVED IN CODE (⚠️ FULL SUITE NOT YET GREEN — SEE WARNING) — 2026-07-28
+
+ROOT CAUSE, read from the code rather than inferred from tests (`BasketLib._deliverAndBurn`):
+```solidity
+if (perShare == 0) return (0, 0, false);            // fully depegged  -> silent zero
+uint mature = IERC20(r.quid).balanceOf(r.source);
+uint imm = IBasketTurn(r.quid).immatureBalanceOf(r.source);
+mature = mature > imm ? mature - imm : 0;           // all immature    -> silent zero
+uint wantUsd = FullMath.mulDiv(Math.min(r.amount, mature), perShare, WAD);
+```
+TWO paths returned SUCCESS having burned nothing and delivered nothing. Immature/forward QU!D is
+CORRECTLY not redeemable — the defect was doing so SILENTLY, so a caller could not tell.
+
+FIX: `require(perShare > 0, "redeem:fully-depegged")` and `require(mature > 0, "redeem:no-mature-qd")`.
+
+🔴 WHAT THE FIX IMMEDIATELY EXPOSED — **`testRedeem` FAILS with `redeem:no-mature-qd`.** The suite's
+CANONICAL redeem test was itself a silent no-op: it never redeemed anything and passed anyway. That is
+a SECOND vacuous test of the same class as `testDD`, and it is exactly the "tests distorting your
+perception of reality" hazard — the primary evidence that redemption worked was a test that never
+exercised redemption. Tests that WARP to maturity (`testA`, `test_Redeem_DustAndWholeSupply`) do
+redeem for real and still pass, which is what isolates the cause.
+
+⚠️⚠️ STATUS — DO NOT TREAT AS DONE. The full suite was STILL RUNNING when this was written; it is NOT
+known green. An earlier money-path guard in this same area broke 64 tests, so the blast radius here
+MUST be measured before this is trusted. NEXT ACTIONS, in order:
+  1. Run `forge test` to completion (use `--force` first; §A.41 hid this guard's effect twice today).
+  2. For every test that now fails with `redeem:no-mature-qd`, decide per test: does it MEAN to redeem
+     (then it must warp to maturity — the test was vacuous and is now correctly exposed), or is it
+     asserting the no-op (then it was asserting a bug)?
+  3. If the blast radius is large, the fix still stands — the failures are the point — but each test
+     needs a real verdict, not a blanket warp.
+
