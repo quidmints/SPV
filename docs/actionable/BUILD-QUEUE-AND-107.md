@@ -3022,3 +3022,21 @@ STATUS: class 1 FIXED (4 sites). Class 3 CORRECTED — 2 of 4 were scanner artif
 (20% and 15%). Class 2 (11 assertion-free tests) stands as reported and is NOT yet fixed.
 REVISED REAL BACKLOG: 13 items, not 15.
 
+### Seed fee: ALREADY mint-only (user, 2026-07-28) — verified, no change needed.
+
+User's ask: *"make sure the seed fee is not paid by every aux.deposit (which gets triggered by swaps)
+but only by basket.mint."* Verified in code — it already is.
+
+`BasketLib.seedFee` has EXACTLY ONE call site protocol-wide, `ChannelLib.sol:395`, and it sits behind
+`if (aux.trancheTotal() < _target && msg.sender == quid)`. The `msg.sender == quid` conjunct IS the
+mint-only gate: only a call originating from the Basket charges it, so a swap-triggered `Aux.deposit`
+(`msg.sender != quid`) pays nothing. Corroborated by the adjacent comment: "a MINT (msg.sender==quid)
+full-refreshes ALL stables". No second path exists, so there is nothing to tighten.
+
+⚠️ OPEN AND NOT YET INVESTIGATED — the other half of the same question: **how do ERC-6909 holders
+receive swap fees from STABLE-TO-STABLE swaps?** Partial signal only: `ChannelLib:388` says "the
+haircut accrues to backing", and the seed fee is taken via `aux.tipSelf(fee, token, 1)`, which
+suggests fees raise BACKING (value per QU!D) rather than being distributed as a per-holder claim —
+i.e. 6909 holders would benefit by appreciation, not by a claimable balance. NOT VERIFIED. Needs the
+stable-to-stable swap fee path traced end-to-end before anyone states how holders are paid.
+
