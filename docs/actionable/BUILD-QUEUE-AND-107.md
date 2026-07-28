@@ -3972,3 +3972,36 @@ A battle-tested reference implementation outranks convention-reasoning — CHECK
   📌 Before designing one: check whether the legacy repo handles this case some other way — it may
      already have a mechanism (its `Rover.sol` UniV3 path, or a keeper leg) that was never ported.
 
+## §A.58(2) DOWNGRADED — the user is right: the JIT refill covers this. It is KEEPER work, not a defect.
+
+User: *"the legacy repo doesnt handle the case you speak of, the flash refiller you completed earlier
+should automatically kick in to fix this, am i wrong?"* Not wrong. Checked:
+  • There is NO `function *refill` in `src/` — so it is NOT an on-chain automatic trigger.
+  • `Core.sol:266` describes it: *"refill is a self-funding fleet op — JIT Morpho-flash BTC →
+    creditSwapIn → repay, gas via #87"*. It is a KEEPER operation.
+  • `Aux.sol:854/863` record that the older on-chain `arbETH`/`arbBTC` forwarders (called by
+    `Core.refillETH` / `Vogue._withdraw`) were REMOVED — i.e. the on-chain auto-arb path was
+    deliberately retired IN FAVOUR of the fleet op.
+  • An ECONOMIC layer backs it: `skewPremiumETH`/`skewPremiumBTC` withhold a premium from the drainer
+    that stays in the basket as LP backing (`SkewPremiumRetained`). Draining is PRICED, not free, and
+    the premium is exactly the fund the refill captures for LPs.
+
+⇒ A ~99.9% one-sided band is therefore NOT an unhealable deadlock: the keeper flash-refills it, funded
+  by the skew premium the drainer already paid. My framing ("`reseat()` cannot heal the deadlock it
+  documents") measured the WRONG HEALER — `reseat()` is the permissionless tick-repack poke; the
+  composition healer is the fleet JIT refill, a different mechanism entirely.
+STRUCK as a protocol defect. What remains is narrower and honest:
+  • 🟡 LIVENESS, not correctness: if the keeper fleet is down, a drained band stays drained until it
+    returns. Same trust model as any keeper-dependent op — worth stating in the docs, not fixing in the
+    contract.
+  • 🟡 TEST GAP (real, and the only actionable part): `testGrindRemoval_...` calls `reseat()` on a
+    composition-skewed band and asserts a no-op. That is the WRONG mechanism for that state, so the
+    test does not exercise the actual healer. A test that drains the band and then runs the JIT REFILL
+    path would prove the property the file was reaching for.
+
+📌 THIRD wrong verdict on §A.58, and the pattern is now unmistakable: (a) "design decision" — from
+reasoning about the fixture; (b) "off-by-one" — from an external convention; (c) "unhealable deadlock"
+— from checking only ONE mechanism and not asking what else could heal it. Each time the correction
+came from the USER pointing at something real. ASK WHAT ELSE IS IN THE SYSTEM before declaring
+something unhandled.
+
