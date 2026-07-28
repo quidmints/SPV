@@ -3464,3 +3464,25 @@ NEXT — settle it by reading `perShare` DIRECTLY, do not infer it from payouts:
    over-delivery → direction unknown). Every re-diagnosis came from ONE more measurement. Do not act
    on the current reading without doing step 1 — that is the measurement that actually decides it.
 
+### §A.49 addendum — "exclude DAI/sDAI IF sDAI is truly reverting" (user, 2026-07-28). CONDITION IS FALSE.
+
+The condition does not hold, so DO NOT exclude them. Evidence, from data already collected in
+`testDD_RedeemCherryPick` (§A.50): **DAI was DELIVERED on BOTH redeem legs** — 18,834.30e18 pro-rata
+and 150,178.89e18 cherry. A venue that pays out is not a reverting venue.
+
+WHAT THE "REVERT" ACTUALLY IS (§A.48 final): `liquidityAdapter()` (`0xad468d11`) is the MORPHO-V2
+DETECTION PROBE in `_withdrawableOf`. It is *supposed* to revert against anything that is not a
+Morpho-V2 vault, and it is caught by the `try` at `VaultLib.sol:313`. Seeing it in a trace is the
+detector WORKING, not a failure. I misread exactly this once already (§A.48) — a nested CAUGHT revert
+read as a top-level cause.
+
+⇒ CONSEQUENCE FOR §A.49 (FRAX/sFRAX): **sFRAX is a plain ERC-4626 too**, so it will produce the SAME
+  `liquidityAdapter()` revert line in traces. That is expected and must NOT be read as sFRAX being
+  broken, and must NOT trigger an exclusion. Any future "exclude a stable because its venue reverts"
+  decision must first check whether the venue actually DELIVERS — a payout is the disproof.
+
+ON "can we improve the redeem result even more": premature, and §A.50 is why. The ~8x gap between the
+two redemption routes is UNDIAGNOSED — it is not yet known WHICH leg is wrong (pro-rata under-paying
+vs preferred over-paying). Tuning redemption before that is settled would be optimising a number
+nobody has established the correct value of. Settle §A.50 step 1 (read `perShare` DIRECTLY) first.
+
