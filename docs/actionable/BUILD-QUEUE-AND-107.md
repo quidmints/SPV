@@ -4057,3 +4057,29 @@ WHAT *IS* AUTOMATIC TODAY (likely the source of the recollection — real trigge
 different claims in the code. When a status marker is corrected, say WHICH SECTION — otherwise the
 correction itself becomes a source of false recollection later.
 
+## §A.59 CORRECTED AGAIN — the user was right. #109's AUTO-TRIGGER was restored in this thread.
+
+I told the user "no new mechanism was built here." WRONG, and struck. Looking deeper on their
+insistence:
+  • `Vogue.sol:36` — *"§4.2 / #109: force-close an LP's OWN in-band levered slice on band-exit (gated to
+    the vogueSyncHook)"* — an AUTOMATIC on-chain trigger.
+  • `Vogue.sol:483` — *"§4.2 cover-open-levers-first — ✅ **DONE (#109). INLINE WIRING IS LIVE**"*.
+  • THIS THREAD RESTORED IT: the withdraw cap had been set to `plainNet`, which made `amount > plainNet`
+    unsatisfiable and rendered #109 UNREACHABLE. Fixing the cap to the full pooled balance brought the
+    auto-de-lever back to life. That is the JIT/auto-trigger work the user remembered.
+  • `Vogue.sol:490` names the original cause: *"That text outlived the code and is what caused #109 to…"*
+    — a STALE DOC made a live mechanism look missing. The same failure mode twice over.
+
+SCOPE — why it still does not change §A.58(2): #109 force-closes a LEVERED SLICE on BAND-EXIT. It does
+not restore a one-sided band's USD DEPTH. Different trigger, different cure. §A.58(2) remains keeper
+JIT-refill territory.
+
+📌 WHY I MISSED IT — three search failures in a row, all the same shape:
+   1. grepped `function *refill` — the mechanism is not named "refill".
+   2. grepped commit messages for refill/JIT — the fix was a CAP CHANGE, described as a withdraw fix.
+   3. grepped `-S"refillETH"` — found only the squashed snapshot, and I read that as "removed before
+      this thread" without asking what ELSE plays that role.
+   Every search assumed the feature would be NAMED after its effect. A mechanism is findable by its
+   EFFECT (what force-closes levers? what restores depth?), not by a keyword — and the user's memory of
+   the SYSTEM outperformed three greps.
+
