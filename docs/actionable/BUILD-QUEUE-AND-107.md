@@ -3110,3 +3110,26 @@ These are struck so nobody re-derives them. Each was verified in code, not by re
 | §A.19b redeemVBtc | REAL, unstarted | 3 contracts must move together (Vault:638, BtcLevManager:578, VBtc:19) |
 NOTE: "READY" means the investigation is done and the change is specified — not that it is trivial.
 
+### §A.46 progress — `testB_BackingInflationByDonation` now ASSERTS. Result is informative.
+
+Added the safety property the test never had: `assertLe(b1 - b0, donate * 1e12)` — a donation is a
+GIFT so backing may legitimately rise BY it; the ATTACK is backing rising by MORE, which would let an
+attacker mint against value nobody contributed. Bound derived from the live measurement, not a
+constant.
+
+MEASURED: `b0 == b1` EXACTLY — a $1M USDC donation straight into the 4626 moved recognized backing by
+**ZERO**. So the vector is closed: `get_metrics` does not read the venue's inflated
+`convertToAssets`.
+
+⚠️ BUT A DELTA OF EXACTLY ZERO IS AMBIGUOUS, and this needs a verdict before the test is trusted:
+    (a) the attack is genuinely defended (backing is computed from a source the donation cannot
+        touch), or
+    (b) **the fixture is not exercising the attack at all** — e.g. `getVaults(USDC)[0]` is not in the
+        set `get_metrics(true)` actually sums, so the donation lands somewhere unmeasured.
+  Case (b) is vacuity in the PREMISE rather than the assertion — the same class as the §A.8b Galaxy
+  mock, where a "30%-liquid" premise had silently gone inert. NEXT: confirm the donated vault IS one
+  of the venues `get_metrics` reads (e.g. donate and assert the venue's own reported value moved,
+  THEN assert backing did not). Until that is done this test proves "no over-recognition" but does
+  NOT prove the donation path was live.
+STATUS: 1 of 11 assertion-free tests now asserts; 10 remain.
+

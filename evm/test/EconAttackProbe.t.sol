@@ -105,6 +105,14 @@ contract EconAttackProbe is Alles {
         emit log_named_uint("B: backing after donate (18d)", b1);
         emit log_named_int ("B: backing delta (18d)", int(b1) - int(b0));
         emit log_named_uint("B: donated USD (18d)", donate * 1e12);
+
+        // THE SAFETY PROPERTY (this test had NO assertion and always passed — §A.46).
+        // A donation is a GIFT, so backing legitimately rises BY the donation. The attack is backing
+        // rising by MORE than was donated: that is the protocol leveraging a gift, and it would let an
+        // attacker mint against value nobody contributed. Bound is derived from the live measurement
+        // (b0, b1, donate), never a constant (§A.22).
+        assertLe(b1 - b0, donate * 1e12,
+            "donation must not inflate recognized backing beyond its own face value");
     }
 
     /// C: JIT-LP — deposit AFTER swap fees accrue, then check pending. If the bookmark set
