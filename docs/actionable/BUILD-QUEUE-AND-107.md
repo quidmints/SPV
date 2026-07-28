@@ -3264,3 +3264,19 @@ WORK:
    new stable onto that path before §A.48 is settled adds surface to an unverified mechanism. Settle
    §A.48 first.
 
+### §A.46 progress — `testCC_JITLPFeeCapture` now ASSERTS. Defence CONFIRMED REAL.
+
+Same two-part template. PREMISE: the fee-generating swaps sit in `try { } catch { break; }`, so a
+first-swap revert would exit the loop with NO fees and make "the JIT LP captured nothing" trivially
+true — so require `incE + incU > 0` first. SAFETY: `jitE == 0` and `jitU == 0`, exactly the claim the
+file's own comments already made ("want ~0") but never checked.
+
+MEASURED: incumbent pending USD **63,962,300**; JIT pending **0 / 0**. Both halves hold — fees really
+accrued, and an LP depositing AFTER they were earned retroactively captured NONE of them. The JIT
+fee-capture defence is real, and the test now FAILS if the fixture goes inert OR the defence breaks.
+
+TALLY so far: 3 of 11 assertion-free tests resolved — `testB` (donation inflation: defended),
+`testCC` (JIT capture: defended), `testDD` (cherry-pick: FOUND A REAL NO-OP, left failing, §A.48).
+8 remain. Note the hit rate: de-vacuuming has confirmed two genuine defences and surfaced one genuine
+money-path defect — none of which the green suite was telling anyone.
+
