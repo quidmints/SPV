@@ -4362,3 +4362,22 @@ METHOD (unchanged, and it is why this is not mechanical):
    importing a fat interface is a SIZE optimisation, not sloppiness. Folding those could COST bytecode.
    The goal is ONE declaration PER CONCEPT — not zero local interfaces.
 
+### §A.52 REFINED — ZERO mechanical duplicates in our own code. The whole pass is SEMANTIC.
+
+Checked for interfaces declared under the SAME NAME in more than one file — the unambiguous,
+mechanical kind of duplicate. **Exactly one exists: `IUniswapV3SwapCallback`**, in
+`src/imports/v3/ISwapRouter.sol:8` and `src/imports/v3/IV3SwapRouter.sol:8`.
+🛑 **DO NOT MERGE IT.** Both files are VENDORED UNISWAP V3 SOURCE (BUSL-1.1, verbatim upstream), and
+upstream ships the callback inside each router interface. Deduping would fork vendored third-party code
+away from upstream for no benefit. Vendored trees are excluded from this pass by policy.
+
+⇒ CONSEQUENCE FOR THE SCOPE: among OUR 95 local declarations there are **no name-duplicates at all**.
+  So §A.52 is NOT "merge 95 copies" — it is a SEMANTIC pass: find interfaces that describe the SAME
+  CONCEPT under DIFFERENT NAMES, exactly as `IAuxBtc_V` + `IAuxDeposits_V` → `IAuxSwap` was. That work
+  cannot be done by grep; it needs reading each interface's member set and asking what it models.
+  PRACTICAL METHOD: group the 95 by the CONTRACT THEY POINT AT (all the `IAux*` shims together, all the
+  `ILev*` together, all the `ICore*` together), then within each group diff member sets — same target +
+  overlapping members ⇒ merge candidate.
+  AND KEEP THE SIZE CAVEAT: minimal shims (`IPermit2Approve`) are EIP-170 optimisations; merging them
+  into a fat canonical interface can COST bytecode. One declaration per CONCEPT, not zero locals.
+
