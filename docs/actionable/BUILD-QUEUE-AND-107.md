@@ -5072,3 +5072,35 @@ mockUSD leg. I applied it without checking that the input basis matched the help
    whether the named helper's UNIT CONTRACT matched the value being passed. The audit is a strong
    document; its `file:line` findings held up. Its fix snippets are hypotheses, not verified patches.
 
+## §A.73 — HONEST DISTANCE TO ECHIDNA (user: *"it seemed like there was so much more to do?"*)
+
+**The user is right and I gave a misleading impression.** Labelling the audit "pre-Echidna" made it
+sound imminent. It is not. Actual open work, counted:
+
+| bucket | count | state |
+|---|---|---|
+| Correctness findings C1–C9 | 9 | **0 fixed** (C1+C2 applied then REVERTED, §A.72) |
+| Gas findings G1–G10 | 10 | 0 started |
+| New test failures F1, F2 | 2 | diagnosed, unfixed |
+| §A.52 interface dedup | 95 locals | semantic pass, not started |
+| §A.56 part 2 | 1 | responsibility-boundary move, not started |
+| §A.61 boundary definition | 1 | not started — AND §A.72 proved a REQUIRED HELPER IS MISSING (6-dec → native) |
+| §A.71 codebase-wide dedup | ~5 sub-passes | scanned structs only; `LevManager.Pos`/`BtcLevManager.Pos` is the one live candidate |
+| assertion-free tests | 7 | ~4 addressed, 3 left + F1/F2 fallout |
+| anvil E2E + deploy gas | 1 | never run (§A.35 debt, §A.69) |
+| RPC fix (`foundry.toml:34`) | 1 | hardcoded, rate-limited, key committed in plaintext |
+
+⇒ **Echidna sits BEHIND all of that**, exactly as the user sequenced it (refactor + TODOs → analysis →
+  Echidna). Two of its prerequisites are hard blockers, not preferences:
+  (a) a non-rate-limited RPC — fuzzing hammers the fork far harder than the suite, which already
+      degraded to 91-of-3560 on the Ankr key;
+  (b) §A.61's boundary — *"units are consistent"* cannot be STATED as a property while the 6/8→18
+      conversion is ad hoc at every seam, and §A.72 showed the vocabulary for it does not even exist yet.
+
+## §A.73b — C1 RE-APPLIED ALONE, with a FALSIFIABLE PREDICTION
+Re-applied C1 only (C2 stays out). **PREDICTION: the suite should be UNCHANGED at 3,558/2.** Reason:
+`scaleTo6(x, token)` is a NO-OP for 6-dec stables, and every existing test uses USDC. C1 can only bite
+for the seven 18-dec stables, which nothing exercises. ⇒ If C1 alone moves the count, my model of the
+seam is wrong and the whole C1 diagnosis needs re-deriving before anything else is built on it.
+This is deliberately a test OF THE DIAGNOSIS, not just of the patch.
+
