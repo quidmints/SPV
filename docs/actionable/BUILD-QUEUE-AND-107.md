@@ -4606,3 +4606,38 @@ Checking that corrected my own §A.64 conclusion. The two paths are cleanly sepa
  ⚠️ STILL READ the truncated `baseRate` rationale first (§A.51) — if `baseRate` already priced this,
     re-adding a user-facing fee double-charges.
 
+## §A.65 — FEE CEILING: the arber constraint (user, 2026-07-29). The fee must be DIRECTIONAL.
+
+User: *"how expensive can it get though? imagine that arbers will be using this to restore imbalances on
+the same pools that SOR itself includes, and ones we haven't listed there yet with USDS for instance."*
+
+### THE ASYMMETRY THAT SETS THE PRICE
+An arber restoring an imbalance **is doing the basket a favour** — they move composition toward target.
+A fee priced on CONCENTRATION ALONE would charge them MOST exactly when we need the flow MOST, i.e. it
+taxes the action that fixes the thing the fee is measuring. ⇒ The fee must be **DIRECTIONAL**:
+  • swap moves composition TOWARD target  → ~0 (a service; matches "as low as possible", §A.51)
+  • swap moves composition AWAY from target → charge (this is the "real cost on the basket")
+`calcFeeL1` already computes concentration + yield-vs-baseline; what it needs added is the SIGN of the
+composition delta, which the SOR must know anyway to route.
+
+### THE HARD CEILING — below the arber's spread, always
+An arber's profit ≈ the mispricing being corrected. **Price the fee above that spread and the trade
+does not happen**: we collect nothing AND keep the imbalance. So the ceiling is not a policy choice, it
+is set by the market — and it is much tighter than a Uniswap static tier, because Uniswap never NEEDS a
+particular trade to occur, whereas we need this one. Practical rule: fee << typical stable-stable
+dislocation (single-digit bps), and ZERO on the restoring direction.
+
+### UNLISTED STABLES (the user's USDS example)
+If a stable is not in the SOR, arbers route around us entirely: our fee is irrelevant to them and we
+capture NOTHING of that flow. Cuts both ways — **unlisted = uncapturable but also undrainable**.
+Listing widens capture but ADDS DEPEG SURFACE, which is exactly §A.49's FRAX lesson: a listed stable
+with no pinned Chainlink feed defers to a ZERO haircut, so a depegged unit redeems at FULL FACE and
+cherry-pickers drain the sound stables against it.
+⇒ RULE FOR ANY NEW STABLE (USDS included): **a pinned Chainlink feed is a PREREQUISITE for listing**,
+  not a follow-up. No feed ⇒ do not list.
+
+### CONSEQUENCE FOR §A.64's WORK ITEM
+Step 2 (re-wire `calcFeeL1`) must add the DIRECTION term before it is switched on. Charging a
+symmetric concentration fee would suppress exactly the arb flow that keeps the basket balanced — the
+failure mode would be silent (no revert, no failing test; just an imbalance that stops correcting).
+
