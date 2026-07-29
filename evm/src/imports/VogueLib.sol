@@ -647,28 +647,18 @@ library VogueLib {
         mapping(address => uint) storage ethfiBacked,
         uint amount, address token, bool token1isETH, uint8 venue, SwapLib.Oor memory t
     ) public returns (uint128 liquidity) {
+        // §A.56: both branches were an INLINE COPY of `SwapLib.sizeOorUsd` — the same helper the BTC
+        // path (`BtcVaultLib.outOfRangeBtc`) already calls. Verified byte-identical: the USD side maps
+        // to `sizeOorUsd(.., token1isETH)` and the ETH side is its MIRROR (`!token1isETH`), because
+        // depositing the ASSET places the order on the opposite side of spot from depositing USD.
+        // One definition now sizes every out-of-range order, ETH and BTC alike. The bare `require`s
+        // became `TickOutOfRange()` (the helper's named error) — same guard, better diagnostics.
         if (token == address(0)) {
             amount = depositETH(weth, aux, ev, ethfiBacked, msg.sender, address(0), amount, venue);
-            if (token1isETH) {
-                require(t.newLo > t.curUp);
-                liquidity = LiquidityAmounts.getLiquidityForAmount1(
-                    TickMath.getSqrtPriceAtTick(t.newLo), TickMath.getSqrtPriceAtTick(t.newUp), amount);
-            } else {
-                require(t.newUp < t.curLo);
-                liquidity = LiquidityAmounts.getLiquidityForAmount0(
-                    TickMath.getSqrtPriceAtTick(t.newLo), TickMath.getSqrtPriceAtTick(t.newUp), amount);
-            }
+            liquidity = SwapLib.sizeOorUsd(amount, t, !token1isETH);
         } else {
             amount = SwapLib.scaleTo6(IAux(aux).deposit(msg.sender, token, amount), token);
-            if (token1isETH) {
-                require(t.newUp < t.curLo);
-                liquidity = LiquidityAmounts.getLiquidityForAmount0(
-                    TickMath.getSqrtPriceAtTick(t.newLo), TickMath.getSqrtPriceAtTick(t.newUp), amount);
-            } else {
-                require(t.newLo > t.curUp);
-                liquidity = LiquidityAmounts.getLiquidityForAmount1(
-                    TickMath.getSqrtPriceAtTick(t.newLo), TickMath.getSqrtPriceAtTick(t.newUp), amount);
-            }
+            liquidity = SwapLib.sizeOorUsd(amount, t, token1isETH);
         }
     }
 }

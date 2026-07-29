@@ -4803,3 +4803,28 @@ Commit each unit as soon as it builds and verifies; stage EXPLICIT PATHS (never 
 subagents or background runs may have edits in the tree — one agent's fix was already swept into an
 unrelated doc commit that way.
 
+## §A.56 (part 1) DONE — ONE definition sizes every out-of-range order. 22 lines → 2 calls.
+
+User: *"if you can even delete the function from one of the libs and just have one definition instead of
+two separate ones, that would probably be best?"* — done, and the shared helper ALREADY EXISTED.
+
+FOUND: `BtcVaultLib.outOfRangeBtc:297` already calls `SwapLib.sizeOorUsd(amt, t, t1)`. The ETH path
+(`VogueLib.sol:650-672`) duplicated that helper's body INLINE, twice — once per token branch.
+VERIFIED BYTE-IDENTICAL before replacing:
+  • `sizeOorUsd(x, t, true)`  = `if (t.newUp >= t.curLo) revert` + `getLiquidityForAmount0`
+    ≡ ETH's USD branch when `token1isETH` (`require(t.newUp < t.curLo)` + `getLiquidityForAmount0`).
+  • `sizeOorUsd(x, t, false)` = `if (t.newLo <= t.curUp) revert` + `getLiquidityForAmount1`
+    ≡ ETH's USD branch otherwise.
+  • The ETH-LEG branch is the exact MIRROR — depositing the ASSET places the order on the opposite side
+    of spot from depositing USD — so it is `sizeOorUsd(amount, t, !token1isETH)`.
+⇒ Both branches collapse to one helper call each. `LiquidityAmounts`/`TickMath` sizing for
+  out-of-range orders now has **ONE definition**, shared by ETH and BTC. Build clean.
+NOTE: the bare `require`s became the helper's named `TickOutOfRange()` — same guard, better diagnostics,
+but it IS a different revert selector (no test asserted on the anonymous require).
+
+### ⬜ §A.56 (part 2) STILL OPEN — the ARGS asymmetry
+`Vogue.outOfRange` passes args INLINE; `BtcVaultLib.outOfRangeBtc` bundles into `OorArgs` (stack depth,
+`via_ir = false`). That is a SEPARATE change from the sizing dedup above and is NOT done. A parallel
+agent attempted it, died mid-edit, and its partial work was reverted (saved at `/tmp/A56-partial.patch`,
+485 lines) — a half-applied refactor that COMPILES is more dangerous than one that does not.
+
