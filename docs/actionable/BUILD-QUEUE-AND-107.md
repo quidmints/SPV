@@ -4415,3 +4415,30 @@ home — with a comment in each router noting the local deviation so a re-vendor
    test is library-vs-deployed-contract; candidates to examine: `DeployLib.sol`, `mock.sol`,
    `QuidLens.sol`. NOT yet done.
 
+## §A.62(2) DONE — the vendored dual definition is resolved. **ZERO dual definitions tree-wide.**
+
+User approved option (c). `IUniswapV3SwapCallback` extracted to
+**`src/imports/v3/IUniswapV3SwapCallback.sol`**; both `ISwapRouter.sol` and `IV3SwapRouter.sol` now
+IMPORT it instead of declaring it inline.
+
+RE-VENDOR PROTECTION (the whole risk of this change): upstream ships the interface INLINE in each
+router, so a future `git pull` of either vendored file reintroduces the declaration and COLLIDES with
+the extracted one. Guarded in two places so it cannot be undone silently:
+  • The new file's header states it is a DELIBERATE local deviation and names the hazard.
+  • Each router carries a note AT THE IMPORT: *"upstream declares `IUniswapV3SwapCallback` inline here.
+    Extracted so the concept has ONE declaration … Keep this on re-vendor."*
+
+VERIFIED: `forge build --force` 0 errors · **duplicate interface names tree-wide: 0** ·
+`tools/check-client-abis.py`: 76 signatures, **0 drifted**.
+
+### Tree-layout instruction — status
+  ✅ `src/libraries/` (one file) → `src/imports/LevMath.sol`, directory removed.
+  ✅ `src/DeployL1_s.sol` → `script/DeployL1_s.sol` (nothing imported it; all refs were comments).
+  ✅ No dual definitions anywhere, including `imports/`.
+  ⬜ REMAINING: which OTHER `src/` files belong in `imports/`? Test = library/helper vs DEPLOYED
+     contract. Examine `DeployLib.sol`, `mock.sol`, `QuidLens.sol`. The 5 venue contracts
+     (`AaveV3Venue`, `AaveV4Venue`, `EulerEscrowVenue`, `LiquityTroveVenue`, `MorphoEscrowVenue`) and
+     the core set (`Aux`, `Basket`, `Core`, `Vault`, `Vogue`, `VBtc`, `VEth`, `Rover`, `LevManager`,
+     `BtcLevManager`, `BTCChannels`, `AttestedHopRegistry`, `SorExchange`, `LevOracles`) are DEPLOYED
+     and stay in `src/`.
+
