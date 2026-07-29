@@ -4083,3 +4083,35 @@ JIT-refill territory.
    EFFECT (what force-closes levers? what restores depth?), not by a keyword — and the user's memory of
    the SYSTEM outperformed three greps.
 
+### §A.59 POST-MORTEM — how #109 was missed, and how it was actually found (user asked, 2026-07-29)
+
+FOUND BY: `grep -rn "#109" evm/src` — grepping the CODE for the ISSUE NUMBER, only after the user's
+insistence made me stop searching for a NAME and start asking *what else plays this role*. NOT found by
+commit search, NOT by memory, NOT by the transcript.
+
+⚠️ THE UNCOMFORTABLE PART: the fact was ALREADY IN CONTEXT. The conversation summary handed to me at the
+start of this window contains, verbatim: *"Withdraw cap disabled #109: capping at `plainNet` made
+`amount > plainNet` unsatisfiable. Fixed to cap at full pooled."* So this was NOT a records failure and
+NOT a tooling failure — it was a RETRIEVAL failure. The answer was written down and never consulted.
+
+THREE FAULTS, most important first:
+ 1. **Treated greps as authoritative against the user's recollection.** The user has continuous project
+    memory; I have a lossy summary. An empty grep is the WEAKEST evidence, and it has now produced a
+    wrong conclusion three times in one session (§A.35 empty-because-never-compiled, §A.56 broken scan,
+    this one).
+ 2. **Never re-read my own summary** before asserting "we didn't do X in this thread" — the cheapest
+    possible check, skipped every time.
+ 3. **Searched by NAME, not by EFFECT.** `refill` / `refillETH` / JIT commit messages all assume a
+    mechanism is named after what it does. #109 is a numbered issue whose fix was a CAP CHANGE described
+    as a withdraw fix — unfindable by keyword, trivial to find by asking "what force-closes levers?".
+
+STANDING RULES ADOPTED (also saved to durable memory as `never-assert-absence-from-a-grep`):
+  • The user's memory OUTRANKS my search results. Keep digging until POSITIVELY verified.
+  • Re-read the conversation summary's "Errors and fixes" section before any did/didn't-build claim.
+  • Search by EFFECT; grep issue numbers (`#109`) and read contract-header docblocks.
+  • When a search returns nothing, FIRST prove the search works on a case known to exist.
+
+📌 PROCESS FIX FOR THE QUEUE ITSELF: mechanism changes must be recorded under the MECHANISM's identity
+(`#109 auto-de-lever`), not only under the fix's shape (`withdraw cap`). Had the earlier entry said
+"restored #109's auto-de-lever", the later grep for an auto-trigger would have hit it immediately.
+
