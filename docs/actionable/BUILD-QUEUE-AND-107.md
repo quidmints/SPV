@@ -4842,3 +4842,32 @@ After deduping the ETH branches onto `SwapLib.sizeOorUsd`, swept every
 ⇒ Out-of-range sizing now has exactly ONE definition protocol-wide. No further merge available on this
   axis; the next dedup target is the ARGS asymmetry (§A.56 part 2), not the sizing.
 
+## §A.67 — agent test work VERIFIED: 3558 passed / 2 failed. BOTH failures are NEW FINDINGS.
+
+`ce3969d` is now suite-verified (publicnode). The 2 failures are the agent's OWN new assertions firing
+— i.e. the de-vacuuming exercise working, not a regression. Per the standing rule they are LEFT FAILING.
+
+### F1 — `testLeverage_LvrControlVsTreatment`: *"PREMISE: the CONTROL LP redeem must deliver, else
+nothing is valued: 0 <= 0"*
+A redeem delivering ZERO. ⚠️ Probably the SAME benign cause as `testDD` (§A.48): immature QU!D, since
+`_deliverAndBurn` computes `mature = balanceOf - immatureBalanceOf` and an all-immature holder yields
+`wantUsd == 0`. That behaviour is the AUDIT'S IMMATURE-DRAIN FIX and is asserted deliberately by
+`testRedeem` — so the likely fix is a `vm.warp` in the FIXTURE, not a protocol change. **VERIFY BEFORE
+TOUCHING ANYTHING** — I nearly shipped a regression against that exact behaviour once already.
+
+### F2 🔴 — *"the BOLD paid by leverage opens must land in the SP, not evaporate between the legs:
+0 < 1584000000000000000…"* (new `ZZBoldProbe.t.sol`)
+BOLD paid by leverage opens is **NOT reaching the Stability Pool** — measured 0 against an expected
+~1.584e18. This is a NEW finding, on the Liquity/BOLD leg, and it is NOT the immature-redeem class.
+Could be: (a) a real leak between the open and SP-deposit legs; (b) the SP address/accounting read in
+the assertion being wrong; (c) fixture wiring (the same "fixture never seeded backing" class the agent
+found). ⇒ TRACE `LiquityTroveVenue` / the BOLD open path end-to-end before concluding. Do NOT assume a
+leak — this session produced several confident-but-wrong diagnoses.
+
+### The agent's own key insight, worth keeping
+*"The tests were inert because the fixture never seeded basket backing — every open reverted on Core's
+`backing` gate."* ⇒ The 7 assertion-free tests were not merely unasserted: their FIXTURES EXERCISED
+NOTHING. Adding an assertion without fixing the fixture would have failed for the wrong reason. That is
+the premise-vacuity trap generalised — **check that the fixture RUNS before trusting any test in this
+repo, asserted or not.**
+
