@@ -4465,3 +4465,30 @@ sweep with a parser that cannot silently skip a function (or cross-check against
 `forge test --list`), and specifically look for other `*Probe`/`*Diag` files that are investigations
 rather than regression tests — they are the highest-yield place to find more dead weight.
 
+## §A.46 SWEEP RE-RUN (user, 2026-07-29) — now TRUSTWORTHY. 7 assertion-free tests remain.
+
+Re-ran with a parser that REPORTS parse failures instead of skipping them silently (the flaw that hid
+`MintRatchetProbe`). Result: **288 test functions parsed · 0 UNPARSED · 7 with no assertion.**
+The zero-unparsed line is the important one — it is what makes this a COUNT rather than a floor.
+Reconciles exactly: 11 originally − 4 fixed in `EconAttackProbe` = 7 (`MintRatchetProbe` deleted, §A.63).
+
+### THE REMAINING 7 — each needs a verdict: give it a real assertion, or rename it out of `test*`
+| file | function | likely nature |
+|---|---|---|
+| `Alles.t.sol` | `testTaprootQ` | ? — in the main suite, so most suspicious |
+| `Alles.t.sol` | `test_HoldingsCache_ReconcilesToLive` | names a REAL property (§A.5e cache freshness) — probably wants an assertion |
+| `BTCChannelsAuth.t.sol` | `test_openparams_abi_ground_truth` | ABI ground-truth — may be a codegen//doc check |
+| `LevYbReal.t.sol` | `testDiag_WeethSellRoute` | `Diag` prefix ⇒ diagnostic, likely rename |
+| `LeveragePnLProbe.t.sol` | `testLeverage_BoldAccumulationCurve` | `Probe` file ⇒ investigation |
+| `LeveragePnLProbe.t.sol` | `testLeverage_LvrControlVsTreatment` | `Probe` file ⇒ investigation |
+| `VaultDonationClassify.t.sol` | `test_ClassifyAllVenues` | classification sweep — likely wants assertions |
+
+APPROACH (per §A.63): the `*Probe`/`*Diag` ones are INVESTIGATIONS — for each, first ask whether its
+QUESTION IS STILL OPEN. If the subject no longer exists in `src/` (as with `ratchet`), DELETE it; if the
+question is live but unasserted, either assert it or rename out of the `test` prefix so it stops
+claiming to prove something. `test_HoldingsCache_ReconcilesToLive` is the highest-value of the seven —
+it names the §A.5e staleness property, which IS real and IS load-bearing.
+⚠️ Apply the two-part template when asserting: PREMISE (the fixture actually did the thing) + SAFETY
+  (the named property). Four of four fixed so far needed both, and one (`testDD`) was hiding a genuine
+  defect behind a `try/catch`.
+
