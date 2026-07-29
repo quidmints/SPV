@@ -138,18 +138,59 @@ contract LevYbRealProbe is Alles {
         assertGt(out, 4 ether, "roughly the right magnitude for ~$20k");
     }
 
-    /// TEMP DIAGNOSTIC — does the basket SOR route weETH->USDC (the self-funded short's sell leg)?
-    function testDiag_WeethSellRoute() public {
+    /// Was `testDiag_WeethSellRoute`, a pure log of whether the basket SOR routes weETH->USDC.
+    /// Its original question is CLOSED and the answer is in production: `LevMath._weethToWeth`
+    /// (src/imports/LevMath.sol:376) sells weETH through Rover-absorb -> the deep V3 pool ->
+    /// ether.fi redeem, and only the WETH<->stable hop goes through the SOR. So weETH is not a
+    /// SOR-routable source, and no production path asks it to be.
+    ///
+    /// What is NOT closed is what `sorSelfFunded` DOES when handed an unroutable source, and
+    /// that is a money-path question rather than a diagnostic one: the caller has already
+    /// approved and, on the routable path, already parted with its input. The one outcome that
+    /// must never occur is the middle one — a SUCCESSFUL call that consumed the caller's weETH
+    /// and delivered nothing back. A revert is safe and loud; a real fill is fine; silent
+    /// confiscation is not. This is the same failure shape as the zero-delivery redeem found in
+    /// `EconAttackProbe.testDD`, which is exactly why it is worth pinning rather than logging.
+    function test_SorSelfFunded_WeethNeverConsumesInputWithoutOutput() public {
         _seedBasket();
         uint wIn = 1 ether;
         deal(WEETH, address(this), wIn);
         IERC20R(WEETH).approve(address(AUX), wIn);
-        try IAuxSorSelf(address(AUX)).sorSelfFunded(WEETH, wIn, address(USDC), 0) returns (uint out) {
+        uint w0 = IERC20R(WEETH).balanceOf(address(this));
+        uint u0 = USDC.balanceOf(address(this));
+        // PREMISE: the caller must actually be holding the input it is about to offer. Without
+        // this a zero-balance call reverts for the wrong reason and the check below would be
+        // reading an empty transaction.
+        assertEq(w0, wIn, "PREMISE: the caller must hold the weETH it offers");
+
+        bool filled;
+        uint out;
+        try IAuxSorSelf(address(AUX)).sorSelfFunded(WEETH, wIn, address(USDC), 0) returns (uint o) {
+            out = o; filled = true;
             emit log_named_uint("weETH->USDC sorSelfFunded OUT (6-dec)", out);
         } catch (bytes memory reason) {
             emit log_named_bytes("weETH->USDC sorSelfFunded REVERTED", reason);
-            emit log_string("=> weETH has NO SOR route (self-funded short sell no-ops on weETH)");
+            emit log_string("=> weETH has NO SOR route (production sells weETH via LevMath._weethToWeth instead)");
         }
+        uint weethSpent = w0 - IERC20R(WEETH).balanceOf(address(this));
+        uint usdcGained = USDC.balanceOf(address(this)) - u0;
+        emit log_named_uint("weETH actually spent (18-dec)", weethSpent);
+        emit log_named_uint("USDC actually received (6-dec)", usdcGained);
+
+        if (filled) {
+            // A route exists: it must have delivered, and the return value must be the truth.
+            assertGt(usdcGained, 0, "a SUCCESSFUL sorSelfFunded must deliver USDC to the caller");
+            assertEq(usdcGained, out, "the reported output must equal what actually landed");
+        } else {
+            // No route: the revert must have left the caller whole. A reverting external call
+            // cannot keep the tokens, and this asserts that nothing upstream of the revert
+            // (an approval-pull outside the reverting frame) took them anyway.
+            assertEq(weethSpent, 0, "a REVERTED sorSelfFunded must not consume the caller's weETH");
+        }
+        // THE SAFETY PROPERTY, holding on both branches: input may only be consumed against
+        // output. Success-with-nothing-delivered and revert-after-pull both violate it.
+        assertTrue(weethSpent == 0 || usdcGained > 0,
+            "sorSelfFunded must never consume the caller's input without delivering output");
     }
 
     address constant MORPHO = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;

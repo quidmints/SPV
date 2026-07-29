@@ -67,7 +67,7 @@ contract BtcLpMintStress is Alles {
             lpPubkey:           lpPubkey,
             hopPubkey:          HOP_PUBKEY,
             amountSats:         amountSats,
-            fundingTaproot:     testTaprootQ(lpPubkey, HOP_PUBKEY)
+            fundingTaproot:     _taprootQ(lpPubkey, HOP_PUBKEY)
         });
         // REALISTIC (post-taproot): btcRecipientOf = the LP's SHUTDOWN key — a full
         // 32-byte x-only taproot key DISTINCT from the funding key material
@@ -310,7 +310,7 @@ contract BtcLpMintStress is Alles {
             lpPubkey:           lpPubkey,
             hopPubkey:          HOP_PUBKEY,
             amountSats:         newAmountSats,
-            fundingTaproot:     testTaprootQ(lpPubkey, HOP_PUBKEY)
+            fundingTaproot:     _taprootQ(lpPubkey, HOP_PUBKEY)
         });
         vm.prank(makeAddr("hop")); // splice is hop-gated (channel.hop pinned at open)
         ch.splice(channelId, p, spliceTx, new bytes32[](0), 0);
@@ -350,7 +350,7 @@ contract BtcLpMintStress is Alles {
         Types.OpenParams memory p = Types.OpenParams({
             fundingBlockHash: bytes32(uint(0x999)), fundingBlockHeight: 800001, fundingTxIndex: 0,
             lpPubkey: lpPubkey, hopPubkey: HOP_PUBKEY, amountSats: 1_000_000,
-            fundingTaproot: testTaprootQ(lpPubkey, HOP_PUBKEY) }); // same total = not growing
+            fundingTaproot: _taprootQ(lpPubkey, HOP_PUBKEY) }); // same total = not growing
         vm.prank(makeAddr("hop"));
         vm.expectRevert(BTCChannels.SpliceUnchanged.selector);
         ch.splice(channelId, p, spliceTx, new bytes32[](0), 0);
@@ -381,7 +381,7 @@ contract BtcLpMintStress is Alles {
             lpPubkey:           lpPubkey,
             hopPubkey:          HOP_PUBKEY,
             amountSats:         newAmountSats,
-            fundingTaproot:     testTaprootQ(lpPubkey, HOP_PUBKEY)
+            fundingTaproot:     _taprootQ(lpPubkey, HOP_PUBKEY)
         });
         vm.prank(makeAddr("hop")); // splice is hop-gated (channel.hop pinned at open)
         ch.splice(channelId, p, spliceTx, new bytes32[](0), 0);
@@ -512,7 +512,7 @@ contract BtcLpMintStress is Alles {
             lpPubkey:           s.lpPubkey,
             hopPubkey:          HOP_PUBKEY,
             amountSats:         newAmount,
-            fundingTaproot:     testTaprootQ(s.lpPubkey, HOP_PUBKEY)
+            fundingTaproot:     _taprootQ(s.lpPubkey, HOP_PUBKEY)
         });
         vm.prank(makeAddr("hop"));
         ch.deliverSwapOutOnchain(s.swapId, s.channelId, p, spliceTx, new bytes32[](0), s.swapperScript);
@@ -776,7 +776,7 @@ contract BtcLpMintStress is Alles {
         Types.OpenParams memory p = Types.OpenParams({
             fundingBlockHash: bytes32(uint(0x999)), fundingBlockHeight: 800001,
             fundingTxIndex: 0, lpPubkey: lpPubkeyB, hopPubkey: HOP_PUBKEY, amountSats: 1_000_000,
-            fundingTaproot: testTaprootQ(lpPubkeyB, HOP_PUBKEY) });
+            fundingTaproot: _taprootQ(lpPubkeyB, HOP_PUBKEY) });
         vm.prank(makeAddr("hop"));
         vm.expectRevert(BTCChannels.OneChannelPerLp.selector); // 2nd open for the same lpEth
         ch.openChannel(p, fundingTx, new bytes32[](0), lpEth);

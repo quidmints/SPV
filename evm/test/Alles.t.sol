@@ -145,7 +145,13 @@ contract Alles is Test, Fixtures {
     /// funding tx and in `OpenParams.fundingTaproot`. (Cross-language e2e tests get
     /// the real MuSig2 Q from the Rust harness; these MockSPV tests don't.) Derived
     /// from the SORTED pubkey pair so it's symmetric, exactly like the real KeySort.
-    function testTaprootQ(bytes memory lpPubkey, bytes memory hopPubkey)
+    ///
+    /// NAMED `_taprootQ`, NOT `testTaprootQ`: it is a fixture builder, not a test. The
+    /// old `test` prefix made it read as a test case in every listing and grep of this
+    /// suite while asserting nothing — it is `internal`, so forge never ran it either.
+    /// A helper that claims to be a test is the same failure mode as a test with no
+    /// assertion: the name promises a proof that does not exist.
+    function _taprootQ(bytes memory lpPubkey, bytes memory hopPubkey)
         internal pure returns (bytes32)
     {
         return keccak256(abi.encodePacked(lpPubkey, hopPubkey)) <
@@ -160,7 +166,7 @@ contract Alles is Test, Fixtures {
     function buildTaprootFundingSpk(bytes memory lpPubkey, bytes memory hopPubkey)
         internal pure returns (bytes memory)
     {
-        return abi.encodePacked(hex"5120", testTaprootQ(lpPubkey, hopPubkey));
+        return abi.encodePacked(hex"5120", _taprootQ(lpPubkey, hopPubkey));
     }
 
     // MULTI-HOP test helper: open a REAL channel owned by `hop` — bumps the contract's
@@ -175,7 +181,7 @@ contract Alles is Test, Fixtures {
         Types.OpenParams memory p = Types.OpenParams({
             fundingBlockHash: bytes32(uint(0x5000 + seed)), fundingBlockHeight: 800000,
             fundingTxIndex: 0, lpPubkey: lpPubkey, hopPubkey: _MH_HOP_PK, amountSats: sats,
-            fundingTaproot: testTaprootQ(lpPubkey, _MH_HOP_PK) });
+            fundingTaproot: _taprootQ(lpPubkey, _MH_HOP_PK) });
         bytes memory spk = buildTaprootFundingSpk(lpPubkey, _MH_HOP_PK);
         bytes memory fundingTx = abi.encodePacked(
             hex"02000000", hex"01", bytes32(0), hex"00000000", hex"00", hex"ffffffff",
@@ -3237,35 +3243,90 @@ contract Alles is Test, Fixtures {
         }
     }
 
-    /// @notice #3 cache SHADOW-PHASE reconciliation: storedHoldings is
-    ///         maintained on every mutator, but get_deposits still recomputes
-    ///         LIVE — so the cache must equal the live per-stable value after
-    ///         any op sequence. A missed mutator leaves a stale cache → this
-    ///         fails (the non-negotiable guardrail before the step-5 flip).
+    /// @dev INDEPENDENT recomputation of ONE stable's LIVE vault-sum: Σ over the
+    ///      stable's venues of (Aave-v4 `aaveBalance` | 4626 `convertToAssets(balanceOf(AUX))`),
+    ///      decimal-scaled to 18 — i.e. the exact unit `BasketLib._valueStable`
+    ///      (src/imports/BasketLib.sol:243) computes and caches into `storedHoldings`.
+    ///
+    ///      WHY IT IS HAND-ROLLED HERE AND NOT READ BACK THROUGH `Aux`: the step-5 read
+    ///      flip landed. `BasketLib.get_deposits` no longer recomputes anything — it
+    ///      SERVES `amounts[i+1]` straight from `storedHoldings[stable].balance` minus
+    ///      the live tranche (BasketLib.sol:158-183). So the old form of
+    ///      `_reconcileCache`, which compared `get_deposits()` against
+    ///      `storedHoldings - tranche`, was comparing the cache to ITSELF: an algebraic
+    ///      identity that no missed mutator, and no amount of staleness, could ever
+    ///      break. This function is the only thing in the reconciliation that still
+    ///      touches a venue, so it is the only thing that can catch a stale cache.
+    ///      It mirrors `_valueStable`'s try/catch skip semantics deliberately (a
+    ///      reverting vault contributes 0 on both sides).
+    function _liveVaultSum(address stable) internal view returns (uint balance) {
+        address[] memory vs = AUX.getVaults(stable);
+        if (vs.length == 0) {
+            // GHO/USDG are Aave-native (vault slot 0); any other unwired stable is 0.
+            if (stable == AUX.GHO() || stable == AUX.USDG()) balance = AUX.aaveBalance(stable);
+        } else {
+            address spoke = AUX.AAVE_SPOKE();
+            for (uint j; j < vs.length; j++) {
+                if (vs[j] == spoke) { balance += AUX.aaveBalance(stable); continue; }
+                try IERC4626(vs[j]).balanceOf(address(AUX)) returns (uint sh) {
+                    if (sh == 0) continue;
+                    try IERC4626(vs[j]).convertToAssets(sh) returns (uint a) { balance += a; }
+                    catch { continue; }
+                } catch { continue; }
+            }
+        }
+        if (balance == 0) return 0;
+        uint dec = IERC20(stable).decimals();
+        if (dec < 18) balance *= 10 ** (18 - dec);
+    }
+
+    /// @notice #3 cache reconciliation: `storedHoldings` is maintained on every mutator
+    ///         and `get_deposits` now SERVES from it, so the cache IS the protocol's
+    ///         belief about its own backing. A missed mutator therefore does not merely
+    ///         desynchronise a shadow copy — it silently mis-states backing on every
+    ///         mint, redeem, swap and `checkBacking`. The guardrail is: cache == the
+    ///         LIVE venue sum (`_liveVaultSum`, which is not derived from the cache).
     function _reconcileCache(string memory tag) internal {
         address[] memory st = AUX.getStables();
         (uint[15] memory amounts,,,) = AUX.get_deposits();
         for (uint i; i + 1 < st.length; i++) {        // skip BOLD (last; SP path)
             (uint cb,) = AUX.storedHoldings(st[i]);
+            uint live = _liveVaultSum(st[i]);
+            // (1) THE INVARIANT THE NAME CLAIMS: the cached vault-sum must equal the
+            // sum the venues actually report right now. Tolerance is for 6-dec
+            // FullMath/decimal rounding only; a missed mutator is off by a whole
+            // deposit (~1e21), orders of magnitude outside this.
+            assertApproxEqAbs(cb, live, 1e13,
+                string.concat("storedHoldings != LIVE venue sum (missed mutator?): ", tag));
+            // (2) and the read path must apply the tranche cap on top of the LIVE
+            // number — the seed reserve is never counted as redeemable backing.
             uint resv = AUX.tranche(st[i]);
-            uint expected = cb > resv ? cb - resv : 0; // mirror get_deposits' tranche cap
-            // Live get_deposits (shadow) must equal the maintained cache. Small
-            // abs tolerance for 6-dec FullMath rounding; a MISSED mutator would
-            // be off by a whole deposit (~1e21), far outside this.
+            uint expected = live > resv ? live - resv : 0;
             assertApproxEqAbs(amounts[i + 1], expected, 1e13,
-                string.concat("cache != live (missed mutator?): ", tag));
+                string.concat("get_deposits != live - tranche: ", tag));
         }
     }
 
     function test_HoldingsCache_ReconcilesToLive() public {
         // (1) MINTS across two stables (deposit → _supply per stable + the
         // msg.sender==QUID full refresh).
+        (uint usdc0,) = AUX.storedHoldings(address(USDC));
+        (uint dai0,)  = AUX.storedHoldings(address(DAI));
         vm.startPrank(User01);
         USDC.approve(address(AUX), type(uint).max);
         DAI.approve(address(AUX), type(uint).max);
         QUID.mint(User01, 40_000 * USDC_PRECISION, address(USDC), 0);
         QUID.mint(User01, 40_000 * 1e18, address(DAI), 0);
         vm.stopPrank();
+        (uint usdc1,) = AUX.storedHoldings(address(USDC));
+        (uint dai1,)  = AUX.storedHoldings(address(DAI));
+        emit log_named_uint("cache USDC before/after mint (18d) - before", usdc0);
+        emit log_named_uint("cache USDC after mint (18d)", usdc1);
+        // PREMISE: the mint leg must actually MOVE the cache. If a mint deposited
+        // nothing (or the refresh never ran) the reconciliation below still holds
+        // trivially, because an untouched cache matches an untouched venue.
+        assertGt(usdc1, usdc0, "PREMISE: the USDC mint must grow the cached USDC holding");
+        assertGt(dai1,  dai0,  "PREMISE: the DAI mint must grow the cached DAI holding");
         _reconcileCache("after mints");
 
         // (2) A SWAP that draws a specific stable (ETH→USDC) — exercises
@@ -3275,13 +3336,36 @@ contract Alles is Test, Fixtures {
         address sw = makeAddr("cache-sw"); vm.deal(sw, 30 ether);
         vm.prank(sw);
         try AUX.swap{value: 5 ether}(address(USDC), address(WETH), false, 0, 0) {} catch {}
+        (uint usdc2,) = AUX.storedHoldings(address(USDC));
+        emit log_named_uint("swapper USDC out (6d)", USDC.balanceOf(sw));
+        emit log_named_uint("cache USDC after swap (18d)", usdc2);
+        // PREMISE: the swap sits in a try/catch, and this step exists ONLY to exercise
+        // the per-stable (take/_withdraw) refresh — a reverted swap exercises nothing
+        // and leaves the whole step decorative. Both halves are required: the swapper
+        // must be paid, AND the payment must have come out of the USDC venues (which is
+        // what makes it a per-stable refresh rather than the mint full-refresh).
+        assertGt(USDC.balanceOf(sw), 0, "PREMISE: the ETH->USDC swap must actually deliver USDC");
+        assertLt(usdc2, usdc1, "PREMISE: the swap must DRAW USDC out of the venues (per-stable refresh path)");
         _reconcileCache("after ETH->USDC swap");
 
         // (3) A matured REDEEM (the _refreshAllHoldings full-refresh path).
         vm.warp(block.timestamp + 35 days);
         address[] memory st = AUX.getStables();
         for (uint i; i < st.length; i++) _healDepeg(st[i]);
+        uint q0 = QUID.balanceOf(User01);
+        uint u0 = USDC.balanceOf(User01);
+        uint d0 = DAI.balanceOf(User01);
         vm.prank(User01); try AUX.redeem(10_000e18) {} catch {}
+        emit log_named_uint("redeem: QUID burned (18d)", q0 - QUID.balanceOf(User01));
+        emit log_named_uint("redeem: USDC out (6d)", USDC.balanceOf(User01) - u0);
+        emit log_named_uint("redeem: DAI out (18d)", DAI.balanceOf(User01) - d0);
+        // PREMISE: same try/catch hazard, and the 35-day warp is exactly what makes the
+        // difference — an IMMATURE redeem correctly releases and burns NOTHING (see
+        // `testRedeem`, the audit's immature-drain fix), so without maturity this step
+        // would silently test nothing at all. Require both a burn and a delivery.
+        assertGt(q0 - QUID.balanceOf(User01), 0, "PREMISE: the matured redeem must burn QU!D");
+        assertGt((USDC.balanceOf(User01) - u0) * 1e12 + (DAI.balanceOf(User01) - d0), 0,
+            "PREMISE: the matured redeem must deliver stables (a burn with no delivery is user loss)");
         _reconcileCache("after redeem");
     }
 
@@ -4252,7 +4336,7 @@ contract Alles is Test, Fixtures {
                 lpPubkey:           lpPubkey,
                 hopPubkey:          hopPubkey,
                 amountSats:         amountSats,
-                fundingTaproot:     testTaprootQ(lpPubkey, hopPubkey)
+                fundingTaproot:     _taprootQ(lpPubkey, hopPubkey)
             });
             // (B) The LP delegates channel operation to the hop COLD, once. This pins +
             // LOCKS btcRecipientOf[lpEth]=payout — a full 32-byte x-only shutdown key
@@ -4413,7 +4497,7 @@ contract Alles is Test, Fixtures {
                 hopPubkey:          b.hopPubkey,
                 amountSats:         b.amountSats,
                 // Use the REAL Q from the bundle (the live funding output is 0x5120||Q
-                // where Q is the genuine MuSig2 aggregate; the synthetic testTaprootQ
+                // where Q is the genuine MuSig2 aggregate; the synthetic _taprootQ
                 // stand-in only matches the synthetic-funding fixtures, not a real tx).
                 fundingTaproot:     b.fundingTaproot
             });
@@ -4517,7 +4601,7 @@ contract Alles is Test, Fixtures {
                 fundingBlockHash: bytes32(uint(1)), fundingBlockHeight: 800000,
                 fundingTxIndex: 0, lpPubkey: lpPubkey, hopPubkey: hopPubkey,
                 amountSats: amountSats,
-                fundingTaproot: testTaprootQ(lpPubkey, hopPubkey) });
+                fundingTaproot: _taprootQ(lpPubkey, hopPubkey) });
             // Realistic btcRecipientOf (32-byte x-only shutdown key). This is a
             // force/non-coop close test: recordClose's non-coop branch retires with
             // delivered=funded and IGNORES all outputs, so the key is only registered.
@@ -4585,7 +4669,7 @@ contract Alles is Test, Fixtures {
                 fundingBlockHash: bytes32(uint(1)), fundingBlockHeight: 800000,
                 fundingTxIndex: 0, lpPubkey: lpPubkey, hopPubkey: hopPubkey,
                 amountSats: amountSats,
-                fundingTaproot: testTaprootQ(lpPubkey, hopPubkey) });
+                fundingTaproot: _taprootQ(lpPubkey, hopPubkey) });
             // Realistic btcRecipientOf (32-byte x-only shutdown key). This is a
             // force/non-coop close test: recordClose's non-coop branch retires with
             // delivered=funded and IGNORES all outputs, so the key is only registered.

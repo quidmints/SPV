@@ -98,11 +98,27 @@ contract BTCChannelsAuthTest is Test {
     /// The core property: whoever signs the digest is the recovered owner —
     /// independent of who would submit the tx. We verify recovery matches the
     /// signer and NOT an arbitrary front-runner.
+    /// The value the Rust hand-rolled encoder asserts against, verbatim from
+    /// `quid-ln/quid-hop/src/evm_codec.rs::open_params_abi_matches_solidity`. It is a
+    /// CONSTANT, but it is not a number picked to make this pass — it is the OTHER SIDE
+    /// of a cross-language contract, and the whole point of the test is that the two
+    /// sides must agree. If `Types.OpenParams` gains, drops, reorders or retypes a
+    /// field, this test fails and that is the correct signal: the Rust encoder — which
+    /// builds the calldata every real channel-open is submitted with, and whose lpAuth
+    /// digest hashes exactly this encoding — has gone stale and would sign the wrong
+    /// bytes.
+    bytes32 constant RUST_OPENPARAMS_STRUCT_HASH =
+        0xe5055c9a1fe82c0decd8413a97eb6579ded9e16299921d8cdf96d12078c52b2b;
+
     /// GROUND TRUTH for the Rust evm_codec ABI mirror
-    /// (quid-hop open_params_abi_matches_solidity): emit
-    /// keccak256(abi.encode(p)) for a fixed 7-field taproot OpenParams so the Rust
-    /// hand-rolled encoder is pinned byte-exact to Solidity's abi.encode.
-    function test_openparams_abi_ground_truth() public {
+    /// (quid-hop open_params_abi_matches_solidity): keccak256(abi.encode(p)) for a fixed
+    /// 7-field taproot OpenParams, pinning the Rust encoder byte-exact to Solidity's
+    /// abi.encode. Field values below are the SAME fixture the Rust test builds.
+    ///
+    /// This used to only `emit` the hash — it was a one-way broadcast that could print
+    /// anything at all and still report PASS, so the pin existed only in Rust and only
+    /// as long as somebody remembered to re-run this by hand and copy the number over.
+    function test_openparams_abi_ground_truth() public pure {
         Types.OpenParams memory p = Types.OpenParams({
             fundingBlockHash:   bytes32(hex"1111111111111111111111111111111111111111111111111111111111111111"),
             fundingBlockHeight: 800001,
@@ -112,7 +128,47 @@ contract BTCChannelsAuthTest is Test {
             amountSats:         1_000_000,
             fundingTaproot:     bytes32(hex"2222222222222222222222222222222222222222222222222222222222222222")
         });
-        emit log_named_bytes32("openparams_abi_struct_hash", keccak256(abi.encode(p)));
+        bytes32 h = keccak256(abi.encode(p));
+
+        // PREMISE: the pinned hash must actually COVER all seven fields. A hash match is
+        // only a byte-exactness proof if every field feeds it — if one were dropped from
+        // the encoding (or added to the struct but left out of `abi.encode`'s reach), a
+        // matching hash would be a partial-coverage coincidence and the Rust encoder
+        // could disagree on that field forever without either side noticing. Each
+        // tamper is applied to a fresh copy and reverted, so the SAFETY check below
+        // still sees the untouched fixture.
+        _assertFieldIsCovered(p, h, 0); // fundingBlockHash
+        _assertFieldIsCovered(p, h, 1); // fundingBlockHeight
+        _assertFieldIsCovered(p, h, 2); // fundingTxIndex
+        _assertFieldIsCovered(p, h, 3); // lpPubkey
+        _assertFieldIsCovered(p, h, 4); // hopPubkey
+        _assertFieldIsCovered(p, h, 5); // amountSats
+        _assertFieldIsCovered(p, h, 6); // fundingTaproot
+
+        // SAFETY: Solidity and Rust must produce the identical struct hash.
+        assertEq(h, RUST_OPENPARAMS_STRUCT_HASH,
+            "keccak256(abi.encode(OpenParams)) drifted from the Rust evm_codec ground truth");
+    }
+
+    /// Tamper exactly one field of a COPY of `p` and require the struct hash to move.
+    function _assertFieldIsCovered(Types.OpenParams memory p, bytes32 h, uint field) internal pure {
+        Types.OpenParams memory t = Types.OpenParams({
+            fundingBlockHash:   p.fundingBlockHash,
+            fundingBlockHeight: p.fundingBlockHeight,
+            fundingTxIndex:     p.fundingTxIndex,
+            lpPubkey:           p.lpPubkey,
+            hopPubkey:          p.hopPubkey,
+            amountSats:         p.amountSats,
+            fundingTaproot:     p.fundingTaproot
+        });
+        if      (field == 0) t.fundingBlockHash   = bytes32(uint256(p.fundingBlockHash) ^ 1);
+        else if (field == 1) t.fundingBlockHeight = p.fundingBlockHeight + 1;
+        else if (field == 2) t.fundingTxIndex     = p.fundingTxIndex + 1;
+        else if (field == 3) t.lpPubkey           = hex"02ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+        else if (field == 4) t.hopPubkey          = hex"03ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+        else if (field == 5) t.amountSats         = p.amountSats + 1;
+        else                 t.fundingTaproot     = bytes32(uint256(p.fundingTaproot) ^ 1);
+        require(keccak256(abi.encode(t)) != h, "PREMISE: a field is NOT covered by the pinned struct hash");
     }
 
     function test_recovered_signer_is_the_lp_not_the_submitter() public {

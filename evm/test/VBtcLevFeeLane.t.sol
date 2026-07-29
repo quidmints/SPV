@@ -120,7 +120,7 @@ contract VBtcLevFeeLane is Alles {
             lpPubkey:           lpPubkey,
             hopPubkey:          HOP_PUBKEY,
             amountSats:         amountSats,
-            fundingTaproot:     testTaprootQ(lpPubkey, HOP_PUBKEY)
+            fundingTaproot:     _taprootQ(lpPubkey, HOP_PUBKEY)
         });
         // REALISTIC: the LP's SHUTDOWN key (= btcRecipientOf) is DISTINCT from the funding
         // pubkey (production: funding = per-channel MuSig2; shutdown = the wallet's stable
@@ -156,7 +156,7 @@ contract VBtcLevFeeLane is Alles {
             lpPubkey:           lpPubkey,
             hopPubkey:          HOP_PUBKEY,
             amountSats:         newAmountSats,
-            fundingTaproot:     testTaprootQ(lpPubkey, HOP_PUBKEY)
+            fundingTaproot:     _taprootQ(lpPubkey, HOP_PUBKEY)
         });
         vm.prank(makeAddr("hop"));
         ch.splice(channelId, p, spliceTx, new bytes32[](0), 0);
@@ -186,7 +186,7 @@ contract VBtcLevFeeLane is Alles {
         Types.OpenParams memory p = Types.OpenParams({
             fundingBlockHash: bytes32(uint(0x100 + seed)), fundingBlockHeight: 800000,
             fundingTxIndex: 0, lpPubkey: lpPubkey, hopPubkey: HOP_PUBKEY,
-            amountSats: amountSats, fundingTaproot: testTaprootQ(lpPubkey, HOP_PUBKEY) });
+            amountSats: amountSats, fundingTaproot: _taprootQ(lpPubkey, HOP_PUBKEY) });
         // (B) cold delegation pins btcRecipientOf=payoutKey (the SHUTDOWN key) + hop; the
         // hop-gated open then takes lpEth. btcRecipientOf is exactly what the shrink guard
         // (_withdrawalPayout) enforces in the seam test below.
@@ -213,7 +213,7 @@ contract VBtcLevFeeLane is Alles {
         p = Types.OpenParams({
             fundingBlockHash: bytes32(uint(0x5217CE + seed)), fundingBlockHeight: 800001,
             fundingTxIndex: 0, lpPubkey: lpPubkey, hopPubkey: HOP_PUBKEY,
-            amountSats: newAmountSats, fundingTaproot: testTaprootQ(lpPubkey, HOP_PUBKEY) });
+            amountSats: newAmountSats, fundingTaproot: _taprootQ(lpPubkey, HOP_PUBKEY) });
     }
 
     // Each case in its own frame (non-via-ir stack limit). `_buildShrink` makes no external
@@ -658,7 +658,7 @@ contract VBtcLevFeeLane is Alles {
             lpPubkey:           lpPubkey,
             hopPubkey:          HOP_PUBKEY,
             amountSats:         newAmount,
-            fundingTaproot:     testTaprootQ(lpPubkey, HOP_PUBKEY)
+            fundingTaproot:     _taprootQ(lpPubkey, HOP_PUBKEY)
         });
         vm.prank(makeAddr("hop"));
         ch.deliverSwapOutOnchain(swapId, channelId, p, spliceTx, new bytes32[](0), swapperScript);
