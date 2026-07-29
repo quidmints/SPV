@@ -5034,3 +5034,41 @@ inline. So the general pass should search for **duplicated LOGIC**, not duplicat
    `Core.sol:48`'s invariant checks exactly that coupling). Ask "should this split exist?" in BOTH
    directions.
 
+## §A.72 🔴🔴 C1 + C2 REVERTED — I BROKE 333 TESTS. The audit's fix direction was WRONG for C2.
+
+Applied C1+C2, ran the suite: **333 failing / 3,227 passing** (baseline was 3,558/2). REVERTED both.
+Symptom across the failures: **swaps deliver ZERO.**
+```
+[FAIL: ETH in-range sell must pay ~oracle*(1-fee) … 0 !~= 1898093253 (real delta 100%)]
+[FAIL: PREMISE: the ETH->USDC swap must actually deliver USDC: 0 <= 0]
+[FAIL: re-settle (0 floor) delivered USDC: 0 <= 0]
+```
+
+### ROOT CAUSE — `scaleTokenAmount` IS THE WRONG HELPER FOR C2, IN BOTH DIRECTIONS
+`BasketLib.scaleTokenAmount(amount, token, scaleUp)` converts between **native and 18-dec**:
+  `scaleUp=true` → `amount * 10**(18-decimals)`   (native → 18-dec)
+  `scaleUp=false` → `amount / 10**(18-decimals)`  (18-dec → native)
+But C2's `usdAmount` is **6-dec mockUSD** — a FIXED 6-dec basis, *not* an 18-dec value. So for USDC
+(6-dec native) `scaleUp=false` divides by `1e12` and yields ~0 — which is exactly the zero-delivery
+above. Neither direction of this helper expresses the needed conversion.
+
+**THE CORRECT CONVERSION IS 6-dec → TOKEN-NATIVE**, i.e. `amount * 10**decimals / 1e6`:
+  • USDC (6-dec native): ×1 — **NO CHANGE**. This is why the current code works today for 6-dec stables.
+  • DAI/GHO (18-dec native): ×1e12.
+⇒ There is NO existing helper for this. `scaleTo6` does native→6; the INVERSE (6→native) does not exist.
+  **That is itself the finding**: §A.61's boundary work must ADD `from6(amount6, token)`, not reuse
+  `scaleTokenAmount`.
+
+### WHAT THIS MEANS FOR THE AUDIT'S C1/C2
+The audit's DIAGNOSIS stands — `Aux.deposit` really does return native, `AUX.take` really does want
+native, and the round trip really is asymmetric. **Its suggested FIX for C2
+(`scaleTokenAmount(usdAmount, token, false)`, quoting `SwapLib.sol:1170`/`:1222` as precedent) is
+WRONG** — those two precedents convert an 18-dec USD value, a different basis than `Core`'s 6-dec
+mockUSD leg. I applied it without checking that the input basis matched the helper's contract.
+📌 C1 may well be CORRECT on its own (it wraps `deposit`'s native return in `scaleTo6`, native→6, which
+   IS what that helper does) — but it was reverted TOGETHER with C2 because a single suite run cannot
+   attribute 333 failures between two simultaneous edits. **Re-apply C1 ALONE and re-run** to find out.
+⚠️ LESSON: I verified the diagnosis and then trusted the audit's prescribed edit without re-deriving
+   whether the named helper's UNIT CONTRACT matched the value being passed. The audit is a strong
+   document; its `file:line` findings held up. Its fix snippets are hypotheses, not verified patches.
+
