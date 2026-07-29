@@ -4568,3 +4568,41 @@ rather than freely drawable.
 📌 The right next step is (1): grep the swap entrypoints for `tipSelf`/`_tip` and confirm the
    stable→stable leg emits a tip, since the whole answer rests on that.
 
+## §A.64 CORRECTED — `tipSelf` is SEED/TRANCHE accounting, NOT the swap-fee path. My trace was wrong.
+
+User: *"it should feed into the existing accumulator, right? and it should use the same SOR logic."*
+Checking that corrected my own §A.64 conclusion. The two paths are cleanly separate:
+
+**ACCUMULATOR (per-share, what LPs actually earn)** — fed ONLY by V4 POOL TRADING FEES:
+  `Vogue.sol:1069` — `feesPerShare += o.feesPerShareInc; USD_FEES += o.usdFeesInc;  // _distributeV4Fees`
+  `BtcVaultLib.sol:560,564` — the BTC-side twin.
+
+**`tipSelf` — SEED/TRANCHE ONLY.** All four call sites are seed accounting, not swap fees:
+  `BasketLib:635` `tipSelf(seed, token, -1)` (DEBIT) · `BasketLib:662` seed-proportional ·
+  `SwapLib:557` `tipSelf(mulDiv(aux.tranche(s), seedBurned, burned), …)` (seed burn) ·
+  `ChannelLib:396` `tipSelf(fee, token, 1)` — the MINT-ONLY SEED FEE (§A.47). That `+1` is the ONLY credit.
+
+⇒ **STRIKE §A.64's central claim.** Stable→stable swap fees do NOT flow through `tipSelf`; I followed
+  the SEED-FEE mechanism and mistook it for the swap-fee path. "Fees accrue to the senior tranche" was
+  describing the seed fee, not swap fees.
+
+⇒ **THE LIKELY TRUTH, and it matches the user's instinct:** combined with §A.51 —
+  *"Concentration/cherry-pick fee is NO LONGER CHARGED to the user … The sole outflow COST is the depeg
+  haircut, and only during an actual depeg"* — **stable→stable currently charges NO fee at all**, so
+  there is nothing to feed into any accumulator. The user's *"it should feed into the existing
+  accumulator"* therefore describes the TARGET state, not the current one.
+
+### 🔴 THE WORK, now well-posed (supersedes §A.51's framing)
+ 1. CONFIRM stable→stable charges nothing today (grep the stable-leg swap entrypoints for any fee take;
+    §A.51's comments say the user-facing fee was removed, but VERIFY rather than trust the comment).
+ 2. RE-WIRE `calcFeeL1` (concentration + yield-vs-baseline — both inputs already computed, §A.51) to
+    charge on the stable→stable leg.
+ 3. **ROUTE IT TO `feesPerShare`/`USD_FEES`, NOT to `tranche`** — the user's point. That is where LPs are
+    paid, and it is the SAME accumulator the V4 trading fees already use, so no new distribution
+    machinery is needed.
+ 4. **USE THE SAME SOR LOGIC** — `_pickBestPath` already ranks by concentration + hop-count; §A.51 notes
+    concentration survives there as a ROUTING signal. Pricing the fee off the same signal that routes
+    the trade keeps the two consistent by construction.
+ ⚠️ STILL READ the truncated `baseRate` rationale first (§A.51) — if `baseRate` already priced this,
+    re-adding a user-facing fee double-charges.
+
