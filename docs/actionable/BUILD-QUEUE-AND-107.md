@@ -4741,3 +4741,42 @@ THE REAL WORK: **pick ONE canonical internal USD unit and enforce it at the boun
 📌 Do this BEFORE Echidna: with one internal unit, "units are consistent" becomes a stateable INVARIANT
   a fuzzer can check. With two, no property can express it and all four bugs stay invisible.
 
+## §A.61 RE-FRAMED (3rd time, user-corrected) — 6-dec is PINNED BY POOL MATH. 18-dec is the haphazard part.
+
+User: *"the mock tokens need to have the precision of the tokens of the pool they get their initial tick
+from, everywhere else normalisation to 18 happens haphazardly."* Verified — `OracleLib.deployMocks`:
+```solidity
+mETH     = address(new mock(address(this), 18));   // matches WETH
+mBTC     = address(new mock(address(this),  8));   // matches WBTC
+mUSD_ETH = address(new mock(address(this),  6));   // matches USDC
+mUSD_BTC = address(new mock(address(this),  6));
+```
+The mocks MIRROR THE REAL PAIR TOKENS' DECIMALS because V4 tick/`sqrtPrice` math is decimals-dependent:
+seeding the mock pool at the same INITIAL TICK as the real pool requires the same decimals. ⇒ **6-dec on
+the USD side is a HARD CONSTRAINT, not a design choice**, and it is identical in the legacy repo.
+
+⇒ BOTH of my earlier framings are STRUCK: it is neither a "port regression" (§A.66 v1) nor a "partial
+  migration away from a 6-dec canonical unit" (§A.66 v2). **The pool boundary MUST be 6/8/18. What is
+  actually wrong is that the 6→18 normalisation elsewhere is HAPHAZARD** — done ad hoc at each seam,
+  which is precisely where all four bugs live.
+⚠️ AND IT IS THREE BASES, NOT TWO: 6 (USD) · **8 (sats/WBTC)** · 18 (ETH/QU!D). The BTC side doubles the
+  seam count, which is why §A.57 had to fix `settleBtcLp` AND `_settlePending`.
+
+### THE CORRECT WORK (supersedes "one canonical unit", which is IMPOSSIBLE — the pool side cannot move)
+ 1. **Define the boundary explicitly.** Name the exact functions where 6/8 → 18 happens and where 18 →
+    6/8 happens. Inside = 18; at/below the pool interface = native. Today that line is UNDOCUMENTED, so
+    each author guesses — that IS the defect.
+ 2. Convert ONLY at that line, via the existing `BasketLib.scaleTokenAmount`, and state the unit in the
+    parameter NAME (`amountUsd18` / `amountNative` / `sats8`). `_takePreferred`'s docblock already proves
+    this works — that one comment is what made §A.55 findable.
+ 3. Then "no raw `1e12` outside the boundary functions" becomes a GREPPABLE rule, and
+    `toUsd18(toNative(x)) == x` becomes a fuzzable invariant.
+
+### ⚠️ STILL OWED — the broad GAS review, NOT started
+User: *"i am asking about efficiency across the entire scope, not just there. but mainly correctness."*
+Correctness is covered above. GAS is not started. Techniques ALREADY present (inherited from the legacy
+and intact): global per-share accumulators + cached per-LP snapshot, `storage`-ref mutation instead of
+struct copies, early returns before expensive calls, single-sweep WETH deposits. A real pass must
+MEASURE — `forge test --gas-report` on the money paths — not eyeball, and compare against the legacy
+`_take` loop, which the user considers the efficiency peak.
+
