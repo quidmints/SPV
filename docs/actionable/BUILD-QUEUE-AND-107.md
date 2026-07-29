@@ -4960,3 +4960,39 @@ which are numerous on this stack.
 harness. Needs anvil forked at a recent block plus the BTC-side fixtures. Doing that once closes the
 §A.35 E2E debt and replaces every estimate above with a measurement.
 
+## §A.70 — ECHIDNA TARGETS, cross-referenced into the verification plan (§A.8 at line 414)
+
+The audit's targets lived only in `GAS-AND-CORRECTNESS-AUDIT.md:147`; §A.8 ("Slither FIRST, then
+Echidna") did not reference them, so anyone working from THIS file would have missed them. Linked here.
+
+### 🔴 THE ONE THAT MATTERS MOST — mixed-decimal round trip
+**Every existing test uses USDC.** 7 of 12 basket stables are 18-dec (GHO, RLUSD, BOLD, DAI, USDS, USDe,
+cUSD; only USDC/USDT/PYUSD/USDG/AUSD are 6-dec). **That single fixture gap is why C1, C2, C3, C5 and the
+three §A.50/§A.55/§A.57 bugs all survived a green 3,558-test suite.** Fuzz `swapTo` / `creditSwapOut` /
+`pull` with `token` drawn from the 18-dec set. This is the highest-yield surface in the protocol and it
+is currently ZERO-COVERAGE.
+
+### The other three
+2. `consumed <= true USD value of POOLED_BTC` at `routeSwap` — asserts C3; would also have caught that
+   `refundUnfilled`/`_refundExcess` are dead code on every BTC path.
+3. `premiumEwmaUsd` same order of magnitude as `POOLED_USD_*` — asserts C4 (a WEI premium written into a
+   6-dec register, which blows `derivedThetaWad` past 1e18 permanently and kills the Merton throttle).
+4. `Σ(QU!D minted for fees) == Σ(usd_owed accrued) × 1e12` — asserts C5; would have caught ALL THREE
+   §A.57 mint sites at once.
+
+📌 SEQUENCING (unchanged, user's order): finish the refactor + TODOs → comprehensive analysis (DONE, see
+`GAS-AND-CORRECTNESS-AUDIT.md`) → Echidna. Prerequisites still open: a non-rate-limited RPC
+(`foundry.toml:34` hardcodes an exhausted Ankr key) and §A.61's boundary definition, since "units are
+consistent" cannot be STATED as a property while the 6/8→18 conversion is ad hoc at each seam.
+
+## §A.69 addendum — WHY the deploy estimate omits things (user asked)
+`forge build --sizes` reports BYTECODE SIZE ONLY. It cannot know:
+  • **constructor execution gas** — e.g. `Vault`'s constructor deploys `VBtc` and sets Permit2
+    approvals; `Aux`'s reads immutables. None of that is in a size table.
+  • **post-deploy wiring transactions** — `setLevManager`, `pinVenue`, `setSyncHook`, `setRover`,
+    Morpho `createMarket` × N, venue registration. These are SEPARATE txs, numerous on this stack, and
+    invisible to any static measure.
+⇒ That is not a gap in the DEPLOY SCRIPT — it is a limit of estimating from sizes. `forge script
+  script/DeployL1_s.sol --fork-url <anvil>` reports actual cumulative gas including all of the above,
+  which is why §A.69 says measure rather than estimate.
+
