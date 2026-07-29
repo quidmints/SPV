@@ -51,7 +51,10 @@ library BtcVaultLib {
         if (payTo != address(0)) {                    // USD-leg → QUID
             usdR += LP.usd_owed;
             LP.usd_owed = 0;
-            if (usdR > 0) IBasketMint(quid).mint(payTo, usdR, quid, 0);
+            // §A.57: `usdR` is 6-dec USD (the V4 USD-side token is 6-dec; `feeIncrements` does not
+            // scale), but QU!D is 18-dec. Minting it raw under-paid LP fee revenue by 1e12x. Mirrors
+            // the sibling `settleDelivered`, which already does `exactUsd * 1e12`.
+            if (usdR > 0) IBasketMint(quid).mint(payTo, usdR * 1e12, quid, 0);
         } else if (usdR > 0) {
             LP.usd_owed += usdR;
         }

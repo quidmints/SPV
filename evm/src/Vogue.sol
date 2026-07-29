@@ -434,8 +434,10 @@ contract Vogue is
             usdR += LP.usd_owed;
             if (usdR > 0) {
                 LP.usd_owed = 0;
-                QUID.mint(mintRecipient, 
-                usdR, address(QUID), 0);
+                // §A.57: 6-dec USD fee accumulator → 18-dec QU!D. Same fix as BtcVaultLib.settleBtcLp;
+                // both paths shared the missing scale-up, so both move together.
+                QUID.mint(mintRecipient,
+                usdR * 1e12, address(QUID), 0);
             }
         } else if (usdR > 0) {
             LP.usd_owed += usdR;
