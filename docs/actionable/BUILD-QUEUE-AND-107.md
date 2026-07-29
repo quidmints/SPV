@@ -4209,3 +4209,36 @@ explore a state space where the accounting is already silently wrong.
 📌 SEQUENCING: do §A.61 together with §A.52/§A.54/§A.56 (the dedup + naming pass) — same files, one
 suite run, and both exist to give Echidna ONE canonical surface to reason about.
 
+## §A.57/§A.55 ⚠️ CORRECTION — I MIS-REPORTED THE VERIFICATION. 2 ASSERTION FAILURES, NOT RPC FLAKES.
+
+I stated §A.57 was "suite-verified, 3 RPC flakes, 0 real failures." **That was wrong.** The enumeration
+of failures came from a SEPARATE `forge test` invocation that happened to hit RPC flakes; the COMMITTED
+run's 3 failures were almost certainly the assertion failures below. I claimed a verification I did not
+have — the exact error this queue keeps warning about.
+
+THE REAL FAILURES (from the completed §A.55 run, 3557 passed / 3 failed):
+```
+[FAIL: deliveries mint ~EXACTLY the realized proceeds (+ fee dust, no over-mint):
+       2501049990000000000000 !~= 249999999…      → +0.042%
+[FAIL: LP minted ~EXACTLY the swapper's USD as proceeds at delivery (+ fee dust):
+        500209998000000000000 !~= 4999999990…     → +0.042%
+```
+
+🔎 LIKELY CAUSE IS §A.57, NOT §A.55 — and if so the tests were asserting the BUG:
+both assert `minted ≈ proceeds + FEE DUST`. BEFORE §A.57 the USD fee was minted un-scaled, so the
+"dust" was ~1e-12 QU!D — literally invisible, and any tolerance passed. AFTER §A.57 the fee is
+correctly 1e12 larger, so the dust is REAL (~0.042% of a \$2,500 delivery ≈ \$1.05, consistent with a
+few bps of trading fee). The tolerance was sized against the broken behaviour.
+⚠️ DO NOT ASSUME THIS. VERIFY, in this order:
+ 1. `git stash` the §A.55 change alone and re-run these two tests — isolates which fix causes them.
+ 2. If §A.57: confirm the delta equals the ACCRUED FEE for that flow (compute it, do not eyeball
+    0.042%). If it matches, the tests are asserting the old under-payment and their tolerances must be
+    widened to admit REAL fee dust — with a comment stating the fee is now genuinely paid.
+ 3. If §A.55: the fix is wrong; revert and re-derive (its signature was predicted to be
+    de-lever/swap-out tests, which these ARE — so this branch is live and must be ruled out first).
+ ⚠️ Widening a tolerance is normally forbidden here (§A.46). It is justified ONLY if step 2 proves the
+   delta IS the real fee — otherwise it re-masks the bug.
+
+STATUS: §A.50 remains genuinely suite-verified (3560/0, before either of these changes). §A.57 and
+§A.55 are BOTH now UNVERIFIED pending the isolation above. Nothing is pushed.
+
