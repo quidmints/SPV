@@ -4871,3 +4871,29 @@ NOTHING. Adding an assertion without fixing the fixture would have failed for th
 the premise-vacuity trap generalised — **check that the fixture RUNS before trusting any test in this
 repo, asserted or not.**
 
+## §A.56 part 2 — IT IS NOT AN ARGS ASYMMETRY. It is a RESPONSIBILITY-BOUNDARY difference.
+
+Diagnosed properly (this is almost certainly what killed the agent after 90 minutes — the task as I
+scoped it, "one args struct for both", is not the actual shape of the problem):
+
+| | ETH | BTC |
+|---|---|---|
+| lib fn | `VogueLib.sizeOutOfRange(weth, aux, ev, ethfiBacked, amount, token, token1isETH, venue, Oor t)` — **SIZES ONLY**, returns `uint128` | `BtcVaultLib.outOfRangeBtc(BtcCfg, mappings, OorArgs)` — **DOES EVERYTHING**: validate → `oorTicks` → deposit → size → write `selfManagedBtc` → push `positionsBtc` → `Core.outOfRange` |
+| bookkeeping | in `Vogue.sol` (the CALLER) | INSIDE the lib |
+
+⇒ The libs are decomposed at DIFFERENT LEVELS. The `OorArgs` bundle is a CONSEQUENCE of BTC doing more
+  work in one frame (more locals ⇒ stack pressure ⇒ bundle), not an arbitrary style choice. Unifying
+  therefore requires moving a RESPONSIBILITY, one of:
+  (a) push Vogue's position bookkeeping down into `VogueLib` (ETH adopts BTC's shape) — grows VogueLib,
+      shrinks Vogue; check EIP-170 both ways.
+  (b) lift BTC's bookkeeping up into `Vault` (BTC adopts ETH's shape) — may REMOVE the stack pressure
+      that forced `OorArgs`, making the bundle unnecessary rather than shared.
+  ⚠️ (b) is likely the better end state (it makes the struct redundant instead of universal) but is the
+    bigger move: `Vault` is at 2,496 bytes free and would absorb the position writes.
+
+STATUS: NOT DONE, and deliberately not started on low headroom — a half-applied version COMPILES, which
+is how the agent's attempt became dangerous enough to revert (partial saved at `/tmp/A56-partial.patch`).
+📌 PRIORITY NOTE: this is a TIDINESS change. The real duplication (22 lines of copied `LiquidityAmounts`
+   sizing) was already removed in part 1 (`25e9f89`). §A.67's F1/F2 and the C1+C2+C3 money-path defect
+   are strictly higher value; part 2 should be sequenced LAST of the four.
+
