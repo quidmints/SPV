@@ -62,6 +62,29 @@ is the highest-leverage single action available.
 **Premises WITHDRAWN after code verification** — §A.5c, §A.35, §A.19b-as-written, §A.43, and two of four
 tolerance findings. Four queue items rested on claims that dissolved on contact with the code.
 
+# ⚠️ PROVENANCE OF THE "OPEN" STATUSES ABOVE — read before trusting them
+
+User (2026-07-29): *"are you sure all those open items are still open … i'm not sure you were diligent
+in keeping track of your work in the doc, and we have been starting new tasks on the fly without
+finishing previous ones."* **A fair challenge, and the gap is real:** when this file was written, TODAY'S
+items (C1–C9, F1/F2, §A.46–§A.73) were verified against the code, but the INHERITED items were carried
+forward from a conversation summary and **NOT re-checked**. That is exactly the failure that already
+recurred three times today — §A.35, §A.43 and #109 were all "open" items that turned out to be BUILT.
+
+SPOT-CHECKED SINCE (verified against code):
+  ✅ **§J.8** genuinely OPEN — 0 hits for a weETH/Aave supply pairing in `Vault.sol`.
+  ✅ **§A.19b** genuinely OPEN — no `redeemVBtc` in `VBtc.sol`.
+  ✅ **§A.5f** genuinely OPEN — no `perActionAuth`/`actionScope` anywhere in `src/`.
+  ⚠️ **§A.43** — 2 files in `quid-bridge/src` match `eth_wallet`/`evm_address`. Consistent with the
+     earlier correction (the EVM key IS enclave-born/sealed; only the QUOTE BINDING is missing) but the
+     precise remaining delta is UNCONFIRMED. Read the quote-construction path before starting work.
+
+❌ **STILL UNVERIFIED — do not trust without checking first:** §A.15, §A.49, JIT-DEPTH §2, §A.46's
+   remaining 3 tests, and every `A.1`–`A.45` item not explicitly listed as CLOSED above. **Before
+   starting ANY of them, grep the code for the mechanism BY EFFECT** (not by name — #109 was a numbered
+   issue whose fix was a cap change, invisible to a name search). Assume a listed item may already be
+   done until shown otherwise.
+
 # ⚠️ STANDING TRAPS (each cost real time today)
 1. **An empty grep proves nothing** — verify the search finds a case you know exists.
 2. **Verify from the SAME run** — never enumerate one test run's failures with a second invocation.
