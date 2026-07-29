@@ -4931,3 +4931,32 @@ their swap executed.
     `GAS-AND-CORRECTNESS-AUDIT.md`. C5 is a one-token fix mirroring `Vogue.sol:439-440`.
   • **F1/F2** (§A.67), **§A.56 part 2** (§9f23d68), **§A.61** boundary doc, **§A.52** semantic dedup.
 
+## §A.69 — DEPLOY COST + BTC/ANVIL E2E: both owed, and they are ONE run (user, 2026-07-29)
+
+### BTC + anvil E2E — NOT DONE, and it is a recorded debt
+§A.35 logged *"then E2E the BTC core"* and it was never run. Everything BTC-side this session was FORK
+testing against mainnet state, not an anvil end-to-end with a real Bitcoin leg.
+
+### Deploy cost — my estimate was WRONG ON PRICE; the user pushed back correctly
+I quoted \$1,800–9,000 by anchoring 10–50 gwei. **That band is stale** — mainnet has sat near 1–2 gwei.
+Same work at 1–2 gwei ≈ **\$165–330** at \$3,000/ETH. I also should have EXCLUDED `PoolManager`
+(19,907), `PositionManager` (21,525) and `DeployPermit2` (10,367) from the initcode total — those are
+Uniswap/Permit2 infra that ALREADY EXIST on mainnet and we do not deploy.
+
+RAW DATA (measured, `forge build --sizes`): 138 contracts, **443,353 runtime bytes / 469,729 initcode
+bytes** — but that includes TESTS AND MOCKS, so it is an upper bound, not the deploy set. Our real set is
+~25–30 units: the core contracts plus the separately-deployed `public`-function libraries. Largest
+initcode: Aux 26,124 · LevManager 25,164 · LevMath 24,608 · SwapLib 24,487 · BtcLevManager 21,843 ·
+BasketLib 21,480 · BtcVaultLib 21,025 · VogueLib 20,730 · BTCChannels 19,399 · Rover 18,681.
+Dominant term is **200 gas per byte of RUNTIME code stored**; secondary ~16 gas/byte calldata for
+initcode and 32k per CREATE.
+
+⇒ **DO NOT quote a dollar figure from this.** The estimate omits constructor execution and the
+post-deploy WIRING transactions (`setLevManager`, `pinVenue`, `setSyncHook`, Morpho market creation),
+which are numerous on this stack.
+
+### THE ONE RUN THAT ANSWERS BOTH
+`forge script script/DeployL1_s.sol --fork-url <anvil>` reports real cumulative gas AND is the anvil E2E
+harness. Needs anvil forked at a recent block plus the BTC-side fixtures. Doing that once closes the
+§A.35 E2E debt and replaces every estimate above with a measurement.
+
