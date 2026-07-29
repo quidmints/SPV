@@ -526,7 +526,9 @@ library SwapLib {
             if (index > 5) {
                 amount = aux.withdrawSelf(vault, amount, address(this));
             } else if (!stable) revert StableMissingS();
-            amount = aux.deposit(msg.sender, token, amount);
+            // §A.50/C1: native → 6-dec USD, same reason as `_swapOutPrep` above. `r.amount` is then
+            // compared against a 6-dec `convert` cap and fed to `Core.swap`'s 6-dec USD side.
+            amount = scaleTo6(aux.deposit(msg.sender, token, amount), token);
         }
         return amount;
     }
@@ -1003,7 +1005,11 @@ library SwapLib {
         address wbtc = address(IAuxSwap(aux).WBTC());
         // The normalized 6-dec USD pulled in — exactly what enters POOLED_USD_BTC (exact-input curve buy)
         // and thus the exact proceeds owed to the delivering LP (returned so requestSwapOutOnchain records it).
-        uint amount = IAuxSwap(aux).deposit(swapper, token, usdAmount);
+        // §A.50/C1: `deposit` returns TOKEN-NATIVE, not the 6-dec USD this comment long claimed.
+        // 7 of 12 basket stables are 18-dec (GHO/RLUSD/BOLD/DAI/USDS/USDe/cUSD) and every test uses
+        // USDC, so the 1e12 error was invisible. The OOR paths already do this — `VogueLib.sol:662`
+        // and `BtcVaultLib.sol:296` both wrap the identical call in `scaleTo6`.
+        uint amount = scaleTo6(IAuxSwap(aux).deposit(swapper, token, usdAmount), token);
         ctx.asset = wbtc; ctx.core = core; ctx.volScale = 1e8;
         // Reuse the repack-resolved oracle price (5th return); live-read only if v4p==0.
         (uint160 sqrtPriceX96,,,, uint v4p) = IVogueRepack2(address(this)).repack(true);

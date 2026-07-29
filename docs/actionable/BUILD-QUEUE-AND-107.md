@@ -4897,3 +4897,37 @@ is how the agent's attempt became dangerous enough to revert (partial saved at `
    sizing) was already removed in part 1 (`25e9f89`). §A.67's F1/F2 and the C1+C2+C3 money-path defect
    are strictly higher value; part 2 should be sequenced LAST of the four.
 
+## §A.68 — C1 APPLIED (⚠️ BUILD/SUITE UNVERIFIED). C2 and C3 NOT applied.
+
+APPLIED — the two `Aux.deposit` sites in `SwapLib` now normalise to 6-dec USD:
+  • `_swapOutPrep` — `uint amount = scaleTo6(IAuxSwap(aux).deposit(swapper, token, usdAmount), token);`
+    (its own comment had claimed *"the normalized 6-dec USD pulled in"* while the call returned NATIVE)
+  • `_consumeVolInput` — `amount = scaleTo6(aux.deposit(msg.sender, token, amount), token);`
+Both mirror what `VogueLib.sol:662` and `BtcVaultLib.sol:296` already do with the identical call.
+
+⚠️ **NOT VERIFIED.** `forge build --force` exceeded the foreground limit and was still running when this
+landed. This is a MONEY PATH. Before trusting it: `forge build --force` then the full suite with
+`FOUNDRY_ETH_RPC_URL=https://ethereum-rpc.publicnode.com`. Baseline to beat: **3558 passed / 2 failed**
+(the 2 are §A.67's F1/F2, deliberately left failing). If this commit regresses anything, revert it.
+
+### WHY C1 FIRST — it is the keystone, and it makes C3 SAFE
+The audit warns C1+C2+C3 must land together because *"fixing C3 alone ARMS"* a latent
+`Core.refundUnfilled` mismatch (`amount - consumed` mixing native and 6-dec). C1 is what DISARMS it:
+once `amount` is 6-dec at these sites, `amount` and `consumed` share a basis and the subtraction is
+correct. ⇒ **Order is C1 → C2 → C3.** Doing C3 before C1 would refund a swapper's entire deposit after
+their swap executed.
+
+### ⬜ STILL NOT APPLIED — exact edits, no re-derivation needed
+  • **C1 residual**: `SwapLib.sol:508` `_refundExcess` does `scaleTokenAmount(excess * 1e12, r.inToken,
+    false)`. That `* 1e12` presumes `excess` was 6-dec. RE-CHECK it against the two fixes above — it may
+    now be correct, or may need the `* 1e12` dropped. **Verify, do not assume.**
+  • **C2**: `Core.sol:989` `AUX.take(who, usdAmount, token, 0)` — `usdAmount` is 6-dec mockUSD but
+    `take` wants NATIVE. Fix: `scaleTokenAmount(usdAmount, token, false)`, matching `SwapLib.sol:1170`
+    and `:1222` which already convert.
+  • **C3**: `BasketLib.convert` is 1e10 off for `volScale = 1e8`. Two uncompensated BTC sites:
+    `SwapLib.sol:1013` and `SwapLib.sol:444`+`:455`. Authoritative form is at `SwapLib.sol:926-929`
+    (`/1e30`). Apply ONLY after C1 is verified green.
+  • **C4** (θ throttle dead), **C5** (`Vogue.sol:658` missing `* 1e12`), **C6–C9** — see
+    `GAS-AND-CORRECTNESS-AUDIT.md`. C5 is a one-token fix mirroring `Vogue.sol:439-440`.
+  • **F1/F2** (§A.67), **§A.56 part 2** (§9f23d68), **§A.61** boundary doc, **§A.52** semantic dedup.
+
