@@ -4174,3 +4174,38 @@ fixing §A.50), the fix is structurally IDENTICAL to §A.50's — which WAS full
 3560/0 — and it is two arguments at two call sites with no shared-helper change. Risk is low but NOT
 zero, and it is uncommitted-to-remote, so re-running the suite is the only outstanding step.
 
+## §A.61 🔴 THE 6↔18 SEAM — one helper, before Echidna. Three bugs in one day is a PATTERN.
+
+All three were the SAME defect wearing different clothes: a USD amount crossing a boundary where the
+other side expected the other decimal basis, with the conversion done AD HOC (or not at all) at each
+seam.
+
+| # | site | direction | symptom | status |
+|---|---|---|---|---|
+| §A.50 | `_takeCore` → `_takePreferred` (redeem) | 18→native MISSING | preferred redemption paid **~8x par**; drained the venue | ✅ FIXED, suite-verified |
+| §A.57 | `settleBtcLp:54`, `Vogue._settlePending:437` | 6→18 MISSING | LP fee revenue **under-paid 1e12x** | ✅ FIXED, suite-verified |
+| §A.55 | `SwapLib:1166/1216` → `takeToSettle` | 18→native MISSING | de-lever **drained the basket's stable** | ✅ FIXED, suite pending |
+| (prior) | `SwapLib:542-544` | — | *"made `min(amount, poolCap6)` always pick the 6-dec pool cap → ~1e12x over-delivery"* | fixed earlier, same class |
+
+⇒ FOUR instances. This is not bad luck; the codebase mixes 6-dec stables, 8-dec sats and 18-dec QU!D,
+  and every crossing is hand-written. `BasketLib.scaleTokenAmount(amount, token, scaleUp)` EXISTS and is
+  correct — the failure is that calling it is OPTIONAL and omissions are SILENT.
+
+### THE FIX — make the omission impossible, not merely unlikely
+1. **Name the units in the type or the parameter.** Rename every crossing parameter to carry its basis
+   (`amountUsd18` / `amountNative` / `sats8`), so a mismatch is visible at the call site. `_takePreferred`
+   already proves the value: its docblock now STATES "amount is NATIVE, sent/remaining are USD 1e18" —
+   that one comment is what made §A.55 findable.
+2. **One helper, both directions, used everywhere** — `toNative(amount18, token)` / `toUsd18(amountNative,
+   token)` wrapping the existing `scaleTokenAmount`. Then grep for raw `1e12` / `10 ** (18 - d)` and
+   convert each to a call; any remaining literal is a review flag.
+3. **An invariant test per seam**: for each cross-decimal entry point, assert
+   `toUsd18(toNative(x, token), token) == x` (modulo documented sub-unit dust).
+
+### WHY THIS GATES ECHIDNA
+A fuzzer cannot distinguish "paid 1e12x too little" from "paid correctly" unless a property SAYS so.
+Every one of these four survived a green suite. Write the unit-basis properties FIRST, or Echidna will
+explore a state space where the accounting is already silently wrong.
+📌 SEQUENCING: do §A.61 together with §A.52/§A.54/§A.56 (the dedup + naming pass) — same files, one
+suite run, and both exist to give Echidna ONE canonical surface to reason about.
+
