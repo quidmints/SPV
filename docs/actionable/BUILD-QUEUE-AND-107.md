@@ -4315,3 +4315,21 @@ occurrences) but it is NOT test-verified, and this file does not pretend otherwi
 📌 The unpinned public fork has now produced RPC failures three times today. That is an argument for a
    pinned/paid endpoint before Echidna — fuzzing against a flaky fork will be unusable.
 
+## §A.54(1) DONE — `OorTicks` collapsed into `SwapLib.Oor`. One concept, one declaration.
+
+`VogueLib.OorTicks` and `SwapLib.Oor` were BYTE-IDENTICAL (`int24 newLo; newUp; curLo; curUp;` — same
+fields, same order, same types). Collapsed onto **`SwapLib.Oor`** because that is the better home: it
+already owns the `SwapLib.oorTicks(...)` FACTORY that constructs the value, and `VogueLib` already
+imports `SwapLib` (so no new dependency). Sites updated: `VogueLib:640` (declaration removed, replaced
+by a comment recording why), `VogueLib:645` (parameter type), `Vogue.sol:361` (local). `forge build
+--force`: 0 errors. `Vogue.sol` already imported `SwapLib`.
+
+REMAINING IN THE DEDUP PASS (all still open):
+  • §A.52 — the `_V` interface shims (`IAuxBtc_V`, `IAuxDeposits_V`, … in `Vault.sol`). NOT mechanical:
+    each must be proven a STRICT SUBSET of the canonical interface before removal, and `forge build
+    --sizes` deltas checked (several contracts are near EIP-170).
+  • §A.56 — unify the out-of-range PATH: `Core.outOfRange(bool isBTC, …)` already services both assets,
+    but `Vogue.outOfRange` passes args INLINE while `BtcVaultLib.outOfRangeBtc` bundles into `OorArgs`
+    (stack depth). One args struct for both, `isBTC` + id as fields.
+  • §A.61 — the 6↔18 conversion helper (task #7).
+

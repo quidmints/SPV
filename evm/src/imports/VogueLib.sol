@@ -637,12 +637,15 @@ library VogueLib {
     //  AUX) and size the single-sided liquidity. pledge==0 -> no wall attribution.
     //  Ticks bundled to keep the Vogue forwarder off the legacy stack.
     // ════════════════════════════════════════════════════════════════════
-    struct OorTicks { int24 newLo; int24 newUp; int24 curLo; int24 curUp; }
+    // §A.54: `OorTicks` was byte-identical to `SwapLib.Oor` — same four fields, same order, same
+    // types — i.e. one concept under two names. Collapsed onto `SwapLib.Oor`, which is the better home:
+    // it already owns the `SwapLib.oorTicks(...)` factory that CONSTRUCTS the value, and this library
+    // already imports SwapLib.
 
     function sizeOutOfRange(
         address weth, address aux, address ev,
         mapping(address => uint) storage ethfiBacked,
-        uint amount, address token, bool token1isETH, uint8 venue, OorTicks memory t
+        uint amount, address token, bool token1isETH, uint8 venue, SwapLib.Oor memory t
     ) public returns (uint128 liquidity) {
         if (token == address(0)) {
             amount = depositETH(weth, aux, ev, ethfiBacked, msg.sender, address(0), amount, venue);

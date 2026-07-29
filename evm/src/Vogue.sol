@@ -358,7 +358,7 @@ contract Vogue is
         returns (uint next) {
         SwapLib.validateOorParams(range, distance);
 
-        VogueLib.OorTicks memory t;
+        SwapLib.Oor memory t;
         {   // geometry in a scope so currentSqrtPrice frees before sizing.
             (uint160 currentSqrtPrice, int24 curLo, int24 curUp,,) = _rebalance();
             if (!token1isETH) distance = -distance;
