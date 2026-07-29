@@ -94,8 +94,16 @@ SPOT-CHECKED SINCE (verified against code):
      (BOLD not reaching the Stability Pool). It should get assertions or be renamed out of `test*`
      once F2 is traced.
 
-❌ **STILL UNVERIFIED — do not trust without checking first:** every `A.1`–`A.45` item not explicitly
-   listed as CLOSED or verified above. **Before
+❌ **STILL UNVERIFIED — the honest count.** User asked *"are you sure you looked exhaustively?"* — **NO.**
+   Measured: the archive holds **109 distinct items** (`A.x` + `J.x` + `MISS`), of which **40 carry an
+   open-ish marker** (🔴/🟠/TODO/OPEN). **I have verified 7 of those 40.** So **33 open-marked items are
+   UNVERIFIED**, and on today's hit rate a meaningful share are probably ALREADY DONE:
+   §A.35, §A.43 and #109 were each marked open and turned out to be BUILT, and four more items' premises
+   dissolved entirely when checked (§A.5c, §A.35, §A.19b-as-written, §A.43).
+   ⇒ **DO NOT plan capacity off the open-marker count.** The real backlog is smaller than 40 but nobody
+     knows by how much. The single highest-value next action on this file is a SWEEP: for each of the 33,
+     grep the code BY EFFECT and record verified-open / already-done / premise-withdrawn. That is cheap
+     (minutes per item) and it is the only way this list becomes trustworthy. **Before
    starting ANY of them, grep the code for the mechanism BY EFFECT** (not by name — #109 was a numbered
    issue whose fix was a cap change, invisible to a name search). Assume a listed item may already be
    done until shown otherwise.
