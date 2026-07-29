@@ -79,8 +79,23 @@ SPOT-CHECKED SINCE (verified against code):
      earlier correction (the EVM key IS enclave-born/sealed; only the QUOTE BINDING is missing) but the
      precise remaining delta is UNCONFIRMED. Read the quote-construction path before starting work.
 
-❌ **STILL UNVERIFIED — do not trust without checking first:** §A.15, §A.49, JIT-DEPTH §2, §A.46's
-   remaining 3 tests, and every `A.1`–`A.45` item not explicitly listed as CLOSED above. **Before
+### VERIFIED EXPLICITLY (2026-07-29, user: *"verify everything explicitly"*)
+  ✅ **§A.49 FRAX/sFRAX — genuinely OPEN.** `FRAX`/`SFRAX` appear **0 times** in `src/` or `script/`.
+     Not listed. (Reminder: a pinned Chainlink feed is a PREREQUISITE for listing, not a follow-up.)
+  ✅ **JIT-DEPTH §2 — genuinely DEFERRED.** The `depth-guarantee core … DEFERRED` marker is still the
+     only hit in `Vogue.sol`; the core was never built. Blocker IS lifted (`Basket.turn` exists).
+  ⚠️ **§A.15 — MECHANISM PRESENT, CLAIM STILL UNVERIFIED.** `bufBps` occurs 4x in `Basket.sol`, so the
+     tiered buffer→tenor gate is real. What remains unproven is the item's CLAIM that a deposit INFLATES
+     that buffer — a par mint raises `total` and `totalSupply` together, which moves `bufBps` DOWN.
+     **Read the update-vs-mint ORDERING before writing any fix; the claim may be inverted.**
+  ✅ **§A.46 — CORRECTED: only ONE assertion-free test remains, not three.** The committed agent work
+     (`ce3969d`) covered more than credited. The sole survivor is
+     **`ZZBoldProbe.t.sol:test_probe`** — the agent's own new file, which is the F2 reproduction
+     (BOLD not reaching the Stability Pool). It should get assertions or be renamed out of `test*`
+     once F2 is traced.
+
+❌ **STILL UNVERIFIED — do not trust without checking first:** every `A.1`–`A.45` item not explicitly
+   listed as CLOSED or verified above. **Before
    starting ANY of them, grep the code for the mechanism BY EFFECT** (not by name — #109 was a numbered
    issue whose fix was a cap change, invisible to a name search). Assume a listed item may already be
    done until shown otherwise.
