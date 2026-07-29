@@ -12,6 +12,29 @@ regression, but it is the opposite of "most of it is finished".
 
 ---
 
+# 🎯 NEXT ACTION, RANKED (user asked 2026-07-29: *"what is the next highest value item?"*)
+
+**1. CLOSE THE 18-DEC FIXTURE GAP — this gates everything else on the money path.**
+   The decisive argument: **C1 is currently UNVERIFIABLE.** `scaleTo6` is a NO-OP for USDC, every test
+   uses USDC, so the honest prediction for C1-alone is *"the suite will not change"* — i.e. **the suite
+   CANNOT tell us whether C1 is correct.** Same for C2, C3, C5. Fixing them without an 18-dec fixture is
+   patching BLIND, and today showed the price: C2 looked right, was wrong, cost 333 failing tests.
+   ⇒ ONE fixture that runs the EXISTING money-path tests with GHO/DAI/BOLD instead of USDC converts C1,
+     C2, C3 and C5 from *argued* to *tested*. Nothing else on this list has that leverage.
+   ⇒ It is also Echidna target #1 (§A.70), so the work is not duplicated — the fixture IS the fuzz seed.
+
+**2. C4 — the dead θ throttle.** DECIMAL-INDEPENDENT, so it is verifiable TODAY with no new fixture, and
+   it is a live risk control that is silently off after the first volatile sell-in.
+
+**3. Verify the remaining 33 open-marked items.** Cheap (minutes each) and it fixes the planning picture —
+   several are probably already done. But it is PLANNING work: it tells you what to do, it does not fix
+   anything. Do it when a code task is blocked, not instead of one.
+
+**4. C3 / C5 / F1 / F2** — once (1) makes them observable.
+
+⚠️ NOT next: §A.56 part 2 and §A.52 are tidiness; §A.71's struct merge is one candidate. All are behind
+  a money path with five open defects.
+
 # 🔴 OPEN — money path (do these first)
 
 | id | what | state |
