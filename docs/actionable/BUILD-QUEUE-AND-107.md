@@ -4699,3 +4699,45 @@ legacy tree otherwise MIRRORS ours — `Aux.sol`, `Basket.sol`, `Vogue.sol`, `Vo
 `mock.sol`, plus `imports/` and `L2/` — so a broader Vogue/Aux legacy diff is feasible and is the next
 step of this comparison (NOT yet done).
 
+## §A.66 CORRECTED + §A.61 REFRAMED — the legacy had an INVARIANT, not awkwardness. My fixes are PATCHES.
+
+User: *"are you sure they are regressions? … they were rigged like that for gas efficiency, is our new
+implementation better by any means?"* Correct on both counts; my §A.66 framing is struck.
+
+### WHAT THE LEGACY ACTUALLY DID — normalize ONCE at the edge, one canonical unit inside
+```solidity
+if (decimals != 6) amount = decimals > 6 ? amount / 10 ** (decimals - 6)
+                                         : amount * 10 ** (6 - decimals)
+```
+USD is normalized to **6 DECIMALS AT ENTRY** and stays 6-dec throughout; ETH stays wei; pool deltas stay
+native. Conversions happen ONCE, AT THE BOUNDARY — never inside loops or fee math. Other consequences of
+the same invariant: global per-share accumulators (`ETH_FEES`/`USD_FEES` at WAD) with a cached per-LP
+snapshot instead of per-deposit tracking; `Types.Deposit storage LP = …` storage refs instead of struct
+copies; early returns before expensive calls.
+⇒ The index divisor (`i < 4 || i == 11`) and native-unit passing are NOT sloppiness — they are what the
+  invariant BUYS. They are cheap precisely because nothing re-converts.
+
+### SO IT IS A PARTIAL MIGRATION, NOT A REGRESSION
+The port moved USD to 18-dec internally — CORRECT for `perShare`, which is WAD and needs the precision —
+but never finished. 6-dec and 18-dec USD now COEXIST inside the system, and every bug (§A.50, §A.55,
+§A.57, and the earlier `SwapLib:542-544`) is a SEAM BETWEEN TWO CONVENTIONS, not a deviation from one.
+IS OURS BETTER? Honestly: **mixed.** 18-dec USD is genuinely better where share math lives (WAD
+`perShare` avoids precision loss the 6-dec canonical form would suffer). It is WORSE everywhere else —
+it costs conversions the legacy never paid, and it lost the single-canonical-unit property that made
+omissions impossible rather than merely detectable.
+
+### 🔴 §A.61 REFRAMED — my three fixes are PATCHES; the structural fix is to RESTORE AN INVARIANT
+§A.50/§A.55/§A.57 each add a conversion AT A CALL SITE — the OPPOSITE of normalize-once. They are
+correct and suite-verified, but they treat symptoms. `toNative`/`toUsd18` helpers would only make
+omissions LOUDER while leaving conversions scattered.
+THE REAL WORK: **pick ONE canonical internal USD unit and enforce it at the boundary.**
+  • Candidate A — 18-dec internal (finish the migration the port started). Keeps `perShare` precision;
+    requires normalizing every 6-dec stable ONCE on entry and never again. Costs a conversion per
+    external amount, saves all interior ones.
+  • Candidate B — 6-dec internal (restore the legacy). Cheapest, but `perShare` math must then carry its
+    own WAD scaling, reintroducing precision questions in exactly the place that matters most.
+  ⇒ RECOMMEND A, because the share model is where correctness is hardest and precision is worth gas.
+  ⇒ Then the helper is a BOUNDARY function used at entry points only — not a thing sprinkled at seams.
+📌 Do this BEFORE Echidna: with one internal unit, "units are consistent" becomes a stateable INVARIANT
+  a fuzzer can check. With two, no property can express it and all four bugs stay invisible.
+
