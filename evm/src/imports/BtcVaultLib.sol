@@ -132,8 +132,8 @@ library BtcVaultLib {
         uint    lev;            // levPooledBTC[lpEth] at entry (NET levered slice, in pooled)
         uint    buf;            // levBufBTC[lpEth] at entry (debt-funded buffer, NOT in pooled)
         uint160 sqrtP;
-        int24   tl;
-        int24   tu;
+        int24   tickLower;
+        int24   tickUpper;
         uint    feesPerShareBTC;
         uint    usdFeesBtc;
     }
@@ -166,13 +166,13 @@ library BtcVaultLib {
             uint deliveredRaw = a.shrinkSats > a.lpPayoutSats ? a.shrinkSats - a.lpPayoutSats : 0;
             uint deliveredSlice = settleDelivered(a.lpEth, deliveredRaw, a.exactUsd, core, quid);
             uint nativeSlice = a.shrinkSats - deliveredSlice;
-            SwapLib.burnInRange(core, true, a.sqrtP, nativeSlice, a.tl, a.tu, address(0));
+            SwapLib.burnInRange(core, true, a.sqrtP, nativeSlice, a.tickLower, a.tickUpper, address(0));
             // Full channel close burns BOTH levered legs' V4 depth: the net slice (a.lev) and the
             // debt-funded buffer (a.buf). The buffer leaves totalBufferBTC via the bufRemoved return.
             if (a.full && a.lev > 0)
-                SwapLib.burnInRange(core, true, a.sqrtP, a.lev, a.tl, a.tu, address(0));
+                SwapLib.burnInRange(core, true, a.sqrtP, a.lev, a.tickLower, a.tickUpper, address(0));
             if (a.full && a.buf > 0) {
-                SwapLib.burnInRange(core, true, a.sqrtP, a.buf, a.tl, a.tu, address(0));
+                SwapLib.burnInRange(core, true, a.sqrtP, a.buf, a.tickLower, a.tickUpper, address(0));
                 o.bufRemoved = a.buf;
             }
         }
@@ -225,7 +225,7 @@ library BtcVaultLib {
                 a.shrinkSats = shrinkSats > funded ? funded : shrinkSats;
             }
         }
-        (a.sqrtP, a.tl, a.tu,,) = IEthVenue(address(this)).repack(true);
+        (a.sqrtP, a.tickLower, a.tickUpper,,) = IEthVenue(address(this)).repack(true);
         a.feesPerShareBTC = IEthVenue(address(this)).feesPerShareBTC();
         a.usdFeesBtc = IEthVenue(address(this)).USD_FEES_BTC();
         return resizeBtcLpTail(core, quid, autoManagedBTC, levPooledBTC, levBufBTC, btcFeesOwedSats, a);
@@ -251,8 +251,8 @@ library BtcVaultLib {
     ///      stack-too-deep without via_ir; mirrors the "own frame" discipline).
     struct LevParams {
         uint160 sqrtP;
-        int24   tl;
-        int24   tu;
+        int24   tickLower;
+        int24   tickUpper;
         uint    feesPerShareBTC;
         uint    usdFeesBtc;
         address mgr;      // full-2×: BtcLevManager (net-equity/debt reads for the two-leg split)
@@ -357,7 +357,7 @@ library BtcVaultLib {
         // frame stays off the legacy stack (no via_ir). _rebalance (via repack) already
         // accrued any V4 fees into the accumulators; read them fresh.
         LevParams memory p;
-        (p.sqrtP, p.tl, p.tu,,) = IEthVenue(address(this)).repack(true);
+        (p.sqrtP, p.tickLower, p.tickUpper,,) = IEthVenue(address(this)).repack(true);
         p.feesPerShareBTC = IEthVenue(address(this)).feesPerShareBTC();
         p.usdFeesBtc = IEthVenue(address(this)).USD_FEES_BTC();
         settleBtcLp(LP, btcFeesOwedSats, lpEth, address(0), quid, p.feesPerShareBTC, p.usdFeesBtc, weight);
@@ -386,7 +386,7 @@ library BtcVaultLib {
     ) private returns (uint) {
         LP.pooled += deltaBTC;
         SwapLib.refreshBookmarks(LP, weight + deltaBTC, p.feesPerShareBTC, p.usdFeesBtc);
-        ICore(core).modLP(true, p.sqrtP, deltaBTC, deltaUSD, p.tl, p.tu, lpEth);
+        ICore(core).modLP(true, p.sqrtP, deltaBTC, deltaUSD, p.tickLower, p.tickUpper, lpEth);
         return deltaBTC;
     }
 
@@ -417,7 +417,7 @@ library BtcVaultLib {
         // literal) so external-call temporaries free between assignments — both keep this off the legacy stack.
         uint w = LP.pooled + levBufBTC[lp];
         LevParams memory p;
-        (p.sqrtP, p.tl, p.tu,,) = IEthVenue(address(this)).repack(true);
+        (p.sqrtP, p.tickLower, p.tickUpper,,) = IEthVenue(address(this)).repack(true);
         p.feesPerShareBTC = IEthVenue(address(this)).feesPerShareBTC();
         p.usdFeesBtc = IEthVenue(address(this)).USD_FEES_BTC();
         p.mgr = mgr; p.gross = gross;
@@ -463,7 +463,7 @@ library BtcVaultLib {
     /// @dev modLP for the NET BTC leg in its own frame (legacy-pipeline stack: the 7-arg call otherwise
     ///      overflows levAddNetBtc). Net leg pairs basket surplus (no debt-funded buffer USD).
     function _modLpNetBtc(address core, LevParams memory p, uint deltaBTC, uint deltaUSD, address lp) private {
-        ICore(core).modLP(true, p.sqrtP, deltaBTC, deltaUSD, p.tl, p.tu, lp);
+        ICore(core).modLP(true, p.sqrtP, deltaBTC, deltaUSD, p.tickLower, p.tickUpper, lp);
     }
 
     /// @dev BUFFER BTC leg — the debt-funded half. Fee-earning V4 DEPTH but NOT equity: grows levBufBTC (fee
@@ -485,7 +485,7 @@ library BtcVaultLib {
 
     /// @dev modLP for the BUFFER BTC leg in its own frame (legacy stack). Buffer USD folds into POOLED_USD_BTC.
     function _modLpBufBtc(address core, LevParams memory p, uint bufSats, uint bufUsd, address lp) private {
-        ICore(core).modLP(true, p.sqrtP, bufSats, bufUsd, p.tl, p.tu, lp);
+        ICore(core).modLP(true, p.sqrtP, bufSats, bufUsd, p.tickLower, p.tickUpper, lp);
     }
     function _bufUsdBtc(address aux, uint bufSats, address mgr, address lp) private view returns (uint bufUsd) {
         uint price = IAuxSwap(aux).getTWAPforAsset(IAuxSwap(aux).WBTC(), 1800);
@@ -599,6 +599,6 @@ library BtcVaultLib {
     /// @dev modLP burn (no delivery) for a levered BTC slice in its own frame (legacy stack). Recipient is
     ///      address(0) (tokenless burn); buffer USD un-pairs from POOLED_USD_BTC as part of the gross burn.
     function _burnLpBtc(address core, LevParams memory p, uint grossRem) private {
-        ICore(core).modLP(true, p.sqrtP, grossRem, 0, p.tl, p.tu, address(0));
+        ICore(core).modLP(true, p.sqrtP, grossRem, 0, p.tickLower, p.tickUpper, address(0));
     }
 }

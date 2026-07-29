@@ -4297,3 +4297,21 @@ assertApproxEqAbs(minted, expected * 1e12, expected * 1e12 * 6 / 10000 + 1e15)
 site records why the dust became visible so nobody re-tightens it back onto the bug.
 RESULT: `test/BtcLpMintStress.t.sol` **127 passed / 0 failed / 2 skipped**.
 
+## §A.54(3) DONE — `tl`/`tu` → `tickLower`/`tickUpper`. ⚠️ Build-verified only (RPC outage).
+
+42 occurrences renamed across `BtcVaultLib.sol` (24), `Vogue.sol` (10), `VogueLib.sol` (8); **0 left** in
+each file. Word-boundary regex (`\btl\b` / `\btu\b`) so no longer identifier could be corrupted.
+`forge build --force`: 0 errors.
+
+WHY IT MATTERED BEYOND STYLE: `Core.outOfRange` ALREADY spells them `tickLower`/`tickUpper`, so the
+abbreviations were inconsistent with the codebase's own naming ONE LAYER DOWN. This restores a
+convention rather than imposing one.
+
+⚠️ SUITE NOT RUN — and NOT because of this change. The fork RPC failed at setup:
+`error sending request for url (https://rpc.ankr.com/eth/…)`, `client error (Connect)`,
+`Connection reset by peer (os error 54)`. **Zero tests executed**; the only output was `build-errors: 0`.
+Re-run when the endpoint recovers. Risk is low (pure identifier substitution, clean compile, 0 residual
+occurrences) but it is NOT test-verified, and this file does not pretend otherwise.
+📌 The unpinned public fork has now produced RPC failures three times today. That is an argument for a
+   pinned/paid endpoint before Echidna — fuzzing against a flaky fork will be unusable.
+

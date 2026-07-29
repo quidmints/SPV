@@ -88,7 +88,7 @@ library VogueLib {
     /// @dev Vogue immutables the levered-band bodies touch.
     struct LevCfg { address core; address aux; address weth; }
     /// @dev Live pool range + reconcile targets, bundled to stay off the stack.
-    struct LevP { uint160 sqrtP; int24 tl; int24 tu; address lm; uint gross; }
+    struct LevP { uint160 sqrtP; int24 tickLower; int24 tickUpper; address lm; uint gross; }
 
     function levManager(address aux) public view returns (address) {
         address host = aux == address(0) ? address(0) : IAux(aux).ethVenue();
@@ -132,7 +132,7 @@ library VogueLib {
         bufBurned = levBuf[lp];
         uint grossRem = netRem + bufBurned;
         if (grossRem == 0) { levBufferUsd[lp] = 0; return (0, 0); }
-        ICore(c.core).modLP(false, p.sqrtP, grossRem, 0, p.tl, p.tu, address(0));
+        ICore(c.core).modLP(false, p.sqrtP, grossRem, 0, p.tickLower, p.tickUpper, address(0));
         LP.pooled -= netRem; levPooled[lp] -= netRem;  // net leg leaves pooled/lpShares
         levBuf[lp] = 0; levBufferUsd[lp] = 0;          // buffer leg leaves totalBuffer (bufBurned)
         return (netRem, bufBurned);
@@ -165,7 +165,7 @@ library VogueLib {
         (uint netUsd, uint netEth) = IVogue_VG(address(this)).addLiq(netEq, price, false);
         if (netEth == 0) return 0;
         LP.pooled += netEth; levPooled[lp] += netEth;
-        ICore(c.core).modLP(false, p.sqrtP, netEth, netUsd, p.tl, p.tu, lp);
+        ICore(c.core).modLP(false, p.sqrtP, netEth, netUsd, p.tickLower, p.tickUpper, lp);
         return netEth;
     }
 
@@ -181,7 +181,7 @@ library VogueLib {
         uint bufUsd = LevMath.capBufferUsd(bufEth, price, ILevEquity(p.lm).debtUsd(lp));
         if (bufUsd == 0) return 0;
         levBuf[lp] += bufEth; levBufferUsd[lp] += bufUsd;   // depth + fee weight, NOT equity
-        ICore(c.core).modLP(false, p.sqrtP, bufEth, bufUsd, p.tl, p.tu, lp);
+        ICore(c.core).modLP(false, p.sqrtP, bufEth, bufUsd, p.tickLower, p.tickUpper, lp);
         return bufEth;
     }
 

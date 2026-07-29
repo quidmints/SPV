@@ -725,7 +725,7 @@ contract Vogue is
     function _doReconcile(address lp, address lm, uint gross) private {
         Types.Deposit storage LP = autoManaged[lp];
         VogueLib.LevP memory p;
-        (p.sqrtP, p.tl, p.tu,,) = _rebalance();
+        (p.sqrtP, p.tickLower, p.tickUpper,,) = _rebalance();
         p.lm = lm; p.gross = gross;
         _settlePending(LP, lp, address(0));          // settle fees up to now (→ usd_owed) before pooled moves
         (uint addedNet, uint burnedNet, uint bufAdded, uint bufBurned) = VogueLib.reconcileLegs(
@@ -978,13 +978,13 @@ contract Vogue is
         uint usd6 = V4.POOLED_USD_ETH();     // band's in-range USD leg (6-dec)
         uint eth  = V4.POOLED_ETH();         // band's in-range ETH leg (18-dec)
         if (usd6 == 0 || eth == 0) return 0; // empty band -> free stables only
-        (uint160 sqrtP, int24 tl, int24 tu,,) = _rebalance();
+        (uint160 sqrtP, int24 tickLower, int24 tickUpper,,) = _rebalance();
         // ROOT-PRECISE: size the ETH removal by the band's OWN in-range USD/ETH ratio, NOT an external TWAP.
         // Removing the fraction `usdWanted/(usd6·1e12)` of the position releases EXACTLY `usdWanted` USD (plus
         // the paired ETH, which stays in-venue). ETH to pull = usdWanted·eth/(usd6·1e12); _burnInRange caps at
         // POOLED_ETH. This frees precisely what redemption asks (no over/under-free) with ZERO oracle dependency
         // — so a dead TWAP no longer zeroes the unwind, and the mixed USD/ETH release no longer under-delivers.
-        _burnInRange(sqrtP, FullMath.mulDiv(usdWanted, eth, usd6 * 1e12), tl, tu, address(0));
+        _burnInRange(sqrtP, FullMath.mulDiv(usdWanted, eth, usd6 * 1e12), tickLower, tickUpper, address(0));
         uint after6 = V4.POOLED_USD_ETH();
         usdFreed = usd6 > after6 ? (usd6 - after6) * 1e12 : 0;
     }
@@ -1418,7 +1418,7 @@ contract Vogue is
     function compound(address lp) external nonReentrant {
         Types.Deposit storage LP = autoManaged[lp];
         if (LP.pooled == 0) return;                  // nothing to compound — keeper-safe no-op
-        (uint160 sqrtP, int24 tl, int24 tu,,) = _rebalance(); // repack-first: roll pool fees into feesPerShare
+        (uint160 sqrtP, int24 tickLower, int24 tickUpper,,) = _rebalance(); // repack-first: roll pool fees into feesPerShare
         uint eth_fees = feesPerShare;
         uint usd_fees = USD_FEES;
         (uint tokR, uint usdR) = _pendingFor(lp);    // token-leg (WETH-units) + USD-leg owed
@@ -1436,7 +1436,7 @@ contract Vogue is
 
         // Burn-to-cranker FIRST so `sent` (capped at the band's active slice) is the truth for the
         // accounting below; the whole fn is nonReentrant so the native-ETH send can't re-enter.
-        uint sent = tip > 0 ? _burnInRange(sqrtP, tip, tl, tu, msg.sender) : 0;
+        uint sent = tip > 0 ? _burnInRange(sqrtP, tip, tickLower, tickUpper, msg.sender) : 0;
 
         // EFFECTS: compound only what was NOT paid to the cranker; carry the USD leg (nothing leaves).
         uint net = tokR > sent ? tokR - sent : 0;
