@@ -4492,3 +4492,45 @@ it names the §A.5e staleness property, which IS real and IS load-bearing.
   (the named property). Four of four fixed so far needed both, and one (`testDD`) was hiding a genuine
   defect behind a `try/catch`.
 
+# ════════ CURRENT STATE — supersedes every earlier "OPEN" marker above (2026-07-29) ════════
+
+⚠️ READ THIS SECTION FIRST. This file is APPEND-ONLY, so earlier sections still say "OPEN"/"UNVERIFIED"
+for items resolved later (§A.50's direction, §A.57's `usdInc` link, §A.55, §A.58's half-open claim,
+§A.62's vendored duplicate — ALL since closed). Trust THIS section over any earlier marker; when an item
+below is closed, update HERE rather than appending again.
+
+## ✅ CLOSED THIS SESSION (money-path fixes, all suite-verified unless noted)
+  • §A.50 `preferred` redemption paid ~8x par → fixed at the redeem call site. Suite 3560/0.
+  • §A.57 LP fee revenue under-paid 1e12x (BOTH settle paths) → fixed; 3 tolerances made PROPORTIONAL
+    (derived from the measured 4.2bps, not raised until green).
+  • §A.55 de-lever `takeToSettle` 1e12 over-request → fixed at both call sites; exonerated of the
+    delivery-mint failures by a PROPER isolation (`git checkout` of the pre-fix file).
+  • §A.62 tree layout: `libraries/`→`imports/`, `DeployL1_s`→`script/`, **0 dual definitions tree-wide**.
+  • §A.54 `tl`/`tu`→`tickLower`/`tickUpper` (42 sites) · `OorTicks` collapsed into `SwapLib.Oor`.
+  • §A.63 dead test `MintRatchetProbe` deleted; other probe subjects verified LIVE (Bold/Lvr/Donation/
+    Taproot all present in `src/`) ⇒ that search is EXHAUSTED.
+  • §A.46 sweep re-run trustworthy: 288 parsed, **0 unparsed**, 7 assertion-free remaining.
+
+## 🔴 GENUINELY OPEN — and the two the USER ASKED FOR are at the top
+ 1. **The 6909 stable→stable fee path** — the user's ORIGINAL question, asked early and STILL
+    UNANSWERED. Partial signal only: `tipSelf`, *"the haircut accrues to backing"*, and the docstring
+    *"the IDENTICAL perShare prices a QD-in swap (SwapLib), so QD is never worth more swapped than
+    redeemed"*. ⇒ Fees may raise BACKING rather than create a per-holder claim, but NOT traced.
+ 2. **The legacy `_take` comparison** (`github.com/quidmints/quid`) — user asked; never done. Higher
+    value now: FOUR 1e12 seam bugs surfaced, and the pre-port implementation may show whether those
+    conversions were correct before the Bitcoin work landed.
+ 3. §A.61 / task #7 — one 6↔18 conversion helper at every seam (the structural fix for those four).
+ 4. §A.52 — interface dedup is SEMANTIC (95 locals, 0 name-duplicates); group by target contract.
+ 5. §A.56 — unify the out-of-range PATH; still unverified whether ETH has its own args bundle.
+ 6. §A.46 — the 7 remaining assertion-free tests (`test_HoldingsCache_ReconcilesToLive` first).
+ 7. Which other `src/` files belong in `imports/` — examine `DeployLib.sol`, `mock.sol`, `QuidLens.sol`.
+ 8. JIT-DEPTH §2 — genuinely deferred, but the blocker is LIFTED (`Basket.turn` exists, `Basket.sol:167`).
+ 9. §A.19b `redeemVBtc` · §A.43 attestation binding · §A.5f per-action auth · §J.8 weETH-on-Aave-v4.
+10. §A.15 — verify the possibly-INVERTED claim BEFORE writing any fix.
+
+## ⚠️ OUTSTANDING VERIFICATION DEBT
+Everything since `a6d7a18` is **build-and-ABI-verified only** — the fork RPC degraded (last run executed
+91 of 3560 tests; `eth_rpc_url` is a hardcoded Ankr key in `foundry.toml:34`, rate-limited). ONE clean
+`forge test` clears the whole debt once the endpoint is healthy. A pinned/paid RPC is a PREREQUISITE for
+Echidna — fuzzing hammers the fork far harder than the suite does.
+
