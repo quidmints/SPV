@@ -4333,3 +4333,32 @@ REMAINING IN THE DEDUP PASS (all still open):
     (stack depth). One args struct for both, `isBTC` + id as fields.
   • §A.61 — the 6↔18 conversion helper (task #7).
 
+## §A.52 SIZED — the cited example is ALREADY FIXED, but the pass is 95 declarations from done.
+
+User: *"it still left residual stuff like `IAuxBtc_V` AND `IAuxDeposits_V` in Vault.sol so we are far
+from done with it."* Both halves checked:
+
+### The specific example: ALREADY CONSOLIDATED (a comment, not live code)
+`IAuxBtc_V` and `IAuxDeposits_V` have NO declarations anywhere. They survive only in a HISTORICAL NOTE
+at `BtcVaultLib.sol:17-18`: *"IAuxSwap — the Aux surface (was `IAuxBtc_V` + `IAuxDeposits_V`, …
+IAuxDeposits_V's lone `get_deposits` is byte-identical …"*. And `Vault.sol` declares exactly ONE
+interface — `IPermit2Approve` (`:57`), deliberately minimal (Permit2's allowance-grant surface only).
+📌 SAME TRAP AS #109: a comment describing past state read as present state. When auditing "what is
+   still declared", grep for `^\s*interface`, never for the type NAME — a name matches its own obituary.
+
+### The real scope: **113 interface declarations, only 18 canonical ⇒ 95 still local**
+Concentration: `SwapLib` 11 · `BasketLib` 11 · `LevMath` 10 · `Vogue`/`VogueLib`/`ILevVenue`/`ChannelLib`/
+`Core`/`BtcLevManager` 3 each · remainder spread thin. So the user's CONCLUSION is correct even though
+the example was stale — this is a large pass, not a residue.
+
+METHOD (unchanged, and it is why this is not mechanical):
+ 1. `grep -rnE "^\s*interface" src --include="*.sol"` for the true inventory.
+ 2. For each, diff against the canonical member in `imports/Interfaces.sol`. Fold ONLY on a proven
+    STRICT SUBSET (same signatures, same mutability, same returns). If it declares something extra,
+    either extend the canonical interface deliberately or KEEP the shim and record why.
+ 3. `forge build --sizes` before/after — several contracts sit near EIP-170 and a fold can push one over.
+ 4. `python3 tools/check-client-abis.py` must stay at 0 drifted.
+⚠️ Many locals are minimal-by-design (like `IPermit2Approve`): declaring 1-2 functions instead of
+   importing a fat interface is a SIZE optimisation, not sloppiness. Folding those could COST bytecode.
+   The goal is ONE declaration PER CONCEPT — not zero local interfaces.
+
