@@ -4664,3 +4664,38 @@ ACTION: replace both literals with an env var (e.g. `eth_rpc_url = "${MAINNET_RP
 swappable without editing a committed file — and note the Ankr TOKEN IS COMMITTED IN PLAINTEXT and this
 repo has a `SPV public snapshot` commit (`0af7f6d`); if that was ever pushed publicly, ROTATE IT.
 
+## §A.66 — LEGACY `_take` COMPARISON (user asked twice; done). The 1e12 bugs are PORT REGRESSIONS.
+
+Read `evm/src/Aux.sol` in the pre-Bitcoin repo (`github.com/quidmints/quid`). Legacy signature:
+```solidity
+function _take(address who, uint amount, address token, uint seed) internal returns (uint sent)
+```
+**`amount` is in NATIVE TOKEN DECIMALS, not 18-dec USD.** Evidence in the legacy file:
+  • named/preferred path scales UP explicitly:
+    `sent = BasketLib.scaleTokenAmount(sent, token, true); amount = BasketLib.scaleTokenAmount(amount, token, true);`
+  • pro-rata loop stays native with an explicit divisor:
+    `uint divisor = (i < 4 || i == 11) ? 1e12 : 1; amounts[i] = _withdraw(who, i, amounts[i] / divisor); sent += amounts[i] * divisor;`
+
+⇒ **THE FOUR 1e12 BUGS ARE REGRESSIONS INTRODUCED BY THE PORT, NOT ORIGINAL DESIGN FLAWS.** The legacy
+  convention (NATIVE in) is EXACTLY what `_takePreferred` still expects — independently verified while
+  fixing §A.50. The Bitcoin-era port began feeding it USD 1e18 at the redeem call site (§A.50), at
+  `takeToSettle` (§A.55), and omitted the 6→18 scale-up on fee settlement (§A.57).
+  ⇒ This VALIDATES §A.61 (task #7): the legacy already used `scaleTokenAmount`; what it did NOT have was
+    a way to make omission impossible, and the port is where omissions crept in.
+
+📌 ALSO NOTE — the legacy is not a model to copy wholesale: its pro-rata divisor is INDEX-BASED
+  (`i < 4 || i == 11`), i.e. a hardcoded position table. That is fragile in a different way (add or
+  reorder a stable and it silently mis-scales) — it is EXPLICIT but not SAFE. §A.61's
+  `toNative`/`toUsd18` keyed on `token.decimals()` is strictly better than both the legacy table and the
+  current ad-hoc calls.
+
+⚠️ SOURCE CAVEAT: this reading came via a fetch-and-summarise of the raw file, i.e. SECOND-HAND. The
+  conclusion is corroborated by Lane C's INDEPENDENT in-repo verification of the same unit convention,
+  but before relying on the `i < 4 || i == 11` detail for anything, read the legacy file directly.
+
+### Legacy files deliberately NOT reviewed (user: "ignore the prediction market and chainlink cre stuff")
+`Court.sol`, `Jury.sol`, `Solver.sol`, `Amp.sol` (prediction market) and `Link.sol` (Chainlink). The
+legacy tree otherwise MIRRORS ours — `Aux.sol`, `Basket.sol`, `Vogue.sol`, `VogueCore.sol`, `Rover.sol`,
+`mock.sol`, plus `imports/` and `L2/` — so a broader Vogue/Aux legacy diff is feasible and is the next
+step of this comparison (NOT yet done).
+
