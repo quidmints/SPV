@@ -39,12 +39,12 @@ regression, but it is the opposite of "most of it is finished".
 
 | id | what | state |
 |---|---|---|
-| **C1** | `Aux.deposit` returns NATIVE; `SwapLib._swapOutPrep`/`_consumeVolInput` treat it as 6-dec | RE-APPLIED ALONE, suite verifying. Prediction: unchanged at 3,558/2, since `scaleTo6` is a no-op for 6-dec and every test uses USDC |
+| **C1** | `Aux.deposit` returns NATIVE; `SwapLib._swapOutPrep`/`_consumeVolInput` treat it as 6-dec | ✅ **APPLIED & CONFIRMED — it FIXED F2.** 3,559/1 vs a 3,558/2 baseline. My prediction (unchanged) was WRONG in the best way: `ZZBoldProbe` now PASSES because **BOLD is 18-dec** — see §A.74 |
 | **C2** | `Core.sol:989` hands `AUX.take` a 6-dec value where NATIVE is required | REVERTED (§A.72). The audit's patch was WRONG — `scaleTokenAmount` converts native↔18-dec, but this value is 6-dec. **Needs a `from6(amount6, token)` helper that DOES NOT EXIST** |
 | **C3** | `BasketLib.convert` 1e10 off for `volScale=1e8`; 2 uncompensated BTC sites (`SwapLib:1013`, `:444/455`) | open. Apply ONLY after C1 verifies — fixing C3 first ARMS a latent `Core.refundUnfilled` mismatch |
 | **C4** | a WEI premium written into a 6-dec register ⇒ `derivedThetaWad` blows past 1e18 permanently ⇒ **the Merton band throttle is DEAD on the ETH side** after the first volatile sell-in | open |
 | **C5** | `Vogue.sol:658` missing `* 1e12` — a THIRD §A.57 site. On a FULL EXIT an LP's whole USD fee leg pays at 1e-12 | open. One token; mirrors `Vogue.sol:439-440` |
-| **F2** | BOLD paid by leverage opens does not reach the Stability Pool (0 vs ~1.584e18) | open, cause untraced |
+| ~~F2~~ | BOLD not reaching the Stability Pool | ✅ **CLOSED by C1** — cause was the 18-dec seam, not a Liquity leak |
 | C6–C9 | seedFee clamp basis · ungated TWAP seam · stale read across repack (`Vogue:978-989`) · `scaleTo6` on 4626 share decimals | open, lower severity |
 | **F1** | control-LP redeem delivers 0 | open. Probably a FIXTURE warp (immature QU!D = the audit's intended behaviour) — **verify before touching the protocol** |
 

@@ -5110,3 +5110,34 @@ for the seven 18-dec stables, which nothing exercises. ⇒ If C1 alone moves the
 seam is wrong and the whole C1 diagnosis needs re-deriving before anything else is built on it.
 This is deliberately a test OF THE DIAGNOSIS, not just of the patch.
 
+## §A.74 ✅ C1 CONFIRMED BY EXPERIMENT — and it CLOSED F2. The 18-dec thesis is now EMPIRICAL.
+
+Re-applied C1 ALONE with a falsifiable prediction on record (*"suite unchanged at 3,558/2, because
+`scaleTo6` is a no-op for 6-dec and every test uses USDC"*). **The prediction was WRONG, in the most
+useful direction:**
+  baseline **3,558 passed / 2 failed** → with C1 **3,559 passed / 1 failed.**
+The failure that disappeared is **F2 — `ZZBoldProbe`, "the BOLD paid by leverage opens must land in the
+SP, not evaporate between the legs" (0 vs ~1.584e18).** Remaining failure is F1 only.
+
+### WHY THIS IS THE STRONGEST RESULT OF THE SESSION
+**BOLD IS AN 18-DECIMAL STABLE.** The agent's `ZZBoldProbe` — written to chase something else — became
+the codebase's **FIRST 18-DEC TEST**, and it was failing for EXACTLY the reason C1 describes:
+`Aux.deposit` returned native 18-dec BOLD → `_swapOutPrep` treated it as 6-dec → the value was 1e12x
+wrong → the BOLD never reached the Stability Pool. `scaleTo6` fixes it.
+⇒ C1 is no longer "correct by argument". It is **confirmed by an independently-discovered failure**
+  that nobody wrote to test it.
+⇒ **The 18-dec fixture-gap thesis is now EMPIRICAL, not inferred.** The single test that happened to use
+  an 18-dec stable was the single test failing. That is the fixture gap, demonstrated.
+⇒ F2 was NOT a Liquity/SP leak. Its three candidate causes are resolved: it was the decimal seam.
+
+### CONSEQUENCES
+1. **C1 stays.** Keep it applied; it is the only money-path fix currently verified by a real failure.
+2. **The 18-dec fixture is now the highest-confidence item on the list**, not just the highest-value one:
+   one accidental 18-dec test found one real bug on its first run. A deliberate fixture over
+   GHO/DAI/BOLD/RLUSD/USDS/USDe/cUSD should be expected to find more — C2, C3 and C5 all live on the
+   same seam.
+3. **My "no-op" reasoning was too narrow.** I checked that `scaleTo6` is identity for 6-dec stables and
+   concluded the suite could not see C1 — forgetting that a NEW test using an 18-dec stable had landed
+   hours earlier. LESSON: when predicting "the suite cannot see this", check what the suite ACTUALLY
+   COVERS NOW, not what it covered this morning.
+
