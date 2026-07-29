@@ -4996,3 +4996,41 @@ consistent" cannot be STATED as a property while the 6/8→18 conversion is ad h
   script/DeployL1_s.sol --fork-url <anvil>` reports actual cumulative gas including all of the above,
   which is why §A.69 says measure rather than estimate.
 
+## §A.71 🔴 CODEBASE-WIDE DEDUP/CONSOLIDATION PASS (user, 2026-07-29) — "every struct, everything"
+
+User: *"we have to do a broader dedup and consolidation simplification pass across the entire codebase
+to find opportunities like outOfRange. every struct, everything. is that in the queue?"* It was NOT —
+§A.52 (interfaces), §A.54 (names/OorTicks) and §A.56 (out-of-range) are each NARROW. This is the general
+pass. **#12 IS DONE** (both senses: drop-voting deleted EVM+SPA; the POOLED_USD unify landed as
+`_bandEquityUsd18(bool isBTC)` with `committedUsd18` summing it once).
+
+### STRUCTS — SCANNED. 71 total; 7 shapes shared by >1 struct. Triaged:
+🔴 **`LevManager.Pos` == `BtcLevManager.Pos`** — 6 fields, **SAME NAME, SAME SHAPE, different files.**
+   This is the ETH/BTC twin pattern, identical in kind to `outOfRange`. **REAL MERGE CANDIDATE** —
+   likely one `Pos` in `Types.sol` used by both managers. Check EIP-170 both ways (both managers are
+   large: LevManager 25,164 / BtcLevManager 21,843 initcode).
+🛑 NOT merges — coincidental shape collisions between unrelated concepts:
+   `MorphoEscrowVenue.MarketParams` == `LevMath.SellCtx` (5 fields) ·
+   `BtcVaultLib.LevDelta` == `Types.Deposit` == `ChannelLib.SPState` (4 uints).
+🛑 NOT merges — vendored Uniswap, genuinely different ops that share a shape:
+   `ISwapRouter`/`IV3SwapRouter` `ExactInput{,Single}Params` vs `ExactOutput{,Single}Params` (×4).
+
+### THE METHOD THAT WORKS (learned from `outOfRange`, use it for the rest)
+The `outOfRange` win was NOT found by grepping names — it was found by asking **"does a helper for this
+already exist elsewhere?"** `SwapLib.sizeOorUsd` was already there; the ETH path had copied its BODY
+inline. So the general pass should search for **duplicated LOGIC**, not duplicated names:
+ 1. **Structs** — DONE above (field-signature scan).
+ 2. **ETH/BTC twins** — the richest seam. `Pos` above; also compare `LevManager` vs `BtcLevManager`
+    function-by-function, and `VogueLib` vs `BtcVaultLib`. Ask of each pair: is the difference REAL
+    (different asset semantics) or incidental (different author, same job)?
+ 3. **Inlined helper bodies** — for each `imports/` helper, grep whether its BODY is duplicated at a
+    call site that could just call it. That is precisely the `sizeOorUsd` case.
+ 4. **Interfaces** — §A.52: 95 locals, ZERO name-duplicates, so it is a SEMANTIC pass; group by the
+    contract they point at (`IAux*`, `ILev*`, `ICore*`) then diff member sets.
+ 5. **Constants/magic numbers** — the `1e12`/`1e10`/`10**(18-d)` family; §A.61's boundary work.
+⚠️ TWO STANDING CAVEATS: (a) minimal shims like `IPermit2Approve` are EIP-170 OPTIMISATIONS — merging
+   them COSTS bytecode; the goal is one declaration per CONCEPT, not zero locals. (b) Some splits are
+   LOAD-BEARING — `POOLED_USD_ETH`/`_BTC` must stay separate (coupled pools, distinct LPs, and
+   `Core.sol:48`'s invariant checks exactly that coupling). Ask "should this split exist?" in BOTH
+   directions.
+
