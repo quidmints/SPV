@@ -57,6 +57,24 @@ is the highest-leverage single action available.
   `LevManager.Pos` == `BtcLevManager.Pos`. Remaining sub-passes: ETH/BTC twins, inlined helper bodies,
   interfaces, constants. **Method: hunt duplicated LOGIC, not names** — `sizeOorUsd` already existed and
   the ETH path had copied its body.
+- **§A.71b 🔴 NEAR-MATCH DEDUP — the method used so far CANNOT find what the user describes.**
+  User: *"i am certain that there is more dedup work to do that is not getting picked up as a dedup
+  opportunity because of small semantic differences."* **Correct, and it is a flaw in my scan, not a
+  hunch.** The struct sweep matched EXACT field signatures, so `{a,b,c}` vs `{a,b,c,d}` read as
+  unrelated; likewise two functions differing by one guard or one param. `sizeOorUsd` was only found
+  because the ETH copy was BYTE-IDENTICAL — had it differed by a line, the scan would have missed it.
+  ⇒ NEEDED: NEAR-match detection. (a) structs whose field sets are SUBSETS or differ by ≤1 field;
+    (b) function pairs with the same CALL-SEQUENCE SKELETON (normalise identifiers, diff the sequence of
+    calls/branches) — catches "same job, one extra guard"; (c) ETH/BTC twins compared BODY-BY-BODY,
+    asking of each difference whether it is REAL asset semantics or incidental.
+    **Concrete starting point: `ChannelLib.supplyBody`'s three branches (Aave / BOLD / 4626)** — all
+    return native and differ mainly in HOW they source, which is exactly the shape that hides behind
+    "small semantic differences".
+- **§A.66b 🟠 THE LEGACY COMPARISON WAS NOT COMPREHENSIVE.** Only `Aux.sol`'s `_take` and `Vogue.sol`'s
+  structure were read, yielding exactly two findings: the native-units convention (C1 rests on it) and
+  G2 (`decimals()` at 33 seams vs the legacy's zero-call divisor). **A file-by-file diff of
+  `Basket`/`Core`/`VogueCore`/`Rover`/`imports/` against `~/Documents/quidmint/quid/evm/src/` has NEVER
+  been done** — and both findings it did produce were high-value, so expected yield is good.
 - **§A.52** interface dedup — 95 locals, ZERO name-duplicates ⇒ semantic. Group by target contract.
 - **§A.56 part 2** — out-of-range ARGS: a responsibility-boundary move (VogueLib sizes only; BtcVaultLib
   does everything), not a signature change. Partial at `/tmp/A56-partial.patch`.
