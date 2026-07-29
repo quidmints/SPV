@@ -4442,3 +4442,26 @@ VERIFIED: `forge build --force` 0 errors · **duplicate interface names tree-wid
      `BtcLevManager`, `BTCChannels`, `AttestedHopRegistry`, `SorExchange`, `LevOracles`) are DEPLOYED
      and stay in `src/`.
 
+## §A.63 — DEAD TESTS (user, 2026-07-29). `MintRatchetProbe` DELETED; my vacuous scan MISSED it.
+
+User: *"there are dead tests like MintRatchet, they must be deleted."*
+
+`test/MintRatchetProbe.t.sol` — **DELETED**. Dead on TWO independent counts, both verified before
+removing (it could have been renamed coverage, so it was read, not just name-matched):
+ 1. **Dead subject.** The string `ratchet` appears NOWHERE in `src/`. It probed whether fresh QU!D was
+    curve-swappable before its backing yield accrued — an INVESTIGATION, and its docstring even carries
+    manual run instructions (*"Run: forge test --match-contract MintRatchetProbe … -vv"*).
+ 2. **Vacuous.** ZERO assertions — only `emit log_named_uint` diagnostics, one `require` as a fixture
+    precondition, and `try/catch` swallowing both swap legs. It passed unconditionally.
+⚠️ The safety property it was investigating ("`turn()` burns matured-only, so fresh QU!D draws nothing")
+   IS still real — but this file never ASSERTED it, so deleting removes zero coverage. If that property
+   is wanted, it needs a REAL test; `testRedeem` already asserts the sibling property (immature redeem
+   releases and burns nothing, the audit's immature-drain fix).
+
+🔴 PROCESS FINDING: this file was NOT in the 11 assertion-free tests found by the §A.46 sweep, even
+though it is exactly that shape. **My scan missed it** — most likely its brace-matching failed on this
+file's structure. ⇒ The "11 remaining" figure is a FLOOR, not a count. Before closing §A.46, re-run the
+sweep with a parser that cannot silently skip a function (or cross-check against
+`forge test --list`), and specifically look for other `*Probe`/`*Diag` files that are investigations
+rather than regression tests — they are the highest-yield place to find more dead weight.
+
