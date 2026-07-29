@@ -4115,3 +4115,38 @@ STANDING RULES ADOPTED (also saved to durable memory as `never-assert-absence-fr
 (`#109 auto-de-lever`), not only under the fix's shape (`withdraw cap`). Had the earlier entry said
 "restored #109's auto-de-lever", the later grep for an auto-trigger would have hit it immediately.
 
+## §A.60 — DEFERRAL AUDIT (user: "make sure nothing is deferred… but only if it really hasn't been built")
+
+Applying the §A.59 lesson BEFORE building: verify each deferral is real, not a stale marker like #109's.
+
+### JIT-DEPTH §2 (the depth-guarantee core) — GENUINELY DEFERRED. Marker is ACCURATE, do not clear it.
+`Vogue.sol:499` gives a SUBSTANTIVE reason, not a TODO: *"the spec's redeem→addLiq top-up does NOT
+compose backing-neutrally. `addLiq` headroom is surplus = TVL − committed (independent of QUID supply
+S); `Aux.redeem`/`redeemAsBody` pays real stables OUT of the vaults (TVL↓), SHRINKING that surplus
+rather than funding it, while the true D≥S+L requirement is unchanged. A bare `Basket.turn` burn
+(S↓, TVL unchanged) is the neutral primitive the doc's math actually describes."*
+⇒ The SPEC is wrong, not the implementation. Deferring was correct.
+
+🔑 **AND THE BLOCKER IS ALREADY LIFTED: `Basket.turn(address from, uint value)` EXISTS (`Basket.sol:167`).**
+  The neutral primitive the deferral names as the correct approach is BUILT. So §2 is constructible from
+  what we have — no new primitive required, which is exactly the "reuse what we have" the user asked for.
+  SHAPE: replace the spec's redeem→addLiq top-up with a `Basket.turn` burn (supply↓, TVL unchanged), so
+  the depth top-up is backing-neutral by construction and `D >= S + L` is preserved.
+  ⚠️ NOT BUILT HERE — this is the MEV/depth-guarantee core on the money path. It needs: the D≥S+L
+  algebra re-derived against `turn` (NOT copied from the doc, whose math is what proved wrong), a
+  backing-invariant test, and a full suite. Do NOT start it without headroom to verify.
+
+### STATUS OF EVERY OTHER "DEFERRED"/UNBUILT ITEM — verified, not assumed
+| item | really unbuilt? | evidence |
+|---|---|---|
+| JIT-DEPTH §2 core | ✅ genuinely deferred | reasoned blocker above; primitive now exists |
+| JIT-DEPTH §4 folding | ❌ **BUILT** | status corrected `dd10b0a`; all three items live |
+| #109 auto-de-lever | ❌ **BUILT + RESTORED this thread** | `Vogue.sol:36,483`; cap fix made it reachable |
+| on-chain `refillETH`/`arbETH` | ❌ deliberately REMOVED | `Aux.sol:854,863` — retired in favour of the fleet JIT refill |
+| §A.55 `takeToSettle` 1e12 | ✅ unbuilt (a FIX, not a feature) | fix shape known; call-site conversion |
+| §A.57 fee scale-up | ✅ unbuilt (a FIX) | blocked on ONE unit trace (`usdInc`) |
+| §A.58(2) composition healer | ✅ unbuilt BY DESIGN | keeper JIT refill covers it; economic layer = skew premium |
+| §A.5f per-action auth | ✅ genuinely unbuilt | no `perActionAuth`/EIP-712 surface exists |
+| §A.19b `redeemVBtc` | ✅ genuinely unbuilt | rail exists, entrypoint does not |
+| §A.43 attestation binding | ✅ genuinely unbuilt | EVM key IS enclave-born/sealed; only the quote binding is missing |
+
