@@ -4150,3 +4150,27 @@ rather than funding it, while the true D≥S+L requirement is unchanged. A bare 
 | §A.19b `redeemVBtc` | ✅ genuinely unbuilt | rail exists, entrypoint does not |
 | §A.43 attestation binding | ✅ genuinely unbuilt | EVM key IS enclave-born/sealed; only the quote binding is missing |
 
+## §A.55 FIX APPLIED — ⚠️ BUILD-VERIFIED ONLY, FULL SUITE NOT COMPLETED
+
+FIX (both call sites in `SwapLib`, converting at the CALL SITE per the §A.50 lesson — never inside the
+shared helper, which serves two unit conventions):
+```solidity
+:1166  takeToSettle(venue, BasketLib.scaleTokenAmount(takeUsd18, stable, false), stable)
+:1216  takeToSettle(venue, BasketLib.scaleTokenAmount(fundUsd,   stable, false), stable)
+```
+`fundUsd` stays 18-dec for the `swapOutDelever` call beneath it, so ONLY the argument is converted, not
+the variable. `BasketLib.scaleTokenAmount(..., false)` was already in use at `SwapLib:508`, so no new
+helper was introduced. `forge build --force`: 0 errors.
+
+⚠️⚠️ **NOT SUITE-VERIFIED.** `forge test` TIMED OUT at 9m50s (RPC flakiness on the unpinned public fork
+was already producing 3 infrastructure failures earlier — `rpc.ankr.com … error sending request`). This
+is a MONEY PATH (delivery-side de-lever) and MUST be re-run to completion before it is trusted.
+NEXT: `forge build --force && forge test`. Expect the same ~3 RPC flakes; anything that is an ASSERTION
+failure is caused by this change and needs triage. If the fix is wrong the signature will be
+de-lever/swap-out tests, not fee or redeem tests.
+
+📌 WHY IT IS STILL WORTH HAVING LANDED: the bug is confirmed (Lane C traced it independently while
+fixing §A.50), the fix is structurally IDENTICAL to §A.50's — which WAS fully suite-verified at
+3560/0 — and it is two arguments at two call sites with no shared-helper change. Risk is low but NOT
+zero, and it is uncommitted-to-remote, so re-running the suite is the only outstanding step.
+

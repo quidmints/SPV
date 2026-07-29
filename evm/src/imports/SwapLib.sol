@@ -1163,7 +1163,11 @@ library SwapLib {
         uint got;
         {
             uint bal0 = IERC20(stable).balanceOf(venue);
-            IAuxSwap(aux).takeToSettle(venue, takeUsd18, stable); // basket → venue (soft backing = final-state solvency)
+            // §A.55: `takeToSettle` routes to the SWAP branch of `_takePreferred`, which takes NATIVE
+            // units — passing USD 1e18 was a 1e12x over-request that drained the basket's stable. Masked
+            // because `got` measures the OUTCOME, so the repay was sized off the full drain. Converted
+            // HERE, at the call site: the shared helper serves two unit conventions (§A.50).
+            IAuxSwap(aux).takeToSettle(venue, BasketLib.scaleTokenAmount(takeUsd18, stable, false), stable); // basket → venue (soft backing = final-state solvency)
             got = IERC20(stable).balanceOf(venue) - bal0;        // venue-stable actually sourced (native units)
         }
         // Repay `got` (0 if the position had no debt — a pure-equity levered slice) and free `want` sats regardless.
@@ -1213,7 +1217,9 @@ library SwapLib {
             // Route the swap's OWN proceeds → venue directly (Vogue==address(this) IS `takeToSettle`-authorized),
             // then repay+free+deliver. try/catch: a stuck LP (illiquid collateral / venue revert) is skipped,
             // leaving the residual to the #105 partial-fill.
-            try IAuxSwap(aux).takeToSettle(venue, fundUsd, stable) returns (uint) {
+            // §A.55: native units for the take (see above). `fundUsd` stays 18-dec for `swapOutDelever`
+            // below, so ONLY the argument is converted — not the variable.
+            try IAuxSwap(aux).takeToSettle(venue, BasketLib.scaleTokenAmount(fundUsd, stable, false), stable) returns (uint) {
                 try ILevEthDeliver(mgr).swapOutDelever(lp, fundUsd, recipient, 0) returns (uint, uint w) {
                     deliveredEth += w;
                 } catch {}
