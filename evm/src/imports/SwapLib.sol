@@ -526,7 +526,8 @@ library SwapLib {
             if (index > 5) {
                 amount = aux.withdrawSelf(vault, amount, address(this));
             } else if (!stable) revert StableMissingS();
-            amount = aux.deposit(msg.sender, token, amount);
+            // §A.50/C1: native → 6-dec, same reasoning as `_swapOutPrep`. No-op for 6-dec stables.
+            amount = scaleTo6(aux.deposit(msg.sender, token, amount), token);
         }
         return amount;
     }
@@ -1003,7 +1004,11 @@ library SwapLib {
         address wbtc = address(IAuxSwap(aux).WBTC());
         // The normalized 6-dec USD pulled in — exactly what enters POOLED_USD_BTC (exact-input curve buy)
         // and thus the exact proceeds owed to the delivering LP (returned so requestSwapOutOnchain records it).
-        uint amount = IAuxSwap(aux).deposit(swapper, token, usdAmount);
+        // §A.50/C1: `deposit` returns TOKEN-NATIVE; this comment long claimed 6-dec. `scaleTo6` is
+        // native→6, which is exactly the conversion needed, and it is a NO-OP for the 6-dec stables
+        // (USDC/USDT/PYUSD/USDG/AUSD). It bites only for the seven 18-dec stables, which no test
+        // currently exercises — see the mixed-decimal Echidna target (§A.70).
+        uint amount = scaleTo6(IAuxSwap(aux).deposit(swapper, token, usdAmount), token);
         ctx.asset = wbtc; ctx.core = core; ctx.volScale = 1e8;
         // Reuse the repack-resolved oracle price (5th return); live-read only if v4p==0.
         (uint160 sqrtPriceX96,,,, uint v4p) = IVogueRepack2(address(this)).repack(true);

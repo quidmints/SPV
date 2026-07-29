@@ -1,3 +1,9 @@
+> # ⚠️ ARCHIVE — READ `QUEUE.md` FIRST
+> This file is APPEND-ONLY and 5,100+ lines across 73 `A.x` items, several re-framed two or three times
+> (§A.50 and §A.58 each). Its EVIDENCE is still authoritative — traces, `file:line`, measurements — but
+> its STATUS markers are NOT: sections still read "OPEN" for items closed later in the same file.
+> **Current status lives in `docs/actionable/QUEUE.md` and is updated IN PLACE.**
+
 # Master agenda — audit findings + build queue + #107 derivations + locked decisions
 
 > **📌 WORKING POLICY (user, 2026-07-24): THIS FILE IS THE WORK LOG.** Track EVERYTHING done here — every build, edit-set (files touched + one-line rationale, NOT the diffs), realization, decision, and open question — as it happens, so nothing is lost to compaction. Keep on-screen chat CONCISE: do not paste edits/diffs/code on screen; point to the file section instead. A realization not built the same turn MUST be written here immediately (see memory `feedback-record-realizations-before-compaction`). **Keep the SESSION STATUS block below CURRENT** — it is the live cross-thread dashboard.
