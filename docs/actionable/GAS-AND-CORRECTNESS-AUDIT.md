@@ -151,3 +151,72 @@ computed `sev` for every stable in the same tx** (`BasketLib.sol:175`) and disca
 3. `premiumEwmaUsd` same order of magnitude as `POOLED_USD_*` — asserts C4.
 4. `Σ(QU!D minted for fees) == Σ(usd_owed accrued) × 1e12` — asserts C5, would have caught all three
    §A.57 sites.
+
+# ═══ C4 CONFIRMED (2026-07-30) — full trace, and the BTC side has the MIRROR defect ═══
+
+**CONFIRMED at every step**, each with file:line. The Merton band throttle IS dead on the ETH side.
+1. `SwapLib.sol:416` `r.amount = aux._depositVol(...)` → `Aux.sol:704-707` → `:1251-1256`
+   `SwapLib.depositBody` returns `sent` **UNSCALED ⇒ raw NATIVE (wei)**. Corroborated in-file by
+   `SwapLib.sol:500-503`'s own docblock — *"volatile-in is NATIVE (r.amount from _depositVol; no
+   conversion); stable-in is 6-dec USD"* — and by `_refundExcess:508-511`, whose volatile branch passes
+   `excess` RAW while the stable branch does `excess * 1e12`.
+2. `:442` `retainSkewPremium(core, isBTC, r.amount, skew)` — no conversion between :416 and :442;
+   `:1326-1331` `mulDiv(amount, skew, 1e18)` is unit-preserving ⇒ **premium is WEI**.
+   `Core.sol:277` `recordSkewPremium(bool, uint premiumUsd)`, docblock `:272`: *"Units = … (6-dec)."*
+   ⇒ **1 ETH sell at 1% skew records `1e16` into a 6-dec register = "\$10,000,000,000". 1e12 inflation.**
+   🔑 **THE OTHER TWO RETAIN SITES ARE CORRECT** — `:464` is fed by `_consumeVolInput`'s `scaleTo6`
+     (`:530`) and `:1025` by `scaleTo6(deposit(...))` (`:1012`). So **:442 is an OUTLIER, not a
+     convention** — which is exactly why it reads as fine.
+3. `Core.sol:284` `_bumpEwma` (saturates only at uint128 ≈ 3.4e38) → `:215` `premiumEwmaUsd` →
+   `VogueLib.sol:333-340` `mulDiv(prem6 * 127, 1e18, pooled6)` — inflated numerator over an HONEST
+   6-dec `POOLED_USD_ETH` denominator ⇒ yield inflated ~1.27e14x → `:395-396` unbounded above.
+4. `SwapLib.sol:1292-1299` `if (thetaEff >= 1e18) return available;` — **unconditional pass-through.**
+5. **No clamp pulls it back — it was DELETED.** `VogueLib.sol:376-381` states verbatim that the
+   `theta > 1e18 ? 1e18 : theta` clamp *"is DELETED — it adds no safety"*, justified as "1e18 and 12e18
+   are byte-identical no-ops". True for BEHAVIOUR — and precisely why the corruption is **SILENT**: the
+   cap was the only thing that would have made the anomaly visible through `Vogue.derivedThetaWad`
+   (`Vogue.sol:883`). The one remaining guard is one-sided: `VogueLib.sol:470` `t == 0 ? 1e18 : t`
+   FLOORS, never caps. And `derivedThetaWad`'s docblock (`VogueLib.sol:353`) STILL claims
+   *"clamped to <=1"* — stale, contradicts the code.
+
+🔴 **NEW — THE BTC SIDE HAS THE MIRROR DEFECT, OPPOSITE SIGN.** Sats are 8-dec, so a 1 BTC sell at 1%
+records `1e6` = "\$1.00" against a true ~\$1,000 — a ~1e3 **UNDER**-report ⇒ BTC θ is too SMALL ⇒ the BTC
+band **OVER-throttles**. Only ETH goes dead; BTC is needlessly starved. Both are the same root cause.
+
+PERSISTENCE: `FLOW_DECAY` has a 48h half-life, so once blown it stays blown **for weeks**.
+BLAST RADIUS: the risk BUDGET, not solvency — the physical `backing − pooled` bound (`clampByBacking`,
+`:1335-1336`) still binds. Also corrupts `Core.skewPremiumETH` (`Core.sol:274`) and
+`event SkewPremiumRetained`, i.e. the documented "auditable LP P&L" figure.
+✅ **MINIMAL FIX**: convert at `SwapLib.sol:441-442` before retaining — **the price is already in hand on
+that exact line** (`v4p`/TWAP), and the native→6-dec idiom `mulDiv(x, base, 1e30)` is already used two
+frames away at `:969`.
+
+# ═══ C5 CONFIRMED + EXPLAINED (D1) ═══
+`Vogue.sol:656-659` mints `LP.usd_owed` (6-dec, `Types.sol:19`) as 18-dec QU!D with **no `* 1e12`**,
+while `Vogue.sol:434-440` does. **3 of the 4 sibling sites are correct** (`:439`,
+`BtcVaultLib.sol:57`, `:74`); `:658` is the only unscaled one. Reachable: an LP whose USD fees were
+deferred to `usd_owed` by a partial exit (`Vogue.sol:543`, `:730`) and who then FULLY exits is
+**under-paid 1e12x**. 📌 The comment at `:655` claims *"identical to the prior per-withdraw mint, just
+deferred"* — **it is NOT identical; the scale was dropped in the move.** A byte-identical dedup scan
+cannot see this: same call, same field, one arithmetic term apart.
+
+# ═══ NEAR-MATCH DEDUP FINDINGS (the exact-match scan could not see these) ═══
+**D2 `Vogue._settlePending` (`:424-445`) ≈ `BtcVaultLib.settleBtcLp` (`:41-63`) — MERGEABLE (USD half).**
+Same five steps in the same order, both carrying the SAME §A.57 comment. Real divergence is only the tok
+leg (ETH compounds into `LP.pooled + lpShares`; BTC accrues to `btcFeesOwedSats`) and how the weight
+arrives. 🔑 **Extracting the shared USD-leg half would have made D1/C5 STRUCTURALLY IMPOSSIBLE** — the
+strongest argument yet that dedup is bug-prevention, not tidiness.
+**D3 `_priceOr` (`:339-340`) is open-coded verbatim at `:441` and `:463`** (both tagged *"inline
+(swapToBody stack-tight)"*), while `_priceOr`'s own docblock (`:338`) claims it replaced those copies to
+reclaim EIP-170 bytecode. Both copies are in `swapToBody`, whose tail calls `_priceOr` anyway at `:480`
+with identical args ⇒ **the price is resolved TWICE per swap in one logical frame.** Verdict:
+LOAD-BEARING (no-`via_ir` stack budget) but the docblock is WRONG and the double resolution is waste.
+**D4 `_swapInPrep` (~:722-756) ≈ `_swapOutPrep` (~:1005-1029)** — same 8-step skeleton; intentional
+inverses. Could share a `_btcRouteBase(...)` builder for the six common assignments. NOTE the asymmetry
+that is NOT a mirror: OUT applies `wellSkew`+`retainSkewPremium` (`:1024-1025`), IN applies none
+(documented `:740-748`) — but the SELL-IN leg at `:441-442` DOES skew, so "swap-in never skews" is not a
+global invariant, and that is exactly the site carrying the C4 bug.
+
+NOT EXAMINED (time-bounded): `VogueLib` band-geometry `:1477-1610`; `wellSkew`/`sellSkew`/`skewWad`
+internals; `Vogue._withdraw` vs `unregisterBtcLp` (flagged intentionally distinct at `Vogue.sol:461-467`).
+
