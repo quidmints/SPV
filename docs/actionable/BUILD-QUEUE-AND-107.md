@@ -4828,3 +4828,17 @@ but it IS a different revert selector (no test asserted on the anonymous require
 agent attempted it, died mid-edit, and its partial work was reverted (saved at `/tmp/A56-partial.patch`,
 485 lines) — a half-applied refactor that COMPILES is more dangerous than one that does not.
 
+### §A.56 part 1 — duplication sweep CONFIRMS single definition. Remaining sites are NOT duplicates.
+
+After deduping the ETH branches onto `SwapLib.sizeOorUsd`, swept every
+`getLiquidityForAmount0/1` call site to confirm nothing else duplicates it:
+  • `SwapLib.sol:1462,1466` — INSIDE `sizeOorUsd`. The canonical definition.
+  • `Core.sol:1057-1072` — **IN-RANGE, two-sided**, sized off `sqrtPriceX96` (CURRENT price).
+    `sizeOorUsd` is **out-of-range, single-sided**, off `newLo`/`newUp`. Genuinely different math —
+    do NOT merge. (The audit separately confirms `_modLP` passes raw decimals here BY DESIGN, since
+    `sqrtPriceX96` already encodes the ratio.)
+  • `Rover.sol:467-472,614-616` — a DIFFERENT POOL (weETH/WETH UniV3), different context.
+  • `imports/v3/LiquidityAmounts.sol` — the vendored library itself.
+⇒ Out-of-range sizing now has exactly ONE definition protocol-wide. No further merge available on this
+  axis; the next dedup target is the ARGS asymmetry (§A.56 part 2), not the sizing.
+
