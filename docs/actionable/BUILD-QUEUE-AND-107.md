@@ -4641,3 +4641,26 @@ Step 2 (re-wire `calcFeeL1`) must add the DIRECTION term before it is switched o
 symmetric concentration fee would suppress exactly the arb flow that keeps the basket balanced — the
 failure mode would be silent (no revert, no failing test; just an imbalance that stops correcting).
 
+## ✅ VERIFICATION DEBT CLEARED (2026-07-29) — 3448 passed / 0 failed, on a WORKING RPC.
+
+`FOUNDRY_ETH_RPC_URL=https://ethereum-rpc.publicnode.com forge test` →
+**3448 passed · 0 failed · 58 skipped · 44 suites** (811s).
+
+COUNT RECONCILES: previously 3560/3620 across 45 suites. The drop is EXACTLY the `MintRatchetProbe`
+deletion (§A.63) — it inherited `Alles`, so removing it took ~112 INHERITED test instances and one
+suite. No coverage lost: those were duplicate runs of `Alles`'s own tests under another contract name.
+📌 Worth noting for future counts: a probe contract inheriting `Alles` inflates the suite total by ~113
+   without adding coverage. Several other `*Probe` files do the same.
+
+⇒ EVERYTHING SINCE `a6d7a18` IS NOW SUITE-VERIFIED, not just build-verified: the `tl`/`tu` rename (42
+  sites), the `OorTicks`→`SwapLib.Oor` collapse, `LevMath`→`imports/`, `DeployL1_s`→`script/`, the
+  vendored `IUniswapV3SwapCallback` extraction, and the `MintRatchetProbe` deletion.
+
+### 🔧 RPC — the real fix, and it is a prerequisite for Echidna
+`foundry.toml:34` hardcodes a rate-limited Ankr key (`eth_rpc_url`, plus `rpc_endpoints.mainnet:62`).
+Under suite load it degraded all day: 3 flakes → a 9m50s timeout → a run that executed only 91 of 3560
+tests. `ethereum-rpc.publicnode.com` completed the full suite cleanly.
+ACTION: replace both literals with an env var (e.g. `eth_rpc_url = "${MAINNET_RPC}"`) so the endpoint is
+swappable without editing a committed file — and note the Ankr TOKEN IS COMMITTED IN PLAINTEXT and this
+repo has a `SPV public snapshot` commit (`0af7f6d`); if that was ever pushed publicly, ROTATE IT.
+
