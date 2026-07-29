@@ -4242,3 +4242,34 @@ few bps of trading fee). The tolerance was sized against the broken behaviour.
 STATUS: §A.50 remains genuinely suite-verified (3560/0, before either of these changes). §A.57 and
 §A.55 are BOTH now UNVERIFIED pending the isolation above. Nothing is pushed.
 
+## §A.57 — THE ISOLATION WAS INVALID (caught before recording). The DELTA ANALYSIS still stands.
+
+⚠️ I attempted `git stash push src/imports/SwapLib.sol` to remove §A.55 and re-run. **It stashed
+NOTHING** — §A.55 was already COMMITTED (`3a361e8`), so that file was clean, and `git stash push` on a
+clean path exits 0 while doing nothing. My own `echo "A.55 stashed"` then fired and I nearly recorded a
+false result. **The re-run still had BOTH fixes present, so it isolated nothing.**
+→ TO ACTUALLY ISOLATE: `git checkout 3a361e8~1 -- evm/src/imports/SwapLib.sol` (or `git revert
+  --no-commit 3a361e8`), `forge build --force`, re-run, then restore. Stash only works on UNCOMMITTED
+  changes — and both fixes here are committed.
+
+✅ WHAT IS STILL PROVEN, INDEPENDENTLY OF THE ISOLATION — the deltas:
+| expected | actual | delta | % |
+|---|---|---|---|
+| 1,199.999997 | 1,200.503994 | +0.504 | **+0.042%** |
+| 2,499.999995 | 2,501.049990 | +1.050 | **+0.042%** |
+| 499.999999 | 500.209998 | +0.210 | **+0.042%** |
+A **CONSTANT 4.2bps across three DIFFERENT notionals** (1200 / 2500 / 500). That is a PROPORTIONAL FEE.
+A scaling/unit bug is a 1e12x factor or a fixed offset — neither can hold a constant RATE across
+magnitudes. And 4.2bps independently matches the fee rate measured while tightening
+`testBtcLp_FeeAccrualAndWithdraw` (\$1.26 on \$3,000 of volume).
+⇒ The USD fee is now GENUINELY BEING PAID, and these three tolerances were sized against the old
+  ~zero fee — i.e. they were pinning the 1e12x under-payment. This points at §A.57 as the cause on the
+  EVIDENCE OF THE NUMBERS, not on the strength of the botched isolation.
+
+STATUS — deliberately conservative:
+  • §A.55 — NOT exonerated (the run that would have exonerated it was invalid). Build-verified only.
+  • §A.57 — correct, and strongly supported by the constant-rate evidence.
+  • 3 tests in `test/BtcLpMintStress.t.sol` still pin the OLD behaviour. Widening their `+ fee dust`
+    tolerances is justified under §A.46's exception ONLY once a REAL isolation confirms §A.57 is the
+    sole cause. Derive the bound from the 4.2bps rate; never raise until green.
+
