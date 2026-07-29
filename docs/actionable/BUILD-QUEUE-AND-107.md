@@ -4780,3 +4780,26 @@ struct copies, early returns before expensive calls, single-sweep WETH deposits.
 MEASURE — `forge test --gas-report` on the money paths — not eyeball, and compare against the legacy
 `_take` loop, which the user considers the efficiency peak.
 
+### §A.54(1) vs §A.56 — TWO DIFFERENT TASKS. Only the first is done. (user asked, 2026-07-29)
+
+User: *"i thought you already did the outOfRange stuff?"* — reasonable, because I reported them without
+distinguishing. `git show --stat d5d3b53` settles it: **9 lines changed** (2 in `Vogue.sol`, 7 in
+`VogueLib.sol`).
+  ✅ **§A.54(1) DONE** — collapsed the byte-identical STRUCTS `VogueLib.OorTicks` → `SwapLib.Oor`.
+     A type dedup. Nothing about control flow changed.
+  ⬜ **§A.56 STILL OPEN** — unify the out-of-range PATH: `Vogue.outOfRange` passes args INLINE while
+     `BtcVaultLib.outOfRangeBtc` bundles them into `OorArgs`, even though `Core.outOfRange(bool isBTC,
+     …)` already services BOTH assets from one function. A real refactor, with EIP-170 and stack-depth
+     (`via_ir = false`) constraints. Currently IN FLIGHT with an agent.
+
+📌 SECOND OCCURRENCE OF THIS REPORTING FAILURE. The first was JIT-DEPTH: "cleared §4 status" (a stale
+TODO marker) vs "built the §2 mechanism" (still deferred) — my vague summary became the source of a
+wrong recollection a day later. **RULE (saved to durable memory as `commit-often-and-name-precisely`):
+name the exact section/struct/function AND state what was NOT done in the same breath.** A status line
+that omits the negative half is how the queue drifts out of sync with the code.
+
+📌 ALSO BANKED — user: *"make sure you always commit your work so you never do the same work twice."*
+Commit each unit as soon as it builds and verifies; stage EXPLICIT PATHS (never `git add -A`) while
+subagents or background runs may have edits in the tree — one agent's fix was already swept into an
+unrelated doc commit that way.
+
