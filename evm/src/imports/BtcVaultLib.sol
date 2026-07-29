@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {SwapLib} from "./SwapLib.sol";
 import {Types} from "./Types.sol";
-import {LevMath} from "../libraries/LevMath.sol";
+import {LevMath} from "./LevMath.sol";
 import {ICore} from "./Interfaces.sol";
 import {ILevEquityBtc} from "./Interfaces.sol";
 import {IEthVenue} from "./Interfaces.sol";

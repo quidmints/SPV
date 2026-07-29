@@ -7,7 +7,7 @@ import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {LiquidityAmounts} from "v4-periphery/src/libraries/LiquidityAmounts.sol";
 import {SwapLib} from "./SwapLib.sol";
 import {Types} from "./Types.sol";
-import {LevMath} from "../libraries/LevMath.sol";
+import {LevMath} from "./LevMath.sol";
 import {ILevEquity} from "./Interfaces.sol";
 import {ILevHost} from "./Interfaces.sol";
 import {IAux} from "./Interfaces.sol";

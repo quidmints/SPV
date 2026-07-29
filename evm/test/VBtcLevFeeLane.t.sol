@@ -8,7 +8,7 @@ import {ILevVenue} from "../src/imports/ILevVenue.sol";
 import {Types} from "../src/imports/Types.sol";
 import {MorphoEscrowVenue, MarketParams} from "../src/MorphoEscrowVenue.sol";
 import {AaveV3Venue} from "../src/AaveV3Venue.sol";
-import {LevMath} from "../src/libraries/LevMath.sol";
+import {LevMath} from "../src/imports/LevMath.sol";
 import {RealRateBtcMorphoOracle} from "../src/LevOracles.sol";
 
 interface IERC20V {

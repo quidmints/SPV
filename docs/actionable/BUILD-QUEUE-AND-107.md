@@ -4381,3 +4381,37 @@ away from upstream for no benefit. Vendored trees are excluded from this pass by
   AND KEEP THE SIZE CAVEAT: minimal shims (`IPermit2Approve`) are EIP-170 optimisations; merging them
   into a fat canonical interface can COST bytecode. One declaration per CONCEPT, not zero locals.
 
+## §A.62 — TREE LAYOUT (user, 2026-07-29). Two moves done; the vendored-duplicate question is OPEN.
+
+User: *"there should be no dual definition even in the imports folder. there is a libraries folder with
+only one file in it, should be in imports. some files are in the src folder that should be in the
+imports folder. DeployL1_s.sol should be in the script folder."*
+
+### DONE
+  • `src/libraries/LevMath.sol` → **`src/imports/LevMath.sol`**; the one-file `src/libraries/` directory
+    is REMOVED. 7 files' import paths rewritten (three distinct forms existed: `../libraries/`,
+    `./libraries/`, `../src/libraries/`). Build clean.
+  • `src/DeployL1_s.sol` → **`script/DeployL1_s.sol`** (both `script/` and `scripts/` existed; used
+    `script/`, Foundry's default). Its own relative import rewritten to reach back into `../src/`.
+    ✅ SAFE because NOTHING IMPORTS IT — all 6 hits in `src/` and every hit in `test/` are COMMENTS
+    (`Aux.sol:592`, `LevOracles.sol:6,14`, `DeployLib.sol:30,186,215`, and doc lines in 3 test files).
+    Verified before moving; a production contract importing a deploy script would have been the real
+    problem, and that is not the case. Build clean.
+
+### 🔴 OPEN — the vendored dual definition, needs the user's call
+`IUniswapV3SwapCallback` is declared TWICE, in `src/imports/v3/ISwapRouter.sol:8` and
+`src/imports/v3/IV3SwapRouter.sol:8`. Both files are **VENDORED UNISWAP V3 SOURCE** (BUSL-1.1, verbatim);
+upstream ships the callback inside each router interface. The user's rule ("no dual definition even in
+imports") and the vendoring convention (never fork third-party source) CONFLICT here. OPTIONS:
+  (a) Leave both — preserves upstream fidelity; the duplicate is inert (identical bodies, and Solidity
+      does not mind two identical interface declarations in separate files).
+  (b) Delete the copy in `IV3SwapRouter.sol` and import it from `ISwapRouter.sol` — satisfies the rule,
+      but the file no longer matches upstream, so a future re-vendor silently reintroduces it.
+  (c) Extract to `src/imports/v3/IUniswapV3SwapCallback.sol` and have BOTH routers import it — one
+      declaration, both vendored files edited, same re-vendor hazard as (b).
+RECOMMENDATION: **(c)** if the rule is absolute — it is the only form where the concept has exactly one
+home — with a comment in each router noting the local deviation so a re-vendor does not undo it.
+📌 STILL TO DO from the same instruction: identify which OTHER `src/` files belong in `imports/`. The
+   test is library-vs-deployed-contract; candidates to examine: `DeployLib.sol`, `mock.sol`,
+   `QuidLens.sol`. NOT yet done.
+

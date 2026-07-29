@@ -9,7 +9,7 @@ import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 
 import {Vogue} from "../src/Vogue.sol";
 import {Rover} from "../src/Rover.sol";
-import {VEth} from "./VEth.sol";
+import {VEth} from "../src/VEth.sol";
 
 import {Basket} from "../src/Basket.sol";
 import {Core} from "../src/Core.sol";
