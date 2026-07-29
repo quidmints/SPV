@@ -473,7 +473,12 @@ contract BtcLpMintStress is Alles {
         // proceeds component is PINNED to owedUsd regardless of the delivery tx
         // payout — the dust bound is ≫ the fees but ≪ any proceeds inflation. The
         // matched -= clears the obligation from pendingSwapOutUsd.
-        assertApproxEqAbs(QUID.balanceOf(s.lpEth) - qdBefore, owedUsd * 1e12, 1e15,
+        // §A.57: the USD trading fee is now ACTUALLY PAID (it was minted un-scaled before, so the
+        // "dust" was ~1e-12 QU!D and any absolute bound passed). The real fee is PROPORTIONAL to the
+        // notional — measured at a constant 4.2bps across 500/1200/2500 notionals — so an ABSOLUTE
+        // allowance can never fit it. Bound = 6bps of the expected value (4.2bps measured + margin)
+        // plus the original 1e15 for rounding. DERIVED from the fee rate; do NOT raise until green.
+        assertApproxEqAbs(QUID.balanceOf(s.lpEth) - qdBefore, owedUsd * 1e12, owedUsd * 1e12 * 6 / 10000 + 1e15,
             "LP minted ~EXACTLY the swapper's USD as proceeds at delivery (+ fee dust)");
         assertGe(QUID.balanceOf(s.lpEth) - qdBefore, owedUsd * 1e12,
             "LP minted AT LEAST its full proceeds");
@@ -557,7 +562,12 @@ contract BtcLpMintStress is Alles {
         // Deliver-time minted the realized proceeds (+ tiny USD-leg fee dust) — never
         // unbacked QUI. The proceeds component is pinned to `proceeds`; the dust bound
         // is ≫ the fees but ≪ any over-mint.
-        assertApproxEqAbs(QUID.balanceOf(lpEth) - qdBeforeDeliver, proceeds * 1e12, 1e15,
+        // §A.57: the USD trading fee is now ACTUALLY PAID (it was minted un-scaled before, so the
+        // "dust" was ~1e-12 QU!D and any absolute bound passed). The real fee is PROPORTIONAL to the
+        // notional — measured at a constant 4.2bps across 500/1200/2500 notionals — so an ABSOLUTE
+        // allowance can never fit it. Bound = 6bps of the expected value (4.2bps measured + margin)
+        // plus the original 1e15 for rounding. DERIVED from the fee rate; do NOT raise until green.
+        assertApproxEqAbs(QUID.balanceOf(lpEth) - qdBeforeDeliver, proceeds * 1e12, proceeds * 1e12 * 6 / 10000 + 1e15,
             "deliveries mint ~EXACTLY the realized proceeds (+ fee dust, no over-mint)");
         assertGe(QUID.balanceOf(lpEth) - qdBeforeDeliver, proceeds * 1e12,
             "LP received AT LEAST its full proceeds");
@@ -587,7 +597,12 @@ contract BtcLpMintStress is Alles {
         assertGt(proceeds, 0, "some BTC delivered");
         // Deliver mints the obligation (+ tiny fee dust), NOT inflated by any
         // tx-output trick. The dust bound is ≫ fees but ≪ any inflation.
-        assertApproxEqAbs(QUID.balanceOf(lpEth) - qdBeforeDeliver, proceeds * 1e12, 1e15,
+        // §A.57: the USD trading fee is now ACTUALLY PAID (it was minted un-scaled before, so the
+        // "dust" was ~1e-12 QU!D and any absolute bound passed). The real fee is PROPORTIONAL to the
+        // notional — measured at a constant 4.2bps across 500/1200/2500 notionals — so an ABSOLUTE
+        // allowance can never fit it. Bound = 6bps of the expected value (4.2bps measured + margin)
+        // plus the original 1e15 for rounding. DERIVED from the fee rate; do NOT raise until green.
+        assertApproxEqAbs(QUID.balanceOf(lpEth) - qdBeforeDeliver, proceeds * 1e12, proceeds * 1e12 * 6 / 10000 + 1e15,
             "deliver mints ~EXACTLY the swapper's USD (no inflation, + fee dust)");
         assertGe(QUID.balanceOf(lpEth) - qdBeforeDeliver, proceeds * 1e12,
             "LP received AT LEAST its full proceeds");

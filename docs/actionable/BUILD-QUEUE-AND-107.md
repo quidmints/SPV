@@ -4273,3 +4273,27 @@ STATUS — deliberately conservative:
     tolerances is justified under §A.46's exception ONLY once a REAL isolation confirms §A.57 is the
     sole cause. Derive the bound from the 4.2bps rate; never raise until green.
 
+## §A.57 CLOSED — real isolation done, §A.55 exonerated, 3 tolerances made PROPORTIONAL.
+
+REAL ISOLATION (the correct method, after the stash no-op): `git checkout 3a361e8~1 --
+evm/src/imports/SwapLib.sol` (verified 0 occurrences of the §A.55 fix), `forge build --force`, re-run.
+**All 3 tests failed with BYTE-IDENTICAL values** ⇒ §A.57 is the SOLE cause and **§A.55 is genuinely
+exonerated**. `SwapLib.sol` restored to HEAD afterwards (verified present).
+
+ROOT CAUSE OF THE TEST FAILURES — the assertions used an ABSOLUTE allowance for a PROPORTIONAL quantity:
+```solidity
+assertApproxEqAbs(minted, expected * 1e12, 1e15)   // 0.001 QU!D, fixed
+```
+Before §A.57 the USD fee was minted un-scaled, so the "fee dust" was ~1e-12 QU!D and ANY absolute bound
+passed. Now the fee is real and scales with notional (0.21 / 0.50 / 1.05 QU!D on 500 / 1200 / 2500), so
+a fixed 1e15 can never fit it. The tests were pinning the 1e12x under-payment.
+
+FIX (§A.46 exception satisfied — the delta is PROVEN to be the real fee by the constant 4.2bps across
+three notionals): bound derived FROM THE FEE RATE, not raised until green —
+```solidity
+assertApproxEqAbs(minted, expected * 1e12, expected * 1e12 * 6 / 10000 + 1e15)
+```
+6bps = the 4.2bps measured + margin; the `+ 1e15` keeps the original rounding allowance. Comment at each
+site records why the dust became visible so nobody re-tightens it back onto the bug.
+RESULT: `test/BtcLpMintStress.t.sol` **127 passed / 0 failed / 2 skipped**.
+
