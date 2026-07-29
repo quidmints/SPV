@@ -4534,3 +4534,37 @@ Everything since `a6d7a18` is **build-and-ABI-verified only** — the fork RPC d
 `forge test` clears the whole debt once the endpoint is healthy. A pinned/paid RPC is a PREREQUISITE for
 Echidna — fuzzing hammers the fork far harder than the suite does.
 
+## §A.64 — 6909 STABLE→STABLE FEE PATH, TRACED (the user's original question, finally answered)
+
+CHAIN, each link read in code:
+```
+stable→stable swap fee
+  → Aux.tipSelf(cut, token, sign=+1)          Aux.sol:1190  (self-gated: msg.sender must be Aux)
+  → Aux._tip(cut, token, sign)                Aux.sol:1136
+  → BasketLib.tipBody(tranche, trancheTotal, cut, token, sign)   BasketLib.sol:393
+  → tranche[token] += cut ; return trancheTotal + cut            BasketLib.sol:397-398
+```
+So a swap fee CREDITS A PER-STABLE TRANCHE and raises `trancheTotal`. It does NOT create a per-holder
+claim, and nothing indexes it by holder — there is no per-account fee accumulator on this path (unlike
+the LP side, which has `feesPerShare`/`USD_FEES` on Vogue).
+
+WHAT THE TRANCHE IS (`Basket.sol:91-102`): the book is TRANCHED. `trancheTotal()` is *"the outstanding
+senior-tranche SUPPLY"*; the matured, 1:1-USD-backed pool is *"`totalSupply - trancheTotal()`"*. And
+`BasketLib.sol:162` reads `uint reserved = tranche[stable];` — the tranche is RESERVED, i.e. set aside
+rather than freely drawable.
+
+⇒ ANSWER: **6909 holders are not PAID swap fees; the fees accrue to the SENIOR TRANCHE.** The benefit
+  reaches holders through the tranche structure / backing, not as a claimable balance. This is
+  consistent with the `seedFee` gate, which tops `trancheTotal` up toward `target` and fires ONLY on a
+  mint (`msg.sender == quid`, §A.47).
+
+⚠️ WHAT IS STILL NOT VERIFIED — do not treat the above as complete:
+ 1. Which swap paths actually call `tipSelf(+1)`, and whether stable→stable specifically does (the
+    trace proves where a tip GOES, not that every stable→stable swap emits one).
+ 2. Whether the senior tranche is later DISTRIBUTED, and to whom — or whether it simply raises the
+    junior pool's backing per unit as the senior tranche matures.
+ 3. How this interacts with `preferred`'s fee (§A.51), which the user described as the charge for
+    declining pro-rata — both are "fees", and it is not yet shown they land in the same place.
+📌 The right next step is (1): grep the swap entrypoints for `tipSelf`/`_tip` and confirm the
+   stable→stable leg emits a tip, since the whole answer rests on that.
+
