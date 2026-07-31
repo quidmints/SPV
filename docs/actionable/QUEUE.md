@@ -700,3 +700,20 @@ when the copies drift** (exactly how §A.57/C5 produced FOUR sibling mint sites 
   the same failure". That reasoning is now discredited — TEST it with the same struct-field/sequencing
   technique.
 
+### D4 PREMISE IS FALSE — there is no `_swapInPrep`. Re-scope before acting. (2026-07-31)
+
+The dedup agent reported *"`SwapLib._swapInPrep` (~:722-756) vs `SwapLib._swapOutPrep` (~:1005-1029) —
+mirrored pair, same 8-step skeleton"*. **Checked: only ONE such function exists.**
+`grep -nE "function .*Prep\("` in `SwapLib.sol` returns exactly `:1006 function _swapOutPrep(...)`.
+There is no `_swapInPrep` under that name.
+⇒ The BODY the agent described at ~:722-756 is real (the `rp.sqrtPriceX96 / rp.zeroForOne / rp.token /
+  rp.amount` assignment block IS there) — but it is INLINE or under a different name, so the claimed
+  "mirrored pair of functions" does not exist as stated.
+⇒ **RE-SCOPE D4 BEFORE ACTING:** identify what actually occupies ~:722-756, then judge whether it and
+  `_swapOutPrep` share a skeleton worth extracting. The underlying observation may still hold; the
+  framing does not.
+📌 **METHOD NOTE — verify agent claims against the code, exactly as with my own.** This agent was
+  otherwise excellent (its C4 trace was confirmed step-by-step and its `_valueStable`/`_illiquidLoss`
+  finding is real), which is precisely why a wrong function name is dangerous: the surrounding accuracy
+  lends it credibility. Every `file:line` in an agent report is a claim to check, not a fact to inherit.
+
