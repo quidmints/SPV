@@ -209,3 +209,35 @@ lens to every existing clamp: does it prevent a bad state, or merely hide one?
     written: compare `SPV/evm/src/` vs `quid/evm/src/`, ranked missing-guards → dropped-gas-techniques →
     lost-capability, excluding the prediction-market and Chainlink files.
 
+## 🔴 §J.2c — THE ERC-20 TRANSFER FACE IS AMBIGUOUS ON A TWO-ASSET MANAGER (user, 2026-07-31)
+
+User: *"it still has transferFrom which makes it awkward that you dont know which shares you are
+transferring."* **Correct, and verified — the problem is worse than ambiguity, it is ASYMMETRY:**
+  • `Vogue.balanceOf(user)` (`Vogue.sol:1168-1170`) returns `autoManaged[user].pooled` — the **ETH band
+    ONLY**.
+  • BTC band shares live in **a different contract**: `Vault.autoManagedBTC[user].pooled`
+    (`Vault.sol:158-162`).
+  • So `Vogue.transferFrom` (`:1188`) silently moves ETH shares while Vogue is the manager for BOTH
+    assets, **nothing in the signature says which**, and **BTC band shares have NO transfer face at all.**
+⇒ An ERC-20 face on a two-asset manager is ILL-DEFINED BY CONSTRUCTION. This is the same defect §J.2b
+  fixed for the 4626 VIEWS (`asset()` cannot name one asset when the contract manages two) — the
+  TRANSFER half was simply never moved. **§J.2 is therefore NOT complete**; correcting the header
+  (`f490b18`) fixed the documentation, not this.
+
+### THE FIX — move the token SURFACE, keep the STATE
+`VEth` is unambiguously the vETH token, so `transfer`/`transferFrom`/`approve`/`allowance`/`balanceOf`/
+`totalSupply` belong THERE, forwarding into Vogue's existing internal `_transferShares`
+(`Vogue.sol:1209`, which already settles BOTH parties' pending rewards before principal moves — that
+invariant is preserved unchanged). Vogue keeps the STATE and stays the authority; `VEth` stops being a
+read-only projection and becomes the full token face. Vogue's public ERC-20 methods then go away, so
+"which shares?" cannot be asked.
+⚠️ CONSTRAINTS: (a) `_transferShares` must become callable ONLY by `VEth` (add the gate, mirroring
+`VBtc.onlyVault`); (b) `Vogue.balanceOf` is read by tests and possibly the SPA — run
+`tools/check-client-abis.py`; (c) EIP-170 — Vogue SHRINKS, `VEth` grows; (d) full suite, since this
+touches the withdraw/lev paths that read `autoManaged[].pooled`.
+### AND THE SYMMETRIC GAP
+BTC band shares (`Vault.autoManagedBTC`) have **no ERC-20 face whatsoever** — they are not transferable.
+DECIDE DELIBERATELY: is that intentional (channel-bound BTC should not be freely transferable) or an
+omission? If intentional, DOCUMENT it; if not, it is `VBtc`'s job — note `VBtc` currently faces the
+LEVERAGE collateral, not band shares, so the two must not be conflated.
+
