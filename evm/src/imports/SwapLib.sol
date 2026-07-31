@@ -375,6 +375,9 @@ library SwapLib {
         uint minOut;
         address recipient;
         address inToken;   // #105: the actual INPUT token (set inside swapToBody) for the partial-fill refund
+        uint px;           // §D3: resolved oracle price, set inside swapToBody. A STRUCT FIELD, not a
+                           // local, so both skew branches share `_priceOr` WITHOUT adding a stack slot —
+                           // that is what makes the dedup fit under the no-`via_ir` stack budget.
     }
 
     function swapToBody(SwapReq memory r, SwapToCfg memory c, address[] memory stables)
@@ -438,7 +441,8 @@ library SwapLib {
             // Scale the volatile input DOWN by the premium ⇒ less USD credited out; the
             // withheld input stays as basket backing (same mechanism as the drain leg).
             {
-                uint skew = sellSkew(c.core, v4p != 0 ? v4p : aux.getTWAPforAsset(r.asset, 1800), isBTC, r.amount); // inline (swapToBody stack-tight)
+                r.px = _priceOr(v4p, address(aux), r.asset);
+                uint skew = sellSkew(c.core, r.px, isBTC, r.amount); // inline (swapToBody stack-tight)
                 r.amount = retainSkewPremium(c.core, isBTC, r.amount, skew);
             }
         } else { max = isBTC ? ICoreObs(c.core).POOLED_BTC() : ICoreObs(c.core).POOLED_ETH();
@@ -460,7 +464,8 @@ library SwapLib {
             // out less volatile; the withheld input stays as backing. The swap still executes at
             // the honest oracle (v4p) through routeSwap ⇒ no manip-guard exemption.
             {
-                uint skew = wellSkew(c.core, v4p != 0 ? v4p : aux.getTWAPforAsset(r.asset, 1800), isBTC); // inline (swapToBody stack-tight)
+                r.px = _priceOr(v4p, address(aux), r.asset);
+                uint skew = wellSkew(c.core, r.px, isBTC); // inline (swapToBody stack-tight)
                 r.amount = retainSkewPremium(c.core, isBTC, r.amount, skew);
             }
         }

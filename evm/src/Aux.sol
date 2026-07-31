@@ -689,7 +689,7 @@ contract Aux is // Auxiliary
         // the BTC-recipient gate, the runtime backing invariant, the QUID-turn seed
         // un-tip, and the routeSwap call all run inside the body.
         return SwapLib.swapToBody(
-            SwapLib.SwapReq(token, asset, forVolatile, amount, minOut, recipient, address(0)),
+            SwapLib.SwapReq(token, asset, forVolatile, amount, minOut, recipient, address(0), 0),
             SwapLib.SwapToCfg({
                 weth: address(WETH), wbtc: address(WBTC), quid: address(QUID),
                 core: address(CORE), v4: address(V4), btcVault: ethVenue,

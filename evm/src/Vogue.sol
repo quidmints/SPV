@@ -655,7 +655,11 @@ contract Vogue is
         // basket-USD fees, identical to the prior per-withdraw mint, just deferred to full exit.
         if (LP.pooled == 0 && LP.usd_owed > 0) {
             uint owed = LP.usd_owed; LP.usd_owed = 0;
-            QUID.mint(recipient, owed, address(QUID), 0);
+            // §A.57/C5: `usd_owed` is 6-dec; QU!D is 18-dec. This was the FOURTH sibling of the same
+            // mint and the ONLY one missing the scale-up (cf. `_settlePending:439`,
+            // `BtcVaultLib.settleBtcLp:57`, `settleDelivered:74`). Without it, an LP whose fees were
+            // DEFERRED by a partial exit and who then FULLY exits was paid 1e-12 of the leg.
+            QUID.mint(recipient, owed * 1e12, address(QUID), 0);
         }
         _onExit(LP, msg.sender);
     }
