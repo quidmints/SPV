@@ -1110,13 +1110,25 @@ contract Vogue is
     }
 
     // ════════════════════════════════════════════════════════════════
-    //                  ERC-20 + ERC-4626 WRAPPER
+    //          ERC-20 TRANSFER FACE + NATIVE LP ENTRYPOINTS
     // ════════════════════════════════════════════════════════════════
     //
     // Makes Vogue LP positions transferable. The underlying autoManaged
     // mapping + lpShares + feesPerShare + USD_FEES accumulators are
     // PRESERVED EXACTLY — this layer adds standard ERC-20 transfer/
-    // approve plus the ERC-4626 view + deposit/redeem entry points.
+    // approve plus the deposit/redeem entrypoints.
+    //
+    // §J.2b — THE ERC-4626 VIEWS ARE NO LONGER HERE. `asset`, `totalAssets`,
+    // `convertTo*`, `preview*`, `max*`, `name` and `symbol` moved to
+    // `VEth.sol`, because Vogue is the band manager for BOTH asset classes
+    // (its math is parameterised by `isBTC` throughout) and so cannot
+    // honestly implement a single-asset 4626. `VEthIdentity.t.sol` asserts
+    // that Vogue returns EMPTY for each of those selectors.
+    // What stays here is deliberate: the ERC-20 face is the TRANSFER
+    // AUTHORITY over `autoManaged[].pooled`, which is load-bearing band
+    // state, and the entrypoints carry the per-deposit `venue` selector and
+    // the payable ETH path. `VEth` is a stateless PROJECTION that reads
+    // both back through this contract — it owns no balances of its own.
     //
     // Yield attribution preservation invariant:
     //   On any transfer, BOTH parties' pending rewards are settled
