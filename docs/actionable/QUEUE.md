@@ -1158,3 +1158,35 @@ suspicious.
 📌 The unit derivation stands (both directions are `1e30`, asset-independent). What is NOT established is
   that changing the cap has no OTHER side effects. Those are different claims and I conflated them.
 
+## C3 TRACE — the test CONFIRMS C3's arithmetic. One branch still unexplained.
+Traced the floor check statically (no suite run needed).
+`SwapLib:798` — `if (deliveredUsd < minDeliveredUsd) revert SwapInShort();` is UNCONDITIONAL. With
+`minDeliveredUsd = type(uint).max` the comparison is always true, so **the revert MUST fire if the line
+is reached.** "did not revert" therefore means `_swapInSettle` was NEVER ENTERED, or its revert was caught.
+
+### 🔑 The finding that INVERTS my earlier assumption
+`Alles.t.sol:2128` computes the test's input as:
+```solidity
+uint sats = ((CORE.POOLED_USD_BTC() * 1e12) / 4 * 1e18) / price;   // == amount6 * 1e12 * 1e18 / price
+```
+**That is EXACTLY C3's CORRECTED `convert(..., toVol=true)`** — a hand-inlined copy. The test author
+independently derived the same arithmetic C3 derives from units. ⇒ **The fixture is calibrated against the
+FIXED formula, not the broken one.** My "the tests were calibrated against the bug" reading was BACKWARDS.
+⇒ This is INDEPENDENT third-party confirmation that **C3's derivation is correct** — the strongest evidence
+  yet, because it predates and is unaware of C3.
+⇒ It also explains failure #1 exactly: pre-C3 production and test disagreed by 1e10, so `sats` hugely
+  overshot the under-scaled cap and the swap ALWAYS partial-filled. C3 removes the overshoot.
+
+### ⛔ STILL UNEXPLAINED — do this next
+Why a max-uint floor does not revert. Only two possibilities, both cheap to check:
+ 1. `creditSwapInBody`'s `if (sats == 0) return 0;` (SwapLib:~722) early-returns past the floor check.
+    Hand-computed `sats` ≈ POOLED_USD_BTC·100/usd_per_btc ≈ 1.25e6 — **NOT zero**, so this looks ruled out,
+    but confirm with an actual value rather than my arithmetic.
+ 2. **`BTCChannels.settleSwapIn` CATCHES the revert** (try/catch) — the test's own comment says the floor
+    revert "unwinds the swapInUsed mark", implying deliberate unwind machinery that could swallow it.
+    ⭐ This is the likely one. READ `settleSwapIn` for a try/catch around the credit call.
+📌 If it IS a catch: a floor breach being SWALLOWED rather than propagated is a REAL DEFECT independent of
+  C3 — the seller's minimum-out guarantee would be unenforceable. C3 merely made it observable.
+🛑 C3 stays REVERTED until this is settled. Do NOT re-derive fixture #1 first — #1 is already explained and
+  needs no edit; the ONLY open question is this branch.
+
