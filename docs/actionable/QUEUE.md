@@ -479,3 +479,36 @@ Traced every write to `LP.usd_owed` (there are TWO accrual sites, not one — th
 📌 This is exactly the §A.46 lesson at protocol scale: a check that passes because the system is broken
   will FAIL when the system is fixed. Same shape as the tolerances tuned around a ~zero fee.
 
+## 🔴🔴 C5 ISOLATED — **C5 ALONE causes all 31 failures. C2 is EXONERATED.** (2026-07-31)
+
+C5 alone (`Vogue.sol:658`, `owed * 1e12`): **3,536 / 31 failed** vs a 3,559/1 baseline — SAME signature
+as the combined run ⇒ **C2 caused none of it and is cleared.** C5 reverted; tree back to 3,559/1.
+
+### THE ARITHMETIC IS RIGHT, SO SOMETHING ELSE REJECTS IT
+`LP.usd_owed` is 6-dec on EVERY write — `Vogue.sol:443` (`_settlePending` defer branch) and `:1456`
+(crank), both from the same `_pendingFor(lp)` — and `_settlePending:439` mints that SAME value as
+`usdR * 1e12`. So `* 1e12` at `:658` is correct arithmetic.
+⇒ **The identical scaling WORKS at `:439` and FAILS at `:658`. That difference IS the finding.**
+
+### THE DISTINGUISHING CONDITION — `:658` fires ONLY when `LP.pooled == 0`
+`:656` guards `if (LP.pooled == 0 && LP.usd_owed > 0)` — FULL EXIT, when the LP has NO remaining pooled
+depth. `_settlePending:439` mints while the position is still open and still backing the system.
+HYPOTHESES, ranked — **TEST BEFORE FIXING:**
+ (a) **A solvency check rejects a mint against a position with no remaining pooled.** The correct
+     (1e12 larger) QU!D breaches `D >= S + L` / `checkBacking` exactly when the LP's own contribution has
+     gone to zero. ⇒ the defect would be the ORDERING (settle the fee BEFORE `pooled` hits zero), NOT
+     the scale.
+ (b) **Supply-inflation cascade:** 1e12x more QU!D moves `totalSupply()`, which moves `bufBps`
+     (`Basket.sol:279-280`) and the backing/redeemable views, tripping unrelated gates — consistent with
+     31 failures SPREAD ACROSS the suite rather than one.
+ (c) My premise is wrong somewhere I have not found: a path scales `usd_owed` before it reaches `:658`.
+📌 SYMPTOM FITS (a)/(b): the loudest new failure is `testEthVenue_EtherFi_*` — *"rung 3 paid native ETH
+   via the real RedemptionManager: 0"* — the ETH WITHDRAW LADDER delivering NOTHING. **C5 is not on that
+   path**, so the mechanism is INDIRECT: a mint amount feeding a solvency gate that then BLOCKS DELIVERY.
+### NEXT STEP (do not re-apply C5 first)
+Identify WHICH check rejects it — `Basket.mint`'s `auth` branch, `AUX.checkBacking`, or the `D >= S + L`
+requirement — by running ONE ether.fi test with `-vvv` under C5 and reading the revert. Then decide
+between (a) re-order the settle, or (b) a threshold calibrated against the under-payment.
+⚠️ If (b): **a check that passes because the system is broken will FAIL when the system is fixed** —
+  the §A.46 lesson at protocol scale, and materially more serious than the fee loss itself.
+
