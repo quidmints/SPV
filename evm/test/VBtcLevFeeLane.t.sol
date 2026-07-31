@@ -305,9 +305,39 @@ contract VBtcLevFeeLane is Alles {
     /// (SAME-BTC model: `lp` must already hold ≥ `vbtcSats` free band via a prior `_open`). openBtcLev reclassifies
     /// funded→lev and mints the vBTC face straight to the manager — no separate mint/approve roundtrip.
     /// net-equity == collateral (no debt).
+    /// Every LP that has ever opened a lev position here — `levPooledBTC` is a mapping with no running
+    /// total, so the invariant below sums the set the test actually created.
+    address[] internal _levLps;
+    mapping(address => bool) internal _levLpSeen;
+
     function _openLev(address lp, uint vbtcSats) internal {
+        if (!_levLpSeen[lp]) { _levLpSeen[lp] = true; _levLps.push(lp); }
         vm.prank(lp);
         lm.openBtcLev(5000, vbtcSats, venue);       // cap 50% (unused at zero leverage)
+        _assertVBtcSupplyMatchesLevMarker();
+    }
+
+    /// @notice THE SUPPLY/MARKER INVARIANT — asserted after EVERY lev open, so no test can exercise
+    ///         leverage without checking it.
+    ///
+    ///         `exposeBtcToLev` writes the SAME sats into THREE places: `LP.pooled` (UNCHANGED —
+    ///         single-count), `levPooledBTC[lp]` (a SUBSET MARKER, so free depth = `pooled - levPooled`),
+    ///         and `VBtc.balanceOf[manager]` (the token). Three VIEWS of ONE economic claim — correct by
+    ///         design, but three INDEPENDENTLY-MUTATED storage locations that nothing keeps in lockstep.
+    ///
+    ///         ⚠️ IF THE MARKER AND THE SUPPLY EVER DIVERGE, THE DIVERGENCE *IS* A DOUBLE-SPEND: band
+    ///         depth counted as FREE while its token is still outstanding, i.e. the same sats claimable
+    ///         twice. Nothing asserted this anywhere until now.
+    ///
+    ///         `levPooledBTC` is a mapping with no running total, so this sums the LPs a test can create.
+    ///         It is also the PRECONDITION for §A.19b's aggregate rule
+    ///         (`Σ outstanding vBTC <= Σ free channel capacity`) — that rule is meaningless unless supply
+    ///         and marker agree first.
+    function _assertVBtcSupplyMatchesLevMarker() internal {
+        uint markerSum;
+        for (uint i; i < _levLps.length; ++i) markerSum += ETH.levPooledBTC(_levLps[i]);
+        assertEq(markerSum, ETH.VBTC().totalSupply(),
+            "INVARIANT: sum(levPooledBTC) must equal VBtc.totalSupply() -- divergence is a double-spend");
     }
 
     // ─────────────────────── #106/#81/#74 WBTC-fallback route setup ───────────────────────

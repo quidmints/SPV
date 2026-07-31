@@ -909,3 +909,29 @@ only unscaled one — is CORRECT and stays. Restored.
   ⬜ 3 C10 part 2 — blocked on ether.fi's capacity view
   ⬜ 4 §A.19b whose-depth-shrinks — a DESIGN decision, needs the user
 
+### ✅ Item 1 — `Σ levPooledBTC == VBtc.totalSupply()` IS NOW ASSERTED (the invariant you asked me to bank)
+
+Added `_assertVBtcSupplyMatchesLevMarker()` and called it from the SHARED `_openLev` helper in
+`test/VBtcLevFeeLane.t.sol`, so **no test can exercise BTC leverage without checking it.** `levPooledBTC`
+is a mapping with no running total, so `_openLev` now records each LP into `_levLps` (dedup'd via
+`_levLpSeen`) and the assertion sums that set.
+
+RESULT: **124 passed / 1 failed** — the single failure is the pre-existing ether.fi rung (C10), and the
+invariant held on every leverage path in the file.
+
+WHY IT MATTERS (recorded at the assertion): `exposeBtcToLev` writes the same sats into THREE places —
+`LP.pooled` (UNCHANGED, single-count), `levPooledBTC[lp]` (a SUBSET marker, so free = `pooled −
+levPooled`), and `VBtc.balanceOf[manager]` (the token). Three views of ONE claim, correct by design, but
+three INDEPENDENTLY-MUTATED locations with nothing keeping them in lockstep. **If the marker and the
+supply diverge, the divergence IS a double-spend** — depth counted as free while its token is still
+outstanding. Nothing asserted this anywhere before.
+⇒ It is also the PRECONDITION for §A.19b: `Σ outstanding vBTC <= Σ free channel capacity` is meaningless
+  unless supply and marker agree first.
+⇒ And it is Echidna target #5 — a one-line property over state the fuzzer already reaches.
+
+### 7-ITEM SWEEP — 5 of 7 done
+  ✅ 1 invariant asserted · ✅ 2 C5 proven neutral · ✅ 5 D4 struck · ✅ 6 docblock corrected ·
+  ✅ 7 recorded
+  ⬜ 3 C10 part 2 — blocked on ether.fi's capacity view (external fact, 3 routes failed)
+  ⬜ 4 §A.19b whose-depth-shrinks — a DESIGN decision, needs the user's call
+
