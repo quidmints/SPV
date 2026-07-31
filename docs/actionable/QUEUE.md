@@ -1669,3 +1669,47 @@ It IS banked, from 2026-07-27, including the user's own corrections:
   stands; its scope is v4 routing only.
 ⚠️ Gas vs their implementation remains UNMEASURED — do not claim it (standing note from A.26).
 
+## 🔬 DISCOVERABILITY, PRECISELY SCOPED — it is LOG-FILTERING, not an API gate. Workaround EXISTS.
+**What "mocks block V4-native routing" actually means, with source:**
+**(1) ON-CHAIN: NOTHING is blocked.** `lib/v4-core/src/PoolManager.sol:185`
+```solidity
+function swap(PoolKey memory key, IPoolManager.SwapParams memory params, bytes calldata hookData)
+```
+The key arrives **FROM CALLDATA**. No registry, no whitelist, no permission lookup. **Anyone holding our
+key can swap our pool right now.** The PoolManager never consults a list of "real" tokens.
+**(2) OFF-CHAIN: discovery is TOPIC FILTERING.** `lib/v4-core/src/interfaces/IPoolManager.sol:59-67`
+```solidity
+event Initialize(PoolId indexed id, Currency indexed currency0, Currency indexed currency1, ...)
+```
+`currency0`/`currency1` are **`indexed`** ⇒ they are LOG TOPICS. An indexer/solver enumerating pools for a
+pair filters `Initialize` on those two topics. Our pool emits MOCK addresses there ⇒ **never matches a
+WETH/USDC filter ⇒ never enters the route graph.**
+⇒ **So it is not "Uniswap's API refusing us" and not automatic detection magic — it is that nobody's filter
+  asks for our currencies.** Mechanism fully explained, no hand-waving.
+
+### ⇒ YES, A WORKAROUND EXISTS — and mocks can stay
+Because (1) is ungated and `Aux.swap` is `public payable` with no caller gate (A.26), external flow needs
+only a *route-graph entry*, not a redesign:
+ (a) **Adapter contract holding REAL tokens** that presents a real-token pair and internally trades our
+     mock pool. It emits/【registers as】a venue aggregators CAN filter for. Mocks keep their efficiency and
+     their not-a-value-bearing-attack-surface property; the adapter is the only value-holding surface.
+ (b) **Aggregator listing** (1inch/CoW/Odos-style adapter) — they route by their OWN adapter registry, NOT
+     by v4 `Initialize` topics, so this bypasses the filter question entirely.
+ (c) Real-currency v4 pool — REJECTED: forfeits the mock-token safety property for the same flow (a)/(b) get.
+⚠️ UNVERIFIED: whether (a)/(b) are WANTED (external flow = external arb pressure on our band). **Design
+  decision for the user, not a code gap.** Also unmeasured: whether the flow would exceed adapter gas cost.
+
+## 🔴 NOT DONE THIS TURN — stated plainly rather than half-answered
+ 1. **C10 part 2 ("no shortcuts")** — still blocked on identifying the `address` param of
+    `totalRedeemableAmount(address)` / `canRedeem(uint256,address)`. NEXT: probe with an address KNOWN to
+    hold weETH (pull a recent `Transfer` sender from the weETH token on the fork), get a NON-ZERO return,
+    THEN clamp `min(weethIn, redeemable)`. Not landed = deliberate; a wrong clamp silently kills rung 3.
+ 2. **Rover / ether.fi v3 imbalance — WHY it exists and why arbers do not close it.** NEVER investigated.
+    The user notes we EXPLOIT it but nobody has explained its persistence. Hypotheses to TEST (do not
+    assert): v3 position is concentrated/one-sided so closing it needs weETH inventory + an unwind path;
+    arb profit may be < the ether.fi redeem fee (~0.3%) + gas; or the pool is thin enough that the arb is
+    not worth a searcher's slot. **Get on-chain data: pool reserves, tick range, recent swap history.**
+ 3. **Uniswap v4 PROTOCOL FEE switch — NEVER researched.** Ask: is it active, what rate, who sets it, does
+    it apply to OUR pool. `lib/v4-core/src/ProtocolFees.sol` + `setProtocolFee` are vendored HERE — this is
+    answerable from source, no web needed. Check `protocolFeesAccrued` / the fee-controller address.
+
