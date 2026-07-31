@@ -1221,3 +1221,25 @@ genuine second mechanism DOES exist and the halt stands.
   ATTRIBUTE THE FAILURE BEFORE THEORISING — I built two hypotheses on an unverified assumption about which
   call failed, and one of them (a swallowed floor breach) was alarming and wrong.
 
+## ✅ C3 ATTRIBUTION CONFIRMED BY TRACE — single mechanism. But a NEW question the fixture edit would hide.
+`FORK_BLOCK=25653624 forge test --match-test testStrand4... -vvv` (one test, 2.35s):
+ • line 2659 `← [Revert] SwapInShort()` — **part (1) DOES revert correctly.** The max-uint floor is fine.
+ • line 3354 `← [Revert] next call did not revert as expected` — AFTER it ⇒ **the failure is PART (3)**, the
+   calibrated `bigSats` / `SwapInPartialRejected` case, exactly as predicted.
+⇒ **No second mechanism. No swallowed revert. My earlier halt was on a misattribution; C3's story is intact.**
+
+### ⚠️ DO NOT just re-derive `bigSats` — first answer WHY it now fully fills
+`bigSats` is "4× the remaining reserve". Under C3 it NO LONGER partial-fills, i.e. the pool converted an
+input 4× its own stated reserve **in full**. Two readings, and they are NOT equivalent:
+ (a) BENIGN — the test's notion of "remaining reserve" (`POOLED_USD_BTC` after part (2)) was itself computed
+     with the OLD 1e10-off conversion, so "4×" was never really 4×. Re-deriving the fixture is then correct.
+ (b) **DEFECT — C3's cap is now 1e10 too LARGE and the swap-in can draw BEYOND POOLED_USD_BTC.** That is a
+     drain: swap-in delivers USD the reservoir does not have. The `SwapInDrainsProceeds` gate only compares
+     `POOLED_USD_BTC < pendingSwapOutUsd`; it does NOT bound a single fill to the reserve.
+🛑 **Editing the fixture to green would HIDE (b) completely.** Settle it by asserting the pool's USD
+  reserve is not overdrawn across the part-(3) call, NOT by adjusting `bigSats` until the revert returns.
+▶️ Next: instrument part (3) — read `POOLED_USD_BTC` before/after and assert delivery ≤ reserve. If delivery
+  exceeds it, C3 has overshot and the correct scale is between the two, not at either end.
+📌 C3 REVERTED again pending (a)-vs-(b). The unit derivation and the `:2128` independent confirmation both
+  still stand — what is NOT established is that the corrected cap is still BOUNDED BY the reserve.
+
