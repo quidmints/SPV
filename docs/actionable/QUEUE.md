@@ -270,3 +270,37 @@ liquidator who seizes vBTC has no way to exit) AND the privacy story (no bearer 
   be deliberately non-transferable. If so, DOCUMENT it; if not, it needs its own face — and it must NOT
   be folded into `VBtc`, which is the leverage-collateral token, not band shares.
 
+### ✅ BTC BAND SHARES ARE NON-TRANSFERABLE **BY NECESSITY** — question CLOSED (user, 2026-07-31)
+
+User's hypothesis — *"because of what a channel is hardwired to empty out into? channels can grow by
+splicing to accrue fees but cannot change their original LP?"* — **CONFIRMED IN CODE. Do not make them
+transferable; doing so would break the bridge's trustlessness.**
+
+EVIDENCE:
+ 1. **The payout script is fixed and un-redirectable.** `BTCChannels.sol:719`: the close pays the
+    balance *"to outputs paying that script; **a hop can never redirect the payout**."* That property IS
+    the trust-minimisation — the hop cannot steal because it cannot change where BTC lands.
+ 2. **One channel per LP address, structurally.** `BTCChannels.sol:245-252`: `autoManagedBTC[lpEth]` is
+    keyed per-address, and *"a SECOND open for an lpEth that already has one would let the aggregate
+    `pooled` span channels while close attributes per-channel — mis-attributing the others' notional as
+    delivered (over-mint) and wiping their positions."*
+ 3. **Splice is the capacity knob, not re-assignment.** Same block: *"Splice … (resize one channel in
+    place), so an LP never needs two channels; an entity wanting more positions uses more addresses."*
+    ⇒ A channel GROWS with fees but its LP binding is FIXED — exactly as the user described.
+
+⇒ **The EVM band share and the Bitcoin channel are ONE UNIT.** An EVM-side transfer would decouple
+  them: the transferee would hold a claim whose BTC payout still pays the ORIGINAL LP's script, i.e. a
+  claim they cannot enforce. Real transfer would require moving the Bitcoin-side channel too (a BTC
+  transaction / splice-out-splice-in), which is not an EVM operation.
+⇒ **This is a DESIGN INVARIANT, not a gap.** It is now documented rather than implicit — that was the
+  open decision in §J.2c, and it is CLOSED: **do not build a transfer face for `autoManagedBTC`.**
+
+📌 CONTRAST — this is exactly why **vBTC (the leverage-collateral TOKEN) CAN be transferable** while band
+  shares cannot: vBTC is minted against ALREADY-BANKED channel depth and is redeemable (once §A.19b
+  lands) against `Σ free channel capacity` in AGGREGATE — it is not bound to one channel's payout
+  script. The two must never be conflated, and §A.19b's aggregate invariant is precisely what keeps
+  vBTC's fungibility from double-claiming a specific channel's BTC.
+📌 SWAPS still work because they do NOT move band shares: a swap-out pays an arbitrary P2TR from
+  protocol-side BTC (with `creditSwapOut` recording the obligation), leaving `autoManagedBTC[lpEth]` and
+  its channel binding untouched. That is why swap-out could be built without breaching this invariant.
+
