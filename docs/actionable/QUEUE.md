@@ -1273,3 +1273,32 @@ the ×1e10 lift (`usd·1e28`, vs WETH's `usd·1e18`):
     `:2128` confirms it, and the drain reading is refuted.
  3. Full suite at `FORK_BLOCK=25653624`; expect 3529/31 ± the two re-derived fixtures.
 
+## ❗CORRECTION — my "refuted by structure" was WRONG. Reading (b) IS REAL. C3 as formulated is a DOUBLE-FIX.
+`SwapLib:752-754` (swap-IN path, `creditSwapInBody`):
+> "POOLED_USD_BTC **pre-scaled ×1e10**: convert(toVol) under-scales the 8-dec WBTC cap by 1e18/1e8,
+>  ×1e10 cancels it → the true sats-equivalent of the USD reserve to pay out. (BTC-local; ETH untouched.)"
+⇒ **The swap-in path ALREADY COMPENSATES for the volScale bug at the call site.** On THIS path the old code
+  was CORRECT. Applying C3 (volScale→1e18) on top ⇒ pre-scale ×1e10 AND corrected scale ⇒ **cap 1e10 TOO
+  LARGE.** That is precisely why `bigSats` = "4× the reserve" fully filled: the cap really was inflated.
+⇒ 🔴 **MY REFUTATION OF (b) WAS INVALID.** I verified `consumed ≤ convert(p.pooled, ...)` and concluded the
+  reserve bounds the fill — but never checked whether **`p.pooled` IS the true reserve. It is NOT** (pre-scaled
+  ×1e10). A `Math.min` against an INFLATED bound bounds nothing. **The overdraw reading (b) stands.**
+📌 LESSON (third time this pattern): I keep verifying the LOCAL form of an expression and declaring the
+  question closed without checking what the INPUTS mean. Same error as the `scaleTo6` C2 patch and the
+  cap-vs-side-effects conflation. **A bound is only as sound as the units of the value fed into it.**
+
+### The ACTUAL fix — C3 must be paired, not applied alone
+`SwapLib:950-954` states the authoritative rule: *"the WBTC ×1e10 price-lift already closes the 8↔18-dec gap,
+so a flat /1e30 is correct for BOTH pools"* — i.e. `volScale` is genuinely wrong IN GENERAL, but the swap-in
+call site hides it with a second wrong thing. Two wrongs that cancel ⇒ **remove BOTH, together:**
+ 1. `convert`: drop the `volScale` param, use a flat `1e18` (asset-independent — the price lift closes the gap).
+ 2. `SwapLib` swap-IN: **DELETE the compensating ×1e10 pre-scale of POOLED_USD_BTC** (and its comment).
+ ⇒ Net effect on the swap-in path: **ZERO** (both cancellations removed) — so `hugeSats`/`bigSats` should
+   need NO re-derivation, and their unchanged passing becomes the PROOF the pairing is unit-neutral.
+ ⇒ Any OTHER `convert` caller lacking the pre-scale is fixed by step 1. Audit every call site for its own
+   private compensation before landing — there may be more paired hacks like this one.
+🛑 **Do NOT re-derive the fixtures.** Under the paired fix they are correct as written; if they still fail,
+  the pairing is wrong. They are now the ORACLE, not the thing to adjust. (Had I "landed C3 + re-derived the
+  fixtures" as planned one step ago, I would have shipped a 1e10-inflated BTC swap-in cap AND rewritten the
+  two tests that were correctly detecting it.)
+
