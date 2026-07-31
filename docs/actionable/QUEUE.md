@@ -601,3 +601,35 @@ the retry — catching everything is what hid this.
 📌 AND C5's status is unchanged: still correct arithmetic, still blocked behind this, since the test
   asserting rung-3 delivery is what fails.
 
+## 🔴 C10 FIX BLOCKED BY EIP-170 — MEASURED, not guessed (2026-07-31)
+
+User pushed back on my calling the observability fix "probably safe": *"not good enough. verify and look
+at it from all angles."* **They were right, and the measurement proves it.**
+
+APPLIED the fix (specific `catch (bytes memory)` + `emit InstantRedeemSkipped(weethRequested, reason)`
++ the event declaration + docblock) and measured:
+```
+SwapLib runtime  24,435 → 24,641    margin  +141 → −65      cost: +206 bytes
+```
+**⇒ OVER the 24,576 EIP-170 limit. UNDEPLOYABLE. Reverted; back to 24,435 / +141.**
+
+📌 ALSO: a first, UNFORCED `forge build --sizes` reported 24,625 / −65 for the UNMODIFIED file and I
+  briefly believed SwapLib was already over the limit. It was stale artifacts — a forced rebuild gave
+  24,435 / +141. **Fourth stale-bytecode incident today**, and the first that nearly caused a false
+  alarm rather than a false pass. `--force` before ANY size or gas reading, not just before tests.
+
+### OPTIONS FOR C10, cheapest first
+ 1. **Emit from the CALLER, not the library.** `SwapLib` is delegatecall'd and has 141 bytes; `Vogue`
+    and `Aux` have far more (Aux margin 1,757). Return a status/selector from the rung instead of
+    emitting inside the lib, and let the caller emit. Costs a return value, not an event + string tables.
+ 2. **Shrink `SwapLib` first.** It is the largest lib (24,435 runtime) and the near-match scan already
+    found slack in it: `_priceOr` is open-coded VERBATIM at `:441` and `:463` while its own docblock
+    claims it removed those copies (D3), and `_swapInPrep`/`_swapOutPrep` share a six-assignment
+    skeleton (D4). Reclaiming that buys room for this AND for the C3/C4 fixes, which also live here.
+ 3. **Do the PARTIAL FILL instead** — that is the actual defect; observability was only half. If the
+    clamp replaces the all-or-nothing call it may be size-neutral. Still blocked on verifying
+    `canRedeem(uint256)` on `0xDadEf1fF…7Ae0`.
+⚠️ **NOTE THE COUPLING:** C3 and C4's fixes are BOTH in `SwapLib` (`:444`/`:455`/`:1013` and
+  `:441-442`). With 141 bytes of headroom, **the size budget is now a shared constraint across three
+  open fixes.** Sequence the shrink (option 2) BEFORE attempting them, or they will collide.
+
