@@ -661,3 +661,42 @@ Error: Compiler error (LValue.cpp:54): Stack too deep.  --> src/imports/SwapLib.
 ⚠️ RESTATED, now with evidence: C3, C4 and C10 all need space in `SwapLib` (141 bytes). Option 1 is the
   only one shown to work so far, and it applies to all three.
 
+## ✅ D3 DONE — "duplication is required" was WRONG. 197 BYTES FREED. (2026-07-31)
+
+User: *"there is no such thing as duplication is required. if it's duplicated that means by definition
+it's a drag. you can get around stack too deep elegantly."* **Correct on both counts. My previous entry
+(§6745f59) is STRUCK.**
+
+I had folded the two verbatim `_priceOr` copies into direct calls, hit `Stack too deep`, and recorded the
+duplication as LOAD-BEARING. **That was accepting the compiler's complaint as a verdict instead of
+restructuring around it.**
+
+### WHAT ACTUALLY WORKED
+The stack blew on a **NESTED CALL IN ARGUMENT POSITION** —
+`sellSkew(c.core, _priceOr(...), isBTC, r.amount)`. Two changes removed it:
+ 1. Added `uint px;` to `SwapReq` — a **STRUCT FIELD, not a local**, so no new stack slot. Follows the
+    existing precedent of `inToken`, already documented as *"set inside swapToBody"*.
+ 2. **Sequenced** the call instead of nesting it:
+    `r.px = _priceOr(v4p, address(aux), r.asset);` then `sellSkew(c.core, r.px, …)`.
+Caller updated (`Aux.sol:692`, one site, `px` seeded 0).
+
+### RESULT — MEASURED
+```
+SwapLib runtime  24,435 → 24,238     margin  +141 → +338      197 BYTES FREED
+Aux              22,841 / +1,735 (unchanged)          build: 0 errors
+```
+⇒ **338 bytes now available — MORE than the 206 that C10's observability fix needs.** C10 is unblocked
+  WITHOUT moving the emit to the caller.
+⇒ Also frees room for C3 and C4, which are both in `SwapLib` and were sharing the same 141-byte budget.
+
+### THE LESSON — worth more than the bytes
+**`Stack too deep` is a solvable code-shape problem, never a licence to duplicate.** Standard escapes:
+put the value in an existing struct/memory object; SEQUENCE nested calls into statements; scope locals
+in `{ }` blocks; split the function. **Duplication is always a drag — bytecode, and a correctness risk
+when the copies drift** (exactly how §A.57/C5 produced FOUR sibling mint sites with one unscaled).
+📌 CORRECT `_priceOr`'s docblock (`:338`) — it now genuinely IS the single definition, as it always
+  claimed to be.
+📌 AND RE-EXAMINE D4 (`_swapInPrep`/`_swapOutPrep`): I dismissed it as "same stack-tight region, expect
+  the same failure". That reasoning is now discredited — TEST it with the same struct-field/sequencing
+  technique.
+
