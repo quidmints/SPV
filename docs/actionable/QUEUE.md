@@ -374,3 +374,53 @@ mechanically — if `levPooledBTC` and `VBtc.totalSupply` ever drift, the drift 
 ⇒ It is also the natural precondition for §A.19b's aggregate rule: you cannot safely enforce
   `Σ outstanding vBTC <= Σ free channel capacity` without first knowing the supply and the marker agree.
 
+# ═══════════ COMPLETE OPEN-ITEM REGISTER (2026-07-31) — nothing omitted ═══════════
+Every open item, each with the exact next action. No item appears only in conversation.
+
+## A. MONEY PATH — fix, then verify
+| # | item | exact next action |
+|---|---|---|
+| A1 | **C2** `Core.sol:989` 6-dec→native | APPLIED with `BasketLib.from6`. **Suite running.** If green, done |
+| A2 | **C5** `Vogue.sol:658` missing `*1e12` | APPLIED (`owed * 1e12`). Same suite run |
+| A3 | **C3** `BasketLib.convert` 1e10 off, `volScale=1e8` | 2 sites: `SwapLib.sol:1013`, `:444`/`:455`. Authoritative form `SwapLib.sol:926-929` (`/1e30`). **ONLY after C1+C2 confirmed** — else it arms `Core.refundUnfilled` |
+| A4 | **C4** wei premium → 6-dec register; θ throttle DEAD on ETH | Convert at `SwapLib.sol:441-442` — price already in hand; idiom `mulDiv(x, base, 1e30)` at `:969`. **Also fix the BTC mirror** (8-dec ⇒ ~1e3 UNDER-report ⇒ over-throttle) |
+| A5 | **C6** `seedFee:319-321` native fee vs 18-dec headroom | clamp never binds for 6-dec; second clamp `:322-323` is correct |
+| A6 | **C7** `twapBody:123` ungated BTC-ring fallthrough | `getTWAPforAsset`/`resolvedTwap`/`wellSkew` public+ungated; view-only today |
+| A7 | **C8** `Vogue.sol:978-989` stale read across repack | reads `POOLED_USD_ETH` BEFORE `_rebalance()` which can zero it (`Core.sol:778`) |
+| A8 | **C9** `scaleTo6` on 4626 SHARE decimals | SUSPECTED; DoS not loss. Confirm whether any wired vault has share≠underlying decimals |
+| A9 | **F1** control-LP redeem delivers 0 | likely a FIXTURE warp (immature QU!D = intended). VERIFY before touching protocol |
+| A10 | 🔴 **INVARIANT: `Σ levPooledBTC[lp] == VBtc.totalSupply()`** | **UNASSERTED ANYWHERE.** One line. Drift = double-spend (depth free while token outstanding). Echidna target; PRECONDITION for §A.19b's `Σ outstanding <= Σ free capacity` |
+
+## B. REFACTOR / DEDUP
+| # | item | exact next action |
+|---|---|---|
+| B1 | **§J.2c** Vogue's ambiguous ERC-20 face | move `transfer`/`transferFrom`/`approve`/`balanceOf`/`totalSupply` to `VEth`, forward into `_transferShares` (`Vogue.sol:1209`), gate that internal to `VEth` (mirror `VBtc.onlyVault`). Run `check-client-abis.py`; EIP-170 both ways. **BTC side CLOSED — build no face for `autoManagedBTC`** |
+| B2 | **D5** targeted-redemption streamline | drive the pro-rata loop by INDEX; make "preferred" a weight/skip on that loop, not a branch (`BasketLib.sol:530-532`, `:579-591`). Legacy did it with one positional loop. **Do WITH §A.61** — same function as the C1/C2 seam |
+| B3 | **§A.61** define the 6/8↔18 BOUNDARY | name the functions where conversion happens; convert ONLY there; put the basis in parameter NAMES (`amountUsd18`/`amountNative`/`sats8`). `from6` now exists; `scaleTo6` is its inverse |
+| B4 | **§A.71** `LevManager.Pos` == `BtcLevManager.Pos` | same name+shape, different files. Merge into `Types.sol`; check EIP-170 (25,164 / 21,843 initcode) |
+| B5 | **13 near-match dedup findings** | see `GAS-AND-CORRECTNESS-AUDIT.md`. Biggest: `_valueStable` vs `_illiquidLoss` share a whole 4626 ladder; `SPWithdrawResult ⊃ SPState`; `isEthVenue` verbatim twice; hand-rolled decimal scaling ×2 |
+| B6 | 🔴 **`initVaultsBody` omits validation** | `ChannelLib.sol:470-476` vs `setVaultBody:441-448` — constructor path skips the `asset() != stable` check, duplicate scan, and primary guard. **Deliberate or bug? VERIFY** |
+| B7 | **§A.52** interface dedup | 95 locals, ZERO name-duplicates ⇒ semantic. Group by target contract (`IAux*`/`ILev*`/`ICore*`), diff member sets. Minimal shims are EIP-170 optimisations — do not blindly fold |
+| B8 | **§A.56 part 2** out-of-range ARGS | responsibility-boundary move, not a signature change. Partial at `/tmp/A56-partial.patch` |
+| B9 | **Layout**: `mock.sol` → `imports/` | it is a helper, not a deployed contract |
+| B10 | **Layout**: fold `QuidLens` | check EIP-170 FIRST — it may exist BECAUSE Aux/Core are near the limit; if so, document why it stays |
+| B11 | **G1–G10 gas** | same basket scan 2–3× per tx; `decimals()` staticcall at 33 seams (legacy used a zero-call divisor); 13-iter SLOAD loops 4× per redeem; TWAP ≈42M gas suite-wide |
+
+## C. INVESTIGATE — no data yet, do not guess
+| # | item | exact next action |
+|---|---|---|
+| C-1 | **Router DISCOVERABILITY** (asked 3×, unanswered) | we trade mockTokens inside PoolManager — can external routers/aggregators FIND us for an ETH swap the way they find other v4 hooks? `Aux.swap` is public+ungated (verified). Unknown: are the mock pools enumerable/routable, and do we WANT that? |
+| C-2 | **Uniswap v4 PROTOCOL FEE** (recently activated) | research online: what it is, how set/collected per pool, whether a mock-token pool is subject. ⚠️ Routing around it is a GOVERNANCE question, not only technical |
+| C-3 | **ether.fi v3 pool imbalance** | get ON-CHAIN data. Hypothesis: weETH exit costs ~0.3% instant or a multi-day NFT ⇒ arb only pays above that ⇒ a PERSISTENT uncaptured band. Check reserves/ticks + recent swaps |
+| C-4 | **LEGACY DIFF** — never ran (agent hit weekly API limit) | `SPV/evm/src/` vs `quid/evm/src/`, ranked missing-guards → dropped-gas → lost-capability. Exclude Court/Jury/Solver/Amp/Link. Prompt written |
+| C-5 | **Verify the 33 unverified open-marked items** | 109 items, 40 open-marked, 7 verified. Grep BY EFFECT. Several are likely ALREADY DONE (§A.35, §A.43, #109 all were) |
+| C-6 | **§A.19b: WHOSE depth shrinks on bearer redemption?** | the open DESIGN decision. Pro rata? Most free capacity? Cheapest payout? Must pay via the SWAP-OUT rail (arbitrary P2TR), not a channel close. Model on delivery-side de-lever — but note that is a FALLBACK path, so judge cost/fairness independently |
+| C-7 | **§A.46** last assertion-free test | `ZZBoldProbe.t.sol:test_probe` — assert it or rename out of `test*` once F2's cause is settled |
+| C-8 | **anvil E2E + real deploy gas** | ONE `forge script script/DeployL1_s.sol --fork-url <anvil>` closes both (§A.35 debt + §A.69) |
+| C-9 | **RPC**: `foundry.toml:34` | hardcoded rate-limited Ankr key, **committed in plaintext** in a repo with a public-snapshot commit ⇒ ROTATE. Use `${MAINNET_RPC}`. Working: `ethereum-rpc.publicnode.com` |
+| C-10 | **JIT-DEPTH §2** | genuinely deferred; blocker LIFTED (`Basket.turn` exists, `Basket.sol:167`). Re-derive `D >= S + L` against `turn` — do NOT copy the doc's math, which is what proved wrong |
+| C-11 | **§A.5f** per-action auth | timelocked recipient pin shipped as a SUBSET. Ranks behind §A.43 attestation |
+| C-12 | **§A.43** attestation binding | EVM key IS enclave-born/sealed; only the QUOTE BINDING missing. 2 files in `quid-bridge/src` match — read the quote-construction path |
+| C-13 | **§J.8** weETH-on-Aave-v4 · **§A.49** FRAX/sFRAX | both VERIFIED-OPEN. FRAX needs a PINNED CHAINLINK FEED as a PREREQUISITE, not a follow-up |
+| C-14 | **§A.15** self-gating buffer | VERIFIED-OPEN, claim stands (a deposit raises its own `bufBps`). Fix not designed |
+
