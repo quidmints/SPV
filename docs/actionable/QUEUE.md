@@ -1751,3 +1751,47 @@ will never see it. Uniswap's own logs cannot be forged.**
  1. **C10 part 2** — needs a weETH-holding address to disambiguate the view's `address` param.
  2. **Rover / ether.fi v3 imbalance** — WHY it persists / why arbers don't close it. Needs on-chain data.
 
+## ✅ PROOF — GRAPHIFY CANNOT PARSE SOLIDITY. The 33 + deep dedup are OURS to do by hand.
+Enumerated EVERY quoted extension across the whole installed `graphify` package (positive enumeration, NOT
+an empty grep — the `never-assert-absence-from-a-grep` rule):
+```
+recognised code/doc extensions: ['.go', '.java', '.js', '.md', '.pdf', '.py', '.rb', '.rs', '.ts']
+.sol anywhere in package: False
+```
+⇒ `.sol` appears in NO file of the package. Its AST path (`extract.py`/`detect.py`) has no Solidity parser,
+  so our contracts would be skipped by `detect` or fall to the LLM text path — **no call graph, no
+  structural edges, which is exactly the capability we wanted it for.**
+⇒ **CONSEQUENCE: the 33 unverified items and the super-deep dedup must be done MANUALLY.** They cannot wait
+  on a graph. Plan by hand, using STRUCTURAL greps (`^function`, `^interface`, `^contract`) — never type
+  names (they match their own obituaries) and never bare absence (an empty result proves nothing).
+
+## 🔬 C10 PART 2 — ON-CHAIN DATA OBTAINED. The view is REAL and reads **0 GLOBALLY**.
+Pulled REAL weETH holders from live `Transfer` logs (head `25655536`, weETH `0xCd5f…b7ee`) and probed the
+RedemptionManager `0xDadEf1fF…7Ae0`:
+| holder | `totalRedeemableAmount(address)` |
+|---|---|
+| `0xbdfa7b78…` | **0** |
+| `0xcd2eb13d…` | **0** |
+| `0xce8a3b66…` | **0** |
+⇒ It returns 0 for GENUINE holders, not just for my earlier junk arguments ⇒ **this is NOT a
+  wrong-parameter artifact.** The most consistent reading: **ether.fi's instant-redeem pool is EMPTY at this
+  block**, so nothing is instantly redeemable for anyone.
+⇒ 🎯 **This likely EXPLAINS the standing rung-3 failure** `rung 3 paid native ETH: 0 <= 4900000000000000000`
+  — the rung correctly finds no capacity and falls through. That would make it an ENVIRONMENTAL failure
+  (live external state at the pinned block), **NOT a code defect** — and it is exactly why C10 part 1's
+  `InstantRedeemSkipped` observability was the right first move.
+⚠️ **DO NOT conclude this yet — one check remains.** A globally-0 view is also what a WRONG-SEMANTICS view
+  returns. Distinguish by checking whether the value is EVER non-zero: sample `totalRedeemableAmount` for the
+  same holder across several HISTORICAL blocks (e.g. -50k, -200k). **Non-zero at any block ⇒ semantics
+  confirmed AND the emptiness is real ⇒ then clamp `min(weethIn, redeemable)` safely.** Always-zero ⇒ the
+  parameter still means something else and the clamp stays unsafe.
+📌 Part 1 (observability) remains the safe landed state; part 2 is ONE historical-block probe from resolving.
+
+## 💰 WHY OPT IN TO THE V4 PROTOCOL FEE — the benefit is NOT to the pool
+`setProtocolFee` is controller-only and per-pool, and the fee is taken OFF THE TOP of the LP fee
+(`ProtocolFeeLibrary:44`) — it does NOT add a surcharge to swappers. So it is a **SPLIT of existing LP
+revenue, not new revenue**: the pool/LPs are strictly WORSE off, and the beneficiary is the protocol
+treasury via the controller. **There is no benefit to US in opting in** — and we cannot opt in anyway
+(controller-only). The only actionable item is DEFENSIVE: assert 0 at deploy + monitor, since the
+controller can impose up to 0.1% later without our consent.
+
