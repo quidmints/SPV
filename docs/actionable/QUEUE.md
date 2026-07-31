@@ -424,3 +424,37 @@ Every open item, each with the exact next action. No item appears only in conver
 | C-13 | **§J.8** weETH-on-Aave-v4 · **§A.49** FRAX/sFRAX | both VERIFIED-OPEN. FRAX needs a PINNED CHAINLINK FEED as a PREREQUISITE, not a follow-up |
 | C-14 | **§A.15** self-gating buffer | VERIFIED-OPEN, claim stands (a deposit raises its own `bufBps`). Fix not designed |
 
+## 🔴 C2 + C5 REVERTED AGAIN — 31 failing vs a 3,559/1 baseline (2026-07-31)
+
+Applied C2 (`Core.sol:989` → `BasketLib.from6`) and C5 (`Vogue.sol:658` → `owed * 1e12`) TOGETHER, ran
+the suite: **3,531 passed / 31 failed.** Both reverted; tree restored. C1 stays (it is confirmed).
+
+NEW failure mode, not seen before:
+```
+[FAIL: rung 3 paid native ETH via the real RedemptionManager: 0 <= 4900000000000000000]
+       testEthVenue_EtherFi_Ins…
+```
+plus F1 (pre-existing). So ~30 regressions concentrated somewhere near the ETH withdraw/ether.fi ladder.
+
+### ⚠️ METHOD FAILURE — I APPLIED TWO CHANGES AT ONCE, AGAIN
+This is the SECOND time this session (§A.72 was the first) that two money-path edits landed together and
+the failures could not be attributed. **The rule I keep breaking: ONE money-path change per suite run.**
+C1's success came precisely from applying it ALONE against a falsifiable prediction.
+
+### ISOLATION PLAN — do this before re-attempting either
+ 1. Apply **C5 alone** (`Vogue.sol:658`, `owed * 1e12`). Predict: FEW or NO failures — it mirrors
+    `_settlePending:439`/`BtcVaultLib:57`/`:74`, all of which scale and all of which pass.
+    ⚠️ IF IT FAILS: the hypothesis that `usd_owed` is 6-dec is WRONG, or minting the CORRECT (larger)
+    amount breaches a backing check that was tuned to the under-payment. Either would be a bigger
+    finding than C5 itself — a backing invariant calibrated against a bug.
+ 2. Apply **C2 alone** (`from6` at `Core.sol:989`). Predict: no change for 6-dec stables (from6 is
+    identity there) and every test uses USDC — so a failure means `token` at that site is NOT always a
+    6-dec stable. **CHECK WHAT `token` CAN BE at `Core.sol:989` FIRST** — if WETH or an 18-dec asset can
+    reach it, `from6` multiplies by 1e12 and that is the regression.
+ 3. Only then consider C3, which must follow both.
+
+📌 The ether.fi rung failure is the clue: `testEthVenue_EtherFi_*` exercises the ETH WITHDRAW LADDER.
+   Neither C2 nor C5 is obviously on that path, so the mechanism is INDIRECT — most likely a mint or
+   take amount feeding a backing/solvency check that then blocks delivery. Trace THAT rather than
+   re-applying blind.
+

@@ -379,17 +379,6 @@ library BasketLib {
     }
 
     /// @notice Scale token amounts between precisions...
-    /// @notice 6-dec USD → `token`'s NATIVE units. The INVERSE of `SwapLib.scaleTo6`, and the helper
-    ///         that did not exist until now (§A.72): `scaleTokenAmount` converts native↔18-dec, a
-    ///         DIFFERENT basis, so using it here divided 6-dec USDC by 1e12 and delivered ~0 (333 tests).
-    ///         No-op for 6-dec stables; ×1e12 for the seven 18-dec ones (GHO/RLUSD/BOLD/DAI/USDS/USDe/cUSD).
-    function from6(uint amount6, address token) internal view returns (uint) {
-        uint decimals = IERC20(token).decimals();
-        return decimals == 6 ? amount6
-             : decimals > 6 ? amount6 * (10 ** (decimals - 6))
-                            : amount6 / (10 ** (6 - decimals));
-    }
-
     function scaleTokenAmount(uint amount, address token,
         bool scaleUp) internal view returns (uint scaled) {
         uint decimals = IERC20(token).decimals();
@@ -426,15 +415,15 @@ library BasketLib {
     function routeSwap(Types.AuxContext memory ctx,
         Types.RouteParams memory p) external returns
         (uint out, uint poolSupplied, uint consumed) {
-        // A swap executes even when the pool spot is off the TWAP — it pays the real curve 
-        // slippage, and VALUE reads use the anchored getTWAPforAsset (30-min TWAP + 
-        // 5% Chainlink anchor), never this spot.
+        // GRINDING REMOVED: no pre-swap manipulation revert. A swap executes even when
+        // the pool spot is off the TWAP — it pays the real curve slippage, and VALUE reads use
+        // the anchored getTWAPforAsset (30-min TWAP + 5% Chainlink anchor), never this spot.
+        // The old revert DoS'd every swap after a large move until the 30-min TWAP caught up;
         // the anchor + curve-reseat are the actual protection. minOut absorbs partial fills.
-        // `consumed` = the caller-input amount actually routed to the swap (before 4626 reval);
-        // the excess p.amount-consumed is a partial fill the caller must reclaim/cap.
-        consumed = Math.min(p.amount, convert(p.pooled, p.v4Price, 
-                            p.token != address(0), ctx.volScale));
-        
+        // `consumed` = the caller-input amount actually routed to the swap (before any 4626 revaluation);
+        // the excess p.amount-consumed is a partial fill the caller must reclaim/cap (#105).
+        consumed = Math.min(p.amount, convert(p.pooled,
+                        p.v4Price, p.token != address(0), ctx.volScale));
         uint pooled = consumed;
         if (pooled > 0) {
             if (p.token != address(0) && ctx.vault != address(0)) {
@@ -456,8 +445,7 @@ library BasketLib {
                 // symmetric: Aux is the sole share-owner, vogueETH()
                 // and _syncVenue see the full position.)
                 pooled = IERC4626(ctx.vault).convertToAssets(
-                                IERC4626(ctx.vault).deposit(
-                                     pooled, address(this)));
+                       IERC4626(ctx.vault).deposit(pooled, address(this)));
 
                 poolSupplied = pooled;
             }
