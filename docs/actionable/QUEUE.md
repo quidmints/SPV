@@ -633,3 +633,31 @@ SwapLib runtime  24,435 → 24,641    margin  +141 → −65      cost: +206 byt
   `:441-442`). With 141 bytes of headroom, **the size budget is now a shared constraint across three
   open fixes.** Sequence the shrink (option 2) BEFORE attempting them, or they will collide.
 
+### D3 TESTED — the duplication is REQUIRED. `_priceOr` cannot be folded back in. (2026-07-31)
+
+User asked whether the dedup tasks could free bytecode for C10. Tried the cheapest one first —
+`_priceOr` is open-coded VERBATIM at `SwapLib.sol:441` and `:463`, and its own docblock claims it
+replaced exactly those copies. **Folding both back into `_priceOr(v4p, address(aux), r.asset)` FAILS:**
+```
+Error: Compiler error (LValue.cpp:54): Stack too deep.  --> src/imports/SwapLib.sol:441:74
+```
+⇒ **The inlining is LOAD-BEARING**, precisely as its own comment says (*"inline (swapToBody
+  stack-tight)"*). This repo sets `via_ir = false` deliberately, so `swapToBody` is at the stack limit
+  and a function CALL there costs more stack slots than the inlined expression. REVERTED.
+⇒ **This is a real answer, not a failed attempt:** D3 is now CONFIRMED load-bearing and should not be
+  re-attempted. What IS wrong is `_priceOr`'s docblock (`:338`), which claims it removed inline copies
+  that demonstrably must stay — fix the COMMENT, not the code.
+⇒ It also means **the near-match dedup findings are not a bytecode bank.** Several will be load-bearing
+  for the same reason. Each must be TESTED for size/stack effect, not assumed to free space.
+
+### SO WHERE DOES C10's SPACE COME FROM? — revised, cheapest first
+ 1. 🥇 **Emit from the CALLER.** `SwapLib` is DELEGATECALL'd with 141 bytes free; `Aux` has **1,757**.
+    Have the rung RETURN a status/selector and let the caller emit. Sidesteps the budget entirely and
+    does not touch `swapToBody`'s stack.
+ 2. **D4** (`_swapInPrep`/`_swapOutPrep` share a six-assignment skeleton) — but they live in the SAME
+    stack-tight region, so expect the same failure. Test before planning around it.
+ 3. Move a whole function OUT of `SwapLib` into a new lib — the only reliably large win, but it changes
+    the delegatecall surface and needs its own verification.
+⚠️ RESTATED, now with evidence: C3, C4 and C10 all need space in `SwapLib` (141 bytes). Option 1 is the
+  only one shown to work so far, and it applies to all three.
+
