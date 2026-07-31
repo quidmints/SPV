@@ -448,7 +448,7 @@ library SwapLib {
             {
                 r.px = _priceOr(v4p, address(aux), r.asset);
                 uint skew = sellSkew(c.core, r.px, isBTC, r.amount); // inline (swapToBody stack-tight)
-                r.amount = retainSkewPremium(c.core, isBTC, r.amount, skew);
+                retainSkewPremium(c.core, isBTC, r, skew);   // mutates r.amount; r.px declares NATIVE
             }
         } else { max = isBTC ? ICoreObs(c.core).POOLED_BTC() : ICoreObs(c.core).POOLED_ETH();
             zeroForOne = ICoreObs(c.core).token1is(isBTC);
@@ -471,7 +471,7 @@ library SwapLib {
             {
                 r.px = _priceOr(v4p, address(aux), r.asset);
                 uint skew = wellSkew(c.core, r.px, isBTC); // inline (swapToBody stack-tight)
-                r.amount = retainSkewPremium(c.core, isBTC, r.amount, skew);
+                retainSkewPremium(c.core, isBTC, r, skew);   // mutates r.amount; r.px declares NATIVE
             }
         }
         max = _finishSwap(ctx, aux, r, sqrtPriceX96, zeroForOne, max, isBTC, v4p);
@@ -1049,8 +1049,11 @@ library SwapLib {
         // Effective-rate scarcity skew on the drain: scale the buy-driving USD DOWN by (1−skew) so a
         // BTC-scarce pool hands the swapper FEWER sats per USD; the withheld premium stays as backing. The
         // swap still executes at basePrice through routeSwap ⇒ NO manip-guard exemption (separate scalar).
-        uint skew = wellSkew(core, basePrice, true);
-        amount = retainSkewPremium(core, true, amount, skew);   // audit + RFQ-drawable
+        // `amount` here is ALREADY 6-dec USD (scaleTo6 in _swapOutPrep), so px=0 declares "no conversion":
+        // this leg's recorded premium was always in the right unit and stays that way.
+        SwapReq memory sr; sr.amount = amount; sr.px = 0;
+        retainSkewPremium(core, true, sr, wellSkew(core, basePrice, true));  // audit + RFQ-drawable
+        amount = sr.amount;
         rp.amount    = amount;                               // reduced buy drives the fill
         rp.recipient = address(this);                       // obligation → pool; LN delivers
         rp.isBTC     = true;
@@ -1351,11 +1354,24 @@ library SwapLib {
         return pooled > lev ? pooled - lev : 0;
     }
 
-    function retainSkewPremium(address core, bool isBTC, uint amount, uint skew) internal returns (uint) {
-        if (skew == 0) return amount;
-        uint premium = FullMath.mulDiv(amount, skew, 1e18);
-        ICoreObs(core).recordSkewPremium(isBTC, premium);
-        return amount - premium;
+    /// @dev Takes the `SwapReq` (ONE memory pointer) rather than `amount`+`price` as separate stack
+    ///      values — `swapToBody` is stack-tight and passing them individually overflows it. Mutates
+    ///      `r.amount` in place; there is no return.
+    ///      `r.px` DECLARES the unit `r.amount` is in, so one recording path serves both legs:
+    ///        • `r.px != 0` -> `r.amount` is NATIVE (wei/sats). `recordSkewPremium` wants 6-dec USD, so
+    ///                         convert with the flat /1e30 that is correct for BOTH assets (the WBTC
+    ///                         price carries the x1e10 lift — same rule as `poolVolUsd` below).
+    ///        • `r.px == 0` -> `r.amount` is ALREADY 6-dec USD (the drain leg, whose input came through
+    ///                         `scaleTo6`); record verbatim. That leg was always correct — this keeps it so.
+    ///      The premium SUBTRACTED from `r.amount` stays in the caller's own unit; only the RECORDED
+    ///      value converts. Before this fix the native legs recorded wei/sats into a USD register: ETH
+    ///      over-reported (theta throttle never bound) and BTC under-reported ~1e3 (over-throttled).
+    function retainSkewPremium(address core, bool isBTC, SwapReq memory r, uint skew) internal {
+        if (skew == 0) return;
+        uint premium = FullMath.mulDiv(r.amount, skew, 1e18);
+        ICoreObs(core).recordSkewPremium(isBTC,
+            r.px == 0 ? premium : FullMath.mulDiv(premium, r.px, 1e30));
+        r.amount -= premium;
     }
 
     function clampByBacking(uint thetaEff, uint backing, uint pooled, uint want)

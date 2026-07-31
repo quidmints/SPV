@@ -1487,3 +1487,23 @@ function retainSkewPremium(address core, bool isBTC, Types.SwapReq memory r, uin
   LOST (the revert had already applied). **Never chain a `--force` rebuild with the commit that records its
   result** — run the build alone, then commit separately.
 
+## C4 ATTEMPT 2 — framing (d) COMPILES. (Suite pending at time of writing.)
+`retainSkewPremium(address core, bool isBTC, SwapReq memory r, uint skew)` — takes the struct (ONE memory
+pointer) instead of `amount`+`price` (TWO live stack values), MUTATES `r.amount` in place, no return.
+**`forge build --force`: Compiler run successful.** The stack overflow that killed framing (a) is gone —
+confirming the diagnosis that the cause was live-scalar COUNT, not the extra argument as such.
+ • `:451` / `:474` (native): `retainSkewPremium(c.core, isBTC, r, skew);` — `r.px` is set, declaring NATIVE.
+ • `:1051` (drain, already USD6): builds a local `SwapReq` with `sr.px = 0` ⇒ "record verbatim, no
+   conversion", preserving the leg that was ALWAYS correct. One declaration, ONE recording path, no branchy
+   duplicate helper.
+**`r.px` doubles as the unit DECLARATION** — the value needed for the conversion IS the thing that proves a
+conversion is needed, so the two cannot drift apart (the failure mode a `bool isNative` would have had).
+⏳ NEXT: full suite at `FORK_BLOCK=25653624`. Baseline 3529/31, 2 distinct pre-existing failures
+  (`testEthVenue_EtherFi_InstantRedeem_Rung3`, `testLeverage_LvrControlVsTreatment`).
+⚠️ **EXPECT theta-throttle movement and INVESTIGATE rather than accept**: ETH's throttle currently NEVER
+  binds (wei into a USD6 register), so tests written against that broken behaviour may now correctly begin
+  throttling. That is the 4-instance "calibrated-while-broken" pattern — DERIVE the right value; do not
+  edit a fixture to green. If BTC tests move too, that is the mirror (~1e3 under-report ⇒ over-throttle).
+📌 Committed BEFORE the suite run per the new standing rule (a chained build+commit already lost one
+  commit to the 2-min timeout). If the run is killed, this reasoning survives.
+
