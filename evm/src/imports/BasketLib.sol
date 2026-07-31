@@ -379,6 +379,18 @@ library BasketLib {
     }
 
     /// @notice Scale token amounts between precisions...
+    /// @notice 6-dec USD → `token`'s NATIVE units. The INVERSE of `SwapLib.scaleTo6`, and the helper
+    ///         that did not exist until §A.72 proved it was missing. **Do NOT substitute
+    ///         `scaleTokenAmount`**: that converts native↔18-dec, a DIFFERENT basis, and using it here
+    ///         divided 6-dec USDC by 1e12 and delivered ~0 (333 failing tests).
+    ///         No-op for 6-dec stables; ×1e12 for the seven 18-dec ones (GHO/RLUSD/BOLD/DAI/USDS/USDe/cUSD).
+    function from6(uint amount6, address token) internal view returns (uint) {
+        uint decimals = IERC20(token).decimals();
+        return decimals == 6 ? amount6
+             : decimals > 6 ? amount6 * (10 ** (decimals - 6))
+                            : amount6 / (10 ** (6 - decimals));
+    }
+
     function scaleTokenAmount(uint amount, address token,
         bool scaleUp) internal view returns (uint scaled) {
         uint decimals = IERC20(token).decimals();

@@ -986,7 +986,13 @@ contract Core is SafeCallback {
             _mockUsd(isBTC).burn(usdAmount);
             if (inRange) _poolUsdInRange(isBTC, usdAmount, false);
             if (!keep && token != address(0))
-                AUX.take(who, usdAmount, token, 0);
+                // §A.50/C2: `usdAmount` is the 6-dec mockUSD leg, but `AUX.take` wants the payout
+                // token's NATIVE units (`BasketLib.sol:620-628`; the two callers that already convert
+                // are `SwapLib.sol:1170` and `:1222`). The CREATE side of the same position already
+                // scales (`VogueLib.sol:662`), so without this the round trip was ASYMMETRIC and an
+                // 18-dec redeemer was paid 1e12x too little. `minOut` cannot catch it: `Core.swap`
+                // returns the 6-dec delta, a different basis than delivery.
+                AUX.take(who, BasketLib.from6(usdAmount, token), token, 0);
         } else if (usdDelta < 0) {
             usdAmount = uint(int(-usdDelta));
             _mockUsd(isBTC).mint(usdAmount);

@@ -797,3 +797,29 @@ must also be against the SAME CHAIN STATE. Set `FORK_BLOCK` before any attributi
 ⬜ STILL OPEN: C10's partial fill (the reason those 31 fire at all) — blocked on confirming ether.fi's
   capacity view; `cast` calls to `0xDadEf1fF…7Ae0` are currently failing at the RPC.
 
+## 📌 PINNED BASELINE — block 25,653,624 → **3,529 passed / 31 failed**
+
+First reproducible baseline of the session, via `ForkPin`. **Use this block for every attribution run
+until the tree changes materially:**
+```sh
+FORK_BLOCK=25653624 FOUNDRY_ETH_RPC_URL=https://ethereum-rpc.publicnode.com forge test
+```
+The 31 are PRE-EXISTING and environmental in origin (ether.fi's redeemable pool at this block is thinner
+than rung 3's ask — that is C10). **They are NOT caused by any pending change**, which is exactly the
+fact that three wrongly-reverted fixes needed and nobody had.
+
+### Tree state at this baseline
+  • **C1** — applied, previously confirmed (it closed the `ZZBoldProbe` failure).
+  • **D3** — restored: `_priceOr` deduped via a `SwapReq.px` struct field. `SwapLib` 24,238 / **+338**.
+  • **C5** — restored: `Vogue.sol:658` `owed * 1e12`.
+  • **C2** — restored with `BasketLib.from6` (6-dec → native). `BasketLib` 21,428 / +3,148. Build clean.
+    **Measuring against the pinned baseline now** — the first genuinely attributable run today.
+
+### Byte budget after D3 (all three remaining SwapLib fixes now fit)
+`SwapLib` **+338** — C10's observability fix measured at **206**, so it fits; C3 (`:444`/`:455`/`:1013`)
+and C4 (`:441-442`) also live here and were previously blocked behind the old 141.
+⬜ C10's PARTIAL FILL still blocked on one external fact: does `EtherFiRedemptionManager`
+  (`0xDadEf1fF…7Ae0`) expose a redeemable-capacity view? Three routes failed — `cast` (RPC errors),
+  Etherscan (403 to WebFetch), GitHub code search (no index hit). **Get it from a reachable source
+  before writing a clamp; do not guess an external ABI.**
+
