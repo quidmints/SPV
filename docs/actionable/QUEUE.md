@@ -876,3 +876,36 @@ to rung 4 instead of losing the whole rung. Blocked on ONE external fact (capaci
 ⇒ **Honest total ≈ 42 open items**, not 35. And the register's own caveat stands: **33 of 40
   open-marked items are still UNVERIFIED**, several probably already done.
 
+### ✅ Item 5 — D4 IS DEAD. Confirmed: no `_swapInPrep` exists anywhere.
+`awk 'NR>=700 && NR<=760 && /^\s*function /'` over `SwapLib.sol` returns **NOTHING** — there is no
+function declaration in the range the agent cited (~722-756); that code is INSIDE a larger function.
+Combined with `grep "function .*Prep("` returning only `_swapOutPrep:1006`, **the claimed "mirrored pair"
+does not exist.** D4 STRUCK — do not re-scope, do not re-investigate. The `rp.*` assignment block the
+agent saw is real but is not a separate function, so there is no pair to merge.
+📌 Second agent claim today that did not survive checking (the first: `IAuxBtc_V` "still declared", which
+  existed only in its own obituary). **Agent `file:line` citations are claims, not facts.**
+
+### ✅ Item 6 — `_priceOr`'s docblock corrected
+It claimed *"ONE shared body … not 5 inlined copies"* while TWO verbatim copies survived in `swapToBody`.
+That claim is now TRUE (D3), and the docblock records WHY it was false and how it was fixed — struct
+field + sequencing, 197 bytes — so the next reader does not re-add an "unavoidable" inline copy.
+
+### ✅ Item 2 — C5 PROVEN NEUTRAL (and my earlier verdict definitively refuted)
+```
+with C5    @25653624 : 3,529 / 31
+WITHOUT C5 @25653624 : 3,529 / 31     ⇒ C5 changes NOTHING
+```
+Toggled at the SAME block, so this is proof rather than inference. **My earlier "C5 ALONE causes all 31
+failures" was wrong**, and C5 — the missing `* 1e12` at `Vogue.sol:658`, the fourth sibling mint and the
+only unscaled one — is CORRECT and stays. Restored.
+📌 C1 does NOT need the same re-run: its evidence was a SPECIFIC test flipping fail→pass
+  (`ZZBoldProbe`, the accidental first 18-dec test), which is a signal that survives baseline drift in a
+  way that aggregate counts do not. **Prefer per-test signals over suite totals when the baseline moves.**
+
+### 7-ITEM SWEEP — 4 of 7 done
+  ✅ 2 C5 re-verified (neutral) · ✅ 5 D4 struck (no `_swapInPrep` exists) · ✅ 6 `_priceOr` docblock
+     corrected · ✅ 7 recorded (pre-`ForkPin` attributions unsound; findings survive, verdicts do not)
+  ⬜ 1 `Σ levPooledBTC == VBtc.totalSupply()` — needs a test written
+  ⬜ 3 C10 part 2 — blocked on ether.fi's capacity view
+  ⬜ 4 §A.19b whose-depth-shrinks — a DESIGN decision, needs the user
+

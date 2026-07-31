@@ -336,6 +336,11 @@ library SwapLib {
     /// @dev Resolve the execution price: the repack-provided v4 mark if non-zero, else the live oracle TWAP.
     ///      Factored from the 5 swap-body sites — no-optimizer build ⇒ ONE shared body (jump target), not 5
     ///      inlined copies of the getTWAPforAsset call, so it genuinely reclaims deployed bytecode (EIP-170).
+    ///      §D3 (2026-07-31): this claim was ASPIRATIONAL until now — two verbatim inline copies survived
+    ///      in `swapToBody`, tagged "stack-tight", because a CALL in argument position blew the no-`via_ir`
+    ///      stack. Fixed by resolving once into the `SwapReq.px` STRUCT FIELD (no new stack slot) and
+    ///      SEQUENCING the call out of argument position. Freed 197 bytes. `Stack too deep` is a code-shape
+    ///      problem, never a licence to duplicate.
     function _priceOr(uint v4p, address aux, address asset) internal view returns (uint) {
         return v4p != 0 ? v4p : IAuxSwap(aux).getTWAPforAsset(asset, 1800);
     }
