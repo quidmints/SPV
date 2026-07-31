@@ -535,3 +535,35 @@ on the fork — this test exercises the REAL ether.fi RedemptionManager (the ass
   search: exhaustive over a known set, so absence IS evidence here.
 C5 REVERTED. Tree at 3,559/1.
 
+## 🔴 C10 — **THE WITHDRAW LADDER DOES NOT CAP ITS ETHER.FI REQUEST.** `0xdc9cb0e2 == ExceededRedeemable()`
+
+`cast 4byte 0xdc9cb0e2` → **`ExceededRedeemable()`** — ether.fi's OWN error, from the real mainnet
+RedemptionManager. Hypotheses (a)/(b) are DEAD: it is not our solvency accounting rejecting anything.
+
+### WHAT THIS ACTUALLY MEANS — and it is bigger than C5
+The ETH withdraw ladder asks the ether.fi RedemptionManager for MORE THAN IT WILL REDEEM, and ether.fi
+refuses. **C5 does not CREATE that condition — it merely makes it REACHABLE in tests** by shifting a
+backing-derived quantity that sizes the rung-3 request.
+⇒ **The latent defect is that the ladder does not clamp its request to ether.fi's redeemable capacity.**
+  Any condition that inflates the request hits it: a large exit, a shifted backing figure, or simply
+  ether.fi's own redeemable pool being small at that moment (it is EXTERNAL state we do not control and
+  do not currently read).
+⇒ Consequence today: **rung 3 reverts and delivers 0** instead of delivering what IS redeemable and
+  deferring the rest — exactly the "partial fill then defer" behaviour the rest of the ladder is built
+  around. A reverting rung wastes the whole rung.
+
+### THE FIX (not applied — needs its own verification)
+Read ether.fi's redeemable capacity and `min()` the request against it before calling, so rung 3 delivers
+`min(want, redeemable)` and the remainder falls through to the next rung / deferral. Locate the rung-3
+call site in the ETH ladder (`VaultLib` withdraw path), and check whether the RedemptionManager exposes a
+public redeemable/cap view — if it does, this is a one-line clamp; if not, a `try/catch` that treats
+`ExceededRedeemable()` as "deliver less, defer the rest" rather than as a hard failure.
+⚠️ **This is a CLAMP THAT PREVENTS A BAD STATE, not one that hides one** (cf. the standing clamp policy):
+  it converts an external refusal into a correct partial fill. Distinguish it from the θ cap that was
+  rightly deleted for hiding a corruption.
+
+### CONSEQUENCE FOR C5
+C5's arithmetic remains correct (`usd_owed` is 6-dec on every write; the sibling at `:439` scales the
+same value). **C5 is BLOCKED BY C10, not wrong.** Fix C10 first, then re-apply C5 ALONE and re-run —
+prediction: C5 then passes, because the rung will clamp instead of reverting.
+
