@@ -220,3 +220,41 @@ global invariant, and that is exactly the site carrying the C4 bug.
 NOT EXAMINED (time-bounded): `VogueLib` band-geometry `:1477-1610`; `wellSkew`/`sellSkew`/`skewWad`
 internals; `Vogue._withdraw` vs `unregisterBtcLp` (flagged intentionally distinct at `Vogue.sol:461-467`).
 
+# ═══ §A.15 VERIFIED-OPEN (2026-07-30) — MY "inverted" SUSPICION WAS WRONG ═══
+The mint happens strictly AFTER the read, so `total` and `totalSupply()` do NOT move together:
+ 1. `Basket.sol:241-244` `AUX.deposit(...)` runs FIRST → 2. `ChannelLib.sol:383-385` transfer+`supplySelf`
+ ⇒ dollars IN BACKING → 3. `ChannelLib.sol:400` `refreshAllHoldingsSelf()` ⇒ cache includes D →
+ 4. `Basket.sol:254` `get_metrics(true)` ⇒ `total` INCLUDES D → 5. `Basket.sol:279-280`
+ `bufBps = (total - totalSupply())*10_000/total` with `totalSupply()` still EXCLUDING this mint →
+ 6. `Basket.sol:344` `_mint(...)` (sole supply-increasing path, `:174-182`).
+⇒ gate sees `(T+D−S)/(T+D)` > `(T−S)/T` for any D>0 ⇒ **a deposit MONOTONICALLY RAISES ITS OWN `bufBps`**
+  and can lift itself across the 150/300/500bps tiers (`Basket.sol:281-284`). §A.15 STANDS AS WRITTEN.
+📌 Cleanest evidence: the PROTOCOL-mint headroom check (`Basket.sol:206-217`) reads the same metrics but
+  has NO preceding deposit ⇒ NOT self-inflated. Only the depositor path is.
+
+# ═══ NEAR-MATCH DEDUP — Aux/Basket/BasketLib/ChannelLib (13 findings) ═══
+**MERGEABLE:** (1) Aave supply leg duplicated INSIDE `supplyBody` — `ChannelLib.sol:205-208` vs
+`:236-240`; `rid` sources provably equal (`Aux.sol:1211-1214`). Branch load-bearing, body a dup.
+(4) 🔑 **BIGGEST: `_valueStable` (`BasketLib.sol:243-297`) vs `_illiquidLoss` (`:752-806`)** — same
+`getVaults` loop, same `aaveSpoke` sentinel, same `try balanceOf → if(sh==0) continue → try
+convertToAssets → catch` ladder, same 18-dec tail, same `stables.length-1 // skip BOLD` header. Differs
+ONLY in accumulator. `_illiquidLoss` also re-derives the reserve id inline (`:766-771`) instead of
+`aux.reserveIdOf` (`Aux.sol:1311`) — **5 self-calls where 1 would do.**
+(6) hand-rolled `10 ** (18 - dec)` at `BasketLib.sol:290-296` and `:801-804` IS `scaleTokenAmount(...,true)`
+(`:393-399`) ⇒ feeds §A.61. (7) `isEthVenue` triple-OR duplicated VERBATIM `:1049-1051` vs `:1093-1095`.
+(8) **`SPWithdrawResult` ⊃ `SPState`** (`ChannelLib.sol:64-69` vs `:72-82`) — 4 `new`-prefixed copies,
+copied back at `:277-280`; embed `SPState next;`. **This is the ≤1-field-apart case the exact scan missed.**
+(10) `get_metrics(true)` (`Aux.sol:540-550`) vs `get_metricsWith` (`:560-566`). (9) `_withdrawAaveUnsafe`
+(`Aux.sol:1147-1153`) vs `withdrawAaveLeg` (`:1164-1170`) — inverse maps, stable-keyed generalises (SUSPECTED).
+**NEEDS-DECISION:** (3) `supplyBody:199-218` vs `withdrawBody:262-289` — same classifier, but supply
+REVERTS where withdraw RETURNS 0 (deliberate fail-soft on drain). (5) third 4626 ladder
+`ChannelLib.sol:222-235` (cross-file). (11) `sorSelfFunded` vs `…Reverse` (`Aux.sol:777-785`/`:794-804`).
+🔴 **(12) CORRECTNESS:** `initVaultsBody` (`ChannelLib.sol:470-476`) vs `setVaultBody` (`:441-448`) — the
+CONSTRUCTOR path OMITS `IERC4626(vault).asset() != stable` (`:441`), the duplicate scan (`:442-443`) and
+the `vaults[stable]==0` guard. **Constructor wiring may silently skip the asset-mismatch check. VERIFY.**
+📌 (2) `supplyBody`'s 3 branches — only the aave leg is extractable; WETH/BOLD use four incompatible
+mechanisms. ⚠️ **Only BOLD TRUSTS the requested amount rather than measuring it; only 2 of 4 refresh the
+holdings cache.** (13) stale doc `ChannelLib.sol:316` references a `depositToSP` that no longer exists.
+**METHOD:** effect-based searches (call-sequence shapes), each confirmed against a KNOWN instance first.
+`_withdrawableOf` checked and ALREADY correctly shared — a negative that validates the search.
+
