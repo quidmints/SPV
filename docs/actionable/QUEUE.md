@@ -567,3 +567,37 @@ C5's arithmetic remains correct (`usd_owed` is 6-dec on every write; the sibling
 same value). **C5 is BLOCKED BY C10, not wrong.** Fix C10 first, then re-apply C5 ALONE and re-run —
 prediction: C5 then passes, because the rung will clamp instead of reverting.
 
+### C10 CORRECTED — it is an ALL-OR-NOTHING FALLTHROUGH, not a revert. Read the code, not my summary.
+
+I wrote *"rung 3 reverts and delivers 0"*. **Wrong.** `SwapLib.sol:622-625`:
+```solidity
+if (weethIn > 0 && instant && c.redeemer != address(0)) {
+    try IRedeem_L(c.redeemer).redeemWeEth(weethIn, recipient, ETHFI_NATIVE_ETH) { return covered; }
+    catch {}
+}
+// Rung 4 — last-resort no-fee withdrawal NFT.
+return waitNft(covered, recipient, c);
+```
+`ExceededRedeemable()` IS caught; the withdraw does not revert. It **silently degrades to rung 4**, the
+multi-day wait-NFT.
+
+⇒ **THE REAL DEFECT IS ALL-OR-NOTHING SIZING.** Rung 3 requests the FULL `weethIn`. If ether.fi can serve
+  even 99% of it, the whole rung is abandoned and the LP is pushed onto a MULTI-DAY NFT instead of
+  getting ~99% instantly. The `catch {}` makes that degradation INVISIBLE — no event, no partial fill.
+⇒ SEVERITY revised DOWN from "delivers 0 / wastes the rung" to "**needlessly forces the slow path**" —
+  a UX and capital-efficiency defect, not a solvency one. Still real: the whole point of rung 3 is to
+  avoid the wait, and it is skipped whenever ether.fi's redeemable pool is momentarily smaller than the
+  ask — EXTERNAL state we neither read nor control.
+
+### THE FIX — clamp, then partial-fill
+`redeemWeEth(weethIn, …)` should be `redeemWeEth(min(weethIn, redeemable), …)`, with the remainder
+falling to rung 4. REQUIRED FIRST: confirm whether `EtherFiRedemptionManager` (impl `0x6bD1…91F7`)
+exposes a public redeemable/capacity view. If YES → a one-line `min()`. If NO → binary-search the
+amount, or catch `ExceededRedeemable()` specifically and retry at a fraction. ⚠️ Do NOT bare-`catch`
+the retry — catching everything is what hid this.
+📌 ALSO: replace `catch {}` with a catch that EMITS — a silent fallthrough from the instant rung to a
+  multi-day NFT is exactly the class of thing that should be observable. (Cf. the standing clamp policy:
+  this one PREVENTS a bad state — an unnecessary multi-day wait — rather than hiding one.)
+📌 AND C5's status is unchanged: still correct arithmetic, still blocked behind this, since the test
+  asserting rung-3 delivery is what fails.
+
