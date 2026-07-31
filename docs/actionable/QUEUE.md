@@ -1795,3 +1795,36 @@ treasury via the controller. **There is no benefit to US in opting in** — and 
 (controller-only). The only actionable item is DEFENSIVE: assert 0 at deploy + monitor, since the
 controller can impose up to 0.1% later without our consent.
 
+## 🔴 RETRACTION — "ether.fi's pool is empty" was WRONG. The user doubted it; the data agrees with the user.
+Probed `totalRedeemableAmount(0xcd2eb13d…)` (a REAL weETH holder) across history:
+| block | 25655536 | 25600000 | 25400000 | 25000000 | 24000000 |
+|---|---|---|---|---|---|
+| value | 0 | 0 | 0 | 0 | 0 |
+⇒ **Zero at EVERY block back ~1.6M blocks (months).** An instant-redeem pool does not sit empty for months.
+⇒ **The SEMANTICS are wrong, not the pool.** My "environmental / pool is empty" reading is RETRACTED. The
+  `address` parameter does not mean "holder whose weETH could be redeemed".
+📌 This is the 4th time a hypothesis of mine survived one probe and died on the SECOND. The historical
+  sample cost one command and overturned the conclusion — **sample across TIME before calling external
+  state "empty"; a single-block read cannot distinguish empty from wrong-question.**
+
+### ▶️ C10 PART 2 — NEXT (still not landed; do NOT clamp on a view that is always 0)
+The right move is to stop guessing the ABI and READ IT:
+ 1. `cast implementation`/EIP-1967 slot on `0xDadEf1fF…7Ae0` (it is very likely a PROXY — that would also
+    explain 0-arg `totalRedeemableAmount()` reverting while the `(address)` overload does not).
+ 2. Fetch the IMPLEMENTATION's verified ABI and read the REAL capacity view + its params.
+ 3. Only then clamp `min(weethIn, redeemable)`.
+⚠️ Rung 3's standing test failure is therefore **still UNEXPLAINED** — do not attribute it to environment.
+
+## 💡 USER'S PROTOCOL-FEE IDEA (2026-08-01) — "inflate mockTokens so the fee deduction nets to true balances"
+**Premise check first:** the v4 protocol fee is taken OFF THE TOP OF THE LP FEE
+(`ProtocolFeeLibrary:44` — `swapFee = self + lpFee - (self*lpFee)/PIPS_DENOMINATOR`), **NOT off the swap
+principal or the pool's token balances.** So it reduces FEE ACCRUAL, not reserves.
+⇒ The idea is SOUND IN SHAPE — because our currencies are mocks we mint ourselves, an offsetting inflation
+  is available to us in a way it is not to a real-token pool (this IS a genuine structural advantage of the
+  mock design, and worth recording as such).
+⇒ But the compensation must be applied to the **fee-accrual path**, not to reserve balances — inflating
+  balances would mis-price the curve (the tick math reads reserves).
+⚠️ **NOT YET NEEDED:** the fee is per-pool + controller-set, and we have NO mainnet pool, so nothing is
+  imposed today. Build the DEFENSIVE assert-0 + monitor first; implement compensation only if a controller
+  ever targets our key. **Do not build against a hypothetical.**
+
