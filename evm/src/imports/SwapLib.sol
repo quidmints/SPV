@@ -27,7 +27,10 @@ import {IAuxSwap} from "./Interfaces.sol";
 interface IWeEth_L { function getWeETHByeETH(uint a) external view returns (uint); function unwrap(uint a) external returns (uint); }
 // EtherFiRedemptionManager.redeemWeEth(weEthAmount, receiver, outputToken);
 // outputToken ∈ {0xEeee…EEeE native-ETH sentinel, stETH} — else InvalidOutputToken.
-interface IRedeem_L { function redeemWeEth(uint weEthAmount, address receiver, address outputToken) external; }
+interface IRedeem_L { function redeemWeEth(uint weEthAmount, address receiver, address outputToken) external;
+    /// VERIFIED on mainnet impl 0x5d53b303…b3dc (selector cf52e9f6, matched in bytecode): the param is the
+    /// OUTPUT TOKEN, not a holder. Live: native-ETH sentinel reads 0, stETH reads 5_000e18.
+    function totalRedeemableAmount(address outputToken) external view returns (uint); }
 interface ILiq_L { function requestWithdraw(address r, uint a) external returns (uint); }
 /// Chainlink-style USD feed — the external anchor for the TWAP cross-check.
 
@@ -641,6 +644,16 @@ library SwapLib {
             // to rung 4. Blocked on confirming a capacity view on `0xDadEf1fF…7Ae0` — `canRedeem(uint256)`
             // appears to exist (an argument-less call returns an encode-length mismatch rather than
             // "function not found") but its semantics are UNVERIFIED. Do not clamp against a guessed ABI.
+            // §C10 part 2: ether.fi's redeemable capacity is PER OUTPUT TOKEN. The native-ETH sentinel
+            // has read ZERO on mainnet at every block sampled back ~1.6M blocks, while stETH holds
+            // ~5_000e18 — i.e. this rung asks for the ONE output token with no capacity, which is why it
+            // has never paid. Skip the call entirely when capacity is 0 rather than burning gas on a
+            // guaranteed ExceededRedeemable revert, and make the reason observable.
+            // NOTE: a PARTIAL clamp (min(weethIn, capacity)) is deliberately NOT done here — capacity is
+            // denominated in the OUTPUT token while `weethIn` is weETH, and weETH:eETH is not 1:1. That
+            // conversion is the remaining piece; a naive min() would mix units.
+            uint redeemable = IRedeem_L(c.redeemer).totalRedeemableAmount(ETHFI_NATIVE_ETH);
+            if (redeemable == 0) { emit InstantRedeemSkipped(weethIn, bytes4(0)); return waitNft(covered, recipient, c); }
             try IRedeem_L(c.redeemer).redeemWeEth(weethIn, recipient, ETHFI_NATIVE_ETH) { return covered; }
             catch (bytes memory err) {
                 // Empty `err` = callee gave no reason (OOG / bare revert); report 0 rather than
