@@ -1565,3 +1565,26 @@ reservoir) and asserts on `CORE.skewPremiumETH()`. That is `swapToBody`'s **`els
 Apply the struct framing (d) but pass `r.px` as the unit declaration ONLY at `:451`; leave `:474` on the
 verbatim path (`px = 0` semantics) and `:1051` untouched. Then one suite run.
 
+## ✅✅ C4 LANDED — one-site fix, 3529/31 = EXACT baseline, no fixture touched.
+`retainSkewPremium(core, isBTC, SwapReq memory r, uint skew, bool nativeAmount)`:
+ • **`:451` SELL leg — `true`**: native (wei/sats) ⇒ `mulDiv(premium, r.px, 1e30)`, the flat scale correct
+   for BOTH assets (WBTC's x1e10 price lift makes it asset-independent — same rule as C3 and `poolVolUsd`).
+ • **`:474` / `:1051` DRAIN legs — `false`**: buy-driving USD, already 6-dec ⇒ recorded VERBATIM, unchanged.
+ • Struct passed as ONE memory pointer (not `amount`+`price`) so `swapToBody` stays within the stack.
+ • `r.px` REJECTED as the discriminator — it is non-zero on BOTH `swapToBody` legs, so it cannot tell them
+   apart. The caller states the unit explicitly; the branch is a compile-time constant per site.
+**Suite 3529 / 31 — identical to baseline**, only the 2 known pre-existing failures. **No test edited.**
+⇒ Sell-side skew premium now records 6-dec USD into the 6-dec register, so the theta EWMA finally sees a
+  true rate on that leg (it previously saw wei ⇒ absurdly large ⇒ **the sell-side throttle never bound**).
+
+### ⚠️ PROCESS FAILURE THIS TURN — a revert that did not revert
+`git checkout -- SwapLib.sol` restored the file to **commit 666bf80, which had already STAGED attempt 2**.
+So the tree kept the broken conversion while I reported it as reverted-and-green. Caught only because the
+next edit's anchor text failed to match.
+📌 **RULE: `git checkout --` reverts to HEAD, NOT to "before my change" — if the change was already
+  committed, checkout RESTORES it.** Never commit an unverified experiment and then rely on `checkout` to
+  undo it. Either (a) verify BEFORE committing, or (b) undo with an explicit `git revert`/counter-edit.
+  This directly contradicts the commit-early habit, so the resolution is: commit the *reasoning doc* early,
+  commit *unverified code* never.
+✅ Verify a revert by GREPPING the code, not by trusting the command's exit status.
+
