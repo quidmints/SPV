@@ -655,7 +655,7 @@ contract Vogue is
         // basket-USD fees, identical to the prior per-withdraw mint, just deferred to full exit.
         if (LP.pooled == 0 && LP.usd_owed > 0) {
             uint owed = LP.usd_owed; LP.usd_owed = 0;
-            QUID.mint(recipient, owed * 1e12, address(QUID), 0);   // DIAGNOSTIC — reverted after
+            QUID.mint(recipient, owed, address(QUID), 0);
         }
         _onExit(LP, msg.sender);
     }
