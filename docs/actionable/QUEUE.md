@@ -241,3 +241,32 @@ DECIDE DELIBERATELY: is that intentional (channel-bound BTC should not be freely
 omission? If intentional, DOCUMENT it; if not, it is `VBtc`'s job — note `VBtc` currently faces the
 LEVERAGE collateral, not band shares, so the two must not be conflated.
 
+### §J.2c CORRECTION — I conflated the vBTC TOKEN with the BTC BAND SHARES (user, 2026-07-31)
+
+User: *"but vBTC needs those functions too, why arent they transferable? we discussed this before
+related to anonymity."* **`VBtc` ALREADY HAS them** — `transfer` (`VBtc.sol:61`), `transferFrom` (`:70`),
+`approve` (`:84`), full ERC-20. My §J.2c note above wrongly implied otherwise by mixing two things:
+  • **`VBtc` — the TOKEN (leverage collateral face).** Transferable TODAY. ✓
+  • **`Vault.autoManagedBTC[].pooled` — the BTC BAND SHARES.** A separate quantity in a separate
+    contract, with no token face. That is the asymmetry §J.2c actually identified, and it stands.
+
+### 🔒 WHY TRANSFERABILITY ALONE IS INERT — the anonymity thread
+`VBtc.sol:19-22` records the blocking rule verbatim: *"the LP never receives loose vBTC (that would
+double-claim the same channel BTC)"*, and that single rule *"blocks BOTH an open Morpho/Euler market (a
+liquidator who seizes vBTC has no way to exit) AND the privacy story (no bearer instrument)."*
+⇒ So vBTC is transferable but **nobody except the pinned LevManager ever HOLDS it** — the transfer
+  functions are reachable and unused. For vBTC to be the privacy instrument that was discussed, THREE
+  things must all hold, and only the first exists:
+  1. ✅ TRANSFERABLE — done (`VBtc.sol:61,70,84`).
+  2. ❌ **LPs able to RECEIVE it** — blocked by the "never loose vBTC" rule, asserted in THREE places
+     that must move together: `Vault.sol:638`, `BtcLevManager.sol:578`, `VBtc.sol:19`.
+  3. ❌ **BEARER REDEMPTION (`redeemVBtc(sats, p2trScript)`)** — §A.19b, not built. Without it a
+     transferee holds a claim they cannot exit, so transferability is worthless to them.
+⇒ **§A.19b IS the anonymity work.** It is not a separate nice-to-have: 2 and 3 are the same change, and
+  the aggregate invariant `Σ outstanding vBTC <= Σ free channel capacity` is what must REPLACE the blunt
+  rule so that 2 becomes safe. The payment rail already exists (swap-out pays an arbitrary P2TR whose
+  owner has no channel), so this is wiring plus an invariant swap, not new capability.
+📌 DECISION STILL NEEDED on the BTC BAND SHARES (distinct from the above): channel-bound band depth may
+  be deliberately non-transferable. If so, DOCUMENT it; if not, it needs its own face — and it must NOT
+  be folded into `VBtc`, which is the leverage-collateral token, not band shares.
+
