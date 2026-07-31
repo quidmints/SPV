@@ -1,433 +1,176 @@
-# Alliance application: answers
+# Alliance application
 
-Written 2026-08-01. Every technical claim was checked against the code in `quidmints/SPV` and
-`quidmints/ibiza` before it went in, and file references are given where a reader might want to
-verify one. Written to be legible to someone who does not work in crypto.
+Claims verified against `quidmints/SPV` and `quidmints/ibiza`. Mechanism detail and file references
+are in `ALLIANCE-APPLICATION-LONG.md`.
 
 ---
 
 ## What is the problem you're solving?
 
-We had a baby, and a piece of what that child inherits was decided for us. The account the federal
-government seeds at birth is invested in a US stock index fund and locked until they turn eighteen.
-It's a good thing to have. It is also a single bet on one country's equity market, in one currency,
-that nobody in the family gets a say in for eighteen years.
+We had a baby. The account the federal government seeds at birth is locked into a US stock index
+until they turn eighteen. Good to have, and a single bet on one country's equity market that nobody
+in the family votes on for eighteen years. The rest of a child's nest egg should not correlate to
+that, should not sit with a custodian, and should be something my wife and I can look at alongside
+our wealth manager rather than a line item he politely ignores.
 
-So the real question was where the rest of a child's nest egg should sit. It should not be correlated
-to that account. It should not sit with a custodian who can lose it. And it should be something my
-wife and I can look at alongside our wealth manager and argue about from shared numbers, rather than
-a line item he politely ignores because he can't see inside it.
+Every alternative was bad in a fixable way. Bitcoin and Ethereum held outright earn nothing. Put them
+in a trading pool and the pool sells whatever is rising and buys whatever is falling, so a rally
+leaves you holding less Bitcoin and a decline leaves you holding more of it at worse prices. That gap
+is impermanent loss, and the fees you collect roughly cover it and no more. The pool keeps its shelves
+stocked by letting arbitrageurs trade against its stale price, which means it restocks itself out of
+the people who supplied it. Put the dollar half in one stablecoin and you own an issuer bet nobody can
+price.
 
-Every option available to us was bad in a specific way, and each of those ways turns out to be
-fixable.
+So: deposit one asset, keep it, leave in it. We fund the dollar side of your position by issuing a
+dated claim against yield we have not earned yet, then earn that yield from the liquidity the claim
+created. Future yield is the junior tranche, so we subordinate a date instead of a person and carry
+no waterfall. The loss the pool creates on the way up is cancelled by an optional overlay that borrows
+against your own collateral on an outside market and hands the pool extra Ethereum to sell instead of
+your principal. It unwinds to zero debt below your entry price, so we never carry leverage into a
+crash. Dollar yield comes from eleven stablecoins, because breadth is the only depeg protection
+anyone can honestly sell, and a twelve-month lock with us relieves redemption pressure on all eleven
+at once, which no single issuer can offer.
 
-**Holding Bitcoin and Ethereum earns nothing.** They sit there. If you want them to earn, the usual
-move is to become a liquidity provider, which means putting them into an automated market maker: a
-pool of two assets that quotes prices by formula instead of by order book, and pays you a cut of the
-trading fees. The catch is what the pool does with your money while you're in it. It sells whatever
-is rising and buys whatever is falling. In a rally you end up holding less Bitcoin and more dollars,
-having sold the Bitcoin too cheaply the whole way up. In a decline you end up holding more Bitcoin at
-progressively worse prices, which people in this industry cheerfully describe as buying the dip and
-which is, in a sustained downtrend, just losing. The gap between what you'd have had by doing nothing
-and what you actually have is called impermanent loss, and it is neither small nor impermanent once
-you've exited. There's a well-known result that the fees you collect roughly cover it and no more,
-which means the average liquidity provider would have been better off sitting still.
-
-Worse, the mechanism that keeps a pool stocked is the mechanism that costs you. A pool's price is
-always slightly stale relative to the real market. Professional arbitrageurs trade against that
-staleness, correcting the pool and pocketing the difference. That correction is how the pool keeps a
-sensible mix of both assets on the shelf, and the money for it comes out of the liquidity providers.
-The industry's name for this is loss-versus-rebalancing. In plain terms: the pool stays stocked by
-letting informed traders pick off the people who supplied it.
-
-**Putting the dollar half in one stablecoin is a bet nobody can price.** A stablecoin sits at exactly
-one dollar with overwhelming probability, right up until it doesn't, at which point it moves to a
-different regime in minutes. There is almost no data in the middle. The risk is also reflexive, in
-that the price of insuring against a break feeds the probability of the break. And these events
-cluster, so the one moment your protection pays out is the moment everything else you own is also
-breaking. That combination means there is no honest premium to quote for it, which we'll come back to
-when the competition comes up.
-
-**Bitcoin locked into Lightning earns nothing either.** Lightning is Bitcoin's payments layer, and to
-route a payment through it you have to lock coins into a joint account with your counterparty. That
-capital earns zero for as long as it sits there. This is the whole reason Lightning has been short of
-liquidity for a decade: providing it is a cost centre, so there isn't enough, so routing is shallow,
-so the network underdelivers.
-
-### What we built instead
-
-**You deposit one asset and you keep it.** Bring Ethereum on its own, or Bitcoin on its own. You
-don't sell half of it to fund the other side of a trading position, which is what every other venue
-requires. When you leave, you leave in the asset you brought, plus what it earned. The claim you hold
-while you're in is a standard yield-bearing vault share, the same interface any wallet or accounting
-tool already knows how to read, so your wealth manager's software can price it without a bespoke
-integration.
-
-**The protocol funds the dollar side out of its own future.** This is the part that makes single-sided
-deposits possible, and it's worth explaining slowly because it's the heart of the design.
-
-A trading position needs both assets. Normally that means you sell half your Bitcoin to buy the
-dollars. We don't ask for that. Instead the protocol issues a dollar claim against yield it has not
-earned yet, uses that to fund the dollar side of your position, and then earns the yield that redeems
-the claim from the trading and lending the position enables.
-
-Think about how a diesel engine starts. It needs no spark. Compression alone ignites it, so the engine
-is self-sufficient once it's turning. The only genuinely hard part is turning it over the first time,
-and with a dead battery you don't need a jump pack: you roll the car in gear and let its own momentum
-crank the engine until compression catches. The energy comes from inside the system.
-
-Most crypto projects cold-start with a jump pack. They print a governance token and pay people to
-show up, which works until the subsidy stops. We crank the engine with its own forthcoming output.
-Early depositors get paid out of the protocol's own projected yield, monetised up front, and the
-liquidity that creates generates the yield that was promised. There's a hard ceiling on how far we can
-crank, 600,000 units, written into the contract (`Basket.sol:25`). After the first twelve months the
-projection horizon collapses from a year to a month, because by then we have real observed yield and
-no longer need to guess.
-
-The instrument this works through is a bond ladder. One token contract holds many dated series, each
-maturing on its own month, so at any moment we know our entire forward dollar liability curve: what
-we owe in March, in April, and so on. That is what an insurer's duration-matched book looks like,
-expressed as a token. It's also why we don't need the capital structure everyone else builds.
-
-The conventional way to make a claim safe is to subordinate somebody. You create a senior tranche and
-a junior tranche, and the junior eats losses first. Then you carry that waterfall forever, with a
-separate valuation for each layer. We subordinate time instead of a person. Future yield is the junior
-tranche. There is one elastic supply, no waterfall, and no per-tranche accounting, because the thing
-being subordinated is a date rather than a claimant.
-
-**The impermanent loss on the way up is cancelled.** Here is the mechanism in one image. The problem
-in a rally is that the pool sold your Ethereum too cheaply. So we give the pool something else to
-sell. An optional overlay borrows dollars against your own collateral, on an outside lending market,
-buys extra Ethereum with them, and hands that extra to the pool as the inventory it sells during the
-rally. Your principal is left alone. The buffer is sized exactly to the loss the pool has actually
-created, which is a number we can compute from how far price has moved since you entered.
-
-Two things about that are worth a non-specialist's attention. The borrowing happens on somebody else's
-lending market, one position per depositor, walled off from everyone else. If a position goes wrong it
-hits that one depositor and stops. Nothing about it touches the shared reserve, and we have a test on
-real Morpho with a real price feed that runs a leveraged position through a full liquidation and then
-checks that a passive depositor's redeemable value and the reserve's backing are untouched
-(`test/LeverageCrossSubsidyProbe.t.sol`).
-
-And the overlay unwinds to zero debt when price falls back below where you started. We are never
-carrying borrowed money into a crash. Most of the reason people get destroyed in this industry is
-holding leverage through a decline, and our design refuses to.
-
-**The dollar yield comes from breadth.** Eleven stablecoins, spread across lending venues, rather than
-one issuer's promise. Since the risk of any single one breaking cannot be priced, the only honest
-protection is to never be concentrated in one. There is a second-order effect here that surprised us.
-When a depositor locks dollars with us for twelve months, they are simultaneously removing redemption
-pressure from every stablecoin in the basket, in proportion to its weight. No individual issuer can
-offer that, because no individual issuer holds the others. A longer lock relieves more pressure, which
-is why our yield schedule pays more for duration: the extra yield is the market-clearing price for the
-stability the lock provides. Each issuer needs to hold less cash on hand against redemptions, so each
-can deploy more toward earning, which flows back through the basket's average to our depositors, who
-then have more reason to lock for longer.
-
-**Entries are informed rather than guessed.** A dashboard reads the current market state using a bank
-of Kalman filters, which is the standard tool for estimating a quantity that drifts, tracking realised
-volatility, the position's exposure to Bitcoin versus Ethereum, and how strongly prices are
-mean-reverting right now. That feeds a classifier that labels the present regime as range-bound,
-two-way volatile, or trending. It characterises the current state and makes no forecast, which is
-stated plainly in the code so nobody mistakes it for a crystal ball.
-
-**And the largest household asset gets the same treatment.** Our second repository handles property.
-A homeowner proves they control their title, and that the title is unencumbered, without disclosing
-who they are or which property it is. They borrow against that proof into an address that cannot be
-linked back to them. Refinancing stops depending on a relationship with a licensed intermediary who
-can decline you for reasons they never have to state, because there is nobody in the system holding
-the power to decline.
-
-### Why this is worth funding rather than just building for ourselves
-
-The thing we needed was a family-office capability: consolidated view, real diversification, credit
-against illiquid assets, professional supervision. Families with a hundred million dollars have that.
-Families with a normal amount of money have a spreadsheet and a wealth manager who cannot see half
-of it.
-
-Solving it for one family solved two structural problems for everyone else. Bitcoin locked in
-Lightning stops being dead capital, which moves the supply curve for the whole network. And
-bootstrapping a two-sided trading position no longer requires anybody to sell half their holdings.
+Our second repository does the same for the largest asset most households own. Prove you control an
+unencumbered title without disclosing who you are or which property, then borrow against that proof
+into an address nobody can trace back to you.
 
 ---
 
 ## How did you learn about the problem?
 
-Most recently, by becoming responsible for someone else's eighteen-year time horizon. Sitting down
-with our wealth manager to plan a child's account made the gap obvious within an hour. The dollar side
-of a family balance sheet has a century of instruments built for it, and the crypto side has spot
-custody and a shrug. Everything in this application came out of trying to give that conversation
-something concrete to point at.
+By becoming responsible for someone else's eighteen-year horizon. An hour with our wealth manager
+exposed it: the dollar side of a family balance sheet has a century of instruments, and the crypto
+side has spot custody and a shrug.
 
-Before that, I learned it the expensive way. Three times long on NEAR between 15 and 23, roughly
-$350,000 of collateral carrying 50,000 units, liquidated near 7. The equity went to zero. Nothing
-about the trade was sophisticated, and the lesson had nothing to do with NEAR. A leverage ratio that
-stays fixed as price falls pays for itself on the way down, over and over. That is exactly why our
-overlay sheds debt to zero below your entry price rather than holding a constant multiple, and why we
-wrote no liquidation machinery of our own.
+Before that, expensively. Three times long on NEAR between 15 and 23, $350,000 of collateral carrying
+50,000 units, liquidated near 7, equity to zero. A leverage ratio that stays fixed as price falls pays
+for itself repeatedly, which is why ours sheds debt on the way down.
 
-The protocol economics came from work. In 2019 I built Bancor's frontend incentivisation governance,
-an affiliate-fee system that turned out to be the first working practice of what Uniswap and Liquity
-later called sufficient decentralisation. My mentor Eyal raised the basket-of-stablecoins idea before
-mStable was announced, and it sat unbuilt until Liquity's issue #6 gave it a setting. At Manifold
-Finance I learned what extractive trading does to a passive quote, which is the direct reason our pool
-prices off a time-weighted average cross-checked against an independent feed, and never publishes a
-stale price for anyone to trade against.
-
-The Bitcoin half came from a failure. lbtc.io shut down in 2019. The iOS app planned then was called
-Ibiza, which is where I met Craig Sellars and Brock Pierce at the start of pre-seed. What killed it was
-custodial wrapping: the model where you hand your Bitcoin to a company, they give you a receipt token,
-and the whole thing rests on that company staying solvent and honest. I have been building the version
-without a custodian ever since, and the current design is the first one where the depositor genuinely
-never gives up their key.
+The rest came from work. Bancor's frontend incentivisation governance in 2019, the first practice of
+what Uniswap and Liquity later called sufficient decentralisation. My mentor Eyal's basket idea, which
+sat unbuilt until Liquity's issue #6 gave it a setting. Manifold Finance, where I learned what
+extractive trading does to a passive quote. lbtc.io shut down in 2019 because it was custodial, and I
+have been building the version without a custodian since.
 
 ---
 
 ## Who has this problem, and how do they deal with it today?
 
-**Families building wealth alongside an advisor.** They hold some crypto and considerably more in
-dollars and equities, and the two halves live in different worlds. The advisor is fluent in one and
-treats the other as an unmanaged line item, because nothing exists that gives them a position they can
-supervise, price, or report. What these families do today is hold spot and hope, buy an ETF and pay
-for the wrapper while giving up any yield, or hand a percentage to a fund running a strategy they
-cannot inspect. The number of households in this position is the entire premise of the wealth
-management industry's current crypto anxiety.
-
-**Fund managers with a mandate to resist depegs.** Anyone running a treasury or a fund has risk
-mandates, and holding stablecoins concentrated in one issuer breaks most of them. They diversify by
-hand across half a dozen names, rebalancing manually, with no single instrument that gives them the
-whole spread. Cork Finance built a product aimed exactly at this group, selling insurance against a
-stablecoin breaking, and we'll explain in the competition section why that cannot work.
-
-**Holders who want yield without selling.** They stake and take the base rate, or they provide
-liquidity and eat the losses described above, or they use a leveraged product like YieldBasis that
-converts the holding loss into a borrowing cost and a liquidation risk. Retail gets pointed at
-dollar-cost-averaging apps or at copying Michael Saylor, and neither of those is a strategy.
-
-**Lightning liquidity providers.** Small operators lock coins into channels and earn routing fees that
-don't cover the opportunity cost. Most accept it as a public service, or they stop running a node. The
-network's chronic shortage of inbound liquidity is the aggregate of thousands of people making that
-calculation.
-
-**Bitcoin holders who want anything at all from DeFi.** They wrap. BitGo's WBTC and Coinbase's cbBTC
-are honest about what they are, a receipt from a regulated counterparty, and they're genuinely useful
-if your mandate requires a regulated counterparty. Lombard routes through Babylon, which pays a
-Bitcoin holder around two percent to underwrite the security of other networks whose failures they
-then inherit. Every one of these asks a Bitcoin holder to trust something new. Our design asks them to
-trust what they already trust, which is Bitcoin's own scripting rules and their own key, and connects
-that to everything else.
+Families building wealth with an advisor who is fluent in half their balance sheet and treats the
+other half as unmanaged, because nothing exists he can supervise or report on. Fund managers with a
+depeg mandate, diversifying across six stablecoins by hand. Holders who stake for the base rate,
+provide liquidity and eat the losses above, or use a leveraged product that swaps the holding loss for
+liquidation risk. Lightning operators whose locked coins earn zero, which is why most of them quit and
+why the network has been short of liquidity for a decade. And Bitcoin holders who want anything from
+DeFi, who wrap and trust a company's receipt, or route through Lombard for around two percent and
+inherit other networks' risks.
 
 ---
 
 ## What have you built so far?
 
-Everything described here is written and tested against forked mainnet state, and runs. None of it has
-been audited and none of it holds real value yet.
+All of it runs against forked mainnet state. None of it is audited or holds value yet.
 
-**The reserve and the trading position.** A Uniswap v4 position whose token side is virtual, meaning
-the depositor's actual Ethereum stays in its lending venue earning yield while the position quotes
-prices and collects trading fees. You get paid twice on the same coins. The quoted range is a tight
-band around the oracle price and re-centres when price leaves it (`SwapLib.sol:838`), rather than
-being reshaped on every single trade, which matters for reasons we cover under Bunni below.
+A Uniswap v4 position whose token side is virtual, so your Ethereum stays in its lending venue earning
+yield while the position quotes prices and collects fees. You get paid twice on the same coins. The
+bond ladder funding single-sided deposits, capped at 600,000 with a bootstrap window closing after
+twelve months. The up-side loss protection, sized from how far price moved since entry, running on
+Morpho, Euler, Aave or Liquity, one isolated position per depositor. We wrote no liquidation engine,
+because ours sheds debt in the direction the danger comes from, and a test runs a leveraged position
+through a real liquidation to prove a passive depositor is untouched.
 
-**Single-sided deposits funded by a dated bond ladder.** The mechanism described in the first answer.
-Maturity buckets, a hard 600,000 seed cap, a twelve-month bootstrap window after which the projection
-horizon collapses to a month.
+On Bitcoin, each depositor's coins sit in a two-signature account with one key theirs, verified by our
+contracts using the same lightweight proof a phone wallet uses, validated end to end against a live
+test node. The depositor signs one cold message and then runs nothing, with no node to host and no
+uptime to keep. That message locks the single address every payout must reach, so even a fully
+compromised operator can only send their money to them. If we vanish, a pre-signed transaction whose
+bytes are already public becomes broadcastable by anyone, released by Bitcoin's own timelock. Which
+machines may run our infrastructure is gated by an on-chain proof they execute an exact published
+build inside a secure enclave, with a multisig governing that list and touching no money.
 
-**Impermanent-loss protection, on the up side only.** The buffer mechanism described above. Target
-borrowing is computed directly from how far price has moved since entry and returns zero at or below
-that entry (`LevMath.sol:109-125`). The keeper sizes leverage to how concave the position has actually
-become from real trading flow, so in a quiet market it borrows nothing.
-
-**No liquidation engine, deliberately.** Competing designs need one because they hold a fixed leverage
-ratio that can breach. Ours sheds debt as price falls, so it de-risks in the same direction the danger
-comes from. The keeper de-levers a full safety margin below the outside venue's own liquidation line,
-which makes that venue's engine a backstop that never fires, and if it ever did fire it would hit one
-depositor in isolation.
-
-**Native Bitcoin with no custodian.** Each depositor's coins sit in a joint account on Bitcoin
-requiring two signatures, one of which is theirs. Our contracts verify that the account was funded, and
-later that it was closed, using the same lightweight proof a phone wallet uses to check that a payment
-happened. That has been validated end to end against a live Bitcoin test node, so the bridge runs
-rather than existing as a diagram.
-
-**And the depositor runs nothing.** This is the part that makes it usable by a family rather than by an
-engineer. Historically, providing Lightning liquidity meant running a node, keeping it online, and
-running a watchtower to catch your counterparty cheating. Our depositor signs one message from their
-normal wallet, cold, which someone else pays the gas to submit, and then sends Bitcoin from wherever
-they hold it. There is no software for them to host and nothing to keep online. The message names who
-may operate their channel and, critically, the
-one Bitcoin address every payout must go to, and that address is locked from that moment on, so even a
-completely compromised operator can only move the depositor's money to the depositor.
-
-**A dead man's switch, so the exit doesn't depend on us.** The operator continuously pre-signs a
-transaction that pays the depositor their full balance, time-locked to a near-future date, and
-publishes the raw bytes on-chain. While we're alive we keep pushing that date forward, so it can never
-be broadcast prematurely. If we stop, the date arrives and anybody at all can broadcast the already
-published transaction, holding no key and asking nobody. Bitcoin's own timelock does the enforcement
-(`BTCChannels.sol:256-271`).
-
-**Hardware attestation instead of a promise.** Which machines may operate as our Bitcoin infrastructure
-is gated by a cryptographic proof, verified on-chain by an audited third-party verifier, that the
-machine is running an exact published build inside a secure enclave. The signing key is born inside
-that enclave and sealed to that specific build, so modified code cannot reach it. A multisig governs
-only the list of approved builds and moves no money. Every other contract that touches money has had
-its ownership renounced.
-
-**Many channels rather than one pool.** We could have held everyone's Bitcoin in one big account,
-which would save us some bookkeeping. It would also mean somebody custodies everyone's coins, either a
-trusted party or a committee, and it caps total liquidity at one account's size. We pay a small
-accounting cost for per-depositor segregation and get self-custody, no single catastrophic target, and
-horizontal scaling where every new depositor brings their own capacity.
-
-**The off-chain half.** A Rust codebase running the Lightning node, the mirror that reflects every
-Bitcoin movement onto the contracts, the swap rails in both directions, and the keeper that manages
-leveraged positions.
-
-**Privacy and identity.** A separate repository merging two open-source systems onto one proving
-system: Privacy Pools, which lets you deposit and later withdraw without the two being linkable, and
-Rarime, which proves a passport is genuine while revealing nothing about its holder. Each had a gap.
-The first screens money using guilt-by-association heuristics; the second proves personhood but never
-touches money. Merged, a withdrawal proves the honest thing, that a real and unsanctioned person is
-withdrawing. 149 tests green. The passport stack we fork was used inside Iran by civil-society
-organisations to run anonymous protest votes on the 2024 election, so the hard part has field
-evidence behind it.
-
-**And a treasury adapter with a subtle property.** Shielded deposits sitting idle earn nothing, which
-means privacy costs the user their return. Ours earn. The non-obvious part is that if the privacy pool
-moved money into the yield venue synchronously with each user's deposit, the yield venue's public
-event log would reconstruct exactly the link the cryptography exists to hide. So the funding is
-batched, rate-limited, and deliberately unsynchronised with any individual's action.
+The second repository merges Privacy Pools with Rarime's passport proofs onto one proving system, 149
+tests green. Shielded deposits earn, funded on a batched schedule so the yield venue's public logs
+cannot reconstruct the link the cryptography hides. The passport stack we fork ran anonymous protest
+votes inside Iran on the 2024 election.
 
 ---
 
 ## How do you know people need this?
 
-Capa.fi pledged future commitment in the form of reserve deposits, and their chief executive Juandi
-was our grants liaison on behalf of Polygon. EtherFi steered our work toward getting the most out of
-their liquidity pool. Mach and Khalani have both committed to list our basket as a venue for their
-order flow, which matters more than it sounds: it means trading volume arrives without us building a
-consumer app to attract it.
+Capa.fi pledged reserve deposits, and their chief executive was our grants liaison for Polygon.
+EtherFi steered our work toward their liquidity pool. Mach and Khalani committed to list our basket as
+a venue for their order flow, so volume arrives without a consumer app. The Uniswap Foundation and
+Polygon Labs both funded us non-dilutively in 2025. Paul from Gauntlet and Artem, who wrote the
+research on Bitcoin proofs in DeFi and is now at Blockstream, agreed to hold keys in the deployment
+multisig without having to.
 
-Two organisations put non-dilutive money in during 2025, the Uniswap Foundation and Polygon Labs, on
-top of friends and family. Two people who did not have to agreed to hold keys in the deployment
-multisig: Paul, who I worked with at Gauntlet after meeting through Halborn in 2022, and Artem, who
-wrote the research paper on using Bitcoin proofs in DeFi with Distributed Labs and is now at
-Blockstream. People who audit systems for a living do not attach their names to designs they think are
-unsound.
-
-What we do not have is live deposits. The honest demand evidence is structural. Lightning's liquidity
-shortage has one cause, and it's the cause we removed. Wealth managers currently have no supervisable
-crypto product to offer, and that is not a preference, it's an absence.
+We have no live deposits. The honest evidence is structural: Lightning's liquidity shortage has one
+cause and we removed it, and wealth managers have no supervisable crypto product, which is an absence
+rather than a preference.
 
 ---
 
 ## How will you make money?
 
-Quid Labs is wholly owned by the QuidMint Foundation, so the real question is how the protocol funds
-its own maintenance without depending on anyone's continued goodwill. Five things earn.
+Quid Labs is wholly owned by the QuidMint Foundation, so the question is how the protocol funds
+itself.
 
-The largest is a pricing mechanism, and it's the direct answer to the picked-off-by-arbitrageurs
-problem from the first question. We refuse to hold a stale price, so there's no free correction for
-anyone to take. But a pool still needs its shelves restocked. So we charge for scarcity instead: when
-the pool is running low on Bitcoin, anyone buying Bitcoin from it pays above the market price, and
-that premium stays in the reserve as backing for depositors (`Core.sol:259-285`). The premium steepens
-when volatility rises, and it's capped at the genuine cost a professional market maker bears while
-their capital is tied up waiting for Bitcoin confirmations. We are buying the same restocking service
-Uniswap gets, from willing counterparties at a stated price, rather than extracting it from the people
-who supplied the liquidity.
+The largest line answers the arbitrage problem above. We hold no stale price, so there is no free
+correction to take. A pool still needs restocking, so we charge for scarcity openly: when the pool is
+low on Bitcoin, buyers pay above market and that premium stays in the reserve for depositors. It
+steepens with volatility and is capped at what a market maker really pays to sit on capital awaiting
+confirmations. We buy the service Uniswap gets for free from arbitrageurs, at a stated price, from
+willing counterparties.
 
-The trading position collects ordinary fees. Redemptions pay an outflow fee between three and thirty
-basis points, shaped so that pulling out the collateral generating the most yield costs more than
-shedding a name that has already broken, which means the cheap exit is the one that leaves the reserve
-healthier. Our router takes a spread, and because it drops directly into Liquity's leverage tooling as
-a compatible exchange, we earn that spread on both legs of somebody else's trade inside their own
-product. Underneath all of it the reserve is lent across Morpho, Aave, sDAI and Liquity's stability
-pool, which earns whether or not a single person trades.
-
-That last line is what makes this durable. There is no floor a quiet month falls below, which is why
-we do not plan to depend on repeated grants.
+The position collects trading fees. Redemptions pay three to thirty basis points, shaped so the cheap
+exit is the one leaving the reserve healthier. Our router earns a spread and already sits inside
+Liquity's leverage tooling, taking it on both legs of somebody else's trade in their own product. And
+the reserve is lent across Morpho, Aave, sDAI and Liquity, which earns whether or not anyone trades.
+A quiet month has no floor to fall through.
 
 ---
 
 ## How will you find more customers?
 
-**Through advisors, which is the channel I care most about.** An independent wealth manager advising a
-few dozen families has no supervisable crypto product and no appetite for one they can't see inside.
-Give that person a dashboard showing exposure, current market regime, and realised yield across every
-client at once, on a position where we custody nothing and they can verify the holdings on a public
-ledger, and they carry us into every household they advise. One advisor is worth more than a hundred
-individual signups, and the conversation with them is about supervision rather than about crypto.
+Advisors first. An independent wealth manager with a few dozen families has nothing supervisable to
+offer them. Give him one dashboard showing exposure, market regime and realised yield across every
+client, on positions verifiable on a public ledger where we custody nothing, and he carries us into
+every household he advises.
 
-**Through other protocols, without needing a deal.** Every integration surface we have is
-permissionless. Our deposit and mint functions are plain public functions with no allowlist and no
-gate, so a protocol wanting to route idle funds into the reserve declares a local interface and calls
-it. Our own privacy stack integrates with us exactly that way, holding our addresses as fixed
-constructor arguments and importing none of our source code, which means an integrator can ship
-against us without ever having a conversation.
+Then protocols, without a deal. Our deposit and mint functions are public and ungated, so an
+integrator declares a local interface and ships against us without ever having a conversation. Our own
+privacy stack does exactly that.
 
-**Through order flow rather than users.** Mach and Khalani route to us. Liquity's leverage tool calls
-our router from inside its own transaction. Our identity wallet consumes the reserve as a dependency.
-In each case somebody else's product brings the volume.
-
-**Through Lightning operators, where the pitch is that they stop working.** Signing one message and
-sending Bitcoin from an exchange or a wallet is the entire onboarding. The exit is enforced by
-Bitcoin's timelock rather than by our willingness to serve them. That removes the barrier that has
-kept small operators out of channel liquidity provision entirely.
-
-**And through the stablecoin issuers themselves, whose interests we happen to serve.** A twelve-month
-lock with us reduces redemption pressure on every constituent at once. That is a benefit an issuer
-cannot manufacture alone and has every reason to promote.
+Then order flow rather than users, through Mach, Khalani and Liquity's tooling. Then Lightning
+operators, where the pitch is that they stop working: one signature and a transfer is the whole
+onboarding, and Bitcoin enforces the exit rather than our goodwill. And the stablecoin issuers, who
+benefit from every twelve-month lock we sell.
 
 ---
 
 ## What is the biggest mistake that you've made so far?
 
 I stayed on a dead product because the code was beautiful. The old repository is public at
-github.com/quidmints/quid, so the scale of it can be checked.
+github.com/quidmints/quid.
 
-Most of that repository is an engine for trading synthetic versions of real-world assets: roughly
-9,750 lines of Rust wired to a price oracle across 935 US stock tickers, 101 currency pairs, separate
-venues for UK, German, French, Dutch and Luxembourg equities, and then metals, commodities, interest
-rates and staking derivatives, each asset class carrying its own leverage ceiling and minimum fee. The
-internal name for it was the Ostium killer. When we started, neither Robinhood's chain nor Kraken's
-xStocks existed. Both arrived while we were building, and both are a better answer for the person we
-were building it for, because they hold the licences and the distribution, and a two-person team does
-not out-execute that.
+Most of it trades synthetic real-world assets: 9,750 lines of Rust wired to a price oracle across 935
+US stock tickers, 101 currency pairs, five European equity venues, metals, commodities and rates. We
+called it the Ostium killer. Neither Robinhood's chain nor Kraken's xStocks existed when we started.
+Both arrived while we were building, and both are a better answer for the same customer, because they
+hold the licences and the distribution.
 
-Misjudging a market is forgivable. What I actually did wrong was keep going for months after the
-market had answered, because the implementation was elegant and my hands were in it, and I let that
-stand in for a reason. Nobody was going to trade a synthetic Deutsche Telekom on our venue once Kraken
-would sell them the real tokenised one.
+Misjudging a market is forgivable. What I did wrong was keep going for months after the market had
+answered, because the implementation was elegant and my hands were in it, and I let that stand in for
+a reason.
 
-The second mistake sits in the same repository, and it's the more interesting failure because it was
-wrong on the merits rather than on timing. About 1,900 lines of Solidity implement a jury and
-arbitration system for a prediction market on stablecoins breaking their peg, sitting on a Go service
-handling evidence verification and deterministic resolution. The idea was insurance: people who think
-a stablecoin will break take one side, people who think it won't take the other, and the payout makes
-the insured whole. The chicken-and-egg problem with such a market is that nobody wants to be the
-insurer, so we solved that by standing the no-break side up from the reserve's own capital.
-
-Which is precisely why it cannot work. The reserve's dollars are the dollars that redeem our
-depositors at maturity. When a break resolves and the payout comes out of them, those dollars leave
-and are no longer available to redeem anyone. The same dollar cannot both back a redemption and settle
-a claim. And it fires during a crisis, when the reserve is already impaired, so it drains the backing
-at exactly the moment the backing matters most. The thing it was meant to provide already existed for
-free: when a stablecoin in our basket breaks, everyone holding a claim takes the same proportional
-reduction, which is the fairest possible outcome. A market payout makes the gamblers whole while
-everyone else absorbs it.
-
-Both are gone. Depeg protection in the current design is diversification across eleven names and
-nothing else.
-
-There is a smaller repeat of the pattern in the current repository, and it's worth admitting because
-it shows the failure mode is mine rather than situational. We shipped a mechanism that bought back a
-departing depositor's shortfall out of the reserve's spare capital, so the trading loss landed on the
-shared cushion rather than on the person leaving. That was the design thesis for about eight months
-and carried a full economic study behind it. Spare capital is what we owe back to everyone, so
-spending it to make one person whole pays whoever moves first at every other claimholder's expense,
-and it fires hardest when the cushion is thinnest. Removing it is why a depositor now bears their own
-trading loss through the share price, with the protection moved onto their own isolated position.
+The second mistake sits in the same repository and was wrong on the merits. Roughly 1,900 lines
+implementing a jury system for a prediction market on stablecoins breaking, with the no-break side
+funded from the reserve's own capital. Those are the dollars that redeem depositors at maturity, so a
+payout removes them and the same dollar cannot both back a redemption and settle a claim. It also
+fires during a crisis, when the reserve is already impaired. The protection it promised existed for
+free, since a break is absorbed proportionally by everyone holding a claim. Both are gone, and depeg
+protection today is diversification and nothing else.
 
 ---
 
@@ -435,187 +178,114 @@ trading loss through the share price, with the protection moved onto their own i
 
 I am in Ukraine, and the war is the largest operational risk this company carries.
 
-The cost of it is mundane and relentless. Work stops when the power does and resumes when it returns.
-Anything needing a physical presence, a bank, or a notarised signature takes weeks here that it takes
-hours elsewhere, and getting out to a conference or a diligence meeting is a logistics problem before
-it is a calendar problem. Hiring is close to impossible, because the people I would want are already
-abroad or already serving, and I cannot offer anyone still here the stability a job is supposed to
-come with. There is no redundancy in any of it. One person, in one place, holding the work.
+The cost is mundane and relentless. Work stops when the power does. Anything needing a bank, a notary
+or a physical presence takes weeks here that it takes hours elsewhere, and getting out to a meeting is
+a logistics problem before it is a calendar problem. Hiring is close to impossible, because the people
+I would want are already abroad or already serving, and I cannot offer anyone still here the stability
+a job is supposed to come with. There is no redundancy in any of it. One person, in one place, holding
+the work. Ingrid splits her time with a produce cooperative in Portland, so the second founder is
+part-time by agreement.
 
-Ingrid splits her time with a worker-owned produce cooperative in Portland, so the second founder is
-part-time by agreement rather than by drift.
+Plainer: no audit, nothing on mainnet, zero live deposits. Native Bitcoin leverage is harder than the
+Ethereum side and every clean path runs back through a custodial wrapper, so I would rather say out
+loud that it probably isn't worth doing.
 
-The product-side version is plainer. No audit, nothing on mainnet, so live deposits are zero. Native
-Bitcoin leverage is a materially harder problem than the Ethereum side, because Bitcoin has no smart
-contracts and every clean path runs back through a custodial wrapper, which defeats the model the
-whole system exists for. I would rather say out loud that it probably isn't worth doing than pretend
-the two sides are symmetric.
-
-The one thing I will claim for the architecture is that it was built by someone who assumed he might
-not be reachable. Nothing runs on a server we own. The contracts cannot be upgraded and have no
-administrator, a depositor's reclaim needs nothing from us, and a Bitcoin depositor's exit is a
-pre-signed transaction whose bytes are already public, which Bitcoin's own timelock releases the
-moment our heartbeat stops. Being here is also why the notary-registry work in the identity
-repository is built against Ukraine's Ministry of Justice open data rather than against a
-hypothetical.
+What I will claim is that the architecture was built by someone who assumed he might not be reachable.
+Nothing runs on a server we own, the contracts cannot be upgraded and have no administrator, and a
+depositor's exit needs nothing from us.
 
 ---
 
 ## How will the next LLM model release affect your business?
 
-This codebase exists because of one. Ingrid's Claude subscription is what turned two years of
-prototypes into a working system, and the volume of Solidity, Rust, Noir and Go here is not something
-two people write by hand in a country with rolling blackouts.
+This codebase exists because of one. Ingrid's Claude subscription turned two years of prototypes into
+a working system, and this volume of Solidity, Rust, Noir and Go is not something two people write by
+hand in a country with rolling blackouts.
 
-A better model compresses the work we are worst at, which is reconciling documentation against code,
-preparing for audit, and running adversarial passes over our own money paths. The risk runs in the
-same direction. A cheaper model means someone can read our public repositories and rebuild the design,
-so whatever defensibility we have has to come from what is deployed and integrated rather than from
-the source being clever. It also means anyone probing unaudited contracts for exploits improves on the
-same schedule, which is an argument for finishing the audit before the money arrives.
-
-There is a third effect that cuts in our favour and gets underrated. Adversarial review used to be
-something you bought from a firm at a price that gated small teams out entirely. It is becoming
-something you run continuously. For two people without an audit budget, that changes more than it
-changes for a team with one.
+Better models compress what we are worst at, which is audit preparation and adversarial review of our
+own money paths. The same improvement lets someone read our public repositories and rebuild the
+design, so defensibility has to come from what is deployed and integrated. Anyone probing unaudited
+contracts improves on that schedule too, which argues for finishing the audit before the money
+arrives. The underrated effect is that continuous adversarial review used to be sold by firms at a
+price that excluded teams our size.
 
 ---
 
 ## How do you use AI in your workflows today?
 
-Concretely, and mostly as an adversary rather than as an author.
+As an adversary more than an author.
 
-**We test by deleting the safeguard.** Rather than trusting a green test result, we remove the
-protection the test is supposed to be checking and confirm the test then fails. That caught two tests
-in the identity stack that had quietly stopped checking anything at all, and it is how we found a
-proof that was binding to an unconstrained value, stale records that let a revoked credential stay
-valid, and a bug that let one property be titled twice.
+We test by deleting the safeguard and confirming the test then fails, rather than trusting a green
+result. That caught two identity tests that had silently stopped checking anything, a proof binding to
+an unconstrained value, and a bug letting one property be titled twice.
 
-**We verify every cryptographic component against the real thing it will face.** Each proof gadget is
-checked against the exact on-chain function it will be compared to in production, across 46 randomised
-tree shapes covering every structural edge case. Compiling the gadgets rather than merely writing them
-found two real bugs immediately.
+We verify every cryptographic component against the exact on-chain function it will face, across 46
+randomised structural cases. Compiling the gadgets rather than writing them found two real bugs
+immediately.
 
-**We simulate in order to kill our own ideas.** One simulation measured our trading losses on real
-five-minute data through the March 2020 crash and came back nearly three times worse than our own
-published study claimed, so we now treat every such figure we publish as a conservative floor rather
-than a measurement. Another showed that a fixed two-times leveraged position would have been
-liquidated in five to nineteen percent of all historical Ethereum windows, which is the direct reason
-leverage lives on the depositor's own outside position and never on our balance sheet. A third
-produced a finding we then had to retract, because the simulation was charging a bookkeeping operation
-as though it were a real trade.
+We simulate to kill our own ideas. Measuring our trading losses on real crash data came back nearly
+three times worse than our own published study, so we treat those figures as conservative floors.
+Another run showed a fixed two-times position liquidating in five to nineteen percent of historical
+Ethereum windows, which is why leverage sits on the depositor's outside book. A third produced a
+finding we retracted, because the simulation charged a bookkeeping entry as a real trade.
 
-**We run wide adversarial research passes.** The compliance work ran 105 sub-agents across 676 tool
-calls. It ruled out the vendor we had assumed would be our accountable partner, and it caught us
-citing a regulation for something that regulation does not say. Both would have surfaced in a lawyer's
-office at considerably higher cost.
-
-**And we reconcile documentation against code on a schedule.** Design notes go stale faster than code
-does, and a stale paragraph is a trap for whoever reviews us next.
+The compliance research ran 105 sub-agents across 676 tool calls, ruled out the vendor we assumed was
+our partner, and caught us citing a regulation for something it does not say.
 
 ---
 
-## Who are your competitors or alternatives, and why will you win?
+## Who are your competitors, and why will you win?
 
-**YieldBasis** solves the same problem we do and pays too much for it. It borrows a stablecoin against
-your Bitcoin and holds a constant two-times position, which mathematically straightens the losing
-curve. That works. The costs are that half your trading fees go to maintaining the ratio, the borrowing
-drags continuously, a break in the stablecoin they borrow cascades into every depositor at once, and
-the fixed ratio forces them to re-lever on every decline, which means selling low and buying back
-higher over and over. Our borrowing sits on an outside market in a position isolated to one depositor,
-so we never inherit a socialised shortfall. It is sized to the loss actually incurred rather than
-pinned at a constant, and it unwinds to nothing below your entry. We are never holding two-times
-leverage into a crash.
+**YieldBasis** solves the same problem and overpays. Half the trading fees maintain a fixed two-times
+ratio, the borrowing drags, a break in the stablecoin they borrow cascades into every depositor, and
+the fixed ratio forces re-levering on every decline, which is selling low and buying back higher on
+repeat. Ours borrows on an outside market isolated per depositor, sizes to the loss actually incurred,
+and unwinds below entry.
 
-**Lombard and Babylon** pay a Bitcoin holder roughly two percent to underwrite the security of other
-networks whose risks they then carry. Our Bitcoin depositors keep their own key in a joint account
-that neither we nor anyone else can spend unilaterally, earn trading fees, and their coins keep doing
-their Lightning job while they do it.
+**Cork Finance** priced insurance on a risk that has no price. The base rate is unobservable, since
+each stablecoin is structurally unique with almost no event history. The hazard is reflexive, because
+the rising price of protection is itself the run signal. And the risk is perfectly correlated in the
+only state that pays, so the underwriter collects small premiums in calm markets and is wiped out when
+several break together, usually holding collateral in the same asset class being insured. Their model
+produced a number. Two speculative crowds agreeing momentarily is not a price.
 
-**Cork Finance** priced insurance on a risk that has no price. Actuarial pricing needs three things
-and a currency peg breaks all of them. The base rate is unobservable, because the event has almost no
-history and each stablecoin is structurally unique. The hazard is reflexive, because the rising price
-of the insurance is itself a signal that triggers the run. And the risk is perfectly correlated in the
-only state that pays out, so the underwriter collects small premiums in calm markets and is wiped out
-when several break together, usually while holding collateral in the same asset class being insured.
-There is also no way to hedge through the gap, since the price moves from par to eighty cents in
-minutes. Their model produced a number. A number that two speculative crowds momentarily agree on is
-not a price. We bound the risk by breadth instead, which is unglamorous and works.
+**Bunni** reshaped pool liquidity after every trade. Doing the correction themselves removed the
+discrepancy arbitrageurs exist to close, so they forwent the arbitrage fees that pay liquidity
+providers while still bearing the rebalancing cost, and the hack that killed them lived in that same
+per-trade accounting. We re-centre only when price leaves a narrow band, and let outsiders pay us to
+rebalance.
 
-**Bunni** is the cautionary tale and it's worth understanding precisely. They built a system that
-reshaped the pool's liquidity after every single trade to maintain the right token ratio. By doing
-that correction themselves, they eliminated the price discrepancy that arbitrageurs exist to close.
-No discrepancy means no arbitrage means no arbitrage fees, and arbitrage is a large share of the
-volume that normally compensates liquidity providers. So the pool paid the rebalancing cost
-continuously while forgoing the revenue that pays for it, and the hack that killed them lived in that
-same per-trade accounting step. We re-centre only when price leaves a narrow band, and we let outside
-arbitrageurs pay us fees to do the rebalancing rather than doing it ourselves for free.
+**Pendle** splits a yield asset into two tokens on a decaying curve needing re-parameterisation, with
+liquidity fragmented per expiry. Ours doesn't split, because the yield accrues to the reserve and
+appears in the scheduled redemption. **mStable** routes to Pendle rather than lending the stablecoins
+out. **WBTC and cbBTC** are honest custodial receipts, correct for a mandate requiring a regulated
+counterparty.
 
-**Pendle** is the closest thing to our bond and carries more machinery. They split a yield-bearing
-asset into two tokens, one for the principal and one for the yield, then price the principal on a
-time-decaying curve that has to be re-parameterised as maturity approaches, with liquidity split
-across every expiry. Ours doesn't split, because the yield accrues to the reserve and shows up in the
-scheduled redemption. There is no secondary curve to maintain and nobody to sell the yield strip to,
-so the bond funds itself.
-
-**mStable** is the only genuine basket competitor. It routes to Pendle rather than deploying the
-stablecoins into lending, and it earns nothing from trading them against each other or against
-Bitcoin and Ethereum. It is a good interface on somebody else's strategy.
-
-**WBTC and cbBTC** are receipts from regulated custodians, which is exactly right for a fund whose
-mandate requires a regulated counterparty. They are honest about what they are, and they are the
-backwards answer to what bridging Bitcoin and Ethereum should mean.
-
-What we do differently across all of those is subtract. Rather than trying to price a risk nobody can
-price, we bound it by holding eleven things instead of one. A single band around the current price
-does the work that a continuously maintained distribution does elsewhere, and it only moves when price
-leaves it. Redemption runs on a calendar that was set when the claim was written. Our debt sits on
-somebody else's market, isolated per depositor, on a venue that already operates its own liquidation
-machinery and has been doing so for years. Fewer moving parts is the entire safety argument, and it is
-also why two people can hold this system in their heads well enough to audit it honestly.
-
-I'd add one thing about how we relate to these. Bancor sued Uniswap last year. We are building to be a
-venue inside other people's products rather than a destination that has to beat them, which is why
-every integration surface is permissionless and why our router already sits inside Liquity's tooling.
-Ethereum works because the pieces compose. That is worth more to us than winning an argument.
+Across all of them we subtract. Bound risk by breadth instead of pricing it. One band instead of a
+maintained distribution. Redemption on a calendar. Debt on somebody else's market, which already runs
+its own liquidation machinery. Fewer moving parts is the safety argument, and it is why two people can
+hold this system in their heads well enough to audit it honestly.
 
 ---
 
-## What's something you believe that a smart, informed person would disagree with?
+## What's something a smart, informed person would disagree with?
 
-**Losses below your entry price should not be hedged, and hedging them destroys value.**
+**Losses below your entry should not be hedged, and hedging them destroys value.**
 
-Everyone building this kind of protection builds it symmetric, and any derivatives desk would tell you
-that a hedge working in one direction is not a hedge. We built the symmetric version. Here is what
-happens with it.
+Everyone builds this protection symmetric, and any derivatives desk would say a one-directional hedge
+is not a hedge. We built the symmetric version. Below entry the pool has bought too much of the
+falling asset, and correcting that means selling the excess into the decline, which turns a paper loss
+into a realised one and forfeits the recovery. Across a full round trip, the person who did nothing
+beats the person who hedged by exactly what got realised, on identical fees. We deleted the down-side
+leg in July.
 
-Below your entry, the pool has bought too much of the falling asset. A symmetric hedge corrects that
-by selling the excess into the decline, which restores your target exposure and, in doing so, converts
-a paper loss into a realised one. If price then recovers, you have permanently forfeited the recovery,
-because you sold at the bottom to a hedge that was doing its job. Over a full round trip down and back
-up, the person who did nothing beats the person who hedged, by exactly the amount that got realised,
-with identical fees along the way. So we deleted the down-side leg on 2026-07-24, and the borrowing
-target now returns zero at or below entry.
+The same logic kills the soft-liquidation machinery Curve's stablecoin is built on. Those engines sell
+collateral continuously as price falls to avoid a hard liquidation, capping further loss by
+crystallising the drawdown, so across a decline and recovery you sold low and re-bought high.
 
-The same logic kills the soft-liquidation machinery that Curve's stablecoin and its descendants are
-built on. Those engines sell your collateral continuously as price falls so that you never face a hard
-liquidation. That caps further loss by crystallising the drawdown, and across a decline and recovery
-you sold low and re-bought high. Our position sheds debt as price falls, which means it de-risks in
-the direction the danger comes from, and we never wrote an engine.
-
-**The related belief, which is more uncomfortable: we cannot win the fee war and should not try.**
-
-The instinct in this industry is that the cheapest venue wins the volume. Cutting your fee does not
-buy clean volume. It makes you the venue that professional arbitrageurs correct first and hardest when
-the outside market moves, and that flow is precisely the loss your liquidity providers bear. The fees
-that flow pays roughly equal the losses it inflicts, so racing the fee down grows both sides of the
-equation and never the difference. The addressable number was never headline volume. It is the
-uninformed, fee-paying volume, which is a fraction of the total and shrinking as intent solvers match
-the easy flow away from pools entirely.
-
-So our economics rest on things that do not require winning flow we were never able to select. Yield
-accrues on the entire deposit rather than on the slice that happens to be quoting. The exposure that
-can lose is capped by design. The scarcity premium is charged openly and kept for depositors instead
-of being surrendered to whoever is fastest. Anyone benchmarking us against a competitor's headline
-volume will conclude we are losing on the metric that stopped meaning anything once solvers started
-matching the easy flow away from pools.
+**The related belief: we cannot win the fee war and should not try.** Cutting your fee does not buy
+clean volume. It makes you the venue arbitrageurs correct first when the outside market moves, and
+that flow is exactly the loss your liquidity providers bear. The fees it pays roughly equal the losses
+it inflicts, so racing the fee down grows both sides and never the difference. Anyone benchmarking us
+on headline volume will conclude we are losing on a metric that stopped meaning anything once solvers
+began matching the easy flow away from pools.

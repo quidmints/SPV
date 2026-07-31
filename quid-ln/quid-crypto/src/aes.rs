@@ -503,6 +503,20 @@ mod test {
     }
 
     #[test]
+    fn tmp_emit_aes_compat() {
+        // Mirrors test_decrypt_compat EXACTLY, including rng ordering: the second
+        // encrypt sees an rng already advanced by the first.
+        let mut rng = FastRng::from_u64(123);
+        let vfs_key = derive_key(&mut rng);
+        let e1 = vfs_key.encrypt(&mut rng, &[], None, &|_| ());
+        println!("AES1={}", hex::display(&e1));
+        let aad = b"my context".as_slice();
+        let plaintext = b"my cool message".as_slice();
+        let e2 = vfs_key.encrypt(&mut rng, &[aad], None, &|out| out.put(plaintext));
+        println!("AES2={}", hex::display(&e2));
+    }
+
+    #[test]
     fn test_decrypt_compat() {
         let mut rng = FastRng::from_u64(123);
         let vfs_key = derive_key(&mut rng);

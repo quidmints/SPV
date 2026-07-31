@@ -2018,3 +2018,32 @@ The rung-3 test forks CURRENT mainnet. Instead of hunting a block where the buck
   understood. The user rejected it on principle — "we must be working with current stuff" — and that
   instinct was RIGHT: understanding the bucket dissolves the need for the workaround entirely.
 
+## 🔬 C10 — IMPLEMENTATION STATE DECODED (impl `0x5d53b303…b3dc`, raw selector calls, no guessing)
+Called each 0-arg selector raw and decoded the returns — the contract's real configuration:
+| selector | raw | decoded |
+|---|---|---|
+| `04fc532a` | `0x35fA164735182de50811E8e2E824cFb9B6118ac2` | **eETH** |
+| `2f2e4bee` | `0xCd5fE23C85820F7B72D0926FC9b05b43E359b7ee` | **weETH** |
+| `23509a2d` | `0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84` | **stETH** — configured, confirming the dual output-token design |
+| `08c73259` | `0x62247d29b4b9becf4bb73e0c722cf6445cfc7ce9` | (contract — role/admin/liquifier, UNIDENTIFIED) |
+| `3190480e` | `0x86392dc19c0b719886221c78ab11eb8cf5c52812` | (contract — UNIDENTIFIED) |
+| `2799657d` | `0x278d00` = **2_592_000** | **30 DAYS in seconds** ⭐ |
+| `3cbb3a12` | `0x2386f26fc10000` = **1e16** | **0.01 ETH** — a MINIMUM (redemption floor) |
+| `527d8459` | `0x2710` = **10_000** | BPS denominator |
+| `66242858` | `0x1f4` = **500** | 500 bps (5%, or 0.05% depending on the denominator used) |
+⇒ **Our integration addresses are CONFIRMED CORRECT against the contract's own config** (it names exactly
+  the eETH/weETH we use). The address doubt is fully closed.
+⇒ The **2_592_000 (30d)** and **1e16 floor** are the first hard evidence of the metering policy.
+
+### ⚠️ WHAT IS STILL NOT PROVEN — do not build on this yet
+I have NOT yet identified the getter that returns the bucket's REFILL RATE or its current fill, so I
+**cannot yet compute how long to `vm.warp`.** 19 of the 50 selectors returned data; the rest take args or
+are state-changing, and 2 returned addresses I have not identified.
+▶️ NEXT: (1) probe the remaining ~31 selectors WITH plausible args (they are the view+setter pairs — a
+  `setX(uint64)` implies a matching `x()` getter, so pair them); (2) identify `08c73259` / `3190480e` by
+  calling THEM for names/symbols; (3) empirically fit the refill: sample `totalRedeemableAmount(native)`
+  across a dense block range spanning a refill and measure delta/second. **(3) is decisive on its own and
+  needs no ABI at all** — prefer it if selector decoding stalls.
+📌 Discipline note: every conclusion above is a DECODED RETURN VALUE, not a name guess. The two
+  UNIDENTIFIED addresses are marked as such rather than assigned plausible-sounding roles.
+
