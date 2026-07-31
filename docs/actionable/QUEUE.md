@@ -1125,3 +1125,36 @@ toVol  = mulDiv(amount * 1e12, 1e18, price)   ⇔ amount · 1e30 / price   ✅ w
     some failures may be those paths executing for the FIRST TIME — genuinely new behaviour needing real
     verification, not test edits.
 
+## 🛑 C3 HALTED BY ITS OWN STOP CONDITION — a SECOND mechanism exists. Reverted.
+
+Re-applied the DERIVED C3 and triaged. The 60× counts are inheritance amplification; there are exactly
+**TWO distinct new failures** (plus the two pre-existing, C10's rung-3 and F1):
+ 1. `consumed < sats on an inventory-bounded partial` — **FITS** the one mechanism. `Alles.t.sol:1936`
+    builds `hugeSats = 10× capacity` from `POOLED_USD_BTC`, so it is calibrated to the cap; correcting
+    the cap changes where the bound lands. Test expectation would need re-deriving.
+ 2. `testStrand4_SwapInFloor_RevertsShort_UnwindsUsed` — **DOES NOT FIT.** 🛑
+    ```solidity
+    ch.settleSwapIn(seller, sats, address(USDC), hash, type(uint).max, false);  // floor = MAX
+    vm.expectRevert(abi.encodeWithSignature("SwapInShort()"));
+    ```
+    **The floor is `type(uint).max` — UNCONDITIONALLY unreachable, whatever the cap arithmetic does.**
+    `SwapInShort()` must fire regardless. Under C3 the call **does not revert at all**.
+
+⇒ **That cannot be "the test was calibrated against the bug".** A max-uint floor is not a calibrated
+  number. So C3 changes something OTHER than the cap magnitude — most likely the call now takes a
+  DIFFERENT PATH and never reaches the floor check (e.g. an early return when `consumed`/`pooled`
+  computes to 0, or a branch keyed on the converted value). **A second mechanism ⇒ the derivation is
+  INCOMPLETE.**
+🛑 **HALTED AND REVERTED per the pre-committed stop condition.** Editing test 1 while test 2 is
+  unexplained is exactly the loop the user warned about: the code would end up wrong and the tests would
+  encode it.
+
+### NEXT — settle the SECOND mechanism first, then C3 lands in one go
+Run `testStrand4_SwapInFloor_RevertsShort_UnwindsUsed` with `-vvvv` under C3 and find WHERE the floor
+check is skipped. Specifically: does `convert`'s corrected `toVol` value make `consumed` (or a
+downstream branch) take a path that returns BEFORE `SwapInShort` is evaluated? That is a REAL behavioural
+change from C3 and may itself be a defect worth having found — the floor check being SKIPPABLE at all is
+suspicious.
+📌 The unit derivation stands (both directions are `1e30`, asset-independent). What is NOT established is
+  that changing the cap has no OTHER side effects. Those are different claims and I conflated them.
+
