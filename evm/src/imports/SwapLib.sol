@@ -399,10 +399,10 @@ library SwapLib {
             if (IBtcChan2(c.btcChannels).btcRecipientOf(r.recipient) == bytes32(0)) revert NoBtcRecipient();
         }
         // _buildContext(asset): ETH-side vault always address(0) (dispatched to
-        // GALAXY via the venue); volScale 1e18 WETH / 1e8 WBTC; nativeWETH on ETH.
+        // GALAXY via the venue); nativeWETH on ETH.
         Types.AuxContext memory ctx = Types.AuxContext({
             asset: r.asset, vault: address(0), core: c.core,
-            nativeWETH: !isBTC, volScale: isBTC ? 1e8 : 1e18
+            nativeWETH: !isBTC
         });
         (uint160 sqrtPriceX96,,,, uint v4p) = isBTC
             ? IVogueRepack2(c.btcVault).repack(true)
@@ -709,7 +709,7 @@ library SwapLib {
     // CORE / V4 / WBTC are Aux immutables, passed in as args (the library
     // can't read Aux's immutables). The AuxContext is reconstructed inline,
     // matching Aux._buildContext(WBTC) exactly: vault address(0), nativeWETH
-    // false, volScale 1e8.
+    // false.
     error StableMissing();
     error SwapOutShort();
     error SwapInShort();
@@ -740,14 +740,14 @@ library SwapLib {
         //     so a swap-IN can NEVER mint QUI — settlement is always existing
         //     pooled dollars, exactly like the ETH side.
         // `sats` are 8-dec (== mockBTC), so they are the exact BTC input; the
-        // USD-side cap (POOLED_USD_BTC) converts to sats via the same volScale
+        // USD-side cap (POOLED_USD_BTC) converts to sats via the same flat-1e18 scale
         // swap-OUT uses, keeping units coherent.
         // ctx + RouteParams built field-by-field (not an inline literal) so the
         // added v4p reuse fits this body's legacy stack without via_ir — the literal
         // construction peak is what overflowed. vault=0 / nativeWETH=false are the
         // zero-defaults of a fresh memory struct.
         Types.AuxContext memory ctx;
-        ctx.asset = wbtc; ctx.core = core; ctx.volScale = 1e8;
+        ctx.asset = wbtc; ctx.core = core;
         // Reuse the repack-resolved oracle price (5th return); live-read only if
         // v4p==0 — same as _finishSwap. POOLED_USD_BTC is passed RAW: `convert` now uses a flat
         // 1e18 for both assets, so the reserve converts to its true sats-equivalent directly. The
@@ -950,7 +950,8 @@ library SwapLib {
     {
         uint poolVol = isBTC ? ICoreObs(core).POOLED_BTC() : ICoreObs(core).POOLED_ETH();
         // UNIFORM sats/wei → 6-dec USD: `poolVol · base / 1e30`. Authoritative (NOT
-        // BasketLib.convert(...,volScale), which /1e8·1e12 over-values 8-dec BTC by 1e10 —
+        // BasketLib.convert, which now uses the SAME flat scale (the /1e8 variant over-valued
+        // 8-dec BTC by 1e10 and was removed) —
         // the WBTC ×1e10 price-lift already closes the 8↔18-dec gap, so a flat /1e30 is
         // correct for BOTH pools and keeps poolVolUsd in the same 6-dec unit as flow + lev.
         uint poolVolUsd = FullMath.mulDiv(poolVol, base, 1e30);
@@ -1034,7 +1035,7 @@ library SwapLib {
         // (USDC/USDT/PYUSD/USDG/AUSD). It bites only for the seven 18-dec stables, which no test
         // currently exercises — see the mixed-decimal Echidna target (§A.70).
         uint amount = scaleTo6(IAuxSwap(aux).deposit(swapper, token, usdAmount), token);
-        ctx.asset = wbtc; ctx.core = core; ctx.volScale = 1e8;
+        ctx.asset = wbtc; ctx.core = core;
         // Reuse the repack-resolved oracle price (5th return); live-read only if v4p==0.
         (uint160 sqrtPriceX96,,,, uint v4p) = IVogueRepack2(address(this)).repack(true);
         rp.sqrtPriceX96 = sqrtPriceX96;

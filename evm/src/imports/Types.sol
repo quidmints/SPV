@@ -103,7 +103,6 @@ library Types {
         address vault;
         address core;
         bool nativeWETH;   // true only for ETH path (unwrap WETH → ETH on delivery)
-        uint volScale;     // 10**decimals(asset) — 1e18 WETH, 1e8 WBTC
     }
 
     struct RouteParams {

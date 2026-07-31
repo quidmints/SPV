@@ -1331,3 +1331,27 @@ detecting it. The saving catch was reading the CALL SITE's units, not the expres
 was their only consumer. Remove the field + both assignments per the no-unreachable-code rule, rebuild,
 re-run. Low risk, but it is a separate change from the money-path fix above.
 
+## ✅ C3 CLEANUP DONE — `volScale` fully removed, +86 bytes of EIP-170 headroom.
+Removed the now-dead `ctx.volScale`: the `Types.AuxContext` field (`Types.sol:106`), its struct-literal
+initialiser (`SwapLib:405`) and both assignments (`SwapLib:750`, `:1037`). Verified by grep that NOTHING
+READ it — `convert` was its only consumer — before deleting. Also corrected 4 comments that documented the
+deleted per-asset scale (`:402`, `:712`, `:743`, `:953`) so no stale comment survives to mislead later
+(the `stale-comments-are-false-evidence` rule).
+
+**Suite: 3529 / 31 — unchanged.** Same 2 distinct pre-existing failures (rung 3, LvrControl). Behaviour-neutral.
+**EIP-170: SwapLib 24,358 (margin 218, was 132) — +86 bytes freed.** Directly useful: **C4 lands in SwapLib**
+and was previously blocked on headroom.
+
+### ▶️ NEXT (ranked)
+ 1. **C4** — wei premium → 6-dec register kills the θ throttle (`SwapLib:441-442`) **+ the BTC mirror**
+    (8-dec ⇒ ~1e3 under-report ⇒ over-throttle). 218 bytes now available. ⚠️ **Apply the C3 lesson: check the
+    CALL SITE's units before trusting the local expression** — C4 is the same class of bug and may likewise
+    have a compensating hack at its call site. Search for one BEFORE editing.
+ 2. **C10 part 2** — clamp the ether.fi rung to `totalRedeemableAmount(address)`; owns 1 of the 2 remaining
+    failures. Unit trap: the check is on `eEthAmount`, we pass `weEthAmount`.
+ 3. **Graphify**, then the 33 unverified open items + the deeper dedup pass.
+ 4. ⏳ **STILL OWED TO THE USER — router/solver/filler DISCOVERABILITY**: can they find/trade our Vogue pool
+    given the PoolManager holds only mock tokens, not real ones? Asked as part of the Uniswap-v4-protocol-fee
+    research; **never investigated.** Also open from that same ask: v4 protocol fee activation, ether.fi v3
+    pool imbalance.
+
