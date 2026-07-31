@@ -850,3 +850,29 @@ At this block ether.fi's redeemable pool is thinner than rung 3's ask ⇒ `Excee
 bare `catch {}` silently drops the LP onto rung 4's multi-day wait-NFT. **Not a test artifact — this is
 production behaviour whenever their pool is thin.** Fixing C10 should take the suite to ~3,559/1.
 
+## ✅ C10 PART 1 LANDED — the silent fallthrough is now observable
+
+`SwapLib.sol` rung 3: bare `catch {}` → `catch (bytes memory err)` + `emit InstantRedeemSkipped(
+weethRequested, reason)`. Verified at the pinned block: **3,529 / 31 — ZERO DELTA from baseline.**
+Size: `SwapLib` 24,238 → **24,444 / +132** — it fits ONLY because D3 freed 197 bytes first.
+`reason` carries the selector: `0xdc9cb0e2` = ether.fi's `ExceededRedeemable()`; `0x00000000` = no
+reason given (empty returndata guarded by `err.length >= 4`).
+
+⬜ **PART 2 — THE ACTUAL FIX — still owed:** request `min(weethIn, redeemable)` so the remainder falls
+to rung 4 instead of losing the whole rung. Blocked on ONE external fact (capacity view on
+`0xDadEf1fF…7Ae0`); three routes failed — `cast` (RPC), Etherscan (403), GitHub code search (no hit).
+
+# ═══ ITEMS NOT IN THE A/B/C REGISTER — surfaced today, easy to lose ═══
+| # | item | note |
+|---|---|---|
+| 1 | **`Σ levPooledBTC[lp] == VBtc.totalSupply()`** | UNASSERTED. Drift = double-spend. One line; Echidna-ready; PRECONDITION for §A.19b's aggregate rule |
+| 2 | **Re-verify C1 and C5 at the pinned block** | both judged PRE-`ForkPin`. C1's evidence survives drift (it flipped a SPECIFIC test fail→pass); **C5's "clean" rests on a comparison now known unsound** |
+| 3 | **C10 part 2** (partial fill) | above |
+| 4 | **§A.19b: WHOSE depth shrinks on bearer redemption?** | the open DESIGN decision — pro rata / most-free-capacity / cheapest-payout. Nobody has chosen |
+| 5 | **Re-scope D4** | the agent's "mirrored pair" does not exist — there is no `_swapInPrep`. The observation may survive; the framing does not |
+| 6 | **`_priceOr` docblock** | after D3 it is now genuinely the single definition, as it always claimed. Correct the text |
+| 7 | 🔴 **EVERY PRE-`ForkPin` ATTRIBUTION IS UNSOUND** | all "X broke N tests" verdicts before block 25,653,624, EXCEPT C1+C2's 333 (survives on magnitude + a named mechanism). ⚠️ This does NOT invalidate the FINDINGS — C3/C4/C6–C9 are code-read diagnoses with `file:line` — only the verdicts reached by comparing runs |
+
+⇒ **Honest total ≈ 42 open items**, not 35. And the register's own caveat stands: **33 of 40
+  open-marked items are still UNVERIFIED**, several probably already done.
+

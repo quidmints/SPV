@@ -626,8 +626,22 @@ library SwapLib {
         // InvalidOutputToken. (The old code passed WETH here, so this rung
         // SILENTLY FAILED on every call.) The recipient receives NATIVE ETH.
         if (weethIn > 0 && instant && c.redeemer != address(0)) {
+            // §C10: this rung is ALL-OR-NOTHING — it asks for the FULL `weethIn`. If ether.fi's
+            // redeemable pool is thinner than the ask they revert `ExceededRedeemable()` (`0xdc9cb0e2`,
+            // confirmed live) and the ENTIRE rung is abandoned, silently dropping the LP onto rung 4's
+            // multi-day wait-NFT even when 99% could have been served instantly. Their pool is EXTERNAL
+            // state we neither control nor read, so this fires in production, not just in tests.
+            // The bare `catch {}` that was here made it INVISIBLE. Now it is observable.
+            // ⚠️ PARTIAL FILL STILL OWED: request `min(weethIn, redeemable)` and let the remainder fall
+            // to rung 4. Blocked on confirming a capacity view on `0xDadEf1fF…7Ae0` — `canRedeem(uint256)`
+            // appears to exist (an argument-less call returns an encode-length mismatch rather than
+            // "function not found") but its semantics are UNVERIFIED. Do not clamp against a guessed ABI.
             try IRedeem_L(c.redeemer).redeemWeEth(weethIn, recipient, ETHFI_NATIVE_ETH) { return covered; }
-            catch {}
+            catch (bytes memory err) {
+                // Empty `err` = callee gave no reason (OOG / bare revert); report 0 rather than
+                // reading past the end.
+                emit InstantRedeemSkipped(weethIn, err.length >= 4 ? bytes4(err) : bytes4(0));
+            }
         }
         // Rung 4 — last-resort no-fee withdrawal NFT.
         return waitNft(covered, recipient, c);
@@ -1477,6 +1491,13 @@ library SwapLib {
                 TickMath.getSqrtPriceAtTick(t.newLo), TickMath.getSqrtPriceAtTick(t.newUp), amount6);
         }
     }
+
+    /// @notice Rung 3 (ether.fi instant redeem) was skipped; the withdrawal fell through to rung 4's
+    ///         multi-day wait-NFT. `reason` is the revert selector — `0xdc9cb0e2` is ether.fi's
+    ///         `ExceededRedeemable()` (their pool was smaller than `weethRequested`); `0x00000000`
+    ///         means no reason was given. Emitted so this degradation is never silent (§C10).
+    ///         `SwapLib` is DELEGATECALL'd, so this surfaces in the CALLER's logs (Vogue/Aux).
+    event InstantRedeemSkipped(uint weethRequested, bytes4 reason);
 
     error TickOutOfRange();
     function updateTicks(uint160 sqrtPriceX96, uint delta)
