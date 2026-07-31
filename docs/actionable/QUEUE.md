@@ -1456,3 +1456,34 @@ Three call sites, and they do NOT agree on what `amount` is:
  • Naming: `IAuxBtc_V`-style suffixes are exactly the cryptic-2/3-letter-name violation; the merged
    interface takes the plain name.
 
+## C4 ATTEMPT 1 — framing (a) does NOT FIT THE STACK. Reverted; next framing identified.
+Applied (a) (5th `price` param, `0` = already-USD6). The helper compiles, but **`swapToBody` overflows**:
+```
+Error: Stack too deep. --> src/imports/SwapLib.sol:453:38
+    sellSkew(c.core, r.px, isBTC, r.amount), r.px);
+```
+Then tried the D3 sequencing trick (drop the `uint skew` local, inline the call) — **it made things WORSE**:
+the nested call's args are all live simultaneously, so inlining ADDS pressure rather than freeing a slot.
+Reverted; tree is green.
+⚠️ **CORRECTION to my own D3 note: "sequence nested calls" is NOT a general stack remedy.** It helps only
+  when the inner call's result replaces MORE live values than its args consume. Here it consumed 4 to
+  replace 1. D3 worked because the replaced expression was itself large — a different situation.
+
+### ▶️ NEXT FRAMING (d) — pass the STRUCT, not the values ⭐
+Both native sites already carry `amount` AND `price` inside `r` (`Types.SwapReq`). Passing the struct is
+**ONE memory pointer instead of TWO stack values**, so it should drop pressure BELOW today's baseline:
+```solidity
+function retainSkewPremium(address core, bool isBTC, Types.SwapReq memory r, uint skew) internal
+// reads r.amount + r.px, records USD6 via the flat /1e30, writes r.amount back
+```
+⚠️ **Blocker to solve first:** site `:1051` (drain leg) has NO `SwapReq` — a bare `amount`, already USD6.
+  Options: (i) give that leg the struct too — **CHECK whether it already builds a `RouteParams`/`SwapReq`
+  nearby**; if so this UNIFIES both legs and counts as real dedup; (ii) a thin USD6-only path there.
+  Prefer (i): it DELETES a divergence instead of adding a branch.
+📌 Do NOT reach for `via_ir` — disabled deliberately, and the user's rule is that stack-too-deep is always
+  solvable by restructuring. Framing (d) attacks the actual cause (too many live scalars) rather than
+  shuffling them around.
+⏱️ OPERATIONAL: `forge build --force` + a chained commit exceeded the 2-min tool timeout and the commit was
+  LOST (the revert had already applied). **Never chain a `--force` rebuild with the commit that records its
+  result** — run the build alone, then commit separately.
+
