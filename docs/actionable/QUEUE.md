@@ -1355,3 +1355,37 @@ and was previously blocked on headroom.
     research; **never investigated.** Also open from that same ask: v4 protocol fee activation, ether.fi v3
     pool imbalance.
 
+## C4 DIAGNOSED — unit mismatch CONFIRMED, and the C3 call-site check came back CLEAN (no paired hack).
+**The bug:** `SwapLib:1352-1357`
+```solidity
+uint premium = FullMath.mulDiv(amount, skew, 1e18);   // `amount` is NATIVE (wei for ETH, sats for BTC)
+ICoreObs(core).recordSkewPremium(isBTC, premium);     // ...passed straight through
+```
+**The sink:** `Core.sol:277` — `function recordSkewPremium(bool isBTC, uint256 premiumUsd)`. The parameter
+is NAMED `premiumUsd`, but receives NATIVE units. Core does **NOT** rescale: it just does
+`skewPremium{BTC,ETH} += premiumUsd` and `_bumpEwma(_prem{BTC,ETH}, premiumUsd)`.
+✅ **C3 LESSON APPLIED — I checked the SINK's units BEFORE editing** (the step that nearly shipped an
+  inflated cap in C3). Result: **NO compensating hack exists.** Unlike C3 this is a PLAIN one-sided
+  mismatch, so a one-site fix is correct here — but the check was mandatory, not optional.
+
+**Impact — the EWMA feeds θ, so both directions misprice the throttle:**
+ • **ETH:** wei (1e18-scale) into a 6-dec USD register ⇒ **massive OVER-report** ⇒ θ sees a huge premium
+   rate ⇒ **throttle effectively never binds.**
+ • **BTC:** sats (1e8-scale) ⇒ **UNDER-report (~1e3)** ⇒ θ sees ~no premium ⇒ **over-throttle.**
+ ⇒ The two assets are wrong in OPPOSITE directions, which is why no single test caught it — and why the
+   BTC-only and ETH-only suites would each look internally consistent.
+
+### ▶️ THE FIX (not yet applied — money-path, needs its own verified run)
+Convert native → 6-dec USD at the `retainSkewPremium` site using the SAME flat-1e30 rule C3 established
+(`SwapLib:950-954`, now the single authority for native→USD6):
+```solidity
+uint premiumUsd = FullMath.mulDiv(premium, price, 1e30);   // flat /1e30 — correct for BOTH assets
+```
+`retainSkewPremium` must therefore take `price` (already resolved as `r.px` at the call site — pass it in
+rather than re-reading, per the D3 reuse pattern). It still RETURNS the native `amount - premium` (the
+input scale-down is native and stays native) — **only the RECORDED value converts.** Do not convert the
+return value; that is a separate quantity.
+⚠️ Verify `skewPremium*`'s OTHER consumer first: `SwapLib:941` describes something "CLAMPED to the retained
+  drain premium" — if that clamp compares against a NATIVE-scaled quantity it must move to USD6 in the SAME
+  commit, or the fix will break it. **Check it before applying** (this is exactly the C3 shape).
+
