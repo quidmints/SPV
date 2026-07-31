@@ -2076,3 +2076,35 @@ Flat-then-zero is the signature of a **CONFIGURED VALUE or a BINDING GUARD**, no
 📌 The landed runtime capacity SKIP is correct under ALL THREE readings — it is the one piece that needed no
   mechanism knowledge, which is why it was right to land it first.
 
+## ✅✅✅ C10 MECHANISM **PROVEN** — capacity is a LOW-WATERMARK function of LiquidityPool TVL.
+**Bisected the exact transition:** last non-zero `25647330`, first zero `25647331`.
+**No logs from the manager in that block** ⇒ NOTHING called it ⇒ rules out BOTH an admin `set*` (reading a)
+and a large `redeemWeEth` (reading c). The value is **COMPUTED, not stored.**
+**The cause, one block apart:**
+| block | LiquidityPool ETH | `totalRedeemableAmount(native)` |
+|---|---|---|
+| 25647330 | **24_727** ETH | 2000e18 |
+| 25647331 | **14_727** ETH | **0** |
+⇒ **Exactly 10_000 ETH left the LiquidityPool and capacity went to zero in the same block.** ⇒ **READING (b)
+  CONFIRMED: redeemable = f(LiquidityPool TVL, low watermark).** Above the watermark it reads a flat
+  configured cap (2000e18 — hence 7 days of an identical value); crossing below it reads 0.
+⇒ This explains EVERY observation coherently: the flatness (a cap, not a meter), the instant step (a guard
+  crossing), the 25h of 0 (TVL has stayed below), and the absence of any refill (nothing to refill — it is
+  not a bucket). **All three of my earlier mechanisms were wrong; this one is measured, not hypothesised.**
+
+### ▶️ THE TEST FIX — works on CURRENT state, no pinned block, no warp
+Capacity is a pure function of the LiquidityPool's ETH balance ⇒ **`vm.deal` the LiquidityPool above the
+watermark on the CURRENT fork, then assert rung 3 pays.** That is the user's requirement ("we must be
+working with current stuff") satisfied exactly: current block, real contracts, real code path, and the
+ONLY manipulation is topping up an external pool's balance — which is legitimate test setup, not a mock.
+ ⚠️ Derive the watermark before choosing the deal amount — do NOT guess. Binary-search `vm.deal` amounts on
+   the fork until `totalRedeemableAmount(native) > 0`; that empirically locates the threshold. The decoded
+   `500` bps / `10_000` denominator / `1e16` floor are the likely inputs to the formula — verify, do not assume.
+ ⚠️ Also assert `totalRedeemableAmount(native) > 0` in the test SETUP so that a future ether.fi change
+   surfaces as a clear setup failure rather than a confusing assertion failure.
+📌 The landed runtime capacity SKIP is now PROVEN correct: production genuinely sees capacity 0 whenever
+  ether.fi's TVL is under the watermark — which is the live state RIGHT NOW, and has been for over a day.
+📌 METHOD NOTE: the decisive evidence was ABSENCE of logs (ruling out two readings at once) plus a two-block
+  balance diff. Neither required the ABI. **When a value changes with no transaction touching the contract,
+  it is COMPUTED FROM EXTERNAL STATE — that alone identified the mechanism.**
+
