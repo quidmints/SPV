@@ -749,16 +749,17 @@ library SwapLib {
         Types.AuxContext memory ctx;
         ctx.asset = wbtc; ctx.core = core; ctx.volScale = 1e8;
         // Reuse the repack-resolved oracle price (5th return); live-read only if
-        // v4p==0 — same as _finishSwap. POOLED_USD_BTC pre-scaled ×1e10: convert(toVol)
-        // under-scales the 8-dec WBTC cap by 1e18/1e8, ×1e10 cancels it → the true
-        // sats-equivalent of the USD reserve to pay out. (BTC-local; ETH untouched.)
+        // v4p==0 — same as _finishSwap. POOLED_USD_BTC is passed RAW: `convert` now uses a flat
+        // 1e18 for both assets, so the reserve converts to its true sats-equivalent directly. The
+        // former ×1e10 pre-scale here CANCELLED convert's 1e18/1e8 under-scaling — two wrongs that
+        // agreed on this path only; both are removed together, leaving this path unit-neutral.
         (uint160 sqrtPriceX96,,,, uint v4p) = IVogueRepack2(v4).repack(true);
         Types.RouteParams memory rp;
         rp.sqrtPriceX96 = sqrtPriceX96;
         rp.zeroForOne   = !ICoreObs(core).token1is(true);   // BTC→USD (mirror of the buy)
         rp.token        = token;                            // USD-side output stable → seller
         rp.amount       = sats;                             // exact BTC input
-        rp.pooled       = ICoreObs(core).POOLED_USD_BTC() * 1e10;
+        rp.pooled       = ICoreObs(core).POOLED_USD_BTC();
         // SWAP-IN REFILL PRICING. This leg settles FLAT at the honest oracle, and that is FINAL —
         // not a placeholder. CORRECTED 2026-07-26: this comment used to describe a SYMMETRIC skew
         // BONUS (mirror of the swap-OUT drain penalty) as a "corrected design" that would "land with

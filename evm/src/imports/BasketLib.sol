@@ -415,13 +415,15 @@ library BasketLib {
     }
 
     /// @notice Convert amount between volatile asset and USDC using price.
-    /// `volScale = 10**decimals(asset)`; pass 1e18 for WETH, 1e8 for WBTC.
+    /// Flat 1e18 for BOTH assets: the WBTC price carries a x1e10 lift (usd*1e28 vs WETH's
+    /// usd*1e18) which ALREADY closes the 8<->18-dec gap, so a per-asset 10**decimals scale
+    /// would double-count it (SwapLib:950-954 states the same rule for poolVolUsd).
     /// `price` is always WAD-scaled USD-per-asset; USDC is always 1e6.
-    function convert(uint amount, uint price, bool toVol, uint volScale)
+    function convert(uint amount, uint price, bool toVol)
         public pure returns (uint) {
         return toVol
-            ? FullMath.mulDiv(amount * 1e12, volScale, price)   // USDC → vol
-            : FullMath.mulDiv(amount, price, volScale) / 1e12;  // vol → USDC
+            ? FullMath.mulDiv(amount * 1e12, 1e18, price)   // USDC → vol
+            : FullMath.mulDiv(amount, price, 1e18) / 1e12;  // vol → USDC
     }
 
     function routeSwap(Types.AuxContext memory ctx,
@@ -435,7 +437,7 @@ library BasketLib {
         // `consumed` = the caller-input amount actually routed to the swap (before any 4626 revaluation);
         // the excess p.amount-consumed is a partial fill the caller must reclaim/cap (#105).
         consumed = Math.min(p.amount, convert(p.pooled,
-                        p.v4Price, p.token != address(0), ctx.volScale));
+                        p.v4Price, p.token != address(0)));
         uint pooled = consumed;
         if (pooled > 0) {
             if (p.token != address(0) && ctx.vault != address(0)) {

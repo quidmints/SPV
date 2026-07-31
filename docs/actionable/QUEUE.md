@@ -1302,3 +1302,32 @@ call site hides it with a second wrong thing. Two wrongs that cancel ⇒ **remov
   fixtures" as planned one step ago, I would have shipped a 1e10-inflated BTC swap-in cap AND rewritten the
   two tests that were correctly detecting it.)
 
+## ✅✅ C3 LANDED — paired fix, 3529/31 = EXACT baseline, ZERO fixtures touched.
+**Applied together (two wrongs that cancelled on one path):**
+ 1. `BasketLib.convert` — dropped the `volScale` param; flat **1e18** for BOTH assets. The WBTC price
+    carries a ×1e10 lift (`usd·1e28` vs WETH's `usd·1e18`) that ALREADY closes the 8↔18-dec gap, so a
+    per-asset `10**decimals` scale double-counted it. Same rule `SwapLib:950-954` already stated for
+    `poolVolUsd` (flat `/1e30`) — so this makes the two agree instead of contradicting.
+ 2. `SwapLib:761` — deleted the compensating `POOLED_USD_BTC() * 1e10` pre-scale; the reserve is passed RAW.
+
+**RESULT: 3529 passed / 31 failed — IDENTICAL to baseline.** Only 2 distinct failures remain, both
+PRE-EXISTING and unrelated: `testEthVenue_EtherFi_InstantRedeem_Rung3` (C10's open rung) and
+`testLeverage_LvrControlVsTreatment` (F1). The 31 is inheritance amplification of those two.
+⇒ **`hugeSats` (`:1936`) and `bigSats` (`:2151`) pass UNCHANGED.** They were the ORACLE, and they confirm
+  the pairing is unit-neutral on the swap-in path — the prediction made before the run, and it held.
+⇒ **NO test was edited to reach green.** The two failures that triggered the whole investigation resolved
+  by fixing the CODE.
+
+### Why this mattered — the near-miss
+Landing C3 ALONE (as planned twice) would have shipped a **1e10-inflated BTC swap-in cap** — a real overdraw,
+since `Math.min` was taken against a pre-inflated `p.pooled` — AND rewritten the two tests that were correctly
+detecting it. The saving catch was reading the CALL SITE's units, not the expression's local form.
+📌 STANDING LESSON: **a bound is only as sound as the units of the value fed into it.** Three times this
+  session I verified an expression's local form and declared a question closed without checking its inputs
+  (the `scaleTo6` C2 patch; cap-vs-side-effects; this `Math.min`). Check the call site, every time.
+
+### Remaining cleanup (small, non-blocking)
+`ctx.volScale` (`Types.sol:106`) and its two assignments (`SwapLib:750`, `:1036`) are now DEAD — `convert`
+was their only consumer. Remove the field + both assignments per the no-unreachable-code rule, rebuild,
+re-run. Low risk, but it is a separate change from the money-path fix above.
+
