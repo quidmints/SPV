@@ -975,3 +975,37 @@ share; eETH is the rebasing unit. So the fix must:
 `min` — likely MORE than 132. **Expect to need another dedup first** (D3's technique freed 197 once
 already), or to compute the clamp in the CALLER where `Aux` has ~1,735 bytes free.
 
+## 📌 STANDING DEDUP INSTRUCTIONS EXISTED AND I WAS WORKING WITHOUT THEM (user, 2026-07-31)
+
+User: *"there were specific contextual instructions about it on one of the markdown documents?"* **Yes —
+`BUILD-QUEUE-AND-107.md:44-48` and `:819`. I never read them; they are not in `QUEUE.md`. Now they are.**
+
+### RULE 1 — ONE DECLARATION PER INTERFACE, IN A SHARED FILE (user, 2026-07-26)
+With a concrete warning: *"the 5 `IAaveV4Spoke` declarations have already DRIFTED into disjoint subsets
+of one ABI"* — `Vault:44` {supply, withdraw, getReserveId} vs `VaultLib:11` {…}.
+✅ **VERIFIED FIXED (today):** exactly ONE declaration remains, in `imports/Interfaces.sol:23`, carrying
+the UNION — supply · withdraw · getReserveId · getUserSuppliedAssets · getUserSuppliedShares ·
+getReserveSuppliedAssets · getReserveTotalDebt. The five disjoint copies are gone.
+📌 **This is the canonical case for §A.52:** the danger of duplicated interfaces is not bytecode, it is
+  SILENT DRIFT INTO DISJOINT SUBSETS — each call site compiles against a different partial view of the
+  same contract. Use it as the worked example when doing the remaining 95.
+
+### RULE 2 🔴 — "DO NOT JUMP TO CONCLUSIONS; CHALLENGE YOURSELF UNTIL THE SOLUTION IS ELEGANT"
+*"applies to EVERY task."* The bar for "done deciding": the approach either **(a) REUSES an existing
+primitive/signal**, or **(b) DELETES a big chunk while giving better guarantees**.
+**"Enumerate ≥2 approaches explicitly before writing code for anything non-obvious, and write down why
+the loser lost. A single plausible design is a sign [of insufficient thought]."**
+⚠️ **I HAVE BEEN VIOLATING THIS ALL SESSION.** Every fix today was a single plausible design written
+straight to code — C2's first patch (wrong helper, 333 failures), C10's observability (didn't measure
+size until challenged), D3 (recorded "duplication is required" after ONE failed attempt). **The two
+times I was forced to enumerate alternatives — by the user — both produced strictly better answers**
+(`ForkPin` instead of pin-vs-live; struct-field+sequencing instead of "unavoidable duplication").
+
+### RULE 3 — §A.56 part 2 WAS ALREADY DIAGNOSED, at `:819`
+*"`Core.outOfRange(bool isBTC, …)` is ALREADY fused (Action enum ETH vs BTC). The DUPLICATION is one
+level up: `Vogue._outOfRange` …"* — **I re-derived this from scratch today and reported it as a
+finding.** Cost: one 90-minute agent that died on it.
+⇒ **BEFORE investigating anything, grep the ARCHIVE for it.** 5,100 lines of prior analysis are sitting
+  there, and `QUEUE.md`'s consolidation deliberately dropped the DETAIL, which is exactly what was
+  needed here.
+
