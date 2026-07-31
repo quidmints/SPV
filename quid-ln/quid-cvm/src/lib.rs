@@ -65,6 +65,52 @@ fn sev_aesgcm_key(sev_key: &[u8; 32], label: &[u8]) -> UnboundKey {
 /// firmware key can't be derived.
 pub struct SevSealer;
 
+/// The AEAD core of [`SevSealer::seal`], with the firmware key SUPPLIED rather than
+/// fetched.
+///
+/// WHY THE SPLIT: `sev_derived_key()` needs `/dev/sev-guest`, which exists only inside
+/// a real SEV-SNP guest on AMD EPYC. With the fetch inlined, none of the sealing logic
+/// below — label domain separation, the nonce-from-keyid rule, the tag check — could be
+/// exercised anywhere we can actually run tests, so all of it shipped unverified. The
+/// key is data; making it a parameter costs nothing and makes the crypto testable off
+/// SEV. The trait impl still fetches from firmware and FAILS CLOSED.
+fn seal_with_key(
+    sev_key: &[u8; 32],
+    random_keyid: [u8; 32],
+    label: &[u8],
+    data: Cow<'_, [u8]>,
+) -> Result<Sealed<'static>, Error> {
+    let key = LessSafeKey::new(sev_aesgcm_key(sev_key, label));
+    let mut ct = data.into_owned();
+    // The key is deterministic per (measurement, label), so the nonce MUST be
+    // unique — take it from the random keyid (stored in the blob for unseal).
+    let nonce = Nonce::assume_unique_for_key(random_keyid[..12].try_into().expect("32 >= 12"));
+    key.seal_in_place_append_tag(nonce, Aad::empty(), &mut ct)
+        .map_err(|_| Error::SealInputTooLarge)?;
+    Ok(Sealed {
+        keyrequest: Cow::Owned(random_keyid.to_vec()),
+        ciphertext: Cow::Owned(ct),
+    })
+}
+
+/// The AEAD core of [`SevSealer::unseal`]. See [`seal_with_key`] for why the key is a
+/// parameter.
+fn unseal_with_key(sev_key: &[u8; 32], sealed: Sealed<'_>, label: &[u8]) -> Result<Vec<u8>, Error> {
+    if sealed.keyrequest.len() < 12 || sealed.ciphertext.len() < Sealed::TAG_LEN {
+        return Err(Error::UnsealInputTooSmall);
+    }
+    let key = LessSafeKey::new(sev_aesgcm_key(sev_key, label));
+    let nonce =
+        Nonce::assume_unique_for_key(sealed.keyrequest[..12].try_into().expect("checked >= 12"));
+    let mut ct = sealed.ciphertext.into_owned();
+    let pt = key
+        .open_in_place(nonce, Aad::empty(), &mut ct)
+        .map_err(|_| Error::UnsealDecryptionError)?;
+    let n = pt.len();
+    ct.truncate(n);
+    Ok(ct)
+}
+
 impl Sealer for SevSealer {
     fn seal(
         &self,
@@ -73,37 +119,12 @@ impl Sealer for SevSealer {
         data: Cow<'_, [u8]>,
     ) -> Result<Sealed<'static>, Error> {
         let sev_key = sev_derived_key().map_err(|_| Error::SevKeyUnavailable)?;
-        let key = LessSafeKey::new(sev_aesgcm_key(&sev_key, label));
-        let mut ct = data.into_owned();
-        // The key is deterministic per (measurement, label), so the nonce MUST be
-        // unique — take it from the random keyid (stored in the blob for unseal).
-        let nonce = Nonce::assume_unique_for_key(
-            random_keyid[..12].try_into().expect("32 >= 12"),
-        );
-        key.seal_in_place_append_tag(nonce, Aad::empty(), &mut ct)
-            .map_err(|_| Error::SealInputTooLarge)?;
-        Ok(Sealed {
-            keyrequest: Cow::Owned(random_keyid.to_vec()),
-            ciphertext: Cow::Owned(ct),
-        })
+        seal_with_key(&sev_key, random_keyid, label, data)
     }
 
     fn unseal(&self, sealed: Sealed<'_>, label: &[u8]) -> Result<Vec<u8>, Error> {
-        if sealed.keyrequest.len() < 12 || sealed.ciphertext.len() < Sealed::TAG_LEN {
-            return Err(Error::UnsealInputTooSmall);
-        }
         let sev_key = sev_derived_key().map_err(|_| Error::SevKeyUnavailable)?;
-        let key = LessSafeKey::new(sev_aesgcm_key(&sev_key, label));
-        let nonce = Nonce::assume_unique_for_key(
-            sealed.keyrequest[..12].try_into().expect("checked >= 12"),
-        );
-        let mut ct = sealed.ciphertext.into_owned();
-        let pt = key
-            .open_in_place(nonce, Aad::empty(), &mut ct)
-            .map_err(|_| Error::UnsealDecryptionError)?;
-        let n = pt.len();
-        ct.truncate(n);
-        Ok(ct)
+        unseal_with_key(&sev_key, sealed, label)
     }
 }
 
@@ -131,4 +152,291 @@ pub fn sev_measurement(raw: &[u8]) -> anyhow::Result<[u8; 48]> {
     let mut m = [0u8; 48];
     m.copy_from_slice(&report.measurement[..]);
     Ok(m)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A stand-in for the firmware key. Inside a real SEV-SNP guest this comes from
+    /// `/dev/sev-guest` bound to the launch MEASUREMENT; the sealing logic cannot tell
+    /// the difference, which is exactly why the split in `seal_with_key` is sound.
+    const KEY_A: [u8; 32] = [0x11; 32];
+    /// A DIFFERENT firmware key — stands for a different enclave build / measurement.
+    const KEY_B: [u8; 32] = [0x22; 32];
+    const KEYID: [u8; 32] = [0xAB; 32];
+    const LABEL: &[u8] = b"quid::test::label";
+
+    fn seal(key: &[u8; 32], keyid: [u8; 32], label: &[u8], pt: &[u8]) -> Sealed<'static> {
+        seal_with_key(key, keyid, label, Cow::Borrowed(pt)).expect("seal")
+    }
+
+    // ─── report_data layout ───────────────────────────────────────────────────
+    //
+    // A relying party re-derives these 64 bytes from the keys the enclave presents and
+    // compares against the report. If the layout here disagrees with the verifier by so
+    // much as one byte, every attestation fails — or worse, a field lands where the
+    // verifier is not looking and goes unchecked.
+
+    #[test]
+    fn identity_report_data_places_each_field_at_its_documented_offset() {
+        let pk = [0x33u8; 32];
+        let addr = [0x44u8; 20];
+        let rd = identity_report_data(&pk, &addr);
+
+        assert_eq!(&rd[..32], &pk[..], "tls pk must occupy [0..32]");
+        assert_eq!(&rd[32..52], &addr[..], "evm address must occupy [32..52]");
+        assert_eq!(&rd[52..], &[0u8; 12][..], "the tail must be zero padding");
+    }
+
+    #[test]
+    fn identity_report_data_is_injective_in_both_fields() {
+        let pk = [0x33u8; 32];
+        let addr = [0x44u8; 20];
+        let base = identity_report_data(&pk, &addr);
+
+        let mut pk2 = pk;
+        pk2[31] ^= 1;
+        assert_ne!(base, identity_report_data(&pk2, &addr), "pk change was not bound");
+
+        let mut addr2 = addr;
+        addr2[19] ^= 1;
+        assert_ne!(base, identity_report_data(&pk, &addr2), "address change was not bound");
+    }
+
+    // ─── the sealing round trip ───────────────────────────────────────────────
+
+    #[test]
+    fn seal_then_unseal_returns_the_plaintext() {
+        let pt = b"the enclave's long-term signing key".to_vec();
+        let sealed = seal(&KEY_A, KEYID, LABEL, &pt);
+        assert_eq!(unseal_with_key(&KEY_A, sealed, LABEL).expect("unseal"), pt);
+    }
+
+    #[test]
+    fn an_empty_plaintext_round_trips() {
+        // Degenerate but legal: the blob is then exactly the 16-byte tag, which is the
+        // boundary the `< TAG_LEN` guard sits on. An off-by-one there would reject it.
+        let sealed = seal(&KEY_A, KEYID, LABEL, b"");
+        assert_eq!(sealed.ciphertext.len(), Sealed::TAG_LEN);
+        assert!(unseal_with_key(&KEY_A, sealed, LABEL).expect("unseal").is_empty());
+    }
+
+    #[test]
+    fn the_ciphertext_does_not_contain_the_plaintext() {
+        let pt = b"AAAAAAAAAAAAAAAAAAAAAAAA".to_vec();
+        let sealed = seal(&KEY_A, KEYID, LABEL, &pt);
+        assert!(
+            !sealed.ciphertext.windows(pt.len()).any(|w| w == &pt[..]),
+            "plaintext survived into the sealed blob"
+        );
+    }
+
+    // ─── the two separations that carry the security claims ───────────────────
+
+    /// THE RE-PROVISION BOUNDARY. The docs claim "a different enclave build cannot
+    /// unseal". That property is entirely produced by the firmware key differing per
+    /// measurement, so it is worth an explicit test: nothing else in this file enforces
+    /// it, and a refactor that dropped the key from the KDF would still round-trip.
+    #[test]
+    fn a_different_firmware_key_cannot_unseal() {
+        let sealed = seal(&KEY_A, KEYID, LABEL, b"secret");
+        assert!(
+            matches!(
+                unseal_with_key(&KEY_B, sealed, LABEL),
+                Err(Error::UnsealDecryptionError)
+            ),
+            "a blob sealed under one measurement opened under another"
+        );
+    }
+
+    /// LABEL DOMAIN SEPARATION. `sev_aesgcm_key` mixes the label into HKDF; without it
+    /// a blob sealed for one purpose could be opened by a code path asking for another.
+    #[test]
+    fn a_different_label_cannot_unseal() {
+        let sealed = seal(&KEY_A, KEYID, LABEL, b"secret");
+        assert!(
+            matches!(
+                unseal_with_key(&KEY_A, sealed, b"quid::test::other"),
+                Err(Error::UnsealDecryptionError)
+            ),
+            "the label is not actually domain-separating the key"
+        );
+    }
+
+    // ─── the nonce ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn the_keyid_is_actually_used_as_the_nonce() {
+        let mut other = KEYID;
+        other[0] ^= 1; // within the first 12 bytes, which is the slice used as the nonce
+        let a = seal(&KEY_A, KEYID, LABEL, b"same plaintext");
+        let b = seal(&KEY_A, other, LABEL, b"same plaintext");
+        assert_ne!(a.ciphertext, b.ciphertext, "the keyid did not reach the nonce");
+    }
+
+    /// A BYTE PAST THE NONCE MUST STILL BE CARRIED. Only `keyid[..12]` is the nonce, but
+    /// all 32 bytes are stored in `keyrequest`. This pins that: two keyids differing
+    /// only past byte 12 seal IDENTICALLY, so the stored keyrequest is the only thing
+    /// distinguishing them. If a future change derived the nonce from more of the keyid,
+    /// this test fails and the blob format change has to be deliberate.
+    #[test]
+    fn only_the_first_twelve_keyid_bytes_affect_the_ciphertext() {
+        let mut other = KEYID;
+        other[12] ^= 1;
+        let a = seal(&KEY_A, KEYID, LABEL, b"same plaintext");
+        let b = seal(&KEY_A, other, LABEL, b"same plaintext");
+        assert_eq!(a.ciphertext, b.ciphertext);
+        assert_ne!(a.keyrequest, b.keyrequest, "the full keyid must be stored");
+    }
+
+    /// THE CALLER OWNS NONCE UNIQUENESS, AND THIS PROVES IT IS NOT ENFORCED HERE.
+    ///
+    /// The key is deterministic per (measurement, label), so reusing a keyid reuses an
+    /// AES-GCM nonce — which for GCM is catastrophic, not merely untidy: two blobs under
+    /// the same nonce leak the XOR of their plaintexts and expose the authentication
+    /// subkey, enabling forgery. `seal_with_key` cannot detect it (it is stateless), so
+    /// the guarantee lives entirely in callers passing a fresh random `random_keyid`.
+    /// This test documents that contract as executable fact rather than a comment.
+    #[test]
+    fn repeating_a_keyid_repeats_the_keystream() {
+        let a = seal(&KEY_A, KEYID, LABEL, b"same plaintext");
+        let b = seal(&KEY_A, KEYID, LABEL, b"same plaintext");
+        assert_eq!(
+            a.ciphertext, b.ciphertext,
+            "if this ever differs, sealing gained internal randomness and the \
+             caller-supplied-nonce contract documented above has changed"
+        );
+    }
+
+    // ─── tamper detection and the length guards ───────────────────────────────
+
+    #[test]
+    fn a_flipped_ciphertext_byte_is_rejected() {
+        let sealed = seal(&KEY_A, KEYID, LABEL, b"secret payload");
+        let mut ct = sealed.ciphertext.into_owned();
+        ct[0] ^= 1;
+        let tampered = Sealed { keyrequest: sealed.keyrequest, ciphertext: Cow::Owned(ct) };
+        assert!(matches!(
+            unseal_with_key(&KEY_A, tampered, LABEL),
+            Err(Error::UnsealDecryptionError)
+        ));
+    }
+
+    #[test]
+    fn a_flipped_tag_byte_is_rejected() {
+        let sealed = seal(&KEY_A, KEYID, LABEL, b"secret payload");
+        let mut ct = sealed.ciphertext.into_owned();
+        let last = ct.len() - 1;
+        ct[last] ^= 1;
+        let tampered = Sealed { keyrequest: sealed.keyrequest, ciphertext: Cow::Owned(ct) };
+        assert!(matches!(
+            unseal_with_key(&KEY_A, tampered, LABEL),
+            Err(Error::UnsealDecryptionError)
+        ));
+    }
+
+    #[test]
+    fn a_flipped_keyid_byte_is_rejected() {
+        // The keyrequest is stored in the clear alongside the blob, so an attacker can
+        // edit it. Changing it changes the nonce, which must fail the tag check.
+        let sealed = seal(&KEY_A, KEYID, LABEL, b"secret payload");
+        let mut kr = sealed.keyrequest.into_owned();
+        kr[0] ^= 1;
+        let tampered = Sealed { keyrequest: Cow::Owned(kr), ciphertext: sealed.ciphertext };
+        assert!(matches!(
+            unseal_with_key(&KEY_A, tampered, LABEL),
+            Err(Error::UnsealDecryptionError)
+        ));
+    }
+
+    #[test]
+    fn a_short_keyrequest_is_refused_before_the_nonce_slice() {
+        // Without the guard this is a panicking slice, not a clean error - the guard is
+        // load-bearing against attacker-supplied blobs, so it gets a test.
+        let sealed = seal(&KEY_A, KEYID, LABEL, b"payload");
+        let truncated =
+            Sealed { keyrequest: Cow::Owned(vec![0u8; 11]), ciphertext: sealed.ciphertext };
+        assert!(matches!(
+            unseal_with_key(&KEY_A, truncated, LABEL),
+            Err(Error::UnsealInputTooSmall)
+        ));
+    }
+
+    #[test]
+    fn a_ciphertext_shorter_than_the_tag_is_refused() {
+        let short = Sealed {
+            keyrequest: Cow::Owned(KEYID.to_vec()),
+            ciphertext: Cow::Owned(vec![0u8; Sealed::TAG_LEN - 1]),
+        };
+        assert!(matches!(
+            unseal_with_key(&KEY_A, short, LABEL),
+            Err(Error::UnsealInputTooSmall)
+        ));
+    }
+
+    // ─── report parsing ───────────────────────────────────────────────────────
+
+    #[test]
+    fn sev_measurement_rejects_a_truncated_report_rather_than_panicking() {
+        // A relying party feeds this attacker-influenced bytes. It must return Err, not
+        // panic and not silently produce a zero measurement.
+        assert!(sev_measurement(&[]).is_err());
+        assert!(sev_measurement(&[0u8; 16]).is_err());
+    }
+
+    // ─── FAIL CLOSED off SEV-SNP ──────────────────────────────────────────────
+    //
+    // THE HEADLINE SECURITY CLAIM OF THIS CRATE, and the one test that must run on
+    // ordinary hardware to mean anything. The whole point of `Error::SevKeyUnavailable`
+    // is that sealing REFUSES off SEV-SNP instead of falling back to a weak or constant
+    // key. A regression here would not be visible in any of the tests above: they inject
+    // a key and would keep passing while the trait impl silently sealed with garbage.
+    //
+    // These tests are correct on both kinds of machine, and assert something real on
+    // each: off SEV-SNP the operation must fail with SevKeyUnavailable; inside a real
+    // guest it must succeed and round-trip.
+
+    #[test]
+    fn the_sealer_fails_closed_when_no_sev_firmware_is_present() {
+        let on_sev = sev_derived_key().is_ok();
+        let sealed = SevSealer.seal(KEYID, LABEL, Cow::Borrowed(b"secret"));
+
+        match sealed {
+            Err(Error::SevKeyUnavailable) => assert!(
+                !on_sev,
+                "sealing reported the key unavailable although the firmware answered"
+            ),
+            Ok(blob) => {
+                assert!(on_sev, "sealing SUCCEEDED without an SEV-SNP firmware key");
+                let out = SevSealer.unseal(blob, LABEL).expect("unseal on a real guest");
+                assert_eq!(out, b"secret");
+            }
+            Err(_) => panic!("expected SevKeyUnavailable off SEV-SNP"),
+        }
+    }
+
+    #[test]
+    fn unsealing_also_fails_closed() {
+        // Both directions matter: an unseal that fell back to a default key would hand
+        // plaintext to a host that should not be able to read it.
+        let blob = Sealed {
+            keyrequest: Cow::Owned(KEYID.to_vec()),
+            ciphertext: Cow::Owned(vec![0u8; Sealed::TAG_LEN + 4]),
+        };
+        if sev_derived_key().is_err() {
+            assert!(matches!(
+                SevSealer.unseal(blob, LABEL),
+                Err(Error::SevKeyUnavailable)
+            ));
+        }
+    }
+
+    #[test]
+    fn the_report_helpers_fail_closed_too() {
+        if sev_derived_key().is_err() {
+            assert!(sev_report([0u8; 64]).is_err(), "a report was produced without firmware");
+            assert!(attest_identity(&[0u8; 32], &[0u8; 20]).is_err());
+        }
+    }
 }

@@ -34,9 +34,6 @@ pub mod env;
 pub mod ln;
 /// Networking utilities.
 pub mod net;
-
-/// Shared bitcoin vocabulary - see prelude.rs for why it exists.
-pub mod prelude;
 /// `OrEnvExt` utility trait.
 pub mod or_env;
 /// `Ppm` - parts per million newtype for proportional fee rates.

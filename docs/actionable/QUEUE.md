@@ -1867,3 +1867,28 @@ not native ETH, so the delivery path must swap/wrap it or credit it as a venue a
   parameter's MEANING was never verified. **Verify what an argument MEANS before trusting what a call
   RETURNS** — same family as the unit-contract errors (C2/C4), 4th instance.
 
+## 🔴 CORRECTION — the v4 PROTOCOL FEE **IS LIVE AND ACCRUING**. My "nothing is imposed" was wrong.
+Read `protocolFeesAccrued(currency)` on the mainnet PoolManager `0x0000…4444c5dc75cB358380D2e3dE08A90`:
+| currency | accrued |
+|---|---|
+| native ETH | **85695303316507359** (0.0857 ETH) |
+| USDC | **84564825** ($84.56) |
+| USDT | **37911052** ($37.91) |
+⇒ **The switch is ON in production** — the `protocolFeeController` (`0x89A5D5bF…51dB`) is actively setting
+  fees on live pools and the singleton is collecting. Non-zero accrual is PROOF of imposition, not inference.
+🔴 **My earlier claim ("currently NONE, structurally hard to impose") was an ASSERTION from our lack of a
+  mainnet deployment — not research.** The user challenged it twice and was right both times. What remains
+  true: it is PER-POOL and controller-only, so a NEW pool starts at 0. What is FALSE: treating imposition as
+  hypothetical. **The controller demonstrably does impose it.**
+
+### ⇒ THE USER'S MOCK-INFLATION IDEA IS A REAL MITIGATION, NOT A HYPOTHETICAL
+Since the controller can set up to **0.1%** on our PoolKey at any time WITHOUT our consent, and our
+currencies are mocks WE mint, the compensation route is genuinely available to us and unavailable to a
+real-token pool. **Record as a first-class advantage of the mock design.**
+▶️ BUILD (ranked): (1) a deploy-time assert that our pools read protocolFee == 0; (2) a MONITOR on our
+  PoolKeys' `slot0.protocolFee`; (3) the fee-accrual-path compensation, armed only if (2) ever fires.
+  Compensation belongs on the FEE-ACCRUAL path — NOT on reserve balances (the tick math reads reserves).
+📌 LESSON (recurring): I twice answered a factual question about EXTERNAL state from local reasoning instead
+  of reading the chain. Both times one `cast call` overturned it (ether.fi outputToken; this). **If the
+  question is about live external state, READ THE CHAIN FIRST — local inference is not evidence.**
+
