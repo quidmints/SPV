@@ -1190,3 +1190,34 @@ Why a max-uint floor does not revert. Only two possibilities, both cheap to chec
 🛑 C3 stays REVERTED until this is settled. Do NOT re-derive fixture #1 first — #1 is already explained and
   needs no edit; the ONLY open question is this branch.
 
+## C3 — hypothesis 2 DEAD; the failing revert is a DIFFERENT, calibrated one. C3 likely CORRECT.
+**`BTCChannels.settleSwapIn` (BTCChannels:1085-1137) has NO try/catch** — it calls `btcVault.creditSwapIn`
+directly and lets reverts propagate. Hypothesis 2 (swallowed floor breach) is REFUTED. No hidden defect there.
+
+### 🔑 The real error: I attributed the failure to the WRONG expectRevert
+`testStrand4` contains **TWO** `vm.expectRevert`s, and forge's "next call did not revert as expected" does
+NOT say which. I assumed part (1). The other is part (3) at `Alles.t.sol:2151-2155`:
+```solidity
+uint bigSats = ((CORE.POOLED_USD_BTC() * 1e12 * 4) * 1e18) / price; // "4x the remaining reserve => partial"
+vm.expectRevert(abi.encodeWithSignature("SwapInPartialRejected()"));
+ch.settleSwapIn(seller, bigSats, address(USDC), hash2, 0, true);   // requireFull=true
+```
+⇒ Part (1)'s floor is `type(uint).max` — NOT calibrated, cannot be moved by C3.
+⇒ Part (3)'s `bigSats` IS calibrated ("4× the remaining reserve"), and part (2) SPENDS reserve first, so the
+  margin depends on exactly how much part (2) consumed — which C3 changes. **This is the same single
+  mechanism as failure #1, not a second one.**
+⇒ **The stop condition was tripped by MY MISATTRIBUTION, not by a real second mechanism.** With hypothesis 2
+  refuted and part (3) identified as calibrated, C3's "one mechanism" story is INTACT.
+
+### ▶️ NEXT — one cheap run settles it (do NOT re-run the whole suite)
+Re-apply C3, then attribute the revert precisely:
+```
+FORK_BLOCK=25653624 forge test --match-test testStrand4_SwapInFloor_RevertsShort_UnwindsUsed -vvv
+```
+Read the trace for WHICH call didn't revert. If it is part (3) (expected), re-derive `bigSats` and
+`hugeSats` (`:1936`) against the corrected cap and land C3. If it is part (1) — the max-uint floor — then a
+genuine second mechanism DOES exist and the halt stands.
+📌 LESSON: forge's "did not revert as expected" names no line. In a test with multiple `expectRevert`s,
+  ATTRIBUTE THE FAILURE BEFORE THEORISING — I built two hypotheses on an unverified assumption about which
+  call failed, and one of them (a swallowed floor breach) was alarming and wrong.
+
