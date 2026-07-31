@@ -1828,3 +1828,42 @@ principal or the pool's token balances.** So it reduces FEE ACCRUAL, not reserve
   imposed today. Build the DEFENSIVE assert-0 + monitor first; implement compensation only if a controller
   ever targets our key. **Do not build against a hypothetical.**
 
+## 🎯🎯 C10 SOLVED — rung 3 asks for the ONE output token with ZERO capacity. The user was right twice.
+**Method (no guessing left):** `0xDadEf1fF…7Ae0` is an EIP-1967 PROXY ⇒ impl `0x5d53b303d62a7861f88650045b8d5deb59dfb3dc`.
+Pulled the impl bytecode and extracted all 50 `PUSH4 <sel> EQ` selectors, then matched candidates:
+| signature | selector | in bytecode |
+|---|---|---|
+| `totalRedeemableAmount(address)` | `cf52e9f6` | ✅ |
+| `canRedeem(uint256,address)` | `5d943e1d` | ✅ |
+| `redeemWeEth(uint256,address,address)` | `50cd3742` | ✅ |
+| `redeemEEth(uint256,address,address)` | `6dcc078e` | ✅ |
+⇒ The ABI is REAL; my ARGUMENT was wrong. The `address` param is the **outputToken** (same role as
+  `redeemWeEth`'s 3rd arg) — NOT a holder.
+
+### 🔴 THE FINDING (live mainnet)
+| `totalRedeemableAmount(outputToken)` | value |
+|---|---|
+| native-ETH sentinel `0xEeee…EEeE` | **0** |
+| stETH `0xae7ab965…fE84` | **5_000e18 — FIVE THOUSAND stETH** |
+⇒ **Our rung 3 calls `redeemWeEth(weethIn, recipient, ETHFI_NATIVE_ETH)` — requesting the output token whose
+  redeemable capacity is ZERO, while 5,000 stETH of capacity sits available.**
+⇒ **This FULLY explains the standing failure** `rung 3 paid native ETH via the real RedemptionManager:
+  0 <= 4900000000000000000`. It is a **CODE DEFECT, not environment** — and my "the pool is empty"
+  retraction was itself only half-right: the NATIVE pool is empty, the stETH pool is not.
+📌 The earlier comment "(The old code passed WETH here, so this rung SILENTLY FAILED on every call.)" was a
+  fix in the RIGHT place that picked the WRONG one of the two valid sentinels. The comment even says
+  *"MUST be the 0xEeee… native-ETH sentinel **or stETH**"* — the working option was documented all along.
+
+### ▶️ THE FIX (money-path — its own run)
+Switch rung 3 to `outputToken = stETH` and handle stETH proceeds (it is a rebasing ERC-20; we receive stETH
+not native ETH, so the delivery path must swap/wrap it or credit it as a venue asset).
+ ⚠️ **Do NOT blindly flip the sentinel** — the recipient currently expects NATIVE ETH. Enumerate: (a) request
+   stETH then swap stETH→ETH in the same tx; (b) request stETH and credit it directly as an ETH-venue asset
+   (no swap, but the caller's unit contract changes); (c) query BOTH capacities and pick the one with room.
+ ⭐ (c) is likely best — it is the general form, uses `totalRedeemableAmount` as the clamp source C10 part 2
+   always wanted, and degrades correctly when either pool refills.
+ ⇒ **C10 part 2's clamp now has a REAL, VERIFIED source: `totalRedeemableAmount(outputToken)`.**
+📌 LESSON: I probed this view with holder addresses 3× and got 0 every time, then concluded "empty". The
+  parameter's MEANING was never verified. **Verify what an argument MEANS before trusting what a call
+  RETURNS** — same family as the unit-contract errors (C2/C4), 4th instance.
+
