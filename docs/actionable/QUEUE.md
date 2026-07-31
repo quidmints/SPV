@@ -159,3 +159,53 @@ SPOT-CHECKED SINCE (verified against code):
 6. **Some splits are load-bearing** — `POOLED_USD_ETH`/`_BTC` must stay separate.
 7. **An audit's `file:line` findings ≠ its fix snippets.** The C2 patch was wrong; applying it cost 333
    failing tests.
+
+# ═══ NEW (2026-07-31, user) — banked before anything is started ═══
+
+## 🔴 D5 — STREAMLINE TARGETED REDEMPTION onto the preferred INDEX (the strong dedup candidate)
+User: *"can't it be streamlined if the token is the preferred token matching the preferred index?
+(didn't you see how the legacy codebase did it streamlined)"* — **yes, and the legacy is the proof.**
+`BasketLib.sol:530-532` comments the branch *"Targeted redemption (token==quid + preferred!=0): the
+stable to shed"*, then `:579-591` dispatches to `_takePreferred`. But the basket ALREADY indexes stables
+(`toIndex[preferred] > 0` is the validity check at `Aux.sol:914`), so the branch RECONSTRUCTS what the
+index encodes. Legacy `_take` had no per-token dispatch at all — one positional loop with
+`uint divisor = (i < 4 || i == 11) ? 1e12 : 1;`.
+⇒ SHAPE: drive the pro-rata loop by INDEX and let "preferred" be a weight/skip on that same loop, rather
+  than a separate code path. **This is the SAME function the C1/C2 unit seam runs through** — do it
+  WITH §A.61's boundary work, not separately, or the two will conflict.
+
+## 🟠 LAYOUT PASS additions (§A.62)
+  • `src/mock.sol` → `src/imports/` — it is a helper, not a deployed contract.
+  • **Fold `QuidLens`** — a separate contract for what could be internal views. User: *"we can be more
+    elegant than requiring a separate QuidLens contract to exist"*. Check EIP-170 impact first; it may
+    exist BECAUSE Aux/Core are near the limit, in which case it stays and the reason gets documented.
+  • 🔴 **`Vogue`'s ERC-20 + ERC-4626 WRAPPER BLOCK IS LEFTOVER §J.2.** Its own header still says it
+    *"adds standard ERC-20 transfer/approve plus the ERC-4626 view + deposit/redeem entry points"* —
+    exactly what `VEth`/`VBtc` now own. §J.2 moved the IDENTITY but left this block. **This is an
+    INCOMPLETE §J.2, not a design choice.** Removing it is the rest of "Vogue is not a 4626".
+
+## 🔴 CLAMP POLICY (user, standing): *"minimise clamps that give a false sense of safety … rather than
+treating a symptom attack issues at their core."* **C4 is the proof case:** the `θ > 1e18 ? 1e18` cap was
+deleted at `VogueLib.sol:376-381` as *"adds no safety"* — behaviourally true, but it was the ONLY thing
+that would have made a 1e12 corruption OBSERVABLE (via `Vogue.derivedThetaWad`). Meanwhile `:470` FLOORS
+θ and never caps. ⇒ The fix is the unit conversion at `SwapLib.sol:441-442`, NOT a new clamp. Apply this
+lens to every existing clamp: does it prevent a bad state, or merely hide one?
+
+## 🔵 INVESTIGATE — none started, all need real data
+  • **DISCOVERABILITY (asked twice, still unanswered):** we trade via mockTokens inside PoolManager, so
+    can external routers/aggregators DISCOVER us for e.g. an ETH swap the way they discover other v4
+    hooks? Known: `Aux.swap` is `public payable` and ungated (verified earlier). UNKNOWN: whether the
+    mock-token pools are enumerable/routable by third parties, and whether we WANT them to be. This
+    determines whether external order flow is reachable at all.
+  • **UNISWAP V4 PROTOCOL FEE — recently activated. RESEARCH ONLINE.** User: *"since we use mock tokens
+    we could go around the fee intelligently."* Needs: what the fee is, how it is set/collected per pool,
+    and whether a mock-token pool is subject to it. ⚠️ Judge the ETHICS/RISK too — deliberately routing
+    around a protocol fee is a governance-relations question, not just a technical one.
+  • **ETHER.FI v3 POOL IMBALANCE (Rover's pool) — get ON-CHAIN data.** Why is it imbalanced and why do
+    arbers not close it? HYPOTHESIS (untested): weETH→ETH exit costs ~0.3% instant OR a multi-day wait
+    NFT, so arb only pays above that threshold, leaving a PERSISTENT uncaptured band. Check pool
+    reserves/ticks + recent swaps to confirm or kill.
+  • **LEGACY DIFF — never ran** (agent died on a weekly API limit). Re-run when quota resets. Prompt is
+    written: compare `SPV/evm/src/` vs `quid/evm/src/`, ranked missing-guards → dropped-gas-techniques →
+    lost-capability, excluding the prediction-market and Chainlink files.
+
