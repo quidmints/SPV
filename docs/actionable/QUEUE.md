@@ -935,3 +935,43 @@ outstanding. Nothing asserted this anywhere before.
   ⬜ 3 C10 part 2 — blocked on ether.fi's capacity view (external fact, 3 routes failed)
   ⬜ 4 §A.19b whose-depth-shrinks — a DESIGN decision, needs the user's call
 
+## ✅ C10 PART 2 UNBLOCKED — the capacity view EXISTS. Found in source, not guessed.
+
+Source: `etherfi-protocol/smart-contracts` → `src/withdrawals/EtherFiRedemptionManager.sol`
+(found via the GitHub contents API after Etherscan 403'd and `cast interface` had no API key).
+
+### THE API — **both take a `token` PARAMETER**, which is why every probe failed
+```solidity
+function totalRedeemableAmount(address token)          external view returns (uint256);
+function canRedeem(uint256 amount, address token)      public  view returns (bool);
+function getInstantLiquidityAmount(address token)      public  view returns (uint256);
+function lowWatermarkInETH(address token)              public  view returns (uint256);
+function previewRedeem(uint256 shares, address token)  public  view returns (uint256);
+```
+📌 **MY PROBES WERE WRONG-ARITY, NOT ABSENT-FUNCTION.** I called `canRedeem(uint256)` and
+`totalRedeemableAmount()` and got `execution reverted, data: "0x"` — which I read as "does not exist".
+It means "wrong selector". ⚠️ **A bare revert with empty data does NOT distinguish "no such function"
+from "wrong signature".** Same trap family as the empty grep.
+
+### THE REVERT CONDITION — verbatim
+```solidity
+if (!canRedeem(eEthAmount, outputToken)) revert ExceededRedeemable();
+```
+in BOTH `_redeemEEth` and `_redeemWeEth`. `canRedeem` is false when: liquid < low watermark, OR amount >
+(liquid − watermark), OR the RATE-LIMIT BUCKET cannot consume it. ⇒ capacity is **time-varying** (a
+leaky bucket), not just a pool balance — so a clamp must be read fresh at call time, never cached.
+
+### 🔑 THE UNIT TRAP — clamping `weethIn` DIRECTLY WOULD BE WRONG
+The check is on **`eEthAmount`**, but we pass **`weEthAmount`**. weETH is the WRAPPED, appreciating
+share; eETH is the rebasing unit. So the fix must:
+ 1. convert our `weethIn` → eETH (`getEETHByWeETH`, already used elsewhere in this repo),
+ 2. clamp THAT against `totalRedeemableAmount(ETHFI_NATIVE_ETH)`,
+ 3. convert the clamped eETH back → weETH for the `redeemWeEth` call,
+ 4. let the remainder fall through to rung 4.
+⚠️ Getting this wrong is a 1:1-vs-rate confusion of exactly the §A.50 family. Do it deliberately.
+
+### SIZE
+`SwapLib` is at **24,444 / +132** after C10 part 1. The clamp adds a view call + two conversions + a
+`min` — likely MORE than 132. **Expect to need another dedup first** (D3's technique freed 197 once
+already), or to compute the clamp in the CALLER where `Aux` has ~1,735 bytes free.
+
