@@ -1892,3 +1892,35 @@ real-token pool. **Record as a first-class advantage of the mock design.**
   of reading the chain. Both times one `cast call` overturned it (ether.fi outputToken; this). **If the
   question is about live external state, READ THE CHAIN FIRST — local inference is not evidence.**
 
+## 📌 #12 POOLED_USD — NEW SUB-ITEM: protocol-fee compensation via mock inflation (user, 2026-08-01)
+**Filed under #12 because it is a COUNT-ONCE question, not a fee question.** #12's invariant is
+*"POOLED_USD counts the shared pool ONCE, no double-spend"*; a protocol-fee skim changes what the pool
+actually holds versus what `POOLED_USD_*` asserts it holds, so any compensation MUST preserve that identity
+or it silently breaks the same invariant #12 exists to protect.
+
+**Context (all VERIFIED this session, not assumed):**
+ • The v4 protocol fee **IS live and accruing** on mainnet (`protocolFeesAccrued`: ETH 8.569e16, USDC $84.56,
+   USDT $37.91) — the controller `0x89A5D5bF…51dB` actively imposes it.
+ • It is **per-pool, controller-only**, capped at **0.1%** (`MAX_PROTOCOL_FEE = 1000` pips), and taken **OFF
+   THE TOP OF THE LP FEE** (`ProtocolFeeLibrary:44`), NOT off the swap principal or reserves.
+ • Our currencies are **mocks WE mint** ⇒ we can offset a skim in a way a real-token pool cannot.
+
+**THE IDEA (user):** inflate the mock tokens just enough that the fee deduction nets back to the TRUE
+balances. Sound in shape — and a genuine structural advantage of the mock design.
+
+**⚠️ CONSTRAINTS that decide the implementation (do NOT skip):**
+ 1. **Compensate on the FEE-ACCRUAL path, NEVER on reserve balances.** The V4 tick math prices off reserves;
+    inflating reserves would mis-price the curve — a far worse defect than the 0.1% it offsets.
+ 2. **`POOLED_USD_*` must still count the pool ONCE.** If minted mock offsets are counted as backing, the
+    count-once invariant breaks and #12's whole point is lost. The offset must be RECOGNISED as replacing
+    skimmed fee value, not as NEW value. **This is the crux — get it wrong and it is a mint-from-nothing.**
+ 3. Only fires if a controller ever targets OUR PoolKey. **Do not build it armed.**
+
+**▶️ BUILD ORDER (defensive first — the fee is NOT on our pools today):**
+ (a) Deploy-time ASSERT our pools read `protocolFee == 0`.
+ (b) MONITOR `slot0.protocolFee` on both PoolKeys (the controller can set it later WITHOUT our consent).
+ (c) Compensation logic — armed ONLY if (b) fires. Derive the offset from the ACTUAL skim
+     (`swapFee = self + lpFee - (self*lpFee)/PIPS_DENOMINATOR`), never from the 0.1% cap.
+ ⚠️ Add an Echidna invariant alongside #12: **compensation must be value-NEUTRAL** — total backing after
+   (skim + offset) equals backing before. That is the check that proves it is "not cheating".
+

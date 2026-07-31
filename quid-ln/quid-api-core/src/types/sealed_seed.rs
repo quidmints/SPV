@@ -226,6 +226,11 @@ mod test {
     use quid_common::test_utils::roundtrip;
     use quid_crypto::rng::FastRng;
     use proptest::{arbitrary::any, proptest};
+    // The MODULE, not just the items: the parent imports `enclave::{MachineId, Measurement,
+    // Sealed, Sealer}`, but the tests below call `enclave::measurement()` and
+    // `enclave::NativeSealer` path-qualified. Without this the whole crate's test binary fails
+    // to compile, which is how these tests came to never run at all.
+    use quid_enclave::enclave;
 
     use super::*;
 
