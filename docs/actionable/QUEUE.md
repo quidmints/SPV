@@ -1507,3 +1507,33 @@ conversion is needed, so the two cannot drift apart (the failure mode a `bool is
 📌 Committed BEFORE the suite run per the new standing rule (a chained build+commit already lost one
   commit to the 2-min timeout). If the run is killed, this reasoning survives.
 
+## C4 ATTEMPT 2 RESULT — compiles, but ONE new failure: the premium now records ZERO. Reverted.
+**Suite: 3499 / 61** (baseline 3529 / 31). Exactly **ONE new distinct failure**:
+```
+[FAIL: draining paid a retained skew premium: 0 <= 0] testGrindRemoval_DrainPaysRetainedSkewPremium()
+```
+⇒ The conversion drove the recorded premium to **0**. Not a calibration drift — a magnitude COLLAPSE.
+
+### Leading hypothesis — the flat /1e30 UNDERFLOWS for realistic premium sizes
+`recorded = mulDiv(premium_native, px, 1e30)`. The premium is a SMALL FRACTION of an already-modest swap:
+ • ETH: `px ≈ 3e21`. Need `premium_wei ≳ 1e30/3e21 ≈ 3.3e8 wei` (~3.3e-10 ETH) for even ONE 6-dec unit —
+   plausible to clear, so a 0 suggests the failing leg is BTC, or the premium is far smaller than assumed.
+ • BTC: `px ≈ 6e32`. Need `premium_sats ≳ 1e30/6e32` — clears trivially. So BTC should NOT round to 0.
+⇒ The arithmetic does not obviously underflow, so **verify the actual values before theorising further**:
+  trace the test and print `premium`, `r.px`, and the recorded result at each of the 3 sites.
+⚠️ **A REAL possibility to rule out FIRST:** the drain path may reach `retainSkewPremium` via the site-1051
+  (`sr.px = 0`) branch, where the premium is recorded VERBATIM and should be UNCHANGED from baseline. If
+  that leg now yields 0, the bug is in MY local-struct construction (`SwapReq memory sr;` — are `amount`/`px`
+  the only fields that matter? does the leg read a field I left zero?), NOT in the unit conversion.
+  **CHECK WHICH SITE THE TEST ACTUALLY HITS BEFORE CHANGING ANY ARITHMETIC** — this is the same
+  attribution error as the two-`expectRevert` mistake; do not theorise about a site the test never reaches.
+
+### ▶️ NEXT
+ 1. `forge test --match-test testGrindRemoval_DrainPaysRetainedSkewPremium -vvv` and read WHICH call site
+    fires and what `premium`/`px` actually are. One test, fast.
+ 2. Only then decide: fix the conversion, fix the struct construction, or (if the premium is genuinely
+    sub-1e-6 USD) recognise that the OLD behaviour recorded a meaningless native number that merely LOOKED
+    non-zero — in which case the TEST's premise needs re-deriving, not the code. **Do not assume this.**
+📌 Tree REVERTED to green (3529/31). The C4 diagnosis, scoping and framing all still stand — only the
+  recorded-value magnitude is unresolved.
+
