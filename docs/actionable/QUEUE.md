@@ -1588,3 +1588,42 @@ next edit's anchor text failed to match.
   commit *unverified code* never.
 ✅ Verify a revert by GREPPING the code, not by trusting the command's exit status.
 
+## 🔬 ROUTER / SOLVER DISCOVERABILITY — ANSWERED WITH SOURCE PROOF (finally; long-owed)
+**QUESTION:** can routers/solvers/fillers find and trade our Vogue pool, given the PoolManager holds only
+mock tokens? **ANSWER: NO — provably not.** Two facts from the VENDORED v4-core source (not from docs):
+
+**(1) Pool identity IS a hash over the currency ADDRESSES.** `lib/v4-core/src/types/PoolId.sol:11-16`:
+```solidity
+function toId(PoolKey memory poolKey) internal pure returns (PoolId poolId) {
+    assembly ("memory-safe") { poolId := keccak256(poolKey, 0xa0) }   // 0xa0 = all 5 slots
+}
+```
+`lib/v4-core/src/types/PoolKey.sol` — slots are `{currency0, currency1, fee, tickSpacing, hooks}`.
+⇒ `PoolId == keccak256(currency0, currency1, fee, tickSpacing, hooks)`. The token ADDRESSES are part of the
+  preimage, so a different currency pair is a DIFFERENT pool, unreachable by any other key.
+
+**(2) Our currencies ARE the mocks.** `evm/src/Core.sol:479-484`:
+```solidity
+if (token1isVol) { token0 = usdMock; token1 = volMock; }
+else             { token0 = volMock; token1 = usdMock; }
+PoolKey memory k = PoolKey({ currency0: Currency.wrap(token0), currency1: Currency.wrap(token1),
+    fee: 420, tickSpacing: 10, hooks: IHooks(address(0)) }); PoolId id = k.toId();
+```
+⇒ A router routing real WETH/USDC builds its key from the REAL addresses ⇒ a different keccak preimage ⇒
+  **a different PoolId ⇒ it never touches our pool.** No indexer, SOR, or solver can path into it, because
+  there is no key they would ever construct that maps to it. **This is by construction, not by obscurity.**
+📌 Also note `hooks: IHooks(address(0))` — our vanilla pools declare NO hook, so hook-scanning indexers
+  find nothing either.
+⇒ **Consequence to decide (NOT yet decided):** this is a deliberate isolation property (no external flow can
+  hit our curve) but it also means **ZERO external order flow / fee revenue** from routers. If external
+  flow is WANTED, mocks are the blocker — the currency addresses themselves must be real.
+
+### ⏳ STILL OPEN — the dual-pool hook comparison (needs ITS source, which I do NOT have here)
+The user asks how a "dual-pool hook" keeps REAL tokens in the PoolManager while earning double fees, and
+whether that makes it MORE discoverable. From (1) the mechanism is forced: if its PoolKey names REAL
+currencies then it IS discoverable by every router, and its hook earns a fee ON TOP of the LP fee via the
+`beforeSwap`/`afterSwap` return delta. **I have NOT read that hook's code and must not assert its design.**
+▶️ NEXT: obtain the dual-pool hook source (repo/address), then verify against `IHooks.sol` +
+  `getHookFee`/return-delta handling in `lib/v4-core/src/PoolManager.sol` before claiming anything.
+⚠️ Do NOT answer the "double fees" half from memory — the user explicitly demanded source proof.
+
