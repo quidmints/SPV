@@ -936,10 +936,12 @@ library SwapLib {
     ///            pool is scarce because scarcity => more fee capture. This mechanism already
     ///            exists; the reservoir self-refills through ordinary LP entry -- no bespoke
     ///            machinery, no keeper, no RFQ, no external-MM solicitation.
-    ///         2. FAST TOP-UP -- the transient swap-IN refill leg earns the SYMMETRIC skew
-    ///            bonus ({SwapLib-creditSwapInBody}), the mirror of the swap-OUT drain penalty,
-    ///            funded by and CLAMPED to the retained drain premium ({Core-skewPremiumBTC}).
-    ///            It bridges the gaps BETWEEN LP-stake arrivals.
+    ///         2. FAST TOP-UP -- LP entry is the ONLY refill path. (STALE DOC REMOVED 2026-07-31:
+    ///            this bullet described a swap-IN skew BONUS "funded by and CLAMPED to the retained
+    ///            drain premium" -- that design was REJECTED and `payRefillBonus` DELETED on
+    ///            2026-07-22, as creditSwapInBody's own comment states. There is NO such clamp and no
+    ///            bonus: `skewPremium*` has NO consumer beyond the counters + theta EWMA. Paying a
+    ///            swapper a bonus is precisely what the removal stopped -- do NOT rebuild it.)
     ///         So the skew's whole job is to PRICE the scarcity -- making staking/refilling
     ///         attractive exactly when the reservoir needs it (the fee side already reflects
     ///         this) and the swap-in top-up lucrative. The refill is a PERMISSIONLESS response

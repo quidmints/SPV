@@ -1389,3 +1389,34 @@ return value; that is a separate quantity.
   drain premium" — if that clamp compares against a NATIVE-scaled quantity it must move to USD6 in the SAME
   commit, or the fix will break it. **Check it before applying** (this is exactly the C3 shape).
 
+## ✅ THE "CLAMP" DOES NOT EXIST — it was a STALE DOC. C4 prerequisite dissolved (doc fixed).
+`SwapLib:938-942` claimed the swap-IN skew bonus was *"funded by and CLAMPED to the retained drain
+premium ({Core-skewPremiumBTC})"*. **There is no such clamp.** That bonus was REJECTED and `payRefillBonus`
+DELETED on 2026-07-22 — stated 200 lines away in `creditSwapInBody` itself (`SwapLib:764-770`). Confirmed
+by grep: `skewPremium*` has **NO consumer** beyond the two counters and the theta EWMA.
+⇒ Nothing to reform or remove in code — the clamp was **false evidence**, the `stale-comments-are-false-
+  evidence` pattern for the 5th time. **Doc corrected in place** with an explicit do-NOT-rebuild note so the
+  rejected design cannot be resurrected from its own obituary.
+⇒ **C4's prerequisite is cleared.**
+
+## 🛑 C4 BLOCKED ON A REAL FINDING — `retainSkewPremium` has a CALLER-DEPENDENT UNIT CONTRACT
+Three call sites, and they do NOT agree on what `amount` is:
+| site | `amount` unit | price available |
+|---|---|---|
+| `SwapLib:451` (sell skew) | **NATIVE** volatile (wei/sats) | `r.px` |
+| `SwapLib:474` (well skew) | **NATIVE** volatile (wei/sats) | `r.px` |
+| `SwapLib:1051` (drain leg) | **USD** — *"scale the buy-driving USD DOWN"* | `basePrice` |
+⇒ **A blanket native→USD6 conversion INSIDE `retainSkewPremium` would CORRUPT site 3**, which already
+  passes USD. This is the `_takePreferred` shape (unit contract set by the caller) — the exact trap that
+  made the C2 `scaleTo6` patch break 333 tests.
+⇒ 🛑 **DO NOT apply the one-line fix from the previous entry.** It assumed all callers pass native. Wrong.
+
+### ▶️ RESOLVE FIRST, THEN FIX
+ 1. Determine site 3's exact USD scale (6-dec or 18-dec) — read what feeds `amount` into `creditSwapOutBody`.
+ 2. Choose the elegant framing (≥2 options, per BUILD-QUEUE:44-48):
+    (a) **Convert at each CALL SITE** — record USD6 always; helper stays unit-agnostic on the return.
+        Costs 2 conversions; makes the contract explicit at every site. **Likely winner.**
+    (b) Add a `bool isNative` param — cheaper bytecode but PERPETUATES the ambiguous contract, and a
+        wrong flag is silent. Loses on the "no false-sense-of-safety" rule.
+ 3. Only the RECORDED value converts; the returned `amount - premium` stays in the caller's own unit.
+
