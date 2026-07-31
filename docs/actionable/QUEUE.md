@@ -1420,3 +1420,39 @@ Three call sites, and they do NOT agree on what `amount` is:
         wrong flag is silent. Loses on the "no false-sense-of-safety" rule.
  3. Only the RECORDED value converts; the returned `amount - premium` stays in the caller's own unit.
 
+## C4 SCOPED — site 3 was ALWAYS CORRECT. Only the 2 native sites are buggy.
+`_swapOutPrep` (`SwapLib:~1020`): `uint amount = scaleTo6(IAuxSwap(aux).deposit(swapper, token, usdAmount), token);`
+⇒ site `:1051`'s `amount` is **6-dec USD**, so `premium = mulDiv(amount, skew, 1e18)` is **already USD6** —
+  it matches `recordSkewPremium`'s `premiumUsd` contract exactly. **No fix needed there; do not touch it.**
+  (Nice consequence: the drain leg's theta signal has been RIGHT all along — only the two native legs lie.)
+⇒ **C4 = sites `:451` + `:474` ONLY** (both native volatile, both have `r.px` in scope).
+
+### Framing decision (≥2 enumerated, per BUILD-QUEUE:44-48)
+ (a) ⭐ **WINNER — `price` param, 0 = "already USD6"**: `retainSkewPremium(core, isBTC, amount, skew, price)`;
+     inside, `uint premiumUsd = price == 0 ? premium : FullMath.mulDiv(premium, price, 1e30);`
+     Sites 451/474 pass `r.px`; site 1051 passes `0`. ONE declaration, ONE recording path, the unit contract
+     becomes EXPLICIT at every call site instead of implicit. Reuses the flat-/1e30 primitive C3 established.
+ (b) ✗ Convert+record at each call site, helper returns premium — **LOSES**: triplicates the
+     `recordSkewPremium` call, and the swapToBody sites are stack-tight (the very constraint that forced D3).
+ (c) ✗ `bool isNative` flag — **LOSES**: a wrong bool is SILENT and reads as safe; the `price`/0 sentinel at
+     least fails loudly (a 0 price where one is needed zeroes the premium, and a stray price where USD6 is
+     passed produces an absurd magnitude). Also fails the no-false-sense-of-safety rule.
+
+### ▶️ NEXT: apply (a), then FULL SUITE at FORK_BLOCK=25653624. Expect movement in theta-throttle tests —
+   **investigate any change before accepting it**: ETH's throttle currently never binds, so tests written
+   against the broken behaviour may now correctly start throttling (the 4-instance
+   "calibrated-while-broken" pattern — do NOT edit them to green without deriving the right value).
+
+## 📌 DEDUP PASS — HARD REQUIREMENT ADDED (user, 2026-07-31)
+> "the dedup path should make sure that no outrageous `IAuxBTC_V` interfaces exist, only the MINIMUM
+>  quantity of interfaces we need"
+⇒ §A.52 (95 interface declarations) is now a **REQUIRED** dedup deliverable, not optional. Rules:
+ • **ONE declaration per interface, in a SHARED file** (BUILD-QUEUE:44). No per-consumer `IFoo_A`/`IFoo_V`
+   variants carrying a 2-function slice of the same contract.
+ • Collapse to the MINIMUM SET: if two interfaces name the same contract, they merge — differing method
+   subsets are NOT a justification for a second declaration.
+ • ⚠️ **Audit by STRUCTURE (`^interface`), never by type name** — `IAuxBtc_V` matched only its OWN obituary
+   comment when I grepped for it, which is why I wrongly reported it as live. Grep the declarations.
+ • Naming: `IAuxBtc_V`-style suffixes are exactly the cryptic-2/3-letter-name violation; the merged
+   interface takes the plain name.
+
