@@ -1982,3 +1982,39 @@ concluded native capacity is "always 0". Sampling the sentinel itself:
   claim it was used to support.** "Always 0 across 1.6M blocks" sounded decisive and was measuring the wrong
   thing entirely. **State exactly what an experiment varied, and check it matches the claim.**
 
+## 🎯 C10 — THE ACTUAL MECHANISM: a REFILLING RATE-LIMIT BUCKET. No block-pinning, no stETH, no wrong address.
+**Address CONFIRMED correct (not the problem):**
+```
+LiquidityPool(0x308861A430be4cce5502d0A12724771Fc6DaF216).etherFiRedemptionManager()
+  -> 0xDadEf1fFBFeaAB4f68A9fD181395F68b4e4E7Ae0   // exactly the address our code uses
+```
+**The decisive numbers (live, head block):**
+| what | value |
+|---|---|
+| LiquidityPool ETH balance | **14_404 ETH** (14404118053582601594825 wei) |
+| RedemptionManager ETH balance | **0** |
+| `totalRedeemableAmount(native)` @head | 0 |
+| `totalRedeemableAmount(native)` @25600000 | 2_000e18 |
+⇒ **ether.fi is NOT short of ETH — 14.4k ETH sits in the LiquidityPool.** The manager holds none and mints
+  capacity from a **WATERMARK/RATE-LIMIT BUCKET that DRAINS ON USE and REFILLS OVER TIME.** That is the only
+  reading consistent with: LP flush + manager empty + capacity oscillating 2000e18 → 0 → 0.
+🔴 **This kills BOTH of my previous answers:** it is not "switch to stETH" (retracted earlier) AND it is not
+  "pin a weird block" (the user rejected it, correctly — a pinned block would just freeze the bucket at one
+  arbitrary fill level, and would ROT as soon as that block ages out of the RPC's state window).
+
+### ▶️ THE RIGHT FIX — refill the bucket in-test, on CURRENT state
+The rung-3 test forks CURRENT mainnet. Instead of hunting a block where the bucket happens to be full:
+ ⭐ **`vm.warp` forward far enough for the bucket to refill, then assert.** This tests the REAL mechanism on
+   CURRENT state, needs no magic block, and cannot rot. Requires the refill RATE — derive it from the
+   `lowWatermark`/bucket parameters on the impl (the getters are in the 50-selector list; decode the
+   remaining ones) or empirically: sample `totalRedeemableAmount(native)` at N increasing blocks and fit.
+ • Fallback if warping cannot refill it (e.g. refill is driven by an admin/keeper tx rather than by time):
+   the test asserts the FALL-THROUGH path instead, and a separate test covers the paid path with the bucket
+   force-funded via `vm.store`/`deal` on the manager's watermark slot. **Only if time-warp genuinely fails.**
+▶️ IMMEDIATE NEXT: decode the remaining selectors on impl `0x5d53b303…b3dc` to find the bucket's refill
+  parameters (a `lowWatermarkInETH`-style getter did NOT match; the real name is among the other 39).
+📌 The landed capacity skip stays — it is exactly what a drained bucket requires at runtime.
+📌 LESSON: I proposed a fixture workaround (pin a block) for what turned out to be a MECHANISM I had not yet
+  understood. The user rejected it on principle — "we must be working with current stuff" — and that
+  instinct was RIGHT: understanding the bucket dissolves the need for the workaround entirely.
+

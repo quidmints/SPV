@@ -449,7 +449,7 @@ mod test {
             node_pk.to_string(),
         );
         assert_eq!(
-            "024de9a91aaf32588a7b0bb97ba7fad3db22fcfe62a52bc2b2d389c5fa9d946e1b46304402206f762d23d206f3af2ffa452a71a11bca3df68838408851ab77931d7eb7fa1ef6022057141408428d6885d00ca6ca50e6d702aeab227c1550135be5fce4af4e726736",
+            "024de9a91aaf32588a7b0bb97ba7fad3db22fcfe62a52bc2b2d389c5fa9d946e1b463044022020961dfa3a75dafb7d130ae34344eb70395c4cde5c1b51c8ec0acd17b3720cd202202a8b05b42e7d64fbd33e8a5cefb57e088663c27aca49b3ab6c7a05b3c1e8318e",
             node_pk_proof.to_hex_string(),
         );
     }

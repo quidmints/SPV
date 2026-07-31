@@ -1177,52 +1177,6 @@ impl OnchainWallet {
             .context("Failed to create payment")
     }
 
-    /// Create a sweep transaction that drains all funds from the wallet to
-    /// `dest_address`.
-    pub(crate) fn create_sweep_tx(
-        &self,
-        dest_address: &bitcoin::Address,
-        priority: ConfirmationPriority,
-    ) -> anyhow::Result<(Transaction, Amount)> {
-        let dest_script = dest_address.script_pubkey();
-        let feerate = self.fee_estimates.conf_prio_to_feerate(priority);
-
-        let mut locked_wallet = self.inner.write().unwrap();
-
-        // Build drain transaction using BDK's drain_wallet + drain_to. This
-        // will fail if the balance is dust (can't cover fees).
-        let mut tx_builder = locked_wallet.build_tx();
-        tx_builder
-            .drain_wallet()
-            .drain_to(dest_script)
-            .fee_rate(feerate);
-
-        let mut psbt =
-            tx_builder.finish().context("Failed to build sweep tx")?;
-
-        // Get the sweep tx fee
-        let fee = psbt.fee().context("Bad sweep fee")?;
-        let fee = Amount::try_from(fee).context("Bad sweep fee amount")?;
-
-        // Sign the transaction
-        let sign_opts = bdk_wallet::SignOptions::default();
-        let finalized = locked_wallet
-            .sign(&mut psbt, sign_opts)
-            .context("Failed to sign sweep tx")?;
-        anyhow::ensure!(
-            finalized,
-            "Sweep tx signing did not finalize all inputs"
-        );
-        let tx = psbt
-            .extract_tx()
-            .context("Failed to extract signed sweep tx")?;
-
-        // NOTE(phlip9): don't need to trigger_persist(), as we don't need to
-        // e.g. reveal a change address when sweeping the wallet.
-
-        Ok((tx, fee))
-    }
-
     /// Estimate the network fee for a potential onchain send payment. We return
     /// estimates for each [`ConfirmationPriority`] preset.
     ///
@@ -2579,61 +2533,6 @@ mod test {
             spke0 => set! { txide0_1, txide0_2 },
             spki2 => set! { txidi2_1 },
             spki3 => set! {},
-        });
-    }
-
-    // Test creating full wallet sweep tx
-    #[test]
-    fn test_sweep_tx() {
-        let mut h = Harness::new(2869818889840);
-
-        let address3p = bitcoin::Address::from_str(
-            "bcrt1qxvnuxcz5j64y7sgkcdyxag8c9y4uxagj2u02fk",
-        )
-        .unwrap()
-        .assume_checked();
-        let prio = ConfirmationPriority::Background;
-
-        // sweep should fail with no funds
-        h.assert_no_persists_in(|h| {
-            h.wallet.create_sweep_tx(&address3p, prio).unwrap_err();
-        });
-
-        // With BIP86 P2TR key-path inputs the sweep tx is cheaper than the old
-        // P2WPKH wallet, so 410 sats now nets a below-dust P2WPKH output
-        // (410 - 121 fee = 289 < 294 dust limit) and the sweep is rejected.
-        h.ww().fund(KeychainKind::External, sat!(410));
-
-        // sweep should fail if we will just create dust
-        h.assert_no_persists_in(|h| {
-            h.wallet.create_sweep_tx(&address3p, prio).unwrap_err();
-        });
-
-        h.ww().fund(KeychainKind::External, sat!(5_000));
-        h.persist();
-
-        // sweep shouldn't persist any changes, since we don't need to reveal
-        // a new change address
-        let (tx, fee) = h.assert_no_persists_in(|h| {
-            h.wallet
-                .create_sweep_tx(&address3p, prio)
-                .expect("Sweep should succeed with enough funds")
-        });
-
-        let amount_sats: u64 = tx.output.iter().map(|o| o.value.to_sat()).sum();
-        assert!(amount_sats > 5_000);
-        // Conservation invariant: swept output + fee == total inputs
-        // (410 dust utxo + 5_000 utxo = 5_410).
-        assert_eq!(amount_sats + fee.sats_u64(), 5_410);
-
-        // registering the tx should trigger a persist
-        h.wallet.transaction_broadcasted_at(h.now(), tx);
-        assert!(h.persist());
-
-        // sweeping again should not succeed, since the funds are marked
-        // broadcasted
-        h.assert_no_persists_in(|h| {
-            h.wallet.create_sweep_tx(&address3p, prio).unwrap_err();
         });
     }
 

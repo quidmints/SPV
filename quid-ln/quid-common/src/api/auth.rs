@@ -483,23 +483,29 @@ mod test {
     /// These snapshots were generated with the old `signup_code:
     /// Option<String>` field. Since BCS ignores field names, the current
     /// `_signup_code` field produces identical serialization.
+    ///
+    /// RE-SIGNED for the QUID-REALM::NodePkProof domain separator. These blobs carry a
+    /// SIGNATURE, not just a pinned value, so they could not simply be repinned: the
+    /// proof must actually verify. What the test still guards is the thing it was
+    /// written for - that a `Some(code)` payload from an old client still deserializes
+    /// into the current `_signup_code` field, since BCS matches on position not name.
     #[test]
     fn test_user_signup_request_wire_v1_snapshot() {
         let b64 = base64::engine::general_purpose::STANDARD;
 
         // Old client with signup_code = Some("ABCD-1234")
-        let input_with_code = "AqqWkI6A9EExJ9suasa1a4Vte7dSztOpSsGNVUHClpLb\
-            RjBEAiANgXon77EhDl3dq6ZASg9u/xjS3OET2um+OA6+/58UmQIgEYmJGcNNWfMy\
-            npScmW9joOortpvHul9bHyojSj3Im70BCUFCQ0QtMTIzNA==";
+        let input_with_code = "Az26fkhPBPAg5OxUdw9quX/JuWw6M4UqmfgtXiEK40SRRzBFAiEAoKYLHwgo\
+            VKZdkh6BALYRLjmQj9T/OCXxZP/65KBghiMCIEAWCtZiHAYyz1WCeYdw+jzG\
+            8qWz4oVnIqw/WqA298RBAQlBQkNELTEyMzQ=";
         let bytes_with_code = b64.decode(input_with_code).unwrap();
         let req: UserSignupRequestWireV1 =
             bcs::from_bytes(&bytes_with_code).unwrap();
         assert!(req.node_pk_proof.verify().is_ok());
 
         // Old client with signup_code = None
-        let input_none = "AqqWkI6A9EExJ9suasa1a4Vte7dSztOpSsGNVUHClpLbRjBE\
-            AiANgXon77EhDl3dq6ZASg9u/xjS3OET2um+OA6+/58UmQIgEYmJGcNNWfMynpSc\
-            mW9joOortpvHul9bHyojSj3Im70A";
+        let input_none = "Az26fkhPBPAg5OxUdw9quX/JuWw6M4UqmfgtXiEK40SRRzBFAiEAoKYLHwgo\
+            VKZdkh6BALYRLjmQj9T/OCXxZP/65KBghiMCIEAWCtZiHAYyz1WCeYdw+jzG\
+            8qWz4oVnIqw/WqA298RBAA==";
         let bytes_none = b64.decode(input_none).unwrap();
         let req: UserSignupRequestWireV1 =
             bcs::from_bytes(&bytes_none).unwrap();
