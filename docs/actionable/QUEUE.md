@@ -512,3 +512,26 @@ between (a) re-order the settle, or (b) a threshold calibrated against the under
 ⚠️ If (b): **a check that passes because the system is broken will FAIL when the system is fixed** —
   the §A.46 lesson at protocol scale, and materially more serious than the fee loss itself.
 
+### C5 DIAGNOSIS — the reverting error is EXTERNAL, not one of ours. Hypothesis (a)/(b) NOT supported.
+
+Ran `testEthVenue_EtherFi*` with `-vvv` under C5. The caught revert is **custom error `0xdc9cb0e2`**,
+and it matches **NONE** of our errors: scanned all **130 zero-arg errors** in `src/`, then every
+parameterised error across `src/` AND `lib/`. **No match.** ⇒ It originates from a LIVE MAINNET CONTRACT
+on the fork — this test exercises the REAL ether.fi RedemptionManager (the assertion is literally
+*"rung 3 paid native ETH via the real RedemptionManager"*).
+
+⇒ **This WEAKENS hypotheses (a) and (b)**: it is NOT our `checkBacking` / `D >= S + L` / `Basket.mint`
+  rejecting the larger mint. Something reaches ether.fi with different arguments and ether.fi refuses.
+⇒ **REVISED HYPOTHESIS (d):** the extra QU!D changes a BACKING-DERIVED QUANTITY that sizes the offramp
+  request — e.g. `deliverableETH` or a rung amount — so the ladder asks ether.fi for an amount it will
+  not serve (their redemption has minimums/caps and a wait-NFT path). The mint is upstream; the refusal
+  is downstream and EXTERNAL.
+⇒ NEXT (cheap, and it settles it): decode `0xdc9cb0e2` against the ether.fi RedemptionManager ABI
+  (Etherscan, or `cast 4byte`), and log the rung-3 request amount WITH and WITHOUT C5. If the amount
+  differs, (d) is confirmed and the fix is in how the ladder sizes that rung — not in C5's scale and not
+  in a solvency threshold.
+📌 METHOD NOTE: 130 + all lib errors scanned and no match is a STRONG negative — I verified the scan
+  works by construction (it enumerates declarations, not guesses). This is the good case of an empty
+  search: exhaustive over a known set, so absence IS evidence here.
+C5 REVERTED. Tree at 3,559/1.
+
