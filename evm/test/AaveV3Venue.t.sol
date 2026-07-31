@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
+import {ForkPin} from "./utils/ForkPin.sol";
 
 import "forge-std/Test.sol";
 import {AaveV3Venue} from "../src/AaveV3Venue.sol";
@@ -17,7 +18,7 @@ interface IAddrProvider { function getPoolDataProvider() external view returns (
 /// PURPOSE (#112): verify the read choice — ProtocolDataProvider.getUserReserveData `currentVariableDebt` /
 /// `currentATokenBalance` — returns the exact, BLOCK-FRESH amounts (incl. accrued interest after a warp), which is
 /// the whole reason we read it that way instead of a raw/scaled vToken balance.
-contract AaveV3VenueTest is Test {
+contract AaveV3VenueTest is ForkPin {
     address constant POOL = 0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2; // Aave V3 Pool (mainnet)
     address constant ADDR = 0x2f39d218133AFaB8F2B819B1066c7E434Ad94E9e; // PoolAddressesProvider → ProtocolDataProvider
     address constant WBTC = 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599; // 8-dec collateral
@@ -27,7 +28,7 @@ contract AaveV3VenueTest is Test {
     address lp = address(0xB0B);
 
     function setUp() public {
-        vm.createSelectFork(vm.rpcUrl("mainnet"));
+        vm.selectFork(_forkMainnet());
         address dataProvider = IAddrProvider(ADDR).getPoolDataProvider();
         venue = new AaveV3Venue(POOL, dataProvider, WBTC, USDC, address(this), 7000); // WBTC collateral, USDC debt
     }

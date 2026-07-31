@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
+import {ForkPin} from "./utils/ForkPin.sol";
 
 import {Test} from "forge-std/Test.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
@@ -8,7 +9,7 @@ import {Rover} from "../src/Rover.sol";
 /// @notice Fork-validates the adapted (weETH/WETH) Rover: a WETH deposit must
 ///         mint a balanced concentrated position — the weETH leg coming from the
 ///         ether.fi adapter (NOT a pool swap) — and `take` must return WETH.
-contract RoverForkTest is Test {
+contract RoverForkTest is ForkPin {
     // Fixed mainnet contracts.
     address constant ADAPTER = 0xcfC6d9Bd7411962Bfe7145451A7EF71A24b6A7A2;
     address constant WETH    = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
@@ -20,7 +21,7 @@ contract RoverForkTest is Test {
     Rover rover;
 
     function setUp() public {
-        vm.createSelectFork(vm.rpcUrl("mainnet"));
+        vm.selectFork(_forkMainnet());
         rover = new Rover(ADAPTER, WETH, WEETH, NFPM, POOL, ROUTER, true);
         rover.setAux(address(this)); // we drive take() as "Aux"
     }

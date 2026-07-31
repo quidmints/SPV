@@ -759,3 +759,41 @@ not a theoretical one.
  3. **C2 (`from6`)** — re-apply; the helper is the missing 6-dec→native conversion.
  ⚠️ Do it AFTER pinning the fork, so the confirming run is actually reproducible.
 
+## ✅ §A.18 ROOT CAUSE FIXED — `ForkPin`. Live state AND reproducible attribution, no trade-off.
+
+User: *"there shouldnt be a compromise here. find a better fix."* Right — the trade-off was in my
+framing, not the problem. **Pin the CURRENT block per comparison, not a historical one.**
+
+NEW `test/utils/ForkPin.sol`; all **7** fork-creating contracts now inherit it and call `_forkMainnet()`
+instead of `vm.createFork(vm.rpcUrl("mainnet"))` / `vm.createSelectFork(...)`. Build clean.
+```solidity
+uint pinned = vm.envOr("FORK_BLOCK", uint(0));
+return pinned == 0 ? vm.createFork(vm.rpcUrl("mainnet"))
+                   : vm.createFork(vm.rpcUrl("mainnet"), pinned);
+```
+  • **`FORK_BLOCK` UNSET (default, CI): LATEST block — behaviour UNCHANGED.** The suite still runs
+    against live mainnet, so real drift and integration breakage are still caught, and expectations stay
+    derived from live state (§A.22). Nothing is given up.
+  • **`FORK_BLOCK` SET: every fork uses that block ⇒ N runs are byte-identical.**
+
+### THE WORKFLOW THAT MAKES ATTRIBUTION SOUND — use it for every remaining fix
+```sh
+export FORK_BLOCK=$(cast block-number --rpc-url https://ethereum-rpc.publicnode.com)
+forge test                 # baseline
+<apply ONE change>
+forge test                 # SAME chain state ⇒ any delta IS the change
+```
+The block is CURRENT at capture time, so this is live state — just held still long enough to measure
+against. That is why there is no compromise.
+
+### WHAT IT WOULD HAVE PREVENTED
+C5, D3 and C2-via-`from6` were each blamed for 31 failures that a clean tree reproduced exactly. All
+three were correct and were reverted on false evidence. With `FORK_BLOCK` set, the baseline and the
+post-change run would have matched and the 31 would have been visible as pre-existing.
+📌 **UPGRADE THE STANDING RULE:** `verify-from-the-same-run` is NOT sufficient for fork tests — the runs
+must also be against the SAME CHAIN STATE. Set `FORK_BLOCK` before any attribution work.
+📌 **AND IT IS AN ECHIDNA PREREQUISITE:** fuzzing against a moving baseline cannot distinguish a
+  counterexample from chain drift.
+⬜ STILL OPEN: C10's partial fill (the reason those 31 fire at all) — blocked on confirming ether.fi's
+  capacity view; `cast` calls to `0xDadEf1fF…7Ae0` are currently failing at the RPC.
+

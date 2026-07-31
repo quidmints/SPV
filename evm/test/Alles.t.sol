@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
+import {ForkPin} from "./utils/ForkPin.sol";
 
 import "forge-std/Test.sol";
 import "forge-std/console.sol";
@@ -115,7 +116,7 @@ interface IAngelF8N {
     function transferFrom(address, address, uint256) external;
 }
 
-contract Alles is Test, Fixtures {
+contract Alles is ForkPin, Fixtures {
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
     using StateLibrary for IPoolManager;
@@ -277,7 +278,7 @@ contract Alles is Test, Fixtures {
     address constant F8N = 0x3B3ee1931Dc30C1957379FAc9aba94D1C48a5405;
 
     function setUp() public {
-        uint mainnetFork = vm.createFork(vm.rpcUrl("mainnet"));
+        uint mainnetFork = _forkMainnet();
         vm.selectFork(mainnetFork);
 
         // New basket constituents (mirrors DeployL1_s.sol ordering).

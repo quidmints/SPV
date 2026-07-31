@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
+import {ForkPin} from "./utils/ForkPin.sol";
 
 import "forge-std/Test.sol";
 import {AaveV4Venue} from "../src/AaveV4Venue.sol";
@@ -12,7 +13,7 @@ interface IERC20A {
 
 /// Fork test of AaveV4Venue against the LIVE Aave V4 Hub/Spoke (no mocks). This contract plays the MANAGER
 /// (sends collateral/stable to the venue before supply/repay; receives borrowed USDC / withdrawn WETH).
-contract AaveV4VenueTest is Test {
+contract AaveV4VenueTest is ForkPin {
     // Live Aave V4 (same Hub/Spoke the basket's supply-side EthVenue/Aux already use).
     address constant SPOKE = 0x94e7A5dCbE816e498b89aB752661904E2F56c485;
     address constant HUB   = 0xCca852Bc40e560adC3b1Cc58CA5b55638ce826c9;
@@ -23,7 +24,7 @@ contract AaveV4VenueTest is Test {
     address lp = address(0xB0B);
 
     function setUp() public {
-        vm.createSelectFork(vm.rpcUrl("mainnet"));
+        vm.selectFork(_forkMainnet());
         venue = new AaveV4Venue(SPOKE, HUB, WETH, USDC, address(this), 8000); // WETH collateral, USDC debt
     }
 

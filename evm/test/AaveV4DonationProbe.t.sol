@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
+import {ForkPin} from "./utils/ForkPin.sol";
 
 import "forge-std/Test.sol";
 import {AaveV4Venue} from "../src/AaveV4Venue.sol";
@@ -16,7 +17,7 @@ interface IERC20A {
 /// We supply, snapshot a user's reported supplied assets, DONATE a large chunk of the underlying to every plausible
 /// holder (spoke + hub), and re-read. If the read moves, the V4 hub/spoke is donation-manipulable and the basket's
 /// Aave legs (Aux.aaveBalance → getUserSuppliedAssets) need a growth cap; if flat, they don't.
-contract AaveV4DonationProbeTest is Test {
+contract AaveV4DonationProbeTest is ForkPin {
     address constant SPOKE = 0x94e7A5dCbE816e498b89aB752661904E2F56c485;
     address constant HUB   = 0xCca852Bc40e560adC3b1Cc58CA5b55638ce826c9;
     address constant WETH  = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
@@ -27,7 +28,7 @@ contract AaveV4DonationProbeTest is Test {
     address lp2 = address(0xCa11);
 
     function setUp() public {
-        vm.createSelectFork(vm.rpcUrl("mainnet"));
+        vm.selectFork(_forkMainnet());
         venue = new AaveV4Venue(SPOKE, HUB, WETH, USDC, address(this), 8000);
     }
 

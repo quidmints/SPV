@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
+import {ForkPin} from "./utils/ForkPin.sol";
 
 import "forge-std/Test.sol";
 
@@ -22,7 +23,7 @@ interface IERC20D { function transfer(address, uint256) external returns (bool);
 /// the donation's own arithmetic share of the vault — that would be value created from nothing rather than a
 /// gift being recognised (the same line `EconAttackProbe.testB_BackingInflationByDonation` draws at the basket
 /// level, drawn here per venue).
-contract VaultDonationClassify is Test {
+contract VaultDonationClassify is ForkPin {
     // Basket's real 4626 legs, matching script/DeployL1_s.sol: the primary vault per stable from VAULTS[]
     // PLUS every additional curator appended by the setVault calls (USDC has 6, USDT has 4). The AAVE-v4
     // spoke legs (GHO/USDG, and the USDC/USDT spoke entries) are NOT 4626s and have no share price to
@@ -58,7 +59,7 @@ contract VaultDonationClassify is Test {
         uint balAfter;   // ... and after (proves the donation LANDED)
     }
 
-    function setUp() public { vm.createSelectFork(vm.rpcUrl("mainnet")); }
+    function setUp() public { vm.selectFork(_forkMainnet()); }
 
     function test_ClassifyAllVenues() public {
         string[N] memory names = [

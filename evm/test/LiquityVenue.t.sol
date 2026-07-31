@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
+import {ForkPin} from "./utils/ForkPin.sol";
 
 import "forge-std/Test.sol";
 import {LiquityTroveVenue} from "../src/LiquityTroveVenue.sol";
@@ -17,7 +18,7 @@ interface ITMRate { // read a trove's live annual interest rate (field 6 of Late
 
 /// Fork test of LiquityTroveVenue against the LIVE Liquity V2 WETH branch (no mocks). This test contract
 /// plays the MANAGER (pushes coll/BOLD in before supply/repay, receives borrowed BOLD / withdrawn coll).
-contract LiquityVenueTest is Test {
+contract LiquityVenueTest is ForkPin {
     // Live Liquity V2 WETH branch (verified on mainnet via cast).
     address constant BO   = 0x372ABD1810eAF23Cb9D941BbE7596DFb2c46BC65; // BorrowerOperations
     address constant TM   = 0x7bcb64B2c9206a5B699eD43363f6F98D4776Cf5A; // TroveManager
@@ -28,7 +29,7 @@ contract LiquityVenueTest is Test {
     address lp = address(0xB0B);
 
     function setUp() public {
-        vm.createSelectFork(vm.rpcUrl("mainnet"));
+        vm.selectFork(_forkMainnet());
         venue = new LiquityTroveVenue(BO, TM, BOLD, WETH, address(this), 0.05e18, 2000e18);
     }
 
