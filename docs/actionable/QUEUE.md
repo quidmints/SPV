@@ -1537,3 +1537,31 @@ conversion is needed, so the two cannot drift apart (the failure mode a `bool is
 📌 Tree REVERTED to green (3529/31). The C4 diagnosis, scoping and framing all still stand — only the
   recorded-value magnitude is unresolved.
 
+## ❗C4 RE-SCOPED AGAIN — it is a **ONE-SITE** bug. Site `:474` was ALREADY CORRECT; I broke it.
+`testGrindRemoval_DrainPaysRetainedSkewPremium` does `AUX.swap(USDC → WETH)` (BUYING weth = draining the ETH
+reservoir) and asserts on `CORE.skewPremiumETH()`. That is `swapToBody`'s **`else` branch at `:452`** — the
+**USD-side** leg, structurally identical to `:1051` whose comment reads *"scale the buy-driving USD DOWN"*.
+⇒ **`:474`'s `r.amount` is USD, NOT native.** My conversion mangled a value that was already in the right
+  unit — hence the recorded premium collapsing to 0. The failing test was RIGHT.
+
+### Corrected unit table (verified against the branch structure, not assumed)
+| site | branch | `amount` unit | needs conversion? |
+|---|---|---|---|
+| `:451` | sell leg — *"Scale the volatile input DOWN"* | **NATIVE** (wei/sats) | ✅ **YES — the ONLY real bug** |
+| `:474` | `else` (USD→vol drain), `wellSkew` | **USD** | ❌ no — already correct |
+| `:1051` | drain leg, `scaleTo6` input | **USD6** | ❌ no — already correct |
+⇒ **C4 = site `:451` ALONE.** Two of the three sites were always right.
+⇒ Impact shrinks accordingly: only the SELL leg mis-records (native into a USD6 register). The ETH
+  "throttle never binds" claim holds ONLY for sell-side flow; buy/drain flow was always metered correctly.
+  **Re-derive the impact statement before quoting it** — the earlier "both legs lie" wording is now WRONG.
+
+📌 **THIRD instance this session of the same root error**: I assumed a helper's callers share a unit
+  contract instead of verifying each one. C2's `scaleTo6` (333 tests), C4 attempt 1 (`:1051`), C4 attempt 2
+  (`:474`). **Each call site's units must be read from its OWN branch, every time.** The `r.`/`amount` name
+  is identical across all three — the NAME carries no unit information whatsoever.
+✅ The suite caught it in ONE test, and the fixture was the oracle again — not something to adjust.
+
+### ▶️ NEXT — the fix is now SMALL and low-risk
+Apply the struct framing (d) but pass `r.px` as the unit declaration ONLY at `:451`; leave `:474` on the
+verbatim path (`px = 0` semantics) and `:1051` untouched. Then one suite run.
+
