@@ -448,7 +448,7 @@ library SwapLib {
             {
                 r.px = _priceOr(v4p, address(aux), r.asset);
                 uint skew = sellSkew(c.core, r.px, isBTC, r.amount); // inline (swapToBody stack-tight)
-                retainSkewPremium(c.core, isBTC, r, skew);   // mutates r.amount; r.px declares NATIVE
+                retainSkewPremium(c.core, isBTC, r, skew, true);   // NATIVE volatile input ⇒ convert   // mutates r.amount; r.px declares NATIVE
             }
         } else { max = isBTC ? ICoreObs(c.core).POOLED_BTC() : ICoreObs(c.core).POOLED_ETH();
             zeroForOne = ICoreObs(c.core).token1is(isBTC);
@@ -471,7 +471,7 @@ library SwapLib {
             {
                 r.px = _priceOr(v4p, address(aux), r.asset);
                 uint skew = wellSkew(c.core, r.px, isBTC); // inline (swapToBody stack-tight)
-                retainSkewPremium(c.core, isBTC, r, skew);   // mutates r.amount; r.px declares NATIVE
+                retainSkewPremium(c.core, isBTC, r, skew, false);  // buy-driving USD ⇒ already 6-dec   // mutates r.amount; r.px declares NATIVE
             }
         }
         max = _finishSwap(ctx, aux, r, sqrtPriceX96, zeroForOne, max, isBTC, v4p);
@@ -1052,7 +1052,7 @@ library SwapLib {
         // `amount` here is ALREADY 6-dec USD (scaleTo6 in _swapOutPrep), so px=0 declares "no conversion":
         // this leg's recorded premium was always in the right unit and stays that way.
         SwapReq memory sr; sr.amount = amount; sr.px = 0;
-        retainSkewPremium(core, true, sr, wellSkew(core, basePrice, true));  // audit + RFQ-drawable
+        retainSkewPremium(core, true, sr, wellSkew(core, basePrice, true), false);  // audit + RFQ-drawable
         amount = sr.amount;
         rp.amount    = amount;                               // reduced buy drives the fill
         rp.recipient = address(this);                       // obligation → pool; LN delivers
@@ -1366,11 +1366,15 @@ library SwapLib {
     ///      The premium SUBTRACTED from `r.amount` stays in the caller's own unit; only the RECORDED
     ///      value converts. Before this fix the native legs recorded wei/sats into a USD register: ETH
     ///      over-reported (theta throttle never bound) and BTC under-reported ~1e3 (over-throttled).
-    function retainSkewPremium(address core, bool isBTC, SwapReq memory r, uint skew) internal {
+    function retainSkewPremium(address core, bool isBTC, SwapReq memory r, uint skew, bool nativeAmount)
+        internal {
         if (skew == 0) return;
         uint premium = FullMath.mulDiv(r.amount, skew, 1e18);
+        // ONLY the sell leg holds a NATIVE amount. The two drain legs hold the BUY-DRIVING USD, already
+        // 6-dec — converting those (attempt 2) collapsed the recorded premium to 0. `r.px` cannot serve as
+        // the discriminator: it is non-zero on BOTH swapToBody legs, so the caller states the unit.
         ICoreObs(core).recordSkewPremium(isBTC,
-            r.px == 0 ? premium : FullMath.mulDiv(premium, r.px, 1e30));
+            nativeAmount ? FullMath.mulDiv(premium, r.px, 1e30) : premium);
         r.amount -= premium;
     }
 
