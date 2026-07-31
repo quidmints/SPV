@@ -304,3 +304,45 @@ EVIDENCE:
   protocol-side BTC (with `creditSwapOut` recording the obligation), leaving `autoManagedBTC[lpEth]` and
   its channel binding untouched. That is why swap-out could be built without breaching this invariant.
 
+## 🔴 §A.19b RE-FRAMED — vBTC **IS** TOKENIZED BAND DEPTH. My distinction was incoherent (user, 2026-07-31)
+
+User: *"if it's a 4626 then the token balance is the shares. you cant say vBTC is transferrable then say
+the shares are not… vBTC represents a deposit in the band."* **Correct. Struck my §J.2c framing.**
+ • `VBtc` carries a 4626 face — `asset() → WBTC`, `convertToAssets(shares) => shares` (a pure identity,
+   vBTC IS sats). So **the token balance IS the share.**
+ • `Vault.exposeBtcToLev` mints it by RECLASSIFYING already-banked channel depth:
+   `levPooledBTC[lp] += sats` with **`LP.pooled` UNCHANGED** (single-count). ⇒ vBTC is not a separate
+   asset; it is a TOKENIZED SLICE OF THE LP'S OWN BAND DEPTH.
+⇒ Saying "vBTC transferable, band shares not" was incoherent — they are the SAME CLAIM at two layers.
+
+### 🔑 THE ACTUAL DESIGN QUESTION §A.19b MUST ANSWER
+**If a bearer redeems vBTC, WHOSE band depth shrinks?** Today the question cannot arise: vBTC only ever
+reaches the pinned LevManager, and `unexposeBtcFromLev` burns it back to the SAME LP (`lev → funded`,
+`LP.pooled` untouched). A CIRCULATING bearer breaks that 1:1 return path — the redeemer is not the LP
+whose depth backed the mint.
+⇒ That is what `Σ outstanding vBTC <= Σ free channel capacity` must actually enforce: redemption draws
+  from AGGREGATE free capacity, not from the minting LP specifically — which is only sound if the
+  aggregate bound holds at every instant, and if some rule decides WHICH LP's depth is consumed (pro
+  rata? the LP with most free capacity? the one whose channel can pay out cheapest?). **That choice is
+  the open design decision, and it is NOT yet made.**
+⚠️ AND IT INTERACTS WITH THE NON-TRANSFERABILITY RESULT ABOVE: band shares are bound to ONE channel with
+  a FIXED payout script (`BTCChannels.sol:719`). So a bearer redemption must be paid from a channel
+  whose script pays the REDEEMER — i.e. it is the swap-out rail, not a channel close. Good news: that
+  rail exists and already pays arbitrary P2TR.
+
+### ❌ CORRECTION — I claimed "swaps leave band shares untouched". WRONG.
+Swap-out DOES reach band depth via delivery-side de-lever — there is a test named
+`testReal_DeliverSideDelever_SwapOutTapsLeveredSlice`. So the mechanism for "a third party's redemption
+consumes an LP's levered slice" ALREADY EXISTS and is exercised. **§A.19b should be modelled on that
+path, not invented** — the question is only what authorises it for a bearer rather than a swapper.
+
+## 📌 LAYOUT PASS (§A.62) — additions banked
+  • `src/mock.sol` → `src/imports/`; fold `QuidLens` (check EIP-170 first — it may exist BECAUSE
+    Aux/Core are near the limit).
+  • **§J.2c (ETH side only):** move Vogue's ambiguous ERC-20 face to `VEth`, forwarding into
+    `_transferShares`, gated to `VEth`. BTC side is CLOSED — do NOT build a face for `autoManagedBTC`.
+  • **The LEGACY DIFF is part of this pass** (agent died on a weekly API limit; prompt is written).
+  • **CLAMP LENS, apply throughout:** *"does this clamp prevent a bad state, or merely hide one?"*
+    C4 is the proof case — the θ cap was deleted as "adds no safety", which was true behaviourally and
+    is exactly why a 1e12 corruption became invisible.
+
