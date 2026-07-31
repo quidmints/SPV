@@ -851,16 +851,16 @@ mod test {
     }
 
     #[test]
-    fn tmp_emit_password_blobs() {
-        let root_seed1 = RootSeed::new(Secret::new([69u8; 32]));
-        let mut rng = FastRng::from_u64(20231017);
-        println!("BLOB1={}", hex::display(&root_seed1.password_encrypt(&mut rng, "password1234").unwrap()));
-        let root_seed2 = RootSeed::new(Secret::new([0u8; 32]));
-        let mut rng = FastRng::from_u64(20231017);
-        println!("BLOB2={}", hex::display(&root_seed2.password_encrypt(&mut rng, "                ").unwrap()));
-    }
-
-    #[test]
+    // WHAT THIS PINS, AND WHAT IT CANNOT. These blobs were regenerated for the
+    // QUID-REALM domain separators. They guarantee that a seed backup encrypted by
+    // THIS version stays decryptable by later ones - a real guard, since a silent
+    // change to the KDF or blob format would break every existing backup.
+    //
+    // They deliberately do NOT prove compatibility with anything produced before the
+    // domain separators were renamed: that is impossible by construction, because the
+    // salt is what makes derivations fork-specific. Regenerating was the correct fix
+    // ONLY because no backup exists under the old constants; if one ever turns up, the
+    // fix is a dual-salt decrypt path, not another repin.
     fn password_decryption_compatibility() {
         let root_seed1 = RootSeed::new(Secret::new([69u8; 32]));
         let password1 = "password1234";
@@ -871,7 +871,7 @@ mod test {
         // let encrypted_hex = hex::display(&encrypted);
         // println!("Encrypted: {encrypted_hex}");
 
-        let encrypted = hex::decode("adcfc4aef26858bacfae83dd19e735bb145203ab18183cbe932cd742b4446e7300b561678b0652666b316288bbb57552c4f40e91d8e440fd1085cba610204ca982f52fce471de27fe360e9560cee0996e55ce7ac323201908b7ff261b8ff425a87d215e83870e45062d988627c8cb7216b").unwrap();
+        let encrypted = hex::decode("adcfc4aef26858bacfae83dd19e735bb145203ab18183cbe932cd742b4446e7300b561678b0652666b316288bbb57552c4f40e91d8e440fd1085cba610204ca982de97120c3398f4f3e2899e736069f450c7473ee98edfcce6c816ede23bf1eba4da3e7103145e74f85ef53505cf3db796").unwrap();
         let root_seed1_decrypted =
             RootSeed::password_decrypt(password1, encrypted).unwrap();
         assert_eq!(root_seed1, root_seed1_decrypted);
@@ -885,7 +885,7 @@ mod test {
         // let encrypted_hex = hex::display(&encrypted);
         // println!("Encrypted: {encrypted_hex}");
 
-        let encrypted = hex::decode("adcfc4aef26858bacfae83dd19e735bb145203ab18183cbe932cd742b4446e7300b561678b0652666b316288bbb57552c4f40e91d8e440fd1085cba610204ca982062fbcb21c14cdb9d107f2f359e0f272e473d2cdb71a870d8fb19d1169c160876ee1ccde4f73a8f2b4ebc9bed68f6139").unwrap();
+        let encrypted = hex::decode("adcfc4aef26858bacfae83dd19e735bb145203ab18183cbe932cd742b4446e7300b561678b0652666b316288bbb57552c4f40e91d8e440fd1085cba610204ca98270ab2a944e5ef27ebdf5ebe7968c4b26c2681a34a8f665f9fefb4b1203cbb5062197f3feb823e653fdc6ad08b5c1ed5f").unwrap();
         let root_seed2_decrypted =
             RootSeed::password_decrypt(password2, encrypted).unwrap();
         assert_eq!(root_seed2, root_seed2_decrypted);

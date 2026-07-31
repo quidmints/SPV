@@ -1955,3 +1955,30 @@ assuming native redemption works — it never did.
  ⚠️ Then re-derive the weETH→eETH ratio for the partial clamp (`getEEthShares`-style view), which unlocks
    the min() that part 2 could not safely do.
 
+## ✅✅ C10 RESOLVED — ether.fi + NATIVE ETH is CORRECT. No stETH switch. My recommendation was WRONG.
+**The flaw in my own evidence:** I sampled history using a HOLDER address, never the NATIVE SENTINEL, then
+concluded native capacity is "always 0". Sampling the sentinel itself:
+| block | 25655536 | 25653624 (our pin) | 25650000 | **25600000** | 25400000 | 25000000 |
+|---|---|---|---|---|---|---|
+| native capacity | 0 | **0** | 0 | **2000e18 (2,000 ETH)** | 0 | 0 |
+⇒ **Native-ETH instant redemption WORKS.** The buffer DRAINS AND REFILLS; it is not structurally empty.
+⇒ **Our pinned block `25653624` simply sits in an EMPTY window.** The rung, the venue and the output token
+  were all correct the whole time.
+🔴 **RETRACTED: "switch rung 3 to stETH".** Wrong conclusion drawn from a sample that never tested the thing
+  it claimed to test. Ether.fi stays; native ETH stays. (The 5000e18 stETH read is a real but IRRELEVANT
+  second capacity pool — a distraction I chased instead of testing my actual claim.)
+
+### ⇒ WHAT THIS MAKES OF THE PIECES
+ • **The capacity skip (part 2, landed) is EXACTLY RIGHT** — it is what makes an empty-buffer window a clean
+   fall-through instead of a wasted guaranteed-revert call. Keep it. It now has a proven rationale.
+ • **`testEthVenue_EtherFi_InstantRedeem_Rung3` is a FORK-BLOCK problem, not a code or premise problem.**
+   The assertion is CORRECT and must NOT be weakened. It fails only because the pin lands in an empty window.
+ ▶️ **FIX: pin THAT test to a block with capacity** (`25600000` reads 2000e18 — verified). `ForkPin` already
+   exists for exactly this; give the test its own block override rather than moving the global pin.
+ ⚠️ Re-verify capacity at whatever block is chosen before pinning — the buffer moves, and a future refill
+   could empty that window too. Assert capacity > 0 in the test setup so a silent re-emptying shows up as a
+   clear setup failure rather than a confusing assertion failure.
+📌 **LESSON (5th of this family, and the sharpest): my historical sample tested a DIFFERENT ARGUMENT than the
+  claim it was used to support.** "Always 0 across 1.6M blocks" sounded decisive and was measuring the wrong
+  thing entirely. **State exactly what an experiment varied, and check it matches the claim.**
+

@@ -288,7 +288,7 @@ mod test {
         let client_json = serde_json::to_string_pretty(&client1).unwrap();
         // println!("{client_json}");
         let client_json_snapshot = r#"{
-  "pubkey": "aa8e3e1a9bffdb073507f23474100619fdd4e392ef0ff1e89348252f287a06fc",
+  "pubkey": "9931166b63fcd2b4b42609f6844b43bbb90281ad0c835da2d2295c15a6b15182",
   "created_at": 69000,
   "expires_at": 420000,
   "label": "deez",

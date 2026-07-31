@@ -441,7 +441,7 @@ mod test {
         let node_pk_proof = NodePkProof::sign(&node_key_pair);
 
         assert_eq!(
-            "52b999003525a3d905f9916eff26cee6625a3976fc25270ce5b3e79aa3c16f45",
+            "7b88aa195d4eb3a287a966e45be137c6df1a9e943adca2fb0c9b90acffa2c2f3",
             user_pk.to_string()
         );
         assert_eq!(
