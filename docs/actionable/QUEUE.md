@@ -1078,3 +1078,50 @@ Two readings, and they need different fixes:
   as intended — the number is trustworthy and the failure message is diagnostic. `ForkPin` is earning
   its keep.
 
+## 🔑 C3 DERIVED FROM FIRST PRINCIPLES — MY ARITHMETIC WAS RIGHT. THE TESTS ARE CALIBRATED TO THE BUG.
+
+Done properly this time: derive BOTH directions from the ONE verified fact, instead of reasoning about
+the code and guessing signs.
+
+### THE FACT (measured earlier, both paths agree)
+`getTWAPforAsset(WBTC)` = `usd_per_btc · 1e28` (`6e32` at \$60k). `getTWAPforAsset(WETH)` =
+`usd_per_eth · 1e18` (`3e21` at \$3k). ⇒ **WBTC's price carries a ×1e10 LIFT** over WETH's WAD form.
+
+### THE DERIVATION — pure unit algebra
+```
+!toVol (vol → USD6):
+  BTC:  sats/1e8  · (price/1e28) · 1e6  =  sats · price / 1e30
+  ETH:  wei /1e18 · (price/1e18) · 1e6  =  wei  · price / 1e30
+ toVol (USD6 → vol):
+  BTC:  usd6/1e6 ÷ (price/1e28) · 1e8   =  usd6 · 1e30 / price
+  ETH:  usd6/1e6 ÷ (price/1e18) · 1e18  =  usd6 · 1e30 / price
+```
+⇒ **BOTH directions are ASSET-INDEPENDENT: `1e30` either way.** The ×1e10 lift exactly cancels the
+  1e10 sats-vs-wei gap — which is WHY the lift exists. `volScale` was never needed.
+
+### VERDICT — reading (a), not (b)
+```
+toVol  = mulDiv(amount * 1e12, 1e18, price)   ⇔ amount · 1e30 / price   ✅ what I wrote
+!toVol = mulDiv(amount, price, 1e18) / 1e12   ⇔ amount · price / 1e30   ✅ what I wrote
+```
+**The reverted C3 was ARITHMETICALLY CORRECT in both branches.** The old code was right for ETH
+(`volScale == 1e18` IS the identity) and wrong for BTC in BOTH directions — over on `!toVol`, under on
+`toVol`. Exactly as the audit said, and my patch fixed both.
+
+⇒ **THEREFORE THE 60 FAILURES ARE TESTS CALIBRATED AGAINST THE BUG.** The BTC `toVol` cap was 1e10 TOO
+  SMALL, so BTC swaps were partial-filling ARTIFICIALLY. Tests then asserted those partials as expected
+  behaviour — e.g. *"consumed < sats on an inventory-bounded partial (the signal to refund)"*. With the
+  cap correct, the partial does not occur and the assertion fails. **The tests encode the defect.**
+📌 Same class as: tolerances tuned around a ~zero fee (§A.46), the θ clamp deleted for "adding no
+  safety" (C4), and `testRedeem`'s immature no-op. **A check calibrated while the system is broken will
+  reject the system once it is fixed.** Fourth instance this session.
+
+### HOW TO LAND C3 (do NOT just re-apply)
+ 1. Re-apply the `volScale` deletion — the arithmetic is now DERIVED, not guessed.
+ 2. Triage the ~60 failures **individually**: for each, does it assert a partial fill / refund path that
+    can ONLY occur under an under-scaled cap? If yes the TEST is wrong and must be re-derived from the
+    corrected cap. If any failure is NOT of that shape, the derivation is incomplete — STOP and re-check.
+ 3. ⚠️ `refundUnfilled` / `_refundExcess` were DEAD CODE on BTC paths. Post-C3 they are reachable, so
+    some failures may be those paths executing for the FIRST TIME — genuinely new behaviour needing real
+    verification, not test edits.
+
