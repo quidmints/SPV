@@ -1243,3 +1243,33 @@ input 4× its own stated reserve **in full**. Two readings, and they are NOT equ
 📌 C3 REVERTED again pending (a)-vs-(b). The unit derivation and the `:2128` independent confirmation both
   still stand — what is NOT established is that the corrected cap is still BOUNDED BY the reserve.
 
+## ✅ OVERDRAW SETTLED — reading (b) REFUTED structurally. C3 is CORRECT; fixture re-derivation legitimate.
+`BasketLib:437` — the cap is a `Math.min` against the reserve:
+```solidity
+consumed = Math.min(p.amount, convert(p.pooled, p.v4Price, p.token != address(0), ctx.volScale));
+```
+⇒ `consumed` can NEVER exceed `convert(p.pooled, ...)`, i.e. the reservoir expressed in asset units.
+  **A swap-in cannot draw beyond POOLED_USD_BTC whatever scale `convert` uses.** Reading (b) — C3 enabling
+  a drain — is **REFUTED BY STRUCTURE**, not by a test. No delivery-vs-reserve assertion is needed.
+  (The concern was still worth raising: it was refuted by reading the bound, not assumed away.)
+
+### The arithmetic, which independently re-confirms C3
+`convert`'s doc says `volScale = 10**decimals(asset)` — 1e18 WETH, **1e8 WBTC**. But the WBTC price carries
+the ×1e10 lift (`usd·1e28`, vs WETH's `usd·1e18`):
+ • OLD BTC cap = `pooled·1e12·1e8 / (usd·1e28)` = `pooled / (usd·1e8)` → at pooled=3000e6, usd=60000 this is
+   **0.0005 ⇒ TRUNCATES TO 0.** The BTC swap-in cap was effectively ZERO — every BTC swap-in partial-filled.
+ • NEW (C3) = `pooled·1e12·1e18 / (usd·1e28)` = `pooled·100/usd` = **5e6 sats = 0.05 BTC** ✓ — exactly the
+   value `Alles.t.sol:2128` derives by hand.
+ • WETH is UNCHANGED (`volScale` was already 1e18): `pooled·1e12/usd` ✓.
+⇒ **`volScale` was DOUBLE-COUNTING the decimals gap that the WBTC price lift already cancels.** The constant
+  is asset-independent 1e18 because the lift is baked into `price`. This is the root cause, stated in units.
+⇒ ⚠️ **`volScale` is now DEAD in `convert` — remove the parameter** (4th arg) and update call sites, per the
+  no-unreachable-code rule. Check whether `ctx.volScale` has other consumers before deleting the field.
+
+### ▶️ TO LAND C3 (all blockers cleared)
+ 1. Apply C3 (`volScale` → `1e18`, both directions) and drop the now-dead 4th parameter.
+ 2. Re-derive the two calibrated fixtures — `hugeSats` (`Alles.t.sol:1936`) and `bigSats` (`:2151`) — against
+    the corrected cap. **This is now legitimate, not masking:** the derivation is independent of the tests,
+    `:2128` confirms it, and the drain reading is refuted.
+ 3. Full suite at `FORK_BLOCK=25653624`; expect 3529/31 ± the two re-derived fixtures.
+
