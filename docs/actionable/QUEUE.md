@@ -1039,3 +1039,42 @@ bases would ARM a latent `Core.refundUnfilled` mismatch. **That ordering constra
 and C2 are both in and confirmed, so the two are on the same basis now. This is why C3 had to come last
 of the three.
 
+## 🔴 C3 REVERTED — 91 vs 31 at the pinned block. My direction analysis was WRONG.
+
+`FORK_BLOCK=25653624`: **3,469 passed / 91 failed** vs a 3,529/31 baseline ⇒ **C3 caused 60 failures.**
+Attribution is SOUND this time (same block), unlike the earlier environmental confusion. Reverted.
+
+### THE DIAGNOSTIC FAILURE — it says the opposite of what I predicted
+```
+[FAIL: consumed < sats on an inventory-bounded partial (the signal to refund): 171059972 >= 171059972]
+```
+A test that EXPECTS a partial fill now sees `consumed == sats`. **I predicted the cap would START
+binding; instead it stopped.** So the cap got BIGGER, not smaller — my sign analysis was wrong for the
+branch this test exercises.
+
+### WHY — I fixed BOTH directions, and they were wrong in OPPOSITE directions
+The audit said `toVol` is **1e10 UNDER** and `!toVol` is **1e10 OVER**. My edit replaced `volScale` with
+`1e18` in BOTH:
+```
+!toVol BTC:  sats·px/1e20  →  sats·px/1e30      (÷1e10 — cap SHRINKS, binds more)
+ toVol BTC:  amt·1e12·1e8/px → amt·1e12·1e18/px (×1e10 — cap GROWS,  binds LESS)  ← this test
+```
+⇒ The failing test rides the **`toVol`** branch, where the correction makes the cap 1e10 LARGER, so a
+  partial that used to occur no longer does.
+
+### 🔑 THE REAL QUESTION, AND IT IS NOT "WHICH ARITHMETIC IS RIGHT"
+That test asserts a partial fill **that may only ever have happened BECAUSE of the under-scaled cap.**
+Two readings, and they need different fixes:
+ (a) The corrected `toVol` cap is right, and the test was calibrated against the bug — same class as the
+     tolerances tuned around a ~zero fee (§A.46) and the θ clamp deleted for "adding no safety" (C4).
+     Then the TEST must change, not the code.
+ (b) `toVol` was already correct (the ×1e10 WBTC price-lift may be applied on only ONE side of the
+     conversion), and only `!toVol` needed fixing. Then the fix is HALF of what I applied.
+⚠️ **DO NOT re-apply C3 until this is settled.** Work it out from the price-lift: `getTWAPforAsset(WBTC)`
+  returns `usd_per_btc · 1e28` (verified earlier: `6e32` at \$60k). Derive BOTH directions from that
+  ONE fact and see which of the two branches the ×1e10 lift already cancels. **60 failing tests is the
+  system telling us the model is wrong — not noise to tune away.**
+📌 METHOD: this is the FIRST attributable regression of the session (pinned block), and it worked exactly
+  as intended — the number is trustworthy and the failure message is diagnostic. `ForkPin` is earning
+  its keep.
+
