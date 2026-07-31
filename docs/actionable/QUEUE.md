@@ -1713,3 +1713,41 @@ only a *route-graph entry*, not a redesign:
     it apply to OUR pool. `lib/v4-core/src/ProtocolFees.sol` + `setProtocolFee` are vendored HERE — this is
     answerable from source, no web needed. Check `protocolFeesAccrued` / the fee-controller address.
 
+## ⚠️ HONESTY CORRECTION — my "indexers filter by topic" claim is INFERENCE, not proof
+The vendored source proves **`Initialize` declares `currency0`/`currency1` as `indexed`** (they ARE topics)
+and that **`PoolManager.swap` takes the key from calldata with no gate**. Those are FACTS.
+🔴 It does **NOT** prove how Uniswap's (or any solver's) OFF-CHAIN indexer actually selects pools — I do not
+  have that code here. I stated an inference as established. **Retracted to: "consistent with, but unproven."**
+▶️ To actually PROVE it: query the public Uniswap subgraph/API for a known pool and inspect whether the
+  filter is by currency topic, OR read an open-source solver's v4 adapter. Until then it is a hypothesis.
+
+### 🎯 ON "we can craft the events" — the decisive constraint (this IS provable)
+**An EVM log is keyed by EMITTING ADDRESS + topics.** An indexer subscribing to Uniswap's canonical
+`PoolManager` (`0x0000...4444c5dc75cB358380D2e3dE08A90`) filters on THAT ADDRESS first. We can emit a
+byte-identical `Initialize` from OUR contract, but it carries OUR address ⇒ **a PoolManager-scoped indexer
+will never see it. Uniswap's own logs cannot be forged.**
+⇒ Crafting events only reaches an indexer that watches OUR address — which is exactly the
+  **aggregator/adapter listing** path (workaround (b)), NOT a way into Uniswap-native routing.
+⇒ So event-crafting is NOT a shortcut around the mock-currency issue. The adapter remains the real answer.
+
+## ✅ UNISWAP V4 PROTOCOL FEE — RESEARCHED (source + live mainnet read)
+| fact | value | source |
+|---|---|---|
+| Cap | **0.1%** (`MAX_PROTOCOL_FEE = 1000` pips, `PIPS_DENOMINATOR = 1_000_000`) | `ProtocolFeeLibrary.sol:6-15` |
+| Who sets it | **`protocolFeeController` ONLY** (`if (msg.sender != protocolFeeController) revert`) | `ProtocolFees.sol:35-36` |
+| Granularity | **PER POOL** — `setProtocolFee(PoolKey memory key, uint24 newProtocolFee)` | `ProtocolFees.sol:35` |
+| Controller set by | `setProtocolFeeController(address) external onlyOwner` | `ProtocolFees.sol:29` |
+| LIVE controller | **`0x89A5D5bF00a27D55c02951E49078a5C5771051dB`** (read from mainnet PoolManager) | `cast call` |
+| Direction | taken OFF THE TOP: `swapFee = self + lpFee - (self*lpFee)/PIPS_DENOMINATOR` | `ProtocolFeeLibrary.sol:44` |
+⇒ **IMPACT ON US: currently NONE, and structurally hard to impose.** The fee is **per-pool and opt-in by the
+  controller** — it is NOT a global switch that flips on every pool. A controller would have to target OUR
+  PoolKey specifically. Combined with the discoverability finding (our key names mock currencies), our pools
+  are not plausible targets.
+⚠️ NOT YET CHECKED: the actual `protocolFee` value currently stored for our PoolKeys (we have no mainnet
+  deployment, so this is only meaningful at deploy time). **Add a deploy-time assertion** that our pools'
+  protocol fee is 0, and a monitor — the controller CAN set it later without our consent, up to 0.1%.
+
+## 🔴 STILL NOT DONE (2 of 3) — not attempted this turn, stated plainly
+ 1. **C10 part 2** — needs a weETH-holding address to disambiguate the view's `address` param.
+ 2. **Rover / ether.fi v3 imbalance** — WHY it persists / why arbers don't close it. Needs on-chain data.
+
