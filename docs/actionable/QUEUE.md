@@ -1627,3 +1627,45 @@ currencies then it IS discoverable by every router, and its hook earns a fee ON 
   `getHookFee`/return-delta handling in `lib/v4-core/src/PoolManager.sol` before claiming anything.
 ⚠️ Do NOT answer the "double fees" half from memory — the user explicitly demanded source proof.
 
+## C10 PART 2 — ABI CONFIRMED ON MAINNET (my earlier "absent" claim RETRACTED). Semantics still unverified.
+Probed the REAL `EtherFiRedemptionManager` `0xDadEf1fFBFeaAB4f68A9fD181395F68b4e4E7Ae0` (live `cast call`):
+| signature | result | verdict |
+|---|---|---|
+| `canRedeem(uint256,address)` | returns **`false`** | ✅ **EXISTS** (a clean bool, not a revert) |
+| `totalRedeemableAmount(address)` | returns **`0`** | ✅ **EXISTS** |
+| `totalRedeemableAmount()` (0-arg) | reverts | ❌ absent |
+| `getTotalRedeemableAmount(address)` | reverts | ❌ absent |
+🔴 **RETRACTION:** I previously recorded `canRedeem` as "function absent" from a bare revert. **WRONG** — it
+  exists; I had probed it with the wrong ARITY (`canRedeem(uint256)`). This is the recorded lesson
+  "a bare revert with empty data does not distinguish no-such-function from wrong-signature" — and I made
+  the error anyway. The two `Error: encode length mismatch` lines in this run were likewise MY OWN cast
+  mistake (args passed to 0-arg sigs), **not** contract evidence. Read the error's SOURCE before using it.
+
+### 🛑 STILL CANNOT LAND — semantics unknown, and the failure mode is SILENT DISABLEMENT
+Both views returned **0 / false** for every argument tried (incl. the weETH token address). I do NOT know
+whether the `address` param means the USER, the OUTPUT TOKEN, or something else — so I cannot tell a genuine
+"no capacity right now" from "wrong argument, always 0".
+⚠️ **Clamping `weethIn` to a view that returns 0 for the wrong arg would DISABLE rung 3 permanently** — and
+  it would look like healthy fall-through to rung 4, i.e. exactly the SILENT failure §C10 part 1 was written
+  to eliminate. That is strictly worse than today's observable `InstantRedeemSkipped`.
+▶️ **NEXT (cheap, decisive):** call both views with an address KNOWN to hold weETH (find one from a recent
+  `Transfer` on the weETH token, or use the Rover/Aux position address on the fork). A non-zero return
+  identifies the parameter's meaning; only then clamp with `min(weethIn, redeemable)`.
+📌 Part 1 (observability) IS landed and is the safe state. Part 2 stays open by CHOICE, not oversight.
+
+## 🔗 DUAL-POOL HOOK — the banked comparison (A.26/A.27, BUILD-QUEUE-AND-107.md:2104+)
+It IS banked, from 2026-07-27, including the user's own corrections:
+ • `DualPoolStableHook` is **STABLE-to-STABLE**, so its near-zero IL is a property of the PAIR, not of its
+   design. Our band is ETH/USD where IL is real ⇒ our IL-protect stack is a REQUIREMENT, not overhead.
+ • It **shuttles real assets vault↔pool on every swap**; we hold one capital base that earns venue yield AND
+   provides band depth simultaneously. (Its "double fee" = swap fee + vault yield on REAL reserves.)
+ • It needs `emergencyRevokeVault` / vault-vetting / native-ETH-rejection because its pool holds VALUE.
+   Ours holds mock tokens (worthless outside the system) ⇒ not a value-bearing attack surface.
+ • It caps quotes at `_effectiveAssets`; we MATERIALISE instead of capping (A.27, the §M phantom depth).
+🔴 **CORRECTION to what I said last turn** ("zero external order flow"): **too strong, and already retracted
+  by the user at A.26.** `Aux.swap` is `public payable` with NO caller gate and pays `msg.sender`, so any
+  router/searcher CAN trade us today. What the mock currencies block is **V4-NATIVE ROUTING discoverability**
+  — an INTEGRATION gap (adapter/aggregator listing closes it), not a capability gap. The `PoolId` proof
+  stands; its scope is v4 routing only.
+⚠️ Gas vs their implementation remains UNMEASURED — do not claim it (standing note from A.26).
+
