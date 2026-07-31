@@ -346,3 +346,31 @@ path, not invented** — the question is only what authorises it for a bearer ra
     C4 is the proof case — the θ cap was deleted as "adds no safety", which was true behaviourally and
     is exactly why a 1e12 corruption became invisible.
 
+### TWO CORRECTIONS (user, 2026-07-31)
+
+**1. De-lever on swap-out is CONTINGENT, not the normal path. My claim was overstated.**
+User: *"swapout might not need de-lever, it's contingent on need (case per case)."* Correct.
+`SwapLib.sol:1195` documents `deleverEthOnDelivery` as firing *"when the venue base (`deliverableETH`)
+can't cover a swap-out delivery"*, and `Vogue.sol:1026` calls it inside a conditional with
+`needed - inWETH` — a SHORTFALL amount. ⇒ A swap-out normally settles from the free venue base and never
+touches the levered slice. Only a shortfall reaches band depth.
+⇒ CONSEQUENCE FOR §A.19b: the "third party consumes an LP's levered slice" precedent is a FALLBACK path,
+  not a routine one. It is still the right MODEL, but bearer redemption would invoke it far more often
+  than swap-out does — so its cost/fairness profile must be judged on its own, not inherited from a
+  rarely-taken branch.
+
+**2. 🟠 IS THE RECLASSIFICATION DUPLICATION? — a real consistency risk, worth its own item.**
+User asked directly. `exposeBtcToLev` writes the SAME sats into THREE places:
+  • `LP.pooled` — UNCHANGED (deliberate: single-count of band depth)
+  • `levPooledBTC[lp] += sats` — a SUBSET MARKER (free depth = `pooled - levPooled`)
+  • `VBtc.balanceOf[manager] += sats` — the external token representation
+These are three VIEWS of ONE economic claim, so it is not double-counting BY DESIGN. **But they are
+three independently-mutated storage locations that must stay in lockstep**, and nothing enforces that
+mechanically — if `levPooledBTC` and `VBtc.totalSupply` ever drift, the drift IS a double-spend
+(depth counted as free while its token is still outstanding).
+⇒ ACTION: state and TEST the invariant explicitly —
+  **`Σ_lp levPooledBTC[lp] == VBtc.totalSupply()`** at all times. That is a one-line property, it is
+  exactly the kind of thing Echidna is for, and it is currently UNASSERTED anywhere.
+⇒ It is also the natural precondition for §A.19b's aggregate rule: you cannot safely enforce
+  `Σ outstanding vBTC <= Σ free channel capacity` without first knowing the supply and the marker agree.
+
