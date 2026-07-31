@@ -708,13 +708,13 @@ mod test {
         let out32 = seed.derive_vec(&[b"very cool secret"], 32);
         let out32_2 = seed.derive(&[b"very cool secret"]);
 
-        assert_eq!("c724f46ae4c48017", hex::encode(out8.expose_secret()));
+        assert_eq!("0abd2f99e445b3d7", hex::encode(out8.expose_secret()));
         assert_eq!(
-            "c724f46ae4c480172a75cf775dbb64b1",
+            "0abd2f99e445b3d7a75283b240bddf7e",
             hex::encode(out16.expose_secret())
         );
         assert_eq!(
-            "c724f46ae4c480172a75cf775dbb64b160beb74137eb7d0cef72fde0523674de",
+            "0abd2f99e445b3d7a75283b240bddf7e6da8e1b273f2296e621dae2595763dd9",
             hex::encode(out32.expose_secret())
         );
         assert_eq!(out32.expose_secret(), out32_2.expose_secret());
@@ -848,6 +848,16 @@ mod test {
                 .unwrap();
             assert_eq!(root_seed1, root_seed2);
         })
+    }
+
+    #[test]
+    fn tmp_emit_password_blobs() {
+        let root_seed1 = RootSeed::new(Secret::new([69u8; 32]));
+        let mut rng = FastRng::from_u64(20231017);
+        println!("BLOB1={}", hex::display(&root_seed1.password_encrypt(&mut rng, "password1234").unwrap()));
+        let root_seed2 = RootSeed::new(Secret::new([0u8; 32]));
+        let mut rng = FastRng::from_u64(20231017);
+        println!("BLOB2={}", hex::display(&root_seed2.password_encrypt(&mut rng, "                ").unwrap()));
     }
 
     #[test]
@@ -993,7 +1003,7 @@ mod test {
         let user_pk = seed.derive_user_pk();
         assert_eq!(
             user_pk.to_string(),
-            "a9edf9596ddf589918beca32d148a7d0ba59273b419ccf63a910f1b75861ff06",
+            "7fa040fdc83511dd8362a2039f5d21d7254bd49c03ad5350494623a2fa178cdb",
         );
 
         // Lightning node pubkey
@@ -1057,14 +1067,14 @@ mod test {
         let ephemeral_ca = seed.derive_ephemeral_issuing_ca_key_pair();
         assert_eq!(
             ephemeral_ca.public_key().to_string(),
-            "70656b5a6084c457bf004dad264cecc131879b7e6791fe0cc828c38cc0df6e92",
+            "0e6b68f5938e3b056ea279ae490a05fb89f5eee5002eb6890e8984e4b58f8c5a",
         );
 
         // Revocable issuing CA pubkey
         let revocable_ca = seed.derive_revocable_issuing_ca_key_pair();
         assert_eq!(
             revocable_ca.public_key().to_string(),
-            "efe6e020ba9ca4a50467cdbaff469f9d465f21d1c6fe976868a20d97bbaa2ee3",
+            "33e6c53078e519e5b1e937390472fa2438aae628323da174f972ff304441ea05",
         );
 
         // VFS master key (via derivation + encryption)
@@ -1077,7 +1087,7 @@ mod test {
         assert_eq!(
             hex::encode(&vfs_ctxt),
             "0000a7e6a0514440b57fcf6df97b46132adde062f1a5a224aacf4fa0f286b4c56\
-             fe2768b7dad22333936638c5734f0d529a74880aa",
+             f1bc75ef28e93a7dc03926105dc094ee823111924",
         );
     }
 

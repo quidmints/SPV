@@ -1924,3 +1924,34 @@ balances. Sound in shape — and a genuine structural advantage of the mock desi
  ⚠️ Add an Echidna invariant alongside #12: **compensation must be value-NEUTRAL** — total backing after
    (skim + offset) equals backing before. That is the check that proves it is "not cheating".
 
+## ✅ C10 PART 2 LANDED (capacity skip) — 3529/31 baseline. The REAL fix (stETH) is now the only piece left.
+Rung 3 reads `totalRedeemableAmount(ETHFI_NATIVE_ETH)` and falls through to the wait-NFT when it is 0,
+instead of burning gas on a call that MUST revert. Suite **3529 / 31 = baseline**, behaviour-neutral.
+The partial `min(weethIn, capacity)` clamp is deliberately NOT done: capacity is in the OUTPUT token,
+`weethIn` is weETH, and weETH:eETH is not 1:1 — a naive `min()` would mix units (the trap flagged long ago).
+
+### 🔴 `testEthVenue_EtherFi_InstantRedeem_Rung3` — the TEST'S PREMISE IS INVALID
+```
+[FAIL: rung 3 paid native ETH via the real RedemptionManager: 0 <= 4900000000000000000]
+```
+It asserts rung 3 PAYS NATIVE ETH. But native-sentinel capacity reads **0 at every block sampled back
+~1.6M blocks**, so **this test cannot pass at any recent block, with or without our code.** It was written
+assuming native redemption works — it never did.
+⚠️ **This is NOT the "calibrated-while-broken" pattern** (where a fixture must be re-derived): the premise
+  is contradicted by live external state, so the fix is in the CODE (use an output token that HAS capacity),
+  and the test then follows. **Do not weaken the assertion to make it pass** — that would hide a rung that
+  never pays.
+
+### ▶️ THE REMAINING FIX — switch rung 3 to stETH (capacity ~5_000e18)
+ (a) request stETH, then swap stETH→ETH in the same tx — preserves the caller's native-ETH contract; costs a
+     swap leg + slippage.
+ (b) request stETH and credit it as an ETH-venue asset — no swap, but CHANGES the caller's unit contract
+     (⚠️ exactly the class of error that cost C2/C4 three attempts — the caller expects native ETH).
+ (c) ⭐ query BOTH capacities and pick whichever has room, falling back to the wait-NFT if neither does —
+     the general form; uses the verified `totalRedeemableAmount` as its source; self-heals if either pool
+     refills. Still needs (a)'s swap leg for the stETH branch.
+ ⚠️ stETH is REBASING — balances move between the receive and the swap. Read the balance AFTER receipt; do
+   not assume the requested amount arrives exactly.
+ ⚠️ Then re-derive the weETH→eETH ratio for the partial clamp (`getEEthShares`-style view), which unlocks
+   the min() that part 2 could not safely do.
+
