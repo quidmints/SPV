@@ -458,3 +458,24 @@ C1's success came precisely from applying it ALONE against a falsifiable predict
    take amount feeding a backing/solvency check that then blocks delivery. Trace THAT rather than
    re-applying blind.
 
+### C5 UNIT VERIFICATION — `usd_owed` IS consistently 6-dec, so `* 1e12` is arithmetically RIGHT
+
+Traced every write to `LP.usd_owed` (there are TWO accrual sites, not one — the second was easy to miss):
+  • `Vogue.sol:443` — `LP.usd_owed += usdR` inside `_settlePending`'s defer branch.
+  • `Vogue.sol:1456` — `if (usdR > 0) LP.usd_owed += usdR` in the crank/harvest path.
+**BOTH draw `usdR` from the same `_pendingFor(lp)`**, and `_settlePending:439` mints THAT SAME VALUE as
+`usdR * 1e12`. ⇒ the field is 6-dec on every write, and C5's scale-up at `:658` is CORRECT ARITHMETIC.
+
+⇒ **THEREFORE, IF C5-ALONE STILL FAILS, THE DEFECT IS NOT C5.** The remaining explanation is that
+  minting the CORRECT (1e12 larger) amount breaches a BACKING/SOLVENCY CHECK — i.e. **an invariant
+  calibrated against the under-payment.** That would be strictly more serious than the fee loss:
+  a solvency check tuned to a bug will also reject the correct behaviour once the bug is fixed, and it
+  silently blocked the ETH withdraw ladder (`testEthVenue_EtherFi_*`) rather than failing loudly at the
+  mint.
+  ⇒ NEXT IF SO: find which check rejects it — `Basket.mint`'s `auth` branch, `AUX.checkBacking`, or the
+    `D >= S + L` requirement — and determine whether its threshold was derived from measured behaviour
+    (in which case the measurement encoded the bug) or from first principles (in which case C5's
+    premise is wrong after all).
+📌 This is exactly the §A.46 lesson at protocol scale: a check that passes because the system is broken
+  will FAIL when the system is fixed. Same shape as the tolerances tuned around a ~zero fee.
+
