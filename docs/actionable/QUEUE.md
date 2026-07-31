@@ -1009,3 +1009,33 @@ finding.** Cost: one 90-minute agent that died on it.
   there, and `QUEUE.md`'s consolidation deliberately dropped the DETAIL, which is exactly what was
   needed here.
 
+## C3 APPLIED — `volScale` DELETED. First fix done under the "≥2 approaches" standing rule.
+
+### THE ENUMERATION (rule 2: *"write down why the loser lost"*)
+| # | approach | verdict |
+|---|---|---|
+| A | Fix the arithmetic, KEEP the `volScale` parameter | ❌ leaves a parameter whose ONLY correct value is `1e18` — an invitation to reintroduce the same bug |
+| B | Correct at the two `SwapLib` call sites instead | ❌ `convert` stays wrong for any future caller, and the defect is INSIDE it, not at the callers |
+| C | **DELETE `volScale` entirely** | ✅ **the parameter WAS the bug** — satisfies the rule's bar (b): deletes a chunk AND gives a better guarantee |
+
+### THE INSIGHT THAT MADE (C) POSSIBLE
+`getTWAPforAsset` ALREADY lifts the WBTC anchor ×1e10 to close the 8↔18-dec gap (`SwapLib.twapResolve`;
+authoritative note at `SwapLib:951-955`). So passing `volScale = 1e8` for BTC **DOUBLE-COUNTED that
+correction**:
+```
+old !toVol, BTC:  mulDiv(sats, px, 1e8) / 1e12  = sats·px / 1e20     ← 1e10 TOO LARGE
+authoritative:                                    sats·px / 1e30
+old !toVol, ETH:  mulDiv(wei,  px, 1e18)/ 1e12  = wei·px  / 1e30     ← already CORRECT
+```
+⇒ **Only BTC was ever wrong, and deleting the parameter fixes BTC while leaving ETH BYTE-IDENTICAL.**
+Now matches `SwapLib`'s authoritative `mulDiv(poolVol, base, 1e30)` exactly (1e18 · 1e12).
+
+### WHAT TO WATCH IN THE VERIFY RUN
+The BTC inventory cap `min(p.amount, convert(...))` was 1e10 too large ⇒ it **could never bind**.
+With C3 it CAN, so on BTC paths: partial fills become possible, and `refundUnfilled` / `_refundExcess`
+— previously **DEAD CODE on every BTC path** — become REACHABLE for the first time.
+⚠️ The audit warned that fixing C3 while `amount` (native) and `consumed` (6-dec) were on different
+bases would ARM a latent `Core.refundUnfilled` mismatch. **That ordering constraint is satisfied**: C1
+and C2 are both in and confirmed, so the two are on the same basis now. This is why C3 had to come last
+of the three.
+

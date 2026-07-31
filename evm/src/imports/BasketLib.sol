@@ -417,11 +417,20 @@ library BasketLib {
     /// @notice Convert amount between volatile asset and USDC using price.
     /// `volScale = 10**decimals(asset)`; pass 1e18 for WETH, 1e8 for WBTC.
     /// `price` is always WAD-scaled USD-per-asset; USDC is always 1e6.
-    function convert(uint amount, uint price, bool toVol, uint volScale)
+    /// §C3 FIX: `volScale` is GONE — it was the bug, not a parameter. The divisor must always be 1e18,
+    /// because `getTWAPforAsset` already lifts the WBTC anchor ×1e10 to close the 8↔18-dec gap (see
+    /// `SwapLib.twapResolve` and the authoritative note at `SwapLib:951-955`). Passing `volScale = 1e8`
+    /// for BTC therefore DOUBLE-counted that correction and made `vol → USDC` come out **1e10 too
+    /// large**, so the BTC inventory cap `min(p.amount, convert(...))` could never bind: partial fills
+    /// were impossible and `refundUnfilled`/`_refundExcess` were dead code on every BTC path.
+    /// For WETH (`volScale == 1e18`) the old expression was already correct, which is why only the BTC
+    /// side was wrong — and why deleting the parameter fixes BTC while leaving ETH byte-identical.
+    /// Now matches `SwapLib`'s authoritative `mulDiv(poolVol, base, 1e30)` exactly (1e18 · 1e12).
+    function convert(uint amount, uint price, bool toVol)
         public pure returns (uint) {
         return toVol
-            ? FullMath.mulDiv(amount * 1e12, volScale, price)   // USDC → vol
-            : FullMath.mulDiv(amount, price, volScale) / 1e12;  // vol → USDC
+            ? FullMath.mulDiv(amount * 1e12, 1e18, price)   // USDC → vol
+            : FullMath.mulDiv(amount, price, 1e18) / 1e12;  // vol → USDC
     }
 
     function routeSwap(Types.AuxContext memory ctx,
@@ -435,7 +444,7 @@ library BasketLib {
         // `consumed` = the caller-input amount actually routed to the swap (before any 4626 revaluation);
         // the excess p.amount-consumed is a partial fill the caller must reclaim/cap (#105).
         consumed = Math.min(p.amount, convert(p.pooled,
-                        p.v4Price, p.token != address(0), ctx.volScale));
+                        p.v4Price, p.token != address(0)));
         uint pooled = consumed;
         if (pooled > 0) {
             if (p.token != address(0) && ctx.vault != address(0)) {
