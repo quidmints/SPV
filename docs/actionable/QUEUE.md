@@ -717,3 +717,45 @@ There is no `_swapInPrep` under that name.
   finding is real), which is precisely why a wrong function name is dangerous: the surrounding accuracy
   lends it credibility. Every `file:line` in an agent report is a claim to check, not a fact to inherit.
 
+# 🔴🔴🔴 THE 31 FAILURES ARE ENVIRONMENTAL. I REVERTED THREE CORRECT CHANGES. (2026-07-31)
+
+**CLEAN TREE, no changes applied: 3,529 passed / 31 failed — IDENTICAL to C5's run, D3's run, and
+C2+C5's run**, down to the same two signatures:
+```
+[FAIL: PREMISE: the CONTROL LP redeem must deliver …: 0 <= 0]   testLeverage_LvrControlVsTreatment
+[FAIL: rung 3 paid native ETH via the real RedemptionManager: 0 <= 4900000000000000000]
+```
+⇒ **`ExceededRedeemable()` fires because ether.fi's LIVE redeemable pool was smaller than our ask.**
+  That pool is MAINNET STATE on an UNPINNED fork — it differs run to run. The earlier "3,559 / 1"
+  baseline was simply a run where their pool happened to be deep enough.
+
+### WHAT THIS INVALIDATES — three correct changes were reverted on false evidence
+| change | I concluded | TRUTH |
+|---|---|---|
+| **C5** (`Vogue.sol:658` `owed * 1e12`) | *"C5 ALONE causes all 31 failures"* | **CAUSED NOTHING.** Arithmetic was already verified correct |
+| **D3** (`_priceOr` dedup, **197 bytes freed**) | *"broke 30 tests"* | **BROKE NOTHING.** Also freed the space C10/C3/C4 all need |
+| **C2** (`from6` version) | reverted alongside C5 | **CAUSED NOTHING** — the C2+C5 run was also 31 |
+⚠️ **ONE conclusion SURVIVES:** C1+C2 → **333** failures was REAL — a different magnitude entirely, and
+  that C2 used `scaleTokenAmount(…, false)`, which genuinely divides 6-dec USDC by 1e12. The REWRITTEN
+  C2 (`from6`) is fine. So the original C2 diagnosis stands and only its FIRST patch was wrong.
+
+### ROOT CAUSE — §A.18 was right and I treated it as a nuisance
+The queue already said: *"THE FORK IS NOT PINNED — the whole fork suite is NON-REPRODUCIBLE."* I read
+that as flakiness to tolerate. **It is not: it silently corrupts ATTRIBUTION.** Every "X broke N tests"
+conclusion compares two runs against DIFFERENT external chain state. `verify-from-the-same-run` is not
+enough — **the runs must also be against the SAME CHAIN STATE.**
+⇒ 🔴 **PIN THE FORK. This is now a BLOCKER, not a nice-to-have** — for every remaining fix, and
+  absolutely for Echidna, which would fuzz against a moving baseline.
+
+### AND IT RE-RATES C10 UPWARD
+C10 is not a latent defect I induced with C5 — **it FIRES IN THE WILD, intermittently, right now.**
+Whenever ether.fi's pool is momentarily thinner than the ask, rung 3 is skipped and the LP is pushed
+onto the multi-day wait-NFT. Silently (bare `catch {}`). That is a live UX/capital-efficiency defect,
+not a theoretical one.
+
+### RESTORE (all three were correct)
+ 1. **D3** — re-apply; 197 bytes, and it unblocks C10/C3/C4's shared budget.
+ 2. **C5** — re-apply; `usd_owed` is 6-dec on every write and three siblings scale identically.
+ 3. **C2 (`from6`)** — re-apply; the helper is the missing 6-dec→native conversion.
+ ⚠️ Do it AFTER pinning the fork, so the confirming run is actually reproducible.
+
