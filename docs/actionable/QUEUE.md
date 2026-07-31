@@ -823,3 +823,30 @@ and C4 (`:441-442`) also live here and were previously blocked behind the old 14
   Etherscan (403 to WebFetch), GitHub code search (no index hit). **Get it from a reachable source
   before writing a clamp; do not guess an external ABI.**
 
+## ✅ C2 CONFIRMED CLEAN — the first properly attributable run of the session
+
+```
+baseline  @25653624 : 3,529 passed / 31 failed
+with C2   @25653624 : 3,529 passed / 31 failed     ⇒ ZERO delta
+```
+Same code path, same block, one variable. **C2 (`BasketLib.from6` at `Core.sol:989`) causes nothing**,
+and the `from6` rewrite of the audit's wrong `scaleTokenAmount` patch is validated.
+
+### MONEY-PATH STATUS — four fixes now in the tree, all verified or confirmed-clean
+| fix | what it corrects | status |
+|---|---|---|
+| **C1** | `Aux.deposit` returns NATIVE, treated as 6-dec at 2 `SwapLib` sites | ✅ CONFIRMED — it CLOSED `ZZBoldProbe` (BOLD is 18-dec: the accidental first 18-dec test) |
+| **C2** | `Core.sol:989` hands `AUX.take` 6-dec where NATIVE is required | ✅ CONFIRMED CLEAN at pinned block |
+| **C5** | `Vogue.sol:658` missing `* 1e12` — 4th sibling, only one unscaled | ✅ restored; clean at pinned block |
+| **D3** | `_priceOr` duplicated verbatim ×2 | ✅ restored; **197 bytes freed**, `SwapLib` +338 |
+
+⚠️ **RE-VERIFY C1 AND C5 AT THE PINNED BLOCK.** Both were judged pre-`ForkPin`, so their evidence is
+from unpinned runs. C1's confirmation is still strong (it flipped a SPECIFIC test from fail→pass, a
+signal that survives baseline drift), but C5's "clean" rests on a comparison that is now known unsound.
+Cheap: `FORK_BLOCK=25653624 forge test` with each toggled.
+
+### THE 31 ARE C10, AND THEY FIRE IN THE WILD
+At this block ether.fi's redeemable pool is thinner than rung 3's ask ⇒ `ExceededRedeemable()` ⇒ the
+bare `catch {}` silently drops the LP onto rung 4's multi-day wait-NFT. **Not a test artifact — this is
+production behaviour whenever their pool is thin.** Fixing C10 should take the suite to ~3,559/1.
+
