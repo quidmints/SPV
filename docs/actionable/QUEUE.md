@@ -2047,3 +2047,32 @@ are state-changing, and 2 returned addresses I have not identified.
 📌 Discipline note: every conclusion above is a DECODED RETURN VALUE, not a name guess. The two
   UNIDENTIFIED addresses are marked as such rather than assigned plausible-sounding roles.
 
+## 🔴 "REFILLING BUCKET" HYPOTHESIS — **REFUTED BY MY OWN EXPERIMENT.** The warp plan does NOT work.
+Asked to prove it, I sampled `totalRedeemableAmount(native)` densely. The data CONTRADICTS the hypothesis:
+| block range | value |
+|---|---|
+| 25596000 · 25598000 · 25599000 · 25599500 · 25600000 · 25600500 · 25601000 · 25602000 · 25604000 | **2000e18 — IDENTICAL at every sample** |
+| 25610000 · 25620000 · 25630000 · 25640000 · 25645000 | **2000e18 — still identical (~7 DAYS flat)** |
+| **25648000** · 25652000 · 25654000 · 25655500 | **0 — and NO recovery over ~25 HOURS** |
+⇒ A rate-limited bucket refills GRADUALLY ⇒ we would see intermediate values. **We see NONE.** It is a
+  **STEP FUNCTION: flat 2000e18 for ~7 days, then flat 0 for the last ~25 hours.**
+⇒ 🔴 **THEREFORE: `vm.warp` will NOT refill it, and my proposed fix is INVALID.** Retracted before being
+  built. (Third C10 answer of mine to die on contact with data — stETH, block-pinning, now time-warp.)
+
+### What the step function actually implies (transition is between 25645000 and 25648000)
+Flat-then-zero is the signature of a **CONFIGURED VALUE or a BINDING GUARD**, not of usage draining a meter:
+ (a) **Admin set the capacity to 0** (paused/retuned) — flat 2000 for a week is a CONFIG constant, not an
+     organically-varying balance.
+ (b) **A low-watermark guard began binding** — e.g. redeemable is `min(cap, TVL-related headroom)` and the
+     headroom term crossed below zero. The decoded `500` bps + `10_000` denominator + `1e16` floor are
+     plausible inputs to exactly such a formula.
+ (c) A single redemption ≥ 2000 ETH drained it AND refill is slow/keeper-driven (⇒ 25h of 0 is consistent).
+▶️ **DECISIVE NEXT STEP (cheap, ends the guessing): bisect to the EXACT transition block between 25645000
+  and 25648000, then read that block's transactions to the manager.** A config `set*` tx ⇒ (a). A large
+  `redeemWeEth` ⇒ (c). Neither ⇒ (b), and the guard formula must be derived.
+⚠️ **DO NOT build the rung-3 test fix until this is settled.** Three plausible mechanisms remain and they
+  imply DIFFERENT tests: (a)/(b) mean capacity may be 0 indefinitely ⇒ the test must assert the
+  FALL-THROUGH; (c) means it recovers ⇒ a paid-path test is meaningful.
+📌 The landed runtime capacity SKIP is correct under ALL THREE readings — it is the one piece that needed no
+  mechanism knowledge, which is why it was right to land it first.
+

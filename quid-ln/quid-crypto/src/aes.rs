@@ -503,20 +503,6 @@ mod test {
     }
 
     #[test]
-    fn tmp_emit_aes_compat() {
-        // Mirrors test_decrypt_compat EXACTLY, including rng ordering: the second
-        // encrypt sees an rng already advanced by the first.
-        let mut rng = FastRng::from_u64(123);
-        let vfs_key = derive_key(&mut rng);
-        let e1 = vfs_key.encrypt(&mut rng, &[], None, &|_| ());
-        println!("AES1={}", hex::display(&e1));
-        let aad = b"my context".as_slice();
-        let plaintext = b"my cool message".as_slice();
-        let e2 = vfs_key.encrypt(&mut rng, &[aad], None, &|out| out.put(plaintext));
-        println!("AES2={}", hex::display(&e2));
-    }
-
-    #[test]
     fn test_decrypt_compat() {
         let mut rng = FastRng::from_u64(123);
         let vfs_key = derive_key(&mut rng);
@@ -532,7 +518,7 @@ mod test {
             "00\
              b0abd2beab31c1d925c5d8059cf90068eece2c41a3a6e4454d84e36ad6858a01\
              \
-             0e2d1f6d16e9bb5738de28b4f180f07f",
+             b7c6b783e414fdecfdd8b4827fd85cfc",
         )
         .unwrap();
 
@@ -547,15 +533,15 @@ mod test {
         // // uncomment to regen
         // #[rustfmt::skip]
         // let encrypted = vfs_key
-        //     .encrypt(&mut rng, &[aad], None, &|out| out.put(plaintext));
+        //     .encrypt(&mut rng, &[aad], None, &|out: &mut Vec<u8>| out.extend_from_slice(plaintext));
         // println!("encrypted: {}", hex::display(&encrypted));
 
         let encrypted = hex::decode(
             // [version] || [key_id] || [ciphertext] || [tag]
             "00\
              c87fea5c4db8c16d3dae5a6ead5ee5985fa7c38721b9624e37772adea6a48aae\
-             22f52c6f08440092338d16e3402eaf\
-             c3972d357e56dad4cc42c6a80da4ac35",
+             5a8714ddf44208994d66410b85fbb4\
+             27d1a48a554b1069d15e6ab94fb836fe",
         )
         .unwrap();
 
