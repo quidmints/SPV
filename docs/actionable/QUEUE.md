@@ -3961,3 +3961,34 @@ the citing line SAYS, and anything short of an explicit repair is marked as need
 ▶️ NEXT: the ~35 headers with NO code citation. Absence of a citation is NOT evidence of open (my own
   rule) — those need the mechanism grep, which is slower. Prioritise any that are 🔴🔴 (money-path).
 
+## 🔑 BATCH 4 — **STRUCTURAL FINDING: the marker count is inflated by the doc's own format.**
+Split the 66 headers into cited (31) vs uncited (22 open-marked items) and read the uncited ones. The
+decisive discovery is not about any single item:
+🎯 **The archive records resolutions as SEPARATE LATER SECTIONS while the ORIGINAL header keeps its 🔴.**
+So a resolved item appears TWICE — once as an open header, once as its resolution — and any count of
+🔴 headers **double-counts every item that was ever revisited.** Verified instances:
+| item | original header | later section that RESOLVES it |
+|---|---|---|
+| **§A.58** | `:3852` 🔴 *"`reseat()` CANNOT HEAL THE DEADLOCK"* | `:3953` **STRUCK** (*"NOT an off-by-one; the legacy stress-tested repo uses the IDENTICAL condition"*) + `:3981` **DOWNGRADED** (*"the JIT refill covers this — KEEPER work, not a defect"*) |
+| **§A.59** | `:4014` 🔴 *"STALE-COMMENT CONTRADICTION"* | `:4041` **RESOLVED** (*"no contradiction"*), then `:4066` **CORRECTED AGAIN** — *"#109's AUTO-TRIGGER was restored"*, evidenced at `Vogue.sol:36` + `:483` (*"✅ DONE (#109). INLINE WIRING IS LIVE"*) |
+⇒ **Both are CLOSED, and both still present as 🔴 headers.** ⇒ **The "40 open items" figure was never a
+  backlog — it was a count of section headings.**
+⇒ 📌 **This is the same defect class as a stale comment**, applied to the tracking document: the marker
+  describes a past state and cannot fail. **Trust the LATEST section about an item, never the first.**
+
+### Also assessed in this batch
+| item | verdict |
+|---|---|
+| **§A.41** (*stale bytecode invalidates mutation checks*) | ✅ NOT a build item — a METHOD lesson, already promoted to the STANDING TRAPS list (*"`forge build --force` before any test"*). **Close as a lesson.** |
+| **§A.16** (*levered LP expenses passive LP ~7.5%*) | ✅ likely resolved by **§A.16b's** repair (`VEth.sol:29` *"the same-clock invariant repaired in §A.16b"*) — A.16 is the FINDING, A.16b the MECHANISM+FIX. 🟡 MED: confirm the 7.5% is gone with a test before closing. |
+| **§A.23** (*actionable-folder triage*) | ✅ process/bookkeeping, not code. Superseded by QUEUE.md replacing the archive. |
+| **§A.71** (*codebase-wide dedup, "every struct, everything"*) | 🔴 **GENUINELY OPEN** — this IS the deep dedup pass now queued next. |
+| **§A.51** (*`preferred` fee exists but deliberately DISCONNECTED*) | 🔴 open QUESTION for the user, not a bug: reconnect it or document why not. |
+
+## 📊 TALLY (20 of 66 assessed)
+✅ DONE / closed / not-a-build-item: §A.5e §A.18 §A.13 §A.8e §A.16b §A.25 §A.5c §A.58 §A.59 §A.41 §A.23 — **11**
+🟡 likely done, confirm before closing: §A.24 §A.9 §A.15 §A.16 — **4**
+⚠️ PARTIAL: §A.5f — **1**
+🔴 genuinely open: §A.5g (liveness) · §J.8b (dedup) · §A.19b (design) · §A.71 (the dedup pass) · §A.51 (user question) — **5**
+⇒ **Of 20 assessed, only 5 are real open work — and 2 of those are the dedup pass and a user decision.**
+
