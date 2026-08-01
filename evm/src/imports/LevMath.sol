@@ -2,6 +2,8 @@
 pragma solidity ^0.8.28;
 
 import {FixedPointMathLib} from "solady/src/utils/FixedPointMathLib.sol";
+// §A.52: the canonical view (was a file-local `ILevSyncHookM`).
+import {ILevSyncHook} from "./Interfaces.sol";
 import {ILevVenue, IERC20Min, IWETH9} from "../imports/ILevVenue.sol";
 import {IMorphoFlash} from "../imports/Interfaces.sol";
 
@@ -41,11 +43,6 @@ interface ILevMintVenueM {
 /// hook address in. All view: the Vogue impls are all view (soldFractionWad/bandSqrtP are
 /// `view` fns, reseatEpoch is a `public` state var), and `view` external calls are STATICCALL-safe inside the
 /// try/catch below (Solidity allows try/catch on view calls) and callable from both view and non-view callers.
-interface ILevSyncHookM {
-    function soldFractionWad(uint160 entrySqrtP) external view returns (uint256);
-    function reseatEpoch() external view returns (uint64);
-    function bandSqrtP(bool isBTC) external view returns (uint160);
-}
 interface ISwapRouter02M {
     struct ExactInputSingleParams {
         address tokenIn; address tokenOut; uint24 fee; address recipient;
@@ -130,9 +127,9 @@ library LevMath {
     function reanchorCompute(bool active, address hook, uint64 curEpoch, bool isBTC)
         public returns (bool go, uint64 newEpoch, uint160 newSqrtP) {
         if (!active || hook == address(0)) return (false, 0, 0);
-        try ILevSyncHookM(hook).reseatEpoch() returns (uint64 e) { newEpoch = e; } catch { return (false, 0, 0); }
+        try ILevSyncHook(hook).reseatEpoch() returns (uint64 e) { newEpoch = e; } catch { return (false, 0, 0); }
         if (newEpoch <= curEpoch) return (false, 0, 0);       // band hasn't recentered → nothing to re-anchor
-        try ILevSyncHookM(hook).bandSqrtP(isBTC) returns (uint160 v) { newSqrtP = v; } catch { return (false, 0, 0); }
+        try ILevSyncHook(hook).bandSqrtP(isBTC) returns (uint160 v) { newSqrtP = v; } catch { return (false, 0, 0); }
         if (newSqrtP == 0) return (false, 0, 0);
         go = true;
     }
@@ -144,7 +141,7 @@ library LevMath {
     function ilTargetLive(bool active, address hook, uint160 entrySqrtP, uint128 entryPriceWad, uint256 px, uint64 capBps)
         public returns (uint256) {
         if (active && entrySqrtP != 0 && hook != address(0)) {
-            try ILevSyncHookM(hook).soldFractionWad(entrySqrtP) returns (uint256 sf) {
+            try ILevSyncHook(hook).soldFractionWad(entrySqrtP) returns (uint256 sf) {
                 if (sf != 0) { uint256 bps = sf / 1e14; return bps > capBps ? capBps : bps; }
             } catch {}
         }

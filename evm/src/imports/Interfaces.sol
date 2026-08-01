@@ -20,19 +20,23 @@ library Interfaces {}   // no code — this file exists purely to host the decla
 
 /// Aave v4 spoke. Union of the five former variants: `IAaveV4Spoke` (Aux, Vault, BasketLib),
 /// `IAaveV4Spoke_V` (VaultLib), `IAaveV4SpokeCL` (ChannelLib).
+/// Canonical Aave **v4** spoke view — union of the former per-file variants
+/// (`AaveV4Venue::IAaveSpoke`). NOTE `getReserveId` is `view`: the two declarations DISAGREED on
+/// mutability, and `view` is correct — four live call sites (`Aux`, `Vault`, `ChannelLib`) already
+/// STATICCALL it in production. Aave **v3** is a DIFFERENT protocol with its own ABI
+/// (`AaveV3Venue::IAaveV3Pool`/`IAaveV3DataProvider`, WBTC-only) and is deliberately NOT merged here.
 interface IAaveV4Spoke {
-    function supply(uint256 reserveId, uint256 amount, address onBehalfOf)
-        external returns (uint256, uint256);
-    function withdraw(uint256 reserveId, uint256 amount, address onBehalfOf)
-        external returns (uint256, uint256);
+    function supply(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256);
+    function withdraw(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256);
     function getReserveId(address hub, uint256 assetId) external view returns (uint256);
     function getUserSuppliedAssets(uint256 reserveId, address user) external view returns (uint256);
-    /// Scaled (principal-basis) supply shares — the Aave-v4 analog of a 4626's share balance.
-    /// `suppliedAssets/suppliedShares` is the reserve's liquidity index = its cumulative yield factor
-    /// (same role as 4626 share price).
     function getUserSuppliedShares(uint256 reserveId, address user) external view returns (uint256);
     function getReserveSuppliedAssets(uint256 reserveId) external view returns (uint256);
     function getReserveTotalDebt(uint256 reserveId) external view returns (uint256);
+    function setUsingAsCollateral(uint256 reserveId, bool useAsCollateral, address onBehalfOf) external;
+    function borrow(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256);
+    function repay(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256);
+    function getUserDebt(uint256 reserveId, address user) external view returns (uint256);
 }
 
 /// Canonical IWeETH — union of the former per-file variants.
@@ -116,13 +120,12 @@ interface ILevHost {
 }
 
 /// Canonical ILevSyncHook — union of ILevSyncHook, ILevSyncHookB.
+/// Canonical view — union of the former per-file variants (`ILevSyncHookM`). Two declarations
+/// described ONE contract, so a signature change had to be made twice and a missed one still compiled.
 interface ILevSyncHook {
-    // Vogue.syncLev — reconcile the LP's levered band slice to its (now-changed) net-equity
     function syncLev(address lp) external;
     function soldFractionWad(uint160 entrySqrtP) external view returns (uint256);
-    // (B) actual sold fraction (LONG)
     function bandSqrtP(bool isBTC) external view returns (uint160);
-    // band spot √P at open
     function reseatEpoch() external view returns (uint64);
     function syncLevBTC(address lp) external;
 }
@@ -247,15 +250,14 @@ interface ICore {
 /// WHY the BTC members belong here: the second declaration could not drift-detect. `IVaultCtx_V`
 /// named Vault's own functions, so a return-shape change in Vault.sol would compile clean and
 /// mis-decode at runtime in the delegatecalled library instead of failing the build.
+/// Canonical view — union of the former per-file variants (`IEthVenueV`). Two declarations
+/// described ONE contract, so a signature change had to be made twice and a missed one still compiled.
 interface IEthVenue {
-    // ── BTC-band self-callbacks (delegatecall ⇒ address(this)==Vault; the extracted BtcVaultLib
-    //    bodies drive the tick rebalance via Vault's public `repack` and read back the
-    //    value-type fee accumulators, which cannot be handed over as storage refs) ──
     function repack(bool isBTC) external returns (uint160, int24, int24, uint128, uint);
     function feesPerShareBTC() external view returns (uint);
     function USD_FEES_BTC() external view returns (uint);
-    function derivedThetaWadBtc() external view returns (uint);   // live BTC-band theta (asks Vogue w/ BTC ticks)
-    function totalBufferBTC() external view returns (uint);       // aggregate debt-funded buffer (gross-consistency)
+    function derivedThetaWadBtc() external view returns (uint);
+    function totalBufferBTC() external view returns (uint);
     function vogueETH() external view returns (uint);
     function deliverableETH() external view returns (uint);
     function GALAXY_VAULT() external view returns (address);
@@ -273,6 +275,7 @@ interface IEthVenue {
     function supplyEulerEth(uint amount) external returns (uint);
     function supplyGauntlet(uint amount) external returns (uint);
     function supplyEtherFiToRover(uint amount) external returns (uint);
+    function offrampEtherFi(uint amount, address recipient, bool instant) external returns (uint);
 }
 
 /// Canonical IAux — union of IAux, IAux.

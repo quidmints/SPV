@@ -40,6 +40,8 @@ interface IWiredVault  { function btcChannels() external view returns (address);
 interface IWiredRover  { function AUX() external view returns (address); }
 interface IWiredBasket { function AUX() external view returns (address);
                          function BTC_VAULT() external view returns (address); }
+/// Canonical view — union of the former per-file variants (`IBasketTurn2`). Two declarations
+/// described ONE contract, so a signature change had to be made twice and a missed one still compiled.
 interface IBasketTurn {
     function turn(address from, uint value) external returns (uint sent, uint seedBurned);
     function matureSupply() external view returns (uint);

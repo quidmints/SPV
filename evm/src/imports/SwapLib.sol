@@ -2,6 +2,8 @@
 pragma solidity ^0.8.13;
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
+// §A.52: the canonical view (was a file-local `IBasketTurn2`).
+import {IBasketTurn} from "./BasketLib.sol";
 // §A.52: the canonical Core view (was a file-local variant).
 import {ICore} from "./Interfaces.sol";
 import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -59,10 +61,6 @@ interface ILevEthDeliver {
         external returns (uint wethDelivered);
 }
 
-interface IBasketTurn2 {
-    function turn(address from, uint value) external returns (uint sent, uint seedBurned);
-    function matureSupply() external view returns (uint);
-}
 /// @notice V4 (Vogue) repack. 5th return = the resolved oracle price (Chainlink-when-stale, else internal
 ///         TWAP) computed during the repack-first; the swap reuses it as v4Price so it doesn't read the
 ///         internal `observe` ring a 2nd time. 0 ⇒ live-read fallback. (Was two identical decls
@@ -537,12 +535,12 @@ library SwapLib {
     ///      USD value; the dropped ≤1e12 sub-unit dust is immaterial to a USD amount.
     function _consumeQdIn(IAux aux, address quid, uint amount, address[] memory stables)
         private returns (uint) {
-        (uint burned, uint seedBurned) = IBasketTurn2(quid).turn(msg.sender, amount);
+        (uint burned, uint seedBurned) = IBasketTurn(quid).turn(msg.sender, amount);
         uint solvent;
         {   (uint[15] memory d,,, uint dl) = aux.get_deposits();
             (solvent,) = aux.get_metricsWith(d[14], d[0]);
             solvent = solvent > dl ? solvent - dl : 0; }
-        amount = ShareMath.qdShareValue(burned, solvent, IBasketTurn2(quid).matureSupply() + burned) / 1e12;
+        amount = ShareMath.qdShareValue(burned, solvent, IBasketTurn(quid).matureSupply() + burned) / 1e12;
         if (seedBurned > 0) {
             uint n = stables.length;
             for (uint i = 0; i < n; i++) {

@@ -2,6 +2,8 @@
 pragma solidity ^0.8.28;
 
 import {LevVenueBase, ILevERC20} from "./imports/LevVenueBase.sol";
+// §A.52: the canonical Aave v4 spoke view (was a file-local `IAaveSpoke`).
+import {IAaveV4Spoke} from "./imports/Interfaces.sol";
 
 /// ── Aave V4 Hub/Spoke surface this adapter needs. Signatures are the ones proven against the LIVE Aave V4
 ///    Spoke by the (tested) Amp.sol integration: supply/borrow/repay/withdraw are keyed by (reserveId, amount,
@@ -9,17 +11,6 @@ import {LevVenueBase, ILevERC20} from "./imports/LevVenueBase.sol";
 ///    sub-account / credit-delegation surface, so per-LP isolation is done with a per-LP escrow (see below).
 interface IAaveHub {
     function getAssetId(address underlying) external view returns (uint256);
-}
-interface IAaveSpoke {
-    function getReserveId(address hub, uint256 assetId) external returns (uint256);
-    function supply(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256);
-    function setUsingAsCollateral(uint256 reserveId, bool useAsCollateral, address onBehalfOf) external;
-    function borrow(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256);
-    function repay(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256);
-    function withdraw(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256);
-    // Position readouts in TOKEN units (the Hub/Spoke tracks shares internally — no aToken/vDebt ERC20s).
-    function getUserSuppliedAssets(uint256 reserveId, address user) external view returns (uint256);
-    function getUserDebt(uint256 reserveId, address user) external view returns (uint256);
 }
 
 /// @title  AaveV4Escrow — a single LP's ISOLATED Aave V4 position, owned by the venue
@@ -30,7 +21,7 @@ interface IAaveSpoke {
 ///         and the sole place that LP's collateral/debt lives. Only the venue can move it.
 contract AaveV4Escrow {
     address public immutable VENUE;
-    IAaveSpoke public immutable SPOKE;
+    IAaveV4Spoke public immutable SPOKE;
     address public immutable COLLATERAL;
     address public immutable STABLE;
     uint256 public immutable COLL_RESERVE;
@@ -39,7 +30,7 @@ contract AaveV4Escrow {
     error OnlyVenue();
     modifier onlyVenue() { if (msg.sender != VENUE) revert OnlyVenue(); _; }
 
-    constructor(IAaveSpoke spoke, address coll, address stable, uint256 collReserve, uint256 stableReserve) {
+    constructor(IAaveV4Spoke spoke, address coll, address stable, uint256 collReserve, uint256 stableReserve) {
         VENUE = msg.sender;
         SPOKE = spoke; COLLATERAL = coll; STABLE = stable;
         COLL_RESERVE = collReserve; STABLE_RESERVE = stableReserve;
@@ -91,7 +82,7 @@ contract AaveV4Escrow {
 ///         Custody (per ILevVenue): MANAGER sends collateral/stable to the venue before supply/repay; the venue
 ///         routes them through the LP's escrow and forwards borrowed stable / withdrawn collateral back to MANAGER.
 contract AaveV4Venue is LevVenueBase {
-    IAaveSpoke public immutable SPOKE;
+    IAaveV4Spoke public immutable SPOKE;
     address public immutable HUB;
     address public immutable COLLATERAL;
     uint256 public immutable COLL_RESERVE;
@@ -106,9 +97,9 @@ contract AaveV4Venue is LevVenueBase {
     constructor(address spoke, address hub, address coll, address stable, address manager, uint256 liqThresholdBps)
         LevVenueBase(manager, stable)
     {
-        SPOKE = IAaveSpoke(spoke); HUB = hub; COLLATERAL = coll;
-        COLL_RESERVE   = IAaveSpoke(spoke).getReserveId(hub, IAaveHub(hub).getAssetId(coll));
-        STABLE_RESERVE = IAaveSpoke(spoke).getReserveId(hub, IAaveHub(hub).getAssetId(stable));
+        SPOKE = IAaveV4Spoke(spoke); HUB = hub; COLLATERAL = coll;
+        COLL_RESERVE   = IAaveV4Spoke(spoke).getReserveId(hub, IAaveHub(hub).getAssetId(coll));
+        STABLE_RESERVE = IAaveV4Spoke(spoke).getReserveId(hub, IAaveHub(hub).getAssetId(stable));
         LIQ_THRESHOLD_BPS = liqThresholdBps;
     }
 

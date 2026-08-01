@@ -3,6 +3,8 @@
 pragma solidity ^0.8.28;
 
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
+// §A.52: the canonical view (was a file-local `IEthVenueV`).
+import {IEthVenue} from "./imports/Interfaces.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
@@ -20,15 +22,6 @@ import {ILevHost} from "./imports/Interfaces.sol";
 /// EthVenue — the ETH yield-venue custody (Galaxy/AAVE/ether.fi WETH) carved out
 /// of Aux. Vogue routes its WETH venue ops here. vogueETH() is still read via AUX
 /// (a thin forwarder), so only the WRITE ops (vogueOp/supply*/offramp/arb) re-point.
-interface IEthVenueV {
-    function vogueOp(bool isBTC, uint amount, uint8 op, bytes32 ctx) external returns (uint);
-    function supplyEtherFi(uint amount) external returns (uint);
-    function supplyAaveEth(uint amount) external returns (uint);
-    function supplyEulerEth(uint amount) external returns (uint);
-    function supplyGauntlet(uint amount) external returns (uint);
-    function offrampEtherFi(uint amount, address recipient, bool instant) external returns (uint);
-    function supplyEtherFiToRover(uint amount) external returns (uint);
-}
 
 /// IL-protect fee lane: Vogue reads the LevManager through the Vault's already-secure one-shot pin
 /// (`ethVenue.LEV_MANAGER()`), so `syncLev` needs NO new trust surface of its own (Vogue renounces ownership
@@ -128,7 +121,7 @@ contract Vogue is
     ///         supplyEtherFi/supplyAaveEth, offrampEtherFi, arbETH) here. Pinned
     ///         once via setEthVenue (after EthVenue is deployed). vogueETH() is
     ///         still read at AUX (a thin forwarder) so existing reads are intact.
-    IEthVenueV public EV;
+    IEthVenue public EV;
     error EthVenuePinned();
     function setEthVenueContract(address e) external {
         // Kept as its own one-shot setter (NOT folded into setup): EthVenue is deployed
@@ -136,7 +129,7 @@ contract Vogue is
         // so the pin is necessarily a post-setup deploy step, not mergeable into setup().
         require(msg.sender == DEPLOYER, "403");   // Vogue is ownerless post-setup (renounced) → deployer-gate
         if (address(EV) != address(0)) revert EthVenuePinned();
-        EV = IEthVenueV(e);
+        EV = IEthVenue(e);
         // Standing WETH approval so EthVenue can pull the depositor's WETH on
         // supplyEtherFi/supplyAaveEth/vogueOp/supplyEtherFiToRover (mirrors the
         // prior AUX approval). WETH is set in setup(), which must run first.

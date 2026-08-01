@@ -4544,3 +4544,34 @@ darwin at quid-cvm."* **Ran it.** `docker run … rust:1.90 cargo check --worksp
 | Rust dead code | ✅ none new (one known-deliberate marker) |
 | **remaining** | the HAND-ROLLING audit (library-vs-local), and the `_V`/`_M`/`2`-suffixed interface pairs the surfacer found (`IEthVenue`/`IEthVenueV`, `IAaveSpoke`/`IAaveV4Spoke`, `ILevSyncHook`/`ILevSyncHookM`, `IBasketTurn`/`IBasketTurn2`) |
 
+## ✅ §A.52 ROUND 3 — the suffixed pairs. Fragmentation **59 fns/41 groups → 30/29** (halved).
+| variant (deleted) | canonical | members | note |
+|---|---|---|---|
+| `AaveV4Venue::IAaveSpoke` | **`IAaveV4Spoke`** | 11 | see the mutability finding below |
+| `Vogue::IEthVenueV` | **`IEthVenue`** | 23 | |
+| `LevMath::ILevSyncHookM` | **`ILevSyncHook`** | 5 | |
+| `SwapLib::IBasketTurn2` | **`IBasketTurn`** | 3 | `IBasketTurn2` was a strict SUBSET |
+
+### 🔴 A REAL DEFECT THE MERGE EXPOSED — the two Aave-v4 declarations DISAGREED ON MUTABILITY
+| declaration | `getReserveId` |
+|---|---|
+| `AaveV4Venue::IAaveSpoke` | `external **returns**` — NON-view |
+| `Interfaces::IAaveV4Spoke` | `external **view** returns` |
+⇒ **`view` is CORRECT**, proven by usage rather than assumption: FOUR live call sites (`Aux.sol:313/319`,
+  `Vault.sol:311`, `ChannelLib.sol:415`) already STATICCALL it in production. A `view` declaration over a
+  state-changing function would revert at runtime — it does not, so the function is genuinely a view.
+⇒ **This is exactly the silent drift the one-declaration rule exists to prevent:** two views of one contract
+  disagreeing about mutability, both compiling, neither failing. **Merging them forced the question.**
+
+### ⚠️ AAVE v3 DELIBERATELY NOT TOUCHED (user: *"be careful with aavev4 and aavev3 (which is only for wbtc)"*)
+Checked before merging: `AaveV3Venue` uses **entirely separate** interfaces — `IAaveV3Pool` +
+`IAaveV3DataProvider`, its own ABI, WBTC-only. **A different protocol, not a variant.** Despite the name,
+`IAaveSpoke` lives INSIDE `AaveV4Venue.sol` and uses v4's `reserveId`/`onBehalfOf` shape — so the merge was
+v4↔v4, never v4↔v3. **The user's caution was warranted and is recorded at the interface.**
+
+### ▶️ REMAINING FRAGMENTATION (30 fns) — mostly LEGITIMATE vocabulary, one real target
+ • `IERC20Min`/`ILevERC20`/`IEVault`/`IVogueShares` sharing `balanceOf` — **ERC-20 vocabulary**, the
+   Solidity analogue of the Rust trait obligations. **NOT a dedup target.**
+ • ⚠️ **`IAux(107)` vs `IAuxM(21)` vs `IAuxFee(5)` vs `ISwapAux(2)`** — MORE Aux variants that were not in
+   the original six. **Real targets for a round 4.**
+
