@@ -2811,3 +2811,38 @@ if owed < MIN_ECONOMIC_GROW_SATS && !refresh_due { return; }
 ⚠️ Define `DEAD_MAN_REFRESH_MARGIN_BLOCKS` beside `DEAD_MAN_DELTA` (`deadman_exit.rs`); assert
   `MARGIN < DELTA` at startup or refreshes fire every tick.
 
+## 🔴 #114 COST BLOCKER FOUND — `DEAD_MAN_DELTA_BLOCKS = 144` (~1 DAY) ⇒ refresh-splice would be ~DAILY per channel.
+`deadman_exit.rs:56`: `pub const DEAD_MAN_DELTA_BLOCKS: u32 = 144;` — the exit's CLTV is set to
+`tip + 144` blocks ≈ **24 hours**. The doc at `:35` calls Δ *"a policy"* (i.e. TUNABLE).
+⇒ With splice-on-refresh, a refresh must occur before each CLTV matures ⇒ **~ONE ON-CHAIN SPLICE PER IDLE
+  CHANNEL PER DAY.** At any realistic BTC-LP count that is **almost certainly uneconomic** — and it would
+  consume the hop wallet (the common-mode failure already identified) far faster than fees accrue.
+🔴 **My earlier "one splice/month, nearly free at the margin" estimate was WRONG** — it assumed a long Δ
+  without reading the constant. **Cost was the one axis I never checked**, and it is the axis that decides
+  whether the design ships.
+
+### ⚖️ THE REAL TRADE-OFF (this is a USER DECISION — it is a policy, not a bug)
+Δ sets BOTH the post-death recovery latency AND the refresh (⇒ splice) frequency. They are the SAME knob:
+| Δ | LP recovery after fleet death | refresh-splice cost per idle channel |
+|---|---|---|
+| **144 (~1 day, TODAY)** | ⭐ fast — LP recovers in ~1 day | 🔴 ~1 on-chain splice/DAY — likely prohibitive |
+| 1008 (~1 week) | ~1 week | ~1 splice/week |
+| **4320 (~30 days)** | 🔴 slow — LP waits a month | ⭐ ~1 splice/month — affordable, and fee-flush often covers it |
+⇒ **Today's Δ was chosen for FAST RECOVERY, when refreshes were FREE (bare event emissions).** Making the
+  refresh a SPLICE changes the economics of that choice completely — **Δ must be re-decided alongside it.**
+
+### ▶️ OPTIONS (do NOT pick unilaterally — this trades user funds-access latency against operating cost)
+ (a) **Raise Δ to ~30 days + splice-on-refresh.** Attack eliminated; cost ~monthly. **Cost: LPs wait up to a
+     month to recover if the fleet dies.** ⚠️ That is the LP's own capital — the delay must be disclosed.
+ (b) **Keep Δ = 144, DROP splice-on-refresh, rely on (B) reactive mempool outspend alone.** No periodic
+     cost; keeps fast recovery. **Weaker: griefing is only DEFEATED REACTIVELY, not made impossible** —
+     back to an economic/liveness guarantee. The existing `watchtower_tick` makes this the CHEAPEST path.
+ (c) **Hybrid ⭐: Δ = 144 normally; splice-refresh ONLY when a splice is happening anyway** (fee-flush) —
+     i.e. free rides only. Between them, rely on (B). **Strictly better than (b) at ZERO extra cost**, since
+     every fee-flush already rotates the UTXO and kills all stale exits for free.
+ ⇒ **RECOMMEND (c) + (B) now** (zero new on-chain cost, real reduction in stale-exit lifetime), and put (a)
+   to the user as a separate, explicit policy question about recovery latency.
+📌 LESSON: I validated the mechanism (zero-grow OK), the call site, the symbols, and the reuse — but never
+  the FREQUENCY. **A per-tick predicate's cost is set by the constant that drives it; read that constant
+  BEFORE estimating cost.**
+
