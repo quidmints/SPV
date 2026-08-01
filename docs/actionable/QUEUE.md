@@ -2883,3 +2883,43 @@ Bitcoin tx is invalidated if **ANY** of its inputs is spent. So:
 📌 **This is the answer to "are you sure it's the best cost/benefit?" — I was NOT. The right question was
   "must invalidation be per-channel?" and the answer is NO.**
 
+## 🗺️ GRAPH USED (it DOES cover Rust) — files to touch for the FRESHNESS-UTXO design.
+**Correcting my own graph reads (twice wrong before it worked):** edges live under **`links`** (not
+`edges`), and the path field is **`source_file`** (not `file`). With the right keys: **57,511 links,
+12,953 `.rs` nodes** — the graph is fully usable for Rust.
+📌 And it independently CONFIRMS the earlier proof: **`.sol` nodes = 0.** Solidity is absent from a graph
+  built over this very repo — the Solidity work stays manual, as established.
+
+**Coupling query — neighbours of `deadman_exit` + `taproot_signer` (excluding vendored `lib/`):**
+| links | file |
+|---|---|
+| **268** | `quid-ln/src/taproot_signer.rs` ⭐ structural centre |
+| 46 | `quid-ln/src/deadman_exit.rs` |
+| 2 | `quid-ln/src/validating_signer.rs` |
+⇒ The change is **concentrated**, not spread — `taproot_signer.rs` is where a 2nd input must be handled.
+
+### ▶️ FILES TO TOUCH (graph-informed + grep-verified; NOTE the two crates)
+⚠️ `deadman_exit.rs` and `taproot_signer.rs` EXIST IN **BOTH** `quid-ln/quid-ln/src/` **AND**
+  `quid-ln/quid-bridge/src/` (confirmed by `find`). **Determine which is live before editing** — editing the
+  wrong copy is a silent no-op, the same failure class as the `mockCall` on a missing signature.
+ 1. **`taproot_signer.rs`** — sign a 2-input tx; the sighash MUST commit to BOTH inputs (SIGHASH_ALL over
+    all prevouts — BIP341 taproot key-path already commits to all prevouts, **verify this**). Highest
+    coupling ⇒ highest regression risk ⇒ test first.
+ 2. **`deadman_exit.rs`** — build the exit with the freshness input; carry its outpoint alongside `cltv`;
+    re-sign on rotation. (`DEAD_MAN_DELTA_BLOCKS = 144` can STAY.)
+ 3. **`recovery_broadcast.rs`** — a broadcaster must know the exit needs the freshness UTXO unspent;
+    `RecoverOutcome` likely needs a `FreshnessSpent` variant so a stale exit fails LOUDLY, not confusingly.
+ 4. **hop wallet / UTXO management** — create + rotate the freshness UTXO (ONE per period, globally).
+ 5. **`validating_signer.rs` / `evm_validating_signer.rs`** — the signing-policy gate may reject an unknown
+    2nd input; check its prevout validation.
+ 6. ✅ **`channel_driver.rs` NEEDS NO CHANGE** — the freshness design REPLACES splice-on-refresh entirely,
+    so the fee-flush gate edit is **DROPPED**. **The simpler design touches FEWER files.**
+
+### ▶️ TEST PLAN (in order, cheapest first)
+ 1. Unit: build + sign a 2-input exit; assert the signature verifies and that **mutating either prevout
+    invalidates it** — that single assertion IS the security property.
+ 2. Unit: assert a rotation makes prior exits fail validation.
+ 3. `cargo check` / `cargo test -p` the live crate.
+ 4. Regtest: broadcast a fresh exit after CLTV (accepted) and a stale one (rejected as missing-input) —
+    the end-to-end proof, and it settles the ORIGINAL #114 broadcast gap too.
+
