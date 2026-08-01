@@ -3488,3 +3488,30 @@ already available pre-#114. ⇒ **No new attacker capability; the failure mode i
     `daemon.rs:320`) — **never a caller-supplied one.** That keeps the new code path incapable of
     exfiltrating even if reached, and matches why `create_sweep_tx` stays unwired pending `SweepAuth`.
 
+## ✅ USER IS RIGHT — the fee float is TRANSIENT AND SMALL. Now QUANTIFIED from the real constants.
+| constant | value | source | meaning |
+|---|---|---|---|
+| `MIN_ECONOMIC_GROW_SATS` | **250_000 sats** (~0.0025 BTC) | `rebalancer.rs:82` | max fees ACCRUED per channel before a splice flushes them TO THE LP |
+| `wallet_reserve_sats` | **10_000 sats** (~0.0001 BTC) | `rebalancer.rs:117` = `FORCE_CLOSE_AVOIDANCE_MAX_FEE_SATS * 10` | the PERSISTENT floor the wallet never spends below |
+| `FORCE_CLOSE_AVOIDANCE_MAX_FEE_SATS` | 1_000 sats | `constants.rs:102` | force-close fee unit |
+⇒ **The PERSISTENT component is ~10_000 sats — a few dollars.** Everything above it is working capital that
+  exists only to be **spliced INTO channels, i.e. paid to LPs** (`maybe_flush_btc_fees` → `initiate_splice`).
+⇒ **So a host compromise captures a MOMENT of float, not a balance** — exactly the user's point, and the
+  batching threshold BOUNDS it: fees sit unflushed only until they clear 250k sats per channel, then leave.
+⇒ ⇒ **REVISION to my previous entry:** I wrote that the float exposure "should be stated explicitly" as if
+  it were a meaningful liability. **It is structurally near-zero by design** — the architecture already
+  drains it continuously to LPs. The correct statement is not a warning but a PROPERTY:
+  > *"The hop wallet is a transient fee conduit, not a treasury. Its standing balance is ~10k sats plus
+  >  in-flight fee batches (≤250k sats/channel) that are continuously spliced out to LPs. A host compromise
+  >  therefore captures a moment of flow, not a store of value — and CANNOT touch LP channel BTC, whose
+  >  payout is pinned to a `btcRecipientOf` locked at registration."*
+⇒ ✅ **The "a Rust-host hack cannot lose funds" invariant holds in the sense that matters.** Not because the
+  wallet is unspendable, but because **there is nothing meaningful sitting in it** — the design routes gains
+  to LPs continuously rather than accumulating them. **That is an architectural property, not a mitigation.**
+⇒ 📌 **My freshness UTXO fits this cleanly:** it is ONE dust-sized output per shard per period. It does NOT
+  create a standing balance, so it does NOT weaken the property. **Keep it dust-sized + internal-address
+  only** — then stage 2 preserves the invariant by construction.
+⚠️ The ONE thing that would break this: letting the wallet accumulate (large top-ups, or a shard count high
+  enough to demand a big buffer). **The derived K must be bounded by rotation need, NOT by "fund it more"** —
+  which is exactly how it was derived. The pieces are consistent.
+
