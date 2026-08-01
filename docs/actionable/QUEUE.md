@@ -4388,3 +4388,39 @@ narrow view of a contract that a SHARED interface already describes.
   `Vogue` views already in `Interfaces.sol`).
 ### ▶️ THEN: the big ones — `Aux` seen through ≥5 interfaces, `Core` through ≥4 (16 functions restated).
 
+
+
+---
+
+# ═══ RUST SCAN — FINISHED 2026-08-01. CONCLUSION: THERE IS NO CROSS-CRATE DUPLICATION TO REMOVE ═══
+
+The scan that began with graphify (17,624 nodes) and stalled on the `Strategy` false positive is now
+complete, and the answer generalises that false positive rather than contradicting it.
+
+**METHOD.** Enumerated every `fn` name defined in the non-vendored `quid-*` crates and counted how
+many crates define each. Anything in 3+ crates is a dedup candidate on the graph's logic.
+
+**RESULT — every single repeated name is a TRAIT OBLIGATION, not duplicated logic:**
+`new` (14 crates), `fmt` (14), `default` (10), `serialize`/`deserialize` (6/5), `from` (6),
+`try_from` (5), `from_str` (5), `as_str` (5), `arbitrary_with` (5), `from_rng` (6), `main` (5,
+binaries). Deduping any of them is impossible by construction - `Display` requires `fmt`, `Serialize`
+requires `serialize`, `Arbitrary` requires `arbitrary_with`.
+
+**SO THE ORIGINAL FINDING WAS A MEASUREMENT ARTEFACT, TWICE OVER.** The graph counts symbol
+CO-OCCURRENCE across crates and cannot distinguish "our duplicated helper" from "a method the
+compiler forces every implementor to write". `Strategy` was the first instance found by hand; this
+sweep shows it was the whole category. **A name-frequency graph over Rust will always surface the
+trait vocabulary and essentially nothing else** - worth knowing before commissioning another one.
+
+**ALSO ABANDONED, and why:** the `quid-common` prelude for bitcoin re-exports. Measured against real
+imports it fully covered 13 files, but 10 of those had a SINGLE import line, so it saved 4 lines
+total while 16 other files would have needed the prelude PLUS a `bitcoin` line. Reverted.
+
+**WHAT THE SCAN DID PRODUCE, all landed:** `quid-cvm` went from 135 lines and ZERO tests to 19
+mutation-verified tests; `quid-api-core`'s test binary was fixed (a module-vs-items import bug meant
+**51 tests had never run once**); and the workspace's Linux-only build constraint was documented with
+a working Docker recipe.
+
+**STILL UNRUN:** a dead-code sweep over the whole workspace. It needs Linux (`quid-cvm` is
+Linux-only and transitive, so `cargo check --workspace` bails on darwin before emitting warnings) and
+therefore Docker Desktop running. Command is in [[quid-ln-needs-linux-to-build]].
