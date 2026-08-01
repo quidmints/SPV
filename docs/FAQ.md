@@ -523,13 +523,23 @@ maths**, which is why the asymmetry is deliberate rather than an oversight.
 
 ## Why is ETH's collateral treated differently from BTC's?
 
-ETH's gross collateral (weETH, WETH) is on-chain deliverable, so "gross is the backing, debt netted as
-a liability" is the direct representation: what you count is literally redeemable, and `deliverableETH`
-subtracts the full gross so redemptions never touch the levered slice.
+ETH's gross collateral (weETH, WETH) is on-chain deliverable, so "gross is the backing, debt netted as a
+liability" is the direct representation: what you count is literally redeemable.
 
 BTC's gross is channel BTC, which is **not deliverable** because it is cross-chain. You cannot redeem QD
 against sats sitting in a Lightning channel. So BTC is forced into net-equity for solvency, plus a
 separate buffer for capacity.
+
+> **Precision note, corrected 2026-08-01 against the source.** An earlier draft said `deliverableETH`
+> "subtracts the full gross so redemptions never touch the levered slice." It subtracts the levered **net
+> equity**, not the gross. The source also insists the name be read narrowly: it is **not** a promptness
+> guarantee and not a view-twin of the withdraw ladder, and it counts the Aave leg, weETH at the vault,
+> raw eETH and the offramp position at full face even though none is instantly convertible. That
+> over-statement is tolerable rather than a bug, because its only two consumers tolerate it: the band
+> uses it solely to cap how much of a withdrawal is sourced from the in-range burn before the venue
+> ladder takes the remainder, with the shortfall derived from what was actually sent so the sourcing
+> order self-corrects; and the swap-out de-lever gate is caught downstream by slippage bounds and
+> deferral. Do not quote it as a redemption guarantee.
 
 ## What is the skew, and why does the pool need one?
 
@@ -663,19 +673,37 @@ only by fees. Bitcoin has no yield stack to cushion it the way restaking cushion
 downtrend, in-range Bitcoin provision is structurally a losing position and the fees do not cover a
 trending drawdown.
 
-Which is why the delta-hedge exists on that side. On a rally the position sheds Bitcoin for dollars; the
-hedge buys it back, so the depositor's Bitcoin count stays constant. **The depositor deposits Bitcoin,
-earns fees, and exits with roughly the same Bitcoin plus fees, rather than a blended position that
-realised its divergence.**
+> **⚠️ CORRECTED 2026-08-01 against the source.** An earlier draft of this answer said the protocol
+> delta-hedges Bitcoin depositors back to one-times exposure using its own balance sheet, buying back
+> the Bitcoin the AMM sheds at a cost of roughly a quarter of variance paid from trading fees. **That
+> mechanism was removed as toxic and does not exist.** It is `arbBTC`, the Bitcoin analogue of
+> `refillETH`, and `Aux.sol:862-866` records the removal in exactly the terms Part 4 uses: it spent the
+> **shared** safety margin to deliver WBTC against a usually-impermanent shortfall, compensating the
+> exiting flow at every other claimholder's expense. The draft therefore described as a live feature the
+> precise thing this document elsewhere lists as a mistake we made and reversed.
 
-Is forcing a dollars-to-Bitcoin conversion the only way? Essentially yes. To keep the count constant the
-dollars the AMM extracts on a rally must buy Bitcoin back, and that re-conversion is the hedge. Its cost
-is the buy-back spread, roughly a quarter of variance, which is the same variance cost as the loss it
-replaces, paid out of trading fees. We are not borrowing an asset. **The protocol delta-hedges its own
-depositors back to their natural one-times exposure using its own balance sheet**, buying back the
-Bitcoin the AMM sheds and shedding what it over-buys. No external lender, no liquidation, net exposure
-one times. If fees exceed the spread the depositor nets exposure plus fees and the basket profits; if
-not, the basket subsidises, which is the bounded tail risk.
+**Three things actually bound that risk, and none of them is a protocol-funded hedge.**
+
+**The theta clamp caps how much is exposed at all.** The paired band depth is limited to a live
+fraction of the Bitcoin backing, derived from yield over concentration times variance, so the in-range
+slice shrinks automatically exactly when volatility spikes. Most of the deposit sits outside the band
+and is never short gamma.
+
+**The IL protection is an opt-in per-depositor overlay, not a balance-sheet operation.** `BtcLevManager`
+is the Bitcoin analogue of the ETH one, sharing the same economics through the shared library, with
+vBTC-collateral leverage on external isolated venues and the same `1 − √(entry/now)` target that returns
+zero at or below entry. A depositor who wants the up-side loss cancelled opts in and it happens on their
+own external book. A depositor who does not, holds.
+
+**And shortfall settlement is settlement, not subsidy.** When the pool owes Bitcoin, the only path is a
+Lightning hop request: real Bitcoin sent on layer one by the hop daemon, **consuming no basket
+stablecoins**. The old WBTC-from-free-backing fallback is gone. With no registered recipient it is a
+no-op and the pool composition reconciles fairly at settlement.
+
+So the honest answer to the question is that a Bitcoin depositor is exposed to trend risk on the
+*clamped slice only*, can cancel the up-side portion of it on their own book if they choose, and bears
+the rest through the share price. Nobody else's capital makes them whole, which is the same principle
+the ETH side settled on after `arbETH` was removed.
 
 ## Does where I host my node affect anyone else?
 

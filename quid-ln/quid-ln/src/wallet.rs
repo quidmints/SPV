@@ -1129,6 +1129,59 @@ impl OnchainWallet {
         Ok(tx)
     }
 
+    /// (#114) ROTATION primitive for the dead-man FRESHNESS UTXO: spend ONE designated
+    /// outpoint back to our own INTERNAL address.
+    ///
+    /// Every dead-man exit signed while `outpoint` was current carries it as input 1, and
+    /// BIP341 `Prevouts::All` binds the signature to it — so this single spend renders ALL
+    /// of those exits consensus-invalid at once. That is the mechanism that stops a
+    /// matured, superseded exit from force-closing a live channel, at one small tx per
+    /// period instead of one splice per channel.
+    ///
+    /// 🚨 CALLER ORDERING (load-bearing): re-emit every affected channel's exit against the
+    /// NEW outpoint BEFORE calling this. Reversed, each LP is left with no valid exit until
+    /// the next heartbeat.
+    ///
+    /// `manually_selected_only` + `add_utxo` are BDK's own mechanisms for "spend exactly
+    /// this input" — no hand-rolled selection. `drain_to` an internal address means the
+    /// value never leaves the wallet, so this cannot exfiltrate even if the host is
+    /// compromised (and it stays inside the destination allowlist the signing policy will
+    /// enforce).
+    pub fn spend_outpoint_to_self(
+        &self,
+        outpoint: bitcoin::OutPoint,
+        priority: ConfirmationPriority,
+    ) -> anyhow::Result<Transaction> {
+        let mut locked_wallet = self.inner.write().unwrap();
+        let feerate = self.fee_estimates.conf_prio_to_feerate(priority);
+        let dest = locked_wallet
+            .next_unused_address(KeychainKind::Internal)
+            .address
+            .script_pubkey();
+
+        let mut tx_builder = Self::default_tx_builder(
+            &mut locked_wallet,
+            self.coin_selector,
+            feerate,
+        );
+        tx_builder
+            .add_utxo(outpoint)
+            .context("freshness outpoint is not a known wallet UTXO")?;
+        // ONLY this input: a rotation must not opportunistically consume other outputs
+        // (they fund the splices that pay LPs).
+        tx_builder.manually_selected_only();
+        // No recipient — the whole input, minus fee, returns to us as the drain output.
+        tx_builder.drain_to(dest);
+        let mut psbt = tx_builder
+            .finish()
+            .context("Could not build freshness-rotation PSBT")?;
+        self.trigger_persist();
+
+        Self::default_sign_psbt(&locked_wallet, &mut psbt)
+            .context("Could not sign freshness-rotation PSBT")?;
+        psbt.extract_tx().context("Could not extract freshness-rotation tx")
+    }
+
     /// Create and sign a transaction which sends the given amount to the given
     /// address, returning a new [`PaymentWithMetadata<OnchainSendV2>`].
     pub(crate) fn create_onchain_send(

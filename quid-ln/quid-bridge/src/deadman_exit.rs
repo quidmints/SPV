@@ -206,6 +206,12 @@ pub async fn run_deadman_exit_heartbeat(
     // Monotonic per-tick refresh counter (nonce legibility; message binding is the
     // actual anti-reuse guard, so this need not be globally unique).
     let mut height_counter: u64 = 0;
+    // (#114) Last CLTV we emitted per channel. Emitting EVERY tick would mint a new
+    // still-valid exit every tick — each maturing later and each needing invalidating —
+    // so we re-emit only as a deadline APPROACHES. In-memory on purpose: losing it to a
+    // restart costs one extra refresh round, which is harmless, whereas persisting it
+    // would add a durability burden for no safety gain.
+    let mut last_cltv: std::collections::HashMap<[u8; 32], u32> = std::collections::HashMap::new();
     info!(interval_secs = interval_secs.max(1), delta_blocks = DEAD_MAN_DELTA_BLOCKS,
         "dead-man-exit heartbeat: started");
 
@@ -233,6 +239,34 @@ pub async fn run_deadman_exit_heartbeat(
         // sweep) the next tick simply designates a fresh one — and the exits bound to the
         // old one are, correctly, already dead.
         const FRESHNESS_SHARD: u32 = 0;
+        // Derived from the delta, NOT a second constant: the two can then never drift into
+        // `margin >= delta`, which would refresh on every tick.
+        const REFRESH_MARGIN_BLOCKS: u32 = DEAD_MAN_DELTA_BLOCKS / 2;
+
+        // Is ANY channel due a refresh this tick? Purely in-memory, so it costs nothing.
+        // A channel with no recorded CLTV (new, or post-restart) counts as due.
+        let mut any_due = false;
+        for ldk_id in vault.node.chain_monitor.list_monitors() {
+            if let Some(cid) = vault.on_chain_cid(&ldk_id) {
+                let fresh = last_cltv
+                    .get(&cid)
+                    .is_some_and(|d| d.saturating_sub(tip) > REFRESH_MARGIN_BLOCKS);
+                if !fresh {
+                    any_due = true;
+                    break;
+                }
+            }
+        }
+        // Nothing to do: no refresh due ⇒ no emission ⇒ no rotation. This is the common
+        // case for an idle fleet and is what keeps the on-chain cost bounded.
+        if !any_due {
+            continue;
+        }
+
+        // ROTATE: we are about to emit a new generation of exits, so bind them to a NEW
+        // outpoint and retire the previous one AFTER they are all out (see below).
+        let previous = store.freshness_of_shard(FRESHNESS_SHARD, bitcoin::ScriptBuf::new())
+            .map(|(outpoint, _)| outpoint);
         let freshness = hop_wallet.as_ref().and_then(|w| {
             let utxos: Vec<_> =
                 w.get_utxos().into_iter().filter(|u| u.chain_position.is_confirmed()).collect();
@@ -241,16 +275,14 @@ pub async fn run_deadman_exit_heartbeat(
             if utxos.len() < 2 {
                 return None;
             }
-            let recorded = store.freshness_of_shard(FRESHNESS_SHARD, bitcoin::ScriptBuf::new());
-            // Keep the recorded outpoint while it is still unspent...
-            if let Some((outpoint, _)) = recorded {
-                if let Some(u) = utxos.iter().find(|u| u.outpoint == outpoint) {
-                    return Some((outpoint, u.txout.clone()));
-                }
-            }
-            // ...otherwise designate the SMALLEST confirmed output: the least useful one
-            // for funding a splice, so reserving it costs the fee path the least.
-            let pick = utxos.iter().min_by_key(|u| u.txout.value.to_sat())?;
+            // Designate the SMALLEST confirmed output OTHER than the one we are retiring:
+            // smallest because it is the least useful for funding a splice, so reserving it
+            // costs the fee path least; other-than-previous because reusing it would rotate
+            // nothing (the old exits would stay valid).
+            let pick = utxos
+                .iter()
+                .filter(|u| Some(u.outpoint) != previous)
+                .min_by_key(|u| u.txout.value.to_sat())?;
             store.set_freshness(
                 FRESHNESS_SHARD,
                 &pick.outpoint.txid,
@@ -264,6 +296,10 @@ pub async fn run_deadman_exit_heartbeat(
             );
             Some((pick.outpoint, pick.txout.clone()))
         });
+
+        // Any emission that does NOT land means at least one LP would be left with no
+        // valid exit if we retired the old outpoint now. One failure vetoes the retirement.
+        let mut all_emitted = true;
 
         for ldk_id in vault.node.chain_monitor.list_monitors() {
             // Stable on-chain channelId (keyed on the ORIGINAL funding outpoint).
@@ -319,6 +355,15 @@ pub async fn run_deadman_exit_heartbeat(
                 continue; // no committed payout key ⇒ nothing to back
             }
 
+            // Skip channels whose current exit is still comfortably in the future — they
+            // do not need a new one, and every avoided emission is one less stale exit.
+            if last_cltv
+                .get(&on_chain_cid)
+                .is_some_and(|d| d.saturating_sub(tip) > REFRESH_MARGIN_BLOCKS)
+            {
+                continue;
+            }
+
             // Derive + arm both halves, pre-sign IN-PLACE, encode calldata (sync;
             // no signer/monitor guard is held across the submit await below).
             let built = build_exit_call(
@@ -346,14 +391,55 @@ pub async fn run_deadman_exit_heartbeat(
             };
 
             match estimate_gas_and_send(&evm, &rpc, btc_channels, calldata, gas_limit).await {
-                Ok(true) => info!(
-                    cid = %hex::encode(on_chain_cid),
-                    checkpoint_sats = checkpoint,
-                    cltv = tip + DEAD_MAN_DELTA_BLOCKS,
-                    "dead-man-exit: emitted fresh CLTV backstop",
-                ),
-                Ok(false) => warn!(cid = %hex::encode(on_chain_cid), "dead-man-exit: emitDeadManExit reverted"),
-                Err(e) => warn!(cid = %hex::encode(on_chain_cid), "dead-man-exit: submit failed ({e:#})"),
+                Ok(true) => {
+                    // Recorded ONLY on a confirmed send: an unrecorded channel is simply
+                    // refreshed again next tick, whereas a wrongly-recorded one would be
+                    // skipped until its (never-emitted) deadline lapsed.
+                    last_cltv.insert(on_chain_cid, tip + DEAD_MAN_DELTA_BLOCKS);
+                    // Assign the channel to this shard on first sight. Stable: never
+                    // remapped by a change in shard count, only by a deliberate
+                    // consolidation that re-emits first.
+                    store.assign_shard(&on_chain_cid, FRESHNESS_SHARD);
+                    info!(
+                        cid = %hex::encode(on_chain_cid),
+                        checkpoint_sats = checkpoint,
+                        cltv = tip + DEAD_MAN_DELTA_BLOCKS,
+                        "dead-man-exit: emitted fresh CLTV backstop",
+                    );
+                }
+                Ok(false) => {
+                    all_emitted = false;
+                    warn!(cid = %hex::encode(on_chain_cid), "dead-man-exit: emitDeadManExit reverted");
+                }
+                Err(e) => {
+                    all_emitted = false;
+                    warn!(cid = %hex::encode(on_chain_cid), "dead-man-exit: submit failed ({e:#})");
+                }
+            }
+        }
+
+        // ── (#114) RETIRE the previous freshness outpoint ────────────────────────
+        // 🚨 THIS ORDERING IS THE SAFETY PROPERTY. Every channel has now been re-emitted
+        // against the NEW outpoint, so spending the OLD one invalidates exactly the stale
+        // generation and nothing else. Doing it before the emissions would leave every LP
+        // without a valid exit in the window between.
+        //
+        // Vetoed by ANY failed emission: better to leave the old generation valid for one
+        // more period (a bounded griefing window) than to strip an LP of their backstop
+        // entirely (an unbounded loss of recourse). The retry is automatic next tick.
+        if let (Some(old), Some(w), true) = (previous, hop_wallet.as_ref(), all_emitted) {
+            if freshness.as_ref().is_some_and(|(new, _)| *new != old) {
+                match w.spend_outpoint_to_self(old, quid_common::ln::priority::ConfirmationPriority::Normal) {
+                    Ok(tx) => match vault.node.esplora.client().broadcast(&tx).await {
+                        Ok(()) => info!(
+                            retired = %old, txid = %tx.compute_txid(),
+                            "dead-man-exit: retired previous freshness UTXO — all superseded exits are now consensus-invalid",
+                        ),
+                        Err(e) => warn!(retired = %old, "dead-man-exit: retirement broadcast failed ({e:#}); \
+                            superseded exits stay valid until the next attempt"),
+                    },
+                    Err(e) => warn!(retired = %old, "dead-man-exit: could not build retirement tx ({e:#})"),
+                }
             }
         }
     }
