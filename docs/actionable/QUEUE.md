@@ -4045,3 +4045,41 @@ The four 🟡 "likely" items are now CONFIRMED against code, not inferred:
  4. 🔴 **§A.71 / §J.8b** — the dedup pass (+ the hand-rolling audit).
  5. ❓ **§A.19b · §A.51** — user decisions, not engineering.
 
+## ✅ §A.5g FIXED — the reconnector that was documented but never built. **144/144 bridge tests pass.**
+**The bug:** LDK's `PeerManager` owns sockets but **never re-dials**, and the vault's startup dial is
+one-shot. The only caller of `connect_peer_if_necessary` outside the fix was the **TEST harness**. So in
+production a dropped vault↔hop link **stayed dropped**, and every channel op failed until a restart.
+**The fix (small, reuses the existing primitive):**
+ • `VaultNode::ensure_hop_connected()` — carries the hop's dial address (previously discarded after the
+   one-shot dial) and calls the existing `connect_peer_if_necessary`, which is a **no-op while connected**.
+ • A task in the daemon `JoinSet` re-checks every 30s. `MissedTickBehavior::Delay` so a stalled tick cannot
+   fire a BACKLOG of dials. **Warns only on a FAILED re-dial** — a healthy link stays silent, or the log
+   stops being read.
+**Verification:** `cargo check -p quid-bridge` clean; `cargo test -p quid-bridge --lib` → **144 passed,
+0 failed** (no regression from this or from #114).
+🔴 **The false evidence that hid it:** `OFFCHAIN-STRATEGIES.md:99-105` claimed *"Persistent hop reconnector
+  — LIVE, `quid-hop/src/reconnect.rs`"*. **That file never existed.** Doc corrected in place with an
+  explicit CORRECTED note, so the next reader learns the failure mode rather than re-trusting it.
+
+## 🛑 §A.5f — NOT a "finish the partial". It is a NEW SECURITY SUBSYSTEM. Scoping before building.
+My earlier "PARTIAL" label was misleading, and acting on it would have been the mistake:
+ • **Landed:** the *timelocked withdrawal-recipient pin* (`Vogue.sol:225`) — a genuinely separate, small
+   control that happens to share the section number.
+ • **Missing:** *on-chain per-action delegation* — EIP-712 typed permissions, **scoped + capped + revocable**,
+   for the delegated strategy layer. Today the on-chain gates are only COARSE (`onlyUs`, `vogueSyncHook`,
+   `msg.sender == V4`), which say *"this exact contract"* — never *"this action, up to this size, until this
+   time, revocable"*.
+⇒ **That is a new authorisation surface on the money path, not a finishing touch.** Shipping it hastily is
+  precisely how a bug gets created.
+### ▶️ DO NOT HAND-ROLL — the EIP-712 machinery ALREADY EXISTS here
+`quid-hop/src/migration.rs` implements EIP-712 `MigrationAuth`: **Gnosis Safe as `verifyingContract`,
+≥`MIGRATION_THRESHOLD` owner signatures, `ecrecover` verified IN-ENCLAVE**, plus `guard_prod_trust_anchors`
+refusing prod while dev placeholder keys are compiled in. **§A.5f's `ActionAuth` should mirror that exact
+shape** — same domain-separator discipline, same threshold model, same anchor guard.
+⇒ It ALSO shares the shape `SweepAuth` needs (the deferred `create_sweep_tx` trigger). ⭐ **One typed-auth
+  primitive would serve §A.5f, `SweepAuth`, AND the destination allowlist's exemption** — three open items,
+  one mechanism. **Design it once, deliberately.**
+⚠️ Explicitly OUT of scope (by design, per the item): the optimal-entry ALPHA logic stays off-chain /
+  LP-discretionary, and the BTC path needs nothing — `lpAuth` is already `ecrecover` over
+  `BTCChannels.openChannelDigest`.
+

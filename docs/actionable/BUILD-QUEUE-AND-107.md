@@ -350,7 +350,7 @@ The strategy layer draws QUI for optimal entries and lever-LPs the proceeds unde
 ⇒ **NOT needed for the BTC path:** `lpAuth` is `ecrecover` over `BTCChannels.openChannelDigest` (plain keccak digest with `hop` bound in to stop cross-submitter replay) — typed data would add nothing there.
 ⇒ The **optimal-entry ALPHA logic stays deliberately off-chain / LP-discretionary** — that is by design, not a gap.
 
-## A.5g 🔴 NO PRODUCTION HOP RECONNECTOR — capability exists, only the TEST harness wires it (2026-07-26)
+## A.5g ✅ FIXED 2026-08-01 — persistent reconnector now spawned in the daemon JoinSet (was: only the TEST harness wired it)
 
 `quid-ln/OFFCHAIN-STRATEGIES.md:85-92` claims *"Persistent hop reconnector — LIVE, `quid-hop/src/reconnect.rs`"*. **That file does not exist**, and this is NOT merely a stale pointer — verified:
 - The primitive IS built: `quid_ln::p2p::connect_peer_if_necessary` (+ `..._with_retries`, `p2p.rs:154/170`).
