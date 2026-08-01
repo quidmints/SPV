@@ -2994,3 +2994,30 @@ Builder-crate unit test: build a 2-input exit, sign, assert it verifies; then mu
 freshness UTXO invalidates every stale exit — the whole fix, provable WITHOUT a regtest. Then regtest for
 end-to-end broadcast (fresh accepted / stale rejected), closing the ORIGINAL #114 verification gap.
 
+## ✅✅ #114 — THE FRESHNESS-UTXO PREMISE IS **PROVEN BY A PASSING TEST**, not by reasoning.
+Added `sighash_commits_to_every_prevout_not_just_input_zero` to
+`quid-ln/quid-ln/src/deadman_exit.rs`'s existing `mod tests`, and it **PASSES**:
+```
+test deadman_exit::tests::sighash_commits_to_every_prevout_not_just_input_zero ... ok
+test result: ok. 1 passed; 0 failed  (cargo test -p quid-ln --lib)
+```
+**What it asserts:** build a 2-input exit (input 0 = channel funding, input 1 = freshness UTXO) via the
+REAL `build_deadman_exit_tx`, then take the BIP341 key-path sighash for **input 0** twice, changing ONLY
+the **second** prevout's value. **The digests differ** ⇒ `Prevouts::All` + `SIGHASH_DEFAULT` commits to
+EVERY prevout ⇒ **spending the freshness UTXO invalidates an exit signed over input 0.**
+⇒ 🎯 **That IS the security property of the whole design**, and it is now executable and regression-guarded.
+  The test names #114 and says explicitly that if it ever fails the design is void — so a future
+  rust-bitcoin/sighash change cannot silently erode the guarantee.
+⇒ Written to FAIL LOUDLY rather than to pass: it isolates a SINGLE variable (only the freshness prevout's
+  value changes; input 0 is byte-identical), so a pass cannot be an artifact of some other difference.
+📌 Proven BEFORE touching production code — the design assumption was verified against the real API, so the
+  builder change can now be made knowing its foundation holds. (Contrast with my earlier attempt, which
+  wrote production code against three imagined symbols.)
+
+### ▶️ REMAINING (unchanged, now de-risked)
+ 1. Builder: add the freshness `TxIn` + pass BOTH prevouts (⚠️ order must match input order).
+ 2. Daemon: hold/rotate the outpoint; **re-emit ALL channels BEFORE spending the old UTXO**.
+ 3. `recovery_broadcast.rs`: `FreshnessSpent` outcome so a stale exit fails loudly.
+ 4. Hop wallet: one freshness UTXO per period, globally.
+ 5. Regtest end-to-end (fresh accepted / stale rejected) — closes the ORIGINAL #114 broadcast gap.
+

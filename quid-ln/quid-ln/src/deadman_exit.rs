@@ -207,6 +207,52 @@ mod tests {
     /// The exit tx is a well-formed CLTV-timelocked key-path spend: nLockTime is the
     /// deadline, the input is non-final (locktime enabled), and the single output pays
     /// `0x5120||recipient` — byte-identical to `BTCChannels._withdrawalPayout`.
+    /// #114 FRESHNESS-UTXO PREMISE: a BIP341 key-path sighash taken with
+    /// `Prevouts::All` + `SIGHASH_DEFAULT` commits to EVERY input's prevout — so adding a
+    /// second, fleet-controlled "freshness" input makes the pre-signed exit depend on it.
+    /// Spending that UTXO then renders every previously-emitted exit CONSENSUS-INVALID,
+    /// which is what stops a matured stale exit from force-closing a live channel.
+    /// This test asserts the premise DIRECTLY: same tx, same input 0, only the SECOND
+    /// prevout differs -> the signature digest MUST change. If this ever fails, the whole
+    /// freshness-UTXO design is void (and no signer change would rescue it).
+    #[test]
+    fn sighash_commits_to_every_prevout_not_just_input_zero() {
+        let secp = bitcoin::secp256k1::Secp256k1::new();
+        let (sk, _) = secp256k1::SecretKey::from_slice(&[7u8; 32])
+            .map(|sk| { let kp = secp256k1::Keypair::from_secret_key(&secp, &sk); (sk, kp) })
+            .expect("static test key is valid");
+        let xonly = secp256k1::Keypair::from_secret_key(&secp, &sk).x_only_public_key().0;
+        let spk = keypath_p2tr_spk(xonly);
+
+        // A 2-input exit: input 0 = channel funding, input 1 = the freshness UTXO.
+        let funding = OutPoint { txid: bitcoin::Txid::all_zeros(), vout: 0 };
+        let freshness = OutPoint { txid: bitcoin::Txid::all_zeros(), vout: 1 };
+        let mut tx = build_deadman_exit_tx(funding, 50_000, xonly, LockTime::from_height(144).unwrap());
+        tx.input.push(TxIn {
+            previous_output: freshness,
+            script_sig: ScriptBuf::new(),
+            sequence: Sequence::ENABLE_LOCKTIME_NO_RBF,
+            witness: Witness::new(),
+        });
+
+        let funding_prevout = TxOut { value: Amount::from_sat(60_000), script_pubkey: spk.clone() };
+        let sighash_with = |fresh_value: u64| -> [u8; 32] {
+            let fresh_prevout = TxOut { value: Amount::from_sat(fresh_value), script_pubkey: spk.clone() };
+            let prevouts = [funding_prevout.clone(), fresh_prevout];
+            *SighashCache::new(&tx)
+                .taproot_key_spend_signature_hash(0, &Prevouts::All(&prevouts), TapSighashType::Default)
+                .expect("sighash")
+                .as_ref()
+        };
+
+        // ONLY the freshness prevout's value differs; input 0 is byte-identical.
+        assert_ne!(
+            sighash_with(1_000), sighash_with(2_000),
+            "BIP341 SIGHASH_DEFAULT must commit to EVERY prevout — the freshness-UTXO design \
+             (#114) depends on spending input 1 invalidating an exit signed over input 0"
+        );
+    }
+
     #[test]
     fn exit_tx_shape_is_cltv_keypath() {
         let secp = bitcoin::secp256k1::Secp256k1::new();
