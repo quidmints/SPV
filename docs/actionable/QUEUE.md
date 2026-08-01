@@ -3746,3 +3746,43 @@ under-specified in a way that would BREAK things:
 ▶️ NEXT RUN (its own): per-path destination policy + `SweepAuth` as its authorised exemption, mirroring
   `ValidatingChannelSigner`'s wrapper and `migration.rs`'s EIP-712 proof.
 
+## ✅✅✅ #114 STEP 6 — **THE DESIGN IS PROVEN ON REAL BITCOIND.** `regtest/deadman-freshness-e2e.sh`
+```
+READY: freshness-UTXO invalidation holds at consensus
+  (1) matured 2-input exit accepted while freshness unspent
+  (2) freshness input spent (rotation)
+  (3) same signed exit now rejected: missing-inputs
+```
+This settles the ONE claim no unit test could: **a fully-signed, locktime-matured exit becomes
+UNBROADCASTABLE the instant its freshness input is spent** — the property the entire design rests on, and
+the reason a superseded exit can no longer force-close a live channel.
+⇒ **Built as a CONTROL + treatment, not a bare assertion.** Step (1) proves the exit IS acceptable while
+  both inputs are unspent, so step (3)'s rejection is attributable to the spend and not to a malformed tx.
+  Without the control, a permanently-broken tx would have produced the same "pass".
+⇒ Also asserts the rejection REASON (`missing-inputs`), not merely that it failed — a tx rejected for the
+  wrong reason would otherwise read as proof.
+⇒ `bitcoind` v30.2.0 was ALREADY installed under `regtest/.bitcoin-core/` — my earlier "not installed"
+  came from `which bitcoind`, which misses it because the harness deliberately keeps it off PATH.
+  **A negative from the wrong probe, again.**
+
+### 🐛 TWO REAL BUGS THE HARNESS FOUND IN MY OWN TEST (both silent-pass shapes)
+ 1. **`gettransaction` details include the CHANGE output of a self-send**, so matching on amount picked the
+    wrong vout and the exit referenced a nonexistent outpoint. Symptom: the CONTROL failed with exactly the
+    `missing-inputs` the test was designed to look for at the END — **it would have "passed" for entirely
+    the wrong reason had I not asserted the control separately.**
+ 2. **Two sequential `sendtoaddress` calls: the second selected the first's output as its input**, so the
+    0.5 BTC UTXO no longer existed. Fixed with a single `sendmany` — both outputs in one tx.
+📌 Both are the same family as the money-path unit errors: **a test that fails for the reason you expected
+  is not the same as a test that fails for the reason you intended.** The control step is what separates them.
+
+## 🏁 #114 STATUS — STEPS 1-6 COMPLETE (destination allowlist deferred with reasons)
+| step | state |
+|---|---|
+| 1 · freshness threaded through builder/sighash/presign + order guard | ✅ landed, 10/10 |
+| 2 · wallet + store reach the heartbeat; `build_exit_call` forwards | ✅ landed, Linux-verified |
+| 3 · designate (not mint) the shard UTXO; persist stable + rotating records | ✅ landed |
+| 4 · refresh-when-due, rotate, retire AFTER re-emission (veto on failure) | ✅ landed |
+| 5 · reservation at BOTH selection paths + test it BINDS; sweep signing deduped | ✅ landed, 110/110 |
+| 6 · consensus proof on real bitcoind | ✅ **READY** |
+| — · per-path destination allowlist + `SweepAuth` | ⏸️ deferred, own run, reasons recorded |
+
