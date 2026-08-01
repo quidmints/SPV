@@ -3230,3 +3230,40 @@ Key content I duplicated or MISSED:
   dead-code warning stays as its marker. **Stage 2 correctly does not use it** (that part of my analysis
   stands — it drains everything; stage 2 needs one small self-send).
 
+## 📍 #114 STAGE 2 — SCOPED AND BLOCKED ON ONE THING: the heartbeat has NO WALLET ACCESS.
+Traced the daemon call chain for the freshness UTXO:
+```
+run_deadman_exit_heartbeat(hop_keys, hop_monitors, vault, evm, btc_channels, gas_limit, interval_secs)
+   -> build_exit_call(...)        // :99 — documented "Pure/sync (no I/O, no `.await`)"
+        -> quid_ln::deadman_exit::presign_deadman_exit(..., freshness)   // stage 1: takes it, gets None
+```
+⇒ 🔴 **`run_deadman_exit_heartbeat` (`:177`) takes NO `OnchainWallet`** — so the freshness UTXO cannot be
+  read or created anywhere in the current chain. **That is the whole of what blocks stage 2.**
+⇒ ⚠️ **`build_exit_call` is deliberately PURE/SYNC** (*"no I/O, no `.await`"*). **Do NOT reach into the
+  wallet from inside it** — that would break a documented property for convenience. **Resolve the UTXO in
+  the heartbeat (async, I/O-capable) and PASS IT DOWN as a value.** Stage 1's
+  `Option<(OutPoint, TxOut)>` is already exactly that shape, so the pure/sync boundary is preserved.
+
+### ▶️ STAGE 2 BUILD (ordered; each step compiles via the Docker Linux check)
+ 1. Add `hop_wallet: Option<Arc<OnchainWallet>>` to `run_deadman_exit_heartbeat`; wire at its call site
+    (find with `grep -rn run_deadman_exit_heartbeat`). `Option` because the heartbeat must still run for a
+    node without fleet wallet duties — same honesty as stage 1's `None`.
+ 2. Add `freshness: Option<(OutPoint, TxOut)>` to `build_exit_call`; forward to `presign_deadman_exit`.
+ 3. In the heartbeat: resolve the current freshness UTXO via `wallet.get_utxos()` (`wallet.rs:873` →
+    `LocalOutput` carries outpoint + value = the exact pair needed); create it via `create_onchain_send`
+    (`:1134`) if absent.
+ 4. **Rotation:** create the NEW UTXO → re-emit ALL channels against it → THEN spend the OLD one. Ordering
+    load-bearing (a botched rotation leaves every LP with no valid exit).
+ 5. 🚨 **RESERVE the freshness UTXO from coin selection.** `initiate_splice` calls `wallet.get_utxos()` and
+    filters only on `is_confirmed()` — it would happily consume the freshness UTXO as a FEE INPUT and
+    **silently invalidate every emitted exit.** This is a REAL hazard created by this design, in a code path
+    that already exists. **Needs an explicit exclusion + a test asserting a splice never spends it.**
+ 6. Verify: `docker run --rm -v "$PWD":/w -w /w/quid-ln -e CARGO_TARGET_DIR=/tmp/t rust:1.90 cargo check -p quid-bridge`
+
+### ✅ WHAT IS DONE AND VERIFIED (stage 1, complete)
+ • `build_deadman_exit_tx` / `deadman_exit_sighash` / `presign_deadman_exit` all take the freshness input;
+   prevout order matches input order and a count-mismatch now ERRORS rather than silently mis-committing.
+ • Security property proven by a passing test (`sighash_commits_to_every_prevout_not_just_input_zero`).
+ • Builder crate **10/10 green** natively; daemon crate **compiles clean** in the Linux container.
+ • `None` path is byte-identical to pre-#114 ⇒ **zero production behaviour change so far.**
+
