@@ -3590,3 +3590,36 @@ Enumerated every `wallet.sign(...)` in the crate (the actual BDK signing call, n
   function — it requires enumerating ALL callers of the underlying primitive.** Applying the
   `never-assert-absence-from-a-grep` discipline in reverse: I must enumerate the SINKS, not spot-check one.
 
+## ⭐ DON'T HAND-ROLL — the destination-pinning policy ALREADY EXISTS. Mirror it. (user, 2026-08-01)
+Graph query (`validating_signer.rs`: 99 nodes, 488 internal links, linked to LDK `sign/mod.rs` +
+`chan_utils.rs`) pointed straight at the existing implementation, and it is **the exact policy I was about
+to write from scratch**:
+```
+//! ValidatingChannelSigner { inner: InMemorySigner, policy: PolicyState }
+//! * a cooperative close that *pays the holder (LP)* MUST pay the exact committed P2WPKH shutdown
+//!   script that QU!D pins via `commit_upfront_shutdown_pubkey` … A close paying the holder output
+//!   to any other destination is REJECTED. If the holder output is *absent* … that is valid.
+//! All other ChannelSigner / EcdsaChannelSigner methods delegate straight to `inner`.
+```
+⇒ 🎯 **A DESTINATION ALLOWLIST enforced at SIGNING, with a delegate-everything-else wrapper — already
+  built, already reviewed, already trusted in production.** The BDK guard should be the SAME SHAPE, not a
+  new invention: `ValidatingWallet { inner: <bdk wallet>, policy }`, reject non-allowlisted destinations,
+  delegate the rest.
+⇒ **Reuse extends to the REASONING, not just the code:** note the nuance it already encodes — *"if the
+  holder output is absent, that is valid: there is nothing to redirect"*. The BDK policy needs the same
+  care (change outputs, zero-value cases) and can copy a pattern that already got this right.
+⇒ ✅ Prefer library mechanisms over custom checks wherever they exist: BDK's own `SignOptions` /
+  `TxBuilder::unspendable` / descriptor policy for what they cover, and the wrapper only for what they do
+  not. **Check BDK's API surface BEFORE writing any predicate** — the same "the capability probably exists"
+  pattern that has now been right 6× on this feature.
+📌 The graph earned its place again: it located the pattern by COUPLING (99 nodes / 488 links), which no
+  keyword search for "policy" or "allowlist" would have surfaced — `validating_signer.rs` never uses either
+  word.
+
+### ▶️ REVISED PLAN FOR THE BDK GUARD (no hand-rolling)
+ 1. **Read BDK's `SignOptions` + descriptor-policy surface** for anything that already expresses "only sign
+    spends paying these destinations". Use it if it exists.
+ 2. For the remainder, **mirror `ValidatingChannelSigner`**: wrapper + `policy` field + reject-then-delegate.
+ 3. Funnel the 5 signing paths through the shared helper (the dedup win) so the wrapper has ONE seat.
+ 4. `SweepAuth` = the documented exemption, carried by the EIP-712 proof `migration.rs` already implements.
+
