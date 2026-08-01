@@ -4257,3 +4257,33 @@ REAL 8.06% gap rather than reverting vacuously.
      needs the treatment's COSTS attributed, not just its clock.
 ⚠️ Do NOT adjust the assertion to make it pass. **Two probes of the same claim disagree; that is the finding.**
 
+## 🔴🔴 §A.16 IS **NOT CLOSED** — the 8.06% externality is REAL. My ✅ mark today is RETRACTED.
+**Discriminating experiment** (the two hypotheses were: (a) real externality, (b) my time-match credits the
+control with venue yield the treatment paid for):
+| control @ ETH flat | value |
+|---|---|
+| WITH `vm.warp` (time-matched) | 744,183,388,520,784,002,862,450 |
+| WITHOUT the warp (roll only, clears the guard but no time) | 744,181,157,138,838,756,846,681 |
+| **difference** | **~2,231 — 0.0003%** |
+⇒ **The warp contributes essentially NOTHING.** Hypothesis (b) is **REFUTED**: the gap is not time-yield.
+⇒ ⇒ **Hypothesis (a) stands: leverage flow really does leave the passive LP ~8% worse off** at an unchanged
+  ETH price, which is §A.16's finding (*"~7.5%"*) reproduced at **8.06%** on the repaired control.
+🔴 **RETRACTING my `✅ VERIFIED-DONE` on §A.16** (set earlier today). The evidence I used was
+  *"`LeverageCrossSubsidyProbe.t.sol` exists and asserts the invariant"* — **a test's EXISTENCE is not its
+  VERDICT**, and I never checked whether it covers the same scenario.
+
+### 🔑 WHY BOTH PROBES CAN BE RIGHT — they measure DIFFERENT scenarios
+| probe | scenario | result |
+|---|---|---|
+| `LeverageCrossSubsidyProbe` | open → lever → **venue LIQUIDATION** (full lifecycle), at a MATCHED price | ✅ passes — **liquidation socialises nothing** |
+| `LeveragePnLProbe::LvrControlVsTreatment` | **20 guard-safe opens, NO liquidation**, valued at 3 prices | 🔴 **−8.06%** |
+⇒ ⇒ **The LIQUIDATION cross-subsidy is genuinely fixed (§A.16b's repair). The cost of LIVE OPEN positions is
+  NOT.** They are different claims and the passing probe never covered the failing one.
+⇒ **§A.16 must be re-opened with THAT scope**: not *"does a liquidation socialise?"* (answered, no) but
+  *"does an OPEN levered position drag the passive LP's redeemable value?"* (measured, yes, ~8%).
+▶️ NEXT: identify the mechanism. Candidates to check BY EFFECT (do not assume): `deliverableETH` excludes
+  the levered slice while `lpShares` does not shrink correspondingly; band depth consumed by opens; BOLD
+  spent on opens leaving the basket while the passive LP's share count is unchanged.
+📌 The control repair is KEPT (`vm.warp(tTime)` restored) — it is the correct control, and the diagnostic
+  above shows it neither creates nor masks the gap.
+
