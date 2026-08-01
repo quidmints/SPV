@@ -2846,3 +2846,40 @@ if owed < MIN_ECONOMIC_GROW_SATS && !refresh_due { return; }
   the FREQUENCY. **A per-tick predicate's cost is set by the constant that drives it; read that constant
   BEFORE estimating cost.**
 
+## ⭐⭐ #114 — A MATERIALLY BETTER DESIGN: the **SHARED FRESHNESS UTXO**. O(1) global, not O(n) per channel.
+**First, the hybrid (c) is WEAKER than I presented — retracting the recommendation.** It refreshes only when
+a fee-flush already splices. **An IDLE channel accrues no fees ⇒ never fee-flushes ⇒ never refreshes.** That
+is EXACTLY the exposed population, so (c) barely improves the case it exists to fix. I recommended it one
+turn after correctly identifying that idle channels are the whole problem.
+
+### THE INSIGHT
+Cost was high because invalidation was tied to the CHANNEL's funding UTXO ⇒ one splice PER CHANNEL. But a
+Bitcoin tx is invalidated if **ANY** of its inputs is spent. So:
+⇒ **Give every pre-signed exit a SECOND, tiny input: a fleet-controlled "FRESHNESS" UTXO, SHARED across all
+  channels.** Signed with SIGHASH_ALL (already the case), so the exit is valid only while BOTH inputs live.
+⇒ **To invalidate EVERY stale exit for EVERY channel at once, the fleet spends that ONE freshness UTXO** —
+  a single small self-send — then creates the next one and re-emits exits against it.
+⇒ 🎯 **Cost collapses from O(n_channels) SPLICES PER PERIOD to ONE SMALL TX PER PERIOD, GLOBALLY.** Re-emitting
+  the per-channel bytes stays EVM-side (event gas), which is cheap and already how the heartbeat works.
+⇒ **Recovery still works:** if the fleet DIES, it never spends the freshness UTXO ⇒ the last exits stay valid
+  ⇒ they mature at their CLTV ⇒ anyone broadcasts. **The dead-man property is preserved exactly.**
+⇒ **Griefing dies:** a stale exit references a SPENT freshness UTXO ⇒ **consensus-invalid, unbroadcastable.**
+  Not deterred — IMPOSSIBLE, the same strength splice-on-refresh gave, at ~1/n the cost.
+⇒ **Δ = 144 (~1 day) can STAY**, so fast LP recovery is preserved. **The policy trade-off I was about to put
+  to the user DISSOLVES** — we no longer pay per-channel for a short Δ.
+
+### ⚠️ VERIFY BEFORE BUILDING (do not repeat this turn's error — check the cost/mechanism BOTH)
+ 1. **Does adding a 2nd input break anything?** The exit is a fleet-crafted BIP341 key-path spend
+    (`deadman_exit.rs:12-23`), NOT an LDK commitment tx — so extra inputs should be fine. **CONFIRM** the
+    signer signs multi-input (`taproot_signer.rs`) and that the sighash covers BOTH inputs.
+ 2. **Fee/dust:** the freshness UTXO must exceed dust and fund its own share; it comes from the hop wallet
+    ⇒ the wallet-funding single-point-of-failure REMAINS (but now costs ~1 tx/period TOTAL, not per channel —
+    a far weaker demand, which materially de-risks that failure mode too).
+ 3. **Blast radius:** one shared UTXO invalidates ALL channels' exits simultaneously — that is the FEATURE,
+    but it means a BOTCHED rotation (spend without re-emitting) leaves EVERY LP with no valid exit until the
+    next emission. **Re-emit FIRST, then spend the old freshness UTXO** — ordering is load-bearing.
+ 4. Per-channel exits must be re-signed each rotation (they reference the new UTXO). That is signing work,
+    not on-chain cost — confirm the enclave can sign N exits per period at acceptable latency.
+📌 **This is the answer to "are you sure it's the best cost/benefit?" — I was NOT. The right question was
+  "must invalidation be per-channel?" and the answer is NO.**
+
