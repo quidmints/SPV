@@ -4024,3 +4024,24 @@ Of the items assessed against CODE this session:
   method notes, and section headings — the sweep has already answered the question it existed to answer
   (*"how big is the backlog?"* → small). **Go to §A.5g + §J.2c, then the dedup pass (§A.71).**
 
+## ✅ MARKED OFF — 11 archive headers updated to `✅ VERIFIED-DONE 2026-08-01`, each with its CODE evidence
+The four 🟡 "likely" items are now CONFIRMED against code, not inferred:
+| item | confirming evidence |
+|---|---|
+| **§A.24** | `Core.sol:815` — `require(StateLibrary.getPositionLiquidity(...) == 0, "repack:stale")`. Residual 1 (the `myLiquidity` trusted-arg) is CLOSED by a real assertion that reasons about the ASYMMETRIC failure (too-high already reverts; too-low silently strands). Residual 2 (RISK-2 bootstrap over-mint) is explicitly *"by-design, watch"* — accepted, not a bug. |
+| **§A.9** | `test/EthExitConservation.t.sol:79` — `assertApproxEqRel(ethGained + usdClaimInEth, pooledDrop, 0.02e18)`. Conservation HOLDS ⇒ the "~20% shortfall" WAS the measurement artifact the item concluded. |
+| **§A.15** | `test/ForwardMintHeadroom.t.sol` — pins steady state incl. *"cap floors credit at ~principal"* and one maturity cohort per mint. |
+| **§A.16** | `test/LeverageCrossSubsidyProbe.t.sol` — a REAL-stack regression asserting the exact finding: *"A PASSIVE regular band LP is NOT expensed by a LEVERED LP's full lifecycle"*, measured at a MATCHED price to strip the lever's own rally. |
+**Headers updated:** §A.5c (×2 — original + its own resolution section) · §A.5e · §A.8e · §A.9 · §A.13 ·
+§A.15 · §A.16 · §A.18 · §A.24 · §A.41.
+⚠️ Marking was done by exact header match with a guard against double-marking, and each edit was
+  re-read afterwards — `A.16` did NOT match `A.16b` (word boundary), and both `A.5c` hits were verified to
+  be genuine A.5c sections before accepting.
+
+### ▶️ REMAINING REAL WORK (unchanged by the mark-off)
+ 1. ⚠️ **§A.5f** — PARTIAL. Subset (timelocked recipient pin) landed; per-action auth absent. **NEXT.**
+ 2. 🔴 **§A.5g** — no reconnector task (liveness).
+ 3. 🔴 **§J.2c** — the Vogue ERC-20 face refactor.
+ 4. 🔴 **§A.71 / §J.8b** — the dedup pass (+ the hand-rolling audit).
+ 5. ❓ **§A.19b · §A.51** — user decisions, not engineering.
+

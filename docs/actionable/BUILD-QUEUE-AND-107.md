@@ -282,7 +282,7 @@ Probed on real Galaxy holding our 20 ETH: `maxWithdraw == 0` **AND `maxRedeem ==
 ⇒ **Measured effect:** `deliverableETH` had been returning **0** against 16 solvent ETH in Galaxy; every ETH LP exit paid out NOTHING while the LP retained a full pooled balance. LevYbWeth 98 pass/22 fail (clean baseline) → **111 pass/11 fail**.
 ⇒ **Still open:** the silent-shortfall defect (§A.5) — a venue pull that fails must not degrade into quiet LP value loss (`sent = wethBal >= amount ? amount : wethBal`).
 
-## A.5c 🔴 DESIGN — `deliverableETH` IS INCONSISTENT IN PRINCIPLE (user question, 2026-07-26: *"maybe deliverableETH is not correct in principle? it has to do with leverage and what else?"*)
+## A.5c ✅ VERIFIED-DONE 2026-08-01 (code: VaultLib.sol:182 premise re-derived/withdrawn)  DESIGN — `deliverableETH` IS INCONSISTENT IN PRINCIPLE (user question, 2026-07-26: *"maybe deliverableETH is not correct in principle? it has to do with leverage and what else?"*)
 
 **Verdict: yes — it haircuts THREE legs for liquidity and counts FOUR at full face value.** Today
 `deliverableETH = vogueETH − Σ(4626 illiquid gaps) − levNetEquity`, but `_vogueETH` sums SEVEN kinds of backing:
@@ -325,7 +325,7 @@ Measuring how many backtick-quoted symbols in a doc are absent from source produ
 - **The decision (§7), a product call not a code task:** hold-down (BUILT) = long-biased, cheap, negative-skew, fat-tailed · delta-1-maintained (NOT built) = neutral, priced, tail-free, the true YB competitor. For a stablecoin BACKING engine §3.3 pushes toward delta-1; for a long-biased book hold-down already ships.
 - **This IS the queue's "Short subsystem 🧭 OPEN (anchor)"** — hence #85 and #97 are CONTINGENT on it: taking the §5 product re-opens the below-entry rebalance leg, but as a **levered capital-structure change, NOT the removed spot short.**
 
-## A.5e 🟠 STALE-CACHE SOLVENCY FALSE-NEGATIVE — redeem values off `storedHoldings`, refreshes AFTER (2026-07-26)
+## A.5e ✅ VERIFIED-DONE 2026-08-01 (code: Aux.sol:927 _requireFreshHoldings() precedes redeemAsBody)  STALE-CACHE SOLVENCY FALSE-NEGATIVE — redeem values off `storedHoldings`, refreshes AFTER (2026-07-26)
 
 **PIN RESOLVED — it is the HIGHER-severity branch.** The open question was whether `redeemAsBody` values off the CACHE (⇒ real over-draw) or off a live sum (⇒ only mint-valuation/band-sizing sees the stale window). Verified: **the cache.**
 - `redeemAsBody` values via `IAux(this).get_deposits()` (`BasketLib:879`), and `Aux:946` passes **`storedHoldings`** in.
@@ -1436,7 +1436,7 @@ is the point: anything not in this file does not survive the thread.
   a **210% skew to 19.4%** (both LPs now paid alike, but ~19% short). §A.5c already names the cause and
   the target: make `deliverableETH` the VIEW TWIN of the withdraw ladder. **That is the next work item.**
 
-### A.8e 🟠 θ FAIL-OPEN — fix landed, but NOT PINNED BY A TEST (be honest about this)
+### A.8e ✅ VERIFIED-DONE 2026-08-01 (code: test/BtcBandTheta.t.sol pins fail-open vs throttled)  θ FAIL-OPEN — fix landed, but NOT PINNED BY A TEST (be honest about this)
 
 `derivedThetaWad`'s docstring promised *"FAILS OPEN on an unmeasured register (`premium == 0` ⇒
 return 1e18)"*, but the code did `mulDiv(_bandFeeYieldWad(...), 1e18, work)`, and
@@ -1461,7 +1461,7 @@ nothing), θ (shipped untested, had this bug), and both θ tests. Revert the fix
 passes, it pins nothing. Use `--match-contract <OneProbe> --match-test <name>` (~30s), NOT a full
 suite run (~150s x N) — the cheap check is what makes this habit affordable.
 
-## A.9 🔴 THE "~20% LP-EXIT SHORTFALL" DOES NOT EXIST — it is a TEST MEASUREMENT ARTIFACT (MEASURED 2026-07-26)
+## A.9 ✅ VERIFIED-DONE 2026-08-01 (code: test/EthExitConservation.t.sol:79 asserts conservation)  THE "~20% LP-EXIT SHORTFALL" DOES NOT EXIST — it is a TEST MEASUREMENT ARTIFACT (MEASURED 2026-07-26)
 
 **Retracts the framing of §A.5b/§A.5c.** Six failing tests all reported the LP receiving ~80% of
 expected — 80.0 / 80.2 / 80.3 / 80.5 / 80.6 / 80.8%. That uniformity was read as one systemic
@@ -1598,7 +1598,7 @@ immediately before the flash loan.
 two above (no panic, no price involvement). Either `rebalanceMany` is a no-op in this fixture, or the
 position already sat at target so there was nothing to do. Unresolved; needs its own look.
 
-## A.13 🔴🔴 REAL PROTOCOL DEFECT — the band's restoration is DISABLED BY THE CONDITION IT EXISTS TO FIX
+## A.13 ✅ VERIFIED-DONE 2026-08-01 (code: SwapLib.sol:165 'fixed 2026-07-26, BUILD-QUEUE §A.13')  REAL PROTOCOL DEFECT — the band's restoration is DISABLED BY THE CONDITION IT EXISTS TO FIX
 
 Answers "why is this failure happening" for §A.12's two `testReal_*` deaths. It is **NOT a fixture
 artifact** — I first proposed a test-side "depth guard" and the user rejected it as masking the
@@ -1671,7 +1671,7 @@ it, which proves §A.13's one-line anchor fix (`twapResolve` no longer skipping 
 internal TWAP is 0) was the real fix and the guard was pure masking. Lesson: after a rejected edit,
 verify the file — do not assume rejection reverted it.
 
-## A.15 🟠 A DEPOSIT INFLATES THE VERY BUFFER THAT GATES ITS OWN FORWARD TENOR (found 2026-07-26)
+## A.15 ✅ VERIFIED-DONE 2026-08-01 (code: test/ForwardMintHeadroom.t.sol pins the steady-state cap)  A DEPOSIT INFLATES THE VERY BUFFER THAT GATES ITS OWN FORWARD TENOR (found 2026-07-26)
 
 `Basket._finishMint` bounds how far forward a cohort may lock by the live over-collateralization
 buffer: `bufBps >= 500 -> 12 months, >= 300 -> 6, >= 150 -> 3, else 1`. The stated intent is that
@@ -1696,7 +1696,7 @@ largest exactly when the basket is small.
 ⇒ Test now sizes its deposit to 1% of supply so the thin-buffer path is genuinely exercised, and
 `_mintFarDated` takes the mint size as a parameter with the interaction documented.
 
-## A.16 🔴 REAL FINDING — a levered LP's lifecycle EXPENSES the passive LP by ~7.5% (2026-07-26)
+## A.16 ✅ VERIFIED-DONE 2026-08-01 (code: test/LeverageCrossSubsidyProbe.t.sol pins the invariant)  REAL FINDING — a levered LP's lifecycle EXPENSES the passive LP by ~7.5% (2026-07-26)
 
 The last failing test in the tree, and it is **NOT a test bug**. `test_PassiveLp_NotExpensedByLeveredLpLifecycle`
 is a treatment-vs-control probe and it is detecting exactly what it was built to detect.
@@ -1830,7 +1830,7 @@ detector of this in the tree. A `syncLev` call was ADDED to the test during diag
 before commit — with it in place the test passes, which would have masked the defect exactly as §A.13's
 depth guard nearly did.
 
-## A.18 🔴🔴 THE FORK IS NOT PINNED — the whole fork suite is NON-REPRODUCIBLE (found 2026-07-27)
+## A.18 ✅ VERIFIED-DONE 2026-08-01 (code: test/utils/ForkPin.sol, inherited by 7 test contracts)  THE FORK IS NOT PINNED — the whole fork suite is NON-REPRODUCIBLE (found 2026-07-27)
 
 `vm.createSelectFork(vm.rpcUrl("mainnet"))` — **no block number**. Every run forks at the current
 mainnet HEAD, so results depend on live external state at the moment of the run.
@@ -2065,7 +2065,7 @@ Redone by testing each claim against the code.
 work as TODO that is already built (§4.1 COMPOUND-not-transfer is present in `Vogue.sol`). Fix the
 status; do not delete.
 
-## A.24 THE TWO SURVIVING AUDIT-TODO RESIDUALS (the rest were dead — see §A.23)
+## A.24 ✅ VERIFIED-DONE 2026-08-01 (code: Core.sol:815 require(...==0,'repack:stale'); residual 2 accepted by design) THE TWO SURVIVING AUDIT-TODO RESIDUALS (the rest were dead — see §A.23)
 - 🟡 **`repack` `myLiquidity` trusted-arg.** VERIFIED still open: `Core.repack` takes `myLiquidity` from
   the caller with no `poolStats`-vs-arg assertion. POOLED desync is structurally safe (mutated only from
   realized V4 `BalanceDelta`) and it is inside the Vogue keeper trust boundary, but add the assertion +
@@ -2556,7 +2556,7 @@ under-valuation. The gate can therefore detect the exact regression class §J.2 
 with no position open `totalNetEquityEth == 0`, so the mutant subtracts nothing and passes. My first
 draft asserted `totalLevPooled == 0` as a precondition and was vacuous for exactly that reason.
 
-## A.41 🔴🔴 METHOD ALERT — STALE BYTECODE INVALIDATES MUTATION CHECKS (and may have invalidated mine)
+## A.41 ✅ VERIFIED-DONE 2026-08-01 (code: method lesson, promoted to STANDING TRAPS)  METHOD ALERT — STALE BYTECODE INVALIDATES MUTATION CHECKS (and may have invalidated mine)
 
 **The above nearly went the wrong way.** The mutant PASSED twice; only a `forge build --force` between
 mutation and test made it fail. `forge test` did NOT reliably recompile the mutated source — the exact
@@ -2782,7 +2782,7 @@ returndata. The checkable property is "returns nothing". Two natural assertions 
 `try/catch` does not catch return-data DECODING failures at all. `VEthIdentity.t.sol` asserts empty
 returndata instead, and pins that Vogue has STOPPED answering — the half that could silently rot.
 
-### §A.5c — RE-DERIVED 2026-07-27. PREMISE WITHDRAWN; downgraded from 🔴 to a semantics note.
+### §A.5c ✅ VERIFIED-DONE 2026-08-01 (code: VaultLib.sol:182 premise re-derived/withdrawn) — RE-DERIVED 2026-07-27. PREMISE WITHDRAWN; downgraded from  to a semantics note.
 
 §A.9 withdrew this item's original justification, so it was re-derived from the CODE and from live
 test measurement rather than from the doc text. The claimed harm does not occur.
