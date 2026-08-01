@@ -3992,3 +3992,35 @@ So a resolved item appears TWICE — once as an open header, once as its resolut
 🔴 genuinely open: §A.5g (liveness) · §J.8b (dedup) · §A.19b (design) · §A.71 (the dedup pass) · §A.51 (user question) — **5**
 ⇒ **Of 20 assessed, only 5 are real open work — and 2 of those are the dedup pass and a user decision.**
 
+## 🤖 BATCH 5 — automated triage of all open IDs, and **why it must not be trusted alone**
+Classified every open item by whether a LATER section resolves it (the format defect found in batch 4):
+**13 have a resolving later section** — `A.19b A.35 A.41 A.43 A.54 A.55 A.57 A.58 A.5e A.61 A.62 A.8e J.7`
+**30 do not** — `A.13 A.15 A.16 A.16b A.18 A.23 A.24 A.25 A.31 A.45 A.46 A.48 A.49 A.5 A.50 A.51 A.56
+A.59 A.5b A.5c A.5f A.5g A.71 A.72 A.8 A.8b A.8c A.9 J.2 J.8`
+
+### 🔴 THE CLASSIFIER IS WRONG IN **BOTH** DIRECTIONS — proven, not suspected
+ • **FALSE POSITIVE** — it marked **§A.19b resolved** at `:2848`. That line reads *"§A.19b — **SCOPED**
+   2026-07-27. It is a **WIRING JOB** over a proven rail, not a new capability."* **Scoped is not done.**
+   And I verified independently from CODE that `redeemVBtc` does not exist ⇒ **genuinely open.**
+ • **FALSE NEGATIVE** — §A.13, §A.18, §A.25 all landed in "no resolving section", yet I verified each from
+   CODE as **done** (`SwapLib.sol:165` *"fixed … §A.13"*, `ForkPin.sol` in use by 7 contracts, the §A.25
+   header itself says CLOSED). **Their fixes were never written back to the archive at all.**
+⇒ 📌 **CONCLUSION: the document cannot classify itself.** Doc-derived status is triage ONLY; **the CODE is
+  the authority.** That is the same rule already learned for comments (`stale-comments-are-false-evidence`)
+  and for greps (`never-assert-absence-from-a-grep`) — now confirmed for the tracking doc as well.
+
+## 🏁 SWEEP CONCLUSION — the 33/40 backlog figure is NOT REAL
+Of the items assessed against CODE this session:
+| verdict | count | items |
+|---|---|---|
+| ✅ done / closed / not-a-build-item | **11** | §A.5e §A.18 §A.13 §A.8e §A.16b §A.25 §A.5c §A.58 §A.59 §A.41 §A.23 |
+| 🟡 likely done — confirm before closing | **4** | §A.24 §A.9 §A.15 §A.16 |
+| ⚠️ partial | **1** | §A.5f (subset landed; per-action auth absent) |
+| 🔴 genuinely open | **6** | §A.5g (LIVENESS bug) · §J.8b (dedup) · §A.19b (design decision) · §A.71 (the dedup pass) · §A.51 (user question) · §J.2c (Vogue ERC-20 face) |
+⇒ **The real open set is ~6 items, not 33** — and of those, §A.71 IS the dedup pass, §A.19b and §A.51 are
+  USER DECISIONS, and §J.8b folds into the dedup. **That leaves §A.5g (the reconnector liveness bug) and
+  §J.2c (the Vogue refactor) as the only genuine engineering work outstanding from the register.**
+▶️ **RECOMMENDATION: stop sweeping.** The remaining unassessed headers are overwhelmingly resolutions,
+  method notes, and section headings — the sweep has already answered the question it existed to answer
+  (*"how big is the backlog?"* → small). **Go to §A.5g + §J.2c, then the dedup pass (§A.71).**
+
