@@ -66,6 +66,18 @@ is a proof of genuine title, first position, and ratio within limits. The same m
 household's position off a public ledger, and lets anyone confirm a parcel is not already pledged
 without a shared database of who owns what.
 
+Default is where a structure like this usually falls apart, so the three roles are held separately.
+The reserve is the economic owner and takes the loss. A named legal person is the record lienholder,
+since a registry records a charge in favour of someone who exists and a contract is not a person. The
+originator is retained as servicer and forecloses as our agent, which is how every whole-loan sale
+already works. Refinancing helps here: discharging the old lien and recording a new one names the
+right beneficiary at origination, and faulty assignment afterwards is what the post-2008 foreclosure
+litigation was actually about. The paper carries reps and warranties with a repurchase obligation, so
+a loan that defaults early or was misrepresented on title or valuation goes back to the originator at
+par before anybody forecloses anything. What we give up is mechanical enforcement, and the residual is
+servicer risk, held down by a backup servicer named in advance and an irrevocable power of attorney
+signed at the start.
+
 ---
 
 ## How did you learn about the problem?

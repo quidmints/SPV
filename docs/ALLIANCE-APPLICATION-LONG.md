@@ -154,6 +154,45 @@ is a proof of genuine title, first position, and ratio within limits. The same m
 household's position off a public ledger, and lets anyone confirm a parcel is not already pledged
 without a shared database of who owns what.
 
+**Who forecloses, since the reserve is now the party owed.** The originator does, and not because it
+still owns the debt. Servicing is a right separate from ownership, and it is how every whole-loan sale
+already works: Fannie and Freddie own trillions in notes and have never foreclosed on anything, while
+the servicer does it in the owner's name under a servicing agreement. Three roles, deliberately
+separated.
+
+The **economic owner** is the reserve, taking the cash flows and bearing the credit loss. The **record
+lienholder** is a named legal person, because a registry records a charge in favour of someone who
+exists and a smart contract is not a person: either the originator holds the lien as nominee for the
+noteholder, which is precisely MERS's function in the US, or an SPV is the record holder and the
+reserve holds a beneficial interest. The **servicer** collects and, on default, enforces, which is how
+the originator keeps earning after selling the paper.
+
+Refinancing makes this cleaner rather than harder. A refi discharges the old lien and records a new
+one in first position, which is a fresh notarised act, so the correct beneficiary is named at
+origination. Chain of title breaks down in *assignment*, not in origination, and the entire post-2008
+foreclosure mess (robo-signing, "show me the note," Ibanez in Massachusetts) was securitisation trusts
+trying to enforce liens they could not prove had been properly assigned to them.
+
+The privacy design is consistent with this. On default the reserve cannot identify who to sue, having
+never received the file, and it does not need to: the servicer holds the dossier and the standing.
+What the contract does is hold the beneficial interest, receive payments, and mark a loan delinquent
+against a schedule it already knows, which is the event that instructs the servicer. Enforcement
+happens in a courthouse.
+
+**What this gives up, stated rather than buried.** The no-underwriter design had mechanical
+liquidation and nobody able to refuse. This one has a human enforcement path with human failure modes,
+and the sharpest is servicer risk: a servicer who is captured, insolvent or simply unwilling stalls
+recovery on paper we cannot enforce ourselves. That risk is priced into every RMBS deal, and the two
+standard mitigations both belong in the agreement, a backup servicer designated in advance and the
+irrevocable power of attorney (*Vekālat-nāmeh-ye Belā-'Azl*) signed at the start, which lets a
+substitute act without the borrower's cooperation.
+
+More important than the foreclosure mechanics: the reserve should mostly not be holding defaulted
+loans at all. Whole-loan purchase agreements carry reps and warranties with a repurchase obligation,
+so a loan that defaults early, or where a representation about title or valuation proves false, goes
+back to the originator at par. That keeps their skin in the game on exactly the inputs cryptography
+cannot verify, and it means most bad loans leave the reserve before anyone forecloses anything.
+
 ### Why this is worth funding rather than just building for ourselves
 
 The thing we needed was a family-office capability: consolidated view, real diversification, credit

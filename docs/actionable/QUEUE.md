@@ -2389,3 +2389,37 @@ Rust daemon (`deadman_exit.rs`) and the splice path, not by reasoning.
   run was sound; the check that mattered was never run.**
 🛑 **This BLOCKS (a+)** — settle-on-emission and splice-on-transfer both assume a superseded exit is dead.
 
+## ✅ #114 FINDING **CONFIRMED AND BOUNDED** — exposure = time since the channel's LAST SPLICE.
+Verified in `quid-ln/quid-bridge/src/deadman_exit.rs`:
+ • The exit is a **BIP341 key-path spend with `nLockTime` = the CLTV** and a NON-FINAL `nSequence`
+   (`ENABLE_LOCKTIME_NO_RBF`) so consensus enforces the timelock. There is NO `OP_CHECKLOCKTIMEVERIFY`
+   script — *"the timelock lives entirely in nLockTime + the non-final input"* (`:12-23`).
+ • **`Splice scope: WIRED (2026-07-24)`** (`:25-28`) — the daemon reads the CURRENT funding outpoint and
+   `splice_parent_funding_txid` from `ChannelMonitor`, so a spliced channel derives the ROTATED holder key.
+⇒ **A SPLICE DOES kill all prior exits** (they spend a now-spent UTXO). ✅ That is the invalidation mechanism.
+⇒ **BUT splices happen on CHANNEL EVENTS (open / close / swap-out / LP splice-in-out), NOT on the heartbeat.**
+  Between two splices the funding UTXO is CONSTANT, so **every emission made since the last splice remains
+  spendable**, and each becomes broadcastable as its own CLTV matures.
+⇒ 🎯 **THE PRECISE STATEMENT: the premature-force-close window is bounded by SPLICE frequency, not by
+  heartbeat frequency.** An ACTIVE channel (frequent swaps ⇒ frequent splices) is barely exposed. An **IDLE
+  channel is fully exposed** — no splices, so stale emissions accumulate and mature one after another while
+  the fleet is alive and healthy. **Idle BTC-LP channels are exactly the long-lived, passive positions this
+  backstop exists to protect.**
+
+### ▶️ WHAT TO DO — in order
+ 1. **Quantify:** what is the real splice cadence for an idle channel? If a channel can sit unspliced for
+    weeks, the exposure is weeks. **Measure before choosing a fix** (do not assume it is rare).
+ 2. **Fix options (enumerated):**
+    (i) ⭐ **Revocation-key construction** — Lightning's native answer: each new state REVOKES the prior, so
+        broadcasting a stale exit is PUNISHABLE rather than merely conflicting. Correct-by-construction and
+        native to this setting (this IS a Lightning channel), but the largest build.
+    (ii) **Emit ONE exit far in the future and refresh only near maturity** — fewer live stale exits
+        (exposure shrinks to the refresh window), but a longer recovery delay if the fleet actually dies.
+        **A direct trade of griefing risk against recovery latency — the user should pick the point.**
+    (iii) **Splice on a slow timer for idle channels** — reuses the wired splice path, costs an on-chain BTC
+        tx per idle channel per period. Simple; the cost is real but bounded and predictable.
+ 3. Only then resume (a+), which assumes superseded exits are dead — TRUE only immediately after a splice.
+📌 The design is NOT broken — the invalidation mechanism EXISTS and is wired. The gap is that its trigger
+  (splice) is decoupled from the refresh cadence (heartbeat). **That is a tractable parameter problem, not a
+  redesign** — and it was invisible to an EVM-side review because it lives in the Bitcoin tx lifetime.
+
