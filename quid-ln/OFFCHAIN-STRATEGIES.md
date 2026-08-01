@@ -18,12 +18,20 @@ here can mint QUI or move LP funds without the on-chain checks passing.
   Bitcoin 2-of-2 spend. Worst case for a compromised/lost hop key is **halt-not-theft**
   (no new channels/swaps), and LPs always self-exit (see below). `hopNode` is a single
   EOA (no multisig) — accepted, since it's halt-not-theft.
-- **LP daemon** (`quid-bridge/src/bin/quid-lp-daemon.rs`): the liquidity provider's
-  **self-hosted, non-custodial** node. The LP holds one Bitcoin key + one EVM key; it
-  signs `lpAuth` over channel ops from its OWN chain view and never blind-signs. The SGX/
-  managed-host/remote-signer designs were dropped — an LP runs a node anyway, so self-host
-  *is* non-custodial. LPs come and go freely (free entry); the protocol is hardened so a
-  malicious LP can't over-mint or steal another LP's proceeds.
+- **LP daemon** (`quid-bridge/src/bin/quid-lp-daemon.rs`): the SELF-HOST path. The LP holds one
+  Bitcoin key + one EVM key and signs `lpAuth` over channel ops from its OWN chain view, never
+  blind-signing. LPs come and go freely; the protocol is hardened so a malicious LP can't over-mint
+  or steal another LP's proceeds.
+  > ⚠️ **CORRECTED 2026-08-01: self-hosting is no longer the only path, and the claim that the
+  > managed-host designs "were dropped" is stale.** `BTCChannels.registerDelegation`
+  > (`evm/src/BTCChannels.sol:652`, model described at `:225-244`) lets an LP sign ONE cold EIP-712
+  > delegation, relayed gaslessly, and then run NOTHING: no node, no watchtower. `delegatedAuthority`
+  > is either a concrete hop (family/self-host, pinned exactly) or the Safe-governed `hopRegistry`
+  > (FLEET: any hop it attests, so a key rotation is one Safe tx no LP re-signs). Non-custodial in
+  > both cases, because `btcRecipientOf` is pinned and LOCKED at delegation and every payout script
+  > must match it, so a fully compromised hop can only pay the LP. The un-pullable exit is the
+  > dead-man switch (`:256-271`): a pre-signed CLTV-locked unilateral exit whose raw bytes are public
+  > on-chain, broadcastable by anyone once the heartbeat stops.
 
 ## Swap-in (BTC → USD) — LIVE
 
@@ -44,8 +52,14 @@ the EVM credits USD.
 
 ## Swap-out (USD → BTC) — rail A LIVE, rail B ENV-GATED
 
-Two rails, both starting from `requestSwapOut*` on the EVM (records the obligation in
-`netDeliveredBtc`/`swapUsdBtc`, a shared cross-channel proceeds pool):
+Two rails, both starting from `requestSwapOut*` on the EVM, which records the obligation
+PER-OBLIGATION in `Core.pendingSwapOutUsd` (the swapper's actual USD is pinned at request and paid to
+the delivering LP at `deliverSwapOutOnchain`).
+
+> ⚠️ **CORRECTED 2026-08-01:** this used to say the obligation lands in `netDeliveredBtc`/`swapUsdBtc`,
+> "a shared cross-channel proceeds pool". That machinery and its clamp are GONE (`Core.sol:765-770`,
+> `BTCChannels.sol:466-470`), so there is no shared pool to race over. Note `BTCChannels.sol:966-978`
+> still describes the old pool in a comment and contradicts `:467` in the same file.
 
 - **Rail A — Lightning** (`swap_out.rs`): the swapper is the LN receiver; the hop pays a
   BOLT11 from pooled liquidity. **LIVE.**

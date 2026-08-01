@@ -5,18 +5,26 @@ depositor** (no setter — the venue rides the deposit call) and **hard-walled p
 served from *your* venue, so one venue's incident can't drain another LP. (Consolidates the old
 `ETHERFI.md` + `ETH-MULTI-VENUE.md`, both stale on the venue set.)
 
-## The six venues (`Vogue.sol:59-64`, mirrored in the SPA `ETH_VENUES`)
+## The venues (verified 2026-08-01 against `Vogue.sol:1277-1281` and `imports/VaultLib.sol:115-117`)
 
-| id | `VENUE_*` | what |
-|----|-----------|------|
-| 0 | `SPLIT` | **DEFAULT** — 50/50 Galaxy(Morpho) + Aave-v4, diversifies curator risk |
-| 1 | `ETHERFI` | native ETH staking via weETH |
-| 2 | `AAVE` | Aave-v4 spoke supply |
-| 3 | `GALAXY` | all-Galaxy (Morpho V2 curator 4626); also the self-managed fallthrough |
-| 4 | `ROVER` | ether.fi via the **protocol-owned** weETH/WETH v3 LP (fair-anchor, no cap/window) |
-| 5 | `EULER` | Euler ETH — a 2nd WETH 4626 curator, **fungible with Galaxy** |
+> ⚠️ The earlier six-row table on this page was stale in two ways: it listed a `VENUE_ETHERFI` at
+> id 1, and it omitted Gauntlet. There is deliberately **no id 1** — ether.fi always routes through
+> Rover.
 
-## Custody lives in `EthVenue`, not `Aux`
+| id | what |
+|----|------|
+| 0 | `SPLIT` — **DEFAULT**, spreads across the curators, diversifying curator risk |
+| 2 | `AAVE` — Aave-v4 spoke supply |
+| 3 | `GALAXY` — Morpho V2 curator 4626; also the self-managed fallthrough |
+| 4 | `ROVER` — ether.fi via the **protocol-owned** weETH/WETH v3 LP (fair-anchor, no cap/window) |
+| 5 | `EULER` — a 2nd WETH 4626 curator, **fungible with Galaxy** |
+| 6 | `GAUNTLET` — a 3rd WETH 4626 curator, fungible with the other two |
+
+The 4626 curator set backing `vogueETH` is `[galaxy, euler, gauntlet]` plus weETH
+(`VaultLib._venues`), and the constructor enforces the three being pairwise distinct
+("vault:dupVenue") because aliasing two of them double-counts backing.
+
+## Custody: `Vault`, via a pinned `ethVenue` handle
 The WETH-side custody (Galaxy/Euler 4626 shares, Aave WETH, weETH) and its ops (`supplyETH`/
 `withdrawETH`, `supplyEtherFi`/`supplyAaveEth`/`supplyEulerEth`/`supplyEtherFiToRover`,
 `offrampEtherFi`, `vogueOp`/`vogueETH`) were **regrouped out of `Aux` into the `EthVenue`

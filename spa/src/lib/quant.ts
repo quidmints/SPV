@@ -10,8 +10,13 @@
 //   impermanent (round-trips back on mean-reversion) and is limited by how much
 //   the LP keeps in dollars (QUI) — NOT by a buffer. The basket's
 //   over-collateralization protects QD holders (seniority), not the LP's price
-//   exposure. [A future YB-leverage overlay could CANCEL this IL, but it is not
-//   built yet — this file reflects the deployed R1.]
+//   exposure. [CORRECTED 2026-08-01: the leverage overlay that CANCELS the up-side
+//   IL is BUILT and live — LevManager/BtcLevManager plus the Rust lev_keeper, opt-in
+//   per LP on external ISOLATED Euler/Morpho/Aave/Liquity, target LTV 1-sqrt(entry/now),
+//   zero at or below entry. The prior "not built yet" note was stale. R1 below still
+//   describes the UNPROTECTED path, which is what an LP who declines the overlay gets.]
+//   [ALSO STALE BELOW: K_LVR/CERTIFIED_THETA are keyed to a +/-2% band. The deployed
+//   band is +/-0.2% (SwapLib.BAND_DELTA = 20).]
 //
 //   "fees ≈ IL" is FALSE once concentrated — YIELD is the load-bearer, fees are
 //   margin (COVID backtest: LVR ≈ 200%/yr at ±2% vs single-digit fees).

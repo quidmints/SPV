@@ -1,4 +1,10 @@
-> ⚠️ STATUS (2026-06-30): OVERRULED as the IL-protect approach — "IL-certification" (LP holds a linear token-claim, basket θ-bounded surplus absorbs the LVR, no leverage needed) is a disproven hypothesis; the IL-protect is now opt-in per-LP weETH/WETH-collateral **bidirectional** leverage (long above + short below entry, both delta-1) on external Euler/Morpho/Aave/Liquity — BUILT + live as of 2026-07-11. The empirical θ/K/backtest measurements herein remain useful as historical IL/LVR data, but the "no-leverage, basket-absorbs" design conclusion is superseded. Canonical: docs/actionable/LEVERAGE-ENGINE-SPEC.md.
+> ⚠️ STATUS (2026-08-01, re-verified against the contracts): OVERRULED as the IL-protect approach. "IL-certification" (LP holds a linear token-claim, basket θ-bounded surplus absorbs the LVR, no leverage needed) is a disproven hypothesis. The IL-protect is opt-in per-LP collateral leverage on external Euler/Morpho/Aave/Liquity, **UP-SIDE ONLY**.
+>
+> **The previous banner's "bidirectional (long above + short below entry)" was itself stale.** The short leg was REMOVED 2026-07-24 (`LevManager.sol:580-584`); the target returns zero at or below entry (`imports/LevMath.sol:109-125`).
+>
+> **Read every number below as off-basis.** All of it is keyed to a ±2% band. `SwapLib.BAND_DELTA = 20` is **±0.2%** (`imports/SwapLib.sol:831-838`), so the K table in §3, the solvency table in §5 and the θ ≈ 0.25–0.40 target do not describe the deployed band. `IL-FINDINGS-2026-06.md` §4 already measured K at 1.84 guard-ON against the 0.71 claimed here, on the old basis. Treat this file as historical IL/LVR data, not as a live safety argument.
+>
+> `docs/actionable/LEVERAGE-ENGINE-SPEC.md` does not exist; the contracts are canonical. See memory `spv-informational-docs-diverge-from-code`.
 
 # IL / LVR — economic certification (empirical backtest)
 

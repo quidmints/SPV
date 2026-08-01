@@ -962,20 +962,23 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///           locktime==0 proves co-signed but not current-vs-stale, so finalBalance
     ///           recency rests on the hop co-signing the CURRENT state (same hop-trust as
     ///           settleSwapIn) — and the hop is TRUSTED infrastructure, not the adversarial
-    ///           party (the threat model is a malicious LP). Even so, a stale finalBalance
-    ///           CANNOT over-mint: deliveredSlice ≤ netDeliveredBtc is the backstop.
+    ///           party (the threat model is a malicious LP).
     ///
-    ///           CROSS-CHANNEL PROCEEDS: netDeliveredBtc / swapUsdBtc are a SHARED pool
-    ///           across all BTC channels ("multi-channel by design"), and an exit claims a
-    ///           delivered-SHARE of it. The LP-controlled inflation that would let one LP
-    ///           grab another's share is now CLOSED at every entrypoint a malicious LP
-    ///           drives: swap-out delivery pins delivered to the swapper obligation
-    ///           (_settleSwapOutSlice), withdrawal splice bans foreign outputs so the payout
-    ///           is honest (_withdrawalPayout), and cooperative close pins the payout script
-    ///           via LDK upfront-shutdown (above). Each LP's delivered slice is therefore its
-    ///           TRUE slice and the shared pool distributes correctly without binding
-    ///           proceeds per-channel. The only residual mis-attribution is hop misbehaviour
-    ///           (recency), which is trusted.
+    ///           PROCEEDS ARE PINNED PER-OBLIGATION, NOT POOLED (corrected 2026-08-01 — this
+    ///           block used to describe netDeliveredBtc/swapUsdBtc as a SHARED cross-channel
+    ///           pool an exit claims a delivered-SHARE of, and to cite
+    ///           `deliveredSlice <= netDeliveredBtc` as the over-mint backstop. That machinery
+    ///           and its clamp are GONE — see `_lpFinalBalance`'s note at the top of this file
+    ///           and Core.sol's `_handleSwap`. The swapper's actual USD is recorded per
+    ///           obligation (Core.pendingSwapOutUsd) at request and paid to the delivering LP
+    ///           at deliverSwapOutOnchain, so there is NO shared pool to race over and no
+    ///           cross-channel share to inflate.)
+    ///
+    ///           What still holds is the per-entrypoint honesty of `delivered`: swap-out
+    ///           delivery pins it to the swapper obligation (_settleSwapOutSlice), a
+    ///           withdrawal splice bans foreign outputs (_withdrawalPayout), and a cooperative
+    ///           close pins the payout script via LDK upfront-shutdown (above). The residual
+    ///           mis-attribution is hop misbehaviour (recency), which is trusted.
     ///
     ///         • NON-COOPERATIVE (locktime != 0): an LDK commitment/force-close
     ///           broadcast on Bitcoin. SOLVENCY RECONCILIATION, not a payout — the BTC

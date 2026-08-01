@@ -424,19 +424,45 @@ mod tests {
             keyrequest: Cow::Owned(KEYID.to_vec()),
             ciphertext: Cow::Owned(vec![0u8; Sealed::TAG_LEN + 4]),
         };
-        if sev_derived_key().is_err() {
-            assert!(matches!(
-                SevSealer.unseal(blob, LABEL),
-                Err(Error::SevKeyUnavailable)
-            ));
+        match SevSealer.unseal(blob, LABEL) {
+            // Off SEV-SNP: refused for want of a key, never opened with a fallback.
+            Err(Error::SevKeyUnavailable) => assert!(sev_derived_key().is_err()),
+            // On a real guest the key IS available, so this garbage blob must fail the
+            // TAG check instead. Asserting this is what stops the test going vacuous on
+            // the only hardware that can prove the happy path.
+            Err(Error::UnsealDecryptionError) => assert!(sev_derived_key().is_ok()),
+            Err(_) => panic!("unexpected error variant from unseal"),
+            Ok(_) => panic!("a blob of zeroes was successfully unsealed"),
         }
     }
 
+    /// THE HARDWARE TAIL. Off SEV-SNP every one of these must fail closed. On a real
+    /// SEV-SNP guest -- the only place `Firmware::open()`'s happy path can be exercised --
+    /// this is the test that proves the report path actually works end to end, so it
+    /// asserts on BOTH sides rather than skipping when the hardware is present.
     #[test]
-    fn the_report_helpers_fail_closed_too() {
+    fn the_report_helpers_match_the_hardware() {
         if sev_derived_key().is_err() {
             assert!(sev_report([0u8; 64]).is_err(), "a report was produced without firmware");
             assert!(attest_identity(&[0u8; 32], &[0u8; 20]).is_err());
+            return;
         }
+
+        let tls_pk = [0x33u8; 32];
+        let evm_addr = [0x44u8; 20];
+        let raw = attest_identity(&tls_pk, &evm_addr).expect("report on a real SEV-SNP guest");
+
+        // The report must actually carry the identity binding we asked for, and its
+        // measurement must parse via the typed accessor.
+        let expected = identity_report_data(&tls_pk, &evm_addr);
+        let report = AttestationReport::from_bytes(&raw).expect("typed parse of a real report");
+        assert_eq!(&report.report_data[..], &expected[..], "report_data was not bound");
+        assert_eq!(sev_measurement(&raw).expect("measurement").len(), 48);
+
+        // And the derived key must be usable for a real round trip.
+        let key = sev_derived_key().expect("derived key");
+        let sealed = seal_with_key(&key, KEYID, LABEL, Cow::Borrowed(b"hardware"));
+        let out = unseal_with_key(&key, sealed.expect("seal"), LABEL).expect("unseal");
+        assert_eq!(out, b"hardware");
     }
 }

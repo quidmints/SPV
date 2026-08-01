@@ -2142,3 +2142,32 @@ The test's setup was correct WHEN WRITTEN; something in it has since stopped bit
 📌 The landed runtime capacity skip remains correct and unaffected — it is about PRODUCTION seeing 0, which
   is independently confirmed by the live reads.
 
+## 🎯 C10 — LIKELY ROOT CAUSE FOUND: one of the test's two `vm.mockCall`s targets a MISSING signature.
+Probed both mocked functions against the LIVE contracts:
+| mocked call | target | live result |
+|---|---|---|
+| `ethAmountLockedForPriorityWithdrawal()` | `0x35e7D6fe…45FA` | ✅ returns **0** — exists |
+| `ethAmountLockedForWithdrawal()` | LiquidityPool `0x308861A4…F216` | 🔴 **REVERTS** |
+⇒ **A `vm.mockCall` on a signature the target does not have is a SILENT NO-OP** — foundry installs the mock,
+  nothing ever calls it, and the test proceeds as if the gate were neutralised. **That gate has been live
+  the whole time**, which is consistent with capacity staying 0 no matter how much ETH we `vm.deal`
+  (400_000 ETH changed nothing — because the BLOCKER was never the balance).
+⚠️ **CAVEAT (my own recorded lesson, applied):** a bare revert does NOT by itself prove "no such function" —
+  it could be a wrong RETURN-TYPE decode or a wrong arity, exactly the mistake made with `canRedeem(uint256)`
+  earlier this session. **Confirm by selector before editing:** pull the LiquidityPool's implementation
+  bytecode and check whether `ethAmountLockedForWithdrawal()`'s selector is present, and find the real
+  accessor if it is not (the value may have moved to the same `0x35e7D6fe…` contract that holds the
+  priority variant, or been renamed).
+
+### ▶️ NEXT (ordered — do NOT skip the instrumentation step)
+ 1. Confirm by SELECTOR whether `ethAmountLockedForWithdrawal()` exists on the LiquidityPool impl.
+ 2. Find the real accessor for locked-ETH, and re-point the mock at it.
+ 3. **Add the diagnostic assertion FIRST regardless:** after all setup, assert
+    `IRedeem_L(redeemer).totalRedeemableAmount(NATIVE) > 0`. Today "setup failed to restore capacity" and
+    "redemption path failed" are INDISTINGUISHABLE — that ambiguity is what made this take so many passes.
+ 4. Only then re-run and adjust.
+📌 **This also explains the `60_000` → `400_000` null result cleanly** — evidence that the raw-balance
+  mechanism I mislabelled "proven" was never the operative gate. The retraction stands.
+📌 The landed runtime capacity SKIP is unaffected — production really does read 0 (confirmed by live reads,
+  independent of any test setup).
+

@@ -7,19 +7,28 @@ price TWAP) and the per-stable **concentration** (each stable's share of the
 basket). This is the **Aux/basket fee** (`FeeLib.calcFeeL1` + `riskFactor`) — *not*
 the 4.2-bps Vogue PoolKey/AMM fee, which is a separate plane.
 
-> **UPDATE (2026-06) — directional `baseRate` added; bounds tightened to
-> [0.03%, 0.3%].** The outflow fee now has a THIRD component beyond yield-weighted
-> concentration: a **Liquity-style decaying `baseRate`** (Aux state, 12h
-> half-life, incremented by `redeemed/(2·total)` per redemption) that rises with
-> directional redemption flow and decays when it stops — the "observations for
-> directional flow" register, in one state var rather than the price-TWAP ring. It
-> is threaded into `calcNeeded`/`allocate` as `baseRateBps`, applied ONLY on the
-> redemption path (`token==QUID`); swaps get 0. The composite outflow fee is now
-> bounded **`BASE=3` (0.03%) … `MAX_FEE=30` (0.3%)** — the ether.fi-redeem-
-> equivalent ceiling; the **depeg haircut (`calcRisk`) is a SEPARATE, uncapped
-> axis** (fee ≠ pass-through loss). The decaying-baseRate state is NOT spoofable
-> the way a price TWAP is — it integrates our own QUI burns, not a manipulable
-> reserve.
+> ⚠️ **RETRACTED (2026-08-01, verified against the contracts). The `baseRate` described in the
+> 2026-06 update below was REMOVED.** There is no Liquity-style decaying directional redemption toll
+> in the code: `_br`, `_touchBaseRate`, `BR_DECAY` and `BR_MAX_MIN` are gone from Aux
+> (`Aux.sol:1019`, `:1058-59`) and from `FeeLib` (`imports/FeeLib.sol:59`), with the reason recorded
+> at `Core.sol:168` (QU!D has no peg-arb loop, so the toll had nothing to price). `QuidLens.sol:22`
+> still mentions it and is also stale. Anywhere below that says "+ baseRate", read it as absent.
+>
+> **What survives and is still accurate:** `BASE = 3` (0.03%) and `MAX_FEE = 30` (0.3%)
+> (`FeeLib.sol:66-67`), the yield-vs-baseline drain tax (`calcFeeL1`), its convex draw-magnitude
+> scaling (`scaledFeeL1`), and the depeg haircut as a SEPARATE uncapped axis. So the composite is now
+> TWO terms, not three.
+>
+> **Also stale below:** §3b's "worse of the CRE-reported severity and a live feed" is now just the
+> live pinned feed. The off-chain CRE was removed (`Aux.sol:140`, `:202`, `FeeLib.sol:219`), and the
+> dark-CRE redemption gate at §4 step 1 went with it. And the per-stable arrays are `uint[15]` with
+> the TOTAL at index 14; `deps[12]` below is the old indexing.
+>
+> ~~UPDATE (2026-06): directional `baseRate` added; bounds tightened to [0.03%, 0.3%]. The outflow
+> fee now has a THIRD component beyond yield-weighted concentration: a Liquity-style decaying
+> `baseRate` (Aux state, 12h half-life, incremented by `redeemed/(2·total)` per redemption) that
+> rises with directional redemption flow and decays when it stops. Threaded into
+> `calcNeeded`/`allocate` as `baseRateBps`, applied ONLY on the redemption path.~~
 
 > **The analogy in one line.** The ETH/BTC AMM side prices and fills exits
 > against a *price* TWAP and a *concentrated-liquidity* band. Pegged stables have

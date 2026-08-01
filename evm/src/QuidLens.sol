@@ -18,8 +18,9 @@ interface IAuxLens {
 ///         state change — the SPA reads it via `eth_call`.
 contract QuidLens {
     /// @notice Cost of drawing `amountUsd6` (6-dec USD) strictly from `stable`, exactly as the redemption path
-    ///         prices it: `feeBps` = the composite outflow friction (magnitude-scaled `calcFeeL1` yield-vs-baseline
-    ///         + the live time-decayed `baseRate`, capped at `MAX_FEE` = 30 bps); `depegBps` = live depeg severity
+    ///         prices it: `feeBps` = the composite outflow friction (magnitude-scaled `calcFeeL1` yield-vs-baseline,
+    ///         capped at `MAX_FEE` = 30 bps — the `baseRate` this line used to name was REMOVED, see the body
+    ///         comment below); `depegBps` = live depeg severity
     ///         (0 when pegged). Lower total ⇒ cheaper for the user AND healthier for the basket. Non-view because
     ///         `get_deposits` isn't view; call via `eth_call`.
     function quoteStrict(address aux, address stable, uint amountUsd6)
