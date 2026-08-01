@@ -1273,15 +1273,12 @@ impl OnchainWallet {
         let fee = psbt.fee().context("Bad sweep fee")?;
         let fee = Amount::try_from(fee).context("Bad sweep fee amount")?;
 
-        // Sign the transaction
-        let sign_opts = bdk_wallet::SignOptions::default();
-        let finalized = locked_wallet
-            .sign(&mut psbt, sign_opts)
+        // Sign the transaction. Uses the shared helper rather than repeating
+        // `SignOptions::default()` + a finalized check: the semantics here are IDENTICAL
+        // to it (every input is ours, so signing must finalize), and a single signing
+        // implementation is one place to enforce policy rather than three.
+        Self::default_sign_psbt(&locked_wallet, &mut psbt)
             .context("Failed to sign sweep tx")?;
-        anyhow::ensure!(
-            finalized,
-            "Sweep tx signing did not finalize all inputs"
-        );
         let tx = psbt
             .extract_tx()
             .context("Failed to extract signed sweep tx")?;

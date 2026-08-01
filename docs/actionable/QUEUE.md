@@ -3714,3 +3714,35 @@ docker run --rm -v "$PWD":/w -w /w/quid-ln -e CARGO_TARGET_DIR=/tmp/t rust:1.90 
 ```
 `quid-bridge` CANNOT build natively (`quid-cvm` → AMD SEV → Linux-only). Docker is mandatory for daemon work.
 
+## ⚖️ STEP 5 — SIGNING DEDUP DONE (partly); the DESTINATION ALLOWLIST needs its OWN run. Here is why.
+**Read all 5 signing sites before merging them — and they do NOT all share semantics:**
+| site | `SignOptions` | expects finalized | mergeable? |
+|---|---|---|---|
+| `sign_psbt` | **custom** (`trust_witness_utxo`: the channel input carries only a `witness_utxo`) | **false** (only our inputs are ours) | ❌ genuinely different |
+| `sign_interactive_funding` | **custom** | **false** (multi-party tx) | ❌ genuinely different |
+| `create_sweep_tx` | `default()` | **true** | ✅ **MERGED** |
+| `create_and_sign_funding_tx` / `create_onchain_send` | via `default_sign_psbt` | true | ✅ already shared |
+⇒ ✅ **`create_sweep_tx` now uses `default_sign_psbt`** — 3 hand-rolled signing bodies → 2, and the two that
+  remain are documented multi-party partial-signing, not duplication. **110/110 tests still pass.**
+⇒ 📌 **This is why "collapse 5 → 1" was the wrong instruction to follow blindly.** Merging sites 1-2 would
+  have flattened `trust_witness_utxo` and a `finalized=false` expectation into a `default()`+`ensure!`
+  path — breaking channel funding in a way the type system would NOT catch. **The user's "don't hand-roll"
+  and my "one declaration" rule both had to yield to reading what the code actually does.**
+
+### 🛑 THE DESTINATION ALLOWLIST IS **NOT** SHIPPABLE AS A ONE-LINER — deferred WITH REASONS
+I proposed "internal addresses ✅ · channel funding ✅ · everything else ❌". Reading the paths, that is
+under-specified in a way that would BREAK things:
+ • **Channel funding pays a 2-of-2 multisig script that is NOT ours** — an "our addresses only" rule kills
+   channel opens outright.
+ • **Splices pay the new channel output**, likewise foreign-by-design.
+ • **The sweep pays an OPERATOR-SUPPLIED address** — that is its entire purpose, and it is exactly what
+   `SweepAuth` is meant to authorise.
+ ⇒ So the allowlist is not "our scripts"; it is **"scripts this specific operation is entitled to pay"**,
+   which differs PER SIGNING PATH. That is a real design, not a predicate — it needs its own run.
+⇒ ✅ **What IS shipped covers the concrete #114 hazard**: the freshness outpoint cannot be consumed by
+  ordinary selection (enforced at the builder chokepoint AND the splice path, with a test that proves it
+  BINDS). The broader anti-exfiltration posture is unchanged from before this feature — **not weakened by
+  it**, which was the actual question asked.
+▶️ NEXT RUN (its own): per-path destination policy + `SweepAuth` as its authorised exemption, mirroring
+  `ValidatingChannelSigner`'s wrapper and `migration.rs`'s EIP-712 proof.
+
