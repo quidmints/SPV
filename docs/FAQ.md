@@ -1938,49 +1938,17 @@ do with it. Either can produce signed paper before anything is deployed.
 12. Does a cross-border whole-loan market exist **below** the securitisation threshold, and if it is
     empty, is it empty for information reasons or legal ones?
 
-**Inside our control:**
+**Inside our control — moved to `docs/actionable/QUEUE.md` §E1-E7, which is the single status list:**
 
-13. **Close the three vault owner setters, or record why they survive launch.** The one open item that
-    materially weakens Part 6 and the only one we can fix unilaterally.
-13a. **Write a Forge test for `feeSettleSats`.** A live money path with a `require` bound and a vault-side
-    clamp, driven from Rust, and nothing in `evm/test/` references it. (The proposal to gate compounding
-    on an open leverage position was dropped: theta-clamping makes the IL cost second-order for both
-    depositor types.)
-13b. **Finish the stale-comment sweep.** A semantic scan on 2026-08-01 found roughly ten sites naming
-    deleted machinery as if it were live. Fixed: `btcFeesOwedSats`'s NatSpec (which said fees are "NOT
-    compounded into `pooled`" and directly caused a documentation error); two short-subsystem comments in
-    `LevManager._rebalanceBody`; the two keysend legs, obsolete under delegation; and `BTCChannels`'
-    header calling the bridge `Vogue.registerBtcLp`. **Still outstanding:** `Aux.sol:52` advertising an
-    `arbETH` forwarder the same file records as removed; `Aux.sol:735` "used by internal arbETH/arbBTC";
-    `Aux.sol:888`, `:1008`, `:1015` describing the `baseRate` as live where the same file records its
-    removal; `Vault.sol:43` justifying the `onlyUs` set by arbETH; `Core.sol:568` pointing at
-    `refillETH` and `ETHRefillRequest`; `DeployLib.sol:236` and `:252` describing SOR path arrays as
-    "arbETH/arbBTC iterates these"; and `Basket.sol:50` naming `onReport`.
-13d. **Decide the theta question.** θ = `yield/(K·σ²−f)` prices public-LP LVR, which this pool does not
-    have (internal-TWAP, mock-token, `onlyUs` swaps), and it was introduced to bound a
-    surplus-absorbs-the-LP's-IL design that has since been removed. It thins the band in vol spikes,
-    when depth is most needed, and stays wide in the low-σ grind our own simulation flags as the real
-    exposure. Drop it, or re-derive a clamp from the ≤50 bps execution lag. Not a comment fix: this is a
-    live money-path parameter and needs its own run with a stated falsifiable prediction.
-13e. **Rename `registerBtcLp`.** The name implies a once-per-channel registration and it is also the
-    GROW path: `_applySplice` calls it again to add liquidity, while the SHRINK half calls
-    `resizeBtcLp`. Two halves of one operation under two verbs, one of which is misleading. Something
-    like `creditBtcLp` or `addBtcLiquidity` would match `resizeBtcLp`. **Not done here**, because it is
-    an ABI change consumed by `quid-hop/src/evm_codec.rs` and needs the client-ABI check and a test run
-    rather than a mid-conversation edit.
-13c. **Audit the built-but-gated surface deliberately.** Several mechanisms exist and are switched off,
-    each for a stated reason, and the set should be reviewed together rather than rediscovered one at a
-    time: the sold-fraction IL target (`soldFractionActive`, default off in both leverage managers, so
-    the proven `1 − √(entry/now)` estimate stays active); enclave attestation
-    (`AttestedHopRegistry`, a no-op until governance pins the registry, falling back to an
-    owns-an-open-channel gate); on-chain swap-out rail B (`QUID_SWAPOUT_ONCHAIN`, off by default and
-    explicitly requiring a real bitcoind end-to-end run first); and on the identity side the treasury
-    adapter and Aave credit line, both built and tested but not called by the pool's core contracts.
-14. Model the collateral haircut the capped-at-par redemption requires, against the incumbent's 17.5%.
-15. Reconcile whether the reserve would hold whole loans or participations, and who the record lienholder
-    would be, if property credit is ever pursued.
-16. Take a letter of intent to one family office and one crypto-native adviser.
-17. Take the partial-collateral proposition to a surety's decline pile, haircut modelled first.
+13. Close the three `Vault` owner setters (E1) — the only item here that weakens Part 6 and the only one
+    fixable unilaterally.
+14. Forge test for `feeSettleSats` (E2). Decide the theta question (E3). Rename `registerBtcLp` (E4).
+    Finish the stale-comment sweep (E5). Review the built-but-gated surface as a set (E6).
+15. Model the collateral haircut the capped-at-par redemption requires, against the incumbent's 17.5%.
+16. Reconcile whether the reserve would hold whole loans or participations, and who the record
+    lienholder would be, if property credit is ever pursued.
+17. Take a letter of intent to one family office and one crypto-native adviser.
+18. Take the partial-collateral proposition to a surety's decline pile, haircut modelled first.
 
 ---
 

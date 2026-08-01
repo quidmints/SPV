@@ -3827,3 +3827,109 @@ SIX declarations, split by asset rather than parameterised:
   as **§J.8a** (weETH/Aave) and **§J.8b** (outOfRange). This is the `commit-often-and-name-precisely` trap
   in the tracking doc itself.
 
+
+---
+
+# 📋 NEW ITEMS FROM THE FUNDRAISING/FAQ SESSION (2026-08-01)
+
+These surfaced while writing `docs/FAQ.md` and auditing its claims against source. They were
+initially recorded in that FAQ's Part 8, which was the **wrong place** — the FAQ is a fundraising
+document and this file is the single status list. Restated here; the FAQ now points at this section
+for anything engineering.
+
+## E1. Close the three `Vault` owner setters, or record why they survive launch
+`Vault.sol:355` `setRover`, `:362` `setLevManager`, `:372` `setLevManagerBTC`. No renounce found on
+`Vault`, while `Aux.finalize()` and `Vogue.setup()` both renounce and `LevManager`'s venue allowlist is
+pin-once-then-frozen. `docs/FAQ.md` Part 6 argues to counsel that after launch **no function any person
+can call changes where depositor assets are deployed**; these three contradict that claim in code.
+**Highest-value item in this batch: cheap, unilateral, and it closes a legal argument.**
+
+## E2. `feeSettleSats` has no Forge test
+`BTCChannels.splice` takes `feeSettleSats`, guarded by `require(feeSettleSats <= grewBy)` and clamped
+vault-side in `settleBtcFeesOwed`. Driven from `quid-bridge/channel_driver.rs:844-870`. **Nothing in
+`evm/test/` references it.** A live money path with two guards and no on-chain test on either.
+
+## E3. Decide the θ question — θ prices a cost this pool does not have
+θ ≤ `yield/(K·σ²−f)` is an **LVR-sizing** inequality, introduced to bound how much shared surplus
+`arbETH` could drain. `arbETH` is removed and the LP bears its own IL via the share price. And swaps
+execute at the internal TWAP over Core-only mock tokens under `onlyUs`, so **there is no public-LP LVR
+here at all** (`IL-FINDINGS-2026-06.md` §1) — the real cost is composition divergence on reseat plus a
+≤50 bps execution lag.
+
+Symptoms both directions: it **thins the band in a vol spike**, when swap demand and fees peak and a
+venue most needs depth; and it stays **wide in the low-σ grind**, which our own sim
+(`find_makewhole_window.js`) flags as the one real exposure (~10% upper-bound gap).
+
+Options: drop θ and bound depth only by `surplus = TVL − committed` plus the physical deposit, or
+re-derive a clamp from the execution lag. Counter-argument to weigh: the band's dollar leg is **basket
+capital**, so deeper depth converts more basket dollars into the falling asset; `surplus` bounds the
+level of that but not the rate. **Live money-path parameter — needs its own run with a falsifiable
+prediction stated first.**
+
+## E4. Rename `registerBtcLp`
+Called at open (`BTCChannels.sol:727`) **and again on every GROW splice** (`_applySplice`, `:813`),
+while the SHRINK half calls `resizeBtcLp`. Two halves of one operation under two verbs, one implying a
+once-per-channel registration. `creditBtcLp` / `addBtcLiquidity` would match its sibling. **ABI change**
+consumed by `quid-hop/src/evm_codec.rs` — needs `tools/check-client-abis.py` and a test run.
+
+## E5. Finish the stale-comment sweep
+A semantic scan on 2026-08-01 found ~10 sites naming deleted machinery as if live. **Fixed this
+session:** `Vault.btcFeesOwedSats` NatSpec (said fees are "NOT compounded into `pooled`" — false since
+the fee-splice landed, and it caused a downstream doc error); two short-subsystem comments in
+`LevManager._rebalanceBody`; both keysend legs (obsolete under delegation, the LP runs no LN node);
+`BTCChannels` header calling the bridge `Vogue.registerBtcLp`; `QuidLens` baseRate NatSpec;
+`spa/src/lib/quant.ts` "leverage overlay not built yet".
+
+**Still outstanding:** `Aux.sol:52` advertises an `arbETH` forwarder the same file records as removed ·
+`Aux.sol:735` "used by internal arbETH/arbBTC" · `Aux.sol:888`, `:1008`, `:1015` describe `baseRate` as
+live where the same file records its removal · `Vault.sol:43` justifies the `onlyUs` set by arbETH ·
+`Core.sol:568` points at `refillETH`/`ETHRefillRequest` · `DeployLib.sol:236` and `:252` describe SOR
+path arrays as "arbETH/arbBTC iterates these" · `Basket.sol:50` names `onReport`.
+
+## E6. Review the built-but-gated surface as a set
+Each is off for a stated reason; the point is to decide them together rather than rediscover them one at
+a time. `soldFractionActive` (default off in both leverage managers, so the `1−√(entry/now)` estimate
+stays active) · `AttestedHopRegistry` (no-op until governance pins it; falls back to an
+owns-an-open-channel gate) · on-chain swap-out rail B (`QUID_SWAPOUT_ONCHAIN`, off, explicitly wants a
+real bitcoind e2e first) · ibiza's `SpvTreasuryAdapter` and `AaveCreditLine` (built and tested, not
+called by PP core).
+
+## E7. Documentation corrections applied this session (record, not a task)
+Retraction banners rewritten against source in `IL-VIA-BONDS.md`, `IL-CERTIFICATION.md`,
+`IL-FINDINGS-2026-06.md` (all three announced a bidirectional short removed 2026-07-24, and all three
+cite a canonical `LEVERAGE-ENGINE-SPEC.md` that does not exist). `FEES-OUTFLOWS-TWAP.md` baseRate
+update retracted. `ETH-VENUES.md` venue table corrected (no id 1; Gauntlet added).
+`quid-ln/OFFCHAIN-STRATEGIES.md` corrected on delegation and on per-obligation proceeds. Band width is
+**±0.2%** (`BAND_DELTA = 20`), not the ±2% every θ/K figure in `IL-CERTIFICATION.md` is keyed to.
+
+## BATCH 2 RESULTS — 3 more markers are STALE. Running tally: 4 DONE · 2 GENUINELY OPEN.
+### ✅ §A.18 (*"THE FORK IS NOT PINNED — the whole fork suite is NON-REPRODUCIBLE"*) — **DONE.**
+`test/utils/ForkPin.sol` exists and **7 test contracts inherit it**. Fixed THIS SESSION (the root-cause fix
+for the reverts-on-environmental-failure problem: pin the CURRENT block, not a historical one).
+⇒ Note the marker was still 🔴 while the fix was landed and in use — **the archive lags the code.**
+
+### ✅ §A.13 (*"band restoration DISABLED BY THE CONDITION IT EXISTS TO FIX"*) — **DONE.**
+`SwapLib.sol:165` carries the fix AND cites the item: *"`price == 0` MUST fall through to the anchor, not
+short-circuit past it (fixed 2026-07-26, BUILD-QUEUE §A.13)"*, and the comment then restates the exact
+self-reinforcing deadlock the archive describes (drain → `MAX_SQRT_RATIO` → `ticksToPrice` 0 → `twap == 0`
+→ `didRepack == false` → `addLiq` never called).
+⇒ This is the item my `never-mask-the-question` memory came from — the user rejected a test-side depth
+  guard that would have hidden it. **The real fix is in place and self-documenting.**
+
+### ✅ §A.8e (*"θ FAIL-OPEN — fix landed, but NOT PINNED BY A TEST"*) — **DONE.**
+The missing test now exists: `test/BtcBandTheta.t.sol::test_BtcBand_ThetaThrottlesInRangePairing`, which
+asserts BOTH sides — the fail-open baseline pairs (`assertGt(d1, 0, "baseline: fail-open theta pairs …")`)
+and the throttled case does not. **A control-and-treatment test, which is exactly what "pinned" requires.**
+
+## 📊 SWEEP TALLY SO FAR (6 of 66 headers checked)
+| verdict | items |
+|---|---|
+| ✅ already done, marker stale | §A.5e · §A.18 · §A.13 · §A.8e |
+| 🔴 genuinely open | §A.5g (no reconnector task — a LIVENESS bug) · §J.8b (`outOfRange` ×6 — dedup target) |
+⇒ **4 of 6 checked were already built.** The register's own warning is holding: *"a meaningful share are
+  probably ALREADY DONE"*. ⇒ **The real backlog is much smaller than the marker count**, and the sweep is
+  worth finishing before any of these are planned as work.
+⇒ 📌 Emerging pattern: **the fixes are self-documenting — three of four cite their own item number in a
+  code comment.** So `grep -rn "§A\.\|BUILD-QUEUE §" src/` is a fast first pass for "is this already
+  done?" before any mechanism reasoning. **Use that to accelerate the remaining 60.**
+
