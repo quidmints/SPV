@@ -131,29 +131,40 @@ mean-reverting right now. That feeds a classifier that labels the present regime
 two-way volatile, or trending. It characterises the current state and makes no forecast, which is
 stated plainly in the code so nobody mistakes it for a crystal ball.
 
-**The instrument this produces is a bill, and that is the deliverable.** The maturity buckets mean a
-depositor pays $1,850 and receives a claim with $2,000 of face maturing in twelve months, forward yield
-priced in at entry. A single instrument maturing at face on a calendar, which is what the discount
-market ran on for three centuries and which nothing else in crypto issues. It is useless to somebody
-who needs cash today and worth more than cash to a counterparty who only needs the money on a known
-future date.
+**The instrument this produces is the deliverable.** The maturity buckets mean a depositor pays $1,850
+and holds a claim with $2,000 of face maturing in twelve months, forward yield priced in at entry. A
+claim bought at a discount that matures on a calendar, which nothing else in crypto issues, and which
+Pendle needs two tokens and a re-parameterised decaying curve to approximate.
 
-That category is large and dull. **US residential security deposits alone total around forty billion
-dollars, sitting idle.** Deposit alternatives already exist and landlords already accept them, so
-nothing changes at the point of sale. Their weakness is that the tenant's fee never comes back: Jetty
-takes 17.5% of the deposit amount, others 20 to 50%, so a renter facing $2,000 pays roughly $350 and
-owns nothing. In our version the tenant posts a claim maturing to $2,000 at lease end, pledged to a
-surety that issues the bond the landlord already takes, and absent a claim receives the whole $2,000.
-The tenant finishes ahead of where they started. The surety holds collateral maturing to exactly its
-exposure, so its loss rate collapses and it can undercut the incumbent while earning more. The landlord
-never learns any of this happened.
+Be precise about what it is not. A bill of exchange pays an **unconditional fixed sum**, and QUI's
+redemption is capped at par and can fall below it, so it is a defined-maturity fund share rather than a
+bill. That distinction matters beyond pedantry: the floating downside is what keeps QUI outside the
+payment-stablecoin definition in our own securities analysis, so describing it as a fixed-sum
+obligation would undercut the argument it depends on.
 
-The same shape covers utility deposits for people with no credit file, commercial lease deposits,
-contractor performance bonds and escrow. Each is cash posted now against a known return date, and each
-already has a licensed intermediary to work through. Two things decide whether it exists: whether a
-surety can hold the claim under state admitted-asset rules or needs it in a third-party trust, and what
-haircut the capped-at-par redemption requires. Both are in
-`docs/informational/CREDIT-STRATEGY-FINDINGS.md` with the rest of the open list.
+The instrument is worthless to someone who needs cash today and valuable to a counterparty who only
+needs the money on a date they already know. **US residential security deposits alone are around forty
+billion dollars sitting idle**, and an industry already sells alternatives that landlords accept, so
+nothing changes at the point of sale. Their weakness is that the renter's fee never returns: Jetty
+takes 17.5% of the deposit amount and the tenant owns nothing afterwards.
+
+**Partial collateral, not full.** A renter who could post $1,850 could post the $2,000 deposit outright,
+so a fully collateralised bond serves a customer who does not need it. What works is posting a smaller
+maturing claim so the surety writes the bond at a premium well under 17.5%, partly secured and partly
+underwritten. And the buyer is a surety that **declines** thin-file applicants today, because collateral
+lets them approve a segment they currently reject. Removing risk from a surety who already approves
+someone removes their margin, since a surety bond is a credit product with a right of indemnity and the
+premium is payment for pricing that risk.
+
+The same shape covers escrow against a set closing, bid bonds, and utility deposits returned after a
+year of payment history, all of which have genuinely certain release dates. Security deposits are the
+weakest of the group, because early termination breaks the date match.
+
+Two things decide whether any of it exists, and both are counsel questions: whether a surety can hold
+the claim under state admitted-asset rules or needs it in a third-party trust, and what haircut the
+capped-at-par redemption requires. A third is distribution, since Rhino and Jetty sell to property
+managers rather than renters, so a surety partnership still leaves that gate shut.
+`docs/informational/CREDIT-STRATEGY-FINDINGS.md` carries the corrections and the full open list.
 
 **And the largest household asset is the direction after that.** Our second repository handles
 property, and we distribute rather than lend. The mortgage chain splits five ways, and four of them need a

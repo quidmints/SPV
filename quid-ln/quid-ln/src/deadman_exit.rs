@@ -188,6 +188,11 @@ pub fn presign_deadman_exit(
     cltv_deadline: LockTime,
     height: u64,
     secp_ctx: &Secp256k1<secp256k1::All>,
+    // #114: the fleet-controlled freshness UTXO shared by every channel. `Some` binds this
+    // exit to it, so spending that ONE outpoint invalidates EVERY emitted exit at once
+    // (BIP341 `Prevouts::All` commits to all prevouts). `None` = pre-rotation channel, and
+    // reproduces the original single-input exit byte-for-byte.
+    freshness: Option<(OutPoint, TxOut)>,
 ) -> Result<Vec<u8>, DeadManExitError> {
     // (1) Public context — the aggregate `Q`, our (=hop) slot, the counterparty
     // (=vault) slot, and the funding prevout (value + `0x5120||Q` SPK). Both signers
@@ -199,8 +204,14 @@ pub fn presign_deadman_exit(
     // (2) Unsigned exit tx + its key-path sighash (the message every partial signs).
     let output_sats = checkpoint_sats.checked_sub(fee_sats).ok_or(DeadManExitError::Value)?;
     let exit_tx =
-        build_deadman_exit_tx(funding_outpoint, output_sats, recipient_xonly, cltv_deadline, None);
-    let message = deadman_exit_sighash(&exit_tx, funding_value, &funding_spk, None)?;
+        build_deadman_exit_tx(
+        funding_outpoint, output_sats, recipient_xonly, cltv_deadline,
+        freshness.as_ref().map(|(outpoint, _)| *outpoint),
+    );
+    let message = deadman_exit_sighash(
+        &exit_tx, funding_value, &funding_spk,
+        freshness.map(|(_, prevout)| prevout),
+    )?;
 
     // (3) R1 — both halves' public nonces (deterministic, DEAD_MAN-tagged, in-place).
     let hop_nonce = hop_signer

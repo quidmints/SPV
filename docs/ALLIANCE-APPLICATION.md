@@ -44,33 +44,29 @@ estimates present volatility, factor exposure and mean reversion, feeding a clas
 market as range-bound, two-way volatile, or trending. It characterises the current state and forecasts
 nothing, which is the honest version of what a strategy layer can do.
 
-And the instrument that comes out of this is the thing nobody else in crypto issues. The maturity
-buckets make a **bill**: deposit $1,850, receive a claim with $2,000 of face maturing in twelve months,
-the forward yield priced in at entry. Not a yield token split in two, and not a floating balance. A
-single instrument that matures at face on a calendar, which is what the discount market ran on for
-three centuries.
+What comes out of that is an instrument nothing else in crypto issues: a claim bought at a discount
+that matures on a calendar. Pay $1,850, hold $2,000 of face maturing in twelve months, with the forward
+yield priced in the moment you enter. Pendle needs two tokens and a decaying curve to approximate it.
 
-A bill is useless to someone who needs cash today. It is worth more than cash to anyone whose
-counterparty only needs the money on a known future date, and that describes an unglamorous category
-worth **forty billion dollars in US residential security deposits alone**, sitting idle.
+That is worthless to anyone who needs cash today and valuable to anyone whose counterparty only needs
+the money on a date they already know. There is a large, dull category shaped exactly like that:
+**US residential security deposits alone are around forty billion dollars sitting idle**, and an
+industry already sells alternatives that landlords accept, so nothing changes at the point of sale.
+Their weakness is that the renter's fee never returns. Jetty takes 17.5% of the deposit amount and the
+tenant owns nothing afterwards.
 
-Deposit alternatives already exist and landlords already accept them, so nothing has to change at the
-point of sale. What is weak about them is that the tenant's fee is gone forever: Jetty charges 17.5% of
-the deposit amount, others 20 to 50%, and a renter facing a $2,000 deposit pays around $350 and owns
-nothing. Our version has the tenant post a claim maturing to $2,000 at lease end, pledged to a surety
-who issues the same bond the landlord already takes. Absent a claim the tenant gets the full $2,000
-back. **They finish with more than they started, against paying $350 for nothing**, and the surety holds
-collateral maturing to exactly its exposure, so its loss rate collapses and it can price under the
-incumbent while earning more. The landlord never touches crypto.
+Our version posts a maturing claim as partial collateral, so the surety writes the bond at a premium
+well under that because part of its exposure is secured. **The buyer is a surety that declines
+thin-file applicants today**, since collateral lets them approve a segment they currently reject, which
+is incremental rather than cannibalised revenue. The same shape covers escrow against a set closing,
+bid bonds, and utility deposits for people with no credit file, all of which have a genuinely certain
+release date and an existing licensed intermediary.
 
-The surety is the licensed party and we supply the instrument that removes their credit risk. The same
-shape covers utility deposits for people with no credit file, commercial leases, contractor bonds and
-escrow. Every one is cash posted now against a known return date, and every one already has a regulated
-intermediary to work through.
-
-Property credit is the direction after that, once there is a balance sheet worth an originator's
-attention, and `docs/informational/CREDIT-STRATEGY-FINDINGS.md` holds the structure and the ten
-questions still open on it.
+Two things decide whether it exists, and both are counsel questions rather than engineering ones:
+whether a surety can hold the claim under state admitted-asset rules or needs it in a third-party
+trust, and what haircut the capped-at-par redemption requires. Property credit is the direction after
+that. `docs/informational/CREDIT-STRATEGY-FINDINGS.md` carries the structure, the corrections, and the
+ten questions still open.
 
 ---
 

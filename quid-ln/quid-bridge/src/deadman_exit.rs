@@ -151,6 +151,13 @@ fn build_exit_call(
         cltv,
         height_counter,
         secp,
+        // #114 STAGE 1: `None` until the hop wallet maintains the shared freshness UTXO
+        // (stage 2). With `None` the exit is byte-identical to the pre-#114 single-input
+        // form, so this stage changes NO behaviour. Once stage 2 lands, passing `Some`
+        // binds every exit to one rotating outpoint, and spending it invalidates all
+        // previously emitted exits at once — which is what stops a matured, superseded
+        // exit from force-closing a live channel.
+        None,
     )
     .ok()?;
 

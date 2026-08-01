@@ -3123,3 +3123,28 @@ nothing errors, the bytes look valid, and it is unrecoverable once emitted on-ch
 **Corollary:** prefer a CHECK over a COMMENT whenever the invariant is machine-checkable — a comment
 describes past intent and cannot fail (this session had FIVE stale comments mislead conclusions).
 
+## ✅ #114 STAGE 1 FULLY LANDED — cross-crate surface threaded. Builder crate 10/10 green.
+`presign_deadman_exit(..., freshness: Option<(OutPoint, TxOut)>)` now forwards the outpoint to the builder
+and the prevout to the sighash, in matching order. Its ONE caller
+(`quid-ln/quid-bridge/src/deadman_exit.rs:144`) passes `None` with a comment explaining that stage 2 flips
+it to `Some`. **`cargo test -p quid-ln --lib deadman`: 10 passed, 0 failed.**
+⚠️ **Rust gotcha hit and fixed:** `///` doc comments **cannot** be applied to function parameters
+  (`error: documentation comments cannot be applied to function parameters`) — used `//` instead.
+
+### 🔴 ENVIRONMENTAL BLOCKER (pre-existing, NOT caused by this change)
+`cargo check -p quid-bridge` fails BEFORE reaching our code:
+```
+error[E0432]: unresolved import `sev::firmware::guest::Firmware`  --> quid-cvm/src/lib.rs:11:59
+error: could not compile `quid-cvm` (lib)
+```
+⇒ `quid-cvm` depends on **AMD SEV, which is Linux-only** — it cannot build on this macOS machine at all.
+⇒ **The DAEMON crate therefore cannot be compile-verified here.** The builder crate (`quid-ln`) — where all
+  the crypto and all the tests live — builds and tests fine, so stage 1's substance IS verified.
+⇒ ⚠️ **The daemon-side `None` edit is UNVERIFIED BY COMPILER.** It is a single added argument at a call
+  site whose signature I changed, so it is low-risk, but **say so rather than implying it is green.**
+▶️ **Verify `quid-bridge` on Linux** (or with the `quid-cvm` dependency stubbed/feature-gated) before
+  treating stage 1 as complete end-to-end. **This ALSO blocks stages 2-4**, which are all daemon-side —
+  worth resolving FIRST, since the remaining #114 work cannot be compiled on this machine otherwise.
+📌 Candidate fix worth checking: feature-gate `quid-cvm`'s SEV import behind `#[cfg(target_os = "linux")]`
+  so the workspace at least CHECKS on macOS. That would unblock all remaining daemon work locally.
+

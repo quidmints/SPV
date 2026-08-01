@@ -221,68 +221,127 @@ conversion in the flow is money transmission on its own, with FinCEN registratio
 This is already open question 4 in `ibiza/COMPLIANCE-THESIS.md` and is correctly identified there as the
 highest-leverage counsel question.
 
-## 10a. The reframe: the stack issues a BILL, not a loan
+## 10a. The reframe, and four things wrong with the first version of it
 
-Everything above hunts for lending products and every one of them dies on licensing. The framing was
-wrong. **The unique primitive here is a dated, fully-backed, discountable claim on a known future
-date.** ERC-6909 maturity buckets plus `calcMintYield` produce exactly that: deposit $1,850, receive
-QUI with $2,000 face maturing in twelve months, the forward yield priced in at entry. That is a
-bankers' acceptance, and the discount market ran on that instrument for three centuries. Pendle splits
-yield into two tradable tokens; nobody else in crypto issues a single instrument that matures at face
-on a calendar.
+Everything above hunts for lending products and every one dies on licensing. The framing was wrong:
+the distinctive primitive here is not a loan but a **dated claim issued at a discount**. ERC-6909
+maturity buckets plus `calcMintYield` produce it — pay $1,850, hold a claim with $2,000 of face
+maturing in twelve months, forward yield priced in at entry. The minter's advantage is immediate and
+real, and Pendle needs two tokens and a decaying curve to approximate it.
 
-A bill is worthless to someone who needs cash. It is worth **more than cash** to a counterparty who
-only needs the money on a known future date. That describes a large, unglamorous category: money you
-must post now and get back later.
+> **⚠️ The first draft of this section (2026-08-01, same day) called it a BILL and built a
+> full-collateral security-deposit product on top. Both were wrong. Corrected below. The wrong version
+> also reached `ALLIANCE-APPLICATION.md` and `-LONG.md` and was removed from them.**
 
-### The security-deposit product
+### Correction 1: it is not a bill, and calling it one fights the legal position
 
-**Market:** US residential security deposits total roughly **$40 billion** sitting idle. An industry
-already attacks it — Rhino, Jetty, The Guarantors, SureDeposit, LeaseLock — mostly via surety bonds
-that landlords already accept, so no behaviour change is needed at the point of sale.
+A bill of exchange or bankers' acceptance is an **unconditional order to pay a fixed sum** on a
+determinable date. Unconditionality is precisely why a bill is discountable and acceptable as
+collateral: the holder knows what arrives.
 
-**The incumbent's weakness is that the fee is non-refundable.** Jetty charges 17.5% of the deposit
-amount, others 20–50%, and the tenant never sees it again. A renter facing a $2,000 deposit pays ~$350
-and owns nothing.
+QUI fails both tests. `perShare = min(solvent · WAD / matureSupply, WAD)` is capped at par and can fall
+below it for three documented reasons — constituent depeg, genuine constituent-vault underperformance,
+and a deliverability-only illiquidity haircut. The sum is not fixed and the promise is not
+unconditional.
 
-**The QU!D version dominates on both sides.** The tenant posts QUI maturing to $2,000 at lease end,
-pledged to the bond provider, who issues the same bond the landlord already accepts. Absent a claim the
-tenant receives $2,000. They end with **more than they started**, against paying $350 for nothing. The
-bond provider holds collateral maturing to exactly its exposure, so its loss rate collapses and it can
-price under Jetty while earning more. The landlord never touches crypto.
+**And the legal document argues FOR that floating downside on purpose.** It is what distinguishes QUI
+from a par-redeemable payment stablecoin and keeps the fund/ETF-share framing alive under the Howey and
+Section 17 sequence. Describing QUI as a bill in a fundraising document pulls directly against the
+argument the legal document is making. The accurate analogue is a **defined-maturity fund share**,
+something like an iBonds ETF that matures on a date and returns NAV. That is honest, and it is also
+security-shaped, which is the tension the legal analysis exists to manage. Any external description
+must not resolve that tension by accident.
 
-**The hop is the surety company** — licensed, already holding the property-manager relationship, doing
-the KYC. QU!D supplies the instrument that removes their credit risk. Same distributor logic as the
-mortgage, applied where the regulated party has an obvious reason to say yes.
+### Correction 2: the deposit-alternative customer cannot post the collateral
 
-**Same shape, other markets:** utility deposits for no-credit-file customers, commercial lease
-deposits, contractor performance and bid bonds, escrow and earnest money, customs bonds. Each is cash
-posted now against a known return date, each has an existing licensed intermediary to hop through.
+Deposit alternatives exist because the renter **does not have** the deposit. Jetty's proposition is
+$350 today instead of $2,000 today. It is a **liquidity** product, not a cost-saving one.
 
-**Why this is the right answer for LPs specifically.** LP revenue is venue yield, v4 fees, and the
-retained scarcity premium, all of which scale with deposits and swap flow. Lending does nothing for an
-LP directly. The chain that matters is demand for QUI from people who are **not** crypto natives. A
-renter posting a deposit is not chasing yield and will not leave for fifty basis points, which makes it
-the most durable deposit base available.
+The first draft asked the tenant to post ~$1,850 of collateral to secure a $2,000 obligation. Anyone
+holding $1,850 can post the $2,000 cash deposit outright, or is close enough that the alternative is
+pointless. **The full-collateral product serves a customer who does not need it.** The residual buyer
+is someone who could post cash and would rather earn on it, whose entire gain is the yield on $2,000
+for a year — call it $150. Nobody completes a crypto onboarding for $150.
 
-**It needs NO notary, NO title, NO lien and NO registry.** That absence is why it is more deliverable
-than everything property-based in this document.
+**What survives is partial collateral.** Post $500, the surety writes the $2,000 bond at a premium well
+under 17.5% because it is partly secured and partly underwritten. Real, and a much smaller claim: the
+surety keeps genuine risk and still has to underwrite.
 
-### Attacks on this idea
+### Correction 3: removing a surety's risk removes their margin
 
-- **Admitted assets.** State insurance regulators set what a surety may hold as collateral, and a claim
-  on a crypto stablecoin basket is almost certainly not on the list. Workaround is a third-party trust
-  holding collateral with the surety taking a pledge or letter of credit, which adds a party and a
-  cost. **This decides whether the product exists. Counsel question.**
-- **QUI is not par-safe.** `docs/legal` is explicit that redemption is capped at par and can fall below
-  it for three separate reasons (constituent depeg, genuine vault underperformance, deliverability-only
-  illiquidity). Collateral needs a haircut, so the tenant posts more than $1,850 and the economics
-  thin. **Model this honestly before pitching it.**
-- **Pledge perfection.** In some civil-law jurisdictions perfecting a pledge over a claim against third
-  parties needs notarisation and registration in a pledge register. That is a DIFFERENT notary function
-  from `TitleLedger`'s property-title one. In the US a pledge of an investment property is perfected by
-  control under the UCC, with no notary.
-- **Nothing ships without mainnet and an audit.** True of every idea here and the actual gating item.
+A surety bond is not insurance. It is a **three-party credit product** — principal, obligee, surety —
+carrying a right of indemnity against the principal, and the premium compensates for pricing that risk.
+Fully collateralise it and the surety becomes a conduit whose margin compresses to a filing fee. Rhino
+and Jetty have no reason to want that.
+
+**The buyer is a surety that currently DECLINES thin-file applicants.** Collateral lets them approve a
+segment they reject today, which is incremental revenue rather than cannibalised revenue. Pitch the
+decline pile, never the approval pile.
+
+### Correction 4: the distribution gate is the property manager, not the surety
+
+Rhino and Jetty sell to **property managers**, who decide which alternative to offer renters.
+Partnering with a surety leaves that gate shut. There are two gates, and the first draft counted one.
+
+### What survives, and where the date-match actually holds
+
+The instrument is genuinely distinctive and the minter's upfront advantage is real. The collateral use
+case works wherever the **release date is genuinely certain**:
+
+| use case | date-certain? |
+|---|---|
+| escrow / earnest money against a set closing | **yes** |
+| bid bonds (released on award or window close) | **yes** |
+| utility deposits (returned after ~12 months of payment history) | mostly |
+| security deposits | **weaker** — most jurisdictions settle at move-out, which matches, but early termination (eviction, break clause) breaks it |
+
+Security deposits, the flagship example in the first draft, are the weakest of the four.
+
+**The LP logic is untouched.** LP revenue is venue yield, v4 fees, and the retained scarcity premium,
+all scaling with deposits and swap flow. Lending does nothing for an LP directly. What matters is
+demand for QUI from people who are **not** crypto natives, because they are not chasing yield and will
+not leave for fifty basis points. That is the most durable deposit base available and it is worth more
+to an LP than any lending margin.
+
+**It needs no notary, no title, no lien and no registry.** That absence is why it remains more
+deliverable than everything property-based here.
+
+### Remaining attacks
+
+- **Admitted assets.** State insurance regulators define what a surety may hold as collateral and a
+  crypto basket claim is almost certainly not on the list. Workaround is a third-party trust with the
+  surety taking a pledge or letter of credit, adding a party and a cost. **Counsel question, and it
+  decides whether any version exists.**
+- **Liquidity on claim.** The instrument is illiquid until maturity by construction. A surety needs
+  collateral it can reach when a claim lands. Early redemption is clamped to `redeemableAmount()`, so
+  an early draw recovers less than face. Partial collateral plus a maturity set inside the lease term
+  mitigates it; the secondary market that would solve it properly does not exist.
+- **Pledge perfection.** Some civil-law jurisdictions require notarisation and pledge-register entry to
+  perfect a security interest over a claim. Different notary function from `TitleLedger`'s. In the US a
+  pledge of an investment property is perfected by control under the UCC, no notary.
+- **Nothing ships without mainnet and an audit.**
+
+## 10b. The hop metaphor inverts, and this is the deepest error in the whole thread
+
+"Hop" has been used consistently across three layers: the Lightning routing node in `BTCChannels`,
+Bebop's intent hops, and the financial intermediary in every lending structure above. The instinct is
+that a capable party stands in the middle, forwards, takes a fee, and owns nothing.
+
+**In Lightning that works because the hashlock makes the pass-through atomic and trustless.** The hop
+cannot steal and cannot be blamed, precisely because it holds no position. Risklessness is the safety
+property.
+
+**In regulated finance the identical structure is what regulators attack.** Rent-a-charter, true lender,
+conduit doctrine. The May 2026 OppFi test holds that the party which funds, underwrites and bears risk
+is the lender (§3). So the risklessness that makes a Lightning hop safe is exactly what makes a
+financial hop unlawful, or rather what collapses it — the licensing obligation simply lands back on
+whoever actually bears the risk.
+
+**Every workable version of the financial intermediary requires them to hold real risk**, which is the
+opposite of a hop. The mortgage originator retains a slice. The surety keeps underwriting exposure. The
+metaphor does not carry across the boundary, and reasoning from it produces structures that look
+elegant and are legally void. This is worth stating in the codebase because the same word appears in
+`BTCChannels` (where it is correct) and in the credit strategy (where it is not).
 
 ## 11. Where this leaves the strategy
 
@@ -323,6 +382,96 @@ and not before.
    admitted assets.
 4. **Exodus.** They hold the rails and the state-by-state licences and are missing yield on unspent
    balances, which is exactly what the basket makes. Enter as the supplier, not the competitor.
+
+## 12. What an origination licence actually costs, if it is ever revisited
+
+Two things, wildly different in difficulty.
+
+**The individual licence is a formality.** Under the SAFE Act you register as a Mortgage Loan
+Originator through NMLS: twenty hours of pre-licensing education, one national exam, fingerprints, a
+criminal background check, a credit review, eight hours of continuing education a year. Roughly
+$1,500–2,000 for the first state, three to six months. Disqualifiers are a felony within seven years,
+or ever a felony involving fraud, dishonesty, breach of trust, or money laundering. **Worth holding
+personally regardless**, because it makes you credible with the originators you want to partner with.
+
+**The company licence is a different order of problem.** No federal licence exists for a non-bank, so
+it is state by state, fifty applications for national coverage. Per state: a minimum net worth between
+$25k and $250k, a surety bond from $25k to $500k scaled to volume, audited financials, background
+checks on every control person at 10%+, and in some states a physical office. Twenty to fifty thousand
+dollars per state in fees, bonds and legal; six to twelve months each.
+
+**The requirement that actually blocks it is the qualifying individual** — states require a designated
+person with three to five years of documented mortgage origination *management* experience. Not
+substitutable by competence. You would hire before you could file, and that person becomes a
+load-bearing dependency for a two-person company.
+
+**The licence is the cheap part.** What follows is TRID disclosure generation, Ability-to-Repay and
+Qualified Mortgage determinations, HMDA reporting, ECOA fair lending, the Loan Originator Compensation
+rule, a quality-control programme, and CFPB examination readiness. A full-time function with headcount,
+unrelated to anything else being built.
+
+**Realistic:** business-purpose lending against investment property in one state, possibly no licence at
+all depending on the state, months. Consumer residential in one state, nine to eighteen months and
+$50–100k, contingent on hiring the qualifying individual first. Multi-state consumer, years and
+millions, a company in its own right.
+
+**Verdict:** the licence buys nothing the partnership does not already provide, at any volume currently
+in sight. Revisit when origination margin moves the needle, which is a balance-sheet question.
+
+## 13. Entity and residency: a correction, and the exposure that actually survives
+
+**Correction made in-thread and worth recording.** An earlier warning that a US-resident founder
+controlling the Cayman structure triggers CFC and GILTI was **overstated**. A Cayman **foundation
+company can be constituted with no members**, which is why crypto projects use the form. Subpart F
+attribution requires US shareholders holding more than half by vote or value; with nobody holding
+either, there is no US shareholder and the CFC and GILTI machinery does not engage. Foundation
+companies are companies, so they default to corporate rather than trust classification for US purposes,
+which also keeps the foreign grantor trust rules at §679 out of it.
+
+**The exposure that survives is management and control, and it is independent of ownership.** A
+US-resident director making the entity's decisions from US soil raises the question of whether the
+entity has a US trade or business generating effectively connected income. Ownerlessness does nothing
+for that. Nor does it help if the founder takes compensation, which is personal income wherever the
+entity sits. **Cross-border tax counsel, and a narrower conversation than the one first described.**
+
+**PREREQUISITE, unresolved:** is QuidMint Foundation actually memberless, or does it have members with
+economic rights? The chain runs QU!D LTD (BVI) → Quid Labs (Cayman IBC) → QuidMint Foundation, and the
+whole analysis turns on where it terminates. If it terminates in nobody, the above holds. If there are
+members, it does not.
+
+**The foundation buys nothing on lending licences.** Authorisation follows the borrower's jurisdiction
+and the activity. A foundation-owned IBC needs the same state licence a shareholder-owned one does.
+
+**Where it does real work is the two arguments that matter.** The Investment Advisers Act definition
+requires acting **for compensation**. An entity with no owners, whose only extraction is a tranche
+sized to recover a documented accumulated deficit and terminating at breakeven, has a genuinely weak
+compensation element. That pairs with the renounced-ownership code facts (see
+`CURATOR-DISCRETION-AND-THE-PEIRCE-QUESTION.md`). Same for Howey prong three: the breakeven structure
+reads as rhetoric from a company with shareholders and as structure from a memberless foundation
+running ASC 958 accounting.
+
+## 14. Income verification: CRE cannot reach it, and it is probably unnecessary
+
+**CRE covers public authoritative sources completely** — every DON node fetches the same bulk export
+and must agree byte-for-byte. Correct shape for a notary register or an OFAC list, and no external
+vendor is needed for that class.
+
+**It cannot reach income, structurally rather than as a gap in the build.** Identical-aggregation
+requires every node to fetch **the same** data. Payroll and IRS data sit behind per-user
+authentication, so making CRE reach it would mean handing every DON node the user's credentials. There
+is nothing for the nodes to agree on when the data is a private authenticated session.
+
+**Passport proofs work because ICAO documents carry the issuing state's signature.** The IRS does not
+sign W-2s, so no rarime-shaped proof exists for income. The mechanism that would work is **zkTLS / web
+proofs** (Reclaim, zkPass, Opacity): the user authenticates to a payroll provider in a real TLS session
+and a notary attests to what the server said without the verifier learning credentials. Two caveats — a
+different cryptographic primitive from anything currently built, so net-new work; and a weaker
+guarantee, since it proves what a server responded in a session the user controls rather than a state
+signature over a chip.
+
+**The more useful observation is that it is probably unnecessary.** Income verification without
+disclosure only matters if no party may hold the file. Under the distributor model a licensed
+originator verifies income conventionally, with consent, because that is their job and their liability.
 
 ---
 
