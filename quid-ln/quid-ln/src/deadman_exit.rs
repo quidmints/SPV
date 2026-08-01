@@ -114,16 +114,31 @@ pub fn build_deadman_exit_tx(
 /// The BIP341 key-path sighash for input 0 of the exit tx spending the funding
 /// prevout (`funding_value` at the `0x5120||Q` `funding_spk`). `SIGHASH_DEFAULT`
 /// (implicit ALL; the returned 32 bytes ARE the MuSig2 `message`).
+/// `freshness_prevout` (#114) MUST be `Some` exactly when the tx carries the freshness input,
+/// and its position in the `Prevouts::All` slice MUST match the input order the builder used
+/// (funding = 0, freshness = 1). A mismatch yields a signature that commits to the wrong
+/// prevout while still verifying against itself — silent and unrecoverable once emitted.
 pub fn deadman_exit_sighash(
     exit_tx: &Transaction,
     funding_value: Amount,
     funding_spk: &ScriptBuf,
+    freshness_prevout: Option<TxOut>,
 ) -> Result<[u8; 32], DeadManExitError> {
     let funding_prevout = TxOut { value: funding_value, script_pubkey: funding_spk.clone() };
+    // Same order as `build_deadman_exit_tx` appends the inputs.
+    let prevouts: Vec<TxOut> = match freshness_prevout {
+        Some(fresh) => vec![funding_prevout, fresh],
+        None => vec![funding_prevout],
+    };
+    // Guard the invariant rather than trusting the caller: a prevout/input count mismatch is
+    // exactly the silent-miscommitment failure described above.
+    if prevouts.len() != exit_tx.input.len() {
+        return Err(DeadManExitError::Sighash);
+    }
     let sh = SighashCache::new(exit_tx)
         .taproot_key_spend_signature_hash(
             0,
-            &Prevouts::All(std::slice::from_ref(&funding_prevout)),
+            &Prevouts::All(&prevouts),
             TapSighashType::Default,
         )
         .map_err(|_| DeadManExitError::Sighash)?;
@@ -185,7 +200,7 @@ pub fn presign_deadman_exit(
     let output_sats = checkpoint_sats.checked_sub(fee_sats).ok_or(DeadManExitError::Value)?;
     let exit_tx =
         build_deadman_exit_tx(funding_outpoint, output_sats, recipient_xonly, cltv_deadline, None);
-    let message = deadman_exit_sighash(&exit_tx, funding_value, &funding_spk)?;
+    let message = deadman_exit_sighash(&exit_tx, funding_value, &funding_spk, None)?;
 
     // (3) R1 — both halves' public nonces (deterministic, DEAD_MAN-tagged, in-place).
     let hop_nonce = hop_signer
@@ -321,11 +336,11 @@ mod tests {
 
         let tx1 = build_deadman_exit_tx(op, 199_000, recipient, LockTime::from_height(800_000).unwrap(), None);
         let tx2 = build_deadman_exit_tx(op, 199_000, recipient, LockTime::from_height(800_144).unwrap(), None);
-        let m1 = deadman_exit_sighash(&tx1, funding_value, &funding_spk).unwrap();
-        let m2 = deadman_exit_sighash(&tx2, funding_value, &funding_spk).unwrap();
+        let m1 = deadman_exit_sighash(&tx1, funding_value, &funding_spk, None).unwrap();
+        let m2 = deadman_exit_sighash(&tx2, funding_value, &funding_spk, None).unwrap();
         assert_ne!(m1, m2, "a refreshed CLTV yields a different sighash (message)");
         // Deterministic re-derive.
-        let m1b = deadman_exit_sighash(&tx1, funding_value, &funding_spk).unwrap();
+        let m1b = deadman_exit_sighash(&tx1, funding_value, &funding_spk, None).unwrap();
         assert_eq!(m1, m1b);
     }
 
@@ -349,7 +364,7 @@ mod tests {
         let op = OutPoint { txid: bitcoin::Txid::from_byte_array([0x01; 32]), vout: 0 };
         let tx = build_deadman_exit_tx(op, 50_000, recipient, LockTime::from_height(1).unwrap(), None);
         // Sign a real sighash so the sig bytes are well-formed.
-        let msg = deadman_exit_sighash(&tx, Amount::from_sat(60_000), &keypath_p2tr_spk(recipient)).unwrap();
+        let msg = deadman_exit_sighash(&tx, Amount::from_sat(60_000), &keypath_p2tr_spk(recipient), None).unwrap();
         let kp = bitcoin::secp256k1::Keypair::from_secret_key(&secp, &sk);
         let sig = secp.sign_schnorr_no_aux_rand(&bitcoin::secp256k1::Message::from_digest(msg), &kp);
         let raw = finalize_exit_tx(tx, sig);

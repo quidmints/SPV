@@ -3086,3 +3086,29 @@ test result: ok. 10 passed; 0 failed
 📌 The Rust graph IS usable (57,511 links) and already paid off on #114 — **use it for the Rust half of the
   dedup pass**, and fall back to structural greps for Solidity.
 
+## ✅ #114 STAGE 1 COMPLETE — sighash plumbed too, with the ordering invariant GUARDED IN CODE. 10/10 green.
+`deadman_exit_sighash(..., freshness_prevout: Option<TxOut>)` builds the `Prevouts::All` slice in the SAME
+order the builder appends inputs (funding = 0, freshness = 1), and now **enforces the invariant instead of
+documenting it**:
+```rust
+if prevouts.len() != exit_tx.input.len() {
+    return Err(DeadManExitError::Sighash);
+}
+```
+⇒ The failure this guards is the nastiest one available here: a prevout/input MISMATCH produces a signature
+  that **verifies against itself but commits to the wrong prevout** — silent, and unrecoverable once the
+  bytes are emitted on-chain. **A comment would not have caught it; the check does.** This is the
+  "minimise clamps that give false safety" rule inverted — the guard is on a REAL invariant with a silent
+  failure mode, which is exactly where a check earns its place.
+⇒ All 5 sighash/builder call sites updated; `cargo test -p quid-ln --lib deadman`: **10 passed, 0 failed.**
+⇒ `exit_tx_shape_is_cltv_keypath` STILL passes unchanged ⇒ the `None` path is byte-identical to before ⇒
+  **the whole of stage 1 remains inert in production.**
+
+### ▶️ STAGE 1 REMAINDER + NEXT
+ • `presign_deadman_exit` (the ONE cross-crate surface) still needs the `Option<(OutPoint, TxOut)>` param
+   threaded to the builder + sighash — its single caller (`quid-bridge/deadman_exit.rs:144`) passes `None`.
+ 2. Hop wallet: create/rotate ONE freshness UTXO globally; daemon passes `Some`.
+ 3. Rotation ordering: re-emit ALL channels BEFORE spending the old UTXO.
+ 4. `FreshnessSpent` in `recovery_broadcast.rs` (fail loudly).
+ 5. Regtest end-to-end ⇒ closes the ORIGINAL #114 broadcast gap.
+
