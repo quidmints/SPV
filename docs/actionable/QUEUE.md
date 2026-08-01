@@ -2643,3 +2643,40 @@ observe whether LDK produces a `SpliceContribution` / `Event::SplicePending`. **
 implementation** — and the `regtest/` harness already exists (`regtest/setup.sh`, `setup-ln.sh`) and is
 already used by `testSwapIn_RealLightningHTLC`, so the fixture cost is near zero.
 
+## ❗STATUS CORRECTION (user asked directly, 2026-08-01) — the vBTC statement is **NOT** a statement of fact.
+> *"vBTC circulates and redeems swap-out-style, and every holder — original or downstream, whole or
+>  fractional — holds a live exit paying them. The double claim disappears…"*
+🔴 **That describes the (a+) DESIGN. It is NOT current status and will NOT be true when the dead-man refresh
+  fix lands.** Being precise about what each piece does:
+| piece | status | what it actually gives |
+|---|---|---|
+| Runtime capacity skip (C10 pt2) | ✅ LANDED, suite-verified | unrelated to vBTC |
+| Dead-man REFRESH-SPLICE (#114) | 🔨 designed, edit located, **UNBUILT** | makes a superseded exit DEAD ⇒ premature force-close impossible |
+| **(a+) vBTC settle-on-emission + splice-on-transfer** | 📐 **DESIGN ONLY — NOT STARTED** | **the payout FOLLOWS the token** — this is the ONLY piece that makes the quoted statement true |
+⇒ The refresh fix is a **PREREQUISITE** for (a+), not a substitute: it guarantees "at most one live exit",
+  but that exit still pays the **ORIGINAL** `btcRecipientOf`. **A downstream vBTC holder still gets NOTHING.**
+⇒ ⚠️ **`btcRecipientOf` is LOCKED at registration** (`BTCChannels.sol:216`) — so (a+) additionally requires
+  RELAXING that lock (or re-keying per splice). That is a **security-sensitive change to an intentional
+  immutability**, not a small addition. **(a+) is materially bigger than "the fix".**
+⇒ **Correct current status: the double claim is DOCUMENTED AND UNRESOLVED.** Option (b) (fungible + no
+  downstream recourse) is NOT yet dominated in FACT — it is dominated only in the design that has not been built.
+
+## ⚠️ CAN a/b/c ALL BE INSUFFICIENT? — YES. One COMMON-MODE failure defeats all three.
+The user's instinct is right. (a)/(b)/(c) are complementary on their own axes:
+ • funding cap reached ⇒ (a)/(b) (grows) FAIL, **(c) splice-OUT still works** ✅
+ • no accrued fees ⇒ (a) FAILS, (b)/(c) still work ✅
+ • LP-balance inflation risk ⇒ (b) constrained, (a)/(c) unaffected ✅
+🔴 **BUT ALL THREE REQUIRE A SPLICE, AND EVERY SPLICE NEEDS HOP-WALLET FUNDS TO PAY THE ON-CHAIN FEE.**
+`channel_driver.rs:1224-1231` already warns exactly this: *"hop wallet can't fund the fee splice above the
+force-close reserve — **FUND THE HOP WALLET** (fees keep accruing safely until then)"*.
+⇒ **Hop-wallet exhaustion ⇒ NO splice of ANY kind ⇒ no refresh ⇒ stale exits accumulate ⇒ the vulnerability
+  returns in full.** It is an OPERATIONAL single point of failure that no choice among a/b/c can remove.
+⇒ ▶️ **REQUIRED ALONGSIDE THE FIX:** (1) hop-wallet balance as a FIRST-CLASS alarm, escalating on
+  `wallet_reserve_sats` proximity — the existing `warn!` is not enough, since the failure is silent to LPs;
+  (2) size the reserve for `N_idle_channels × refresh_cost_per_period`, not just force-close reserve;
+  (3) fall back to (B) reactive mempool outspend when a refresh CANNOT be funded — it needs a fee too, but
+  only under attack, so it survives longer on a thin wallet.
+📌 So the honest ceiling: **a/b/c + B reduce this to an OPERATIONAL liveness requirement (keep the hop
+  wallet funded), not a cryptographic guarantee.** Only rotating-by-splice invalidates exits, and splices
+  cost sats. **State that limit plainly rather than claiming the attack is eliminated unconditionally.**
+
