@@ -2273,3 +2273,48 @@ Wrong. I had grepped for `impl Sealer` + Cargo deps and asserted absence without
 `quid-enclave/src/backend.rs`, where both are full variants with detection and tests. Same failure mode
 as the standing trap *"never assert absence from a grep"*. The accurate statement is narrower: their
 **sealers** are unimplemented.
+
+## 🔴 #114 DEAD-MAN EXIT × CIRCULATING vBTC — A REAL CONFLICT (user, 2026-08-01). Must be resolved before either ships.
+**The mechanism (read from code):** `emitDeadManExit(channelId, cltvDeadline, checkpointSats, signedExitTx)`
+emits RAW pre-signed Bitcoin bytes; the event records `ch.lpEth`. **The BTC payout address is BAKED INTO
+`signedExitTx` at emission time** — Bitcoin cannot read EVM state, so the recipient is fixed per emission.
+
+### THE CONFLICT
+ • The dead-man exit pays the channel's checkpoint balance to **`btcRecipientOf[lpEth]`** — the LP who
+   FUNDED the channel.
+ • vBTC (an ERC-4626 face on banked band depth) is meant to CIRCULATE and redeem swap-out-style.
+ ⇒ If the funding LP SELLS their vBTC and the fleet then vanishes, **the original LP receives the physical
+   BTC while the current vBTC holder holds a claim on a dead system.** That is a **DOUBLE CLAIM / unjust
+   enrichment**, and it lands exactly where the user already pushed back: *"you can't say vBTC is
+   transferable then say the shares are not."*
+ ⇒ Worse for FUNGIBILITY: one channel maps to one `lpEth` (BTCChannels:245-252), but fungible vBTC can be
+   split across many holders. **A Bitcoin payout script pays ONE address** — it cannot fan out pro-rata
+   without a covenant Bitcoin does not have.
+
+### RESOLUTIONS (enumerated; ≥2 as required)
+ (a) ⭐ **RE-TARGET ON HEARTBEAT — the payout follows the token.** The exit is ALREADY re-emitted every
+     heartbeat with a fresh CLTV; re-sign it to the CURRENT holder-of-record at the same time. Cost: a vBTC
+     transfer must also update `btcRecipientOf` for that channel, so a transfer is only valid if the
+     recipient has registered a BTC address. **Reuses the existing heartbeat — no new machinery.** Residual
+     risk: a stale window of ONE heartbeat interval if the fleet dies between transfer and re-emission.
+     ⇒ Implies vBTC transfers move a WHOLE channel (channel-granular, not arbitrary fractions).
+ (b) **Keep vBTC fungible; declare the dead-man exit a CHANNEL-level backstop only** — it returns BTC to the
+     funding LP, and circulating holders explicitly have NO dead-man recourse. Honest and simple, but it
+     WEAKENS the guarantee precisely for the holders most likely to need it. Must be disclosed, loudly.
+ (c) ✗ Pay to an escrow that redistributes pro-rata — **REJECTED: requires a Bitcoin covenant** (no
+     OP_CTV/CAT on mainnet). Not buildable today; recording it so it is not re-proposed.
+▶️ **DECISION NEEDED FROM THE USER: (a) or (b).** They imply different vBTC semantics — (a) makes vBTC
+  channel-granular; (b) keeps it freely fungible but caps the backstop's reach. **Do not build either until
+  chosen** — this is the same "two designs, pick one" fork as §A.19b.
+
+### ▶️ THE VERIFICATION GAP (the original ask) — plan, unblocked by the above
+`#114` is BUILT + security-reviewed but **forge-UNTESTED and never BTC-broadcast-verified**. Reviewed-as-
+correct ≠ verified-to-work — the SAME class as the `mockCall`-on-a-missing-signature just found in C10.
+ 1. Forge test: `emitDeadManExit` reverts for a non-attested caller, reverts for a non-delegated hop
+    (`_authorizedHop`), stores `deadManDeadline`, and emits `DeadManExitEmitted` with the exact bytes.
+ 2. Heartbeat test: a later emission with a LARGER `cltvDeadline` overwrites; assert a stale (smaller)
+    deadline cannot regress it — **if that check is missing in the code, that is a real bug** (a griefing
+    hop could pin the deadline in the past and make the exit immediately broadcastable). **CHECK THIS FIRST.**
+ 3. Regtest broadcast: feed `signedExitTx` to the existing `regtest/` harness and prove bitcoind ACCEPTS it
+    after the CLTV matures and REJECTS it before. That is the only proof the bytes are truly broadcastable.
+
