@@ -3391,3 +3391,36 @@ planned becomes UNNECESSARY — the relationship is structural, not checked.
 📌 **This is the "no cryptic knobs" instinct applied to operations:** a parameter nobody can set is worse
   than no parameter. **Derive it, bound it by the resource that constrains it, and let it self-heal.**
 
+## ❗CLARIFICATION + CORRECTION — TWO persisted things, TWO lifetimes. And my "cost falls immediately" was WRONG.
+The user asked: *"persist it but it changes, correct?"* — right to ask; I had conflated two records.
+| persisted | lifetime | changes when |
+|---|---|---|
+| `channel_id -> shard_id` | **STABLE** — assigned once at first emission | only on a DELIBERATE consolidation (below) |
+| `shard_id -> current_freshness_outpoint` | **CHANGES EVERY ROTATION** | every refresh period, by design |
+⇒ The ASSIGNMENT is stable; the OUTPOINT it points at rotates constantly. **That split is what makes a
+  derived K safe** — K changing never rewrites assignments, and rotation never rewrites the mapping.
+
+### 🔴 THE ERROR THE QUESTION SURFACED
+I wrote *"Shrinking K … Rotation cost falls immediately, which is the point."* **FALSE.**
+⇒ With STABLE assignment, the number of shards that must KEEP ROTATING is set by **existing assignments**,
+  not by K. Lowering K only affects where NEW channels land. ⇒ **A drained wallet would NOT get relief** —
+  every already-assigned shard still needs its rotation tx, so cost stays high exactly when the wallet
+  cannot pay. **The self-limiting property I claimed does not hold on the way DOWN.**
+⇒ ⇒ K is therefore not one number: it is **`K_new` (where new channels are assigned)** and **`K_active`
+  (shards with live channels, which drives COST)**. I had silently assumed they were the same.
+
+### ✅ THE FIX — CONSOLIDATION, using the machinery that already exists
+Re-emission is what the heartbeat ALREADY does every period. So a thin wallet triggers **consolidation**:
+ 1. Pick the least-populated active shard.
+ 2. **Re-emit its channels against a SURVIVING shard's outpoint** (this is an ordinary re-emission — the
+    exit binds to whatever outpoint it was signed against, so the channel is simply re-bound).
+ 3. **THEN** spend the drained shard's old outpoint (kills its stale exits) and stop rotating it.
+ ⇒ `K_active` genuinely falls ⇒ cost falls ⇒ **the wallet recovers.** Self-healing in BOTH directions.
+ ⇒ Assignment is *stable by default, migratable on purpose* — and the migration is one re-emission, the
+   exact operation the heartbeat performs anyway. **No new mechanism.**
+ ⚠️ ORDERING (same rule as rotation, and load-bearing): **re-emit onto the surviving shard BEFORE spending
+   the drained shard's outpoint** — reversed, every channel on that shard loses its valid exit.
+📌 **The rule caught its own violation again:** I priced K on the way UP (blast radius) and never on the way
+  DOWN (recovery under a thin wallet). **A self-tuning parameter must be measured in BOTH directions** —
+  adding that to the standing rule's checklist.
+
