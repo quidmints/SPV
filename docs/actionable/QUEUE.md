@@ -3148,3 +3148,32 @@ error: could not compile `quid-cvm` (lib)
 📌 Candidate fix worth checking: feature-gate `quid-cvm`'s SEV import behind `#[cfg(target_os = "linux")]`
   so the workspace at least CHECKS on macOS. That would unblock all remaining daemon work locally.
 
+## ✅✅ BLOCKER SOLVED — Linux builds via DOCKER. `quid-bridge` COMPILES CLEAN with the stage-1 change.
+The macOS/SEV blocker is gone: `rust:1.90` is already cached locally, so no download is needed.
+```
+docker run --rm -v "$PWD":/w -w /w/quid-ln -e CARGO_TARGET_DIR=/tmp/t rust:1.90 cargo check -p quid-bridge
+  Checking quid-ln v0.0.0 ... Checking quid-hop ... Checking quid-bridge v0.1.0
+  Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 05s
+```
+⇒ **The daemon-side `None` argument is now COMPILER-VERIFIED, not assumed.** Stage 1 is complete
+  end-to-end: builder crate 10/10 tests green (native) + daemon crate clean (Linux container).
+⇒ 🔓 **This UNBLOCKS stages 2-4**, which are all daemon-side and were otherwise unwritable-and-unverifiable
+  on this machine. **Use this command for every remaining #114 daemon change.**
+📌 `CARGO_TARGET_DIR=/tmp/t` keeps container artifacts OUT of the macOS `target/` — avoids clobbering the
+  native build and avoids a slow rebuild dance between the two toolchains.
+📌 The user had Docker + VirtualBox available the whole time; I had written the blocker up as a hard
+  environmental limit. **ASK / CHECK WHAT TOOLING EXISTS before declaring something unverifiable.**
+
+## 🧹 DEAD CODE FOUND BY THE LINUX BUILD (feeds the DEDUP pass)
+```
+warning: method `create_sweep_tx` is never used  --> quid-ln/src/wallet.rs:1182:19
+```
+⇒ `OnchainWallet::create_sweep_tx` is `pub(crate)` and **has NO callers** — dead by the compiler's own
+  reachability analysis, not by my grep. Violates the standing *"no code should be unreachable"* rule.
+⚠️ **Do NOT delete blind:** check first whether stage 2 (freshness-UTXO create/rotate) actually WANTS a
+  sweep primitive — this may be a half-built piece of exactly the wallet plumbing #114 stage 2 needs. If so
+  it gets USED, not removed. **Decide when stage 2 is designed, not before.**
+📌 The compiler is a FREE dead-code oracle for Rust and it is authoritative where my greps were not. Run the
+  Linux check with warnings surfaced as part of the dedup pass — **for the Rust half, `cargo check` +
+  `#[warn(dead_code)]` beats any manual sweep.**
+
