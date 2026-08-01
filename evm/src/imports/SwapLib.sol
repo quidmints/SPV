@@ -6,6 +6,8 @@ import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {FullMath} from "v4-core/src/libraries/FullMath.sol";
+// §A.52: the SHARED WETH view (was a file-local `IWethDeposit` declaring just `deposit()`).
+import {IWETH9} from "./ILevVenue.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {LiquidityAmounts} from "v4-periphery/src/libraries/LiquidityAmounts.sol";
 import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
@@ -38,8 +40,6 @@ interface ILiq_L { function requestWithdraw(address r, uint a) external returns 
 ///         via DELEGATECALL → external self-CALL pattern. See Aux's
 ///         supplySelf / withdrawSelf docblock for the security invariants
 ///         that gate these entries.
-interface IWethDeposit { function deposit() external payable; }
-
 interface ICoreObs {
     function observe(uint32[] memory secondsAgos) external view returns (int56[] memory);
     function observeBTC(uint32[] memory secondsAgos) external view returns (int56[] memory);
@@ -323,7 +323,7 @@ library SwapLib {
     function depositBody(address tok, address weth, address sender, uint amount) external returns (uint sent) {
         if (tok == weth && msg.value > 0) {
             sent = msg.value;
-            IWethDeposit(weth).deposit{value: msg.value}();
+            IWETH9(weth).deposit{value: msg.value}();
             amount -= Math.min(amount, msg.value);
         }
         if (amount > 0) {

@@ -11,7 +11,10 @@ interface IERC20Min {
     function allowance(address owner, address spender) external view returns (uint256);
     function decimals() external view returns (uint8);
 }
-interface IWETH9 { function deposit() external payable; function withdraw(uint256) external; }
+/// §A.52: the ONE WETH view. Inherits `IERC20Min` so consumers needing balance/allowance/transfer
+/// do not each declare a private variant — `VogueLib::IWETH_VG` and `SwapLib::IWethDeposit` were both
+/// partial restatements of exactly this, and a signature change had to be made in three places.
+interface IWETH9 is IERC20Min { function deposit() external payable; function withdraw(uint256) external; }
 
 /// @title  ILevVenue — per-LP isolated borrow-venue adapter for the leverage overlay
 /// @notice Each LP's leverage lives in its OWN isolated position on the venue (the LP is the venue

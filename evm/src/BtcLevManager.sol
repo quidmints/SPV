@@ -5,9 +5,11 @@ import {LevMath} from "./imports/LevMath.sol";
 import {ILevVenue, IERC20Min} from "./imports/ILevVenue.sol";
 import {IMorphoFlash} from "./imports/Interfaces.sol";
 import {ILevSyncHook} from "./imports/Interfaces.sol";
+// §A.52: use the SHARED `IAuxTwap` rather than a file-local `IAuxTWAP_BView` that restated the
+// same signature — one declaration, so a change to it cannot silently miss this consumer.
+import {IAuxTwap} from "./imports/Interfaces.sol";
 import {ILevVenueColl} from "./imports/Interfaces.sol";
 
-interface IAuxTWAP_BView { function getTWAPforAsset(address a, uint32 p) external view returns (uint); }  // USD18/BTC — Aux is public view
    // branch open on the venue's collateral token
  // zero-fee flash (WBTC flash-repay-first de-lever)
 /// SAME-BTC leverage: the vBTC token IS the Vault, which exposes/un-exposes the LP's own channel band
@@ -150,7 +152,7 @@ contract BtcLevManager {
     /// @notice USD (1e18) value of `vbtc` (8-dec) collateral: `vbtc · px / 1e18` (px is USD18/1e18-raw, WBTC-lifted).
     function vBtcValueUsd(uint vbtc) public view returns (uint) {
         if (vbtc == 0) return 0;
-        return (vbtc * IAuxTWAP_BView(AUX).getTWAPforAsset(WBTC, TWAP_WINDOW)) / 1e18;
+        return (vbtc * IAuxTwap(AUX).getTWAPforAsset(WBTC, TWAP_WINDOW)) / 1e18;
     }
 
     /// @notice `lp`'s debt in USD (1e18), normalizing the venue stable's decimals.
@@ -163,7 +165,7 @@ contract BtcLevManager {
     ///         The single SOLVENCY term `Vault.vogueBTC()` adds — never deliverable (cross-chain custody).
     ///         All-view (collateralOf/debtOf/getTWAPforAsset are views), safe from `vogueBTC()`.
     function netEquityBtc(address lp) public view returns (uint) {
-        uint px = IAuxTWAP_BView(AUX).getTWAPforAsset(WBTC, TWAP_WINDOW);
+        uint px = IAuxTwap(AUX).getTWAPforAsset(WBTC, TWAP_WINDOW);
         return _netEquityBtcAt(lp, px);
     }
     function _netEquityBtcAt(address lp, uint px) internal view returns (uint) {
@@ -180,7 +182,7 @@ contract BtcLevManager {
     function totalNetEquityBtc() external view returns (uint total) {
         uint n = _openLps.length;
         if (n == 0) return 0;
-        uint px = IAuxTWAP_BView(AUX).getTWAPforAsset(WBTC, TWAP_WINDOW);
+        uint px = IAuxTwap(AUX).getTWAPforAsset(WBTC, TWAP_WINDOW);
         for (uint i; i < n; i++) total += _netEquityBtcAt(_openLps[i], px);
     }
 
@@ -210,7 +212,7 @@ contract BtcLevManager {
     ///         (LEVERED-DELIVERABILITY-SPEC.md) so levered volatile pairs + earns fees even at basket surplus==0;
     ///         margin-bounded (never phantom). All-view.
     function deliverableDollars(address lp) public view returns (uint) {
-        uint px = IAuxTWAP_BView(AUX).getTWAPforAsset(WBTC, TWAP_WINDOW);
+        uint px = IAuxTwap(AUX).getTWAPforAsset(WBTC, TWAP_WINDOW);
         return _deliverableDollarsAt(lp, px);
     }
     function _deliverableDollarsAt(address lp, uint px) internal view returns (uint) {
@@ -226,7 +228,7 @@ contract BtcLevManager {
     function totalDeliverableDollars() external view returns (uint total) {
         uint n = _openLps.length;
         if (n == 0) return 0;
-        uint px = IAuxTWAP_BView(AUX).getTWAPforAsset(WBTC, TWAP_WINDOW);
+        uint px = IAuxTwap(AUX).getTWAPforAsset(WBTC, TWAP_WINDOW);
         for (uint i; i < n; i++) total += _deliverableDollarsAt(_openLps[i], px);
     }
 
@@ -251,14 +253,14 @@ contract BtcLevManager {
     /// @notice IL-TARGET LTV (bps) = debt / E0 (the FIXED band-only base) — the keeper's IL-track basis,
     ///         consistent with the debt=E0·t sizing. Distinct from getCurrentLtvBps (venue safety).
     function ilLtvBps(address lp) public view returns (uint) {
-        uint px = IAuxTWAP_BView(AUX).getTWAPforAsset(WBTC, TWAP_WINDOW);
+        uint px = IAuxTwap(AUX).getTWAPforAsset(WBTC, TWAP_WINDOW);
         uint e0Usd = LevMath.e0Usd(pos[lp].e0Btc, px);   // shared scale layer (WBTC-lifted px ⇒ /1e18)
         return LevMath.ltvBps(debtUsd(lp), e0Usd);
     }
     /// @notice IL-cancelling target LTV (bps) = `1 − √(entry/now)`, clamped to the LP's cap. 0 flat/down.
     function ilTargetLtvBps(address lp) public returns (uint) {
         Pos memory p = pos[lp];
-        uint px = IAuxTWAP_BView(AUX).getTWAPforAsset(WBTC, TWAP_WINDOW);
+        uint px = IAuxTwap(AUX).getTWAPforAsset(WBTC, TWAP_WINDOW);
         return _ilTargetLive(p, px);
     }
 
@@ -278,7 +280,7 @@ contract BtcLevManager {
         if (!p.open) return;
         (bool go, uint64 ep, uint160 s) = LevMath.reanchorCompute(soldFractionActive, vogueSyncHook, posEpoch[lp], true);
         if (!go) return;
-        uint px = IAuxTWAP_BView(AUX).getTWAPforAsset(WBTC, TWAP_WINDOW);
+        uint px = IAuxTwap(AUX).getTWAPforAsset(WBTC, TWAP_WINDOW);
         // (A): a reseat realizes accrued IL ⇒ re-anchor E0 to the position's CURRENT net-equity (sats) — NOT
         // bandBtcOf (0 in the (A) model). The over-hedge fix holds: E0 tracks net-equity, not growing collateral.
         uint base = netEquityBtc(lp);
@@ -291,7 +293,7 @@ contract BtcLevManager {
     /// @notice Stable delta (USD 1e18) + direction to re-hit the IL target; oracle read ONCE.
     function debtDeltaToTarget(address lp) public returns (bool levUp, uint amountUsd) {
         Pos memory p = pos[lp];
-        uint px = IAuxTWAP_BView(AUX).getTWAPforAsset(WBTC, TWAP_WINDOW);
+        uint px = IAuxTwap(AUX).getTWAPforAsset(WBTC, TWAP_WINDOW);
         // Size to the FIXED, BAND-ONLY E0 (band sats at entry) valued at px — NOT band+buffer (over-hedge) and
         // NOT the buffer's growing collateral (the 1/(1−t) over-hedge). e0Usd = e0Btc·px/1e18 (18-dec, matching
         // debtUsd; px is WBTC-lifted ×1e10 — /1e8 inflated targetDebt 1e10 ⇒ over-hedge to the venue ceiling).
@@ -314,7 +316,7 @@ contract BtcLevManager {
         LevMath.requireOpenable(allowedVenue[address(venue)], AUX, address(venue));
         if (initialVbtc < MIN_OPEN_VBTC) revert BadTarget();           // anti-Sybil
         if (cap == 0 || cap > TARGET_LTV_CAP_BPS) revert BadTarget();
-        uint entryPx = IAuxTWAP_BView(AUX).getTWAPforAsset(WBTC, TWAP_WINDOW);
+        uint entryPx = IAuxTwap(AUX).getTWAPforAsset(WBTC, TWAP_WINDOW);
         // (A) INTRINSIC deposit model (2026-07-03, mirror of LevManager): the LP's ONE deposit (`initialVbtc`)
         // IS the levered position — its net-equity is synced into the BTC band (levPooledBTC) as delta-1 depth by
         // the 2× leverage, so E0 (the FIXED IL base) = the DEPOSIT ITSELF (in sats — vBTC IS sats, no conversion),

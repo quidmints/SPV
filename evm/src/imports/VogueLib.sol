@@ -6,6 +6,8 @@ import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {LiquidityAmounts} from "v4-periphery/src/libraries/LiquidityAmounts.sol";
 import {SwapLib} from "./SwapLib.sol";
+// §A.52: the SHARED WETH view (was a file-local `IWETH_VG` restating the same members).
+import {IWETH9} from "./ILevVenue.sol";
 import {Types} from "./Types.sol";
 import {LevMath} from "./LevMath.sol";
 import {ILevEquity} from "./Interfaces.sol";
@@ -26,14 +28,6 @@ interface IVogue_VG {
     function derivedThetaWad(bool isBTC) external view returns (uint);
 }
 interface IVogueView_VG { function pendingRewards(address user) external view returns (uint ethReward, uint usdReward); }
-interface IWETH_VG {
-    function deposit() external payable;
-    function allowance(address, address) external view returns (uint);
-    function balanceOf(address) external view returns (uint);
-    function transferFrom(address, address, uint) external returns (bool);
-    function approve(address, uint) external returns (bool);
-}
-
 /// @title  VogueLib — sizeable Vogue bodies extracted to free bytecode under the
 ///         EIP-170 limit. DELEGATECALL'd by Vogue (public fns): inside each,
 ///         `address(this)`/`msg.sender`/`msg.value` are Vogue's, so token custody
@@ -197,15 +191,15 @@ library VogueLib {
         address sender, address pledge, uint amount, uint8 venue
     ) public returns (uint sent) {
         if (msg.value > 0) {
-            IWETH_VG(weth).deposit{value: msg.value}();
+            IWETH9(weth).deposit{value: msg.value}();
             sent = msg.value; amount -= Math.min(amount, msg.value);
         }
         if (amount > 0) {
             uint available = Math.min(
-                IWETH_VG(weth).allowance(sender, address(this)),
-                IWETH_VG(weth).balanceOf(sender));
+                IWETH9(weth).allowance(sender, address(this)),
+                IWETH9(weth).balanceOf(sender));
             uint took = Math.min(amount, available);
-            if (took > 0) { IWETH_VG(weth).transferFrom(sender, address(this), took); sent += took; }
+            if (took > 0) { IWETH9(weth).transferFrom(sender, address(this), took); sent += took; }
         }
         if (sent > 0) {
             // Route ALL WETH at Vogue to the depositor's CHOSEN ETH venue. Only the ether.fi/Rover
@@ -216,8 +210,8 @@ library VogueLib {
             // (Aave/Euler curated too), so NONE can be assumed always-live. A chosen venue (or a SPLIT
             // leg) that places 0 — paused / unwired / de-allowlisted — REVERTS; it is NEVER silently
             // swept to Galaxy or any other default. The depositor must pick a venue that is live.
-            uint toDeposit = IWETH_VG(weth).balanceOf(address(this));
-            IWETH_VG(weth).approve(aux, toDeposit);
+            uint toDeposit = IWETH9(weth).balanceOf(address(this));
+            IWETH9(weth).approve(aux, toDeposit);
             uint placed;
             bool attrib = pledge != address(0);
             uint8 v = venue;

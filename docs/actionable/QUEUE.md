@@ -4365,3 +4365,26 @@ Only `testLeverage_LvrControlVsTreatment` fails, and that is the REAL §A.16 mea
 ⚠️ **Apply the `_skewBasis` judgement throughout: extract what is genuinely SHARED, keep what genuinely
   DIVERGES.** The venue trio above is the counter-example — identical signatures, different semantics.
 
+## ✅ §A.52 DEDUP — round 1: the underscore-suffixed LOCAL interfaces. **7 → 5.**
+The `_L` / `_VG` / `_BView` suffixes are the visible symptom of the fragmentation: a file declaring its own
+narrow view of a contract that a SHARED interface already describes.
+| local | replaced with | why it was safe |
+|---|---|---|
+| `IAuxTWAP_BView` (`BtcLevManager.sol`) | **`IAuxTwap`** (`Interfaces.sol:114`) | IDENTICAL signature `getTWAPforAsset(address,uint32)`; the file already imported `Interfaces.sol`. 11 refs. |
+| `IWETH_VG` (`VogueLib.sol`) — deposit + allowance + balanceOf + transferFrom + approve | **`IWETH9`** | see below |
+| `IWethDeposit` (`SwapLib.sol`) — `deposit()` only | **`IWETH9`** | see below |
+⇒ **THREE WETH views existed.** `IWETH9` (shared, `ILevVenue.sol`) had the deposit half; `IERC20Min` (same
+  file) had the ERC-20 half. Making **`interface IWETH9 is IERC20Min`** collapses all three into ONE — no
+  new interface invented, just the two existing halves joined.
+⇒ **Sizes UNCHANGED** (SwapLib 24,223 / margin 353; VogueLib 20,678; 0 exceedances). Interfaces cost no
+  runtime bytecode, so this consolidation is free — which answers the worry that a narrow interface might
+  have been chosen to keep a library small. **It was not; measured, not assumed.**
+⚠️ Gotcha hit: a single-line `interface X { ... }  ` with TRAILING WHITESPACE defeated a `\}\n` regex, so
+  the declaration survived the rename and produced *"Identifier already declared"*. **Verify a removal
+  happened; do not trust the edit reported success.**
+
+### ▶️ REMAINING (5): `IWeEth_L`, `IRedeem_L`, `ILiq_L` (SwapLib, ether.fi-specific — check for a shared
+  equivalent before inventing one) · `IVogue_VG`, `IVogueView_VG` (VogueLib — likely collapsible into the
+  `Vogue` views already in `Interfaces.sol`).
+### ▶️ THEN: the big ones — `Aux` seen through ≥5 interfaces, `Core` through ≥4 (16 functions restated).
+
