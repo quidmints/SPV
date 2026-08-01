@@ -1,7 +1,9 @@
 # Alliance application
 
 Claims verified against `quidmints/SPV` and `quidmints/ibiza`. Full version with mechanism detail and
-file references: `ALLIANCE-APPLICATION-LONG.md`.
+file references: `ALLIANCE-APPLICATION-LONG.md`. The sibling application in `ibiza` describes the
+no-underwriter configuration of the same stack, for jurisdictions without functioning licensed
+origination; this one describes the distributor configuration.
 
 ---
 
@@ -31,28 +33,38 @@ of senior and junior claimants to carry forever.
 The loss the pool creates on the way up is cancelled by an optional overlay that borrows against your
 own collateral on an outside market and gives the pool extra Ethereum to sell instead of your
 principal. It unwinds to zero debt below your entry price, so we never carry leverage into a crash.
-Dollar yield comes from eleven stablecoins, since breadth is the only depeg protection anyone can
-honestly sell, and one twelve-month lock with us relieves redemption pressure on all eleven at once,
-which no single issuer can offer. Entries are informed rather than guessed: a bank of Kalman filters
+Dollar yield comes from eleven stablecoins, since holding the basket is the only insurance against a
+break that anyone can actually sell, and one twelve-month lock with us relieves redemption pressure on
+all eleven at once, which no single issuer can offer. The dated liability curve is the other half of
+that: we know what we owe in March and in April and out to the end of the year, so this is an
+insurer's duration-matched book expressed as a token rather than a stablecoin with an unpredictable
+redemption queue. A depositor gets to know the dollar side is solvent regardless of what the volatile
+side is doing, which is the property that makes the whole thing supervisable. Entries are informed rather than guessed: a bank of Kalman filters
 estimates present volatility, factor exposure and mean reversion, feeding a classifier that labels the
 market as range-bound, two-way volatile, or trending. It characterises the current state and forecasts
 nothing, which is the honest version of what a strategy layer can do.
 
-Then the house, which is why the second repository is not a side project. Most families hold more
-value in property than in everything else combined, and it is the hardest thing they own to borrow
-against on decent terms. We do not originate or underwrite. Both need a licence, and holding that
-licence would put the whole system on a permission somebody can withdraw. A licensed originator
-underwrites and creates the lien. We distribute, and the reserve is where the capital comes from,
-which gives the same capital a second job: earning from money markets today, and from real property
-once the title layer is running.
+Then the house, which is why the second repository is not a side project. The mortgage chain splits
+five ways and four of them need a licence: origination, underwriting, servicing, registering the lien.
+The fifth is the capital, and that is the one we have. So a licensed originator finds the borrower,
+values the property, sets the terms and creates the lien, and the reserve funds the loan and holds the
+paper. Distributing rather than lending also moves the problems cryptography cannot solve, valuation
+above all, onto a party already paid and already liable for solving them. Refinancing is the entry,
+since the collateral and the payment history exist already and the borrower is there for the rate.
 
-The privacy layer does something narrower there than people assume, and it has nothing to do with
-hiding from the lender, who has to know his borrower. It keeps a household's financial life off a
-public ledger, so using the system does not publish your holdings and your property to anyone who
-cares to look. It moves the registry check onto the owner's own device, because the same query run by
-a lender exposes every applicant who ever asked, and what reaches the chain is a proof rather than a
-name. And it lets anyone confirm a parcel has not already been pledged without learning what any of
-the identifiers mean.
+The point of it is duration. Every asset in the reserve today is overnight and crypto-native, so it
+reprices daily and goes quiet in the same week everything else does, while the liabilities are dated
+out twelve months. That is an insurer's book funded with money-market assets. A mortgage is what
+matches it, and the term premium is the payment for supplying exactly what the book is short of. It
+is also the only line here uncorrelated with the rest.
+
+The privacy layer does something narrower than people assume, and none of it hides anything from the
+lender, who has to know his borrower. It is about the asset reaching investors without the file
+following it. An ordinary securitisation ships loan-level data to investors in enough detail that
+re-identification is routine. In ours the originator keeps the dossier, and what reaches the reserve
+is a proof of genuine title, first position, and ratio within limits. The same mechanism keeps a
+household's position off a public ledger, and lets anyone confirm a parcel is not already pledged
+without a shared database of who owns what.
 
 ---
 
@@ -130,8 +142,11 @@ Bitcoin proofs in DeFi and is now at Blockstream, agreed to hold keys in the dep
 without having to.
 
 We have no live deposits. The honest evidence is structural. Lightning's liquidity shortage has one
-cause and we removed it, and wealth managers have no supervisable crypto product, which is an absence
-rather than a preference.
+cause, and yield-bearing channel capital is the primitive nobody supplied, so every coin we attract
+deepens routing for people who will never hear of us. Wealth managers have no supervisable crypto
+product, which is an absence rather than a preference. And Thorchain's collapse stranded the one
+constituency that had chosen non-custodial cross-chain Bitcoin on purpose, who now have to pick
+between a custodial receipt and nothing.
 
 ---
 
@@ -150,8 +165,9 @@ The position collects trading fees. Redemptions pay three to thirty basis points
 exit leaves the reserve healthier. Our router earns a spread and already sits inside Liquity's
 leverage tooling, taking it on both legs of somebody else's trade. The reserve is lent across Morpho,
 Aave, sDAI and Liquity, which earns whether or not anyone trades, so a quiet month has no floor to
-fall through. Mortgage credit is the line that comes after, once the title layer is running, and it
-is the one uncorrelated to everything else here.
+fall through. Mortgage paper is the line that comes after, and the reason to want it is that it pays
+a term premium for lengthening assets we currently hold overnight against liabilities dated a year
+out.
 
 ---
 
@@ -256,6 +272,11 @@ the fixed ratio forces re-levering on every decline, which is selling low and bu
 repeat. Ours borrows on an outside market isolated per depositor, sizes to the loss actually incurred,
 and unwinds below entry.
 
+**Lombard and Babylon** pay a Bitcoin holder around two percent to underwrite the security of other
+networks whose failures they then inherit. We integrate the most decentralised Bitcoin layer two
+instead, leave the key in the depositor's own hands, and target roughly twenty percent. Nothing is
+live, so treat that as a design figure rather than a measurement.
+
 **Cork Finance** priced insurance on a risk that has no price. The base rate is unobservable, since
 each stablecoin is structurally unique with almost no event history. The hazard is reflexive, because
 the rising price of protection is itself the run signal. And the risk is perfectly correlated in the
@@ -271,8 +292,11 @@ rebalance.
 **Pendle** splits a yield asset into two tokens on a decaying curve needing re-parameterisation, with
 liquidity fragmented per expiry; ours doesn't split, because the yield accrues to the reserve and
 appears in the scheduled redemption. **mStable** routes to Pendle rather than lending the stablecoins
-out. **WBTC and cbBTC** are honest custodial receipts, correct for a mandate requiring a regulated
-counterparty.
+out, and earns nothing from trading them against each other. **Perena** swaps between stablecoins and
+stops there, where ours are swappable against Ethereum and Bitcoin. **Panoptic** reaches single-sided
+provision through options machinery, where the bond ladder gets there by funding the dollar leg out of
+scheduled yield. **WBTC and cbBTC** are honest custodial receipts, correct for a mandate requiring a
+regulated counterparty.
 
 Across all of them we subtract. Bound risk by breadth instead of pricing it. One band instead of a
 maintained distribution. Redemption on a calendar. Debt on somebody else's market, which already runs

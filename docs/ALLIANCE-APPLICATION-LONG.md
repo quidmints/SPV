@@ -131,12 +131,28 @@ mean-reverting right now. That feeds a classifier that labels the present regime
 two-way volatile, or trending. It characterises the current state and makes no forecast, which is
 stated plainly in the code so nobody mistakes it for a crystal ball.
 
-**And the largest household asset gets the same treatment.** Our second repository handles property.
-A homeowner proves they control their title, and that the title is unencumbered, without disclosing
-who they are or which property it is. They borrow against that proof into an address that cannot be
-linked back to them. Refinancing stops depending on a relationship with a licensed intermediary who
-can decline you for reasons they never have to state, because there is nobody in the system holding
-the power to decline.
+**And the largest household asset gets the same treatment.** Our second repository handles property,
+and we distribute rather than lend. The mortgage chain splits five ways, and four of them need a
+licence: origination, underwriting, servicing, registering the lien. The fifth is the capital, which
+is the one we have. So a licensed originator finds the borrower, values the property, sets the terms
+and creates the lien, and the reserve funds the loan and holds the paper. Distributing rather than
+lending also moves the problems cryptography cannot solve, valuation above all, onto a party already
+paid and already liable for solving them. Refinancing is the entry, since the collateral and the
+payment history exist already and the borrower is there for the rate.
+
+The point of it is duration. Every asset in the reserve today is overnight and crypto-native, so it
+reprices daily and goes quiet in the same week everything else does, while the liabilities are dated
+out twelve months. That is an insurer's book funded with money-market assets, and a mortgage is what
+matches it. The term premium is the payment for supplying exactly what the book is short of, and it
+is the only line here uncorrelated with the rest.
+
+The privacy layer does something narrower than people assume, and none of it hides anything from the
+lender, who has to know his borrower. It is about the asset reaching investors without the file
+following it. An ordinary securitisation ships loan-level data to investors in enough detail that
+re-identification is routine. In ours the originator keeps the dossier, and what reaches the reserve
+is a proof of genuine title, first position, and ratio within limits. The same mechanism keeps a
+household's position off a public ledger, and lets anyone confirm a parcel is not already pledged
+without a shared database of who owns what.
 
 ### Why this is worth funding rather than just building for ourselves
 

@@ -1,4 +1,11 @@
-> ⚠️ STATUS (2026-06-30): OVERRULED — bond-funded / "IL without leverage" framing (ETH LP bears no IL because the basket's θ-bounded surplus absorbs the LVR; the dollar bond is just unexposed) is a disproven hypothesis. The IL-protect is now opt-in, per-LP, ISOLATED weETH/WETH-collateral leverage on external Euler/Morpho/Aave/Liquity, **bidirectional** (long above + short below entry, both delta-1; UPDATE 2026-07-11: BUILT + live). Long sizing = the band's MEASURED sold fraction (`1−1/√(entry/now)` is the fallback), short = `√(entry/now)−1`. arbETH/refillETH and surplus-funded make-whole are REMOVED. Canonical: docs/actionable/LEVERAGE-ENGINE-SPEC.md.
+> ⚠️ STATUS (2026-08-01, re-verified line-by-line against the contracts): OVERRULED. The bond-funded / "IL without leverage" framing (ETH LP bears no IL because the basket's θ-bounded surplus absorbs the LVR; the dollar bond is just unexposed) is a disproven hypothesis. The IL-protect is opt-in, per-LP, ISOLATED collateral leverage on external Euler/Morpho/Aave/Liquity, and it is **UP-SIDE ONLY**.
+>
+> **Three corrections to the previous banner, which was itself stale:**
+> 1. **NOT bidirectional.** The below-entry SHORT leg was REMOVED 2026-07-24 (`LevManager.sol:580-584`): it realizes the down-side LVR and forfeits the recovery, so for a long-biased LP holding strictly dominates over any round trip. Target LTV is `1 − √(entry/now)` and returns ZERO at or below entry (`LevMath.ilTargetBps`, `imports/LevMath.sol:109-125`). The keeper sizes to realized band concavity (`L = 1/α`), never a pinned 2× (`quid-ln/quid-bridge/src/lev_keeper.rs`).
+> 2. **The ±2% band is stale throughout this file.** `SwapLib.BAND_DELTA = 20` is **±0.2%** (`imports/SwapLib.sol:831-838`). Every θ, K and LVR figure below is keyed to the old ±2% basis and is off-basis as written.
+> 3. **`docs/actionable/LEVERAGE-ENGINE-SPEC.md` does not exist.** The contracts are canonical.
+>
+> arbETH/refillETH and the surplus-funded make-whole are REMOVED (R1: the LP bears its own IL via the share price). §11's off-chain CRE depeg watcher is also gone; the pinned Chainlink feeds ARE the signal (`Aux.sol:140`, `:202`, `FeeLib.sol:219`). See memory `spv-informational-docs-diverge-from-code`.
 
 # Impermanent loss without leverage — borne on the ETH leg, absent on the dollar leg
 

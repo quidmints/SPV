@@ -2108,3 +2108,37 @@ ONLY manipulation is topping up an external pool's balance — which is legitima
   balance diff. Neither required the ABI. **When a value changes with no transaction touching the contract,
   it is COMPUTED FROM EXTERNAL STATE — that alone identified the mechanism.**
 
+## ⚠️ C10 — MY "PROVEN" MECHANISM IS **INCOMPLETE**. Raw LP balance is NOT sufficient.
+**Test:** raised the existing `vm.deal(LiquidityPool, …)` from `60_000` to **`400_000 ether`** — 16× the
+24_727 ETH balance that DID have capacity — and rung 3 **still pays 0**. Reverted.
+⇒ 🔴 **`totalRedeemableAmount` is NOT a function of the LiquidityPool's raw ETH balance alone.** My
+  two-block correlation (24_727→14_727 ETH coinciding with 2000e18→0) was **ONE coincident block, and I
+  inferred CAUSATION from it.** The 10_000 ETH exit almost certainly ALSO moved a second quantity (locked-
+  for-withdrawal bookkeeping / TVL share accounting), and that other quantity may be the real gate.
+📌 **I called this "PROVEN" on the strength of a single paired observation.** A correlation at one block is
+  not a mechanism — the falsification test (raise the balance, see if capacity returns) is what a proof
+  required, and it FAILED. Do not label something proven until the intervention has been run.
+
+### 🔑 THE MECHANISM WAS ALREADY DOCUMENTED — in the test I was trying to fix
+`Alles.t.sol:1487-1493` already states it, from earlier work:
+> *"At this fork snapshot ether.fi's INSTANT capacity is exhausted: free pool ETH (~18k) sits under the
+>  low-watermark (bps of the 1.86M-ETH TVL) → totalRedeemableAmount == 0 — live proof of why rung 4 exists.
+>  Give the LiquidityPool surplus ETH balance …, zero the locked-ETH bookkeeping reads, and refill the
+>  time-based rate bucket so the REAL redemption flow runs."*
+⇒ The comment names **THREE** gates — (1) low-watermark vs TVL, (2) locked-ETH bookkeeping, (3) a
+  **time-based RATE BUCKET** — and the test already addresses all three (`vm.deal`, two `vm.mockCall`s,
+  `vm.warp(+2h)`). **My "bucket" hypothesis was NOT wrong — it was already known and already handled.**
+⇒ I spent this investigation re-deriving documented knowledge and then contradicting it. **READ THE TEST
+  BEFORE INVESTIGATING WHAT THE TEST IS TESTING.**
+
+### ▶️ REAL NEXT STEP — find which of the three gates is FAILING now
+The test's setup was correct WHEN WRITTEN; something in it has since stopped biting. Check in order:
+ 1. **Do the two `vm.mockCall`s still match?** `ethAmountLockedForWithdrawal()` on the LiquidityPool and
+    `ethAmountLockedForPriorityWithdrawal()` on `0x35e7D6fe…45FA`. **A mockCall whose signature no longer
+    exists is a SILENT no-op** — the exact failure class already recorded for `canRedeem`'s wrong arity.
+ 2. Instrument: inside the test, call `totalRedeemableAmount(native)` AFTER all setup and assert > 0. That
+    isolates "setup failed to restore capacity" from "redemption path failed" — currently indistinguishable.
+ 3. Only then adjust the setup.
+📌 The landed runtime capacity skip remains correct and unaffected — it is about PRODUCTION seeing 0, which
+  is independently confirmed by the live reads.
+
