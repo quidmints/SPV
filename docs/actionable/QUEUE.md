@@ -3267,3 +3267,36 @@ run_deadman_exit_heartbeat(hop_keys, hop_monitors, vault, evm, btc_channels, gas
  • Builder crate **10/10 green** natively; daemon crate **compiles clean** in the Linux container.
  • `None` path is byte-identical to pre-#114 ⇒ **zero production behaviour change so far.**
 
+## ⭐ #114 STAGE 2 — REVIEWED WHAT EXISTS FIRST (user, 2026-08-01). There IS a BDK chokepoint. Use it.
+Rather than write new reservation code, reviewed the wallet's own BDK usage:
+```rust
+/// Get a [`TxBuilder`] which has some defaults prepopulated.
+fn default_tx_builder(wallet: &mut Wallet, coin_selector: CoinSelector, feerate: FeeRate)
+    -> TxBuilder<'_, CoinSelector> {
+    let mut tx_builder = wallet.build_tx().coin_selection(coin_selector);
+    tx_builder.fee_rate(feerate);       // RBF already enabled by default
+    tx_builder
+}
+```
+⇒ **`default_tx_builder` is a CENTRAL FACTORY with 6 call sites in `wallet.rs`** — every wallet-built tx
+  already flows through ONE place that configures coin selection.
+⇒ 🎯 **The freshness-UTXO exclusion belongs HERE, as `tx_builder.unspendable(...)`** — BDK's own mechanism.
+  One edit at one chokepoint ⇒ **every existing and FUTURE wallet tx inherits the exclusion automatically**,
+  including any path nobody remembers to update. **No new reservation subsystem, no per-call-site
+  discipline, no bookkeeping to drift.**
+⇒ The repo ALSO already has the reservation CONCEPT: `wallet.cancel_tx(&psbt.unsigned_tx)` with the comment
+  *"will eventually free up any UTXOs that were 'reserved' by the preflight tx"* — so preflight-vs-real
+  reservation is already understood here; I would have reinvented a worse version.
+
+### ⚠️ ONE GAP THE CHOKEPOINT DOES NOT COVER — verify, do not assume
+`initiate_splice` (`quid-hop/src/node.rs`) does **NOT** go through `wallet.rs`'s builder — it calls
+`wallet.get_utxos()` directly, filters on `is_confirmed()`, and hands them to LDK's `SpliceContribution`.
+⇒ **The `unspendable()` chokepoint will NOT protect the splice path.** That one needs its own filter
+  (exclude the freshness outpoint from the `utxos` vec it builds).
+⇒ ⇒ **TWO sites total, both identified by reading existing code rather than designing new:**
+   (1) `default_tx_builder` → `.unspendable(freshness)` — covers all 6 wallet paths;
+   (2) `initiate_splice`'s `get_utxos()` filter — covers the splice fee-input path.
+   Plus a test asserting a splice never spends the freshness outpoint (the silent-invalidation hazard).
+📌 **This is the 5th time reviewing-before-writing changed the answer on #114.** The pattern is now
+  unambiguous: **the capability almost always exists — find it, then decide.**
+
