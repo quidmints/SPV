@@ -541,6 +541,56 @@ separate buffer for capacity.
 > order self-corrects; and the swap-out de-lever gate is caught downstream by slippage bounds and
 > deferral. Do not quote it as a redemption guarantee.
 
+## Why does the theta clamp pull liquidity in exactly when volatility rises?
+
+**It should not, and this is an open design defect rather than a feature.** An earlier answer presented
+the behaviour as protective. Volatility is when swap demand and fee opportunity peak and when a
+liquidity venue most needs to be deep, so thinning the band in a vol spike is the fair-weather-liquidity
+failure that makes AMMs unreliable precisely when they matter.
+
+**Where it came from.** θ ≤ `yield / (K·σ² − f)` is a *solvency* inequality, not a
+liquidity-provision one. It sizes the in-range slice so that yield on the whole backing covers the LVR
+on the exposed part. It was introduced under the previous design, where the **basket's surplus absorbed
+the LP's impermanent loss** through `arbETH`, so bounding the exposed slice was bounding how much of the
+shared surplus could be drained. That design is overruled: `arbETH` is removed and the LP bears its own
+IL through the share price.
+
+**And the cost it sizes against is one this pool structurally does not face.** Swaps execute at the
+internal TWAP cross-checked against Chainlink, over Core-only mock tokens, gated `onlyUs`. There is no
+public arbitrageur trading against a stale quote, so **there is no public-LP LVR here at all**. The real
+cost is composition divergence realised on reseat plus a bounded execution lag of at most 50 bps. `K·σ²`
+prices a mechanism that was removed and an exposure this venue does not have.
+
+**Worse, it is arguably backwards in both regimes, per our own simulation.** High vol collapses the
+slice exactly when depth is wanted. And low vol keeps θ **high**, which is precisely the regime the
+findings identify as the one real exposure: a smooth low-σ rally sells the slice off cheap for an
+upper-bound gap around 10%. So θ is large when the actual cost is largest and small when the venue most
+needs depth.
+
+### Pros and cons of going theta-blind
+
+Theta-blind means the paired depth is bounded only by what is physically available: free USD backing
+(`surplus = TVL − committed`) and the deposit itself.
+
+**For.** Depth is maximal when demand and fees peak. The pool never thins in a crisis. One fewer
+live-derived parameter, and the two it depends on (a variance ring and a `K` computed from band
+geometry) both disappear, which matches the minimalism argument the rest of the design rests on. It
+aligns the clamp with the actual cost model instead of a borrowed one. The LP already bears their own
+IL, can cancel the up-side with the opt-in overlay, and holds through the down-side, so the exposure is
+theirs by choice rather than bounded paternalistically. And `surplus` remains a hard structural bound on
+the basket's side.
+
+**Against.** The dollar leg of the band is **basket capital, not the LP's**, so a deeper band means more
+basket dollars converting into the volatile asset as price falls; `surplus` bounds the level of that
+exposure but not the rate. The execution lag is real and genuinely vol-sensitive, since more volume
+through a staler quote leaks more value to swappers, so *some* vol-awareness may be justified —
+**calibrated on the lag, not on `K·σ²`**. Unhedged LPs carry more composition divergence, realised if
+they exit mid-drawdown. And removing θ discards the documented certification, even though that
+certification rests on the wrong basis.
+
+**OPEN.** Whether to drop θ entirely, or replace it with a clamp sized to the execution lag. Either way
+the current calibration prices a removed mechanism against an absent risk.
+
 ## What is the skew, and why does the pool need one?
 
 It is the answer to "the toxic thing Uniswap does to refill." A constant-product AMM keeps inventory
@@ -703,23 +753,29 @@ to convert an accrual into principal sooner. Worth doing, and not the activation
 
 ### The hedged-versus-unhedged distinction is not worth a conditional
 
-A draft of this answer proposed gating compounding on whether the depositor has an open leverage
-position, on the grounds that an unhedged sats claim is IL-shielded while a hedged one is not.
-**Quantify it and the distinction collapses.**
+A draft proposed gating compounding on whether the depositor holds an open leverage position, on the
+grounds that an unhedged sats claim is IL-shielded while a hedged one is not. The distinction collapses,
+though **not for the reason the draft gave** (see the theta answer below — that reason was wrong).
 
-Compounded sats land in `LP.pooled`, and **only a theta-clamped fraction of pooled is ever paired
-in-range**. Theta is derived live from `yield / (K·σ²)`, so the exposed slice shrinks automatically
-exactly when volatility rises. The IL cost of compounding is therefore theta-scaled and second-order,
-while the benefit is direct: a bigger pooled share raises the fee weight (`LP.pooled + levBufBTC`) and
-adds real routing capacity. Compounding wins for both depositor types, and the extra branch would buy
-almost nothing.
+The real reason is the intentional hold. **Below entry nothing is realized at all**, because the design
+holds the band's over-hold rather than selling it, and IL is realized only at withdrawal. Compounded
+sats simply increase what is held through a fall, and what is held through a fall heals. Above entry the
+hedge picks the compounded value up at the next reseat. So there is no regime in which compounding
+creates a realized loss the depositor would otherwise have escaped, and the extra branch buys nothing.
 
-**And there is no intentional HODL here tied to the removed short.** The one deliberate
-non-reinvestment in the design is that the hedge base `E0` stays fixed between reseats, and its stated
-reason is the `1/(1−t)` over-hedge feedback loop from sizing to growing collateral, not anything to do
-with a short leg. The de-lever path did carry two comments describing short-leg interaction as if live;
-the short was removed 2026-07-24 and those comments were stale, which is very likely what produced the
-framing in the first place. Both are corrected in source.
+### And yes, there IS an intentional HODL, tied to the short
+
+An earlier answer said there was not. **Wrong, and the source says so in the removal note itself**
+(`LevManager.sol:584-588`): the below-entry short "**sells the over-hold into the fall**, forfeits the
+recovery — down-side IL is IMPERMANENT and heals on its own, so for a long-biased LP **holding strictly
+dominates** over any round-trip."
+
+That is the hold, and it exists *because* the short was deleted. Below entry the band mechanically
+over-holds the falling asset. A short would sell that over-hold to restore delta-one and would realise
+the loss doing it. Removing the short **is** the decision to hold instead, until price recovers or until
+the depositor withdraws, which is the "certain moment" and is where R1 realises IL through the share
+price. Calling it merely a stale comment was the error; the stale comments were adjacent to a live and
+deliberate policy.
 
 **What is genuinely open is narrower: it has no Forge test.** No test in `evm/test/` references
 `feeSettleSats`. A live money path with a `require` bound and a vault-side clamp, driven from Rust, and
@@ -744,10 +800,11 @@ trending drawdown.
 
 **Three things actually bound that risk, and none of them is a protocol-funded hedge.**
 
-**The theta clamp caps how much is exposed at all.** The paired band depth is limited to a live
-fraction of the Bitcoin backing, derived from yield over concentration times variance, so the in-range
-slice shrinks automatically exactly when volatility spikes. Most of the deposit sits outside the band
-and is never short gamma.
+**The theta clamp caps how much is exposed at all.** Paired band depth is limited to a live fraction of
+the Bitcoin backing, so most of the deposit sits outside the band and is never short gamma. Note this
+clamp is under review rather than settled: it shrinks the slice as volatility rises, which is backwards
+for a venue that most needs depth in a vol spike, and it is calibrated against an LVR cost this pool
+does not face. See "Why does the theta clamp pull liquidity in exactly when volatility rises?"
 
 **The IL protection is an opt-in per-depositor overlay, not a balance-sheet operation.** `BtcLevManager`
 is the Bitcoin analogue of the ETH one, sharing the same economics through the shared library, with
@@ -1899,7 +1956,13 @@ do with it. Either can produce signed paper before anything is deployed.
     removal; `Vault.sol:43` justifying the `onlyUs` set by arbETH; `Core.sol:568` pointing at
     `refillETH` and `ETHRefillRequest`; `DeployLib.sol:236` and `:252` describing SOR path arrays as
     "arbETH/arbBTC iterates these"; and `Basket.sol:50` naming `onReport`.
-13c. **Rename `registerBtcLp`.** The name implies a once-per-channel registration and it is also the
+13d. **Decide the theta question.** θ = `yield/(K·σ²−f)` prices public-LP LVR, which this pool does not
+    have (internal-TWAP, mock-token, `onlyUs` swaps), and it was introduced to bound a
+    surplus-absorbs-the-LP's-IL design that has since been removed. It thins the band in vol spikes,
+    when depth is most needed, and stays wide in the low-σ grind our own simulation flags as the real
+    exposure. Drop it, or re-derive a clamp from the ≤50 bps execution lag. Not a comment fix: this is a
+    live money-path parameter and needs its own run with a stated falsifiable prediction.
+13e. **Rename `registerBtcLp`.** The name implies a once-per-channel registration and it is also the
     GROW path: `_applySplice` calls it again to add liquidity, while the SHRINK half calls
     `resizeBtcLp`. Two halves of one operation under two verbs, one of which is misleading. Something
     like `creditBtcLp` or `addBtcLiquidity` would match `resizeBtcLp`. **Not done here**, because it is

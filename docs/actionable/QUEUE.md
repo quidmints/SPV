@@ -3786,3 +3786,44 @@ the reason a superseded exit can no longer force-close a live channel.
 | 6 · consensus proof on real bitcoind | ✅ **READY** |
 | — · per-path destination allowlist + `SweepAuth` | ⏸️ deferred, own run, reasons recorded |
 
+# ═══ THE 33-ITEM SWEEP — verifying open markers BY EFFECT (started 2026-08-01) ═══
+Method per the register's own instruction: grep the code for the MECHANISM, not the name, and record
+verified-open / already-done / premise-withdrawn. Measured the real list first: **66 open-marked headers**
+in the archive (not 40 — the earlier count excluded some section headers, and some headers are sections
+rather than items). Working list at `scratchpad/open33.txt`.
+
+## BATCH 1 RESULTS
+### ✅ §A.5e — **ALREADY DONE.** Marker is STALE.
+Claim: *"redeem values off `storedHoldings`, refreshes AFTER"*. Code says otherwise — `Aux.sol:927-928`:
+```solidity
+// §A.5e: value against a bounded-fresh cache. MUST precede redeemAsBody — that is the whole bug.
+_requireFreshHoldings();
+BasketLib.redeemAsBody(...);
+```
+`_requireFreshHoldings` (`:403`) refreshes when older than `HOLDINGS_MAX_STALE` and **does not revert**, so
+there is no liveness cliff — *"the redeem heals its own staleness"*. The fix even cites §A.5e by name.
+⇒ **CLOSE IT.** (4th open-marked item found already built — §A.35, §A.43, #109, now this.)
+
+### 🔴 §A.5g — **GENUINELY OPEN, and worse than recorded.**
+`connect_peer_if_necessary` (`p2p.rs:154`) retries a few times **at call time** (bounded, `retries` param).
+**No long-lived reconnector task is spawned anywhere in the daemon** — `grep spawn … | grep -ci 'p2p|peer|
+connect'` in `daemon.rs` = **0**.
+⚠️ **TWO comments assert a reconnector that does not exist:** `vault.rs:534` *"the reconnect path will
+  retry"* and `p2p.rs:193` *"a race between the reconnector and open_channel"*. Both read as evidence of a
+  component that is not wired — almost certainly inherited from the upstream node this code came from.
+⇒ Impact: if the vault↔hop link drops after startup, **nothing re-dials**. Every channel op then fails
+  until a restart. **This is a liveness bug, not just a missing feature.**
+
+### 🔴 §J.8b (`outOfRange` dedup) — **GENUINELY OPEN + a confirmed DEDUP target.**
+SIX declarations, split by asset rather than parameterised:
+`Core.sol:551` · `Vogue.sol:350` · `Vault.sol:939 (outOfRangeBtc)` · `Interfaces.sol:194` ·
+`BtcVaultLib.sol:285 (outOfRangeBtc)` · `SwapLib.sol:1702` — 27 references tree-wide.
+⇒ The `outOfRange` / `outOfRangeBtc` pair is the SAME logic forked on asset — exactly the shape the deep
+  dedup pass exists to collapse. **Feed it there rather than fixing in isolation.**
+
+### 🐛 NUMBERING COLLISION — **two different items are both "§J.8"**
+`BUILD-QUEUE-AND-107.md:760` = weETH-on-Aave-v4 yield leg · `:818` = `outOfRange` dedup.
+⇒ Referring to "§J.8" is ambiguous, and a status set on one silently reads as the other. Disambiguated here
+  as **§J.8a** (weETH/Aave) and **§J.8b** (outOfRange). This is the `commit-often-and-name-precisely` trap
+  in the tracking doc itself.
+
