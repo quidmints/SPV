@@ -302,6 +302,7 @@ pub async fn run(
         // one on-chain pool, which is exactly why it must be excluded from splice/fee
         // coin selection (see the `unspendable` + `initiate_splice` filter tasks).
         Some(node.wallet.clone()),
+        store.clone(),
     ));
     // On-chain swap-out (rail B) delivery driver — env-gated, OFF by default until
     // the LP-side correlation (2b.3c.3) lands + is harness-verified. When DISABLED,

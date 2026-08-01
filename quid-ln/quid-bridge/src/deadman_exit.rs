@@ -184,12 +184,16 @@ pub async fn run_deadman_exit_heartbeat(
     btc_channels: Address,
     gas_limit: u64,
     interval_secs: u64,
-    // #114 STAGE 2: the hop's on-chain wallet, source of the shared FRESHNESS UTXO whose
-    // spend invalidates every previously emitted exit at once. `Option` because a node
-    // without fleet wallet duties still runs the heartbeat (it just emits `None`-bound
-    // exits, i.e. exactly today's behaviour). Resolved HERE, in the async task, and passed
-    // DOWN as a value — `build_exit_call` is documented pure/sync and must stay that way.
+    // #114: the hop's on-chain wallet, source of the shared FRESHNESS UTXO whose spend
+    // invalidates every previously emitted exit at once. `Option` because a node without
+    // fleet wallet duties still runs the heartbeat (it just emits `None`-bound exits, i.e.
+    // exactly today's behaviour). Resolved HERE, in the async task, and passed DOWN as a
+    // value — `build_exit_call` is documented pure/sync and must stay that way.
     hop_wallet: Option<quid_ln::wallet::OnchainWallet>,
+    // #114: durable home for `shard -> freshness outpoint` (rotates) and
+    // `channel -> shard` (stable). Both must survive a restart: losing them would mean
+    // re-emitting against an outpoint we no longer recognise.
+    store: Arc<crate::store::BridgeStore>,
 ) {
     use crate::client::eth_call_raw;
     use crate::channel_driver::{estimate_gas_and_send, read_channel_state};
@@ -216,6 +220,50 @@ pub async fn run_deadman_exit_heartbeat(
                 continue;
             }
         };
+
+        // ── (#114) Resolve this tick's FRESHNESS UTXO ────────────────────────────
+        // Shipping K=1 (one shard). The UTXO is DESIGNATED, not minted: any wallet output
+        // can serve as input 1, so we pick one rather than paying to create one. Rotation
+        // is therefore just "spend it and designate another" — no bespoke send path, and
+        // no standing balance beyond a single small output (which is what keeps a host
+        // compromise uninteresting: the wallet holds flow, not a store of value).
+        //
+        // Self-healing by construction: we re-resolve every tick against the live UTXO
+        // set, so if the designated output is ever spent (rotation, or an accidental
+        // sweep) the next tick simply designates a fresh one — and the exits bound to the
+        // old one are, correctly, already dead.
+        const FRESHNESS_SHARD: u32 = 0;
+        let freshness = hop_wallet.as_ref().and_then(|w| {
+            let utxos: Vec<_> =
+                w.get_utxos().into_iter().filter(|u| u.chain_position.is_confirmed()).collect();
+            // Never designate the wallet's ONLY output: it would be reserved away from fee
+            // and splice funding, starving the very rotations that keep exits fresh.
+            if utxos.len() < 2 {
+                return None;
+            }
+            let recorded = store.freshness_of_shard(FRESHNESS_SHARD, bitcoin::ScriptBuf::new());
+            // Keep the recorded outpoint while it is still unspent...
+            if let Some((outpoint, _)) = recorded {
+                if let Some(u) = utxos.iter().find(|u| u.outpoint == outpoint) {
+                    return Some((outpoint, u.txout.clone()));
+                }
+            }
+            // ...otherwise designate the SMALLEST confirmed output: the least useful one
+            // for funding a splice, so reserving it costs the fee path the least.
+            let pick = utxos.iter().min_by_key(|u| u.txout.value.to_sat())?;
+            store.set_freshness(
+                FRESHNESS_SHARD,
+                &pick.outpoint.txid,
+                pick.outpoint.vout,
+                pick.txout.value.to_sat(),
+            );
+            info!(
+                txid = %pick.outpoint.txid, vout = pick.outpoint.vout,
+                sats = pick.txout.value.to_sat(),
+                "dead-man-exit: designated freshness UTXO (spending it invalidates all prior exits)"
+            );
+            Some((pick.outpoint, pick.txout.clone()))
+        });
 
         for ldk_id in vault.node.chain_monitor.list_monitors() {
             // Stable on-chain channelId (keyed on the ORIGINAL funding outpoint).
@@ -274,11 +322,10 @@ pub async fn run_deadman_exit_heartbeat(
             // Derive + arm both halves, pre-sign IN-PLACE, encode calldata (sync;
             // no signer/monitor guard is held across the submit await below).
             let built = build_exit_call(
-                // #114 STAGE 2 (step 3, not yet built): resolve the shard's freshness UTXO
-                // from `hop_wallet` here — the async heartbeat is the only place allowed to
-                // touch the wallet. Until then `None` keeps the exit byte-identical to the
-                // pre-#114 single-input form, i.e. NO behaviour change.
-                None,
+                // #114: resolved once per tick above. `None` (no wallet, or too few UTXOs
+                // to spare one) emits the pre-#114 single-input exit — correct, just
+                // without the invalidation property.
+                freshness.clone(),
                 &hop_keys,
                 &hop_monitors,
                 &vault,
