@@ -2856,6 +2856,61 @@ mod test {
         assert_eq!(balance.confirmed.to_sat(), 150_000);
     }
 
+    /// (#114) A reserved outpoint must be UNSPENDABLE by ordinary tx building — not
+    /// merely absent from a helper's return value.
+    ///
+    /// The wallet is funded with one large and one small UTXO, the LARGE one is reserved,
+    /// and a funding tx is then requested for an amount only the large one could cover. It
+    /// MUST fail: if the reservation did not bind, coin selection would happily spend the
+    /// dead-man freshness outpoint and silently invalidate every emitted exit — a failure
+    /// with no error path anywhere, which is exactly why this is asserted rather than
+    /// assumed. The control case (same request, nothing reserved) succeeds, so the failure
+    /// is attributable to the reservation and not to the wallet simply being too poor.
+    #[test]
+    fn reserved_outpoint_is_unspendable_by_ordinary_building() {
+        let h = Harness::new(20260801);
+        {
+            let mut w = h.ww();
+            w.fund(External, sat!(100_000));
+            w.fund(External, sat!(10_000));
+        }
+        h.persist();
+
+        let utxos = h.wallet.get_utxos();
+        assert_eq!(utxos.len(), 2, "harness funded two outputs");
+        let big = utxos
+            .iter()
+            .max_by_key(|u| u.txout.value.to_sat())
+            .expect("non-empty")
+            .outpoint;
+
+        // CONTROL: with nothing reserved, the spend is affordable.
+        let script = bitcoin::ScriptBuf::from_bytes(vec![0x69; 34]);
+        h.wallet
+            .create_and_sign_funding_tx(script.clone(), bitcoin::Amount::from_sat(50_000))
+            .expect("control: 50k is affordable from the 100k output");
+
+        // Now reserve the only output that can cover it.
+        h.wallet.reserve_outpoint(big);
+        assert!(
+            h.wallet.spendable_utxos().iter().all(|u| u.outpoint != big),
+            "spendable_utxos must exclude a reserved outpoint",
+        );
+        assert!(
+            h.wallet
+                .create_and_sign_funding_tx(script.clone(), bitcoin::Amount::from_sat(50_000))
+                .is_err(),
+            "coin selection must NOT spend a reserved outpoint, even when it is the only \
+             output that could fund the tx",
+        );
+
+        // Releasing restores it — the reservation is a lease, not a permanent burn.
+        h.wallet.release_outpoint(&big);
+        h.wallet
+            .create_and_sign_funding_tx(script, bitcoin::Amount::from_sat(50_000))
+            .expect("released: affordable again");
+    }
+
     /// Regenerates the wallet snapshot file.
     ///
     /// ```bash
