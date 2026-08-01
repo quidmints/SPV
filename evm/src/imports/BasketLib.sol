@@ -521,7 +521,7 @@ library BasketLib {
     /// @notice Body of Aux.take. Aux wraps this, pre-passing cheap state
     ///         (stables array, LINK, toIndex value, QUID, WETH), then
     ///         DELEGATECALL's here. State mutations route back via
-    ///         IAuxOps's self-gated entries (withdrawSelf, tipSelf,
+    ///         IAux's self-gated entries (withdrawSelf, tipSelf,
     ///         checkBacking) — same DELEGATECALL → external self-CALL
     ///         pattern as SwapLib uses. See Aux.supplySelf docblock for
     ///         the security invariants.
@@ -553,7 +553,7 @@ library BasketLib {
     }
 
     function takeBody(TakeArgs memory a) external returns (uint sent) {
-        IAuxOps aux = IAuxOps(address(this));
+        IAux aux = IAux(address(this));
         if (a.token == a.weth) {
             sent = aux.withdrawSelf(a.weth, a.amount, a.who);
             aux.checkBacking();
@@ -580,7 +580,7 @@ library BasketLib {
     ///      those were just-fetched here or threaded in by a caller that already had them.
     function _takeCore(TakeArgs memory a, uint[15] memory amounts, uint[15] memory yieldW)
         private returns (uint sent) {
-        IAuxOps aux = IAuxOps(address(this));
+        IAux aux = IAux(address(this));
         FeeLib.FeeCtx memory fc = FeeLib.FeeCtx(a.stables, a.linkAddr);
         address skip;
         if (a.token != a.quid) {
@@ -623,7 +623,7 @@ library BasketLib {
     /// @dev Terminal solvency check of a take. STRICT by default (reverts on committed>liquid, protecting the
     ///      user-facing drains); the trusted swap-out settle drain passes softBacking=true to use the
     ///      non-reverting variant, since its mid-drain instant is offset by an in-tx debt-repay.
-    function _finalBacking(IAuxOps aux, bool soft) private {
+    function _finalBacking(IAux aux, bool soft) private {
         if (soft) aux.tryCheckBacking(); else aux.checkBacking();
     }
 
@@ -641,7 +641,7 @@ library BasketLib {
     ///      takeBody's return value stay in one currency. The redeem call site converts;
     ///      the swap call site already holds native units.
     function _takePreferred(
-        IAuxOps aux, address who, address token, uint amount, uint seed,
+        IAux aux, address who, address token, uint amount, uint seed,
         uint[15] memory amounts, uint[15] memory yieldW, FeeLib.FeeCtx memory fc
     ) private returns (uint sent, uint remaining, bool done) {
         uint needed = FeeLib.calcNeeded(token, amount, amounts, yieldW, fc);
@@ -666,7 +666,7 @@ library BasketLib {
     ///      redemption — the user gets the sum of slots that worked (failed slot
     ///      contributes 0).
     function _takeProRata(
-        IAuxOps aux, address who, uint amount, uint seed, address skip,
+        IAux aux, address who, uint amount, uint seed, address skip,
         uint[15] memory amounts, FeeLib.FeeCtx memory fc
     ) private returns (uint sent) {
         for (uint i = 1; i <= fc.stables.length; i++) {
@@ -1141,10 +1141,3 @@ library BasketLib {
 }
 
 /// @notice Aux's self-gated surface that BasketLib.takeBody calls back into.
-interface IAuxOps {
-    function withdrawSelf(address token, uint amount, address to) external returns (uint);
-    function tipSelf(uint cut, address token, int sign) external;
-    function get_deposits() external returns (uint[15] memory amounts, uint[15] memory yieldW, uint avgYield, uint depegLoss);
-    function checkBacking() external returns (uint committedSum, uint totalLiquid);
-    function tryCheckBacking() external returns (uint committedSum, uint totalLiquid);  // non-reverting variant
-}

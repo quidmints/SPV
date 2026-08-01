@@ -2,6 +2,8 @@
 pragma solidity ^0.8.13;
 
 import {Types} from "./Types.sol";
+// §A.52: the canonical Aux view (was a file-local variant).
+import {IAux} from "./Interfaces.sol";
 import {BitcoinTx} from "./BitcoinTx.sol";
 import {ISPVGateway} from "../spv/interfaces/ISPVGateway.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -21,23 +23,6 @@ import {IEthVenue} from "./Interfaces.sol";
 ///         msg.sender == address(this) == Aux on every self-call). The public
 ///         mapping getters are READS; the *Self entries are the self-gated
 ///         mutators (the same DELEGATECALL→self-CALL pattern takeBody uses).
-interface IAuxDep {
-    function tokens(address) external view returns (address);
-    function vaultHealth(address) external view returns (bool blocked, uint40 flaggedAt);
-    function toIndex(address) external view returns (uint);
-    function trancheTotal() external view returns (uint);
-    function riskFactor(address token) external view returns (uint);
-    function get_metrics(bool force) external returns (uint, uint);
-    function avgYield() external view returns (uint);
-    function supplySelf(address token, uint amount) external returns (uint);
-    function tipSelf(uint cut, address token, int sign) external;
-    function refreshHoldingsSelf(address stable) external;
-    function refreshAllHoldingsSelf() external;
-    function aaveBalance(address token) external view returns (uint);
-    function reserveIdOf(address token) external view returns (uint256);
-    function _withdrawAaveUnsafe(uint256 reserveId, uint amount, address to) external returns (uint);
-    function getTWAPforAsset(address asset, uint32 period) external view returns (uint);
-}
 interface IQuidTarget { function target() external view returns (uint); }
 
 /// @notice Aave-v4 reserve-id resolution + supply surface (subset of Aux.IAaveV4Spoke).
@@ -196,7 +181,7 @@ library ChannelLib {
         SPState storage sp
     ) external returns (uint deposited) {
         if (amount == 0) return 0;
-        IAuxDep aux = IAuxDep(address(this));
+        IAux aux = IAux(address(this));
         if (token == cfg.weth) {
             return IEthVenue(cfg.ethVenue).supplyFromAux(amount);
         }
@@ -259,7 +244,7 @@ library ChannelLib {
         SPState storage sp
     ) external returns (uint sent) {
         if (amount == 0) return 0;
-        IAuxDep aux = IAuxDep(address(this));
+        IAux aux = IAux(address(this));
         if (token == cfg.weth) {
             return IEthVenue(cfg.ethVenue).withdrawForAux(amount, to);
         }
@@ -360,7 +345,7 @@ library ChannelLib {
         address from, address token, uint amount,
         address quid, uint nStables
     ) external returns (uint usd) {
-        IAuxDep aux = IAuxDep(address(this));
+        IAux aux = IAux(address(this));
         if (aux.tokens(token) != address(0)) {
             // Direct vault-share deposit.
             amount = Math.min(

@@ -22,9 +22,9 @@ import {Types} from "./Types.sol";
 import {LevMath} from "./LevMath.sol";
 import {IV3SwapRouter} from "./v3/IV3SwapRouter.sol";
 import {IRover} from "./Interfaces.sol";
-import {IAuxTwap} from "./Interfaces.sol";
+import {IAux} from "./Interfaces.sol";
 import {IAggregatorV3} from "./Interfaces.sol";
-import {IAuxSwap} from "./Interfaces.sol";
+import {IAux} from "./Interfaces.sol";
 
 // ether.fi offramp interfaces (suffixed `_L` to avoid clashing with Aux's own
 // copies, since Aux imports SwapLib). Same signatures as Aux's.
@@ -198,18 +198,18 @@ library SwapLib {
             swept = address(this).balance;
             if (swept == 0) return (0, 0);
             WETH9(payable(weth)).deposit{value: swept}();
-            IAuxSwap(address(this)).supplySelf(weth, swept);
+            IAux(address(this)).supplySelf(weth, swept);
             return (0, swept);
         }
         if (token == wbtc) {
             swept = IERC20(wbtc).balanceOf(address(this));
             return (swept, swept); // caller adds to vogueBTC inventory
         }
-        if (token == weth || IAuxSwap(address(this)).toIndex(token) != 0
+        if (token == weth || IAux(address(this)).toIndex(token) != 0
             || token == gho || token == usdg) {
             swept = IERC20(token).balanceOf(address(this));
             if (swept == 0) return (0, 0);
-            IAuxSwap(address(this)).supplySelf(token, swept);
+            IAux(address(this)).supplySelf(token, swept);
             return (0, swept);
         }
         revert UnknownStableSweep();
@@ -224,7 +224,7 @@ library SwapLib {
     /// @notice Body of Aux.auxSwap. Aux wraps this, pre-passing cheap state
     ///         (idxIn/idxOut, stables, LINK) and DELEGATECALL'ing here.
     ///         Inside, address(this) is Aux, msg.sender is the original
-    ///         user. State mutations route back via IAuxSwap's self-gated
+    ///         user. State mutations route back via IAux's self-gated
     ///         entries (supplySelf / withdrawSelf), gated by NotSelf —
     ///         the gate passes because msg.sender of those self-calls
     ///         equals address(this) = Aux.
@@ -246,7 +246,7 @@ library SwapLib {
         if (idxIn == 0 || idxOut == 0)       revert NotBasketStable();
         if (tokenIn == tokenOut)             revert SameToken();
 
-        IAuxSwap aux = IAuxSwap(address(this));
+        IAux aux = IAux(address(this));
 
         // Inbound: pull tokenIn from caller, supply to its vault.
         uint pulled = Math.min(amountIn,
@@ -266,7 +266,7 @@ library SwapLib {
 
     /// @dev tokenIn→USD (fee+haircut)→tokenOut native conversion in its own frame
     ///      so auxSwapBody's 9 params stay within the legacy stack.
-    function _convert(IAuxSwap aux, address tokenIn, address tokenOut, uint pulled,
+    function _convert(IAux aux, address tokenIn, address tokenOut, uint pulled,
         uint idxOut, address linkAddr) private returns (uint) {
         (uint[15] memory amounts, uint[15] memory yieldW,,) = aux.get_deposits();
         uint usdIn  = BasketLib.scaleTokenAmount(pulled, tokenIn, true);
@@ -293,7 +293,7 @@ library SwapLib {
     ///         the isBTC/wbtc/ctx/vogueBTCNow params. op 0=deposit, 1=take, 2=read.
     function vogueOpBody(uint amount, uint8 op, WETH9 weth, uint vogueETHLive)
         external returns (uint sent) {
-        IAuxSwap aux = IAuxSwap(address(this));
+        IAux aux = IAux(address(this));
         // op == 0: LP deposit — WETH → supplySelf.
         if (op == 0) {
             weth.transferFrom(msg.sender, address(this), amount);
@@ -341,11 +341,11 @@ library SwapLib {
     ///      SEQUENCING the call out of argument position. Freed 197 bytes. `Stack too deep` is a code-shape
     ///      problem, never a licence to duplicate.
     function _priceOr(uint v4p, address aux, address asset) internal view returns (uint) {
-        return v4p != 0 ? v4p : IAuxSwap(aux).getTWAPforAsset(asset, 1800);
+        return v4p != 0 ? v4p : IAux(aux).getTWAPforAsset(asset, 1800);
     }
     /// @dev Revert unless `token` is a real basket stable (toIndex>0). Factored from creditSwapIn/OutBody (dedup).
     function _requireStable(address aux, address token) internal view {
-        if (IAuxSwap(aux).toIndex(token) == 0) revert StableMissing();
+        if (IAux(aux).toIndex(token) == 0) revert StableMissing();
     }
 
     error BadAsset();
@@ -363,7 +363,7 @@ library SwapLib {
     }
 
     /// @notice Body of Aux.swapTo — delegatecall'd (address(this)==Aux), so the
-    ///         IAuxSwap callbacks (deposit/_depositVol/_tipSelf/withdrawSelf/
+    ///         IAux callbacks (deposit/_depositVol/_tipSelf/withdrawSelf/
     ///         get_deposits/getTWAPforAsset/tokens/toIndex/bumpVogueBTC) and the
     ///         `stables`/`tranche` reads all resolve to Aux's own storage.
     ///         Verbatim of the prior in-place swapTo body; only the home moved.
@@ -389,7 +389,7 @@ library SwapLib {
         if (r.asset != c.weth && r.asset != c.wbtc) revert BadAsset();
         bool isBTC = r.asset == c.wbtc;
         if (!r.forVolatile && isBTC) revert BtcInflowsViaChannels();
-        IAuxSwap aux = IAuxSwap(address(this));
+        IAux aux = IAux(address(this));
         bool stable = aux.toIndex(r.token) > 0;
         // #105: capture the actual INPUT token for the partial-fill refund BEFORE the forVolatile branch
         // zeros r.token — volatile-in = the asset, stable-in = the token, QD-in = 0 (burned => unrefundable).
@@ -479,7 +479,7 @@ library SwapLib {
     /// @dev routeSwap (8-field RouteParams build) + bumpVogueBTC + slippage guard
     ///      in its own frame so swapToBody stays within the legacy stack — no
     ///      via_ir crutch.
-    function _finishSwap(Types.AuxContext memory ctx, IAuxSwap aux, SwapReq memory r,
+    function _finishSwap(Types.AuxContext memory ctx, IAux aux, SwapReq memory r,
         uint160 sqrtPriceX96, bool zeroForOne, uint pooled, bool isBTC, uint v4p) private returns (uint max) {
         uint poolSupplied;
         // Reuse the resolved oracle price from the repack-first (v4p) instead of
@@ -510,7 +510,7 @@ library SwapLib {
     ///      frame so _finishSwap stays within the legacy stack. r.inToken carries the input: volatile-in is
     ///      NATIVE (r.amount from _depositVol; no conversion); stable-in is 6-dec USD (deposit's scale) →
     ///      native via scaleTokenAmount; QD-in is 0 (skipped — burned). Aux context ⇒ direct withdrawSelf.
-    function _refundExcess(IAuxSwap aux, SwapReq memory r, uint consumed) private {
+    function _refundExcess(IAux aux, SwapReq memory r, uint consumed) private {
         if (r.inToken == address(0) || r.amount <= consumed) return;
         uint excess = r.amount - consumed;
         aux.withdrawSelf(r.inToken,
@@ -522,7 +522,7 @@ library SwapLib {
     ///      stable/vault deposit) in its own frame. Returns the post-consume input
     ///      amount. Verbatim of the prior inline else-branch.
     function _consumeVolInput(
-        IAuxSwap aux, address token, uint amount, address quid, bool stable,
+        IAux aux, address token, uint amount, address quid, bool stable,
         address[] memory stables
     ) private returns (uint) {
         if (token == quid) {
@@ -552,7 +552,7 @@ library SwapLib {
     ///      straight in made `min(amount, poolCap6)` always pick the 6-dec pool cap → ~1e12x over-delivery of
     ///      pool volatile for dust QD burned (a drain). Down-scale to 6-dec here so the swap sizes on the true
     ///      USD value; the dropped ≤1e12 sub-unit dust is immaterial to a USD amount.
-    function _consumeQdIn(IAuxSwap aux, address quid, uint amount, address[] memory stables)
+    function _consumeQdIn(IAux aux, address quid, uint amount, address[] memory stables)
         private returns (uint) {
         (uint burned, uint seedBurned) = IBasketTurn2(quid).turn(msg.sender, amount);
         uint solvent;
@@ -1056,14 +1056,14 @@ library SwapLib {
     ///      params. v4 == address(this) (this lib body is delegatecalled from the BtcVault); wbtc via aux.
     function _swapOutPrep(address swapper, address token, uint usdAmount, address core, address aux)
         private returns (Types.AuxContext memory ctx, Types.RouteParams memory rp) {
-        address wbtc = address(IAuxSwap(aux).WBTC());
+        address wbtc = address(IAux(aux).WBTC());
         // The normalized 6-dec USD pulled in — exactly what enters POOLED_USD_BTC (exact-input curve buy)
         // and thus the exact proceeds owed to the delivering LP (returned so requestSwapOutOnchain records it).
         // §A.50/C1: `deposit` returns TOKEN-NATIVE; this comment long claimed 6-dec. `scaleTo6` is
         // native→6, which is exactly the conversion needed, and it is a NO-OP for the 6-dec stables
         // (USDC/USDT/PYUSD/USDG/AUSD). It bites only for the seven 18-dec stables, which no test
         // currently exercises — see the mixed-decimal Echidna target (§A.70).
-        uint amount = scaleTo6(IAuxSwap(aux).deposit(swapper, token, usdAmount), token);
+        uint amount = scaleTo6(IAux(aux).deposit(swapper, token, usdAmount), token);
         ctx.asset = wbtc; ctx.core = core;
         // Reuse the repack-resolved oracle price (5th return); live-read only if v4p==0.
         (uint160 sqrtPriceX96,,,, uint v4p) = IVogueRepack2(address(this)).repack(true);
@@ -1230,7 +1230,7 @@ library SwapLib {
             // units — passing USD 1e18 was a 1e12x over-request that drained the basket's stable. Masked
             // because `got` measures the OUTCOME, so the repay was sized off the full drain. Converted
             // HERE, at the call site: the shared helper serves two unit conventions (§A.50).
-            IAuxSwap(aux).takeToSettle(venue, BasketLib.scaleTokenAmount(takeUsd18, stable, false), stable); // basket → venue (soft backing = final-state solvency)
+            IAux(aux).takeToSettle(venue, BasketLib.scaleTokenAmount(takeUsd18, stable, false), stable); // basket → venue (soft backing = final-state solvency)
             got = IERC20(stable).balanceOf(venue) - bal0;        // venue-stable actually sourced (native units)
         }
         // Repay `got` (0 if the position had no debt — a pure-equity levered slice) and free `want` sats regardless.
@@ -1242,9 +1242,9 @@ library SwapLib {
     ///   `amounts[0]` is the yield-weighted aggregate and `amounts[14]` the TVL total. So a real stable's
     ///   `toIndex` is in [1,11]; reject the aggregate (0), the total (12), and unknown stables (toIndex 0).
     function _heldUsd18(address aux, address stable) private returns (uint) {
-        uint idx = IAuxSwap(aux).toIndex(stable);
+        uint idx = IAux(aux).toIndex(stable);
         if (idx == 0 || idx >= 12) return 0;
-        (uint[15] memory amts,,,) = IAuxSwap(aux).get_deposits();
+        (uint[15] memory amts,,,) = IAux(aux).get_deposits();
         return amts[idx];
     }
 
@@ -1282,7 +1282,7 @@ library SwapLib {
             // leaving the residual to the #105 partial-fill.
             // §A.55: native units for the take (see above). `fundUsd` stays 18-dec for `swapOutDelever`
             // below, so ONLY the argument is converted — not the variable.
-            try IAuxSwap(aux).takeToSettle(venue, BasketLib.scaleTokenAmount(fundUsd, stable, false), stable) returns (uint) {
+            try IAux(aux).takeToSettle(venue, BasketLib.scaleTokenAmount(fundUsd, stable, false), stable) returns (uint) {
                 try ILevEthDeliver(mgr).swapOutDelever(lp, fundUsd, recipient, 0) returns (uint, uint w) {
                     deliveredEth += w;
                 } catch {}
@@ -1614,7 +1614,7 @@ library SwapLib {
         // Resolved oracle price + staleness. try/catch so a bootstrap pre-history
         // / dead-feed read NEVER bricks the op (falls through to legacy handling).
         uint twap; bool stale;
-        try IAuxTwap(aux).resolvedTwap(asset, 1800) returns (uint p, bool s) {
+        try IAux(aux).resolvedTwap(asset, 1800) returns (uint p, bool s) {
             twap = p; stale = s;
         } catch {}
         r.resolvedTwap = twap; // export for the swap path to reuse (no 2nd read)

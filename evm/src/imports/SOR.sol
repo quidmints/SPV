@@ -12,7 +12,7 @@ import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol
 import {SafeERC20}   from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {FeeLib}      from "./FeeLib.sol";
 import {IV3SwapRouter} from "./v3/IV3SwapRouter.sol";
-import {IAuxSwap} from "./Interfaces.sol";
+import {IAux} from "./Interfaces.sol";
 
 /// @notice A swap path is a chain of V4 hops sharing an entry stable +
 ///         4626 source vault. The token sequence has length N+1; the
@@ -42,9 +42,9 @@ struct UnlockData {
 
 /// @notice Subset of Aux's public surface the SOR-routing bodies call back into
 ///         via DELEGATECALL -> external self-CALL (address(this)==Aux). Mirrors the
-///         identically-named entries on SwapLib's IAuxSwap; only the methods the
+///         identically-named entries on SwapLib's IAux; only the methods the
 ///         moved SOR router cluster needs. Named imports everywhere ⇒ no clash with
-///         SwapLib's own file-scope IAuxSwap.
+///         SwapLib's own file-scope IAux.
 
 /// @title SOR — Smart Order Router (V4 only, stable → ETH)
 ///
@@ -186,7 +186,7 @@ library SOR {
     ///         Wrapper pre-passes `_pathEncodings` (memory copy of state
     ///         array), `stables`, `LINK` and DELEGATECALL's here. Library
     ///         iterates highest-fee-first, calls back via `_tryPath`
-    ///         (already self-gated on Aux). State reads via IAuxSwap.
+    ///         (already self-gated on Aux). State reads via IAux.
     ///
     ///         WRAPPER (Aux.auxSwap) holds the `nonReentrant` lock for
     ///         the entire chain. This function MUST NOT carry its own.
@@ -197,7 +197,7 @@ library SOR {
         uint    minOut,
         bytes[] memory pathEncodings
     ) external returns (uint outAmount) {
-        IAuxSwap aux = IAuxSwap(address(this));
+        IAux aux = IAux(address(this));
         // Fee-rank pre-pass (own frame — legacy stack) — pick the path whose source
         // stable the protocol most wants to shed (same signal `take` uses). It also
         // returns `matchMask` (bit i set iff path i's `output` matches) so the
@@ -227,7 +227,7 @@ library SOR {
     ///      the caller brought the funds). `skipIdx` skips an already-tried index (`type(uint).max` = skip none).
     ///      `internal` ⇒ inlined into SwapLib's own bytecode, never Aux's.
     function _tryPathsMatching(
-        IAuxSwap aux, bytes[] memory enc, address output, address srcFilter, bool selfFunded,
+        IAux aux, bytes[] memory enc, address output, address srcFilter, bool selfFunded,
         uint amountIn, address recipient, uint minOut, uint skipIdx
     ) internal returns (uint) {
         for (uint i; i < enc.length; i++) {
@@ -256,7 +256,7 @@ library SOR {
         // then the rest via the shared loop) — the toxicity boundary: never the reserve. Uniswap V3 is a FIRST-CLASS
         // PEER ROUTE (`_v3Route`, both directions, multi-hop), tried when the V4 hops can't fill — not a hardcoded
         // caller bypass. Returns 0 => the Aux wrapper reverts NoSelfFundedPath.
-        got = _tryPathsMatching(IAuxSwap(address(this)), pathEncodings, output, sourceAsset, true,
+        got = _tryPathsMatching(IAux(address(this)), pathEncodings, output, sourceAsset, true,
                                 amountIn, recipient, minOut, type(uint).max);
         if (got == 0) got = _v3Route(sourceAsset, output, amountIn, recipient, minOut);
     }
@@ -273,7 +273,7 @@ library SOR {
         address weth, address targetStable, uint amountIn, address recipient, uint minOut,
         bytes[] memory pathEncodings
     ) external returns (uint got) {
-        IAuxSwap aux = IAuxSwap(address(this));
+        IAux aux = IAux(address(this));
         for (uint i; i < pathEncodings.length; i++) {
             SorPath memory p = abi.decode(pathEncodings[i], (SorPath));
             if (p.sourceAsset != targetStable || p.output != weth) continue;  // the forward path to reverse
@@ -335,7 +335,7 @@ library SOR {
     ///      (the canonical/best-execution route). Cuts the sourcing-slippage leak. `CONC_GATE_BPS`
     ///      above BASE is the "actually over-concentrated" threshold.
     uint private constant CONC_GATE_BPS = 2; // shed-objective engages only when calcFeeL1 > BASE+2bps
-    function _pickBestPath(IAuxSwap aux, address output, bytes[] memory pathEncodings)
+    function _pickBestPath(IAux aux, address output, bytes[] memory pathEncodings)
         private returns (uint bestIdx) {
         bestIdx = type(uint).max;
         // Best-execution proxy = FEWEST hops (SorPath.keys.length): each extra V4 hop adds slippage,

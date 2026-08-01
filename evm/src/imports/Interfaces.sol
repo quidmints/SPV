@@ -132,11 +132,7 @@ interface ILevVenueColl {
     function COLLATERAL() external view returns (address);
 }
 
-/// Canonical IAuxTwap — union of IAuxTwap, IAuxTwap.
-interface IAuxTwap {
-    function getTWAPforAsset(address asset, uint32 period) external view returns (uint256);
-    function resolvedTwap(address asset, uint32 period) external view returns (uint price, bool stale);
-}
+/// Canonical IAux — union of IAux, IAux.
 
 /// Canonical ICollection — union of ICollection, ICollection.
 interface ICollection {
@@ -151,41 +147,23 @@ interface IAggregatorV3 {
 }
 
 /// Canonical IAux — union of IAux, IAux_VG.
+/// Canonical Aux view — union of the former per-file variants (`IAux`, `IAux`,
+/// `ChannelLib::IAux`, `BasketLib::IAux`, `QuidLens::IAux`). SIX declarations described
+/// ONE contract; a signature change had to be made up to six times and a missed one still compiled.
 interface IAux {
     function vaults(address) external returns (address);
     function tranche(address) external returns (uint);
     function take(address who, uint amount, address token, uint seed) external returns (uint);
-    /// @notice Targeted-draw redemption overload: `preferred` (a basket stable,
-    ///         or address(0) for pure pro-rata) is drawn FIRST, then the remainder
-    ///         pro-rata. Mirrors the swap path's named-stable branch; the cherry-
-    ///         pick concentration fee rides along on the preferred leg.
     function take(address who, uint amount, address token, uint seed, address preferred) external returns (uint);
-    /// @notice take() with pre-fetched deposit vectors (redeem dedup): skips a second
-    ///         get_deposits by reusing the haircut-pass fetch. See Aux.takeWith.
     function takeWith(address who, uint amount, address token, uint seed, address preferred, uint[15] memory amounts, uint[15] memory yieldW) external returns (uint);
-    /// @notice Per-stable yield-factor in basis points (10000 = no
-    /// adjustment). Applied as a multiplier on yieldWeighted in
-    /// get_deposits — routes the depeg-market signal through the
-    /// basket's time-averaged yield rather than the mint-time discount
-    /// path. Defined on Aux, read here.
     function riskFactor(address token) external view returns (uint);
     function getDepegSeverityBps(address token) external view returns (uint);
-    /// @notice AAVE-routed stables (GHO, USDG): live asset-denominated
-    /// balance held by Aux on the AAVE v4 spoke. get_deposits uses this
-    /// for both AAVE-routed stables; the rest of the basket uses
-    /// IERC4626(vault).convertToAssets.
     function GHO() external view returns (address);
     function USDG() external view returns (address);
     function aaveBalance(address token) external view returns (uint);
     function aaveShares(address token) external view returns (uint);
-    /// @notice Self-gated dual-venue (USDC/USDT) Aave-leg withdraw. Called by
-    ///         multiVaultWithdrawBody via the library delegatecall (msg.sender
-    ///         == Aux). Mirrors the 4626 redeem leg for the spoke member.
     function withdrawAaveLeg(address stable, uint amount, address to) external returns (uint);
     function get_metrics(bool force) external returns (uint total, uint avgYield);
-    /// @notice get_metrics(true) with pre-fetched totals (redeem dedup): recomputes the
-    ///         par-backing metric from the caller's already-fresh get_deposits pass
-    ///         instead of a second internal scan. See Aux.get_metricsWith.
     function get_metricsWith(uint raw, uint yieldWeighted) external returns (uint total, uint avgYield);
     function getTWAPforAsset(address asset, uint32 period) external view returns (uint);
     function vogueETH() external view returns (uint);
@@ -197,14 +175,31 @@ interface IAux {
     function ethVenue() external view returns (address);
     function GHO_RESERVE_ID() external view returns (uint256);
     function USDG_RESERVE_ID() external view returns (uint256);
-    /// @notice Generalized Aave-v4 reserve-id for dual-venue stables (USDC/USDT);
-    ///         0 for stables with no Aave leg. (GHO/USDG use the immutables above.)
     function aaveReserveId(address stable) external view returns (uint256);
     function deposit(address from, address token, uint amount) external returns (uint);
     function avgYield() external view returns (uint);
-    /// Per-4626-venue write-down flag. Vault-health state is Aux-owned, so the ETH custody ladder
-    /// (VaultLib) has to ask Aux before counting or pulling from a venue. Merged from `IAuxView_V`.
     function vaultBlocked(address vault) external view returns (bool);
+    function _tryPath(bytes calldata encodedPath, uint amountIn, address output, address recipient, uint minOut) external returns (uint);
+    function toIndex(address token) external view returns (uint);
+    function supplySelf(address token, uint amount) external returns (uint);
+    function withdrawSelf(address token, uint amount, address to) external returns (uint);
+    function checkBacking() external returns (uint committedSum, uint totalLiquid);
+    function takeToSettle(address who, uint amount, address token) external returns (uint);
+    function auxSwap(uint amountIn, address output, address recipient, uint minOut) external returns (uint);
+    function WBTC() external view returns (address);
+    function tokens(address vault) external view returns (address);
+    function illiquidLoss() external view returns (uint);
+    function _depositVol(bool isBTC, address sender, uint amount) external payable returns (uint sent);
+    function tipSelf(uint cut, address token, int sign) external;
+    function bumpVogueBTC(uint amount) external;
+    function resolvedTwap(address asset, uint32 period) external view returns (uint price, bool stale);
+    function vaultHealth(address) external view returns (bool blocked, uint40 flaggedAt);
+    function trancheTotal() external view returns (uint);
+    function refreshHoldingsSelf(address stable) external;
+    function refreshAllHoldingsSelf() external;
+    function reserveIdOf(address token) external view returns (uint256);
+    function _withdrawAaveUnsafe(uint256 reserveId, uint amount, address to) external returns (uint);
+    function tryCheckBacking() external returns (uint committedSum, uint totalLiquid);
 }
 
 /// Canonical ICore — union of ICore_V, ICore_VG.
@@ -266,26 +261,4 @@ interface IEthVenue {
     function supplyEtherFiToRover(uint amount) external returns (uint);
 }
 
-/// Canonical IAuxSwap — union of IAuxSwap, IAuxSwap.
-interface IAuxSwap {
-    function _tryPath(bytes calldata encodedPath, uint amountIn, address output, address recipient, uint minOut) external returns (uint);
-    function toIndex(address token) external view returns (uint);
-    function get_deposits() external returns (uint[15] memory amounts, uint[15] memory yieldW, uint avgYield, uint depegLoss);
-    function supplySelf(address token, uint amount) external returns (uint);
-    function withdrawSelf(address token, uint amount, address to) external returns (uint);
-    function checkBacking() external returns (uint committedSum, uint totalLiquid);
-    function takeToSettle(address who, uint amount, address token) external returns (uint);
-    // soft-backing settle drain
-    function getTWAPforAsset(address asset, uint32 period) external view returns (uint);
-    function auxSwap(uint amountIn, address output, address recipient, uint minOut) external returns (uint);
-    function deposit(address from, address token, uint amount) external returns (uint usd);
-    function WBTC() external view returns (address);
-    // ── merged from the former IAuxSwap (same Aux self-delegatecall target) ──
-    function tokens(address vault) external view returns (address);
-    function tranche(address token) external view returns (uint);
-    function get_metricsWith(uint raw, uint yieldWeighted) external returns (uint total, uint avgYield);
-    function illiquidLoss() external view returns (uint);
-    function _depositVol(bool isBTC, address sender, uint amount) external payable returns (uint sent);
-    function tipSelf(uint cut, address token, int sign) external;
-    function bumpVogueBTC(uint amount) external;
-}
+/// Canonical IAux — union of IAux, IAux.

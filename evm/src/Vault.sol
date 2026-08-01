@@ -3,6 +3,8 @@
 pragma solidity ^0.8.28;
 
 import {Vogue} from "./Vogue.sol";
+// §A.52: the canonical Aux view (was a file-local variant).
+import {IAux} from "./imports/Interfaces.sol";
 import {Core} from "./Core.sol";
 import {Aux} from "./Aux.sol";
 import {Basket} from "./Basket.sol";
@@ -511,7 +513,7 @@ contract Vault is Ownable, ReentrancyGuard {
     // ─── Self-gated supply/withdraw trampolines ──────────────────────────────
     /// @notice Self-gated wrappers for the WETH supply/withdraw branches.
     ///         DELEGATECALL'd library functions (vogueOpBody / arbBody) reach
-    ///         back here via IAuxSwap(address(this)).X(...) — msg.sender ==
+    ///         back here via IAux(address(this)).X(...) — msg.sender ==
     ///         address(this) so the gate passes.
     function supplySelf(address token, uint amount) external returns (uint deposited) {
         if (msg.sender != address(this)) revert NotSelf();

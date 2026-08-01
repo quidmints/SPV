@@ -7,15 +7,15 @@ import {LevMath} from "./LevMath.sol";
 import {ICore} from "./Interfaces.sol";
 import {ILevEquityBtc} from "./Interfaces.sol";
 import {IEthVenue} from "./Interfaces.sol";
-import {IAuxSwap} from "./Interfaces.sol";
+import {IAux} from "./Interfaces.sol";
 
 // External surfaces used below all come from Interfaces.sol now (§A.52):
 //   • ILevEquityBtc — BtcLevManager's per-LP book (was `ILevBtc_V`, a 3-of-4 subset).
 //   • IEthVenue     — the Vault's own surface, reached by self-call because these bodies are
 //                      DELEGATECALL'd (address(this)==Vault) and the value-type fee accumulators
 //                      can't be handed over as storage refs (was `IVaultCtx_V`).
-//   • IAuxSwap      — the Aux surface (was `IAuxBtc_V` + `IAuxDeposits_V`, both strict subsets;
-//                      IAuxDeposits_V's lone `get_deposits` is byte-identical to IAuxSwap's).
+//   • IAux      — the Aux surface (was `IAuxBtc_V` + `IAuxDeposits_V`, both strict subsets;
+//                      IAuxDeposits_V's lone `get_deposits` is byte-identical to IAux's).
 // The Basket mint callback stays local: `mint` is Basket's only member any consumer in this
 // subtree needs, and it is declared exactly once tree-wide, so there is nothing to dedup.
 interface IBasketMint { function mint(address pledge, uint amount, address token, uint when) external returns (uint); }
@@ -85,7 +85,7 @@ library BtcVaultLib {
     ///         remainder is still tracked as fee-earning share by the caller.
     function addLiqChannel(address core, address aux, uint sats, uint price)
         public returns (uint usdOut, uint outDelta) {
-        (uint[15] memory deposits,,,) = IAuxSwap(aux).get_deposits();
+        (uint[15] memory deposits,,,) = IAux(aux).get_deposits();
         uint committedBoth = ICore(core).committedUsd18();
         (uint deltaTok, uint targetUSD, uint surplus) =
             SwapLib.sizeBySurplus(deposits[14], committedBoth, sats, price);
@@ -293,7 +293,7 @@ library BtcVaultLib {
         bool t1 = ICore(c.core).token1isBTC();
         SwapLib.Oor memory t = SwapLib.oorTicks(a.sqrtP, a.range, a.distance, t1, a.curLo, a.curUp);
         // Deposit the stable backing via AUX (pool-agnostic), normalize to 6-dec USD.
-        uint amt = SwapLib.scaleTo6(IAuxSwap(c.aux).deposit(a.owner, a.token, a.amount), a.token);
+        uint amt = SwapLib.scaleTo6(IAux(c.aux).deposit(a.owner, a.token, a.amount), a.token);
         uint128 liquidity = SwapLib.sizeOorUsd(amt, t, t1);
         if (liquidity == 0) revert Dust();
         next = a.idBtc + 1;
@@ -352,7 +352,7 @@ library BtcVaultLib {
         // keep this frame off the legacy stack). Channel register grows only `pooled` (net) by deltaBTC, so the
         // post-pair weight is `weight + deltaBTC`; the buffer is constant through a register.
         if (sats == 0 || lpEth == address(0)) return 0;
-        IAuxSwap(c.aux).checkBacking();
+        IAux(c.aux).checkBacking();
         // Bundle the pool range + fresh fee accumulators into one memory slot so this
         // frame stays off the legacy stack (no via_ir). _rebalance (via repack) already
         // accrued any V4 fees into the accumulators; read them fresh.
@@ -363,7 +363,7 @@ library BtcVaultLib {
         settleBtcLp(LP, btcFeesOwedSats, lpEth, address(0), quid, p.feesPerShareBTC, p.usdFeesBtc, weight);
         // price computed AFTER the settle so it isn't live across it (legacy-pipeline stack). A price==0
         // revert here still rolls back the settle's state, so behavior is unchanged.
-        uint price = IAuxSwap(c.aux).getTWAPforAsset(IAuxSwap(c.aux).WBTC(), 1800);
+        uint price = IAux(c.aux).getTWAPforAsset(IAux(c.aux).WBTC(), 1800);
         if (price == 0) revert ZeroTwap();
         (uint deltaUSD, uint deltaBTC) = addLiqChannel(c.core, c.aux, sats, price);
         // In-range pairing extracted to its own frame (legacy-pipeline stack: the modLP call otherwise
@@ -450,7 +450,7 @@ library BtcVaultLib {
         address lp, uint netEq, LevParams memory p
     ) public returns (uint added) {
         if (netEq == 0) return 0;
-        uint price = IAuxSwap(c.aux).getTWAPforAsset(IAuxSwap(c.aux).WBTC(), 1800);
+        uint price = IAux(c.aux).getTWAPforAsset(IAux(c.aux).WBTC(), 1800);
         if (price == 0) return 0;
         (uint deltaUSD, uint deltaBTC) = addLiqChannel(c.core, c.aux, netEq, price);
         if (deltaBTC == 0) return 0;
@@ -488,7 +488,7 @@ library BtcVaultLib {
         ICore(core).modLP(true, p.sqrtP, bufSats, bufUsd, p.tickLower, p.tickUpper, lp);
     }
     function _bufUsdBtc(address aux, uint bufSats, address mgr, address lp) private view returns (uint bufUsd) {
-        uint price = IAuxSwap(aux).getTWAPforAsset(IAuxSwap(aux).WBTC(), 1800);
+        uint price = IAux(aux).getTWAPforAsset(IAux(aux).WBTC(), 1800);
         if (price == 0) return 0;
         bufUsd = LevMath.capBufferUsd(bufSats, price, ILevEquityBtc(mgr).debtUsd(lp));
     }
@@ -550,7 +550,7 @@ library BtcVaultLib {
     ) public returns (RebalOut memory o) {
         // BTC has no vault yield to sync (no WBTC supply); skip _syncYield.
         SwapLib.Rebalanced memory r = SwapLib.rebalanceCore(
-            c.core, c.aux, IAuxSwap(c.aux).WBTC(), isBTC, upperTick, lowerTick);
+            c.core, c.aux, IAux(c.aux).WBTC(), isBTC, upperTick, lowerTick);
         o.feesPerShareBTC = feesPerShareBTC; o.usdFeesBtc = usdFeesBtc; o.reseatEpochBTC = reseatEpochBTC;
         if (r.didRepack) {
             bool t1 = ICore(c.core).token1isBTC();

@@ -2,13 +2,10 @@
 pragma solidity ^0.8.28;
 
 import {FeeLib} from "./imports/FeeLib.sol";
+// §A.52: the canonical Aux view (was a file-local variant).
+import {IAux} from "./imports/Interfaces.sol";
 
 /// Minimal read-only surface of Aux the lens needs (all already public on Aux).
-interface IAuxLens {
-    function get_deposits() external returns (uint[15] memory amounts, uint[15] memory yieldW, uint, uint);
-    function getStables() external view returns (address[] memory);
-    function getDepegSeverityBps(address token) external view returns (uint);
-}
 
 /// @title  QuidLens — SPA hints for a STRICT swap-out (BTC/ETH → a chosen USD stable, instead of pro-rata)
 /// @notice The frontend multi-calls `quoteStrict` once per candidate stable to show the user the real cost of
@@ -26,7 +23,7 @@ contract QuidLens {
     function quoteStrict(address aux, address stable, uint amountUsd6)
         external returns (uint feeBps, uint depegBps)
     {
-        IAuxLens a = IAuxLens(aux);
+        IAux a = IAux(aux);
         (uint[15] memory deps, uint[15] memory yields,,) = a.get_deposits();
         address[] memory stables = a.getStables();
         uint idx = type(uint).max;

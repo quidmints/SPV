@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {IAuxTwap} from "./imports/Interfaces.sol";
+import {IAux} from "./imports/Interfaces.sol";
 
 /// @title  LevOracles — the Morpho `IOracle` price sources DeployL1_s deploys INLINE for the
 ///         lev-overlay markets that CANNOT pre-exist the stack (they price through AUX / are
@@ -35,7 +35,7 @@ contract RealRateBtcMorphoOracle {
     address public immutable WBTC;
     constructor(address aux, address wbtc) { AUX = aux; WBTC = wbtc; }
     function price() external view returns (uint256) {
-        uint256 twap = IAuxTwap(AUX).getTWAPforAsset(WBTC, 1800);
+        uint256 twap = IAux(AUX).getTWAPforAsset(WBTC, 1800);
         if (twap == 0) revert NoPrice();   // 0 would value all vBTC collateral at zero — see NoPrice
         return twap * 1e6;
     }
@@ -51,7 +51,7 @@ contract InverseRateBtcMorphoOracle {
     address public immutable WBTC;
     constructor(address aux, address wbtc) { AUX = aux; WBTC = wbtc; }
     function price() external view returns (uint256) {
-        uint256 twap = IAuxTwap(AUX).getTWAPforAsset(WBTC, 1800);
+        uint256 twap = IAux(AUX).getTWAPforAsset(WBTC, 1800);
         if (twap == 0) revert NoPrice();   // would PANIC (div-by-zero) and freeze the market opaquely
         return 1e66 / twap;
     }
