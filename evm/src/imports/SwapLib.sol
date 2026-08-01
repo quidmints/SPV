@@ -652,13 +652,17 @@ library SwapLib {
             // NOTE: a PARTIAL clamp (min(weethIn, capacity)) is deliberately NOT done here — capacity is
             // denominated in the OUTPUT token while `weethIn` is weETH, and weETH:eETH is not 1:1. That
             // conversion is the remaining piece; a naive min() would mix units.
-            uint redeemable = IRedeem_L(c.redeemer).totalRedeemableAmount(ETHFI_NATIVE_ETH);
-            if (redeemable == 0) { emit InstantRedeemSkipped(weethIn, bytes4(0)); return waitNft(covered, recipient, c); }
-            try IRedeem_L(c.redeemer).redeemWeEth(weethIn, recipient, ETHFI_NATIVE_ETH) { return covered; }
-            catch (bytes memory err) {
-                // Empty `err` = callee gave no reason (OOG / bare revert); report 0 rather than
-                // reading past the end.
-                emit InstantRedeemSkipped(weethIn, err.length >= 4 ? bytes4(err) : bytes4(0));
+            // Capacity 0 ⇒ the call would revert `ExceededRedeemable`; skip it rather than burn gas,
+            // and fall through to the SAME rung-4 tail below (no duplicated exit path).
+            if (IRedeem_L(c.redeemer).totalRedeemableAmount(ETHFI_NATIVE_ETH) == 0) {
+                emit InstantRedeemSkipped(weethIn, bytes4(0));
+            } else {
+                try IRedeem_L(c.redeemer).redeemWeEth(weethIn, recipient, ETHFI_NATIVE_ETH) { return covered; }
+                catch (bytes memory err) {
+                    // Empty `err` = callee gave no reason (OOG / bare revert); report 0 rather than
+                    // reading past the end.
+                    emit InstantRedeemSkipped(weethIn, err.length >= 4 ? bytes4(err) : bytes4(0));
+                }
             }
         }
         // Rung 4 — last-resort no-fee withdrawal NFT.
@@ -960,19 +964,35 @@ library SwapLib {
     ///         this) and the swap-in top-up lucrative. The refill is a PERMISSIONLESS response
     ///         to a public on-chain price: the skew is our reservation price, captured by
     ///         whoever refills first (a gas race), never an operator-tuned or bid mechanism.
+    /// @dev The conversion prologue BOTH skews share: pool inventory and GROSS levered
+    ///      collateral, each in 6-dec USD at the SAME `base/1e30` scale (one price, one unit).
+    ///      `addedTok` is the not-yet-settled input a SELL adds to inventory (0 for a drain).
+    ///      Extracted because the two skews duplicated it verbatim — they diverge only in how
+    ///      they FEED `skewWad` (wellSkew passes these directly; sellSkew mirrors `inv` about
+    ///      target first), so the prologue is the real duplication and the divergence is real
+    ///      semantics that must NOT be flattened into a flag.
+    function _skewBasis(address core, uint base, bool isBTC, uint addedTok)
+        private view returns (uint poolVolUsd, uint lockedUsd)
+    {
+        poolVolUsd = FullMath.mulDiv(
+            (isBTC ? ICoreObs(core).POOLED_BTC() : ICoreObs(core).POOLED_ETH()) + addedTok,
+            base, 1e30);
+        lockedUsd = FullMath.mulDiv(ICoreObs(core).levGrossNative(isBTC), base, 1e30);
+    }
+
     function wellSkew(address core, uint base, bool isBTC)
         public view returns (uint)
     {
-        uint poolVol = isBTC ? ICoreObs(core).POOLED_BTC() : ICoreObs(core).POOLED_ETH();
+        (uint poolVolUsd, uint lockedUsd) = _skewBasis(core, base, isBTC, 0);
         // UNIFORM sats/wei → 6-dec USD: `poolVol · base / 1e30`. Authoritative (NOT
         // BasketLib.convert, which now uses the SAME flat scale (the /1e8 variant over-valued
         // 8-dec BTC by 1e10 and was removed) —
         // the WBTC ×1e10 price-lift already closes the 8↔18-dec gap, so a flat /1e30 is
         // correct for BOTH pools and keeps poolVolUsd in the same 6-dec unit as flow + lev.
-        uint poolVolUsd = FullMath.mulDiv(poolVol, base, 1e30);
+
         // lockedUsd = GROSS levered collateral, converted with the SAME base/1e30 scale as poolVol
         // (one price, one unit) — the locked-inventory basis for `inv` (#6/F3). committedUsd = DEBT.
-        uint lockedUsd = FullMath.mulDiv(ICoreObs(core).levGrossNative(isBTC), base, 1e30);
+
         return skewWad(
             poolVolUsd,
             lockedUsd,
@@ -995,7 +1015,7 @@ library SwapLib {
     ///         the sell is judged on inv AFTER its own contribution (a pool sitting at target
     ///         would otherwise never charge any sell, however large).
     function sellSkew(address core, uint base, bool isBTC, uint addedTok)
-        public view returns (uint)
+        internal view returns (uint)
     {
         uint committed = ICoreObs(core).levClaimUsd6(isBTC);      // DEBT (→ target)
         uint flow = ICoreObs(core).flowEwmaUsd(isBTC);
@@ -1005,9 +1025,7 @@ library SwapLib {
         // transient conversion locals so they free their stack slots before the skewWad call (no via_ir).
         uint inv;
         {
-            uint poolVolUsd = FullMath.mulDiv(
-                (isBTC ? ICoreObs(core).POOLED_BTC() : ICoreObs(core).POOLED_ETH()) + addedTok, base, 1e30);
-            uint locked = FullMath.mulDiv(ICoreObs(core).levGrossNative(isBTC), base, 1e30);
+            (uint poolVolUsd, uint locked) = _skewBasis(core, base, isBTC, addedTok);
             inv = poolVolUsd > locked ? poolVolUsd - locked : 0;
         }
         // A-S inventory-sign flip: reflect inv about target. inv≤target (refill) ⇒

@@ -4150,3 +4150,32 @@ it came from **C4 and/or C10 part 2** — both landed in `SwapLib` earlier today
 §J.2c is PAUSED (step 1 is additive and compiles; it does not affect SwapLib). The size regression is
 higher priority: it makes the money-path library undeployable, which no test would ever surface.
 
+## ✅ SIZE REGRESSION FIXED — SwapLib **24,223** (was 24,672, limit 24,576). Margin **353**. Suite 3529/31.
+Three changes, in increasing order of how much they mattered:
+| change | bytes | note |
+|---|---|---|
+| C10 tail dedup — the capacity skip duplicated `waitNft(...)`; both paths now fall through to ONE tail | **24** | also removes a duplicated exit path |
+| `sellSkew` `public` → `internal` — **zero external callers** (verified across `src/` + `test/`) | **83** | dead EXTERNAL surface; satisfies the no-unreachable-code rule as well as the size problem |
+| ⭐ **`_skewBasis` — the shared prologue of `wellSkew`/`sellSkew`** (user's suggestion) | **342** | the real lever |
+
+### 🔑 On "could wellSkew and sellSkew be unified?" (user) — PARTIALLY, and the distinction matters
+ • **Shared (now extracted):** both convert pool inventory AND gross levered collateral to 6-dec USD with
+   the IDENTICAL `mulDiv(·, base, 1e30)`, then call `skewWad`. That prologue was duplicated VERBATIM.
+ • **Genuinely different (NOT flattened):** `wellSkew` feeds `skewWad` DIRECTLY; `sellSkew` computes
+   `inv`, **mirrors it about target** (`2·target − inv`), and passes a reconstruction
+   (`committed + mirror, committed, committed`). That mirror IS the A-S inventory-sign flip that makes a
+   REFILLING sell exempt (skew 0) while an inventory-INCREASING sell is priced.
+ ⇒ A `bool isSell` flag would have unified the signatures while hiding that semantic fork behind a
+   parameter. **Extracting the prologue captures the duplication; keeping the divergence keeps the
+   meaning** — the same judgement applied to the five signing paths in #114.
+⇒ `addedTok` (0 for a drain, the unsettled input for a sell) is the one parameter the shared half needs.
+
+### 📌 THE LESSON THAT MATTERS MORE THAN THE BYTES
+**`forge test` does NOT enforce EIP-170.** 3,529 tests passed against a library that could not be deployed.
+The regression existed from the moment C4 landed and was invisible to every check I was running.
+⇒ **NEW STANDING RULE (added to the traps list): after ANY change to `SwapLib`/`Core`/`Vogue`/`Aux`, run
+  `forge build --sizes` IN THE SAME RUN as the tests.** Green tests + over-limit bytecode is a
+  deploy-time-only failure, and it is silent until then.
+⇒ I had even WRITTEN that the 218-byte margin mattered "because C4 lands in SwapLib" — then landed C4 and
+  never re-measured. **Writing down a risk is not the same as checking it.**
+
