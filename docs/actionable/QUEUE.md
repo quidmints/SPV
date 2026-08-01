@@ -3334,3 +3334,26 @@ genuine dependencies (BDK review, chokepoint risk) — but the NEXT ACTION is un
  ▶️ **STAGE 2 STEP 1: add `hop_wallet` to `run_deadman_exit_heartbeat` and wire its call site.** That is the
    single blocker; everything else in stage 2 follows from it.
 
+## 🔴 APPLYING THE NEW RULE TO MY OWN SHARDING FIX — it HAS unintended consequences. Two of them.
+Standing rule banked as memory `measure-a-fix-from-all-sides`. Pricing the shard proposal on every axis:
+ 1. ✅ **Blast radius** — drops from N channels to N/K. The stated goal, achieved.
+ 2. 🔴 **SECOND-ORDER — wallet drain rises K×.** Each shard needs its OWN rotation tx per period ⇒ K txs
+    instead of 1. **That worsens failure mode (c) — hop-wallet exhaustion — which sharding does NOT fix and
+    which is the ONLY unmitigated mode left.** ⇒ **Sharding trades a mitigated risk for an unmitigated one.**
+    At K large enough, the wallet empties faster, rotation stops FLEET-WIDE, and the blast radius is N again
+    — **the very thing sharding was bought to prevent.** There is an optimum K, and it is NOT "as high as
+    affordable".
+ 3. 🔴 **REVERSIBILITY — my "K is just config, raise it later" claim was WRONG.** Shard assignment
+    (`channel_id % K`) REMAPS when K changes: a channel moving from shard A to shard B still has exits bound
+    to **A's** outpoint. Until it is re-emitted against B, spending B's UTXO does NOT invalidate its stale
+    exits — **the invalidation guarantee silently lapses for remapped channels during a K change.**
+    ⇒ Changing K requires a **full re-emission cycle before any old shard UTXO is spent** — a MIGRATION, not
+    a config edit. **Exactly the "signed/committed against the old value" trap in the rule I just wrote.**
+ 4. ✅ Correctness/cost/other-callers — unchanged from the K=1 analysis.
+⇒ **REVISED RECOMMENDATION: ship K=1** (today's design), keep the shard index as a parameter for structure,
+  and treat any K change as a **planned migration with a documented re-emission cycle** — NOT a dial.
+  **Sharding is not free, and it is not reversible in the way I claimed.**
+📌 The rule caught a real error in the very fix that prompted it, within one turn — and BOTH problems were on
+  axes I had not measured (second-order, reversibility). **That is the pattern: the regression is never on
+  the axis you were optimising.**
+
