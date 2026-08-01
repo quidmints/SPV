@@ -4511,3 +4511,36 @@ a comment where someone will meet it.
 
 ### ▶️ DEDUP PLAN — remaining: the RUST half (graph + `cargo` dead-code warnings) + the hand-rolling audit.
 
+## ✅ RUST DEDUP HALF — **COMPLETE. The workspace is clean.**
+The parallel session's scan (`ef2bbdb`) already established **no cross-cratedup duplication exists**: every fn
+name appearing in ≥3 crates is a TRAIT OBLIGATION (`new` in 14 crates, `fmt` in 14, `default` in 10,
+`serialize`/`deserialize`, `from`, `try_from`, `from_str`, `as_str`, `arbitrary_with`, `from_rng`, `main`).
+Deduping any is impossible by construction — `Display` REQUIRES `fmt`, `Arbitrary` REQUIRES `arbitrary_with`.
+⇒ 📌 **The original graphify "duplication" signal was a MEASUREMENT ARTEFACT across the whole category**: a
+  name-frequency graph over Rust surfaces the trait vocabulary and essentially nothing else. Worth knowing
+  before commissioning another.
+
+### The ONE item it left unrun — now done
+*"Still unrun is a dead-code sweep, which needs Docker running since `cargo check --workspace` bails on
+darwin at quid-cvm."* **Ran it.** `docker run … rust:1.90 cargo check --workspace` → **exit 0**.
+| finding | verdict |
+|---|---|
+| `create_sweep_tx` never used (`wallet.rs:1251`) | ✅ **KNOWN + DELIBERATE** — `QUEUE.md:2251`: needs an operator auth, not an endpoint; *"stays unwired ON PURPOSE"* pending `SweepAuth`. The warning is its MARKER, not a defect. |
+| `dcap-ql` patch warning | vendored SGX dependency, not our code |
+⇒ **ZERO new dead code in the entire Rust workspace.** The Rust half of §A.71 is closed.
+⚠️ `--all-targets` CANNOT run in the container: `bitcoind`/`electrsd` dev-deps DOWNLOAD binaries in their
+  build scripts and the container has no DNS (*"failed to lookup address information"*). Lib-only check is
+  the right scope anyway — dead code in test-only targets is not shipped. **Recorded so the next attempt
+  does not re-hit it.**
+
+## 📊 §A.71 DEDUP PASS — STATUS
+| target | outcome |
+|---|---|
+| underscore-suffixed interfaces | ✅ **7 → 0** |
+| `Aux` views | ✅ **6 → 1** (49-member union) |
+| `Core` views | ✅ **4 → 1** (29-member union) |
+| `outOfRange` | ✅ geometry deduped; 2 dead Vogue helpers deleted (sizing was already done by §A.56) |
+| Rust duplication | ✅ none exists (trait obligations only) |
+| Rust dead code | ✅ none new (one known-deliberate marker) |
+| **remaining** | the HAND-ROLLING audit (library-vs-local), and the `_V`/`_M`/`2`-suffixed interface pairs the surfacer found (`IEthVenue`/`IEthVenueV`, `IAaveSpoke`/`IAaveV4Spoke`, `ILevSyncHook`/`ILevSyncHookM`, `IBasketTurn`/`IBasketTurn2`) |
+
