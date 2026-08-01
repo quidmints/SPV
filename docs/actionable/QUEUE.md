@@ -3021,3 +3021,31 @@ EVERY prevout ⇒ **spending the freshness UTXO invalidates an exit signed over 
  4. Hop wallet: one freshness UTXO per period, globally.
  5. Regtest end-to-end (fresh accepted / stale rejected) — closes the ORIGINAL #114 broadcast gap.
 
+## 🎯 #114 — THE PLUMBING IS **ONE SIGNATURE, ONE CALLER.** Call graph verified.
+| symbol | visibility | callers OUTSIDE the builder file |
+|---|---|---|
+| `build_deadman_exit_tx` | pub | **none** (internal to the builder) |
+| `deadman_exit_sighash` | pub | **none** (internal to the builder) |
+| `finalize_exit_tx` | pub | **none** |
+| ⭐ `presign_deadman_exit` | pub | **exactly ONE**: `quid-ln/quid-bridge/src/deadman_exit.rs:144` |
+⇒ The other three are effectively private-by-use, so **the freshness input can be threaded through them
+  freely without touching any other crate.** Only `presign_deadman_exit`'s signature is a cross-crate
+  surface, and it has a SINGLE call site.
+⇒ (`quid-hop/src/evm_codec.rs:615` is a doc-comment REFERENCE only — not a call. Verified, not assumed.)
+
+### ▶️ THE STAGED BUILD (each stage independently compilable + testable — not a compromise, a sequence)
+ **Stage 1 — plumbing (builder crate only):** add `freshness: Option<(OutPoint, TxOut)>` to
+   `build_deadman_exit_tx` / `deadman_exit_sighash` / `presign_deadman_exit`; when `Some`, push the 2nd
+   `TxIn` and pass BOTH prevouts to `Prevouts::All` **in input order**. Daemon passes `None` ⇒ **behaviour
+   byte-identical to today** ⇒ the existing `exit_tx_shape_is_cltv_keypath` test still passes unchanged,
+   proving the stage is inert.
+ **Stage 2 — the freshness UTXO is REAL:** hop wallet creates/rotates one globally; daemon passes `Some`.
+ **Stage 3 — rotation ordering:** re-emit ALL channels, THEN spend the old UTXO (load-bearing).
+ **Stage 4 — `FreshnessSpent`** outcome in `recovery_broadcast.rs` so a stale exit fails loudly.
+ **Stage 5 — regtest:** fresh accepted / stale rejected ⇒ closes the ORIGINAL #114 broadcast gap.
+⚠️ `Option` here is the HONEST type, not a hedge: a channel opened before the first rotation genuinely has
+  no freshness UTXO, and stage 2 must not pretend otherwise. It also keeps every stage green.
+📌 The security property is ALREADY PROVEN (`sighash_commits_to_every_prevout_not_just_input_zero`, passing),
+  so stages 1-5 are plumbing against a verified foundation — the reverse of my earlier attempt, which wrote
+  plumbing first against imagined symbols and had to be reverted.
+
