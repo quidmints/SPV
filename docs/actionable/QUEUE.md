@@ -2956,3 +2956,41 @@ Read `Prevouts::` usage in `quid-ln/quid-ln/src/deadman_exit.rs`. **BIP341 key-p
 **with no signer change at all**. If it is already `All`, step 2 shrinks to nearly nothing and the whole
 design may need only the builder + daemon halves.
 
+## 🏆 #114 FRESHNESS-UTXO — **THE SECURITY PROPERTY IS FREE.** BIP341 already gives it.
+`quid-ln/quid-ln/src/deadman_exit.rs:95-109`:
+```rust
+let sh = SighashCache::new(exit_tx).taproot_key_spend_signature_hash(
+    0,
+    &Prevouts::All(std::slice::from_ref(&funding_prevout)),   // ALL — but TODAY only ONE prevout
+    TapSighashType::Default,
+)?;
+```
+⇒ **`Prevouts::All` + `TapSighashType::Default` (SIGHASH_DEFAULT ≈ ALL) commits the signature to EVERY
+  input's prevout** — BIP341 hashes `sha_prevouts`/`sha_amounts`/`sha_scriptpubkeys` across ALL inputs.
+⇒ 🎯 **So the moment the exit carries a 2nd (freshness) input, the signature ALREADY depends on it.
+  Spending that UTXO makes every stale exit CONSENSUS-INVALID — automatically. No crypto change, no new
+  signing scheme, no revocation protocol.** The property this entire investigation chased is a FREE
+  consequence of the sighash mode the code ALREADY uses.
+⇒ ✅ **`taproot_signer.rs` needs NO change** — it signs a 32-byte digest that now simply commits to two
+  prevouts. **The 268-link, highest-regression-risk file is UNTOUCHED** — the elegant framing removes that
+  risk rather than testing around it.
+
+### ⇒ THE WHOLE CHANGE (smallest correct form — no compromises)
+ 1. `quid-ln/quid-ln/deadman_exit.rs` (BUILDER): add the freshness `TxIn`; pass **BOTH** prevouts to
+    `Prevouts::All` (today a 1-element slice via `from_ref`). ⚠️ **Prevout ORDER must match input order** —
+    a mismatch yields a signature that commits to the wrong thing while still looking valid.
+ 2. `quid-ln/quid-bridge/deadman_exit.rs` (DAEMON): hold + rotate the freshness outpoint; **re-emit ALL
+    channels BEFORE spending the old UTXO** (ordering is load-bearing).
+ 3. `recovery_broadcast.rs`: add a `FreshnessSpent` outcome so a stale exit fails LOUDLY.
+ 4. hop wallet: create/rotate ONE freshness UTXO per period, GLOBALLY.
+ 5. `channel_driver.rs`, `taproot_signer.rs`, `validating_signer.rs`: **UNCHANGED.**
+⇒ **Final: ONE small on-chain tx per period globally · Δ=144 fast recovery PRESERVED · griefing IMPOSSIBLE
+  (not deterred) · highest-risk file untouched.** Strictly dominates splice-on-refresh (O(n) daily splices),
+  the hybrid (never fires on idle channels — the exposed case), and revocation-keys (inapplicable).
+
+### ▶️ NEXT: the test that IS the security property
+Builder-crate unit test: build a 2-input exit, sign, assert it verifies; then mutate the freshness prevout
+(outpoint / value / spk) and assert **the sighash CHANGES**. That one assertion proves spending the
+freshness UTXO invalidates every stale exit — the whole fix, provable WITHOUT a regtest. Then regtest for
+end-to-end broadcast (fresh accepted / stale rejected), closing the ORIGINAL #114 verification gap.
+
