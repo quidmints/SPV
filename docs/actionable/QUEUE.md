@@ -2717,3 +2717,35 @@ if contribution_amount < SignedAmount::ZERO {   // splice-OUT path (negative)
    with the honest ceiling already recorded (hop-wallet funding is an OPERATIONAL single point of failure
    that no variant removes).
 
+## 🔴 #114 IMPLEMENTATION ATTEMPT — REVERTED. I invented 3 symbols. Real ones now identified.
+Wrote the gate edit and it referenced **three things that DO NOT EXIST**:
+`state.dead_man_deadline`, `DEAD_MAN_REFRESH_MARGIN_BLOCKS`, `esplora.get_height()`.
+🔴 **This is EXACTLY the error class I criticised all session** (an agent citing a non-existent
+  `_swapInPrep`; my own `lowWatermarkInETH()` guess). **I designed against an imagined API instead of
+  reading the one that exists.** Reverted immediately — tree is clean, nothing uncompilable was left.
+
+### ✅ THE REAL SYMBOLS (grep-verified, use THESE)
+| needed | ❌ invented | ✅ actual |
+|---|---|---|
+| channel state struct | — | `ChannelState` — `channel_driver.rs:211` (**check its fields; it likely has NO deadline field ⇒ one must be ADDED or the deadline read from the EVM inline**) |
+| bitcoin tip height | `esplora.get_height()` | `bitcoin_tip_height(esplora_url: &str)` — `recovery_broadcast.rs:157` (`GET /blocks/tip/height`), **or** `HeaderSource::tip_height(&self) -> Result<u64>` — `header_source.rs:41` ⭐ prefer this if a `HeaderSource` is already in scope |
+| refresh margin const | `DEAD_MAN_REFRESH_MARGIN_BLOCKS` | **does not exist — must be DEFINED**, next to `DEAD_MAN_DELTA` in `deadman_exit.rs` so the pair is read together |
+| CLTV unit | (wall clock) | **BLOCK HEIGHT** — `LockTime::from_height(tip_height + DEAD_MAN_DELTA)` (`deadman_exit.rs:135-136`). ⚠️ A time-based comparison would be a SILENT bug. |
+
+### ⭐ LEAD WORTH FOLLOWING FIRST — `recovery_broadcast.rs` ALREADY tracks `(tip_height, cltv_deadline)`
+`recovery_broadcast.rs:59`: *"carries `(tip_height, cltv_deadline)`"*. **Something already compares a stored
+deadline against the tip.** ▶️ **READ `recovery_broadcast.rs` BEFORE writing anything** — the refresh
+predicate may ALREADY EXIST there, in which case the fix is wiring an existing helper into
+`maybe_flush_btc_fees`, not building a new one. **Do not rebuild what is already there** (I have now
+re-derived documented knowledge twice on #114 — the test comment, and possibly this).
+
+### ▶️ CORRECTED BUILD ORDER
+ 1. Read `recovery_broadcast.rs` fully; reuse its deadline/tip predicate if present.
+ 2. Read `ChannelState` (`:211`) — decide: add a `dead_man_deadline` field populated by the existing
+    reconcile EVM batch, or read `deadManDeadline(bytes32)` inline next to the `btcFeesOwedSats` call.
+ 3. Define the margin const beside `DEAD_MAN_DELTA`; assert `MARGIN < DELTA` at startup.
+ 4. Apply the one-line gate change at the `MIN_ECONOMIC_GROW_SATS` early-return.
+ 5. `cargo check -p quid-bridge`, then the regtest (which also settles the V2 initiator-input residual).
+📌 Everything ELSE about the design survived this: zero-grow is valid, the gate is the right site, the
+  splice pipeline is reused. **Only my API assumptions were wrong — the design was not.**
+
