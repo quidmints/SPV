@@ -2456,3 +2456,45 @@ but never reaches zero for an idle channel, so force-close-at-will persists.
 ⚠️ Cost check before shipping (iii): one on-chain BTC tx per idle channel per period — quantify against the
   channel's own fee accrual so the backstop cannot cost more than the position earns.
 
+## ⭐ #114 — THE ELEGANT FIX, FROM ALL SIDES. Severity re-graded; no new crypto needed.
+### SIDE 1 — WHO PROFITS? **NOBODY.** (verified, `BTCChannels.sol:214-232`)
+`btcRecipientOf` is **LOCKED at registration** (*"Once an address registers via a channel open, its
+btcRecipientOf is LOCKED"*) and every payout pins to `P2WPKH(btcRecipientOf)`.
+⇒ A stale exit pays **the LP's own BTC to the LP**. The attacker pays the mining fee and receives **NOTHING**.
+⇒ 🔽 **RE-GRADE: this is UNPROFITABLE GRIEFING, not theft.** The loss is LIVENESS/YIELD (a channel closed
+  early, capital out of the band), not principal. My earlier "force-close at will" framing was accurate
+  mechanically but overstated the stakes — **the attacker burns fees to hand an LP their own money.**
+  (Still worth fixing: a rival or a bored actor can degrade the whole BTC-LP book for the cost of fees.)
+
+### SIDE 2 — WHY DOES AN IDLE CHANNEL EVEN NEED RE-EMISSION?
+For an idle channel NOTHING changes: same funding UTXO, same `checkpointSats`, same locked recipient. The
+**ONLY** reason to re-emit is to push the CLTV forward — **so the heartbeat is the sole PRODUCER of the
+stale set it is trying to outrun.** Fewer emissions ⇒ strictly smaller attack surface, at zero cost.
+⇒ **FIX A (free, few lines): EMIT ONLY NEAR MATURITY.** Re-emit when `cltv - now < REFRESH_MARGIN`, not
+  every tick. An idle channel then carries ~1-2 live exits instead of one per heartbeat forever. Reuses the
+  existing tick loop; it is a CONDITION, not new machinery. **Strictly dominates today's behaviour.**
+
+### SIDE 3 — WHEN THE ATTACK ACTUALLY HAPPENS, WHO WINS THE RACE?
+The fleet **holds BOTH MuSig2 key halves** and can spend the funding UTXO at any time; the splice path is
+already wired (`drive_splice`), and the daemon already watches chain state (`ChannelMonitor` + esplora).
+⇒ **FIX B (reuses splice + monitor): REACTIVE OUTSPEND — a watchtower response.** On seeing a stale exit in
+  the mempool, the fleet spends the same UTXO (a no-op splice) at a higher fee. The stale exit dies because
+  its input is gone.
+⇒ 🎯 **Cost is paid ONLY UNDER ATTACK** — unlike the idle-timer splice (FIX C), which pays an on-chain BTC
+  tx per idle channel per period FOREVER, in the overwhelmingly common case where nobody is attacking.
+⇒ And the fleet is ALIVE by assumption in this scenario — if it were dead, the exit maturing is the FEATURE.
+  **The defense is only ever needed exactly when the defender exists.** That is why it composes so cleanly.
+
+### ⇒ RECOMMENDATION: **A + B.** Drop C (idle-timer splice) and defer revocation-keys.
+ • **A** shrinks the stale set to ~1-2 with a conditional — free, and it reduces how often B can be needed.
+ • **B** neutralises the residual using splice + monitor + existing key custody — **no new crypto, no
+   protocol change, no periodic on-chain cost.**
+ • **C (idle-timer splice) is now DOMINATED** — it pays continuously to prevent an unprofitable attack.
+ • **(i) revocation-keys is DEFERRED, not rejected** — it gives a CRYPTOGRAPHIC guarantee where A+B give an
+   ECONOMIC + REACTIVE one. Revisit if BTC-LP TVL makes griefing worth someone's budget, or if we ever want
+   the backstop to hold with the fleet degraded-but-not-dead.
+⚠️ VERIFY BEFORE BUILDING: (1) does the daemon watch the MEMPOOL or only confirmed blocks? B needs mempool
+  visibility — if esplora is poll-only, quantify the reaction window vs one block. (2) Confirm a no-op
+  splice is cheaper than the griefer's fee in the worst case (fee-bidding race). (3) A needs
+  `REFRESH_MARGIN` > worst-case fleet-restart time, or a restart could miss the refresh window entirely.
+
