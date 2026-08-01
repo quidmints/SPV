@@ -3555,3 +3555,38 @@ mirror gates on **which DESTINATIONS a spend may pay**:
   signs — check whether it can move non-channel funds, and whether LDK signs any wallet-owned input
   elsewhere). **A policy at one of two signing paths is worse than none, because it reads as covered.**
 
+## 🔴 VERIFIED — `sign_psbt` IS **NOT** THE CHOKEPOINT EITHER. There are **FIVE** signing paths.
+Enumerated every `wallet.sign(...)` in the crate (the actual BDK signing call, not the wrappers):
+| # | site | reached via | goes through the shared helper? |
+|---|---|---|---|
+| 1 | `wallet.rs:453` | `pub fn sign_psbt` (`:441`) | ❌ direct `.sign()` |
+| 2 | `wallet.rs:490` | `pub fn sign_interactive_funding` (`:472`) | ❌ direct `.sign()` |
+| 3 | `wallet.rs:1125` | `create_and_sign_funding_tx` (`:1103`) | ✅ `default_sign_psbt` |
+| 4 | `wallet.rs:1167` | `create_onchain_send` (`:1134`) | ✅ `default_sign_psbt` |
+| 5 | `wallet.rs:1210` | `create_sweep_tx` (`:1182`) | ❌ direct `.sign()` |
+| — | `wallet.rs:1326` | `default_sign_psbt` (`:1321`) — the shared helper itself | (is the helper) |
+⇒ 🔴 **A policy on `sign_psbt` would cover 1 of 5 paths** — and would read as "signing is guarded" while
+  `create_sweep_tx`, `sign_interactive_funding`, and both `default_sign_psbt` users spent freely. **That is
+  the precise failure I warned about one turn earlier, in my own proposal.**
+⇒ **THIRD chokepoint guess, third time wrong:** `default_tx_builder` (misses hand-built PSBTs) → `sign_psbt`
+  (misses 4 of 5) → the real answer below. **Each guess sounded authoritative and was checked only because
+  the user said "verify first."**
+
+### ✅ THE ACTUAL FIX — funnel all five through ONE helper, then police THAT
+`default_sign_psbt` (`:1321`) **already exists and already serves 2 of the 5.** So:
+ 1. **Route sites 1, 2, 5 through `default_sign_psbt`** — they each hand-roll what it does
+    (`SignOptions` + `wallet.sign` + a finalized check). ⇒ **This is a genuine DEDUP win in its own right:
+    5 signing implementations collapse to 1**, which is the standing "one declaration" rule applied to
+    behaviour rather than to types.
+ 2. **Put the destination allowlist INSIDE `default_sign_psbt`.** One rule, all paths, and any FUTURE
+    signing site inherits it by construction (or fails review for bypassing the helper).
+ 3. `SweepAuth` then becomes the single documented EXEMPTION carried through that helper.
+⚠️ **Sites 1 and 2 may legitimately differ** — `sign_interactive_funding` is documented as *"differs from
+  sign_psbt in..."* and site 1 serves LDK's anchor `BumpTransactionEventHandler` via
+  `WalletSource::sign_psbt`. **Read both fully before merging** — the goal is ONE policy point, not
+  flattening a real behavioural difference. If they must stay separate, the policy call goes in each, and
+  a test asserts every signing path enforces it.
+📌 **LESSON (now 3× on this one question): "where is the chokepoint?" cannot be answered by reading ONE
+  function — it requires enumerating ALL callers of the underlying primitive.** Applying the
+  `never-assert-absence-from-a-grep` discipline in reverse: I must enumerate the SINKS, not spot-check one.
+
