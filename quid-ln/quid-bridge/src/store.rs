@@ -88,6 +88,25 @@ impl SwapInRec {
 /// reads these back on boot and keeps servicing their deposit addresses. Mirrors
 /// [`SwapInRec`]. NO secret at rest — every field is public (addresses / x-only key /
 /// amounts / the per-swap index), so this record is safe even on the plaintext path.
+/// (#114) The fleet-controlled FRESHNESS UTXO for one shard. Every dead-man exit
+/// signed while this outpoint is current carries it as input 1, so BIP341
+/// `Prevouts::All` binds the signature to it — spending this ONE outpoint renders
+/// every exit emitted against it consensus-invalid at once. That is what stops a
+/// matured, superseded exit from force-closing a live channel, at one small on-chain
+/// tx per shard per period instead of one splice per channel.
+///
+/// NO secret at rest — a txid, a vout and an amount are all public chain data, so this
+/// record is safe even on the plaintext path (same posture as [`OnchainSwapInRec`]).
+#[derive(Clone, Serialize, Deserialize)]
+pub struct FreshnessRec {
+    /// Funding txid of the freshness output (hex, `0x`-less — as `Txid::to_string`).
+    pub txid: String,
+    pub vout: u32,
+    /// Value in sats. Kept because the BIP341 sighash commits to the prevout's AMOUNT
+    /// as well as its script, so re-deriving a signature needs it exactly.
+    pub value_sats: u64,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 struct OnchainSwapInRec {
     swap_id: String,
@@ -174,6 +193,19 @@ struct Persisted {
     /// so a restart doesn't forget them. `#[serde(default)]` ⇒ older state files load clean.
     #[serde(default)]
     onchain_swapins: HashMap<String, OnchainSwapInRec>,
+    /// (#114) `shard_id -> current freshness outpoint`. **ROTATES** every refresh period:
+    /// the whole point is that spending the previous one invalidates the exits bound to it.
+    /// `#[serde(default)]` ⇒ a store written before #114 loads clean and simply has no
+    /// freshness UTXOs yet (exits are then emitted unbound, i.e. pre-#114 behaviour).
+    #[serde(default)]
+    freshness_shards: HashMap<String, FreshnessRec>,
+    /// (#114) `channel_id -> shard_id`. **STABLE**: assigned once at first emission and
+    /// never remapped by a change in shard COUNT — a remap would leave a channel's exits
+    /// bound to its old shard's outpoint while we rotate a different one, silently lapsing
+    /// the invalidation guarantee. Only a deliberate CONSOLIDATION moves a channel, and
+    /// that re-emits it against the surviving shard BEFORE the drained outpoint is spent.
+    #[serde(default)]
+    channel_shard: HashMap<String, u32>,
 }
 
 /// Crash-durable bridge state. Cheap to `Arc`-share; every mutation persists.
@@ -341,6 +373,74 @@ impl BridgeStore {
 
     fn key(hash: &[u8; 32]) -> String {
         format!("0x{}", alloy_primitives::hex::encode(hash))
+    }
+
+    // ── (#114) Dead-man FRESHNESS UTXOs ──────────────────────────────────────
+
+    /// The shard's current freshness outpoint, as the `(OutPoint, TxOut)` pair the exit
+    /// builder takes. `None` ⇒ no UTXO yet for this shard (emit unbound: pre-#114 form).
+    pub fn freshness_of_shard(
+        &self,
+        shard: u32,
+        script_pubkey: bitcoin::ScriptBuf,
+    ) -> Option<(bitcoin::OutPoint, bitcoin::TxOut)> {
+        let s = self.state.lock().unwrap();
+        let r = s.freshness_shards.get(&shard.to_string())?;
+        let txid: bitcoin::Txid = r.txid.parse().ok()?;
+        Some((
+            bitcoin::OutPoint { txid, vout: r.vout },
+            bitcoin::TxOut { value: bitcoin::Amount::from_sat(r.value_sats), script_pubkey },
+        ))
+    }
+
+    /// Record a shard's NEW freshness outpoint. Durable (`save_critical`): if this is lost
+    /// to a crash we would re-emit against an outpoint we then fail to recognise, and the
+    /// old one might be spent without its exits having been re-emitted — the one ordering
+    /// that must never be violated.
+    pub fn set_freshness(&self, shard: u32, txid: &bitcoin::Txid, vout: u32, value_sats: u64) {
+        let mut s = self.state.lock().unwrap();
+        s.freshness_shards.insert(
+            shard.to_string(),
+            FreshnessRec { txid: txid.to_string(), vout, value_sats },
+        );
+        self.save_critical(&s);
+    }
+
+    /// The channel's STABLE shard assignment, if it has one.
+    pub fn shard_of_channel(&self, channel_id: &[u8; 32]) -> Option<u32> {
+        self.state.lock().unwrap().channel_shard.get(&Self::key(channel_id)).copied()
+    }
+
+    /// Assign a channel to a shard. Idempotent, and **does NOT overwrite an existing
+    /// assignment** — stability is the invariant that lets the shard COUNT be derived
+    /// automatically without remapping anyone. Returns the assignment in force after the
+    /// call, so a caller can use the result without a second read.
+    pub fn assign_shard(&self, channel_id: &[u8; 32], shard: u32) -> u32 {
+        let mut s = self.state.lock().unwrap();
+        if let Some(existing) = s.channel_shard.get(&Self::key(channel_id)) {
+            return *existing;
+        }
+        s.channel_shard.insert(Self::key(channel_id), shard);
+        self.save_critical(&s);
+        shard
+    }
+
+    /// Channels currently assigned to `shard` — the re-emission set for a rotation or a
+    /// consolidation. (Both must re-emit EVERY member before the old outpoint is spent.)
+    pub fn channels_in_shard(&self, shard: u32) -> Vec<String> {
+        let s = self.state.lock().unwrap();
+        s.channel_shard.iter().filter(|(_, v)| **v == shard).map(|(k, _)| k.clone()).collect()
+    }
+
+    /// Shards that currently hold at least one channel — `K_active`, which drives ROTATION
+    /// COST. Distinct from the shard count used for NEW assignments: lowering that does not
+    /// retire a populated shard, so only consolidation reduces this.
+    pub fn active_shards(&self) -> Vec<u32> {
+        let s = self.state.lock().unwrap();
+        let mut v: Vec<u32> = s.channel_shard.values().copied().collect();
+        v.sort_unstable();
+        v.dedup();
+        v
     }
 
     // ── In-flight SWAP-INS (durable settle→claim recovery) ───────────────────
