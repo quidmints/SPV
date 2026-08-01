@@ -319,19 +319,6 @@ contract Vogue is
                                 sqrtPriceX96, SwapLib.BAND_DELTA);
     }
 
-    function _outOfRangeTicks(uint160 currentSqrtPrice,
-        int24 width, int24 range, int24 distance) internal
-        returns (int24 newLowerTick, int24 newUpperTick) {
-        int24 targetTick = TickMath.getTickAtSqrtPrice(
-                           currentSqrtPrice) - distance;
-        if (distance < 0) { // above the current price
-            newLowerTick = _alignTick(targetTick, width);
-            newUpperTick = _alignTick(targetTick + range, width);
-        } else {
-            newUpperTick = _alignTick(targetTick, width);
-            newLowerTick = _alignTick(targetTick - range, width);
-        }
-    }
 
     /// @notice Create a single-sided liquidity position outside the current price range
     /// @dev Automatically adjusts for token ordering to ensure valid positions
@@ -359,12 +346,15 @@ contract Vogue is
 
         SwapLib.Oor memory t;
         {   // geometry in a scope so currentSqrtPrice frees before sizing.
+            // §J.8b: was an inline copy of `SwapLib.oorTicks` (identical branch structure, identical
+            // alignment, same width 10) plus a local `_outOfRangeTicks`. The BTC path
+            // (`BtcVaultLib.outOfRangeBtc`) already called the shared helper, so ONE definition now
+            // computes the out-of-range geometry for both assets — the same consolidation §A.56 did
+            // for the SIZING half. NOTE: `oorTicks` negates `distance` internally from `token1is`,
+            // so the caller must NOT pre-negate it (doing both would place the order on the wrong
+            // side of spot).
             (uint160 currentSqrtPrice, int24 curLo, int24 curUp,,) = _rebalance();
-            if (!token1isETH) distance = -distance;
-            t.curLo = curLo; t.curUp = curUp;
-            (t.newLo,
-             t.newUp) = _outOfRangeTicks(currentSqrtPrice,
-                            int24(10), range, distance);
+            t = SwapLib.oorTicks(currentSqrtPrice, range, distance, token1isETH, curLo, curUp);
         }
         // Backing deposit + single-sided sizing lives in VogueLib (EIP-170
         // headroom); self-managed positions take no wall attribution (pledge==0).
@@ -1101,10 +1091,6 @@ contract Vogue is
         return SwapLib.paddedSqrtPrice(sqrtPriceX96, up, delta);
     }
 
-    function _alignTick(int24 tick, int24 width)
-        internal pure returns (int24) {
-        return SwapLib.alignTick(tick, width);
-    }
 
     function _updateTicks(uint160 sqrtPriceX96, uint delta)
         internal pure returns (int24 tickLower, uint160 lower,

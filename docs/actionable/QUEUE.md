@@ -4483,3 +4483,31 @@ damages our LPs' compounding.
 📌 Kept under **#12 (POOLED_USD count-once)** because the compensation must not create backing from nothing —
   the same invariant that governs the mock-inflation half.
 
+## ✅ §J.8b `outOfRange` — RESOLVED. Half was already done; the other half was a REAL find.
+**Already done (by §A.56), discovered by reading before editing:** `VogueLib.sizeOutOfRange` ALREADY calls
+`SwapLib.sizeOorUsd` — the same helper the BTC path uses — with its own comment recording *"both branches
+were an INLINE COPY … Verified byte-identical … One definition now sizes every out-of-range order."*
+Both paths also already shared 7 SwapLib helpers (`burnInRange`, `Oor`, `pendingFor`, `plainNet`,
+`rebalanceCore`, `refreshBookmarks`, `validateOorParams`). **So the SIZING half was not a target.**
+
+**The GEOMETRY half WAS duplicated — and is now fixed:**
+| | before | after |
+|---|---|---|
+| BTC (`BtcVaultLib.outOfRangeBtc`) | `SwapLib.oorTicks(...)` | unchanged |
+| ETH (`Vogue._outOfRange`) | inline block + local `_outOfRangeTicks` — **identical branch structure, identical alignment, same width 10** | `SwapLib.oorTicks(...)` |
+⇒ **Two dead functions removed:** `Vogue._outOfRangeTicks` (replaced) and `Vogue._alignTick` (used ONLY by
+  it ⇒ became unreachable ⇒ deleted per the no-unreachable-code rule).
+⇒ ONE definition now computes out-of-range geometry for BOTH assets, matching what §A.56 did for sizing.
+
+### ⚠️ THE TRAP THIS CHANGE CONTAINED — documented at the call site
+`SwapLib.oorTicks` negates `distance` **INTERNALLY** from `token1is`; `Vogue` negated it **BEFORE** the call.
+Keeping both would negate TWICE and place every ETH out-of-range order on the **WRONG SIDE OF SPOT** — a
+silent money-path bug with no revert and no failing type. **The caller must NOT pre-negate**, and that is now
+a comment where someone will meet it.
+📌 A dedup that merges two call sequences must reconcile what each one did BEFORE and AFTER the shared part,
+  not just confirm the shared part matches. **This is the second time today a "same skeleton" merge hid an
+  inverted-sign hazard** (the other: `retainSkewPremium`'s caller-dependent units).
+**Verification:** builds clean · 0 size exceedances · suite shows ONE distinct failure, the known §A.16 one.
+
+### ▶️ DEDUP PLAN — remaining: the RUST half (graph + `cargo` dead-code warnings) + the hand-rolling audit.
+
