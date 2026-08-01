@@ -3623,3 +3623,36 @@ to write from scratch**:
  3. Funnel the 5 signing paths through the shared helper (the dedup win) so the wrapper has ONE seat.
  4. `SweepAuth` = the documented exemption, carried by the EIP-712 proof `migration.rs` already implements.
 
+## ✅ #114 STAGE 2 STEP 2 LANDED — `build_exit_call` forwards freshness. Linux-verified (1m 29s, clean).
+`build_exit_call(freshness: Option<(bitcoin::OutPoint, bitcoin::TxOut)>, ...)` → forwards to
+`presign_deadman_exit`. The param is FIRST in the list with a comment stating the constraint it protects:
+**the caller (the async heartbeat) resolves it; this fn stays pure/sync and never touches the wallet.**
+Call site passes `None` with a pointer to step 3. ⇒ **Still byte-identical to pre-#114 ⇒ inert.**
+⇒ Full chain is now wired end-to-end: `heartbeat(hop_wallet)` → `build_exit_call(freshness)` →
+  `presign_deadman_exit(freshness)` → `build_deadman_exit_tx` + `deadman_exit_sighash`. **Only the VALUE is
+  missing** — every signature it must travel through is in place and compiling.
+
+### ▶️ REMAINING TO FINISH #114 (steps 3-6)
+ 3. Heartbeat resolves/creates the shard freshness UTXO (`get_utxos` `:873`, `create_onchain_send` `:1134`,
+    **internal address only**); persist `channel_id→shard_id` (STABLE) + `shard_id→outpoint` (ROTATES).
+ 4. Rotation + consolidation — **re-emit BEFORE spending the old outpoint** (load-bearing, both paths).
+ 5. The BDK signing guard: funnel 5 signing paths through `default_sign_psbt` (dedup win), mirror
+    `ValidatingChannelSigner`'s wrapper+policy shape, reuse BDK's own `SignOptions`/`unspendable` where they
+    cover it. Test: a splice never spends a freshness outpoint.
+ 6. Regtest end-to-end (fresh accepted / stale rejected) ⇒ closes the ORIGINAL #114 verification gap.
+
+## 📌 NEW TODO (user, 2026-08-01) — **AUDIT THE CODEBASE FOR HAND-ROLLING WHERE A LIBRARY EXISTS**
+This feature alone found **6 cases** where the capability already existed and I nearly rebuilt it:
+the mechanism in a test comment · `initiate_splice` · the refresh predicate · the `create_sweep_tx` task ·
+BDK's `default_tx_builder` chokepoint · `ValidatingChannelSigner`'s destination policy.
+⇒ **Systematic sweep, to run WITH the deep dedup pass** (same reading, different lens):
+ • **Rust**: for each hand-written helper, ask whether `bitcoin`/`bdk_wallet`/`lightning`/`secp256k1` already
+   provides it. **The graph is the tool** — it found `ValidatingChannelSigner` by COUPLING when no keyword
+   search would have (that file never says "policy" or "allowlist").
+ • **Solidity**: same question against OpenZeppelin / Solady / `FullMath` / v4-core libs — ⚠️ manual, since
+   graphify has no Solidity parser (proven).
+ • **Also flag the INVERSE**: places we depend on a library where a 3-line local would be clearer/cheaper.
+ • ⚠️ Do NOT auto-replace. Hand-rolled code sometimes encodes a REQUIREMENT the library misses (as
+   `validating_signer` encodes the absent-holder-output nuance). **Report candidates + rationale; the user
+   decides.**
+

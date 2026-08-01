@@ -97,6 +97,10 @@ fn arm_signer(
 /// a monitor is missing / counterparty params aren't populated / arithmetic underflows.
 #[allow(clippy::too_many_arguments)]
 fn build_exit_call(
+    // #114: the shard's freshness UTXO, resolved by the CALLER (the async heartbeat) and
+    // passed in as a value — this fn is documented pure/sync and must stay that way, so it
+    // never reaches into the wallet itself. `None` = pre-rotation channel (today's behaviour).
+    freshness: Option<(bitcoin::OutPoint, bitcoin::TxOut)>,
     hop_keys: &QuidKeysManager,
     hop_monitors: &HopChainMonitor,
     vault: &VaultNode,
@@ -151,13 +155,11 @@ fn build_exit_call(
         cltv,
         height_counter,
         secp,
-        // #114 STAGE 1: `None` until the hop wallet maintains the shared freshness UTXO
-        // (stage 2). With `None` the exit is byte-identical to the pre-#114 single-input
-        // form, so this stage changes NO behaviour. Once stage 2 lands, passing `Some`
-        // binds every exit to one rotating outpoint, and spending it invalidates all
-        // previously emitted exits at once — which is what stops a matured, superseded
-        // exit from force-closing a live channel.
-        None,
+        // #114: forwarded from the heartbeat. `Some` binds this exit to the shard's
+        // freshness outpoint, so spending that one UTXO invalidates every previously
+        // emitted exit at once — which is what stops a matured, superseded exit from
+        // force-closing a live channel.
+        freshness,
     )
     .ok()?;
 
@@ -272,6 +274,11 @@ pub async fn run_deadman_exit_heartbeat(
             // Derive + arm both halves, pre-sign IN-PLACE, encode calldata (sync;
             // no signer/monitor guard is held across the submit await below).
             let built = build_exit_call(
+                // #114 STAGE 2 (step 3, not yet built): resolve the shard's freshness UTXO
+                // from `hop_wallet` here — the async heartbeat is the only place allowed to
+                // touch the wallet. Until then `None` keeps the exit byte-identical to the
+                // pre-#114 single-input form, i.e. NO behaviour change.
+                None,
                 &hop_keys,
                 &hop_monitors,
                 &vault,
