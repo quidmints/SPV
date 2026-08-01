@@ -288,6 +288,30 @@ pub async fn run(
         channel_active.clone(),
         store.clone(),
     ));
+    // (§A.5g) PERSISTENT HOP RECONNECTOR. LDK's `PeerManager` owns sockets but never
+    // re-dials, and the vault's initial dial is one-shot — so before this, a dropped
+    // vault↔hop link stayed dropped and every channel op failed until a restart. The
+    // docs claimed a `quid-hop/src/reconnect.rs` that does not exist; this is that task.
+    //
+    // `ensure_hop_connected` is a no-op while connected (a peer-table lookup), so the
+    // interval is cheap and bounds an outage to about one tick rather than to a human
+    // noticing. Warn ONLY when a re-dial fails — a healthy link must never be chatty, or
+    // the log stops being read.
+    {
+        let reconnect_vault = vault.clone();
+        set.spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(30));
+            // Delay (not Burst) so a stalled tick never fires a backlog of dials at once.
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                tick.tick().await;
+                if let Err(e) = reconnect_vault.ensure_hop_connected().await {
+                    warn!("hop reconnector: re-dial failed ({e:#}); retrying next tick");
+                }
+            }
+        });
+    }
+
     // (#114) dead-man-exit heartbeat — pre-signs + emits each open vault channel's
     // CLTV-timelocked unilateral exit; a fresh open/splice is covered on the next tick.
     set.spawn(crate::deadman_exit::run_deadman_exit_heartbeat(

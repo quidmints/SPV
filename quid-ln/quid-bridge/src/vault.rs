@@ -320,6 +320,11 @@ pub struct VaultNode {
     hop_pk: PublicKey,
     /// Funding feerate (sat/kw) for delivery splice-outs.
     splice_feerate: u32,
+    /// (§A.5g) The hop's p2p address, kept so the link can be RE-DIALLED after a drop.
+    /// LDK's `PeerManager` owns sockets but does NOT re-dial on its own, and the initial
+    /// dial below is one-shot — so without this nothing reconnects a dropped vault↔hop
+    /// link and every channel op fails until a restart.
+    hop_addr: LxSocketAddress,
 }
 
 impl VaultNode {
@@ -529,7 +534,7 @@ pub async fn boot_vault(
     // returned handle; connect_peer_if_necessary is a no-op if already connected.
     let addr = LxSocketAddress::TcpIpv4 { ip: Ipv4Addr::LOCALHOST, port: hop_listen_port };
     if let Err(e) =
-        quid_ln::p2p::connect_peer_if_necessary(&node.peer_manager, &hop_node_pk, &[addr]).await
+        quid_ln::p2p::connect_peer_if_necessary(&node.peer_manager, &hop_node_pk, &[addr.clone()]).await
     {
         warn!("vault could not dial hop yet ({e:#}); the reconnect path will retry");
     }
@@ -539,7 +544,27 @@ pub async fn boot_vault(
         deliveries: Arc::new(DeliveryCoordinator::default()),
         hop_pk: hop_node_pk.0,
         splice_feerate,
+        hop_addr: addr,
     })
+}
+
+impl VaultNode {
+    /// (§A.5g) Ensure the vault↔hop p2p link is up, re-dialling if it has dropped.
+    ///
+    /// `connect_peer_if_necessary` is a NO-OP when already connected, so this is safe to
+    /// call on a timer: it costs a cheap peer-table lookup in the common case and only
+    /// dials when the link is actually down. Errors are returned rather than logged here
+    /// so the caller decides the cadence and the noise level.
+    pub async fn ensure_hop_connected(&self) -> anyhow::Result<()> {
+        quid_ln::p2p::connect_peer_if_necessary(
+            &self.node.peer_manager,
+            &quid_common::api::user::NodePk(self.hop_pk),
+            &[self.hop_addr.clone()],
+        )
+        .await
+        .map(|_task| ())
+        .map_err(|e| anyhow::anyhow!("re-dial hop: {e:#}"))
+    }
 }
 
 /// (B) The deposit→open orchestrator — the vault node's loop that turns confirmed LP

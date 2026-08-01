@@ -96,13 +96,22 @@ forget UX). Strategy:
 - Few/large HTLCs + splice, not micro-payment loops (the 483 in-flight-HTLC/side cap +
   jamming risk make payment-loop rebalancing a non-starter).
 
-## Persistent hop reconnector (LP-side) — LIVE
+## Persistent hop reconnector — LIVE (§A.5g)
 
-`quid-hop/src/reconnect.rs`: a home-hosted LP (sleep/wake, NAT idle, ISP reconnect, IP
-change) would silently go offline — nothing else re-dials. The reconnector owns a single
-outbound connection task and re-dials the instant it ends. No dial-storm: already-connected
-→ sleep+recheck (no dial); dial-failure → exponential backoff (1s‒30s). Outbound leaf, no
-NAT traversal.
+`quid-bridge/src/daemon.rs` (task in the daemon `JoinSet`) + `VaultNode::ensure_hop_connected`
+(`quid-bridge/src/vault.rs`): LDK's `PeerManager` owns sockets but never re-dials, and the
+vault's startup dial is one-shot — so a dropped vault↔hop link stayed dropped and every
+channel op failed until a restart. The task re-checks every 30s; `ensure_hop_connected` is a
+no-op while connected (a peer-table lookup), so there is no dial-storm, and
+`MissedTickBehavior::Delay` prevents a backlog of dials after a stall. Warns only on a FAILED
+re-dial. Outbound leaf, no NAT traversal.
+
+> **CORRECTED 2026-08-01.** This section previously claimed `quid-hop/src/reconnect.rs`
+> **which never existed** — the only caller of `connect_peer_if_necessary` was the TEST
+> harness, so in production nothing re-dialled. The doc asserted a component that was not
+> wired, which is exactly why §A.5g went unnoticed. Two code comments made the same claim
+> (`vault.rs` *"the reconnect path will retry"*, `p2p.rs` *"a race between the reconnector
+> and open_channel"*); both are now TRUE.
 
 ## SPV relayer — LIVE
 
