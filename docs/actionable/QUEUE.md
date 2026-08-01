@@ -2571,3 +2571,43 @@ premature close REQUIRES rotating the funding UTXO. That is `splice` — **alrea
   trigger — but on `initiate_splice`, NOT on `drive_splice`. **Naming the right function is not the same as
   reading it.** (Same family as the C10 argument-meaning error.)
 
+## 🎯 #114 — THE EXACT EDIT FOUND. It is a ONE-CONDITION change on the fee-flush gate.
+`channel_driver.rs:1208-1211` is the fee-flush's economic floor:
+```rust
+// Batch small fees: only splice once the owed clears the economic-grow floor.
+if owed < MIN_ECONOMIC_GROW_SATS {
+    return;
+}
+```
+⇒ **THE FIX:** let a due dead-man refresh ALSO clear this gate:
+```rust
+// Batch small fees: only splice once the owed clears the economic-grow floor —
+// UNLESS the dead-man exit needs refreshing, in which case the splice is required
+// anyway (rotating the funding UTXO is the ONLY thing that invalidates prior
+// pre-signed exits) and any owed fees simply ride along.
+if owed < MIN_ECONOMIC_GROW_SATS && !deadman_refresh_due {
+    return;
+}
+```
+⇒ 🏆 **Everything else is REUSED, unmodified:** the `ActiveSlot` race guard, the funding-cap bound, the
+  hop-wallet reserve check, `initiate_splice`, `Event::SplicePending` → `drive_splice` → the EVM mirror, and
+  `deadman_exit.rs`'s rotated-holder-key derivation. **The fee PIGGYBACK is automatic** — if fees are owed
+  they ride the same splice; if not, the splice happens for the refresh alone. Two on-chain events collapse
+  into one whenever both are due.
+⇒ This is the elegance bar the queue demands: **REUSES an existing primitive** (the whole fee-flush splice
+  pipeline) and **gives a strictly better guarantee** (premature force-close becomes IMPOSSIBLE, not merely
+  unprofitable) — for ONE boolean in ONE condition.
+
+### ▶️ TO IMPLEMENT (remaining, small)
+ 1. Compute `deadman_refresh_due`: read the channel's current `deadManDeadline` (EVM mapping, already
+    written by `emitDeadManExit`) and test `deadline - now < REFRESH_MARGIN`. The reconcile pass already
+    makes EVM reads here (`btcFeesOwedSats` immediately above) — **add it to that same batched read**, do
+    NOT open a second round-trip.
+ 2. `REFRESH_MARGIN` const: MUST exceed worst-case fleet downtime; assert `REFRESH_MARGIN < CLTV_HORIZON`
+    at startup so a misconfiguration fails loudly rather than silently skipping refreshes.
+ 3. The funding-cap and wallet-reserve guards below the gate assume a GROW. With `owed == 0` the grow is
+    zero — **verify a zero-grow splice passes those bounds** (it should: `amount + 0 <= cap`, and
+    `spendable >= 0`), and that `initiate_splice` accepts a zero-value grow. ⇐ the ONE remaining unknown.
+ 4. Then: forge test for `emitDeadManExit` gating + the regtest broadcast proof (the ORIGINAL #114 gap),
+    now testable end-to-end because the refresh path will produce a fresh exit on demand.
+
