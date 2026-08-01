@@ -4179,3 +4179,47 @@ The regression existed from the moment C4 landed and was invisible to every chec
 ⇒ I had even WRITTEN that the 218-byte margin mattered "because C4 lands in SwapLib" — then landed C4 and
   never re-measured. **Writing down a risk is not the same as checking it.**
 
+# 🔴 THE "31 ENVIRONMENTAL FAILURES" VERDICT WAS **WRONG**. Both were REAL BUGS. (2026-08-01)
+`QUEUE.md:720` concluded *"THE 31 FAILURES ARE ENVIRONMENTAL"* — ether.fi's live pool depth on an unpinned
+fork. **That was wrong for BOTH tests, and it cost three correct changes (C5/D3/C2) which were reverted on
+that false evidence.** Root-caused properly today:
+
+## ✅ FAILURE 1 — `testEthVenue_EtherFi_InstantRedeem_Rung3`: a **SILENT NO-OP MOCK**. **NOW PASSES.**
+The test mocked `ethAmountLockedForWithdrawal()` on the LiquidityPool. **That function DOES NOT EXIST** on
+the implementation (`0x17a1…4a45`; selector-matched its bytecode — its real accessors are
+`getTotalPooledEther` / `totalValueInLp` / `totalValueOutOfLp`). **A `vm.mockCall` on an absent signature is
+a silent no-op**, so the gate it was meant to neutralise stayed live for the test's whole life.
+⇒ The capacity is a **low-watermark function of ether.fi's TVL** (verified on mainnet: 2000e18 at block
+  25600000, 0 at 25647331 — the block a 10k-ETH exit dropped the pool under the mark; dealing balance alone
+  does nothing, 400_000 ether was tried). Mocking `getTotalPooledEther()` — the TVL the watermark is bps of
+  — makes it **PASS**.
+
+## ✅ FAILURE 2 — `testLeverage_LvrControlVsTreatment`: **THE CONTROL WAS NOT A CONTROL.**
+The three CONTROL redeems reverted `"too soon"` (`Vogue.sol:540`, the JIT `block.number > lastDepositBlock`
+guard). `vm.revertToState(snap0)` rewinds the block too, while the TREATMENT rolls a block per `_open` — so
+the treatment cleared the guard and the control could not. `_lpValueUsd`'s try/catch turned that revert into
+**0**, which is exactly what its own PREMISE assertion exists to catch. **It caught it. For weeks nobody read
+it as a test bug.**
+⇒ Fixed by restoring the treatment's final block/timestamp after the revert, so **opens are the only
+  variable**. Un-matched, it compared an AGED pool against a BRAND-NEW one and called the difference a
+  leverage externality.
+
+### 🔴🔴 AND THE FIX REVEALED A REAL FINDING — which CONTRADICTS my own mark-off today
+With a valid control, the test now measures:
+| scenario | control USD18 | treatment USD18 |
+|---|---|---|
+| ETH +20% | 893,020 | — |
+| **ETH flat** | **744,183** | **684,216** |
+| ETH −20% | 595,346 | — |
+⇒ **Treatment is 8.06% BELOW control at an unchanged price** — i.e. *"leverage flow leaves the passive LP
+  worse off than no flow"*, the assertion's own words. **That reproduces §A.16 (*"a levered LP's lifecycle
+  EXPENSES the passive LP by ~7.5%"*) at 8.06%.**
+🔴 **I marked §A.16 `✅ VERIFIED-DONE` EARLIER TODAY** on the strength of `LeverageCrossSubsidyProbe.t.sol`
+  existing and asserting the invariant. **That mark is now in doubt and must be re-opened**: two probes
+  disagree, and a passing probe does not outrank a measured 8% gap.
+⚠️ **DO NOT "fix" the assertion.** Either (a) the externality is real and §A.16 is NOT closed, or (b) my
+  time-matching credits the control with yield the treatment paid for. **Resolve which — the two probes
+  measure the same claim and must agree.** ⇐ **NEXT ACTION.**
+📌 LESSON: my mark-off used *"a test exists that asserts it"* as evidence of correctness. **A test's
+  EXISTENCE is not its VERDICT** — and here a second test, once repaired, says the opposite.
+

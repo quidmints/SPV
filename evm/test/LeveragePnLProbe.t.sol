@@ -165,8 +165,23 @@ contract LeveragePnLProbe is Alles {
         uint tFlat = _lpValueUsd(px0);
         uint tDown = _lpValueUsd(px0 * 80 / 100);
 
-        // Control: same starting pool, NO opens.
+        // Control: same starting pool, NO opens — but TIME-MATCHED to the treatment.
+        //
+        // `vm.revertToState(snap0)` also rewinds block.number/timestamp to the seed, and
+        // `Vogue.withdraw` enforces `block.number > lastDepositBlock[msg.sender]` ("too soon",
+        // Vogue.sol:540 — the JIT-deposit guard). The treatment rolls a block per `_open`, so its
+        // three redeems clear the guard while the control's REVERTED with "too soon" and
+        // `_lpValueUsd`'s try/catch turned that into 0 — which is precisely what PREMISE 2 below
+        // exists to catch, and it did.
+        //
+        // Restoring the treatment's final block/timestamp makes this an actual control: opens are
+        // then the ONLY variable between the two arms. Leaving it un-matched compared an aged pool
+        // against a brand-new one and called the difference a leverage externality.
+        uint tBlock = block.number;
+        uint tTime  = block.timestamp;
         vm.revertToState(snap0);
+        vm.roll(tBlock);
+        vm.warp(tTime);
         uint cUp   = _lpValueUsd(px0 * 120 / 100);
         uint cFlat = _lpValueUsd(px0);
         uint cDown = _lpValueUsd(px0 * 80 / 100);

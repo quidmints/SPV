@@ -1491,9 +1491,20 @@ contract Alles is ForkPin, Fixtures {
         // share-accounting is storage-based and untouched), zero the locked-
         // ETH bookkeeping reads, and refill the time-based rate bucket so the
         // REAL redemption flow (transferFrom, share burn, ETH payout) runs.
+        // The instant-redeem capacity is a LOW-WATERMARK function of ether.fi's TVL, not of the
+        // pool's raw balance — VERIFIED on mainnet: `totalRedeemableAmount(native)` read 2000e18
+        // at block 25600000 and 0 at 25647331, the block a 10k-ETH exit dropped the pool under the
+        // mark. Dealing balance ALONE does not lift it (400_000 ether was tried and still read 0).
+        // So we (a) fund the pool and (b) mock the TVL the watermark is a bps of.
+        //
+        // NOTE: the previous mock here targeted `ethAmountLockedForWithdrawal()`, which does NOT
+        // EXIST on the LiquidityPool implementation (0x17a1…4a45; its real accessors are
+        // `getTotalPooledEther`/`totalValueInLp`/`totalValueOutOfLp`). A `vm.mockCall` on an absent
+        // signature is a SILENT NO-OP — the gate it was meant to neutralise stayed live the whole
+        // time, which is why this test never passed.
         vm.deal(0x308861A430be4cce5502d0A12724771Fc6DaF216, 60_000 ether);
         vm.mockCall(0x308861A430be4cce5502d0A12724771Fc6DaF216,
-            abi.encodeWithSignature("ethAmountLockedForWithdrawal()"), abi.encode(uint128(0)));
+            abi.encodeWithSignature("getTotalPooledEther()"), abi.encode(uint256(1_000 ether)));
         vm.mockCall(0x35e7D6feF6f72aDd3c3e39dEc6d9CCc29e3345FA,
             abi.encodeWithSignature("ethAmountLockedForPriorityWithdrawal()"), abi.encode(uint256(0)));
         vm.warp(block.timestamp + 2 hours);

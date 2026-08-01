@@ -318,7 +318,25 @@ library VaultLib {
                 } catch { return 0; }
             }
         } catch {}
-        try IERC4626(vault).maxWithdraw(holder) returns (uint m) { return m; } catch { return 0; }
+        try IERC4626(vault).maxWithdraw(holder) returns (uint m) { return m; }
+        catch {
+            // `maxWithdraw` REVERTED. Euler's EVault does this whenever the holder has no
+            // controller enabled on the EVC (fork-traced: `liquidityAdapter()` is also absent on
+            // the current implementation, so BOTH probes above miss and we land here). Returning 0
+            // valued a real, fully-liquid position at NOTHING — which understated backing and made
+            // the venue unwithdrawable, so an LP whose ETH sat in Euler could redeem and receive 0.
+            //
+            // Fall back to the share value, which is exactly what the `liquidityAdapter` branch
+            // above uses for Morpho-V2. It is an UPPER bound on what the venue can pay if the vault
+            // is illiquid — but `_pull4626` already clamps the pull to `min(need, maxOut)` and the
+            // withdraw itself reverts on real illiquidity, so an over-estimate degrades to a failed
+            // pull, whereas 0 silently strands the position. Prefer the recoverable failure.
+            try IERC20(vault).balanceOf(holder) returns (uint shares) {
+                if (shares == 0) return 0;
+                try IERC4626(vault).convertToAssets(shares) returns (uint v) { return v; }
+                catch { return 0; }
+            } catch { return 0; }
+        }
     }
 
     function _pull4626(EthCfg memory c, address vault, uint amount) internal {
