@@ -175,17 +175,26 @@ for fifty basis points.
 
 ## How will you find more customers?
 
-Advisors first. An independent wealth manager with a few dozen families has nothing supervisable to
-offer them. Give him one dashboard showing exposure, market regime and realised yield across every
-client, on positions verifiable on a public ledger where we custody nothing, and he carries us into
-every household he advises.
+Advisers first, and a specific kind. Not a mainstream registered adviser, who cannot recommend an
+unaudited protocol without breaching a fiduciary duty. A family office holding crypto for households
+already asking what to do with it, or a firm built specifically to advise on digital assets, both of
+which carry a fraction of the compliance surface and are hunting for products rather than waiting to be
+sold to.
+
+The wall that has kept advisers out of this asset class is custody: an adviser who takes custody of
+client crypto needs a qualified custodian. Our structure never raises the question, because the client
+holds their own keys and the adviser gets read access to a position anyone can verify on a public
+ledger. And the hook is not the dashboard. **Advisers bill on assets under management, and a client's
+self-custodied ETH is invisible to their reporting stack, so it sits outside the fee base.** Make it
+visible and reportable and they can bring it under management and charge on it. We are not selling them
+software, we are expanding what they can bill.
 
 Then protocols, without a deal: our deposit and mint functions are public and ungated, so an
 integrator declares a local interface and ships against us without ever having a conversation. Then
 order flow rather than users, through Mach, Khalani and Liquity's tooling, none of which needs us to
-acquire anybody. Then surety companies, who meet renters at the moment a deposit falls due and have an
-obvious reason to take the call, because fully-matched collateral removes the credit risk they
-currently price into every bond. Then Lightning operators, where the pitch is that they stop working,
+acquire anybody. Then surety companies, specifically the ones who decline thin-file
+renters today, because partial collateral lets them approve a segment they currently reject, which is
+revenue they do not have rather than revenue they would cannibalise. Then Lightning operators, where the pitch is that they stop working,
 since one signature is the whole onboarding and Bitcoin enforces the exit rather than our goodwill.
 And the stablecoin issuers, who benefit from every twelve-month lock we sell.
 

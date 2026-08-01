@@ -383,6 +383,15 @@ and not before.
 4. **Exodus.** They hold the rails and the state-by-state licences and are missing yield on unspent
    balances, which is exactly what the basket makes. Enter as the supplier, not the competitor.
 
+**Who says yes first, and what the document set does not yet prove:**
+`docs/informational/GO-TO-MARKET-AND-READINESS.md`. Summary — the two conversations that can produce
+signed paper *before* the audit are a surety's **decline pile** (partial collateral lets them approve a
+segment they reject today) and a **family office** holding crypto (a fraction of an RIA's compliance
+surface, and their clients are already asking). The adviser hook is not the dashboard: advisers bill on
+AUM and self-custodied ETH is invisible to their reporting stack, so making it reportable expands their
+fee base. A fiduciary cannot recommend an unaudited protocol, so what is available now is a letter of
+intent rather than an allocation.
+
 ## 12. What an origination licence actually costs, if it is ever revisited
 
 Two things, wildly different in difficulty.
@@ -446,7 +455,7 @@ and the activity. A foundation-owned IBC needs the same state licence a sharehol
 requires acting **for compensation**. An entity with no owners, whose only extraction is a tranche
 sized to recover a documented accumulated deficit and terminating at breakeven, has a genuinely weak
 compensation element. That pairs with the renounced-ownership code facts (see
-`CURATOR-DISCRETION-AND-THE-PEIRCE-QUESTION.md`). Same for Howey prong three: the breakeven structure
+`docs/legal.md` Part IV). Same for Howey prong three: the breakeven structure
 reads as rhetoric from a company with shareholders and as structure from a memberless foundation
 running ASC 958 accounting.
 

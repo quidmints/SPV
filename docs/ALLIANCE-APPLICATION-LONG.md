@@ -460,12 +460,26 @@ we do not plan to depend on repeated grants.
 
 ## How will you find more customers?
 
-**Through advisors, which is the channel I care most about.** An independent wealth manager advising a
-few dozen families has no supervisable crypto product and no appetite for one they can't see inside.
-Give that person a dashboard showing exposure, current market regime, and realised yield across every
-client at once, on a position where we custody nothing and they can verify the holdings on a public
-ledger, and they carry us into every household they advise. One advisor is worth more than a hundred
-individual signups, and the conversation with them is about supervision rather than about crypto.
+**Through advisers, which is the channel I care most about, and it is a narrower group than it
+sounds.** Not a mainstream registered investment adviser: recommending an unaudited, pre-mainnet
+protocol to a retail client is a fiduciary breach, and that firm would also need to amend its Form ADV
+and run diligence it has no framework for. The first yes comes from a family office serving households
+that already hold crypto, which carries a fraction of that compliance surface and whose clients are
+already asking what to do with idle ETH, or from a firm built specifically to advise on digital assets,
+which solved the posture years ago and is hunting for products.
+
+**The wall that kept advisers out of this asset class is custody.** An adviser who takes custody of
+client crypto needs a qualified custodian, and that single requirement explains the adoption gap better
+than anything else. Our structure never raises it. The client self-custodies, the adviser receives read
+access to a position verifiable by anyone on a public ledger, so the adviser never has custody and the
+qualified-custodian question never arises. That is the opening line, not a footnote.
+
+**And the hook is not the dashboard.** Advisers bill on assets under management, and a client's
+self-custodied ETH is invisible to their reporting stack, which means it sits entirely outside the fee
+base. Make it visible and reportable and the adviser can bring it under management and charge on it. We
+are not selling them software, we are expanding what they can bill. One adviser is worth more than a
+hundred individual signups, and what is available before the audit is a letter of intent rather than an
+allocation, which is a commercial statement they can sign today.
 
 **Through other protocols, without needing a deal.** Every integration surface we have is
 permissionless. Our deposit and mint functions are plain public functions with no allowlist and no

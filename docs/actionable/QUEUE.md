@@ -3656,3 +3656,61 @@ BDK's `default_tx_builder` chokepoint · `ValidatingChannelSigner`'s destination
    `validating_signer` encodes the absent-holder-output nuance). **Report candidates + rationale; the user
    decides.**
 
+## 📋 #114 STEPS 3-6 — COMPLETE EXECUTION SPEC (every symbol grep-verified; ready to run without re-derivation)
+**STATE: steps 1-2 landed, inert, and verified.** Full chain compiles; only the VALUE is missing.
+
+### STEP 3 — resolve/create the shard freshness UTXO (daemon crate)
+**Persistence** mirrors the store's existing shape (`store.rs:172-176`: `HashMap<String, Rec>` fields inside
+the sealed store, with `add_*` / `take_*` / `has_*` accessors — copy that pattern exactly):
+ • `freshness_shards: HashMap<String, FreshnessRec>` — `shard_id -> {txid, vout, value_sats}` (**ROTATES**)
+ • `channel_shard: HashMap<String, u32>` — `channel_id -> shard_id` (**STABLE**; assigned once, never
+   remapped except by deliberate consolidation — see step 4)
+**Resolution in `run_deadman_exit_heartbeat`** (the ONLY place allowed to touch the wallet):
+ 1. `wallet.get_utxos()` (`wallet.rs:873` → `LocalOutput` carries outpoint + value = the exact
+    `(OutPoint, TxOut)` the chain already takes).
+ 2. Missing/spent ⇒ `create_onchain_send` (`:1134`) to `wallet.get_internal_address()` (already used at
+    `daemon.rs:320`). ⚠️ **INTERNAL ADDRESS ONLY** — never caller-supplied (this is what makes the path
+    non-exfiltrating even before step 5's guard lands).
+ 3. Size: **dust+ε only.** A standing balance here would break the "wallet holds nothing meaningful"
+    property that makes a host compromise harmless (quantified: persistent float ~10k sats).
+ 4. `K = clamp(1, n_channels, floor(spendable / (rotation_cost * SAFETY_FACTOR)))` — derived, never set.
+    **Ship K=1**; the formula matters only when LP count grows.
+
+### STEP 4 — rotation + consolidation (both share ONE ordering rule)
+🚨 **RE-EMIT ALL AFFECTED CHANNELS AGAINST THE NEW OUTPOINT *BEFORE* SPENDING THE OLD ONE.** Reversed, every
+LP on that shard loses their valid exit until the next tick. **This single ordering IS the safety property.**
+ • **Rotation** (periodic): new UTXO → re-emit shard's channels → spend old.
+ • **Consolidation** (wallet thin): re-emit least-populated shard's channels onto a SURVIVING shard → spend
+   the drained outpoint → stop rotating it. **This is what makes `K_active` fall** (the correction: stable
+   assignment alone does NOT lower cost).
+ • Refresh trigger: `deadline - tip < DEAD_MAN_DELTA_BLOCKS / 2` (derived from the existing 144, NOT a new
+   constant — they cannot drift into refresh-every-tick).
+
+### STEP 5 — the BDK signing guard (do NOT hand-roll)
+ 1. **Funnel all 5 signing paths through `default_sign_psbt`** (`wallet.rs:1321`) — sites `:453`, `:490`,
+    `:1210` currently hand-roll it; `:1125`/`:1167` already use it. **Dedup win: 5 implementations → 1.**
+    ⚠️ Read `sign_interactive_funding` (`:472`, documented as differing) + the LDK anchor path at `:433`
+    FIRST — if they must stay separate, the policy goes in each + a test asserts every path enforces it.
+ 2. **Mirror `ValidatingChannelSigner`** (`validating_signer.rs`): `{ inner, policy }`, reject-then-delegate.
+    It already implements destination-pinning ("*any other destination is rejected*") INCLUDING the
+    absent-output nuance — copy the reasoning, not just the shape.
+ 3. Check BDK's own `SignOptions` / `TxBuilder::unspendable` / descriptor policy FIRST; wrapper only for
+    what they do not cover.
+ 4. Allowlist: internal addresses ✅ · channel funding outpoints ✅ · everything else ❌.
+ 5. `SweepAuth` = the one documented EXEMPTION, carried by the EIP-712 proof `migration.rs` already
+    implements (Gnosis Safe `verifyingContract`, ≥`MIGRATION_THRESHOLD` sigs, `ecrecover` in-enclave).
+ 6. **Test: a splice never spends a freshness outpoint** (the silent-invalidation hazard).
+
+### STEP 6 — regtest end-to-end (closes the ORIGINAL #114 verification gap)
+Harness exists (`regtest/setup.sh`, `setup-ln.sh`, `driver-e2e.sh`; `bitcoind` NOT installed — setup.sh
+downloads a pinned build). Prove: (a) a FRESH exit broadcasts and is ACCEPTED after CLTV; (b) a STALE exit
+(freshness spent) is REJECTED as missing-input; (c) `emitDeadManExit` gating rejects a non-attested caller
+and a non-delegated hop. **(b) is the one that proves the whole design.**
+
+### 🔧 BUILD/VERIFY COMMANDS (both needed — neither alone is sufficient)
+```
+cargo test -p quid-ln --lib deadman            # builder crate, native (10/10 today)
+docker run --rm -v "$PWD":/w -w /w/quid-ln -e CARGO_TARGET_DIR=/tmp/t rust:1.90 cargo check -p quid-bridge
+```
+`quid-bridge` CANNOT build natively (`quid-cvm` → AMD SEV → Linux-only). Docker is mandatory for daemon work.
+

@@ -1,10 +1,10 @@
 # Legal and regulatory analysis
 
 **Status 2026-08-01.** This file consolidates the securities analysis (GENIUS Act, Howey, Section 17,
-PACE) with the regulatory findings from the 2026-08-01 credit-strategy research pass. It supersedes
-`docs/informational/CURATOR-DISCRETION-AND-THE-PEIRCE-QUESTION.md`, which held the Peirce commentary
-while this file had no home in either repository. Nothing here is a legal opinion. It is the technical
-and factual case a lawyer needs in order to form one.
+PACE) with the regulatory findings from the 2026-08-01 credit-strategy research pass. The Peirce
+commentary, drafted separately while this file had no home in either repository, is folded into Part IV
+and its standalone file deleted. Nothing here is a legal opinion. It is the technical and factual case
+a lawyer needs in order to form one.
 
 Companion documents: `docs/informational/CREDIT-STRATEGY-FINDINGS.md` (commercial strategy and the
 research trail), `ibiza/COMPLIANCE-THESIS.md` (the wallet's compliance-by-construction argument).
@@ -427,6 +427,17 @@ on its own. Already `ibiza/COMPLIANCE-THESIS.md` open question 4.
 almost certainly not among them. **OPEN:** whether a third-party trust with the surety taking a pledge
 or letter of credit resolves it.
 
+**Adviser custody, which shapes the distribution channel.** An investment adviser who takes custody of
+client crypto requires a **qualified custodian**, and that requirement is the principal legal reason
+advisers have stayed out of this asset class. QU!D's structure does not raise it: the client
+self-custodies, the adviser receives read access to a position verifiable on a public ledger, so the
+adviser never has custody. Separately, single-family offices are generally exempt from Advisers Act
+registration under the family office rule, which is why they are the realistic first channel rather
+than a registered adviser. **A fiduciary cannot recommend an unaudited protocol**, so what is available
+pre-audit is a letter of intent, not an allocation. **OPEN:** confirm the current custody rule and any
+successor safeguarding rule, and the family office exemption, with counsel — both are recalled rather
+than researched. See `docs/informational/GO-TO-MARKET-AND-READINESS.md`.
+
 **Entity and residency — correction.** An earlier warning that a US-resident founder triggers CFC and
 GILTI was overstated. A Cayman foundation company constituted with **no members** has no US shareholder
 to attribute ownership to, so Subpart F does not engage, and corporate default classification keeps
@@ -466,5 +477,6 @@ this paragraph and the Advisers Act argument in Part IV both turn on it.
 11. **Close the three `Vault` owner setters, or record why they must survive launch.** This is the one
     open item that materially weakens the Part IV argument and it is fixable by us.
 12. Model the collateral haircut the capped-at-par redemption requires, against the incumbent's 17.5%.
-13. Place this file wherever the canonical legal document should live, and delete
-    `docs/informational/CURATOR-DISCRETION-AND-THE-PEIRCE-QUESTION.md`, which this supersedes.
+13. Confirm this is the canonical location for the legal analysis. `ibiza/COMPLIANCE-THESIS.md` refers
+    to a `docs/legal.md` "in the old reference folder" that was never found; this file now occupies
+    that name in SPV.
