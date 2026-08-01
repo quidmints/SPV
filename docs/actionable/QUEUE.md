@@ -2680,3 +2680,40 @@ force-close reserve — **FUND THE HOP WALLET** (fees keep accruing safely until
   wallet funded), not a cryptographic guarantee.** Only rotating-by-splice invalidates exits, and splices
   cost sats. **State that limit plainly rather than claiming the attack is eliminated unconditionally.**
 
+## ✅ ZERO-GROW SPLICE IS **ACCEPTED BY LDK** — read from the VENDORED source this build compiles against.
+`quid-ln/lib/rust-lightning/lightning/src/ln/channel.rs:7043-7062` (the contribution validator):
+```rust
+let contribution_amount = contribution.value();
+if contribution_amount < SignedAmount::ZERO {   // splice-OUT path (negative)
+    ...estimate fee, subtract...
+} else {                                        // ZERO lands HERE, with SpliceIn
+    check_v2_funding_inputs_sufficient(contribution_amount.to_sat(), ...)
+```
+⇒ **NO `> 0` guard anywhere.** A zero `SpliceIn` is non-negative ⇒ takes the `else` branch ⇒ validated ONLY
+  for whether the contributed inputs cover `0 + fees` — which the hop wallet's UTXOs do (that is what they
+  are contributed for). `SpliceContribution::SpliceIn { value: Amount, inputs, change_script }` accepts
+  `Amount::ZERO`; excess input goes to the change output.
+⇒ 🎯 **Option (a)/zero-grow WORKS. (b) hop-funded dust grow and (c) dust splice-out are NOT NEEDED in the
+  common case** — they stay as documented fallbacks for the funding-cap edge only. **The design SIMPLIFIES:
+  one refresh path, zero LP-balance impact, no dust accounting, no balance-inflation trap.**
+📌 Chosen over the regtest for THIS question deliberately: `bitcoind` is not installed (the harness downloads
+  a pinned build — a long fetch), and the vendored source answers it EXACTLY and non-probabilistically. A
+  regtest run would confirm empirically; the source shows there is no rejection to confirm against.
+⚠️ RESIDUAL (do not skip at build time): the interactive-tx (V2) protocol may still require at least one
+  input/output from the initiator — **our splice contributes hop-wallet UTXOs for fees regardless, so this
+  should hold**, but assert it in the first regtest run rather than assuming.
+
+## ✅ RE-READ OF THE WHOLE #114 THREAD — **splice-on-refresh remains the best design.** One alternative tested and rejected:
+ • ❌ **Native CLTV script-path recovery** (fund to a script with a CLTV clause the LP spends with their OWN
+   key ⇒ NO pre-signed tx, NO publishing, NO staleness, NO splicing — strictly better if possible).
+   **REJECTED on two independent grounds:** (1) §N established the LP's MetaMask key CANNOT produce a
+   taproot Schnorr/MuSig2 signature — that constraint is WHY the pre-signed design exists; (2) the funding
+   output script is dictated by LDK's channel format, so adding a dead-man leaf means forking channel
+   construction and losing LN compatibility. **Not available.**
+ • ❌ Revocation-keys — rejected earlier on MECHANISM (public bytes, no attacker stake).
+ • ❌ Long-CLTV-no-refresh — eliminates the stale set but trades it for months of recovery latency; and
+   splice-on-refresh gets a SHORT CLTV *and* no stale set, so it strictly dominates.
+ ⇒ ⭐ **CONFIRMED FINAL: fee-flush-gate condition + zero-grow refresh splice + mempool reactive outspend,**
+   with the honest ceiling already recorded (hop-wallet funding is an OPERATIONAL single point of failure
+   that no variant removes).
+
