@@ -3515,3 +3515,43 @@ already available pre-#114. ⇒ **No new attacker capability; the failure mode i
   enough to demand a big buffer). **The derived K must be bounded by rotation need, NOT by "fund it more"** —
   which is exactly how it was derived. The pieces are consistent.
 
+## ⭐ GUARD ARBITRARY BDK SENDS — the RIGHT chokepoint is `sign_psbt`, NOT `default_tx_builder`. And SweepAuth rides it.
+**Correcting my earlier pick:** I proposed the exclusion at `default_tx_builder` (`wallet.rs:1308`). That
+covers only txs BUILT through it — **a compromised host can construct a PSBT by hand and never touch the
+builder.** ⇒ 🎯 **The true chokepoint is `sign_psbt` (`wallet.rs:441`)** — nothing spends without a
+signature, so **a policy there is unbypassable**, regardless of how the PSBT was assembled. (Same reasoning
+as the EVM side: the policy lives in `evm_validating_signer`'s `sign_eip1559`, not in a tx-builder.)
+
+### THE POLICY — mirror the EVM signer, which already exists and is already trusted
+`evm_validating_signer.rs` gates EVM txs on **which contracts + selectors** the hop may touch. The BDK
+mirror gates on **which DESTINATIONS a spend may pay**:
+| destination | allowed | why |
+|---|---|---|
+| wallet-INTERNAL address (`get_internal_address`) | ✅ | freshness UTXO, change, self-consolidation |
+| the channel FUNDING outpoint (splice-in) | ✅ | fee-flush + splices — pays LPs, the whole point |
+| anything else | ❌ **DENY** | there is no legitimate arbitrary payee for a fee conduit |
+⇒ **This is enforceable precisely BECAUSE the wallet is a fee conduit, not a treasury** — it has no
+  legitimate need to pay an arbitrary address, so an allowlist costs nothing in functionality.
+⇒ **Result: a host with full code execution can no longer exfiltrate the float at all** — it can only move
+  sats to our own addresses or into LP channels. That upgrades the property from *"captures a moment of
+  flow"* to **"cannot send anywhere it does not already belong."**
+
+### ⇒ WHAT THE CURRENT FEATURE GAINS (the user's question)
+ 1. **Stage 2's freshness UTXO becomes PROVABLY non-exfiltrating** — it pays an internal address, which is
+    the allowlist's first case. The hazard I flagged ("must never be caller-supplied") stops being a
+    DISCIPLINE and becomes an ENFORCED INVARIANT. **The guard I was going to write as a comment becomes code.**
+ 2. **The two coin-selection exclusions get a home.** Rather than patching `default_tx_builder` AND
+    `initiate_splice` separately, the signer refuses to sign anything spending a reserved freshness outpoint
+    — **one rule, both paths, including any future path nobody remembers.**
+ 3. **`create_sweep_tx` unblocks.** Its task (`QUEUE.md:2251`) says it needs *"an operator auth, not an
+    endpoint"* and should mirror `migration.rs`'s EIP-712 `MigrationAuth` (Gnosis Safe as
+    `verifyingContract`, ≥`MIGRATION_THRESHOLD` owner sigs, `ecrecover` in-enclave).
+    ⇒ **With a BDK signing policy in place, `SweepAuth` is just an EXEMPTION to the destination allowlist,
+      carried by that same EIP-712 proof** — not a separate subsystem. The drain becomes "the one signed
+      exception to a deny-by-default rule", which is exactly the shape that task asked for.
+ 4. **One mechanism serves three open items** (#114 stage 2 exclusions, the sweep auth, and the general
+    host-compromise posture) — the ≥2-approaches bar's "REUSES a primitive AND gives a better guarantee".
+⚠️ VERIFY FIRST: `sign_psbt` must be the ONLY signing path (`sign_interactive_funding` at `:472` also
+  signs — check whether it can move non-channel funds, and whether LDK signs any wallet-owned input
+  elsewhere). **A policy at one of two signing paths is worse than none, because it reads as covered.**
+
