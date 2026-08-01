@@ -2539,3 +2539,35 @@ premature close REQUIRES rotating the funding UTXO. That is `splice` — **alrea
  3. Fee policy for the splice: it must not exceed the channel's fee accrual over the period.
  4. Then B: extend the daemon to mempool-watch; quantify the reaction window against one block.
 
+## ✅ #114 BUILD PATH VERIFIED — `initiate_splice` EXISTS and there is a FLEET-INITIATED precedent.
+**Correction to my own "trigger, not mechanism" claim — half right, and the half that was wrong matters:**
+ • `drive_splice` (`channel_driver.rs:766`) is a **RECORDER**, not an initiator: it takes `splice_txid` /
+   `splice_vout` and reads pubkeys *"post-SpliceLocked"*, mirroring an ALREADY-EXECUTED splice onto the EVM.
+   Doc at `:759-761` confirms it consumes an outpoint *"surfaced to the bridge via `Event::SplicePending`"*.
+   ⇒ Calling `drive_splice` alone would NOT rotate the UTXO. Building on that assumption would have
+     produced a no-op "fix" that looked wired and changed nothing.
+ • ⭐ **BUT `initiate_splice` EXISTS** (imported `:39`, used `:1242`) — and the **FEE-FLUSH** path already
+   uses it for a **FLEET-INITIATED, non-LP-driven** splice: *"fee-flush: splicing accrued BTC-leg fees into
+   the channel"*. It even claims an `ActiveSlot` first so *"neither the event path nor the next pass races a
+   second splice for this channel"*.
+⇒ 🎯 **The precedent we need already exists in production code.** Splice-on-refresh is the SAME SHAPE as
+  fee-flush: a periodic, fleet-decided condition ⇒ `ActiveSlot::claim` ⇒ `initiate_splice` ⇒ the existing
+  `Event::SplicePending` → `drive_splice` → EVM mirror chain completes itself.
+⇒ The earlier worry ("does the splice path ASSUME a value delta?") is **RESOLVED**: fee-flush splices for a
+  reason unrelated to an LP position change, so a fleet-decided splice is already a supported shape.
+  ⚠️ Residual: fee-flush splices a NON-ZERO amount (accrued fees). **CONFIRM a truly ZERO-delta splice is
+    representable in LDK**, or — better — **piggyback**: make the refresh splice CARRY any accrued fees, so
+    it is never zero-delta AND it replaces a fee-flush that would have happened anyway. ⭐ That folds two
+    on-chain events into one and makes the refresh nearly FREE in marginal cost.
+
+### ▶️ THE BUILD (now concrete, and small)
+ 1. Extend the fee-flush-style periodic check with a SECOND condition: `cltv - now < REFRESH_MARGIN`.
+ 2. On firing: `ActiveSlot::claim` → `initiate_splice` (carrying accrued fees if any) → on `SpliceLocked`,
+    emit the NEW dead-man exit against the ROTATED outpoint (`deadman_exit.rs` already derives the rotated
+    holder key — `:25-28`).
+ 3. All prior exits die with the old UTXO ⇒ **exactly one live exit, always CLTV-future while the fleet lives.**
+ 4. Then B (mempool watch + reactive outspend) as defense-in-depth.
+📌 LESSON REINFORCED: I called this "a trigger, not a mechanism" BEFORE reading `drive_splice`. It is a
+  trigger — but on `initiate_splice`, NOT on `drive_splice`. **Naming the right function is not the same as
+  reading it.** (Same family as the C10 argument-meaning error.)
+
