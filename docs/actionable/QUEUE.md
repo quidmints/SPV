@@ -2780,3 +2780,34 @@ exact comparison the refresh predicate needs is already computed and already ret
  4. `cargo check -p quid-bridge` → regtest (settles the V2 initiator-input residual).
  5. Then read `watchtower_tick` and wire Fix B into it.
 
+## ⚖️ #114 REFINEMENT — reuse `latest_exit`? **NO.** Cheaper primitive already exists. (Reuse is not always right.)
+`recovery_broadcast.rs:125` — `latest_exit(rpc_url, btc_channels, channel_id) -> Result<Option<RecoveredExit>>`
+issues `eth_getLogs` with **`"fromBlock": "0x0"`** — a FULL-HISTORY log scan, then takes `arr.last()`.
+⇒ Correct and cheap for its own use (a ONE-OFF LP/keeper recovery). **Wrong for the refresh predicate**,
+  which runs **per channel, per reconcile tick** — that would be a full log scan per channel forever.
+⇒ ⭐ **USE `deadManDeadline(bytes32)` INSTEAD — an O(1) `eth_call`.** The mapping already exists
+  (`BTCChannels.sol:271`, written by `emitDeadManExit`) and is *precisely* the cheap accessor for this.
+  It also drops into the EXISTING pattern in `maybe_flush_btc_fees` — the same `eth_call_raw` +
+  `spawn_blocking` shape already used two lines above for `btcFeesOwedSats(address)`, with `cid` as the
+  32-byte arg (no left-padding needed, unlike the `address` case).
+📌 **Nuance worth keeping:** "reuse what exists" is the right default, but **reuse the RIGHT primitive** —
+  `latest_exit` and `deadManDeadline` return the same number at wildly different costs. The three earlier
+  #114 lessons said *search before building*; this one adds *and check the cost model of what you find*.
+⇒ `bitcoin_tip_height(esplora_url) -> Result<u32>` (`:157`) IS the right reuse — a single
+  `GET /blocks/tip/height`, and it is the SAME source `deadman_exit.rs` uses to SET the CLTV, so the two
+  heights are guaranteed commensurate. **Reuse that one.**
+
+### ▶️ FINAL SPEC (every symbol grep-verified; nothing invented)
+```rust
+// in maybe_flush_btc_fees (channel_driver.rs:1166), beside the btcFeesOwedSats read:
+//   deadline: eth_call_raw(rpc, cfg.btc_channels, "deadManDeadline(bytes32)", Some(&cid)) -> u64
+//   tip:      crate::recovery_broadcast::bitcoin_tip_height(&esplora_url)?          -> u32
+//   both are BLOCKING -> wrap in tokio::task::spawn_blocking (same as the owed read)
+let refresh_due = deadline != 0 && deadline.saturating_sub(tip as u64) < DEAD_MAN_REFRESH_MARGIN_BLOCKS;
+if owed < MIN_ECONOMIC_GROW_SATS && !refresh_due { return; }
+```
+⚠️ `deadline == 0` ⇒ no exit ever emitted ⇒ **do NOT treat as "due"** (`0.saturating_sub(tip) == 0 < MARGIN`
+  would be TRUE and force a splice on every channel that never had an exit). **That guard is load-bearing.**
+⚠️ Define `DEAD_MAN_REFRESH_MARGIN_BLOCKS` beside `DEAD_MAN_DELTA` (`deadman_exit.rs`); assert
+  `MARGIN < DELTA` at startup or refreshes fire every tick.
+
