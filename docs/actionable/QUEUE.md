@@ -3933,3 +3933,31 @@ and the throttled case does not. **A control-and-treatment test, which is exactl
   code comment.** So `grep -rn "§A\.\|BUILD-QUEUE §" src/` is a fast first pass for "is this already
   done?" before any mechanism reasoning. **Use that to accelerate the remaining 60.**
 
+## BATCH 3 — citation sweep across 31 code-referenced items. **Confidence is stated, not implied.**
+Bulk-extracted every item reference in `src/`+`test/`: **31 distinct items are cited in code**
+(A.11 A.13 A.14 A.15 A.16b A.16d A.18 A.19b A.20 A.22 A.24 A.25 A.29 A.45 A.46 A.48 A.50 A.52 A.54
+A.55 A.56 A.57 A.5c A.5e A.5f A.70 A.72 A.9 J.2 J.2b J.3 J.4).
+⚠️ **A citation is NOT proof of completion** — it can equally mark a TODO. So each is classified by what
+the citing line SAYS, and anything short of an explicit repair is marked as needing a deeper check.
+
+| item | citing line | verdict | confidence |
+|---|---|---|---|
+| **§A.16b** | `VEth.sol:29` *"the same-clock invariant **repaired in** §A.16b"* | ✅ DONE | **HIGH** — says repaired |
+| **§A.25** | `LevOracles.sol:19` (with §A.13); header itself reads *"CLASS **CLOSED** AT THE MORPHO ORACLES"* | ✅ DONE | **HIGH** |
+| **§A.5c** | `VaultLib.sol:182` *"READ THE NAME NARROWLY (§A.5c, **re-derived** 2026-07-27)"* | ✅ premise WITHDRAWN (already recorded) | **HIGH** |
+| **§A.24** | `Core.sol:809` *"TRUSTED-ARG CHECK (audit residual, §A.24)"* — a check IS implemented | ✅ likely DONE | 🟡 MED — item says **TWO** residuals; only one located |
+| **§A.9** | `test/EthExitConservation.t.sol:36` — a conservation test exists | ✅ likely DONE (item claims the shortfall was a MEASUREMENT ARTIFACT) | 🟡 MED |
+| **§A.15** | `test/ForwardMintHeadroom.t.sol:112` — test exists and reasons about the buffer | ✅ likely DONE | 🟡 MED — earlier note said *"mechanism present, claim still unverified"* |
+| **§A.5f** | `Vogue.sol:225` *"§A.5f (**subset**): TIMELOCKED WITHDRAWAL-RECIPIENT PIN"* | ⚠️ **PARTIAL** | **HIGH** — subset landed; the MAIN item (per-action auth) verified absent earlier |
+| **§A.19b** | `VBtc.sol:18` — cited as CONTEXT for segregation, not as a fix | 🔴 **OPEN** | **HIGH** — `redeemVBtc` verified absent; it is a DESIGN DECISION for the user |
+
+## 📊 RUNNING TALLY (14 of 66 headers now assessed)
+✅ **DONE (high confidence):** §A.5e · §A.18 · §A.13 · §A.8e · §A.16b · §A.25 · §A.5c — **7**
+✅ **DONE (medium — verify before closing):** §A.24 · §A.9 · §A.15 — **3**
+⚠️ **PARTIAL:** §A.5f (subset only) — **1**
+🔴 **GENUINELY OPEN:** §A.5g (liveness bug) · §J.8b (dedup target) · §A.19b (user design decision) — **3**
+⇒ **10 of 14 assessed are done or effectively done.** The backlog is dramatically smaller than 66 markers
+  implied — consistent with the register's own warning, now measured rather than suspected.
+▶️ NEXT: the ~35 headers with NO code citation. Absence of a citation is NOT evidence of open (my own
+  rule) — those need the mechanism grep, which is slower. Prioritise any that are 🔴🔴 (money-path).
+
