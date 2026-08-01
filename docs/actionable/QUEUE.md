@@ -3834,8 +3834,9 @@ SIX declarations, split by asset rather than parameterised:
 
 These surfaced while writing `docs/FAQ.md` and auditing its claims against source. They were
 initially recorded in that FAQ's Part 8, which was the **wrong place** — the FAQ is a fundraising
-document and this file is the single status list. Restated here; the FAQ now points at this section
-for anything engineering.
+document and this file is the single status list. Restated here. **The FAQ carries no pointer back** —
+it states permanent facts only, and it now ASSERTS the post-fix state for E1 (see the warning in E1
+itself), so these items are invisible from there by design.
 
 ## E1. Close the three `Vault` owner setters, or record why they survive launch
 `Vault.sol:355` `setRover`, `:362` `setLevManager`, `:372` `setLevManagerBTC`. No renounce found on
@@ -3843,6 +3844,12 @@ for anything engineering.
 pin-once-then-frozen. `docs/FAQ.md` Part 6 argues to counsel that after launch **no function any person
 can call changes where depositor assets are deployed**; these three contradict that claim in code.
 **Highest-value item in this batch: cheap, unilateral, and it closes a legal argument.**
+
+> ⚠️ **THE FAQ ALREADY ASSERTS THIS IS DONE.** `docs/FAQ.md` Part 6 tells counsel that after launch no
+> function any person can call changes where depositor assets are deployed, and Part 7 no longer carries
+> the contradiction as a caveat (the user's instruction was that the FAQ state permanent facts and assume
+> this queue is finished). **Until E1 lands, that document overstates by three setters.** Either close
+> them or re-insert the caveat before the FAQ is shown to anyone.
 
 ## E2. `feeSettleSats` has no Forge test
 `BTCChannels.splice` takes `feeSettleSats`, guarded by `require(feeSettleSats <= grewBy)` and clamped
@@ -4121,3 +4128,25 @@ I called §A.5f "PARTIAL", which implies a finishing touch. It is not:
  • The **BTC path needs nothing**: `lpAuth` is already `ecrecover` over `BTCChannels.openChannelDigest`.
  • The off-chain half is **BUILT**: `quid-common/src/api/revocable_clients.rs` (ed25519 keys, per-client
    scopes, revocable). The gap is ON-CHAIN only.
+
+# 🚨🚨 REGRESSION I INTRODUCED — **SwapLib is OVER EIP-170. The library is UNDEPLOYABLE.**
+```
+| SwapLib | 24,672 |
+Error: some contracts exceed the runtime size limit (EIP-170: 24576 bytes)
+```
+**96 bytes over.** Verified it predates today's §J.2c edit (stashed `Vogue.sol`, rebuilt, still 24,672), so
+it came from **C4 and/or C10 part 2** — both landed in `SwapLib` earlier today.
+🔴 **HOW IT SLIPPED THROUGH — and this is the important part:**
+ • I measured SwapLib at **24,358 (margin 218)** after the `volScale` cleanup and **explicitly noted the
+   margin mattered because C4 lands in SwapLib**. Then I landed C4, and **never re-measured.**
+ • **`forge test` DOES NOT ENFORCE EIP-170** — all 3,529 tests passed against a library that cannot be
+   deployed to mainnet. **A green suite is not a deployability check.** Only `forge build --sizes` is.
+ • This is a textbook `measure-a-fix-from-all-sides` failure: I verified C4's CORRECTNESS (tests, units,
+   call sites) and never its SIZE — on the one library I already knew was the tightest in the repo.
+📌 **NEW STANDING CHECK: `forge build --sizes` after ANY `SwapLib`/`Core`/`Vogue` change, in the SAME run
+  that reports the tests.** Green tests + over-limit bytecode is a silent, deploy-time-only failure.
+
+## ▶️ FIX (in progress) — reclaim ≥96 bytes in SwapLib before continuing §J.2c
+§J.2c is PAUSED (step 1 is additive and compiles; it does not affect SwapLib). The size regression is
+higher priority: it makes the money-path library undeployable, which no test would ever surface.
+

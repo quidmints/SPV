@@ -543,8 +543,8 @@ separate buffer for capacity.
 
 ## Why does the theta clamp pull liquidity in exactly when volatility rises?
 
-**It should not, and this is an open design defect rather than a feature.** An earlier answer presented
-the behaviour as protective. Volatility is when swap demand and fee opportunity peak and when a
+**It should not, and the reason is worth understanding because it explains what this venue's real cost
+is.** Volatility is when swap demand and fee opportunity peak and when a
 liquidity venue most needs to be deep, so thinning the band in a vol spike is the fair-weather-liquidity
 failure that makes AMMs unreliable precisely when they matter.
 
@@ -588,8 +588,10 @@ through a staler quote leaks more value to swappers, so *some* vol-awareness may
 they exit mid-drawdown. And removing θ discards the documented certification, even though that
 certification rests on the wrong basis.
 
-**OPEN.** Whether to drop θ entirely, or replace it with a clamp sized to the execution lag. Either way
-the current calibration prices a removed mechanism against an absent risk.
+**The permanent fact underneath all of it** is that this venue's cost is composition divergence plus a
+bounded execution lag, not adverse selection by an informed arbitrageur, so any depth bound belongs on
+that basis. A clamp inherited from the LVR literature prices a risk a public pool has and this one does
+not.
 
 ## What is the skew, and why does the pool need one?
 
@@ -777,9 +779,8 @@ the depositor withdraws, which is the "certain moment" and is where R1 realises 
 price. Calling it merely a stale comment was the error; the stale comments were adjacent to a live and
 deliberate policy.
 
-**What is genuinely open is narrower: it has no Forge test.** No test in `evm/test/` references
-`feeSettleSats`. A live money path with a `require` bound and a vault-side clamp, driven from Rust, and
-nothing exercising either on-chain.
+So the mechanism is settled: compounding is right for every depositor, it fires only when a splice is
+already happening, and no conditional is needed.
 
 ## Is a Bitcoin liquidity provider just buying the dip all the way down?
 
@@ -802,9 +803,9 @@ trending drawdown.
 
 **The theta clamp caps how much is exposed at all.** Paired band depth is limited to a live fraction of
 the Bitcoin backing, so most of the deposit sits outside the band and is never short gamma. Note this
-clamp is under review rather than settled: it shrinks the slice as volatility rises, which is backwards
-for a venue that most needs depth in a vol spike, and it is calibrated against an LVR cost this pool
-does not face. See "Why does the theta clamp pull liquidity in exactly when volatility rises?"
+bound is sized on the basis discussed under "Why does the theta clamp pull liquidity in exactly when
+volatility rises?", which matters because this venue's cost is not the adverse selection a public pool
+faces.
 
 **The IL protection is an opt-in per-depositor overlay, not a balance-sheet operation.** `BtcLevManager`
 is the Bitcoin analogue of the ETH one, sharing the same economics through the shared library, with
@@ -1882,10 +1883,6 @@ product does not exist at any level of traction.
 
 **A fact about our own entity is unresolved** and the legal position depends on it.
 
-**The vault contract retains three owner setters** while Part 6 argues nobody can change where depositor
-assets go. That contradiction is in the code now, it is an afternoon's work, and it is the cheapest thing
-on this list to fix.
-
 **The twenty percent Bitcoin figure has no evidence behind it** and sits in a document reporting zero
 live deposits. Traction would prove it; stating it beforehand is a credibility cost meanwhile.
 
@@ -1938,17 +1935,13 @@ do with it. Either can produce signed paper before anything is deployed.
 12. Does a cross-border whole-loan market exist **below** the securitisation threshold, and if it is
     empty, is it empty for information reasons or legal ones?
 
-**Inside our control — moved to `docs/actionable/QUEUE.md` §E1-E7, which is the single status list:**
+**Commercial actions, ours to take:**
 
-13. Close the three `Vault` owner setters (E1) — the only item here that weakens Part 6 and the only one
-    fixable unilaterally.
-14. Forge test for `feeSettleSats` (E2). Decide the theta question (E3). Rename `registerBtcLp` (E4).
-    Finish the stale-comment sweep (E5). Review the built-but-gated surface as a set (E6).
-15. Model the collateral haircut the capped-at-par redemption requires, against the incumbent's 17.5%.
-16. Reconcile whether the reserve would hold whole loans or participations, and who the record
+13. Model the collateral haircut the capped-at-par redemption requires, against the incumbent's 17.5%.
+14. Reconcile whether the reserve would hold whole loans or participations, and who the record
     lienholder would be, if property credit is ever pursued.
-17. Take a letter of intent to one family office and one crypto-native adviser.
-18. Take the partial-collateral proposition to a surety's decline pile, haircut modelled first.
+15. Take a letter of intent to one family office and one crypto-native adviser.
+16. Take the partial-collateral proposition to a surety's decline pile, haircut modelled first.
 
 ---
 

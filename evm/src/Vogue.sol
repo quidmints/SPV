@@ -1169,6 +1169,32 @@ contract Vogue is
     /// @notice ERC-20 balance = LP's principal in pool. This is the
     /// already-compounded value; pending rewards (not yet credited)
     /// are revealed via previewRedeem / pendingRewards.
+    // ─── §J.2c: the TOKEN FACE lives on `VEth`, the STATE lives here ──────────────
+    // `Vogue` manages BOTH asset classes, so an ERC-20 face on it is ill-defined by
+    // construction: `transferFrom` moved ETH-band shares while nothing in the signature
+    // said WHICH, and BTC band shares (`Vault.autoManagedBTC`) have no transfer face at
+    // all. The mutators therefore move to `VEth`, which is unambiguously the vETH token;
+    // Vogue keeps the state and stays the authority.
+    //
+    // One-shot pin, mirroring `setEthVenueContract`: `VEth` is deployed AFTER Vogue, so
+    // this cannot fold into `setup()`.
+    address public VETH;
+    error VEthPinned();
+    function setVEth(address v) external {
+        require(msg.sender == DEPLOYER, "403");   // Vogue is ownerless post-setup (renounced)
+        if (VETH != address(0)) revert VEthPinned();
+        VETH = v;
+    }
+
+    /// @notice Move band shares on `VEth`'s behalf. The ONLY external door to
+    ///         `_transferShares`, and it is gated to `VEth` so "which shares?" can no
+    ///         longer be asked of Vogue. Allowance accounting lives on `VEth` (it is the
+    ///         token's own approval semantics); this call is the authority half only.
+    function transferSharesFor(address from, address to, uint amount) external nonReentrant {
+        require(msg.sender == VETH, "403");
+        _transferShares(from, to, amount);
+    }
+
     function balanceOf(address user) public view returns (uint) {
         return autoManaged[user].pooled;
     }
