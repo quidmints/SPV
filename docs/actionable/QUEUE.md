@@ -2498,3 +2498,44 @@ already wired (`drive_splice`), and the daemon already watches chain state (`Cha
   splice is cheaper than the griefer's fee in the worst case (fee-bidding race). (3) A needs
   `REFRESH_MARGIN` > worst-case fleet-restart time, or a restart could miss the refresh window entirely.
 
+## 🏁 #114 FINAL DESIGN — SAFEST, and it kills the liveness/yield loss outright. (user: best+safest, 2026-08-01)
+### 🔴 FIRST, A CORRECTION: **revocation-keys DO NOT WORK HERE.** (I recommended deferring them; they are
+   actually INAPPLICABLE, which is worse than deferred — good that it surfaced before anyone built it.)
+Lightning's revocation punishes the COUNTERPARTY for broadcasting an old state — it works because the old
+commitment tx is **PRIVATE to that one party**, who has a channel balance to seize.
+⇒ **Here the exit bytes are DELIBERATELY PUBLISHED on-chain** (that is the whole point — no key, no tool,
+  anyone can broadcast). The broadcaster is an arbitrary third party with **NOTHING AT STAKE TO PUNISH.**
+⇒ **Publishing the bytes breaks the revocation threat model.** Deterrence-by-punishment cannot work when
+  the broadcaster has no deposit. ⇒ Option (i) is REJECTED on mechanism, not on cost.
+
+### ⇒ THE ONLY WAY TO INVALIDATE A SIGNED BITCOIN TX IS TO **SPEND ITS INPUT**
+There is no Bitcoin construct that retracts a valid signed tx. So eliminating (not merely deterring)
+premature close REQUIRES rotating the funding UTXO. That is `splice` — **already wired**.
+
+### ✅ THE DESIGN: **SPLICE ON REFRESH** (+ A, + B as defense-in-depth)
+ 1. **A — refresh only near maturity** (`cltv - now < REFRESH_MARGIN`). Makes refreshes RARE for an idle
+    channel, which is what makes step 2 affordable. A condition on the existing tick loop.
+ 2. ⭐ **SPLICE ON EVERY REFRESH** — the refresh IS a splice, not a bare re-emission. The new funding UTXO
+    invalidates **every prior exit at once**, so **AT MOST ONE VALID EXIT EXISTS AT ANY TIME**, and while
+    the fleet lives that one always has a FUTURE CLTV.
+    ⇒ **Premature force-close becomes IMPOSSIBLE, not merely unprofitable.** The liveness/yield loss is
+      ELIMINATED — which is exactly what the user asked for and what A+B alone did NOT achieve.
+    ⇒ Reuses `drive_splice` + `ReconcileAction::Splice` + the rotated-holder-key derivation ALREADY wired
+      for splices (`deadman_exit.rs:25-28`). **The new code is a TRIGGER, not a mechanism.**
+ 3. **B — mempool watch + reactive outspend** as defense-in-depth for the residual (a refresh that fails, a
+    fleet restart mid-window). User approved EXTENDING the daemon to watch the mempool if needed.
+⇒ **Cost is now honest and small:** one on-chain splice per REFRESH_MARGIN per idle channel — and A makes
+  that period long (set it from the CLTV horizon, e.g. one splice/month, not one per heartbeat). This is the
+  price of eliminating the attack outright, and it is bounded, predictable, and quantifiable per channel.
+⇒ **Ties the two triggers together:** splice already fires on value-change; this adds "or the exit needs
+  refreshing". ONE splice path, TWO reasons to call it — no second mechanism, no divergent code path.
+
+### ⚠️ BUILD ORDER + WHAT TO VERIFY
+ 1. `REFRESH_MARGIN` must exceed worst-case fleet downtime, else a restart misses the window. Derive it from
+    the CLTV horizon; assert `REFRESH_MARGIN < CLTV_HORIZON` at startup.
+ 2. Confirm a splice can be driven with NO value change (the reconcile arm keys off `ldk_value != amount_sats`
+    — a no-op splice must be representable). **CHECK: if the splice path ASSUMES a value delta, this needs a
+    real change, not just a trigger.** ⇐ the one place this could stop being "a few lines".
+ 3. Fee policy for the splice: it must not exceed the channel's fee accrual over the period.
+ 4. Then B: extend the daemon to mempool-watch; quantify the reaction window against one block.
+
