@@ -4424,3 +4424,25 @@ a working Docker recipe.
 **STILL UNRUN:** a dead-code sweep over the whole workspace. It needs Linux (`quid-cvm` is
 Linux-only and transitive, so `cargo check --workspace` bails on darwin before emitting warnings) and
 therefore Docker Desktop running. Command is in [[quid-ln-needs-linux-to-build]].
+
+## ✅ §A.52 — **ZERO underscore-suffixed interfaces.** 7 → 0. Sizes unchanged, bytecode-verified inert.
+| local (deleted) | canonical home | what it was |
+|---|---|---|
+| `IAuxTWAP_BView` | **`IAuxTwap`** (existing) | identical `getTWAPforAsset` restatement (11 refs) |
+| `IWETH_VG` · `IWethDeposit` | **`IWETH9 is IERC20Min`** | THREE WETH views → one; the two existing halves joined, nothing invented |
+| `IWeEth_L` · `IWeETHRate` (Rover) | **`IWeETH`** (existing, complete) | two SUBSETS of a shared interface that already had every member |
+| `IRedeem_L` | **`IEtherFiRedemption`** (new, canonical) | + carries the verified note that its param is the OUTPUT TOKEN, not a holder |
+| `ILiq_L` | **`IEtherFiLiquidityPool`** (new, canonical) | |
+| `IVogue_VG` · `IVogueView_VG` | **`IVogue`** (new, canonical) | ONE contract's surface was split across TWO declarations |
+⇒ Followed the file's own precedent — *"Canonical IRover — union of the former per-file variants"* — so the
+  new entries match a pattern already established here rather than introducing a convention.
+⇒ **PROOF OF INERTNESS:** before/after `deployedBytecode` hashes are IDENTICAL for `SwapLib`
+  (`2b9e1b56a6d8`), `VogueLib` (`a4fbf02537f8`) and `BtcLevManager` (`e2415859bf41`). Sizes unchanged
+  (SwapLib 24,223 · VogueLib 20,678 · Rover 16,373), 0 exceedances. **Interfaces cost no runtime bytecode —
+  measured, so the remaining consolidation is free too.**
+📌 A suite run showed 9 fewer passes / 18 more skips with IDENTICAL test names and no new failures. The
+  bytecode-hash check above settles it: **not attributable to this change** — it is fork/RPC-dependent
+  conditional skipping. **Byte-identical output is a stronger proof than a matching test count.**
+
+### ▶️ NEXT (unchanged plan): `Aux` views (≥5 interfaces) → `Core` views (≥4) → `outOfRange`×6 → Rust half.
+

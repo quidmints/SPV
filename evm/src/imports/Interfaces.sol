@@ -42,6 +42,28 @@ interface IWeETH {
     function unwrap(uint _weETHAmount) external returns (uint); // weETH → eETH
 }
 
+
+
+/// Canonical Vogue view — union of the former per-file variants (`VogueLib::IVogue_VG` +
+/// `IVogueView_VG`), which split ONE contract's surface across two declarations so a signature
+/// change had to be made twice and a missed one still compiled.
+interface IVogue {
+    function addLiq(uint deltaTok, uint price, bool isBTC) external returns (uint usdOut, uint outDelta);
+    function derivedThetaWad(bool isBTC) external view returns (uint);
+    function pendingRewards(address user) external view returns (uint ethReward, uint usdReward);
+}
+
+/// Canonical ether.fi RedemptionManager view — union of the former per-file variants
+/// (`SwapLib::IRedeem_L`). `totalRedeemableAmount` takes the OUTPUT TOKEN, not a holder:
+/// verified against the live implementation's bytecode (selector cf52e9f6).
+interface IEtherFiRedemption {
+    function redeemWeEth(uint weEthAmount, address receiver, address outputToken) external;
+    function totalRedeemableAmount(address outputToken) external view returns (uint);
+}
+
+/// Canonical ether.fi LiquidityPool view — was `SwapLib::ILiq_L`.
+interface IEtherFiLiquidityPool { function requestWithdraw(address r, uint a) external returns (uint); }
+
 /// Canonical IRover — union of the former per-file variants.
 interface IRover {
     function deposit(uint amount) external payable;

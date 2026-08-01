@@ -8,6 +8,8 @@ import {LiquidityAmounts} from "v4-periphery/src/libraries/LiquidityAmounts.sol"
 import {SwapLib} from "./SwapLib.sol";
 // §A.52: the SHARED WETH view (was a file-local `IWETH_VG` restating the same members).
 import {IWETH9} from "./ILevVenue.sol";
+// §A.52: ONE canonical Vogue view (was two file-local variants, `IVogue_VG` + `IVogueView_VG`).
+import {IVogue} from "./Interfaces.sol";
 import {Types} from "./Types.sol";
 import {LevMath} from "./LevMath.sol";
 import {ILevEquity} from "./Interfaces.sol";
@@ -23,11 +25,6 @@ import {IEthVenue} from "./Interfaces.sol";
 //    levBufferUsd/ethfiBacked/aaveBacked mappings) is passed by STORAGE REF so
 //    writes land on Vogue's slots. Value-type state (lpShares) is mutated by
 //    RETURNING the delta, applied by the thin Vogue forwarder. ─────────────────
-interface IVogue_VG {
-    function addLiq(uint deltaTok, uint price, bool isBTC) external returns (uint usdOut, uint outDelta);
-    function derivedThetaWad(bool isBTC) external view returns (uint);
-}
-interface IVogueView_VG { function pendingRewards(address user) external view returns (uint ethReward, uint usdReward); }
 /// @title  VogueLib — sizeable Vogue bodies extracted to free bytecode under the
 ///         EIP-170 limit. DELEGATECALL'd by Vogue (public fns): inside each,
 ///         `address(this)`/`msg.sender`/`msg.value` are Vogue's, so token custody
@@ -156,7 +153,7 @@ library VogueLib {
         mapping(address => uint) storage levPooled,
         address lp, uint netEq, uint price, LevP memory p
     ) public returns (uint added) {
-        (uint netUsd, uint netEth) = IVogue_VG(address(this)).addLiq(netEq, price, false);
+        (uint netUsd, uint netEth) = IVogue(address(this)).addLiq(netEq, price, false);
         if (netEth == 0) return 0;
         LP.pooled += netEth; levPooled[lp] += netEth;
         ICore(c.core).modLP(false, p.sqrtP, netEth, netUsd, p.tickLower, p.tickUpper, lp);
@@ -461,7 +458,7 @@ library VogueLib {
     ///      is too thin to measure vol. Self-call to Vogue's forwarder (delegatecall
     ///      context: address(this) == Vogue).
     function _liveTheta(bool isBTC) private view returns (uint) {
-        try IVogue_VG(address(this)).derivedThetaWad(isBTC) returns (uint t) { return t == 0 ? 1e18 : t; }
+        try IVogue(address(this)).derivedThetaWad(isBTC) returns (uint t) { return t == 0 ? 1e18 : t; }
         catch { return 1e18; }
     }
 
@@ -569,14 +566,14 @@ library VogueLib {
 
         // Settle pending rewards for `from` — ETH compounds into pooled (grows lpShares), USD accrues to usd_owed.
         if (L.pooled > 0) {
-            (uint ethReward, uint usdReward) = IVogueView_VG(address(this)).pendingRewards(from);
+            (uint ethReward, uint usdReward) = IVogue(address(this)).pendingRewards(from);
             if (ethReward > 0) { L.pooled += ethReward; lpSharesDelta += ethReward; }
             if (usdReward > 0) L.usd_owed += usdReward;
         }
         // Settle pending rewards for `to` (if they have a position).
         Types.Deposit storage R = autoManaged[to];
         if (R.pooled > 0) {
-            (uint ethReward, uint usdReward) = IVogueView_VG(address(this)).pendingRewards(to);
+            (uint ethReward, uint usdReward) = IVogue(address(this)).pendingRewards(to);
             if (ethReward > 0) { R.pooled += ethReward; lpSharesDelta += ethReward; }
             if (usdReward > 0) R.usd_owed += usdReward;
         }

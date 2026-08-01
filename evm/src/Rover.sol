@@ -3,6 +3,8 @@
 pragma solidity ^0.8.26;
 
 import {WETH} from "solmate/src/tokens/WETH.sol";
+// §A.52: the canonical weETH view (was a file-local `IWeETHRate` subset).
+import {IWeETH} from "./imports/Interfaces.sol";
 import {ERC20} from "solmate/src/tokens/ERC20.sol";
 import {TickMath} from "./imports/v3/TickMath.sol";
 import {FullMath} from "./imports/v3/FullMath.sol";
@@ -19,7 +21,6 @@ import {IDepositAdapter} from "./imports/Interfaces.sol";
 
 // ether.fi: mint the weETH leg at the FAIR protocol rate (never swap WETH→weETH
 // on the thin pool side). `getEETHByWeETH` is the unmanipulable fair-value anchor.
-interface IWeETHRate { function getEETHByWeETH(uint w) external view returns (uint); }
 // Minimal view over INonfungiblePositionManager.positions: declares only the
 // 8-value prefix (same selector). Decoding the full 12-value tuple is 1 slot too
 // deep for the legacy pipeline (no via_ir/optimizer); this decodes just through
@@ -146,7 +147,7 @@ contract Rover is ReentrancyGuard, Ownable {
         external nonReentrant returns (uint amountOut, uint amountUsed) {
         require(msg.sender == AUX || (levManager != address(0) && msg.sender == levManager), "403");
         if (amountIn == 0) return (0, 0);
-        uint rate = IWeETHRate(WEETH).getEETHByWeETH(1e18);              // ETH per 1 weETH (1e18); linear ⇒ scales
+        uint rate = IWeETH(WEETH).getEETHByWeETH(1e18);              // ETH per 1 weETH (1e18); linear ⇒ scales
         if (rate == 0) return (0, 0);
         (address tin, address tout) = giveWeeth ? (address(weth), WEETH) : (WEETH, address(weth));
         uint idle = ERC20(tout).balanceOf(address(this));               // idle OUTPUT inventory bounds the fill
@@ -173,7 +174,7 @@ contract Rover is ReentrancyGuard, Ownable {
     ///         same defense pattern as Vogue's anchored repack-on-touch.
     function _nearFair() internal view returns (bool) {
         uint fairInv = FullMath.mulDiv(WAD, WAD,
-            IWeETHRate(WEETH).getEETHByWeETH(WAD)); // weETH per WETH, fair
+            IWeETH(WEETH).getEETHByWeETH(WAD)); // weETH per WETH, fair
         uint spot = getPrice(LAST_SQRT_PRICE);       // weETH per WETH, pool
         uint diff = spot > fairInv ? spot - fairInv : fairInv - spot;
         return diff * 10000 <= fairInv * 50;
@@ -186,7 +187,7 @@ contract Rover is ReentrancyGuard, Ownable {
     ///      in-band slippage, never an extraction window (extracting requires
     ///      moving spot past the gate, which blocks the transaction instead).
     function _fairMinOut(uint weethIn) internal view returns (uint) {
-        return IWeETHRate(WEETH).getEETHByWeETH(weethIn)
+        return IWeETH(WEETH).getEETHByWeETH(weethIn)
             * (1e6 - POOL_FEE) / 1e6 * 995 / 1000;
     }
 
@@ -647,10 +648,10 @@ contract Rover is ReentrancyGuard, Ownable {
             (uint posWeth, uint posWeeth) = token1isWETH
                 ? (amount1, amount0) : (amount0, amount1);
             v += posWeth;
-            if (posWeeth > 0) v += IWeETHRate(WEETH).getEETHByWeETH(posWeeth);
+            if (posWeeth > 0) v += IWeETH(WEETH).getEETHByWeETH(posWeeth);
         }
         uint idleWeeth = ERC20(WEETH).balanceOf(address(this));
-        if (idleWeeth > 0) v += IWeETHRate(WEETH).getEETHByWeETH(idleWeeth);
+        if (idleWeeth > 0) v += IWeETH(WEETH).getEETHByWeETH(idleWeeth);
     }
 
     // (Removed depositUSDC / withdrawUSDC — the USDC-era weETH-side entry/exit.

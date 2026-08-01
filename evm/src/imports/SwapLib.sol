@@ -8,6 +8,8 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 // §A.52: the SHARED WETH view (was a file-local `IWethDeposit` declaring just `deposit()`).
 import {IWETH9} from "./ILevVenue.sol";
+// §A.52: canonical shared views — these were file-local `IWeEth_L`/`IRedeem_L`/`ILiq_L`.
+import {IWeETH, IEtherFiRedemption, IEtherFiLiquidityPool} from "./Interfaces.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {LiquidityAmounts} from "v4-periphery/src/libraries/LiquidityAmounts.sol";
 import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
@@ -26,14 +28,8 @@ import {IAuxSwap} from "./Interfaces.sol";
 
 // ether.fi offramp interfaces (suffixed `_L` to avoid clashing with Aux's own
 // copies, since Aux imports SwapLib). Same signatures as Aux's.
-interface IWeEth_L { function getWeETHByeETH(uint a) external view returns (uint); function unwrap(uint a) external returns (uint); }
 // EtherFiRedemptionManager.redeemWeEth(weEthAmount, receiver, outputToken);
 // outputToken ∈ {0xEeee…EEeE native-ETH sentinel, stETH} — else InvalidOutputToken.
-interface IRedeem_L { function redeemWeEth(uint weEthAmount, address receiver, address outputToken) external;
-    /// VERIFIED on mainnet impl 0x5d53b303…b3dc (selector cf52e9f6, matched in bytecode): the param is the
-    /// OUTPUT TOKEN, not a holder. Live: native-ETH sentinel reads 0, stETH reads 5_000e18.
-    function totalRedeemableAmount(address outputToken) external view returns (uint); }
-interface ILiq_L { function requestWithdraw(address r, uint a) external returns (uint); }
 /// Chainlink-style USD feed — the external anchor for the TWAP cross-check.
 
 /// @notice Subset of Aux's public surface that SwapLib calls back into
@@ -594,7 +590,7 @@ library SwapLib {
     function offrampBody(uint amount, address recipient, bool instant, OfframpCfg memory c)
         external returns (uint) {
         if (amount == 0 || c.weeth == address(0)) return 0;
-        uint weethFull = IWeEth_L(c.weeth).getWeETHByeETH(amount);
+        uint weethFull = IWeETH(c.weeth).getWeETHByeETH(amount);
         uint weethIn = weethFull;
         uint bal = IERC20(c.weeth).balanceOf(address(this));
         if (weethIn > bal) weethIn = bal;
@@ -654,10 +650,10 @@ library SwapLib {
             // conversion is the remaining piece; a naive min() would mix units.
             // Capacity 0 ⇒ the call would revert `ExceededRedeemable`; skip it rather than burn gas,
             // and fall through to the SAME rung-4 tail below (no duplicated exit path).
-            if (IRedeem_L(c.redeemer).totalRedeemableAmount(ETHFI_NATIVE_ETH) == 0) {
+            if (IEtherFiRedemption(c.redeemer).totalRedeemableAmount(ETHFI_NATIVE_ETH) == 0) {
                 emit InstantRedeemSkipped(weethIn, bytes4(0));
             } else {
-                try IRedeem_L(c.redeemer).redeemWeEth(weethIn, recipient, ETHFI_NATIVE_ETH) { return covered; }
+                try IEtherFiRedemption(c.redeemer).redeemWeEth(weethIn, recipient, ETHFI_NATIVE_ETH) { return covered; }
                 catch (bytes memory err) {
                     // Empty `err` = callee gave no reason (OOG / bare revert); report 0 rather than
                     // reading past the end.
@@ -679,14 +675,14 @@ library SwapLib {
     function waitNft(uint amount, address recipient, OfframpCfg memory c)
         internal returns (uint) {
         if (amount == 0 || c.weeth == address(0) || c.lp == address(0)) return 0;
-        uint weethFull = IWeEth_L(c.weeth).getWeETHByeETH(amount);
+        uint weethFull = IWeETH(c.weeth).getWeETHByeETH(amount);
         if (weethFull == 0) return 0;
         uint bal = IERC20(c.weeth).balanceOf(address(this));
         uint weethIn = weethFull > bal ? bal : weethFull;
         if (weethIn == 0) return 0;
-        try IWeEth_L(c.weeth).unwrap(weethIn) returns (uint eeth) {
+        try IWeETH(c.weeth).unwrap(weethIn) returns (uint eeth) {
             if (eeth > 0) {
-                try ILiq_L(c.lp).requestWithdraw(recipient, eeth) returns (uint) {
+                try IEtherFiLiquidityPool(c.lp).requestWithdraw(recipient, eeth) returns (uint) {
                     return weethIn == weethFull
                         ? amount : FullMath.mulDiv(amount, weethIn, weethFull);
                 } catch {}
@@ -700,7 +696,7 @@ library SwapLib {
         if (want == 0 || c.weeth == address(0) || c.v3router == address(0)) return 0;
         uint idle = IERC20(c.weeth).balanceOf(address(this));
         if (idle == 0) return 0;
-        uint weethFull = IWeEth_L(c.weeth).getWeETHByeETH(want);
+        uint weethFull = IWeETH(c.weeth).getWeETHByeETH(want);
         if (weethFull == 0) return 0;
         uint weethIn = weethFull > idle ? idle : weethFull;
         if (weethIn == 0) return 0;
