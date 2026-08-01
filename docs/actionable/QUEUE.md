@@ -4575,3 +4575,31 @@ v4↔v4, never v4↔v3. **The user's caution was warranted and is recorded at th
  • ⚠️ **`IAux(107)` vs `IAuxM(21)` vs `IAuxFee(5)` vs `ISwapAux(2)`** — MORE Aux variants that were not in
    the original six. **Real targets for a round 4.**
 
+## 🔧 RPC ROTATION — SOLVED (this was an open investigation item; the outage forced it)
+`rpc.ankr.com` began **refusing connections** (*"Connection reset by peer (os error 54)"*), and the failure
+mode is nastier than an outage: **forge does not stop — it SHRINKS THE TEST SET.** One run reported
+*"1 failing, 3448 succeeded"*, which LOOKS BETTER than the usual 1 failure, but
+`testLeverage_LvrControlVsTreatment` **NEVER RAN** and ~112 tests were silently absent. **Reading only the
+summary line would have produced two false claims at once: that the round verified clean, AND that the
+§A.16 failure had disappeared.**
+📌 **NEW STANDING CHECK: every suite result must be read with its DENOMINATOR, not just its failure count.**
+  Assert a known-state canary actually RAN (`grep -c testLeverage_LvrControlVsTreatment`) before trusting
+  any number. A shrinking test set is invisible in the pass/fail line.
+📌 This also retro-explains the earlier unattributed *"9 fewer passes / 18 more skips"* — same provider
+  flakiness. **The bytecode-hash comparison was the right call there: byte-identical output proved inertness
+  when the test counts could not.**
+
+### ✅ THE WORKAROUND (verified working)
+```
+FOUNDRY_RPC_ENDPOINTS_MAINNET=https://ethereum-rpc.publicnode.com FORK_BLOCK=<recent> forge test
+```
+ • `FOUNDRY_RPC_ENDPOINTS_MAINNET` **overrides the hardcoded `foundry.toml` alias with NO file edit** — so
+   there is nothing to revert and a crash cannot leave the repo mis-pointed.
+ • ⚠️ **The old pin CANNOT be reused.** Public nodes are NOT archive: `25653624` is ~9,500 blocks back and
+   is refused. Probed: `ethereum-rpc.publicnode.com` ✅ and `rpc.flashbots.net` ✅ (head 25663176);
+   `eth.llamarpc.com` and `cloudflare-eth.com` unreachable. **Pin to a RECENT block instead** (25663100).
+ • Cost: noticeably slower (~117s for a single fork test vs seconds on the paid endpoint).
+⇒ Determinism is preserved WITHIN a run by pinning; it just cannot be the SAME historical block. Any test
+  asserting fork-state at 25653624 must be re-pinned or made state-independent (the rung-3 fix already is —
+  it mocks TVL rather than depending on the live watermark).
+
