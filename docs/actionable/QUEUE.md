@@ -2423,3 +2423,36 @@ Verified in `quid-ln/quid-bridge/src/deadman_exit.rs`:
   (splice) is decoupled from the refresh cadence (heartbeat). **That is a tractable parameter problem, not a
   redesign** — and it was invisible to an EVM-side review because it lives in the Bitcoin tx lifetime.
 
+## 🚨 #114 EXPOSURE MEASURED — an IDLE channel **NEVER** splices ⇒ exposure is UNBOUNDED, not "weeks".
+`quid-ln/quid-bridge/src/channel_driver.rs:188-204` — the ONLY producer of `ReconcileAction::Splice`:
+```rust
+} else if !spent && status == STATUS_OPEN && (ldk_value as u128) != amount_sats {
+    Some(ReconcileAction::Splice)
+}
+```
+⇒ A splice fires **ONLY when the channel's VALUE CHANGES** (`ldk_value != amount_sats` — deposit, withdraw,
+  swap-out, fee settlement). **There is NO timer, NO periodic splice, NO idle path.**
+⇒ An IDLE channel satisfies `ldk_value == amount_sats` ⇒ falls to `None` ⇒ **NEVER SPLICES.**
+⇒ 🔴 **Therefore its funding UTXO NEVER ROTATES, and EVERY dead-man exit ever emitted for it stays
+  spendable FOREVER.** Each heartbeat adds one more stale-but-valid exit, and each becomes broadcastable as
+  its own CLTV matures. **Exposure is not bounded by anything.**
+⇒ **Worst case is the intended use case:** a passive BTC LP who deposits once and holds. They never trigger
+  a splice, so after the first heartbeat interval ANY party can force-close their channel at will, and can
+  keep doing so from an ever-growing set of matured exits — **while the fleet is alive and healthy.**
+📌 Combined with the earlier finding, the full chain is: EVM "supersede" ≠ Bitcoin invalidation → only a
+  splice invalidates → splices are value-change-triggered → **idle ⇒ never ⇒ unbounded**. Each link was
+  verified in code, not inferred.
+
+### ▶️ THIS PROMOTES THE FIX FROM "PARAMETER TUNING" TO **REQUIRED**
+Option (ii) (refresh only near maturity) is now **INSUFFICIENT ALONE** — it shrinks the count of stale exits
+but never reaches zero for an idle channel, so force-close-at-will persists.
+ ⭐ **(i) REVOCATION-KEY CONSTRUCTION** is the correct fix: each new state REVOKES the prior, so a stale
+   broadcast is PUNISHABLE, independent of splices entirely. Lightning-native; this IS a Lightning channel.
+ ⭐ **(iii) IDLE-TIMER SPLICE** is the cheap stopgap and is a SMALL change — the reconcile already has the
+   splice path wired; it needs one extra arm: splice when `now - last_splice > IDLE_SPLICE_PERIOD`, even
+   when the value is unchanged. **Bounds exposure to that period immediately.**
+ ▶️ RECOMMEND: ship (iii) as the bound, then (i) as the real fix. **(iii) is a few lines against an
+   already-wired path**, which is the elegance bar this queue demands.
+⚠️ Cost check before shipping (iii): one on-chain BTC tx per idle channel per period — quantify against the
+  channel's own fee accrual so the backstop cannot cost more than the position earns.
+
