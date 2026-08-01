@@ -2355,3 +2355,37 @@ expensive in gas or in SPV proof frequency.**
   check flagged earlier is a PREREQUISITE for all of this — if a stale CLTV can overwrite a fresh one, every
   guarantee above collapses. **Fix that first.**
 
+## 🚨 #114 SECURITY FINDING — "supersedes" HOLDS ON THE EVM BUT **NOT ON BITCOIN**. Premature force-close looks possible.
+**The claim** (`BTCChannels.sol:376-379` + §N): re-emission *"supersedes the prior emission"*, and *"CLTV
+always future ⇒ NOT broadcastable ⇒ no griefing/premature [close]"*.
+**The problem:** superseding is an EVM-side notion. A previously emitted `signedExitTx` is a COMPLETE,
+FULLY-SIGNED Bitcoin transaction spending the SAME funding UTXO. Emitting a newer one **does not invalidate
+it** — Bitcoin has no concept of "replaced by a later log entry". Both are valid; they merely conflict, and
+whichever is MINED FIRST wins.
+⇒ Emission E1 carries CLTV `T1` (future at emission). The heartbeat emits E2 with `T2 > T1`. **Time then
+  advances past `T1`.** E1's raw bytes are PUBLIC IN THE LOG FOREVER (an explicit design property).
+  ⇒ **ANYONE can broadcast E1 the moment `T1` matures — while the fleet is perfectly alive.**
+  ⇒ **Premature unilateral force-close by REPLAY of a stale emission.** The "CLTV always future" invariant
+    holds only for the LATEST emission; every SUPERSEDED one matures on schedule and stays broadcastable.
+⇒ This also means the earlier `deadManDeadline` monotonicity concern was the RIGHT INSTINCT but the WRONG
+  TARGET: the mapping is only bookkeeping. **The real enforcement lives in the signed Bitcoin bytes, and
+  nothing on the EVM can retract them.**
+
+### ⚠️ WHAT WOULD MAKE IT SAFE — and what must be checked before calling this a bug
+The ONLY way to invalidate an old pre-signed tx is to make it UNSPENDABLE — i.e. **change the UTXO it
+spends**. So the design is sound IF AND ONLY IF every heartbeat also SPLICES (new funding UTXO ⇒ all prior
+exits die). ▶️ **VERIFY: does the heartbeat splice each time?** A splice costs an on-chain BTC tx + an SPV
+proof, so a per-heartbeat splice seems economically implausible — **but CONFIRM before concluding**, in the
+Rust daemon (`deadman_exit.rs`) and the splice path, not by reasoning.
+ • If heartbeats DO splice ⇒ no bug; document the dependency LOUDLY, because the safety rests entirely on it.
+ • If they do NOT ⇒ **real vulnerability**, and the fix must make superseded exits unspendable. Options to
+   enumerate then: (i) splice on each heartbeat (costly); (ii) a revocation-key construction (Lightning's
+   own answer to exactly this problem — old states are punishable/revocable rather than merely superseded);
+   (iii) accept + bound it (short channel lifetimes so a stale exit's blast radius is one heartbeat).
+   ⭐ (ii) is the standard, and this IS a Lightning channel — the primitive is native to the setting.
+📌 This vindicates the earlier instinct that "BUILT + security-reviewed" ≠ verified: the review approved the
+  EVM gating (attested caller, authorized hop), which is CORRECT — the gap is a BITCOIN-side lifetime
+  property that EVM-side review would not surface. **Same shape as the mockCall no-op: the check that was
+  run was sound; the check that mattered was never run.**
+🛑 **This BLOCKS (a+)** — settle-on-emission and splice-on-transfer both assume a superseded exit is dead.
+
