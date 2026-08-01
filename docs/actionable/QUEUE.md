@@ -3204,3 +3204,29 @@ warning: method `create_sweep_tx` is never used  --> quid-ln/src/wallet.rs:1182:
   created by this design — the wallet has one UTXO pool shared with `initiate_splice`'s
   `wallet.get_utxos()`. **Needs an explicit reservation/exclusion, and a test that asserts it.**
 
+## ❗CORRECTION — `create_sweep_tx` ALREADY HAS A TASK ENTRY (`QUEUE.md:2251`). I re-raised a settled question.
+The user asked whether a TODO existed — **it does**, and it is far more specific than my re-derivation:
+> **`create_sweep_tx` NEEDS AN OPERATOR AUTH, NOT AN ENDPOINT** — *"a security feature, not a wire-up, and
+> it deserves its own run."*
+Key content I duplicated or MISSED:
+ • It is **good, actively maintained code** — the test was updated for the BIP86 P2TR migration and covers
+   conservation (`swept + fee == inputs`), dust rejection, and no-double-sweep-after-broadcast.
+ • **I DELETED IT on 2026-08-01 and RESTORED it on the user's instruction** (*"dont delete it if it's
+   necessary good code"*). ⇒ My "flag, do not sweep" instinct was right — **because I had already made
+   exactly that mistake and been corrected.**
+ • The `dead_code` warning is **ACCURATE AND EXPECTED**: it marks a **missing authorized trigger**, not
+   dead weight. ⇒ 🔴 **My framing of it as a dedup-pass candidate was WRONG** — it is a KNOWN, DELIBERATE
+   state, not a discovery.
+ • The design is already decided: **do NOT wire it to an ordinary endpoint.** A drain is the same severity
+   as a seed export, and the repo already has that control — `quid-hop/src/migration.rs` guards seed export
+   with an EIP-712 `MigrationAuth` bound to the operator **Gnosis Safe** as `verifyingContract`,
+   ≥`MIGRATION_THRESHOLD` owner sigs verified in-enclave by `ecrecover`, plus `guard_prod_trust_anchors`.
+   **A drain wants a `SweepAuth` mirroring that. Until then it stays unwired ON PURPOSE.**
+📌 **LESSON (4th time on this pattern): I re-derived a documented decision AND re-proposed an action the
+  user had already reversed.** The `#114` mechanism was in a test comment; `initiate_splice` existed; the
+  refresh predicate existed; now this. **Before flagging anything as a finding, GREP THE QUEUE FOR IT** —
+  `docs/actionable/*.md` is ~3,200 lines and holds most of what I keep rediscovering.
+⇒ ✅ NET: no new action. `create_sweep_tx` remains **intentionally unwired pending `SweepAuth`**, and the
+  dead-code warning stays as its marker. **Stage 2 correctly does not use it** (that part of my analysis
+  stands — it drains everything; stage 2 needs one small self-send).
+
