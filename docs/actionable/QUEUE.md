@@ -2923,3 +2923,36 @@ Bitcoin tx is invalidated if **ANY** of its inputs is spent. So:
  4. Regtest: broadcast a fresh exit after CLTV (accepted) and a stale one (rejected as missing-input) —
     the end-to-end proof, and it settles the ORIGINAL #114 broadcast gap too.
 
+## ✅ "WHICH COPY IS LIVE?" — **BOTH.** They are COMPLEMENTARY HALVES, not duplicates.
+Both `deadman_exit.rs` files are exactly **293 lines** — a coincidence that nearly read as copy-paste. They
+differ on **536 of 586 lines**, i.e. they are almost entirely DIFFERENT code:
+| crate | imports | role |
+|---|---|---|
+| `quid-ln/quid-ln/src/deadman_exit.rs` | `bitcoin::{LockTime, Prevouts, SighashCache, TapSighashType, TxIn, TxOut, Witness…}` | ⭐ **the TX BUILDER + 2-signer pre-sign orchestrator** — constructs and signs the exit |
+| `quid-ln/quid-bridge/src/deadman_exit.rs` | `std::sync::Arc`, `std::time::Duration`, tokio | ⭐ **the DAEMON** — the periodic task that drives emission/heartbeat |
+⇒ `taproot_signer.rs` lives in `quid-ln/quid-ln` only, alongside the BUILDER — consistent with the graph's
+  268-link coupling between them.
+⇒ **No silent-no-op risk after all, but the split DOES divide the work cleanly** — and had I edited by
+  filename alone I would have put builder changes in the daemon crate.
+📌 Two same-sized files with the same name in one repo is exactly the "near-identical names make finished
+  and unfinished work indistinguishable" trap. **Line count is not identity — diff before concluding.**
+
+### ▶️ WORK SPLIT FOR THE FRESHNESS-UTXO CHANGE (now unambiguous)
+ **`quid-ln/quid-ln/` (builder crate) — the CRYPTO half:**
+  1. `deadman_exit.rs` — add the freshness `TxIn`; extend `Prevouts` to BOTH inputs (it already imports
+     `Prevouts`/`SighashCache`/`TapSighashType`, so the multi-input sighash machinery is ALREADY THERE —
+     ⚠️ confirm whether `Prevouts::All` vs `Prevouts::One` is used; **`All` is required** for the property).
+  2. `taproot_signer.rs` — sign input #1 as well as #0 (268-link coupling ⇒ test first).
+ **`quid-ln/quid-bridge/` (daemon crate) — the ORCHESTRATION half:**
+  3. `deadman_exit.rs` — hold the current freshness outpoint; on rotation **re-emit ALL channels FIRST, then
+     spend the old UTXO** (ordering is load-bearing).
+  4. `recovery_broadcast.rs` — a `FreshnessSpent` outcome so a stale exit fails loudly.
+  5. hop-wallet UTXO management — create/rotate ONE freshness UTXO per period, globally.
+ ✅ `channel_driver.rs` — **UNCHANGED** (splice-on-refresh is dropped entirely).
+
+### ▶️ IMMEDIATE NEXT: the single decisive check
+Read `Prevouts::` usage in `quid-ln/quid-ln/src/deadman_exit.rs`. **BIP341 key-path signing with
+`Prevouts::All` commits to EVERY input's prevout** ⇒ spending the freshness UTXO invalidates the signature
+**with no signer change at all**. If it is already `All`, step 2 shrinks to nearly nothing and the whole
+design may need only the builder + daemon halves.
+

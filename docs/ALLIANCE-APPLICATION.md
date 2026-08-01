@@ -74,9 +74,19 @@ already works. Refinancing helps here: discharging the old lien and recording a 
 right beneficiary at origination, and faulty assignment afterwards is what the post-2008 foreclosure
 litigation was actually about. The paper carries reps and warranties with a repurchase obligation, so
 a loan that defaults early or was misrepresented on title or valuation goes back to the originator at
-par before anybody forecloses anything. What we give up is mechanical enforcement, and the residual is
-servicer risk, held down by a backup servicer named in advance and an irrevocable power of attorney
-signed at the start.
+par before anybody forecloses anything. The originator also keeps a retention slice rather than acting
+as a riskless conduit, which is both what securitisation rules already require and what keeps the
+originator the true lender: a California court held in May 2026 that the party which funds, underwrites
+and bears risk at origination is the lender, so a bank taking no risk hands the licensing obligation
+back to whoever does. What we give up is mechanical enforcement, and the residual is servicer risk,
+held down by a backup servicer named in advance and an irrevocable power of attorney signed at the
+start.
+
+Being honest about sequence: near-term duration comes from buying rated paper, which is securities
+investing and needs no lending licence. Whole-loan purchase is the step after, and it is gated on
+counsel rather than on engineering. `docs/informational/CREDIT-STRATEGY-FINDINGS.md` records what we
+verified and the seven questions still open, including whether CRD VI's non-bank carve-out survives its
+January 2027 ban on third-country lending into the EU.
 
 ---
 

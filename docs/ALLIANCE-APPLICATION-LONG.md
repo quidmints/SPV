@@ -193,6 +193,24 @@ so a loan that defaults early, or where a representation about title or valuatio
 back to the originator at par. That keeps their skin in the game on exactly the inputs cryptography
 cannot verify, and it means most bad loans leave the reserve before anyone forecloses anything.
 
+**The originator keeps a retention slice, and this is structural rather than cosmetic.** In May 2026 a
+California court granted summary judgment for OppFi against the state regulator, holding that at
+origination the entity which funds, controls underwriting and bears risk is the true lender. All three
+elements. A bank acting as a riskless conduit is therefore not the lender, and the licensing obligation
+lands back on whoever funds and bears the risk, which would be us. EU securitisation rules already
+impose a five percent retention obligation on originators for the same reason, so a retained tranche
+satisfies both at once. A riskless pass-through is the exact fact pattern these tests were written to
+catch.
+
+**And the sequence matters more than the destination.** Near-term duration comes from buying rated
+paper, which is securities investing and requires no lending licence in any jurisdiction. Whole-loan
+purchase is the step after, gated on counsel rather than on engineering, because in several US states
+even purchasing consumer paper requires a licence and the purchaser inherits assignee liability.
+Origination is a multi-year regulated business that buys nothing a partnership does not already provide
+at the volumes in question. `docs/informational/CREDIT-STRATEGY-FINDINGS.md` is the research record:
+what was checked, what was wrong, and seven open questions, the sharpest being whether CRD VI's
+non-bank carve-out survives its ban on third-country lending into the EU from January 2027.
+
 ### Why this is worth funding rather than just building for ourselves
 
 The thing we needed was a family-office capability: consolidated view, real diversification, credit
