@@ -2171,3 +2171,105 @@ Probed both mocked functions against the LIVE contracts:
 📌 The landed runtime capacity SKIP is unaffected — production really does read 0 (confirmed by live reads,
   independent of any test setup).
 
+
+---
+
+# ═══ NEW (2026-08-01) — RUST / TEE ENCLAVE STACK. First session that could build it at all ═══
+
+## 🔑 THE ENABLING FACT — `cargo test --workspace` HAS NEVER RUN ON macOS
+`quid-cvm` imports `sev::firmware::guest::Firmware`, Linux-gated (AMD SEV-SNP), and `quid-bridge` +
+`quid-hop` depend on it, so `--exclude quid-cvm` does **not** help — the failure is transitive. Use
+Docker (Docker Desktop is installed but usually not running: `open -a Docker`):
+```
+export DOCKER_CONTEXT=desktop-linux
+docker run --rm -v $PWD/quid-ln:/w:delegated -v quidcvm-target:/tmp/target \
+  -w /w -e CARGO_TARGET_DIR=/tmp/target rust:1.90 bash -c "cargo test --workspace"
+```
+**523 pass on Linux.** Traps: 6 `p2p::test::test_echo_*` failures under Docker are ENVIRONMENTAL (they
+pass 6/6 on the host — do not "fix" them); `cargo test -p quid-crypto` alone fails (proptest gets no-std,
+only builds via workspace feature unification); a SHARED cargo target volume replays stale builds when
+bind-mounted files share an mtime — use a fresh `CARGO_TARGET_DIR` when a result must be trusted.
+
+**This blind spot is why untested code accumulated**: `quid-api-core`'s test binary never compiled
+(`sealed_seed.rs` imported `enclave::{MachineId,…}` — the ITEMS — while its test module called
+`enclave::measurement()`, the MODULE), so **51 tests had never run once**. One import line; all pass.
+
+## 🟢 CLOSED 2026-08-01
+- **`quid-cvm` had 135 lines and ZERO tests** → 19 tests. Both entry points need `/dev/sev-guest`, so
+  the AEAD core was split from the firmware fetch (`seal_with_key`/`unseal_with_key` take the key as a
+  parameter); the trait impl still fetches and FAILS CLOSED. Non-vacuity PROVEN BY MUTATION: dropping
+  the label from HKDF kills only `a_different_label_cannot_unseal`; dropping the firmware key kills only
+  `a_different_firmware_key_cannot_unseal`.
+- **8 failing pinned fixtures across `quid-common` + `quid-crypto`** — one root cause: the domain
+  separators are `QUID-REALM::*`, renamed from a 4-letter predecessor, which changes every HKDF-derived
+  key. Cause PROVEN, not inferred: hand-computing HKDF-SHA256 reproduced the OLD vector from the OLD salt
+  and the NEW one from `QUID-REALM::RootSeed` bit-for-bit (2^-64 by chance). Blast radius is exactly the
+  HKDF keys — of 11 values in `derive_snapshots` only 4 moved; `node_pk`/`ldk_seed`/xprvs are identical
+  because BIP32/BIP39 never touch the salt. **User standing instruction: never restore the old prefix.**
+  The signup wire blobs had to be RE-SIGNED (they carry a signature that must verify), not repinned.
+
+## 🔴 TASK — WIRE THE TDX + NITRO SEALS (the incomplete enclave backends)
+`Backend` = `Sgx | SevSnp | Tdx | Nitro | None`, detected at runtime by device node (`/dev/sev-guest`,
+`/dev/tdx_guest` or `/sys/kernel/config/tsm/report`, `/dev/nsm`). **TDX and Nitro are real, detected and
+attestation-capable — only their SEALING is missing** (TDX vTPM, Nitro NSM/KMS), so `pick_sealer()`
+falls them back to the mock.
+
+This is **already fail-closed and correctly so** — do not "fix" it by loosening:
+`custody_ready()` is true only for `Sgx | SevSnp`; `quid-hop/src/seed.rs:278` calls
+`require_backend_for_role(role, detect())` AT BOOT, defaulting to the STRICT `Fleet` role in
+staging/prod so a forgotten `QUID_HOSTING_ROLE` fails closed. A detected-but-unwired CVM is REFUSED for
+serving others rather than silently mock-sealed. 5 tests in `backend.rs` cover this.
+
+**The task:** implement each seal, then flip `custody_ready()` in the SAME change that lands and verifies
+it — never on the mere presence of hardware. Each needs its own `quid-cvm`-style split so the logic is
+testable off the hardware.
+
+## 🔴 TASK — VERIFYING THE SEV-SNP HARDWARE TAIL IN CI (user asked 2026-08-01: *"ci actions can verify that?"*)
+`Firmware::open()`'s happy path is unverifiable on the dev machine: **the host is an Intel i9**, SEV-SNP
+is AMD EPYC only, and VirtualBox does not emulate it. No VM on this laptop can ever produce a real
+attestation. Three tiers, cheapest first:
+
+1. **Ordinary CI, no special hardware (do this now).** Runs the 19 tests' fail-closed side + proves the
+   crate compiles for Linux at all. Catches the regression that matters most — a seal that stops
+   refusing when no firmware is present.
+2. **Captured-report fixture (cheap, most of the value).** Take ONE real report on a confidential VM,
+   commit it, and in normal CI verify: typed `AttestationReport` parse, `report_data` binding, the
+   measurement accessor, and the AMD VCEK/cert-chain signature. Verification does NOT need SEV hardware —
+   only generation does. This is the same trick as the Go↔Solidity Merkle fixture.
+3. **Self-hosted runner on a confidential VM (full tail).** GitHub-HOSTED runners cannot do this — they
+   expose no `/dev/sev-guest`. Point a self-hosted runner at: Azure DCasv5/ECasv5 (SEV-SNP) or
+   DCesv5/ECesv5 (TDX); GCP N2D/C3D Confidential VM (SEV-SNP) or C3 (TDX); AWS EC2 SEV-SNP-capable
+   instances (Nitro Enclaves are a DIFFERENT mechanism, not SEV). ⚠️ Instance families change — confirm
+   against current cloud docs before quoting these.
+
+**The suite is already shaped for tier 3 with no code change**: tests branch on
+`sev_derived_key().is_ok()` and assert something real on BOTH sides.
+`the_report_helpers_match_the_hardware` (renamed 2026-08-01 from `..._fail_closed_too`, which SKIPPED on
+hardware and would have gone vacuous exactly where it finally mattered) asserts on a real guest that the
+report carries the `identity_report_data` binding, the measurement parses, and the derived key round-trips.
+
+## 🔴 TASK — `create_sweep_tx` NEEDS AN OPERATOR AUTH, NOT AN ENDPOINT
+> **"a security feature, not a wire-up, and it deserves its own run."**
+
+`quid-ln/src/wallet.rs::create_sweep_tx` drains the entire on-chain BDK balance to a caller-supplied
+address (BDK `drain_wallet` + `drain_to`, one output, no change; NOT LN channels). It is good, actively
+maintained code — the test was updated for the BIP86 P2TR migration and covers conservation
+(`swept + fee == inputs`), dust rejection, and no-double-sweep-after-broadcast.
+
+**NOTHING TRIGGERS IT.** No API request type, no command variant, no migration hook, no event handler —
+so its purpose (decommission / migration / emergency evacuation) is recorded nowhere. I deleted it on
+2026-08-01 and **restored it** on the user's instruction (*"dont delete it if it's necessary good code"*);
+the `dead_code` warning is therefore back and is now ACCURATE — it marks a missing authorized trigger.
+
+**Do NOT wire it to an ordinary endpoint.** "Send the entire balance to address X" is the same severity
+as a seed export, and this repo already has the control for that: `quid-hop/src/migration.rs` guards
+seed export with an EIP-712 `MigrationAuth` bound to the operator **Gnosis Safe** as `verifyingContract`,
+≥`MIGRATION_THRESHOLD` owner signatures verified in-enclave by `ecrecover`, plus
+`guard_prod_trust_anchors` refusing prod while the dev placeholder keys (secp256k1 sk 1/2/3) are compiled
+in. A drain wants a `SweepAuth` mirroring that. Until then it stays unwired ON PURPOSE.
+
+## ⚠️ CORRECTION BANKED — I claimed "TDX and Nitro do not exist"
+Wrong. I had grepped for `impl Sealer` + Cargo deps and asserted absence without reading
+`quid-enclave/src/backend.rs`, where both are full variants with detection and tests. Same failure mode
+as the standing trap *"never assert absence from a grep"*. The accurate statement is narrower: their
+**sealers** are unimplemented.
