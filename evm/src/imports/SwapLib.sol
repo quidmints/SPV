@@ -2,6 +2,8 @@
 pragma solidity ^0.8.13;
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
+// §A.52: the canonical Core view (was a file-local variant).
+import {ICore} from "./Interfaces.sol";
 import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -36,25 +38,6 @@ import {IAux} from "./Interfaces.sol";
 ///         via DELEGATECALL → external self-CALL pattern. See Aux's
 ///         supplySelf / withdrawSelf docblock for the security invariants
 ///         that gate these entries.
-interface ICoreObs {
-    function observe(uint32[] memory secondsAgos) external view returns (int56[] memory);
-    function observeBTC(uint32[] memory secondsAgos) external view returns (int56[] memory);
-    function token1is(bool isBTC) external view returns (bool);
-    function POOLED_BTC() external view returns (uint);
-    function POOLED_USD_BTC() external view returns (uint);
-    function POOLED_ETH() external view returns (uint);
-    function POOLED_USD_ETH() external view returns (uint);
-    function committedUsd18() external view returns (uint);
-    function pendingSwapOutUsd() external view returns (uint);
-    function levClaimUsd6(bool isBTC) external view returns (uint);
-    function levGrossNative(bool isBTC) external view returns (uint);
-    function flowEwmaUsd(bool isBTC) external view returns (uint);
-    function realizedVarianceWad(bool isBTC) external view returns (uint);
-    function recordSkewPremium(bool isBTC, uint256 premiumUsd) external;
-    function refundUnfilled(address token, uint amount, address to) external;
-    function drawPooledUsdBtc(uint usd6) external;         // delivery-side de-lever: retired-debt share out
-    function subPendingSwapOut(uint usd6) external;        // delivery-side de-lever: obligation share cleared
-}
 /// Delivery-side de-lever: the BtcLevManager reads/mutations for the swap-out settle de-lever.
 interface ILevManagerDeliver {
     function swapOutDeleverAmt(address lp, uint maxUsd18)
@@ -123,9 +106,9 @@ library SwapLib {
         uint32[] memory secondsAgos = new uint32[](2);
         secondsAgos[0] = period == 0 ? 1800 : period;
         secondsAgos[1] = 0;
-        int56[] memory tc = isETH ? ICoreObs(core).observe(secondsAgos)
-                                  : ICoreObs(core).observeBTC(secondsAgos);
-        bool token0isUSD = ICoreObs(core).token1is(!isETH);
+        int56[] memory tc = isETH ? ICore(core).observe(secondsAgos)
+                                  : ICore(core).observeBTC(secondsAgos);
+        bool token0isUSD = ICore(core).token1is(!isETH);
         price = BasketLib.ticksToPrice(tc[0], tc[1], secondsAgos[0], token0isUSD);
     }
 
@@ -412,7 +395,7 @@ library SwapLib {
             // par so a transient depeg can't brick redeems/swaps for existing holders (intentional asymmetry;
             // redeem VALUE is separately haircut in _redeemQuote). See DepegBackingProbe.
             (uint[15] memory _deposits,,,) = aux.get_deposits();
-            if (ICoreObs(c.core).committedUsd18() > _deposits[14]) revert UnderBackedS();
+            if (ICore(c.core).committedUsd18() > _deposits[14]) revert UnderBackedS();
         }
         // token1is inlined per-branch (not a local) — frees a stack slot so
         // swapToBody stays within the legacy pipeline (no via_ir) after threading
@@ -421,8 +404,8 @@ library SwapLib {
         if (!r.forVolatile) {
             if (r.token != c.quid && !stable) revert StableMissingS();
             r.amount = aux._depositVol{value: msg.value}(isBTC, msg.sender, r.amount);
-            zeroForOne = !ICoreObs(c.core).token1is(isBTC);
-            max = isBTC ? ICoreObs(c.core).POOLED_USD_BTC() : ICoreObs(c.core).POOLED_USD_ETH();
+            zeroForOne = !ICore(c.core).token1is(isBTC);
+            max = isBTC ? ICore(c.core).POOLED_USD_BTC() : ICore(c.core).POOLED_USD_ETH();
             // JIT-DEPTH-GUARANTEE.md §2 hook site (DEFERRED — design gap, NOT built): this is the
             // volatile→USD leg whose fill is bounded by the band's in-range USD depth (`max`), so a
             // large sell can exhaust it / partial-fill → uncertain impact → sandwich room. The
@@ -449,8 +432,8 @@ library SwapLib {
                 uint skew = sellSkew(c.core, r.px, isBTC, r.amount); // inline (swapToBody stack-tight)
                 retainSkewPremium(c.core, isBTC, r, skew, true);   // NATIVE volatile input ⇒ convert   // mutates r.amount; r.px declares NATIVE
             }
-        } else { max = isBTC ? ICoreObs(c.core).POOLED_BTC() : ICoreObs(c.core).POOLED_ETH();
-            zeroForOne = ICoreObs(c.core).token1is(isBTC);
+        } else { max = isBTC ? ICore(c.core).POOLED_BTC() : ICore(c.core).POOLED_ETH();
+            zeroForOne = ICore(c.core).token1is(isBTC);
             // QD-in valued at the SAME perShare a redeem uses (no-drain: never worth more swapped than redeemed).
             // DESIGN NOTE: unlike redeem, swap-out is NOT capacity-gated / deferred during stable
             // illiquidity — it pays volatile from the pool's OWN inventory (bounded by `max` = POOLED depth +
@@ -769,10 +752,10 @@ library SwapLib {
         (uint160 sqrtPriceX96,,,, uint v4p) = IVogueRepack2(v4).repack(true);
         Types.RouteParams memory rp;
         rp.sqrtPriceX96 = sqrtPriceX96;
-        rp.zeroForOne   = !ICoreObs(core).token1is(true);   // BTC→USD (mirror of the buy)
+        rp.zeroForOne   = !ICore(core).token1is(true);   // BTC→USD (mirror of the buy)
         rp.token        = token;                            // USD-side output stable → seller
         rp.amount       = sats;                             // exact BTC input
-        rp.pooled       = ICoreObs(core).POOLED_USD_BTC();
+        rp.pooled       = ICore(core).POOLED_USD_BTC();
         // SWAP-IN REFILL PRICING. This leg settles FLAT at the honest oracle, and that is FINAL —
         // not a placeholder. CORRECTED 2026-07-26: this comment used to describe a SYMMETRIC skew
         // BONUS (mirror of the swap-OUT drain penalty) as a "corrected design" that would "land with
@@ -810,7 +793,7 @@ library SwapLib {
         uint deliveredUsd;
         (deliveredUsd,, consumedSats) = BasketLib.routeSwap(ctx, rp);
         if (deliveredUsd < minDeliveredUsd) revert SwapInShort();
-        if (ICoreObs(core).POOLED_USD_BTC() < ICoreObs(core).pendingSwapOutUsd())
+        if (ICore(core).POOLED_USD_BTC() < ICore(core).pendingSwapOutUsd())
             revert SwapInDrainsProceeds();
         // NO refill BONUS: the refill is a self-funding fleet op (JIT Morpho-flash BTC → creditSwapIn → repay,
         // gas already refunded via #87). The drainer's retained skew premium stays in the basket as LP backing
@@ -971,9 +954,9 @@ library SwapLib {
         private view returns (uint poolVolUsd, uint lockedUsd)
     {
         poolVolUsd = FullMath.mulDiv(
-            (isBTC ? ICoreObs(core).POOLED_BTC() : ICoreObs(core).POOLED_ETH()) + addedTok,
+            (isBTC ? ICore(core).POOLED_BTC() : ICore(core).POOLED_ETH()) + addedTok,
             base, 1e30);
-        lockedUsd = FullMath.mulDiv(ICoreObs(core).levGrossNative(isBTC), base, 1e30);
+        lockedUsd = FullMath.mulDiv(ICore(core).levGrossNative(isBTC), base, 1e30);
     }
 
     function wellSkew(address core, uint base, bool isBTC)
@@ -992,9 +975,9 @@ library SwapLib {
         return skewWad(
             poolVolUsd,
             lockedUsd,
-            ICoreObs(core).levClaimUsd6(isBTC),
-            ICoreObs(core).flowEwmaUsd(isBTC),
-            ICoreObs(core).realizedVarianceWad(isBTC), isBTC);
+            ICore(core).levClaimUsd6(isBTC),
+            ICore(core).flowEwmaUsd(isBTC),
+            ICore(core).realizedVarianceWad(isBTC), isBTC);
     }
 
     /// @notice SYMMETRIC A-S skew for a volatile-IN SELL (the self-funded short's
@@ -1013,8 +996,8 @@ library SwapLib {
     function sellSkew(address core, uint base, bool isBTC, uint addedTok)
         internal view returns (uint)
     {
-        uint committed = ICoreObs(core).levClaimUsd6(isBTC);      // DEBT (→ target)
-        uint flow = ICoreObs(core).flowEwmaUsd(isBTC);
+        uint committed = ICore(core).levClaimUsd6(isBTC);      // DEBT (→ target)
+        uint flow = ICore(core).flowEwmaUsd(isBTC);
         uint target = flow + committed;
         if (target == 0) return 0;
         // inv = poolVolUsd − GROSS locked inventory (same base/1e30 scale as poolVol, #6/F3). Scope the two
@@ -1031,7 +1014,7 @@ library SwapLib {
         // (lockedUsd=committed, poolVolUsd=committed+mirror), target=flow+committed unchanged.
         uint mirror = 2 * target > inv ? 2 * target - inv : 0;
         return skewWad(committed + mirror, committed, committed, flow,
-            ICoreObs(core).realizedVarianceWad(isBTC), isBTC);
+            ICore(core).realizedVarianceWad(isBTC), isBTC);
     }
 
     /// @notice Body of Aux.creditSwapOut — Swap-OUT (USD→BTC), the on-curve
@@ -1068,9 +1051,9 @@ library SwapLib {
         // Reuse the repack-resolved oracle price (5th return); live-read only if v4p==0.
         (uint160 sqrtPriceX96,,,, uint v4p) = IVogueRepack2(address(this)).repack(true);
         rp.sqrtPriceX96 = sqrtPriceX96;
-        rp.zeroForOne   = ICoreObs(core).token1is(true);    // USD→BTC buy (mirror of the sell)
+        rp.zeroForOne   = ICore(core).token1is(true);    // USD→BTC buy (mirror of the sell)
         rp.token        = address(0);                       // volatile (BTC) output
-        rp.pooled       = ICoreObs(core).POOLED_BTC();      // BTC inventory bounds the fill
+        rp.pooled       = ICore(core).POOLED_BTC();      // BTC inventory bounds the fill
         uint basePrice  = _priceOr(v4p, aux, wbtc);
         rp.v4Price      = basePrice;                         // HONEST oracle — manip-guard stays unskewed
         // Effective-rate scarcity skew on the drain: scale the buy-driving USD DOWN by (1−skew) so a
@@ -1098,7 +1081,7 @@ library SwapLib {
         uint consumed;
         (sats,, consumed) = BasketLib.routeSwap(ctx, rp);
         if (consumed < usd6) usd6 = consumed;               // proceeds == fill (no over-owe on a partial)
-        if (amount > consumed) ICoreObs(ctx.core).refundUnfilled(token, amount - consumed, swapper);
+        if (amount > consumed) ICore(ctx.core).refundUnfilled(token, amount - consumed, swapper);
         if (sats < minSats) revert SwapOutShort();
     }
 
@@ -1221,8 +1204,8 @@ library SwapLib {
         // Draw the retired-debt share out of POOLED_USD_BTC BEFORE the drain: takeToSettle uses the SOFT backing
         // check (its mid-drain instant is offset by the repay below), and drawing first keeps committed and liquid
         // moving together. The debt-buffer's stale POOLED_USD is reconciled by the keeper's async syncLevBTC.
-        ICoreObs(core).drawPooledUsdBtc(deLeverUsd6);          // retired-debt share leaves POOLED_USD_BTC
-        ICoreObs(core).subPendingSwapOut(deLeverUsd6);        // obligation share cleared (matched at request)
+        ICore(core).drawPooledUsdBtc(deLeverUsd6);          // retired-debt share leaves POOLED_USD_BTC
+        ICore(core).subPendingSwapOut(deLeverUsd6);        // obligation share cleared (matched at request)
         uint got;
         {
             uint bal0 = IERC20(stable).balanceOf(venue);
@@ -1299,12 +1282,12 @@ library SwapLib {
     function burnInRange(address v4, bool isBTC, uint160 sqrtPriceX96, uint amount,
         int24 tickLower, int24 tickUpper, address recipient)
         internal returns (uint sent) {
-        uint pooled = isBTC ? IV4(v4).POOLED_BTC() : IV4(v4).POOLED_ETH();
+        uint pooled = isBTC ? ICore(v4).POOLED_BTC() : ICore(v4).POOLED_ETH();
         uint pulled = Math.min(amount, pooled);
         if (pulled == 0) return 0;
-        (,, uint128 posLiquidity) = IV4(v4).poolStats(tickLower, tickUpper, isBTC);
+        (,, uint128 posLiquidity) = ICore(v4).poolStats(tickLower, tickUpper, isBTC);
         if (posLiquidity > 0) {
-            sent = IV4(v4).modLP(isBTC, sqrtPriceX96, pulled, 0,
+            sent = ICore(v4).modLP(isBTC, sqrtPriceX96, pulled, 0,
                             tickLower, tickUpper, recipient);
         }
     }
@@ -1400,7 +1383,7 @@ library SwapLib {
         // ONLY the sell leg holds a NATIVE amount. The two drain legs hold the BUY-DRIVING USD, already
         // 6-dec — converting those (attempt 2) collapsed the recorded premium to 0. `r.px` cannot serve as
         // the discriminator: it is non-zero on BOTH swapToBody legs, so the caller states the unit.
-        ICoreObs(core).recordSkewPremium(isBTC,
+        ICore(core).recordSkewPremium(isBTC,
             nativeAmount ? FullMath.mulDiv(premium, r.px, 1e30) : premium);
         r.amount -= premium;
     }
@@ -1609,7 +1592,7 @@ library SwapLib {
         r.tickLower = tickLower;
         int24 currentTick;
         (r.sqrtPriceX96, currentTick, r.myLiquidity) =
-            IV4(v4).poolStats(tickLower, tickUpper, isBTC);
+            ICore(v4).poolStats(tickLower, tickUpper, isBTC);
 
         // Resolved oracle price + staleness. try/catch so a bootstrap pre-history
         // / dead-feed read NEVER bricks the op (falls through to legacy handling).
@@ -1633,7 +1616,7 @@ library SwapLib {
             // Don't repack to a manipulated spot — need the oracle. If unavailable
             // (twap==0, e.g. bootstrap) or spot deviates >300bps, keep the range.
             if (twap == 0) return r; // didRepack stays false → keep current range
-            uint spot = BasketLib.getPrice(r.sqrtPriceX96, IV4(v4).token1is(isBTC));
+            uint spot = BasketLib.getPrice(r.sqrtPriceX96, ICore(v4).token1is(isBTC));
             // Repack TOLERANCE (300 bps = 3%) — looser than the 50-bps swap
             // guard so normal volatility doesn't block re-centering.
             if (BasketLib.isManipulated(spot, twap, 300)) {
@@ -1642,7 +1625,7 @@ library SwapLib {
             (int24 newTickLower,, int24 newTickUpper,) = updateTicks(r.sqrtPriceX96, BAND_DELTA);
             if (r.myLiquidity > 0) {
                 (r.price, r.fees0, r.fees1, r.delta0, r.delta1) =
-                    IV4(v4).repack(isBTC, r.myLiquidity, r.sqrtPriceX96,
+                    ICore(v4).repack(isBTC, r.myLiquidity, r.sqrtPriceX96,
                         tickLower, tickUpper, newTickLower, newTickUpper);
                 r.didRepack = true;
             }
@@ -1653,7 +1636,7 @@ library SwapLib {
             // in the accumulators BEFORE the caller's bookmark advances.
             // collectFees ALREADY reorders internally and returns canonical
             // (feesUSD, feesTok) — USD first.
-            (r.jitFeesUsd, r.jitFeesTok) = IV4(v4).collectFees(tickLower, tickUpper, isBTC);
+            (r.jitFeesUsd, r.jitFeesTok) = ICore(v4).collectFees(tickLower, tickUpper, isBTC);
             r.jitFees = true;
         }
     }
@@ -1663,7 +1646,7 @@ library SwapLib {
     ///      Returns true if it moved the spot. No-op (false) when already aligned.
     function _reseatIfStale(address v4, bool isBTC, Rebalanced memory r, uint twap)
         private returns (bool) {
-        bool t1isVol = IV4(v4).token1is(isBTC);
+        bool t1isVol = ICore(v4).token1is(isBTC);
         uint spot = BasketLib.getPrice(r.sqrtPriceX96, t1isVol);
         if (spot == 0 || twap == 0) return false;
         // Only move the spot when it's off the oracle by more than the 50-bps
@@ -1683,7 +1666,7 @@ library SwapLib {
         private {
         (int24 nlo,, int24 nhi,) = updateTicks(targetSqrt, BAND_DELTA);
         if (r.myLiquidity > 0) {
-            (r.price, r.fees0, r.fees1, r.delta0, r.delta1) = IV4(v4).reseat(
+            (r.price, r.fees0, r.fees1, r.delta0, r.delta1) = ICore(v4).reseat(
                 isBTC, r.myLiquidity, r.sqrtPriceX96, targetSqrt,
                 r.tickLower, r.tickUpper, nlo, nhi);
             r.didRepack = true;
@@ -1694,27 +1677,4 @@ library SwapLib {
 }
 
 
-interface IV4 {
-    function poolStats(int24 tickLower, int24 tickUpper, bool isBTC)
-        external view returns (uint160 sqrtPriceX96, int24 currentTick, uint128 liquidity);
-    function modLP(bool isBTC, uint160 sqrtPriceX96, uint delta, uint deltaUSD,
-        int24 tickLower, int24 tickUpper, address recipient) external returns (uint);
-    function POOLED_BTC() external view returns (uint);
-    function POOLED_ETH() external view returns (uint);
-    function POOLED_USD_BTC() external view returns (uint);
-    function repack(bool isBTC, uint128 myLiquidity, uint160 sqrtPriceX96,
-        int24 tickLower, int24 tickUpper, int24 newTickLower, int24 newTickUpper)
-        external returns (uint price, uint fees0, uint fees1, uint delta0, uint delta1);
-    function reseat(bool isBTC, uint128 myLiquidity, uint160 currentSqrt,
-        uint160 targetSqrt, int24 oldTickLower, int24 oldTickUpper,
-        int24 newTickLower, int24 newTickUpper)
-        external returns (uint price, uint fees0, uint fees1, uint delta0, uint delta1);
-    function collectFees(int24 tickLower, int24 tickUpper, bool isBTC)
-        external returns (uint, uint);
-    function token1is(bool isBTC) external view returns (bool);
-    // Self-managed out-of-range position op (mock relocate; isBTC selects the pool).
-    function outOfRange(bool isBTC, address sender, int liquidity,
-        int24 tickLower, int24 tickUpper, address token) external;
-    function poolTicks(bool isBTC) external view returns (bytes32, uint160, int24);
-}
 

@@ -4446,3 +4446,40 @@ therefore Docker Desktop running. Command is in [[quid-ln-needs-linux-to-build]]
 
 ### ▶️ NEXT (unchanged plan): `Aux` views (≥5 interfaces) → `Core` views (≥4) → `outOfRange`×6 → Rust half.
 
+## 💡 #12 SUB-ITEM REFINED BY THE USER (2026-08-02) — pay the v4 protocol fee AT WITHDRAWAL, not per-swap
+> *"you have a TODO for the mocktoken inflation to bypass the fee? i was counting on this to allow compound
+>  interest to work better… just to make uniswap happy we can still donate the fee from an LP withdrawal to
+>  the same location that their coercive automatic deduction was trying to bill every fee. my theory is that
+>  hampering compound interest shouldnt happen, would it genuinely lead to different results the way i
+>  propose it? this must be tested later, after we finish all our other todos"*
+
+### ⇒ ANSWER: **YES, it genuinely differs — and the difference is the whole point, not a rounding artifact.**
+ • A fee skimmed **PER SWAP** shrinks the LP's principal at every swap, so the LP earns yield on a smaller
+   base for the rest of the period. The loss is not the fee — it is **the fee PLUS all the yield that fee
+   would have earned**, compounding for the remaining holding time.
+ • A fee paid **ONCE AT WITHDRAWAL** leaves the full principal compounding and deducts the amount at the end.
+ ⇒ The gap between the two is exactly *"yield on the fee amount over the holding period"* — **larger the
+   longer the LP stays and the higher the yield.** For a long-duration LP this is a real, compounding number,
+   which is precisely why the user says hampering compounding *"shouldn't happen"*. **Their theory is right.**
+
+### 🔑 AND THERE IS A SHARPER ARGUMENT THAT MAKES IT HONEST, NOT A DODGE
+Our pool's currencies are **MOCK tokens** (verified: `Core.sol:479-484` keys the PoolKey on `usdMock`/
+`volMock`). ⇒ **A protocol fee skimmed from our pool is collected IN MOCKS, which are worthless outside the
+system.** So the coercive per-swap deduction does not actually pay Uniswap anything of value — it only
+damages our LPs' compounding.
+⇒ **The user's proposal is therefore strictly BETTER FOR BOTH SIDES:** stop the worthless-mock skim from
+  compounding against LPs, and **donate the equivalent in REAL value at withdrawal to the same destination
+  the protocol fee would have gone to.** Uniswap ends up with something worth having; the LP keeps their
+  compounding. **That is not "cheating the fee" — it is paying it in a currency that is actually worth
+  something, at a time that does not compound against the payer.**
+
+### ▶️ TO TEST (user: *"after we finish all our other todos"*) — the falsifiable version
+ 1. Simulate an LP over N periods with (a) per-swap skim vs (b) at-exit payment, same nominal fee. **Assert
+    (b) − (a) equals the compounded yield on the fee** — if it does not, one of the two models is wrong.
+ 2. Confirm the destination: where does `ProtocolFees` credit accrue, and can we pay it directly? (Fee is
+    per-pool + controller-set; `protocolFeesAccrued` is the sink — VERIFIED live, non-zero for ETH/USDC/USDT.)
+ 3. ⚠️ Only arm ANY of this if a controller actually sets a fee on OUR PoolKey. **Deploy-time assert 0 +
+    monitor first** — do not build against a hypothetical (recorded earlier under #12).
+📌 Kept under **#12 (POOLED_USD count-once)** because the compensation must not create backing from nothing —
+  the same invariant that governs the mock-inflation half.
+

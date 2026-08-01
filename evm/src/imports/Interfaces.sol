@@ -203,6 +203,9 @@ interface IAux {
 }
 
 /// Canonical ICore — union of ICore_V, ICore_VG.
+/// Canonical Core view — union of the former per-file variants (`SwapLib::ICore`,
+/// `SwapLib::ICore`, `BasketLib::ICore`). FOUR declarations described ONE contract, so a
+/// signature change had to be made up to four times and any missed one still compiled.
 interface ICore {
     function drawPooledUsdBtc(uint usd6) external;
     function subPendingSwapOut(uint usd6) external;
@@ -211,17 +214,28 @@ interface ICore {
     function outOfRange(bool isBTC, address sender, int liquidity, int24 tickLower, int24 tickUpper, address token) external returns (uint);
     function token1isBTC() external view returns (bool);
     function POOLED_BTC() external view returns (uint);
-    // GROSS BTC band depth (theta cap denominator)
     function btcThetaBacking() external view returns (uint);
     function poolStats(int24 tickLower, int24 tickUpper, bool isBTC) external view returns (uint160 sqrtPriceX96, int24 currentTick, uint128 liquidity);
     function observe(uint32[] calldata secondsAgos) external view returns (int56[] memory);
     function observeBTC(uint32[] calldata secondsAgos) external view returns (int56[] memory);
     function POOLED_ETH() external view returns (uint);
-    // θ numerator inputs (#107/D3) — retained band premium as a decayed rate, over the band's own
-    // in-range USD. Both 6-dec, so `_bandFeeYieldWad` needs no scale conversion.
     function premiumEwmaUsd(bool isBTC) external view returns (uint);
     function POOLED_USD_ETH() external view returns (uint);
     function POOLED_USD_BTC() external view returns (uint);
+    function token1is(bool isBTC) external view returns (bool);
+    function pendingSwapOutUsd() external view returns (uint);
+    function levClaimUsd6(bool isBTC) external view returns (uint);
+    function levGrossNative(bool isBTC) external view returns (uint);
+    function flowEwmaUsd(bool isBTC) external view returns (uint);
+    function realizedVarianceWad(bool isBTC) external view returns (uint);
+    function recordSkewPremium(bool isBTC, uint256 premiumUsd) external;
+    function refundUnfilled(address token, uint amount, address to) external;
+    function repack(bool isBTC, uint128 myLiquidity, uint160 sqrtPriceX96, int24 tickLower, int24 tickUpper, int24 newTickLower, int24 newTickUpper) external returns (uint price, uint fees0, uint fees1, uint delta0, uint delta1);
+    function reseat(bool isBTC, uint128 myLiquidity, uint160 currentSqrt, uint160 targetSqrt, int24 oldTickLower, int24 oldTickUpper, int24 newTickLower, int24 newTickUpper) external returns (uint price, uint fees0, uint fees1, uint delta0, uint delta1);
+    function collectFees(int24 tickLower, int24 tickUpper, bool isBTC) external returns (uint, uint);
+    function poolTicks(bool isBTC) external view returns (bytes32, uint160, int24);
+    function token1isETH() external view returns (bool);
+    function swap(bool isBTC, uint160 sqrtPriceX96, address sender, bool forOne, address token, uint amount) external returns (uint);
 }
 
 /// Canonical IEthVenue — the WHOLE external surface of `Vault`, not just its ETH-venue half.

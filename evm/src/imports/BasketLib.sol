@@ -2,6 +2,8 @@
 pragma solidity ^0.8.28;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+// §A.52: the canonical Core view (was a file-local variant).
+import {ICore} from "./Interfaces.sol";
 import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
@@ -44,17 +46,6 @@ interface IBasketTurn {
     function immatureBalanceOf(address who) external view returns (uint);
 }
 
-interface IVogueCore {
-    function POOLED_ETH() external view returns (uint);
-    function POOLED_BTC() external view returns (uint);
-    function POOLED_USD_ETH() external view returns (uint);
-    function POOLED_USD_BTC() external view returns (uint);
-    function committedUsd18() external view returns (uint);
-    function token1isETH() external view returns (bool);
-    function token1isBTC() external view returns (bool);
-    function swap(bool isBTC, uint160 sqrtPriceX96, address sender,
-        bool forOne, address token, uint amount) external returns (uint);
-}
 
 library BasketLib {
     uint public constant WAD = 1e18;
@@ -463,7 +454,7 @@ library BasketLib {
 
                 poolSupplied = pooled;
             }
-            out = IVogueCore(ctx.core).swap(p.isBTC, p.sqrtPriceX96,
+            out = ICore(ctx.core).swap(p.isBTC, p.sqrtPriceX96,
                       p.recipient, p.zeroForOne, p.token, pooled);
         }
         // If p.amount > V4 capacity, `out` is less than amount. minOut at
@@ -840,7 +831,7 @@ library BasketLib {
         // Byte-equivalent to the old `min(WAD, solvent·WAD/mature)` incl. the mature==0→WAD guard. #U1.
         perShare = ShareMath.qdShareValue(WAD, solvent, mature);
         uint il = _illiquidLoss();
-        uint committed = IVogueCore(r.core).committedUsd18();
+        uint committed = ICore(r.core).committedUsd18();
         uint locked = il > committed ? il : committed;
         freeUsd = solvent > locked ? solvent - locked : 0;
     }
@@ -925,15 +916,15 @@ library BasketLib {
         // the issuance side haircuts depeg to block over-mint). See DepegBackingProbe / SwapLib.swapToBody.
         (uint[15] memory deposits,,,) = IAux(address(this)).get_deposits();
         totalLiquid = deposits[14];
-        committedSum = IVogueCore(core).committedUsd18();
+        committedSum = ICore(core).committedUsd18();
         if (committedSum <= totalLiquid) return (committedSum, totalLiquid);
-        bool ethFirst = IVogueCore(core).POOLED_USD_ETH() >= IVogueCore(core).POOLED_USD_BTC();
+        bool ethFirst = ICore(core).POOLED_USD_ETH() >= ICore(core).POOLED_USD_BTC();
         // ETH pool repack → Vogue (v4); BTC pool repack → BtcVault (regrouped).
         _repackPool(!ethFirst, v4, btcVault);
-        committedSum = IVogueCore(core).committedUsd18();
+        committedSum = ICore(core).committedUsd18();
         if (committedSum > totalLiquid) {
             _repackPool(ethFirst, v4, btcVault);
-            committedSum = IVogueCore(core).committedUsd18();
+            committedSum = ICore(core).committedUsd18();
         }
     }
 
@@ -978,7 +969,7 @@ library BasketLib {
         // haircut stables EXCEPT what is committed to the BTC band (an ETH-side redemption cannot
         // unwind the BTC band). Conservative: subtract POOLED_USD_BTC (>= BTC-band equity; ignores
         // the debt that would only shrink it), so the quote never over-reports.
-        uint btcCommitted = IVogueCore(core).POOLED_USD_BTC() * 1e12;
+        uint btcCommitted = ICore(core).POOLED_USD_BTC() * 1e12;
         return total > btcCommitted ? total - btcCommitted : 0;
     }
 
