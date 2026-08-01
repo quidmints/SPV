@@ -3449,3 +3449,42 @@ docker run --rm -v "$PWD":/w -w /w/quid-ln -e CARGO_TARGET_DIR=/tmp/t rust:1.90 
  5. The two coin-selection exclusions + a test asserting a splice never spends a freshness outpoint.
  6. Regtest end-to-end ⇒ closes the ORIGINAL #114 broadcast-verification gap.
 
+## 🔐 SECURITY REVIEW OF THE STAGE-2 WIRING — "can a Rust-host hack drain it?" (user, 2026-08-01)
+**Answer: my change adds NO new authority — but the honest picture is more nuanced than "safe", and one
+part needs confirming rather than asserting.**
+
+### 1. The hop wallet signs LOCALLY — this is PRE-EXISTING, not introduced here
+`wallet.rs:441 sign_psbt(...)` uses `bdk_wallet::SignOptions` — the on-chain wallet builds and signs PSBTs
+**in-process**. The in-enclave policy signers are for OTHER surfaces:
+ • `evm_validating_signer.rs` — **EVM** txs, gated by contract+selector policy (`with_policy`).
+ • `validating_signer.rs` — **LN channel** signing, routed through explicit policy checks.
+⇒ **Neither guards arbitrary BDK on-chain sends.** A host with code execution can already build a PSBT and
+  sign it. ⇒ **The hop wallet is a HOT FEE WALLET, and it was already host-spendable before my change** —
+  `maybe_flush_btc_fees` builds and broadcasts splices from it today.
+⇒ ✅ **My change adds a CONSUMER, not a capability.** `Some(node.wallet.clone())` hands the heartbeat the
+  same handle the reconciler already holds. **No new drain path, no new liability.**
+
+### 2. The architecture's "a host hack cannot lose funds" invariant — WHAT it actually covers
+It must be read as covering **LP / protocol funds**, NOT the hop's fee float:
+ • **LP channel BTC** — 2-of-2, and every payout script pins to `btcRecipientOf`, which is **LOCKED at
+   registration** (`BTCChannels.sol:216`). A compromised host **cannot redirect an LP's BTC to itself.**
+ • **Band / vault capital** — EVM-side, behind the EVM policy signer.
+ • **Hop fee float** — a HOT wallet by design; its loss is an operational cost, not user funds.
+⚠️ **That distinction should be stated explicitly somewhere in the docs.** "No loss of funds on host
+  compromise" is TRUE for user funds and FALSE for the fee float, and conflating them hides a real (if
+  bounded) exposure. **Size the float accordingly** — it should hold what rotations need, not a treasury.
+
+### 3. Does the freshness UTXO give an attacker a NEW lever? **NO.**
+A compromised host could spend the freshness outpoint ⇒ invalidate every emitted exit ⇒ LPs lose their
+backstop. **But the same host could simply REFUSE to emit or rotate exits at all** — an identical outcome,
+already available pre-#114. ⇒ **No new attacker capability; the failure mode is unchanged.**
+⇒ And it does NOT enable theft: invalidating an exit removes RECOURSE, it does not redirect funds — the
+  payout script is still pinned to the LP.
+
+### ▶️ TO CONFIRM (do NOT treat as settled — this is the part I have not verified)
+ 1. Does ANY in-enclave policy gate BDK sends (a hook I did not find)? I searched `validating_signer` and
+    `evm_validating_signer`; **absence from my grep is not proof** — confirm against the enclave design.
+ 2. Stage 2 MUST create the freshness UTXO to an INTERNAL address (`get_internal_address`, already used at
+    `daemon.rs:320`) — **never a caller-supplied one.** That keeps the new code path incapable of
+    exfiltrating even if reached, and matches why `create_sweep_tx` stays unwired pending `SweepAuth`.
+
