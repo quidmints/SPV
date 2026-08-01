@@ -646,24 +646,84 @@ from any third party in its custody path. Both are real and neither is mass-mark
 **One practical constraint:** the payout address must be a 32-byte x-only taproot key, because every
 payout script is key-path P2TR. A legacy or segwit-v0 exchange withdrawal address will not work.
 
-## Why don't Bitcoin depositors' fees compound like the ETH side?
+## Do Bitcoin depositors' fees compound, and should they?
 
-They could, and it would make them worse off. Three reasons, and the second is the non-obvious one.
+**They can, and the path is built.** An earlier draft of this answer said Bitcoin fees are a fixed sats
+claim never re-invested, that compounding would expose them to impermanent loss they currently escape,
+and that it could not be done without corrupting per-channel close attribution. **All three were wrong**
+and the source says so directly.
 
-It costs real Bitcoin transactions. ETH fee compounding is a free accounting entry because the v4 ETH
-pool is virtual and the real ETH already sits at the venue. Bitcoin liquidity lives in a real UTXO, so
-folding owed sats into capacity means a splice transaction with a fee, a confirmation wait and a proof.
+Two settlement paths exist. Fees accrue to a per-depositor sats counter and are settled by the hop at
+channel close, **or** the hop funds them into a **grow-splice** — `BTCChannels.splice` accepts a
+`feeSettleSats` marking, requires `feeSettleSats <= grewBy` so the hop can only settle fees it actually
+spliced in, and the vault clamps to the real owed so it cannot over-settle. **They compound into the
+depositor's pooled position, and the hop keysends the same sats onto their Lightning balance off-chain**
+(`BTCChannels.sol:783-790`, `Vault.settleBtcFeesOwed`).
 
-**It would subject the Bitcoin depositor's fee yield to impermanent loss, which it currently escapes.**
-On the ETH side a compounded fee becomes part of the position and bears IL going forward, which is
-standard AMM behaviour. On the Bitcoin side the fee is a fixed sats claim paid at close and never
-re-invested, so it is IL-shielded. Aligning the two would convert an IL-free fixed claim into
-IL-bearing principal. **The asymmetry is a favourable property, not a gap**, and symmetry for its own
-sake would downgrade Bitcoin depositors.
+**Close attribution does not break, and the code states why.** Registration already grows the pooled
+position by the *full* splice delta regardless of how much was fee-funded, **so `delivered` stays
+invariant** (`BTCChannels.sol:784`). The fee marking only clears the owed counter; it does not touch the
+delivery arithmetic.
 
-And it touches the per-channel close attribution. Splicing fee sats into the funded amount grows the
-principal base that feeds delivery denominators, so it cannot be done without corrupting that
-accounting.
+**And a hedged depositor's compounded fees are hedged too, with a bounded lag.** The overlay sizes debt
+to `E0`, a base held *fixed between reseats* — deliberately, because sizing to the growing collateral
+produced a `1/(1−t)` over-hedge feedback loop. On every reseat `_reanchorIfReseated` re-anchors `E0` to
+the position's **current net equity**, which picks up whatever compounded since. The band is ±0.2%, so
+reseats are frequent and the lag is short. **So for a protected depositor the "compounding costs you IL"
+objection is close to empty.**
+
+### It already piggybacks, and it is already the primary path
+
+`quid-bridge/src/channel_driver.rs:844-870` does it opportunistically: **on a grow**, the driver reads
+the depositor's owed counter from the vault, takes `min(owed, grew_by)`, and passes it as
+`fee_settle_sats` in the splice calldata. A shrink grows nothing and settles zero. A read failure
+settles zero rather than blocking the splice. So it fires only when a splice is happening anyway, which
+is precisely the piggyback, and the marginal on-chain cost is zero.
+
+It is not an option alongside a separate settler. **It replaced one.** `daemon.rs:277` records
+`run_lp_fee_settler` as REMOVED because "BTC-leg fees compound in-channel via the fee-splice," and the
+store's `lp_fee_settled` bookkeeping went with it. Compounding is the design, and paying fees out
+separately is the thing that was deleted.
+
+One detail the driver corrects: under the delegation model the depositor runs no Lightning node, so
+there is no keysend leg. A bigger pooled share simply grows their cooperative-close payout, and
+`delivered` stays invariant because registration already grew pooled by the full delta.
+
+### What is NOT true: this is not idle capital
+
+An earlier draft called the owed counter dead capital. **It is not, and the correction matters because
+the whole Bitcoin thesis is that locked capital should not be idle.** `btcFeesOwedSats` is a pro-rata
+accrual computed from a fee accumulator, not a segregated pile of sats sitting anywhere. Nothing is
+parked. It is an **unfunded liability** the hop settles, either at close or early via a splice it funds
+itself.
+
+So the real quantity at stake is smaller and different from what "dead capital" implies: the depositor
+forgoes *compounding* on an accrued claim, and funding it early is the hop **advancing working capital**
+to convert an accrual into principal sooner. Worth doing, and not the activation of an idle reserve.
+
+### The hedged-versus-unhedged distinction is not worth a conditional
+
+A draft of this answer proposed gating compounding on whether the depositor has an open leverage
+position, on the grounds that an unhedged sats claim is IL-shielded while a hedged one is not.
+**Quantify it and the distinction collapses.**
+
+Compounded sats land in `LP.pooled`, and **only a theta-clamped fraction of pooled is ever paired
+in-range**. Theta is derived live from `yield / (K·σ²)`, so the exposed slice shrinks automatically
+exactly when volatility rises. The IL cost of compounding is therefore theta-scaled and second-order,
+while the benefit is direct: a bigger pooled share raises the fee weight (`LP.pooled + levBufBTC`) and
+adds real routing capacity. Compounding wins for both depositor types, and the extra branch would buy
+almost nothing.
+
+**And there is no intentional HODL here tied to the removed short.** The one deliberate
+non-reinvestment in the design is that the hedge base `E0` stays fixed between reseats, and its stated
+reason is the `1/(1−t)` over-hedge feedback loop from sizing to growing collateral, not anything to do
+with a short leg. The de-lever path did carry two comments describing short-leg interaction as if live;
+the short was removed 2026-07-24 and those comments were stale, which is very likely what produced the
+framing in the first place. Both are corrected in source.
+
+**What is genuinely open is narrower: it has no Forge test.** No test in `evm/test/` references
+`feeSettleSats`. A live money path with a `require` bound and a vault-side clamp, driven from Rust, and
+nothing exercising either on-chain.
 
 ## Is a Bitcoin liquidity provider just buying the dip all the way down?
 
@@ -1825,6 +1885,34 @@ do with it. Either can produce signed paper before anything is deployed.
 
 13. **Close the three vault owner setters, or record why they survive launch.** The one open item that
     materially weakens Part 6 and the only one we can fix unilaterally.
+13a. **Write a Forge test for `feeSettleSats`.** A live money path with a `require` bound and a vault-side
+    clamp, driven from Rust, and nothing in `evm/test/` references it. (The proposal to gate compounding
+    on an open leverage position was dropped: theta-clamping makes the IL cost second-order for both
+    depositor types.)
+13b. **Finish the stale-comment sweep.** A semantic scan on 2026-08-01 found roughly ten sites naming
+    deleted machinery as if it were live. Fixed: `btcFeesOwedSats`'s NatSpec (which said fees are "NOT
+    compounded into `pooled`" and directly caused a documentation error); two short-subsystem comments in
+    `LevManager._rebalanceBody`; the two keysend legs, obsolete under delegation; and `BTCChannels`'
+    header calling the bridge `Vogue.registerBtcLp`. **Still outstanding:** `Aux.sol:52` advertising an
+    `arbETH` forwarder the same file records as removed; `Aux.sol:735` "used by internal arbETH/arbBTC";
+    `Aux.sol:888`, `:1008`, `:1015` describing the `baseRate` as live where the same file records its
+    removal; `Vault.sol:43` justifying the `onlyUs` set by arbETH; `Core.sol:568` pointing at
+    `refillETH` and `ETHRefillRequest`; `DeployLib.sol:236` and `:252` describing SOR path arrays as
+    "arbETH/arbBTC iterates these"; and `Basket.sol:50` naming `onReport`.
+13c. **Rename `registerBtcLp`.** The name implies a once-per-channel registration and it is also the
+    GROW path: `_applySplice` calls it again to add liquidity, while the SHRINK half calls
+    `resizeBtcLp`. Two halves of one operation under two verbs, one of which is misleading. Something
+    like `creditBtcLp` or `addBtcLiquidity` would match `resizeBtcLp`. **Not done here**, because it is
+    an ABI change consumed by `quid-hop/src/evm_codec.rs` and needs the client-ABI check and a test run
+    rather than a mid-conversation edit.
+13c. **Audit the built-but-gated surface deliberately.** Several mechanisms exist and are switched off,
+    each for a stated reason, and the set should be reviewed together rather than rediscovered one at a
+    time: the sold-fraction IL target (`soldFractionActive`, default off in both leverage managers, so
+    the proven `1 − √(entry/now)` estimate stays active); enclave attestation
+    (`AttestedHopRegistry`, a no-op until governance pins the registry, falling back to an
+    owns-an-open-channel gate); on-chain swap-out rail B (`QUID_SWAPOUT_ONCHAIN`, off by default and
+    explicitly requiring a real bitcoind end-to-end run first); and on the identity side the treasury
+    adapter and Aave credit line, both built and tested but not called by the pool's core contracts.
 14. Model the collateral haircut the capped-at-par redemption requires, against the incumbent's 17.5%.
 15. Reconcile whether the reserve would hold whole loans or participations, and who the record lienholder
     would be, if property credit is ever pursued.

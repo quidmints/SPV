@@ -250,8 +250,13 @@ pub async fn initiate_splice(
     use anyhow::Context as _;
     use lightning::ln::funding::{FundingTxInput, SpliceContribution};
 
+    // `spendable_utxos` (NOT `get_utxos`): this path selects its own fee inputs, so it
+    // bypasses the `default_tx_builder` exclusion entirely. Using the unfiltered set here
+    // would let a splice consume the dead-man FRESHNESS outpoint as a fee input and
+    // silently invalidate every emitted exit (#114) — no error, no log, just a lost
+    // backstop for every LP.
     let mut utxos: Vec<_> = wallet
-        .get_utxos()
+        .spendable_utxos()
         .into_iter()
         .filter(|u| u.chain_position.is_confirmed())
         .collect();

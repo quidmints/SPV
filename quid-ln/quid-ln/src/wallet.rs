@@ -130,6 +130,17 @@ pub struct OnchainWallet {
     /// state diff, contrary to what the name of "[`ChangeSet`]" might suggest.
     changeset: Arc<std::sync::Mutex<ChangeSet>>,
     wallet_persister_tx: notify::Sender,
+    /// (#114) Outpoints ordinary spending must NEVER consume — currently the dead-man
+    /// FRESHNESS UTXO. Every emitted exit is signed over that outpoint, so an incidental
+    /// spend (a fee-flush selecting it as an input) would silently invalidate every LP's
+    /// backstop, with no error raised anywhere. Enforced in [`Self::default_tx_builder`]
+    /// via BDK's own `unspendable` so EVERY builder path inherits it, and honoured by
+    /// [`Self::spendable_utxos`] for callers that select their own inputs.
+    ///
+    /// Deliberate spends go through [`Self::spend_outpoint_to_self`], which names the
+    /// outpoint explicitly and is therefore unaffected by an exclusion that only applies
+    /// to AUTOMATIC selection.
+    reserved: Arc<std::sync::RwLock<std::collections::HashSet<bitcoin::OutPoint>>>,
 }
 
 /// Counts the total, confirmed, and unconfirmed UTXOs tracked by BDK.
@@ -387,6 +398,7 @@ impl OnchainWallet {
                 coin_selector,
                 changeset: Arc::new(std::sync::Mutex::new(initial_changeset)),
                 wallet_persister_tx,
+                reserved: Arc::new(std::sync::RwLock::new(std::collections::HashSet::new())),
             },
             wallet_created,
         ))
@@ -1076,6 +1088,7 @@ impl OnchainWallet {
             &mut locked_wallet,
             self.coin_selector,
             feerate,
+            &self.reserved.read().unwrap(),
         );
         tx_builder
             .add_recipient(fake_output_script, channel_value.into())
@@ -1114,6 +1127,7 @@ impl OnchainWallet {
             &mut locked_wallet,
             self.coin_selector,
             feerate,
+            &self.reserved.read().unwrap(),
         );
         tx_builder.add_recipient(output_script, channel_value);
         let mut psbt = tx_builder
@@ -1163,6 +1177,7 @@ impl OnchainWallet {
             &mut locked_wallet,
             self.coin_selector,
             feerate,
+            &self.reserved.read().unwrap(),
         );
         tx_builder
             .add_utxo(outpoint)
@@ -1204,6 +1219,7 @@ impl OnchainWallet {
                 &mut locked_wallet,
                 self.coin_selector,
                 feerate,
+                &self.reserved.read().unwrap(),
             );
             tx_builder
                 .add_recipient(address.script_pubkey(), req.amount.into());
@@ -1296,6 +1312,9 @@ impl OnchainWallet {
         let background_feerate =
             self.fee_estimates.conf_prio_to_feerate(background_prio);
 
+        // (#114) Snapshot BEFORE taking the wallet lock: cloning the (tiny) set means the
+        // two locks are never held in a nested order.
+        let reserved = self.reserved.read().unwrap().clone();
         let mut locked_wallet = self.inner.write().unwrap();
 
         // We _require_ a tx to at least be able to use normal fee rate.
@@ -1306,6 +1325,7 @@ impl OnchainWallet {
             &address,
             req.amount,
             normal_feerate,
+            &reserved,
         )?;
         let background_fee = Self::preflight_pay_onchain_inner(
             locked_wallet.deref_mut(),
@@ -1313,6 +1333,7 @@ impl OnchainWallet {
             &address,
             req.amount,
             background_feerate,
+            &reserved,
         )?;
 
         // The high fee rate tx is allowed to fail with insufficient balance.
@@ -1322,6 +1343,7 @@ impl OnchainWallet {
             &address,
             req.amount,
             high_feerate,
+            &reserved,
         )
         .ok();
 
@@ -1338,9 +1360,12 @@ impl OnchainWallet {
         address: &bitcoin::Address,
         amount: Amount,
         feerate: bitcoin::FeeRate,
+        // (#114) The estimate must exclude reserved outpoints too: quoting a fee that
+        // assumes the freshness UTXO is spendable would under-quote the real send.
+        reserved: &std::collections::HashSet<bitcoin::OutPoint>,
     ) -> anyhow::Result<FeeEstimate> {
         let mut tx_builder =
-            Self::default_tx_builder(wallet, coin_selector, feerate);
+            Self::default_tx_builder(wallet, coin_selector, feerate, reserved);
         tx_builder
             .add_recipient(address.script_pubkey(), amount.into())
             // We're just estimating fees, use a fake drain script to prevent
@@ -1359,15 +1384,42 @@ impl OnchainWallet {
     }
 
     /// Get a [`TxBuilder`] which has some defaults prepopulated.
-    fn default_tx_builder(
-        wallet: &mut Wallet,
+    fn default_tx_builder<'a>(
+        wallet: &'a mut Wallet,
         coin_selector: CoinSelector,
         feerate: bitcoin::FeeRate,
-    ) -> TxBuilder<'_, CoinSelector> {
+        reserved: &std::collections::HashSet<bitcoin::OutPoint>,
+    ) -> TxBuilder<'a, CoinSelector> {
         let mut tx_builder = wallet.build_tx().coin_selection(coin_selector);
         // Set the feerate. RBF is already enabled by default.
         tx_builder.fee_rate(feerate);
+        // (#114) Never let AUTOMATIC coin selection consume a reserved outpoint. Applied
+        // HERE rather than at each call site so every builder path — including any added
+        // later — inherits it. `unspendable` is BDK's own mechanism, and an explicit
+        // `add_utxo` still overrides it, which is exactly what rotation needs.
+        if !reserved.is_empty() {
+            tx_builder.unspendable(reserved.iter().copied().collect());
+        }
         tx_builder
+    }
+
+    /// (#114) Reserve an outpoint against ordinary spending. Idempotent.
+    pub fn reserve_outpoint(&self, outpoint: bitcoin::OutPoint) {
+        self.reserved.write().unwrap().insert(outpoint);
+    }
+
+    /// (#114) Release a previously reserved outpoint (e.g. once it has been retired).
+    pub fn release_outpoint(&self, outpoint: &bitcoin::OutPoint) {
+        self.reserved.write().unwrap().remove(outpoint);
+    }
+
+    /// UTXOs ordinary spending may consume — [`Self::get_utxos`] minus anything reserved.
+    /// Callers that do their OWN input selection (rather than going through
+    /// [`Self::default_tx_builder`]) MUST use this, or they will happily spend the dead-man
+    /// freshness outpoint and silently invalidate every emitted exit.
+    pub fn spendable_utxos(&self) -> Vec<bdk_wallet::LocalOutput> {
+        let reserved = self.reserved.read().unwrap();
+        self.get_utxos().into_iter().filter(|u| !reserved.contains(&u.outpoint)).collect()
     }
 
     /// Sign a [`Psbt`] in the default way.

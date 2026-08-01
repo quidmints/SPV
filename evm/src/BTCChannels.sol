@@ -30,7 +30,10 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 //  The EVM's only role is to BRIDGE the channel to the BTC AMM position:
 //    • openChannel  — SPV-prove the key-path P2TR funding UTXO `0x5120||Q`
 //                     exists at value `amountSats`, then credit the LP's BTC pool
-//                     position (Vogue.registerBtcLp). The funding output is
+//                     position (BtcVault.registerBtcLp — NOT Vogue; the BTC side
+//                     was regrouped out of Vogue + Aux, see the bridge interface
+//                     below. Also note `registerBtcLp` is NOT open-only: a GROW
+//                     splice calls it again to add liquidity). The funding output is
 //                     byte-matched against the lpAuth-committed Q + value against
 //                     the proven tx, so an LP cannot fabricate a position. (Q's
 //                     2-of-2 genuineness is off-chain — see Funding script below.)
@@ -782,7 +785,9 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         uint grewBy = _applySplice(channelId, p, rawSpliceTx, spliceMerkleProof);
         // FEE-INTO-CHANNEL: the hop may mark up to `grewBy` of this grow as BTC-leg fees it is FUNDING in —
         // they compound into the LP's position (registerBtcLp already grew pooled by the full delta, so `delivered`
-        // stays invariant) and the hop keysends the same sats onto the LP's LN balance off-chain. `<= grewBy` ⇒ it
+        // stays invariant); the bigger pooled share grows the LP's coop-close payout. (An earlier version of this
+        // line added "and the hop keysends the same sats onto the LP's LN balance off-chain" — that leg is
+        // OBSOLETE under delegation, where the LP runs no LN node.) `<= grewBy` ⇒ it
         // can only settle fees it actually spliced in (no theft); the Vault clamps to the real owed (no over-settle).
         if (feeSettleSats > 0) {
             require(feeSettleSats <= grewBy, "fee>splice");

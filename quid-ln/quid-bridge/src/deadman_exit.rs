@@ -289,10 +289,16 @@ pub async fn run_deadman_exit_heartbeat(
                 pick.outpoint.vout,
                 pick.txout.value.to_sat(),
             );
+            // Reserve it against ORDINARY spending. Without this a fee-flush or funding tx
+            // could select it as an input and silently invalidate every emitted exit — the
+            // failure mode has no error path, so the reservation is the only thing that
+            // prevents it. Deliberate rotation names the outpoint explicitly and is
+            // unaffected.
+            w.reserve_outpoint(pick.outpoint);
             info!(
                 txid = %pick.outpoint.txid, vout = pick.outpoint.vout,
                 sats = pick.txout.value.to_sat(),
-                "dead-man-exit: designated freshness UTXO (spending it invalidates all prior exits)"
+                "dead-man-exit: designated + reserved freshness UTXO (spending it invalidates all prior exits)"
             );
             Some((pick.outpoint, pick.txout.clone()))
         });
@@ -431,10 +437,15 @@ pub async fn run_deadman_exit_heartbeat(
             if freshness.as_ref().is_some_and(|(new, _)| *new != old) {
                 match w.spend_outpoint_to_self(old, quid_common::ln::priority::ConfirmationPriority::Normal) {
                     Ok(tx) => match vault.node.esplora.client().broadcast(&tx).await {
-                        Ok(()) => info!(
-                            retired = %old, txid = %tx.compute_txid(),
-                            "dead-man-exit: retired previous freshness UTXO — all superseded exits are now consensus-invalid",
-                        ),
+                        Ok(()) => {
+                            // Retired: it no longer needs protecting, and leaving it
+                            // reserved would slowly starve coin selection.
+                            w.release_outpoint(&old);
+                            info!(
+                                retired = %old, txid = %tx.compute_txid(),
+                                "dead-man-exit: retired previous freshness UTXO — all superseded exits are now consensus-invalid",
+                            );
+                        }
                         Err(e) => warn!(retired = %old, "dead-man-exit: retirement broadcast failed ({e:#}); \
                             superseded exits stay valid until the next attempt"),
                     },

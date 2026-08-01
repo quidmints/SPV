@@ -565,14 +565,18 @@ contract LevManager {
         ILevVenue venue = pos[lp].venue;
         address stable = venue.stable();
         (bool levUp, uint256 deltaUsd) = debtDeltaToTarget(lp);
-        // (no early return on deltaUsd==0: the bidirectional short below may still need to open/close)
+        // `deltaUsd == 0` means already on target, so both branches below are skipped. (This line used to
+        // explain the absence of an early return by pointing at "the bidirectional short below" — that
+        // subsystem was REMOVED 2026-07-24, see the note under this block. The sync hook at the end of the
+        // function is the only remaining reason there is no early return.)
         if (deltaUsd != 0) {
             if (levUp) {
                 _leverUpBuy(venue, lp, stable, deltaUsd, minOut);
             } else {
                 // Flash-repay-first: `deleverRepayUsd` is the closed-form `Δ/(1−t)`, so one flash lands on target
-                // with NO withdraw-before-repay health breach. It returns 0 while a SHORT is open (that debt is the
-                // short's funding, owned by the short leg) — so the de-lever never fights/bleeds the short.
+                // with NO withdraw-before-repay health breach. (It used to also return 0 while a SHORT was open,
+                // so the de-lever would not fight the short leg's funding — that case is DEAD, the short
+                // subsystem was removed 2026-07-24 and no short can be open.)
                 _deleverFlash(venue, lp, stable, deleverRepayUsd(lp), minOut);
             }
             emit Rebalanced(lp, levUp, deltaUsd, getCurrentLtvBps(lp));

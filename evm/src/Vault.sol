@@ -188,10 +188,30 @@ contract Vault is Ownable, ReentrancyGuard {
     mapping(address => uint[]) public positionsBtc;
     uint internal ID_BTC;
 
-    /// @notice BTC-leg trading fees owed to each LP, in native sats. The
-    /// BTC-leg fee is BTC, not basket dollars — so unlike the USD-leg it is
-    /// NOT minted as QUID and NOT compounded into `pooled`. It accrues here and
-    /// the hop settles it in native BTC at channel close.
+    /// @notice BTC-leg trading fees ACCRUED to each LP, in native sats.
+    ///
+    /// @dev WHAT THIS IS: an UNFUNDED per-LP accrual, not a segregated balance. Nothing is
+    ///      custodied against it and no sats sit idle anywhere. `settleBtcLp` credits each LP its
+    ///      pro-rata share of the BTC-leg fee accumulator here (`SwapLib.pendingFor` over
+    ///      `LP.pooled + levBufBTC`); the hop is the party that eventually FUNDS it in real BTC.
+    ///      Unlike the USD leg it is never minted as QUID, because the fee is BTC rather than
+    ///      basket dollars.
+    ///
+    /// @dev TWO SETTLEMENT PATHS, and the first is the LIVE PRIMARY ONE:
+    ///      1. COMPOUND (default). On a GROW splice the hop funds real sats in and marks up to
+    ///         `grewBy` of them as `feeSettleSats` (`BTCChannels.splice`). `settleBtcFeesOwed`
+    ///         clears the counter, and the sats DO compound into `LP.pooled` — `registerBtcLp`
+    ///         already grew pooled by the full delta, so `delivered` stays invariant. Driven from
+    ///         `quid-bridge/channel_driver.rs`, which reads this counter and settles
+    ///         `min(owed, grewBy)` opportunistically whenever a grow is happening anyway.
+    ///         This REPLACED the standalone settler (`run_lp_fee_settler`, deleted).
+    ///      2. AT CLOSE. Whatever is still owed is paid by the hop when the channel closes
+    ///         (`settleBtcLp`'s close path reads and deletes the counter).
+    ///
+    /// @dev CORRECTED 2026-08-01. This NatSpec previously read "NOT compounded into `pooled` ...
+    ///      the hop settles it in native BTC at channel close", describing path 2 as if it were the
+    ///      only one. That was stale from before the fee-splice landed and it caused a downstream
+    ///      doc error; do not restore it.
     mapping(address => uint) public btcFeesOwedSats;
 
     int24 public UPPER_TICK_BTC;
@@ -763,8 +783,11 @@ contract Vault is Ownable, ReentrancyGuard {
     }
 
     /// @notice Clear up to `sats` of the LP's owed BTC-leg fees — called by BTCChannels when the hop FUNDS
-    ///         those fees into a grow-splice (they compound into the LP's `pooled` via `registerBtcLp`, and the hop
-    ///         keysends the same sats onto the LP's LN balance off-chain), retiring the separate lp_fees payout.
+    ///         those fees into a grow-splice: they compound into the LP's `pooled` via `registerBtcLp`, and the
+    ///         bigger pooled share grows the LP's cooperative-close payout to `btcRecipientOf`. This retired the
+    ///         standalone settler (`run_lp_fee_settler`, deleted from quid-bridge). NOTE: an earlier version of
+    ///         this line said the hop also keysends the same sats onto the LP's Lightning balance off-chain —
+    ///         that leg is OBSOLETE under the delegation model, where the LP runs no Lightning node at all.
     ///         CLAMPED: can never clear more than is owed (BTCChannels already caps `sats` at the spliced `delta`,
     ///         so the hop can only clear fees it actually funded in — no theft, no over-settle).
     function settleBtcFeesOwed(address lpEth, uint sats) external onlyBtcChannels {
