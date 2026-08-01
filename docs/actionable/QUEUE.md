@@ -3112,3 +3112,14 @@ if prevouts.len() != exit_tx.input.len() {
  4. `FreshnessSpent` in `recovery_broadcast.rs` (fail loudly).
  5. Regtest end-to-end ⇒ closes the ORIGINAL #114 broadcast gap.
 
+## 📌 RULE NUANCE BANKED (user-confirmed, 2026-08-01) — when a check EARNS its place
+The standing rule *"minimise clamps that give a false sense of safety"* has an inverse, now saved as memory
+`guard-real-invariants-with-silent-failures`:
+ • ❌ DELETE a tolerance/clamp/skip that makes a SYMPTOM vanish while the defect survives.
+ • ✅ KEEP a check on a REAL invariant whose violation would be **SILENT and plausible-looking**.
+**The discriminator is whether the failure ANNOUNCES ITSELF.** The #114 sighash guard qualifies: a
+prevout/input mismatch produces a signature that verifies against itself but commits to the wrong prevout —
+nothing errors, the bytes look valid, and it is unrecoverable once emitted on-chain.
+**Corollary:** prefer a CHECK over a COMMENT whenever the invariant is machine-checkable — a comment
+describes past intent and cannot fail (this session had FIVE stale comments mislead conclusions).
+
