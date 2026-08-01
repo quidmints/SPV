@@ -4015,7 +4015,7 @@ Of the items assessed against CODE this session:
 |---|---|---|
 | ✅ done / closed / not-a-build-item | **11** | §A.5e §A.18 §A.13 §A.8e §A.16b §A.25 §A.5c §A.58 §A.59 §A.41 §A.23 |
 | 🟡 likely done — confirm before closing | **4** | §A.24 §A.9 §A.15 §A.16 |
-| ⚠️ partial | **1** | §A.5f (subset landed; per-action auth absent) |
+| ⚠️ MISLABELLED (see §A.5f entry below) | **1** | §A.5f — the landed piece is a SEPARATE control; the real item is a NEW SUBSYSTEM |
 | 🔴 genuinely open | **6** | §A.5g (LIVENESS bug) · §J.8b (dedup) · §A.19b (design decision) · §A.71 (the dedup pass) · §A.51 (user question) · §J.2c (Vogue ERC-20 face) |
 ⇒ **The real open set is ~6 items, not 33** — and of those, §A.71 IS the dedup pass, §A.19b and §A.51 are
   USER DECISIONS, and §J.8b folds into the dedup. **That leaves §A.5g (the reconnector liveness bug) and
@@ -4039,7 +4039,7 @@ The four 🟡 "likely" items are now CONFIRMED against code, not inferred:
   be genuine A.5c sections before accepting.
 
 ### ▶️ REMAINING REAL WORK (unchanged by the mark-off)
- 1. ⚠️ **§A.5f** — PARTIAL. Subset (timelocked recipient pin) landed; per-action auth absent. **NEXT.**
+ 1. ⚠️ **§A.5f** — NOT a partial (see the scoping entry). A NEW authorisation SUBSYSTEM; needs a design run, NOT a quick finish.
  2. 🔴 **§A.5g** — no reconnector task (liveness).
  3. 🔴 **§J.2c** — the Vogue ERC-20 face refactor.
  4. 🔴 **§A.71 / §J.8b** — the dedup pass (+ the hand-rolling audit).
@@ -4083,3 +4083,41 @@ shape** — same domain-separator discipline, same threshold model, same anchor 
   LP-discretionary, and the BTC path needs nothing — `lpAuth` is already `ecrecover` over
   `BTCChannels.openChannelDigest`.
 
+
+## 📌 §A.5f — BANKED AS A STANDALONE TASK (user asked for this explicitly, 2026-08-01)
+**Recording this so it cannot be lost or re-misread as a small finish.**
+
+### 🔴 THE MISLABEL — and why acting on it would have been the bug
+I called §A.5f "PARTIAL", which implies a finishing touch. It is not:
+ • **Landed:** the *timelocked withdrawal-recipient pin* (`Vogue.sol:225`) — a genuinely SEPARATE, small
+   control that merely **shares the section number**. It is done and closes nothing of the real item.
+ • **Missing:** *on-chain per-action delegation.* Today's on-chain gates are only COARSE — `onlyUs`,
+   `vogueSyncHook`, `msg.sender == V4`. They say **"this exact contract"**. They NEVER say
+   **"this action, up to this size, until this time, and revocable."**
+⇒ **That is a NEW AUTHORISATION SURFACE ON THE MONEY PATH**, not a finishing touch. Rushing it is exactly
+  how a bug gets created — the thing the user asked to avoid. **It needs its own design run.**
+
+### ✅ DO NOT HAND-ROLL — the primitive already exists in this repo
+`quid-hop/src/migration.rs` implements EIP-712 **`MigrationAuth`**:
+ • Gnosis **Safe** as `verifyingContract` (domain separator bound to the operator multisig),
+ • **≥`MIGRATION_THRESHOLD`** owner signatures,
+ • `ecrecover` verified **IN-ENCLAVE**,
+ • `guard_prod_trust_anchors` **refusing prod** while dev placeholder keys are compiled in.
+⇒ **§A.5f's `ActionAuth` should mirror that exact shape** — same domain-separator discipline, same
+  threshold model, same anchor guard. Copy the REASONING, not just the structure.
+
+### ⭐ ONE PRIMITIVE SERVES THREE OPEN ITEMS — design it once
+| open item | what it needs |
+|---|---|
+| **§A.5f** | scoped + capped + revocable per-action delegation for the strategy layer |
+| **`SweepAuth`** (`create_sweep_tx`, QUEUE:2251 — deliberately unwired) | a Safe-authorised trigger for a full drain |
+| **destination-allowlist exemption** (deferred in #114 step 5) | the one signed exception to deny-by-default |
+⇒ All three are *"a Safe-signed, typed, scoped authorisation"*. **Building them separately would triplicate
+  a security-critical mechanism** — the exact hand-rolling the user flagged. **Design ONE `TypedAuth`
+  primitive and give each item a scope type.**
+
+### ⚠️ EXPLICITLY OUT OF SCOPE (per the item itself — do not widen it)
+ • The optimal-entry **ALPHA logic stays OFF-CHAIN / LP-discretionary** — by design, not a gap.
+ • The **BTC path needs nothing**: `lpAuth` is already `ecrecover` over `BTCChannels.openChannelDigest`.
+ • The off-chain half is **BUILT**: `quid-common/src/api/revocable_clients.rs` (ed25519 keys, per-client
+   scopes, revocable). The gap is ON-CHAIN only.
