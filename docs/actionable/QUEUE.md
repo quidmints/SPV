@@ -3357,3 +3357,37 @@ Standing rule banked as memory `measure-a-fix-from-all-sides`. Pricing the shard
   axes I had not measured (second-order, reversibility). **That is the pattern: the regression is never on
   the axis you were optimising.**
 
+## 🔑 HARD CONSTRAINT (user, 2026-08-01): **NO OPERATOR EXISTS TO SET PARAMETERS.** Everything must self-tune.
+This **invalidates the "K is a policy dial" framing** — there is nobody to turn it. A parameter with no
+setter is either a hardcoded guess or a latent failure. **Every knob must be DERIVED from observable state,
+or not exist.** Re-deriving the two open parameters under that constraint:
+
+### 1. SHARD COUNT K — DERIVE from the wallet, and let it DEGRADE SAFELY
+```
+K = clamp(1, n_channels, floor(spendable_sats / (rotation_cost_sats * SAFETY_FACTOR)))
+```
+⇒ **Self-limiting in the right direction:** a THIN wallet drives K→1 (cheapest possible rotation, liveness
+  preserved); a FUNDED wallet raises K (smaller blast radius). ⇒ It **degrades blast-radius protection
+  rather than stopping rotation** — the correct sacrifice, because a stopped rotation is the fleet-wide
+  failure and a bigger blast radius is only a risk concentration.
+⇒ **Self-healing:** wallet refills ⇒ K rises automatically. No human in the loop, ever.
+⇒ It also DISSOLVES the second-order problem I found last turn: K can no longer be set higher than the
+  wallet can sustain, because the wallet balance IS the formula. **The unintended consequence is designed
+  out, not documented around.**
+
+### 2. SHARD ASSIGNMENT — **STABLE, NOT MODULO.** (this kills the migration problem outright)
+🔴 `channel_id % K` REMAPS every channel whenever K changes ⇒ silent lapse of the invalidation guarantee.
+⇒ ✅ **Assign each channel a shard ID ONCE, at first emission, and PERSIST it.** K changing only affects
+  where NEW channels land; existing channels never move.
+⇒ **No remap ⇒ no migration ⇒ no re-emission cycle ⇒ K becomes freely automatic** — exactly the property I
+  wrongly claimed for the modulo version. **Stable assignment is what makes the derived K safe.**
+⇒ Shrinking K (wallet drained) does NOT strand channels: their shard UTXO still exists and still rotates;
+  only NEW assignments concentrate. Rotation cost falls immediately, which is the point.
+
+### 3. REFRESH MARGIN — derive from Δ, do not hardcode a second constant
+`REFRESH_MARGIN = DEAD_MAN_DELTA_BLOCKS / 2` (currently 144/2 = 72 blocks ≈ 12h). One constant instead of
+two ⇒ they can never drift into `MARGIN >= Δ` (which would refresh every tick). The startup assertion I
+planned becomes UNNECESSARY — the relationship is structural, not checked.
+📌 **This is the "no cryptic knobs" instinct applied to operations:** a parameter nobody can set is worse
+  than no parameter. **Derive it, bound it by the resource that constrains it, and let it self-heal.**
+
