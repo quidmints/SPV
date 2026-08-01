@@ -2749,3 +2749,34 @@ re-derived documented knowledge twice on #114 — the test comment, and possibly
 📌 Everything ELSE about the design survived this: zero-grow is valid, the gate is the right site, the
   splice pipeline is reused. **Only my API assumptions were wrong — the design was not.**
 
+## ✅ #114 — THE PREDICATE **ALREADY EXISTS**. Reading `recovery_broadcast.rs` first was the right call.
+It is the LP/keeper-side recovery tool, and it ALREADY does every piece the refresh needs:
+| existing public fn | line | what it gives us |
+|---|---|---|
+| `latest_exit(...)` | `:125` | the LATEST `DeadManExitEmitted` for a channel — **including its `cltv_deadline`** (log scan + ABI decode already written) |
+| `bitcoin_tip_height(esplora_url) -> Result<u32>` | `:157` | the tip height (`GET /blocks/tip/height`) |
+| `recover_and_broadcast(...)` | `:179` | full recovery path |
+| **`watchtower_tick(...)`** | `:240` | ⭐ **A WATCHTOWER LOOP ALREADY EXISTS** |
+| `all_channels_with_exits(...)` | `:217` | enumerate channels that have exits |
+And `RecoverOutcome::NotMatured(u32, u64)` **already carries `(tip_height, cltv_deadline)`** — i.e. **the
+exact comparison the refresh predicate needs is already computed and already returned.**
+⇒ 🎯 **`refresh_due` = `latest_exit(...).cltv_deadline - bitcoin_tip_height(...) < MARGIN`.** No new log
+  scanning, no new ABI decode, no new HTTP call to write. **Wiring, not building** — as suspected.
+⇒ ⭐ **`watchtower_tick` is ALSO the natural home for Fix B (reactive mempool outspend)** — the loop that
+  would detect a stale broadcast already exists. **B is likely far cheaper than estimated.** ▶️ READ IT
+  before designing B (I have now been wrong twice on this item by not reading first).
+📌 **THIRD time on #114 that the thing I was about to build already existed** (the test comment spelled out
+  the mechanism; `initiate_splice` existed; now the whole predicate + a watchtower). **STANDING CORRECTION
+  FOR THIS CODEBASE: search for the capability BEFORE designing it.** The repo is far more complete than my
+  priors keep assuming, and every one of these was findable with a single grep.
+
+### ▶️ THE BUILD IS NOW SMALL AND FULLY SPECIFIED
+ 1. In `maybe_flush_btc_fees` (`channel_driver.rs:1166`), compute `refresh_due` from `latest_exit` +
+    `bitcoin_tip_height` (both `pub`, same crate — import from `crate::recovery_broadcast`).
+    ⚠️ Both are BLOCKING (`reqwest`-style sync) — the surrounding fn is `async`, and the existing EVM read
+    there already uses `tokio::task::spawn_blocking`. **Wrap these the same way** — do not block the runtime.
+ 2. Define the margin const beside `DEAD_MAN_DELTA` in `deadman_exit.rs`; assert `MARGIN < DELTA` at startup.
+ 3. One-line gate change: `if owed < MIN_ECONOMIC_GROW_SATS && !refresh_due { return; }`.
+ 4. `cargo check -p quid-bridge` → regtest (settles the V2 initiator-input residual).
+ 5. Then read `watchtower_tick` and wire Fix B into it.
+
