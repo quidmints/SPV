@@ -3300,3 +3300,37 @@ fn default_tx_builder(wallet: &mut Wallet, coin_selector: CoinSelector, feerate:
 📌 **This is the 5th time reviewing-before-writing changed the answer on #114.** The pattern is now
   unambiguous: **the capability almost always exists — find it, then decide.**
 
+## ⚠️ #114 — THE SHARED FRESHNESS UTXO **IS A CHOKEPOINT**. Resolve before stage 2 writes it. (user, 2026-08-01)
+**Terminology check:** I used "chokepoint" APPROVINGLY for `default_tx_builder` (one place to make a
+change — that is GOOD, a single edit that all paths inherit). The user means the OTHER sense: **a single
+point of failure.** And the design has one:
+🔴 **ONE freshness UTXO shared by ALL channels ⇒ its blast radius is EVERY channel at once.** Failure modes:
+ (a) spent by another path ⇒ **every LP's exit invalidated simultaneously** (mitigated by the 2 exclusions);
+ (b) rotation crash between spend and re-emit ⇒ same (mitigated by re-emit-BEFORE-spend ordering);
+ (c) **hop wallet empty ⇒ cannot create the next one ⇒ rotation stops fleet-wide** (NOT mitigated);
+ (d) a bug in the single rotation path ⇒ fleet-wide, not per-channel.
+⇒ The design traded **O(n) cost** for **O(1) cost + O(n) blast radius.** That trade was correct on COST but
+  I never priced the RISK concentration. **A backstop whose failure mode is "all LPs lose recourse at once"
+  deserves a harder look than one that degrades per channel.**
+
+### ▶️ IMPROVEMENT — SHARD, and make the count a POLICY DIAL
+**One freshness UTXO per SHARD of channels** (shard = `channel_id % K`), not one globally:
+ • **Blast radius drops from N channels to N/K.** A botched rotation, an accidental spend, or a bug in one
+   shard's path leaves the other K−1 shards fully protected.
+ • **Cost rises only to K small txs per period — still O(1) in the CHANNEL COUNT**, which was the whole
+   point. K is a dial: K=1 is today's design, K=N degenerates to per-channel (the rejected O(n) splice).
+ • ⭐ **K can start at 1 and rise without a protocol change** — the exit already binds to whichever outpoint
+   it was signed against, so sharding is an OPERATIONAL parameter, not a format change. **Ship K=1, raise it
+   when LP count justifies it.** That keeps stage 2 simple AND leaves the risk dial available.
+ • Residual (c) — wallet exhaustion — is NOT fixed by sharding (shared wallet). It stays the **operational
+   liveness requirement already recorded**: fund the hop wallet, alarm on reserve proximity.
+📌 Recording the improvement WITHOUT expanding stage 2's scope: **stage 2 implements K=1**, with the shard
+  index as a parameter so raising K later is config, not a rewrite. **This is the "no compromises" form that
+  does NOT delay the original work.**
+
+## 🎯 FOCUS RESTATED (user: finish the original work, do not get sidetracked)
+**ORIGINAL TASK = #114 stages 2-5, then THE 33, then the deep dedup pass.** Everything since has been
+genuine dependencies (BDK review, chokepoint risk) — but the NEXT ACTION is unchanged and concrete:
+ ▶️ **STAGE 2 STEP 1: add `hop_wallet` to `run_deadman_exit_heartbeat` and wire its call site.** That is the
+   single blocker; everything else in stage 2 follows from it.
+
