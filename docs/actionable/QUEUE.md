@@ -3177,3 +3177,30 @@ warning: method `create_sweep_tx` is never used  --> quid-ln/src/wallet.rs:1182:
   Linux check with warnings surfaced as part of the dedup pass — **for the Rust half, `cargo check` +
   `#[warn(dead_code)]` beats any manual sweep.**
 
+## 🔍 `create_sweep_tx` VERDICT — genuinely dead, and NOT the stage-2 plumbing. (Checked before deleting.)
+`wallet.rs:1178-1195`: *"Create a sweep transaction that **drains all funds** from the wallet to
+`dest_address`"* — BDK `drain_wallet` + `drain_to`.
+⇒ **That is an EVACUATION utility, not what stage 2 needs.** Stage 2 needs the opposite shape: create ONE
+  SMALL self-send UTXO, then later spend THAT SPECIFIC OUTPOINT. A drain-everything primitive is unusable
+  for it.
+⇒ ✅ **So it stays dead** — but it is a plausible deliberate feature (emergency wallet evacuation) that was
+  built and never wired. **USER DECISION for the dedup pass: wire it to an evacuation path, or delete it.**
+  ⚠️ Do NOT auto-delete: "no callers" + "obviously an emergency tool" is exactly the shape of something
+  removed and then missed when it is needed. Flag, do not sweep.
+
+### ▶️ STAGE 2 — the REAL wallet APIs to use (grep-verified, nothing invented)
+| need | API | line |
+|---|---|---|
+| create the freshness UTXO (small self-send) | `create_onchain_send(...)` | `wallet.rs:1134` |
+| find / track it afterwards | `get_utxos() -> Vec<bdk_wallet::LocalOutput>` | `:873` |
+| (already used by `initiate_splice` for fee inputs) | `get_utxos()` filtered on `chain_position.is_confirmed()` | `node.rs` |
+⇒ `get_utxos()` returning `LocalOutput` gives the outpoint AND value ⇒ **exactly the `(OutPoint, TxOut)`
+  pair `presign_deadman_exit` now takes.** The stage-1 signature already matches the wallet's own shape —
+  no adapter needed.
+⇒ **Rotation = `create_onchain_send` to our own address (new UTXO) → re-emit ALL exits against it → THEN
+  spend the previous one.** Ordering load-bearing, as recorded.
+⚠️ Freshness UTXO must be (a) above dust, (b) EXCLUDED from splice/fee coin-selection, or `initiate_splice`
+  could consume it as a fee input and silently invalidate every emitted exit. **That is a REAL hazard**
+  created by this design — the wallet has one UTXO pool shared with `initiate_splice`'s
+  `wallet.get_utxos()`. **Needs an explicit reservation/exclusion, and a test that asserts it.**
+
