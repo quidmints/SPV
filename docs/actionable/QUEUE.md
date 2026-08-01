@@ -2611,3 +2611,35 @@ if owed < MIN_ECONOMIC_GROW_SATS && !deadman_refresh_due {
  4. Then: forge test for `emitDeadManExit` gating + the regtest broadcast proof (the ORIGINAL #114 gap),
     now testable end-to-end because the refresh path will produce a fresh exit on demand.
 
+## ⚠️ #114 — THE LAST UNKNOWN IS REAL: does LDK accept a ZERO-grow splice?
+`quid-ln/quid-hop/src/node.rs:241` — `initiate_splice(..., grow_sats: u64, funding_feerate_per_kw: u32)`
+builds a `lightning::ln::funding::SpliceContribution` from confirmed hop-wallet UTXOs (sorted
+most-confirmed-first to dodge coinbase immaturity) and lets LDK enforce the real fee.
+⇒ For a REFRESH-ONLY splice on an idle channel with no accrued fees, `grow_sats == 0`. **Whether LDK's
+  `SpliceContribution` accepts a zero contribution is version-dependent and MUST BE TESTED, NOT ASSUMED** —
+  a splice-in of 0 may well be rejected as a no-op. (Fees still come from the hop wallet's contributed
+  UTXOs, so the tx itself is fundable and the funding outpoint DOES rotate — the question is purely whether
+  LDK permits the zero-value contribution.)
+📌 Deliberately NOT assumed either way. Assuming a permissive API is the same error class as assuming
+  `canRedeem`'s arity and `totalRedeemableAmount`'s parameter earlier today.
+
+### ▶️ OPTIONS IF ZERO-GROW IS REJECTED (enumerate before coding — do not pick blind)
+ (a) ⭐ **Fee-piggyback ONLY: refresh-splice only when `owed > 0`.** Costs nothing extra and is always valid.
+     ⚠️ **BUT an idle channel may NEVER accrue fees** — which is precisely the exposed case — so this alone
+     REINTRODUCES the hole. **Viable only combined with (b) or (c).**
+ (b) **Minimal hop-funded grow** (e.g. dust+1) attributed to the HOP, not the LP. Always valid, tiny cost.
+     ⚠️ Must NOT credit the LP's `checkpointSats` or it silently inflates their balance — check how the EVM
+     mirror derives the LP amount from the splice before choosing this.
+ (c) **Splice-OUT dust to the hop wallet** — `initiate_splice_out` / `initiate_splice_out_to` ALREADY EXIST
+     (`node.rs:330`/`:367`). A tiny splice-out rotates the outpoint with no LP-balance inflation, and it is
+     the MIRROR of (b) using a primitive that is already built.
+     ⚠️ Shrinks the LP position by dust each refresh — bound it, or return the dust in the next fee-flush.
+ ⭐ LIKELY BEST: **test zero-grow first; if rejected, (c)** — it reuses an existing splice-out primitive and
+   avoids the balance-inflation trap of (b). Decide only after the LDK behaviour is KNOWN.
+
+### ▶️ IMMEDIATE NEXT ACTION (cheap, decisive)
+Write a single regtest/unit exercise calling `initiate_splice` with `grow_sats = 0` on an open channel and
+observe whether LDK produces a `SpliceContribution` / `Event::SplicePending`. **That one result selects the
+implementation** — and the `regtest/` harness already exists (`regtest/setup.sh`, `setup-ln.sh`) and is
+already used by `testSwapIn_RealLightningHTLC`, so the fixture cost is near zero.
+
