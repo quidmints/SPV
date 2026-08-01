@@ -2318,3 +2318,40 @@ correct ≠ verified-to-work — the SAME class as the `mockCall`-on-a-missing-s
  3. Regtest broadcast: feed `signedExitTx` to the existing `regtest/` harness and prove bitcoind ACCEPTS it
     after the CLTV matures and REJECTS it before. That is the only proof the bytes are truly broadcastable.
 
+## ⭐ (a+) IMPROVED DEAD-MAN × vBTC DESIGN — removes BOTH of (a)'s costs, using primitives that ALREADY EXIST
+(a) had two residual costs: a ONE-HEARTBEAT stale window, and vBTC forced to CHANNEL granularity. Both are
+removable, and neither fix needs new machinery.
+
+### 1. **SETTLE-ON-EMISSION** — the stale window becomes ZERO BY CONSTRUCTION
+Make a vBTC transfer **PENDING until the fleet has emitted a fresh `emitDeadManExit` naming the RECIPIENT.**
+The token moves only when a matching pre-signed exit already exists on-chain.
+⇒ **There is never a moment where someone holds vBTC without a pre-signed BTC exit that pays THEM.** The
+  window is not shortened — it is eliminated, because the emission is the settlement TRIGGER rather than a
+  later catch-up. (a) raced the heartbeat; (a+) makes the heartbeat the thing that completes the transfer.
+⇒ **Liveness failure is SAFE, not lossy:** if the fleet never re-emits, the transfer simply expires and the
+  SENDER keeps both the vBTC and their still-valid old exit. **No one is ever left holding an unbacked
+  claim** — the worst case is a transfer that does not happen, which is exactly the right failure direction
+  for a custody backstop.
+
+### 2. **SPLICE-ON-FRACTIONAL-TRANSFER** — restores full fungibility
+`BTCChannels` ALREADY has the splice primitive (`splice` — SPV-proves the funding UTXO was spent into a NEW
+2-of-2; drives open/close/splice on the LP position). A PARTIAL vBTC transfer therefore splices the channel
+into TWO channels — one per holder — each with its OWN `btcRecipientOf` and its OWN pre-signed exit.
+⇒ **vBTC stops being channel-granular and becomes properly fungible**, which was (a)'s main concession and
+  the user's original objection. **Reuses an existing, SPV-verified primitive instead of adding one** — this
+  meets the BUILD-QUEUE:44-48 bar: *reuses an existing primitive* AND *gives a better guarantee*.
+⇒ Bonus: it dissolves the "one Bitcoin script pays ONE address" limit WITHOUT needing a covenant — the
+  fan-out happens on the EVM side as channel splits, not in the Bitcoin script.
+
+### ⇒ NET RESULT
+vBTC circulates and redeems swap-out-style, AND every holder — original or downstream, whole or fractional —
+holds a live pre-signed BTC exit paying THEM. **The double-claim disappears** rather than being disclosed
+away as in (b). ⇒ **(b) is now dominated; (a+) should be the choice unless splice-per-transfer proves too
+expensive in gas or in SPV proof frequency.**
+⚠️ **VERIFY BEFORE COMMITTING TO IT (do not assume):** (i) splice cost per transfer — it needs an SPV proof
+  and an on-chain BTC tx, so frequent small transfers could be uneconomic ⇒ possibly gate splicing on a
+  minimum size and keep sub-minimum transfers channel-granular; (ii) whether `splice` can run WITHOUT the
+  LP's cooperation (the fleet holds both key halves, so it should — CONFIRM); (iii) the deadline-regression
+  check flagged earlier is a PREREQUISITE for all of this — if a stale CLTV can overwrite a fresh one, every
+  guarantee above collapses. **Fix that first.**
+
