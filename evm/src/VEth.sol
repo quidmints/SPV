@@ -6,6 +6,8 @@ interface IVogueShares {
     function balanceOf(address user) external view returns (uint);
     function convertToShares(uint assets) external view returns (uint);
     function convertToAssets(uint shares) external view returns (uint);
+    /// (§J.2c) The ONLY external door to Vogue's `_transferShares`, gated to this contract.
+    function transferSharesFor(address from, address to, uint amount) external;
 }
 
 interface IAuxBacking { function vogueETH() external view returns (uint); }
@@ -79,4 +81,42 @@ contract VEth {
     function previewWithdraw(uint assets) external view returns (uint) { return convertToShares(assets); }
     function maxRedeem(address owner) external view returns (uint) { return VOGUE.balanceOf(owner); }
     function previewRedeem(uint shares) external view returns (uint) { return convertToAssets(shares); }
+
+    // ─── §J.2c: the ERC-20 TRANSFER FACE ──────────────────────────────────────────────
+    // Vogue manages BOTH asset classes, so an ERC-20 face on IT is ill-defined: its
+    // `transferFrom` moved ETH-band shares while nothing in the signature said WHICH, and BTC
+    // band shares (`Vault.autoManagedBTC`) have no transfer face at all. `VEth` is
+    // unambiguously the vETH token, so the mutators belong HERE.
+    //
+    // STATE stays on Vogue (balances ARE `autoManaged[].pooled`, supply IS `lpShares` — see the
+    // header: relocating them would move the accounting core across a call boundary). Only the
+    // ALLOWANCE lives here, because an allowance is the TOKEN's own approval semantics and has
+    // no meaning to the band manager.
+    mapping(address => mapping(address => uint)) public allowance;
+    event Transfer(address indexed from, address indexed to, uint value);
+    event Approval(address indexed owner, address indexed spender, uint value);
+    error InsufficientAllowance();
+
+    function approve(address spender, uint amount) external returns (bool) {
+        allowance[msg.sender][spender] = amount;
+        emit Approval(msg.sender, spender, amount);
+        return true;
+    }
+
+    function transfer(address to, uint amount) external returns (bool) {
+        VOGUE.transferSharesFor(msg.sender, to, amount);
+        emit Transfer(msg.sender, to, amount);
+        return true;
+    }
+
+    function transferFrom(address from, address to, uint amount) external returns (bool) {
+        uint allowed = allowance[from][msg.sender];
+        if (allowed != type(uint).max) {
+            if (allowed < amount) revert InsufficientAllowance();
+            allowance[from][msg.sender] = allowed - amount;
+        }
+        VOGUE.transferSharesFor(from, to, amount);
+        emit Transfer(from, to, amount);
+        return true;
+    }
 }

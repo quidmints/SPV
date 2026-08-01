@@ -49,7 +49,6 @@ contract Vogue is
     error WrongV4();
     error Dust();
     error NoPosition();
-    error InsufficientAllowance();
     error InsufficientBalance();
     error AllowanceFlow();
     error ZeroTwap();
@@ -1150,13 +1149,8 @@ contract Vogue is
 
     uint8  public constant decimals = 18;
 
-    mapping(address => mapping(address => uint)) public allowance;
 
-    event Transfer(address indexed from, 
-        address indexed to, uint value);
 
-    event Approval(address indexed owner,
-    address indexed spender, uint value);
 
     event Deposit(address indexed sender, 
                   address indexed owner, 
@@ -1204,27 +1198,13 @@ contract Vogue is
         return lpShares;
     }
 
-    function approve(address spender, uint amount) external returns (bool) {
-        allowance[msg.sender][spender] = amount;
-        emit Approval(msg.sender, spender, amount);
-        return true;
-    }
-
-    function transfer(address to, uint amount) external nonReentrant returns (bool) {
-        _transferShares(msg.sender, to, amount);
-        return true;
-    }
-
-    function transferFrom(address from, address to, uint amount)
-        external nonReentrant returns (bool) {
-        uint allowed = allowance[from][msg.sender];
-        if (allowed != type(uint).max) {
-            if (allowed < amount) revert InsufficientAllowance();
-            allowance[from][msg.sender] = allowed - amount;
-        }
-        _transferShares(from, to, amount);
-        return true;
-    }
+    // §J.2c: `approve` / `transfer` / `transferFrom` MOVED TO `VEth`, together with the
+    // `allowance` storage and the `Approval`/`Transfer` events. Vogue keeps the STATE and stays
+    // the transfer AUTHORITY (`transferSharesFor` above, gated to `VEth`), but no longer presents
+    // a token face — so "which asset's shares am I moving?" can no longer be asked of a contract
+    // that manages two. `balanceOf`/`totalSupply` remain as plain ACCESSORS (59 test sites read
+    // them, and `VEth` re-exposes both as the canonical token face); without the mutators they
+    // are no longer an ERC-20 surface, just reads.
 
     /// @dev Move `amount` of pooled from `from` to `to`. Settles
     /// pending rewards on BOTH sides first so the moved principal
@@ -1239,7 +1219,6 @@ contract Vogue is
     function _transferShares(address from, address to, uint amount) internal {
         lpShares += VogueLib.transferSharesBody(
             autoManaged, levPooled, levBuf, venueBm, from, to, amount, feesPerShare, USD_FEES, venueFeesPerShare);
-        emit Transfer(from, to, amount);
     }
 
     // ─── share math (NOT a 4626 — see VEth.sol) ─────────────────────

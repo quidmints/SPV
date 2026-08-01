@@ -317,6 +317,9 @@ contract Deploy is Script {
         BTC = ETH;
         V3 = Rover(payable(A.rover));
         VETH = new VEth(A.v4, address(WETH), A.aux);
+        // §J.2c: pin the token face. `transferSharesFor` is gated to this address, so WITHOUT
+        // this call every vETH transfer reverts — the pin is not optional wiring.
+        Vogue(payable(A.v4)).setVEth(address(VETH));
         SPVGateway spvGateway = SPVGateway(A.spvGateway);
         BTCChannels btcChannels = BTCChannels(A.btcChannels);
 

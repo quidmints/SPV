@@ -4287,3 +4287,41 @@ control with venue yield the treatment paid for):
 📌 The control repair is KEPT (`vm.warp(tTime)` restored) — it is the correct control, and the diagnostic
   above shows it neither creates nor masks the gap.
 
+## ✅ §J.2c — THE ERC-20 TRANSFER FACE MOVED TO `VEth`. Vogue is no longer a token.
+**The defect** (user: *"it still has transferFrom which makes it awkward that you dont know which shares
+you are transferring"*): `Vogue.transferFrom` moved ETH-band shares while nothing in the signature said
+WHICH, Vogue manages BOTH asset classes, and BTC band shares (`Vault.autoManagedBTC`) have no transfer face
+at all. An ERC-20 face on a two-asset manager is ill-defined BY CONSTRUCTION.
+
+**What moved / what stayed** — the split is the whole point:
+| | where it lives now |
+|---|---|
+| `transfer` · `transferFrom` · `approve` · `allowance` storage · `Transfer`/`Approval` events | **`VEth`** — unambiguously the vETH token |
+| band STATE (`autoManaged[].pooled`, `lpShares`), `_transferShares`, the settle-both-sides invariant | **Vogue** (unchanged) |
+| `balanceOf` · `totalSupply` | **Vogue**, as plain ACCESSORS — 59 test sites read them and `VEth` re-exposes both. Without the mutators they are no longer an ERC-20 surface. |
+⇒ `Vogue.transferSharesFor(from,to,amount)` is the ONE external door to `_transferShares`, gated
+  `require(msg.sender == VETH)`. **"Which asset's shares?" is now UNASKABLE of Vogue**, not merely discouraged.
+⇒ Vogue's own `emit Transfer` REMOVED — `VEth` is the token, so it emits, and an indexer sees exactly one
+  event from the right address.
+
+### Why the scope is smaller than the original entry proposed — MEASURED, not assumed
+The entry said move all six members. Measured first:
+| surface | test sites |
+|---|---|
+| `balanceOf` (read) | **59** |
+| mutators (`transfer`/`transferFrom`/`approve`/`allowance`) | **0** (my earlier "1" was `WETH.approve` — the pattern matched `WETH` because it ends in `ETH`) |
+⇒ Moving the mutators costs **nothing** and fixes the whole ambiguity; moving the reads would have churned
+  59 sites for no safety gain, since `VEth` already re-exposes them.
+
+### 🔴 THE GAP I FOUND AND CLOSED — the moved surface had ZERO coverage
+No test transferred vETH at all (`VEthIdentity.t.sol` builds a `VEth` but never moves anything). Moving a
+money-path surface with no test is how a bug ships. Added
+`test_VEth_OwnsTheTransferFace_AndVogueGatesItToVEthAlone` — **PASSES** — asserting:
+ 1. a `VEth.transfer` moves **Vogue's** band shares (state stayed, face moved);
+ 2. `VEth` emits its OWN `Transfer` (⚠️ `expectEmit` matches on topic0 = keccak of the SIGNATURE, so a
+    differently-named local event silently never matches — hit and fixed);
+ 3. `Vogue.transferSharesFor` reverts `403` for any caller but `VEth` — the authority half;
+ 4. allowance lives on the TOKEN and `transferFrom` decrements it.
+⚠️ **Deploy wiring is NOT optional:** `DeployL1_s.sol` now calls `setVEth` right after constructing `VEth` —
+  without the pin every vETH transfer reverts.
+
