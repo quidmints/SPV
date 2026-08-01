@@ -4223,3 +4223,37 @@ With a valid control, the test now measures:
 📌 LESSON: my mark-off used *"a test exists that asserts it"* as evidence of correctness. **A test's
   EXISTENCE is not its VERDICT** — and here a second test, once repaired, says the opposite.
 
+## ✅✅ SUITE: **3559 passed / 1 failed** (was 3529/31). EIP-170 clean (0 exceedances).
+| | before | after |
+|---|---|---|
+| passing | 3,529 | **3,559** |
+| failing | 31 | **1** |
+| over-size contracts | 1 (SwapLib) | **0** |
+**+30 tests recovered** — all from the rung-3 silent-no-op mock (the 30 were inheritance amplification of
+that one test). The ONE remaining failure is `testLeverage_LvrControlVsTreatment`, which now measures a
+REAL 8.06% gap rather than reverting vacuously.
+🔑 **This retro-explains the archive's "3,559 / 1" baseline** (`QUEUE.md:728`), which I had dismissed as
+  *"simply a run where their pool happened to be deep enough"*. **It was not luck — 3559/1 was ALWAYS the
+  true baseline.** The extra 30 were the broken mock, present the whole time and misattributed to fork
+  state. **A number that "only appears sometimes" deserved a root cause, not an explanation.**
+
+### Changes in this run (all three verified together by the full suite)
+ 1. `test/Alles.t.sol` — rung 3 mocks `getTotalPooledEther()` (the TVL the watermark is bps of) instead of
+    a NON-EXISTENT `ethAmountLockedForWithdrawal()`. **+30 tests.**
+ 2. `test/LeveragePnLProbe.t.sol` — the control is TIME-MATCHED to the treatment (restore block/timestamp
+    after `revertToState`), so its redeems clear the JIT guard and opens are the only variable.
+ 3. `src/imports/VaultLib.sol` — `_withdrawableOf` falls back to `convertToAssets(balanceOf)` when
+    `maxWithdraw` REVERTS (Euler does, with no controller enabled; its `liquidityAdapter()` is also absent
+    on the current impl, so both probes miss). Previously a real, liquid position valued at **0**.
+    ⇒ Extends the SAME principle already landed for Morpho-V2 (*"the max-views are conservative,
+      `withdraw()` self-deallocates"*, BUILD-QUEUE:275) to the REVERTING case. No regression in 3,559 tests.
+
+### ▶️ THE ONE REMAINING FAILURE — a real question, not a broken test
+`684,216` (treatment) vs `744,183` (control) at unchanged price = **−8.06% for the passive LP**.
+**Resolve before closing §A.16** (whose ✅ mark I set today and now doubt):
+ (a) the externality is REAL ⇒ §A.16 re-opens, and `LeverageCrossSubsidyProbe` (which passes) is measuring
+     something narrower than it claims; or
+ (b) the time-match credits the control with venue yield the treatment's opens paid for ⇒ the comparison
+     needs the treatment's COSTS attributed, not just its clock.
+⚠️ Do NOT adjust the assertion to make it pass. **Two probes of the same claim disagree; that is the finding.**
+
