@@ -221,24 +221,108 @@ conversion in the flow is money transmission on its own, with FinCEN registratio
 This is already open question 4 in `ibiza/COMPLIANCE-THESIS.md` and is correctly identified there as the
 highest-leverage counsel question.
 
+## 10a. The reframe: the stack issues a BILL, not a loan
+
+Everything above hunts for lending products and every one of them dies on licensing. The framing was
+wrong. **The unique primitive here is a dated, fully-backed, discountable claim on a known future
+date.** ERC-6909 maturity buckets plus `calcMintYield` produce exactly that: deposit $1,850, receive
+QUI with $2,000 face maturing in twelve months, the forward yield priced in at entry. That is a
+bankers' acceptance, and the discount market ran on that instrument for three centuries. Pendle splits
+yield into two tradable tokens; nobody else in crypto issues a single instrument that matures at face
+on a calendar.
+
+A bill is worthless to someone who needs cash. It is worth **more than cash** to a counterparty who
+only needs the money on a known future date. That describes a large, unglamorous category: money you
+must post now and get back later.
+
+### The security-deposit product
+
+**Market:** US residential security deposits total roughly **$40 billion** sitting idle. An industry
+already attacks it — Rhino, Jetty, The Guarantors, SureDeposit, LeaseLock — mostly via surety bonds
+that landlords already accept, so no behaviour change is needed at the point of sale.
+
+**The incumbent's weakness is that the fee is non-refundable.** Jetty charges 17.5% of the deposit
+amount, others 20–50%, and the tenant never sees it again. A renter facing a $2,000 deposit pays ~$350
+and owns nothing.
+
+**The QU!D version dominates on both sides.** The tenant posts QUI maturing to $2,000 at lease end,
+pledged to the bond provider, who issues the same bond the landlord already accepts. Absent a claim the
+tenant receives $2,000. They end with **more than they started**, against paying $350 for nothing. The
+bond provider holds collateral maturing to exactly its exposure, so its loss rate collapses and it can
+price under Jetty while earning more. The landlord never touches crypto.
+
+**The hop is the surety company** — licensed, already holding the property-manager relationship, doing
+the KYC. QU!D supplies the instrument that removes their credit risk. Same distributor logic as the
+mortgage, applied where the regulated party has an obvious reason to say yes.
+
+**Same shape, other markets:** utility deposits for no-credit-file customers, commercial lease
+deposits, contractor performance and bid bonds, escrow and earnest money, customs bonds. Each is cash
+posted now against a known return date, each has an existing licensed intermediary to hop through.
+
+**Why this is the right answer for LPs specifically.** LP revenue is venue yield, v4 fees, and the
+retained scarcity premium, all of which scale with deposits and swap flow. Lending does nothing for an
+LP directly. The chain that matters is demand for QUI from people who are **not** crypto natives. A
+renter posting a deposit is not chasing yield and will not leave for fifty basis points, which makes it
+the most durable deposit base available.
+
+**It needs NO notary, NO title, NO lien and NO registry.** That absence is why it is more deliverable
+than everything property-based in this document.
+
+### Attacks on this idea
+
+- **Admitted assets.** State insurance regulators set what a surety may hold as collateral, and a claim
+  on a crypto stablecoin basket is almost certainly not on the list. Workaround is a third-party trust
+  holding collateral with the surety taking a pledge or letter of credit, which adds a party and a
+  cost. **This decides whether the product exists. Counsel question.**
+- **QUI is not par-safe.** `docs/legal` is explicit that redemption is capped at par and can fall below
+  it for three separate reasons (constituent depeg, genuine vault underperformance, deliverability-only
+  illiquidity). Collateral needs a haircut, so the tenant posts more than $1,850 and the economics
+  thin. **Model this honestly before pitching it.**
+- **Pledge perfection.** In some civil-law jurisdictions perfecting a pledge over a claim against third
+  parties needs notarisation and registration in a pledge register. That is a DIFFERENT notary function
+  from `TitleLedger`'s property-title one. In the US a pledge of an investment property is perfected by
+  control under the UCC, with no notary.
+- **Nothing ships without mainnet and an audit.** True of every idea here and the actual gating item.
+
 ## 11. Where this leaves the strategy
 
 The reserve's real, immediate need is **duration**: liabilities are dated out twelve months and every
 asset is overnight and crypto-native. Mortgage paper matches that book and pays a term premium for it.
 That need is genuine and does not depend on any of the open questions above.
 
-The cheapest way to buy duration is to **buy rated paper**, which is securities investing and needs no
-lending licence anywhere. Whole-loan purchase is a later step gated on counsel. Origination is a
-multi-year, multi-million, full-time regulated business requiring a hired qualifying individual with
-documented origination management experience, and it buys nothing a partnership does not already give
-you at the volumes in question.
+Buying rated paper fixes duration without a lending licence, but it is a **treasury operation, not a
+product**: it uses none of the stack and there is nothing to deliver to a customer. Whole-loan purchase
+is gated on counsel. Origination is a multi-year, multi-million, full-time regulated business requiring
+a hired qualifying individual, and it buys nothing a partnership does not already give you at the
+volumes in question.
+
+**The deliverable is §10a**, because it is the one product that uses the instrument only this stack
+issues and needs none of the machinery that licensing blocks.
 
 **The PMF question on the title layer is honestly open.** The stack solves a verification problem the
 European Commission itself names as a barrier. It does not solve licensing, enforcement variance,
-currency-risk regulation, or servicing at distance. What has clearer demand in the same repository:
-proof of personhood and sybil resistance; sanctions screening without disclosure, once the exclusion
-gadget is built; and shielded deposits that earn, which is a genuine improvement on every privacy pool
-before it.
+currency-risk regulation, or servicing at distance. And the deposit product, which is the most
+deliverable thing here, does not use it. What has clearer demand in the same repository: proof of
+personhood and sybil resistance; sanctions screening without disclosure, once the exclusion gadget is
+built; and shielded deposits that earn.
+
+**Does any of this validate the notary integration? Narrowly.** Notaries gate WRITING, so requiring a
+notary signature to set an encumbrance in `TitleLedger` is correct and unavoidable. Notaries do NOT
+gate reading, so requiring one to verify title is probably unnecessary (§1). And the deposit product
+needs neither. The notary work pays off on the encumbrance path if property lending is ever pursued,
+and not before.
+
+### Deliverables, ranked by what can actually ship
+
+1. **Intent venue listings** (Mach, Khalani — already committed). No licence, no product, no customer
+   acquisition. Brings the swap flow that drives the retained scarcity premium straight to LPs. Needs a
+   deployment and nothing else. **Fastest LP revenue in the stack.**
+2. **The Liquity zapper** (`SorExchange`). Built. Earns the SOR spread on both legs inside someone
+   else's product.
+3. **QUI as pledged deposit collateral** (§10a). Needs one surety partner and a counsel answer on
+   admitted assets.
+4. **Exodus.** They hold the rails and the state-by-state licences and are missing yield on unspent
+   balances, which is exactly what the basket makes. Enter as the supplier, not the competitor.
 
 ---
 
@@ -257,6 +341,13 @@ before it.
    originator as nominee, or an SPV?
 7. Purchase-scope: does payee-of-record fulfilment trigger money transmission? (counsel; already
    `COMPLIANCE-THESIS.md` open question 4)
+8. **Can a surety accept a QUI claim as collateral under state admitted-asset rules, or must it sit in
+   a third-party trust with the surety taking a pledge or letter of credit?** (counsel — this decides
+   whether §10a exists)
+9. **What haircut does QUI's capped-at-par, floating-downside redemption require as collateral**, and
+   do the economics still beat Jetty's 17.5% after it? (model, not research)
+10. Does perfecting a pledge over a QUI claim require notarisation and pledge-register entry in the
+    target jurisdiction? (US: no, UCC control. Civil-law: check per country.)
 
 ## Sources
 
@@ -276,6 +367,10 @@ before it.
   [WEF, managing foreign currency loans](https://www.weforum.org/stories/2015/10/how-should-european-economies-manage-their-foreign-currency-loans/)
 - Barriers: [EU White Paper on the Integration of EU Mortgage Credit Markets, CELEX 52007DC0807](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:52007DC0807) ·
   [Taylor Wessing, cross-border lending in the EU](https://www.taylorwessing.com/en/insights-and-events/insights/2024/11/lf-cross-border-lending-in-the-eu)
+- Security deposits: [Residential deposits total $40bn, Second Nature](https://www.secondnature.com/blog/security-deposit-alternatives) ·
+  [Jetty's 17.5% fee and the surety model, Brick Underground](https://www.brickunderground.com/rent/security-deposit-alternatives-nyc) ·
+  [Surety bonds as deposit alternatives, Buildium](https://www.buildium.com/blog/surety-bonds-as-alternatives-to-security-deposits/) ·
+  [The misleading marketing of Renter's Choice, Shelterforce](https://shelterforce.org/2020/12/10/security-deposit-alternatives-the-misleading-marketing-of-renters-choice/)
 - Exodus: [CoinDesk on the 2026 payments app](https://www.coindesk.com/business/2025/12/09/crypto-wallet-firm-exodus-bets-on-stablecoins-for-real-world-payments-with-2026-app) ·
   [Decrypt, Exodus Pay](https://decrypt.co/363947/exodus-pay-bitcoin-wallet-spending-app) ·
   [CoinDesk, Exodus and Baanx card](https://www.coindesk.com/business/2025/05/27/bitcoin-wallet-firm-exodus-unveils-crypto-debit-card-with-baanx)

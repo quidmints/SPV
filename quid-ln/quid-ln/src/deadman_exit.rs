@@ -64,24 +64,46 @@ pub fn keypath_p2tr_spk(xonly: XOnlyPublicKey) -> ScriptBuf {
 /// Build the UNSIGNED dead-man exit tx (see the module docs). `output_sats` is the
 /// LP payout AFTER subtracting the miner fee; `recipient_xonly` is the LP's
 /// `btcRecipientOf` x-only key; `cltv` is the absolute dead-man deadline (nLockTime).
+/// `freshness` (#114): an OPTIONAL second input spending a fleet-controlled UTXO shared by
+/// every channel. Because the BIP341 key-path sighash is taken over `Prevouts::All`, the
+/// signature commits to EVERY prevout — so spending that one UTXO renders EVERY previously
+/// emitted exit consensus-invalid at once (see
+/// `sighash_commits_to_every_prevout_not_just_input_zero`). That is what stops a matured,
+/// superseded exit from force-closing a live channel, at ONE small on-chain tx per period
+/// GLOBALLY rather than one splice per channel. `None` = pre-rotation channel (no such UTXO
+/// yet) and reproduces the original single-input tx byte-for-byte.
 pub fn build_deadman_exit_tx(
     funding_outpoint: OutPoint,
     output_sats: u64,
     recipient_xonly: XOnlyPublicKey,
     cltv: LockTime,
+    freshness: Option<OutPoint>,
 ) -> Transaction {
+    // Input 0 is ALWAYS the channel funding outpoint; the optional freshness input is
+    // APPENDED as input 1. This order is load-bearing: the sighash's `Prevouts::All` slice
+    // must be built in the SAME order, or the signature commits to the wrong prevout while
+    // still looking well-formed.
+    let mut input = vec![TxIn {
+        previous_output: funding_outpoint,
+        script_sig: ScriptBuf::new(),
+        // NON-FINAL: enables nLockTime (a final 0xffffffff sequence would
+        // disable the timelock). No RBF — the exit is a fixed pre-signed tx.
+        sequence: Sequence::ENABLE_LOCKTIME_NO_RBF,
+        witness: Witness::new(),
+    }];
+    if let Some(freshness_outpoint) = freshness {
+        input.push(TxIn {
+            previous_output: freshness_outpoint,
+            script_sig: ScriptBuf::new(),
+            sequence: Sequence::ENABLE_LOCKTIME_NO_RBF,
+            witness: Witness::new(),
+        });
+    }
     Transaction {
         version: Version::TWO,
         // Absolute CLTV: consensus won't mine this before `cltv`.
         lock_time: cltv,
-        input: vec![TxIn {
-            previous_output: funding_outpoint,
-            script_sig: ScriptBuf::new(),
-            // NON-FINAL: enables nLockTime (a final 0xffffffff sequence would
-            // disable the timelock). No RBF — the exit is a fixed pre-signed tx.
-            sequence: Sequence::ENABLE_LOCKTIME_NO_RBF,
-            witness: Witness::new(),
-        }],
+        input,
         output: vec![TxOut {
             value: Amount::from_sat(output_sats),
             script_pubkey: keypath_p2tr_spk(recipient_xonly),
@@ -162,7 +184,7 @@ pub fn presign_deadman_exit(
     // (2) Unsigned exit tx + its key-path sighash (the message every partial signs).
     let output_sats = checkpoint_sats.checked_sub(fee_sats).ok_or(DeadManExitError::Value)?;
     let exit_tx =
-        build_deadman_exit_tx(funding_outpoint, output_sats, recipient_xonly, cltv_deadline);
+        build_deadman_exit_tx(funding_outpoint, output_sats, recipient_xonly, cltv_deadline, None);
     let message = deadman_exit_sighash(&exit_tx, funding_value, &funding_spk)?;
 
     // (3) R1 — both halves' public nonces (deterministic, DEAD_MAN-tagged, in-place).
@@ -227,13 +249,12 @@ mod tests {
         // A 2-input exit: input 0 = channel funding, input 1 = the freshness UTXO.
         let funding = OutPoint { txid: bitcoin::Txid::all_zeros(), vout: 0 };
         let freshness = OutPoint { txid: bitcoin::Txid::all_zeros(), vout: 1 };
-        let mut tx = build_deadman_exit_tx(funding, 50_000, xonly, LockTime::from_height(144).unwrap());
-        tx.input.push(TxIn {
-            previous_output: freshness,
-            script_sig: ScriptBuf::new(),
-            sequence: Sequence::ENABLE_LOCKTIME_NO_RBF,
-            witness: Witness::new(),
-        });
+        // Built through the REAL freshness param — so this also covers the builder wiring,
+        // not just the sighash property.
+        let tx = build_deadman_exit_tx(
+            funding, 50_000, xonly, LockTime::from_height(144).unwrap(), Some(freshness));
+        assert_eq!(tx.input.len(), 2, "freshness input is appended as input 1");
+        assert_eq!(tx.input[0].previous_output, funding, "input 0 stays the funding outpoint");
 
         let funding_prevout = TxOut { value: Amount::from_sat(60_000), script_pubkey: spk.clone() };
         let sighash_with = |fresh_value: u64| -> [u8; 32] {
@@ -263,7 +284,7 @@ mod tests {
             vout: 0,
         };
         let cltv = LockTime::from_height(800_000).unwrap();
-        let tx = build_deadman_exit_tx(op, 100_000, recipient, cltv);
+        let tx = build_deadman_exit_tx(op, 100_000, recipient, cltv, None);
 
         assert_eq!(tx.lock_time, cltv, "nLockTime == the CLTV deadline");
         assert_eq!(tx.version, Version::TWO);
@@ -298,8 +319,8 @@ mod tests {
         let funding_spk = keypath_p2tr_spk(recipient);
         let funding_value = Amount::from_sat(200_000);
 
-        let tx1 = build_deadman_exit_tx(op, 199_000, recipient, LockTime::from_height(800_000).unwrap());
-        let tx2 = build_deadman_exit_tx(op, 199_000, recipient, LockTime::from_height(800_144).unwrap());
+        let tx1 = build_deadman_exit_tx(op, 199_000, recipient, LockTime::from_height(800_000).unwrap(), None);
+        let tx2 = build_deadman_exit_tx(op, 199_000, recipient, LockTime::from_height(800_144).unwrap(), None);
         let m1 = deadman_exit_sighash(&tx1, funding_value, &funding_spk).unwrap();
         let m2 = deadman_exit_sighash(&tx2, funding_value, &funding_spk).unwrap();
         assert_ne!(m1, m2, "a refreshed CLTV yields a different sighash (message)");
@@ -326,7 +347,7 @@ mod tests {
         let sk = bitcoin::secp256k1::SecretKey::from_slice(&[0x24; 32]).unwrap();
         let recipient = sk.x_only_public_key(&secp).0;
         let op = OutPoint { txid: bitcoin::Txid::from_byte_array([0x01; 32]), vout: 0 };
-        let tx = build_deadman_exit_tx(op, 50_000, recipient, LockTime::from_height(1).unwrap());
+        let tx = build_deadman_exit_tx(op, 50_000, recipient, LockTime::from_height(1).unwrap(), None);
         // Sign a real sighash so the sig bytes are well-formed.
         let msg = deadman_exit_sighash(&tx, Amount::from_sat(60_000), &keypath_p2tr_spk(recipient)).unwrap();
         let kp = bitcoin::secp256k1::Keypair::from_secret_key(&secp, &sk);

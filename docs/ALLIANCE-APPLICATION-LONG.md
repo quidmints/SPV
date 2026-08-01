@@ -131,8 +131,32 @@ mean-reverting right now. That feeds a classifier that labels the present regime
 two-way volatile, or trending. It characterises the current state and makes no forecast, which is
 stated plainly in the code so nobody mistakes it for a crystal ball.
 
-**And the largest household asset gets the same treatment.** Our second repository handles property,
-and we distribute rather than lend. The mortgage chain splits five ways, and four of them need a
+**The instrument this produces is a bill, and that is the deliverable.** The maturity buckets mean a
+depositor pays $1,850 and receives a claim with $2,000 of face maturing in twelve months, forward yield
+priced in at entry. A single instrument maturing at face on a calendar, which is what the discount
+market ran on for three centuries and which nothing else in crypto issues. It is useless to somebody
+who needs cash today and worth more than cash to a counterparty who only needs the money on a known
+future date.
+
+That category is large and dull. **US residential security deposits alone total around forty billion
+dollars, sitting idle.** Deposit alternatives already exist and landlords already accept them, so
+nothing changes at the point of sale. Their weakness is that the tenant's fee never comes back: Jetty
+takes 17.5% of the deposit amount, others 20 to 50%, so a renter facing $2,000 pays roughly $350 and
+owns nothing. In our version the tenant posts a claim maturing to $2,000 at lease end, pledged to a
+surety that issues the bond the landlord already takes, and absent a claim receives the whole $2,000.
+The tenant finishes ahead of where they started. The surety holds collateral maturing to exactly its
+exposure, so its loss rate collapses and it can undercut the incumbent while earning more. The landlord
+never learns any of this happened.
+
+The same shape covers utility deposits for people with no credit file, commercial lease deposits,
+contractor performance bonds and escrow. Each is cash posted now against a known return date, and each
+already has a licensed intermediary to work through. Two things decide whether it exists: whether a
+surety can hold the claim under state admitted-asset rules or needs it in a third-party trust, and what
+haircut the capped-at-par redemption requires. Both are in
+`docs/informational/CREDIT-STRATEGY-FINDINGS.md` with the rest of the open list.
+
+**And the largest household asset is the direction after that.** Our second repository handles
+property, and we distribute rather than lend. The mortgage chain splits five ways, and four of them need a
 licence: origination, underwriting, servicing, registering the lien. The fifth is the capital, which
 is the one we have. So a licensed originator finds the borrower, values the property, sets the terms
 and creates the lien, and the reserve funds the loan and holds the paper. Distributing rather than

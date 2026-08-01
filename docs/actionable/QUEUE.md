@@ -3049,3 +3049,40 @@ EVERY prevout ⇒ **spending the freshness UTXO invalidates an exit signed over 
   so stages 1-5 are plumbing against a verified foundation — the reverse of my earlier attempt, which wrote
   plumbing first against imagined symbols and had to be reverted.
 
+## ✅ #114 STAGE 1 LANDED — freshness input plumbed through the builder. 10/10 dead-man tests green.
+`build_deadman_exit_tx(..., freshness: Option<OutPoint>)`: input 0 is ALWAYS the funding outpoint; the
+freshness input is APPENDED as input 1. Comment records that the order is **load-bearing** — the sighash's
+`Prevouts::All` slice must be built in the SAME order or the signature commits to the wrong prevout while
+still looking well-formed.
+```
+test deadman_exit::tests::sighash_commits_to_every_prevout_not_just_input_zero ... ok
+test deadman_exit::tests::exit_tx_shape_is_cltv_keypath ... ok
+test deadman_exit::tests::sighash_changes_with_cltv ... ok
+test deadman_exit::tests::finalize_assembles_64byte_witness ... ok
+test result: ok. 10 passed; 0 failed
+```
+⇒ **`None` reproduces the original single-input tx byte-for-byte** — proven by `exit_tx_shape_is_cltv_keypath`
+  passing UNCHANGED (it asserts `tx.input.len() == 1`). **Stage 1 is inert**, exactly as designed.
+⇒ The premise test now builds through the **REAL** freshness param (not a hand-pushed `TxIn`), so it covers
+  the builder wiring AND the sighash property, and additionally asserts input 0 is still the funding
+  outpoint — catching an ordering regression directly.
+⇒ 5 call sites updated (1 in `presign_deadman_exit`, 4 in tests). **The compiler found every one** — the
+  value of changing an arity rather than adding an overload or a defaulted field.
+
+### ▶️ REMAINING STAGES (2-5) then the ROADMAP
+ 2. Hop wallet creates/rotates ONE freshness UTXO globally; daemon passes `Some`.
+ 3. Rotation ordering: re-emit ALL channels BEFORE spending the old UTXO.
+ 4. `FreshnessSpent` outcome in `recovery_broadcast.rs` (fail loudly).
+ 5. Regtest: fresh accepted / stale rejected ⇒ closes the ORIGINAL #114 broadcast-verification gap.
+
+## 📍 ROADMAP AFTER #114 (user asked — confirming the order)
+ 1. **#114 stages 2-5** (in flight).
+ 2. ⭐ **VERIFY THE 33 open-marked items** — 7 of 40 verified; **33 outstanding**. Now confirmed MANUAL
+    (graphify has no Solidity parser — proven, and re-confirmed by the graph containing 0 `.sol` nodes).
+    Audit by STRUCTURE (`^function`, `^interface`, `^contract`), never by type name.
+ 3. **Deep dedup + necessity pass** — incl. §A.52 interface minimisation (user: *"only the minimum quantity
+    of interfaces we need"*), one declaration per interface in a shared file.
+ 4. Then Echidna.
+📌 The Rust graph IS usable (57,511 links) and already paid off on #114 — **use it for the Rust half of the
+  dedup pass**, and fall back to structural greps for Solidity.
+

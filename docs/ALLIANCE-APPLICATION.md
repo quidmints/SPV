@@ -44,49 +44,33 @@ estimates present volatility, factor exposure and mean reversion, feeding a clas
 market as range-bound, two-way volatile, or trending. It characterises the current state and forecasts
 nothing, which is the honest version of what a strategy layer can do.
 
-Then the house, which is why the second repository is not a side project. The mortgage chain splits
-five ways and four of them need a licence: origination, underwriting, servicing, registering the lien.
-The fifth is the capital, and that is the one we have. So a licensed originator finds the borrower,
-values the property, sets the terms and creates the lien, and the reserve funds the loan and holds the
-paper. Distributing rather than lending also moves the problems cryptography cannot solve, valuation
-above all, onto a party already paid and already liable for solving them. Refinancing is the entry,
-since the collateral and the payment history exist already and the borrower is there for the rate.
+And the instrument that comes out of this is the thing nobody else in crypto issues. The maturity
+buckets make a **bill**: deposit $1,850, receive a claim with $2,000 of face maturing in twelve months,
+the forward yield priced in at entry. Not a yield token split in two, and not a floating balance. A
+single instrument that matures at face on a calendar, which is what the discount market ran on for
+three centuries.
 
-The point of it is duration. Every asset in the reserve today is overnight and crypto-native, so it
-reprices daily and goes quiet in the same week everything else does, while the liabilities are dated
-out twelve months. That is an insurer's book funded with money-market assets. A mortgage is what
-matches it, and the term premium is the payment for supplying exactly what the book is short of. It
-is also the only line here uncorrelated with the rest.
+A bill is useless to someone who needs cash today. It is worth more than cash to anyone whose
+counterparty only needs the money on a known future date, and that describes an unglamorous category
+worth **forty billion dollars in US residential security deposits alone**, sitting idle.
 
-The privacy layer does something narrower than people assume, and none of it hides anything from the
-lender, who has to know his borrower. It is about the asset reaching investors without the file
-following it. An ordinary securitisation ships loan-level data to investors in enough detail that
-re-identification is routine. In ours the originator keeps the dossier, and what reaches the reserve
-is a proof of genuine title, first position, and ratio within limits. The same mechanism keeps a
-household's position off a public ledger, and lets anyone confirm a parcel is not already pledged
-without a shared database of who owns what.
+Deposit alternatives already exist and landlords already accept them, so nothing has to change at the
+point of sale. What is weak about them is that the tenant's fee is gone forever: Jetty charges 17.5% of
+the deposit amount, others 20 to 50%, and a renter facing a $2,000 deposit pays around $350 and owns
+nothing. Our version has the tenant post a claim maturing to $2,000 at lease end, pledged to a surety
+who issues the same bond the landlord already takes. Absent a claim the tenant gets the full $2,000
+back. **They finish with more than they started, against paying $350 for nothing**, and the surety holds
+collateral maturing to exactly its exposure, so its loss rate collapses and it can price under the
+incumbent while earning more. The landlord never touches crypto.
 
-Default is where a structure like this usually falls apart, so the three roles are held separately.
-The reserve is the economic owner and takes the loss. A named legal person is the record lienholder,
-since a registry records a charge in favour of someone who exists and a contract is not a person. The
-originator is retained as servicer and forecloses as our agent, which is how every whole-loan sale
-already works. Refinancing helps here: discharging the old lien and recording a new one names the
-right beneficiary at origination, and faulty assignment afterwards is what the post-2008 foreclosure
-litigation was actually about. The paper carries reps and warranties with a repurchase obligation, so
-a loan that defaults early or was misrepresented on title or valuation goes back to the originator at
-par before anybody forecloses anything. The originator also keeps a retention slice rather than acting
-as a riskless conduit, which is both what securitisation rules already require and what keeps the
-originator the true lender: a California court held in May 2026 that the party which funds, underwrites
-and bears risk at origination is the lender, so a bank taking no risk hands the licensing obligation
-back to whoever does. What we give up is mechanical enforcement, and the residual is servicer risk,
-held down by a backup servicer named in advance and an irrevocable power of attorney signed at the
-start.
+The surety is the licensed party and we supply the instrument that removes their credit risk. The same
+shape covers utility deposits for people with no credit file, commercial leases, contractor bonds and
+escrow. Every one is cash posted now against a known return date, and every one already has a regulated
+intermediary to work through.
 
-Being honest about sequence: near-term duration comes from buying rated paper, which is securities
-investing and needs no lending licence. Whole-loan purchase is the step after, and it is gated on
-counsel rather than on engineering. `docs/informational/CREDIT-STRATEGY-FINDINGS.md` records what we
-verified and the seven questions still open, including whether CRD VI's non-bank carve-out survives its
-January 2027 ban on third-country lending into the EU.
+Property credit is the direction after that, once there is a balance sheet worth an originator's
+attention, and `docs/informational/CREDIT-STRATEGY-FINDINGS.md` holds the structure and the ten
+questions still open on it.
 
 ---
 
@@ -187,9 +171,9 @@ The position collects trading fees. Redemptions pay three to thirty basis points
 exit leaves the reserve healthier. Our router earns a spread and already sits inside Liquity's
 leverage tooling, taking it on both legs of somebody else's trade. The reserve is lent across Morpho,
 Aave, sDAI and Liquity, which earns whether or not anyone trades, so a quiet month has no floor to
-fall through. Mortgage paper is the line that comes after, and the reason to want it is that it pays
-a term premium for lengthening assets we currently hold overnight against liabilities dated a year
-out.
+fall through. The deposit-collateral product adds a fee shared with the surety, and it is worth more
+than its margin because it brings deposits from people who are not chasing yield and will not leave
+for fifty basis points.
 
 ---
 
@@ -202,10 +186,12 @@ every household he advises.
 
 Then protocols, without a deal: our deposit and mint functions are public and ungated, so an
 integrator declares a local interface and ships against us without ever having a conversation. Then
-order flow rather than users, through Mach, Khalani and Liquity's tooling. Then Lightning operators,
-where the pitch is that they stop working, since one signature is the whole onboarding and Bitcoin
-enforces the exit rather than our goodwill. And the stablecoin issuers, who benefit from every
-twelve-month lock we sell.
+order flow rather than users, through Mach, Khalani and Liquity's tooling, none of which needs us to
+acquire anybody. Then surety companies, who meet renters at the moment a deposit falls due and have an
+obvious reason to take the call, because fully-matched collateral removes the credit risk they
+currently price into every bond. Then Lightning operators, where the pitch is that they stop working,
+since one signature is the whole onboarding and Bitcoin enforces the exit rather than our goodwill.
+And the stablecoin issuers, who benefit from every twelve-month lock we sell.
 
 ---
 
