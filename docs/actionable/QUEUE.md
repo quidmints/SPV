@@ -4325,3 +4325,43 @@ money-path surface with no test is how a bug ships. Added
 ⚠️ **Deploy wiring is NOT optional:** `DeployL1_s.sol` now calls `setVEth` right after constructing `VEth` —
   without the pin every vETH transfer reverts.
 
+## ✅ §J.2c VERIFIED — suite **3569 passed / 1 failed** (the +10 vs 3559 is the new test's instances).
+Only `testLeverage_LvrControlVsTreatment` fails, and that is the REAL §A.16 measurement, not a regression.
+
+# ═══ §A.71 / §A.52 DEDUP PASS — MEASURED SCAN (started 2026-08-01) ═══
+## Scan 1 — identical function signatures defined in >1 place: **165**
+⚠️ **Most are NOT duplication and must not be "fixed":** `supply`/`borrow`/`repay`/`withdraw`/`debtOf`/
+  `collateralOf`/`liqThresholdBps` appear 6× each across `AaveV3Venue` / `AaveV4Venue` /
+  `MorphoEscrowVenue` — that is **POLYMORPHISM**: three implementations of one venue interface. Collapsing
+  them would delete the abstraction. **A signature count is not a duplication count.**
+
+## Scan 2 — §A.52 interface fragmentation: **the real, actionable finding**
+| metric | value |
+|---|---|
+| total `interface` declarations in `src/` | **110** (the entry said 95 — remeasured) |
+| interfaces declared under the SAME NAME in >1 file | **0** ✅ (the "one declaration" rule already HOLDS for names) |
+| **functions declared across >2 DIFFERENT interfaces** | **16** ⇐ **the violation** |
+| **6×** | `getTWAPforAsset` — `IAux`, `IAuxDep`, `IAuxSwap`, `IAuxTwap`, `ISwap` |
+| **4×** | `get_deposits` — `IAux`, `IAuxLens`, `IAuxOps`, `IAuxSwap` |
+| **4×** | `POOLED_ETH` / `POOLED_BTC` / `POOLED_USD_BTC` — `ICore`, `ICoreObs`, `IV4`, `IVogueCore` |
+| **3×** | `subPendingSwapOut` — `IBtcVaultBridge`, `ICore`, `ICoreObs` |
+⇒ 🎯 **The defect is NOT duplicate interface NAMES — it is ONE CONTRACT described by MANY NARROW
+  INTERFACES.** `Aux` is viewed through ≥5 (`IAux`/`IAuxDep`/`IAuxSwap`/`IAuxTwap`/`ISwap`); `Core` through
+  ≥4 (`ICore`/`ICoreObs`/`IV4`/`IVogueCore`). Each restates the same signatures, so a signature change must
+  be made in 4-6 places and **any missed one still compiles** — the silent-drift failure mode.
+⇒ **THIS is what "ONE DECLARATION PER INTERFACE, IN A SHARED FILE" (BUILD-QUEUE:44) actually asks for**, and
+  it is measurably violated 16 times.
+
+### ▶️ DEDUP PLAN (ordered by risk, lowest first)
+ 1. **Consolidate the `Aux` views** → one `IAux` in the shared `Interfaces.sol`; delete `IAuxDep`,
+    `IAuxTwap`, and the `ISwap`/`IAuxSwap` overlap. ⚠️ Check each consumer still compiles — a narrow
+    interface is sometimes chosen to keep a LIBRARY's bytecode small, so measure sizes after (SwapLib's
+    margin is 353 bytes).
+ 2. **Consolidate the `Core` views** (`ICore`/`ICoreObs`/`IV4`/`IVogueCore`).
+ 3. **§J.8b `outOfRange` ×6** — the ETH/BTC fork (`outOfRange`/`outOfRangeBtc`) across Core, Vogue, Vault,
+    Interfaces, BtcVaultLib, SwapLib.
+ 4. **Rust half** — use the graph (57,511 links) + `cargo check` dead-code warnings, which are authoritative
+    where greps are not.
+⚠️ **Apply the `_skewBasis` judgement throughout: extract what is genuinely SHARED, keep what genuinely
+  DIVERGES.** The venue trio above is the counter-example — identical signatures, different semantics.
+
