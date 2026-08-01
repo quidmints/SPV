@@ -182,6 +182,12 @@ pub async fn run_deadman_exit_heartbeat(
     btc_channels: Address,
     gas_limit: u64,
     interval_secs: u64,
+    // #114 STAGE 2: the hop's on-chain wallet, source of the shared FRESHNESS UTXO whose
+    // spend invalidates every previously emitted exit at once. `Option` because a node
+    // without fleet wallet duties still runs the heartbeat (it just emits `None`-bound
+    // exits, i.e. exactly today's behaviour). Resolved HERE, in the async task, and passed
+    // DOWN as a value — `build_exit_call` is documented pure/sync and must stay that way.
+    hop_wallet: Option<quid_ln::wallet::OnchainWallet>,
 ) {
     use crate::client::eth_call_raw;
     use crate::channel_driver::{estimate_gas_and_send, read_channel_state};

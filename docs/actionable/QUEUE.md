@@ -3424,3 +3424,28 @@ Re-emission is what the heartbeat ALREADY does every period. So a thin wallet tr
   DOWN (recovery under a thin wallet). **A self-tuning parameter must be measured in BOTH directions** —
   adding that to the standing rule's checklist.
 
+## ✅ #114 STAGE 2 STEP 1 LANDED — wallet reaches the heartbeat. Linux-verified.
+`run_deadman_exit_heartbeat(..., hop_wallet: Option<quid_ln::wallet::OnchainWallet>)`, wired in
+`daemon.rs:293` with `Some(node.wallet.clone())` — the SAME wallet the reconciler already clones at
+`daemon.rs:222` (`let reconcile_wallet = node.wallet.clone();`). **No new wallet, no new plumbing** — the
+hop has ONE on-chain pool and this joins the existing consumer list.
+```
+docker run --rm -v "$PWD":/w -w /w/quid-ln -e CARGO_TARGET_DIR=/tmp/t rust:1.90 cargo check -p quid-bridge
+  Finished `dev` profile in 1m 47s     # only: unused `hop_wallet` (not consumed yet) + pre-existing sweep
+```
+⇒ `Option` is again the HONEST type: a node without fleet wallet duties still runs the heartbeat and emits
+  `None`-bound exits — **i.e. exactly today's behaviour**, so this step is inert like stage 1.
+⇒ The wallet is resolved **in the async task** and will be passed DOWN as a value; `build_exit_call` stays
+  **pure/sync** as documented. The design boundary held under implementation.
+⇒ 📌 That single wallet being shared is EXACTLY why the two exclusions matter (`default_tx_builder`
+  `.unspendable(...)` + the `initiate_splice` `get_utxos()` filter) — the comment at the call site says so,
+  so the hazard is recorded where someone will actually meet it.
+
+### ▶️ STAGE 2 REMAINING
+ 2. `build_exit_call(..., freshness: Option<(OutPoint, TxOut)>)` → forward to `presign_deadman_exit`.
+ 3. Heartbeat: resolve/create the shard's freshness UTXO (`get_utxos` `:873` / `create_onchain_send` `:1134`);
+    persist `channel_id -> shard_id` (STABLE) and `shard_id -> outpoint` (ROTATES).
+ 4. Rotation + consolidation, both **re-emit BEFORE spending the old outpoint**.
+ 5. The two coin-selection exclusions + a test asserting a splice never spends a freshness outpoint.
+ 6. Regtest end-to-end ⇒ closes the ORIGINAL #114 broadcast-verification gap.
+

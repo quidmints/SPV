@@ -298,6 +298,10 @@ pub async fn run(
         cfg.btc_channels,
         cfg.gas_limit,
         crate::deadman_exit::DEFAULT_HEARTBEAT_SECS,
+        // #114: same hop wallet the reconciler uses — the freshness UTXO lives in the
+        // one on-chain pool, which is exactly why it must be excluded from splice/fee
+        // coin selection (see the `unspendable` + `initiate_splice` filter tasks).
+        Some(node.wallet.clone()),
     ));
     // On-chain swap-out (rail B) delivery driver — env-gated, OFF by default until
     // the LP-side correlation (2b.3c.3) lands + is harness-verified. When DISABLED,
