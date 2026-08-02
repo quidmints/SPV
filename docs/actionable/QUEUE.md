@@ -185,6 +185,15 @@ case. Conversely if it tolerates a shortfall, the tests never exercise the fee-b
 | **SWALLOWED FAILURE** | 67 | ⚠️ **UNTRIAGED — the biggest unexamined surface left.** `catch {}` / `\|\| echo SKIP`. Most are deliberate degrade-to-conservative paths, but `_lpValueUsd`'s `try/catch` returning 0 is exactly how a zero-delivery redeem hid in `testDD`, so the pattern has bitten here before. **Each needs: can a REAL failure reach this, and would it be silent?** |
 | **OUR markers** | 24 | 🟡 mostly prose/`@notice` references, but `quid-hop/src/migration.rs:58,63,73,77` are **4 `PLACEHOLDER (dev)` constants — operator Safe address and chain id — explicitly "replace before mainnet".** Not tracked anywhere else. |
 | vendored markers | 229 | ✅ upstream LDK/lexe (`TODO(phlip9)`/`TODO(max)`). Not ours. |
+🔴 **SCANNER WEAKNESS — IT PRODUCED A FALSE NEGATIVE, and that is the dangerous direction.**
+  `booked()` marks a passage as tracked when ≥2 of its first 12 extracted words appear in a booking
+  file. Running the CONTROL — sampling passages judged BOOKED and ranking by how weak the match was —
+  surfaced **T1 above, a live money-path off-by-one, passed on 2/5 keyword overlap.** Counting only
+  the *unbooked* list would have missed it entirely.
+  ▶️ **Fix the heuristic** (require a distinctive token — a `file.sol:line`, an identifier, a §ref —
+  not just any two words), and **always sample the BOOKED side**, weakest-match first. An unbooked
+  list is a to-do; the booked list is where a real finding hides.
+
 📌 **Scanner caveat, learned by running it:** on a multi-compaction JSONL the TRANSCRIPT half reports
   500+ passages that are overwhelmingly resolved history. **I did NOT read all of them** — I read the
   first five per family. Treat that half as a prompt to look, never as a defect list; the CODE half is
@@ -216,6 +225,8 @@ case. Conversely if it tolerates a shortfall, the tests never exercise the fee-b
 | ~~F2~~ | BOLD not reaching the Stability Pool | ✅ **CLOSED by C1** |
 | **C6–C9** | seedFee clamp basis · ungated TWAP seam · stale read across repack (`Vogue:978-989`) · `scaleTo6` on 4626 share decimals | 🔴 **OPEN — no commit touches any of them.** The only C-items left. |
 | **C1r** | 🔴 **C1 RESIDUAL, NEVER VERIFIED.** `SwapLib.sol:498` (`_refundExcess`) does `scaleTokenAmount(excess * 1e12, r.inToken, false)` on the `forVolatile` leg. That `* 1e12` **presumes `excess` is 6-dec** — but C1's whole change was making `Aux.deposit` return **NATIVE**. If `r.amount` now arrives native, this over-scales an 18-dec stable's refund by 1e12. The archive flagged it *"verify, do not assume"* and it was never done; its cited line (`:508`) has since DRIFTED to `:498`. **Trace where `r.amount` is set on the `forVolatile` path before deciding.** Reachable on BTC paths only since C3 landed (previously dead code). | 🔴 open |
+| **T1** | 🔴 **OFF-BY-ONE AT THE RANGE BOUNDARY — `SwapLib.sol:1613`.** `if (currentTick > tickUpper \|\| currentTick < tickLower)`. **Uniswap ranges are HALF-OPEN `[tickLower, tickUpper)`** — a position is in-range iff `tickLower <= tick < tickUpper` — so out-of-range is `>=`, not `>`. At exactly `tick == tickUpper` this code believes the band is IN range when the AMM says it is OUT. One character, on the money path. The archive already derived this (`BUILD-QUEUE:3930`) and marked it *"⚠️ NOT APPLIED"* — **and it is still not applied.** ⚠️ Money-path: needs its OWN run + a falsifiable prediction (rule 10). | 🔴 open |
+| **T2** | 🟡 **`PREMIUM_ANNUALIZE = 127`** (`VogueLib.sol:322`). Its own docstring says *"the ONE number here worth reviewing"*, and a session note recorded it as 126 — so it HAS moved and the review never happened. Not a bug; an unreviewed constant on the premium path. | 🟡 open |
 | **F1** | control-LP redeem delivers 0 | 🔴 open. Likely a FIXTURE warp — **verify before fixing** |
 | **#12** | LP share price reads only the ETH leg of a two-legged claim | 🔴 **OPEN — the suite's only failure.** Fix defined; see rank 1. |
 
