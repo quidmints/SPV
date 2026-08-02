@@ -197,6 +197,34 @@ missed — the failure is silent (it signs against a dead address).
   compile-time address at all. Then the constants can be DELETED rather than maintained.
 ⚠️ Nothing here is blocked on the user. It is engineering work I mis-scoped.
 
+## 🛠️ #12 IMPLEMENTATION SPEC — written 2026-08-02 so the next thread codes it in ONE pass
+**Verified blocker: NO baseline exists.** `grep` for `MAX_POOLED_USD`/`pooledUsdAtDeposit`/
+`usdBaseline` in `src/` returns nothing. "Credit the delta since deposit" therefore needs NEW STATE,
+which is why this is not a one-liner and must not be attempted as a drive-by.
+
+**What the fix must do, in order:**
+ 1. **Introduce the baseline.** `POOLED_USD_ETH` at the moment the band commits depth for a deposit.
+    Per-LP if multi-LP is in scope; a single aggregate is only correct while one LP holds all shares.
+ 2. **Maintain it** on deposit (baseline += the depth committed for that deposit) and on withdraw
+    (baseline -= the pro-rata share). Getting this wrong silently mis-prices EVERY share, so it wants
+    an invariant test, not just a happy-path one.
+ 3. **Credit the delta in `_pricingBacking()`** (`Vogue.sol:1227`): add
+    `(POOLED_USD_ETH − baseline)` converted to ETH at the current price. **NOT the level** — the level
+    over-pays by 246,564 on a 739,324 deposit, because that base is basket-supplied quoting depth.
+ 4. **Build the delivery leg in `_withdraw`.** Pricing alone is HALF the job: the redeemed QUID leg
+    measures **0 in both arms** today, so a credited claim would price and then fail to deliver —
+    strictly worse than the status quo.
+ 5. **Reconcile with the backing gate.** `Core.sol:1022` gates on `committedUsd18() <= haircutTvl`,
+    and today a sale RAISES committed by the proceeds. If the LP now owns that increment, committed
+    must stop growing by it or the same dollars are counted twice. **This is the actual "split
+    quoted depth from committed dollars" that #12 is named for.**
+ 6. ⚠️ **Then re-check `Core.sol:48`'s comment** — it documents the `POOLED_USD_ETH + POOLED_USD_BTC
+    ≤ TVL` invariant and is CORRECT today; step 5 is exactly what makes it stale.
+
+**Falsifiable prediction to state before the run:** `testLeverage_LvrControlVsTreatment` flips to PASS
+with `tFlat − cFlat ≈ +33.56` (the spread the LP earned), and NOTHING else moves. If other tests move,
+the baseline maintenance in step 2 is wrong — suspect that before suspecting step 3.
+
 ## 🔵 #12 — THE AXIS NOBODY HAS PRICED: who is paid for supplying the QUOTE DEPTH?
 Asked to look at it from all sides. Measured facts are settled (the band books +60,000.000000, basket
 TVL +60,000.996591, and `vogueETH` never reads it). The *economic* question underneath is not:
