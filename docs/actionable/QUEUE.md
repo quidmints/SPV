@@ -4726,3 +4726,51 @@ are the ones who supplied that WETH. So either:
 📌 Reclassifying: this is **#12 (POOLED_USD count-once / no-double-spend)**, not §A.16 (levered-LP
   cross-subsidy). The probe's NAME sent me down the leverage path for two rounds; the flow is a plain swap.
 
+# 📋 #12 — THE SPEC WAS NEVER WRITTEN. Writing it, because that is what blocked the investigation.
+**User: *"is the context for the task not clear in the .md doc?"* — CORRECT, it is not.** All that exists:
+ • `BUILD-QUEUE:434` — an ECHIDNA INVARIANT row referencing *"after **the #12 unify**"*, never describing it.
+ • `QUEUE:102` — *"#12 (both senses)"* listed as open, **the two senses never named anywhere**.
+ • `BUILD-QUEUE:21` — a **DIFFERENT** `#12 drop-voting`, marked DONE. **Two unrelated items share "#12".**
+⇒ I spent three rounds trying to decide (a) vs (b) **against a specification that does not exist.** That is
+  the actual blocker, not the measurement. **Same numbering collision as §J.8a/§J.8b, and the same cost.**
+
+## THE MEASURED FACTS (all confirmed, fork block 25663100)
+| fact | value |
+|---|---|
+| LP deposits | **400 ETH** |
+| `redeem` says OWED | **367.482** |
+| actually received (ETH+WETH) | **367.370** — 99.97% of owed |
+| received QUID | **0** |
+| received STABLES (delta-measured) | **0 — none, of any of the 12** |
+| BOLD in the Stability Pool | **60,000.9** |
+| `skewPremiumETH` | **0** |
+⇒ **There is NO third asset.** The LP's CLAIM shrank from 400 → 367.48; the missing ~32.5 ETH ≈ $60,500
+  IS the 60,000 BOLD, now basket-owned. **Value moved from band LPs to QUID backing, and the LP was not
+  credited for it.**
+
+### ⇒ ON (a) vs (b) — the user's *"it's probably both?"* is the right reading
+They are not competing explanations; they answer **different questions**:
+ • **(b) describes what HAPPENS** — band and basket share one balance sheet, so selling band inventory to
+   the basket transfers value to QUID backing. **Measured, true.**
+ • **(a) describes what arguably SHOULD happen** — the band gave up real inventory and should hold a USD
+   claim for it, so an LP's total value survives the composition change. **Not measured, because no such
+   credit reaches `vogueETH()`.**
+⇒ **The gap between them IS #12.** "Count once" cannot be evaluated without stating which pool owns the
+  proceeds of a band→basket sale. **That is the sentence the doc is missing.**
+
+### ▶️ THE SPEC #12 NEEDS (write this first; it is one decision, then everything else follows)
+> **When `AUX.swap` sources the volatile leg from the BAND, who owns the stable proceeds?**
+> 1. **Basket owns them, band LPs bear it** (current behaviour) ⇒ document it, and re-scope BOTH probes +
+>    `LeveragePnLProbe`'s assertion, which currently asserts the opposite.
+> 2. **Band is credited a USD claim** (`POOLED_USD_ETH` ↑ and `vogueETH()` reflects it) ⇒ current behaviour
+>    is a **count-once BUG**: the basket counts the BOLD and the band counts nothing, so one side of a real
+>    asset transfer is unrecorded.
+⚠️ Until that sentence exists, `testLeverage_LvrControlVsTreatment` cannot be correctly fixed — **any change
+  either encodes an undecided policy or silences a real signal.** Leave it FAILING; it is the marker.
+
+### ❓ THE 0.112 ETH (0.03%) OWED-vs-RECEIVED GAP — user asked; measured, not guessed
+`367.482 − 367.370 = 0.1118 ETH ≈ $208` on a 367-ETH exit. Small and NOT the same phenomenon as the 32.5 ETH
+above. Most likely the exit ladder's own cost (the ether.fi instant rung charges ~0.3%, which on a ~37-ETH
+slice is ~0.11 ETH — the magnitude fits). **NOT yet confirmed** — to settle it, log which rungs the ladder
+used and their fees. Filed as a minor open question, distinct from #12.
+

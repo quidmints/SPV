@@ -78,16 +78,9 @@ contract LeveragePnLProbe is Alles {
         uint snap = vm.snapshotState();
         uint eth0 = lp.balance; uint weth0 = WETH.balanceOf(lp); uint q0 = QUID.balanceOf(lp);
         vm.prank(lp);
-        // DIAGNOSTIC: `redeem` RETURNS the assets it considers owed; compare against what actually
-        // ARRIVES. A large gap means the exit ladder could not SOURCE the assets, which is a
-        // delivery gap rather than a valuation one.
-        try V4.redeem(lpShares, lp, lp) returns (uint owed) {
-            emit log_named_uint("redeem OWED (assets)", owed);
-        } catch { emit log_named_uint("redeem REVERTED", 0); }
+        try V4.redeem(lpShares, lp, lp) {} catch {}
         uint ethG  = (lp.balance - eth0) + (WETH.balanceOf(lp) - weth0);
         uint quidG = QUID.balanceOf(lp) - q0;
-        emit log_named_uint("  actually received ETH+WETH", ethG);
-        emit log_named_uint("  actually received QUID", quidG);
         usd = ethG * ethPx18 / 1e18 + quidG;
         vm.revertToState(snap);
     }
@@ -168,15 +161,6 @@ contract LeveragePnLProbe is Alles {
         for (uint r = 0; r < 20; r++) { if (_open(3_000e18) == 0) break; landed++; }
         emit log_named_uint("treatment opens landed", landed);
         emit log_named_uint("BOLD accumulated (18d)", _spBold());
-        // DIAGNOSTIC (temporary): where did the value go? The gap (~59,966 USD) is suspiciously
-        // close to the TOTAL SWAPPED VOLUME (20 x 3,000 = 60,000 BOLD), which would indicate the
-        // measurement is missing an asset the LP now holds, rather than a real loss.
-        emit log_named_uint("skewPremiumETH (USD6)", CORE.skewPremiumETH());
-        emit log_named_uint("SP BOLD (AUX deposit)", _spBold());
-        emit log_named_uint("AUX TVL (d[14])", _tvl());
-        emit log_named_uint("LP BOLD balance", IERC20(bold).balanceOf(lp));
-        emit log_named_uint("AUX BOLD balance", IERC20(bold).balanceOf(address(AUX)));
-        emit log_named_uint("LP QUID balance", QUID.balanceOf(lp));
         uint tUp   = _lpValueUsd(px0 * 120 / 100);
         uint tFlat = _lpValueUsd(px0);
         uint tDown = _lpValueUsd(px0 * 80 / 100);
