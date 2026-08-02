@@ -209,7 +209,32 @@ case. Conversely if it tolerates a shortfall, the tests never exercise the fee-b
 | **SWALLOWED FAILURE** | 67 | ⚠️ **UNTRIAGED — the biggest unexamined surface left.** `catch {}` / `\|\| echo SKIP`. Most are deliberate degrade-to-conservative paths, but `_lpValueUsd`'s `try/catch` returning 0 is exactly how a zero-delivery redeem hid in `testDD`, so the pattern has bitten here before. **Each needs: can a REAL failure reach this, and would it be silent?** |
 | **OUR markers** | 24 | 🟡 mostly prose/`@notice` references, but `quid-hop/src/migration.rs:58,63,73,77` are **4 `PLACEHOLDER (dev)` constants — operator Safe address and chain id — explicitly "replace before mainnet".** Not tracked anywhere else. |
 | vendored markers | 229 | ✅ upstream LDK/lexe (`TODO(phlip9)`/`TODO(max)`). Not ours. |
-## 🔴 A0 — THE ARCHIVE→QUEUE MIGRATION IS **NOT** COMPLETE. My "fully adjudicated" was measured wrong.
+## ✅ A0 DONE — the audit was RE-RUN properly, and it found real stranded items
+**Method that worked** (the naive one over-matched line numbers and was unusable): extract IDs only
+from **DECLARATION positions** — a `#`-header or a leading `**bold**`/table cell — which is what
+separates an ITEM from a MENTION. ⇒ **152 IDs declared in the archive, 59 absent from `QUEUE.md`.**
+Most are subsections of one design discussion (`G.0–G.11`, `H.1–H.5`, `I.1–I.3`, `J.1/5/6`, `L.1/2`,
+`O.1–O.3`, `P.1–P.3`, `Q1/Q2`, `V.1–V.9`) — prose, not work. **Three are genuine open work, stranded
+since the migration:**
+
+| id | archive header | why it is open |
+|---|---|---|
+| **A.36** | *"the BTC lev MARKET rail IS built; only ACQUISITION is not"* | the acquisition half is **unbuilt** and appears nowhere in this file |
+| **A.38** | *"✅ §A.5e FIXED (options 4+5 as one mechanism) — ⚠️ but NOT pinned by a test"* | a money-path fix with **no test pinning it**. Exactly the shape that silently regresses |
+| **A.13b** | *"`RebalIn` cannot be shrunk safely (asked 2026-07-26)"* | an open question the user asked; no recorded resolution |
+
+⚠️ **Also re-check `V.1–V.5`** — those are CATEGORY headers (`Security/money-path`,
+`Risk-reduction/correctness`, `Design decisions to make`, `Dedup/simplification`,
+`Test-coverage gaps`). Category headers absent from QUEUE means their CONTENTS were never
+individually migrated. `V.6` claims a spot-verification of the confirmed-open subset — read it
+before trusting any of them.
+
+📌 **The lesson, and it is the session's recurring one:** every completeness claim I made was measured
+by a check I had not audited — weak keyword matching, then text-only blocks, then the archive counting
+as its own booking file, then the wrong ID granularity. **Four times.** The claim was always sincere
+and the instrument was always wrong. ⇒ **Audit the instrument before reporting the measurement.**
+
+### (superseded) the original A0 framing My "fully adjudicated" was measured wrong.
 **Retracted 2026-08-03.** I claimed `BUILD-QUEUE-AND-107.md` was fully adjudicated — all 73 `§A.x`
 sections cross-checked, its own 10-item list transferred. **That audit was circular**: the scanner's
 `booked()` listed the ARCHIVE ITSELF in `BOOKING_FILES`, so any item mentioned there scored as
