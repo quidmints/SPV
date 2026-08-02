@@ -27,9 +27,27 @@ environment actually is*. Every line below was verified in-repo, not recalled.
     test — a command chained to its own commit dies on the tool timeout, the edit lands, the record
     is lost.
 
+12. **Lift a finding to a task IN THE SAME TURN, or it does not exist.** If you write "worth
+    checking", "still needs", "I didn't" — book it before sending the message. A finding in prose
+    dies with the context window. Four real items were lost this way on 2026-08-02, each already
+    written down somewhere: recorded somewhere, actionable nowhere.
+13. **A dismissal is a conclusion.** "That's a false positive" needs the same evidence as a finding.
+    Twice in one day a real finding was waved away with a plausible explanation that was never
+    checked — and the second time the dismissal had already been committed to a document.
+14. **Another thread may be in this tree.** Check `git status` before staging. **Never `git add -A`,
+    never commit with `-a`** — stage your own files by name, or you will sweep someone else's
+    staged work into your commit. If there is an unpushed commit that is not yours, do not amend or
+    rebase it; pushing it is fine and backs it up.
+15. **Never commit an unverified change on a money or proof path.** A plausible-but-wrong constraint
+    is worse than a documented open hole, because it looks fixed. One was committed on 2026-08-02
+    and broke `main`. If the verification run has not finished, say it is in flight and wait.
+
 ## Verification discipline
 
-- **An empty grep proves nothing.** Never assert absence from a search.
+- **An empty grep proves nothing.** Never assert absence from a search. **Run the CONTROL before
+  concluding: would this measurement look the same if I were wrong?** On 2026-08-02, "35 verifiers
+  are unreferenced, therefore dead" collapsed when the LIVE verifiers scored identically — they are
+  wired by address, not by symbol, so the metric could not distinguish dead from unwired.
 - **A comment describes past state.** Audit by structure (`^interface`, `^function`), never by a type
   name — a name matches its own obituary.
 - **Report pass/fail from a single run.** Capture once to a file; never enumerate one run's failures
