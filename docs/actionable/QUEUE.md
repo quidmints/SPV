@@ -4639,3 +4639,23 @@ into the exit proceeds, and `_lpValueUsd` measures the proceeds.
   59,967 USD18 gap. If the premium collected is ≪ the gap, (a) is confirmed and the skew is underpriced —
   a number, not an opinion. **That single measurement decides between (a) and (b).**
 
+## ❌ DEDUP NON-TARGET (asked + answered) — `SorExchange` is NOT a duplicate of `AUX.swap`
+User asked whether the 20-round swap loop implies `AUX.swap` duplicates the zap/`SorExchange` machinery.
+**It does not, and the reason was ALREADY documented** (`LevVenueBase.sol:18-21`):
+> *"`SorExchange` is NOT unified in: it's the adapter for a SEPARATE, live product — the optional
+>  Liquity-V2 ~10x directional long (BOLD into the Stability Pool, or WETH into the venues), still wired in
+>  the UI. Different protocol + BOLD/WETH collateral, so it can't be a weETH `ILevVenue` — a distinct
+>  product, NOT a deprecated path."*
+| question | answer |
+|---|---|
+| why 20 rounds? | **TEST-ONLY.** `_open` is called nowhere but `LeveragePnLProbe`; the loop accumulates flow until LVR is measurable. |
+| same as `AUX.swap`? | **No — it WRAPS it.** `SorExchange.sol:43`: `ISwap public immutable AUX; // Aux implements ISwap`. It re-exposes our swap in **Liquity's** `IExchange` shape for their zapper's flash-loan callback. |
+| who uses it? | Liquity V2's leverage zapper, via `LiquityTroveVenue`. |
+| can it be simplified/removed? | **No.** Different protocol + BOLD/WETH collateral ⇒ structurally cannot be a weETH `ILevVenue`. |
+| needed by a venue? | **Yes — exactly one:** `LiquityTroveVenue`. |
+⇒ 📌 **This is the shape a dedup pass must NOT collapse:** two things that both "do a swap" but sit on
+  opposite sides of a PROTOCOL BOUNDARY. Same category as the venue trio (`AaveV3`/`AaveV4`/`MorphoEscrow`
+  implementing one interface) and the Rust trait obligations. **Recorded as a NON-TARGET so a later pass
+  does not re-raise it.**
+⇒ 📌 And again the answer pre-existed in a comment — **grep the code for the question before analysing it.**
+
