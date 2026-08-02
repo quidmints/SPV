@@ -198,6 +198,12 @@ missed — the failure is silent (it signs against a dead address).
 ⚠️ Nothing here is blocked on the user. It is engineering work I mis-scoped.
 
 ## 🛠️ #12 IMPLEMENTATION SPEC — written 2026-08-02 so the next thread codes it in ONE pass
+🔑 **THE REQUIREMENT IN ONE SENTENCE (user, 2026-08-02):** *crediting "the delta since deposit" needs
+NEW STORAGE that does not exist today, maintained across every deposit and withdrawal, per-LP for
+multi-LP correctness, plus a USD delivery leg in `_withdraw`, plus reconciliation with
+`committedUsd18` so the backing gate doesn't double-count the same dollars.*
+⇒ Four coupled changes, not one. Any of them missing ships a wrong share price silently.
+
 **Verified blocker: NO baseline exists.** `grep` for `MAX_POOLED_USD`/`pooledUsdAtDeposit`/
 `usdBaseline` in `src/` returns nothing. "Credit the delta since deposit" therefore needs NEW STATE,
 which is why this is not a one-liner and must not be attempted as a drive-by.
@@ -257,6 +263,39 @@ same period. If cost > accrual for an idle channel, the backstop is a net drain 
 period (or the sharding factor) is the lever. **An idle channel is the worst case and the common one.**
 📌 Recorded as the standing lesson too: *price every fix on every axis; the regression is always on
 the axis nobody measured.*
+
+### ✅ B1 MEASURED 2026-08-02 — bounded, and **K is the lever**
+Rotation = a 1-in/1-out P2TR **key-path** spend, **~111 vbytes**. `REFRESH_MARGIN_BLOCKS =
+DEAD_MAN_DELTA_BLOCKS / 2 = 72` ⇒ **2 rotations/day PER SHARD** (`deadman_exit.rs:56,244`) — per
+SHARD, not per channel, which is the entire point of the sharding.
+
+| sat/vB | sat/day/**shard** | K=10 | K=100 | K=1000 |
+|---|---|---|---|---|
+| 5 | 1,108 | 110.8 | **11.1** | 1.1 |
+| 20 | 4,430 | 443.0 | **44.3** | 4.4 |
+| 50 | 11,075 | 1,107.5 | **110.8** | 11.1 |
+| 100 | 22,150 | 2,215.0 | 221.5 | 22.1 |
+
+⇒ **vs the design this REPLACED** (splice-on-refresh: ~154 vB, one **per channel** per day):
+  **69× cheaper at every fee rate** — the ratio is constant because both scale linearly in feerate,
+  so this is a structural win, not a fee-regime accident.
+
+### 📐 THE RULE: safe operating region is a function of **K × feerate**, not of the mechanism
+- At **K=100, 20 sat/vB → 44 sat/day/channel.** A channel earning even ~1,000 sat/day covers itself
+  up to roughly **450 sat/vB**. Comfortable.
+- It only inverts at **small K AND high fees**: **K=10 @ 100 sat/vB = 2,215 sat/day/channel**, which
+  an IDLE channel does not cover. That is the corner to avoid.
+- ⇒ **Set K on BLAST-RADIUS grounds, not cost grounds** — cost is already comfortable at K=100.
+
+### ⚖️ THE TRADE THIS EXPOSES — cost and blast radius pull in OPPOSITE directions
+Sharding divides cost by K **and multiplies correlated failure by K**: spending ONE freshness
+outpoint invalidates **every** exit in that shard at once (that is precisely the property
+`regtest/deadman-freshness-e2e.sh` proves at consensus). So:
+  • **K↑** ⇒ cheaper per channel, **wider** simultaneous invalidation.
+  • **K↓** ⇒ narrower failure, and below ~K=10 at high fees the backstop **costs more than an idle
+    channel earns** — the exact axis that killed splice-on-refresh.
+⇒ **K is not a tuning knob, it is the risk/cost frontier.** Pick it deliberately and write down the
+  fee regime it assumes; a K chosen at 5 sat/vB is a different decision than one chosen at 100.
 
 ✅ **PROSE-ONLY SWEEP (no code token required) — the gap I had left open.** 27 distinct promised
   checks; 21 not covered by a distinctive token. Triaged: **2 resolved in code with reasons** —
