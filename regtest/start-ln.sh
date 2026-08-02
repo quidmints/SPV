@@ -63,6 +63,17 @@ EOF
   node_synced "$n" || { echo "  $n failed to sync:" >&2; tail -8 "$d/lnd.log" >&2; exit 1; }
 }
 
+# ── Bump the chain tip BEFORE starting LND, or every node hangs "not yet ready" ──────────────
+# LND reports `synced_to_chain: false` while the best block's TIMESTAMP is stale, even when its
+# block_height already matches bitcoind exactly. A regtest chain left idle since an earlier session
+# is therefore permanently "unsynced": `start_node` burns its full 120s wait, prints "failed to
+# sync", and `swapin-e2e.sh` returns SKIP — so `testSwapIn_RealLightningHTLC` silently skipped in
+# EVERY suite run rather than failing. Nothing was wrong with LND or with ZMQ.
+# MEASURED 2026-08-02: alice sat at block_height 187 == bitcoind, `synced_to_chain: false`; mining
+# ONE block flipped it to true within 5s. One block is enough — this only needs a FRESH timestamp.
+echo "refreshing chain tip (LND treats a stale tip as unsynced)..."
+mine 1        # env.sh:24 — `wcli -generate`, the harness's own helper
+
 echo "starting LND nodes..."
 start_node alice
 start_node bob
