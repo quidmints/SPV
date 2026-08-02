@@ -5417,3 +5417,55 @@ the **venue concentration cap**. Small, but it is a decision nobody has made.
   wrong both times for the SAME reason: I audited the surface I had been LOOKING at (first `§A.x`, then
   `#NNN`) instead of first enumerating the surfaces that exist. `ls docs/actionable/` is one command and
   it was the whole answer. **Enumerate the containers before auditing the contents.**
+
+# ⭐ #12 RESOLVED BY MEASUREMENT — the fork is a FALSE BINARY. Neither branch as stated.
+The decision was posed as: *basket owns the proceeds (document it, re-scope the probes)* **or** *band gets
+credited (a genuine count-once bug: the basket counts the BOLD, the band counts nothing, one side of a
+real transfer unrecorded)*. Measured the second branch's premise directly. **It is false.**
+
+| | before | after | Δ |
+|---|---|---|---|
+| `POOLED_USD_ETH` (6d) | 246,564.450070 | 306,564.450070 | **+60,000.000000** |
+| `POOLED_ETH` | 400.000000 | 367.555478 | −32.444522 |
+| `vogueETH()` | 400.000000 | 367.482117 | −32.517883 |
+| **basket TVL** (18d) | 1,152,000.111314 | 1,212,001.107906 | **+60,000.996591** |
+| **`committedUsd18()`** (18d) | 246,564.450070 | 306,564.450070 | **+60,000.000000** |
+
+### 1️⃣ THE BAND *DOES* COUNT IT — so "one side unrecorded" is not what is happening
+`committedUsd18()` rises by **exactly +60,000.000000**. Both sides of the transfer ARE recorded: the
+basket books +60,000.996591 of real BOLD, the band books a +60,000.000000 claim against it. **There is
+no count-once bug at the band/basket boundary**, and the ≤TVL gate keeps *more* headroom than before
+(TVL Δ − committed Δ = **+0.9966**), so the two move together rather than one outrunning the other.
+
+### 2️⃣ THE SALE ITSELF IS PRICED CORRECTLY — the LP earned a spread on it
+ETH sold **32.444522**, worth **59,967.51** at px0. Credit received: **60,000.000000**.
+⇒ **+32.49 USD spread** — the LP sold at slightly better than mid and was paid for it. That is a healthy
+AMM sale, not extraction. The mechanism is working; only its *readout* is wrong.
+
+### 3️⃣ ⇒ THE REAL DEFECT IS NARROWER THAN EITHER BRANCH
+`_pricingBacking()` (`Vogue.sol:1227`) reads `vogueETH()` — the **ETH half of a two-legged claim** — for a
+band whose position is ETH + USD. Nothing is unrecorded and nothing is double-counted; the share price
+simply reads one leg of two.
+
+### 4️⃣ AND THE FIX IS THE *DELTA*, NOT THE LEVEL — which is exactly #12's split, now with a definition
+| credit… | result |
+|---|---|
+| the **LEVEL** (`POOLED_USD_ETH` = 306,564) | ❌ **over-pays by 246,564.45** on a 739,324 deposit — that base is BASKET-supplied quoting depth the LP never contributed. This is the trap that made "just add it to `_pricingBacking`" look wrong, and it IS wrong. |
+| the **DELTA since deposit** (+60,000) | ✅ LP shortfall measured 59,966.44 ⇒ credit − shortfall = **+33.56**, turning the failing `tFlat >= cFlat` into a PASS with a small fee gain — **exactly what the test's own comment predicts**: *"flat ⇒ ~fees"*. |
+
+⇒ ✅ **#12's "quoted depth vs committed dollars" split now has a concrete definition:**
+  **BASE = basket-owned quoted depth · INCREMENT = LP-owned sale proceeds.**
+  The variable's two jobs are separable along the deposit boundary, which is why one variable could do
+  both without the accounting ever diverging — and why the LP's claim is the only thing that broke.
+
+⚠️ **WHAT IS NOT YET SETTLED — do not read this as a finished fix:**
+ 1. **Single-LP scenario.** With multiple LPs the increment must be apportioned per-share, and base
+    attribution needs care when LPs enter/exit at different times and at different band compositions.
+ 2. **Delivery leg.** Crediting USD into the LP's claim means `_withdraw` must actually DELIVER it — the
+    measured QUID leg is currently **0 in both arms**. A claim that prices but cannot be redeemed is
+    worse than the present state.
+ 3. The **+0.9966** TVL/committed gap is BOLD accrual/rounding, not material here, but it should not be
+    assumed to stay small under many rounds.
+📌 **Still a user decision — but a much smaller one than posed.** Not *"who owns the proceeds"* (measured:
+  the band books them, correctly) but *"do we credit the delta to LP share price, and build the USD
+  delivery leg to match?"*

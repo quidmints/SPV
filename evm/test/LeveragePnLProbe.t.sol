@@ -72,6 +72,17 @@ contract LeveragePnLProbe is Alles {
     }
     function _tvl() internal returns (uint t) { (uint[15] memory d,,,) = AUX.get_deposits(); t = d[14]; }
 
+    /// @dev Band/basket state at one instant. Emitted rather than returned so the caller
+    ///      keeps no locals — this measurement is what decides #12's ownership question.
+    function _snapshotBands(string memory when) internal {
+        emit log_string(when);
+        emit log_named_uint("   POOLED_USD_ETH", CORE.POOLED_USD_ETH());
+        emit log_named_uint("   POOLED_ETH    ", CORE.POOLED_ETH());
+        emit log_named_uint("   vogueETH      ", AUX.vogueETH());
+        emit log_named_uint("   basket TVL    ", _tvl());
+        emit log_named_uint("   committedUsd18", CORE.committedUsd18());
+    }
+
     /// TOTAL LP value in USD18 at a given ETH price (USD18 per 1e18 ETH): redeem the
     /// LP in a snapshot, value both legs (ETH + QUID), then revert.
     function _lpValueUsd(uint ethPx18) internal returns (uint usd) {
@@ -160,15 +171,12 @@ contract LeveragePnLProbe is Alles {
 
         // Treatment: accumulate guard-safe opens, then value the LP at 3 final prices.
         uint landed;
-        uint pu0 = CORE.POOLED_USD_ETH(); uint pe0 = CORE.POOLED_ETH(); uint ve0 = AUX.vogueETH();
+        // Emitted, not stored: five `before` locals blew the stack here, and the repo's rule is to
+        // shed locals rather than reach for via_ir.
+        _snapshotBands("before");
         for (uint r = 0; r < 20; r++) { if (_open(3_000e18) == 0) break; landed++; }
         emit log_named_uint("treatment opens landed", landed);
-        emit log_named_uint("POOLED_USD_ETH before", pu0);
-        emit log_named_uint("POOLED_USD_ETH after ", CORE.POOLED_USD_ETH());
-        emit log_named_uint("POOLED_ETH     before", pe0);
-        emit log_named_uint("POOLED_ETH     after ", CORE.POOLED_ETH());
-        emit log_named_uint("vogueETH       before", ve0);
-        emit log_named_uint("vogueETH       after ", AUX.vogueETH());
+        _snapshotBands("after ");
         emit log_named_uint("BOLD accumulated (18d)", _spBold());
         uint tUp   = _lpValueUsd(px0 * 120 / 100);
         uint tFlat = _lpValueUsd(px0);
