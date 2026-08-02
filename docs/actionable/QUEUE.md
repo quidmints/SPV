@@ -185,6 +185,27 @@ case. Conversely if it tolerates a shortfall, the tests never exercise the fee-b
 | **SWALLOWED FAILURE** | 67 | ⚠️ **UNTRIAGED — the biggest unexamined surface left.** `catch {}` / `\|\| echo SKIP`. Most are deliberate degrade-to-conservative paths, but `_lpValueUsd`'s `try/catch` returning 0 is exactly how a zero-delivery redeem hid in `testDD`, so the pattern has bitten here before. **Each needs: can a REAL failure reach this, and would it be silent?** |
 | **OUR markers** | 24 | 🟡 mostly prose/`@notice` references, but `quid-hop/src/migration.rs:58,63,73,77` are **4 `PLACEHOLDER (dev)` constants — operator Safe address and chain id — explicitly "replace before mainnet".** Not tracked anywhere else. |
 | vendored markers | 229 | ✅ upstream LDK/lexe (`TODO(phlip9)`/`TODO(max)`). Not ours. |
+## 🔴 B1 — THE FRESHNESS BACKSTOP HAS NO ECONOMIC BOUND (prose-only loose end, found 2026-08-02)
+Stated once in a reply and never booked, because it names no file: *"worth checking the on-chain cost
+per idle channel per period against that channel's own fee accrual, so the backstop can't cost more
+than the position earns."*
+⚠️ **This is the axis the #114 work never priced.** The freshness-UTXO design was costed on
+CORRECTNESS (proven at consensus by `regtest/deadman-freshness-e2e.sh`) and on BLAST RADIUS (sharded),
+but **never on FREQUENCY × FEE vs the channel's own revenue.** An earlier variant died on exactly this
+axis — splice-on-refresh was correct and got killed by one on-chain splice per idle channel per DAY.
+⇒ **The measurement:** rotation cost per channel per period vs that channel's fee accrual over the
+same period. If cost > accrual for an idle channel, the backstop is a net drain and the rotation
+period (or the sharding factor) is the lever. **An idle channel is the worst case and the common one.**
+📌 Recorded as the standing lesson too: *price every fix on every axis; the regression is always on
+the axis nobody measured.*
+
+✅ **PROSE-ONLY SWEEP (no code token required) — the gap I had left open.** 27 distinct promised
+  checks; 21 not covered by a distinctive token. Triaged: **2 resolved in code with reasons** —
+  `forceDeallocate` was REMOVED after probing real Galaxy (`VaultLib.sol:23`), and the θ numerator's
+  additive-vs-replace ambiguity resolved as REPLACE with its rationale at `VogueLib.sol:335-338`
+  (reserve yield accrues whether or not the dollar leg is banded, so it is not the marginal return).
+  The rest are meta/conversational. **B1 above is the one real survivor.**
+
 ✅ **THE 839 "BOOKED" PASSAGES WERE VERIFIED AGAINST CODE, not taken on the heuristic's word.**
   Reading 839 passages is neither feasible nor reliable, so the CHECKABLE subset was extracted
   instead: every passage carrying BOTH an unimplemented-claim marker (*should be / NOT APPLIED /
