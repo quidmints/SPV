@@ -119,6 +119,30 @@ regression, but it is the opposite of "most of it is finished".
    📐 **Only 4 call sites, 3 distinct shapes:** `(77, 20e6) → 15e6 + 5e6`, `(1, 2e7) → 15e6`,
      `(7, 1e6) → 1e6`. Add a `SPLICES` list beside `PAIRS`, emit `spliceRawTx`/`spliceMerkleBranch`/
      `spliceBlockHash`/`spliceHeight`/`spliceTxIndex` per entry, and have `_buildShrink` read them.
+   ✅ **GENERATOR HALF DONE 2026-08-02 — 3 REAL splice txs now in the fixture** (`build_splice`).
+     Signed by the wallet, included via `generateblock`, each with a merkle branch the generator
+     ASSERTS folds to its block's merkleroot. seeds 1/7/77. **Remaining: the Solidity half** —
+     point `_buildShrink`/`_spliceOut` at `opens[i].splice.*` and delete `MockSPV`.
+
+## 🔴 BOOKED — THE ZERO-FEE SPLICE QUESTION (a real product question the fixture work exposed)
+Writing real splices forced an exact-arithmetic choice, and the choice is load-bearing:
+**every splice shape the tests assert sums EXACTLY to the funding** — `20e6 → 15e6 + 5e6`,
+`1e6 → 600k + 400k`. Nothing is left over, so **the tests model a splice that pays ZERO miner fee.**
+
+⚠️ **Why that is a trap and not a detail.** A 0-fee tx is valid by CONSENSUS but rejected by mempool
+POLICY. The tempting fix — subtract a fee so `sendrawtransaction` accepts it — would silently change
+the amounts the tests assert on, making them pass for a different scenario than the one they name.
+That is the masking pattern. `generateblock` is the correct escape: it bypasses policy without
+touching the numbers. **Do not "fix" a future 0-fee rejection by inventing a fee.**
+
+🔴 **THE REAL QUESTION IT EXPOSES — unanswered, needs verifying against `BTCChannels.splice`:**
+on mainnet a splice **must** pay a fee, so `newAmountSats + withdrawSats < fundingSats` ALWAYS.
+If `splice()` requires exact conservation of the funding amount, **every real mainnet splice
+reverts** and the tests would never have caught it, because they only ever exercise the exact-sum
+case. Conversely if it tolerates a shortfall, the tests never exercise the fee-bearing path at all.
+▶️ Read `_verifySplice`'s amount arithmetic and then add a FEE-BEARING shape to `SPLICES`
+  (`20e6 → 15e6 + 4.9e6`, 100k to fee). One fixture entry settles it either way.
+
    ▶️ **Then:** teach the generator to build REAL splice txs — spend each funding outpoint into the
    2-output shrink shape (new funding spk + payout script), confirm, emit tx + branch. bitcoind owns
    the key-path P2TR so it can sign; the blocker is that `newAmountSats`/`withdrawSats`/`payoutScript`

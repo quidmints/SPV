@@ -124,6 +124,63 @@ def finish_open(o):
     }
 
 
+
+def le(n, w):
+    return n.to_bytes(w, "little")
+
+
+def build_splice(o, new_sats, withdraw_sats, payout_spk_hex):
+    """A REAL splice: spend the funding outpoint into [new funding Q, payout script].
+
+    Hand-serialised because `createrawtransaction` cannot emit an ARBITRARY scriptPubKey (it takes
+    addresses or `data`), and the payout leg is a raw script the Solidity test chooses.
+
+    ⚠️ ZERO FEE ON PURPOSE. The shapes the tests assert are exact — 20e6 -> 15e6 + 5e6 sums to the
+    input with nothing left over. A 0-fee tx is VALID BY CONSENSUS but rejected by mempool POLICY,
+    so `sendrawtransaction` would fail. Inventing a fee would silently change the amounts the tests
+    assert on, i.e. make them pass for the wrong reason. `generateblock` submits straight into a
+    block and bypasses policy, which is exactly the escape hatch for this.
+    """
+    tx = clij("getrawtransaction", o["txid"], "true")
+    vout = next(v["n"] for v in tx["vout"] if v["scriptPubKey"]["hex"] == o["spk"].hex())
+    payout = bytes.fromhex(payout_spk_hex)
+    raw = (le(2, 4) + b"\x01"
+           + bytes.fromhex(o["txid"])[::-1] + le(vout, 4) + b"\x00" + b"\xff\xff\xff\xff"
+           + b"\x02"
+           + le(new_sats, 8) + bytes([len(o["spk"])]) + o["spk"]
+           + le(withdraw_sats, 8) + bytes([len(payout)]) + payout
+           + le(0, 4))
+    prevtxs = json.dumps([{ "txid": o["txid"], "vout": vout,
+                            "scriptPubKey": o["spk"].hex(),
+                            "amount": float(Decimal(o["sats"]) / Decimal(1e8)) }])
+    signed = clij("signrawtransactionwithwallet", raw.hex(), prevtxs)
+    assert signed.get("complete"), f"splice not fully signed: {signed.get('errors')}"
+    shex = signed["hex"]
+    # generateblock: into a block directly, bypassing the 0-fee policy rejection.
+    res = clij("generateblock", cli("getnewaddress"), json.dumps([shex]))
+    blockhash = res["hash"]
+    blk = clij("getblock", blockhash, 1)
+    stx = clij("decoderawtransaction", shex)
+    stxid = stx["txid"]
+    idx = blk["tx"].index(stxid)
+    legacy = build_legacy(clij("getrawtransaction", stxid, "true"))
+    assert dsha(legacy)[::-1].hex() == stxid, "reconstructed splice txid mismatch"
+    leaves = [bytes.fromhex(x)[::-1] for x in blk["tx"]]
+    branch, root = merkle_branch(leaves, idx)
+    assert root == bytes.fromhex(blk["merkleroot"])[::-1], "splice branch does not fold to merkleroot"
+    h = lambda b: "0x" + b
+    return {
+        "newAmountSats": new_sats, "withdrawSats": withdraw_sats,
+        "payoutScript": h(payout.hex()),
+        "spliceRawTx": h(legacy.hex()),
+        "spliceTxidDisplay": h(stxid),
+        "spliceBlockHashBE": h(blockhash),
+        "spliceHeight": blk["height"],
+        "spliceTxIndex": idx,
+        "spliceMerkleBranch": [h(b.hex()) for b in branch],
+    }
+
+
 def main():
     # SIMPLE-TAPROOT (BOLT #995): each funding output is a KEY-PATH-ONLY P2TR
     # `OP_1 PUSH32 || Q` (0x5120||Q, 34 bytes) — see BitcoinTx.buildTaprootScriptPubKey
@@ -150,9 +207,23 @@ def main():
         (42, 300_000_000), (51, 300_000_000), (54, 300_000_000),
         (64, 300_000_000), (65, 300_000_000), (88, 300_000_000),
     ]
+    # (seed, sats) -> (newSats, withdrawSats, payoutScript). Extracted from the `_buildShrink` /
+    # `_spliceOut` call sites; only 3 distinct shapes exist. `splice()` SPV-proves the tx SPENDS
+    # the funding UTXO, so each needs a REAL confirmed splice — a fabricated one is what
+    # `MockSPV` was hiding.
+    SPLICES = {
+        (77, 20_000_000): (15_000_000, 5_000_000,
+                           "5120" + "11" * 32),   # payout P2TR; the Solidity side pins the real key
+        (1,  20_000_000): (15_000_000, 5_000_000, "5120" + "22" * 32),
+        (7,   1_000_000): (  600_000,    400_000, "5120" + "33" * 32),
+    }
     opens = [one_open(s, a) for s, a in PAIRS]
     cli("generatetoaddress", 7, cli("getnewaddress"))       # 7 confirmations (>=6)
     entries = [finish_open(o) for o in opens]
+    for o, e in zip(opens, entries):
+        spec = SPLICES.get((o["seed"], o["sats"]))
+        if spec:
+            e["splice"] = build_splice(o, *spec)
 
     tip = int(cli("getblockcount"))
     headers = [cli("getblockheader", cli("getblockhash", h), "false") for h in range(0, tip + 1)]
