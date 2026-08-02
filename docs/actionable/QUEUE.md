@@ -219,9 +219,12 @@ since the migration:**
 
 | id | archive header | why it is open |
 |---|---|---|
-| **A.36** | *"the BTC lev MARKET rail IS built; only ACQUISITION is not"* | the acquisition half is **unbuilt** and appears nowhere in this file |
-| **A.38** | *"✅ §A.5e FIXED (options 4+5 as one mechanism) — ⚠️ but NOT pinned by a test"* | a money-path fix with **no test pinning it**. Exactly the shape that silently regresses |
-| **A.13b** | *"`RebalIn` cannot be shrunk safely (asked 2026-07-26)"* | an open question the user asked; no recorded resolution |
+| **A.38** | *"§A.5e FIXED — ⚠️ but NOT pinned by a test"* | 🔴 **CONFIRMED AGAINST CODE.** `_requireFreshHoldings()` is live at `Aux.sol:927` (guards `redeemAsBody` from valuing off a STALE holdings cache ⇒ real over-draw). **`grep` of `evm/test/` for `_requireFreshHoldings` / `StaleHoldings` returns ZERO.** A money-path solvency guard with no test pinning it — delete the line and the suite stays green. |
+| **A.36** | *"BTC lev MARKET rail IS built; only ACQUISITION is not"* | 🔴 **CONFIRMED AGAINST CODE.** `BtcLevManager.sol` exposes no acquisition entrypoint (only `openLevCount` at `:88`), and `:362` states the reason: *"Unlike ETH's atomic openLev/rebalance, BTC acquisition spans Bitcoin confirmations."* Same ETH/BTC asymmetry as the band's `takeETH`. |
+| **A.13b** | *"`RebalIn` cannot be shrunk safely (asked 2026-07-26)"* | 🟠 **STILL LIVE.** `RebalIn` exists at `VogueLib.sol:473`, consumed at `Vogue.sol:1049`. The struct is the `via_ir=false` stack workaround, so "shrink it" trades bytecode against stack depth — the question was never answered. |
+
+⇒ **A.38 is the one to do first.** It is not new work: the fix is already IN, it just has nothing
+  holding it. One test, no design decision, and it closes a silent-regression hole on the money path.
 
 ⚠️ **Also re-check `V.1–V.5`** — those are CATEGORY headers (`Security/money-path`,
 `Risk-reduction/correctness`, `Design decisions to make`, `Dedup/simplification`,
