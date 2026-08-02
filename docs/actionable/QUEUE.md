@@ -4914,3 +4914,35 @@ The band's BTC can only arrive by an actual Lightning payment:
   #114's "supersede" assuming EVM semantics for a Bitcoin tx). **Both were found by asking what the RAIL
   permits, not what the code says.**
 
+## ⇒ HOW IT WORKS FOR **ETH** (user asked) — the asymmetry is EXPLICIT IN THE CODE, one line apart
+`Core._settleTokSide` (`:1038-1047`) handles the volatile side of every band swap, for BOTH assets:
+```solidity
+_mockTok(isBTC).burn(tokAmount);
+if (inRange) _subPooledTok(isBTC, tokAmount);
+// ETH-only: the burned mockETH is matched by real ETH paid out.
+if (!isBTC && who != address(0)) VOGUE.takeETH(tokAmount, who);   // <-- NO BTC EQUIVALENT
+```
+⇒ 🎯 **The mock token is the SAME for both assets; only ETH has an ATOMIC path to the real thing.**
+  `takeETH` → `_sendETH` → the **4-rung offramp ladder** (`SwapLib.offrampBody:566`), which sources real
+  ETH from the yield venues IN THE SAME TRANSACTION. **BTC has no `takeBTC` — and cannot, because its real
+  asset sits in Lightning channels.**
+
+### The two rails, side by side
+| | **ETH** | **BTC** |
+|---|---|---|
+| real asset custody | ERC-20 / native, held across venues (Galaxy, Aave, ether.fi, Rover) | **Lightning channels** (`BTCChannels`) |
+| sourcing on a swap | **`takeETH` — ATOMIC, same tx**, via the 4-rung ladder | **none** — no atomic path exists |
+| refill pacing | **market-paced** — anyone can buy ETH and deposit | **LN-arrival-paced** — `registerBtcLp` or a genuine swap-in |
+| worst case | ladder degrades to **rung 4, the multi-day wait NFT** | no bound — depends on LP/user arrival |
+⇒ ⇒ **So ETH is "usually atomic, degrades to days"; BTC is "never atomic, unbounded".** The user's original
+  instinct — that the band *"represents distinctly lightning deposits"* — is precisely why one side has a
+  `take*` and the other does not.
+⚠️ **AND NOTE THE ETH SIDE IS NOT RISK-FREE EITHER:** rung 4 is the **multi-day withdrawal NFT**, and C10
+  showed rung 3 silently never paid for its whole life because the capacity view was mis-parameterised. So
+  *"ETH refills instantly"* is true on the happy path and **false when venue liquidity is thin** — which is
+  exactly when a unified pool would be drawn down. **Any sizing must use the LADDER's worst rung, not its
+  best.**
+📌 This makes the earlier recommendation concrete: **cap commitment by OBSERVED resupply rate per side** —
+  the two sides have genuinely different distributions, so one shared budget with one shared assumption
+  misprices both.
+
