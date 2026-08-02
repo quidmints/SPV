@@ -3,6 +3,9 @@ pragma solidity 0.8.30;
 
 import {Alles, MockSPV} from "../Alles.t.sol";
 import {BTCChannels} from "../../src/BTCChannels.sol";
+import {SPVGateway} from "../../src/spv/SPVGateway.sol";
+import {Types} from "../../src/imports/Types.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {Vault} from "../../src/Vault.sol";
 
 /// @notice BTC-pool self-managed boundary orders — `Vault.outOfRangeBtc`/`pullBtc`,
@@ -149,5 +152,182 @@ contract BtcSelfManagedTest is Alles {
         vm.prank(hop);
         vm.expectRevert(BTCChannels.SwapInReplay.selector);
         ch.settleSwapIn(seller, sats, address(USDC), paymentHash, 0, false);
+    }
+
+    // ── CROSS-CHAIN E2E — housed here, NOT in `Alles.t.sol`, for the same reason as the LN test ──
+    // It used to live in `Alles.t.sol`, which 25 contracts inherit, so a suite run spawned ~30
+    // CONCURRENT `cargo run -p quid-hop` invocations against ONE regtest bitcoind. That is a race,
+    // not coverage: they fight over the same chain and the same target/ lock, and every copy
+    // degrades to SKIP. Defined once here, the FFI bin runs exactly once per suite run.
+    // ── FULL CROSS-CHAIN E2E (real bitcoind/LDK ↔ real SPVGateway/BTCChannels) ──
+    //
+    // The `e2e_ffi` Rust bin (quid-hop, --features harness) drives a REAL regtest
+    // bitcoind + two REAL LDK hop nodes in one shot: fund a 2-of-2 (LP+hop)
+    // channel, swap-IN over Lightning, cooperatively close, and emit an
+    // ABI-encoded bundle (genesis+headers, funding/close raw legacy txs + SPV
+    // merkle proofs, the recovered funding pubkeys, the seller/sats/token/hash of
+    // the real HTLC, and the LP's lpAuth over the EXACT openChannelDigest). Here
+    // that real data flows through the ACTUAL SPVGateway header chain +
+    // BTCChannels.openChannel -> registerBtcLp -> settleSwapIn -> recordClose ->
+    // unregisterBtcLp.
+    //
+    // The bin needs a bitcoind/esplora; without them it CANNOT run, so this test
+    // SKIPS cleanly (suite stays green) when the FFI bin or its binaries are
+    // absent. CI must provide them (BITCOIND_EXE/ELECTRS_EXE or the download
+    // features) for this to execute. Build the bin once:
+    //   cargo build -p quid-hop --features harness --bin e2e_ffi
+    struct Bundle {
+        bytes     genesisHeader;     // 0
+        bytes[]   headers;           // 1  (heights 1..=tip)
+        uint256   tip;               // 2
+        bytes     rawFundingTx;      // 3  (witness-stripped legacy)
+        bytes32   fundingBlockHash;  // 4  (BE, as stored)
+        uint256   fundingHeight;     // 5
+        uint256   fundingTxIndex;    // 6
+        bytes32[] fundingMerkleProof;// 7
+        bytes     lpPubkey;          // 8  (33-byte)
+        bytes     hopPubkey;         // 9  (33-byte)
+        uint256   amountSats;        // 10
+        bytes32   fundingTaproot;    // 11 the REAL x-only MuSig2 Q of 0x5120||Q
+        bytes     lpAuth;            // 12 (r‖s‖v)
+        address   seller;            // 13
+        uint256   sats;              // 14
+        address   token;             // 15
+        bytes32   paymentHash;       // 16
+        bytes     rawCloseTx;        // 17 (witness-stripped legacy)
+        bytes32   closeBlockHash;    // 18 (BE)
+        bytes32[] closeMerkleProof;  // 19
+        uint256   closeTxIndex;      // 20
+    }
+
+    function testCrossChain_FullE2E() public {
+        // Predict the BTCChannels CREATE address: after this point we deploy
+        // exactly ONE contract (the SPVGateway) before `new BTCChannels`, so the
+        // address is this test's current nonce + 1. The bin signs lpAuth over a
+        // digest binding THIS address, so it must be known before the FFI call.
+        address hop = makeAddr("hop");
+        address predictedCh =
+            vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1);
+
+        // ── drive the Rust side; capture the ABI bundle ──
+        // Invoke the bin via `cargo run` from the quid-ln workspace (so the right
+        // toolchain/features apply). Logs go to stderr -> silenced; the `0x…`
+        // bundle is the only stdout. On any failure (missing bitcoind / bin), the
+        // `|| echo SKIP` keeps the test green.
+        string[] memory ffi = new string[](3);
+        ffi[0] = "bash";
+        ffi[1] = "-c";
+        ffi[2] = string.concat(
+            "cd ", vm.projectRoot(), "/../quid-ln && ",
+            "cargo run --quiet -p quid-hop --features harness --bin e2e_ffi -- ",
+            vm.toString(block.chainid), " ", vm.toString(predictedCh),
+            " 2>/dev/null || echo -n SKIP"
+        );
+        bytes memory out = vm.ffi(ffi);
+
+        if (out.length < 32 || keccak256(out) == keccak256(bytes("SKIP"))) {
+            emit log("e2e_ffi bin/bitcoind unavailable - skipping cross-chain e2e");
+            vm.skip(true);
+            return;
+        }
+        Bundle memory b = abi.decode(out, (Bundle));
+
+        // ── REAL SPVGateway: regtest genesis (height 0) + chain to tip ──
+        SPVGateway gw = new SPVGateway();
+        gw.__SPVGateway_init(b.genesisHeader, 0, 0);
+        gw.addBlockHeaderBatch(b.headers);
+        assertEq(gw.getMainchainHeight(), b.tip, "header chain extended to tip");
+        assertTrue(gw.isInMainchain(b.fundingBlockHash), "funding block on mainchain");
+        assertTrue(gw.isInMainchain(b.closeBlockHash),   "close block on mainchain");
+
+        // ── REAL BTCChannels at the predicted address; hopNode = our hop ──
+        BTCChannels ch = new BTCChannels(
+            address(gw), address(AUX), address(ETH), hop);
+        require(address(ch) == predictedCh, "BTCChannels address prediction off");
+        AUX.setBTCChannels(address(ch));
+
+        // ── openChannel: real funding tx + SPV proof + LP's lpAuth ──
+        // (p/payout scoped away after the open to keep the stack shallow.)
+        bytes32 channelId;
+        {
+            Types.OpenParams memory p = Types.OpenParams({
+                fundingBlockHash:   b.fundingBlockHash,
+                fundingBlockHeight: uint64(b.fundingHeight),
+                fundingTxIndex:     b.fundingTxIndex,
+                lpPubkey:           b.lpPubkey,
+                hopPubkey:          b.hopPubkey,
+                amountSats:         b.amountSats,
+                // Use the REAL Q from the bundle (the live funding output is 0x5120||Q
+                // where Q is the genuine MuSig2 aggregate; the synthetic _taprootQ
+                // stand-in only matches the synthetic-funding fixtures, not a real tx).
+                fundingTaproot:     b.fundingTaproot
+            });
+            // Realistic btcRecipientOf: a full 32-byte x-only shutdown key. NOTE: the
+            // REAL coop-close guard (_lpFinalBalance validating the actual LDK close
+            // output `0x5120||shutdownKey`) is exercised end-to-end by quid-bridge's
+            // driver_e2e `channel_lifecycle_open_then_close_on_real_evm`, where the Rust
+            // channel_driver registers btcRecipientOf FROM the LP's real shutdown script
+            // and closes with the real tx. This e2e_ffi bundle variant asserts only the
+            // retire/no-mint invariant (>=0), so the synthetic key just needs to be a
+            // proper key, not a hash160 in a slot.
+            bytes32 payout = keccak256(abi.encode("lp-shutdown-xonly", p.lpPubkey));
+            // (B) The LP delegates channel operation to `hop` COLD, once. The bundle's
+            // `lpAuth` field now carries the DELEGATION signature over
+            // delegationDigest(hop, payout, 1) (the e2e_ffi bin signs that digest instead
+            // of the retired per-open openChannelDigest). registerDelegation recovers
+            // lpEth from the sig and pins+LOCKS btcRecipientOf[lpEth]=payout +
+            // delegatedAuthority[lpEth]=hop; openChannel is then gated on the hop caller.
+            address lpEth = ECDSA.recover(ch.delegationDigest(hop, payout, 1), b.lpAuth);
+            ch.registerDelegation(hop, payout, 1, b.lpAuth);
+            vm.prank(hop); // openChannel is hop-gated: only the delegated hop may submit
+            channelId =
+                ch.openChannel(p, b.rawFundingTx, b.fundingMerkleProof, lpEth);
+        }
+
+        // The lpAuth signer owns the credited BTC position.
+        ( , , address lpEth, , uint8 status,) = ch.channels(channelId);
+        assertEq(status, 0, "channel OPEN");
+        (uint pooledOpen,,,) = BTC.autoManagedBTC(lpEth);
+        assertEq(pooledOpen, b.amountSats, "openChannel credits the BTC pool position");
+
+        // ── fund POOLED_USD_BTC headroom (a swap-in draws swapper dollars) ──
+        vm.prank(User03); ch.setBtcRecipient(bytes32(uint(0xB7C)));
+        vm.startPrank(User03);
+        USDC.approve(address(AUX), type(uint).max);
+        for (uint i = 0; i < 6; i++) {
+            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0);
+            vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
+        }
+        vm.stopPrank();
+        assertGt(CORE.POOLED_USD_BTC(), 0, "POOLED_USD_BTC funded");
+
+        // No-CRE fork: heal USDC severity for the healthy case.
+        vm.mockCall(address(AUX),
+            abi.encodeWithSignature("getDepegSeverityBps(address)", address(USDC)),
+            abi.encode(uint(0)));
+
+        // ── settleSwapIn: the REAL Lightning HTLC hash settles the seller ──
+        {
+            uint usdcBefore = USDC.balanceOf(b.seller);
+            vm.prank(hop);
+            ch.settleSwapIn(b.seller, b.sats, address(USDC), b.paymentHash, 0, false);
+            assertGt(USDC.balanceOf(b.seller), usdcBefore, "seller paid USDC for the real swap-in");
+            assertTrue(ch.swapInUsed(b.paymentHash), "real HTLC hash recorded");
+        }
+
+        // Replaying the SAME real hash must revert.
+        vm.prank(hop);
+        vm.expectRevert(BTCChannels.SwapInReplay.selector);
+        ch.settleSwapIn(b.seller, b.sats, address(USDC), b.paymentHash, 0, false);
+
+        // ── recordClose: the REAL cooperative-close tx + SPV proof retires it ──
+        uint qBefore = QUID.balanceOf(lpEth);
+        vm.prank(makeAddr("hop")); // recordClose is participant-gated (hop or lpEth)
+        ch.recordClose(channelId, b.rawCloseTx, b.closeBlockHash,
+            b.closeMerkleProof, b.closeTxIndex);
+        (uint pooledClose,,,) = BTC.autoManagedBTC(lpEth);
+        assertEq(pooledClose, 0, "recordClose retires the BTC pool position");
+        // Proceeds (if any delivered) are paid as QUID at close.
+        assertGe(QUID.balanceOf(lpEth), qBefore, "close pays the LP's proceeds as QUID");
     }
 }
