@@ -4603,3 +4603,39 @@ FOUNDRY_RPC_ENDPOINTS_MAINNET=https://ethereum-rpc.publicnode.com FORK_BLOCK=<re
   asserting fork-state at 25653624 must be re-pinned or made state-independent (the rung-3 fix already is —
   it mocks TVL rather than depending on the live watermark).
 
+## 🔬 §A.16 MECHANISM IDENTIFIED — it is **LVR on levered-entry flow**, measured NET of fees.
+### What the "treatment" actually does — NOT what the name says
+`_open()` (`LeveragePnLProbe.t.sol:56`) is **not a leverage open**. It is a SWAP:
+```solidity
+deal(bold, trader, boldAmt);
+AUX.swap(bold, address(WETH), true, boldAmt, 0);      // BOLD -> WETH, by `trader`
+```
+⇒ The treatment is **20 rounds of buying WETH out of the band** — the market-impact half of a levered
+  entry (a levered LP borrows stables and buys ETH). The control does none.
+⇒ So the measured gap is **LVR / impermanent loss**: the band sold WETH into a rising price, and both arms
+  are then valued at the ORIGINAL `px0`. **That is an inherent AMM effect, not a coding error** — which is
+  why the previous "is it a bug?" framing never resolved.
+
+### 🔑 THE DECISIVE CHECK — is the shortfall NET OF FEES? **YES.**
+If the redeem did not pay the LP's accrued fees, the 8% would be a measurement artifact. It does:
+`Vogue._withdraw` (`:502`) calls **`_settlePending(LP, msg.sender, address(0))` at `:530`** — fees settle
+into the exit proceeds, and `_lpValueUsd` measures the proceeds.
+⇒ **So the 8% is what remains AFTER the LP was paid every fee those 20 swaps generated** — and after the
+  skew premium, since a BOLD→WETH buy is the drain leg that `wellSkew` prices (confirmed during C4).
+⇒ ⇒ **Restated precisely: the swap fee + the scarcity skew together did NOT cover the LVR that
+  inventory-depleting flow imposed on the passive LP, by ~8.06% over 20 rounds of 3,000 BOLD.**
+
+### ⚖️ THIS IS NOW A DESIGN QUESTION, NOT A BUG HUNT — and it is the user's call
+ (a) **The assertion encodes a goal the system does not currently meet.** The skew mechanism
+     (`sellSkew`/`wellSkew` → `recordSkewPremium`) exists PRECISELY to charge inventory-depleting flow. If
+     it is not covering LVR, the skew is priced too low for this flow size. ⇒ §A.16 stands as a real gap,
+     and the fix is a PARAMETER/pricing question, not a correctness one.
+ (b) **Or the scenario is adversarial** — 20 consecutive ONE-DIRECTIONAL 3,000-BOLD buys with no return
+     flow is close to a worst case, and no AMM is LVR-neutral against it. ⇒ then the ASSERTION is too
+     strong and should be re-scoped (e.g. bounded LVR rather than zero).
+⚠️ **Do NOT weaken the assertion to make the suite green.** It is currently the only failing test and it is
+  measuring something real; silencing it would delete the one signal that this cost exists.
+▶️ **NEXT (cheap, decisive):** log `CORE.skewPremiumETH()` before/after the 20 rounds and compare it to the
+  59,967 USD18 gap. If the premium collected is ≪ the gap, (a) is confirmed and the skew is underpriced —
+  a number, not an opinion. **That single measurement decides between (a) and (b).**
+
