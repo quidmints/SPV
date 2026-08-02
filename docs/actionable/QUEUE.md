@@ -4993,3 +4993,31 @@ was. we never finished our comparison between now and then."*
   diff of the band-mechanics functions specifically — that is the ONE category where legacy may genuinely be
   simpler for the SAME job, and therefore the only place a real simplification is hiding.
 
+## ✅ §C10 PART 2 COMPLETE — the PARTIAL FILL now lands. Rung 3 passes; 0 size exceedances.
+The rung was ALL-OR-NOTHING: asking for the full `weethIn` when ether.fi's pool is thinner reverts
+`ExceededRedeemable()` and abandons the WHOLE rung, dropping the LP onto rung 4's multi-day wait-NFT even
+when most of it could be served instantly. Now:
+```solidity
+uint capEth   = IEtherFiRedemption(c.redeemer).totalRedeemableAmount(ETHFI_NATIVE_ETH);
+uint capWeeth = IWeETH(c.weeth).getWeETHByeETH(capEth);      // OUTPUT-token units -> weETH
+uint ask      = weethIn < capWeeth ? weethIn : capWeeth;
+try ... redeemWeEth(ask, recipient, ETHFI_NATIVE_ETH) {
+    if (ask >= weethIn) return covered;                       // served in full
+    uint served = FullMath.mulDiv(amount, ask, weethFull);     // ETH-equiv of the partial
+    return served + waitNft(covered - served, recipient, c);   // remainder -> rung 4
+}
+```
+### 🔑 THE UNIT TRAP THAT BLOCKED THIS FOR THE WHOLE SESSION — resolved, not worked around
+Capacity is denominated in the **OUTPUT TOKEN** (native ETH, 1:1 with eETH); the ask is **weETH**, and
+weETH:eETH is **not** 1:1. A naive `min(weethIn, capacity)` mixes units and mis-asks by the weETH premium.
+⇒ Converted with **`getWeETHByeETH`** — the SAME conversion `offrampBody:574` already uses to size this very
+  call, so the clamp and the sizing now share one basis instead of two.
+⇒ `served` is computed on the SAME basis as `covered` (`amount × ask / weethFull`), so the partial and the
+  rung-4 remainder cannot double-count or drop ETH between them.
+⚠️ **SIZE: SwapLib 24,224 → 24,428 (margin 353 → 148).** The clamp cost 204 bytes. Still under EIP-170 with
+  0 exceedances, but **the margin is now tight enough that the next SwapLib change must be size-checked in
+  the same run** (the C4 regression happened at exactly this margin).
+📌 Also removed the stale block that said *"Blocked on confirming a capacity view… semantics UNVERIFIED. Do
+  not clamp against a guessed ABI."* — that blocker was resolved earlier today (selector-matched against
+  impl `0x5d53b303…b3dc`), and leaving it would have told the next reader not to do what is now done.
+

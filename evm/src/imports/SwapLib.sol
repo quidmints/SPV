@@ -611,34 +611,34 @@ library SwapLib {
         // InvalidOutputToken. (The old code passed WETH here, so this rung
         // SILENTLY FAILED on every call.) The recipient receives NATIVE ETH.
         if (weethIn > 0 && instant && c.redeemer != address(0)) {
-            // §C10: this rung is ALL-OR-NOTHING — it asks for the FULL `weethIn`. If ether.fi's
-            // redeemable pool is thinner than the ask they revert `ExceededRedeemable()` (`0xdc9cb0e2`,
-            // confirmed live) and the ENTIRE rung is abandoned, silently dropping the LP onto rung 4's
-            // multi-day wait-NFT even when 99% could have been served instantly. Their pool is EXTERNAL
-            // state we neither control nor read, so this fires in production, not just in tests.
-            // The bare `catch {}` that was here made it INVISIBLE. Now it is observable.
-            // ⚠️ PARTIAL FILL STILL OWED: request `min(weethIn, redeemable)` and let the remainder fall
-            // to rung 4. Blocked on confirming a capacity view on `0xDadEf1fF…7Ae0` — `canRedeem(uint256)`
-            // appears to exist (an argument-less call returns an encode-length mismatch rather than
-            // "function not found") but its semantics are UNVERIFIED. Do not clamp against a guessed ABI.
-            // §C10 part 2: ether.fi's redeemable capacity is PER OUTPUT TOKEN. The native-ETH sentinel
-            // has read ZERO on mainnet at every block sampled back ~1.6M blocks, while stETH holds
-            // ~5_000e18 — i.e. this rung asks for the ONE output token with no capacity, which is why it
-            // has never paid. Skip the call entirely when capacity is 0 rather than burning gas on a
-            // guaranteed ExceededRedeemable revert, and make the reason observable.
-            // NOTE: a PARTIAL clamp (min(weethIn, capacity)) is deliberately NOT done here — capacity is
-            // denominated in the OUTPUT token while `weethIn` is weETH, and weETH:eETH is not 1:1. That
-            // conversion is the remaining piece; a naive min() would mix units.
-            // Capacity 0 ⇒ the call would revert `ExceededRedeemable`; skip it rather than burn gas,
-            // and fall through to the SAME rung-4 tail below (no duplicated exit path).
-            if (IEtherFiRedemption(c.redeemer).totalRedeemableAmount(ETHFI_NATIVE_ETH) == 0) {
+            // §C10 part 2 — PARTIAL FILL. ether.fi's `totalRedeemableAmount` is PER OUTPUT TOKEN
+            // (verified against impl 0x5d53b303…b3dc by selector, and live: the native sentinel and
+            // stETH carry independent capacity). Asking for the FULL `weethIn` when their pool is
+            // thinner reverts `ExceededRedeemable()` and abandons the WHOLE rung, dropping the LP onto
+            // rung 4's multi-day wait-NFT even when most of it could be served instantly.
+            //
+            // UNIT: capacity is denominated in the OUTPUT token (native ETH, 1:1 with eETH) while the
+            // ask is weETH — so it is converted with `getWeETHByeETH`, the SAME conversion `:574` uses
+            // to size this call. A naive `min()` would mix units and under- or over-ask by the weETH
+            // premium.
+            uint capEth = IEtherFiRedemption(c.redeemer).totalRedeemableAmount(ETHFI_NATIVE_ETH);
+            if (capEth == 0) {
+                // Their pool is empty for THIS output token — skip rather than burn gas on a call that
+                // must revert, and leave the reason observable.
                 emit InstantRedeemSkipped(weethIn, bytes4(0));
             } else {
-                try IEtherFiRedemption(c.redeemer).redeemWeEth(weethIn, recipient, ETHFI_NATIVE_ETH) { return covered; }
-                catch (bytes memory err) {
+                uint capWeeth = IWeETH(c.weeth).getWeETHByeETH(capEth);
+                uint ask = weethIn < capWeeth ? weethIn : capWeeth;
+                try IEtherFiRedemption(c.redeemer).redeemWeEth(ask, recipient, ETHFI_NATIVE_ETH) {
+                    if (ask >= weethIn) return covered;             // served in full
+                    // PARTIAL: `ask` weETH was redeemed; the remainder falls to rung 4. `served` is the
+                    // ETH-equivalent of what this rung covered, on the SAME basis as `covered` above.
+                    uint served = FullMath.mulDiv(amount, ask, weethFull);
+                    return served + waitNft(covered - served, recipient, c);
+                } catch (bytes memory err) {
                     // Empty `err` = callee gave no reason (OOG / bare revert); report 0 rather than
                     // reading past the end.
-                    emit InstantRedeemSkipped(weethIn, err.length >= 4 ? bytes4(err) : bytes4(0));
+                    emit InstantRedeemSkipped(ask, err.length >= 4 ? bytes4(err) : bytes4(0));
                 }
             }
         }
