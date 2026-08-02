@@ -5241,3 +5241,59 @@ same error the leverage fold already fixed once by switching gross → net equit
 📌 **`_open` is a PLAIN `AUX.swap(bold, WETH, true, ...)`** — despite the file's name there is no
   leverage in this path. The leak is a property of ordinary band swap flow, which makes it broader
   than the `LeveragePnLProbe` filename suggests. Its comments claiming a leverage mechanism are stale.
+
+# ✅ ARCHIVE ADJUDICATED — "is everything in `BUILD-QUEUE-AND-107.md` done?" answered item by item
+**Short answer: no, but only ONE thing was genuinely lost.** The question was previously unanswerable,
+which is the real problem this closes.
+
+### First, do the two docs overlap? MEASURED, not asserted from their headers
+| metric | result |
+|---|---|
+| substantive lines (>40 chars) | QUEUE 4,121 · ARCHIVE 3,953 |
+| **byte-identical substantive lines** | **0** |
+| identical `##` headers (444 vs 318) | **0** |
+| item IDs appearing in BOTH | **93** |
+| item IDs only in the ARCHIVE | **206** (mostly `#NNN` issue refs) |
+⇒ **No textual duplication at all.** They overlap by SUBJECT (93 shared IDs) and diverge completely by
+  CONTENT — which is what "archive holds evidence, QUEUE holds status" is supposed to look like. The
+  header claim is now verified rather than trusted.
+
+### Then: the 25 archive `§A.x` sections with NO QUEUE row — all 25 adjudicated
+| verdict | items |
+|---|---|
+| **self-closed in the archive itself** (it records its own resolution) | A.10 (*"closes §A.10's open question"*), A.12 (*"rejected change… now removed"*), A.17 (DONE), A.21 (FIXED), A.28 (*"now fixed"*), A.32 (*"now fixed"*), A.40 (proof exists), A.42 (CONFIRM), A.47 (live in code at `:3645/:4565/:4589`) |
+| **struck / corrected by a later section** | A.8d (*"the 19.4% figure IS STALE"*), A.16c (reverted in `2e5a0fa`), A.19 (superseded by A.19b), A.64 (*"STRIKE §A.64's central claim"*), A.66 (*"BOTH of my earlier framings are STRUCK"*) |
+| **superseded by THIS session's work** | A.67 (3558/2 → now 3560/1), A.68 (*"C1 APPLIED, C2/C3 NOT"* → C1–C4 + C10 all done and suite-verified), A.73b (C1 re-applied alone) |
+| **method/finding writeups, never actions** | A.2, A.3, A.7, A.33, A.39, A.53 (parallelisation map), A.60 (deferral audit) |
+| 🔴 **GENUINELY MISSING FROM QUEUE.md** | **§A.65** — see below |
+
+📌 **§A.60 is the load-bearing one and it VINDICATES the archive.** It is a deferral audit that already
+  enumerated every genuinely-unbuilt item. Cross-checked all six against QUEUE.md: JIT-DEPTH §2, §A.55,
+  §A.57, §A.5f, §A.19b, §A.43 — **all six are tracked here.** Nothing was dropped in that transfer.
+
+## 🔴 §A.65 — THE ONE ITEM LOST IN THE ARCHIVE→QUEUE TRANSFER (0 prior mentions here)
+Two standing requirements and one security action, none of which had a row.
+
+**1. The basket fee MUST be DIRECTIONAL before `calcFeeL1` is re-wired (§A.64 step 2).**
+An arber restoring composition toward target is doing the basket a favour. A fee priced on
+CONCENTRATION ALONE charges them MOST exactly when the flow is needed MOST — it taxes the action that
+fixes the thing the fee measures.
+  • moves composition TOWARD target → ~0 · • moves it AWAY → charge.
+⚠️ **This failure mode is SILENT** — no revert, no failing test, just an imbalance that quietly stops
+  correcting. That is precisely the class that earns a guard rather than a comment.
+**Ceiling is set by the market, not by policy:** an arber's profit ≈ the mispricing corrected, so a fee
+above that spread means the trade does not happen — we collect nothing AND keep the imbalance. Rule:
+fee ≪ typical stable-stable dislocation (single-digit bps), ZERO on the restoring direction.
+
+**2. A pinned Chainlink feed is a PREREQUISITE for listing any new stable** (USDS included), not a
+follow-up. §A.49's FRAX lesson: a listed stable with no pinned feed defers to a ZERO haircut, so a
+depegged unit redeems at FULL FACE and cherry-pickers drain the sound stables against it.
+*Unlisted = uncapturable but also undrainable* — declining to list is a real option, not a failure.
+
+**3. ✅ DONE NOW — the committed RPC token.** `evm/foundry.toml:34` and `:62` both carried an Ankr URL
+with the **API token in plaintext**, in a repo that has a `SPV public snapshot` commit (`0af7f6d`).
+Replaced both with keyless `https://ethereum-rpc.publicnode.com` — the endpoint that actually completed
+the full 3,560-test suite, where the rate-limited Ankr key degraded to a 9m50s timeout. Verified: a bare
+`forge test` now forks with no env var set.
+🔴 **STILL REQUIRED AND CANNOT BE DONE FROM HERE: ROTATE THAT TOKEN AT ANKR.** It is in git history;
+  deleting it from HEAD does not un-leak it.

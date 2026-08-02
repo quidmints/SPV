@@ -31,7 +31,13 @@ fs_permissions = [
 solc_version = "0.8.30"
 evm_version = "cancun"
 # Default fork RPC for the e2e/fork test suite (Ankr mainnet archive).
-eth_rpc_url = "https://rpc.ankr.com/eth/abc1c9e1ba906a35c59e62a69c80cf77219499b3cd05752d53c0ed17d14cbfc3"
+# KEYLESS by design. The previous literal here was an Ankr URL with the API TOKEN IN PLAINTEXT,
+# in a repo that has a public-snapshot commit (0af7f6d) -- so that token must be treated as
+# disclosed and ROTATED at Ankr; deleting it here does not un-leak git history. publicnode is
+# keyless and is the endpoint that actually completed the full suite (3,560 tests) under load,
+# where the rate-limited Ankr key degraded to a 9m50s timeout. Override without editing this
+# committed file: FOUNDRY_ETH_RPC_URL=<url> / FOUNDRY_RPC_ENDPOINTS_MAINNET=<url>.
+eth_rpc_url = "https://ethereum-rpc.publicnode.com"
 
 via_ir = false
 optimizer = true
@@ -59,7 +65,7 @@ dynamic_test_linking = false
 
 [rpc_endpoints]
 # forge script scripts/DeployL1.s.sol:Deploy --rpc-url mainnet --broadcast --verify
-mainnet = "https://rpc.ankr.com/eth/abc1c9e1ba906a35c59e62a69c80cf77219499b3cd05752d53c0ed17d14cbfc3"
+mainnet = "https://ethereum-rpc.publicnode.com"
 
 [etherscan]
 mainnet = { key = "${ETHERSCAN_L1}" }
