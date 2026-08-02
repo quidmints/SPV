@@ -209,6 +209,19 @@ case. Conversely if it tolerates a shortfall, the tests never exercise the fee-b
 | **SWALLOWED FAILURE** | 67 | ⚠️ **UNTRIAGED — the biggest unexamined surface left.** `catch {}` / `\|\| echo SKIP`. Most are deliberate degrade-to-conservative paths, but `_lpValueUsd`'s `try/catch` returning 0 is exactly how a zero-delivery redeem hid in `testDD`, so the pattern has bitten here before. **Each needs: can a REAL failure reach this, and would it be silent?** |
 | **OUR markers** | 24 | 🟡 mostly prose/`@notice` references, but `quid-hop/src/migration.rs:58,63,73,77` are **4 `PLACEHOLDER (dev)` constants — operator Safe address and chain id — explicitly "replace before mainnet".** Not tracked anywhere else. |
 | vendored markers | 229 | ✅ upstream LDK/lexe (`TODO(phlip9)`/`TODO(max)`). Not ours. |
+## 🟠 13c — `registerBtcLp` IS THE WRONG VERB (recovered 2026-08-03; I claimed it was "booked as 13c"
+##       and it was NOT — `13c` appears **0×** in this file and 1× in the archive)
+`registerBtcLp` is called at OPEN **and again by `_applySplice` on every GROW**, while the shrink half
+calls `resizeBtcLp`. **Two halves of one operation, two verbs, and the one that runs twice is the
+misleading one** — "register" reads as a one-time enrolment when it is the repeated credit path.
+📍 `Vault.sol:776` (`registerBtcLp`) · `Vault.sol:855` (`resizeBtcLp`) · `BtcVaultLib.sol:345`/`:202`
+  · declared at `BTCChannels.sol:97`/`:102`.
+▶️ **`creditBtcLp` or `addBtcLiquidity`** matches what it does. Rename both halves together so the
+  pair reads as one operation.
+⚠️ **NOT a cosmetic edit — it is an ABI change** consumed by `quid-hop/src/evm_codec.rs`. Needs
+  `tools/check-client-abis.py` **and** a suite run, which is why it was never dropped into a
+  conversation as a quick fix.
+
 ## ⚠️ TWO CONCERNS I HELD AND NEVER WROTE DOWN — surfaced by introspection, 2026-08-03
 I claimed the only residual was "a concern never written anywhere, unreachable by scanning." The
 user pushed. **It IS reachable — by asking myself rather than grepping.** Both of these were live in

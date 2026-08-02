@@ -39,9 +39,14 @@ from collections import OrderedDict
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Where SPV actually books work. A candidate whose key terms appear here is already tracked.
+# ⚠️ THE ARCHIVE IS **NOT** A BOOKING FILE. `BUILD-QUEUE-AND-107.md` is append-only and its own
+# header declares its STATUS markers non-authoritative — it is evidence only. Including it here (as
+# this file did until 2026-08-03) meant anything ever MENTIONED in the archive scored as "booked",
+# so a live item recorded there and never carried into QUEUE.md read as tracked. That is exactly how
+# the `registerBtcLp`/`resizeBtcLp` rename ("booked as 13c") hid: 13c appears 1× in the archive and
+# 0× in QUEUE.md. Status lives in QUEUE.md; nowhere else counts.
 BOOKING_FILES = [
     "docs/actionable/QUEUE.md",
-    "docs/actionable/BUILD-QUEUE-AND-107.md",
     "CLAUDE.md",
 ]
 
