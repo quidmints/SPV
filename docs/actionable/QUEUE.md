@@ -185,6 +185,23 @@ case. Conversely if it tolerates a shortfall, the tests never exercise the fee-b
 | **SWALLOWED FAILURE** | 67 | ⚠️ **UNTRIAGED — the biggest unexamined surface left.** `catch {}` / `\|\| echo SKIP`. Most are deliberate degrade-to-conservative paths, but `_lpValueUsd`'s `try/catch` returning 0 is exactly how a zero-delivery redeem hid in `testDD`, so the pattern has bitten here before. **Each needs: can a REAL failure reach this, and would it be silent?** |
 | **OUR markers** | 24 | 🟡 mostly prose/`@notice` references, but `quid-hop/src/migration.rs:58,63,73,77` are **4 `PLACEHOLDER (dev)` constants — operator Safe address and chain id — explicitly "replace before mainnet".** Not tracked anywhere else. |
 | vendored markers | 229 | ✅ upstream LDK/lexe (`TODO(phlip9)`/`TODO(max)`). Not ours. |
+✅ **THE 839 "BOOKED" PASSAGES WERE VERIFIED AGAINST CODE, not taken on the heuristic's word.**
+  Reading 839 passages is neither feasible nor reliable, so the CHECKABLE subset was extracted
+  instead: every passage carrying BOTH an unimplemented-claim marker (*should be / NOT APPLIED /
+  missing / no test*) AND a concrete code token (`file.sol:line` or an identifier). **22 of them.**
+  Each was then tested against the current tree:
+  • **20 are narrative of work already done** — C5's `*1e12`, C1/C2's unit fixes, #113's
+    `DeleverEthBackingProbe`, the `VEth` projection face, the §J.2c transfer gate.
+  • `Core.sol:48` *"still claims the sum-cap is enforced"* → **comment is CORRECT as written.** The
+    `POOLED_USD_ETH + POOLED_USD_BTC ≤ TVL` invariant IS enforced (measured this session as
+    `committedUsd18() <= haircutTvl`). It only becomes stale IF #12 unifies — a coupling, not a bug.
+  • `EconAttackProbe` *"proving nothing"* → **28 asserts/expectReverts present**; the log-only state
+    was addressed. Consistent with §A.46's "3 assertion-free remain (of 7)".
+  • `Vault.sol:638` *"blunt LP-never-receives-loose-vBTC rule"* → **replaced** by SAME-BTC leverage
+    (`LP.pooled` UNCHANGED, no double-count).
+  ⇒ **Exactly ONE genuinely unimplemented item hid in the booked set: T1**, and it was found by the
+    weakest-match control below, not by reading.
+
 🔴 **SCANNER WEAKNESS — IT PRODUCED A FALSE NEGATIVE, and that is the dangerous direction.**
   `booked()` marks a passage as tracked when ≥2 of its first 12 extracted words appear in a booking
   file. Running the CONTROL — sampling passages judged BOOKED and ranking by how weak the match was —
