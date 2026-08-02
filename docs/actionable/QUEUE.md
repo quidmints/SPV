@@ -294,8 +294,30 @@ outpoint invalidates **every** exit in that shard at once (that is precisely the
   • **K↑** ⇒ cheaper per channel, **wider** simultaneous invalidation.
   • **K↓** ⇒ narrower failure, and below ~K=10 at high fees the backstop **costs more than an idle
     channel earns** — the exact axis that killed splice-on-refresh.
-⇒ **K is not a tuning knob, it is the risk/cost frontier.** Pick it deliberately and write down the
-  fee regime it assumes; a K chosen at 5 sat/vB is a different decision than one chosen at 100.
+⇒ **K is not a tuning knob, it is the risk/cost frontier.**
+
+### 🎯 K SET ON BLAST-RADIUS GROUNDS (2026-08-02) — as a TVL FRACTION, not a count
+**Cost does not bind.** At K=100/20 sat/vB it is 44 sat/day/channel; cost permits K≥100 comfortably,
+so K is free to be chosen on risk. **Throughput does not bind either:** re-signing has ~72 blocks
+(~12h) of slack before the next rotation, which is ample for any plausible fleet.
+
+**What DOES bind is correlated exposure.** Spending a shard's outpoint invalidates every exit signed
+against it, so between rotation and re-signing, **all K channels in that shard hold no valid dead-man
+exit at once.** A fleet fault inside that window exposes the whole shard together.
+⇒ **Therefore: size a shard by the VALUE it can expose, not by a channel count.**
+
+> **RULE: each shard ≤ 5% of total channel BTC ⇒ a minimum of 20 shards, always.**
+> `K = ceil(total_channels / max(20, ceil(total_channels / K_cost_max)))`.
+> A count-based K silently breaks this as the fleet grows: 100 channels/shard is 5% at 2,000
+> channels and **50%** at 200. **The invariant is the fraction; K is derived from it, never fixed.**
+
+### 📌 FEE REGIME THIS ASSUMES — re-derive if it breaks
+- **Measured band: 2–50 sat/vB.** At K=100 that is **11–111 sat/day/channel**.
+- **Break-even for a channel earning ~1,000 sat/day at K=100: ≈450 sat/vB.** Sustained fees above
+  that invert the economics for idle channels and **force K up** — which then collides with the ≤5%
+  rule above. **That collision is the real alarm**, not the fee number itself.
+- **Do not re-use these numbers under a different `DEAD_MAN_DELTA_BLOCKS`.** Everything here scales
+  off `REFRESH_MARGIN_BLOCKS = DELTA/2 = 72` ⇒ 2 rotations/day. Halving DELTA doubles the cost.
 
 ✅ **PROSE-ONLY SWEEP (no code token required) — the gap I had left open.** 27 distinct promised
   checks; 21 not covered by a distinctive token. Triaged: **2 resolved in code with reasons** —
