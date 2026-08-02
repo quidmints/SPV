@@ -1,6 +1,6 @@
 {
   "sats": 50000,
   "seller": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
-  "paymentHash": "0x71579cc9c3eb89d149104a53b3ebe64fb12d13647c4e281feeb96c6541944719",
-  "preimage": "0x3848670d38a4990b4f2567e3d679316058a31f84a5273473ea7bcacbbaad8acf"
+  "paymentHash": "0x1aa48f1a63ba42628d8a5d366128ef8af704b20aa00814658eaa6601fbb92b3c",
+  "preimage": "0xf5d2edd3079c965879676ea5baaf4cfae7d1b4512acaeb0e3511cadea7bae567"
 }

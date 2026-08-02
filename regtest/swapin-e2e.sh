@@ -3,8 +3,14 @@
 # both LND nodes + the alice→bob channel are up, performs a REAL HTLC swap, and
 # leaves swapin_fixture.json for the test. Prints:
 #   READY  — fixture written
-#   SKIP   — harness binaries not installed (test skips, suite stays green)
-#   exits non-zero on a genuine failure (forge surfaces it)
+#   SKIP   — harness binaries NOT INSTALLED. This is the ONLY thing that skips the test.
+#   BROKEN — binaries ARE installed but orchestration failed. The test FAILS on this, loudly.
+#
+# The SKIP/BROKEN split is load-bearing, not cosmetic. Both cases used to print SKIP, so an
+# installed-but-broken harness was indistinguishable from an absent one — and that is exactly how
+# this test stayed invisible: LND reports `synced_to_chain: false` on a stale regtest tip, every
+# run emitted SKIP, and a genuine breakage read as a clean skip in a green suite. Never collapse
+# "cannot run" and "ran and failed" into one token.
 set -uo pipefail
 source "$(dirname "$0")/env.sh"
 LOG=/tmp/quid-swapin-e2e.log
@@ -24,6 +30,6 @@ if [ ! -x "$BITCOIND" ] || [ ! -x "$LND" ]; then echo -n SKIP; exit 0; fi
   "$HARNESS_DIR/start.sh" \
     && "$HARNESS_DIR/start-ln.sh" \
     && "$HARNESS_DIR/swap.sh" "${1:-50000}"
-} >"$LOG" 2>&1 || { echo "live harness orchestration failed — see $LOG" >&2; echo -n SKIP; exit 0; }
+} >"$LOG" 2>&1 || { echo "live harness orchestration FAILED — see $LOG" >&2; echo -n BROKEN; exit 0; }
 
 echo -n READY
