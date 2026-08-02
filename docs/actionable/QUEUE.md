@@ -5075,3 +5075,36 @@ depends on it (unlike the #114 shard-count trap). Revertible by pointing `checkB
 ⇒ 📌 And it makes the earlier "don't unify" verdict WRONG in its reasoning: the risk is not insolvency (the
   transfer prevents that) — it is that ONE VARIABLE is doing TWO JOBS.
 
+# 📐 LEGACY vs NOW, PART 2 — `Aux` and band mechanics. **The growth is EXTERNAL SURFACE, not logic.**
+| file | legacy | current | code ratio | ext/pub ratio |
+|---|---|---|---|---|
+| `Vogue.sol` | 469 code · 2 ext/pub | 719 code · 28 ext/pub | **1.53×** | **14×** |
+| `Aux.sol` (+ legacy `Basket.sol`) | **1,037 code** · 12 ext/pub | **691 code** · 43 ext/pub | **0.67× — SMALLER** | **3.6×** |
+| band core (`VogueCore` → `Core`) | 457 code · 2 ext/pub | 696 code · 18 ext/pub | 1.52× | **9×** |
+| **whole `src/` external surface** | **93** | **343** | — | **3.7×** |
+
+## 🎯 THE FINDING — and it is not the one the line counts suggested
+ • **`Aux` today contains LESS CODE than legacy `Aux` + `Basket` COMBINED** (691 vs 1,037) while doing
+   strictly more (12 stables, depeg haircuts, venue supply, channels). ⇒ **The bodies moved to libraries**
+   (`BasketLib`, `ChannelLib`) — that is real factoring, not bloat.
+ • **But the EXTERNAL SURFACE went 93 → 343 across `src/` (3.7×)**, and per-contract it is worse: Vogue
+   **14×**, band core **9×**. ⇒ ⇒ **Every `*Body` extraction to a library ADDS a public entrypoint**, because
+   a delegatecalled library body must be `external`/`public`. **The factoring that shrank the code
+   INFLATED the API.**
+ • That is the mechanical explanation the user was reaching for with *"why are there so many new internal
+   functions and helpers"*: they are not gratuitous — they are the **visible cost of `via_ir = false` +
+   EIP-170**. Bodies must live somewhere callable.
+
+## ⇒ SO WHERE A REAL SIMPLIFICATION HIDES (measured, not guessed)
+ 1. ⭐ **The 343-function external surface is the target, not the function count.** Much of it is
+    `*Body`/`*Self` plumbing that exists ONLY to be delegatecalled — it is API by accident, not by design.
+    A library body that is only ever called by its own contract could take an auth gate (`onlyUs`) or be
+    consolidated; **each one removed is genuine attack surface removed**, not cosmetics.
+ 2. **`Core.sol` at 62 functions / 18 external for what legacy did in 19 / 2** is the densest ratio and the
+    best place to look for band mechanics that legacy did more simply for the SAME job.
+ 3. **NOT a target:** `Aux`'s function count. Its code SHRANK; counting its functions punishes the very
+    factoring that made it smaller.
+📌 **Method note:** line counts said "2.7× bloat", code counts said "1.53×", and the external-surface count
+  said "14×". **Three metrics, three different stories — and only the third points at anything actionable.**
+  Counting the wrong thing would have produced a large, pointless refactor.
+
