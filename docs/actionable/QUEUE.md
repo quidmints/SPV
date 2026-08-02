@@ -46,7 +46,12 @@ regression, but it is the opposite of "most of it is finished".
 
 # 🎯 NEXT ACTION, RANKED (rewritten IN PLACE 2026-08-02 — the 07-29 ranking below was stale)
 
-**1. #12 — make the call, then build the USD delivery leg.** The ONLY failing test in the suite
+**1. #12 — make the call, then build the USD delivery leg.**
+   📍 `Vogue.sol:1227` `_pricingBacking` (the missing term) · `VaultLib.sol:121` `_vogueETH` (ETH-only sum) ·
+   `Core.sol:1022` the `committedUsd18() <= haircutTvl` gate · `Vogue.sol:962` `unwindForRedeem` (how QU!D
+   holders claim the same USD). **Credit the DELTA of `POOLED_USD_ETH` since deposit, NOT the level** —
+   level over-pays 246,564 on a 739,324 deposit; delta leaves the LP **+33.56** vs control and flips the
+   assertion. Test: `LeveragePnLProbe.t.sol::testLeverage_LvrControlVsTreatment`. The ONLY failing test in the suite
    (`testLeverage_LvrControlVsTreatment`) and the fix is now *defined*, not just diagnosed: credit the
    **DELTA** of `POOLED_USD_ETH` since deposit to LP share price — NOT the level (the level over-pays by
    246,564 on a 739,324 deposit; that base is basket-supplied quoting depth). Measured: crediting the
@@ -56,7 +61,10 @@ regression, but it is the opposite of "most of it is finished".
    is worse than the status quo. Multi-LP needs per-share apportionment of the increment.
    *(Full derivation at the "#12 RESOLVED BY MEASUREMENT" section near the end of this file.)*
 
-**2. §A.65 — the DIRECTION term on the basket fee.** Recovered 2026-08-02; it had NEVER been in this
+**2. §A.65 — the DIRECTION term on the basket fee.**
+   📍 `FeeLib.sol:109` `calcFeeL1` (compute the sign here) · `SOR.sol:356` (the SOR already ranks on this
+   exact signal, so pricing off it is consistent by construction) · `FeeLib.sol:167`/`:181` (`calcNeeded`,
+   `applyFeeAndHaircut` — today both DISCARD their fee inputs; that is where a charge would land). Recovered 2026-08-02; it had NEVER been in this
    file. It BLOCKS the 6909 work below, and **its failure mode is silent** — a symmetric concentration
    fee charges arbers most exactly when their rebalancing flow is needed most, and nothing reverts, no
    test fails, the basket just stops correcting. Silent + real invariant ⇒ this earns a test, not a
@@ -88,7 +96,13 @@ regression, but it is the opposite of "most of it is finished".
      ⚠️ Cost to weigh: this makes 25 suites depend on a live bitcoind, so it likely wants a
      regenerate-and-commit fixture set rather than live generation at test time.
 
-**4b. 🔴 REAL SPV — DONE for opens, BLOCKED on SPLICES (the deeper half, found 2026-08-02).**
+**4b. 🔴 REAL SPV — opens DONE, splices FIXTURED, wiring REMAINS (2026-08-02).**
+   📍 **Fabricated params to delete, exhaustively:** `VBtcLevFeeLane.t.sol:117,118,153,154,187,214,685`
+   and `BtcLpMintStress.t.sol:64,307,351,378,509,777`. **Fixture keys:** `.bySeed.s<seed>_<sats>.` for
+   opens, `+ "splice."` for splices (`spliceRawTx`, `spliceMerkleBranch`, `spliceBlockHashBE`,
+   `spliceHeight`, `spliceTxIndex`, `newAmountSats`, `withdrawSats`, `payoutScript`).
+   ⚠️ **Convert a file's OPENS AND SPLICES IN ONE CHANGE** — the splice reuses the open's taproot Q, so
+   half-converting turns the suite red (measured: 3 × `BadSPV()`). Regenerate with `regtest/gen-fixture.sh`.
    ✅ **Done and green:** `MockSPV` is GONE from every hop-channel open. `gen_open_channel_fixture.py`
    now funds **19 real key-path P2TR outputs (19.9 BTC)** against one shared header chain, keyed
    `s<seed>_<sats>` (the contract checks the funding output's VALUE, so the amount is part of the key).
