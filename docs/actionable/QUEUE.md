@@ -5375,3 +5375,45 @@ about an ABSENCE and the comments asserting it are exactly what could be stale:
   the code currently encode DIFFERENT answers, and that is why the test has looked like a flaky
   measurement rather than an unmade decision. **This is now the top of #12 — the decision precedes the
   accounting split, not the other way round.**
+
+# 🔴 THIRD PASS — "the other doc" was SEVEN other docs. Two carried untracked open items.
+The question was *"no open items in the other doc?"* — but `docs/actionable/` holds **nine** files, and I
+had only audited the archive. Auditing the rest. **QUEUE.md did NOT have everything.**
+
+| doc | tracked in QUEUE? | verdict |
+|---|---|---|
+| `BUILD-QUEUE-AND-107.md` | ✅ | adjudicated in the two passes above |
+| `GAS-AND-CORRECTNESS-AUDIT.md` | ✅ cited ×2 | G1–G10 tracked as **B11** |
+| `TAPROOT-CHANNELS-BUILD-SPEC.md` | ✅ 13 mentions | 34 markers, but it is a **build spec** — its "TODO"s are implementation steps, not queue items |
+| `SOR-SIGNIFICANCE-DESIGN.md` | ✅ 8 mentions | covered |
+| `JIT-DEPTH-GUARANTEE.md` | ✅ 5 mentions | §2 deferral tracked |
+| `LST-PEG-MONITOR.md` | ⚠️ 0 mentions | **self-closing** — *"the reactive de-risk monitor is over-engineering — don't build it"*, plus an explicit *"NOT open (don't re-raise)"* list. One residual below. |
+| `IMPAIRMENT-DERISK-TRIGGER.md` | 🔴 **0 mentions** | **carries a live open product decision** |
+| `PUPPETEER-E2E-MATRIX.md` | 🔴 **0 mentions** | **carries a gated open task (#18)** |
+
+## 🔴 RECOVERED — the delta-1-both-ways product decision (`IMPAIRMENT-DERISK-TRIGGER.md`)
+Two products are contrasted; **only one is built**:
+ • **Up-lever + hold-down — BUILT.** Delta-1 / IL-free / levered fees on the up side; holds down on the
+   down side. The doc's own title is the warning: *"hold-down is negative-skew, not safe"*.
+ • **Delta-1 both ways, internal — NOT BUILT.** The true yield-bearing-competitor: stay levered THROUGH
+   the down side, maintain delta-1 in both directions, rebalance internally.
+✅ **This is not a stale doc — the code points AT it.** `script/DeployL1_s.sol:566`:
+  *"OPEN product decision, spec'd in `docs/actionable/IMPAIRMENT-DERISK-TRIGGER.md`."*
+  (The archive cited `:553`; it has drifted to `:566` — re-verified, not quoted.)
+⇒ A **product decision for the user**, not an engineering defect. It belongs in the queue precisely
+  because a live deploy script defers to it.
+
+## 🔴 RECOVERED — Puppeteer E2E matrix (#18), GATED not forgotten
+Exhaustive front-end fuzz over every integrated SPA path × happy/sad against the anvil mainnet fork,
+sequenced BEFORE slither/echidna as the final gate. Its own header: *"Do NOT run until the other thread's
+contracts land. This is the pre-scoped plan; execution waits."* ⇒ Correctly deferred, wrongly invisible.
+
+## 🟡 LST-PEG-MONITOR residual — a NUMBER, not a build
+The reactive monitor is explicitly rejected as over-engineering (do not re-raise). What survives is *"a
+config/judgment decision, not a build — a number, plus enforcing it at the venue-selection/deposit path"*:
+the **venue concentration cap**. Small, but it is a decision nobody has made.
+
+📌 **METHOD NOTE — the lesson of this third pass.** I answered "is everything tracked?" twice and was
+  wrong both times for the SAME reason: I audited the surface I had been LOOKING at (first `§A.x`, then
+  `#NNN`) instead of first enumerating the surfaces that exist. `ls docs/actionable/` is one command and
+  it was the whole answer. **Enumerate the containers before auditing the contents.**
