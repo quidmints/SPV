@@ -4868,3 +4868,49 @@ undecided… STATUS: UNBUILT — there is no flash-serve function."**
     `committedSum > totalLiquid` start reverting ETH withdraws? That number is the baseline the unify must
     beat, and it is measurable right now.
 
+# 🚨 #100's PREMISE IS BROKEN — WBTC CANNOT REFILL THE BAND. (user, 2026-08-02) VERIFIED IN CODE.
+> *"i dont believe we can use WBTC to refill the band because the band represents distinctly lightning
+>  deposits"*
+
+## ⇒ CONFIRMED. The band's BTC is LIGHTNING-CUSTODIED, and the credit path is gated on an LN attestation
+`BTCChannels.settleSwapIn` (`:1094-1107`) requires ALL of:
+ 1. `openChannelsOf[msg.sender] != 0` — the caller must own an **OPEN LIGHTNING CHANNEL**;
+ 2. `_requireAttested(msg.sender)` — and be an **ATTESTED HOP**;
+ 3. a **`paymentHash`** — the **LN HTLC hashlock**, deduped (`swapInUsed`) one credit per swap-in, ever.
+⇒ **`creditSwapIn` is Lightning-bound BY CONSTRUCTION.** A flash-borrowed WBTC position has **no LN payment
+  hash and no channel**, so it cannot drive the credit. **WBTC cannot become band inventory.**
+⇒ 🔴 **Therefore #100 as written — *"flash WBTC → `creditSwapIn` → repay"* — CANNOT WORK.** The two halves
+  are incompatible: the flash leg is an EVM-atomic WBTC operation; the credit leg demands a settled
+  Lightning payment. **This is not a build gap, it is a design error in the recorded plan.**
+⚠️ And it cannot be patched by "flash WBTC, buy real BTC, route it over LN, then attest": **Lightning
+  settlement is not EVM-atomic**, so it cannot complete inside the flash-loan callback. **The word "flash"
+  is doing work the rail cannot support.**
+
+## ⇒ WHAT THIS MEANS FOR THE UNIFY PROPOSAL — the constraint is STRUCTURAL, not a missing feature
+The band's BTC can only arrive by an actual Lightning payment:
+| path | exists? | paced by |
+|---|---|---|
+| `Vault.registerBtcLp` (LP stakes BTC) | ✅ built | **LP arrival** — exogenous |
+| genuine swap-in (a user sells BTC over LN) | ✅ built | **user flow** — exogenous |
+| fleet acquires BTC and routes it over LN | possible, unbuilt | **inventory + LN routing time** — NOT atomic |
+⇒ ⇒ **NO refill path for the BTC band can be instant, because every one of them terminates in a Lightning
+  settlement.** The earlier framing — *"the only way this isn't a DoS is if the refill works instantly"* —
+  is exactly right, and **"instantly" is unreachable for Lightning-custodied inventory.**
+⇒ 🔴 **So the unify's safety premise cannot be satisfied by ANY buildable refill**, not merely by an unbuilt
+  one. That is a much stronger objection than my previous "wrong order" verdict, and it **supersedes it**.
+
+## ▶️ WHERE THAT LEAVES THE CAPITAL-EFFICIENCY GOAL (the goal is still good — the route must change)
+ 1. **Bound the exposure instead of removing it:** keep the split, but reserve ETH-side EXIT headroom so a
+    BTC commitment can never revert an ETH withdraw. Capital efficiency rises everywhere EXCEPT the
+    reserved slice — a smaller gain than the full unify, with no liveness cliff.
+ 2. **Make BTC-side commitment self-limiting:** cap `POOLED_USD_BTC` growth by the band's *observed* refill
+    RATE (LP arrivals + swap-ins over a window), so the system can only commit as fast as it can be resupplied.
+    ⭐ This is the honest version of *"if the refill fires as expected"* — it makes the assumption MEASURED
+    rather than assumed, and it degrades gracefully when flow dries up.
+ 3. **Re-scope #100** to what the rail actually permits: NOT a flash-serve, but a fleet BTC-inventory
+    operation (hold BTC, route over LN on depletion). Its latency is minutes-to-hours, not one block —
+    **size any unify against THAT number, not against zero.**
+📌 This is the second time today a recorded plan was incompatible with the rail it targets (the first:
+  #114's "supersede" assuming EVM semantics for a Bitcoin tx). **Both were found by asking what the RAIL
+  permits, not what the code says.**
+
