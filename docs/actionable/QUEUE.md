@@ -197,7 +197,34 @@ generator's own asserts prove the TXS are valid (txid reconstructs, branch folds
 **But no Solidity has ever read these keys.** I wrote a `_realSplice` accessor, deleted it as dead
 code, and never compiled a caller. ⇒ **Treat the key names and types as UNVERIFIED**: the first
 wiring attempt may hit a `parseJson` type mismatch (notably `spliceMerkleBranch` as
-`bytes32[]`). Cheap to settle — write ONE caller and build before converting anything.
+`bytes32[]`). Cheap to settle — paste the accessor below into `Alles.t.sol` next to `_realOpen`,
+give it ONE caller, and `forge build` **before** converting anything. It lives here rather than in
+the tree only because an uncalled helper is dead code; it is otherwise ready.
+
+```solidity
+    /// @dev The REAL splice for (seed, sats): a CONFIRMED tx that spends the funding outpoint into
+    ///      [new funding Q, payout script], with its real merkle branch. `splice()` SPV-proves the
+    ///      tx spends the funding UTXO, so fabricated params are rejected by the real gateway.
+    struct RealSplice {
+        uint newAmountSats; uint withdrawSats; bytes payoutScript;
+        bytes rawTx; bytes32[] branch; bytes32 blockHash; uint64 height; uint txIndex;
+    }
+
+    function _realSplice(uint seed, uint sats) internal view returns (RealSplice memory s) {
+        string memory j = _spvFixture();
+        string memory b = string.concat(_fixtureKey(seed, sats), "splice.");
+        s.newAmountSats = vm.parseJsonUint(j, string.concat(b, "newAmountSats"));
+        s.withdrawSats  = vm.parseJsonUint(j, string.concat(b, "withdrawSats"));
+        s.payoutScript  = vm.parseJsonBytes(j, string.concat(b, "payoutScript"));
+        s.rawTx         = vm.parseJsonBytes(j, string.concat(b, "spliceRawTx"));
+        s.branch        = vm.parseJsonBytes32Array(j, string.concat(b, "spliceMerkleBranch"));
+        s.blockHash     = vm.parseJsonBytes32(j, string.concat(b, "spliceBlockHashBE"));
+        s.height        = uint64(vm.parseJsonUint(j, string.concat(b, "spliceHeight")));
+        s.txIndex       = vm.parseJsonUint(j, string.concat(b, "spliceTxIndex"));
+    }
+```
+⚠️ It depends on `_spvFixture()` and `_fixtureKey(seed, sats)`, which ARE in the tree
+(`Alles.t.sol`, committed and exercised by `_realOpen`). Only this accessor is missing.
 
 **(b) THE FEE-BEARING SPLICE AMOUNTS ARE MINE, NOT A TEST'S — and that is the same sin I spent the
 day removing.** Every other `SPLICES` entry was extracted mechanically from a real `_open*` call
