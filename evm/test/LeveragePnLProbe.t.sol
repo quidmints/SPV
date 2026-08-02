@@ -81,6 +81,8 @@ contract LeveragePnLProbe is Alles {
         try V4.redeem(lpShares, lp, lp) {} catch {}
         uint ethG  = (lp.balance - eth0) + (WETH.balanceOf(lp) - weth0);
         uint quidG = QUID.balanceOf(lp) - q0;
+        emit log_named_uint("  leg ETH (wei)", ethG);
+        emit log_named_uint("  leg QUID(18d)", quidG);
         usd = ethG * ethPx18 / 1e18 + quidG;
         vm.revertToState(snap);
     }

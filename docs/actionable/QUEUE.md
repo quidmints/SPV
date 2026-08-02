@@ -5169,3 +5169,54 @@ selectors (`_t1` `_poolId` `_mockUsd` `_mockTok` + the 4 POOLED mutators) could 
   a latent bug.** Here: the `skip` pattern was load-bearing; the positional divisor was a bug that shipped,
   broke, and was fixed. **A "restore the simpler legacy version" instinct would have reintroduced it.**
 
+## 🔴 THE LAST FAILING TEST IS A REAL FINDING, NOT A BROKEN TEST — and it IS #12
+`testLeverage_LvrControlVsTreatment` is the only failure in the suite (3,560 pass). It has now been
+measured to the mechanism. **Do not weaken the assertion** — it is asserting a true thing.
+
+### What the numbers say
+| | control (no flow) | treatment (20 swaps) |
+|---|---|---|
+| ETH leg returned | **399.814** | **367.370** |
+| QUID leg returned | **0** | **0** |
+| valued at px0 = 1,848.31 | 738,980 | 679,014 |
+| externality | — | **−811 bps** |
+
+🔎 **The externality is −811 bps at +20%, at flat, AND at −20% — the SAME number three times.** A real
+LVR/inventory effect cannot be price-independent. An identical ratio at three prices forces
+`tEth = 0.91885·cEth` **and** `tQuid = 0.91885·cQuid` algebraically: the bundle did not change
+COMPOSITION, it was uniformly scaled. Measured directly, the QUID leg is **0 in both arms** — so this is
+not an LP that sold ETH for USD, it is an LP that sold ETH for **nothing it can redeem**.
+
+⇒ ETH sold = 399.814 − 367.370 = **32.444 ETH = $59,966** at px0.
+⇒ BOLD that arrived = **$60,001**. The two match to **0.06%**. Every dollar the traders paid landed
+  somewhere the LP has no claim on.
+
+### The mechanism (proven, not inferred)
+1. `Vogue.redeem` → `convertToAssets(shares)` → `_pricingBacking()` (`Vogue.sol:1227`).
+2. `_pricingBacking()` = `AUX.vogueETH()` ± the leverage term.
+3. `vogueETH` (`VaultLib._vogueETH:121`) sums **ETH-side assets only**: the three WETH-4626 curators,
+   weETH, eETH, Aave ETH, idle WETH at Vault and Aux, Rover's WETH-equiv, lev net-equity.
+   **There is no term for `POOLED_USD_ETH`.**
+4. A stable→ETH band swap REMOVES ETH from `vogueETH` and ADDS USD to `POOLED_USD_ETH` + the basket.
+
+⇒ **The LP's claim falls by the full ETH sold and rises by nothing.** The band's USD side is claimable —
+  but by **QU!D holders**, through `Vogue.unwindForRedeem` (`Vogue.sol:962`, called from
+  `BasketLib.sol:863` on the redemption path). It is claimable by the LP through **no path at all**.
+  The asymmetry is one-directional and permanent: flat-price round trips move LP principal into basket
+  backing and it never comes back.
+
+### Why this is #12 and not a quick fix
+The obvious patch — add `POOLED_USD_ETH` (converted at spot) to `_pricingBacking()` — is exactly the
+trap #12 already named. `POOLED_USD_*` does **two jobs**: it is the band's QUOTABLE DEPTH *and* it is
+the committed-dollars figure that `Core._poolUsdInRange` gates with
+`require(committedUsd18() <= haircutTvl, "backing")` (`Core.sol:1022`). Crediting it to the LP as an
+asset while it is simultaneously counted as a basket commitment double-counts the same dollars — the
+same error the leverage fold already fixed once by switching gross → net equity.
+
+▶️ **This is not a test to fix; it is #12's headline symptom, now quantified.** The prerequisite is
+  still #12's accounting split: separate *quoted depth* from *committed dollars* so the LP's share of
+  band USD can be credited without inflating the backing gate. Until that lands, the correct state of
+  this test is **RED**, because the thing it asserts is genuinely false.
+📌 **`_open` is a PLAIN `AUX.swap(bold, WETH, true, ...)`** — despite the file's name there is no
+  leverage in this path. The leak is a property of ordinary band swap flow, which makes it broader
+  than the `LeveragePnLProbe` filename suggests. Its comments claiming a leverage mechanism are stale.
