@@ -4,18 +4,29 @@
 # This image is what makes the Rust suite (and `testCrossChain_FullE2E`) runnable from a Mac.
 #
 #   build:  docker build -t quid-ln:dev quid-ln
-#   test:   docker run --rm --sysctl net.ipv6.conf.all.disable_ipv6=0 \
-#             -v "$PWD/quid-ln":/w -w /w quid-ln:dev
+#   test:   docker run --rm -v "$PWD/quid-ln":/w -w /w quid-ln:dev
+#   one crate / filter:
+#           docker run --rm -v "$PWD/quid-ln":/w -w /w quid-ln:dev cargo test -p quid-ln --lib p2p::
+#   the cross-chain FFI bundle (what testCrossChain_FullE2E shells out for):
+#           docker run --rm -v "$PWD/quid-ln":/w -w /w quid-ln:dev \
+#             cargo run -q -p quid-hop --features harness --bin e2e_ffi -- <chainId> <btcChannelsAddr>
 #
-# ⚠️ `--sysctl net.ipv6.conf.all.disable_ipv6=0` is REQUIRED and cannot be baked in — sysctls are a
-#    RUNTIME flag. Six `p2p` tests bind `[::1]:0` and fail `AddrNotAvailable` without it. That is the
-#    container, not the code: re-running those six WITH the flag passes 6/6. Verified 2026-08-02.
+# ✅ NO `--sysctl` NEEDED. Six `p2p` tests used to bind `[::1]:0` unconditionally and fail
+#    `AddrNotAvailable` here (IPv6 is off on Docker's default bridge). Fixed at the source in
+#    `quid-ln/src/p2p.rs` — `make_tcp_connection` now falls back to `127.0.0.1:0`. Those tests are
+#    about the echo/connection protocol, not IPv6 reachability, so this tests the same thing and
+#    removes a runtime flag that everyone had to remember. Verified 6/6 green with no flag.
 #
-# ⚠️ MEMORY. Docker Desktop's VM defaults near 2 GB (`docker info` MemTotal). That is a VM
-#    allocation, NOT host free RAM, so closing host apps does nothing — raise it in
-#    Settings → Resources → Memory. Below ~4 GB, `rustc` is OOM-killed with NO diagnostic (just
-#    "process didn't exit successfully"), which reads exactly like a compile error and is not one.
-#    The ENV defaults below keep a 2 GB VM working; delete them once the VM has 6-8 GB.
+# ⚠️ MEMORY — the VM's, not the host's. `docker info` MemTotal is a Docker Desktop VM ALLOCATION,
+#    so freeing host RAM does nothing. It defaults near 2 GB; **raised to ~5 GB on 2026-08-02**,
+#    which is why the single-threaded/no-debuginfo workarounds below are gone.
+#    Change it at Docker Desktop → Settings → Resources → Memory → Apply & Restart. NOT scriptable:
+#    `~/Library/Group Containers/group.com.docker/settings.json` is TCC-protected, so a shell gets
+#    "Operation not permitted" even as the file's owner unless the terminal has Full Disk Access.
+#    ⚠️ SYMPTOM TO RECOGNISE if it is ever lowered again: `rustc` is OOM-killed with **no diagnostic
+#    at all** — just "process didn't exit successfully", no error code, no span. That reads exactly
+#    like a compile error and is not one. The escape hatch is
+#    `-e CARGO_BUILD_JOBS=1 -e RUSTFLAGS="-C debuginfo=0"`.
 
 FROM rust:1.90
 
@@ -50,10 +61,7 @@ ENV BITCOIND_EXE=/usr/local/bin/bitcoind
 # enabled in quid-hop/Cargo.toml, and it pins the electrs build it expects. Baking a different one
 # in would override that pin via `harness.rs:37` and silently test against the wrong indexer.
 
-# ── Memory-safe defaults for a ~2 GB Docker VM (see the MEMORY note above) ──────────────────────
-ENV CARGO_BUILD_JOBS=1 \
-    RUSTFLAGS="-C debuginfo=0 -C codegen-units=1" \
-    CARGO_TERM_COLOR=never
+ENV CARGO_TERM_COLOR=never
 
 WORKDIR /w
-CMD ["cargo", "test", "--workspace", "-j", "1"]
+CMD ["cargo", "test", "--workspace"]

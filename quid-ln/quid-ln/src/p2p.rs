@@ -1881,7 +1881,19 @@ mod ldk_test {
     }
 
     pub async fn make_tcp_connection() -> (TcpStream, TcpStream) {
-        let sock = TcpListener::bind("[::1]:0").await.unwrap();
+        // Bind whichever LOOPBACK the host actually has. This used to be `[::1]:0`
+        // unconditionally, which made all six `p2p` tests fail `AddrNotAvailable` inside a
+        // default Docker container (IPv6 is off on the default bridge) — and since quid-cvm is
+        // Linux-only, the container is the ONLY place this workspace builds, so those six were
+        // permanently red on the one platform that can run them. The subject of these tests is
+        // the echo/connection protocol, not IPv6 reachability, so falling back to IPv4 loopback
+        // tests exactly the same thing without needing a `--sysctl` at `docker run`.
+        let sock = match TcpListener::bind("[::1]:0").await {
+            Ok(s) => s,
+            Err(_) => TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("no usable loopback (tried ::1 and 127.0.0.1)"),
+        };
         let addr = sock.local_addr().unwrap();
         let accept = async move {
             let (conn, _addr) = sock.accept().await.unwrap();
