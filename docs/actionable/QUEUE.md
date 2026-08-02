@@ -219,7 +219,7 @@ since the migration:**
 
 | id | archive header | why it is open |
 |---|---|---|
-| **A.38** | *"§A.5e FIXED — ⚠️ but NOT pinned by a test"* | 🔴 **CONFIRMED AGAINST CODE.** `_requireFreshHoldings()` is live at `Aux.sol:927` (guards `redeemAsBody` from valuing off a STALE holdings cache ⇒ real over-draw). **`grep` of `evm/test/` for `_requireFreshHoldings` / `StaleHoldings` returns ZERO.** A money-path solvency guard with no test pinning it — delete the line and the suite stays green. |
+| ~~**A.38**~~ | *"§A.5e FIXED — ⚠️ but NOT pinned by a test"* | ✅ **STRUCK — MY FINDING WAS FALSE (2026-08-03).** There IS a dedicated test: **`evm/test/A5eStaleCache.t.sol`**, which warps 3 hours *"past HOLDINGS_MAX_STALE"* (`:36`) and drives the redeem. I grepped `evm/test/` for the IDENTIFIER `_requireFreshHoldings`; the test exercises the BEHAVIOUR. **Same error as A.36, made one entry later** — and I had just written the caveat warning about it. Also mis-described the mechanism: `_requireFreshHoldings` (`Aux.sol:403`) does **not revert**, it lazily calls `_refreshAllHoldings()` when stale. ⛔ ~~CONFIRMED AGAINST CODE~~ |
 | ~~**A.36**~~ | *"BTC lev MARKET rail IS built; only ACQUISITION is not"* | ✅ **STRUCK — MY FINDING WAS WRONG, twice** (user, 2026-08-03). (1) Acquisition **IS** built: `leverBorrow` (`:370`) + `leverSupply` (`:386`) are the SPLIT async legs; `:362` describes them as split because BTC spans confirmations, **not as missing**. I grepped `acquire`/`openLev` and concluded from an empty result — the rule I keep quoting says an empty grep proves nothing. (2) More importantly the manager is **venue-agnostic on collateral**: `:338-343` branches on `COLLATERAL() == address(VBTC)`, `:443` gates a **WBTC-ONLY** mode, and `:93` states *"a WBTC venue can sit beside the vBTC one"*. ⇒ **The 2× YB lever runs on WBTC collateral, so IL protection does NOT depend on a Morpho/Euler vBTC market existing.** |
 | **A.13b** | *"`RebalIn` cannot be shrunk safely (asked 2026-07-26)"* | 🟠 **STILL LIVE.** `RebalIn` exists at `VogueLib.sol:473`, consumed at `Vogue.sol:1049`. The struct is the `via_ir=false` stack workaround, so "shrink it" trades bytecode against stack depth — the question was never answered. |
 
@@ -231,8 +231,18 @@ since the migration:**
   _requireFreshHoldings evm/test/` returning empty; a test could pin that path under a different
   name. **Re-verify by reading the redeem tests, not by re-running my grep.**
 
-⇒ **A.38 is the one to do first.** It is not new work: the fix is already IN, it just has nothing
-  holding it. One test, no design decision, and it closes a silent-regression hole on the money path.
+## 🛑 SCORECARD OF MY OWN "CODE-VERIFIED" FINDINGS — 2 of 3 were FALSE
+| id | my claim | reality |
+|---|---|---|
+| A.36 | acquisition unbuilt | ❌ **false** — `leverBorrow`/`leverSupply` are the split legs, and the lever is venue-agnostic (WBTC mode ⇒ no vBTC market needed) |
+| A.38 | not pinned by a test | ❌ **false** — `A5eStaleCache.t.sol` exists and warps past `HOLDINGS_MAX_STALE` |
+| A.13b | `RebalIn` shrink unanswered | 🟠 **holds** — but it is a POSITIVE claim (`VogueLib.sol:473` exists), which is why it survived |
+
+📌 **THE PATTERN, and it is the whole lesson:** both false findings were **ABSENCE claims proven by an
+empty grep for a name I chose**. The surviving one is a PRESENCE claim. ⇒ **You cannot verify an
+absence by searching for an identifier — a test that exercises a behaviour never names the internal
+it covers.** To check "is X tested", find X's OBSERVABLE EFFECT and grep for that, or read the tests
+that touch the path. **Treat every remaining archive item as unverified until read this way.**
 
 ⚠️ **Also re-check `V.1–V.5`** — those are CATEGORY headers (`Security/money-path`,
 `Risk-reduction/correctness`, `Design decisions to make`, `Dedup/simplification`,
