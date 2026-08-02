@@ -4659,3 +4659,39 @@ User asked whether the 20-round swap loop implies `AUX.swap` duplicates the zap/
   does not re-raise it.**
 ⇒ 📌 And again the answer pre-existed in a comment — **grep the code for the question before analysing it.**
 
+## 🎯🎯 §A.16 — THE 8% IS A **MEASUREMENT ARTIFACT**. The value changed FORM, it did not vanish.
+Instrumented the probe. Three numbers settle it:
+| quantity | value |
+|---|---|
+| measured gap (control − treatment, ETH-flat) | **59,967 USD** |
+| **BOLD deposited in the Liquity Stability Pool** | **60,000.9** |
+| `skewPremiumETH` collected over the 20 rounds | **0** |
+⇒ The gap is **within 0.06% of the total swapped volume** (20 × 3,000 = 60,000 BOLD) — and equals the BOLD
+  now sitting in the SP. **LVR does not equal the notional; a bookkeeping omission does.**
+⇒ `_lpValueUsd` measures ONLY `ETH + WETH + QUID` received on redeem (`LeveragePnLProbe.t.sol:77-86`).
+  **It cannot see BOLD.** The band sold WETH, the basket took the BOLD, the BOLD went to the SP — and the
+  probe counts the WETH leaving but not the value arriving.
+⇒ 📌 **Reproduced across TWO different fork blocks** (25653624 and 25663100) at the SAME 59,967 — a real
+  loss would vary with fork state; an accounting identity does not. **That invariance is the tell.**
+
+### 🔴 THIS RETRACTS MY OWN "LVR" CONCLUSION FROM ONE STEP EARLIER
+I wrote that the shortfall was *"LVR net of fees… the fee + skew did not cover it."* **Wrong.**
+ • `skewPremiumETH == 0` ⇒ the skew charged NOTHING, so "the skew failed to cover LVR" was never the story.
+   (The skew prices SCARCITY; 20 buys never made ETH scarce. It is working as designed, not underpriced.)
+ • And the gap ≈ the notional, which LVR never is.
+**I reasoned from a plausible mechanism instead of measuring the flow.** The measurement took one run.
+
+### ⚖️ SO: is the CROSS-SUBSIDY PROBE right after all? **Very likely YES** — §A.16 is probably CLOSED.
+`LeverageCrossSubsidyProbe` (passing) asserts the passive LP is not expensed. `LeveragePnLProbe` (failing)
+disagreed — and its disagreement is now explained by what it fails to count. **Two probes of one claim, and
+the passing one is the better-instrumented.**
+### ⚠️ ONE QUESTION REMAINS BEFORE CLOSING — do NOT close on this evidence alone
+`LP QUID balance == 0` after the redeem: the LP received **WETH only**, not the USD side of their position.
+So the value is demonstrably IN the system (SP BOLD, and `AUX TVL = 1,212,001`), but this run does not show
+the LP **RECOVERING** it. Two readings:
+ (a) the redeem was PARTIAL (400e18 shares) and the USD leg settles on a full exit ⇒ pure probe artifact;
+ (b) the band's USD claim is not delivered on redeem ⇒ a REAL delivery gap, and the probe found it by luck.
+▶️ **NEXT:** redeem the FULL position and re-measure. If the LP then recovers ~60,000 in stables/QUID,
+  (a) holds and §A.16 closes with the probe fixed to value all assets. **Fix the MEASUREMENT, not the
+  assertion** — the assertion was right to fire.
+

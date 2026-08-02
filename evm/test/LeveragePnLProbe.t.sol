@@ -161,6 +161,15 @@ contract LeveragePnLProbe is Alles {
         for (uint r = 0; r < 20; r++) { if (_open(3_000e18) == 0) break; landed++; }
         emit log_named_uint("treatment opens landed", landed);
         emit log_named_uint("BOLD accumulated (18d)", _spBold());
+        // DIAGNOSTIC (temporary): where did the value go? The gap (~59,966 USD) is suspiciously
+        // close to the TOTAL SWAPPED VOLUME (20 x 3,000 = 60,000 BOLD), which would indicate the
+        // measurement is missing an asset the LP now holds, rather than a real loss.
+        emit log_named_uint("skewPremiumETH (USD6)", CORE.skewPremiumETH());
+        emit log_named_uint("SP BOLD (AUX deposit)", _spBold());
+        emit log_named_uint("AUX TVL (d[14])", _tvl());
+        emit log_named_uint("LP BOLD balance", IERC20(bold).balanceOf(lp));
+        emit log_named_uint("AUX BOLD balance", IERC20(bold).balanceOf(address(AUX)));
+        emit log_named_uint("LP QUID balance", QUID.balanceOf(lp));
         uint tUp   = _lpValueUsd(px0 * 120 / 100);
         uint tFlat = _lpValueUsd(px0);
         uint tDown = _lpValueUsd(px0 * 80 / 100);
