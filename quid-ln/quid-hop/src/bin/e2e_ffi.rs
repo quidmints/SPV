@@ -62,26 +62,13 @@ fn main() {
     let mut args = std::env::args().skip(1);
     let first = args.next().expect("argv[1] = chainId (decimal) OR \"fixture\"");
 
-    // FIXTURE MODE: `e2e_ffi fixture <outPath>` opens a real simple-taproot (P2TR
-    // `0x5120||Q`) channel against live bitcoind, cooperatively closes it, and
-    // writes the `OpenChannelE2E.t.sol` JSON fixture (funding tx + SPV proof +
-    // fundingTaproot + the genesis/header chain) to <outPath>. NO swap-in (HTLCs
-    // are a deferred milestone), so this path is green today. It exists so the
-    // P2WSH OpenChannelE2E fixture can be regenerated to the P2TR shape (M8
-    // fixture regeneration).
-    if first == "fixture" {
-        let out_path = args
-            .next()
-            .expect("argv[2] = output JSON path (fixture mode)");
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(4)
-            .enable_all()
-            .build()
-            .expect("tokio runtime");
-        rt.block_on(run_fixture(&out_path));
-        eprintln!("e2e_ffi: wrote P2TR open-channel fixture to {out_path}");
-        return;
-    }
+    // NOTE: this bin had a `fixture` sub-command that ALSO wrote
+    // `evm/test/btc/open_channel_fixture.json`. It was removed 2026-08-02: two generators
+    // for one file had DIVERGED — the Python one now emits 19 opens keyed `s<seed>_<sats>`,
+    // while this one emitted a single flat open, so regenerating here would have silently
+    // collapsed the fixture and made every `_realOpen` lookup revert. `regtest/gen-fixture.sh`
+    // (-> evm/test/btc/gen_open_channel_fixture.py) is now the ONLY generator. This bin keeps
+    // its real job: emitting the ABI bundle for `testCrossChain_FullE2E`.
 
     let chain_id: u64 = first
         .parse()
@@ -370,172 +357,6 @@ async fn run(chain_id: u64, btc_channels: Address) -> Vec<u8> {
     bundle
 }
 
-/// FIXTURE MODE: open a real simple-taproot (P2TR `0x5120||Q`) channel against
-/// live bitcoind, cooperatively close it, and write the `OpenChannelE2E.t.sol`
-/// JSON fixture (funding tx + SPV proof + `fundingTaproot` + the genesis/header
-/// chain) to `out_path`. NO swap-in/out (HTLCs are a deferred milestone) — this
-/// is purely the open + coop-close path the M8 hop e2e already proves green.
-async fn run_fixture(out_path: &str) {
-    let regtest = Regtest::start();
-    let seed_a = 0xA11CE_u64;
-    let seed_b = 0xB0B_u64;
-    let pk_a = RootSeed::from_u64(seed_a).derive_node_pk();
-    let pk_b = RootSeed::from_u64(seed_b).derive_node_pk();
-    let port_a = 19_876_u16;
-    let port_b = 19_877_u16;
-
-    let node_a = boot_node(&regtest, seed_a, "a", lsp_info(pk_b.clone(), port_b)).await;
-    let node_b = boot_node(&regtest, seed_b, "b", lsp_info(pk_a.clone(), port_a)).await;
-    let _listener_a = spawn_listener(&node_a, port_a).await;
-
-    let addr_b = node_b.wallet.get_address().to_string();
-    regtest.mine_to(&addr_b, 101);
-    bdk_full_sync(&node_b).await;
-    assert!(node_b.wallet.get_balance().confirmed.to_sat() > 0, "B funded");
-
-    ldk_resync(&node_a).await;
-    ldk_resync(&node_b).await;
-
-    let _conn = connect(&node_b, &pk_a, port_a).await;
-    let channel_value_sats = 5_000_000_u64;
-    node_b
-        .channel_manager
-        .create_channel(pk_a.0, channel_value_sats, 0, 1u128, None, None)
-        .expect("create_channel");
-
-    wait_until(60, Duration::from_millis(250), || regtest.mempool_len() > 0).await;
-
-    let mut usable = false;
-    for _ in 0..20 {
-        regtest.mine(6);
-        ldk_resync(&node_a).await;
-        ldk_resync(&node_b).await;
-        if !node_a.channel_manager.list_usable_channels().is_empty()
-            && !node_b.channel_manager.list_usable_channels().is_empty()
-        {
-            usable = true;
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(500)).await;
-    }
-    assert!(usable, "channel never became usable");
-
-    let chan = node_b
-        .channel_manager
-        .list_channels()
-        .into_iter()
-        .next()
-        .expect("one channel");
-    let funding_txo = chan.funding_txo.expect("funding txo after confirm");
-    let funding_txid = Txid::from_raw_hash(*funding_txo.txid.as_raw_hash());
-
-    // Recover the funding pubkeys witness-free (taproot key-path close) + locate the
-    // P2TR funded output, then derive the 32-byte x-only aggregate Q.
-    let (holder_pk, cp_pk) = quid_hop::node::channel_funding_pubkeys(
-        &node_b.chain_monitor,
-        &node_b.channel_manager,
-        funding_txid,
-        funding_txo.index as u32,
-    )
-    .expect("funding pubkeys from monitor");
-    let (lp_pubkey, hop_pubkey) = quid_hop::evm_codec::sort_funding_pubkeys(holder_pk, cp_pk);
-
-    // Cooperatively close + bury it (the OpenChannelE2E fixture only consumes the
-    // open side, but closing leaves the harness clean + matches the e2e shape).
-    node_b
-        .channel_manager
-        .close_channel(&chan.channel_id, &pk_a.0)
-        .expect("close_channel");
-    wait_until(120, Duration::from_millis(250), || regtest.mempool_len() > 0).await;
-    regtest.mine(8);
-    ldk_resync(&node_a).await;
-    ldk_resync(&node_b).await;
-
-    // Pull SPV data: the funding inclusion proof + the genesis/header chain to tip.
-    let funding = tx_inclusion(&node_b.esplora, &funding_txid)
-        .await
-        .expect("funding inclusion");
-    let (_vout, amount_sats) =
-        quid_hop::evm_codec::funded_output_taproot(&funding.raw, &lp_pubkey, &hop_pubkey)
-            .expect("P2TR (0x5120||Q) funded output");
-    let funding_taproot = quid_hop::funding::taproot_funding_aggregate_xonly(&lp_pubkey, &hop_pubkey);
-
-    let client = node_b.esplora.client().clone();
-    let tip = client.get_height().await.expect("tip height") as u64;
-    let genesis_hash = client.get_block_hash(0).await.expect("genesis hash");
-    let genesis_header = serialize_header(&node_b.esplora, &genesis_hash)
-        .await
-        .expect("genesis header");
-    let mut headers: Vec<String> = Vec::with_capacity(tip as usize);
-    for h in 1..=tip {
-        let bh = client.get_block_hash(h as u32).await.expect("block hash");
-        headers.push(hex0x(
-            &serialize_header(&node_b.esplora, &bh).await.expect("header"),
-        ));
-    }
-
-    // Emit the JSON in the OpenChannelE2E.t.sol shape (0x-hex bytes, decimal ints).
-    // Built by hand (flat object, no nesting) to avoid pulling a json crate in.
-    let merkle = json_str_array(&funding.merkle_proof.iter().map(|m| hex0x(m)).collect::<Vec<_>>());
-    let headers_arr = json_str_array(&headers);
-    let json = format!(
-        concat!(
-            "{{\n",
-            "  \"lpPubkey\": \"{lp}\",\n",
-            "  \"hopPubkey\": \"{hop}\",\n",
-            "  \"amountSats\": {amount},\n",
-            "  \"fundingTaproot\": \"{taproot}\",\n",
-            "  \"rawFundingTx\": \"{raw}\",\n",
-            "  \"fundingTxidDisplay\": \"{txid}\",\n",
-            "  \"fundingBlockHashBE\": \"{bhash}\",\n",
-            "  \"fundingHeight\": {height},\n",
-            "  \"txIndex\": {txindex},\n",
-            "  \"merkleBranch\": {merkle},\n",
-            "  \"genesisHeader\": \"{genesis}\",\n",
-            "  \"headers\": {headers},\n",
-            "  \"tip\": {tip}\n",
-            "}}\n",
-        ),
-        lp = hex0x(&lp_pubkey),
-        hop = hex0x(&hop_pubkey),
-        amount = amount_sats,
-        taproot = hex0x(&funding_taproot),
-        raw = hex0x(&funding.raw),
-        txid = funding_txid,
-        bhash = hex0x(&funding.block_hash_be),
-        height = funding.height,
-        txindex = funding.tx_index,
-        merkle = merkle,
-        genesis = hex0x(&genesis_header),
-        headers = headers_arr,
-        tip = tip,
-    );
-    std::fs::write(out_path, json).expect("write fixture json");
-
-    drop(node_a);
-    drop(node_b);
-    drop(regtest);
-}
-
-/// `0x`-prefixed lowercase hex (the encoding Foundry's `vm.parseJsonBytes*` reads).
-fn hex0x(b: &[u8]) -> String {
-    format!("0x{}", hex_encode(b))
-}
-
-/// Render `["a","b",…]` for a JSON string array (already-quoted-value elements).
-fn json_str_array(items: &[String]) -> String {
-    let mut s = String::from("[");
-    for (i, it) in items.iter().enumerate() {
-        if i > 0 {
-            s.push(',');
-        }
-        s.push('"');
-        s.push_str(it);
-        s.push('"');
-    }
-    s.push(']');
-    s
-}
 
 /// Poll `cond` up to `tries` times, sleeping `delay` between, panicking if never
 /// true (used to wait on the funding/close tx reaching the mempool).

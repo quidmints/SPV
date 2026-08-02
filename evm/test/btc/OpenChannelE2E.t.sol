@@ -18,8 +18,13 @@ import {SPVGateway} from "../../src/spv/SPVGateway.sol";
 ///         leaves open (auth is tested there; SPV/funding e2e is tested here).
 ///
 ///         To regenerate the fixture (regtest must be up):
-///           BTC_CLI=.../bitcoin-cli DATADIR=/tmp/btcreg \
-///             python3 test/btc/gen_open_channel_fixture.py > test/btc/open_channel_fixture.json
+///             regtest/gen-fixture.sh
+///         That is the ONE generator. `e2e_ffi` used to have a `fixture` sub-command that wrote
+///         this same file; it was DELETED 2026-08-02 because the two had diverged — the Python
+///         generator now emits 19 opens keyed `s<seed>_<sats>` for `_realOpen`, while the Rust
+///         one still wrote a single flat open, so regenerating there would have silently
+///         collapsed the fixture and made every lookup revert.
+
 contract OpenChannelE2ETest is Test {
     // Minimal Vogue: openChannel credits the LP's BTC pool position.
     MockVogue vogue;
