@@ -63,12 +63,32 @@ regression, but it is the opposite of "most of it is finished".
    route to `feesPerShare`/`USD_FEES` (`Vogue.sol:1055`, `Vault.sol:732`) **not** `tranche`, price it off
    the SOR's own signal. Gated on (2), and read §A.51's truncated `baseRate` rationale first.
 
-**4. Two USER DECISIONS recovered 2026-08-02** — neither is engineering work:
+**4. 🔴 MAKE `_openHopChannel` USE THE REAL SPV — the machinery already exists** (user, 2026-08-02:
+   *"why is there anything like this being mocked at all… this might catch hidden issues"* — correct).
+   ✅ A genuine end-to-end SPV path IS built and PASSES: `test/btc/OpenChannelE2E.t.sol`
+   (`test_openChannel_realRegtestFundingTx`) feeds a REAL regtest funding tx + REAL merkle proof +
+   REAL header chain, produced by `regtest/gen-fixture.sh` → `gen_open_channel_fixture.py`, into the
+   **real `SPVGateway` + `BTCChannels`**. So this is not a "can't be done" — it is done, for ONE case.
+   🔴 **Every other BTC test bypasses it.** `Alles.t.sol:178 _openHopChannel` — used by **25 suites** —
+   fabricates the entire open: `fundingBlockHash = bytes32(0x5000 + seed)`, `fundingBlockHeight =
+   800000`, a hand-assembled `fundingTx`, and `lpPubkey = 0x02 ‖ keccak256(...)` which is **not
+   necessarily a valid curve point**. `MockSPV.checkTxInclusion(...)` then `return true`
+   UNCONDITIONALLY (`Alles.t.sol:48`). Nothing is verified.
+   ⇒ **A bug in SPV inclusion checking, header-chain/reorg handling, or taproot Q construction on the
+     open path is invisible to 25 suites.** It is also why the newly-unskipped LN swap-in test proves
+     the *Lightning* half with a genuine HTLC while the *channel-open* half stays synthetic.
+   ▶️ **Shape:** generalise `gen_open_channel_fixture.py` to emit a funding fixture PER SEED (fund a
+     real P2TR to the derived Q, confirm, emit tx + proof + headers), then have `_openHopChannel`
+     drive the real `SPVGateway`. Mechanical — the one-case version already works end to end.
+     ⚠️ Cost to weigh: this makes 25 suites depend on a live bitcoind, so it likely wants a
+     regenerate-and-commit fixture set rather than live generation at test time.
+
+**5. Two USER DECISIONS recovered 2026-08-02** — neither is engineering work:
    • **delta-1-both-ways product** (`IMPAIRMENT-DERISK-TRIGGER.md`) — only up-lever+hold-down is built,
      and `script/DeployL1_s.sol:566` defers to that doc by name as an OPEN product decision.
    • **venue concentration cap** (`LST-PEG-MONITOR.md`) — *"a config/judgment decision, not a build"*.
 
-**5. C1r + C6–C9** — the only money-path items left. **C1r first**: it is a ONE-LINE trace
+**6. C1r + C6–C9** — the only money-path items left. **C1r first**: it is a ONE-LINE trace
    (`SwapLib.sol:498` — is `r.amount` 6-dec or native on the `forVolatile` leg?) guarding a 1e12 refund
    error on 18-dec stables, and it only became REACHABLE when C3 landed. C6–C9 have no commits. **6. 18-dec fixture** — still Echidna
    target #1 (§A.70), but its old #1 ranking rested on C1–C5 being unverifiable, and C1/C3/C4/C5/C10 are
