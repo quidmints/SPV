@@ -207,6 +207,33 @@ contract Alles is ForkPin, Fixtures {
     // to a per-`seed` throwaway LP. Mirrors the production open (REAL SPVGateway proves it).
     bytes constant _MH_HOP_PK =
         hex"03a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0";
+    /// @dev The REAL funded output for (seed, sats): params + raw tx + real merkle branch, plus the
+    ///      internal-order txid the channel is keyed by. One accessor so every suite proves the same
+    ///      way instead of each hand-rolling a synthetic open.
+    struct RealOpen { Types.OpenParams p; bytes rawTx; bytes32[] branch; bytes32 txid; }
+
+    function _realOpen(uint seed, uint sats, bytes memory lpPubkeyOverride)
+        internal view returns (RealOpen memory o)
+    {
+        string memory j = _spvFixture();
+        string memory b = _fixtureKey(seed, sats);
+        require(vm.parseJsonUint(j, string.concat(b, "amountSats")) == sats,
+            "no real funded output for this (seed, sats) - add the pair to PAIRS in gen_open_channel_fixture.py and regenerate");
+        o.rawTx  = vm.parseJsonBytes(j, string.concat(b, "rawFundingTx"));
+        o.branch = vm.parseJsonBytes32Array(j, string.concat(b, "merkleBranch"));
+        o.txid   = sha256(abi.encodePacked(sha256(o.rawTx)));
+        o.p = Types.OpenParams({
+            fundingBlockHash:   vm.parseJsonBytes32(j, string.concat(b, "fundingBlockHashBE")),
+            fundingBlockHeight: uint64(vm.parseJsonUint(j, string.concat(b, "fundingHeight"))),
+            fundingTxIndex:     vm.parseJsonUint(j, string.concat(b, "txIndex")),
+            lpPubkey:           lpPubkeyOverride.length == 33
+                                  ? lpPubkeyOverride
+                                  : vm.parseJsonBytes(j, string.concat(b, "lpPubkey")),
+            hopPubkey:          vm.parseJsonBytes(j, string.concat(b, "hopPubkey")),
+            amountSats:         sats,
+            fundingTaproot:     vm.parseJsonBytes32(j, string.concat(b, "fundingTaproot")) });
+    }
+
     function _openHopChannel(BTCChannels ch, address hop, uint seed, uint sats)
         internal returns (bytes32 cid)
     {

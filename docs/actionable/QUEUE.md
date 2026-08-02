@@ -83,6 +83,28 @@ regression, but it is the opposite of "most of it is finished".
      ⚠️ Cost to weigh: this makes 25 suites depend on a live bitcoind, so it likely wants a
      regenerate-and-commit fixture set rather than live generation at test time.
 
+**4b. 🔴 REAL SPV — DONE for opens, BLOCKED on SPLICES (the deeper half, found 2026-08-02).**
+   ✅ **Done and green:** `MockSPV` is GONE from every hop-channel open. `gen_open_channel_fixture.py`
+   now funds **19 real key-path P2TR outputs (19.9 BTC)** against one shared header chain, keyed
+   `s<seed>_<sats>` (the contract checks the funding output's VALUE, so the amount is part of the key).
+   `_realOpen(seed, sats)` in `Alles.t.sol` returns real params + real raw tx + **real merkle branch**,
+   and the five `_openHopChannel` sites build `BTCChannels` on a real `SPVGateway`. An unknown pair
+   REVERTS telling you to add it to `PAIRS` — it never falls back to a synthetic open.
+   📈 **Proof it is really verifying:** the LN swap-in test went **4.95M → 47.65M gas**, and the suite
+   went 3,560→**3,561 pass / 1 fail / 30 skip** (skips halved from 60).
+   🔴 **THE SPLICE PATH IS STILL UNPROVEN — and this is a NEW finding, not a known gap.** Converting
+   `VBtcLevFeeLane` surfaced 3 `BadSPV()` failures; fixing its opens moved one to
+   `BadSPV() != ForeignSpliceOutput()`, which localises the remaining failure to **`splice()`**, not
+   the open. `_buildShrink` fabricates `fundingBlockHash = 0x5217CE + seed`, height 800001, and an
+   empty proof — so **`splice()`'s SPV verification has never been exercised either.**
+   ⚠️ `VBtcLevFeeLane` is REVERTED to `MockSPV` for now so the tree stays green — deliberately, and
+   recorded here rather than left as a red suite or a masked assertion.
+   ▶️ **Next:** teach the generator to build REAL splice txs — spend each funding outpoint into the
+   2-output shrink shape (new funding spk + payout script), confirm, emit tx + branch. bitcoind owns
+   the key-path P2TR so it can sign; the blocker is that `newAmountSats`/`withdrawSats`/`payoutScript`
+   are chosen by the TEST, so those must move into `PAIRS` too. Then convert `VBtcLevFeeLane`,
+   `BtcLpMintStress`, and the 3 direct opens in `Alles.t.sol`, and delete `MockSPV`.
+
 **5. Two USER DECISIONS recovered 2026-08-02** — neither is engineering work:
    • **delta-1-both-ways product** (`IMPAIRMENT-DERISK-TRIGGER.md`) — only up-lever+hold-down is built,
      and `script/DeployL1_s.sol:566` defers to that doc by name as an OPEN product decision.
