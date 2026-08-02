@@ -121,10 +121,34 @@ USDC**. That gap is narrower now (C1/C3/C4/C5/C10 closed on other evidence) but 
   (a pinned Chainlink feed is a PREREQUISITE, not a follow-up — see §A.65).
 - **§A.69** anvil E2E + real deploy gas — never run; ONE `forge script` closes both.
 - **#18 Puppeteer E2E matrix** — pre-scoped, GATED on the contracts landing (recovered 2026-08-02).
+- ✅ **THE 60 "SKIPPED" TESTS ARE 2 TESTS × ~30 INHERITING SUITES — and one is now UNSKIPPED.**
+  There are exactly two `vm.skip` sites (`Alles.t.sol:2198`, `:4481`), both harness-gated, NEITHER
+  RPC-gated — an archival endpoint does not unlock them.
+  • ✅ **`testSwapIn_RealLightningHTLC` — FIXED and PASSING** (2026-08-02, `regtest/start-ln.sh`).
+    It had silently skipped in EVERY suite run. Nothing was wrong with LND, ZMQ or bitcoind: **LND
+    reports `synced_to_chain: false` while the chain tip's TIMESTAMP is stale, even when its
+    `block_height` already equals bitcoind's.** An idle regtest chain is thus permanently "unsynced",
+    so `start_node` burned its 120s wait and `swapin-e2e.sh` returned SKIP. Measured: alice at height
+    187 == bitcoind with `synced_to_chain: false`; **mining ONE block flipped it true in 5s.**
+    Now verified end-to-end — channel opens at 500,000 sat, a 50,000 sat swap settles with the
+    preimage captured, and the forge test PASSES.
+    ⚠️ **Known caveat:** the test is inherited by ~30 suites, so a WHOLE-SUITE run fires the harness
+    script 30× concurrently and they race into SKIP. It passes against a single suite. Fix is either
+    an idempotency lock in the script or confining the test to one suite — a harness design call.
+  • 🔴 **The cross-chain `e2e_ffi` test stays skipped — Docker-blocked, not fixable here.**
+    `cargo run -p quid-hop --features harness --bin e2e_ffi` fails on macOS: `quid-cvm` is Linux-only
+    and transitive (`E0432`, confirmed 2026-08-02). Same blocker as the **51 quid-ln Rust tests that
+    have never run.** Needs Docker `rust:1.90` up. **This is the largest untested surface left.**
 - 🔴 **RPC — HALF DONE.** The plaintext Ankr token is REMOVED from `foundry.toml` (both sites now keyless
   `https://ethereum-rpc.publicnode.com`; a bare `forge test` forks with no env var). **THE TOKEN STILL
   NEEDS ROTATING AT ANKR — it is in git history and this repo has a public-snapshot commit (`0af7f6d`).**
-  Override without editing the file: `FOUNDRY_ETH_RPC_URL` / `FOUNDRY_RPC_ENDPOINTS_MAINNET`.
+  ✅ **UPDATE 2026-08-02: `foundry.toml` now carries NO endpoint at all.** The RPC lives in
+  `evm/.env` (gitignored, untracked); `git grep` finds no key in any tracked file. Note **Foundry does
+  NOT interpolate `${VAR}` in `eth_rpc_url`** — it passes the literal through and the fork dies with
+  *"could not instantiate forked environment"*. It reads `ETH_RPC_URL` natively and auto-loads
+  `evm/.env`, so the key is simply REMOVED, not parameterised. `rpc_endpoints` DOES interpolate.
+  Full suite re-verified on the archival key: **3,560 pass / 1 fail / 60 skip** — unchanged, and the
+  #12 failure reproduces at a third block with the same ≈$59,966.
 - **§A.46** 3 assertion-free tests remain (of 7).
 - **JIT-DEPTH §2** — genuinely deferred, blocker LIFTED (`Basket.turn` exists, `Basket.sol:167`).
 
