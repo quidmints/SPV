@@ -185,6 +185,28 @@ case. Conversely if it tolerates a shortfall, the tests never exercise the fee-b
 | **SWALLOWED FAILURE** | 67 | ⚠️ **UNTRIAGED — the biggest unexamined surface left.** `catch {}` / `\|\| echo SKIP`. Most are deliberate degrade-to-conservative paths, but `_lpValueUsd`'s `try/catch` returning 0 is exactly how a zero-delivery redeem hid in `testDD`, so the pattern has bitten here before. **Each needs: can a REAL failure reach this, and would it be silent?** |
 | **OUR markers** | 24 | 🟡 mostly prose/`@notice` references, but `quid-hop/src/migration.rs:58,63,73,77` are **4 `PLACEHOLDER (dev)` constants — operator Safe address and chain id — explicitly "replace before mainnet".** Not tracked anywhere else. |
 | vendored markers | 229 | ✅ upstream LDK/lexe (`TODO(phlip9)`/`TODO(max)`). Not ours. |
+## ⚠️ TWO CONCERNS I HELD AND NEVER WROTE DOWN — surfaced by introspection, 2026-08-03
+I claimed the only residual was "a concern never written anywhere, unreachable by scanning." The
+user pushed. **It IS reachable — by asking myself rather than grepping.** Both of these were live in
+my head and in no file:
+
+**(a) The splice fixture SCHEMA IS UNCONSUMED — nothing has ever compiled against it.**
+`build_splice` emits `newAmountSats · withdrawSats · payoutScript · spliceRawTx ·
+spliceMerkleBranch · spliceBlockHashBE · spliceHeight · spliceTxIndex · spliceTxidDisplay`, and the
+generator's own asserts prove the TXS are valid (txid reconstructs, branch folds to the merkleroot).
+**But no Solidity has ever read these keys.** I wrote a `_realSplice` accessor, deleted it as dead
+code, and never compiled a caller. ⇒ **Treat the key names and types as UNVERIFIED**: the first
+wiring attempt may hit a `parseJson` type mismatch (notably `spliceMerkleBranch` as
+`bytes32[]`). Cheap to settle — write ONE caller and build before converting anything.
+
+**(b) THE FEE-BEARING SPLICE AMOUNTS ARE MINE, NOT A TEST'S — and that is the same sin I spent the
+day removing.** Every other `SPLICES` entry was extracted mechanically from a real `_open*` call
+site. **Seed 9's `50e6 → 30e6 + 19.9e6` I chose myself** to leave a 100,000-sat fee. It proves a
+fee-bearing splice is CONSTRUCTIBLE and accepted by consensus, which was the point — but **no test
+asserts those numbers**, so it is a fixture in search of a caller. ⇒ Either write the test that
+consumes it, or re-derive the amounts from a real call site when one exists. **Do not let it become
+the next fabricated constant.**
+
 ## 🔴 M1 — `migration.rs` MUST READ THE SAFE ON-CHAIN, not carry a constant (user, 2026-08-02)
 I had booked this as "blocked on the user for the real operator Safe address". **Wrong framing.**
 Per the user: *"we don't have a Safe address right now, it gets created as part of the Solidity
@@ -418,6 +440,7 @@ separate sweeps walked past it. What let it hide, and the rule each failure earn
 | **T2** | 🟡 **`PREMIUM_ANNUALIZE = 127`** (`VogueLib.sol:322`). Its own docstring says *"the ONE number here worth reviewing"*, and a session note recorded it as 126 — so it HAS moved and the review never happened. Not a bug; an unreviewed constant on the premium path. | 🟡 open |
 | **F1** | control-LP redeem delivers 0 | 🔴 open. Likely a FIXTURE warp — **verify before fixing** |
 | **#12** | LP share price reads only the ETH leg of a two-legged claim | 🔴 **OPEN — the suite's only failure.** Fix defined; see rank 1. |
+| **E1** | 🔴 **`Core` IS 139 BYTES OVER EIP-170 — AND `forge build --sizes` DOES NOT REPORT IT.** Measured from the linked artifact at HEAD (`forge build` reported *"No files changed"*, so the artifact IS HEAD): `out/Core.sol/Core.json` `deployedBytecode.object` = **24,715 B** vs the 24,576 limit. Placeholder-safe: each `__$…$__` link ref is exactly 40 hex chars == the 20 bytes it becomes, so `len/2` is exact. **The blind spot is the real finding:** `forge build --sizes` prints 140 contracts and silently OMITS `Core`, `Vogue` and `Vault` — the three biggest first-party contracts. Library linking is NOT the discriminator (`Aux` 5 libs, `Vault` 3 libs, `LevManager` 1 lib all link, and `Aux`/`LevManager` DO print). ⇒ **CLAUDE.md's *"`forge build --sizes` is the ONLY enforcer"* is false for exactly the contracts that need enforcing**, which is how 139 bytes of overflow got past every size check. **Headroom at HEAD, from artifacts:** `Core` −139 · `Vogue` 649 · `Vault` 3,506 · `LevManager` 70 · `SwapLib` 148 · `VogueLib` 3,897. ▶️ **Two steps, in order:** (1) CONTROL FIRST — `new Core(...)` on anvil (which enforces EIP-170 unless `--disable-code-size-limit`) to convert an artifact reading into an observed deploy failure; a passing `forge test` proves nothing here, since it does not enforce the limit. (2) then shrink `Core` (the `isBTC`-dispatched `_add/_subPooled*` mutators and `_settleUsdSide`/`_settleTokSide` are the obvious lift-to-library candidates) and replace the size check with one that reads artifacts directly instead of trusting `--sizes`. ⚠️ **Consequence for #12:** the fix must add **NO** code to `Core` — the `POOLED_USD_ETH` baseline has to be maintained from `Vogue`/`VogueLib`. | 🔴 open |
 
 **Why these survived a green suite:** 7 of 12 basket stables are 18-decimal and **every existing test uses
 USDC**. That gap is narrower now (C1/C3/C4/C5/C10 closed on other evidence) but it is still real for C6–C9.
