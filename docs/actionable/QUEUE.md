@@ -104,7 +104,22 @@ regression, but it is the opposite of "most of it is finished".
    empty proof — so **`splice()`'s SPV verification has never been exercised either.**
    ⚠️ `VBtcLevFeeLane` is REVERTED to `MockSPV` for now so the tree stays green — deliberately, and
    recorded here rather than left as a red suite or a masked assertion.
-   ▶️ **Next:** teach the generator to build REAL splice txs — spend each funding outpoint into the
+   ✅ **BOTH FEASIBILITY BLOCKERS ARE NOW SOLVED — this is no longer research, it is typing:**
+   1. **Are the funding outputs spendable?** YES — measured: `listunspent` shows 60 `tr(` UTXOs with
+      `spendable: true, solvable: true`. bitcoind owns the key-path P2TR, so it can sign a splice.
+   2. **The zero-fee problem, which is the non-obvious one.** The shapes the tests need are
+      *exact*: seed 77 splits 20e6 → 15e6 + 5e6, leaving **no fee**, and a 0-fee tx is rejected by
+      mempool POLICY (it is perfectly valid by consensus). ⇒ Do **not** invent a fee and change the
+      amounts the tests assert on. Use **`generateblock <addr> [rawtx…]`**, which submits txs
+      straight into a block and bypasses mempool policy entirely.
+   ⚠️ One gotcha: `createrawtransaction` cannot emit an ARBITRARY `scriptPubKey` (it takes addresses
+     or `data`), and the payout leg is a raw script the test chooses. Serialise the splice tx by hand
+     — the generator already has `varint`/`build_legacy`/`merkle_branch`, so nothing new is needed —
+     then `signrawtransactionwithwallet` → `generateblock`.
+   📐 **Only 4 call sites, 3 distinct shapes:** `(77, 20e6) → 15e6 + 5e6`, `(1, 2e7) → 15e6`,
+     `(7, 1e6) → 1e6`. Add a `SPLICES` list beside `PAIRS`, emit `spliceRawTx`/`spliceMerkleBranch`/
+     `spliceBlockHash`/`spliceHeight`/`spliceTxIndex` per entry, and have `_buildShrink` read them.
+   ▶️ **Then:** teach the generator to build REAL splice txs — spend each funding outpoint into the
    2-output shrink shape (new funding spk + payout script), confirm, emit tx + branch. bitcoind owns
    the key-path P2TR so it can sign; the blocker is that `newAmountSats`/`withdrawSats`/`payoutScript`
    are chosen by the TEST, so those must move into `PAIRS` too. Then convert `VBtcLevFeeLane`,
