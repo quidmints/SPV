@@ -5,6 +5,26 @@
 is the only way to know what is true there, which is a tax every session was paying. Detail and evidence
 still live there and in `GAS-AND-CORRECTNESS-AUDIT.md`; **status lives HERE and is updated IN PLACE.**
 
+# ▶️ START HERE (new thread, 2026-08-02) — read this block, then the RANKED list below
+
+1. **`CLAUDE.md` at the repo root is the rules + environment file.** Standing rules, the decimal bases,
+   `via_ir = false`, EIP-170 (`forge build --sizes` is the ONLY enforcer), and the fork-test env vars.
+   Read it before touching Solidity. It exists because those facts previously lived only in one
+   machine's agent-memory directory.
+2. **HOW TO EDIT THIS FILE: update status IN PLACE, in the RANKED + OPEN sections below. Do NOT append.**
+   Appending is what turned `BUILD-QUEUE-AND-107.md` into a 5,143-line archive whose own status markers
+   became untrustworthy. *(I appended five sections on 2026-08-02 before catching this; the DETAIL now
+   lives at the bottom of this file and the top points at it. That is the intended shape: **status at
+   the top, derivations at the bottom.**)*
+3. **Suite: 3,560 pass / 1 fail.** The single failure is `testLeverage_LvrControlVsTreatment`, and it is
+   **CORRECT — do not weaken it.** It is #12's symptom; the fix is defined at rank 1 below.
+   Run: `cd evm && forge test` (now keyless — a bare run forks with no env var set).
+4. **Two things need YOU, not code:** rotate the Ankr token (it is in git history), and pick the #12
+   call at rank 1. Both are flagged where they belong below.
+5. **The archive is adjudicated.** Every one of its 73 `§A.x` sections and its own 10-item open list have
+   been cross-checked into this file (see the three ADJUDICATION passes at the bottom). Treat it as
+   evidence-only — with ONE exception now tracked as **C1r** below.
+
 ## Scale, honestly
 `A.1`–`A.45` predate 2026-07-29. `A.46`–`A.73` were added ON 2026-07-29 — 28 new items, of which 19 came
 from one audit. **The queue GREW today.** That is the expected result of looking properly, not a
@@ -12,88 +32,94 @@ regression, but it is the opposite of "most of it is finished".
 
 ---
 
-# 🎯 NEXT ACTION, RANKED (user asked 2026-07-29: *"what is the next highest value item?"*)
+# 🎯 NEXT ACTION, RANKED (rewritten IN PLACE 2026-08-02 — the 07-29 ranking below was stale)
 
-**1. CLOSE THE 18-DEC FIXTURE GAP — this gates everything else on the money path.**
-   The decisive argument: **C1 is currently UNVERIFIABLE.** `scaleTo6` is a NO-OP for USDC, every test
-   uses USDC, so the honest prediction for C1-alone is *"the suite will not change"* — i.e. **the suite
-   CANNOT tell us whether C1 is correct.** Same for C2, C3, C5. Fixing them without an 18-dec fixture is
-   patching BLIND, and today showed the price: C2 looked right, was wrong, cost 333 failing tests.
-   ⇒ ONE fixture that runs the EXISTING money-path tests with GHO/DAI/BOLD instead of USDC converts C1,
-     C2, C3 and C5 from *argued* to *tested*. Nothing else on this list has that leverage.
-   ⇒ It is also Echidna target #1 (§A.70), so the work is not duplicated — the fixture IS the fuzz seed.
+**1. #12 — make the call, then build the USD delivery leg.** The ONLY failing test in the suite
+   (`testLeverage_LvrControlVsTreatment`) and the fix is now *defined*, not just diagnosed: credit the
+   **DELTA** of `POOLED_USD_ETH` since deposit to LP share price — NOT the level (the level over-pays by
+   246,564 on a 739,324 deposit; that base is basket-supplied quoting depth). Measured: crediting the
+   delta leaves the LP **+33.56** vs control, flipping the assertion to a pass with the small fee gain
+   the test itself predicts. ⚠️ Pricing it is HALF the job — `_withdraw` must also DELIVER the USD; the
+   redeemed QUID leg measures **0 in both arms** today, and a claim that prices but cannot be redeemed
+   is worse than the status quo. Multi-LP needs per-share apportionment of the increment.
+   *(Full derivation at the "#12 RESOLVED BY MEASUREMENT" section near the end of this file.)*
 
-**2. C4 — the dead θ throttle.** DECIMAL-INDEPENDENT, so it is verifiable TODAY with no new fixture, and
-   it is a live risk control that is silently off after the first volatile sell-in.
+**2. §A.65 — the DIRECTION term on the basket fee.** Recovered 2026-08-02; it had NEVER been in this
+   file. It BLOCKS the 6909 work below, and **its failure mode is silent** — a symmetric concentration
+   fee charges arbers most exactly when their rebalancing flow is needed most, and nothing reverts, no
+   test fails, the basket just stops correcting. Silent + real invariant ⇒ this earns a test, not a
+   comment.
 
-**3. Verify the remaining 33 open-marked items.** Cheap (minutes each) and it fixes the planning picture —
-   several are probably already done. But it is PLANNING work: it tells you what to do, it does not fix
-   anything. Do it when a code task is blocked, not instead of one.
+**3. 6909 stable→stable fee, steps 2–4.** Step 1 is now CONFIRMED BY STRUCTURE: stable→stable charges
+   NOTHING today (`FeeLib.calcNeeded`/`applyFeeAndHaircut` discard their fee inputs as no-ops;
+   `scaledFeeL1`'s only caller is a read-only lens). Remaining: re-wire `calcFeeL1` onto the stable leg,
+   route to `feesPerShare`/`USD_FEES` (`Vogue.sol:1055`, `Vault.sol:732`) **not** `tranche`, price it off
+   the SOR's own signal. Gated on (2), and read §A.51's truncated `baseRate` rationale first.
 
-**4. C3 / C5 / F1 / F2** — once (1) makes them observable.
+**4. Two USER DECISIONS recovered 2026-08-02** — neither is engineering work:
+   • **delta-1-both-ways product** (`IMPAIRMENT-DERISK-TRIGGER.md`) — only up-lever+hold-down is built,
+     and `script/DeployL1_s.sol:566` defers to that doc by name as an OPEN product decision.
+   • **venue concentration cap** (`LST-PEG-MONITOR.md`) — *"a config/judgment decision, not a build"*.
 
-⚠️ NOT next: §A.56 part 2 and §A.52 are tidiness; §A.71's struct merge is one candidate. All are behind
-  a money path with five open defects.
+**5. C1r + C6–C9** — the only money-path items left. **C1r first**: it is a ONE-LINE trace
+   (`SwapLib.sol:498` — is `r.amount` 6-dec or native on the `forVolatile` leg?) guarding a 1e12 refund
+   error on 18-dec stables, and it only became REACHABLE when C3 landed. C6–C9 have no commits. **6. 18-dec fixture** — still Echidna
+   target #1 (§A.70), but its old #1 ranking rested on C1–C5 being unverifiable, and C1/C3/C4/C5/C10 are
+   now resolved. **7. §A.69** anvil E2E + deploy gas — one `forge script` closes both.
+
+⚠️ NOT next: §A.56 part 2 is tidiness; §A.71b near-match dedup is real but sits behind a money path.
 
 # 🔴 OPEN — money path (do these first)
 
 | id | what | state |
 |---|---|---|
-| **C1** | `Aux.deposit` returns NATIVE; `SwapLib._swapOutPrep`/`_consumeVolInput` treat it as 6-dec | ✅ **APPLIED & CONFIRMED — it FIXED F2.** 3,559/1 vs a 3,558/2 baseline. My prediction (unchanged) was WRONG in the best way: `ZZBoldProbe` now PASSES because **BOLD is 18-dec** — see §A.74 |
-| **C2** | `Core.sol:989` hands `AUX.take` a 6-dec value where NATIVE is required | REVERTED (§A.72). The audit's patch was WRONG — `scaleTokenAmount` converts native↔18-dec, but this value is 6-dec. **Needs a `from6(amount6, token)` helper that DOES NOT EXIST** |
-| **C3** | `BasketLib.convert` 1e10 off for `volScale=1e8`; 2 uncompensated BTC sites (`SwapLib:1013`, `:444/455`) | open. Apply ONLY after C1 verifies — fixing C3 first ARMS a latent `Core.refundUnfilled` mismatch |
-| **C4** | a WEI premium written into a 6-dec register ⇒ `derivedThetaWad` blows past 1e18 permanently ⇒ **the Merton band throttle is DEAD on the ETH side** after the first volatile sell-in | open |
-| **C5** | `Vogue.sol:658` missing `* 1e12` — a THIRD §A.57 site. On a FULL EXIT an LP's whole USD fee leg pays at 1e-12 | open. One token; mirrors `Vogue.sol:439-440` |
-| ~~F2~~ | BOLD not reaching the Stability Pool | ✅ **CLOSED by C1** — cause was the 18-dec seam, not a Liquity leak |
-| C6–C9 | seedFee clamp basis · ungated TWAP seam · stale read across repack (`Vogue:978-989`) · `scaleTo6` on 4626 share decimals | open, lower severity |
-| **F1** | control-LP redeem delivers 0 | open. Probably a FIXTURE warp (immature QU!D = the audit's intended behaviour) — **verify before touching the protocol** |
+| **C1** | `Aux.deposit` returns NATIVE; `SwapLib` treated it as 6-dec | ✅ **DONE & CONFIRMED** |
+| **C2** | `Core.sol:989` unit mismatch | ✅ **RESOLVED — REVERTED deliberately** (§A.72): the audit's patch was WRONG. Do not re-apply. |
+| **C3** | `BasketLib.convert` 1e10 off for `volScale=1e8` | ✅ **DONE** — paired fix; the compensating ×1e10 pre-scale is deleted (`SwapLib:748` records it in past tense) |
+| **C4** | WEI premium into a 6-dec register ⇒ Merton band throttle dead | ✅ **DONE** — one site (`2688eca`); `:474` was already correct and an earlier 2-site fix BROKE it |
+| **C5** | `Vogue.sol:658` missing `* 1e12` | ✅ **PROVEN NEUTRAL** (`26ac6a8`) — not a defect |
+| **C10** | ether.fi rung vs redeemable capacity | ✅ **DONE** — parts 1+2 (`2e34b6e`) |
+| ~~F2~~ | BOLD not reaching the Stability Pool | ✅ **CLOSED by C1** |
+| **C6–C9** | seedFee clamp basis · ungated TWAP seam · stale read across repack (`Vogue:978-989`) · `scaleTo6` on 4626 share decimals | 🔴 **OPEN — no commit touches any of them.** The only C-items left. |
+| **C1r** | 🔴 **C1 RESIDUAL, NEVER VERIFIED.** `SwapLib.sol:498` (`_refundExcess`) does `scaleTokenAmount(excess * 1e12, r.inToken, false)` on the `forVolatile` leg. That `* 1e12` **presumes `excess` is 6-dec** — but C1's whole change was making `Aux.deposit` return **NATIVE**. If `r.amount` now arrives native, this over-scales an 18-dec stable's refund by 1e12. The archive flagged it *"verify, do not assume"* and it was never done; its cited line (`:508`) has since DRIFTED to `:498`. **Trace where `r.amount` is set on the `forVolatile` path before deciding.** Reachable on BTC paths only since C3 landed (previously dead code). | 🔴 open |
+| **F1** | control-LP redeem delivers 0 | 🔴 open. Likely a FIXTURE warp — **verify before fixing** |
+| **#12** | LP share price reads only the ETH leg of a two-legged claim | 🔴 **OPEN — the suite's only failure.** Fix defined; see rank 1. |
 
-**Why all of these survived a green 3,558-test suite:** 7 of 12 basket stables are 18-decimal
-(GHO, RLUSD, BOLD, DAI, USDS, USDe, cUSD) and **every existing test uses USDC.** Closing that fixture gap
-is the highest-leverage single action available.
+**Why these survived a green suite:** 7 of 12 basket stables are 18-decimal and **every existing test uses
+USDC**. That gap is narrower now (C1/C3/C4/C5/C10 closed on other evidence) but it is still real for C6–C9.
 
 # 🟠 OPEN — structural / dedup
-- **§A.71** codebase-wide dedup. Structs SCANNED (71 total, 7 shared shapes); one live candidate:
-  `LevManager.Pos` == `BtcLevManager.Pos`. Remaining sub-passes: ETH/BTC twins, inlined helper bodies,
-  interfaces, constants. **Method: hunt duplicated LOGIC, not names** — `sizeOorUsd` already existed and
-  the ETH path had copied its body.
-- **§A.71b 🔴 NEAR-MATCH DEDUP — the method used so far CANNOT find what the user describes.**
-  User: *"i am certain that there is more dedup work to do that is not getting picked up as a dedup
-  opportunity because of small semantic differences."* **Correct, and it is a flaw in my scan, not a
-  hunch.** The struct sweep matched EXACT field signatures, so `{a,b,c}` vs `{a,b,c,d}` read as
-  unrelated; likewise two functions differing by one guard or one param. `sizeOorUsd` was only found
-  because the ETH copy was BYTE-IDENTICAL — had it differed by a line, the scan would have missed it.
-  ⇒ NEEDED: NEAR-match detection. (a) structs whose field sets are SUBSETS or differ by ≤1 field;
-    (b) function pairs with the same CALL-SEQUENCE SKELETON (normalise identifiers, diff the sequence of
-    calls/branches) — catches "same job, one extra guard"; (c) ETH/BTC twins compared BODY-BY-BODY,
-    asking of each difference whether it is REAL asset semantics or incidental.
-    **Concrete starting point: `ChannelLib.supplyBody`'s three branches (Aave / BOLD / 4626)** — all
-    return native and differ mainly in HOW they source, which is exactly the shape that hides behind
-    "small semantic differences".
-- **§A.66b 🟠 THE LEGACY COMPARISON WAS NOT COMPREHENSIVE.** Only `Aux.sol`'s `_take` and `Vogue.sol`'s
-  structure were read, yielding exactly two findings: the native-units convention (C1 rests on it) and
-  G2 (`decimals()` at 33 seams vs the legacy's zero-call divisor). **A file-by-file diff of
-  `Basket`/`Core`/`VogueCore`/`Rover`/`imports/` against `~/Documents/quidmint/quid/evm/src/` has NEVER
-  been done** — and both findings it did produce were high-value, so expected yield is good.
-- **§A.52** interface dedup — 95 locals, ZERO name-duplicates ⇒ semantic. Group by target contract.
-- **§A.56 part 2** — out-of-range ARGS: a responsibility-boundary move (VogueLib sizes only; BtcVaultLib
-  does everything), not a signature change. Partial at `/tmp/A56-partial.patch`.
-- **§A.61** boundary definition — name where 6/8↔18 happens; **§A.72 proved a needed helper is missing.**
-- **G1–G10** gas: same basket scan 2–3x per tx; `decimals()` as an external STATICCALL at 33 seams
-  (the legacy used a zero-call divisor); 13-iteration SLOAD loops 4x per redeem; TWAP ≈ 42M gas suite-wide.
+- ✅ **§D5 DONE** (2026-08-02) — the two `_takePreferred` branches collapsed to one; `decimals()` KEPT
+  (legacy's positional divisor already broke in production). BasketLib 21,643 → 21,520.
+- ✅ **§A.66b LEGACY COMPARISON — CLOSED** (2026-08-02). `Core.sol` 62 fns vs legacy `VogueCore.sol` 19,
+  named one by one: 17 map 1:1, 26 are features legacy never had, 14 are `isBTC` duality accessors that
+  REPLACE mirrored branches, 5 are `via_ir=false` stack splits. **Zero gratuitous decomposition**, and we
+  are ahead by two (legacy's observation interpolation lives in `OracleLib` here). Measured NEGATIVE —
+  do not re-open.
+- ✅ **§A.52 interface dedup DONE** — 7→0 underscore interfaces, Aux 6→1, Core 4→1.
+- 🟠 **§A.71b NEAR-MATCH dedup — STILL OPEN and still correct.** The scan matches EXACT signatures, so
+  `{a,b,c}` vs `{a,b,c,d}` reads as unrelated. NEEDED: subset/±1-field structs; same CALL-SEQUENCE
+  SKELETON with identifiers normalised; ETH/BTC twins compared BODY-BY-BODY. Start at
+  `ChannelLib.supplyBody`'s three branches (Aave / BOLD / 4626).
+- 🟠 **§A.56 part 2** — out-of-range ARGS; a responsibility-boundary move, not a signature change.
+- 🟠 **§A.61** boundary definition — 6/8↔18; §A.72 proved a needed helper is missing. (task #7)
+- 🟠 **G1–G10** gas (tracked as **B11**): basket scan 2–3× per tx; `decimals()` STATICCALL at 33 seams;
+  13-iter SLOAD loops 4× per redeem; TWAP ≈ 42M gas suite-wide.
 
 # 🟡 OPEN — capability / infra
 - **§A.19b** `redeemVBtc` — rail exists, entrypoint does not. 3 contracts move together.
 - **§A.43** attestation binding — EVM key IS enclave-born/sealed; only the quote binding is missing.
 - **§A.5f** per-action auth (the timelocked recipient pin shipped as a SUBSET).
 - **§J.8** weETH-on-Aave-v4 · **§A.15** VERIFY the possibly-inverted claim first · **§A.49** FRAX/sFRAX
-  (a pinned Chainlink feed is a PREREQUISITE, not a follow-up).
+  (a pinned Chainlink feed is a PREREQUISITE, not a follow-up — see §A.65).
 - **§A.69** anvil E2E + real deploy gas — never run; ONE `forge script` closes both.
-- **RPC**: `foundry.toml:34` hardcodes a rate-limited Ankr key **committed in plaintext** in a repo with
-  a public-snapshot commit ⇒ rotate. Use `${MAINNET_RPC}`. Working alternative:
-  `https://ethereum-rpc.publicnode.com`.
-- **§A.46** 3 assertion-free tests remain (of 7; 4 addressed).
-- **JIT-DEPTH §2** — genuinely deferred, but the blocker is LIFTED (`Basket.turn` exists).
+- **#18 Puppeteer E2E matrix** — pre-scoped, GATED on the contracts landing (recovered 2026-08-02).
+- 🔴 **RPC — HALF DONE.** The plaintext Ankr token is REMOVED from `foundry.toml` (both sites now keyless
+  `https://ethereum-rpc.publicnode.com`; a bare `forge test` forks with no env var). **THE TOKEN STILL
+  NEEDS ROTATING AT ANKR — it is in git history and this repo has a public-snapshot commit (`0af7f6d`).**
+  Override without editing the file: `FOUNDRY_ETH_RPC_URL` / `FOUNDRY_RPC_ENDPOINTS_MAINNET`.
+- **§A.46** 3 assertion-free tests remain (of 7).
+- **JIT-DEPTH §2** — genuinely deferred, blocker LIFTED (`Basket.turn` exists, `Basket.sol:167`).
 
 # ✅ CLOSED 2026-07-29
 §A.50 preferred redemption paid ~8x par · §A.55 de-lever drained the basket · §A.57 LP fees under-paid
@@ -1038,6 +1064,10 @@ With C3 it CAN, so on BTC paths: partial fills become possible, and `refundUnfil
 bases would ARM a latent `Core.refundUnfilled` mismatch. **That ordering constraint is satisfied**: C1
 and C2 are both in and confirmed, so the two are on the same basis now. This is why C3 had to come last
 of the three.
+> ⚠️ **STALE AS WRITTEN (corrected 2026-08-02):** C2 was later **REVERTED** (§A.72) — the audit's patch
+> was wrong. The ordering argument still holds because **C1 alone** puts `amount` and `consumed` on the
+> same basis; C2 was never the load-bearing half. See the C-table at the top, which is authoritative.
+> ⚠️ And the `_refundExcess` watch-item below was NEVER verified — it is now tracked as **C1r**.
 
 ## 🔴 C3 REVERTED — 91 vs 31 at the pinned block. My direction analysis was WRONG.
 

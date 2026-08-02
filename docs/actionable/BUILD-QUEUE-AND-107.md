@@ -1,4 +1,15 @@
 > # ⚠️ ARCHIVE — READ `QUEUE.md` FIRST
+> ### ✅ FULLY ADJUDICATED 2026-08-02 — this file is now EVIDENCE-ONLY. Do not work from it.
+> Every one of its 73 `§A.x` sections and its own 10-item open list (`:4520`) were cross-checked into
+> `QUEUE.md`. Results: 25 sections had no QUEUE row — all 25 resolved (9 self-close here, 5 struck by
+> later sections, 3 superseded, 7 were never actions). Of the 10-item list, 9 were already tracked; the
+> 10th (**the 6909 stable→stable fee path**) was genuinely lost and is now recovered and ANSWERED.
+> **§A.65** was also lost and is recovered. **ONE residual is still unverified and is tracked in
+> `QUEUE.md` as `C1r`**: the `* 1e12` in `_refundExcess` (this file cites `SwapLib.sol:508`; it has
+> DRIFTED to `:498`).
+> 📌 **Note for anyone counting markers here: this file SELF-SUPERSEDES.** 97 of its 103
+> unresolved-looking `OPEN`/`TODO`/`UNVERIFIED` markers sit ABOVE the `CURRENT STATE` divider at
+> `:4501`, which explicitly overrides them. Counting raw markers overstates what is open by ~16×.
 > This file is APPEND-ONLY and 5,100+ lines across 73 `A.x` items, several re-framed two or three times
 > (§A.50 and §A.58 each). Its EVIDENCE is still authoritative — traces, `file:line`, measurements — but
 > its STATUS markers are NOT: sections still read "OPEN" for items closed later in the same file.
