@@ -217,19 +217,30 @@ contract BtcSelfManagedTest is Alles {
         string[] memory ffi = new string[](3);
         ffi[0] = "bash";
         ffi[1] = "-c";
+        // RUN IT IN DOCKER, not on the host. `quid-cvm` is Linux-only and transitive, so the host
+        // `cargo` CANNOT build this bin on macOS — that is why this test skipped for the life of the
+        // project. `quid-ln/Dockerfile` is the Linux toolchain and already bakes bitcoind
+        // (BITCOIND_EXE), which is exactly what `harness.rs:33` reads first.
+        //   Build once:  docker build -t quid-ln:dev quid-ln
+        // If the image is absent we emit SKIP (a real "cannot run"); if it is present and the bin
+        // FAILS we emit BROKEN and assert below — those are different things and collapsing them is
+        // what hid this test in the first place.
         ffi[2] = string.concat(
-            "cd ", vm.projectRoot(), "/../quid-ln && ",
+            "docker image inspect quid-ln:dev >/dev/null 2>&1 || { echo -n SKIP; exit 0; }; ",
+            "docker run --rm -v ", vm.projectRoot(), "/../quid-ln:/w -w /w quid-ln:dev ",
             "cargo run --quiet -p quid-hop --features harness --bin e2e_ffi -- ",
             vm.toString(block.chainid), " ", vm.toString(predictedCh),
-            " 2>/dev/null || echo -n SKIP"
+            " 2>/dev/null || echo -n BROKEN"
         );
         bytes memory out = vm.ffi(ffi);
 
-        if (out.length < 32 || keccak256(out) == keccak256(bytes("SKIP"))) {
-            emit log("e2e_ffi bin/bitcoind unavailable - skipping cross-chain e2e");
+        if (keccak256(out) == keccak256(bytes("SKIP"))) {
+            emit log("quid-ln:dev image absent - build it: docker build -t quid-ln:dev quid-ln");
             vm.skip(true);
             return;
         }
+        require(keccak256(out) != keccak256(bytes("BROKEN")) && out.length >= 32,
+            "e2e_ffi is RUNNABLE but FAILED (image present). Deliberately NOT skipped.");
         Bundle memory b = abi.decode(out, (Bundle));
 
         // ── REAL SPVGateway: regtest genesis (height 0) + chain to tip ──
