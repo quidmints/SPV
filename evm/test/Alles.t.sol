@@ -196,12 +196,12 @@ contract Alles is ForkPin, Fixtures {
         return address(_spvGw);
     }
 
-    /// @dev seed → index into the fixture's `opens` array. Reverts loudly rather than falling
-    ///      back to a synthetic open, so a missing fixture entry can never silently un-prove a test.
-    function _openIdx(uint seed) internal pure returns (string memory) {
-        if (seed == 1)  return "0";
-        if (seed == 91) return "1";
-        revert("no real SPV fixture for this seed - add it to gen_open_channel_fixture.py SEEDS and regenerate");
+    /// @dev (seed, sats) → the fixture's key for that REAL funded output. The contract checks the
+    ///      funding output's VALUE against `amountSats`, so each pair needs its own on-chain output —
+    ///      hence the amount is part of the key, not just the seed. Reverts loudly rather than
+    ///      falling back to a synthetic open, so a missing entry can never silently un-prove a test.
+    function _fixtureKey(uint seed, uint sats) internal pure returns (string memory) {
+        return string.concat(".bySeed.s", vm.toString(seed), "_", vm.toString(sats), ".");
     }
 
     // to a per-`seed` throwaway LP. Mirrors the production open (REAL SPVGateway proves it).
@@ -211,9 +211,9 @@ contract Alles is ForkPin, Fixtures {
         internal returns (bytes32 cid)
     {
         string memory j = _spvFixture();
-        string memory b = string.concat(".opens[", _openIdx(seed), "].");
+        string memory b = _fixtureKey(seed, sats);
         require(vm.parseJsonUint(j, string.concat(b, "amountSats")) == sats,
-            "fixture funds a different amount than this call asks for - regenerate with the right AMOUNT_SATS");
+            "no real funded output for this (seed, sats) - add the pair to PAIRS in gen_open_channel_fixture.py and regenerate");
         Types.OpenParams memory p = Types.OpenParams({
             fundingBlockHash:   vm.parseJsonBytes32(j, string.concat(b, "fundingBlockHashBE")),
             fundingBlockHeight: uint64(vm.parseJsonUint(j, string.concat(b, "fundingHeight"))),

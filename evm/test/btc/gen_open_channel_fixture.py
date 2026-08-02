@@ -81,7 +81,7 @@ def newpub():
     return clij("getaddressinfo", a)["pubkey"]            # 33-byte compressed
 
 
-def one_open(seed):
+def one_open(seed, sats):
     """One REAL funded key-path P2TR channel output, with its own proof."""
     lp = bytes.fromhex(newpub())
     hop = bytes.fromhex(newpub())
@@ -91,8 +91,8 @@ def one_open(seed):
     assert len(spk) == 34 and spk[0] == 0x51 and spk[1] == 0x20, \
         f"expected key-path P2TR 0x5120||Q, got {spk.hex()}"
     q = spk[2:]
-    txid = cli("sendtoaddress", addr, "%.8f" % (AMOUNT_SATS / 1e8))
-    return {"seed": seed, "lp": lp, "hop": hop, "q": q, "spk": spk, "txid": txid}
+    txid = cli("sendtoaddress", addr, "%.8f" % (sats / 1e8))
+    return {"seed": seed, "sats": sats, "lp": lp, "hop": hop, "q": q, "spk": spk, "txid": txid}
 
 
 def finish_open(o):
@@ -102,7 +102,7 @@ def finish_open(o):
     tx_index = blk["tx"].index(o["txid"])
     fund_sats = next(int((v["value"] * Decimal(1e8)).to_integral_value())
                      for v in tx["vout"] if v["scriptPubKey"]["hex"] == o["spk"].hex())
-    assert fund_sats == AMOUNT_SATS, f"funding value {fund_sats} != {AMOUNT_SATS}"
+    assert fund_sats == o["sats"], f"funding value {fund_sats} != {o['sats']}"
     legacy = build_legacy(tx)
     assert dsha(legacy)[::-1].hex() == o["txid"], "reconstructed legacy txid mismatch"
     leaves = [bytes.fromhex(t)[::-1] for t in blk["tx"]]
@@ -113,7 +113,7 @@ def finish_open(o):
         "seed": o["seed"],
         "lpPubkey": x(o["lp"].hex()),
         "hopPubkey": x(o["hop"].hex()),
-        "amountSats": AMOUNT_SATS,
+        "amountSats": o["sats"],
         "fundingTaproot": x(o["q"].hex()),
         "rawFundingTx": x(legacy.hex()),
         "fundingTxidDisplay": x(o["txid"]),
@@ -138,8 +138,19 @@ def main():
     # SEEDS: one entry per `_openHopChannel(seed)` used by the Solidity fixture. They all
     # share ONE header chain, so a test builds the gateway once and every open is proven
     # against the same real mainchain. Add a seed here when a test needs a new channel.
-    SEEDS = [1, 91]
-    opens = [one_open(s) for s in SEEDS]
+    # (seed, sats) — one REAL funded output per pair the Solidity fixtures open. Extracted
+    # mechanically from the `_open*(ch, seed, sats)` call sites; the contract checks the funding
+    # output's value against `amountSats`, so a pair needs its OWN on-chain output. Keyed
+    # `s<seed>_<sats>` in the JSON so Solidity looks one up in O(1).
+    PAIRS = [
+        (1, 20_000_000), (91, 20_000_000),                      # _openHopChannel
+        (1, 1_000_000),  (2, 1_000_000),  (2, 30_000_000),      # VBtcLevFeeLane / BtcLpMintStress
+        (7, 1_000_000),  (7, 1_600_000),  (7, 2_000_000),
+        (9, 50_000_000), (201, 20_000_000), (202, 15_000_000), (203, 25_000_000),
+        (42, 300_000_000), (51, 300_000_000), (54, 300_000_000),
+        (64, 300_000_000), (65, 300_000_000), (88, 300_000_000),
+    ]
+    opens = [one_open(s, a) for s, a in PAIRS]
     cli("generatetoaddress", 7, cli("getnewaddress"))       # 7 confirmations (>=6)
     entries = [finish_open(o) for o in opens]
 
@@ -151,6 +162,7 @@ def main():
         "headers": [x(h) for h in headers[1:]],             # blocks 1..tip
         "tip": tip,
         "opens": entries,
+        "bySeed": {f"s{e['seed']}_{e['amountSats']}": e for e in entries},
         # Back-compat: OpenChannelE2E.t.sol reads the single-open keys at top level.
         **entries[0],
     }, indent=2))
