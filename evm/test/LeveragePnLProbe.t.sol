@@ -160,8 +160,15 @@ contract LeveragePnLProbe is Alles {
 
         // Treatment: accumulate guard-safe opens, then value the LP at 3 final prices.
         uint landed;
+        uint pu0 = CORE.POOLED_USD_ETH(); uint pe0 = CORE.POOLED_ETH(); uint ve0 = AUX.vogueETH();
         for (uint r = 0; r < 20; r++) { if (_open(3_000e18) == 0) break; landed++; }
         emit log_named_uint("treatment opens landed", landed);
+        emit log_named_uint("POOLED_USD_ETH before", pu0);
+        emit log_named_uint("POOLED_USD_ETH after ", CORE.POOLED_USD_ETH());
+        emit log_named_uint("POOLED_ETH     before", pe0);
+        emit log_named_uint("POOLED_ETH     after ", CORE.POOLED_ETH());
+        emit log_named_uint("vogueETH       before", ve0);
+        emit log_named_uint("vogueETH       after ", AUX.vogueETH());
         emit log_named_uint("BOLD accumulated (18d)", _spBold());
         uint tUp   = _lpValueUsd(px0 * 120 / 100);
         uint tFlat = _lpValueUsd(px0);

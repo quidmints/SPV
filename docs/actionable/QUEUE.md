@@ -5205,7 +5205,28 @@ not an LP that sold ETH for USD, it is an LP that sold ETH for **nothing it can 
   The asymmetry is one-directional and permanent: flat-price round trips move LP principal into basket
   backing and it never comes back.
 
-### Why this is #12 and not a quick fix
+### ✅ THE PRE-REGISTERED CHECK (`QUEUE:4723`) HAS NOW BEEN RUN — and it says **concrete accounting bug**
+The doc asked for exactly one measurement and I had skipped it: *"check whether `POOLED_USD_ETH` rises by
+~60,000 across the 20 swaps. **If it rises and `vogueETH()` does not reflect it, that is a concrete
+accounting bug (#12's count-once invariant).**"* Instrumented and run:
+
+| | before | after | Δ |
+|---|---|---|---|
+| `POOLED_USD_ETH` (6-dec) | 246,564.450070 | 306,564.450070 | **+60,000.000000 — exact** |
+| `POOLED_ETH` | 400.000000 | 367.555478 | −32.444522 |
+| `vogueETH()` | 400.000000 | 367.482117 | −32.517883 |
+
+⇒ **It rises, by exactly the BOLD paid in, and `vogueETH()` does not reflect it.** The archive's own
+  criterion is met. This resolves the (a)/(b) fork at `QUEUE:4715` in favour of **(a)**: the band IS
+  credited a USD claim for the inventory it sold — the credit is recorded on-chain, in the right amount,
+  at the right moment. **The only thing missing is that the LP's share price never reads it.**
+
+📌 **This narrows the fix and corrects an earlier over-claim in this file.** The prior entry said the LP
+  "sold ETH for nothing it can redeem", implying no claim existed. Wrong: the claim exists and is exact.
+  The defect is confined to `_pricingBacking()` (`Vogue.sol:1227`) omitting a term, NOT to the band
+  failing to book the sale.
+
+### Why it is STILL not a one-line fix
 The obvious patch — add `POOLED_USD_ETH` (converted at spot) to `_pricingBacking()` — is exactly the
 trap #12 already named. `POOLED_USD_*` does **two jobs**: it is the band's QUOTABLE DEPTH *and* it is
 the committed-dollars figure that `Core._poolUsdInRange` gates with
@@ -5213,7 +5234,7 @@ the committed-dollars figure that `Core._poolUsdInRange` gates with
 asset while it is simultaneously counted as a basket commitment double-counts the same dollars — the
 same error the leverage fold already fixed once by switching gross → net equity.
 
-▶️ **This is not a test to fix; it is #12's headline symptom, now quantified.** The prerequisite is
+▶️ **This is not a test to fix; it is #12's headline symptom, now quantified and localised to one term.** The prerequisite is
   still #12's accounting split: separate *quoted depth* from *committed dollars* so the LP's share of
   band USD can be credited without inflating the backing gate. Until that lands, the correct state of
   this test is **RED**, because the thing it asserts is genuinely false.
