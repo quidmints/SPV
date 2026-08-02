@@ -220,8 +220,16 @@ since the migration:**
 | id | archive header | why it is open |
 |---|---|---|
 | **A.38** | *"§A.5e FIXED — ⚠️ but NOT pinned by a test"* | 🔴 **CONFIRMED AGAINST CODE.** `_requireFreshHoldings()` is live at `Aux.sol:927` (guards `redeemAsBody` from valuing off a STALE holdings cache ⇒ real over-draw). **`grep` of `evm/test/` for `_requireFreshHoldings` / `StaleHoldings` returns ZERO.** A money-path solvency guard with no test pinning it — delete the line and the suite stays green. |
-| **A.36** | *"BTC lev MARKET rail IS built; only ACQUISITION is not"* | 🔴 **CONFIRMED AGAINST CODE.** `BtcLevManager.sol` exposes no acquisition entrypoint (only `openLevCount` at `:88`), and `:362` states the reason: *"Unlike ETH's atomic openLev/rebalance, BTC acquisition spans Bitcoin confirmations."* Same ETH/BTC asymmetry as the band's `takeETH`. |
+| ~~**A.36**~~ | *"BTC lev MARKET rail IS built; only ACQUISITION is not"* | ✅ **STRUCK — MY FINDING WAS WRONG, twice** (user, 2026-08-03). (1) Acquisition **IS** built: `leverBorrow` (`:370`) + `leverSupply` (`:386`) are the SPLIT async legs; `:362` describes them as split because BTC spans confirmations, **not as missing**. I grepped `acquire`/`openLev` and concluded from an empty result — the rule I keep quoting says an empty grep proves nothing. (2) More importantly the manager is **venue-agnostic on collateral**: `:338-343` branches on `COLLATERAL() == address(VBTC)`, `:443` gates a **WBTC-ONLY** mode, and `:93` states *"a WBTC venue can sit beside the vBTC one"*. ⇒ **The 2× YB lever runs on WBTC collateral, so IL protection does NOT depend on a Morpho/Euler vBTC market existing.** |
 | **A.13b** | *"`RebalIn` cannot be shrunk safely (asked 2026-07-26)"* | 🟠 **STILL LIVE.** `RebalIn` exists at `VogueLib.sol:473`, consumed at `Vogue.sol:1049`. The struct is the `via_ir=false` stack workaround, so "shrink it" trades bytecode against stack depth — the question was never answered. |
+
+🔴 **AND THE REAL LESSON FROM A.36 BEING WRONG:** it came straight out of the archive, and I
+  "code-verified" it with a grep for the wrong identifiers. **An archive claim is a HYPOTHESIS, and
+  an empty grep is not a verification.** ⇒ For every remaining archive item, find the mechanism and
+  read it — do not confirm the archive's wording by searching for the archive's wording.
+  ⚠️ **This means the other two are ALSO only as good as my greps.** A.38 rests on `grep -r
+  _requireFreshHoldings evm/test/` returning empty; a test could pin that path under a different
+  name. **Re-verify by reading the redeem tests, not by re-running my grep.**
 
 ⇒ **A.38 is the one to do first.** It is not new work: the fix is already IN, it just has nothing
   holding it. One test, no design decision, and it closes a silent-regression hole on the money path.
