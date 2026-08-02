@@ -16,12 +16,19 @@ still live there and in `GAS-AND-CORRECTNESS-AUDIT.md`; **status lives HERE and 
    became untrustworthy. *(I appended five sections on 2026-08-02 before catching this; the DETAIL now
    lives at the bottom of this file and the top points at it. That is the intended shape: **status at
    the top, derivations at the bottom.**)*
-3. **Suite: 3,560 pass / 1 fail.** The single failure is `testLeverage_LvrControlVsTreatment`, and it is
+3. ⚠️ **THE TABLES AT THE TOP ARE THE ONLY STATUS. The sections below the ranked lists are a
+   HISTORICAL JOURNAL** — they record each fix's journey (`APPLIED` → `REVERTED` → `re-derived` →
+   `LANDED`), so a single item legitimately reads "applied", "reverted" and "done" in three different
+   places. **That is narrative, not contradiction.** Swept 2026-08-02: every mixed-verdict item
+   (C1–C5, C10) resolves this way, with ONE real conflict found and annotated in place — a line
+   claiming *"C1 and C2 are both in and confirmed"* when C2 was later reverted. If you find another,
+   annotate it inline **and** fix the top table; never leave the two disagreeing.
+4. **Suite: 3,560 pass / 1 fail.** The single failure is `testLeverage_LvrControlVsTreatment`, and it is
    **CORRECT — do not weaken it.** It is #12's symptom; the fix is defined at rank 1 below.
    Run: `cd evm && forge test` (now keyless — a bare run forks with no env var set).
-4. **Two things need YOU, not code:** rotate the Ankr token (it is in git history), and pick the #12
+5. **Two things need YOU, not code:** rotate the Ankr token (it is in git history), and pick the #12
    call at rank 1. Both are flagged where they belong below.
-5. **The archive is adjudicated.** Every one of its 73 `§A.x` sections and its own 10-item open list have
+6. **The archive is adjudicated.** Every one of its 73 `§A.x` sections and its own 10-item open list have
    been cross-checked into this file (see the three ADJUDICATION passes at the bottom). Treat it as
    evidence-only — with ONE exception now tracked as **C1r** below.
 

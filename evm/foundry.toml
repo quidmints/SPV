@@ -30,14 +30,18 @@ fs_permissions = [
 
 solc_version = "0.8.30"
 evm_version = "cancun"
-# Default fork RPC for the e2e/fork test suite (Ankr mainnet archive).
-# KEYLESS by design. The previous literal here was an Ankr URL with the API TOKEN IN PLAINTEXT,
-# in a repo that has a public-snapshot commit (0af7f6d) -- so that token must be treated as
-# disclosed and ROTATED at Ankr; deleting it here does not un-leak git history. publicnode is
-# keyless and is the endpoint that actually completed the full suite (3,560 tests) under load,
-# where the rate-limited Ankr key degraded to a 9m50s timeout. Override without editing this
-# committed file: FOUNDRY_ETH_RPC_URL=<url> / FOUNDRY_RPC_ENDPOINTS_MAINNET=<url>.
-eth_rpc_url = "https://ethereum-rpc.publicnode.com"
+# ─── FORK RPC: configured in `evm/.env` (gitignored), NEVER in this file ───────────────────────
+# There is deliberately NO `eth_rpc_url` key here.
+#   • It cannot be made safe by interpolation: Foundry does NOT expand ${VAR} in `eth_rpc_url` — it
+#     passes the literal string through and the fork dies with "could not instantiate forked
+#     environment" (verified 2026-08-02, both via .env and via an explicit export).
+#   • It does not need to be: Foundry reads the `ETH_RPC_URL` env var natively and auto-loads
+#     `evm/.env`, so `forge test` forks correctly with this key absent.
+#   • `rpc_endpoints` below DOES interpolate, so it uses ${ETH_RPC_URL}.
+# ⚠️ HISTORY: this line previously held an Ankr URL with the API TOKEN IN PLAINTEXT, in a repo with a
+#   public-snapshot commit (0af7f6d). That token (…d14cbfc3) must be treated as DISCLOSED and rotated —
+#   removing it from HEAD does not un-leak git history. Never inline a keyed URL here again.
+# Keyless fallback if you have no .env: ETH_RPC_URL=https://ethereum-rpc.publicnode.com
 
 via_ir = false
 optimizer = true
@@ -65,7 +69,7 @@ dynamic_test_linking = false
 
 [rpc_endpoints]
 # forge script scripts/DeployL1.s.sol:Deploy --rpc-url mainnet --broadcast --verify
-mainnet = "https://ethereum-rpc.publicnode.com"
+mainnet = "${ETH_RPC_URL}"
 
 [etherscan]
 mainnet = { key = "${ETHERSCAN_L1}" }
