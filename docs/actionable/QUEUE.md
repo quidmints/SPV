@@ -149,6 +149,22 @@ case. Conversely if it tolerates a shortfall, the tests never exercise the fee-b
    are chosen by the TEST, so those must move into `PAIRS` too. Then convert `VBtcLevFeeLane`,
    `BtcLpMintStress`, and the 3 direct opens in `Alles.t.sol`, and delete `MockSPV`.
 
+**4c. 🔴 SCANNER OUTPUT — BOOKED 2026-08-02 (I ran `tools/scan-loose-ends.py`, reported counts, and
+   did NOT book them; the user caught it. That is exactly the failure the tool exists to prevent —
+   a finding stated in a reply is recorded somewhere and actionable nowhere.)**
+| probe | n | verdict |
+|---|---|---|
+| **FABRICATED CONSENSUS PARAMS** | **23** | 🔴 **REAL — all in 2 files.** `VBtcLevFeeLane.t.sol` (`:117 :118 :153 :154 :187 :214 :685`) and `BtcLpMintStress.t.sol` (`:64 :307 :351 :378 :509 :777`). `bytes32(uint(0x100 + seed))` as a Bitcoin block hash, height `800000`. Rejected by the real gateway; only ever passed against `MockSPV`. **Fixtures now exist for every one of them** (19 opens + 3 splices). |
+| **MOCK ON A REAL PATH** | 97 | 🟠 **MIXED — do not treat as one number.** The `new MockSPV()` hits (5 files) are the real target. The rest are `vm.mockCall` on PRICE/depeg views (`getTWAPforAsset`, `getDepegSeverityBps`) — those substitute an ORACLE READING, not a verification path, and several are load-bearing (a fork has no CRE). **Triage by what is being replaced: a proof ⇒ kill it; a reading ⇒ justify it inline.** |
+| **SILENT SKIP** | 2 | ✅ **BOTH NOW SAFE** — `BtcSelfManaged.t.sol:97` and `:239`. Each is now reachable ONLY by an absent harness/image; a present-but-broken one emits `BROKEN` and the test asserts. |
+| **SWALLOWED FAILURE** | 67 | ⚠️ **UNTRIAGED — the biggest unexamined surface left.** `catch {}` / `\|\| echo SKIP`. Most are deliberate degrade-to-conservative paths, but `_lpValueUsd`'s `try/catch` returning 0 is exactly how a zero-delivery redeem hid in `testDD`, so the pattern has bitten here before. **Each needs: can a REAL failure reach this, and would it be silent?** |
+| **OUR markers** | 24 | 🟡 mostly prose/`@notice` references, but `quid-hop/src/migration.rs:58,63,73,77` are **4 `PLACEHOLDER (dev)` constants — operator Safe address and chain id — explicitly "replace before mainnet".** Not tracked anywhere else. |
+| vendored markers | 229 | ✅ upstream LDK/lexe (`TODO(phlip9)`/`TODO(max)`). Not ours. |
+📌 **Scanner caveat, learned by running it:** on a multi-compaction JSONL the TRANSCRIPT half reports
+  500+ passages that are overwhelmingly resolved history. **I did NOT read all of them** — I read the
+  first five per family. Treat that half as a prompt to look, never as a defect list; the CODE half is
+  where the signal is.
+
 **5. Two USER DECISIONS recovered 2026-08-02** — neither is engineering work:
    • **delta-1-both-ways product** (`IMPAIRMENT-DERISK-TRIGGER.md`) — only up-lever+hold-down is built,
      and `script/DeployL1_s.sol:566` defers to that doc by name as an OPEN product decision.
