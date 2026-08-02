@@ -5297,3 +5297,81 @@ the full 3,560-test suite, where the rate-limited Ankr key degraded to a 9m50s t
 `forge test` now forks with no env var set.
 🔴 **STILL REQUIRED AND CANNOT BE DONE FROM HERE: ROTATE THAT TOKEN AT ANKR.** It is in git history;
   deleting it from HEAD does not un-leak it.
+
+# ✅ SECOND PASS — the `#NNN` axis, the archive's OWN open list, and a self-check that caught me
+My first adjudication covered only the `§A.x` axis (25 of 73 sections). It did **not** cover the 206
+IDs that appear only in the archive, nor its 59 `OPEN` / 43 `TODO` / 14 `UNVERIFIED` markers. Doing that.
+
+## 🔑 THE STRUCTURAL FACT THAT MAKES THIS TRACTABLE — `BUILD-QUEUE-AND-107.md:4501`
+The archive contains its own divider: `CURRENT STATE — supersedes every earlier "OPEN" marker above`,
+followed by *"this file is APPEND-ONLY, so earlier sections still say OPEN/UNVERIFIED for items resolved
+later… Trust THIS section over any earlier marker."*
+⇒ **Of 103 unresolved-looking markers, 97 sit ABOVE that line and are explicitly superseded by it.** The
+  archive was never as ambiguous as its raw marker count suggested — it self-supersedes, and the only
+  thing missing was anyone saying so out loud. Saying it here.
+
+## ✅ THE ARCHIVE'S OWN 10-ITEM OPEN LIST (`:4520`), CROSS-CHECKED AGAINST THIS FILE
+| # | archive item | status here |
+|---|---|---|
+| 1 | **6909 stable→stable fee path** | 🔴 **WAS THE ONE GAP — 0 mentions. Answered below.** |
+| 2 | legacy `_take` comparison | ✅ DONE this session (§D5 + the `Core` 62-vs-19 close-out) |
+| 3 | §A.61 6↔18 helper | ✅ tracked (task #7) |
+| 4 | §A.52 interface dedup | ✅ done this session (7→0 underscore interfaces, Aux 6→1, Core 4→1) |
+| 5 | §A.56 out-of-range PATH | ✅ tracked (12 mentions) |
+| 6 | §A.46 assertion-free tests | ✅ tracked (11 mentions) |
+| 7 | which `src/` files belong in `imports/` | ✅ tracked (`QuidLens`/`DeployLib` named) |
+| 8 | JIT-DEPTH §2 | ✅ tracked |
+| 9 | §A.19b · §A.43 · §A.5f · §J.8 | ✅ all four tracked |
+| 10 | §A.15 inverted claim | ✅ tracked (11 mentions) |
+
+⚠️ **A SELF-CHECK CAUGHT A CONTAMINATED VERIFICATION.** Re-running the "absent from QUEUE.md" test
+  against the LIVE file reported all 25 items present — because **I had just written them into it
+  myself** in the adjudication table above. Re-run against `d251952~1` (pre-edit): **all 25 genuinely
+  absent.** The finding stands, but the method was circular for one turn. *Grepping a file you just
+  edited proves only that you edited it — diff against the pre-change revision.*
+
+# ✅ #1 ANSWERED — the 6909 stable→stable fee path (the user's ORIGINAL question)
+§A.64 posed four steps and step 1 was *"CONFIRM stable→stable charges nothing today — VERIFY rather than
+trust the comment."* Verified **by structure**, which is the right standard here because the claim is
+about an ABSENCE and the comments asserting it are exactly what could be stale:
+
+| function | on the money path? | what it actually does |
+|---|---|---|
+| `FeeLib.calcNeeded` (`:167`) | ✅ yes (redeem/outflow) | body is `deps; yields;` — **the inputs are discarded as no-ops** — then `return grossUpForDepeg(amount, calcRisk(token, c.hook))` |
+| `FeeLib.applyFeeAndHaircut` (`:181`) | ✅ yes (payout) | `idx; deps; yields;` discarded; same haircut-only return |
+| `FeeLib.scaledFeeL1` (`:134`) | ❌ no | **only caller is `QuidLens.sol:40`, a read-only lens** |
+| `FeeLib.calcFeeL1` (`:109`) | ❌ no | survives only as a SOR ROUTING input (`SOR.sol:356`) |
+
+⇒ ✅ **CONFIRMED: stable→stable charges NO fee today.** The sole outflow cost is the depeg haircut, and
+  only during an actual depeg. The two functions that could charge one discard their fee inputs outright
+  — that is structural evidence, not a comment.
+⇒ **So there is nothing to route.** The user's *"it should feed into the existing accumulator"* describes
+  the TARGET state. The accumulator itself is real and verified on both sides:
+  `Vogue.sol:1055` (`feesPerShare += o.feesPerShareInc; USD_FEES += o.usdFeesInc`) and
+  `Vault.sol:732` (`feesPerShareBTC` / `USD_FEES_BTC`) — both fed by **V4 pool trading fees only**.
+  (Archive cited `Vogue.sol:1069` and `BtcVaultLib:560,564`; both have drifted — normal for an archive,
+  and the reason line cites there are re-verified rather than quoted.)
+▶️ **REMAINING (steps 2–4, now unblocked):** re-wire `calcFeeL1` onto the stable leg → route to
+  `feesPerShare`/`USD_FEES` **not** `tranche` → price it off the SAME signal the SOR routes on.
+  ⚠️ **Gated on §A.65's DIRECTION term** (a symmetric fee taxes the arb flow that rebalances the basket,
+  and fails silently) and on reading §A.51's truncated `baseRate` rationale first — if `baseRate` already
+  priced this, re-adding a user-facing fee double-charges.
+
+# 📌 #12 — THE MISSING SENTENCE, AS THE USER STATED IT (2026-08-02). This is the decision, not a question.
+**(a) and (b) are not competing — they answer different questions.**
+ • **(b) is what HAPPENS** — band and basket share one balance sheet, so selling band inventory transfers
+   value to QU!D backing. **Measured, true** (POOLED_USD_ETH +60,000.000000 exactly; `vogueETH` −32.518).
+ • **(a) is what SHOULD happen** — the band gave up real inventory and should hold a USD claim for it.
+   **Absent: no such credit reaches `vogueETH()`.**
+⇒ **The gap between them IS #12.** *"Count once" cannot be evaluated without stating WHO OWNS THE
+  PROCEEDS of a band→basket sale.* That is the sentence that was never written. Writing the fork it needs:
+
+| if… | then… |
+|---|---|
+| **the BASKET owns them** and band LPs bear it | this is a DESIGN CHOICE and must be documented as one — and both probes plus `testLeverage_LvrControlVsTreatment` must be **re-scoped**, because the assertion currently asserts the OPPOSITE |
+| **the BAND is credited** | current behaviour is a **genuine count-once bug**: the basket counts the BOLD, the band counts nothing, and **one side of a real transfer goes unrecorded** |
+
+📌 Either branch is defensible; **what is NOT defensible is leaving it unstated**, because the probes and
+  the code currently encode DIFFERENT answers, and that is why the test has looked like a flaky
+  measurement rather than an unmade decision. **This is now the top of #12 — the decision precedes the
+  accounting split, not the other way round.**
