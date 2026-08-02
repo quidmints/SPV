@@ -5121,11 +5121,49 @@ D5's premise: *"legacy `_take` had no per-token dispatch — one positional loop
   the exact fixture gap that hid C1/C2/C3/C4 all session. **Adopting legacy's loop would re-open it.**
 ⇒ ⇒ **STRIKE the decimals half of D5.** The current `decimals()` lookup is not complexity, it is the fix.
 
-### ✅ WHAT SURVIVES OF D5 — and it is real
+### ✅ D5 SURVIVING HALF — **DONE** (`BasketLib.sol:578-603`)
 Legacy needed **no dispatch at all** for the preferred token: withdraw it, set `skip`, let ONE loop handle
-the rest. That structural simplification is **independent of the decimals question** and still applies.
-▶️ Do THAT half: drive the pro-rata loop by index with `skip`, delete the separate `_takePreferred` branch —
-  keeping `decimals()`. **Simpler control flow, none of the fragility.**
+the rest. That simplification is **independent of the decimals question**, and it is now applied.
+
+The two branches (`token != quid` and `token == quid && preferred != 0 && seed == 0`) did the SAME job —
+name the stable to serve first, then skip it pro-rata. They differed on only two axes, both now expressed
+as ternaries inside ONE branch: **which index to validate** (`a.index` vs `a.prefIndex`) and **whether the
+amount needs converting** to native units (swap arrives native; redeem arrives USD-1e18 and must be scaled,
+which is the §A.50/C2 fix — KEPT, and now on a single line instead of duplicated prose).
+
+| | before | after |
+|---|---|---|
+| branches | 2 (`if` / `else if`), 32 lines | 1, 26 lines |
+| `_takePreferred` callsites | 2 | **1** |
+| `decimals()`-based scaling | kept | **kept** (positional divisor NOT restored) |
+| `BasketLib` bytecode | 21,643 | **21,520** (−123 B) |
+| suite | — | *(pending the fork run)* |
+
+## ✅ COMPARISON ITEM 2 CLOSED — `Core.sol` 62 fns vs legacy `VogueCore.sol` 19. **Nothing to take.**
+This was flagged as *"the densest ratio and the best place to look for band mechanics that legacy did more
+simply for the SAME job."* Measured, name by name — every one of the 62 is accounted for:
+
+| category | n | verdict |
+|---|---|---|
+| **1:1 with legacy** — `setup` `modLP` `outOfRange` `swap` `repack` `_unlockCallback` `_handleSwap` `_handleRepack` `_handleOutsideRange` `_handleMod` `_handleDelta` `_modifyLiquidity` `_modLP` `poolStats` `poolTicks` `_writeObservation` `observe` | **17** | same job, same shape — no legacy win available |
+| **features legacy LACKED** — flow/EWMA + skew premium (9), leverage claim/equity (5), BTC vault + pooled-USD draw (6), `reseat`/JIT refill (3), `collectFees` (2), consent (1) | **26** | cannot be taken from a codebase that never had them |
+| **`isBTC` duality** — `_t1` `_poolId` `_mockUsd` `_mockTok` `_key` `_obs` `_obsState` `_add/_subPooledUsd` `_add/_subPooledTok` `token1is` `observeBTC` `_initPool` | **14** | legacy needed 0 because it had ONE pool. These REPLACE mirrored ETH/BTC branches at every callsite — deleting them re-expands the bodies and costs bytecode, it does not save it |
+| **stack-forced splits** of one legacy frame — `_repackBurn`/`_repackAdd` (from `_handleRepack`), `_settleUsdSide`/`_poolUsdInRange`/`_settleTokSide` (from `_handleDelta`) | **5** | forced by `via_ir = false`; legacy's single frame had 6 locals, ours adds `isBTC` + a `PoolKey` memory struct |
+| **gratuitous decomposition** | **0** | — |
+
+🟢 **And we are SIMPLER than legacy in one place:** legacy's `_getOldestObservation` and `_interpolate` live
+in `OracleLib` here — 2 of its 19 functions are gone from the band contract entirely.
+
+🔴 **The one addressable sub-category is the 14 duality accessors, and it is PRICED OUT.** The 6 scalar
+selectors (`_t1` `_poolId` `_mockUsd` `_mockTok` + the 4 POOLED mutators) could collapse into fixed-size
+`[2]` arrays indexed by `isBTC`, deleting ~6 internal functions. **Cost: an ABI break.** `POOLED_USD_ETH`,
+`POOLED_BTC`, `token1isETH` etc. are public state vars whose auto-getters tests and the TS clients read
+(`tools/check-client-abis.py`). Trading a real client migration for ~6 one-line internals is a bad deal.
+**Not doing it** — recorded so it is not re-proposed.
+
+📌 ⇒ **The `Core` growth is 26 features + 14 duality + 5 stack. The "62 vs 19" headline had no simplification
+  hiding inside it.** Item 2 of the legacy comparison is now closed with a measured NEGATIVE result, which is
+  worth as much as a positive one: it stops the next session from re-opening it.
 
 📌 **The comparison that matters is not size — it is WHICH legacy simplicity was load-bearing and which was
   a latent bug.** Here: the `skip` pattern was load-bearing; the positional divisor was a bug that shipped,

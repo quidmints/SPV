@@ -575,36 +575,31 @@ library BasketLib {
         private returns (uint sent) {
         IAux aux = IAux(address(this));
         FeeLib.FeeCtx memory fc = FeeLib.FeeCtx(a.stables, a.linkAddr);
-        address skip;
-        if (a.token != a.quid) {
-            // SWAP take: the named stable IS the preferred leg (unchanged).
-            skip = a.token;
-            require(a.index > 0 && a.index <= a.stables.length, "unknown-stable");
+        // §D5 — ONE preferred-token path, not two. Both branches did the SAME job: name the stable
+        // to serve FIRST, then skip it in the pro-rata leg below. They differed only in which index
+        // they validate and whether the amount needs converting to native units. This is legacy
+        // `Aux._take`'s shape (`skip` + a single loop) with our `decimals()`-based scaling KEPT.
+        //
+        // ⚠️ Legacy's remaining brevity came from a POSITIONAL divisor (`i < 4 || i == 11 ? 1e12 : 1`)
+        // which broke when a 6-dec stable joined at a later slot (see :282). That is deliberately NOT
+        // restored — the decimals lookup is the fix, not the complexity.
+        //
+        // SWAP take (token != quid): the named stable IS the preferred leg, already in NATIVE units.
+        // TARGETED REDEEM (token == quid, preferred set, seed == 0): shed the chosen stable first —
+        // the cherry-pick concentration fee rides on this leg via calcNeeded. Its `a.amount` is USD
+        // 1e18 (a share of amounts[14]), so it MUST be converted to native units first: §A.50, where
+        // a 6-dec stable was asked for 1e12x the intended draw and declining pro-rata PAID the
+        // redeemer. Seed-bearing redemptions (seed > 0) are excluded so the seed keeps its pro-rata
+        // un-tip distribution instead of routing onto one stable (preferred is ignored, not an error).
+        bool viaToken = a.token != a.quid;
+        address skip = viaToken ? a.token : (a.seed == 0 ? a.preferred : address(0));
+        if (skip != address(0)) {
+            uint idx = viaToken ? a.index : a.prefIndex;
+            require(idx > 0 && idx <= a.stables.length, "unknown-stable");
             bool done;
-            (sent, a.amount, done) = _takePreferred(aux, a.who, a.token, a.amount, a.seed, amounts, yieldW, fc);
-            if (done) return sent;
-        } else if (a.preferred != address(0) && a.seed == 0) {
-            // TARGETED REDEEM: shed the chosen stable FIRST (cherry-pick concentration
-            // fee rides on this leg via calcNeeded; the redemption baseRate already
-            // applies — set by the Aux wrapper since token==quid). The unsatisfied
-            // remainder falls through to the pro-rata leg below (skip=preferred).
-            // Seed-bearing redemptions (seed>0, tranche/seed tranche) are excluded:
-            // they keep the pro-rata seed un-tip distribution unchanged rather than
-            // routing the whole seed onto one stable (preferred is ignored, not an error
-            // — the Aux entry already validated it).
-            skip = a.preferred;
-            require(a.prefIndex > 0 && a.prefIndex <= a.stables.length, "unknown-stable");
-            bool done;
-            // UNIT BOUNDARY (§A.50). `_takePreferred` asks for the withdrawal in the token's NATIVE
-            // units — it hands `needed` straight to withdrawSelf. A redemption's `a.amount` is USD
-            // 1e18 (it is a share of amounts[14]); the pro-rata leg below divides by the same power
-            // of ten before ITS withdrawSelf, which is why it never had this bug. Without the
-            // conversion a 6-decimal stable was asked for 1e12x the intended draw, the leg emptied
-            // whatever the venue held, and declining pro-rata PAID the redeemer instead of costing
-            // them. The swap branch above already hands over native units, so the conversion belongs
-            // at this call site rather than inside the shared helper.
-            (sent, a.amount, done) = _takePreferred(aux, a.who, a.preferred,
-                scaleTokenAmount(a.amount, a.preferred, false), a.seed, amounts, yieldW, fc);
+            (sent, a.amount, done) = _takePreferred(aux, a.who, skip,
+                viaToken ? a.amount : scaleTokenAmount(a.amount, skip, false),
+                a.seed, amounts, yieldW, fc);
             if (done) return sent;
         }
         if (amounts[14] == 0 || a.amount == 0) { _finalBacking(aux, a.softBacking); return sent; }
