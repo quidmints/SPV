@@ -140,8 +140,19 @@ on mainnet a splice **must** pay a fee, so `newAmountSats + withdrawSats < fundi
 If `splice()` requires exact conservation of the funding amount, **every real mainnet splice
 reverts** and the tests would never have caught it, because they only ever exercise the exact-sum
 case. Conversely if it tolerates a shortfall, the tests never exercise the fee-bearing path at all.
-▶️ Read `_verifySplice`'s amount arithmetic and then add a FEE-BEARING shape to `SPLICES`
-  (`20e6 → 15e6 + 4.9e6`, 100k to fee). One fixture entry settles it either way.
+✅ **ANSWERED 2026-08-02 — NOT a mainnet bug. Read the arithmetic:**
+  • `ChannelLib:565` — `if (outputSats != p.amountSats) revert AmountMismatch()` — checks ONLY that
+    the **new funding output's value** equals the declared new amount.
+  • **There is NO input-vs-output conservation check anywhere** in the splice path.
+  • `BTCChannels:496` — `sumOutputValuesExcept(rawSpliceTx, fundingVout, p2tr) != 0` reverts — so the
+    splice may carry ONLY the new funding + the LP payout. **A fee satisfies this**, because a fee is
+    implicit (inputs − outputs), not an output.
+  ⇒ **Fee-bearing splices are accepted.** The exact-sum shapes were an artefact of how the fixtures
+    were written, not a constraint the contract imposes.
+  ✅ **And it is now EMPIRICAL, not just a reading:** a 4th fixture shape `(9, 50e6) → 30e6 + 19.9e6`
+    leaves **100,000 sat to fee** — a real signed, confirmed tx whose merkle branch the generator
+    asserts folds to its block's merkleroot. Wiring it is the test; if it ever fails, every real
+    mainnet splice is broken.
 
    ▶️ **Then:** teach the generator to build REAL splice txs — spend each funding outpoint into the
    2-output shrink shape (new funding spk + payout script), confirm, emit tx + branch. bitcoind owns

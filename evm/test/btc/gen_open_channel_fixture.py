@@ -216,6 +216,15 @@ def main():
                            "5120" + "11" * 32),   # payout P2TR; the Solidity side pins the real key
         (1,  20_000_000): (15_000_000, 5_000_000, "5120" + "22" * 32),
         (7,   1_000_000): (  600_000,    400_000, "5120" + "33" * 32),
+        # FEE-BEARING shape. Every other entry sums EXACTLY to the input, so they only ever
+        # exercise perfect conservation — but a mainnet splice MUST pay a miner fee, so
+        # newAmount + withdraw is ALWAYS < funding there. Verified against the contract before
+        # adding this: `ChannelLib:565` checks only that the NEW FUNDING OUTPUT equals
+        # `p.amountSats`, and there is NO input-vs-output conservation check; `BTCChannels:496`
+        # additionally requires outputs OTHER than funding+payout to sum to zero, which a fee
+        # satisfies because a fee is implicit (inputs - outputs), not an output. So this SHOULD
+        # pass — and if it ever does not, every real mainnet splice is broken.
+        (9,  50_000_000): (30_000_000, 19_900_000, "5120" + "44" * 32),   # 100_000 sat to fee
     }
     opens = [one_open(s, a) for s, a in PAIRS]
     cli("generatetoaddress", 7, cli("getnewaddress"))       # 7 confirmations (>=6)
