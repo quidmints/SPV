@@ -185,6 +185,37 @@ case. Conversely if it tolerates a shortfall, the tests never exercise the fee-b
 | **SWALLOWED FAILURE** | 67 | ⚠️ **UNTRIAGED — the biggest unexamined surface left.** `catch {}` / `\|\| echo SKIP`. Most are deliberate degrade-to-conservative paths, but `_lpValueUsd`'s `try/catch` returning 0 is exactly how a zero-delivery redeem hid in `testDD`, so the pattern has bitten here before. **Each needs: can a REAL failure reach this, and would it be silent?** |
 | **OUR markers** | 24 | 🟡 mostly prose/`@notice` references, but `quid-hop/src/migration.rs:58,63,73,77` are **4 `PLACEHOLDER (dev)` constants — operator Safe address and chain id — explicitly "replace before mainnet".** Not tracked anywhere else. |
 | vendored markers | 229 | ✅ upstream LDK/lexe (`TODO(phlip9)`/`TODO(max)`). Not ours. |
+## 🔴 M1 — `migration.rs` MUST READ THE SAFE ON-CHAIN, not carry a constant (user, 2026-08-02)
+I had booked this as "blocked on the user for the real operator Safe address". **Wrong framing.**
+Per the user: *"we don't have a Safe address right now, it gets created as part of the Solidity
+deployment and `migration.rs` should just read the on-chain one."*
+⇒ The four `PLACEHOLDER (dev)` constants at `quid-hop/src/migration.rs:58,63,73,77` (operator Safe +
+chain id) are **the wrong SHAPE**, not merely unfilled. A constant baked at compile time cannot track
+an address minted by a later deploy, and "replace before mainnet" is a manual step that WILL be
+missed — the failure is silent (it signs against a dead address).
+▶️ **Fix:** read the Safe from the deployed `BTCChannels`/registry at runtime, so the daemon has no
+  compile-time address at all. Then the constants can be DELETED rather than maintained.
+⚠️ Nothing here is blocked on the user. It is engineering work I mis-scoped.
+
+## 🔵 #12 — THE AXIS NOBODY HAS PRICED: who is paid for supplying the QUOTE DEPTH?
+Asked to look at it from all sides. Measured facts are settled (the band books +60,000.000000, basket
+TVL +60,000.996591, and `vogueETH` never reads it). The *economic* question underneath is not:
+
+**At rest, the band's USD leg is BASKET capital** — 246,564 against a 739,324 ETH deposit. The LP did
+not supply it. So a band trade is two parties: the LP supplies the ETH inventory that gets sold, the
+basket supplies the USD depth that quotes it.
+
+| | who supplies USD depth | who keeps the trade proceeds | verdict |
+|---|---|---|---|
+| **status quo** | basket | **basket** | LP bears the sale and is paid NOTHING — the measured −$59,966 |
+| **credit the delta** | basket | **LP** | LP made whole (+33.56), but the basket now supplies depth **for free** |
+| **split (unstated until now)** | basket | LP, **minus a depth fee** | LP keeps its inventory's proceeds; basket is paid for the depth it risks |
+
+⇒ **The status quo and the naive fix are BOTH corner solutions**; neither prices depth provision.
+  The third row is the one that survives asking "who took the risk?" on both legs.
+  📌 This also links #12 to §A.65: a depth fee is the same *directional* pricing question — charge
+  the side that consumes depth, pay the side that supplies it.
+
 ## 🔴 B1 — THE FRESHNESS BACKSTOP HAS NO ECONOMIC BOUND (prose-only loose end, found 2026-08-02)
 Stated once in a reply and never booked, because it names no file: *"worth checking the on-chain cost
 per idle channel per period against that channel's own fee accrual, so the backstop can't cost more
