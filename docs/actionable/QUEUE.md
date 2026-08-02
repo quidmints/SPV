@@ -209,6 +209,34 @@ case. Conversely if it tolerates a shortfall, the tests never exercise the fee-b
 | **SWALLOWED FAILURE** | 67 | ⚠️ **UNTRIAGED — the biggest unexamined surface left.** `catch {}` / `\|\| echo SKIP`. Most are deliberate degrade-to-conservative paths, but `_lpValueUsd`'s `try/catch` returning 0 is exactly how a zero-delivery redeem hid in `testDD`, so the pattern has bitten here before. **Each needs: can a REAL failure reach this, and would it be silent?** |
 | **OUR markers** | 24 | 🟡 mostly prose/`@notice` references, but `quid-hop/src/migration.rs:58,63,73,77` are **4 `PLACEHOLDER (dev)` constants — operator Safe address and chain id — explicitly "replace before mainnet".** Not tracked anywhere else. |
 | vendored markers | 229 | ✅ upstream LDK/lexe (`TODO(phlip9)`/`TODO(max)`). Not ours. |
+## 🔴 A0 — THE ARCHIVE→QUEUE MIGRATION IS **NOT** COMPLETE. My "fully adjudicated" was measured wrong.
+**Retracted 2026-08-03.** I claimed `BUILD-QUEUE-AND-107.md` was fully adjudicated — all 73 `§A.x`
+sections cross-checked, its own 10-item list transferred. **That audit was circular**: the scanner's
+`booked()` listed the ARCHIVE ITSELF in `BOOKING_FILES`, so any item mentioned there scored as
+tracked. Auditing the archive with a check that treats archive-presence as proof-of-tracking cannot
+find items stranded in the archive. Removing it moved unbooked **6 → 16**.
+🔎 **Proof it is not complete: 13c** (below). The user recalled it from memory; it appears **0× in
+  this file, 1× in the archive**, and I had said "booked as 13c". If one survived, others did.
+⚠️ **My §A.x sweep also had the WRONG GRANULARITY.** It enumerated `§A.<n>` sections. `13c` is a
+  SUB-LETTERED item inside a section — a whole ID shape the sweep never looked for. Same for `J.2c`,
+  `A.8d`, `S39`, `D6`, `P.2a`, `U0`.
+
+▶️ **HOW TO DO IT PROPERLY (do not repeat my shortcut):**
+ 1. `BOOKING_FILES` must be **`QUEUE.md` + `CLAUDE.md` ONLY** — already fixed in
+    `tools/scan-loose-ends.py`, keep it that way.
+ 2. Enumerate **every ID SHAPE**, not just `§A.<n>`: `§A.\d+[a-z]?`, `#\d+[a-z]?`, `[A-Z]\.\d+[a-z]?`
+    (`P.2a`, `J.2c`), bare `[A-Z]\d+` (`S39`, `D6`, `U0`, `T1`). ⚠️ A naive numeric regex **over-matches
+    line numbers and gas figures** — I tried it and the output was unusable. Anchor on the `§`/`#`
+    sigil or a known letter prefix.
+ 3. For each ID absent from `QUEUE.md`, read its archive line **and check the CODE** — the archive's
+    status markers are non-authoritative, so "DONE" there proves nothing either way.
+ 4. Candidates spotted but NOT verified (my regex was too noisy to trust — **re-derive, don't inherit
+    this list**): the `abi.ts` venue-enum D3 staleness, ETH/BTC byte-identical dedup
+    (`debtUsd`/`swapOutDeleverAmt` across `LevManager`/`BtcLevManager`), the single `FLOW_DECAY`
+    constant serving both ETH and BTC despite very different refill latencies, whether the plain
+    ether.fi/weETH venue is per-LP isolated, and a `lev px=0` tick-underflow test class.
+📌 **This is a REAL open task, not bookkeeping.** Until it is done, "nothing is hanging" is unproven.
+
 ## 🟠 13c — `registerBtcLp` IS THE WRONG VERB (recovered 2026-08-03; I claimed it was "booked as 13c"
 ##       and it was NOT — `13c` appears **0×** in this file and 1× in the archive)
 `registerBtcLp` is called at OPEN **and again by `_applySplice` on every GROW**, while the shrink half
