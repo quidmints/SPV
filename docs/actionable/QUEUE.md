@@ -5021,3 +5021,57 @@ weETH:eETH is **not** 1:1. A naive `min(weethIn, capacity)` mixes units and mis-
   not clamp against a guessed ABI."* — that blocker was resolved earlier today (selector-matched against
   impl `0x5d53b303…b3dc`), and leaving it would have told the next reader not to do what is now done.
 
+# 💰 COSTING: "QUOTE THE SAME DOLLARS IN BOTH BANDS" (user's #12 proposal). Priced on all six axes.
+**Corrected premise (user was right, I was wrong):** today the dollars are **SPLIT**, not shared —
+`Core.sol:1021-22` does `_addPooledUsd(isBTC, …)` then `require(committedUsd18() <= haircutTvl)`, and
+`committedUsd18() = ETH equity + BTC equity`. **The SUM is gated, so each dollar backs exactly one band.**
+
+## 1. CORRECTNESS — is double-quoting SOLVENT? ✅ **YES, and the enforcement already exists**
+Real dollars leave at exactly one place: `_settleUsdSide`, `usdDelta > 0` ⇒ `AUX.take(who, …, token, 0)`
+(`Core.sol:989`). That is a REAL ERC-20 transfer from the basket. **If the first band already took them, the
+second `AUX.take` simply fails.** ⇒ **Double-spend is impossible by construction** — settlement, not the
+gate, is what enforces spend-once. **The user's model is sound at the solvency layer.**
+⇒ Failure mode is a **REVERTED TRADE**, not bad debt. That is a UX/liveness cost, materially cheaper than
+  the "DoS" framing I used earlier, which was wrong.
+
+## 2. 🔴 THE REAL BLOCKER — `committedUsd18` is ALSO the REDEMPTION solvency gate
+`BasketLib.backingCoreBody:915-926`: `committedSum = ICore(core).committedUsd18()` vs
+`totalLiquid = deposits[14]`; over-commit triggers a repack, then `_checkBacking` reverts `OverCommitted`.
+**That gate guards redemptions, arb, and LP withdraw — not just band sizing.**
+⇒ ⇒ **If both bands quote the same dollars, `committedUsd18` EXCEEDS TVL BY DESIGN — so EVERY redemption
+  and EVERY LP withdrawal would revert**, after a futile repack. **The proposal is therefore NOT a one-line
+  gate change from `sum ≤ TVL` to `each ≤ TVL`.** That edit alone would brick the drain side.
+⇒ **What it actually requires: SPLIT ONE CONCEPT INTO TWO.**
+  | today (conflated in `POOLED_USD_*`) | needed |
+  |---|---|
+  | **quoted depth** — mock USD placed in the V4 position | may exceed TVL (that IS the efficiency gain) |
+  | **committed dollars** — real backing owed | must stay ≤ TVL (this is what `checkBacking` must read) |
+  **This is literally what #12's "count once" names.** The invariant is not a check to add — it is the
+  DISTINCTION the accounting currently lacks.
+
+## 3. COST / FREQUENCY — how often would a trade revert?
+Only when BOTH bands draw the same dollars before a repack. Repack already runs on the over-commit path
+(`_repackPool` on the smaller pool), so there IS a healing mechanism. **Unmeasured:** collision rate under
+real flow. ⇒ **Measure before building** — it decides whether this is a rare revert or a constant one.
+
+## 4. BLAST RADIUS — ⚠️ asymmetric, and this is where it bites
+A reverted TRADE is cheap. A reverted **LP WITHDRAWAL** is not. Since both share `checkBacking`, mis-sizing
+the distinction converts an efficiency gain into stuck exits — **the same asymmetry as the BTC refill
+problem: the ETH LP feels it as a revert, not a price.**
+
+## 5. SECOND-ORDER — ✅ this actually IMPROVES the BTC crowding
+Under double-quoting, a BTC commitment no longer consumes ETH's *quoted* headroom — only actual settlement
+does. ⇒ **It directly attacks the crowding this whole thread started from**, and it does so WITHOUT needing
+the (unbuildable) instant BTC refill. **That is the strongest argument for the proposal.**
+
+## 6. REVERSIBILITY — ✅ good. The change is an accounting split plus a gate read; no signed/committed state
+depends on it (unlike the #114 shard-count trap). Revertible by pointing `checkBacking` back at the sum.
+
+## ▶️ VERDICT — **worth building, but it is a 2-accumulator change, not a 1-line gate flip**
+ 1. Add the distinction: keep `POOLED_USD_*` as QUOTED depth; introduce (or derive) SETTLED/committed USD.
+ 2. Point `committedUsd18` — and therefore `checkBacking` — at the **committed** figure only.
+ 3. Keep the band gate at `each ≤ TVL` (quoted), which is the user's efficiency gain.
+ 4. **Measure the collision rate first** (axis 3) — it is the one number that decides if this is worth it.
+⇒ 📌 And it makes the earlier "don't unify" verdict WRONG in its reasoning: the risk is not insolvency (the
+  transfer prevents that) — it is that ONE VARIABLE is doing TWO JOBS.
+
