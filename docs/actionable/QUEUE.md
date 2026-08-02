@@ -263,6 +263,25 @@ the axis nobody measured.*
   not just any two words), and **always sample the BOOKED side**, weakest-match first. An unbooked
   list is a to-do; the booked list is where a real finding hides.
 
+## 🧭 STANDING LESSON FROM T1 — how a one-character money-path bug survived every review
+It was derived correctly in the archive, marked *"NOT APPLIED"*, and then sat unfixed while three
+separate sweeps walked past it. What let it hide, and the rule each failure earns:
+
+ 1. **A boundary bug is invisible to tests that never sit on the boundary.** T1 only bites at exactly
+    `tick == tickUpper`; no fixture is built to land there, which is why the suite was UNCHANGED by
+    the fix. ⇒ **A green suite is not evidence about a boundary. Test the `==` case explicitly, or
+    accept that you have no coverage of it.**
+ 2. **Asymmetry inside one expression is a defect smell.** `currentTick > tickUpper || currentTick <
+    tickLower` mixes a CLOSED upper bound with an OPEN lower bound. A half-open range needs `>=`/`<`.
+    ⇒ **When two halves of one predicate use different strictness, one of them is wrong** — read the
+    interval convention (`[lower, upper)`) and make both agree with it.
+ 3. **"Already derived" is not "already fixed".** The archive had the analysis AND the words
+    "NOT APPLIED", and it still shipped. ⇒ **A derivation with no diff is an open bug**; treat
+    `NOT APPLIED` in any doc as a P1 grep, not as a record.
+ 4. **It surfaced from the scanner's CONFIDENCE, not its text** — ranking BOOKED passages by weakest
+    keyword match. ⇒ **Audit the side you believe is safe**, weakest-evidence first. The unbooked list
+    is a to-do list; the booked list is where a real bug hides.
+
 📌 **Scanner caveat, learned by running it:** on a multi-compaction JSONL the TRANSCRIPT half reports
   500+ passages that are overwhelmingly resolved history. **I did NOT read all of them** — I read the
   first five per family. Treat that half as a prompt to look, never as a defect list; the CODE half is
@@ -294,7 +313,7 @@ the axis nobody measured.*
 | ~~F2~~ | BOLD not reaching the Stability Pool | ✅ **CLOSED by C1** |
 | **C6–C9** | seedFee clamp basis · ungated TWAP seam · stale read across repack (`Vogue:978-989`) · `scaleTo6` on 4626 share decimals | 🔴 **OPEN — no commit touches any of them.** The only C-items left. |
 | **C1r** | 🔴 **C1 RESIDUAL, NEVER VERIFIED.** `SwapLib.sol:498` (`_refundExcess`) does `scaleTokenAmount(excess * 1e12, r.inToken, false)` on the `forVolatile` leg. That `* 1e12` **presumes `excess` is 6-dec** — but C1's whole change was making `Aux.deposit` return **NATIVE**. If `r.amount` now arrives native, this over-scales an 18-dec stable's refund by 1e12. The archive flagged it *"verify, do not assume"* and it was never done; its cited line (`:508`) has since DRIFTED to `:498`. **Trace where `r.amount` is set on the `forVolatile` path before deciding.** Reachable on BTC paths only since C3 landed (previously dead code). | 🔴 open |
-| **T1** | 🔴 **OFF-BY-ONE AT THE RANGE BOUNDARY — `SwapLib.sol:1613`.** `if (currentTick > tickUpper \|\| currentTick < tickLower)`. **Uniswap ranges are HALF-OPEN `[tickLower, tickUpper)`** — a position is in-range iff `tickLower <= tick < tickUpper` — so out-of-range is `>=`, not `>`. At exactly `tick == tickUpper` this code believes the band is IN range when the AMM says it is OUT. One character, on the money path. The archive already derived this (`BUILD-QUEUE:3930`) and marked it *"⚠️ NOT APPLIED"* — **and it is still not applied.** ⚠️ Money-path: needs its OWN run + a falsifiable prediction (rule 10). | 🔴 open |
+| ~~**T1**~~ | ✅ **FIXED 2026-08-02, prediction HELD** (3,562/1/**0 skip**; the +1 pass is the cross-chain test un-skipping, NOT T1 — T1 itself moved nothing, exactly as predicted). ⛔ **OFF-BY-ONE AT THE RANGE BOUNDARY — `SwapLib.sol:1613`.** `if (currentTick > tickUpper \|\| currentTick < tickLower)`. **Uniswap ranges are HALF-OPEN `[tickLower, tickUpper)`** — a position is in-range iff `tickLower <= tick < tickUpper` — so out-of-range is `>=`, not `>`. At exactly `tick == tickUpper` this code believes the band is IN range when the AMM says it is OUT. One character, on the money path. The archive already derived this (`BUILD-QUEUE:3930`) and marked it *"⚠️ NOT APPLIED"* — **and it is still not applied.** ⚠️ Money-path: needs its OWN run + a falsifiable prediction (rule 10). | 🔴 open |
 | **T2** | 🟡 **`PREMIUM_ANNUALIZE = 127`** (`VogueLib.sol:322`). Its own docstring says *"the ONE number here worth reviewing"*, and a session note recorded it as 126 — so it HAS moved and the review never happened. Not a bug; an unreviewed constant on the premium path. | 🟡 open |
 | **F1** | control-LP redeem delivers 0 | 🔴 open. Likely a FIXTURE warp — **verify before fixing** |
 | **#12** | LP share price reads only the ETH leg of a two-legged claim | 🔴 **OPEN — the suite's only failure.** Fix defined; see rank 1. |

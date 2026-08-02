@@ -1610,7 +1610,14 @@ library SwapLib {
         // aligned. Both pools route here (Vogue + BtcVault).
         if (stale && _reseatIfStale(v4, isBTC, r, twap)) return r;
 
-        if (currentTick > tickUpper || currentTick < tickLower) {
+        // HALF-OPEN RANGE (T1). A Uniswap position over [tickLower, tickUpper) is ACTIVE iff
+        // `tickLower <= tick < tickUpper`, so it is OUT of range at `tick >= tickUpper` — NOT `>`.
+        // With `>`, at exactly `tick == tickUpper` the band is inactive (earning no fees, fully in
+        // one token) yet this returned "still in range" and did NOT re-centre, leaving the band
+        // stranded until the tick moved one more step. The lower bound was already correct (`<`,
+        // strictly below), and that asymmetry is the tell: a half-open range needs `>=` upper and
+        // `<` lower; `>` here treated it as CLOSED. Sole in-range comparison in `src/`.
+        if (currentTick >= tickUpper || currentTick < tickLower) {
             // Don't repack to a manipulated spot — need the oracle. If unavailable
             // (twap==0, e.g. bootstrap) or spot deviates >300bps, keep the range.
             if (twap == 0) return r; // didRepack stays false → keep current range
