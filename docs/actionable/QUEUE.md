@@ -5108,3 +5108,26 @@ depends on it (unlike the #114 shard-count trap). Revertible by pointing `checkB
   said "14×". **Three metrics, three different stories — and only the third points at anything actionable.**
   Counting the wrong thing would have produced a large, pointless refactor.
 
+## ⚠️ §D5 PARTIALLY STRUCK — legacy's "simpler" take loop was simpler because it was WRONG.
+D5's premise: *"legacy `_take` had no per-token dispatch — one positional loop with
+`uint divisor = (i < 4 || i == 11) ? 1e12 : 1;`"*. Compared them directly:
+| | legacy `Aux._take:486-522` | current |
+|---|---|---|
+| preferred token | `skip = token`, withdraw it directly, one pro-rata loop skips it | separate `_takePreferred` dispatch |
+| decimals | **`(i < 4 || i == 11) ? 1e12 : 1` — POSITIONAL SLOT HARDCODE** | `IERC20(stable).decimals()` |
+🔴 **That hardcode ALREADY BROKE IN PRODUCTION.** Our own code records it (`BasketLib:282-284`):
+  *"Avoids the prior `i < 3 ? 1e12 : 1` slot-hardcode **which broke when USDG (6-dec) joined at slot 5**."*
+⇒ **Legacy was shorter because it assumed a fixed stable ORDER.** We now carry 12 stables, 7 of them 18-dec —
+  the exact fixture gap that hid C1/C2/C3/C4 all session. **Adopting legacy's loop would re-open it.**
+⇒ ⇒ **STRIKE the decimals half of D5.** The current `decimals()` lookup is not complexity, it is the fix.
+
+### ✅ WHAT SURVIVES OF D5 — and it is real
+Legacy needed **no dispatch at all** for the preferred token: withdraw it, set `skip`, let ONE loop handle
+the rest. That structural simplification is **independent of the decimals question** and still applies.
+▶️ Do THAT half: drive the pro-rata loop by index with `skip`, delete the separate `_takePreferred` branch —
+  keeping `decimals()`. **Simpler control flow, none of the fragility.**
+
+📌 **The comparison that matters is not size — it is WHICH legacy simplicity was load-bearing and which was
+  a latent bug.** Here: the `skip` pattern was load-bearing; the positional divisor was a bug that shipped,
+  broke, and was fixed. **A "restore the simpler legacy version" instinct would have reintroduced it.**
+
