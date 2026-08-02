@@ -68,6 +68,7 @@ PROBES = OrderedDict([
 ])
 
 FAMILIES = OrderedDict([
+    # ── the original nine ────────────────────────────────────────────────────────────────────
     ("INCOMPLETE",  r"\b(haven'?t|hasn'?t|not yet|still need|remains?|left to do|didn'?t (?:get|have) (?:to|time))\b"),
     ("DEFERRED",    r"\b(defer\w*|later|follow[- ]up|next (?:pass|thread|session)|revisit|for now|punt\w*)\b"),
     ("DISMISSAL",   r"\b(ignore\w*|skip\w*|out of scope|not worth|won'?t (?:do|bother)|leave (?:it|that))\b"),
@@ -77,7 +78,28 @@ FAMILIES = OrderedDict([
     ("UNVERIFIED",  r"\b(unverified|assum\w+|I think|probably|should be|believe|likely)\b"),
     ("OUGHTTO",     r"\b(should (?:be|have|probably)|ought to|would be better|ideally)\b"),
     ("SECURITY",    r"\b(secret|token|key|credential|rotate|leak\w*|plaintext|exposed)\b"),
+    # ── added 2026-08-02: nine was NOT exhaustive. Each of these named a real class the
+    #    originals missed, and "things to return to" is mostly phrased in THESE, not in TODO.
+    ("PROVISIONAL", r"\b(for now|temporar\w+|stop[- ]?gap|interim|first cut|rough(?:ly)?|"
+                    r"approximat\w+|good enough|naive|simplif\w+|placeholder)\b"),
+    ("WORKAROUND",  r"\b(work[- ]?around|hack|bypass|side[- ]?step|band[- ]?aid|for the moment|"
+                    r"escape hatch|in the meantime|until (?:we|it|that))\b"),
+    ("LIMITATION",  r"\b(only (?:works|handles|covers)|doesn'?t handle|breaks? (?:when|if)|fails? (?:when|if)|"
+                    r"cannot (?:yet|currently)|no (?:support|coverage) for|limited to|does not (?:cover|track))\b"),
+    ("FUTURE",      r"\b(eventually|some ?day|once we|when we|after we|down the (?:line|road)|"
+                    r"in (?:a )?future|pre[- ]mainnet|before (?:mainnet|launch|shipping))\b"),
+    ("UNKNOWN",     r"\b(unclear|ambiguous|not obvious|unsure|can'?t tell|don'?t know|"
+                    r"remains? open|open question|needs? (?:investigation|a look)|worth (?:a )?look)\b"),
+    ("CONDITIONAL", r"\b(if it turns out|should it (?:ever|turn)|in case|unless|"
+                    r"if that (?:changes|happens|breaks)|watch (?:for|out))\b"),
+    ("REGRESSION",  r"\b(re[- ]?introduc\w+|regress\w+|came back|broke again|un[- ]?fix\w*|"
+                    r"stale|outdated|drift\w*|no longer (?:true|matches))\b"),
 ])
+
+# Failure signatures that only ever appear in TOOL OUTPUT — never in prose.
+TOOL_SIGS = re.compile(
+    r"\[FAIL:\s*([^\]\n]{0,70})|Error \(\d+\):\s*([^\n]{0,70})|error\[E\d+\]:\s*([^\n]{0,70})|"
+    r"panicked at ([^\n]{0,70})|(Compiler run failed)|Warning \((\d{4})\)", re.I)
 
 RULES = """
 RULES THIS REPO'S FAILURES TAUGHT — read before acting on anything above.
@@ -157,7 +179,7 @@ def scan_transcript(path):
     except OSError as e:
         print(f"(transcript unreadable: {e})")
         return
-    texts = []
+    texts, tool_out = [], []
     for line in raw:
         if not line.strip():
             continue
@@ -171,11 +193,42 @@ def scan_transcript(path):
             texts.append(content)
         elif isinstance(content, list):
             for c in content:
-                if isinstance(c, dict) and c.get("type") == "text":
-                    texts.append(c.get("text", ""))
+                if not isinstance(c, dict):
+                    continue
+                # `text` AND `thinking`: a concern reasoned about but never written into a reply
+                # lives ONLY in thinking, and is exactly the loose end nothing else can see.
+                if c.get("type") in ("text", "thinking"):
+                    texts.append(c.get("text") or c.get("thinking") or "")
+                # tool_result is a SEPARATE surface: compiler warnings, panics and failing
+                # assertions never appear in prose. Scanning only `text` misses all of it —
+                # this JSONL had 2,285 text blocks against 3,212 tool_results.
+                elif c.get("type") == "tool_result":
+                    v = c.get("content")
+                    s = v if isinstance(v, str) else (" ".join(
+                        d.get("text", "") for d in v if isinstance(d, dict)) if isinstance(v, list) else "")
+                    if s:
+                        tool_out.append(s)
+
+    # ── TOOL OUTPUT, collapsed by REASON TYPE ────────────────────────────────────────────────
+    # Collapsing by fragment is WRONG and hides the shape: 85 instances of one
+    # `VenueUnavailable()` read as 82 separate findings until grouped by reason.
+    import collections as _c
+    blob = "\n".join(tool_out)
+    kinds = _c.Counter()
+    for mm in TOOL_SIGS.finditer(blob):
+        g = next((x for x in mm.groups() if x), "")
+        if g:
+            kinds[re.sub(r"\s+", " ", g).strip()[:70]] += 1
+    print("\n" + "=" * 78)
+    print(f"TOOL OUTPUT — {len(tool_out)} result blocks, {len(kinds)} DISTINCT failure/warning types")
+    print("=" * 78)
+    print("⚠️ A type here is only a loose end if it STILL occurs. Re-run the suite and diff:")
+    print("   most of these were driven to green during the session.")
+    for k, n in kinds.most_common(20):
+        print(f"  {n:>5}x  {k}")
 
     print("\n" + "=" * 78)
-    print(f"TRANSCRIPT SCAN — {len(texts)} messages. What was SAID and may never have been BOOKED.")
+    print(f"TRANSCRIPT SCAN — {len(texts)} text+thinking blocks. What was SAID and may never have been BOOKED.")
     print("=" * 78)
     print("⚠️ A long session JSONL spans MANY compactions, so most hits are already-resolved")
     print("   history. Treat counts as a prompt to look, never as a defect list.")
