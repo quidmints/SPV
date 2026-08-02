@@ -31,9 +31,33 @@ still live there and in `GAS-AND-CORRECTNESS-AUDIT.md`; **status lives HERE and 
 4b. *(superseded by item 3 above)* **Suite** — historical: 3,560/1. The single failure is `testLeverage_LvrControlVsTreatment`, and it is
    **CORRECT — do not weaken it.** It is #12's symptom; the fix is defined at rank 1 below.
    Run: `cd evm && forge test` (now keyless — a bare run forks with no env var set).
-6. **Two things need YOU, not code:** rotate the Ankr token (it is in git history), and pick the #12
+6. **OPENING COMMAND for a fresh thread** — paste this:
+   > *Read `docs/actionable/QUEUE.md` — start at the START HERE block, then the ranked list. Read
+   > `CLAUDE.md` first for the standing rules and environment. Suite is 3,562 pass / 1 fail / 0 skip;
+   > the one failure (`testLeverage_LvrControlVsTreatment`) is CORRECT — it is #12's symptom, do not
+   > weaken it. Fix #12 per the "#12 IMPLEMENTATION SPEC": credit the LP the DELTA of
+   > `POOLED_USD_ETH` since deposit (NOT the level). State the falsifiable prediction before running.*
+   To work without money-path exposure instead, swap the last sentence for: *"Start at rank 4b —
+   wire the splice fixtures, kill MockSPV, delete the 23 fabricated params, per its WIRING SEQUENCE."*
+
+7. **PARALLEL THREADS — the lanes barely share files, but three constraints bind:**
+   | lane | work | files | money path |
+   |---|---|---|---|
+   | **A** | splice wiring · kill `MockSPV` · 23 fabricated params | `evm/test/*`, `regtest/`, generator | no |
+   | **B** | #12 | `Vogue.sol` | yes |
+   | **C** | §A.65 → 6909 steps 2–4 | `FeeLib.sol`, `SOR.sol` | yes |
+   | **D** | C1r trace · C6–C9 diagnosis · §A.15 | none (read-only) | n/a |
+   • **B and C must NOT share a verification run** (rule 10) — develop concurrently, merge
+     sequentially with a full suite between, or a failure cannot be attributed.
+   • **Lane A is ONE thread, not several** — `Alles.t.sol` is inherited by 25 suites, so two editors
+     conflict constantly AND misread each other's test-count changes.
+   • **Use `git worktree`, not branches in one checkout** — `forge` writes `out/`/`cache/`, so two
+     threads in one tree fight over build artifacts and produce stale-bytecode results. That exact
+     class (§A.41) already put one verdict in doubt.
+
+8. **Two things need YOU, not code:** rotate the Ankr token (it is in git history), and pick the #12
    call at rank 1. Both are flagged where they belong below.
-7. **The archive is adjudicated.** Every one of its 73 `§A.x` sections and its own 10-item open list have
+9. **The archive is adjudicated.** Every one of its 73 `§A.x` sections and its own 10-item open list have
    been cross-checked into this file (see the three ADJUDICATION passes at the bottom). Treat it as
    evidence-only — with ONE exception now tracked as **C1r** below.
 
@@ -223,6 +247,15 @@ the tree only because an uncalled helper is dead code; it is otherwise ready.
         s.txIndex       = vm.parseJsonUint(j, string.concat(b, "spliceTxIndex"));
     }
 ```
+### ▶️ WIRING SEQUENCE — this order avoids debugging two things at once
+ 1. Paste `_realSplice` above into `Alles.t.sol` next to `_realOpen`.
+ 2. Give it **ONE** caller and `forge build`. **This step exists solely to validate the nine key
+    names/types** (esp. `spliceMerkleBranch` as `bytes32[]`) while nothing else is in flight.
+ 3. Only then convert `VBtcLevFeeLane` + `BtcLpMintStress` — each file's **opens AND splices in the
+    SAME change**; the splice reuses the open's taproot Q, and half-converting turns the suite red
+    (measured: 3 × `BadSPV()`).
+ 4. Delete `MockSPV` and the 23 fabricated params. Re-run `regtest/gen-fixture.sh` if seeds change.
+
 ⚠️ It depends on `_spvFixture()` and `_fixtureKey(seed, sats)`, which ARE in the tree
 (`Alles.t.sol`, committed and exercised by `_realOpen`). Only this accessor is missing.
 
@@ -428,7 +461,12 @@ separate sweeps walked past it. What let it hide, and the rule each failure earn
  3. **"Already derived" is not "already fixed".** The archive had the analysis AND the words
     "NOT APPLIED", and it still shipped. ⇒ **A derivation with no diff is an open bug**; treat
     `NOT APPLIED` in any doc as a P1 grep, not as a record.
- 4. **It surfaced from the scanner's CONFIDENCE, not its text** — ranking BOOKED passages by weakest
+ 4. **A COMPARISON WITH A CONSTANT COLUMN IS NOT A COMPARISON.** I offered #12 as a three-way fork
+    whose "who supplies USD depth" column read `basket` in every row — a constant dressed as a
+    variable, which turned a measured defect into a decision the user did not need to make.
+    ⇒ **Before presenting options, check that they actually differ.** Same failure shape as booking
+    `migration.rs` as "blocked on an address" when the address is minted at deploy time.
+ 5. **It surfaced from the scanner's CONFIDENCE, not its text** — ranking BOOKED passages by weakest
     keyword match. ⇒ **Audit the side you believe is safe**, weakest-evidence first. The unbooked list
     is a to-do list; the booked list is where a real bug hides.
 
