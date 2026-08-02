@@ -108,7 +108,7 @@ contract BtcSelfManagedTest is Alles {
         // Real BTCChannels wired as THE btcChannels (pin-once); hopNode = our addr.
         address hop = makeAddr("hop");
         BTCChannels ch = new BTCChannels(
-            address(new MockSPV()), address(AUX), address(ETH), hop);
+            _realSPV(), address(AUX), address(ETH), hop);
         AUX.setBTCChannels(address(ch));
         // The USD->BTC swaps deliver BTC to the swapper -> it needs a BTC recipient.
         vm.prank(User03); ch.setBtcRecipient(bytes32(uint(0xB7C)));

@@ -32,7 +32,7 @@ contract ReentrancyProbe is Alles {
 
     function _deployChannels() internal returns (BTCChannels ch) {
         ch = new BTCChannels(
-            address(new MockSPV()), address(AUX), address(ETH), makeAddr("hop"));
+            _realSPV(), address(AUX), address(ETH), makeAddr("hop"));
         AUX.setBTCChannels(address(ch));
     }
 

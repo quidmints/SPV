@@ -172,27 +172,65 @@ contract Alles is ForkPin, Fixtures {
 
     // MULTI-HOP test helper: open a REAL channel owned by `hop` — bumps the contract's
     // openChannelsOf[hop] so `hop` is authorized to attest swap-ins — crediting `sats`
-    // to a per-`seed` throwaway LP. Mirrors the production open (MockSPV passes SPV).
+
+    // ─── REAL SPV, NOT A MOCK ────────────────────────────────────────────────────────────────
+    // `MockSPV.checkTxInclusion → true` made every proof pass, so nothing in the SPV path was
+    // ever exercised by these suites: any bug in inclusion checking, header-chain handling or
+    // taproot Q byte-matching was invisible. The fixture below is generated from a LIVE regtest
+    // node (`regtest/gen-fixture.sh`) and carries a real header chain plus, per seed, a real
+    // funded key-path P2TR output with its real merkle branch.
+    // Add a seed to `SEEDS` in `gen_open_channel_fixture.py` and regenerate to get a new channel.
+    SPVGateway internal _spvGw;
+
+    function _spvFixture() internal view returns (string memory) {
+        return vm.readFile(string.concat(vm.projectRoot(), "/test/btc/open_channel_fixture.json"));
+    }
+
+    /// @dev Built ONCE per test: init at the regtest genesis, then batch the real headers.
+    function _realSPV() internal returns (address) {
+        if (address(_spvGw) != address(0)) return address(_spvGw);
+        string memory j = _spvFixture();
+        _spvGw = new SPVGateway();
+        _spvGw.__SPVGateway_init(vm.parseJsonBytes(j, ".genesisHeader"), 0, 0);
+        _spvGw.addBlockHeaderBatch(vm.parseJsonBytesArray(j, ".headers"));
+        return address(_spvGw);
+    }
+
+    /// @dev seed → index into the fixture's `opens` array. Reverts loudly rather than falling
+    ///      back to a synthetic open, so a missing fixture entry can never silently un-prove a test.
+    function _openIdx(uint seed) internal pure returns (string memory) {
+        if (seed == 1)  return "0";
+        if (seed == 91) return "1";
+        revert("no real SPV fixture for this seed - add it to gen_open_channel_fixture.py SEEDS and regenerate");
+    }
+
+    // to a per-`seed` throwaway LP. Mirrors the production open (REAL SPVGateway proves it).
     bytes constant _MH_HOP_PK =
         hex"03a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0";
     function _openHopChannel(BTCChannels ch, address hop, uint seed, uint sats)
         internal returns (bytes32 cid)
     {
-        bytes memory lpPubkey = abi.encodePacked(hex"02", keccak256(abi.encode("hoplp", seed)));
+        string memory j = _spvFixture();
+        string memory b = string.concat(".opens[", _openIdx(seed), "].");
+        require(vm.parseJsonUint(j, string.concat(b, "amountSats")) == sats,
+            "fixture funds a different amount than this call asks for - regenerate with the right AMOUNT_SATS");
         Types.OpenParams memory p = Types.OpenParams({
-            fundingBlockHash: bytes32(uint(0x5000 + seed)), fundingBlockHeight: 800000,
-            fundingTxIndex: 0, lpPubkey: lpPubkey, hopPubkey: _MH_HOP_PK, amountSats: sats,
-            fundingTaproot: _taprootQ(lpPubkey, _MH_HOP_PK) });
-        bytes memory spk = buildTaprootFundingSpk(lpPubkey, _MH_HOP_PK);
-        bytes memory fundingTx = abi.encodePacked(
-            hex"02000000", hex"01", bytes32(0), hex"00000000", hex"00", hex"ffffffff",
-            hex"01", _le(sats, 8), bytes1(uint8(spk.length)), spk, hex"00000000");
-        cid = _finishHopOpen(ch, hop, p, fundingTx, seed);
+            fundingBlockHash:   vm.parseJsonBytes32(j, string.concat(b, "fundingBlockHashBE")),
+            fundingBlockHeight: uint64(vm.parseJsonUint(j, string.concat(b, "fundingHeight"))),
+            fundingTxIndex:     vm.parseJsonUint(j, string.concat(b, "txIndex")),
+            lpPubkey:           vm.parseJsonBytes(j, string.concat(b, "lpPubkey")),
+            hopPubkey:          vm.parseJsonBytes(j, string.concat(b, "hopPubkey")),
+            amountSats:         sats,
+            fundingTaproot:     vm.parseJsonBytes32(j, string.concat(b, "fundingTaproot")) });
+        cid = _finishHopOpen(ch, hop, p,
+            vm.parseJsonBytes(j, string.concat(b, "rawFundingTx")), seed,
+            vm.parseJsonBytes32Array(j, string.concat(b, "merkleBranch")));
     }
 
     /// Sign (LP binds the submitter `hop` into the digest) + open, in its own frame.
     function _finishHopOpen(
-        BTCChannels ch, address hop, Types.OpenParams memory p, bytes memory fundingTx, uint seed
+        BTCChannels ch, address hop, Types.OpenParams memory p, bytes memory fundingTx, uint seed,
+        bytes32[] memory merkleBranch
     ) private returns (bytes32 cid) {
         (address lpEth, uint lpPk) = makeAddrAndKey(string(abi.encodePacked("hop-lp-", seed)));
         // Realistic btcRecipientOf: a full 32-byte x-only shutdown key distinct from the
@@ -204,7 +242,7 @@ contract Alles is ForkPin, Fixtures {
         bytes memory dsig = _signDigest(lpPk, ch.delegationDigest(hop, payout, 1));
         ch.registerDelegation(hop, payout, 1, dsig);
         vm.prank(hop);
-        cid = ch.openChannel(p, fundingTx, new bytes32[](0), lpEth);
+        cid = ch.openChannel(p, fundingTx, merkleBranch, lpEth);
     }
 
     function _signDigest(uint pk, bytes32 digest) private pure returns (bytes memory) {
@@ -1962,7 +2000,7 @@ contract Alles is ForkPin, Fixtures {
     function testSwapOut_RequestCreditAndFailureReversal() public {
         address hop = makeAddr("hop");
         BTCChannels ch = new BTCChannels(
-            address(new MockSPV()), address(AUX), address(ETH), hop);
+            _realSPV(), address(AUX), address(ETH), hop);
         AUX.setBTCChannels(address(ch));
 
         // Seed BTC inventory + POOLED_USD_BTC curve liquidity (the funding USD->BTC
@@ -2053,7 +2091,7 @@ contract Alles is ForkPin, Fixtures {
     function testSwapOut_SwapperSelfRefundAfterTimeout() public {
         address hop = makeAddr("hopTO");
         BTCChannels ch = new BTCChannels(
-            address(new MockSPV()), address(AUX), address(ETH), hop);
+            _realSPV(), address(AUX), address(ETH), hop);
         AUX.setBTCChannels(address(ch));
 
         _openHopChannel(ch, hop, 91, 2e7); // MULTI-HOP: real open so `hop` may attest swap-ins (was a registerBtcLp shortcut)
@@ -2118,7 +2156,7 @@ contract Alles is ForkPin, Fixtures {
     function testStrand4_SwapInFloor_RevertsShort_UnwindsUsed() public {
         address hop = makeAddr("hopS4");
         BTCChannels ch = new BTCChannels(
-            address(new MockSPV()), address(AUX), address(ETH), hop);
+            _realSPV(), address(AUX), address(ETH), hop);
         AUX.setBTCChannels(address(ch));
 
         // Seed BTC inventory + POOLED_USD_BTC curve liquidity (mirror failure-reversal).

@@ -20,7 +20,7 @@ from decimal import Decimal
 CLI = os.environ.get("BTC_CLI", "bitcoin-cli")   # harness always sets it; PATH fallback
 DD = os.environ.get("DATADIR", "/tmp/btcreg")
 WALLET = os.environ.get("WALLET", "")  # optional -rpcwallet (regtest harness sets it)
-AMOUNT_SATS = 5_000_000   # 0.05 BTC channel
+AMOUNT_SATS = 20_000_000   # 0.2 BTC — matches the `_openHopChannel(..., 2e7)` call sites   # 0.05 BTC channel
 
 
 def cli(*args):
@@ -81,67 +81,78 @@ def newpub():
     return clij("getaddressinfo", a)["pubkey"]            # 33-byte compressed
 
 
-def main():
-    # Wallet "t" + a matured balance are set up by the harness before this runs.
+def one_open(seed):
+    """One REAL funded key-path P2TR channel output, with its own proof."""
     lp = bytes.fromhex(newpub())
     hop = bytes.fromhex(newpub())
     assert len(lp) == 33 and len(hop) == 33
-
-    # SIMPLE-TAPROOT (BOLT #995): the funding output is a KEY-PATH-ONLY P2TR
-    # `OP_1 PUSH32 || Q` (0x5120||Q, 34 bytes) — see BitcoinTx.buildTaprootScriptPubKey
-    # and ChannelLib._verifyAndLocate. NOT the old P2WSH 2-of-2: key-path taproot
-    # reveals no script on-chain, so there is no redeem script to reconstruct, and
-    # `BitcoinTx.buildChannelRedeemScript` no longer exists in the contracts.
-    #
-    # Q is the MuSig2 key-path aggregate in production. The contract does NO EC math
-    # on it (_verifyAndLocate: "Q is lpAuth-committed and byte-matched, NOT
-    # reconstructed from the keys"), so for the fixture we take a real bech32m output
-    # from bitcoind and read Q straight out of its scriptPubKey. That keeps the
-    # invariant this file was written for: no custom Bitcoin crypto here either.
     addr = cli("getnewaddress", "", "bech32m")
     spk = bytes.fromhex(clij("getaddressinfo", addr)["scriptPubKey"])
     assert len(spk) == 34 and spk[0] == 0x51 and spk[1] == 0x20, \
         f"expected key-path P2TR 0x5120||Q, got {spk.hex()}"
-    q = spk[2:]                                           # 32-byte x-only aggregate Q
-
+    q = spk[2:]
     txid = cli("sendtoaddress", addr, "%.8f" % (AMOUNT_SATS / 1e8))
-    cli("generatetoaddress", 7, cli("getnewaddress"))     # 7 confirmations (>=6)
+    return {"seed": seed, "lp": lp, "hop": hop, "q": q, "spk": spk, "txid": txid}
 
-    tx = clij("getrawtransaction", txid, "true")
+
+def finish_open(o):
+    tx = clij("getrawtransaction", o["txid"], "true")
     blockhash = tx["blockhash"]
     blk = clij("getblock", blockhash, 1)
-    tx_index = blk["tx"].index(txid)
-
-    # funding output must exist with exactly AMOUNT_SATS at our key-path P2TR spk.
-    fund_sats = next(int((o["value"] * Decimal(1e8)).to_integral_value())
-                     for o in tx["vout"] if o["scriptPubKey"]["hex"] == spk.hex())
+    tx_index = blk["tx"].index(o["txid"])
+    fund_sats = next(int((v["value"] * Decimal(1e8)).to_integral_value())
+                     for v in tx["vout"] if v["scriptPubKey"]["hex"] == o["spk"].hex())
     assert fund_sats == AMOUNT_SATS, f"funding value {fund_sats} != {AMOUNT_SATS}"
-
     legacy = build_legacy(tx)
-    assert dsha(legacy)[::-1].hex() == txid, "reconstructed legacy txid mismatch"
-
-    leaves = [bytes.fromhex(t)[::-1] for t in blk["tx"]]   # display -> internal
+    assert dsha(legacy)[::-1].hex() == o["txid"], "reconstructed legacy txid mismatch"
+    leaves = [bytes.fromhex(t)[::-1] for t in blk["tx"]]
     branch, root = merkle_branch(leaves, tx_index)
     assert root == bytes.fromhex(blk["merkleroot"])[::-1], "branch does not fold to header merkleroot"
+    x = lambda h: "0x" + h
+    return {
+        "seed": o["seed"],
+        "lpPubkey": x(o["lp"].hex()),
+        "hopPubkey": x(o["hop"].hex()),
+        "amountSats": AMOUNT_SATS,
+        "fundingTaproot": x(o["q"].hex()),
+        "rawFundingTx": x(legacy.hex()),
+        "fundingTxidDisplay": x(o["txid"]),
+        "fundingBlockHashBE": x(blockhash),
+        "fundingHeight": blk["height"],
+        "txIndex": tx_index,
+        "merkleBranch": [x(b.hex()) for b in branch],
+    }
+
+
+def main():
+    # SIMPLE-TAPROOT (BOLT #995): each funding output is a KEY-PATH-ONLY P2TR
+    # `OP_1 PUSH32 || Q` (0x5120||Q, 34 bytes) — see BitcoinTx.buildTaprootScriptPubKey
+    # and ChannelLib._verifyAndLocate. NOT the old P2WSH 2-of-2: key-path taproot
+    # reveals no script on-chain, so there is no redeem script to reconstruct.
+    #
+    # Q is the MuSig2 key-path aggregate in production. The contract does NO EC math on
+    # it (_verifyAndLocate: "Q is lpAuth-committed and byte-matched, NOT reconstructed
+    # from the keys"), so we take a real bech32m output from bitcoind and read Q straight
+    # out of its scriptPubKey — no custom Bitcoin crypto in this file either.
+    #
+    # SEEDS: one entry per `_openHopChannel(seed)` used by the Solidity fixture. They all
+    # share ONE header chain, so a test builds the gateway once and every open is proven
+    # against the same real mainchain. Add a seed here when a test needs a new channel.
+    SEEDS = [1, 91]
+    opens = [one_open(s) for s in SEEDS]
+    cli("generatetoaddress", 7, cli("getnewaddress"))       # 7 confirmations (>=6)
+    entries = [finish_open(o) for o in opens]
 
     tip = int(cli("getblockcount"))
     headers = [cli("getblockheader", cli("getblockhash", h), "false") for h in range(0, tip + 1)]
-
-    x = lambda h: "0x" + h                                 # forge parseJson* wants 0x-prefixed hex
+    x = lambda h: "0x" + h
     print(json.dumps({
-        "lpPubkey": x(lp.hex()),
-        "hopPubkey": x(hop.hex()),
-        "amountSats": AMOUNT_SATS,
-        "fundingTaproot": x(q.hex()),                      # 32-byte x-only Q (OpenParams field 7)
-        "rawFundingTx": x(legacy.hex()),
-        "fundingTxidDisplay": x(txid),
-        "fundingBlockHashBE": x(blockhash),                # display/BE (gateway key + OpenParams)
-        "fundingHeight": blk["height"],
-        "txIndex": tx_index,
-        "merkleBranch": [x(b.hex()) for b in branch],      # internal order
         "genesisHeader": x(headers[0]),
-        "headers": [x(h) for h in headers[1:]],            # blocks 1..tip
+        "headers": [x(h) for h in headers[1:]],             # blocks 1..tip
         "tip": tip,
+        "opens": entries,
+        # Back-compat: OpenChannelE2E.t.sol reads the single-open keys at top level.
+        **entries[0],
     }, indent=2))
 
 
