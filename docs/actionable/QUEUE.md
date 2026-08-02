@@ -239,16 +239,28 @@ TVL +60,000.996591, and `vogueETH` never reads it). The *economic* question unde
 not supply it. So a band trade is two parties: the LP supplies the ETH inventory that gets sold, the
 basket supplies the USD depth that quotes it.
 
-| | who supplies USD depth | who keeps the trade proceeds | verdict |
-|---|---|---|---|
-| **status quo** | basket | **basket** | LP bears the sale and is paid NOTHING — the measured −$59,966 |
-| **credit the delta** | basket | **LP** | LP made whole (+33.56), but the basket now supplies depth **for free** |
-| **split (unstated until now)** | basket | LP, **minus a depth fee** | LP keeps its inventory's proceeds; basket is paid for the depth it risks |
+⚠️ **CORRECTED 2026-08-03 — I framed this as a three-way DESIGN FORK. It is not one.** The user:
+*"isn't the basket supplying the depth anyway — why is this even a decision vs what we had before?"*
+**Correct on both counts.** The basket supplies the depth in EVERY option, so that was a constant
+dressed up as a variable, and nothing changed versus before — the behaviour has always been this.
+What changed is that it was finally MEASURED.
 
-⇒ **The status quo and the naive fix are BOTH corner solutions**; neither prices depth provision.
-  The third row is the one that survives asking "who took the risk?" on both legs.
-  📌 This also links #12 to §A.65: a depth fee is the same *directional* pricing question — charge
-  the side that consumes depth, pay the side that supplies it.
+**Only one thing actually varies: who owns the dollars that arrive when the band sells the LP's ETH.**
+The accounting settles it — the basket **spent nothing** on this trade:
+| | change |
+|---|---|
+| basket | **+60,000.996591 real BOLD**, commitment **+60,000.000000** to match ⇒ free surplus UNCHANGED, simply holds more assets |
+| LP | **−32.444522 ETH, +0** |
+
+⇒ The basket was not *compensated for a service*; it gave nothing up. **The LP's ETH became basket
+  assets — a transfer, not a fee.** And the LP is ALREADY paid the trading fee separately
+  (`feesPerShare` via `_distributeV4Fees`), so today it collects the spread and loses the inventory,
+  which is not a coherent position for any market maker.
+
+⇒ ⇒ **So "credit the LP" is the FIX and "status quo" is the BUG.** The only real question is HOW to
+  credit without double-counting — the four coupled changes specced above.
+  📌 A **depth fee** (paying the basket for quoting capital) is a SEPARATE, LATER question that
+  belongs with §A.65's directional pricing. Not a prerequisite; bundling it was my error.
 
 ## 🔴 B1 — THE FRESHNESS BACKSTOP HAS NO ECONOMIC BOUND (prose-only loose end, found 2026-08-02)
 Stated once in a reply and never booked, because it names no file: *"worth checking the on-chain cost
