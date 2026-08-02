@@ -4946,3 +4946,50 @@ if (!isBTC && who != address(0)) VOGUE.takeETH(tokAmount, who);   // <-- NO BTC 
   the two sides have genuinely different distributions, so one shared budget with one shared assumption
   misprices both.
 
+# 📐 LEGACY vs NOW — THE COMPARISON WE NEVER FINISHED (user, 2026-08-02). Legacy: `quidmint/quid/evm/src`.
+User: *"why are there so many new internal functions and helpers… see how simple and clean that vogue.sol
+was. we never finished our comparison between now and then."*
+
+## THE MEASUREMENT — and it does NOT say what the line count says
+| metric | legacy (ETH-only) | current (ETH+BTC) | ratio |
+|---|---|---|---|
+| `Vogue.sol` total lines | 531 | 1,447 | 2.7× |
+| — of which COMMENT | 62 (**12%**) | 728 (**50%**) | 11.7× |
+| — **actual CODE** | **469** | **719** | **1.53×** ⇐ the real number |
+| functions | 18 | 64 | 3.6× |
+| external/public | 2 | 28 | 14× |
+| `Vogue` + companion (`VogueCore` / `VogueLib`) | 1,025 | 2,102 | 2.05× |
+| whole `src/` | 6,108 | 10,784 | 1.77× |
+⇒ 🎯 **The file did NOT triple in code — it grew 1.53× while its COMMENT volume grew 11.7×.** Half of
+  today's `Vogue.sol` is prose. The *"simple and clean"* impression of the legacy file is partly that it was
+  **barely documented**.
+
+## WHERE THE 49 NEW FUNCTIONS ACTUALLY CAME FROM (categorised, not hand-waved)
+| category | functions | is it accidental? |
+|---|---|---|
+| **4626 / token identity** | `_deposit4626` `_mint4626` `convertToAssets` `convertToShares` `mint` `redeem` `totalSupply` `totalShares` `balanceOf` `_transferShares` `transferSharesFor` `setVEth` | **NO** — a product decision (vETH is a 4626) |
+| **leverage overlay** | `_reconcileLev` `syncLev` `debtUsd` `grossCollateralEth` `netEquityEth` `totalNetEquityEth` `kLvrWad` `realizedAlphaWad` `realizedVarianceWad` `soldFractionWad` `derivedThetaWad` `derivedThetaWadAt` | **NO** — a whole feature legacy lacked |
+| **yield venues** | `_venueBalance` `_deliverVenueShortfall` `setEthVenueContract` `compound` `exitInstant` | **NO** — legacy had no venue layer |
+| **band mechanics** | `addLiq` `_rebalance` `reseat` `collectFees` `_outOfRange` `_burnInRange` `bandSqrtP` `bandEthOf` `_modLpEth` `unwindForRedeem` | partly — legacy did this inside fewer, larger fns |
+| **reward accounting** | `_settlePending` `_pendingFor` `_refreshBookmarks` | **NO** — per-LP fee accrual is new |
+| **recipient pinning** | `pinRecipient` `applyPinnedRecipient` `_requirePinnedRecipient` | **NO** — §A.5f security subset |
+⇒ ⇒ **~40 of the 49 are FEATURE-DRIVEN** (4626 identity, leverage, venues, reward accrual, a second asset).
+  **~9 are DECOMPOSITION** of what legacy did in bigger functions — and that decomposition is largely forced:
+  `via_ir = false` + EIP-170 mean big bodies must be split or moved to a `*Lib` (`VogueLib`, `SwapLib`).
+  **The `*Body` naming across the libs is that pressure, made visible.**
+
+## ⇒ THE HONEST VERDICT
+ • The user's instinct is **half right**: the current file IS harder to read — but mostly because it is
+   **50% prose**, not because the logic tripled.
+ • **The genuine simplification target is not the function count — it is the COMMENT-TO-CODE RATIO and the
+   14× external surface.** 28 external/public functions on one contract is a real API-surface smell, and it
+   is the thing the §J.2c token-face move already started shrinking.
+ • ⚠️ **But this session repeatedly DEPENDED on those comments** (§A.56's dedup note, §A.13's fix citation,
+   the `create_sweep_tx` rationale, the `IWETH9` union precedent) **and was repeatedly MISLED by stale ones**
+   (the reconnector, the "supersede" claim, the sum-cap at `Core:48`). ⇒ **The fix is not fewer comments —
+   it is comments that cannot go stale**, i.e. converting the load-bearing ones into checks/tests (the
+   `guard-real-invariants` rule).
+▶️ **NEXT for this comparison:** the same measurement for `Aux.sol` vs legacy `Basket.sol`/`Aux.sol`, and a
+  diff of the band-mechanics functions specifically — that is the ONE category where legacy may genuinely be
+  simpler for the SAME job, and therefore the only place a real simplification is hiding.
+
