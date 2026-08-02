@@ -4817,3 +4817,54 @@ ETH LP's side, **not** a missing credit and **not** LVR. Both of my previous rea
  3. `Core.sol:48`'s comment describes the OLD hard cap; **restate it as the `committedUsd18 ≤ totalLiquid`
     gate** so the next reader does not look for an enforcement that no longer exists.
 
+# ⚖️ #12 UNIFY vs STATUS QUO — the comparison the user asked for. **VERDICT: the refill DOES NOT EXIST YET.**
+User: *"a substantial increase to capital efficiency… if the refill fires as expected this wont be a denial
+of service to one side of the pool… we have to compare what we have now to this and consider the likelihood
+of the refill not firing as we expect."*
+
+## 🔴 THE DECISIVE FACT — P(refill fires today) = **ZERO**, because it is UNBUILT
+`BUILD-QUEUE:402`: **"#100 — the ACTIVE WBTC flash-serve. UNBUILT either way; only the TRIGGER is
+undecided… STATUS: UNBUILT — there is no flash-serve function."**
+ • **0 matches** for `function *refill` in `src/` (Solidity).
+ • **0 matches** for flash-serve / JIT-refill in the entire Rust fleet.
+ • What IS built and must not be mistaken for it: the **LP-entry pump** (`Vault.registerBtcLp`) and
+   **premium retention** (`retainSkewPremium`). Neither is a refill — one is exogenous LP arrival, the
+   other is accounting.
+⇒ **Today the BTC band refills ONLY when an LP chooses to arrive.** That is not a mechanism, it is a hope.
+
+## THE COMPARISON
+| | **NOW (split vars, shared backing gate)** | **PROPOSED (unified pooled_usd)** |
+|---|---|---|
+| capital efficiency | LOWER — each band's commitment eats shared headroom, so slack must be carried | **HIGHER** — the user's goal, and it is a real gain |
+| DoS between sides | **bounded** — commitments are independently sized; crowding degrades gradually | **unbounded without refill** — one side can consume the whole budget |
+| what an ETH LP feels when it bites | a reverting `withdraw` (`OverCommitted`) | the same, but reachable from a single BTC draw |
+| dependency for CORRECTNESS | none | **the refill, critically** |
+⇒ ✅ **The proposal's LOGIC is sound** — and note the refill genuinely FIXES the crowding, not just masks
+  it: flash WBTC → `creditSwapIn` → SOR → repay puts BTC **into** the band and takes USD **out**, which
+  LOWERS `POOLED_USD_BTC` and hands the freed headroom straight to the ETH side. **The mechanism is
+  correctly aimed.**
+⇒ 🔴 **But shipping the unify BEFORE #100 converts a BOUNDED inefficiency into an UNBOUNDED liveness risk,
+  with a 100% refill-failure rate on day one.** That is the wrong order, not the wrong idea.
+
+## LIKELIHOOD OF THE REFILL NOT FIRING — even AFTER it is built (ranked)
+ 1. 🔴 **UNBUILT** — today, certain. Everything below only matters once #100 lands.
+ 2. 🟠 **Fleet liveness.** The described op is a *"self-funding FLEET op"*. **This is the same fleet whose
+    possible disappearance motivated the #114 dead-man exit.** A refill that depends on fleet uptime
+    inherits every fleet-outage mode — and the ETH LP's withdraw reverts exactly when the fleet is down.
+ 3. 🟠 **External flash liquidity.** Needs Morpho WBTC flash depth at the moment of need — an outside
+    dependency, correlated with the stress that caused the drawdown.
+ 4. 🟡 **Trigger choice — and this one is a DESIGN LEVER, not a risk to accept.** `#100` leaves it open:
+    **(A) PROACTIVE permissionless** (anyone may call a depletion-check entrypoint) vs **(B) REACTIVE JIT**
+    (fires inside a swap-out). ⭐ **(A) is strictly safer HERE**: it does NOT depend on fleet liveness, so it
+    removes risk #2 — which is otherwise the dominant one. **Given #114 exists precisely because the fleet
+    may vanish, betting ETH-LP withdrawals on fleet uptime is the contradiction to avoid.**
+
+## ▶️ RECOMMENDED ORDER (keeps the capital-efficiency gain, removes the day-one DoS)
+ 1. **Build #100 with trigger (A)** — permissionless, so no fleet dependency.
+ 2. **MEASURE it**: refill latency under stress, and the failure rate when flash liquidity is thin. Until
+    those two numbers exist, *"if the refill fires as expected"* is an assumption, not a premise.
+ 3. **THEN unify** `POOLED_USD`, sized so the worst measured refill latency still cannot strand an ETH exit.
+ 4. Interim, cheap, and useful either way: **quantify TODAY's crowding** — at what BTC commitment does
+    `committedSum > totalLiquid` start reverting ETH withdraws? That number is the baseline the unify must
+    beat, and it is measurable right now.
+
