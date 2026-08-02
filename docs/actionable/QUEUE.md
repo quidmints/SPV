@@ -5137,7 +5137,7 @@ which is the §A.50/C2 fix — KEPT, and now on a single line instead of duplica
 | `_takePreferred` callsites | 2 | **1** |
 | `decimals()`-based scaling | kept | **kept** (positional divisor NOT restored) |
 | `BasketLib` bytecode | 21,643 | **21,520** (−123 B) |
-| suite | — | *(pending the fork run)* |
+| suite | — | **3,560 passed / 1 failed** — the failure is the pre-existing §A.16 `testLeverage_LvrControlVsTreatment`, unchanged. D5 regressed nothing. |
 
 ## ✅ COMPARISON ITEM 2 CLOSED — `Core.sol` 62 fns vs legacy `VogueCore.sol` 19. **Nothing to take.**
 This was flagged as *"the densest ratio and the best place to look for band mechanics that legacy did more
