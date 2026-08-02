@@ -4774,3 +4774,46 @@ above. Most likely the exit ladder's own cost (the ether.fi instant rung charges
 slice is ~0.11 ETH — the magnitude fits). **NOT yet confirmed** — to settle it, log which rungs the ladder
 used and their fees. Filed as a minor open question, distinct from #12.
 
+## 🔑 #12 — THE ACTUAL SPEC, SUPPLIED BY THE USER (2026-08-02). My (a)/(b) framing was the wrong question.
+> *"who owns it? they both do. it's just that now there is one pooled_usd variable, so the only way that
+>  reducing how much btc is poolable wont affect how much eth is poolable is if the refill works instantly,
+>  but how can it if there is nowhere to buy btc except our own band (and we can't use wbtc to fill the gap,
+>  wbtc is only used in opt in SOR or in opt in levered lp for btc)."*
+
+### ⇒ VERIFIED IN CODE — the coupling is real, and it is enforced on the DRAIN side
+| fact | where |
+|---|---|
+| `POOLED_USD_ETH` and `POOLED_USD_BTC` are still SEPARATE variables | `Core.sol:91/93` |
+| the old hard sum-cap is **GONE** — `POOLED_USD_ETH + POOLED_USD_BTC` appears ONLY in a comment, no code | `Core.sol:48` (comment only) — matches #12's *"sum-cap dropped"* |
+| but they DO compete, via ONE gate: `committedUsd18() = ETH band equity + BTC band equity` | `Core.sol:106` |
+| enforced: **`if (committedSum > totalLiquid) revert OverCommitted();`** | `Aux._checkBacking:1085` |
+| STRICT on DRAIN paths — **redemption, arb, and LP WITHDRAW**; ADD paths use non-reverting `tryCheckBacking` | `Aux.sol:1078-1084` |
+⇒ 🎯 **So BTC-side commitment consumes the SAME backing budget an ETH LP needs to WITHDRAW against.** The
+  per-band floor (*"ETH debt never eats BTC equity"*, `Core.sol:105`) decouples the **debt** side only —
+  **it does NOT decouple the POOLED_USD side, which is what the user is pointing at.**
+
+### ⚠️ AND THE ASYMMETRY THAT MAKES IT BITE — the user's real point
+Decoupling would be harmless IF a band could refill instantly. **The BTC band cannot:**
+ • There is **nowhere to buy BTC** except our own band — no external venue fills it.
+ • **WBTC cannot substitute**: it is used ONLY in opt-in SOR and the opt-in levered BTC LP, deliberately
+   (`BtcLevManager`), so it is not a refill source for band inventory.
+ • Refill is therefore **LP-arrival-paced** (`Vault.registerBtcLp`) or swap-in-paced — NOT market-paced.
+⇒ ⇒ **BTC commitments are STICKY while ETH's are not.** A BTC-side draw reduces ETH's usable headroom for
+  as long as the BTC band stays un-refilled, and the ETH LP feels it as a *reverting withdraw*, not as a
+  price. **That is the #12 problem, stated properly.**
+
+### ⇒ WHY MY EARLIER FRAMING WAS WRONG
+I asked *"who OWNS the stable proceeds?"* — the user: **"they both do."** Ownership was never the question;
+the question is **whether one band's commitment can strand the other's exits, given that one of them cannot
+refill on demand.** ⇒ The measured 400→367.48 claim shrink is that same shared-budget mechanic seen from the
+ETH LP's side, **not** a missing credit and **not** LVR. Both of my previous readings are superseded.
+
+### ▶️ WHAT THIS MAKES ACTIONABLE (concrete, no longer blocked on a missing spec)
+ 1. **Quantify the crowding:** at what BTC commitment does `committedSum > totalLiquid` start reverting ETH
+    LP withdraws? That number is the real risk parameter, and nobody has measured it.
+ 2. **Asymmetric headroom reserve:** since only BTC is refill-constrained, consider reserving ETH-side
+    withdrawal headroom rather than treating the budget as fungible — the constraint is not symmetric, so a
+    symmetric gate misprices it.
+ 3. `Core.sol:48`'s comment describes the OLD hard cap; **restate it as the `committedUsd18 ≤ totalLiquid`
+    gate** so the next reader does not look for an enforcement that no longer exists.
+
