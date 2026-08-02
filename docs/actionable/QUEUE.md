@@ -4695,3 +4695,34 @@ the LP **RECOVERING** it. Two readings:
   (a) holds and §A.16 closes with the probe fixed to value all assets. **Fix the MEASUREMENT, not the
   assertion** — the assertion was right to fire.
 
+## 🔍 §A.16 — DELIVERY IS FINE. The LP's **CLAIM** shrank by the swapped volume. This is #12 territory.
+Measured owed-vs-received on the full exit:
+| quantity | value |
+|---|---|
+| `redeem` OWED (assets) | **367.482 e18** |
+| actually received (ETH+WETH) | **367.370 e18** — **99.97% delivered** |
+| received QUID | 0 |
+⇒ ✅ **Reading (b) is REFUTED — there is NO delivery gap.** The exit ladder pays essentially everything it
+  says it owes. (The "47.67 WETH" I cited from the trace was ONE transfer among several in the ladder —
+  another reason not to read a single trace line as a total.)
+⇒ 🎯 **But the OWED figure itself is the finding:** the LP deposited **400 ETH** and is owed **367.48** —
+  short by **~32.5 ETH ≈ $60,500**, which is the **60,000 BOLD** the 20 swaps put into the basket.
+  **The CLAIM shrank, not the payment.**
+
+### ⇒ THE REAL QUESTION (and it is a #12 POOLED_USD question, not an §A.16 one)
+`AUX.swap(BOLD → WETH)` takes WETH **out of the band** and puts BOLD **into the basket**. The band's LPs
+are the ones who supplied that WETH. So either:
+ (a) the band SHOULD be credited a USD claim for the inventory it sold (`POOLED_USD_ETH` ↑), and the LP's
+     redeemable value should be ~400 ETH-equivalent ⇒ **the credit is missing or not reaching `vogueETH()`**;
+ (b) band LPs and QUID holders share ONE balance sheet BY DESIGN, and selling band inventory to the basket
+     legitimately transfers value from LPs to QUID backing ⇒ **working as intended, and both probes plus the
+     assertion need re-scoping to say so.**
+⚠️ **I cannot settle (a) vs (b) from the measurement alone — it is a design intent question.** What IS
+  established: the value is intact system-wide (`AUX TVL = 1,212,001`; SP BOLD = 60,000.9), delivery works,
+  and the transfer is exactly the swapped notional.
+▶️ **NEXT:** check whether `POOLED_USD_ETH` rises by ~60,000 across the 20 swaps. **If it rises and
+  `vogueETH()` does not reflect it, that is a concrete accounting bug (#12's count-once invariant). If it
+  does not rise at all, the design is (b) and the probes must be re-scoped.** One measurement, decisive.
+📌 Reclassifying: this is **#12 (POOLED_USD count-once / no-double-spend)**, not §A.16 (levered-LP
+  cross-subsidy). The probe's NAME sent me down the leverage path for two rounds; the flow is a plain swap.
+
