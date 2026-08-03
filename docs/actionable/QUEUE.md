@@ -6374,6 +6374,25 @@ the full 3,560-test suite, where the rate-limited Ankr key degraded to a 9m50s t
 🔴 **STILL REQUIRED AND CANNOT BE DONE FROM HERE: ROTATE THAT TOKEN AT ANKR.** It is in git history;
   deleting it from HEAD does not un-leak it.
 
+# ✅ FULL-SCOPE TRANSCRIPT SWEEP — ALL 10 SESSIONS, ALL 57 UNBOOKED ITEMS READ INDIVIDUALLY (2026-08-03)
+Ran `tools/scan-loose-ends.py --transcript <each> --against QUEUE.md` over **every** SPV session, with
+the scanner finally reading **every block type** (text + thinking + tool_result + tool_use) **and user
+prompts** (`scan_prompts`). ~4,750 distinct passages, **57 not obviously booked — every one read.**
+| transcript | distinct | unbooked | verdict |
+|---|---|---|---|
+| `60687332` | 1,889 | **33** | 🔵 **ibiza work in an SPV-named project dir** — `noir_dl_lib`, rarime, paymaster/5564, notary scraping, SDK forks, lexe, ASP/blacklist. **NOT banked here** (user's call: the ibiza thread owns them). |
+| `d669393d` (today) | 2,282 | 15 | ✅ all resolved/superseded — SSH keys (resolved, in memory); "skips 60→1" (superseded, now **0**); FAMILY-PLAN/KHALANI (**dropped on the user's call**, archive `:2287`); "deploy-time footgun" = **M1, already booked**; drift/fill numbers = in `ROVER-WEETH.md`; C1 revert pointer (moot, C1 confirmed); `AllExit_Normal` (**passes** — suite 3,562/1/0) |
+| `eba89d71` | 245 | 5 | 🔵 ibiza/rarime (key-strength analysis, machine RAM) + assumptions discipline |
+| `391df7b6` | 220 | 3 | 🔵 QU!D positioning (mortgage/insurance framing) — not engineering |
+| `337ea6d3` | 113 | 1 | *"dont jump to conclusions"* — standing rule, not an item |
+| 5 others | ~2 | 0 | — |
+⇒ ✅ **NOTHING requires banking in SPV's queue.** First sweep verified item-by-item rather than sampled.
+🔵 **CROSS-PROJECT FINDING — invisible from ibiza's side:** the largest unbooked pocket (33) is ibiza
+  work whose conversation happened in SPV's transcript directory. **It will never surface from ibiza's
+  own transcripts.** That thread should sweep THESE files against ITS queue, and port `scan_prompts`
+  from `SPV/tools/scan-loose-ends.py` — its own report named the missing user-prompt scan as the gap
+  that "may matter most for a scope-wide audit."
+
 # ✅ SECOND PASS — the `#NNN` axis, the archive's OWN open list, and a self-check that caught me
 My first adjudication covered only the `§A.x` axis (25 of 73 sections). It did **not** cover the 206
 IDs that appear only in the archive, nor its 59 `OPEN` / 43 `TODO` / 14 `UNVERIFIED` markers. Doing that.
