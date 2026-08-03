@@ -828,4 +828,79 @@ contract LevCascadeProbe is Alles {
         assertLt(committed, ethPooled18 + btcPooled18,
             "live debt must pull committed BELOW the raw two-leg sum, else the debt term is inert");
     }
+
+    // ════════════════ V1b-disc — THE DISCRIMINATING CASE ════════════════
+    //
+    // V1b pins the per-band DECOMPOSITION, but while each band's debt stays below its own USD leg
+    // both floors are non-binding and the per-band and single-floor definitions agree exactly. So
+    // V1b — like `test_IlProtection_…:573` before it — passes under BOTH definitions and cannot
+    // catch the merge going wrong. THIS is the case that can:
+    //
+    //   ethLeg = 1,000  ·  ethDebt = 3,522  ·  btcLeg = 11,542
+    //     per-band  : max(0, 1000-3522) + max(0, 11542-0) = 0 + 11,542 = 11,542
+    //     naive     : max(0, (1000+11542) - 3522)         =              9,020
+    //
+    // The naive form lets the ETH band's debt OVERFLOW into the BTC band's equity, reporting LESS
+    // committed. `_poolUsdInRange` gates on `committedUsd18() <= haircutTvl`, so LESS committed is
+    // a LOOSER gate — it admits commitments the per-band form rejects. Nothing reverts; the basket
+    // silently over-commits, and the BTC band's LPs have quietly underwritten the ETH band's
+    // leverage. Silent + plausible-but-wrong ⇒ standing rule 3's earns-a-check shape.
+    //
+    // Construction: establish real debt via the rally (openLev opens at ZERO leverage), seed the
+    // BTC band, then DRAIN the ETH band's USD leg with sells until it falls BELOW the debt.
+    function test_V1bdisc_OneBandsDebtExceedingItsOwnLegMustNotEatTheOther() public {
+        _setupLev();
+        ETH.setLevManager(address(lm));
+        lm.setSoldFractionActive(true);
+        vm.deal(address(this), 40 ether);
+        V4.deposit{value: 20 ether}(0, address(this), 3);
+        _openAtEntry(lps[0], 5 ether);
+
+        _rallyBand(_entrySqrt(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
+        lm.rebalance(lps[0], 0);
+        _calmVol();
+        V4.syncLev(lps[0]);
+
+        AUX.setBTCChannels(address(this));
+        BTC.registerBtcLp(User01, 2e7);                       // 0.2 BTC — the band that must stay whole
+
+        uint debt = lm.totalDebtUsd();
+        assertGt(debt, 0, "PREMISE: leverage debt must exist before we try to exceed a leg with it");
+
+        // DRAIN the ETH band's USD leg below the debt. Pay ETH in, take USDC out.
+        vm.deal(User01, 4_000 ether);
+        for (uint i; i < 14 && CORE.POOLED_USD_ETH() * 1e12 > debt; i++) {
+            vm.prank(User01);
+            try AUX.swap{value: 200 ether}(address(USDC), address(WETH), false, 0, 0) {} catch {}
+            vm.roll(block.number + 1); vm.warp(block.timestamp + 10 minutes);
+        }
+
+        uint ethPooled18 = CORE.POOLED_USD_ETH() * 1e12;
+        uint btcPooled18 = CORE.POOLED_USD_BTC() * 1e12;
+        debt = lm.totalDebtUsd();                             // re-read: the drain may have moved it
+        uint committed = CORE.committedUsd18();
+        uint btcEquity = CORE.btcBandEquityUsd18();
+        emit log_named_uint("ETH USD leg (18d)", ethPooled18);
+        emit log_named_uint("ETH debt    (18d)", debt);
+        emit log_named_uint("BTC USD leg (18d)", btcPooled18);
+        emit log_named_uint("committedUsd18   ", committed);
+        emit log_named_uint("  BTC band equity", btcEquity);
+
+        // PREMISES — without BOTH of these the case is not the discriminating one and the
+        // assertions below hold under either definition.
+        assertGt(debt, ethPooled18,
+            "PREMISE: the ETH band's debt must EXCEED its own USD leg, else both definitions agree");
+        assertGt(btcPooled18, 0,
+            "PREMISE: the BTC band must hold equity for the overflow to be able to eat");
+
+        // THE DISCRIMINATOR. Per-band: the ETH band floors at 0 and the BTC band is untouched, so
+        // committed is EXACTLY the BTC leg. The naive single floor would instead return
+        // `(ethLeg + btcLeg) - debt`, which is strictly SMALLER here.
+        assertEq(btcEquity, btcPooled18,
+            "the ETH band's excess debt must NOT reach the BTC band's equity");
+        assertEq(committed, btcPooled18,
+            "committed == the BTC leg alone: the ETH band floors at ZERO, its overflow is NOT netted against BTC");
+        assertGt(committed, ethPooled18 + btcPooled18 > debt ? ethPooled18 + btcPooled18 - debt : 0,
+            "per-band flooring must report STRICTLY MORE committed than a single floor over the total");
+    }
 }
