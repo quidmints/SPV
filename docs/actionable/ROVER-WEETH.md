@@ -1,5 +1,57 @@
 # ROVER / weETH — what was measured on 2026-08-03, and what it means
 
+# 🎯 THE GOAL, IN THE USER'S WORDS (this is the whole point of Rover — judge everything against it)
+> *"our goal is to **not require our LPs or swappers to pay the 0.3 instant redeem rate without
+> forcing them to wait**."*
+
+⇒ Rover exists to give a **cheap AND immediate** weETH→ETH exit. ether.fi offers cheap-but-slow (queue)
+  or immediate-but-0.3% (instant redeem). **Rover's only job is to beat that trade-off.** Every finding
+  below is scored against it — NOT against "does the LP earn a yield".
+
+# 📋 USER CONSTRAINTS & OPEN ASKS — verbatim, because these are decision rules, not findings
+| # | constraint | status |
+|---|---|---|
+| 1 | *"if we cannot substantiate our case in the .md document **and** in our implemented design for why we are adding this machinery we shouldn't continue with it"* | 🔴 **UNMET.** The fee case rests on a healthy-window measurement; the venue is now frozen. |
+| 2 | *"we need to solve **the DoS surface, the LVR carry and the stranding**"* | DoS + stranding: fix shape known. **LVR carry: NOT solvable** (external pool ⇒ no party to re-allocate to). |
+| 3 | *"fixing `_nearFair` is **not the only thing** that needs to be done"* | ✅ correct — see the higher-gravity list + `deliverableETH`. |
+| 4 | *"we need to **adapt our rover either way to go where the volume is**"* | 🔴 **No volume found anywhere** — v3 both tiers frozen, Curve empty, v4 ~20× shallower. |
+| 5 | *"we shouldn't **pack it at the fair ratio but at the current imbalance ratio** of the pool"* | 🟠 **UNEVALUATED.** Sound instinct (supply the scarce side = weETH); unpriced because flow ≈ 0. |
+| 6 | *"are you sure `_priceOr` is correct? … degrading … might be good for weETH:WETH but **not WETH to dollar**"* | ✅ **Right, and the distinction matters.** For Rover the anchor IS the mint/redeem rate ⇒ degrading is unexploitable. For WETH:USD the anchor is Chainlink ⇒ genuinely a trade-off. **Do not transfer Vogue's precedent as proof — only as analogy.** |
+| 7 | *"would it make sense to **drop the contract** (what would that buy)"* | Buys: no stranding, no DoS, no LVR. Costs: fee rebate on own flow + the controlled route. **Does NOT cost safety** — the un-pullable ether.fi queue is the guarantee, never Rover. |
+| 8 | *"can they remove it any time (**vulnerability/liability** for us if we are counting on it)"* | ✅ **Yes — one `decreaseLiquidity` call, no lock, no notice.** `minOut` ⇒ revert not loss ⇒ **liveness risk, not solvency.** |
+
+# 🚀 BRIEF FOR A DEDICATED ROVER THREAD
+**Start here, then the sections below. Use a `git worktree` — another thread has unpushed work in this
+checkout touching `QUEUE.md` and the `tickUpper` seam.**
+**First three tasks, in order (each is ONE bounded read or measurement):**
+ 1. **Read `swapWeethForWeth`'s pool-order logic** — is selection SIZE-AWARE? B cliffs at 1–2k weETH;
+    A degrades gracefully to 4k. A fixed order can revert on B when A would have filled.
+ 2. **Read `_deliverableCap`'s exact semantics** (`VaultLib.sol`) so the Rover analogue matches the
+    file's existing pattern — then implement the `deliverableETH` cap (spec in this doc).
+ 3. **Measure `T`** = Rover-serviced offramp volume ÷ Rover weETH position, annualised. **This single
+    number decides whether the NFT stays**, because the only surviving argument for it is the
+    fee rebate on our own flow.
+**Reproducible measurement toolkit** (all used to produce this doc):
+```
+POOL_A=0x7A415B19932c0105c82FDB6b720bb01B0CC2CAe3   # 0.05%
+POOL_B=0x202A6012894Ae5c288eA824cbc8A9bfb26A49b93   # 0.01%
+WEETH=0xCd5fE23C85820F7B72D0926FC9b05b43E359b7ee  QUOTER=0x61fFE014bA17989E743c5F6cB21bF9697530B21e
+cast call $POOL 'liquidity()(uint128)'            --block N   # in-range depth
+cast call $POOL 'feeGrowthGlobal0X128()(uint256)' --block N   # fees/unit L (frozen ⇒ no trades)
+cast call $WEETH 'getRate()(uint256)'             --block N   # fair; monotonic
+cast call $QUOTER 'quoteExactInputSingle((address,address,uint256,uint24,uint160))(uint256,uint160,uint32,uint256)' "($WEETH,$WETH,$AMT,$FEE,0)" --block N
+```
+⚠️ **Method warnings earned the hard way today — 7 retractions, 4 caught by the user:**
+ • **Sample SEVERAL windows.** One window is a point, not a trend. The −1.6%/yr verdict came from the
+   single 30-day window in which the pool died.
+ • **Read total BALANCES before diagnosing `liquidity()`.** In-range `L` collapsing 3.5M× looked like
+   abandonment; balances proved capital never moved — the price had drifted out of range.
+ • **A comment describes past state.** The `~7%` band comment was stale; the band is ONE TICK. It
+   mis-framed an entire analysis.
+ • **Read `IL-CERTIFICATION.md` + `IL-VIA-BONDS.md` BEFORE theorising** — the single-sided/ratchet
+   proposal was already tested across 5 model classes and REMOVED as inert. I re-derived it badly.
+
+
 All figures are **point-in-time archive reads at named blocks** (mainnet, tip ≈ 25,674,xxx), not models.
 Where this doc was wrong before, the correction is kept next to the claim — the reads were sound
 throughout; the *inferences between them* were not, and that is the reusable lesson.
