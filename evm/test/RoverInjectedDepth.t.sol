@@ -114,6 +114,43 @@ contract RoverInjectedDepthTest is ForkPin {
         }
     }
 
+    /// @notice WETH-ONLY, placed ABOVE spot -- the structure R8 dismissed as "single-sided is dead"
+    ///         while only ever considering the weETH side. A position above spot holds 100% token0
+    ///         (WETH): it is instantly pullable as the very asset the offramp delivers, it CANNOT be
+    ///         ratcheted by the drift (already fully converted, and drift pushes spot further away),
+    ///         and it earns fees precisely when someone sells weETH through it -- i.e. on our own flow.
+    ///         Placed over [-940,-900], the range the real stranded wall occupies.
+    int24 LO; int24 HI;
+    function test_wethOnlyAboveSpot() public { LO=-940; HI=-900; _runBand(); }
+    /// @notice WIDE band ANCHORED AT SPOT and extending UP: no gap to cross, mostly WETH (spot sits
+    ///         2 ticks above the lower edge of a 50-tick range), in range so it earns fees, and only
+    ///         the small weETH sliver is exposed to the ratchet.
+    function test_wideBandAnchoredAtSpot() public { LO=-950; HI=-900; _runBand(); }
+    function test_wideBandAnchoredAtSpot_narrower() public { LO=-950; HI=-920; _runBand(); }
+    function _runBand() internal {
+        uint size = 4000e18;
+        emit log_named_int("=== band lower", LO); emit log_named_int("    band upper", HI);
+        uint[4] memory sizes = [uint(100e18), 500e18, 1000e18, 2000e18];
+        for (uint i; i < sizes.length; ++i) {
+            uint256 s0 = vm.snapshotState();
+            deal(WETH, address(this), size); deal(WEETH, address(this), IWeETH(WEETH).getWeETHByeETH(size));
+            IERC20(WETH).approve(NFPM, type(uint).max);
+            IERC20(WEETH).approve(NFPM, type(uint).max);
+            (tokenId,,,) = INonfungiblePositionManager(NFPM).mint(
+                INonfungiblePositionManager.MintParams({
+                    token0: WETH, token1: WEETH, fee: FEE, tickLower: LO, tickUpper: HI,
+                    amount0Desired: size, amount1Desired: IWeETH(WEETH).getWeETHByeETH(size),
+                    amount0Min: 0, amount1Min: 0, recipient: address(this), deadline: block.timestamp
+                }));
+            emit log_named_uint("  WETH deployed", size - IERC20(WETH).balanceOf(address(this)));
+            emit log_named_uint("  weETH deployed", IERC20(WEETH).balanceOf(address(this)));
+            int bps = _convertAndPrice(sizes[i]);
+            emit log_named_uint("sell weETH", sizes[i] / 1e18);
+            emit log_named_int ("  TRUE all-in bps", bps);
+            vm.revertToState(s0);
+        }
+    }
+
     /// @notice WITH a Rover-sized one-tick position injected. If the self-counterparty argument is
     ///         right, the all-in cost collapses for sizes the band can absorb.
     function test_withRoverDepth_1000() public { _run(1000e18); }

@@ -1466,3 +1466,35 @@ dollars→WETH on deep routes pays a few bps. So:
 ⇒ ✅ **THE COHERENT DESIGN:** hold **WETH** as the reserve, **spot-centred** band for conversion
   quality (−1 bps), and accept the **~1%/yr LVR as the COST OF THE SERVICE** — charged only on the
   `ethfiBacked` slice, since every other ETH venue returns WETH directly and never needs converting.
+
+## 16.6 🧪 SHOULD WE TARGET THE WALL'S RANGE OURSELVES? — tested (owner's question)
+Same 4,000 WETH, four placements, TRUE all-in cost (`RoverInjectedDepth.t.sol`):
+| band | 100 | 500 | 1,000 | 2,000 weETH |
+|---|---|---|---|---|
+| none (today's pool) | −24 | −26 | −28 | −33 |
+| `[−940,−900]` **WETH-only, ABOVE spot** (the wall's own range) | −14 | −14 | −15 | **−16, flat** |
+| `[−950,−900]` wide, anchored AT spot | −1 | −1 | −7 | −12 |
+| `[−950,−920]` narrower | −1 | −1 | −1 | −7 |
+| **`[−950,−940]` one-tick — what Rover already does** | **−1** | **−1** | **−1** | **−1** |
+
+⇒ ⛔ **NO — not for conversion quality. CONCENTRATION WINS.** Spreading the same capital over 30 or
+  50 ticks makes execution WORSE; depth-per-tick is what the swap sees. **The existing one-tick band
+  is already optimal on this axis.** The `[−940,−900]` version pays **−14** because spot (−948) sits
+  8 ticks BELOW it, so a sale crosses empty ground before reaching our own liquidity. *(✅ executed.)*
+⇒ ⭐ **BUT THE OWNER WAS RIGHT THAT I HAD NOT TESTED IT, AND IT HAS AN ADVANTAGE `R8` MISSED:** a
+  WETH-only position ABOVE spot **CANNOT BE RATCHETED.** It is already 100% token0, and the drift
+  pushes spot further AWAY, so it never converts. **Zero LVR.** `R8` declared single-sided dead having
+  only ever considered the **weETH** side (*"pulling it returns 100% weETH, all of which must then be
+  sold"*) — the **WETH** side is the opposite: pulled, it returns exactly the asset the offramp
+  delivers. *(✅ — v3 mechanics plus the measurement above.)*
+| structure | conversion | ratchet LVR | decays? | earns fees? |
+|---|---|---|---|---|
+| one-tick AT spot | 🎯 **−1 bps** | ~1%/yr (~40 WETH on 4,000) | no (re-centred) | yes, in range |
+| WETH-only ABOVE spot | −14 bps | 🎯 **ZERO** | 🔴 yes — the gap widens at 0.63 ticks/day | 🔴 no, out of range |
+⇒ 📏 **BREAKEVEN ≈ 31,000 WETH/yr of turnover** — above it the spot band wins, below it the
+  above-spot structure does. **Consistent with every other breakeven in this doc (~28–31k)**, which is
+  at least internally coherent. *(OPEN — turnover is the owner's input.)*
+⇒ 📌 **AND IT REFRAMES THE WALL.** The `[−940,−900]` position is not irrational stranded capital: it
+  is 100% WETH, immune to further ratcheting, and it bids for weETH at **19–59 bps below fair**. It
+  was in range at −70/−60/−40/−30/−20d and spot fell through its floor ~13 days ago. **Whoever owns
+  it is now in the one v3 posture the drift cannot hurt.**
