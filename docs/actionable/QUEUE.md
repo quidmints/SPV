@@ -314,6 +314,38 @@ current in-range `L = 6.6e17`:
 | single-sided, off fair | ✅ yes (prices off `getRate`, never spot) | ✅ **yes** — only fills at a premium you chose |
 ⇒ **Do BOTH.** The gate fix is a LIVENESS fix; single-sided is the ECONOMICS fix. Neither substitutes.
 
+### ⛔ R6 — "SINGLE-SIDED" IS NOT ENFORCEABLE IN v3. I OVERSOLD IT. (user, 2026-08-03)
+> *"is there really a way to enforce this if the liquidity is on the v3 pool which is where routers
+> move swaps through and it in itself will not block two-sided flow?"* — **Correct. There is not.**
+A v3 range order is single-sided **only while UNTOUCHED**. Once the drift walks price INTO the range,
+the position is an ordinary **two-sided** AMM position inside that band and any router trades both
+directions against it. **v3 has no directional flag; you cannot refuse a side.**
+⇒ ⚠️ **So single-sided RELOCATES the exposure, it does not remove it.** Correct claim: all fills occur
+  at prices CHOSEN in advance (the band starts above fair), and the exposure window is the traversal
+  of one narrow band rather than a permanent straddle.
+🟢 **What genuinely survives (and is still worth having):**
+ • Fills execute at a premium selected in advance, not at a stale mid.
+ • **Monotonic drift ⇒ no adverse round-tripping.** Price does not come back, so you are not re-crossed.
+ • Oscillation INSIDE the band is benign — a router pushing price back up leaves you in weETH again,
+   having collected fees in both directions.
+ • Placement prices off `getRate()` ⇒ still immune to the R2 spot-shove DoS.
+🔴 **What does NOT survive:** LVR during traversal. It is smaller (one narrow band, starting above
+  fair) but **not zero**, and R5's −1.6%/yr was computed for a permanent straddle, so it **cannot be
+  read across** to this design.
+
+### 🧪 R7 — WHAT I ACTUALLY DID vs WHAT IS NEEDED (do not mistake one for the other)
+**I did NOT backtest.** I read `feeGrowthGlobal{0,1}X128` at two blocks and applied the delta to
+TODAY's in-range `L`. That is a point measurement EXTRAPOLATED over 30 days — no fork, no swap replay,
+no accounting for how `L` moved across the window. **It establishes the SIGN (fees ≈ ⅓ of drift), not
+the magnitude, and it says nothing about the single-sided design at all.**
+▶️ **The real test, and it is cheap because the harness already exists:** fork mainnet at N blocks
+  across a window (`ForkPin` + `FORK_BLOCK` already do this), replay the pool's actual swaps against
+  (a) today's straddle and (b) a one-tick ask above fair, and compare realised fees + inventory. **Only
+  that settles whether the relocated exposure is better than the current one.**
+⚠️ **Until that runs, treat R5's −1.6% as evidence the CURRENT design is negative — NOT as evidence
+  that single-sided is positive.** Those are different claims and I conflated them.
+
+
 ### 📊 SINGLE-SIDED — WHAT WE GAIN AND LOSE (the honest ledger)
 **GAIN**
  • **No adverse selection.** An ask above fair fills only at a premium chosen in advance.
