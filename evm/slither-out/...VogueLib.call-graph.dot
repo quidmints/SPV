@@ -1,0 +1,58 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_76540_VogueLib {
+label = "VogueLib"
+"76540_levBurnAll" [label="levBurnAll"]
+"76540_sizeOutOfRange" [label="sizeOutOfRange"]
+"76540_transferSharesBody" [label="transferSharesBody"]
+"76540_bufTarget" [label="bufTarget"]
+"76540_derivedThetaWad" [label="derivedThetaWad"]
+"76540_depositETH" [label="depositETH"]
+"76540__refreshBookmarksLib" [label="_refreshBookmarksLib"]
+"76540_realizedVarianceWad" [label="realizedVarianceWad"]
+"76540_levAddGross" [label="levAddGross"]
+"76540_rebalanceBody" [label="rebalanceBody"]
+"76540_levAddBuf" [label="levAddBuf"]
+"76540_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"76540_addLiq" [label="addLiq"]
+"76540_reconcileLegs" [label="reconcileLegs"]
+"76540_levManager" [label="levManager"]
+"76540__liveTheta" [label="_liveTheta"]
+"76540__supplyEtherFi" [label="_supplyEtherFi"]
+"76540__venueBalanceLib" [label="_venueBalanceLib"]
+"76540_realizedAlphaWad" [label="realizedAlphaWad"]
+"76540_kLvrWad" [label="kLvrWad"]
+"76540__bandFeeYieldWad" [label="_bandFeeYieldWad"]
+"76540_pullBody" [label="pullBody"]
+"76540_levAddNet" [label="levAddNet"]
+"76540_transferSharesBody" -> "76540__refreshBookmarksLib"
+"76540__venueBalanceLib" -> "76540_levManager"
+"76540_derivedThetaWad" -> "76540_realizedVarianceWad"
+"76540_addLiq" -> "76540__liveTheta"
+"76540_rebalanceBody" -> "76540__venueBalanceLib"
+"76540_derivedThetaWad" -> "76540__bandFeeYieldWad"
+"76540_sizeOutOfRange" -> "76540_depositETH"
+"76540_derivedThetaWad" -> "76540_kLvrWad"
+"76540_reconcileLegs" -> "76540_levAddGross"
+"76540_reconcileLegs" -> "76540_levBurnAll"
+"76540_levAddGross" -> "76540_levAddNet"
+"76540_levAddGross" -> "76540_levAddBuf"
+"76540_depositETH" -> "76540__supplyEtherFi"
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"revert NotOwner()" 
+"revert Dust()" 
+"revert InsufficientBalance()" 
+"require(bool,string)" 
+"revert VenueUnavailable()" 
+"revert BadPercent()" 
+"76540_transferSharesBody" -> "require(bool,string)"
+"76540_depositETH" -> "revert VenueUnavailable()"
+"76540_pullBody" -> "revert NotOwner()"
+"76540_pullBody" -> "revert Dust()"
+"76540_transferSharesBody" -> "revert InsufficientBalance()"
+"76540_pullBody" -> "require(bool,string)"
+"76540_pullBody" -> "revert BadPercent()"
+}
+}

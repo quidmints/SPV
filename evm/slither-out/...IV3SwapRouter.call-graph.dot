@@ -1,0 +1,16 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_77778_IV3SwapRouter {
+label = "IV3SwapRouter"
+"77778_exactInputSingle" [label="exactInputSingle"]
+"77778_exactOutputSingle" [label="exactOutputSingle"]
+"77778_exactOutput" [label="exactOutput"]
+"77778_exactInput" [label="exactInput"]
+}subgraph cluster_77685_IUniswapV3SwapCallback {
+label = "IUniswapV3SwapCallback"
+"77685_uniswapV3SwapCallback" [label="uniswapV3SwapCallback"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

@@ -1,0 +1,59 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_6282_TxParser {
+label = "TxParser"
+"6282__parseTransactionOutput" [label="_parseTransactionOutput"]
+"6282_calculateWTxId" [label="calculateWTxId"]
+"6282__checkForBufferOverflow" [label="_checkForBufferOverflow"]
+"6282_formatTransaction" [label="formatTransaction"]
+"6282__parseTransactionInput" [label="_parseTransactionInput"]
+"6282__formatTransactionInput" [label="_formatTransactionInput"]
+"6282_calculateTxId" [label="calculateTxId"]
+"6282_parseCuint" [label="parseCuint"]
+"6282__doubleSHA256" [label="_doubleSHA256"]
+"6282__formatTransactionOutput" [label="_formatTransactionOutput"]
+"6282__removeWitness" [label="_removeWitness"]
+"6282__parseCuint" [label="_parseCuint"]
+"6282_isTransaction" [label="isTransaction"]
+"6282_parseTransaction" [label="parseTransaction"]
+"6282_formatCuint" [label="formatCuint"]
+"6282__parseCuint" -> "6282__checkForBufferOverflow"
+"6282__parseTransactionOutput" -> "6282__checkForBufferOverflow"
+"6282_parseTransaction" -> "6282__parseCuint"
+"6282_parseTransaction" -> "6282__checkForBufferOverflow"
+"6282_formatTransaction" -> "6282_formatCuint"
+"6282__formatTransactionOutput" -> "6282_formatCuint"
+"6282_parseTransaction" -> "6282__parseTransactionInput"
+"6282_calculateTxId" -> "6282__removeWitness"
+"6282_calculateTxId" -> "6282__doubleSHA256"
+"6282__parseTransactionInput" -> "6282__parseCuint"
+"6282__removeWitness" -> "6282_parseTransaction"
+"6282__removeWitness" -> "6282_formatTransaction"
+"6282__parseTransactionOutput" -> "6282__parseCuint"
+"6282_parseTransaction" -> "6282__parseTransactionOutput"
+"6282_isTransaction" -> "6282__parseCuint"
+"6282_formatTransaction" -> "6282__formatTransactionOutput"
+"6282_formatTransaction" -> "6282__formatTransactionInput"
+"6282__parseTransactionInput" -> "6282__checkForBufferOverflow"
+"6282_calculateWTxId" -> "6282__doubleSHA256"
+"6282__formatTransactionInput" -> "6282_formatCuint"
+"6282_parseCuint" -> "6282__parseCuint"
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"sha256(bytes)" 
+"revert BufferOverflow()" 
+"abi.encodePacked()" 
+"revert InvalidFlag(uint8)" 
+"revert UnsupportedVersion(uint32)" 
+"6282__checkForBufferOverflow" -> "revert BufferOverflow()"
+"6282__doubleSHA256" -> "sha256(bytes)"
+"6282__doubleSHA256" -> "abi.encodePacked()"
+"6282__formatTransactionOutput" -> "abi.encodePacked()"
+"6282_parseTransaction" -> "revert InvalidFlag(uint8)"
+"6282_formatCuint" -> "abi.encodePacked()"
+"6282__formatTransactionInput" -> "abi.encodePacked()"
+"6282_parseTransaction" -> "revert UnsupportedVersion(uint32)"
+"6282_formatTransaction" -> "abi.encodePacked()"
+}
+}

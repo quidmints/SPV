@@ -1,0 +1,49 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_2366_LibBit {
+label = "LibBit"
+"2366_clz" [label="clz"]
+"2366_or" [label="or"]
+"2366_and" [label="and"]
+"2366_fls" [label="fls"]
+"2366_rawToUint" [label="rawToUint"]
+"2366_commonBytePrefix" [label="commonBytePrefix"]
+"2366_reverseBits" [label="reverseBits"]
+"2366_countZeroBytes" [label="countZeroBytes"]
+"2366_toUint" [label="toUint"]
+"2366_popCount" [label="popCount"]
+"2366_isPo2" [label="isPo2"]
+"2366_toNibbles" [label="toNibbles"]
+"2366_rawAnd" [label="rawAnd"]
+"2366_countZeroBytesCalldata" [label="countZeroBytesCalldata"]
+"2366_ffs" [label="ffs"]
+"2366_commonBitPrefix" [label="commonBitPrefix"]
+"2366_reverseBytes" [label="reverseBytes"]
+"2366_commonNibblePrefix" [label="commonNibblePrefix"]
+"2366_rawOr" [label="rawOr"]
+"2366_czb" [label="czb"]
+"2366_commonBytePrefix" -> "2366_clz"
+"2366_countZeroBytesCalldata" -> "2366_czb"
+"2366_commonNibblePrefix" -> "2366_clz"
+"2366_reverseBits" -> "2366_reverseBytes"
+"2366_commonBitPrefix" -> "2366_clz"
+"2366_countZeroBytes" -> "2366_czb"
+"2366_reverseBytes" -> "2366_toUint"
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"byte(uint256,uint256)" 
+"mstore(uint256,uint256)" 
+"calldataload(uint256)" 
+"mload(uint256)" 
+"2366_toNibbles" -> "mstore(uint256,uint256)"
+"2366_ffs" -> "byte(uint256,uint256)"
+"2366_countZeroBytes" -> "mload(uint256)"
+"2366_clz" -> "byte(uint256,uint256)"
+"2366_countZeroBytesCalldata" -> "calldataload(uint256)"
+"2366_fls" -> "byte(uint256,uint256)"
+"2366_toNibbles" -> "mload(uint256)"
+"2366_czb" -> "byte(uint256,uint256)"
+"2366_countZeroBytes" -> "byte(uint256,uint256)"
+}
+}

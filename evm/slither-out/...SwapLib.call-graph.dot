@@ -1,0 +1,153 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_72121_SwapLib {
+label = "SwapLib"
+"72121__packBandTicks" [label="_packBandTicks"]
+"72121__consumeVolInput" [label="_consumeVolInput"]
+"72121_pendingFor" [label="pendingFor"]
+"72121_depositBody" [label="depositBody"]
+"72121_creditSwapOutBody" [label="creditSwapOutBody"]
+"72121_twapResolve" [label="twapResolve"]
+"72121_swapToBody" [label="swapToBody"]
+"72121__consumeQdIn" [label="_consumeQdIn"]
+"72121_rebalanceCore" [label="rebalanceCore"]
+"72121_retainSkewPremium" [label="retainSkewPremium"]
+"72121__priceOr" [label="_priceOr"]
+"72121_offrampBody" [label="offrampBody"]
+"72121__finishSwap" [label="_finishSwap"]
+"72121_targetSqrtForPrice" [label="targetSqrtForPrice"]
+"72121__maxWellSkew" [label="_maxWellSkew"]
+"72121__doReseat" [label="_doReseat"]
+"72121_burnInRange" [label="burnInRange"]
+"72121_sizeBySurplus" [label="sizeBySurplus"]
+"72121_soldFractionWad" [label="soldFractionWad"]
+"72121__reseatIfStale" [label="_reseatIfStale"]
+"72121_sizeOorUsd" [label="sizeOorUsd"]
+"72121_sweepBody" [label="sweepBody"]
+"72121__skewBasis" [label="_skewBasis"]
+"72121_deleverEthOnDelivery" [label="deleverEthOnDelivery"]
+"72121_sellSkew" [label="sellSkew"]
+"72121_waitNft" [label="waitNft"]
+"72121__swapInSettle" [label="_swapInSettle"]
+"72121_feeIncrements" [label="feeIncrements"]
+"72121_validateOorParams" [label="validateOorParams"]
+"72121_oorTicks" [label="oorTicks"]
+"72121_skewWad" [label="skewWad"]
+"72121_holdingRatioWad" [label="holdingRatioWad"]
+"72121__swapOutSettle" [label="_swapOutSettle"]
+"72121_deleverOnDelivery" [label="deleverOnDelivery"]
+"72121_auxSwapBody" [label="auxSwapBody"]
+"72121_creditSwapInBody" [label="creditSwapInBody"]
+"72121_alignTick" [label="alignTick"]
+"72121__convert" [label="_convert"]
+"72121_clampByBacking" [label="clampByBacking"]
+"72121_scaleTo6" [label="scaleTo6"]
+"72121__sourceRepayFree" [label="_sourceRepayFree"]
+"72121_twapBody" [label="twapBody"]
+"72121__requireStable" [label="_requireStable"]
+"72121__refundExcess" [label="_refundExcess"]
+"72121_paddedSqrtPrice" [label="paddedSqrtPrice"]
+"72121_wellSkew" [label="wellSkew"]
+"72121_vogueOpBody" [label="vogueOpBody"]
+"72121_sourceWethBody" [label="sourceWethBody"]
+"72121_applyTheta" [label="applyTheta"]
+"72121_updateTicks" [label="updateTicks"]
+"72121__heldUsd18" [label="_heldUsd18"]
+"72121_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"72121__swapOutPrep" [label="_swapOutPrep"]
+"72121_refreshBookmarks" [label="refreshBookmarks"]
+"72121_plainNet" [label="plainNet"]
+"72121_creditSwapOutBody" -> "72121__swapOutSettle"
+"72121_swapToBody" -> "72121_retainSkewPremium"
+"72121_creditSwapInBody" -> "72121__packBandTicks"
+"72121__consumeVolInput" -> "72121_scaleTo6"
+"72121_creditSwapInBody" -> "72121__swapInSettle"
+"72121__swapOutPrep" -> "72121__packBandTicks"
+"72121_rebalanceCore" -> "72121_updateTicks"
+"72121_auxSwapBody" -> "72121__convert"
+"72121_creditSwapOutBody" -> "72121__swapOutPrep"
+"72121_swapToBody" -> "72121__finishSwap"
+"72121_creditSwapInBody" -> "72121__requireStable"
+"72121_soldFractionWad" -> "72121_holdingRatioWad"
+"72121_swapToBody" -> "72121_wellSkew"
+"72121_updateTicks" -> "72121_alignTick"
+"72121__finishSwap" -> "72121__refundExcess"
+"72121_swapToBody" -> "72121_sellSkew"
+"72121_rebalanceCore" -> "72121__reseatIfStale"
+"72121__consumeVolInput" -> "72121__consumeQdIn"
+"72121__finishSwap" -> "72121__priceOr"
+"72121_sellSkew" -> "72121__skewBasis"
+"72121_skewWad" -> "72121__maxWellSkew"
+"72121__swapOutPrep" -> "72121_wellSkew"
+"72121_sellSkew" -> "72121_skewWad"
+"72121__reseatIfStale" -> "72121__doReseat"
+"72121_updateTicks" -> "72121_paddedSqrtPrice"
+"72121_swapToBody" -> "72121__packBandTicks"
+"72121_swapToBody" -> "72121__consumeVolInput"
+"72121_creditSwapOutBody" -> "72121__requireStable"
+"72121_wellSkew" -> "72121_skewWad"
+"72121_deleverOnDelivery" -> "72121__sourceRepayFree"
+"72121__sourceRepayFree" -> "72121__heldUsd18"
+"72121__swapOutPrep" -> "72121__priceOr"
+"72121__swapOutPrep" -> "72121_retainSkewPremium"
+"72121__doReseat" -> "72121_updateTicks"
+"72121__swapOutPrep" -> "72121_scaleTo6"
+"72121_creditSwapInBody" -> "72121__priceOr"
+"72121_clampByBacking" -> "72121_applyTheta"
+"72121_swapToBody" -> "72121__priceOr"
+"72121_oorTicks" -> "72121_alignTick"
+"72121_wellSkew" -> "72121__skewBasis"
+"72121__reseatIfStale" -> "72121_targetSqrtForPrice"
+"72121_offrampBody" -> "72121_waitNft"
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"balance(address)" 
+"revert UnknownStableSweep()" 
+"revert SlippageExceeded()" 
+"revert SwapInDrainsProceeds()" 
+"revert SwapOutShort()" 
+"revert NoBtcRecipient()" 
+"revert SwapInShort()" 
+"revert TickOutOfRange()" 
+"revert BtcInflowsViaChannels()" 
+"revert UnderBackedS()" 
+"revert StableMissing()" 
+"revert ZeroAddress()" 
+"revert DeleverStableUnavailable()" 
+"revert ZeroAmount()" 
+"revert StableMissingS()" 
+"revert SlippageMaxS()" 
+"revert SameToken()" 
+"revert NotBasketStable()" 
+"revert BadOp()" 
+"revert BadAsset()" 
+"abi.encodePacked()" 
+"revert BadOorParam()" 
+"72121__swapOutSettle" -> "revert SwapOutShort()"
+"72121__swapInSettle" -> "revert SwapInShort()"
+"72121_swapToBody" -> "revert UnderBackedS()"
+"72121_auxSwapBody" -> "revert SlippageExceeded()"
+"72121_swapToBody" -> "revert NoBtcRecipient()"
+"72121__sourceRepayFree" -> "revert DeleverStableUnavailable()"
+"72121__requireStable" -> "revert StableMissing()"
+"72121_sizeOorUsd" -> "revert TickOutOfRange()"
+"72121_swapToBody" -> "revert BadAsset()"
+"72121_sweepBody" -> "revert UnknownStableSweep()"
+"72121_updateTicks" -> "revert TickOutOfRange()"
+"72121__swapInSettle" -> "revert SwapInDrainsProceeds()"
+"72121_swapToBody" -> "revert StableMissingS()"
+"72121_vogueOpBody" -> "revert BadOp()"
+"72121_sweepBody" -> "balance(address)"
+"72121_auxSwapBody" -> "revert ZeroAddress()"
+"72121_auxSwapBody" -> "revert NotBasketStable()"
+"72121__finishSwap" -> "revert SlippageMaxS()"
+"72121_auxSwapBody" -> "revert ZeroAmount()"
+"72121_sourceWethBody" -> "abi.encodePacked()"
+"72121__consumeVolInput" -> "revert StableMissingS()"
+"72121_offrampBody" -> "abi.encodePacked()"
+"72121_auxSwapBody" -> "revert SameToken()"
+"72121_swapToBody" -> "revert BtcInflowsViaChannels()"
+"72121_validateOorParams" -> "revert BadOorParam()"
+}
+}

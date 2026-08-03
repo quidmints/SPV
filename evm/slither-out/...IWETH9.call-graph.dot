@@ -1,0 +1,19 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_58162_IWETH9 {
+label = "IWETH9"
+"58162_deposit" [label="deposit"]
+"58162_withdraw" [label="withdraw"]
+}subgraph cluster_58150_IERC20Min {
+label = "IERC20Min"
+"58150_balanceOf" [label="balanceOf"]
+"58150_transferFrom" [label="transferFrom"]
+"58150_allowance" [label="allowance"]
+"58150_transfer" [label="transfer"]
+"58150_approve" [label="approve"]
+"58150_decimals" [label="decimals"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

@@ -1,0 +1,18 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_64626_OracleLib {
+label = "OracleLib"
+"64626_writeObservation" [label="writeObservation"]
+"64626_deployMocks" [label="deployMocks"]
+"64626__getOldest" [label="_getOldest"]
+"64626_observe" [label="observe"]
+"64626__interpolate" [label="_interpolate"]
+"64626_observe" -> "64626__getOldest"
+"64626_observe" -> "64626__interpolate"
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"revert(string)" 
+"64626_observe" -> "revert(string)"
+}
+}

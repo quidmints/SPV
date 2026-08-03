@@ -1,0 +1,36 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_6960_IERC20 {
+label = "IERC20"
+"6960_allowance" [label="allowance"]
+"6960_totalSupply" [label="totalSupply"]
+"6960_balanceOf" [label="balanceOf"]
+"6960_transfer" [label="transfer"]
+"6960_approve" [label="approve"]
+"6960_decimals" [label="decimals"]
+"6960_symbol" [label="symbol"]
+"6960_name" [label="name"]
+"6960_transferFrom" [label="transferFrom"]
+}subgraph cluster_7125_IERC4626 {
+label = "IERC4626"
+"7125_maxDeposit" [label="maxDeposit"]
+"7125_maxWithdraw" [label="maxWithdraw"]
+"7125_previewWithdraw" [label="previewWithdraw"]
+"7125_redeem" [label="redeem"]
+"7125_withdraw" [label="withdraw"]
+"7125_asset" [label="asset"]
+"7125_previewRedeem" [label="previewRedeem"]
+"7125_mint" [label="mint"]
+"7125_maxMint" [label="maxMint"]
+"7125_convertToShares" [label="convertToShares"]
+"7125_deposit" [label="deposit"]
+"7125_maxRedeem" [label="maxRedeem"]
+"7125_previewMint" [label="previewMint"]
+"7125_convertToAssets" [label="convertToAssets"]
+"7125_totalAssets" [label="totalAssets"]
+"7125_previewDeposit" [label="previewDeposit"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

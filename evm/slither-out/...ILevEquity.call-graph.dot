@@ -1,0 +1,14 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_58570_ILevEquity {
+label = "ILevEquity"
+"58570_totalNetEquityEth" [label="totalNetEquityEth"]
+"58570_grossCollateralEth" [label="grossCollateralEth"]
+"58570_totalGrossCollateralEth" [label="totalGrossCollateralEth"]
+"58570_debtUsd" [label="debtUsd"]
+"58570_netEquityEth" [label="netEquityEth"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

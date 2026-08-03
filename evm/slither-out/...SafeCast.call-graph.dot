@@ -1,0 +1,13 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_12959_SafeCast {
+label = "SafeCast"
+"12959_toInt128" [label="toInt128"]
+"12959_toUint128" [label="toUint128"]
+"12959_toInt256" [label="toInt256"]
+"12959_toUint160" [label="toUint160"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

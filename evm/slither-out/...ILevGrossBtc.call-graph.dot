@@ -1,0 +1,10 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_26266_ILevGrossBtc {
+label = "ILevGrossBtc"
+"26266_totalGrossCollateralBtc" [label="totalGrossCollateralBtc"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

@@ -1,0 +1,11 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_58661_ICollection {
+label = "ICollection"
+"58661_getApproved" [label="getApproved"]
+"58661_transferFrom" [label="transferFrom"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

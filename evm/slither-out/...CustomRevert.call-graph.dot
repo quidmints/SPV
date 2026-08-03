@@ -1,0 +1,26 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_12367_CustomRevert {
+label = "CustomRevert"
+"12367_bubbleUpAndRevertWith" [label="bubbleUpAndRevertWith"]
+"12367_revertWith" [label="revertWith"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"returndatasize()" 
+"signextend(uint256,uint256)" 
+"mstore(uint256,uint256)" 
+"returndatacopy(uint256,uint256,uint256)" 
+"mload(uint256)" 
+"revert(uint256,uint256)" 
+"12367_bubbleUpAndRevertWith" -> "mload(uint256)"
+"12367_bubbleUpAndRevertWith" -> "returndatasize()"
+"12367_bubbleUpAndRevertWith" -> "returndatacopy(uint256,uint256,uint256)"
+"12367_bubbleUpAndRevertWith" -> "mstore(uint256,uint256)"
+"12367_revertWith" -> "signextend(uint256,uint256)"
+"12367_revertWith" -> "mload(uint256)"
+"12367_bubbleUpAndRevertWith" -> "revert(uint256,uint256)"
+"12367_revertWith" -> "mstore(uint256,uint256)"
+"12367_revertWith" -> "revert(uint256,uint256)"
+}
+}

@@ -1,0 +1,21 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_78636_TickMath {
+label = "TickMath"
+"78636_getSqrtPriceAtTick" [label="getSqrtPriceAtTick"]
+"78636_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"78636_minUsableTick" [label="minUsableTick"]
+"78636_getTickAtSqrtPrice" [label="getTickAtSqrtPrice"]
+"78636_maxUsableTick" [label="maxUsableTick"]
+"78636_getTickAtSqrtPrice" -> "78636_getSqrtPriceAtTick"
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"mstore(uint256,uint256)" 
+"revert(uint256,uint256)" 
+"78636_getSqrtPriceAtTick" -> "mstore(uint256,uint256)"
+"78636_getTickAtSqrtPrice" -> "revert(uint256,uint256)"
+"78636_getTickAtSqrtPrice" -> "mstore(uint256,uint256)"
+"78636_getSqrtPriceAtTick" -> "revert(uint256,uint256)"
+}
+}

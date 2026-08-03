@@ -1,0 +1,11 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_47534_IWiredBasket {
+label = "IWiredBasket"
+"47534_AUX" [label="AUX"]
+"47534_BTC_VAULT" [label="BTC_VAULT"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

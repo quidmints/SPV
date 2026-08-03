@@ -58,6 +58,32 @@ environment actually is*. Every line below was verified in-repo, not recalled.
 - **After any Solidity change, run `tools/check-client-abis.py`.** `forge` + `tsc` both green does
   **not** mean the TypeScript clients still work.
 
+## Code navigation — read this before answering a "how does X work" question
+
+⚠️ **`graphify-out/graph.json` contains ZERO Solidity.** Measured 2026-08-03: 17,624 nodes, of which
+12,953 are `.rs`, 33 `.sh`, 5 `.h`, and **none `.sol`**. It indexed `quid-ln/` including vendored
+`lib/rust-lightning`, and skipped `evm/src/` entirely. This matters because the graphify skill instructs
+a session to answer any codebase question from that graph *before doing anything else* when
+`graphify-out/graph.json` exists — so a question about `Vogue`, `Aux`, `LevManager` or anything else
+on the money path would be answered from a graph that does not contain it. **Use the graph for the Rust
+bridge. Never use it for Solidity.**
+
+**For Solidity, use `evm/slither-out/` instead.** Slither understands inheritance, modifiers, state
+variables and cross-contract call flow, which a generic AST walker does not. Regenerate with:
+
+```
+mkdir -p evm/slither-out && cd evm/slither-out
+slither .. --print call-graph,inheritance-graph,contract-summary,function-summary,\
+vars-and-auth,modifiers,entry-points,require,variable-order,human-summary,loc \
+  --filter-paths "lib/|test/|node_modules" > all-printers.txt 2>&1
+```
+
+One invocation compiles once and emits every printer. `vars-and-auth` is the one to reach for when the
+question is *who can call what and what does it write* — it is the fastest check on the
+ownership/renounce posture that `docs/FAQ.md` Part 6 argues to counsel. `.dot` files render with
+`dot -Tsvg`. Slither is also a static analyser, so a bare `slither ..` surfaces real findings on the
+same compile.
+
 ## Build environment
 
 | | |

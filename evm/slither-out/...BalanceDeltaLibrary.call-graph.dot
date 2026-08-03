@@ -1,0 +1,14 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_14470_BalanceDeltaLibrary {
+label = "BalanceDeltaLibrary"
+"14470_amount0" [label="amount0"]
+"14470_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"14470_amount1" [label="amount1"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"signextend(uint256,uint256)" 
+"14470_amount1" -> "signextend(uint256,uint256)"
+}
+}

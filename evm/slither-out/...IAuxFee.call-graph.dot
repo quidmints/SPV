@@ -1,0 +1,11 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_56950_IAuxFee {
+label = "IAuxFee"
+"56950_withdrawAaveLeg" [label="withdrawAaveLeg"]
+"56950_aaveBalance" [label="aaveBalance"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

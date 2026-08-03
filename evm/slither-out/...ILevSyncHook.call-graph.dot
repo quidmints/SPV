@@ -1,0 +1,14 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_58636_ILevSyncHook {
+label = "ILevSyncHook"
+"58636_syncLevBTC" [label="syncLevBTC"]
+"58636_soldFractionWad" [label="soldFractionWad"]
+"58636_bandSqrtP" [label="bandSqrtP"]
+"58636_reseatEpoch" [label="reseatEpoch"]
+"58636_syncLev" [label="syncLev"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

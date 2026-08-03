@@ -1,0 +1,119 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_2961_LibBytes {
+label = "LibBytes"
+"2961_indicesOf" [label="indicesOf"]
+"2961_staticStructInCalldata" [label="staticStructInCalldata"]
+"2961_get" [label="get"]
+"2961_slice" [label="slice"]
+"2961_eqs" [label="eqs"]
+"2961_directReturn" [label="directReturn"]
+"2961_truncate" [label="truncate"]
+"2961_indexOf" [label="indexOf"]
+"2961_concat" [label="concat"]
+"2961_truncatedCalldata" [label="truncatedCalldata"]
+"2961_set" [label="set"]
+"2961_repeat" [label="repeat"]
+"2961_eq" [label="eq"]
+"2961_loadCalldata" [label="loadCalldata"]
+"2961_endsWith" [label="endsWith"]
+"2961_sliceCalldata" [label="sliceCalldata"]
+"2961_contains" [label="contains"]
+"2961_lsbToAddress" [label="lsbToAddress"]
+"2961_isEmpty" [label="isEmpty"]
+"2961_load" [label="load"]
+"2961_emptyCalldata" [label="emptyCalldata"]
+"2961_setCalldata" [label="setCalldata"]
+"2961_replace" [label="replace"]
+"2961_lastIndexOf" [label="lastIndexOf"]
+"2961_startsWith" [label="startsWith"]
+"2961_cmp" [label="cmp"]
+"2961_indexOfByte" [label="indexOfByte"]
+"2961_length" [label="length"]
+"2961_split" [label="split"]
+"2961_checkInCalldata" [label="checkInCalldata"]
+"2961_dynamicStructInCalldata" [label="dynamicStructInCalldata"]
+"2961_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"2961_clear" [label="clear"]
+"2961_bytesInCalldata" [label="bytesInCalldata"]
+"2961_msbToAddress" [label="msbToAddress"]
+"2961_uint8At" [label="uint8At"]
+"2961_indexOf" -> "2961_indexOf"
+"2961_indexOfByte" -> "2961_indexOfByte"
+"2961_split" -> "2961_indicesOf"
+"2961_lastIndexOf" -> "2961_lastIndexOf"
+"2961_slice" -> "2961_slice"
+"2961_contains" -> "2961_indexOf"
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"sload(uint256)" 
+"revert(uint256,uint256)" 
+"mstore(uint256,uint256)" 
+"keccak256(uint256,uint256)" 
+"byte(uint256,uint256)" 
+"sstore(uint256,uint256)" 
+"mload(uint256)" 
+"return(uint256,uint256)" 
+"calldataload(uint256)" 
+"2961_slice" -> "mstore(uint256,uint256)"
+"2961_setCalldata" -> "mstore(uint256,uint256)"
+"2961_repeat" -> "mstore(uint256,uint256)"
+"2961_set" -> "mload(uint256)"
+"2961_concat" -> "mload(uint256)"
+"2961_loadCalldata" -> "calldataload(uint256)"
+"2961_indicesOf" -> "mload(uint256)"
+"2961_get" -> "keccak256(uint256,uint256)"
+"2961_staticStructInCalldata" -> "revert(uint256,uint256)"
+"2961_replace" -> "keccak256(uint256,uint256)"
+"2961_checkInCalldata" -> "calldataload(uint256)"
+"2961_truncate" -> "mstore(uint256,uint256)"
+"2961_lastIndexOf" -> "mload(uint256)"
+"2961_indicesOf" -> "keccak256(uint256,uint256)"
+"2961_directReturn" -> "mload(uint256)"
+"2961_slice" -> "mload(uint256)"
+"2961_lastIndexOf" -> "keccak256(uint256,uint256)"
+"2961_repeat" -> "mload(uint256)"
+"2961_uint8At" -> "byte(uint256,uint256)"
+"2961_endsWith" -> "keccak256(uint256,uint256)"
+"2961_load" -> "mload(uint256)"
+"2961_truncate" -> "mload(uint256)"
+"2961_replace" -> "mload(uint256)"
+"2961_uint8At" -> "sload(uint256)"
+"2961_uint8At" -> "keccak256(uint256,uint256)"
+"2961_eqs" -> "mload(uint256)"
+"2961_dynamicStructInCalldata" -> "revert(uint256,uint256)"
+"2961_directReturn" -> "mstore(uint256,uint256)"
+"2961_endsWith" -> "mload(uint256)"
+"2961_setCalldata" -> "sstore(uint256,uint256)"
+"2961_indexOf" -> "mload(uint256)"
+"2961_split" -> "mstore(uint256,uint256)"
+"2961_checkInCalldata" -> "revert(uint256,uint256)"
+"2961_uint8At" -> "mstore(uint256,uint256)"
+"2961_dynamicStructInCalldata" -> "calldataload(uint256)"
+"2961_setCalldata" -> "calldataload(uint256)"
+"2961_directReturn" -> "return(uint256,uint256)"
+"2961_cmp" -> "mload(uint256)"
+"2961_setCalldata" -> "keccak256(uint256,uint256)"
+"2961_bytesInCalldata" -> "calldataload(uint256)"
+"2961_replace" -> "mstore(uint256,uint256)"
+"2961_indexOfByte" -> "mload(uint256)"
+"2961_eq" -> "mload(uint256)"
+"2961_indicesOf" -> "mstore(uint256,uint256)"
+"2961_bytesInCalldata" -> "revert(uint256,uint256)"
+"2961_set" -> "keccak256(uint256,uint256)"
+"2961_set" -> "sstore(uint256,uint256)"
+"2961_get" -> "mload(uint256)"
+"2961_get" -> "sload(uint256)"
+"2961_set" -> "mstore(uint256,uint256)"
+"2961_startsWith" -> "mload(uint256)"
+"2961_indexOfByte" -> "byte(uint256,uint256)"
+"2961_startsWith" -> "keccak256(uint256,uint256)"
+"2961_concat" -> "mstore(uint256,uint256)"
+"2961_cmp" -> "byte(uint256,uint256)"
+"2961_eq" -> "keccak256(uint256,uint256)"
+"2961_get" -> "mstore(uint256,uint256)"
+"2961_indexOf" -> "keccak256(uint256,uint256)"
+"2961_split" -> "mload(uint256)"
+}
+}

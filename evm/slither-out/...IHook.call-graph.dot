@@ -1,0 +1,10 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_56930_IHook {
+label = "IHook"
+"56930_getDepegSeverityBps" [label="getDepegSeverityBps"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

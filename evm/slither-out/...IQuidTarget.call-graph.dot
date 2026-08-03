@@ -1,0 +1,10 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_54867_IQuidTarget {
+label = "IQuidTarget"
+"54867_target" [label="target"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

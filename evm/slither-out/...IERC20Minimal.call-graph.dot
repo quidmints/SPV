@@ -1,0 +1,14 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_12063_IERC20Minimal {
+label = "IERC20Minimal"
+"12063_transfer" [label="transfer"]
+"12063_transferFrom" [label="transferFrom"]
+"12063_balanceOf" [label="balanceOf"]
+"12063_allowance" [label="allowance"]
+"12063_approve" [label="approve"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

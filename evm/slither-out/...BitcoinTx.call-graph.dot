@@ -1,0 +1,67 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_52243_BitcoinTx {
+label = "BitcoinTx"
+"52243_txid" [label="txid"]
+"52243_findOutputByScript" [label="findOutputByScript"]
+"52243_sumOutputValuesExcept" [label="sumOutputValuesExcept"]
+"52243_extractInput0Sequence" [label="extractInput0Sequence"]
+"52243_isCommitmentTx" [label="isCommitmentTx"]
+"52243_buildTaprootScriptPubKey" [label="buildTaprootScriptPubKey"]
+"52243__assertLegacy" [label="_assertLegacy"]
+"52243_extractInputPrevOutpoint" [label="extractInputPrevOutpoint"]
+"52243_extractLocktime" [label="extractLocktime"]
+"52243_sumOutputValuesToScript" [label="sumOutputValuesToScript"]
+"52243__skipInputs" [label="_skipInputs"]
+"52243_readVarInt" [label="readVarInt"]
+"52243__readLE" [label="_readLE"]
+"52243_inputCount" [label="inputCount"]
+"52243_isCommitmentTx" -> "52243_extractInput0Sequence"
+"52243_extractInput0Sequence" -> "52243_readVarInt"
+"52243_extractInput0Sequence" -> "52243__readLE"
+"52243_sumOutputValuesToScript" -> "52243_readVarInt"
+"52243_findOutputByScript" -> "52243_readVarInt"
+"52243_isCommitmentTx" -> "52243_extractLocktime"
+"52243_extractLocktime" -> "52243__readLE"
+"52243_sumOutputValuesToScript" -> "52243__skipInputs"
+"52243_sumOutputValuesToScript" -> "52243__readLE"
+"52243_findOutputByScript" -> "52243__readLE"
+"52243_sumOutputValuesExcept" -> "52243_readVarInt"
+"52243_inputCount" -> "52243_readVarInt"
+"52243_findOutputByScript" -> "52243__skipInputs"
+"52243_extractInputPrevOutpoint" -> "52243_readVarInt"
+"52243_sumOutputValuesExcept" -> "52243__skipInputs"
+"52243__skipInputs" -> "52243__assertLegacy"
+"52243_extractInputPrevOutpoint" -> "52243__readLE"
+"52243_extractInput0Sequence" -> "52243__assertLegacy"
+"52243_extractInputPrevOutpoint" -> "52243__assertLegacy"
+"52243_sumOutputValuesExcept" -> "52243__readLE"
+"52243_inputCount" -> "52243__assertLegacy"
+"52243_readVarInt" -> "52243__readLE"
+"52243__skipInputs" -> "52243_readVarInt"
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"sha256(bytes)" 
+"revert OutputNotFound()" 
+"revert InputOutOfRange()" 
+"abi.encodePacked()" 
+"revert TruncatedTx()" 
+"calldataload(uint256)" 
+"52243_buildTaprootScriptPubKey" -> "abi.encodePacked()"
+"52243_readVarInt" -> "revert TruncatedTx()"
+"52243_extractInputPrevOutpoint" -> "revert InputOutOfRange()"
+"52243_txid" -> "abi.encodePacked()"
+"52243_extractInputPrevOutpoint" -> "revert TruncatedTx()"
+"52243_extractInput0Sequence" -> "revert TruncatedTx()"
+"52243_extractInputPrevOutpoint" -> "calldataload(uint256)"
+"52243__assertLegacy" -> "revert TruncatedTx()"
+"52243_sumOutputValuesExcept" -> "revert TruncatedTx()"
+"52243_findOutputByScript" -> "revert TruncatedTx()"
+"52243_txid" -> "sha256(bytes)"
+"52243_sumOutputValuesToScript" -> "revert TruncatedTx()"
+"52243_findOutputByScript" -> "revert OutputNotFound()"
+"52243_sumOutputValuesExcept" -> "revert OutputNotFound()"
+"52243_extractLocktime" -> "revert TruncatedTx()"
+}
+}

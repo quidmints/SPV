@@ -1,0 +1,35 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_41554_VEth {
+label = "VEth"
+"41554_asset" [label="asset"]
+"41554_previewRedeem" [label="previewRedeem"]
+"41554_maxMint" [label="maxMint"]
+"41554_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"41554_totalSupply" [label="totalSupply"]
+"41554_convertToShares" [label="convertToShares"]
+"41554_maxRedeem" [label="maxRedeem"]
+"41554_approve" [label="approve"]
+"41554_transfer" [label="transfer"]
+"41554_maxDeposit" [label="maxDeposit"]
+"41554_convertToAssets" [label="convertToAssets"]
+"41554_maxWithdraw" [label="maxWithdraw"]
+"41554_balanceOf" [label="balanceOf"]
+"41554_totalAssets" [label="totalAssets"]
+"41554_transferFrom" [label="transferFrom"]
+"41554_constructor" [label="constructor"]
+"41554_previewWithdraw" [label="previewWithdraw"]
+"41554_previewMint" [label="previewMint"]
+"41554_previewDeposit" [label="previewDeposit"]
+"41554_maxWithdraw" -> "41554_convertToAssets"
+"41554_previewDeposit" -> "41554_convertToShares"
+"41554_previewWithdraw" -> "41554_convertToShares"
+"41554_previewRedeem" -> "41554_convertToAssets"
+"41554_previewMint" -> "41554_convertToAssets"
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"revert InsufficientAllowance()" 
+"41554_transferFrom" -> "revert InsufficientAllowance()"
+}
+}

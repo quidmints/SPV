@@ -1,0 +1,33 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_58096_FeeLib {
+label = "FeeLib"
+"58096_calcRisk" [label="calcRisk"]
+"58096__withdrawLeg" [label="_withdrawLeg"]
+"58096_grossUpForDepeg" [label="grossUpForDepeg"]
+"58096_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"58096_calcNeeded" [label="calcNeeded"]
+"58096_allocate" [label="allocate"]
+"58096_scaledFeeL1" [label="scaledFeeL1"]
+"58096_decPow" [label="decPow"]
+"58096_calcFeeL1" [label="calcFeeL1"]
+"58096_liveDepegBps" [label="liveDepegBps"]
+"58096_multiVaultWithdrawBody" [label="multiVaultWithdrawBody"]
+"58096_riskFactor" [label="riskFactor"]
+"58096_applyFeeAndHaircut" [label="applyFeeAndHaircut"]
+"58096__shareCap" [label="_shareCap"]
+"58096_calcNeeded" -> "58096_grossUpForDepeg"
+"58096_multiVaultWithdrawBody" -> "58096__shareCap"
+"58096_allocate" -> "58096_grossUpForDepeg"
+"58096__withdrawLeg" -> "58096__shareCap"
+"58096_calcNeeded" -> "58096_calcRisk"
+"58096_allocate" -> "58096_calcRisk"
+"58096_applyFeeAndHaircut" -> "58096_calcRisk"
+"58096_scaledFeeL1" -> "58096_calcFeeL1"
+"58096_multiVaultWithdrawBody" -> "58096__withdrawLeg"
+"58096_applyFeeAndHaircut" -> "58096_grossUpForDepeg"
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

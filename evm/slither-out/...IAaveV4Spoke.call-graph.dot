@@ -1,0 +1,20 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_58396_IAaveV4Spoke {
+label = "IAaveV4Spoke"
+"58396_withdraw" [label="withdraw"]
+"58396_getReserveSuppliedAssets" [label="getReserveSuppliedAssets"]
+"58396_getReserveTotalDebt" [label="getReserveTotalDebt"]
+"58396_supply" [label="supply"]
+"58396_borrow" [label="borrow"]
+"58396_getUserDebt" [label="getUserDebt"]
+"58396_getReserveId" [label="getReserveId"]
+"58396_repay" [label="repay"]
+"58396_setUsingAsCollateral" [label="setUsingAsCollateral"]
+"58396_getUserSuppliedShares" [label="getUserSuppliedShares"]
+"58396_getUserSuppliedAssets" [label="getUserSuppliedAssets"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

@@ -1,0 +1,10 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_37991_INFPMLiq {
+label = "INFPMLiq"
+"37991_positions" [label="positions"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

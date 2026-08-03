@@ -1,0 +1,32 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_59530_IEthVenue {
+label = "IEthVenue"
+"59530_GALAXY_VAULT" [label="GALAXY_VAULT"]
+"59530_supplyAaveEth" [label="supplyAaveEth"]
+"59530_btcChannels" [label="btcChannels"]
+"59530_supplyEtherFi" [label="supplyEtherFi"]
+"59530_deliverableETH" [label="deliverableETH"]
+"59530_supplyEulerEth" [label="supplyEulerEth"]
+"59530_vogueETH" [label="vogueETH"]
+"59530_ROVER" [label="ROVER"]
+"59530_vogueOp" [label="vogueOp"]
+"59530_repack" [label="repack"]
+"59530_supplyFromAux" [label="supplyFromAux"]
+"59530_totalBufferBTC" [label="totalBufferBTC"]
+"59530_EULER_VAULT" [label="EULER_VAULT"]
+"59530_supplyEtherFiToRover" [label="supplyEtherFiToRover"]
+"59530_withdrawForAux" [label="withdrawForAux"]
+"59530_USD_FEES_BTC" [label="USD_FEES_BTC"]
+"59530_evacuateVenue" [label="evacuateVenue"]
+"59530_GAUNTLET_VAULT" [label="GAUNTLET_VAULT"]
+"59530_offrampEtherFi" [label="offrampEtherFi"]
+"59530_venuePosition" [label="venuePosition"]
+"59530_supplyGauntlet" [label="supplyGauntlet"]
+"59530_feesPerShareBTC" [label="feesPerShareBTC"]
+"59530_derivedThetaWadBtc" [label="derivedThetaWadBtc"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

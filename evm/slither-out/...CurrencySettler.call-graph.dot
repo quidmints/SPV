@@ -1,0 +1,11 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_15008_CurrencySettler {
+label = "CurrencySettler"
+"15008_settle" [label="settle"]
+"15008_take" [label="take"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

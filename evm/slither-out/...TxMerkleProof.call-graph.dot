@@ -1,0 +1,21 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_4577_TxMerkleProof {
+label = "TxMerkleProof"
+"4577__doubleSHA256" [label="_doubleSHA256"]
+"4577_verify" [label="verify"]
+"4577_processProof" [label="processProof"]
+"4577_processProof" -> "4577__doubleSHA256"
+"4577_verify" -> "4577_processProof"
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"abi.encodePacked()" 
+"revert InvalidMerkleNode()" 
+"sha256(bytes)" 
+"4577__doubleSHA256" -> "sha256(bytes)"
+"4577_processProof" -> "abi.encodePacked()"
+"4577__doubleSHA256" -> "abi.encodePacked()"
+"4577_processProof" -> "revert InvalidMerkleNode()"
+}
+}

@@ -1,0 +1,62 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_58232_ILevVenue {
+label = "ILevVenue"
+"58232_withdraw" [label="withdraw"]
+"58232_borrow" [label="borrow"]
+"58232_liqThresholdBps" [label="liqThresholdBps"]
+"58232_debtOf" [label="debtOf"]
+"58232_repay" [label="repay"]
+"58232_collateralOf" [label="collateralOf"]
+"58232_stable" [label="stable"]
+"58232_supply" [label="supply"]
+}subgraph cluster_32498_EulerEscrowVenue {
+label = "EulerEscrowVenue"
+"32498_liqThresholdBps" [label="liqThresholdBps"]
+"32498__subAddr" [label="_subAddr"]
+"32498__sub" [label="_sub"]
+"32498_borrow" [label="borrow"]
+"32498_collateralOf" [label="collateralOf"]
+"32498_withdraw" [label="withdraw"]
+"32498_repay" [label="repay"]
+"32498_debtOf" [label="debtOf"]
+"32498_slitherConstructorVariables" [label="slitherConstructorVariables"]
+"32498__subView" [label="_subView"]
+"32498_supply" [label="supply"]
+"32498_constructor" [label="constructor"]
+"32498_supply" -> "32498_nonReentrant"
+"32498__subView" -> "32498__subAddr"
+"32498_withdraw" -> "32498__subView"
+"32498_constructor" -> "32498_constructor"
+"32498_withdraw" -> "32498_onlyManager"
+"32498_withdraw" -> "32498_collateralOf"
+"32498_repay" -> "32498__subView"
+"32498_withdraw" -> "32498_nonReentrant"
+"32498_debtOf" -> "32498__subView"
+"32498_repay" -> "32498_onlyManager"
+"32498_repay" -> "32498_nonReentrant"
+"32498_supply" -> "32498__sub"
+"32498_borrow" -> "32498__sub"
+"32498_borrow" -> "32498_onlyManager"
+"32498__sub" -> "32498__subAddr"
+"32498_borrow" -> "32498_nonReentrant"
+"32498_supply" -> "32498_onlyManager"
+"32498_collateralOf" -> "32498__subView"
+}subgraph cluster_63941_LevVenueBase {
+label = "LevVenueBase"
+"63941_stable" [label="stable"]
+"63941_constructor" [label="constructor"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"abi.encodeWithSelector()" 
+"revert SharedEvc()" 
+"revert SubAccountsExhausted()" 
+"revert MarketUnconfigured()" 
+"32498_borrow" -> "abi.encodeWithSelector()"
+"32498_constructor" -> "revert SharedEvc()"
+"32498__sub" -> "revert SubAccountsExhausted()"
+"32498_constructor" -> "revert MarketUnconfigured()"
+"32498_withdraw" -> "abi.encodeWithSelector()"
+}
+}

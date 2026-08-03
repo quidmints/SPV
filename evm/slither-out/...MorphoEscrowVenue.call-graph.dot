@@ -1,0 +1,63 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_58232_ILevVenue {
+label = "ILevVenue"
+"58232_withdraw" [label="withdraw"]
+"58232_borrow" [label="borrow"]
+"58232_liqThresholdBps" [label="liqThresholdBps"]
+"58232_debtOf" [label="debtOf"]
+"58232_repay" [label="repay"]
+"58232_collateralOf" [label="collateralOf"]
+"58232_stable" [label="stable"]
+"58232_supply" [label="supply"]
+}subgraph cluster_37827_MorphoEscrowVenue {
+label = "MorphoEscrowVenue"
+"37827_accrueAndDebtOf" [label="accrueAndDebtOf"]
+"37827_debtOf" [label="debtOf"]
+"37827_borrow" [label="borrow"]
+"37827_repay" [label="repay"]
+"37827_constructor" [label="constructor"]
+"37827_withdraw" [label="withdraw"]
+"37827_collateralOf" [label="collateralOf"]
+"37827_accrue" [label="accrue"]
+"37827_supply" [label="supply"]
+"37827_liqThresholdBps" [label="liqThresholdBps"]
+"37827__params" [label="_params"]
+"37827_repayFor" [label="repayFor"]
+"37827_withdraw" -> "37827__params"
+"37827_supply" -> "37827_nonReentrant"
+"37827_supply" -> "37827_onlyManager"
+"37827_borrow" -> "37827_onlyManager"
+"37827_repayFor" -> "37827_debtOf"
+"37827_borrow" -> "37827__params"
+"37827_accrueAndDebtOf" -> "37827_debtOf"
+"37827_repay" -> "37827__params"
+"37827_repay" -> "37827_debtOf"
+"37827_repayFor" -> "37827__params"
+"37827_repay" -> "37827_nonReentrant"
+"37827_withdraw" -> "37827_collateralOf"
+"37827_accrueAndDebtOf" -> "37827__params"
+"37827_withdraw" -> "37827_nonReentrant"
+"37827_borrow" -> "37827_nonReentrant"
+"37827_accrue" -> "37827__params"
+"37827_repayFor" -> "37827_nonReentrant"
+"37827_withdraw" -> "37827_onlyManager"
+"37827_supply" -> "37827__params"
+"37827_repay" -> "37827_onlyManager"
+"37827_constructor" -> "37827_constructor"
+}subgraph cluster_63941_LevVenueBase {
+label = "LevVenueBase"
+"63941_stable" [label="stable"]
+"63941_constructor" [label="constructor"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"keccak256(bytes)" 
+"revert NotAuthorized()" 
+"abi.encode()" 
+"37827_borrow" -> "revert NotAuthorized()"
+"37827_constructor" -> "keccak256(bytes)"
+"37827_withdraw" -> "revert NotAuthorized()"
+"37827_constructor" -> "abi.encode()"
+}
+}

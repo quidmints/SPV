@@ -1,0 +1,14 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_32571_ISwapAux {
+label = "ISwapAux"
+"32571_sorSelfFunded" [label="sorSelfFunded"]
+"32571_ethVenue" [label="ethVenue"]
+"32571_sorSelfFundedReverse" [label="sorSelfFundedReverse"]
+"32571_swap" [label="swap"]
+"32571_getTWAPforAsset" [label="getTWAPforAsset"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

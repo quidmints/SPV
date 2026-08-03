@@ -1,0 +1,10 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_59635_IRoverAbsorbM {
+label = "IRoverAbsorbM"
+"59635_absorb" [label="absorb"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

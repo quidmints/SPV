@@ -1,0 +1,63 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_54826_BtcVaultLib {
+label = "BtcVaultLib"
+"54826__modLpNetBtc" [label="_modLpNetBtc"]
+"54826_settleDelivered" [label="settleDelivered"]
+"54826_registerBtcLp" [label="registerBtcLp"]
+"54826_settleBtcLp" [label="settleBtcLp"]
+"54826_levAddGrossBtc" [label="levAddGrossBtc"]
+"54826_vbtcExposeBody" [label="vbtcExposeBody"]
+"54826_resizeBtcLp" [label="resizeBtcLp"]
+"54826_levAddNetBtc" [label="levAddNetBtc"]
+"54826_rebalanceBody" [label="rebalanceBody"]
+"54826__pairRegLeg" [label="_pairRegLeg"]
+"54826_levBurnAllBtc" [label="levBurnAllBtc"]
+"54826_vbtcUnexposeBody" [label="vbtcUnexposeBody"]
+"54826__thetaClampBtc" [label="_thetaClampBtc"]
+"54826_pullBtc" [label="pullBtc"]
+"54826_syncLevBTC" [label="syncLevBTC"]
+"54826__burnLpBtc" [label="_burnLpBtc"]
+"54826__modLpBufBtc" [label="_modLpBufBtc"]
+"54826_addLiqChannel" [label="addLiqChannel"]
+"54826_levAddBufBtc" [label="levAddBufBtc"]
+"54826__bufUsdBtc" [label="_bufUsdBtc"]
+"54826_resizeBtcLpTail" [label="resizeBtcLpTail"]
+"54826_outOfRangeBtc" [label="outOfRangeBtc"]
+"54826_resizeBtcLpTail" -> "54826_settleBtcLp"
+"54826_resizeBtcLpTail" -> "54826_settleDelivered"
+"54826_registerBtcLp" -> "54826_settleBtcLp"
+"54826_resizeBtcLp" -> "54826_resizeBtcLpTail"
+"54826_registerBtcLp" -> "54826__pairRegLeg"
+"54826_syncLevBTC" -> "54826_levAddGrossBtc"
+"54826_addLiqChannel" -> "54826__thetaClampBtc"
+"54826_syncLevBTC" -> "54826_settleBtcLp"
+"54826_levAddGrossBtc" -> "54826_levAddNetBtc"
+"54826_levAddNetBtc" -> "54826_addLiqChannel"
+"54826_levAddBufBtc" -> "54826__bufUsdBtc"
+"54826_levBurnAllBtc" -> "54826__burnLpBtc"
+"54826_registerBtcLp" -> "54826_addLiqChannel"
+"54826_levAddBufBtc" -> "54826__modLpBufBtc"
+"54826_syncLevBTC" -> "54826_levBurnAllBtc"
+"54826_levAddGrossBtc" -> "54826_levAddBufBtc"
+"54826_levAddNetBtc" -> "54826__modLpNetBtc"
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"revert ZeroTwap()" 
+"revert NotOwner()" 
+"revert Dust()" 
+"revert NotAStable()" 
+"require(bool,string)" 
+"revert InsufficientChannelBtc()" 
+"revert BadPercent()" 
+"54826_pullBtc" -> "revert Dust()"
+"54826_registerBtcLp" -> "revert ZeroTwap()"
+"54826_pullBtc" -> "revert NotOwner()"
+"54826_outOfRangeBtc" -> "revert NotAStable()"
+"54826_vbtcExposeBody" -> "revert InsufficientChannelBtc()"
+"54826_pullBtc" -> "require(bool,string)"
+"54826_outOfRangeBtc" -> "revert Dust()"
+"54826_pullBtc" -> "revert BadPercent()"
+}
+}

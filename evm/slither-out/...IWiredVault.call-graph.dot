@@ -1,0 +1,12 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_47517_IWiredVault {
+label = "IWiredVault"
+"47517_btcChannels" [label="btcChannels"]
+"47517_ROVER" [label="ROVER"]
+"47517_LEV_MANAGER" [label="LEV_MANAGER"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

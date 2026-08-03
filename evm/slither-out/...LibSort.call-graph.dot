@@ -1,0 +1,127 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_4176_LibSort {
+label = "LibSort"
+"4176__toAddresses" [label="_toAddresses"]
+"4176_sortInner" [label="sortInner"]
+"4176_groupSum" [label="groupSum"]
+"4176__difference" [label="_difference"]
+"4176__intersection" [label="_intersection"]
+"4176_copy" [label="copy"]
+"4176__searchSorted" [label="_searchSorted"]
+"4176_difference" [label="difference"]
+"4176_reverse" [label="reverse"]
+"4176_p" [label="p"]
+"4176_isSorted" [label="isSorted"]
+"4176_union" [label="union"]
+"4176_hasDuplicate" [label="hasDuplicate"]
+"4176_swap" [label="swap"]
+"4176_insertionSort" [label="insertionSort"]
+"4176__toBytes32s" [label="_toBytes32s"]
+"4176_searchSorted" [label="searchSorted"]
+"4176_uniquifySorted" [label="uniquifySorted"]
+"4176__flipSign" [label="_flipSign"]
+"4176__toInts" [label="_toInts"]
+"4176_inSorted" [label="inSorted"]
+"4176__toUints" [label="_toUints"]
+"4176__union" [label="_union"]
+"4176_sort" [label="sort"]
+"4176_clean" [label="clean"]
+"4176_isSortedAndUniquified" [label="isSortedAndUniquified"]
+"4176_mswap" [label="mswap"]
+"4176_intersection" [label="intersection"]
+"4176_sort" -> "4176__toUints"
+"4176_intersection" -> "4176__toAddresses"
+"4176_isSorted" -> "4176_isSorted"
+"4176_union" -> "4176__union"
+"4176_insertionSort" -> "4176_insertionSort"
+"4176_copy" -> "4176__toUints"
+"4176_uniquifySorted" -> "4176__toUints"
+"4176_sort" -> "4176__flipSign"
+"4176_searchSorted" -> "4176__toUints"
+"4176_intersection" -> "4176__toUints"
+"4176_sort" -> "4176_sortInner"
+"4176_isSorted" -> "4176__toUints"
+"4176_insertionSort" -> "4176__flipSign"
+"4176_hasDuplicate" -> "4176_p"
+"4176_copy" -> "4176__toAddresses"
+"4176_isSortedAndUniquified" -> "4176_isSortedAndUniquified"
+"4176_sortInner" -> "4176_mswap"
+"4176_difference" -> "4176__toBytes32s"
+"4176_copy" -> "4176__toBytes32s"
+"4176_searchSorted" -> "4176__searchSorted"
+"4176_hasDuplicate" -> "4176_hasDuplicate"
+"4176_inSorted" -> "4176_searchSorted"
+"4176_union" -> "4176__toUints"
+"4176_difference" -> "4176__toAddresses"
+"4176_intersection" -> "4176__toInts"
+"4176_intersection" -> "4176__intersection"
+"4176_groupSum" -> "4176_groupSum"
+"4176_isSortedAndUniquified" -> "4176__toUints"
+"4176_sort" -> "4176_sort"
+"4176_groupSum" -> "4176_sortInner"
+"4176_difference" -> "4176__difference"
+"4176_copy" -> "4176__toInts"
+"4176_copy" -> "4176_copy"
+"4176_insertionSort" -> "4176__toUints"
+"4176_union" -> "4176__toAddresses"
+"4176_uniquifySorted" -> "4176_uniquifySorted"
+"4176_union" -> "4176__toBytes32s"
+"4176_hasDuplicate" -> "4176__toUints"
+"4176_reverse" -> "4176__toUints"
+"4176_difference" -> "4176__toInts"
+"4176_intersection" -> "4176__toBytes32s"
+"4176_difference" -> "4176__toUints"
+"4176_sortInner" -> "4176_sortInner"
+"4176_union" -> "4176__toInts"
+"4176_reverse" -> "4176_reverse"
+"4176_groupSum" -> "4176__toUints"
+"4176_sortInner" -> "4176_swap"
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"mstore(uint256,uint256)" 
+"mulmod(uint256,uint256,uint256)" 
+"calldatasize()" 
+"calldatacopy(uint256,uint256,uint256)" 
+"mload(uint256)" 
+"invalid()" 
+"revert(uint256,uint256)" 
+"4176_copy" -> "mstore(uint256,uint256)"
+"4176_reverse" -> "mload(uint256)"
+"4176_groupSum" -> "revert(uint256,uint256)"
+"4176__union" -> "mload(uint256)"
+"4176_clean" -> "mstore(uint256,uint256)"
+"4176_groupSum" -> "mstore(uint256,uint256)"
+"4176_hasDuplicate" -> "calldatacopy(uint256,uint256,uint256)"
+"4176__difference" -> "mstore(uint256,uint256)"
+"4176_sort" -> "mstore(uint256,uint256)"
+"4176_hasDuplicate" -> "invalid()"
+"4176_insertionSort" -> "mstore(uint256,uint256)"
+"4176_sortInner" -> "mstore(uint256,uint256)"
+"4176_clean" -> "mload(uint256)"
+"4176__flipSign" -> "mstore(uint256,uint256)"
+"4176_mswap" -> "mstore(uint256,uint256)"
+"4176_isSortedAndUniquified" -> "mload(uint256)"
+"4176_reverse" -> "mstore(uint256,uint256)"
+"4176_sort" -> "mload(uint256)"
+"4176_uniquifySorted" -> "mstore(uint256,uint256)"
+"4176_insertionSort" -> "mload(uint256)"
+"4176__searchSorted" -> "mload(uint256)"
+"4176__union" -> "mstore(uint256,uint256)"
+"4176_hasDuplicate" -> "mstore(uint256,uint256)"
+"4176__intersection" -> "mstore(uint256,uint256)"
+"4176_mswap" -> "mload(uint256)"
+"4176_isSorted" -> "mload(uint256)"
+"4176_hasDuplicate" -> "mulmod(uint256,uint256,uint256)"
+"4176__difference" -> "mload(uint256)"
+"4176_sortInner" -> "mload(uint256)"
+"4176_hasDuplicate" -> "calldatasize()"
+"4176_uniquifySorted" -> "mload(uint256)"
+"4176__flipSign" -> "mload(uint256)"
+"4176_groupSum" -> "mload(uint256)"
+"4176__intersection" -> "mload(uint256)"
+"4176_hasDuplicate" -> "mload(uint256)"
+"4176_copy" -> "mload(uint256)"
+}
+}

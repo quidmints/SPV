@@ -1,0 +1,35 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_8609_SafeERC20 {
+label = "SafeERC20"
+"8609_safeDecreaseAllowance" [label="safeDecreaseAllowance"]
+"8609_safeTransferFrom" [label="safeTransferFrom"]
+"8609_safeTransfer" [label="safeTransfer"]
+"8609_forceApprove" [label="forceApprove"]
+"8609_safeIncreaseAllowance" [label="safeIncreaseAllowance"]
+"8609__callOptionalReturn" [label="_callOptionalReturn"]
+"8609__callOptionalReturnBool" [label="_callOptionalReturnBool"]
+"8609_forceApprove" -> "8609__callOptionalReturnBool"
+"8609_safeDecreaseAllowance" -> "8609_forceApprove"
+"8609_forceApprove" -> "8609__callOptionalReturn"
+"8609_safeTransfer" -> "8609__callOptionalReturn"
+"8609_safeIncreaseAllowance" -> "8609_forceApprove"
+"8609_safeTransferFrom" -> "8609__callOptionalReturn"
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"code(address)" 
+"revert SafeERC20FailedDecreaseAllowance(address,uint256,uint256)" 
+"abi.encodeCall()" 
+"abi.decode()" 
+"revert SafeERC20FailedOperation(address)" 
+"8609__callOptionalReturn" -> "abi.decode()"
+"8609_safeTransfer" -> "abi.encodeCall()"
+"8609_safeTransferFrom" -> "abi.encodeCall()"
+"8609__callOptionalReturnBool" -> "abi.decode()"
+"8609__callOptionalReturnBool" -> "code(address)"
+"8609_forceApprove" -> "abi.encodeCall()"
+"8609_safeDecreaseAllowance" -> "revert SafeERC20FailedDecreaseAllowance(address,uint256,uint256)"
+"8609__callOptionalReturn" -> "revert SafeERC20FailedOperation(address)"
+}
+}

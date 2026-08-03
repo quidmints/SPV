@@ -1,0 +1,42 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_58232_ILevVenue {
+label = "ILevVenue"
+"58232_withdraw" [label="withdraw"]
+"58232_borrow" [label="borrow"]
+"58232_liqThresholdBps" [label="liqThresholdBps"]
+"58232_debtOf" [label="debtOf"]
+"58232_repay" [label="repay"]
+"58232_collateralOf" [label="collateralOf"]
+"58232_stable" [label="stable"]
+"58232_supply" [label="supply"]
+}subgraph cluster_16033_AaveV3Venue {
+label = "AaveV3Venue"
+"16033_constructor" [label="constructor"]
+"16033_debtOf" [label="debtOf"]
+"16033_borrow" [label="borrow"]
+"16033_liqThresholdBps" [label="liqThresholdBps"]
+"16033_withdraw" [label="withdraw"]
+"16033_repay" [label="repay"]
+"16033_collateralOf" [label="collateralOf"]
+"16033_supply" [label="supply"]
+"16033_repay" -> "16033_debtOf"
+"16033_repay" -> "16033_nonReentrant"
+"16033_borrow" -> "16033_nonReentrant"
+"16033_withdraw" -> "16033_collateralOf"
+"16033_supply" -> "16033_nonReentrant"
+"16033_borrow" -> "16033_onlyManager"
+"16033_withdraw" -> "16033_nonReentrant"
+"16033_repay" -> "16033_onlyManager"
+"16033_withdraw" -> "16033_onlyManager"
+"16033_supply" -> "16033_onlyManager"
+"16033_constructor" -> "16033_constructor"
+}subgraph cluster_63941_LevVenueBase {
+label = "LevVenueBase"
+"63941_stable" [label="stable"]
+"63941_constructor" [label="constructor"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

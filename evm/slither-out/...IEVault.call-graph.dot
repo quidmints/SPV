@@ -1,0 +1,20 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_31768_IEVault {
+label = "IEVault"
+"31768_debtOf" [label="debtOf"]
+"31768_LTVLiquidation" [label="LTVLiquidation"]
+"31768_repay" [label="repay"]
+"31768_withdraw" [label="withdraw"]
+"31768_balanceOf" [label="balanceOf"]
+"31768_convertToAssets" [label="convertToAssets"]
+"31768_borrow" [label="borrow"]
+"31768_asset" [label="asset"]
+"31768_EVC" [label="EVC"]
+"31768_deposit" [label="deposit"]
+"31768_LTVBorrow" [label="LTVBorrow"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

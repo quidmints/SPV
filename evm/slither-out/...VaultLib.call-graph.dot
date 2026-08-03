@@ -1,0 +1,54 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_73854_VaultLib {
+label = "VaultLib"
+"73854_supplyEuler" [label="supplyEuler"]
+"73854__supply4626" [label="_supply4626"]
+"73854_deliverableETH" [label="deliverableETH"]
+"73854__venues" [label="_venues"]
+"73854_supplyETH" [label="supplyETH"]
+"73854_supplyGauntlet" [label="supplyGauntlet"]
+"73854_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"73854_withdrawETH" [label="withdrawETH"]
+"73854__aaveBal" [label="_aaveBal"]
+"73854__deliverableCap" [label="_deliverableCap"]
+"73854__pull4626" [label="_pull4626"]
+"73854__withdrawableOf" [label="_withdrawableOf"]
+"73854_aaveBal" [label="aaveBal"]
+"73854__venue4626Value" [label="_venue4626Value"]
+"73854_vogueETH" [label="vogueETH"]
+"73854_supplyVenueBody" [label="supplyVenueBody"]
+"73854_evacuate" [label="evacuate"]
+"73854__vogueETH" [label="_vogueETH"]
+"73854_aaveBal" -> "73854__aaveBal"
+"73854__vogueETH" -> "73854__venues"
+"73854_supplyVenueBody" -> "73854_supplyGauntlet"
+"73854_withdrawETH" -> "73854__pull4626"
+"73854_supplyGauntlet" -> "73854__supply4626"
+"73854_withdrawETH" -> "73854__venues"
+"73854_evacuate" -> "73854__venues"
+"73854_deliverableETH" -> "73854__venues"
+"73854_evacuate" -> "73854__withdrawableOf"
+"73854_deliverableETH" -> "73854__vogueETH"
+"73854_deliverableETH" -> "73854__deliverableCap"
+"73854_vogueETH" -> "73854__vogueETH"
+"73854_supplyEuler" -> "73854__supply4626"
+"73854__venue4626Value" -> "73854__withdrawableOf"
+"73854_supplyETH" -> "73854__supply4626"
+"73854__vogueETH" -> "73854__venue4626Value"
+"73854_supplyVenueBody" -> "73854_supplyEuler"
+"73854__pull4626" -> "73854__withdrawableOf"
+"73854__vogueETH" -> "73854__aaveBal"
+"73854_supplyVenueBody" -> "73854_supplyETH"
+"73854__deliverableCap" -> "73854__withdrawableOf"
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"require(bool,string)" 
+"73854_withdrawETH" -> "require(bool,string)"
+"73854__pull4626" -> "require(bool,string)"
+"73854_supplyETH" -> "require(bool,string)"
+"73854_evacuate" -> "require(bool,string)"
+"73854__supply4626" -> "require(bool,string)"
+}
+}

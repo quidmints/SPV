@@ -1,0 +1,14 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_31818_IEVC {
+label = "IEVC"
+"31818_batch" [label="batch"]
+"31818_isControllerEnabled" [label="isControllerEnabled"]
+"31818_enableController" [label="enableController"]
+"31818_isCollateralEnabled" [label="isCollateralEnabled"]
+"31818_enableCollateral" [label="enableCollateral"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

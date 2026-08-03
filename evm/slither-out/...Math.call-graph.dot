@@ -1,0 +1,40 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_10294_Math {
+label = "Math"
+"10294_min" [label="min"]
+"10294_log10" [label="log10"]
+"10294_tryMul" [label="tryMul"]
+"10294_log256" [label="log256"]
+"10294_log2" [label="log2"]
+"10294_mulDiv" [label="mulDiv"]
+"10294_tryDiv" [label="tryDiv"]
+"10294_tryMod" [label="tryMod"]
+"10294_unsignedRoundsUp" [label="unsignedRoundsUp"]
+"10294_max" [label="max"]
+"10294_average" [label="average"]
+"10294_ceilDiv" [label="ceilDiv"]
+"10294_trySub" [label="trySub"]
+"10294_sqrt" [label="sqrt"]
+"10294_tryAdd" [label="tryAdd"]
+"10294_sqrt" -> "10294_min"
+"10294_log10" -> "10294_unsignedRoundsUp"
+"10294_log256" -> "10294_log256"
+"10294_sqrt" -> "10294_unsignedRoundsUp"
+"10294_sqrt" -> "10294_sqrt"
+"10294_log10" -> "10294_log10"
+"10294_log2" -> "10294_unsignedRoundsUp"
+"10294_log256" -> "10294_unsignedRoundsUp"
+"10294_mulDiv" -> "10294_mulDiv"
+"10294_mulDiv" -> "10294_unsignedRoundsUp"
+"10294_log2" -> "10294_log2"
+"10294_sqrt" -> "10294_log2"
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"revert MathOverflowedMulDiv()" 
+"mulmod(uint256,uint256,uint256)" 
+"10294_mulDiv" -> "mulmod(uint256,uint256,uint256)"
+"10294_mulDiv" -> "revert MathOverflowedMulDiv()"
+}
+}

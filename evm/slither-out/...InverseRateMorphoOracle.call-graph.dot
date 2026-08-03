@@ -1,0 +1,13 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_35969_InverseRateMorphoOracle {
+label = "InverseRateMorphoOracle"
+"35969_constructor" [label="constructor"]
+"35969_price" [label="price"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"revert NoPrice()" 
+"35969_price" -> "revert NoPrice()"
+}
+}

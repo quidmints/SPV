@@ -1,0 +1,50 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_58232_ILevVenue {
+label = "ILevVenue"
+"58232_withdraw" [label="withdraw"]
+"58232_borrow" [label="borrow"]
+"58232_liqThresholdBps" [label="liqThresholdBps"]
+"58232_debtOf" [label="debtOf"]
+"58232_repay" [label="repay"]
+"58232_collateralOf" [label="collateralOf"]
+"58232_stable" [label="stable"]
+"58232_supply" [label="supply"]
+}subgraph cluster_63941_LevVenueBase {
+label = "LevVenueBase"
+"63941_stable" [label="stable"]
+"63941_constructor" [label="constructor"]
+}subgraph cluster_37134_LiquityTroveVenue {
+label = "LiquityTroveVenue"
+"37134_slitherConstructorVariables" [label="slitherConstructorVariables"]
+"37134_repay" [label="repay"]
+"37134__rate" [label="_rate"]
+"37134_usesMintClose" [label="usesMintClose"]
+"37134_constructor" [label="constructor"]
+"37134_mintForClose" [label="mintForClose"]
+"37134_collateralOf" [label="collateralOf"]
+"37134_withdraw" [label="withdraw"]
+"37134_liqThresholdBps" [label="liqThresholdBps"]
+"37134_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"37134_borrow" [label="borrow"]
+"37134_supply" [label="supply"]
+"37134_debtOf" [label="debtOf"]
+"37134_setInterestRate" [label="setInterestRate"]
+"37134_repay" -> "37134_onlyManager"
+"37134_withdraw" -> "37134_nonReentrant"
+"37134_withdraw" -> "37134_onlyManager"
+"37134_borrow" -> "37134_onlyManager"
+"37134_borrow" -> "37134_nonReentrant"
+"37134_mintForClose" -> "37134_onlyManager"
+"37134_supply" -> "37134_onlyManager"
+"37134_setInterestRate" -> "37134_nonReentrant"
+"37134_supply" -> "37134_nonReentrant"
+"37134_constructor" -> "37134_constructor"
+"37134_repay" -> "37134_nonReentrant"
+"37134_supply" -> "37134__rate"
+"37134_mintForClose" -> "37134_nonReentrant"
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

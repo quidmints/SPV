@@ -1,0 +1,12 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_47559_IBasketTurn {
+label = "IBasketTurn"
+"47559_turn" [label="turn"]
+"47559_immatureBalanceOf" [label="immatureBalanceOf"]
+"47559_matureSupply" [label="matureSupply"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

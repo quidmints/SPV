@@ -1,0 +1,10 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_26253_ILevDebtTotal {
+label = "ILevDebtTotal"
+"26253_totalDebtUsd" [label="totalDebtUsd"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

@@ -1,0 +1,138 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_63833_LevMath {
+label = "LevMath"
+"63833_leverUpBuyWbtc" [label="leverUpBuyWbtc"]
+"63833__weethToWethDex" [label="_weethToWethDex"]
+"63833_stableToColl" [label="stableToColl"]
+"63833_netEquityBase" [label="netEquityBase"]
+"63833_ilTargetBps" [label="ilTargetBps"]
+"63833_freeAndDeliverBody" [label="freeAndDeliverBody"]
+"63833_reanchorCompute" [label="reanchorCompute"]
+"63833__weethToWeth" [label="_weethToWeth"]
+"63833_onFlashMintBody" [label="onFlashMintBody"]
+"63833__stableToWethSor" [label="_stableToWethSor"]
+"63833_deliverableDollars" [label="deliverableDollars"]
+"63833_swapOutDeliverUnleveredBody" [label="swapOutDeliverUnleveredBody"]
+"63833__fromUsd" [label="_fromUsd"]
+"63833__roverAbsorb" [label="_roverAbsorb"]
+"63833__toUsd18" [label="_toUsd18"]
+"63833_deleverRepay" [label="deleverRepay"]
+"63833_capBufferUsd" [label="capBufferUsd"]
+"63833__reimburse" [label="_reimburse"]
+"63833__wethToWeeth" [label="_wethToWeeth"]
+"63833__consolidateTo" [label="_consolidateTo"]
+"63833_vetVenue" [label="vetVenue"]
+"63833__wethForAssets" [label="_wethForAssets"]
+"63833_sellWeeth" [label="sellWeeth"]
+"63833__stableToWeeth" [label="_stableToWeeth"]
+"63833_requireOpenable" [label="requireOpenable"]
+"63833_ltvBps" [label="ltvBps"]
+"63833_protectExec" [label="protectExec"]
+"63833_ilTargetLive" [label="ilTargetLive"]
+"63833_sizeRepayStable" [label="sizeRepayStable"]
+"63833__stableFloor" [label="_stableFloor"]
+"63833_debtDelta" [label="debtDelta"]
+"63833__repayAndFreeBody" [label="_repayAndFreeBody"]
+"63833__repayPretransferred" [label="_repayPretransferred"]
+"63833_sellColl" [label="sellColl"]
+"63833__pullForExtract" [label="_pullForExtract"]
+"63833_v3SwapTiered" [label="v3SwapTiered"]
+"63833__sellAndReturn" [label="_sellAndReturn"]
+"63833_e0Usd" [label="e0Usd"]
+"63833_deleverWbtc" [label="deleverWbtc"]
+"63833_collToWethDeliver" [label="collToWethDeliver"]
+"63833_deleverFlashBody" [label="deleverFlashBody"]
+"63833_extractToVaultBody" [label="extractToVaultBody"]
+"63833__wethToStableDex" [label="_wethToStableDex"]
+"63833_swapOutDeleverBody" [label="swapOutDeleverBody"]
+"63833_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"63833__isMintVenueM" [label="_isMintVenueM"]
+"63833__sellAndRoute" [label="_sellAndRoute"]
+"63833_reimburseKeeper" [label="reimburseKeeper"]
+"63833_deleverSettleBody" [label="deleverSettleBody"]
+"63833_flashDeleverWbtcSettle" [label="flashDeleverWbtcSettle"]
+"63833_leverUpBuyWbtc" -> "63833__fromUsd"
+"63833_onFlashMintBody" -> "63833__reimburse"
+"63833_sellWeeth" -> "63833__stableFloor"
+"63833_deleverFlashBody" -> "63833__isMintVenueM"
+"63833_extractToVaultBody" -> "63833__sellAndRoute"
+"63833_sellWeeth" -> "63833__reimburse"
+"63833__repayPretransferred" -> "63833__toUsd18"
+"63833__wethForAssets" -> "63833__toUsd18"
+"63833_protectExec" -> "63833__consolidateTo"
+"63833_onFlashMintBody" -> "63833__toUsd18"
+"63833_flashDeleverWbtcSettle" -> "63833__fromUsd"
+"63833_swapOutDeleverBody" -> "63833_freeAndDeliverBody"
+"63833__stableToWethSor" -> "63833__toUsd18"
+"63833__repayAndFreeBody" -> "63833__toUsd18"
+"63833_deleverWbtc" -> "63833__fromUsd"
+"63833__weethToWethDex" -> "63833_v3SwapTiered"
+"63833__sellAndRoute" -> "63833_sellColl"
+"63833_sizeRepayStable" -> "63833__fromUsd"
+"63833_deleverSettleBody" -> "63833__repayAndFreeBody"
+"63833__weethToWeth" -> "63833__weethToWethDex"
+"63833__weethToWeth" -> "63833__roverAbsorb"
+"63833__consolidateTo" -> "63833_v3SwapTiered"
+"63833_sellWeeth" -> "63833__wethForAssets"
+"63833_deleverFlashBody" -> "63833__fromUsd"
+"63833_sellWeeth" -> "63833__weethToWeth"
+"63833_deleverFlashBody" -> "63833__toUsd18"
+"63833_ilTargetLive" -> "63833_ilTargetBps"
+"63833__stableToWeeth" -> "63833__wethToWeeth"
+"63833_freeAndDeliverBody" -> "63833_collToWethDeliver"
+"63833_sellColl" -> "63833_sellWeeth"
+"63833_deleverSettleBody" -> "63833__sellAndReturn"
+"63833__stableToWeeth" -> "63833__stableToWethSor"
+"63833_stableToColl" -> "63833__stableToWethSor"
+"63833_sellColl" -> "63833__wethForAssets"
+"63833_reimburseKeeper" -> "63833__reimburse"
+"63833_sellColl" -> "63833__reimburse"
+"63833_sellColl" -> "63833__fromUsd"
+"63833__stableFloor" -> "63833__fromUsd"
+"63833__pullForExtract" -> "63833__toUsd18"
+"63833__consolidateTo" -> "63833__toUsd18"
+"63833_debtDelta" -> "63833_ltvBps"
+"63833_swapOutDeleverBody" -> "63833__repayPretransferred"
+"63833_collToWethDeliver" -> "63833__weethToWeth"
+"63833__repayPretransferred" -> "63833__fromUsd"
+"63833_extractToVaultBody" -> "63833__pullForExtract"
+"63833_flashDeleverWbtcSettle" -> "63833__toUsd18"
+"63833_sellColl" -> "63833__wethToStableDex"
+"63833__consolidateTo" -> "63833__fromUsd"
+"63833_swapOutDeliverUnleveredBody" -> "63833_collToWethDeliver"
+"63833__sellAndReturn" -> "63833_sellColl"
+"63833_sellWeeth" -> "63833__wethToStableDex"
+"63833_stableToColl" -> "63833__stableToWeeth"
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"revert NoDebt()" 
+"balance(address)" 
+"revert VenueBlocked()" 
+"revert VenueNotAllowed()" 
+"revert Slippage()" 
+"revert NotNearLiq()" 
+"abi.encode()" 
+"revert BadCollateral()" 
+"require(bool,string)" 
+"revert NoOptIn()" 
+"revert NoPrice()" 
+"63833_protectExec" -> "revert NotNearLiq()"
+"63833_requireOpenable" -> "revert VenueBlocked()"
+"63833_freeAndDeliverBody" -> "revert NoPrice()"
+"63833_protectExec" -> "revert NoDebt()"
+"63833__stableToWeeth" -> "revert Slippage()"
+"63833_deleverFlashBody" -> "abi.encode()"
+"63833_onFlashMintBody" -> "require(bool,string)"
+"63833_collToWethDeliver" -> "require(bool,string)"
+"63833__reimburse" -> "require(bool,string)"
+"63833__repayAndFreeBody" -> "revert NoPrice()"
+"63833_protectExec" -> "revert Slippage()"
+"63833_stableToColl" -> "revert Slippage()"
+"63833_vetVenue" -> "revert BadCollateral()"
+"63833_protectExec" -> "revert NoOptIn()"
+"63833_requireOpenable" -> "revert VenueNotAllowed()"
+"63833__weethToWeth" -> "balance(address)"
+}
+}

@@ -1,0 +1,31 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_14820_CurrencyLibrary {
+label = "CurrencyLibrary"
+"14820_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"14820_fromId" [label="fromId"]
+"14820_transfer" [label="transfer"]
+"14820_balanceOfSelf" [label="balanceOfSelf"]
+"14820_toId" [label="toId"]
+"14820_isAddressZero" [label="isAddressZero"]
+"14820_balanceOf" [label="balanceOf"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"returndatasize()" 
+"mstore(uint256,uint256)" 
+"balance(address)" 
+"call(uint256,uint256,uint256,uint256,uint256,uint256,uint256)" 
+"mload(uint256)" 
+"gas()" 
+"14820_balanceOfSelf" -> "balance(address)"
+"14820_transfer" -> "call(uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
+"14820_balanceOf" -> "balance(address)"
+"14820_transfer" -> "mload(uint256)"
+"14820_transfer" -> "mstore(uint256,uint256)"
+"14820_transfer" -> "returndatasize()"
+"14820_transfer" -> "gas()"
+}"14820_balanceOf" -> "14820_isAddressZero"
+"14820_transfer" -> "14820_isAddressZero"
+"14820_balanceOfSelf" -> "14820_isAddressZero"
+}

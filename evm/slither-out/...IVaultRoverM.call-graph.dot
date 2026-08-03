@@ -1,0 +1,10 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_59623_IVaultRoverM {
+label = "IVaultRoverM"
+"59623_ROVER" [label="ROVER"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

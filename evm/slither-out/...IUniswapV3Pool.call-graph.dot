@@ -1,0 +1,43 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_77537_IUniswapV3PoolImmutables {
+label = "IUniswapV3PoolImmutables"
+"77537_token0" [label="token0"]
+"77537_maxLiquidityPerTick" [label="maxLiquidityPerTick"]
+"77537_token1" [label="token1"]
+"77537_tickSpacing" [label="tickSpacing"]
+"77537_fee" [label="fee"]
+"77537_factory" [label="factory"]
+}subgraph cluster_77378_IUniswapV3PoolDerivedState {
+label = "IUniswapV3PoolDerivedState"
+"77378_observe" [label="observe"]
+"77378_snapshotCumulativesInside" [label="snapshotCumulativesInside"]
+}subgraph cluster_77347_IUniswapV3PoolActions {
+label = "IUniswapV3PoolActions"
+"77347_initialize" [label="initialize"]
+"77347_flash" [label="flash"]
+"77347_mint" [label="mint"]
+"77347_swap" [label="swap"]
+"77347_burn" [label="burn"]
+"77347_collect" [label="collect"]
+"77347_increaseObservationCardinalityNext" [label="increaseObservationCardinalityNext"]
+}subgraph cluster_77671_IUniswapV3PoolState {
+label = "IUniswapV3PoolState"
+"77671_tickBitmap" [label="tickBitmap"]
+"77671_slot0" [label="slot0"]
+"77671_ticks" [label="ticks"]
+"77671_liquidity" [label="liquidity"]
+"77671_positions" [label="positions"]
+"77671_observations" [label="observations"]
+"77671_feeGrowthGlobal0X128" [label="feeGrowthGlobal0X128"]
+"77671_protocolFees" [label="protocolFees"]
+"77671_feeGrowthGlobal1X128" [label="feeGrowthGlobal1X128"]
+}subgraph cluster_77563_IUniswapV3PoolOwnerActions {
+label = "IUniswapV3PoolOwnerActions"
+"77563_setFeeProtocol" [label="setFeeProtocol"]
+"77563_collectProtocol" [label="collectProtocol"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

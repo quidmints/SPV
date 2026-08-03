@@ -1,0 +1,219 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_15112_IImmutableState {
+label = "IImmutableState"
+"15112_poolManager" [label="poolManager"]
+}subgraph cluster_15052_ImmutableState {
+label = "ImmutableState"
+"15052_constructor" [label="constructor"]
+}subgraph cluster_11991_IUnlockCallback {
+label = "IUnlockCallback"
+"11991_unlockCallback" [label="unlockCallback"]
+}subgraph cluster_15099_SafeCallback {
+label = "SafeCallback"
+"15099__unlockCallback" [label="_unlockCallback"]
+"15099_unlockCallback" [label="unlockCallback"]
+"15099_constructor" [label="constructor"]
+"15099_constructor" -> "15099_constructor"
+"15099_unlockCallback" -> "15099__unlockCallback"
+"15099_unlockCallback" -> "15099_onlyPoolManager"
+}subgraph cluster_30109_Core {
+label = "Core"
+"30109__subPooledTok" [label="_subPooledTok"]
+"30109__handleReseat" [label="_handleReseat"]
+"30109__settleUsdSide" [label="_settleUsdSide"]
+"30109__obsState" [label="_obsState"]
+"30109_modLP" [label="modLP"]
+"30109_refundUnfilled" [label="refundUnfilled"]
+"30109__repackAdd" [label="_repackAdd"]
+"30109__bumpEwma" [label="_bumpEwma"]
+"30109_levClaimUsd6" [label="levClaimUsd6"]
+"30109_committedUsd18" [label="committedUsd18"]
+"30109__handleMod" [label="_handleMod"]
+"30109_btcThetaBacking" [label="btcThetaBacking"]
+"30109_poolTicks" [label="poolTicks"]
+"30109_token1is" [label="token1is"]
+"30109_flowEwmaUsd" [label="flowEwmaUsd"]
+"30109__repackBurn" [label="_repackBurn"]
+"30109__modLP" [label="_modLP"]
+"30109__mockTok" [label="_mockTok"]
+"30109__poolId" [label="_poolId"]
+"30109__initPool" [label="_initPool"]
+"30109__key" [label="_key"]
+"30109_swap" [label="swap"]
+"30109__addPooledTok" [label="_addPooledTok"]
+"30109__decayed" [label="_decayed"]
+"30109_drawPooledUsdBtc" [label="drawPooledUsdBtc"]
+"30109_premiumEwmaUsd" [label="premiumEwmaUsd"]
+"30109__handleOutsideRange" [label="_handleOutsideRange"]
+"30109__handleCollect" [label="_handleCollect"]
+"30109_realizedVarianceWad" [label="realizedVarianceWad"]
+"30109__bumpFlow" [label="_bumpFlow"]
+"30109_setBtcVault" [label="setBtcVault"]
+"30109_subPendingSwapOut" [label="subPendingSwapOut"]
+"30109_setLoadBalanceConsent" [label="setLoadBalanceConsent"]
+"30109__settleTokSide" [label="_settleTokSide"]
+"30109__handleRepack" [label="_handleRepack"]
+"30109_repack" [label="repack"]
+"30109_collectFees" [label="collectFees"]
+"30109__t1" [label="_t1"]
+"30109__reseatBurnMove" [label="_reseatBurnMove"]
+"30109_constructor" [label="constructor"]
+"30109_btcBandEquityUsd18" [label="btcBandEquityUsd18"]
+"30109_addPendingSwapOut" [label="addPendingSwapOut"]
+"30109_observe" [label="observe"]
+"30109_levGrossNative" [label="levGrossNative"]
+"30109__bandEdgeLimit" [label="_bandEdgeLimit"]
+"30109_outOfRange" [label="outOfRange"]
+"30109__handleSwap" [label="_handleSwap"]
+"30109__subPooledUsd" [label="_subPooledUsd"]
+"30109__obs" [label="_obs"]
+"30109__writeObservation" [label="_writeObservation"]
+"30109__modifyLiquidity" [label="_modifyLiquidity"]
+"30109_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"30109_poolStats" [label="poolStats"]
+"30109_btcVault" [label="btcVault"]
+"30109__handleDelta" [label="_handleDelta"]
+"30109__poolUsdInRange" [label="_poolUsdInRange"]
+"30109__addPooledUsd" [label="_addPooledUsd"]
+"30109_recordSkewPremium" [label="recordSkewPremium"]
+"30109__bandEquityUsd18" [label="_bandEquityUsd18"]
+"30109__levDebtUsd18" [label="_levDebtUsd18"]
+"30109__unlockCallback" [label="_unlockCallback"]
+"30109_observeBTC" [label="observeBTC"]
+"30109_reseat" [label="reseat"]
+"30109_setup" [label="setup"]
+"30109__mockUsd" [label="_mockUsd"]
+"30109__poolUsdInRange" -> "30109__subPooledUsd"
+"30109__reseatBurnMove" -> "30109__key"
+"30109_flowEwmaUsd" -> "30109__decayed"
+"30109_recordSkewPremium" -> "30109__bumpEwma"
+"30109_modLP" -> "30109_onlyUs"
+"30109__handleSwap" -> "30109__bandEdgeLimit"
+"30109__unlockCallback" -> "30109__handleSwap"
+"30109_btcBandEquityUsd18" -> "30109__bandEquityUsd18"
+"30109__repackBurn" -> "30109__modifyLiquidity"
+"30109__handleOutsideRange" -> "30109__handleDelta"
+"30109__unlockCallback" -> "30109__handleOutsideRange"
+"30109_committedUsd18" -> "30109__bandEquityUsd18"
+"30109__settleUsdSide" -> "30109__mockUsd"
+"30109__handleReseat" -> "30109__poolId"
+"30109__handleSwap" -> "30109__bumpFlow"
+"30109_drawPooledUsdBtc" -> "30109_onlyUs"
+"30109__settleTokSide" -> "30109__key"
+"30109__handleReseat" -> "30109__repackAdd"
+"30109_modLP" -> "30109__t1"
+"30109_outOfRange" -> "30109__t1"
+"30109__repackBurn" -> "30109__poolId"
+"30109__poolUsdInRange" -> "30109__addPooledUsd"
+"30109_reseat" -> "30109_onlyUs"
+"30109__handleCollect" -> "30109__modifyLiquidity"
+"30109__handleMod" -> "30109__modLP"
+"30109__handleReseat" -> "30109__reseatBurnMove"
+"30109_levClaimUsd6" -> "30109__levDebtUsd18"
+"30109__repackBurn" -> "30109__handleDelta"
+"30109__handleRepack" -> "30109__poolId"
+"30109__writeObservation" -> "30109__obs"
+"30109__handleRepack" -> "30109__repackAdd"
+"30109_swap" -> "30109_onlyUs"
+"30109_token1is" -> "30109__t1"
+"30109__writeObservation" -> "30109__obsState"
+"30109__handleRepack" -> "30109__writeObservation"
+"30109__reseatBurnMove" -> "30109__handleDelta"
+"30109_constructor" -> "30109_constructor"
+"30109__initPool" -> "30109__obs"
+"30109__initPool" -> "30109__obsState"
+"30109_collectFees" -> "30109_onlyUs"
+"30109_refundUnfilled" -> "30109_onlyUs"
+"30109__reseatBurnMove" -> "30109__modifyLiquidity"
+"30109__handleDelta" -> "30109__settleUsdSide"
+"30109__modLP" -> "30109__t1"
+"30109_premiumEwmaUsd" -> "30109__decayed"
+"30109__unlockCallback" -> "30109__handleReseat"
+"30109__handleDelta" -> "30109__t1"
+"30109__unlockCallback" -> "30109__handleRepack"
+"30109__handleSwap" -> "30109__key"
+"30109__handleReseat" -> "30109__t1"
+"30109_subPendingSwapOut" -> "30109_onlyUs"
+"30109_recordSkewPremium" -> "30109_onlyUs"
+"30109__handleCollect" -> "30109__t1"
+"30109__handleDelta" -> "30109__settleTokSide"
+"30109__bumpFlow" -> "30109__bumpEwma"
+"30109__unlockCallback" -> "30109__handleMod"
+"30109__repackAdd" -> "30109__modLP"
+"30109__handleSwap" -> "30109__handleDelta"
+"30109__poolUsdInRange" -> "30109_committedUsd18"
+"30109_outOfRange" -> "30109_onlyUs"
+"30109__repackAdd" -> "30109__t1"
+"30109__bumpEwma" -> "30109__decayed"
+"30109__settleTokSide" -> "30109__addPooledTok"
+"30109__modLP" -> "30109_poolStats"
+"30109_setup" -> "30109__initPool"
+"30109__repackAdd" -> "30109__handleDelta"
+"30109__handleMod" -> "30109__handleDelta"
+"30109__handleRepack" -> "30109__repackBurn"
+"30109_repack" -> "30109_onlyUs"
+"30109__unlockCallback" -> "30109__handleCollect"
+"30109__settleTokSide" -> "30109__mockTok"
+"30109__handleSwap" -> "30109__poolId"
+"30109__settleTokSide" -> "30109__t1"
+"30109__settleUsdSide" -> "30109__key"
+"30109__handleReseat" -> "30109__writeObservation"
+"30109_poolStats" -> "30109_poolTicks"
+"30109__modLP" -> "30109__modifyLiquidity"
+"30109_poolTicks" -> "30109__poolId"
+"30109__settleTokSide" -> "30109__subPooledTok"
+"30109__handleOutsideRange" -> "30109__modifyLiquidity"
+"30109__handleRepack" -> "30109__t1"
+"30109__handleCollect" -> "30109__handleDelta"
+"30109__settleUsdSide" -> "30109__poolUsdInRange"
+"30109__bandEquityUsd18" -> "30109__levDebtUsd18"
+"30109__settleUsdSide" -> "30109__t1"
+"30109_addPendingSwapOut" -> "30109_onlyUs"
+"30109__handleSwap" -> "30109__writeObservation"
+"30109__modifyLiquidity" -> "30109__key"
+"30109__handleSwap" -> "30109__t1"
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"keccak256(bytes)" 
+"abi.encode()" 
+"require(bool,string)" 
+"abi.decode()" 
+"revert BtcVaultPinned()" 
+"abi.encodePacked()" 
+"calldataload(uint256)" 
+"30109__repackBurn" -> "require(bool,string)"
+"30109__handleRepack" -> "abi.encode()"
+"30109__unlockCallback" -> "calldataload(uint256)"
+"30109__handleReseat" -> "abi.encode()"
+"30109__handleSwap" -> "abi.decode()"
+"30109_modLP" -> "abi.encode()"
+"30109__poolUsdInRange" -> "require(bool,string)"
+"30109_outOfRange" -> "abi.decode()"
+"30109_modLP" -> "abi.decode()"
+"30109_repack" -> "abi.decode()"
+"30109_setup" -> "require(bool,string)"
+"30109__repackBurn" -> "keccak256(bytes)"
+"30109_setBtcVault" -> "revert BtcVaultPinned()"
+"30109_setBtcVault" -> "require(bool,string)"
+"30109_repack" -> "abi.encode()"
+"30109__handleMod" -> "abi.encode()"
+"30109_collectFees" -> "abi.encode()"
+"30109_swap" -> "abi.encode()"
+"30109_swap" -> "abi.decode()"
+"30109_outOfRange" -> "abi.encode()"
+"30109__handleOutsideRange" -> "abi.decode()"
+"30109__handleMod" -> "abi.decode()"
+"30109__handleCollect" -> "abi.encode()"
+"30109__repackBurn" -> "abi.encodePacked()"
+"30109_reseat" -> "abi.encode()"
+"30109__handleSwap" -> "abi.encode()"
+"30109__handleCollect" -> "abi.decode()"
+"30109_reseat" -> "abi.decode()"
+"30109__repackBurn" -> "abi.decode()"
+"30109__handleOutsideRange" -> "abi.encode()"
+"30109__handleReseat" -> "abi.decode()"
+"30109_collectFees" -> "abi.decode()"
+}
+}

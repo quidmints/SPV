@@ -1,0 +1,10 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_59617_IWeETHM {
+label = "IWeETHM"
+"59617_getEETHByWeETH" [label="getEETHByWeETH"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

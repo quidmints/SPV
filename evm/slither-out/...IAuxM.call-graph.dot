@@ -1,0 +1,16 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_59609_IAuxM {
+label = "IAuxM"
+"59609_vaultBlocked" [label="vaultBlocked"]
+"59609_getStables" [label="getStables"]
+"59609_ethVenue" [label="ethVenue"]
+"59609_sorSelfFunded" [label="sorSelfFunded"]
+"59609_sorSelfFundedReverse" [label="sorSelfFundedReverse"]
+"59609_getTWAPforAsset" [label="getTWAPforAsset"]
+"59609_redeem" [label="redeem"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

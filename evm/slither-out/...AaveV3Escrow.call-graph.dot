@@ -1,0 +1,19 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_15629_AaveV3Escrow {
+label = "AaveV3Escrow"
+"15629_withdrawColl" [label="withdrawColl"]
+"15629_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"15629_borrowStable" [label="borrowStable"]
+"15629_constructor" [label="constructor"]
+"15629_supplyColl" [label="supplyColl"]
+"15629_repayStable" [label="repayStable"]
+"15629_supplyColl" -> "15629_onlyVenue"
+"15629_borrowStable" -> "15629_onlyVenue"
+"15629_repayStable" -> "15629_onlyVenue"
+"15629_withdrawColl" -> "15629_onlyVenue"
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

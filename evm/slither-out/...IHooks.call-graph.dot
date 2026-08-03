@@ -1,0 +1,19 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_11603_IHooks {
+label = "IHooks"
+"11603_afterDonate" [label="afterDonate"]
+"11603_beforeRemoveLiquidity" [label="beforeRemoveLiquidity"]
+"11603_afterSwap" [label="afterSwap"]
+"11603_afterAddLiquidity" [label="afterAddLiquidity"]
+"11603_beforeInitialize" [label="beforeInitialize"]
+"11603_afterRemoveLiquidity" [label="afterRemoveLiquidity"]
+"11603_beforeDonate" [label="beforeDonate"]
+"11603_beforeAddLiquidity" [label="beforeAddLiquidity"]
+"11603_afterInitialize" [label="afterInitialize"]
+"11603_beforeSwap" [label="beforeSwap"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

@@ -1,0 +1,10 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_59653_IDepositAdapterM {
+label = "IDepositAdapterM"
+"59653_depositWETHForWeETH" [label="depositWETHForWeETH"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

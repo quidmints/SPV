@@ -1,0 +1,15 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_77128_INonfungiblePositionManager {
+label = "INonfungiblePositionManager"
+"77128_positions" [label="positions"]
+"77128_increaseLiquidity" [label="increaseLiquidity"]
+"77128_decreaseLiquidity" [label="decreaseLiquidity"]
+"77128_mint" [label="mint"]
+"77128_burn" [label="burn"]
+"77128_collect" [label="collect"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

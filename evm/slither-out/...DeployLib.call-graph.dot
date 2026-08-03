@@ -1,0 +1,43 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_31678_DeployLib {
+label = "DeployLib"
+"31678_deployQuidStack" [label="deployQuidStack"]
+"31678__hop2" [label="_hop2"]
+"31678__ethPaths" [label="_ethPaths"]
+"31678__hop1B" [label="_hop1B"]
+"31678__newVault" [label="_newVault"]
+"31678__pk" [label="_pk"]
+"31678__hop3B" [label="_hop3B"]
+"31678__hop1" [label="_hop1"]
+"31678__buildSORPaths" [label="_buildSORPaths"]
+"31678__refKeys" [label="_refKeys"]
+"31678__hop2B" [label="_hop2B"]
+"31678__deployChannels" [label="_deployChannels"]
+"31678__btcPaths" [label="_btcPaths"]
+"31678__buildSORPaths" -> "31678__btcPaths"
+"31678__btcPaths" -> "31678__hop2B"
+"31678_deployQuidStack" -> "31678__buildSORPaths"
+"31678__btcPaths" -> "31678__hop1B"
+"31678__ethPaths" -> "31678__hop1"
+"31678__ethPaths" -> "31678__pk"
+"31678__buildSORPaths" -> "31678__ethPaths"
+"31678__ethPaths" -> "31678__hop2"
+"31678_deployQuidStack" -> "31678__refKeys"
+"31678__btcPaths" -> "31678__pk"
+"31678__btcPaths" -> "31678__hop3B"
+"31678_deployQuidStack" -> "31678__newVault"
+"31678_deployQuidStack" -> "31678__deployChannels"
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"require(bool,string)" 
+"abi.encode()" 
+"31678__hop2" -> "abi.encode()"
+"31678__hop1B" -> "abi.encode()"
+"31678__hop1" -> "abi.encode()"
+"31678__hop3B" -> "abi.encode()"
+"31678__hop2B" -> "abi.encode()"
+"31678__deployChannels" -> "require(bool,string)"
+}
+}

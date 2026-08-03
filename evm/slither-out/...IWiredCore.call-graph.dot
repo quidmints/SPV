@@ -1,0 +1,10 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_47501_IWiredCore {
+label = "IWiredCore"
+"47501_btcVault" [label="btcVault"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}
