@@ -8,6 +8,22 @@
   or immediate-but-0.3% (instant redeem). **Rover's only job is to beat that trade-off.** Every finding
   below is scored against it — NOT against "does the LP earn a yield".
 
+# ⏳ NOT DEPLOYED ≠ NOT BROKEN — the bleeding is SCHEDULED, not absent (user, 2026-08-03)
+> *"it's a bleeding contract nonetheless — just because it's not bleeding yet doesn't mean it won't be."*
+
+**Correct, and an earlier framing in this doc was too comfortable.** "Nothing is deployed" was written
+as if it lowered urgency. **It does the opposite:**
+- **Every defect below is LATENT, not absent.** The ratchet, the stranding, the DoS surface, the
+  uncapped `deliverableETH` leg — each activates on the FIRST mint. None of them requires an attacker
+  or an unlucky market; they are properties of the design meeting a monotonic asset.
+- ⏱️ **Pre-deploy is the ONLY window in which these are FREE.** After the first position exists, every
+  one of them costs real inventory to fix plus a migration — and `deliverableETH` mis-stating
+  deliverable ETH is the kind of thing that is discovered by a redemption failing, not by a test.
+- 🔴 **The one that is genuinely worse if deferred: "LARGE ENOUGH" is a SIZING decision.** Ship at the
+  wrong size and you cannot correct it without unwinding into the very pool whose exit you mis-sized.
+⇒ 📌 **Read the rest of this doc as a PRE-SHIP DEFECT LIST with a closing window, NOT as an audit of a
+  live system.** "Not live yet" is the reason to fix it now, not a reason to schedule it later.
+
 # 🏗️ THE ORIGINAL DESIGN INTENT (user, stated at the OUTSET — recovered from the transcript 2026-08-03)
 > *"if the rover NFT (**which guarantees liquidity won't be pulled out** from the WETH/weETH v3 pool)
 > is both **BALANCED** and **LARGE ENOUGH** to support **INSTANT conversion** of some weETH amount back
