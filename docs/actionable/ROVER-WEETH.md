@@ -950,6 +950,108 @@ is not reopened by any measurement. The numbers above stay OPEN as measurements.
 
 ---
 
+# 🧪 §13 — EVERY OPEN EXPERIMENT, RUN (2026-08-03, archival + fork execution)
+**All of the below are EXECUTED, not quoted or modelled.** Fork tests:
+`test/WeethPoolAccessibility.t.sol`, `test/RoverInjectedDepth.t.sol`, `test/RoverDosCost.t.sol`.
+
+## 13.1 ⭐⭐ THE COUNTERFACTUAL (R11's *"never run"*) — **THE COST COLLAPSES TO −1 bps**
+`RoverInjectedDepth.t.sol` mints a Rover-sized one-tick band into the REAL pool on a fork, runs the
+offramp through it, and measures **TOTAL PORTFOLIO VALUE at fair, before vs after** — because when
+Rover is both LP and swapper the impact it pays on its own liquidity **lands back in its own
+position**, and pricing the swap alone miscounts an internal transfer as a loss.
+| sell weETH | baseline (today's pool) | **Rover 1,000** | **Rover 4,000** |
+|---|---|---|---|
+| 100 | −24 bps | **−1** | **−1** |
+| 500 | −26 | **−1** | **−1** |
+| 1,000 | −28 | **−3** | **−1** |
+| 2,000 | −33 | −16 | **−1** |
+⇒ ⭐ **THE BAND ABSORBS ROUGHLY ITS OWN SIZE AT ~ZERO COST.** This is the owner's self-counterparty
+  argument, measured by execution. **−1 bps versus a 30 bps instant redeem is the goal beaten 30×.**
+⇒ 📏 **SIZING RULE, finally derivable:** Rover must be **≥ the largest single offramp to be served at
+  ~0 bps.** 4,000 WETH serves 2,000 weETH at −1 bps; 1,000 serves ~1,000 at −3.
+⚠️ **This is the CONVERSION cost only.** The carrying cost (§13.5) is separate and is not paid by it.
+
+## 13.2 ✅ THE WETH IS REACHABLE — real swaps, not quotes
+`WeethPoolAccessibility.t.sol`. Pool A fills and degrades gradually: 1 weETH → 1.098005 WETH (−24 bps,
+8 ticks); 1,000 → 1,097.507 (−28, 17 ticks); 4,000 → 4,384.061 (−42, 44 ticks). **`liquidity()`
+reporting ~nil does NOT mean the WETH is unreachable — the depth is adjacent.** Every figure matches
+QuoterV2 to the bp, which retro-validates every quote table above. Pool B's cliff is real: 2,000 weETH
+→ −677 bps having crossed **246,831 ticks** (it exits the entire range; the pool is out of WETH).
+*(✅ — executed.)*
+
+## 13.3 🔴→✅ R2's DoS: **$0.08 TODAY, ~8,413 ETH ONCE ROVER IS DEPLOYED**
+QUEUE calls R2 *"LIVE, unfixed — ~$5"*. Measured (`RoverDosCost.t.sol`), walking spend until the
+50 bps `_nearFair` gate trips:
+| | cheapest shove | attacker's loss |
+|---|---|---|
+| **no Rover** (today) | **0.001 WETH**, buying weETH ⇒ deviation **570 bps** | **0.000026 ETH ≈ $0.08** |
+| **Rover 4,000 WETH** | 0.001 → **1,000 WETH** all leave deviation at **10–12 bps**, cost **0** | at 10,000 WETH spend: **8,413 ETH** |
+⇒ ⭐ **DEPLOYING ROVER RAISES THE ATTACK COST BY ~8 ORDERS OF MAGNITUDE.** The $5 figure is an
+  artefact of the EMPTY pool. **R2 is not an argument against Rover — Rover is the fix for R2.**
+  *(OPEN only in the sense that a different position size changes the number.)*
+⇒ 📌 The cheap direction is **BUYING** weETH (the broken side — 1.036 weETH in the pool), which the
+  doc never identified. The $5 estimate also had the wrong side.
+
+## 13.4 ✅ CLOSED: Uniswap v4 — **THERE IS NO POOL.** (doc: *"needs an indexer"* — it does not)
+`poolId = keccak(PoolKey)`, so standard keys enumerate directly. All four standard tiers
+(100/1, 500/10, 3000/60, 10000/200, `hooks=0`) return **`sqrtPrice = 0`, i.e. never initialised.**
+🔬 **CONTROL:** the identical encoding against native-ETH/USDC returns live liquidity
+(8.67e16 / 2.25e18 / 2.36e17) and real sqrtPrices ⇒ **the zeros are real, not an encoding bug.**
+⇒ ⛔ **The doc's *"v4 exists but ~20× shallower"* is REFUTED — it does not exist at all.**
+  *(✅ for `hooks=0`. A HOOKED pool has a different `poolId` and genuinely does need an indexer — that
+  narrow residue stays OPEN.)*
+
+## 13.5 💰 THE CARRY — the cost the −1 bps does NOT include
+An in-range v3 position must hold **both** tokens; the WETH leg earns nothing while weETH accrues
+**2.47%/yr** (measured directly: `getRate` 1.094068817 → 1.100684 over 90d).
+| band composition | Rover carry | vs HOLD weETH | vs HOLD WETH (the reserve) |
+|---|---|---|---|
+| today's tick (71.6% WETH) | 0.70%/yr | **needs fees > 1.77%/yr** | **ahead 0.70%/yr, always** |
+| averaged over a traverse (50/50) | 1.24%/yr | **needs fees > 1.24%/yr** | **ahead 1.24%/yr, always** |
+⇒ 🎯 **THE WHOLE QUESTION IN ONE LINE: is the WETH Rover holds WETH the protocol must hold ANYWAY?**
+  **Yes** ⇒ the NFT is free upside on forced inventory. **No** ⇒ it is a ~1.24%/yr drag. *(OPEN.)*
+
+## 13.6 📊 REAL VOLUME — measured from Swap logs, and it is NOT zero
+180 days, 2,000-block windows every 3 days (9.3% duty cycle), **parser validated against USDC/WETH
+(1,598 swaps / $23.7M in the same 2,000 blocks where pool A shows 0)**:
+| window | swaps | WETH/day | fee pot @5bps | **breakeven position size** |
+|---|---|---|---|---|
+| **last 30d** | 17 | 58.2 | 10.6 WETH/yr | 🔴 **857 WETH** |
+| 30–60d | 49 | 119.5 | 21.8 | 1,758 |
+| 60–90d | 17 | 219.2 | 40.0 | 3,226 |
+| 90–120d | 707 | 1,733.8 | 316.4 | 25,517 |
+| 120–180d | 38 | 83.8 | 15.3 | 1,233 |
+| **full 180d** | 830 | 376.8 | 68.8 | 5,545 |
+⇒ ⛔ **"The pool is dead / zero volume" is REFUTED** — 830 swaps and ~137,500 WETH/yr annualised. But
+  it is **violently lumpy** (21 of 61 windows have zero swaps; 90–120d carries most of it).
+⇒ 🔴 **WEIGHTING THE PRESENT, AS INSTRUCTED: on the LAST 30 DAYS the fee pot covers the carry only up
+  to 857 WETH.** Above that size the LP leg is a liability **on fees alone**. *(OPEN.)*
+
+## 13.7 ✅ R12 ANSWERED — the `L` collapse was CONVERSION, not abandonment
+−30d: 3,831.2 WETH + 921.6 weETH ⇒ **4,844 ETH-equiv.** Now: 4,840.2 WETH + 1.0 weETH ⇒ **4,841.**
+**Value conserved to 0.06%.** ⇒ **Nobody withdrew.** The ratchet converted the weETH leg and walked
+price out of the ranges. *(✅ — arithmetic on measured balances.)*
+
+## 13.8 🏦 THE BORROW ROUTE, PRICED (Aave v3, all-ether.fi collateral — no Lido)
+| | |
+|---|---|
+| weETH as collateral | **LTV 77.5%**, liq. threshold 80%, liq. bonus 7% — collateral-enabled ✅ |
+| **WETH variable borrow rate** | **2.112%/yr** |
+| **WETH available to borrow** | **361,163 WETH** (vs the v3 pool's entire 4,840) |
+| utilisation | 1.73M debt / 2.14M supply ≈ **80.6%** — high; the rate is rate-risk, not a constant |
+⇒ **Cost of bridging a ~7-day ether.fi queue: 2.112% × 7/365 = ~4.05 bps** (14 days ⇒ ~8.1 bps).
+⇒ ⚖️ **HEAD TO HEAD:** Rover-with-depth **−1 bps** beats the borrow bridge's **~4 bps** *per
+  conversion* — **but Rover pays ~1.24%/yr standing and the borrow bridge pays NOTHING when idle.**
+  Crossover, using the last-30-day fee pot: Rover is cheaper once offramp volume exceeds
+  ≈ **128,000 WETH/yr (~350 WETH/day)**; below that the borrow bridge wins.
+  **⇒ THIS IS `T`, in real units, at last.** *(OPEN — the crossover moves with the fee pot, which
+  §13.6 shows swings 30× between windows.)*
+⇒ 📌 **And the borrow route is IMMUNE to §10 Q6** (third-party same-block withdrawal): it never
+  touches the v3 pool, and 361k WETH is ~75× the pool's entire WETH. **Its risks are different, not
+  absent** — liquidation at an 80% threshold on an oracle, and borrow-rate risk at 80.6% utilisation.
+
+---
+
 # 🚦 THE VERDICT — ⛔ WITHDRAWN 2026-08-03, SAME DAY IT WAS WRITTEN
 > I wrote **"DON'T SHIP THE NFT"** resting on §1(b), *"a liquidity position cannot be its own
 > counterparty."* **§1(b) is false** (retracted above, with the measurement that refutes it). A verdict
