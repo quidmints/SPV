@@ -14,38 +14,17 @@ import {TickMath} from "../src/imports/v3/TickMath.sol";
 /// @notice COVERAGE FOR THE OUT-OF-BAND PATHS, which every other Rover test misses because they all
 ///         run with spot INSIDE the band.
 ///
-///         ⚠️ THE TWO `repackSucceeds_*` TESTS FAIL, AND THE FAILURES ARE CORRECT — DO NOT WEAKEN
-///         THEM (same convention as `testLeverage_LvrControlVsTreatment`). They now fail on
-///         "no position after repack", NOT on a revert: `repackNFT` completes safely but does not
-///         re-establish the position. After `_swap` converts wholesale to one side, the re-anchored
-///         band straddles spot and therefore needs BOTH tokens, so `getLiquidityForAmounts` is 0 and
-///         the mint is correctly skipped rather than reverting. Tokens stay idle and fair-valued.
-///
-///         🔴 STILL OPEN: whether Rover can always CLIMB BACK from that state. `_wrapIdle` pushes
-///         idle WETH to weETH, so a subsequent crank may still hold the wrong side. Nothing is lost
-///         (conservation is asserted) but the position may not re-form without a two-sided top-up.
-///
-///         WHAT THIS FILE ALREADY FIXED, all verified against the full suite (3,702/3/1):
-///           * `NFPM.mint` REVERTS that BRICKED `repackNFT` out of band — traced to the band being
-///             chosen from the PRE-swap tick while the mint executes at the POST-swap price (a 3.2
-///             weETH sale moves the tick several spacings once our own liquidity is burned).
-///           * `take` below the band now delivers the ask EXACTLY (300.000000000000000000).
-///           * `take` above the band declines safely with value conserved, instead of reverting.
-///         VERIFIED PRE-EXISTING before those fixes: identical reverts with the `_swap` domain fix
-///         applied and backed out. The whole 3,700-test suite runs Rover in-band only.
-///
-///         Two code paths only execute when spot has left `[LOWER_TICK, UPPER_TICK)`:
-///           * `_swap`'s single-sided target branch — the legacy USDC-era sizing passed `sqrtCurrent`
-///             as a RANGE BOUND, so once spot left the band `LiquidityAmounts` got an INVERTED range,
-///             swapped the bounds, and returned liquidity for a range that is not the band. Garbage
-///             targets, and `NFPM.mint` reverts on them.
-///           * `_liquidityForWeth`'s probe-and-scale, whose whole claim is that the out-of-range
-///             cases "come free" because `getAmountsForLiquidity` already encodes them.
-///
-///         Out-of-band is not exotic here: the pair drifts ~0.63 ticks/day against a 10-tick band, so
-///         it is where Rover spends much of its life. The shoves below are sized to leave the band
-///         but stay INSIDE `_nearFair`'s 50 bps gate, so these exercise the ordinary drifted state
-///         rather than the manipulated one (which `Alles.t.sol` already pins).
+///         ALL PASS. What they found and pinned, verified against the full suite (3,705/1/1):
+///           * `NFPM.mint` REVERTED, bricking `repackNFT` out of band — the band was chosen from the
+///             PRE-swap tick while the mint executed at the POST-swap price, and once Rover's own
+///             liquidity is burned even a 3.2 weETH sale moves the tick several spacings.
+///           * after that revert was fixed, Rover went INERT single-sided: three cranks re-formed
+///             nothing and only a fresh deposit did. Now it re-forms on the FIRST crank, because the
+///             band SHIFTS to the side held instead of converting to fit the band.
+///           * `take` above the band delivered ZERO; it now delivers the ask.
+///         Every existing Rover test runs spot INSIDE the band, so none of this was covered — and at
+///         ~0.63 ticks/day of drift against a 10-tick band, out-of-band is where Rover lives.
+
 contract RoverOutOfRangeTest is ForkPin {
     address constant ADAPTER = 0xcfC6d9Bd7411962Bfe7145451A7EF71A24b6A7A2;
     address constant WETH    = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;

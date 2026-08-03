@@ -267,9 +267,26 @@ contract Rover is ReentrancyGuard, Ownable {
             // `_fairMinOut`, so the weETH correctly stays unsold and does not fit a WETH-only band.
             // Ask the canonical library whether this is mintable rather than inferring it from the
             // amounts; if not, the tokens wait, idle and fair-valued, for the next crank.
+            // We may hold only ONE side here (the conversion leg declines whenever the pool cannot
+            // pay `_fairMinOut`), and a band straddling spot cannot take a single token -- v3 returns
+            // zero liquidity and REVERTS. Measured, returning instead left Rover INERT: three cranks
+            // in a row re-formed nothing, and only a fresh deposit did.
+            //
+            // So SHIFT THE BAND TO THE SIDE WE HOLD rather than convert to fit the band. A position
+            // entirely ABOVE spot is 100% token0; entirely BELOW is 100% token1. No swap, no price
+            // impact, always mintable. And holding WETH this lands in the one v3 posture the drift
+            // CANNOT ratchet: already fully converted, with spot moving further away.
             { (uint160 sLo, uint160 sUp, uint160 sCur) = _getTickSqrtPrices();
               if (LiquidityAmounts.getLiquidityForAmounts(
-                      sCur, sLo, sUp, mintAmount0, mintAmount1) == 0) return; }
+                      sCur, sLo, sUp, mintAmount0, mintAmount1) == 0) {
+                  int24 lo = LOWER_TICK;
+                  bool haveToken0Only = mintAmount1 == 0;
+                  LOWER_TICK = haveToken0Only ? lo + TICK_SPACING : lo - TICK_SPACING;
+                  UPPER_TICK = LOWER_TICK + TICK_SPACING;
+                  (sLo, sUp, sCur) = _getTickSqrtPrices();
+                  if (LiquidityAmounts.getLiquidityForAmounts(
+                          sCur, sLo, sUp, mintAmount0, mintAmount1) == 0) return;
+              } }
             (ID, liquidityUnderManagement) = _mintRover(mintAmount0, mintAmount1);
             LAST_REPACK = block.timestamp;
         } else if (commit) {
