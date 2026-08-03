@@ -2877,7 +2877,7 @@ will never see it. Uniswap's own logs cannot be forged.**
   controller** — it is NOT a global switch that flips on every pool. A controller would have to target OUR
   PoolKey specifically. Combined with the discoverability finding (our key names mock currencies), our pools
   are not plausible targets.
-⚠️ NOT YET CHECKED: the actual `protocolFee` value currently stored for our PoolKeys (we have no mainnet
+✅ **CHECKED 2026-08-03 — `UnificationControls::test_ProtocolFee_IsZeroOnBothOurPools`: `protocolFee = 0` on BOTH pools, `lpFee = 420` (the 0.042% tier, so both are genuinely INITIALISED and the assert is not vacuous). This IS the monitor this entry asked for — the controller can set a fee on our key later WITHOUT our consent, and it now fails loudly instead of silently shaving LP fee accrual. Compensation deliberately NOT built (QUEUE: *"do not build against a hypothetical"*; and it must apply to the FEE-ACCRUAL path, never to reserve balances, since the tick math reads reserves).** *(was: NOT YET CHECKED: the actual `protocolFee` value currently stored for our PoolKeys (we have no mainnet
   deployment, so this is only meaningful at deploy time). **Add a deploy-time assertion** that our pools'
   protocol fee is 0, and a monitor — the controller CAN set it later without our consent, up to 0.1%.
 

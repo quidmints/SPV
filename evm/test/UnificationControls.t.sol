@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Alles} from "./Alles.t.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
+import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 
 /// @notice CONTROL SUITE for the `POOLED_USD` unification — written BEFORE the change and
 ///         required to be GREEN on unmodified code. That is what makes it a control rather
@@ -551,5 +552,46 @@ contract UnificationControls is Alles {
         _logDeployGap("AFTER a deposit (exercises addLiq re-add)");
         emit log_named_uint("ETH band USD after re-add", CORE.POOLED_USD_ETH());
         emit log_named_uint("ETH band ETH after re-add", CORE.POOLED_ETH());
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // UNISWAP v4 PROTOCOL FEE — the DEFENSIVE assert-0 + monitor
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// QUEUE researched the v4 protocol fee and left ONE thing unchecked: *"the actual `protocolFee`
+    /// value currently stored for our PoolKeys"*. This closes that, and is the MONITOR the same entry
+    /// asks for — the controller CAN set a fee on our key later WITHOUT our consent (up to 0.1%),
+    /// so this must fail loudly the day that happens rather than silently shaving LP fee accrual.
+    ///
+    /// ⚠️ SCOPE — deliberately NOT the compensation. QUEUE is explicit that mock-inflation
+    /// compensation is *"NOT YET NEEDED … Do not build against a hypothetical"*, and that it would
+    /// have to apply to the FEE-ACCRUAL path, never to reserve balances (inflating balances would
+    /// mis-price the curve, because the tick math reads reserves). This is the assert + monitor only.
+    ///
+    /// PREMISE-GUARDED: reads BOTH pools, so it cannot pass by looking at an uninitialised one.
+    function test_ProtocolFee_IsZeroOnBothOurPools() public {
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 50 ether}(0, lpA, 3);
+
+        (, , uint24 pFeeEth, uint24 lpFeeEth) =
+            StateLibrary.getSlot0(CORE.poolManager(), CORE.POOL_ID_VANILLA_ETH());
+        (, , uint24 pFeeBtc, uint24 lpFeeBtc) =
+            StateLibrary.getSlot0(CORE.poolManager(), CORE.POOL_ID_VANILLA_BTC());
+
+        emit log_named_uint("ETH pool protocolFee", pFeeEth);
+        emit log_named_uint("ETH pool lpFee      ", lpFeeEth);
+        emit log_named_uint("BTC pool protocolFee", pFeeBtc);
+        emit log_named_uint("BTC pool lpFee      ", lpFeeBtc);
+
+        // PREMISE: the pools must be INITIALISED, else reading 0 proves nothing about a live fee.
+        assertGt(lpFeeEth, 0, "PREMISE: ETH pool initialised (lpFee set), else protocolFee==0 is vacuous");
+        assertGt(lpFeeBtc, 0, "PREMISE: BTC pool initialised (lpFee set), else protocolFee==0 is vacuous");
+
+        // THE MONITOR. `ProtocolFeeLibrary:44` takes the protocol fee OFF THE TOP OF THE LP FEE
+        // (`swapFee = self + lpFee - self*lpFee/PIPS`), so a non-zero value here silently reduces LP
+        // fee ACCRUAL -- it does not touch reserves. If this ever fires, read the QUEUE entry before
+        // reaching for compensation: it must be applied to the fee-accrual path, not to balances.
+        assertEq(pFeeEth, 0, "a protocol fee is live on OUR ETH pool -- LP fee accrual is being shaved");
+        assertEq(pFeeBtc, 0, "a protocol fee is live on OUR BTC pool -- LP fee accrual is being shaved");
     }
 }
