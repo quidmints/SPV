@@ -176,4 +176,32 @@ contract RoverOutOfRangeTest is ForkPin {
         assertGt(vDown, 3800e18, "NAV collapsed out of band");
         assertLt(vDown, 4200e18, "NAV inflated out of band");
     }
+
+    /// @notice CAN ROVER CLIMB BACK? The single-sided state is safe (nothing is lost) but useless if
+    ///         the position never re-forms. Drives the recovery paths in order: repeated cranks, then
+    ///         a two-sided top-up. If none re-establishes a position, out-of-band is a STUCK state and
+    ///         "degraded but safe" is not good enough.
+    function test_recoversFromSingleSidedState() public {
+        _moveTickTo(-930);                          // leave the band, all-weETH side
+        rover.repackNFT();
+        emit log_named_uint("after 1st crank: ID", rover.ID());
+        emit log_named_uint("  idle WETH ", IERC20(WETH).balanceOf(address(rover)));
+        emit log_named_uint("  idle weETH", IERC20(WEETH).balanceOf(address(rover)));
+
+        rover.repackNFT();
+        emit log_named_uint("after 2nd crank: ID", rover.ID());
+        rover.repackNFT();
+        emit log_named_uint("after 3rd crank: ID", rover.ID());
+
+        // A fresh WETH deposit is the two-sided top-up the protocol would naturally make.
+        deal(WETH, address(this), 500e18);
+        IERC20(WETH).approve(address(rover), 500e18);
+        rover.deposit(500e18);
+        emit log_named_uint("after 500 WETH deposit: ID", rover.ID());
+        emit log_named_uint("  liquidityUnderManagement", rover.liquidityUnderManagement());
+        emit log_named_uint("  valueWeth", rover.valueWeth());
+
+        assertGt(rover.ID(), 0, "STUCK: position never re-forms out of band");
+        assertGt(rover.liquidityUnderManagement(), 0, "position has no liquidity");
+    }
 }
