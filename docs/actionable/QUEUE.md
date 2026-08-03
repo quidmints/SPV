@@ -1515,7 +1515,8 @@ Every open item, each with the exact next action. No item appears only in conver
 | B8 | **§A.56 part 2** out-of-range ARGS | responsibility-boundary move, not a signature change. Partial at `/tmp/A56-partial.patch` |
 | B9 | **Layout**: `mock.sol` → `imports/` | it is a helper, not a deployed contract |
 | B10 | **Layout**: fold `QuidLens` | check EIP-170 FIRST — it may exist BECAUSE Aux/Core are near the limit; if so, document why it stays |
-| B11 | **G1–G10 gas** | same basket scan 2–3× per tx; `decimals()` staticcall at 33 seams (legacy used a zero-call divisor); 13-iter SLOAD loops 4× per redeem; TWAP ≈42M gas suite-wide |
+| B11 | **G1–G10 gas** | same basket scan 2–3× per tx; `decimals()` staticcall (see B11b); 13-iter SLOAD loops 4× per redeem; TWAP ≈42M gas suite-wide |
+| B11b | 🟡 **DECIMALS SEAMS — COUNT CORRECTED, AND LEGACY'S FIX IS THE BUG (2026-08-03).** B11 records *"33 seams"*; **measured 12** `.decimals()` call sites in `src/`, of which several are **Chainlink FEED** decimals (`FeeLib:248`, `SwapLib:159`) not stables — so the stable-side seam count is smaller again. Reconcile or drop the 33. ⚠️ **Do NOT take legacy's version.** Legacy `Aux._take:519` avoids the call with `uint divisor = (i < 4 \|\| i == 11) ? 1e12 : 1;` — the POSITIONAL divisor CLAUDE.md records as having SHIPPED and BROKEN when a 6-dec stable joined at a later slot. Its gas advantage IS the defect. ▶️ **The gleanable idea is the principle, not the code:** cache each stable's decimals ONCE at registration, so the seam does zero calls with no positional inference. Neither repo does this. 📌 **Gas only — NOT bytecode.** A cache adds a mapping + setter, so it does nothing for Core's EIP-170 deficit (E1), which is the binding constraint. | 🟡 open |
 
 ## C. INVESTIGATE — no data yet, do not guess
 | # | item | exact next action |
@@ -6448,7 +6449,7 @@ later… Trust THIS section over any earlier marker."*
 | # | archive item | status here |
 |---|---|---|
 | 1 | **6909 stable→stable fee path** | 🔴 **WAS THE ONE GAP — 0 mentions. Answered below.** |
-| 2 | legacy `_take` comparison | ✅ DONE this session (§D5 + the `Core` 62-vs-19 close-out) |
+| 2 | legacy `_take` comparison | ✅ DONE (§D5 + the `Core` 62-vs-19 close-out). **Re-confirmed 2026-08-03 against the local legacy tree** (`/Users/ricktobacco/Documents/quidmint/quid`, remote `gitlab.com/quidmint/quid`): nothing to take, and the seam idea is refined in B11b. |
 | 3 | §A.61 6↔18 helper | ✅ tracked (task #7) |
 | 4 | §A.52 interface dedup | ✅ done this session (7→0 underscore interfaces, Aux 6→1, Core 4→1) |
 | 5 | §A.56 out-of-range PATH | ✅ tracked (12 mentions) |
