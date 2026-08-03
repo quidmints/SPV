@@ -492,19 +492,38 @@ contract Rover is ReentrancyGuard, Ownable {
         uint targetETH; uint targetWEETH;
         { (uint160 sqrtLower, uint160 sqrtUpper,
            uint160 sqrtCurrent) = _getTickSqrtPrices(); uint128 liquidity;
-            if (eth > 0) {
-                liquidity = token1isWETH
-                    ? LiquidityAmounts.getLiquidityForAmount1(sqrtCurrent, sqrtUpper, eth)
-                    : LiquidityAmounts.getLiquidityForAmount0(sqrtCurrent, sqrtUpper, eth);
+            // SPOT OUTSIDE THE BAND — a v3 position is then SINGLE-SIDED, and the target is
+            // simply "all of that side". The sizing below is inherited from the USDC-era leg and
+            // silently assumes spot sits INSIDE [lower, upper]: it passes `sqrtCurrent` as a RANGE
+            // BOUND, so once spot leaves the band `LiquidityAmounts` receives an INVERTED range,
+            // swaps the bounds, and returns liquidity for a range that is not the band at all —
+            // garbage targets, and `NFPM.mint` reverts on them. That never fired while the band was
+            // centred on spot (spot is inside by construction); it fires immediately if the band is
+            // anchored anywhere else, which is what blocked anchoring it on the staking rate.
+            uint rate = IWeETH(WEETH).getEETHByWeETH(WAD);
+            if (sqrtCurrent >= sqrtUpper) {          // position holds only token1
+                (targetETH, targetWEETH) = token1isWETH
+                    ? (eth + FullMath.mulDiv(weeth, rate, WAD), uint(0))
+                    : (uint(0), weeth + FullMath.mulDiv(eth, WAD, rate));
+            } else if (sqrtCurrent <= sqrtLower) {   // position holds only token0
+                (targetETH, targetWEETH) = token1isWETH
+                    ? (uint(0), weeth + FullMath.mulDiv(eth, WAD, rate))
+                    : (eth + FullMath.mulDiv(weeth, rate, WAD), uint(0));
             } else {
-                liquidity = token1isWETH
-                    ? LiquidityAmounts.getLiquidityForAmount0(sqrtLower, sqrtCurrent, weeth)
-                    : LiquidityAmounts.getLiquidityForAmount1(sqrtLower, sqrtCurrent, weeth);
+                if (eth > 0) {
+                    liquidity = token1isWETH
+                        ? LiquidityAmounts.getLiquidityForAmount1(sqrtLower, sqrtCurrent, eth)
+                        : LiquidityAmounts.getLiquidityForAmount0(sqrtCurrent, sqrtUpper, eth);
+                } else {
+                    liquidity = token1isWETH
+                        ? LiquidityAmounts.getLiquidityForAmount0(sqrtCurrent, sqrtUpper, weeth)
+                        : LiquidityAmounts.getLiquidityForAmount1(sqrtLower, sqrtCurrent, weeth);
+                }
+                if (liquidity == 0) return (eth, weeth);
+                (uint amount0, uint amount1) = LiquidityAmounts.getAmountsForLiquidity(
+                                          sqrtCurrent, sqrtLower, sqrtUpper, liquidity);
+                (targetETH, targetWEETH) = token1isWETH ? (amount1, amount0) : (amount0, amount1);
             }
-            if (liquidity == 0) return (eth, weeth);
-            (uint amount0, uint amount1) = LiquidityAmounts.getAmountsForLiquidity(
-                                      sqrtCurrent, sqrtLower, sqrtUpper, liquidity);
-            (targetETH, targetWEETH) = token1isWETH ? (amount1, amount0) : (amount0, amount1);
         }
         if (targetETH == 0 && targetWEETH == 0) return (eth, weeth);
         if (weeth > targetWEETH) weeth = targetWEETH;

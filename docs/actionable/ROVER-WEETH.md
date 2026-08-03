@@ -1428,3 +1428,41 @@ ticks above spot is the fossil record of everyone who tried. *(✅ — measured 
 4. **`_wrapIdle` reserve** — may resolve #2 by serving the offramp from idle WETH instead of the band.
 5. **R11's elasticity assumption** — every fee figure assumes Rover's presence does not change volume.
 6. **Offramp volume `V`** — the one input that decides the NFT, and the only one no measurement supplies.
+
+## 16.4 🗺️ WHERE THE 4,840 WETH ACTUALLY SITS — the tick map, measured
+Scanned `ticks()` from −3000 to +1500. **16 initialized ticks. The whole story is in three:**
+| tick | `liquidityNet` | what it is |
+|---|---|---|
+| −950 | +6.3e17 | the IN-RANGE sliver — **essentially nothing** |
+| **−940** | **+2.31e24** | a WALL of liquidity begins |
+| −900 | −2.31e24 | and ends |
+
+**Spot is −948.** ⇒ **The 4,840 WETH is one position spanning `[−940, −900]` — ABOVE spot, therefore
+100% token0 = 100% WETH, and OUT OF RANGE.** *(✅ — on-chain.)*
+⇒ 🔬 **This explains the "8 ticks moved" in every real swap** (`WeethPoolAccessibility.t.sol`): a trade
+  walks straight through the empty sliver to −940, then eats a wall whose 2.31e24 is comparable to a
+  **~1,200 WETH one-tick position** spread over 40 ticks. **Deep, but 8 bps away and one-sided.**
+⇒ **WHAT ROVER CHANGES:** it mints into `[−950,−940)` — the empty sliver — at ~1.9e24 for 1,000 WETH.
+  Selling weETH pushes price UP from −948, so **Rover becomes the FIRST liquidity hit** and absorbs
+  flow that would otherwise consume the third-party wall. **It does NOT pull their WETH back into
+  range** (that only activates above −940). ⇒ **Rover does not "fix" the pool — it front-loads it,
+  and takes the LVR that would otherwise have gone to them.** *(✅.)*
+
+## 16.5 🎯 THE CONSTRAINT THAT DECIDES BAND PLACEMENT (owner, and it is decisive)
+> *"if that's the case then they can just SOR their dollar to get WETH directly if all of our band's
+> liquidity is in weETH and we have to impose a cost"*
+
+**Correct, and it kills fair-centring as a default.** The protocol only adds value on a swap-out when
+it can deliver WETH **cheaper than the swapper could source it themselves** — and a swapper SORing
+dollars→WETH on deep routes pays a few bps. So:
+| our inventory | what we can offer | verdict |
+|---|---|---|
+| **WETH already held** | hand it over at **~0**, keep the dollars | ✅ we add real value |
+| **all weETH** (fair-centred band at a pool discount) | must convert at −24 bps (−1 with Rover) | 🔴 **worse than the swapper self-routing** |
+
+⇒ ⛔ **§15.2's +2.14%/yr for fair-centring is REAL BUT UNSPENDABLE:** it is earned by parking the band
+  on the weETH side, which is exactly the posture that makes our core service uncompetitive. **A yield
+  that is paid for by making the product worse than the alternative is not a yield.**
+⇒ ✅ **THE COHERENT DESIGN:** hold **WETH** as the reserve, **spot-centred** band for conversion
+  quality (−1 bps), and accept the **~1%/yr LVR as the COST OF THE SERVICE** — charged only on the
+  `ethfiBacked` slice, since every other ETH venue returns WETH directly and never needs converting.
