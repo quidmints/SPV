@@ -1369,3 +1369,62 @@ resolved each market via `idToMarketParams`:
 ⇒ 🎯 **CONCLUSION UNCHANGED, EVIDENCE MUCH STRONGER: hold the weETH, do not lend it.** Identical yield
   (staking accrues in `getRate()`, no venue), no LTV, no liquidation surface, instantly convertible.
   *(OPEN: Aave v4's weETH reserve exists and is unread — the one venue that could still surprise.)*
+
+---
+
+# ✅ §16 — RESOLUTION AUDIT OF THIS ENTIRE DOCUMENT (2026-08-03)
+**Every claim in this file, and its status. Nothing marked ✅ unless it is structural, on-chain, or
+executed (standing rule 16).**
+
+## 16.1 WHY THE POOL HAS NO IN-RANGE LIQUIDITY — and whether OUR fixing it gets exploited
+🎯 **Because providing it is UNPROFITABLE, and §15 proves it.** Passive LPs measure **−1.03%/yr** net
+of fees; an LP who lets the band drift out of range **stops being picked off**, while one who
+re-centres on spot does **−1.15%/yr or worse**. ⇒ **Drifting out and STAYING out is the rational
+play at this volume. The empty book is an EQUILIBRIUM, not an accident** — the 4,840 WETH parked in
+ticks above spot is the fossil record of everyone who tried. *(✅ — measured two independent ways.)*
+⇒ **Will Rover be exploited for changing it? YES, and it is not a vulnerability — it is the price.**
+  In-range depth against a monotonically drifting rate means arbitrageurs take the stale side on
+  every accrual. **That IS the −1.03%/yr.** A standing cost, not an attack. *(✅.)*
+⇒ 🎯 **BUT "MOST OF THE VOLUME WILL BE US" (owner) SETTLES IT.** On our own flow the fee is paid to
+  ourselves and the impact is saved (−24 → −1 bps ⇒ **~23 bps per unit**); external arbs still take
+  the LVR (**~1.03%/yr × position**). ⇒ **BREAKEVEN: our own turnover > ~4.5× the position size per
+  year** (~49 WETH/day on a 4,000 WETH Rover). **This is R9's `T`, re-derived independently — the doc
+  got `T > 6.5`, this route gets 4.5×. Same order of magnitude by two different methods.** *(OPEN —
+  the input is the protocol's projected offramp volume, which no measurement here can supply.)*
+⇒ 🔴 **ONE REAL EXPLOIT SURFACE, DISTINCT FROM LVR:** `_fairMinOut` floors at fair − fee − **50 bps**,
+  so a sandwicher can shove spot to just inside that bound and extract **up to ~55 bps** from Rover's
+  own re-centring swaps. **More attractive the more size Rover holds.** *(OPEN — unfixed.)*
+
+## 16.2 THE RESOLUTION MATRIX
+| doc claim | status |
+|---|---|
+| §1 venues — Curve empty, both v3 tiers wired | ✅ confirmed |
+| §1 *"Uniswap v4 NOT CHECKED, needs an indexer"* | ✅ **RESOLVED — no v4 pool exists**; no indexer needed (`poolId=keccak(PoolKey)`), control passed. The *"v4 ~20× shallower"* line is **refuted**. |
+| §2 `L` collapsed 3.5M× — abandonment? | ✅ **RESOLVED — CONVERSION, not withdrawal.** Value conserved to **0.06%**. |
+| §3 drift vs deviation split | ✅ drift **0.67 bps/day**; deviation is a **sawtooth, −74.9 to +30.2 bps, mean-reverting** |
+| §4 execution table | ✅ **validated by REAL SWAPS**, matches QuoterV2 to the bp |
+| §5 NFT = un-pullable control | ✅ confirmed, and **strengthened**: with rung 3 empty it is the only same-block defence |
+| §6 stranding (`_nearFair` refuses) | ✅ **downgraded** — market never reaches the 50 bps gate (max 26 bps/180d). DoS-only. |
+| §6 *"$5 DoS — LIVE"* | ✅ **RESOLVED — $0.08 today, but ~8,413 ETH once Rover is deployed.** Rover is the fix. |
+| §6b *"the only escape is CADENCE"* | ✅ **RESOLVED, after I got it wrong twice** — cadence helps **only** centred on fair (+2.14%) and **hurts** centred on spot (−1.15%) |
+| §6b *"`_refreshAndRepack` centres on spot"* | ✅ **CONFIRMED a real defect** (~3.3%/yr) — 🔴 **fix REVERTED: it needs `_swap` reworked for spot-outside-band** |
+| §6c JIT *"may dominate everything"* | ✅ **RESOLVED — it cannot.** Circular for our own conversion; only captures external fees. |
+| §6c lending *"supply rate ON TOP"* | ✅ **REFUTED — ZERO** at Morpho (0 of 123 markets), Euler (9 vaults, all 0 borrows), **Aave v4 (weETH reserve id 2: 711.73 supplied, 0.00 debt)** |
+| §6c fee tier never questioned | ✅ **RESOLVED — A dominates** (fee pot 68.8 vs 6.5 WETH/yr) |
+| §6c *"is Rover deployed?"* | ✅ **no** (owner) |
+| §7.4 *"pack at scarcity, not fair ratio"* | ✅ **ALREADY IMPLEMENTED** — the ratio is tick GEOMETRY, not inventory; `_swap` already targets it |
+| §📉 depletion model → −76 bps at 90d | ✅ **REFUTED by its own back-test** (measured −26.1) |
+| HG#1 `deliverableETH` uncapped | 🔴 **CONFIRMED, spec'd, NOT BUILT** |
+| HG#2 pool selection not size-aware | ✅ **moot** — A dominates; Rover is only in A |
+| HG#3 counterparty is abandoned capital | ✅ confirmed — 4,840 WETH, non-replenishing, withdrawable |
+| `take()` under-delivery | ✅ **FOUND (30%, silent) and FIXED** (→0.05%) |
+| *"large enough" unquantified* | ✅ **RESOLVED — reserve = `max(ethfiBacked)`**, the only per-LP isolated slice |
+| the `_swap` legacy algebra | ✅ **verified correct**; its unit COMMENT was wrong (fixed) |
+
+## 16.3 🔴 WHAT REMAINS GENUINELY OPEN
+1. **`minOut` = 50 bps** — the sandwich surface above, and it exceeds the rung it precedes. **Unfixed.**
+2. **Fair-centring** — worth ~3.3%/yr, blocked on the `_swap` rework + the economics-vs-offramp call.
+3. **`deliverableETH`** rung-3-floor haircut — spec'd, not built.
+4. **`_wrapIdle` reserve** — may resolve #2 by serving the offramp from idle WETH instead of the band.
+5. **R11's elasticity assumption** — every fee figure assumes Rover's presence does not change volume.
+6. **Offramp volume `V`** — the one input that decides the NFT, and the only one no measurement supplies.
