@@ -1047,6 +1047,35 @@ separate sweeps walked past it. What let it hide, and the rule each failure earn
 
 ⚠️ NOT next: §A.56 part 2 is tidiness; §A.71b near-match dedup is real but sits behind a money path.
 
+# 🧭 TWO LIVE TRACKS — CAVEAT REGISTER (opened 2026-08-03, user: *"keep track of all the caveats for both to make sure the designs we end up choosing do not neglect anything or fix one thing at the expense of something else"*)
+**Update IN PLACE. A caveat leaves this register only when it is MEASURED false, never when it is argued false.**
+
+## Track A — THE BOND BLEED (E2): mint prices at par, redeem prices at the mark
+| # | caveat | status |
+|---|---|---|
+| A1 | **Entry at the mark is self-cancelling.** A bonus paid in units the bonus itself dilutes nets to zero — it does not fix the bug, it nullifies the product. | ❌ REJECTED by owner |
+| A2 | **Bounding the bonus by realised surplus** shrinks the headline rate ⇒ sacrifices the upfront yield to close the vulnerability. | ❌ REJECTED by owner |
+| A3 | **Principal/bonus separation**, per-position OR per-vintage. | ❌ REJECTED by owner |
+| A4 | **Queue / pay-last** removes the haircut but reintroduces first-out advantage and a run incentive — collides head-on with `_depegLoss`'s explicit *"no first-out-at-par"*. | ⚠️ live conflict |
+| A5 | **Per-vintage marking** closes it exactly but breaks cross-vintage fungibility of mature QU!D, which the code assumes everywhere. | ⚠️ unpriced |
+| A6 | **NAV-principal + par-bonus: UNVERIFIED MANIPULATION SURFACE.** Minting at `p` makes mint price depend on `solvent`. `redeemableBody:957` subtracts `_illiquidLoss`, driven by venue `maxWithdraw` — utilisation IS pushable by borrowing hard in-block ⇒ depress `p`, mint `D/p` cheap, let it recover. **Must trace which `solvent` the mint path would use BEFORE building.** | 🔴 BLOCKING |
+| A7 | NAV-principal adds a 13-iteration `matureSupply` loop at mint (`_finishMint` computes `total` but not `matureSupply`). Real gas. | 🟡 measure |
+| A8 | 🔗 **CROSS-TRACK — THE BIG ONE.** #12 and E5 both REMOVE subsidies silently flowing to QU!D holders today (the LP's sale proceeds; the retained skew premium). Both make `perShare` run **lower** than today. ⇒ **Track B makes Track A's bleed WORSE.** Any E2 fix must be sized against POST-#12 `perShare`, never today's, or it will be calibrated to a number that is about to move. | 🔴 must not be neglected |
+
+## Track B — POOLED_USD CAPITAL EFFICIENCY (#12 · E3 · E5 · E6)
+| # | caveat | status |
+|---|---|---|
+| B1 | **The increment is NOT a stable claim — MEASURED.** `POOLED_USD_ETH` went base+60,000 → **25.20** with NO repack, purely from flow reversing. Delta-since-deposit would credit an LP share price with value that then vanishes. May force booking at the MOMENT OF SALE rather than inferring from a counter. | 🔴 measured, unresolved |
+| B2 | **Conservation UNMEASURED.** That run did not capture `POOLED_ETH` after, so whether the value returned as ETH inventory or was lost is unknown. B1 is suggestive, not conclusive, until this is measured. | 🔴 gap in my own test |
+| B3 | **The baseline is CROSS-BAND coupled.** `VogueLib.addLiq:430` sizes the re-add via `sizeBySurplus(deposits[14], committedBoth, …)`, `committedBoth = committedUsd18()` = BOTH bands. A per-band baseline is not self-contained. (I argued the opposite on 2026-08-03 and was wrong.) | 🔴 confirmed |
+| B4 | **Reseat never fires when it is most needed — MEASURED.** Tick driven to **887271** (MAX_TICK 887272) with the USD leg at $25; six explicit `reseat()` pokes, `reseatEpoch` stayed **0**. E6 is worse than booked: it fails to fix the RANGE, not just the composition. | 🔴 measured |
+| B5 | `Core` is already **139 B over EIP-170** (E1). The unification must SHRINK Core, not grow it — and `--sizes` will not tell you either way. | 🔴 hard constraint |
+| B6 | `_bandEquityUsd18` floors **per band** so ETH debt never eats BTC equity. Naive unification LOOSENS that solvency gate. Floor against PLACEMENT, not the unified total. | ⚠️ must preserve |
+| B7 | **Per-band P&L accumulators (user, 2026-08-03).** Mechanically safe — `Vogue` and `Vault` hold separate storage, `feeIncrements` numerator is per-pool (V4 `isBTC` dispatch) and denominator is per-band. **But economically exposed:** movable placement moves FEE-EARNING CAPACITY between LP populations — BTC LPs' share of the shared pool can end up earning fees credited to ETH LPs, with no accumulator mis-wired. ▶️ **Control to run BEFORE any change:** snapshot both bands' accumulators, drive activity on ONE band, assert the other's are bit-unchanged. | 🔴 open |
+| B8 | The USD leg is **basket**-supplied depth, yet its trading fees already flow to that band's LPs via `USD_FEES`. Unification makes *which* LPs receive that transfer contingent on placement. | ⚠️ unpriced |
+| B9 | **A flash re-arranges value, it never creates the missing asset.** E3's fix only works while SOME curve has spare dollars; if both are starved, unification changes nothing. | ⚠️ bound on the claim |
+| B10 | 🔗 **CROSS-TRACK — see A8.** Landing #12/E5 without Track A's fix moves the bleed onto QU!D holders faster than today. Do not ship B without knowing A's direction. | 🔴 must not be neglected |
+
 # 🔴 OPEN — money path (do these first)
 
 | id | what | state |
