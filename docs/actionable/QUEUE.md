@@ -341,6 +341,41 @@ mainnet measurements** (four independent on-chain reads), not a fitted guess. It
 swap-by-swap fork replay — that would refine the ±, not the sign. **The margin is ~4× (24.5 vs 6.5),
 so a replay is unlikely to reverse it.**
 
+### ⛔ R12 — **R9 IS INVALIDATED.** I sampled the one window in which the pool DIED. (2026-08-03)
+Tested R11's assumption against history — `liquidity()` and `feeGrowthGlobal0X128` at 30-day steps:
+| window | avg in-range `L` | total fees (WETH/30d) |
+|---|---|---|
+| **last 30d — THE WINDOW R9 USED** | 1.16e24 | **0.6** |
+| −30…−60d | 1.71e24 | **193.2** |
+| −60…−90d | 1.12e24 | **302.6** |
+| −90…−120d | 8.42e23 | **26.7** |
+
+🔴 **In-range `L` collapsed from 2.310e24 → 6.605e17 in the last 30 days — a factor of ~3,497,000.**
+  Fees fell ~300× alongside it. **R9's 0.24 bps/day was measured on a pool that was dying, and I
+  projected it forward as the steady state.** Every downstream number inherits that error.
+⇒ ⚠️ **RETRACT R9's verdict** ("liability below 6.5 turns/yr"). The −157 bps/yr carry, the 6.5×
+  break-even and R10 step 4 are all **built on the collapse window** and must not be acted on.
+⇒ 📌 **"In-range depth is nil" is TRUE TODAY and NOT the historical norm.** The pool carried ~1e24
+  through the prior three months. My framing of a permanently-dead pool was wrong — it is a
+  RECENTLY-dead pool, which is a different claim with different implications.
+
+### 🔍 R13 — WHAT THIS OPENS (the questions that now matter more than the LP economics)
+1. 🔴 **WHY did `L` collapse 3.5M× in 30 days?** A single LP withdrawing, a migration to another
+   venue/fee-tier, or a response to something. **Until this is known, no Rover decision is safe** —
+   if the venue is being abandoned by everyone else, that is a far larger signal than the carry.
+2. **Elasticity is now PLAUSIBLE but UNPROVEN.** Fees tracked `L` across the collapse, which is
+   consistent with volume following depth (Rover's thesis) — **but causality is unresolved**: liquidity
+   may have left BECAUSE volume left. **Correlation only.** The fork replay with an injected position
+   is still the only thing that separates them.
+3. **Does Rover's own position appear in these numbers?** If Rover is deployed and its `L` is part of
+   the historical 1e24, the "with Rover" case is already measured. **Check deployment first — it may
+   make the replay unnecessary.**
+📌 **Method lesson, and it is the session's recurring one in a new costume:** I measured ONE window
+  and called it the steady state. **A single window is a point, not a trend — sample several before
+  extrapolating.** The control here was trivially cheap (four extra `--block` reads) and would have
+  caught it immediately.
+
+
 ### ⚠️ R11 — R9's LOAD-BEARING ASSUMPTION, WHICH I NEVER STATED: **VOLUME IS FIXED**
 > *"did your backtest test the situation now, or what you are hoping for it to be?"* — **Only NOW.**
 R9's 0.24 bps/day came from `feeGrowthGlobal` ÷ **today's** `L = 6.6e17`. `feeGrowthGlobal` is fees
