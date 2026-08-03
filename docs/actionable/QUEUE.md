@@ -1068,6 +1068,25 @@ separate sweeps walked past it. What let it hide, and the rule each failure earn
 # 🧭 TWO LIVE TRACKS — CAVEAT REGISTER (opened 2026-08-03, user: *"keep track of all the caveats for both to make sure the designs we end up choosing do not neglect anything or fix one thing at the expense of something else"*)
 **Update IN PLACE. A caveat leaves this register only when it is MEASURED false, never when it is argued false.**
 
+### 🧪 CONTROL SURFACE — build BEFORE the unification, must be GREEN on unmodified code
+Per the repo owner (2026-08-03): *"make sure you land everything else that is necessary for this feature to not break the rest of our stack … every single vein needs to be edge case tested, not just happy path."*
+⚠️ **Coverage is NOT measurable by grepping symbol names** — an internal symbol can appear in zero test files and still run on every call. The question is *"would a test FAIL if the unification broke this vein"*, which needs an assertion on a QUANTITY.
+
+| vein | control | state |
+|---|---|---|
+| **V1** committed identity, NO leverage debt | `UnificationControls::test_V4_DepositGrowsCommittedByExactlyTheBandedUsd` · `PooledUsdRepackMatrix::testMatrix_S4` | ✅ green |
+| **V1b** committed identity **WITH** live leverage debt — `_bandEquityUsd18` floors PER BAND (caveat B6); naive unification LOOSENS this gate | — | 🔴 **NOT COVERED** |
+| **V2** P&L attribution: equal-LP split, late-joiner bookmark, non-depositor, collectFees idempotence, last-exit zeroing | `UnificationControls::test_V2_*` (5) | ✅ green |
+| **V2b** cross-band accumulator isolation, both directions, both bands SEEDED | `PooledUsdRepackMatrix::testMatrix_S1/S2` | ✅ green |
+| **V3** swap pricing: band-edge fill neutrality, partial-fill refund, dry-pool revert, one-shot vs incremental | `testMatrix_S5/S6` · `testGrindRemoval_*` (4) · `testStrand3` | ✅ green |
+| **V4** deposit: committed growth, additivity, zero-deposit, JIT lock | `UnificationControls::test_V4_*` (4) | ✅ green |
+| **V5** withdraw: committed shrink, over-ask clamp, zero-withdraw compounding | `UnificationControls::test_V5_*` (3) | ✅ green |
+| **V6** redemption: `unwindForRedeem` frees exactly what is asked and is LP-equity-neutral; `redeemableBody` subtracts BTC-band committed | — | 🔴 **NOT COVERED** |
+| **V7** BTC swap-in/out: free reserve `POOLED_USD_BTC − pendingSwapOutUsd`, `SwapInDrainsProceeds`, `drawPooledUsdBtc` | — | 🔴 **NOT COVERED** |
+| **V8** cross-band repack: `AUX.checkBacking()` at the head of every deposit can repack EITHER band (`BasketLib:918` picks by `POOLED_USD_ETH >= POOLED_USD_BTC`) | — | 🔴 **NOT COVERED** |
+
+📌 **V1b, V6, V7, V8 must be green before the unification lands.** V6/V7 touch the exact counters being merged; V8 is the path that makes a per-band baseline indefensible; V1b is where a naive merge silently relaxes a solvency gate.
+
 ## Track A — THE BOND BLEED (E2): mint prices at par, redeem prices at the mark
 | # | caveat | status |
 |---|---|---|
@@ -1083,7 +1102,7 @@ separate sweeps walked past it. What let it hide, and the rule each failure earn
 ## Track B — POOLED_USD CAPITAL EFFICIENCY (#12 · E3 · E5 · E6)
 | # | caveat | status |
 |---|---|---|
-| B1 | ✅ **RESOLVED 2026-08-03 by `PooledUsdRepackMatrix::testRepack_NormalFlow`.** The collapse is the band BUYING ETH BACK, not value leaking: two-leg value 991,838.67 → 991,854.95 (**+16.28**, fees). So the increment IS a sound mark-to-market position and CONTINUOUS MARKING handles the reversal by construction. Booking at the moment of sale is NOT required — and would be wrong (it banks a credit the reversal then removes, and hands the first mover an exit at the top). | ✅ measured, closed |
+| B1 | ✅ **RESOLVED 2026-08-03 by `PooledUsdRepackMatrix::testRepack_NormalFlow`.** The collapse is the band BUYING ETH BACK, not value leaking: two-leg value 991,838.67 → 991,854.95 (**+16.28**, fees). So the increment IS a sound mark-to-market position and CONTINUOUS MARKING handles the reversal by construction. ⏸️ **The MEASUREMENT is closed; the DESIGN CONCLUSION is not.** *Measured:* value is conserved across the reversal. *My inference:* booking at the moment of sale is unnecessary and would bank a credit the reversal removes, handing the first mover an exit at the top. That inference has NOT been tested against an implementation and a later decision can reopen it. | ⏸️ measured; design open |
 | B2 | ✅ **CLOSED** — both legs are now captured at every step by `PooledUsdRepackMatrix::_snap()`. Conservation measured; see B1. | ✅ closed |
 | B3 | **The baseline is CROSS-BAND coupled.** `VogueLib.addLiq:430` sizes the re-add via `sizeBySurplus(deposits[14], committedBoth, …)`, `committedBoth = committedUsd18()` = BOTH bands. A per-band baseline is not self-contained. (I argued the opposite on 2026-08-03 and was wrong.) | 🔴 confirmed |
 | B4 | 🔴 **STRANDING NOW REPRODUCED — see E7. Repacks themselves are RARE, not routine.** Measured: 12 opens + 6 buy-backs swinging the USD leg 248k→284k→239k moved the tick by **TWO** (201040→201038→201040) and fired **NO** repack (`LAST_REPACK` 0 throughout). Concentrated liquidity ⇒ big inventory swings at tiny price moves ⇒ the band stays in range. So 'does the increment survive a repack' is NOT blocking for #12. **The MAX_TICK stranding (tick 887271, USD leg $25, no repack after 6 pokes) is REAL but arises only on the COMPOUND path** — opens first, THEN one-shot sells. `testRepack_OneShotFlow` does NOT currently reproduce it and passes VACUOUSLY (`out of range? 0`). Must be rebuilt on the compound path before any claim is made about stranding. | ⚠️ re-scoped; test vacuous |
