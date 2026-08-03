@@ -198,6 +198,24 @@ case. Conversely if it tolerates a shortfall, the tests never exercise the fee-b
    are chosen by the TEST, so those must move into `PAIRS` too. Then convert `VBtcLevFeeLane`,
    `BtcLpMintStress`, and the 3 direct opens in `Alles.t.sol`, and delete `MockSPV`.
 
+**4d. 🔴 ROVER — PRE-SHIP DEFECT LIST, closing window. Full analysis: `docs/actionable/ROVER-WEETH.md`.**
+   ⏳ **Not deployed ⇒ every defect is LATENT, not absent** — each activates on the FIRST mint, and
+   pre-deploy is the only window in which any is free to fix. Numbered actions:
+   1. 🔴 **SIZE IT.** *"Large enough for instant conversion"* has **no number anywhere.** = the max
+      single Vogue LP withdrawal/swap-out that must clear instantly. **Nothing else is decidable
+      without it**, and shipping the wrong size cannot be corrected without unwinding into the very
+      pool whose exit was mis-sized.
+   2. 🔴 **CAP THE ROVER LEG IN `deliverableETH`.** Added at fair via `valueWeth` (`VaultLib:142`),
+      **never capped** — `_deliverableCap` (`:204`) covers only the three 4626 curators. Add a
+      **venue-liveness gate**: `feeGrowthGlobal` unchanged over a window ⇒ the quote is a fiction.
+   3. 🔴 **`_nearFair` must gate execution-against-spot, NOT re-centring** (Vogue's `_priceOr`
+      precedent + `TwapAnchorDeadlock.t.sol`), **AND `_refreshAndRepack` must centre on `getRate()`
+      fair, not pool spot** — without the second, recenter cadence cannot help at all.
+   4. 🟠 **Make pool selection SIZE-AWARE** — B cliffs at 1–2k weETH, A degrades to 4k.
+   5. 🟠 **Price JIT and lending weETH BEFORE accepting the LP design** — neither was ever evaluated,
+      either may dominate; machinery exists (`JIT-DEPTH-GUARANTEE.md`, §A.36).
+   6. 🔵 **Venue decision:** both v3 tiers frozen (no trades in 14d), Curve empty, v4 ~20× shallower.
+
 **4c. 🔴 SCANNER OUTPUT — BOOKED 2026-08-02 (I ran `tools/scan-loose-ends.py`, reported counts, and
    did NOT book them; the user caught it. That is exactly the failure the tool exists to prevent —
    a finding stated in a reply is recorded somewhere and actionable nowhere.)**
