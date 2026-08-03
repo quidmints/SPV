@@ -385,18 +385,43 @@ self-selection**, like every other venue."* Rover's size is EMERGENT, not a desi
 "large enough" has no knob today. *(✅ as a code fact — the comment and the absent cap are both there.
 Whether that is CORRECT is the ship decision, and stays OPEN.)*
 
-**(b) 🔴 A LIQUIDITY POSITION CANNOT BE ITS OWN COUNTERPARTY — so making Rover bigger does not help.**
-Depth Rover owns is depth Rover cannot sell into: swapping weETH through your own position hands you
-back your own WETH, minus gas, having converted nothing. Rover's NFT therefore raises the exit ceiling
-**for every party except Rover**, and Rover is the party that needs it. The only capital that can
-actually buy our weETH is the **third-party** stranded WETH (6,893 total) — which §5 above already
-establishes is non-replenishing and withdrawable without notice.
-⇒ ⭐ **So requirement 3 ("large enough for instant conversion") is UNSATISFIABLE BY THE NFT.** Not
-  "unsized" — unsatisfiable. Adding Rover capital adds weETH inventory that must still be sold through
-  a fixed third-party bid. The only part of Rover that serves an exit without a counterparty is its
-  **WETH leg pulled via `decreaseLiquidity`** — and that is just our own WETH, held in a v3 position
-  instead of in a wallet. *(OPEN — this is the load-bearing argument of the whole decision and the
-  first thing to attack if you want to ship the NFT.)*
+**(b) ⛔ RETRACTED 2026-08-03 — "a liquidity position cannot be its own counterparty" IS FALSE.**
+> *I wrote:* "swapping weETH through your own position hands you back your own WETH, minus gas, having
+> converted nothing… requirement 3 is UNSATISFIABLE BY THE NFT."
+> *The user corrected it, and the correction is right:* **a v3 swap automatically hits our liquidity.**
+> Handing out our own WETH while our own position absorbs the weETH **IS** the conversion the offramp
+> needs — the LP receives WETH, the protocol retains the weETH. And because both sides are ours, the
+> **price impact is paid to ourselves, not to strangers.** ⇒ **This was the load-bearing argument for
+> the DON'T-SHIP verdict, so THE VERDICT IS WITHDRAWN with it.** Cause: I reasoned about a swap's
+> accounting without working the tick geometry, then let one wrong step carry a whole conclusion.
+
+⇒ 📌 **AND IT CORRECTS §💡 IN OUR FAVOUR.** That section bounds the self-dealing benefit to the fee
+  tier: *"the rebate is on the FEE TIER (1–5 bps), not the ~16–24 bps price impact, which is paid to
+  the stranded LPs regardless."* **That is only true if strangers own the in-range liquidity.**
+  Measured today, they do not — see (c). *(OPEN.)*
+
+**(c) 🔬 HOW MUCH IN-RANGE LIQUIDITY WOULD ROVER OWN? Essentially ALL OF IT.** (block 25,675,658)
+| | |
+|---|---|
+| pool A spot | tick **−948**, tickSpacing **10** ⇒ the one-tick band is `[−950, −940)`, ~10 bps wide |
+| **the ENTIRE current in-range `L` (6.605e17)** | **0.000248 WETH + 0.000089 weETH ≈ 0.000346 WETH-equiv** |
+| a **100** WETH-equiv Rover position | `L` = 1.9e23 = **288,760×** all current in-range liquidity |
+| a **1,000** WETH-equiv Rover position | `L` = 1.9e24 = **2,887,599×** all current in-range liquidity |
+
+⇒ ⭐ **Rover would own ~100.000% of in-range liquidity at any size worth deploying.** So within its
+  band it recaptures **the whole 16–24 bps**, not the 1–5 bps fee tier. That is a much stronger case
+  for the NFT than anything in this doc, and it is measured, not argued. *(OPEN — measurement.)*
+⇒ 🔥 **AND IT PARTLY DEFUSES R11's BLOCKER** (*"R9 measures the pool WITHOUT Rover; it cannot measure
+  the pool WITH Rover"*). A 1,000-WETH one-tick position is `L` ≈ **1.9e24** — squarely inside the
+  **1.1–2.3e24 that the pool ACTUALLY HAD in the healthy window** (§📊). So the +67 bps/day fee
+  measurement is not an arbitrary window: **it is approximately the with-Rover counterfactual**, taken
+  at a Rover-sized depth. *(OPEN — `L` is not additive across differing ranges, so this is an
+  order-of-magnitude argument, not an equivalence. It needs the fork replay to become a result.)*
+⇒ ⚠️ **What survives from the retracted argument:** the self-dealing depth is bounded by the WETH leg
+  of the band, and a **one-tick band is ~10 bps wide on A and ~1 bps wide on B** (tickSpacing 10 vs 1).
+  Past the band edge we are into third-party depth at −16/−24 bps. **So the question is no longer
+  "does the NFT help" — it is "how much depth does the band hold, and how fast does it refill."**
+  *(OPEN — this is now the live question and §1's real successor.)*
 
 ## 2. VENUE — the freeze is re-confirmed one day on, and one method above is RETRACTED
 - The 100-weETH quote is **still byte-identical at 109.7955 WETH**, matching this doc's readings at
@@ -550,17 +575,77 @@ transfers to a guest position in a public pool — the same asymmetry §⚖️ a
      is small, but "small" is not "priced" — and the axis nobody measures is where the regression is.
 *(OPEN — this is a recommendation, not a decision.)*
 
+## 7. THE OWNER'S THREE FOLLOW-UPS (2026-08-03) — answered from code + chain, not from the above
+
+### Q1. *"Did we get rid of one of the fee tiers? Are we keeping only the one with the most volume?"*
+**No — nothing was removed, and no tier has volume.** Both are live: `Vault.sol:133-134` declares
+A + B, `:348-349` reads both fees, `:454` passes both, and `SwapLib:604 / :708` loop over both.
+*(✅ — structural.)*
+⇒ 🔴 **BUT THERE IS AN ASYMMETRY NOBODY HAS STATED, and §1(b)'s correction makes it decisive.**
+  **Rover LPs into POOL A ONLY** — `DeployLib.sol:151` passes `eth.ETHERFI_POOL_A()`, and `Rover.sol`
+  pins a single `POOL`/`POOL_FEE` at construction (`:101, :106`), so `_exactIn` always trades tier A
+  (`_single:373`). **The offramp ladder, meanwhile, tries A *then* B.**
+  ⇒ **Every offramp that routes to B misses Rover's liquidity entirely — zero self-recapture, full
+  16 bps paid to strangers.** Owning ~100% of in-range `L` only pays if the flow arrives in *our* pool.
+  **The tier Rover LPs into and the tier the ladder routes to must be the same one.** *(OPEN — and it
+  now interacts with §4's proposed `[B, A]` reordering, which would send flow to the pool Rover is NOT
+  in. §4 must not be applied without deciding this first.)*
+
+### Q2. *"The pool has no in-range liquidity at all — so how can we detect an imbalance?"*
+**The imbalance is pure GEOMETRY, and needs no in-range liquidity to measure.** In v3 the ratio a mint
+requires is fixed by where `sqrtPriceX96` sits inside `[tickLower, tickUpper)` — it is independent of
+anyone else's liquidity, and of the pool's gross balances. Measured now:
+| pool | tick | band | spot's position in band | a one-tick mint requires |
+|---|---|---|---|---|
+| **A** 0.05% | −948 | `[−950,−940)`, 10 ticks | 20% in | **71.6% WETH / 28.4% weETH** |
+| **B** 0.01% | −949 | `[−949,−948)`, **1 tick** | 0% in | 36.7% WETH / 63.3% weETH |
+
+⇒ ✅ **AND ROVER ALREADY PACKS AT THIS RATIO, NOT AT FAIR.** `_swap` (`Rover.sol:464-479`) derives
+  `targetETH/targetWEETH` from `LiquidityAmounts.getAmountsForLiquidity(sqrtCurrent, sqrtLower,
+  sqrtUpper, L)` — **that IS the pool's current ratio at the live tick.** *(✅ — structural code fact.)*
+  ⇒ 📌 **So user constraint #5 is NOT "UNEVALUATED" as the table above says — it is ALREADY
+  IMPLEMENTED.** Correct that row. What is genuinely open is the *different* question of whether to
+  deliberately over-weight the **scarce side (weETH)** by choosing an ASYMMETRIC range, which the
+  v3-mandated ratio cannot express. *(OPEN.)*
+⇒ 🔴 **BUT — and this is the owner's "we started with WETH that we fully converted to weETH":**
+  `_wrapIdle` (`:545-550`) converts **ALL** idle WETH → weETH after every deposit/repack/compound,
+  **and the next mint on pool A needs 71.6% of it back as WETH.** `_swap`'s WETH-side leg can only get
+  it by selling weETH **on the pool** (`:527`), at −12 to −24 bps. **The yield optimisation manufactures
+  the very pool trade it then has to pay for.** The weETH direction is free (adapter, at fair); only
+  this direction costs. ⇒ **`_wrapIdle` should hold back the WETH the next mint is going to need**,
+  which is computable from exactly the geometry in the table above. *(OPEN — this is the same root as
+  §5's `take()` round-trip; both are `_wrapIdle` over-converting.)*
+
+### Q3. Implicit in Q2 — *how deep is the self-counterparty, once we own ~100% of in-range `L`?*
+Bounded by **the WETH leg of the band**, and the band is only as wide as one tick-spacing:
+**A = 10 ticks ≈ 10 bps wide, B = 1 tick ≈ 1 bps wide.** Selling weETH pushes the tick UP toward
+`upper`, consuming our WETH; drift pushes it DOWN toward `lower`, converting us back INTO WETH.
+⇒ ⭐ **So the drift and our own offramp flow OPPOSE each other — the ratchet REFILLS the WETH inventory
+  the offramp consumes.** §6b prices that conversion as a pure loss ("systematically converted OUT of
+  the yield-bearing asset"). **For a position whose job is to deliver WETH, being restocked with WETH
+  is the service, not the loss** — the loss is only the accrual conceded, and it buys a
+  zero-conversion-cost inventory. **That is a genuine trade, not a leak, and §6b never priced it as one.**
+  *(OPEN — this reframes R9's `T`, it does not answer it. The refill RATE vs the offramp DRAW RATE is
+  the number that decides it, and neither has been measured.)*
+
 ---
 
-# 🚦 THE VERDICT
-🔴 **DON'T SHIP THE NFT** — on §1(b), which is the load-bearing argument: **a liquidity position cannot
-be its own counterparty**, so the NFT cannot satisfy the requirement it was created for
-("large enough for instant conversion"). Everything else — the frozen venue, the ratchet, the stranding,
-the DoS — is corroboration; §1(b) would hold even in a healthy pool.
-📌 Note what this does **not** say: the un-pullability argument (§5 above) was always sound. It is just
-that un-pullable **third-party** depth is what an exit needs, and ours cannot be that for us.
+# 🚦 THE VERDICT — ⛔ WITHDRAWN 2026-08-03, SAME DAY IT WAS WRITTEN
+> I wrote **"DON'T SHIP THE NFT"** resting on §1(b), *"a liquidity position cannot be its own
+> counterparty."* **§1(b) is false** (retracted above, with the measurement that refutes it). A verdict
+> is only as good as its load-bearing premise, so **there is no verdict right now.**
+>
+> 📌 **And the correction points the other way.** Rover would own ~100.000% of in-range `L` at any
+> deployable size, so within its band it recaptures the **full 16–24 bps** rather than §💡's 1–5 bps
+> fee tier — a **materially stronger** case for the NFT than this doc had made anywhere.
+>
+> ⚠️ **METHOD NOTE, and it is the same one §8 already records.** §8 says: *"a sound measurement, then
+> an unexamined inference."* I did it again — the quote ladder, the crossover sizes and the token order
+> were all sound reads; the step from them to "unsatisfiable" was reasoning I never checked against the
+> tick geometry, and **four extra lines of arithmetic would have caught it before I wrote a verdict on
+> it.** Reaching a conclusion is the moment to slow down, not to speed up.
 
-**Ship instead, in this order — the first is independent of the decision and should go regardless:**
+**⇒ WHAT IS STILL TRUE, AND SHOULD PROCEED REGARDLESS OF THE NFT DECISION:**
 1. **§4b — the `minOut` budget**, on the offramp ladder. One constant, largest purpose impact, lives
    outside Rover entirely, and is correct whatever happens to the NFT. *(OPEN)*
 2. **§4 — reverse the tier order to `[B, A]`.** Free, measured, and makes routing size-aware with no
