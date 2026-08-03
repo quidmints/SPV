@@ -513,13 +513,29 @@ contract Vogue is
     ///
     ///      Paid as QU!D against dollars the burn just freed into the basket: the SAME shape as
     ///      the `usd_owed` fee leg (`_settlePending`), hence backed 1:1 by construction.
+    ///      RETURNS `paidEth` — the ETH-EQUIVALENT of the QU!D just paid. `_withdraw`'s ledger is
+    ///      ETH-DENOMINATED and its ONE invariant is *pooled debited == value delivered*; its
+    ///      `shortfall` re-credit exists for a SINGLE cause, venue illiquidity, which is temporary
+    ///      and recoverable. Paying part of the claim in a SECOND asset gives "undelivered" a
+    ///      second cause with the OPPOSITE remedy, so the QU!D-settled slice MUST be netted off
+    ///      the shortfall or it is paid AND re-credited (measured: 12.887 phantom `pooled`,
+    ///      un-recoverable by a second exit, inflating `lpShares` and diluting every other LP).
     function _burnAndDeliverUsdLeg(uint160 sqrtP, uint amount, int24 lo, int24 hi, address recipient)
         private returns (uint sent) {
         uint usdPre = V4.POOLED_USD_ETH(); uint basePre = V4.basketUsdEth();
+        uint ethPre = V4.POOLED_ETH();
         sent = _burnInRange(sqrtP, amount, lo, hi, recipient);
         uint usdOut  = usdPre  > V4.POOLED_USD_ETH() ? usdPre  - V4.POOLED_USD_ETH() : 0;
         uint baseOut = basePre > V4.basketUsdEth()   ? basePre - V4.basketUsdEth()   : 0;
-        if (usdOut > baseOut) QUID.mint(recipient, (usdOut - baseOut) * 1e12, address(QUID), 0);
+        if (usdOut > baseOut) {
+            QUID.mint(recipient, (usdOut - baseOut) * 1e12, address(QUID), 0);
+            // Value it at the band's PRE-burn ratio — the same oracle-free basis `_pricingBacking`
+            // uses, so the claim is debited at exactly the rate it was priced at.
+            // Fold it INTO `sent`: this function returns VALUE DELIVERED (ETH-equivalent), which
+            // is what the caller's ETH-denominated ledger needs. Returning two numbers for the
+            // caller to add costs a stack slot `_withdraw` does not have.
+            if (usdPre > 0) sent += FullMath.mulDiv(usdOut - baseOut, ethPre, usdPre);
+        }
     }
 
     function _withdraw(uint amount, address recipient, bool instant) internal {
@@ -627,6 +643,8 @@ contract Vogue is
 
             uint deliverable = AUX.deliverableETH();
             uint firstBurn = amount > deliverable ? deliverable : amount;
+            // §#12: `sent` is VALUE DELIVERED in ETH-equivalent — the ETH burn PLUS the
+            // QU!D-settled USD slice — so the shortfall re-credit below nets it off automatically.
             uint sent = firstBurn > 0 ? _burnAndDeliverUsdLeg(sqrtPriceX96, firstBurn,
                                         tickLower, tickUpper, recipient) : 0;
 
