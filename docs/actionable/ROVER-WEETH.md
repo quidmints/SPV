@@ -865,11 +865,34 @@ Exit fee **10 bps**, then stETH→ETH on Curve (`0xDC24316b…7022`, 18,578 ETH 
   settings on ether.fi's side. This is a **policy** dependency, not a market one — better than
   third-party LPs who can leave with no notice, but **not un-pullable.** The genuinely un-pullable
   rungs remain our own NFT WETH and the free wait-NFT. *(OPEN.)*
-⇒ 📌 **WHAT THIS DOES TO THE ROVER QUESTION.** It does **not** kill the NFT — §10's Q6 same-block
-  scenario still wants pre-funded un-pullable WETH, and 5,000 ETH/day is a cap. **But it removes the
-  NFT's headline justification:** "beat the 0.3% without waiting" is better served, at every size we
-  measured, by a rail ether.fi already runs. **Rover now has to justify itself against 13 bps, not
-  against 30.** *(OPEN — this is the new benchmark and §0 must be re-scored against it.)*
+### ⛔ RULED OUT BY THE OWNER, 2026-08-03 — **stETH IS NOT AN OPTION**
+> *"we dont use stETH at all, this is an all etherfi product regardless."*
+
+**A product constraint, and it stands.** The 13 bps route above is **withdrawn as a recommendation.**
+It stays in this doc as a *measurement*, because the mechanism read is what proves WHY the native rung
+is off — that part is load-bearing regardless. *(✅ as a decision rule — it is the owner's to make and
+is not reopened by any measurement. The numbers above stay OPEN as measurements.)*
+📌 Rejected alongside it, for the same reason and recorded so it is not re-proposed: the *atomic*
+  variant (redeem→Curve→forward ETH in one tx, never holding stETH across blocks). It still routes
+  protocol value through Lido. **Not re-litigated.**
+
+### 🔁 SO RE-SCORE THE OPTION SET WITH stETH EXCLUDED — and this SHARPENS the case for the NFT
+| exit | cost | instant? | depends on |
+|---|---|---|---|
+| **v3 pool** (rung 1) | −16 to −38 bps, sawtooth | ✅ | 🔴 **third-party WETH, withdrawable with no notice** |
+| ⭐ **Rover's own NFT WETH leg** | **~0** (`decreaseLiquidity`, no counterparty) | ✅ | ✅ **nobody. Un-pullable.** |
+| **native instant redeem** (rung 3) | 30 bps | ✅ | 🔴 **OFF in 7 of 8 samples / 150 days** (§12 watermark) |
+| **borrow WETH vs weETH** | borrow rate × duration | ✅ | Morpho/Euler WETH liquidity — **all-ether.fi collateral, no Lido** |
+| **wait NFT** (rung 4) | free | 🔴 **multi-day** | nobody |
+
+⇒ ⭐ **WITH stETH OFF THE TABLE, THE PROTOCOL'S ONLY RELIABLE INSTANT EXITS ARE THE v3 POOL AND
+  ROVER'S OWN WETH** — and the pool's leg is the one that can vanish in a block. **That is the
+  strongest evidence in this entire document for the original design intent**, and it is now the
+  binding argument rather than a corroborating one. *(OPEN.)*
+⇒ 🎯 **The decision therefore narrows to TWO all-ether.fi designs: the NFT's pre-funded un-pullable
+  WETH, versus a WETH borrow line against weETH collateral.** Everything else is measured and
+  eliminated. **Both must still be priced — the NFT on fees-vs-LVR (`T`), the borrow line on rate,
+  LTV, WETH-side depth and the liquidation surface.** *(OPEN — this is the whole remaining question.)*
 
 ---
 
