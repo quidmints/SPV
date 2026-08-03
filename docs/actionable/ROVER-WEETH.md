@@ -85,3 +85,68 @@ Across one session the same error recurred: **a sound measurement, then an unexa
 the collapse window), "single-sided fixes it" (v3 cannot enforce direction; the repo had already
 tested and removed it). ⇒ **Read the balances before naming the cause; sample several windows before
 calling one a trend; and check whether the repo already answered it.**
+
+---
+
+# ⭐ THE SYNTHESIS — the only framing that survives EVERY measurement
+Two verdicts were produced today and **both were artefacts of the window sampled**:
+| verdict | why it was wrong |
+|---|---|
+| "liability, −1.6%/yr" | measured in the **collapse window** where fees ≈ 0 |
+| "asset, +242% APR" | measured in a **healthy window** with flow that no longer exists |
+⇒ ✅ **Correct framing: the pool's exit quality is a DEPLETING RESOURCE we are actively consuming,
+  with no replenishment mechanism — and our valuation does not model it at all.**
+
+## Why "no in-range liquidity" and "−16 bps to 1,000 weETH" are BOTH true
+`liquidity()` reports only the tick we sit on — that genuinely is ~nil. The depth the quotes hit is
+**ADJACENT**, in ticks the price recently passed through. Selling weETH pushes `P` up, back across the
+ranges the drift just vacated. ⇒ **The exit is cheap BECAUSE THE STRANDING IS FRESH** (~30 days old).
+**That is a snapshot, not a property.**
+
+## 📉 THE DEPLETION MODEL — exit cost grows at the drift rate
+Distance to the parked ranges grows one-way at **0.67 bps/day**, the WETH does not follow, and **no new
+liquidity arrives** (nobody LPs into the position that just converted everyone).
+| days from now | 0.01% exit | 0.05% exit | vs 0.3% redeem |
+|---|---|---|---|
+| 0 | −16.0 | −24.1 | pool wins |
+| 7 | −20.7 | −28.8 | pool wins |
+| 14 | −25.4 | −33.5 | mixed |
+| **21** | **−30.1** | −38.2 | 🔴 **redeem now CHEAPER** |
+| 30 | −36.1 | −44.2 | 🔴 redeem cheaper |
+| 90 | −76.3 | −84.4 | 🔴 redeem cheaper |
+⇒ 🔴 **The 0.05% tier crosses the instant-redeem rate in ≈8.8 days; the 0.01% tier in ≈20.9 days.**
+⇒ **Total resource: 4,840 + 2,053 = 6,893 WETH — non-replenishing, consumed per offramp, receding daily.**
+⚠️ Caveat: linear extrapolation of the measured drift. It ignores any new LP arriving (none has in 30d)
+  and any deviation mean-reversion (which moves it a few bps either way, not the trend).
+
+# 🔴 HIGHER-GRAVITY CONCERNS (unverified — code NOT read; verify before treating as findings)
+1. **VALUATION vs REALISABLE-AT-SIZE.** `valueWeth` prices at fair (pool-independent). The exit is flat
+   only to ~1,000 weETH: **2,000 → −677 bps; 4,000 → −5,339 bps** on the 0.01% tier. If `deliverableETH`
+   counts the Rover leg at fair, **the protocol believes it can deliver ETH it cannot realise** — same
+   class as C10 (which clamped ether.fi REDEMPTION capacity, not POOL EXIT DEPTH). **And per the model
+   above this gap WIDENS daily.** ▶️ Read `deliverableETH`'s Rover branch.
+2. **POOL SELECTION MAY NOT BE SIZE-AWARE.** B (0.01%) is better small and **cliffs** at 1–2k; A (0.05%)
+   degrades gracefully to 4k (−42 bps). If the ladder tries a fixed order, a large offramp can revert on
+   B when A would have filled — liveness failure with a fill available. `minOut` stops us selling badly;
+   it does not route us to the pool that works. ▶️ Read the order in `swapWeethForWeth`.
+3. **THE COUNTERPARTY IS ABANDONED CAPITAL, withdrawable with no notice.** `minOut` ⇒ revert not loss,
+   so liveness not solvency — but `IL-VIA-BONDS` states the ~0.12% fill as a property of the VENUE when
+   it is a property of **third-party inaction**.
+4. **STRANDING** (`_nearFair` refuses the recenter) — drops us out of range exactly when the pool is
+   disturbed, i.e. when our own offramp needs the depth most.
+
+# 🟡 LOWER-GRAVITY (checked, sound — recorded so they are not re-raised)
+- `setLevManager` (`:132`) is **not** `onlyOwner` — correct: gated `msg.sender == AUX && levManager == 0`,
+  pin-once. Rover renounces ownership in `setAux`, so `onlyOwner` is impossible by construction.
+- `withdraw` (`:664`) is public but share-proportional via `fetch(msg.sender)` — caller's own position only.
+
+# 💡 WHAT THE NFT IS ACTUALLY FOR — a fee REBATE on our OWN flow (not external yield)
+External flow is ~0.6 WETH/30d. **But we are the volume:** every Vogue LP withdrawal / swap-out routing
+through the ether.fi rung IS a weETH→WETH trade. If Rover is both LP and swapper, the fee it pays is
+**partly paid to itself**, in proportion to its share of ACTIVE `L`. ⇒ The NFT is a **cost reduction on
+required flow**, not a yield play — an argument **robust to external volume being zero**, unlike the
+`IL-VIA-BONDS` "fee-earning convenience route" framing.
+⚠️ Bounded: the rebate is on the FEE TIER (1–5 bps), not the ~16–24 bps price impact, which is paid to
+  the stranded LPs regardless. Size it against real Vogue offramp volume.
+📌 **Mechanically, every offramp converts other LPs' stranded WETH into weETH — their abandoned
+  inventory IS our counterparty.** That is why the quote is flat to 1,000 weETH.

@@ -836,6 +836,10 @@ way.
 ## 10. The ether.fi strategy — a fair-capped offramp ladder, backstopped by the un-pullable queue
 
 > **UPDATE:** the "no protocol-owned LP" stance below was **reversed** — the
+> ⚠️ **ROVER CONTENT SUPERSEDED 2026-08-03 → `docs/actionable/ROVER-WEETH.md`.** The claims below
+> (exit fills "~0.12%", "both pools deep on the WETH side") were MEASURED TRUE but are a SNAPSHOT of
+> freshly-stranded liquidity that decays at 0.67 bps/day and crosses the 0.3% redeem rate in ~9-21
+> days. Do not cite them as venue properties. Kept for provenance only.
 > protocol-owned **Rover** weETH/WETH Uniswap-v3 LP is now a live venue
 > (`VENUE_ROVER`) and one of the offramp routes; it captures swap fees and
 > rebalances the pool (fair-anchored, no cap/window). See `ETH-VENUES.md`. The
