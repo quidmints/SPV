@@ -1348,3 +1348,24 @@ resolved each market via `idToMarketParams`:
 ⇒ ⚠️ **AND NOTE WHAT THIS DOES *NOT* CHANGE:** the replay's −1.0%/−1.6% is measured against
   **HOLD-MIX** (holding the tokens), **not** against a lending yield. Lending was never in that
   baseline, so none of the LVR figures depend on it.
+
+## 15.5 🏦 THE IN-SCOPE LENDING VENUES, MEASURED (Morpho / Euler / Aave v4 — no Compound, no Fluid)
+| venue | weETH lending yield | how established |
+|---|---|---|
+| **Morpho Blue** | 🔴 **0** | scanned every `Borrow` over ~30k blocks: **123** active markets, weETH is the LOAN token in **0**, the COLLATERAL in **7** (backing WETH/USDC/USDT/RLUSD). Collateral is segregated and never lent (source). |
+| **Euler** | 🔴 **0** | factory resolved from the wired vault's creation tx (`0x29a5…CC8e`, **872** vaults) → **9 weETH vaults**, **every one with ZERO borrows**; one holds 178.7 weETH, eight are empty. supplyAPY **0.000%**. |
+| **Aave v4** | ⬜ **UNMEASURED** | the weETH reserve **EXISTS** (id **2** of 14, alongside WETH/wstETH/WBTC/…), but the spoke is unverified on Etherscan and holds 0 weETH — reserve state not readable from here. |
+| *(Aave v3, reference)* | 0.000025 %/yr | utilisation **0.0046%**, `borrowingEnabled=false`, stable across 180 days |
+
+⇒ ✅ **weETH lending pays ZERO at both in-scope venues that can be measured** — and NOT "by design":
+  Morpho's `supply()` and Euler's vaults both pay interest on borrowed assets. **They pay nothing
+  because NOBODY BORROWS weETH.** Structural reason, consistent across every venue: borrowing weETH
+  means paying interest **to be short a yield-bearing asset** — the inverse of the trade the entire
+  market is doing (post weETH, borrow ETH, lever the staking).
+⇒ 📌 **On the collateral question specifically — the venues differ and it matters:** on **Aave**,
+  collateral IS the aToken position, so it CAN earn — it just earns **0.000025%/yr** (~0.001 weETH/yr
+  on 4,000) because utilisation is 0.0046%. On **Morpho and Euler**, collateral is segregated and
+  earns nothing structurally. **"0 by design" was wrong for both reasons.**
+⇒ 🎯 **CONCLUSION UNCHANGED, EVIDENCE MUCH STRONGER: hold the weETH, do not lend it.** Identical yield
+  (staking accrues in `getRate()`, no venue), no LTV, no liquidation surface, instantly convertible.
+  *(OPEN: Aave v4's weETH reserve exists and is unread — the one venue that could still surprise.)*
