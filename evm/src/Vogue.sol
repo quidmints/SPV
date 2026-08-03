@@ -499,6 +499,29 @@ contract Vogue is
         if (excess > 0) excess = _sendETH(excess, recipient);
     }
 
+    /// @dev §#12 DELIVERY LEG — its OWN frame because `_withdraw` is the tightest stack in this
+    ///      file (two extra function-scope locals there is stack-too-deep; `via_ir` stays off).
+    ///
+    ///      The burn releases BOTH legs. It reduces `POOLED_USD_ETH` (the curve's USD) AND
+    ///      `basketUsdEth` (the basket's contribution — the mod path passes `basketLeg = true`),
+    ///      so the DIFFERENCE between those two reductions IS the LP-owned slice. No ratio math,
+    ///      no oracle, no new state.
+    ///
+    ///      Without this the LP's claim prices correctly across both legs but can only be PAID in
+    ///      ETH, so the USD-backed part becomes a `pooled` deferral that can never materialise —
+    ///      the "prices but cannot be redeemed" failure #12's own spec warns about.
+    ///
+    ///      Paid as QU!D against dollars the burn just freed into the basket: the SAME shape as
+    ///      the `usd_owed` fee leg (`_settlePending`), hence backed 1:1 by construction.
+    function _burnAndDeliverUsdLeg(uint160 sqrtP, uint amount, int24 lo, int24 hi, address recipient)
+        private returns (uint sent) {
+        uint usdPre = V4.POOLED_USD_ETH(); uint basePre = V4.basketUsdEth();
+        sent = _burnInRange(sqrtP, amount, lo, hi, recipient);
+        uint usdOut  = usdPre  > V4.POOLED_USD_ETH() ? usdPre  - V4.POOLED_USD_ETH() : 0;
+        uint baseOut = basePre > V4.basketUsdEth()   ? basePre - V4.basketUsdEth()   : 0;
+        if (usdOut > baseOut) QUID.mint(recipient, (usdOut - baseOut) * 1e12, address(QUID), 0);
+    }
+
     function _withdraw(uint amount, address recipient, bool instant) internal {
         // LENIENT: LP withdrawal SHRINKS POOLED_USD (Core lines
         // 512-513) → shrinks committedSum → heals over-commit. Allow
@@ -604,7 +627,7 @@ contract Vogue is
 
             uint deliverable = AUX.deliverableETH();
             uint firstBurn = amount > deliverable ? deliverable : amount;
-            uint sent = firstBurn > 0 ? _burnInRange(sqrtPriceX96, firstBurn,
+            uint sent = firstBurn > 0 ? _burnAndDeliverUsdLeg(sqrtPriceX96, firstBurn,
                                         tickLower, tickUpper, recipient) : 0;
 
             if (amount > sent) { uint shortfall = amount - sent;
