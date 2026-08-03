@@ -359,6 +359,43 @@ Tested R11's assumption against history — `liquidity()` and `feeGrowthGlobal0X
   through the prior three months. My framing of a permanently-dead pool was wrong — it is a
   RECENTLY-dead pool, which is a different claim with different implications.
 
+### 🕳️ R14 — MY BLIND SPOTS ON ROVER (asked 2026-08-03). Written down BEFORE anything is landed.
+**1. 🔴 I CONFLATED RATE MONOTONICITY WITH PRICE MONOTONICITY — an analytical error, not a gap.**
+   `getRate()` is monotonic. **The market price is NOT.** Today's 12 bps discount IS a deviation from
+   fair, and deviations OSCILLATE (weETH trades cheap under stress, recovers after). That component
+   **mean-reverts, and an LP is PAID to absorb it.** R1's *"no return path"* is true of FAIR VALUE and
+   **false of market price**. ⇒ My LVR figure counted the drift and **ignored the oscillation an LP
+   earns on**, which biases every carry number DOWNWARD. **Decompose the price into drift + deviation
+   before re-running any economics.**
+
+**2. WRONG-VENUE BLINDNESS.** I analysed the 0.05% pool AS GIVEN. If `L` fled it (R12), it likely went
+   somewhere — another fee tier (0.01%/0.3%), Curve, Balancer, a v4 pool. **The fix might be "follow
+   the liquidity", not "fix our position in a pool nobody uses."** Check where weETH/WETH volume
+   actually lives before optimising here.
+
+**3. JIT — the standard answer to LVR, and this repo ALREADY HAS THE MACHINERY.** Standing liquidity
+   is what gets picked off. **Provide depth only in the block it is needed, then withdraw.**
+   `docs/actionable/JIT-DEPTH-GUARANTEE.md` + Vogue's JIT-defense exist; Rover reuses none of it.
+   ⇒ **This may dominate every option in R8's table** — zero standing exposure, zero DoS surface, and
+   the offramp is served exactly when asked. **I never considered it, and it should have been first.**
+
+**4. FEE TIER NEVER QUESTIONED.** 0.05% on a pair drifting 2.4%/yr is a choice, not a given. A 0.01%
+   tier attracts more volume; 0.3% compensates LVR better. **The tier is a free lever I never examined.**
+
+**5. THE ALTERNATIVE IS NOT ONLY "HOLD".** The user raised LENDING. weETH as Morpho/Euler collateral
+   earns a supply rate ON TOP of the staking rate, with no LVR and no DoS. **R8's option table is
+   incomplete without it** — and BtcLevManager already proves the venue plumbing exists (§A.36).
+
+**6. ⚠️ DO NOT GENERALISE R1–R13 TO VOGUE.** All of it rests on a MONOTONIC pair. **Vogue's ETH/USD is
+   not monotonic**, so the ratchet, the fill-guarantee and the LVR framing **do not transfer**. Anyone
+   reading this section for band intuition will draw the wrong conclusion.
+
+📌 **Pattern across 1, 3 and 5:** each is an option I never put on the table, and each could dominate
+  what I did analyse. **My failure mode all session was optimising WITHIN a frame instead of testing
+  the frame.** R9 optimised a position that maybe should not exist; R8 compared two designs while
+  ignoring JIT and lending entirely.
+
+
 ### 🔍 R13 — WHAT THIS OPENS (the questions that now matter more than the LP economics)
 1. 🔴 **WHY did `L` collapse 3.5M× in 30 days?** A single LP withdrawing, a migration to another
    venue/fee-tier, or a response to something. **Until this is known, no Rover decision is safe** —
