@@ -520,8 +520,14 @@ mint/recenter/compound when `!_nearFair()`. *(✅ — structural code facts.)*
 On-chain (verified this session): both pools have **token0 = WETH, token1 = weETH**, so in production
 `token1isWETH == false`. *(✅ — immutable on-chain fact.)* Then:
 1. Drift lowers weETH-per-WETH ⇒ the tick falls **below** `LOWER_TICK` ⇒ the position becomes **100%
-   token0 = 100% WETH**. This is precisely §2's observed state (4,840 WETH : 1.0 weETH), i.e. the
-   EXPECTED steady state, not an edge case.
+   token0 = 100% WETH**. ⛔ **CORRECTION (owner challenged this, and was right): out-of-range is NOT
+   "the expected steady state".** `_repackNFT` recentres on *every* touch where the band is left AND
+   `_nearFair` holds — and §9 measures `_nearFair` as **never binding naturally in 120 days** (worst
+   sampled deviation −26 bps against a 50 bps gate). So out-of-range is **TRANSIENT**, lasting only
+   until the next `deposit`/`withdraw`/`repackNFT`/`compound`/`take`. §2's 4,840:1 imbalance is
+   **passive third-party LPs who never recentre** — Rover is not passive. What survives: the round-trip
+   below still fires on the recentre itself, and the DoS shove is still a way to force the stranded
+   state deliberately. *(OPEN — the frequency now depends on crank cadence, not on market state.)*
 2. `take()` calls `_refreshAndRepack(false)` **first** (`:601`). If `_nearFair` passes, `_repackNFT`
    burns the all-WETH position and `_mintOrCompound` enters the **mint** branch (`liquidity > 0`),
    whose `_swap` **MINTS weETH via the adapter with ~half that WETH** (`:494-508`).
@@ -690,6 +696,108 @@ revert: v3 walks the tick bitmap to the adjacent stranded WETH. **But the price 
 ⇒ 📌 **Once Rover's position IS live and in range this pathology disappears** (our own `L` dwarfs the
   pool's by ~10⁶, so the same trade barely moves the tick). **It bites only in the burn window and
   before first deployment — which is precisely the recentre path above.** *(OPEN.)*
+
+## 9. 🔴🔴 MEASURED ON ARCHIVAL (Ankr key, 2026-08-03) — **THE BENCHMARK IN THIS DOC IS WRONG**
+Everything above — including my own §0 "the number to beat is 30 bps" — assumes rung 3, the 0.3%
+instant redeem, is a **working pool-independent floor**. **It is not. It is empty, and has been for
+months.** `SwapLib:646` reads `totalRedeemableAmount(ETHFI_NATIVE_ETH)`; measured at the redeemer
+(`0xDadEf1fF…7Ae0`, the address `Vault.sol:131` pins):
+
+| days ago | **native-ETH capacity** (what we ask for) | **stETH capacity** (what we never ask for) |
+|---|---|---|
+| 0, 1, 2, 3 | 🔴 **0.00 ETH** | 5,000.00 ETH |
+| 5, 7 | 2,000.00 ETH | 5,000.00 ETH |
+| 14, 21, 30, 60 | 🔴 **0.00 ETH** | 5,000.00 ETH |
+| 90 | 🔴 **0.00 ETH** | 0.04 ETH |
+
+⇒ 🔴 **RUNG 3 IS DEAD IN 9 OF 11 SAMPLES ACROSS 90 DAYS.** With `capEth == 0` the code emits
+  `InstantRedeemSkipped` (`:650`) and falls straight through to **rung 4 — the multi-day wait NFT.**
+⇒ ⭐ **SO THE REAL ALTERNATIVE TO THE POOL IS NOT "PAY 0.3%". IT IS "WAIT DAYS".** The owner's goal —
+  *"without forcing them to wait"* — **is currently unachievable below the v3 pool.** Every conclusion
+  in this doc that scored an option against 30 bps was scoring it against a rung that does not fire.
+  *(OPEN — measurement; re-read before acting, capacity is a refilling bucket.)*
+⇒ 🔴 **AND THERE IS 5,000 ETH OF INSTANT CAPACITY WE NEVER ASK FOR.** `SwapLib:629-634`'s own comment
+  already records that the redeemer accepts **native ETH *or* stETH** — we hardcode native, the empty
+  one. Adding stETH as a second output token is a **rung-3 resurrection worth 5,000 ETH of instant
+  exit**, at the cost of holding stETH (Curve stETH/ETH is deep; the extra hop is a few bps, not a
+  wait). ▶️ **This may be the single highest-value fix in this document, and it is independent of every
+  Rover question.** *(OPEN — needs the `redeemWeEth` ABI + a fork test; do not assume it works.)*
+
+### 📉 THE DEPLETION MODEL IS REFUTED — the deviation is a SAWTOOTH, not a trend
+Pool-A spot vs `getRate()` fair, sampled at 14 points over 120 days (the multi-window control §📉
+never ran):
+| −0d | −1d | −2d | −3d | −5d | −7d | −10d | −14d | −21d | −30d | −45d | −60d | −90d | −120d |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| −12.2 | −11.5 | −8.1 | −7.5 | −6.1 | −6.5 | −6.0 | −9.5 | −5.8 | −7.4 | −7.3 | −9.0 | **−26.1** | −6.3 |
+
+⇒ ⛔ **§📉 PREDICTED −36 bps AT 30 DAYS AND −76 bps AT 90. MEASURED: −7.4 AND −26.1.** The deviation
+  oscillates in a **−6 to −26 bps band and mean-reverts**; it does not trend. **The "crossover in ~8
+  days, after which the redeem is strictly cheaper" projection does not survive its own back-test.**
+⇒ 📌 **BOTH READINGS ARE RECONCILABLE, and the reconciliation is the real model.** *Within* a frozen
+  stretch the deviation does grow at the drift rate — measured −6.00 at −10d → −12.19 now is
+  **+0.62 bps/day**, matching the independently measured 0.65–0.67. But the stretches **END**: a trade
+  eventually resets it. **So it is a SAWTOOTH whose peak is the arbitrage hurdle, ~−26 bps observed.**
+  §📉 measured one tooth and extrapolated the whole waveform. *(OPEN.)*
+⇒ ⭐ **This is the §2 dismissal I flagged earlier, now settled with data:** the discount IS
+  arb-bounded, by ether.fi's own free queue, and the bound is **~26 bps**. *(OPEN — 14 samples is
+  better than 1, but it is still sampling; the peak between samples could be higher.)*
+
+### 🔒 `_nearFair` NEVER BINDS NATURALLY — the stranding is a DoS vector, not a market state
+The gate refuses at **50 bps**. The worst deviation in 120 days is **−26.1 bps**; the median is ~−7.4.
+⇒ **The market never trips the gate.** R4 stranding and R2's $5 DoS are therefore **the same finding**:
+  the only way to strand Rover is for someone to deliberately shove the pool past 50 bps. It is a
+  griefing surface, not an ambient condition. *(OPEN — this LOWERS the severity of R4/R15 relative to
+  how this doc and QUEUE.md rank them, and RAISES the relative severity of the DoS.)*
+
+## 10. THE OWNER'S CAPITAL-EFFICIENCY QUESTIONS — answered against §9's corrected benchmark
+### Q4. *"Why doesn't deposit convert the entire amount — remove WETH from the v3 LPs and park it in our own NFT, capturing the swap fee?"*
+**Mechanically it works, and the direction is the deep one:** selling weETH pushes spot UP into exactly
+the ranges holding the stranded WETH (4,840 + 2,053), so third-party WETH *is* reachable. What it buys
+and what it costs:
+| | |
+|---|---|
+| **buys** | converts **pullable** third-party WETH into **un-pullable** NFT WETH — requirement 1 and 3 in one move, and §9 says the fallback if it is pulled is a **multi-day wait**, not a 30 bps fee |
+| **costs** | the spread on the portion that crosses **outside our own band** (~16–24 bps). Inside our band the trade self-fills and the fee returns to us — so the fee capture the owner names is **real but partial**, bounded by band depth |
+| **does NOT buy** | *extra* exit capacity. It **relocates** WETH from their out-of-range ticks to our in-range band. Same total, better custody. |
+
+⇒ 🎯 **So it is an INSURANCE PREMIUM, and §9 re-prices it.** Against a 30 bps fallback it needed
+  P(pulled) > ~2/3 to pay for itself — a high bar. **Against a multi-day wait it is cheap.**
+⇒ ⚠️ **But do it OPPORTUNISTICALLY, not on the deposit path.** The premium is the *live* spread, and
+  §9 shows that spread is a sawtooth from −6 to −26 bps. Buying on every deposit pays whatever the
+  spread happens to be; a keeper buying at the trough pays **~4× less** for the identical WETH.
+  **Tying it to deposit timing is the one version of this idea that is clearly wrong.** *(OPEN.)*
+⇒ 📌 **Note it also does NOT need `_wrapIdle`'s "convert everything then buy back".** Acquiring
+  third-party WETH is `mint weETH at fair → sell weETH for THEIR WETH`; that is a deliberate inventory
+  trade, not a side effect of a yield optimisation. **Keep them separate** — §8's round-trip is the
+  accidental version of this trade, executed at a random time with the position burned. *(OPEN.)*
+
+### Q5. *"Would it be more capital efficient to hold weETH in Morpho/Euler and use v3 only for swapping?"*
+| | yield | LVR / IL | instant exit when the pool is drained |
+|---|---|---|---|
+| **weETH in Morpho/Euler** | staking + supply APR, **highest** | **none** | 🔴 **NO** — must sell into v3, or wait (§9: rung 3 is empty) |
+| **Rover NFT (WETH leg)** | fees only | yes | ✅ **YES** — `decreaseLiquidity` needs no counterparty |
+| **weETH in Morpho/Euler + BORROW WETH** | staking + supply − borrow | **none** | ✅ **YES** — a borrow needs no v3 pool at all |
+
+⇒ **On yield alone, Morpho/Euler wins and the NFT loses.** On the owner's actual requirement it loses
+  outright — **it has no un-pullable WETH.** *(OPEN.)*
+⇒ ⭐ **The row that wins BOTH columns is the third**, and §9 strengthens it further: the breakeven
+  borrow rate is no longer "0.3% over a 7-day queue ≈ 15.6% APR" — with rung 3 empty the thing being
+  avoided is a **multi-day wait**, which has no price at all. *(OPEN — still unmeasured: the live WETH
+  borrow rate, the weETH-market LTV, and the market's WETH-side liquidity, which is what actually caps
+  a single exit. Plus the liquidation surface. Rule 9: unmeasured axes are where the regression is.)*
+
+### Q6. *"What if it can't — LPs withdraw all at once, maybe in the same block as a pending LP withdrawal?"*
+**This is the scenario that decides the NFT, and §9 makes it much worse than the doc assumed.**
+Today, with third-party WETH gone: rung 1 fails (no WETH to buy) → rung 2 is Rover → **rung 3 is
+empty** → rung 4 is a **multi-day wait**.
+⇒ ⭐ **The un-pullable NFT WETH leg is, right now, the ONLY same-block defence the protocol has** — and
+  `decreaseLiquidity` is immune to the withdrawal because the liquidity is ours. **That is precisely
+  the original design intent quoted at the top of this doc, and §9 is the first evidence that actually
+  substantiates it.** *(OPEN — a borrow line would defend the same scenario without the LVR; the two
+  are alternatives, not complements, and neither is measured yet.)*
+⇒ ⚠️ **Same-block is the hard part.** A third-party `decreaseLiquidity` in the same block as our
+  withdrawal is not front-runnable by us and not preventable — **only pre-funding survives it**, which
+  is an argument for holding the reserve *before* it is needed, not for acquiring it on demand.
 
 ---
 
