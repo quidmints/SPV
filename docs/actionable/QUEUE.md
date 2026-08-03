@@ -293,6 +293,46 @@ accrual, so `:205`'s recenter is a ROUTINE event, not a rare one. But:
   arber has an incentive to restore it** — the restoring trade is the unprofitable direction.
 📌 This is a **liveness** bug, not a pricing one, and it is cheap to trigger and self-sustaining.
 
+### 💵 R5 — FEE DATA MEASURED. The two-sided position is NEGATIVE vs holding. (2026-08-03)
+`feeGrowthGlobal{0,1}X128` on the pool, 30-day window (blocks 25,458,437 → 25,674,437), applied to
+current in-range `L = 6.6e17`:
+| | |
+|---|---|
+| realised fee yield | **0.24 bps/day ≈ 0.9% APR** |
+| drift / LVR (one-directional ⇒ **every** move is adverse) | **0.67 bps/day ≈ 2.4% APR** |
+| **NET vs simply holding weETH** | **≈ −0.43 bps/day ≈ −1.6% APR** |
+⇒ **The fee covers about ONE THIRD of the drift.** Holding weETH yields +2.4%; LPing it two-sided
+  yields ≈ +0.8%. **The position is structurally negative in opportunity terms — measured, not argued.**
+⚠️ *Caveat:* derived from a 30-day window at TODAY's `L`; if `L` or volume were materially different
+  across the window the ratio shifts. **Re-run over two windows before acting.** The sign is not
+  marginal (3:1), so it is unlikely to flip — but the magnitude is soft.
+
+### ⚖️ SO: IS THE GATE FIX ENOUGH? **NO — it is NECESSARY BUT NOT SUFFICIENT.**
+| fix | fixes stranding/DoS (R2, R4) | fixes economics (R5) |
+|---|---|---|
+| recenter-off-fair + delete stale comment | ✅ **yes** | ❌ **no** — still quotes two-sided into a one-way drift |
+| single-sided, off fair | ✅ yes (prices off `getRate`, never spot) | ✅ **yes** — only fills at a premium you chose |
+⇒ **Do BOTH.** The gate fix is a LIVENESS fix; single-sided is the ECONOMICS fix. Neither substitutes.
+
+### 📊 SINGLE-SIDED — WHAT WE GAIN AND LOSE (the honest ledger)
+**GAIN**
+ • **No adverse selection.** An ask above fair fills only at a premium chosen in advance.
+ • **No LVR.** You stop quoting a two-sided market against a price process with only one direction.
+ • **DoS-immune.** Placement prices off `getEETHByWeETH`; a shoved spot cannot strand or freeze it.
+ • **Yield while waiting.** weETH accrues ~2.4% in the NFT; idle is the BEST state, not a cost.
+ • **Fill is scheduled, not hoped for.** Monotonic drift reaches the ask: 5/12/24 bps ⇒ ≈7/18/36 days.
+**LOSE**
+ • **Fee income falls.** ⚠️ But measured that is **+0.9% forgone to avoid −2.4%** ⇒ **losing it is a GAIN.**
+ • **No two-way quote from the NFT.** Mitigated: on-demand offramp already runs through the direct
+   swap at a flat **−24 bps to 100 weETH**, which never touches the NFT.
+ • **Cannot buy weETH cheap on a dislocation.** ⚠️ **Illusory** — Rover NEVER buys from this pool; it
+   MINTS at fair (`Rover.sol:22-23`). The bid side serves no Rover function today.
+ • **More passive.** Capital waits for the drift to reach the ask. Acceptable for an offramp; NOT
+   acceptable if guaranteed instant two-way depth is a requirement — which the direct swap covers.
+⇒ 📌 **Every "loss" is either measured-positive or already served by another path.** That is what
+  makes single-sided the right call rather than merely a defensible one.
+
+
 ### ⭐ REMEDY — REVISED AGAIN, and it is SMALLER than going single-sided
 Directionality was aimed at adverse selection. But with a one-tick band the per-cycle pick-off is
 already small (≈half the band ≈5 bps vs a 5 bps fee — marginal, not ruinous). **The dominant problem
