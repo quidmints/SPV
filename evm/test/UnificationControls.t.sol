@@ -416,4 +416,62 @@ contract UnificationControls is Alles {
         assertGt(usdFees1, usdFees0,
             "the retained premium must reach the LP USD accumulator -- recorded is not received");
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // E3 SIZING — how much idle capital sits on the OTHER curve when one starves?
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// The unification's capital-efficiency claim is that a STARVED curve could draw on the OTHER
+    /// curve's dollars. That payoff is worth exactly the amount of capital that is idle on the far
+    /// side AT THE MOMENT of starvation — and nobody has measured it. If the other curve is also
+    /// thin when one starves, unification re-allocates nothing and the whole premise shrinks.
+    ///
+    /// ⚠️ SCOPE, STATED SO THIS IS NOT OVER-READ: this measures whether starvation COINCIDES with
+    /// idle capital, and HOW MUCH. It does NOT measure production FREQUENCY — that needs real flow
+    /// data neither repo has. A reachable-and-large result sizes the upper bound of the win; it does
+    /// not prove the win is often collected.
+    function test_E3sizing_StarvedCurveVsIdleCapitalOnTheOther() public {
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        AUX.setBTCChannels(address(this));
+        BTC.registerBtcLp(lpB, 2e7);
+        vm.roll(block.number + 1); vm.warp(block.timestamp + 30 minutes);
+
+        uint ethUsd0 = CORE.POOLED_USD_ETH();
+        uint btcUsd0 = CORE.POOLED_USD_BTC();
+        emit log_named_uint("ETH curve USD at rest", ethUsd0);
+        emit log_named_uint("BTC curve USD at rest", btcUsd0);
+        assertGt(ethUsd0, 0, "PREMISE: ETH curve is live");
+        assertGt(btcUsd0, 0, "PREMISE: BTC curve is live -- else 'idle capital on the other' is 0 by default");
+
+        // One-directional ETH flow: pay ETH in, take USD out, until the ETH curve's USD is starved.
+        vm.deal(User01, 5_000 ether);
+        uint steps;
+        for (uint i; i < 20 && CORE.POOLED_USD_ETH() > ethUsd0 / 100; i++) {
+            vm.prank(User01);
+            try AUX.swap{value: 40 ether}(address(USDC), address(WETH), false, 0, 0) {} catch {}
+            vm.roll(block.number + 1); vm.warp(block.timestamp + 10 minutes);
+            steps++;
+        }
+
+        uint ethUsd1 = CORE.POOLED_USD_ETH();
+        uint btcUsd1 = CORE.POOLED_USD_BTC();
+        uint pending = CORE.pendingSwapOutUsd();
+        uint btcFree = btcUsd1 > pending ? btcUsd1 - pending : 0;
+
+        emit log_named_uint("swaps to starve ETH  ", steps);
+        emit log_named_uint("ETH curve USD after  ", ethUsd1);
+        emit log_named_uint("BTC curve USD after  ", btcUsd1);
+        emit log_named_uint("BTC free (idle) after", btcFree);
+        emit log_named_uint("ETH deficit vs rest  ", ethUsd0 > ethUsd1 ? ethUsd0 - ethUsd1 : 0);
+        // THE SIZING NUMBER: idle capital on the far curve as a % of the starved curve's deficit.
+        uint deficit = ethUsd0 > ethUsd1 ? ethUsd0 - ethUsd1 : 0;
+        emit log_named_uint("idle-on-other / deficit (bps)",
+            deficit > 0 ? btcFree * 10_000 / deficit : 0);
+
+        // PREMISE: the ETH curve must actually have starved, else there is nothing to size.
+        assertLt(ethUsd1, ethUsd0 / 100, "PREMISE: the ETH curve really is starved (<1% of rest)");
+        // MEASUREMENT, not a pass/fail claim: report whether the far curve held anything at all.
+        emit log_named_uint("far curve held idle capital at starvation? (0=no)", btcFree > 0 ? 1 : 0);
+    }
 }
