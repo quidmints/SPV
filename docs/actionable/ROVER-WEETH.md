@@ -628,6 +628,69 @@ Bounded by **the WETH leg of the band**, and the band is only as wide as one tic
   *(OPEN — this reframes R9's `T`, it does not answer it. The refill RATE vs the offramp DRAW RATE is
   the number that decides it, and neither has been measured.)*
 
+## 8. TRACING THE ENTRY FLOW THE OWNER DESCRIBED — *"is that swap at a loss for us?"*
+> *"when someone swaps in WETH or when an LP deposits WETH… the ENTIRE amount gets converted to weETH.
+> then we swap a portion of that converted weETH for WETH from the v3 pool. Make sure that is not at a
+> loss for us, given the imbalance, or that there is even no in-range liquidity at all."*
+
+### ✅ GOOD NEWS FIRST — **the deposit path does NOT do that, and never pays the pool**
+Both entrypoints land on `Rover.deposit` (`Vault.supplyEtherFiToRover:418` → `supplyVenueBody` kind 0
+→ `IRover.deposit`). It calls `_swap(amount + msg.value, **0**, price)` (`:560`) — i.e. it starts from
+**all WETH with weETH = 0**, so `_swap` takes its **MINT** leg (`:494-508`) and mints only the ~28.4%
+the band needs, **via the ether.fi adapter at `getRate()` fair — no pool, no spread, no slippage.**
+The WETH-buying leg (`:510-531`, the only one that touches the pool) is unreachable from `weeth = 0`.
+⇒ **A fresh deposit converts a PORTION at fair, not the entire amount, and pays nothing.** *(✅ —
+structural: the paid leg is gated on `weeth > 0`, which `deposit` passes as a literal zero.)*
+
+### 🔴 BUT THREE OTHER PATHS DO EXACTLY WHAT THE OWNER DESCRIBED — and one is a real loss
+The all-weETH state is manufactured **after** entry, by `_wrapIdle` (`:545-550`, converts **all** idle
+WETH → weETH after every deposit/repack/compound) and by the offramp handing Rover weETH
+(`SwapLib:623`). The **next** repack then starts all-weETH and must buy WETH back **on the pool**.
+Whether that costs us turns entirely on **whether our own liquidity is in the pool at that moment:**
+
+| path | is Rover's `L` in the pool during the swap? | who receives the 16–24 bps |
+|---|---|---|
+| **first deposit** (`ID == 0`) | n/a — no pool swap at all | **nobody. Free.** |
+| **full-sweep repack** (`:257-276`, no burn) | ✅ **YES — position is live** | **ourselves** (we own ~100% of in-range `L`) ⇒ ~free |
+| 🔴 **RECENTRE** (`:211-221`, burns first) | ⛔ **NO — burned at `:214-216`, minted again only at `:255`** | 🔴 **strangers. A REAL LOSS.** |
+
+⇒ 🔴 **THE ORDERING IS BACKWARDS: `_repackNFT` BURNS the position (`:214-216`) and only then calls
+  `_mintOrCompound` (`:227`), whose `_swap` trades against the pool.** So on every recentre we withdraw
+  the very liquidity that would have absorbed our own trade, and pay strangers the impact we were
+  about to pay ourselves. **This is the single place §1(b)'s corrected insight is thrown away.**
+  *(OPEN — code read; needs the fork test in the plan.)*
+⇒ 📌 **And it is reachable by exactly what Rover exists to do.** The paid leg needs `targetETH > eth`
+  with weETH in hand, i.e. the position sitting **above** its band — which is the state **heavy offramp
+  use** produces (selling weETH pushes the tick UP). Drift pushes the tick DOWN instead, leaving an
+  all-WETH position whose recentre takes the **free** adapter leg. **So the free case is the idle one
+  and the paid case is the busy one.** *(OPEN.)*
+
+### 🔬 *"…or that there is even no in-range liquidity at all?"* — MEASURED, and it makes it worse
+In-range `L` on pool A is **0.000346 WETH-equiv** (§1(c)) — effectively zero. The swap does **not**
+revert: v3 walks the tick bitmap to the adjacent stranded WETH. **But the price jumps immediately:**
+| sell size | post-swap tick (from −948) | ticks moved | vs the 10-tick band `[−950,−940)` |
+|---|---|---|---|
+| **1 weETH** | −940.0 | **8.0** | ⛔ **at `upper`** |
+| 10 | −939.9 | 8.1 | ⛔ past `upper` |
+| 100 | −939.1 | 8.9 | ⛔ past `upper` |
+
+⇒ 🔴 **EVEN A 1 weETH REBALANCING SELL MOVES SPOT TO THE BAND EDGE.** With no in-range depth the price
+  cannot move a *little* — it jumps to the next initialized tick. And `_repackNFT` chose the band from
+  the **PRE-swap** tick (`_adjustTicks(LAST_TICK)`, `:200`) while `_mintRover` executes at the
+  **POST-swap** price (`:385`).
+⇒ 💸 **So the WETH we just bought cannot be deposited at all.** At spot ≥ `upper` a v3 position is
+  **100% token1 = 100% weETH**, so the mint consumes the weETH and **leaves the freshly-bought WETH
+  idle** — `amount0Min: 0` (`:387`) means it does not revert, it silently under-mints. `_wrapIdle` then
+  converts that WETH **back to weETH**. ⇒ **We paid ~24 bps to strangers for a token the position
+  then refused, and converted it straight back.** *(OPEN — the strongest single argument for fixing
+  the ordering rather than the economics.)*
+⇒ ⚠️ The comment at `:387` — *"atomic with swap, no MEV risk"* — is true about MEV and **misses that
+  OUR OWN swap moved the price.** The risk it dismisses is not the one that bites. *(✅ — the comment
+  is there and the mechanism is not MEV.)*
+⇒ 📌 **Once Rover's position IS live and in range this pathology disappears** (our own `L` dwarfs the
+  pool's by ~10⁶, so the same trade barely moves the tick). **It bites only in the burn window and
+  before first deployment — which is precisely the recentre path above.** *(OPEN.)*
+
 ---
 
 # 🚦 THE VERDICT — ⛔ WITHDRAWN 2026-08-03, SAME DAY IT WAS WRITTEN
