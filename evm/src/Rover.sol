@@ -203,11 +203,11 @@ contract Rover is ReentrancyGuard, Ownable {
             // window: out-of-band + at-fair can't be toggled by an attacker,
             // and an in-band call only harvests/compounds (harmless to spam).
             if ((LAST_TICK > UPPER_TICK || LAST_TICK < LOWER_TICK) && fair) {
-                // we want to make sure that all of the WETH deposited to this
-                // contract is always in range (collecting), total range is ~7%
-                // below and above tick, as voltage regulators watch currents
-                // and control a relay (which turns on & off the alternator,
-                // if below or above 12 volts, re-charging battery as such)
+                // Re-center the ONE-TICK band (see `_adjustTicks`: floor(tick) →
+                // +TICK_SPACING, i.e. ~10bps wide — NOT the "~7% above and below"
+                // an older comment here claimed; that text described a superseded
+                // implementation and had to be deleted because it mis-framed a
+                // whole analysis of this contract's economics).
                 liquidity = _posLiq();
                 liquidityUnderManagement = liquidity;
                 (uint collected0,

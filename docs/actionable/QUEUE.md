@@ -359,6 +359,42 @@ Tested R11's assumption against history — `liquidity()` and `feeGrowthGlobal0X
   through the prior three months. My framing of a permanently-dead pool was wrong — it is a
   RECENTLY-dead pool, which is a different claim with different implications.
 
+### ⭐ R15 — BREAKTHROUGH: **VOGUE ALREADY SOLVED R4, AND ROVER INHERITED THE PRE-FIX VERSION.**
+`SwapLib.sol:119-136` (`_priceOr`, Vogue's price resolution) documents the SAME bug, its blast radius,
+and the shipped fix — **verbatim**:
+> *"**NEVER reverts** … (The previous version **REVERTED on divergence**, which **bricked QUI
+> redemption and froze swaps/deposits on every fast >maxDevBps move** — the internal TWAP can only be
+> moved by a swap/repack, which also route through here, so the **read-revert DEADLOCKED the protocol
+> until the price mean-reverted**.) **Proven by `test/TwapAnchorDeadlock.t.sol`**"*
+
+⇒ 🎯 **That is R4's stranding, word for word, in a different contract.** Vogue's answer: **WITHIN the
+  deviation bound use the DEX price; BEYOND it fall back to the ANCHOR — never refuse.**
+⇒ 🔴 **`Rover._nearFair` is the pattern Vogue ABANDONED.** It refuses (no mint/recenter/compound)
+  exactly when divergence is largest — and R1 shows **nothing here incentivises the mean-reversion**
+  that eventually un-deadlocked Vogue. **Rover's deadlock has no natural exit.**
+⇒ ✅ **This makes the R4 fix LOW-RISK, not speculative:** it is a proven, in-repo, production pattern
+  with a named test. Mirror `_priceOr`'s shape — `_nearFair` gates EXECUTION-against-spot, while the
+  recenter falls back to `getEETHByWeETH` instead of refusing.
+▶️ **Write the Rover analogue of `TwapAnchorDeadlock.t.sol`** — shove spot >50 bps, assert the recenter
+  still lands off fair. That test is the falsifiable prediction R4 needs (rule 10).
+
+### ✅ APPLIED THIS SESSION (everything else in R1–R15 is BOOKED, NOT BUILT)
+| item | state |
+|---|---|
+| **R3** stale `~7%` comment in `Rover.sol` | ✅ **DELETED** — replaced with the true one-tick description + why it was removed. `forge build` clean. |
+| **R4/R15** `_nearFair` degrade-not-refuse | 🔴 **NOT APPLIED** — money-path; needs the deadlock test + a suite run first (rule 10). Precedent + shape are above. |
+| everything else (R1,R2,R5–R14) | 🔴 analysis only |
+
+### 🕳️ GAPS & VULNERABILITIES STILL OPEN AFTER ALL OF THIS
+1. 🔴 **R2 $5 DoS — LIVE.** Any party can freeze Rover's mint/recenter/compound for ~$5. **Unfixed.**
+2. 🔴 **R4 stranding — LIVE**, and unlike Vogue's version it has **no natural exit** (R1).
+3. 🔴 **R12: why did `L` collapse 3.5M×?** Unknown. **No Rover decision is safe until answered.**
+4. 🟠 **R14#1: the carry numbers are BIASED** — drift counted, mean-reverting deviation ignored.
+5. 🟠 **R14#3: JIT never evaluated**, and it may dominate every option considered.
+6. 🟠 **R14#5: lending weETH never priced** as the alternative to LPing.
+7. 🟠 **Is Rover even deployed?** Unchecked — it decides whether R12's history already includes it.
+
+
 ### 🕳️ R14 — MY BLIND SPOTS ON ROVER (asked 2026-08-03). Written down BEFORE anything is landed.
 **1. 🔴 I CONFLATED RATE MONOTONICITY WITH PRICE MONOTONICITY — an analytical error, not a gap.**
    `getRate()` is monotonic. **The market price is NOT.** Today's 12 bps discount IS a deviation from
