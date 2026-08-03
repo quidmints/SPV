@@ -799,6 +799,78 @@ empty** → rung 4 is a **multi-day wait**.
   withdrawal is not front-runnable by us and not preventable — **only pre-funding survives it**, which
   is an argument for holding the reserve *before* it is needed, not for acquiring it on demand.
 
+## 11. 🎯 THE LINCHPIN — *"does Rover get MORE WETH than the weETH is worth, because the pool is imbalanced?"*
+# ⛔ **NO. It gets LESS, always, and it has never once been otherwise in 120 days.**
+| | |
+|---|---|
+| pool A spot | **1.099342** WETH per weETH |
+| fair (`getRate()`) | **1.100672** |
+| ⇒ | **−12.1 bps. The pool prices weETH BELOW fair.** |
+| after fee + impact (100 weETH) | **−24.7 bps** · at 1,000 weETH **−28.8 bps** |
+| every one of §9's 14 samples over 120 days | **negative** (−6.0 to −26.1 bps). **Never positive.** |
+
+### 🔬 WHY THE 4,700:1 BALANCE DOES NOT MEAN WETH IS CHEAP — the concentrated-liquidity trap
+**In v3 the marginal price is `sqrtPriceX96`, NOT the token ratio.** The 4,840 WETH is not a pile of
+WETH looking for weETH at a premium — it is LP inventory sitting in ranges the price has already
+fallen *below*, i.e. **ticks ABOVE current spot**. Selling weETH pushes `P` (weETH per WETH) UP into
+those ticks, and higher `P` means **fewer WETH per weETH** — so the stack is a bid ladder at
+**DESCENDING** prices. Measured, that is exactly the shape: −16.23 bps at 1 weETH → −26.65 at 1,000 →
+−678 at 2,000 (tier B is drained). ⇒ **The imbalance buys DEPTH on our side, not a PREMIUM.**
+*(✅ — this is v3 mechanics plus 14 archival samples; no design decision reopens it.)*
+📌 **So the thesis cannot rest on selling weETH above fair. It never happens.** What the imbalance
+  genuinely gives is the ability to sell ~1,000+ weETH without the price collapsing — valuable, but a
+  different claim, and one §9 shows is capped by a **sawtooth that peaks near −26 bps**.
+
+## 12. 🔴🔴 THE ROUTE THAT DOMINATES EVERYTHING MEASURED — **rung 3, via stETH**
+§9 found the native rung empty. Reading the mechanism (`EtherFiRedemptionManager`, impl
+`0x5d53b303…b3dc` — the same impl `SwapLib:631` cites) shows **two independent gates**, and which one
+binds is the whole story:
+```
+totalRedeemableAmount(t) = min( bucket.consumable(t), instantLiquidity(t) - lowWatermark(t) )
+                           and returns 0 outright if instantLiquidity < lowWatermark
+```
+| measured now | **native ETH** | **stETH** |
+|---|---|---|
+| instant liquidity | 13,625.63 ETH | **292,541.10 ETH** |
+| low watermark | **19,822.87** (= **exactly 1.00% of TVL** 1,982,286.75) | **0 — no watermark at all** |
+| ⇒ liquidity gate | 🔴 **SHORT BY 6,197 ETH ⇒ returns 0** | ✅ passes |
+| rate-limit bucket | **1,999.7 / 2,000 ETH — 99.99% FULL** | 4,999.6 / 5,000 — 99.99% FULL |
+| bucket refill | 2,000 ETH/day | **5,000 ETH/day** |
+| **exit fee** | **30 bps** | 🎯 **10 bps** |
+
+⇒ ⭐ **ANSWER TO "is it empty because nobody pays for the instant redeem?" — NO, AND THE BUCKET PROVES
+  IT.** The rate limiter is **99.99% full**, which is precisely what "nobody is using it" looks like.
+  It returns 0 for the *other* reason: **ether.fi's own ETH buffer sits 31% below its 1%-of-TVL safety
+  watermark.** The rung is switched off by **their liquidity floor, not by our demand.** *(✅ — the
+  mechanism is read from source and both gates are measured.)*
+⇒ 🔴 **AND THE NATIVE BUFFER IS BELOW WATERMARK IN 7 OF 8 SAMPLES OVER 150 DAYS** (−30/−60/−90d it
+  held ~500 ETH against a ~19–25k watermark). **It is not a rung that occasionally dips — it is off by
+  default.** *(OPEN — measurement.)*
+
+### 💥 AND stETH IS NOT THE CONSOLATION PRIZE — IT IS THE CHEAPEST EXIT THE PROTOCOL HAS
+Exit fee **10 bps**, then stETH→ETH on Curve (`0xDC24316b…7022`, 18,578 ETH / 22,319 stETH):
+| size | Curve slippage | **all-in vs fair** | v3 pool at the same size |
+|---|---|---|---|
+| 100 | −3.1 bps | 🎯 **−13.1 bps** | −24.7 bps |
+| 1,000 | −3.6 bps | 🎯 **−13.6 bps** | −28.8 bps |
+| 5,000 | −6.4 bps | 🎯 **−16.4 bps** | −42.3 bps (tier A) / drained (B) |
+
+⇒ 🎯 **THE stETH RUNG IS ~2× CHEAPER THAN THE v3 POOL AT EVERY SIZE MEASURED, INSTANT, AND CAPPED AT
+  5,000 ETH/DAY REFILLING — and it does not depend on a single third-party LP.** It beats the owner's
+  stated target (30 bps, no wait) **by more than half**, which no other option in this document does.
+⇒ ⚠️ **IT IS A CODE CHANGE, NOT A PARAMETER.** `redeemWeEth(ask, recipient, outputToken)` sends the
+  OUTPUT to `recipient` — so we must redeem **to ourselves**, hop Curve, then forward ETH. New
+  approval, new hop, new failure mode. **Do not treat this as flipping a constant.** *(OPEN.)*
+⇒ ⚠️ **DEPENDENCY, HONESTLY NAMED:** the 0-watermark and the 10 bps fee are `onlyOperatingTimelock`
+  settings on ether.fi's side. This is a **policy** dependency, not a market one — better than
+  third-party LPs who can leave with no notice, but **not un-pullable.** The genuinely un-pullable
+  rungs remain our own NFT WETH and the free wait-NFT. *(OPEN.)*
+⇒ 📌 **WHAT THIS DOES TO THE ROVER QUESTION.** It does **not** kill the NFT — §10's Q6 same-block
+  scenario still wants pre-funded un-pullable WETH, and 5,000 ETH/day is a cap. **But it removes the
+  NFT's headline justification:** "beat the 0.3% without waiting" is better served, at every size we
+  measured, by a rail ether.fi already runs. **Rover now has to justify itself against 13 bps, not
+  against 30.** *(OPEN — this is the new benchmark and §0 must be re-scored against it.)*
+
 ---
 
 # 🚦 THE VERDICT — ⛔ WITHDRAWN 2026-08-03, SAME DAY IT WAS WRITTEN
