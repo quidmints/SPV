@@ -248,10 +248,28 @@ contract Rover is ReentrancyGuard, Ownable {
             bool needsSwap = liquidity > 0 || wethAmount == 0 || usdcAmount == 0;
             if (needsSwap) {
                 (wethAmount, usdcAmount) = _swap(wethAmount, usdcAmount, price);
+                // RE-ANCHOR ON THE POST-SWAP PRICE. `_swap` may have traded on the pool, and with our
+                // own liquidity just burned even a few weETH moves the tick several spacings (measured:
+                // 1 weETH moves 8 ticks against a 10-tick band). The band was chosen from the PRE-swap
+                // tick in `_repackNFT`, so minting into it afterwards can be entirely single-sided
+                // against the amounts we now hold -- v3 then returns ZERO liquidity and REVERTS,
+                // bricking the repack. Traced end to end: burn -> `_exactIn` 3.2 weETH -> tick jumps
+                // out of [-970,-960) -> `pool.mint(..., 0, ...)` -> revert.
+                (uint160 postSqrt, int24 postTick) = _slot0();
+                LAST_SQRT_PRICE = postSqrt; LAST_TICK = postTick;
+                (LOWER_TICK, UPPER_TICK) = _adjustTicks(postTick);
             }
             // token0 is always the lower address
             (uint mintAmount0, uint mintAmount1) = token1isWETH ?
                 (usdcAmount, wethAmount) : (wethAmount, usdcAmount);
+            // v3 REVERTS on a zero-liquidity mint, which would brick the entire repack. That is
+            // reachable whenever the conversion above could not complete -- e.g. the pool cannot pay
+            // `_fairMinOut`, so the weETH correctly stays unsold and does not fit a WETH-only band.
+            // Ask the canonical library whether this is mintable rather than inferring it from the
+            // amounts; if not, the tokens wait, idle and fair-valued, for the next crank.
+            { (uint160 sLo, uint160 sUp, uint160 sCur) = _getTickSqrtPrices();
+              if (LiquidityAmounts.getLiquidityForAmounts(
+                      sCur, sLo, sUp, mintAmount0, mintAmount1) == 0) return; }
             (ID, liquidityUnderManagement) = _mintRover(mintAmount0, mintAmount1);
             LAST_REPACK = block.timestamp;
         } else if (commit) {
@@ -526,6 +544,23 @@ contract Rover is ReentrancyGuard, Ownable {
             }
         }
         if (targetETH == 0 && targetWEETH == 0) return (eth, weeth);
+        // SINGLE-SIDED BAND: spot sits at or past an edge, so one target is 0 and the ratio
+        // k = targetETH/targetWEETH is UNDEFINED. Both legs below divide by it and guard themselves
+        // off with `targetWEETH > 0`, so they silently refuse the one conversion the band needs --
+        // `_swap` then returns the token the band does not want, `_mintRover` asks v3 for zero
+        // liquidity, and v3 REVERTS, bricking `repackNFT`. There is no ratio to solve here: the
+        // answer is simply "all of it". Placed BEFORE the caps below, which would otherwise zero the
+        // very inventory being converted.
+        if (targetWEETH == 0 && weeth > 0) {              // band wants the ETH side only
+            (uint sold, bool done) = _exactIn(weeth, _fairMinOut(weeth));
+            if (done) { eth += sold; weeth = 0; }         // else: pool can't pay fair, weeth waits
+            return (eth, weeth);
+        }
+        if (targetETH == 0 && eth > 0) {                  // band wants the weETH side only
+            uint held = ERC20(WEETH).balanceOf(address(this));
+            IDepositAdapter(ADAPTER).depositWETHForWeETH(eth, address(this));
+            return (0, weeth + ERC20(WEETH).balanceOf(address(this)) - held);
+        }
         if (weeth > targetWEETH) weeth = targetWEETH;
         if (eth > targetETH) eth = targetETH;
 

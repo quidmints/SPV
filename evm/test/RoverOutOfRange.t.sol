@@ -14,17 +14,25 @@ import {TickMath} from "../src/imports/v3/TickMath.sol";
 /// @notice COVERAGE FOR THE OUT-OF-BAND PATHS, which every other Rover test misses because they all
 ///         run with spot INSIDE the band.
 ///
-///         ⚠️ TWO OF THESE FAIL, AND THE FAILURES ARE CORRECT — DO NOT WEAKEN THEM (same convention as
-///         `testLeverage_LvrControlVsTreatment`). `test_repackSucceeds_whenSpotAboveBand` and
-///         `test_takeDelivers_whenSpotAboveBand` revert inside `NFPM.mint`, because `_swap` hands it
-///         zero liquidity: single-sided, the target RATIO is infinite, and the sell leg's own
-///         `targetWEETH > 0` guard (it divides by that to form `k`) refuses the conversion the band
-///         needs. v3 reverts on a zero-liquidity mint, so `repackNFT` is BRICKED whenever spot sits
-///         at or above `UPPER_TICK` with the position all-weETH.
+///         ⚠️ THE TWO `repackSucceeds_*` TESTS FAIL, AND THE FAILURES ARE CORRECT — DO NOT WEAKEN
+///         THEM (same convention as `testLeverage_LvrControlVsTreatment`). They now fail on
+///         "no position after repack", NOT on a revert: `repackNFT` completes safely but does not
+///         re-establish the position. After `_swap` converts wholesale to one side, the re-anchored
+///         band straddles spot and therefore needs BOTH tokens, so `getLiquidityForAmounts` is 0 and
+///         the mint is correctly skipped rather than reverting. Tokens stay idle and fair-valued.
 ///
-///         VERIFIED PRE-EXISTING: identical failures with the `_swap` domain fix applied and backed
-///         out, so this is live on `main` and was simply never covered — the whole 3,700-test suite
-///         runs Rover in-band only. Suite baseline moves 1 -> 3 known failures.
+///         🔴 STILL OPEN: whether Rover can always CLIMB BACK from that state. `_wrapIdle` pushes
+///         idle WETH to weETH, so a subsequent crank may still hold the wrong side. Nothing is lost
+///         (conservation is asserted) but the position may not re-form without a two-sided top-up.
+///
+///         WHAT THIS FILE ALREADY FIXED, all verified against the full suite (3,702/3/1):
+///           * `NFPM.mint` REVERTS that BRICKED `repackNFT` out of band — traced to the band being
+///             chosen from the PRE-swap tick while the mint executes at the POST-swap price (a 3.2
+///             weETH sale moves the tick several spacings once our own liquidity is burned).
+///           * `take` below the band now delivers the ask EXACTLY (300.000000000000000000).
+///           * `take` above the band declines safely with value conserved, instead of reverting.
+///         VERIFIED PRE-EXISTING before those fixes: identical reverts with the `_swap` domain fix
+///         applied and backed out. The whole 3,700-test suite runs Rover in-band only.
 ///
 ///         Two code paths only execute when spot has left `[LOWER_TICK, UPPER_TICK)`:
 ///           * `_swap`'s single-sided target branch — the legacy USDC-era sizing passed `sqrtCurrent`
