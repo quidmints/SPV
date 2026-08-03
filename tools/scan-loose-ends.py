@@ -207,6 +207,15 @@ def scan_transcript(path):
                 # tool_result is a SEPARATE surface: compiler warnings, panics and failing
                 # assertions never appear in prose. Scanning only `text` misses all of it —
                 # this JSONL had 2,285 text blocks against 3,212 tool_results.
+                # tool_use INPUTS: commands, not prose — but a comment written INSIDE one
+                # (a heredoc, a python -c, a commit body) never appears anywhere else. This was
+                # the last unscanned block type; without it the scan reads ~55% of the record.
+                elif c.get("type") == "tool_use":
+                    inp = c.get("input")
+                    if isinstance(inp, dict):
+                        for v in inp.values():
+                            if isinstance(v, str) and len(v) > 60:
+                                tool_out.append(v)
                 elif c.get("type") == "tool_result":
                     v = c.get("content")
                     s = v if isinstance(v, str) else (" ".join(
