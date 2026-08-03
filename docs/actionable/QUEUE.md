@@ -209,6 +209,36 @@ case. Conversely if it tolerates a shortfall, the tests never exercise the fee-b
 | **SWALLOWED FAILURE** | 67 | ⚠️ **UNTRIAGED — the biggest unexamined surface left.** `catch {}` / `\|\| echo SKIP`. Most are deliberate degrade-to-conservative paths, but `_lpValueUsd`'s `try/catch` returning 0 is exactly how a zero-delivery redeem hid in `testDD`, so the pattern has bitten here before. **Each needs: can a REAL failure reach this, and would it be silent?** |
 | **OUR markers** | 24 | 🟡 mostly prose/`@notice` references, but `quid-hop/src/migration.rs:58,63,73,77` are **4 `PLACEHOLDER (dev)` constants — operator Safe address and chain id — explicitly "replace before mainnet".** Not tracked anywhere else. |
 | vendored markers | 229 | ✅ upstream LDK/lexe (`TODO(phlip9)`/`TODO(max)`). Not ours. |
+## 🔴 R1 — ROVER's weETH/WETH LP IS A ONE-WAY RATCHET, NOT IMPERMANENT LOSS (user, 2026-08-03)
+**MEASURED LIVE** (pool `0x7A415B19932c0105c82FDB6b720bb01B0CC2CAe3`, 0.05%, tick spacing 10):
+| | |
+|---|---|
+| spot | 1 weETH = **1.099342** WETH · fair (`weETH.getRate()`) = **1.100658** ⇒ **12.0 bps** discount |
+| **in-range** `liquidity()` | **6.6e17** ⇒ ~**0.0003 weETH** per tick-spacing. **No entry depth at all.** |
+| gross balances | **4,840.2 WETH : 1.0358 weETH** (~4,700:1) — mostly PARKED, not quotable |
+| QuoterV2 sell-side | 1 / 10 / 100 weETH clear at **−24.1 / −24.1 / −24.6 bps** vs fair (0.5 bps slip over 100×) |
+
+### 🧭 WHY: `getRate()` is MONOTONIC, so the price process has NO return path
+weETH accrues staking rewards ⇒ fair weETH/ETH **only rises** ⇒ `P = weETH per WETH` **only falls** ⇒
+in v3 a falling `P` converts every position from weETH into WETH. **The 4,700:1 inventory IS the
+fossil record of that drift.** Restoring it needs weETH to CHEAPEN vs ETH, i.e. `getRate()` to FALL —
+which happens only on a slashing event.
+⇒ ⚠️ **THE POSITION NEVER RETURNS TO ITS STARTING COMPOSITION. Not slowly — never.** "Impermanent"
+  loss assumes a mean-reverting price; a yield accrual has no return path. **This is permanent LVR.**
+⇒ **NO arber incentive to restore in-range balance.** Arbers CAUSED it and profit again on every
+  accrual tick. **Waiting is not a remedy — waiting is the mechanism.**
+
+### 💰 THE ONLY COMPENSATION IS FEES ⇒ RECENTER FREQUENCY IS THE WHOLE ECONOMICS
+Per cycle: mint weETH at fair → place in range → accrual makes the in-range price stale-cheap → an
+arber lifts the weETH → Rover holds WETH again. **Rover concedes the accrual since the last recenter
+and books 5 bps.** Profitable **iff** `5bps × volume > accrual conceded between recenters`.
+▶️ **MEASURE, do not assume:** (1) weETH accrual APR ⇒ drift/day in bps; (2) Rover's real recenter
+  cadence (`repackNFT`); (3) realised fee income per cycle. **If drift/cycle > 5bps × turns, the LP
+  leg is structurally negative and should not exist** — the offramp is already served by the −24 bps
+  sell-side quote WITHOUT providing liquidity.
+📌 Ties to §L.1 (*"Levered-ETH earns in TWO places"*) — same yield-bearing-vs-base asymmetry.
+
+
 ## ✅ A0 DONE — the audit was RE-RUN properly, and it found real stranded items
 **Method that worked** (the naive one over-matched line numbers and was unusable): extract IDs only
 from **DECLARATION positions** — a `#`-header or a leading `**bold**`/table cell — which is what
