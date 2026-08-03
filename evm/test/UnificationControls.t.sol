@@ -540,5 +540,16 @@ contract UnificationControls is Alles {
         // E6 build has a before/after on the SAME scenario.
         V4.reseat();
         _logDeployGap("AFTER reseat() poke");
+
+        // DECISIVE FOR E6's DESIGN: a repack re-adds through `addLiq`, which sizes USD from
+        // SURPLUS against the ETH available. If routing through that path restores composition,
+        // then E6 needs NO new threshold and NO new clamp -- it only needs the re-add to FIRE on
+        // composition drift, not solely on range exit. A deposit is the cheapest way to exercise
+        // the same `addLiq` -> `_modLpEth` path without changing production code.
+        vm.deal(lpB, 20 ether);
+        vm.prank(lpB); V4.deposit{value: 10 ether}(0, lpB, 3);
+        _logDeployGap("AFTER a deposit (exercises addLiq re-add)");
+        emit log_named_uint("ETH band USD after re-add", CORE.POOLED_USD_ETH());
+        emit log_named_uint("ETH band ETH after re-add", CORE.POOLED_ETH());
     }
 }
