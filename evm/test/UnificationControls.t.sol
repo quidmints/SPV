@@ -484,4 +484,61 @@ contract UnificationControls is Alles {
         // MEASUREMENT, not a pass/fail claim: report whether the far curve held anything at all.
         emit log_named_uint("far curve held idle capital at starvation? (0=no)", btcFree > 0 ? 1 : 0);
     }
+
+    /// @dev E6 TARGET-SETTING. "100% capital efficient" is only meaningful against the MAXIMUM the
+    ///      protocol is ALLOWED to deploy, which is bounded by three real constraints, not by
+    ///      appetite:
+    ///        • `SwapLib.sizeBySurplus`  — USD depth <= basket SURPLUS (`liquidTotal - committedBoth`)
+    ///        • `SwapLib.clampByBacking` — token depth <= PHYSICAL headroom (`backing - pooled`)
+    ///                                     AND <= the theta risk budget (`theta*backing - pooled`)
+    ///      The gap between deployed depth and that ceiling IS the inefficiency. This logs both so
+    ///      the E6 build has a falsifiable target instead of "top it up".
+    function _logDeployGap(string memory tag) internal {
+        (uint[15] memory d,,,) = AUX.get_deposits();
+        uint committed = CORE.committedUsd18();
+        uint surplus   = d[14] > committed ? d[14] - committed : 0;
+        uint backing   = AUX.vogueETH();
+        uint pooledEth = CORE.POOLED_ETH();
+        uint headroom  = backing > pooledEth ? backing - pooledEth : 0;
+        uint theta;
+        try V4.derivedThetaWad(false) returns (uint t) { theta = t; } catch { theta = 0; }
+        emit log_string(tag);
+        emit log_named_uint("   USD deployed (committed) ", committed);
+        emit log_named_uint("   USD available (surplus)  ", surplus);
+        emit log_named_uint("   ETH deployed (POOLED_ETH)", pooledEth);
+        emit log_named_uint("   ETH available (headroom) ", headroom);
+        emit log_named_uint("   theta (WAD, 0=unmeasured)", theta);
+        emit log_named_uint("   USD deployed / permitted bps",
+            (committed + surplus) > 0 ? committed * 10_000 / (committed + surplus) : 0);
+        emit log_named_uint("   ETH deployed / permitted bps",
+            (pooledEth + headroom) > 0 ? pooledEth * 10_000 / (pooledEth + headroom) : 0);
+    }
+
+    /// E6 ACCEPTANCE TARGET — quantify the deploy gap at rest and after a drain. The refill must
+    /// close it. Measurement only; the assertions are PREMISES so it cannot pass vacuously.
+    function test_E6target_DeployGapAtRestAndAfterDrain() public {
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        AUX.setBTCChannels(address(this));
+        BTC.registerBtcLp(lpB, 2e7);
+        vm.roll(block.number + 1); vm.warp(block.timestamp + 30 minutes);
+
+        _logDeployGap("AT REST");
+        uint ethUsd0 = CORE.POOLED_USD_ETH();
+
+        vm.deal(User01, 5_000 ether);
+        for (uint i; i < 20 && CORE.POOLED_USD_ETH() > ethUsd0 / 100; i++) {
+            vm.prank(User01);
+            try AUX.swap{value: 40 ether}(address(USDC), address(WETH), false, 0, 0) {} catch {}
+            vm.roll(block.number + 1); vm.warp(block.timestamp + 10 minutes);
+        }
+
+        _logDeployGap("AFTER DRAIN (pre-refill)");
+        assertLt(CORE.POOLED_USD_ETH(), ethUsd0 / 100, "PREMISE: the curve really is drained");
+
+        // A reseat poke is the natural refill trigger. Today it does NOT top up -- logged so the
+        // E6 build has a before/after on the SAME scenario.
+        V4.reseat();
+        _logDeployGap("AFTER reseat() poke");
+    }
 }
