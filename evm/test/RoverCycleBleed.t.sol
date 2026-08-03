@@ -7,6 +7,8 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {Rover} from "../src/Rover.sol";
 import {IUniswapV3Pool} from "../src/imports/v3/IUniswapV3Pool.sol";
 import {IWeETH} from "../src/imports/Interfaces.sol";
+import {IV3SwapRouter} from "../src/imports/v3/IV3SwapRouter.sol";
+import {TickMath} from "../src/imports/v3/TickMath.sol";
 
 /// @notice THE "IS ROVER AN ASSET OR A LIABILITY" TEST, run as the protocol would actually use it.
 ///
@@ -99,5 +101,56 @@ contract RoverCycleBleedTest is ForkPin {
         emit log_named_uint("WETH taken out", out);
         emit log_named_uint("NAV end", end);
         emit log_named_int ("value destroyed (start - out - end)", int(start) - int(out) - int(end));
+    }
+
+    /// @notice THE HARSH VARIANT: same offramp cycles, but each one first DRIVES SPOT OUT OF THE BAND
+    ///         and back. That is the state that reverted, then went inert, until the band-shift fix —
+    ///         and at ~0.63 ticks/day against a 10-tick band it is where Rover genuinely lives. If
+    ///         Rover bleeds anywhere, it bleeds here: every excursion forces a re-anchor, a possible
+    ///         wholesale conversion, and a fresh mint.
+    function test_cyclesWithOutOfBandExcursions() public {
+        _fund(4000e18);
+        uint start = _nav();
+        emit log_named_uint("NAV after funding", start);
+        uint delivered;
+        for (uint i; i < 6; ++i) {
+            // push spot out of the band (alternating sides), then serve an offramp, then crank
+            _shove(i % 2 == 0);
+            uint got = rover.take(200e18);
+            delivered += got;
+            uint back = IWeETH(WEETH).getWeETHByeETH(got);
+            deal(WEETH, address(this), back);
+            IERC20(WEETH).transfer(address(rover), back);
+            rover.repackNFT();
+        }
+        uint end = _nav();
+        emit log_named_uint("total delivered", delivered);
+        emit log_named_uint("NAV at end", end);
+        emit log_named_uint("position ID", rover.ID());
+        int drift = int(end) - int(start);
+        emit log_named_int("NAV drift (wei)", drift);
+        if (delivered > 0) emit log_named_int("friction, bps of flow", drift * 10000 / int(delivered));
+        // READ THE DENOMINATOR CAREFULLY. Measured: NAV drift -19.5 WETH on 4,000 = -49 bps OF THE
+        // POSITION, across 6 excursions of 25 ticks = 150 ticks of price movement. At the measured
+        // drift of 0.63 ticks/day that is ~238 days compressed, i.e. ~-0.75%/yr -- which matches the
+        // ~1.0%/yr LVR from the independent 91-day replay (`analysis/rover/replay.py`). It is the
+        // RATCHET, not extra mechanical friction, and the "bps of flow" line above is the same loss
+        // over a deliberately small flow denominator.
+        assertGt(rover.ID(), 0, "no position after 6 out-of-band excursions");
+        assertGt(_nav(), 3900e18, "excursions destroyed more than 2.5% of the position");
+    }
+
+    /// @dev Move spot decisively out of the band, alternating direction.
+    function _shove(bool up) internal {
+        (, int24 t,,,,,) = IUniswapV3Pool(POOL).slot0();
+        int24 target = up ? t + 25 : t - 25;
+        (address tin, address tout) = up ? (WEETH, WETH) : (WETH, WEETH);
+        uint amountIn = 30000e18;
+        deal(tin, address(this), IERC20(tin).balanceOf(address(this)) + amountIn);
+        IERC20(tin).approve(ROUTER, amountIn);
+        IV3SwapRouter(ROUTER).exactInputSingle(IV3SwapRouter.ExactInputSingleParams({
+            tokenIn: tin, tokenOut: tout, fee: 500, recipient: address(this),
+            amountIn: amountIn, amountOutMinimum: 0,
+            sqrtPriceLimitX96: TickMath.getSqrtPriceAtTick(target) }));
     }
 }
