@@ -8,6 +8,22 @@
   or immediate-but-0.3% (instant redeem). **Rover's only job is to beat that trade-off.** Every finding
   below is scored against it — NOT against "does the LP earn a yield".
 
+# 🏗️ THE ORIGINAL DESIGN INTENT (user, stated at the OUTSET — recovered from the transcript 2026-08-03)
+> *"if the rover NFT (**which guarantees liquidity won't be pulled out** from the WETH/weETH v3 pool)
+> is both **BALANCED** and **LARGE ENOUGH** to support **INSTANT conversion** of some weETH amount back
+> to WETH…"*
+
+⇒ **This is the frame everything else must be judged in, and it was missing from this doc.** The NFT is
+  not a yield position — it is deliberately **the un-pullable floor under the exit**. Three requirements:
+| requirement | today |
+|---|---|
+| **un-pullable** | ✅ **the ONLY property that survives everything measured.** Third-party WETH can be withdrawn with one call, no notice — ours cannot. This directly answers *"what if they remove the stranded inventory"*: **that is precisely why we hold our own.** |
+| **BALANCED** | 🔴 **NOT today.** The ratchet converts our weETH → WETH exactly as it did everyone else's, and `_refreshAndRepack` re-centres on SPOT, so it re-inherits the stale price. **"Balanced" is a maintenance property, not a set-and-forget one** — and the maintenance is currently broken. ⚠️ This is also the honest home for *"pack at the imbalance ratio, not fair"*: the original requirement was **balanced**, so any change must say what it now targets and why. |
+| **LARGE ENOUGH for instant conversion** | 🔴 **UNQUANTIFIED — nobody has ever sized it.** "Large enough" needs a number: the max single Vogue LP withdrawal / swap-out that must clear instantly. **Without it, `deliverableETH` cannot be capped correctly and there is no test for adequacy.** ▶️ **This is the missing requirement that makes everything else decidable.** |
+📌 **So the three live failures map 1:1 onto the three requirements:** stranding breaks *un-pullable in
+  practice* (out-of-range ⇒ contributes nothing), the ratchet + spot-centring breaks *balanced*, and the
+  unsized position breaks *large enough*. **Fixing `_nearFair` alone addresses only the first.**
+
 # 📋 USER CONSTRAINTS & OPEN ASKS — verbatim, because these are decision rules, not findings
 | # | constraint | status |
 |---|---|---|
