@@ -1516,3 +1516,36 @@ asserts a permissionless `repackNFT()` **does** mint one.
   money-path deletion. **Rule 15.** The full suite is the check — **3,699 pass / 1 fail / 1 skip**,
   the single failure being the known-correct `testLeverage_LvrControlVsTreatment`. *(✅ REVERTED; tree
   at baseline.)*
+
+## 16.8 💸 THE COST I MISSED: Rover's WETH leg FORGOES REAL LENDING YIELD
+I asserted repeatedly that the WETH reserve "earns nothing wherever it sits", so parking it in Rover
+was ~free. **Measured, that is false.** Realised APY from share-price drift over 30 days (model-free):
+| the protocol's own WETH venues | realised APY |
+|---|---|
+| **Galaxy (Morpho)** | **1.45%** |
+| **Euler** | **1.08%** |
+| Aave v4 WETH reserve | 20,584 supplied / 295 debt — 1.43% utilisation |
+
+⇒ 🔴 **So Rover's WETH leg carries a ~1.45%/yr OPPORTUNITY COST that none of this doc counted.**
+  Re-priced against capital deployed optimally elsewhere in the protocol:
+  * **weETH leg — no opportunity cost.** Staking accrues via `getRate()` wherever it sits, and lending
+    it pays **zero** (§15.4/§15.5, measured at Morpho, Euler and Aave v4).
+  * **WETH leg — forgoes 1.45%/yr.** At a 50/50 band that is **0.73%/yr of the position.**
+  * plus **LVR ~1.0%/yr** (§15), minus **fees ~0** at current volume.
+  ⇒ **~1.7%/yr all-in ⇒ breakeven turnover ≈ 7.5× the position size per year** (was 4.5× when the
+  WETH leg was wrongly costed at zero).
+
+### 🎯 AND IT REFRAMES THE SIZING QUESTION INTO ONE THAT IS ANSWERABLE
+**Rover's WETH is NOT the protocol's only same-block WETH.** Galaxy, Euler, Gauntlet and AAVE are all
+EARLIER rungs of `VaultLib.withdrawETH` (`:395-411`), all same-block pullable — and Galaxy pays 1.45%
+while waiting. **The exit reserve does not need to live in Rover.**
+⇒ ⇒ **So the size question is NOT "how much WETH must Rover hold to cover exits" (the 4626s cover
+  that). It is "how much depth do we want at −1 bps instead of −24 bps."** A much smaller number, and
+  one that does not require knowing turnover in advance.
+⇒ 📐 **The capital-efficient shape:** keep Rover **as small and as weETH-heavy as it can be** while
+  still doing the conversion job, and hold the WETH reserve in **Galaxy**, where it earns.
+  | band placement | WETH held | opportunity cost | LVR | can deliver WETH? |
+  |---|---|---|---|---|
+  | below spot | none | **zero** | zero | 🔴 no |
+  | one-tick at spot | ~half | ~0.73%/yr | ~1.0%/yr | ✅ yes, −1 bps |
+  | above spot | all | 🔴 ~1.45%/yr | **zero** | ✅ yes, −14 bps |
