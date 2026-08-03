@@ -279,3 +279,8 @@ interface IEthVenue {
 }
 
 /// Canonical IAux — union of IAux, IAux.
+
+/// @notice §E5 — the per-band sink that routes a retained scarcity premium into that band's LP
+///         fee accumulator. Implemented by BOTH `Vogue` (ETH) and `Vault` (BTC) under the SAME
+///         signature so `Core.recordSkewPremium` dispatches by ADDRESS through one call site.
+interface ISkewSink { function creditSkewPremium(uint premium6) external; }

@@ -664,6 +664,17 @@ contract Vault is Ownable, ReentrancyGuard {
 
     /// @notice BTC-side parallel of Vogue.totalShares — a VIEW over lpSharesBTC.
     /// Re-arms the BTC shortfall/delivery trigger in Core.
+    /// @notice §E5 (BTC mirror of `Vogue.creditSkewPremium`) — route the retained scarcity premium
+    ///         to BTC-band LPs via the same per-share accumulator their trading fees use. GROSS fee
+    ///         weight (`lpSharesBTC + totalBufferBTC`), matching the `feeDenom` the rebalance body
+    ///         already passes. `onlyUsBtc` because that is the gate naming CORE explicitly. SAME NAME as
+    ///         `Vogue.creditSkewPremium` so Core dispatches by ADDRESS through one interface and one call
+    ///         site (rule 2: one declaration) — two branch-local calls cost 180 bytes of Core's EIP-170.
+    function creditSkewPremium(uint premium6) external onlyUsBtc {
+        (, uint usdInc) = SwapLib.feeIncrements(0, premium6, lpSharesBTC + totalBufferBTC);
+        USD_FEES_BTC += usdInc;
+    }
+
     function totalSharesBTC() public view returns (uint) {
         return lpSharesBTC;
     }

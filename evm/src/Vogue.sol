@@ -975,6 +975,32 @@ contract Vogue is
         usdFreed = usd6 > after6 ? (usd6 - after6) * 1e12 : 0;
     }
 
+    /// @notice §E5 — route the RETAINED A-S scarcity premium to LPs through the SAME per-share
+    ///         accumulator trading fees use. Called by Core from `recordSkewPremium`.
+    ///
+    ///         WHY THIS EXISTS: the premium is withheld from a drainer's output — *"the drainer's
+    ///         full USD entered the pool, they just take less out"* — so those dollars are already
+    ///         basket backing. But basket backing prices QU!D, NOT LP shares: an LP's claim runs
+    ///         through `vogueETH()`/`pooled`, which never reads it. So a premium charged FOR THE
+    ///         LP'S INVENTORY RISK was accruing to QU!D holders. Every comment on the path said it
+    ///         *"accrues to LPs as backing"*; structurally it did not.
+    ///
+    ///         Backed 1:1 by construction — identical in shape to the existing USD trading-fee leg
+    ///         (`USD_FEES` → `usd_owed` → `QUID.mint`), against dollars that are already in the
+    ///         basket. GROSS fee weight (`lpShares + totalBuffer`), matching `SwapLib.feeIncrements`,
+    ///         so the debt-funded buffer earns on the depth it actually provides.
+    ///
+    ///         NO-LP CASE IS DELIBERATE: with zero fee-earning depth there is nobody to attribute
+    ///         to, so the premium simply STAYS as basket backing — the prior behaviour — rather
+    ///         than being dropped or stranded.
+    ///         Uses `SwapLib.feeIncrements` — the SAME scaling trading fees take — rather than a
+    ///         hand-rolled `mulDiv`, so the premium can never drift from the fee math, and the
+    ///         zero-denominator case is handled in one place (it returns 0).
+    function creditSkewPremium(uint premium6) external onlyUs {
+        (, uint usdInc) = SwapLib.feeIncrements(0, premium6, lpShares + totalBuffer);
+        USD_FEES += usdInc;
+    }
+
     /// @notice Sync Morpho wethVault appreciation into the per-LP fees
     /// accumulator. NOT an aToken-era artifact — the bookmark/feesPerShare
     /// pattern is what attributes 4626 share appreciation to LPs (since

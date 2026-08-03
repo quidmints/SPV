@@ -367,4 +367,53 @@ contract UnificationControls is Alles {
             CORE.committedUsd18() > d1[14] ? 1 : 0);
         emit log_named_uint("TVL - committed after", d1[14] > CORE.committedUsd18() ? d1[14] - CORE.committedUsd18() : 0);
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // E16 — ACCEPTANCE: "an imbalance never leaves us paying a cost, only banking a profit"
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// The A-S scarcity premium is charged to a swapper who WORSENS inventory imbalance, and it is
+    /// charged FOR THE LP'S INVENTORY RISK. Before §E5 it was withheld into basket backing — which
+    /// prices QU!D, not LP shares — so an imbalance banked a profit for QU!D HOLDERS while the LP
+    /// carried the risk. `Core.skewPremium*` recorded it and nothing consumed it
+    /// (`SwapLib:937`: *"NO consumer beyond the counters + theta EWMA"*).
+    ///
+    /// This is the owner's invariant as a test: drive a real drain, and assert the LPs' own USD
+    /// accumulator MOVED. Without §E5 this fails while `skewPremiumETH` still rises — i.e. it
+    /// distinguishes "recorded" from "received", which is the whole defect.
+    function test_E16_RetainedPremiumReachesLpsNotOnlyTheCounter() public {
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 200 ether}(0, lpA, 3);
+        vm.roll(block.number + 1); vm.warp(block.timestamp + 30 minutes);
+
+        uint prem0 = CORE.skewPremiumETH();
+        uint usdFees0 = V4.USD_FEES();
+        emit log_named_uint("skewPremiumETH before", prem0);
+        emit log_named_uint("USD_FEES       before", usdFees0);
+
+        // Drain the volatile side hard enough to make the pool scarce, which is what makes
+        // `wellSkew` non-zero and causes a premium to be retained.
+        vm.deal(User01, 3_000 ether);
+        for (uint i; i < 8; i++) {
+            vm.prank(User01);
+            try AUX.swap(address(USDC), address(WETH), true, 60_000 * USDC_PRECISION, 0) {} catch {}
+            vm.roll(block.number + 1); vm.warp(block.timestamp + 20 minutes);
+        }
+
+        uint prem1 = CORE.skewPremiumETH();
+        uint usdFees1 = V4.USD_FEES();
+        emit log_named_uint("skewPremiumETH after ", prem1);
+        emit log_named_uint("USD_FEES       after ", usdFees1);
+        emit log_named_uint("premium retained     ", prem1 - prem0);
+        emit log_named_uint("USD_FEES increment   ", usdFees1 - usdFees0);
+
+        // PREMISE: a premium must actually have been retained, else the test is vacuous — a
+        // flush pool charges zero skew and nothing would be expected to move.
+        assertGt(prem1, prem0, "PREMISE: the drain retained a scarcity premium (pool was actually scarce)");
+
+        // THE INVARIANT. The premium must reach the LPs' per-share accumulator, not merely a
+        // counter. This is what makes an imbalance BANK A PROFIT for LPs rather than cost them.
+        assertGt(usdFees1, usdFees0,
+            "the retained premium must reach the LP USD accumulator -- recorded is not received");
+    }
 }

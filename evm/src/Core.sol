@@ -27,6 +27,8 @@ import {PoolId, PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 
 import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
+// §E5 — the shared per-band premium sink (rule 2: ONE declaration, in the canonical file).
+import {ISkewSink} from "./imports/Interfaces.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 
@@ -277,8 +279,14 @@ contract Core is SafeCallback {
     function recordSkewPremium(bool isBTC, uint256 premiumUsd) external onlyUs {
         if (premiumUsd == 0) return;
         uint256 cum;
+        // §E5 — the counters below are an AUDIT RECORD (asserted by
+        // testGrindRemoval_DrainPaysRetainedSkewPremium); the CREDIT is what actually reaches LPs.
+        // Without it the premium accrues to basket backing, which prices QU!D and not LP shares.
         if (isBTC) { skewPremiumBTC += premiumUsd; cum = skewPremiumBTC; }
         else       { skewPremiumETH += premiumUsd; cum = skewPremiumETH; }
+        // ONE call site, dispatched by address: `Vogue` and `Vault` expose the same
+        // `creditSkewPremium` signature, so this is a single encode instead of one per branch.
+        ISkewSink(isBTC ? address(BTCVAULT) : address(VOGUE)).creditSkewPremium(premiumUsd);
         // Also fold it into the decaying RATE register (#107/D3). The cumulative counters above
         // are monotonic totals — useless as a yield; θ needs a rate, which is what this provides.
         _bumpEwma(isBTC ? _premBTC : _premETH, premiumUsd);
