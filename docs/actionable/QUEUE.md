@@ -314,6 +314,44 @@ current in-range `L = 6.6e17`:
 | single-sided, off fair | ✅ yes (prices off `getRate`, never spot) | ✅ **yes** — only fills at a premium you chose |
 ⇒ **Do BOTH.** The gate fix is a LIVENESS fix; single-sided is the ECONOMICS fix. Neither substitutes.
 
+### ⛔ R8 — SINGLE-SIDED IS DEAD. The user's constraint kills it. (2026-08-03)
+> *"why would we do those out-of-range orders if they do not allow us to pull liquidity out during a
+> regular vogue swap-out or LP withdrawal — which is why we are using the rover at all (to maximise
+> yield for our vogue LPs)"*
+
+**Decisive, and it kills the proposal.** An OUT-OF-RANGE v3 position **earns ZERO fees**. So
+single-sided gives: the same weETH yield as simply HOLDING, **no** fee income, and a **WORSE** offramp —
+pulling it returns 100% weETH, all of which must then be sold. It adds machinery and subtracts value.
+⇒ **If the answer is "out of range", the real answer is "do not LP at all."**
+
+### 📐 THE HONEST OPTION SET — single-sided is not on it
+| | fees | drift / LVR | net vs holding | offramp on demand |
+|---|---|---|---|---|
+| **A. in-range straddle (TODAY)** | +0.9% | −2.4% | **−1.6%** | pull returns a MIX (best) |
+| **B. out-of-range single-sided** | **0** | 0 | **0** | worst — 100% weETH still to sell |
+| **C. hold weETH + direct swap** | 0 | 0 | **0** | flat **−24 bps**, on demand, no NFT |
+⇒ **C strictly dominates B** (same economics, far less machinery) ⇒ **B is eliminated.**
+⇒ **C beats A by ≈1.6%/yr** on the R5 measurement.
+⇒ 🎯 **THE BACKTEST THAT MATTERS IS A vs C.** Not A vs single-sided. I had been scoping the wrong
+  experiment for three turns.
+
+### 🔬 THE EXPERIMENT — scoped, NOT RUN (do not mistake the design for a result)
+**Question:** over a real window, does the in-range straddle out-earn `hold + swap-when-needed`, once
+the offramp requirement is priced in?
+ 1. `ForkPin`/`FORK_BLOCK` at N blocks across ≥90 days (the harness already supports this).
+ 2. **A:** replay the pool's real swaps against the one-tick straddle; track fees AND inventory drift.
+ 3. **C:** hold the same weETH; each time A would have serviced an offramp, charge C the measured
+    −24 bps swap instead.
+ 4. Compare **terminal ETH-equivalent**, not fee income — A's fees are earned on trades that convert
+    its inventory, so fees alone flatter it.
+⚠️ **The offramp leg is what decides it, and it is the part R5 ignored.** A's advantage is that a pull
+  returns a MIX (less to sell); C pays −24 bps on the whole amount. **If offramp volume is high, A can
+  win despite the −1.6%.** That is a real possibility and it is why the replay is required rather than
+  optional.
+⚠️ **NOT RUN — I did not have the context budget to execute it, and a half-run replay is worse than
+  none.** Everything above is a design, not evidence.
+
+
 ### ⛔ R6 — "SINGLE-SIDED" IS NOT ENFORCEABLE IN v3. I OVERSOLD IT. (user, 2026-08-03)
 > *"is there really a way to enforce this if the liquidity is on the v3 pool which is where routers
 > move swaps through and it in itself will not block two-sided flow?"* — **Correct. There is not.**
