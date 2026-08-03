@@ -274,6 +274,26 @@ and books 5 bps.** Profitable **iff** `5bps × volume > accrual conceded between
 | this is a LOSS vs holding | sold weETH at ~mid while fair kept rising ⇒ classic LVR | ✅ holds |
 | "no arber restores it" | restoring needs `getRate()` to FALL | ✅ holds |
 
+### ✅ THE DECIDING READ — DONE 2026-08-03. It centres on SPOT, but the straddle is BOUNDED.
+`_refreshAndRepack` (`Rover.sol:78-83`) reads `_slot0()` and repacks on `getPrice(sqrtPriceX96)` —
+**pool SPOT, not `getRate()` fair.** So yes, it straddles fair, exactly as the failure mode requires.
+🟢 **BUT the damage is capped:** `_nearFair()` (`:175`) is a **REFUSAL** — no mint, no recenter, no
+compound unless spot sits within **50 bps** of the unmanipulable ether.fi rate; tokens simply idle
+(still fair-valued in `valueWeth`) until the pool is honest. **So a recenter can be at most 50 bps
+stale at placement, and today spot is only 12 bps off** — well inside the gate.
+⇒ **VERDICT: this is a TUNING problem, not a design one.** Worst-case placement error 50 bps + drift
+  at 0.67 bps/day, against a 5 bps fee ⇒ **cadence is the whole lever**, and the existing gate already
+  prevents the catastrophic case. **Rover justifies its existence.**
+▶️ **Cheapest real improvement, in order of effort:**
+  1. **Recentre on FAIR instead of spot** — `_refreshAndRepack` already has the rate available via
+     `_nearFair`; centring on `getEETHByWeETH` removes the placement error entirely and leaves only
+     drift-since-recenter. **One-line-ish, and it is the elegant fix.**
+  2. Tighten `_nearFair` from 50 bps toward the observed 12 bps regime (bounds the worst case).
+  3. Only if 1+2 are insufficient: the single-sided off-fair placement described below.
+⚠️ **NOT IMPLEMENTED — booked only.** `Rover.sol` is UNTOUCHED as of `6c77e5e`. Any thread picking
+  this up: it is a money-path change ⇒ own suite run + falsifiable prediction first (rule 10).
+
+
 ### ⭐ THE REMEDY — DON'T STRADDLE FAIR. Let the monotonic drift FILL you, not pick you off.
 **The defect is not "LPing". It is placing weETH in a range that CONTAINS fair**, which guarantees the
 quote goes stale-cheap and the weETH is lifted. But the drift has a KNOWN, FIXED direction — so orient
