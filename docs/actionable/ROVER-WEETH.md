@@ -800,26 +800,80 @@ empty** → rung 4 is a **multi-day wait**.
   is an argument for holding the reserve *before* it is needed, not for acquiring it on demand.
 
 ## 11. 🎯 THE LINCHPIN — *"does Rover get MORE WETH than the weETH is worth, because the pool is imbalanced?"*
-# ⛔ **NO. It gets LESS, always, and it has never once been otherwise in 120 days.**
+### ⛔ FIRST, RETRACT MY OWN OVER-CLAIM. I wrote *"NO. Always. Never once otherwise in 120 days."*
+**That was 14 sparse samples, and it was wrong.** Re-run at **37 samples over 180 days**:
 | | |
 |---|---|
-| pool A spot | **1.099342** WETH per weETH |
-| fair (`getRate()`) | **1.100672** |
-| ⇒ | **−12.1 bps. The pool prices weETH BELOW fair.** |
-| after fee + impact (100 weETH) | **−24.7 bps** · at 1,000 weETH **−28.8 bps** |
-| every one of §9's 14 samples over 120 days | **negative** (−6.0 to −26.1 bps). **Never positive.** |
+| samples negative | **36 / 37** |
+| samples **POSITIVE** | 🟢 **1 — `+30.24 bps` at −50d.** The pool HAS paid above fair. |
+| median | **−6.94 bps** |
+| true range | **−74.87 bps (−105d) to +30.24 bps (−50d)** — both tails outside the −6…−26 band I quoted |
+⇒ **The owner was right to push, and right to demand empirics: a premium DOES occur.** My error was
+  the doc's own §8 lesson a third time — *sample several windows before calling one a trend.*
+  *(✅ that the retraction is correct; the numbers stay OPEN as measurements.)*
 
-### 🔬 WHY THE 4,700:1 BALANCE DOES NOT MEAN WETH IS CHEAP — the concentrated-liquidity trap
-**In v3 the marginal price is `sqrtPriceX96`, NOT the token ratio.** The 4,840 WETH is not a pile of
-WETH looking for weETH at a premium — it is LP inventory sitting in ranges the price has already
-fallen *below*, i.e. **ticks ABOVE current spot**. Selling weETH pushes `P` (weETH per WETH) UP into
-those ticks, and higher `P` means **fewer WETH per weETH** — so the stack is a bid ladder at
-**DESCENDING** prices. Measured, that is exactly the shape: −16.23 bps at 1 weETH → −26.65 at 1,000 →
-−678 at 2,000 (tier B is drained). ⇒ **The imbalance buys DEPTH on our side, not a PREMIUM.**
-*(✅ — this is v3 mechanics plus 14 archival samples; no design decision reopens it.)*
-📌 **So the thesis cannot rest on selling weETH above fair. It never happens.** What the imbalance
-  genuinely gives is the ability to sell ~1,000+ weETH without the price collapsing — valuable, but a
-  different claim, and one §9 shows is capped by a **sawtooth that peaks near −26 bps**.
+### 🔬 BUT THE SURPLUS IS NOT WHAT CAUSES IT — and one control settles it
+> *"if there is a surplus of WETH the curve wants to get rid of the surplus."* **True of a
+> constant-product curve. v3 is not one**, and here is the arithmetic gap:
+| | |
+|---|---|
+| reserves | 4,840.15 WETH : 1.036 weETH |
+| **constant-product** marginal price (the intuition) | **4,673.08** WETH per weETH |
+| **actual v3** marginal price | **1.099342** |
+| ⇒ | the reserve-based guess is **4,251× the real price** |
+
+**In v3 price is an INDEPENDENT state variable (`sqrtPriceX96`); reserves are a CONSEQUENCE of where
+LPs placed ranges.** The surplus-dumping property is constant-product-only.
+
+🔬 **THE CONTROL — three consecutive samples whose reserves are essentially IDENTICAL:**
+| | reserves | deviation |
+|---|---|---|
+| −50d | 5,845.5 WETH / 3.4 weETH | 🟢 **+30.24 bps** |
+| −55d | 5,845.0 WETH / 3.0 weETH | −12.77 bps |
+| −60d | 5,844.8 WETH / 2.8 weETH | −8.96 bps |
+⇒ ⭐ **Reserves unchanged; deviation swings 43 bps. The reserves CANNOT be causing the deviation.**
+  And the **worst** reading in 180 days, −74.80 bps, came from a pool at ratio **1 — perfectly
+  balanced.** *(✅ — a control with the variable held fixed.)*
+
+### 📊 THE HONEST NUANCE — there IS an association, but the causality runs BACKWARDS
+| group | n | mean dev | note |
+|---|---|---|---|
+| extreme WETH surplus (ratio > 1000) | 4 | **−0.92 bps** | but values are −12.19, **+30.24**, −12.77, −8.96 — median −10.6; the mean is one outlier |
+| balanced (ratio < 10) | 8 | **−21.39 bps** | |
+| correlation(log ratio, dev) | 13 | **+0.42** | weak–moderate, tail-driven |
+
+⇒ **So WETH-heavy states really are the BETTER states to sell weETH from** — just not for the reason
+  proposed. **Inventory composition is a FOSSIL of which direction flow last came from** (exactly §2's
+  own finding): a pool stuffed with weETH got that way because people SOLD weETH into it, which is the
+  same event that pushed the price to a discount. **Deviation and inventory are both EFFECTS of the
+  same flow — neither causes the other**, which is why holding reserves fixed leaves the deviation
+  free to swing 43 bps. *(OPEN — n=13; a proper regression over dense samples would sharpen it.)*
+⇒ 🔴 **And it is not tradeable as a signal**: by the time inventory reads WETH-heavy, the price has
+  already moved. **You cannot enter on it.** *(OPEN.)*
+
+### 🔁 THE OTHER DIRECTION IS THE CLINCHER — the pool will barely take our WETH at all
+| | |
+|---|---|
+| SELL 1 weETH | −24.3 bps |
+| **BUY weETH with 1 WETH** | 🔴 **−9,754.8 bps** (you receive 0.0223 weETH, ~23% of fair) |
+⇒ **A pool "eager to dump surplus WETH" would take WETH readily. This one cannot** — it holds 1.036
+  weETH in total. **It is not long-WETH-and-selling; it is OUT of weETH and unable to sell any.**
+  *(✅ — quoted both directions at the same block.)*
+
+### 📉 AND THE STACK IS A DESCENDING LADDER — marginal price per slice, measured
+`0→1` **1.098005** · `1→100` 1.097955 · `100→500` 1.097706 · `500→1k` 1.097258 · `1k→1.5k` 1.096760 ·
+`1.5k→2k` 1.096263 · `2k→3k` **1.095517**
+⇒ **Monotonically worse, −24.3 → −46.9 bps.** The 4,840 WETH is a **bid ladder at descending prices**,
+  not an offer at a premium. **The imbalance buys DEPTH on our side, not a PREMIUM.** *(✅ — v3
+  mechanics, reproduced at the tip block.)*
+
+### ⇒ WHAT THIS MEANS FOR THE THESIS
+🔴 **The thesis cannot rest on a standing premium — 36/37 samples are negative and the median is
+−6.94.** 🟢 **But it CAN rest on timing**: the swing is **105 bps wide (−74.87 → +30.24)**, so *when*
+Rover sells dominates *whether* it LPs. **A keeper selling opportunistically into the upper tail beats
+a scheduled seller by tens of bps** — which is the measured backing for §10 Q4's "opportunistic, not on
+the deposit path", and an argument the doc had nowhere. *(OPEN — needs the dense series to size how
+long the positive windows last; a +30 bps window we cannot detect or reach in time is worth zero.)*
 
 ## 12. 🔴🔴 THE ROUTE THAT DOMINATES EVERYTHING MEASURED — **rung 3, via stETH**
 §9 found the native rung empty. Reading the mechanism (`EtherFiRedemptionManager`, impl
