@@ -239,6 +239,46 @@ and books 5 bps.** Profitable **iff** `5bps × volume > accrual conceded between
 📌 Ties to §L.1 (*"Levered-ETH earns in TWO places"*) — same yield-bearing-vs-base asymmetry.
 
 
+### 🧪 ASSUMPTIONS TESTED (the direction error would have inverted everything)
+| assumption | test | verdict |
+|---|---|---|
+| `getRate()` monotonic ↑ | wrapper accrues staking rewards; falls only on slashing | ✅ holds |
+| `P` (weETH/WETH) drifts ↓ | pool `P`=0.9095 vs fair `P`=1/1.100658=**0.9085** ⇒ pool above fair ⇒ weETH cheaper in pool ⇒ matches the measured **12 bps discount**; accrual pushes fair `P` lower and arbers follow | ✅ holds, and is self-consistent with the observed sign |
+| falling `P` ⇒ position → WETH | v3: position is all token0 below its range | ✅ holds — and 4,840 : 1.03 is the terminal state |
+| this is a LOSS vs holding | sold weETH at ~mid while fair kept rising ⇒ classic LVR | ✅ holds |
+| "no arber restores it" | restoring needs `getRate()` to FALL | ✅ holds |
+
+### ⭐ THE REMEDY — DON'T STRADDLE FAIR. Let the monotonic drift FILL you, not pick you off.
+**The defect is not "LPing". It is placing weETH in a range that CONTAINS fair**, which guarantees the
+quote goes stale-cheap and the weETH is lifted. But the drift has a KNOWN, FIXED direction — so orient
+the range and it works **for** you:
+> **Place weETH strictly BELOW current `P`** — i.e. **ask a HIGHER weETH price than today's fair.**
+> The downward drift then walks the market INTO your ask and fills you **at a premium you chose**.
+> While you wait, the weETH keeps accruing. **There is no adverse-selection branch:** you either
+> fill above fair, or you hold the yield-bearing asset. Both outcomes beat the status quo.
+
+- **Symmetrically:** WETH belongs strictly ABOVE current `P` (a bid to buy weETH BELOW fair). It fills
+  only on a dislocation — exactly when buying is right.
+- ⇒ **Two single-sided ranges that never touch fair.** No two-sided position, so nothing can be
+  picked off stale. This converts the monotonicity from the thing that drains you into the thing that
+  executes you.
+- ⚠️ **Cost, stated honestly:** you may NEVER fill. For an offramp that is acceptable — unfilled means
+  holding weETH at full staking yield, which is the best case anyway. It is NOT acceptable if Rover
+  needs *guaranteed* liquidation on demand; that path must stay the direct swap.
+
+### 🥈 ALTERNATIVES WEIGHED (why the above wins)
+| option | verdict |
+|---|---|
+| **recenter faster** | band-aid. Shrinks the window but never closes it, and pays gas per recenter forever. Treats the symptom (staleness) not the cause (straddling fair). |
+| **don't LP at all; swap when needed** | ✅ *strictly better than the status quo* — the measured sell-side is a flat **−24 bps to 100 weETH (0.5 bps slip)**, so the offramp already works WITHOUT providing liquidity. This is the FALLBACK if single-sided is judged too passive. |
+| **ether.fi redemption instead** | fair rate, no spread — but QUEUED, so it cannot serve an on-demand offramp. Complements, not replaces. |
+| **single-sided, off-fair (above)** | ⭐ dominates: fills only at a premium, earns yield while waiting, no adverse selection. |
+
+▶️ **ONE READ DECIDES WHICH IS LIVE TODAY:** does `repackNFT`/`_alignTick` centre the range on **pool
+  spot** or on **`getRate()` fair**? **Centred on spot ⇒ it straddles fair ⇒ the leak is structural and
+  no cadence fixes it.** That single question separates "tuning problem" from "design problem", and it
+  is a short read of the recenter path.
+
 ## ✅ A0 DONE — the audit was RE-RUN properly, and it found real stranded items
 **Method that worked** (the naive one over-matched line numbers and was unusable): extract IDs only
 from **DECLARATION positions** — a `#`-header or a leading `**bold**`/table cell — which is what
