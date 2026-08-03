@@ -256,13 +256,71 @@ def scan_transcript(path):
             print("  •", h[:200])
 
 
+def scan_prompts(path, doc):
+    """PER-PROMPT coverage pass — the piece the family scan structurally cannot do.
+
+    WHY THIS EXISTS. The family scan scores PASSAGES. A user prompt can therefore be 100% unbooked
+    and still never surface, because its individual sentences each look like ordinary prose. That is
+    exactly how the Rover design intent ("the NFT guarantees liquidity won't be pulled out … balanced
+    … large enough for instant conversion") sat unbooked through a 454-prompt discussion: no sentence
+    in it tripped a vocabulary family, and a keyword filter on "rover|weeth" dropped every contextual
+    follow-up ("run it", "model it", "prove it") because the subject was implicit.
+
+    So: score EVERY user prompt against a target doc by token coverage, and report the worst. This is
+    deliberately noisy — it is a READING LIST, not a defect list. Read every row; do not sample.
+    """
+    D = doc.lower()
+    msgs = []
+    for line in open(path, errors="ignore"):
+        if not line.strip():
+            continue
+        try:
+            ev = json.loads(line)
+        except Exception:
+            continue
+        m = ev.get("message") or {}
+        if m.get("role") != "user":
+            continue
+        c = m.get("content")
+        s = c if isinstance(c, str) else (" ".join(
+            x.get("text", "") for x in c if isinstance(x, dict) and x.get("type") == "text")
+            if isinstance(c, list) else "")
+        s = s.strip()
+        if (not s or s.startswith("[SYSTEM") or s.startswith("<task-notification")
+                or "<system-reminder>" in s[:60] or s.startswith("[Request interrupted")):
+            continue
+        msgs.append(s)
+    STOP = {"should","because","through","there","which","would","could","really","thread","context",
+            "before","without","against","message","between","another","already","something",
+            "anything","everything","nothing","continue","understand"}
+    rows = []
+    for i, s in enumerate(msgs):
+        toks = {t for t in re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{5,}", s.lower()) if t not in STOP}
+        if len(toks) < 4:
+            continue
+        miss = sum(1 for t in toks if t not in D)
+        rows.append((miss / len(toks), i, s))
+    rows.sort(reverse=True)
+    print("\n" + "=" * 78)
+    print(f"PER-PROMPT COVERAGE — {len(msgs)} prompts vs the target doc")
+    print("=" * 78)
+    print("⚠️ A READING LIST, not a defect list. Read EVERY row — sampling the top five is how the")
+    print("   Rover design intent stayed unbooked through 454 prompts.")
+    for r, i, s in rows[:60]:
+        print(f"\n[{i}] uncovered={r:.2f}\n   {re.sub(chr(10),' ',s)[:240]}")
+    return rows
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--transcript")
+    ap.add_argument("--against", help="doc to score PER-PROMPT coverage against (e.g. docs/actionable/QUEUE.md)")
     a = ap.parse_args()
     scan_code()
     if a.transcript:
         scan_transcript(a.transcript)
+        if a.against:
+            scan_prompts(a.transcript, open(os.path.join(ROOT, a.against), errors="ignore").read())
     print(RULES)
 
 
