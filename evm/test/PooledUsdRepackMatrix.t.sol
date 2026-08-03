@@ -395,6 +395,11 @@ contract PooledUsdRepackMatrix is Alles {
         Snap memory a = _snap();
         uint ethBefore  = User01.balance;
         uint usdcBefore = USDC.balanceOf(User01);
+        // E10: `_refundExcess` pays the unfilled remainder via `aux.withdrawSelf(r.inToken, ...)`,
+        // and for a volatile-in swap `inToken` is WETH -- so the refund arrives as WETH, NOT native.
+        // Measuring only `.balance` + USDC (as the first version of this test did) MISSES it and
+        // makes an ordinary partial fill look like a 70% overpay.
+        uint wethBefore = WETH.balanceOf(User01);
         emit log_named_uint("pre-marginal  USD leg (6d)", a.usdEth);
         emit log_named_int ("pre-marginal  tick       ", a.tick);
         emit log_named_uint("pre-marginal  POOLED_ETH ", a.ethLeg);
@@ -405,6 +410,15 @@ contract PooledUsdRepackMatrix is Alles {
         Snap memory b = _snap();
         uint ethSpent = ethBefore - User01.balance;
         uint usdcGot  = USDC.balanceOf(User01) - usdcBefore;
+        uint wethGot  = WETH.balanceOf(User01) - wethBefore;
+        uint px       = _pxEth();
+        // VALUE ACCOUNTING (USD18): what the swapper paid vs what came back on ALL legs.
+        uint paid = ethSpent * px / 1e18;
+        uint back = wethGot * px / 1e18 + usdcGot * 1e12;
+        emit log_named_uint("marginal swap: WETH refund", wethGot);
+        emit log_named_uint("value paid  (USD18)      ", paid);
+        emit log_named_uint("value back  (USD18)      ", back);
+        emit log_named_int ("value delta (USD18)      ", int(back) - int(paid));
         emit log_named_uint("post-marginal USD leg (6d)", b.usdEth);
         emit log_named_int ("post-marginal tick       ", b.tick);
         emit log_named_uint("post-marginal POOLED_ETH ", b.ethLeg);

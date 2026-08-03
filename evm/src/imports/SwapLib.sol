@@ -384,9 +384,24 @@ library SwapLib {
             asset: r.asset, vault: address(0), core: c.core,
             nativeWETH: !isBTC
         });
-        (uint160 sqrtPriceX96,,,, uint v4p) = isBTC
-            ? IVogueRepack2(c.btcVault).repack(true)
-            : IVogueRepack2(c.v4).repack(false);
+        // E9: capture the band's OWN tick range from the repack we already run. These were
+        // discarded before, and `sqrtPriceX96` was then handed to `Core.swap` only to be thrown
+        // away in `_handleSwap` — so the swap ran to the TICK EXTREME. Measured consequence
+        // (`PooledUsdRepackMatrix::testMatrix_S6`): a swap crossing `tickUpper` with input left
+        // drove the spot to `MAX_SQRT_PRICE - 1` moving ZERO tokens, which corrupts every price
+        // read (`getPrice` truncates to 0) and bricks the band. The edge is the honest limit.
+        // Block-scoped so `lo`/`hi`/`p` are freed at its end: `swapToBody` is stack-tight by
+        // design (`via_ir = false`), and carrying the two ticks as function-scope locals is
+        // stack-too-deep. Net locals are UNCHANGED from before — `bandTicks` simply replaces the
+        // old `sqrtPriceX96` carrier, which was assigned, reassigned and passed, never read.
+        uint160 bandTicks; uint v4p;
+        {
+            (, int24 lo, int24 hi,, uint p) = isBTC
+                ? IVogueRepack2(c.btcVault).repack(true)
+                : IVogueRepack2(c.v4).repack(false);
+            v4p = p;
+            bandTicks = _packBandTicks(lo, hi);
+        }
         {
             // Drain-side backing gate counts standing holdings at PAR (NOT the depeg haircut): the mint/issuance
             // side haircuts depeg (Core band-add + mint-headroom) to block over-mint, but the drain side stays at
@@ -454,14 +469,21 @@ library SwapLib {
                 retainSkewPremium(c.core, isBTC, r, skew, false);  // buy-driving USD ⇒ already 6-dec   // mutates r.amount; r.px declares NATIVE
             }
         }
-        max = _finishSwap(ctx, aux, r, sqrtPriceX96, zeroForOne, max, isBTC, v4p);
+        max = _finishSwap(ctx, aux, r, bandTicks, zeroForOne, max, isBTC, v4p);
     }
 
     /// @dev routeSwap (8-field RouteParams build) + bumpVogueBTC + slippage guard
     ///      in its own frame so swapToBody stays within the legacy stack — no
     ///      via_ir crutch.
+    /// @dev Pack the band's tick range into one word. Two int24 function-scope locals are
+    ///      stack-too-deep in `swapToBody`; one packed carrier is not. int24→uint24→int24 is
+    ///      bit-preserving, so negative ticks round-trip exactly.
+    function _packBandTicks(int24 lo, int24 hi) private pure returns (uint160) {
+        return uint160((uint(uint24(lo)) << 24) | uint(uint24(hi)));
+    }
+
     function _finishSwap(Types.AuxContext memory ctx, IAux aux, SwapReq memory r,
-        uint160 sqrtPriceX96, bool zeroForOne, uint pooled, bool isBTC, uint v4p) private returns (uint max) {
+        uint160 bandTicks, bool zeroForOne, uint pooled, bool isBTC, uint v4p) private returns (uint max) {
         uint poolSupplied;
         // Reuse the resolved oracle price from the repack-first (v4p) instead of
         // re-reading the internal `observe` ring + Chainlink a 2nd time per swap;
@@ -470,7 +492,7 @@ library SwapLib {
         uint v4Price = _priceOr(v4p, address(aux), r.asset);
         uint consumed;
         (max, poolSupplied, consumed) = BasketLib.routeSwap(ctx, Types.RouteParams({
-            sqrtPriceX96: sqrtPriceX96, zeroForOne: zeroForOne, token: r.token,
+            sqrtPriceX96: bandTicks, zeroForOne: zeroForOne, token: r.token,
             amount: r.amount, pooled: pooled,
             v4Price: v4Price,
             recipient: r.recipient, isBTC: isBTC
@@ -747,9 +769,18 @@ library SwapLib {
         // 1e18 for both assets, so the reserve converts to its true sats-equivalent directly. The
         // former ×1e10 pre-scale here CANCELLED convert's 1e18/1e8 under-scaling — two wrongs that
         // agreed on this path only; both are removed together, leaving this path unit-neutral.
-        (uint160 sqrtPriceX96,,,, uint v4p) = IVogueRepack2(v4).repack(true);
+        // §E9 — this field now carries the BAND'S PACKED TICKS, not a price. `Core._handleSwap`
+        // unpacks it into the swap's `sqrtPriceLimitX96`. ALL THREE producers must agree: this one,
+        // `_swapOutPrep` below, and `_finishSwap`. Passing a real sqrtPriceX96 here is what broke
+        // 132 tests (`InvalidTick` / `PriceLimitAlreadyExceeded`) when only one was converted.
+        // Block-scoped: these bodies are stack-tight by design (`via_ir = false`).
+        uint v4p;
         Types.RouteParams memory rp;
-        rp.sqrtPriceX96 = sqrtPriceX96;
+        {
+            (, int24 lo, int24 hi,, uint p_) = IVogueRepack2(v4).repack(true);
+            v4p = p_;
+            rp.sqrtPriceX96 = _packBandTicks(lo, hi);
+        }
         rp.zeroForOne   = !ICore(core).token1is(true);   // BTC→USD (mirror of the buy)
         rp.token        = token;                            // USD-side output stable → seller
         rp.amount       = sats;                             // exact BTC input
@@ -1047,8 +1078,13 @@ library SwapLib {
         uint amount = scaleTo6(IAux(aux).deposit(swapper, token, usdAmount), token);
         ctx.asset = wbtc; ctx.core = core;
         // Reuse the repack-resolved oracle price (5th return); live-read only if v4p==0.
-        (uint160 sqrtPriceX96,,,, uint v4p) = IVogueRepack2(address(this)).repack(true);
-        rp.sqrtPriceX96 = sqrtPriceX96;
+        // §E9 — packed band ticks, not a price (see creditSwapInBody). Block-scoped for stack.
+        uint v4p;
+        {
+            (, int24 lo, int24 hi,, uint p_) = IVogueRepack2(address(this)).repack(true);
+            v4p = p_;
+            rp.sqrtPriceX96 = _packBandTicks(lo, hi);
+        }
         rp.zeroForOne   = ICore(core).token1is(true);    // USD→BTC buy (mirror of the sell)
         rp.token        = address(0);                       // volatile (BTC) output
         rp.pooled       = ICore(core).POOLED_BTC();      // BTC inventory bounds the fill

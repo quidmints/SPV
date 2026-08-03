@@ -729,26 +729,48 @@ contract Core is SafeCallback {
         return isBTC ? VANILLA_BTC : VANILLA_ETH;
     }
 
+    /// @dev §E9 — the swap's price limit: the BAND'S OWN EDGE, unpacked from the two int24 ticks
+    ///      `SwapLib.swapToBody` packed into one word. Its OWN frame for two reasons: `_handleSwap`
+    ///      is stack-tight (`via_ir = false`), and `TickMath.getSqrtPriceAtTick` is a large inlined
+    ///      chain that must land here rather than in `SwapLib`, which sits ~150 bytes from EIP-170.
+    ///      `zeroForOne` moves price DOWN, so it bounds at the LOWER tick; otherwise the UPPER.
+    ///      int24→uint24→int24 is bit-preserving, so negative ticks round-trip exactly.
+    function _bandEdgeLimit(uint160 bandTicks, bool zeroForOne) private pure returns (uint160) {
+        return zeroForOne
+            ? TickMath.getSqrtPriceAtTick(int24(uint24(uint(bandTicks) >> 24)))
+            : TickMath.getSqrtPriceAtTick(int24(uint24(uint(bandTicks) & 0xFFFFFF)));
+    }
+
     function _handleSwap(bytes calldata data, bool isBTC)
         internal returns (bytes memory) {
         // sqrtPriceX96 (1st field) no longer used — the swap now runs to the extreme limit
         // (grinding removed); the pool's own current price drives execution.
-        (, address sender, bool forOne,
+        (uint160 bandTicks, address sender, bool forOne,
             address token, uint amount) = abi.decode(data,
             (uint160, address, bool, address, uint));
 
         PoolKey memory k = _key(isBTC);
         BalanceDelta delta = poolManager.swap(k,
             IPoolManager.SwapParams({ zeroForOne: forOne,
-                // GRINDING REMOVED: no artificial per-swap price cap. The swap walks the
-                // real curve to the extreme limit — filling until its input is consumed or the
-                // band's in-range liquidity runs out (partial-fill at the TRUE edge, not a 0.5%
-                // wall). The THIN band's own width is the natural per-swap bound — a swap can't
-                // move the spot past the band edge (no liquidity there), and that edge sits well
-                // inside the 5% Chainlink anchor. Oracle safety is the 30-min TWAP window + 5%
-                // anchor + curve-reseat (getTWAPforAsset), NOT this cap.
+                // GRINDING REMOVED and NOT reinstated: there is still no artificial per-swap price
+                // cap. The swap walks the real curve until its input is consumed or the band's
+                // in-range liquidity runs out — partial-fill at the TRUE edge, not a 0.5% wall.
+                //
+                // §E9 — the limit is the BAND EDGE (passed in `sqrtPriceLimit`), not the tick
+                // extreme. The comment here used to claim "a swap can't move the spot past the band
+                // edge (no liquidity there)". That is BACKWARDS, and measured false
+                // (`PooledUsdRepackMatrix::testMatrix_S6`): BECAUSE there is no liquidity there, the
+                // price crosses it at ZERO COST. A swap crossing `tickUpper` with input remaining
+                // drove the spot to `MAX_SQRT_PRICE - 1` while exchanging zero tokens, where
+                // `BasketLib.getPrice` truncates to 0 and `_reseatIfStale` then refuses to heal
+                // (`spot == 0`) — a permanently bricked band.
+                //
+                // This is NOT the removed grinding cap: grinding truncated fills INSIDE liquidity;
+                // this bounds price movement OUTSIDE it, where no fill is possible either way. Fills
+                // are bit-identical (measured: the crossing swap filled 5,292.59 USD / 2.84 ETH
+                // before the boundary and moved ZERO tokens past it) — only the resting spot differs.
                 amountSpecified: -int(amount),
-                sqrtPriceLimitX96: forOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1}),
+                sqrtPriceLimitX96: _bandEdgeLimit(bandTicks, forOne)}),
             ZERO_BYTES);
 
         (, int24 currentTick,,) = poolManager.getSlot0(_poolId(isBTC));
