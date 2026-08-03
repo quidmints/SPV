@@ -116,7 +116,36 @@ liquidity arrives** (nobody LPs into the position that just converted everyone).
 | 90 | −76.3 | −84.4 | 🔴 redeem cheaper |
 ⇒ 🔴 **The 0.05% tier crosses the instant-redeem rate in ≈8.8 days; the 0.01% tier in ≈20.9 days.**
 ⇒ **Total resource: 4,840 + 2,053 = 6,893 WETH — non-replenishing, consumed per offramp, receding daily.**
-⚠️ Caveat: linear extrapolation of the measured drift. It ignores any new LP arriving (none has in 30d)
+### ✅ MODEL CONFIRMED EMPIRICALLY — and the mechanism is cleaner than modelled
+Same **100 weETH** quoted through QuoterV2 at historical blocks (0.05% tier):
+| block offset | WETH out | vs fair |
+|---|---|---|
+| −30.0d | 109.7053 | −12.8 bps |
+| −20.8d | 109.7861 | −11.3 bps |
+| −13.9d | **109.7955** | −15.6 bps |
+| −6.9d | **109.7955** | −20.1 bps |
+| **now** | **109.7955** | **−24.7 bps** |
+
+🔴 **The WETH output is BYTE-IDENTICAL across the last 14 days.** The pool price has not moved — **there
+have been NO trades.** The entire degradation is `fair` rising *away from a frozen pool*.
+⇒ Over that frozen stretch: **9.1 bps / 13.9 d = 0.65 bps/day**, against the independently measured
+  drift of **0.67 bps/day**. **Two derivations from completely different data (fee-growth + rate reads
+  vs quoter simulations) agree.** The depletion model is not an extrapolation — it is observed.
+⇒ ⏱️ **CROSSOVER FROM TODAY: (30 − 24.7) / 0.65 ≈ 8 DAYS** on the 0.05% tier (~20 on the 0.01%).
+  After that the **0.3% instant redeem is strictly cheaper** than routing through the pool.
+
+### ⇒ WHAT THIS SETTLES ABOUT ROVER (the question is now much narrower)
+- The venue is **not a functioning market** — a static price with zero flow, decaying at exactly the
+  staking rate. "Thin liquidity" was the wrong diagnosis; **"no trades at all" is the right one.**
+- **Rover's LP position cannot fix this.** Adding depth to a pool with no flow earns no fees — it only
+  places our inventory where the same drift will convert it. **The fee-rebate-on-own-flow argument is
+  the ONLY remaining case for the NFT**, and it is bounded by the 1–5 bps tier, not the price impact.
+- Nothing in 30 days suggests new liquidity is coming.
+📌 **Therefore the live decision is NOT "is the LP profitable" but "when do we stop routing exits here."**
+  On today's numbers that is **~8 days** for tier A, ~20 for tier B — after which the ether.fi queue
+  (0.3%, un-pullable) is both cheaper AND more reliable.
+
+⚠️ Original caveat retained: linear extrapolation of the measured drift. It ignores any new LP arriving (none has in 30d)
   and any deviation mean-reversion (which moves it a few bps either way, not the trend).
 
 # 🔴 HIGHER-GRAVITY CONCERNS (unverified — code NOT read; verify before treating as findings)
