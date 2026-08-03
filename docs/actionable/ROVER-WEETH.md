@@ -1202,7 +1202,10 @@ WETH each on a 4,000 WETH Rover — **2,496.9 WETH of flow, 62% of the position 
 
 ---
 
-# 🧨 §15 — R11's REPLAY, RUN. **CADENCE MAKES ADVERSE SELECTION WORSE.**
+# 🧨 §15 — R11's REPLAY, RUN. **CADENCE HELPS — BUT ONLY CENTRED ON FAIR.**
+⛔ **THIS SECTION'S FIRST VERSION SAID THE OPPOSITE AND WAS WRONG.** I tested *crank-on-SPOT* (what
+the code does) and concluded cadence is harmful. The owner challenged it; testing *crank-on-FAIR*
+(what the doc actually prescribes) **flips the sign**. See §15.2 — the corrected table governs.
 Rolling 30-day windows over **91 daily samples**, 4,000 WETH position, exact v3 position arithmetic
 on the measured price path (`analysis/rover/replay.py` + the two data files beside it). A position's
 holdings are a closed form of (band, liquidity, price), so this is arithmetic on reality, not a model.
@@ -1278,3 +1281,28 @@ holdings are a closed form of (band, liquidity, price), so this is arithmetic on
 ⚠️ **NOTHING ABOVE IS CLOSED.** Per standing rule 16 the only ✅ marks are structural code facts, the
 on-chain token order, and the retracted log method. Every recommendation, measurement and spec stays
 OPEN because the ship decision itself is still being weighed — and reversing it reopens all of them.
+
+## 15.2 ✅ CORRECTED — the variant that matters: **centre the band on `getRate()` fair**
+| variant | LVR only | +fees | **vs HOLD-WETH** | in-range |
+|---|---|---|---|---|
+| passive (no crank) | −1.03% | −0.94% | −0.04% | 7/30 |
+| daily, centred on **SPOT** *(today's code)* | −2.15% | −1.60% | 🔴 **−1.15%** | 27/30 |
+| **daily, centred on FAIR** | **−0.42%** | −0.32% | 🎯 **+2.14%** | 9/30 |
+| 3-daily on fair | −0.63% | −0.52% | +1.93% | 10/30 |
+| weekly on fair | −0.81% | −0.60% | +1.74% | 13/30 |
+
+⇒ ⭐ **§6b WAS RIGHT: *"centring on fair is the precondition for cadence to matter at all."*** Cranking
+  a SPOT-centred band re-places it at a price already −6 to −26 bps from fair — re-arming a stale
+  quote. Centring on fair puts it where the true price is. **LVR falls 5×, and the cadence gradient
+  reverses: more cadence is now BETTER.**
+⇒ 🔴 **`_refreshAndRepack:79-82` centring on spot is therefore a GENUINE defect**, worth ~3.3%/yr.
+⇒ ⚠️ **BUT THE TRADE-OFF IS REAL AND NOW QUANTIFIED.** A fair-centred band is in range only **9/30
+  days** and, at a pool discount, sits BELOW spot — holding **weETH, not WETH**. So it is worse at the
+  offramp exactly when it is better economically:
+| | economics | offramp conversion |
+|---|---|---|
+| centre on **spot** | −1.15%/yr | 🎯 **−1 bps** (holds WETH, in range) |
+| centre on **fair** | 🎯 **+2.14%/yr** | worse — single-sided weETH ~70% of the time |
+⇒ 📏 **~3.3%/yr of economics against ~23 bps of extra conversion cost ⇒ breakeven ≈ 57,000 WETH/yr of
+  offramp volume.** Below it, centre on fair. Above it, centre on spot. *(OPEN — and it still rests on
+  R11's untested elasticity assumption: that Rover's presence does not change the volume.)*
