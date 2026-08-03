@@ -1062,6 +1062,7 @@ contract Alles is ForkPin, Fixtures {
 
         uint pooledBefore  = CORE.POOLED_ETH();
         uint premiumBefore = CORE.skewPremiumETH();
+        uint lpFeesBefore  = V4.USD_FEES();      // §E5: where the premium must actually LAND
 
         vm.startPrank(User02);
         USDC.approve(address(AUX), type(uint).max);
@@ -1076,8 +1077,16 @@ contract Alles is ForkPin, Fixtures {
 
         // The reservoir genuinely drained (uncapped, post-grind): inventory fell hard.
         assertLt(CORE.POOLED_ETH(), pooledBefore / 2, "reservoir drained (uncapped large outflow)");
-        // The drain was PRICED: a positive skew premium was recorded and RETAINED as backing.
+        // The drain was PRICED: a positive skew premium was recorded.
         assertGt(CORE.skewPremiumETH(), premiumBefore, "draining paid a retained skew premium");
+        // §E5 — STRICTLY STRONGER: recorded is not received. Before E5 the premium accrued to
+        // BASKET BACKING, which prices QU!D and never touches an LP's share value, so this second
+        // assertion is what distinguishes "we wrote it down" from "the LPs got it". The counter
+        // above stays because it is the CUMULATIVE record — the accumulator is a per-share rate
+        // and cannot answer "how much has been retained in total", which the protocol-fee
+        // compensation work needs.
+        assertGt(V4.USD_FEES(), lpFeesBefore,
+            "the retained premium must REACH the LPs' accumulator, not merely be recorded");
     }
 
     function testMultipleBatchMaturities() public {
