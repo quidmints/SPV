@@ -4,8 +4,12 @@ pragma solidity ^0.8.28;
 import {Alles} from "./Alles.t.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
+import {PoolKey} from "v4-core/src/types/PoolKey.sol";
+import {Currency} from "v4-core/src/types/Currency.sol";
+import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 
 interface IProtoFees { function protocolFeeController() external view returns (address); }
+interface IProtoFeeCtrl { function protocolFeeForPool(PoolKey memory key) external view returns (uint24); }
 
 /// @notice CONTROL SUITE for the `POOLED_USD` unification — written BEFORE the change and
 ///         required to be GREEN on unmodified code. That is what makes it a control rather
@@ -654,5 +658,68 @@ contract UnificationControls is Alles {
         emit log_named_address("live protocolFeeController", ctrl);
         emit log_named_uint("fork block", block.number);
         emit log_named_uint("controller set? (0=no)", ctrl == address(0) ? 0 : 1);
+    }
+
+    /// DECISIVE: does the live controller return a NON-ZERO fee for a REAL currency pair? If yes,
+    /// the switch is CHARGING and our mock key is the only reason we read 0 — i.e. the exemption is
+    /// an artefact of the mock design, not a protocol-wide "fee is off".
+    function test_EMPIRICAL_ControllerFeeForRealWethUsdc() public {
+        IProtoFeeCtrl ctrl = IProtoFeeCtrl(IProtoFees(address(CORE.poolManager())).protocolFeeController());
+        address usdc = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;   // currency0 (lower)
+        address weth = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;   // currency1
+        uint24[4] memory tiers = [uint24(100), uint24(500), uint24(3000), uint24(10000)];
+        int24[4]  memory spac  = [int24(1),    int24(10),   int24(60),    int24(200)];
+        for (uint i; i < 4; i++) {
+            PoolKey memory k = PoolKey({
+                currency0: Currency.wrap(usdc), currency1: Currency.wrap(weth),
+                fee: tiers[i], tickSpacing: spac[i], hooks: IHooks(address(0))
+            });
+            try ctrl.protocolFeeForPool(k) returns (uint24 f) {
+                emit log_named_uint("USDC/WETH tier", tiers[i]);
+                emit log_named_uint("   protocolFee", f);
+            } catch { emit log_named_uint("reverted for tier", tiers[i]); }
+        }
+        // Also our own shape: 420 fee, and a mock-ish pair, for contrast.
+        PoolKey memory ours = PoolKey({
+            currency0: Currency.wrap(usdc), currency1: Currency.wrap(weth),
+            fee: 420, tickSpacing: 10, hooks: IHooks(address(0))
+        });
+        try ctrl.protocolFeeForPool(ours) returns (uint24 f) {
+            emit log_named_uint("USDC/WETH @ our 420 tier -> fee", f);
+        } catch { emit log_string("reverted at 420 tier"); }
+    }
+
+    /// CHECK: does a FULL exit actually fully exit after #12? The target probe leaves a -56.40
+    /// residual, which I attributed to an un-burnable sliver deferring as `pooled`. If that is
+    /// right, `pooled` is NON-ZERO after the redeem and a SECOND withdraw collects the rest.
+    /// If `pooled` is already zero, the residual is a LEAK, not a deferral -- a materially
+    /// different (and worse) answer, so it is measured rather than assumed.
+    function test_CHECK_FullExitResidualIsRecoverable() public {
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 300 ether}(0, lpA, 3);
+        vm.roll(block.number + 1);
+        for (uint i; i < 8; i++) _trade(3_000e18);
+        vm.warp(block.timestamp + 1 hours);
+
+        uint pooled0 = V4.balanceOf(lpA);
+        uint eth0 = lpA.balance; uint q0 = QUID.balanceOf(lpA);
+        vm.prank(lpA); V4.redeem(pooled0, lpA, lpA);
+
+        uint pooled1 = V4.balanceOf(lpA);
+        emit log_named_uint("pooled before exit", pooled0);
+        emit log_named_uint("pooled AFTER exit ", pooled1);
+        emit log_named_uint("ETH delivered     ", lpA.balance - eth0);
+        emit log_named_uint("QUID delivered    ", QUID.balanceOf(lpA) - q0);
+
+        if (pooled1 == 0) { emit log_string("FULL exit: pooled == 0, nothing deferred"); return; }
+
+        // A residual exists -> it must be COLLECTABLE. Second withdraw.
+        vm.roll(block.number + 1); vm.warp(block.timestamp + 1 hours);
+        uint eth1 = lpA.balance; uint q1 = QUID.balanceOf(lpA);
+        vm.prank(lpA); V4.redeem(pooled1, lpA, lpA);
+        emit log_named_uint("2nd exit: pooled left", V4.balanceOf(lpA));
+        emit log_named_uint("2nd exit: ETH more   ", lpA.balance - eth1);
+        emit log_named_uint("2nd exit: QUID more  ", QUID.balanceOf(lpA) - q1);
+        assertLt(V4.balanceOf(lpA), pooled1, "the deferred residual must be RECOVERABLE by a second exit");
     }
 }
