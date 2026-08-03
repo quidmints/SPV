@@ -314,6 +314,44 @@ current in-range `L = 6.6e17`:
 | single-sided, off fair | ✅ yes (prices off `getRate`, never spot) | ✅ **yes** — only fills at a premium you chose |
 ⇒ **Do BOTH.** The gate fix is a LIVENESS fix; single-sided is the ECONOMICS fix. Neither substitutes.
 
+### ✅ R9 — EXPERIMENT RUN. **Rover's LP leg is a LIABILITY at realistic turnover.** (2026-08-03)
+**The thing I had missed for four turns:** for the straddle, the drift loss and the offramp are the
+SAME EVENT. Converting weETH→WETH **is** the sale. So A is not "paying LVR *and* providing an
+offramp" — **its LVR IS a pre-paid, involuntary offramp.** That reframes the comparison entirely.
+
+**Calibrated with the measured inputs** (fee 0.24 bps/day from `feeGrowthGlobal` over 30d; drift 0.67
+bps/day from `getRate` over 30d; band = 1 tick-spacing ≈ 10 bps; swap cost −24 bps flat from QuoterV2):
+| | |
+|---|---|
+| band traversal | full weETH→WETH conversion every **14.9 days** ⇒ **24.5× per YEAR** |
+| **A** (straddle) net carry vs holding | **−157 bps/yr** |
+| **C** (hold + swap on demand) | −24 bps × turnover `T` |
+| ⭐ **BREAK-EVEN** | **A beats C only if `T` > 6.5 full turns/yr** (an offramp every **56 days**) |
+
+⇒ 🔴 **VERDICT: at any realistic venue turnover (1–2×/yr from Vogue LP withdrawals), A LOSES BADLY.**
+  The straddle **self-liquidates 24.5×/yr whether or not anyone asked**, then re-mints — paying
+  ~157 bps/yr to sell inventory nobody requested. **It is not an on-demand offramp; it is a
+  continuous forced seller that happens to be available when you need it.**
+⇒ ⚠️ **Rover's LP leg is a LIABILITY unless `T` > 6.5.** `T` is the ONE number that flips this, and it
+  is knowable from deployment: Rover-serviced offramp volume ÷ Rover weETH position, annualised.
+  **Measure `T` before removing anything** — but 6.5 turns/yr is very high for a yield venue.
+
+**What this experiment IS and IS NOT:** it is a closed-form model **calibrated entirely with real
+mainnet measurements** (four independent on-chain reads), not a fitted guess. It is **NOT** a
+swap-by-swap fork replay — that would refine the ±, not the sign. **The margin is ~4× (24.5 vs 6.5),
+so a replay is unlikely to reverse it.**
+
+### 🧭 R10 — WHAT ROVER SHOULD BE, given all of R1–R9
+1. **KEEP** Rover's `_swap` fair-rate inventory conversion and `valueWeth` — those are sound and
+   unrelated to the NFT.
+2. **FIX** `_nearFair` to gate execution-against-spot, NOT re-centring (R4 stranding + R2 $5 DoS).
+   **Do this regardless of the LP decision** — it is a liveness bug on its own.
+3. **DELETE** the stale `:207` "~7%" comment (R3).
+4. 🔴 **MEASURE `T`.** If `T < 6.5`/yr — the likely case — **retire the NFT leg** and serve the offramp
+   from held weETH via the direct swap. That is strictly cheaper AND removes R2/R4 entirely.
+5. Do **NOT** pursue single-sided (R8: out-of-range earns nothing and is a worse offramp).
+
+
 ### ⛔ R8 — SINGLE-SIDED IS DEAD. The user's constraint kills it. (2026-08-03)
 > *"why would we do those out-of-range orders if they do not allow us to pull liquidity out during a
 > regular vogue swap-out or LP withdrawal — which is why we are using the rover at all (to maximise
