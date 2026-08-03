@@ -239,6 +239,32 @@ and books 5 bps.** Profitable **iff** `5bps × volume > accrual conceded between
 📌 Ties to §L.1 (*"Levered-ETH earns in TWO places"*) — same yield-bearing-vs-base asymmetry.
 
 
+### 📏 EMPIRICALLY MEASURED 2026-08-03 — the drift is REAL but SMALL, and that changes the verdict
+`weETH.getRate()` sampled backwards from tip 25,674,317 — **monotonic at every sample**:
+| lookback | rate | drift |
+|---|---|---|
+| now | 1.100658406 | — |
+| −1d | 1.100594483 | **0.58 bps/day** |
+| −7d | 1.100152632 | **0.66 bps/day** |
+| −30d | 1.098451976 | **0.67 bps/day ⇒ ~2.4% APR** |
+
+⇒ ⭐ **BREAK-EVEN RECENTER CADENCE ≈ 5 bps fee ÷ 0.67 bps/day ≈ 8 DAYS.**
+  Recenter **faster than weekly ⇒ the fee covers the conceded drift and the position is POSITIVE.**
+  Monthly ⇒ concedes ~20 bps against a 5 bps fee ⇒ clearly negative.
+
+### ⛔ TWO OF MY OWN CLAIMS WERE WRONG — corrected here
+1. **"May never fill" — FALSE.** If the ask sits above fair and fair rises MONOTONICALLY, the market
+   rises INTO the ask. **The drift GUARANTEES the fill; it only sets the DATE.** At 0.67 bps/day a
+   premium of 5 / 12 / 24 bps fills in ≈ **7 / 18 / 36 days**. Single-sided asks are a scheduled
+   liquidation, not a hope.
+2. **"Structurally negative / should not exist" — OVERSTATED.** That assumed the drift dominated the
+   fee. Measured, it does not: 0.67 bps/day vs a 5 bps fee. **Rover justifies itself provided it
+   recentres faster than ~8 days.** The question is cadence, NOT existence.
+📌 Also: **weETH keeps accruing while it sits in the NFT.** The yield is not forfeited by LPing — it is
+  forfeited only on the slice already CONVERTED to WETH. So the cost is "time spent holding WETH",
+  which is again a cadence variable.
+
+
 ### 🧪 ASSUMPTIONS TESTED (the direction error would have inverted everything)
 | assumption | test | verdict |
 |---|---|---|
