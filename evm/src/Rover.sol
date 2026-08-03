@@ -58,7 +58,7 @@ contract Rover is ReentrancyGuard, Ownable {
     uint private constant COMPOUND_GAS = 600_000; // tuned: measured ~560k (RoverFork) + ~7% margin
     uint private constant COMPOUND_MAX_GASPRICE = 200 gwei;
     address public AUX; address public immutable ADAPTER;
-    address public levManager;   // pin-once (setLevManager) — the ETH LevManager, allowed to call swapWeethForWeth
+    address public levManager;   // pin-once (setLevManager) — the ETH LevManager, allowed to call `absorb`
     INonfungiblePositionManager public NFPM;
 
     mapping(address => uint128) public positions;
@@ -126,7 +126,7 @@ contract Rover is ReentrancyGuard, Ownable {
         renounceOwnership();
     }
 
-    /// @notice Pin the ETH LevManager (the only non-AUX caller of swapWeethForWeth). Gated to AUX (== the Vault,
+    /// @notice Pin the ETH LevManager (the only non-AUX caller of `absorb`). Gated to AUX (== the Vault,
     ///         our only `us`), which cascades it from `Vault.setLevManager` at deploy — Rover is ownerless
     ///         post-setAux, so this can't be onlyOwner. Pin-once.
     function setLevManager(address _lm) external {
@@ -256,7 +256,7 @@ contract Rover is ReentrancyGuard, Ownable {
             LAST_REPACK = block.timestamp;
         } else if (commit) {
             // FULL-SWEEP (deposit/withdraw/repackNFT): commit the ENTIRE idle balance
-            // (collected fees + weETH absorbed by swapWeethForWeth + _swap leftovers) into
+            // (collected fees + weETH absorbed by `absorb` + _swap leftovers) into
             // the position, not just fees, so nothing waits idle for the next recenter.
             _collect(price);   // fees -> this contract's idle balance
             uint bal0 = ERC20(token1isWETH ? WEETH : address(weth)).balanceOf(address(this));
@@ -511,7 +511,10 @@ contract Rover is ReentrancyGuard, Ownable {
         if (eth > targetETH) eth = targetETH;
 
         // Size the leg with the original target-ratio algebra. Assume X = eth,
-        // Y = weeth, p = price (WETH per weETH), k = target ratio
+        // Y = weeth, p = price (weETH per WETH -- what `getPrice` returns; the
+        // "WETH per weETH" this said was a leftover from the USDC-era leg, and is
+        // the INVERSE. The algebra is right as written: `y + n*p` is n ETH becoming
+        // n*p weETH, and `k*p` is dimensionless), k = target ratio
         // (targetETH/targetWEETH). To reach ratio k after converting n of X→Y:
         //   (x - n)/(y + n·p) = k          (target)
         //   x - n = k·y + k·n·p
