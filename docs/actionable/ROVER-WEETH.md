@@ -1,5 +1,10 @@
 # ROVER / weETH — what was measured on 2026-08-03, and what it means
 
+> ▶️ **THE SHIP DECISION IS AT THE BOTTOM OF THIS FILE** (`# ⚖️ THE SHIP DECISION`). It answers the six
+> questions this doc leaves open, with fresh reads at block **25,675,658**. Read it before acting on
+> anything above — two of the six answers **reverse** a hypothesis stated above, and one method used
+> above is retracted there.
+
 # 🎯 THE GOAL, IN THE USER'S WORDS (this is the whole point of Rover — judge everything against it)
 > *"our goal is to **not require our LPs or swappers to pay the 0.3 instant redeem rate without
 > forcing them to wait**."*
@@ -331,3 +336,242 @@ avoid LVR — **it re-allocates it to the basket.** That transfer IS #12's measu
   a public one, so its counterparty is an arbitrageur rather than our own basket.**
 ⇒ **That is the precise reason "nothing fixes" Rover's LVR:** LVR is only re-allocatable to a party you
   control, and in an external pool no such party exists.
+
+---
+
+# ⚖️ THE SHIP DECISION (2026-08-03, fresh reads at block **25,675,658**)
+
+**Framing that changes the stakes: NOTHING IS DEPLOYED.** Rover has never held a position; every number
+above and below is a read of an EXTERNAL pool. So no defect here is live, nothing is losing money right
+now, and the cost of getting this right is design time. This is a SHIP / DON'T SHIP call.
+
+⚠️ **STATUS MARKERS OBEY STANDING RULE 16** (`CLAUDE.md`): ✅ means *nothing can reopen it* — a
+structural code fact or an on-chain invariant. A **measurement is not ✅** (it goes stale), and a
+**design decision is not ✅** (reversing it reopens everything downstream). Almost everything here is
+therefore OPEN or ⏸️ on purpose.
+
+## 0. The benchmark, written as a number — everything below is scored against it
+> *"not require our LPs or swappers to pay the 0.3 instant redeem rate without forcing them to wait."*
+
+⇒ The thing to beat is **30 bps, with no wait.** So the one test every rung must pass is: **does it
+deliver ETH in this block for an all-in cost under 30 bps?** Rungs are not judged on yield, on fee
+capture, or on depth — only on that. Stating it as a number is what makes the six questions decidable.
+
+## 1. SIZE — the ceiling is set by the VENUE, and Rover's own size cannot raise it
+**Measured fresh (QuoterV2, selling weETH, vs `getRate()` = 1.100671697):**
+| size (weETH) | 0.01% tier B | 0.05% tier A |
+|---|---|---|
+| 1 | **−16.23** | −24.23 |
+| 100 | **−17.28** | −24.68 |
+| 500 | **−21.45** | −26.49 |
+| 1,000 | **−26.65** | −28.75 |
+| 1,200 | **−28.73** | −29.66 |
+| 1,400 | −30.81 | **−30.56** |
+| 2,000 | −678.01 ⛔ cliff | **−33.27** |
+| 4,000 | −5,339.01 ⛔ | **−42.31** |
+
+⇒ 📏 **THE NUMBER THAT DID NOT EXIST: the 30 bps crossover is ≈1,250 weETH on tier A and ≈1,300 weETH
+  on tier B** (≈1,375 ETH). **Above that size, routing through the pool costs MORE than the instant
+  redeem it exists to beat.** That is the venue's answer to "large enough" — and it is a CEILING, not
+  a target. *(OPEN — a measurement, and §📉 above says it falls with drift.)*
+⇒ Tier B's cliff is total: output pins at **2,052.09 WETH**, and the pool's whole WETH balance is
+  **2,052.62**. Past ~1,300 weETH the pool is simply drained. *(OPEN — measurement.)*
+⇒ The 0.30% tier quotes **−914 bps at 100 weETH**. Correctly never wired; do not add it. *(OPEN.)*
+
+### 🔴 The two structural facts that dissolve the sizing question
+**(a) We never chose a size, and cannot.** `Vault.supplyEtherFiToRover` (`:409-417`) states it outright:
+*"NO exposure cap — over-allocation is a structural non-problem… **Sizing is depositor
+self-selection**, like every other venue."* Rover's size is EMERGENT, not a design parameter. So
+"large enough" has no knob today. *(✅ as a code fact — the comment and the absent cap are both there.
+Whether that is CORRECT is the ship decision, and stays OPEN.)*
+
+**(b) 🔴 A LIQUIDITY POSITION CANNOT BE ITS OWN COUNTERPARTY — so making Rover bigger does not help.**
+Depth Rover owns is depth Rover cannot sell into: swapping weETH through your own position hands you
+back your own WETH, minus gas, having converted nothing. Rover's NFT therefore raises the exit ceiling
+**for every party except Rover**, and Rover is the party that needs it. The only capital that can
+actually buy our weETH is the **third-party** stranded WETH (6,893 total) — which §5 above already
+establishes is non-replenishing and withdrawable without notice.
+⇒ ⭐ **So requirement 3 ("large enough for instant conversion") is UNSATISFIABLE BY THE NFT.** Not
+  "unsized" — unsatisfiable. Adding Rover capital adds weETH inventory that must still be sold through
+  a fixed third-party bid. The only part of Rover that serves an exit without a counterparty is its
+  **WETH leg pulled via `decreaseLiquidity`** — and that is just our own WETH, held in a v3 position
+  instead of in a wallet. *(OPEN — this is the load-bearing argument of the whole decision and the
+  first thing to attack if you want to ship the NFT.)*
+
+## 2. VENUE — the freeze is re-confirmed one day on, and one method above is RETRACTED
+- The 100-weETH quote is **still byte-identical at 109.7955 WETH**, matching this doc's readings at
+  −13.9d, −6.9d and "now". A trade of any size moves `sqrtPrice` and would break that equality.
+  ⇒ ~15 days with no price-moving trade. *(OPEN — measurement; re-read it before acting.)*
+- ⛔ **RETRACTED METHOD — I tried to prove "zero trades" from `Swap` logs and it is invalid here.**
+  `cast logs` returned 0 events for both pools. **The CONTROL refutes it:** the same query against
+  USDC/WETH 0.05% (indisputably active) also returned 0, because this node answers archive requests
+  with `HTTP 403 {"Archive requests require a personal token"}` — the "0" was an error string, not an
+  empty result. **Do not use log counts for liveness on a keyless endpoint.** *(✅ — the control ran
+  and failed; the method is dead regardless of any later decision.)*
+- Historical `--block` reads are likewise unavailable keyless (all of −7d…−365d failed). The
+  depletion model above cannot be re-verified from here; it needs an archival endpoint. *(OPEN.)*
+
+### ⚠️ A DISMISSAL IN THIS DOC THAT DOES NOT HOLD (standing rule 13)
+§📉's caveat waves off mean-reversion as *"a few bps either way, not the trend"*. **That is a
+conclusion asserted without evidence, and there is a mechanism against it:** anyone can buy weETH from
+the pool at a discount and exit at fair through ether.fi's **free** wait-NFT. At a 7-day queue, a 30 bps
+discount is ~15.6% APR — well above hurdle. **So the discount is arbitrage-bounded, not linear**, and
+the −76 bps at 90 days is very likely wrong.
+⇒ 🎯 **But this makes the case for the NFT WORSE, not better.** The bound is set by *the ether.fi exit
+  menu itself*, so the pool cannot durably be much cheaper than the queue — it can only offer
+  immediacy, which is exactly what rung 3 already sells at 30 bps. **The −16 bps we measure is the arb
+  being slow, not a durable edge.** *(OPEN — the arb bound is reasoned, not measured; measuring it
+  needs the archival series.)*
+
+## 3. `deliverableETH` — the Rover leg is uncapped, CONFIRMED; but the requested fix is the wrong shape
+**Confirmed by code read:** `VaultLib._vogueETH:141-143` adds `IRover.valueWeth()` at full face;
+`deliverableETH:203-204` runs `_deliverableCap` over **only** the three 4626 curators. *(✅ — structural.)*
+⚠️ The docblock at `:182-200` **already says this** and warns off the fix: *"Do NOT 'fix' this by
+rebuilding it as a ladder twin without first re-establishing a harm — the previous attempt rested on a
+19.4%-short figure that measurement showed to be stale (~3%, and DEFERRED not lost)."*
+**I could not re-establish the harm.** Both consumers tolerate over-statement: `Vogue:605-608` uses it
+only to size `firstBurn` and then derives the shortfall from the ACTUAL `sent`, re-crediting the
+remainder as recoverable `LP.pooled` (`:628`); `SwapLib.deleverEthOnDelivery` under-triggers into
+`minOut` + deferral. ⇒ **Sourcing ORDER shifts; no value is lost.** *(OPEN — absence of harm is not
+proof of safety, and I did not run the sim.)*
+
+### ▶️ SPEC, if the NFT ships — and it is NOT a ladder twin, and needs NO venue-liveness gate
+Do not cap against pool state; **cap against the rung that always works.** Rung 3 (instant redeem) is
+the pool-independent floor at 30 bps, so count every **weETH-denominated** leg in `deliverableETH` at
+that floor instead of at fair:
+```
+weETH leg counted as  getEETHByWeETH(x) * 997 / 1000     // the rung-3 floor, not the pool
+```
+Applied uniformly to the legs the docblock itself lists as full-face — Rover's `valueWeth`, weETH at
+the Vault (`:124-127`), raw eETH (`:135-138`) — not to Rover alone.
+- It **cannot go stale**, so the requested VENUE-LIVENESS gate (`feeGrowthGlobal` unchanged over a
+  window) becomes unnecessary: a haircut that never trusts the pool cannot be fooled by a frozen one.
+  A liveness gate is a clamp that would need its own window parameter, its own staleness failure mode,
+  and would still be wrong the moment the pool un-freezes — **rule 3: attack the cause.**
+- It **earns its place under the rule-3 inverse**: over-statement here is silent and plausible-looking.
+- `vogueETH` (solvency) keeps full fair value — the free wait-NFT really does deliver fair, just not
+  promptly. **The split is the point:** `vogueETH` = can we back it, `deliverableETH` = can we hand it
+  over now. *(⏸️ SPEC'D, NOT WRITTEN — conditional on the ship decision. Money path ⇒ rule 15.)*
+
+## 4. POOL SELECTION — the real defect is the OPPOSITE of the hypothesis
+- 🔴 **`swapWeethForWeth` DOES NOT EXIST.** It survives only in four comments (`Rover.sol:61`, `:129`,
+  `:259`, `Vault.sol:387`). The function was renamed to **`absorb`** (`Rover.sol:146`), which is a
+  fair-rate IDLE-INVENTORY swap that never touches a pool — so it has no "order" to verify. **A comment
+  describing past state, exactly as `CLAUDE.md` warns.** *(✅ finding — structural. Deleting the four
+  comments is an ACTION and stays OPEN.)*
+- The real routing is `SwapLib.offrampBody:604-613` (rung 1) and `sourceWethBody:708-717`, both looping
+  `uint24[2] fees = [c.poolFee, c.poolFee2]` = **[A 0.05%, B 0.01%]** (`Vault.sol:348-349, :454`). *(✅.)*
+- ⇒ ⛔ **The hypothesis "a fixed order can revert on B when A would have filled" is BACKWARDS.** A is
+  tried FIRST, and the table in §1 shows **B is cheaper at every size below ~1,300 weETH**. A always
+  fills inside the 50 bps budget, so **B — the better pool — is never reached.** The cost is not a
+  liveness failure; it is **7–8 bps overpaid on every small offramp, silently.** *(OPEN — measurement.)*
+- ⇒ ▶️ **Fix = reverse the array to `[B, A]` and set the budget below 30 bps (§4b).** That is
+  size-aware and liveness-aware BY CONSTRUCTION, with no new machinery: B fills what it can, its cliff
+  reverts it on `minOut`, A takes the remainder, and both fall through to rung 3 once drift has eaten
+  the budget. **The pool's own quote already prices depth AND staleness** — the only bug was comparing
+  it to the wrong benchmark. *(OPEN — money path, needs a test.)*
+
+## 4b. 🔴 THE MINOUT IS SET ABOVE THE RATE IT EXISTS TO BEAT — the most purpose-relevant defect found
+| site | budget | vs rung 3 |
+|---|---|---|
+| `offrampBody:610` rung 1 | `covered * 995/1000` ⇒ **50 bps** | ahead of a 30 bps rung |
+| `sourceWethBody:707` | **50 bps** | — |
+| `Rover._fairMinOut:189-192` | `(1e6−POOL_FEE)/1e6 * 995/1000` ⇒ **55 bps** on tier A | — |
+
+⇒ ⭐ **The ladder is PERMITTED to pay 50–55 bps for an exit that rung 3 sells at 30, and it fails
+  silently** — the swap succeeds, nothing reverts, the LP just receives less. **This is the owner's
+  stated goal inverted, in one constant.** It is also the only finding here that is worth fixing
+  **whether or not the NFT ships**, because it is on the offramp ladder, not on Rover.
+⇒ Sizing: the budget must be **strictly below the instant-redeem rate**, all-in including the pool fee
+  (~25 bps total is the natural choice — it leaves rung 3 as the strict fallback and makes every
+  earlier rung genuinely cheaper). *(OPEN — money path, rules 10 + 15.)*
+
+## 5. `_nearFair` / `_refreshAndRepack` — both confirmed, and there is a THIRD failure nobody named
+**Confirmed as stated:** `_refreshAndRepack:79-82` reads `_slot0()` and repacks on
+`getPrice(sqrtPriceX96)` — **pool spot, not `getRate()` fair**; `_repackNFT:199, 205, 226` refuses
+mint/recenter/compound when `!_nearFair()`. *(✅ — structural code facts.)*
+
+### 🔴 NEW — `take()` ROUND-TRIPS THE WETH IT IS ABOUT TO DELIVER
+On-chain (verified this session): both pools have **token0 = WETH, token1 = weETH**, so in production
+`token1isWETH == false`. *(✅ — immutable on-chain fact.)* Then:
+1. Drift lowers weETH-per-WETH ⇒ the tick falls **below** `LOWER_TICK` ⇒ the position becomes **100%
+   token0 = 100% WETH**. This is precisely §2's observed state (4,840 WETH : 1.0 weETH), i.e. the
+   EXPECTED steady state, not an edge case.
+2. `take()` calls `_refreshAndRepack(false)` **first** (`:601`). If `_nearFair` passes, `_repackNFT`
+   burns the all-WETH position and `_mintOrCompound` enters the **mint** branch (`liquidity > 0`),
+   whose `_swap` **MINTS weETH via the adapter with ~half that WETH** (`:494-508`).
+3. `take()` then reads idle WETH (now ≈0), sizes a withdrawal, and **sells the weETH leg back on the
+   pool at −24 bps** (`:629`).
+⇒ 💸 **We already held the WETH. We converted half of it to weETH at fair, then sold it back at −24 bps
+  — ≈12 bps of every delivery, paid for nothing.** The same mechanism runs on `_wrapIdle` (`:545-550`),
+  which converts **all** idle WETH to weETH after every deposit/repack/compound, so Rover is
+  architected to hold **no WETH** — while its stated job is to deliver WETH instantly.
+⇒ 🔴 **And if `_nearFair` FAILS instead, the other branch is worse:** no recenter happens, and `take()`
+  sizes with `getLiquidityForAmount0(sqrtCurrent, sqrtUpper, need/2)` (`:617`) while `sqrtCurrent` sits
+  below the band. That range is wider than the real `[LOWER, UPPER]`, so `L` is understated and — with
+  no weETH leg left to swap — the delivery is short by **more than half, silently** (`withdrawETH:414`
+  try/catch, re-credited at `Vogue:628`).
+⇒ ⇒ **Both branches of the expected steady state fail the purpose.** `_nearFair` is not the only gate
+  that needs fixing; centring on fair (`getRate()`) is the precondition, and `take()` must prefer WETH
+  it already holds over re-deriving it.
+⚠️ **CODE READ, NOT RUN.** `RoverFork.t.sol` has exactly **two** tests (`test_compound_selfFundingTip`,
+`test_deposit_mints_balanced_position_via_adapter`) — neither touches `take()`, out-of-range, or the
+ladder. **Per rule 9 this is reasoned, not tested, and must not be called confirmed until a fork test
+drives it.** *(OPEN.)*
+
+## 6. JIT and LENDING — priced at last, and LENDING WINS OUTRIGHT
+### ⛔ JIT — dominated. Do not build.
+Two independent kills, both from §1(b):
+1. **JIT earns the fee on OTHER people's flow.** External flow is ~0.6 WETH/30d ⇒ JIT income ≈ **0**.
+2. **JIT cannot improve our OWN exit.** Minting depth and then trading through it returns our own
+   capital minus gas — it converts "sell at −24 bps" into "did not sell", and we needed the WETH.
+Also a scope error worth recording: `JIT-DEPTH-GUARANTEE.md` is about **Vogue's own band**
+(`unwindForRedeem` / `addLiq` / `outOfRange`), where the protocol **owns the curve**. None of it
+transfers to a guest position in a public pool — the same asymmetry §⚖️ above already established.
+*(OPEN — reasoned, not measured. But #2 is arithmetic, so this is unlikely to reopen.)*
+
+### ⭐ LENDING — this is the design that actually meets the stated purpose
+**Do not sell the weETH at all. Borrow WETH against it, and repay from the FREE ether.fi queue.**
+| | |
+|---|---|
+| **cost** | borrow APR × queue duration. **Breakeven vs the 0.3% redeem: ≈15.6% APR** at a 7-day queue, **≈7.8% APR** at 14 days. WETH borrow on Morpho/Euler runs far below either. |
+| **immediacy** | a borrow fills in one block ⇒ **cheap AND immediate, which is the whole ask** |
+| **yield** | keeps the ~2.4% staking accrual — §6b's "systematically converted OUT of the yield asset" loss **does not occur at all** |
+| **surface** | no LVR, no pool dependence, no DoS surface, no venue-liveness question, no stranding |
+| **plumbing** | `LevManager` already does borrow-against-collateral and is **venue-agnostic on collateral** (QUEUE §A.36); the Vault already supplies to Euler/Morpho 4626s |
+
+⇒ 🎯 **The conclusion is robust to the unmeasured rate** — it holds for any WETH borrow rate below
+  ~7.8% APR, which is a wide margin.
+⚠️ **BUT TWO THINGS ARE UNMEASURED AND MUST BE BEFORE THIS IS MORE THAN A RECOMMENDATION (rule 9):**
+  1. the live WETH borrow rate **and the weETH-collateral market's LTV + WETH-side liquidity** — the
+     latter sets how large a single exit this can serve, i.e. it is the REAL answer to §1's "large
+     enough", and it is the one number that could sink this;
+  2. **it introduces a liquidation surface the LP design does not have.** weETH/ETH is correlated so it
+     is small, but "small" is not "priced" — and the axis nobody measures is where the regression is.
+*(OPEN — this is a recommendation, not a decision.)*
+
+---
+
+# 🚦 THE VERDICT
+🔴 **DON'T SHIP THE NFT** — on §1(b), which is the load-bearing argument: **a liquidity position cannot
+be its own counterparty**, so the NFT cannot satisfy the requirement it was created for
+("large enough for instant conversion"). Everything else — the frozen venue, the ratchet, the stranding,
+the DoS — is corroboration; §1(b) would hold even in a healthy pool.
+📌 Note what this does **not** say: the un-pullability argument (§5 above) was always sound. It is just
+that un-pullable **third-party** depth is what an exit needs, and ours cannot be that for us.
+
+**Ship instead, in this order — the first is independent of the decision and should go regardless:**
+1. **§4b — the `minOut` budget**, on the offramp ladder. One constant, largest purpose impact, lives
+   outside Rover entirely, and is correct whatever happens to the NFT. *(OPEN)*
+2. **§4 — reverse the tier order to `[B, A]`.** Free, measured, and makes routing size-aware with no
+   new machinery. *(OPEN)*
+3. **§6 — price the lending route** (both unmeasured items above). This is the candidate that actually
+   delivers "cheap AND immediate". *(OPEN)*
+4. **§3 — the rung-3-floor haircut** in `deliverableETH`, if and only if anything weETH-denominated
+   stays counted at full face. *(⏸️ conditional)*
+5. **§5 — the `take()` fork test.** Needed either way: `absorb`/`take` survive even if the NFT does
+   not, and neither has a test today. *(OPEN)*
+
+⚠️ **NOTHING ABOVE IS CLOSED.** Per standing rule 16 the only ✅ marks are structural code facts, the
+on-chain token order, and the retracted log method. Every recommendation, measurement and spec stays
+OPEN because the ship decision itself is still being weighed — and reversing it reopens all of them.
