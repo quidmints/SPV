@@ -1306,3 +1306,21 @@ OPEN because the ship decision itself is still being weighed — and reversing i
 ⇒ 📏 **~3.3%/yr of economics against ~23 bps of extra conversion cost ⇒ breakeven ≈ 57,000 WETH/yr of
   offramp volume.** Below it, centre on fair. Above it, centre on spot. *(OPEN — and it still rests on
   R11's untested elasticity assumption: that Rover's presence does not change the volume.)*
+
+## 15.3 🔨 ATTEMPTED THE FAIR-CENTRING FIX — **IT IS A REWORK, NOT A ONE-LINER. REVERTED.**
+§15.2 makes fair-centring worth ~3.3%/yr, so it was attempted (`_fairTick()` + anchoring both the
+band AND the left-the-band trigger on it). **The maths is right** — isolated on a fork it returns
+tick **−960** from `getEETHByWeETH`, exactly the predicted floor of −959.4. **The integration is not.**
+⇒ 🔴 **`NFPM.mint` REVERTS.** Band at fair = `[−960,−950)`; pool spot = **−948**, i.e. OUTSIDE it. But
+  `_swap`'s sizing calls `getLiquidityForAmount0(sqrtCurrent, sqrtUpper, eth)` with
+  `sqrtCurrent > sqrtUpper` — **an INVERTED range**. `LiquidityAmounts` silently swaps the bounds and
+  computes liquidity over a range that is not the band, so the targets are garbage and the mint dies.
+⇒ 📌 **THE REAL FINDING: `_swap`'s entire target-ratio derivation ASSUMES SPOT LIES INSIDE THE BAND.**
+  Fair-centring violates that ~70% of the time (§15.2: in-range 9/30 days). So the doc's *"centre on
+  fair"* is **not a one-line change to `_refreshAndRepack`** — it requires `_swap` to handle
+  spot-outside-band (single-sided minting) as a first-class case.
+⇒ ⛔ **REVERTED, not shipped.** Rule 15 (no unverified money-path change) and rule 10 (one change,
+  falsifiable prediction) both bind, and the rework lands on a decision that is not mine: the
+  ~57,000 WETH/yr breakeven between economics (+2.14%/yr, fair-centred) and offramp quality (−1 bps,
+  spot-centred). **Tree left green: 15/15 Rover fork tests pass.** *(OPEN — this is the top remaining
+  engineering item, and it is bigger than the doc's framing of it.)*
