@@ -445,6 +445,35 @@ contract Rover is ReentrancyGuard, Ownable {
         upper = lower + TICK_SPACING;
     }
 
+    /// @dev Liquidity whose withdrawal realises `need` WETH-EQUIVALENT across BOTH legs, priced off
+    ///      the band's ACTUAL composition at the live tick.
+    ///
+    ///      REPLACES a `need / 2` split that silently assumed the band is 50/50. A v3 band is 50/50
+    ///      only when spot sits at its geometric middle; everywhere else the split is whatever the
+    ///      tick says. MEASURED on a fork at tick -948 in `[-950, -940)` the band is 71.6% WETH, and
+    ///      `take(500 ether)` delivered **348.998** — `need/2 ÷ 0.716 = need × 0.698`, i.e. 30% short,
+    ///      matching to three digits. That short is SILENT: `VaultLib.withdrawETH` wraps `take` in
+    ///      try/catch and reports whatever arrives as success, and `Vogue` re-credits the difference
+    ///      as deferred `pooled` — so an LP is told they exited while a third of the ask never moved.
+    ///
+    ///      Probe-and-scale rather than closed-form: `getAmountsForLiquidity` already encodes the
+    ///      in-range/below/above cases, so asking it for one unit of liquidity and scaling gets the
+    ///      out-of-range branches right for free. (Out of range one leg is zero, and the scale is
+    ///      then simply that leg — no special case.)
+    function _liquidityForWeth(uint need) private view returns (uint128) {
+        (uint160 sqrtLower, uint160 sqrtUpper,
+         uint160 sqrtCurrent) = _getTickSqrtPrices();
+        (uint a0, uint a1) = LiquidityAmounts.getAmountsForLiquidity(
+            sqrtCurrent, sqrtLower, sqrtUpper, uint128(WAD));
+        (uint pWeth, uint pWeeth) = token1isWETH ? (a1, a0) : (a0, a1);
+        // Value the weETH leg at the unmanipulable protocol rate, the same anchor `_fairMinOut`
+        // floors the actual conversion at — so sizing and execution agree on what a weETH is worth.
+        uint perUnit = pWeth + (pWeeth == 0 ? 0 : IWeETH(WEETH).getEETHByWeETH(pWeeth));
+        if (perUnit == 0) return 0;
+        uint liq = FullMath.mulDiv(WAD, need, perUnit);
+        return liq > type(uint128).max ? type(uint128).max : uint128(liq);
+    }
+
     function _getTickSqrtPrices() internal view returns
         (uint160 sqrtLower, uint160 sqrtUpper, uint160 sqrtCurrent) {
         sqrtLower = TickMath.getSqrtPriceAtTick(LOWER_TICK);
@@ -605,18 +634,7 @@ contract Rover is ReentrancyGuard, Ownable {
         uint128 liquidity; uint usdcAmount;
         {
         uint need = amount - wethAmount;
-        if (need > 0) {
-        (uint160 sqrtLower, uint160 sqrtUpper,
-         uint160 sqrtCurrent) = _getTickSqrtPrices();
-
-        // #21: each leg realizes over its OWN half-range — the token1(WETH) amount over
-        // [sqrtLower, sqrtCurrent], the token0 amount over [sqrtCurrent, sqrtUpper]. (Was both
-        // (sqrtCurrent, sqrtUpper), under-sizing the WETH-is-token1 withdrawal.)
-        liquidity = token1isWETH ? LiquidityAmounts.getLiquidityForAmount1(
-                                          sqrtLower, sqrtCurrent, need / 2):
-                                    LiquidityAmounts.getLiquidityForAmount0(
-                                           sqrtCurrent, sqrtUpper, need / 2);
-        }
+        if (need > 0) liquidity = _liquidityForWeth(need);
         }
         (uint amount0, uint amount1, ) = _withdrawAndCollect(liquidity);
         if (token1isWETH) { usdcAmount = amount0; wethAmount += amount1; }
