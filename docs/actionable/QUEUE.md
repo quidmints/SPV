@@ -274,6 +274,43 @@ and books 5 bps.** Profitable **iff** `5bps × volume > accrual conceded between
 | this is a LOSS vs holding | sold weETH at ~mid while fair kept rising ⇒ classic LVR | ✅ holds |
 | "no arber restores it" | restoring needs `getRate()` to FALL | ✅ holds |
 
+### ⛔ R3 — I ANALYSED A PHANTOM ±7% BAND. The code is a **ONE-TICK** band. (user caught it)
+`Rover.sol:207` says *"total range is ~7% below and above tick"*. **That comment is STALE.**
+`_adjustTicks` (`:435-446`) is a **TRUE ONE-TICK band**: `lower = floor(tick, TICK_SPACING)`,
+`upper = lower + TICK_SPACING` ⇒ with spacing 10, **≈10 bps wide**, and its own docstring says so
+(*"TRUE ONE-TICK band … a single tick-spacing captures ~all the fee"*). **Two comments in one file
+contradict each other and I quoted the wrong one.** ⇒ 🔧 **Delete the `:207` text — it is false and it
+actively misled this analysis.**
+
+### 🔴 R4 — TIGHT BAND × REFUSAL GATE = STRANDED OUT-OF-RANGE (the real defect)
+With a ~10 bps band and 0.67 bps/day drift, the price **exits the band every ~15 days** under pure
+accrual, so `:205`'s recenter is a ROUTINE event, not a rare one. But:
+> **`_nearFair` REFUSES to recenter when spot is >50 bps from fair — and ~$5 puts it there (R2).**
+> A shove large enough to knock a 10 bps band out of range is ALSO large enough to trip the 50 bps
+> gate. ⇒ **The position goes out-of-range and the recenter that would fix it is refused.**
+⇒ ⚠️ **The gate blocks the remedy at exactly the moment the remedy is needed.** Stranded out-of-range
+  = fully converted to one token, earning ZERO fees, until someone restores spot. And per R1 **no
+  arber has an incentive to restore it** — the restoring trade is the unprofitable direction.
+📌 This is a **liveness** bug, not a pricing one, and it is cheap to trigger and self-sustaining.
+
+### ⭐ REMEDY — REVISED AGAIN, and it is SMALLER than going single-sided
+Directionality was aimed at adverse selection. But with a one-tick band the per-cycle pick-off is
+already small (≈half the band ≈5 bps vs a 5 bps fee — marginal, not ruinous). **The dominant problem
+is R4's stranding, and it has a much less invasive fix:**
+ 1. ⭐ **Let the recenter price off FAIR when spot is manipulated, instead of REFUSING.** `_nearFair`
+    should gate *execution against spot* (mint/compound/swap), **not** the act of re-centring. Placing
+    the band at `getEETHByWeETH` needs no honest spot at all — so the stranding disappears **and** the
+    $5 DoS loses its teeth. **This is the elegant fix: it changes a refusal into a fallback.**
+ 2. Delete the stale `:207` comment (R3).
+ 3. Only then ask whether directionality is still worth it — with 1 and 2 done, the residual is the
+    marginal fee-vs-drift question, which needs REALISED fee data, not more reasoning.
+⚠️ **What I considered and rejected:** *wider band* (fewer recenters but larger pick-off per cycle,
+  and it does NOT fix stranding); *shorter recenter interval* (does not help — the block is the gate,
+  not the cadence); *removing `_nearFair`* (unsafe: it is the only thing stopping execution against a
+  shoved spot); *single-sided* (fixes adverse selection but is a re-architecture, and R4 stranding
+  would still bite the remaining side).
+
+
 ### 🔴 R2 — `_nearFair` IS A ~$5 DoS VECTOR (user, 2026-08-03: *"liveness shortage when it shouldn't"*)
 The gate is a **REFUSAL** (no mint / no recenter / no compound beyond 50 bps from fair) and the pool is
 **thin enough that the refusal is trivially cheap to trigger**. With in-range `L = 6.6e17`:
