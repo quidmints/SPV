@@ -570,9 +570,13 @@ contract LevCascadeProbe is Alles {
         assertGt(lm.grossCollateralEth(lps[0]), lm.netEquityEth(lps[0]),
             "(3b) full-2x: gross > net => a real debt-funded buffer is in the band");
         assertGt(lm.totalDebtUsd(), 0, "(3b) full-2x: a real debt-funded buffer exists (live leverage debt > 0)");
+        // §#12 RE-DERIVED: same claim — committed EXCLUDES the debt-funded buffer — but measured
+        // against BASKET-SUPPLIED depth rather than curve inventory, because committed no longer
+        // tracks what a swap put in the curve. The buffer folds into `basketUsd*` at `addLiq`
+        // (mod path) exactly as it used to fold into `POOLED_USD_*`, so the identity still bites.
         assertEq(CORE.committedUsd18() + lm.totalDebtUsd(),
-                 (CORE.POOLED_USD_ETH() + CORE.POOLED_USD_BTC()) * 1e12,
-            "(3b) full-2x: committed EXCLUDES the debt-funded buffer (committed == in-range USD - live debt)");
+                 (CORE.basketUsdEth() + CORE.basketUsdBtc()) * 1e12,
+            "(3b) full-2x: committed EXCLUDES the debt-funded buffer (committed == basket depth - live debt)");
 
         // (4) NO RACE: syncLev idempotent — a second call with no equity change is a no-op (no double-credit).
         uint levSlice = V4.levPooled(lps[0]);
@@ -805,8 +809,9 @@ contract LevCascadeProbe is Alles {
         emit log_named_uint("live ETH leverage debt (18d)", debt);
         assertGt(debt, 0, "PREMISE: leverage debt must be outstanding, else the floor has nothing to floor");
 
-        uint ethPooled18 = CORE.POOLED_USD_ETH() * 1e12;
-        uint btcPooled18 = CORE.POOLED_USD_BTC() * 1e12;
+        // §#12: the per-band floor now applies to the BASKET's contribution, not the curve leg.
+        uint ethPooled18 = CORE.basketUsdEth() * 1e12;
+        uint btcPooled18 = CORE.basketUsdBtc() * 1e12;
         uint committed   = CORE.committedUsd18();
         uint btcEquity   = CORE.btcBandEquityUsd18();
         uint ethEquity   = committed - btcEquity;
@@ -818,11 +823,11 @@ contract LevCascadeProbe is Alles {
 
         // THE PER-BAND DECOMPOSITION — the property the merge must preserve or consciously redefine.
         assertEq(ethEquity, ethPooled18 > debt ? ethPooled18 - debt : 0,
-            "ETH band equity == its OWN USD leg less its OWN debt, floored at 0");
+            "ETH band equity == its OWN BASKET DEPTH less its OWN debt, floored at 0");
         assertGt(btcPooled18, 0,
             "PREMISE: the BTC band must be SEEDED, else the cross-band assertion below is 0 == 0");
         assertEq(btcEquity, btcPooled18,
-            "BTC band carries no debt here, so its equity is its FULL USD leg -- the ETH band's debt must NOT reach it");
+            "BTC band carries no debt here, so its equity is its FULL basket depth -- the ETH band's debt must NOT reach it");
         assertEq(committed, ethEquity + btcEquity,
             "committedUsd18 is the SUM OF PER-BAND FLOORED equities, not one floor over the total");
         assertLt(committed, ethPooled18 + btcPooled18,
@@ -875,8 +880,9 @@ contract LevCascadeProbe is Alles {
             vm.roll(block.number + 1); vm.warp(block.timestamp + 10 minutes);
         }
 
-        uint ethPooled18 = CORE.POOLED_USD_ETH() * 1e12;
-        uint btcPooled18 = CORE.POOLED_USD_BTC() * 1e12;
+        // §#12: the per-band floor now applies to the BASKET's contribution, not the curve leg.
+        uint ethPooled18 = CORE.basketUsdEth() * 1e12;
+        uint btcPooled18 = CORE.basketUsdBtc() * 1e12;
         debt = lm.totalDebtUsd();                             // re-read: the drain may have moved it
         uint committed = CORE.committedUsd18();
         uint btcEquity = CORE.btcBandEquityUsd18();
@@ -899,7 +905,7 @@ contract LevCascadeProbe is Alles {
         assertEq(btcEquity, btcPooled18,
             "the ETH band's excess debt must NOT reach the BTC band's equity");
         assertEq(committed, btcPooled18,
-            "committed == the BTC leg alone: the ETH band floors at ZERO, its overflow is NOT netted against BTC");
+            "committed == the BTC basket depth alone: the ETH band floors at ZERO, its overflow is NOT netted against BTC");
         assertGt(committed, ethPooled18 + btcPooled18 > debt ? ethPooled18 + btcPooled18 - debt : 0,
             "per-band flooring must report STRICTLY MORE committed than a single floor over the total");
     }

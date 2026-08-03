@@ -14,10 +14,15 @@ interface IErc20Bal { function balanceOf(address) external view returns (uint); 
 ///
 ///   Reuses LevCascadeProbe's REAL-Morpho + REAL-Vogue-band fork scaffolding (helpers/fields inherited).
 contract BufferSwapDrain is LevCascadeProbe {
-    /// @dev committed must equal (both pools' in-range USD) minus the live ETH leverage debt, at every step.
-    ///      (No BTC lev here ⇒ the BTC band's debt term is 0.) This is the fold's defining identity.
+    /// @dev committed must equal (both pools' BASKET-SUPPLIED depth) minus the live ETH leverage
+    ///      debt, at every step. (No BTC lev here ⇒ the BTC band's debt term is 0.)
+    ///      §#12 RE-DERIVED: the fold's INTENT is unchanged — *committed excludes the debt-funded
+    ///      buffer* — but the quantity it is measured against moved from CURVE INVENTORY
+    ///      (`POOLED_USD_*`, which a swap moves) to BASKET CONTRIBUTION (`basketUsd*`, which only
+    ///      `addLiq`/burn moves). Asserting against the curve leg now would pin the very coupling
+    ///      #12 removed: it would demand that an LP's sale proceeds still count as basket depth.
     function _assertCommittedIdentity(string memory tag) internal {
-        uint pooled18 = (CORE.POOLED_USD_ETH() + CORE.POOLED_USD_BTC()) * 1e12;
+        uint pooled18 = (CORE.basketUsdEth() + CORE.basketUsdBtc()) * 1e12;
         uint debt18   = lm.totalDebtUsd();
         uint expect   = pooled18 > debt18 ? pooled18 - debt18 : 0;
         assertEq(CORE.committedUsd18(), expect, tag);

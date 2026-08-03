@@ -90,7 +90,18 @@ contract RoundTripNeutralityLevered is LevYbRealProbe {
         assertGt(V4.totalLevPooled(), 0, "precondition: a levered slice IS open, else this is blind");
         assertGt(rlm.totalNetEquityEth(), 0, "precondition: live lev net-equity is non-zero");
 
-        uint expected = 1e18 * AUX.vogueETH() / V4.lpShares();
+        // §#12 RE-DERIVED: `_pricingBacking` is no longer `vogueETH` alone — it adds the LP-owned
+        // USD leg (the band's USD beyond the basket's contribution) valued at the band's own
+        // ratio. With the clocks coincident the LEVERED term still cancels, which is what this
+        // test is about; the two-leg term is added here so the identity measures that and not #12.
+        uint backing = AUX.vogueETH();
+        {   uint usd6 = CORE.POOLED_USD_ETH(); uint base6 = CORE.basketUsdEth(); uint eth = CORE.POOLED_ETH();
+            if (usd6 > 0 && eth > 0) {
+                if (usd6 > base6) backing += (usd6 - base6) * eth / usd6;
+                else if (base6 > usd6) { uint d = (base6 - usd6) * eth / usd6; backing = backing > d ? backing - d : 0; }
+            }
+        }
+        uint expected = 1e18 * backing / V4.lpShares();
         assertEq(V4.convertToAssets(1e18), expected,
             "with the book in sync the price is EXACTLY vogueETH/lpShares (clocks coincide)");
     }
