@@ -5,6 +5,8 @@ import {Alles} from "./Alles.t.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
+import {SqrtPriceMath} from "v4-core/src/libraries/SqrtPriceMath.sol";
+import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {Currency} from "v4-core/src/types/Currency.sol";
 import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 
@@ -721,5 +723,41 @@ contract UnificationControls is Alles {
         emit log_named_uint("2nd exit: ETH more   ", lpA.balance - eth1);
         emit log_named_uint("2nd exit: QUID more  ", QUID.balanceOf(lpA) - q1);
         assertLt(V4.balanceOf(lpA), pooled1, "the deferred residual must be RECOVERABLE by a second exit");
+    }
+
+    /// PROVE-BEFORE-REFACTOR: can `POOLED_USD_ETH`/`POOLED_ETH` be DERIVED from pool state instead
+    /// of mirrored in storage? If yes, those two slots can hold the #12 base instead and
+    /// `basketUsdEth`/`basketUsdBtc` are deleted -- a net -4 slots. If the derived and stored
+    /// values diverge, the removal is DEAD and must not be attempted.
+    ///
+    /// E13 already cleared the objection that blocked this: band and boundary-order tick widths
+    /// (40 vs >=90) can never coincide, so the shared `salt: bytes32(0)` cannot alias them and a
+    /// query on the band's range returns the band's position ALONE.
+    function test_PROVE_PooledIsDerivableFromPoolState() public {
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 200 ether}(0, lpA, 3);
+        vm.roll(block.number + 1);
+        for (uint i; i < 4; i++) _trade(3_000e18);
+
+        (uint160 sqrtP,, uint128 liq) = CORE.poolStats(V4.LOWER_TICK(), V4.UPPER_TICK(), false);
+        // In-range position: token0 side spans [spot, upper], token1 side spans [lower, spot].
+        uint160 lo = TickMath.getSqrtPriceAtTick(V4.LOWER_TICK());
+        uint160 hi = TickMath.getSqrtPriceAtTick(V4.UPPER_TICK());
+        uint a0 = SqrtPriceMath.getAmount0Delta(sqrtP, hi, liq, false);
+        uint a1 = SqrtPriceMath.getAmount1Delta(lo, sqrtP, liq, false);
+        // token1isETH decides which amount is the ETH leg.
+        (uint derivedUsd, uint derivedEth) = V4.token1isETH() ? (a0, a1) : (a1, a0);
+
+        emit log_named_uint("stored  POOLED_USD_ETH", CORE.POOLED_USD_ETH());
+        emit log_named_uint("derived USD leg       ", derivedUsd);
+        emit log_named_uint("stored  POOLED_ETH    ", CORE.POOLED_ETH());
+        emit log_named_uint("derived ETH leg       ", derivedEth);
+        emit log_named_uint("band liquidity        ", liq);
+
+        assertGt(liq, 0, "PREMISE: the band holds liquidity, else the derivation is vacuous");
+        // Within 1% -- the derivation is exact math on the same position; any real gap means the
+        // mirror carries information the pool does not (which would kill the removal).
+        assertApproxEqRel(derivedUsd, CORE.POOLED_USD_ETH(), 0.01e18, "USD leg must be derivable from pool state");
+        assertApproxEqRel(derivedEth, CORE.POOLED_ETH(), 0.01e18, "ETH leg must be derivable from pool state");
     }
 }
