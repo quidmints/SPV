@@ -1075,7 +1075,8 @@ Per the repo owner (2026-08-03): *"make sure you land everything else that is ne
 | vein | control | state |
 |---|---|---|
 | **V1** committed identity, NO leverage debt | `UnificationControls::test_V4_DepositGrowsCommittedByExactlyTheBandedUsd` · `PooledUsdRepackMatrix::testMatrix_S4` | ✅ green |
-| **V1b** committed identity **WITH** live leverage debt — `_bandEquityUsd18` floors PER BAND (caveat B6); naive unification LOOSENS this gate | — | 🔴 **NOT COVERED** |
+| **V1b** committed identity **WITH** live leverage debt — `_bandEquityUsd18` floors PER BAND (caveat B6) | `LevCascade::test_V1b_CommittedDecomposesPerBandWithLiveLeverageDebt` | ✅ green — measured ETH debt 3,522.32 against a 44,966.84 ETH leg and a **seeded** 11,542.89 BTC leg; ETH equity 41,444.52, BTC equity FULL, committed = their sum |
+| **V1b-disc** the DISCRIMINATING case: one band's debt **EXCEEDS ITS OWN** USD leg | — | 🔴 **NOT COVERED.** V1b pins the per-band DECOMPOSITION, and `test_IlProtection_LeveredVsUnlevered_NoCrossSubsidy:573` pins `committed + totalDebtUsd == (both legs) x 1e12` — but that SUM form is IDENTICAL under per-band and single-floor definitions, so neither discriminates them. Needs BTC-band leverage or a deliberately thin ETH leg. **This is the only case where the naive merge is observably wrong.** |
 | **V2** P&L attribution: equal-LP split, late-joiner bookmark, non-depositor, collectFees idempotence, last-exit zeroing | `UnificationControls::test_V2_*` (5) | ✅ green |
 | **V2b** cross-band accumulator isolation, both directions, both bands SEEDED | `PooledUsdRepackMatrix::testMatrix_S1/S2` | ✅ green |
 | **V3** swap pricing: band-edge fill neutrality, partial-fill refund, dry-pool revert, one-shot vs incremental | `testMatrix_S5/S6` · `testGrindRemoval_*` (4) · `testStrand3` | ✅ green |

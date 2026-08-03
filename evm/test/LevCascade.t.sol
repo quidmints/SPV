@@ -757,4 +757,75 @@ contract LevCascadeProbe is Alles {
         vm.expectRevert(LevMath.VenueBlocked.selector);
         lm.openLev(5000, ILevVenue(address(venue)), 5 ether, mins);
     }
+
+    // ═════════════════════════ V1b — PRE-UNIFICATION CONTROL ═════════════════════════
+    //
+    // `committedUsd18()` is `_bandEquityUsd18(false) + _bandEquityUsd18(true)`, each term floored
+    // at ZERO **PER BAND** (`Core.sol:112-116`), so one band's leverage debt can never eat the
+    // other band's equity. The `POOLED_USD` unification merges those counters, and the naive form
+    // takes a SINGLE floor over the unified total:
+    //
+    //      per-band (today):  max(0, ethUsd - ethDebt) + max(0, btcUsd - btcDebt)
+    //      unified (naive) :  max(0, (ethUsd + btcUsd) - (ethDebt + btcDebt))
+    //
+    // They agree while each band's debt is below its OWN USD leg. When one band's debt EXCEEDS its
+    // own leg, the naive form lets that overflow eat the other band's equity, reporting LESS
+    // committed — a LOOSER `committedUsd18() <= haircutTvl` gate that admits commitments the
+    // per-band form rejects. Nothing reverts; the basket silently over-commits. Caveat B6.
+    //
+    // ⚠️ WHAT THIS TEST DOES AND DOES NOT COVER. `test_IlProtection_LeveredVsUnlevered_NoCrossSubsidy`
+    // already pins `committed + totalDebtUsd == (both USD legs) x 1e12` with live debt — but that
+    // is the SUM form, which is IDENTICAL under both definitions and therefore cannot discriminate
+    // them. This test pins the PER-BAND decomposition instead, which is the part the merge would
+    // change. The fully discriminating case (one band's debt > its own USD leg) needs BTC-band
+    // leverage or a deliberately thin ETH leg and is NOT built here — tracked as V1b-disc.
+    function test_V1b_CommittedDecomposesPerBandWithLiveLeverageDebt() public {
+        _setupLev();
+        ETH.setLevManager(address(lm));
+        lm.setSoldFractionActive(true);
+        vm.deal(address(this), 40 ether);
+        V4.deposit{value: 20 ether}(0, address(this), 3);
+        _openAtEntry(lps[0], 5 ether);
+
+        // Debt is entry-price-driven: `openLev` opens at ZERO leverage, so a rally is what creates
+        // the IL hedge. Without it `totalDebtUsd() == 0` and the whole test is vacuous — the
+        // PREMISE below caught exactly that on the first run.
+        _rallyBand(_entrySqrt(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
+        lm.rebalance(lps[0], 0);
+        _calmVol();
+        V4.syncLev(lps[0]);
+
+        // SEED THE BTC BAND. Without it `btcPooled18 == 0` and the cross-band assertion below is
+        // `0 == 0` — it would "prove" that ETH debt cannot reach BTC equity while there is no BTC
+        // equity to reach. `registerBtcLp` is gated to BTCChannels, impersonated as in BtcBandTheta.
+        AUX.setBTCChannels(address(this));
+        BTC.registerBtcLp(User01, 2e7);          // 0.2 BTC
+
+        uint debt = lm.totalDebtUsd();
+        emit log_named_uint("live ETH leverage debt (18d)", debt);
+        assertGt(debt, 0, "PREMISE: leverage debt must be outstanding, else the floor has nothing to floor");
+
+        uint ethPooled18 = CORE.POOLED_USD_ETH() * 1e12;
+        uint btcPooled18 = CORE.POOLED_USD_BTC() * 1e12;
+        uint committed   = CORE.committedUsd18();
+        uint btcEquity   = CORE.btcBandEquityUsd18();
+        uint ethEquity   = committed - btcEquity;
+        emit log_named_uint("ETH USD leg (18d)", ethPooled18);
+        emit log_named_uint("BTC USD leg (18d)", btcPooled18);
+        emit log_named_uint("committedUsd18   ", committed);
+        emit log_named_uint("  ETH band equity", ethEquity);
+        emit log_named_uint("  BTC band equity", btcEquity);
+
+        // THE PER-BAND DECOMPOSITION — the property the merge must preserve or consciously redefine.
+        assertEq(ethEquity, ethPooled18 > debt ? ethPooled18 - debt : 0,
+            "ETH band equity == its OWN USD leg less its OWN debt, floored at 0");
+        assertGt(btcPooled18, 0,
+            "PREMISE: the BTC band must be SEEDED, else the cross-band assertion below is 0 == 0");
+        assertEq(btcEquity, btcPooled18,
+            "BTC band carries no debt here, so its equity is its FULL USD leg -- the ETH band's debt must NOT reach it");
+        assertEq(committed, ethEquity + btcEquity,
+            "committedUsd18 is the SUM OF PER-BAND FLOORED equities, not one floor over the total");
+        assertLt(committed, ethPooled18 + btcPooled18,
+            "live debt must pull committed BELOW the raw two-leg sum, else the debt term is inert");
+    }
 }
