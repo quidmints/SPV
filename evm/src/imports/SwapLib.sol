@@ -6,6 +6,7 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {IBasketTurn} from "./BasketLib.sol";
 // §A.52: the canonical Core view (was a file-local variant).
 import {ICore} from "./Interfaces.sol";
+import {IEthVenue} from "./Interfaces.sol";
 import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -28,7 +29,6 @@ import {IV3SwapRouter} from "./v3/IV3SwapRouter.sol";
 import {IRover} from "./Interfaces.sol";
 import {IAux} from "./Interfaces.sol";
 import {IAggregatorV3} from "./Interfaces.sol";
-import {IAux} from "./Interfaces.sol";
 
 // ether.fi offramp interfaces (suffixed `_L` to avoid clashing with Aux's own
 // copies, since Aux imports SwapLib). Same signatures as Aux's.
@@ -64,11 +64,8 @@ interface ILevEthDeliver {
 /// @notice V4 (Vogue) repack. 5th return = the resolved oracle price (Chainlink-when-stale, else internal
 ///         TWAP) computed during the repack-first; the swap reuses it as v4Price so it doesn't read the
 ///         internal `observe` ring a 2nd time. 0 ⇒ live-read fallback. (Was two identical decls
-///         IVogueRepack2/IVogueRepackRet — collapsed to one.)
-interface IVogueRepack2 {
-    function repack(bool isBTC) external returns (uint160 sqrtPriceX96,
-        int24 tickLower, int24 tickUpper, uint128 myLiquidity, uint resolvedTwap);
-}
+///         IVogueRepack2/IVogueRepackRet — now collapsed onto the CANONICAL `IEthVenue.repack`
+///         in `Interfaces.sol` (rule 2), which already declared this exact signature.)
 interface IBtcChan2 {
     function btcRecipientOf(address user) external view returns (bytes32);
 }
@@ -397,8 +394,8 @@ library SwapLib {
         uint160 bandTicks; uint v4p;
         {
             (, int24 lo, int24 hi,, uint p) = isBTC
-                ? IVogueRepack2(c.btcVault).repack(true)
-                : IVogueRepack2(c.v4).repack(false);
+                ? IEthVenue(c.btcVault).repack(true)
+                : IEthVenue(c.v4).repack(false);
             v4p = p;
             bandTicks = _packBandTicks(lo, hi);
         }
@@ -777,7 +774,7 @@ library SwapLib {
         uint v4p;
         Types.RouteParams memory rp;
         {
-            (, int24 lo, int24 hi,, uint p_) = IVogueRepack2(v4).repack(true);
+            (, int24 lo, int24 hi,, uint p_) = IEthVenue(v4).repack(true);
             v4p = p_;
             rp.sqrtPriceX96 = _packBandTicks(lo, hi);
         }
@@ -1081,7 +1078,7 @@ library SwapLib {
         // §E9 — packed band ticks, not a price (see creditSwapInBody). Block-scoped for stack.
         uint v4p;
         {
-            (, int24 lo, int24 hi,, uint p_) = IVogueRepack2(address(this)).repack(true);
+            (, int24 lo, int24 hi,, uint p_) = IEthVenue(address(this)).repack(true);
             v4p = p_;
             rp.sqrtPriceX96 = _packBandTicks(lo, hi);
         }

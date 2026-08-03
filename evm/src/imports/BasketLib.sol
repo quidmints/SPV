@@ -24,7 +24,6 @@ import {VaultLib} from "./VaultLib.sol";
 /// EthVenue — the ETH-venue custody (Galaxy/AAVE WETH). vault-health STATE
 /// stays Aux-owned, but the Galaxy WETH position is custodied on EthVenue after
 /// the venue carve, so the evac/poke Galaxy leg reads + drains via this handle.
-interface IVogueRepack { function repack(bool isBTC) external; }
 interface IVogueUnwind { function unwindForRedeem(uint usdWanted) external returns (uint usdFreed); }
 // §G.6 redeem shortfall sweep: the ETH LevManager's ONE reactive de-lever entry (SHARED with swap-out). Reached
 // via core→Vault (IWiredCore.btcVault → IWiredVault.LEV_MANAGER, both existing). `deleverBook` frees levered
@@ -928,8 +927,8 @@ library BasketLib {
     /// @dev Route a pool repack to its owning contract: BTC → BtcVault,
     ///      ETH → Vogue. (The BTC LP side was regrouped out of Vogue.)
     function _repackPool(bool isBTC, address v4, address btcVault) private {
-        if (isBTC) IVogueRepack(btcVault).repack(true);
-        else       IVogueRepack(v4).repack(false);
+        if (isBTC) IEthVenue(btcVault).repack(true);
+        else       IEthVenue(v4).repack(false);
     }
 
     /// @notice All-or-nothing deploy-finalize linkage assert (delegatecall from
