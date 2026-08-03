@@ -1202,6 +1202,52 @@ WETH each on a 4,000 WETH Rover — **2,496.9 WETH of flow, 62% of the position 
 
 ---
 
+# 🧨 §15 — R11's REPLAY, RUN. **CADENCE MAKES ADVERSE SELECTION WORSE.**
+Rolling 30-day windows over **91 daily samples**, 4,000 WETH position, exact v3 position arithmetic
+on the measured price path (`analysis/rover/replay.py` + the two data files beside it). A position's
+holdings are a closed form of (band, liquidity, price), so this is arithmetic on reality, not a model.
+| cadence | **LVR only** | +fees vs HOLD-MIX | **vs HOLD-WETH** | in-range |
+|---|---|---|---|---|
+| **never (passive)** | **−1.03%** | −0.94% | 🎯 **−0.04%** | 7/30 |
+| weekly | −1.35% | −1.07% | −0.08% | 20/30 |
+| every 3 days | −1.73% | −1.19% | −0.20% | 25/30 |
+| **daily** | 🔴 **−2.15%** | −1.60% | 🔴 **−1.15%** | 27/30 |
+
+⇒ ⛔ **THIS OVERTURNS R5, R10 STEP 2, AND §6b's CENTRAL CLAIM.** §6b says *"the only escape is
+  CADENCE: recenter fast ⇒ window → 0"*, and R10 says fix `_nearFair` *"regardless of the LP
+  decision."* **Measured, cadence is the wrong direction.** Fee capture DOES rise with cadence (6×
+  from passive to daily) — **LVR rises faster.**
+⇒ 🔬 **THE MECHANISM IS THE DOC'S OWN R1 CYCLE, READ CORRECTLY AT LAST.** *mint → place in range →
+  accrual makes the quote stale → arber lifts → repeat.* **Re-centring RE-ARMS the position into the
+  line of fire.** A passive band drifts out of range (in-range 7/30 days) and **stops being
+  converted**; a cranked one sits in range 27/30 and is picked off continuously. §6b saw that
+  loss-PER-CYCLE shrinks with cadence — correct — and missed that **cycle COUNT rises at least as
+  fast.**
+⇒ ✅ **TWO INDEPENDENT CROSS-CHECKS.** The passive **−1.03%** matches the **−1.07%** derived from
+  actual pool balances by a completely different route (§14.3 method). And re-centring is modelled as
+  **value-preserving**, which is generous — real re-centring pays a swap — so the true figures are
+  **worse**, never better. *(OPEN — 61 rolling windows over one 90-day regime; a different volume
+  regime moves the fee column, though not the sign of the cadence gradient.)*
+
+## 15.1 ⇒ WHAT THIS SETTLES
+1. ⭐ **ROVER WORKS AS A PASSIVE RESERVE, NOT AS A MANAGED LP.** Passive costs **−0.04%/yr** against
+   holding WETH idle — **essentially free** — and still delivers the measured **−1 bps** conversions
+   (§13.1, §14.1), which are a separate benefit that does not depend on cadence at all.
+2. 🔴 **THE PERMISSIONLESS `compound()` CRANK IS A LIABILITY.** Wiring a keeper to it — recommended
+   twice in this document and twice by me — **costs ~1.1%/yr**. It is currently self-funding and
+   anyone can call it. **That is a live footgun, not a feature.** ▶️ Decide whether to disable it.
+3. ⛔ **`_nearFair`'s "stranding" is not obviously a bug at all.** Refusing to recentre keeps the
+   position passive, which measures BETTER. The DoS remains a real griefing surface, but §13.3 shows
+   it costs an attacker ~8,413 ETH once Rover is deployed. **Both of the doc's top-ranked Rover
+   defects point the wrong way.**
+4. 🔴 **ADVERSE SELECTION IS NOT FIXABLE for a standing v3 position.** Cadence worsens it, width is
+   ~neutral (LVR is invariant to concentration for given capital — a wider band means a longer
+   traverse with execution further from terminal fair; a narrower one the reverse), and the real
+   escapes — own the curve, auction the arb right — are unavailable to a v3 **guest**. **What is
+   available is to stop fighting it: hold the band passively and take the conversion benefit.**
+
+---
+
 # 🚦 THE VERDICT — ⛔ WITHDRAWN 2026-08-03, SAME DAY IT WAS WRITTEN
 > I wrote **"DON'T SHIP THE NFT"** resting on §1(b), *"a liquidity position cannot be its own
 > counterparty."* **§1(b) is false** (retracted above, with the measurement that refutes it). A verdict
