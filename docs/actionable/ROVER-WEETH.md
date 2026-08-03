@@ -74,7 +74,7 @@ throughout; the *inferences between them* were not, and that is the reusable les
 | | **weETH** | **1.0** | **921.6** | 2.8 |
 | 0.01% | WETH | 2,052.6 | 1,613.7 | 3,106.2 |
 | | **weETH** | **0.8** | **400.2** | 87.5 |
-**WETH is flat-to-up. Only the weETH side vanished.** In-range `L` fell 3.5M× (0.05%) and 25,000×
+**WETH is flat-to-up. Only the weETH side vanished.** In-range `L` fell **3,497,327×** (2.310e24 → 6.605e17) (0.05%) and 25,000×
 (0.01%) — but **TVL did not move**. ⇒ ⛔ **"The pool was abandoned" was WRONG (asserted 3×).** LPs did
 not withdraw: the monotonic drift converted their weETH → WETH and walked price OUT of their ranges.
 **This is the ratchet, observed in the wild** — and their parked WETH now bids for weETH at prices the
@@ -118,6 +118,35 @@ It is out of range and earning them nothing, so there is no reason for it to sta
 | 🔴 **Precedent** | **Vogue already fixed this exact bug.** `SwapLib._priceOr` (`:119-136`): the prior revert-on-divergence *"bricked QUI redemption and froze swaps/deposits … DEADLOCKED the protocol until the price mean-reverted"* — **proven by `test/TwapAnchorDeadlock.t.sol`**. Fix = **degrade to the anchor, never refuse**. ⇒ Rover holds the pattern Vogue abandoned, and unlike Vogue's case **nothing here incentivises the mean-reversion that cleared it.** |
 | 🟠 **DoS cost is state-dependent** | Tripping the gate costs ~$5 at today's `L`, **~$18.2M at 30-day-ago `L`** (linear in `L`). It is a symptom of the out-of-range condition, not an inherent flaw. |
 | ✅ **Fixed 2026-08-03** | The `~7%` band comment was **stale** — `_adjustTicks` is a **TRUE ONE-TICK band** (`floor(tick)`→`+TICK_SPACING`, ≈10 bps). Deleted; it mis-framed an entire analysis. |
+
+## 6b. THE CYCLE — where the loss actually occurs (and where it does NOT)
+**Minting is NOT where you lose.** `getRate()` is fair by definition — no spread, no slippage.
+**The loss is entirely the accrual between placing weETH in range and an arber lifting it.** Your range
+quotes a FIXED price while fair climbs underneath it; the moment the gap exceeds the fee, someone takes
+the weETH and leaves you WETH.
+> **hold WETH → mint at fair (neutral) → place in range → rate accrues, quote goes STALE → arber lifts
+> → hold WETH again.** Round-tripped into the NON-yielding asset, having earned the fee tier and
+> forfeited the accrual in that window.
+⇒ **The real cost is being systematically converted OUT of the yield-bearing asset.** Holding weETH
+  earns the full staking rate; LPing earns the fee per lift instead.
+⇒ 🔴 **THERE IS NO STATE IN WHICH WAITING RECOVERS YOUR weETH.** Every other LP is already at the
+  terminal state — **4,840 WETH vs 1.03 weETH is what "eventually" looks like.**
+⇒ **The only escape is CADENCE:** loss/cycle = accrual during the window. Recenter fast ⇒ window → 0.
+  Recenter slowly ⇒ concede the whole drift. **A race between recenter cadence and accrual rate.**
+🔴 **AND THE RACE IS ALREADY LOST BY CONSTRUCTION:** `_refreshAndRepack` (`:78-83`) reads `_slot0()` and
+  repacks on `getPrice(sqrtPriceX96)` — **POOL SPOT, not `getRate()` fair.** It re-inherits the very
+  stale price it is trying to escape, **so the leak persists REGARDLESS of cadence.** Centring on fair
+  is the precondition for cadence to matter at all.
+
+## 6c. NEVER EVALUATED — options that may dominate everything above
+| | status |
+|---|---|
+| **JIT liquidity** | 🔴 **NEVER EVALUATED, and this repo ALREADY HAS THE MACHINERY** (`JIT-DEPTH-GUARANTEE.md` + Vogue's JIT defense). Standing liquidity is what gets picked off; provide depth only in the block it is needed and withdraw. **Zero standing exposure, zero DoS surface, offramp served exactly when asked. Should have been considered FIRST.** |
+| **Lending weETH** | 🔴 **NEVER PRICED.** weETH as Morpho/Euler collateral earns a supply rate ON TOP of staking, with no LVR and no liveness surface. §A.36 proves the venue plumbing exists. **The option table is incomplete without it.** |
+| **Fee tier** | 🟠 never questioned — 0.05% vs 0.01% vs 0.30% is a free lever. |
+| **Is Rover even DEPLOYED?** | 🔴 **UNCHECKED.** If its `L` is inside the historical ~1e24, the "with Rover" case is ALREADY MEASURED and the counterfactual work is unnecessary. **Cheapest check on the list — do it first.** |
+📌 **Pattern:** each is an option never put on the table, and each could dominate what WAS analysed.
+  **The failure mode was optimising WITHIN a frame instead of testing the frame.**
 
 ## 7. STILL OPEN
 1. **Uniswap v4** — unchecked (needs an indexer).
