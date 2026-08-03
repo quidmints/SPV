@@ -1324,3 +1324,27 @@ tick **−960** from `getEETHByWeETH`, exactly the predicted floor of −959.4. 
   ~57,000 WETH/yr breakeven between economics (+2.14%/yr, fair-centred) and offramp quality (−1 bps,
   spot-centred). **Tree left green: 15/15 Rover fork tests pass.** *(OPEN — this is the top remaining
   engineering item, and it is bigger than the doc's framing of it.)*
+
+## 15.4 ⛔ CORRECTION — **"0 BY DESIGN" WAS WRONG.** It is 0 because NOBODY BORROWS weETH.
+Morpho Blue has TWO supply paths: `supplyCollateral()` earns nothing (that part IS by design —
+collateral is never lent), but **`supply()` supplies the LOAN token and DOES pay interest**. So weETH
+earns 0 only in the COLLATERAL role. I asserted the 89,258 weETH there was collateral and never
+checked. **Measured now** — scanned every `Borrow` event on Morpho Blue over ~30,000 blocks and
+resolved each market via `idToMarketParams`:
+| | |
+|---|---|
+| distinct Morpho markets with a Borrow in ~4 days | **123** |
+| …in which **weETH is the LOAN token** | 🔴 **ZERO** |
+| …in which weETH is the **COLLATERAL** | **7** — borrowing WETH, USDC, USDT, RLUSD |
+⇒ ✅ **The conclusion survives, on better evidence.** weETH lending pays ~0 not because a protocol
+  forbids it but because **borrow demand is nil**, now verified three independent ways: Aave
+  (`borrowingEnabled = false`, utilisation **0.002%** across 180 days), Morpho (**0 of 123** active
+  markets), Compound v3 (collateral-only). **Structural reason:** borrowing weETH means paying
+  interest to be short a yield-bearing asset — the inverse of the trade the whole market is doing.
+⇒ 📌 **So the design simplifies: DO NOT LEND THE weETH — HOLD IT.** Identical yield (the staking rate
+  accrues in `getRate()` with no venue), zero LTV constraint, zero liquidation surface, instantly
+  available to convert. **The Morpho/Euler integration is not needed at all.** *(OPEN only for Euler,
+  which could not be enumerated — its factory could not be resolved from the vault we wire.)*
+⇒ ⚠️ **AND NOTE WHAT THIS DOES *NOT* CHANGE:** the replay's −1.0%/−1.6% is measured against
+  **HOLD-MIX** (holding the tokens), **not** against a lending yield. Lending was never in that
+  baseline, so none of the LVR figures depend on it.
