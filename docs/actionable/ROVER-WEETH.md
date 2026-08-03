@@ -1101,6 +1101,50 @@ construction, because that IS the ETH venue's inventory.** So with the bridge wi
   Rover's band cannot if it is out of range. **A small Rover + the bridge dominates either alone** —
   and that combination is what makes `waitNft` unreachable.
 
+## 13.11 ⛔ **"LENDING weETH EARNS A SUPPLY RATE ON TOP OF STAKING" IS FALSE.** It earns ZERO.
+This doc (§6c) and `QUEUE §A.36` both assert weETH lending pays *"a supply rate ON TOP of the staking
+rate"*, and the whole "lending dominates Rover" option rested on it. **Measured across 99.4% of the
+weETH float, it pays nothing.**
+| venue | weETH held | share | lending yield | how established |
+|---|---|---|---|---|
+| **Aave v3** | 1,113,490 | **91.0%** | 🔴 **0.0000 %/yr** — and borrow utilisation is **0.002%** (51 weETH borrowed) | measured, + 180d history |
+| **Morpho Blue** | 89,258 | 7.3% | 🔴 **0 BY PROTOCOL DESIGN** | source: `supplyCollateral` does `position[id].collateral += assets` with *"Don't accrue interest"* |
+| **Compound v3** | 5,235 | 0.4% | 🔴 **0 BY DESIGN** (Comet escrows collateral, never lends it) | source + measured |
+| Fluid | 7,737 | 0.6% | ⬜ **UNMEASURED** | — |
+| Spark / EulerSwap | 0 | — | n/a | measured |
+⇒ ⛔ **RETRACT §6c and `QUEUE §A.36`'s "supply rate on top".** *(✅ for the 99.4% — protocol-design
+  facts for Morpho/Compound cannot be reopened by a rate change; Aave is a measurement over 180d.
+  Fluid's 0.6% stays OPEN — I will not round it away.)*
+⇒ 🎯 **THIS HELPS ROVER, and I had the number wrong the other way.** Rover's hurdle is **1.24%/yr
+  against a 2.47% hold** — not against 2.47% + a supply rate.
+
+### 🔬 WHY IS 1.1M weETH THERE AT ZERO UTILISATION? — **because it is COLLATERAL, not a deposit**
+The owner asked exactly the right question. The answer is in the *other* column:
+| venue | weETH collateral | **WETH BORROWED against it** | utilisation |
+|---|---|---|---|
+| Aave v3 | 1,113,490 | **1,725,360 WETH** | 80.6% |
+| Compound v3 (`baseToken == WETH`) | 5,235 | **33,704 WETH** | 66.3% |
+| Morpho Blue | 89,258 | collateral-only by construction | — |
+⇒ ⭐ **weETH is not supplied to earn. It is supplied to BORROW WETH AGAINST.** ⇒ **The owner's flash /
+  borrow bridge is not a novel construction — it is the DOMINANT weETH strategy in DeFi, already
+  running at ~1.76M WETH of borrow across two venues.** *(✅ — measured on both sides at two venues.)*
+⇒ 📌 **And it means the bridge forfeits NO yield**: posting weETH as collateral gives up nothing,
+  because collateral earns zero everywhere regardless. **Its only cost is the borrow rate while drawn.**
+
+### 📈 WETH BORROW RATE — 180-day history, so the bridge is priced on a RANGE not a snapshot
+| −0d | −7d | −14d | −30d | −60d | −90d | −120d | −180d |
+|---|---|---|---|---|---|---|---|
+| 2.11% | 2.15% | 1.99% | 2.13% | 2.07% | 🔴 **4.31%** | 2.21% | 2.28% |
+⇒ **Bridge cost over a 7-day queue: 3.8–4.4 bps typical, 8.3 bps at the worst rate seen.**
+⇒ ⚠️ **THE UNPRICED AXIS (rule 9):** we would borrow into a market already at **80.6% utilisation**,
+  and −90d shows what that does to the rate. **Our own borrow pushes utilisation up**, so a large
+  bridge draw moves the price against itself. **Nobody has measured that slope.** *(OPEN.)*
+
+### ⚙️ AND THE FLASH LEG NEEDS NO NEW INTEGRATION — it is ALREADY IN THIS REPO
+`LevManager.sol:747` and `BtcLevManager.sol:494` already call `IMorphoFlash(flashProvider).flashLoan`
+with `onMorphoFlashLoan` callbacks (`LevManager.sol:834`), and `flashProvider` is pinned in `init`
+(`:212`). ⇒ **Morpho flash, zero fee, already wired. No Balancer, no new venue.** *(✅ — structural.)*
+
 ---
 
 # 🚦 THE VERDICT — ⛔ WITHDRAWN 2026-08-03, SAME DAY IT WAS WRITTEN
