@@ -459,6 +459,16 @@ contract UnificationControls is Alles {
         uint pending = CORE.pendingSwapOutUsd();
         uint btcFree = btcUsd1 > pending ? btcUsd1 - pending : 0;
 
+        // THE RESERVOIR THAT ACTUALLY MATTERS: uncommitted BASKET surplus. `SwapLib.sizeBySurplus`
+        // sizes band depth from `liquidTotal - committedBoth`, so a starved curve is only a real
+        // deficit if the BASKET is also empty. Comparing against the OTHER CURVE (as the first
+        // version of this test did) measures the wrong reservoir by two orders of magnitude.
+        (uint[15] memory dS,,,) = AUX.get_deposits();
+        uint committedNow = CORE.committedUsd18();
+        uint surplus = dS[14] > committedNow ? dS[14] - committedNow : 0;
+        emit log_named_uint("basket TVL at starvation ", dS[14]);
+        emit log_named_uint("committed at starvation  ", committedNow);
+        emit log_named_uint("UNCOMMITTED SURPLUS      ", surplus);
         emit log_named_uint("swaps to starve ETH  ", steps);
         emit log_named_uint("ETH curve USD after  ", ethUsd1);
         emit log_named_uint("BTC curve USD after  ", btcUsd1);
