@@ -90,6 +90,14 @@ contract Core is SafeCallback {
     /// @notice In-range USD slice held against the ETH/USD pool. Sum of
     /// this plus POOLED_USD_BTC is the total in-range USD; out-of-range
     /// USD lives in mockUSD_ETH/mockUSD_BTC respectively.
+    /// @notice §#12 — BASKET-SUPPLIED quoting depth (6-dec, shared across both bands). The split
+    ///         #12 is named for: `POOLED_USD_*` track what is IN each CURVE (they move on every
+    ///         swap); this tracks what the BASKET actually CONTRIBUTED (it moves ONLY when the
+    ///         basket adds or removes depth via `addLiq`/burn — never on a swap).
+    ///         `committedUsd18` is derived from THIS, so the backing gate stops counting an LP's
+    ///         sale proceeds as a basket commitment.
+    uint public basketUsdEth;
+    uint public basketUsdBtc;
     uint public POOLED_USD_ETH;
     /// @notice In-range USD slice held against the BTC/USD pool.
     uint public POOLED_USD_BTC;
@@ -105,13 +113,15 @@ contract Core is SafeCallback {
     /// value went to the venue, not the basket, so total claims stay ≤ backing). Reading debt live keeps the
     /// "committed == in-range USD − live debt" fold identity drift-free BY CONSTRUCTION (no counter to desync —
     /// see BufferSwapDrain.t.sol). Floored PER BAND so ETH debt never eats BTC equity. Centralized ×1e12 scale.
+    /// §#12: committed is the BASKET's contribution net of live leverage debt — NOT the curve
+    /// inventory. A swap moves `POOLED_USD_*` but not `basketUsd`, so it no longer moves committed.
     function committedUsd18() public view returns (uint) {
         return _bandEquityUsd18(false) + _bandEquityUsd18(true);
     }
 
     /// @dev One pool's equity USD (18-dec): its in-range USD less that pool's live leverage debt, floored at 0.
     function _bandEquityUsd18(bool isBTC) internal view returns (uint) {
-        uint pooled18 = (isBTC ? POOLED_USD_BTC : POOLED_USD_ETH) * 1e12;
+        uint pooled18 = (isBTC ? basketUsdBtc : basketUsdEth) * 1e12;   // §#12: BASKET contribution, not curve inventory
         uint debt18 = _levDebtUsd18(isBTC);
         return pooled18 > debt18 ? pooled18 - debt18 : 0;
     }
@@ -805,8 +815,8 @@ contract Core is SafeCallback {
         internal returns (bytes memory) {
         // Per-pool zeroing: clear only the side being repacked. The other
         // pool's slice is independent and untouched.
-        if (isBTC) { POOLED_USD_BTC = 0; POOLED_BTC = 0; }
-        else       { POOLED_USD_ETH = 0; POOLED_ETH = 0; }
+        if (isBTC) { POOLED_USD_BTC = 0; POOLED_BTC = 0; basketUsdBtc = 0; }
+        else       { POOLED_USD_ETH = 0; POOLED_ETH = 0; basketUsdEth = 0; }
 
         (Reseat memory rng, BalanceDelta fees, uint delta0, uint delta1) = _repackBurn(data, isBTC);
         uint price = BasketLib.getPrice(rng.sqrtP, _t1(isBTC));
@@ -856,13 +866,13 @@ contract Core is SafeCallback {
             (delta0, delta1) = VOGUE.addLiq(delta1, price, isBTC);
             if (delta0 > 0 && delta1 > 0) {
                 addDelta = _modLP(delta0, delta1, rng.lower, rng.upper, rng.sqrtP, isBTC);
-                _handleDelta(addDelta, true, false, address(0), address(0), isBTC);
+                _handleDelta(addDelta, true, false, address(0), address(0), isBTC, true);
             }
         } else {
             (delta1, delta0) = VOGUE.addLiq(delta0, price, isBTC);
             if (delta1 > 0 && delta0 > 0) {
                 addDelta = _modLP(delta1, delta0, rng.lower, rng.upper, rng.sqrtP, isBTC);
-                _handleDelta(addDelta, true, false, address(0), address(0), isBTC);
+                _handleDelta(addDelta, true, false, address(0), address(0), isBTC, true);
             }
         }
     }
@@ -884,8 +894,8 @@ contract Core is SafeCallback {
         internal returns (bytes memory) {
         ReseatParams memory p = abi.decode(data, (ReseatParams));
         // Per-pool zeroing — re-established by the re-add (as in _handleRepack).
-        if (isBTC) { POOLED_USD_BTC = 0; POOLED_BTC = 0; }
-        else       { POOLED_USD_ETH = 0; POOLED_ETH = 0; }
+        if (isBTC) { POOLED_USD_BTC = 0; POOLED_BTC = 0; basketUsdBtc = 0; }
+        else       { POOLED_USD_ETH = 0; POOLED_ETH = 0; basketUsdEth = 0; }
 
         (BalanceDelta fees, uint d0, uint d1) = _reseatBurnMove(p, isBTC);
 
@@ -953,7 +963,7 @@ contract Core is SafeCallback {
         BalanceDelta delta = _modLP(deltaUSD, deltaTokenOut,
             tickLower, tickUpper, sqrtPriceX96, isBTC);
 
-        _handleDelta(delta, true, deltaUSD == 0, sender, address(0), isBTC);
+        _handleDelta(delta, true, deltaUSD == 0, sender, address(0), isBTC, true);
         return abi.encode(delta);
     }
 
@@ -996,9 +1006,17 @@ contract Core is SafeCallback {
     /// INDEPENDENT — a swap on the ETH side cannot move BTC-side USD.
     function _handleDelta(BalanceDelta delta, bool inRange, bool keep,
         address who, address token, bool isBTC) internal returns (uint, uint) {
+        return _handleDelta(delta, inRange, keep, who, token, isBTC, false);
+    }
+
+    /// §#12 `basketLeg`: TRUE only from `_handleMod` (the basket adding/removing depth via
+    /// `addLiq`). Swap/collect/reseat legs pass FALSE, so a swap moves the curve mirror
+    /// (`POOLED_USD_*`) without moving the basket's contribution (`basketUsd`).
+    function _handleDelta(BalanceDelta delta, bool inRange, bool keep,
+        address who, address token, bool isBTC, bool basketLeg) internal returns (uint, uint) {
         // Each leg settles in its own frame (legacy stack — no via_ir crutch); they
         // recompute the cheap token ordering rather than thread 4 locals through.
-        uint usdAmount = _settleUsdSide(delta, inRange, keep, who, token, isBTC);
+        uint usdAmount = _settleUsdSide(delta, inRange, keep, who, token, isBTC, basketLeg);
         uint tokAmount = _settleTokSide(delta, inRange, who, isBTC);
         return _t1(isBTC) ? (usdAmount, tokAmount) : (tokAmount, usdAmount);
     }
@@ -1006,7 +1024,7 @@ contract Core is SafeCallback {
     /// @dev USD-leg of _handleDelta. delta>0 → take+burn; delta<0 → mint+settle and
     ///      (in-range) pool it under the BTC share cap + the backing invariant.
     function _settleUsdSide(BalanceDelta delta, bool inRange, bool keep,
-        address who, address token, bool isBTC) private returns (uint usdAmount) {
+        address who, address token, bool isBTC, bool basketLeg) private returns (uint usdAmount) {
         bool token1isTok = _t1(isBTC);
         Currency usdCurrency = token1isTok ? _key(isBTC).currency0 : _key(isBTC).currency1;
         int128 usdDelta = token1isTok ? delta.amount0() : delta.amount1();
@@ -1014,7 +1032,7 @@ contract Core is SafeCallback {
             usdAmount = uint(int(usdDelta));
             usdCurrency.take(poolManager, address(this), usdAmount, false);
             _mockUsd(isBTC).burn(usdAmount);
-            if (inRange) _poolUsdInRange(isBTC, usdAmount, false);
+            if (inRange) _poolUsdInRange(isBTC, usdAmount, false, basketLeg);
             if (!keep && token != address(0))
                 // §A.50/C2: `usdAmount` is the 6-dec mockUSD leg, but `AUX.take` wants the payout
                 // token's NATIVE units (`BasketLib.sol:620-628`; the two callers that already convert
@@ -1027,7 +1045,7 @@ contract Core is SafeCallback {
             usdAmount = uint(int(-usdDelta));
             _mockUsd(isBTC).mint(usdAmount);
             usdCurrency.settle(poolManager, address(this), usdAmount, false);
-            if (inRange) _poolUsdInRange(isBTC, usdAmount, true);
+            if (inRange) _poolUsdInRange(isBTC, usdAmount, true, basketLeg);
         }
     }
 
@@ -1036,7 +1054,7 @@ contract Core is SafeCallback {
     ///      equity claim by subtracting live leverage debt. The ≤TVL backing gate is checked against that live
     ///      EQUITY (`committedUsd18`), so the debt-funded buffer consumes no basket-USD headroom — exactly as
     ///      the old `_LEV` segregation did, but drift-free.
-    function _poolUsdInRange(bool isBTC, uint usdAmount, bool mint) private {
+    function _poolUsdInRange(bool isBTC, uint usdAmount, bool mint, bool basketLeg) private {
         if (mint) {
             (uint[15] memory _d, ,, uint depegLoss) = AUX.get_deposits();
             // Depeg-at-par fix: gate against the SOLVENCY haircut — par TVL minus the LIVE depeg loss (the
@@ -1049,9 +1067,14 @@ contract Core is SafeCallback {
             //   operation ⇒ byte-identical to the old par gate; it only tightens under an ACTUAL depeg.
             uint haircutTvl = _d[14] > depegLoss ? _d[14] - depegLoss : 0;
             _addPooledUsd(isBTC, usdAmount);
+            if (basketLeg) { if (isBTC) basketUsdBtc += usdAmount; else basketUsdEth += usdAmount; }
             require(committedUsd18() <= haircutTvl, "backing");
         } else {
             _subPooledUsd(isBTC, usdAmount);
+            if (basketLeg) {
+                if (isBTC) basketUsdBtc -= Math.min(usdAmount, basketUsdBtc);
+                else       basketUsdEth -= Math.min(usdAmount, basketUsdEth);
+            }
         }
     }
 

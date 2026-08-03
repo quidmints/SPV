@@ -1252,6 +1252,23 @@ contract Vogue is
     ///      normal-case pricing is byte-identical to before.
     function _pricingBacking() internal view returns (uint total) {
         total = AUX.vogueETH();
+        // §#12 — READ BOTH LEGS. `vogueETH` is the ETH leg of a TWO-legged band position; the USD
+        // leg beyond what the BASKET supplied (`basketUsdEth`) is LP-owned and was invisible here,
+        // so a band that sold LP ETH for USD priced the LP down by the whole sale.
+        // Valued at the band's OWN in-range ratio — NOT a TWAP — so this stays `view` and carries
+        // no oracle dependency, the same choice `unwindForRedeem` makes deliberately.
+        // SIGNED: when the band has BOUGHT ETH with basket dollars the increment is NEGATIVE and
+        // must REDUCE the claim (B11) — flooring at zero would gift the LP the basket's capital.
+        {
+            uint usd6 = V4.POOLED_USD_ETH(); uint base6 = V4.basketUsdEth(); uint eth = V4.POOLED_ETH();
+            if (usd6 > 0 && eth > 0) {
+                if (usd6 > base6) total += FullMath.mulDiv(usd6 - base6, eth, usd6);
+                else if (base6 > usd6) {
+                    uint down = FullMath.mulDiv(base6 - usd6, eth, usd6);
+                    total = total > down ? total - down : 0;
+                }
+            }
+        }
         address lm = VogueLib.levManager(address(AUX));
         if (lm == address(0)) return total;
         // GUARDED like every other lev read: a broken manager must not brick share pricing.
