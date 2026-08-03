@@ -274,6 +274,38 @@ and books 5 bps.** Profitable **iff** `5bps × volume > accrual conceded between
 | this is a LOSS vs holding | sold weETH at ~mid while fair kept rising ⇒ classic LVR | ✅ holds |
 | "no arber restores it" | restoring needs `getRate()` to FALL | ✅ holds |
 
+### 🔴 R2 — `_nearFair` IS A ~$5 DoS VECTOR (user, 2026-08-03: *"liveness shortage when it shouldn't"*)
+The gate is a **REFUSAL** (no mint / no recenter / no compound beyond 50 bps from fair) and the pool is
+**thin enough that the refusal is trivially cheap to trigger**. With in-range `L = 6.6e17`:
+| spot move | weETH needed | ≈ cost |
+|---|---|---|
+| **50 bps (trips the gate)** | **0.001575 weETH** | **≈ $5.20** |
+| 100 bps | 0.003150 weETH | ≈ $10.39 |
+⇒ **≈$5 freezes Rover's mint/recenter/compound**, repeatably, and the shover can immediately unwind
+  most of it. Valuation stays safe (`valueWeth` holds fair), but **OPERATION halts** — so an offramp
+  demanded during that window is a **liveness shortage caused by the safety gate itself**.
+⚠️ **Misfire conditions (no attacker required):** any organic trade of a few dollars; a swap routed
+  through this pool by an aggregator; or Rover's OWN `take()` execution moving spot past the line.
+  **The thinner the pool gets, the cheaper the DoS** — and R1 shows the pool only gets thinner.
+
+### ⭐ REMEDY — REVISED. Single-sided is FIRST, not third. (My earlier ranking was wrong.)
+I had ranked "recentre on fair" first. **That was inconsistent with my own R1 finding** — the user
+caught it. Recentring on fair fixes the PLACEMENT error but leaves both real problems:
+ • **It still reads spot** to decide, so the **$5 DoS survives untouched.**
+ • **There is NO organic two-way flow** (R1). The only trades are arbers lifting Rover's stale weETH,
+   so **every fee Rover books is a 5 bps rebate on a trade that just harmed it.** Faster recentring
+   reduces the bleed per cycle; it never makes the flow benign, because the flow IS the bleed.
+⇒ **Single-sided, strictly off fair, is the only option that removes BOTH:**
+  1. **Nothing to pick off** — an ask ABOVE fair fills only at a premium you chose. R1's drift
+     (0.67 bps/day, monotonic) **guarantees the fill**; 5/12/24 bps premia fill in ≈7/18/36 days.
+  2. **Nothing to freeze** — placement is priced off `getRate()`, not spot, so a shoved pool cannot
+     halt it. The DoS vector disappears rather than being tightened.
+  3. weETH keeps accruing at ~2.4% while it waits, so the idle state is the *best* state, not a cost.
+▶️ Recentring-on-fair and a tighter gate are **mitigations to keep if the NFT stays two-sided** — not
+  the fix. **For guaranteed on-demand offramp, keep the direct swap** (measured flat −24 bps to
+  100 weETH): that path never touches the NFT and is immune to both failure modes.
+
+
 ### ✅ THE DECIDING READ — DONE 2026-08-03. It centres on SPOT, but the straddle is BOUNDED.
 `_refreshAndRepack` (`Rover.sol:78-83`) reads `_slot0()` and repacks on `getPrice(sqrtPriceX96)` —
 **pool SPOT, not `getRate()` fair.** So yes, it straddles fair, exactly as the failure mode requires.
