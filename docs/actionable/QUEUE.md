@@ -341,6 +341,37 @@ mainnet measurements** (four independent on-chain reads), not a fitted guess. It
 swap-by-swap fork replay — that would refine the ±, not the sign. **The margin is ~4× (24.5 vs 6.5),
 so a replay is unlikely to reverse it.**
 
+### ⚠️ R11 — R9's LOAD-BEARING ASSUMPTION, WHICH I NEVER STATED: **VOLUME IS FIXED**
+> *"did your backtest test the situation now, or what you are hoping for it to be?"* — **Only NOW.**
+R9's 0.24 bps/day came from `feeGrowthGlobal` ÷ **today's** `L = 6.6e17`. `feeGrowthGlobal` is fees
+**PER UNIT OF LIQUIDITY**, so that yield is **inversely proportional to total `L`**. R9 therefore
+measured *a pool with almost no depth and almost no volume* and projected it forward unchanged.
+**That is the current state, NOT the state Rover exists to create.**
+
+| if… | effect on A | does R9 hold? |
+|---|---|---|
+| **volume FIXED** (R9's silent assumption) | adding Rover's depth DILUTES per-unit yield ⇒ A is **worse** than −157 bps | ✅ holds, **a fortiori** |
+| **volume ELASTIC** (Rover's own thesis) | depth ⇒ tighter prices ⇒ routers send MORE flow ⇒ total fees rise, possibly super-linearly | ❌ **R9 cannot see this and may be badly wrong** |
+
+⇒ 🔴 **R9 measures the pool WITHOUT Rover. It cannot measure the pool WITH Rover.** A static read of a
+  near-empty pool is structurally blind to the counterfactual, and **the counterfactual is the entire
+  premise of the contract.**
+⇒ **So R10's step 4 ("retire the NFT if `T`<6.5") is NOT SAFE TO ACT ON YET.** It is conditional on an
+  untested elasticity assumption.
+
+▶️ **THE TEST THAT WOULD SETTLE IT — and it is the fork replay I never ran:**
+ 1. Fork at N blocks; **INJECT** a Rover-sized position into the pool at the one-tick band.
+ 2. **Replay the window's REAL swaps** through the modified pool — with more depth, each historical
+    swap executes at a better price and **larger swaps that historically routed ELSEWHERE would now
+    route HERE.** Step 2 is the whole experiment; without it you are still measuring the empty pool.
+ 3. Compare terminal ETH-equiv for A-with-depth vs C.
+⚠️ Requires a router-level counterfactual (which trades WOULD have routed here), so it is
+  genuinely harder than a naive replay — that is why it must be *run*, not reasoned.
+📌 **Honest confidence:** the *mechanism* findings (R2 $5 DoS, R3 stale comment, R4 stranding, R6
+  non-enforceability, R8 out-of-range earns nothing) are **measurements and code reads — solid**. The
+  *verdict* (R9) is a model resting on one unstated assumption — **treat as a hypothesis, not a result.**
+
+
 ### 🧭 R10 — WHAT ROVER SHOULD BE, given all of R1–R9
 1. **KEEP** Rover's `_swap` fair-rate inventory conversion and `valueWeth` — those are sound and
    unrelated to the NFT.
