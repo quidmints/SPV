@@ -1147,6 +1147,61 @@ with `onMorphoFlashLoan` callbacks (`LevManager.sol:834`), and `flashProvider` i
 
 ---
 
+# 🔧 §14 — ROVER, OPTIMISED (2026-08-03). What the fixes changed, measured.
+## 14.1 🔴 THE BIG ONE — `take()` was under-delivering **30%**, silently. FIXED.
+`take()` split `need / 2` across the two legs, assuming a 50/50 band. **A v3 band is 50/50 only at
+its geometric middle.** At the live tick (−948 in `[−950,−940)`) the band is **71.6% WETH**, so:
+| | before | after |
+|---|---|---|
+| `take(500e18)` delivers | **348.998 WETH** (= `need/2 ÷ 0.716` = `need × 0.698`, matching to 3 digits) | **499.753 WETH** |
+| `valueWeth()` after a 500 draw on a 4,000 Rover | — | **3,499.9999999999987** of 3,500 ⇒ round trip ≈ **0** |
+⇒ 🔴 **The short was SILENT**: `VaultLib.withdrawETH:414` try/catches `take`, reports what arrives as
+  success, and `Vogue:628` re-credits the rest as deferred `pooled`. **An LP was told they exited
+  while a third of the ask never moved.** *(✅ FIXED — `_liquidityForWeth` probes
+  `getAmountsForLiquidity` for one unit and scales, so the out-of-range branches come free.
+  Prediction stated before the change was ≥495; measured 499.753. 13/13 Rover fork tests pass,
+  ABIs clean, Rover 16,618 bytes with 7,958 margin.)*
+
+## 14.2 ⭐ FRICTION OVER REAL CYCLES — **1 bps**, and the "leaks" were an artefact
+`RoverCycleBleed.t.sol` runs 10 offramp cycles (`take` → hand the weETH back → `repackNFT`) at 250
+WETH each on a 4,000 WETH Rover — **2,496.9 WETH of flow, 62% of the position turned over**:
+| | |
+|---|---|
+| NAV start → end | 3,999.99999999999999 → **3,999.6554** |
+| **total friction** | **0.345 WETH = 1 bps of flow** |
+| drain-only, no weETH returned (worst case) | **2.5 bps** |
+⇒ ⛔ **EVERY CLAIMED LEAK IN THIS DOC WAS AN ARTEFACT OF PRICING ROVER AGAINST A POOL IT IS NOT IN.**
+  `_wrapIdle`'s "manufactured buy-back", the recentre's swap, `take`'s round-trip — all of them were
+  reasoned with Rover ABSENT. Once Rover owns ~100% of in-range `L` **the round-trips pay
+  themselves**. *(✅ — measured through the real contract, not a hand-built band.)*
+⇒ 📌 **AND THE CARRY IS OVERSTATED TOO.** The tick moved **−948 → −941** while serving: **offramp
+  flow converts the band TOWARD weETH** (the yield-bearing side) while drift converts it back. The
+  1.24%/yr figure assumed a static 50/50 band. **Under real usage the band skews weETH-heavy and the
+  carry is lower.** *(OPEN — the equilibrium composition depends on flow vs drift; unmeasured.)*
+
+## 14.3 ⚖️ SO: ROVER vs LENDING THE weETH — the question the owner posed
+> *"the same weETH might fare better for everybody if supplied to earn yield at a borrow venue"*
+
+| | yield on the weETH | cost to convert weETH → deliverable WETH |
+|---|---|---|
+| **Rover band** | staking, on the weETH leg | 🎯 **1 bps** (2.5 worst) |
+| **lent at a borrow venue** | 🔴 **staking + ZERO** (§13.11) | 4.05 bps via the bridge; 24–33 via the bare pool |
+⇒ ⛔ **THE PREMISE DOES NOT HOLD: THERE IS NO EXTRA YIELD TO FARE BETTER WITH.** Supplying weETH
+  earns **0%** on 91% of the float (Aave, 180d) and **0 by protocol design** at Morpho Blue and
+  Compound v3. **So lending forgoes nothing AND gains nothing** — it only changes the conversion
+  route, and the conversion route it leaves you with is **4× more expensive** than Rover's.
+⇒ 🎯 **Both hold the same weETH earning the same staking rate. The only difference is what the
+  position does for the exit — and Rover's does it at 1 bps.**
+⚠️ **BUT IT IS A REAL ALLOCATION CHOICE, not a free lunch:** weETH inside Rover's band **cannot
+  simultaneously be Aave collateral**, so it cannot back the borrow bridge. **Rover and the bridge
+  compete for the same weETH.** *(OPEN.)*
+⬜ **GAP, STATED NOT PAPERED OVER:** in-scope venues are Morpho/Euler/**Aave v4**. Measured: Morpho
+  Blue (0 by design) and Aave **v3** (0%, 180d). **NOT measured: an Euler weETH vault** — the EVK
+  factory address could not be resolved, and the Euler vault this repo wires is a **WETH** vault
+  (1,053.7 supplied / 553.0 borrowed, 52.5% utilised). **Aave v4's spoke holds 0 weETH.** *(OPEN.)*
+
+---
+
 # 🚦 THE VERDICT — ⛔ WITHDRAWN 2026-08-03, SAME DAY IT WAS WRITTEN
 > I wrote **"DON'T SHIP THE NFT"** resting on §1(b), *"a liquidity position cannot be its own
 > counterparty."* **§1(b) is false** (retracted above, with the measurement that refutes it). A verdict
