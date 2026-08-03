@@ -1050,6 +1050,57 @@ price out of the ranges. *(✅ — arithmetic on measured balances.)*
   touches the v3 pool, and 361k WETH is ~75× the pool's entire WETH. **Its risks are different, not
   absent** — liquidation at an 80% threshold on an oracle, and borrow-rate risk at 80.6% utilisation.
 
+## 13.9 ⚡ THE FLASH BRIDGE — **flash loans are FREE, and this is what deletes `waitNft`**
+> Owner: *"flash borrow WETH against that weETH as collateral, then SOR the dollars back into WETH and
+> pay back the loan… the protocol amortises the cost, the swapper still just pays the band fee and gets
+> what they came for… this might still be worth building regardless so we can delete the entire
+> waitNft sequence."*
+
+**Measured fees — the flash leg is free, which is the load-bearing fact:**
+| venue | flash fee | WETH available in ONE tx |
+|---|---|---|
+| **Morpho Blue** | 🎯 **ZERO** (verified from source: transfers `assets` out, pulls exactly `assets` back — no premium) | **11,302 WETH** |
+| **Balancer v2** | 🎯 **ZERO** (`getFlashLoanFeePercentage() == 0`) | 1,315 WETH |
+| Aave v3 | 5 bps (`FLASHLOAN_PREMIUM_TOTAL = 5`) | 361,163 WETH |
+
+⇒ ⭐ **THE FLASH LOAN IS A FREE ORDERING PRIMITIVE.** It costs nothing to deliver WETH *before*
+  sourcing it. So the bridge's entire cost is the **term** leg: **2.112%/yr × queue duration =
+  ~4.05 bps over 7 days, ~8.10 bps over 14.** *(OPEN — 80.6% utilisation means the rate can move.)*
+
+### 🗑️ CAN WE DELETE `waitNft`? — **YES, as a USER-FACING RUNG. And rule 1 then REQUIRES it.**
+Rung 4 exists because rungs 1–3 can all fail. The bridge cannot fail the same way: it is bounded by
+`min(flash capacity, 0.775 × our weETH collateral, Aave's 361,163 WETH)` — **and we hold weETH by
+construction, because that IS the ETH venue's inventory.** So with the bridge wired, rung 4 becomes
+**unreachable**, and `CLAUDE.md` rule 1 (*"no unreachable code — delete it"*) applies.
+⇒ 📌 **BUT BE PRECISE ABOUT WHAT IS DELETED.** The ether.fi withdrawal does not vanish — it **moves
+  off the swapper's critical path and onto the protocol's balance sheet** as how the term loan is
+  repaid. **That is exactly "the protocol amortises the cost; the swapper pays the band fee and gets
+  what they came for."** Deleting `waitNft` the RUNG is correct; deleting the ether.fi withdrawal
+  CAPABILITY would remove the repayment leg the bridge depends on. *(OPEN — needs the debt-management
+  design: who repays, on what trigger, and what happens if the queue lengthens.)*
+
+## 13.10 ⚖️ THE COMPLETE SCORECARD — every route, all measured
+| route | per-conversion | **standing cost** | capacity | instant | fails when |
+|---|---|---|---|---|---|
+| ⭐ **Rover NFT w/ depth** | 🎯 **−1 bps** | 🔴 **~1.24%/yr on the position** | ≈ its own size | ✅ | out of range / not yet recentred |
+| ⚡ **flash + term borrow** | ~4 bps (7d) | 🎯 **ZERO when idle** | 0.775 × our weETH, ≤361k | ✅ | weETH depeg ⇒ liquidation; rate spike |
+| v3 pool, no Rover | −24 to −33 bps | 0 | ~1,250 weETH under 30 bps | ✅ | 3rd-party WETH withdrawn |
+| native instant redeem | −30 bps | 0 | 🔴 **0 — off in 7/8 samples** | ✅ when on | ether.fi below 1% watermark |
+| `waitNft` (rung 4) | 0 bps | 0 | unlimited | 🔴 **multi-day** | — |
+
+⇒ 🎯 **THE CROSSOVER, AND IT IS THE ONLY NUMBER LEFT:** Rover's standing cost on a 4,000 WETH position
+  is 49.6 WETH/yr, less the **last-30-day** fee pot (10.6) ⇒ **39 WETH/yr net**. The bridge costs
+  `V × 4.05 bps`; Rover costs `V × 1 bps` on top of its standing cost. They cross at
+  **V ≈ 128,000 WETH/yr (~350 WETH/day) of PROTOCOL offramp volume.**
+  - **Below that ⇒ the flash+borrow bridge is cheaper**, and it has no standing cost at all.
+  - **Above that ⇒ Rover wins**, and by a widening margin.
+⇒ 🔴 **`V` IS THE PROTOCOL'S OWN PROJECTED OFFRAMP VOLUME — the one input no measurement here can
+  supply.** Every other term in this document is now measured. *(OPEN — owner input.)*
+⇒ 📌 **They are not mutually exclusive.** The bridge covers the tail beyond Rover's band (§13.1 shows
+  a 4,000 WETH band degrades past ~2,000 weETH) and covers the same-block third-party-withdrawal case
+  Rover's band cannot if it is out of range. **A small Rover + the bridge dominates either alone** —
+  and that combination is what makes `waitNft` unreachable.
+
 ---
 
 # 🚦 THE VERDICT — ⛔ WITHDRAWN 2026-08-03, SAME DAY IT WAS WRITTEN
