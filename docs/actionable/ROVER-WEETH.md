@@ -1498,3 +1498,21 @@ Same 4,000 WETH, four placements, TRUE all-in cost (`RoverInjectedDepth.t.sol`):
   is 100% WETH, immune to further ratcheting, and it bids for weETH at **19–59 bps below fair**. It
   was in range at −70/−60/−40/−30/−20d and spot fell through its floor ~13 days ago. **Whoever owns
   it is now in the one v3 posture the drift cannot hurt.**
+
+## 16.7 ⛔ `_nearFair` CANNOT BE DELETED — attempted, broke 31 tests, REVERTED
+§15/§16 argued the 50 bps gate earns nothing: the market never reaches it (26 bps worst in 180d) and
+a shove leaves Rover out-of-range, which the replay measures as BETTER than in-range. **That reasoning
+is incomplete and the full suite caught it.** `test/Alles.t.sol::testEthVenue_Rover_FairGateRefuses
+ManipulatedPool` is a DEDICATED pin on this behaviour (inherited widely ⇒ **31 failures**):
+it shoves spot 2.7% off fair, deposits, asserts **no position is minted**, then clears the shove and
+asserts a permissionless `repackNFT()` **does** mint one.
+⇒ 🔴 **WITHOUT THE GATE, ROVER ENDS UP WITH NO POSITION AT ALL — even after the pool returns to fair.**
+  The failure mode is not "Rover goes passive" (which would indeed be fine); it is **"Rover mints
+  against a manipulated tick and never establishes a position."** The gate is not only an economic
+  clamp — it stops Rover wasting its mint at a tick it cannot recover from.
+⇒ 📌 **SO THE DOC'S "STRANDING" IS THE PRICE OF THAT PROTECTION, not a free defect.** R4/R15 should be
+  re-read in that light: refusing to act on a shoved pool is what keeps the position mintable later.
+⇒ ⚠️ **PROCESS FAILURE, RECORDED:** I ran only `test/Rover*.t.sol` (18/18 green) and committed a
+  money-path deletion. **Rule 15.** The full suite is the check — **3,699 pass / 1 fail / 1 skip**,
+  the single failure being the known-correct `testLeverage_LvrControlVsTreatment`. *(✅ REVERTED; tree
+  at baseline.)*
