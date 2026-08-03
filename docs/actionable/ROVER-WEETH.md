@@ -179,3 +179,42 @@ required flow**, not a yield play — an argument **robust to external volume be
   the stranded LPs regardless. Size it against real Vogue offramp volume.
 📌 **Mechanically, every offramp converts other LPs' stranded WETH into weETH — their abandoned
   inventory IS our counterparty.** That is why the quote is flat to 1,000 weETH.
+
+---
+
+# 📊 THE FEES-vs-LVR MEASUREMENT (healthy window, drift and deviation SEPARATED)
+Blocks **25,242,708 → 25,458,708** (~30d, `L` ≈ 1.1–2.3e24 — i.e. BEFORE the strand):
+| component | value |
+|---|---|
+| **DRIFT** (fair rate) | 1.096233 → 1.098452 = **+0.67 bps/day** — one-way, pure cost, never arbable |
+| **DEVIATION** (spot vs fair) | −8.8 → −7.4 bps (moved +1.4) — **mean-reverts ⇒ this is the REVENUE source, not a carry** |
+| **FEES** (one-tick position) | **+67.07 bps/day** |
+| **NET** | **+66.40 bps/day ≈ +242% APR vs holding** |
+⇒ **Fees exceeded drift ~100:1 when flow existed.** ⚠️ Assumes full in-range time; drift moves price
+  ~2 tick-spacings per 30d, so halve it for realistic re-centring ⇒ still **~120% APR vs a 2.4% drift
+  cost.** **The ratio is the finding, not the headline.**
+⇒ 🔴 **This is why the −1.6%/yr "liability" verdict was wrong: it was the SAME calculation run on the
+  collapse window where fees ≈ 0.** Same method, opposite answer, because the window differed.
+⇒ 📌 **And it is why the position is worth protecting: stranding does not cost −1.6%, it costs THIS —
+  IF flow ever returns.** Today it has not (see: frozen pool, zero trades in 14 days).
+
+# 📚 WHAT THE REPO ALREADY KNEW (read these BEFORE re-deriving — I did not, and re-derived badly)
+- **`IL-CERTIFICATION.md:38`** — *"LVR … can be **re-allocated but never avoided**."*
+- **`IL-CERTIFICATION.md:81-90`** — *"Limit orders / 'ratchet' do NOT change this … they suffer the same
+  adverse selection. Tested across GBM, OU, real-data variance-ratio, real-data breakeven and the BTC
+  delivery model: its spread-capture is **≈0 in every one** … **removed** as inert machinery."*
+  ⇒ **This pre-empts the entire single-sided / off-fair-ask proposal.** It was tested and removed here.
+- **`IL-VIA-BONDS.md:839-869`** — Rover is a *"fee-earning convenience route, **not the safety floor**"*;
+  the guarantee is the **un-pullable ether.fi queue (rung 3)**; `minOut` capped at ~0.3% of fair so a
+  drained/manipulated pool **reverts** rather than selling to arbers; and *"we are structurally weETH
+  sellers"* ⇒ directional inventory risk was already known.
+
+# ⚖️ WHY VOGUE HAS NO LVR CARRY AND ROVER CANNOT COPY IT
+Vogue's band liquidity is **VIRTUAL** — mock token/USD, with the LP's real asset at a yield venue and
+*"the paired **USD side is the basket's surplus, not the LP's**"* (`IL-CERTIFICATION`). So Vogue does not
+avoid LVR — **it re-allocates it to the basket.** That transfer IS #12's measured −$59,966.
+⇒ 🔴 **Rover has no such escape: it LPs REAL weETH into an EXTERNAL Uniswap pool.** You cannot mint mock
+  tokens into someone else's pool. Vogue can virtualise because it owns its curve; **Rover is a guest in
+  a public one, so its counterparty is an arbitrageur rather than our own basket.**
+⇒ **That is the precise reason "nothing fixes" Rover's LVR:** LVR is only re-allocatable to a party you
+  control, and in an external pool no such party exists.
