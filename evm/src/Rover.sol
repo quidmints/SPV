@@ -163,29 +163,29 @@ contract Rover is ReentrancyGuard, Ownable {
         ERC20(tout).safeTransfer(msg.sender, amountOut);
     }
 
-    // MANIPULATION GATE REMOVED (`_nearFair`, 2026-08-04). It refused mint/recenter/compound
-    // whenever pool spot sat >50 bps from the ether.fi rate. Measured, it earned nothing and cost
-    // liveness:
-    //   * the MARKET never reaches it -- worst spot-vs-fair deviation over 180 days is 26 bps
-    //     against a 50 bps trigger, median ~7 -- so only a DELIBERATE shove ever fires it;
-    //   * a shove's PAYOFF IS NEGATIVE for the attacker: it leaves Rover minting at a bad tick and
-    //     therefore OUT OF RANGE, and an out-of-range Rover measures BETTER than an in-range one
-    //     (-0.04%/yr vs -1.15%: `analysis/rover/replay.py`) because the drift ratchet only bites
-    //     positions spot passes THROUGH. The gate defended against an attack that helps us.
-    //   * and it guarded a path that already has its own guard: the ONLY leg that can lose value is
-    //     the weETH->WETH pool swap, which `_fairMinOut` floors at the adapter rate independently.
-    //     Minting at a poor tick strands nothing -- the tokens stay ours and the next recenter fixes
-    //     it. So the gate protected the recoverable path and not the lossy one.
-    // Rule 3 (minimise clamps that give false safety; attack the cause) and rule 1 (no unreachable
-    // code) both point the same way. `_fairMinOut` below is the check that EARNS its place: violating
-    // it would be a silent loss.
+    /// @notice Manipulation gate: pool spot must sit within 50bps (the
+    ///         protocol's standing manip threshold) of the UNMANIPULABLE
+    ///         ether.fi staking rate before the Rover prices anything off it.
+    ///         A REFUSAL, not a bound: shoved pool → no mint, no recenter, no
+    ///         compound — tokens idle (still valued at fair in valueWeth) until
+    ///         the pool is honest again. This replaces the former 10-minute
+    ///         repack window (a rate-limit on spot-priced bleed that is no
+    ///         longer needed when nothing executes off a manipulated spot) —
+    ///         same defense pattern as Vogue's anchored repack-on-touch.
+    function _nearFair() internal view returns (bool) {
+        uint fairInv = FullMath.mulDiv(WAD, WAD,
+            IWeETH(WEETH).getEETHByWeETH(WAD)); // weETH per WETH, fair
+        uint spot = getPrice(LAST_SQRT_PRICE);       // weETH per WETH, pool
+        uint diff = spot > fairInv ? spot - fairInv : fairInv - spot;
+        return diff * 10000 <= fairInv * 50;
+    }
 
     /// @dev Fair-rate floor for a weETH→WETH execution: adapter rate minus the
     ///      pool fee minus 0.5% in-band slippage slack (the offramp's standing
-    ///      cap). Below-fair executions are refused. This is now the SOLE
-    ///      manipulation defence (`_nearFair` was removed above): a shoved pool
-    ///      cannot pay the floor, so the swap simply does not fire and the weETH
-    ///      stays idle, fair-valued, until the pool is honest again.
+    ///      cap). Below-fair executions are refused — combined with _nearFair
+    ///      gating the only swaps that fire, the slack is room for our own
+    ///      in-band slippage, never an extraction window (extracting requires
+    ///      moving spot past the gate, which blocks the transaction instead).
     function _fairMinOut(uint weethIn) internal view returns (uint) {
         return IWeETH(WEETH).getEETHByWeETH(weethIn)
             * (1e6 - POOL_FEE) / 1e6 * 995 / 1000;
@@ -196,12 +196,13 @@ contract Rover is ReentrancyGuard, Ownable {
         // GATE: never mint/recenter/compound against a pool that isn't at the
         // staking-rate fair value. Tokens simply wait (idle, fair-valued).
         // Tick INIT still runs below so first-deposit share math stays sound.
+        bool fair = _nearFair();
         (int24 newLower, int24 newUpper) = _adjustTicks(LAST_TICK);
         if (LAST_REPACK != 0) { // not the first time packing the NFT
             // Recenter whenever the at-fair tick left the band — no time
             // window: out-of-band + at-fair can't be toggled by an attacker,
             // and an in-band call only harvests/compounds (harmless to spam).
-            if (LAST_TICK > UPPER_TICK || LAST_TICK < LOWER_TICK) {
+            if ((LAST_TICK > UPPER_TICK || LAST_TICK < LOWER_TICK) && fair) {
                 // Re-center the ONE-TICK band (see `_adjustTicks`: floor(tick) →
                 // +TICK_SPACING, i.e. ~10bps wide — NOT the "~7% above and below"
                 // an older comment here claimed; that text described a superseded
@@ -222,6 +223,7 @@ contract Rover is ReentrancyGuard, Ownable {
             LOWER_TICK = newLower;
             UPPER_TICK = newUpper;
         }
+        if (!fair) return; // ticks initialized; mint/compound refused off-fair
         _mintOrCompound(amount0, amount1, price, liquidity, commit);
     }
 
@@ -305,7 +307,7 @@ contract Rover is ReentrancyGuard, Ownable {
     ///         exceed gas+tip. Off-fair or no position ⇒ no-op (fees wait, fair-valued). tip=0 at
     ///         zero gasprice ⇒ full compound, so default-gasprice unit tests are unchanged.
     function compound() external nonReentrant {
-        if (ID == 0) return;                              // no position ⇒ fees wait
+        if (ID == 0 || !_nearFair()) return;              // no position / off-fair ⇒ fees wait
         (uint160 sp,) = _slot0();
         uint price = getPrice(sp);
         (uint c0, uint c1) = _collect(price);             // V3 fees → this contract's idle balance
