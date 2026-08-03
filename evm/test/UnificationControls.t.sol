@@ -282,4 +282,89 @@ contract UnificationControls is Alles {
             emit log_string("partial delivery left pooled behind (venue illiquidity deferral) - zeroing not expected");
         }
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // V6 — REDEMPTION / BAND UNWIND, and V8 — CROSS-BAND REPACK REACHABILITY
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// `Vogue.unwindForRedeem` frees committed dollars by BURNING in-range band liquidity, and its
+    /// docstring makes a strong claim the suite never checks: *"LP EQUITY NEUTRAL (vogueETH/lpShares
+    /// unchanged; only the band's mock mirror shrinks, returning ETH from in-band to in-venue)"*.
+    /// `test_Redeem_UnwindsBandToFreeCommittedDollars` asserts the unwind FIRES and committed drops;
+    /// it does not assert neutrality, and it runs with NO BTC band.
+    ///
+    /// Both gaps are exactly what the `POOLED_USD` unification would break: the unwind is ETH-ONLY
+    /// (`Vogue.sol:964` reads `POOLED_USD_ETH`), and `BasketLib.redeemableBody:969` subtracts
+    /// `POOLED_USD_BTC` from the redeemable quote PRECISELY BECAUSE an ETH-side redemption cannot
+    /// reach the BTC band. Merge the counters and both assumptions dissolve silently.
+    function test_V6_UnwindIsLpEquityNeutralAndCannotReachTheBtcBand() public {
+        // NOTE: deliberately NOT `_seedBasket()`. Seeding an extra \$1M leaves free stables
+        // (TVL - committed) ABOVE the redemption size, so the redeem is served from free stables
+        // and the band unwind NEVER FIRES -- measured: TVL 2,152,000, free 1,703,761 vs a
+        // 1,100,000 redeem, committed unchanged. The premise below caught it. Run against the
+        // fixture's own basket, as `test_Redeem_UnwindsBandToFreeCommittedDollars` does.
+        vm.startPrank(User01);
+        uint mintUsdc = 1_000_000 * 1e6; USDC.approve(address(AUX), mintUsdc);
+        QUID.mint(User01, mintUsdc, address(USDC), 0);
+        vm.stopPrank();
+        vm.warp(block.timestamp + 35 days);
+
+        vm.deal(lpA, 900 ether);
+        vm.prank(lpA); V4.deposit{value: 700 ether}(0, lpA, 3);
+
+        // Seed the BTC band so "the unwind cannot reach it" is a real claim, not 0 == 0.
+        AUX.setBTCChannels(address(this));
+        BTC.registerBtcLp(lpB, 2e7);
+
+        (uint[15] memory d0,,,) = AUX.get_deposits();
+        uint tvl0        = d0[14];
+        uint committed0  = CORE.committedUsd18();
+        uint vogueEth0   = AUX.vogueETH();
+        uint lpShares0   = V4.lpShares();
+        uint pooledA0    = V4.balanceOf(lpA);
+        uint btcUsd0     = CORE.POOLED_USD_BTC();
+        uint btcLeg0     = CORE.POOLED_BTC();
+        uint btcFps0     = BTC.feesPerShareBTC();
+
+        emit log_named_uint("TVL before        ", tvl0);
+        emit log_named_uint("committed before  ", committed0);
+        emit log_named_uint("vogueETH before   ", vogueEth0);
+        emit log_named_uint("BTC USD leg before", btcUsd0);
+
+        vm.prank(User01); AUX.redeem(1_100_000 * WAD);
+
+        (uint[15] memory d1,,,) = AUX.get_deposits();
+        emit log_named_uint("TVL after         ", d1[14]);
+        emit log_named_uint("committed after   ", CORE.committedUsd18());
+        emit log_named_uint("vogueETH after    ", AUX.vogueETH());
+        emit log_named_uint("BTC USD leg after ", CORE.POOLED_USD_BTC());
+
+        // PREMISE: the unwind must actually have fired, else nothing below is being tested.
+        assertLt(CORE.committedUsd18(), committed0, "PREMISE: the band was unwound (committed dropped)");
+
+        // V6a — LP EQUITY NEUTRALITY. The unwind returns the paired ETH from in-band to in-venue,
+        // so the LP's claim and the total share count must be untouched. A 0.5% band absorbs venue
+        // yield accrued during the redeem; anything larger is the unwind taking LP value.
+        assertEq(V4.lpShares(), lpShares0, "unwind must not change lpShares");
+        assertEq(V4.balanceOf(lpA), pooledA0, "unwind must not change the LP's pooled claim");
+        assertApproxEqRel(AUX.vogueETH(), vogueEth0, 0.005e18,
+            "unwind must be LP-EQUITY NEUTRAL: vogueETH unchanged (ETH moved in-band -> in-venue, not out)");
+
+        // V6b — THE UNWIND IS ETH-ONLY AND MUST NOT REACH THE BTC BAND. This is the assumption
+        // `redeemableBody`'s `POOLED_USD_BTC` subtraction rests on.
+        assertGt(btcUsd0, 0, "PREMISE: the BTC band is seeded, else this assertion is 0 == 0");
+        assertEq(CORE.POOLED_USD_BTC(), btcUsd0, "an ETH-side redemption must NOT unwind the BTC band's USD leg");
+        assertEq(CORE.POOLED_BTC(), btcLeg0, "an ETH-side redemption must NOT touch the BTC band's BTC leg");
+        assertEq(BTC.feesPerShareBTC(), btcFps0, "an ETH-side redemption must NOT credit BTC-band LPs");
+
+        // V8 — CROSS-BAND REPACK REACHABILITY. `BasketLib.backingCoreBody` only picks a band to
+        // repack when `committedSum > totalLiquid`; the mint gate keeps committed <= haircutTvl
+        // <= TVL on the way in, and this redemption UNWINDS committed as it drains TVL, which is
+        // self-correcting. MEASURED, not asserted: if over-commitment is never observed here, the
+        // cross-band repack coupling (caveat B3) is far weaker than assumed and must be either
+        // constructed deliberately or downgraded.
+        emit log_named_uint("committed > TVL at any point? (0=no)",
+            CORE.committedUsd18() > d1[14] ? 1 : 0);
+        emit log_named_uint("TVL - committed after", d1[14] > CORE.committedUsd18() ? d1[14] - CORE.committedUsd18() : 0);
+    }
 }
