@@ -869,4 +869,75 @@ contract BtcLpMintStress is Alles {
         assertGe(mintedTot, proceedsTot, "every LP received its full realized proceeds");
         assertLe(mintedTot, proceedsTot + 9e18, "Sigma minted within Sigma proceeds (+ dust): no aggregate over-mint");
     }
+
+    // ═══════════════ V7 — PRE-UNIFICATION CONTROL: THE BTC FREE RESERVE IS BAND-LOCAL ═══════════════
+    //
+    // `test_SwapInGate_RevertsIfDrainsPendingProceeds` above pins the GUARD: a swap-in may not draw
+    // `POOLED_USD_BTC` below `pendingSwapOutUsd`. What nothing pins is the assumption UNDERNEATH it —
+    // that the free reserve `POOLED_USD_BTC − pendingSwapOutUsd` is **BAND-LOCAL**, i.e. ETH-side
+    // activity cannot consume the dollars owed to BTC swap-out obligations.
+    //
+    // That assumption is exactly what the `POOLED_USD` unification puts at risk. If the two counters
+    // merge into one committed pool with per-curve placements, an ETH-side draw could reduce the very
+    // dollars a delivered BTC LP is owed, and the guard would still pass because it only compares the
+    // BTC placement against pending AFTER the fact. The failure is silent: the swap-out simply cannot
+    // be paid its exact proceeds later.
+    //
+    // Must be GREEN on unmodified code — that is what makes it a control rather than a regression
+    // guard written after the change.
+    function test_V7_EthFlowCannotConsumeTheBtcFreeReserve() public {
+        BTCChannels ch = _deployChannels();
+        _open(ch, 9, 5e7);
+        vm.prank(User03); ch.setBtcRecipient(bytes32(uint(0xB7C)));
+        vm.startPrank(User03); USDC.approve(address(AUX), type(uint).max); vm.stopPrank();
+
+        // Prime a free reserve, then record UNDELIVERED swap-out obligations against it.
+        vm.startPrank(User03);
+        for (uint i = 0; i < 2; i++) {
+            AUX.swap(address(USDC), address(WBTC), true, 300 * USDC_PRECISION, 0);
+            vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
+        }
+        vm.stopPrank();
+        for (uint i = 0; i < 4; i++) {
+            bytes memory scr = abi.encodePacked(hex"5120", keccak256(abi.encode(uint(keccak256(abi.encode("v7", i))))));
+            vm.prank(User03);
+            try ch.requestSwapOutOnchain(address(USDC), 400 * USDC_PRECISION, 0, keccak256(abi.encode("v7-id", i)), scr)
+                returns (uint) { vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes); } catch { break; }
+        }
+
+        uint btcUsd0   = CORE.POOLED_USD_BTC();
+        uint pending0  = CORE.pendingSwapOutUsd();
+        uint free0     = btcUsd0 > pending0 ? btcUsd0 - pending0 : 0;
+        emit log_named_uint("BTC USD leg        ", btcUsd0);
+        emit log_named_uint("pendingSwapOutUsd  ", pending0);
+        emit log_named_uint("BTC free reserve   ", free0);
+
+        // PREMISES — without real obligations AND a real reserve the assertions below are vacuous.
+        assertGt(pending0, 0, "PREMISE: undelivered swap-out obligations exist");
+        assertGe(btcUsd0, pending0, "PREMISE: the free reserve is non-negative to begin with");
+
+        // Now drive REAL ETH-side activity: an LP deposit (which runs checkBacking and commits ETH-band
+        // USD) plus swaps in both directions on the ETH curve.
+        vm.deal(User01, 500 ether);
+        vm.prank(User01); V4.deposit{value: 200 ether}(0, User01, 3);
+        vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
+        for (uint i = 0; i < 3; i++) {
+            vm.prank(User01);
+            try AUX.swap{value: 20 ether}(address(USDC), address(WETH), false, 0, 0) {} catch {}
+            vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
+        }
+
+        emit log_named_uint("BTC USD leg  after ", CORE.POOLED_USD_BTC());
+        emit log_named_uint("pending      after ", CORE.pendingSwapOutUsd());
+
+        // THE CONTROL. ETH-side flow must leave the BTC band's obligation accounting bit-identical.
+        assertEq(CORE.pendingSwapOutUsd(), pending0,
+            "ETH-side flow must not change the BTC band's undelivered swap-out obligations");
+        assertEq(CORE.POOLED_USD_BTC(), btcUsd0,
+            "ETH-side flow must not draw the BTC band's USD leg -- the free reserve is BAND-LOCAL");
+        uint free1 = CORE.POOLED_USD_BTC() > CORE.pendingSwapOutUsd()
+            ? CORE.POOLED_USD_BTC() - CORE.pendingSwapOutUsd() : 0;
+        assertEq(free1, free0,
+            "the BTC free reserve (POOLED_USD_BTC - pendingSwapOutUsd) must be untouched by ETH activity");
+    }
 }
