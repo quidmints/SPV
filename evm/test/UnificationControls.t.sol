@@ -5,6 +5,8 @@ import {Alles} from "./Alles.t.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 
+interface IProtoFees { function protocolFeeController() external view returns (address); }
+
 /// @notice CONTROL SUITE for the `POOLED_USD` unification — written BEFORE the change and
 ///         required to be GREEN on unmodified code. That is what makes it a control rather
 ///         than a regression guard bolted on afterwards: when the unification lands, anything
@@ -641,5 +643,16 @@ contract UnificationControls is Alles {
 
         assertGt(premRetained, 0, "PREMISE: a premium was actually retained, else nothing to compare");
         assertGt(usdMoved, 0, "PREMISE: real volume moved");
+    }
+
+    /// EMPIRICAL — is a v4 protocol-fee CONTROLLER set on the live mainnet PoolManager at all?
+    /// This is the question my earlier assert-0 could not answer. If the controller is address(0),
+    /// NO pool can carry a protocol fee and our 0 is structural. If it is set, a fee switch is live
+    /// and the only remaining question is what it returns for OUR key.
+    function test_EMPIRICAL_ProtocolFeeControllerIsSet() public {
+        address ctrl = IProtoFees(address(CORE.poolManager())).protocolFeeController();
+        emit log_named_address("live protocolFeeController", ctrl);
+        emit log_named_uint("fork block", block.number);
+        emit log_named_uint("controller set? (0=no)", ctrl == address(0) ? 0 : 1);
     }
 }
