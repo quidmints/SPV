@@ -6726,12 +6726,27 @@ position now). This is exogenous and predictive (depth thinning ahead of a move)
 so symmetric JIT injection cancels — which is why it may be safe where external DEPTH (`L`, a level)
 was not. **Unverified hypothesis about an attack surface; test before relying on it.**
 
-**OPEN 2 — nothing ties the skew we collect to the flash cost we pay.** The refill is an automatic
-protocol flash paying EXTERNAL price impact; the skew is calibrated against OUR OWN inventory. Small
-drains over-collect, drains large relative to external depth under-collect — and that is exactly when
-the flash fails and leaves a `pendingSwapOutUsd` behind. Keying the skew to the venue we restore
-through was rejected because live external `L` is JIT-manipulable (flash-add depth, our skew reads
-~0, drain at the floor, withdraw). **Unresolved design decision, not a bug.**
+**OPEN 2 — VOID FOR THE SATS LEG. Rewritten 2026-08-04 after the repo owner corrected the premise.**
+It read "nothing ties the skew we collect to the external price impact the flash refill pays". For
+BTC sats THERE IS NO SUCH COST: we never source sats from an EVM tx. The band, when short, prices
+them richly via the skew premium, and a hop holding sats sees a better-than-market bid and sells to
+us through `creditSwapIn`. **The hop is a counterparty we PAY, not an agent we EMPLOY** — we never
+source, never pay external impact, never take acquisition risk. So "never loses money" holds BY
+CONSTRUCTION on that leg: we only ever buy at a price we ourselves posted. The realised-cost EWMA and
+the go/no-go gate I proposed were machinery for a problem that does not exist here. **Do not build
+them for sats.** Two distinct mechanisms were conflated: the ETH-side atomic flash (we DO source,
+in-tx) and the sats-side premium-attracted hop (we never do). Any residual version of this item
+applies to the ETH leg ONLY.
+
+**OPEN 2b — the band credit was 2x too generous and was MASKING an over-charging skew.**
+`BAND_FRAC_WAD` was `BAND_DELTA` (20bps). Average execution across a traversal is the GEOMETRIC MEAN
+of pre/post marginal price, not the edge, so the most the band can charge on average is
+`1-(P_a/P_b)^(1/4)` ~ delta/2 = **10bps** (identity control-validated: it reproduces the v3
+whitepaper's own 200x/2000x figures to two decimals). Corrected to delta/2.
+**Result: failures went 147 -> 284.** The over-credit was silently offsetting a skew that
+over-charges generally; removing it did not create a defect, it EXPOSED one (rule 4). Do NOT revert
+the credit to hide this again — the real defect is that the skew is too high, most visibly on the
+sell leg (see OPEN 1).
 
 **OPEN 3 — `Core.skewPremium*` is NOT consumer-free.** It was documented as having "no consumer
 beyond the counters + theta EWMA"; the BTC mint-vs-proceeds invariants are tuned against the premium

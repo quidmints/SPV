@@ -942,7 +942,9 @@ contract Alles is ForkPin, Fixtures {
 
         // LINEAR IN SIZE, net of the band credit. NO CEILING: the old MAX_WELL_SKEW flattened every
         // one of these into the same 3e16, which is exactly how it made the size term a no-op.
-        uint band = uint(20) * 1e18 / 10_000;                  // BAND_DELTA as a WAD fraction
+        uint band = uint(20) * 1e18 / 10_000 / 2;              // HALF the band width: average execution
+        // across a traversal is the geometric mean of pre/post marginal price, not the edge, so the
+        // average slippage the band can charge is 1-(P_a/P_b)^(1/4) ~ delta/2 = 10bps for +/-20bps.
         uint s10 = SwapLib.skewWad(INV / 10, INV);    // sigma2=0 isolates the size term
         assertEq(s10, 1e17 - band, "10% of the reservoir costs 10% less the band credit");
         uint s20 = SwapLib.skewWad(INV / 5, INV);
