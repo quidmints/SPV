@@ -520,22 +520,57 @@ contract Vogue is
     ///      second cause with the OPPOSITE remedy, so the QU!D-settled slice MUST be netted off
     ///      the shortfall or it is paid AND re-credited (measured: 12.887 phantom `pooled`,
     ///      un-recoverable by a second exit, inflating `lpShares` and diluting every other LP).
-    function _burnAndDeliverUsdLeg(uint160 sqrtP, uint amount, int24 lo, int24 hi, address recipient)
+    /// @param burnAmt  what the in-range burn may take — CAPPED at `deliverableETH`.
+    /// @param claimAmt the LP's FULL withdrawal. The USD leg is sized from THIS, not from `burnAmt`.
+    ///
+    /// §E28-r: the mint used to pay only what the BURN RELEASED, which coupled the USD leg to a cap
+    /// that exists for the ETH leg alone — measured, the burn released 99.958% of the increment and
+    /// the claim was debited for 100%, leaking 25.200001 USD. **The band's USD leg is a MOCK
+    /// MIRROR; the REAL stables are basket-held**, so the mint never needed the burn to release
+    /// anything. Pay the LP's PRO-RATA share of the increment directly and let the burn govern only
+    /// the ETH leg. `lpShares` is already debited by `claimAmt` at this point, so the pre-debit
+    /// total is `lpShares + claimAmt` — using it un-restored would over-pay a partial exit.
+    function _burnAndDeliverUsdLeg(uint160 sqrtP, uint burnAmt, uint claimAmt, int24 lo, int24 hi, address recipient)
         private returns (uint sent) {
-        uint usdPre = V4.POOLED_USD_ETH(); uint basePre = V4.basketUsdEth();
-        sent = _burnInRange(sqrtP, amount, lo, hi, recipient);
-        uint usdOut  = usdPre  > V4.POOLED_USD_ETH() ? usdPre  - V4.POOLED_USD_ETH() : 0;
-        uint baseOut = basePre > V4.basketUsdEth()   ? basePre - V4.basketUsdEth()   : 0;
-        if (usdOut > baseOut) {
-            QUID.mint(recipient, (usdOut - baseOut) * 1e12, address(QUID), 0);
-            // Debit at the SAME basis the claim was PRICED at — the ORACLE, never the band's leg
-            // ratio, which is not a price for a concentrated position (measured: it implied ~840
-            // USD/ETH against an actual 1,854, over-pricing a 400-share claim by 73,116 USD).
-            // Folded INTO `sent`: this returns VALUE DELIVERED in ETH-equivalent, which is the
-            // caller's ledger unit; returning two numbers costs a stack slot `_withdraw` lacks.
-            uint px = AUX.getTWAPforAsset(address(WETH), 1800);
-            if (px > 0) sent += FullMath.mulDiv((usdOut - baseOut) * 1e12, 1e18, px);
-        }
+        uint incrPre = _bandIncrement6();
+        sent = _burnInRange(sqrtP, burnAmt, lo, hi, recipient);
+        sent += _payUsdLeg(incrPre, lpShares + claimAmt, claimAmt, recipient);
+    }
+
+    /// @dev The band's LP-OWNED USD leg, 6-dec: everything in the curve's USD mirror beyond what the
+    ///      BASKET put there. Signed-safe — a band that BOUGHT ETH with basket dollars reads 0 here
+    ///      (the negative case is priced, not paid: see `_pricingBacking`).
+    function _bandIncrement6() private view returns (uint) {
+        uint usd6 = V4.POOLED_USD_ETH(); uint base6 = V4.basketUsdEth();
+        return usd6 > base6 ? usd6 - base6 : 0;
+    }
+
+    /// @dev Pays `claimAmt`'s pro-rata slice of the band's USD increment in QU!D and returns its
+    ///      ETH-EQUIVALENT, the caller's ledger unit (returning two numbers costs a stack slot
+    ///      `_withdraw` lacks). `incrPre`/`denom` MUST be captured BEFORE the burn: the burn removes
+    ///      the increment proportionally, so reading them after would pay on an already-shrunk leg.
+    ///
+    ///      §E28-r(2) — this is a SEPARATE helper, not a branch of `_burnAndDeliverUsdLeg`, because
+    ///      the ether.fi offramp needs the SAME payment with a DIFFERENT ETH recipient. That slice
+    ///      burns its band liquidity to `address(0)` (its ETH comes from ether.fi, not the band),
+    ///      and before this it burned the USD leg away too and paid the LP NOTHING for it. Measured
+    ///      on the LVR control-vs-treatment probe: a 13.016% ether.fi slice silently consumed
+    ///      7,809.44 USD of a 60,000 USD increment — the whole 104 bps by which the treatment LP
+    ///      came out behind the control, i.e. the entire remaining #12 leak.
+    function _payUsdLeg(uint incrPre, uint denom, uint claimAmt, address recipient)
+        private returns (uint ethEquiv) {
+        if (incrPre == 0 || denom == 0 || claimAmt == 0) return 0;
+        uint owed6 = claimAmt >= denom ? incrPre : FullMath.mulDiv(incrPre, claimAmt, denom);
+        if (owed6 == 0) return 0;
+        QUID.mint(recipient, owed6 * 1e12, address(QUID), 0);
+        // Re-anchor the mirror: what the LP still owns is what it owned MINUS what was just paid,
+        // NOT whatever the burn happened to release. See `Core.absorbPaidUsd` for the measurement.
+        V4.absorbPaidUsd(false, incrPre - owed6);
+        // Valued at the SAME basis the claim was PRICED at — the ORACLE, never the band's leg
+        // ratio, which is not a price for a concentrated position (measured: it implied ~840
+        // USD/ETH against an actual 1,854, over-pricing a 400-share claim by 73,116 USD).
+        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        if (px > 0) ethEquiv = FullMath.mulDiv(owed6 * 1e12, 1e18, px);
     }
 
     function _withdraw(uint amount, address recipient, bool instant) internal {
@@ -602,10 +637,15 @@ contract Vogue is
             // would otherwise underflow `amount -= served` below).
             if (ethfiPart > amount) ethfiPart = amount;
             if (ethfiPart > 0) {
+                uint incrPre = _bandIncrement6();          // BEFORE the burn shrinks it
                 uint served = EV.offrampEtherFi(ethfiPart, recipient, instant);
                 if (served > 0) {
                     _burnInRange(sqrtPriceX96, served,
                     tickLower, tickUpper, address(0));
+                    // §E28-r(2): the ETH came from ether.fi, so the band burn delivers to nobody —
+                    // but the USD leg it burned away is LP-OWNED and must still be paid. Skipping it
+                    // was the leak the LVR probe measured (7,809.44 USD of a 60,000 increment).
+                    _payUsdLeg(incrPre, lpShares, served, recipient);
                     ethfiBacked[msg.sender] -= Math.min(served, 
                     ethfiBacked[msg.sender]);
 
@@ -645,7 +685,7 @@ contract Vogue is
             uint firstBurn = amount > deliverable ? deliverable : amount;
             // §#12: `sent` is VALUE DELIVERED in ETH-equivalent — the ETH burn PLUS the
             // QU!D-settled USD slice — so the shortfall re-credit below nets it off automatically.
-            uint sent = firstBurn > 0 ? _burnAndDeliverUsdLeg(sqrtPriceX96, firstBurn,
+            uint sent = firstBurn > 0 ? _burnAndDeliverUsdLeg(sqrtPriceX96, firstBurn, amount,
                                         tickLower, tickUpper, recipient) : 0;
 
             if (amount > sent) { uint shortfall = amount - sent;

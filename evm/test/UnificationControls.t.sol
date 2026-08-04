@@ -785,8 +785,17 @@ contract UnificationControls is Alles {
         uint claimEth = V4.convertToAssets(shares);
         uint claimUsd = claimEth * px / 1e18;
 
+        emit log_named_uint("POOLED_ETH   pre  ", CORE.POOLED_ETH());
+        emit log_named_uint("vogueETH     pre  ", AUX.vogueETH());
+        emit log_named_uint("POOLED_USD   pre  ", CORE.POOLED_USD_ETH());
+        emit log_named_uint("basketUsdEth pre  ", CORE.basketUsdEth());
+        emit log_named_uint("lpShares     pre  ", V4.lpShares());
+
         uint e0 = lpA.balance; uint w0 = WETH.balanceOf(lpA); uint q0 = QUID.balanceOf(lpA);
         vm.prank(lpA); V4.redeem(shares, lpA, lpA);
+        emit log_named_uint("POOLED_ETH   post ", CORE.POOLED_ETH());
+        emit log_named_uint("POOLED_USD   post ", CORE.POOLED_USD_ETH());
+        emit log_named_uint("basketUsdEth post ", CORE.basketUsdEth());
         uint gotEth = (lpA.balance - e0) + (WETH.balanceOf(lpA) - w0);
         uint gotQ   = QUID.balanceOf(lpA) - q0;
         uint gotUsd = gotEth * px / 1e18 + gotQ;

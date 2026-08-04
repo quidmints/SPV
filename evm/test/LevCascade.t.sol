@@ -858,10 +858,10 @@ contract LevCascadeProbe is Alles {
         ETH.setLevManager(address(lm));
         lm.setSoldFractionActive(true);
         vm.deal(address(this), 40 ether);
-        V4.deposit{value: 20 ether}(0, address(this), 3);
+        V4.deposit{value: 2 ether}(0, address(this), 3);
         _openAtEntry(lps[0], 5 ether);
 
-        _rallyBand(_entrySqrt(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
+        _rallyBand(_entrySqrt(lps[0]), 0.2e18, 40, 16_000 * USDC_PRECISION);
         lm.rebalance(lps[0], 0);
         _calmVol();
         V4.syncLev(lps[0]);
@@ -872,14 +872,18 @@ contract LevCascadeProbe is Alles {
         uint debt = lm.totalDebtUsd();
         assertGt(debt, 0, "PREMISE: leverage debt must exist before we try to exceed a leg with it");
 
-        // §#12 RE-DERIVED CONSTRUCTION. The old method drained the curve until its USD leg fell
-        // below the debt — but draining is a SWAP, and after #12 a swap no longer reduces the
-        // BASKET's contribution. That is #12 working, not a broken test, and the premise below
-        // caught it. The discriminating case now needs the ETH band's BASE to be SMALL relative to
-        // its debt, so shrink the band by withdrawing most of the plain LP position instead.
+        // §#12/E28-r RE-DERIVED CONSTRUCTION, twice. (1) The ORIGINAL method drained the curve until
+        // its USD leg fell below the debt — but draining is a SWAP, and after #12 a swap no longer
+        // reduces the BASKET's contribution. (2) The replacement shrank the band by withdrawing the
+        // plain LP position — which worked only while the basket leg came off FIRST-OUT; once E28-r
+        // made that removal PROPORTIONAL, a 95% withdrawal left 95%-of-a-large-leg behind and the
+        // premise stopped holding. Both times the premise assertion caught it rather than letting
+        // the case go vacuous. What discriminates is a SMALL plain base with a LARGE debt, and the
+        // reliable lever is the RALLY: it raises the debt (the manager re-borrows at target LTV)
+        // while leaving the basket leg alone, exactly because of (1).
         vm.roll(block.number + 1); vm.warp(block.timestamp + 1 hours);
         vm.prank(address(this));
-        try V4.withdraw(19 ether, address(this), address(this)) {} catch {}
+        try V4.withdraw(2 ether, address(this), address(this)) {} catch {}
         vm.roll(block.number + 1); vm.warp(block.timestamp + 10 minutes);
 
         // §#12: the per-band floor now applies to the BASKET's contribution, not the curve leg.

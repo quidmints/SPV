@@ -1100,12 +1100,42 @@ contract Core is SafeCallback {
             if (basketLeg) { if (isBTC) basketUsdBtc += usdAmount; else basketUsdEth += usdAmount; }
             require(committedUsd18() <= haircutTvl, "backing");
         } else {
+            uint pooledPre = isBTC ? POOLED_USD_BTC : POOLED_USD_ETH;
             _subPooledUsd(isBTC, usdAmount);
             if (basketLeg) {
-                if (isBTC) basketUsdBtc -= Math.min(usdAmount, basketUsdBtc);
-                else       basketUsdEth -= Math.min(usdAmount, basketUsdEth);
+                // §#12/E28-r — PROPORTIONAL, not first-out. A burn releases a MIX: the band's USD leg
+                // holds basket dollars AND the LP-owned increment, and modifyLiquidity returns them in
+                // the band's CURRENT ratio. The old `-= min(usdAmount, basket)` drained the basket leg
+                // FIRST, so on a partial exit `POOLED_USD - basketUsd` (the increment `_pricingBacking`
+                // now reads as LP backing) grew by the whole released basket slice — phantom backing
+                // paid to whoever withdrew next. Measured on a FULL exit: basket floored to 0 against a
+                // 25.200001 residue, leaving that entire residue mispriced as LP equity.
+                uint b = isBTC ? basketUsdBtc : basketUsdEth;
+                uint out_ = pooledPre <= usdAmount ? b   // whole leg left: basket leaves with it
+                          : Math.mulDiv(b, usdAmount, pooledPre);
+                if (isBTC) basketUsdBtc = b - out_; else basketUsdEth = b - out_;
             }
         }
+    }
+
+    /// @notice The venue just SETTLED `lpOwned6` as the band's remaining LP-owned USD leg — it paid the
+    ///         rest out in QU!D, so the BASKET now owns that slice of the mirror. Re-anchors `basketUsd*`
+    ///         to `POOLED_USD_* - lpOwned6` instead of leaving it to whatever the burn happened to release.
+    /// @dev    WHY THIS EXISTS. `POOLED_USD_* - basketUsd*` is the number `_pricingBacking` reads as LP
+    ///         equity, so it must equal what the venue actually still owes. It cannot, if both sides move
+    ///         independently: the venue pays a SHARE-proportional slice (`served/lpShares`) while the burn
+    ///         removes a LIQUIDITY-proportional one (`served/bandEth`), and the two differ by exactly the
+    ///         amount the band's own trading has skewed it away from 1:1. Measured on the LVR probe with a
+    ///         367.9-ETH band against 400 shares: 636.44 USD of a 60,000 increment, 8 bps of LP value,
+    ///         evaporating into an accumulator nobody reconciled. Netting it here makes the identity exact
+    ///         rather than approximately right, and it is the BASKET's leg that moves because the QU!D was
+    ///         minted against basket backing.
+    /// @dev    The floor is not a safety clamp: `lpOwned6 > POOLED_USD_*` means the venue believes it owes
+    ///         more LP-owned dollars than the curve mirror holds, which the SUBTRACTION would silently wrap.
+    function absorbPaidUsd(bool isBTC, uint lpOwned6) external onlyUs {
+        uint pooled = isBTC ? POOLED_USD_BTC : POOLED_USD_ETH;
+        uint base = pooled > lpOwned6 ? pooled - lpOwned6 : 0;
+        if (isBTC) basketUsdBtc = base; else basketUsdEth = base;
     }
 
     /// @dev Token-leg (ETH or BTC) of _handleDelta. delta>0 → take+burn (ETH pays

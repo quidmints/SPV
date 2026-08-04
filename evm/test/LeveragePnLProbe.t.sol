@@ -79,6 +79,9 @@ contract LeveragePnLProbe is Alles {
         emit log_named_uint("   POOLED_USD_ETH", CORE.POOLED_USD_ETH());
         emit log_named_uint("   POOLED_ETH    ", CORE.POOLED_ETH());
         emit log_named_uint("   vogueETH      ", AUX.vogueETH());
+        emit log_named_uint("   basketUsdEth  ", CORE.basketUsdEth());
+        emit log_named_uint("   lpShares      ", V4.lpShares());
+        emit log_named_uint("   totalLevPooled", V4.totalLevPooled());
         emit log_named_uint("   basket TVL    ", _tvl());
         emit log_named_uint("   committedUsd18", CORE.committedUsd18());
     }
