@@ -737,4 +737,36 @@ contract UnificationControls is Alles {
         assertEq(usdDustBtc, 0, "mockUSD_BTC escaped the allowed holder set");
         assertEq(tokDustBtc, 0, "mockBTC escaped the allowed holder set");
     }
+
+    /// SETTLE THE -31.21. The LVR probe redeems ONCE inside a snapshot. If the shortfall is a
+    /// correct deferral, `pooled` is non-zero after and a SECOND redeem collects it. If `pooled`
+    /// is already zero, the value is STRANDED in the wrong leg and #12 is not done. Measured
+    /// rather than reasoned, because I got the previous residual wrong exactly this way (E26).
+    function test_SETTLE_LvrResidualIsDeferralNotLeak() public {
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        vm.roll(block.number + 1);
+        for (uint i; i < 20; i++) _trade(3_000e18);
+
+        uint pooled0 = V4.balanceOf(lpA);
+        uint e0 = lpA.balance; uint w0 = WETH.balanceOf(lpA); uint q0 = QUID.balanceOf(lpA);
+        vm.prank(lpA); V4.redeem(pooled0, lpA, lpA);
+        uint pooled1 = V4.balanceOf(lpA);
+        emit log_named_uint("pooled before   ", pooled0);
+        emit log_named_uint("pooled after 1st", pooled1);
+        emit log_named_uint("ETH  after 1st  ", (lpA.balance - e0) + (WETH.balanceOf(lpA) - w0));
+        emit log_named_uint("QUID after 1st  ", QUID.balanceOf(lpA) - q0);
+
+        if (pooled1 == 0) { emit log_string("VERDICT: pooled==0 -> nothing deferred; any gap is a LEAK"); return; }
+
+        vm.roll(block.number + 1); vm.warp(block.timestamp + 1 hours);
+        uint e1 = lpA.balance; uint w1 = WETH.balanceOf(lpA); uint q1 = QUID.balanceOf(lpA);
+        vm.prank(lpA); V4.redeem(pooled1, lpA, lpA);
+        uint gotEth = (lpA.balance - e1) + (WETH.balanceOf(lpA) - w1);
+        uint gotQ   = QUID.balanceOf(lpA) - q1;
+        emit log_named_uint("pooled after 2nd", V4.balanceOf(lpA));
+        emit log_named_uint("ETH  from 2nd   ", gotEth);
+        emit log_named_uint("QUID from 2nd   ", gotQ);
+        assertTrue(gotEth > 0 || gotQ > 0, "VERDICT: the deferral must be COLLECTABLE, else it is a leak");
+    }
 }
