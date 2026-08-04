@@ -74,7 +74,12 @@ PROBES = OrderedDict([
 
 FAMILIES = OrderedDict([
     # ── the original nine ────────────────────────────────────────────────────────────────────
-    ("INCOMPLETE",  r"\b(haven'?t|hasn'?t|not yet|still need|remains?|left to do|didn'?t (?:get|have) (?:to|time))\b"),
+    # ⚠️ UNCONTRACTED FORMS. `haven'?t` matches "havent"/"haven't" but NOT "have not" — the
+    #    uncontracted form was invisible to ALL 16 families until 2026-08-03. "What I have not done
+    #    and would want before any change here:" is exactly how unfinished work gets flagged in prose,
+    #    and it matched nothing. Always cover both spellings.
+    ("INCOMPLETE",  r"\b(have|has|had) not\b|\b(haven'?t|hasn'?t|did ?n'?o?t|not yet|still need|"
+                    r"remains?|left to do|didn'?t (?:get|have) (?:to|time))\b"),
     ("DEFERRED",    r"\b(defer\w*|later|follow[- ]up|next (?:pass|thread|session)|revisit|for now|punt\w*)\b"),
     ("DISMISSAL",   r"\b(ignore\w*|skip\w*|out of scope|not worth|won'?t (?:do|bother)|leave (?:it|that))\b"),
     ("ABSENCE",     r"\b(no test|never (?:run|tested|verified|executed)|untested|unexercised|nothing (?:covers|tests))\b"),
@@ -97,6 +102,13 @@ FAMILIES = OrderedDict([
                     r"remains? open|open question|needs? (?:investigation|a look)|worth (?:a )?look)\b"),
     ("CONDITIONAL", r"\b(if it turns out|should it (?:ever|turn)|in case|unless|"
                     r"if that (?:changes|happens|breaks)|watch (?:for|out))\b"),
+    # Added 2026-08-03 — the CAVEAT frame. A reply that ends "what I have not done / would want
+    # before acting" is the single most reliable signal of unfinished work, and NO other family
+    # caught it: not INCOMPLETE (uncontracted), not OUGHTTO, not FUTURE ("before mainnet" only).
+    ("CAVEAT",      r"\b(would (?:want|need|prefer)|before (?:any|acting|changing|touching|shipping|"
+                    r"relying|trusting)|what I have not|have not (?:done|checked|read|verified|run)|"
+                    r"not (?:established|certified|confirmed)|treat (?:as|this as)|do not (?:trust|"
+                    r"act on)|unverified|hypothesis, not)\b"),
     ("REGRESSION",  r"\b(re[- ]?introduc\w+|regress\w+|came back|broke again|un[- ]?fix\w*|"
                     r"stale|outdated|drift\w*|no longer (?:true|matches))\b"),
 ])
