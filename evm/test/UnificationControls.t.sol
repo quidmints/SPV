@@ -1056,4 +1056,61 @@ contract UnificationControls is Alles {
             "redeemable must be INVARIANT to pure trading: the POOLED_USD_BTC subtraction and the "
             "basket TVL it is subtracted from move in lockstep and cancel");
     }
+
+    /// §E44 — ARE THE TWO NEW SLOTS (`basketUsdEth`/`basketUsdBtc`) REMOVABLE? PROVE IT, do not
+    /// assert it. #12 added exactly two storage slots and removed none, so they owe their keep.
+    ///
+    /// A variable is removable iff it is a FUNCTION of state we already keep. This test shows
+    /// `basketUsd*` is not a function of `POOLED_USD_*` — the only other number describing the same
+    /// leg — by exhibiting both halves of the counterexample in ONE fixture:
+    ///   (a) pure TRADING moves `POOLED_USD_*` while `basketUsd*` stays put, and
+    ///   (b) a basket ADD moves BOTH, together.
+    /// Two different `basketUsd` values for the same `POOLED_USD` ⇒ no function of `POOLED_USD`
+    /// can recover it. The split is PATH-DEPENDENT: it records how many of the band's in-range
+    /// dollars the BASKET put there versus how many the band TRADED its way into, and nothing else
+    /// on-chain carries that history — the V4 position knows only the total.
+    function test_E44_BasketUsdIsNotDerivableFromTheCurveMirror() public {
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 200 ether}(0, lpA, 3);
+        vm.roll(block.number + 1);
+
+        uint pooled0 = CORE.POOLED_USD_ETH();
+        uint basket0 = CORE.basketUsdEth();
+        assertEq(pooled0, basket0, "PREMISE: a fresh band's mirror IS the basket's contribution");
+
+        // (a) PURE TRADING — the curve mirror moves, the basket's leg does not.
+        for (uint i; i < 10; i++) _trade(3_000e18);
+        uint pooled1 = CORE.POOLED_USD_ETH();
+        uint basket1 = CORE.basketUsdEth();
+        emit log_named_uint("after trading: POOLED_USD_ETH", pooled1);
+        emit log_named_uint("after trading: basketUsdEth  ", basket1);
+        assertGt(pooled1, pooled0, "PREMISE: trading must move the curve mirror");
+        assertEq(basket1, basket0, "(a) trading moves the mirror ALONE -- basket leg is untouched");
+
+        // (b) A BASKET ADD — both move, together.
+        vm.roll(block.number + 1); vm.warp(block.timestamp + 1 hours);
+        vm.prank(lpB); V4.deposit{value: 200 ether}(0, lpB, 3);
+        uint pooled2 = CORE.POOLED_USD_ETH();
+        uint basket2 = CORE.basketUsdEth();
+        emit log_named_uint("after basket add: POOLED_USD_ETH", pooled2);
+        emit log_named_uint("after basket add: basketUsdEth  ", basket2);
+        assertGt(pooled2, pooled1, "PREMISE: the deposit must band more USD");
+        assertGt(basket2, basket1, "(b) a basket ADD moves BOTH legs together");
+
+        // THE PROOF: the mirror grew on BOTH events; the basket leg grew on only ONE of them. So
+        // the same delta in `POOLED_USD_ETH` maps to two different deltas in `basketUsdEth`, and no
+        // function of the mirror can distinguish them. The slot is irreducible.
+        uint mirrorGrewOnTrade  = pooled1 - pooled0;
+        uint basketGrewOnTrade  = basket1 - basket0;          // == 0
+        uint mirrorGrewOnAdd    = pooled2 - pooled1;
+        uint basketGrewOnAdd    = basket2 - basket1;          // >  0
+        emit log_named_uint("mirror delta on TRADE", mirrorGrewOnTrade);
+        emit log_named_uint("basket delta on TRADE", basketGrewOnTrade);
+        emit log_named_uint("mirror delta on ADD  ", mirrorGrewOnAdd);
+        emit log_named_uint("basket delta on ADD  ", basketGrewOnAdd);
+        assertEq(basketGrewOnTrade, 0, "the basket leg is BLIND to trading");
+        assertGt(basketGrewOnAdd, 0, "the basket leg TRACKS adds");
+        assertTrue(mirrorGrewOnTrade > 0 && mirrorGrewOnAdd > 0,
+            "the mirror grew on BOTH -- so it cannot tell the two apart, and the slot must stay");
+    }
 }
