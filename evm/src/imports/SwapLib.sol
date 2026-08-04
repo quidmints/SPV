@@ -812,9 +812,20 @@ library SwapLib {
     function skewWad(uint poolVolUsd, uint lockedUsd, uint committedUsd, uint flowUsd, uint sigmaSqWad, bool isBTC)
         public pure returns (uint skew)
     {
-        uint target = flowUsd + committedUsd;
+        // §E58 — BOTH LEVERAGE TERMS DELETED (owner: *"leverage shouldn't be perceived by this skew
+        // at all… whether levered or not, in the band is in the band alike"*). They entered TWICE and
+        // both inflated scarcity: `inv` SUBTRACTED `lockedUsd` (levered GROSS collateral — which IS
+        // band depth), and `target` ADDED `committedUsd` (the leverage DEBT). Together they made the
+        // band read scarcer than it is by an amount that SCALES WITH THE LEV BOOK.
+        //   The skew prices the cost of SHEDDING volatile the band holds. How an LP FINANCED its
+        //   participation is not a property of that inventory: it is in the band either way, and a
+        //   levered position is collateralised and unwindable (`closeLev` repays debt and returns
+        //   collateral), so it never consumes the band's shed capacity. Nothing about a levered LP
+        //   changes how hard it is to sell the band's ETH.
+        //   What remains IS the E54 derivation: scarcity is inventory against the flow we shed into.
+        uint target = flowUsd;
         if (target == 0) return 0;
-        uint inv = poolVolUsd > lockedUsd ? poolVolUsd - lockedUsd : 0;
+        uint inv = poolVolUsd;
         if (inv >= target) return 0;                     // flush ⇒ ~oracle (band owns it)
         uint q = (target - inv) * 1e18 / target;         // scarcity q ∈ (0, 1e18]
         uint oneMinusQ = 1e18 - q;                        // = inv/target ∈ [0, 1e18)
@@ -951,16 +962,17 @@ library SwapLib {
     function sellSkew(address core, uint base, bool isBTC, uint addedTok)
         internal view returns (uint)
     {
-        uint committed = ICore(core).levClaimUsd6(isBTC);      // DEBT (→ target)
+        // §E58: `target` is FLOW alone — the leverage DEBT is not a constraint on shedding (see
+        // skewWad's note). One term, one meaning.
         uint flow = ICore(core).flowEwmaUsd(isBTC);
-        uint target = flow + committed;
+        uint target = flow;
         if (target == 0) return 0;
         // inv = poolVolUsd − GROSS locked inventory (same base/1e30 scale as poolVol, #6/F3). Scope the two
         // transient conversion locals so they free their stack slots before the skewWad call (no via_ir).
         uint inv;
         {
-            (uint poolVolUsd, uint locked) = _skewBasis(core, base, isBTC, addedTok);
-            inv = poolVolUsd > locked ? poolVolUsd - locked : 0;
+            (uint poolVolUsd,) = _skewBasis(core, base, isBTC, addedTok);
+            inv = poolVolUsd;                                 // §E58: levered depth IS band depth
         }
         // A-S inventory-sign flip: reflect inv about target. inv≤target (refill) ⇒
         // mirror≥target ⇒ skewWad flush ⇒ 0 (EXEMPT); inv>target (inventory-increasing
