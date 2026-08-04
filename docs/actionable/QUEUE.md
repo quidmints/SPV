@@ -6679,11 +6679,19 @@ windows, `target = flowUsd + committedUsd`, and the entire settlement/duration t
 skew path completely, which closes the σ²=0 free-drain window and the TWAP-manipulation exposure by
 construction rather than by defence.
 
-**OPEN 1 — sell-leg denominator is halved.** `sellSkew` divides surplus by `(V+D)/2`. At balance
-`D == (V+D)/2` so it looks right; away from balance it over-charges by the skew factor. Measured:
-`testSwapPricing_EthSellInRange_PaysAboutOracle` pays 1.65% vs a 1.5% tolerance on a trade worth
-~0.9% of pool value. The CP reserve drawn from is the dollar side, not half the total. **Fix the
-derivation, do not loosen the test.**
+**OPEN 1 — the sell leg charges ΔI; the disagreement is DESIGN, not arithmetic.** *(Diagnosis
+corrected 2026-08-04 — the first one, "the denominator is halved, fix the derivation not the test",
+was WRONG.)* With `I = (V−D)/(V+D)` the standard book-imbalance statistic, the sell skew
+`surplusCreated/((V+D)/2)` equals `2a/(V+D)` for a sell into an already-heavy pool — which is
+exactly `ΔI`. It also coincides with the constant-product charge against the drawn side at balance
+(`a/D` where `D = (V+D)/2`). So the formula is not halved and is not mis-derived.
+
+What `testSwapPricing_EthSellInRange_PaysAboutOracle` actually encodes is the OLD exemption: under
+`target = flowUsd + committedUsd` a sell was free unless it pushed past `target`, so an in-range sell
+paid ~oracle. The new kernel charges any sell that pushes past 1:1 VALUE balance, so a 0.9%-of-pool
+sell into an ETH-heavy pool pays ~1.8%. **The open question is a design one — should a sell that
+worsens an already-skewed book be free? — and it must be answered before either the code or the test
+is touched.** Do not "fix" the derivation; it is doing what it was designed to do.
 
 **OPEN 2 — nothing ties the skew we collect to the flash cost we pay.** The refill is an automatic
 protocol flash paying EXTERNAL price impact; the skew is calibrated against OUR OWN inventory. Small
