@@ -3,7 +3,8 @@ pragma solidity ^0.8.28;
 
 import {FixedPointMathLib} from "solady/src/utils/FixedPointMathLib.sol";
 // §A.52: the canonical view (was a file-local `ILevSyncHookM`).
-import {ILevSyncHook, IAux} from "./Interfaces.sol";
+import {ILevSyncHook, IAux, IWeETH, IWiredVault, IRover, IEtherFiRedemption,
+        IDepositAdapter, ILevVenueColl, ILevMintVenue} from "./Interfaces.sol";
 import {ILevVenue, IERC20Min, IWETH9} from "../imports/ILevVenue.sol";
 import {IMorphoFlash} from "../imports/Interfaces.sol";
 
@@ -11,22 +12,9 @@ import {IMorphoFlash} from "../imports/Interfaces.sol";
 /// ONE Aux surface for everything LevMath touches on it (redeem / stables / TWAP / SOR both directions / venue /
 /// health) — was five tiny IAux* slices (consolidation).
 // ETH-side sell/buy machinery surfaces — moved here (delegatecall, bytecode OUTSIDE LevManager for EIP-170).
-interface IWeETHM { function getEETHByWeETH(uint256) external view returns (uint256); }
-interface IVaultRoverM   { function ROVER() external view returns (address); }
-interface IRoverAbsorbM  { function absorb(uint256 amountIn, bool giveWeeth) external returns (uint256 amountOut, uint256 amountUsed); }
-interface IRedeemM       { function redeemWeEth(uint256, address, address) external; }
-interface IDepositAdapterM { function depositWETHForWeETH(uint256, address) external; }
-interface ILevVenueVet {
-    function stable() external view returns (address);
-    function COLLATERAL() external view returns (address);
-}
 /// BOLD/Liquity venue mint-for-close surface — the manager flashes WETH and draws BOLD at face value from the
 /// venue's protocol trove. Mirrors LevManager.ILevMintVenue (mintForClose + the usesMintClose detection marker
 /// `deleverFlashBody` reads to route the un-flashable BOLD debt through the flash-WETH→mint-BOLD path).
-interface ILevMintVenueM {
-    function usesMintClose() external view returns (bool);
-    function mintForClose(uint256 wethIn, uint256 boldWanted) external returns (uint256 boldOut);
-}
 /// Morpho Blue zero-fee flash surface — the ONLY flash source (see LevManager.IMorphoFlash). Mirrored here so the
 /// moved de-lever bodies (`deleverFlashBody`) can invoke it from the manager's delegatecall context.
 /// The band sync-hook surface the sold-fraction target + reseat reads. Mirrors the managers'
@@ -263,8 +251,8 @@ library LevMath {
     ///         anything else would silently misvalue into PHANTOM backing (the exact rug the frozen allowlist
     ///         guards), so revert even for GOV (defense-in-depth against a config mistake).
     function vetVenue(address v, address base, address c0, address c1) public view returns (bool isShort) {
-        if (ILevVenueVet(v).stable() == base) return true;
-        address coll = ILevVenueVet(v).COLLATERAL();
+        if (ILevVenueColl(v).stable() == base) return true;
+        address coll = ILevVenueColl(v).COLLATERAL();
         if (coll != c0 && coll != c1) revert BadCollateral();
     }
 
@@ -375,7 +363,7 @@ library LevMath {
         if (remaining > 0) {
             IERC20Min(c.weeth).approve(ETHERFI_REDEEMER_M, remaining);
             uint256 ethBefore = address(this).balance;
-            IRedeemM(ETHERFI_REDEEMER_M).redeemWeEth(remaining, address(this), ETHFI_NATIVE_ETH_M);
+            IEtherFiRedemption(ETHERFI_REDEEMER_M).redeemWeEth(remaining, address(this), ETHFI_NATIVE_ETH_M);
             uint256 ethGot = address(this).balance - ethBefore;
             IWETH9(c.weth).deposit{value: ethGot}();
             wethGot += ethGot;
@@ -385,16 +373,16 @@ library LevMath {
     function _roverAbsorb(SellCtx memory c, uint256 weethIn) internal returns (uint256 wethOut, uint256 weethUsed) {
         if (weethIn == 0) return (0, 0);
         address vault = IAux(c.aux).ethVenue();
-        address rover = vault == address(0) ? address(0) : IVaultRoverM(vault).ROVER();
+        address rover = vault == address(0) ? address(0) : IWiredVault(vault).ROVER();
         if (rover == address(0)) return (0, 0);
         IERC20Min(c.weeth).approve(rover, weethIn);
-        try IRoverAbsorbM(rover).absorb(weethIn, false) returns (uint256 w, uint256 used) {   // weETH → WETH
+        try IRover(rover).absorb(weethIn, false) returns (uint256 w, uint256 used) {   // weETH → WETH
             wethOut = w; weethUsed = used;
         } catch { IERC20Min(c.weeth).approve(rover, 0); }
     }
 
     function _weethToWethDex(SellCtx memory c, uint256 pulled) internal returns (uint256) {
-        uint256 wethFloor = IWeETHM(c.weeth).getEETHByWeETH(pulled) * (10_000 - SELL_SLIP_BPS) / 10_000;
+        uint256 wethFloor = IWeETH(c.weeth).getEETHByWeETH(pulled) * (10_000 - SELL_SLIP_BPS) / 10_000;
         return v3SwapTiered(SWAP_ROUTER_02_M, c.weeth, c.weth, pulled, wethFloor, WEETH_WETH_FEE_M, 100);
     }
 
@@ -420,17 +408,17 @@ library LevMath {
     function _wethToWeeth(SellCtx memory c, uint256 wethRem) internal returns (uint256 weethOut) {
         {
             address vault = IAux(c.aux).ethVenue();
-            address rover = vault == address(0) ? address(0) : IVaultRoverM(vault).ROVER();
+            address rover = vault == address(0) ? address(0) : IWiredVault(vault).ROVER();
             if (rover != address(0)) {
                 IERC20Min(c.weth).approve(rover, wethRem);
-                (uint256 wAbs, uint256 wUsed) = IRoverAbsorbM(rover).absorb(wethRem, true);   // WETH → weETH
+                (uint256 wAbs, uint256 wUsed) = IRover(rover).absorb(wethRem, true);   // WETH → weETH
                 weethOut += wAbs; wethRem -= wUsed;
             }
         }
         if (wethRem > 0) { // mint the remainder WETH→weETH at ether.fi's fair rate.
             IERC20Min(c.weth).approve(ETHERFI_ADAPTER_M, wethRem);
             uint256 bef = IERC20Min(c.weeth).balanceOf(address(this));
-            IDepositAdapterM(ETHERFI_ADAPTER_M).depositWETHForWeETH(wethRem, address(0));
+            IDepositAdapter(ETHERFI_ADAPTER_M).depositWETHForWeETH(wethRem, address(0));
             weethOut += IERC20Min(c.weeth).balanceOf(address(this)) - bef;
         }
     }
@@ -449,7 +437,7 @@ library LevMath {
     }
 
     function _stableFloor(SellCtx memory c, address stable, uint256 weethAmt) internal returns (uint256) {
-        uint256 usd18 = (IWeETHM(c.weeth).getEETHByWeETH(weethAmt) * IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M)) / 1e18;
+        uint256 usd18 = (IWeETH(c.weeth).getEETHByWeETH(weethAmt) * IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M)) / 1e18;
         return (_fromUsd(stable, usd18) * (10_000 - SELL_SLIP_BPS)) / 10_000;
     }
 
@@ -482,7 +470,7 @@ library LevMath {
         IERC20Min(stable).transfer(venueAddr, assets);
         uint256 repaid = ILevVenue(venueAddr).repay(lp, assets);
         uint256 ethAmt = ((_toUsd18(stable, repaid) + extractUsd) * 1e18) / IAux(cfg.aux).getTWAPforAsset(cfg.weth, TWAP_WIN_M);
-        uint256 collUnits = cfg.isWethVenue ? ethAmt : (ethAmt * 1e18) / IWeETHM(cfg.weeth).getEETHByWeETH(1e18);
+        uint256 collUnits = cfg.isWethVenue ? ethAmt : (ethAmt * 1e18) / IWeETH(cfg.weeth).getEETHByWeETH(1e18);
         collUnits = (collUnits * 10_000) / (10_000 - cfg.maxSlippageBps);
         pulled = ILevVenue(venueAddr).withdraw(lp, collUnits);
     }
@@ -547,7 +535,7 @@ library LevMath {
         if (pxWeth == 0) revert NoPrice();
         uint256 freeEth = (usedUsd * 1e18) / pxWeth;                              // WETH-equivalent to free
         uint256 coll = venue.collateralOf(lp);
-        uint256 collInEth = cfg.isWethVenue ? coll : IWeETHM(cfg.weeth).getEETHByWeETH(coll);
+        uint256 collInEth = cfg.isWethVenue ? coll : IWeETH(cfg.weeth).getEETHByWeETH(coll);
         uint256 pull = collInEth == 0 ? 0 : (freeEth >= collInEth ? coll : (coll * freeEth) / collInEth);
         if (pull == 0) return 0;
         uint256 got = venue.withdraw(lp, pull);                                   // collateral → the manager
@@ -577,7 +565,7 @@ library LevMath {
             //    gas-comp buffer (seeded at deploy), the same buffer that funds LP-trove opens — never the flash/LP.
             uint256 px = IAux(cfg.aux).getTWAPforAsset(cfg.weth, TWAP_WIN_M);
             IERC20Min(cfg.weth).transfer(venueAddr, wethFlashed);
-            uint256 minted = ILevMintVenueM(venueAddr).mintForClose(wethFlashed, repayBold);
+            uint256 minted = ILevMintVenue(venueAddr).mintForClose(wethFlashed, repayBold);
             fairDebtWeth = (_toUsd18(stable, minted) * 1e18) / px;          // fair WETH value of the BOLD repaid
             // 2. Repay the LP's trove. Liquity returns ALL of its collateral here if this repay CLOSES the trove (full
             //    close); a partial de-lever returns nothing yet → we withdraw the LP's fair slice next.
@@ -727,7 +715,7 @@ library LevMath {
     function swapOutDeliverUnleveredBody(ILevVenue venue, address lp, uint256 wethWanted, address recipient, uint256 minWethOut, ExtractCfg memory cfg)
         public returns (uint256 wethDelivered) {
         uint256 coll = venue.collateralOf(lp);
-        uint256 collInEth = cfg.isWethVenue ? coll : IWeETHM(cfg.weeth).getEETHByWeETH(coll); // net-equity == collateral (0 debt)
+        uint256 collInEth = cfg.isWethVenue ? coll : IWeETH(cfg.weeth).getEETHByWeETH(coll); // net-equity == collateral (0 debt)
         if (collInEth == 0) return 0;
         uint256 pull = wethWanted >= collInEth ? coll : (coll * wethWanted) / collInEth;
         if (pull == 0) return 0;
@@ -764,7 +752,7 @@ library LevMath {
     function sizeRepayStable(ILevVenue venue, address lp, uint256 extractUsd, uint256 debtUsd18, uint256 pxWeth, bool isWethVenue, address weeth)
         public view returns (uint256 repayStable) {
         uint256 rawColl = venue.collateralOf(lp);
-        uint256 collUsd = ((isWethVenue ? rawColl : IWeETHM(weeth).getEETHByWeETH(rawColl)) * pxWeth) / 1e18;
+        uint256 collUsd = ((isWethVenue ? rawColl : IWeETH(weeth).getEETHByWeETH(rawColl)) * pxWeth) / 1e18;
         uint256 netEq = collUsd > debtUsd18 ? collUsd - debtUsd18 : 0;
         if (netEq == 0) return 0;
         repayStable = _fromUsd(venue.stable(), (extractUsd * debtUsd18) / netEq);
@@ -791,7 +779,7 @@ library LevMath {
         uint256 repaid = ILevVenue(venueAddr).repay(lp, assets);                 // == assets (capped ≤ debt upstream)
         if (pxWeth == 0) revert NoPrice();     // see the note above — never panic on a zero anchor
         uint256 ethAmt = (_toUsd18(stable, repaid) * 1e18) / pxWeth;
-        uint256 collUnits = cfg.isWethVenue ? ethAmt : (ethAmt * 1e18) / IWeETHM(cfg.weeth).getEETHByWeETH(1e18);
+        uint256 collUnits = cfg.isWethVenue ? ethAmt : (ethAmt * 1e18) / IWeETH(cfg.weeth).getEETHByWeETH(1e18);
         pulled = ILevVenue(venueAddr).withdraw(lp, (collUnits * 10_000) / (10_000 - cfg.maxSlippageBps));
     }
 
@@ -834,7 +822,7 @@ library LevMath {
 
     /// try/catch mint-close detection — every non-BOLD venue lacks the marker ⇒ false ⇒ the generic flash-stable path.
     function _isMintVenueM(address venue) private view returns (bool) {
-        try ILevMintVenueM(venue).usesMintClose() returns (bool m) { return m; } catch { return false; }
+        try ILevMintVenue(venue).usesMintClose() returns (bool m) { return m; } catch { return false; }
     }
 
     /// USD(1e18) <-> `stable` native units (decimals). Canonical here so both managers can dedup onto them.

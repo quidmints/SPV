@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+import {IBtcVaultBridge} from "./imports/Interfaces.sol";
 import {Types} from "./imports/Types.sol";
 import {ISPVGateway} from "./spv/interfaces/ISPVGateway.sol";
 import {BitcoinTx} from "./imports/BitcoinTx.sol";
@@ -92,23 +93,6 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 ///         resizeBtcLp are gated `onlyBtcChannels` and creditSwapIn /
 ///         creditSwapOut `onlyBTCChannels` on BtcVault (msg.sender == its pinned
 ///         btcChannels), so only this contract can drive them.
-interface IBtcVaultBridge {
-    // BTC LP position: open/close/splice (driven on channel open/close).
-    function registerBtcLp(address lpEth, uint sats) external;
-    function unregisterBtcLp(address lpEth, uint lpPayoutSats) external;
-    function settleBtcFeesOwed(address lpEth, uint sats) external; // clear owed BTC-leg fees paid into a splice
-    // `exactUsd` > 0 ⇒ on-chain swap-out delivery (pay the LP that exact proceeds);
-    // 0 ⇒ LP-withdrawal splice-out (all native).
-    function resizeBtcLp(address lpEth, uint shrinkSats, uint lpPayoutSats, uint exactUsd) external;
-    // BTC↔USD swap settlement (the swap-IN credit + on-curve swap-OUT buy).
-    function creditSwapIn(address seller, uint sats, address token, uint minDeliveredUsd) external returns (uint consumedSats);
-    function creditSwapOut(address swapper, address token, uint usdAmount, uint minSats)
-        external returns (uint sats, uint usd6);
-    // Record / clear an on-chain swap-out obligation's USD in pendingSwapOutUsd.
-    function addPendingSwapOut(uint usd6) external;
-    function subPendingSwapOut(uint usd6) external;
-}
-
 /// The Safe-governed MRENCLAVE whitelist — `isAttested(hop)` is true only for an EVM address whose SGX
 /// quote the registry's governance has verified (Automata DCAP). Gates who may become a shared-pool hop.
 interface IAttestedHopRegistry { function isAttested(address hop) external view returns (bool); }

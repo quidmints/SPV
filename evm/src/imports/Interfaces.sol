@@ -53,6 +53,8 @@ interface IWeETH {
 /// change had to be made twice and a missed one still compiled.
 interface IVogue {
     function addLiq(uint deltaTok, uint price, bool isBTC) external returns (uint usdOut, uint outDelta);
+    function unwindForRedeem(uint usdWanted) external returns (uint usdFreed);  // E21: was BasketLib.IVogueUnwind
+    function EV() external view returns (address);                              // E21: was BasketLib.IWiredVogue
     function derivedThetaWad(bool isBTC) external view returns (uint);
     function pendingRewards(address user) external view returns (uint ethReward, uint usdReward);
 }
@@ -74,6 +76,8 @@ interface IRover {
     function take(uint amount) external returns (uint wethAmount);
     function valueWeth() external view returns (uint); // WETH-equiv of the Rover's holdings
     function setLevManager(address lm) external;       // pin the LevManager as an allowed Rover.absorb caller
+    function AUX() external view returns (address);    // E21: was BasketLib.IWiredRover
+    function absorb(uint256 amountIn, bool giveWeeth) external returns (uint256 amountOut, uint256 amountUsed); // E21: was LevMath.IRoverAbsorbM
 }
 
 /// Canonical IDepositAdapter — union of the former per-file variants.
@@ -139,6 +143,16 @@ interface ILevSyncHook {
 /// Canonical ILevVenueColl — union of ILevVenueColl, ILevVenueCollB.
 interface ILevVenueColl {
     function COLLATERAL() external view returns (address);
+    function stable() external view returns (address);   // E21: was LevMath.ILevVenueVet
+}
+
+/// BOLD/Liquity venue mint-for-close surface -- the manager flashes WETH and draws BOLD at face
+/// value from the venue's protocol trove. `usesMintClose` is the detection marker
+/// `deleverFlashBody` reads to route un-flashable BOLD debt through flash-WETH->mint-BOLD.
+/// (was LevMath.ILevMintVenueM)
+interface ILevMintVenue {
+    function usesMintClose() external view returns (bool);
+    function mintForClose(uint256 wethIn, uint256 boldWanted) external returns (uint256 boldOut);
 }
 
 /// Canonical IAux — union of IAux, IAux.
@@ -256,6 +270,7 @@ interface ICore {
     function collectFees(int24 tickLower, int24 tickUpper, bool isBTC) external returns (uint, uint);
     function poolTicks(bool isBTC) external view returns (bytes32, uint160, int24);
     function token1isETH() external view returns (bool);
+    function btcVault() external view returns (address);   // E21: was BasketLib.IWiredCore
     function swap(bool isBTC, uint160 sqrtPriceX96, address sender, bool forOne, address token, uint amount) external returns (uint);
 }
 
@@ -301,4 +316,96 @@ interface IEthVenue {
 /// @notice §E5 — the per-band sink that routes a retained scarcity premium into that band's LP
 ///         fee accumulator. Implemented by BOTH `Vogue` (ETH) and `Vault` (BTC) under the SAME
 ///         signature so `Core.recordSkewPremium` dispatches by ADDRESS through one call site.
+/// E21 -- the last of the per-file restatements, homed here so there is ONE declaration each.
+/// `IBTCChannels` absorbed `SwapLib.IBtcChan2`, a byte-identical second copy under the
+/// numeric-suffix spelling of the very `IFoo_` pattern rule 2 bans.
+interface IBTCChannels { function btcRecipientOf(address user) external view returns (bytes32); }
+
+interface IBtcVault {
+    function repack(bool isBTC) external returns (uint160 sqrtPriceX96,
+        int24 tickLower, int24 tickUpper, uint128 myLiquidity);
+    function setBTCChannels(address b) external;
+}
+
+/// G.6 redeem shortfall sweep: the ETH LevManager's ONE reactive de-lever entry (SHARED with
+/// swap-out). Frees levered net-equity into the sink value-neutrally. (was BasketLib.ILevSweepB)
+interface ILevSweep { function deleverBook(uint256 usdWanted, address sink, uint256 minOut) external returns (uint256 freed); }
+
+/// Deploy-finalize linkage cross-check on the BASKET. Kept as its own interface rather than folded
+/// into `IAux`: `AUX()` is a getter ON Basket, so hanging it off the Aux surface would have made the
+/// canonical file assert a member Aux does not have — the compiler caught exactly that.
+interface IWiredBasket { function AUX() external view returns (address);
+                         function BTC_VAULT() external view returns (address); }
+
+/// Deploy-finalize linkage cross-check on the Vault (BasketLib.assertFullyWired).
+interface IWiredVault { function btcChannels() external view returns (address);
+                        function ROVER() external view returns (address);
+                        function LEV_MANAGER() external view returns (address); }
+
+/// Canonical Basket turn/maturity view (was BasketLib.IBasketTurn, itself already a union of two
+/// earlier per-file variants).
+interface IBasketTurn {
+    function turn(address from, uint value) external returns (uint sent, uint seedBurned);
+    function matureSupply() external view returns (uint);
+    function immatureBalanceOf(address who) external view returns (uint);
+}
+interface IBasketMint { function mint(address pledge, uint amount, address token, uint when) external returns (uint); }
+interface IQuidTarget { function target() external view returns (uint); }
+
+/// BTC swap-out de-lever surface on the BTC LevManager. (was SwapLib.ILevManagerDeliver)
+interface ILevManagerDeliver {
+    function swapOutDeleverAmt(address lp, uint maxUsd18)
+        external view returns (address venue, address stable, uint amtNative);
+    function swapOutDelever(address lp, uint stableUsd, uint freeSats)
+        external returns (uint usedUsd, uint freedSats);
+}
+/// M.1 ETH delivery-side de-lever. Distinct from BTC's `swapOutDelever` (ETH DELIVERS WETH to a
+/// recipient; BTC un-encumbers spliced sats), and ETH is POOLED so it walks the book.
+/// (was SwapLib.ILevEthDeliver)
+interface ILevEthDeliver {
+    function openLevCount() external view returns (uint);
+    function openLpAt(uint i) external view returns (address);
+    function swapOutDeleverAmt(address lp, uint maxUsd18)
+        external view returns (address venue, address stable, uint amtNative);
+    function swapOutDelever(address lp, uint stableUsd, address recipient, uint minWethOut)
+        external returns (uint usedUsd, uint wethDelivered);
+    function swapOutDeliverUnlevered(address lp, uint wethWanted, address recipient, uint minWethOut)
+        external returns (uint wethDelivered);
+}
+
+/// E21 (final) -- the last per-file declarations of OUR OWN contracts, homed here. `IAuxBacking`
+/// is gone entirely: `IAux.vogueETH()` already said the same thing.
+interface IVogueShares {
+    function lpShares() external view returns (uint);
+    function balanceOf(address user) external view returns (uint);
+    function convertToShares(uint assets) external view returns (uint);
+    function convertToAssets(uint shares) external view returns (uint);
+    /// (§J.2c) The ONLY external door to Vogue's `_transferShares`, gated to this contract.
+    function transferSharesFor(address from, address to, uint amount) external;
+}
+
+interface IBtcVaultBridge {
+    // BTC LP position: open/close/splice (driven on channel open/close).
+    function registerBtcLp(address lpEth, uint sats) external;
+    function unregisterBtcLp(address lpEth, uint lpPayoutSats) external;
+    function settleBtcFeesOwed(address lpEth, uint sats) external; // clear owed BTC-leg fees paid into a splice
+    // `exactUsd` > 0 ⇒ on-chain swap-out delivery (pay the LP that exact proceeds);
+    // 0 ⇒ LP-withdrawal splice-out (all native).
+    function resizeBtcLp(address lpEth, uint shrinkSats, uint lpPayoutSats, uint exactUsd) external;
+    // BTC↔USD swap settlement (the swap-IN credit + on-curve swap-OUT buy).
+    function creditSwapIn(address seller, uint sats, address token, uint minDeliveredUsd) external returns (uint consumedSats);
+    function creditSwapOut(address swapper, address token, uint usdAmount, uint minSats)
+        external returns (uint sats, uint usd6);
+    // Record / clear an on-chain swap-out obligation's USD in pendingSwapOutUsd.
+    function addPendingSwapOut(uint usd6) external;
+    function subPendingSwapOut(uint usd6) external;
+}
+
+interface IVaultExposeB {
+    function exposeBtcToLev(address lp, uint sats) external returns (bool);
+    function unexposeBtcFromLev(address lp, uint sats) external returns (bool);
+}
+
+interface IVBtcToken { function VAULT() external view returns (address); }
+
 interface ISkewSink { function creditSkewPremium(uint premium6) external; }

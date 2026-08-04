@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+import {IVaultExposeB, IVBtcToken} from "./imports/Interfaces.sol";
 import {LevMath} from "./imports/LevMath.sol";
 import {ILevVenue, IERC20Min} from "./imports/ILevVenue.sol";
 import {IMorphoFlash} from "./imports/Interfaces.sol";
@@ -14,16 +15,9 @@ import {ILevVenueColl} from "./imports/Interfaces.sol";
  // zero-fee flash (WBTC flash-repay-first de-lever)
 /// SAME-BTC leverage: the vBTC token IS the Vault, which exposes/un-exposes the LP's own channel band
 /// BTC as levered collateral (no separate mint/transferFrom roundtrip). See Vault.exposeBtcToLev.
-interface IVaultExposeB {
-    function exposeBtcToLev(address lp, uint sats) external returns (bool);
-    function unexposeBtcFromLev(address lp, uint sats) external returns (bool);
-}
-
 /// §J.2: the vBTC TOKEN's back-pointer to the Vault that owns its supply. `VBtc.VAULT` is immutable and
 /// set to its deployer (the Vault), so reading it once at construction gives a binding that CANNOT be
 /// misconfigured — no extra constructor arg, no deploy-site change, no runtime cost after the ctor.
-interface IVBtcToken { function VAULT() external view returns (address); }
-
 /// @title  BtcLevManager — the BTC IL-protect: per-LP isolated vBTC-collateral leverage overlay
 /// @notice The BTC analogue of `LevManager`, sharing its economics via `LevMath` but with the acquisition
 ///         model corrected for BTC: the collateral is **vBTC** (an

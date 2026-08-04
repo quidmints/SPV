@@ -5,6 +5,7 @@ import {SwapLib} from "./SwapLib.sol";
 import {Types} from "./Types.sol";
 import {LevMath} from "./LevMath.sol";
 import {ICore} from "./Interfaces.sol";
+import {IBasketMint} from "./Interfaces.sol";
 import {ILevEquityBtc} from "./Interfaces.sol";
 import {IEthVenue} from "./Interfaces.sol";
 import {IAux} from "./Interfaces.sol";
@@ -18,8 +19,6 @@ import {IAux} from "./Interfaces.sol";
 //                      IAuxDeposits_V's lone `get_deposits` is byte-identical to IAux's).
 // The Basket mint callback stays local: `mint` is Basket's only member any consumer in this
 // subtree needs, and it is declared exactly once tree-wide, so there is nothing to dedup.
-interface IBasketMint { function mint(address pledge, uint amount, address token, uint when) external returns (uint); }
-
 /// @title  BtcVaultLib — the BTC band / leverage / channel accounting extracted from VaultLib
 ///         (now purely the ETH venue custody ladder) for EIP-170 headroom. DELEGATECALL'd by the
 ///         Vault exactly as the BTC bodies were when they lived in VaultLib: `address(this)`==Vault,

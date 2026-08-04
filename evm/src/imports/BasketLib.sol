@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 // §A.52: the canonical Core view (was a file-local variant).
 import {ICore} from "./Interfaces.sol";
+import {IBasketTurn, IWiredVault, IWiredBasket, ILevSweep, IVogue, IRover} from "./Interfaces.sol";
 import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
@@ -24,30 +25,13 @@ import {VaultLib} from "./VaultLib.sol";
 /// EthVenue — the ETH-venue custody (Galaxy/AAVE WETH). vault-health STATE
 /// stays Aux-owned, but the Galaxy WETH position is custodied on EthVenue after
 /// the venue carve, so the evac/poke Galaxy leg reads + drains via this handle.
-interface IVogueUnwind { function unwindForRedeem(uint usdWanted) external returns (uint usdFreed); }
 // §G.6 redeem shortfall sweep: the ETH LevManager's ONE reactive de-lever entry (SHARED with swap-out). Reached
 // via core→Vault (IWiredCore.btcVault → IWiredVault.LEV_MANAGER, both existing). `deleverBook` frees levered
 // net-equity into the sink (= this Aux) value-neutrally and returns the stable routed there.
-interface ILevSweepB { function deleverBook(uint256 usdWanted, address sink, uint256 minOut) external returns (uint256 freed); }
-
 // Deploy-finalize linkage cross-checks (BasketLib.assertFullyWired).
-interface IWiredVogue  { function EV() external view returns (address); }
-interface IWiredCore   { function btcVault() external view returns (address); }
-interface IWiredVault  { function btcChannels() external view returns (address);
-                         function ROVER() external view returns (address);
-                         function LEV_MANAGER() external view returns (address); }  // §G.6: reach the ETH LevManager
-interface IWiredRover  { function AUX() external view returns (address); }
-interface IWiredBasket { function AUX() external view returns (address);
-                         function BTC_VAULT() external view returns (address); }
+  // §G.6: reach the ETH LevManager
 /// Canonical view — union of the former per-file variants (`IBasketTurn2`). Two declarations
 /// described ONE contract, so a signature change had to be made twice and a missed one still compiled.
-interface IBasketTurn {
-    function turn(address from, uint value) external returns (uint sent, uint seedBurned);
-    function matureSupply() external view returns (uint);
-    function immatureBalanceOf(address who) external view returns (uint);
-}
-
-
 library BasketLib {
     uint public constant WAD = 1e18;
     uint public constant MONTH = 2420000;
@@ -859,7 +843,7 @@ library BasketLib {
         uint delivered = wantUsd < freeUsd ? wantUsd : freeUsd;         // pay from free vault stables first
         if (wantUsd > freeUsd) {
             uint need = wantUsd - freeUsd;
-            uint freed = IVogueUnwind(r.v4).unwindForRedeem(need);      // PLAIN band first; frees the exact USD asked
+            uint freed = IVogue(r.v4).unwindForRedeem(need);      // PLAIN band first; frees the exact USD asked
             // §G.6: if the plain unwind came up SHORT, the residual is levered backing being unbanded — de-lever
             // the in-band ETH levers (value-neutral, LTV-improving) to free it. Invariant (nothing leaves the band
             // without de-levering) holds; balanced unband ⇒ NO JIT/skew. No-op when there are no open levers.
@@ -880,11 +864,11 @@ library BasketLib {
     ///      `_dispatchTake`). De-levering also shrinks `committed` (net-equity ↓), relaxing the backing gate. The
     ///      book-walk + fault-tolerance live in the manager (it owns the book). Delegatecall ⇒ address(this) == Aux.
     function _deleverBookForRedeem(address core, uint usdWanted) private returns (uint) {
-        address vault = IWiredCore(core).btcVault();
+        address vault = ICore(core).btcVault();
         if (vault == address(0)) return 0;
         address mgr = IWiredVault(vault).LEV_MANAGER();
         if (mgr == address(0)) return 0;
-        return ILevSweepB(mgr).deleverBook(usdWanted, address(this), 0);
+        return ILevSweep(mgr).deleverBook(usdWanted, address(this), 0);
     }
 
     /// @dev Final take leg of redeemAsBody, extracted to its own frame. Reuses the pre-burn deposit fetch
@@ -939,13 +923,13 @@ library BasketLib {
         address core, address v4) external view {
         require(q != address(0),                                    "wire:quid");
         require(ethVenue != address(0),                             "wire:vault");
-        require(IWiredVogue(v4).EV() == ethVenue,                 "wire:vogue"); // Vogue→Vault
-        require(IWiredCore(core).btcVault() == ethVenue,            "wire:core");  // Core→Vault
+        require(IVogue(v4).EV() == ethVenue,                 "wire:vogue"); // Vogue→Vault
+        require(ICore(core).btcVault() == ethVenue,            "wire:core");  // Core→Vault
         require(btcChannels != address(0)
              && IWiredVault(ethVenue).btcChannels() == btcChannels, "wire:chan");  // Vault→Channels
         address rover = IWiredVault(ethVenue).ROVER();
         require(rover != address(0)
-             && IWiredRover(rover).AUX() == ethVenue,               "wire:rover"); // Rover↔Vault
+             && IRover(rover).AUX() == ethVenue,               "wire:rover"); // Rover↔Vault
         require(IWiredBasket(q).AUX() == address(this),             "wire:bAux");  // Basket→Aux
         require(IWiredBasket(q).BTC_VAULT() == ethVenue,            "wire:bVlt");  // Basket→Vault
     }

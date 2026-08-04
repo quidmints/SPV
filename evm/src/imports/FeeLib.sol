@@ -7,10 +7,6 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {IAggregatorV3, IAux} from "./Interfaces.sol";
 
-interface IHook {
-    function getDepegSeverityBps(address) external view returns (uint);
-}
-
 /// @notice Aux surface the multi-venue withdraw cluster (relocated from BasketLib)
 ///         calls back into via DELEGATECALL self-call (address(this)==Aux).
 
@@ -73,7 +69,7 @@ library FeeLib {
         internal view returns (uint)
     {
         if (hook == address(0) || token == address(0)) return 0;
-        try IHook(hook).getDepegSeverityBps(token) returns (uint s) {
+        try IAux(hook).getDepegSeverityBps(token) returns (uint s) {
             if (s == 0) return 0;
             return s > 10000 ? 10000 : s;   // Recognize FULL severity (was capped at 3500/65c)
         } catch {
@@ -215,7 +211,7 @@ library FeeLib {
         // feed via liveDepegBps). The CRE that once answered this was removed; the
         // on-chain feed IS the depeg signal now. A revert is treated as healthy.
         uint sev;
-        try IHook(hook).getDepegSeverityBps(token) returns (uint s) {
+        try IAux(hook).getDepegSeverityBps(token) returns (uint s) {
             sev = s;
         } catch {
             return 10000;

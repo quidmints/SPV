@@ -27,6 +27,7 @@ import {SafeCallback} from "v4-periphery/src/base/SafeCallback.sol";
 import {IAaveV4Spoke} from "./imports/Interfaces.sol";
 import {IAaveV4Hub} from "./imports/Interfaces.sol";
 import {ICollection} from "./imports/Interfaces.sol";
+import {IBTCChannels, IBtcVault} from "./imports/Interfaces.sol";
 import {IEthVenue} from "./imports/Interfaces.sol";
 
 
@@ -34,20 +35,10 @@ import {IEthVenue} from "./imports/Interfaces.sol";
 
 
 /// Read-only view into BTCChannels for swap-out recipient resolution.
-interface IBTCChannels {
-    function btcRecipientOf(address user) external view returns (bytes32);
-}
-
 /// BtcVault (regrouped BTC side). Aux drives the BTC pool's repack from the
 /// public WBTC swap path + the backing-invariant healer, and pins the
 /// BTCChannels address on it (mirroring the old V4.setBTCChannels). The BTC
 /// LP accounting + swap-credit live entirely on BtcVault.
-interface IBtcVault {
-    function repack(bool isBTC) external returns (uint160 sqrtPriceX96,
-        int24 tickLower, int24 tickUpper, uint128 myLiquidity);
-    function setBTCChannels(address b) external;
-}
-
 /// EthVenue — the ETH yield-venue custody (Galaxy/AAVE/ether.fi WETH), carved
 /// out of Aux. Aux keeps thin forwarders (vogueETH/arbETH) for callers that
 /// must not change target (BasketLib IAux read, Core), drives the Galaxy

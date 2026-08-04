@@ -1,16 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-interface IVogueShares {
-    function lpShares() external view returns (uint);
-    function balanceOf(address user) external view returns (uint);
-    function convertToShares(uint assets) external view returns (uint);
-    function convertToAssets(uint shares) external view returns (uint);
-    /// (§J.2c) The ONLY external door to Vogue's `_transferShares`, gated to this contract.
-    function transferSharesFor(address from, address to, uint amount) external;
-}
-
-interface IAuxBacking { function vogueETH() external view returns (uint); }
+// E21: VEth declared its two interfaces locally and imported nothing. Both are OUR OWN
+// contracts, so both belong in the canonical file; IAux is gone outright, since
+// IAux.vogueETH() already said the same thing.
+import {IVogueShares, IAux} from "./imports/Interfaces.sol";
 
 /// @title  VEth — the ERC-4626 identity of the vETH LP position, segregated out of `Vogue` (§J.2b).
 ///
@@ -51,10 +45,10 @@ contract VEth {
     /// The single asset this identity is defined over — the whole point of the split.
     address      public immutable WETH;
     /// Backing oracle: `vogueETH()` is Vogue's live venue-side ETH balance.
-    IAuxBacking  public immutable AUX;
+    IAux         public immutable AUX;
 
     constructor(address vogue, address weth, address aux) {
-        VOGUE = IVogueShares(vogue); WETH = weth; AUX = IAuxBacking(aux);
+        VOGUE = IVogueShares(vogue); WETH = weth; AUX = IAux(aux);
     }
 
     function asset() external view returns (address) { return WETH; }

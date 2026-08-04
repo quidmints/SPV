@@ -4,6 +4,7 @@ pragma solidity ^0.8.13;
 import {Types} from "./Types.sol";
 // §A.52: the canonical Aux view (was a file-local variant).
 import {IAux} from "./Interfaces.sol";
+import {IQuidTarget} from "./Interfaces.sol";
 import {BitcoinTx} from "./BitcoinTx.sol";
 import {ISPVGateway} from "../spv/interfaces/ISPVGateway.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -23,8 +24,6 @@ import {IEthVenue} from "./Interfaces.sol";
 ///         msg.sender == address(this) == Aux on every self-call). The public
 ///         mapping getters are READS; the *Self entries are the self-gated
 ///         mutators (the same DELEGATECALL→self-CALL pattern takeBody uses).
-interface IQuidTarget { function target() external view returns (uint); }
-
 /// @notice Aave-v4 reserve-id resolution + supply surface (subset of Aux.IAaveV4Spoke).
 
 /// @notice Minimal interface for Liquity V2 StabilityPool
