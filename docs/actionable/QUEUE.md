@@ -6667,3 +6667,49 @@ simply reads one leg of two.
 📌 **Still a user decision — but a much smaller one than posed.** Not *"who owns the proceeds"* (measured:
   the band books them, correctly) but *"do we credit the delta to LP share price, and build the USD
   delivery leg to match?"*
+
+## Well skew rebuild (branch `rover-weeth-ship-decision`, 2026-08-04) — OPEN, suite RED
+
+Six unpushed commits. `forge test` on the mainnet fork: **3700 passed / 147 failed / 1 skipped**
+(baseline 0–1 failures). Compiles clean, EIP-170 unverified. Nothing here is landed.
+
+Kernel is now `skewWad(outUsd, invUsd)` — one division, **zero governance constants**. Deleted: `Γ`,
+`ρ`/`STABLENESS`, `SIGMA_REF`, `MAX_WELL_SKEW`, `CAP_SAFETY`, `SPLICE_FLOOR`, both confirmation
+windows, `target = flowUsd + committedUsd`, and the entire settlement/duration term. σ² has left the
+skew path completely, which closes the σ²=0 free-drain window and the TWAP-manipulation exposure by
+construction rather than by defence.
+
+**OPEN 1 — sell-leg denominator is halved.** `sellSkew` divides surplus by `(V+D)/2`. At balance
+`D == (V+D)/2` so it looks right; away from balance it over-charges by the skew factor. Measured:
+`testSwapPricing_EthSellInRange_PaysAboutOracle` pays 1.65% vs a 1.5% tolerance on a trade worth
+~0.9% of pool value. The CP reserve drawn from is the dollar side, not half the total. **Fix the
+derivation, do not loosen the test.**
+
+**OPEN 2 — nothing ties the skew we collect to the flash cost we pay.** The refill is an automatic
+protocol flash paying EXTERNAL price impact; the skew is calibrated against OUR OWN inventory. Small
+drains over-collect, drains large relative to external depth under-collect — and that is exactly when
+the flash fails and leaves a `pendingSwapOutUsd` behind. Keying the skew to the venue we restore
+through was rejected because live external `L` is JIT-manipulable (flash-add depth, our skew reads
+~0, drain at the floor, withdraw). **Unresolved design decision, not a bug.**
+
+**OPEN 3 — `Core.skewPremium*` is NOT consumer-free.** It was documented as having "no consumer
+beyond the counters + theta EWMA"; the BTC mint-vs-proceeds invariants are tuned against the premium
+magnitude and break when it moves (`test_RunSim_AllExit_BtcLp` + 5 siblings).
+
+**OPEN 4 — `testGrindRemoval_LargeSwapThenReseatRebandsSkewed` fails on its PREMISE**, not its
+assertion: a swap can no longer drain ≥99% of the band's USD leg. Plausibly the feature working and
+the test needing a rewrite — **unproven, and a dismissal needs the same evidence as a finding.**
+
+**OPEN 5 — flash de-lever pair unattributed.** `testReal_Euler_RebalanceMany_BatchHoldsTarget` and
+`testReal_Morpho_OpenAndDelever` fail in `x <= x` form. No clean baseline was captured, so these are
+not yet attributable to this change either way. **Capture the baseline first.**
+
+**OPEN 6 — `Aux.wellSkew(asset, outUsd)` read surface has single-price exposure.** The swap path is
+guarded by `_priceMax` (two independent prices); the external quote surface Bebop/Khalani read has no
+`v4p` to pair with the TWAP.
+
+**BLOCKED — automatic flash refill not located.** `d588d19` is `E46: raise COMPOUND_GAS`, not refill
+wiring. The Rust flash paths found (`lev_keeper.rs:554`, `lev_keeper_btc.rs:64/150/409`) are IL-target
+leverage rebalancing, not well refill. OPEN 2 cannot be closed until this is found.
+
+**NOT STARTED — `VENUE_ROVER` removal.** Deferred by the repo owner until the skew work completes.
