@@ -1025,6 +1025,10 @@ library SwapLib {
     ///         deposited (POOLED not yet bumped — the swap settles in _finishSwap), added so
     ///         the sell is judged on inv AFTER its own contribution (a pool sitting at target
     ///         would otherwise never charge any sell, however large).
+    /// @dev `aux` is NOT a parameter: this is `internal`, its ONE caller is `swapToBody`, and that
+    ///      body is DELEGATECALLd in Aux context (see its docblock), so `address(this) == Aux` here.
+    ///      Passing it explicitly blew `swapToBody`'s stack (measured: Stack-too-deep at the call
+    ///      site) — and the repo's rule is to shed stack, never to reach for `via_ir`.
     function sellSkew(address core, uint base, bool isBTC, uint addedTok)
         internal view returns (uint)
     {
@@ -1064,8 +1068,21 @@ library SwapLib {
         uint q = FullMath.mulDiv(over, 1e18, target);
         if (q > 1e18) q = 1e18;                           // ≥2× target: linear term saturates
         uint sigmaSqWad = ICore(core).realizedVarianceWad(isBTC);
+        // §E54 — TWO COSTS, ONE `q`. Holding volatile we did not want costs (a) the VARIANCE carried
+        // while we hold it and (b) the OPPORTUNITY COST of the capital it ties up. The kernel only
+        // ever priced (a). `r` is the second half, and it is what makes the number a RESERVATION
+        // PRICE rather than a risk charge: it is the return a counterparty foregoes by taking this
+        // inventory off us, i.e. exactly the premium a hop needs (owner-item #4).
+        //   NOT AN ORACLE AND NOT A NEW DIAL: `Aux.avgYield()` is the basket's own realised yield,
+        //   already computed by `BasketLib.computeMetrics` and already trusted by `seedFee`. It is
+        //   the in-system answer to "what does capital earn here", which IS the opportunity cost.
+        //   Both terms multiply the SAME `q` (the overshoot as a fraction of target, target = flow +
+        //   committed) because both are proportional to q·tau with tau = q/flow — that is the whole
+        //   derivation, and it is why one `q` carries both.
+        uint r;
+        try IAux(address(this)).avgYield() returns (uint y) { r = y; } catch {}
         uint skew = FullMath.mulDiv(
-            FullMath.mulDiv(MAX_WELL_SKEW, sigmaSqWad, 1e18), q, 1e18);
+            FullMath.mulDiv(MAX_WELL_SKEW, sigmaSqWad, 1e18) + r, q, 1e18);
         // SAME dynamic cap as the drain leg — one ceiling, both legs (`_maxWellSkew`).
         uint cap = _maxWellSkew(sigmaSqWad, isBTC);
         return skew > cap ? cap : skew;
