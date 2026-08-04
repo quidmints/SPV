@@ -1,0 +1,59 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.28;
+
+import {Alles} from "./Alles.t.sol";
+import {IERC20} from "forge-std/interfaces/IERC20.sol";
+
+/// §E58 — WHAT DID THE SKEW CHANGES DO TO THE PRICE?
+///
+/// Four changes landed on the skew in one session, each verified against the SUITE and none
+/// against MAGNITUDE. The suite asserts bounds, invariants and sign; nothing pins the actual
+/// VALUE, so all four can be individually green and jointly mis-calibrated. Three remain:
+///   pole removal (sell leg)   -> CUTS
+///   E55 min(fast, slow)       -> RAISES (smaller target => larger q)
+///   E53 shared amplifier      -> RAISES (1x -> 2x)
+/// Two raises against one cut, partially cancelling BY ACCIDENT. This prints the number so the
+/// same fixture can be run at the pre-session commit and the two compared.
+contract SkewCalibration is Alles {
+    address lpA = User02;
+    address trader = address(0xBEEF01);
+    address bold;
+
+    function _seedBasket() internal {
+        bold = AUX.getStables()[AUX.getStables().length - 1];
+        deal(address(USDC), User01, 2_000_000 * USDC_PRECISION);
+        vm.startPrank(User01);
+        USDC.approve(address(AUX), type(uint).max);
+        QUID.mint(User01, 1_000_000 * USDC_PRECISION, address(USDC), 0);
+        vm.stopPrank();
+    }
+
+    function _trade(uint boldAmt) internal {
+        deal(bold, trader, boldAmt);
+        vm.startPrank(trader);
+        IERC20(bold).approve(address(AUX), boldAmt);
+        try AUX.swap(bold, address(WETH), true, boldAmt, 0) {} catch {}
+        vm.stopPrank();
+        vm.roll(block.number + 1); vm.warp(block.timestamp + 20 minutes);
+    }
+
+    /// Fixed fixture, fixed flow, then read the LIVE skew off the public surface.
+    function test_E58_SkewMagnitudeOnAFixedFixture() public {
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        vm.roll(block.number + 1);
+        for (uint i; i < 12; i++) _trade(3_000e18);
+
+        emit log_named_uint("ETH wellSkew (wad)   ", AUX.wellSkew(address(WETH)));
+        emit log_named_uint("BTC wellSkew (wad)   ", AUX.wellSkew(address(WBTC)));
+        emit log_named_uint("flowEwmaUsd ETH      ", CORE.flowEwmaUsd(false));
+        emit log_named_uint("flowEwmaUsd BTC      ", CORE.flowEwmaUsd(true));
+        emit log_named_uint("committedUsd18       ", CORE.committedUsd18());
+        emit log_named_uint("btcBandEquityUsd18   ", CORE.btcBandEquityUsd18());
+        emit log_named_uint("POOLED_ETH           ", CORE.POOLED_ETH());
+        emit log_named_uint("POOLED_USD_ETH       ", CORE.POOLED_USD_ETH());
+        // No assertion on the VALUE — the value is the output. Only a premise, so a zeroed
+        // fixture cannot masquerade as "the skew is small".
+        assertGt(CORE.POOLED_ETH(), 0, "PREMISE: the band must hold inventory, else 0 means nothing");
+    }
+}
