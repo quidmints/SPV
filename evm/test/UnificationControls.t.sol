@@ -1136,7 +1136,7 @@ contract UnificationControls is Alles {
         for (uint i; i < 10; i++) _trade(3_000e18);   // real harvest for the tip to come out of
         vm.roll(block.number + 1); vm.warp(block.timestamp + 1 hours);
 
-        uint COMPOUND_GAS = 140_000;                  // Vogue.sol:1504
+        uint COMPOUND_GAS = 200_000;                  // Vogue.sol:1504 (raised from 140,000, E46)
         vm.txGasPrice(10 gwei);
         uint g0 = gasleft();
         V4.compound(lpA);
@@ -1151,8 +1151,34 @@ contract UnificationControls is Alles {
 
         // PREMISE: the crank must have done real work, else the number is meaningless.
         assertGt(used, 21_000, "PREMISE: the crank must actually execute, not no-op");
-        // Recorded as a MEASUREMENT, not a bound: the assertion is deliberately loose because the
-        // point is the printed number, and a tight bound here would just break on unrelated edits.
-        assertLt(used, 5_000_000, "sanity: the crank is not pathological");
+        // THE GUARD THIS TEST EXISTS FOR. Under-reimbursement is SILENT: nothing reverts, the crank
+        // just stops being worth running and the band quietly goes un-compounded. That is exactly
+        // the failure mode a check earns its place against, so this is a hard bound and not a
+        // printed number -- if the crank ever outgrows the tip basis again, it FAILS here.
+        assertLe(used, COMPOUND_GAS,
+            "COMPOUND_GAS must COVER the crank -- a short tip is a silent liveness failure");
+
+        // §E46 — I WENT LOOKING FOR A RESEAT-FIRING CRANK AND COULD NOT PRODUCE ONE. 30 further
+        // trades at 4x the size, with the time warps `_trade` already does so the TWAP manipulation
+        // guard would not reject a recenter, left `reseatEpoch` at 0 and the crank CHEAPER (warm
+        // storage, nothing pending). ⇒ THE REASON IS STRUCTURAL: `_rebalance()` is repack-FIRST on
+        // the SWAP path too, so the band is recentred inside the swapper's own tx and a later crank
+        // never finds an out-of-range band. The reseat's gas is borne by the SWAPPER, not the
+        // cranker — which is the right party, and it means COMPOUND_GAS does NOT have to carry a
+        // reseat. Kept in the test because "I could not make it happen, and here is why" is the
+        // evidence for that claim; delete it and the sizing becomes an assertion again.
+        uint epoch0 = V4.reseatEpoch();
+        for (uint i; i < 30; i++) _trade(12_000e18);
+        vm.roll(block.number + 1); vm.warp(block.timestamp + 1 hours);
+        vm.txGasPrice(10 gwei);
+        uint g1 = gasleft();
+        V4.compound(lpA);
+        uint usedHeavy = g1 - gasleft();
+        emit log_named_uint("compound() gas, HEAVY crank   ", usedHeavy);
+        emit log_named_uint("reseatEpoch before            ", epoch0);
+        emit log_named_uint("reseatEpoch after             ", V4.reseatEpoch());
+        assertEq(V4.reseatEpoch(), epoch0,
+            "no reseat fired: the SWAP path recentres first, so the cranker never pays for one");
+        emit log_named_uint("WORST observed crank (gas)    ", usedHeavy > used ? usedHeavy : used);
     }
 }

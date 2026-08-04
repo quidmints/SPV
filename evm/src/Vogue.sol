@@ -1501,7 +1501,17 @@ contract Vogue is
     /// Conservative gas an on-chain `compound` crank burns; the self-funding tip reimburses up to
     /// this × a grief-capped gasprice out of the LP's OWN harvested token-leg — so the keeper needs
     /// ZERO operator gas subsidy (the operator covers no gas at all).
-    uint private constant COMPOUND_GAS = 140_000;
+    /// §E46 (2026-08-04) — RAISED 140,000 -> 200,000. The old value UNDER-REIMBURSED the cranker on
+    /// every single crank: measured 172,299 gas on a 400-ETH band after real flow
+    /// (`test_E45_CompoundCrankGasVsTheSelfFundingConstant`), against a 140,000 basis — short 32,299,
+    /// so the only keeper that cranked was one subsidising it. 200,000 is that measured worst case
+    /// plus ~16% headroom. It does NOT need to carry a RESEAT: `_rebalance()` is repack-first on the
+    /// SWAP path too, so the band is recentred inside the swapper's own tx and a later crank never
+    /// finds an out-of-range band (verified — 30 trades at 4x size left `reseatEpoch` unmoved).
+    /// The tip is still `min(gasprice, COMPOUND_MAX_GASPRICE) x this`, GRIEF-CAPPED at half the
+    /// harvest, so over-sizing can never take more than that cap; under-sizing costs liveness
+    /// always, which is the asymmetry that argues for the headroom.
+    uint private constant COMPOUND_GAS = 200_000;
     /// Anti-grief ceiling on the gasprice the tip pays for: a caller can't inflate `tx.gasprice`
     /// to skim more of the LP's fees as "gas".
     uint private constant COMPOUND_MAX_GASPRICE = 200 gwei;
