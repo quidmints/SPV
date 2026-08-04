@@ -321,6 +321,23 @@ library SwapLib {
     function _priceOr(uint v4p, address aux, address asset) internal view returns (uint) {
         return v4p != 0 ? v4p : IAux(aux).getTWAPforAsset(asset, 1800);
     }
+
+    /// @dev THE SKEW'S PRICE, and the reason `MAX_WELL_SKEW` could be deleted. The skew is a ratio
+    ///      whose DENOMINATOR is inventory valued at a price while its numerator is price-free, so a
+    ///      price pushed DOWN shrinks the denominator and inflates the charge — and that harm is
+    ///      SILENT, since an over-charged swapper just receives less and cannot distinguish it from
+    ///      honest scarcity. A fixed ceiling used to bound that, at the cost of also flattening the
+    ///      honest size term above 3%.
+    ///
+    ///      Taking the MAX of two INDEPENDENT prices retires the job instead of bounding it: valuing
+    ///      inventory at the higher price makes the skew the MIN of the two it could have been, so an
+    ///      attacker must move BOTH the live V4 pool price and the 30-minute TWAP in the same
+    ///      direction to inflate anything. Moving one is now useless. Unlike `_priceOr` — which takes
+    ///      v4p and only FALLS BACK to the TWAP — this always reads both when both exist.
+    function _priceMax(uint v4p, address aux, address asset) internal view returns (uint) {
+        uint twap = IAux(aux).getTWAPforAsset(asset, 1800);
+        return v4p > twap ? v4p : twap;
+    }
     /// @dev Revert unless `token` is a real basket stable (toIndex>0). Factored from creditSwapIn/OutBody (dedup).
     function _requireStable(address aux, address token) internal view {
         if (IAux(aux).toIndex(token) == 0) revert StableMissing();
@@ -439,7 +456,7 @@ library SwapLib {
             // withheld input stays as basket backing (same mechanism as the drain leg).
             {
                 r.px = _priceOr(v4p, address(aux), r.asset);
-                uint skew = sellSkew(c.core, r.px, isBTC, r.amount); // inline (swapToBody stack-tight)
+                uint skew = sellSkew(c.core, address(aux), v4p, isBTC, r); // inline (swapToBody stack-tight): r is ONE memory pointer carrying asset+amount, which costs less stack than passing both
                 retainSkewPremium(c.core, isBTC, r, skew, true);   // NATIVE volatile input ⇒ convert   // mutates r.amount; r.px declares NATIVE
             }
         } else { max = isBTC ? ICore(c.core).POOLED_BTC() : ICore(c.core).POOLED_ETH();
@@ -462,7 +479,7 @@ library SwapLib {
             // the honest oracle (v4p) through routeSwap ⇒ no manip-guard exemption.
             {
                 r.px = _priceOr(v4p, address(aux), r.asset);
-                uint skew = wellSkew(c.core, r.px, isBTC, r.amount); // inline (swapToBody stack-tight); r.amount is the 6-dec USD driving the drain
+                uint skew = wellSkew(c.core, address(aux), v4p, isBTC, r); // inline (swapToBody stack-tight): r is ONE memory pointer carrying asset+amount (the 6-dec USD driving the drain)
                 retainSkewPremium(c.core, isBTC, r, skew, false);  // buy-driving USD ⇒ already 6-dec   // mutates r.amount; r.px declares NATIVE
             }
         }
@@ -876,8 +893,6 @@ library SwapLib {
     uint internal constant CAP_SAFETY    = 2;                   // ~2σ coverage of the confirmation-window move
     uint internal constant SPLICE_FLOOR  = 2e15;                // 0.2% — on-chain splice-fee floor (the feerate term)
     uint internal constant ETH_CONF_FRAC_WAD = 380_000_000_000; // ≈ 12s / 1yr (WAD) — one-block settlement window
-    // ABSOLUTE ceiling. THIS IS THE BLAST-RADIUS BOUND, NOT A PRICE PREFERENCE — see `_maxWellSkew`.
-    uint internal constant MAX_WELL_SKEW = 3e16;   // 3% — hard cap (TWAP-anchor bound)
 
     /// @notice SETTLEMENT-RISK term: √(σ²_annual · settlement-window/yr) · CAP_SAFETY + splice.
     ///
@@ -973,36 +988,32 @@ library SwapLib {
     function skewWad(uint outUsd, uint invUsd, uint sigmaSqWad, bool isBTC)
         public pure returns (uint skew)
     {
-        if (outUsd == 0) return 0;
-        // Empty deliverable reservoir ⇒ the barrier is at its limit. Not a safety clamp: it is the
-        // value of the identity at inv=0, and the fill is independently bounded by POOLED anyway.
-        uint size = invUsd == 0 ? 1e18 : FullMath.mulDiv(outUsd, 1e18, invUsd);
-        // A FRACTION CANNOT EXCEED 1. Reachable because the skew is applied BEFORE the fill is
-        // bounded by POOLED, so `outUsd` may exceed the reservoir on an over-sized request. Without
-        // it `retainSkewPremium`'s `r.amount -= premium` underflows and reverts — a silent,
-        // plausible-looking failure on the money path, which is exactly when a bound earns its place.
-        if (size > 1e18) size = 1e18;
-        // The band already made this swapper pay up to its own half-width before it was exhausted;
-        // charging the full fraction on top would double-count it. One width, one credit.
-        size = size > BAND_FRAC_WAD ? size - BAND_FRAC_WAD : 0;
+        uint size;
+        if (outUsd != 0 && invUsd != 0) {
+            // MEASURE AGAINST WHAT COULD ACTUALLY FILL, not what was asked for. The skew is applied
+            // BEFORE the fill is bounded by POOLED, and `retainSkewPremium`'s withheld premium is
+            // deliberately NOT refunded with the unfilled remainder (`_swapOutSettle`). Using the
+            // raw request would therefore let an over-sized ask be charged for inventory that never
+            // moved — bounded and near-invisible while a 3% ceiling existed, confiscatory the moment
+            // the size term runs free. `min` also makes the ≤1 bound structural rather than a clamp.
+            uint fillable = outUsd < invUsd ? outUsd : invUsd;
+            size = FullMath.mulDiv(fillable, 1e18, invUsd);
+            // The band already made this swapper pay up to its own half-width before it was
+            // exhausted; charging the full fraction on top would double-count it. One width, one credit.
+            size = size > BAND_FRAC_WAD ? size - BAND_FRAC_WAD : 0;
+        }
+        // invUsd == 0 ⇒ size stays 0, and DELIBERATELY so. The old `⇒ 1e18` read the identity's
+        // limit correctly but applied it where nothing can fill: the request is bounded to zero by
+        // POOLED, the swapper receives nothing, and a 100% premium on a no-op is confiscation, not
+        // pricing. An empty reservoir needs no deterrent — it has nothing left to take.
         skew = size + _settlementRisk(sigmaSqWad, isBTC);
-        // ABSOLUTE BLAST-RADIUS BOUND — the reason a ceiling exists at all, and it is NOT a view
-        // about what a drain is worth. This whole quantity is a ratio whose DENOMINATOR is
-        // price-derived (`invUsd = POOLED · base / 1e30`, `base` from `getTWAPforAsset`) while its
-        // numerator is price-free, so a TWAP pushed DOWN inflates the charge directly — and the harm
-        // is SILENT, because an over-charged swapper just receives less and cannot tell it from
-        // honest scarcity pricing. That asymmetry is unavoidable in any formulation: one leg is USD
-        // and the other is volatile, so a price must convert between them exactly once.
-        // ⚠️ OPEN: at 3% this ALSO binds the honest size term on any drain past ~3% of the
-        // reservoir, i.e. it is simultaneously a manipulation bound and a standing offer to be
-        // drained at 3%. Those two jobs want different numbers and this constant serves both.
-        // THE FIX, NOT YET LANDED: value `invUsd` at the MAX of two INDEPENDENT prices (the V4 pool
-        // price and getTWAPforAsset) so the skew is the MIN of the two — an attacker then has to
-        // move both to inflate the charge, which retires the manipulation job entirely and lets the
-        // size term run uncapped. Deferred, not dismissed: it needs a second price threaded into a
-        // call site whose own comments mark it stack-tight (no via_ir), and stacking two unverified
-        // money-path changes in one run makes a failure unattributable.
-        if (skew > MAX_WELL_SKEW) skew = MAX_WELL_SKEW;
+        // MAX_WELL_SKEW (3%) DELETED. It was doing two incompatible jobs: bounding a manipulated
+        // price's effect on a price-derived denominator, and ceiling the honest size term. The first
+        // job is now done properly by `_priceMax` (an attacker must move BOTH independent prices, not
+        // one), and the second was never legitimate — measured, the cap flattened every drain past 3%
+        // of the reservoir into the same flat charge, which made the size term a no-op over most of
+        // its range. The only bound left is the identity's own: a fraction cannot exceed 1.
+        if (skew > 1e18) skew = 1e18;
     }
 
     /// @notice The live well skew (WAD) for a pool — gathers deliverable inventory (at
@@ -1045,10 +1056,17 @@ library SwapLib {
     /// @param outUsd The 6-dec USD this trade removes from the VOLATILE side. THE SIZE-BLINDNESS
     ///        FIX: until 2026-08-04 `wellSkew` took no size at all, so a $1 drain and a
     ///        drain-the-reservoir quoted the SAME premium. Both call sites already had the number.
-    function wellSkew(address core, uint base, bool isBTC, uint outUsd)
+    /// @dev THE DRAIN LEG IS BOUNDED BY PHYSICAL DELIVERABILITY, which is what makes the plain
+    ///      constant-product fraction the right shape here and NOT on the sell leg: we cannot hand
+    ///      over volatile we do not hold, so the reservoir is a hard constraint and the charge
+    ///      correctly runs to the barrier as it empties. `sellSkew` has no such constraint — the
+    ///      dollars it pays out are minted against the basket, not drawn from a finite reserve — so
+    ///      it is derived separately rather than mirrored. Assuming that symmetry is what broke the
+    ///      2026-08-04 run: an ordinary in-range sell priced at the ceiling.
+    function wellSkew(address core, address aux, address asset, uint v4p, bool isBTC, uint outUsd)
         public view returns (uint)
     {
-        (uint poolVolUsd, uint lockedUsd) = _skewBasis(core, base, isBTC, 0);
+        (uint poolVolUsd, uint lockedUsd) = _skewBasis(core, _priceMax(v4p, aux, asset), isBTC, 0);
         // UNIFORM sats/wei → 6-dec USD: `poolVol · base / 1e30`. Authoritative (NOT
         // BasketLib.convert, which now uses the SAME flat scale (the /1e8 variant over-valued
         // 8-dec BTC by 1e10 and was removed) —
@@ -1068,32 +1086,70 @@ library SwapLib {
         return skewWad(outUsd, inv, ICore(core).realizedVarianceWad(isBTC), isBTC);
     }
 
-    /// @notice The MIRROR leg: a volatile-IN SELL drains the pool's USD side, so it pays the same
-    ///         constant-product fraction measured against USD inventory. `addedTok` is the volatile
-    ///         just deposited (POOLED not yet bumped — the swap settles in `_finishSwap`).
-    ///
-    ///         THE REFILL EXEMPTION IS NOW EMERGENT, AND THE MIRROR IS GONE. The old form reflected
-    ///         inventory about `target` (q ↦ 2·target−q) so that `skewWad`'s flush guard would zero
-    ///         a refill. None of that machinery is needed: the two sides are two halves of ONE pool,
-    ///         so when volatile is scarce the USD side is by definition abundant, and a refilling
-    ///         trade — which drains the abundant side — automatically prices at ~nothing. When
-    ///         volatile is in surplus the USD side is thin and a further sell pays in full. Same
-    ///         kernel, no reflection, no flush branch, no `target`.
-    ///
-    ///         This is also what makes the pool track 1:1 BY VALUE without a target variable: a
-    ///         constant-product quote IS the price at which inventory sits exactly on its 50/50
-    ///         value split, so charging each leg the fraction of the OUT side it removes enforces
-    ///         the balance continuously instead of steering toward a stored setpoint.
-    function sellSkew(address core, uint base, bool isBTC, uint addedTok)
+    /// @dev Call-site form: one `SwapReq` memory POINTER carries both `asset` and `amount`, which
+    ///      costs less stack than passing the two values — the repo's standard answer to
+    ///      stack-too-deep, and the reason `via_ir` stays off.
+    function wellSkew(address core, address aux, uint v4p, bool isBTC, SwapReq memory r)
         internal view returns (uint)
+    { return wellSkew(core, aux, r.asset, v4p, isBTC, r.amount); }
+
+    /// @notice THE SELL LEG (volatile IN, dollars out), derived on its own terms rather than
+    ///         mirrored off the drain. `addedTok` is the volatile just deposited — POOLED is not yet
+    ///         bumped, the swap settles in `_finishSwap`.
+    ///
+    ///         WHY IT IS NOT A MIRROR. The drain leg is bounded by physical deliverability: we
+    ///         cannot pay out volatile we do not hold, so its reservoir is a hard constraint and a
+    ///         constant-product fraction of it is exactly right. A sell has NO such constraint —
+    ///         the dollars it pays out are minted against the basket, not drawn from a finite
+    ///         `POOLED_USD_*` reserve. Charging `a / POOLED_USD_*` therefore priced an ordinary
+    ///         in-range sell at the ceiling whenever that accumulator was thin, which is precisely
+    ///         how the 2026-08-04 run failed. `POOLED_ETH` and `POOLED_USD_ETH` are independent
+    ///         accumulators, NOT two reserves of one constant-product pool, so the CP symmetry
+    ///         argument does not transfer and must not be reused here.
+    ///
+    ///         WHAT A SELL ACTUALLY COSTS US: it moves the pool further from — or closer to — its
+    ///         1:1 value balance, and only the "further" part is a cost. With V = deliverable
+    ///         volatile and D = the dollar side, both in 6-dec USD, the balanced split is (V+D)/2 and
+    ///         the SIGNED volatile surplus is S = (V−D)/2. A sell of USD-value `a` is value-neutral
+    ///         in total, so it moves the surplus S ↦ S + a, one-for-one. Hence:
+    ///
+    ///             surplusCreated = clamp(S + a, 0, a)      -- the part of THIS trade landing in surplus
+    ///             skew           = surplusCreated / ((V+D)/2)
+    ///
+    ///         THE REFILL EXEMPTION IS NOW GENUINELY DERIVED, not asserted. While the pool is short
+    ///         volatile (S < 0) a sell is walking it TOWARD balance, so S+a ≤ 0 and the charge is
+    ///         exactly zero — no flush branch, no reflection about a target, no `flowEwmaUsd`. A sell
+    ///         that crosses the balance point pays only on the part that overshoots. A sell into an
+    ///         already-heavy pool pays in full. This is the same 1:1-value objective the drain leg
+    ///         enforces, expressed for the side where the constraint is inventory RISK rather than
+    ///         inventory AVAILABILITY.
+    function sellSkew(address core, address aux, uint v4p, bool isBTC, SwapReq memory r)
+        internal view returns (uint)
+    { return sellSkew(core, aux, r.asset, v4p, isBTC, r.amount); }
+
+    function sellSkew(address core, address aux, address asset, uint v4p, bool isBTC, uint addedTok)
+        private view returns (uint)
     {
-        // The USD this sell draws OUT, valued at the same base/1e30 scale as everything else.
-        uint outUsd = FullMath.mulDiv(addedTok, base, 1e30);
-        // Deliverable USD on the other side of the same pool, net of the uncovered forward claim.
-        uint invUsd = isBTC ? ICore(core).POOLED_USD_BTC() : ICore(core).POOLED_USD_ETH();
-        uint committed = ICore(core).levClaimUsd6(isBTC);
-        invUsd = invUsd > committed ? invUsd - committed : 0;
-        return skewWad(outUsd, invUsd, ICore(core).realizedVarianceWad(isBTC), isBTC);
+        uint a;                                   // USD value of the volatile arriving
+        uint v;                                   // V: deliverable volatile, USD
+        {
+            uint base = _priceMax(v4p, aux, asset);
+            (uint poolVolUsd, uint locked) = _skewBasis(core, base, isBTC, 0);
+            v = poolVolUsd > locked ? poolVolUsd - locked : 0;
+            a = FullMath.mulDiv(addedTok, base, 1e30);
+        }
+        uint d = isBTC ? ICore(core).POOLED_USD_BTC() : ICore(core).POOLED_USD_ETH();
+        // surplusCreated = clamp(S + a, 0, a) with S = (V−D)/2, kept in unsigned arithmetic:
+        // S + a > 0  ⇔  V + 2a > D.
+        uint surplusCreated;
+        if (v + 2 * a > d) {
+            uint s1 = (v + 2 * a - d) / 2;
+            surplusCreated = s1 < a ? s1 : a;
+        }
+        // Denominator is the BALANCED half — the depth this surplus would have to be unwound
+        // against — not `POOLED_USD_*`, which is an accumulator and can be legitimately empty while
+        // the pool is perfectly capable of absorbing the sell.
+        return skewWad(surplusCreated, (v + d) / 2, ICore(core).realizedVarianceWad(isBTC), isBTC);
     }
 
     /// @notice Body of Aux.creditSwapOut — Swap-OUT (USD→BTC), the on-curve
@@ -1145,8 +1201,8 @@ library SwapLib {
         // swap still executes at basePrice through routeSwap ⇒ NO manip-guard exemption (separate scalar).
         // `amount` here is ALREADY 6-dec USD (scaleTo6 in _swapOutPrep), so px=0 declares "no conversion":
         // this leg's recorded premium was always in the right unit and stays that way.
-        SwapReq memory sr; sr.amount = amount; sr.px = 0;
-        retainSkewPremium(core, true, sr, wellSkew(core, basePrice, true, amount), false);  // audit + RFQ-drawable
+        SwapReq memory sr; sr.amount = amount; sr.px = 0; sr.asset = wbtc;
+        retainSkewPremium(core, true, sr, wellSkew(core, aux, v4p, true, sr), false);  // audit + RFQ-drawable
         amount = sr.amount;
         rp.amount    = amount;                               // reduced buy drives the fill
         rp.recipient = address(this);                       // obligation → pool; LN delivers
