@@ -6721,3 +6721,37 @@ wiring. The Rust flash paths found (`lev_keeper.rs:554`, `lev_keeper_btc.rs:64/1
 leverage rebalancing, not well refill. OPEN 2 cannot be closed until this is found.
 
 **NOT STARTED — `VENUE_ROVER` removal.** Deferred by the repo owner until the skew work completes.
+
+### Skew — verification status and items still unswept (2026-08-04)
+
+**PASSED:** `tools/check-client-abis.py` — 76 signatures, 0 drifted. `forge build --sizes` —
+**SwapLib 24,014 B, margin 562 B** (was ~150 B from the EIP-170 ceiling; the deletions GAINED ~400 B).
+LevMath (20 B margin) and LevManager (70 B) are untouched by this work but remain the tight ones.
+
+**OPEN 7 — `dI/dt` is never read.** The kernel prices the imbalance we are AT, never the one we are
+heading into. `I = (V−D)/(V+D)`; a pool draining steadily toward one side is in a different risk state
+than one sitting statically at the same `I`, and today they are charged identically. Computable from
+ONE stored previous value — no oracle, no external venue, no variance ring, no manipulation surface,
+because it derives from our own settled balances.
+
+**OPEN 8 — external book imbalance may be safe where external DEPTH was not; this is the route to
+closing OPEN 2.** Live external `L` was rejected as JIT-manipulable (flash-add depth ⇒ our skew reads
+~0 ⇒ drain at the floor ⇒ withdraw). That attack works because `L` is a LEVEL. `I` is a RATIO, so
+SYMMETRIC injection cancels out of it — moving it requires ONE-SIDED depth, i.e. carrying real
+directional inventory rather than a free round trip. If that holds, the external signal becomes usable
+in imbalance form and the skew can finally be tied to the actual external cost the flash refill pays.
+⚠️ **HYPOTHESIS ABOUT AN ATTACK SURFACE, NOT A RESULT — must be tested before it is relied on.**
+
+**OPEN 9 — never measured: the real `SorExchange → Aux.swap` curve.** Explicitly asked for; only the
+`addedTok=0` question was answered (deliberate, confirmed by git blame). The curve itself is unmeasured.
+
+**OPEN 10 — never enumerated: all the v4 poolIds.** Asked for, in the context of whether
+`v3SwapTiered` is needed at all unless the v4 pools are exhausted. Not done.
+
+**OPEN 11 — possible dead code from the rewrite (rule 1).** `flowEwmaUsd` and `levClaimUsd6` may no
+longer have a consumer in `sellSkew`; `sr.asset = wbtc` in `_swapOutPrep` may be vestigial after the
+signature reverted to 4 args. Verify by structure, not by name.
+
+**OPEN 12 — band credit on the SELL leg is unverified.** `BAND_FRAC_WAD` is subtracted inside the
+shared `skewWad`, so both legs get it. It is justified for the drain (the band charged the swapper
+first). Whether the band charges a SELLER the same half-width was never checked.
