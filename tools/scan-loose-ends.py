@@ -82,7 +82,19 @@ FAMILIES = OrderedDict([
                     r"remains?|left to do|didn'?t (?:get|have) (?:to|time))\b"),
     ("DEFERRED",    r"\b(defer\w*|later|follow[- ]up|next (?:pass|thread|session)|revisit|for now|punt\w*)\b"),
     ("DISMISSAL",   r"\b(ignore\w*|skip\w*|out of scope|not worth|won'?t (?:do|bother)|leave (?:it|that))\b"),
-    ("ABSENCE",     r"\b(no test|never (?:run|tested|verified|executed)|untested|unexercised|nothing (?:covers|tests))\b"),
+    # ⚠️ PAST TENSE, added 2026-08-04. `never (?:run|tested)` matched the passive "it was never run"
+    #    but NOT the active "I never ran it" — and the active voice is how the admission is actually
+    #    written, because it is the author confessing, not describing. 54 such statements existed in
+    #    a single session's transcript and the family caught a minority of them. Widened to the past
+    #    tense of every verb that means "this was not exercised", plus the "didn't actually X" frame,
+    #    where the word "actually" is itself a reliable tell that a claim is being walked back.
+    ("ABSENCE",     r"\b(no test|untested|unexercised|nothing (?:covers|tests)|"
+                    r"never (?:actually |really |once |even |properly |fully )?"
+                    r"(?:run|ran|tested|verified|executed|exercised|compiled|built|opened|read|"
+                    r"looked|measured|tried|deployed|called|reached)|"
+                    r"(?:was|were|has|have|had) never (?:run|built|opened|read|measured|exercised|called)|"
+                    r"did ?n'?o?t (?:actually )?(?:run|ran|build|open|read|measure|try|execute|compile)|"
+                    r"(?:has|have|had) not (?:been )?(?:run|tested|executed|exercised|measured))\b"),
     ("DECISION",    r"\b(your call|up to you|decide|decision (?:needed|for you)|which (?:do you|would you))\b"),
     ("RISK",        r"\b(risk\w*|danger\w*|footgun|armed|hazard|could break|blast radius)\b"),
     # ⚠️ The first-person hedges below were added 2026-08-04. The original list caught the
