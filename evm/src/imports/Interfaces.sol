@@ -276,6 +276,10 @@ interface ICore {
     /// cannot be. `flow == 0` is ambiguous between a DEAD pool and a NEW one; `skewPremium > 0`
     /// resolves it, because a pool that has never traded cannot have accrued any.
     function skewPremiumCum(bool isBTC) external view returns (uint);
+    /// §E53 — the BTC band's equity alone. With committedUsd18() (the SUM) this yields the OTHER
+    /// band's share of the one bound both compete for, which is what the shared-scarcity amplifier
+    /// needs and what no isBTC-scoped input could ever supply.
+    function btcBandEquityUsd18() external view returns (uint);
     function swap(bool isBTC, uint160 sqrtPriceX96, address sender, bool forOne, address token, uint amount) external returns (uint);
 }
 

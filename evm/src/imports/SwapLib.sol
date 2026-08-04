@@ -883,6 +883,32 @@ library SwapLib {
         lockedUsd = FullMath.mulDiv(ICore(core).levGrossNative(isBTC), base, 1e30);
     }
 
+    /// @dev §E53 — THE SHARED-SCARCITY AMPLIFIER. Every input to the skews is `isBTC`-scoped, yet
+    ///      BOTH bands draw on ONE basket: `committedUsd18() <= haircutTvl` is the single bound they
+    ///      compete for. So two SIMULTANEOUS drains stress the same backing and neither skew can see
+    ///      the other — and ETH/BTC correlate hardest on exactly the days that matter, which makes
+    ///      this the expected shape of a bad day rather than a tail case.
+    ///
+    ///      The SIZING layer already got this right — `sizeBySurplus` nets both pools so "neither can
+    ///      claim the same surplus twice" — and only the PRICING layer was blind. This closes that.
+    ///
+    ///      ⚠️ CONSTRAINT THAT PICKS THE FORM: the natural measure is utilisation, `committed/TVL`.
+    ///      **TVL is NOT reachable here** — `Aux.get_deposits`, `checkBacking` and `tryCheckBacking`
+    ///      are all NON-VIEW, and these skews are `view`. So the term is RELATIVE (how much of the
+    ///      shared commitment belongs to the OTHER band) rather than absolute, built only from
+    ///      `committedUsd18()` and `btcBandEquityUsd18()`, both of which are view.
+    ///
+    ///      Returns a WAD multiplier in [1e18, 2e18): 1× when this band is the only claimant, →2× as
+    ///      the other band's equity dominates the shared bound. Bounded by construction — it can
+    ///      never invent scarcity, only reflect that the shared backing is already spoken for.
+    function _sharedScarcityWad(address core, bool isBTC) private view returns (uint) {
+        uint both = ICore(core).committedUsd18();
+        if (both == 0) return 1e18;
+        uint btc = ICore(core).btcBandEquityUsd18();
+        uint other = isBTC ? (both > btc ? both - btc : 0) : btc;
+        return 1e18 + FullMath.mulDiv(other, 1e18, both);
+    }
+
     function wellSkew(address core, uint base, bool isBTC)
         public view returns (uint)
     {
@@ -896,12 +922,17 @@ library SwapLib {
         // lockedUsd = GROSS levered collateral, converted with the SAME base/1e30 scale as poolVol
         // (one price, one unit) — the locked-inventory basis for `inv` (#6/F3). committedUsd = DEBT.
 
-        return skewWad(
+        uint raw = skewWad(
             poolVolUsd,
             lockedUsd,
             ICore(core).levClaimUsd6(isBTC),
             ICore(core).flowEwmaUsd(isBTC),
             ICore(core).realizedVarianceWad(isBTC), isBTC);
+        // §E53: amplify by how much of the SHARED bound the other band already holds, then re-cap —
+        // the amplifier must never lift the skew past the same ceiling the raw curve obeys.
+        uint amp = FullMath.mulDiv(raw, _sharedScarcityWad(core, isBTC), 1e18);
+        uint capped = _maxWellSkew(ICore(core).realizedVarianceWad(isBTC), isBTC);
+        return amp > capped ? capped : amp;
     }
 
     /// @notice SYMMETRIC A-S skew for a volatile-IN SELL (the self-funded short's
@@ -989,6 +1020,9 @@ library SwapLib {
         // leg ratio (§E28): a number that is *available* is not thereby the *right* one.
         uint skew = FullMath.mulDiv(
             FullMath.mulDiv(MAX_WELL_SKEW, sigmaSqWad, 1e18), q, 1e18);
+        // §E53: the SAME shared-scarcity amplifier the drain leg carries — a sell that grows our
+        // inventory is dearer to shed when the OTHER band has already spoken for the shared backing.
+        skew = FullMath.mulDiv(skew, _sharedScarcityWad(core, isBTC), 1e18);
         // SAME dynamic cap as the drain leg — one ceiling, both legs (`_maxWellSkew`).
         uint cap = _maxWellSkew(sigmaSqWad, isBTC);
         return skew > cap ? cap : skew;
