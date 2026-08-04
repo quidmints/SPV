@@ -896,10 +896,20 @@ library SwapLib {
     // + the self-funded reseat keeper — no separate gas budget needed.
     uint internal constant BAND_DELTA = 20;
 
-    /// @dev BAND_DELTA as a WAD price FRACTION — the credit netted off every skew charge, because
-    ///      the band already makes the swapper pay up to this much before it is exhausted. 20 bps
-    ///      ⇒ 2e15. Derived from BAND_DELTA, not chosen separately: one width, one credit.
-    uint internal constant BAND_FRAC_WAD = uint(BAND_DELTA) * 1e18 / 10_000;
+    /// @dev The credit netted off every skew charge: what the band ALREADY charged this swapper
+    ///      before it was exhausted. Derived from BAND_DELTA, never chosen separately.
+    ///
+    ///      IT IS HALF THE BAND WIDTH, NOT THE WIDTH (corrected 2026-08-04 — it was `BAND_DELTA`,
+    ///      which credited twice what the band can actually charge and made the skew UNDER-collect
+    ///      by ~10bps on every trade above the band). Average execution across a traversal is the
+    ///      GEOMETRIC MEAN of the pre- and post-trade marginal price, not the edge price, so the
+    ///      average slippage to fully convert one side of a band is
+    ///          1 − (P_a/P_b)^(1/4)  ≈  δ/2   for a ±δ band
+    ///      = 10.0 bps for our ±20 bps band, against a 1000x concentration factor
+    ///      κ = 1/(1−(P_a/P_b)^(1/4)). (`analysis/rover/` — the identity is control-validated: it
+    ///      reproduces the v3 whitepaper's own 200x and 2000x capital-efficiency figures to two
+    ///      decimals.) Crediting the full width would refund slippage the swapper never paid.
+    uint internal constant BAND_FRAC_WAD = uint(BAND_DELTA) * 1e18 / 10_000 / 2;
 
     // NO SETTLEMENT / DURATION TERM, and no windows to hardcode. Deleted 2026-08-04 along with
     // CAP_SAFETY (a "2 sigma" multiple -- risk aversion, i.e. gamma renamed) and SPLICE_FLOOR (a
