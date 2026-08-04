@@ -940,4 +940,88 @@ contract BtcLpMintStress is Alles {
         assertEq(free1, free0,
             "the BTC free reserve (POOLED_USD_BTC - pendingSwapOutUsd) must be untouched by ETH activity");
     }
+
+    // ═══════════════════════════ E31 — does the BTC band need #12's payment? ═══════════════════════
+    //
+    // #12 pays the ETH LP the band's LP-OWNED USD leg (`POOLED_USD_ETH - basketUsdEth`) because
+    // `Vogue._pricingBacking` prices it into the share. The BTC side has NO such reader: `Vault`,
+    // `BtcVaultLib` and `VaultLib` never mention `basketUsdBtc` at all. Reading that as "the BTC band
+    // is fine" is a DISMISSAL, and a dismissal needs the same evidence as a finding — so these two
+    // tests try to BREAK it instead.
+    //
+    // The claim under test is that the BTC increment is BASKET HEADROOM, not LP equity: a USD->BTC
+    // curve buy moves the MOCK mirror and takes mockBTC, while the BTC LP's actual asset is the real
+    // sats in its Lightning channel, which leave only through a swap-out DELIVERY (recorded in
+    // `pendingSwapOutUsd`, paid as `exactUsd` QU!D at deliver-time). If that is right, the increment
+    // is owed to nobody and paying it would be a GIFT. If it is wrong, an LP is being short-paid by
+    // exactly the amount these tests measure.
+
+    /// The increment must never be counted as BACKING. This is the property that makes NOT paying it
+    /// safe — the ETH side's leak was not the unpaid increment itself but that `_pricingBacking` had
+    /// already promised it to somebody.
+    function test_E31a_BtcIncrementIsNeverCountedAsBandEquity() public {
+        AUX.setBTCChannels(address(this));
+        BTC.registerBtcLp(User01, 2e7);                       // 0.2 BTC
+
+        vm.startPrank(User03);
+        USDC.approve(address(AUX), type(uint).max);
+        for (uint i = 0; i < 6; i++) {
+            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0);
+            vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
+        }
+        vm.stopPrank();
+
+        uint pooled = CORE.POOLED_USD_BTC();
+        uint base   = CORE.basketUsdBtc();
+        emit log_named_uint("POOLED_USD_BTC   ", pooled);
+        emit log_named_uint("basketUsdBtc     ", base);
+        emit log_named_uint("increment        ", pooled > base ? pooled - base : 0);
+        emit log_named_uint("btcBandEquityUsd18", CORE.btcBandEquityUsd18());
+
+        // PREMISE: an increment must EXIST, else this measures nothing. The ETH band grew one from
+        // exactly this shape of flow, so its absence here would itself be the finding.
+        assertGt(pooled, base, "PREMISE: the curve buys must lift the BTC mirror above the basket's leg");
+
+        // The band's equity is the BASKET's contribution net of live BTC leverage debt — the
+        // increment is NOT in it. `_bandEquityUsd18` reads `basketUsdBtc`, so this holds by
+        // construction; asserting it is what will FAIL the day someone re-points that read at
+        // `POOLED_USD_BTC`, which is precisely the change that would create an ETH-shaped hole.
+        assertLe(CORE.btcBandEquityUsd18(), base * 1e12,
+            "the BTC increment must NOT be priced as band equity: nothing may promise it to an LP");
+    }
+
+    /// And nobody may be PAID it. A full close is all-native; if the increment ever reached the LP it
+    /// would be a mint against basket headroom that no BTC LP asset backs.
+    function test_E31b_ClosingBtcLpIsNotPaidTheBandsUsdIncrement() public {
+        AUX.setBTCChannels(address(this));
+        uint funded = 2e7;
+        BTC.registerBtcLp(User01, funded);
+
+        vm.startPrank(User03);
+        USDC.approve(address(AUX), type(uint).max);
+        for (uint i = 0; i < 6; i++) {
+            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0);
+            vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
+        }
+        vm.stopPrank();
+
+        uint incr = CORE.POOLED_USD_BTC() - CORE.basketUsdBtc();
+        assertGt(incr, 0, "PREMISE: there must be an increment to (not) be paid");
+
+        uint q0 = QUID.balanceOf(User01);
+        BTC.unregisterBtcLp(User01, funded);                  // no delivery happened -> keeps all funding
+        uint paid = QUID.balanceOf(User01) - q0;
+
+        emit log_named_uint("increment (6d)   ", incr);
+        emit log_named_uint("QU!D paid at close", paid);
+        emit log_named_uint("lpSharesBTC after ", BTC.lpSharesBTC());
+
+        // PREMISE: the close must have actually retired the position, else "not paid" is trivial.
+        assertEq(BTC.lpSharesBTC(), 0, "PREMISE: the close must retire the LP's BTC depth");
+
+        // A close mints only the LP's own accrued USD-leg FEES. If it ever minted the increment the
+        // number would be ~incr*1e12; a 1% ceiling separates fees from proceeds without hiding either.
+        assertLt(paid, incr * 1e12 / 100,
+            "close must mint fees only: the USD increment is basket headroom, not the LP's");
+    }
 }
