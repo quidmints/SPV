@@ -27,7 +27,6 @@ import {SafeCallback} from "v4-periphery/src/base/SafeCallback.sol";
 import {IAaveV4Spoke} from "./imports/Interfaces.sol";
 import {IAaveV4Hub} from "./imports/Interfaces.sol";
 import {ICollection} from "./imports/Interfaces.sol";
-import {IBTCChannels, IBtcVault} from "./imports/Interfaces.sol";
 import {IEthVenue} from "./imports/Interfaces.sol";
 
 
@@ -35,10 +34,20 @@ import {IEthVenue} from "./imports/Interfaces.sol";
 
 
 /// Read-only view into BTCChannels for swap-out recipient resolution.
+interface IBTCChannels {
+    function btcRecipientOf(address user) external view returns (bytes32);
+}
+
 /// BtcVault (regrouped BTC side). Aux drives the BTC pool's repack from the
 /// public WBTC swap path + the backing-invariant healer, and pins the
 /// BTCChannels address on it (mirroring the old V4.setBTCChannels). The BTC
 /// LP accounting + swap-credit live entirely on BtcVault.
+interface IBtcVault {
+    function repack(bool isBTC) external returns (uint160 sqrtPriceX96,
+        int24 tickLower, int24 tickUpper, uint128 myLiquidity);
+    function setBTCChannels(address b) external;
+}
+
 /// EthVenue — the ETH yield-venue custody (Galaxy/AAVE/ether.fi WETH), carved
 /// out of Aux. Aux keeps thin forwarders (vogueETH/arbETH) for callers that
 /// must not change target (BasketLib IAux read, Core), drives the Galaxy
@@ -640,14 +649,10 @@ contract Aux is // Auxiliary
     ///         pool's reservation-price / RFQ taker-limit offset. Exposed on the SAME unified
     ///         seam as getTWAPforAsset/resolvedTwap so Bebop's RFQ engine AND Khalani's
     ///         Arcadia solver quote against the EXACT number a swap executes at (base × (1−skew)),
-    ///         instead of re-deriving it and drifting from settlement.
-    /// @param outUsd The 6-dec USD the quote is for. REQUIRED as of 2026-08-04: the skew is now a
-    ///        function of trade SIZE (the constant-product fraction of the deliverable reservoir the
-    ///        trade removes), so there is no longer a single size-free number to read. A quote taken
-    ///        at the wrong size is a quote for a different trade. Pass 0 for the pure
-    ///        settlement-risk floor — what an infinitesimal trade pays, and the only size-free part.
-    function wellSkew(address asset, uint outUsd) public view returns (uint) {
-        return SwapLib.wellSkew(address(CORE), getTWAPforAsset(asset, 1800), asset == address(WBTC), outUsd);
+    ///         instead of re-deriving it and drifting from settlement. 0 = flush (band price
+    ///         stands); rises to the cap when the deliverable inventory is scarce. Read-only.
+    function wellSkew(address asset) public view returns (uint) {
+        return SwapLib.wellSkew(address(CORE), getTWAPforAsset(asset, 1800), asset == address(WBTC));
     }
 
     /// @notice The flat swap fee (V4 pool tier, parts-per-million — 420 = 0.042%) every

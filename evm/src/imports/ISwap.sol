@@ -17,6 +17,6 @@ interface ISwap {
     // (swap-OUT), base the oracle price for `asset` (WETH/WBTC). `Aux` implements all.
     function getTWAPforAsset(address asset, uint32 period) external view returns (uint256 price);
     function resolvedTwap(address asset, uint32 period) external view returns (uint256 price, bool stale);
-    function wellSkew(address asset, uint256 outUsd) external view returns (uint256 skewWad);
+    function wellSkew(address asset) external view returns (uint256 skewWad);
     function swapFeePpm() external pure returns (uint24 feePpm);   // flat V4 pool tier (420 = 0.042%)
 }

@@ -35,7 +35,7 @@ contract MockAux is ISwap {
     // Unified-quote surface stubs (this mock only exercises `swap`).
     function getTWAPforAsset(address, uint32) external view returns (uint256) { return ethUsd; }
     function resolvedTwap(address, uint32) external view returns (uint256, bool) { return (ethUsd, false); }
-    function wellSkew(address, uint256) external pure returns (uint256) { return 0; }
+    function wellSkew(address) external pure returns (uint256) { return 0; }
     function swapFeePpm() external pure returns (uint24) { return 420; }
 }
 
