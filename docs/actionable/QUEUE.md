@@ -396,22 +396,51 @@ and the shipped fix — **verbatim**:
 ▶️ **Write the Rover analogue of `TwapAnchorDeadlock.t.sol`** — shove spot >50 bps, assert the recenter
   still lands off fair. That test is the falsifiable prediction R4 needs (rule 10).
 
-### ✅ APPLIED THIS SESSION (everything else in R1–R15 is BOOKED, NOT BUILT)
+### ✅ ROVER — STATUS AS OF 2026-08-04 (supersedes the R1–R15 table below; detail in `ROVER-WEETH.md`)
+**Suite: 3,706 pass / 1 fail / 1 skip** — the one failure is the known-correct `testLeverage_LvrControlVsTreatment`.
 | item | state |
 |---|---|
-| **R3** stale `~7%` comment in `Rover.sol` | ✅ **DELETED** — replaced with the true one-tick description + why it was removed. `forge build` clean. |
-| **R4/R15** `_nearFair` degrade-not-refuse | 🔴 **NOT APPLIED** — money-path; needs the deadlock test + a suite run first (rule 10). Precedent + shape are above. |
-| everything else (R1,R2,R5–R14) | 🔴 analysis only |
+| **`take()` under-delivered 30%, SILENTLY** | ✅ **FIXED.** Split `need/2` assuming a 50/50 band; the band is 71.5% WETH at the live tick, so `take(500)` paid **348.998**. Now sized from the real composition → **499.753**. `withdrawETH` try/catch'd it and reported success. |
+| **out-of-band `repackNFT` REVERTED (bricked)** | ✅ **FIXED.** Band chosen from the PRE-swap tick, mint executed POST-swap; once our own liquidity is burned a 3.2 weETH sale moves the tick several spacings → zero-liquidity mint → revert. Now re-anchors on the post-swap tick. |
+| **…then went INERT single-sided** | ✅ **FIXED.** Three cranks re-formed nothing; only a deposit did. Band now SHIFTS to the side held instead of converting to fit the band. Re-forms on the 1st crank. |
+| **band width was 1 tick-spacing** | ✅ **WIDENED to 6** (~60 bps). Measured **~1.58%/yr**: 10-ticks/daily = −1.60% net of fees, 60-ticks/weekly = **−0.02%**. LVR ∝ liquidity DENSITY ∝ capital/width — a narrow band is fully traversed by every small move. |
+| **ether.fi dust reverts** | ✅ **FIXED.** LiquidityPool reverts `InvalidAmount()` under its minimum; a fees-only compound handed it **1 wei** and took the crank down. All three adapter call sites now non-blocking. |
+| **R3** stale `~7%` comment | ✅ deleted earlier |
+| **stale `swapWeethForWeth` refs** | ✅ **FIXED** — the function is `absorb`; the old name survived in 4 comments. |
+| **R4/R15** `_nearFair` degrade-not-refuse | ⛔ **DO NOT APPLY — ATTEMPTED AND REVERTED.** Deleting the gate broke **31 tests**: `Alles.t.sol::testEthVenue_Rover_FairGateRefusesManipulatedPool`. Without it Rover mints against a manipulated tick and ends with **NO position at all**. The gate stops it wasting the mint. |
 
-### 🕳️ GAPS & VULNERABILITIES STILL OPEN AFTER ALL OF THIS
-1. 🔴 **R2 $5 DoS — LIVE.** Any party can freeze Rover's mint/recenter/compound for ~$5. **Unfixed.**
-2. 🔴 **R4 stranding — LIVE**, and unlike Vogue's version it has **no natural exit** (R1).
-3. 🔴 **R12: why did `L` collapse 3.5M×?** Unknown. **No Rover decision is safe until answered.**
-4. 🟠 **R14#1: the carry numbers are BIASED** — drift counted, mean-reverting deviation ignored.
-5. 🟠 **R14#3: JIT never evaluated**, and it may dominate every option considered.
-6. 🟠 **R14#5: lending weETH never priced** as the alternative to LPing.
-7. 🟠 **Is Rover even deployed?** Unchecked — it decides whether R12's history already includes it.
+### 🕳️ WHAT IS ACTUALLY OPEN ON ROVER (the old list below is superseded — most of it is measured now)
+1. 🎯 **THE DECISION: band, or hold 100% weETH and convert just-in-time?** A 60-tick band costs
+   **~1.26%/yr** vs holding weETH (half the capital sits as WETH earning 0 instead of 2.47%), and buys
+   conversions at −1 bps instead of −24. **Breakeven ≈ 5.5× turnover per year.** Owner's call.
+2. ⛔ **Cadence gate — MEASURED AND DROPPED, worth only ~0.07%/yr.** I proposed a minimum recentre
+   interval on a 0.46%/yr figure taken from FORCED daily-vs-weekly re-placement — a rule the contract
+   never implements. Modelling its ACTUAL trigger (recentre only when the band is LEFT): at 60 ticks
+   it is left **1.0× per 30 days**, so a gate has no churn to prevent — net −0.43% (no gap) vs −0.36%
+   (14-day gap). **At 10 ticks it WOULD have been worth ~0.74%/yr** (−1.60% → −0.86%), because a
+   narrow band is left 3× as often. ⇒ **Widening and a cadence gate are SUBSTITUTES; the widening
+   already captured it, by a better route.** Not worth a money-path change plus a timing dependency.
+3. 🟠 **`deposit()` still builds a STRADDLING position** — it is what manufactures the WETH leg. If the
+   answer to (1) is "hold weETH", this is the code that has to change.
+4. 🟠 **Elasticity** — bounded, not eliminated: corr(log depth, log volume) **+0.383**, and an 8× depth
+   increase moved median volume 0 → 3.15 WETH/window. Adding depth does NOT summon flow.
+5. ⬜ **Sizing.** Fee capture is size-INDEPENDENT (we are ~100% of in-range `L` at any deployable size)
+   while cost is size-linear ⇒ breakeven **~520 WETH** on last-30d fees, ~3,370 on 180d.
 
+### ⛔ CLOSED BY MEASUREMENT (do not re-raise without new evidence)
+- **R2 "$5 DoS — LIVE"** — the real figure is **$0.08**, and **~8,413 ETH once Rover is deployed**.
+  Rover's own depth IS the fix. The queue had the wrong side too (the cheap shove is BUYING weETH).
+- **R12 "why did `L` collapse 3.5M×?"** — **conversion, not withdrawal.** −30d held 4,844 ETH-equiv,
+  now 4,841: **value conserved to 0.06%.** Nobody left.
+- **R14#3 JIT** — cannot help. It captures fees on OTHERS' flow (external volume ≈ 0) and cannot
+  improve our OWN conversion: minting depth and trading through it returns our own capital.
+- **R14#5 lending weETH** — pays **ZERO**, not "a supply rate on top". Morpho: **0 of 123** active
+  markets have weETH as loan token. Euler: **9 weETH vaults, all zero borrows**. Aave v4: reserve
+  exists, **711 supplied / 0 debt**. Nobody borrows weETH anywhere measurable.
+- **"v4 exists but ~20× shallower"** — **there is no v4 pool.** All standard tiers uninitialised;
+  control against ETH/USDC passes.
+- **"Is Rover deployed?"** — no.
+- **The depletion model (−76 bps at 90d)** — refuted by its own back-test: measured −26.1.
 
 ### 🕳️ R14 — MY BLIND SPOTS ON ROVER (asked 2026-08-03). Written down BEFORE anything is landed.
 **1. 🔴 I CONFLATED RATE MONOTONICITY WITH PRICE MONOTONICITY — an analytical error, not a gap.**
@@ -6655,3 +6684,116 @@ simply reads one leg of two.
 📌 **Still a user decision — but a much smaller one than posed.** Not *"who owns the proceeds"* (measured:
   the band books them, correctly) but *"do we credit the delta to LP share price, and build the USD
   delivery leg to match?"*
+
+## Well skew rebuild (branch `rover-weeth-ship-decision`, 2026-08-04) — OPEN, suite RED
+
+Six unpushed commits. `forge test` on the mainnet fork: **3700 passed / 147 failed / 1 skipped**
+(baseline 0–1 failures). Compiles clean, EIP-170 unverified. Nothing here is landed.
+
+Kernel is now `skewWad(outUsd, invUsd)` — one division, **zero governance constants**. Deleted: `Γ`,
+`ρ`/`STABLENESS`, `SIGMA_REF`, `MAX_WELL_SKEW`, `CAP_SAFETY`, `SPLICE_FLOOR`, both confirmation
+windows, `target = flowUsd + committedUsd`, and the entire settlement/duration term. σ² has left the
+skew path completely, which closes the σ²=0 free-drain window and the TWAP-manipulation exposure by
+construction rather than by defence.
+
+**OPEN 1 — sell-leg denominator: STILL OPEN, both prior diagnoses were wrong.**
+  * Diagnosis A ("the denominator is halved, fix the derivation not the test") — wrong.
+  * Diagnosis B ("it computes ΔI, the standard book-imbalance statistic, so it is correct") — right
+    in general, wrong HERE, and the distinction is the whole point. For a two-reserve AMM inventory
+    imbalance and book imbalance ARE the same object: there is no separate book, the reserves ARE the
+    resting liquidity and `(x,y)` fixes the quote at every price on both sides. So the identity is
+    real — it just does not hold for BOTH of our sides.
+  * OUR ASK SIDE satisfies it: we can only hand over volatile we hold, so `V` is genuine depth and
+    the CP reading is correct on the drain leg.
+    OUR BID SIDE does not: the dollars are MINTED AGAINST THE BASKET, so `D` is an accumulator, not
+    the constraint. There is no reserve there for a book statistic to measure.
+  * The tell was already in this repo: our sell side is **not bounded by `D`** — the dollars paid out
+    are MINTED AGAINST THE BASKET, not drawn from `POOLED_USD_*`. That is the exact asymmetry that
+    broke the mirrored sell leg. So our "bid depth" is not `D`, and no CP-against-`D` reading applies.
+
+  **The real open question, unanswered:** if the sell side is basket-backed and effectively unbounded,
+  what IS the correct denominator for a sell? Not `D` (not the constraint), not `(V+D)/2` (justified
+  only by the false book-imbalance identification). Candidates: the volatile inventory `V` we are
+  accumulating (the thing actually at risk), or a realised-cost basis (see OPEN 2). **Derive it from
+  what a sell actually costs us, and do not reach for a ratio because it looks familiar.**
+  Measured symptom: `testSwapPricing_EthSellInRange_PaysAboutOracle` pays 1.65% vs a 1.5% tolerance
+  on a trade worth ~0.9% of pool value.
+
+**OPEN 1b — EXTERNAL order-book imbalance `I = (V_bid − V_ask)/(V_bid + V_ask)` is NOT implemented
+and is a genuinely separate input.** Everything built so far is endogenous and descriptive (our
+position now). This is exogenous and predictive (depth thinning ahead of a move). Note it is a RATIO,
+so symmetric JIT injection cancels — which is why it may be safe where external DEPTH (`L`, a level)
+was not. **Unverified hypothesis about an attack surface; test before relying on it.**
+
+**OPEN 2 — nothing ties the skew we collect to the flash cost we pay.** The refill is an automatic
+protocol flash paying EXTERNAL price impact; the skew is calibrated against OUR OWN inventory. Small
+drains over-collect, drains large relative to external depth under-collect — and that is exactly when
+the flash fails and leaves a `pendingSwapOutUsd` behind. Keying the skew to the venue we restore
+through was rejected because live external `L` is JIT-manipulable (flash-add depth, our skew reads
+~0, drain at the floor, withdraw). **Unresolved design decision, not a bug.**
+
+**OPEN 3 — `Core.skewPremium*` is NOT consumer-free.** It was documented as having "no consumer
+beyond the counters + theta EWMA"; the BTC mint-vs-proceeds invariants are tuned against the premium
+magnitude and break when it moves (`test_RunSim_AllExit_BtcLp` + 5 siblings).
+
+**OPEN 4 — `testGrindRemoval_LargeSwapThenReseatRebandsSkewed` fails on its PREMISE**, not its
+assertion: a swap can no longer drain ≥99% of the band's USD leg. Plausibly the feature working and
+the test needing a rewrite — **unproven, and a dismissal needs the same evidence as a finding.**
+
+**OPEN 5 — flash de-lever pair unattributed.** `testReal_Euler_RebalanceMany_BatchHoldsTarget` and
+`testReal_Morpho_OpenAndDelever` fail in `x <= x` form. No clean baseline was captured, so these are
+not yet attributable to this change either way. **Capture the baseline first.**
+
+**OPEN 6 — `Aux.wellSkew(asset, outUsd)` read surface has single-price exposure.** The swap path is
+guarded by `_priceMax` (two independent prices); the external quote surface Bebop/Khalani read has no
+`v4p` to pair with the TWAP.
+
+**BLOCKED — automatic flash refill not located.** `d588d19` is `E46: raise COMPOUND_GAS`, not refill
+wiring. The Rust flash paths found (`lev_keeper.rs:554`, `lev_keeper_btc.rs:64/150/409`) are IL-target
+leverage rebalancing, not well refill. OPEN 2 cannot be closed until this is found.
+
+**NOT STARTED — `VENUE_ROVER` removal.** Deferred by the repo owner until the skew work completes.
+
+### Skew — verification status and items still unswept (2026-08-04)
+
+**PASSED:** `tools/check-client-abis.py` — 76 signatures, 0 drifted. `forge build --sizes` —
+**SwapLib 24,014 B, margin 562 B** (was ~150 B from the EIP-170 ceiling; the deletions GAINED ~400 B).
+LevMath (20 B margin) and LevManager (70 B) are untouched by this work but remain the tight ones.
+
+**OPEN 7 — `dI/dt` is never read.** The kernel prices the imbalance we are AT, never the one we are
+heading into. `I = (V−D)/(V+D)`; a pool draining steadily toward one side is in a different risk state
+than one sitting statically at the same `I`, and today they are charged identically. Computable from
+ONE stored previous value — no oracle, no external venue, no variance ring, no manipulation surface,
+because it derives from our own settled balances.
+
+**OPEN 8 — external book imbalance may be safe where external DEPTH was not; this is the route to
+closing OPEN 2.** Live external `L` was rejected as JIT-manipulable (flash-add depth ⇒ our skew reads
+~0 ⇒ drain at the floor ⇒ withdraw). That attack works because `L` is a LEVEL. `I` is a RATIO, so
+SYMMETRIC injection cancels out of it — moving it requires ONE-SIDED depth, i.e. carrying real
+directional inventory rather than a free round trip. If that holds, the external signal becomes usable
+in imbalance form and the skew can finally be tied to the actual external cost the flash refill pays.
+⚠️ **HYPOTHESIS ABOUT AN ATTACK SURFACE, NOT A RESULT — must be tested before it is relied on.**
+
+**OPEN 9 — never measured: the real `SorExchange → Aux.swap` curve.** Explicitly asked for; only the
+`addedTok=0` question was answered (deliberate, confirmed by git blame). The curve itself is unmeasured.
+
+**OPEN 10 — never enumerated: all the v4 poolIds.** Asked for, in the context of whether
+`v3SwapTiered` is needed at all unless the v4 pools are exhausted. Not done.
+
+**OPEN 11 — possible dead code from the rewrite (rule 1).** `flowEwmaUsd` and `levClaimUsd6` may no
+longer have a consumer in `sellSkew`; `sr.asset = wbtc` in `_swapOutPrep` may be vestigial after the
+signature reverted to 4 args. Verify by structure, not by name.
+
+**OPEN 12 — band credit on the SELL leg is unverified.** `BAND_FRAC_WAD` is subtracted inside the
+shared `skewWad`, so both legs get it. It is justified for the drain (the band charged the swapper
+first). Whether the band charges a SELLER the same half-width was never checked.
+
+**OPEN 13 — priority gas as a direct MEV-pressure signal, never evaluated.** Balancer v3's shipped
+MEV hook scales its swap fee with `tx.gasprice − block.basefee`. This is a different signal CLASS
+from anything used here: volatility infers toxicity from past prices, inventory infers it from our
+own position, but priority gas measures *how hard someone is bidding to be first in this block* —
+close to a direct read on toxic flow, which is precisely what the skew exists to price. On-chain, no
+oracle, no history, no observation ring. Surfaced in the 2026-08-04 research and never assessed.
+Caveats to check before use: it is a signal about the BLOCK, not about this trade, so an honest
+swapper in a contended block pays for someone else's MEV; and a searcher can pay priority gas
+without being toxic to us specifically.

@@ -384,7 +384,7 @@ contract Vault is Ownable, ReentrancyGuard {
     function setLevManager(address m) external onlyOwner {
         if (LEV_MANAGER != address(0)) revert LevManagerPinned();
         LEV_MANAGER = m;
-        // Cascade: allow the LevManager to call Rover.swapWeethForWeth (the down-leg's fee-internal rebalancing
+        // Cascade: allow the LevManager to call Rover.absorb (the down-leg's fee-internal rebalancing
         // hop for freed weETH). We are Rover's `AUX`, so Rover accepts this pin-once from us.
         if (ROVER != address(0)) IRover(ROVER).setLevManager(m);
     }

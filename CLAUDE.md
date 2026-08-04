@@ -41,6 +41,15 @@ environment actually is*. Every line below was verified in-repo, not recalled.
 15. **Never commit an unverified change on a money or proof path.** A plausible-but-wrong constraint
     is worse than a documented open hole, because it looks fixed. One was committed on 2026-08-02
     and broke `main`. If the verification run has not finished, say it is in flight and wait.
+16. **CLOSE ONLY WHAT IS AXIOMATIC.** Mark an item ✅ **only if no later decision can reopen it** —
+    it is true by construction, by measurement that cannot go stale, or because the code it described
+    no longer exists. Everything else stays OPEN with its current state written next to it, however
+    much progress it has. **A design decision is not a closure**: while options are still being
+    weighed, every item downstream of them is still live, because reversing the decision reopens them.
+    Anything landed *conditional* on a choice not yet made is ⏸️, never ✅.
+    *Why:* a ✅ is how the next thread decides what not to re-read. A premature one deletes the item
+    from the project's attention while the work is still undone, and the loss is silent — the exact
+    failure mode rules 12 and 13 exist to prevent, arriving through the status column instead of prose.
 
 ## Verification discipline
 

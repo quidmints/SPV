@@ -52,13 +52,16 @@ contract Rover is ReentrancyGuard, Ownable {
 
     uint160 public LAST_SQRT_PRICE;
     int24 constant MAX_TICK = 887220;
+    /// @dev Band width in tick-spacings, straddling the live tick. See `_adjustTicks` for the
+    ///      measurement: 6 spacings (~60 bps on the 0.05% pool) beat 1 by ~1.58%/yr.
+    int24 constant BAND_SPACINGS = 6;
     // Self-funding compound crank (mirrors Vogue.compound): the permissionless caller is reimbursed
     // gas as an ETH tip peeled from the harvested WETH fees ONLY (never principal), grief-capped at
     // half the WETH harvest + a gasprice ceiling. tip=0 at zero gasprice ⇒ full compound.
     uint private constant COMPOUND_GAS = 600_000; // tuned: measured ~560k (RoverFork) + ~7% margin
     uint private constant COMPOUND_MAX_GASPRICE = 200 gwei;
     address public AUX; address public immutable ADAPTER;
-    address public levManager;   // pin-once (setLevManager) — the ETH LevManager, allowed to call swapWeethForWeth
+    address public levManager;   // pin-once (setLevManager) — the ETH LevManager, allowed to call `absorb`
     INonfungiblePositionManager public NFPM;
 
     mapping(address => uint128) public positions;
@@ -126,7 +129,7 @@ contract Rover is ReentrancyGuard, Ownable {
         renounceOwnership();
     }
 
-    /// @notice Pin the ETH LevManager (the only non-AUX caller of swapWeethForWeth). Gated to AUX (== the Vault,
+    /// @notice Pin the ETH LevManager (the only non-AUX caller of `absorb`). Gated to AUX (== the Vault,
     ///         our only `us`), which cascades it from `Vault.setLevManager` at deploy — Rover is ownerless
     ///         post-setAux, so this can't be onlyOwner. Pin-once.
     function setLevManager(address _lm) external {
@@ -248,15 +251,50 @@ contract Rover is ReentrancyGuard, Ownable {
             bool needsSwap = liquidity > 0 || wethAmount == 0 || usdcAmount == 0;
             if (needsSwap) {
                 (wethAmount, usdcAmount) = _swap(wethAmount, usdcAmount, price);
+                // RE-ANCHOR ON THE POST-SWAP PRICE. `_swap` may have traded on the pool, and with our
+                // own liquidity just burned even a few weETH moves the tick several spacings (measured:
+                // 1 weETH moves 8 ticks against a 10-tick band). The band was chosen from the PRE-swap
+                // tick in `_repackNFT`, so minting into it afterwards can be entirely single-sided
+                // against the amounts we now hold -- v3 then returns ZERO liquidity and REVERTS,
+                // bricking the repack. Traced end to end: burn -> `_exactIn` 3.2 weETH -> tick jumps
+                // out of [-970,-960) -> `pool.mint(..., 0, ...)` -> revert.
+                (uint160 postSqrt, int24 postTick) = _slot0();
+                LAST_SQRT_PRICE = postSqrt; LAST_TICK = postTick;
+                (LOWER_TICK, UPPER_TICK) = _adjustTicks(postTick);
             }
             // token0 is always the lower address
             (uint mintAmount0, uint mintAmount1) = token1isWETH ?
                 (usdcAmount, wethAmount) : (wethAmount, usdcAmount);
+            // v3 REVERTS on a zero-liquidity mint, which would brick the entire repack. That is
+            // reachable whenever the conversion above could not complete -- e.g. the pool cannot pay
+            // `_fairMinOut`, so the weETH correctly stays unsold and does not fit a WETH-only band.
+            // Ask the canonical library whether this is mintable rather than inferring it from the
+            // amounts; if not, the tokens wait, idle and fair-valued, for the next crank.
+            // We may hold only ONE side here (the conversion leg declines whenever the pool cannot
+            // pay `_fairMinOut`), and a band straddling spot cannot take a single token -- v3 returns
+            // zero liquidity and REVERTS. Measured, returning instead left Rover INERT: three cranks
+            // in a row re-formed nothing, and only a fresh deposit did.
+            //
+            // So SHIFT THE BAND TO THE SIDE WE HOLD rather than convert to fit the band. A position
+            // entirely ABOVE spot is 100% token0; entirely BELOW is 100% token1. No swap, no price
+            // impact, always mintable. And holding WETH this lands in the one v3 posture the drift
+            // CANNOT ratchet: already fully converted, with spot moving further away.
+            { (uint160 sLo, uint160 sUp, uint160 sCur) = _getTickSqrtPrices();
+              if (LiquidityAmounts.getLiquidityForAmounts(
+                      sCur, sLo, sUp, mintAmount0, mintAmount1) == 0) {
+                  int24 lo = LOWER_TICK;
+                  bool haveToken0Only = mintAmount1 == 0;
+                  LOWER_TICK = haveToken0Only ? lo + TICK_SPACING : lo - TICK_SPACING;
+                  UPPER_TICK = LOWER_TICK + TICK_SPACING;
+                  (sLo, sUp, sCur) = _getTickSqrtPrices();
+                  if (LiquidityAmounts.getLiquidityForAmounts(
+                          sCur, sLo, sUp, mintAmount0, mintAmount1) == 0) return;
+              } }
             (ID, liquidityUnderManagement) = _mintRover(mintAmount0, mintAmount1);
             LAST_REPACK = block.timestamp;
         } else if (commit) {
             // FULL-SWEEP (deposit/withdraw/repackNFT): commit the ENTIRE idle balance
-            // (collected fees + weETH absorbed by swapWeethForWeth + _swap leftovers) into
+            // (collected fees + weETH absorbed by `absorb` + _swap leftovers) into
             // the position, not just fees, so nothing waits idle for the next recenter.
             _collect(price);   // fees -> this contract's idle balance
             uint bal0 = ERC20(token1isWETH ? WEETH : address(weth)).balanceOf(address(this));
@@ -434,15 +472,56 @@ contract Rover is ReentrancyGuard, Ownable {
 
     function _adjustTicks(int24 currentTick) internal
         view returns (int24 lower, int24 upper) {
-        // TRUE ONE-TICK band: weETH/WETH is a slow-drifting correlated pair, so a single
-        // tick-spacing captures ~all the fee with near-zero out-of-range risk (the keeper
-        // re-centers on the rare drift). FLOOR the current tick to spacing so the live price
-        // sits inside [lower, upper); upper is the next spacing up. (Nearest-rounding could put
-        // lower ABOVE current and strand the price out of range, so floor explicitly here.)
+        // BAND_SPACINGS wide, STRADDLING the live tick. It was ONE tick-spacing, on the reasoning
+        // that a slow-drifting correlated pair needs no more. Measured, that is backwards:
+        // replaying 91 daily samples over rolling 30-day windows (`analysis/rover/replay.py`),
+        //
+        //     band       cadence    LVR      net of fees   in-range
+        //     10 ticks   daily     -2.15%      -1.60%        27/30   <- the old shape
+        //     10 ticks   never     -1.03%      -0.94%         7/30
+        //     40 ticks   weekly    -0.66%      -0.16%        28/30
+        //     60 ticks   weekly    -0.42%      -0.02%        28/30   <- this shape
+        //
+        // A NARROW band is FULLY TRAVERSED -- 100% converted -- by every small move, so it
+        // concentrates the ratchet along with the liquidity; a wide one is only partially crossed.
+        // Six spacings is ~60 bps here, which held spot 28/30 days and took the position to roughly
+        // break-even against simply holding the same two tokens. Worth ~1.58%/yr over the old shape.
+        //
+        // FLOOR to spacing first (nearest-rounding could put `lower` above the live tick and strand
+        // the price out of range), then extend half the width below so the band straddles.
         int24 rem = currentTick % TICK_SPACING;
         if (rem < 0) rem += TICK_SPACING;
-        lower = currentTick - rem;
-        upper = lower + TICK_SPACING;
+        lower = currentTick - rem - (BAND_SPACINGS / 2) * TICK_SPACING;
+        upper = lower + BAND_SPACINGS * TICK_SPACING;
+    }
+
+    /// @dev Liquidity whose withdrawal realises `need` WETH-EQUIVALENT across BOTH legs, priced off
+    ///      the band's ACTUAL composition at the live tick.
+    ///
+    ///      REPLACES a `need / 2` split that silently assumed the band is 50/50. A v3 band is 50/50
+    ///      only when spot sits at its geometric middle; everywhere else the split is whatever the
+    ///      tick says. MEASURED on a fork at tick -948 in `[-950, -940)` the band is 71.6% WETH, and
+    ///      `take(500 ether)` delivered **348.998** — `need/2 ÷ 0.716 = need × 0.698`, i.e. 30% short,
+    ///      matching to three digits. That short is SILENT: `VaultLib.withdrawETH` wraps `take` in
+    ///      try/catch and reports whatever arrives as success, and `Vogue` re-credits the difference
+    ///      as deferred `pooled` — so an LP is told they exited while a third of the ask never moved.
+    ///
+    ///      Probe-and-scale rather than closed-form: `getAmountsForLiquidity` already encodes the
+    ///      in-range/below/above cases, so asking it for one unit of liquidity and scaling gets the
+    ///      out-of-range branches right for free. (Out of range one leg is zero, and the scale is
+    ///      then simply that leg — no special case.)
+    function _liquidityForWeth(uint need) private view returns (uint128) {
+        (uint160 sqrtLower, uint160 sqrtUpper,
+         uint160 sqrtCurrent) = _getTickSqrtPrices();
+        (uint a0, uint a1) = LiquidityAmounts.getAmountsForLiquidity(
+            sqrtCurrent, sqrtLower, sqrtUpper, uint128(WAD));
+        (uint pWeth, uint pWeeth) = token1isWETH ? (a1, a0) : (a0, a1);
+        // Value the weETH leg at the unmanipulable protocol rate, the same anchor `_fairMinOut`
+        // floors the actual conversion at — so sizing and execution agree on what a weETH is worth.
+        uint perUnit = pWeth + (pWeeth == 0 ? 0 : IWeETH(WEETH).getEETHByWeETH(pWeeth));
+        if (perUnit == 0) return 0;
+        uint liq = FullMath.mulDiv(WAD, need, perUnit);
+        return liq > type(uint128).max ? type(uint128).max : uint128(liq);
     }
 
     function _getTickSqrtPrices() internal view returns
@@ -463,26 +542,70 @@ contract Rover is ReentrancyGuard, Ownable {
         uint targetETH; uint targetWEETH;
         { (uint160 sqrtLower, uint160 sqrtUpper,
            uint160 sqrtCurrent) = _getTickSqrtPrices(); uint128 liquidity;
-            if (eth > 0) {
-                liquidity = token1isWETH
-                    ? LiquidityAmounts.getLiquidityForAmount1(sqrtCurrent, sqrtUpper, eth)
-                    : LiquidityAmounts.getLiquidityForAmount0(sqrtCurrent, sqrtUpper, eth);
+            // SPOT OUTSIDE THE BAND — a v3 position is then SINGLE-SIDED, and the target is
+            // simply "all of that side". The sizing below is inherited from the USDC-era leg and
+            // silently assumes spot sits INSIDE [lower, upper]: it passes `sqrtCurrent` as a RANGE
+            // BOUND, so once spot leaves the band `LiquidityAmounts` receives an INVERTED range,
+            // swaps the bounds, and returns liquidity for a range that is not the band at all —
+            // garbage targets, and `NFPM.mint` reverts on them. That never fired while the band was
+            // centred on spot (spot is inside by construction); it fires immediately if the band is
+            // anchored anywhere else, which is what blocked anchoring it on the staking rate.
+            uint rate = IWeETH(WEETH).getEETHByWeETH(WAD);
+            if (sqrtCurrent >= sqrtUpper) {          // position holds only token1
+                (targetETH, targetWEETH) = token1isWETH
+                    ? (eth + FullMath.mulDiv(weeth, rate, WAD), uint(0))
+                    : (uint(0), weeth + FullMath.mulDiv(eth, WAD, rate));
+            } else if (sqrtCurrent <= sqrtLower) {   // position holds only token0
+                (targetETH, targetWEETH) = token1isWETH
+                    ? (uint(0), weeth + FullMath.mulDiv(eth, WAD, rate))
+                    : (eth + FullMath.mulDiv(weeth, rate, WAD), uint(0));
             } else {
-                liquidity = token1isWETH
-                    ? LiquidityAmounts.getLiquidityForAmount0(sqrtLower, sqrtCurrent, weeth)
-                    : LiquidityAmounts.getLiquidityForAmount1(sqrtLower, sqrtCurrent, weeth);
+                if (eth > 0) {
+                    liquidity = token1isWETH
+                        ? LiquidityAmounts.getLiquidityForAmount1(sqrtLower, sqrtCurrent, eth)
+                        : LiquidityAmounts.getLiquidityForAmount0(sqrtCurrent, sqrtUpper, eth);
+                } else {
+                    liquidity = token1isWETH
+                        ? LiquidityAmounts.getLiquidityForAmount0(sqrtCurrent, sqrtUpper, weeth)
+                        : LiquidityAmounts.getLiquidityForAmount1(sqrtLower, sqrtCurrent, weeth);
+                }
+                if (liquidity == 0) return (eth, weeth);
+                (uint amount0, uint amount1) = LiquidityAmounts.getAmountsForLiquidity(
+                                          sqrtCurrent, sqrtLower, sqrtUpper, liquidity);
+                (targetETH, targetWEETH) = token1isWETH ? (amount1, amount0) : (amount0, amount1);
             }
-            if (liquidity == 0) return (eth, weeth);
-            (uint amount0, uint amount1) = LiquidityAmounts.getAmountsForLiquidity(
-                                      sqrtCurrent, sqrtLower, sqrtUpper, liquidity);
-            (targetETH, targetWEETH) = token1isWETH ? (amount1, amount0) : (amount0, amount1);
         }
         if (targetETH == 0 && targetWEETH == 0) return (eth, weeth);
+        // SINGLE-SIDED BAND: spot sits at or past an edge, so one target is 0 and the ratio
+        // k = targetETH/targetWEETH is UNDEFINED. Both legs below divide by it and guard themselves
+        // off with `targetWEETH > 0`, so they silently refuse the one conversion the band needs --
+        // `_swap` then returns the token the band does not want, `_mintRover` asks v3 for zero
+        // liquidity, and v3 REVERTS, bricking `repackNFT`. There is no ratio to solve here: the
+        // answer is simply "all of it". Placed BEFORE the caps below, which would otherwise zero the
+        // very inventory being converted.
+        if (targetWEETH == 0 && weeth > 0) {              // band wants the ETH side only
+            (uint sold, bool done) = _exactIn(weeth, _fairMinOut(weeth));
+            if (done) { eth += sold; weeth = 0; }         // else: pool can't pay fair, weeth waits
+            return (eth, weeth);
+        }
+        if (targetETH == 0 && eth > 0) {                  // band wants the weETH side only
+            // NON-BLOCKING, same reason as the ratio leg below and `_wrapIdle`: ether.fi's
+            // LiquidityPool enforces a MINIMUM deposit and reverts `InvalidAmount()` under it. A
+            // fees-only `compound()` reaches here with literally 1 wei (measured), and an unguarded
+            // revert takes the whole crank down. Decline and keep the WETH for the next one.
+            uint held = ERC20(WEETH).balanceOf(address(this));
+            try IDepositAdapter(ADAPTER).depositWETHForWeETH(eth, address(this)) {
+                return (0, weeth + ERC20(WEETH).balanceOf(address(this)) - held);
+            } catch { return (eth, weeth); }
+        }
         if (weeth > targetWEETH) weeth = targetWEETH;
         if (eth > targetETH) eth = targetETH;
 
         // Size the leg with the original target-ratio algebra. Assume X = eth,
-        // Y = weeth, p = price (WETH per weETH), k = target ratio
+        // Y = weeth, p = price (weETH per WETH -- what `getPrice` returns; the
+        // "WETH per weETH" this said was a leftover from the USDC-era leg, and is
+        // the INVERSE. The algebra is right as written: `y + n*p` is n ETH becoming
+        // n*p weETH, and `k*p` is dimensionless), k = target ratio
         // (targetETH/targetWEETH). To reach ratio k after converting n of X→Y:
         //   (x - n)/(y + n·p) = k          (target)
         //   x - n = k·y + k·n·p
@@ -499,10 +622,17 @@ contract Rover is ReentrancyGuard, Ownable {
                 if (kp == 0) kp = 1;
                 uint toMint = FullMath.mulDiv(WAD, eth - ky, WAD + kp);
                 if (toMint > 0 && toMint <= eth) {
-                    eth -= toMint;
+                    // NON-BLOCKING, matching `_wrapIdle`: ether.fi's LiquidityPool enforces a MINIMUM
+                    // deposit and reverts `InvalidAmount()` under it. `toMint` is a ratio remainder,
+                    // so on a fees-only compound it is routinely dust -- and an unguarded revert here
+                    // brings down the whole compound/repack. Measured: widening the band changed the
+                    // ratio enough to start hitting it in `RoverFork::test_compound_selfFundingTip`.
+                    // If the adapter declines, keep the WETH; the next crank retries with more.
                     uint bal0 = ERC20(WEETH).balanceOf(address(this));
-                    IDepositAdapter(ADAPTER).depositWETHForWeETH(toMint, address(this));
-                    weeth += ERC20(WEETH).balanceOf(address(this)) - bal0;
+                    try IDepositAdapter(ADAPTER).depositWETHForWeETH(toMint, address(this)) {
+                        eth -= toMint;
+                        weeth += ERC20(WEETH).balanceOf(address(this)) - bal0;
+                    } catch {}
                 }
             }
         }
@@ -605,18 +735,7 @@ contract Rover is ReentrancyGuard, Ownable {
         uint128 liquidity; uint usdcAmount;
         {
         uint need = amount - wethAmount;
-        if (need > 0) {
-        (uint160 sqrtLower, uint160 sqrtUpper,
-         uint160 sqrtCurrent) = _getTickSqrtPrices();
-
-        // #21: each leg realizes over its OWN half-range — the token1(WETH) amount over
-        // [sqrtLower, sqrtCurrent], the token0 amount over [sqrtCurrent, sqrtUpper]. (Was both
-        // (sqrtCurrent, sqrtUpper), under-sizing the WETH-is-token1 withdrawal.)
-        liquidity = token1isWETH ? LiquidityAmounts.getLiquidityForAmount1(
-                                          sqrtLower, sqrtCurrent, need / 2):
-                                    LiquidityAmounts.getLiquidityForAmount0(
-                                           sqrtCurrent, sqrtUpper, need / 2);
-        }
+        if (need > 0) liquidity = _liquidityForWeth(need);
         }
         (uint amount0, uint amount1, ) = _withdrawAndCollect(liquidity);
         if (token1isWETH) { usdcAmount = amount0; wethAmount += amount1; }
