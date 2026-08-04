@@ -939,62 +939,49 @@ contract Alles is ForkPin, Fixtures {
 
         // ZERO SIZE ⇒ only the duration term. This is the one size-free number left, and it is what
         // `Aux.wellSkew(asset, 0)` reports.
-        assertEq(SwapLib.skewWad(0, INV, sig, false), _dur(sig, false), "no size, duration only");
 
         // LINEAR IN SIZE, net of the band credit. NO CEILING: the old MAX_WELL_SKEW flattened every
         // one of these into the same 3e16, which is exactly how it made the size term a no-op.
         uint band = uint(20) * 1e18 / 10_000;                  // BAND_DELTA as a WAD fraction
-        uint s10 = SwapLib.skewWad(INV / 10, INV, 0, false);    // sigma2=0 isolates the size term
+        uint s10 = SwapLib.skewWad(INV / 10, INV);    // sigma2=0 isolates the size term
         assertEq(s10, 1e17 - band, "10% of the reservoir costs 10% less the band credit");
-        uint s20 = SwapLib.skewWad(INV / 5, INV, 0, false);
+        uint s20 = SwapLib.skewWad(INV / 5, INV);
         assertEq(s20, 2e17 - band, "20% costs 20% less the band credit");
-        uint s30 = SwapLib.skewWad(3 * INV / 10, INV, 0, false);
+        uint s30 = SwapLib.skewWad(3 * INV / 10, INV);
         assertEq(s20 - s10, 1e17, "10%->20% costs one tenth of the reservoir");
         assertEq(s30 - s20, s20 - s10, "steps stay equal: linear, not convex");
 
         // BELOW THE BAND ⇒ nothing. The band already charges these; double-counting would make the
         // swapper pay twice for one width.
-        assertEq(SwapLib.skewWad(INV / 1000, INV, 0, false), 0, "0.1% is inside the band, no skew");
+        assertEq(SwapLib.skewWad(INV / 1000, INV), 0, "0.1% is inside the band, no skew");
 
         // THE BARRIER IS INTRINSIC, not a chosen exponent: draining the whole reservoir prices at
         // 100% less the band credit.
-        assertEq(SwapLib.skewWad(INV, INV, 0, false), 1e18 - band, "full drain -> ~100%");
+        assertEq(SwapLib.skewWad(INV, INV), 1e18 - band, "full drain -> ~100%");
 
         // AN OVER-SIZED ASK IS MEASURED AGAINST WHAT COULD FILL, never against what was requested.
         // The premium is withheld before POOLED bounds the fill and is NOT refunded with the
         // remainder, so charging the raw ask would bill for inventory that never moved.
-        assertEq(SwapLib.skewWad(INV * 5, INV, 0, false), 1e18 - band, "over-sized ask charges no more than a full drain");
+        assertEq(SwapLib.skewWad(INV * 5, INV), 1e18 - band, "over-sized ask charges no more than a full drain");
 
         // AN EMPTY RESERVOIR CHARGES NOTHING. Nothing can fill, the swapper receives nothing, and a
         // premium on a no-op is confiscation rather than pricing.
-        assertEq(SwapLib.skewWad(INV, 0, 0, false), 0, "empty reservoir has nothing left to deter");
+        assertEq(SwapLib.skewWad(INV, 0), 0, "empty reservoir has nothing left to deter");
 
         // sigma2=0 DOES NOT ZERO A DRAIN -- the regression pin for the free-drain window (cold
         // observation ring, or a quiet pool that never wrote one).
-        assertGt(SwapLib.skewWad(INV / 2, INV, 0, false), 0, "sigma2=0 must still price a 50% drain");
-        assertGt(SwapLib.skewWad(INV / 2, INV, 0, true),  0, "same for BTC");
+        // NO sigma ANYWHERE IN THE KERNEL. The old free-drain window (sigma2=0 on a cold
+        // observation ring, or a quiet pool that never wrote one) is closed by CONSTRUCTION: there
+        // is no variance input left to be zero, and nothing for a manipulated TWAP to move.
+        assertGt(SwapLib.skewWad(INV / 2, INV), 0, "a 50% drain is priced from balances alone");
 
-        // PER-ASSET DURATION: BTC locks capital through ~1hr of confirmations plus a splice fee; ETH
-        // settles in ~one block. At equal size and equal vol, BTC must cost MORE. Under the old
-        // cap-shaped form this comparison ran the other way round.
-        assertGt(SwapLib.skewWad(INV / 10, INV, sig, true),
-                 SwapLib.skewWad(INV / 10, INV, sig, false), "BTC duration cost exceeds ETH's");
 
-        // Duration is paid at ANY size -- including one the band would otherwise absorb entirely.
-        assertGt(SwapLib.skewWad(INV / 1000, INV, sig, true), 0,
-                 "an infinitesimal BTC trade still pays for the settlement window");
 
         // The ONLY remaining bound is the identity's own. Manipulation is handled by `_priceMax`
         // (two independent prices), not by a ceiling.
-        assertLe(SwapLib.skewWad(INV, INV, 5e18, true), 1e18, "a fraction cannot exceed 1");
+        assertLe(SwapLib.skewWad(INV, INV), 1e18, "a fraction cannot exceed 1");
     }
 
-    /// @dev The duration term alone, recomputed here so the test does not depend on SwapLib internals.
-    function _dur(uint sigmaSqWad, bool isBTC) internal pure returns (uint) {
-        uint confFrac = isBTC ? uint(114_000_000_000_000) : uint(380_000_000_000);
-        uint confVar = Math.mulDiv(sigmaSqWad, confFrac, 1e18);
-        return Math.sqrt(confVar * 1e18) * 2 + (isBTC ? 2e15 : 0);
-    }
 
 
     // SWAP-PRICING PIN (ETH, in-range): closes the pervasive `minOut=0 + assertGt(>0)` mask by

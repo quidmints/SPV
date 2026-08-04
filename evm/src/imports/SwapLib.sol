@@ -894,43 +894,20 @@ library SwapLib {
     ///      ⇒ 2e15. Derived from BAND_DELTA, not chosen separately: one width, one credit.
     uint internal constant BAND_FRAC_WAD = uint(BAND_DELTA) * 1e18 / 10_000;
 
-    // DYNAMIC CAP calibration. The ceiling tracks the MM's REAL drain-edge cost: the price risk it
-    // carries while its capital is locked from committing the asset until the swap-in settles. For
-    // native BTC that is ~6 confirmations ≈ 1 hour plus an on-chain splice fee; ETH settles in ~one
-    // block with no confirmation lock and no splice. Both windows are PHYSICS (block time,
-    // confirmation depth), not preferences.
-    uint internal constant CONF_FRAC_WAD = 114_000_000_000_000; // ≈ 1hr / 1yr (WAD) — confirmation-window fraction of a year
-    uint internal constant CAP_SAFETY    = 2;                   // ~2σ coverage of the confirmation-window move
-    uint internal constant SPLICE_FLOOR  = 2e15;                // 0.2% — on-chain splice-fee floor (the feerate term)
-    uint internal constant ETH_CONF_FRAC_WAD = 380_000_000_000; // ≈ 12s / 1yr (WAD) — one-block settlement window
+    // NO SETTLEMENT / DURATION TERM, and no windows to hardcode. Deleted 2026-08-04 along with
+    // CAP_SAFETY (a "2 sigma" multiple -- risk aversion, i.e. gamma renamed) and SPLICE_FLOOR (a
+    // hardcoded 0.2% fee with no on-chain feerate oracle to derive it from).
+    //
+    // WHY NONE OF IT IS NEEDED: refill is PERMISSIONLESS and the skew IS the reservation price that
+    // triggers it ("captured by whoever refills first (a gas race)" -- see wellSkew's refill design
+    // note). So the protocol does not carry the displacement through settlement; the REFILLER does,
+    // and they self-select at the price the size term already quotes. A native-BTC refiller demands
+    // more than an ETH one exactly because their capital is locked through ~6 confirmations -- that
+    // asymmetry is priced BY THE REFILLER, and charging the swapper for it separately double-counts
+    // the same risk while second-guessing a price-discovery mechanism that already exists. If the
+    // quoted price is too low nobody refills, the reservoir keeps draining, and the size term rises
+    // convexly on its own until someone does. That is the adaptive mechanism; a constant is not.
 
-    /// @notice SETTLEMENT-RISK term: √(σ²_annual · settlement-window/yr) · CAP_SAFETY + splice.
-    ///
-    ///         THIS IS A BASE CHARGE, NOT A CEILING (it was used as a cap until 2026-08-04, which
-    ///         was backwards). It prices the DURATION of a displacement, which is the one cost the
-    ///         constant-product size term in `skewWad` structurally cannot see: CP slippage is a
-    ///         function of how MUCH inventory moved, never of how LONG it stays uncovered. The two
-    ///         are orthogonal, so they ADD.
-    ///
-    ///         The asymmetry is physical, not a preference. Native BTC locks the MM's capital
-    ///         through ~6 confirmations ≈ 1 hour before the swap-in settles, and pays an on-chain
-    ///         splice fee on top; ETH settles in ~one block, so its window term is ~12s/1yr and its
-    ///         splice term is zero. Charging ETH the BTC hour over-priced it; charging BTC the ETH
-    ///         block under-prices an hour of uncovered price risk on the full displaced amount.
-    ///
-    ///         σ²=0 ⇒ this term is 0, and that is CORRECT here — it is not the free-drain hole it
-    ///         was as a cap. σ² reaches 0 on a cold observation ring (`catch { return 0 }`, under
-    ///         ~40 min from deploy) or on a quiet pool (`_writeObservation` fires only on swaps:
-    ///         Core:825/857/937, no keeper); as a CEILING that zeroed the entire charge and a fresh
-    ///         or quiet pool served a total drain for nothing. As a BASE it only zeroes the
-    ///         duration component, while the size component still prices the drain in full. No
-    ///         floor is needed and none is added — the hole is closed by structure, not by a clamp.
-    function _settlementRisk(uint sigmaSqWad, bool isBTC) internal pure returns (uint) {
-        uint confFrac = isBTC ? CONF_FRAC_WAD : ETH_CONF_FRAC_WAD;
-        uint confVarWad = FullMath.mulDiv(sigmaSqWad, confFrac, 1e18);       // σ² over the settlement window (WAD)
-        uint confStdWad = FixedPointMathLib.sqrt(confVarWad * 1e18);         // → σ over the window (WAD)
-        return confStdWad * CAP_SAFETY + (isBTC ? SPLICE_FLOOR : 0);
-    }
 
     /// @notice CONSTANT-PRODUCT RESTORATION SKEW — a WAD FRACTION (0..1e18), not a price. Applied
     ///         as an effective-rate scalar on whichever leg DRAINS: the withheld input stays as
@@ -995,9 +972,7 @@ library SwapLib {
     ///         collateral as tokenless depth, so subtracting only the ~1× DEBT would leave an equity
     ///         leg of phantom inventory, #6/F3) and `committedUsd` (DEBT, the uncovered forward
     ///         draw/return claim) BEFORE calling, because which of the two binds is per-leg.
-    function skewWad(uint outUsd, uint invUsd, uint sigmaSqWad, bool isBTC)
-        public pure returns (uint skew)
-    {
+    function skewWad(uint outUsd, uint invUsd) public pure returns (uint skew) {
         uint size;
         if (outUsd != 0 && invUsd != 0) {
             // MEASURE AGAINST WHAT COULD ACTUALLY FILL, not what was asked for. The skew is applied
@@ -1016,7 +991,7 @@ library SwapLib {
         // limit correctly but applied it where nothing can fill: the request is bounded to zero by
         // POOLED, the swapper receives nothing, and a 100% premium on a no-op is confiscation, not
         // pricing. An empty reservoir needs no deterrent — it has nothing left to take.
-        skew = size + _settlementRisk(sigmaSqWad, isBTC);
+        skew = size;   // the ENTIRE charge: one division, zero constants
         // MAX_WELL_SKEW (3%) DELETED. It was doing two incompatible jobs: bounding a manipulated
         // price's effect on a price-derived denominator, and ceiling the honest size term. The first
         // job is now done properly by `_priceMax` (an attacker must move BOTH independent prices, not
@@ -1093,7 +1068,7 @@ library SwapLib {
         uint inv = poolVolUsd > lockedUsd ? poolVolUsd - lockedUsd : 0;
         uint committed = ICore(core).levClaimUsd6(isBTC);
         inv = inv > committed ? inv - committed : 0;
-        return skewWad(outUsd, inv, ICore(core).realizedVarianceWad(isBTC), isBTC);
+        return skewWad(outUsd, inv);
     }
 
     /// @notice THE SELL LEG (volatile IN, dollars out), derived on its own terms rather than
@@ -1147,7 +1122,7 @@ library SwapLib {
         // Denominator is the BALANCED half — the depth this surplus would have to be unwound
         // against — not `POOLED_USD_*`, which is an accumulator and can be legitimately empty while
         // the pool is perfectly capable of absorbing the sell.
-        return skewWad(surplusCreated, (v + d) / 2, ICore(core).realizedVarianceWad(isBTC), isBTC);
+        return skewWad(surplusCreated, (v + d) / 2);
     }
 
     /// @notice Body of Aux.creditSwapOut — Swap-OUT (USD→BTC), the on-curve
