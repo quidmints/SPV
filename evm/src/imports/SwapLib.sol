@@ -374,9 +374,16 @@ library SwapLib {
         uint minOut;
         address recipient;
         address inToken;   // #105: the actual INPUT token (set inside swapToBody) for the partial-fill refund
-        uint px;           // §D3: resolved oracle price, set inside swapToBody. A STRUCT FIELD, not a
-                           // local, so both skew branches share `_priceOr` WITHOUT adding a stack slot —
-                           // that is what makes the dedup fit under the no-`via_ir` stack budget.
+        uint px;           // §D3: resolved price, set inside swapToBody. A STRUCT FIELD, not a local, so
+                           // both skew branches share it WITHOUT adding a stack slot — that is what makes
+                           // the dedup fit under the no-`via_ir` stack budget, and it is also the only
+                           // reason the two-price max fits at all (an extra argument expression at those
+                           // call sites is stack-too-deep, measured 2026-08-04).
+                           // ⚠️ Carries `_priceMax` (max of v4p and the 30-min TWAP) on the two SKEW
+                           // branches, NOT `_priceOr` as this comment claimed until 2026-08-04. The other
+                           // consumers (v4Price, rp.v4Price, basePrice) still resolve via `_priceOr`.
+                           // The distinction matters: `retainSkewPremium` records the premium in THIS
+                           // price, so on the skew branches the recorded USD carries the max-vs-oracle gap.
     }
 
     function swapToBody(SwapReq memory r, SwapToCfg memory c, address[] memory stables)
