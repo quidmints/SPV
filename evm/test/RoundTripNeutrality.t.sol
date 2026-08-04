@@ -95,10 +95,13 @@ contract RoundTripNeutralityLevered is LevYbRealProbe {
         // ratio. With the clocks coincident the LEVERED term still cancels, which is what this
         // test is about; the two-leg term is added here so the identity measures that and not #12.
         uint backing = AUX.vogueETH();
-        {   uint usd6 = CORE.POOLED_USD_ETH(); uint base6 = CORE.basketUsdEth(); uint eth = CORE.POOLED_ETH();
-            if (usd6 > 0 && eth > 0) {
-                if (usd6 > base6) backing += (usd6 - base6) * eth / usd6;
-                else if (base6 > usd6) { uint d = (base6 - usd6) * eth / usd6; backing = backing > d ? backing - d : 0; }
+        {   uint usd6 = CORE.POOLED_USD_ETH(); uint base6 = CORE.basketUsdEth();
+            // Valued at the ORACLE, matching `_pricingBacking`. The band's leg ratio is NOT a
+            // price for a concentrated position -- using it over-valued the increment ~2.2x.
+            uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+            if (px > 0 && usd6 != base6) {
+                if (usd6 > base6) backing += ((usd6 - base6) * 1e12) * 1e18 / px;
+                else { uint d = ((base6 - usd6) * 1e12) * 1e18 / px; backing = backing > d ? backing - d : 0; }
             }
         }
         uint expected = 1e18 * backing / V4.lpShares();

@@ -523,18 +523,18 @@ contract Vogue is
     function _burnAndDeliverUsdLeg(uint160 sqrtP, uint amount, int24 lo, int24 hi, address recipient)
         private returns (uint sent) {
         uint usdPre = V4.POOLED_USD_ETH(); uint basePre = V4.basketUsdEth();
-        uint ethPre = V4.POOLED_ETH();
         sent = _burnInRange(sqrtP, amount, lo, hi, recipient);
         uint usdOut  = usdPre  > V4.POOLED_USD_ETH() ? usdPre  - V4.POOLED_USD_ETH() : 0;
         uint baseOut = basePre > V4.basketUsdEth()   ? basePre - V4.basketUsdEth()   : 0;
         if (usdOut > baseOut) {
             QUID.mint(recipient, (usdOut - baseOut) * 1e12, address(QUID), 0);
-            // Value it at the band's PRE-burn ratio — the same oracle-free basis `_pricingBacking`
-            // uses, so the claim is debited at exactly the rate it was priced at.
-            // Fold it INTO `sent`: this function returns VALUE DELIVERED (ETH-equivalent), which
-            // is what the caller's ETH-denominated ledger needs. Returning two numbers for the
-            // caller to add costs a stack slot `_withdraw` does not have.
-            if (usdPre > 0) sent += FullMath.mulDiv(usdOut - baseOut, ethPre, usdPre);
+            // Debit at the SAME basis the claim was PRICED at — the ORACLE, never the band's leg
+            // ratio, which is not a price for a concentrated position (measured: it implied ~840
+            // USD/ETH against an actual 1,854, over-pricing a 400-share claim by 73,116 USD).
+            // Folded INTO `sent`: this returns VALUE DELIVERED in ETH-equivalent, which is the
+            // caller's ledger unit; returning two numbers costs a stack slot `_withdraw` lacks.
+            uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+            if (px > 0) sent += FullMath.mulDiv((usdOut - baseOut) * 1e12, 1e18, px);
         }
     }
 
@@ -1301,11 +1301,18 @@ contract Vogue is
         // SIGNED: when the band has BOUGHT ETH with basket dollars the increment is NEGATIVE and
         // must REDUCE the claim (B11) — flooring at zero would gift the LP the basket's capital.
         {
-            uint usd6 = V4.POOLED_USD_ETH(); uint base6 = V4.basketUsdEth(); uint eth = V4.POOLED_ETH();
-            if (usd6 > 0 && eth > 0) {
-                if (usd6 > base6) total += FullMath.mulDiv(usd6 - base6, eth, usd6);
-                else if (base6 > usd6) {
-                    uint down = FullMath.mulDiv(base6 - usd6, eth, usd6);
+            uint usd6 = V4.POOLED_USD_ETH(); uint base6 = V4.basketUsdEth();
+            // ⚠️ VALUED AT THE ORACLE, NOT THE BAND'S LEG RATIO. `POOLED_ETH / POOLED_USD_ETH` is
+            // NOT a price for a CONCENTRATED position — measured, it implied ~840 USD/ETH against
+            // an actual 1,854, valuing the increment ~2.2x too high and inflating a 400-share claim
+            // to 439.44 ETH (a 73,116 USD over-price). `unwindForRedeem` uses that ratio to size a
+            // PROPORTIONAL BURN, where it is correct; it is not a price, and I carried its
+            // oracle-free justification across without checking the property held.
+            uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+            if (px > 0 && usd6 != base6) {
+                if (usd6 > base6) total += FullMath.mulDiv((usd6 - base6) * 1e12, 1e18, px);
+                else {
+                    uint down = FullMath.mulDiv((base6 - usd6) * 1e12, 1e18, px);
                     total = total > down ? total - down : 0;
                 }
             }
