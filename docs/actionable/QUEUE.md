@@ -6770,3 +6770,13 @@ signature reverted to 4 args. Verify by structure, not by name.
 **OPEN 12 — band credit on the SELL leg is unverified.** `BAND_FRAC_WAD` is subtracted inside the
 shared `skewWad`, so both legs get it. It is justified for the drain (the band charged the swapper
 first). Whether the band charges a SELLER the same half-width was never checked.
+
+**OPEN 13 — priority gas as a direct MEV-pressure signal, never evaluated.** Balancer v3's shipped
+MEV hook scales its swap fee with `tx.gasprice − block.basefee`. This is a different signal CLASS
+from anything used here: volatility infers toxicity from past prices, inventory infers it from our
+own position, but priority gas measures *how hard someone is bidding to be first in this block* —
+close to a direct read on toxic flow, which is precisely what the skew exists to price. On-chain, no
+oracle, no history, no observation ring. Surfaced in the 2026-08-04 research and never assessed.
+Caveats to check before use: it is a signal about the BLOCK, not about this trade, so an honest
+swapper in a contended block pays for someone else's MEV; and a searcher can pay priority gas
+without being toxic to us specifically.
