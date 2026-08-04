@@ -52,6 +52,9 @@ contract Rover is ReentrancyGuard, Ownable {
 
     uint160 public LAST_SQRT_PRICE;
     int24 constant MAX_TICK = 887220;
+    /// @dev Band width in tick-spacings, straddling the live tick. See `_adjustTicks` for the
+    ///      measurement: 6 spacings (~60 bps on the 0.05% pool) beat 1 by ~1.58%/yr.
+    int24 constant BAND_SPACINGS = 6;
     // Self-funding compound crank (mirrors Vogue.compound): the permissionless caller is reimbursed
     // gas as an ETH tip peeled from the harvested WETH fees ONLY (never principal), grief-capped at
     // half the WETH harvest + a gasprice ceiling. tip=0 at zero gasprice ⇒ full compound.
@@ -469,15 +472,27 @@ contract Rover is ReentrancyGuard, Ownable {
 
     function _adjustTicks(int24 currentTick) internal
         view returns (int24 lower, int24 upper) {
-        // TRUE ONE-TICK band: weETH/WETH is a slow-drifting correlated pair, so a single
-        // tick-spacing captures ~all the fee with near-zero out-of-range risk (the keeper
-        // re-centers on the rare drift). FLOOR the current tick to spacing so the live price
-        // sits inside [lower, upper); upper is the next spacing up. (Nearest-rounding could put
-        // lower ABOVE current and strand the price out of range, so floor explicitly here.)
+        // BAND_SPACINGS wide, STRADDLING the live tick. It was ONE tick-spacing, on the reasoning
+        // that a slow-drifting correlated pair needs no more. Measured, that is backwards:
+        // replaying 91 daily samples over rolling 30-day windows (`analysis/rover/replay.py`),
+        //
+        //     band       cadence    LVR      net of fees   in-range
+        //     10 ticks   daily     -2.15%      -1.60%        27/30   <- the old shape
+        //     10 ticks   never     -1.03%      -0.94%         7/30
+        //     40 ticks   weekly    -0.66%      -0.16%        28/30
+        //     60 ticks   weekly    -0.42%      -0.02%        28/30   <- this shape
+        //
+        // A NARROW band is FULLY TRAVERSED -- 100% converted -- by every small move, so it
+        // concentrates the ratchet along with the liquidity; a wide one is only partially crossed.
+        // Six spacings is ~60 bps here, which held spot 28/30 days and took the position to roughly
+        // break-even against simply holding the same two tokens. Worth ~1.58%/yr over the old shape.
+        //
+        // FLOOR to spacing first (nearest-rounding could put `lower` above the live tick and strand
+        // the price out of range), then extend half the width below so the band straddles.
         int24 rem = currentTick % TICK_SPACING;
         if (rem < 0) rem += TICK_SPACING;
-        lower = currentTick - rem;
-        upper = lower + TICK_SPACING;
+        lower = currentTick - rem - (BAND_SPACINGS / 2) * TICK_SPACING;
+        upper = lower + BAND_SPACINGS * TICK_SPACING;
     }
 
     /// @dev Liquidity whose withdrawal realises `need` WETH-EQUIVALENT across BOTH legs, priced off
@@ -574,9 +589,14 @@ contract Rover is ReentrancyGuard, Ownable {
             return (eth, weeth);
         }
         if (targetETH == 0 && eth > 0) {                  // band wants the weETH side only
+            // NON-BLOCKING, same reason as the ratio leg below and `_wrapIdle`: ether.fi's
+            // LiquidityPool enforces a MINIMUM deposit and reverts `InvalidAmount()` under it. A
+            // fees-only `compound()` reaches here with literally 1 wei (measured), and an unguarded
+            // revert takes the whole crank down. Decline and keep the WETH for the next one.
             uint held = ERC20(WEETH).balanceOf(address(this));
-            IDepositAdapter(ADAPTER).depositWETHForWeETH(eth, address(this));
-            return (0, weeth + ERC20(WEETH).balanceOf(address(this)) - held);
+            try IDepositAdapter(ADAPTER).depositWETHForWeETH(eth, address(this)) {
+                return (0, weeth + ERC20(WEETH).balanceOf(address(this)) - held);
+            } catch { return (eth, weeth); }
         }
         if (weeth > targetWEETH) weeth = targetWEETH;
         if (eth > targetETH) eth = targetETH;
@@ -602,10 +622,17 @@ contract Rover is ReentrancyGuard, Ownable {
                 if (kp == 0) kp = 1;
                 uint toMint = FullMath.mulDiv(WAD, eth - ky, WAD + kp);
                 if (toMint > 0 && toMint <= eth) {
-                    eth -= toMint;
+                    // NON-BLOCKING, matching `_wrapIdle`: ether.fi's LiquidityPool enforces a MINIMUM
+                    // deposit and reverts `InvalidAmount()` under it. `toMint` is a ratio remainder,
+                    // so on a fees-only compound it is routinely dust -- and an unguarded revert here
+                    // brings down the whole compound/repack. Measured: widening the band changed the
+                    // ratio enough to start hitting it in `RoverFork::test_compound_selfFundingTip`.
+                    // If the adapter declines, keep the WETH; the next crank retries with more.
                     uint bal0 = ERC20(WEETH).balanceOf(address(this));
-                    IDepositAdapter(ADAPTER).depositWETHForWeETH(toMint, address(this));
-                    weeth += ERC20(WEETH).balanceOf(address(this)) - bal0;
+                    try IDepositAdapter(ADAPTER).depositWETHForWeETH(toMint, address(this)) {
+                        eth -= toMint;
+                        weeth += ERC20(WEETH).balanceOf(address(this)) - bal0;
+                    } catch {}
                 }
             }
         }

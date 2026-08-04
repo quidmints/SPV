@@ -74,8 +74,8 @@ contract RoverOutOfRangeTest is ForkPin {
             amountIn: amountIn, amountOutMinimum: 0,
             sqrtPriceLimitX96: TickMath.getSqrtPriceAtTick(target) }));
     }
-    function _pushTickUp(uint) internal { _moveTickTo(-930); }    // just above the band
-    function _pushTickDown(uint) internal { _moveTickTo(-970); }  // just below it (drift direction)
+    function _pushTickUp(uint) internal { _moveTickTo(-890); }    // clear of the 60-tick band
+    function _pushTickDown(uint) internal { _moveTickTo(-1010); } // clear of it (drift direction)
 
     function _report(string memory tag) internal returns (bool outOfBand) {
         int24 t = _tick(); int24 lo = rover.LOWER_TICK(); int24 hi = rover.UPPER_TICK();
