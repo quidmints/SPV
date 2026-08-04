@@ -441,7 +441,7 @@ contract Vault is Ownable, ReentrancyGuard {
     function offrampEtherFi(uint amount, address recipient, bool instant)
         external returns (uint served) {
         if (msg.sender != address(V4)) revert NotVogueCore();   // gate stays here
-        return SwapLib.offrampBody(amount, recipient, instant, _etherfiCfg());
+        return VaultLib.offrampBody(amount, recipient, instant, _etherfiCfg());
     }
 
     /// @dev ether.fi offramp config from Vault immutables/consts (the

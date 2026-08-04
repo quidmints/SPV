@@ -2,6 +2,12 @@
 pragma solidity ^0.8.28;
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
+import {SwapLib} from "./SwapLib.sol";
+import {FullMath} from "v4-core/src/libraries/FullMath.sol";
+// §E57: ether.fi's native-ETH sentinel, moved here with the offramp body that is its only user.
+address constant ETHFI_NATIVE_ETH = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+import {IV3SwapRouter} from "./v3/IV3SwapRouter.sol";
+import {IEtherFiRedemption, IEtherFiLiquidityPool} from "./Interfaces.sol";   // §E57: the shared OfframpCfg shape (declared there;  still uses it)
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {SwapLib} from "./SwapLib.sol";
 import {IAaveV4Spoke} from "./Interfaces.sol";
@@ -37,6 +43,9 @@ interface IMorphoV2 {
 ///         LEV_MANAGER) is passed in via `EthCfg`. Semantics are byte-for-byte
 ///         with the former in-Vault bodies — only the home moved.
 library VaultLib {
+    /// §E57: moved with the offramp body — its only emitter.
+    event InstantRedeemSkipped(uint weethRequested, bytes4 reason);
+
 
     // Mirror Vault's custom errors so reverts from delegatecalled bodies carry
     // the SAME 4-byte selector (selector = keccak(name+args), name-derived).
@@ -446,6 +455,122 @@ library VaultLib {
             if (got > 0 && c.aaveSpoke != address(0))   // reserve 0 is valid — see _aaveBal
                 IAaveV4Spoke(c.aaveSpoke).supply(c.wethReserveId, got, address(this));
         } catch { /* froze mid-pull: blocked + written down */ }
+    }
+
+
+    // ── ether.fi OFFRAMP (moved from SwapLib, §E57) ──────────────────────────────────────────
+    //  Its ONE caller is `Vault.offrampEtherFi` (`Vault.sol:444`), so it was always a VAULT
+    //  concern living in a SWAP library. Moving it is not just tidiness: SwapLib was the binding
+    //  EIP-170 contract at +14 bytes while VaultLib had 15,040 spare, and E55/E53 need room in
+    //  SwapLib specifically. Put the code where the room is — the same trade as E32.
+    /// @notice Body of Aux.offrampEtherFi — the 4-rung exit ladder.
+    ///         HONEST SERVING: when the held weETH covers less than `amount`
+    ///         (clamped balance), the weETH-consuming rungs (1/3/4) report the
+    ///         pro-rata `covered` slice, never the full ask — so the caller's
+    ///         position accounting only decrements what was actually served.
+    function offrampBody(uint amount, address recipient, bool instant, SwapLib.OfframpCfg memory c)
+        external returns (uint) {
+        if (amount == 0 || c.weeth == address(0)) return 0;
+        uint weethFull = IWeETH(c.weeth).getWeETHByeETH(amount);
+        uint weethIn = weethFull;
+        uint bal = IERC20(c.weeth).balanceOf(address(this));
+        if (weethIn > bal) weethIn = bal;
+        uint covered = (weethFull == 0 || weethIn == weethFull)
+            ? amount : FullMath.mulDiv(amount, weethIn, weethFull);
+        // Rung 1 — v3 pool (only if Aux holds weETH; the Rover rung needs none).
+        if (weethIn > 0) {
+            uint24[2] memory fees = [c.poolFee, c.poolFee2];
+            for (uint i; i < 2; i++) {
+                if (fees[i] == 0) continue;
+                try IV3SwapRouter(c.v3router).exactInput(IV3SwapRouter.ExactInputParams({
+                    path: abi.encodePacked(c.weeth, fees[i], c.weth),
+                    recipient: recipient, amountIn: weethIn,
+                    amountOutMinimum: (covered * 995) / 1000   // 0.5% slippage cap
+                })) returns (uint) { return covered; }
+                catch {}
+            }
+        }
+        // Rung 2 — Rover unwind (no Aux weETH needed) + NAV-neutral weETH absorb.
+        if (c.rover != address(0)) {
+            try IRover(c.rover).take(amount) returns (uint got) {
+                if (got > 0) {
+                    IERC20(c.weth).transfer(recipient, got);
+                    uint absorbed = got >= amount ? weethIn
+                                                  : FullMath.mulDiv(weethIn, got, amount);
+                    if (absorbed > bal) absorbed = bal;
+                    if (absorbed > 0) IERC20(c.weeth).transfer(c.rover, absorbed);
+                    if (got >= (amount * 995) / 1000) return amount;
+                    return got;
+                }
+            } catch {}
+        }
+        // Rung 3 — 0.3% instant-redeem (pool-independent floor). VERIFIED ABI
+        // (EtherFiRedemptionManager impl 0x6bD1…91F7): redeemWeEth(weEthAmount,
+        // receiver, outputToken) where outputToken MUST be the 0xEeee…EEeE
+        // native-ETH sentinel or stETH — anything else reverts
+        // InvalidOutputToken. (The old code passed WETH here, so this rung
+        // SILENTLY FAILED on every call.) The recipient receives NATIVE ETH.
+        if (weethIn > 0 && instant && c.redeemer != address(0)) {
+            // §C10 part 2 — PARTIAL FILL. ether.fi's `totalRedeemableAmount` is PER OUTPUT TOKEN
+            // (verified against impl 0x5d53b303…b3dc by selector, and live: the native sentinel and
+            // stETH carry independent capacity). Asking for the FULL `weethIn` when their pool is
+            // thinner reverts `ExceededRedeemable()` and abandons the WHOLE rung, dropping the LP onto
+            // rung 4's multi-day wait-NFT even when most of it could be served instantly.
+            //
+            // UNIT: capacity is denominated in the OUTPUT token (native ETH, 1:1 with eETH) while the
+            // ask is weETH — so it is converted with `getWeETHByeETH`, the SAME conversion `:574` uses
+            // to size this call. A naive `min()` would mix units and under- or over-ask by the weETH
+            // premium.
+            uint capEth = IEtherFiRedemption(c.redeemer).totalRedeemableAmount(ETHFI_NATIVE_ETH);
+            if (capEth == 0) {
+                // Their pool is empty for THIS output token — skip rather than burn gas on a call that
+                // must revert, and leave the reason observable.
+                emit InstantRedeemSkipped(weethIn, bytes4(0));
+            } else {
+                uint capWeeth = IWeETH(c.weeth).getWeETHByeETH(capEth);
+                uint ask = weethIn < capWeeth ? weethIn : capWeeth;
+                try IEtherFiRedemption(c.redeemer).redeemWeEth(ask, recipient, ETHFI_NATIVE_ETH) {
+                    if (ask >= weethIn) return covered;             // served in full
+                    // PARTIAL: `ask` weETH was redeemed; the remainder falls to rung 4. `served` is the
+                    // ETH-equivalent of what this rung covered, on the SAME basis as `covered` above.
+                    uint served = FullMath.mulDiv(amount, ask, weethFull);
+                    return served + waitNft(covered - served, recipient, c);
+                } catch (bytes memory err) {
+                    // Empty `err` = callee gave no reason (OOG / bare revert); report 0 rather than
+                    // reading past the end.
+                    emit InstantRedeemSkipped(ask, err.length >= 4 ? bytes4(err) : bytes4(0));
+                }
+            }
+        }
+        // Rung 4 — last-resort no-fee withdrawal NFT.
+        return waitNft(covered, recipient, c);
+    }
+
+
+    /// @notice Rung-4 wait-NFT, standalone: unwrap up to `amount`-worth of the
+    ///         held idle weETH → eETH → LiquidityPool withdraw-request NFT
+    ///         minted to `recipient`. Returns the ETH-worth actually covered
+    ///         (honest: a clamped weETH balance covers proportionally less).
+    ///         Used by offrampBody — the LP-exit down-leg fallback when the
+    ///         ether.fi instant-redeem buffer is exhausted (the redemption-side
+    ///         wrapper was removed: redemption is stables-only).
+    function waitNft(uint amount, address recipient, SwapLib.OfframpCfg memory c)
+        internal returns (uint) {
+        if (amount == 0 || c.weeth == address(0) || c.lp == address(0)) return 0;
+        uint weethFull = IWeETH(c.weeth).getWeETHByeETH(amount);
+        if (weethFull == 0) return 0;
+        uint bal = IERC20(c.weeth).balanceOf(address(this));
+        uint weethIn = weethFull > bal ? bal : weethFull;
+        if (weethIn == 0) return 0;
+        try IWeETH(c.weeth).unwrap(weethIn) returns (uint eeth) {
+            if (eeth > 0) {
+                try IEtherFiLiquidityPool(c.lp).requestWithdraw(recipient, eeth) returns (uint) {
+                    return weethIn == weethFull
+                        ? amount : FullMath.mulDiv(amount, weethIn, weethFull);
+                } catch {}
+            }
+        } catch {}
+        return 0;
     }
 
 }
