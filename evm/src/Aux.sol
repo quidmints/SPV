@@ -649,10 +649,14 @@ contract Aux is // Auxiliary
     ///         pool's reservation-price / RFQ taker-limit offset. Exposed on the SAME unified
     ///         seam as getTWAPforAsset/resolvedTwap so Bebop's RFQ engine AND Khalani's
     ///         Arcadia solver quote against the EXACT number a swap executes at (base × (1−skew)),
-    ///         instead of re-deriving it and drifting from settlement. 0 = flush (band price
-    ///         stands); rises to the cap when the deliverable inventory is scarce. Read-only.
-    function wellSkew(address asset) public view returns (uint) {
-        return SwapLib.wellSkew(address(CORE), getTWAPforAsset(asset, 1800), asset == address(WBTC));
+    ///         instead of re-deriving it and drifting from settlement.
+    /// @param outUsd The 6-dec USD the quote is for. REQUIRED as of 2026-08-04: the skew is now a
+    ///        function of trade SIZE (the constant-product fraction of the deliverable reservoir the
+    ///        trade removes), so there is no longer a single size-free number to read. A quote taken
+    ///        at the wrong size is a quote for a different trade. Pass 0 for the pure
+    ///        settlement-risk floor — what an infinitesimal trade pays, and the only size-free part.
+    function wellSkew(address asset, uint outUsd) public view returns (uint) {
+        return SwapLib.wellSkew(address(CORE), getTWAPforAsset(asset, 1800), asset == address(WBTC), outUsd);
     }
 
     /// @notice The flat swap fee (V4 pool tier, parts-per-million — 420 = 0.042%) every

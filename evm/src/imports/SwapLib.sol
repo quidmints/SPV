@@ -462,7 +462,7 @@ library SwapLib {
             // the honest oracle (v4p) through routeSwap ⇒ no manip-guard exemption.
             {
                 r.px = _priceOr(v4p, address(aux), r.asset);
-                uint skew = wellSkew(c.core, r.px, isBTC); // inline (swapToBody stack-tight)
+                uint skew = wellSkew(c.core, r.px, isBTC, r.amount); // inline (swapToBody stack-tight); r.amount is the 6-dec USD driving the drain
                 retainSkewPremium(c.core, isBTC, r, skew, false);  // buy-driving USD ⇒ already 6-dec   // mutates r.amount; r.px declares NATIVE
             }
         }
@@ -827,30 +827,33 @@ library SwapLib {
         // the protocol directly, so the swapper-facing bonus is redundant. Refill settles at the honest oracle.
     }
 
-    // Skew curve bounds. MAX_WELL_SKEW is the hard TWAP-anchor cap: the
-    // effective-rate premium can never exceed this regardless of how scarce/volatile the
-    // pool gets, so oracle-lag can't be amplified into a toxic overpay at the edge. Sized to
-    // cover a native-BTC MM's real drain-edge cost (splice fee + capital-through-confirmation
-    // ~ a few %).
-    uint internal constant MAX_WELL_SKEW = 3e16;   // 3% — hard cap (TWAP-anchor bound)
-    // Avellaneda–Stoikov calibration. `realizedVarianceWad` is ANNUALIZED realized
-    // variance in WAD (VogueLib:294-318: tickVar·(SECS_PER_YEAR/THETA_STEP)·1e10 ⇒ a
-    // fraction² scaled 1e18; e.g. 80%-annualized vol ⇒ σ²≈0.64 ⇒ ~6.4e17). SIGMA_REF is
-    // the REFERENCE variance = 1e18 (variance 1.0 = 100% annualized vol) at which full
-    // scarcity saturates the cap — picking the per-interval-scale 1e16 instead would peg
-    // skew at the cap for any real crypto vol (>10% ann), so the annualized 1e18 is the
-    // unit-correct anchor. Γ folds the risk-aversion γ and the horizon (T−t) into ONE
-    // coefficient (the horizon is already carried by the FLOW_DECAY-smoothed flow/scarcity),
-    // fixed so skew(q=1, σ²=SIGMA_REF)=Γ·SIGMA_REF=MAX_WELL_SKEW.
-    uint internal constant SIGMA_REF = 1e18;                                 // reference σ² (100% ann. vol)
-    uint internal constant GAMMA_WAD = MAX_WELL_SKEW * 1e18 / SIGMA_REF;     // Γ = γ·(T−t) folded ⇒ 3e16
-    // STABLENESS = ρ, the DEPLETION-BARRIER ORDER (derived, NOT a fit exponent). The skew is
-    // Γ·σ²·q / (1−q)^ρ: the A-S linear reservation premium Γσ²q amplified by the shadow price of the
-    // last inventory units. Derived from the HJB with a HARD inv≥0 constraint — a −log(inv) barrier
-    // (the LP physically cannot serve at inv=0) whose marginal ∝ 1/inv makes depletion convexly
-    // costly. ρ=1 = the log-barrier (constraint exactly at inv=0); ρ=0 recovers plain linear A-S;
-    // ρ>1 = a harder barrier. Calculus-derived — the one parameter is a barrier order, not a curve fit.
-    uint internal constant STABLENESS = 1;
+    // ── THE SKEW HAS NO CALIBRATION CONSTANTS. ────────────────────────────────────────────
+    // DELETED 2026-08-04: MAX_WELL_SKEW (3%), SIGMA_REF, GAMMA_WAD (Γ = γ·(T−t)), STABLENESS (ρ),
+    // and the whole `_maxWellSkew` dynamic cap (CONF_FRAC_WAD / ETH_CONF_FRAC_WAD / CAP_SAFETY /
+    // SPLICE_FLOOR). What replaced them is `skewWad` below — one division, no dials. Why each went:
+    //
+    //   Γ  — γ is IRREDUCIBLY a free preference parameter. There is no no-arbitrage argument that
+    //        pins it; it is a Lagrange multiplier on an inventory-variance constraint. Folding the
+    //        horizon (T−t) into it was doubly wrong: A-S's (T−t) terms are, per Guéant-Lehalle-
+    //        Fernandez-Tapia fn.8, "nothing but the Taylor expansions of the optimal quotes for t
+    //        close to T" — a NEAR-EXPIRY artifact. The well is perpetual; it has no expiry.
+    //   ρ  — the barrier is now INTRINSIC, not a chosen exponent: as deliverable inventory → 0 the
+    //        fraction-removed → 1e18 (100%) on its own. Nothing to parameterise.
+    //   σ² — the A-S kernel Γ·σ²·q prices the RANDOM component of inventory risk. It also had a
+    //        FREE-DRAIN HOLE: σ²=0 on a cold observation ring (`catch { return 0 }`, <40 min after
+    //        deploy) or on a quiet pool (`_writeObservation` fires only on swaps — Core:825/857/937,
+    //        no keeper), and σ²=0 zeroed the skew TWICE OVER (through Γ·σ²·q AND through the cap,
+    //        which had no floor for ETH). A freshly-deployed or quiet pool charged NOTHING for a
+    //        total drain. Removing σ² closes that by construction rather than by adding a floor.
+    //   cap — a CEILING ON A DRAIN CHARGE IS A STANDING OFFER TO BE FULLY DRAINED AT THE CEILING.
+    //        The band quotes inside ±BAND_DELTA bps, which buys a concentration factor
+    //        κ = 1/(1−(P_a/P_b)^¼) ≈ 1000× — and the companion identity is that the average
+    //        slippage to FULLY convert one side of such a band is exactly 1/κ ≈ 10 bps. The gap
+    //        between quoted depth and settling inventory is unbounded at the tail; no fixed number
+    //        spans it. (Measured: 3% covers restoration to ~$5M and fails by $20M.)
+    //
+    // What is NOT a constant and stays: BAND_DELTA below (a real quoted width, and the credit
+    // netted off the charge) and `lockedUsd`/`committedUsd` (real claims on real inventory).
     // Volatile band half-width, in bps of price (paddedSqrtPrice reads it as (10000±delta)/10000).
     // THIN band (±0.2%). Vogue SERVES swaps and RESEATS, so it can't go to a literal one-tick like a static
     // Rover position: at delta=10 the reseat re-add (updateTicks(targetSqrt,10)) collapses lower==upper and V4
@@ -859,91 +862,147 @@ library SwapLib {
     // + the self-funded reseat keeper — no separate gas budget needed.
     uint internal constant BAND_DELTA = 20;
 
-    // DYNAMIC CAP calibration. Instead of a fixed 3%, the ceiling tracks the native-BTC MM's
-    // REAL drain-edge cost, which is dominated by the BTC-price risk while its capital is
-    // locked from committing sats until the swap-in settles + it holds the USD (~6 confs ≈ 1
-    // hour). That cost ≈ σ over the confirmation window · a safety multiple + the splice fee.
+    /// @dev BAND_DELTA as a WAD price FRACTION — the credit netted off every skew charge, because
+    ///      the band already makes the swapper pay up to this much before it is exhausted. 20 bps
+    ///      ⇒ 2e15. Derived from BAND_DELTA, not chosen separately: one width, one credit.
+    uint internal constant BAND_FRAC_WAD = uint(BAND_DELTA) * 1e18 / 10_000;
+
+    // DYNAMIC CAP calibration. The ceiling tracks the MM's REAL drain-edge cost: the price risk it
+    // carries while its capital is locked from committing the asset until the swap-in settles. For
+    // native BTC that is ~6 confirmations ≈ 1 hour plus an on-chain splice fee; ETH settles in ~one
+    // block with no confirmation lock and no splice. Both windows are PHYSICS (block time,
+    // confirmation depth), not preferences.
     uint internal constant CONF_FRAC_WAD = 114_000_000_000_000; // ≈ 1hr / 1yr (WAD) — confirmation-window fraction of a year
     uint internal constant CAP_SAFETY    = 2;                   // ~2σ coverage of the confirmation-window move
     uint internal constant SPLICE_FLOOR  = 2e15;                // 0.2% — on-chain splice-fee floor (the feerate term)
-    // ETH settles in ~one block — NO ~1hr confirmation-capital lock and NO splice — so its cap uses a
-    // one-block settlement window and a zero splice floor. Charging ETH the BTC 1hr window over-priced its cap.
     uint internal constant ETH_CONF_FRAC_WAD = 380_000_000_000; // ≈ 12s / 1yr (WAD) — one-block settlement window
+    // ABSOLUTE ceiling. THIS IS THE BLAST-RADIUS BOUND, NOT A PRICE PREFERENCE — see `_maxWellSkew`.
+    uint internal constant MAX_WELL_SKEW = 3e16;   // 3% — hard cap (TWAP-anchor bound)
 
-    /// @notice DYNAMIC skew cap — the MM's real refill cost DERIVED from live volatility, not a
-    ///         fixed 3%: √(σ²_annual · T_confs/yr) (the price σ over the window the MM's capital
-    ///         is at risk) · CAP_SAFETY + SPLICE_FLOOR, hard-capped at MAX_WELL_SKEW (the
-    ///         TWAP-anchor safety ceiling). Low vol ⇒ low cap (don't overpay refill); high vol ⇒
-    ///         higher cap (real cost is higher); never above 3%. `pure`; reuses
-    ///         FixedPointMathLib.sqrt (a WAD variance → WAD std needs the ×1e18 inside the root).
-    function _maxWellSkew(uint sigmaSqWad, bool isBTC) internal pure returns (uint) {
-        // PER-ASSET settlement window: BTC locks capital through ~1hr of confirmations (CONF_FRAC_WAD) + an
-        // on-chain splice-fee floor; ETH settles in ~one block with no confirmation lock and no splice.
+    /// @notice SETTLEMENT-RISK term: √(σ²_annual · settlement-window/yr) · CAP_SAFETY + splice.
+    ///
+    ///         THIS IS A BASE CHARGE, NOT A CEILING (it was used as a cap until 2026-08-04, which
+    ///         was backwards). It prices the DURATION of a displacement, which is the one cost the
+    ///         constant-product size term in `skewWad` structurally cannot see: CP slippage is a
+    ///         function of how MUCH inventory moved, never of how LONG it stays uncovered. The two
+    ///         are orthogonal, so they ADD.
+    ///
+    ///         The asymmetry is physical, not a preference. Native BTC locks the MM's capital
+    ///         through ~6 confirmations ≈ 1 hour before the swap-in settles, and pays an on-chain
+    ///         splice fee on top; ETH settles in ~one block, so its window term is ~12s/1yr and its
+    ///         splice term is zero. Charging ETH the BTC hour over-priced it; charging BTC the ETH
+    ///         block under-prices an hour of uncovered price risk on the full displaced amount.
+    ///
+    ///         σ²=0 ⇒ this term is 0, and that is CORRECT here — it is not the free-drain hole it
+    ///         was as a cap. σ² reaches 0 on a cold observation ring (`catch { return 0 }`, under
+    ///         ~40 min from deploy) or on a quiet pool (`_writeObservation` fires only on swaps:
+    ///         Core:825/857/937, no keeper); as a CEILING that zeroed the entire charge and a fresh
+    ///         or quiet pool served a total drain for nothing. As a BASE it only zeroes the
+    ///         duration component, while the size component still prices the drain in full. No
+    ///         floor is needed and none is added — the hole is closed by structure, not by a clamp.
+    function _settlementRisk(uint sigmaSqWad, bool isBTC) internal pure returns (uint) {
         uint confFrac = isBTC ? CONF_FRAC_WAD : ETH_CONF_FRAC_WAD;
         uint confVarWad = FullMath.mulDiv(sigmaSqWad, confFrac, 1e18);       // σ² over the settlement window (WAD)
         uint confStdWad = FixedPointMathLib.sqrt(confVarWad * 1e18);         // → σ over the window (WAD)
-        uint cap = confStdWad * CAP_SAFETY + (isBTC ? SPLICE_FLOOR : 0);
-        return cap < MAX_WELL_SKEW ? cap : MAX_WELL_SKEW;
+        return confStdWad * CAP_SAFETY + (isBTC ? SPLICE_FLOOR : 0);
     }
 
-    /// @notice The convex inventory-skew CURVE — returns a WAD skew FRACTION
-    ///         (0..MAX_WELL_SKEW), not a price. Applied as an effective-rate scalar on the
-    ///         swap-OUT (drain) leg: a scarce pool hands out less volatile per unit input, so
-    ///         the imbalance-causer pays a scarcity premium and the withheld input stays as
-    ///         basket backing (funding the pool's ability to pay a refill). Re-admits the
-    ///         benign inventory-rebalancing arber WITHOUT the toxic LVR one: the swap itself
-    ///         still executes at the honest oracle through routeSwap (the manip-guard sees an
-    ///         UNSKEWED price ⇒ no exemption needed) — the skew is a separate output scalar,
-    ///         which is precisely what lets it exceed the band's ±50-bps ceiling in a genuine
-    ///         drought (the band + in-window benign arb own the near-target regime; the skew
-    ///         is a TAIL layer that only bites past what the band can express).
+    /// @notice CONSTANT-PRODUCT RESTORATION SKEW — a WAD FRACTION (0..1e18), not a price. Applied
+    ///         as an effective-rate scalar on whichever leg DRAINS: the withheld input stays as
+    ///         basket backing (`retainSkewPremium` → `Core.skewPremium*`, never decremented, a pure
+    ///         LP-retained-profit record). The swap itself still executes at the honest oracle
+    ///         through routeSwap, so the manip-guard sees an UNSKEWED price and needs no exemption.
     ///
-    ///         Inputs (all 6-dec USD except σ²), asset-agnostic:
-    ///           inv    = poolVolUsd − lockedUsd      (deliverable volatile, gross-lev-excluded)
-    ///           target = flowUsd    + committedUsd   (normal-flow buffer + lev demand)
-    ///         The leverage claim hits scarcity on BOTH sides but with DISTINCT bases: POOLED
-    ///         already carries the full 2× GROSS collateral as tokenless depth, so `inv` must
-    ///         subtract `lockedUsd` (GROSS) to recover the true deliverable reservoir — subtracting
-    ///         only the ~1× DEBT would leave one equity leg of phantom inventory (#6/F3). `target`
-    ///         adds `committedUsd` (DEBT), the uncovered forward draw/return claim (the net-equity
-    ///         leg self-heals via bounded de-lever). In the un-levered case lockedUsd==committedUsd==0.
+    ///         THE WHOLE CURVE IS ONE DIVISION:
     ///
-    ///         AVELLANEDA–STOIKOV reservation skew (LINEAR, replacing the ad-hoc convex
-    ///         curve): the optimal MM inventory shift is q·γ·σ²·(T−t). Here
-    ///           q  = scarcity   (WAD inventory imbalance, (target−inv)/target, the A-S q)
-    ///           σ² = sigmaSqWad  (WAD annualized realized variance, realizedVarianceWad)
-    ///           Γ  = GAMMA_WAD  = γ·(T−t) folded into ONE coefficient (the horizon T−t is
-    ///                already carried by the FLOW_DECAY EWMA smoothing of flow/scarcity).
-    ///         skew = Γ·σ²·q — both σ² and q enter LINEARLY (no scarcity², no separate vol
-    ///         steepening term). The flush guard (inv≥target ⇒ 0, band owns the common case)
-    ///         and the MAX_WELL_SKEW hard cap are preserved.
-    function skewWad(uint poolVolUsd, uint lockedUsd, uint committedUsd, uint flowUsd, uint sigmaSqWad, bool isBTC)
+    ///             skew = outUsd / invUsd  −  BAND_FRAC_WAD        (floored at 0, capped at 1e18)
+    ///
+    ///         i.e. YOU PAY THE FRACTION OF THE OUT-SIDE INVENTORY YOU REMOVE, less what the band
+    ///         already charged you. Take 3% of the deliverable reservoir, pay 3%. Take half, pay
+    ///         half. Take all of it — you cannot; the price runs to 100% first.
+    ///
+    ///         WHY THIS EXACT QUANTITY, and not a fitted curve. For a constant-product pool the
+    ///         AVERAGE execution price of a trade is the geometric mean √(P₀·P₁) of the pre- and
+    ///         post-trade marginal prices, and the average slippage of removing Δ from a reserve y
+    ///         is exactly Δ/y. Two facts make that the honest charge here:
+    ///           1. A constant-product pool is ALWAYS 50/50 BY VALUE — at marginal price P = y/x the
+    ///              x-leg is worth x·P = y. So its marginal price IS "the price at which my inventory
+    ///              sits exactly on its 1:1 value target", and integrating that rule as inventory
+    ///              moves GENERATES the constant-product curve. (The general "hold weight w" family is
+    ///              the weighted geometric mean x^w·y^(1−w); constant product is the w=½ member —
+    ///              which is Balancer's stated design origin.) A 1:1-value target therefore does not
+    ///              need a target VARIABLE at all: the curve is the target, continuously enforced.
+    ///           2. Quoting inside ±BAND_DELTA is precisely the act of DELETING that slippage —
+    ///              it buys κ ≈ 1000× depth and, by the companion identity, leaves only 1/κ ≈ 10 bps
+    ///              of cushion before one trade converts the whole side. So this skew gives back
+    ///              EXACTLY what the concentration removed: not more (it is by construction the
+    ///              same number a same-inventory constant-product pool would have charged, so it can
+    ///              never be "more hardcore than regular Uniswap"), and not less (it is uncapped,
+    ///              because the tail is uncapped).
+    ///
+    ///         WHY OUR OWN INVENTORY IS THE DENOMINATOR. The economically ideal denominator is the
+    ///         depth of the venue we would RESTORE through, since restoration cost is external
+    ///         price impact. That was rejected on a concrete attack: reading an external pool's
+    ///         live `L` is JIT-manipulable in the direction that hurts — flash-add liquidity there,
+    ///         our skew reads ~0, drain us at the floor, withdraw. An EWMA of our own realised
+    ///         restoration cost is unmanipulable but reintroduces a COLD-START free window, the
+    ///         same defect class as the σ² hole this change exists to close. Own deliverable
+    ///         inventory is manipulable only by GIVING US THE ASSET, which is the outcome we want.
+    ///
+    ///         NO FLUSH GUARD AND NO MIRROR ARE NEEDED — the exemption is EMERGENT. The two sides
+    ///         are two halves of one pool: when volatile is scarce the USD side is abundant, so a
+    ///         REFILLING trade (which drains the abundant side) automatically pays ~nothing, while
+    ///         a DRAINING trade pays the full fraction. Symmetric, with no branch.
+    ///
+    ///         TWO ORTHOGONAL COSTS, ADDED:
+    ///           SIZE     — the constant-product fraction above, net of the band credit. How MUCH
+    ///                      inventory moved. Price-of-displacement.
+    ///           DURATION — `_settlementRisk`: σ over the window the displacement stays uncovered
+    ///                      (one block for ETH, ~1hr of confirmations + splice for native BTC).
+    ///                      How LONG it stays moved. CP cannot express this at any size.
+    ///         An infinitesimal BTC trade still pays the duration term; a huge ETH trade pays almost
+    ///         only the size term. Neither bounds the other.
+    ///
+    ///         Inputs, both 6-dec USD at one price/one scale:
+    ///           outUsd = the USD value this trade removes from the out side
+    ///           invUsd = deliverable inventory of the OUT side, real claims already netted out
+    /// @dev    Callers net `lockedUsd` (GROSS levered collateral — POOLED carries the full 2×
+    ///         collateral as tokenless depth, so subtracting only the ~1× DEBT would leave an equity
+    ///         leg of phantom inventory, #6/F3) and `committedUsd` (DEBT, the uncovered forward
+    ///         draw/return claim) BEFORE calling, because which of the two binds is per-leg.
+    function skewWad(uint outUsd, uint invUsd, uint sigmaSqWad, bool isBTC)
         public pure returns (uint skew)
     {
-        uint target = flowUsd + committedUsd;
-        if (target == 0) return 0;
-        uint inv = poolVolUsd > lockedUsd ? poolVolUsd - lockedUsd : 0;
-        if (inv >= target) return 0;                     // flush ⇒ ~oracle (band owns it)
-        uint q = (target - inv) * 1e18 / target;         // scarcity q ∈ (0, 1e18]
-        uint oneMinusQ = 1e18 - q;                        // = inv/target ∈ [0, 1e18)
-        // DEPLETION-BARRIER skew = Γ·σ²·q / (1−q)^ρ, ρ = STABLENESS (see the constant's derivation):
-        // the A-S linear premium Γσ²q amplified by the log-barrier shadow price 1/(1−q)^ρ of the last
-        // inventory units. Blows up convexly as inv→0 (oneMinusQ→0), bounded by the cap below.
-        uint skewRaw;
-        if (oneMinusQ == 0) {
-            skewRaw = type(uint).max;                     // inv=0 ⇒ barrier → ∞ ⇒ pinned to the cap
-        } else {
-            uint denom = oneMinusQ;                       // (1−q)^ρ
-            for (uint i = 1; i < STABLENESS; ++i) denom = FullMath.mulDiv(denom, oneMinusQ, 1e18);
-            uint qBar = FullMath.mulDiv(q, 1e18, denom);  // q / (1−q)^ρ  (= q for ρ=0, q/(1−q) for ρ=1)
-            skewRaw = FullMath.mulDiv(FullMath.mulDiv(GAMMA_WAD, sigmaSqWad, 1e18), qBar, 1e18);
-        }
-        skew = skewRaw;
-        // DYNAMIC cap = the live MM refill cost (σ over the confirmation window), never above
-        // the MAX_WELL_SKEW abs ceiling. Replaces the fixed 3% clamp: in calm markets the cap
-        // binds LOWER (don't overpay a cheap refill), in high vol it rises toward 3%.
-        uint cap = _maxWellSkew(sigmaSqWad, isBTC);
-        if (skew > cap) skew = cap;
+        if (outUsd == 0) return 0;
+        // Empty deliverable reservoir ⇒ the barrier is at its limit. Not a safety clamp: it is the
+        // value of the identity at inv=0, and the fill is independently bounded by POOLED anyway.
+        uint size = invUsd == 0 ? 1e18 : FullMath.mulDiv(outUsd, 1e18, invUsd);
+        // A FRACTION CANNOT EXCEED 1. Reachable because the skew is applied BEFORE the fill is
+        // bounded by POOLED, so `outUsd` may exceed the reservoir on an over-sized request. Without
+        // it `retainSkewPremium`'s `r.amount -= premium` underflows and reverts — a silent,
+        // plausible-looking failure on the money path, which is exactly when a bound earns its place.
+        if (size > 1e18) size = 1e18;
+        // The band already made this swapper pay up to its own half-width before it was exhausted;
+        // charging the full fraction on top would double-count it. One width, one credit.
+        size = size > BAND_FRAC_WAD ? size - BAND_FRAC_WAD : 0;
+        skew = size + _settlementRisk(sigmaSqWad, isBTC);
+        // ABSOLUTE BLAST-RADIUS BOUND — the reason a ceiling exists at all, and it is NOT a view
+        // about what a drain is worth. This whole quantity is a ratio whose DENOMINATOR is
+        // price-derived (`invUsd = POOLED · base / 1e30`, `base` from `getTWAPforAsset`) while its
+        // numerator is price-free, so a TWAP pushed DOWN inflates the charge directly — and the harm
+        // is SILENT, because an over-charged swapper just receives less and cannot tell it from
+        // honest scarcity pricing. That asymmetry is unavoidable in any formulation: one leg is USD
+        // and the other is volatile, so a price must convert between them exactly once.
+        // ⚠️ OPEN: at 3% this ALSO binds the honest size term on any drain past ~3% of the
+        // reservoir, i.e. it is simultaneously a manipulation bound and a standing offer to be
+        // drained at 3%. Those two jobs want different numbers and this constant serves both.
+        // THE FIX, NOT YET LANDED: value `invUsd` at the MAX of two INDEPENDENT prices (the V4 pool
+        // price and getTWAPforAsset) so the skew is the MIN of the two — an attacker then has to
+        // move both to inflate the charge, which retires the manipulation job entirely and lets the
+        // size term run uncapped. Deferred, not dismissed: it needs a second price threaded into a
+        // call site whose own comments mark it stack-tight (no via_ir), and stacking two unverified
+        // money-path changes in one run makes a failure unattributable.
+        if (skew > MAX_WELL_SKEW) skew = MAX_WELL_SKEW;
     }
 
     /// @notice The live well skew (WAD) for a pool — gathers deliverable inventory (at
@@ -972,10 +1031,8 @@ library SwapLib {
     /// @dev The conversion prologue BOTH skews share: pool inventory and GROSS levered
     ///      collateral, each in 6-dec USD at the SAME `base/1e30` scale (one price, one unit).
     ///      `addedTok` is the not-yet-settled input a SELL adds to inventory (0 for a drain).
-    ///      Extracted because the two skews duplicated it verbatim — they diverge only in how
-    ///      they FEED `skewWad` (wellSkew passes these directly; sellSkew mirrors `inv` about
-    ///      target first), so the prologue is the real duplication and the divergence is real
-    ///      semantics that must NOT be flattened into a flag.
+    ///      Extracted because the two skews duplicated it verbatim — they now diverge only in WHICH
+    ///      SIDE of the pool each drains, which is the whole of the remaining difference.
     function _skewBasis(address core, uint base, bool isBTC, uint addedTok)
         private view returns (uint poolVolUsd, uint lockedUsd)
     {
@@ -985,7 +1042,10 @@ library SwapLib {
         lockedUsd = FullMath.mulDiv(ICore(core).levGrossNative(isBTC), base, 1e30);
     }
 
-    function wellSkew(address core, uint base, bool isBTC)
+    /// @param outUsd The 6-dec USD this trade removes from the VOLATILE side. THE SIZE-BLINDNESS
+    ///        FIX: until 2026-08-04 `wellSkew` took no size at all, so a $1 drain and a
+    ///        drain-the-reservoir quoted the SAME premium. Both call sites already had the number.
+    function wellSkew(address core, uint base, bool isBTC, uint outUsd)
         public view returns (uint)
     {
         (uint poolVolUsd, uint lockedUsd) = _skewBasis(core, base, isBTC, 0);
@@ -998,49 +1058,42 @@ library SwapLib {
         // lockedUsd = GROSS levered collateral, converted with the SAME base/1e30 scale as poolVol
         // (one price, one unit) — the locked-inventory basis for `inv` (#6/F3). committedUsd = DEBT.
 
-        return skewWad(
-            poolVolUsd,
-            lockedUsd,
-            ICore(core).levClaimUsd6(isBTC),
-            ICore(core).flowEwmaUsd(isBTC),
-            ICore(core).realizedVarianceWad(isBTC), isBTC);
+        // DELIVERABLE VOLATILE = poolVol − GROSS locked − DEBT committed. Both subtractions are real
+        // claims on the same reservoir, so under the constant-product rule they simply shrink the
+        // denominator; the old form had `lockedUsd` shrink `inv` while `committedUsd` grew `target`,
+        // which was two mechanisms expressing one fact.
+        uint inv = poolVolUsd > lockedUsd ? poolVolUsd - lockedUsd : 0;
+        uint committed = ICore(core).levClaimUsd6(isBTC);
+        inv = inv > committed ? inv - committed : 0;
+        return skewWad(outUsd, inv, ICore(core).realizedVarianceWad(isBTC), isBTC);
     }
 
-    /// @notice SYMMETRIC A-S skew for a volatile-IN SELL (the self-funded short's
-    ///         band-leg shed). Where `wellSkew` prices the SCARCE side (volatile-OUT drain,
-    ///         inv<target), this prices the ABUNDANT side: a sell that pushes the pool's
-    ///         volatile inventory PAST target grows the pool's inventory risk, so A-S skews
-    ///         the reservation price AGAINST it (`skew = Γ·σ²·q` with q = overshoot). A sell
-    ///         that REFILLS a scarce/near-target reservoir REDUCES imbalance and is EXEMPT
-    ///         (skew 0). Both are the SAME A-S kernel: it REFLECTS the post-add inventory
-    ///         about the neutral `target` (q ↦ 2·target−q) and calls `skewWad`, whose
-    ///         scarce-side formula then prices the overshoot and whose flush guard
-    ///         (mirror ≥ target ⇒ 0) auto-exempts refills. `addedTok` = the volatile just
-    ///         deposited (POOLED not yet bumped — the swap settles in _finishSwap), added so
-    ///         the sell is judged on inv AFTER its own contribution (a pool sitting at target
-    ///         would otherwise never charge any sell, however large).
+    /// @notice The MIRROR leg: a volatile-IN SELL drains the pool's USD side, so it pays the same
+    ///         constant-product fraction measured against USD inventory. `addedTok` is the volatile
+    ///         just deposited (POOLED not yet bumped — the swap settles in `_finishSwap`).
+    ///
+    ///         THE REFILL EXEMPTION IS NOW EMERGENT, AND THE MIRROR IS GONE. The old form reflected
+    ///         inventory about `target` (q ↦ 2·target−q) so that `skewWad`'s flush guard would zero
+    ///         a refill. None of that machinery is needed: the two sides are two halves of ONE pool,
+    ///         so when volatile is scarce the USD side is by definition abundant, and a refilling
+    ///         trade — which drains the abundant side — automatically prices at ~nothing. When
+    ///         volatile is in surplus the USD side is thin and a further sell pays in full. Same
+    ///         kernel, no reflection, no flush branch, no `target`.
+    ///
+    ///         This is also what makes the pool track 1:1 BY VALUE without a target variable: a
+    ///         constant-product quote IS the price at which inventory sits exactly on its 50/50
+    ///         value split, so charging each leg the fraction of the OUT side it removes enforces
+    ///         the balance continuously instead of steering toward a stored setpoint.
     function sellSkew(address core, uint base, bool isBTC, uint addedTok)
         internal view returns (uint)
     {
-        uint committed = ICore(core).levClaimUsd6(isBTC);      // DEBT (→ target)
-        uint flow = ICore(core).flowEwmaUsd(isBTC);
-        uint target = flow + committed;
-        if (target == 0) return 0;
-        // inv = poolVolUsd − GROSS locked inventory (same base/1e30 scale as poolVol, #6/F3). Scope the two
-        // transient conversion locals so they free their stack slots before the skewWad call (no via_ir).
-        uint inv;
-        {
-            (uint poolVolUsd, uint locked) = _skewBasis(core, base, isBTC, addedTok);
-            inv = poolVolUsd > locked ? poolVolUsd - locked : 0;
-        }
-        // A-S inventory-sign flip: reflect inv about target. inv≤target (refill) ⇒
-        // mirror≥target ⇒ skewWad flush ⇒ 0 (EXEMPT); inv>target (inventory-increasing
-        // sell) ⇒ mirror<target ⇒ skewWad prices (inv−target)/target; inv>2·target
-        // (extreme surplus) ⇒ mirror 0 ⇒ capped. Re-passed so skewWad's inner inv == mirror
-        // (lockedUsd=committed, poolVolUsd=committed+mirror), target=flow+committed unchanged.
-        uint mirror = 2 * target > inv ? 2 * target - inv : 0;
-        return skewWad(committed + mirror, committed, committed, flow,
-            ICore(core).realizedVarianceWad(isBTC), isBTC);
+        // The USD this sell draws OUT, valued at the same base/1e30 scale as everything else.
+        uint outUsd = FullMath.mulDiv(addedTok, base, 1e30);
+        // Deliverable USD on the other side of the same pool, net of the uncovered forward claim.
+        uint invUsd = isBTC ? ICore(core).POOLED_USD_BTC() : ICore(core).POOLED_USD_ETH();
+        uint committed = ICore(core).levClaimUsd6(isBTC);
+        invUsd = invUsd > committed ? invUsd - committed : 0;
+        return skewWad(outUsd, invUsd, ICore(core).realizedVarianceWad(isBTC), isBTC);
     }
 
     /// @notice Body of Aux.creditSwapOut — Swap-OUT (USD→BTC), the on-curve
@@ -1093,7 +1146,7 @@ library SwapLib {
         // `amount` here is ALREADY 6-dec USD (scaleTo6 in _swapOutPrep), so px=0 declares "no conversion":
         // this leg's recorded premium was always in the right unit and stays that way.
         SwapReq memory sr; sr.amount = amount; sr.px = 0;
-        retainSkewPremium(core, true, sr, wellSkew(core, basePrice, true), false);  // audit + RFQ-drawable
+        retainSkewPremium(core, true, sr, wellSkew(core, basePrice, true, amount), false);  // audit + RFQ-drawable
         amount = sr.amount;
         rp.amount    = amount;                               // reduced buy drives the fill
         rp.recipient = address(this);                       // obligation → pool; LN delivers

@@ -918,42 +918,72 @@ contract Alles is ForkPin, Fixtures {
             "LP backing not drained by the sandwiched round trip");
     }
 
-    // The DEPLETION-BARRIER drain skew (skew = Γ·σ²·q/(1−q)^ρ, ρ=STABLENESS=1 = the log-barrier —
-    // DERIVED from the HJB with a hard inv≥0 constraint, NOT a fit exponent). Direct unit proof on the
-    // shared SwapLib.skewWad kernel (ETH & BTC both flow through it). Proves: flush at inv≥target;
-    // q=0.5 → Γσ² (q/(1−q)=1); CONVEX (increasing differences — the barrier steepens toward inv=0);
-    // monotone; and the MAX_WELL_SKEW cap binds the inv→0 blowup.
-    function testSkewBarrierRamp_ConvexCapAndMonotone() public pure {
-        uint T   = 3e12;   // target; committed=0 ⇒ target=T, inv=poolVolUsd. /3 for clean thirds.
-        uint sig = 1e16;   // σ² low enough the DYNAMIC cap doesn't bind at these q (isolate the shape).
+    // THE CONSTANT-PRODUCT RESTORATION SKEW (rewritten 2026-08-04 — the A-S barrier kernel
+    // `Γ·σ²·q/(1−q)^ρ` it used to pin no longer exists). Direct unit proof on the shared
+    // `SwapLib.skewWad` kernel, which ETH and BTC both flow through.
+    //
+    // What the new kernel claims, and what each assertion below actually falsifies:
+    //   SIZE      you pay the FRACTION OF THE DELIVERABLE RESERVOIR YOU REMOVE, less the band's own
+    //             half-width, because concentrating into ±BAND_DELTA is exactly what deleted that
+    //             slippage. Linear in size, not convex — the old convexity came from the barrier.
+    //   DURATION  `_settlementRisk` adds the cost of the displacement being UNCOVERED until it can
+    //             settle: ~1hr of confirmations + splice for native BTC, ~one block for ETH. It is a
+    //             BASE, not a cap (it was used as a cap until 2026-08-04, which was backwards), so
+    //             it is paid at ANY size including infinitesimal.
+    //   sigma=0   must NOT zero the charge. This is the regression that matters most: as a ceiling,
+    //             σ²=0 (cold observation ring, or a quiet pool with no `_writeObservation`) drove
+    //             the whole skew to zero and a fresh pool served a TOTAL DRAIN FOR FREE.
+    function testSkewIsConstantProductFractionPlusSettlementRisk() public pure {
+        uint INV = 1e12;        // deliverable reservoir, 6-dec USD
+        uint sig = 1e16;        // σ² low enough that the settlement term stays a thin offset
 
-        // Flush: inventory at/above target ⇒ zero skew (abundant — the band owns the price).
-        assertEq(SwapLib.skewWad(T, 0, 0, T, sig, true), 0, "flush at inv>=target");
+        // ZERO SIZE ⇒ only the duration term. This is the one size-free number left, and it is what
+        // `Aux.wellSkew(asset, 0)` reports.
+        uint floorEth = SwapLib.skewWad(0, INV, sig, false);
+        assertEq(floorEth, 0, "no trade, no charge");
 
-        // q=1/2 (inv=T/2): q/(1−q)=1 ⇒ skew = Γσ² = 3e16·1e16/1e18 = 3e14 (uncapped at this σ²).
-        uint s12 = SwapLib.skewWad(T / 2, 0, 0, T, sig, true);
-        assertEq(s12, 3e14, "q=0.5 barrier skew = Gamma*sigma2 (q/(1-q)=1)");
+        // LINEAR IN SIZE, net of the band credit: removing 10% of the reservoir costs 10% − 0.2%.
+        uint band = uint(20) * 1e18 / 10_000;                  // BAND_DELTA as a WAD fraction
+        uint s10 = SwapLib.skewWad(INV / 10, INV, 0, false);   // σ²=0 isolates the size term
+        assertEq(s10, 1e17 - band, "10% of the reservoir costs 10% less the band credit");
+        uint s20 = SwapLib.skewWad(INV / 5, INV, 0, false);
+        assertEq(s20, 2e17 - band, "20% costs 20% less the band credit");
+        // EQUAL STEPS. The band credit is subtracted once, so compare steps that are all above it:
+        // the constant-product average-slippage identity is LINEAR in the fraction removed. The old
+        // kernel's convexity came entirely from the `1/(1−q)^ρ` barrier — if these steps ever grow,
+        // a barrier has been reintroduced.
+        uint s30 = SwapLib.skewWad(3 * INV / 10, INV, 0, false);
+        assertEq(s20 - s10, 1e17, "10%->20% costs one tenth of the reservoir");
+        assertEq(s30 - s20, s20 - s10, "steps stay equal: linear, not convex");
 
-        // q=1/3 (inv=2T/3): q/(1−q)=0.5 ⇒ half of s12. q=2/3 (inv=T/3): q/(1−q)=2 ⇒ double s12.
-        uint s13 = SwapLib.skewWad(2 * T / 3, 0, 0, T, sig, true); // q=1/3
-        uint s23 = SwapLib.skewWad(T / 3, 0, 0, T, sig, true); // q=2/3
-        assertApproxEqAbs(s13, s12 / 2, 1e8, "q=1/3 skew = 1/2 of q=1/2");
-        assertApproxEqAbs(s23, s12 * 2, 1e8, "q=2/3 skew = 2x of q=1/2");
+        // BELOW THE BAND ⇒ nothing. The band already charges these; double-counting would be a fee
+        // the swapper pays twice for one width.
+        assertEq(SwapLib.skewWad(INV / 1000, INV, 0, false), 0, "0.1% is inside the band, no skew");
 
-        // CONVEX: increasing differences (the depletion barrier accelerates toward inv=0). Linear A-S
-        // would give equal steps; q/(1−q) steepens.
-        assertGt(s23 - s12, s12 - s13, "convex: barrier steepens as inv->0");
-        assertLt(s13, s12); assertLt(s12, s23); // monotone
+        // THE BARRIER IS INTRINSIC, not a chosen exponent: draining the whole reservoir prices at
+        // 100% less the band credit, and an EMPTY reservoir prices at the limit.
+        assertEq(SwapLib.skewWad(INV, INV, 0, false), 1e18 - band, "full drain -> ~100%");
+        assertEq(SwapLib.skewWad(1, 0, 0, false), 1e18 - band, "empty reservoir is the barrier limit");
+        // Over-sized request cannot exceed 1.0 — without the bound `retainSkewPremium`'s
+        // `r.amount -= premium` underflows, which is a silent revert on the money path.
+        assertEq(SwapLib.skewWad(INV * 5, INV, 0, false), 1e18 - band, "fraction never exceeds 1");
 
-        // The inv→0 blowup is bounded: extreme σ² near-empty can never exceed MAX_WELL_SKEW.
-        uint sHot = SwapLib.skewWad(T / 100, 0, 0, T, 5e18, true);
-        assertGt(sHot, 0,    "near-empty hot-vol skew positive");
-        assertLe(sHot, 3e16, "capped at MAX_WELL_SKEW under the barrier");
+        // sigma=0 DOES NOT ZERO A DRAIN. The regression pin for the free-drain window.
+        assertGt(SwapLib.skewWad(INV / 2, INV, 0, false), 0, "sigma2=0 must still price a 50% drain");
+        assertGt(SwapLib.skewWad(INV / 2, INV, 0, true),  0, "same for BTC");
 
-        // PER-ASSET cap fix: ETH has NO ~1hr confirmation-capital lock, so at extreme vol its cap binds
-        // LOWER than BTC's — proves _maxWellSkew is per-asset now, not the old asset-agnostic (BTC-window) form.
-        assertLt(SwapLib.skewWad(T / 100, 0, 0, T, 5e18, false),
-                 SwapLib.skewWad(T / 100, 0, 0, T, 5e18, true), "ETH cap < BTC cap (no conf lock)");
+        // PER-ASSET DURATION: BTC locks capital through ~1hr of confirmations and pays a splice fee;
+        // ETH settles in ~one block. So at equal size and equal vol, BTC must cost MORE. Under the
+        // old cap-shaped form this comparison ran the other way round (ETH's cap bound LOWER).
+        assertGt(SwapLib.skewWad(INV / 10, INV, sig, true),
+                 SwapLib.skewWad(INV / 10, INV, sig, false), "BTC duration cost exceeds ETH's");
+
+        // Duration is paid at ANY size — including one the band would otherwise absorb entirely.
+        assertGt(SwapLib.skewWad(INV / 1000, INV, sig, true), 0,
+                 "an infinitesimal BTC trade still pays for the settlement window");
+
+        // Still bounded absolutely: the blast-radius bound on a price-derived denominator.
+        assertLe(SwapLib.skewWad(INV, INV, 5e18, true), 3e16, "MAX_WELL_SKEW still bounds the total");
     }
 
     // SWAP-PRICING PIN (ETH, in-range): closes the pervasive `minOut=0 + assertGt(>0)` mask by
