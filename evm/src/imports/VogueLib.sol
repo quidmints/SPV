@@ -389,29 +389,24 @@ library VogueLib {
 
     /// @notice Annualized realized variance (WAD) from Core's oracle ring.
     function realizedVarianceWad(address core, bool isBTC) public view returns (uint) {
-        uint32[] memory ago = new uint32[](THETA_N + 1);
-        for (uint i = 0; i <= THETA_N; i++) ago[i] = uint32((THETA_N - i) * THETA_STEP);
-        // Resilient observe: insufficient oracle history reverts -> variance 0 -> theta fails OPEN (1e18,
-        // no clamp). The ETH path already got this via _liveTheta's external try/catch; folding it here
-        // lets the BTC path call derivedThetaWad DIRECTLY (BtcVaultLib.addLiqChannel) without bricking on a
-        // cold ring. Net-identical for ETH (revert -> 1e18 either way).
-        int56[] memory cum;
-        if (isBTC) { try ICore(core).observeBTC(ago) returns (int56[] memory c) { cum = c; } catch { return 0; } }
-        else       { try ICore(core).observe(ago)    returns (int56[] memory c) { cum = c; } catch { return 0; } }
-        int[] memory avgTick = new int[](THETA_N);
-        for (uint i = 0; i < THETA_N; i++)
-            avgTick[i] = int(cum[i + 1] - cum[i]) / int(uint(THETA_STEP));
-        uint M = THETA_N - 1;
-        int meanRet;
-        for (uint i = 0; i < M; i++) meanRet += (avgTick[i + 1] - avgTick[i]);
-        meanRet /= int(M);
-        uint varTick2;
-        for (uint i = 0; i < M; i++) {
-            int d = (avgTick[i + 1] - avgTick[i]) - meanRet;
-            varTick2 += uint(d * d);
-        }
-        varTick2 /= (M - 1);
-        return varTick2 * (SECS_PER_YEAR / THETA_STEP) * 1e10;
+        // §E59 — SAMPLE THE STORED OBSERVATIONS, NOT A WALL-CLOCK GRID.
+        //
+        // This used to call `observe` every `THETA_STEP` seconds. The ring only advances ON A SWAP
+        // and `observe` LINEARLY INTERPOLATES between stored points, and linear interpolation has
+        // ZERO SECOND DERIVATIVE — so every sample inside one inter-swap gap returned the same
+        // average tick and the variance came out EXACTLY 0 no matter how far price had moved.
+        // MEASURED: a drain taking `POOLED_ETH` from 400 to 0.00097 ETH reported 0.
+        //
+        // `ringVariance` reads REAL price updates only, normalises each return by its OWN elapsed
+        // time (intervals are uneven by nature) and annualises on the MEASURED span — so there is no
+        // fixed step left to mis-match the swap cadence. Shortening the step was never the fix:
+        // finer than the cadence hits the same interpolation, coarser hides real moves.
+        (uint varPerSecWad, uint spanSecs) = ICore(core).ringVarianceWad(isBTC, THETA_N + 1);
+        // span 0 ⇒ NOT ENOUGH REAL UPDATES ⇒ UNKNOWN. Still returns 0, but 0 now means what it says:
+        // callers treat unknown as DANGEROUS (skew charges the ceiling — SwapLib._maxWellSkew), and
+        // theta keeps failing OPEN. One sentinel, and both readers agree on it.
+        if (spanSecs == 0) return 0;
+        return FullMath.mulDiv(varPerSecWad, SECS_PER_YEAR * 1e10, 1e18);
     }
 
     // ════════════════════════════════════════════════════════════════════

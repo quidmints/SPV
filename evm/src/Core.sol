@@ -295,6 +295,15 @@ contract Core is SafeCallback {
         return VogueLib.realizedVarianceWad(address(this), isBTC);
     }
 
+    /// @notice §E59 — realized tick variance from the STORED observations (per-second, WAD) plus the
+    ///         span it was measured over. Reads the RING, so it never sees `observe`'s interpolation
+    ///         — the thing that used to manufacture zeros in any stretch quieter than the sample
+    ///         grid. `span == 0` means NOT ENOUGH REAL UPDATES, which is UNKNOWN and NOT calm.
+    function ringVarianceWad(bool isBTC, uint n)
+        external view returns (uint varPerSecWad, uint spanSecs) {
+        return OracleLib.ringVariance(_obs(isBTC), _obsState(isBTC), n);
+    }
+
     /// @notice (well) Cumulative scarcity-premium the skew has RETAINED as backing, per
     ///         pool — the withheld fraction of a swap-out's USD when the pool is BTC/ETH-scarce
     ///         (the swapper pays above oracle for scarce inventory; the difference stays as
