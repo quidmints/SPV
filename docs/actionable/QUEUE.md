@@ -413,8 +413,13 @@ and the shipped fix — **verbatim**:
 1. 🎯 **THE DECISION: band, or hold 100% weETH and convert just-in-time?** A 60-tick band costs
    **~1.26%/yr** vs holding weETH (half the capital sits as WETH earning 0 instead of 2.47%), and buys
    conversions at −1 bps instead of −24. **Breakeven ≈ 5.5× turnover per year.** Owner's call.
-2. 🟠 **Cadence is unaddressed in code.** `fetch()` recentres on EVERY deposit/withdraw/take. Measured,
-   weekly beats that by **~0.46%/yr** at 60 ticks. A minimum recentre interval is the next lever.
+2. ⛔ **Cadence gate — MEASURED AND DROPPED, worth only ~0.07%/yr.** I proposed a minimum recentre
+   interval on a 0.46%/yr figure taken from FORCED daily-vs-weekly re-placement — a rule the contract
+   never implements. Modelling its ACTUAL trigger (recentre only when the band is LEFT): at 60 ticks
+   it is left **1.0× per 30 days**, so a gate has no churn to prevent — net −0.43% (no gap) vs −0.36%
+   (14-day gap). **At 10 ticks it WOULD have been worth ~0.74%/yr** (−1.60% → −0.86%), because a
+   narrow band is left 3× as often. ⇒ **Widening and a cadence gate are SUBSTITUTES; the widening
+   already captured it, by a better route.** Not worth a money-path change plus a timing dependency.
 3. 🟠 **`deposit()` still builds a STRADDLING position** — it is what manufactures the WETH leg. If the
    answer to (1) is "hold weETH", this is the code that has to change.
 4. 🟠 **Elasticity** — bounded, not eliminated: corr(log depth, log volume) **+0.383**, and an 8× depth
