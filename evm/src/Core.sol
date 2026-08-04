@@ -34,6 +34,7 @@ import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 
 /// @dev Live total leverage debt (USD 1e18) of a pinned LevManager — the debt-funded buffer that
 ///      `committedUsd18` subtracts from in-range USD to recover the pure equity claim (buffer == debt).
+interface IERC20Min { function balanceOf(address) external view returns (uint); function totalSupply() external view returns (uint); }
 interface ILevDebtTotal { function totalDebtUsd() external view returns (uint256); }
 
 /// @dev Live total GROSS levered collateral in NATIVE units — the LOCKED-INVENTORY basis for the well skew's
@@ -344,6 +345,35 @@ contract Core is SafeCallback {
     function _poolId(bool isBTC) internal view returns (PoolId) {
         return isBTC ? POOL_ID_VANILLA_BTC : POOL_ID_VANILLA_ETH;
     }
+    /// @notice DUST SWEEP — mock tokens held OUTSIDE the allowed set, which must never count
+    ///         toward shares or P&L attribution.
+    ///
+    ///         The mocks are Core-minted and live in exactly two places: the PoolManager (as pool
+    ///         reserves) and Core itself (transiently, between `take` and `burn`). They cannot
+    ///         bootstrap outward — swapping this pool requires SETTLING one of them as input, and
+    ///         only Core can mint them.
+    ///
+    ///         ONE path breaks that containment: a v4 PROTOCOL FEE. `Pool.sol` takes the protocol
+    ///         slice OUT of the LP fee (`step.feeAmount -= delta`) and accrues it to
+    ///         `protocolFeesAccrued[currency]` — OUR mock — and `collectProtocolFees` then does
+    ///         `currency.transfer(recipient, …)`, making the collector the FIRST external holder.
+    ///
+    ///         Nothing in this system reconciles mock SUPPLY against `POOLED_*`, so such dust is
+    ///         inert today and cannot trip any gate. This view exists so it is OBSERVABLE rather
+    ///         than merely harmless: an external holder is the precondition for a direct swap on
+    ///         our key that would bypass Core's `_handleDelta` mirror, and it is the quantity we
+    ///         would owe if the fee is ever settled voluntarily at LP withdrawal.
+    function externalMockDust(bool isBTC) external view returns (uint usdDust, uint tokDust) {
+        usdDust = _dustOf(address(_mockUsd(isBTC)));
+        tokDust = _dustOf(address(_mockTok(isBTC)));
+    }
+
+    function _dustOf(address m) internal view returns (uint) {
+        uint held = IERC20Min(m).balanceOf(address(poolManager)) + IERC20Min(m).balanceOf(address(this));
+        uint supply = IERC20Min(m).totalSupply();
+        return supply > held ? supply - held : 0;   // never counted toward shares or P&L
+    }
+
     function _mockUsd(bool isBTC) internal view returns (mock) {
         return isBTC ? mockUSD_BTC : mockUSD_ETH;
     }

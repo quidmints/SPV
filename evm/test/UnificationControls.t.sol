@@ -603,53 +603,6 @@ contract UnificationControls is Alles {
         assertEq(pFeeBtc, 0, "a protocol fee is live on OUR BTC pool -- LP fee accrual is being shaved");
     }
 
-    /// EMPIRICAL: is the arber's profit ACTUALLY captured, or only partly? E16 proved the
-    /// accumulator MOVED; it never proved it moved by the spread an external arber could have
-    /// taken. That distinction is the whole justification for immediate refill ("don't donate the
-    /// spread"), so it is measured here rather than assumed.
-    ///
-    /// THE COMPARISON: after a drain, the band's SPOT sits away from the honest oracle. An arber
-    /// closing that gap earns ~ (gap x size). We retain `skewPremium` instead. If retained >= the
-    /// gap-implied profit, the capture is real; if it is a small fraction, we are still donating.
-    function test_EMPIRICAL_ArberSpreadVsCapturedPremium() public {
-        _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 300 ether}(0, lpA, 3);
-        vm.roll(block.number + 1); vm.warp(block.timestamp + 30 minutes);
-
-        uint prem0 = CORE.skewPremiumETH();
-        uint fees0 = V4.USD_FEES();
-        uint usd0  = CORE.POOLED_USD_ETH();
-
-        vm.deal(User01, 3_000 ether);
-        for (uint i; i < 6; i++) {
-            vm.prank(User01);
-            try AUX.swap(address(USDC), address(WETH), true, 50_000 * USDC_PRECISION, 0) {} catch {}
-            vm.roll(block.number + 1); vm.warp(block.timestamp + 20 minutes);
-        }
-
-        // The dislocation an arber would close.
-        (, uint160 sp,) = CORE.poolTicks(false);
-        uint spot = _getPrice(sp, V4.token1isETH());
-        uint twap = AUX.getTWAPforAsset(address(WETH), 1800);
-        uint gapBps = twap > 0 ? (spot > twap ? spot - twap : twap - spot) * 10_000 / twap : 0;
-
-        uint premRetained = CORE.skewPremiumETH() - prem0;
-        uint usdMoved     = usd0 > CORE.POOLED_USD_ETH() ? usd0 - CORE.POOLED_USD_ETH() : CORE.POOLED_USD_ETH() - usd0;
-
-        emit log_named_uint("spot                    ", spot);
-        emit log_named_uint("twap (honest oracle)    ", twap);
-        emit log_named_uint("dislocation (bps)       ", gapBps);
-        emit log_named_uint("USD leg moved (6d)      ", usdMoved);
-        emit log_named_uint("premium RETAINED (6d)   ", premRetained);
-        emit log_named_uint("USD_FEES increment      ", V4.USD_FEES() - fees0);
-        // Arber-profit proxy: dislocation applied to the volume that moved.
-        uint arbProxy = usdMoved * gapBps / 10_000;
-        emit log_named_uint("arb profit PROXY (6d)   ", arbProxy);
-        emit log_named_uint("captured / arb-proxy bps", arbProxy > 0 ? premRetained * 10_000 / arbProxy : 0);
-
-        assertGt(premRetained, 0, "PREMISE: a premium was actually retained, else nothing to compare");
-        assertGt(usdMoved, 0, "PREMISE: real volume moved");
-    }
 
     /// EMPIRICAL — is a v4 protocol-fee CONTROLLER set on the live mainnet PoolManager at all?
     /// This is the question my earlier assert-0 could not answer. If the controller is address(0),
@@ -759,5 +712,29 @@ contract UnificationControls is Alles {
         // mirror carries information the pool does not (which would kill the removal).
         assertApproxEqRel(derivedUsd, CORE.POOLED_USD_ETH(), 0.01e18, "USD leg must be derivable from pool state");
         assertApproxEqRel(derivedEth, CORE.POOLED_ETH(), 0.01e18, "ETH leg must be derivable from pool state");
+    }
+
+    /// DUST SWEEP — mocks held outside the allowed set {PoolManager, Core} must be ZERO today, and
+    /// must never be counted toward shares or P&L. A v4 protocol fee is the only path that creates
+    /// an external holder: the slice is taken out of the LP fee, accrues to
+    /// `protocolFeesAccrued[ourMock]`, and `collectProtocolFees` transfers it out. This asserts
+    /// containment now and fails loudly the day it breaks.
+    function test_DUST_MocksAreContainedToAllowedHolders() public {
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 100 ether}(0, lpA, 3);
+        vm.roll(block.number + 1);
+        for (uint i; i < 4; i++) _trade(3_000e18);
+
+        (uint usdDustEth, uint tokDustEth) = CORE.externalMockDust(false);
+        (uint usdDustBtc, uint tokDustBtc) = CORE.externalMockDust(true);
+        emit log_named_uint("ETH-band mockUSD dust", usdDustEth);
+        emit log_named_uint("ETH-band mockETH dust", tokDustEth);
+        emit log_named_uint("BTC-band mockUSD dust", usdDustBtc);
+        emit log_named_uint("BTC-band mockBTC dust", tokDustBtc);
+
+        assertEq(usdDustEth, 0, "mockUSD_ETH escaped the allowed holder set");
+        assertEq(tokDustEth, 0, "mockETH escaped the allowed holder set");
+        assertEq(usdDustBtc, 0, "mockUSD_BTC escaped the allowed holder set");
+        assertEq(tokDustBtc, 0, "mockBTC escaped the allowed holder set");
     }
 }

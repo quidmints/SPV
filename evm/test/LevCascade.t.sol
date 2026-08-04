@@ -872,13 +872,15 @@ contract LevCascadeProbe is Alles {
         uint debt = lm.totalDebtUsd();
         assertGt(debt, 0, "PREMISE: leverage debt must exist before we try to exceed a leg with it");
 
-        // DRAIN the ETH band's USD leg below the debt. Pay ETH in, take USDC out.
-        vm.deal(User01, 4_000 ether);
-        for (uint i; i < 14 && CORE.POOLED_USD_ETH() * 1e12 > debt; i++) {
-            vm.prank(User01);
-            try AUX.swap{value: 200 ether}(address(USDC), address(WETH), false, 0, 0) {} catch {}
-            vm.roll(block.number + 1); vm.warp(block.timestamp + 10 minutes);
-        }
+        // §#12 RE-DERIVED CONSTRUCTION. The old method drained the curve until its USD leg fell
+        // below the debt — but draining is a SWAP, and after #12 a swap no longer reduces the
+        // BASKET's contribution. That is #12 working, not a broken test, and the premise below
+        // caught it. The discriminating case now needs the ETH band's BASE to be SMALL relative to
+        // its debt, so shrink the band by withdrawing most of the plain LP position instead.
+        vm.roll(block.number + 1); vm.warp(block.timestamp + 1 hours);
+        vm.prank(address(this));
+        try V4.withdraw(19 ether, address(this), address(this)) {} catch {}
+        vm.roll(block.number + 1); vm.warp(block.timestamp + 10 minutes);
 
         // §#12: the per-band floor now applies to the BASKET's contribution, not the curve leg.
         uint ethPooled18 = CORE.basketUsdEth() * 1e12;
