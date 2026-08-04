@@ -918,6 +918,77 @@ positive and it is the one thing the network has structurally lacked.
 
 ---
 
+## Why Honk, and why not Halo2 or a STARK?
+
+**Honk is the right choice for our constraints, not the best proof system in the abstract.** Two
+corrections to a framing that is easy to reach for and does not survive contact with the record.
+
+**It was not "an upgrade from PLONK."** That describes half the stack. Rarime's identity circuits were
+already Noir on UltraPlonk, and moving them to UltraHonk is a genuine upgrade within one family. Privacy
+Pools was **Circom with a Groth16 verifier** (`verifyProof(pA,pB,pC,[8])`), a different language, a
+different arithmetisation and a different proof system. Its gadgets were **translated**, not upgraded:
+`merkleTree.circom` became `lean_imt.nr`, `commitment.circom` became `commitment.nr`, and the withdraw
+circuit was rewritten with `withdraw.circom` as the spec. That half was also rescoped mid-flight from
+address-keyed to identity-keyed ASP membership, which is new design rather than a port. The unification
+is the achievement; calling it an upgrade undersells it and misstates what was done.
+
+**And Honk is not unequivocally best.** It had a **critical UltraHonk soundness vulnerability below bb
+0.82.0**, serious enough that any Solidity verifier generated before the patch had to be regenerated.
+The toolchain is still `1.0.0-beta`. Verification is materially dearer than Groth16. What justifies it
+is the specific shape of this problem: **client-side proving on a mid-range phone is the binding
+constraint**, Honk's sumcheck-over-multilinear design removes the FFTs that dominate a prover's memory,
+and putting both merged systems on one toolchain leaves one surface to audit instead of two. That is a
+defensible engineering argument. "Best available" is not.
+
+### Halo2
+
+More mature than Honk by a wide margin, with Zcash Orchard and Scroll's zkEVM in production behind it,
+and its Pasta curve cycle attacks recursion cost structurally by making one curve's base field the
+other's scalar field, removing the non-native simulation entirely. Both are real advantages.
+
+It is still the wrong choice here, for three reasons that compound. It hits the **same fork we already
+face**: Pasta gives cheap recursion and dear on-chain verification, BN254 with KZG gives the reverse,
+and no configuration gives both. It **uses FFTs**, which is a memory regression on exactly the device
+that constrains us. And it is **not an ACIR backend**, so all 19,435 lines of Noir would be rewritten as
+hand-laid chips, including the RSA and ECDSA bignum currently inherited for free.
+
+That last point is the decisive one, and it generalises. **Rewriting a backend is bounded and
+self-checking**: get it wrong and proofs fail to verify, loudly. **Rewriting circuits is unbounded and
+silent**, because under-constrained circuits are the failure that actually kills projects, and Halo2's
+manual column-and-region layout is where its historical bugs live. Halo2 buys maturity in the prover by
+spending it in the circuits, which is the wrong direction for a stack whose soundness already rests on
+155 unconstrained functions across 16,000 inherited lines.
+
+### STARKs
+
+Priced properly and rejected. The attraction is that FRI verification is hash-based, so recursive
+aggregation avoids the in-circuit curve arithmetic that makes Honk recursion expensive. That is the only
+argument left standing, and it is a property of a circuit we wrote rather than of the proof system, so
+it is fixable in-stack by folding.
+
+Every other argument fell. **Gas** is answered by aggregation. **Post-quantum** is answered by ICAO:
+passports sign with RSA and ECDSA, so an adversary who breaks a pairing forges the document itself and
+the trust root fails before the wrapper does. **Portability** is answered by ACIR, which carries the
+circuits either way.
+
+The costs are concrete and one of them is disqualifying. There is no production ACIR-to-STARK backend,
+so it would be funded or written, including a Brillig VM that 155 unconstrained functions depend on. And
+**the field choice is forced against us both ways.** Small fields are what make STARKs fast, but a
+2048-bit modulus needs 18 limbs in BN254 against 67 in Goldilocks or 137 in BabyBear, so the bignum that
+dominates passport verification gets 14× to 58× more field operations, and the resulting trace blows the
+memory budget on the device that constrains us. Choosing BN254 instead preserves both the anchored state
+and the limb efficiency, and discards the small-field speed advantage that was the reason to move.
+Meanwhile a field change orphans every root already committed in `PoseidonSMT`, `RegistrationSMT`,
+`IdentityRegistry`, `RegistrySourceAnchor` and `TitleLedger`, and that cost rises with every identity
+registered.
+
+**What would reopen it.** Batching becoming mandatory rather than optional, so that aggregator
+censorship turns into exclusion rather than a fee. Or a folding decider that inherits the same
+non-native curve cost the folding was meant to avoid, which is the one measurement that could put
+hash-based recursion back on the table with evidence behind it.
+
+---
+
 # Part 3 — Competition, in detail
 
 ## YieldBasis
