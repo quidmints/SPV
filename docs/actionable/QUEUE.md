@@ -6679,19 +6679,29 @@ windows, `target = flowUsd + committedUsd`, and the entire settlement/duration t
 skew path completely, which closes the σ²=0 free-drain window and the TWAP-manipulation exposure by
 construction rather than by defence.
 
-**OPEN 1 — the sell leg charges ΔI; the disagreement is DESIGN, not arithmetic.** *(Diagnosis
-corrected 2026-08-04 — the first one, "the denominator is halved, fix the derivation not the test",
-was WRONG.)* With `I = (V−D)/(V+D)` the standard book-imbalance statistic, the sell skew
-`surplusCreated/((V+D)/2)` equals `2a/(V+D)` for a sell into an already-heavy pool — which is
-exactly `ΔI`. It also coincides with the constant-product charge against the drawn side at balance
-(`a/D` where `D = (V+D)/2`). So the formula is not halved and is not mis-derived.
+**OPEN 1 — sell-leg denominator: STILL OPEN, both prior diagnoses were wrong.**
+  * Diagnosis A ("the denominator is halved, fix the derivation not the test") — wrong.
+  * Diagnosis B ("it computes ΔI, the standard book-imbalance statistic, so it is correct") — ALSO
+    wrong, and wrong by CONFLATION. `V_bid`/`V_ask` are RESTING ORDER SIZES in a market; `V`/`D` are
+    OUR HOLDINGS. An inventory ratio describes our exposure, a book ratio predicts where price is
+    going. They are not the same statistic and `(V−D)/(V+D)` is not our book imbalance.
+  * The tell was already in this repo: our sell side is **not bounded by `D`** — the dollars paid out
+    are MINTED AGAINST THE BASKET, not drawn from `POOLED_USD_*`. That is the exact asymmetry that
+    broke the mirrored sell leg. So our "bid depth" is not `D`, and no CP-against-`D` reading applies.
 
-What `testSwapPricing_EthSellInRange_PaysAboutOracle` actually encodes is the OLD exemption: under
-`target = flowUsd + committedUsd` a sell was free unless it pushed past `target`, so an in-range sell
-paid ~oracle. The new kernel charges any sell that pushes past 1:1 VALUE balance, so a 0.9%-of-pool
-sell into an ETH-heavy pool pays ~1.8%. **The open question is a design one — should a sell that
-worsens an already-skewed book be free? — and it must be answered before either the code or the test
-is touched.** Do not "fix" the derivation; it is doing what it was designed to do.
+  **The real open question, unanswered:** if the sell side is basket-backed and effectively unbounded,
+  what IS the correct denominator for a sell? Not `D` (not the constraint), not `(V+D)/2` (justified
+  only by the false book-imbalance identification). Candidates: the volatile inventory `V` we are
+  accumulating (the thing actually at risk), or a realised-cost basis (see OPEN 2). **Derive it from
+  what a sell actually costs us, and do not reach for a ratio because it looks familiar.**
+  Measured symptom: `testSwapPricing_EthSellInRange_PaysAboutOracle` pays 1.65% vs a 1.5% tolerance
+  on a trade worth ~0.9% of pool value.
+
+**OPEN 1b — EXTERNAL order-book imbalance `I = (V_bid − V_ask)/(V_bid + V_ask)` is NOT implemented
+and is a genuinely separate input.** Everything built so far is endogenous and descriptive (our
+position now). This is exogenous and predictive (depth thinning ahead of a move). Note it is a RATIO,
+so symmetric JIT injection cancels — which is why it may be safe where external DEPTH (`L`, a level)
+was not. **Unverified hypothesis about an attack surface; test before relying on it.**
 
 **OPEN 2 — nothing ties the skew we collect to the flash cost we pay.** The refill is an automatic
 protocol flash paying EXTERNAL price impact; the skew is calibrated against OUR OWN inventory. Small
