@@ -993,6 +993,54 @@ hash-based recursion back on the table with evidence behind it.
 
 ## YieldBasis
 
+### First, why the loss exists at all
+
+The pool does not know Bitcoin went up. It still quotes yesterday's price.
+
+Someone notices, buys Bitcoin out of the pool at that stale cheap price, and sells it elsewhere at the
+real one. **That purchase is what drags the pool's price up to match.** The pool only learns the new
+price by selling you short of the thing that just became more valuable, and it stops selling once
+Bitcoin is scarce enough in it that the quote has caught up.
+
+So the loss and the price correction are the same event. You are not down because the price moved. You
+are down because the pool had to sell the riser to notice, and the person who noticed first kept the
+difference.
+
+### The vending machine
+
+Your Bitcoin sits in a machine that sells to whoever walks up, and its price tag lags.
+
+**YieldBasis** borrows and buys more so the machine always holds **exactly twice** what you put in.
+Double stock cancels the underselling and the maths works. The catch is *exactly*: prices move daily,
+so holding it at precisely double means shuffling constantly, forever, whether or not anything went
+wrong. Half your sales commission plus loan interest pays for that.
+
+**We** replace only what was actually undersold. How far has the price moved since you came in? That
+says how many coins went too cheap, and we borrow just enough to replace those. Price flat, we borrow
+nothing.
+
+### The down case is the real gap
+
+When Bitcoin **falls**, the machine has been buying cheap, so you hold more coins than you started with
+at a discount. Nothing is lost unless you cash out at the bottom.
+
+They cannot hold. *Always exactly double* forces them to **sell into the fall**, then buy back higher on
+the way up. Sold low, bought high, gone permanently, even if price ends where it began. We stop: below
+your entry the debt goes to zero and we hold.
+
+### Where the difference actually lands
+
+| | them | us |
+|---|---|---|
+| **quiet market** | interest and shuffling continue | borrow nothing |
+| **dip and recover** | eats the round trip | ends where it started |
+| **steady rise** | works | works, modestly cheaper |
+| **crash** | carrying double into it, liquidatable | no debt below entry |
+
+Quiet markets and round trips are where the whole gap lives. A steady rise is where we are closest.
+
+### The technical version
+
 It targets zero impermanent loss on a Bitcoin position by borrowing an equal value of crvUSD against
 the deposit and running a constant two-times leveraged position. A two-times leveraged AMM position
 moves roughly linearly with the asset instead of concavely, so the holding loss is cancelled while the
