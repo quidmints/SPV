@@ -1113,4 +1113,46 @@ contract UnificationControls is Alles {
         assertTrue(mirrorGrewOnTrade > 0 && mirrorGrewOnAdd > 0,
             "the mirror grew on BOTH -- so it cannot tell the two apart, and the slot must stay");
     }
+
+    /// §E45 — THE REFILL'S GAS MODEL NEEDS NO NEW MECHANISM, AND THIS IS THE NUMBER THAT DECIDES IT.
+    ///
+    /// `Vogue.compound(address lp)` is ALREADY the self-funding, permissionless crank: anyone may
+    /// crank anyone, it runs `_rebalance()` FIRST (so the repack/reseat rides along), and it pays
+    /// the caller `min(tx.gasprice, COMPOUND_MAX_GASPRICE) x COMPOUND_GAS` by burning a sliver of
+    /// the band to them as native ETH — grief-capped at HALF the harvest, funded from realized fees,
+    /// never an operator subsidy, and zero at zero gasprice so unit tests are unaffected.
+    /// ⇒ When the refill is wired into `_rebalance()` (E6: reseat and refill fire together), the gas
+    /// is ALREADY PAID. No reserve pot, no new state, no new payout path — and, deliberately, NO
+    /// CHANGE to `recordSkewPremium`/`creditSkewPremium`, which is where the skew work is happening.
+    ///
+    /// The ONE thing that must hold is that `COMPOUND_GAS` actually covers the crank. It is a
+    /// hardcoded 140,000 (`Vogue.sol:1504`, `private constant` — hence the literal here) and it was
+    /// sized for compounding ALONE. If the crank already costs more than that the keeper is
+    /// under-reimbursed TODAY, and any refill work added to `_rebalance()` makes it worse.
+    function test_E45_CompoundCrankGasVsTheSelfFundingConstant() public {
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        vm.roll(block.number + 1);
+        for (uint i; i < 10; i++) _trade(3_000e18);   // real harvest for the tip to come out of
+        vm.roll(block.number + 1); vm.warp(block.timestamp + 1 hours);
+
+        uint COMPOUND_GAS = 140_000;                  // Vogue.sol:1504
+        vm.txGasPrice(10 gwei);
+        uint g0 = gasleft();
+        V4.compound(lpA);
+        uint used = g0 - gasleft();
+
+        emit log_named_uint("compound() gas ACTUALLY used  ", used);
+        emit log_named_uint("COMPOUND_GAS (the tip's basis)", COMPOUND_GAS);
+        if (used > COMPOUND_GAS)
+            emit log_named_uint("UNDER-REIMBURSED by (gas)     ", used - COMPOUND_GAS);
+        else
+            emit log_named_uint("HEADROOM for refill work (gas)", COMPOUND_GAS - used);
+
+        // PREMISE: the crank must have done real work, else the number is meaningless.
+        assertGt(used, 21_000, "PREMISE: the crank must actually execute, not no-op");
+        // Recorded as a MEASUREMENT, not a bound: the assertion is deliberately loose because the
+        // point is the printed number, and a tight bound here would just break on unrelated edits.
+        assertLt(used, 5_000_000, "sanity: the crank is not pathological");
+    }
 }
