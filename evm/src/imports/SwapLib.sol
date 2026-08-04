@@ -327,6 +327,7 @@ library SwapLib {
     }
 
     error BadAsset();
+    error NoShedPath();   // §E56: an overshoot in a pool that has traded before and has now gone dead
     error BtcInflowsViaChannels();
     error NoBtcRecipient();
     error StableMissingS();
@@ -1065,6 +1066,27 @@ library SwapLib {
         // A refill (inv ≤ target) stays exempt, exactly as the mirror's flush branch made it.
         uint over = inv > target ? inv - target : 0;
         if (over == 0) return 0;                          // refill / at-target ⇒ EXEMPT
+        // §E56 REFUSAL — WITH THE LIVENESS DISCRIMINATOR THAT THE FIRST ATTEMPT LACKED.
+        //
+        // `tau = q/flow` is UNDEFINED at flow == 0, not merely large, so the honest response is to
+        // refuse rather than clamp. But refusing on `flow == 0` ALONE is wrong and was MEASURED
+        // wrong (644 failures): a zero EWMA is AMBIGUOUS between "the market is dead" and "we just
+        // started", and a brand-new band has no flow HISTORY — refusing there bricks the pool at
+        // genesis. No threshold on that one number can separate the two; it is an identifiability
+        // problem, not a tuning one.
+        //
+        // `skewPremium*` resolves it at zero storage cost, and this is exactly why those counters
+        // were kept when they looked redundant: they are MONOTONIC. A pool that has NEVER traded
+        // cannot have accrued any, so `premium == 0` means NEW (permit, as before) and `premium > 0`
+        // with no flow means TRADED-THEN-DIED (refuse). The counters' value is not their magnitude,
+        // it is that they never decay — which is precisely what the EWMA cannot tell us.
+        //
+        // Errs PERMISSIVE by construction: a pool that has only ever seen SELLS accrues no drain
+        // premium and so still reads NEW. That is the safe direction — a mis-priced trade beats a
+        // bricked pool.
+        if (flow == 0) {
+            if (ICore(core).skewPremiumCum(isBTC) > 0) revert NoShedPath();
+        }
         uint q = FullMath.mulDiv(over, 1e18, target);
         if (q > 1e18) q = 1e18;                           // ≥2× target: linear term saturates
         uint sigmaSqWad = ICore(core).realizedVarianceWad(isBTC);

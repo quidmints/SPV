@@ -271,6 +271,11 @@ interface ICore {
     function poolTicks(bool isBTC) external view returns (bytes32, uint160, int24);
     function token1isETH() external view returns (bool);
     function btcVault() external view returns (address);   // E21: was BasketLib.IWiredCore
+    /// §E56 — the MONOTONIC (never-decayed) retained-premium counters. Their value here is NOT the
+    /// amount: it is that they are CUMULATIVE, which makes them the liveness signal a decayed EWMA
+    /// cannot be. `flow == 0` is ambiguous between a DEAD pool and a NEW one; `skewPremium > 0`
+    /// resolves it, because a pool that has never traded cannot have accrued any.
+    function skewPremiumCum(bool isBTC) external view returns (uint);
     function swap(bool isBTC, uint160 sqrtPriceX96, address sender, bool forOne, address token, uint amount) external returns (uint);
 }
 

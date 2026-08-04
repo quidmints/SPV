@@ -421,6 +421,17 @@ contract Core is SafeCallback {
     ///         Core's BTC-vault pin against Aux's owner-set view.
     function btcVault() external view returns (address) { return address(BTCVAULT); }
 
+    /// @notice The MONOTONIC retained-premium counter for one pool (6-dec USD). §E56 — its value is
+    ///         not the point; being CUMULATIVE is. A decayed EWMA cannot tell a DEAD pool from a NEW
+    ///         one (both read 0), and `sellSkew`'s refusal must treat those oppositely. A pool that
+    ///         has never traded cannot have accrued any premium, so this disambiguates them.
+    /// @dev    Dispatched HERE rather than read as two public getters from `SwapLib`: the two-branch
+    ///         read cost SwapLib 87 bytes it does not have (measured, -87 over EIP-170), and Core has
+    ///         the margin. Same trade as E32 — put the code where the room is.
+    function skewPremiumCum(bool isBTC) external view returns (uint) {
+        return isBTC ? skewPremiumBTC : skewPremiumETH;
+    }
+
     /// @notice BTC band theta-numerator: the native IL-bearing backing = aggregate locked sats (lpSharesBTC,
     ///         net) + gross debt-funded buffer (totalBufferBTC). The BTC analogue of (vogueETH + totalBuffer)
     ///         on ETH. ONE source of truth for BOTH the LP-add clamp (BtcVaultLib._thetaClampBtc) and the
