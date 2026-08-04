@@ -6812,3 +6812,34 @@ nobody has made. Possibly the skew should BE the fee.
 exposure, but the primary defence for the one unavoidable USD/volatile conversion is the existing
 manip-guard on the execution path. How much price error it actually permits — and therefore how much
 leaks into the skew denominator — is unmeasured. I relied on it in argument without ever reading it.
+
+**OPEN 17 — ⚠️ THE SKEW MAY BE ROUTABLE-AROUND. Swap-out and redeem were deliberately kept at
+PARITY, and the skew breaks that parity in one direction only.** `swapToBody`'s own note: QD-in is
+valued at "the SAME perShare a redeem uses (no-drain: never worth more swapped than redeemed)", and
+swap-out is deliberately NOT capacity-gated because point-in-time value per QD is identical to
+redeem. The skew now makes swap-out STRICTLY WORSE than redeem while redeem is unskewed — so a
+drainer facing a high skew simply redeems instead, gets the same volatile, and pays nothing. If that
+holds, every improvement in this file prices a path nobody is forced to take. **Verify before any
+further skew work: it is upstream of OPEN 1, 2b and 14.**
+
+**OPEN 18 — the skew's own gas/call cost was never counted.** `_priceMax` reads the TWAP on paths
+that previously took it at most once (the BTC swap-out prep now resolves `_priceOr` for `basePrice`
+AND `_priceMax` for the skew). Small, but it is on the money path and nobody measured it.
+
+### Rover vs the collateralised-borrow bridge — the standing-vs-per-use argument
+
+Measured in this thread: Rover's WETH leg forgoes ~1.45%/yr of lending yield (half the position ⇒
+~0.72%/yr on the whole), plus LVR of 0.86–2.21%/yr depending on cadence ⇒ **~1.6–2.9%/yr STANDING**,
+paid whether or not anybody swaps. Also measured: instant-redeem demand is near zero (offramp rung 3
+empty in 9 of 11 samples). A standing cost against intermittent demand cannot be justified.
+
+A collateralised borrow avoids the SALE entirely — no slippage, no LVR — and costs only borrow
+interest for the redemption window (~3%/yr over ~7 days ≈ **6 bps**), against a 30 bps instant-redeem
+fee. It is also INCENTIVE-CORRECT: Rover makes every LP carry a continuous cost so an occasional
+swapper gets cheap immediacy (LPs amortising slippage for a swapper — exactly what must be
+prevented); the borrow charges the user of immediacy at the moment of use.
+
+**SOR is structurally a DOUBLE CHARGE** — our in-band fee PLUS the external venue fee PLUS external
+slippage — so it is only ever justified when we genuinely cannot fill internally. **Whether that ever
+happens is OPEN 10 (the v4 poolIds were never enumerated), so dropping SOR is well-motivated but NOT
+yet evidenced.** Enumerate the v4 pools first.
