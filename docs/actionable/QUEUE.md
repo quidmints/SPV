@@ -6681,10 +6681,15 @@ construction rather than by defence.
 
 **OPEN 1 — sell-leg denominator: STILL OPEN, both prior diagnoses were wrong.**
   * Diagnosis A ("the denominator is halved, fix the derivation not the test") — wrong.
-  * Diagnosis B ("it computes ΔI, the standard book-imbalance statistic, so it is correct") — ALSO
-    wrong, and wrong by CONFLATION. `V_bid`/`V_ask` are RESTING ORDER SIZES in a market; `V`/`D` are
-    OUR HOLDINGS. An inventory ratio describes our exposure, a book ratio predicts where price is
-    going. They are not the same statistic and `(V−D)/(V+D)` is not our book imbalance.
+  * Diagnosis B ("it computes ΔI, the standard book-imbalance statistic, so it is correct") — right
+    in general, wrong HERE, and the distinction is the whole point. For a two-reserve AMM inventory
+    imbalance and book imbalance ARE the same object: there is no separate book, the reserves ARE the
+    resting liquidity and `(x,y)` fixes the quote at every price on both sides. So the identity is
+    real — it just does not hold for BOTH of our sides.
+  * OUR ASK SIDE satisfies it: we can only hand over volatile we hold, so `V` is genuine depth and
+    the CP reading is correct on the drain leg.
+    OUR BID SIDE does not: the dollars are MINTED AGAINST THE BASKET, so `D` is an accumulator, not
+    the constraint. There is no reserve there for a book statistic to measure.
   * The tell was already in this repo: our sell side is **not bounded by `D`** — the dollars paid out
     are MINTED AGAINST THE BASKET, not drawn from `POOLED_USD_*`. That is the exact asymmetry that
     broke the mirrored sell leg. So our "bid depth" is not `D`, and no CP-against-`D` reading applies.
