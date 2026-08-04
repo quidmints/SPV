@@ -656,7 +656,7 @@ contract Aux is // Auxiliary
     ///        at the wrong size is a quote for a different trade. Pass 0 for the pure
     ///        settlement-risk floor — what an infinitesimal trade pays, and the only size-free part.
     function wellSkew(address asset, uint outUsd) public view returns (uint) {
-        return SwapLib.wellSkew(address(CORE), address(this), asset, 0, asset == address(WBTC), outUsd);
+        return SwapLib.wellSkew(address(CORE), getTWAPforAsset(asset, 1800), asset == address(WBTC), outUsd);
     }
 
     /// @notice The flat swap fee (V4 pool tier, parts-per-million — 420 = 0.042%) every

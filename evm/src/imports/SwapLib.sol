@@ -455,8 +455,13 @@ library SwapLib {
             // Scale the volatile input DOWN by the premium ⇒ less USD credited out; the
             // withheld input stays as basket backing (same mechanism as the drain leg).
             {
-                r.px = _priceOr(v4p, address(aux), r.asset);
-                uint skew = sellSkew(c.core, address(aux), v4p, isBTC, r); // inline (swapToBody stack-tight): r is ONE memory pointer carrying asset+amount, which costs less stack than passing both
+                r.px = _priceMax(v4p, address(aux), r.asset);   // TWO-PRICE max: see _priceMax. Assigned to the
+                // SwapReq MEMORY FIELD rather than passed inline — an extra argument expression at this
+                // call site is stack-too-deep (measured), and a memory field costs no stack slot.
+                // NOTE: this also becomes the price `retainSkewPremium` records the premium in. The
+                // premium AMOUNT is unchanged (r.amount·skew); only its USD *recording* shifts by the
+                // max-vs-oracle gap, which is zero whenever one source is absent.
+                uint skew = sellSkew(c.core, r.px, isBTC, r.amount); // inline (swapToBody stack-tight)
                 retainSkewPremium(c.core, isBTC, r, skew, true);   // NATIVE volatile input ⇒ convert   // mutates r.amount; r.px declares NATIVE
             }
         } else { max = isBTC ? ICore(c.core).POOLED_BTC() : ICore(c.core).POOLED_ETH();
@@ -478,8 +483,13 @@ library SwapLib {
             // out less volatile; the withheld input stays as backing. The swap still executes at
             // the honest oracle (v4p) through routeSwap ⇒ no manip-guard exemption.
             {
-                r.px = _priceOr(v4p, address(aux), r.asset);
-                uint skew = wellSkew(c.core, address(aux), v4p, isBTC, r); // inline (swapToBody stack-tight): r is ONE memory pointer carrying asset+amount (the 6-dec USD driving the drain)
+                r.px = _priceMax(v4p, address(aux), r.asset);   // TWO-PRICE max: see _priceMax. Assigned to the
+                // SwapReq MEMORY FIELD rather than passed inline — an extra argument expression at this
+                // call site is stack-too-deep (measured), and a memory field costs no stack slot.
+                // NOTE: this also becomes the price `retainSkewPremium` records the premium in. The
+                // premium AMOUNT is unchanged (r.amount·skew); only its USD *recording* shifts by the
+                // max-vs-oracle gap, which is zero whenever one source is absent.
+                uint skew = wellSkew(c.core, r.px, isBTC, r.amount); // inline (swapToBody stack-tight)
                 retainSkewPremium(c.core, isBTC, r, skew, false);  // buy-driving USD ⇒ already 6-dec   // mutates r.amount; r.px declares NATIVE
             }
         }
@@ -1063,10 +1073,10 @@ library SwapLib {
     ///      dollars it pays out are minted against the basket, not drawn from a finite reserve — so
     ///      it is derived separately rather than mirrored. Assuming that symmetry is what broke the
     ///      2026-08-04 run: an ordinary in-range sell priced at the ceiling.
-    function wellSkew(address core, address aux, address asset, uint v4p, bool isBTC, uint outUsd)
+    function wellSkew(address core, uint baseMax, bool isBTC, uint outUsd)
         public view returns (uint)
     {
-        (uint poolVolUsd, uint lockedUsd) = _skewBasis(core, _priceMax(v4p, aux, asset), isBTC, 0);
+        (uint poolVolUsd, uint lockedUsd) = _skewBasis(core, baseMax, isBTC, 0);
         // UNIFORM sats/wei → 6-dec USD: `poolVol · base / 1e30`. Authoritative (NOT
         // BasketLib.convert, which now uses the SAME flat scale (the /1e8 variant over-valued
         // 8-dec BTC by 1e10 and was removed) —
@@ -1085,13 +1095,6 @@ library SwapLib {
         inv = inv > committed ? inv - committed : 0;
         return skewWad(outUsd, inv, ICore(core).realizedVarianceWad(isBTC), isBTC);
     }
-
-    /// @dev Call-site form: one `SwapReq` memory POINTER carries both `asset` and `amount`, which
-    ///      costs less stack than passing the two values — the repo's standard answer to
-    ///      stack-too-deep, and the reason `via_ir` stays off.
-    function wellSkew(address core, address aux, uint v4p, bool isBTC, SwapReq memory r)
-        internal view returns (uint)
-    { return wellSkew(core, aux, r.asset, v4p, isBTC, r.amount); }
 
     /// @notice THE SELL LEG (volatile IN, dollars out), derived on its own terms rather than
     ///         mirrored off the drain. `addedTok` is the volatile just deposited — POOLED is not yet
@@ -1123,20 +1126,15 @@ library SwapLib {
     ///         already-heavy pool pays in full. This is the same 1:1-value objective the drain leg
     ///         enforces, expressed for the side where the constraint is inventory RISK rather than
     ///         inventory AVAILABILITY.
-    function sellSkew(address core, address aux, uint v4p, bool isBTC, SwapReq memory r)
+    function sellSkew(address core, uint baseMax, bool isBTC, uint addedTok)
         internal view returns (uint)
-    { return sellSkew(core, aux, r.asset, v4p, isBTC, r.amount); }
-
-    function sellSkew(address core, address aux, address asset, uint v4p, bool isBTC, uint addedTok)
-        private view returns (uint)
     {
         uint a;                                   // USD value of the volatile arriving
         uint v;                                   // V: deliverable volatile, USD
         {
-            uint base = _priceMax(v4p, aux, asset);
-            (uint poolVolUsd, uint locked) = _skewBasis(core, base, isBTC, 0);
+            (uint poolVolUsd, uint locked) = _skewBasis(core, baseMax, isBTC, 0);
             v = poolVolUsd > locked ? poolVolUsd - locked : 0;
-            a = FullMath.mulDiv(addedTok, base, 1e30);
+            a = FullMath.mulDiv(addedTok, baseMax, 1e30);
         }
         uint d = isBTC ? ICore(core).POOLED_USD_BTC() : ICore(core).POOLED_USD_ETH();
         // surplusCreated = clamp(S + a, 0, a) with S = (V−D)/2, kept in unsigned arithmetic:
@@ -1202,7 +1200,7 @@ library SwapLib {
         // `amount` here is ALREADY 6-dec USD (scaleTo6 in _swapOutPrep), so px=0 declares "no conversion":
         // this leg's recorded premium was always in the right unit and stays that way.
         SwapReq memory sr; sr.amount = amount; sr.px = 0; sr.asset = wbtc;
-        retainSkewPremium(core, true, sr, wellSkew(core, aux, v4p, true, sr), false);  // audit + RFQ-drawable
+        retainSkewPremium(core, true, sr, wellSkew(core, _priceMax(v4p, aux, wbtc), true, amount), false);  // audit + RFQ-drawable
         amount = sr.amount;
         rp.amount    = amount;                               // reduced buy drives the fill
         rp.recipient = address(this);                       // obligation → pool; LN delivers
