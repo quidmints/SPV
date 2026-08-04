@@ -842,15 +842,12 @@ library SwapLib {
     // unit-correct anchor. Γ folds the risk-aversion γ and the horizon (T−t) into ONE
     // coefficient (the horizon is already carried by the FLOW_DECAY-smoothed flow/scarcity),
     // fixed so skew(q=1, σ²=SIGMA_REF)=Γ·SIGMA_REF=MAX_WELL_SKEW.
-    uint internal constant SIGMA_REF = 1e18;                                 // reference σ² (100% ann. vol)
-    uint internal constant GAMMA_WAD = MAX_WELL_SKEW * 1e18 / SIGMA_REF;     // Γ = γ·(T−t) folded ⇒ 3e16
     // STABLENESS = ρ, the DEPLETION-BARRIER ORDER (derived, NOT a fit exponent). The skew is
     // Γ·σ²·q / (1−q)^ρ: the A-S linear reservation premium Γσ²q amplified by the shadow price of the
     // last inventory units. Derived from the HJB with a HARD inv≥0 constraint — a −log(inv) barrier
     // (the LP physically cannot serve at inv=0) whose marginal ∝ 1/inv makes depletion convexly
     // costly. ρ=1 = the log-barrier (constraint exactly at inv=0); ρ=0 recovers plain linear A-S;
     // ρ>1 = a harder barrier. Calculus-derived — the one parameter is a barrier order, not a curve fit.
-    uint internal constant STABLENESS = 1;
     // Volatile band half-width, in bps of price (paddedSqrtPrice reads it as (10000±delta)/10000).
     // THIN band (±0.2%). Vogue SERVES swaps and RESEATS, so it can't go to a literal one-tick like a static
     // Rover position: at delta=10 the reseat re-add (updateTicks(targetSqrt,10)) collapses lower==upper and V4
@@ -929,16 +926,22 @@ library SwapLib {
         // DEPLETION-BARRIER skew = Γ·σ²·q / (1−q)^ρ, ρ = STABLENESS (see the constant's derivation):
         // the A-S linear premium Γσ²q amplified by the log-barrier shadow price 1/(1−q)^ρ of the last
         // inventory units. Blows up convexly as inv→0 (oneMinusQ→0), bounded by the cap below.
-        uint skewRaw;
+        // DEPLETION-BARRIER skew = Γ·σ²·q/(1−q). Written out rather than parameterised, because
+        // NEITHER Γ NOR ρ WAS EVER AN INDEPENDENT DIAL (proved 2026-08-04, arithmetic unchanged):
+        //   ρ (STABLENESS) was 1, so `for (i = 1; i < 1; ...)` NEVER EXECUTED — dead code, and the
+        //     barrier is a SIMPLE POLE q/(1−q), which is what A&S §2.3's infinite-horizon reservation
+        //     price derives anyway (exponent fixed at 1 by the CARA value function, not fitted).
+        //   Γ (GAMMA_WAD) was `MAX_WELL_SKEW·1e18/SIGMA_REF` with SIGMA_REF = 1e18, i.e. Γ ≡
+        //     MAX_WELL_SKEW EXACTLY. It was the cap under a second name — defined so that
+        //     skew(q=1, σ²=1e18) lands on the cap, which makes it a restatement, not a choice.
+        // So the whole curve has ONE number in it, the cap, and it appears twice. Three constants
+        // deleted with byte-identical behaviour: SIGMA_REF, GAMMA_WAD, STABLENESS.
         if (oneMinusQ == 0) {
-            skewRaw = type(uint).max;                     // inv=0 ⇒ barrier → ∞ ⇒ pinned to the cap
+            skew = type(uint).max;                        // inv=0 ⇒ pole → ∞ ⇒ pinned to the cap
         } else {
-            uint denom = oneMinusQ;                       // (1−q)^ρ
-            for (uint i = 1; i < STABLENESS; ++i) denom = FullMath.mulDiv(denom, oneMinusQ, 1e18);
-            uint qBar = FullMath.mulDiv(q, 1e18, denom);  // q / (1−q)^ρ  (= q for ρ=0, q/(1−q) for ρ=1)
-            skewRaw = FullMath.mulDiv(FullMath.mulDiv(GAMMA_WAD, sigmaSqWad, 1e18), qBar, 1e18);
+            uint qBar = FullMath.mulDiv(q, 1e18, oneMinusQ);          // q/(1−q), the simple pole
+            skew = FullMath.mulDiv(FullMath.mulDiv(MAX_WELL_SKEW, sigmaSqWad, 1e18), qBar, 1e18);
         }
-        skew = skewRaw;
         // DYNAMIC cap = the live MM refill cost (σ over the confirmation window), never above
         // the MAX_WELL_SKEW abs ceiling. Replaces the fixed 3% clamp: in calm markets the cap
         // binds LOWER (don't overpay a cheap refill), in high vol it rises toward 3%.
