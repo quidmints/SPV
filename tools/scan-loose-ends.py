@@ -85,7 +85,16 @@ FAMILIES = OrderedDict([
     ("ABSENCE",     r"\b(no test|never (?:run|tested|verified|executed)|untested|unexercised|nothing (?:covers|tests))\b"),
     ("DECISION",    r"\b(your call|up to you|decide|decision (?:needed|for you)|which (?:do you|would you))\b"),
     ("RISK",        r"\b(risk\w*|danger\w*|footgun|armed|hazard|could break|blast radius)\b"),
-    ("UNVERIFIED",  r"\b(unverified|assum\w+|I think|probably|should be|believe|likely)\b"),
+    # ⚠️ The first-person hedges below were added 2026-08-04. The original list caught the
+    #    IMPERSONAL forms ("probably", "likely") but not the ones a reply actually uses to
+    #    disclaim its own confidence — "I am not sure", "I could be wrong". Those are the
+    #    sentences where the writer KNOWS the claim is soft, so they are the highest-value
+    #    hits in the whole scan, and every one of them was invisible.
+    ("UNVERIFIED",  r"\b(unverified|assum\w+|I think|probably|should be|believe|likely|"
+                    r"(?:I am|I'?m|we are|we'?re) not (?:sure|certain|confident)|not confident|"
+                    r"(?:I|we|this) (?:could|may|might) be wrong|pending verification|"
+                    r"left as an exercise|no(?:t)? (?:hard )?evidence (?:for|that)|"
+                    r"taking (?:it|this|that) on faith|reasoned, not (?:tested|measured))\b"),
     ("OUGHTTO",     r"\b(should (?:be|have|probably)|ought to|would be better|ideally)\b"),
     ("SECURITY",    r"\b(secret|token|key|credential|rotate|leak\w*|plaintext|exposed)\b"),
     # ── added 2026-08-02: nine was NOT exhaustive. Each of these named a real class the
@@ -111,6 +120,22 @@ FAMILIES = OrderedDict([
                     r"act on)|unverified|hypothesis, not)\b"),
     ("REGRESSION",  r"\b(re[- ]?introduc\w+|regress\w+|came back|broke again|un[- ]?fix\w*|"
                     r"stale|outdated|drift\w*|no longer (?:true|matches))\b"),
+    # Added 2026-08-04 — the PROMISED CHECK. Distinct from DEFERRED ("later", "next pass"), which
+    # postpones work with no commitment, and from UNKNOWN ("open question"), which admits ignorance
+    # without naming a next move. This frame NAMES A SPECIFIC CHECK and implies it is about to
+    # happen — "that's the next thing to check, and it's short" — which is precisely why it never
+    # gets booked: it reads as already-in-hand, so it is not written down, and then the context
+    # window ends. Four such promises were made in one session; ONE was never performed (whether the
+    # legacy repo's own Rover.sol handles the case differently — it exists, 537 lines, never read).
+    # The tell is the future tense on a verb of verification. If a scan hits this family, the only
+    # acceptable answers are "checked, here is the result" or a booked task — never silence.
+    ("PROMISED CHECK",
+                    r"\b(?:(?:next|first|last|other) thing to check|thing to check (?:is|next)|"
+                    r"next to check|(?:need|want|going|have) to (?:check|confirm|verify|measure|"
+                    r"read|look at)|(?:I'?ll|I will|let me|we'?ll|we will) (?:check|confirm|verify|"
+                    r"measure|read|look|test|run|diff|trace)|should be checked|worth checking|"
+                    r"remains? to (?:be )?(?:checked|verified|confirmed)|before I (?:can|could) say|"
+                    r"(?:that|this) (?:is|would be) (?:the |a )?(?:quick|short|cheap|easy) (?:check|test))\b"),
 ])
 
 # Failure signatures that only ever appear in TOOL OUTPUT — never in prose.
