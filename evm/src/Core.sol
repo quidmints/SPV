@@ -176,6 +176,17 @@ contract Core is SafeCallback {
     struct Flow { uint128 vol; uint64 ts; }   // vol: 6-dec USD EWMA · ts: last touch
     Flow internal _flowBTC;
     Flow internal _flowETH;
+    /// @notice §E55 — the SLOW half of the adaptive flow estimate. Same `Flow` shape, same
+    ///         `FLOW_DECAY`, decayed at 1/`FLOW_SLOW_N` the rate ⇒ an N× longer half-life with
+    ///         **NO THIRD DECAY CONSTANT** (this file already warns that one would be "an
+    ///         unjustified magic number"). Only an integer ratio is added.
+    Flow internal _flowSlowBTC;
+    Flow internal _flowSlowETH;
+    /// @dev The slow register's half-life as a MULTIPLE of the fast one (48h × 7 ≈ 14 days). Its
+    ///      exact value is deliberately NOT load-bearing: `flowEwmaUsd` takes the MIN of the two,
+    ///      so the slow leg acts only as a CEILING. Being roughly right is enough, and erring LONG
+    ///      is safe — which is the property a single fitted half-life does not have.
+    uint internal constant FLOW_SLOW_N = 7;
     uint internal constant FLOW_DECAY   = 999759352855809024; // per-min → 48h half-life (0.5^(1/2880)). The well's flow-EWMA / inventory-skew target wants a wide, manipulation-resistant memory. (The Aux redeem-fee `baseRate`, a separate 12h register, was REMOVED — QU!D has no peg-arb loop; this 48h flow decay is unrelated and stays.)
     uint internal constant FLOW_MAX_MIN = 525600000;          // decay-exponent cap (Liquity)
 
@@ -192,8 +203,14 @@ contract Core is SafeCallback {
     /// @dev ONE decay implementation, shared by both EWMA registers (was duplicated between
     ///      `_bumpFlow` and `flowEwmaUsd`). Decay the stored value over elapsed whole minutes.
     function _decayed(Flow storage f) internal view returns (uint) {
+        return _decayedBy(f, 1);
+    }
+
+    /// @dev `slowN`-fold slower decay: the SAME curve evaluated over `mins/slowN`, so the half-life
+    ///      is `slowN ×` the fast one. One decay implementation, one constant, an integer ratio.
+    function _decayedBy(Flow storage f, uint slowN) internal view returns (uint) {
         if (f.ts == 0) return f.vol;
-        uint mins = (block.timestamp - f.ts) / 60;
+        uint mins = (block.timestamp - f.ts) / 60 / slowN;
         return Math.mulDiv(f.vol, FeeLib.decPow(FLOW_DECAY, mins, FLOW_MAX_MIN), 1e18);
     }
 
@@ -207,13 +224,24 @@ contract Core is SafeCallback {
     /// @notice Fold a swap's USD notional into this pool's flow EWMA. Called only from _handleSwap.
     function _bumpFlow(bool isBTC, uint usd6) internal {
         _bumpEwma(isBTC ? _flowBTC : _flowETH, usd6);
+        _bumpEwma(isBTC ? _flowSlowBTC : _flowSlowETH, usd6);   // §E55: the slow leg sees the same flow
     }
 
     /// @notice This pool's decayed swap-flow EWMA (6-dec USD) — the adaptive
     ///         normal-flow buffer the skew target is built on. Pure decay of the stored
     ///         register to now; NO governance constant.
+    /// §E55 — ADAPTIVE, AND THE ADAPTIVITY IS IN THE `min`, NOT IN A TUNED DECAY. A single fitted
+    /// half-life is a guess: too fast and the estimator tracks the noise it was built to resist, too
+    /// slow and it misses a regime change. Taking the MIN of a fast and a slow register is
+    /// self-correcting in the direction that matters — when flow COLLAPSES the fast leg drops at
+    /// once and we price the scarcity immediately (conservative); when flow SPIKES the slow leg
+    /// lags, so **a transient burst is never mistaken for durable shed capacity** until it persists.
+    /// It is also manipulation-resistant by construction: lifting this number requires sustaining
+    /// fake flow across the SLOW window, not one block. (Same shape as `min-of-two-prices`.)
     function flowEwmaUsd(bool isBTC) public view returns (uint) {
-        return _decayed(isBTC ? _flowBTC : _flowETH);
+        uint fast = _decayed(isBTC ? _flowBTC : _flowETH);
+        uint slow = _decayedBy(isBTC ? _flowSlowBTC : _flowSlowETH, FLOW_SLOW_N);
+        return fast < slow ? fast : slow;
     }
 
     /// @notice This pool's decayed RETAINED-PREMIUM EWMA (6-dec USD) — the band's realized
