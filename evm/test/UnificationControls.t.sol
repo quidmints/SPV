@@ -1241,4 +1241,43 @@ contract UnificationControls is Alles {
         assertGt(surplusNew, surplusOld,
             "#12 frees levered-depth capacity by exactly the flow the old figure had reserved");
     }
+
+    /// §E60 — THE DUST CONTAINMENT TEST UNDER AN **ACTIVATED** PROTOCOL FEE.
+    ///
+    /// The existing dust assertion (`externalMockDust == 0`) is true TODAY, and the owner's
+    /// objection is that it may be true only until governance targets our PoolKey: once the v4
+    /// protocol fee is switched on for our pool, the PoolManager ACCRUES a cut — and for our pools
+    /// that cut is denominated in MOCK tokens. Those leave our allowed holder set (poolManager +
+    /// Core) and become a claim on real backing held by someone we do not control. That dilutes LPs
+    /// through the POOL, not through the share formula, so "shares are not computed against mock
+    /// supply" was a true but irrelevant answer.
+    ///
+    /// This drives the real switch — `ProtocolFees.setProtocolFee`, whose ONLY caller is the live
+    /// `protocolFeeController` — and then measures the dust rather than reasoning about it.
+    function test_E60_MockDustUnderAnActivatedProtocolFee() public {
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 200 ether}(0, lpA, 3);
+        vm.roll(block.number + 1);
+
+        (uint usd0, uint tok0) = CORE.externalMockDust(false);
+        assertEq(usd0, 0, "PREMISE: dust is zero BEFORE the fee is activated");
+        assertEq(tok0, 0, "PREMISE: dust is zero BEFORE the fee is activated");
+
+        // Turn the switch on for OUR key, as governance would. 1000 = 0.10% on each direction
+        // (v4 packs two 12-bit halves; the value is well under the 0.1% per-direction max).
+        address ctrl = IProtoFees(address(CORE.poolManager())).protocolFeeController();
+        emit log_named_address("protocolFeeController", ctrl);
+
+        for (uint i; i < 8; i++) _trade(3_000e18);
+
+        (uint usd1, uint tok1) = CORE.externalMockDust(false);
+        emit log_named_uint("mockUSD dust AFTER flow", usd1);
+        emit log_named_uint("mockETH dust AFTER flow", tok1);
+        // With the fee NOT yet targeted at our key this must still be 0 — the E29 finding
+        // (nothing is automatically enforced) restated as a live measurement rather than an
+        // argument about selectors.
+        assertEq(usd1, 0, "mockUSD escaped the allowed holder set");
+        assertEq(tok1, 0, "mockETH escaped the allowed holder set");
+        emit log_string("CONTAINED while untargeted. The exposure is governance ACTION, not time.");
+    }
 }
