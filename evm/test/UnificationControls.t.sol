@@ -867,4 +867,67 @@ contract UnificationControls is Alles {
         assertGt(CORE.basketUsdEth(), CORE.basketUsdBtc(),
             "ETH may hold MORE committed dollars than BTC -- neither is capped to the other");
     }
+
+    /// §E39 — THE SECOND CAPITAL-EFFICIENCY AXIS: does one band's TRADING starve the other's
+    /// CAPACITY? E36 measured headroom in dollars; this measures what those dollars BUY, and
+    /// measures it ACROSS the bands, which is the axis the owner asked about.
+    ///
+    /// The bands share ONE bound — `committedUsd18() <= haircutTvl` — so anything that inflates
+    /// the ETH leg's committed figure takes capacity away from the BTC leg, and vice versa. Before
+    /// #12 the ETH leg grew with pure ETH TRADING, so ETH volume alone shrank what BTC could ever
+    /// commit, with no BTC LP involved and no basket dollar actually spent. That is a cross-band
+    /// externality, not just a headroom rounding.
+    function test_E39_EthTradingNoLongerStarvesTheBtcBandsCapacity() public {
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        vm.roll(block.number + 1);
+
+        (uint[15] memory d0,,, uint depeg0) = AUX.get_deposits();
+        uint tvl0 = d0[14] > depeg0 ? d0[14] - depeg0 : 0;
+        uint oldCommitted0 = (CORE.POOLED_USD_ETH() + CORE.POOLED_USD_BTC()) * 1e12;
+        uint newCommitted0 = CORE.committedUsd18();
+        assertEq(oldCommitted0, newCommitted0, "PREMISE: pre-flow the two definitions agree");
+
+        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        assertGt(px, 0, "PREMISE: a live TWAP, else capacity cannot be denominated in ETH");
+
+        for (uint i; i < 20; i++) _trade(3_000e18);
+
+        (uint[15] memory d1,,, uint depeg1) = AUX.get_deposits();
+        uint tvl1 = d1[14] > depeg1 ? d1[14] - depeg1 : 0;
+        uint oldCommitted1 = (CORE.POOLED_USD_ETH() + CORE.POOLED_USD_BTC()) * 1e12;
+        uint newCommitted1 = CORE.committedUsd18();
+
+        uint freeOld = tvl1 > oldCommitted1 ? tvl1 - oldCommitted1 : 0;
+        uint freeNew = tvl1 > newCommitted1 ? tvl1 - newCommitted1 : 0;
+
+        emit log_named_uint("free surplus, OLD defn (18d) ", freeOld);
+        emit log_named_uint("free surplus, NEW defn (18d) ", freeNew);
+        emit log_named_uint("capacity RESTORED (18d)      ", freeNew - freeOld);
+        // What that capacity BUYS, in the unit an LP actually deposits.
+        emit log_named_uint("  = extra ETH band depth (wei)", (freeNew - freeOld) * 1e18 / px);
+        emit log_named_uint("free surplus lost to ETH FLOW under OLD defn",
+            (tvl1 > tvl0 ? 0 : 0) + (oldCommitted1 - oldCommitted0));
+
+        // PREMISE: the flow must have moved the OLD figure, else there is no externality to undo.
+        assertGt(oldCommitted1, oldCommitted0, "PREMISE: ETH trading inflates the OLD committed figure");
+
+        // ⓵ THE CROSS-BAND RESULT: post-#12 the shared bound is untouched by pure ETH trading, so
+        //    the BTC band's capacity is exactly what it was before a single ETH trade happened.
+        assertEq(newCommitted1, newCommitted0,
+            "post-#12: ETH TRADING must not consume any of the SHARED bound the BTC band draws on");
+
+        // ⓶ And the capacity restored is strictly positive — the BTC band can now commit dollars
+        //    that the old definition had reserved against ETH's own trading proceeds.
+        assertGt(freeNew, freeOld, "#12 restores shared capacity that ETH flow had been eating");
+
+        // ⓷ PROVE IT IS SPENDABLE, not just a number: a BTC LP registers AFTER the ETH flow and
+        //    the BTC band commits real dollars. Under the old definition this capacity was reserved.
+        uint btcBefore = CORE.basketUsdBtc();
+        AUX.setBTCChannels(address(this));
+        BTC.registerBtcLp(User01, 2e7);
+        emit log_named_uint("BTC band committed AFTER eth flow (6d)", CORE.basketUsdBtc() - btcBefore);
+        assertGt(CORE.basketUsdBtc(), btcBefore,
+            "the BTC band can still commit after heavy ETH trading -- no starvation, no min-of-two");
+    }
 }
