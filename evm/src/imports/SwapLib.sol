@@ -774,6 +774,25 @@ library SwapLib {
         // window. CAP_SAFETY (=2) was a 2σ WORST-CASE multiple — a risk-aversion choice, i.e. γ under
         // another name, and the only reason a BTC swap capped near 127bps rather than its measured
         // expected cost. The /8 is constant-product geometry, derived; the window is chain physics.
+        // §E59 — UNKNOWN VARIANCE MUST NOT PRICE AS ZERO VARIANCE.
+        //
+        // `sigmaSqWad == 0` is overwhelmingly the "we could not measure it" sentinel, not a reading
+        // of a genuinely still market: `realizedVarianceWad` samples `observe` on a WALL-CLOCK grid
+        // while the observation ring only advances ON A SWAP, and `observe` LINEARLY INTERPOLATES
+        // between stored points — so any stretch quieter than the sample interval has zero second
+        // difference and yields EXACTLY 0. MEASURED: a drain that took POOLED_ETH from 400 to
+        // 0.00097 ETH — a total inventory wipe — reported variance 0.
+        //
+        // Feeding that 0 through the formula gave `cap = 0` on ETH (which, unlike BTC, has no
+        // SPLICE_FLOOR), and a zero cap means **a fully drained band charges NOTHING at maximum
+        // scarcity** — the crisis case priced at free. Returning the HARD CEILING instead is the
+        // conservative reading of "unknown", and it needs no new constant: MAX_WELL_SKEW already
+        // exists for exactly this role. A genuinely calm market reports a SMALL NON-ZERO variance
+        // and still caps low; only the unmeasured case is treated as dangerous.
+        //
+        // This is the third instance of one lesson (cf. E56 dead-vs-new, E59): a sentinel that
+        // means "no data" must never be consumed as if it meant "none of the thing".
+        if (sigmaSqWad == 0) return MAX_WELL_SKEW;
         uint cap = FullMath.mulDiv(sigmaSqWad, confFrac, 8e18) + (isBTC ? SPLICE_FLOOR : 0);
         return cap < MAX_WELL_SKEW ? cap : MAX_WELL_SKEW;
     }
@@ -842,6 +861,14 @@ library SwapLib {
         //     skew(q=1, σ²=1e18) lands on the cap, which makes it a restatement, not a choice.
         // So the whole curve has ONE number in it, the cap, and it appears twice. Three constants
         // deleted with byte-identical behaviour: SIGMA_REF, GAMMA_WAD, STABLENESS.
+        // §E59 (part 2) — THE CAP FIX ALONE WAS NOT ENOUGH: σ² ZEROES THE KERNEL TOO.
+        // `skew = Γ·σ²·qBar` is 0 whenever σ² is 0, no matter how scarce the band is, so flooring
+        // only `_maxWellSkew` left a drained band still charging nothing (MEASURED: the fix went in,
+        // `wellSkew` stayed 0 at inv/target = 0). σ² gates the curve in TWO places and both had to
+        // be answered. Here: real scarcity (q > 0) plus UNMEASURED variance ⇒ charge the ceiling.
+        // That is the conservative reading of "unknown" and it is consistent with the cap's, so the
+        // two consumers of the sentinel can no longer disagree.
+        if (sigmaSqWad == 0) return _maxWellSkew(0, isBTC);
         if (oneMinusQ == 0) {
             skew = type(uint).max;                        // inv=0 ⇒ pole → ∞ ⇒ pinned to the cap
         } else {
@@ -1030,6 +1057,9 @@ library SwapLib {
         // assets, two different returns; I imported the number because it was conveniently in-system,
         // not because it measured the quantity. Same error as valuing the USD increment at the band's
         // leg ratio (§E28): a number that is *available* is not thereby the *right* one.
+        // §E59: same σ²-zeroes-the-kernel hole as the drain leg — an UNMEASURED variance must not
+        // price an inventory-increasing sell at nothing. Scarcity is real (q > 0) by this point.
+        if (sigmaSqWad == 0) return _maxWellSkew(0, isBTC);
         uint skew = FullMath.mulDiv(
             FullMath.mulDiv(MAX_WELL_SKEW, sigmaSqWad, 1e18), q, 1e18);
         // §E53: the SAME shared-scarcity amplifier the drain leg carries — a sell that grows our
