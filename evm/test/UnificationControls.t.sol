@@ -810,4 +810,61 @@ contract UnificationControls is Alles {
         emit log_named_int ("delivered - claim ", int(gotUsd) - int(claimUsd));
         emit log_named_uint("pooled left       ", V4.balanceOf(lpA));
     }
+
+    /// §E36 — DID #12 ACTUALLY BUY CAPITAL EFFICIENCY? Measure it, do not argue it.
+    ///
+    /// The backing gate is `committedUsd18() <= haircutTvl`. Before #12 the committed figure was
+    /// built from `POOLED_USD_*`, the CURVE INVENTORY — which GROWS every time the band sells its
+    /// volatile leg for dollars. Those dollars are the LP's trading proceeds; the BASKET never
+    /// supplied them. Counting them consumed headroom that did not exist, and the ceiling is not
+    /// small: a band that has rotated fully into USD would show roughly DOUBLE the basket's real
+    /// contribution (the basket's half plus the LP's half, now also denominated in USD).
+    ///
+    /// After #12 the figure is built from `basketUsd*`, which moves ONLY when the basket adds or
+    /// removes depth. This test runs real flow and asserts the OLD definition is strictly worse.
+    function test_E36_CommittedNoLongerCountsDollarsTheBasketNeverSupplied() public {
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        vm.roll(block.number + 1);
+
+        uint oldBefore = CORE.POOLED_USD_ETH() + CORE.POOLED_USD_BTC();
+        uint newBefore = CORE.basketUsdEth() + CORE.basketUsdBtc();
+        // PREMISE: with no flow yet the two definitions must AGREE — every committed dollar so far
+        // came from the basket. If they differ here the fixture is not measuring what it claims.
+        assertEq(oldBefore, newBefore, "PREMISE: pre-flow, curve inventory == basket contribution");
+
+        for (uint i; i < 20; i++) _trade(3_000e18);
+
+        uint oldAfter = CORE.POOLED_USD_ETH() + CORE.POOLED_USD_BTC();
+        uint newAfter = CORE.basketUsdEth() + CORE.basketUsdBtc();
+        (uint[15] memory d,,, ) = AUX.get_deposits();
+        uint tvl = d[14];
+
+        emit log_named_uint("committed OLD defn (curve)  ", oldAfter);
+        emit log_named_uint("committed NEW defn (basket) ", newAfter);
+        emit log_named_uint("headroom FREED by #12 (6d)  ", oldAfter - newAfter);
+        emit log_named_uint("basket TVL (18d)            ", tvl);
+        emit log_named_uint("freed, bps of TVL           ", tvl == 0 ? 0
+            : (oldAfter - newAfter) * 1e12 * 10_000 / tvl);
+
+        // PREMISE: the flow must actually have moved the curve, else there is nothing to compare.
+        assertGt(oldAfter, oldBefore, "PREMISE: the trades must move the curve's USD inventory");
+
+        // THE RESULT: the basket's contribution is UNMOVED by pure trading, while the old figure
+        // grew by the whole net flow. Every dollar of that difference is headroom the old gate
+        // refused to lend against for no reason.
+        assertEq(newAfter, newBefore, "trading must NOT change what the BASKET committed");
+        assertGt(oldAfter, newAfter, "#12 frees exactly the flow-inflated dollars");
+
+        // AND THE SHARED BOUND IS A SUM, NOT A MINIMUM (the owner's concern, tested not asserted):
+        // committedUsd18 adds the two bands, so either may draw the whole free surplus while the
+        // other sits idle. A min- or share-capped design would show BTC's zero leg capping ETH.
+        // (Written first as `btc + (committed - btc)`, which is true of any two numbers and
+        //  therefore measures nothing. The real check computes the ETH leg INDEPENDENTLY.)
+        uint ethEquity = CORE.basketUsdEth() * 1e12;   // no ETH lev debt in this fixture
+        assertEq(CORE.committedUsd18(), ethEquity + CORE.btcBandEquityUsd18(),
+                 "committed is the SUM of the two bands, each derived on its own");
+        assertGt(CORE.basketUsdEth(), CORE.basketUsdBtc(),
+            "ETH may hold MORE committed dollars than BTC -- neither is capped to the other");
+    }
 }

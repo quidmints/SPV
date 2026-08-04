@@ -1019,7 +1019,13 @@ contract Core is SafeCallback {
     }
 
     /// @dev USD-leg of _handleDelta. delta>0 → take+burn; delta<0 → mint+settle and
-    ///      (in-range) pool it under the BTC share cap + the backing invariant.
+    ///      (in-range) pool it under the backing invariant.
+    ///      ⚠️ This used to say "under the BTC share cap" — a comment describing PAST state. The
+    ///      `btcShareBps` median-vote cap was REMOVED in §H (2026-07); see `SwapLib.sol:1304`.
+    ///      There is NO per-band cap and NO fixed ETH/BTC split: the ONLY shared bound is the SUM
+    ///      (`committedUsd18() <= haircutTvl`), so either band may draw the whole free surplus if
+    ///      the other is not using it. Neither side is limited to a share, still less to the
+    ///      MINIMUM of the two.
     function _settleUsdSide(BalanceDelta delta, bool inRange, bool keep,
         address who, address token, bool isBTC, bool basketLeg) private returns (uint usdAmount) {
         bool token1isTok = _t1(isBTC);
