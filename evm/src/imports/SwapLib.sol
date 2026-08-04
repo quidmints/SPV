@@ -1112,6 +1112,18 @@ library SwapLib {
             a = FullMath.mulDiv(addedTok, baseMax, 1e30);
         }
         uint d = isBTC ? ICore(core).POOLED_USD_BTC() : ICore(core).POOLED_USD_ETH();
+        // NET OUT UNSETTLED OBLIGATIONS — and this is where the "duration risk" actually belongs.
+        // The refill is ATTEMPTED atomically (flash), but an attempt is not a settlement: for vBTC
+        // the real coin still has to arrive over ~6 confirmations, and until it does the pool is
+        // uncovered RIGHT NOW. That is not a probability to model with a window constant — it is a
+        // STATE to read. An unsettled obligation is dollars we do not have, so it shrinks the
+        // denominator and raises the skew convexly, automatically, exactly while the exposure is
+        // real, and relaxes the instant it settles. Charging every swap a fixed window premium
+        // over-priced the ones whose flash succeeded; charging nothing under-priced the ones whose
+        // flash did not. Core.sol:160 already states this rule for the draw path — "draw at most the
+        // FREE reserve POOLED_USD_BTC - pendingSwapOutUsd" — so the skew was simply not honouring an
+        // invariant the rest of the contract already enforces.
+        if (isBTC) { uint pend = ICore(core).pendingSwapOutUsd(); d = d > pend ? d - pend : 0; }
         // surplusCreated = clamp(S + a, 0, a) with S = (V−D)/2, kept in unsigned arithmetic:
         // S + a > 0  ⇔  V + 2a > D.
         uint surplusCreated;
