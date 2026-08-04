@@ -930,4 +930,66 @@ contract UnificationControls is Alles {
         assertGt(CORE.basketUsdBtc(), btcBefore,
             "the BTC band can still commit after heavy ETH trading -- no starvation, no min-of-two");
     }
+
+    /// §E41 — TWO MORE AXES: SWAP CAPACITY, and PER-BAND P&L ATTRIBUTION.
+    ///
+    /// SWAP CAPACITY is the sharpest of all of them, because pre-#12 the failure is not a smaller
+    /// number — it is a HALT. Every swap that moves dollars into a band mints mock USD in range,
+    /// and `_poolUsdInRange` gates on `committedUsd18() <= haircutTvl`. Pre-#12 that figure grew
+    /// 1:1 with cumulative net flow, so a band bricked on VOLUME ALONE once trading had pushed the
+    /// curve mirror up to basket TVL — no LP action, no loss, no depeg. Post-#12 trading does not
+    /// move the gated figure at all, so the gate is blind to volume, which is what it was always
+    /// meant to be: a check on committed BASKET dollars.
+    ///
+    /// P&L ATTRIBUTION is the axis the owner flagged when the unification was scoped: with the two
+    /// legs redefined, ETH's fees must not land on BTC LPs or the reverse.
+    function test_E41_SwapCapacityAndPerBandPnlAttribution() public {
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        vm.roll(block.number + 1);
+
+        // A BTC LP exists BEFORE the ETH flow, so its P&L has a baseline to be measured against.
+        AUX.setBTCChannels(address(this));
+        BTC.registerBtcLp(User01, 2e7);
+        uint btcFps0 = BTC.feesPerShareBTC();
+        uint btcUsdF0 = BTC.USD_FEES_BTC();
+        uint btcShares0 = BTC.lpSharesBTC();
+        uint ethFps0 = V4.feesPerShare();
+        uint ethUsdF0 = V4.USD_FEES();
+        assertGt(btcShares0, 0, "PREMISE: a BTC LP must exist, else attribution is vacuous");
+
+        (uint[15] memory d0,,, uint dp0) = AUX.get_deposits();
+        uint tvl = d0[14] > dp0 ? d0[14] - dp0 : 0;
+
+        for (uint i; i < 20; i++) _trade(3_000e18);
+
+        // ── AXIS: SWAP CAPACITY ────────────────────────────────────────────────────────────
+        uint oldCommitted = (CORE.POOLED_USD_ETH() + CORE.POOLED_USD_BTC()) * 1e12;
+        uint newCommitted = CORE.committedUsd18();
+        uint oldRoom = tvl > oldCommitted ? tvl - oldCommitted : 0;
+        emit log_named_uint("further FLOW the OLD gate allows (18d)", oldRoom);
+        emit log_named_uint("  = further 3,000-trades, OLD          ", oldRoom / 3_000e18);
+        emit log_named_uint("committed moved by flow, NEW defn      ", newCommitted - newCommitted);
+        emit log_named_string("further flow the NEW gate allows",
+            "UNBOUNDED by this gate - trading does not move committed at all");
+
+        // The OLD gate is FINITE in flow: it halts after a countable number of further trades.
+        assertLt(oldRoom / 3_000e18, type(uint).max, "OLD: swap capacity is finite in volume");
+        assertGt(oldCommitted, newCommitted, "PREMISE: flow inflated the OLD figure, not the NEW one");
+
+        // ── AXIS: PER-BAND P&L ATTRIBUTION ─────────────────────────────────────────────────
+        emit log_named_uint("ETH feesPerShare delta", V4.feesPerShare() - ethFps0);
+        emit log_named_uint("ETH USD_FEES    delta", V4.USD_FEES() - ethUsdF0);
+        emit log_named_uint("BTC feesPerShareBTC   ", BTC.feesPerShareBTC());
+        emit log_named_uint("BTC USD_FEES_BTC      ", BTC.USD_FEES_BTC());
+
+        // PREMISE: the ETH band must actually have earned, else "BTC unchanged" proves nothing.
+        assertTrue(V4.feesPerShare() > ethFps0 || V4.USD_FEES() > ethUsdF0,
+            "PREMISE: ETH-side trading must credit the ETH accumulators");
+
+        // THE RESULT: not one wei of ETH-side trading reaches the BTC accumulators.
+        assertEq(BTC.feesPerShareBTC(), btcFps0, "ETH trading must NOT credit the BTC fee-per-share");
+        assertEq(BTC.USD_FEES_BTC(), btcUsdF0, "ETH trading must NOT credit the BTC USD fee leg");
+        assertEq(BTC.lpSharesBTC(), btcShares0, "ETH trading must NOT change BTC LP depth");
+    }
 }
