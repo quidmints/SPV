@@ -1044,9 +1044,31 @@ library SwapLib {
         // sell) ⇒ mirror<target ⇒ skewWad prices (inv−target)/target; inv>2·target
         // (extreme surplus) ⇒ mirror 0 ⇒ capped. Re-passed so skewWad's inner inv == mirror
         // (lockedUsd=committed, poolVolUsd=committed+mirror), target=flow+committed unchanged.
-        uint mirror = 2 * target > inv ? 2 * target - inv : 0;
-        return skewWad(committed + mirror, committed, committed, flow,
-            ICore(core).realizedVarianceWad(isBTC), isBTC);
+        // §E54 — THE ABUNDANT SIDE IS LINEAR. NO POLE, AND NO MIRROR.
+        //
+        // This used to reflect `inv` about `target` (`mirror = 2·target − inv`) purely to reuse
+        // `skewWad`. Reuse was the goal; the SINGULARITY came along with it. `skewWad`'s kernel is
+        // `Γσ²·q/(1−q)`, and that simple pole is A&S's infinite-horizon reservation price for the
+        // SCARCE side — it blows up because you can RUN OUT of inventory and the last unit is
+        // priceless. On the ABUNDANT side there is no such wall: YOU CANNOT RUN OUT OF SURPLUS.
+        // Mirroring imported a barrier with no referent, so an ordinary sell into a heavy pool was
+        // charged on a convex curve derived from a constraint it can never hit.
+        //
+        // What is left is the linear A-S term the pole was multiplying: `Γσ²·q`, with q the
+        // OVERSHOOT as a fraction of target — and `target = flow + committed`, so the denominator is
+        // FLOW. That is the derived basis (E54): the only real cost of taking volatile we did not
+        // want is that we must SHED it, shedding happens INTO FLOW, and the holding time is q/flow.
+        // A refill (inv ≤ target) stays exempt, exactly as the mirror's flush branch made it.
+        uint over = inv > target ? inv - target : 0;
+        if (over == 0) return 0;                          // refill / at-target ⇒ EXEMPT
+        uint q = FullMath.mulDiv(over, 1e18, target);
+        if (q > 1e18) q = 1e18;                           // ≥2× target: linear term saturates
+        uint sigmaSqWad = ICore(core).realizedVarianceWad(isBTC);
+        uint skew = FullMath.mulDiv(
+            FullMath.mulDiv(MAX_WELL_SKEW, sigmaSqWad, 1e18), q, 1e18);
+        // SAME dynamic cap as the drain leg — one ceiling, both legs (`_maxWellSkew`).
+        uint cap = _maxWellSkew(sigmaSqWad, isBTC);
+        return skew > cap ? cap : skew;
     }
 
     /// @notice Body of Aux.creditSwapOut — Swap-OUT (USD→BTC), the on-curve
