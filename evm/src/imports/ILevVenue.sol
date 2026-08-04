@@ -10,6 +10,10 @@ interface IERC20Min {
     function balanceOf(address) external view returns (uint256);
     function allowance(address owner, address spender) external view returns (uint256);
     function decimals() external view returns (uint8);
+    /// §E21: absorbed from `Core.IERC20Min`, which was a SECOND declaration of this same
+    /// name in a second file — the literal rule-2 violation. Core's dust sweep is the only
+    /// caller; adding the member here costs nothing (interfaces emit no runtime bytecode).
+    function totalSupply() external view returns (uint256);
 }
 /// §A.52: the ONE WETH view. Inherits `IERC20Min` so consumers needing balance/allowance/transfer
 /// do not each declare a private variant — `VogueLib::IWETH_VG` and `SwapLib::IWethDeposit` were both

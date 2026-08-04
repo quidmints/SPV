@@ -17,7 +17,7 @@ import {Types} from "./imports/Types.sol";
 import {Core} from "./Core.sol";
 import {Basket} from "./Basket.sol";
 import {Aux} from "./Aux.sol";
-import {ILevHost} from "./imports/Interfaces.sol";
+import {ILevHost, ILevEquity, ILevClose} from "./imports/Interfaces.sol";
 
 /// EthVenue — the ETH yield-venue custody (Galaxy/AAVE/ether.fi WETH) carved out
 /// of Aux. Vogue routes its WETH venue ops here. vogueETH() is still read via AUX
@@ -28,13 +28,6 @@ import {ILevHost} from "./imports/Interfaces.sol";
 /// at setup). `netEquityEth(lp)` is the LIVE net-of-debt equity the levered slice is sized to.
 // §4.2 / #109: force-close an LP's OWN in-band levered slice on band-exit (gated to the vogueSyncHook == this
 // Vogue). Repays debt + hands the freed collateral (LP's full residual) back to the LP. See §G.7.
-interface ILevClose  { function closeLevFor(address lp, uint256 minOut) external; }
-interface ILevEquityV {
-    function netEquityEth(address lp) external view returns (uint);   // coll − debt (band-backing, NET)
-    function grossCollateralEth(address lp) external view returns (uint); // full 2× collateral (band CAPACITY)
-    function debtUsd(address lp) external view returns (uint);        // the short-stable leg (buffer USD, 1e18)
-    function totalNetEquityEth() external view returns (uint);        // aggregate lev net-equity (excl from venue yield)
-}
 
 contract Vogue is
     Ownable, ReentrancyGuard {
@@ -779,7 +772,7 @@ contract Vogue is
 
     function _reconcileLev(address lp) internal {
         address lm = VogueLib.levManager(address(AUX));
-        uint gross = lm == address(0) ? 0 : ILevEquityV(lm).grossCollateralEth(lp);
+        uint gross = lm == address(0) ? 0 : ILevEquity(lm).grossCollateralEth(lp);
         // full-2×: reconcile band CAPACITY to the GROSS collateral. `levPooled` is the NET leg and `levBuf`
         // the debt-funded buffer, so the live gross depth is their sum. Skip only when the gross depth AND
         // the buffer-USD target are already in sync (nothing to do).
@@ -899,7 +892,7 @@ contract Vogue is
         uint total = EV.vogueOp(false, 0, 2, bytes32(0));   // vogueETH (all plain venues + lev net-equity)
         address lm = VogueLib.levManager(address(AUX));
         if (lm != address(0)) {
-            try ILevEquityV(lm).totalNetEquityEth() returns (uint n) { total = total > n ? total - n : 0; } catch {}
+            try ILevEquity(lm).totalNetEquityEth() returns (uint n) { total = total > n ? total - n : 0; } catch {}
         }
         return total;
     }
@@ -1336,7 +1329,7 @@ contract Vogue is
         address lm = VogueLib.levManager(address(AUX));
         if (lm == address(0)) return total;
         // GUARDED like every other lev read: a broken manager must not brick share pricing.
-        try ILevEquityV(lm).totalNetEquityEth() returns (uint live) {
+        try ILevEquity(lm).totalNetEquityEth() returns (uint live) {
             total = total > live ? total - live : 0;   // drop the LIVE term
             total += totalLevPooled;                   // restore the RECORDED one (denominator's clock)
         } catch {}

@@ -99,7 +99,12 @@ interface ILevEquity {
     function netEquityEth(address lp) external view returns (uint);
     function grossCollateralEth(address lp) external view returns (uint);
     function debtUsd(address lp) external view returns (uint);
+    function totalDebtUsd() external view returns (uint256);          // §E21: was Core.ILevDebtTotal
 }
+
+/// §E21: was `Vogue.ILevClose`. Kept as its own interface rather than folded into
+/// `ILevEquity` -- that one is a VIEW surface and this is a mutator.
+interface ILevClose { function closeLevFor(address lp, uint256 minOut) external; }
 
 /// Canonical ILevEquityBtc — the BTC mirror of ILevEquity (BtcLevManager's per-LP book).
 /// Union of the former `ILevEquityBtc` (Vault, all four) and `ILevBtc_V` (BtcVaultLib, the same set
@@ -112,6 +117,7 @@ interface ILevEquityBtc {
     function totalNetEquityBtc() external view returns (uint256);        // 8-dec sats
     function grossCollateralBtc(address lp) external view returns (uint256); // full-2× band CAPACITY (sats)
     function debtUsd(address lp) external view returns (uint256);        // 1e18 USD (short-stable leg)
+    function totalGrossCollateralBtc() external view returns (uint256); // §E21: was Core.ILevGrossBtc
 }
 
 /// Canonical ILevHost — union of ILevHost, ILevHost_VG.
@@ -206,6 +212,15 @@ interface IAux {
     function reserveIdOf(address token) external view returns (uint256);
     function _withdrawAaveUnsafe(uint256 reserveId, uint amount, address to) external returns (uint);
     function tryCheckBacking() external returns (uint committedSum, uint totalLiquid);
+    /// §E21 — absorbed from the three per-file restatements (`LevMath.IAuxM`,
+    /// `LevManager.ISwapAux`, `FeeLib.IAuxFee`). ⚠️ `sorSelfFundedReverse` takes FOUR
+    /// arguments; `ISwapAux` declared THREE. It was never called through that handle, so
+    /// the wrong selector never fired — which is exactly why a per-file restatement is
+    /// dangerous: it drifts silently and only breaks the first time someone uses it.
+    function redeem(uint amount) external;
+    function swap(address token, address asset, bool forVolatile, uint amount, uint minOut) external returns (uint);
+    function sorSelfFunded(address sourceAsset, uint amountIn, address output, uint minOut) external returns (uint);
+    function sorSelfFundedReverse(address sourceVol, address targetStable, uint amountIn, uint minOut) external returns (uint);
 }
 
 /// Canonical ICore — union of ICore_V, ICore_VG.

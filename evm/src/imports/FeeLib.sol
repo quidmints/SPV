@@ -5,7 +5,7 @@ pragma solidity ^0.8.28;
 import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
-import {IAggregatorV3} from "./Interfaces.sol";
+import {IAggregatorV3, IAux} from "./Interfaces.sol";
 
 interface IHook {
     function getDepegSeverityBps(address) external view returns (uint);
@@ -13,10 +13,6 @@ interface IHook {
 
 /// @notice Aux surface the multi-venue withdraw cluster (relocated from BasketLib)
 ///         calls back into via DELEGATECALL self-call (address(this)==Aux).
-interface IAuxFee {
-    function aaveBalance(address token) external view returns (uint);
-    function withdrawAaveLeg(address stable, uint amount, address to) external returns (uint);
-}
 
 
 /// @title  FeeLib — protocol fee model + depeg-aware haircut helpers
@@ -282,10 +278,10 @@ library FeeLib {
         external returns (uint sent) {
         if (vs.length == 1) {
             if (vs[0] == aaveSpoke) {
-                uint cap = IAuxFee(address(this)).aaveBalance(stable);
+                uint cap = IAux(address(this)).aaveBalance(stable);
                 if (cap == 0) return 0;
                 uint want = Math.min(amount, cap);
-                return IAuxFee(address(this)).withdrawAaveLeg(stable, want, to);
+                return IAux(address(this)).withdrawAaveLeg(stable, want, to);
             }
             uint shares = _shareCap(vs[0], amount);
             if (shares == 0) return 0;
@@ -298,7 +294,7 @@ library FeeLib {
             if (vs[j] == aaveSpoke) {
                 // Aave leg balance = our reserve-supplied (asset-denominated),
                 // the same read get_deposits/_valueStable uses.
-                bals[j] = IAuxFee(address(this)).aaveBalance(stable);
+                bals[j] = IAux(address(this)).aaveBalance(stable);
             } else {
                 // Reverting vault → bals[j]=0 → skipped in both passes below.
                 try IERC4626(vs[j]).balanceOf(address(this)) returns (uint sh) {
@@ -334,11 +330,11 @@ library FeeLib {
     function _withdrawLeg(address v, address aaveSpoke, address stable,
         uint want, address to) private returns (uint) {
         if (v == aaveSpoke) {
-            uint cap = IAuxFee(address(this)).aaveBalance(stable);
+            uint cap = IAux(address(this)).aaveBalance(stable);
             if (cap == 0) return 0;
             uint w = Math.min(want, cap);
             if (w == 0) return 0;
-            return IAuxFee(address(this)).withdrawAaveLeg(stable, w, to);
+            return IAux(address(this)).withdrawAaveLeg(stable, w, to);
         }
         uint shares = _shareCap(v, want);
         if (shares == 0) return 0;

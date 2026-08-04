@@ -4,25 +4,11 @@ pragma solidity ^0.8.28;
 import {LevMath} from "./imports/LevMath.sol";
 import {ILevVenue, IERC20Min, IWETH9} from "./imports/ILevVenue.sol";
 import {IWeETH} from "./imports/Interfaces.sol";
+import {IAux} from "./imports/Interfaces.sol";
 import {IMorphoFlash} from "./imports/Interfaces.sol";
 import {ILevSyncHook} from "./imports/Interfaces.sol";
 import {ILevVenueColl} from "./imports/Interfaces.sol";
 
-interface ISwapAux { // the real Aux SOR surface (imports/ISwap.sol)
-    function swap(address token, address asset, bool forVolatile, uint256 amount, uint256 minOut)
-        external returns (uint256);
-    function getTWAPforAsset(address asset, uint32 period) external view returns (uint256); // USD/asset, 1e18 (Aux is public view)
-    /// CALLER-FUNDED SOR: routes the caller's OWN `amountIn` of `sourceAsset` through the basket's REAL
-    /// Uniswap-V4 hops to `output` — no 4626 redeem, never the reserve. The leverage's stable↔WETH legs.
-    function sorSelfFunded(address sourceAsset, uint256 amountIn, address output, uint256 minOut)
-        external returns (uint256);
-    /// REVERSE of sorSelfFunded: WETH -> `targetStable` via the SAME real-V4 hops run backwards (+ the V3 peer
-    /// route). The de-lever leg (sell freed WETH back to the borrowed stable); never the reserve.
-    function sorSelfFundedReverse(address targetStable, uint256 amountIn, uint256 minOut)
-        external returns (uint256);
-    /// The ETH venue (Vault) — 2-hopped to `ROVER()` for the down-leg's rebalancing hop (keeps Aux bytecode flat).
-    function ethVenue() external view returns (address);
-}
 
 
 /// @notice The venue's collateral ERC20 — BOTH escrow adapters (Morpho/Euler) expose this public immutable,
@@ -60,7 +46,7 @@ contract LevManager {
     // ── immutables ──
     IERC20Min public immutable WEETH;   // collateral token (ether.fi weETH)
     IWeETH    internal immutable RATE;    // weETH→ETH rate (== WEETH addr; getEETHByWeETH)
-    ISwapAux  public immutable AUX;     // oracle (getTWAPforAsset) + the caller-funded SOR (sorSelfFunded)
+    IAux  public immutable AUX;     // oracle (getTWAPforAsset) + the caller-funded SOR (sorSelfFunded)
     IERC20Min public immutable QUID;    // the basket stablecoin — redeemed (via AUX) to protect a levered LP's debt
     // ether.fi weETH↔WETH (folded RealWeethSwapper): mint (up) + instant-redeem→native-ETH (down); NOT our band.
     address public constant ETHERFI_ADAPTER  = 0xcfC6d9Bd7411962Bfe7145451A7EF71A24b6A7A2;
@@ -193,7 +179,7 @@ contract LevManager {
     receive() external payable {} // native ETH from the ether.fi instant-redeem (down-leg), wrapped to WETH in _sellWeeth
 
     constructor(address weeth, address aux, address weth, address gov, address quid) {
-        WEETH = IERC20Min(weeth); RATE = IWeETH(weeth); AUX = ISwapAux(aux); WETH = weth;
+        WEETH = IERC20Min(weeth); RATE = IWeETH(weeth); AUX = IAux(aux); WETH = weth;
         GOV = gov; QUID = IERC20Min(quid);
     }
 

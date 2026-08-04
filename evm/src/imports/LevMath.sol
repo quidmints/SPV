@@ -3,22 +3,13 @@ pragma solidity ^0.8.28;
 
 import {FixedPointMathLib} from "solady/src/utils/FixedPointMathLib.sol";
 // §A.52: the canonical view (was a file-local `ILevSyncHookM`).
-import {ILevSyncHook} from "./Interfaces.sol";
+import {ILevSyncHook, IAux} from "./Interfaces.sol";
 import {ILevVenue, IERC20Min, IWETH9} from "../imports/ILevVenue.sol";
 import {IMorphoFlash} from "../imports/Interfaces.sol";
 
 /// @dev Token/SOR surfaces the leg mechanics touch. IERC20Min + IWETH9 come from ILevVenue (shared).
 /// ONE Aux surface for everything LevMath touches on it (redeem / stables / TWAP / SOR both directions / venue /
 /// health) — was five tiny IAux* slices (consolidation).
-interface IAuxM {
-    function redeem(uint256 amount) external;                                          // PRO-RATA basket redeem
-    function getStables() external view returns (address[] memory);
-    function ethVenue() external view returns (address);
-    function getTWAPforAsset(address, uint32) external view returns (uint256); // Aux is public view
-    function sorSelfFunded(address sourceAsset, uint256 amountIn, address output, uint256 minOut) external returns (uint256);
-    function sorSelfFundedReverse(address, address, uint256, uint256) external returns (uint256);
-    function vaultBlocked(address vault) external view returns (bool);
-}
 // ETH-side sell/buy machinery surfaces — moved here (delegatecall, bytecode OUTSIDE LevManager for EIP-170).
 interface IWeETHM { function getEETHByWeETH(uint256) external view returns (uint256); }
 interface IVaultRoverM   { function ROVER() external view returns (address); }
@@ -169,12 +160,12 @@ library LevMath {
         borrowed = venue.borrow(lp, _fromUsd(stable, usd));                       // stable → manager (delegatecall ctx)
         if (borrowed == 0) return (0, 0);
         {   // anti-sandwich oracle floor — own frame so the local releases (stack)
-            uint256 floorWbtc = (usd * 1e18 / IAuxM(cfg.aux).getTWAPforAsset(cfg.wbtc, cfg.twapWindow))
+            uint256 floorWbtc = (usd * 1e18 / IAux(cfg.aux).getTWAPforAsset(cfg.wbtc, cfg.twapWindow))
                                 * (10_000 - cfg.slipBps) / 10_000;
             if (minOut < floorWbtc) minOut = floorWbtc;
         }
         IERC20Min(stable).approve(cfg.aux, borrowed);
-        wbtcBought = IAuxM(cfg.aux).sorSelfFunded(stable, borrowed, cfg.wbtc, minOut); // SOR → WBTC → manager
+        wbtcBought = IAux(cfg.aux).sorSelfFunded(stable, borrowed, cfg.wbtc, minOut); // SOR → WBTC → manager
         IERC20Min(cfg.wbtc).transfer(address(venue), wbtcBought);                 // manager → venue
         venue.supply(lp, wbtcBought);                                            // venue → escrow
     }
@@ -185,7 +176,7 @@ library LevMath {
     function deleverWbtc(ILevVenue venue, address lp, address stable, uint256 repayUsd, uint256 minOut, WbtcCfg memory cfg)
         public returns (uint256 pulled, uint256 repaid) {
         if (repayUsd == 0) return (0, 0);
-        uint256 px = IAuxM(cfg.aux).getTWAPforAsset(cfg.wbtc, cfg.twapWindow);    // USD18 per 1e18 WBTC-raw
+        uint256 px = IAux(cfg.aux).getTWAPforAsset(cfg.wbtc, cfg.twapWindow);    // USD18 per 1e18 WBTC-raw
         pulled = venue.withdraw(lp, repayUsd * 1e18 / px);                        // WBTC → manager (venue caps at position/health)
         if (pulled == 0) return (0, 0);
         {   // anti-sandwich oracle floor — own frame
@@ -193,7 +184,7 @@ library LevMath {
             if (minOut < floorStable) minOut = floorStable;
         }
         IERC20Min(cfg.wbtc).approve(cfg.aux, pulled);
-        uint256 got = IAuxM(cfg.aux).sorSelfFundedReverse(cfg.wbtc, stable, pulled, minOut); // WBTC → stable → manager
+        uint256 got = IAux(cfg.aux).sorSelfFundedReverse(cfg.wbtc, stable, pulled, minOut); // WBTC → stable → manager
         { uint256 debt = venue.debtOf(lp); if (got > debt) got = debt; }          // never over-repay — own frame
         if (got == 0) return (pulled, 0);
         IERC20Min(stable).transfer(address(venue), got);
@@ -213,13 +204,13 @@ library LevMath {
         uint256 pulled;
         {   // repay-FIRST → size + withdraw the freed WBTC → oracle floor (own frame for the stack, no via_ir)
             uint256 repaid = venue.repay(lp, assets);                            // == assets (capped ≤ debt upstream)
-            uint256 px = IAuxM(cfg.aux).getTWAPforAsset(cfg.wbtc, cfg.twapWindow);
+            uint256 px = IAux(cfg.aux).getTWAPforAsset(cfg.wbtc, cfg.twapWindow);
             pulled = venue.withdraw(lp, (_toUsd18(stable, repaid) * 1e18 / px) * 10_000 / (10_000 - cfg.slipBps));
             uint256 floorStable = _fromUsd(stable, pulled * px / 1e18) * (10_000 - cfg.slipBps) / 10_000;
             if (minOut < floorStable) minOut = floorStable;
         }
         IERC20Min(cfg.wbtc).approve(cfg.aux, pulled);
-        uint256 stableOut = IAuxM(cfg.aux).sorSelfFundedReverse(cfg.wbtc, stable, pulled, minOut);
+        uint256 stableOut = IAux(cfg.aux).sorSelfFundedReverse(cfg.wbtc, stable, pulled, minOut);
         IERC20Min(stable).approve(flashProvider, assets);                        // provider pulls `assets` back; short approve ⇒ whole op reverts (underwater-safe)
         if (stableOut > assets) IERC20Min(stable).transfer(lp, stableOut - assets); // realized surplus → LP
     }
@@ -282,7 +273,7 @@ library LevMath {
     ///         OPEN is gated -- close/rebalance stay open so the keeper can always unwind OUT of a blocked venue.
     function requireOpenable(bool allowed, address aux, address venue) public view {
         if (!allowed) revert VenueNotAllowed();
-        if (IAuxM(aux).vaultBlocked(venue)) revert VenueBlocked();
+        if (IAux(aux).vaultBlocked(venue)) revert VenueBlocked();
     }
 
     /// @notice DOWN-leg V3 swap: sell `amountIn` of `tokenIn` -> `tokenOut` across two fee tiers, each floored at
@@ -345,7 +336,7 @@ library LevMath {
         (skimmed, reserveOut) = _reimburse(c.weth, c.keeper, pulled > need ? pulled - need : 0, reserveOut);
         pulled -= skimmed;
         // WETH branch: floor at the ETH oracle value of what's LEFT (WETH==ETH, 1:1) − MAX_SLIPPAGE.
-        uint256 usd18 = (pulled * IAuxM(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M)) / 1e18;
+        uint256 usd18 = (pulled * IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M)) / 1e18;
         uint256 floorOut = (_fromUsd(stable, usd18) * (10_000 - SELL_SLIP_BPS)) / 10_000;
         uint256 useMin = minOut > floorOut ? minOut : floorOut;
         stableOut = _wethToStableDex(c, stable, pulled, useMin);
@@ -393,7 +384,7 @@ library LevMath {
 
     function _roverAbsorb(SellCtx memory c, uint256 weethIn) internal returns (uint256 wethOut, uint256 weethUsed) {
         if (weethIn == 0) return (0, 0);
-        address vault = IAuxM(c.aux).ethVenue();
+        address vault = IAux(c.aux).ethVenue();
         address rover = vault == address(0) ? address(0) : IVaultRoverM(vault).ROVER();
         if (rover == address(0)) return (0, 0);
         IERC20Min(c.weeth).approve(rover, weethIn);
@@ -428,7 +419,7 @@ library LevMath {
     /// can call it after its own try/catch'd stable→WETH SOR without a nested revert escaping the catch.
     function _wethToWeeth(SellCtx memory c, uint256 wethRem) internal returns (uint256 weethOut) {
         {
-            address vault = IAuxM(c.aux).ethVenue();
+            address vault = IAux(c.aux).ethVenue();
             address rover = vault == address(0) ? address(0) : IVaultRoverM(vault).ROVER();
             if (rover != address(0)) {
                 IERC20Min(c.weth).approve(rover, wethRem);
@@ -446,25 +437,25 @@ library LevMath {
 
     /// stable → WETH via the caller-funded basket SOR (REAL markets), floored at oracle WETH − MAX_SLIPPAGE (anti-MEV).
     function _stableToWethSor(SellCtx memory c, address stable, uint256 stableAmt) internal returns (uint256) {
-        uint256 wethFloor = (_toUsd18(stable, stableAmt) * 1e18 / IAuxM(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M))
+        uint256 wethFloor = (_toUsd18(stable, stableAmt) * 1e18 / IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M))
             * (10_000 - SELL_SLIP_BPS) / 10_000;
         IERC20Min(stable).approve(c.aux, stableAmt);
-        return IAuxM(c.aux).sorSelfFunded(stable, stableAmt, c.weth, wethFloor);
+        return IAux(c.aux).sorSelfFunded(stable, stableAmt, c.weth, wethFloor);
     }
 
     function _wethToStableDex(SellCtx memory c, address stable, uint256 wethIn, uint256 minOut) internal returns (uint256) {
         IERC20Min(c.weth).approve(c.aux, wethIn);
-        return IAuxM(c.aux).sorSelfFundedReverse(c.weth, stable, wethIn, minOut);
+        return IAux(c.aux).sorSelfFundedReverse(c.weth, stable, wethIn, minOut);
     }
 
     function _stableFloor(SellCtx memory c, address stable, uint256 weethAmt) internal returns (uint256) {
-        uint256 usd18 = (IWeETHM(c.weeth).getEETHByWeETH(weethAmt) * IAuxM(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M)) / 1e18;
+        uint256 usd18 = (IWeETHM(c.weeth).getEETHByWeETH(weethAmt) * IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M)) / 1e18;
         return (_fromUsd(stable, usd18) * (10_000 - SELL_SLIP_BPS)) / 10_000;
     }
 
     /// The WETH that must remain to repay `assets` (flashed stable) at worst-case slippage — above it is skimmable headroom.
     function _wethForAssets(SellCtx memory c, address stable, uint256 assets) internal returns (uint256) {
-        uint256 weth = (_toUsd18(stable, assets) * 1e18) / IAuxM(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M);
+        uint256 weth = (_toUsd18(stable, assets) * 1e18) / IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M);
         return (weth * 10_000) / (10_000 - SELL_SLIP_BPS);
     }
 
@@ -490,7 +481,7 @@ library LevMath {
     {
         IERC20Min(stable).transfer(venueAddr, assets);
         uint256 repaid = ILevVenue(venueAddr).repay(lp, assets);
-        uint256 ethAmt = ((_toUsd18(stable, repaid) + extractUsd) * 1e18) / IAuxM(cfg.aux).getTWAPforAsset(cfg.weth, TWAP_WIN_M);
+        uint256 ethAmt = ((_toUsd18(stable, repaid) + extractUsd) * 1e18) / IAux(cfg.aux).getTWAPforAsset(cfg.weth, TWAP_WIN_M);
         uint256 collUnits = cfg.isWethVenue ? ethAmt : (ethAmt * 1e18) / IWeETHM(cfg.weeth).getEETHByWeETH(1e18);
         collUnits = (collUnits * 10_000) / (10_000 - cfg.maxSlippageBps);
         pulled = ILevVenue(venueAddr).withdraw(lp, collUnits);
@@ -584,7 +575,7 @@ library LevMath {
         {   // 1. Mint `repayBold` BOLD against the flashed WETH (pushed to the venue), from the protocol trove. Liquity's
             //    one-time WETH gas compensation on the protocol trove's first open is covered by the venue's own
             //    gas-comp buffer (seeded at deploy), the same buffer that funds LP-trove opens — never the flash/LP.
-            uint256 px = IAuxM(cfg.aux).getTWAPforAsset(cfg.weth, TWAP_WIN_M);
+            uint256 px = IAux(cfg.aux).getTWAPforAsset(cfg.weth, TWAP_WIN_M);
             IERC20Min(cfg.weth).transfer(venueAddr, wethFlashed);
             uint256 minted = ILevMintVenueM(venueAddr).mintForClose(wethFlashed, repayBold);
             fairDebtWeth = (_toUsd18(stable, minted) * 1e18) / px;          // fair WETH value of the BOLD repaid
@@ -668,7 +659,7 @@ library LevMath {
         // PRO-RATA redeem (no `preferred`): take the LP's FAIR slice of every basket stable — never force-drains
         // the basket of one stable (the targeted path over-commits under leverage). Then consolidate that mix into
         // the venue's own loan token via the multi-route SOR (basket V4 hops, UniV3-backed fallback).
-        IAuxM(aux).redeem(pull);                           // burn THIS manager's QUID → a mix of stables here
+        IAux(aux).redeem(pull);                           // burn THIS manager's QUID → a mix of stables here
         _consolidateTo(aux, router, stable, lp);
         got = IERC20Min(stable).balanceOf(address(this)) - got;    // venue-stable gained (direct slice + swaps)
         if (got < minStableOut) revert Slippage();
@@ -689,7 +680,7 @@ library LevMath {
     uint256 internal constant CONSOL_SLIP_BPS = 100;  // 1% anti-MEV floor on each stable→loan-token consolidation swap
 
     function _consolidateTo(address aux, address router, address target, address lp) private {
-        address[] memory sts = IAuxM(aux).getStables();
+        address[] memory sts = IAux(aux).getStables();
         for (uint256 i; i < sts.length; i++) {
             address s = sts[i];
             if (s == target) continue;
@@ -700,7 +691,7 @@ library LevMath {
             // (below) rather than swapping at a loss — fail-safe, mirroring `rebalance`'s oracle-derived `_floor`.
             uint256 floor = _fromUsd(target, _toUsd18(s, bal)) * (10_000 - CONSOL_SLIP_BPS) / 10_000;
             IERC20Min(s).approve(aux, bal);
-            try IAuxM(aux).sorSelfFunded(s, bal, target, floor) returns (uint256) {}
+            try IAux(aux).sorSelfFunded(s, bal, target, floor) returns (uint256) {}
             catch {
                 IERC20Min(s).approve(aux, 0);
                 v3SwapTiered(router, s, target, bal, floor, 100, 500);   // external UniV3: 0.01% then 0.05% stable tiers
@@ -832,7 +823,7 @@ library LevMath {
         if (_isMintVenueM(address(venue))) {
             // BOLD/Liquity: flash WETH grossed up to mint `repayStable` BOLD at the protocol trove's safe LTV (so the
             // flash covers the over-collateralization), finish in the manager's mode-1 callback (_onFlashMint).
-            uint256 px = IAuxM(cfg.aux).getTWAPforAsset(cfg.weth, TWAP_WIN_M);    // USD 1e18 / WETH
+            uint256 px = IAux(cfg.aux).getTWAPforAsset(cfg.weth, TWAP_WIN_M);    // USD 1e18 / WETH
             uint256 wethToFlash = ((_toUsd18(stable, repayStable) * 1e18 / px) * 10_000) / protocolMintLtvBps;
             IMorphoFlash(cfg.flashProvider).flashLoan(cfg.weth, wethToFlash, abi.encode(uint8(1), lp, address(venue), stable, repayStable));
             return;

@@ -28,21 +28,19 @@ import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 
 import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 // §E5 — the shared per-band premium sink (rule 2: ONE declaration, in the canonical file).
-import {ISkewSink} from "./imports/Interfaces.sol";
+import {ISkewSink, ILevEquity, ILevEquityBtc} from "./imports/Interfaces.sol";
+// §E21: IERC20Min had TWO declarations (here and imports/ILevVenue.sol). One home now.
+import {IERC20Min} from "./imports/ILevVenue.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 
 /// @dev Live total leverage debt (USD 1e18) of a pinned LevManager — the debt-funded buffer that
 ///      `committedUsd18` subtracts from in-range USD to recover the pure equity claim (buffer == debt).
-interface IERC20Min { function balanceOf(address) external view returns (uint); function totalSupply() external view returns (uint); }
-interface ILevDebtTotal { function totalDebtUsd() external view returns (uint256); }
 
 /// @dev Live total GROSS levered collateral in NATIVE units — the LOCKED-INVENTORY basis for the well skew's
 ///      scarcity term. POOLED_{ETH,BTC} already carries the full 2× gross buffer as tokenless band depth, so the
 ///      deliverable native reservoir = poolVol − gross (subtracting DEBT, ~1×, would leave one equity leg of
 ///      phantom inventory in the scarcity signal). Names differ per manager, hence two interfaces.
-interface ILevGrossEth { function totalGrossCollateralEth() external view returns (uint256); }
-interface ILevGrossBtc { function totalGrossCollateralBtc() external view returns (uint256); }
 
 /// @notice Two V4 pools (ETH/USD and BTC/USD) with INDEPENDENT USD
 /// accounting. A swap in the ETH pool that inflates the ETH-side dollar
@@ -142,7 +140,7 @@ contract Core is SafeCallback {
         if (address(BTCVAULT) == address(0)) return 0;
         address mgr = isBTC ? BTCVAULT.LEV_MANAGER_BTC() : BTCVAULT.LEV_MANAGER();
         if (mgr == address(0)) return 0;
-        try ILevDebtTotal(mgr).totalDebtUsd() returns (uint d) { return d; } catch { return 0; }
+        try ILevEquity(mgr).totalDebtUsd() returns (uint d) { return d; } catch { return 0; }
     }
 
 
@@ -252,11 +250,11 @@ contract Core is SafeCallback {
         if (isBTC) {
             address mgr = BTCVAULT.LEV_MANAGER_BTC();
             if (mgr == address(0)) return 0;
-            try ILevGrossBtc(mgr).totalGrossCollateralBtc() returns (uint256 g) { return g; } catch { return 0; }
+            try ILevEquityBtc(mgr).totalGrossCollateralBtc() returns (uint256 g) { return g; } catch { return 0; }
         }
         address m = BTCVAULT.LEV_MANAGER();
         if (m == address(0)) return 0;
-        try ILevGrossEth(m).totalGrossCollateralEth() returns (uint256 g) { return g; } catch { return 0; }
+        try ILevEquity(m).totalGrossCollateralEth() returns (uint256 g) { return g; } catch { return 0; }
     }
 
     /// @notice Annualized realized variance (WAD) of this pool's oracle — the well
