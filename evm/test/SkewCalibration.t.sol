@@ -42,7 +42,11 @@ contract SkewCalibration is Alles {
         _seedBasket();
         vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
         vm.roll(block.number + 1);
-        for (uint i; i < 12; i++) _trade(3_000e18);
+        // §E58 DRAIN FIXTURE: 12x3,000 left inv/target at 20x and the flush branch firing. To reach
+        // the SCARCITY regime the band must shed most of its ~$714k, so drain hard and let the TWAP
+        // keep up (each _trade warps 20 min). Sized to overshoot deliberately — the question is
+        // whether the curve EVER engages, so a fixture that stops short answers nothing.
+        for (uint i; i < 120; i++) _trade(20_000e18);
 
         emit log_named_uint("ETH wellSkew (wad)   ", AUX.wellSkew(address(WETH)));
         emit log_named_uint("BTC wellSkew (wad)   ", AUX.wellSkew(address(WBTC)));
@@ -65,6 +69,7 @@ contract SkewCalibration is Alles {
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
         uint invUsd6 = px == 0 ? 0 : (CORE.POOLED_ETH() * px / 1e18) / 1e12;
         uint target6 = CORE.flowEwmaUsd(false) + CORE.levClaimUsd6(false);
+        emit log_named_uint("realizedVarianceWad ETH", CORE.realizedVarianceWad(false));
         emit log_named_uint("levClaimUsd6 ETH (debt)", CORE.levClaimUsd6(false));
         emit log_named_uint("target = flow + debt   ", target6);
         emit log_named_uint("band inventory (6-dec) ", invUsd6);
