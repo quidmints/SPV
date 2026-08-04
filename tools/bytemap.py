@@ -39,8 +39,16 @@ for (fid,s,l),c in cost.items():
     line=bisect.bisect_right(nl,s)
     agg[line]=agg.get(line,0)+c
 # map lines to enclosing function
+# Only functions INSIDE the main contract/library body. Interface declarations above
+# it have no code, so billing bytes to them (and to every state declaration that
+# follows a small function) is how `totalNetEquityEth` scored 1,204 for a one-line
+# interface stub. Anchor at the first `contract`/`library` definition.
+anchor=0
+m0=re.search(r'^(contract|library|abstract contract)\s', src, re.M)
+if m0: anchor=m0.start()
 funcs=[]
 for m in re.finditer(r'^\s*function\s+([A-Za-z0-9_]+)', src, re.M):
+    if m.start()<anchor: continue
     funcs.append((bisect.bisect_right(nl,m.start()), m.group(1)))
 funcs.sort()
 tot={}
