@@ -652,4 +652,53 @@ library VogueLib {
             liquidity = SwapLib.sizeOorUsd(amount, t, token1isETH);
         }
     }
+
+    /// @dev DEPLOY-TIME ONLY — the body of `Vogue.setup`, moved here for the same
+    ///      reason `Core.setup`'s body moved to OracleLib (E32): one-shot wiring was
+    ///      billing Vogue's RUNTIME bytes against a hard EIP-170 deficit. Vogue keeps
+    ///      what cannot leave: the `onlyOwner` gate, the AlreadyInitialized guard,
+    ///      `renounceOwnership()` (Ownable's slot is Vogue's), the QUID back-pin check,
+    ///      and the assignments of the value-type state this returns.
+    function setupBody(address _aux, address _core)
+        external returns (address weth, bool token1isETH, int24 lower, int24 upper) {
+        weth = IAux(_aux).WETH();
+        IWETH9(weth).approve(_aux, type(uint).max);
+        (uint160 sqrtPriceX96,,) = ICore(_core).poolStats(0, 0, false);
+        token1isETH = ICore(_core).token1isETH();
+        (lower,, upper,) = SwapLib.updateTicks(sqrtPriceX96, SwapLib.BAND_DELTA);
+    }
+
+    /// @dev Vogue's ETH delivery ladder, moved here for EIP-170 (E32). Native balance
+    ///      first, then this contract's WETH, then a venue pull, then — only if the
+    ///      venue base is exhausted while POOLED_ETH priced the swap against the
+    ///      LEVERED slice too — de-lever the levered book with the delivery's OWN
+    ///      proceeds, turning §M phantom depth into real deliverable ETH.
+    ///      VALUE-NEUTRAL per LP, and NOT the removed toxic arbETH (which spent shared
+    ///      basket surplus): `deleverEthOnDelivery` repays each LP's OWN debt.
+    ///      Fork-proved by testReal_DeleverEthBacking_SwapOutTapsLeveredSlice.
+    ///
+    ///      A failed send REVERTS so the unlock rolls back atomically — the old
+    ///      swallow left unwrapped ETH stranded at the contract while reporting 0.
+    function sendEth(address weth, address ev, address aux, uint howMuch, address toWhom)
+        external returns (uint sent) {
+        uint alreadyInETH = address(this).balance;
+        if (alreadyInETH >= howMuch) sent = howMuch;
+        else { uint needed = howMuch - alreadyInETH;
+            uint inWETH = IWETH9(weth).balanceOf(address(this));
+            if (needed > inWETH) {
+                inWETH += IEthVenue(ev).vogueOp(false, needed - inWETH, 1, bytes32(0));
+                if (inWETH < needed) {
+                    address mgr = ILevHost(ev).LEV_MANAGER();
+                    if (mgr != address(0)) {
+                        uint px = IAux(aux).getTWAPforAsset(weth, 1800);   // USD 1e18 / WETH
+                        inWETH += SwapLib.deleverEthOnDelivery(
+                            mgr, aux, px, needed - inWETH, address(this));
+                    }
+                }
+            }  IWETH9(weth).withdraw(inWETH);
+            sent = inWETH + alreadyInETH;
+        }
+        (bool success, ) = payable(toWhom).call{value: sent}("");
+        require(success, "ethSend");
+    }
 }

@@ -190,6 +190,9 @@ interface IAux {
     function takeToSettle(address who, uint amount, address token) external returns (uint);
     function auxSwap(uint amountIn, address output, address recipient, uint minOut) external returns (uint);
     function WBTC() external view returns (address);
+    /// Rule 2: declared HERE, not as a file-local restatement. `Aux.WETH` is a public
+    /// `WETH9` state var; over the ABI that is an address, which is all any caller needs.
+    function WETH() external view returns (address);
     function tokens(address vault) external view returns (address);
     function illiquidLoss() external view returns (uint);
     function _depositVol(bool isBTC, address sender, uint amount) external payable returns (uint sent);

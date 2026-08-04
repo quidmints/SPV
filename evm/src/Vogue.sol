@@ -304,12 +304,13 @@ contract Vogue is
         QUID = Basket(_quid);
         renounceOwnership();
         if (QUID.V4() != address(this)) revert WrongV4();
-        WETH = WETH9(payable(address(AUX.WETH())));
-        WETH.approve(address(AUX), type(uint).max);
-        (uint160 sqrtPriceX96,,) = V4.poolStats(0, 0, false);
-        token1isETH = V4.token1isETH();
-        (LOWER_TICK,, UPPER_TICK,) = _updateTicks(
-                                sqrtPriceX96, SwapLib.BAND_DELTA);
+        // The rest is deploy-time-only work that was costing Vogue RUNTIME bytes
+        // under a hard EIP-170 deficit (E32) -- the WETH read + approval, the band
+        // seed read, and the initial tick derivation. Only the value-type state
+        // writes stay here; they have no storage pointer to hand the library.
+        address weth; bool t1;
+        (weth, t1, LOWER_TICK, UPPER_TICK) = VogueLib.setupBody(_aux, _core);
+        WETH = WETH9(payable(weth)); token1isETH = t1;
     }
 
 
@@ -1093,41 +1094,16 @@ contract Vogue is
     // appreciation accrual over PLAIN depth into venueFeesPerShare is unchanged; `_venueBalance` (below) STAYS
     // because _withdraw/_depositImpl also call it.
 
+    /// @dev The delivery ladder itself lives in `VogueLib.sendEth` (E32: it was 777
+    ///      RUNTIME bytes against a hard EIP-170 deficit, and it is called from only
+    ///      two places). Delegatecall keeps `address(this) == Vogue`, so the balance
+    ///      read, the WETH unwrap and `deleverEthOnDelivery`'s recipient are all
+    ///      unchanged. Priced on the gas axis too: one extra delegatecall per ETH
+    ///      send, on a path that already does a venue pull and an unwrap.
     function _sendETH(uint howMuch,
        address toWhom) internal returns (uint sent) {
-        uint alreadyInETH = address(this).balance;
-        if (alreadyInETH >= howMuch) sent = howMuch;
-        else { uint needed = howMuch - alreadyInETH;
-            uint inWETH = WETH.balanceOf(address(this));
-            if (needed > inWETH) {
-                uint got = EV.vogueOp(false,
-                       needed - inWETH, 1, bytes32(0));
-                             inWETH += got;
-                // §M.1 (✅ VERIFIED 2026-07-27 by testReal_DeleverEthBacking_SwapOutTapsLeveredSlice, real
-                // Morpho/Euler fork — value-neutrality, LTV improvement and no-phantom-depth all asserted):
-                // the WETH venue base
-                // (deliverableETH, net-equity-excluded) is exhausted but POOLED_ETH priced the swap against the
-                // levered slice too — so de-lever the levered book with the swap's OWN proceeds, turning the §M
-                // phantom depth into REAL deliverable ETH. VALUE-NEUTRAL per LP; NOT the removed toxic arbETH
-                // (which spent shared basket surplus) — SwapLib.deleverEthOnDelivery repays each LP's OWN debt.
-                // Delivers freed WETH to Vogue (address(this)) → folded into the unwrap below. Delegatecall keeps
-                // the walk's bytecode OUT of Vogue (EIP-170).
-                if (inWETH < needed) {
-                    address mgr = ILevHost(address(EV)).LEV_MANAGER();
-                    if (mgr != address(0)) {
-                        uint px = AUX.getTWAPforAsset(address(WETH), 1800);   // USD 1e18 / WETH
-                        inWETH += SwapLib.deleverEthOnDelivery(mgr, address(AUX), px, needed - inWETH, address(this));
-                    }
-                }
-            }  WETH.withdraw(inWETH);
-            sent = inWETH + alreadyInETH;
-        }
-        (bool success, ) = payable(toWhom).call{
-                                   value: sent }("");
-        // Revert on a failed send so the unlock rolls back
-        // atomically — vs the old swallow that left the unwrapped ETH stranded
-        // at the contract while reporting sent=0.
-        require(success, "ethSend");
+        return VogueLib.sendEth(address(WETH), address(EV),
+            address(AUX), howMuch, toWhom);
     }
 
 
