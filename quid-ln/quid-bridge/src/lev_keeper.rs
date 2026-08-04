@@ -263,7 +263,15 @@ pub trait LevKeeperEvm {
 
 /// Conservative gas a `compound(address)` crank burns on-chain — MIRRORS `Vogue.COMPOUND_GAS` (the tip the
 /// contract pays is capped at `gasprice · COMPOUND_GAS`). Keep in sync with the Solidity constant.
-pub const COMPOUND_GAS: u128 = 140_000;
+///
+/// §E46/E51 (2026-08-04) — RAISED 140_000 → 200_000 IN LOCKSTEP WITH `Vogue.sol:1504`. The Solidity
+/// side was raised because the crank MEASURED 172,299 gas against a 140,000 basis, and this mirror was
+/// left behind for one commit. That desync is not harmless and not symmetric: with the tip capped at
+/// 200k·gasprice but the gate still asking 140k, every LP whose `pending/2` fell BETWEEN the two
+/// thresholds passed the gate, got a tip of `pending/2` (< the ~172k the crank actually burns) and the
+/// KEEPER ATE THE DIFFERENCE. `check-client-abis.py` cannot catch this — the ABI is unchanged; only a
+/// hardcoded number in another language moved. Change one, change both.
+pub const COMPOUND_GAS: u128 = 200_000;
 
 /// The self-funding gate: does the on-chain tip cover this crank's gas? `Vogue` caps the tip at BOTH
 /// `gasprice · COMPOUND_GAS` and half the harvest, so the caller only breaks even when
