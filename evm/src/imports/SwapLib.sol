@@ -861,7 +861,6 @@ library SwapLib {
     // locked from committing sats until the swap-in settles + it holds the USD (~6 confs ≈ 1
     // hour). That cost ≈ σ over the confirmation window · a safety multiple + the splice fee.
     uint internal constant CONF_FRAC_WAD = 114_000_000_000_000; // ≈ 1hr / 1yr (WAD) — confirmation-window fraction of a year
-    uint internal constant CAP_SAFETY    = 2;                   // ~2σ coverage of the confirmation-window move
     uint internal constant SPLICE_FLOOR  = 2e15;                // 0.2% — on-chain splice-fee floor (the feerate term)
     // ETH settles in ~one block — NO ~1hr confirmation-capital lock and NO splice — so its cap uses a
     // one-block settlement window and a zero splice floor. Charging ETH the BTC 1hr window over-priced its cap.
@@ -877,9 +876,13 @@ library SwapLib {
         // PER-ASSET settlement window: BTC locks capital through ~1hr of confirmations (CONF_FRAC_WAD) + an
         // on-chain splice-fee floor; ETH settles in ~one block with no confirmation lock and no splice.
         uint confFrac = isBTC ? CONF_FRAC_WAD : ETH_CONF_FRAC_WAD;
-        uint confVarWad = FullMath.mulDiv(sigmaSqWad, confFrac, 1e18);       // σ² over the settlement window (WAD)
-        uint confStdWad = FixedPointMathLib.sqrt(confVarWad * 1e18);         // → σ over the window (WAD)
-        uint cap = confStdWad * CAP_SAFETY + (isBTC ? SPLICE_FLOOR : 0);
+        // LVR = σ²/8 per unit time (Milionis-Moallemi-Roughgarden-Zhang arXiv:2208.06046 eq.16: for a
+        // constant-product pool the loss per unit time as a fraction of pool value is exactly σ²/8).
+        // This is the EXPECTED cost of the displacement being arbitrageable over the settlement
+        // window. CAP_SAFETY (=2) was a 2σ WORST-CASE multiple — a risk-aversion choice, i.e. γ under
+        // another name, and the only reason a BTC swap capped near 127bps rather than its measured
+        // expected cost. The /8 is constant-product geometry, derived; the window is chain physics.
+        uint cap = FullMath.mulDiv(sigmaSqWad, confFrac, 8e18) + (isBTC ? SPLICE_FLOOR : 0);
         return cap < MAX_WELL_SKEW ? cap : MAX_WELL_SKEW;
     }
 
