@@ -94,6 +94,15 @@ fi
 # Open alice→bob channel if none active.
 nchan() { lncli_node alice listchannels | jq '[.channels[]|select(.active)]|length'; }
 if [ "$(nchan)" -eq 0 ]; then
+  # WAIT FOR ALICE'S WALLET TO REACH THE TIP FIRST. `mine 6` above advanced the chain to confirm
+  # her funding, and LND refuses `openchannel` with "channels cannot be created before the wallet
+  # is fully synced" until it has processed those blocks. The funding loop waits only for the
+  # BALANCE, which appears as soon as the tx is SEEN — a different condition, and exactly why this
+  # raced on 2026-08-04 (testSwapIn_RealLightningHTLC came back BROKEN, not skipped). Reuses the
+  # existing `node_synced` helper rather than restating the jq.
+  echo -n "  waiting for alice's wallet to reach the tip"
+  for _ in $(seq 1 60); do node_synced alice && break; echo -n "."; sleep 1; done; echo
+  node_synced alice || { echo "  alice never re-synced after funding" >&2; exit 1; }
   lncli_node alice connect "$BOB_PUB@127.0.0.1:$BOB_P2P" >/dev/null 2>&1 || true
   lncli_node alice openchannel --node_key="$BOB_PUB" --local_amt=500000 >/dev/null
   echo -n "  opening channel"
