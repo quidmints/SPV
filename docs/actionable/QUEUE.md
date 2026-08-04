@@ -6795,3 +6795,20 @@ oracle, no history, no observation ring. Surfaced in the 2026-08-04 research and
 Caveats to check before use: it is a signal about the BLOCK, not about this trade, so an honest
 swapper in a contended block pays for someone else's MEV; and a searcher can pay priority gas
 without being toxic to us specifically.
+
+**OPEN 14 — the ETH and BTC skews are INDEPENDENT but share ONE basket.** `wellSkew` reads only its
+own asset's `POOLED_*` and `levGross`. Two simultaneous drains stress the SAME backing, and neither
+skew can see the other, so each under-prices a correlated drain. ETH and BTC are highly correlated in
+exactly the stress scenarios that matter, so this is not a tail case — it is the expected shape of a
+bad day. **The most likely place a real loss hides that nothing in this thread examined.**
+
+**OPEN 15 — the fee is FLAT (420ppm) while the skew is dynamic; the split was never justified.**
+Trader Joe and Algebra both make the FEE the adaptive surface; we froze the fee and built a separate
+adaptive scalar beside it. `ARB + FEE ~ LVR` (arXiv:2305.14604) says fee and adverse selection are two
+halves of one budget, so splitting them across a fixed and a floating instrument needs an argument
+nobody has made. Possibly the skew should BE the fee.
+
+**OPEN 16 — the manip-guard's tolerance was never measured.** `_priceMax` reduces the skew's price
+exposure, but the primary defence for the one unavoidable USD/volatile conversion is the existing
+manip-guard on the execution path. How much price error it actually permits — and therefore how much
+leaks into the skew denominator — is unmeasured. I relied on it in argument without ever reading it.
