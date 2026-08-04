@@ -6813,3 +6813,28 @@ oracle, no history, no observation ring. Surfaced in the 2026-08-04 research and
 Caveats to check before use: it is a signal about the BLOCK, not about this trade, so an honest
 swapper in a contended block pays for someone else's MEV; and a searcher can pay priority gas
 without being toxic to us specifically.
+
+### Skew constants — what came out green, and why the rest cannot come out by substitution
+
+**REMOVED, suite green each time (main a23640f, 3856/0):**
+`SIGMA_REF`, `GAMMA_WAD`, `STABLENESS` — byte-identical arithmetic, because none was ever a dial:
+rho=1 made the barrier loop DEAD CODE (the pole q/(1-q) is A&S 2.3's derived shape, exponent fixed by
+the CARA value function), and Gamma === MAX_WELL_SKEW exactly (the cap under a second name).
+`CAP_SAFETY` — a 2-sigma WORST-CASE multiple, i.e. risk aversion = gamma renamed. Replaced by the
+preference-free EXPECTED cost, LVR = sigma^2/8 per unit time (arXiv:2208.06046 eq.16).
+
+**⚠️ DO NOT REMOVE SPLICE_FLOOR BY SUBSTITUTION — IT WOULD OPEN A FREE-DRAIN.** Measured: without it
+the BTC cap is sigma^2*T/8 alone = 0.01 * 1.14e-4 / 8 = **1.43e-7 (0.0014 bps)** at sigma^2=1e16 over
+the ~1hr confirmation window. That is three orders of magnitude below any real skew, so BTC's charge
+would pin at ~zero. SPLICE_FLOOR is currently the ONLY thing keeping that ceiling meaningful — which
+is also why the 2026-08-04 prediction that removing CAP_SAFETY would break testSkewBarrierRamp was
+WRONG: the floor dominates the BTC cap and 3e14 still sits under it.
+
+**THE REAL FINDING: the cap's STRUCTURE is wrong, not its constants.** sigma^2*T/8 is an expected-loss
+RATE. Using a rate as a price CEILING is a category error — an expected loss over the settlement
+window is a BASE charge (the floor under every trade), which is what the reverted rebuild concluded.
+So the last three constants (MAX_WELL_SKEW — which serves DOUBLE DUTY as numerator coefficient AND
+ceiling — plus SPLICE_FLOOR and the two windows) cannot come out one at a time. Reaching zero
+constants requires the cap-to-base inversion, i.e. the rebuild, **gated on OPEN 17**: if a drainer can
+simply redeem instead of swapping, the skew's magnitude is moot and the whole exercise re-prices a
+path nobody is forced to take.
