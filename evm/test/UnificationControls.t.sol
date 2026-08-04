@@ -992,4 +992,68 @@ contract UnificationControls is Alles {
         assertEq(BTC.USD_FEES_BTC(), btcUsdF0, "ETH trading must NOT credit the BTC USD fee leg");
         assertEq(BTC.lpSharesBTC(), btcShares0, "ETH trading must NOT change BTC LP depth");
     }
+
+    /// §E42 — AXIS 7 (REDEMPTION CAPACITY) and AXIS 9 (THE BTC MIRROR).
+    ///
+    /// ⛔ I PREDICTED A SHORTFALL HERE AND THE MEASUREMENT REFUTED IT. The reasoning was: #12 moved
+    /// the BACKING GATE off the curve mirror and onto the basket's real contribution, but
+    /// `BasketLib.redeemableBody` was NOT moved with it — it still subtracts `POOLED_USD_BTC`, the
+    /// CURVE figure, on a rationale (">= BTC-band equity, therefore conservative") written when the
+    /// two were the same number. Post-#12 they diverge by the BTC band's trading increment, so I
+    /// expected the quote to shrink with BTC VOLUME.
+    ///
+    /// ✅ IT DOES NOT, and the reason is structural rather than lucky: the dollars that inflate
+    /// `POOLED_USD_BTC` are dollars a SWAPPER PAID IN, so basket TVL rises by the same amount in
+    /// the same transaction. The subtraction and the total move in lockstep and CANCEL. The reverse
+    /// direction cancels too (band buys BTC: both fall). MEASURED over 6 x 500-USDC curve buys —
+    /// curve mirror +3,000.000, basket leg +0, redeemable moved by 6e-6 USD.
+    ///
+    /// So redemption capacity is UNCHANGED by #12 — neither improved nor harmed — and it is
+    /// INVARIANT to pure trading, which is the property that actually matters. Asserting the
+    /// invariance is worth more than the shortfall I went looking for.
+    function test_E42_RedeemableIsInvariantToPureBtcTradingFlow() public {
+        _seedBasket();
+        AUX.setBTCChannels(address(this));
+        BTC.registerBtcLp(User01, 2e7);
+
+        uint redeem0 = AUX.redeemableAmount();
+        uint curve0 = CORE.POOLED_USD_BTC();
+        uint basket0 = CORE.basketUsdBtc();
+        assertEq(curve0, basket0, "PREMISE: before BTC flow the curve mirror IS the basket's leg");
+        assertGt(redeem0, 0, "PREMISE: something must be redeemable, else the delta is meaningless");
+
+        // BTC-side flow ONLY: USD->BTC curve buys move the BTC mirror and nothing else.
+        vm.startPrank(User03);
+        USDC.approve(address(AUX), type(uint).max);
+        for (uint i = 0; i < 6; i++) {
+            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0);
+            vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
+        }
+        vm.stopPrank();
+
+        uint redeem1 = AUX.redeemableAmount();
+        uint curve1 = CORE.POOLED_USD_BTC();
+        uint basket1 = CORE.basketUsdBtc();
+
+        emit log_named_uint("BTC curve mirror  before", curve0);
+        emit log_named_uint("BTC curve mirror  after ", curve1);
+        emit log_named_uint("BTC basket leg    before", basket0);
+        emit log_named_uint("BTC basket leg    after ", basket1);
+        emit log_named_uint("redeemable        before", redeem0);
+        emit log_named_uint("redeemable        after ", redeem1);
+        emit log_named_int ("redeemable delta        ", int(redeem1) - int(redeem0));
+
+        // AXIS 9 (the BTC mirror): the BTC leg behaves EXACTLY like the ETH leg — trading inflates
+        // the curve figure while the basket's real commitment does not move at all. The #12 split
+        // is symmetric across the two bands, which no ETH-only measurement could establish.
+        assertGt(curve1, curve0, "PREMISE: BTC-side trading must inflate the BTC curve mirror");
+        assertEq(basket1, basket0, "the BASKET's BTC commitment is unmoved by pure BTC trading");
+
+        // AXIS 7 (redemption capacity): INVARIANT. The quote must not move materially on volume in
+        // EITHER direction — a fall would mean holders lose redeemability to other people's trades,
+        // a rise would mean the quote is being inflated by dollars that are spoken for.
+        assertApproxEqAbs(redeem1, redeem0, 1e15,
+            "redeemable must be INVARIANT to pure trading: the POOLED_USD_BTC subtraction and the "
+            "basket TVL it is subtracted from move in lockstep and cancel");
+    }
 }
