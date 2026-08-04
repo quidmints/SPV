@@ -3,6 +3,14 @@
 pragma solidity ^0.8.28;
 
 import {mock} from "../mock.sol";
+import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
+import {TickMath} from "v4-core/src/libraries/TickMath.sol";
+import {PoolKey} from "v4-core/src/types/PoolKey.sol";
+import {PoolId, PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
+import {Currency} from "v4-core/src/types/Currency.sol";
+import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
+import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
+import {SwapLib} from "./SwapLib.sol";
 
 /// @title  OracleLib — the per-pool V4 TWAP observation ring, extracted from
 ///         Core to free its deployed bytecode under EIP-170.
@@ -141,6 +149,62 @@ library OracleLib {
     ///      owner (rover) == address(this) == Core. Decimals mirror the originals:
     ///      ETH 18, BTC 8, USD_ETH/USD_BTC 6. (Homed here only because OracleLib
     ///      is the one existing Core-lib with bytecode headroom — no new file.)
+    /// @dev Assemble one VANILLA PoolKey, initialize its V4 pool, and seed its
+    ///      oracle ring — the deploy-time half of `Core._initPool`, homed here for
+    ///      the same reason `deployMocks` is: it runs ONCE, via DELEGATECALL in
+    ///      Core's storage context, and every byte of it was sitting in Core's
+    ///      RUNTIME code against a hard EIP-170 deficit.
+    ///
+    ///      Core keeps the parts that are cheap there and dear here: the lex-order
+    ///      comparison (it must assign `token1isETH`/`token1isBTC`, which are
+    ///      value-type state with no storage pointer to pass) and the tick
+    ///      direction-correction + `SwapLib.alignTick` (Core already links SwapLib;
+    ///      importing it here would add a lib->lib delegatecall to re-derive three
+    ///      lines of arithmetic across the boundary — the exact thing E14 tracks).
+    ///      So `token0`/`token1` arrive ALREADY SORTED and `tick` ALREADY ALIGNED.
+    function initPool(IPoolManager pm, PoolKey storage k, ObsState storage st,
+        Observation[65535] storage obs, address volMock, address usdMock,
+        bool refVolIsC0, int24 refTick) external returns (bool token1isVol, PoolId id) {
+        token1isVol = volMock > usdMock;                       // V4 lex-ordering
+        k.currency0 = Currency.wrap(token1isVol ? usdMock : volMock);
+        k.currency1 = Currency.wrap(token1isVol ? volMock : usdMock);
+        k.fee = 420; k.tickSpacing = 10; k.hooks = IHooks(address(0));
+        id = PoolIdLibrary.toId(k);
+
+        // tick = log_1.0001(c1/c0). If the volatile asset sits on the same side (c0)
+        // in both ref and vanilla, the tick transfers directly; otherwise negate.
+        // (`volIsC0InVanilla == !token1isVol`.) Then floor toward -inf to tickSpacing:
+        // Solidity divides toward zero, which rounds negatives the wrong way.
+        // `SwapLib.alignTick` is CALLED, not re-derived here -- three lines of
+        // arithmetic duplicated across a library boundary is exactly the drift E14
+        // tracks, and OracleLib does not import SwapLib anywhere else, so there is
+        // no cycle (checked).
+        int24 tick = SwapLib.alignTick(
+            (refVolIsC0 == !token1isVol) ? refTick : -refTick, 10);
+
+        pm.initialize(k, TickMath.getSqrtPriceAtTick(tick));
+        st.lastTick = tick; st.cardinality = 1;
+        obs[0] = Observation({ blockTimestamp: uint32(block.timestamp),
+            tickCumulative: 0, initialized: true });
+    }
+
+    /// `wbtc` is passed in rather than read here so OracleLib does not have to import
+    /// `Aux` for one getter; Core already holds the pin. The two returned bools are the
+    /// DIRECTION PROBES `initPool` needs — whether the volatile asset is currency0 in
+    /// each REFERENCE pool (ETH ref: native 0x0; BTC ref: WBTC).
+    function prepRefs(IPoolManager pm, PoolKey calldata refETH, PoolKey calldata refBTC,
+        address mETH, address mBTC, address mUSD_ETH, address mUSD_BTC, address wbtc)
+        external returns (int24 tickETH, int24 tickBTC, bool ethVolIsC0, bool btcVolIsC0) {
+        (, tickETH, , ) = StateLibrary.getSlot0(pm, PoolIdLibrary.toId(refETH));
+        (, tickBTC, , ) = StateLibrary.getSlot0(pm, PoolIdLibrary.toId(refBTC));
+        ethVolIsC0 = Currency.unwrap(refETH.currency0) == address(0);
+        btcVolIsC0 = Currency.unwrap(refBTC.currency0) == wbtc;
+        mock(mETH).approve(address(pm), type(uint).max);
+        mock(mBTC).approve(address(pm), type(uint).max);
+        mock(mUSD_ETH).approve(address(pm), type(uint).max);
+        mock(mUSD_BTC).approve(address(pm), type(uint).max);
+    }
+
     function deployMocks() external returns (
         address mETH, address mBTC, address mUSD_ETH, address mUSD_BTC
     ) {

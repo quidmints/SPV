@@ -484,32 +484,21 @@ contract Core is SafeCallback {
         AUX = Aux(payable(_aux));
         BASKET = Basket(_basket);
 
-        // Read both reference pools' live ticks in the same setup
-        // call so they reflect a single consistent block snapshot.
-        PoolId idEthRef = PoolIdLibrary.toId(_refKeyETH);
-        PoolId idBtcRef = PoolIdLibrary.toId(_refKeyBTC);
+        // Both reference pools' live ticks are read in ONE library call so they
+        // reflect a single consistent block snapshot, and the four mock approvals
+        // ride along — see `OracleLib.prepRefs`. Every byte of that was deploy-time
+        // code sitting in Core's RUNTIME against a hard EIP-170 deficit.
+        // The ref-pool direction probes come back from the same call: they are pure
+        // reads of the ref keys, so computing them HERE only put `Currency.unwrap`
+        // in Core's runtime twice. `AUX.WBTC()` is queryable because AUX was wired
+        // above, and is passed in so OracleLib need not import Aux for one getter.
+        (int24 refTickEth, int24 refTickBtc, bool ethVolIsC0, bool btcVolIsC0) =
+            OracleLib.prepRefs(poolManager, _refKeyETH, _refKeyBTC,
+                mE, mB, mUE, mUB, address(AUX.WBTC()));
 
-        (, int24 refTickEth, , ) = StateLibrary.getSlot0(poolManager, idEthRef);
-        (, int24 refTickBtc, , ) = StateLibrary.getSlot0(poolManager, idBtcRef);
-
-        // Identify the WBTC side of the BTC reference pool for direction
-        // correction. AUX is already wired one line above, so its
-        // immutable WBTC address is queryable.
-        address wbtc = address(AUX.WBTC());
-
-        // Both pools init identically; only the ref-pool direction probe
-        // differs (ETH = native-0x0 c0, BTC = wbtc c0). Fold to one helper.
-        _initPool(false, address(mockETH), address(mockUSD_ETH),
-            Currency.unwrap(_refKeyETH.currency0) == address(0), refTickEth);
-
-        _initPool(true, address(mockBTC), address(mockUSD_BTC),
-            Currency.unwrap(_refKeyBTC.currency0) == wbtc, refTickBtc);
-
-        mockUSD_ETH.approve(address(poolManager), type(uint).max);
-        mockUSD_BTC.approve(address(poolManager), type(uint).max);
-
-        mockETH.approve(address(poolManager), type(uint).max);
-        mockBTC.approve(address(poolManager), type(uint).max);
+        // Both pools init identically; only the direction probe differs.
+        _initPool(false, mE, mUE, ethVolIsC0, refTickEth);
+        _initPool(true,  mB, mUB, btcVolIsC0, refTickBtc);
     }
 
     /// @dev Per-pool VANILLA init, shared by ETH and BTC. Builds the lex-sorted
@@ -517,41 +506,21 @@ contract Core is SafeCallback {
     ///      pool at the reference pool's live tick (direction-corrected via
     ///      `refVolIsC0`, floored toward −∞ to tickSpacing), and seeds the
     ///      oracle ring. Behavior-identical to the two prior inlined blocks.
-    function _initPool(bool isBTC, address volMock, 
-        address usdMock,bool refVolIsC0, int24 refTick) 
-        internal {  address token0; address token1;
-        bool token1isVol = volMock > usdMock;
-        if (isBTC) token1isBTC = token1isVol; 
-        else token1isETH = token1isVol;
-        
-        if (token1isVol) { token0 = usdMock; token1 = volMock; }
-        else             { token0 = volMock; token1 = usdMock; }
-        
-        PoolKey memory k = PoolKey({ currency0: Currency.wrap(token0),
-            currency1: Currency.wrap(token1), fee: 420, tickSpacing: 10,
-            hooks: IHooks(address(0)) }); PoolId id = k.toId();
-        
-        if (isBTC) { VANILLA_BTC = k; POOL_ID_VANILLA_BTC = id; }
-        else       { VANILLA_ETH = k; POOL_ID_VANILLA_ETH = id; }
+    function _initPool(bool isBTC, address volMock,
+        address usdMock, bool refVolIsC0, int24 refTick) internal {
+        // Everything but the two VALUE-TYPE state writes lives in OracleLib: the
+        // PoolKey assembly, the lex sort, the tick direction-correction + align, the
+        // pool init and the oracle seeding are all deploy-time-only code that was
+        // costing Core RUNTIME bytes under a hard EIP-170 deficit. `VANILLA_*` (a
+        // struct) and the ring (an array) can be passed by STORAGE POINTER, which is
+        // what makes the move possible; `token1is*` and `POOL_ID_*` are value types
+        // with no pointer to pass, so those two assignments stay here.
+        (bool token1isVol, PoolId id) = OracleLib.initPool(poolManager,
+            isBTC ? VANILLA_BTC : VANILLA_ETH, _obsState(isBTC), _obs(isBTC),
+            volMock, usdMock, refVolIsC0, refTick);
 
-        // tick = log_1.0001(c1/c0). If the volatile asset sits on the same
-        // side (c0) in both ref and vanilla, the tick transfers directly;
-        // otherwise negate. (`volIsC0InVanilla == !token1isVol`.)
-        int24 tick = (refVolIsC0 == !token1isVol) ? refTick : -refTick;
-        // Floor toward −∞ to tickSpacing (Solidity divides toward zero, which
-        // rounds negatives the wrong way) — matches _alignTick. The 9 is
-        // tickSpacing−1 (spacing = 10): biasing a negative tick by −(spacing−1)
-        // before the truncating division makes it round DOWN to the next spacing.
-        tick = SwapLib.alignTick(tick, 10);
-
-        poolManager.initialize(k, TickMath.getSqrtPriceAtTick(tick));
-        OracleLib.ObsState storage st = _obsState(isBTC);
-        st.lastTick = tick;
-
-        st.cardinality = 1;
-        _obs(isBTC)[0] = OracleLib.Observation({
-            blockTimestamp: uint32(block.timestamp),
-            tickCumulative: 0, initialized: true});
+        if (isBTC) { token1isBTC = token1isVol; POOL_ID_VANILLA_BTC = id; }
+        else       { token1isETH = token1isVol; POOL_ID_VANILLA_ETH = id; }
     }
 
     /// @notice Draw down the BTC pool's committed USD side when an on-chain
