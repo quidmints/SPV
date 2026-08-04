@@ -1549,3 +1549,30 @@ while waiting. **The exit reserve does not need to live in Rover.**
   | below spot | none | **zero** | zero | 🔴 no |
   | one-tick at spot | ~half | ~0.73%/yr | ~1.0%/yr | ✅ yes, −1 bps |
   | above spot | all | 🔴 ~1.45%/yr | **zero** | ✅ yes, −14 bps |
+
+## 16.9 🎯 THE WETH LEG DOES NOT PAY FOR ITSELF — a weETH-ONLY band below spot costs ~nothing
+Owner: *"we need as much weETH as we can… but is [the WETH leg] what lets us capture the swap fee?"*
+**Yes to the second, no to the first.** A v3 position earns fees only while spot is INSIDE its range,
+and in-range means holding BOTH tokens — that is the invariant, not a design choice. But measured
+against the RIGHT baseline (holding 100% weETH, which is what the capital does outside the pool):
+| placement | WETH leg | **vs HOLD-100%-weETH** | in-range |
+|---|---|---|---|
+| straddle 60t *(what Rover does today)* | 44% | 🔴 **−1.15%** | 28/30 |
+| **weETH-only, BELOW spot, 60t** | **0%** | 🎯 **−0.05%** | 7/30 |
+| **weETH-only, BELOW spot, 120t** | **0%** | 🎯 **−0.01%** | 7/30 |
+| WETH-only, ABOVE spot | 100% | −2.43% | 0/30 |
+
+⇒ ⭐ **The straddle's 4× in-range time does NOT pay for its 44% WETH leg. ~1.10%/yr is being given
+  up.** With volume this thin the extra fee capture cannot cover 44% of the capital forgoing 2.47%.
+⇒ ⛔ **AND IT REFUTES R8 (*"single-sided is dead — out-of-range earns ZERO fees"*)** for the third
+  time in this doc. Out-of-range earns zero **while out of range** — but the DRIFT PUSHES SPOT DOWN
+  INTO a below-spot band, so it does not stay out. It earns during the traversal. R8 evaluated it as
+  though the price were static. *(✅ — measured over 61 rolling windows.)*
+⇒ ⚠️ **WHAT IT COSTS:** a weETH-only band cannot serve the offramp — pull it and you get weETH, not
+  WETH. Conversions revert to **−24 bps** through third-party depth instead of −1. Breakeven ≈ **4.8×
+  turnover per year**, the same order as every other breakeven here.
+⇒ 📌 **`sourceWethBody` ("opportunistic") is NOT a defect** — retracting my own flag. It sells the
+  VAULT's idle weETH, and the Vault only holds weETH via `VaultLib:266`, which `VogueLib._supplyEtherFi`
+  reaches ONLY when Rover's deposit reverts (self-liquidated). So it is a no-op while Rover is healthy
+  and a correct drain when it is not. The naming and position mislead — it reads like a primary
+  source and is a fallback.
