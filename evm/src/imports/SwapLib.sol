@@ -1186,7 +1186,7 @@ library SwapLib {
         // swap still executes at basePrice through routeSwap ⇒ NO manip-guard exemption (separate scalar).
         // `amount` here is ALREADY 6-dec USD (scaleTo6 in _swapOutPrep), so px=0 declares "no conversion":
         // this leg's recorded premium was always in the right unit and stays that way.
-        SwapReq memory sr; sr.amount = amount; sr.px = 0; sr.asset = wbtc;
+        SwapReq memory sr; sr.amount = amount; sr.px = 0;
         retainSkewPremium(core, true, sr, wellSkew(core, _priceMax(v4p, aux, wbtc), true, amount), false);  // audit + RFQ-drawable
         amount = sr.amount;
         rp.amount    = amount;                               // reduced buy drives the fill
