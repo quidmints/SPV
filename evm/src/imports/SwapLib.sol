@@ -906,7 +906,10 @@ library SwapLib {
         // be answered. Here: real scarcity (q > 0) plus UNMEASURED variance ⇒ charge the ceiling.
         // That is the conservative reading of "unknown" and it is consistent with the cap's, so the
         // two consumers of the sentinel can no longer disagree.
-        if (sigmaSqWad == 0) return _maxWellSkew(0, isBTC);
+        // §E79: with the inversion, `_maxWellSkew(0)` is now a FLOOR of ~0 — returning it here would
+        // re-open the free-drain hole E59 closed. UNMEASURED variance must price at the CEILING,
+        // which is the conservative reading E59 intended and now says so in the right units.
+        if (sigmaSqWad == 0) return MAX_WELL_SKEW;
         // §E68 — THE KERNEL IS NOW THE INTEGRAL OF THE SAME POLE, NOT A POINT SAMPLE OF IT.
         //
         // The curve is UNCHANGED: still `q/(1−q)`, still A&S's simple pole, still one constant.
@@ -939,11 +942,21 @@ library SwapLib {
         }
         skew = qBar == type(uint).max ? type(uint).max
              : FullMath.mulDiv(FullMath.mulDiv(MAX_WELL_SKEW, sigmaSqWad, 1e18), qBar, 1e18);
-        // DYNAMIC cap = the live MM refill cost (σ over the confirmation window), never above
-        // the MAX_WELL_SKEW abs ceiling. Replaces the fixed 3% clamp: in calm markets the cap
-        // binds LOWER (don't overpay a cheap refill), in high vol it rises toward 3%.
-        uint cap = _maxWellSkew(sigmaSqWad, isBTC);
-        if (skew > cap) skew = cap;
+        // §E79 — CAP-TO-BASE INVERSION. `_maxWellSkew` = σ²·confFrac/8 is an EXPECTED-LOSS RATE over
+        // the settlement window. Using a rate as a price CEILING was a category error, and it was
+        // MEASURED crushing the whole curve: at a plausible σ²=1e16 the skew came out 4.75e-10, i.e.
+        // ~0.0000005 bps (E72). **That is not a small spread — it is quoting Chainlink MID.** An AMM
+        // filling at oracle with no spread is a FREE OPTION to anyone whose information is fresher
+        // than the oracle (loss-versus-rebalancing): the informed trader picks the LP off on every
+        // oracle lag. THE SKEW IS THE MARKET-MAKER SPREAD, and a spread of zero is the exposure.
+        //   So the expected loss becomes the FLOOR — the base charge under EVERY trade, which is what
+        //   an expected loss over the settlement window actually is — and the scarcity premium is
+        //   free to rise above it, bounded by the ABSOLUTE ceiling `MAX_WELL_SKEW` (3%) that was
+        //   always the real safety limit. The ceiling is UNCHANGED, so the maximum haircut anyone can
+        //   suffer is exactly what it was; only the floor moved off zero.
+        uint floorRate = _maxWellSkew(sigmaSqWad, isBTC);
+        if (skew < floorRate) skew = floorRate;
+        if (skew > MAX_WELL_SKEW) skew = MAX_WELL_SKEW;
     }
 
     /// @notice The live well skew (WAD) for a pool — gathers deliverable inventory (at
@@ -1046,8 +1059,10 @@ library SwapLib {
         // §E53: amplify by how much of the SHARED bound the other band already holds, then re-cap —
         // the amplifier must never lift the skew past the same ceiling the raw curve obeys.
         uint amp = FullMath.mulDiv(raw, _sharedScarcityWad(core, isBTC), 1e18);
-        uint capped = _maxWellSkew(ICore(core).realizedVarianceWad(isBTC), isBTC);
-        return amp > capped ? capped : amp;
+        // §E79: the re-cap after the amplifier is now the ABSOLUTE ceiling. The expected-loss FLOOR
+        // was already applied inside `skewWad`, and re-clamping to it here would undo the inversion
+        // by pulling an amplified premium straight back down to the base charge.
+        return amp > MAX_WELL_SKEW ? MAX_WELL_SKEW : amp;
     }
 
     /// @notice SYMMETRIC A-S skew for a volatile-IN SELL (the self-funded short's
@@ -1168,15 +1183,20 @@ library SwapLib {
         // leg ratio (§E28): a number that is *available* is not thereby the *right* one.
         // §E59: same σ²-zeroes-the-kernel hole as the drain leg — an UNMEASURED variance must not
         // price an inventory-increasing sell at nothing. Scarcity is real (q > 0) by this point.
-        if (sigmaSqWad == 0) return _maxWellSkew(0, isBTC);
+        // §E79: with the inversion, `_maxWellSkew(0)` is now a FLOOR of ~0 — returning it here would
+        // re-open the free-drain hole E59 closed. UNMEASURED variance must price at the CEILING,
+        // which is the conservative reading E59 intended and now says so in the right units.
+        if (sigmaSqWad == 0) return MAX_WELL_SKEW;
         uint skew = FullMath.mulDiv(
             FullMath.mulDiv(MAX_WELL_SKEW, sigmaSqWad, 1e18), q, 1e18);
         // §E53: the SAME shared-scarcity amplifier the drain leg carries — a sell that grows our
         // inventory is dearer to shed when the OTHER band has already spoken for the shared backing.
         skew = FullMath.mulDiv(skew, _sharedScarcityWad(core, isBTC), 1e18);
         // SAME dynamic cap as the drain leg — one ceiling, both legs (`_maxWellSkew`).
-        uint cap = _maxWellSkew(sigmaSqWad, isBTC);
-        return skew > cap ? cap : skew;
+        // §E79 — SAME CAP-TO-BASE INVERSION AS THE DRAIN LEG. One rule, both legs.
+        uint floorRate = _maxWellSkew(sigmaSqWad, isBTC);
+        if (skew < floorRate) skew = floorRate;
+        return skew > MAX_WELL_SKEW ? MAX_WELL_SKEW : skew;
     }
 
     /// @notice Body of Aux.creditSwapOut — Swap-OUT (USD→BTC), the on-curve
