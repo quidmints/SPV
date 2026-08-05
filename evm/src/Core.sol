@@ -1253,15 +1253,17 @@ contract Core is SafeCallback {
                         _obsState(isBTC), tick);
     }
 
-    function observe(uint32[] calldata secondsAgos)
+    /// @notice §E63 — ONE observe, dispatched. These were TWO externals with IDENTICAL bodies
+    ///         differing only in which ring they read, i.e. two selectors, two dispatch entries and
+    ///         two copies of the call frame for one behaviour. The `_obs`/`_obsState` accessors
+    ///         already exist to pick the ring, so the duality was paid for twice.
+    /// @dev    This one clears the relocation threshold the other attempts did not (§E63): it
+    ///         DELETES a surface rather than moving a small body, and moving small bodies out of
+    ///         Core has measured WORSE three times (−73, −207, −471) because the caller pays the
+    ///         call overhead. Not client-facing — `tools/check-client-abis.py` has zero references
+    ///         to either name; the only callers are `SwapLib:104-105`.
+    function observe(uint32[] calldata secondsAgos, bool isBTC)
         external view returns (int56[] memory) {
-        return OracleLib.observe(observationsETH, 
-                            obsETH, secondsAgos);
-    }
-
-    function observeBTC(uint32[] calldata secondsAgos)
-        external view returns (int56[] memory) {
-        return OracleLib.observe(observationsBTC, 
-                            obsBTC, secondsAgos);
+        return OracleLib.observe(_obs(isBTC), _obsState(isBTC), secondsAgos);
     }
 }

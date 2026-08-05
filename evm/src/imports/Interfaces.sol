@@ -251,8 +251,7 @@ interface ICore {
     function POOLED_BTC() external view returns (uint);
     function btcThetaBacking() external view returns (uint);
     function poolStats(int24 tickLower, int24 tickUpper, bool isBTC) external view returns (uint160 sqrtPriceX96, int24 currentTick, uint128 liquidity);
-    function observe(uint32[] calldata secondsAgos) external view returns (int56[] memory);
-    function observeBTC(uint32[] calldata secondsAgos) external view returns (int56[] memory);
+    function observe(uint32[] calldata secondsAgos, bool isBTC) external view returns (int56[] memory);
     function POOLED_ETH() external view returns (uint);
     function premiumEwmaUsd(bool isBTC) external view returns (uint);
     function POOLED_USD_ETH() external view returns (uint);

@@ -101,8 +101,7 @@ library SwapLib {
         uint32[] memory secondsAgos = new uint32[](2);
         secondsAgos[0] = period == 0 ? 1800 : period;
         secondsAgos[1] = 0;
-        int56[] memory tc = isETH ? ICore(core).observe(secondsAgos)
-                                  : ICore(core).observeBTC(secondsAgos);
+        int56[] memory tc = ICore(core).observe(secondsAgos, !isETH);   // §E63: one dispatched observe
         bool token0isUSD = ICore(core).token1is(!isETH);
         price = BasketLib.ticksToPrice(tc[0], tc[1], secondsAgos[0], token0isUSD);
     }
