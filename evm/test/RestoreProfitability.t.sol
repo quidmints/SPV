@@ -114,6 +114,9 @@ contract RestoreProfitability is Alles {
         // ---- 2. THE RESTORING TRADE: sell ETH back, which RAISES inv toward target.
         //         Measure BOTH plausible payout tokens, so a wrong guess about where proceeds
         //         land cannot masquerade as a zero edge — the first draft's exact failure.
+        uint pxNow = AUX.getTWAPforAsset(address(WETH), 1800);   // price AT THE TRADE, not pre-drain
+        emit log_named_uint("oracle px PRE-drain ", px);
+        emit log_named_uint("oracle px AT-trade  ", pxNow);
         uint sellSize = 20 ether;
         deal(address(WETH), restorer, sellSize);
         uint valueBefore = _stableValue18(restorer);
@@ -126,7 +129,7 @@ contract RestoreProfitability is Alles {
         emit log_named_uint("restorer WETH left (0=input taken, 20e18=no-op)", wethLeft);
         uint got = _stableValue18(restorer) - valueBefore;
         emit log_named_uint("restorer got (all stables + QUID, usd18)", got);
-        uint atOracle = sellSize * px / 1e18;
+        uint atOracle = sellSize * pxNow / 1e18;   // CONFOUND FIX: compare against the LIVE price
         emit log_named_uint("same size at oracle", atOracle);
 
         if (got == 0) {
