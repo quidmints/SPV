@@ -119,7 +119,8 @@ contract RestoreProfitability is Alles {
         uint valueBefore = _stableValue18(restorer);
         vm.startPrank(restorer);
         WETH.approve(address(AUX), sellSize);
-        AUX.swap(bold, address(WETH), false, sellSize, 0);
+        uint minOut = 1;   // the weakest possible demand: ANY non-zero delivery
+        AUX.swap(bold, address(WETH), false, sellSize, minOut);
         vm.stopPrank();
         uint wethLeft = WETH.balanceOf(restorer);
         emit log_named_uint("restorer WETH left (0=input taken, 20e18=no-op)", wethLeft);

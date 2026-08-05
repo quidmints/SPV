@@ -88,10 +88,32 @@ the restoring sell **succeeds**, the input **is consumed** (`WETH left = 0`), an
 receives **ZERO** — measured across EVERY basket stable AND QUID, not just one guessed token.
 **20 ETH went in; nothing came back in the same transaction.**
 
-❓ **MY HYPOTHESIS, EXPLICITLY UNPROVEN:** proceeds settle asynchronously (an obligation/claim), by
-analogy with the BTC leg at `SwapLib.sol:1203`. **I did not verify this and it may be wrong. It may
-equally be a bug.** Both look identical from outside — which is why this is the next thing to do and
-not a conclusion.
+✅ **MEASURED 2026-08-05 — THIS IS NO LONGER A HYPOTHESIS, AND IT IS NOT "ASYNC SETTLEMENT".**
+I first guessed async/obligation settlement by analogy with the BTC leg. **That guess was not
+supported.** Three runs of the same fixture, varying ONLY `minOut`:
+
+| `minOut` | outcome | what it proves |
+|---|---|---|
+| `0` | passes, delivers 0 | nothing — zero-delivery is INVISIBLE at minOut 0 |
+| `0.9 × oracle` | **reverts `SlippageMaxS()`** | the swap's INTERNAL computed delivery is **< 90% of oracle** |
+| `1` | **passes**, still delivers 0 | that internal delivery is **>= 1** |
+
+**So the swap's own accounting says a non-zero amount was delivered, while the recipient's balances
+across EVERY basket stable AND QUID say zero arrived.** Internal record and actual receipt disagree.
+
+🔗 **THIS IS ALREADY A KNOWN FINDING — `BUILD-QUEUE-AND-107.md:1128`, S16 (`minOut=0` SILENT-LOSS):**
+*"anvil e2e proved a swap consumed 1000 USDC + delivered 0 (status 1, NO revert because minOut=0)"*.
+The restore path reproduces S16 exactly. **My fixture passed `minOut = 0` and so did the earlier
+E69 runs, which is why two passes reported "zero edge" when the real state was "zero delivery".**
+
+⚠️ **CONSEQUENCE FOR THIS FILE'S CENTRAL QUESTION: restoration is not merely UNPROFITABLE, it may be
+BROKEN.** You cannot measure the edge on a path that consumes input and delivers nothing. **Fix or
+explain the delivery gap BEFORE any pricing work here — a bps figure computed over a broken path is
+worse than no figure.**
+
+❓ **STILL UNKNOWN: where the proceeds go.** Candidates: a claim/obligation the restorer must redeem
+separately, a stable outside `AUX.getStables()`, or genuine loss. *Check:* re-run with `-vvvv` and
+read the ERC20 Transfer logs — that identifies the destination address directly and ends the guessing.
 
 ### 4a. The next concrete steps, in order
 
