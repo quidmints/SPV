@@ -156,6 +156,26 @@ FAMILIES = OrderedDict([
     # vBTC, outstanding supply) meaning issued-and-unredeemed, not owed-as-work. The lookahead below
     # filters the common nouns; anything it misses is triage cost, and under-matching a debt is
     # worse than over-matching a balance sheet.
+    # Added 2026-08-05 — STILL OPEN. 69 hits in one session; the only ones any family caught were
+    # "remains open", and only by accident (INCOMPLETE's bare `remains?`). "still open" itself,
+    # "left open", "reopened", "not closed", "open item", "unresolved" and "still pending" all
+    # matched nothing at all.
+    #
+    # This is the status-column vocabulary — how a summary reports what did not get done, as opposed
+    # to how prose confesses it. That makes it the natural pair to OWED: OWED catches the debt when
+    # it is incurred, OPEN catches it when it is being reported forward. The repo's own closure rule
+    # ("mark ✅ only if no later decision can reopen it") is written in exactly this register, so a
+    # thread summarising its state uses these words and nothing was reading them.
+    #
+    # ⚠️ DOMAIN SENSE, filtered: an "open position" / "open channel" / "open order" is a live
+    # financial object, not unfinished work — "position stays open for the keeper to re-lever" must
+    # not fire. Lookbehind + lookahead handle the common shapes; verified by control probe.
+    ("OPEN",        r"\b(?:still (?:open|live|unresolved|pending|unsettled|undecided)|"
+                    r"(?<!position )(?:remains?|stays?|left|kept|leave) open"
+                    r"(?! (?:position|channel|order|source|interest|range|market))|"
+                    r"re[- ]?open(?:ed|s|ing)?|not (?:closed|settled|resolved|decided)|"
+                    r"open (?:item|question|issue|fork|point|end|hole)s?|"
+                    r"unresolved|unsettled|genuinely (?:open|remain))\b"),
     ("OWED",        r"\b(?:owed?\b|(?:I|we) (?:still )?owe|promised\b|"
                     r"outstanding(?! (?:vBTC|BTC|supply|balance|shares|principal|amount|liabilit|"
                     r"piece|example))|on the hook|"
