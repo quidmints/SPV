@@ -940,7 +940,9 @@ contract Alles is ForkPin, Fixtures {
 
         // q=1/2 (inv=T/2): q/(1−q)=1 ⇒ skew = Γσ² = 3e16·1e16/1e18 = 3e14 (kernel leads on ETH).
         uint s12 = SwapLib.skewWad(T / 2, T, sig, false, 0);
-        assertEq(s12, 3e14, "q=0.5 barrier skew = Gamma*sigma2 (q/(1-q)=1)");
+        // §E89: the settlement-window base now ADDS to the kernel (it is incurred regardless of size),
+        // so the pin is kernel + base, not kernel alone. ETH base = σ²·ETH_CONF_FRAC/8 = 4.75e8.
+        assertEq(s12, 3e14 + 475e6, "q=0.5 barrier skew = Gamma*sigma2 + base");
 
         // q=1/3 (inv=2T/3): q/(1−q)=0.5 ⇒ half of s12. q=2/3 (inv=T/3): q/(1−q)=2 ⇒ double s12.
         uint s13 = SwapLib.skewWad(2 * T / 3, T, sig, false, 0); // q=1/3
@@ -967,14 +969,22 @@ contract Alles is ForkPin, Fixtures {
         // pin). The per-asset distinction did not disappear — IT MOVED TO THE FLOOR, which is where a
         // settlement-window cost belongs. BTC carries the ~1hr confirmation lock AND the splice fee;
         // ETH carries one block and no splice.
-        assertEq(SwapLib.skewWad(T - 1, T, sig, true, 0), 2e15 + 1425e8,
-            "BTC base = SPLICE_FLOOR + sigma2*CONF_FRAC/8 (floor leads at low q)");
+        // §E89: as q->0 the skew TENDS to the base, but does not equal it -- at q=1/T the kernel still
+        // contributes 99 wei, and under ADDITION that is correct. An assertEq to the base alone would
+        // assert the kernel contributes nothing, which is exactly what the additive form denies. The
+        // tolerance here is bounding a KNOWN, DERIVED term, not hiding an unexplained residual.
+        assertApproxEqAbs(SwapLib.skewWad(T - 1, T, sig, true, 0), 2e15 + 1425e8, 1e3,
+            "BTC base = SPLICE_FLOOR + sigma2*CONF_FRAC/8 (base dominates as q->0)");
         assertLt(SwapLib.skewWad(T - 1, T, sig, false, 0),
                  SwapLib.skewWad(T - 1, T, sig, true, 0), "ETH floor < BTC floor (no conf lock, no splice)");
         // AND THE FLOOR IS A FLOOR, NOT A CEILING: at high scarcity the kernel must OVERTAKE it, or the
         // inversion did nothing. q=0.9 ⇒ q/(1−q)=9 ⇒ kernel 2.7e15 > BTC's 2.0001425e15 base.
         assertGt(SwapLib.skewWad(T / 10, T, sig, true, 0), 2e15 + 1425e8,
-            "kernel OVERTAKES the base at high scarcity -- the inversion is real");
+            "kernel ADDS on top of the base at high scarcity -- the restructure is real");
+        // §E89 REGRESSION PIN: the base must SURVIVE at high scarcity, not be absorbed. Under the old
+        // max() form this equalled the kernel alone; under addition it must exceed it by the base.
+        assertEq(SwapLib.skewWad(T / 10, T, sig, false, 0),
+                 27e14 + 475e6, "ETH high-scarcity = kernel(q/(1-q)=9) + base, base NOT absorbed");
     }
 
     // SWAP-PRICING PIN (ETH, in-range): closes the pervasive `minOut=0 + assertGt(>0)` mask by

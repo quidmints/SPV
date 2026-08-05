@@ -954,8 +954,13 @@ library SwapLib {
         //   free to rise above it, bounded by the ABSOLUTE ceiling `MAX_WELL_SKEW` (3%) that was
         //   always the real safety limit. The ceiling is UNCHANGED, so the maximum haircut anyone can
         //   suffer is exactly what it was; only the floor moved off zero.
-        uint floorRate = _maxWellSkew(sigmaSqWad, isBTC);
-        if (skew < floorRate) skew = floorRate;
+        // §E89 — THE BASE **ADDS**, IT DOES NOT FLOOR. `max(size, base)` was still wrong: it lets the
+        // base VANISH into the size term at high scarcity, so a big drain pays the depletion charge
+        // and NOTHING for the settlement-window loss. But σ²·T/8 is incurred REGARDLESS OF SIZE — it
+        // is what the position costs us over the window no matter who trades or how much. Depletion
+        // risk and adverse selection are DIFFERENT costs and both are real, so they SUM. `max` under-
+        // charges by exactly `min(sizeTerm, base)`, which is largest in the regime that matters most.
+        skew += _maxWellSkew(sigmaSqWad, isBTC);
         if (skew > MAX_WELL_SKEW) skew = MAX_WELL_SKEW;
     }
 
@@ -1194,8 +1199,8 @@ library SwapLib {
         skew = FullMath.mulDiv(skew, _sharedScarcityWad(core, isBTC), 1e18);
         // SAME dynamic cap as the drain leg — one ceiling, both legs (`_maxWellSkew`).
         // §E79 — SAME CAP-TO-BASE INVERSION AS THE DRAIN LEG. One rule, both legs.
-        uint floorRate = _maxWellSkew(sigmaSqWad, isBTC);
-        if (skew < floorRate) skew = floorRate;
+        // §E89 — SAME: the settlement-window loss ADDS to the size term, one rule both legs.
+        skew += _maxWellSkew(sigmaSqWad, isBTC);
         return skew > MAX_WELL_SKEW ? MAX_WELL_SKEW : skew;
     }
 
