@@ -7051,3 +7051,45 @@ discount moves, the break-even must be COMPUTED, never configured.
 Caveats: one block, so this is the current discount and not a distribution; and these are Quoter
 figures rather than executed swaps (the fork tests that confirmed quoter/fill agreement were deleted
 in Rover step 2).
+
+### THE OFFRAMP DESIGN — settled 2026-08-06. Build this, not a capacity cap.
+
+**The constraint (owner's framing, and it is the right one):** the band advertises depth equal to ALL
+the weETH, but WETH deliverable via borrow is only `LTV × weETH`. The top `(1 − LTV)` tranche is
+advertised but not borrowable. Structural — the haircut scales with the position, so no amount of
+capital fixes it.
+
+⚠️ **A previous framing of this as "LP withdrawals at risk" was NARROWER AND PARTLY A RED HERRING.**
+If LPs are paid in **weETH** they can withdraw 100% and never touch LTV. Only a SWAPPER WANTING WETH
+hits the wall. Do not build withdrawal-side machinery for this.
+
+**DO NOT CAP `POOLED_ETH`.** The measured ladder changes the answer: the residual tranche is not
+undeliverable, it is *sellable* at a flat ~25.6 bps. So the marginal cost STEPS UP at the LTV line
+instead of the depth stopping — strictly better than refusing business we can serve.
+
+| tranche | source | marginal cost |
+|---|---|---|
+| 0 → `LTV × weETH` | borrow WETH against weETH, repay from the waitNft | borrowAPY × window (~5 bps at 3%) |
+| beyond `LTV` | sell weETH into the V3 pool | **~25.6 bps, flat in size** |
+| beyond pool depth | ether.fi redemption | free, ~7 days |
+
+**THIS IS THE SHAPE `offrampBody` ALREADY HAS.** Rung 1 is the V3 pool, rung 3 is the redeem. The
+entire change is inserting the borrow as a NEW CHEAPEST RUNG ahead of the existing V3 sale — exactly
+the slot Rover's rung 2 occupied and which is now empty. The ladder, cascade order and fall-through
+semantics are all reused. A full drain remains servable; it just costs ~20 bps more past the LTV line,
+which is a step, not a cliff.
+
+**⇒ The LTV read is LOAD-BEARING, not hygiene.** The rung boundary IS `LTV × holdings`, so a stale
+8600 puts the boundary in the wrong place: it either strands borrowable capacity or attempts a borrow
+that reverts. Read `idToMarketParams(id).lltv` — immutable, so a one-time read per market, not a
+per-swap oracle. See OPEN 19.
+
+**OPEN 21 — should the skew price the tranche boundary?** A swapper crossing from rung 0 into rung 1
+imposes a ~20 bps step on the protocol. If the quote does not reflect it, the marginal swapper is
+subsidised by the pool at exactly the moment capacity becomes scarce — structurally the SAME defect as
+the well's size-blindness. Unmeasured; decide before wiring the rung.
+
+**Still to build (small):** the waitNft lifecycle — request via `IEtherFiLiquidityPool.requestWithdraw`
+(already declared), custody the id, claim on maturity, repay the borrow. Plus one rate comparison
+(`borrowRateView` vs the live quoter discount) to pick rung 0 vs rung 1. `collToWethDeliver` (§M.1) is
+the delivery seam and needs NO changes.
