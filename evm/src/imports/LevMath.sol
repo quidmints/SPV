@@ -349,13 +349,12 @@ library LevMath {
         stableOut = _wethToStableDex(c, stable, wethGot, minOut > floorOut ? minOut : floorOut);
     }
 
-    /// weETH → WETH, cheapest-first: (0) Rover fair-rate absorb (0 if Rover unset — Rover is an OPTIONAL optimizer,
-    /// not a dependency) → (1) deep V3 weETH/WETH pool, Rover-INDEPENDENT → (2) EMERGENCY ether.fi redeem for the
-    /// residual. Own frame keeps sellWeeth's peel under the stack limit (no via_ir).
+    /// weETH → WETH, cheapest-first: (1) deep V3 weETH/WETH pool → (2) EMERGENCY ether.fi redeem for the
+    /// residual. The Rover fair-rate absorb tier was REMOVED 2026-08-05 (Rover deleted): it returned 0 whenever
+    /// Rover was unset or empty, so once nothing funds Rover it is a guaranteed no-op that still paid two
+    /// external calls (`ethVenue()`, `ROVER()`) on every sell. Own frame keeps sellWeeth's peel under the stack limit (no via_ir).
     function _weethToWeth(SellCtx memory c, uint256 pulled) internal returns (uint256 wethGot) {
         uint256 remaining = pulled;
-        (uint256 wRover, uint256 usedRover) = _roverAbsorb(c, remaining);
-        wethGot += wRover; remaining -= usedRover;
         if (remaining > 0) {
             uint256 wDex = _weethToWethDex(c, remaining);
             if (wDex > 0) { wethGot += wDex; remaining = 0; }
@@ -370,16 +369,6 @@ library LevMath {
         }
     }
 
-    function _roverAbsorb(SellCtx memory c, uint256 weethIn) internal returns (uint256 wethOut, uint256 weethUsed) {
-        if (weethIn == 0) return (0, 0);
-        address vault = IAux(c.aux).ethVenue();
-        address rover = vault == address(0) ? address(0) : IWiredVault(vault).ROVER();
-        if (rover == address(0)) return (0, 0);
-        IERC20Min(c.weeth).approve(rover, weethIn);
-        try IRover(rover).absorb(weethIn, false) returns (uint256 w, uint256 used) {   // weETH → WETH
-            wethOut = w; weethUsed = used;
-        } catch { IERC20Min(c.weeth).approve(rover, 0); }
-    }
 
     function _weethToWethDex(SellCtx memory c, uint256 pulled) internal returns (uint256) {
         uint256 wethFloor = IWeETH(c.weeth).getEETHByWeETH(pulled) * (10_000 - SELL_SLIP_BPS) / 10_000;
@@ -401,20 +390,11 @@ library LevMath {
         if (weethOut < minWeethOut) revert Slippage();
     }
 
-    /// WETH → weETH on-ramp (the INVERSE of `_weethToWeth`): (0) absorb from the Rover's IDLE weETH inventory at fair
-    /// rate (rebalances Rover + saves a mint, zero slippage; 0 if Rover unset/empty) → (1) mint the remainder at
-    /// ether.fi's fair rate (the reliable fallback). NON-reverting (fair-rate mint always clears) so the short-close
+    /// WETH → weETH on-ramp (the INVERSE of `_weethToWeth`): mint at ether.fi's fair rate. The Rover idle-inventory
+    /// absorb tier was REMOVED 2026-08-05 with Rover itself — an unfunded Rover has no idle inventory, so it was a
+    /// guaranteed no-op costing two external calls per on-ramp. NON-reverting (fair-rate mint always clears) so the short-close
     /// can call it after its own try/catch'd stable→WETH SOR without a nested revert escaping the catch.
     function _wethToWeeth(SellCtx memory c, uint256 wethRem) internal returns (uint256 weethOut) {
-        {
-            address vault = IAux(c.aux).ethVenue();
-            address rover = vault == address(0) ? address(0) : IWiredVault(vault).ROVER();
-            if (rover != address(0)) {
-                IERC20Min(c.weth).approve(rover, wethRem);
-                (uint256 wAbs, uint256 wUsed) = IRover(rover).absorb(wethRem, true);   // WETH → weETH
-                weethOut += wAbs; wethRem -= wUsed;
-            }
-        }
         if (wethRem > 0) { // mint the remainder WETH→weETH at ether.fi's fair rate.
             IERC20Min(c.weth).approve(ETHERFI_ADAPTER_M, wethRem);
             uint256 bef = IERC20Min(c.weeth).balanceOf(address(this));
