@@ -724,7 +724,12 @@ library SwapLib {
     // pool gets, so oracle-lag can't be amplified into a toxic overpay at the edge. Sized to
     // cover a native-BTC MM's real drain-edge cost (splice fee + capital-through-confirmation
     // ~ a few %).
-    uint internal constant MAX_WELL_SKEW = 3e16;   // 3% — hard cap (TWAP-anchor bound)
+    /// §E62 — NO LONGER A CAP ON THE DERIVED CURVE. Its ONE remaining job is to price the case we
+    /// cannot measure: `_maxWellSkew` returns it when `σ² == 0` (unknown, not calm — §E59), and the
+    /// kernel uses it as the Γ scale. The derived path (`σ²·confFrac/8`) is now UNCLAMPED, because
+    /// clamping a measured expected cost at an asserted number could only make us UNDER-charge, and
+    /// it bound precisely in the high-vol regime where the skew matters most.
+    uint internal constant MAX_WELL_SKEW = 3e16;   // 3% — the UNKNOWN-variance value
     // Avellaneda–Stoikov calibration. `realizedVarianceWad` is ANNUALIZED realized
     // variance in WAD (VogueLib:294-318: tickVar·(SECS_PER_YEAR/THETA_STEP)·1e10 ⇒ a
     // fraction² scaled 1e18; e.g. 80%-annualized vol ⇒ σ²≈0.64 ⇒ ~6.4e17). SIGMA_REF is
@@ -793,8 +798,14 @@ library SwapLib {
         // This is the third instance of one lesson (cf. E56 dead-vs-new, E59): a sentinel that
         // means "no data" must never be consumed as if it meant "none of the thing".
         if (sigmaSqWad == 0) return MAX_WELL_SKEW;
-        uint cap = FullMath.mulDiv(sigmaSqWad, confFrac, 8e18) + (isBTC ? SPLICE_FLOOR : 0);
-        return cap < MAX_WELL_SKEW ? cap : MAX_WELL_SKEW;
+        // §E62 — THE HARD 3% NO LONGER CAPS THE *DERIVED* PATH; it survives ONLY as the
+        // unknown-variance value above. Rationale: `σ²·confFrac/8` IS a derivation — LVR over the
+        // settlement window (MMRZ eq.16), chain physics times measured volatility — so clamping it
+        // at an asserted 3% could only ever make us charge LESS than the measured expected cost, and
+        // it bound exactly in the high-vol regime where the skew is most needed. That clamp was
+        // defensible while σ² was unreliable; it is not now that variance measures (§E59).
+        // What remains of MAX_WELL_SKEW is the honest one: a ceiling for the case we CANNOT measure.
+        return FullMath.mulDiv(sigmaSqWad, confFrac, 8e18) + (isBTC ? SPLICE_FLOOR : 0);
     }
 
     /// @notice The convex inventory-skew CURVE — returns a WAD skew FRACTION

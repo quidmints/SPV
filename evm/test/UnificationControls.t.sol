@@ -45,6 +45,16 @@ contract UnificationControls is Alles {
     address trader = address(0xBEEF01);
     address bold;
 
+    /// §E60 — the dust monitor lives here now, not on Core (which is 37 bytes short of affording
+    /// it). Mock addresses come from Core's storage layout; 's logic, restated once.
+    function _mockDust(bool isBTC) internal view returns (uint usdDust, uint tokDust) {
+        address pm = address(CORE.poolManager());
+        address mTok = address(uint160(uint(vm.load(address(CORE), bytes32(uint(isBTC ? 131096 : 131095))))));
+        address mUsd = address(uint160(uint(vm.load(address(CORE), bytes32(uint(isBTC ? 131098 : 131097))))));
+        usdDust = IERC20(mUsd).totalSupply() - (IERC20(mUsd).balanceOf(pm) + IERC20(mUsd).balanceOf(address(CORE)));
+        tokDust = IERC20(mTok).totalSupply() - (IERC20(mTok).balanceOf(pm) + IERC20(mTok).balanceOf(address(CORE)));
+    }
+
     function _seedBasket() internal {
         bold = AUX.getStables()[AUX.getStables().length - 1];
         deal(address(USDC), User01, 2_000_000 * USDC_PRECISION);
@@ -730,8 +740,8 @@ contract UnificationControls is Alles {
         vm.roll(block.number + 1);
         for (uint i; i < 4; i++) _trade(3_000e18);
 
-        (uint usdDustEth, uint tokDustEth) = CORE.externalMockDust(false);
-        (uint usdDustBtc, uint tokDustBtc) = CORE.externalMockDust(true);
+        (uint usdDustEth, uint tokDustEth) = _mockDust(false);
+        (uint usdDustBtc, uint tokDustBtc) = _mockDust(true);
         emit log_named_uint("ETH-band mockUSD dust", usdDustEth);
         emit log_named_uint("ETH-band mockETH dust", tokDustEth);
         emit log_named_uint("BTC-band mockUSD dust", usdDustBtc);
@@ -1264,7 +1274,7 @@ contract UnificationControls is Alles {
         vm.prank(lpA); V4.deposit{value: 200 ether}(0, lpA, 3);
         vm.roll(block.number + 1);
 
-        (uint usd0, uint tok0) = CORE.externalMockDust(false);
+        (uint usd0, uint tok0) = _mockDust(false);
         assertEq(usd0, 0, "PREMISE: dust is zero BEFORE the fee is activated");
         assertEq(tok0, 0, "PREMISE: dust is zero BEFORE the fee is activated");
 
@@ -1311,7 +1321,7 @@ contract UnificationControls is Alles {
             emit log_named_uint("sink mockUSD", IERC20(mUSD).balanceOf(sink));
         }
 
-        (uint usd1, uint tok1) = CORE.externalMockDust(false);
+        (uint usd1, uint tok1) = _mockDust(false);
         emit log_named_uint("mockUSD dust AFTER flow", usd1);
         emit log_named_uint("mockETH dust AFTER flow", tok1);
         // With the fee NOT yet targeted at our key this must still be 0 — the E29 finding

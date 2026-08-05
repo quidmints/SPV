@@ -120,7 +120,15 @@ contract Core is SafeCallback {
 
     /// @dev One pool's equity USD (18-dec): its in-range USD less that pool's live leverage debt, floored at 0.
     function _bandEquityUsd18(bool isBTC) internal view returns (uint) {
-        uint pooled18 = (isBTC ? basketUsdBtc : basketUsdEth) * 1e12;   // §#12: BASKET contribution, not curve inventory
+        // §E60 — COUNT OUT MOCK THAT HAS LEFT THE ALLOWED HOLDER SET. Once the v4 protocol fee is
+        // targeted at our key AND collected, the cut is transferred to a recipient outside
+        // {poolManager, Core}: MEASURED $120 of mockUSD on $120,000 of volume, up to 10 bps of
+        // throughput indefinitely. Those dollars are gone from the band but `basketUsd*` still
+        // claims them, so every LP claim and the backing gate would price against backing that is
+        // no longer there. Subtracting the dust is what makes "committed" mean committed.
+        uint dust6 = _dustOf(address(_mockUsd(isBTC)));
+        uint base6 = isBTC ? basketUsdBtc : basketUsdEth;
+        uint pooled18 = (base6 > dust6 ? base6 - dust6 : 0) * 1e12;   // §#12: BASKET contribution
         uint debt18 = _levDebtUsd18(isBTC);
         return pooled18 > debt18 ? pooled18 - debt18 : 0;
     }
@@ -398,10 +406,10 @@ contract Core is SafeCallback {
     ///         than merely harmless: an external holder is the precondition for a direct swap on
     ///         our key that would bypass Core's `_handleDelta` mirror, and it is the quantity we
     ///         would owe if the fee is ever settled voluntarily at LP withdrawal.
-    function externalMockDust(bool isBTC) external view returns (uint usdDust, uint tokDust) {
-        usdDust = _dustOf(address(_mockUsd(isBTC)));
-        tokDust = _dustOf(address(_mockTok(isBTC)));
-    }
+    // §E60 — `externalMockDust` (the two-leg MONITOR) was DELETED from Core: with the count-out
+    // landing in `_bandEquityUsd18`, keeping a second external for monitoring put Core 37 bytes
+    // over EIP-170, and the production path must not pay for the observability one. Tests read the
+    // mock addresses straight from storage (they already do for the fee flip) and compute it there.
 
     function _dustOf(address m) internal view returns (uint) {
         uint held = IERC20Min(m).balanceOf(address(poolManager)) + IERC20Min(m).balanceOf(address(this));
