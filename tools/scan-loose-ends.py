@@ -141,6 +141,27 @@ FAMILIES = OrderedDict([
     # legacy repo's own Rover.sol handles the case differently — it exists, 537 lines, never read).
     # The tell is the future tense on a verb of verification. If a scan hits this family, the only
     # acceptable answers are "checked, here is the result" or a booked task — never silence.
+    # Added 2026-08-05 — the DEBT frame, and the largest single blind spot found so far: 65 hits in
+    # one session's transcript, of which the other 18 families caught ZERO. Nothing else covers it
+    # because the vocabulary is financial, not technical — work is described as owed, outstanding,
+    # promised, or on the hook, and no family was looking for a ledger.
+    #
+    # It is the highest-value family precisely because the debt frame is what a writer reaches for
+    # when they KNOW something is unfinished and are being honest about it: "5e pin now owed",
+    # "I promised a vacuous-test sweep", "that part of the audit is owed on a Linux host and I'm
+    # not claiming it as done", "the outstanding debt is one clean forge test". Every one of those
+    # is a self-reported IOU that then evaporated with the context window.
+    #
+    # ⚠️ KNOWN NOISE, deliberately accepted: "outstanding" is also a DOMAIN term here (outstanding
+    # vBTC, outstanding supply) meaning issued-and-unredeemed, not owed-as-work. The lookahead below
+    # filters the common nouns; anything it misses is triage cost, and under-matching a debt is
+    # worse than over-matching a balance sheet.
+    ("OWED",        r"\b(?:owed?\b|(?:I|we) (?:still )?owe|promised\b|"
+                    r"outstanding(?! (?:vBTC|BTC|supply|balance|shares|principal|amount|liabilit|"
+                    r"piece|example))|on the hook|"
+                    r"said (?:I|we)'?(?:d|ll| would| will)|committed to (?:run|check|do|verif|test)|"
+                    r"(?:verification|test|proof) debt|owe (?:you|it) (?:a|an|the)|"
+                    r"my own (?:outstanding|open) (?:action )?item)\b"),
     ("PROMISED CHECK",
                     r"\b(?:(?:next|first|last|other) thing to check|thing to check (?:is|next)|"
                     r"next to check|(?:need|want|going|have) to (?:check|confirm|verify|measure|"
