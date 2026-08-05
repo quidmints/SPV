@@ -1508,41 +1508,6 @@ contract Alles is ForkPin, Fixtures {
         assertGt(IERC20(address(WETH)).balanceOf(recipient), wethBefore, "WETH delivered from Rover");
     }
 
-    /// @notice VENUE_ROVER (4) - the depositor-funded Rover path. A plain LP
-    ///         deposit with venue 4 must fund the protocol-owned weETH/WETH v3
-    ///         LP via supplyEtherFiToRover (the previously-unreachable funding
-    ///         path), attribute the slice to the ether.fi wall (ethfiBacked),
-    ///         count the position in vogueETH (valueWeth), and serve the exit
-    ///         through the offramp ladder's Rover-unwind rung.
-    function testEthVenue_Rover_DepositFundsRoverAndExits() public {
-        Rover rover = new Rover(
-            ETH.ETHERFI_ADAPTER(), address(WETH), ETH.WEETH(),
-            0xC36442b4a4522E871399CD717aBDD847Ab11FE88, // Uniswap v3 NFPM
-            ETH.ETHERFI_POOL_A(), ETH.ETHERFI_V3ROUTER(), true);
-        rover.setAux(address(ETH));
-        ETH.setRover(address(rover));
-        assertEq(rover.ID(), 0, "Rover starts unfunded");
-
-        // Depositor elects the Rover venue ON the deposit call (no setter tx).
-        uint vEthBefore = ETH.vogueETH();
-        vm.prank(User01); V4.deposit{value: 10 ether}(0, User01, 4);
-
-        assertGt(rover.ID(), 0, "deposit funded the Rover v3 position");
-        assertGt(rover.valueWeth(), 0, "Rover holds value");
-        assertGt(V4.ethfiBacked(User01), 0, "Rover slice attributed to the ether.fi wall");
-        assertGt(ETH.vogueETH(), vEthBefore, "vogueETH counts the Rover position");
-        (uint pooled,,,) = V4.autoManaged(User01);
-        assertEq(pooled, 10 ether, "position credited full deposit");
-
-        // Exit: no idle weETH at the Vault -> the offramp's v3 rung can't serve;
-        // the Rover-unwind rung must (WETH delivered to the LP).
-        uint wethBefore = WETH.balanceOf(User01);
-        uint ethfiBefore = V4.ethfiBacked(User01);
-        vm.roll(block.number + 1); // JIT-lock: withdraw must be a later block than the deposit
-        vm.prank(User01); V4.withdraw(5 ether, User01, User01);
-        assertGt(WETH.balanceOf(User01) - wethBefore, 0, "exit served WETH from the Rover");
-        assertLt(V4.ethfiBacked(User01), ethfiBefore, "ether.fi slice decremented");
-    }
 
     /// @notice Rung-3 instant-redeem PROVEN LIVE (no-silent-fails): the old code
     ///         passed WETH as redeemWeEth's outputToken - the deployed
@@ -1592,41 +1557,6 @@ contract Alles is ForkPin, Fixtures {
         assertLt(V4.ethfiBacked(User01), ethfiBefore, "slice decremented");
     }
 
-    /// @notice Rover fair-gate: with the pool spot shoved off the staking-rate
-    ///         fair value (vm.mockCall on slot0), the Rover REFUSES to mint -
-    ///         a venue-4 deposit still succeeds (tokens idle at the Rover,
-    ///         fair-valued in vogueETH), but no position is created against the
-    ///         manipulated pool. Extraction is refused, not bounded.
-    function testEthVenue_Rover_FairGateRefusesManipulatedPool() public {
-        Rover rover = new Rover(
-            ETH.ETHERFI_ADAPTER(), address(WETH), ETH.WEETH(),
-            0xC36442b4a4522E871399CD717aBDD847Ab11FE88,
-            ETH.ETHERFI_POOL_A(), ETH.ETHERFI_V3ROUTER(), true);
-        rover.setAux(address(ETH));
-        ETH.setRover(address(rover));
-
-        // Shove spot ~5% off fair: mock slot0 to a sqrtPrice well outside the
-        // 50bps gate (real spot ≈ 0.9556 × 2^96; use 0.93 × 2^96).
-        (, bytes memory s0) = ETH.ETHERFI_POOL_A().staticcall(abi.encodeWithSignature("slot0()"));
-        (uint160 realSqrt) = abi.decode(s0, (uint160));
-        uint160 shoved = uint160(uint(realSqrt) * 973 / 1000);
-        vm.mockCall(ETH.ETHERFI_POOL_A(),
-            abi.encodeWithSignature("slot0()"),
-            abi.encode(shoved, int24(-1500), uint16(0), uint16(1), uint16(1), uint8(0), true));
-
-        uint vEthBefore = ETH.vogueETH();
-        vm.prank(User01); V4.deposit{value: 10 ether}(0, User01, 4);
-
-        assertEq(rover.ID(), 0, "fair-gate: no position minted against a shoved pool");
-        assertGt(ETH.vogueETH(), vEthBefore, "idle Rover tokens still counted as backing");
-        (uint pooled,,,) = V4.autoManaged(User01);
-        assertEq(pooled, 10 ether, "deposit credited despite the gate (tokens idle, not lost)");
-
-        // Pool back at fair -> a permissionless repack mints the position.
-        vm.clearMockedCalls();
-        rover.repackNFT();
-        assertGt(rover.ID(), 0, "position minted once the pool returned to fair");
-    }
 
     /// @notice FALLBACK branch (Rover self-liquidated). ether.fi is never a distinct venue — venue 4
     ///         routes through Rover, but when the Rover NFT has self-liquidated (v3 pool drained ⇒

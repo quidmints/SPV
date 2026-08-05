@@ -57,10 +57,20 @@ library VogueLib {
     ///      ethfiBacked wall + offramp ladder. VENUE_ETHERFI is not a user-facing venue — this is the
     ///      single internal use of the direct-weETH path. Returns 0 only if BOTH paths place nothing
     ///      (⇒ caller reverts VenueUnavailable, no silent strand).
+    /// @dev DIRECT weETH, always. Rover is REMOVED (2026-08-05, owner decision (a)): this used to try
+    ///      `supplyEtherFiToRover` first and fall back to direct weETH only when the Rover deposit
+    ///      reverted. The fallback is now the primary and only path.
+    ///
+    ///      WHY: Rover's cost is STANDING — ~0.72%/yr of forgone lending yield on its WETH leg (it
+    ///      parks ~half the position in WETH earning nothing) plus 0.86–2.21%/yr of LVR — and it is
+    ///      paid whether or not anybody swaps. The demand it served is EPISODIC: the offramp rung it
+    ///      fed was empty in 9 of 11 sampled blocks. A standing cost against episodic demand loses by
+    ///      construction, and no parameter choice repairs a mismatch of that shape.
+    ///      Measured too: Rover's LVR is ~100% the ether.fi RATCHET DRIFT (+0.674 bps/day, monotonic)
+    ///      and ~0% volatility (`analysis/rover/decompose.py`), so it was never a risk being managed —
+    ///      it was yield being handed to arbitrageurs. Direct weETH earns the full staking rate.
     function _supplyEtherFi(address ev, uint amount) private returns (uint placed) {
-        try IEthVenue(ev).supplyEtherFiToRover(amount) returns (uint p) { placed = p; }
-        catch { placed = 0; }                                     // self-liquidated: Rover deposit reverted
-        if (placed == 0) placed = IEthVenue(ev).supplyEtherFi(amount); // → direct weETH fallback
+        placed = IEthVenue(ev).supplyEtherFi(amount);
     }
 
     // Mirror Vogue's selectors (name-derived) for the delegatecalled bodies.
