@@ -307,9 +307,25 @@ contract Core is SafeCallback {
     ///         **0 means UNKNOWN (too few real updates), NEVER "calm"** — `SwapLib._maxWellSkew`
     ///         charges the ceiling on it and theta fails open, and both readers agree on that.
     function realizedVarianceWad(bool isBTC) external view returns (uint) {
-        // 9 ring points → 8 returns. No zero-guard: mulDiv(0,…) is 0, so UNKNOWN propagates as 0.
-        return Math.mulDiv(OracleLib.ringVariance(_obs(isBTC), _obsState(isBTC), 9),
-                           31536000 * 1e10, 1e18);   // per-sec → annualized
+        // 9 ring points → 8 returns.
+        uint v = Math.mulDiv(OracleLib.ringVariance(_obs(isBTC), _obsState(isBTC), 9),
+                            31536000 * 1e10, 1e18);   // per-sec → annualized
+        // §E88 — ZERO IS NOW RESERVED FOR "UNMEASURED", AND ONLY THAT.
+        //
+        // It used to mean TWO things at once: *"the ring is unpopulated, we have not measured"* AND
+        // *"we measured, and it is genuinely zero"*. Downstream (`skewWad`/`sellSkew`) reads `σ² == 0`
+        // as UNMEASURED and conservatively charges the ceiling — correct for the first meaning,
+        // WRONG for the second, because a genuinely calm market has genuinely low adverse selection
+        // and should be charged accordingly, not the 3% maximum.
+        //   No threshold on σ² can separate them: it is an IDENTIFIABILITY problem, not a tuning one
+        //   — the same one E56 hit when a zero flow-EWMA could not tell a DEAD pool from a NEW one.
+        //   The fix there was a SECOND, independent signal already in storage, and it is the same
+        //   here: the ring's own `cardinality` says whether we have looked, which no value of the
+        //   variance itself can. A populated ring that computes a true zero returns 1 wei, so the
+        //   two states are distinguishable downstream at ZERO extra storage, calls, or gas on the
+        //   money path, and the E59 sentinel keeps its exact meaning for the case it was written for.
+        if (v == 0 && _obsState(isBTC).cardinality >= 2) return 1;
+        return v;
     }
 
     /// @notice (well) Cumulative scarcity-premium the skew has RETAINED as backing, per
