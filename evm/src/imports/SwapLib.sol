@@ -1121,8 +1121,40 @@ library SwapLib {
         if (flow == 0) {
             if (ICore(core).skewPremiumCum(isBTC) > 0) revert NoShedPath();
         }
-        uint q = FullMath.mulDiv(over, 1e18, target);
-        if (q > 1e18) q = 1e18;                           // ≥2× target: linear term saturates
+        // §E68b — THE SELL LEG NOW INTEGRATES TOO. E68 fixed only the DRAIN leg and left this one
+        // pricing at the ENDPOINT, which is the OTHER HALF of the same defect the owner originally
+        // identified — and the half that OVERCHARGES.
+        //
+        // `inv` already includes `addedTok` (see _skewBasis), so `over` is the POST-swap overshoot
+        // and `q` was q1: the sell was billed at the scarcity its LAST unit created, applied to
+        // EVERY unit. A seller arriving at a balanced band and pushing it to 2× target paid the
+        // 2×-target rate on the whole ticket, including the first units that landed while the band
+        // was still at target. Symmetrically to the drain leg, each unit must be billed at the
+        // overshoot IT sees.
+        //
+        // The drain leg needed a logarithm because its kernel is the pole q/(1−q). This kernel is
+        // LINEAR (E54: you cannot run out of surplus, so there is no barrier to integrate against),
+        // and the mean of a linear function over an interval is its MIDPOINT:
+        //     (1/Δ)·∫[q0→q1] q dq = (q0 + q1)/2
+        // No `lnWad`, no new import, no branch for Δ=0 — the midpoint of a degenerate interval is
+        // the point itself, so a zero-size read still returns the instantaneous rate exactly as
+        // before. E54's linearity is PRESERVED, not replaced: this is the same line, averaged.
+        // Every intermediate is SCOPED so it frees its stack slot before `_sharedScarcityWad` below
+        // — the same idiom this function already uses on its conversion locals. Adding them
+        // unscoped overflows the stack (MEASURED: `Stack too deep` at the `_sharedScarcityWad`
+        // call). `via_ir` stays false, deliberately (CLAUDE.md): shed stack, do not switch pipeline.
+        uint q;
+        {
+            uint q1 = FullMath.mulDiv(over, 1e18, target);
+            if (q1 > 1e18) q1 = 1e18;                     // ≥2× target: linear term saturates
+            // Pre-swap overshoot: strip this sell's own contribution back out of `inv`. A sell that
+            // STARTED at/below target has q0 = 0 and pays only for the part that crossed above it.
+            uint addedUsd = FullMath.mulDiv(addedTok, base, 1e30);
+            uint invBefore = inv > addedUsd ? inv - addedUsd : 0;
+            uint q0 = invBefore > target ? FullMath.mulDiv(invBefore - target, 1e18, target) : 0;
+            if (q0 > 1e18) q0 = 1e18;
+            q = (q0 + q1) / 2;                            // the integral's mean over THIS sell
+        }
         uint sigmaSqWad = ICore(core).realizedVarianceWad(isBTC);
         // §E54-r REMOVED (owner, 2026-08-04: *"avgYield has nothing to do with the band. it's a
         // dollar only thing. your skew shouldnt even consider it"*). I had added an opportunity-cost
