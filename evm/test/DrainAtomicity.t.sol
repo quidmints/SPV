@@ -153,8 +153,8 @@ contract DrainAtomicity is Alles {
             emit log_named_uint("big-drain surcharge bps of split", paidB == 0 ? 0
                 : (paidA - paidB) * 10_000 / paidB);
         } else {
-            emit log("RESULT: THE SPLIT IS STILL CHEAPER -- E68 DID NOT KILL THE ARBITRAGE.");
-            emit log_named_uint("split discount bps of big drain", (paidB - paidA) * 10_000 / paidA);
+            emit log("RESULT: THE ONE BIG DRAIN IS CHEAPER -- THE CONSOLIDATION ARBITRAGE SURVIVES.");
+            emit log_named_uint("big-drain DISCOUNT bps vs split", (paidB - paidA) * 10_000 / paidA);
         }
     }
 }
