@@ -273,6 +273,19 @@ library OracleLib {
             acc += uint(d * d);
         }
         acc /= (m - 1);
+        // §E63 — SECOND MOMENT, NOT CENTRAL SECOND MOMENT: add the DRIFT back in.
+        //
+        // `acc` alone is the variance ABOUT THE MEAN, and a band walking STEADILY one way has every
+        // difference equal ⇒ every deviation 0 ⇒ variance EXACTLY 0. That is arithmetically right
+        // and economically wrong: a monotone walk carries real inventory risk while measuring as
+        // perfectly calm. MEASURED: 16 swaps moving the tick −1 read 0; only a −2 move registered.
+        // Four memory policies (latch / erase / decay / widen) all failed trying to REMEMBER a
+        // number that was correctly zero — the number itself was the wrong quantity.
+        //
+        // The drift () was already computed and discarded. Squaring it back in costs no extra loads
+        // and no constant, and gives E[x²] = Var + E[x]² — the drift AND the wobble, which is what
+        // an inventory-risk measure has to price.
+        acc += uint(mean * mean);   //  is the drift term computed above
         // Per-second, WAD. The caller annualises with the MEASURED span rather than a fixed step.
         // `acc` is in (1e9-scaled tick)^2 = tick^2 * 1e18, so it is already WAD-scaled tick^2.
         varPerSecWad = acc / spanSecs;
