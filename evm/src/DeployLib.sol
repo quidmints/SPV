@@ -11,7 +11,6 @@ import {Core} from "./Core.sol";
 import {Aux} from "./Aux.sol";
 import {Basket} from "./Basket.sol";
 import {Vault} from "./Vault.sol";
-import {Rover} from "./Rover.sol";
 import {SPVGateway} from "./spv/SPVGateway.sol";
 import {BTCChannels} from "./BTCChannels.sol";
 import {SorPath} from "./imports/SOR.sol";
@@ -74,7 +73,6 @@ library DeployLib {
         address galaxyVault;
         address eulerVault;
         address gauntletVault;
-        // ── Rover (ether.fi v3 LP NFT manager) ──
         address nfpm;
         // ── basket set (order load-bearing: BOLD LAST) ──
         address[] stables;
@@ -85,7 +83,6 @@ library DeployLib {
         uint64 spvCheckpointHeight;
         uint256 spvCheckpointWork;
         // ── optional add-ons (tests deploy their own doubles per-test) ──
-        bool deployRover;
         bool deployChannels;
     }
 
@@ -97,7 +94,6 @@ library DeployLib {
         address aux;
         address quid;
         address vault;
-        address rover;
         address spvGateway;
         address btcChannels;
     }
@@ -142,17 +138,7 @@ library DeployLib {
         a.quid = address(quid);
         a.vault = address(eth);
 
-        // ── ether.fi Rover (protocol-owned weETH/WETH v3 LP) ──
-        // ether.fi config is read straight from the Vault's immutable constants so
-        // the two can never disagree. setRover is onlyOwner + pin-once.
-        if (cfg.deployRover) {
-            Rover v3 = new Rover(
-                eth.ETHERFI_ADAPTER(), cfg.weth, eth.WEETH(),
-                cfg.nfpm, eth.ETHERFI_POOL_A(), eth.ETHERFI_V3ROUTER(), true);
-            v3.setAux(address(eth));
-            eth.setRover(address(v3));
-            a.rover = address(v3);
-        }
+        // ether.fi Rover deploy REMOVED 2026-08-05 — the contract is gone.
 
         // ── native BTC LP infrastructure (SPV gateway + per-LP channel registry) ──
         if (cfg.deployChannels) {

@@ -8,7 +8,6 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 
 import {Vogue} from "../src/Vogue.sol";
-import {Rover} from "../src/Rover.sol";
 import {VEth} from "../src/VEth.sol";
 
 import {Basket} from "../src/Basket.sol";
@@ -145,8 +144,6 @@ contract Deploy is Script {
     // elect it via VENUE_GAUNTLET.
     address constant GAUNTLET_VAULT = 0x43fCd85E8D9D003D515f886891B7C742AC9f92da;
 
-    // Uniswap V3 NonfungiblePositionManager — the Rover's weETH/WETH LP NFT
-    // lives here. The rest of the Rover's ether.fi config (adapter, weETH, pool,
     // v3 router) is read from Aux's immutable constants at deploy (single source
     // of truth), so it can never drift from what the offramp uses.
     address constant NFPM = 0xC36442b4a4522E871399CD717aBDD847Ab11FE88;
@@ -209,7 +206,6 @@ contract Deploy is Script {
     BtcLevManager public BTCLEVM;
     Vault public ETH;   // merged Vault — ETH-venue face
     Vault public BTC;   // ...and BTC face (same instance, BTC == ETH)
-    Rover public V3;
 
     /// §J.2b: the vETH ERC-4626 IDENTITY (stateless projection over Vogue). Integrators PRICE against
     /// this and TRANSACT against Vogue, which is the two-asset band manager and not itself a 4626.
@@ -307,7 +303,7 @@ contract Deploy is Script {
             spvCheckpointHeader: checkpointHeader,
             spvCheckpointHeight: checkpointHeight,
             spvCheckpointWork: checkpointWork,
-            deployRover: true, deployChannels: true
+            deployChannels: true
         }));
         V4 = Vogue(payable(A.v4));
         CORE = Core(A.core);
@@ -315,7 +311,6 @@ contract Deploy is Script {
         QUID = Basket(A.quid);
         ETH = Vault(payable(A.vault));
         BTC = ETH;
-        V3 = Rover(payable(A.rover));
         VETH = new VEth(A.v4, address(WETH), A.aux);
         // §J.2c: pin the token face. `transferSharesFor` is gated to this address, so WITHOUT
         // this call every vETH transfer reverts — the pin is not optional wiring.
@@ -419,7 +414,6 @@ contract Deploy is Script {
         console.log("V4 (Vogue):", address(V4));
         console.log("CORE (Core):", address(CORE));
         console.log("AUX:", address(AUX));
-        console.log("V3 (Rover):", address(V3));
         console.log("QUID (Basket):", address(QUID));
         console.log("SPVGateway:", address(spvGateway));
         console.log("BTCChannels:", address(btcChannels));
