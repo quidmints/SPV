@@ -6838,3 +6838,132 @@ ceiling — plus SPLICE_FLOOR and the two windows) cannot come out one at a time
 constants requires the cap-to-base inversion, i.e. the rebuild, **gated on OPEN 17**: if a drainer can
 simply redeem instead of swapping, the skew's magnitude is moot and the whole exercise re-prices a
 path nobody is forced to take.
+
+---
+
+## HANDOFF 2026-08-05 — Rover removal + the new offramp. READ THIS BEFORE TOUCHING ROVER.
+
+**Skew is NOT this thread's work any more** — another thread owns it (E54/E58/E59/E63). What that
+thread landed and what is still open is recorded in the skew sections above; the two live gaps there
+are **size-blindness** (`wellSkew` takes no out-amount, both call sites already have it) and the
+**dead leverage params** (`skewWad`'s `lockedUsd`/`committedUsd` are never read by its body, yet
+`wellSkew` still pays for `levGrossNative` + `levClaimUsd6` every swap and discards them; the
+`levGrossNative` call is wasted on the `sellSkew` leg too).
+
+### The new offramp — THERE IS NOTHING TO BUILD
+
+weETH → WETH is expected to be **free(ish)**: borrow WETH against the weETH, serve the swapper
+instantly, and let the **waitNft ether.fi redemption repay the borrow** when it matures. No sale, so
+**no slippage and no LVR** — only borrow interest for the redemption window.
+
+⚠️ **THE BORROW MACHINERY ALREADY EXISTS. DO NOT WRITE A NEW BRIDGE.** It is the IL-protect leverage
+path: `LevManager`/`LevMath` open TERM positions against Morpho/Euler with health management,
+`closeLev` repays debt and returns collateral, `rebalanceMany` holds the book at target. Borrowing
+WETH against weETH is the SAME primitive pointed at a different asset. An earlier session repeatedly
+described this as a bridge "to build" — that was wrong and cost a lot of design time.
+
+**This makes the work PURELY SUBTRACTIVE.** No new money-path code, so the risk is "did I remove
+something still reachable", not "is my new pricing right".
+
+### Why Rover goes — measured, not argued
+
+* Rover's cost is **STANDING**: ~0.72%/yr forgone lending yield on the WETH leg (1.45% on half the
+  position) + 0.86–2.21%/yr LVR ⇒ **~1.6–2.9%/yr, paid whether or not anyone swaps**.
+* The demand is **EPISODIC**: offramp rung 3 was empty in 9 of 11 samples.
+* A standing cost against episodic demand loses by construction. No parameter fixes that shape.
+* **ether.fi's 0.3% instant redeem has ZERO CAPACITY.** `totalRedeemableAmount(0xEeee…EEeE)` on
+  `0xDadEf1fFBFeaAB4f68A9fD181395F68b4e4E7Ae0` returned **0 at every block sampled across the 90-day
+  window and still 0 now**. CONTROL RUN: the contract exists (287-byte proxy) and a bad selector
+  DOES revert, so the zero is real and not a failed call. This is why sellers dump into the v3 pool
+  at −74.87 bps: they are not choosing 75bps over 30bps, **30bps was never purchasable**. The whole
+  premise ("don't make anyone pay the 0.3% instant rate") was aimed at a path with no capacity.
+* Rover's LVR is ~100% the ether.fi **ratchet drift** (+0.674 bps/day, monotonic), NOT volatility —
+  proved by `analysis/rover/decompose.py`: TREND-ONLY −1.48…−1.82%/yr, DETREND (variance only)
+  **+0.10…−0.09%/yr, i.e. ZERO**.
+
+### DECISION ALREADY MADE — (a), confirmed by the repo owner
+
+When `VENUE_ROVER` capital stops going to Rover it goes to **direct weETH at the Vault**.
+`VogueLib._supplyEtherFi` ALREADY has this as the Rover-self-liquidated fallback — **promote it to
+primary**. Keeps the ether.fi venue, keeps `ethfiBacked`, keeps the offramp ladder, and the weETH
+earns the full staking rate instead of Rover parking half the capital in WETH earning nothing.
+(Option (b), deleting the venue entirely, was NOT chosen.)
+
+### Removal map (owner-supplied, ~150 Solidity refs / 14 files)
+
+| file | refs | what |
+|---|---|---|
+| `Vault.sol` | 26 | `ROVER`, `setRover`, `supplyEtherFiToRover`, `_ethCfg` |
+| `LevMath.sol` | 20 | `_roverAbsorb` — the lever's free weETH→WETH tier |
+| `VaultLib.sol` | 20 | `_vogueETH` backing, `withdrawETH` last rung, `supplyVenueBody` kind 0 |
+| `VogueLib.sol` | 19 | `VENUE_ROVER`, `_supplyEtherFi` |
+| `Rover.sol` | 15 | the contract |
+| `Vogue.sol` | 14 | venue constant, `ethfiBacked` |
+| `DeployLib.sol` | 12 | deploy + wiring |
+| `SwapLib.sol` | 9 | `offrampBody` rung 2 |
+| Interfaces, BasketLib, mock, Aux, LevManager, OracleLib | 20 | |
+
+**Rust** (`quid-bridge/src/lev_keeper.rs`): `repack_rover()` :597, `compound_rover()` :668, both
+called from the tick loop at :310 and :402, plus the `rover: Address` config field :446, and refs in
+`daemon.rs` / `evm_validating_signer.rs` / two integration tests. **Per CLAUDE.md that tree only
+builds in Docker on Linux** — it needs its own verification loop.
+
+**Tests touching Rover:** `Alles.t.sol`, `LevCascade`, `LevYbReal`, `RoverFork`, plus five files added
+2026-08-04: `WeethPoolAccessibility`, `RoverInjectedDepth`, `RoverDosCost`, `RoverInRange`,
+`RoverOutOfRange`, `RoverCycleBleed`.
+
+### MEASURE THESE FIRST — they gate the design, and they are still UNMEASURED
+
+1. **weETH LTV** on the borrow market. Sets instant offramp capacity.
+2. **WETH borrow rate.** The "~6 bps for a 7-day window" figure quoted repeatedly was from GENERAL
+   KNOWLEDGE, never measured. Do not build on it until it is.
+3. **VERIFY the lev borrow is TERM-shaped, not settled atomically anywhere on the offramp route.**
+   The entire no-slippage argument rests on there being no forced sale; a flash-shaped repayment
+   would reintroduce exactly the cost Rover is being deleted to avoid. Read `openLev`/`closeLev`
+   settlement.
+
+### Bootstrap / LTV question — owner raised, NOT yet resolved
+
+If all protocol ETH is weETH, at bootstrap the first depositor's weETH may not support enough borrow
+(LTV haircut) to serve a swap that drains the pool.
+* **LP WITHDRAWAL IS NOT AFFECTED** — pay LPs in **weETH**. No conversion, no LTV, no slippage; they
+  hold the yield asset and unwind on their own schedule. Only a SWAPPER wanting WETH needs the borrow.
+* Candidate: cap `POOLED_ETH` at `LTV × weETH holdings`, so advertised depth is always fundable.
+  ⚠️ **But the lev path ALREADY models LTV and health — check whether this falls out of the existing
+  math before adding a second place where LTV is tracked.** The goal is simplification.
+
+### Also queued by the owner, decided LATER
+
+Making ALL protocol ETH into weETH, and deleting the Galaxy/Gauntlet/AAVE-v4 ETH supply venues plus
+the split-deposit machinery. On yield the case is settled (weETH lending pays ~zero, staking pays the
+full rate). The open counter-argument is **concentration**: 100% weETH puts the whole ETH side on
+ether.fi's redemption machinery and on weETH-collateral borrow markets staying liquid — and we now
+know the instant-redeem side of that machinery has zero capacity.
+
+### SEQUENCING (each step: BASELINE FIRST, then one change, then the full suite)
+
+1. Measure LTV + borrow rate; verify the lev borrow is term-shaped.
+2. Remove `v3SwapTiered` — ⚠️ **BLOCKED ON OPEN 10: the v4 poolIds were never enumerated.** SOR is a
+   structural DOUBLE CHARGE (our in-band fee + external venue fee + external slippage), so it is only
+   justified when we cannot fill internally — but whether that ever happens is unevidenced.
+3. Remove Rover (Solidity), promoting `_supplyEtherFi` to primary.
+4. Remove the Rust keeper hooks (Docker/Linux).
+
+**A baseline run costs 4 minutes and settles what hours of argument cannot.** On 2026-08-04 one was
+taken eleven hours late and instantly proved that all 284 failures were self-inflicted and the
+pre-change tree was 3847/0 green.
+
+### CLAIMS FROM THE 2026-08-04 SESSION THAT WERE WRONG — do not rebuild on them
+
+* *"Levered collateral isn't deliverable, so it must leave the denominator"* — **WRONG**, and E58
+  fixed it: in the band is in the band alike, and `closeLev` makes a levered position unwindable, so
+  it never consumes shed capacity.
+* *"`POOLED_ETH` and `POOLED_USD_ETH` are two reserves of one CP pool"* — **WRONG**; independent
+  accumulators, and the bid side is BASKET-MINTED, not reserve-bounded. Root cause of a red suite.
+* *"The refill is permissionless self-selection"* / *"we source sats"* — **WRONG**: sats come from a
+  premium-attracted hop that SELLS to us. We never source, never pay external impact, never take
+  acquisition risk.
+* *"`Core.skewPremium*` has no consumers"* — **WRONG**; BTC mint-vs-proceeds invariants are pinned to
+  its magnitude.
+* *"The collateralised borrow bridge must be built"* — **WRONG**; it is the existing IL-protect lev
+  machinery.
