@@ -577,7 +577,7 @@ library SwapLib {
     address constant ETHFI_NATIVE_ETH = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
     struct OfframpCfg {
-        address weeth; address rover; address weth; address v3router;
+        address weeth; address weth; address v3router;
         address redeemer; address lp; uint24 poolFee; uint24 poolFee2;
     }
 

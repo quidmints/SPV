@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 // §A.52: the canonical Core view (was a file-local variant).
 import {ICore} from "./Interfaces.sol";
-import {IBasketTurn, IWiredVault, IWiredBasket, ILevSweep, IVogue, IRover} from "./Interfaces.sol";
+import {IBasketTurn, IWiredVault, IWiredBasket, ILevSweep, IVogue} from "./Interfaces.sol";
 import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
@@ -927,9 +927,6 @@ library BasketLib {
         require(ICore(core).btcVault() == ethVenue,            "wire:core");  // Core→Vault
         require(btcChannels != address(0)
              && IWiredVault(ethVenue).btcChannels() == btcChannels, "wire:chan");  // Vault→Channels
-        address rover = IWiredVault(ethVenue).ROVER();
-        require(rover != address(0)
-             && IRover(rover).AUX() == ethVenue,               "wire:rover"); // Rover↔Vault
         require(IWiredBasket(q).AUX() == address(this),             "wire:bAux");  // Basket→Aux
         require(IWiredBasket(q).BTC_VAULT() == ethVenue,            "wire:bVlt");  // Basket→Vault
     }
