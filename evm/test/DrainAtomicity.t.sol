@@ -103,6 +103,26 @@ contract DrainAtomicity is Alles {
         }
     }
 
+    /// §E85 — WHERE DOES THE KERNEL OVERTAKE THE FLOOR? The owner distrusted the "q≈0.87" I quoted
+    /// for BTC, and was right to: `SPLICE_FLOOR` is a CONSTANT while the kernel scales with σ², so the
+    /// crossover is a FUNCTION OF VOLATILITY, not a property of the design. I quoted ONE POINT ON A
+    /// CURVE as though it were the curve, then reasoned from it (E83) to call the barrier "decoration".
+    /// This sweeps it. Nothing should rest on a single crossover number again.
+    function test_E85_CrossoverMovesWithVolatility() public pure {
+        uint T = 1_000_000e6;
+        uint[4] memory sigs = [uint(1e15), 1e16, 1e17, 1e18];
+        for (uint s = 0; s < 4; ++s) {
+            uint base = SwapLib.skewWad(T - T / 1000, T, sigs[s], true, 0);  // q->0: the floor
+            uint lo = 1; uint hi = 999;
+            while (lo < hi) {                       // first q (thousandths) where kernel clears the floor
+                uint mid = (lo + hi) / 2;
+                if (SwapLib.skewWad(T - (T * mid) / 1000, T, sigs[s], true, 0) > base + base / 50) hi = mid;
+                else lo = mid + 1;
+            }
+            console.log("sigma^2 / floor / crossover q (thousandths):", sigs[s], base, lo);
+        }
+    }
+
     function test_E71_OneBigDrainIsNotCheaperThanTheSameVolumeSplit() public {
         uint TOTAL = 120_000 * 1e18;
         uint N = 12;
