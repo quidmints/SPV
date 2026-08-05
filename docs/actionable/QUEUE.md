@@ -7152,3 +7152,22 @@ genuinely change under a running keeper — an env var cannot track it at all.
 Also retracts the earlier framing that "the 0.86 is hardcoded three times with zero reads": the
 Solidity read exists. The three hardcodes are the keeper env var, the `LevManager:62` comment (now
 flagged), and the test suite's own `createMarket` — none of which is the production on-chain path.
+
+**OPEN 19 — CLOSED 2026-08-06. It was never broken; I was wrong three times about the same value.**
+`lev_keeper.rs:478-486` ALREADY reads the threshold live and per-LP:
+`pos(lp) → venue → liqThresholdBps()`, with the code's own comment stating it does so "so it tracks
+an Euler/Morpho LLTV ramp instead of going stale". `QUID_LEV_VENUE_LIQ_BPS` is only the
+`unwrap_or` FALLBACK on read failure, and the fallback direction is deliberate — the comment says
+"never widens the safety margin silently".
+
+⛔ **DO NOT DELETE THAT ENV VAR.** Without it the fallback becomes `0`, and
+`urgent_threshold = 0.saturating_sub(safety_margin)` = 0, which would mark EVERY position urgent on
+any transient RPC failure. The env var is what prevents a read error from cascading the whole book.
+
+My three successive wrong claims about this, recorded so the pattern is visible rather than the
+conclusion alone:
+  1. "the 0.86 is hardcoded three times with zero reads" — false; the Solidity read existed.
+  2. "the Solidity is fine, only the Rust keeper hardcodes it" — false; the keeper reads it too.
+  3. "the env var should be deleted" — false and DANGEROUS; it is a deliberate conservative fallback.
+Each was asserted from a partial grep. The live-read call sites are two frames below where the env
+var is bound, so a grep for the variable name finds the config plumbing and misses the read entirely.
