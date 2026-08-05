@@ -19,6 +19,9 @@ import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {LiquidityAmounts} from "v4-periphery/src/libraries/LiquidityAmounts.sol";
 import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
 import {FixedPointMathLib} from "solmate/src/utils/FixedPointMathLib.sol";
+// §E68 — `lnWad` for the drain kernel's INTEGRAL (solmate has no lnWad; solady does, and is
+// already remapped). Aliased so it cannot be confused with solmate's same-named library above.
+import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 import {BasketLib} from "./BasketLib.sol";
 import {FeeLib} from "./FeeLib.sol";
 import {ShareMath} from "./ShareMath.sol";
@@ -462,7 +465,7 @@ library SwapLib {
             // the honest oracle (v4p) through routeSwap ⇒ no manip-guard exemption.
             {
                 r.px = _priceOr(v4p, address(aux), r.asset);
-                uint skew = wellSkew(c.core, r.px, isBTC); // inline (swapToBody stack-tight)
+                uint skew = wellSkew(c.core, r.px, isBTC, r.amount); // §E68: r.amount IS the 6-dec drain size
                 retainSkewPremium(c.core, isBTC, r, skew, false);  // buy-driving USD ⇒ already 6-dec   // mutates r.amount; r.px declares NATIVE
             }
         }
@@ -838,9 +841,15 @@ library SwapLib {
     ///         skew = Γ·σ²·q — both σ² and q enter LINEARLY (no scarcity², no separate vol
     ///         steepening term). The flush guard (inv≥target ⇒ 0, band owns the common case)
     ///         and the MAX_WELL_SKEW hard cap are preserved.
-    function skewWad(uint poolVolUsd, uint lockedUsd, uint committedUsd, uint flowUsd, uint sigmaSqWad, bool isBTC)
+    function skewWad(uint poolVolUsd, uint flowUsd, uint sigmaSqWad, bool isBTC, uint drainUsd6)
         public pure returns (uint skew)
     {
+        // §E68 — `lockedUsd` and `committedUsd` DELETED FROM THE SIGNATURE, not merely unused. E58
+        // removed both from the arithmetic and left the parameters behind; they appeared nowhere but
+        // this line and the note below, so they were dead surface costing stack at a call site that
+        // is annotated stack-tight. Removing them is behaviour-neutral BY CONSTRUCTION (an unread
+        // argument cannot change a pure function's output), so it does not confound the one real
+        // change in this run — the `drainUsd6` size thread.
         // §E58 — BOTH LEVERAGE TERMS DELETED (owner: *"leverage shouldn't be perceived by this skew
         // at all… whether levered or not, in the band is in the band alike"*). They entered TWICE and
         // both inflated scarcity: `inv` SUBTRACTED `lockedUsd` (levered GROSS collateral — which IS
@@ -854,10 +863,29 @@ library SwapLib {
         //   What remains IS the E54 derivation: scarcity is inventory against the flow we shed into.
         uint target = flowUsd;
         if (target == 0) return 0;
-        uint inv = poolVolUsd;
-        if (inv >= target) return 0;                     // flush ⇒ ~oracle (band owns it)
-        uint q = (target - inv) * 1e18 / target;         // scarcity q ∈ (0, 1e18]
-        uint oneMinusQ = 1e18 - q;                        // = inv/target ∈ [0, 1e18)
+        // §E68 — THE DRAIN IS NOW SIZE-AWARE, AND THIS IS WHERE THE LEAK WAS.
+        //
+        // `inv` used to be read PRE-swap and the flush test used to be `inv >= target ⇒ 0`. Two
+        // separate defects fell out of that, both MEASURED as present:
+        //   1. SIZE-BLINDNESS. `q` was the pre-swap LEVEL, so a $1 drain and a drain-the-reservoir
+        //      quoted the IDENTICAL premium. Nothing about the swap's own magnitude reached the
+        //      kernel — the rate was a property of the pool alone.
+        //   2. THE FLUSH HOLE, which is the worse of the two. If the band sat AT OR ABOVE target,
+        //      the pre-swap test returned 0 for EVERY size, so a single trade could convert the
+        //      WHOLE inventory and pay NO skew at all — it only ever paid the band's ~10 bps
+        //      cushion. The premium began only on the NEXT trade, by which time the inventory was
+        //      already gone. That is the "one trade converts the band for ~10 bps" leak.
+        // Both die the same way: evaluate scarcity on the inventory this swap LEAVES BEHIND, and
+        // charge the average rate along the path from where it started to where it ends.
+        uint inv0 = poolVolUsd;                           // pre-swap deliverable inventory
+        uint inv1 = drainUsd6 >= inv0 ? 0 : inv0 - drainUsd6;   // what the drain LEAVES
+        // Flush now means flush AFTER the drain. A swap that ends at/above target created no
+        // scarcity and is genuinely free; a swap that ENDS below it is charged for the crossing,
+        // however flush the band looked before it. Size-blindness cannot survive this test.
+        if (inv1 >= target) return 0;
+        uint q1 = (target - inv1) * 1e18 / target;        // post-swap scarcity ∈ (0, 1e18]
+        uint q0 = inv0 >= target ? 0 : (target - inv0) * 1e18 / target;  // pre-swap, 0 if flush
+        uint oneMinusQ = 1e18 - q1;                       // pole is on the ENDING inventory
         // DEPLETION-BARRIER skew = Γ·σ²·q / (1−q)^ρ, ρ = STABLENESS (see the constant's derivation):
         // the A-S linear premium Γσ²q amplified by the log-barrier shadow price 1/(1−q)^ρ of the last
         // inventory units. Blows up convexly as inv→0 (oneMinusQ→0), bounded by the cap below.
@@ -879,12 +907,38 @@ library SwapLib {
         // That is the conservative reading of "unknown" and it is consistent with the cap's, so the
         // two consumers of the sentinel can no longer disagree.
         if (sigmaSqWad == 0) return _maxWellSkew(0, isBTC);
+        // §E68 — THE KERNEL IS NOW THE INTEGRAL OF THE SAME POLE, NOT A POINT SAMPLE OF IT.
+        //
+        // The curve is UNCHANGED: still `q/(1−q)`, still A&S's simple pole, still one constant.
+        // What changed is WHERE it is sampled. Charging `rate(q0)` on every unit of a swap that
+        // itself moves q0→q1 misprices in BOTH directions at once:
+        //   • the last units of a big drain belong near the pole and were billed at the cheap
+        //     starting rate ⇒ THE LARGEST IMBALANCER WAS UNDERCHARGED, and one large drain was
+        //     strictly cheaper than the same volume split across txs (an atomicity arbitrage);
+        //   • every later swap then faced a rate set by an imbalance it did not cause ⇒ INNOCENT
+        //     FLOW WAS OVERCHARGED, and the deterrent landed on the wrong party.
+        // The average rate along the swap's OWN displacement fixes both, because each unit is
+        // billed at the scarcity IT sees:
+        //     (1/Δ)·∫[q0→q1] q/(1−q) dq = [ ln((1−q0)/(1−q1)) − Δ ] / Δ,   Δ = q1 − q0
+        // using ∫q/(1−q)dq = −ln(1−q) − q. The bracket is ≥ 0 because the integrand is ≥ 0 on
+        // [0,1), so the subtraction cannot underflow on exact math; it is saturated anyway to keep
+        // a rounding artifact from wrapping into an enormous premium.
+        uint qBar;
         if (oneMinusQ == 0) {
-            skew = type(uint).max;                        // inv=0 ⇒ pole → ∞ ⇒ pinned to the cap
+            qBar = type(uint).max;                        // ends at inv=0 ⇒ pole → ∞ ⇒ pinned to the cap
+        } else if (q1 == q0) {
+            // Δ = 0. Either a zero-size READ (the Aux/MM signal, which wants the instantaneous
+            // rate) or a drain too small to move q. The integral's limit as Δ→0 IS the point rate,
+            // so this branch is the formula's own limit, not a special case bolted beside it.
+            qBar = FullMath.mulDiv(q0, 1e18, 1e18 - q0);
         } else {
-            uint qBar = FullMath.mulDiv(q, 1e18, oneMinusQ);          // q/(1−q), the simple pole
-            skew = FullMath.mulDiv(FullMath.mulDiv(MAX_WELL_SKEW, sigmaSqWad, 1e18), qBar, 1e18);
+            uint d = q1 - q0;
+            // ln(u0/u1) in WAD. u0 > u1 > 0 here, so the ratio exceeds 1e18 and the log is positive.
+            uint lnTerm = uint(SoladyMath.lnWad(int(FullMath.mulDiv(1e18 - q0, 1e18, oneMinusQ))));
+            qBar = lnTerm > d ? FullMath.mulDiv(lnTerm - d, 1e18, d) : 0;
         }
+        skew = qBar == type(uint).max ? type(uint).max
+             : FullMath.mulDiv(FullMath.mulDiv(MAX_WELL_SKEW, sigmaSqWad, 1e18), qBar, 1e18);
         // DYNAMIC cap = the live MM refill cost (σ over the confirmation window), never above
         // the MAX_WELL_SKEW abs ceiling. Replaces the fixed 3% clamp: in calm markets the cap
         // binds LOWER (don't overpay a cheap refill), in high vol it rises toward 3%.
@@ -922,13 +976,21 @@ library SwapLib {
     ///      they FEED `skewWad` (wellSkew passes these directly; sellSkew mirrors `inv` about
     ///      target first), so the prologue is the real duplication and the divergence is real
     ///      semantics that must NOT be flattened into a flag.
+    /// §E68 — `lockedUsd` AND ITS `levGrossNative` CALL DELETED. E58 removed the leverage terms from
+    /// the arithmetic but left the plumbing that fed them: this helper still fetched
+    /// `levGrossNative(isBTC)` and BOTH callers dropped the result, so an external call ran on EVERY
+    /// swap, on BOTH legs, purely to be discarded. `wellSkew` additionally called `levClaimUsd6` to
+    /// fill a parameter nothing read. That is dead code (rule 1) and wasted money-path gas, but the
+    /// worst part is the misdirection: a helper that visibly gathers leverage state, feeding a public
+    /// function with two leverage parameters, reads as though leverage MATTERS here — the exact
+    /// belief E58 exists to kill. Leaving the plumbing in place contradicted the fix at the one spot
+    /// a reader would look to confirm it.
     function _skewBasis(address core, uint base, bool isBTC, uint addedTok)
-        private view returns (uint poolVolUsd, uint lockedUsd)
+        private view returns (uint poolVolUsd)
     {
         poolVolUsd = FullMath.mulDiv(
             (isBTC ? ICore(core).POOLED_BTC() : ICore(core).POOLED_ETH()) + addedTok,
             base, 1e30);
-        lockedUsd = FullMath.mulDiv(ICore(core).levGrossNative(isBTC), base, 1e30);
     }
 
     /// @dev §E53 — THE SHARED-SCARCITY AMPLIFIER. Every input to the skews is `isBTC`-scoped, yet
@@ -957,10 +1019,17 @@ library SwapLib {
         return 1e18 + FullMath.mulDiv(other, 1e18, both);
     }
 
-    function wellSkew(address core, uint base, bool isBTC)
+    /// @param drainUsd6 The volatile-OUT this swap is about to take, in 6-dec USD — the SAME unit
+    ///        `_skewBasis` returns, which is why both call sites can pass their existing
+    ///        buy-driving amount unconverted. **Pass 0 for a read-only quote**: that is the Δ→0
+    ///        limit and yields the instantaneous rate, which is what the MM/dashboard signal wants.
+    ///        §E68: before this parameter existed the drain leg was size-BLIND while the sell leg
+    ///        already took `addedTok` — backwards, since the drain is the side bounded by physical
+    ///        deliverability. The two legs are now symmetric in size-awareness.
+    function wellSkew(address core, uint base, bool isBTC, uint drainUsd6)
         public view returns (uint)
     {
-        (uint poolVolUsd, uint lockedUsd) = _skewBasis(core, base, isBTC, 0);
+        uint poolVolUsd = _skewBasis(core, base, isBTC, 0);
         // UNIFORM sats/wei → 6-dec USD: `poolVol · base / 1e30`. Authoritative (NOT
         // BasketLib.convert, which now uses the SAME flat scale (the /1e8 variant over-valued
         // 8-dec BTC by 1e10 and was removed) —
@@ -972,10 +1041,8 @@ library SwapLib {
 
         uint raw = skewWad(
             poolVolUsd,
-            lockedUsd,
-            ICore(core).levClaimUsd6(isBTC),
             ICore(core).flowEwmaUsd(isBTC),
-            ICore(core).realizedVarianceWad(isBTC), isBTC);
+            ICore(core).realizedVarianceWad(isBTC), isBTC, drainUsd6);
         // §E53: amplify by how much of the SHARED bound the other band already holds, then re-cap —
         // the amplifier must never lift the skew past the same ceiling the raw curve obeys.
         uint amp = FullMath.mulDiv(raw, _sharedScarcityWad(core, isBTC), 1e18);
@@ -1008,7 +1075,7 @@ library SwapLib {
         // transient conversion locals so they free their stack slots before the skewWad call (no via_ir).
         uint inv;
         {
-            (uint poolVolUsd,) = _skewBasis(core, base, isBTC, addedTok);
+            uint poolVolUsd = _skewBasis(core, base, isBTC, addedTok);
             inv = poolVolUsd;                                 // §E58: levered depth IS band depth
         }
         // A-S inventory-sign flip: reflect inv about target. inv≤target (refill) ⇒
@@ -1130,7 +1197,7 @@ library SwapLib {
         // `amount` here is ALREADY 6-dec USD (scaleTo6 in _swapOutPrep), so px=0 declares "no conversion":
         // this leg's recorded premium was always in the right unit and stays that way.
         SwapReq memory sr; sr.amount = amount; sr.px = 0;
-        retainSkewPremium(core, true, sr, wellSkew(core, basePrice, true), false);  // audit + RFQ-drawable
+        retainSkewPremium(core, true, sr, wellSkew(core, basePrice, true, amount), false);  // audit + RFQ-drawable
         amount = sr.amount;
         rp.amount    = amount;                               // reduced buy drives the fill
         rp.recipient = address(this);                       // obligation → pool; LN delivers

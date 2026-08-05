@@ -928,15 +928,15 @@ contract Alles is ForkPin, Fixtures {
         uint sig = 1e16;   // σ² low enough the DYNAMIC cap doesn't bind at these q (isolate the shape).
 
         // Flush: inventory at/above target ⇒ zero skew (abundant — the band owns the price).
-        assertEq(SwapLib.skewWad(T, 0, 0, T, sig, true), 0, "flush at inv>=target");
+        assertEq(SwapLib.skewWad(T, T, sig, true, 0), 0, "flush at inv>=target");
 
         // q=1/2 (inv=T/2): q/(1−q)=1 ⇒ skew = Γσ² = 3e16·1e16/1e18 = 3e14 (uncapped at this σ²).
-        uint s12 = SwapLib.skewWad(T / 2, 0, 0, T, sig, true);
+        uint s12 = SwapLib.skewWad(T / 2, T, sig, true, 0);
         assertEq(s12, 3e14, "q=0.5 barrier skew = Gamma*sigma2 (q/(1-q)=1)");
 
         // q=1/3 (inv=2T/3): q/(1−q)=0.5 ⇒ half of s12. q=2/3 (inv=T/3): q/(1−q)=2 ⇒ double s12.
-        uint s13 = SwapLib.skewWad(2 * T / 3, 0, 0, T, sig, true); // q=1/3
-        uint s23 = SwapLib.skewWad(T / 3, 0, 0, T, sig, true); // q=2/3
+        uint s13 = SwapLib.skewWad(2 * T / 3, T, sig, true, 0); // q=1/3
+        uint s23 = SwapLib.skewWad(T / 3, T, sig, true, 0); // q=2/3
         assertApproxEqAbs(s13, s12 / 2, 1e8, "q=1/3 skew = 1/2 of q=1/2");
         assertApproxEqAbs(s23, s12 * 2, 1e8, "q=2/3 skew = 2x of q=1/2");
 
@@ -946,14 +946,14 @@ contract Alles is ForkPin, Fixtures {
         assertLt(s13, s12); assertLt(s12, s23); // monotone
 
         // The inv→0 blowup is bounded: extreme σ² near-empty can never exceed MAX_WELL_SKEW.
-        uint sHot = SwapLib.skewWad(T / 100, 0, 0, T, 5e18, true);
+        uint sHot = SwapLib.skewWad(T / 100, T, 5e18, true, 0);
         assertGt(sHot, 0,    "near-empty hot-vol skew positive");
         assertLe(sHot, 3e16, "capped at MAX_WELL_SKEW under the barrier");
 
         // PER-ASSET cap fix: ETH has NO ~1hr confirmation-capital lock, so at extreme vol its cap binds
         // LOWER than BTC's — proves _maxWellSkew is per-asset now, not the old asset-agnostic (BTC-window) form.
-        assertLt(SwapLib.skewWad(T / 100, 0, 0, T, 5e18, false),
-                 SwapLib.skewWad(T / 100, 0, 0, T, 5e18, true), "ETH cap < BTC cap (no conf lock)");
+        assertLt(SwapLib.skewWad(T / 100, T, 5e18, false, 0),
+                 SwapLib.skewWad(T / 100, T, 5e18, true, 0), "ETH cap < BTC cap (no conf lock)");
     }
 
     // SWAP-PRICING PIN (ETH, in-range): closes the pervasive `minOut=0 + assertGt(>0)` mask by
