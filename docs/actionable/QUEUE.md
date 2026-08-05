@@ -1303,6 +1303,17 @@ USDC**. That gap is narrower now (C1/C3/C4/C5/C10 closed on other evidence) but 
 1e12x (both settle paths) · §J.2 (VBtc + VEth) · §J.7 · §A.54 (`tl`/`tu`, `OorTicks`) · §A.56 part 1
 (22 lines of copied sizing → one definition) · §A.62 (tree layout; **0 dual definitions tree-wide**) ·
 §A.63 (dead test) · §A.5f subset (timelocked recipient pin) · #12 (both senses).
+**§J.7 RE-VERIFIED AGAINST CODE 2026-08-05, ITEM BY ITEM.** The archive's `A.46` header still says
+*"§J.7 TODO catalog CLEARED to one open item"* — that line is stale, and the archive's status markers
+are not authoritative (its evidence is). The catalog has **ten** items, not nine; the tenth,
+`Vogue.sol` *"why isn't this actively closed — can we get rid of code by being more proactive"*
+(#109 / `closeLevFor`), had never been checked, because the list was miscounted rather than finished.
+**It verifies DONE against HEAD, not against markers:** `Vogue.sol:614` makes a LIVE inline
+`ILevClose(...).closeLevFor(msg.sender, 0)` call when the ask exceeds the LP's free balance, and
+`LevManager.sol:648` confirms `closeLev`/`closeLevFor` already share ONE implementation — so both
+halves of the question (be proactive / delete duplicated code) are satisfied. `Vogue.sol:467` records
+that the old *"INLINE WIRING DEFERRED"* comment **outlived the code** and is what caused #109 to be
+tracked as in-progress while it was in fact shipped — the anchor-to-HEAD-never-to-comments trap.
 **Premises WITHDRAWN after code verification** — §A.5c, §A.35, §A.19b-as-written, §A.43, and two of four
 tolerance findings. Four queue items rested on claims that dissolved on contact with the code.
 
@@ -1384,8 +1395,13 @@ index encodes. Legacy `_take` had no per-token dispatch at all — one positiona
     exist BECAUSE Aux/Core are near the limit, in which case it stays and the reason gets documented.
   • 🔴 **`Vogue`'s ERC-20 + ERC-4626 WRAPPER BLOCK IS LEFTOVER §J.2.** Its own header still says it
     *"adds standard ERC-20 transfer/approve plus the ERC-4626 view + deposit/redeem entry points"* —
-    exactly what `VEth`/`VBtc` now own. §J.2 moved the IDENTITY but left this block. **This is an
-    INCOMPLETE §J.2, not a design choice.** Removing it is the rest of "Vogue is not a 4626".
+    exactly what `VEth`/`VBtc` now own. §J.2 moved the IDENTITY but left this block.
+    ⚠️ **"INCOMPLETE §J.2" STRUCK 2026-08-05 — THE CLAIM WAS WRONG.** §J.2 IS done: `VEth` is the
+    projection face and owns the 4626 identity, which is what §J.2 asked for. The leftover wrapper
+    block is a SEPARATE removal (dead surface on `Vogue`), not evidence that §J.2 stalled — and
+    calling it incomplete re-opened a finished item, which is the failure the closure rule exists to
+    prevent, arriving through the status column. The removal itself is still worth doing; price it
+    on EIP-170 headroom, since deleting it is a size WIN on a contract near the limit.
 
 ## 🔴 CLAMP POLICY (user, standing): *"minimise clamps that give a false sense of safety … rather than
 treating a symptom attack issues at their core."* **C4 is the proof case:** the `θ > 1e18 ? 1e18` cap was
@@ -1604,7 +1620,7 @@ Every open item, each with the exact next action. No item appears only in conver
 | B5 | **13 near-match dedup findings** | see `GAS-AND-CORRECTNESS-AUDIT.md`. Biggest: `_valueStable` vs `_illiquidLoss` share a whole 4626 ladder; `SPWithdrawResult ⊃ SPState`; `isEthVenue` verbatim twice; hand-rolled decimal scaling ×2 |
 | B6 | 🔴 **`initVaultsBody` omits validation** | `ChannelLib.sol:470-476` vs `setVaultBody:441-448` — constructor path skips the `asset() != stable` check, duplicate scan, and primary guard. **Deliberate or bug? VERIFY** |
 | B7 | **§A.52** interface dedup | 95 locals, ZERO name-duplicates ⇒ semantic. Group by target contract (`IAux*`/`ILev*`/`ICore*`), diff member sets. Minimal shims are EIP-170 optimisations — do not blindly fold |
-| B8 | **§A.56 part 2** out-of-range ARGS | responsibility-boundary move, not a signature change. Partial at `/tmp/A56-partial.patch` |
+| B8 | **§A.56 part 2** out-of-range ARGS | responsibility-boundary move, not a signature change. ⚠️ **THE PARTIAL WORK IS LOST (confirmed 2026-08-05).** This line cited `/tmp/A56-partial.patch`; `/tmp` does not survive a reboot and the file is gone. Pointing at a missing file is worse than pointing at nothing, because the next thread budgets for a resume that cannot happen. **Re-derive from scratch**, using the archive's evidence at `BUILD-QUEUE-AND-107.md:819` — that is the surviving record. Part 1 is closed; only the args asymmetry remains |
 | B9 | **Layout**: `mock.sol` → `imports/` | it is a helper, not a deployed contract |
 | B10 | **Layout**: fold `QuidLens` | check EIP-170 FIRST — it may exist BECAUSE Aux/Core are near the limit; if so, document why it stays |
 | B11 | **G1–G10 gas** | same basket scan 2–3× per tx; `decimals()` staticcall (see B11b); 13-iter SLOAD loops 4× per redeem; TWAP ≈42M gas suite-wide |
