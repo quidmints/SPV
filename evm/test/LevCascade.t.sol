@@ -7,7 +7,6 @@ import {LevManager} from "../src/LevManager.sol";
 import {ILevVenue} from "../src/imports/ILevVenue.sol";
 import {MorphoEscrowVenue, MarketParams} from "../src/MorphoEscrowVenue.sol";
 import {LevMath} from "../src/imports/LevMath.sol";
-import {Rover} from "../src/Rover.sol";
 
 interface IERC20R {
     function approve(address, uint) external returns (bool);

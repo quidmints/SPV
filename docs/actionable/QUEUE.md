@@ -6967,3 +6967,13 @@ pre-change tree was 3847/0 green.
   its magnitude.
 * *"The collateralised borrow bridge must be built"* — **WRONG**; it is the existing IL-protect lev
   machinery.
+
+**OPEN 19 — the keeper's liquidation threshold is OPERATOR-SUPPLIED, not read from the venue.**
+`venue_liq_ltv_bps` comes from the `QUID_LEV_VENUE_LIQ_BPS` env var (`daemon.rs:426`, and
+`QUID_BTC_LEV_VENUE_LIQ_BPS` at :480); `LevManager.sol:62` merely ASSERTS "the 86% venue LLTV" in a
+comment. Nothing reads LLTV from Morpho/Euler. The keeper's urgency threshold is
+`venue_liq_ltv_bps − safety_margin_bps`, so if the configured value is stale or wrong the keeper
+computes the wrong urgency and **fails toward UNDER-protection, silently** — a position looks safe
+while it is not. Read it per-venue on demand instead (Morpho exposes `lltv` in MarketParams; Euler
+exposes per-collateral LTV). ⚠️ This also invalidates using 8600 as evidence for the weETH offramp's
+LTV capacity: it is a configured guess, not a market read.

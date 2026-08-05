@@ -70,15 +70,6 @@ interface IEtherFiRedemption {
 /// Canonical ether.fi LiquidityPool view — was `SwapLib::ILiq_L`.
 interface IEtherFiLiquidityPool { function requestWithdraw(address r, uint a) external returns (uint); }
 
-/// Canonical IRover — union of the former per-file variants.
-interface IRover {
-    function deposit(uint amount) external payable;
-    function take(uint amount) external returns (uint wethAmount);
-    function valueWeth() external view returns (uint); // WETH-equiv of the Rover's holdings
-    function setLevManager(address lm) external;       // pin the LevManager as an allowed Rover.absorb caller
-    function AUX() external view returns (address);    // E21: was BasketLib.IWiredRover
-    function absorb(uint256 amountIn, bool giveWeeth) external returns (uint256 amountOut, uint256 amountUsed); // E21: was LevMath.IRoverAbsorbM
-}
 
 /// Canonical IDepositAdapter — union of the former per-file variants.
 interface IDepositAdapter {
@@ -307,7 +298,6 @@ interface IEthVenue {
     function supplyAaveEth(uint amount) external returns (uint);
     function supplyEulerEth(uint amount) external returns (uint);
     function supplyGauntlet(uint amount) external returns (uint);
-    function supplyEtherFiToRover(uint amount) external returns (uint);
     function offrampEtherFi(uint amount, address recipient, bool instant) external returns (uint);
 }
 

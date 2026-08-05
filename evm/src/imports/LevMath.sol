@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {FixedPointMathLib} from "solady/src/utils/FixedPointMathLib.sol";
 // §A.52: the canonical view (was a file-local `ILevSyncHookM`).
-import {ILevSyncHook, IAux, IWeETH, IWiredVault, IRover, IEtherFiRedemption,
+import {ILevSyncHook, IAux, IWeETH, IWiredVault, IEtherFiRedemption,
         IDepositAdapter, ILevVenueColl, ILevMintVenue} from "./Interfaces.sol";
 import {ILevVenue, IERC20Min, IWETH9} from "../imports/ILevVenue.sol";
 import {IMorphoFlash} from "../imports/Interfaces.sol";
