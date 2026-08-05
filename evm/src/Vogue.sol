@@ -954,7 +954,7 @@ contract Vogue is
 
     /// @notice Annualized realized variance (WAD) from Core's oracle ring. Body in VogueLib.
     function realizedVarianceWad(bool isBTC) public view returns (uint) {
-        return VogueLib.realizedVarianceWad(address(V4), isBTC);
+        return V4.realizedVarianceWad(isBTC);   // §E59: ONE source — Core reads its own ring
     }
 
     /// @notice Size how much of the volatile asset (`deltaTok`) + paired

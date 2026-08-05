@@ -279,7 +279,6 @@ interface ICore {
     /// §E59 — realized tick variance from the STORED observations (per-second, WAD) + the measured
     /// span. Reads the RING, so it never sees observe()'s interpolation, which used to manufacture
     /// zeros in any stretch quieter than the old wall-clock sample grid. span 0 = UNKNOWN, not calm.
-    function ringVarianceWad(bool isBTC, uint n) external view returns (uint varPerSecWad, uint spanSecs);
     /// §E53 — the BTC band's equity alone. With committedUsd18() (the SUM) this yields the OTHER
     /// band's share of the one bound both compete for, which is what the shared-scarcity amplifier
     /// needs and what no isBTC-scoped input could ever supply.

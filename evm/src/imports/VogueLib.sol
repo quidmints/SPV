@@ -358,7 +358,7 @@ library VogueLib {
     ///      numerator, which #107/D3 replaced with the band-fee premium EWMA read off `core`. The
     ///      parameter has been dead since that change — the compiler flagged it as unused.
     function derivedThetaWad(address core, int24 lo, int24 up, bool isBTC) public view returns (uint) {
-        uint sigmaSq = realizedVarianceWad(core, isBTC);
+        uint sigmaSq = ICore(core).realizedVarianceWad(isBTC);   // §E59: ONE source, read from Core
         if (sigmaSq == 0) return 1e18;
         uint kWad = kLvrWad(core, lo, up, isBTC);
         if (kWad == 0) return 1e18;
@@ -388,26 +388,6 @@ library VogueLib {
     }
 
     /// @notice Annualized realized variance (WAD) from Core's oracle ring.
-    function realizedVarianceWad(address core, bool isBTC) public view returns (uint) {
-        // §E59 — SAMPLE THE STORED OBSERVATIONS, NOT A WALL-CLOCK GRID.
-        //
-        // This used to call `observe` every `THETA_STEP` seconds. The ring only advances ON A SWAP
-        // and `observe` LINEARLY INTERPOLATES between stored points, and linear interpolation has
-        // ZERO SECOND DERIVATIVE — so every sample inside one inter-swap gap returned the same
-        // average tick and the variance came out EXACTLY 0 no matter how far price had moved.
-        // MEASURED: a drain taking `POOLED_ETH` from 400 to 0.00097 ETH reported 0.
-        //
-        // `ringVariance` reads REAL price updates only, normalises each return by its OWN elapsed
-        // time (intervals are uneven by nature) and annualises on the MEASURED span — so there is no
-        // fixed step left to mis-match the swap cadence. Shortening the step was never the fix:
-        // finer than the cadence hits the same interpolation, coarser hides real moves.
-        (uint varPerSecWad, uint spanSecs) = ICore(core).ringVarianceWad(isBTC, THETA_N + 1);
-        // span 0 ⇒ NOT ENOUGH REAL UPDATES ⇒ UNKNOWN. Still returns 0, but 0 now means what it says:
-        // callers treat unknown as DANGEROUS (skew charges the ceiling — SwapLib._maxWellSkew), and
-        // theta keeps failing OPEN. One sentinel, and both readers agree on it.
-        if (spanSecs == 0) return 0;
-        return FullMath.mulDiv(varPerSecWad, SECS_PER_YEAR * 1e10, 1e18);
-    }
 
     // ════════════════════════════════════════════════════════════════════
     //  addLiq body (in-range pairing sizer). Clamps deltaTok to the three

@@ -291,17 +291,17 @@ contract Core is SafeCallback {
     ///         `realizedVarianceWad`); exposed here so the skew reads ONE source for both
     ///         pools regardless of which band contract drives the swap. Fails-open to 0
     ///         (insufficient history) ⇒ no steepening, base convex curve still applies.
+    /// @notice §E59 — annualized realized tick variance (WAD), read DIRECTLY from the observation
+    ///         ring. Was a round trip (Core → VogueLib → back into Core) sampling `observe` on a
+    ///         wall-clock grid; that grid was the bug — `observe` INTERPOLATES between stored points
+    ///         and linear interpolation has zero second derivative, so any stretch quieter than the
+    ///         sample interval measured EXACTLY 0 however far price moved. One hop now, one source.
+    ///         **0 means UNKNOWN (too few real updates), NEVER "calm"** — `SwapLib._maxWellSkew`
+    ///         charges the ceiling on it and theta fails open, and both readers agree on that.
     function realizedVarianceWad(bool isBTC) external view returns (uint) {
-        return VogueLib.realizedVarianceWad(address(this), isBTC);
-    }
-
-    /// @notice §E59 — realized tick variance from the STORED observations (per-second, WAD) plus the
-    ///         span it was measured over. Reads the RING, so it never sees `observe`'s interpolation
-    ///         — the thing that used to manufacture zeros in any stretch quieter than the sample
-    ///         grid. `span == 0` means NOT ENOUGH REAL UPDATES, which is UNKNOWN and NOT calm.
-    function ringVarianceWad(bool isBTC, uint n)
-        external view returns (uint varPerSecWad, uint spanSecs) {
-        return OracleLib.ringVariance(_obs(isBTC), _obsState(isBTC), n);
+        // 9 ring points → 8 returns. No zero-guard: mulDiv(0,…) is 0, so UNKNOWN propagates as 0.
+        return Math.mulDiv(OracleLib.ringVariance(_obs(isBTC), _obsState(isBTC), 9),
+                           31536000 * 1e10, 1e18);   // per-sec → annualized
     }
 
     /// @notice (well) Cumulative scarcity-premium the skew has RETAINED as backing, per

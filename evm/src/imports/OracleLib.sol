@@ -228,13 +228,13 @@ library OracleLib {
     /// Intervals are UNEVEN by nature, so each return is normalised by its OWN elapsed time and the
     /// annualisation uses the MEASURED span — no fixed step to mis-match the swap cadence.
     ///
-    /// Returns raw tick-variance per second (scaled 1e18) and the span it was measured over; 0 span
-    /// means "not enough real updates", which callers must treat as UNKNOWN and NOT as calm.
+    /// Returns tick-variance per second (WAD). **0 means UNKNOWN — too few real updates — NOT calm**;
+    /// the span is not returned because it is redundant (it is 0 exactly when this is).
     function ringVariance(Observation[65535] storage obs, ObsState storage st, uint n)
-        external view returns (uint varPerSecWad, uint spanSecs)
+        external view returns (uint varPerSecWad)
     {
         uint card = st.cardinality;
-        if (card < 3 || n < 3) return (0, 0);
+        if (card < 3 || n < 3) return 0;
         if (n > card) n = card;
 
         // Walk back n stored points from the newest, newest-first.
@@ -247,7 +247,7 @@ library OracleLib {
             for (uint i = 0; i < n - 1; i++) {
                 uint16 lo_i = uint16((uint(idx) + card - 1 - i) % card);
                 Observation memory lo = obs[lo_i];
-                if (!lo.initialized || lo.blockTimestamp >= hi.blockTimestamp) return (0, 0);
+                if (!lo.initialized || lo.blockTimestamp >= hi.blockTimestamp) return 0;
                 uint32 dt = hi.blockTimestamp - lo.blockTimestamp;
                 // §E59 — FIXED-POINT, NOT INTEGER. Truncating to whole ticks was the second half
                 // of the zero-variance bug: the band is ~20 ticks wide, so consecutive average
@@ -258,12 +258,12 @@ library OracleLib {
                 oldest = lo.blockTimestamp;
             }
         }
-        if (newest <= oldest) return (0, 0);
-        spanSecs = newest - oldest;
+        if (newest <= oldest) return 0;
+        uint spanSecs = newest - oldest;
 
         // Variance of consecutive rate CHANGES (the returns), sample-corrected.
         uint m = rate.length - 1;
-        if (m < 2) return (0, spanSecs);
+        if (m < 2) return 0;
         int mean;
         for (uint i = 0; i < m; i++) mean += (rate[i] - rate[i + 1]);
         mean /= int(m);
