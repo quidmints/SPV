@@ -6977,3 +6977,15 @@ computes the wrong urgency and **fails toward UNDER-protection, silently** — a
 while it is not. Read it per-venue on demand instead (Morpho exposes `lltv` in MarketParams; Euler
 exposes per-collateral LTV). ⚠️ This also invalidates using 8600 as evidence for the weETH offramp's
 LTV capacity: it is a configured guess, not a market read.
+
+**OPEN 20 — two quid-tls CA-cert snapshot tests fail, and they are NOT from the Rover removal.**
+`shared_seed::certs::test::ca_cert_snapshot_test` and `derived_ca_keypair_snapshot_test`
+(`quid-tls/src/shared_seed/certs.rs:440`) fail with "ca cert is different". Evidence they are not
+mine: the Rover removal's Rust diff is exactly three files, ALL in `quid-bridge`
+(`src/daemon.rs`, `src/lev_keeper.rs`, `tests/lev_keeper_e2e.rs`); `quid-tls` was last touched by
+`de5bd21` (the quid-tokio→quid-async-util rename) and the `0af7f6d` snapshot squash. `quid-bridge`
+itself now COMPILES AND PASSES.
+⚠️ These are SNAPSHOT tests and CLAUDE.md's rule applies: **prove the cause before repinning.** The
+rename commit is the obvious suspect if anything feeds crate names into the CA derivation, but that
+is a hypothesis, not a finding. The historical baseline recorded in memory was 532 passed / 0 failed,
+so these two regressed at some point and nobody noticed.
