@@ -6989,3 +6989,33 @@ itself now COMPILES AND PASSES.
 rename commit is the obvious suspect if anything feeds crate names into the CA derivation, but that
 is a hypothesis, not a finding. The historical baseline recorded in memory was 532 passed / 0 failed,
 so these two regressed at some point and nobody noticed.
+
+### Offramp unknowns — resolved 2026-08-05 (partly by finding the question was wrong)
+
+**LLTV is NOT a venue property to track — it is a per-market IMMUTABLE.** Morpho Blue markets are
+immutable once created, and `LevYbReal.t.sol:218-223` shows the protocol calls the PERMISSIONLESS
+`createMarket` with `lltv: 0.86e18` — we create the market. So LLTV is either OUR CHOICE at creation
+or a fixed parameter readable from `idToMarketParams(id).lltv`. It never needs configuring.
+⇒ Strengthens OPEN 19: `QUID_LEV_VENUE_LIQ_BPS` is not merely stale-able, it is REDUNDANT. The same
+0.86 is hardcoded THREE times with zero reads — the Rust env var, the `LevManager.sol:62` comment,
+and the test's market creation.
+
+**The borrow rate is NOT a constant.** The market uses `ADAPTIVE_IRM`
+(`0x870aC11D48B15DB9a138Cf899d20F13F79Ba00BC`), so the rate is a function of UTILISATION, readable
+via `borrowRateView`. ⚠️ **RETRACTED: the "~6 bps for a ~7-day window" figure I quoted repeatedly
+assumed a fixed ~3% APY. Do not use it.** With an adaptive IRM the offramp's cost rises with
+utilisation — and utilisation spikes exactly when many LPs want out at once, i.e. the correlated case
+the offramp exists for. The cost is highest when the need is greatest. That interaction must be
+modelled before the offramp is sized.
+
+**Still genuinely open: the encumbrance ceiling.** How much weETH can back borrows before LP
+withdrawals are at risk (pre-emption case 2). `LevMath.deliverableDollars(netEquityUsd, collValueUsd,
+curLtvBps, lltvBps)` already computes the liquidation-edge bound `C·(1 − curLtv/(LLTV − margin))`, so
+the math exists; what is undecided is whether `POOLED_ETH` is bounded by it.
+
+**`collToWethDeliver` (§M.1) is the offramp's delivery seam and needs no changes** — "NO flash / NO
+stable-sale", `minOut`-floored, routes weETH via `_weethToWeth`. Mode 2 (`extractToVaultBody`) does
+NOT generalise: it is repay-first → withdraw → SELL → return-flash, which sells the collateral.
+⚠️ `collToWethDeliver`'s docblock still says "the Rover→V3→ether.fi offramp" — STALE, Rover is gone.
+⚠️ It delivers by SELLING weETH (`_weethToWeth`), not by borrowing against it. The term-borrow source
+repaid from the waitNft is the ONE piece that genuinely does not exist yet.
