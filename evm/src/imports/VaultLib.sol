@@ -6,14 +6,12 @@ import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {SwapLib} from "./SwapLib.sol";
 import {IAaveV4Spoke} from "./Interfaces.sol";
 import {IWeETH} from "./Interfaces.sol";
-import {IRover} from "./Interfaces.sol";
 import {IDepositAdapter} from "./Interfaces.sol";
 import {ILevEquity} from "./Interfaces.sol";
 import {IAux} from "./Interfaces.sol";
 
-// The ETH-venue ladder's external surfaces are the canonical ones in Interfaces.sol: `IRover`
-// (supply-leg: fund the Rover) and `IAux` (`vaultBlocked` — vault-health state stays Aux-owned).
-// The former `IRoverDep_V`/`IAuxView_V` shims were strict subsets of those and are gone.
+// The ETH-venue ladder's external surface is the canonical `IAux` in Interfaces.sol (`vaultBlocked`
+// — vault-health state stays Aux-owned). The Rover supply-leg surface went with Rover (2026-08-05).
 //
 /// Morpho-V2 MARKER (NOT MetaMorpho v1.1, which has a withdrawQueue instead). A V2 vault keeps its
 /// assets in ADAPTERS and auto-allocates on deposit, so its ERC-4626 max-views track IDLE rather than
@@ -33,7 +31,7 @@ interface IMorphoV2 {
 ///         inside each public function `address(this)` resolves to the Vault,
 ///         so all token custody, balances, and the AAVE/4626/Rover positions
 ///         are the Vault's. The library holds NO storage; every immutable Vault
-///         reads (WETH/AUX/GALAXY/EULER/AAVE spoke+reserveId/ROVER/WEETH/EETH/
+///         reads (WETH/AUX/GALAXY/EULER/AAVE spoke+reserveId/WEETH/EETH/
 ///         LEV_MANAGER) is passed in via `EthCfg`. Semantics are byte-for-byte
 ///         with the former in-Vault bodies — only the home moved.
 library VaultLib {
@@ -51,7 +49,6 @@ library VaultLib {
         address gauntlet;
         address aaveSpoke;
         uint256 wethReserveId;
-        address rover;
         address weeth;
         address eeth;        // ETHERFI_EETH (raw eETH transiently held mid wait-NFT)
         address levManager;
@@ -135,11 +132,6 @@ library VaultLib {
         if (c.eeth != address(0)) {
             total += IERC20(c.eeth).balanceOf(address(this));
             total += IERC20(c.eeth).balanceOf(c.aux);
-        }
-        // Rover (protocol-owned weETH/WETH LP) — WETH-equiv value; try/catch so a
-        // broken Rover defers to 0 (conservative).
-        if (c.rover != address(0)) {
-            try IRover(c.rover).valueWeth() returns (uint rv) { total += rv; } catch {}
         }
         // IL-protect: count the leveraged book's net-equity (gross collateral - debt), not gross. The buffer
         // half is debt-funded (offset by the LP's borrow), so counting gross would overstate solvency by the debt
@@ -249,17 +241,14 @@ library VaultLib {
 
     /// @notice Consolidated venue-supply body — the `transferFrom` + venue call for every ETH supply wrapper, so the
     ///         Vault forwarders keep ONLY their `NotVogueCore`/`NotAux` gate (bytecode OUTSIDE the EIP-170-critical
-    ///         Vault). `kind`: 0=Rover, 1=ether.fi adapter stake, 2=AAVE-v4, 3=Euler 4626, 4=Galaxy default
+    ///         Vault). `kind`: 0=(removed, was Rover), 1=ether.fi adapter stake, 2=AAVE-v4, 3=Euler 4626, 4=Galaxy default
     ///         (`supplyFromAux`), 5=Gauntlet 4626. `from` = the approver the WETH is pulled from (V4 for the venue wrappers, AUX for
     ///         `supplyFromAux`). Each branch is byte-identical to the former in-Vault body (guard → pull → supply).
     function supplyVenueBody(EthCfg memory c, uint8 kind, uint amount, address from) public returns (uint) {
         if (amount == 0) return 0;
-        if (kind == 0) {
-            if (c.rover == address(0)) return 0;
-            IERC20(c.weth).transferFrom(from, address(this), amount);
-            IRover(c.rover).deposit(amount);
-            return amount;
-        }
+        // kind 0 was the Rover deposit venue — REMOVED 2026-08-05 with Rover. It already returned 0
+        // whenever Rover was unset, so with nothing funding Rover the branch was unreachable; kind 0
+        // now falls through to the function's `return 0`, which is the same observable result.
         if (kind == 1) {
             if (ETHERFI_ADAPTER_VL == address(0)) return 0;
             IERC20(c.weth).transferFrom(from, address(this), amount);
@@ -407,11 +396,6 @@ library VaultLib {
                     try IAaveV4Spoke(c.aaveSpoke).withdraw(
                         c.wethReserveId, apull, address(this)) {} catch {}
                 }
-                wethBal = IERC20(c.weth).balanceOf(address(this));
-            }
-            // Last source → unwind the protocol-owned Rover. Non-blocking.
-            if (wethBal < amount && c.rover != address(0)) {
-                try IRover(c.rover).take(amount - wethBal) {} catch {}
                 wethBal = IERC20(c.weth).balanceOf(address(this));
             }
         }

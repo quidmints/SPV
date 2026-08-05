@@ -27,7 +27,6 @@ import {IPositionManager} from "v4-periphery/src/interfaces/IPositionManager.sol
 
 import {SwapLib} from "../src/imports/SwapLib.sol";
 import {Aux} from "../src/Aux.sol";
-import {Rover} from "../src/Rover.sol";
 import {Vogue} from "../src/Vogue.sol";
 import {Vault} from "../src/Vault.sol";
 import {Basket} from "../src/Basket.sol";
@@ -449,7 +448,7 @@ contract Alles is ForkPin, Fixtures {
             stables: STABLECOINS, vaults: VAULTS,
             hopOperator: address(0),
             spvCheckpointHeader: "", spvCheckpointHeight: 0, spvCheckpointWork: 0,
-            deployRover: false, deployChannels: false
+            deployChannels: false
         }));
         // (Nothing to create — all three venues are the real mainnet curator vaults. `Vault`'s ctor
         //  rejects aliased venue slots, so the three addresses above must stay distinct.)
@@ -1408,43 +1407,6 @@ contract Alles is ForkPin, Fixtures {
         assertEq(IERC4626(venue).balanceOf(address(ETH)), balBefore, "and must not be evacuated");
     }
 
-    /// @notice EMPTIED weETH/WETH pool e2e: with the Rover funded AND the v3 router
-    ///         `vm.etch`ed to revert every swap (no pool liquidity), an ether.fi LP
-    ///         withdraw must stay RESPONSIVE - the offramp's v3 rung fails, the
-    ///         Rover rung is tried and gracefully caught (its own swap can't fill an
-    ///         empty pool), and the ladder falls through to the ether.fi rung - the
-    ///         LP's slice is still processed and nothing bricks.
-    function test_EmptiedWeethPool_OfframpResilient_RoverHandled() public {
-        Rover rover = new Rover(
-            ETH.ETHERFI_ADAPTER(), address(WETH), ETH.WEETH(),
-            0xC36442b4a4522E871399CD717aBDD847Ab11FE88,
-            ETH.ETHERFI_POOL_A(), ETH.ETHERFI_V3ROUTER(), true);
-        rover.setAux(address(ETH)); // Rover driven by EthVenue (offramp/supply moved there)
-        ETH.setRover(address(rover));
-        deal(address(WETH), address(V4), 10 ether);
-        vm.prank(address(V4)); IERC20(address(WETH)).approve(address(AUX), type(uint).max);
-        vm.prank(address(V4)); ETH.supplyEtherFiToRover(10 ether);
-        assertGt(rover.ID(), 0, "Rover NFT funded");
-
-        // User's ether.fi slice via the FALLBACK: ether.fi is VENUE_ROVER (4), but we force the
-        // self-liquidated path for this one deposit (rover.deposit reverts ⇒ VogueLib._supplyEtherFi's
-        // catch stakes direct weETH) so a direct-weETH slice exists ALONGSIDE the funded Rover position.
-        vm.mockCallRevert(address(rover), abi.encodeWithSignature("deposit(uint256)"), bytes("selfLiq"));
-        vm.prank(User01); V4.deposit{value: 10 ether}(0, User01, 4);
-        vm.clearMockedCalls();
-        uint ethfiBefore = V4.ethfiBacked(User01);
-
-        // EMPTY the pool: every v3 swap reverts (offramp v3 rung AND Rover's swap).
-        vm.etch(ETH.ETHERFI_V3ROUTER(), type(RevertingV3Router).runtimeCode);
-
-        // Withdraw must NOT revert; the slice is processed via the fallback ladder.
-        vm.roll(block.number + 1); // JIT-lock: withdraw must be a later block than the deposit
-        vm.prank(User01); V4.withdraw(5 ether, User01, User01);
-        assertLt(V4.ethfiBacked(User01), ethfiBefore,
-            "ether.fi slice processed via the fallback ladder despite an emptied pool");
-        // Rover NFT intact (its take was caught/rolled back, not bricked).
-        assertGt(rover.ID(), 0, "Rover position gracefully handled (not bricked) on empty pool");
-    }
 
     /// @notice ether.fi `wait` path: in the both-pools-drained anomaly (forced
     ///         here by mocking the v3 swap to revert), a `wait` LP is NEVER
@@ -1522,45 +1484,6 @@ contract Alles is ForkPin, Fixtures {
     }
 
 
-    /// @notice FALLBACK branch (Rover self-liquidated). ether.fi is never a distinct venue — venue 4
-    ///         routes through Rover, but when the Rover NFT has self-liquidated (v3 pool drained ⇒
-    ///         rover.deposit REVERTS) the deposit MUST fall through to a direct weETH position
-    ///         (VogueLib._supplyEtherFi's catch), still attributed to the ethfiBacked wall, counted in
-    ///         vogueETH, and served by the same offramp ladder. This exercises the revert-caught path
-    ///         (the return-0 path — Rover unset — is covered by the no-Rover ether.fi tests above).
-    function testEthVenue_Rover_SelfLiquidated_FallsBackToDirectWeETH() public {
-        Rover rover = new Rover(
-            ETH.ETHERFI_ADAPTER(), address(WETH), ETH.WEETH(),
-            0xC36442b4a4522E871399CD717aBDD847Ab11FE88,
-            ETH.ETHERFI_POOL_A(), ETH.ETHERFI_V3ROUTER(), true);
-        rover.setAux(address(ETH));
-        ETH.setRover(address(rover));
-
-        // Self-liquidated Rover: its deposit reverts (drained v3 pool ⇒ can't mint).
-        vm.mockCallRevert(address(rover),
-            abi.encodeWithSignature("deposit(uint256)"), bytes("selfLiq"));
-
-        address weeth = ETH.WEETH();
-        uint weethBefore = IERC20(weeth).balanceOf(address(ETH));
-        uint vEthBefore  = ETH.vogueETH();
-
-        vm.prank(User01); V4.deposit{value: 10 ether}(0, User01, 4); // VENUE_ROVER, Rover self-liquidated
-
-        // Fallback took over: direct weETH staked at the Vault, NO Rover v3 position, ethfi wall credited.
-        assertEq(rover.ID(), 0, "self-liquidated Rover minted no v3 position");
-        assertGt(IERC20(weeth).balanceOf(address(ETH)), weethBefore, "fallback staked direct weETH");
-        assertGt(V4.ethfiBacked(User01), 0, "fallback slice attributed to the ether.fi wall");
-        assertGt(ETH.vogueETH(), vEthBefore, "vogueETH counts the fallback weETH");
-        (uint pooled,,,) = V4.autoManaged(User01);
-        assertEq(pooled, 10 ether, "position credited full deposit");
-
-        // Exit still routes through the ether.fi offramp (slice decremented, nothing stranded).
-        vm.clearMockedCalls();
-        uint ethfiBefore = V4.ethfiBacked(User01);
-        vm.roll(block.number + 1); // JIT-lock
-        vm.prank(User01); V4.withdraw(5 ether, User01, User01);
-        assertLt(V4.ethfiBacked(User01), ethfiBefore, "fallback slice served by the offramp ladder");
-    }
 
     function testEthVenue_AaveV4_DepositAndWithdraw() public {
         uint aaveBefore = ETH.aaveEthBalance();
