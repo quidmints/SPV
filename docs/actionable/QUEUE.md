@@ -7019,3 +7019,35 @@ NOT generalise: it is repay-first → withdraw → SELL → return-flash, which 
 ⚠️ `collToWethDeliver`'s docblock still says "the Rover→V3→ether.fi offramp" — STALE, Rover is gone.
 ⚠️ It delivers by SELLING weETH (`_weethToWeth`), not by borrowing against it. The term-borrow source
 repaid from the waitNft is the ONE piece that genuinely does not exist yet.
+
+### The weETH→WETH sell ladder, MEASURED 2026-08-05 (live mainnet, Uniswap V3 Quoter v1, 0.05% tier)
+
+| size (weETH) | vs `getEETHByWeETH` fair |
+|---|---|
+| 1 | **−25.62 bps** |
+| 10 | −25.66 |
+| 100 | −26.07 |
+| 500 | −27.88 |
+| 1,000 | −30.14 |
+| 2,000 | **−34.66 bps** |
+
+**The discount is a ~25.6 bps FLOOR, not a slippage curve.** 2,000 weETH costs only ~9 bps more than
+1 weETH, so depth is not the binding constraint — everyone pays ~25 bps to exit into the pool, plus a
+shallow size term.
+
+⚠️ **RETRACTS the −74.87 bps figure used repeatedly on 2026-08-04.** That was the tail of a
+37-sample distribution that also contained **+30.24 bps**, and it was quoted as if it were the price.
+The correct number is this ladder. It also retracts my follow-up guess that −74.87 was a size effect —
+the ladder is far too flat for that.
+
+**THE CROSSOVER IS A RATE QUESTION, NOT A SIZE QUESTION.** Borrowing beats selling while
+`borrowAPY × days/365 < 25.6 bps`; over a ~7-day waitNft window that is a break-even of **13.4% APY**.
+Below it, borrow-and-repay-from-waitNft wins at EVERY size on this ladder; above it, selling is
+cheaper. There is no size crossover.
+⇒ **The offramp needs no size-dependent routing** — one comparison, both sides readable on-chain
+(`borrowRateView` on the adaptive IRM vs a quoter call for the live discount). And because the
+discount moves, the break-even must be COMPUTED, never configured.
+
+Caveats: one block, so this is the current discount and not a distribution; and these are Quoter
+figures rather than executed swaps (the fork tests that confirmed quoter/fill agreement were deleted
+in Rover step 2).

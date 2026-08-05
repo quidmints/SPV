@@ -487,7 +487,7 @@ library LevMath {
     }
 
     /// @notice §M.1 — convert `collAmt` of freed leverage collateral to WETH and deliver it to `recipient` (the ETH
-    ///         swap-out). WETH venue = 1:1; weETH venue = the Rover→V3→ether.fi offramp (`_weethToWeth`, shared with
+    ///         swap-out). WETH venue = 1:1; weETH venue = the V3→ether.fi offramp (`_weethToWeth`, shared with
     ///         `sellWeeth`). Bytecode lives HERE (delegatecall-linked, address(this)==manager) so the manager stays
     ///         under EIP-170. `minOut` floors the delivered WETH against MEV on the internal conversion. NO
     ///         flash / NO stable-sale — the debt was already repaid by the swap's own proceeds; this only turns the
