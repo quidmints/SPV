@@ -12,6 +12,10 @@ import {Currency} from "v4-core/src/types/Currency.sol";
 import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 
 interface IProtoFees { function protocolFeeController() external view returns (address); }
+interface IProtoFeeAccrued {
+    function protocolFeesAccrued(address currency) external view returns (uint256);
+    function collectProtocolFees(address recipient, address currency, uint256 amount) external returns (uint256);
+}
 interface IProtoFeeCtrl { function protocolFeeForPool(PoolKey memory key) external view returns (uint24); }
 
 /// @notice CONTROL SUITE for the `POOLED_USD` unification — written BEFORE the change and
@@ -1283,7 +1287,29 @@ contract UnificationControls is Alles {
         vm.store(address(CORE.poolManager()), stateSlot, flipped);
         emit log_named_uint("protocolFee AFTER flip ", (uint(vm.load(address(CORE.poolManager()), stateSlot)) >> 184) & 0xFFFFFF);
 
-        for (uint i; i < 8; i++) _trade(3_000e18);
+        // Real volume AFTER the flip — the cut only accrues on swaps that actually execute.
+        for (uint i; i < 20; i++) _trade(6_000e18);
+
+        // COLLECT: the step that moves mock OUT of the allowed holder set. Accrual alone leaves it
+        // with the PoolManager, which `_dustOf` already counts, so nothing shows until this runs.
+        // Mock addresses come from Core's storage (slots per `forge inspect Core storageLayout`) —
+        // no getter exposes them and Core has +12 bytes, so adding one is not free.
+        {
+            address mETH = address(uint160(uint(vm.load(address(CORE), bytes32(uint(131095))))));
+            address mUSD = address(uint160(uint(vm.load(address(CORE), bytes32(uint(131097))))));
+            IProtoFeeAccrued pm = IProtoFeeAccrued(address(CORE.poolManager()));
+            uint accETH = pm.protocolFeesAccrued(mETH);
+            uint accUSD = pm.protocolFeesAccrued(mUSD);
+            emit log_named_uint("accrued mockETH", accETH);
+            emit log_named_uint("accrued mockUSD", accUSD);
+            address sink = makeAddr("feeSink");
+            vm.startPrank(ctrl);
+            if (accETH > 0) pm.collectProtocolFees(sink, mETH, accETH);
+            if (accUSD > 0) pm.collectProtocolFees(sink, mUSD, accUSD);
+            vm.stopPrank();
+            emit log_named_uint("sink mockETH", IERC20(mETH).balanceOf(sink));
+            emit log_named_uint("sink mockUSD", IERC20(mUSD).balanceOf(sink));
+        }
 
         (uint usd1, uint tok1) = CORE.externalMockDust(false);
         emit log_named_uint("mockUSD dust AFTER flow", usd1);
