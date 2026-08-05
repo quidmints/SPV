@@ -1934,6 +1934,75 @@ and compensation is personal income wherever the entity sits. **PREREQUISITE, UN
 Foundation actually memberless, or does it have members with economic rights?** Both the tax analysis and
 the Advisers Act argument turn on it.
 
+## Does CARF reach us?
+
+**Almost certainly yes, and not through the contracts.** This is the second time a regime has bitten on
+operated infrastructure while Part 6's central argument — renounced ownership, frozen allocation, no
+upgrade key — sails past untouched. CRD VI was the first. The pattern is worth naming: **our regulatory
+exposure is concentrated in the components a human runs, not the ones nobody can change.**
+
+**What it is.** The OECD's Crypto-Asset Reporting Framework, the crypto analogue of CRS. Crypto-Asset
+Service Providers collect user tax residence and TINs, report to their domestic authority, and that is
+exchanged bilaterally over the Common Transmission System the Global Forum already runs for CRS, under
+a dedicated multilateral competent authority agreement. Finalised June 2023, codified in the EU via
+DAC8, obligations from **1 January 2026**, first inter-authority exchanges expected 2027. The first
+reporting period is running now.
+
+**Scope is broad.** Cryptocurrencies, stablecoins, tradeable NFTs and crypto-linked derivatives.
+Reportable transactions include crypto-to-fiat, crypto-to-crypto, retail payments above a threshold,
+and transfers out to external wallets. Carve-outs cover assets usable for neither payment nor
+investment, anything already caught by CRS, CBDCs and specified e-money — the last two being pulled
+into an amended CRS instead.
+
+**The definitional hinge:** any individual or entity that, as a business, provides a service
+*effectuating exchange transactions* for or on behalf of customers, **including by acting as a
+counterparty, or an intermediary**. The OECD commentary contemplates reaching DeFi front-ends and
+parties with "sufficient control or influence" over a protocol, with governance, fee capture, upgrade
+keys and an operated interface cited as the usual factors. Immutable contracts with no controlling
+party are generally understood to fall outside, but that reading is unsettled and varies by
+implementing jurisdiction.
+
+### Where we are exposed, ranked
+
+**1. The hop.** `quid-hop` is protocol-operated, it is the Lightning receiver on swap-in and pays the
+BOLT11 on swap-out. It is **the counterparty to a crypto-to-fiat exchange transaction, as a business, on
+behalf of customers.** That is the definition almost verbatim. Nothing in Part 6 addresses it, because
+every argument there concerns the contracts, and the hop is a separately operated intermediary that the
+renounce does not touch. This is the sharpest exposure in the entire regulatory analysis.
+
+**2. The ibiza fleet and payee-of-record model.** We become the KYC'd party effectuating purchases for
+customers using our own instruments. More CASP-shaped than anything on the SPV side.
+
+**3. The dashboard.** An operated interface is an explicitly cited nexus factor.
+
+**4. The keeper.** Protocol-operated, but it executes a closed-form target on the depositor's own
+external position and effectuates no exchange for a customer. The weakest of the four.
+
+### What does not save us
+
+**Non-custody.** CARF's nexus is **broader than FATF's VASP definition**, so a FATF-negative conclusion
+does not carry over. `COMPLIANCE-THESIS.md`'s argument that nobody but the note-holder can authorise a
+withdrawal is a *custody* argument, and CARF is not a custody test. It is an intermediation test.
+
+**Ownerless contracts.** They may well place `Aux`, `Vogue` and the rest outside scope. They say nothing
+about the hop.
+
+### The collision, which is the thing to take to counsel first
+
+If any operated component is a CASP, we must **collect tax residence and TINs and report them.**
+`ibiza/COMPLIANCE-THESIS.md` states that no party ever custodies user funds **or retains user identity
+data.** Those two cannot both be true.
+
+This is not a compliance cost to absorb around the edges. It contradicts a load-bearing product claim,
+and it needs resolving **before** that thesis goes to counsel rather than being discovered during the
+conversation. The identity stack's whole proposition is that verification happens without disclosure;
+CARF asks for disclosure of exactly the field the architecture is built never to hold.
+
+> Sourcing: this section works from a briefing rather than from primary reading of the OECD text. The
+> definitional quote, the DAC8 timeline and the FATF-nexus point should be confirmed against the source
+> before any of it informs a decision. The 2025 Global Forum monitoring update is where jurisdiction and
+> provider-category materiality is signalled.
+
 ---
 
 # Part 7 — Go to market and honest readiness
@@ -2042,25 +2111,37 @@ do with it. Either can produce signed paper before anything is deployed.
 6. **Who bears liability for fuzzy name-matching errors in the sanctions-exclusion layer?**
 7. **Confirm the current custody rule, any successor safeguarding rule, and the family office
    exemption.** The whole adviser channel rests on this and it was recalled rather than researched.
+8. **Is the hop a CASP under CARF?** It is protocol-operated and acts as counterparty on every BTC-to-USD
+   swap, which is the definition almost verbatim, and the contracts being ownerless does not reach it.
+   The sharpest single exposure in Part 6.
+9. **Can the privacy thesis survive a CASP determination?** CARF requires collecting tax residence and
+   TINs; `COMPLIANCE-THESIS.md` claims no party retains user identity data. Both cannot hold, and this
+   has to be settled before that document goes to counsel.
+10. **Are BVI and Cayman CARF signatories, and on what timeline?** Determines whether the obligation
+    arrives through our own jurisdictions or only through service into others.
+11. **Does DAC8's nexus reach a non-EU CASP serving EU users**, the way CRD VI's does? If so the EU
+    obligation is already live, since reporting ran from 1 January 2026.
 
 **Answerable from documents, not yet answered:**
 
-8. Does Directive 2021/2167 reach performing loans, or stop at non-performing?
-9. Read the actual Peirce statement of 22 July 2026 and confirm the characterisation in Part 6.
-10. Is the Ukrainian extract signed with a qualified electronic signature, and is it verifiable off a
+12. Does Directive 2021/2167 reach performing loans, or stop at non-performing?
+13. Read the actual Peirce statement of 22 July 2026 and confirm the characterisation in Part 6.
+14. Read the OECD CARF text and the 2025 Global Forum monitoring update directly; Part 6's CARF section
+    works from a briefing, not primary sources.
+15. Is the Ukrainian extract signed with a qualified electronic signature, and is it verifiable off a
     published chain?
-11. Does perfecting a pledge over a QD claim require notarisation and pledge-register entry in target
+16. Does perfecting a pledge over a QD claim require notarisation and pledge-register entry in target
     jurisdictions?
-12. Does a cross-border whole-loan market exist **below** the securitisation threshold, and if it is
+17. Does a cross-border whole-loan market exist **below** the securitisation threshold, and if it is
     empty, is it empty for information reasons or legal ones?
 
 **Commercial actions, ours to take:**
 
-13. Model the collateral haircut the capped-at-par redemption requires, against the incumbent's 17.5%.
-14. Reconcile whether the reserve would hold whole loans or participations, and who the record
+18. Model the collateral haircut the capped-at-par redemption requires, against the incumbent's 17.5%.
+19. Reconcile whether the reserve would hold whole loans or participations, and who the record
     lienholder would be, if property credit is ever pursued.
-15. Take a letter of intent to one family office and one crypto-native adviser.
-16. Take the partial-collateral proposition to a surety's decline pile, haircut modelled first.
+20. Take a letter of intent to one family office and one crypto-native adviser.
+21. Take the partial-collateral proposition to a surety's decline pile, haircut modelled first.
 
 ---
 
