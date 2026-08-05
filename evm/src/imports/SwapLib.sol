@@ -596,8 +596,21 @@ library SwapLib {
         uint covered = (weethFull == 0 || weethIn == weethFull)
             ? amount : FullMath.mulDiv(amount, weethIn, weethFull);
         // Rung 1 — v3 pool (only if Aux holds weETH).
+        // TIER ORDER: pool B (0.01%) is tried BEFORE pool A (0.05%). MEASURED 2026-08-06 against live
+        // mainnet (Quoter v1, vs getEETHByWeETH fair), weETH→WETH:
+        //     size      0.01%      0.05%
+        //        1    −17.55     −25.74
+        //      100    −18.79     −26.19
+        //     1000    −28.16     −30.26
+        //     2000   −679.33     −34.79   ← B runs out of WETH
+        // B is ~8 bps cheaper up to ~1k weETH and CLIFFS beyond it. The old order (A first) took the
+        // expensive tier on every fill that cleared the floor, so B was effectively unreachable and
+        // ~8bps was left on the table on every small offramp — where most flow lives.
+        // Safe because the 0.5% `amountOutMinimum` floor below is measured against FAIR: a −679 bps
+        // B fill cannot clear it, so it reverts and the loop falls through to A. The floor is what
+        // makes cheap-first correct; do not loosen it without re-deriving this ordering.
         if (weethIn > 0) {
-            uint24[2] memory fees = [c.poolFee, c.poolFee2];
+            uint24[2] memory fees = [c.poolFee2, c.poolFee];   // CHEAP TIER FIRST — see below
             for (uint i; i < 2; i++) {
                 if (fees[i] == 0) continue;
                 try IV3SwapRouter(c.v3router).exactInput(IV3SwapRouter.ExactInputParams({
@@ -689,7 +702,7 @@ library SwapLib {
         if (weethIn == 0) return 0;
         uint fairWeth = FullMath.mulDiv(want, weethIn, weethFull);
         uint minOut = (fairWeth * 995) / 1000;            // 0.5% slippage cap
-        uint24[2] memory fees = [c.poolFee, c.poolFee2];
+        uint24[2] memory fees = [c.poolFee2, c.poolFee];   // CHEAP TIER FIRST — see below
         for (uint i; i < 2; i++) {
             if (fees[i] == 0) continue;
             try IV3SwapRouter(c.v3router).exactInput(IV3SwapRouter.ExactInputParams({
