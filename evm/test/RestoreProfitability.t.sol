@@ -6,26 +6,31 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
 /// §E69 — IS RESTORING THE BAND'S BALANCE NATURALLY PROFITABLE?
 ///
-/// The owner asked this twice and I answered it twice with an ARGUMENT, then cited E25's
-/// "0 bps across 300k" as if it settled the matter. IT DOES NOT: E25 measured dislocation
-/// under ORDINARY volume on a balanced band. The question here is the dislocation present in
-/// an IMBALANCED band — a different state, and the only one where a restorer would act.
-/// Reusing the first measurement to answer the second is the error this fixture removes.
+/// Asked twice by the owner, answered twice by me with an ARGUMENT, and once by citing E25's
+/// "0 bps across 300k" as though it settled the matter. IT DOES NOT: E25 measured a BALANCED
+/// band under ORDINARY volume. The question is the dislocation in an IMBALANCED band — the only
+/// state in which a restorer would act. This fixture asks the actual question.
 ///
-/// WHAT PROFITABLE MEANS, OPERATIONALLY. A restorer buys the abundant side out (or sells the
-/// scarce side in) and unwinds at the oracle elsewhere. It nets only if the execution price it
-/// receives BEATS oracle by more than its costs. So the measurable is
+/// TWO ERRORS IN THE FIRST DRAFT OF THIS FILE, RECORDED SO THEY ARE NOT REPEATED:
+///   1. DIRECTION INVERTED. I labelled a stable→volatile BUY as "adds volatile to the band".
+///      It does the opposite: the band HANDS OUT ETH, so `inv` FALLS and the band gets SCARCER.
+///      A volatile→stable SELL is what RAISES `inv`. Every comment was backwards.
+///   2. THE SKEW STAYED 0 AND I NEARLY READ THAT AS "NO PREMIUM EXISTS". It was the flush
+///      branch: `target = flowEwmaUsd` GROWS with the very volume used to drive the drain, so
+///      `inv >= target` held throughout and `wellSkew` correctly returned 0. **The fixture was
+///      not reaching the state it was trying to measure.** Hence the explicit inv/target log
+///      below, and the early INCONCLUSIVE exit — a measurement that cannot show its own state
+///      is indistinguishable from its own bug, which is what CLAUDE.md's control question asks.
 ///
-///     edge_bps = (execution price / oracle price - 1) * 10_000
-///
-/// on a swap that moves `inv` TOWARD target, in a band that has been driven away from it.
-///   edge > 0  => the curve itself pays the restorer; an external arb will do this unaided.
-///   edge == 0 => the band prices restoration AT oracle; the restorer nets exactly its gas
-///                and LP fee NEGATIVE, so nobody does it and imbalance persists.
-/// The sign is the whole result. Magnitude only matters if the sign is positive.
+/// WHAT "PROFITABLE" MEANS HERE. A restorer moves `inv` back toward target and unwinds at oracle
+/// elsewhere. It nets only if execution BEATS oracle by more than gas + LP fee. So the measurable
+/// is the SIGN of  (what the restorer received) − (what the same size fetches at oracle).
+///   > 0 => the curve pays the restorer; an external arb closes the imbalance unaided.
+///  == 0 => restoration is priced AT oracle; the restorer is gas + fee NEGATIVE, nobody does it,
+///          and the imbalance persists until someone is PAID to fix it.
 contract RestoreProfitability is Alles {
     address lpA = User02;
-    address imbalancer = address(0xBEEF02);
+    address drainer = address(0xBEEF02);
     address restorer = address(0xBEEF03);
     address bold;
 
@@ -43,64 +48,94 @@ contract RestoreProfitability is Alles {
         vm.warp(block.timestamp + 20 minutes);
     }
 
-    /// Buy WETH with stable — ADDS volatile to the band (raises inv).
-    function _buyEth(address who, uint boldAmt) internal returns (uint got) {
-        deal(bold, who, boldAmt);
-        uint before = WETH.balanceOf(who);
-        vm.startPrank(who);
+    /// stable → volatile. The band HANDS OUT ETH ⇒ `inv` FALLS ⇒ the band gets SCARCER.
+    function _drainEth(uint boldAmt) internal {
+        deal(bold, drainer, boldAmt);
+        vm.startPrank(drainer);
         IERC20(bold).approve(address(AUX), boldAmt);
         try AUX.swap(bold, address(WETH), true, boldAmt, 0) {} catch {}
         vm.stopPrank();
-        got = WETH.balanceOf(who) - before;
         _settle();
     }
 
-    /// Sell WETH for stable — REMOVES volatile from the band (lowers inv).
-    function _sellEth(address who, uint ethAmt) internal returns (uint got) {
-        deal(address(WETH), who, ethAmt);
-        uint before = IERC20(bold).balanceOf(who);
-        vm.startPrank(who);
-        WETH.approve(address(AUX), ethAmt);
-        AUX.swap(bold, address(WETH), false, ethAmt, 0);
-        vm.stopPrank();
-        got = IERC20(bold).balanceOf(who) - before;
-        _settle();
+    /// The band's scarcity state, in the SAME terms the skew itself computes it.
+    function _state() internal view returns (uint invUsd6, uint targetUsd6) {
+        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        invUsd6 = CORE.POOLED_ETH() * px / 1e30;
+        targetUsd6 = CORE.flowEwmaUsd(false);
     }
 
-    /// THE MEASUREMENT. Drive the band ETH-HEAVY, then have a restorer SELL ETH BACK (the
-    /// direction that lowers `inv` toward target) and compare what it received against oracle.
+    /// TOTAL stable value held by `who`, in 18-dec USD, across EVERY basket stable plus QUID.
+    /// §E69 — this exists because TWO successive runs reported a zero edge that was really me
+    /// reading the WRONG TOKEN: the sell pays out in whichever stable the basket selects, not
+    /// necessarily `bold`. Summing all of them takes my guess out of the measurement, so a zero
+    /// here means zero PROCEEDS rather than zero KNOWLEDGE of where they went.
+    function _stableValue18(address who) internal view returns (uint total) {
+        address[] memory ss = AUX.getStables();
+        for (uint i = 0; i < ss.length; ++i) {
+            uint bal = IERC20(ss[i]).balanceOf(who);
+            if (bal == 0) continue;
+            uint8 d = IERC20(ss[i]).decimals();
+            total += d < 18 ? bal * (10 ** (18 - d)) : bal;
+        }
+        total += QUID.balanceOf(who);
+    }
+
     function test_E69_IsRestoringNaturallyProfitable() public {
         _seedBasket();
         vm.prank(lpA);
         V4.deposit{value: 400 ether}(0, lpA, 3);
         _settle();
 
-        uint px = AUX.getTWAPforAsset(address(WETH), 1800);   // USD18 per 1e18 raw
-        emit log_named_uint("oracle px (usd18/eth)", px);
-        emit log_named_uint("wellSkew BEFORE imbalance", AUX.wellSkew(address(WETH)));
+        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        (uint inv0, uint tgt0) = _state();
+        emit log_named_uint("START inv (usd6)   ", inv0);
+        emit log_named_uint("START target (usd6)", tgt0);
+        emit log_named_uint("START wellSkew     ", AUX.wellSkew(address(WETH)));
 
-        // ---- 1. DRIVE THE IMBALANCE. Repeated BUYS pile volatile into the band.
-        for (uint i = 0; i < 12; ++i) _buyEth(imbalancer, 25_000 * 1e18);
-        emit log_named_uint("wellSkew AFTER imbalance ", AUX.wellSkew(address(WETH)));
+        // ---- 1. DRAIN until the band is genuinely SCARCE (inv < target), or give up and SAY SO
+        //         rather than reporting a number from a state we never reached.
+        for (uint i = 0; i < 30; ++i) {
+            _drainEth(40_000 * 1e18);
+            (uint iv, uint tg) = _state();
+            if (iv < tg) break;
+        }
+        (uint inv1, uint tgt1) = _state();
+        emit log_named_uint("AFTER inv (usd6)   ", inv1);
+        emit log_named_uint("AFTER target (usd6)", tgt1);
+        emit log_named_uint("AFTER wellSkew     ", AUX.wellSkew(address(WETH)));
 
-        // ---- 2. THE RESTORING TRADE. Selling ETH back lowers inv toward target.
+        if (inv1 >= tgt1) {
+            emit log("INCONCLUSIVE: never reached inv < target -- the scarce leg was never live.");
+            emit log("Do NOT read a zero edge from this run; the fixture did not reach the state.");
+            return;
+        }
+
+        // ---- 2. THE RESTORING TRADE: sell ETH back, which RAISES inv toward target.
+        //         Measure BOTH plausible payout tokens, so a wrong guess about where proceeds
+        //         land cannot masquerade as a zero edge — the first draft's exact failure.
         uint sellSize = 20 ether;
-        uint stableOut = _sellEth(restorer, sellSize);
-        emit log_named_uint("restorer sold (eth wei) ", sellSize);
-        emit log_named_uint("restorer got (stable18)", stableOut);
-
-        // ---- 3. THE EDGE. What would the same ETH have fetched at oracle?
+        deal(address(WETH), restorer, sellSize);
+        uint valueBefore = _stableValue18(restorer);
+        vm.startPrank(restorer);
+        WETH.approve(address(AUX), sellSize);
+        AUX.swap(bold, address(WETH), false, sellSize, 0);
+        vm.stopPrank();
+        uint wethLeft = WETH.balanceOf(restorer);
+        emit log_named_uint("restorer WETH left (0=input taken, 20e18=no-op)", wethLeft);
+        uint got = _stableValue18(restorer) - valueBefore;
+        emit log_named_uint("restorer got (all stables + QUID, usd18)", got);
         uint atOracle = sellSize * px / 1e18;
-        emit log_named_uint("same eth at oracle     ", atOracle);
+        emit log_named_uint("same size at oracle", atOracle);
 
-        if (stableOut == 0) {
-            emit log("RESULT: restoring swap REVERTED or returned nothing");
-        } else if (stableOut > atOracle) {
-            emit log_named_uint("EDGE bps (POSITIVE)", (stableOut - atOracle) * 10_000 / atOracle);
-            emit log("RESULT: curve PAYS the restorer -- an external arb closes this unaided");
+        if (got == 0) {
+            emit log("INCONCLUSIVE: no proceeds in either token -- payout path still unidentified.");
+        } else if (got > atOracle) {
+            emit log_named_uint("EDGE bps (POSITIVE)", (got - atOracle) * 10_000 / atOracle);
+            emit log("RESULT: the curve PAYS the restorer -- an external arb closes this unaided.");
         } else {
-            emit log_named_uint("SHORTFALL bps         ", (atOracle - stableOut) * 10_000 / atOracle);
-            emit log("RESULT: restorer receives AT-OR-BELOW oracle -- restoring does NOT pay for itself");
+            emit log_named_uint("SHORTFALL bps      ", (atOracle - got) * 10_000 / atOracle);
+            emit log("RESULT: restoration is priced AT-OR-BELOW oracle -- it does NOT pay for itself.");
         }
     }
 }
