@@ -7093,3 +7093,41 @@ the well's size-blindness. Unmeasured; decide before wiring the rung.
 (already declared), custody the id, claim on maturity, repay the borrow. Plus one rate comparison
 (`borrowRateView` vs the live quoter discount) to pick rung 0 vs rung 1. `collToWethDeliver` (§M.1) is
 the delivery seam and needs NO changes.
+
+### waitNft — CORRECTION: the path already exists. Only DIRECTION and CUSTODY are missing.
+
+⚠️ **A previous entry called the waitNft lifecycle "genuinely new". That was WRONG** — asserted
+without reading the code. `SwapLib.waitNft` (`:675`, called from `:656`/`:665` as the offramp's last
+rung) already does the whole thing: unwrap weETH → eETH via `IWeETH.unwrap`, then
+`IEtherFiLiquidityPool.requestWithdraw`, with honest proportional clamping when the weETH balance
+covers only part of the ask.
+
+**What is actually missing is one word and one later transaction.** `requestWithdraw(recipient, eeth)`
+mints the NFT to the **SWAPPER**. Today's semantics: *"we can't serve you now — here is a claim
+ticket, go wait ~7 days yourself."* The borrow design inverts it: **the protocol takes the ticket and
+the wait, the swapper gets WETH immediately.**
+
+**⛔ DO NOT FLIP `recipient` ON ITS OWN — IT STRICTLY REGRESSES.** Without the borrow leg the swapper
+receives NOTHING and the rung silently becomes a black hole. Worse than the defect being fixed. The
+change is inherently COUPLED; the shape is one branch inside the existing function:
+
+```
+waitNft(amount, recipient, c):
+    unwrap weETH -> eETH                        <- unchanged, exists
+    if borrowable(size):
+        id = requestWithdraw(address(this), eeth)   <- NFT to US, BIND the id
+        deliver venue.borrow(...) WETH to recipient now
+    else:
+        requestWithdraw(recipient, eeth)            <- today's behaviour, PRESERVE it
+```
+
+**REAL DEFECT IN THE EXISTING CODE, independent of the redesign:** `requestWithdraw` returns the
+request id and `waitNft` DISCARDS it (`returns (uint) {` binds nothing). Harmless today because the
+swapper owns the NFT — but the moment the protocol owns it, **that discarded id IS the custody
+handle.** Not cosmetic; it is what the design turns on.
+
+**The ONLY genuinely new code is the claim-and-repay step** (a second transaction: claim the matured
+NFT, apply proceeds to the debt). It can hang off the existing Rust keeper tick — no new daemon.
+
+⚠️ **Rung 0 and rung 4 are the SAME redemption allocated two ways** and cannot both serve the same
+weETH. The rung-ordering decision comes with this change, not after it.
