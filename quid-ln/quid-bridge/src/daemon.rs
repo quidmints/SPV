@@ -51,7 +51,6 @@ fn hop_allowed_contracts(cfg: &BridgeConfig) -> Vec<Address> {
     for var in [
         "QUID_LEV_MANAGER",
         "QUID_VOGUE",
-        "QUID_ROVER",
         "QUID_BTC_LEV_MANAGER",
         "QUID_BASKET",
         "QUID_VAULT",
@@ -424,10 +423,6 @@ pub async fn run(
                 .context("QUID_LEV_MANAGER set without QUID_VOGUE (the Vogue addr for syncLev)")?
                 .parse()
                 .context("QUID_VOGUE not a valid address")?;
-            let rover: Address = std::env::var("QUID_ROVER")
-                .context("QUID_LEV_MANAGER set without QUID_ROVER (the Rover addr for the post-delever repackNFT nudge)")?
-                .parse()
-                .context("QUID_ROVER not a valid address")?;
             let venue_liq_ltv_bps: u32 = std::env::var("QUID_LEV_VENUE_LIQ_BPS")
                 .ok()
                 .and_then(|s| s.parse().ok())
@@ -449,7 +444,7 @@ pub async fn run(
                                     .ok().and_then(|s| s.parse().ok()).unwrap_or(0);
 
             let keeper = crate::lev_keeper::DaemonLevKeeper {
-                evm: evm.clone(), lev_manager, vogue, rover,
+                evm: evm.clone(), lev_manager, vogue,
                 quid, venue_liq_ltv_bps, gas_limit: cfg.gas_limit,
                 lp_scan_from,
             };

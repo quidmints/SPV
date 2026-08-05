@@ -87,7 +87,7 @@ async fn lev_keeper_live_round_trip_against_anvil() {
         LocalSigner::from_secret_key_bytes(key).expect("signer"),
         test_cfg(url.clone())));
     let keeper = DaemonLevKeeper {
-        evm, lev_manager: harness, vogue: harness, rover: harness, quid: harness, venue_liq_ltv_bps: 8600, gas_limit: 500_000, lp_scan_from: 0,
+        evm, lev_manager: harness, vogue: harness, quid: harness, venue_liq_ltv_bps: 8600, gas_limit: 500_000, lp_scan_from: 0,
     };
 
     // 4) Run ONE keeper tick against the real node. The harness reports LTV 9000 (near the 8600 liq) ⇒ the

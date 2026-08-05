@@ -242,12 +242,6 @@ pub trait LevKeeperEvm {
     /// contract path and (redeem being mature-only) unmatured QUID is NEVER burned at par for debt. Preserves
     /// the LP's collateral vs a de-lever sale.
     async fn protect_from_quid(&self, lp: LpAddr, repay_usd: u64) -> anyhow::Result<()>;
-    /// Nudge the Rover to commit its idle balance into the LP position (`Rover.repackNFT()`). A de-lever's
-    /// down-leg can absorb weETH into the Rover via `swapWeethForWeth`; the Rover only sweeps that idle in on
-    /// its next repack, which nothing else triggers when the Rover is otherwise quiet. So after a tick that
-    /// delevered, we poke it once (Rover is a single shared contract — one call covers every LP this tick).
-    /// Permissionless + fair-gated on-chain, so a failure is non-fatal (the next deposit/withdraw sweeps).
-    async fn repack_rover(&self) -> anyhow::Result<()>;
 }
 
 // ════════════════════════ compound crank — fees-on-fees for EVERY plain ETH LP ════════════════════════
@@ -291,10 +285,6 @@ pub trait CompoundEvm: Send + Sync + 'static {
     async fn pending_and_gas(&self, lp: LpAddr) -> anyhow::Result<(u128, u128)>;
     /// `Vogue.compound(lp)` — folds the owed leg into `pooled`; the tip self-funds the caller's gas.
     async fn compound(&self, lp: LpAddr) -> anyhow::Result<()>;
-    /// `Rover.compound()` — permissionless self-funding V3-fee compound for the shared weETH/WETH lev
-    /// leg (no per-LP arg; one crank covers all LPs). The tip reimburses gas from the WETH harvest;
-    /// on-chain no-op (no tip) when there are no fees or the pool is off the staking-rate fair value.
-    async fn compound_rover(&self) -> anyhow::Result<()>;
 }
 
 /// One compound sweep: crank every plain ETH LP whose pending fees cover the crank's own gas. Fully
@@ -311,12 +301,6 @@ pub async fn compound_tick<E: CompoundEvm>(evm: &E) -> anyhow::Result<()> {
             Ok(_) => {} // below the self-funding floor — leave it pending (folds in on a later, bigger crank)
             Err(e) => tracing::warn!(?lp, error = %e, "compound pending/gas read failed; skipping this LP this tick"),
         }
-    }
-    // Rover (weETH/WETH lev leg) is ONE shared contract → a single self-funding crank per sweep covers
-    // every LP. Best-effort + non-fatal: on-chain it's a no-op (no tip) when there are no fees / off-fair,
-    // so a wasted call is bounded, and a searcher may crank it permissionlessly too.
-    if let Err(e) = evm.compound_rover().await {
-        tracing::warn!(error = %e, "rover compound crank failed; retries next tick");
     }
     Ok(())
 }
@@ -361,7 +345,6 @@ pub async fn tick<E: LevKeeperEvm>(
     let mut urgent: Vec<LpAddr> = Vec::new();
     let mut protect: Vec<(LpAddr, u64)> = Vec::new(); // (lp, repay_usd) — QUID-protect, collateral-preserving
     let mut rebal: Vec<LpAddr> = Vec::new();
-    let mut delevered = false; // any down-leg this tick → poke Rover.repackNFT once at the end
     for lp in lps {
         let mut v = match evm.position_view(lp).await {
             Ok(v) => v,
@@ -370,8 +353,8 @@ pub async fn tick<E: LevKeeperEvm>(
         v.move_persisted = dwell.persisted(lp, out_of_band(&v, cfg), now_secs, dwell_secs);
         match decide(&v, cfg) {
             KeeperAction::ProtectFromQuid { repay_usd } => protect.push((lp, repay_usd)),
-            KeeperAction::DeLever { urgent: true, .. } => { urgent.push(lp); delevered = true; }
-            KeeperAction::DeLever { urgent: false, .. } => { rebal.push(lp); delevered = true; }
+            KeeperAction::DeLever { urgent: true, .. } => { urgent.push(lp); }
+            KeeperAction::DeLever { urgent: false, .. } => { rebal.push(lp); }
             KeeperAction::ReLever { .. } => rebal.push(lp),
             KeeperAction::Hold => {}
         }
@@ -402,13 +385,6 @@ pub async fn tick<E: LevKeeperEvm>(
     if !rebal.is_empty() {
         if let Err(e) = evm.rebalance_many(&rebal).await {
             tracing::warn!(error = %e, "rebalance_many failed; retrying next interval");
-        }
-    }
-    // A de-lever's down-leg may have absorbed weETH into the Rover; poke it ONCE to sweep that idle into the
-    // position (nothing else triggers a Rover repack while it's otherwise quiet). Best-effort, non-fatal.
-    if delevered {
-        if let Err(e) = evm.repack_rover().await {
-            tracing::warn!(error = %e, "repack_rover nudge failed; Rover idle sweeps on its next deposit/repack");
         }
     }
     Ok(())
@@ -451,7 +427,6 @@ pub struct DaemonLevKeeper<R: JsonRpc, S: TxSigner> {
     pub evm: Arc<JsonRpcEvmClient<R, S>>,
     pub lev_manager: Address,
     pub vogue: Address,
-    pub rover: Address, // ETH weETH Rover — poked with repackNFT() after a de-lever to sweep absorbed weETH
     /// Aux (redemption entry) + QUID/Basket (mature-balance reads). Together they enable QUID-protect:
     /// the mature-QUID read is GATED on `signer == lp`, so these matter only for a self-hosted LP keeper.
     pub quid: Address,
@@ -602,14 +577,6 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLev
         .await?
     }
 
-    async fn repack_rover(&self) -> anyhow::Result<()> {
-        let (evm, rover, gas) = (self.evm.clone(), self.rover, self.gas_limit);
-        tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
-            evm.send_tx(rover, selector4("repackNFT()"), gas)?; // no args; commits Rover idle into the position
-            Ok(())
-        })
-        .await?
-    }
 }
 
 impl<R: JsonRpc + Clone + Send + Sync + 'static, S: TxSigner> CompoundEvm for DaemonLevKeeper<R, S> {
@@ -673,14 +640,6 @@ impl<R: JsonRpc + Clone + Send + Sync + 'static, S: TxSigner> CompoundEvm for Da
         .await?
     }
 
-    async fn compound_rover(&self) -> anyhow::Result<()> {
-        let (evm, rover, gas) = (self.evm.clone(), self.rover, self.gas_limit);
-        tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
-            evm.send_tx(rover, selector4("compound()"), gas)?; // no args; self-funding tip from the harvest
-            Ok(())
-        })
-        .await?
-    }
 }
 
 /// ABI-encode `cascadeDelever(address[] lps, uint256[] minOuts)` with `minOuts` all 0 (the contract's oracle
@@ -865,7 +824,6 @@ mod tests {
         cascaded: RefCell<Vec<LpAddr>>,
         synced: RefCell<Vec<LpAddr>>,
         protected: RefCell<Vec<(LpAddr, u64)>>,
-        repacked: RefCell<u32>,                 // Rover repackNFT nudge count
     }
     impl LevKeeperEvm for MockEvm {
         async fn open_positions(&self) -> anyhow::Result<Vec<LpAddr>> {
@@ -894,10 +852,6 @@ mod tests {
             self.protected.borrow_mut().push((lp, repay_usd));
             Ok(())
         }
-        async fn repack_rover(&self) -> anyhow::Result<()> {
-            *self.repacked.borrow_mut() += 1;
-            Ok(())
-        }
     }
 
     #[tokio::test]
@@ -914,14 +868,12 @@ mod tests {
             cascaded: RefCell::new(vec![]),
             synced: RefCell::new(vec![]),
             protected: RefCell::new(vec![]),
-            repacked: RefCell::new(0),
         };
         let mut dwell = DwellTracker::default();
         let cfg = LevKeeperConfig::default();
         // t=0: urgent cascades immediately; noisy just went out of band ⇒ NOT persisted ⇒ no churn.
         tick(&evm, &cfg, &mut dwell, 0, 600).await.unwrap();
         assert_eq!(*evm.cascaded.borrow(), vec![urgent_lp]);
-        assert_eq!(*evm.repacked.borrow(), 1, "an urgent de-lever pokes Rover.repackNFT exactly once per tick");
         assert!(evm.rebalanced.borrow().is_empty(), "un-persisted noise must not churn");
         // t=700 (> 600s dwell) and still out of band ⇒ now persisted ⇒ the lazy rebalance fires.
         tick(&evm, &cfg, &mut dwell, 700, 600).await.unwrap();
