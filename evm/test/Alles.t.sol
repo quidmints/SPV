@@ -1471,42 +1471,6 @@ contract Alles is ForkPin, Fixtures {
             "wait + drained pool -> no-fee withdrawal NFT minted to the LP (NOT a 0.3% fee)");
     }
 
-    /// @notice ETH venue 2 = AAVE-v4. The plumbing (`WETH_RESERVE_ID`,
-    ///         `supplyAaveEth`, `aaveEthBalance`, the AAVE secondary withdraw
-    ///         source, the `aaveBacked` slice) is wired off the AAVE-v4 spoke.
-    ///         **CORRECTED 2026-07-26 — the claim that used to sit here was FALSE.** It said this
-    ///         spoke (0x94e7..., GHO/USDG) "doesn't list WETH, so WETH_RESERVE_ID == 0 -> venue 2
-    ///         is inert and deposits gracefully fall back to Galaxy". Chain-verified: WETH **IS**
-    ///         listed -- it is asset **0**, hence reserve **0**. `getAssetId` REVERTS for a truly
-    ///         unlisted asset (checked with SHIB + a dead address), so a 0 return means "index 0",
-    ///         not "absent" -- and `AaveV4Venue` supplies/borrows against that very reserve in a
-    ///         PASSING fork test. The old zero-id check was a SENTINEL COLLISION that silently
-    ///         disabled a live venue; the Galaxy sweep hid it until that sweep was removed.
-    ///         Wiring is now keyed off `AAVE_SPOKE`, so venue 2 is LIVE and the real
-    ///         supply/attribution path below is the one that executes.
-    /// @notice Rover->Aux integration: fund the protocol-owned weETH/WETH LP via
-    ///         supplyEtherFiToRover (weETH leg minted by the adapter), then an
-    ///         ether.fi offramp fills from Rover (rung-0) - fee to our position.
-    function testRoverIntegration() public {
-        Rover rover = new Rover(
-            ETH.ETHERFI_ADAPTER(), address(WETH), ETH.WEETH(),
-            0xC36442b4a4522E871399CD717aBDD847Ab11FE88, // Uniswap v3 NFPM
-            ETH.ETHERFI_POOL_A(), ETH.ETHERFI_V3ROUTER(), true);
-        rover.setAux(address(ETH)); // Rover driven by EthVenue (offramp/supply moved there)
-        ETH.setRover(address(rover)); // AUX owner = this test (deployer)
-
-        deal(address(WETH), address(V4), 10 ether);
-        vm.prank(address(V4)); IERC20(address(WETH)).approve(address(AUX), type(uint).max);
-        vm.prank(address(V4)); ETH.supplyEtherFiToRover(10 ether);
-        assertGt(rover.ID(), 0, "Rover v3 position funded via supplyEtherFiToRover");
-
-        address recipient = address(0xBEEF);
-        uint wethBefore = IERC20(address(WETH)).balanceOf(recipient);
-        vm.prank(address(V4));
-        uint served = ETH.offrampEtherFi(2 ether, recipient, false);
-        assertGt(served, 0, "offramp served via Rover (rung-2 fallback, reachable with no idle Aux weETH)");
-        assertGt(IERC20(address(WETH)).balanceOf(recipient), wethBefore, "WETH delivered from Rover");
-    }
 
 
     /// @notice Rung-3 instant-redeem PROVEN LIVE (no-silent-fails): the old code

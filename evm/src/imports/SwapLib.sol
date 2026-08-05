@@ -26,7 +26,6 @@ import {SOR} from "./SOR.sol";
 import {Types} from "./Types.sol";
 import {LevMath} from "./LevMath.sol";
 import {IV3SwapRouter} from "./v3/IV3SwapRouter.sol";
-import {IRover} from "./Interfaces.sol";
 import {IAux} from "./Interfaces.sol";
 import {IAggregatorV3} from "./Interfaces.sol";
 
@@ -596,7 +595,7 @@ library SwapLib {
         if (weethIn > bal) weethIn = bal;
         uint covered = (weethFull == 0 || weethIn == weethFull)
             ? amount : FullMath.mulDiv(amount, weethIn, weethFull);
-        // Rung 1 — v3 pool (only if Aux holds weETH; the Rover rung needs none).
+        // Rung 1 — v3 pool (only if Aux holds weETH).
         if (weethIn > 0) {
             uint24[2] memory fees = [c.poolFee, c.poolFee2];
             for (uint i; i < 2; i++) {
@@ -609,20 +608,8 @@ library SwapLib {
                 catch {}
             }
         }
-        // Rung 2 — Rover unwind (no Aux weETH needed) + NAV-neutral weETH absorb.
-        if (c.rover != address(0)) {
-            try IRover(c.rover).take(amount) returns (uint got) {
-                if (got > 0) {
-                    IERC20(c.weth).transfer(recipient, got);
-                    uint absorbed = got >= amount ? weethIn
-                                                  : FullMath.mulDiv(weethIn, got, amount);
-                    if (absorbed > bal) absorbed = bal;
-                    if (absorbed > 0) IERC20(c.weeth).transfer(c.rover, absorbed);
-                    if (got >= (amount * 995) / 1000) return amount;
-                    return got;
-                }
-            } catch {}
-        }
+        // Rung 2 (Rover unwind) REMOVED 2026-08-05 with Rover itself. `c.rover` is always address(0)
+        // once nothing funds it, so the whole rung was an unreachable branch on the offramp path.
         // Rung 3 — 0.3% instant-redeem (pool-independent floor). VERIFIED ABI
         // (EtherFiRedemptionManager impl 0x6bD1…91F7): redeemWeEth(weEthAmount,
         // receiver, outputToken) where outputToken MUST be the 0xEeee…EEeE
