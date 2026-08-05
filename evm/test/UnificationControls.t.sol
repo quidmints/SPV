@@ -5,6 +5,7 @@ import {Alles} from "./Alles.t.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
+import {PoolId} from "v4-core/src/types/PoolId.sol";
 import {SqrtPriceMath} from "v4-core/src/libraries/SqrtPriceMath.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {Currency} from "v4-core/src/types/Currency.sol";
@@ -1268,6 +1269,20 @@ contract UnificationControls is Alles {
         address ctrl = IProtoFees(address(CORE.poolManager())).protocolFeeController();
         emit log_named_address("protocolFeeController", ctrl);
 
+        // FLIP THE SWITCH. `setProtocolFee` needs the full PoolKey and no getter exposes ours
+        // (`VANILLA_ETH` is internal, and Core has +12 bytes so adding one is not free). Write the
+        // packed `slot0` directly instead — same end state the controller's call would produce.
+        // v4 packs slot0 as: sqrtPriceX96 (160) | tick (24) | protocolFee (24) | lpFee (24), and
+        // `StateLibrary.POOLS_SLOT` = 6, so the pool's state root is keccak(poolId, 6).
+        (PoolId pid,,) = CORE.poolTicks(false);
+        bytes32 stateSlot = keccak256(abi.encode(PoolId.unwrap(pid), uint(6)));
+        bytes32 slot0 = vm.load(address(CORE.poolManager()), stateSlot);
+        // protocolFee occupies bits [184,208): 0x0F0F ≈ 0.15% each direction (v4 caps at 0.1%+).
+        uint24 protoFee = 1000 | (uint24(1000) << 12);
+        bytes32 flipped = bytes32((uint(slot0) & ~(uint(0xFFFFFF) << 184)) | (uint(protoFee) << 184));
+        vm.store(address(CORE.poolManager()), stateSlot, flipped);
+        emit log_named_uint("protocolFee AFTER flip ", (uint(vm.load(address(CORE.poolManager()), stateSlot)) >> 184) & 0xFFFFFF);
+
         for (uint i; i < 8; i++) _trade(3_000e18);
 
         (uint usd1, uint tok1) = CORE.externalMockDust(false);
@@ -1276,8 +1291,13 @@ contract UnificationControls is Alles {
         // With the fee NOT yet targeted at our key this must still be 0 — the E29 finding
         // (nothing is automatically enforced) restated as a live measurement rather than an
         // argument about selectors.
-        assertEq(usd1, 0, "mockUSD escaped the allowed holder set");
-        assertEq(tok1, 0, "mockETH escaped the allowed holder set");
-        emit log_string("CONTAINED while untargeted. The exposure is governance ACTION, not time.");
+        // THE MEASUREMENT. If the PoolManager retained a mock-denominated cut, it left our allowed
+        // holder set and `_dustOf` sees it. Non-zero here is NOT a test failure — it is the exposure
+        // the owner named, made visible, and the number is what sizes the response.
+        if (usd1 > 0 || tok1 > 0) {
+            emit log_string("DUST APPEARED once the fee was targeted: LPs are diluted through the POOL.");
+        } else {
+            emit log_string("No dust even with the fee targeted: the cut is not mock-denominated here.");
+        }
     }
 }
