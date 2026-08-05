@@ -7131,3 +7131,24 @@ NFT, apply proceeds to the debt). It can hang off the existing Rust keeper tick 
 
 ⚠️ **Rung 0 and rung 4 are the SAME redemption allocated two ways** and cannot both serve the same
 weETH. The rung-ordering decision comes with this change, not after it.
+
+**OPEN 19 — NARROWED 2026-08-06. The Solidity is already correct; only the Rust keeper is wrong.**
+`LevManager:302` and `BtcLevManager:218` pass `p.venue.liqThresholdBps()` into
+`LevMath.deliverableDollars` — READ FROM THE VENUE, not configured. `MorphoEscrowVenue:165`
+implements it as `LLTV / 1e14`, with `LLTV` immutable and set at construction from the market's own
+`MarketParams`. So the on-chain liquidation threshold is sourced per-venue exactly as it should be.
+
+**The ONLY gap is the Rust keeper**, which reads `QUID_LEV_VENUE_LIQ_BPS` / `QUID_BTC_LEV_VENUE_LIQ_BPS`
+from the environment (`daemon.rs:426`, `:480`) when `liqThresholdBps()` already exists on the venue.
+FIX: have the keeper `eth_call` the venue's `liqThresholdBps()` instead of the env var, and delete
+both env vars. Small and Rust-only.
+
+WHY IT MATTERS BEYOND HYGIENE: the keeper's urgency threshold is
+`venue_liq_ltv_bps − safety_margin_bps`, so a configured value that drifts from the venue's real
+threshold makes the keeper compute the wrong urgency and fail toward UNDER-protection, silently.
+And Euler EVK LTVs are GOVERNABLE (Morpho Blue's are immutable), so for that venue the value can
+genuinely change under a running keeper — an env var cannot track it at all.
+
+Also retracts the earlier framing that "the 0.86 is hardcoded three times with zero reads": the
+Solidity read exists. The three hardcodes are the keeper env var, the `LevManager:62` comment (now
+flagged), and the test suite's own `createMarket` — none of which is the production on-chain path.
