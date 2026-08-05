@@ -8,10 +8,21 @@ name: CI
 # it downloads bitcoind/electrs and takes minutes. It lives in its own
 # manual/optional workflow (.github/workflows/e2e-harness.yml).
 
+# ⚠️ AUTOMATIC TRIGGERS DISABLED 2026-08-05 at the repo owner's request — failing runs were
+#    flooding the inbox. Nothing fires on its own now; `workflow_dispatch` is kept so this can
+#    still be run deliberately from the Actions tab (or `gh workflow run ci.yml`).
+#
+#    WHAT THIS COSTS, so re-enabling is a decision and not an afterthought: the solidity job runs
+#    `forge build --sizes`, and that is the ONLY EIP-170 gate in the project — `forge test` does
+#    NOT enforce the 24,576-byte limit. Core, Vogue and SwapLib all sit within a few hundred bytes
+#    of the ceiling, so a contract can now go over it and nothing will say so until a deploy fails.
+#    Until this is back on, run `forge build --sizes` by hand after touching those three.
+#
+#    TO RESTORE, delete this block and put back:
+#      push:
+#        branches: [main, master]
+#      pull_request:
 on:
-  push:
-    branches: [main, master]
-  pull_request:
   workflow_dispatch:
 
 # Cancel superseded runs on the same ref to save CI minutes.
