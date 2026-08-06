@@ -1385,12 +1385,34 @@ index encodes. Legacy `_take` had no per-token dispatch at all — one positiona
   • 🔴 **`Vogue`'s ERC-20 + ERC-4626 WRAPPER BLOCK IS LEFTOVER §J.2.** Its own header still says it
     *"adds standard ERC-20 transfer/approve plus the ERC-4626 view + deposit/redeem entry points"* —
     exactly what `VEth`/`VBtc` now own. §J.2 moved the IDENTITY but left this block.
-    ⚠️ **"INCOMPLETE §J.2" STRUCK 2026-08-05 — THE CLAIM WAS WRONG.** §J.2 IS done: `VEth` is the
-    projection face and owns the 4626 identity, which is what §J.2 asked for. The leftover wrapper
-    block is a SEPARATE removal (dead surface on `Vogue`), not evidence that §J.2 stalled — and
-    calling it incomplete re-opened a finished item, which is the failure the closure rule exists to
-    prevent, arriving through the status column. The removal itself is still worth doing; price it
-    on EIP-170 headroom, since deleting it is a size WIN on a contract near the limit.
+    ⚠️ **MY 2026-08-05 STRIKE OF THIS LINE WAS ITSELF WRONG AND IS WITHDRAWN** (2026-08-06, owner:
+    *"j2 indeed wasnt complete, see for yourself"*). I closed it on the IDENTITY having moved,
+    without measuring what remained. Measured now, by structure — the line was RIGHT:
+
+    **§J.2 IS INCOMPLETE, AND THE SPLIT LEAVES NO VALID ERC-4626 ANYWHERE.**
+    • `Vogue` (`:32`) no longer inherits ERC-20/4626, and `approve`/`transfer`/`transferFrom` +
+      `allowance` + the events did move to `VEth` (`:1256`). That much of §J.2 landed.
+    • But the 4626 **MUTATORS STAYED ON `Vogue`**: `deposit(uint,address)` `:1356`,
+      `deposit(uint,address,uint8)` `:1365`, `mint` `:1379`/`:1385`, `redeem` `:1407`,
+      `withdraw` `:1422`. Six 4626-signature functions on a contract that is **no longer an
+      ERC-20** — and ERC-4626 REQUIRES the vault to be one. `Vogue` is therefore not compliant.
+    • `VEth` has **ZERO** of `deposit`/`mint`/`withdraw`/`redeem` (17 functions, none of them
+      mutators) and **no fallback/delegatecall to forward them** — verified, not assumed. So `VEth`
+      is not compliant either, and it is worse than incomplete: it advertises
+      `maxDeposit = type(uint).max` (`:70`) and `previewDeposit` (`:72`) while **having no `deposit`
+      to call**. An integrator that discovers `VEth` as the vault gets a quote, then reverts.
+      `VBtc` has the same shape (0 mutators).
+    ⇒ Both halves look compliant to any check that reads only part of the surface. That is the
+    residual matter, and it is exactly why this item stays OPEN.
+
+    🔴 **THE OBVIOUS COMPLETION IS BLOCKED — this is a DESIGN FORK, not a mechanical move.** Moving
+    the mutators onto `VEth` would break `../ibiza`, which records at `PP-SPV-BUFFER-DESIGN.md:24`
+    (*"Confirmed, not assumed"*) that it depends on `Vogue.deposit(uint,address[,uint8])` and
+    `Vogue.withdraw(uint,address,address)` being plain external functions **on `Vogue`** — two of
+    the four pinned signatures CLAUDE.md names as a cross-repo breaking-change surface.
+    ▶️ Options: **(a)** leave the mutators on `Vogue` and have `VEth` FORWARD to them — keeps ibiza's
+    call sites intact and makes `VEth` a real 4626; **(b)** move them and coordinate an ibiza change.
+    Until that is chosen, everything downstream of §J.2 stays ⏸️ — a design decision is not a closure.
 
 ## 🔴 CLAMP POLICY (user, standing): *"minimise clamps that give a false sense of safety … rather than
 treating a symptom attack issues at their core."* **C4 is the proof case:** the `θ > 1e18 ? 1e18` cap was
