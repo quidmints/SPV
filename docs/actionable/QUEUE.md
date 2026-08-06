@@ -7713,3 +7713,37 @@ independently measured balance delta rather than a number the failing code produ
 | **E89c** | 🔴 **MAIN DID NOT COMPILE AT `48d241e` — FIXED. And this INVALIDATES my E89b failure counts (2026-08-05).** ⛔ **THE BREAKAGE (not mine — `git status evm/src` was EMPTY, so it was fully committed):** `SwapLib.sol:6` did `import {IBasketTurn} from "./BasketLib.sol"`, but **`BasketLib` only RE-imports that symbol** (`BasketLib.sol:7`, from `./Interfaces.sol`); it does not declare it, so the import does not resolve — `Error (2904): Declaration "IBasketTurn" not found`. ✅ **FIX: import from `./Interfaces.sol`, which CLAUDE.md rule 2 names as the canonical declaration site. `forge build` clean.** ⚠️ **THIS INVALIDATES THE E89b NUMBERS AND THE ATTRIBUTION I WAS BUILDING.** The "38 failures" run and the "782 failures" run happened against a tree that has since moved (HEAD went `6c9f9f9 → a03d43b → 48d241e` while I worked); the baseline I tried to take for comparison **failed to compile entirely**, so **no valid before/after exists** and E89b's amplifier fix is STILL unattributed. ✅ **ONE PIECE OF THE CONTROL DID SURVIVE AND IS VALID:** with my change confirmed ABSENT from the tree, `testEthVenue_AaveV4_DepositAndWithdraw` and `test_V5_WithdrawShrinksCommitted` **still failed, with identical messages and near-identical gas** (1465509 vs 1465517 · 4109045 vs 4109061) — **those two are pre-existing and NOT caused by my amplifier fix.** The other 36 remain unattributed. ▶️ **TO RESUME E89b: on a COMPILING tree, take a clean baseline count FIRST, then apply `scratchpad/SwapLib-E89b-amplifier.sol` and diff the failure SETS — not just the counts.** 📌 **PROCESS NOTE FOR BOTH THREADS: the tree moved under me three times during one verification, and a run whose baseline cannot compile produces numbers that look real and mean nothing. Coordinate before long verification runs.** | 🔴 build fixed; E89b attribution void |
 
 | **E115** | 🔴 **ITEM 2 IS NOT "DEPLOYMENT DISCIPLINE" — THERE IS NO CODE PATH THAT PINS THE HOP REGISTRY AT ALL, AND RENOUNCING OWNERSHIP FORECLOSES IT PERMANENTLY (found while pricing item 2''s blast radius, 2026-08-06).** ⛔ **I previously called this a deployment-discipline problem "more than a code one." That was too soft and it was wrong.** 🔎 **MEASURED:** `setHopRegistry` has **ZERO** callers in `src/` or `script/` — the only call sites are in `test/BTCChannelsAuth.t.sol:51,54`. `DeployLib._deploySpvAndChannels` (`:167`) constructs `new BTCChannels(spv, aux, eth, cfg.hopOperator)` and wires `Aux.setBTCChannels`, **and never pins the registry.** ⇒ **Every deployment `DeployLib` produces runs with `hopRegistry == 0`, so `_requireAttested` is a PERMANENT NO-OP and the only authority check is the `openChannelsOf` fallback ("owns an open channel ⇒ has real BTC locked").** ⛔⛔ **AND IT IS ONE-WAY-FORECLOSABLE:** `BTCChannels` is `Ownable(msg.sender)` (`:500`), `setHopRegistry` is `onlyOwner` + **PIN-ONCE** (`:513` — *"can never be un-set or repointed so a later compromised owner cannot disable it"*), and `script/DeployL1_s.sol:401,411` runs a finalize/renounce flow (*"each contract self-renouncing as its own owner"*). **If BTCChannels ownership is renounced before the registry is pinned, attestation can NEVER be enabled — the contract ships with a dead gate and no key to turn it on.** 🔎 **The pin-once comment shows the design anticipated a COMPROMISED owner but not an ABSENT one.** ❓ **UNVERIFIED, and it decides severity: whether the finalize flow actually renounces `BTCChannels` specifically — the grep confirmed renounce calls for QUID/Basket, NOT for BTCChannels. Do not assume either way.** ▶️ **ITEM 2 IS THEREFORE: (1) add the `setHopRegistry` call to `DeployLib` (or an explicit, documented decision to run unpinned); (2) ORDER it before any renounce; (3) only then consider a fail-closed constructor.** ⚠️ 16 `new BTCChannels(` sites exist, so a constructor-arg change is the invasive option — the deploy-path fix is not. 🔗 This is also the deployment-side twin of E102: the attestation machinery is described as live wiring throughout the comments while shipping disabled. | 🔴 open — reframes item 2; renounce-ordering unverified |
+
+
+### ✅ DIAGNOSED FROM A TRACE: it is not zero delivery, it is the WRONG ASSET
+
+Four diagnoses of this were wrong, all from reading code and counting failures. The fifth came from
+`forge test --match-test ... -vvv` and took one run.
+
+**The trace shows rung 1 SUCCEEDING.** `exactInput(4.5417 weETH, minOut 4.975 WETH)` fills, and
+`WETH::transfer` moves **4.9908 WETH** to the recipient. Nothing is stranded, nothing reverts, the
+v3 sale serves the exit exactly as designed.
+
+**The assertion reads `User01.balance` — NATIVE ETH.** The offramp delivers **WETH**, an ERC-20. The
+two never meet, so the test reads 0 and reports `"withdraw delivered ETH: 0"`.
+
+**Why it passed before:** an AAVE-venue LP had `ethfiBacked == 0` and SKIPPED THE OFFRAMP ENTIRELY,
+exiting through the normal band burn — which pays NATIVE ETH. Universal attribution routes every exit
+through the offramp, which pays WETH.
+
+⇒ **THE REAL CHANGE, and it is a DESIGN DECISION not a bug: exiting LPs now receive WETH instead of
+native ETH.** That is an interface change for every LP. It also explains the second failure —
+`testRoundTripNoRaceNoDrain`'s ~40 bps is the offramp's weETH→WETH conversion (measured floor ~25.6
+bps), which band-burn exits never paid.
+
+**Both remaining failures are ONE consequence:** routing every exit through the offramp changes the
+ASSET DELIVERED and adds the CONVERSION COST. Decide whether that is wanted:
+  * If YES — update both tests to assert on WETH, and accept ~25.6 bps on exits that used to be free.
+  * If NO — the offramp needs to unwrap to native ETH before delivering, and the conversion cost needs
+    a source other than the exiting LP.
+
+**METHOD NOTE, worth more than the finding:** the failure COUNT said "0 delivered" for a day. The
+TRACE said "4.99 WETH delivered, to a balance nobody was measuring". Trace before theorising — and
+see the memory note about asserting on an independently measured balance delta rather than a number
+the code under test produced. Here the guard measured the wrong ASSET, which is the same error in a
+different coordinate.
