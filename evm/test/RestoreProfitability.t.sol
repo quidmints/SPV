@@ -129,6 +129,15 @@ contract RestoreProfitability is Alles {
         emit log_named_uint("restorer WETH left (0=input taken, 20e18=no-op)", wethLeft);
         uint got = _stableValue18(restorer) - valueBefore;
         emit log_named_uint("restorer got (all stables + QUID, usd18)", got);
+        // §S16 / E91 REGRESSION GUARD — ASSERT AT THE RECIPIENT, WHICH IS THE ONLY PLACE THAT KNOWS.
+        // The delivery bug this fixture uncovered survived SIX layers of diagnosis because every
+        // guard in the stack asserts on a number REPORTED BY THE FAILING CODE: `max` reports the
+        // swap's delta (not the user's receipt), `minOut` compares against that same `max`, and the
+        // `NothingDelivered` aggregate reads a `sent` that `withdrawFromSP` returned non-zero while
+        // transferring nothing. All three were structurally blind. A BALANCE DELTA measured by the
+        // caller is the only assertion that cannot be fooled by the code under test — so make it one,
+        // not a log line. If BOLD-SP (or any venue) ever stops delivering again, this fails loudly.
+        assertGt(got, 0, "S16: swap consumed input and delivered NOTHING to the recipient");
         uint atOracle = sellSize * pxNow / 1e18;   // CONFOUND FIX: compare against the LIVE price
         emit log_named_uint("same size at oracle", atOracle);
 
