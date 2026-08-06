@@ -1273,7 +1273,6 @@ contract Alles is ForkPin, Fixtures {
         // weETH held at EthVenue + aggregated into vogueETH + attributed to the slice.
         assertGt(IERC20(weeth).balanceOf(address(ETH)), 0, "weETH held at EthVenue");
         assertGt(ETH.vogueETH(), vEthBefore, "vogueETH aggregates the weETH");
-        assertGt(V4.ethfiBacked(User01), 0, "hard wall: ether.fi slice attributed");
         (uint pooled,,,) = V4.autoManaged(User01);
         assertEq(pooled, 10 ether, "position credited full deposit");
 
@@ -1281,11 +1280,9 @@ contract Alles is ForkPin, Fixtures {
         // delivering WETH to the LP. (Default setting = wait; the pool is
         // WETH-heavy so the v3 swap serves - no fee.)
         uint wethBefore = WETH.balanceOf(User01);
-        uint ethfiBefore = V4.ethfiBacked(User01);
         vm.roll(block.number + 1); // JIT-lock: withdraw must be a later block than the deposit
         vm.prank(User01); V4.withdraw(5 ether, User01, User01);
         assertGt(WETH.balanceOf(User01) - wethBefore, 0, "offramp delivered WETH");
-        assertLt(V4.ethfiBacked(User01), ethfiBefore, "ether.fi slice decremented");
     }
 
     /// @dev Make a REAL ERC-4626 curator vault report only 30% of the holder's position as
@@ -1349,7 +1346,8 @@ contract Alles is ForkPin, Fixtures {
         vm.prank(User01); V4.deposit{value: 10 ether}(0, User01, 2); // AAVE-v4
         (uint pooled,,,) = V4.autoManaged(User01);
         assertEq(pooled, 10 ether, "deposit credited (whichever venue served)");
-        assertEq(V4.ethfiBacked(User01), 0, "no ether.fi slice; never touches offramp");
+        // ethfiBacked assertion removed 2026-08-06: every deposit is ether.fi-sourced now,
+        // so there is no "no slice" case and the mapping itself is gone.
 
         if (ETH.WETH_RESERVE_ID() != 0) {
             // LIVE: WETH supplied to AAVE-v4, attributed to the AAVE slice.

@@ -298,17 +298,14 @@ interface IEthVenue {
     function GALAXY_VAULT() external view returns (address);
     function EULER_VAULT() external view returns (address);
     function GAUNTLET_VAULT() external view returns (address);
-    function supplyFromAux(uint amount) external returns (uint);
     function withdrawForAux(uint amount, address to) external returns (uint);
     function ROVER() external view returns (address);
     function btcChannels() external view returns (address);
     function evacuateVenue(address vault) external;
     function venuePosition(address vault) external view returns (uint reported, uint liquid);
     function vogueOp(bool isBTC, uint amount, uint8 op, bytes32 ctx) external returns (uint);
+    function supplyFromAux(uint amount) external returns (uint);
     function supplyEtherFi(uint amount) external returns (uint);
-    function supplyAaveEth(uint amount) external returns (uint);
-    function supplyEulerEth(uint amount) external returns (uint);
-    function supplyGauntlet(uint amount) external returns (uint);
     function offrampEtherFi(uint amount, address recipient, bool instant) external returns (uint);
 }
 
