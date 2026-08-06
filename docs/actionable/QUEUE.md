@@ -7194,3 +7194,30 @@ allocation decision to make.
 
 **Remaining new code is still just the claim-and-repay step** (claim the matured NFT, apply proceeds
 to the debt), which can hang off the existing Rust keeper tick.
+
+### AUDIT PRIOR — in this codebase, "compiles and is referenced" does not mean "can execute"
+
+Five paths found in one session (2026-08-05/06) that compiled, were referenced, and could not run.
+Five DISTINCT failure modes, none caught by the compiler or the suite:
+
+| path | failure mode | outcome |
+|---|---|---|
+| `offrampBody` rung 2 | dead code (Rover) | removed |
+| `offrampBody` rung 1, cheap tier | dead by **ORDERING** — expensive tier tried first, loop returns on first fill | fixed; ~8 bps recovered per small offramp |
+| `offrampBody` rung 3 | dead venue — `totalRedeemableAmount` = 0 at every sampled block over 90 days, and **MOCK-VERIFIED for 90 days** (its test `vm.deal`ed 60,000 ETH and mocked away the withdrawal lock) | removed |
+| `VogueLib._supplyEtherFi` direct weETH | dead by **FALLBACK-ORDERING** — only reachable when the Rover deposit reverted | promoted to primary |
+| `LevMath._weethToWeth` tier 2 | dead venue **AND an unguarded revert** — no try/catch, so reaching it reverted the whole call in exactly the crisis it existed for | removed |
+
+**How to audit for these** (a grep for the symbol finds all five and flags none):
+1. **Read the call site, not the declaration.** Three of my wrong claims this session came from
+   grepping a name and finding the config plumbing while missing the live call two frames below.
+2. **Check the venue has capacity, not just an address.** A non-zero address proves nothing.
+3. **Check loop/fallback ORDER.** A correct branch that is never reached first is dead.
+4. **Distrust a passing test on an external venue.** Ask what it mocks — rung 3's test manufactured
+   the precondition and passed for 90 days over a path live state never permitted once.
+5. **Check fallbacks are actually guarded.** An unguarded "emergency" path is worse than none.
+
+⚠️ **NOT YET AUDITED on this prior:** the remaining supply venues (`supplyVenueBody` kinds 2–5 —
+AAVE-v4, Euler 4626, Galaxy, Gauntlet) and the SOR route. The owner has separately questioned whether
+the Galaxy/Gauntlet/AAVE-v4 ETH supply is still needed at all, which makes this the natural next
+sweep.
