@@ -7378,3 +7378,32 @@ collateral — which is encumbrance, i.e. the offramp design, not a yield venue.
 **BEFORE DROPPING kinds 2–5, run the SAME measurement on Euler 4626, Galaxy and Gauntlet** — separate
 markets with their own utilisation. AAVE v4 is measured; the other three are not, and "they will never
 earn more than weETH" is a very likely hypothesis that is still a hypothesis.
+
+### KEEPER SPLIT — the discriminator (owner, 2026-08-06)
+
+**Principle: the keeper does only what it must. If something is cheap on-chain and gives better
+liveness, that is where it belongs.**
+
+**The test:** does the action need information the chain does not have, or iteration the chain cannot
+afford? If NEITHER, it is on-chain. Anything the keeper decides is a liveness dependency; anything
+the chain decides is not.
+
+| action | needs off-chain? | belongs |
+|---|---|---|
+| scan the LP book for who is near liquidation | yes — unbounded iteration + timing | **keeper** |
+| claim a matured waitNft | no — the predicate is "is it matured?", which the chain knows | **on-chain** |
+| read the venue liquidation threshold | no — `liqThresholdBps()` is a chain read | **on-chain** (already is; env var is only the RPC-failure fallback) |
+| `repack_rover` / `compound_rover` | n/a | removed 2026-08-05 |
+
+⚠️ **"Cheap on-chain" hides a question: WHO PAYS THE GAS.** A permissionless crank that nobody is
+paid to call may simply never be called, in which case the liveness guarantee is nominal. The
+on-chain version is only genuinely better when the action is either self-incentivised or
+**piggybacked on traffic that happens anyway.** For the waitNft claim, piggyback: attempt it during
+the next offramp, where someone is already paying gas and already touching the position. Keeper
+becomes the backstop, never the path.
+
+⇒ **This is why the encumbrance ceiling must be solved for "no keeper, indefinitely".** With the
+claim permissionless AND piggybacked, the bound is computable rather than operational: accrued
+interest over an unbounded outage must stay inside the liquidation headroom
+`C·(1 − curLtv/(LLTV − margin))`, which `LevMath.deliverableDollars` already computes. That turns an
+operational assumption into an on-chain invariant.
