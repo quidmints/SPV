@@ -7171,3 +7171,26 @@ conclusion alone:
   3. "the env var should be deleted" — false and DANGEROUS; it is a deliberate conservative fallback.
 Each was asserted from a partial grep. The live-read call sites are two frames below where the env
 var is bound, so a grep for the variable name finds the config plumbing and misses the read entirely.
+
+**waitNft — FINAL SHAPE (owner, 2026-08-06). Supersedes both earlier readings in this file.**
+`waitNft` is no longer a coequal rung. The borrow REPLACES it as the normal path, and the same
+`requestWithdraw` call serves both roles, distinguished ONLY by recipient:
+
+  * `requestWithdraw(address(this), eeth)` — **the repayment leg of the borrow.** Normal path. The
+    protocol takes the ticket and the ~7-day wait; the swapper is paid WETH immediately from
+    `venue.borrow`. BIND the returned request id — it is the custody handle (today it is discarded).
+  * `requestWithdraw(recipient, eeth)` — **terminal fallback only**, reached solely if borrow AND
+    sell both failed. Behaviour preserved exactly as today: the swapper/LP-withdrawer gets a claim
+    ticket rather than nothing.
+
+Both failing is hard to construct — the sell rung has ~4,840 WETH reachable at a flat ~25.6 bps, so
+the residual tranche past `LTV × holdings` is servable. Treat the ticket path as a safety net, not a
+branch to design around.
+
+⇒ **RETRACTS two earlier entries.** (1) "the waitNft lifecycle is genuinely new" — false, the unwrap
+and request already exist. (2) "rung 0 and rung 4 are the same redemption allocated two ways and the
+ordering is a decision" — false; rung 4 is not a peer, it is the failure tail, so there is no
+allocation decision to make.
+
+**Remaining new code is still just the claim-and-repay step** (claim the matured NFT, apply proceeds
+to the debt), which can hang off the existing Rust keeper tick.
