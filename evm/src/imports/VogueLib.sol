@@ -368,7 +368,7 @@ library VogueLib {
     ///      numerator, which #107/D3 replaced with the band-fee premium EWMA read off `core`. The
     ///      parameter has been dead since that change — the compiler flagged it as unused.
     function derivedThetaWad(address core, int24 lo, int24 up, bool isBTC) public view returns (uint) {
-        uint sigmaSq = realizedVarianceWad(core, isBTC);
+        uint sigmaSq = ICore(core).realizedVarianceWad(isBTC);   // §E59: ONE source, read from Core
         if (sigmaSq == 0) return 1e18;
         uint kWad = kLvrWad(core, lo, up, isBTC);
         if (kWad == 0) return 1e18;
@@ -398,31 +398,6 @@ library VogueLib {
     }
 
     /// @notice Annualized realized variance (WAD) from Core's oracle ring.
-    function realizedVarianceWad(address core, bool isBTC) public view returns (uint) {
-        uint32[] memory ago = new uint32[](THETA_N + 1);
-        for (uint i = 0; i <= THETA_N; i++) ago[i] = uint32((THETA_N - i) * THETA_STEP);
-        // Resilient observe: insufficient oracle history reverts -> variance 0 -> theta fails OPEN (1e18,
-        // no clamp). The ETH path already got this via _liveTheta's external try/catch; folding it here
-        // lets the BTC path call derivedThetaWad DIRECTLY (BtcVaultLib.addLiqChannel) without bricking on a
-        // cold ring. Net-identical for ETH (revert -> 1e18 either way).
-        int56[] memory cum;
-        if (isBTC) { try ICore(core).observeBTC(ago) returns (int56[] memory c) { cum = c; } catch { return 0; } }
-        else       { try ICore(core).observe(ago)    returns (int56[] memory c) { cum = c; } catch { return 0; } }
-        int[] memory avgTick = new int[](THETA_N);
-        for (uint i = 0; i < THETA_N; i++)
-            avgTick[i] = int(cum[i + 1] - cum[i]) / int(uint(THETA_STEP));
-        uint M = THETA_N - 1;
-        int meanRet;
-        for (uint i = 0; i < M; i++) meanRet += (avgTick[i + 1] - avgTick[i]);
-        meanRet /= int(M);
-        uint varTick2;
-        for (uint i = 0; i < M; i++) {
-            int d = (avgTick[i + 1] - avgTick[i]) - meanRet;
-            varTick2 += uint(d * d);
-        }
-        varTick2 /= (M - 1);
-        return varTick2 * (SECS_PER_YEAR / THETA_STEP) * 1e10;
-    }
 
     // ════════════════════════════════════════════════════════════════════
     //  addLiq body (in-range pairing sizer). Clamps deltaTok to the three

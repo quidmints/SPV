@@ -503,6 +503,57 @@ position never hard-liquidates. Our design makes that structurally unnecessary. 
 both a static-leverage design that pays re-levering losses on every down-move and a stablecoin that
 needs LLAMMA to survive.
 
+## When should I NOT take the overlay?
+
+The overlay is a view, not a default, and there are regimes where declining is correct.
+
+**The clean way to see it:** an unlevered depositor's loss depends on *where price ends*, since the
+repack realises nothing along the way and IL lands at withdrawal. The overlay's cost depends on *how it
+got there* — it borrows and buys as price rises, sells and repays as it falls, and every cycle pays
+spread on both legs plus interest for the duration. Path length, not destination.
+
+**Choppy markets with large round trips.** It levers up, de-levers, levers up again, paying two spreads
+each time, while the loss it keeps cancelling keeps reverting for free. The de-lever band suppresses
+small oscillations; large ones still trigger. Declining wins, and this is the most common regime for
+these assets.
+
+**Rise then fall, the worst case.** It bought with borrowed money on the way up and sold on the way down
+— buy high, sell low, on the buffer specifically, realised when `_deleverFlash` sells collateral to
+repay. An unlevered depositor never had a buffer and never took that loss, and the IL being cancelled
+reverted anyway.
+
+**Thin volume.** Fee capture on the buffer is what makes this a positive-carry position rather than pure
+insurance. With little trading there are no fees to amplify, so it is carry against a loss that is
+impermanent. Declining wins outright.
+
+**A long horizon with no forced exit.** If you will genuinely not sell at a local high, the loss is
+impermanent *for you* in the strict sense, and paying carry to hedge something that resolves itself is
+negative expected value in any regime.
+
+**And it is not downside protection.** The target is zero at or below entry, so a depositor expecting a
+fall gains nothing below their entry price and pays spreads and interest to discover it.
+
+**Above entry, though, the depositor sets their own direction.** `setTargetLtv(capBps)` takes any value
+from 1 to 7,500 bps and can be changed at any time while the position is open. It is permissioned to the
+depositor because the cap is a risk choice; the keeper's rebalance toward whatever target results stays
+permissionless. Because the band is only ±0.2% wide, its sold fraction saturates almost as soon as price
+leaves the top of the range, which means the cap is not a rarely-binding ceiling. It is the operating
+leverage.
+
+So 5,000 bps is two times and cancels the band's impermanent loss. Anything above that, to a ceiling of
+7,500 bps or roughly four times, buys back more exposure than neutrality calls for and is an opt-in
+directional long. Anything below it declines to buy back what the band already sold, which expresses a
+bearish view. The honest limit on that last case: you stay net long the pool, so a low cap is a tilt
+against the neutral baseline rather than an outright short.
+
+What was removed in July 2026 is narrower than the whole idea of direction. It is the *below-entry* leg,
+the one that bought back as price fell (`boughtFractionWad`, deleted 2026-07-24 as its sole consumer).
+Underneath entry the overlay is off whatever the cap says, for the reasons under "why up-side only".
+
+**Where it wins:** sustained directional moves, high volume where fee capture on doubled depth dominates
+carry, and any depositor whose exit timing is not their own choice — because then the impermanent loss
+may be permanent exactly when it matters.
+
 ## What is the "full-2× buffer" and why do ETH and BTC differ?
 
 A two-times levered position puts in equity E, borrows E, and holds a 2E band position. That 2E sits in
@@ -595,7 +646,15 @@ not.
 
 ## What is the skew, and why does the pool need one?
 
-It is the answer to "the toxic thing Uniswap does to refill." A constant-product AMM keeps inventory
+By placing all the liquidity within a couple of ticks worth of range, we have eliminated slippage,
+which is sliding price that changes as it captures liquidity existing within a tick. 
+The LPs would have earned fees along the entire path, but it's a worse price for the swapper. 
+We want to give swappers the best price possible, but aside from the swap fee, this can't come for free
+(even though the cost is not experienced is slippage, but rather something more beneficial to LPs).
+
+An AMM that fills at oracle mid with no spread is a free option to anyone whose information is fresher than the oracle. That's loss-versus-rebalancing: the informed trader picks you off on every oracle lag, and the LP eats it. A real market maker never quotes mid — it quotes a spread that widens with inventory and volatility, which is precisely Γσ²·q/(1−q). The skew IS the spread. It is indispensable, without it executing at oracle isn't a feature that removes arbitrage — it is a vulnerability. 
+
+Skew is the answer to "the toxic thing Uniswap does to refill." A constant-product AMM keeps inventory
 balanced by letting arbitrageurs trade against its own stale price: the market moves, the pool lags,
 arbers realign it and pocket the gap. The pool always has inventory, and its providers pay for that
 rebalancing through systematic adverse selection.
@@ -642,6 +701,60 @@ no script to reconstruct on-chain and no leaf to hide anything in. **The honest 
 source:** the contract never proves Q equals the aggregate of the two keys, so two-of-two genuineness
 rests on the off-chain key generation plus the hop gate. A malicious hop is the residual, and it was the
 residual under the previous script-based design too.
+
+## Who actually holds the keys, and what protects a fleet depositor?
+
+Worth stating precisely, because "your BTC sits in a 2-of-2 you co-control" is true of one path and not
+the other.
+
+**Self-host.** The depositor's daemon holds one MuSig2 half and the hop holds the other. A key-path
+spend needs both, so the hop alone can spend nothing. This is 2-of-2 in the sense people mean it.
+
+**Fleet.** Still a genuine 2-of-2 on Bitcoin — the fleet runs a second LDK node, the *vault*, holding
+the LP-side channel keys against the hop node's — but **both halves belong to the operator**, run
+in-process, with one vault node serving every `lpEth`. So the 2-of-2 stops third parties and does not
+stop the operator, and `vault.rs` says so directly: *"The LP's protection is the on-chain payout pin +
+enclave key custody — it never runs Lightning."*
+
+**What that protection actually is, in order of what it rests on:**
+
+**The payout pin.** `btcRecipientOf` is set and LOCKED at delegation, and every payout path — cooperative
+close, withdrawal splice, dead-man exit — must pay that exact script. So the EVM will not credit a close
+that pays elsewhere.
+
+**Enclave key custody.** The seed is sealed to MRENCLAVE, so only the exact attested build can derive
+those keys, and the measurement is a reproducible build anyone can rebuild and compare. Rogue code is a
+different measurement and cannot unseal. **This, not the 2-of-2, is what stops the operator.**
+
+**The dead-man exit**, which covers the operator *vanishing*: a pre-signed CLTV-locked transaction whose
+bytes are already public, broadcastable by anyone once the heartbeat stops. It does not cover the
+operator *stealing*, because spending the funding output first makes the pre-signed exit spend a UTXO
+that no longer exists.
+
+### The single point of failure, named
+
+Seed export between enclave builds is authorised by a `MigrationAuth` requiring a threshold of distinct
+**operator Safe** owner signatures, verified in-enclave by `ecrecover` before the old enclave exports.
+`migration.rs` documents the threat it defends against: an untrusted host pointing the old enclave at an
+attacker enclave.
+
+**Compromise of that Safe's threshold is sufficient to take custody of every channel**, and it is
+sufficient *alone* — once the seed is held, Bitcoin transactions are signed directly and on-chain hop
+status is never needed. That Safe, not the attestation registry, is where custody actually concentrates.
+
+Two current limitations worth knowing. The enclave verifies against a **sealed-config snapshot** of the
+Safe's owners rather than the live on-chain set, so an owner removed on-chain remains trusted until the
+config is refreshed; the target design verifies the live set by state proof and the function already
+takes the owner-set as a parameter. And `AttestedHopRegistry` is **governance-armed**: `_requireAttested`
+is a no-op until the registry is pinned, falling back to an owns-an-open-channel gate.
+
+### On "trusted"
+
+Where this document says an assumption is trusted, it means the code cannot check it and therefore
+records it. That is not the same as being less trustworthy than the alternatives. A Groth16-based design
+trusts a setup ceremony that cannot be audited after the fact, and the claim that a ceremony was
+performed honestly is itself unverifiable. What is here instead is a reproducible build and a named
+operator Safe — both inspectable, which an expired ceremony is not.
 
 ## Why many channels rather than one pooled vault?
 
@@ -822,6 +935,76 @@ So the honest answer to the question is that a Bitcoin depositor is exposed to t
 *clamped slice only*, can cancel the up-side portion of it on their own book if they choose, and bears
 the rest through the share price. Nobody else's capital makes them whole, which is the same principle
 the ETH side settled on after `arbETH` was removed.
+
+## How does this compare to GLOCK, BitVM and the other Bitcoin bridges?
+
+**The honest answer is that we are not a bridge, and that is the comparison.**
+
+GLOCK — Alpen's garbled-circuit verification protocol, which Starknet and Alpen are the first chains to
+adopt — solves *how do I move BTC onto another chain without trusting a committee*. It is the newest
+entry in the BitVM lineage: express a spending condition too complex for Bitcoin Script by deferring the
+computation off-chain and letting Bitcoin verify the result, so BTC unlocks **only if it was provably
+burned elsewhere**, checked on Bitcoin rather than asserted by validators. No soft fork. Garbled circuits
+are the compression trick that shrinks the on-chain footprint.
+
+**We solve a different problem: how does BTC that never moves also back a position?** There is no peg
+here. Nothing is minted against locked coins for someone else to redeem. The BTC stays in the
+depositor's own channel on Bitcoin permanently, and they get it back by closing that channel, not by
+burning a receipt. `vBTC` is internal accounting, not a claim anyone else can present.
+
+That difference cascades into everything else.
+
+### What follows from not being a bridge
+
+**No pool to drain.** The largest category of bridge loss by value is somebody emptying the locked
+reserve. There is no reserve. One channel per depositor, so a compromise is bounded to that depositor.
+
+**No setup ceremony.** BitVM-family designs need an n-of-n signing set fixed at setup whose keys must be
+correctly generated and destroyed, and whose 1-of-n honesty assumption persists for the life of the
+peg. We have no committee, because a 2-of-2 with the depositor as one party needs no quorum.
+
+**Verification runs the other way.** GLOCK verifies **on Bitcoin** that something happened on the EVM
+chain, which is hard — Bitcoin cannot check a Merkle proof natively, which is exactly why garbled
+circuits are needed. We verify **on the EVM** that something happened on Bitcoin, which is cheap,
+because the EVM does Merkle proofs natively. We get the easy direction because we never need Bitcoin to
+adjudicate anything.
+
+**And the locked BTC stays productive.** GLOCK's pegged coins sit idle in a Taproot output for the life
+of the peg. Ours are routing Lightning payments the entire time. That is the whole product thesis
+rather than an incidental difference.
+
+### What GLOCK does better, plainly
+
+**It is general-purpose and we are not.** GLOCK moves any BTC for any user onto a full execution layer.
+Ours serves one narrow case: liquidity providers who want channel BTC to also back a position. If you
+want BTC usable across an EVM ecosystem, we are not a substitute.
+
+**Bitcoin enforces its correctness.** Their peg's integrity is checked by Bitcoin itself. Ours is
+checked by an EVM contract reading a header chain, so it inherits **SPV's assumptions** — the header
+source and confirmation depth — which Bitcoin-side verification does not.
+
+**Safety does not depend on one operator's liveness.** BitVM challenges are permissionless, so any
+honest watcher preserves safety. Our hop is protocol-operated, and while its failure mode is
+halt-not-theft, halt is still a failure GLOCK does not have in the same shape.
+
+### Two things about ours that are weaker than the marketing
+
+**The 2-of-2 genuineness is not proven on-chain.** `BTCChannels.sol:58-63` says it directly: the
+contract byte-matches the committed `Q` and does **not** prove `Q == KeyAgg(lp, hop)`. That rests on the
+off-chain MuSig2 keygen plus the hop gate, and a malicious hop is the residual either way. GLOCK's setup
+is verifiable in a way ours is not.
+
+**And under the fleet model the hop holds both key halves** (`BTCChannels.sol:257`, Option B). So the
+"depositor holds one of the two keys" property in this file's header describes the **self-host** path
+only. For a fleet depositor, non-custody comes from a different place: the payout script is pinned and
+locked at delegation so a fully compromised hop can only pay the depositor, and the dead-man exit is a
+pre-signed CLTV-locked transaction whose bytes are already public and broadcastable by anyone. That is
+weaker than holding your own key and stronger than a custodian, and it should be described that way
+rather than as self-custody.
+
+> Sourcing: Alpen's announcement describes the mechanism and the adoption but publishes no trust
+> assumptions, operator set, or failure modes. The BitVM-family characterisation above is inference from
+> the design lineage, not from GLOCK's specification. Confirm before relying on the comparison.
 
 ## Does where I host my node affect anyone else?
 
@@ -1934,6 +2117,75 @@ and compensation is personal income wherever the entity sits. **PREREQUISITE, UN
 Foundation actually memberless, or does it have members with economic rights?** Both the tax analysis and
 the Advisers Act argument turn on it.
 
+## Does CARF reach us?
+
+**Almost certainly yes, and not through the contracts.** This is the second time a regime has bitten on
+operated infrastructure while Part 6's central argument — renounced ownership, frozen allocation, no
+upgrade key — sails past untouched. CRD VI was the first. The pattern is worth naming: **our regulatory
+exposure is concentrated in the components a human runs, not the ones nobody can change.**
+
+**What it is.** The OECD's Crypto-Asset Reporting Framework, the crypto analogue of CRS. Crypto-Asset
+Service Providers collect user tax residence and TINs, report to their domestic authority, and that is
+exchanged bilaterally over the Common Transmission System the Global Forum already runs for CRS, under
+a dedicated multilateral competent authority agreement. Finalised June 2023, codified in the EU via
+DAC8, obligations from **1 January 2026**, first inter-authority exchanges expected 2027. The first
+reporting period is running now.
+
+**Scope is broad.** Cryptocurrencies, stablecoins, tradeable NFTs and crypto-linked derivatives.
+Reportable transactions include crypto-to-fiat, crypto-to-crypto, retail payments above a threshold,
+and transfers out to external wallets. Carve-outs cover assets usable for neither payment nor
+investment, anything already caught by CRS, CBDCs and specified e-money — the last two being pulled
+into an amended CRS instead.
+
+**The definitional hinge:** any individual or entity that, as a business, provides a service
+*effectuating exchange transactions* for or on behalf of customers, **including by acting as a
+counterparty, or an intermediary**. The OECD commentary contemplates reaching DeFi front-ends and
+parties with "sufficient control or influence" over a protocol, with governance, fee capture, upgrade
+keys and an operated interface cited as the usual factors. Immutable contracts with no controlling
+party are generally understood to fall outside, but that reading is unsettled and varies by
+implementing jurisdiction.
+
+### Where we are exposed, ranked
+
+**1. The hop.** `quid-hop` is protocol-operated, it is the Lightning receiver on swap-in and pays the
+BOLT11 on swap-out. It is **the counterparty to a crypto-to-fiat exchange transaction, as a business, on
+behalf of customers.** That is the definition almost verbatim. Nothing in Part 6 addresses it, because
+every argument there concerns the contracts, and the hop is a separately operated intermediary that the
+renounce does not touch. This is the sharpest exposure in the entire regulatory analysis.
+
+**2. The ibiza fleet and payee-of-record model.** We become the KYC'd party effectuating purchases for
+customers using our own instruments. More CASP-shaped than anything on the SPV side.
+
+**3. The dashboard.** An operated interface is an explicitly cited nexus factor.
+
+**4. The keeper.** Protocol-operated, but it executes a closed-form target on the depositor's own
+external position and effectuates no exchange for a customer. The weakest of the four.
+
+### What does not save us
+
+**Non-custody.** CARF's nexus is **broader than FATF's VASP definition**, so a FATF-negative conclusion
+does not carry over. `COMPLIANCE-THESIS.md`'s argument that nobody but the note-holder can authorise a
+withdrawal is a *custody* argument, and CARF is not a custody test. It is an intermediation test.
+
+**Ownerless contracts.** They may well place `Aux`, `Vogue` and the rest outside scope. They say nothing
+about the hop.
+
+### The collision, which is the thing to take to counsel first
+
+If any operated component is a CASP, we must **collect tax residence and TINs and report them.**
+`ibiza/COMPLIANCE-THESIS.md` states that no party ever custodies user funds **or retains user identity
+data.** Those two cannot both be true.
+
+This is not a compliance cost to absorb around the edges. It contradicts a load-bearing product claim,
+and it needs resolving **before** that thesis goes to counsel rather than being discovered during the
+conversation. The identity stack's whole proposition is that verification happens without disclosure;
+CARF asks for disclosure of exactly the field the architecture is built never to hold.
+
+> Sourcing: this section works from a briefing rather than from primary reading of the OECD text. The
+> definitional quote, the DAC8 timeline and the FATF-nexus point should be confirmed against the source
+> before any of it informs a decision. The 2025 Global Forum monitoring update is where jurisdiction and
+> provider-category materiality is signalled.
+
 ---
 
 # Part 7 — Go to market and honest readiness
@@ -2042,25 +2294,37 @@ do with it. Either can produce signed paper before anything is deployed.
 6. **Who bears liability for fuzzy name-matching errors in the sanctions-exclusion layer?**
 7. **Confirm the current custody rule, any successor safeguarding rule, and the family office
    exemption.** The whole adviser channel rests on this and it was recalled rather than researched.
+8. **Is the hop a CASP under CARF?** It is protocol-operated and acts as counterparty on every BTC-to-USD
+   swap, which is the definition almost verbatim, and the contracts being ownerless does not reach it.
+   The sharpest single exposure in Part 6.
+9. **Can the privacy thesis survive a CASP determination?** CARF requires collecting tax residence and
+   TINs; `COMPLIANCE-THESIS.md` claims no party retains user identity data. Both cannot hold, and this
+   has to be settled before that document goes to counsel.
+10. **Are BVI and Cayman CARF signatories, and on what timeline?** Determines whether the obligation
+    arrives through our own jurisdictions or only through service into others.
+11. **Does DAC8's nexus reach a non-EU CASP serving EU users**, the way CRD VI's does? If so the EU
+    obligation is already live, since reporting ran from 1 January 2026.
 
 **Answerable from documents, not yet answered:**
 
-8. Does Directive 2021/2167 reach performing loans, or stop at non-performing?
-9. Read the actual Peirce statement of 22 July 2026 and confirm the characterisation in Part 6.
-10. Is the Ukrainian extract signed with a qualified electronic signature, and is it verifiable off a
+12. Does Directive 2021/2167 reach performing loans, or stop at non-performing?
+13. Read the actual Peirce statement of 22 July 2026 and confirm the characterisation in Part 6.
+14. Read the OECD CARF text and the 2025 Global Forum monitoring update directly; Part 6's CARF section
+    works from a briefing, not primary sources.
+15. Is the Ukrainian extract signed with a qualified electronic signature, and is it verifiable off a
     published chain?
-11. Does perfecting a pledge over a QD claim require notarisation and pledge-register entry in target
+16. Does perfecting a pledge over a QD claim require notarisation and pledge-register entry in target
     jurisdictions?
-12. Does a cross-border whole-loan market exist **below** the securitisation threshold, and if it is
+17. Does a cross-border whole-loan market exist **below** the securitisation threshold, and if it is
     empty, is it empty for information reasons or legal ones?
 
 **Commercial actions, ours to take:**
 
-13. Model the collateral haircut the capped-at-par redemption requires, against the incumbent's 17.5%.
-14. Reconcile whether the reserve would hold whole loans or participations, and who the record
+18. Model the collateral haircut the capped-at-par redemption requires, against the incumbent's 17.5%.
+19. Reconcile whether the reserve would hold whole loans or participations, and who the record
     lienholder would be, if property credit is ever pursued.
-15. Take a letter of intent to one family office and one crypto-native adviser.
-16. Take the partial-collateral proposition to a surety's decline pile, haircut modelled first.
+20. Take a letter of intent to one family office and one crypto-native adviser.
+21. Take the partial-collateral proposition to a surety's decline pile, haircut modelled first.
 
 ---
 

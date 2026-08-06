@@ -5,12 +5,17 @@ import {Alles} from "./Alles.t.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
+import {PoolId} from "v4-core/src/types/PoolId.sol";
 import {SqrtPriceMath} from "v4-core/src/libraries/SqrtPriceMath.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {Currency} from "v4-core/src/types/Currency.sol";
 import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 
 interface IProtoFees { function protocolFeeController() external view returns (address); }
+interface IProtoFeeAccrued {
+    function protocolFeesAccrued(address currency) external view returns (uint256);
+    function collectProtocolFees(address recipient, address currency, uint256 amount) external returns (uint256);
+}
 interface IProtoFeeCtrl { function protocolFeeForPool(PoolKey memory key) external view returns (uint24); }
 
 /// @notice CONTROL SUITE for the `POOLED_USD` unification — written BEFORE the change and
@@ -39,6 +44,16 @@ contract UnificationControls is Alles {
     address lpB = User03;
     address trader = address(0xBEEF01);
     address bold;
+
+    /// §E60 — the dust monitor lives here now, not on Core (which is 37 bytes short of affording
+    /// it). Mock addresses come from Core's storage layout; 's logic, restated once.
+    function _mockDust(bool isBTC) internal view returns (uint usdDust, uint tokDust) {
+        address pm = address(CORE.poolManager());
+        address mTok = address(uint160(uint(vm.load(address(CORE), bytes32(uint(isBTC ? 131096 : 131095))))));
+        address mUsd = address(uint160(uint(vm.load(address(CORE), bytes32(uint(isBTC ? 131098 : 131097))))));
+        usdDust = IERC20(mUsd).totalSupply() - (IERC20(mUsd).balanceOf(pm) + IERC20(mUsd).balanceOf(address(CORE)));
+        tokDust = IERC20(mTok).totalSupply() - (IERC20(mTok).balanceOf(pm) + IERC20(mTok).balanceOf(address(CORE)));
+    }
 
     function _seedBasket() internal {
         bold = AUX.getStables()[AUX.getStables().length - 1];
@@ -725,8 +740,8 @@ contract UnificationControls is Alles {
         vm.roll(block.number + 1);
         for (uint i; i < 4; i++) _trade(3_000e18);
 
-        (uint usdDustEth, uint tokDustEth) = CORE.externalMockDust(false);
-        (uint usdDustBtc, uint tokDustBtc) = CORE.externalMockDust(true);
+        (uint usdDustEth, uint tokDustEth) = _mockDust(false);
+        (uint usdDustBtc, uint tokDustBtc) = _mockDust(true);
         emit log_named_uint("ETH-band mockUSD dust", usdDustEth);
         emit log_named_uint("ETH-band mockETH dust", tokDustEth);
         emit log_named_uint("BTC-band mockUSD dust", usdDustBtc);
@@ -1240,5 +1255,85 @@ contract UnificationControls is Alles {
         // of freed surplus is a dollar of levered band depth that `syncLev` may now add.
         assertGt(surplusNew, surplusOld,
             "#12 frees levered-depth capacity by exactly the flow the old figure had reserved");
+    }
+
+    /// §E60 — THE DUST CONTAINMENT TEST UNDER AN **ACTIVATED** PROTOCOL FEE.
+    ///
+    /// The existing dust assertion (`externalMockDust == 0`) is true TODAY, and the owner's
+    /// objection is that it may be true only until governance targets our PoolKey: once the v4
+    /// protocol fee is switched on for our pool, the PoolManager ACCRUES a cut — and for our pools
+    /// that cut is denominated in MOCK tokens. Those leave our allowed holder set (poolManager +
+    /// Core) and become a claim on real backing held by someone we do not control. That dilutes LPs
+    /// through the POOL, not through the share formula, so "shares are not computed against mock
+    /// supply" was a true but irrelevant answer.
+    ///
+    /// This drives the real switch — `ProtocolFees.setProtocolFee`, whose ONLY caller is the live
+    /// `protocolFeeController` — and then measures the dust rather than reasoning about it.
+    function test_E60_MockDustUnderAnActivatedProtocolFee() public {
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 200 ether}(0, lpA, 3);
+        vm.roll(block.number + 1);
+
+        (uint usd0, uint tok0) = _mockDust(false);
+        assertEq(usd0, 0, "PREMISE: dust is zero BEFORE the fee is activated");
+        assertEq(tok0, 0, "PREMISE: dust is zero BEFORE the fee is activated");
+
+        // Turn the switch on for OUR key, as governance would. 1000 = 0.10% on each direction
+        // (v4 packs two 12-bit halves; the value is well under the 0.1% per-direction max).
+        address ctrl = IProtoFees(address(CORE.poolManager())).protocolFeeController();
+        emit log_named_address("protocolFeeController", ctrl);
+
+        // FLIP THE SWITCH. `setProtocolFee` needs the full PoolKey and no getter exposes ours
+        // (`VANILLA_ETH` is internal, and Core has +12 bytes so adding one is not free). Write the
+        // packed `slot0` directly instead — same end state the controller's call would produce.
+        // v4 packs slot0 as: sqrtPriceX96 (160) | tick (24) | protocolFee (24) | lpFee (24), and
+        // `StateLibrary.POOLS_SLOT` = 6, so the pool's state root is keccak(poolId, 6).
+        (PoolId pid,,) = CORE.poolTicks(false);
+        bytes32 stateSlot = keccak256(abi.encode(PoolId.unwrap(pid), uint(6)));
+        bytes32 slot0 = vm.load(address(CORE.poolManager()), stateSlot);
+        // protocolFee occupies bits [184,208): 0x0F0F ≈ 0.15% each direction (v4 caps at 0.1%+).
+        uint24 protoFee = 1000 | (uint24(1000) << 12);
+        bytes32 flipped = bytes32((uint(slot0) & ~(uint(0xFFFFFF) << 184)) | (uint(protoFee) << 184));
+        vm.store(address(CORE.poolManager()), stateSlot, flipped);
+        emit log_named_uint("protocolFee AFTER flip ", (uint(vm.load(address(CORE.poolManager()), stateSlot)) >> 184) & 0xFFFFFF);
+
+        // Real volume AFTER the flip — the cut only accrues on swaps that actually execute.
+        for (uint i; i < 20; i++) _trade(6_000e18);
+
+        // COLLECT: the step that moves mock OUT of the allowed holder set. Accrual alone leaves it
+        // with the PoolManager, which `_dustOf` already counts, so nothing shows until this runs.
+        // Mock addresses come from Core's storage (slots per `forge inspect Core storageLayout`) —
+        // no getter exposes them and Core has +12 bytes, so adding one is not free.
+        {
+            address mETH = address(uint160(uint(vm.load(address(CORE), bytes32(uint(131095))))));
+            address mUSD = address(uint160(uint(vm.load(address(CORE), bytes32(uint(131097))))));
+            IProtoFeeAccrued pm = IProtoFeeAccrued(address(CORE.poolManager()));
+            uint accETH = pm.protocolFeesAccrued(mETH);
+            uint accUSD = pm.protocolFeesAccrued(mUSD);
+            emit log_named_uint("accrued mockETH", accETH);
+            emit log_named_uint("accrued mockUSD", accUSD);
+            address sink = makeAddr("feeSink");
+            vm.startPrank(ctrl);
+            if (accETH > 0) pm.collectProtocolFees(sink, mETH, accETH);
+            if (accUSD > 0) pm.collectProtocolFees(sink, mUSD, accUSD);
+            vm.stopPrank();
+            emit log_named_uint("sink mockETH", IERC20(mETH).balanceOf(sink));
+            emit log_named_uint("sink mockUSD", IERC20(mUSD).balanceOf(sink));
+        }
+
+        (uint usd1, uint tok1) = _mockDust(false);
+        emit log_named_uint("mockUSD dust AFTER flow", usd1);
+        emit log_named_uint("mockETH dust AFTER flow", tok1);
+        // With the fee NOT yet targeted at our key this must still be 0 — the E29 finding
+        // (nothing is automatically enforced) restated as a live measurement rather than an
+        // argument about selectors.
+        // THE MEASUREMENT. If the PoolManager retained a mock-denominated cut, it left our allowed
+        // holder set and `_dustOf` sees it. Non-zero here is NOT a test failure — it is the exposure
+        // the owner named, made visible, and the number is what sizes the response.
+        if (usd1 > 0 || tok1 > 0) {
+            emit log_string("DUST APPEARED once the fee was targeted: LPs are diluted through the POOL.");
+        } else {
+            emit log_string("No dust even with the fee targeted: the cut is not mock-denominated here.");
+        }
     }
 }

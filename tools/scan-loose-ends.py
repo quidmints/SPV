@@ -82,10 +82,31 @@ FAMILIES = OrderedDict([
                     r"remains?|left to do|didn'?t (?:get|have) (?:to|time))\b"),
     ("DEFERRED",    r"\b(defer\w*|later|follow[- ]up|next (?:pass|thread|session)|revisit|for now|punt\w*)\b"),
     ("DISMISSAL",   r"\b(ignore\w*|skip\w*|out of scope|not worth|won'?t (?:do|bother)|leave (?:it|that))\b"),
-    ("ABSENCE",     r"\b(no test|never (?:run|tested|verified|executed)|untested|unexercised|nothing (?:covers|tests))\b"),
+    # ⚠️ PAST TENSE, added 2026-08-04. `never (?:run|tested)` matched the passive "it was never run"
+    #    but NOT the active "I never ran it" — and the active voice is how the admission is actually
+    #    written, because it is the author confessing, not describing. 54 such statements existed in
+    #    a single session's transcript and the family caught a minority of them. Widened to the past
+    #    tense of every verb that means "this was not exercised", plus the "didn't actually X" frame,
+    #    where the word "actually" is itself a reliable tell that a claim is being walked back.
+    ("ABSENCE",     r"\b(no test|untested|unexercised|nothing (?:covers|tests)|"
+                    r"never (?:actually |really |once |even |properly |fully )?"
+                    r"(?:run|ran|tested|verified|executed|exercised|compiled|built|opened|read|"
+                    r"looked|measured|tried|deployed|called|reached)|"
+                    r"(?:was|were|has|have|had) never (?:run|built|opened|read|measured|exercised|called)|"
+                    r"did ?n'?o?t (?:actually )?(?:run|ran|build|open|read|measure|try|execute|compile)|"
+                    r"(?:has|have|had) not (?:been )?(?:run|tested|executed|exercised|measured))\b"),
     ("DECISION",    r"\b(your call|up to you|decide|decision (?:needed|for you)|which (?:do you|would you))\b"),
     ("RISK",        r"\b(risk\w*|danger\w*|footgun|armed|hazard|could break|blast radius)\b"),
-    ("UNVERIFIED",  r"\b(unverified|assum\w+|I think|probably|should be|believe|likely)\b"),
+    # ⚠️ The first-person hedges below were added 2026-08-04. The original list caught the
+    #    IMPERSONAL forms ("probably", "likely") but not the ones a reply actually uses to
+    #    disclaim its own confidence — "I am not sure", "I could be wrong". Those are the
+    #    sentences where the writer KNOWS the claim is soft, so they are the highest-value
+    #    hits in the whole scan, and every one of them was invisible.
+    ("UNVERIFIED",  r"\b(unverified|assum\w+|I think|probably|should be|believe|likely|"
+                    r"(?:I am|I'?m|we are|we'?re) not (?:sure|certain|confident)|not confident|"
+                    r"(?:I|we|this) (?:could|may|might) be wrong|pending verification|"
+                    r"left as an exercise|no(?:t)? (?:hard )?evidence (?:for|that)|"
+                    r"taking (?:it|this|that) on faith|reasoned, not (?:tested|measured))\b"),
     ("OUGHTTO",     r"\b(should (?:be|have|probably)|ought to|would be better|ideally)\b"),
     ("SECURITY",    r"\b(secret|token|key|credential|rotate|leak\w*|plaintext|exposed)\b"),
     # ── added 2026-08-02: nine was NOT exhaustive. Each of these named a real class the
@@ -111,6 +132,63 @@ FAMILIES = OrderedDict([
                     r"act on)|unverified|hypothesis, not)\b"),
     ("REGRESSION",  r"\b(re[- ]?introduc\w+|regress\w+|came back|broke again|un[- ]?fix\w*|"
                     r"stale|outdated|drift\w*|no longer (?:true|matches))\b"),
+    # Added 2026-08-04 — the PROMISED CHECK. Distinct from DEFERRED ("later", "next pass"), which
+    # postpones work with no commitment, and from UNKNOWN ("open question"), which admits ignorance
+    # without naming a next move. This frame NAMES A SPECIFIC CHECK and implies it is about to
+    # happen — "that's the next thing to check, and it's short" — which is precisely why it never
+    # gets booked: it reads as already-in-hand, so it is not written down, and then the context
+    # window ends. Four such promises were made in one session; ONE was never performed (whether the
+    # legacy repo's own Rover.sol handles the case differently — it exists, 537 lines, never read).
+    # The tell is the future tense on a verb of verification. If a scan hits this family, the only
+    # acceptable answers are "checked, here is the result" or a booked task — never silence.
+    # Added 2026-08-05 — the DEBT frame, and the largest single blind spot found so far: 65 hits in
+    # one session's transcript, of which the other 18 families caught ZERO. Nothing else covers it
+    # because the vocabulary is financial, not technical — work is described as owed, outstanding,
+    # promised, or on the hook, and no family was looking for a ledger.
+    #
+    # It is the highest-value family precisely because the debt frame is what a writer reaches for
+    # when they KNOW something is unfinished and are being honest about it: "5e pin now owed",
+    # "I promised a vacuous-test sweep", "that part of the audit is owed on a Linux host and I'm
+    # not claiming it as done", "the outstanding debt is one clean forge test". Every one of those
+    # is a self-reported IOU that then evaporated with the context window.
+    #
+    # ⚠️ KNOWN NOISE, deliberately accepted: "outstanding" is also a DOMAIN term here (outstanding
+    # vBTC, outstanding supply) meaning issued-and-unredeemed, not owed-as-work. The lookahead below
+    # filters the common nouns; anything it misses is triage cost, and under-matching a debt is
+    # worse than over-matching a balance sheet.
+    # Added 2026-08-05 — STILL OPEN. 69 hits in one session; the only ones any family caught were
+    # "remains open", and only by accident (INCOMPLETE's bare `remains?`). "still open" itself,
+    # "left open", "reopened", "not closed", "open item", "unresolved" and "still pending" all
+    # matched nothing at all.
+    #
+    # This is the status-column vocabulary — how a summary reports what did not get done, as opposed
+    # to how prose confesses it. That makes it the natural pair to OWED: OWED catches the debt when
+    # it is incurred, OPEN catches it when it is being reported forward. The repo's own closure rule
+    # ("mark ✅ only if no later decision can reopen it") is written in exactly this register, so a
+    # thread summarising its state uses these words and nothing was reading them.
+    #
+    # ⚠️ DOMAIN SENSE, filtered: an "open position" / "open channel" / "open order" is a live
+    # financial object, not unfinished work — "position stays open for the keeper to re-lever" must
+    # not fire. Lookbehind + lookahead handle the common shapes; verified by control probe.
+    ("OPEN",        r"\b(?:still (?:open|live|unresolved|pending|unsettled|undecided)|"
+                    r"(?<!position )(?:remains?|stays?|left|kept|leave) open"
+                    r"(?! (?:position|channel|order|source|interest|range|market))|"
+                    r"re[- ]?open(?:ed|s|ing)?|not (?:closed|settled|resolved|decided)|"
+                    r"open (?:item|question|issue|fork|point|end|hole)s?|"
+                    r"unresolved|unsettled|genuinely (?:open|remain))\b"),
+    ("OWED",        r"\b(?:owed?\b|(?:I|we) (?:still )?owe|promised\b|"
+                    r"outstanding(?! (?:vBTC|BTC|supply|balance|shares|principal|amount|liabilit|"
+                    r"piece|example))|on the hook|"
+                    r"said (?:I|we)'?(?:d|ll| would| will)|committed to (?:run|check|do|verif|test)|"
+                    r"(?:verification|test|proof) debt|owe (?:you|it) (?:a|an|the)|"
+                    r"my own (?:outstanding|open) (?:action )?item)\b"),
+    ("PROMISED CHECK",
+                    r"\b(?:(?:next|first|last|other) thing to check|thing to check (?:is|next)|"
+                    r"next to check|(?:need|want|going|have) to (?:check|confirm|verify|measure|"
+                    r"read|look at)|(?:I'?ll|I will|let me|we'?ll|we will) (?:check|confirm|verify|"
+                    r"measure|read|look|test|run|diff|trace)|should be checked|worth checking|"
+                    r"remains? to (?:be )?(?:checked|verified|confirmed)|before I (?:can|could) say|"
+                    r"(?:that|this) (?:is|would be) (?:the |a )?(?:quick|short|cheap|easy) (?:check|test))\b"),
 ])
 
 # Failure signatures that only ever appear in TOOL OUTPUT — never in prose.

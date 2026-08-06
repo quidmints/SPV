@@ -120,7 +120,15 @@ contract Core is SafeCallback {
 
     /// @dev One pool's equity USD (18-dec): its in-range USD less that pool's live leverage debt, floored at 0.
     function _bandEquityUsd18(bool isBTC) internal view returns (uint) {
-        uint pooled18 = (isBTC ? basketUsdBtc : basketUsdEth) * 1e12;   // §#12: BASKET contribution, not curve inventory
+        // §E60 — COUNT OUT MOCK THAT HAS LEFT THE ALLOWED HOLDER SET. Once the v4 protocol fee is
+        // targeted at our key AND collected, the cut is transferred to a recipient outside
+        // {poolManager, Core}: MEASURED $120 of mockUSD on $120,000 of volume, up to 10 bps of
+        // throughput indefinitely. Those dollars are gone from the band but `basketUsd*` still
+        // claims them, so every LP claim and the backing gate would price against backing that is
+        // no longer there. Subtracting the dust is what makes "committed" mean committed.
+        uint dust6 = _dustOf(address(_mockUsd(isBTC)));
+        uint base6 = isBTC ? basketUsdBtc : basketUsdEth;
+        uint pooled18 = (base6 > dust6 ? base6 - dust6 : 0) * 1e12;   // §#12: BASKET contribution
         uint debt18 = _levDebtUsd18(isBTC);
         return pooled18 > debt18 ? pooled18 - debt18 : 0;
     }
@@ -176,6 +184,17 @@ contract Core is SafeCallback {
     struct Flow { uint128 vol; uint64 ts; }   // vol: 6-dec USD EWMA · ts: last touch
     Flow internal _flowBTC;
     Flow internal _flowETH;
+    /// @notice §E55 — the SLOW half of the adaptive flow estimate. Same `Flow` shape, same
+    ///         `FLOW_DECAY`, decayed at 1/`FLOW_SLOW_N` the rate ⇒ an N× longer half-life with
+    ///         **NO THIRD DECAY CONSTANT** (this file already warns that one would be "an
+    ///         unjustified magic number"). Only an integer ratio is added.
+    Flow internal _flowSlowBTC;
+    Flow internal _flowSlowETH;
+    /// @dev The slow register's half-life as a MULTIPLE of the fast one (48h × 7 ≈ 14 days). Its
+    ///      exact value is deliberately NOT load-bearing: `flowEwmaUsd` takes the MIN of the two,
+    ///      so the slow leg acts only as a CEILING. Being roughly right is enough, and erring LONG
+    ///      is safe — which is the property a single fitted half-life does not have.
+    uint internal constant FLOW_SLOW_N = 7;
     uint internal constant FLOW_DECAY   = 999759352855809024; // per-min → 48h half-life (0.5^(1/2880)). The well's flow-EWMA / inventory-skew target wants a wide, manipulation-resistant memory. (The Aux redeem-fee `baseRate`, a separate 12h register, was REMOVED — QU!D has no peg-arb loop; this 48h flow decay is unrelated and stays.)
     uint internal constant FLOW_MAX_MIN = 525600000;          // decay-exponent cap (Liquity)
 
@@ -192,8 +211,14 @@ contract Core is SafeCallback {
     /// @dev ONE decay implementation, shared by both EWMA registers (was duplicated between
     ///      `_bumpFlow` and `flowEwmaUsd`). Decay the stored value over elapsed whole minutes.
     function _decayed(Flow storage f) internal view returns (uint) {
+        return _decayedBy(f, 1);
+    }
+
+    /// @dev `slowN`-fold slower decay: the SAME curve evaluated over `mins/slowN`, so the half-life
+    ///      is `slowN ×` the fast one. One decay implementation, one constant, an integer ratio.
+    function _decayedBy(Flow storage f, uint slowN) internal view returns (uint) {
         if (f.ts == 0) return f.vol;
-        uint mins = (block.timestamp - f.ts) / 60;
+        uint mins = (block.timestamp - f.ts) / 60 / slowN;
         return Math.mulDiv(f.vol, FeeLib.decPow(FLOW_DECAY, mins, FLOW_MAX_MIN), 1e18);
     }
 
@@ -207,13 +232,24 @@ contract Core is SafeCallback {
     /// @notice Fold a swap's USD notional into this pool's flow EWMA. Called only from _handleSwap.
     function _bumpFlow(bool isBTC, uint usd6) internal {
         _bumpEwma(isBTC ? _flowBTC : _flowETH, usd6);
+        _bumpEwma(isBTC ? _flowSlowBTC : _flowSlowETH, usd6);   // §E55: the slow leg sees the same flow
     }
 
     /// @notice This pool's decayed swap-flow EWMA (6-dec USD) — the adaptive
     ///         normal-flow buffer the skew target is built on. Pure decay of the stored
     ///         register to now; NO governance constant.
+    /// §E55 — ADAPTIVE, AND THE ADAPTIVITY IS IN THE `min`, NOT IN A TUNED DECAY. A single fitted
+    /// half-life is a guess: too fast and the estimator tracks the noise it was built to resist, too
+    /// slow and it misses a regime change. Taking the MIN of a fast and a slow register is
+    /// self-correcting in the direction that matters — when flow COLLAPSES the fast leg drops at
+    /// once and we price the scarcity immediately (conservative); when flow SPIKES the slow leg
+    /// lags, so **a transient burst is never mistaken for durable shed capacity** until it persists.
+    /// It is also manipulation-resistant by construction: lifting this number requires sustaining
+    /// fake flow across the SLOW window, not one block. (Same shape as `min-of-two-prices`.)
     function flowEwmaUsd(bool isBTC) public view returns (uint) {
-        return _decayed(isBTC ? _flowBTC : _flowETH);
+        uint fast = _decayed(isBTC ? _flowBTC : _flowETH);
+        uint slow = _decayedBy(isBTC ? _flowSlowBTC : _flowSlowETH, FLOW_SLOW_N);
+        return fast < slow ? fast : slow;
     }
 
     /// @notice This pool's decayed RETAINED-PREMIUM EWMA (6-dec USD) — the band's realized
@@ -263,8 +299,33 @@ contract Core is SafeCallback {
     ///         `realizedVarianceWad`); exposed here so the skew reads ONE source for both
     ///         pools regardless of which band contract drives the swap. Fails-open to 0
     ///         (insufficient history) ⇒ no steepening, base convex curve still applies.
+    /// @notice §E59 — annualized realized tick variance (WAD), read DIRECTLY from the observation
+    ///         ring. Was a round trip (Core → VogueLib → back into Core) sampling `observe` on a
+    ///         wall-clock grid; that grid was the bug — `observe` INTERPOLATES between stored points
+    ///         and linear interpolation has zero second derivative, so any stretch quieter than the
+    ///         sample interval measured EXACTLY 0 however far price moved. One hop now, one source.
+    ///         **0 means UNKNOWN (too few real updates), NEVER "calm"** — `SwapLib._maxWellSkew`
+    ///         charges the ceiling on it and theta fails open, and both readers agree on that.
     function realizedVarianceWad(bool isBTC) external view returns (uint) {
-        return VogueLib.realizedVarianceWad(address(this), isBTC);
+        // 9 ring points → 8 returns.
+        uint v = Math.mulDiv(OracleLib.ringVariance(_obs(isBTC), _obsState(isBTC), 9),
+                            31536000 * 1e10, 1e18);   // per-sec → annualized
+        // §E88 — ZERO IS NOW RESERVED FOR "UNMEASURED", AND ONLY THAT.
+        //
+        // It used to mean TWO things at once: *"the ring is unpopulated, we have not measured"* AND
+        // *"we measured, and it is genuinely zero"*. Downstream (`skewWad`/`sellSkew`) reads `σ² == 0`
+        // as UNMEASURED and conservatively charges the ceiling — correct for the first meaning,
+        // WRONG for the second, because a genuinely calm market has genuinely low adverse selection
+        // and should be charged accordingly, not the 3% maximum.
+        //   No threshold on σ² can separate them: it is an IDENTIFIABILITY problem, not a tuning one
+        //   — the same one E56 hit when a zero flow-EWMA could not tell a DEAD pool from a NEW one.
+        //   The fix there was a SECOND, independent signal already in storage, and it is the same
+        //   here: the ring's own `cardinality` says whether we have looked, which no value of the
+        //   variance itself can. A populated ring that computes a true zero returns 1 wei, so the
+        //   two states are distinguishable downstream at ZERO extra storage, calls, or gas on the
+        //   money path, and the E59 sentinel keeps its exact meaning for the case it was written for.
+        if (v == 0 && _obsState(isBTC).cardinality >= 2) return 1;
+        return v;
     }
 
     /// @notice (well) Cumulative scarcity-premium the skew has RETAINED as backing, per
@@ -361,10 +422,10 @@ contract Core is SafeCallback {
     ///         than merely harmless: an external holder is the precondition for a direct swap on
     ///         our key that would bypass Core's `_handleDelta` mirror, and it is the quantity we
     ///         would owe if the fee is ever settled voluntarily at LP withdrawal.
-    function externalMockDust(bool isBTC) external view returns (uint usdDust, uint tokDust) {
-        usdDust = _dustOf(address(_mockUsd(isBTC)));
-        tokDust = _dustOf(address(_mockTok(isBTC)));
-    }
+    // §E60 — `externalMockDust` (the two-leg MONITOR) was DELETED from Core: with the count-out
+    // landing in `_bandEquityUsd18`, keeping a second external for monitoring put Core 37 bytes
+    // over EIP-170, and the production path must not pay for the observability one. Tests read the
+    // mock addresses straight from storage (they already do for the fee flip) and compute it there.
 
     function _dustOf(address m) internal view returns (uint) {
         uint held = IERC20Min(m).balanceOf(address(poolManager)) + IERC20Min(m).balanceOf(address(this));
@@ -420,6 +481,17 @@ contract Core is SafeCallback {
     /// @notice Public linkage getter — the deploy-finalize assert cross-checks
     ///         Core's BTC-vault pin against Aux's owner-set view.
     function btcVault() external view returns (address) { return address(BTCVAULT); }
+
+    /// @notice The MONOTONIC retained-premium counter for one pool (6-dec USD). §E56 — its value is
+    ///         not the point; being CUMULATIVE is. A decayed EWMA cannot tell a DEAD pool from a NEW
+    ///         one (both read 0), and `sellSkew`'s refusal must treat those oppositely. A pool that
+    ///         has never traded cannot have accrued any premium, so this disambiguates them.
+    /// @dev    Dispatched HERE rather than read as two public getters from `SwapLib`: the two-branch
+    ///         read cost SwapLib 87 bytes it does not have (measured, -87 over EIP-170), and Core has
+    ///         the margin. Same trade as E32 — put the code where the room is.
+    function skewPremiumCum(bool isBTC) external view returns (uint) {
+        return isBTC ? skewPremiumBTC : skewPremiumETH;
+    }
 
     /// @notice BTC band theta-numerator: the native IL-bearing backing = aggregate locked sats (lpSharesBTC,
     ///         net) + gross debt-funded buffer (totalBufferBTC). The BTC analogue of (vogueETH + totalBuffer)
@@ -1197,15 +1269,17 @@ contract Core is SafeCallback {
                         _obsState(isBTC), tick);
     }
 
-    function observe(uint32[] calldata secondsAgos)
+    /// @notice §E63 — ONE observe, dispatched. These were TWO externals with IDENTICAL bodies
+    ///         differing only in which ring they read, i.e. two selectors, two dispatch entries and
+    ///         two copies of the call frame for one behaviour. The `_obs`/`_obsState` accessors
+    ///         already exist to pick the ring, so the duality was paid for twice.
+    /// @dev    This one clears the relocation threshold the other attempts did not (§E63): it
+    ///         DELETES a surface rather than moving a small body, and moving small bodies out of
+    ///         Core has measured WORSE three times (−73, −207, −471) because the caller pays the
+    ///         call overhead. Not client-facing — `tools/check-client-abis.py` has zero references
+    ///         to either name; the only callers are `SwapLib:104-105`.
+    function observe(uint32[] calldata secondsAgos, bool isBTC)
         external view returns (int56[] memory) {
-        return OracleLib.observe(observationsETH, 
-                            obsETH, secondsAgos);
-    }
-
-    function observeBTC(uint32[] calldata secondsAgos)
-        external view returns (int56[] memory) {
-        return OracleLib.observe(observationsBTC, 
-                            obsBTC, secondsAgos);
+        return OracleLib.observe(_obs(isBTC), _obsState(isBTC), secondsAgos);
     }
 }

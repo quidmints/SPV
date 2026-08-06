@@ -652,7 +652,7 @@ contract Aux is // Auxiliary
     ///         instead of re-deriving it and drifting from settlement. 0 = flush (band price
     ///         stands); rises to the cap when the deliverable inventory is scarce. Read-only.
     function wellSkew(address asset) public view returns (uint) {
-        return SwapLib.wellSkew(address(CORE), getTWAPforAsset(asset, 1800), asset == address(WBTC));
+        return SwapLib.wellSkew(address(CORE), getTWAPforAsset(asset, 1800), asset == address(WBTC), 0);  // §E68: 0 = read-only quote ⇒ instantaneous rate
     }
 
     /// @notice The flat swap fee (V4 pool tier, parts-per-million — 420 = 0.042%) every

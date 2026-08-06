@@ -11,7 +11,7 @@
 //
 //   The classifier is SOURCE-AGNOSTIC — it runs on any tick (log-price) series.
 //   Sources:
-//     • internal pool ring — Core.observe(secondsAgos)  [implemented here]
+//     • internal pool ring — Core.observe(secondsAgos, isBTC)  [implemented here]
 //     • EXTERNAL market-at-large — price feeds for ETH/BTC/total-cap, funding,
 //       dominance (see lib/market.ts). The LP-facing regime must combine these:
 //       internal pool state alone is circular (it's what we're protecting). The
@@ -93,7 +93,7 @@ export async function fetchRegime(
   const stepSec = Math.max(Math.floor(windowSec / samples), 60)
   const agos: number[] = []
   for (let i = samples; i >= 0; i--) agos.push(i * stepSec)   // descending → [N·step … 0]
-  const res = await readOne(coreAddr, isBTC ? 'observeBTC' : 'observe', [agos])
+  const res = await readOne(coreAddr, 'observe', [agos, isBTC])   // §E63: one entry, band as an arg
   if (!res) return null
   const cumulatives: bigint[] = (res as any[]).map((x) => BigInt(x))
   return classifyRegime(decodeTickSeries(cumulatives, stepSec), stepSec, 'pool')

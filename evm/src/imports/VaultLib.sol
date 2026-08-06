@@ -2,6 +2,11 @@
 pragma solidity ^0.8.28;
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
+import {SwapLib} from "./SwapLib.sol";
+import {FullMath} from "v4-core/src/libraries/FullMath.sol";
+// §E57: ether.fi's native-ETH sentinel, moved here with the offramp body that is its only user.
+import {IV3SwapRouter} from "./v3/IV3SwapRouter.sol";
+import {IEtherFiLiquidityPool} from "./Interfaces.sol";   // §E57: the shared OfframpCfg shape (declared there;  still uses it)
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {SwapLib} from "./SwapLib.sol";
 import {IAaveV4Spoke} from "./Interfaces.sol";
@@ -35,6 +40,8 @@ interface IMorphoV2 {
 ///         LEV_MANAGER) is passed in via `EthCfg`. Semantics are byte-for-byte
 ///         with the former in-Vault bodies — only the home moved.
 library VaultLib {
+    /// §E57: moved with the offramp body — its only emitter.
+
 
     // Mirror Vault's custom errors so reverts from delegatecalled bodies carry
     // the SAME 4-byte selector (selector = keccak(name+args), name-derived).
@@ -430,6 +437,91 @@ library VaultLib {
             if (got > 0 && c.aaveSpoke != address(0))   // reserve 0 is valid — see _aaveBal
                 IAaveV4Spoke(c.aaveSpoke).supply(c.wethReserveId, got, address(this));
         } catch { /* froze mid-pull: blocked + written down */ }
+    }
+
+
+    // ── ether.fi OFFRAMP (moved from SwapLib, §E57) ──────────────────────────────────────────
+    //  Its ONE caller is `Vault.offrampEtherFi` (`Vault.sol:444`), so it was always a VAULT
+    //  concern living in a SWAP library. Moving it is not just tidiness: SwapLib was the binding
+    //  EIP-170 contract at +14 bytes while VaultLib had 15,040 spare, and E55/E53 need room in
+    //  SwapLib specifically. Put the code where the room is — the same trade as E32.
+    /// @notice Body of Aux.offrampEtherFi — the 4-rung exit ladder.
+    ///         HONEST SERVING: when the held weETH covers less than `amount`
+    ///         (clamped balance), the weETH-consuming rungs (1/3/4) report the
+    ///         pro-rata `covered` slice, never the full ask — so the caller's
+    ///         position accounting only decrements what was actually served.
+    function offrampBody(uint amount, address recipient, bool instant, SwapLib.OfframpCfg memory c)
+        external returns (uint) {
+        if (amount == 0 || c.weeth == address(0)) return 0;
+        uint weethFull = IWeETH(c.weeth).getWeETHByeETH(amount);
+        uint weethIn = weethFull;
+        uint bal = IERC20(c.weeth).balanceOf(address(this));
+        if (weethIn > bal) weethIn = bal;
+        uint covered = (weethFull == 0 || weethIn == weethFull)
+            ? amount : FullMath.mulDiv(amount, weethIn, weethFull);
+        // Rung 1 — v3 pool (only if Aux holds weETH).
+        // TIER ORDER: pool B (0.01%) is tried BEFORE pool A (0.05%). MEASURED 2026-08-06 against live
+        // mainnet (Quoter v1, vs getEETHByWeETH fair), weETH→WETH:
+        //     size      0.01%      0.05%
+        //        1    −17.55     −25.74
+        //      100    −18.79     −26.19
+        //     1000    −28.16     −30.26
+        //     2000   −679.33     −34.79   ← B runs out of WETH
+        // B is ~8 bps cheaper up to ~1k weETH and CLIFFS beyond it. The old order (A first) took the
+        // expensive tier on every fill that cleared the floor, so B was effectively unreachable and
+        // ~8bps was left on the table on every small offramp — where most flow lives. Safe because the
+        // 0.5% floor below is measured against FAIR: a −679 bps B fill cannot clear it, so it reverts
+        // and falls through to A. Do not loosen that floor without re-deriving this ordering.
+        if (weethIn > 0) {
+            uint24[2] memory fees = [c.poolFee2, c.poolFee];   // CHEAP TIER FIRST
+            for (uint i; i < 2; i++) {
+                if (fees[i] == 0) continue;
+                try IV3SwapRouter(c.v3router).exactInput(IV3SwapRouter.ExactInputParams({
+                    path: abi.encodePacked(c.weeth, fees[i], c.weth),
+                    recipient: recipient, amountIn: weethIn,
+                    amountOutMinimum: (covered * 995) / 1000   // 0.5% slippage cap
+                })) returns (uint) { return covered; }
+                catch {}
+            }
+        }
+        // Rung 2 (Rover unwind) REMOVED 2026-08-05 with Rover itself — `c.rover` is always
+        // address(0) once nothing funds it, so the rung was an unreachable branch on the offramp path.
+        // Rung 3 (ether.fi 0.3% instant-redeem) DELETED 2026-08-06, owner decision. Its capacity
+        // (`totalRedeemableAmount`) measured ZERO at every sampled block across 90 days and still does,
+        // because the v3 pool absorbs the flow first — it could never fill and never will. Its test only
+        // ever passed by MANUFACTURING capacity (vm.deal + mocked withdrawal lock).
+        // Rung 4 — last-resort no-fee withdrawal NFT.
+        return waitNft(covered, recipient, c);
+    }
+
+
+    /// @notice Rung-4 wait-NFT, standalone: unwrap up to `amount`-worth of the
+    ///         held idle weETH → eETH → LiquidityPool withdraw-request NFT
+    ///         minted to `recipient`. Returns the ETH-worth actually covered
+    ///         (honest: a clamped weETH balance covers proportionally less).
+    ///         Used by offrampBody — the LP-exit down-leg fallback when the
+    ///         ether.fi instant-redeem buffer is exhausted (the redemption-side
+    ///         wrapper was removed: redemption is stables-only).
+    function waitNft(uint amount, address recipient, SwapLib.OfframpCfg memory c)
+        internal returns (uint) {
+        if (amount == 0 || c.weeth == address(0) || c.lp == address(0)) return 0;
+        uint weethFull = IWeETH(c.weeth).getWeETHByeETH(amount);
+        if (weethFull == 0) return 0;
+        uint bal = IERC20(c.weeth).balanceOf(address(this));
+        uint weethIn = weethFull > bal ? bal : weethFull;
+        if (weethIn == 0) return 0;
+        try IWeETH(c.weeth).unwrap(weethIn) returns (uint eeth) {
+            if (eeth > 0) {
+                // ALWAYS to the protocol, never the swapper (owner decision 2026-08-06). The NFT is
+                // the REPAYMENT LEG of the borrow, not a consolation prize: the swapper is paid WETH
+                // now and we carry the ~7-day wait.
+                try IEtherFiLiquidityPool(c.lp).requestWithdraw(address(this), eeth) returns (uint) {
+                    return weethIn == weethFull
+                        ? amount : FullMath.mulDiv(amount, weethIn, weethFull);
+                } catch {}
+            }
+        } catch {}
+        return 0;
     }
 
 }

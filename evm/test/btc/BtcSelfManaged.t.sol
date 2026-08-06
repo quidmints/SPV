@@ -92,21 +92,33 @@ contract BtcSelfManagedTest is Alles {
         // harness returns BROKEN and FAILS here. Collapsing the two into a single SKIP token is
         // what hid this test for the whole project: LND's stale-tip bug made every run emit SKIP,
         // indistinguishable from "not installed", so a real breakage looked like a clean skip.
+        // ⚠️ READ AND CHECK THE VECTOR **BEFORE** THE SKIP BRANCH. Until 2026-08-06 this read sat
+        // BELOW it, which made the committed pair unreadable in BOTH configurations: a machine
+        // WITHOUT the harness returned at SKIP and never opened the file, and a machine WITH it had
+        // just had the file overwritten by the ffi run. So the value in git was never the value under
+        // test. `swap.sh` now writes the `.local.` sibling instead, leaving the committed vector as a
+        // stable offline case that every machine checks on every run.
+        string memory local     = string.concat(vm.projectRoot(), "/test/btc/swapin_fixture.local.json");
+        string memory committed = string.concat(vm.projectRoot(), "/test/btc/swapin_fixture.json");
+        bool haveLive = vm.exists(local);
+        string memory j = vm.readFile(haveLive ? local : committed);
+        uint    sats        = vm.parseJsonUint(j, ".sats");
+        bytes32 paymentHash = vm.parseJsonBytes32(j, ".paymentHash");
+        bytes memory preimage = vm.parseJsonBytes(j, ".preimage");
+
+        // The settled hash IS sha256 of the real Lightning preimage (the HTLC tie). Reachable on
+        // every machine now — off the harness it proves the committed vector is a genuine pair
+        // rather than hand-edited bytes, which is the whole reason to keep one in git.
+        assertEq(sha256(preimage), paymentHash, "paymentHash == sha256(real LN preimage)");
+
         if (keccak256(sig) == keccak256(bytes("SKIP"))) {
-            emit log("regtest/LND binaries absent - run regtest/setup.sh && regtest/setup-ln.sh - skipping");
+            emit log("regtest/LND binaries absent - run regtest/setup.sh && regtest/setup-ln.sh - skipping live leg");
             vm.skip(true);
             return;
         }
         require(keccak256(sig) == keccak256(bytes("READY")),
             "live LN harness is INSTALLED but BROKEN (see /tmp/quid-swapin-e2e.log). Deliberately NOT skipped.");
-
-        string memory j = vm.readFile(string.concat(vm.projectRoot(), "/test/btc/swapin_fixture.json"));
-        uint    sats        = vm.parseJsonUint(j, ".sats");
-        bytes32 paymentHash = vm.parseJsonBytes32(j, ".paymentHash");
-        bytes memory preimage = vm.parseJsonBytes(j, ".preimage");
-
-        // The settled hash IS sha256 of the real Lightning preimage (the HTLC tie).
-        assertEq(sha256(preimage), paymentHash, "paymentHash == sha256(real LN preimage)");
+        require(haveLive, "harness reported READY but wrote no swapin_fixture.local.json");
 
         // Real BTCChannels wired as THE btcChannels (pin-once); hopNode = our addr.
         address hop = makeAddr("hop");

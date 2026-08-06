@@ -29,7 +29,12 @@ done
 PRE=$(echo "$LOOK" | jq -r .r_preimage)       # preimage, hex
 PAID=$(echo "$LOOK" | jq -r .amt_paid_sat)
 
-cat > "$SPV_DIR/evm/test/btc/swapin_fixture.json" <<EOF
+# Write to the .local. sibling, NEVER to the committed vector. The committed
+# swapin_fixture.json is the OFFLINE vector — the only thing a machine without the
+# bitcoind/LND harness can check the HTLC tie against. Overwriting it here meant it
+# was regenerated microseconds before every read (so its committed value was never
+# the value under test) and left the tree dirty after every suite run.
+cat > "$SPV_DIR/evm/test/btc/swapin_fixture.local.json" <<EOF
 {
   "sats": $PAID,
   "seller": "$SELLER",
@@ -37,4 +42,4 @@ cat > "$SPV_DIR/evm/test/btc/swapin_fixture.json" <<EOF
   "preimage": "0x$PRE"
 }
 EOF
-echo "swap settled — $PAID sat → $SELLER, hash 0x${RHASH:0:16}…, preimage captured → swapin_fixture.json"
+echo "swap settled — $PAID sat → $SELLER, hash 0x${RHASH:0:16}…, preimage captured → swapin_fixture.local.json"

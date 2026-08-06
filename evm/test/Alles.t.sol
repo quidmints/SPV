@@ -924,20 +924,30 @@ contract Alles is ForkPin, Fixtures {
     // monotone; and the MAX_WELL_SKEW cap binds the inv→0 blowup.
     function testSkewBarrierRamp_ConvexCapAndMonotone() public pure {
         uint T   = 3e12;   // target; committed=0 ⇒ target=T, inv=poolVolUsd. /3 for clean thirds.
-        uint sig = 1e16;   // σ² low enough the DYNAMIC cap doesn't bind at these q (isolate the shape).
+        uint sig = 1e16;
 
-        // Flush: inventory at/above target ⇒ zero skew (abundant — the band owns the price).
-        assertEq(SwapLib.skewWad(T, 0, 0, T, sig, true), 0, "flush at inv>=target");
+        // §E81 — THIS TEST NOW READS THE SHAPE ON **ETH**, AND THAT IS A REAL RE-EXPRESSION, NOT A
+        // WEAKENING. It previously used isBTC=true with the comment *"σ² low enough the DYNAMIC cap
+        // doesn't bind (isolate the shape)"*. After the cap→base inversion (E79) the thing that binds
+        // at low q is the FLOOR, and for BTC that floor is `SPLICE_FLOOR = 2e15` (0.2%) — a REAL
+        // on-chain splice fee you must pay to refill, so it legitimately dominates the scarcity term
+        // until q≈0.87. Asserting a pure-kernel value against BTC therefore asserts that a genuine
+        // cost does not exist. **ETH's floor is `σ²·ETH_CONF_FRAC/8` = 4.75e8 against a 3e14 kernel at
+        // q=0.5 — five orders below — so ETH is where the kernel's SHAPE is observable.** The BTC
+        // floor gets its own assertions below instead of being papered over.
+        assertEq(SwapLib.skewWad(T, T, sig, false, 0), 0, "flush at inv>=target");
 
-        // q=1/2 (inv=T/2): q/(1−q)=1 ⇒ skew = Γσ² = 3e16·1e16/1e18 = 3e14 (uncapped at this σ²).
-        uint s12 = SwapLib.skewWad(T / 2, 0, 0, T, sig, true);
-        assertEq(s12, 3e14, "q=0.5 barrier skew = Gamma*sigma2 (q/(1-q)=1)");
+        // q=1/2 (inv=T/2): q/(1−q)=1 ⇒ skew = Γσ² = 3e16·1e16/1e18 = 3e14 (kernel leads on ETH).
+        uint s12 = SwapLib.skewWad(T / 2, T, sig, false, 0);
+        // §E89: the settlement-window base now ADDS to the kernel (it is incurred regardless of size),
+        // so the pin is kernel + base, not kernel alone. ETH base = σ²·ETH_CONF_FRAC/8 = 4.75e8.
+        assertEq(s12, 3e14 + 475e6, "q=0.5 barrier skew = Gamma*sigma2 + base");
 
         // q=1/3 (inv=2T/3): q/(1−q)=0.5 ⇒ half of s12. q=2/3 (inv=T/3): q/(1−q)=2 ⇒ double s12.
-        uint s13 = SwapLib.skewWad(2 * T / 3, 0, 0, T, sig, true); // q=1/3
-        uint s23 = SwapLib.skewWad(T / 3, 0, 0, T, sig, true); // q=2/3
-        assertApproxEqAbs(s13, s12 / 2, 1e8, "q=1/3 skew = 1/2 of q=1/2");
-        assertApproxEqAbs(s23, s12 * 2, 1e8, "q=2/3 skew = 2x of q=1/2");
+        uint s13 = SwapLib.skewWad(2 * T / 3, T, sig, false, 0); // q=1/3
+        uint s23 = SwapLib.skewWad(T / 3, T, sig, false, 0); // q=2/3
+        assertApproxEqAbs(s13, s12 / 2, 1e9, "q=1/3 skew = 1/2 of q=1/2");
+        assertApproxEqAbs(s23, s12 * 2, 1e9, "q=2/3 skew = 2x of q=1/2");
 
         // CONVEX: increasing differences (the depletion barrier accelerates toward inv=0). Linear A-S
         // would give equal steps; q/(1−q) steepens.
@@ -945,14 +955,35 @@ contract Alles is ForkPin, Fixtures {
         assertLt(s13, s12); assertLt(s12, s23); // monotone
 
         // The inv→0 blowup is bounded: extreme σ² near-empty can never exceed MAX_WELL_SKEW.
-        uint sHot = SwapLib.skewWad(T / 100, 0, 0, T, 5e18, true);
+        // §E81: the ABSOLUTE ceiling is what the inversion left untouched, so this still holds and is
+        // now the ONLY clamp above — the worst case a swapper can suffer is unchanged by the inversion.
+        uint sHot = SwapLib.skewWad(T / 100, T, 5e18, false, 0);
         assertGt(sHot, 0,    "near-empty hot-vol skew positive");
         assertLe(sHot, 3e16, "capped at MAX_WELL_SKEW under the barrier");
+        assertEq(SwapLib.skewWad(T / 100, T, 5e18, true, 0), 3e16, "BTC also pinned to the abs ceiling");
 
-        // PER-ASSET cap fix: ETH has NO ~1hr confirmation-capital lock, so at extreme vol its cap binds
-        // LOWER than BTC's — proves _maxWellSkew is per-asset now, not the old asset-agnostic (BTC-window) form.
-        assertLt(SwapLib.skewWad(T / 100, 0, 0, T, 5e18, false),
-                 SwapLib.skewWad(T / 100, 0, 0, T, 5e18, true), "ETH cap < BTC cap (no conf lock)");
+        // §E81 — THE FLOOR IS NOW ASSERTED DIRECTLY, replacing the old per-asset CAP comparison (which
+        // tested a per-asset CEILING that the inversion deliberately removed: both assets now share the
+        // one absolute ceiling, so the old assertLt could no longer hold and would have been a false
+        // pin). The per-asset distinction did not disappear — IT MOVED TO THE FLOOR, which is where a
+        // settlement-window cost belongs. BTC carries the ~1hr confirmation lock AND the splice fee;
+        // ETH carries one block and no splice.
+        // §E89: as q->0 the skew TENDS to the base, but does not equal it -- at q=1/T the kernel still
+        // contributes 99 wei, and under ADDITION that is correct. An assertEq to the base alone would
+        // assert the kernel contributes nothing, which is exactly what the additive form denies. The
+        // tolerance here is bounding a KNOWN, DERIVED term, not hiding an unexplained residual.
+        assertApproxEqAbs(SwapLib.skewWad(T - 1, T, sig, true, 0), 2e15 + 1425e8, 1e3,
+            "BTC base = SPLICE_FLOOR + sigma2*CONF_FRAC/8 (base dominates as q->0)");
+        assertLt(SwapLib.skewWad(T - 1, T, sig, false, 0),
+                 SwapLib.skewWad(T - 1, T, sig, true, 0), "ETH floor < BTC floor (no conf lock, no splice)");
+        // AND THE FLOOR IS A FLOOR, NOT A CEILING: at high scarcity the kernel must OVERTAKE it, or the
+        // inversion did nothing. q=0.9 ⇒ q/(1−q)=9 ⇒ kernel 2.7e15 > BTC's 2.0001425e15 base.
+        assertGt(SwapLib.skewWad(T / 10, T, sig, true, 0), 2e15 + 1425e8,
+            "kernel ADDS on top of the base at high scarcity -- the restructure is real");
+        // §E89 REGRESSION PIN: the base must SURVIVE at high scarcity, not be absorbed. Under the old
+        // max() form this equalled the kernel alone; under addition it must exceed it by the base.
+        assertEq(SwapLib.skewWad(T / 10, T, sig, false, 0),
+                 27e14 + 475e6, "ETH high-scarcity = kernel(q/(1-q)=9) + base, base NOT absorbed");
     }
 
     // SWAP-PRICING PIN (ETH, in-range): closes the pervasive `minOut=0 + assertGt(>0)` mask by

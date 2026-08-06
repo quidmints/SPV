@@ -242,8 +242,7 @@ interface ICore {
     function POOLED_BTC() external view returns (uint);
     function btcThetaBacking() external view returns (uint);
     function poolStats(int24 tickLower, int24 tickUpper, bool isBTC) external view returns (uint160 sqrtPriceX96, int24 currentTick, uint128 liquidity);
-    function observe(uint32[] calldata secondsAgos) external view returns (int56[] memory);
-    function observeBTC(uint32[] calldata secondsAgos) external view returns (int56[] memory);
+    function observe(uint32[] calldata secondsAgos, bool isBTC) external view returns (int56[] memory);
     function POOLED_ETH() external view returns (uint);
     function premiumEwmaUsd(bool isBTC) external view returns (uint);
     function POOLED_USD_ETH() external view returns (uint);
@@ -262,6 +261,18 @@ interface ICore {
     function poolTicks(bool isBTC) external view returns (bytes32, uint160, int24);
     function token1isETH() external view returns (bool);
     function btcVault() external view returns (address);   // E21: was BasketLib.IWiredCore
+    /// §E56 — the MONOTONIC (never-decayed) retained-premium counters. Their value here is NOT the
+    /// amount: it is that they are CUMULATIVE, which makes them the liveness signal a decayed EWMA
+    /// cannot be. `flow == 0` is ambiguous between a DEAD pool and a NEW one; `skewPremium > 0`
+    /// resolves it, because a pool that has never traded cannot have accrued any.
+    function skewPremiumCum(bool isBTC) external view returns (uint);
+    /// §E59 — realized tick variance from the STORED observations (per-second, WAD) + the measured
+    /// span. Reads the RING, so it never sees observe()'s interpolation, which used to manufacture
+    /// zeros in any stretch quieter than the old wall-clock sample grid. span 0 = UNKNOWN, not calm.
+    /// §E53 — the BTC band's equity alone. With committedUsd18() (the SUM) this yields the OTHER
+    /// band's share of the one bound both compete for, which is what the shared-scarcity amplifier
+    /// needs and what no isBTC-scoped input could ever supply.
+    function btcBandEquityUsd18() external view returns (uint);
     function swap(bool isBTC, uint160 sqrtPriceX96, address sender, bool forOne, address token, uint amount) external returns (uint);
 }
 

@@ -3,6 +3,7 @@
 pragma solidity ^0.8.28;
 
 import {mock} from "../mock.sol";
+import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
@@ -212,5 +213,81 @@ library OracleLib {
         mBTC     = address(new mock(address(this),  8));
         mUSD_ETH = address(new mock(address(this),  6));
         mUSD_BTC = address(new mock(address(this),  6));
+    }
+
+    /// @notice §E59 — REALIZED TICK VARIANCE FROM THE **STORED OBSERVATIONS**, not a wall-clock grid.
+    ///
+    /// WHY THIS EXISTS. The previous estimator sampled `observe` every `THETA_STEP` seconds, but the
+    /// ring only advances ON A SWAP and `observe` LINEARLY INTERPOLATES between stored points.
+    /// Linear interpolation has ZERO SECOND DERIVATIVE, so every sample inside one inter-swap gap
+    /// returned the same average tick and the variance came out EXACTLY 0 — however violently price
+    /// had moved. MEASURED: a drain that took `POOLED_ETH` from 400 to 0.00097 ETH reported 0.
+    ///
+    /// Sampling the ring itself removes the interpolation entirely: every point is a REAL price
+    /// update, so a gap contributes one observation rather than a run of identical fabrications.
+    /// Intervals are UNEVEN by nature, so each return is normalised by its OWN elapsed time and the
+    /// annualisation uses the MEASURED span — no fixed step to mis-match the swap cadence.
+    ///
+    /// Returns tick-variance per second (WAD). **0 means UNKNOWN — too few real updates — NOT calm**;
+    /// the span is not returned because it is redundant (it is 0 exactly when this is).
+    function ringVariance(Observation[65535] storage obs, ObsState storage st, uint n)
+        external view returns (uint varPerSecWad)
+    {
+        uint card = st.cardinality;
+        if (card < 3 || n < 3) return 0;
+        if (n > card) n = card;
+
+        // Walk back n stored points from the newest, newest-first.
+        int[] memory rate = new int[](n - 1);       // per-interval average tick
+        uint32 newest; uint32 oldest;
+        {
+            uint16 idx = st.index;
+            Observation memory hi = obs[idx];
+            newest = hi.blockTimestamp;
+            for (uint i = 0; i < n - 1; i++) {
+                uint16 lo_i = uint16((uint(idx) + card - 1 - i) % card);
+                Observation memory lo = obs[lo_i];
+                if (!lo.initialized || lo.blockTimestamp >= hi.blockTimestamp) return 0;
+                uint32 dt = hi.blockTimestamp - lo.blockTimestamp;
+                // §E59 — FIXED-POINT, NOT INTEGER. Truncating to whole ticks was the second half
+                // of the zero-variance bug: the band is ~20 ticks wide, so consecutive average
+                // ticks round to the SAME INTEGER and every difference is 0. Scale by 1e9 first so
+                // sub-tick movement survives; `d*d` then stays far inside uint256.
+                rate[i] = (int(hi.tickCumulative - lo.tickCumulative) * 1e9) / int(uint(dt));
+                hi = lo;
+                oldest = lo.blockTimestamp;
+            }
+        }
+        if (newest <= oldest) return 0;
+        uint spanSecs = newest - oldest;
+
+        // Variance of consecutive rate CHANGES (the returns), sample-corrected.
+        uint m = rate.length - 1;
+        if (m < 2) return 0;
+        int mean;
+        for (uint i = 0; i < m; i++) mean += (rate[i] - rate[i + 1]);
+        mean /= int(m);
+        uint acc;
+        for (uint i = 0; i < m; i++) {
+            int d = (rate[i] - rate[i + 1]) - mean;
+            acc += uint(d * d);
+        }
+        acc /= (m - 1);
+        // §E63 — SECOND MOMENT, NOT CENTRAL SECOND MOMENT: add the DRIFT back in.
+        //
+        // `acc` alone is the variance ABOUT THE MEAN, and a band walking STEADILY one way has every
+        // difference equal ⇒ every deviation 0 ⇒ variance EXACTLY 0. That is arithmetically right
+        // and economically wrong: a monotone walk carries real inventory risk while measuring as
+        // perfectly calm. MEASURED: 16 swaps moving the tick −1 read 0; only a −2 move registered.
+        // Four memory policies (latch / erase / decay / widen) all failed trying to REMEMBER a
+        // number that was correctly zero — the number itself was the wrong quantity.
+        //
+        // The drift () was already computed and discarded. Squaring it back in costs no extra loads
+        // and no constant, and gives E[x²] = Var + E[x]² — the drift AND the wobble, which is what
+        // an inventory-risk measure has to price.
+        acc += uint(mean * mean);   //  is the drift term computed above
+        // Per-second, WAD. The caller annualises with the MEASURED span rather than a fixed step.
+        // `acc` is in (1e9-scaled tick)^2 = tick^2 * 1e18, so it is already WAD-scaled tick^2.
+        varPerSecWad = acc / spanSecs;
     }
 }

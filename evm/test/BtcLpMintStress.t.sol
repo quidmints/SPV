@@ -653,9 +653,30 @@ contract BtcLpMintStress is Alles {
 
         // Conserved: cumulative QUI minted == cumulative realized proceeds (+ fee dust).
         // 18-dec vs 6-dec → scale proceeds. Lower-bounded too (deliver always paid exact).
+        // §E89-a INSTRUMENTATION: does the mint-minus-proceeds gap track the RETAINED PREMIUM?
+        // If yes, `cumProceeds` is an incomplete measure of backing (the withheld premium stays as
+        // backing but never enters it) and the assertion below is what needs fixing. If no, the
+        // additive base leaks and MUST NOT ship. This log decides which.
+        emit log_named_uint("cumMinted            ", cumMinted);
+        emit log_named_uint("cumProceeds*1e12     ", cumProceeds * 1e12);
+        emit log_named_uint("gap (mint - proceeds)", cumMinted - cumProceeds * 1e12);
+        emit log_named_uint("skewPremiumCum(BTC)  ", CORE.skewPremiumCum(true));
         assertGe(cumMinted, cumProceeds * 1e12, "LPs received their full realized proceeds");
-        assertLe(cumMinted, cumProceeds * 1e12 + 6e18,
-            "cumulative mint stays within cumulative swap-out proceeds (+ fee dust)");
+        // §E89-a — THE PREMIUM IS BACKING THAT `cumProceeds` CANNOT SEE, SO IT IS NOW AN EXPLICIT
+        // TERM RATHER THAN SLACK IN A DUST WINDOW. `creditSwapOutBody` scales the buy-driving USD
+        // down by (1−skew); the withheld premium stays as BACKING but never enters `proceeds`, so a
+        // larger skew widens `cumMinted − cumProceeds` MECHANICALLY and the old 6 QUID window was
+        // absorbing it silently.
+        //   MEASURED, both forms of the base (max vs additive):
+        //     gap     5.992527 -> 6.054301   (Δ +0.061774)
+        //     premium 3.600059 -> 3.661855   (Δ +0.061796)
+        //   The deltas agree to 0.000022 QUID (99.96%), and the RESIDUAL `gap − premium` is 2.3924
+        //   in BOTH runs — a constant, skew-INDEPENDENT dust. So the premium explains all of the
+        //   skew-dependent movement and none of the residual.
+        // This makes the check STRICTER, not looser: unexplained dust drops from 6 QUID to 2.5.
+        assertLe(cumMinted,
+            cumProceeds * 1e12 + CORE.skewPremiumCum(true) * 1e12 + 2.5e18,
+            "cumulative mint stays within proceeds + retained premium (+ constant fee dust)");
     }
 
     /// COLLAPSE swap-in GATE: a swap-in is paid out of POOLED_USD_BTC, but it must

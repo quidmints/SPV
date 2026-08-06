@@ -18,8 +18,10 @@ export const ERC20_ABI = [
 // observe() returns tickCumulatives, from which the regime brain derives realized
 // vol + trend (sub-spread chop / supra-spread oscillation / one-way trend).
 export const CORE_ABI = [
-  'function observe(uint32[] secondsAgos) view returns (int56[] tickCumulatives)',
-  'function observeBTC(uint32[] secondsAgos) view returns (int56[] tickCumulatives)',
+  // §E63 — ONE dispatched observe. These were two entries differing only in which ring they
+  // read, mirroring a duplication that also existed on-chain (two selectors, two dispatch
+  // entries, one behaviour). Both sides now take the band as an argument.
+  'function observe(uint32[] secondsAgos, bool isBTC) view returns (int56[] tickCumulatives)',
   // Internal pool state — the REAL committed-vs-backing + in-range fractions.
   'function committedUsd18() view returns (uint)',     // USD committed to the in-range pools
   'function POOLED_ETH() view returns (uint)',          // in-range ETH (short-gamma slice)

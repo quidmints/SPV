@@ -13,13 +13,21 @@ name: enclave
 # Runs on ANY pushed branch + manual dispatch — it does NOT touch or require `main`
 # beyond being present in the tree. Authored 2026-07-25; VALIDATED ON FIRST RUN.
 
+# ⚠️ PUSH TRIGGER DISABLED 2026-08-05 at the repo owner's request. It fired on ANY branch, so
+#    every quid-ln push produced a run and, lately, a failure mail. Manual dispatch is unaffected.
+#
+#    WHAT THIS COSTS: the `measure` job is what makes the on-chain AttestedHopRegistry whitelist
+#    auditable — it rebuilds the enclave and reports MRENCLAVE, which is how you answer "is the
+#    pinned measurement a build of this commit?". With this off, SGX toolchain drift lands silently.
+#
+#    TO RESTORE, put back:
+#      push:
+#        branches: ["**"]
+#        paths:
+#          - "quid-ln/**"
+#          - ".github/workflows/enclave.yml"
+#          - "scripts/ci/enclave-measurement.sh"
 on:
-  push:
-    branches: ["**"]
-    paths:
-      - "quid-ln/**"
-      - ".github/workflows/enclave.yml"
-      - "scripts/ci/enclave-measurement.sh"
   workflow_dispatch: {}
 
 jobs:

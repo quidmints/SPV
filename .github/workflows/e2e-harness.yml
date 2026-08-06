@@ -11,11 +11,15 @@ name: e2e-harness (slow, optional)
 # The test itself is `#![cfg(feature = "harness")]`, so it only compiles/runs
 # with `--features harness`.
 
+# ⚠️ NIGHTLY SCHEDULE DISABLED 2026-08-05 at the repo owner's request. This was the worst inbox
+#    offender of the three: a cron failure mails you once a day, every day, forever, and it does
+#    it at 04:17 UTC whether or not anyone touched the repo. Manual dispatch is unaffected.
+#
+#    TO RESTORE, put back:
+#      schedule:
+#        - cron: "17 4 * * *"
 on:
   workflow_dispatch:
-  schedule:
-    # Nightly at 04:17 UTC — off-peak, gives a daily signal without taxing PRs.
-    - cron: "17 4 * * *"
 
 permissions:
   contents: read
