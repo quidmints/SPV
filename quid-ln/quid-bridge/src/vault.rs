@@ -47,6 +47,26 @@ pub fn derive_vault_seed(hop_seed: &RootSeed) -> RootSeed {
     RootSeed::new(hop_seed.derive(&[VAULT_SEED_LABEL]))
 }
 
+/// Where the vault node's identity comes from. An EXPLICIT choice at the call site,
+/// because it decides whether the MuSig2 2-of-2 is real or nominal.
+pub enum VaultSeedSource<'a> {
+    /// SINGLE-OPERATOR (today's default). HKDF-derived from the hop's seed under a
+    /// PUBLIC label, so anyone holding the hop seed computes this one with a single
+    /// call. Both halves of every channel's 2-of-2 share an ancestor ⇒ **one seed
+    /// compromise yields BOTH**. The 2-of-2 is Lightning's mandatory shape here, not
+    /// an added protection.
+    DerivedFromHop(&'a RootSeed),
+    /// INDEPENDENT. A seed that did not come from the hop's. Compromising the hop seed
+    /// does not yield this one.
+    ///
+    /// ⚠️ Supplying a different seed is NECESSARY but NOT SUFFICIENT for independent
+    /// custody: if the same operator holds both, it still holds both halves. The
+    /// property needs the vault run by a SEPARATE operator, in its own enclave, with
+    /// its own attestation — and migration authority pinned to a DIFFERENT Safe, since
+    /// `MigrationAuth` exports whatever seed the enclave it authorises is holding.
+    Independent(&'a RootSeed),
+}
+
 /// Spawn a localhost TCP p2p listener for `node` on `port`, feeding inbound
 /// connections to its peer manager (production twin of `harness::spawn_listener`,
 /// reusing `quid_ln::p2p::spawn_inbound`). The vault dials the hop, so the HOP runs
@@ -495,14 +515,15 @@ pub async fn run_vault_delivery_correlator(
 
 /// Boot the vault node (2nd in-process `HopNode`) and peer it to the hop.
 ///
-/// Reuses `node::boot` (identical to the hop boot) with a BIP32-derived vault seed +
+/// Reuses `node::boot` (identical to the hop boot) with the vault seed named by
+/// [`VaultSeedSource`] +
 /// its own data dir, then dials the hop over localhost (the hop runs
 /// `spawn_p2p_listener`). `lsp_info` for the vault = the HOP (its single counterparty).
 #[allow(clippy::too_many_arguments)]
 pub async fn boot_vault(
     network: Network,
     esplora_url: String,
-    hop_seed: &RootSeed,
+    seed_source: VaultSeedSource<'_>,
     vault_data_dir: PathBuf,
     hop_node_pk: NodePk,
     hop_listen_port: u16,
@@ -510,7 +531,22 @@ pub async fn boot_vault(
     store: Arc<crate::store::BridgeStore>,
     anchor: Arc<dyn quid_hop::freshness::FreshnessAnchor + Send + Sync>,
 ) -> anyhow::Result<VaultNode> {
-    let vault_seed = derive_vault_seed(hop_seed);
+    // Keep the derived value alive for the borrow below; `RootSeed` is not `Clone`.
+    let derived;
+    let vault_seed: &RootSeed = match seed_source {
+        VaultSeedSource::Independent(s) => {
+            info!("vault seed: INDEPENDENT (not derived from the hop seed)");
+            s
+        }
+        VaultSeedSource::DerivedFromHop(h) => {
+            warn!(
+                "vault seed: DERIVED FROM THE HOP SEED — the 2-of-2 is nominal, \
+                 one seed compromise yields both halves of every channel"
+            );
+            derived = derive_vault_seed(h);
+            &derived
+        }
+    };
     // The vault's LSP = the hop it opens channels to (localhost listener).
     let lsp_info = LspInfo {
         node_pk: hop_node_pk,
@@ -527,7 +563,7 @@ pub async fn boot_vault(
         htlc_maximum_msat: 21_000_000_0000_0000,
     };
     info!("booting fleet VAULT node (2nd in-process HopNode)");
-    let node = boot(network, esplora_url, &vault_seed, vault_data_dir, lsp_info, anchor)
+    let node = boot(network, esplora_url, vault_seed, vault_data_dir, lsp_info, anchor)
         .await
         .context("boot vault node")?;
     // Dial the hop (in-process, localhost). The connection task lives inside the
