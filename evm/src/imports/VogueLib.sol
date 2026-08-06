@@ -37,12 +37,6 @@ library VogueLib {
     // Deliberately NO VENUE_ETHERFI (=1) dispatch tag: per the venue TODO, ether.fi is NOT a distinct
     // user choice — it ALWAYS routes through Rover (VENUE_ROVER), and direct weETH is used internally
     // ONLY as the Rover-self-liquidated fallback (see `_supplyEtherFi`).
-    uint8 constant VENUE_AAVE    = 2;
-    uint8 constant VENUE_GALAXY  = 3;
-    uint8 constant VENUE_ETHERFI = 4;   // was VENUE_ROVER; Rover is deleted, this is direct weETH
-    uint8 constant VENUE_EULER   = 5;
-    uint8 constant VENUE_GAUNTLET= 6;
-    uint8 constant VENUE_SPLIT   = 0;
     /// A chosen venue (or a SPLIT leg) placed 0 — paused / unwired / de-allowlisted. We do NOT
     /// silently redirect to a fallback venue: Galaxy AND Gauntlet are Morpho CURATED vaults (Aave/
     /// Euler likewise), so NONE can be assumed always-live. Fail loud — the depositor picks a live venue.
@@ -222,40 +216,23 @@ library VogueLib {
             uint placed;
             bool attrib = pledge != address(0);
             uint8 v = venue;
-            if (v == VENUE_ETHERFI) {
-                // ether.fi = the depositor's ONLY ether.fi choice, and it ALWAYS routes through Rover
-                // (the protocol-owned weETH/WETH v3 LP). Per the venue TODO, VENUE_ETHERFI (direct weETH)
-                // is NOT a user-facing venue — `_supplyEtherFi` uses it INTERNALLY, and ONLY as the
-                // fallback for when the Rover NFT has self-liquidated (v3 pool drained ⇒ the Rover deposit
-                // reverts). Either path is ether.fi-sourced ⇒ attributed (ethfiBacked) + exits via the offramp.
-                placed = _supplyEtherFi(ev, toDeposit);
-            } else if (v == VENUE_AAVE) {
-                placed = IEthVenue(ev).supplyAaveEth(toDeposit);
-            } else if (v == VENUE_EULER) {
-                placed = IEthVenue(ev).supplyEulerEth(toDeposit);
-            } else if (v == VENUE_GAUNTLET) {
-                placed = IEthVenue(ev).supplyGauntlet(toDeposit);
-            } else if (v == VENUE_GALAXY) {
-                // Explicit Galaxy (its own Morpho vault, via vogueOp). vogueOp REVERTS if that vault is
-                // paused/de-allowlisted, so a down Galaxy fails loud right here — no fallback.
-                IEthVenue(ev).vogueOp(false, toDeposit, 0, bytes32(0));
-                placed = toDeposit;
-            } else if (v == VENUE_SPLIT) {
-                // User TODO: split EQUALLY across ALL venues {AAVE, Euler, Rover, Galaxy, Gauntlet} to
-                // diversify curator risk. NO sink: if ANY leg places short — a paused/unwired curated
-                // vault — the WHOLE deposit REVERTS, never over-concentrated into one venue. Only the
-                // Rover (ether.fi) fifth is attributed.
-                uint fifth = toDeposit / 5;
-                uint extSum;                              // the 4 curated 4626 legs (return the WETH placed)
-                extSum += IEthVenue(ev).supplyAaveEth(fifth);
-                extSum += IEthVenue(ev).supplyEulerEth(fifth);
-                uint ethfiPut = _supplyEtherFi(ev, fifth);   // ether.fi leg: direct weETH
-                extSum += ethfiPut;
-                extSum += IEthVenue(ev).supplyGauntlet(fifth);
-                if (extSum < fifth * 4) revert VenueUnavailable();   // a curated leg placed short ⇒ fail loud
-                IEthVenue(ev).vogueOp(false, toDeposit - extSum, 0, bytes32(0)); // Galaxy leg = its fifth + dust; reverts if paused
-                placed = toDeposit;
-            }
+            // EVERY VENUE IS ether.fi (2026-08-07). `supplyVenueBody` routes every kind into the
+            // ether.fi adapter, so the six-way dispatch that stood here -- AAVE-v4, Euler, Galaxy,
+            // Gauntlet, ether.fi and a five-way SPLIT -- had become six spellings of one call.
+            // VENUE_SPLIT went with them: splitting to "diversify curator risk" is meaningless with a
+            // single venue that is not a curated 4626 at all.
+            //
+            // WHY: holding weETH earns the ether.fi ratchet, MEASURED at +0.674 bps/day = 2.46%/yr.
+            // A WETH-holding venue must clear that to break even. AAVE v4, measured live: WETH at
+            // 1.90% utilisation implies single-basis-point supply APY; weETH at 0.00% utilisation
+            // (ZERO borrowed against 714 supplied) yields exactly zero. The suite already knew --
+            // routing supply to weETH FIXED testLeverage_LvrControlVsTreatment, the documented
+            // baseline failure asserting leverage flow must not leave the passive LP worse off.
+            //
+            // `v` is accepted-but-ignored so the depositor-facing venue argument and its call sites
+            // need not change here; retire it once the VENUE_* constants go.
+            v;
+            placed = _supplyEtherFi(ev, toDeposit);
             if (placed == 0) revert VenueUnavailable();   // chosen venue placed nothing ⇒ paused/unwired ⇒ NO fallback
             // ATTRIBUTE EVERY VENUE, not just ether.fi (2026-08-06 correctness fix). `supplyVenueBody`
             // now routes EVERY kind into the ether.fi adapter, so every deposit is ether.fi-sourced
