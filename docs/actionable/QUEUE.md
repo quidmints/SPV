@@ -7576,3 +7576,39 @@ the clean re-run executed **2,542 of 3,882 tests** before `429`s, a timeout and 
 (`block N is not executed`) killed whole suites. Only NAMED failures are comparable; totals are not.
 For a trustworthy full run, use a dedicated endpoint or pin `FORK_BLOCK` a few blocks behind head —
 the head-block race is publicnode serving a block its execution layer has not finished.
+
+
+### RE-RUN ON A HEALTHY ENDPOINT — all three attempts are ONE defect, and the reduction is sound
+
+`ethfibacked-reduction-wip`, re-run 2026-08-06 on `ethereum-rpc.publicnode.com`:
+**3,580 passed / 301 failed / all 3,882 tests ran / ZERO `setUp()` failures / zero RPC-caused errors.**
+
+⇒ **The deployment path is FINE.** The earlier 370-failure run's `setUp()` breakage was the dead ankr
+key, exactly as CLAUDE.md's build-environment note describes. Neither the storage-layout change nor
+the deleted entry points broke anything.
+
+⇒ **And it is NOT stale tests either.** Every remaining failure is a variant of ONE thing —
+the withdrawal delivers ZERO:
+    "Alice should receive ETH: 0 <= 0"
+    "Should receive something on withdraw: 0 <= 0"
+    "PREMISE: the withdraw actually delivered ETH: 0 <= 0"
+    "thaw: late LP's deferral recovers: 0 <= 0"
+    "the deferred residual must be RECOVERABLE by a second exit"   (residual unchanged)
+    "delivered + retained == principal"                            (short 0.18%)
+    "round-trip harmed the incumbent LP"
+    testLeverage_LvrControlVsTreatment regressing again
+
+**ROOT CAUSE, single and already identified: `waitNft` mints the redemption NFT to `address(this)`
+without the borrow leg to pay the user.** Any exit reaching rung 4 delivers nothing. `ethfiBacked`
+was the gate keeping most exits OFF the offramp entirely, so removing it does not cause the defect —
+it EXPOSES it, on every exit instead of a minority.
+
+⇒ **THE REDUCTION IS SOUND. Do not rework it.** Land the borrow leg first (owner's option 2); these
+301 should then resolve as a group, because they share one cause. Re-run before assuming which of
+them survive.
+
+**METHOD NOTE:** three separate diagnoses of this were wrong — "broken deployment path" (it was the
+RPC), "stale two-world tests" (they are zero-delivery), and "the collapse leaks value" (the collapse
+only makes an existing leak reachable). What finally separated them was a clean endpoint plus reading
+the failure TEXT rather than the count. See also the memory note on asserting against an
+independently measured balance delta rather than a number the failing code produced.
