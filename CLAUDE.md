@@ -154,6 +154,22 @@ That header calls segregation *"a prerequisite, not cosmetics"* for the privacy 
 is not a bearer instrument; there is nothing to anonymise"*, and `:2108-2115`: *"**NOBODY EVER HOLDS
 vBTC** … it is an internal accounting token inside the leverage machinery, not a BTC wrapper anyone can
 custody. **There is no vBTC holder population to build an anonymity set from.**"*
+✅ **RESOLVED (owner, 2026-08-07) — AND THE REAL REASON IS NEITHER OF THE ONES THE CODE GIVES.**
+`VEth` **deletes**; `VBtc` **survives**. The discriminator is simply *whether an ERC-20 underlying
+already exists*:
+  • **ETH — none needed.** WETH exists independently; wrapping/unwrapping is an edge detail. The band
+    manager instance names `asset() = WETH` and IS the 4626 outright. `VEth` has no remaining job.
+  • **BTC — one must be MINTED.** The underlying is LN-custodied native BTC, which has **no EVM token**;
+    WBTC is only a pricing handle and is never held. So the BTC band needs a **synthetic underlying to
+    point `asset()` at**, and that is exactly what vBTC is (`ibiza/COMPLIANCE-THESIS.md:77`: *"a
+    synthetic, sats-denominated token minted only against…"*).
+⇒ `VBtc` exists because **the BTC band has no underlying unless it mints one** — NOT because anyone
+holds it, custodies it, or anonymises it. An asymmetry with a real reason, and one that survives
+instantiation rather than being dissolved by it.
+⚠️ Follow-on to settle when this lands: today `VBtc.asset()` returns **WBTC** as a pricing handle. Under
+this design vBTC IS the band's asset rather than having one, so that accessor's meaning has to be
+revisited — do not carry it across unexamined.
+
 ⇒ **A CROSS-REPO STALE RATIONALE**: SPV's contract justifies its own existence with a design the
 consuming repo has retired. Neither file knows about the other. Do NOT keep `VBtc` on privacy grounds,
 and do NOT delete it on those grounds either — **the surviving question is the OTHER blocker its header
