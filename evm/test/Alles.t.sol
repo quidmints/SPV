@@ -1349,7 +1349,11 @@ contract Alles is ForkPin, Fixtures {
         vm.prank(User01); V4.deposit{value: 10 ether}(0, User01, 2); // AAVE-v4
         (uint pooled,,,) = V4.autoManaged(User01);
         assertEq(pooled, 10 ether, "deposit credited (whichever venue served)");
-        assertEq(V4.ethfiBacked(User01), 0, "no ether.fi slice; never touches offramp");
+        // Two-world assertion RETIRED 2026-08-06: every deposit now lands in weETH whatever venue
+        // the depositor named, and attribution follows where the funds GO -- so there is no
+        // "no ether.fi slice" case left. Crediting only VENUE_ROVER was the bug: an LP picking
+        // AAVE held weETH with ethfiBacked == 0 and was gated out of the offramp by Vogue:626.
+        assertGt(V4.ethfiBacked(User01), 0, "every deposit is ether.fi-sourced now");
 
         if (ETH.WETH_RESERVE_ID() != 0) {
             // LIVE: WETH supplied to AAVE-v4, attributed to the AAVE slice.
