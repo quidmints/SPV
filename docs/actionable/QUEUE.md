@@ -7510,3 +7510,42 @@ unattributable — the exact thing rule 10 exists to prevent.
 The substitution itself is unchanged and still correct: `ethfiBacked[lp] == LP.pooled` identically,
 so the offramp gate becomes `LP.pooled > 0`, the pro-rata slice becomes the whole `amount`, and the
 decrement and `delete` drop.
+
+
+### ⚠️ LIVE DEFECT ON MAIN: rung 4 retains principal. Owner chose to fix it by landing the borrow leg.
+
+`waitNft` mints the withdrawal NFT to `address(this)` (the protocol), not the withdrawer. That change
+was made 2026-08-06 and was EXPLICITLY COUPLED to the borrow leg existing — the protocol takes the
+NFT and the ~7-day wait BECAUSE the withdrawer is paid WETH immediately. **The borrow leg does not
+exist yet.** So rung 4 currently takes the user's weETH, requests a redemption payable to the
+protocol, and returns them nothing.
+
+It stayed hidden because rung 4 was rarely reached — only ether.fi-sourced LPs used the offramp at
+all. The venue collapse makes every exit use it, which is why attempt 3 surfaced it as:
+    "the deferral must be COLLECTABLE, else it is a leak"
+    "the deferred residual must be RECOVERABLE by a second exit"  (residual does not shrink)
+    "delivered + retained == principal"  short by 0.18%
+    two `ERC20: transfer amount exceeds balance` reverts
+**These are NOT stale tests. Do not update them to pass.** They are detecting retained principal.
+
+**OWNER DECISION: land the borrow leg (option 2), rather than reverting waitNft to mint to the
+withdrawer (option 1).** Note the consequence: main carries the principal-retention path until the
+borrow lands. Acceptable only because NOTHING IS DEPLOYED — if that changes, do option 1 first, it is
+a two-character revert.
+
+**THE WIRING IS ALREADY THERE — no struct surgery needed.** `VaultLib.EthCfg` carries `levManager`
+(`VaultLib:61`) and `withdrawETH` takes `EthCfg`. So the borrow belongs in the CALLER, above
+`offrampBody`, which is also the right design: the ladder's rungs all CONSUME weETH, and the borrow's
+whole point is that it does not. `OfframpCfg` needs no new field.
+
+**BUILD ORDER:**
+  1. In `withdrawETH`, before the offramp: borrow WETH against the weETH via `venue.borrow`, deliver
+     to the recipient, record the debt.
+  2. `waitNft` keeps minting to `address(this)` — now correct, because the user was already paid.
+  3. The claim-and-repay step: claim the matured NFT, apply proceeds to the debt. PERMISSIONLESS and
+     piggybacked on the next offramp (see the keeper-split entry) so a keeper outage cannot strand it.
+  4. Only then retry the venue collapse and the `VENUE_*` / `ethfiBacked` deletions.
+
+**Attempt branches for diffing:** `venue-collapse-wip`, `ethfibacked-reduction-wip`,
+`dispatch-collapse-attempt3` (the informative one — 229 failures WITH readable messages), and
+`50a19e5` on the working branch (attribution fix isolated, 38 failures / 3 tests).
