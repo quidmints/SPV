@@ -100,7 +100,7 @@ single source of bulk.** ~5,500 lines sit in **four ETH/BTC pairs**:
 
 | ETH side | BTC side | role |
 |---|---|---|
-| `Vogue` 1,557 | `Vault` 991 | band manager |
+| `Vogue` 1,557 | `Vault` 991 | band manager — ⚠️ **but see the caveat below: this row is unconfirmed** |
 | `LevManager` 908 | `BtcLevManager` 579 | lev manager (`§A.71`: `LevManager.Pos == BtcLevManager.Pos`) |
 | `VogueLib` 694 | `BtcVaultLib` 603 | delegatecall bodies |
 | `VEth` 116 | `VBtc` 105 | ERC-4626 faces |
@@ -124,8 +124,20 @@ dedupe away: the gross-vs-net pooled comparison (`Core.sol:691-694`), 8-vs-18 de
 identity conversions, vBTC having no bearer redemption (`§A.19b`/`§A.45`), and LN-cooperative-close
 vs on-chain-WETH settlement.
 
-⚠️ **`VEth.sol:19-27` asserts the vETH/vBTC asymmetry is structural. Four measurements contradict it.**
-Treat that header as a record of a decision, not a derivation — the usual comment trap.
+⚠️ **`VEth.sol:19-27` asserts the vETH/vBTC asymmetry is structural. Five measurements contradict it**
+(and `§A.16b`, read 2026-08-07, turns out to be a **clock-consistency** invariant — numerator and
+denominator must share a reconciliation clock — **not** a storage-locality one, so its stated objection
+to relocating vETH balances does not follow). Treat that header as a record of a decision, not a
+derivation. The real constraint it leaves behind: any relocation must preserve the **recorded-vs-live**
+lev distinction, or the socialised-liquidation race in `§A.16b` reopens.
+
+⚠️ **THE `Vogue`/`Vault` ROW IS NOT VERIFIED AS AN ETH/BTC PAIR — check it FIRST.** `vogueETH()` lives
+in **`Vault.sol:444`** (→ `VaultLib.vogueETH(_ethCfg())`), alongside `deliverableETH` and an ETH-side
+`vogueOp`. So `Vault` is not simply the BTC counterpart of `Vogue`: it appears to host **ETH venue
+custody AND the BTC band accounting** (`autoManagedBTC`, `levPooledBTC`). If that holds, the two are
+**different layers**, not two instances of one thing, and only the *BTC band accounting* inside `Vault`
+pairs with `Vogue`. The other three rows are unaffected. **Establish what `Vault` actually is before
+planning any merge** — this is the single most load-bearing unknown in the whole refactor.
 
 ## Build environment
 
