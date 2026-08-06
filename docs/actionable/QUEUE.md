@@ -7549,3 +7549,30 @@ whole point is that it does not. `OfframpCfg` needs no new field.
 **Attempt branches for diffing:** `venue-collapse-wip`, `ethfibacked-reduction-wip`,
 `dispatch-collapse-attempt3` (the informative one — 229 failures WITH readable messages), and
 `50a19e5` on the working branch (attribution fix isolated, 38 failures / 3 tests).
+
+
+### ⚠️ RETRACTION: the "ethfiBacked reduction broke the deployment path" conclusion is UNVERIFIED
+
+The 370-failure run that produced that conclusion had **32 dead-RPC errors** in its output, and its
+failures included bare `setUp()`. Per CLAUDE.md's build-environment note, that is EXACTLY the
+signature of a dead endpoint: it fails inside `setUp()` so every fork test reports FAIL with no
+assertion involved. The ankr key in `evm/.env` was returning HTTP 401 during that window and has
+since been repointed to `ethereum-rpc.publicnode.com`.
+
+**So `ethfibacked-reduction-wip` may be fine. Re-run it on a healthy endpoint before believing my
+diagnosis.** I attributed a mass regression to my own change without reading the failure text — the
+precise mistake CLAUDE.md warns about ("read the failure text before believing a mass regression").
+
+**WHAT SURVIVES, re-verified on the working endpoint** — the isolated attribution fix (`50a19e5`)
+still shows the same three, so that run was NOT contaminated:
+  * `testEthVenue_AaveV4_DepositAndWithdraw` — "no ether.fi slice" — **STALE**, asserts the two-world
+    model that all-in-weETH abolishes.
+  * `test_V5_WithdrawShrinksCommitted` — "the withdraw actually delivered ETH: 0 <= 0" — **REAL**.
+  * `testRoundTripNoRaceNoDrain` — incumbent LP down ~40 bps — **REAL**, and it is the cost of every
+    exit paying the weETH→WETH conversion.
+
+**⚠️ FAILURE COUNTS ARE NOT COMPARABLE ACROSS TODAY'S RUNS.** publicnode rate-limits a full-suite run:
+the clean re-run executed **2,542 of 3,882 tests** before `429`s, a timeout and a head-block race
+(`block N is not executed`) killed whole suites. Only NAMED failures are comparable; totals are not.
+For a trustworthy full run, use a dedicated endpoint or pin `FORK_BLOCK` a few blocks behind head —
+the head-block race is publicnode serving a block its execution layer has not finished.
