@@ -7407,3 +7407,22 @@ claim permissionless AND piggybacked, the bound is computable rather than operat
 interest over an unbounded outage must stay inside the liquidation headroom
 `C·(1 − curLtv/(LLTV − margin))`, which `LevMath.deliverableDollars` already computes. That turns an
 operational assumption into an on-chain invariant.
+
+### supplyVenueBody kinds 2–5 — THE BAR IS 2.46%/yr, AND IT IS MEASURED
+
+Holding weETH earns the ether.fi ratchet: **+0.674 bps/day → 2.46%/yr**, measured over the 90-day
+window (`analysis/rover/decompose.py`, the TREND component). That is the hurdle rate. Any venue that
+holds **WETH** instead of weETH must clear **2.46% supply APY** merely to break even — before the
+conversion friction each way.
+
+**AAVE v4 — MEASURED 2026-08-06, loses outright:**
+* WETH: 21,103 supplied / 400 borrowed = **1.90% utilisation** ⇒ supply APY in SINGLE BASIS POINTS.
+* weETH: 714 supplied / **0** borrowed = **0.00% utilisation** ⇒ supply yield exactly zero, whatever
+  the rate curve says.
+⇒ Supplying there is a strict loss of ~2.46 points. The only thing it buys is borrow capacity against
+the collateral — which is encumbrance, i.e. the offramp design, not a yield venue.
+
+**STILL A HYPOTHESIS: Euler 4626, Galaxy, Gauntlet.** Three separate markets, not measured. The test
+is one question each — does WETH supply APY exceed 2.46%? Implausible at current WETH rates, but
+implausible is not measured, and this file already records five paths that looked fine and were not.
+Do NOT drop kinds 2–5 until each is checked.
