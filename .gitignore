@@ -97,3 +97,14 @@ __pycache__/
 # Live LN harness output (regtest/swap.sh). The COMMITTED swapin_fixture.json is the
 # offline vector and must stay pristine; this sibling is per-machine and regenerated.
 evm/test/btc/swapin_fixture.local.json
+
+# STANDING RULE: never commit .env or ANY .env.* variant, anywhere in the tree.
+# The dated/backup copies are the dangerous ones -- they are not the filename anyone
+# remembers to ignore. `evm/.env.bak-<ts>` sat untracked and UNIGNORED on 2026-08-06,
+# one `git add -A` from publishing RPC endpoints and keys. Globs, not filenames.
+.env*
+**/.env*
+# ...except the committed-on-purpose templates (3 already tracked: indexer/ and two
+# vendored libs). These hold placeholders, never secrets.
+!.env.example
+!**/.env.example

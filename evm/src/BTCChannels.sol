@@ -1021,6 +1021,51 @@ contract BTCChannels is Ownable, ReentrancyGuard {
 
     error NotForceClose();
 
+    /// @notice (#114) Retire a channel ended by the pre-signed DEAD-MAN EXIT. Without this the
+    ///         exit is UNRECORDABLE and the position never retires: `recordClose` routes a
+    ///         nonzero-locktime tx to the force branch, and BOTH that branch (`:1014`) and
+    ///         `recordForceClosePermissionless` (`:1054`) demand `isCommitmentTx` — BOLT#3
+    ///         encoding, nLockTime top byte 0x20 + nSequence top byte 0x80. The exit tx is
+    ///         built (`quid-ln/quid-ln/src/deadman_exit.rs`) with nLockTime = the ABSOLUTE CLTV
+    ///         deadline (a block height, top byte 0x00) and nSequence = ENABLE_LOCKTIME_NO_RBF
+    ///         (top byte 0xFF), so it fails BOTH bytes and can never pass. The LP would recover
+    ///         its BTC on Bitcoin while the EVM kept counting gone-BTC as backing — QUI mintable
+    ///         against BTC that has left the 2-of-2, the exact hazard the force-close path exists
+    ///         to prevent, arriving through the ONE path that is meant to protect the LP.
+    ///
+    ///         DISCRIMINATOR: the tx's locktime must EQUAL the `deadManDeadline` this contract
+    ///         itself recorded. A coop close is locktime 0; a BOLT#3 commitment carries the
+    ///         obscured 0x20-prefixed locktime; neither can equal a real deadline. MATURITY needs
+    ///         no check — Bitcoin consensus will not confirm a CLTV tx before its locktime, so an
+    ///         SPV-proven confirmation IS the proof it matured.
+    ///
+    ///         AUTHORITY: the LP only. It is the party still present once the fleet is gone, and
+    ///         it cannot grief itself — retiring forfeits its own position (same reasoning
+    ///         `recordClose` gives for participant-gating). This deliberately does NOT accept a
+    ///         splice tx that happened to share the deadline's locktime: a splice recreates the
+    ///         funding output and the channel continues, so retiring on one would strand it.
+    function recordDeadManExit(
+        bytes32 channelId,
+        bytes calldata rawExitTx,
+        bytes32 exitBlockHash,
+        bytes32[] calldata merkleProof,
+        uint    txIndex
+    ) external nonReentrant whenOpen(channelId) {
+        address lpEth = channels[channelId].lpEth;
+        if (msg.sender != lpEth) revert NotLP();
+        uint64 deadline = deadManDeadline[channelId];
+        if (deadline == 0) revert NoDeadManExit();
+        _verifyTxSpendsChannel(channelId, rawExitTx, exitBlockHash, merkleProof, txIndex);
+        if (BitcoinTx.extractLocktime(rawExitTx) != deadline) revert NotDeadManExit();
+        // Same attribution as a cooperative close: sum every output paying the LP's committed
+        // P2TR. The exit pays `btcRecipientOf` by construction, pinned inside the signed bytes.
+        uint total = _finalizeClose(channelId, _lpFinalBalance(lpEth, rawExitTx));
+        emit ChannelClosed(channelId, total);
+    }
+
+    error NoDeadManExit();   // no dead-man exit was ever emitted for this channel
+    error NotDeadManExit();  // tx locktime != the recorded deadManDeadline
+
     /// @notice PERMISSIONLESS reconciliation of a FORCE-CLOSE. Anyone (a keeper, a
     ///         QUI holder, a watchtower) may retire a channel whose funding UTXO is
     ///         provably spent by a BOLT #3 COMMITMENT transaction — removing the

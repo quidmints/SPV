@@ -274,6 +274,19 @@ library ChannelLib {
             sp.spValue = r.newSpValue;
             // Re-supply liquidation yield (WETH branch bumps Vogue backing).
             if (r.wethGain > 0) aux.supplySelf(cfg.weth, r.wethGain);
+            // §E91-ROOT — DELIVER. This branch un-deployed BOLD into `Aux` and returned `r.sent`
+            // WITHOUT MOVING IT, so every caller was told a delivery happened that never did.
+            // MEASURED: a volatile-IN swap burned the mock USD, `Core.swap` returned a non-zero
+            // `max` (37943101858) and the recipient received ZERO — and `sent` being non-zero is
+            // exactly why the aggregate `NothingDelivered` guard could not see it either.
+            //   Every OTHER withdrawal path already delivers: the multi-venue leg below passes
+            // `to` into `multiVaultWithdrawBody`, and `:297` uses this same guarded form. The
+            // BOLD-SP branch was the lone exception.
+            //   `withdrawFromSP` deliberately does NOT take a `to`: its job is the SP interaction
+            // (claim, compute, redeposit the excess) and the caller already holds the recipient,
+            // so threading the address inward would widen that function's responsibility and cost
+            // a stack slot for nothing.
+            if (to != address(this) && r.sent > 0) IERC20OZ(token).safeTransfer(to, r.sent);
             return r.sent;
         }
         // Default: multi-venue pro-rata draw across the stable's set.

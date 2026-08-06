@@ -100,6 +100,16 @@ contract BtcSelfManagedTest is Alles {
         // stable offline case that every machine checks on every run.
         string memory local     = string.concat(vm.projectRoot(), "/test/btc/swapin_fixture.local.json");
         string memory committed = string.concat(vm.projectRoot(), "/test/btc/swapin_fixture.json");
+        // ⚠️ ALWAYS check the COMMITTED vector, not "whichever file we happen to read". A stale
+        // `.local.` left by an earlier run would otherwise shadow it on a machine where the
+        // harness is now absent — and the committed vector going unchecked is the exact defect
+        // this whole change exists to fix.
+        {
+            string memory jc = vm.readFile(committed);
+            assertEq(sha256(vm.parseJsonBytes(jc, ".preimage")),
+                     vm.parseJsonBytes32(jc, ".paymentHash"),
+                     "committed offline vector is a genuine sha256 pair");
+        }
         bool haveLive = vm.exists(local);
         string memory j = vm.readFile(haveLive ? local : committed);
         uint    sats        = vm.parseJsonUint(j, ".sats");
@@ -342,6 +352,30 @@ contract BtcSelfManagedTest is Alles {
         vm.prank(hop);
         vm.expectRevert(BTCChannels.SwapInReplay.selector);
         ch.settleSwapIn(b.seller, b.sats, address(USDC), b.paymentHash, 0, false);
+
+        // ── (#114/E107) DEAD-MAN RETIRE PATH, on the REAL SPV-proven tx ──
+        // Without `recordDeadManExit` a CLTV exit is unrecordable: recordClose sends any
+        // nonzero-locktime tx to the force branch, and that branch demands isCommitmentTx
+        // (nLockTime 0x20 + nSequence 0x80) which deadman_exit.rs can never satisfy (block-height
+        // locktime 0x00, ENABLE_LOCKTIME_NO_RBF 0xFF). The LP would recover its BTC and leave the
+        // EVM counting gone-BTC as backing.
+        // ⚠️ COVERAGE IS PARTIAL AND SAYS SO: the three REJECT branches run here against genuine
+        // SPV data; the ACCEPT branch cannot, because no harness produces a CLTV-locked exit tx
+        // spending the funding UTXO. Do not read a green run as proof the happy path works.
+        vm.prank(lpEth);
+        vm.expectRevert(BTCChannels.NoDeadManExit.selector);      // none emitted yet
+        ch.recordDeadManExit(channelId, b.rawCloseTx, b.closeBlockHash, b.closeMerkleProof, b.closeTxIndex);
+
+        vm.prank(hop);
+        ch.emitDeadManExit(channelId, uint64(block.number + 144), 50_000, hex"00");
+
+        vm.prank(hop);                                            // LP-gated: the hop is not the LP
+        vm.expectRevert(BTCChannels.NotLP.selector);
+        ch.recordDeadManExit(channelId, b.rawCloseTx, b.closeBlockHash, b.closeMerkleProof, b.closeTxIndex);
+
+        vm.prank(lpEth);                                          // real coop close: locktime 0 != deadline
+        vm.expectRevert(BTCChannels.NotDeadManExit.selector);
+        ch.recordDeadManExit(channelId, b.rawCloseTx, b.closeBlockHash, b.closeMerkleProof, b.closeTxIndex);
 
         // ── recordClose: the REAL cooperative-close tx + SPV proof retires it ──
         uint qBefore = QUID.balanceOf(lpEth);

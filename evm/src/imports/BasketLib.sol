@@ -33,6 +33,10 @@ import {VaultLib} from "./VaultLib.sol";
 /// Canonical view — union of the former per-file variants (`IBasketTurn2`). Two declarations
 /// described ONE contract, so a signature change had to be made twice and a missed one still compiled.
 library BasketLib {
+    /// @notice A take asked for a non-zero amount and delivered nothing — every venue failed.
+    ///         §E91-r5: distinct from a partial fill, which is legitimate under fail-soft.
+    error NothingDelivered();
+
     uint public constant WAD = 1e18;
     uint public constant MONTH = 2420000;
 
@@ -536,7 +540,22 @@ library BasketLib {
             return sent;
         }
         (uint[15] memory amounts, uint[15] memory yieldW,,) = aux.get_deposits();
-        return _takeCore(a, amounts, yieldW);
+        sent = _takeCore(a, amounts, yieldW);
+        // §E91-r5 / S16 — AGGREGATE DELIVERY GUARD. The per-venue `try/catch` in `_takePreferred`
+        // and `_takeProRata` is CORRECT and stays: the basket holds up to 15 stables in separate
+        // venues (Aave, 4626 vaults, the Stability Pool), and one paused, exploited or
+        // reverting-`decimals()` venue must NOT brick redemption for every holder — that exact
+        // regression already happened ("was a bare `require(bad-dec)` outside the try, so one weird
+        // token reverted every holder's redeem").
+        //   But fail-soft must mean "ROUTE AROUND the broken venue", not "deliver NOTHING, quietly".
+        // With every path swallowing its own failure, ALL of them failing produced `sent == 0` with
+        // NO revert: MEASURED on the swap-out path, where the mock USD was burned, `Core.swap`
+        // returned a non-zero `max` (37943101858) and the recipient received ZERO. `max` reports the
+        // SWAP's delta, not the USER's receipt, so the `max == 0` guard upstream cannot see this —
+        // and `minOut = 0` (the SPA default, §S16) hides it from the caller too.
+        //   One aggregate check closes it without touching the per-venue resilience: asking for a
+        // non-zero amount and receiving nothing is never a valid outcome.
+        if (a.amount > 0 && sent == 0) revert NothingDelivered();
     }
 
     /// @notice Pre-fetched-deposits variant of takeBody: the redeem path fetches
@@ -548,7 +567,23 @@ library BasketLib {
     ///         the arrays are still current (no stable-balance mutation since fetch).
     function takeBodyWith(TakeArgs memory a, uint[15] memory amounts, uint[15] memory yieldW)
         external returns (uint sent) {
-        return _takeCore(a, amounts, yieldW);
+        sent = _takeCore(a, amounts, yieldW);
+        // §E91-r5 / S16 — AGGREGATE DELIVERY GUARD. The per-venue `try/catch` in `_takePreferred`
+        // and `_takeProRata` is CORRECT and stays: the basket holds up to 15 stables in separate
+        // venues (Aave, 4626 vaults, the Stability Pool), and one paused, exploited or
+        // reverting-`decimals()` venue must NOT brick redemption for every holder — that exact
+        // regression already happened ("was a bare `require(bad-dec)` outside the try, so one weird
+        // token reverted every holder's redeem").
+        //   But fail-soft must mean "ROUTE AROUND the broken venue", not "deliver NOTHING, quietly".
+        // With every path swallowing its own failure, ALL of them failing produced `sent == 0` with
+        // NO revert: MEASURED on the swap-out path, where the mock USD was burned, `Core.swap`
+        // returned a non-zero `max` (37943101858) and the recipient received ZERO. `max` reports the
+        // SWAP's delta, not the USER's receipt, so the `max == 0` guard upstream cannot see this —
+        // and `minOut = 0` (the SPA default, §S16) hides it from the caller too.
+        //   One aggregate check closes it without touching the per-venue resilience: asking for a
+        // non-zero amount and receiving nothing is never a valid outcome.
+        if (a.amount > 0 && sent == 0) revert NothingDelivered();
+
     }
 
     /// @dev Shared body of takeBody / takeBodyWith. `amounts`/`yieldW` are the basket
