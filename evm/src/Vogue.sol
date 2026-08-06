@@ -81,13 +81,6 @@ contract Vogue is
     uint8 constant VENUE_EULER   = 5; // Euler ETH (WETH 4626 curator; fungible w/ Galaxy)
     uint8 constant VENUE_GAUNTLET= 6; // Gauntlet (2nd Morpho WETH 4626 curator; fungible w/ Galaxy)
 
-    mapping(address => uint) public ethfiBacked; // ether.fi/Rover (weETH) slice — the ONLY
-    // per-LP venue attribution kept. This slice exits via the offramp ladder (isolated,
-    // ether.fi-sourced) so its per-LP size must be tracked. The other venues (AAVE, Euler,
-    // Galaxy, Gauntlet) are FUNGIBLE ERC-4626 WETH positions withdrawn from the pooled book,
-    // so they need NO per-LP attribution — a nested lpVenue map/list/totals would be
-    // net-added state for no functional gain. The former write-only `aaveBacked` map (never
-    // read anywhere) was removed.
 
     // Per-LP attribution applies ONLY to the ether.fi slice (above): that exit is served from your
     // own weETH/Rover position. Every other venue is fungible pooled 4626 WETH — no per-LP venue tie.
@@ -346,7 +339,7 @@ contract Vogue is
         // Backing deposit + single-sided sizing lives in VogueLib (EIP-170
         // headroom); self-managed positions take no wall attribution (pledge==0).
         uint128 liquidity = VogueLib.sizeOutOfRange(
-            address(WETH), address(AUX), address(EV), ethfiBacked,
+            address(WETH), address(AUX), address(EV),
             amount, token, token1isETH, venue, t);
         if (liquidity == 0) revert Dust();
 
@@ -623,13 +616,13 @@ contract Vogue is
         // skips this and never touches the offramp/wait/fee. 
         // Served slice burns its virtual liquidity with 
         // no on-chain delivery (WETH came from ether.fi).
-        if (amount > 0 && ethfiBacked[msg.sender] > 0) {
-            uint ethfiPart = FullMath.mulDiv(amount, 
-                ethfiBacked[msg.sender], LP.pooled);
-            // Defense-in-depth: the slice must never exceed the withdrawal
-            // (ethfiBacked ≤ pooled is the deposit-side invariant; a violation
-            // would otherwise underflow `amount -= served` below).
-            if (ethfiPart > amount) ethfiPart = amount;
+        if (amount > 0) {
+            // EVERY exit is an ether.fi exit (2026-08-06, all-in on weETH). This used to take the
+            // pro-rata slice `amount x ethfiBacked/pooled`, because only ether.fi-sourced deposits
+            // exited through the offramp while AAVE/Euler/Galaxy/Gauntlet LPs skipped it. With every
+            // deposit landing in weETH that ratio is identically 1, so the slice IS the withdrawal
+            // and `ethfiBacked` was bookkeeping for a distinction that no longer exists.
+            uint ethfiPart = amount;
             if (ethfiPart > 0) {
                 uint incrPre = _bandIncrement6();          // BEFORE the burn shrinks it
                 uint served = EV.offrampEtherFi(ethfiPart, recipient, instant);
@@ -640,9 +633,6 @@ contract Vogue is
                     // but the USD leg it burned away is LP-OWNED and must still be paid. Skipping it
                     // was the leak the LVR probe measured (7,809.44 USD of a 60,000 increment).
                     _payUsdLeg(incrPre, lpShares, served, recipient);
-                    ethfiBacked[msg.sender] -= Math.min(served, 
-                    ethfiBacked[msg.sender]);
-
                     LP.pooled -= served; 
                     lpShares -= served;
                     amount -= served;
@@ -733,7 +723,6 @@ contract Vogue is
             // Hygiene: clear the per-LP venue attribution so a stale residual
             // (e.g. an instant-redeem haircut leaving ethfiBacked > 0) can't
             // mis-route a later re-deposit's exit venue.
-            delete ethfiBacked[user];
             // Defensive: a fully-exited position carries no buffer depth (levBurnAll
             // already zeroed it on close); clear any residual so totalBuffer stays exact.
             if (levBuf[user] > 0) { totalBuffer -= levBuf[user]; delete levBuf[user]; }
@@ -1013,7 +1002,7 @@ contract Vogue is
     function _depositETH(address sender, address pledge,
         uint amount, uint8 venue) internal returns (uint sent) {
         return VogueLib.depositETH(address(WETH), address(AUX), address(EV),
-            ethfiBacked, sender, pledge, amount, venue);
+            sender, pledge, amount, venue);
     }
 
     /// @notice Pull ETH from the basket and send to recipient. Used by
