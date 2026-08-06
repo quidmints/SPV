@@ -7810,3 +7810,35 @@ flag on that one.
 | **E118** | ✅ **ITEM 5 DONE — vault seed provenance is now explicit (2026-08-07, `95f5c60`).** `boot_vault` derived the vault seed from the hop''s *inside the function*, so no call site could see that both halves of every channel''s 2-of-2 share an ancestor. `VaultSeedSource::{DerivedFromHop, Independent}` names it at the call site; the default logs a **WARN** that the 2-of-2 is nominal; `QUID_VAULT_ROOT_SEED` selects an independent seed. ✅ **The independent branch is reachable by configuration, NOT dead code** (standing rule 1) — `quid-provision` already parses a seed via `RootSeed::from_str`, so a second is supplyable today. ⛔ **Deliberately does NOT claim independent custody, and both doc comments say so: necessary, not sufficient — the same operator setting both still holds both.** The property needs a separate operator, its own enclave + attestation, and migration authority on a **different Safe** (`MigrationAuth` exports whatever seed the enclave it authorises holds). ✅ Behaviour unchanged by default; **624 passed / 0 failed**, identical to baseline. ▶️ Remaining half of E94 is deployment/operator topology, not code. | ✅ done + verified |
 
 | **E119** | 🟢 **ITEM 3 IS CHEAPER THAN I PRICED IT — THE ENCLAVE ALREADY TRUSTS A PLAIN RPC READ FOR A SECURITY-CRITICAL PROPERTY (2026-08-07).** I said the live owner set *"needs an EVM state proof … a new dependency, not a free upgrade."* 🔎 **That is inconsistent with what the enclave already does.** `freshness_ledger.rs:1-6` reads/writes the monotonic per-channel `freshnessSeq` on `BTCChannels` **through the bridge EVM client** — a plain RPC read — and that value is the **anti-rollback** guard whose failure means signing a stale commitment and losing funds (E104). ⇒ **If an unproven RPC read is trusted for anti-rollback, requiring a Merkle-Patricia state proof for the Safe owner set is not a coherent bar: either both need proofs or neither does.** ▶️ **CHEAP FORM: read `Safe.getOwners()` via the existing EVM client and pass it to `verify_migration_auth`, which ALREADY takes `owners: &[Address]` (`migration.rs:309`) — no signature change.** That removes the sealed-snapshot staleness (a removed owner still passes today, E100) at the trust level the enclave already accepts. ⚠️ **Say the residual out loud rather than implying it is solved: a compromised RPC could then feed a forged owner set. That is a REAL downgrade vs a state proof — but it is the SAME exposure the freshness anchor already carries, so it does not add a new class.** ▶️ Decide: cheap RPC read now, or state proofs for BOTH this and freshness. | 🟢 open — decision, then a small change |
+
+
+### ⛔ BLOCKER on registering the weETH/WETH market: `_fromUsd`/`_toUsd18` assume 1 token = $1
+
+**DO NOT REGISTER A WETH-LOAN MARKET UNTIL THIS IS FIXED. It is a silent ~4,000x error.**
+
+`LevMath:818` `_fromUsd(address stable, uint256 usd)` performs ONLY A DECIMALS SHIFT:
+```
+uint8 dec = IERC20Min(stable).decimals();
+return dec >= 18 ? usd * (10 ** (dec - 18)) : usd / (10 ** (18 - dec));
+```
+That is correct for a stable, where one token unit IS one dollar. **WETH has 18 decimals, so the
+function returns `usd` UNCHANGED — reading $4,000 of debt as 4,000 WETH.** `_toUsd18` (`:822`) has
+the same defect in reverse.
+
+It feeds the borrow directly: `LevMath:148` `borrowed = venue.borrow(lp, _fromUsd(stable, usd))`.
+So a WETH-loan market would size every borrow by the ETH price, and every USD figure the lever
+computes downstream would be mis-denominated by the same factor. It does not fail loudly — the shapes
+and decimals all typecheck.
+
+**THE FIX:** make both price-aware when the loan token is not a stable —
+`_fromUsd(weth, usd18) = usd18 * 1e18 / ethPriceUsd18` and
+`_toUsd18(weth, amt) = amt * ethPriceUsd18 / 1e18`, with the price from
+`IAux(aux).getTWAPforAsset(weth, TWAP_WIN_M)` as the rest of the file already does.
+⚠️ Neither helper currently takes `SellCtx`/`aux`, so they cannot reach a price — this is a SIGNATURE
+CHANGE across their call sites, not a two-line edit.
+
+**ALSO RE-CHECK on the same pass** (all assume a stable loan token): `levClaimUsd6`,
+`deliverableDollars`, `_stableFloor` (`:415`, which builds a floor via `_fromUsd`).
+
+**Already landed and safe:** `_stableToWethSor` and `_wethToStableDex` short-circuit to identity when
+`stable == c.weth` (commit 54e43bf, verified no-op). That half is done; the denomination half is not.
