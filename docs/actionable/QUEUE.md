@@ -7486,3 +7486,27 @@ Then the mapping (`Vogue:84`), its storage slot, and the two threading sites (`V
 `withdrawETH`, `Vogue:1016` into the dispatch) all go. ⚠️ Vogue:60-62 annotates it as "the ONLY per-LP
 isolated slice" and `VEth.sol:23` names it in the relocated-storage note — update both, and check the
 storage layout, since removing a mapping shifts slots.
+
+**TWO FAILED ATTEMPTS 2026-08-06 — the sequencing, learned the hard way.**
+
+* `venue-collapse-wip` (branch): dispatch collapsed to `_supplyEtherFi`, `VENUE_SPLIT` removed,
+  orphaned Vault entry points deleted, `supplyFromAux` restored (ChannelLib:185 calls it).
+  **229 failures.** Those are tests pinning the two-world model and are expected to be stale.
+* `ethfibacked-reduction-wip` (branch): the above PLUS removal of the `ethfiBacked` mapping.
+  **370 failures INCLUDING `setUp()`** — whole suites could not initialise. That is a BROKEN
+  DEPLOYMENT PATH, not stale tests. Two plausible causes, neither checked before proceeding:
+  removing a public mapping SHIFTS STORAGE LAYOUT, and the deleted Vault entry points may still be
+  referenced by `DeployLib`/`setUp` wiring.
+
+⇒ **DO THE TWO CHANGES SEPARATELY, IN THIS ORDER.** They were conflated and the failure became
+unattributable — the exact thing rule 10 exists to prevent.
+  1. **Venue collapse ONLY.** Keep the `ethfiBacked` mapping, keep every Vault entry point, and
+     credit `ethfiBacked` for ALL venues rather than only `VENUE_ROVER`. That is the CORRECTNESS FIX
+     for the attribution mismatch and it touches no storage layout. Triage the ~229 to green.
+  2. **THEN remove `ethfiBacked`.** With step 1 green and the accounting settled, this becomes a pure
+     storage/plumbing change whose failures are attributable. Check `DeployLib` and the test `setUp`
+     wiring for the deleted entry points BEFORE deleting them.
+
+The substitution itself is unchanged and still correct: `ethfiBacked[lp] == LP.pooled` identically,
+so the offramp gate becomes `LP.pooled > 0`, the pro-rata slice becomes the whole `amount`, and the
+decrement and `delete` drop.
