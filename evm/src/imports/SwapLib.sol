@@ -3,7 +3,8 @@ pragma solidity ^0.8.13;
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 // §A.52: the canonical view (was a file-local `IBasketTurn2`).
-import {IBasketTurn} from "./BasketLib.sol";
+import {IBasketTurn} from "./Interfaces.sol";   // §rule-2: Interfaces.sol is the canonical declaration site
+                                                     // (BasketLib only RE-imports it, so importing from there does not resolve)
 // §A.52: the canonical Core view (was a file-local variant).
 import {ICore} from "./Interfaces.sol";
 import {IEthVenue} from "./Interfaces.sol";
