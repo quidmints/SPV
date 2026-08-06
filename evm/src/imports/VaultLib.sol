@@ -251,36 +251,31 @@ library VaultLib {
     ///         Vault). `kind`: 0=(removed, was Rover), 1=ether.fi adapter stake, 2=AAVE-v4, 3=Euler 4626, 4=Galaxy default
     ///         (`supplyFromAux`), 5=Gauntlet 4626. `from` = the approver the WETH is pulled from (V4 for the venue wrappers, AUX for
     ///         `supplyFromAux`). Each branch is byte-identical to the former in-Vault body (guard → pull → supply).
+    /// @dev `kind` IS NOW IGNORED — every venue routes to weETH (see below). Kept so the Vogue/Vault
+    ///      call sites and the venue-selection surface need not change in the same commit as the
+    ///      routing decision; remove it once the WETH venues are fully drained.
     function supplyVenueBody(EthCfg memory c, uint8 kind, uint amount, address from) public returns (uint) {
+        kind;   // retained-but-ignored, see docblock
         if (amount == 0) return 0;
-        // kind 0 was the Rover deposit venue — REMOVED 2026-08-05 with Rover. It already returned 0
-        // whenever Rover was unset, so with nothing funding Rover the branch was unreachable; kind 0
-        // now falls through to the function's `return 0`, which is the same observable result.
-        if (kind == 1) {
-            if (ETHERFI_ADAPTER_VL == address(0)) return 0;
-            IERC20(c.weth).transferFrom(from, address(this), amount);
-            IDepositAdapter(ETHERFI_ADAPTER_VL).depositWETHForWeETH(amount, address(this));
-            return amount;
-        }
-        if (kind == 2) {
-            if (c.aaveSpoke == address(0)) return 0;   // reserve 0 is valid — see _aaveBal
-            IERC20(c.weth).transferFrom(from, address(this), amount);
-            IAaveV4Spoke(c.aaveSpoke).supply(c.wethReserveId, amount, address(this));
-            return amount;
-        }
-        if (kind == 3) {
-            if (c.euler == address(0)) return 0;
-            IERC20(c.weth).transferFrom(from, address(this), amount);
-            return supplyEuler(c, amount);
-        }
-        if (kind == 5) {
-            if (c.gauntlet == address(0)) return 0;
-            IERC20(c.weth).transferFrom(from, address(this), amount);
-            return supplyGauntlet(c, amount);
-        }
-        // kind == 4: Galaxy default (supplyFromAux) — pull from Aux, then the WETH 4626 default supply.
+        // ALL ETH SUPPLY IS NOW weETH (owner decision 2026-08-06). Every `kind` routes to the
+        // ether.fi adapter; the WETH-holding venues (2 AAVE-v4, 3 Euler, 4 Galaxy, 5 Gauntlet) are no
+        // longer supplied to.
+        //
+        // WHY: holding weETH earns the ether.fi ratchet, MEASURED at +0.674 bps/day = 2.46%/yr
+        // (`analysis/rover/decompose.py`). That is the hurdle any WETH-holding venue must clear just
+        // to break even, before conversion friction each way. AAVE v4 measured 2026-08-06 on live
+        // mainnet: WETH 21,103 supplied / 400 borrowed = 1.90% utilisation ⇒ supply APY in SINGLE
+        // BASIS POINTS; weETH 714 supplied / ZERO borrowed = 0.00% ⇒ exactly zero yield whatever the
+        // rate curve says. Supplying WETH there is a strict loss of ~2.46 points, and the only thing
+        // it buys is borrow capacity against the collateral — which is encumbrance (the offramp
+        // design), not yield.
+        //
+        // ⚠️ SUPPLY ONLY. The withdraw ladder below is DELIBERATELY UNTOUCHED so existing positions in
+        // those venues stay pullable. Do not remove the withdraw rungs until the balances are drained.
+        if (ETHERFI_ADAPTER_VL == address(0)) return 0;
         IERC20(c.weth).transferFrom(from, address(this), amount);
-        return supplyETH(c, c.weth, amount);
+        IDepositAdapter(ETHERFI_ADAPTER_VL).depositWETHForWeETH(amount, address(this));
+        return amount;
     }
 
     // ── Withdraw ladder ─────────────────────────────────────────────────────
