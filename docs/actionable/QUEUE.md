@@ -7749,6 +7749,52 @@ the code under test produced. Here the guard measured the wrong ASSET, which is 
 different coordinate.
 | **E115-a** | ✅ **E115''s SEVERE READING IS RESOLVED — `BTCChannels` IS NEVER RENOUNCED, SO ATTESTATION IS NOT FORECLOSED (2026-08-06).** ✅ **Enumerated EVERY `renounceOwnership()` in `src/` + `script/`:** `Aux.sol:604` (self, inside `finalize()`), `Vogue.sol:298` (self), `DeployL1_s.sol:411` (Basket/QUID). **`BTCChannels` is in none of them.** `Aux.finalize()` asserts it is wired (`BasketLib.assertFullyWired`) but neither renounces it nor pins its registry. ⇒ **Ownership is retained, `setHopRegistry` stays callable forever, attestation can be enabled at any point post-deploy.** The "permanently unpinnable" hazard in E115 does NOT occur — that reading is withdrawn. ⚠️ **WHAT STANDS: the gate still ships OFF.** Nothing in `DeployLib` pins the registry, so `_requireAttested` is a no-op in every deployment it produces and `openChannelsOf` is the sole authority check. A live omission, not an irreversible one. 🔎 **NEW, AND WORTH WRITING DOWN BEFORE SOMEONE "FIXES" IT:** `BTCChannels` carries a **standing owner** while every other value-moving contract renounces — a posture inconsistency against what `docs/FAQ.md` Part 6 counsels. **But the owner surface is exactly ONE function** (`setHopRegistry`, pin-once, monotonic, never repointable or clearable) — measured `onlyOwner` counts: **Aux 12 (renounces) · Vogue 2 (renounces) · BTCChannels 1 (does not)**. ⇒ **The retained privilege is the narrowest in the system, and the retention is precisely WHAT KEEPS ATTESTATION ENABLE-ABLE. Renouncing here would be strictly worse.** ⛔ **So this reads as DELIBERATE — but no comment says so, and the squashed history (`0af7f6d`) means no commit can be consulted. Record the intent, or a future cleanup pass will renounce it for consistency and permanently kill the gate.** | ✅ resolved; ▶️ document the deliberate retention |
 
+| **E115-b** | 🟢 **`Vault` IS ALSO NEVER RENOUNCED — SAME SHAPE AS `BTCChannels`, AND THE SETTER SURFACE IS SMALLER THAN IT LOOKS (owner asked, 2026-08-06).** ✅ **`Vogue` does NOT inherit `Vault`** — both are independently `Ownable, ReentrancyGuard` (`Vogue.sol:32-33`, `Vault.sol:88`), so Vogue''s self-renounce does not cover Vault. ✅ **RENOUNCE MAP, enumerated:** self-renouncing = `Aux` (`:604`, in `finalize()`), `Vogue` (`:298`); script-renounced = Basket/QUID (`DeployL1_s.sol:411`); **NEVER renounced = `Vault`, `BTCChannels`.** ✅ **Retained surface is 3 functions, ALL one-shot monotonic pins:** `Vault.setLevManager` + `Vault.setLevManagerBTC` (`:370,377`, both `if (X != address(0)) revert LevManagerPinned()`) and `BTCChannels.setHopRegistry` (pin-once, never repointable). ⇒ **Standing ownership is narrow BY CONSTRUCTION, not by discipline, and E115-a''s reasoning applies to Vault too: renouncing would freeze a pin that may not have happened yet.** ▶️ **CONSOLIDATION ASKED FOR — honest assessment: only ONE real win exists.** `Vault`''s two can become one `pinLevManagers(address eth, address btc)` (2→1). `BTCChannels.setHopRegistry` is a different contract with a different owner and **cannot** fold — `Aux.finalize()` has no reach into it. ⛔ **BLOCKING QUESTION BEFORE THE 2→1, and it could invert the decision: merging forces BOTH managers to be pinned in the SAME tx. The BTC side has consistently shipped after the ETH side in this codebase; if BtcLevManager is ever deployed later, a combined setter either blocks that or forces a zero-address placeholder — which defeats the `!= address(0)` guard outright.** ▶️ Answer the deploy-order question first; only then write the diff. ⚠️ Money-path contract — needs its own build + full-suite run. | 🟢 open — 1 real consolidation, gated on deploy order |
+
+
+### ONE PATH: everyone is an ether.fi LP — and how the double-borrow is avoided (owner, 2026-08-06)
+
+**DECISION: there is one exit path. Every LP is an ether.fi LP, so every exit goes through the
+offramp and receives WETH.** That settles the open question from the trace diagnosis — the two tests
+asserting `User01.balance` (native ETH) are asserting the OLD band-burn path and must be updated to
+assert WETH. The ~25.6 bps conversion is accepted as the cost of all-in-weETH.
+
+Both exit paths verified present before this decision: `Vogue:530` `_burnInRange(..., recipient)`
+delivers ETH to the withdrawer (the band burn, what non-ether.fi LPs used), and `Vogue:637` passes
+`address(0)` because the offramp already delivered. Universal attribution moves everyone to the
+second. Only one survives.
+
+**THE DOUBLE-BORROW IS AVOIDED BY BRANCHING ON WHETHER THE LP IS LEVERED, NOT BY RESERVING HEADROOM.**
+A levered (IL-protect) LP's exit IS ALREADY A DE-LEVER: `closeLev` repays debt and returns collateral.
+So for that LP the offramp is the de-lever — machinery that exists, has its own loan token, and
+already owns the health accounting. An unlevered LP has no position, so a fresh borrow is the only
+one against that collateral.
+⇒ **One borrow per collateral position, never two.** The branch is "does this LP have a lever", not
+"open a second borrow and hope the headroom holds". Reserving against
+`C·(1 − curLtv/(LLTV − margin))` for a second borrower would have been the fragile version — getting
+it wrong is a liquidation, not a failed test.
+
+⇒ **The WETH-loan dimension is therefore only needed on the UNLEVERED path.** A levered LP unwinds
+through the existing stable-loan lever. That materially shrinks the new-market work: it is not a
+second loan token threaded through all of the lev accounting (`levClaimUsd6`, `deliverableDollars`,
+`_deleverFlash` are all USD/stable-denominated and stay that way) — it is a separate, simpler venue
+used only where no lever exists.
+
+**MARKET REGISTRATION:** weETH-collateral / WETH-loan markets already exist on AAVE v4, Morpho and
+Euler — register, do not create. The LP chooses the venue. ⚠️ `MorphoEscrowVenue` is currently built
+around `loanToken: STABLE` (`borrow(address lp, uint256 stableAmount)`, `_fromUsd(stable, usd)`, the
+flash paths flash `stable`), so the unlevered-path venue needs its own wrapper rather than a config
+flag on that one.
+
+**REMAINING WORK for this, in order:**
+  1. Land the venue collapse + `ethfiBacked` removal (branch `ethfibacked-reduction-wip`, shown SOUND
+     by the clean re-run — its 301 failures are the native-ETH-vs-WETH assertion issue, now decided).
+     Update the assertions to WETH.
+  2. Register the weETH/WETH market wrapper for the unlevered path (AAVE v4 / Morpho / Euler, LP's
+     choice).
+  3. Wire the exit branch: levered ⇒ `closeLev`; unlevered ⇒ borrow WETH, offramp delivers, waitNft
+     repays.
+  4. The permissionless, piggybacked claim (see the keeper-split entry).
 | **E115-b** | 🟢 **`Vault` IS ALSO NEVER RENOUNCED — SAME SHAPE AS `BTCChannels`, AND THE SETTER SURFACE IS SMALLER THAN IT LOOKS (owner asked, 2026-08-06).** ✅ **`Vogue` does NOT inherit `Vault`** — both are independently `Ownable, ReentrancyGuard` (`Vogue.sol:32-33`, `Vault.sol:88`), so Vogue''s self-renounce does not cover Vault. ✅ **RENOUNCE MAP, enumerated:** self-renouncing = `Aux` (`:604`, in `finalize()`), `Vogue` (`:298`); script-renounced = Basket/QUID (`DeployL1_s.sol:411`); **NEVER renounced = `Vault`, `BTCChannels`.** ✅ **Retained surface is 3 functions, ALL one-shot monotonic pins:** `Vault.setLevManager` + `Vault.setLevManagerBTC` (`:370,377`, both `if (X != address(0)) revert LevManagerPinned()`) and `BTCChannels.setHopRegistry` (pin-once, never repointable). ⇒ **Standing ownership is narrow BY CONSTRUCTION, not by discipline, and E115-a''s reasoning applies to Vault too: renouncing would freeze a pin that may not have happened yet.** ▶️ **CONSOLIDATION ASKED FOR — honest assessment: only ONE real win exists.** `Vault`''s two can become one `pinLevManagers(address eth, address btc)` (2→1). `BTCChannels.setHopRegistry` is a different contract with a different owner and **cannot** fold — `Aux.finalize()` has no reach into it. ⛔ **BLOCKING QUESTION BEFORE THE 2→1, and it could invert the decision: merging forces BOTH managers to be pinned in the SAME tx. The BTC side has consistently shipped after the ETH side in this codebase; if BtcLevManager is ever deployed later, a combined setter either blocks that or forces a zero-address placeholder — which defeats the `!= address(0)` guard outright.** ▶️ Answer the deploy-order question first; only then write the diff. ⚠️ Money-path contract — needs its own build + full-suite run. | 🟢 open — 1 real consolidation, gated on ONE narrow read-check (see E115-c) |
 
 | **E115-c** | ⚠️ **MY "COULD BTC SHIP LATER" BLOCKER ON THE `pinLevManagers` 2→1 IS NOT REAL — BOTH ARE PINNED IN ONE SCRIPT RUN. The blocker narrows to one checkable fact (2026-08-06).** ✅ **MEASURED:** `script/DeployL1_s.sol:477` `ETH.setLevManager(lm)` and `:519` `ETH.setLevManagerBTC(bm)` sit ~40 lines apart in the SAME flow; both managers are constructed in it too (`:472`, `:480`). **There is no phase boundary and no later-deployment scenario in the current script**, so the deploy-order objection I raised does not apply. ✅ **WHAT SEPARATES THEM IS THE BTC SIDE''S OWN IRREDUCIBLE CHAIN**, documented at `:450`: `pinVenue` (singular, frozen) → `setSyncHook(Vault.syncLevBTC)` → `setLevManagerBTC`. **That ordering is genuinely irreducible** — the manager cannot be pinned as backing before the thing it reads exists — and per the owner''s principle (*enforced sequencing only where it cannot be simplified*) it should SURVIVE. ▶️ **THEREFORE THE WHOLE DECISION REDUCES TO ONE READ-CHECK: does anything executed between `:477` and `:519` read `LEV_MANAGER`?** ✅ If NO ⇒ a merged `pinLevManagers(address eth, address btc)` placed at the later position is safe, and Vault''s setter count goes 2→1. ⛔ If YES ⇒ the split is irreducible and must stay; do not merge for tidiness. ⚠️ **NOT RUN — this is the next concrete step, and it is cheap.** 🔗 `BTCChannels.setHopRegistry` remains unmergeable regardless (different contract, different owner, no reach from `Aux.finalize()`). | ⛔ CLOSED — merge REFUTED, see E115-d |
