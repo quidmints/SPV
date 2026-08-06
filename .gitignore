@@ -93,3 +93,7 @@ evm/broadcast/**
 # Python bytecode caches (never source)
 __pycache__/
 *.py[cod]
+
+# Live LN harness output (regtest/swap.sh). The COMMITTED swapin_fixture.json is the
+# offline vector and must stay pristine; this sibling is per-machine and regenerated.
+evm/test/btc/swapin_fixture.local.json
