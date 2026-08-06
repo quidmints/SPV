@@ -507,10 +507,17 @@ library VaultLib {
         if (weethIn == 0) return 0;
         try IWeETH(c.weeth).unwrap(weethIn) returns (uint eeth) {
             if (eeth > 0) {
-                // ALWAYS to the protocol, never the swapper (owner decision 2026-08-06). The NFT is
-                // the REPAYMENT LEG of the borrow, not a consolation prize: the swapper is paid WETH
-                // now and we carry the ~7-day wait.
-                try IEtherFiLiquidityPool(c.lp).requestWithdraw(address(this), eeth) returns (uint) {
+                // TO THE WITHDRAWER. This was briefly changed to `address(this)` on 2026-08-06 so the
+                // NFT could serve as the repayment leg of a WETH borrow -- but that change was
+                // COUPLED to a borrow leg that does not exist, and worse, cannot exist against this
+                // venue: MorphoEscrowVenue.borrow(lp, stableAmount) lends STABLE, not WETH, so
+                // "borrow WETH against weETH" has no market behind it. Borrowing would yield stable
+                // needing a stable->WETH leg, i.e. the SOR double-charge the design exists to avoid.
+                // While mis-set, ANY exit reaching this rung delivered the withdrawer NOTHING while
+                // taking their weETH -- caught by three tests all reporting "delivered ETH: 0".
+                // Do not repoint this again without a weETH-collateral / WETH-loan market AND the
+                // claim-and-repay step landed together.
+                try IEtherFiLiquidityPool(c.lp).requestWithdraw(recipient, eeth) returns (uint) {
                     return weethIn == weethFull
                         ? amount : FullMath.mulDiv(amount, weethIn, weethFull);
                 } catch {}

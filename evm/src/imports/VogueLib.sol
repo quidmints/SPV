@@ -39,7 +39,7 @@ library VogueLib {
     // ONLY as the Rover-self-liquidated fallback (see `_supplyEtherFi`).
     uint8 constant VENUE_AAVE    = 2;
     uint8 constant VENUE_GALAXY  = 3;
-    uint8 constant VENUE_ROVER   = 4;
+    uint8 constant VENUE_ETHERFI = 4;   // was VENUE_ROVER; Rover is deleted, this is direct weETH
     uint8 constant VENUE_EULER   = 5;
     uint8 constant VENUE_GAUNTLET= 6;
     uint8 constant VENUE_SPLIT   = 0;
@@ -222,7 +222,7 @@ library VogueLib {
             uint placed;
             bool attrib = pledge != address(0);
             uint8 v = venue;
-            if (v == VENUE_ROVER) {
+            if (v == VENUE_ETHERFI) {
                 // ether.fi = the depositor's ONLY ether.fi choice, and it ALWAYS routes through Rover
                 // (the protocol-owned weETH/WETH v3 LP). Per the venue TODO, VENUE_ETHERFI (direct weETH)
                 // is NOT a user-facing venue — `_supplyEtherFi` uses it INTERNALLY, and ONLY as the
@@ -249,8 +249,8 @@ library VogueLib {
                 uint extSum;                              // the 4 curated 4626 legs (return the WETH placed)
                 extSum += IEthVenue(ev).supplyAaveEth(fifth);
                 extSum += IEthVenue(ev).supplyEulerEth(fifth);
-                uint roverPut = _supplyEtherFi(ev, fifth);   // ether.fi leg: Rover, or direct-weETH if Rover self-liquidated
-                extSum += roverPut;
+                uint ethfiPut = _supplyEtherFi(ev, fifth);   // ether.fi leg: direct weETH
+                extSum += ethfiPut;
                 extSum += IEthVenue(ev).supplyGauntlet(fifth);
                 if (extSum < fifth * 4) revert VenueUnavailable();   // a curated leg placed short ⇒ fail loud
                 IEthVenue(ev).vogueOp(false, toDeposit - extSum, 0, bytes32(0)); // Galaxy leg = its fifth + dust; reverts if paused
