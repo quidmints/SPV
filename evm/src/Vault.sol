@@ -390,17 +390,20 @@ contract Vault is Ownable, ReentrancyGuard {
     /// @notice ETH-venue = ether.fi. Pull the Vogue-approved WETH and stake it
     ///         into weETH (restaking yield), held at the Vault and valued in
     ///         vogueETH() via getEETHByWeETH. Gated to Vogue (V4).
+    /// @notice Pull WETH from Aux and place it. RETAINED because `ChannelLib` calls it (the BTC
+    ///         channels path), unlike the AAVE/Euler/Gauntlet entry points which lost their only
+    ///         caller when the venue dispatch collapsed and were deleted 2026-08-06.
+    ///         It now lands in weETH like every other supply — `supplyVenueBody` ignores the venue
+    ///         kind. The name is kept so ChannelLib and the ISwap surface need not change here.
+    function supplyFromAux(uint amount) external returns (uint) {
+        return VaultLib.supplyVenueBody(_ethCfg(), 4, amount, address(AUX));
+    }
+
     function supplyEtherFi(uint amount) external returns (uint) {
         if (msg.sender != address(V4)) revert NotVogueCore();   // gate stays here
         return VaultLib.supplyVenueBody(_ethCfg(), 1, amount, address(V4));
     }
 
-    /// @notice ETH-venue = AAVE-v4 (venue 2). Pull the Vogue-approved WETH and
-    ///         supply it to the AAVE-v4 spoke's WETH reserve. Gated to Vogue.
-    function supplyAaveEth(uint amount) external returns (uint) {
-        if (msg.sender != address(V4)) revert NotVogueCore();   // gate stays here
-        return VaultLib.supplyVenueBody(_ethCfg(), 2, amount, address(V4));
-    }
 
     /// @notice OFFRAMP the ether.fi slice of a withdrawal: weETH → WETH for
     ///         `amount` ETH-worth, delivered to `recipient`. The ladder
@@ -492,14 +495,6 @@ contract Vault is Ownable, ReentrancyGuard {
         return _withdrawETH(token, amount, to);
     }
 
-    /// @notice Aux-gated WETH supply. Aux's basket-side `_supply(WETH)` (the
-    ///         BOLD/SP liquidation re-supply) routes here: pull the WETH gain
-    ///         from Aux (standing approval) then run the same Galaxy/AAVE-incident
-    ///         deposit. Returns the deposited amount.
-    function supplyFromAux(uint amount) external returns (uint) {
-        if (msg.sender != address(AUX)) revert NotAux();   // gate stays here
-        return VaultLib.supplyVenueBody(_ethCfg(), 4, amount, address(AUX));
-    }
 
     /// @notice Aux-gated WETH withdraw. Aux's basket-side `_withdraw(WETH)`
     ///         (redemption / take / ETH-fallback legs) routes here. Runs the
@@ -515,23 +510,7 @@ contract Vault is Ownable, ReentrancyGuard {
         return VaultLib.supplyETH(_ethCfg(), token, amount);
     }
 
-    /// @notice ETH-venue = Euler (second WETH 4626 curator). Pull the
-    ///         Vogue-approved WETH and deposit to Euler. Gated to Vogue (V4).
-    ///         FUNGIBLE: counted in vogueETH and pulled by the withdraw ladder
-    ///         like Galaxy; no separate per-LP slice (Galaxy carries none either).
-    function supplyEulerEth(uint amount) external returns (uint) {
-        if (msg.sender != address(V4)) revert NotVogueCore();   // gate stays here
-        return VaultLib.supplyVenueBody(_ethCfg(), 3, amount, address(V4));
-    }
 
-    /// @notice ETH-venue = Gauntlet (third WETH 4626 curator). Pull the
-    ///         Vogue-approved WETH and deposit to Gauntlet. Gated to Vogue (V4).
-    ///         FUNGIBLE: counted in vogueETH and pulled by the withdraw ladder
-    ///         like Galaxy/Euler; no separate per-LP slice.
-    function supplyGauntlet(uint amount) external returns (uint) {
-        if (msg.sender != address(V4)) revert NotVogueCore();   // gate stays here
-        return VaultLib.supplyVenueBody(_ethCfg(), 5, amount, address(V4));
-    }
 
     /// @notice WETH withdraw — idle-then-Galaxy(+ether.fi opportunistic)+AAVE+Rover
     ///         ladder. Body in VaultLib.withdrawETH (delegatecall; see its docblock).
