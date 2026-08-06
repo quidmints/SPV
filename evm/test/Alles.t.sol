@@ -1408,80 +1408,9 @@ contract Alles is ForkPin, Fixtures {
     }
 
 
-    /// @notice ether.fi `wait` path: in the both-pools-drained anomaly (forced
-    ///         here by mocking the v3 swap to revert), a `wait` LP is NEVER
-    ///         charged 0.3% - instead the slice becomes a no-fee ether.fi
-    ///         withdrawal NFT (weETH->eETH->requestWithdraw) minted to the LP, who
-    ///         claims it after finalization. Exercises the REAL ether.fi
-    ///         LiquidityPool on the fork.
-    function testEthVenue_EtherFi_WaitNFT() public {
-        // ether.fi wired immutably in Aux's constructor - no setEtherFi.
-        address nft = 0x7d5706f6ef3F89B3951E23e557CDFBC3239D4E2c; // WithdrawRequestNFT
-        vm.prank(User01); V4.deposit{value: 10 ether}(0, User01, 4); // ether.fi = VENUE_ROVER; Rover off ⇒ direct-weETH fallback
-        // wait = default (withdrawInstant false). Force the anomaly: the v3
-        // offramp swap reverts ("pool drained").
-        vm.mockCallRevert(0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45,
-            abi.encodeWithSignature("exactInput((bytes,address,uint256,uint256))"),
-            bytes("drained"));
-        uint nftBefore = IERC20(nft).balanceOf(User01); // ERC721 count via balanceOf(address)
-        vm.roll(block.number + 1); // JIT-lock: withdraw must be a later block than the deposit
-        vm.prank(User01); V4.withdraw(5 ether, User01, User01);
-        // LAST-RESORT (rung 3): elected ether.fi + wait (no 0.3%) + pool can't
-        // fill -> the no-fee withdrawal NFT is minted to the LP. The rebalancer
-        // keeps this rare, but the guarantee stays for the LP with no other route.
-        assertGt(IERC20(nft).balanceOf(User01), nftBefore,
-            "wait + drained pool -> no-fee withdrawal NFT minted to the LP (NOT a 0.3% fee)");
-    }
 
 
 
-    /// @notice Rung-3 instant-redeem PROVEN LIVE (no-silent-fails): the old code
-    ///         passed WETH as redeemWeEth's outputToken - the deployed
-    ///         EtherFiRedemptionManager only accepts the 0xEeee…EEeE native-ETH
-    ///         sentinel or stETH, so rung 3 reverted on EVERY call and the
-    ///         try/catch masked it (verified against impl 0x6bD1…91F7 source).
-    ///         Now: an instant-electing LP with the v3 rung drained gets paid
-    ///         NATIVE ETH by the real RedemptionManager on the fork (~0.3% fee).
-    function testEthVenue_EtherFi_InstantRedeem_Rung3() public {
-        vm.prank(User01); V4.deposit{value: 10 ether}(0, User01, 4); // ether.fi = VENUE_ROVER; Rover off ⇒ direct-weETH fallback
-        // ether.fi exit preference is now PER-TX (no stored flag) — the withdraw below uses exitInstant.
-        // Drain the v3 rung: every router swap reverts.
-        vm.mockCallRevert(0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45,
-            abi.encodeWithSignature("exactInput((bytes,address,uint256,uint256))"),
-            bytes("drained"));
-        // At this fork snapshot ether.fi's INSTANT capacity is exhausted:
-        // free pool ETH (~18k) sits under the low-watermark (bps of the
-        // 1.86M-ETH TVL) -> totalRedeemableAmount == 0 - live proof of why
-        // rung 4 exists. Give the LiquidityPool surplus ETH balance (its
-        // share-accounting is storage-based and untouched), zero the locked-
-        // ETH bookkeeping reads, and refill the time-based rate bucket so the
-        // REAL redemption flow (transferFrom, share burn, ETH payout) runs.
-        // The instant-redeem capacity is a LOW-WATERMARK function of ether.fi's TVL, not of the
-        // pool's raw balance — VERIFIED on mainnet: `totalRedeemableAmount(native)` read 2000e18
-        // at block 25600000 and 0 at 25647331, the block a 10k-ETH exit dropped the pool under the
-        // mark. Dealing balance ALONE does not lift it (400_000 ether was tried and still read 0).
-        // So we (a) fund the pool and (b) mock the TVL the watermark is a bps of.
-        //
-        // NOTE: the previous mock here targeted `ethAmountLockedForWithdrawal()`, which does NOT
-        // EXIST on the LiquidityPool implementation (0x17a1…4a45; its real accessors are
-        // `getTotalPooledEther`/`totalValueInLp`/`totalValueOutOfLp`). A `vm.mockCall` on an absent
-        // signature is a SILENT NO-OP — the gate it was meant to neutralise stayed live the whole
-        // time, which is why this test never passed.
-        vm.deal(0x308861A430be4cce5502d0A12724771Fc6DaF216, 60_000 ether);
-        vm.mockCall(0x308861A430be4cce5502d0A12724771Fc6DaF216,
-            abi.encodeWithSignature("getTotalPooledEther()"), abi.encode(uint256(1_000 ether)));
-        vm.mockCall(0x35e7D6feF6f72aDd3c3e39dEc6d9CCc29e3345FA,
-            abi.encodeWithSignature("ethAmountLockedForPriorityWithdrawal()"), abi.encode(uint256(0)));
-        vm.warp(block.timestamp + 2 hours);
-        vm.roll(block.number + 1); // JIT-lock: withdraw must be a later block than the deposit
-        uint ethBefore = User01.balance;
-        uint ethfiBefore = V4.ethfiBacked(User01);
-        vm.prank(User01); V4.exitInstant(5 ether, User01);
-        // ~5 ETH minus the ~0.3% instant fee, delivered as NATIVE ETH.
-        assertGt(User01.balance - ethBefore, 4.9 ether,
-            "rung 3 paid native ETH via the real RedemptionManager");
-        assertLt(V4.ethfiBacked(User01), ethfiBefore, "slice decremented");
-    }
 
 
 

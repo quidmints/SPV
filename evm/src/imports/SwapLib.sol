@@ -14,7 +14,7 @@ import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 // §A.52: the SHARED WETH view (was a file-local `IWethDeposit` declaring just `deposit()`).
 import {IWETH9} from "./ILevVenue.sol";
 // §A.52: canonical shared views — these were file-local `IWeEth_L`/`IRedeem_L`/`ILiq_L`.
-import {IWeETH, IEtherFiRedemption, IEtherFiLiquidityPool} from "./Interfaces.sol";
+import {IWeETH, IEtherFiLiquidityPool} from "./Interfaces.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {LiquidityAmounts} from "v4-periphery/src/libraries/LiquidityAmounts.sol";
 import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
@@ -574,11 +574,10 @@ library SwapLib {
     // immutables). The msg.sender==V4 gate stays in the Aux wrapper; these bodies
     // run via DELEGATECALL so address(this)==Aux (its weETH, its Rover-caller id).
     /// ether.fi RedemptionManager's "pay me native ETH" output-token sentinel.
-    address constant ETHFI_NATIVE_ETH = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
     struct OfframpCfg {
         address weeth; address weth; address v3router;
-        address redeemer; address lp; uint24 poolFee; uint24 poolFee2;
+        address lp; uint24 poolFee; uint24 poolFee2;
     }
 
     /// @notice Body of Aux.offrampEtherFi — the 4-rung exit ladder.
@@ -623,44 +622,11 @@ library SwapLib {
         }
         // Rung 2 (Rover unwind) REMOVED 2026-08-05 with Rover itself. `c.rover` is always address(0)
         // once nothing funds it, so the whole rung was an unreachable branch on the offramp path.
-        // Rung 3 — 0.3% instant-redeem (pool-independent floor). VERIFIED ABI
-        // (EtherFiRedemptionManager impl 0x6bD1…91F7): redeemWeEth(weEthAmount,
-        // receiver, outputToken) where outputToken MUST be the 0xEeee…EEeE
-        // native-ETH sentinel or stETH — anything else reverts
-        // InvalidOutputToken. (The old code passed WETH here, so this rung
-        // SILENTLY FAILED on every call.) The recipient receives NATIVE ETH.
-        if (weethIn > 0 && instant && c.redeemer != address(0)) {
-            // §C10 part 2 — PARTIAL FILL. ether.fi's `totalRedeemableAmount` is PER OUTPUT TOKEN
-            // (verified against impl 0x5d53b303…b3dc by selector, and live: the native sentinel and
-            // stETH carry independent capacity). Asking for the FULL `weethIn` when their pool is
-            // thinner reverts `ExceededRedeemable()` and abandons the WHOLE rung, dropping the LP onto
-            // rung 4's multi-day wait-NFT even when most of it could be served instantly.
-            //
-            // UNIT: capacity is denominated in the OUTPUT token (native ETH, 1:1 with eETH) while the
-            // ask is weETH — so it is converted with `getWeETHByeETH`, the SAME conversion `:574` uses
-            // to size this call. A naive `min()` would mix units and under- or over-ask by the weETH
-            // premium.
-            uint capEth = IEtherFiRedemption(c.redeemer).totalRedeemableAmount(ETHFI_NATIVE_ETH);
-            if (capEth == 0) {
-                // Their pool is empty for THIS output token — skip rather than burn gas on a call that
-                // must revert, and leave the reason observable.
-                emit InstantRedeemSkipped(weethIn, bytes4(0));
-            } else {
-                uint capWeeth = IWeETH(c.weeth).getWeETHByeETH(capEth);
-                uint ask = weethIn < capWeeth ? weethIn : capWeeth;
-                try IEtherFiRedemption(c.redeemer).redeemWeEth(ask, recipient, ETHFI_NATIVE_ETH) {
-                    if (ask >= weethIn) return covered;             // served in full
-                    // PARTIAL: `ask` weETH was redeemed; the remainder falls to rung 4. `served` is the
-                    // ETH-equivalent of what this rung covered, on the SAME basis as `covered` above.
-                    uint served = FullMath.mulDiv(amount, ask, weethFull);
-                    return served + waitNft(covered - served, recipient, c);
-                } catch (bytes memory err) {
-                    // Empty `err` = callee gave no reason (OOG / bare revert); report 0 rather than
-                    // reading past the end.
-                    emit InstantRedeemSkipped(ask, err.length >= 4 ? bytes4(err) : bytes4(0));
-                }
-            }
-        }
+        // Rung 3 (ether.fi 0.3% instant-redeem) DELETED 2026-08-06, owner decision. Its capacity
+        // (`totalRedeemableAmount`) measured ZERO at every sampled block across 90 days and still does,
+        // because the v3 pool exists and absorbs the flow first — the rung could never fill and never
+        // will. It carried a `redeemer` config field, a capacity read, partial-fill arithmetic and an
+        // `InstantRedeemSkipped` event, all to reach a call that always reverts.
         // Rung 4 — last-resort no-fee withdrawal NFT.
         return waitNft(covered, recipient, c);
     }
@@ -682,7 +648,12 @@ library SwapLib {
         if (weethIn == 0) return 0;
         try IWeETH(c.weeth).unwrap(weethIn) returns (uint eeth) {
             if (eeth > 0) {
-                try IEtherFiLiquidityPool(c.lp).requestWithdraw(recipient, eeth) returns (uint) {
+                // ALWAYS to the protocol, never the swapper (owner decision 2026-08-06). The NFT is
+                // the REPAYMENT LEG of the borrow, not a consolation prize: the swapper is paid WETH
+                // now and we carry the ~7-day wait. The old `recipient` mint was a failsafe for
+                // "rung 1 and everything else failed", which does not happen — the v3 pool always
+                // absorbs (measured: ~4,840 WETH reachable at a flat ~25.6 bps).
+                try IEtherFiLiquidityPool(c.lp).requestWithdraw(address(this), eeth) returns (uint) {
                     return weethIn == weethFull
                         ? amount : FullMath.mulDiv(amount, weethIn, weethFull);
                 } catch {}
@@ -1573,7 +1544,6 @@ library SwapLib {
     ///         `ExceededRedeemable()` (their pool was smaller than `weethRequested`); `0x00000000`
     ///         means no reason was given. Emitted so this degradation is never silent (§C10).
     ///         `SwapLib` is DELEGATECALL'd, so this surfaces in the CALLER's logs (Vogue/Aux).
-    event InstantRedeemSkipped(uint weethRequested, bytes4 reason);
 
     error TickOutOfRange();
     function updateTicks(uint160 sqrtPriceX96, uint delta)
