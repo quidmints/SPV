@@ -147,14 +147,18 @@ is Lightning channels (`BTCChannels`). That is the settlement asymmetry, and it 
 vBTC against WBTC via `getTWAPforAsset`) and `convertToAssets` is a pure identity because **vBTC IS
 sats**. The real underlying is LN-custodied native BTC. So "one instance = one `asset()` = an honest
 4626" holds for ETH (WETH is genuinely held and redeemable) and only **nominally** for BTC.
-And the load-bearing reason: **a privacy pool holds an ERC-20.** vBTC's own token-ness — `totalSupply`,
-`balanceOf`, `transfer`, `approve` on its own contract — is what makes it depositable in `../ibiza`.
-`VBtc.sol:18-28` designates this contract as the home for a future `redeemVBtc(sats, p2trScript)` and
-the `Σ outstanding vBTC ≤ Σ free channel capacity` invariant, calling segregation *"a prerequisite, not
-cosmetics"*. Folding it away dissolves the layer the privacy story lives in.
-⇒ Asymmetry WITH a reason, and it survives instantiation rather than being dissolved by it: `VEth` may
-still be deletable (WETH is a real ERC-20 underlying; vETH has no bearer/privacy requirement), while
-`VBtc` persists as the token + bearer layer with the band manager holding the accounting.
+⚠️ **THE PRIVACY JUSTIFICATION FOR KEEPING `VBtc` IS DEAD — and `VBtc.sol:18-28` still asserts it.**
+That header calls segregation *"a prerequisite, not cosmetics"* for the privacy story, naming a future
+`redeemVBtc(sats, p2trScript)` and the `Σ outstanding vBTC ≤ Σ free channel capacity` invariant. But
+`../ibiza` **already ruled that out** — `ibiza/TODO.md:2097`: *"**2.4d vBTC through PP — RULED OUT.** It
+is not a bearer instrument; there is nothing to anonymise"*, and `:2108-2115`: *"**NOBODY EVER HOLDS
+vBTC** … it is an internal accounting token inside the leverage machinery, not a BTC wrapper anyone can
+custody. **There is no vBTC holder population to build an anonymity set from.**"*
+⇒ **A CROSS-REPO STALE RATIONALE**: SPV's contract justifies its own existence with a design the
+consuming repo has retired. Neither file knows about the other. Do NOT keep `VBtc` on privacy grounds,
+and do NOT delete it on those grounds either — **the surviving question is the OTHER blocker its header
+names: an open Morpho/Euler market, where a liquidator who seizes vBTC has no way to exit.** Settle THAT
+before deciding, and reconcile the two documents whichever way it goes.
 
 ⇒ **Extra step, ordered FIRST:** extract ETH venue custody out of `Vault`. Only then does
 `Vogue` ∥ `Vault`-BTC-slice become one band manager with two instances. The 1,557-vs-991 size gap is
