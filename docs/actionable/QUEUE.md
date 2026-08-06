@@ -7426,3 +7426,63 @@ the collateral — which is encumbrance, i.e. the offramp design, not a yield ve
 is one question each — does WETH supply APY exceed 2.46%? Implausible at current WETH rates, but
 implausible is not measured, and this file already records five paths that looked fine and were not.
 Do NOT drop kinds 2–5 until each is checked.
+
+
+### ALL-IN ON weETH — the venue collapse, and why `ethfiBacked` goes with it (owner, 2026-08-06)
+
+**DONE and on main (c2477d3, green 3881/0):** `supplyVenueBody` routes every `kind` to the ether.fi
+adapter. The WETH venues are no longer supplied to.
+⭐ This FIXED `testLeverage_LvrControlVsTreatment`, the repo's documented baseline failure asserting
+that leverage flow must not leave the passive LP worse off. The WETH venues were not merely
+underperforming (AAVE v4 measured: WETH 1.90% utilisation, weETH 0.00%); they were the REASON that
+assertion failed, because passive LPs' ETH sat there earning ~nothing while leverage flow extracted
+value from it. Stronger evidence than any utilisation reading.
+
+**ON BRANCH `venue-collapse-wip`, needs the decision below before landing:**
+* `VogueLib`'s venue dispatch collapsed to `_supplyEtherFi` — every branch had become a synonym.
+* `VENUE_SPLIT` gone: splitting five ways to "diversify curator risk" is meaningless with one venue.
+* Orphaned Vault entry points deleted: `supplyAaveEth`, `supplyEulerEth`, `supplyGauntlet`.
+* ⚠️ `supplyFromAux` is NOT orphaned — `ChannelLib:185` calls it (BTC channels). Restored, now
+  routing to weETH like everything else. The compiler caught this; a grep of the venue dispatch
+  alone would not have.
+
+**THE DECISION THAT GATES IT — and the owner has now made it: `ethfiBacked` IS THE WHOLE BOOK.**
+The collapse makes `ethfiBacked[pledge] += placed` fire on EVERY deposit, where it previously fired
+only for the ether.fi venue. That produced 229 failures across liquidity races, LVR residuals,
+pinning, repointing and vault health — and they are NOT breakage. They pin a TWO-WORLD model (some
+LPs ether.fi-backed, some not) that no longer exists. Under all-in-weETH every LP is ether.fi-backed
+by construction, so the tests are the stale artefact.
+
+⇒ **`ethfiBacked` IS NOW REDUNDANT WITH THE LP'S BALANCE AND SHOULD BE REMOVED**, not merely made
+universal. It currently gates the offramp ladder and exit paths; with one venue those gates are
+always open, so the per-LP slice is bookkeeping for a distinction that no longer exists. Removing it
+is what makes the 229 tests resolve as a group rather than one at a time.
+
+**REMAINING WORK, in order:** delete `ethfiBacked` and its gates → triage the 229 tests (expect most
+to delete outright, being assertions about a partial slice) → land `venue-collapse-wip`. Then retire
+the accepted-but-ignored `kind` in `supplyVenueBody` and `v` in the dispatch, and the `VENUE_*`
+constants.
+
+**⚠️ ATTRIBUTION MISMATCH ON MAIN RIGHT NOW — the venue collapse is a CORRECTNESS FIX, not cleanup.**
+`ethfiBacked` is credited ONLY inside the `VENUE_ROVER` branch of the dispatch (`VogueLib:232`), but
+`supplyVenueBody` now routes EVERY venue's deposit into weETH. So an LP depositing via `VENUE_AAVE`
+receives weETH yet has `ethfiBacked == 0` — and `Vogue:626` gates the offramp ladder on
+`ethfiBacked[msg.sender] > 0`. Their funds are ether.fi-sourced while their exit path says they are
+not. Not a live risk (nothing is deployed), but the committed state is internally inconsistent
+between where funds GO and how they are ATTRIBUTED. Landing `venue-collapse-wip` is what reconciles
+them; do not treat it as optional tidy-up.
+
+**REMOVING `ethfiBacked` — the substitution, once attribution is universal.** Every position is
+ether.fi-sourced by construction, so `ethfiBacked[lp] == LP.pooled` identically:
+
+| current | becomes |
+|---|---|
+| `ethfiBacked[msg.sender] > 0` (Vogue:626, the offramp gate) | `LP.pooled > 0` |
+| `Math.min(ethfiBacked[msg.sender], LP.pooled)` (Vogue:628) | `LP.pooled` |
+| `ethfiBacked[…] -= Math.min(served, …)` (Vogue:643) | drop |
+| `delete ethfiBacked[user]` (Vogue:736) | drop |
+
+Then the mapping (`Vogue:84`), its storage slot, and the two threading sites (`Vogue:349` into
+`withdrawETH`, `Vogue:1016` into the dispatch) all go. ⚠️ Vogue:60-62 annotates it as "the ONLY per-LP
+isolated slice" and `VEth.sol:23` names it in the relocated-storage note — update both, and check the
+storage layout, since removing a mapping shifts slots.
