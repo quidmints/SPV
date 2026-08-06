@@ -93,6 +93,40 @@ ownership/renounce posture that `docs/FAQ.md` Part 6 argues to counsel. `.dot` f
 `dot -Tsvg`. Slither is also a static analyser, so a bare `slither ..` surfaces real findings on the
 same compile.
 
+## The central structural fact — read this before proposing any refactor
+
+**`isBTC` is polymorphism done by hand, and the duplication it implies is the codebase's biggest
+single source of bulk.** ~5,500 lines sit in **four ETH/BTC pairs**:
+
+| ETH side | BTC side | role |
+|---|---|---|
+| `Vogue` 1,557 | `Vault` 991 | band manager |
+| `LevManager` 908 | `BtcLevManager` 579 | lev manager (`§A.71`: `LevManager.Pos == BtcLevManager.Pos`) |
+| `VogueLib` 694 | `BtcVaultLib` 603 | delegatecall bodies |
+| `VEth` 116 | `VBtc` 105 | ERC-4626 faces |
+
+**`Core` is the one place that got it right** — it parameterises the same distinction with a bool
+(187 of the 359 `isBTC` occurrences; 13 files; 26 sit in `Interfaces.sol` signatures purely to pass
+it through). Everything *above* `Core` forked into per-asset copies instead.
+
+**The owner's target (2026-08-06):** *"there should just be one band manager, one lev manager, the
+entire codebase needs to be slimmed as much as humanly possible without breaking anything and
+respecting any discrepancies/asymmetries that must be there for a reason."* One implementation, two
+instances — at which point `isBTC` has nothing to select between and deletes itself. ERC-4626 agrees:
+it is **defined** around one `asset()`, so one vault / one asset / one instance makes the standard and
+the architecture stop fighting. **Full plan, evidence ledger and pass order: task §J.2.**
+
+⚠️ **Two traps this framing exists to prevent.** (1) A *face-level* refactor (just `VEth`/`VBtc`)
+looks like the job and removes **nothing** from `Core` — it leaves all four pairs intact. (2) The
+size gaps (1,557 vs 991) prove something differs but **not which kind**: every asymmetry must be
+classified as a REAL per-asset requirement or as DRIFT before anything merges. Known-real, do not
+dedupe away: the gross-vs-net pooled comparison (`Core.sol:691-694`), 8-vs-18 decimals with vBTC's
+identity conversions, vBTC having no bearer redemption (`§A.19b`/`§A.45`), and LN-cooperative-close
+vs on-chain-WETH settlement.
+
+⚠️ **`VEth.sol:19-27` asserts the vETH/vBTC asymmetry is structural. Four measurements contradict it.**
+Treat that header as a record of a decision, not a derivation — the usual comment trap.
+
 ## Build environment
 
 | | |
