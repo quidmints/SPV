@@ -229,7 +229,6 @@ library VogueLib {
                 // fallback for when the Rover NFT has self-liquidated (v3 pool drained ⇒ the Rover deposit
                 // reverts). Either path is ether.fi-sourced ⇒ attributed (ethfiBacked) + exits via the offramp.
                 placed = _supplyEtherFi(ev, toDeposit);
-                if (placed > 0 && attrib) ethfiBacked[pledge] += Math.min(placed, sent);
             } else if (v == VENUE_AAVE) {
                 placed = IEthVenue(ev).supplyAaveEth(toDeposit);
             } else if (v == VENUE_EULER) {
@@ -251,7 +250,6 @@ library VogueLib {
                 extSum += IEthVenue(ev).supplyAaveEth(fifth);
                 extSum += IEthVenue(ev).supplyEulerEth(fifth);
                 uint roverPut = _supplyEtherFi(ev, fifth);   // ether.fi leg: Rover, or direct-weETH if Rover self-liquidated
-                if (roverPut > 0 && attrib) ethfiBacked[pledge] += Math.min(roverPut, sent);
                 extSum += roverPut;
                 extSum += IEthVenue(ev).supplyGauntlet(fifth);
                 if (extSum < fifth * 4) revert VenueUnavailable();   // a curated leg placed short ⇒ fail loud
@@ -259,6 +257,13 @@ library VogueLib {
                 placed = toDeposit;
             }
             if (placed == 0) revert VenueUnavailable();   // chosen venue placed nothing ⇒ paused/unwired ⇒ NO fallback
+            // ATTRIBUTE EVERY VENUE, not just ether.fi (2026-08-06 correctness fix). `supplyVenueBody`
+            // now routes EVERY kind into the ether.fi adapter, so every deposit is ether.fi-sourced
+            // whatever venue the depositor named. Crediting only the VENUE_ROVER branch left an LP who
+            // picked e.g. VENUE_AAVE holding weETH with `ethfiBacked == 0` — and `Vogue`'s exit gates
+            // the offramp ladder on `ethfiBacked > 0`, so their funds were ether.fi-sourced while their
+            // exit path said otherwise. Attribution must follow where the funds actually GO.
+            if (attrib) ethfiBacked[pledge] += Math.min(placed, sent);
         }
     }
 
