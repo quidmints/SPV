@@ -275,10 +275,26 @@ async fn main() -> anyhow::Result<()> {
     let _hop_listener = quid_bridge::vault::spawn_p2p_listener(&node, vault_port).await?;
     let (vault_anchor, _vault_committer) =
         quid_bridge::daemon::build_freshness_anchor(deploy_env, evm.clone(), &cfg);
+    // Vault seed provenance. Default DERIVES from the hop seed, which makes the 2-of-2
+    // nominal (one compromise yields both halves). `QUID_VAULT_ROOT_SEED` supplies an
+    // independent one. ⚠️ Necessary, not sufficient: independence only becomes real when
+    // a SEPARATE operator holds it in its own enclave — the same operator setting both
+    // still holds both.
+    let vault_seed_env = std::env::var("QUID_VAULT_ROOT_SEED").ok();
+    let vault_seed_indep = match vault_seed_env.as_deref() {
+        Some(s) => Some(
+            quid_common::root_seed::RootSeed::from_str(s).context("QUID_VAULT_ROOT_SEED is not a valid RootSeed")?,
+        ),
+        None => None,
+    };
+    let seed_source = match vault_seed_indep.as_ref() {
+        Some(s) => quid_bridge::vault::VaultSeedSource::Independent(s),
+        None => quid_bridge::vault::VaultSeedSource::DerivedFromHop(&root_seed),
+    };
     let mut vault = quid_bridge::vault::boot_vault(
         network,
         env("QUID_ESPLORA_URL")?,
-        &root_seed,
+        seed_source,
         data_dir.join("vault"),
         hop_pk,
         vault_port,

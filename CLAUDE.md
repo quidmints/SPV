@@ -93,6 +93,40 @@ ownership/renounce posture that `docs/FAQ.md` Part 6 argues to counsel. `.dot` f
 `dot -Tsvg`. Slither is also a static analyser, so a bare `slither ..` surfaces real findings on the
 same compile.
 
+## The central structural fact — read this before proposing any refactor
+
+**`isBTC` is polymorphism done by hand, and the duplication it implies is the codebase's biggest
+single source of bulk.** ~5,500 lines sit in **four ETH/BTC pairs**:
+
+| ETH side | BTC side | role |
+|---|---|---|
+| `Vogue` 1,557 | `Vault` 991 | band manager |
+| `LevManager` 908 | `BtcLevManager` 579 | lev manager (`§A.71`: `LevManager.Pos == BtcLevManager.Pos`) |
+| `VogueLib` 694 | `BtcVaultLib` 603 | delegatecall bodies |
+| `VEth` 116 | `VBtc` 105 | ERC-4626 faces |
+
+**`Core` is the one place that got it right** — it parameterises the same distinction with a bool
+(187 of the 359 `isBTC` occurrences; 13 files; 26 sit in `Interfaces.sol` signatures purely to pass
+it through). Everything *above* `Core` forked into per-asset copies instead.
+
+**The owner's target (2026-08-06):** *"there should just be one band manager, one lev manager, the
+entire codebase needs to be slimmed as much as humanly possible without breaking anything and
+respecting any discrepancies/asymmetries that must be there for a reason."* One implementation, two
+instances — at which point `isBTC` has nothing to select between and deletes itself. ERC-4626 agrees:
+it is **defined** around one `asset()`, so one vault / one asset / one instance makes the standard and
+the architecture stop fighting. **Full plan, evidence ledger and pass order: task §J.2.**
+
+⚠️ **Two traps this framing exists to prevent.** (1) A *face-level* refactor (just `VEth`/`VBtc`)
+looks like the job and removes **nothing** from `Core` — it leaves all four pairs intact. (2) The
+size gaps (1,557 vs 991) prove something differs but **not which kind**: every asymmetry must be
+classified as a REAL per-asset requirement or as DRIFT before anything merges. Known-real, do not
+dedupe away: the gross-vs-net pooled comparison (`Core.sol:691-694`), 8-vs-18 decimals with vBTC's
+identity conversions, vBTC having no bearer redemption (`§A.19b`/`§A.45`), and LN-cooperative-close
+vs on-chain-WETH settlement.
+
+⚠️ **`VEth.sol:19-27` asserts the vETH/vBTC asymmetry is structural. Four measurements contradict it.**
+Treat that header as a record of a decision, not a derivation — the usual comment trap.
+
 ## Build environment
 
 | | |
@@ -103,7 +137,7 @@ same compile.
 | **EIP-170** | `forge test` does **not** enforce the 24,576-byte limit. **`forge build --sizes` does not either, for the contracts that matter most** — measured 2026-08-05: `Core` has **no row in that table at all** (278 rows; `SwapLib`, `Aux`, `BasketLib`, `LevManager`, `LevMath`, `VogueLib` all present). The cause is *not* library linking — `SwapLib`, `Aux`, `LevManager` and `Vogue` are all linked and all appear — and remains **unknown**. **Use `python3 tools/check-contract-sizes.py` instead**: it reads `deployedBytecode.object` from `evm/out/**` for every contract declared in `evm/src`, which is exact (a link placeholder `__$…$__` is 40 hex chars = the 20 bytes its address occupies). **MEASURED MARGINS — the previous "all three sit within ~150 bytes" was off by an order of magnitude: `LevMath` 24,556 (20 left) · `Core` 24,538 (38) · `LevManager` 24,506 (70) · `Vogue` 24,160 (416) · `Aux` 22,847 (1,729) · `SwapLib` 22,678 (1,898).** ⚠️ **Treat `LevMath`, `Core` and `LevManager` as frozen for additions.** This repo has already shipped a `Core` at −126 bytes (undeployable) with a fully green suite; a ~52-byte addition to `Core` on 2026-08-05 consumed more than half the remaining margin before anyone measured it. |
 | library bodies | Delegatecalled library functions must be `external`/`public`. That is why the external surface is large; it is not accidental API. |
 | fork tests | `FOUNDRY_RPC_ENDPOINTS_MAINNET=<url> FORK_BLOCK=<n> forge test` — the env var overrides `foundry.toml` with no file edit. Public nodes are not archival; a stale `FORK_BLOCK` fails to fetch rather than failing a test. ⚠️ **A DEAD RPC KEY LOOKS LIKE A BROKEN TEST SUITE.** On 2026-08-06 the ankr key in `evm/.env` returned `HTTP 401 "API key disabled"`, which fails inside `setUp()` — so **every fork test in the repo reported FAIL** with no assertion involved. Read the failure text before believing a mass regression: `could not instantiate forked environment` is an endpoint problem, not a code one. **Verified live and keyless 2026-08-06** (block 25,697,138): `ethereum-rpc.publicnode.com`, `rpc.flashbots.net`, `eth.drpc.org`. Dead: `eth.llamarpc.com` (521), `cloudflare-eth.com` (-32046). `foundry.toml:44` already names publicnode as the keyless fallback; `evm/.env` now points there. This is also the likeliest thing CI was mailing about. |
-| Rust (`quid-ln`) | **Does not build on macOS at all** — `quid-cvm` is Linux-only and transitive. Use the image: `docker build -t quid-ln:dev quid-ln` then `docker run --rm -v "$PWD/quid-ln":/w -w /w quid-ln:dev`. **VERIFIED GREEN: 532 passed / 0 failed.** `quid-ln/Dockerfile` is the single source for the commands — it pins rust 1.90 to `rust-toolchain.toml` and bakes Bitcoin Core **30.2, the same version `regtest/env.sh` uses** (a split would mean Docker and host harnesses disagreeing on consensus). |
+| Rust (`quid-ln`) | **Does not build on macOS at all** — `quid-cvm` is Linux-only and transitive. Use the image: `docker build -t quid-ln:dev quid-ln` then `docker run --rm -v "$PWD/quid-ln":/w -w /w quid-ln:dev`. **VERIFIED GREEN: 624 passed / 0 failed (2026-08-07).** Was recorded as 532; the count grew AND the tree was red in between — two `quid-tls` shared-seed snapshot tests encoded pre-`QUID-REALM` values (see `quid-tls/src/shared_seed/certs.rs`). A recorded pass count goes stale silently; re-run before trusting it. `quid-ln/Dockerfile` is the single source for the commands — it pins rust 1.90 to `rust-toolchain.toml` and bakes Bitcoin Core **30.2, the same version `regtest/env.sh` uses** (a split would mean Docker and host harnesses disagreeing on consensus). |
 | Docker VM memory | `docker info` MemTotal is a **VM allocation, not host free RAM** — closing apps does nothing. Default is ~2 GB; **raised to ~5 GB 2026-08-02.** Change at Docker Desktop → Settings → Resources → Memory. **Not scriptable:** `~/Library/Group Containers/group.com.docker/settings.json` is TCC-protected, so a shell gets `Operation not permitted` even as its owner without Full Disk Access. ⚠️ **Under-memory `rustc` is OOM-killed with NO diagnostic** — just `process didn't exit successfully`, no error code or span. That reads exactly like a compile error and is not one. Escape hatch: `-e CARGO_BUILD_JOBS=1 -e RUSTFLAGS="-C debuginfo=0"`. |
 
 ## Decimal bases — the single most common source of bugs here
