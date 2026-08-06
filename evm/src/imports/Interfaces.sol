@@ -300,7 +300,6 @@ interface IEthVenue {
     function GAUNTLET_VAULT() external view returns (address);
     function supplyFromAux(uint amount) external returns (uint);
     function withdrawForAux(uint amount, address to) external returns (uint);
-    function ROVER() external view returns (address);
     function btcChannels() external view returns (address);
     function evacuateVenue(address vault) external;
     function venuePosition(address vault) external view returns (uint reported, uint liquid);
@@ -340,7 +339,6 @@ interface IWiredBasket { function AUX() external view returns (address);
 
 /// Deploy-finalize linkage cross-check on the Vault (BasketLib.assertFullyWired).
 interface IWiredVault { function btcChannels() external view returns (address);
-                        function ROVER() external view returns (address);
                         function LEV_MANAGER() external view returns (address); }
 
 /// Canonical Basket turn/maturity view (was BasketLib.IBasketTurn, itself already a union of two
