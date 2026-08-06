@@ -48,12 +48,20 @@ contract DrainAtomicity is Alles {
     }
 
     /// stable → volatile: the band hands out ETH, so `inv` FALLS and it gets SCARCER.
-    function _drain(uint boldAmt) internal {
+    /// §E71-r3 — RETURNS THE VOLATILE THE TRADER ACTUALLY RECEIVED. The original version returned
+    /// nothing and the test read `skewPremiumCum` instead: OUR OWN ACCOUNTING of what we retained.
+    /// That is the same trap that hid the delivery bug through six layers of diagnosis — asserting
+    /// on a number the failing system reports about ITSELF. A discount in our bookkeeping is not
+    /// evidence of a discount to the WHALE, and a real arbitrage could be invisible to it. The
+    /// trader's cost is ETH-received per dollar spent, measured as a BALANCE DELTA on the trader.
+    function _drain(uint boldAmt) internal returns (uint ethGot) {
         deal(bold, drainer, boldAmt);
+        uint before = WETH.balanceOf(drainer);
         vm.startPrank(drainer);
         IERC20(bold).approve(address(AUX), boldAmt);
         try AUX.swap(bold, address(WETH), true, boldAmt, 0) {} catch {}
         vm.stopPrank();
+        ethGot = WETH.balanceOf(drainer) - before;
         _settle();
     }
 
@@ -127,54 +135,43 @@ contract DrainAtomicity is Alles {
         uint TOTAL = 120_000 * 1e18;
         uint N = 12;
 
-        // ---- LEG A: one drain of TOTAL.
+        // §E71-r3 — MEASURES THE TRADER'S RECEIPT, NOT OUR BOOKKEEPING. The prior version compared
+        // `skewPremiumCum`, i.e. the protocol's own record of what it retained. That is the trap that
+        // hid the delivery bug through six layers: asserting on a number the failing system reports
+        // about ITSELF. A discount in our ledger is not evidence of a discount to the WHALE. Identical
+        // dollars go in on both legs, so whoever receives MORE volatile paid LESS — that is the
+        // arbitrage, stated in the only terms an arbitrageur acts on. The premium legs are DELETED
+        // rather than kept alongside: keeping both was hedging, and it cost the stack slots that made
+        // this function stack-too-deep.
         uint snap = vm.snapshotState();
         _setupBand();
         uint invA = CORE.POOLED_ETH() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
-        uint tgtA = CORE.flowEwmaUsd(false);
-        uint beforeA = CORE.skewPremiumCum(false);
-        uint skewA = AUX.wellSkew(address(WETH));
-        _drain(TOTAL);
-        uint paidA = CORE.skewPremiumCum(false) - beforeA;
+        uint ethA = _drain(TOTAL);
         vm.revertToState(snap);
 
-        // ---- LEG B: N drains of TOTAL/N, from the IDENTICAL starting state.
         _setupBand();
         uint invB = CORE.POOLED_ETH() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
-        uint tgtB = CORE.flowEwmaUsd(false);
-        uint beforeB = CORE.skewPremiumCum(false);
-        uint skewB = AUX.wellSkew(address(WETH));
-        for (uint i = 0; i < N; ++i) _drain(TOTAL / N);
-        uint paidB = CORE.skewPremiumCum(false) - beforeB;
+        uint ethB;
+        for (uint i = 0; i < N; ++i) ethB += _drain(TOTAL / N);
 
-        emit log_named_uint("A start inv/target (usd6)", invA);
-        emit log_named_uint("B start inv/target (usd6)", invB);
-        emit log_named_uint("A start target           ", tgtA);
-        emit log_named_uint("B start target           ", tgtB);
-        emit log_named_uint("A start wellSkew (read)  ", skewA);
-        emit log_named_uint("B start wellSkew (read)  ", skewB);
-        emit log_named_uint("realizedVarianceWad      ", CORE.realizedVarianceWad(false));
-        emit log_named_uint("PREMIUM one big drain    ", paidA);
-        emit log_named_uint("PREMIUM split into N     ", paidB);
+        emit log_named_uint("start inv A (usd6)    ", invA);
+        emit log_named_uint("start inv B (usd6)    ", invB);
+        emit log_named_uint("ETH to ONE big drain  ", ethA);
+        emit log_named_uint("ETH to the SPLIT (sum)", ethB);
 
-        // THE CONTROL. If the two legs did not start from the same state, the comparison is void
-        // and must not be reported as a result about the integral.
-        if (invA != invB || tgtA != tgtB) {
-            emit log("VOID: legs started from different states -- comparison says nothing.");
-            return;
-        }
-        if (paidA == 0 && paidB == 0) {
-            emit log("VOID: neither leg was charged -- the premium path was never exercised.");
-            return;
-        }
+        // CONTROLS. Both must hold or the comparison is void — a run that cannot show its own
+        // premises is indistinguishable from a run that confirms what I expected.
+        if (invA != invB) { emit log("VOID: legs started from different states."); return; }
+        if (ethA == 0 || ethB == 0) { emit log("VOID: a leg received no volatile."); return; }
 
-        if (paidA >= paidB) {
-            emit log("RESULT: one big drain costs >= the split. E68's prediction HOLDS.");
-            emit log_named_uint("big-drain surcharge bps of split", paidB == 0 ? 0
-                : (paidA - paidB) * 10_000 / paidB);
+        if (ethA > ethB) {
+            emit log("TRADER-SIDE: BIG DRAIN got MORE eth for the same dollars -- ARBITRAGE IS REAL.");
+            emit log_named_uint("whale advantage bps", (ethA - ethB) * 10_000 / ethB);
+        } else if (ethB > ethA) {
+            emit log("TRADER-SIDE: the SPLIT got more -- consolidation is PENALISED, not rewarded.");
+            emit log_named_uint("split advantage bps", (ethB - ethA) * 10_000 / ethA);
         } else {
-            emit log("RESULT: THE ONE BIG DRAIN IS CHEAPER -- THE CONSOLIDATION ARBITRAGE SURVIVES.");
-            emit log_named_uint("big-drain DISCOUNT bps vs split", (paidB - paidA) * 10_000 / paidA);
+            emit log("TRADER-SIDE: IDENTICAL receipts -- path-independent, which is the goal.");
         }
     }
 }
