@@ -7166,3 +7166,496 @@ pre-change tree was 3847/0 green.
 | **E111** | 📌 **OWN SESSION REQUIRED — SAFE-COMPROMISE / MALICIOUS-IMAGE. Do not solve this inline; three designs died in one conversation (2026-08-06).** ⛔ **RULED OUT BY THE OWNER, do not re-propose:** (1) **hop quorum** (E109/E109-r) — attestation proves *"I run whitelisted code"*, not distinct operators, and registration is permissionless ⇒ one party stands up K enclaves on the HONEST image and clears any K. **Not Sybil-resistant.** (2) **per-LP delegation veto** — safe, but forces every passive LP to re-sign on each enclave upgrade, reversing a deliberate design choice (*"ONE Safe tx every fleet LP auto-follows with NO re-signing"*). **Owner: drop it.** (3) **threshold shares** — **owner: not better.** (4) **capacity weighting** — an LP's BTC is not the hop's stake; it lets a hop vote with money it does not own. 🔎 **THE ONE REFRAME WORTH CARRYING IN:** the whitelist is NOT where the catastrophe is. A rogue MRENCLAVE grants **standing**, and `btcRecipientOf` pinning already bounds that to churn (never theft, E95). **`MigrationAuth` grants THE SEED** — the honest enclave exports its sealed key to the authorized successor, and since the vault seed derives from the hop seed (E94), one export yields BOTH halves of every channel. ⇒ **Guard the export, not the whitelist.** A sketched-but-unbuilt option: stamp `mrenclaveWhitelistedAt[m]` and have the enclave refuse a successor younger than N blocks — the victim enforcing its own delay, using the same on-chain-state-as-truth pattern `freshness_ledger.rs` already relies on. ⚠️ Any delay is only worth what the window buys, and that needs (a) someone NOTICING — the E102 reproducible-build check nobody has ever run — and (b) an action available. **Those are the same project.** ▶️ Start that session from this row plus E94, E102, E105. | 📌 booked for a dedicated session |
 
 | **E110-r** | ✅ **E110's PREREQUISITE ANSWERED: LP CHANNELS ARE NOT ROUTABLE TODAY, SO THERE IS NO LIVE ACCOUNTING HOLE — AND ENABLING ROUTING IS WHAT WOULD CREATE ONE (2026-08-06).** `quid-hop/src/node.rs:611` `build_user_config()` starts from `UserConfig::default()` and sets ONLY handshake fields (`minimum_depth`, `our_to_self_delay`, `our_htlc_minimum_msat`, `our_max_accepted_htlcs`, in-flight cap, anchors, simple-taproot, pinned shutdown script). **Nothing sets `announced_channel`, `accept_forwards_to_priv_channels`, or any `forwarding_fee_*`.** ⚠️ **INFERENCE, FLAGGED AS SUCH:** on LDK defaults that means channels are PRIVATE (absent from public gossip, so strangers cannot path-find through them) and forwarding to private channels is not accepted. I read the handshake block, not the whole file, and the conclusion rests on those defaults rather than a direct read of an explicit `false`. ⇒ **Consistent with E108** (`PaymentForwarded` never handled): there is no routing revenue because there is no routing. ✅ **So `pooled` cannot currently desync via forwarding.** ⛔ **BUT THE OWNER'S ASK — spread routing fees to all LPs — REQUIRES ANNOUNCING CHANNELS, WHICH INTRODUCES EXACTLY THE HOLE E110 DESCRIBES:** an LP has ONE channel (`OneChannelPerLp`), so it can only ever be one LEG of a forward, and forwarding shifts its balance with no splice/deliver/close — the only three things that update `pooled`, which is what QUI is minted against. ▶️ **ORDER OF WORK: (1) a balance-sync mechanism for forwarded HTLCs; (2) announce channels; (3) observe `PaymentForwarded`; (4) credit `feesPerShareBTC` so it settles pro-rata exactly like band fees via `_settleBtcLp`.** Step 4 is the small one and must be LAST. | ✅ prereq answered; routing still gated on balance sync |
+
+**OPEN 19 — the keeper's liquidation threshold is OPERATOR-SUPPLIED, not read from the venue.**
+`venue_liq_ltv_bps` comes from the `QUID_LEV_VENUE_LIQ_BPS` env var (`daemon.rs:426`, and
+`QUID_BTC_LEV_VENUE_LIQ_BPS` at :480); `LevManager.sol:62` merely ASSERTS "the 86% venue LLTV" in a
+comment. Nothing reads LLTV from Morpho/Euler. The keeper's urgency threshold is
+`venue_liq_ltv_bps − safety_margin_bps`, so if the configured value is stale or wrong the keeper
+computes the wrong urgency and **fails toward UNDER-protection, silently** — a position looks safe
+while it is not. Read it per-venue on demand instead (Morpho exposes `lltv` in MarketParams; Euler
+exposes per-collateral LTV). ⚠️ This also invalidates using 8600 as evidence for the weETH offramp's
+LTV capacity: it is a configured guess, not a market read.
+
+**OPEN 20 — two quid-tls CA-cert snapshot tests fail, and they are NOT from the Rover removal.**
+`shared_seed::certs::test::ca_cert_snapshot_test` and `derived_ca_keypair_snapshot_test`
+(`quid-tls/src/shared_seed/certs.rs:440`) fail with "ca cert is different". Evidence they are not
+mine: the Rover removal's Rust diff is exactly three files, ALL in `quid-bridge`
+(`src/daemon.rs`, `src/lev_keeper.rs`, `tests/lev_keeper_e2e.rs`); `quid-tls` was last touched by
+`de5bd21` (the quid-tokio→quid-async-util rename) and the `0af7f6d` snapshot squash. `quid-bridge`
+itself now COMPILES AND PASSES.
+⚠️ These are SNAPSHOT tests and CLAUDE.md's rule applies: **prove the cause before repinning.** The
+rename commit is the obvious suspect if anything feeds crate names into the CA derivation, but that
+is a hypothesis, not a finding. The historical baseline recorded in memory was 532 passed / 0 failed,
+so these two regressed at some point and nobody noticed.
+
+### Offramp unknowns — resolved 2026-08-05 (partly by finding the question was wrong)
+
+**LLTV is NOT a venue property to track — it is a per-market IMMUTABLE.** Morpho Blue markets are
+immutable once created, and `LevYbReal.t.sol:218-223` shows the protocol calls the PERMISSIONLESS
+`createMarket` with `lltv: 0.86e18` — we create the market. So LLTV is either OUR CHOICE at creation
+or a fixed parameter readable from `idToMarketParams(id).lltv`. It never needs configuring.
+⇒ Strengthens OPEN 19: `QUID_LEV_VENUE_LIQ_BPS` is not merely stale-able, it is REDUNDANT. The same
+0.86 is hardcoded THREE times with zero reads — the Rust env var, the `LevManager.sol:62` comment,
+and the test's market creation.
+
+**The borrow rate is NOT a constant.** The market uses `ADAPTIVE_IRM`
+(`0x870aC11D48B15DB9a138Cf899d20F13F79Ba00BC`), so the rate is a function of UTILISATION, readable
+via `borrowRateView`. ⚠️ **RETRACTED: the "~6 bps for a ~7-day window" figure I quoted repeatedly
+assumed a fixed ~3% APY. Do not use it.** With an adaptive IRM the offramp's cost rises with
+utilisation — and utilisation spikes exactly when many LPs want out at once, i.e. the correlated case
+the offramp exists for. The cost is highest when the need is greatest. That interaction must be
+modelled before the offramp is sized.
+
+**Still genuinely open: the encumbrance ceiling.** How much weETH can back borrows before LP
+withdrawals are at risk (pre-emption case 2). `LevMath.deliverableDollars(netEquityUsd, collValueUsd,
+curLtvBps, lltvBps)` already computes the liquidation-edge bound `C·(1 − curLtv/(LLTV − margin))`, so
+the math exists; what is undecided is whether `POOLED_ETH` is bounded by it.
+
+**`collToWethDeliver` (§M.1) is the offramp's delivery seam and needs no changes** — "NO flash / NO
+stable-sale", `minOut`-floored, routes weETH via `_weethToWeth`. Mode 2 (`extractToVaultBody`) does
+NOT generalise: it is repay-first → withdraw → SELL → return-flash, which sells the collateral.
+⚠️ `collToWethDeliver`'s docblock still says "the Rover→V3→ether.fi offramp" — STALE, Rover is gone.
+⚠️ It delivers by SELLING weETH (`_weethToWeth`), not by borrowing against it. The term-borrow source
+repaid from the waitNft is the ONE piece that genuinely does not exist yet.
+
+### The weETH→WETH sell ladder, MEASURED 2026-08-05 (live mainnet, Uniswap V3 Quoter v1, 0.05% tier)
+
+| size (weETH) | vs `getEETHByWeETH` fair |
+|---|---|
+| 1 | **−25.62 bps** |
+| 10 | −25.66 |
+| 100 | −26.07 |
+| 500 | −27.88 |
+| 1,000 | −30.14 |
+| 2,000 | **−34.66 bps** |
+
+**The discount is a ~25.6 bps FLOOR, not a slippage curve.** 2,000 weETH costs only ~9 bps more than
+1 weETH, so depth is not the binding constraint — everyone pays ~25 bps to exit into the pool, plus a
+shallow size term.
+
+⚠️ **RETRACTS the −74.87 bps figure used repeatedly on 2026-08-04.** That was the tail of a
+37-sample distribution that also contained **+30.24 bps**, and it was quoted as if it were the price.
+The correct number is this ladder. It also retracts my follow-up guess that −74.87 was a size effect —
+the ladder is far too flat for that.
+
+**THE CROSSOVER IS A RATE QUESTION, NOT A SIZE QUESTION.** Borrowing beats selling while
+`borrowAPY × days/365 < 25.6 bps`; over a ~7-day waitNft window that is a break-even of **13.4% APY**.
+Below it, borrow-and-repay-from-waitNft wins at EVERY size on this ladder; above it, selling is
+cheaper. There is no size crossover.
+⇒ **The offramp needs no size-dependent routing** — one comparison, both sides readable on-chain
+(`borrowRateView` on the adaptive IRM vs a quoter call for the live discount). And because the
+discount moves, the break-even must be COMPUTED, never configured.
+
+Caveats: one block, so this is the current discount and not a distribution; and these are Quoter
+figures rather than executed swaps (the fork tests that confirmed quoter/fill agreement were deleted
+in Rover step 2).
+
+### THE OFFRAMP DESIGN — settled 2026-08-06. Build this, not a capacity cap.
+
+**The constraint (owner's framing, and it is the right one):** the band advertises depth equal to ALL
+the weETH, but WETH deliverable via borrow is only `LTV × weETH`. The top `(1 − LTV)` tranche is
+advertised but not borrowable. Structural — the haircut scales with the position, so no amount of
+capital fixes it.
+
+⚠️ **A previous framing of this as "LP withdrawals at risk" was NARROWER AND PARTLY A RED HERRING.**
+If LPs are paid in **weETH** they can withdraw 100% and never touch LTV. Only a SWAPPER WANTING WETH
+hits the wall. Do not build withdrawal-side machinery for this.
+
+**DO NOT CAP `POOLED_ETH`.** The measured ladder changes the answer: the residual tranche is not
+undeliverable, it is *sellable* at a flat ~25.6 bps. So the marginal cost STEPS UP at the LTV line
+instead of the depth stopping — strictly better than refusing business we can serve.
+
+| tranche | source | marginal cost |
+|---|---|---|
+| 0 → `LTV × weETH` | borrow WETH against weETH, repay from the waitNft | borrowAPY × window (~5 bps at 3%) |
+| beyond `LTV` | sell weETH into the V3 pool | **~25.6 bps, flat in size** |
+| beyond pool depth | ether.fi redemption | free, ~7 days |
+
+**THIS IS THE SHAPE `offrampBody` ALREADY HAS.** Rung 1 is the V3 pool, rung 3 is the redeem. The
+entire change is inserting the borrow as a NEW CHEAPEST RUNG ahead of the existing V3 sale — exactly
+the slot Rover's rung 2 occupied and which is now empty. The ladder, cascade order and fall-through
+semantics are all reused. A full drain remains servable; it just costs ~20 bps more past the LTV line,
+which is a step, not a cliff.
+
+**⇒ The LTV read is LOAD-BEARING, not hygiene.** The rung boundary IS `LTV × holdings`, so a stale
+8600 puts the boundary in the wrong place: it either strands borrowable capacity or attempts a borrow
+that reverts. Read `idToMarketParams(id).lltv` — immutable, so a one-time read per market, not a
+per-swap oracle. See OPEN 19.
+
+**OPEN 21 — should the skew price the tranche boundary?** A swapper crossing from rung 0 into rung 1
+imposes a ~20 bps step on the protocol. If the quote does not reflect it, the marginal swapper is
+subsidised by the pool at exactly the moment capacity becomes scarce — structurally the SAME defect as
+the well's size-blindness. Unmeasured; decide before wiring the rung.
+
+**Still to build (small):** the waitNft lifecycle — request via `IEtherFiLiquidityPool.requestWithdraw`
+(already declared), custody the id, claim on maturity, repay the borrow. Plus one rate comparison
+(`borrowRateView` vs the live quoter discount) to pick rung 0 vs rung 1. `collToWethDeliver` (§M.1) is
+the delivery seam and needs NO changes.
+
+### waitNft — CORRECTION: the path already exists. Only DIRECTION and CUSTODY are missing.
+
+⚠️ **A previous entry called the waitNft lifecycle "genuinely new". That was WRONG** — asserted
+without reading the code. `SwapLib.waitNft` (`:675`, called from `:656`/`:665` as the offramp's last
+rung) already does the whole thing: unwrap weETH → eETH via `IWeETH.unwrap`, then
+`IEtherFiLiquidityPool.requestWithdraw`, with honest proportional clamping when the weETH balance
+covers only part of the ask.
+
+**What is actually missing is one word and one later transaction.** `requestWithdraw(recipient, eeth)`
+mints the NFT to the **SWAPPER**. Today's semantics: *"we can't serve you now — here is a claim
+ticket, go wait ~7 days yourself."* The borrow design inverts it: **the protocol takes the ticket and
+the wait, the swapper gets WETH immediately.**
+
+**⛔ DO NOT FLIP `recipient` ON ITS OWN — IT STRICTLY REGRESSES.** Without the borrow leg the swapper
+receives NOTHING and the rung silently becomes a black hole. Worse than the defect being fixed. The
+change is inherently COUPLED; the shape is one branch inside the existing function:
+
+```
+waitNft(amount, recipient, c):
+    unwrap weETH -> eETH                        <- unchanged, exists
+    if borrowable(size):
+        id = requestWithdraw(address(this), eeth)   <- NFT to US, BIND the id
+        deliver venue.borrow(...) WETH to recipient now
+    else:
+        requestWithdraw(recipient, eeth)            <- today's behaviour, PRESERVE it
+```
+
+**REAL DEFECT IN THE EXISTING CODE, independent of the redesign:** `requestWithdraw` returns the
+request id and `waitNft` DISCARDS it (`returns (uint) {` binds nothing). Harmless today because the
+swapper owns the NFT — but the moment the protocol owns it, **that discarded id IS the custody
+handle.** Not cosmetic; it is what the design turns on.
+
+**The ONLY genuinely new code is the claim-and-repay step** (a second transaction: claim the matured
+NFT, apply proceeds to the debt). It can hang off the existing Rust keeper tick — no new daemon.
+
+⚠️ **Rung 0 and rung 4 are the SAME redemption allocated two ways** and cannot both serve the same
+weETH. The rung-ordering decision comes with this change, not after it.
+
+**OPEN 19 — NARROWED 2026-08-06. The Solidity is already correct; only the Rust keeper is wrong.**
+`LevManager:302` and `BtcLevManager:218` pass `p.venue.liqThresholdBps()` into
+`LevMath.deliverableDollars` — READ FROM THE VENUE, not configured. `MorphoEscrowVenue:165`
+implements it as `LLTV / 1e14`, with `LLTV` immutable and set at construction from the market's own
+`MarketParams`. So the on-chain liquidation threshold is sourced per-venue exactly as it should be.
+
+**The ONLY gap is the Rust keeper**, which reads `QUID_LEV_VENUE_LIQ_BPS` / `QUID_BTC_LEV_VENUE_LIQ_BPS`
+from the environment (`daemon.rs:426`, `:480`) when `liqThresholdBps()` already exists on the venue.
+FIX: have the keeper `eth_call` the venue's `liqThresholdBps()` instead of the env var, and delete
+both env vars. Small and Rust-only.
+
+WHY IT MATTERS BEYOND HYGIENE: the keeper's urgency threshold is
+`venue_liq_ltv_bps − safety_margin_bps`, so a configured value that drifts from the venue's real
+threshold makes the keeper compute the wrong urgency and fail toward UNDER-protection, silently.
+And Euler EVK LTVs are GOVERNABLE (Morpho Blue's are immutable), so for that venue the value can
+genuinely change under a running keeper — an env var cannot track it at all.
+
+Also retracts the earlier framing that "the 0.86 is hardcoded three times with zero reads": the
+Solidity read exists. The three hardcodes are the keeper env var, the `LevManager:62` comment (now
+flagged), and the test suite's own `createMarket` — none of which is the production on-chain path.
+
+**OPEN 19 — CLOSED 2026-08-06. It was never broken; I was wrong three times about the same value.**
+`lev_keeper.rs:478-486` ALREADY reads the threshold live and per-LP:
+`pos(lp) → venue → liqThresholdBps()`, with the code's own comment stating it does so "so it tracks
+an Euler/Morpho LLTV ramp instead of going stale". `QUID_LEV_VENUE_LIQ_BPS` is only the
+`unwrap_or` FALLBACK on read failure, and the fallback direction is deliberate — the comment says
+"never widens the safety margin silently".
+
+⛔ **DO NOT DELETE THAT ENV VAR.** Without it the fallback becomes `0`, and
+`urgent_threshold = 0.saturating_sub(safety_margin)` = 0, which would mark EVERY position urgent on
+any transient RPC failure. The env var is what prevents a read error from cascading the whole book.
+
+My three successive wrong claims about this, recorded so the pattern is visible rather than the
+conclusion alone:
+  1. "the 0.86 is hardcoded three times with zero reads" — false; the Solidity read existed.
+  2. "the Solidity is fine, only the Rust keeper hardcodes it" — false; the keeper reads it too.
+  3. "the env var should be deleted" — false and DANGEROUS; it is a deliberate conservative fallback.
+Each was asserted from a partial grep. The live-read call sites are two frames below where the env
+var is bound, so a grep for the variable name finds the config plumbing and misses the read entirely.
+
+**waitNft — FINAL SHAPE (owner, 2026-08-06). Supersedes both earlier readings in this file.**
+`waitNft` is no longer a coequal rung. The borrow REPLACES it as the normal path, and the same
+`requestWithdraw` call serves both roles, distinguished ONLY by recipient:
+
+  * `requestWithdraw(address(this), eeth)` — **the repayment leg of the borrow.** Normal path. The
+    protocol takes the ticket and the ~7-day wait; the swapper is paid WETH immediately from
+    `venue.borrow`. BIND the returned request id — it is the custody handle (today it is discarded).
+  * `requestWithdraw(recipient, eeth)` — **terminal fallback only**, reached solely if borrow AND
+    sell both failed. Behaviour preserved exactly as today: the swapper/LP-withdrawer gets a claim
+    ticket rather than nothing.
+
+Both failing is hard to construct — the sell rung has ~4,840 WETH reachable at a flat ~25.6 bps, so
+the residual tranche past `LTV × holdings` is servable. Treat the ticket path as a safety net, not a
+branch to design around.
+
+⇒ **RETRACTS two earlier entries.** (1) "the waitNft lifecycle is genuinely new" — false, the unwrap
+and request already exist. (2) "rung 0 and rung 4 are the same redemption allocated two ways and the
+ordering is a decision" — false; rung 4 is not a peer, it is the failure tail, so there is no
+allocation decision to make.
+
+**Remaining new code is still just the claim-and-repay step** (claim the matured NFT, apply proceeds
+to the debt), which can hang off the existing Rust keeper tick.
+
+### AUDIT PRIOR — in this codebase, "compiles and is referenced" does not mean "can execute"
+
+Five paths found in one session (2026-08-05/06) that compiled, were referenced, and could not run.
+Five DISTINCT failure modes, none caught by the compiler or the suite:
+
+| path | failure mode | outcome |
+|---|---|---|
+| `offrampBody` rung 2 | dead code (Rover) | removed |
+| `offrampBody` rung 1, cheap tier | dead by **ORDERING** — expensive tier tried first, loop returns on first fill | fixed; ~8 bps recovered per small offramp |
+| `offrampBody` rung 3 | dead venue — `totalRedeemableAmount` = 0 at every sampled block over 90 days, and **MOCK-VERIFIED for 90 days** (its test `vm.deal`ed 60,000 ETH and mocked away the withdrawal lock) | removed |
+| `VogueLib._supplyEtherFi` direct weETH | dead by **FALLBACK-ORDERING** — only reachable when the Rover deposit reverted | promoted to primary |
+| `LevMath._weethToWeth` tier 2 | dead venue **AND an unguarded revert** — no try/catch, so reaching it reverted the whole call in exactly the crisis it existed for | removed |
+
+**How to audit for these** (a grep for the symbol finds all five and flags none):
+1. **Read the call site, not the declaration.** Three of my wrong claims this session came from
+   grepping a name and finding the config plumbing while missing the live call two frames below.
+2. **Check the venue has capacity, not just an address.** A non-zero address proves nothing.
+3. **Check loop/fallback ORDER.** A correct branch that is never reached first is dead.
+4. **Distrust a passing test on an external venue.** Ask what it mocks — rung 3's test manufactured
+   the precondition and passed for 90 days over a path live state never permitted once.
+5. **Check fallbacks are actually guarded.** An unguarded "emergency" path is worse than none.
+
+⚠️ **NOT YET AUDITED on this prior:** the remaining supply venues (`supplyVenueBody` kinds 2–5 —
+AAVE-v4, Euler 4626, Galaxy, Gauntlet) and the SOR route. The owner has separately questioned whether
+the Galaxy/Gauntlet/AAVE-v4 ETH supply is still needed at all, which makes this the natural next
+sweep.
+
+### KEEPER-OFFLINE IS A HARD CONSTRAINT (owner, 2026-08-06) — it changes the claim step's design
+
+⚠️ **RETRACTS my earlier "the claim-and-repay step can hang off the existing Rust keeper tick."**
+That makes the keeper a DEPENDENCY: if it is offline the waitNft never gets claimed, the borrow is
+never repaid, interest accrues, and the position walks toward liquidation. The failure is silent and
+time-based — the worst shape.
+
+**The claim MUST be permissionless and non-blocking**, matching the pattern this repo already uses
+for the reservoir refill ("a PERMISSIONLESS response to a public on-chain price… never an
+operator-tuned mechanism"). Three properties to hold:
+1. **Anyone can crank it** — searcher, LP, keeper, or the swapper themselves. The keeper becomes an
+   optimisation, never the only path.
+2. **Ordinary protocol activity should do it** — fold the claim attempt into the next offramp/swap so
+   the common case needs no external actor at all.
+3. **Nothing breaks if nobody cranks** — an unclaimed matured NFT must only cost accrued interest,
+   bounded and visible, never a liquidation. Size the encumbrance ceiling so the worst case is
+   survivable with the keeper down indefinitely.
+
+⇒ **This feeds the ENCUMBRANCE POLICY directly:** the ceiling is not "how much can we borrow", it is
+"how much can we borrow such that a keeper outage of arbitrary length is still safe". Those give very
+different numbers, and the second is the one to solve for.
+
+### supplyVenueBody — MEASURED 2026-08-06, AAVE v4 (spoke 0x94e7A5dC…, live mainnet)
+
+| asset | supplied | borrowed | utilisation |
+|---|---|---|---|
+| WETH | 21,103 | 400 | **1.90%** |
+| weETH | 714 | **0** | **0.00%** |
+
+**weETH earns EXACTLY ZERO there.** Supply yield = borrowRate × utilisation × (1 − reserveFactor),
+and utilisation is literally 0 — so the product is zero whatever the rate curve says. WETH at 1.90%
+utilisation implies a supply APY in SINGLE BASIS POINTS, not percent.
+
+⇒ Under "all protocol ETH is weETH", supplying to AAVE v4 is a **strict loss of the full ether.fi
+staking rate in exchange for nothing**. The only thing it buys is borrow capacity against the
+collateral — which is encumbrance, i.e. the offramp design, not a yield venue.
+
+**BEFORE DROPPING kinds 2–5, run the SAME measurement on Euler 4626, Galaxy and Gauntlet** — separate
+markets with their own utilisation. AAVE v4 is measured; the other three are not, and "they will never
+earn more than weETH" is a very likely hypothesis that is still a hypothesis.
+
+### KEEPER SPLIT — the discriminator (owner, 2026-08-06)
+
+**Principle: the keeper does only what it must. If something is cheap on-chain and gives better
+liveness, that is where it belongs.**
+
+**The test:** does the action need information the chain does not have, or iteration the chain cannot
+afford? If NEITHER, it is on-chain. Anything the keeper decides is a liveness dependency; anything
+the chain decides is not.
+
+| action | needs off-chain? | belongs |
+|---|---|---|
+| scan the LP book for who is near liquidation | yes — unbounded iteration + timing | **keeper** |
+| claim a matured waitNft | no — the predicate is "is it matured?", which the chain knows | **on-chain** |
+| read the venue liquidation threshold | no — `liqThresholdBps()` is a chain read | **on-chain** (already is; env var is only the RPC-failure fallback) |
+| `repack_rover` / `compound_rover` | n/a | removed 2026-08-05 |
+
+⚠️ **"Cheap on-chain" hides a question: WHO PAYS THE GAS.** A permissionless crank that nobody is
+paid to call may simply never be called, in which case the liveness guarantee is nominal. The
+on-chain version is only genuinely better when the action is either self-incentivised or
+**piggybacked on traffic that happens anyway.** For the waitNft claim, piggyback: attempt it during
+the next offramp, where someone is already paying gas and already touching the position. Keeper
+becomes the backstop, never the path.
+
+⇒ **This is why the encumbrance ceiling must be solved for "no keeper, indefinitely".** With the
+claim permissionless AND piggybacked, the bound is computable rather than operational: accrued
+interest over an unbounded outage must stay inside the liquidation headroom
+`C·(1 − curLtv/(LLTV − margin))`, which `LevMath.deliverableDollars` already computes. That turns an
+operational assumption into an on-chain invariant.
+
+### supplyVenueBody kinds 2–5 — THE BAR IS 2.46%/yr, AND IT IS MEASURED
+
+Holding weETH earns the ether.fi ratchet: **+0.674 bps/day → 2.46%/yr**, measured over the 90-day
+window (`analysis/rover/decompose.py`, the TREND component). That is the hurdle rate. Any venue that
+holds **WETH** instead of weETH must clear **2.46% supply APY** merely to break even — before the
+conversion friction each way.
+
+**AAVE v4 — MEASURED 2026-08-06, loses outright:**
+* WETH: 21,103 supplied / 400 borrowed = **1.90% utilisation** ⇒ supply APY in SINGLE BASIS POINTS.
+* weETH: 714 supplied / **0** borrowed = **0.00% utilisation** ⇒ supply yield exactly zero, whatever
+  the rate curve says.
+⇒ Supplying there is a strict loss of ~2.46 points. The only thing it buys is borrow capacity against
+the collateral — which is encumbrance, i.e. the offramp design, not a yield venue.
+
+**STILL A HYPOTHESIS: Euler 4626, Galaxy, Gauntlet.** Three separate markets, not measured. The test
+is one question each — does WETH supply APY exceed 2.46%? Implausible at current WETH rates, but
+implausible is not measured, and this file already records five paths that looked fine and were not.
+Do NOT drop kinds 2–5 until each is checked.
+
+
+### ALL-IN ON weETH — the venue collapse, and why `ethfiBacked` goes with it (owner, 2026-08-06)
+
+**DONE and on main (c2477d3, green 3881/0):** `supplyVenueBody` routes every `kind` to the ether.fi
+adapter. The WETH venues are no longer supplied to.
+⭐ This FIXED `testLeverage_LvrControlVsTreatment`, the repo's documented baseline failure asserting
+that leverage flow must not leave the passive LP worse off. The WETH venues were not merely
+underperforming (AAVE v4 measured: WETH 1.90% utilisation, weETH 0.00%); they were the REASON that
+assertion failed, because passive LPs' ETH sat there earning ~nothing while leverage flow extracted
+value from it. Stronger evidence than any utilisation reading.
+
+**ON BRANCH `venue-collapse-wip`, needs the decision below before landing:**
+* `VogueLib`'s venue dispatch collapsed to `_supplyEtherFi` — every branch had become a synonym.
+* `VENUE_SPLIT` gone: splitting five ways to "diversify curator risk" is meaningless with one venue.
+* Orphaned Vault entry points deleted: `supplyAaveEth`, `supplyEulerEth`, `supplyGauntlet`.
+* ⚠️ `supplyFromAux` is NOT orphaned — `ChannelLib:185` calls it (BTC channels). Restored, now
+  routing to weETH like everything else. The compiler caught this; a grep of the venue dispatch
+  alone would not have.
+
+**THE DECISION THAT GATES IT — and the owner has now made it: `ethfiBacked` IS THE WHOLE BOOK.**
+The collapse makes `ethfiBacked[pledge] += placed` fire on EVERY deposit, where it previously fired
+only for the ether.fi venue. That produced 229 failures across liquidity races, LVR residuals,
+pinning, repointing and vault health — and they are NOT breakage. They pin a TWO-WORLD model (some
+LPs ether.fi-backed, some not) that no longer exists. Under all-in-weETH every LP is ether.fi-backed
+by construction, so the tests are the stale artefact.
+
+⇒ **`ethfiBacked` IS NOW REDUNDANT WITH THE LP'S BALANCE AND SHOULD BE REMOVED**, not merely made
+universal. It currently gates the offramp ladder and exit paths; with one venue those gates are
+always open, so the per-LP slice is bookkeeping for a distinction that no longer exists. Removing it
+is what makes the 229 tests resolve as a group rather than one at a time.
+
+**REMAINING WORK, in order:** delete `ethfiBacked` and its gates → triage the 229 tests (expect most
+to delete outright, being assertions about a partial slice) → land `venue-collapse-wip`. Then retire
+the accepted-but-ignored `kind` in `supplyVenueBody` and `v` in the dispatch, and the `VENUE_*`
+constants.
+
+**⚠️ ATTRIBUTION MISMATCH ON MAIN RIGHT NOW — the venue collapse is a CORRECTNESS FIX, not cleanup.**
+`ethfiBacked` is credited ONLY inside the `VENUE_ROVER` branch of the dispatch (`VogueLib:232`), but
+`supplyVenueBody` now routes EVERY venue's deposit into weETH. So an LP depositing via `VENUE_AAVE`
+receives weETH yet has `ethfiBacked == 0` — and `Vogue:626` gates the offramp ladder on
+`ethfiBacked[msg.sender] > 0`. Their funds are ether.fi-sourced while their exit path says they are
+not. Not a live risk (nothing is deployed), but the committed state is internally inconsistent
+between where funds GO and how they are ATTRIBUTED. Landing `venue-collapse-wip` is what reconciles
+them; do not treat it as optional tidy-up.
+
+**REMOVING `ethfiBacked` — the substitution, once attribution is universal.** Every position is
+ether.fi-sourced by construction, so `ethfiBacked[lp] == LP.pooled` identically:
+
+| current | becomes |
+|---|---|
+| `ethfiBacked[msg.sender] > 0` (Vogue:626, the offramp gate) | `LP.pooled > 0` |
+| `Math.min(ethfiBacked[msg.sender], LP.pooled)` (Vogue:628) | `LP.pooled` |
+| `ethfiBacked[…] -= Math.min(served, …)` (Vogue:643) | drop |
+| `delete ethfiBacked[user]` (Vogue:736) | drop |
+
+Then the mapping (`Vogue:84`), its storage slot, and the two threading sites (`Vogue:349` into
+`withdrawETH`, `Vogue:1016` into the dispatch) all go. ⚠️ Vogue:60-62 annotates it as "the ONLY per-LP
+isolated slice" and `VEth.sol:23` names it in the relocated-storage note — update both, and check the
+storage layout, since removing a mapping shifts slots.
+
+**TWO FAILED ATTEMPTS 2026-08-06 — the sequencing, learned the hard way.**
+
+* `venue-collapse-wip` (branch): dispatch collapsed to `_supplyEtherFi`, `VENUE_SPLIT` removed,
+  orphaned Vault entry points deleted, `supplyFromAux` restored (ChannelLib:185 calls it).
+  **229 failures.** Those are tests pinning the two-world model and are expected to be stale.
+* `ethfibacked-reduction-wip` (branch): the above PLUS removal of the `ethfiBacked` mapping.
+  **370 failures INCLUDING `setUp()`** — whole suites could not initialise. That is a BROKEN
+  DEPLOYMENT PATH, not stale tests. Two plausible causes, neither checked before proceeding:
+  removing a public mapping SHIFTS STORAGE LAYOUT, and the deleted Vault entry points may still be
+  referenced by `DeployLib`/`setUp` wiring.
+
+⇒ **DO THE TWO CHANGES SEPARATELY, IN THIS ORDER.** They were conflated and the failure became
+unattributable — the exact thing rule 10 exists to prevent.
+  1. **Venue collapse ONLY.** Keep the `ethfiBacked` mapping, keep every Vault entry point, and
+     credit `ethfiBacked` for ALL venues rather than only `VENUE_ROVER`. That is the CORRECTNESS FIX
+     for the attribution mismatch and it touches no storage layout. Triage the ~229 to green.
+  2. **THEN remove `ethfiBacked`.** With step 1 green and the accounting settled, this becomes a pure
+     storage/plumbing change whose failures are attributable. Check `DeployLib` and the test `setUp`
+     wiring for the deleted entry points BEFORE deleting them.
+
+The substitution itself is unchanged and still correct: `ethfiBacked[lp] == LP.pooled` identically,
+so the offramp gate becomes `LP.pooled > 0`, the pro-rata slice becomes the whole `amount`, and the
+decrement and `delete` drop.
+
+
+### ⚠️ LIVE DEFECT ON MAIN: rung 4 retains principal. Owner chose to fix it by landing the borrow leg.
+
+`waitNft` mints the withdrawal NFT to `address(this)` (the protocol), not the withdrawer. That change
+was made 2026-08-06 and was EXPLICITLY COUPLED to the borrow leg existing — the protocol takes the
+NFT and the ~7-day wait BECAUSE the withdrawer is paid WETH immediately. **The borrow leg does not
+exist yet.** So rung 4 currently takes the user's weETH, requests a redemption payable to the
+protocol, and returns them nothing.
+
+It stayed hidden because rung 4 was rarely reached — only ether.fi-sourced LPs used the offramp at
+all. The venue collapse makes every exit use it, which is why attempt 3 surfaced it as:
+    "the deferral must be COLLECTABLE, else it is a leak"
+    "the deferred residual must be RECOVERABLE by a second exit"  (residual does not shrink)
+    "delivered + retained == principal"  short by 0.18%
+    two `ERC20: transfer amount exceeds balance` reverts
+**These are NOT stale tests. Do not update them to pass.** They are detecting retained principal.
+
+**OWNER DECISION: land the borrow leg (option 2), rather than reverting waitNft to mint to the
+withdrawer (option 1).** Note the consequence: main carries the principal-retention path until the
+borrow lands. Acceptable only because NOTHING IS DEPLOYED — if that changes, do option 1 first, it is
+a two-character revert.
+
+**THE WIRING IS ALREADY THERE — no struct surgery needed.** `VaultLib.EthCfg` carries `levManager`
+(`VaultLib:61`) and `withdrawETH` takes `EthCfg`. So the borrow belongs in the CALLER, above
+`offrampBody`, which is also the right design: the ladder's rungs all CONSUME weETH, and the borrow's
+whole point is that it does not. `OfframpCfg` needs no new field.
+
+**BUILD ORDER:**
+  1. In `withdrawETH`, before the offramp: borrow WETH against the weETH via `venue.borrow`, deliver
+     to the recipient, record the debt.
+  2. `waitNft` keeps minting to `address(this)` — now correct, because the user was already paid.
+  3. The claim-and-repay step: claim the matured NFT, apply proceeds to the debt. PERMISSIONLESS and
+     piggybacked on the next offramp (see the keeper-split entry) so a keeper outage cannot strand it.
+  4. Only then retry the venue collapse and the `VENUE_*` / `ethfiBacked` deletions.
+
+**Attempt branches for diffing:** `venue-collapse-wip`, `ethfibacked-reduction-wip`,
+`dispatch-collapse-attempt3` (the informative one — 229 failures WITH readable messages), and
+`50a19e5` on the working branch (attribution fix isolated, 38 failures / 3 tests).
+
+
+### ⚠️ RETRACTION: the "ethfiBacked reduction broke the deployment path" conclusion is UNVERIFIED
+
+The 370-failure run that produced that conclusion had **32 dead-RPC errors** in its output, and its
+failures included bare `setUp()`. Per CLAUDE.md's build-environment note, that is EXACTLY the
+signature of a dead endpoint: it fails inside `setUp()` so every fork test reports FAIL with no
+assertion involved. The ankr key in `evm/.env` was returning HTTP 401 during that window and has
+since been repointed to `ethereum-rpc.publicnode.com`.
+
+**So `ethfibacked-reduction-wip` may be fine. Re-run it on a healthy endpoint before believing my
+diagnosis.** I attributed a mass regression to my own change without reading the failure text — the
+precise mistake CLAUDE.md warns about ("read the failure text before believing a mass regression").
+
+**WHAT SURVIVES, re-verified on the working endpoint** — the isolated attribution fix (`50a19e5`)
+still shows the same three, so that run was NOT contaminated:
+  * `testEthVenue_AaveV4_DepositAndWithdraw` — "no ether.fi slice" — **STALE**, asserts the two-world
+    model that all-in-weETH abolishes.
+  * `test_V5_WithdrawShrinksCommitted` — "the withdraw actually delivered ETH: 0 <= 0" — **REAL**.
+  * `testRoundTripNoRaceNoDrain` — incumbent LP down ~40 bps — **REAL**, and it is the cost of every
+    exit paying the weETH→WETH conversion.
+
+**⚠️ FAILURE COUNTS ARE NOT COMPARABLE ACROSS TODAY'S RUNS.** publicnode rate-limits a full-suite run:
+the clean re-run executed **2,542 of 3,882 tests** before `429`s, a timeout and a head-block race
+(`block N is not executed`) killed whole suites. Only NAMED failures are comparable; totals are not.
+For a trustworthy full run, use a dedicated endpoint or pin `FORK_BLOCK` a few blocks behind head —
+the head-block race is publicnode serving a block its execution layer has not finished.

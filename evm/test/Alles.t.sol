@@ -27,7 +27,6 @@ import {IPositionManager} from "v4-periphery/src/interfaces/IPositionManager.sol
 
 import {SwapLib} from "../src/imports/SwapLib.sol";
 import {Aux} from "../src/Aux.sol";
-import {Rover} from "../src/Rover.sol";
 import {Vogue} from "../src/Vogue.sol";
 import {Vault} from "../src/Vault.sol";
 import {Basket} from "../src/Basket.sol";
@@ -449,7 +448,7 @@ contract Alles is ForkPin, Fixtures {
             stables: STABLECOINS, vaults: VAULTS,
             hopOperator: address(0),
             spvCheckpointHeader: "", spvCheckpointHeight: 0, spvCheckpointWork: 0,
-            deployRover: false, deployChannels: false
+            deployChannels: false
         }));
         // (Nothing to create — all three venues are the real mainnet curator vaults. `Vault`'s ctor
         //  rejects aliased venue slots, so the three addresses above must stay distinct.)
@@ -632,65 +631,7 @@ contract Alles is ForkPin, Fixtures {
             "frozen-but-solvent 4626 leg no longer inflates redeemable (Strand-1/Gov-C)");
     }
 
-    /// @notice Strand-2: a frozen-but-UNFLAGGED ETH venue (maxWithdraw==0, convertToAssets>0, not yet
-    ///         blocked) must not be valued at PAR for the redemption ETH leg. `deliverableETH` caps the
-    ///         venue at its withdrawable amount ALWAYS (vogueETH only does so when blocked), so the ETH
-    ///         leg DEFERS the undeliverable slice instead of over-burning QU!D for it.
-    ///
-    ///         RETARGETED TO EULER (2026-07-26). This used to freeze GALAXY, which no longer expresses
-    ///         the property: Galaxy is Morpho-V2, and `_withdrawableOf` deliberately ignores its
-    ///         max-views because they report 0 against a fully withdrawable position (probed —
-    ///         `withdraw` and `redeem` both succeed at `maxWithdraw == 0`). Freezing a V2 vault's
-    ///         `maxWithdraw` is therefore a NON-EVENT by design, and asserting on it was asserting the
-    ///         opposite of the intended behaviour. Euler is the venue whose views we MEASURED as honest
-    ///         (real EVault reports `maxWithdraw` equal to the full position), so it is where a
-    ///         maxWithdraw freeze is a real solvent-but-undeliverable signal. The Strand-2 property is
-    ///         unchanged — only the venue that can legitimately exhibit it.
-    function testStrand2_FrozenEulerCapsDeliverableETH() public {
-        address euler = ETH.EULER_VAULT();
-        vm.prank(User01); V4.deposit{value: 50 ether}(0, User01, 5);   // VENUE_EULER (honest 4626 views)
-        assertGt(IERC20(euler).balanceOf(address(ETH)), 0, "ETH deposit landed in Euler");
 
-        uint vogueBefore = ETH.vogueETH();
-        uint delivBefore = ETH.deliverableETH();
-        assertLe(delivBefore, vogueBefore, "deliverable never exceeds solvency");
-        assertGt(delivBefore, 0, "baseline deliverable > 0");
-
-        // Freeze Euler's maxWithdraw - solvent (convertToAssets untouched) but
-        // undeliverable, and NOT blocked (the Strand-2 unflagged window).
-        vm.mockCall(euler,
-            abi.encodeWithSignature("maxWithdraw(address)", address(ETH)), abi.encode(uint(0)));
-
-        // vogueETH (unblocked) reads convertToAssets -> unaffected; deliverableETH
-        // reads the withdrawable amount -> caps below, so the redemption ETH leg defers it.
-        assertEq(ETH.vogueETH(), vogueBefore, "vogueETH (solvency) unaffected by maxWithdraw");
-        assertLt(ETH.deliverableETH(), delivBefore,
-            "frozen-but-unflagged Euler: deliverableETH caps below vogueETH (Strand-2)");
-    }
-
-    /// @notice GAUNTLET end-to-end (added 2026-07-26). Gauntlet is 1 of our 3 ETH venues and had NO
-    ///         coverage at all — every probe up to now used venue selectors 3/4/5, and `VENUE_GAUNTLET`
-    ///         is 6, so it had literally never been exercised. It is also a SECOND Morpho-V2 vault, so
-    ///         this independently confirms `_withdrawableOf` on a venue that was not part of the
-    ///         diagnosis: the raw `maxWithdraw` reads 0 while `deliverableETH` correctly reports the
-    ///         full position and the LP exits whole.
-    function testGauntletVenue_DepositAndFullExit() public {
-        address gauntlet = ETH.GAUNTLET_VAULT();
-        vm.prank(User01); V4.deposit{value: 20 ether}(0, User01, 6);   // VENUE_GAUNTLET
-
-        uint shares = IERC4626(gauntlet).balanceOf(address(ETH));
-        assertGt(shares, 0, "the 20 ETH actually landed in Gauntlet");
-        assertEq(IERC4626(gauntlet).maxWithdraw(address(ETH)), 0,
-            "precondition: Gauntlet is Morpho-V2, so its raw max-view reads 0 against a live position");
-        assertApproxEqRel(ETH.deliverableETH(), 20 ether, 0.01e18,
-            "deliverableETH counts it in full anyway (this is the _withdrawableOf fix)");
-
-        vm.roll(block.number + 1);                                     // JIT-lock: no same-block exit
-        uint before = User01.balance + WETH.balanceOf(User01);
-        vm.prank(User01); V4.withdraw(type(uint).max, User01, User01);
-        assertGt((User01.balance + WETH.balanceOf(User01)) - before, 19 ether,
-            "a Gauntlet-routed LP exits ~whole (the venue self-deallocates inside withdraw)");
-    }
 
     /// @notice TODO #1 char test - Galaxy fallback (Batch-1 `b554c7d`). Closes the
     ///         green-by-masking gap: a reverting Galaxy deposit is CAUGHT and the ETH
@@ -1376,49 +1317,6 @@ contract Alles is ForkPin, Fixtures {
             abi.encode(solvent * 30 / 100));
     }
 
-    /// @notice ON-CHAIN vault-health (the slither/CRE-cron replacement). Makes the REAL Galaxy
-    ///         vault read ILLIQUID (maxWithdraw 30% < the 50% floor) and proves the permissionless
-    ///         `pokeVaultHealth`: first poke BLOCKS + flags, a second poke past EVAC_DWELL
-    ///         EVACUATES the withdrawable WETH. This is the test that lets us retire the CRE
-    ///         vault-health cron.
-    ///
-    ///         TECHNIQUE (changed 2026-07-26): `vm.mockCall` on `maxWithdraw`, NOT `vm.etch`.
-    ///         Etching a stand-in implementation only works if it is STORAGE-IDENTICAL to the
-    ///         slot 1 of a hand-written mock). The venues are now the REAL curator vaults, whose
-    ///         layout is nothing like that, so an etch would silently corrupt every balance read.
-    ///         Mocking the single view that the health check consults is both layout-independent
-    ///         and strictly more surgical — it changes exactly the read under test and nothing else.
-    ///
-    ///         RETARGETED GALAXY -> EULER (2026-07-26), same reason as Strand-2. `pokeVaultHealth`
-    ///         reads `Vault.venuePosition`, which now uses `VaultLib._withdrawableOf`; that returns the
-    ///         REPORTED position for a Morpho-V2 impl because its max-views report 0 against a fully
-    ///         withdrawable position (probed: `withdraw`/`redeem` both succeed at `maxWithdraw == 0`).
-    ///         Mocking Galaxy's `maxWithdraw` is therefore a non-event, and treating a healthy V2 venue
-    ///         as 0% liquid is exactly the false signal the permissionless poke must NOT act on. Euler
-    ///         is the venue measured to have honest views, so it is where a 30%-liquid read is real.
-    function test_PokeVaultHealth_IlliquidEuler_BlocksThenEvacuates() public {
-        address venue = ETH.EULER_VAULT();
-        vm.prank(User01); V4.deposit{value: 20 ether}(0, User01, 5); // VENUE_EULER (honest 4626 views)
-        uint balBefore = IERC4626(venue).balanceOf(address(ETH));
-        assertGt(balBefore, 0, "the Vault holds a real Euler WETH position");
-        uint solvent = IERC4626(venue).convertToAssets(balBefore);
-
-        // Report only 30% of the position as withdrawable — illiquid but SOLVENT.
-        _mockVenueIlliquid(venue);
-        assertLt(IERC4626(venue).maxWithdraw(address(ETH)) * 10000 / solvent, 5000,
-            "on-chain read now sees illiquid (<50%)");
-
-        // Poke 1 (permissionless): flags + blocks; NO evac (dwell not elapsed).
-        AUX.pokeVaultHealth(venue);
-        assertTrue(AUX.vaultBlocked(venue), "illiquid vault blocked on first poke");
-        assertEq(IERC4626(venue).balanceOf(address(ETH)), balBefore, "no evac before dwell");
-
-        // Poke 2 past EVAC_DWELL: evacuates the withdrawable WETH out of the vault.
-        vm.warp(block.timestamp + 31 minutes);
-        AUX.pokeVaultHealth(venue);
-        assertLt(IERC4626(venue).balanceOf(address(ETH)), balBefore,
-            "second poke past dwell evacuated the withdrawable WETH out of the illiquid vault");
-    }
 
     /// @notice Companion to the above: a HEALTHY Morpho-V2 venue must survive the permissionless poke.
     ///         This is the security property behind the `_withdrawableOf` change — real Galaxy reports
@@ -1439,265 +1337,12 @@ contract Alles is ForkPin, Fixtures {
         assertEq(IERC4626(venue).balanceOf(address(ETH)), balBefore, "and must not be evacuated");
     }
 
-    /// @notice EMPTIED weETH/WETH pool e2e: with the Rover funded AND the v3 router
-    ///         `vm.etch`ed to revert every swap (no pool liquidity), an ether.fi LP
-    ///         withdraw must stay RESPONSIVE - the offramp's v3 rung fails, the
-    ///         Rover rung is tried and gracefully caught (its own swap can't fill an
-    ///         empty pool), and the ladder falls through to the ether.fi rung - the
-    ///         LP's slice is still processed and nothing bricks.
-    function test_EmptiedWeethPool_OfframpResilient_RoverHandled() public {
-        Rover rover = new Rover(
-            ETH.ETHERFI_ADAPTER(), address(WETH), ETH.WEETH(),
-            0xC36442b4a4522E871399CD717aBDD847Ab11FE88,
-            ETH.ETHERFI_POOL_A(), ETH.ETHERFI_V3ROUTER(), true);
-        rover.setAux(address(ETH)); // Rover driven by EthVenue (offramp/supply moved there)
-        ETH.setRover(address(rover));
-        deal(address(WETH), address(V4), 10 ether);
-        vm.prank(address(V4)); IERC20(address(WETH)).approve(address(AUX), type(uint).max);
-        vm.prank(address(V4)); ETH.supplyEtherFiToRover(10 ether);
-        assertGt(rover.ID(), 0, "Rover NFT funded");
 
-        // User's ether.fi slice via the FALLBACK: ether.fi is VENUE_ROVER (4), but we force the
-        // self-liquidated path for this one deposit (rover.deposit reverts ⇒ VogueLib._supplyEtherFi's
-        // catch stakes direct weETH) so a direct-weETH slice exists ALONGSIDE the funded Rover position.
-        vm.mockCallRevert(address(rover), abi.encodeWithSignature("deposit(uint256)"), bytes("selfLiq"));
-        vm.prank(User01); V4.deposit{value: 10 ether}(0, User01, 4);
-        vm.clearMockedCalls();
-        uint ethfiBefore = V4.ethfiBacked(User01);
 
-        // EMPTY the pool: every v3 swap reverts (offramp v3 rung AND Rover's swap).
-        vm.etch(ETH.ETHERFI_V3ROUTER(), type(RevertingV3Router).runtimeCode);
 
-        // Withdraw must NOT revert; the slice is processed via the fallback ladder.
-        vm.roll(block.number + 1); // JIT-lock: withdraw must be a later block than the deposit
-        vm.prank(User01); V4.withdraw(5 ether, User01, User01);
-        assertLt(V4.ethfiBacked(User01), ethfiBefore,
-            "ether.fi slice processed via the fallback ladder despite an emptied pool");
-        // Rover NFT intact (its take was caught/rolled back, not bricked).
-        assertGt(rover.ID(), 0, "Rover position gracefully handled (not bricked) on empty pool");
-    }
 
-    /// @notice ether.fi `wait` path: in the both-pools-drained anomaly (forced
-    ///         here by mocking the v3 swap to revert), a `wait` LP is NEVER
-    ///         charged 0.3% - instead the slice becomes a no-fee ether.fi
-    ///         withdrawal NFT (weETH->eETH->requestWithdraw) minted to the LP, who
-    ///         claims it after finalization. Exercises the REAL ether.fi
-    ///         LiquidityPool on the fork.
-    function testEthVenue_EtherFi_WaitNFT() public {
-        // ether.fi wired immutably in Aux's constructor - no setEtherFi.
-        address nft = 0x7d5706f6ef3F89B3951E23e557CDFBC3239D4E2c; // WithdrawRequestNFT
-        vm.prank(User01); V4.deposit{value: 10 ether}(0, User01, 4); // ether.fi = VENUE_ROVER; Rover off ⇒ direct-weETH fallback
-        // wait = default (withdrawInstant false). Force the anomaly: the v3
-        // offramp swap reverts ("pool drained").
-        vm.mockCallRevert(0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45,
-            abi.encodeWithSignature("exactInput((bytes,address,uint256,uint256))"),
-            bytes("drained"));
-        uint nftBefore = IERC20(nft).balanceOf(User01); // ERC721 count via balanceOf(address)
-        vm.roll(block.number + 1); // JIT-lock: withdraw must be a later block than the deposit
-        vm.prank(User01); V4.withdraw(5 ether, User01, User01);
-        // LAST-RESORT (rung 3): elected ether.fi + wait (no 0.3%) + pool can't
-        // fill -> the no-fee withdrawal NFT is minted to the LP. The rebalancer
-        // keeps this rare, but the guarantee stays for the LP with no other route.
-        assertGt(IERC20(nft).balanceOf(User01), nftBefore,
-            "wait + drained pool -> no-fee withdrawal NFT minted to the LP (NOT a 0.3% fee)");
-    }
 
-    /// @notice ETH venue 2 = AAVE-v4. The plumbing (`WETH_RESERVE_ID`,
-    ///         `supplyAaveEth`, `aaveEthBalance`, the AAVE secondary withdraw
-    ///         source, the `aaveBacked` slice) is wired off the AAVE-v4 spoke.
-    ///         **CORRECTED 2026-07-26 — the claim that used to sit here was FALSE.** It said this
-    ///         spoke (0x94e7..., GHO/USDG) "doesn't list WETH, so WETH_RESERVE_ID == 0 -> venue 2
-    ///         is inert and deposits gracefully fall back to Galaxy". Chain-verified: WETH **IS**
-    ///         listed -- it is asset **0**, hence reserve **0**. `getAssetId` REVERTS for a truly
-    ///         unlisted asset (checked with SHIB + a dead address), so a 0 return means "index 0",
-    ///         not "absent" -- and `AaveV4Venue` supplies/borrows against that very reserve in a
-    ///         PASSING fork test. The old zero-id check was a SENTINEL COLLISION that silently
-    ///         disabled a live venue; the Galaxy sweep hid it until that sweep was removed.
-    ///         Wiring is now keyed off `AAVE_SPOKE`, so venue 2 is LIVE and the real
-    ///         supply/attribution path below is the one that executes.
-    /// @notice Rover->Aux integration: fund the protocol-owned weETH/WETH LP via
-    ///         supplyEtherFiToRover (weETH leg minted by the adapter), then an
-    ///         ether.fi offramp fills from Rover (rung-0) - fee to our position.
-    function testRoverIntegration() public {
-        Rover rover = new Rover(
-            ETH.ETHERFI_ADAPTER(), address(WETH), ETH.WEETH(),
-            0xC36442b4a4522E871399CD717aBDD847Ab11FE88, // Uniswap v3 NFPM
-            ETH.ETHERFI_POOL_A(), ETH.ETHERFI_V3ROUTER(), true);
-        rover.setAux(address(ETH)); // Rover driven by EthVenue (offramp/supply moved there)
-        ETH.setRover(address(rover)); // AUX owner = this test (deployer)
 
-        deal(address(WETH), address(V4), 10 ether);
-        vm.prank(address(V4)); IERC20(address(WETH)).approve(address(AUX), type(uint).max);
-        vm.prank(address(V4)); ETH.supplyEtherFiToRover(10 ether);
-        assertGt(rover.ID(), 0, "Rover v3 position funded via supplyEtherFiToRover");
-
-        address recipient = address(0xBEEF);
-        uint wethBefore = IERC20(address(WETH)).balanceOf(recipient);
-        vm.prank(address(V4));
-        uint served = ETH.offrampEtherFi(2 ether, recipient, false);
-        assertGt(served, 0, "offramp served via Rover (rung-2 fallback, reachable with no idle Aux weETH)");
-        assertGt(IERC20(address(WETH)).balanceOf(recipient), wethBefore, "WETH delivered from Rover");
-    }
-
-    /// @notice VENUE_ROVER (4) - the depositor-funded Rover path. A plain LP
-    ///         deposit with venue 4 must fund the protocol-owned weETH/WETH v3
-    ///         LP via supplyEtherFiToRover (the previously-unreachable funding
-    ///         path), attribute the slice to the ether.fi wall (ethfiBacked),
-    ///         count the position in vogueETH (valueWeth), and serve the exit
-    ///         through the offramp ladder's Rover-unwind rung.
-    function testEthVenue_Rover_DepositFundsRoverAndExits() public {
-        Rover rover = new Rover(
-            ETH.ETHERFI_ADAPTER(), address(WETH), ETH.WEETH(),
-            0xC36442b4a4522E871399CD717aBDD847Ab11FE88, // Uniswap v3 NFPM
-            ETH.ETHERFI_POOL_A(), ETH.ETHERFI_V3ROUTER(), true);
-        rover.setAux(address(ETH));
-        ETH.setRover(address(rover));
-        assertEq(rover.ID(), 0, "Rover starts unfunded");
-
-        // Depositor elects the Rover venue ON the deposit call (no setter tx).
-        uint vEthBefore = ETH.vogueETH();
-        vm.prank(User01); V4.deposit{value: 10 ether}(0, User01, 4);
-
-        assertGt(rover.ID(), 0, "deposit funded the Rover v3 position");
-        assertGt(rover.valueWeth(), 0, "Rover holds value");
-        assertGt(V4.ethfiBacked(User01), 0, "Rover slice attributed to the ether.fi wall");
-        assertGt(ETH.vogueETH(), vEthBefore, "vogueETH counts the Rover position");
-        (uint pooled,,,) = V4.autoManaged(User01);
-        assertEq(pooled, 10 ether, "position credited full deposit");
-
-        // Exit: no idle weETH at the Vault -> the offramp's v3 rung can't serve;
-        // the Rover-unwind rung must (WETH delivered to the LP).
-        uint wethBefore = WETH.balanceOf(User01);
-        uint ethfiBefore = V4.ethfiBacked(User01);
-        vm.roll(block.number + 1); // JIT-lock: withdraw must be a later block than the deposit
-        vm.prank(User01); V4.withdraw(5 ether, User01, User01);
-        assertGt(WETH.balanceOf(User01) - wethBefore, 0, "exit served WETH from the Rover");
-        assertLt(V4.ethfiBacked(User01), ethfiBefore, "ether.fi slice decremented");
-    }
-
-    /// @notice Rung-3 instant-redeem PROVEN LIVE (no-silent-fails): the old code
-    ///         passed WETH as redeemWeEth's outputToken - the deployed
-    ///         EtherFiRedemptionManager only accepts the 0xEeee…EEeE native-ETH
-    ///         sentinel or stETH, so rung 3 reverted on EVERY call and the
-    ///         try/catch masked it (verified against impl 0x6bD1…91F7 source).
-    ///         Now: an instant-electing LP with the v3 rung drained gets paid
-    ///         NATIVE ETH by the real RedemptionManager on the fork (~0.3% fee).
-    function testEthVenue_EtherFi_InstantRedeem_Rung3() public {
-        vm.prank(User01); V4.deposit{value: 10 ether}(0, User01, 4); // ether.fi = VENUE_ROVER; Rover off ⇒ direct-weETH fallback
-        // ether.fi exit preference is now PER-TX (no stored flag) — the withdraw below uses exitInstant.
-        // Drain the v3 rung: every router swap reverts.
-        vm.mockCallRevert(0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45,
-            abi.encodeWithSignature("exactInput((bytes,address,uint256,uint256))"),
-            bytes("drained"));
-        // At this fork snapshot ether.fi's INSTANT capacity is exhausted:
-        // free pool ETH (~18k) sits under the low-watermark (bps of the
-        // 1.86M-ETH TVL) -> totalRedeemableAmount == 0 - live proof of why
-        // rung 4 exists. Give the LiquidityPool surplus ETH balance (its
-        // share-accounting is storage-based and untouched), zero the locked-
-        // ETH bookkeeping reads, and refill the time-based rate bucket so the
-        // REAL redemption flow (transferFrom, share burn, ETH payout) runs.
-        // The instant-redeem capacity is a LOW-WATERMARK function of ether.fi's TVL, not of the
-        // pool's raw balance — VERIFIED on mainnet: `totalRedeemableAmount(native)` read 2000e18
-        // at block 25600000 and 0 at 25647331, the block a 10k-ETH exit dropped the pool under the
-        // mark. Dealing balance ALONE does not lift it (400_000 ether was tried and still read 0).
-        // So we (a) fund the pool and (b) mock the TVL the watermark is a bps of.
-        //
-        // NOTE: the previous mock here targeted `ethAmountLockedForWithdrawal()`, which does NOT
-        // EXIST on the LiquidityPool implementation (0x17a1…4a45; its real accessors are
-        // `getTotalPooledEther`/`totalValueInLp`/`totalValueOutOfLp`). A `vm.mockCall` on an absent
-        // signature is a SILENT NO-OP — the gate it was meant to neutralise stayed live the whole
-        // time, which is why this test never passed.
-        vm.deal(0x308861A430be4cce5502d0A12724771Fc6DaF216, 60_000 ether);
-        vm.mockCall(0x308861A430be4cce5502d0A12724771Fc6DaF216,
-            abi.encodeWithSignature("getTotalPooledEther()"), abi.encode(uint256(1_000 ether)));
-        vm.mockCall(0x35e7D6feF6f72aDd3c3e39dEc6d9CCc29e3345FA,
-            abi.encodeWithSignature("ethAmountLockedForPriorityWithdrawal()"), abi.encode(uint256(0)));
-        vm.warp(block.timestamp + 2 hours);
-        vm.roll(block.number + 1); // JIT-lock: withdraw must be a later block than the deposit
-        uint ethBefore = User01.balance;
-        uint ethfiBefore = V4.ethfiBacked(User01);
-        vm.prank(User01); V4.exitInstant(5 ether, User01);
-        // ~5 ETH minus the ~0.3% instant fee, delivered as NATIVE ETH.
-        assertGt(User01.balance - ethBefore, 4.9 ether,
-            "rung 3 paid native ETH via the real RedemptionManager");
-        assertLt(V4.ethfiBacked(User01), ethfiBefore, "slice decremented");
-    }
-
-    /// @notice Rover fair-gate: with the pool spot shoved off the staking-rate
-    ///         fair value (vm.mockCall on slot0), the Rover REFUSES to mint -
-    ///         a venue-4 deposit still succeeds (tokens idle at the Rover,
-    ///         fair-valued in vogueETH), but no position is created against the
-    ///         manipulated pool. Extraction is refused, not bounded.
-    function testEthVenue_Rover_FairGateRefusesManipulatedPool() public {
-        Rover rover = new Rover(
-            ETH.ETHERFI_ADAPTER(), address(WETH), ETH.WEETH(),
-            0xC36442b4a4522E871399CD717aBDD847Ab11FE88,
-            ETH.ETHERFI_POOL_A(), ETH.ETHERFI_V3ROUTER(), true);
-        rover.setAux(address(ETH));
-        ETH.setRover(address(rover));
-
-        // Shove spot ~5% off fair: mock slot0 to a sqrtPrice well outside the
-        // 50bps gate (real spot ≈ 0.9556 × 2^96; use 0.93 × 2^96).
-        (, bytes memory s0) = ETH.ETHERFI_POOL_A().staticcall(abi.encodeWithSignature("slot0()"));
-        (uint160 realSqrt) = abi.decode(s0, (uint160));
-        uint160 shoved = uint160(uint(realSqrt) * 973 / 1000);
-        vm.mockCall(ETH.ETHERFI_POOL_A(),
-            abi.encodeWithSignature("slot0()"),
-            abi.encode(shoved, int24(-1500), uint16(0), uint16(1), uint16(1), uint8(0), true));
-
-        uint vEthBefore = ETH.vogueETH();
-        vm.prank(User01); V4.deposit{value: 10 ether}(0, User01, 4);
-
-        assertEq(rover.ID(), 0, "fair-gate: no position minted against a shoved pool");
-        assertGt(ETH.vogueETH(), vEthBefore, "idle Rover tokens still counted as backing");
-        (uint pooled,,,) = V4.autoManaged(User01);
-        assertEq(pooled, 10 ether, "deposit credited despite the gate (tokens idle, not lost)");
-
-        // Pool back at fair -> a permissionless repack mints the position.
-        vm.clearMockedCalls();
-        rover.repackNFT();
-        assertGt(rover.ID(), 0, "position minted once the pool returned to fair");
-    }
-
-    /// @notice FALLBACK branch (Rover self-liquidated). ether.fi is never a distinct venue — venue 4
-    ///         routes through Rover, but when the Rover NFT has self-liquidated (v3 pool drained ⇒
-    ///         rover.deposit REVERTS) the deposit MUST fall through to a direct weETH position
-    ///         (VogueLib._supplyEtherFi's catch), still attributed to the ethfiBacked wall, counted in
-    ///         vogueETH, and served by the same offramp ladder. This exercises the revert-caught path
-    ///         (the return-0 path — Rover unset — is covered by the no-Rover ether.fi tests above).
-    function testEthVenue_Rover_SelfLiquidated_FallsBackToDirectWeETH() public {
-        Rover rover = new Rover(
-            ETH.ETHERFI_ADAPTER(), address(WETH), ETH.WEETH(),
-            0xC36442b4a4522E871399CD717aBDD847Ab11FE88,
-            ETH.ETHERFI_POOL_A(), ETH.ETHERFI_V3ROUTER(), true);
-        rover.setAux(address(ETH));
-        ETH.setRover(address(rover));
-
-        // Self-liquidated Rover: its deposit reverts (drained v3 pool ⇒ can't mint).
-        vm.mockCallRevert(address(rover),
-            abi.encodeWithSignature("deposit(uint256)"), bytes("selfLiq"));
-
-        address weeth = ETH.WEETH();
-        uint weethBefore = IERC20(weeth).balanceOf(address(ETH));
-        uint vEthBefore  = ETH.vogueETH();
-
-        vm.prank(User01); V4.deposit{value: 10 ether}(0, User01, 4); // VENUE_ROVER, Rover self-liquidated
-
-        // Fallback took over: direct weETH staked at the Vault, NO Rover v3 position, ethfi wall credited.
-        assertEq(rover.ID(), 0, "self-liquidated Rover minted no v3 position");
-        assertGt(IERC20(weeth).balanceOf(address(ETH)), weethBefore, "fallback staked direct weETH");
-        assertGt(V4.ethfiBacked(User01), 0, "fallback slice attributed to the ether.fi wall");
-        assertGt(ETH.vogueETH(), vEthBefore, "vogueETH counts the fallback weETH");
-        (uint pooled,,,) = V4.autoManaged(User01);
-        assertEq(pooled, 10 ether, "position credited full deposit");
-
-        // Exit still routes through the ether.fi offramp (slice decremented, nothing stranded).
-        vm.clearMockedCalls();
-        uint ethfiBefore = V4.ethfiBacked(User01);
-        vm.roll(block.number + 1); // JIT-lock
-        vm.prank(User01); V4.withdraw(5 ether, User01, User01);
-        assertLt(V4.ethfiBacked(User01), ethfiBefore, "fallback slice served by the offramp ladder");
-    }
 
     function testEthVenue_AaveV4_DepositAndWithdraw() public {
         uint aaveBefore = ETH.aaveEthBalance();
@@ -3493,49 +3138,6 @@ contract Alles is ForkPin, Fixtures {
         }
     }
 
-    /// @notice Euler ETH = second WETH 4626 curator (fungible with Galaxy).
-    ///         Proves the full venue lifecycle: a VENUE_EULER deposit lands in
-    ///         the Euler vault, is COUNTED in vogueETH, deliverableETH caps it
-    ///         when frozen, pokeVaultHealth(euler) blocks+evacuates it (NOT
-    ///         mishandled as a stable), and the LP exits via the fungible ladder.
-    function testEthVenue_Euler_FullLifecycle() public {
-        address euler = ETH.EULER_VAULT();
-        assertTrue(euler != address(0), "Euler venue wired");
-
-        // Deposit electing VENUE_EULER (5): WETH lands in the Euler 4626.
-        uint vBefore = ETH.vogueETH();
-        uint eulerSharesBefore = IERC20(euler).balanceOf(address(ETH));
-        vm.prank(User01); V4.deposit{value: 10 ether}(0, User01, 5);
-        assertGt(IERC20(euler).balanceOf(address(ETH)), eulerSharesBefore, "WETH placed in Euler");
-        assertGe(ETH.vogueETH(), vBefore + 9.9 ether, "vogueETH counts the Euler position");
-        (uint pooled,,,) = V4.autoManaged(User01);
-        assertEq(pooled, 10 ether, "position credited in full");
-
-        // deliverableETH caps a FROZEN-but-unflagged Euler (maxWithdraw < solvency).
-        vm.mockCall(euler, abi.encodeWithSignature("maxWithdraw(address)", address(ETH)),
-            abi.encode(uint(1 ether)));
-        assertLt(ETH.deliverableETH(), ETH.vogueETH(), "deliverableETH defers Euler's undeliverable slice");
-        vm.clearMockedCalls();
-
-        // pokeVaultHealth(euler) must treat Euler as an ETH venue (block+evac via
-        // EthVenue), NOT as an Aux-held stable. Make it read illiquid, poke twice.
-        // (Re-heal depegs cleared by clearMockedCalls so unrelated paths are clean.)
-        address[] memory st = AUX.getStables();
-        for (uint i; i < st.length; i++) _healDepeg(st[i]);
-        vm.mockCall(euler, abi.encodeWithSignature("maxWithdraw(address)", address(ETH)),
-            abi.encode(uint(0))); // 0% liquid -> illiquid
-        AUX.pokeVaultHealth(euler);
-        assertTrue(AUX.vaultBlocked(euler), "Euler blocked as an ETH venue (not mis-routed to a stable path)");
-        vm.clearMockedCalls();
-
-        // Exit still works via the fungible ladder (Galaxy/Euler/AAVE/idle).
-        for (uint i; i < st.length; i++) _healDepeg(st[i]);
-        uint b = User01.balance; uint w = WETH.balanceOf(User01);
-        vm.roll(block.number + 1); // JIT-lock: withdraw must be a later block than the deposit
-        vm.prank(User01); V4.withdraw(type(uint).max, User01, User01);
-        assertGt((User01.balance - b) + (WETH.balanceOf(User01) - w), 9 ether,
-            "Euler LP exits via the fungible 4626 ladder");
-    }
 
     // ════════════════════════════════════════════════════════════════════
     //  #2 RUN-SIM (C) - DEPEG / OUTFLOW-FEE EVALUATION (calcRisk)

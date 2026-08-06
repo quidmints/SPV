@@ -24,7 +24,6 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 import {IAaveV4Spoke} from "./imports/Interfaces.sol";
 import {IWeETH} from "./imports/Interfaces.sol";
-import {IRover} from "./imports/Interfaces.sol";
 import {IDepositAdapter} from "./imports/Interfaces.sol";
 import {IAaveV4Hub} from "./imports/Interfaces.sol";
 import {ILevEquity} from "./imports/Interfaces.sol";
@@ -128,7 +127,6 @@ contract Vault is Ownable, ReentrancyGuard {
     address public constant ETHERFI_ADAPTER  = 0xcfC6d9Bd7411962Bfe7145451A7EF71A24b6A7A2;
     /// Canonical Permit2 — same address on every chain. Euler's EVault pulls deposits through it.
     address public constant PERMIT2          = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
-    address public constant ETHERFI_REDEEMER = 0xDadEf1fFBFeaAB4f68A9fD181395F68b4e4E7Ae0;
     address public constant ETHERFI_V3ROUTER = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45;
     address public constant ETHERFI_POOL_A   = 0x7A415B19932c0105c82FDB6b720bb01B0CC2CAe3; // weETH/WETH 0.05%
     address public constant ETHERFI_POOL_B   = 0x202A6012894Ae5c288eA824cbc8A9bfb26A49b93; // weETH/WETH 0.01%
@@ -138,8 +136,6 @@ contract Vault is Ownable, ReentrancyGuard {
     uint24  public immutable ETHERFI_POOL_FEE;  // fee tier of pool A
     uint24  public immutable ETHERFI_POOL_FEE2; // fee tier of pool B (0 = none)
 
-    // ─── Rover (protocol-owned weETH/WETH LP) wiring ───────────────────
-    address public ROVER;
 
     /// @notice The IL-protect orchestrator. Its leveraged book's LIVE net-equity counts in `vogueETH`.
     ///         Pinned once post-deploy (LevManager needs Aux/weETH first). 0 = leverage disabled.
@@ -148,7 +144,6 @@ contract Vault is Ownable, ReentrancyGuard {
     error NotVogueCore();
     error NotSelf();
     error Unauthorized();
-    error RoverPinned();
     error LevManagerPinned();
     error NotAux();
     error NoBtcPosition();
@@ -349,7 +344,6 @@ contract Vault is Ownable, ReentrancyGuard {
         ETHERFI_POOL_FEE2 = IUniswapV3Pool(ETHERFI_POOL_B).fee();
         IERC20(address(WETH)).approve(ETHERFI_ADAPTER, type(uint).max);
         IERC20(WEETH).approve(ETHERFI_V3ROUTER, type(uint).max);   // offramp swap
-        IERC20(WEETH).approve(ETHERFI_REDEEMER, type(uint).max);   // instant redeem
         IERC20(ETHERFI_EETH).approve(ETHERFI_LP, type(uint).max);  // wait-path NFT
     }
     receive() external payable {}
@@ -371,22 +365,11 @@ contract Vault is Ownable, ReentrancyGuard {
     //                    ETH yield-venue side (was EthVenue)
     // ════════════════════════════════════════════════════════════════
 
-    /// @notice Pin the Rover LP (one-shot, no repoint). Deployed after the Vault
-    ///         (Rover needs Aux for setAux), so wired post-deploy. Approves WETH
-    ///         so `supplyEtherFiToRover` can fund the position.
-    function setRover(address r) external onlyOwner {
-        if (ROVER != address(0)) revert RoverPinned();
-        ROVER = r;
-        IERC20(address(WETH)).approve(r, type(uint).max);
-    }
 
     /// @notice Pin the LevManager (one-shot, no repoint) so `vogueETH` counts the leveraged book's net-equity.
     function setLevManager(address m) external onlyOwner {
         if (LEV_MANAGER != address(0)) revert LevManagerPinned();
         LEV_MANAGER = m;
-        // Cascade: allow the LevManager to call Rover.absorb (the down-leg's fee-internal rebalancing
-        // hop for freed weETH). We are Rover's `AUX`, so Rover accepts this pin-once from us.
-        if (ROVER != address(0)) IRover(ROVER).setLevManager(m);
     }
 
     /// @notice Pin the BtcLevManager (one-shot) so `vogueBTC` counts the BTC leveraged book's
@@ -403,22 +386,6 @@ contract Vault is Ownable, ReentrancyGuard {
         try ILevEquityBtc(LEV_MANAGER_BTC).totalNetEquityBtc() returns (uint ne) { return ne; } catch { return 0; }
     }
 
-    /// @notice Fund Rover with WETH (it mints the weETH leg via the adapter +
-    ///         provides the v3 position). Pulls the Vogue-approved WETH, then
-    ///         Rover pulls it from us in `deposit`. Gated to Vogue.
-    ///         NO exposure cap — over-allocation is a structural non-problem,
-    ///         not a bounded one: the Rover refuses to transact off a pool
-    ///         that isn't at the unmanipulable staking rate (fair-gated
-    ///         repack, fair-floored swaps — see Rover._nearFair/_fairMinOut),
-    ///         unwinds without a pool counterparty (decreaseLiquidity), and is
-    ///         reachable by the withdraw ladder below — so a dead/shoved pool
-    ///         degrades a venue-4 slice exactly like the plain ether.fi venue
-    ///         (instant-redeem / wait-NFT), never into principal extraction.
-    ///         Sizing is depositor self-selection, like every other venue.
-    function supplyEtherFiToRover(uint amount) external returns (uint) {
-        if (msg.sender != address(V4)) revert NotVogueCore();   // gate stays here
-        return VaultLib.supplyVenueBody(_ethCfg(), 0, amount, address(V4));
-    }
 
     /// @notice ETH-venue = ether.fi. Pull the Vogue-approved WETH and stake it
     ///         into weETH (restaking yield), held at the Vault and valued in
@@ -449,8 +416,8 @@ contract Vault is Ownable, ReentrancyGuard {
     ///      the opportunistic sourcing.
     function _etherfiCfg() internal view returns (SwapLib.OfframpCfg memory) {
         return SwapLib.OfframpCfg({
-            weeth: WEETH, rover: ROVER, weth: address(WETH), v3router: ETHERFI_V3ROUTER,
-            redeemer: ETHERFI_REDEEMER, lp: ETHERFI_LP,
+            weeth: WEETH, weth: address(WETH), v3router: ETHERFI_V3ROUTER,
+            lp: ETHERFI_LP,
             poolFee: ETHERFI_POOL_FEE, poolFee2: ETHERFI_POOL_FEE2
         });
     }
@@ -461,7 +428,7 @@ contract Vault is Ownable, ReentrancyGuard {
         return VaultLib.EthCfg({
             weth: address(WETH), aux: address(AUX), galaxy: GALAXY_VAULT,
             euler: EULER_VAULT, gauntlet: GAUNTLET_VAULT, aaveSpoke: AAVE_SPOKE, wethReserveId: WETH_RESERVE_ID,
-            rover: ROVER, weeth: WEETH, eeth: ETHERFI_EETH, levManager: LEV_MANAGER
+            weeth: WEETH, eeth: ETHERFI_EETH, levManager: LEV_MANAGER
         });
     }
 

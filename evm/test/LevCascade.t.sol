@@ -7,7 +7,6 @@ import {LevManager} from "../src/LevManager.sol";
 import {ILevVenue} from "../src/imports/ILevVenue.sol";
 import {MorphoEscrowVenue, MarketParams} from "../src/MorphoEscrowVenue.sol";
 import {LevMath} from "../src/imports/LevMath.sol";
-import {Rover} from "../src/Rover.sol";
 
 interface IERC20R {
     function approve(address, uint) external returns (bool);
@@ -654,52 +653,6 @@ contract LevCascadeProbe is Alles {
         // real-Uniswap execution — a fork artifact, not a QUID/close bug.)
     }
 
-    /// @notice ROVER REVERSE-REBALANCE (the down-leg's preferred hop): when a de-lever FREES weETH, `_sellWeeth`
-    ///   routes it INTO Rover at the ether.fi fair rate for Rover's idle WETH — Rover KEEPS the weETH (rebalancing
-    ///   a launch-WETH-heavy pool toward weETH) and hands back WETH, internalizing the swap vs an external DEX and
-    ///   AVOIDING the 0.3% ether.fi instant-redeem. Proves the absorb PATH (not just the graceful fallback): fund
-    ///   Rover with idle WETH, lever + crash + de-lever, and assert Rover's weETH side GREW while its idle WETH
-    ///   side SHRANK — a fair, un-abusable swap that rebalanced the pool + still reduced the position's debt.
-    function test_RoverReverseRebalance_AbsorbsFreedWeeth() public {
-        _setupLev();
-        // Deploy + wire a real Rover (the Alles fork doesn't by default), then authorize the LevManager via the
-        // Vault-cascaded setLevManager (the exact deploy path from DeployL1_s / Alles.testRoverIntegration).
-        Rover r = new Rover(
-            ETH.ETHERFI_ADAPTER(), address(WETH), ETH.WEETH(),
-            0xC36442b4a4522E871399CD717aBDD847Ab11FE88,     // Uniswap v3 NFPM
-            ETH.ETHERFI_POOL_A(), ETH.ETHERFI_V3ROUTER(), true);
-        r.setAux(address(ETH));                             // Rover's `us` = the Vault
-        ETH.setRover(address(r));
-        ETH.setLevManager(address(lm));                     // cascades r.setLevManager(lm) — authorizes absorb
-        lm.setSoldFractionActive(true);
-
-        address rover = address(r);
-        require(IVaultRoverT(address(ETH)).ROVER() == rover, "rover wired");
-        // Seed Rover with idle WETH (the launch state: WETH-heavy) so the absorb path activates.
-        deal(address(WETH), rover, 30 ether);
-        uint roverWeeth0 = IERC20R(WEETH).balanceOf(rover);
-        uint roverWeth0  = IERC20R(address(WETH)).balanceOf(rover);
-
-        // Open + lever a real Morpho position, then a real crash so cascadeDelever frees weETH via _sellWeeth.
-        _bandE0(lps[0], 5 ether);
-        _openLevOnly(lps[0], 5 ether);
-        _rallyBand(_entrySqrt(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
-        lm.rebalance(lps[0], 0);
-        uint debt0 = venue.debtOf(lps[0]);
-        require(debt0 > 0, "precondition: levered");
-        _crashBand(3000, 24, 40 ether);
-        address[] memory batch = new address[](1); batch[0] = lps[0];
-        uint[] memory mins = new uint[](1);
-        lm.cascadeDelever(batch, mins);
-
-        // The freed weETH went to Rover (weETH side GREW) and Rover paid idle WETH (WETH side SHRANK) — the pool
-        // rebalanced toward weETH, at the fair ether.fi rate (no drain), and the de-lever still made progress.
-        assertGt(IERC20R(WEETH).balanceOf(rover), roverWeeth0,
-            "Rover ABSORBED the freed weETH (weETH side grew => rebalanced toward weETH)");
-        assertLt(IERC20R(address(WETH)).balanceOf(rover), roverWeth0,
-            "Rover paid idle WETH for it (WETH side shrank => rebalanced; fee internalized vs an external DEX)");
-        assertLt(venue.debtOf(lps[0]), debt0, "the Rover-sourced WETH still completed the de-lever (debt fell)");
-    }
 
     /// @notice (A) INTRINSIC DEPOSIT MODEL — the capital-efficiency win. A levered LP makes ONE deposit and does
     ///   ONLY `openLev` (NO separate `V4.deposit` band position). Proves E0 comes from the deposit ITSELF, the

@@ -59,8 +59,12 @@ contract LevManager {
     // ── leverage band ──
     // QU!D policy ceiling on the LP's CHOSEN target LTV. 50% = 2× is the IL-NEUTRAL max (delta-1); above it is
     // opt-in DIRECTIONAL (long-biased) leverage — the LP's own risk, isolated at the venue (buffer USD ≤ debt,
-    // deliverable excludes gross). 7500 = 75% LTV ≈ 4×, leaving ~11% headroom below the 86% venue LLTV so a
-    // position never opens already-liquidatable. Conservative LPs still pass 5000 (2×). Tunable policy value.
+    // deliverable excludes gross). 7500 = 75% LTV ≈ 4×. Conservative LPs still pass 5000 (2×). Tunable policy.
+    // ⚠️ The "~11% headroom below the 86% venue LLTV" this comment used to assert is NOT read from anywhere —
+    // the 0.86 is hardcoded three times over (this comment, the keeper's QUID_LEV_VENUE_LIQ_BPS env var, and
+    // the test's own permissionless `createMarket`). Morpho Blue markets are IMMUTABLE, so a market's LLTV is
+    // exactly knowable via `idToMarketParams(id).lltv` and should be READ, never configured. Until it is, the
+    // headroom this constant leaves is an assumption, not a fact — see QUEUE.md OPEN 19.
     uint256 internal constant TARGET_LTV_CAP_BPS = 7500;
     uint256 internal constant BAND_BPS           = 300;  // ±3% LTV before a rebalance is worth doing
     uint256 internal constant MAX_LOOPS          = 8;    // bound the open/rebalance loop

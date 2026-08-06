@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {FixedPointMathLib} from "solady/src/utils/FixedPointMathLib.sol";
 // §A.52: the canonical view (was a file-local `ILevSyncHookM`).
-import {ILevSyncHook, IAux, IWeETH, IWiredVault, IRover, IEtherFiRedemption,
+import {ILevSyncHook, IAux, IWeETH, IWiredVault,
         IDepositAdapter, ILevVenueColl, ILevMintVenue} from "./Interfaces.sol";
 import {ILevVenue, IERC20Min, IWETH9} from "../imports/ILevVenue.sol";
 import {IMorphoFlash} from "../imports/Interfaces.sol";
@@ -300,8 +300,6 @@ library LevMath {
     uint24  internal constant WEETH_WETH_FEE_M   = 500;                                          // weETH/WETH 0.05% pool
     address internal constant SWAP_ROUTER_02_M   = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45;   // Uniswap V3 down-leg DEX
     address internal constant ETHERFI_ADAPTER_M  = 0xcfC6d9Bd7411962Bfe7145451A7EF71A24b6A7A2;   // WETH→weETH mint (up-leg)
-    address internal constant ETHERFI_REDEEMER_M = 0xDadEf1fFBFeaAB4f68A9fD181395F68b4e4E7Ae0;   // weETH→ETH instant-redeem
-    address internal constant ETHFI_NATIVE_ETH_M = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;   // redeemer native-ETH sentinel
     uint32  internal constant TWAP_WIN_M         = 1800;
     uint256 internal constant SELL_SLIP_BPS      = 100;                                           // 1% anti-MEV floor
     uint256 internal constant DELEVER_GAS        = 400_000;                                       // conservative de-lever crank gas
@@ -349,37 +347,23 @@ library LevMath {
         stableOut = _wethToStableDex(c, stable, wethGot, minOut > floorOut ? minOut : floorOut);
     }
 
-    /// weETH → WETH, cheapest-first: (0) Rover fair-rate absorb (0 if Rover unset — Rover is an OPTIONAL optimizer,
-    /// not a dependency) → (1) deep V3 weETH/WETH pool, Rover-INDEPENDENT → (2) EMERGENCY ether.fi redeem for the
-    /// residual. Own frame keeps sellWeeth's peel under the stack limit (no via_ir).
+    /// weETH → WETH via the deep V3 weETH/WETH pool. Two tiers are tried inside `_weethToWethDex`,
+    /// cheapest first.
+    ///
+    /// TWO TIERS BELOW THIS WERE REMOVED AND NEITHER WAS DOING WORK:
+    ///   * Rover fair-rate absorb (2026-08-05, Rover deleted) — returned 0 whenever Rover was unset,
+    ///     so once nothing funded Rover it was a guaranteed no-op that still paid two external calls.
+    ///   * ether.fi EMERGENCY redeem for the residual (2026-08-06) — it was UNGUARDED (no try/catch)
+    ///     against a manager whose capacity measured ZERO at every sampled block over 90 days, so
+    ///     reaching it did not degrade gracefully, it REVERTED THE WHOLE CALL — turning a partial fill
+    ///     into a total failure in precisely the crisis case the fallback existed for.
+    /// Under-delivery is now surfaced by the caller's own floor (`collToWethDeliver`'s
+    /// `require(wethDelivered >= minOut)`), which fails closed with a legible reason instead of an
+    /// opaque revert inside ether.fi.
     function _weethToWeth(SellCtx memory c, uint256 pulled) internal returns (uint256 wethGot) {
-        uint256 remaining = pulled;
-        (uint256 wRover, uint256 usedRover) = _roverAbsorb(c, remaining);
-        wethGot += wRover; remaining -= usedRover;
-        if (remaining > 0) {
-            uint256 wDex = _weethToWethDex(c, remaining);
-            if (wDex > 0) { wethGot += wDex; remaining = 0; }
-        }
-        if (remaining > 0) {
-            IERC20Min(c.weeth).approve(ETHERFI_REDEEMER_M, remaining);
-            uint256 ethBefore = address(this).balance;
-            IEtherFiRedemption(ETHERFI_REDEEMER_M).redeemWeEth(remaining, address(this), ETHFI_NATIVE_ETH_M);
-            uint256 ethGot = address(this).balance - ethBefore;
-            IWETH9(c.weth).deposit{value: ethGot}();
-            wethGot += ethGot;
-        }
+        if (pulled > 0) wethGot = _weethToWethDex(c, pulled);
     }
 
-    function _roverAbsorb(SellCtx memory c, uint256 weethIn) internal returns (uint256 wethOut, uint256 weethUsed) {
-        if (weethIn == 0) return (0, 0);
-        address vault = IAux(c.aux).ethVenue();
-        address rover = vault == address(0) ? address(0) : IWiredVault(vault).ROVER();
-        if (rover == address(0)) return (0, 0);
-        IERC20Min(c.weeth).approve(rover, weethIn);
-        try IRover(rover).absorb(weethIn, false) returns (uint256 w, uint256 used) {   // weETH → WETH
-            wethOut = w; weethUsed = used;
-        } catch { IERC20Min(c.weeth).approve(rover, 0); }
-    }
 
     function _weethToWethDex(SellCtx memory c, uint256 pulled) internal returns (uint256) {
         uint256 wethFloor = IWeETH(c.weeth).getEETHByWeETH(pulled) * (10_000 - SELL_SLIP_BPS) / 10_000;
@@ -401,20 +385,11 @@ library LevMath {
         if (weethOut < minWeethOut) revert Slippage();
     }
 
-    /// WETH → weETH on-ramp (the INVERSE of `_weethToWeth`): (0) absorb from the Rover's IDLE weETH inventory at fair
-    /// rate (rebalances Rover + saves a mint, zero slippage; 0 if Rover unset/empty) → (1) mint the remainder at
-    /// ether.fi's fair rate (the reliable fallback). NON-reverting (fair-rate mint always clears) so the short-close
+    /// WETH → weETH on-ramp (the INVERSE of `_weethToWeth`): mint at ether.fi's fair rate. The Rover idle-inventory
+    /// absorb tier was REMOVED 2026-08-05 with Rover itself — an unfunded Rover has no idle inventory, so it was a
+    /// guaranteed no-op costing two external calls per on-ramp. NON-reverting (fair-rate mint always clears) so the short-close
     /// can call it after its own try/catch'd stable→WETH SOR without a nested revert escaping the catch.
     function _wethToWeeth(SellCtx memory c, uint256 wethRem) internal returns (uint256 weethOut) {
-        {
-            address vault = IAux(c.aux).ethVenue();
-            address rover = vault == address(0) ? address(0) : IWiredVault(vault).ROVER();
-            if (rover != address(0)) {
-                IERC20Min(c.weth).approve(rover, wethRem);
-                (uint256 wAbs, uint256 wUsed) = IRover(rover).absorb(wethRem, true);   // WETH → weETH
-                weethOut += wAbs; wethRem -= wUsed;
-            }
-        }
         if (wethRem > 0) { // mint the remainder WETH→weETH at ether.fi's fair rate.
             IERC20Min(c.weth).approve(ETHERFI_ADAPTER_M, wethRem);
             uint256 bef = IERC20Min(c.weeth).balanceOf(address(this));
@@ -507,7 +482,7 @@ library LevMath {
     }
 
     /// @notice §M.1 — convert `collAmt` of freed leverage collateral to WETH and deliver it to `recipient` (the ETH
-    ///         swap-out). WETH venue = 1:1; weETH venue = the Rover→V3→ether.fi offramp (`_weethToWeth`, shared with
+    ///         swap-out). WETH venue = 1:1; weETH venue = the V3→ether.fi offramp (`_weethToWeth`, shared with
     ///         `sellWeeth`). Bytecode lives HERE (delegatecall-linked, address(this)==manager) so the manager stays
     ///         under EIP-170. `minOut` floors the delivered WETH against MEV on the internal conversion. NO
     ///         flash / NO stable-sale — the debt was already repaid by the swap's own proceeds; this only turns the

@@ -5,21 +5,18 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {SwapLib} from "./SwapLib.sol";
 import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 // §E57: ether.fi's native-ETH sentinel, moved here with the offramp body that is its only user.
-address constant ETHFI_NATIVE_ETH = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 import {IV3SwapRouter} from "./v3/IV3SwapRouter.sol";
-import {IEtherFiRedemption, IEtherFiLiquidityPool} from "./Interfaces.sol";   // §E57: the shared OfframpCfg shape (declared there;  still uses it)
+import {IEtherFiLiquidityPool} from "./Interfaces.sol";   // §E57: the shared OfframpCfg shape (declared there;  still uses it)
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {SwapLib} from "./SwapLib.sol";
 import {IAaveV4Spoke} from "./Interfaces.sol";
 import {IWeETH} from "./Interfaces.sol";
-import {IRover} from "./Interfaces.sol";
 import {IDepositAdapter} from "./Interfaces.sol";
 import {ILevEquity} from "./Interfaces.sol";
 import {IAux} from "./Interfaces.sol";
 
-// The ETH-venue ladder's external surfaces are the canonical ones in Interfaces.sol: `IRover`
-// (supply-leg: fund the Rover) and `IAux` (`vaultBlocked` — vault-health state stays Aux-owned).
-// The former `IRoverDep_V`/`IAuxView_V` shims were strict subsets of those and are gone.
+// The ETH-venue ladder's external surface is the canonical `IAux` in Interfaces.sol (`vaultBlocked`
+// — vault-health state stays Aux-owned). The Rover supply-leg surface went with Rover (2026-08-05).
 //
 /// Morpho-V2 MARKER (NOT MetaMorpho v1.1, which has a withdrawQueue instead). A V2 vault keeps its
 /// assets in ADAPTERS and auto-allocates on deposit, so its ERC-4626 max-views track IDLE rather than
@@ -39,12 +36,11 @@ interface IMorphoV2 {
 ///         inside each public function `address(this)` resolves to the Vault,
 ///         so all token custody, balances, and the AAVE/4626/Rover positions
 ///         are the Vault's. The library holds NO storage; every immutable Vault
-///         reads (WETH/AUX/GALAXY/EULER/AAVE spoke+reserveId/ROVER/WEETH/EETH/
+///         reads (WETH/AUX/GALAXY/EULER/AAVE spoke+reserveId/WEETH/EETH/
 ///         LEV_MANAGER) is passed in via `EthCfg`. Semantics are byte-for-byte
 ///         with the former in-Vault bodies — only the home moved.
 library VaultLib {
     /// §E57: moved with the offramp body — its only emitter.
-    event InstantRedeemSkipped(uint weethRequested, bytes4 reason);
 
 
     // Mirror Vault's custom errors so reverts from delegatecalled bodies carry
@@ -60,7 +56,6 @@ library VaultLib {
         address gauntlet;
         address aaveSpoke;
         uint256 wethReserveId;
-        address rover;
         address weeth;
         address eeth;        // ETHERFI_EETH (raw eETH transiently held mid wait-NFT)
         address levManager;
@@ -144,11 +139,6 @@ library VaultLib {
         if (c.eeth != address(0)) {
             total += IERC20(c.eeth).balanceOf(address(this));
             total += IERC20(c.eeth).balanceOf(c.aux);
-        }
-        // Rover (protocol-owned weETH/WETH LP) — WETH-equiv value; try/catch so a
-        // broken Rover defers to 0 (conservative).
-        if (c.rover != address(0)) {
-            try IRover(c.rover).valueWeth() returns (uint rv) { total += rv; } catch {}
         }
         // IL-protect: count the leveraged book's net-equity (gross collateral - debt), not gross. The buffer
         // half is debt-funded (offset by the LP's borrow), so counting gross would overstate solvency by the debt
@@ -258,42 +248,34 @@ library VaultLib {
 
     /// @notice Consolidated venue-supply body — the `transferFrom` + venue call for every ETH supply wrapper, so the
     ///         Vault forwarders keep ONLY their `NotVogueCore`/`NotAux` gate (bytecode OUTSIDE the EIP-170-critical
-    ///         Vault). `kind`: 0=Rover, 1=ether.fi adapter stake, 2=AAVE-v4, 3=Euler 4626, 4=Galaxy default
+    ///         Vault). `kind`: 0=(removed, was Rover), 1=ether.fi adapter stake, 2=AAVE-v4, 3=Euler 4626, 4=Galaxy default
     ///         (`supplyFromAux`), 5=Gauntlet 4626. `from` = the approver the WETH is pulled from (V4 for the venue wrappers, AUX for
     ///         `supplyFromAux`). Each branch is byte-identical to the former in-Vault body (guard → pull → supply).
+    /// @dev `kind` IS NOW IGNORED — every venue routes to weETH (see below). Kept so the Vogue/Vault
+    ///      call sites and the venue-selection surface need not change in the same commit as the
+    ///      routing decision; remove it once the WETH venues are fully drained.
     function supplyVenueBody(EthCfg memory c, uint8 kind, uint amount, address from) public returns (uint) {
+        kind;   // retained-but-ignored, see docblock
         if (amount == 0) return 0;
-        if (kind == 0) {
-            if (c.rover == address(0)) return 0;
-            IERC20(c.weth).transferFrom(from, address(this), amount);
-            IRover(c.rover).deposit(amount);
-            return amount;
-        }
-        if (kind == 1) {
-            if (ETHERFI_ADAPTER_VL == address(0)) return 0;
-            IERC20(c.weth).transferFrom(from, address(this), amount);
-            IDepositAdapter(ETHERFI_ADAPTER_VL).depositWETHForWeETH(amount, address(this));
-            return amount;
-        }
-        if (kind == 2) {
-            if (c.aaveSpoke == address(0)) return 0;   // reserve 0 is valid — see _aaveBal
-            IERC20(c.weth).transferFrom(from, address(this), amount);
-            IAaveV4Spoke(c.aaveSpoke).supply(c.wethReserveId, amount, address(this));
-            return amount;
-        }
-        if (kind == 3) {
-            if (c.euler == address(0)) return 0;
-            IERC20(c.weth).transferFrom(from, address(this), amount);
-            return supplyEuler(c, amount);
-        }
-        if (kind == 5) {
-            if (c.gauntlet == address(0)) return 0;
-            IERC20(c.weth).transferFrom(from, address(this), amount);
-            return supplyGauntlet(c, amount);
-        }
-        // kind == 4: Galaxy default (supplyFromAux) — pull from Aux, then the WETH 4626 default supply.
+        // ALL ETH SUPPLY IS NOW weETH (owner decision 2026-08-06). Every `kind` routes to the
+        // ether.fi adapter; the WETH-holding venues (2 AAVE-v4, 3 Euler, 4 Galaxy, 5 Gauntlet) are no
+        // longer supplied to.
+        //
+        // WHY: holding weETH earns the ether.fi ratchet, MEASURED at +0.674 bps/day = 2.46%/yr
+        // (`analysis/rover/decompose.py`). That is the hurdle any WETH-holding venue must clear just
+        // to break even, before conversion friction each way. AAVE v4 measured 2026-08-06 on live
+        // mainnet: WETH 21,103 supplied / 400 borrowed = 1.90% utilisation ⇒ supply APY in SINGLE
+        // BASIS POINTS; weETH 714 supplied / ZERO borrowed = 0.00% ⇒ exactly zero yield whatever the
+        // rate curve says. Supplying WETH there is a strict loss of ~2.46 points, and the only thing
+        // it buys is borrow capacity against the collateral — which is encumbrance (the offramp
+        // design), not yield.
+        //
+        // ⚠️ SUPPLY ONLY. The withdraw ladder below is DELIBERATELY UNTOUCHED so existing positions in
+        // those venues stay pullable. Do not remove the withdraw rungs until the balances are drained.
+        if (ETHERFI_ADAPTER_VL == address(0)) return 0;
         IERC20(c.weth).transferFrom(from, address(this), amount);
-        return supplyETH(c, c.weth, amount);
+        IDepositAdapter(ETHERFI_ADAPTER_VL).depositWETHForWeETH(amount, address(this));
+        return amount;
     }
 
     // ── Withdraw ladder ─────────────────────────────────────────────────────
@@ -418,11 +400,6 @@ library VaultLib {
                 }
                 wethBal = IERC20(c.weth).balanceOf(address(this));
             }
-            // Last source → unwind the protocol-owned Rover. Non-blocking.
-            if (wethBal < amount && c.rover != address(0)) {
-                try IRover(c.rover).take(amount - wethBal) {} catch {}
-                wethBal = IERC20(c.weth).balanceOf(address(this));
-            }
         }
         sent = wethBal >= amount ? amount : wethBal;
         if (sent > 0 && to != address(this)) {
@@ -477,9 +454,21 @@ library VaultLib {
         if (weethIn > bal) weethIn = bal;
         uint covered = (weethFull == 0 || weethIn == weethFull)
             ? amount : FullMath.mulDiv(amount, weethIn, weethFull);
-        // Rung 1 — v3 pool (only if Aux holds weETH; the Rover rung needs none).
+        // Rung 1 — v3 pool (only if Aux holds weETH).
+        // TIER ORDER: pool B (0.01%) is tried BEFORE pool A (0.05%). MEASURED 2026-08-06 against live
+        // mainnet (Quoter v1, vs getEETHByWeETH fair), weETH→WETH:
+        //     size      0.01%      0.05%
+        //        1    −17.55     −25.74
+        //      100    −18.79     −26.19
+        //     1000    −28.16     −30.26
+        //     2000   −679.33     −34.79   ← B runs out of WETH
+        // B is ~8 bps cheaper up to ~1k weETH and CLIFFS beyond it. The old order (A first) took the
+        // expensive tier on every fill that cleared the floor, so B was effectively unreachable and
+        // ~8bps was left on the table on every small offramp — where most flow lives. Safe because the
+        // 0.5% floor below is measured against FAIR: a −679 bps B fill cannot clear it, so it reverts
+        // and falls through to A. Do not loosen that floor without re-deriving this ordering.
         if (weethIn > 0) {
-            uint24[2] memory fees = [c.poolFee, c.poolFee2];
+            uint24[2] memory fees = [c.poolFee2, c.poolFee];   // CHEAP TIER FIRST
             for (uint i; i < 2; i++) {
                 if (fees[i] == 0) continue;
                 try IV3SwapRouter(c.v3router).exactInput(IV3SwapRouter.ExactInputParams({
@@ -490,58 +479,12 @@ library VaultLib {
                 catch {}
             }
         }
-        // Rung 2 — Rover unwind (no Aux weETH needed) + NAV-neutral weETH absorb.
-        if (c.rover != address(0)) {
-            try IRover(c.rover).take(amount) returns (uint got) {
-                if (got > 0) {
-                    IERC20(c.weth).transfer(recipient, got);
-                    uint absorbed = got >= amount ? weethIn
-                                                  : FullMath.mulDiv(weethIn, got, amount);
-                    if (absorbed > bal) absorbed = bal;
-                    if (absorbed > 0) IERC20(c.weeth).transfer(c.rover, absorbed);
-                    if (got >= (amount * 995) / 1000) return amount;
-                    return got;
-                }
-            } catch {}
-        }
-        // Rung 3 — 0.3% instant-redeem (pool-independent floor). VERIFIED ABI
-        // (EtherFiRedemptionManager impl 0x6bD1…91F7): redeemWeEth(weEthAmount,
-        // receiver, outputToken) where outputToken MUST be the 0xEeee…EEeE
-        // native-ETH sentinel or stETH — anything else reverts
-        // InvalidOutputToken. (The old code passed WETH here, so this rung
-        // SILENTLY FAILED on every call.) The recipient receives NATIVE ETH.
-        if (weethIn > 0 && instant && c.redeemer != address(0)) {
-            // §C10 part 2 — PARTIAL FILL. ether.fi's `totalRedeemableAmount` is PER OUTPUT TOKEN
-            // (verified against impl 0x5d53b303…b3dc by selector, and live: the native sentinel and
-            // stETH carry independent capacity). Asking for the FULL `weethIn` when their pool is
-            // thinner reverts `ExceededRedeemable()` and abandons the WHOLE rung, dropping the LP onto
-            // rung 4's multi-day wait-NFT even when most of it could be served instantly.
-            //
-            // UNIT: capacity is denominated in the OUTPUT token (native ETH, 1:1 with eETH) while the
-            // ask is weETH — so it is converted with `getWeETHByeETH`, the SAME conversion `:574` uses
-            // to size this call. A naive `min()` would mix units and under- or over-ask by the weETH
-            // premium.
-            uint capEth = IEtherFiRedemption(c.redeemer).totalRedeemableAmount(ETHFI_NATIVE_ETH);
-            if (capEth == 0) {
-                // Their pool is empty for THIS output token — skip rather than burn gas on a call that
-                // must revert, and leave the reason observable.
-                emit InstantRedeemSkipped(weethIn, bytes4(0));
-            } else {
-                uint capWeeth = IWeETH(c.weeth).getWeETHByeETH(capEth);
-                uint ask = weethIn < capWeeth ? weethIn : capWeeth;
-                try IEtherFiRedemption(c.redeemer).redeemWeEth(ask, recipient, ETHFI_NATIVE_ETH) {
-                    if (ask >= weethIn) return covered;             // served in full
-                    // PARTIAL: `ask` weETH was redeemed; the remainder falls to rung 4. `served` is the
-                    // ETH-equivalent of what this rung covered, on the SAME basis as `covered` above.
-                    uint served = FullMath.mulDiv(amount, ask, weethFull);
-                    return served + waitNft(covered - served, recipient, c);
-                } catch (bytes memory err) {
-                    // Empty `err` = callee gave no reason (OOG / bare revert); report 0 rather than
-                    // reading past the end.
-                    emit InstantRedeemSkipped(ask, err.length >= 4 ? bytes4(err) : bytes4(0));
-                }
-            }
-        }
+        // Rung 2 (Rover unwind) REMOVED 2026-08-05 with Rover itself — `c.rover` is always
+        // address(0) once nothing funds it, so the rung was an unreachable branch on the offramp path.
+        // Rung 3 (ether.fi 0.3% instant-redeem) DELETED 2026-08-06, owner decision. Its capacity
+        // (`totalRedeemableAmount`) measured ZERO at every sampled block across 90 days and still does,
+        // because the v3 pool absorbs the flow first — it could never fill and never will. Its test only
+        // ever passed by MANUFACTURING capacity (vm.deal + mocked withdrawal lock).
         // Rung 4 — last-resort no-fee withdrawal NFT.
         return waitNft(covered, recipient, c);
     }
@@ -564,7 +507,10 @@ library VaultLib {
         if (weethIn == 0) return 0;
         try IWeETH(c.weeth).unwrap(weethIn) returns (uint eeth) {
             if (eeth > 0) {
-                try IEtherFiLiquidityPool(c.lp).requestWithdraw(recipient, eeth) returns (uint) {
+                // ALWAYS to the protocol, never the swapper (owner decision 2026-08-06). The NFT is
+                // the REPAYMENT LEG of the borrow, not a consolation prize: the swapper is paid WETH
+                // now and we carry the ~7-day wait.
+                try IEtherFiLiquidityPool(c.lp).requestWithdraw(address(this), eeth) returns (uint) {
                     return weethIn == weethFull
                         ? amount : FullMath.mulDiv(amount, weethIn, weethFull);
                 } catch {}

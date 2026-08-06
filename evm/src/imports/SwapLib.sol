@@ -29,7 +29,6 @@ import {SOR} from "./SOR.sol";
 import {Types} from "./Types.sol";
 import {LevMath} from "./LevMath.sol";
 import {IV3SwapRouter} from "./v3/IV3SwapRouter.sol";
-import {IRover} from "./Interfaces.sol";
 import {IAux} from "./Interfaces.sol";
 import {IAggregatorV3} from "./Interfaces.sol";
 
@@ -581,8 +580,8 @@ library SwapLib {
     address constant ETHFI_NATIVE_ETH = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
     struct OfframpCfg {
-        address weeth; address rover; address weth; address v3router;
-        address redeemer; address lp; uint24 poolFee; uint24 poolFee2;
+        address weeth; address weth; address v3router;
+        address lp; uint24 poolFee; uint24 poolFee2;
     }
 
     /// @notice Body of Aux._sourceWethFromEtherfi — opportunistic, non-blocking.

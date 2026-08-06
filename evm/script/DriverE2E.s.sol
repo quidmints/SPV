@@ -114,7 +114,6 @@ contract Deploy is Script {
             spvCheckpointHeader: REGTEST_GENESIS_HEADER,
             spvCheckpointHeight: 0,
             spvCheckpointWork: 0,
-            deployRover: false,          // ETH venue unused by the BTC driver e2e
             deployChannels: true
         }));
 
