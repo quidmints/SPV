@@ -100,6 +100,16 @@ contract BtcSelfManagedTest is Alles {
         // stable offline case that every machine checks on every run.
         string memory local     = string.concat(vm.projectRoot(), "/test/btc/swapin_fixture.local.json");
         string memory committed = string.concat(vm.projectRoot(), "/test/btc/swapin_fixture.json");
+        // ⚠️ ALWAYS check the COMMITTED vector, not "whichever file we happen to read". A stale
+        // `.local.` left by an earlier run would otherwise shadow it on a machine where the
+        // harness is now absent — and the committed vector going unchecked is the exact defect
+        // this whole change exists to fix.
+        {
+            string memory jc = vm.readFile(committed);
+            assertEq(sha256(vm.parseJsonBytes(jc, ".preimage")),
+                     vm.parseJsonBytes32(jc, ".paymentHash"),
+                     "committed offline vector is a genuine sha256 pair");
+        }
         bool haveLive = vm.exists(local);
         string memory j = vm.readFile(haveLive ? local : committed);
         uint    sats        = vm.parseJsonUint(j, ".sats");
