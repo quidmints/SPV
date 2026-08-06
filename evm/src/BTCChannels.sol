@@ -257,6 +257,17 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     // any prior exit is invalid on-chain ⇒ ONE live exit per current funding UTXO.
     mapping(bytes32 => uint64) public deadManDeadline;
 
+    // (#114) The LP balance the fleet last ATTESTED in its pre-signed dead-man exit, and
+    // everything legitimately paid OUT of the channel since that attestation. A cooperative
+    // close paying less than `checkpointOf - paidOutSinceCheckpoint` is a STALE close: the
+    // fleet co-signed a payout smaller than the balance it last vouched for, net of every
+    // sat the LP actually received. ⚠️ BOTH sinks must be counted or the guard fires on an
+    // honest close -- a swap-out delivery (_settleSwapOutSlice) AND an LP withdrawal splice
+    // (_withdrawalPayout) each lower the balance for legitimate reasons.
+    // Zero `checkpointOf` ⇒ no attestation was ever made ⇒ nothing to compare, guard skipped.
+    mapping(bytes32 => uint) public checkpointOf;
+    mapping(bytes32 => uint) public paidOutSinceCheckpoint;
+
 
     // Swap-in replay guard: the Lightning HTLC hashlock (payment hash) of each
     // settled BTC→USD swap-in, marked used so a buggy/compromised/double-
@@ -828,6 +839,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         uint shrinkSats = old - p.amountSats;
         totalSatsLocked -= shrinkSats;
         uint lpPayoutSats = _withdrawalPayout(lpEth, rawSpliceTx, newVout);
+        paidOutSinceCheckpoint[channelId] += lpPayoutSats;   // legitimate balance fall
         btcVault.resizeBtcLp(lpEth, shrinkSats, lpPayoutSats, 0);
         emit ChannelSpliced(channelId, lpEth, false, shrinkSats, p.amountSats, newTxId, newVout);
     }
@@ -864,6 +876,10 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         _requireAttested(msg.sender);
         if (!_authorizedHop(ch.lpEth, msg.sender)) revert NotDelegatedHop();
         deadManDeadline[channelId] = cltvDeadline;
+        // Persist what was previously event-only. The tally restarts because the new
+        // attestation already reflects every payout that preceded it.
+        checkpointOf[channelId] = checkpointSats;
+        paidOutSinceCheckpoint[channelId] = 0;
         emit DeadManExitEmitted(channelId, ch.lpEth, cltvDeadline, checkpointSats, signedExitTx);
     }
 
@@ -1015,11 +1031,28 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         uint lpPayoutSats = coop
             ? _lpFinalBalance(channels[channelId].lpEth, rawCloseTx)
             : channels[channelId].amountSats;
+        // STALE-CLOSE GUARD, cooperative branch only. A force close is a solvency
+        // reconciliation against a tx the fleet did not co-sign, so it has nothing to be
+        // stale ABOUT. This earns its place under the guard rule: absent it, a fleet that
+        // co-signs an out-of-date balance produces a close that is plausible on its face
+        // and silently short-pays the LP, with no on-chain trace that anything was wrong.
+        // ⚠️ HOP-SUBMITTED CLOSES ONLY. `emitDeadManExit` is callable by ANY attested hop in
+        // fleet mode, so a guard that bound the LP too would hand a compromised hop a way to
+        // block every cooperative close by attesting an absurd checkpoint -- forcing LPs into
+        // punitive force-closes. (First version did exactly that; it was reverted for it.)
+        // Gating on the submitter removes it: the LP is the party the guard protects, and it
+        // can always waive by submitting the close itself. That is not coercion -- the LP's
+        // alternative is a force close, which needs no counterparty cooperation at all.
+        uint ckpt = checkpointOf[channelId];
+        if (msg.sender != channels[channelId].lpEth
+            && coop && ckpt != 0 && lpPayoutSats + paidOutSinceCheckpoint[channelId] < ckpt)
+            revert StaleClose();
         uint total = _finalizeClose(channelId, lpPayoutSats);
         emit ChannelClosed(channelId, total);
     }
 
     error NotForceClose();
+    error StaleClose();   // coop close pays less than the last attested checkpoint, net of payouts
 
     /// @notice (#114) Retire a channel ended by the pre-signed DEAD-MAN EXIT. Without this the
     ///         exit is UNRECORDABLE and the position never retires: `recordClose` routes a
@@ -1342,6 +1375,14 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ) private {
         PendingOnchainSwapOut memory so = pendingOnchainSwapOut[swapId];
         uint sats = so.sats;
+        // The OTHER legitimate sink (see checkpointOf). ⚠️ COUNT `shrinkSats`, NOT `so.sats`.
+        // The channel falls by the FULL shrink: `so.sats` goes to the swapper and the
+        // remainder is the LP's own change, which this function's docblock calls out --
+        // "the LP's own change/fee (shrinkSats - so.sats) settles as native, as it must".
+        // Both halves leave the channel, so counting only the swapper's slice under-counts
+        // the payout and makes an HONEST close trip the guard. (First version did exactly
+        // that; it was reverted for it.)
+        paidOutSinceCheckpoint[channelId] += shrinkSats;
         // Pay the delivering LP EXACTLY the swapper's recorded USD (so.usd) as
         // proceeds: lpPayout = shrink − sats is the LP's native change; exactUsd =
         // so.usd is its dollar leg. _settleDelivered draws POOLED_USD_BTC + clears
