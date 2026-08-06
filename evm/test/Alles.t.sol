@@ -1366,9 +1366,16 @@ contract Alles is ForkPin, Fixtures {
         }
 
         uint balBefore = User01.balance;
+        uint wethBefore = IERC20(address(WETH)).balanceOf(User01);
         vm.roll(block.number + 1); // JIT-lock: withdraw must be a later block than the deposit
         vm.prank(User01); V4.withdraw(5 ether, User01, User01);
-        assertGt(User01.balance - balBefore, 0, "withdraw delivered ETH");
+        // MEASURE BOTH ASSETS. Every exit now routes through the ether.fi offramp, which pays WETH;
+        // it used to reach the band burn (Vogue:530, _burnInRange(..., recipient)) which pays NATIVE
+        // ETH. Watching only `.balance` reported "delivered 0" for a day while the trace showed
+        // 4.99 WETH arriving -- the guard was reading the wrong asset, not catching a real zero.
+        assertGt((User01.balance - balBefore)
+               + (IERC20(address(WETH)).balanceOf(User01) - wethBefore), 0,
+            "withdraw delivered value (native ETH or WETH)");
     }
 
 

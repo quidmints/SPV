@@ -154,13 +154,19 @@ contract UnificationControls is Alles {
 
         uint c1 = CORE.committedUsd18();
         uint bal0 = lpA.balance;
+        uint weth0Del = WETH.balanceOf(lpA);
         vm.prank(lpA); V4.withdraw(40 ether, lpA, lpA);
 
         emit log_named_uint("committed before", c1);
         emit log_named_uint("committed after ", CORE.committedUsd18());
         emit log_named_uint("ETH delivered   ", lpA.balance - bal0);
         assertLt(CORE.committedUsd18(), c1, "a withdraw must shrink committed");
-        assertGt(lpA.balance - bal0, 0, "PREMISE: the withdraw actually delivered ETH");
+        // MEASURE BOTH ASSETS. Every exit now routes through the ether.fi offramp, which pays WETH;
+        // it used to reach the band burn (`Vogue:530`, `_burnInRange(..., recipient)`) which pays
+        // NATIVE ETH. Watching only `.balance` reported "delivered 0" for a day while the trace showed
+        // 4.99 WETH arriving -- the guard was reading the wrong asset, not catching a real zero.
+        assertGt((lpA.balance - bal0) + (WETH.balanceOf(lpA) - weth0Del), 0,
+            "PREMISE: the withdraw actually delivered value (native ETH or WETH)");
     }
 
     /// EDGE: withdrawing MORE than the position must clamp to the position, not revert and not
