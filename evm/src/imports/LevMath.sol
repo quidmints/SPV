@@ -399,14 +399,28 @@ library LevMath {
     }
 
     /// stable → WETH via the caller-funded basket SOR (REAL markets), floored at oracle WETH − MAX_SLIPPAGE (anti-MEV).
+    /// @dev IDENTITY WHEN THE LOAN TOKEN IS ALREADY WETH — no SOR, no fee, no slippage.
+    ///      The IL-protect lever borrows, then immediately buys the ETH it is hedging with. While the
+    ///      loan token is a stable that costs a SOR leg on EVERY OPEN (here) and another on every
+    ///      close (`_wethToStableDex`), each paying our in-band fee PLUS the external venue fee PLUS
+    ///      slippage — a double charge, twice per round trip, to reach an asset we could have
+    ///      borrowed directly. The collateral is weETH, the exposure hedged is ETH-denominated and
+    ///      the exit needs WETH; the stable is a detour with a toll at both ends.
+    ///      This short-circuit makes the lever WETH-LOAN-READY with zero behaviour change while the
+    ///      market still lends a stable. Registering a weETH-collateral / WETH-loan market then
+    ///      removes both legs by itself.
     function _stableToWethSor(SellCtx memory c, address stable, uint256 stableAmt) internal returns (uint256) {
+        if (stable == c.weth) return stableAmt;          // loan token IS WETH — nothing to convert
         uint256 wethFloor = (_toUsd18(stable, stableAmt) * 1e18 / IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M))
             * (10_000 - SELL_SLIP_BPS) / 10_000;
         IERC20Min(stable).approve(c.aux, stableAmt);
         return IAux(c.aux).sorSelfFunded(stable, stableAmt, c.weth, wethFloor);
     }
 
+    /// @dev IDENTITY WHEN THE LOAN TOKEN IS ALREADY WETH — the close-side twin of the note on
+    ///      `_stableToWethSor`. `minOut` is unused on that branch because no trade occurs.
     function _wethToStableDex(SellCtx memory c, address stable, uint256 wethIn, uint256 minOut) internal returns (uint256) {
+        if (stable == c.weth) return wethIn;              // loan token IS WETH — nothing to convert
         IERC20Min(c.weth).approve(c.aux, wethIn);
         return IAux(c.aux).sorSelfFundedReverse(c.weth, stable, wethIn, minOut);
     }
