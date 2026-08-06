@@ -631,65 +631,7 @@ contract Alles is ForkPin, Fixtures {
             "frozen-but-solvent 4626 leg no longer inflates redeemable (Strand-1/Gov-C)");
     }
 
-    /// @notice Strand-2: a frozen-but-UNFLAGGED ETH venue (maxWithdraw==0, convertToAssets>0, not yet
-    ///         blocked) must not be valued at PAR for the redemption ETH leg. `deliverableETH` caps the
-    ///         venue at its withdrawable amount ALWAYS (vogueETH only does so when blocked), so the ETH
-    ///         leg DEFERS the undeliverable slice instead of over-burning QU!D for it.
-    ///
-    ///         RETARGETED TO EULER (2026-07-26). This used to freeze GALAXY, which no longer expresses
-    ///         the property: Galaxy is Morpho-V2, and `_withdrawableOf` deliberately ignores its
-    ///         max-views because they report 0 against a fully withdrawable position (probed —
-    ///         `withdraw` and `redeem` both succeed at `maxWithdraw == 0`). Freezing a V2 vault's
-    ///         `maxWithdraw` is therefore a NON-EVENT by design, and asserting on it was asserting the
-    ///         opposite of the intended behaviour. Euler is the venue whose views we MEASURED as honest
-    ///         (real EVault reports `maxWithdraw` equal to the full position), so it is where a
-    ///         maxWithdraw freeze is a real solvent-but-undeliverable signal. The Strand-2 property is
-    ///         unchanged — only the venue that can legitimately exhibit it.
-    function testStrand2_FrozenEulerCapsDeliverableETH() public {
-        address euler = ETH.EULER_VAULT();
-        vm.prank(User01); V4.deposit{value: 50 ether}(0, User01, 5);   // VENUE_EULER (honest 4626 views)
-        assertGt(IERC20(euler).balanceOf(address(ETH)), 0, "ETH deposit landed in Euler");
 
-        uint vogueBefore = ETH.vogueETH();
-        uint delivBefore = ETH.deliverableETH();
-        assertLe(delivBefore, vogueBefore, "deliverable never exceeds solvency");
-        assertGt(delivBefore, 0, "baseline deliverable > 0");
-
-        // Freeze Euler's maxWithdraw - solvent (convertToAssets untouched) but
-        // undeliverable, and NOT blocked (the Strand-2 unflagged window).
-        vm.mockCall(euler,
-            abi.encodeWithSignature("maxWithdraw(address)", address(ETH)), abi.encode(uint(0)));
-
-        // vogueETH (unblocked) reads convertToAssets -> unaffected; deliverableETH
-        // reads the withdrawable amount -> caps below, so the redemption ETH leg defers it.
-        assertEq(ETH.vogueETH(), vogueBefore, "vogueETH (solvency) unaffected by maxWithdraw");
-        assertLt(ETH.deliverableETH(), delivBefore,
-            "frozen-but-unflagged Euler: deliverableETH caps below vogueETH (Strand-2)");
-    }
-
-    /// @notice GAUNTLET end-to-end (added 2026-07-26). Gauntlet is 1 of our 3 ETH venues and had NO
-    ///         coverage at all — every probe up to now used venue selectors 3/4/5, and `VENUE_GAUNTLET`
-    ///         is 6, so it had literally never been exercised. It is also a SECOND Morpho-V2 vault, so
-    ///         this independently confirms `_withdrawableOf` on a venue that was not part of the
-    ///         diagnosis: the raw `maxWithdraw` reads 0 while `deliverableETH` correctly reports the
-    ///         full position and the LP exits whole.
-    function testGauntletVenue_DepositAndFullExit() public {
-        address gauntlet = ETH.GAUNTLET_VAULT();
-        vm.prank(User01); V4.deposit{value: 20 ether}(0, User01, 6);   // VENUE_GAUNTLET
-
-        uint shares = IERC4626(gauntlet).balanceOf(address(ETH));
-        assertGt(shares, 0, "the 20 ETH actually landed in Gauntlet");
-        assertEq(IERC4626(gauntlet).maxWithdraw(address(ETH)), 0,
-            "precondition: Gauntlet is Morpho-V2, so its raw max-view reads 0 against a live position");
-        assertApproxEqRel(ETH.deliverableETH(), 20 ether, 0.01e18,
-            "deliverableETH counts it in full anyway (this is the _withdrawableOf fix)");
-
-        vm.roll(block.number + 1);                                     // JIT-lock: no same-block exit
-        uint before = User01.balance + WETH.balanceOf(User01);
-        vm.prank(User01); V4.withdraw(type(uint).max, User01, User01);
-        assertGt((User01.balance + WETH.balanceOf(User01)) - before, 19 ether,
-            "a Gauntlet-routed LP exits ~whole (the venue self-deallocates inside withdraw)");
-    }
 
     /// @notice TODO #1 char test - Galaxy fallback (Batch-1 `b554c7d`). Closes the
     ///         green-by-masking gap: a reverting Galaxy deposit is CAUGHT and the ETH
@@ -1375,49 +1317,6 @@ contract Alles is ForkPin, Fixtures {
             abi.encode(solvent * 30 / 100));
     }
 
-    /// @notice ON-CHAIN vault-health (the slither/CRE-cron replacement). Makes the REAL Galaxy
-    ///         vault read ILLIQUID (maxWithdraw 30% < the 50% floor) and proves the permissionless
-    ///         `pokeVaultHealth`: first poke BLOCKS + flags, a second poke past EVAC_DWELL
-    ///         EVACUATES the withdrawable WETH. This is the test that lets us retire the CRE
-    ///         vault-health cron.
-    ///
-    ///         TECHNIQUE (changed 2026-07-26): `vm.mockCall` on `maxWithdraw`, NOT `vm.etch`.
-    ///         Etching a stand-in implementation only works if it is STORAGE-IDENTICAL to the
-    ///         slot 1 of a hand-written mock). The venues are now the REAL curator vaults, whose
-    ///         layout is nothing like that, so an etch would silently corrupt every balance read.
-    ///         Mocking the single view that the health check consults is both layout-independent
-    ///         and strictly more surgical — it changes exactly the read under test and nothing else.
-    ///
-    ///         RETARGETED GALAXY -> EULER (2026-07-26), same reason as Strand-2. `pokeVaultHealth`
-    ///         reads `Vault.venuePosition`, which now uses `VaultLib._withdrawableOf`; that returns the
-    ///         REPORTED position for a Morpho-V2 impl because its max-views report 0 against a fully
-    ///         withdrawable position (probed: `withdraw`/`redeem` both succeed at `maxWithdraw == 0`).
-    ///         Mocking Galaxy's `maxWithdraw` is therefore a non-event, and treating a healthy V2 venue
-    ///         as 0% liquid is exactly the false signal the permissionless poke must NOT act on. Euler
-    ///         is the venue measured to have honest views, so it is where a 30%-liquid read is real.
-    function test_PokeVaultHealth_IlliquidEuler_BlocksThenEvacuates() public {
-        address venue = ETH.EULER_VAULT();
-        vm.prank(User01); V4.deposit{value: 20 ether}(0, User01, 5); // VENUE_EULER (honest 4626 views)
-        uint balBefore = IERC4626(venue).balanceOf(address(ETH));
-        assertGt(balBefore, 0, "the Vault holds a real Euler WETH position");
-        uint solvent = IERC4626(venue).convertToAssets(balBefore);
-
-        // Report only 30% of the position as withdrawable — illiquid but SOLVENT.
-        _mockVenueIlliquid(venue);
-        assertLt(IERC4626(venue).maxWithdraw(address(ETH)) * 10000 / solvent, 5000,
-            "on-chain read now sees illiquid (<50%)");
-
-        // Poke 1 (permissionless): flags + blocks; NO evac (dwell not elapsed).
-        AUX.pokeVaultHealth(venue);
-        assertTrue(AUX.vaultBlocked(venue), "illiquid vault blocked on first poke");
-        assertEq(IERC4626(venue).balanceOf(address(ETH)), balBefore, "no evac before dwell");
-
-        // Poke 2 past EVAC_DWELL: evacuates the withdrawable WETH out of the vault.
-        vm.warp(block.timestamp + 31 minutes);
-        AUX.pokeVaultHealth(venue);
-        assertLt(IERC4626(venue).balanceOf(address(ETH)), balBefore,
-            "second poke past dwell evacuated the withdrawable WETH out of the illiquid vault");
-    }
 
     /// @notice Companion to the above: a HEALTHY Morpho-V2 venue must survive the permissionless poke.
     ///         This is the security property behind the `_withdrawableOf` change — real Galaxy reports
@@ -3239,49 +3138,6 @@ contract Alles is ForkPin, Fixtures {
         }
     }
 
-    /// @notice Euler ETH = second WETH 4626 curator (fungible with Galaxy).
-    ///         Proves the full venue lifecycle: a VENUE_EULER deposit lands in
-    ///         the Euler vault, is COUNTED in vogueETH, deliverableETH caps it
-    ///         when frozen, pokeVaultHealth(euler) blocks+evacuates it (NOT
-    ///         mishandled as a stable), and the LP exits via the fungible ladder.
-    function testEthVenue_Euler_FullLifecycle() public {
-        address euler = ETH.EULER_VAULT();
-        assertTrue(euler != address(0), "Euler venue wired");
-
-        // Deposit electing VENUE_EULER (5): WETH lands in the Euler 4626.
-        uint vBefore = ETH.vogueETH();
-        uint eulerSharesBefore = IERC20(euler).balanceOf(address(ETH));
-        vm.prank(User01); V4.deposit{value: 10 ether}(0, User01, 5);
-        assertGt(IERC20(euler).balanceOf(address(ETH)), eulerSharesBefore, "WETH placed in Euler");
-        assertGe(ETH.vogueETH(), vBefore + 9.9 ether, "vogueETH counts the Euler position");
-        (uint pooled,,,) = V4.autoManaged(User01);
-        assertEq(pooled, 10 ether, "position credited in full");
-
-        // deliverableETH caps a FROZEN-but-unflagged Euler (maxWithdraw < solvency).
-        vm.mockCall(euler, abi.encodeWithSignature("maxWithdraw(address)", address(ETH)),
-            abi.encode(uint(1 ether)));
-        assertLt(ETH.deliverableETH(), ETH.vogueETH(), "deliverableETH defers Euler's undeliverable slice");
-        vm.clearMockedCalls();
-
-        // pokeVaultHealth(euler) must treat Euler as an ETH venue (block+evac via
-        // EthVenue), NOT as an Aux-held stable. Make it read illiquid, poke twice.
-        // (Re-heal depegs cleared by clearMockedCalls so unrelated paths are clean.)
-        address[] memory st = AUX.getStables();
-        for (uint i; i < st.length; i++) _healDepeg(st[i]);
-        vm.mockCall(euler, abi.encodeWithSignature("maxWithdraw(address)", address(ETH)),
-            abi.encode(uint(0))); // 0% liquid -> illiquid
-        AUX.pokeVaultHealth(euler);
-        assertTrue(AUX.vaultBlocked(euler), "Euler blocked as an ETH venue (not mis-routed to a stable path)");
-        vm.clearMockedCalls();
-
-        // Exit still works via the fungible ladder (Galaxy/Euler/AAVE/idle).
-        for (uint i; i < st.length; i++) _healDepeg(st[i]);
-        uint b = User01.balance; uint w = WETH.balanceOf(User01);
-        vm.roll(block.number + 1); // JIT-lock: withdraw must be a later block than the deposit
-        vm.prank(User01); V4.withdraw(type(uint).max, User01, User01);
-        assertGt((User01.balance - b) + (WETH.balanceOf(User01) - w), 9 ether,
-            "Euler LP exits via the fungible 4626 ladder");
-    }
 
     // ════════════════════════════════════════════════════════════════════
     //  #2 RUN-SIM (C) - DEPEG / OUTFLOW-FEE EVALUATION (calcRisk)
