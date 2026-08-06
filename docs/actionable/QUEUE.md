@@ -7221,3 +7221,44 @@ Five DISTINCT failure modes, none caught by the compiler or the suite:
 AAVE-v4, Euler 4626, Galaxy, Gauntlet) and the SOR route. The owner has separately questioned whether
 the Galaxy/Gauntlet/AAVE-v4 ETH supply is still needed at all, which makes this the natural next
 sweep.
+
+### KEEPER-OFFLINE IS A HARD CONSTRAINT (owner, 2026-08-06) — it changes the claim step's design
+
+⚠️ **RETRACTS my earlier "the claim-and-repay step can hang off the existing Rust keeper tick."**
+That makes the keeper a DEPENDENCY: if it is offline the waitNft never gets claimed, the borrow is
+never repaid, interest accrues, and the position walks toward liquidation. The failure is silent and
+time-based — the worst shape.
+
+**The claim MUST be permissionless and non-blocking**, matching the pattern this repo already uses
+for the reservoir refill ("a PERMISSIONLESS response to a public on-chain price… never an
+operator-tuned mechanism"). Three properties to hold:
+1. **Anyone can crank it** — searcher, LP, keeper, or the swapper themselves. The keeper becomes an
+   optimisation, never the only path.
+2. **Ordinary protocol activity should do it** — fold the claim attempt into the next offramp/swap so
+   the common case needs no external actor at all.
+3. **Nothing breaks if nobody cranks** — an unclaimed matured NFT must only cost accrued interest,
+   bounded and visible, never a liquidation. Size the encumbrance ceiling so the worst case is
+   survivable with the keeper down indefinitely.
+
+⇒ **This feeds the ENCUMBRANCE POLICY directly:** the ceiling is not "how much can we borrow", it is
+"how much can we borrow such that a keeper outage of arbitrary length is still safe". Those give very
+different numbers, and the second is the one to solve for.
+
+### supplyVenueBody — MEASURED 2026-08-06, AAVE v4 (spoke 0x94e7A5dC…, live mainnet)
+
+| asset | supplied | borrowed | utilisation |
+|---|---|---|---|
+| WETH | 21,103 | 400 | **1.90%** |
+| weETH | 714 | **0** | **0.00%** |
+
+**weETH earns EXACTLY ZERO there.** Supply yield = borrowRate × utilisation × (1 − reserveFactor),
+and utilisation is literally 0 — so the product is zero whatever the rate curve says. WETH at 1.90%
+utilisation implies a supply APY in SINGLE BASIS POINTS, not percent.
+
+⇒ Under "all protocol ETH is weETH", supplying to AAVE v4 is a **strict loss of the full ether.fi
+staking rate in exchange for nothing**. The only thing it buys is borrow capacity against the
+collateral — which is encumbrance, i.e. the offramp design, not a yield venue.
+
+**BEFORE DROPPING kinds 2–5, run the SAME measurement on Euler 4626, Galaxy and Gauntlet** — separate
+markets with their own utilisation. AAVE v4 is measured; the other three are not, and "they will never
+earn more than weETH" is a very likely hypothesis that is still a hypothesis.
