@@ -74,12 +74,11 @@ contract Vogue is
     // only as the Rover-self-liquidated fallback (VogueLib._supplyEtherFi). And NO always-live sink:
     // Galaxy AND Gauntlet are Morpho CURATED vaults (Aave/Euler curated too), so a chosen venue (or a
     // SPLIT leg) that places 0 REVERTS — it is NEVER swept to Galaxy or any other default.
-    uint8 constant VENUE_SPLIT   = 0; // DEFAULT — equal 5-way {AAVE, Euler, Rover(ether.fi), Galaxy, Gauntlet}; diversify curator risk
-    uint8 constant VENUE_AAVE    = 2; // AAVEv4
-    uint8 constant VENUE_GALAXY  = 3; // Galaxy — its OWN Morpho WETH 4626 vault (a normal venue, NOT a fallback sink)
-    uint8 constant VENUE_ROVER   = 4; // ether.fi, via the protocol-owned weETH/WETH v3 LP (Rover)
-    uint8 constant VENUE_EULER   = 5; // Euler ETH (WETH 4626 curator; fungible w/ Galaxy)
-    uint8 constant VENUE_GAUNTLET= 6; // Gauntlet (2nd Morpho WETH 4626 curator; fungible w/ Galaxy)
+    // The other five venue tags (AAVE, GALAXY, ROVER, EULER, GAUNTLET) were deleted 2026-08-06:
+    // every venue now routes to ether.fi, so the dispatch that branched on them is gone. This one
+    // survives ONLY as the default `venue` argument the ERC-4626 entry points pass through; it no
+    // longer selects anything and its name is now a misnomer — nothing splits.
+    uint8 constant VENUE_SPLIT   = 0; // the ERC-4626 default venue argument (selects nothing)
 
     mapping(address => uint) public ethfiBacked; // ether.fi/Rover (weETH) slice — the ONLY
     // per-LP venue attribution kept. This slice exits via the offramp ladder (isolated,
