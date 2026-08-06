@@ -343,6 +343,19 @@ contract BtcSelfManagedTest is Alles {
         vm.expectRevert(BTCChannels.SwapInReplay.selector);
         ch.settleSwapIn(b.seller, b.sats, address(USDC), b.paymentHash, 0, false);
 
+        // ── (#114) STALE-CLOSE GUARD, exercised here on the REAL close tx ──
+        // The guard is SKIPPED while checkpointOf == 0, which is every other channel in the
+        // suite — so 4420 green tests do not exercise it and cannot. Trip it both ways on
+        // real data, or it ships as a constraint nobody has ever seen fire.
+        vm.prank(hop);
+        ch.emitDeadManExit(channelId, uint64(block.timestamp + 1 days), type(uint96).max, hex"00");
+        vm.prank(hop);
+        vm.expectRevert(BTCChannels.StaleClose.selector);
+        ch.recordClose(channelId, b.rawCloseTx, b.closeBlockHash, b.closeMerkleProof, b.closeTxIndex);
+        // ...and an HONEST attestation (at or below the real payout) must not block the close.
+        vm.prank(hop);
+        ch.emitDeadManExit(channelId, uint64(block.timestamp + 1 days), 1, hex"00");
+
         // ── recordClose: the REAL cooperative-close tx + SPV proof retires it ──
         uint qBefore = QUID.balanceOf(lpEth);
         vm.prank(makeAddr("hop")); // recordClose is participant-gated (hop or lpEth)
