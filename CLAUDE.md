@@ -142,6 +142,20 @@ lev distinction, or the socialised-liquidation race in `§A.16b` reopens.
 ⇒ **`Vogue`'s pair is the BTC-band SLICE of `Vault`, not `Vault`.** The ETH-venue slice is a THIRD
 concern with **no BTC counterpart — correctly**, because ETH venues are 4626 vaults while BTC custody
 is Lightning channels (`BTCChannels`). That is the settlement asymmetry, and it is REAL.
+🔴 **`VBtc` MUST SURVIVE THE CONSOLIDATION — do not "delete it into" the band manager.** The BTC band's
+`asset()` is **not a real ERC-20 underlying**: it returns WBTC as a *pricing handle* (the venue prices
+vBTC against WBTC via `getTWAPforAsset`) and `convertToAssets` is a pure identity because **vBTC IS
+sats**. The real underlying is LN-custodied native BTC. So "one instance = one `asset()` = an honest
+4626" holds for ETH (WETH is genuinely held and redeemable) and only **nominally** for BTC.
+And the load-bearing reason: **a privacy pool holds an ERC-20.** vBTC's own token-ness — `totalSupply`,
+`balanceOf`, `transfer`, `approve` on its own contract — is what makes it depositable in `../ibiza`.
+`VBtc.sol:18-28` designates this contract as the home for a future `redeemVBtc(sats, p2trScript)` and
+the `Σ outstanding vBTC ≤ Σ free channel capacity` invariant, calling segregation *"a prerequisite, not
+cosmetics"*. Folding it away dissolves the layer the privacy story lives in.
+⇒ Asymmetry WITH a reason, and it survives instantiation rather than being dissolved by it: `VEth` may
+still be deletable (WETH is a real ERC-20 underlying; vETH has no bearer/privacy requirement), while
+`VBtc` persists as the token + bearer layer with the band manager holding the accounting.
+
 ⇒ **Extra step, ordered FIRST:** extract ETH venue custody out of `Vault`. Only then does
 `Vogue` ∥ `Vault`-BTC-slice become one band manager with two instances. The 1,557-vs-991 size gap is
 explained by this fusion, not by drift — which is exactly why every gap must be classified before

@@ -56,12 +56,21 @@ contract DrainAtomicity is Alles {
     /// trader's cost is ETH-received per dollar spent, measured as a BALANCE DELTA on the trader.
     function _drain(uint boldAmt) internal returns (uint ethGot) {
         deal(bold, drainer, boldAmt);
-        uint before = WETH.balanceOf(drainer);
+        // §E71-r3 CONTROL: count NATIVE ETH as well as WETH. I already made the mistake once of
+        // reading a single token and concluding "delivered nothing" when the payout landed elsewhere
+        // (E69, where proceeds arrived as a different basket stable). A volatile leg can settle as
+        // native ETH, so summing both is what makes a zero reading mean ZERO RECEIPT rather than
+        // ZERO KNOWLEDGE of where it went.
+        uint before = WETH.balanceOf(drainer) + drainer.balance;
         vm.startPrank(drainer);
         IERC20(bold).approve(address(AUX), boldAmt);
-        try AUX.swap(bold, address(WETH), true, boldAmt, 0) {} catch {}
+        // §E71-r3: NO try/catch and NO minOut=0 mask. With them, a zero receipt was
+        // indistinguishable between "the swap reverted" and "the swap delivered nothing" — the exact
+        // S16 pattern this session spent six layers untangling, sitting inside the measuring
+        // instrument. Let a revert announce itself; that is the whole discriminator.
+        AUX.swap(bold, address(WETH), true, boldAmt, 0);
         vm.stopPrank();
-        ethGot = WETH.balanceOf(drainer) - before;
+        ethGot = (WETH.balanceOf(drainer) + drainer.balance) - before;
         _settle();
     }
 
@@ -131,6 +140,57 @@ contract DrainAtomicity is Alles {
         }
     }
 
+    /// §E96 — WHAT DOES ORDINARY FLOW PAY FOR SOMEONE ELSE'S IMBALANCE? This is the owner's ORIGINAL
+    /// complaint and it had never been tested: *"the second swapper into an already-imbalanced pool
+    /// pays a premium scaled to the whole imbalance, most of which they didn't cause."*
+    ///
+    /// E71 (consolidation) does NOT answer it — that measures ONE big swap vs the same volume split,
+    /// i.e. path-independence WITHIN a displacement. This measures the LEVEL dependence: the SAME
+    /// small ticket, priced at a balanced band and at an imbalanced one. The integral is irrelevant
+    /// here BY CONSTRUCTION — its own limit argument says infinitesimal swaps price identically to
+    /// the old point rate, which is exactly why E68/E68b could not have fixed this.
+    ///
+    /// Measured on the TRADER's receipt (native ETH + WETH), never on `skewPremiumCum` — our ledger
+    /// moves differently from what the user gets, and trusting it produced two retracted findings.
+    function test_E96_TaxOnOrdinaryFlowFromSomeoneElsesImbalance() public {
+        uint SMALL = 5_000 * 1e18;      // an ordinary ticket, not a whale
+
+        // LEG A — the SAME small swap into a FRESH, balanced band.
+        uint snap = vm.snapshotState();
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        _settle();
+        uint invBal = CORE.POOLED_ETH() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
+        uint ethBalanced = _drain(SMALL);
+        vm.revertToState(snap);
+
+        // LEG B — the SAME small swap into a band someone ELSE has already drained.
+        _setupBand();
+        uint invSkewed = CORE.POOLED_ETH() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
+        uint ethSkewed = _drain(SMALL);
+
+        emit log_named_uint("inv BALANCED (usd6)  ", invBal);
+        emit log_named_uint("inv IMBALANCED (usd6)", invSkewed);
+        emit log_named_uint("ETH for 5k @ balanced  ", ethBalanced);
+        emit log_named_uint("ETH for 5k @ imbalanced", ethSkewed);
+
+        if (ethBalanced == 0 || ethSkewed == 0) {
+            emit log("VOID: a leg received nothing -- cannot compare.");
+            return;
+        }
+        if (invSkewed >= invBal) {
+            emit log("VOID: leg B was not actually more scarce than leg A.");
+            return;
+        }
+        if (ethSkewed < ethBalanced) {
+            emit log_named_uint("TAX on ordinary flow, bps",
+                (ethBalanced - ethSkewed) * 10_000 / ethBalanced);
+            emit log("^ what a 5k ticket pays for an imbalance it did NOT cause.");
+        } else {
+            emit log("NO TAX: the ordinary ticket was not penalised by the standing imbalance.");
+        }
+    }
+
     function test_E71_OneBigDrainIsNotCheaperThanTheSameVolumeSplit() public {
         uint TOTAL = 120_000 * 1e18;
         uint N = 12;
@@ -164,7 +224,15 @@ contract DrainAtomicity is Alles {
         if (invA != invB) { emit log("VOID: legs started from different states."); return; }
         if (ethA == 0 || ethB == 0) { emit log("VOID: a leg received no volatile."); return; }
 
-        if (ethA > ethB) {
+        // A 1-wei difference is not an arbitrage. Anything under 1 bp of the total is integer
+        // rounding across twelve tickets vs one, so treat it as path-INDEPENDENT — which is the
+        // property the integral was built to deliver. Without this the branch shouted "ARBITRAGE IS
+        // REAL" on a 0 bps gap.
+        uint gap = ethA > ethB ? ethA - ethB : ethB - ethA;
+        if (gap * 10_000 / (ethA > ethB ? ethB : ethA) == 0) {
+            emit log("TRADER-SIDE: PATH-INDEPENDENT to within rounding -- consolidation buys NOTHING.");
+            emit log_named_uint("gap (wei)", gap);
+        } else if (ethA > ethB) {
             emit log("TRADER-SIDE: BIG DRAIN got MORE eth for the same dollars -- ARBITRAGE IS REAL.");
             emit log_named_uint("whale advantage bps", (ethA - ethB) * 10_000 / ethB);
         } else if (ethB > ethA) {
