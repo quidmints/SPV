@@ -131,13 +131,21 @@ to relocating vETH balances does not follow). Treat that header as a record of a
 derivation. The real constraint it leaves behind: any relocation must preserve the **recorded-vs-live**
 lev distinction, or the socialised-liquidation race in `§A.16b` reopens.
 
-⚠️ **THE `Vogue`/`Vault` ROW IS NOT VERIFIED AS AN ETH/BTC PAIR — check it FIRST.** `vogueETH()` lives
-in **`Vault.sol:444`** (→ `VaultLib.vogueETH(_ethCfg())`), alongside `deliverableETH` and an ETH-side
-`vogueOp`. So `Vault` is not simply the BTC counterpart of `Vogue`: it appears to host **ETH venue
-custody AND the BTC band accounting** (`autoManagedBTC`, `levPooledBTC`). If that holds, the two are
-**different layers**, not two instances of one thing, and only the *BTC band accounting* inside `Vault`
-pairs with `Vogue`. The other three rows are unaffected. **Establish what `Vault` actually is before
-planning any merge** — this is the single most load-bearing unknown in the whole refactor.
+🔴 **`Vault` IS TWO THINGS FUSED, AND MUST BE SPLIT BEFORE ANYTHING CAN BE MERGED** (measured
+2026-08-07 by classifying its whole surface — 11 ETH-named functions, 20 BTC-named, 24 state decls):
+
+| slice | what it is | members |
+|---|---|---|
+| **ETH venue custody** | 4626 venue positions | `supplyEtherFi` `supplyAaveEth` `supplyEulerEth` `offrampEtherFi` `_supplyETH` `_withdrawETH` `aaveEthBalance` `vogueETH` (`:444`) `deliverableETH` `_ethCfg` + every venue address (`AAVE_SPOKE` `GALAXY_VAULT` `EULER_VAULT` `GAUNTLET_VAULT` `ETHERFI_*` `WEETH`) |
+| **BTC band accounting** | the actual counterpart of `Vogue` | `registerBtcLp` `resizeBtcLp` `unregisterBtcLp` `exposeBtcToLev` `unexposeBtcFromLev` `syncLevBTC` `totalSharesBTC` `bandBtcOf` `_settleBtcLp` `settleBtcFeesOwed` `derivedThetaWadBtc` `lpSharesBTC` `autoManagedBTC` `levPooledBTC` |
+
+⇒ **`Vogue`'s pair is the BTC-band SLICE of `Vault`, not `Vault`.** The ETH-venue slice is a THIRD
+concern with **no BTC counterpart — correctly**, because ETH venues are 4626 vaults while BTC custody
+is Lightning channels (`BTCChannels`). That is the settlement asymmetry, and it is REAL.
+⇒ **Extra step, ordered FIRST:** extract ETH venue custody out of `Vault`. Only then does
+`Vogue` ∥ `Vault`-BTC-slice become one band manager with two instances. The 1,557-vs-991 size gap is
+explained by this fusion, not by drift — which is exactly why every gap must be classified before
+merging.
 
 ## Build environment
 
