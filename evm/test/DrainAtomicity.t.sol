@@ -584,6 +584,63 @@ contract DrainAtomicity is Alles {
     /// amounts the basket really holds; `committedUsd18()` is what is spoken for. Headroom is only
     /// REAL if the basket physically holds unspoken-for stables. Deriving it from a subtraction of
     /// two aggregates would repeat the whole session's error.
+    /// §E104 — THE THREE REMAINING UNMEASURED ITEMS, each with its own control.
+    /// (1) E101's second check: does RESEAT reduce inventory without a swap? If so, E101's
+    ///     "scarce-now + no-swap-since-ts ⟹ continuously scarce" derivation weakens further.
+    /// (2) E59's claim that UNMEASURED variance charges the CEILING — E88-PROOF showed `wellSkew`
+    ///     reads 0 on fresh/flush bands, so the claim is asserted here directly rather than implied.
+    /// (3) The four constants: measure each one's MARGINAL EFFECT on the price via pure `skewWad`
+    ///     calls, so "load-bearing" is a measurement rather than a reading of the source.
+    function test_E104_ReseatInventoryAndE59Ceiling() public {
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        _settle();
+
+        // (2) E59: a FRESH band has unmeasured variance. Does it charge the ceiling?
+        emit log_named_uint("E59: realizedVariance, fresh", CORE.realizedVarianceWad(false));
+        emit log_named_uint("E59: wellSkew, fresh        ", AUX.wellSkew(address(WETH)));
+        emit log_named_uint("E59: MAX_WELL_SKEW (claimed)", 3e16);
+
+        for (uint i = 0; i < 6; ++i) _drain(20_000 * 1e18);
+        uint invBefore = CORE.POOLED_ETH();
+        uint64 tsF0 = _flowTs(false); uint64 tsS0 = _flowTs(true);
+
+        // (1) RESEAT -- permissionless, no swap.
+        V4.reseat();
+        vm.roll(block.number + 1);
+        uint invAfter = CORE.POOLED_ETH();
+        emit log_named_uint("RESEAT: POOLED_ETH before   ", invBefore);
+        emit log_named_uint("RESEAT: POOLED_ETH after    ", invAfter);
+        emit log_named_uint("RESEAT: flow.ts fast b/a    ", tsF0);
+        emit log_named_uint("                            ", _flowTs(false));
+        if (invAfter < invBefore && _flowTs(false) == tsF0 && _flowTs(true) == tsS0) {
+            emit log("RESEAT REDUCES INVENTORY WITHOUT BUMPING flow.ts -- E101 weakens further.");
+        } else if (invAfter == invBefore) {
+            emit log("RESEAT does NOT move inventory -- E101's derivation is UNAFFECTED by reseat.");
+        } else {
+            emit log("RESEAT moved inventory UP, or bumped flow.ts -- neither breaks the derivation.");
+        }
+    }
+
+    /// §E104 part (3) — CONSTANT SENSITIVITY, measured not read. Vary each input the constants gate
+    /// and observe whether the price responds. A constant whose variation does not move the output
+    /// in the operating range is not a dial, whatever the source says.
+    function test_E104_ConstantSensitivity() public pure {
+        uint T = 1_000_000e6; uint inv = T / 2; uint drain = T / 4;
+        // CONF_FRAC (BTC, ~1hr) vs ETH_CONF_FRAC (~12s) enter only via the base; SPLICE_FLOOR is
+        // BTC-only. Comparing BTC vs ETH at identical q and sigma isolates their combined effect.
+        uint btc = SwapLib.skewWad(inv, T, 1e16, true,  drain);
+        uint eth = SwapLib.skewWad(inv, T, 1e16, false, drain);
+        console.log("skew BTC (base = splice + conf) :", btc);
+        console.log("skew ETH (base = eth conf only) :", eth);
+        console.log("difference attributable to SPLICE_FLOOR + conf gap:", btc - eth);
+        // MAX_WELL_SKEW appears TWICE (kernel coefficient AND ceiling). Drive q to the pole to see
+        // whether the ceiling binds -- if it does, the coefficient role is invisible there.
+        uint hot = SwapLib.skewWad(T / 100, T, 5e18, false, drain);
+        console.log("skew ETH at q=0.99, sigma^2=5e18 :", hot);
+        console.log("MAX_WELL_SKEW                    :", uint(3e16));
+    }
+
     function test_E67_IsTheFreedHeadroomBackedByRealDollars() public {
         _seedBasket();
         vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
