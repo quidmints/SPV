@@ -116,6 +116,14 @@ interface IAngelF8N {
 }
 
 contract Alles is ForkPin, Fixtures {
+    /// (E130) A deterministic VALID x-only key from a seed. `_registerBtcRecipient` now
+    /// requires `0x5120||k` to be SPENDABLE, and ~half of arbitrary 32-byte values are not
+    /// curve points — so grind, exactly as real key generation does when lift_x fails.
+    function _validXOnly(bytes memory seed) internal pure returns (bytes32 k) {
+        k = keccak256(seed);
+        while (!BitcoinTx.isValidXOnlyKey(k)) k = keccak256(abi.encodePacked(k));
+    }
+
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
     using StateLibrary for IPoolManager;
@@ -262,7 +270,7 @@ contract Alles is ForkPin, Fixtures {
         // Realistic btcRecipientOf: a full 32-byte x-only shutdown key distinct from the
         // funding material (this helper's callers never close/splice, so it is only
         // registered — but it must still look like a real key, not a hash160 in a slot).
-        bytes32 payout = keccak256(abi.encode("lp-shutdown-xonly", p.lpPubkey));
+        bytes32 payout = _validXOnly(abi.encode("lp-shutdown-xonly", p.lpPubkey));
         // (B) LP delegates channel operation to `hop` COLD, once: pins+LOCKS
         // btcRecipientOf[lpEth]=payout and delegatedAuthority[lpEth]=hop. Permissionless.
         bytes memory dsig = _signDigest(lpPk, ch.delegationDigest(hop, payout, 1));
@@ -1730,7 +1738,7 @@ contract Alles is ForkPin, Fixtures {
         // swaps deliver BTC to User03, so it needs a BTC recipient - the swap-out
         // request itself does NOT, since its proceeds go to the pool).
         _openHopChannel(ch, hop, 91, 2e7); // MULTI-HOP: real open so `hop` may attest swap-ins (was a registerBtcLp shortcut)
-        vm.prank(User03); ch.setBtcRecipient(bytes32(uint(0xB7C)));
+        vm.prank(User03); ch.setBtcRecipient(_validXOnly(abi.encode(uint(0xB7C))));
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
@@ -1749,9 +1757,9 @@ contract Alles is ForkPin, Fixtures {
         vm.prank(swapper); USDC.approve(address(AUX), type(uint).max);
         // A recipient for the pool's shortfall-arb path (the large test buy can
         // drain POOLED_BTC below shares -> arb refill, which routes to a recipient).
-        vm.prank(swapper); ch.setBtcRecipient(bytes32(uint(0xB7C2)));
+        vm.prank(swapper); ch.setBtcRecipient(_validXOnly(abi.encode(uint(0xB7C2))));
 
-        bytes memory swapperScript = abi.encodePacked(hex"5120", keccak256(abi.encode(0x5A7C))); // P2WPKH
+        bytes memory swapperScript = abi.encodePacked(hex"5120", _validXOnly(abi.encode(0x5A7C))); // key-path P2TR
         bytes32 swapId = keccak256("quid-swap-out-onchain");
 
         // Edge (on fresh price, before the main swap moves it): an unreachable
@@ -1818,7 +1826,7 @@ contract Alles is ForkPin, Fixtures {
         AUX.setBTCChannels(address(ch));
 
         _openHopChannel(ch, hop, 91, 2e7); // MULTI-HOP: real open so `hop` may attest swap-ins (was a registerBtcLp shortcut)
-        vm.prank(User03); ch.setBtcRecipient(bytes32(uint(0xB7C)));
+        vm.prank(User03); ch.setBtcRecipient(_validXOnly(abi.encode(uint(0xB7C))));
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
@@ -1832,7 +1840,7 @@ contract Alles is ForkPin, Fixtures {
 
         address swapper = User02;
         vm.prank(swapper); USDC.approve(address(AUX), type(uint).max);
-        vm.prank(swapper); ch.setBtcRecipient(bytes32(uint(0xB7C3)));
+        vm.prank(swapper); ch.setBtcRecipient(_validXOnly(abi.encode(uint(0xB7C3))));
         bytes memory swapperScript = abi.encodePacked(hex"5120", keccak256(abi.encode(0x5A7D)));
         bytes32 swapId = keccak256("quid-swap-out-timeout-refund");
 
@@ -1884,7 +1892,7 @@ contract Alles is ForkPin, Fixtures {
 
         // Seed BTC inventory + POOLED_USD_BTC curve liquidity (mirror failure-reversal).
         _openHopChannel(ch, hop, 91, 2e7); // MULTI-HOP: real open so `hop` may attest swap-ins (was a registerBtcLp shortcut)
-        vm.prank(User03); ch.setBtcRecipient(bytes32(uint(0xB7C)));
+        vm.prank(User03); ch.setBtcRecipient(_validXOnly(abi.encode(uint(0xB7C))));
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
@@ -4005,7 +4013,7 @@ contract Alles is ForkPin, Fixtures {
             // so `_lpFinalBalance` matches it (not a legacy P2WPKH output, which would
             // mismatch the P2TR guard → sum 0 → delivered=funded) — and sets
             // delegatedAuthority[lpEth]=hop, so only the hop may submit the open (§9b).
-            bytes32 payout = keccak256(abi.encode("lp-shutdown-xonly", p.lpPubkey));
+            bytes32 payout = _validXOnly(abi.encode("lp-shutdown-xonly", p.lpPubkey));
             bytes memory dsig = _signDigest(lpPk, ch.delegationDigest(makeAddr("hop"), payout, 1));
             ch.registerDelegation(makeAddr("hop"), payout, 1, dsig);
             vm.prank(makeAddr("hop"));
@@ -4021,7 +4029,7 @@ contract Alles is ForkPin, Fixtures {
         // priming curve buys below just fund POOLED_USD_BTC (a donation; they record
         // no obligation). The buyer must register a BTC recipient.
         vm.prank(User03);
-        ch.setBtcRecipient(bytes32(uint(0xBEEF)));
+        ch.setBtcRecipient(_validXOnly(abi.encode(uint(0xBEEF))));
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
@@ -4038,7 +4046,7 @@ contract Alles is ForkPin, Fixtures {
         uint supBefore = QUID.totalSupply();
         {
             uint finalBalance = amountSats; // all-native, no delivery
-            bytes memory lpP2TR = abi.encodePacked(hex"5120", keccak256(abi.encode("lp-shutdown-xonly", lpPubkey)));
+            bytes memory lpP2TR = abi.encodePacked(hex"5120", _validXOnly(abi.encode("lp-shutdown-xonly", lpPubkey)));
             bytes memory closeTx = abi.encodePacked(
                 hex"02000000", hex"01",
                 fundingTxId, hex"00000000", hex"00", hex"ffffffff",  // spends (fundingTxId, 0)
@@ -4096,7 +4104,7 @@ contract Alles is ForkPin, Fixtures {
             // delivered=funded and IGNORES all outputs, so the key is only registered.
             // (B) LP delegates to the hop COLD once (pins+LOCKS btcRecipientOf, sets
             // delegatedAuthority=hop) before the hop-gated open.
-            bytes32 payout = keccak256(abi.encode("lp-shutdown-xonly", p.lpPubkey));
+            bytes32 payout = _validXOnly(abi.encode("lp-shutdown-xonly", p.lpPubkey));
             bytes memory dsig = _signDigest(lpPk, ch.delegationDigest(makeAddr("hop"), payout, 1));
             ch.registerDelegation(makeAddr("hop"), payout, 1, dsig);
             vm.prank(makeAddr("hop"));
@@ -4164,7 +4172,7 @@ contract Alles is ForkPin, Fixtures {
             // delivered=funded and IGNORES all outputs, so the key is only registered.
             // (B) LP delegates to the hop COLD once (pins+LOCKS btcRecipientOf, sets
             // delegatedAuthority=hop) before the hop-gated open.
-            bytes32 payout = keccak256(abi.encode("lp-shutdown-xonly", p.lpPubkey));
+            bytes32 payout = _validXOnly(abi.encode("lp-shutdown-xonly", p.lpPubkey));
             bytes memory dsig = _signDigest(lpPk, ch.delegationDigest(makeAddr("hop"), payout, 1));
             ch.registerDelegation(makeAddr("hop"), payout, 1, dsig);
             vm.prank(makeAddr("hop"));

@@ -28,7 +28,9 @@ contract BTCChannelsFallbackTest is Test {
     address lpEth;
     address primary  = address(0xB0B);
     address fallbackHop = address(0xFA11);
-    bytes32 payout   = bytes32(uint256(0xB7C));
+    // ⚠️ Must be a REAL x-only key (E130): `0x5120||payout` has to be spendable, so
+    //    `_registerBtcRecipient` now rejects non-curve values. This is secp256k1's G.x.
+    bytes32 payout = bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798));
 
     function setUp() public {
         ch = new BTCChannels(address(0xCA11), address(0xA17), address(0x4006), primary);

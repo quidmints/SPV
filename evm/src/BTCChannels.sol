@@ -1388,6 +1388,11 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // blob, including a P2WSH script the rest of the stack cannot produce or match.
         if (swapperScript.length != 34
             || swapperScript[0] != bytes1(0x51) || swapperScript[1] != bytes1(0x20)) revert InvalidParam();
+        // (E131) The PREFIX check above says it is shaped like P2TR; it says nothing about the
+        // 32 bytes after it. Without this, a malformed key makes the delivery output unspendable
+        // — the hop SPV-proves payment to it, the obligation settles, the delivering LP is paid,
+        // and the swapper's BTC is burned while the system records a successful delivery.
+        if (!BitcoinTx.isValidXOnlyKey(bytes32(swapperScript[2:34]))) revert InvalidParam();
         swapOutUsed[swapId] = true;
         uint usd6;
         (sats, usd6) = btcVault.creditSwapOut(msg.sender, token, usdAmount, minSats);
@@ -1541,6 +1546,11 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     /// nonzero (all 32 bytes are the key — no high-bytes-zero mask).
     function _registerBtcRecipient(address who, bytes32 xOnlyKey) internal {
         if (xOnlyKey == bytes32(0)) revert NotPubkeyHash();
+        // (E130) It must be a REAL x-only key, or `0x5120||xOnlyKey` is UNSPENDABLE and every
+        // payout pinned to it — cooperative close, withdrawal splice, dead-man exit — burns the
+        // LP's balance irrecoverably. ~HALF of arbitrary 32-byte values fail this, and nothing
+        // else detects it until a payout is attempted and already on-chain.
+        if (!BitcoinTx.isValidXOnlyKey(xOnlyKey)) revert NotPubkeyHash();
         btcRecipientOf[who] = xOnlyKey;
         emit BtcRecipientRegistered(who, xOnlyKey);
     }

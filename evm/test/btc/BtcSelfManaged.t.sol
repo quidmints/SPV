@@ -136,7 +136,7 @@ contract BtcSelfManagedTest is Alles {
             _realSPV(), address(AUX), address(ETH), hop);
         AUX.setBTCChannels(address(ch));
         // The USD->BTC swaps deliver BTC to the swapper -> it needs a BTC recipient.
-        vm.prank(User03); ch.setBtcRecipient(bytes32(uint(0xB7C)));
+        vm.prank(User03); ch.setBtcRecipient(_validXOnly(abi.encode(uint(0xB7C))));
 
         // Fund POOLED_USD_BTC headroom (a swap-in draws the swappers' dollars).
         // MULTI-HOP: a REAL open (not a registerBtcLp shortcut) so `hop` owns an OPEN
@@ -303,7 +303,7 @@ contract BtcSelfManagedTest is Alles {
             // and closes with the real tx. This e2e_ffi bundle variant asserts only the
             // retire/no-mint invariant (>=0), so the synthetic key just needs to be a
             // proper key, not a hash160 in a slot.
-            bytes32 payout = keccak256(abi.encode("lp-shutdown-xonly", p.lpPubkey));
+            bytes32 payout = _validXOnly(abi.encode("lp-shutdown-xonly", p.lpPubkey));
             // (B) The LP delegates channel operation to `hop` COLD, once. The bundle's
             // `lpAuth` field now carries the DELEGATION signature over
             // delegationDigest(hop, payout, 1) (the e2e_ffi bin signs that digest instead
@@ -324,7 +324,7 @@ contract BtcSelfManagedTest is Alles {
         assertEq(pooledOpen, b.amountSats, "openChannel credits the BTC pool position");
 
         // ── fund POOLED_USD_BTC headroom (a swap-in draws swapper dollars) ──
-        vm.prank(User03); ch.setBtcRecipient(bytes32(uint(0xB7C)));
+        vm.prank(User03); ch.setBtcRecipient(_validXOnly(abi.encode(uint(0xB7C))));
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {

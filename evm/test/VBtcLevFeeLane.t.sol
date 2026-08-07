@@ -126,7 +126,7 @@ contract VBtcLevFeeLane is Alles {
         // pubkey (production: funding = per-channel MuSig2; shutdown = the wallet's stable
         // external-0 P2TR), and it is a 32-byte x-only key. Single-key `hash160(lpPubkey)`
         // fixtures collapsed the two and masked the funding-vs-shutdown withdrawal seam.
-        bytes32 payout = keccak256(abi.encode("lp-shutdown-xonly", seed));
+        bytes32 payout = _validXOnly(abi.encode("lp-shutdown-xonly", seed));
         // (B) Option-B cold delegation: the LP signs once (permissionless submit) to pin
         // btcRecipientOf=payout + delegatedAuthority=hop; openChannel is then hop-gated.
         bytes memory dsig = _signOpen(lpPk, ch.delegationDigest(makeAddr("hop"), payout, 1));
@@ -237,7 +237,7 @@ contract VBtcLevFeeLane is Alles {
 
     function test_Seam_WithdrawalPayout_MustMatchShutdownKey_NotFundingKey() public {
         BTCChannels ch = _deployChannels();
-        bytes32 shutdownKey = keccak256(abi.encode("lp-shutdown-xonly", uint(77))); // = btcRecipientOf
+        bytes32 shutdownKey = _validXOnly(abi.encode("lp-shutdown-xonly", uint(77))); // = btcRecipientOf
         (bytes32 cid, bytes32 ftx, bytes memory lpPubkey) = _openWithPayout(ch, 77, 20e6, shutdownKey);
         bytes32 fundingKey = keccak256(abi.encode("lp-funding-xonly", uint(77)));
         assertTrue(fundingKey != shutdownKey, "keys must be distinct to test the seam");
@@ -537,7 +537,7 @@ contract VBtcLevFeeLane is Alles {
           assertApproxEqAbs(CORE.POOLED_USD_BTC(), puPreSlice, 1, "POOLED_USD_BTC FLAT: reclassify, not new pairing"); }
 
         // (a) drive BTC-pool swaps -> band fees; the levered LP is part of the fee-earning depth.
-        {   vm.prank(User03); ch.setBtcRecipient(bytes32(uint(0xB7C))); // native USD->BTC path recipient
+        {   vm.prank(User03); ch.setBtcRecipient(_validXOnly(abi.encode(uint(0xB7C)))); // native USD->BTC path recipient
             vm.startPrank(User03);
             USDC.approve(address(AUX), type(uint).max);
             vm.stopPrank();
@@ -701,7 +701,7 @@ contract VBtcLevFeeLane is Alles {
     }
 
     function _levDelivSwapId() internal pure returns (bytes32) { return keccak256("delever54-swapout"); }
-    function _levDelivScript() internal pure returns (bytes memory) { return abi.encodePacked(hex"5120", keccak256(abi.encode(0x54))); }
+    function _levDelivScript() internal pure returns (bytes memory) { return abi.encodePacked(hex"5120", _validXOnly(abi.encode(abi.encode(0x54)))); }
 
     /// Pre-delivery snapshot: funded band, venue debt/collateral, net-equity, LTV, levered slice, LP QUID.
     function _snapLevPosition(LevDelivery memory d) internal {

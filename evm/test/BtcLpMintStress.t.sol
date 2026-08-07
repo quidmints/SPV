@@ -77,7 +77,7 @@ contract BtcLpMintStress is Alles {
         // pays it, so the coop-close guard (`_lpFinalBalance`) actually validates the
         // output. (A single-key `hash160(lpPubkey)` value no longer matches the P2TR
         // guard → sum 0 → delivered=funded, silently the reverse of the tests' intent.)
-        bytes32 payout = keccak256(abi.encode("lp-shutdown-xonly", p.lpPubkey));
+        bytes32 payout = _validXOnly(abi.encode("lp-shutdown-xonly", p.lpPubkey));
         // (B) Option-B: the LP signs ONE cold delegation to its hop (permissionless
         // submit), pinning btcRecipientOf=payout + delegatedAuthority=hop. openChannel is
         // then hop-gated (no per-open lpAuth) and takes the LP's EVM identity.
@@ -104,7 +104,7 @@ contract BtcLpMintStress is Alles {
     ) internal returns (uint proceedsUsd) {
         if (_liveFundingTxId[channelId] == bytes32(0)) _liveFundingTxId[channelId] = fundingTxId;
         vm.prank(User03);
-        ch.setBtcRecipient(bytes32(uint(0xB7C)));
+        ch.setBtcRecipient(_validXOnly(abi.encode(uint(0xB7C))));
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         vm.stopPrank();
@@ -115,7 +115,7 @@ contract BtcLpMintStress is Alles {
             s.fundingTxId = _liveFundingTxId[channelId];
             s.lpPubkey = lpPubkey;
             s.lpEth = lpEth;
-            s.swapperScript = abi.encodePacked(hex"5120", keccak256(abi.encode("oc", seed, i)));
+            s.swapperScript = abi.encodePacked(hex"5120", _validXOnly(abi.encode(abi.encode("oc", seed, i))));
             s.swapId = keccak256(abi.encode("oc-swap", channelId, seed, i));
 
             // Curve pairing depth is finite; a request that would exhaust it reverts.
@@ -150,7 +150,7 @@ contract BtcLpMintStress is Alles {
         // Pay the LP's registered P2TR shutdown key so sumOutputValuesToScript(0x5120||key)
         // in `_lpFinalBalance` matches this output and reads `finalBalanceSats`. Same
         // derivation as `_open` (both hold lpPubkey) ⇒ the output pays btcRecipientOf.
-        bytes memory lpP2TR = abi.encodePacked(hex"5120", keccak256(abi.encode("lp-shutdown-xonly", lpPubkey)));
+        bytes memory lpP2TR = abi.encodePacked(hex"5120", _validXOnly(abi.encode("lp-shutdown-xonly", lpPubkey)));
         bytes memory closeTx = abi.encodePacked(
             hex"02000000", hex"01",
             fundingTxId, hex"00000000", hex"00", hex"ffffffff",
@@ -263,7 +263,7 @@ contract BtcLpMintStress is Alles {
         (bytes32 cid, bytes32 ftx, address lpEth, bytes memory lpPubkey) = _open(ch, 7, 1_000_000);
         // Pay the registered P2TR shutdown key (matches _open) so the coop-close guard
         // parses a real payout instead of mismatching a legacy P2WPKH output.
-        bytes memory lpP2TR = abi.encodePacked(hex"5120", keccak256(abi.encode("lp-shutdown-xonly", lpPubkey)));
+        bytes memory lpP2TR = abi.encodePacked(hex"5120", _validXOnly(abi.encode("lp-shutdown-xonly", lpPubkey)));
         bytes memory closeTx = abi.encodePacked(
             hex"02000000", hex"01", ftx, hex"00000000", hex"00", hex"ffffffff",
             hex"01", _le(1_000_000, 8), bytes1(uint8(lpP2TR.length)), lpP2TR,
@@ -425,7 +425,7 @@ contract BtcLpMintStress is Alles {
         _OcSwap memory s;
         s.seed = 7;
         (s.channelId, s.fundingTxId, s.lpEth, s.lpPubkey) = _open(ch, s.seed, 2_000_000);
-        s.swapperScript = abi.encodePacked(hex"5120", keccak256("swapper")); // swapper P2TR (0x5120||x-only key)
+        s.swapperScript = abi.encodePacked(hex"5120", _validXOnly(abi.encode("swapper"))); // swapper P2TR (0x5120||x-only key)
         s.swapId = keccak256("swap-out-onchain-1");
 
         // Swapper commits USD → BTC to their on-chain address (rail B; no LN wallet).
@@ -688,7 +688,7 @@ contract BtcLpMintStress is Alles {
     function test_SwapInGate_RevertsIfDrainsPendingProceeds() public {
         BTCChannels ch = _deployChannels();
         _open(ch, 9, 5e7); // 0.5 BTC liquidity
-        vm.prank(User03); ch.setBtcRecipient(bytes32(uint(0xB7C)));
+        vm.prank(User03); ch.setBtcRecipient(_validXOnly(abi.encode(uint(0xB7C))));
         vm.startPrank(User03); USDC.approve(address(AUX), type(uint).max); vm.stopPrank();
 
         // (1) PRIME a small FREE reserve: a couple of direct curve buys grow
@@ -707,7 +707,7 @@ contract BtcLpMintStress is Alles {
         // Each grows POOLED_USD_BTC AND pendingSwapOutUsd by the same USD, so the FREE
         // reserve (POOLED − pending) STAYS ≈ freeReserve0 while pending climbs.
         for (uint i = 0; i < 6; i++) {
-            bytes memory scr = abi.encodePacked(hex"5120", keccak256(abi.encode(uint(keccak256(abi.encode("gate", i))))));
+            bytes memory scr = abi.encodePacked(hex"5120", _validXOnly(abi.encode(abi.encode(uint(keccak256(abi.encode("gate", i)))))));
             vm.prank(User03);
             try ch.requestSwapOutOnchain(address(USDC), 500 * USDC_PRECISION, 0, keccak256(abi.encode("gate-id", i)), scr)
                 returns (uint) {
@@ -768,7 +768,7 @@ contract BtcLpMintStress is Alles {
         (, , address lpEth, ) = _open(ch, 1, 1_000_000); // locks btcRecipientOf[lpEth]
         vm.prank(lpEth);
         vm.expectRevert(BTCChannels.BtcRecipientLockedErr.selector);
-        ch.setBtcRecipient(bytes32(uint(0xBAD)));
+        ch.setBtcRecipient(_validXOnly(abi.encode(uint(0xBAD))));
     }
 
     /// FRESH-ATTACK GUARD #2 — ONE OPEN CHANNEL PER lpEth. The per-channel-payout
@@ -909,7 +909,7 @@ contract BtcLpMintStress is Alles {
     function test_V7_EthFlowCannotConsumeTheBtcFreeReserve() public {
         BTCChannels ch = _deployChannels();
         _open(ch, 9, 5e7);
-        vm.prank(User03); ch.setBtcRecipient(bytes32(uint(0xB7C)));
+        vm.prank(User03); ch.setBtcRecipient(_validXOnly(abi.encode(uint(0xB7C))));
         vm.startPrank(User03); USDC.approve(address(AUX), type(uint).max); vm.stopPrank();
 
         // Prime a free reserve, then record UNDELIVERED swap-out obligations against it.
@@ -920,7 +920,7 @@ contract BtcLpMintStress is Alles {
         }
         vm.stopPrank();
         for (uint i = 0; i < 4; i++) {
-            bytes memory scr = abi.encodePacked(hex"5120", keccak256(abi.encode(uint(keccak256(abi.encode("v7", i))))));
+            bytes memory scr = abi.encodePacked(hex"5120", _validXOnly(abi.encode(abi.encode(uint(keccak256(abi.encode("v7", i)))))));
             vm.prank(User03);
             try ch.requestSwapOutOnchain(address(USDC), 400 * USDC_PRECISION, 0, keccak256(abi.encode("v7-id", i)), scr)
                 returns (uint) { vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes); } catch { break; }

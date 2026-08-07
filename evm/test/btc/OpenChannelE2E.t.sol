@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {BTCChannels} from "../../src/BTCChannels.sol";
 import {Types} from "../../src/imports/Types.sol";
 import {SPVGateway} from "../../src/spv/SPVGateway.sol";
+import {BitcoinTx} from "../../src/imports/BitcoinTx.sol";
 
 /// @notice END-TO-END openChannel against a REAL Bitcoin funding tx.
 ///
@@ -26,6 +27,13 @@ import {SPVGateway} from "../../src/spv/SPVGateway.sol";
 ///         collapsed the fixture and made every lookup revert.
 
 contract OpenChannelE2ETest is Test {
+    /// (E130) Deterministic VALID x-only key — `0x5120||k` must be spendable, and ~half of
+    /// arbitrary 32-byte values are not curve points. Grind, as real keygen does.
+    function _validXOnly(bytes memory seed) internal pure returns (bytes32 k) {
+        k = keccak256(seed);
+        while (!BitcoinTx.isValidXOnlyKey(k)) k = keccak256(abi.encodePacked(k));
+    }
+
     // Minimal Vogue: openChannel credits the LP's BTC pool position.
     MockVogue vogue;
 
@@ -90,7 +98,7 @@ contract OpenChannelE2ETest is Test {
         // Realistic btcRecipientOf: a full 32-byte x-only shutdown key distinct from the
         // funding material. This test asserts channel state at open only (no close/splice),
         // so the key is registered but not guard-validated — it must still be a proper key.
-        bytes32 payout = keccak256(abi.encode("lp-shutdown-xonly", p.lpPubkey));
+        bytes32 payout = _validXOnly(abi.encode("lp-shutdown-xonly", p.lpPubkey));
         // (B) The LP delegates channel operation to the hop (0xB0B) COLD, once: pins +
         // LOCKS btcRecipientOf[lpEth]=payout and delegatedAuthority[lpEth]=0xB0B. The
         // 4-arg open is then hop-gated (0xB0B) and credits the position to lpEth.
