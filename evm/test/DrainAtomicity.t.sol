@@ -664,6 +664,13 @@ contract DrainAtomicity is Alles {
             for (uint d = 0; d < 6; ++d) _drain(5_000 * 1e18);
             uint repaired = V4.convertToAssets(1e18);
 
+            // §E108b-r: locate 1:1 -- "full restoration" is ambiguous between restoring the DRAINED
+            // amount and reaching volatile==USD. The optimum must be stated against a named target.
+            {
+                uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+                emit log_named_uint("    volatile leg (usd6) ", CORE.POOLED_ETH() * px / 1e30);
+                emit log_named_uint("    USD leg (usd6)      ", CORE.POOLED_USD_ETH());
+            }
             emit log_named_uint("--- repair size (wei)   ", sizes[i]);
             if (noRepair == 0) { emit log("    VOID: zero share value"); vm.revertToState(snap); continue; }
             if (repaired > noRepair) {
