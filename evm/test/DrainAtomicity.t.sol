@@ -299,6 +299,45 @@ contract DrainAtomicity is Alles {
     /// `burn` move `POOLED_*` WITHOUT bumping `flow.ts` (because flow tracks SWAP notional), and
     /// E93-HOLE-CLOSED built the `max(flow.ts, LAST_REPACK)` fix on that claim. **INFERRED, NEVER
     /// MEASURED.** If `flow.ts` DOES bump on an LP add, both the hole and its fix are unnecessary.
+    /// §E101 CHECK — DOES AN LP *BURN* REDUCE `POOLED_*` WITHOUT BUMPING `flow.ts`? E101 derived that
+    /// no LP timestamp is needed, because adds can only move inventory TOWARD repair — leaving BURNS
+    /// as the one residual hole. I INFERRED the burn behaves like the add. **Inferring from the add
+    /// case is exactly what produced a no-op fix in E93-HOLE-CLOSED**, so this measures it instead.
+    function test_E101_DoesAnLpBurnMoveInventoryWithoutBumpingFlow() public {
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 300 ether}(0, lpA, 3);
+        _settle();
+        for (uint i = 0; i < 6; ++i) _drain(20_000 * 1e18);   // give flow a history
+        vm.warp(block.timestamp + 1 days);                    // let it decay so a bump is visible
+
+        uint invBefore  = CORE.POOLED_ETH();
+        uint flowBefore = CORE.flowEwmaUsd(false);
+        uint shares     = V4.balanceOf(lpA);
+        emit log_named_uint("LP shares held           ", shares);
+
+        vm.prank(lpA);
+        try V4.withdraw(20 ether, lpA, lpA) {} catch { emit log("withdraw reverted"); }
+        vm.roll(block.number + 1);
+
+        uint invAfter  = CORE.POOLED_ETH();
+        uint flowAfter = CORE.flowEwmaUsd(false);
+        emit log_named_uint("POOLED_ETH before        ", invBefore);
+        emit log_named_uint("POOLED_ETH after         ", invAfter);
+        emit log_named_uint("flow before              ", flowBefore);
+        emit log_named_uint("flow after               ", flowAfter);
+
+        if (invAfter == invBefore) {
+            emit log("VOID: the burn did not move POOLED_ETH -- nothing to conclude.");
+        } else if (invAfter < invBefore && flowAfter <= flowBefore) {
+            emit log("HOLE CONFIRMED: a burn REDUCES inventory and does NOT bump flow -- E101's");
+            emit log("residual gap is real, and add-then-burn can break the continuity inference.");
+        } else if (invAfter < invBefore) {
+            emit log("BURN BUMPS FLOW: inventory fell AND flow rose -- then E101 has NO residual hole.");
+        } else {
+            emit log("UNEXPECTED: the burn INCREASED POOLED_ETH -- re-read before concluding.");
+        }
+    }
+
     function test_E100_DoesAnLpAddBumpTheFlowTimestamp() public {
         _seedBasket();
         vm.prank(lpA); V4.deposit{value: 200 ether}(0, lpA, 3);
