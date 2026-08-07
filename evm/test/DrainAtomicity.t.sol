@@ -641,6 +641,41 @@ contract DrainAtomicity is Alles {
     /// MEASUREMENT: **VALUE PER SHARE** (`convertToAssets(1e18)`), never protocol totals — a deposit
     /// trivially raises totals, so a totals comparison would report the deposit itself as "profit".
     /// Two legs from an IDENTICAL drained state via snapshot/revert; only the repair differs.
+    /// §E108b — HOW MUCH SHOULD AN LP REPAIR? E108 established the SIGN (+0.614 bps at one size);
+    /// the decision needs the SHAPE. If the gain rises with repair size there is no optimum short of
+    /// full repair; if it flattens or turns, there is. Reported in 1e-8 units because the effect is
+    /// sub-1bp and a bps denominator TRUNCATED it to zero on E108's first run.
+    function test_E108b_HowMuchRepairIsOptimal() public {
+        uint[4] memory sizes = [uint(10 ether), 40 ether, 100 ether, 200 ether];
+        for (uint i = 0; i < 4; ++i) {
+            uint snap = vm.snapshotState();
+            _seedBasket();
+            vm.prank(lpA); V4.deposit{value: 300 ether}(0, lpA, 3);
+            _settle();
+            for (uint d = 0; d < 12; ++d) _drain(20_000 * 1e18);
+
+            uint inner = vm.snapshotState();
+            for (uint d = 0; d < 6; ++d) _drain(5_000 * 1e18);
+            uint noRepair = V4.convertToAssets(1e18);
+            vm.revertToState(inner);
+
+            vm.prank(lpA); V4.deposit{value: sizes[i]}(0, lpA, 3);
+            vm.roll(block.number + 1);
+            for (uint d = 0; d < 6; ++d) _drain(5_000 * 1e18);
+            uint repaired = V4.convertToAssets(1e18);
+
+            emit log_named_uint("--- repair size (wei)   ", sizes[i]);
+            if (noRepair == 0) { emit log("    VOID: zero share value"); vm.revertToState(snap); continue; }
+            if (repaired > noRepair) {
+                emit log_named_uint("    gain (1e-8)         ", (repaired - noRepair) * 1e8 / noRepair);
+            } else {
+                emit log_named_uint("    LOSS (1e-8)         ", (noRepair - repaired) * 1e8 / repaired);
+            }
+            vm.revertToState(snap);
+        }
+        emit log("Rising with size => repair as much as possible. Flattening/turning => an optimum exists.");
+    }
+
     function test_E108_DoesLpFundedRepairPayForItself() public {
         _seedBasket();
         vm.prank(lpA); V4.deposit{value: 300 ether}(0, lpA, 3);
