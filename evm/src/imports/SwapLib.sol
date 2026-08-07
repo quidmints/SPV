@@ -940,8 +940,22 @@ library SwapLib {
             uint lnTerm = uint(SoladyMath.lnWad(int(FullMath.mulDiv(1e18 - q0, 1e18, oneMinusQ))));
             qBar = lnTerm > d ? FullMath.mulDiv(lnTerm - d, 1e18, d) : 0;
         }
-        skew = qBar == type(uint).max ? type(uint).max
-             : FullMath.mulDiv(FullMath.mulDiv(MAX_WELL_SKEW, sigmaSqWad, 1e18), qBar, 1e18);
+        // §E104 — CLAMP THE KERNEL *BEFORE* THE BASE IS ADDED. E89 made the base additive and left
+        // the pole sentinel as `type(uint).max`, so a drain that EMPTIES the band produced
+        // `type(uint).max + base` and PANICKED (`0x11`) — a full drain REVERTED instead of charging
+        // the 3% ceiling, which is the exact case the ceiling exists for. The suite never caught it
+        // because it never drains a band to zero: 4,308 green, a pinned controlled comparison,
+        // `--sizes` and `check-client-abis` all passed over an UNREACHED state.
+        //   The pole means "charge the maximum", so resolve it to `MAX_WELL_SKEW` directly rather
+        // than to a sentinel that must survive arithmetic. The finite branch is clamped too: near
+        // the pole `qBar` is large and the product can exceed the ceiling on its own, which would
+        // overflow the same way once the base is summed.
+        if (qBar == type(uint).max) {
+            skew = MAX_WELL_SKEW;
+        } else {
+            skew = FullMath.mulDiv(FullMath.mulDiv(MAX_WELL_SKEW, sigmaSqWad, 1e18), qBar, 1e18);
+            if (skew > MAX_WELL_SKEW) skew = MAX_WELL_SKEW;
+        }
         // §E79 — CAP-TO-BASE INVERSION. `_maxWellSkew` = σ²·confFrac/8 is an EXPECTED-LOSS RATE over
         // the settlement window. Using a rate as a price CEILING was a category error, and it was
         // MEASURED crushing the whole curve: at a plausible σ²=1e16 the skew came out 4.75e-10, i.e.
