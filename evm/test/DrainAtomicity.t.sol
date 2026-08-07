@@ -576,6 +576,42 @@ contract DrainAtomicity is Alles {
     /// the tax must be SIZE-INVARIANT at a fixed depth; if it drifts with size, "15 bps" is a
     /// number I chose rather than one the system has. Same imbalanced state for every leg (snapshot
     /// + revert), only the ticket changes.
+    /// §E67 — DO *DEPLOYABLE* DOLLARS SIT BEHIND #12's FREED PERMISSION? The owner corrected me that
+    /// #12 freed PERMISSION, not CAPITAL: `liquidTotal` never moved, only `committedBoth` fell, and
+    /// whether real dollars back that headroom was never checked. E39's `surplus/price` arithmetic
+    /// ASSUMED it did.
+    /// METHOD — read ACTUAL BALANCES, not derived headroom. `get_deposits()` returns the per-stable
+    /// amounts the basket really holds; `committedUsd18()` is what is spoken for. Headroom is only
+    /// REAL if the basket physically holds unspoken-for stables. Deriving it from a subtraction of
+    /// two aggregates would repeat the whole session's error.
+    function test_E67_IsTheFreedHeadroomBackedByRealDollars() public {
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        _settle();
+
+        (uint[15] memory amts,,,) = AUX.get_deposits();
+        address[] memory ss = AUX.getStables();
+        // §E67-r CORRECTED INSTRUMENT: `balanceOf(Aux)` reads ZERO for every stable, because the
+        // basket DEPLOYS them into venues (Aave, 4626 vaults, the Stability Pool — the same fact
+        // E91 traced when proceeds arrived from the BOLD SP). Raw balances measure idle dust, not
+        // holdings. `get_deposits()` is the accounted position INCLUDING deployed capital.
+        uint heldUsd18;
+        for (uint i = 0; i < 15; ++i) heldUsd18 += amts[i];
+        ss;   // silence: kept only to document that the raw-balance route was the wrong one
+        uint committed = CORE.committedUsd18();
+        emit log_named_uint("stables PHYSICALLY held by Aux (usd18)", heldUsd18);
+        emit log_named_uint("committedUsd18 (spoken for)           ", committed);
+        emit log_named_uint("get_deposits slot0 (sanity)           ", amts[0]);
+
+        if (heldUsd18 > committed) {
+            emit log_named_uint("REAL unspoken-for dollars (usd18)", heldUsd18 - committed);
+            emit log("=> the freed headroom IS backed by dollars Aux actually holds.");
+        } else {
+            emit log("=> Aux holds NO MORE than is committed: the headroom is PERMISSION ONLY.");
+            emit log("   The owner's E67 correction stands and E39's surplus/price math is unbacked.");
+        }
+    }
+
     function test_E103_IsTheTaxInvariantToTicketSize() public {
         uint[4] memory tickets = [uint(1_000e18), 5_000e18, 20_000e18, 60_000e18];
         for (uint i = 0; i < 4; ++i) {
