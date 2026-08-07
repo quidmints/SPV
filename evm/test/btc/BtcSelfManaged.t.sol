@@ -377,9 +377,24 @@ contract BtcSelfManagedTest is Alles {
         vm.expectRevert(BTCChannels.NotDeadManExit.selector);
         ch.recordDeadManExit(channelId, b.rawCloseTx, b.closeBlockHash, b.closeMerkleProof, b.closeTxIndex);
 
+        // ── (#114) STALE-CLOSE GUARD — both defects of the first version covered ──
+        // The guard is SKIPPED while checkpointOf == 0, i.e. every other channel in the
+        // suite, so a green run does not exercise it. Trip it here on the REAL close tx.
+        vm.prank(hop);
+        ch.emitDeadManExit(channelId, uint64(block.number + 144), type(uint96).max, hex"00");
+
+        // (a) A HOP-submitted close against an overstated checkpoint is rejected.
+        vm.prank(hop);
+        vm.expectRevert(BTCChannels.StaleClose.selector);
+        ch.recordClose(channelId, b.rawCloseTx, b.closeBlockHash, b.closeMerkleProof, b.closeTxIndex);
+        // (b) DEFECT-2 REGRESSION: the LP must still be able to close with that SAME absurd
+        // checkpoint standing. Without the submitter gate, any attested hop could attest
+        // type(uint96).max and force every LP into a punitive force-close. The final
+        // recordClose below is LP-submitted and MUST succeed — that is the assertion.
+
         // ── recordClose: the REAL cooperative-close tx + SPV proof retires it ──
         uint qBefore = QUID.balanceOf(lpEth);
-        vm.prank(makeAddr("hop")); // recordClose is participant-gated (hop or lpEth)
+        vm.prank(lpEth); // LP-submitted: participant-gated, AND proves the stale-close waiver
         ch.recordClose(channelId, b.rawCloseTx, b.closeBlockHash,
             b.closeMerkleProof, b.closeTxIndex);
         (uint pooledClose,,,) = BTC.autoManagedBTC(lpEth);

@@ -131,13 +131,69 @@ to relocating vETH balances does not follow). Treat that header as a record of a
 derivation. The real constraint it leaves behind: any relocation must preserve the **recorded-vs-live**
 lev distinction, or the socialised-liquidation race in `§A.16b` reopens.
 
-⚠️ **THE `Vogue`/`Vault` ROW IS NOT VERIFIED AS AN ETH/BTC PAIR — check it FIRST.** `vogueETH()` lives
-in **`Vault.sol:444`** (→ `VaultLib.vogueETH(_ethCfg())`), alongside `deliverableETH` and an ETH-side
-`vogueOp`. So `Vault` is not simply the BTC counterpart of `Vogue`: it appears to host **ETH venue
-custody AND the BTC band accounting** (`autoManagedBTC`, `levPooledBTC`). If that holds, the two are
-**different layers**, not two instances of one thing, and only the *BTC band accounting* inside `Vault`
-pairs with `Vogue`. The other three rows are unaffected. **Establish what `Vault` actually is before
-planning any merge** — this is the single most load-bearing unknown in the whole refactor.
+🔴 **`Vault` IS TWO THINGS FUSED, AND MUST BE SPLIT BEFORE ANYTHING CAN BE MERGED** (measured
+2026-08-07 by classifying its whole surface — 11 ETH-named functions, 20 BTC-named, 24 state decls):
+
+| slice | what it is | members |
+|---|---|---|
+| **ETH venue custody** | 4626 venue positions | `supplyEtherFi` `supplyAaveEth` `supplyEulerEth` `offrampEtherFi` `_supplyETH` `_withdrawETH` `aaveEthBalance` `vogueETH` (`:444`) `deliverableETH` `_ethCfg` + every venue address (`AAVE_SPOKE` `GALAXY_VAULT` `EULER_VAULT` `GAUNTLET_VAULT` `ETHERFI_*` `WEETH`) |
+| **BTC band accounting** | the actual counterpart of `Vogue` | `registerBtcLp` `resizeBtcLp` `unregisterBtcLp` `exposeBtcToLev` `unexposeBtcFromLev` `syncLevBTC` `totalSharesBTC` `bandBtcOf` `_settleBtcLp` `settleBtcFeesOwed` `derivedThetaWadBtc` `lpSharesBTC` `autoManagedBTC` `levPooledBTC` |
+
+⇒ **`Vogue`'s pair is the BTC-band SLICE of `Vault`, not `Vault`.** The ETH-venue slice is a THIRD
+concern with **no BTC counterpart — correctly**, because ETH venues are 4626 vaults while BTC custody
+is Lightning channels (`BTCChannels`). That is the settlement asymmetry, and it is REAL.
+🔴 **`VBtc` MUST SURVIVE THE CONSOLIDATION — do not "delete it into" the band manager.** The BTC band's
+`asset()` is **not a real ERC-20 underlying**: it returns WBTC as a *pricing handle* (the venue prices
+vBTC against WBTC via `getTWAPforAsset`) and `convertToAssets` is a pure identity because **vBTC IS
+sats**. The real underlying is LN-custodied native BTC. So "one instance = one `asset()` = an honest
+4626" holds for ETH (WETH is genuinely held and redeemable) and only **nominally** for BTC.
+⚠️ **THE PRIVACY JUSTIFICATION FOR KEEPING `VBtc` IS DEAD — and `VBtc.sol:18-28` still asserts it.**
+That header calls segregation *"a prerequisite, not cosmetics"* for the privacy story, naming a future
+`redeemVBtc(sats, p2trScript)` and the `Σ outstanding vBTC ≤ Σ free channel capacity` invariant. But
+`../ibiza` **already ruled that out** — `ibiza/TODO.md:2097`: *"**2.4d vBTC through PP — RULED OUT.** It
+is not a bearer instrument; there is nothing to anonymise"*, and `:2108-2115`: *"**NOBODY EVER HOLDS
+vBTC** … it is an internal accounting token inside the leverage machinery, not a BTC wrapper anyone can
+custody. **There is no vBTC holder population to build an anonymity set from.**"*
+✅ **RESOLVED (owner, 2026-08-07) — AND THE REAL REASON IS NEITHER OF THE ONES THE CODE GIVES.**
+`VEth` **deletes**; `VBtc` **survives**. The discriminator is simply *whether an ERC-20 underlying
+already exists*:
+  • **ETH — none needed.** WETH exists independently; wrapping/unwrapping is an edge detail. The band
+    manager instance names `asset() = WETH` and IS the 4626 outright. `VEth` has no remaining job.
+  • **BTC — one must be MINTED.** The underlying is LN-custodied native BTC, which has **no EVM token**;
+    WBTC is only a pricing handle and is never held. So the BTC band needs a **synthetic underlying to
+    point `asset()` at**, and that is exactly what vBTC is (`ibiza/COMPLIANCE-THESIS.md:77`: *"a
+    synthetic, sats-denominated token minted only against…"*).
+⇒ `VBtc` exists because **the BTC band has no underlying unless it mints one** — NOT because anyone
+holds it, custodies it, or anonymises it. An asymmetry with a real reason, and one that survives
+instantiation rather than being dissolved by it.
+⚠️ Follow-on to settle when this lands: today `VBtc.asset()` returns **WBTC** as a pricing handle. Under
+this design vBTC IS the band's asset rather than having one, so that accessor's meaning has to be
+revisited — do not carry it across unexamined.
+
+🔴 **AND IT IS WORSE THAN STALE — `VBtc.sol:18-28` PROPOSES A FEATURE ibiza ANALYSED AS CROSS-LP THEFT.**
+That header argues *"swap-out already proves the protocol can pay an arbitrary P2TR address whose owner
+has no channel — so what is missing is an ENTRYPOINT plus a source-of-funds rule, not a capability"*,
+and names `redeemVBtc(sats, p2trScript)`. `ibiza/TODO.md:2118-2132` rejects precisely that, quoting
+`BTCChannels.sol:477-496`: *"We REJECT any other output: without this, a malicious LP could route its
+withdrawal to a script != `btcRecipientOf`, making `_lpFinalBalance` read 0 → `delivered = shrinkSats`
+→ **over-claim the SHARED swap-out proceeds pool (cross-LP theft)**."* The contract cannot see WHO was
+paid, only HOW MUCH reached the committed script; `btcRecipientOf` is ONE source of truth for both
+cooperative-close attribution and the splice path. ibiza's verdict: *"Unbinding it to gain anonymity
+would trade a cryptoeconomic invariant for a privacy property — the wrong direction."*
+⇒ **Do not implement `redeemVBtc(sats, p2trScript)` on the strength of that header.** Reconcile the two
+documents first — and note the header's premise ("swap-out already pays arbitrary P2TR") needs checking
+against whether the SWAP-OUT path and an LP WITHDRAWAL path have the same attribution guarantees.
+
+⇒ **A CROSS-REPO STALE RATIONALE**: SPV's contract justifies its own existence with a design the
+consuming repo has retired. Neither file knows about the other. Do NOT keep `VBtc` on privacy grounds,
+and do NOT delete it on those grounds either — **the surviving question is the OTHER blocker its header
+names: an open Morpho/Euler market, where a liquidator who seizes vBTC has no way to exit.** Settle THAT
+before deciding, and reconcile the two documents whichever way it goes.
+
+⇒ **Extra step, ordered FIRST:** extract ETH venue custody out of `Vault`. Only then does
+`Vogue` ∥ `Vault`-BTC-slice become one band manager with two instances. The 1,557-vs-991 size gap is
+explained by this fusion, not by drift — which is exactly why every gap must be classified before
+merging.
 
 ## Build environment
 
