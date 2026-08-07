@@ -290,6 +290,48 @@ contract DrainAtomicity is Alles {
         }
     }
 
+    /// §E99 — IS PERSISTENCE INVISIBLE TO THE SKEW? I have asserted many times that "a one-block
+    /// imbalance and a month-old one price identically", and used it as E93's whole premise —
+    /// WITHOUT EVER MEASURING IT. This measures it: reach scarcity, read the skew, then let TIME
+    /// pass with NO trading and NO LP action, and read it again. Nothing about the inventory has
+    /// changed, so any difference is a genuine time-response and any equality is its absence.
+    function test_E99_DoesTheSkewSeePersistence() public {
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        _settle();
+        for (uint i = 0; i < 20; ++i) {
+            _drain(20_000 * 1e18);
+            if (CORE.POOLED_ETH() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30
+                < CORE.flowEwmaUsd(false)) break;
+        }
+        uint invFresh  = CORE.POOLED_ETH() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
+        uint skewFresh = AUX.wellSkew(address(WETH));
+        uint flowFresh = CORE.flowEwmaUsd(false);
+
+        // 30 DAYS pass. No swap, no LP action -- inventory is UNCHANGED by construction.
+        vm.warp(block.timestamp + 30 days);
+        vm.roll(block.number + 1);
+        uint invAged  = CORE.POOLED_ETH() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
+        uint skewAged = AUX.wellSkew(address(WETH));
+        uint flowAged = CORE.flowEwmaUsd(false);
+
+        emit log_named_uint("inv  fresh / aged (usd6)", invFresh);
+        emit log_named_uint("                        ", invAged);
+        emit log_named_uint("flow fresh              ", flowFresh);
+        emit log_named_uint("flow aged (30d decay)   ", flowAged);
+        emit log_named_uint("SKEW fresh              ", skewFresh);
+        emit log_named_uint("SKEW after 30 IDLE DAYS ", skewAged);
+
+        if (invFresh != invAged) {
+            emit log("VOID: inventory moved despite no trade -- comparison is not clean.");
+        } else if (skewFresh == skewAged) {
+            emit log("CONFIRMED: 30 idle days change the skew by NOTHING. Persistence is INVISIBLE.");
+        } else {
+            emit log("The skew DOES move with idle time -- my E93 premise was WRONG. Direction:");
+            emit log_named_uint("  aged/fresh x1e18", skewFresh == 0 ? 0 : skewAged * 1e18 / skewFresh);
+        }
+    }
+
     function test_E97_SellLegTaxOnOrdinaryFlow() public {
         uint SMALL = 3 ether;
 
