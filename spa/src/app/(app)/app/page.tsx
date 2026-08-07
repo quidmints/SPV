@@ -88,8 +88,6 @@ const enc = {
                 iface.encodeFunctionData('recordClose', [id, rawTx, blk, proof, txIndex]),
   openChannelDigest: (p: unknown, rawTx: string, hop: string) =>
                 iface.encodeFunctionData('openChannelDigest', [p, rawTx, hop]),
-  openChannel: (p: unknown, rawTx: string, proof: string[], lpAuth: string, payoutHash: string) =>
-                iface.encodeFunctionData('openChannel', [p, rawTx, proof, lpAuth, payoutHash]),
   // LevManager (YB leverage overlay, #65). Full sigs (merged iface has overloads).
   // openLev passes an EMPTY minWethOut[] — the open borrows nothing (opens at zero
   // leverage); the keeper levers up afterward, so there's no swap to floor here.

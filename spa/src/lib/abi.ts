@@ -181,7 +181,6 @@ export const BTCCHANNELS_ABI = [
   'function openChannelDigest(tuple(bytes32 fundingBlockHash, uint64 fundingBlockHeight, uint fundingTxIndex, bytes lpPubkey, bytes hopPubkey, uint amountSats, bytes32 fundingTaproot) p, bytes rawFundingTx, address hop) view returns (bytes32)',
   // openChannel takes lpBtcPayoutHash (5th arg) and is HOP-ONLY submit (§9b spoof
   // fix) — the hop relays it, not the user's wallet (full hop-mediated flow = task #8).
-  'function openChannel(tuple(bytes32 fundingBlockHash, uint64 fundingBlockHeight, uint fundingTxIndex, bytes lpPubkey, bytes hopPubkey, uint amountSats, bytes32 fundingTaproot) p, bytes rawFundingTx, bytes32[] fundingMerkleProof, bytes lpAuth, bytes32 lpBtcPayoutHash) returns (bytes32 channelId)',
   // Close folded into ONE entrypoint: recordClose branches on the tx locktime
   // (cooperative vs unilateral-refund). forceCloseByLP/recordForceClose are GONE.
   'function recordClose(bytes32 channelId, bytes rawCloseTx, bytes32 closeBlockHash, bytes32[] merkleProof, uint txIndex)',

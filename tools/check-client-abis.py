@@ -15,8 +15,46 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 OUT  = ROOT / "evm" / "out"
 ABI  = ROOT / "spa" / "src" / "lib" / "abi.ts"
 
+def split_args(s: str):
+    """Split an arg list on TOP-LEVEL commas only. A naive `s.split(",")` splits inside
+    `tuple(a, b, c)`, which mangles the key for EVERY function taking a struct — so every
+    such function silently failed the `key in compiled` test below and was skipped as
+    "not one of ours". That hid a real arity drift in openChannel (2026-08-07)."""
+    out, depth, cur = [], 0, ""
+    for ch in s:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        if ch == "," and depth == 0:
+            out.append(cur); cur = ""
+        else:
+            cur += ch
+    if cur.strip():
+        out.append(cur)
+    return out
+
+def type_of(a: str) -> str:
+    """The TYPE of one declared arg. `a.split()[0]` is wrong for a struct: it yields
+    `tuple(bytes32` and loses the rest. solc's ABI calls a struct input just "tuple"
+    (fields live in `components`), so collapse the whole balanced group to that token,
+    keeping any `[]` suffix."""
+    a = a.strip()
+    if a.startswith("tuple("):
+        depth = 0
+        for i, ch in enumerate(a):
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    rest = a[i + 1:].strip()
+                    return "tuple" + (rest.split()[0] if rest.startswith("[") else "")
+    return a.split()[0]
+
 def norm(t: str) -> str:
     t = t.strip()
+
     t = re.sub(r"\buint\b(?!\d)", "uint256", t)
     t = re.sub(r"\bint\b(?!\d)", "int256", t)
     return re.sub(r"\s+", "", t)
@@ -51,10 +89,17 @@ for raw in re.findall(r"'(function [^']+)'", ABI.read_text()):
     if not m:
         continue
     name, args = m.group(1), m.group(2)
-    argtypes = [norm(a.split()[0]) for a in args.split(",") if a.strip()]
+    argtypes = [norm(type_of(a)) for a in split_args(args) if a.strip()]
     key = f'{name}({",".join(argtypes)})'
     if key not in compiled:
-        continue                       # not one of ours (ERC20 helpers etc.) — skip, don't guess
+        # ⚠️ THE FIX THAT MATTERS. This used to `continue` unconditionally, so a signature
+        # whose ARGUMENTS had drifted was indistinguishable from an ERC20 helper we never
+        # compiled — the single most likely kind of drift was the one kind we could not see.
+        # If the NAME exists on one of our contracts, an unmatched key IS drift.
+        same_name = sorted(k for k in compiled if k.startswith(name + "("))
+        if same_name:
+            drift.append((key, "ARG DRIFT — no such signature", same_name))
+        continue                       # genuinely not ours (ERC20 helpers etc.)
     checked += 1
     rm = re.search(r"returns\s*\((.*)\)\s*$", raw)
     declared = ",".join(norm(x.split()[0]) for x in rm.group(1).split(",")) if rm else ""
