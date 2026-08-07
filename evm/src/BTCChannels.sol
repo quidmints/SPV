@@ -713,6 +713,22 @@ contract BTCChannels is Ownable, ReentrancyGuard {
 
     /// @dev (E122) Authorized to act on THIS channel: the primary always, or the LP's named
     ///      fallback once the primary has gone quiet for `FALLBACK_STALENESS_BLOCKS`.
+    ///
+    ///      ⚠️ WHAT THIS PROTECTS AGAINST, AND WHAT IT DOES NOT. The clock is refreshed by any
+    ///      primary action — splice, delivery, or heartbeat. It therefore detects a DEAD
+    ///      primary, not a MALICIOUS one: `emitDeadManExit` is emit-only and cheap, so a hop
+    ///      that is alive but refusing to work can keep the clock fresh indefinitely and the
+    ///      fallback never activates.
+    ///
+    ///      That is not an oversight to be patched. Excluding the heartbeat from the clock
+    ///      would make a QUIET channel — no trades, nothing to splice — look dead and trigger
+    ///      a false hand-over. **On-chain liveness cannot distinguish "alive and idle" from
+    ///      "alive and refusing", because both look identical from here.**
+    ///
+    ///      So the LP has two remedies for two threat models: this fallback is AUTOMATIC
+    ///      protection against a dead primary, and re-delegation (`registerDelegation` at a
+    ///      higher version, cold-signed and gasless) is MANUAL protection against a malicious
+    ///      one. Do not extend this gate to try to cover the second — it cannot.
     ///      `lastHeartbeatBlock` is seeded at open, so a primary that never heartbeats still
     ///      hands over instead of stranding the LP. Channel-scoped on purpose — `openChannel`
     ///      keeps using `_authorizedHop`, because a channel that does not exist has no
@@ -841,8 +857,15 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // byte-matches the new 2-of-2 (p.lpPubkey, p.hopPubkey, p.amountSats), and a
         // SHRINK's withdrawal output still pins to btcRecipientOf (_withdrawalPayout) — so
         // the hop can grow (credits the LP) or shrink (pays the LP), never redirect funds.
-        if (msg.sender != channels[channelId].hop) revert NotChannelHop();
+        // (E122) Primary, OR the LP's named fallback after FALLBACK_STALENESS_BLOCKS of silence.
+        // Widening this is REQUIRED, not optional: a fallback that could only heartbeat would
+        // keep the LP's dead-man exit from maturing while being unable to operate the channel —
+        // strictly worse than no fallback. Bounded by the same guarantees as the primary: the
+        // splice is SPV-proven and every payout output pins to `btcRecipientOf`.
+        if (!_authorizedHopForChannel(channelId, channels[channelId].lpEth, msg.sender))
+            revert NotChannelHop();
         if (p.amountSats == channels[channelId].amountSats) revert SpliceUnchanged();
+        lastHeartbeatBlock[channelId] = uint64(block.number);   // (E122) work IS liveness
         // Verify + rotate + (grow|shrink) in its own frame (legacy stack, no via_ir); returns the grow delta.
         uint grewBy = _applySplice(channelId, p, rawSpliceTx, spliceMerkleProof);
         // FEE-INTO-CHANNEL: the hop may mark up to `grewBy` of this grow as BTC-leg fees it is FUNDING in —
@@ -974,7 +997,10 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///         to the channel's hop (a foreign caller can't bump the counter to lock the
     ///         enclave out) and STRICTLY monotonic (a replay/rollback of an old value reverts).
     function commitFreshness(bytes32 channelId, uint64 seq) external {
-        if (msg.sender != channels[channelId].hop) revert NotChannelHop();
+        // (E122) Primary, or the LP's fallback after the staleness window — see `splice`.
+        if (!_authorizedHopForChannel(channelId, channels[channelId].lpEth, msg.sender))
+            revert NotChannelHop();
+        lastHeartbeatBlock[channelId] = uint64(block.number);   // (E122) work IS liveness
         if (seq <= freshnessSeq[channelId]) revert FreshnessNotMonotonic();
         freshnessSeq[channelId] = seq;
         emit FreshnessCommitted(channelId, seq);
