@@ -212,6 +212,37 @@ contract DrainAtomicity is Alles {
         } else {
             emit log("AMPLIFIER NOT ACTIVE at this state -- the E89b split cannot be observed here.");
         }
+        // DRIVE REAL BTC FLOW INTO SCARCITY. A populated band is not enough (E98): the base is only
+        // reached once `flowEwmaUsd(true) > 0` AND `inv < target`. Buying BTC drains the BTC band.
+        for (uint i = 0; i < 14; ++i) {
+            deal(bold, drainer, 3_000 * 1e18);
+            vm.startPrank(drainer);
+            IERC20(bold).approve(address(AUX), 3_000 * 1e18);
+            try AUX.swap(bold, address(WBTC), true, 3_000 * 1e18, 0) {} catch {}
+            vm.stopPrank();
+            _settle();
+        }
+        uint pB     = AUX.getTWAPforAsset(address(WBTC), 1800);
+        uint invBtc = CORE.POOLED_BTC() * pB / 1e30;
+        uint tgtBtc = CORE.flowEwmaUsd(true);
+        uint sigBtc = CORE.realizedVarianceWad(true);
+        btcLive     = AUX.wellSkew(address(WBTC));
+        uint raw    = SwapLib.skewWad(invBtc, tgtBtc, sigBtc, true, 0);   // UNAMPLIFIED kernel+base
+        emit log_named_uint("BTC inv (usd6)        ", invBtc);
+        emit log_named_uint("BTC target/flow (usd6)", tgtBtc);
+        emit log_named_uint("BTC sigma^2           ", sigBtc);
+        emit log_named_uint("BTC raw (unamplified) ", raw);
+        emit log_named_uint("BTC live (amplified)  ", btcLive);
+        if (raw > 2e15 && btcLive > 0) {
+            // Correct split: live = (raw − SPLICE)*amp + SPLICE  ⇒ amp = (live−SPLICE)/(raw−SPLICE)
+            // Wrong  split: live = raw*amp                       ⇒ amp = live/raw
+            emit log_named_uint("amp IF splice OUTSIDE (x1e18)", (btcLive - 2e15) * 1e18 / (raw - 2e15));
+            emit log_named_uint("amp IF splice INSIDE  (x1e18)", btcLive * 1e18 / raw);
+            emit log("Only ONE can be a real amplifier (>=1e18, <=2e18). That is the verdict.");
+        } else {
+            emit log_named_uint("INCONCLUSIVE: raw <= SPLICE_FLOOR or live==0; raw=", raw);
+        }
+
         if (btcLive > 0) {
             emit log_named_uint("BTC skew as multiple of SPLICE_FLOOR (x1e18)", btcLive * 1e18 / 2e15);
             assertGe(btcLive, 2e15,
