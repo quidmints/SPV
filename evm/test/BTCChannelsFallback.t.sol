@@ -14,7 +14,9 @@ import {BTCChannels} from "../src/BTCChannels.sol";
 ///         self-referential value. **The staleness GATE itself (`_authorizedHopForChannel`:
 ///         fallback may act only after `FALLBACK_STALENESS_BLOCKS` of primary silence) is
 ///         NOT exercised here** — it needs a live channel, which needs a real SPV funding
-///         proof. Until that fixture exists, the hand-over path is UNTESTED.
+///         proof. ✅ It IS covered, on a real regtest channel, by
+///         `test/btc/OpenChannelE2E.t.sol::test_E122_fallbackTakesOverOnlyAfterStaleness`,
+///         which asserts the boundary exactly (refused AT the window, allowed one block past).
 ///
 ///         Why this design replaces the registry + DCAP verifier: the fallback is named BY
 ///         THE LP, so it can never become standing-over-everyone, and it drops the Automata

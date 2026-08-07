@@ -101,6 +101,55 @@ contract OpenChannelE2ETest is Test {
         channelId = ch.openChannel(p, rawTx, vm.parseJsonBytes32Array(json, ".merkleBranch"), lpEth);
     }
 
+    /// (E122) THE HAND-OVER GATE, on a REAL channel — the coverage `BTCChannelsFallback.t.sol`
+    /// could not provide, because `_authorizedHopForChannel` needs a live channel and this is
+    /// the only fixture that opens one against a real funding tx + SPV proof.
+    ///
+    /// Asserts the boundary EXACTLY, because the condition is strict `>`: at precisely
+    /// `lastHeartbeat + FALLBACK_STALENESS_BLOCKS` the fallback must still be refused, and only
+    /// one block later may it act. An off-by-one here would hand the channel over an entire
+    /// block early, and no other test would notice.
+    function test_E122_fallbackTakesOverOnlyAfterStaleness() public {
+        string memory json = vm.readFile(
+            string.concat(vm.projectRoot(), "/test/btc/open_channel_fixture.json"));
+        SPVGateway gw = _buildChain(json);
+        (BTCChannels ch, bytes32 channelId,) = _openFromFixture(json, gw);
+
+        (, uint lpPk) = makeAddrAndKey("lp");     // same LP the fixture opened with
+        address fb = makeAddr("fallbackHop");
+        address primary = address(0xB0B);
+
+        // The LP names its fallback (version 2 — the open used 1).
+        ch.registerFallback(fb, 2, _signOpen(lpPk, ch.fallbackDigest(fb, 2)));
+        assertEq(ch.fallbackAuthority(vm.addr(lpPk)), fb, "fallback registered");
+
+        // FRESH: the clock was seeded at open, so the fallback has no standing yet.
+        vm.prank(fb);
+        vm.expectRevert(BTCChannels.NotDelegatedHop.selector);
+        ch.emitDeadManExit(channelId, uint64(block.number + 144), 50_000, hex"00");
+
+        // The primary heartbeats, refreshing the clock.
+        vm.prank(primary);
+        ch.emitDeadManExit(channelId, uint64(block.number + 144), 50_000, hex"00");
+        assertEq(ch.lastHeartbeatBlock(channelId), uint64(block.number), "primary set the clock");
+
+        // EXACTLY at the window: still refused (strict `>`).
+        vm.roll(block.number + ch.FALLBACK_STALENESS_BLOCKS());
+        vm.prank(fb);
+        vm.expectRevert(BTCChannels.NotDelegatedHop.selector);
+        ch.emitDeadManExit(channelId, uint64(block.number + 144), 50_000, hex"00");
+
+        // One block past: the fallback takes over, and refreshes the clock itself.
+        vm.roll(block.number + 1);
+        vm.prank(fb);
+        ch.emitDeadManExit(channelId, uint64(block.number + 144), 50_000, hex"00");
+        assertEq(ch.lastHeartbeatBlock(channelId), uint64(block.number), "fallback took over");
+
+        // And the primary is NOT locked out by the hand-over — it can resume.
+        vm.prank(primary);
+        ch.emitDeadManExit(channelId, uint64(block.number + 144), 50_000, hex"00");
+    }
+
     function test_openChannel_realRegtestFundingTx() public {
         // §9b/SIMPLE-TAPROOT: funding output is a real P2TR `0x5120||Q` (the MuSig2
         // key-path aggregate), NOT a P2WSH 2-of-2. The fixture is regenerated from a
