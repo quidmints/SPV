@@ -625,6 +625,36 @@ contract DrainAtomicity is Alles {
     /// §E104 part (3) — CONSTANT SENSITIVITY, measured not read. Vary each input the constants gate
     /// and observe whether the price responds. A constant whose variation does not move the output
     /// in the operating range is not a dial, whatever the source says.
+    /// §E105 — SYSTEMATIC BOUNDARY SWEEP. Every structural defect found this session lived at an
+    /// EXTREME, not in the operating range: E88's sentinel sat below two short-circuits and never
+    /// executed · E99's idle decay drove the premium to ZERO · E104's empty-band drain OVERFLOWED
+    /// and reverted. All three survived a 4,308-test green suite, a pinned controlled comparison,
+    /// `--sizes` and `check-client-abis`, because **the suite tests REGRESSION thoroughly and
+    /// EXTREMES barely**. This walks the corners deliberately. Pure calls: no fixture to blame.
+    function test_E105_BoundarySweep() public pure {
+        uint T = 1_000_000e6;
+        // Each row is a corner that a real band can actually occupy.
+        console.log("--- target == 0 (genesis, no flow history)");
+        console.log("  eth:", SwapLib.skewWad(T, 0, 1e16, false, T / 4));
+        console.log("  btc:", SwapLib.skewWad(T, 0, 1e16, true,  T / 4));
+        console.log("--- inv == 0 (band already empty)");
+        console.log("  eth:", SwapLib.skewWad(0, T, 1e16, false, T / 4));
+        console.log("  btc:", SwapLib.skewWad(0, T, 1e16, true,  T / 4));
+        console.log("--- drain == 0 (read-only quote)");
+        console.log("  eth:", SwapLib.skewWad(T / 2, T, 1e16, false, 0));
+        console.log("--- drain >> inv (asks for more than exists)");
+        console.log("  eth:", SwapLib.skewWad(T / 100, T, 1e16, false, T * 10));
+        console.log("--- sigma^2 == 0 (unmeasured) at real scarcity");
+        console.log("  eth:", SwapLib.skewWad(T / 2, T, 0, false, T / 4));
+        console.log("--- sigma^2 enormous");
+        console.log("  eth:", SwapLib.skewWad(T / 2, T, 1e20, false, T / 4));
+        console.log("--- inv >> target (deeply flush)");
+        console.log("  eth:", SwapLib.skewWad(T * 100, T, 1e16, false, T / 4));
+        console.log("--- all-min: everything zero");
+        console.log("  eth:", SwapLib.skewWad(0, 0, 0, false, 0));
+        console.log("If any line reverted, the sweep would have failed rather than printed.");
+    }
+
     function test_E104_ConstantSensitivity() public pure {
         uint T = 1_000_000e6; uint inv = T / 2; uint drain = T / 4;
         // CONF_FRAC (BTC, ~1hr) vs ETH_CONF_FRAC (~12s) enter only via the base; SPLICE_FLOOR is
