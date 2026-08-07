@@ -373,6 +373,9 @@ contract DrainAtomicity is Alles {
         vm.warp(block.timestamp + 3 days);                    // let the clock move, no trading
         uint flowMid = CORE.flowEwmaUsd(false);               // decayed, proving time passed
 
+        // §E102: read `flow.ts` DIRECTLY, not through `flowEwmaUsd`'s `min(fast, slow)`. The proxy
+        // is only valid when the FAST leg binds, and this row's original conclusion rested on it.
+        uint64 tsFast0 = _flowTs(false); uint64 tsSlow0 = _flowTs(true);
         // THE LP ACTION under test -- moves POOLED_* with no swap.
         vm.prank(lpA); V4.deposit{value: 50 ether}(0, lpA, 3);
         vm.roll(block.number + 1);
@@ -386,7 +389,17 @@ contract DrainAtomicity is Alles {
         emit log_named_uint("LAST_REPACK before       ", repackBefore);
         emit log_named_uint("LAST_REPACK after        ", repackAfter);
 
+        uint64 tsFast1 = _flowTs(false); uint64 tsSlow1 = _flowTs(true);
+        emit log_named_uint("flow.ts FAST before/after", tsFast0);
+        emit log_named_uint("                         ", tsFast1);
+        emit log_named_uint("flow.ts SLOW before/after", tsSlow0);
+        emit log_named_uint("                         ", tsSlow1);
         assertGt(invAfter, invBefore, "PREMISE: the LP add must actually move POOLED_ETH");
+        if (tsFast1 == tsFast0 && tsSlow1 == tsSlow0) {
+            emit log("DIRECT READ: neither flow.ts moved on the LP ADD -- E100 CONFIRMED, not inferred.");
+        } else {
+            emit log("DIRECT READ: a flow.ts DID move on the LP add -- E100's conclusion was WRONG.");
+        }
         if (repackAfter > repackBefore) {
             emit log("LAST_REPACK DID bump on the LP add -- the E93-HOLE-CLOSED fix is LOAD-BEARING.");
         } else {
