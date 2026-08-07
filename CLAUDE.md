@@ -170,6 +170,20 @@ instantiation rather than being dissolved by it.
 this design vBTC IS the band's asset rather than having one, so that accessor's meaning has to be
 revisited — do not carry it across unexamined.
 
+🔴 **AND IT IS WORSE THAN STALE — `VBtc.sol:18-28` PROPOSES A FEATURE ibiza ANALYSED AS CROSS-LP THEFT.**
+That header argues *"swap-out already proves the protocol can pay an arbitrary P2TR address whose owner
+has no channel — so what is missing is an ENTRYPOINT plus a source-of-funds rule, not a capability"*,
+and names `redeemVBtc(sats, p2trScript)`. `ibiza/TODO.md:2118-2132` rejects precisely that, quoting
+`BTCChannels.sol:477-496`: *"We REJECT any other output: without this, a malicious LP could route its
+withdrawal to a script != `btcRecipientOf`, making `_lpFinalBalance` read 0 → `delivered = shrinkSats`
+→ **over-claim the SHARED swap-out proceeds pool (cross-LP theft)**."* The contract cannot see WHO was
+paid, only HOW MUCH reached the committed script; `btcRecipientOf` is ONE source of truth for both
+cooperative-close attribution and the splice path. ibiza's verdict: *"Unbinding it to gain anonymity
+would trade a cryptoeconomic invariant for a privacy property — the wrong direction."*
+⇒ **Do not implement `redeemVBtc(sats, p2trScript)` on the strength of that header.** Reconcile the two
+documents first — and note the header's premise ("swap-out already pays arbitrary P2TR") needs checking
+against whether the SWAP-OUT path and an LP WITHDRAWAL path have the same attribution guarantees.
+
 ⇒ **A CROSS-REPO STALE RATIONALE**: SPV's contract justifies its own existence with a design the
 consuming repo has retired. Neither file knows about the other. Do NOT keep `VBtc` on privacy grounds,
 and do NOT delete it on those grounds either — **the surviving question is the OTHER blocker its header
