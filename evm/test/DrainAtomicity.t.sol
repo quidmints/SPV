@@ -571,6 +571,42 @@ contract DrainAtomicity is Alles {
         }
     }
 
+    /// §E103 — IS THE 15 bps A PROPERTY OF THE IMBALANCE, OR AN ARTIFACT OF MY TICKET SIZE? E96 read
+    /// it off ONE ticket (5,000) and E96b swept DEPTH but not SIZE. If the skew is a per-unit RATE
+    /// the tax must be SIZE-INVARIANT at a fixed depth; if it drifts with size, "15 bps" is a
+    /// number I chose rather than one the system has. Same imbalanced state for every leg (snapshot
+    /// + revert), only the ticket changes.
+    function test_E103_IsTheTaxInvariantToTicketSize() public {
+        uint[4] memory tickets = [uint(1_000e18), 5_000e18, 20_000e18, 60_000e18];
+        for (uint i = 0; i < 4; ++i) {
+            // BALANCED reference for THIS ticket size.
+            uint snap = vm.snapshotState();
+            _seedBasket();
+            vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+            _settle();
+            uint refEth = _drain(tickets[i]);
+            vm.revertToState(snap);
+
+            // SAME ticket into a band someone else drained to the SAME depth.
+            _seedBasket();
+            vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+            _settle();
+            for (uint r = 0; r < 20; ++r) _drain(20_000 * 1e18);
+            uint skewedEth = _drain(tickets[i]);
+            vm.revertToState(snap);
+
+            emit log_named_uint("--- ticket (usd18)      ", tickets[i]);
+            if (refEth == 0 || skewedEth == 0) { emit log("    VOID: a leg got nothing"); continue; }
+            if (skewedEth < refEth) {
+                emit log_named_uint("    TAX bps              ", (refEth - skewedEth) * 10_000 / refEth);
+            } else {
+                emit log("    TAX bps              : 0 (no penalty at this size)");
+            }
+        }
+        emit log("If TAX bps is flat across sizes, 15 bps is a property of the DEPTH.");
+        emit log("If it drifts, the number is an artifact of the ticket I happened to pick.");
+    }
+
     function test_E96b_TaxScalesWithImbalanceDepth() public {
         uint SMALL = 5_000 * 1e18;
         uint8[4] memory rounds = [0, 6, 12, 20];   // 0 = balanced reference
