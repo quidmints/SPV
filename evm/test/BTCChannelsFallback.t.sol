@@ -95,6 +95,39 @@ contract BTCChannelsFallbackTest is Test {
         assertEq(ch.delegationVersion(lpEth), 2,           "version advanced");
     }
 
+    /// (E122-e) DISAVOWAL — the answer to an alive-but-refusing primary, which no on-chain
+    /// liveness signal can detect. The LP asserts it cold; the fallback gains authority with
+    /// no staleness wait and the primary loses it.
+    function test_disavow_hands_over_immediately() public {
+        _delegate();
+        ch.registerFallback(fallbackHop, 2, _sign(lpPk, ch.fallbackDigest(fallbackHop, 2)));
+        assertFalse(ch.primaryDisavowed(lpEth), "not disavowed yet");
+        ch.disavowPrimary(3, _sign(lpPk, ch.disavowDigest(3)));
+        assertTrue(ch.primaryDisavowed(lpEth), "disavowed");
+        assertEq(ch.delegationVersion(lpEth), 3, "version advanced");
+    }
+
+    /// A disavowal with nobody to hand to would just brick the channel.
+    function test_disavow_requires_a_fallback_to_exist() public {
+        _delegate();
+        bytes memory sig = _sign(lpPk, ch.disavowDigest(2));
+        vm.expectRevert(BTCChannels.NotDelegatedHop.selector);
+        ch.disavowPrimary(2, sig);
+    }
+
+    /// Naming a new primary is the FULL replacement and supersedes the cheap hand-over.
+    function test_redelegation_clears_the_disavowal() public {
+        _delegate();
+        ch.registerFallback(fallbackHop, 2, _sign(lpPk, ch.fallbackDigest(fallbackHop, 2)));
+        ch.disavowPrimary(3, _sign(lpPk, ch.disavowDigest(3)));
+        address newPrimary = address(0xC0FFEE);
+        ch.registerDelegation(
+            newPrimary, payout, 4, _sign(lpPk, ch.delegationDigest(newPrimary, payout, 4))
+        );
+        assertFalse(ch.primaryDisavowed(lpEth), "re-delegation cleared it");
+        assertEq(ch.delegatedAuthority(lpEth), newPrimary, "new primary in place");
+    }
+
     /// The staleness window is a real constant, not an unbounded hand-over.
     function test_staleness_window_is_about_an_hour() public view {
         assertEq(ch.FALLBACK_STALENESS_BLOCKS(), 300, "~1h at 12s");
