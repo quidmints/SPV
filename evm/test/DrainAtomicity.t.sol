@@ -152,6 +152,41 @@ contract DrainAtomicity is Alles {
     ///
     /// Measured on the TRADER's receipt (native ETH + WETH), never on `skewPremiumCum` — our ledger
     /// moves differently from what the user gets, and trusting it produced two retracted findings.
+    /// §E96b — HOW DOES THE TAX ON ORDINARY FLOW SCALE WITH IMBALANCE DEPTH? E96 measured ONE depth
+    /// (15 bps at inv halved) and I flagged that quoting it as "the" number was unsound. The refill
+    /// decision turns on the SHAPE, not one point: repair cost is roughly flat, so if the tax grows
+    /// convexly with depth then waiting is progressively worse and the case for self-repair
+    /// strengthens the longer an imbalance stands.
+    /// Measured on the TRADER's receipt (native ETH + WETH). Each depth is an INDEPENDENT snapshot —
+    /// no leg inherits another's flow EWMA, which would confound depth with history.
+    function test_E96b_TaxScalesWithImbalanceDepth() public {
+        uint SMALL = 5_000 * 1e18;
+        uint8[4] memory rounds = [0, 6, 12, 20];   // 0 = balanced reference
+        uint refEth;
+        uint refInv;
+        for (uint r = 0; r < 4; ++r) {
+            uint snap = vm.snapshotState();
+            _seedBasket();
+            vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+            _settle();
+            for (uint i = 0; i < rounds[r]; ++i) _drain(20_000 * 1e18);
+            uint inv = CORE.POOLED_ETH() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
+            uint got = _drain(SMALL);
+            if (r == 0) { refEth = got; refInv = inv; }
+            emit log_named_uint("--- drain rounds        ", rounds[r]);
+            emit log_named_uint("    inv (usd6)          ", inv);
+            emit log_named_uint("    ETH for a 5k ticket ", got);
+            if (r > 0 && refEth > 0 && got < refEth) {
+                emit log_named_uint("    TAX vs balanced, bps", (refEth - got) * 10_000 / refEth);
+            } else if (r > 0) {
+                emit log("    TAX vs balanced, bps: 0 (no penalty at this depth)");
+            }
+            vm.revertToState(snap);
+        }
+        emit log_named_uint("reference inv (balanced)", refInv);
+        assertGt(refEth, 0, "reference leg must receive volatile or the sweep is void");
+    }
+
     function test_E96_TaxOnOrdinaryFlowFromSomeoneElsesImbalance() public {
         uint SMALL = 5_000 * 1e18;      // an ordinary ticket, not a whale
 
