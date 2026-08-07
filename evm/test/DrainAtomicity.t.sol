@@ -172,6 +172,69 @@ contract DrainAtomicity is Alles {
     /// The only candidate is MANY TINY swaps that accumulate flow WITHOUT crossing a tick. If even
     /// that fails, `if (sigmaSqWad == 0) return MAX_WELL_SKEW;` is unreachable and rule 1 applies:
     /// delete it rather than leave it "for safety".
+    /// §E97 — THE SELL LEG, WHICH HAS NEVER BEEN MEASURED. Every behavioural test this session drove
+    /// the DRAIN side; `sellSkew`'s integral (E68b) and its share of the risk-vs-fee split (E89b) were
+    /// verified only by "the suite is green" — which E88-PROOF just demonstrated is what a
+    /// never-executed branch also produces. This is E96's mirror on the abundant side: does a seller
+    /// into an ALREADY-ABUNDANT band pay for an overshoot it did not create?
+    /// Measured on the trader's receipt (all basket stables + QUID), never on our own ledger.
+    function test_E97_SellLegTaxOnOrdinaryFlow() public {
+        uint SMALL = 3 ether;
+
+        // Reference: sell into a FRESH band (at/below target ⇒ `over == 0` ⇒ EXEMPT by construction).
+        uint snap = vm.snapshotState();
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        _settle();
+        uint refOut = _sell(SMALL);
+        vm.revertToState(snap);
+
+        // Now push the band ABUNDANT with someone else's sells, then send the SAME small ticket.
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        _settle();
+        for (uint i = 0; i < 15; ++i) _sell(20 ether);
+        uint heavyOut = _sell(SMALL);
+
+        emit log_named_uint("stable for 3 ETH @ fresh    ", refOut);
+        emit log_named_uint("stable for 3 ETH @ abundant ", heavyOut);
+        if (refOut == 0 || heavyOut == 0) {
+            emit log("VOID: a leg received nothing -- the sell path did not deliver.");
+            return;
+        }
+        if (heavyOut < refOut) {
+            emit log_named_uint("SELL-LEG TAX on ordinary flow, bps",
+                (refOut - heavyOut) * 10_000 / refOut);
+        } else {
+            emit log("NO SELL-LEG TAX: the ordinary sell was not penalised by standing abundance.");
+        }
+    }
+
+    /// volatile → stable. Returns the trader's TOTAL stable receipt across every basket stable plus
+    /// QUID — a balance delta, because reading one guessed token is how E69 mis-reported for two runs.
+    function _sell(uint ethAmt) internal returns (uint got) {
+        deal(address(WETH), drainer, ethAmt);
+        address[] memory ss = AUX.getStables();
+        uint before = QUID.balanceOf(drainer);
+        for (uint i = 0; i < ss.length; ++i) {
+            uint b = IERC20(ss[i]).balanceOf(drainer);
+            if (b > 0) { uint8 d = IERC20(ss[i]).decimals(); before += d < 18 ? b * (10 ** (18 - d)) : b; }
+        }
+        vm.startPrank(drainer);
+        WETH.approve(address(AUX), ethAmt);
+        // §E97: NO try/catch. Three times this session a swallowed revert was mistaken for a
+        // delivery failure. Let it announce itself.
+        AUX.swap(bold, address(WETH), false, ethAmt, 0);
+        vm.stopPrank();
+        uint after_ = QUID.balanceOf(drainer);
+        for (uint i = 0; i < ss.length; ++i) {
+            uint b = IERC20(ss[i]).balanceOf(drainer);
+            if (b > 0) { uint8 d = IERC20(ss[i]).decimals(); after_ += d < 18 ? b * (10 ** (18 - d)) : b; }
+        }
+        got = after_ > before ? after_ - before : 0;
+        _settle();
+    }
+
     function test_E88_IsTheSentinelReachableAtAll() public {
         _seedBasket();
         vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
