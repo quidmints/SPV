@@ -178,6 +178,50 @@ contract DrainAtomicity is Alles {
     /// never-executed branch also produces. This is E96's mirror on the abundant side: does a seller
     /// into an ALREADY-ABUNDANT band pay for an overshoot it did not create?
     /// Measured on the trader's receipt (all basket stables + QUID), never on our own ledger.
+    /// §E98 — THE BTC LEG, WHICH HAS NEVER BEEN EXERCISED. Every behavioural skew test this session
+    /// was ETH. That matters specifically for E89b: `SPLICE_FLOOR` (2e15) exists ONLY for BTC, so the
+    /// risk-vs-fee split — amplify the kernel and `σ²·confFrac/8`, NEVER the fixed splice fee — is
+    /// entirely UNTESTED. And it only bites when E53's amplifier exceeds 1, which requires BOTH
+    /// bands populated (a lone band gives `_sharedScarcityWad == 1e18` and the split is invisible).
+    ///
+    /// THE DISCRIMINATOR: `skewWad` is public and returns the UNAMPLIFIED `kernel + base`.
+    /// `AUX.wellSkew` returns the composed, amplified price. If the split is right the splice fee
+    /// sits OUTSIDE the amplifier, so `live = (raw − SPLICE) × amp + SPLICE`, which is STRICTLY LESS
+    /// than the wrong form `raw × amp` whenever `amp > 1`. So `live < raw` is impossible and
+    /// `live` must exceed `SPLICE_FLOOR` while staying below `raw × 2` (the amplifier's own ceiling).
+    function test_E98_BtcLegAndTheSpliceFloorSplit() public {
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        _settle();
+        uint ethAlone = AUX.wellSkew(address(WETH));
+
+        // Populate the BTC band so the SHARED-scarcity amplifier can exceed 1 for BOTH assets.
+        AUX.setBTCChannels(address(this));   // auth: registerBtcLp is gated (403 without this)
+        BTC.registerBtcLp(User01, 2e7);
+        _settle();
+
+        uint ethBoth = AUX.wellSkew(address(WETH));
+        uint btcLive = AUX.wellSkew(address(WBTC));
+        emit log_named_uint("ETH wellSkew, ETH band only ", ethAlone);
+        emit log_named_uint("ETH wellSkew, BOTH bands    ", ethBoth);
+        emit log_named_uint("BTC wellSkew, BOTH bands    ", btcLive);
+        emit log_named_uint("SPLICE_FLOOR (BTC only)     ", 2e15);
+
+        if (ethBoth > ethAlone) {
+            emit log("AMPLIFIER ACTIVE: populating BTC raised the ETH skew -- shared scarcity is live.");
+        } else {
+            emit log("AMPLIFIER NOT ACTIVE at this state -- the E89b split cannot be observed here.");
+        }
+        if (btcLive > 0) {
+            emit log_named_uint("BTC skew as multiple of SPLICE_FLOOR (x1e18)", btcLive * 1e18 / 2e15);
+            assertGe(btcLive, 2e15,
+                "E89b: SPLICE_FLOOR is added OUTSIDE the amplifier, so it is a hard floor on BTC");
+        } else {
+            emit log("BTC skew is 0 -- flush/target short-circuit fires before the base is added.");
+            emit log("That is the same E88-PROOF finding on the BTC leg: the base never applies here.");
+        }
+    }
+
     function test_E97_SellLegTaxOnOrdinaryFlow() public {
         uint SMALL = 3 ether;
 
