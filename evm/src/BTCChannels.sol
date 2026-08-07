@@ -874,10 +874,18 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // disavowal, its named fallback. Still bounded the same way: every payout output pins
         // to `btcRecipientOf`, so a wider authority set cannot redirect funds. The
         // retired per-splice lpAuth was redundant on top of this: _verifySplice still
-        // SPV-proves rawSpliceTx SPENDS this channel's funding UTXO and taproot
-        // byte-matches the new 2-of-2 (p.lpPubkey, p.hopPubkey, p.amountSats), and a
-        // SHRINK's withdrawal output still pins to btcRecipientOf (_withdrawalPayout) — so
-        // the hop can grow (credits the LP) or shrink (pays the LP), never redirect funds.
+        // SPV-proves rawSpliceTx SPENDS this channel's funding UTXO and byte-matches the new
+        // taproot output against the CALLER-SUPPLIED `p.fundingTaproot`.
+        // ⚠️ CORRECTED 2026-08-07 (E129). This used to conclude "…so the hop can grow (credits
+        // the LP) or shrink (pays the LP), NEVER REDIRECT FUNDS." That conclusion does NOT
+        // follow and must not be relied on. Byte-matching proves only that the caller's 32
+        // bytes appear in the output; the contract does NO secp256k1, so nothing proves
+        // `p.lpPubkey` is inside the new `Q` (it is length-validated metadata —
+        // ChannelLib.sol:494). `btcRecipientOf` pins a SHRINK's WITHDRAWAL output
+        // (_withdrawalPayout); the CONTINUING FUNDING output is unconstrained. ⇒ A GROW can
+        // move the channel's BTC into a `Q` the hop solely controls. Self-hosted LPs must
+        // co-sign the splice and would see it; IN FLEET MODE THE OPERATOR HOLDS BOTH HALVES
+        // (E94) AND CAN DO IT ALONE. Closing this needs on-chain KeyAgg verification (E127).
         // (E122) Primary, OR the LP's named fallback after FALLBACK_STALENESS_BLOCKS of silence.
         // Widening this is REQUIRED, not optional: a fallback that could only heartbeat would
         // keep the LP's dead-man exit from maturing while being unable to operate the channel —
