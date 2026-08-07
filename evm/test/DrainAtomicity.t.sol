@@ -233,6 +233,37 @@ contract DrainAtomicity is Alles {
         emit log_named_uint("BTC sigma^2           ", sigBtc);
         emit log_named_uint("BTC raw (unamplified) ", raw);
         emit log_named_uint("BTC live (amplified)  ", btcLive);
+        // §E98-r2 — DRIVE THE **ETH** BAND SCARCE TOO. The identity `amp_ETH + amp_BTC = 3e18` needs
+        // BOTH bands live: `_sharedScarcityWad = 1e18 + other/both`, and `other_ETH + other_BTC =
+        // both`, so the two amplifiers sum to exactly 3e18. ETH has NO `SPLICE_FLOOR`, so for ETH the
+        // splice-inside and splice-outside forms COINCIDE and `amp_ETH = live/raw` is unambiguous —
+        // which pins `amp_BTC` INDEPENDENTLY of the thing under test. Only then can the BTC forms be
+        // told apart; the previous run had ETH flush (`wellSkew == 0`) and the identity was unusable.
+        for (uint i = 0; i < 20; ++i) {
+            _drain(20_000 * 1e18);
+            uint iv = CORE.POOLED_ETH() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
+            if (iv < CORE.flowEwmaUsd(false)) break;
+        }
+        {
+            uint pE      = AUX.getTWAPforAsset(address(WETH), 1800);
+            uint invEth  = CORE.POOLED_ETH() * pE / 1e30;
+            uint rawEth  = SwapLib.skewWad(invEth, CORE.flowEwmaUsd(false),
+                                           CORE.realizedVarianceWad(false), false, 0);
+            uint liveEth = AUX.wellSkew(address(WETH));
+            emit log_named_uint("ETH raw  (unamplified)", rawEth);
+            emit log_named_uint("ETH live (amplified)  ", liveEth);
+            if (rawEth > 0 && liveEth > 0 && liveEth < 3e16) {
+                uint ampEth = liveEth * 1e18 / rawEth;
+                emit log_named_uint("amp_ETH (unambiguous) ", ampEth);
+                if (ampEth < 3e18) {
+                    emit log_named_uint("amp_BTC = 3e18 - amp_ETH (INDEPENDENT)", 3e18 - ampEth);
+                    emit log("^ compare against the two BTC candidates below: the match is the verdict.");
+                }
+            } else {
+                emit log("ETH leg not usable for the identity (flush, or capped).");
+            }
+        }
+
         // §E98-r PRECONDITION, WHICH THE FIRST VERSION OMITTED: once `live` clamps to MAX_WELL_SKEW
         // the cap has destroyed the very difference the two forms are distinguished by
         // (`SPLICE × (amp − 1)`), and any derived "amp" is an artifact of the clamp. Assert the
