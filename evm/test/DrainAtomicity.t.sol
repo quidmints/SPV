@@ -295,6 +295,48 @@ contract DrainAtomicity is Alles {
     /// WITHOUT EVER MEASURING IT. This measures it: reach scarcity, read the skew, then let TIME
     /// pass with NO trading and NO LP action, and read it again. Nothing about the inventory has
     /// changed, so any difference is a genuine time-response and any equality is its absence.
+    /// §E100 — DOES AN LP ADD REALLY LEAVE `flow.ts` UNTOUCHED? E93-COMPLETE claimed LP `addLiq`/
+    /// `burn` move `POOLED_*` WITHOUT bumping `flow.ts` (because flow tracks SWAP notional), and
+    /// E93-HOLE-CLOSED built the `max(flow.ts, LAST_REPACK)` fix on that claim. **INFERRED, NEVER
+    /// MEASURED.** If `flow.ts` DOES bump on an LP add, both the hole and its fix are unnecessary.
+    function test_E100_DoesAnLpAddBumpTheFlowTimestamp() public {
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 200 ether}(0, lpA, 3);
+        _settle();
+        for (uint i = 0; i < 6; ++i) _drain(20_000 * 1e18);   // give flow a non-zero history
+
+        uint invBefore   = CORE.POOLED_ETH();
+        uint repackBefore = V4.LAST_REPACK();
+        uint flowBefore  = CORE.flowEwmaUsd(false);
+        vm.warp(block.timestamp + 3 days);                    // let the clock move, no trading
+        uint flowMid = CORE.flowEwmaUsd(false);               // decayed, proving time passed
+
+        // THE LP ACTION under test -- moves POOLED_* with no swap.
+        vm.prank(lpA); V4.deposit{value: 50 ether}(0, lpA, 3);
+        vm.roll(block.number + 1);
+
+        uint invAfter    = CORE.POOLED_ETH();
+        uint repackAfter = V4.LAST_REPACK();
+        emit log_named_uint("POOLED_ETH before / after", invBefore);
+        emit log_named_uint("                         ", invAfter);
+        emit log_named_uint("flow (decayed, pre-add)  ", flowMid);
+        emit log_named_uint("flow (post-add)          ", CORE.flowEwmaUsd(false));
+        emit log_named_uint("LAST_REPACK before       ", repackBefore);
+        emit log_named_uint("LAST_REPACK after        ", repackAfter);
+
+        assertGt(invAfter, invBefore, "PREMISE: the LP add must actually move POOLED_ETH");
+        if (repackAfter > repackBefore) {
+            emit log("LAST_REPACK DID bump on the LP add -- the E93-HOLE-CLOSED fix is LOAD-BEARING.");
+        } else {
+            emit log("LAST_REPACK did NOT bump -- the fix does NOT cover LP adds. HOLE STILL OPEN.");
+        }
+        if (CORE.flowEwmaUsd(false) > flowMid) {
+            emit log("flow ALSO moved on the LP add -- then the hole never existed and the fix is dead code.");
+        } else {
+            emit log("flow did NOT move on the LP add -- the hole was REAL, as claimed.");
+        }
+    }
+
     function test_E99_DoesTheSkewSeePersistence() public {
         _seedBasket();
         vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
