@@ -7864,3 +7864,39 @@ CHANGE across their call sites, not a two-line edit.
 | **E116-a** | ⛔ **MY CORRECTION TO E116 WAS ITSELF WRONG — ITEM 2 REALLY DOES NEED THE REAL AUTOMATA VERIFIER. E116 as originally written STANDS (2026-08-07).** I told the owner *"you don't need to deploy the registry to finish the work … what's missing is one line in the deploy script"*, on the strength of `BTCChannelsAuth.t.sol` constructing `AttestedHopRegistry(IDcapAttestation(address(0)), …)` and pinning it successfully. ⛔ **That test only works because it exercises the NOT-ATTESTED path, which never reaches the verifier** — its own comment says so: *"The DCAP verifier is external SGX infra never invoked on the not-attested path, so address(0) suffices here."* 🔎 **`registerHop` (`AttestedHopRegistry.sol:129-131`) calls `VERIFIER.verifyAndAttestOnChain(rawQuote)` unconditionally.** With `VERIFIER == address(0)` that call fails ⇒ **no hop can EVER register** ⇒ once the registry is pinned, `_requireAttested` rejects every hop ⇒ **`openChannel`/`settleSwapIn`/`emitDeadManExit` are bricked for everyone, and `setHopRegistry` is PIN-ONCE so it cannot be undone.** ⚠️ **Pinning a zero-verifier registry is therefore not a harmless step toward attestation — it is an irreversible denial of service on the BTC money path.** ✅ So item 2 needs, as E116 said: the Automata DCAP verifier address for the target chain, plus a real MRENCLAVE from a reproducible build. Both are external inputs. ▶️ **The only safe partial step is the OPPOSITE of what I proposed: deploy the registry and whitelist the measurement, but do NOT call `setHopRegistry` until a hop has successfully registered.** | ⛔ E116 restored; my correction retracted |
 
 | **E-COORD-r** | ✅ **DAMAGE ASSESSED AND REPAIRED AS FAR AS IT CAN BE. The structural damage was NIL; the residue is documentary and is now findable (2026-08-06).** ✅ **NO WORK WAS LOST — the alarming "diverged, 3 and 3" was TRANSIENT: after `git fetch`, `origin/main...HEAD` is `0 behind / 0 ahead`. Everything is pushed and in sync.** ✅ **NO FUNCTIONAL DAMAGE: the swept content is intact in the tree** — `docs/actionable/QUEUE.md` carries the E71-PASS and E96 rows, and `evm/test/DrainAtomicity.t.sol` carries `test_E96_TaxOnOrdinaryFlowFromSomeoneElsesImbalance` in full. ⚠️ **CALIBRATED CLAIM ABOUT THEIR STATUS: neither `test_E96_` nor `test_E71_` appears in the last full suite's FAILURE list. `forge test` without `-vv` prints only failures, so that means "did not fail" — it is NOT positive evidence they ran and passed. Re-run with `-vv` to confirm; do not record them as green until then.** 📌 **THE IRREPARABLE PART, AND WHY: `105f6d3` ("VBtc must survive the consolidation — the privacy layer needs it as an ERC-20") contains my E71-PASS + E96 QUEUE rows and 76 lines of `DrainAtomicity.t.sol`. It is PUSHED, and CLAUDE.md rule 14 forbids amending or rebasing another thread's commit. **The history cannot be corrected without violating the rule that exists to stop threads clobbering each other — so the repair is a POINTER, not a rewrite.**** ▶️ **POINTER FOR ANYONE READING HISTORY: the 15 bps ordinary-flow tax (E96) and the path-independence result (E71-PASS) originate in THIS session, not in the VBtc work. `git log --oneline -- evm/test/DrainAtomicity.t.sol` will show `105f6d3` as their origin; it is mislabelled. Both threads commit as *Johnny Quid*, so authorship cannot disambiguate — only this row can.** 📌 **PREVENTION, restated as the actionable item: separate worktrees/branches per thread, or an explicit lock during verification runs. Rule 14 already forbids `git add -A` / `commit -a`; this incident is that rule being violated in the direction the rule does not anticipate — the sweeper harming the OTHER thread's staged work rather than their own.** | ✅ repaired; history pointer recorded |
+
+
+### ⛔ THE VENUE COLLAPSE IS BLOCKED BY A REAL MECHANISM, NOT BY MEASUREMENT (5 attempts, 2026-08-07)
+
+Attempt 5 ran on the CLEAN state -- `ethfiBacked` removed, all five withdraw guards measuring
+native+WETH, suite otherwise at 3881/1. **192 failures, and this time they are substantive:**
+    testLeverage_LvrControlVsTreatment      REGRESSES -- third independent run
+    testReal_Liquity_OpenLeverClose         "ERC20: transfer amount exceeds balance"  (hard revert)
+    testReal_Liquity_PartialDeleverMint     same
+    testRT_DeliveredPlusRetainedEqualsPrincipal   principal short 0.19%
+    test_LevFeeLane_EarnsFees_...           "POOLED_USD paired against it (in-range, fee-earning)"
+
+**THE MECHANISM, identified and now three-times reproduced.** Five of the six venue branches route
+through `supplyVenueBody`, which already sends everything to weETH — collapsing those IS a no-op.
+**`VENUE_GALAXY` does not:** it calls `vogueOp(false, toDeposit, 0, bytes32(0))`, which places capital
+INTO THE BAND. `_supplyEtherFi` STAKES it to weETH instead. Those are different destinations, so the
+collapse moves capital out of band depth.
+
+⇒ Thinner band ⇒ leverage flow hurts passive LPs more, which is precisely what
+`testLeverage_LvrControlVsTreatment` measures — and the `POOLED_USD paired against it` failure is the
+same fact seen from the band's side. The Liquity `transfer amount exceeds balance` reverts are the
+band being unable to source what the lever expects.
+
+**SO IT IS NOT "Galaxy is dead, just delete it".** Galaxy-as-a-DEPOSIT-VENUE is dead; Galaxy's branch
+was ALSO the only path putting fresh capital into the band, and that job has no other owner. Deleting
+the branch deletes the job.
+
+**WHAT TO DECIDE BEFORE ATTEMPT 6:** where band depth comes from once every deposit stakes to weETH.
+Options seen from here, none costed: keep a `vogueOp` leg for a share of each deposit; have
+`_supplyEtherFi` place a fraction into the band rather than staking all of it; or accept a thinner
+band and re-baseline the leverage test with evidence that the new depth is adequate. The last one
+weakens a guard that is currently doing real work — it caught this three times.
+
+**Attempts preserved:** `venue-collapse-wip`, `ethfibacked-reduction-wip`, `dispatch-collapse-attempt3`,
+`venue-collapse-attempt4`. Attempt 5 is reproducible by re-running
+`scratchpad/collapse3.py` on the current tree.
