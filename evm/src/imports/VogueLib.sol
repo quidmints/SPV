@@ -194,7 +194,6 @@ library VogueLib {
     // ════════════════════════════════════════════════════════════════════
     function depositETH(
         address weth, address aux, address ev,
-        mapping(address => uint) storage ethfiBacked,
         address sender, address pledge, uint amount, uint8 venue
     ) public returns (uint sent) {
         if (msg.value > 0) {
@@ -263,7 +262,9 @@ library VogueLib {
             // picked e.g. VENUE_AAVE holding weETH with `ethfiBacked == 0` — and `Vogue`'s exit gates
             // the offramp ladder on `ethfiBacked > 0`, so their funds were ether.fi-sourced while their
             // exit path said otherwise. Attribution must follow where the funds actually GO.
-            if (attrib) ethfiBacked[pledge] += Math.min(placed, sent);
+            // Attribution DELETED 2026-08-07: every deposit is ether.fi-sourced, so a per-LP
+            // "which slice came from ether.fi" mapping recorded a constant equal to `pooled`.
+            attrib;
         }
     }
 
@@ -625,7 +626,6 @@ library VogueLib {
 
     function sizeOutOfRange(
         address weth, address aux, address ev,
-        mapping(address => uint) storage ethfiBacked,
         uint amount, address token, bool token1isETH, uint8 venue, SwapLib.Oor memory t
     ) public returns (uint128 liquidity) {
         // §A.56: both branches were an INLINE COPY of `SwapLib.sizeOorUsd` — the same helper the BTC
@@ -635,7 +635,7 @@ library VogueLib {
         // One definition now sizes every out-of-range order, ETH and BTC alike. The bare `require`s
         // became `TickOutOfRange()` (the helper's named error) — same guard, better diagnostics.
         if (token == address(0)) {
-            amount = depositETH(weth, aux, ev, ethfiBacked, msg.sender, address(0), amount, venue);
+            amount = depositETH(weth, aux, ev, msg.sender, address(0), amount, venue);
             liquidity = SwapLib.sizeOorUsd(amount, t, !token1isETH);
         } else {
             amount = SwapLib.scaleTo6(IAux(aux).deposit(msg.sender, token, amount), token);

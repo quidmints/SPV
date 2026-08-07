@@ -1273,7 +1273,8 @@ contract Alles is ForkPin, Fixtures {
         // weETH held at EthVenue + aggregated into vogueETH + attributed to the slice.
         assertGt(IERC20(weeth).balanceOf(address(ETH)), 0, "weETH held at EthVenue");
         assertGt(ETH.vogueETH(), vEthBefore, "vogueETH aggregates the weETH");
-        assertGt(V4.ethfiBacked(User01), 0, "hard wall: ether.fi slice attributed");
+        // ethfiBacked assertion removed 2026-08-07 with the mapping: every deposit is
+        // ether.fi-sourced, so the slice was a constant equal to `pooled`.
         (uint pooled,,,) = V4.autoManaged(User01);
         assertEq(pooled, 10 ether, "position credited full deposit");
 
@@ -1281,11 +1282,9 @@ contract Alles is ForkPin, Fixtures {
         // delivering WETH to the LP. (Default setting = wait; the pool is
         // WETH-heavy so the v3 swap serves - no fee.)
         uint wethBefore = WETH.balanceOf(User01);
-        uint ethfiBefore = V4.ethfiBacked(User01);
         vm.roll(block.number + 1); // JIT-lock: withdraw must be a later block than the deposit
         vm.prank(User01); V4.withdraw(5 ether, User01, User01);
         assertGt(WETH.balanceOf(User01) - wethBefore, 0, "offramp delivered WETH");
-        assertLt(V4.ethfiBacked(User01), ethfiBefore, "ether.fi slice decremented");
     }
 
     /// @dev Make a REAL ERC-4626 curator vault report only 30% of the holder's position as
@@ -1353,7 +1352,8 @@ contract Alles is ForkPin, Fixtures {
         // the depositor named, and attribution follows where the funds GO -- so there is no
         // "no ether.fi slice" case left. Crediting only VENUE_ROVER was the bug: an LP picking
         // AAVE held weETH with ethfiBacked == 0 and was gated out of the offramp by Vogue:626.
-        assertGt(V4.ethfiBacked(User01), 0, "every deposit is ether.fi-sourced now");
+        // ethfiBacked assertion removed 2026-08-07 with the mapping: every deposit is
+        // ether.fi-sourced, so the slice was a constant equal to `pooled`.
 
         if (ETH.WETH_RESERVE_ID() != 0) {
             // LIVE: WETH supplied to AAVE-v4, attributed to the AAVE slice.
@@ -2168,10 +2168,14 @@ contract Alles is ForkPin, Fixtures {
         }
 
         uint balBefore = User01.balance;
+        uint wBefore1 = IERC20(address(WETH)).balanceOf(User01);
         vm.prank(User01);
         V4.withdraw(10 ether, User01, User01);
-        uint received = User01.balance - balBefore;
-        assertGt(received, 0, "Should receive something on withdraw");
+        uint received = (User01.balance - balBefore) + (IERC20(address(WETH)).balanceOf(User01) - wBefore1);
+        // MEASURE BOTH ASSETS: exits route through the ether.fi offramp, which pays WETH, where
+        // the old band-burn path paid native ETH. Watching only `.balance` reads 0 on a delivery
+        // that happened -- the wrong ASSET, not a real zero.
+        assertGt(received, 0, "Should receive something on withdraw (native ETH or WETH)");
 
         for (uint i = 0; i < 3; i++) {
             vm.startPrank(User03);
@@ -2182,10 +2186,12 @@ contract Alles is ForkPin, Fixtures {
         }
 
         balBefore = User01.balance;
+        wBefore1 = IERC20(address(WETH)).balanceOf(User01);
         vm.prank(User01);
         V4.withdraw(10 ether, User01, User01);
-        received = User01.balance - balBefore;
-        assertGt(received, 0, "Should receive something on final withdraw");
+        // MEASURE BOTH ASSETS -- the offramp pays WETH, the old band burn paid native ETH.
+        received = (User01.balance - balBefore) + (IERC20(address(WETH)).balanceOf(User01) - wBefore1);
+        assertGt(received, 0, "Should receive something on final withdraw (native ETH or WETH)");
     }
 
     function test_PendingSwapETHInflatesAvailable() public {
@@ -2253,17 +2259,22 @@ contract Alles is ForkPin, Fixtures {
         vm.stopPrank();
 
         uint bal1 = User01.balance;
+        uint wAlice0 = IERC20(address(WETH)).balanceOf(User01);
         vm.prank(User01);
         V4.withdraw(type(uint).max, User01, User01);
-        uint aliceReceived = User01.balance - bal1;
+        uint aliceReceived = (User01.balance - bal1) + (IERC20(address(WETH)).balanceOf(User01) - wAlice0);
 
         uint bal2 = User02.balance;
+        uint wBob0 = IERC20(address(WETH)).balanceOf(User02);
         vm.prank(User02);
         V4.withdraw(type(uint).max, User02, User02);
-        uint bobReceived = User02.balance - bal2;
+        uint bobReceived = (User02.balance - bal2) + (IERC20(address(WETH)).balanceOf(User02) - wBob0);
 
-        assertGt(aliceReceived, 0, "Alice should receive ETH");
-        assertGt(bobReceived, 0, "Bob should receive ETH");
+        // MEASURE BOTH ASSETS: exits route through the ether.fi offramp, which pays WETH, where
+        // the old band-burn path paid native ETH. Watching only `.balance` reads 0 on a delivery
+        // that happened -- the wrong ASSET, not a real zero.
+        assertGt(aliceReceived, 0, "Alice should receive value (native ETH or WETH)");
+        assertGt(bobReceived, 0, "Bob should receive value (native ETH or WETH)");
     }
 
     /// @notice Vogue is a DUAL (ETH+BTC) vault, so it cannot be strict
