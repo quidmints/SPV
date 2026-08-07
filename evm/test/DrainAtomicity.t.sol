@@ -303,6 +303,18 @@ contract DrainAtomicity is Alles {
     /// no LP timestamp is needed, because adds can only move inventory TOWARD repair — leaving BURNS
     /// as the one residual hole. I INFERRED the burn behaves like the add. **Inferring from the add
     /// case is exactly what produced a no-op fix in E93-HOLE-CLOSED**, so this measures it instead.
+    /// §E102 — READ `flow.ts` DIRECTLY. `Flow internal _flowETH` (slot 131088) is not publicly
+    /// readable, and E100/E101 inferred "ts did not bump" from `flowEwmaUsd` NOT CHANGING. That
+    /// inference is only valid when the FAST leg is binding, because `flowEwmaUsd` returns
+    /// `min(fast, slow)` (E55) — if the slow leg pins the minimum, a fast-leg bump moves NOTHING and
+    /// the inference is SILENTLY WRONG. `Flow{uint128 vol; uint64 ts}` packs into one slot: `vol` in
+    /// the low 128 bits, `ts` in the next 64. Reading the slot removes the inference entirely.
+    function _flowTs(bool slow) internal view returns (uint64) {
+        uint slot = slow ? 131090 : 131088;                    // _flowSlowETH / _flowETH
+        uint raw = uint(vm.load(address(CORE), bytes32(slot)));
+        return uint64(raw >> 128);
+    }
+
     function test_E101_DoesAnLpBurnMoveInventoryWithoutBumpingFlow() public {
         _seedBasket();
         vm.prank(lpA); V4.deposit{value: 300 ether}(0, lpA, 3);
@@ -315,8 +327,9 @@ contract DrainAtomicity is Alles {
         uint shares     = V4.balanceOf(lpA);
         emit log_named_uint("LP shares held           ", shares);
 
+        uint64 tsFast0 = _flowTs(false); uint64 tsSlow0 = _flowTs(true);
         vm.prank(lpA);
-        try V4.withdraw(20 ether, lpA, lpA) {} catch { emit log("withdraw reverted"); }
+        V4.withdraw(20 ether, lpA, lpA);   // §E102: no try/catch -- a revert must announce itself
         vm.roll(block.number + 1);
 
         uint invAfter  = CORE.POOLED_ETH();
@@ -326,6 +339,16 @@ contract DrainAtomicity is Alles {
         emit log_named_uint("flow before              ", flowBefore);
         emit log_named_uint("flow after               ", flowAfter);
 
+        uint64 tsFast1 = _flowTs(false); uint64 tsSlow1 = _flowTs(true);
+        emit log_named_uint("flow.ts FAST before/after", tsFast0);
+        emit log_named_uint("                         ", tsFast1);
+        emit log_named_uint("flow.ts SLOW before/after", tsSlow0);
+        emit log_named_uint("                         ", tsSlow1);
+        if (tsFast1 == tsFast0 && tsSlow1 == tsSlow0) {
+            emit log("DIRECT READ: neither flow.ts moved -- E100/E101 CONFIRMED, not inferred.");
+        } else {
+            emit log("DIRECT READ: a flow.ts DID move -- the min() inference was masking it. E100/E101 WRONG.");
+        }
         if (invAfter == invBefore) {
             emit log("VOID: the burn did not move POOLED_ETH -- nothing to conclude.");
         } else if (invAfter < invBefore && flowAfter <= flowBefore) {
