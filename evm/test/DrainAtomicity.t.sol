@@ -214,8 +214,8 @@ contract DrainAtomicity is Alles {
         }
         // DRIVE REAL BTC FLOW INTO SCARCITY. A populated band is not enough (E98): the base is only
         // reached once `flowEwmaUsd(true) > 0` AND `inv < target`. Buying BTC drains the BTC band.
-        for (uint i = 0; i < 14; ++i) {
-            deal(bold, drainer, 3_000 * 1e18);
+        for (uint i = 0; i < 3; ++i) {   // §E98-r: MILD scarcity -- 14 rounds pinned `live` at the
+            deal(bold, drainer, 3_000 * 1e18);   // 3% ceiling and destroyed the discriminator.
             vm.startPrank(drainer);
             IERC20(bold).approve(address(AUX), 3_000 * 1e18);
             try AUX.swap(bold, address(WBTC), true, 3_000 * 1e18, 0) {} catch {}
@@ -233,7 +233,13 @@ contract DrainAtomicity is Alles {
         emit log_named_uint("BTC sigma^2           ", sigBtc);
         emit log_named_uint("BTC raw (unamplified) ", raw);
         emit log_named_uint("BTC live (amplified)  ", btcLive);
-        if (raw > 2e15 && btcLive > 0) {
+        // §E98-r PRECONDITION, WHICH THE FIRST VERSION OMITTED: once `live` clamps to MAX_WELL_SKEW
+        // the cap has destroyed the very difference the two forms are distinguished by
+        // (`SPLICE × (amp − 1)`), and any derived "amp" is an artifact of the clamp. Assert the
+        // premise before computing anything from it.
+        if (btcLive >= 3e16) {
+            emit log("VOID: live is at the 3% CEILING -- cap-bound, discriminator cannot fire here.");
+        } else if (raw > 2e15 && btcLive > 0) {
             // Correct split: live = (raw − SPLICE)*amp + SPLICE  ⇒ amp = (live−SPLICE)/(raw−SPLICE)
             // Wrong  split: live = raw*amp                       ⇒ amp = live/raw
             emit log_named_uint("amp IF splice OUTSIDE (x1e18)", (btcLive - 2e15) * 1e18 / (raw - 2e15));
