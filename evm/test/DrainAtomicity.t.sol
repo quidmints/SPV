@@ -631,6 +631,64 @@ contract DrainAtomicity is Alles {
     /// and reverted. All three survived a 4,308-test green suite, a pinned controlled comparison,
     /// `--sizes` and `check-client-abis`, because **the suite tests REGRESSION thoroughly and
     /// EXTREMES barely**. This walks the corners deliberately. Pure calls: no fixture to blame.
+    /// §E108 — DOES LP-FUNDED REPAIR PAY FOR ITSELF? Extends the IL baseline's structure
+    /// (`Alles.t.sol:2952`, "LP USD exit vs HODL") rather than building a new harness.
+    ///
+    /// MECHANISM: there is no `refillETH` — it was built and removed as toxic (E106). The clean form
+    /// already exists: **an LP DEPOSIT of the scarce side raises `POOLED_ETH`** (measured in E100:
+    /// 137.49e18 -> 187.49e18). It spends no shared surplus and is funded by the party that benefits.
+    ///
+    /// MEASUREMENT: **VALUE PER SHARE** (`convertToAssets(1e18)`), never protocol totals — a deposit
+    /// trivially raises totals, so a totals comparison would report the deposit itself as "profit".
+    /// Two legs from an IDENTICAL drained state via snapshot/revert; only the repair differs.
+    function test_E108_DoesLpFundedRepairPayForItself() public {
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 300 ether}(0, lpA, 3);
+        _settle();
+        for (uint i = 0; i < 12; ++i) _drain(20_000 * 1e18);   // drive the imbalance
+
+        uint invDrained = CORE.POOLED_ETH();
+        uint perShare0  = V4.convertToAssets(1e18);
+        emit log_named_uint("after drain: POOLED_ETH  ", invDrained);
+        emit log_named_uint("after drain: value/share ", perShare0);
+
+        uint snap = vm.snapshotState();
+
+        // LEG A -- NO REPAIR. Same subsequent flow.
+        for (uint i = 0; i < 6; ++i) _drain(5_000 * 1e18);
+        uint perShareA = V4.convertToAssets(1e18);
+        uint invA = CORE.POOLED_ETH();
+        vm.revertToState(snap);
+
+        // LEG B -- LP REPAIRS by depositing the scarce side, then the SAME subsequent flow.
+        vm.prank(lpA); V4.deposit{value: 40 ether}(0, lpA, 3);
+        vm.roll(block.number + 1);
+        uint invRepaired = CORE.POOLED_ETH();
+        for (uint i = 0; i < 6; ++i) _drain(5_000 * 1e18);
+        uint perShareB = V4.convertToAssets(1e18);
+
+        emit log_named_uint("REPAIR moved POOLED_ETH to", invRepaired);
+        emit log_named_uint("leg A (no repair) inv     ", invA);
+        emit log_named_uint("value/share  NO REPAIR    ", perShareA);
+        emit log_named_uint("value/share  REPAIRED     ", perShareB);
+
+        // CONTROLS -- without these the comparison is meaningless.
+        assertGt(invRepaired, invDrained, "PREMISE: the repair must actually raise inventory");
+        if (perShareA == 0 || perShareB == 0) { emit log("VOID: a leg has zero share value."); return; }
+
+        if (perShareB > perShareA) {
+            // §E108: report in 1e8 units, not bps. The gain is sub-1bp, and `* 10_000 /` TRUNCATED
+            // it to 0 on the first run -- the same rounding-branch error as E71. A measure that
+            // cannot represent its own result reports "no effect" when the effect is real.
+            emit log_named_uint("REPAIR PAYS: value/share gain (1e-8)", (perShareB - perShareA) * 1e8 / perShareA);
+        } else if (perShareA > perShareB) {
+            emit log_named_uint("REPAIR COSTS: value/share loss (1e-8)", (perShareA - perShareB) * 1e8 / perShareB);
+            emit log("=> the LP is WORSE OFF repairing -- a drained band is cheaper to hold.");
+        } else {
+            emit log("NEUTRAL: repair changes value/share by nothing measurable at this horizon.");
+        }
+    }
+
     function test_E105_BoundarySweep() public pure {
         uint T = 1_000_000e6;
         // Each row is a corner that a real band can actually occupy.
