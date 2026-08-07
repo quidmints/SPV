@@ -426,6 +426,10 @@ contract DrainAtomicity is Alles {
             uint inv = CORE.POOLED_ETH() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
             uint got = _drain(SMALL);
             if (r == 0) { refEth = got; refInv = inv; }
+            // §E93-b GATE: does the TICK (hence price) track COMPOSITION? If the band is
+            // oracle-pegged, price is pinned externally and CANNOT encode internal imbalance --
+            // which would refute E93-b's premise that the tick ring records composition history.
+            emit log_named_uint("    oracle px (usd18)   ", AUX.getTWAPforAsset(address(WETH), 1800));
             emit log_named_uint("--- drain rounds        ", rounds[r]);
             emit log_named_uint("    inv (usd6)          ", inv);
             emit log_named_uint("    ETH for a 5k ticket ", got);
