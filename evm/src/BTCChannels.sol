@@ -566,11 +566,14 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     //   2. txid integrity: recomputed from raw bytes.
     //   3. Script match: byte-match the key-path P2TR funding output `0x5120||Q`
     //      (Q = p.fundingTaproot) against the SPV-proven tx. The contract does NO
-    //      secp256k1 EC, so it does NOT prove Q == KeyAgg(lpPubkey, hopPubkey) —
-    //      the LP's lpAuth signs over the WHOLE OpenParams (incl. Q), so Q is
-    //      anchored to what the LP consented to, and the 2-of-2 genuineness rests
-    //      on the off-chain MuSig2 keygen (the LP recomputes Q from its own + the
-    //      hop's key before signing lpAuth) + the hop-only msg.sender gate. This is
+    //      secp256k1 EC, so it does NOT prove Q == KeyAgg(lpPubkey, hopPubkey).
+    //      ⚠️ CORRECTED 2026-08-07. This used to read: "the LP's lpAuth signs over the
+    //      WHOLE OpenParams (incl. Q), so Q is anchored to what the LP consented to."
+    //      THAT ANCHOR NO LONGER EXISTS — `lpAuth` was retired when `openChannel` moved
+    //      to `(…, address lpEth)` gated on `_authorizedHop`. Under delegation the LP
+    //      consents to a HOP, not to a funding output, so a delegated hop may open with
+    //      ANY `Q` and ANY `amountSats` credited to that LP. The 2-of-2 genuineness now
+    //      rests ENTIRELY on the off-chain MuSig2 keygen + the delegated-hop gate. This is
     //      the SAME trust posture as the old P2WSH path: that path reconstructed
     //      the script SHAPE but likewise never proved the LP controlled its key or
     //      that the parties were independent. A malicious hop is the residual trust
