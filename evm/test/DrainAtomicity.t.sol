@@ -166,6 +166,44 @@ contract DrainAtomicity is Alles {
     /// branch does not fire SPURIOUSLY, never that it fires at all. This asks the question directly,
     /// and the more useful one behind it: if "populated ring, genuine zero" is UNREACHABLE in
     /// practice, the fix is DEFENSIVE ONLY and should be recorded as such rather than as a live fix.
+    /// §E88-REACH — IS THE σ² SENTINEL REACHABLE IN *ANY* STATE, or is it dead code? It needs all
+    /// three at once: `target > 0` (flow history exists), `inv1 < target` (genuinely scarce), and
+    /// `σ² == 0` (no price movement). Ordinary trading cannot do it — building flow moves the tick.
+    /// The only candidate is MANY TINY swaps that accumulate flow WITHOUT crossing a tick. If even
+    /// that fails, `if (sigmaSqWad == 0) return MAX_WELL_SKEW;` is unreachable and rule 1 applies:
+    /// delete it rather than leave it "for safety".
+    function test_E88_IsTheSentinelReachableAtAll() public {
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        _settle();
+
+        // Many TINY drains: enough to build a flow EWMA, each too small to be expected to move a tick.
+        for (uint i = 0; i < 25; ++i) _drain(50 * 1e18);
+        uint flow = CORE.flowEwmaUsd(false);
+        uint sig  = CORE.realizedVarianceWad(false);
+        uint inv  = CORE.POOLED_ETH() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
+        emit log_named_uint("flow EWMA (target)  ", flow);
+        emit log_named_uint("realizedVariance    ", sig);
+        emit log_named_uint("inv (usd6)          ", inv);
+
+        // §E88-REACH: `sig == 1` IS THE FIX FIRING. E88-r returns exactly 1 wei when the ring is
+        // populated and the raw variance computes to zero, precisely so 0 can mean UNMEASURED and
+        // nothing else. Testing `sig == 0` here would be testing for the PRE-FIX behaviour and would
+        // report "not reached" at the exact moment the fix works — which it did on the first run.
+        if (flow > 0 && sig == 1) {
+            emit log("E88-r FIRED: populated ring, raw variance 0 -> returned 1 wei. THE FIX IS LIVE.");
+            emit log("Without it this calm market would have hit the sentinel and paid the 3% CEILING.");
+        } else if (flow > 0 && sig == 0) {
+            emit log("REACHABLE: flow exists with ZERO variance -- the sentinel CAN fire. LIVE branch.");
+            emit log_named_uint("  and inv < target? (1=yes)", inv < flow ? 1 : 0);
+        } else if (flow == 0) {
+            emit log("NOT REACHED: tiny swaps built NO flow, so target==0 short-circuits first.");
+        } else {
+            emit log("NOT REACHED: any flow-building trade also moved the tick, so variance != 0.");
+            emit log("=> `if (sigmaSqWad == 0) return MAX_WELL_SKEW` looks UNREACHABLE in practice.");
+        }
+    }
+
     function test_E88_SigmaSentinelDiscriminatesUnmeasuredFromCalm() public {
         _seedBasket();
         vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
