@@ -1029,6 +1029,26 @@ library SwapLib {
     ///      Returns a WAD multiplier in [1e18, 2e18): 1× when this band is the only claimant, →2× as
     ///      the other band's equity dominates the shared bound. Bounded by construction — it can
     ///      never invent scarcity, only reflect that the shared backing is already spoken for.
+
+    /// @dev §E89b — THE ONE PLACE THE PRICE IS COMPOSED, for BOTH legs. `_maxWellSkew` is two unlike
+    ///      things summed, and only one of them rides E53's shared-scarcity amplifier:
+    ///        • `σ²·confFrac/8` — capital AT RISK while locked through settlement. When the other band
+    ///          has claimed the shared backing the SAME exposure is dearer to carry, exactly as the
+    ///          shed kernel is, so it IS amplified.
+    ///        • `SPLICE_FLOOR` — a FIXED on-chain splice FEE. An external price does not rise because
+    ///          our other band is busy, so it is NEVER amplified.
+    ///      Its own frame for two reasons: it frees stack in the tight `sellSkew` (no `via_ir`), and
+    ///      having ONE composer means the two legs cannot drift apart again — they already did once
+    ///      (E68b: the sell leg priced at the endpoint for a whole session after the drain leg was
+    ///      fixed). Callers pass the bare kernel; everything else is decided here.
+    function _composePrice(address core, uint kernel, uint sigmaSqWad, bool isBTC)
+        private view returns (uint) {
+        uint splice = isBTC ? SPLICE_FLOOR : 0;
+        uint risk = _maxWellSkew(sigmaSqWad, isBTC) - splice;
+        uint out = FullMath.mulDiv(kernel + risk, _sharedScarcityWad(core, isBTC), 1e18) + splice;
+        return out > MAX_WELL_SKEW ? MAX_WELL_SKEW : out;
+    }
+
     function _sharedScarcityWad(address core, bool isBTC) private view returns (uint) {
         uint both = ICore(core).committedUsd18();
         if (both == 0) return 1e18;
@@ -1063,7 +1083,23 @@ library SwapLib {
             ICore(core).realizedVarianceWad(isBTC), isBTC, drainUsd6);
         // §E53: amplify by how much of the SHARED bound the other band already holds, then re-cap —
         // the amplifier must never lift the skew past the same ceiling the raw curve obeys.
-        uint amp = FullMath.mulDiv(raw, _sharedScarcityWad(core, isBTC), 1e18);
+        // §E89b — THE AMPLIFIER SCALES RISK, NOT FEES. E89 made the base additive, which silently put
+        // it INSIDE the amplifier (while it was a CEILING applied after, that was impossible). The
+        // right split is not "kernel vs base" but RISK vs FEE, because `_maxWellSkew` is two unlike
+        // things added together:
+        //   • `σ²·confFrac/8` — capital AT RISK while locked through settlement. E53's amplifier says
+        //     the other band has already claimed the shared backing, so the SAME dollar of exposure
+        //     is dearer to carry. That applies to this term exactly as it does to the shed kernel,
+        //     so it IS amplified. (I first claimed it should not be; that was wrong.)
+        //   • `SPLICE_FLOOR` — a FIXED on-chain splice FEE. An external price does not rise because
+        //     our other band is busy, so it is NEVER amplified.
+        //   ⚠️ `raw >= splice` is NOT guaranteed: `skewWad` has EARLY RETURNS (`target == 0`, and the
+        // FLUSH branch `inv1 >= target`) that never add the base, leaving `raw == 0`. Assuming
+        // otherwise underflowed on a BALANCED band — the common case — and cost 782 failures.
+        uint splice = isBTC ? SPLICE_FLOOR : 0;
+        uint amp = raw > splice
+            ? FullMath.mulDiv(raw - splice, _sharedScarcityWad(core, isBTC), 1e18) + splice
+            : raw;
         // §E79: the re-cap after the amplifier is now the ABSOLUTE ceiling. The expected-loss FLOOR
         // was already applied inside `skewWad`, and re-clamping to it here would undo the inversion
         // by pulling an amplified premium straight back down to the base charge.
@@ -1196,12 +1232,13 @@ library SwapLib {
             FullMath.mulDiv(MAX_WELL_SKEW, sigmaSqWad, 1e18), q, 1e18);
         // §E53: the SAME shared-scarcity amplifier the drain leg carries — a sell that grows our
         // inventory is dearer to shed when the OTHER band has already spoken for the shared backing.
-        skew = FullMath.mulDiv(skew, _sharedScarcityWad(core, isBTC), 1e18);
+        // §E89b: and the SAME risk-vs-fee split — the settlement-window risk term rides the amplifier
+        // with the kernel; only `SPLICE_FLOOR` stays outside it. Written here so both legs compose
+        // their price identically; they had already drifted apart once (E68b).
+        return _composePrice(core, skew, sigmaSqWad, isBTC);
         // SAME dynamic cap as the drain leg — one ceiling, both legs (`_maxWellSkew`).
         // §E79 — SAME CAP-TO-BASE INVERSION AS THE DRAIN LEG. One rule, both legs.
-        // §E89 — SAME: the settlement-window loss ADDS to the size term, one rule both legs.
-        skew += _maxWellSkew(sigmaSqWad, isBTC);
-        return skew > MAX_WELL_SKEW ? MAX_WELL_SKEW : skew;
+
     }
 
     /// @notice Body of Aux.creditSwapOut — Swap-OUT (USD→BTC), the on-curve
