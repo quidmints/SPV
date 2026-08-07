@@ -95,37 +95,28 @@ contract BTCChannelsFallbackTest is Test {
         assertEq(ch.delegationVersion(lpEth), 2,           "version advanced");
     }
 
-    /// (E122-e) DISAVOWAL — the answer to an alive-but-refusing primary, which no on-chain
-    /// liveness signal can detect. The LP asserts it cold; the fallback gains authority with
-    /// no staleness wait and the primary loses it.
-    function test_disavow_hands_over_immediately() public {
-        _delegate();
-        ch.registerFallback(fallbackHop, 2, _sign(lpPk, ch.fallbackDigest(fallbackHop, 2)));
-        assertFalse(ch.primaryDisavowed(lpEth), "not disavowed yet");
-        ch.disavowPrimary(3, _sign(lpPk, ch.disavowDigest(3)));
-        assertTrue(ch.primaryDisavowed(lpEth), "disavowed");
-        assertEq(ch.delegationVersion(lpEth), 3, "version advanced");
-    }
 
-    /// A disavowal with nobody to hand to would just brick the channel.
-    function test_disavow_requires_a_fallback_to_exist() public {
-        _delegate();
-        bytes memory sig = _sign(lpPk, ch.disavowDigest(2));
-        vm.expectRevert(BTCChannels.NotDelegatedHop.selector);
-        ch.disavowPrimary(2, sig);
-    }
 
-    /// Naming a new primary is the FULL replacement and supersedes the cheap hand-over.
-    function test_redelegation_clears_the_disavowal() public {
+
+
+    /// ✅ THE ANSWER TO "I don't want LPs doing this work": the capability already exists on
+    /// `registerDelegation`, which has NO `msg.sender` check — authority is the SIGNATURE. The
+    /// LP pre-signs a re-delegation naming a successor at setup, hands the bytes to a
+    /// watchtower or the successor, and never acts again. **This is why there is no separate
+    /// "disavow" entrypoint: it would be a second path to a capability we already have.**
+    function test_presigned_redelegation_lets_a_third_party_switch_operators() public {
         _delegate();
-        ch.registerFallback(fallbackHop, 2, _sign(lpPk, ch.fallbackDigest(fallbackHop, 2)));
-        ch.disavowPrimary(3, _sign(lpPk, ch.disavowDigest(3)));
-        address newPrimary = address(0xC0FFEE);
-        ch.registerDelegation(
-            newPrimary, payout, 4, _sign(lpPk, ch.delegationDigest(newPrimary, payout, 4))
-        );
-        assertFalse(ch.primaryDisavowed(lpEth), "re-delegation cleared it");
-        assertEq(ch.delegatedAuthority(lpEth), newPrimary, "new primary in place");
+        address successor = address(0xC0FFEE);
+
+        // The LP signs ONCE at setup and hands the bytes over. It is offline from here.
+        bytes memory presigned = _sign(lpPk, ch.delegationDigest(successor, payout, 2));
+
+        // Much later, a third party (not the LP, not the primary) submits it.
+        vm.prank(address(0xDEADBEEF));
+        ch.registerDelegation(successor, payout, 2, presigned);
+
+        assertEq(ch.delegatedAuthority(lpEth), successor, "operator switched, LP did nothing");
+        assertEq(ch.delegationVersion(lpEth), 2, "version advanced");
     }
 
     /// The staleness window is a real constant, not an unbounded hand-over.

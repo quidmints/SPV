@@ -244,14 +244,6 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     // heartbeat forever and keep an LP's escape hatch permanently un-maturable.
     mapping(address => address) public fallbackAuthority;
 
-    // (E122-e) The LP's cold, gasless assertion that its primary is unresponsive-or-refusing.
-    // This is the answer to the "alive but refusing" hop, which no on-chain LIVENESS signal can
-    // detect: the contract never has to tell idle from obstructive, because the LP says so.
-    // Set ⇒ the primary loses authority on that LP's channels and the named fallback gains it
-    // IMMEDIATELY, with no staleness wait. Cleared by any later `registerDelegation`, so
-    // re-delegating is still the full replacement and this is the cheap hand-over.
-    mapping(address => bool) public primaryDisavowed;
-
     // Block of the last heartbeat (`emitDeadManExit`) for a channel; seeded at open so a
     // primary that NEVER heartbeats still hands over rather than stranding the LP.
     mapping(bytes32 => uint64) public lastHeartbeatBlock;
@@ -368,7 +360,6 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     event ManagerFreshnessCommitted(address indexed hop, uint64 seq);
     event DelegationRegistered(address indexed lpEth, address indexed authority, bytes32 btcRecipient, uint64 version);
     event FallbackRegistered(address indexed lpEth, address indexed fallbackHop, uint64 version);
-    event PrimaryDisavowed(address indexed lpEth, address indexed fallbackHop, uint64 version);
     event MigrationNonceConsumed(bytes32 indexed nonce, address indexed hop);
     event ChannelSpliced(
         bytes32 indexed channelId,
@@ -679,14 +670,6 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///         most LPs will leave unset. Additive keeps them all working.
     ///         It is still LP-SIGNED, which is the property that matters: the operator relaying
     ///         the gasless call must not be able to name the fallback itself.
-    /// @notice (E122-e) Digest for the LP's disavowal of its primary. LP-signed for the same
-    ///         reason the fallback is: the operator relays it, and must not be able to forge it.
-    function disavowDigest(uint64 version) public view returns (bytes32) {
-        return keccak256(abi.encode(
-            keccak256("BTCChannels.disavow.v1"), block.chainid, address(this), version
-        ));
-    }
-
     function fallbackDigest(address fallbackHop, uint64 version) public view returns (bytes32) {
         return keccak256(abi.encode(
             keccak256("BTCChannels.fallback.v1"),
@@ -703,6 +686,16 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///         `authority` (a concrete hop, or a registry contract that attests hops) +
     ///         `btcRecipient` payout script (LOCKED — the same pin recordClose/
     ///         _withdrawalPayout enforce). Sign a higher version with authority=0 to revoke.
+    /// @dev ✅ NO `msg.sender` CHECK, AND THAT IS THE POINT: authority is the LP's SIGNATURE,
+    ///      not the caller. So an LP that wants to do NO ongoing work pre-signs a re-delegation
+    ///      naming a successor hop at setup, hands the bytes to a watchtower / the successor /
+    ///      a family member, and never acts again — that holder submits it if the primary turns
+    ///      unresponsive or obstructive. **This is why no separate "disavow" entrypoint exists:
+    ///      a pre-signed re-delegation already IS the on-demand hand-over, and a second path to
+    ///      the same capability would be surface for nothing.**
+    ///      ⚠️ The trade, so it is chosen rather than discovered: whoever holds the pre-signed
+    ///      bytes can switch operators AT ANY TIME, not only on misbehaviour. Bounded — payouts
+    ///      still pin to `btcRecipientOf`, so the worst case is churn, never theft.
     function registerDelegation(address authority, bytes32 btcRecipient, uint64 version, bytes calldata sig)
         external
     {
@@ -712,7 +705,6 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         if (btcRecipientLocked[lpEth] && btcRecipientOf[lpEth] != btcRecipient) revert WrongBtcRecipient();
         delegatedAuthority[lpEth] = authority;
         delegationVersion[lpEth] = version;
-        primaryDisavowed[lpEth] = false;   // (E122-e) naming a new primary supersedes a disavowal
         _registerBtcRecipient(lpEth, btcRecipient);
         btcRecipientLocked[lpEth] = true;
         emit DelegationRegistered(lpEth, authority, btcRecipient, version);
@@ -732,20 +724,6 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         fallbackAuthority[lpEth] = fallbackHop;
         delegationVersion[lpEth] = version;
         emit FallbackRegistered(lpEth, fallbackHop, version);
-    }
-
-    /// @notice (E122-e) Hand over to the named fallback NOW, without waiting out the staleness
-    ///         window. For the alive-but-refusing primary the clock cannot catch: it keeps the
-    ///         clock fresh with cheap emit-only heartbeats forever. Requires a fallback to
-    ///         already exist — a disavowal with nobody to hand to would just brick the channel.
-    function disavowPrimary(uint64 version, bytes calldata sig) external {
-        address lpEth = ECDSA.recover(disavowDigest(version), sig);
-        if (lpEth == address(0)) revert InvalidParam();
-        if (fallbackAuthority[lpEth] == address(0)) revert NotDelegatedHop();
-        if (version <= delegationVersion[lpEth]) revert StaleDelegation();
-        delegationVersion[lpEth] = version;
-        primaryDisavowed[lpEth] = true;
-        emit PrimaryDisavowed(lpEth, fallbackAuthority[lpEth], version);
     }
 
     /// @dev (E122) Authorized to act on THIS channel: the primary always, or the LP's named
@@ -773,10 +751,8 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     function _authorizedHopForChannel(bytes32 channelId, address lpEth, address hop)
         internal view returns (bool)
     {
-        address fb = fallbackAuthority[lpEth];
-        // (E122-e) Disavowed ⇒ the primary is OUT and the fallback is in, immediately.
-        if (primaryDisavowed[lpEth]) return fb != address(0) && hop == fb;
         if (_authorizedHop(lpEth, hop)) return true;
+        address fb = fallbackAuthority[lpEth];
         if (fb == address(0) || hop != fb) return false;
         uint64 last = lastHeartbeatBlock[channelId];
         return last != 0 && block.number > uint(last) + FALLBACK_STALENESS_BLOCKS;
