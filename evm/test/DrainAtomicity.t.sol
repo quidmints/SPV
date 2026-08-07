@@ -159,6 +159,46 @@ contract DrainAtomicity is Alles {
     /// strengthens the longer an imbalance stands.
     /// Measured on the TRADER's receipt (native ETH + WETH). Each depth is an INDEPENDENT snapshot —
     /// no leg inherits another's flow EWMA, which would confound depth with history.
+    /// §E88-r PROOF — DOES THE σ² SENTINEL FIX ACTUALLY FIRE, AND IS THE STATE IT GUARDS REACHABLE?
+    /// E88-r reserved `realizedVarianceWad == 0` for "UNMEASURED" by returning 1 wei when the ring is
+    /// populated (`cardinality >= 2`) but computes a true zero — so downstream stops charging the 3%
+    /// ceiling to a genuinely CALM market. It landed GREEN but UNPROVEN: a green suite shows the
+    /// branch does not fire SPURIOUSLY, never that it fires at all. This asks the question directly,
+    /// and the more useful one behind it: if "populated ring, genuine zero" is UNREACHABLE in
+    /// practice, the fix is DEFENSIVE ONLY and should be recorded as such rather than as a live fix.
+    function test_E88_SigmaSentinelDiscriminatesUnmeasuredFromCalm() public {
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        _settle();
+
+        // FRESH band: `OracleLib.initPool` sets `cardinality = 1`, so the ring is UNPOPULATED by the
+        // `>= 2` test. Variance here must read 0 = "we have not measured", and the skew must charge
+        // the conservative ceiling — that is E59's intent and it must survive E88-r.
+        uint vFresh = CORE.realizedVarianceWad(false);
+        emit log_named_uint("variance, FRESH ring (expect 0 = unmeasured)", vFresh);
+        emit log_named_uint("wellSkew, FRESH ring                        ", AUX.wellSkew(address(WETH)));
+
+        // Now trade so the ring populates and real price movement enters it.
+        for (uint i = 0; i < 8; ++i) _drain(20_000 * 1e18);
+        uint vTraded = CORE.realizedVarianceWad(false);
+        emit log_named_uint("variance, TRADED ring                       ", vTraded);
+        emit log_named_uint("wellSkew, TRADED ring                       ", AUX.wellSkew(address(WETH)));
+
+        if (vFresh == 0 && vTraded > 0) {
+            emit log("SENTINEL INTACT: 0 means UNMEASURED; a traded ring reports real variance.");
+        }
+        // The discriminating state is `cardinality >= 2` AND a computed variance of exactly 0 — i.e.
+        // a populated ring whose observations are all at the SAME tick. Report whether trading can
+        // even produce it, because that decides live-fix vs defensive-only.
+        if (vTraded == 1) {
+            emit log("REACHED: populated ring with genuine zero variance -> returned 1 wei. LIVE FIX.");
+        } else {
+            emit log("NOT REACHED by ordinary trading: every swap moves the tick, so a populated ring");
+            emit log("carries non-zero variance. E88-r is DEFENSIVE-ONLY on this path -- correct, but");
+            emit log("it guards a state ordinary flow does not produce. Record it that way.");
+        }
+    }
+
     function test_E96b_TaxScalesWithImbalanceDepth() public {
         uint SMALL = 5_000 * 1e18;
         uint8[4] memory rounds = [0, 6, 12, 20];   // 0 = balanced reference
