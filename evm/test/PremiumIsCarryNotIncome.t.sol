@@ -169,44 +169,52 @@ contract PremiumIsCarryNotIncome is Alles {
         }
         assertGt(premium, 0, "the drain must have PAID a premium, or there is nothing to weigh");
 
-        // ---- THE COMPARISON, WITH THE MOVE SIZE TAKEN FROM THE PRICER, NOT FROM ME.
+        // ---- THE ADEQUACY TEST (§E131). Premium vs LVR, as a RATE against a RATE.
         //
-        // Two earlier forms were wrong. A LEVEL comparison of the two bands passed for the wrong
-        // reason: the 626,040 gap was just the 296.4 ETH that LEFT times the move, because
-        // `POOLED_USD_ETH` never absorbed the drainer's stables -- it compared a 400-ETH band to a
-        // 103-ETH band and called the difference inventory risk. A SENSITIVITY comparison at a
-        // hand-picked +10% fixed that, but 10% is 8 SIGMA here (measured sigma^2 = 1.553e-4, so
-        // sigma ~ 1.25%): it quoted a premium for a 1.25%-vol market and demanded it cover an 8x
-        // excursion. A premium failing THAT is arithmetic, not a measurement.
+        // MMRZ eq.16, which `_maxWellSkew` already cites: a constant-product pool bleeds sigma^2/8
+        // per unit time as a fraction of pool value. `realizedVarianceWad` is ANNUALIZED
+        // (`Core.sol:312`, "per-sec -> annualized"), so over an exposure of T years the displaced
+        // inventory V loses  V * sigma^2/8 * T.  Setting that equal to the premium collected gives
+        // the BREAKEVEN EXPOSURE WINDOW. NOTE THE DIRECTION OF THE LEVER (owner, 2026-08-06):
+        // "the refill will be as fast as it can, not as fast as it must be." So T* is NOT a
+        // latency spec the refill has to hit -- the refill runs at whatever it achieves. T* is a
+        // constraint on THE PREMIUM: if the achievable repair window exceeds T*, the skew must be
+        // priced over the OBSERVED repair window instead of `confFrac`, because the settlement
+        // window is not when the LP's exposure ends. That is §E128's finding with the causality
+        // the right way round.
         //
-        // So: derive the BREAKEVEN MOVE -- the fractional price move at which the premium is
-        // exactly exhausted by the foregone upside on the ETH the band no longer holds --
-        //     breakeven = premium / (missingEth * px)
-        // and compare it to the volatility the premium was ACTUALLY priced from. Comparing in
-        // VARIANCE space keeps this exact and needs no square root:
-        //     breakeven^2  <  realizedVarianceWad     <=>     breakeven < sigma
-        // If the premium cannot survive a ONE-SIGMA move by its own volatility input, it is carry
-        // for a risk that exceeds it. No chosen constant enters the assertion.
-        uint premium18  = premium * 1e12;   // usd6 -> u18; see the header on the 1e12 bias
-        uint missingEth = ethQuiet - ethDrained;
-        uint breakevenWad = FullMath.mulDiv(premium18, 1e18, FullMath.mulDiv(missingEth, px, 1e18));
-        uint breakevenSqWad = FullMath.mulDiv(breakevenWad, breakevenWad, 1e18);
-        uint varWad = CORE.realizedVarianceWad(false);
+        //     T* = 8P / (V * sigma^2)
+        //
+        // THE REPORTED INVARIANT IS `8P/V`, WHICH IS sigma^2-FREE. §E120 bars quoting fork
+        // magnitudes, and sigma^2 here is the most fork-sensitive term of all (a thin pool with a
+        // pinned feed measures 1.553e-4, i.e. ~1.25% ANNUAL vol -- absurd for ETH). Publishing
+        // 8P/V lets any reader divide by the sigma^2 they believe, so the measurement survives the
+        // fork's volatility being wrong. T* below is that division at the MEASURED sigma^2 and is
+        // labelled accordingly.
+        //
+        // THE ASSERTION IS INTERNAL CONSISTENCY, NOT AN IMPORTED THRESHOLD: the premium must cover
+        // the LVR over AT LEAST the window it was explicitly priced for. `_maxWellSkew` charges
+        // `sigma^2 * confFrac / 8` with `ETH_CONF_FRAC_WAD` = 380e9 ~ 12 SECONDS (one block). If
+        // the premium cannot fund even that, the skew formula contradicts its own derivation. No
+        // number outside the contracts enters this.
+        uint v18  = FullMath.mulDiv(ethQuiet - ethDrained, px, 1e18);   // displaced inventory, usd18
+        uint invWad = FullMath.mulDiv(8 * premium * 1e12, 1e18, v18);   // 8P/V, sigma^2-free
+        uint tStarWad = FullMath.mulDiv(invWad, 1e18, CORE.realizedVarianceWad(false));  // years, WAD
 
-        emit log_named_uint("missing ETH                ", missingEth);
-        emit log_named_uint("premium u18 (=usd6*1e12)   ", premium18);
-        emit log_named_uint("BREAKEVEN move (wad)       ", breakevenWad);
-        emit log_named_uint("realizedVarianceWad (sig^2)", varWad);
-        emit log_named_uint("breakeven^2 (wad)          ", breakevenSqWad);
+        emit log_named_uint("displaced inventory usd18  ", v18);
+        emit log_named_uint("INVARIANT 8P/V (wad, sig^2-free)", invWad);
+        emit log_named_uint("T* breakeven window, SECONDS (at MEASURED sig^2)", tStarWad * 31_536_000 / 1e18);
+        emit log_named_uint("settlement window it was priced for, SECONDS", uint(380_000_000_000) * 31_536_000 / 1e18);
 
-        if (breakevenSqWad >= varWad) {
-            emit log("RESULT: the premium SURVIVES a one-sigma move -- it is farmable income.");
-            emit log("=> E123 IS REFUTED; E122's consequence 2 must be reinstated.");
-        } else {
-            emit log("RESULT: the premium is exhausted well INSIDE one sigma. Carry, not income.");
-        }
+        // The decision this feeds: compare T* to the refill's ACHIEVABLE latency once it exists.
+        // If achievable > T*, the premium is short and the skew's window is what changes. Logged at
+        // a REFERENCE annual vol as a SCENARIO, never as a measurement -- 0.36 = 60% annual vol, a
+        // plausible ETH figure this thin fork (1.553e-4 => ~1.25%/yr) cannot produce.
+        emit log_named_uint("T* SECONDS at 60%/yr reference vol (SCENARIO, not measured)",
+            FullMath.mulDiv(invWad, 1e18, 0.36e18) * 31_536_000 / 1e18);
 
-        assertLt(breakevenSqWad, varWad,
-            "E123: premium must NOT survive a one-sigma move by its own variance input");
+        assertGe(tStarWad, 380_000_000_000,
+            "E131: the premium must fund LVR over at least the settlement window it priced for");
+
     }
 }
