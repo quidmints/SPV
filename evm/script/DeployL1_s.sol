@@ -114,6 +114,15 @@ contract Deploy is Script {
     address constant WEETH_USDC_ORACLE = 0x5635a2F38c5dFd1d8fDB176d9CB5AEFA07bf6A68;
     address constant WETH_USDC_ORACLE  = 0x0F948CBa8231Db7898ef36A4212581Ad7b1B4580;
     uint256 constant MORPHO_LLTV_86 = 0.86e18;  // the Morpho-whitelisted LLTV every lev market uses (0.80 is not enabled)
+    // The weETH-collateral / WETH-LOAN market: the one venue here whose debt is ETH-denominated, so an
+    // ETH IL-protect borrow needs NO stable->WETH SOR round trip. Verified on-chain 2026-08-08 --
+    // idToMarketParams(0x37e7484d...472ba7) returns exactly {WETH, weETH, this oracle, ADAPTIVE_IRM, 94.5%},
+    // and keccak(abi.encode(those)) recomputes that id, so the five values ARE the market.
+    // ⚠️ TWO SIBLING weETH/WETH MARKETS EXIST AT 86% LLTV AND ARE EMPTY ($0.0002 and $2,095 supplied).
+    //    They are correctly formed, so a wrong oracle here yields a venue that passes every structural
+    //    check and can never fill a borrow. The discriminator is LIQUIDITY, not well-formedness.
+    address constant WEETH_WETH_ORACLE = 0xbDd2F2D473E8D63d1BFb0185B5bDB8046ca48a72;
+    uint256 constant MORPHO_LLTV_945   = 0.945e18; // this market's own LLTV -- NOT the 86% the USDC legs use
     // Euler EVK pair honoring INVARIANT #1 (the collateral vault MUST be escrow): eweETH-1 is
     // governor-RENOUNCED (immutably escrow — no IRM, no borrows, ever); eUSDC-11 accepts it at 67%
     // LTVBorrow / 82%-class liquidation config. No live escrow-weETH + LIQUID-USDC pair exists on
@@ -555,12 +564,21 @@ contract Deploy is Script {
     ///         ETH-denominated and shares POOLED_ETH with weETH; the manager derives collateral type from the
     ///         venue's collateral token (WETH ⇒ 1:1 valuation + SOR-only legs, no ether.fi mint/redeem).
     ///
-    /// ⚠️ CORRECTED 2026-08-08 — the removed clause claimed an "optional WETH-debt short (auto-detected by
-    ///    LevManager.init via stable()==WETH)". `init` (LevManager.sol:198-214) does NO such detection: it
-    ///    calls `LevMath.vetVenue(v, WETH, WETH, WEETH)`, which gates on the venue's COLLATERAL token, and
-    ///    `LevManager.sol:210` states outright that the inverse/stable-collateral classification "is unused"
-    ///    because the short subsystem was REMOVED 2026-07-24. A WETH-DEBT venue is therefore perfectly
-    ///    allowlistable — but it becomes an ordinary LONG, with no short behaviour of any kind.
+    /// ⚠️ RE-CORRECTED 2026-08-09 — an earlier correction on this line was itself WRONG and is retracted.
+    ///    It claimed "`init` does NO such detection". THE `stable()==WETH` DETECTION DOES EXIST, one frame
+    ///    down: `init` calls `LevMath.vetVenue(v, WETH, WETH, WEETH)` and `vetVenue` opens with
+    ///    `if (ILevVenueColl(v).stable() == base) return true;` (LevMath.sol:254) where `base` IS `WETH`.
+    ///    What is true is only the CONSEQUENCE: `init` DISCARDS the returned `isShort`, so no short
+    ///    behaviour follows — the venue is simply allowlisted.
+    ///
+    /// 🔴 BUT THAT EARLY RETURN SKIPS THE COLLATERAL-SET GATE. For a WETH-DEBT venue, `vetVenue` returns
+    ///    BEFORE `coll != c0 && coll != c1 -> revert BadCollateral()` (LevMath.sol:255-256). That gate is
+    ///    the one LevManager.sol:206-208 calls "the rug the frozen allowlist stops": collateral outside
+    ///    {WETH, weETH} "silently misvalues into phantom ETH backing" via `_collToEth`. So ANY WETH-debt
+    ///    venue is allowlistable with ARBITRARY, UNVALIDATED collateral. The venue added below is benign
+    ///    (its collateral IS weETH), but it is the FIRST venue to reach the allowlist through the
+    ///    unchecked branch, and the hole is generic. Booked in QUEUE; do not add a second WETH-debt venue
+    ///    until the gate covers this path.
     ///
     /// 📌 EVERY VENUE HERE BORROWS **USDC**, which is why an ETH-denominated IL-protect borrow currently pays
     ///    a stable→WETH SOR round trip. A weETH-collateral/WETH-loan Morpho market EXISTS and is deep
@@ -601,8 +619,24 @@ contract Deploy is Script {
         // fork-verified against live Aave V4 (test/AaveV4Venue.t.sol). WETH liquidation threshold 8000 bps
         // (conservative vs the live ~83% gov param; the venue reports it via liqThresholdBps for LevManager sizing).
         address av = address(new AaveV4Venue(aaveSpoke, aaveHub, address(WETH), address(USDC), lm, 8000));
-        vs = new address[](5);   // SHORT venue removed (2026-07-24): the down-side short subsystem is gone (up-side-only)
+        vs = new address[](6);   // SHORT venue removed (2026-07-24): the down-side short subsystem is gone (up-side-only)
         vs[0] = mv; vs[1] = ev; vs[2] = mvW; vs[3] = ltv; vs[4] = av;
+        // LONG Morpho venue {collateral: weETH, debt: WETH} -- the ETH-DENOMINATED-DEBT leg. Every other venue
+        // above borrows USDC, which is what makes an ETH IL-protect borrow pay a stable->WETH SOR round trip;
+        // this one borrows the asset the position is already denominated in, so that leg disappears. The
+        // plumbing was landed inert ahead of it: `LevMath._stableToWethSor`/`_wethToStableDex` return early
+        // when `stable == c.weth`, and `_fromUsd`/`_toUsd18` take a price, so a WETH loan token sizes off the
+        // ETH price instead of silently assuming $1 (a ~4,000x error before that gate opened).
+        // ⚠️ This venue is allowlisted through `vetVenue`'s `stable()==base` EARLY RETURN, so its collateral is
+        // NEVER checked (see the 🔴 note on this function). It is weETH and therefore valuable by `_collToEth`,
+        // but that is true by CONSTRUCTION here, not because anything verified it.
+        // Constructed INLINE rather than into a local: this frame is stack-tight and via_ir is off by choice.
+        vs[5] = _mkMorphoVenue(morpho, MarketParams({
+            loanToken: address(WETH), collateralToken: weeth,
+            oracle: vm.envOr("MORPHO_WEETH_WETH_ORACLE", WEETH_WETH_ORACLE),
+            irm: vm.envOr("MORPHO_WEETH_WETH_IRM", ADAPTIVE_IRM),
+            lltv: vm.envOr("MORPHO_WEETH_WETH_LLTV", MORPHO_LLTV_945)
+        }), lm);
     }
 
 }
