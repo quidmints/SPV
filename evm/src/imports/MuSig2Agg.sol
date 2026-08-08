@@ -64,40 +64,57 @@ library MuSig2Agg {
     /// @notice TRUE iff `qXOnly` is the BIP-341 output key of the MuSig2 2-of-2 over these
     ///         two pubkeys — i.e. `Q = KeyAgg(KeySort(pk1, pk2)) + H_TapTweak(x)·G`.
     /// @dev The whole point: it can only be true if BOTH named keys are inside `Q`.
+    /// @dev Locals in a struct: one memory pointer costs less stack than a dozen values.
+    ///      (House rule — stack-too-deep is solved this way here, never with via_ir.)
+    struct AggVars {
+        EC256.Curve ec;
+        bytes p1;
+        bytes p2;
+        uint256 a1;
+        EC256.APoint P1;
+        EC256.APoint P2;
+        EC256.APoint agg;
+        uint256 t;
+    }
+
     function isTwoOfTwoOutputKey(
         bytes memory pkA33,
         bytes memory pkB33,
         bytes32 qXOnly
     ) internal view returns (bool) {
-        EC256.Curve memory ec = curve();
+        AggVars memory v;
+        v.ec = curve();
 
         // BIP-327 KeySort: lexicographic over the 33-byte encodings.
-        (bytes memory p1_, bytes memory p2_) =
-            _lessThan(pkA33, pkB33) ? (pkA33, pkB33) : (pkB33, pkA33);
+        (v.p1, v.p2) = _lessThan(pkA33, pkB33) ? (pkA33, pkB33) : (pkB33, pkA33);
 
-        // Coefficients bind the WHOLE sorted list, which is what defeats rogue-key attacks.
-        bytes32 listHash_ = taggedHash("KeyAgg list", abi.encodePacked(p1_, p2_));
-        uint256 a1_ = uint256(taggedHash("KeyAgg coefficient", abi.encodePacked(listHash_, p1_))) % ec.n;
-        uint256 a2_ = uint256(taggedHash("KeyAgg coefficient", abi.encodePacked(listHash_, p2_))) % ec.n;
+        // ⚠️ THE "SECOND KEY" RULE, which the BIP-327 vectors caught me getting wrong.
+        //    `key_agg_coeff_internal` returns 1 — NOT a hash — for the second key (the first
+        //    entry differing from `pubkeys[0]`). Hashing both yields a plausible-looking
+        //    aggregate that is simply a different point: invisible by inspection.
+        v.a1 = uint256(taggedHash(
+            "KeyAgg coefficient",
+            abi.encodePacked(taggedHash("KeyAgg list", abi.encodePacked(v.p1, v.p2)), v.p1)
+        )) % v.ec.n;
 
-        EC256.APoint memory P1_ = decompress(p1_);
-        EC256.APoint memory P2_ = decompress(p2_);
-        // ⚠️ Explicit, because a library that assumes it is how crysol shipped an
-        //    `isOnCurve` that accepted off-curve points.
-        require(ec.isOnCurve(P1_) && ec.isOnCurve(P2_), "MuSig2Agg: pubkey off curve");
+        v.P1 = decompress(v.p1);
+        v.P2 = decompress(v.p2);
+        // Explicit, because assuming it is how crysol shipped a broken `isOnCurve`.
+        require(v.ec.isOnCurve(v.P1) && v.ec.isOnCurve(v.P2), "MuSig2Agg: pubkey off curve");
 
-        // a1·P1 + a2·P2 in one Shamir pass — this IS 2-key KeyAgg.
-        EC256.APoint memory agg_ = ec.toAffine(
-            ec.jMultShamir2(EC256.toJacobian(P1_), EC256.toJacobian(P2_), a1_, a2_)
+        // a1·P1 + 1·P2 in one Shamir pass — this IS 2-key KeyAgg.
+        v.agg = v.ec.toAffine(
+            v.ec.jMultShamir2(EC256.toJacobian(v.P1), EC256.toJacobian(v.P2), v.a1, 1)
         );
 
-        // BIP-341: the tweak commits to the aggregate's x-only form (even-y convention).
-        uint256 t_ = uint256(taggedHash("TapTweak", abi.encodePacked(bytes32(agg_.x)))) % ec.n;
-        EC256.APoint memory q_ = ec.toAffine(
-            ec.jAddPoint(EC256.toJacobian(agg_), ec.jMultShamir(ec.jbasepoint(), t_))
-        );
+        // BIP-341 tweaks the EVEN-Y LIFT of the aggregate, not the aggregate as computed.
+        // Skipping this was the second bug the vectors caught — wrong for half of all pairs.
+        if (v.agg.y % 2 != 0) v.agg.y = v.ec.p - v.agg.y;
+        v.t = uint256(taggedHash("TapTweak", abi.encodePacked(bytes32(v.agg.x)))) % v.ec.n;
 
-        return q_.x == uint256(qXOnly);
+        return v.ec.toAffine(
+            v.ec.jAddPoint(EC256.toJacobian(v.agg), v.ec.jMultShamir(v.ec.jbasepoint(), v.t))
+        ).x == uint256(qXOnly);
     }
 
     function _lessThan(bytes memory a, bytes memory b) private pure returns (bool) {
