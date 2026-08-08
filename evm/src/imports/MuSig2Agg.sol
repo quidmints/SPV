@@ -2,6 +2,8 @@
 pragma solidity ^0.8.28;
 
 import {EC256} from "@solarity/solidity-lib/libs/crypto/EC256.sol";
+// OZ 5.4 for `Math.modExp` — our global OZ is 5.0.2 (transitive via v4-core) and predates it.
+import {Math} from "@openzeppelin-5.4/utils/math/Math.sol";
 
 /// @title  MuSig2Agg — prove a taproot output key IS the 2-of-2 of two named pubkeys
 /// @notice Closes the gap `BTCChannels.sol` has always admitted: *"The contract does NO
@@ -54,7 +56,7 @@ library MuSig2Agg {
         require(x != 0 && x < p, "MuSig2Agg: x out of field");
 
         uint256 ySq = addmod(mulmod(mulmod(x, x, p), x, p), 7, p);
-        uint256 y = _modExp(ySq, (p + 1) >> 2, p);
+        uint256 y = Math.modExp(ySq, (p + 1) >> 2, p);   // p ≡ 3 (mod 4)
         require(mulmod(y, y, p) == ySq, "MuSig2Agg: x is not on the curve");
 
         if ((y & 1) != (prefix & 1)) y = p - y;                  // match the declared parity
@@ -133,15 +135,5 @@ library MuSig2Agg {
             if (uint8(a[i]) != uint8(b[i])) return uint8(a[i]) < uint8(b[i]);
         }
         return false;
-    }
-
-    function _modExp(uint256 base, uint256 e, uint256 m) private view returns (uint256 r) {
-        assembly ("memory-safe") {
-            let p := mload(0x40)
-            mstore(p, 0x20) mstore(add(p, 0x20), 0x20) mstore(add(p, 0x40), 0x20)
-            mstore(add(p, 0x60), base) mstore(add(p, 0x80), e) mstore(add(p, 0xa0), m)
-            if iszero(staticcall(gas(), 0x05, p, 0xc0, p, 0x20)) { revert(0, 0) }
-            r := mload(p)
-        }
     }
 }

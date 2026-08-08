@@ -30,6 +30,17 @@ import {Test} from "forge-std/Test.sol";
 ///         to measure against. No realism is given up.
 abstract contract ForkPin is Test {
     function _forkMainnet() internal returns (uint forkId) {
+        // ⚠️ TOUCH THE PRECOMPILE BEFORE THE FORK EXISTS, NOT AFTER. On a fork, the first
+        // access to an address foundry has not cached triggers an eth_getAccount, and a
+        // PUBLIC node answers for a non-head block with "Archive requests require a personal
+        // token" (403) — so anything reaching `modexp` (0x05) dies with a database error
+        // naming the precompile, saying nothing about the code under test.
+        // Ordering is the whole trick and three of four attempts fail; see
+        // test/ModexpOnFork.t.sol, which asserts the working one. `vm.deal` AFTER
+        // `createFork` triggers the very fetch it should avoid, and `vm.store` is rejected
+        // outright on precompiles.
+        vm.deal(address(5), 0);
+        vm.makePersistent(address(5));
         uint pinned = vm.envOr("FORK_BLOCK", uint(0));
         return pinned == 0
             ? vm.createFork(vm.rpcUrl("mainnet"))
