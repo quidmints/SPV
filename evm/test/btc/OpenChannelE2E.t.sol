@@ -68,6 +68,13 @@ contract OpenChannelE2ETest is Test {
         internal
         returns (BTCChannels ch, bytes32 channelId, address lpEth)
     {
+        return _openFromFixture(json, gw, bytes32(0));
+    }
+
+    function _openFromFixture(string memory json, SPVGateway gw, bytes32 payoutOverride)
+        internal
+        returns (BTCChannels ch, bytes32 channelId, address lpEth)
+    {
         bytes memory hopPubkey = vm.parseJsonBytes(json, ".hopPubkey");
         // The hop's BTC pubkey is fixed at deploy; LP's is per-channel.
         ch = new BTCChannels(
@@ -87,11 +94,15 @@ contract OpenChannelE2ETest is Test {
         // ECDSA sig over openChannelDigest; the recovered signer is the owner.
         uint lpPk;
         (lpEth, lpPk) = makeAddrAndKey("lp");
-        channelId = _submitOpen(ch, json, p, lpPk);
+        channelId = _submitOpen(ch, json, p, lpPk, payoutOverride);
     }
 
     /// Sign + submit the open in its own frame (rawTx/lpAuth/payout confined here).
-    function _submitOpen(BTCChannels ch, string memory json, Types.OpenParams memory p, uint lpPk)
+    /// @param payoutOverride when non-zero, pin THIS as `btcRecipientOf` instead of the derived
+    ///        shutdown key. A SHRINK splice's withdrawal output pins to `btcRecipientOf`, so a
+    ///        test driving the fixture's real splice must pin the key that splice actually pays.
+    function _submitOpen(BTCChannels ch, string memory json, Types.OpenParams memory p, uint lpPk,
+                         bytes32 payoutOverride)
         internal
         returns (bytes32 channelId)
     {
@@ -99,7 +110,9 @@ contract OpenChannelE2ETest is Test {
         // Realistic btcRecipientOf: a full 32-byte x-only shutdown key distinct from the
         // funding material. This test asserts channel state at open only (no close/splice),
         // so the key is registered but not guard-validated — it must still be a proper key.
-        bytes32 payout = _validXOnly(abi.encode("lp-shutdown-xonly", p.lpPubkey));
+        bytes32 payout = payoutOverride != bytes32(0)
+            ? payoutOverride
+            : _validXOnly(abi.encode("lp-shutdown-xonly", p.lpPubkey));
         // (B) The LP delegates channel operation to the hop (0xB0B) COLD, once: pins +
         // LOCKS btcRecipientOf[lpEth]=payout and delegatedAuthority[lpEth]=0xB0B. The
         // 4-arg open is then hop-gated (0xB0B) and credits the position to lpEth.
@@ -227,10 +240,78 @@ contract OpenChannelE2ETest is Test {
             );
         }
     }
+
+    /// (E147-i) THE FIRST TEST EVER TO DRIVE `splice()` FROM REAL BITCOIN DATA.
+    ///
+    /// Its absence is the direct cause of E147: the E129 KeyAgg gate was wired, went green on
+    /// fixtures that built `Q` with `MuSig2Agg` itself, and would have REJECTED EVERY REAL
+    /// SPLICE in production — funds stuck in channels that could neither grow nor shrink.
+    /// Nothing could have caught that except exercising the real splice path.
+    ///
+    /// The fixture's splice is a SHRINK: 20,000,000 -> 15,000,000 sats, withdrawing 5,000,000
+    /// to `payoutScript`. Since E147-g it is a GENUINE 2-of-2 key-path spend of the funding
+    /// output (the generator holds the aggregate secret), which it never was before.
+    function test_splice_realRegtestShrink() public {
+        string memory json = vm.readFile(
+            string.concat(vm.projectRoot(), "/test/btc/open_channel_fixture.json"));
+        SPVGateway gw = _buildChain(json);
+
+        // A shrink's withdrawal output pins to `btcRecipientOf`, so pin the key the fixture's
+        // splice actually pays: `payoutScript` is `0x5120||key`, so drop the 2-byte prefix.
+        bytes memory payoutSpk = vm.parseJsonBytes(json, ".splice.payoutScript");
+        assertEq(payoutSpk.length, 34, "payoutScript is not a 34-byte P2TR spk");
+        bytes32 payoutKey;
+        assembly { payoutKey := mload(add(payoutSpk, 34)) }   // bytes 2..33
+        assertTrue(BitcoinTx.isValidXOnlyKey(payoutKey), "fixture payout key is off-curve");
+
+        (BTCChannels ch, bytes32 channelId,) = _openFromFixture(json, gw, payoutKey);
+        (uint before,,,,,) = ch.channels(channelId);
+        assertEq(before, vm.parseJsonUint(json, ".amountSats"), "channel opened at the funded size");
+
+        // The splice keeps the SAME 2-of-2 -- a splice does not re-key the channel.
+        Types.OpenParams memory sp = Types.OpenParams({
+            fundingBlockHash:   vm.parseJsonBytes32(json, ".splice.spliceBlockHashBE"),
+            fundingBlockHeight: uint64(vm.parseJsonUint(json, ".splice.spliceHeight")),
+            fundingTxIndex:     vm.parseJsonUint(json, ".splice.spliceTxIndex"),
+            lpPubkey:           vm.parseJsonBytes(json, ".lpPubkey"),
+            hopPubkey:          vm.parseJsonBytes(json, ".hopPubkey"),
+            amountSats:         vm.parseJsonUint(json, ".splice.newAmountSats"),
+            fundingTaproot:     vm.parseJsonBytes32(json, ".fundingTaproot")
+        });
+        vm.prank(address(0xB0B));   // the delegated authority registered at open
+        ch.splice(channelId, sp, vm.parseJsonBytes(json, ".splice.spliceRawTx"),
+                  vm.parseJsonBytes32Array(json, ".splice.spliceMerkleBranch"), 0);
+
+        (uint afterSats,,,,,) = ch.channels(channelId);
+        assertEq(afterSats, vm.parseJsonUint(json, ".splice.newAmountSats"),
+            "channel resized to the spliced amount");
+        assertLt(afterSats, before, "this fixture splice is a SHRINK");
+        assertEq(before - afterSats, vm.parseJsonUint(json, ".splice.withdrawSats"),
+            "the size drop equals the withdrawn sats");
+        // ⚠️ ASSERT ON WHAT THE VAULT WAS TOLD, not only on the channel struct the splice
+        //    itself rewrote — a resize that never reached the LP's position would otherwise
+        //    look identical here.
+        (,, address lpOwner,,,) = ch.channels(channelId);
+        assertEq(vogue.resizedShrinkSats(lpOwner), vm.parseJsonUint(json, ".splice.withdrawSats"),
+            "the vault was told the same shrink the splice performed");
+        assertEq(vogue.registered(lpOwner), vm.parseJsonUint(json, ".splice.newAmountSats"),
+            "the LP position tracks the resized channel");
+    }
 }
 
 contract MockVogue {
     mapping(address => uint) public registered;
     function registerBtcLp(address lpEth, uint sats) external { registered[lpEth] += sats; }
     function unregisterBtcLp(address, uint) external {}
+    // (E147-i) The SHRINK leg of a splice calls this. Its absence made
+    // `test_splice_realRegtestShrink` revert with a bare `EvmError: Revert` — a missing mock
+    // method is indistinguishable from a contract bug at the call site, which is why the
+    // shrink amounts are RECORDED here and asserted in the test rather than merely swallowed.
+    mapping(address => uint) public resizedShrinkSats;
+    mapping(address => uint) public resizedPayoutSats;
+    function resizeBtcLp(address lpEth, uint shrinkSats, uint lpPayoutSats, uint) external {
+        resizedShrinkSats[lpEth] += shrinkSats;
+        resizedPayoutSats[lpEth] += lpPayoutSats;
+        registered[lpEth] -= shrinkSats;
+    }
 }

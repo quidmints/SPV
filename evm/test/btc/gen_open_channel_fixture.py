@@ -419,8 +419,22 @@ def main():
         if spec:
             e["splice"] = build_splice(o, *spec)
 
+    # (E147-i) BURY THE SPLICES TOO. Each `build_splice` mines exactly ONE block via
+    # `generateblock`, and nothing mined after the loop — so the LAST splices ended up with
+    # 3 or fewer confirmations while `ChannelLib.MIN_CONFIRMATIONS == 6`. The opens were
+    # buried (7 blocks at the line above) and the splices were not, so the first test ever to
+    # drive `splice()` from this fixture failed with `BadSPV()` — an SPV-depth artifact of the
+    # FIXTURE that reads exactly like a broken proof. Bury them before capturing the chain.
+    cli("generatetoaddress", 7, cli("getnewaddress"))
     tip = int(cli("getblockcount"))
+    # ⚠️ headers/tip are captured AFTER every block is mined, or the chain the test builds
+    #    would not contain the blocks the proofs reference.
     headers = [cli("getblockheader", cli("getblockhash", h), "false") for h in range(0, tip + 1)]
+    for e in entries:
+        sp = e.get("splice")
+        assert sp is None or tip - sp["spliceHeight"] >= 6, \
+            f"splice at height {sp['spliceHeight']} has only {tip - sp['spliceHeight']} confirmations"
+    assert all(tip - e["fundingHeight"] >= 6 for e in entries), "an open is under-buried"
     x = lambda h: "0x" + h
     print(json.dumps({
         "genesisHeader": x(headers[0]),
