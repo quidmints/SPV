@@ -152,7 +152,7 @@ contract BtcLevManager {
     /// @notice `lp`'s debt in USD (1e18), normalizing the venue stable's decimals.
     function debtUsd(address lp) public view returns (uint) {
         ILevVenue v = pos[lp].venue;
-        return LevMath._toUsd18(v.stable(), v.debtOf(lp));          // canonical decimal-normalize (dedup)
+        return LevMath._toUsd18(v.stable(), v.debtOf(lp), LevMath.USD_PX);          // canonical decimal-normalize (dedup)
     }
 
     /// @notice `lp`'s LIVE net-equity in BTC-units (1e18) = collateral(vBTC) − debt(USD→BTC), floored at 0.
@@ -369,7 +369,7 @@ contract BtcLevManager {
         (bool levUp, uint room) = debtDeltaToTarget(lp);
         if (!levUp || room == 0) revert BadTarget();                   // only toward target
         uint want = stableUsd > room ? room : stableUsd;
-        got = p.venue.borrow(lp, LevMath._fromUsd(p.venue.stable(), want));    // stable → this
+        got = p.venue.borrow(lp, LevMath._fromUsd(p.venue.stable(), want, LevMath.USD_PX));    // stable → this
         if (got > 0) IERC20Min(p.venue.stable()).transfer(lp, got);      // → LP/keeper for external BTC sourcing
         emit Borrowed(lp, got);
         if (vogueSyncHook != address(0)) { try ILevSyncHook(vogueSyncHook).syncLevBTC(lp) {} catch {} } // full-2× reconcile
@@ -405,7 +405,7 @@ contract BtcLevManager {
         address lp = msg.sender;
         Pos memory p = pos[lp];
         if (!p.open) revert NotOpen();
-        uint amt = LevMath._fromUsd(p.venue.stable(), stableUsd);
+        uint amt = LevMath._fromUsd(p.venue.stable(), stableUsd, LevMath.USD_PX);
         // Clamp to the current debt BEFORE the transfer. `venue.repay` already caps the repaid amount at
         // the position's debt, but the transfer above moves the full `amt` in — so an over-repay
         // (`amt > debt`) would leave `amt − debt` stranded on the venue adapter permanently (subsequent
@@ -485,7 +485,7 @@ contract BtcLevManager {
     ///      WBTC → SOR→stable → returns the flash + surplus. `repayUsd` (= deltaUsd) is already ≤ debt.
     function _flashDeleverWbtc(ILevVenue venue, address lp, address stable, uint repayUsd, uint minOut) internal {
         if (repayUsd == 0) return;
-        IMorphoFlash(flashProvider).flashLoan(stable, LevMath._fromUsd(stable, repayUsd),
+        IMorphoFlash(flashProvider).flashLoan(stable, LevMath._fromUsd(stable, repayUsd, LevMath.USD_PX),
             abi.encode(lp, address(venue), stable, minOut));
     }
 
@@ -522,12 +522,12 @@ contract BtcLevManager {
         if (msg.sender != vogueSyncHook) revert BadAuth();          // Vault settle path only
         Pos memory p = pos[lp];
         if (!p.open) return (0, 0);
-        uint amt = LevMath._fromUsd(p.venue.stable(), stableUsd);   // usd → native stable units
+        uint amt = LevMath._fromUsd(p.venue.stable(), stableUsd, LevMath.USD_PX);   // usd → native stable units
         uint debt = p.venue.debtOf(lp);
         if (amt > debt) amt = debt;                                 // clamp to debt (never over-repay / strand)
         if (amt > 0) {
             uint repaid = p.venue.repay(lp, amt);                   // stable pre-transferred to venue by the Vault
-            usedUsd = LevMath._toUsd18(p.venue.stable(), repaid);   // USD 1e18 actually applied to the debt
+            usedUsd = LevMath._toUsd18(p.venue.stable(), repaid, LevMath.USD_PX);   // USD 1e18 actually applied to the debt
         }
         freedSats = freeSats;                                       // the delivered levered slice (channel-proven)
         uint coll = p.venue.collateralOf(lp);
@@ -551,7 +551,7 @@ contract BtcLevManager {
         if (!p.open) return (address(0), address(0), 0);
         venue = address(p.venue);
         stable = p.venue.stable();
-        amtNative = LevMath._fromUsd(stable, maxUsd18);
+        amtNative = LevMath._fromUsd(stable, maxUsd18, LevMath.USD_PX);
         uint debt = p.venue.debtOf(lp);
         if (amtNative > debt) amtNative = debt;                     // clamp to debt (matches swapOutDelever)
     }

@@ -1433,7 +1433,7 @@ library SwapLib {
         (address venue, address stable, uint amtNative) =
             ILevManagerDeliver(mgr).swapOutDeleverAmt(lp, wantUsd6 * 1e12);  // amtNative clamped to LIVE debt
         if (venue == address(0)) return 0;
-        uint takeUsd18 = LevMath._toUsd18(stable, amtNative);
+        uint takeUsd18 = LevMath._toUsd18(stable, amtNative, LevMath.USD_PX);
         { uint held = _heldUsd18(aux, stable); if (takeUsd18 > held) takeUsd18 = held; } // stay on the cherry-pick leg
         if (takeUsd18 == 0) {
             // #13/H2: the channel BTC has ALREADY physically left to the swapper (splice-proven), so we must not
@@ -1465,7 +1465,7 @@ library SwapLib {
             got = IERC20(stable).balanceOf(venue) - bal0;        // venue-stable actually sourced (native units)
         }
         // Repay `got` (0 if the position had no debt — a pure-equity levered slice) and free `want` sats regardless.
-        ILevManagerDeliver(mgr).swapOutDelever(lp, LevMath._toUsd18(stable, got), want);
+        ILevManagerDeliver(mgr).swapOutDelever(lp, LevMath._toUsd18(stable, got, LevMath.USD_PX), want);
     }
 
     /// @dev Held USD (18-dec) of a single basket stable = its get_deposits slot. In the uint[15] vector,
@@ -1505,7 +1505,7 @@ library SwapLib {
                     returns (uint w) { deliveredEth += w; } catch {}
                 continue;
             }
-            uint fundUsd = LevMath._toUsd18(stable, amtNative);      // USD the clamped debt-repay represents
+            uint fundUsd = LevMath._toUsd18(stable, amtNative, LevMath.USD_PX);      // USD the clamped debt-repay represents
             if (fundUsd > needUsd) fundUsd = needUsd;
             if (fundUsd == 0) continue;
             // Route the swap's OWN proceeds → venue directly (Vogue==address(this) IS `takeToSettle`-authorized),

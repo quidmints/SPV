@@ -8240,3 +8240,36 @@ PERSISTED (collateral, debt, entry price, IL target) because `closeLev` discards
 must not pay the conversion twice.
 
 | **UNIT-A-PLAN** | 📐 **THE ELEGANT FORM OF UNIT-A, AFTER THREE ATTEMPTS — AND THE PARAMETER WAS THE TELL THAT I HAD BUNDLED TWO CHANGES (owner: *"why the extra parameter… there are already too many parameters"*, 2026-08-06).** ✅ **ATTEMPT 1 WAS ALREADY THE ELEGANT FORM FOR THE STATED OBJECTIVE: two lines, no new argument — `if (target == 0) return _maxWellSkew(sigmaSqWad, isBTC);` and `if (inv1 >= target) return _maxWellSkew(...)`. Returning the base IS the fall-through; the tail's `skew += _maxWellSkew(...)` stays the single place the base is added. **The `allowCeiling` parameter in attempts 2-3 existed ONLY to manage a collision between TWO changes I had bundled without noticing** — reachability (the objective) and E59's ceiling policy (not the objective). **Rule 10, broken by me one turn after quoting it.** ⛔ **BUT THEY ARE GENUINELY COUPLED: change A makes change B's defect REACHABLE, so A alone fails 107 tests (§UNIT-A-ATTEMPT-1). The coupling is real; the parameter was the wrong way to handle it. **Fix B properly and A needs nothing.**** 📐 **B's ELEGANT FORM — DELETE THREE COPIES, MOVE THE POLICY TO THE SOURCE: the `σ² == 0 ⇒ MAX_WELL_SKEW` sentinel is **TRIPLICATED** (`_maxWellSkew:809` · `skewWad:933` · `sellSkew:1270`) — §E88-PROOF's entire analysis was about ONE OF THREE. **The "unknown variance" policy belongs in the ONE place variance is PRODUCED: `Core.realizedVarianceWad`, which ALREADY discriminates fresh ring (returns 0) from measured zero (returns 1 wei, §E88-r).** If the SOURCE returns a conservative value for a genuinely fresh ring, **all three consumers get the right answer and all three sentinels DELETE.** One declaration, one place — the repo's own standing rule, and it FREES bytecode rather than spending it (§E92: `SwapLib` has 1,898 bytes).** ▶️ **SEQUENCE: (1) land B at the source, suite green — no behaviour change yet, since the short-circuits still return 0; (2) land A's two lines, and the base becomes reachable with the ceiling already correct; (3) re-express `testSkewBarrierRamp_ConvexCapAndMonotone` — it ASSERTS `flush at inv>=target == 0`, which is the behaviour being changed, so it is re-expressed, NEVER weakened (§E81-r precedent); (4) re-run §UNIT-SKEW-IS-NOISE's reconciliation — **that is the discriminator for whether the skew is economically real at all.**** 📌 **STANDING RULE ADOPTED (owner): before every step — is this the SMALLEST change that achieves the STATED objective, and am I solving the objective or a collision I created? **A new parameter is the tell.**** | 📐 plan ready; B-then-A; parameter withdrawn; working tree clean |
+
+### ⭐ THE GATE IS OPEN: `_fromUsd`/`_toUsd18` are price-aware (landed 2026-08-08)
+
+`_fromUsd(tok, usd, pxUsd18) = usd * 10^dec / px` and `_toUsd18(tok, amt, px) = amt * px / 10^dec`,
+with `px` the USD price of ONE WHOLE token, 1e18-scaled. **29 sites across FOUR files** — `LevMath`,
+`SwapLib`, `LevManager`, `BtcLevManager` — all currently pass `USD_PX` (1e18), which reproduces the
+old decimals shift EXACTLY including integer flooring. Verified behaviour-identical.
+
+⚠️ **MY SCOPING WAS WRONG TWICE: "19 sites, all inside LevMath, no cross-contract surface."** It was 29
+across four files. A grep for `_toUsd18(` misses every call spelled `LevMath._toUsd18(`. The compiler
+found them in three rounds; the grep found none of them.
+
+**NO TRIPWIRE.** A `require(tok != WETH)` guard was written and rejected by the owner — correctly. A
+guard against a foreseeable misuse is a symptom that the root problem is unsolved, not a fix. ⇒ **TODO,
+owner's standing principle: sweep the codebase for guards of this shape, and for each, examine why the
+problem was not solved at root.** Awkward tripwires are a signal to re-examine the whole feature.
+
+**⇒ NEXT STEPS ARE NOW UNBLOCKED, in order:**
+  1. Register the weETH-collateral / WETH-loan market — exists on AAVE v4, Morpho and Euler; the LP
+     chooses; DO NOT create one. Then pass `IAux(aux).getTWAPforAsset(tok, TWAP_WIN_M)` instead of
+     `USD_PX` at the sites that carry the loan token.
+  2. The lever then BORROWS WETH rather than borrowing stable and buying WETH ⇒ both stable↔WETH SOR
+     legs vanish (short-circuit already landed, 54e43bf) ⇒ nothing needs to SOURCE WETH.
+  3. ⇒ The WETH supply venues can go, and the venue collapse finally lands. All five failed collapse
+     attempts were this single prerequisite attempted out of order.
+  4. The owner's restore-after-refill requirement lands cleanly here too: under WETH denomination
+     neither the involuntary unwind nor its restore pays a conversion. ⚠️ It still needs `closeLev` to
+     PERSIST the prior state (collateral, debt, entry price, IL target) — it discards them today, so
+     "restore" would silently re-price the LP's IL basis.
+
+**ATTRIBUTED, NOT MINE:** `test_E97_SellLegTaxOnOrdinaryFlow` reverts `SlippageMaxS()`. MEASURED at the
+pre-refactor commit (`e502f9a^`) — it fails there identically. It arrived with the parallel thread's
+merge (`0f8570f`, E97) already red. Belongs to whoever owns E97/E84-a.
