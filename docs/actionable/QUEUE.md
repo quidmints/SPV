@@ -8365,3 +8365,33 @@ on it.
 *(Note on the resolution: the enumeration everyone was waiting for turned out to be two lines of
 `Core.sol`. The blocker persisted because the question presumed a fallback relationship that reading
 the two call sites immediately refutes.)*
+
+
+### ⚠️ OPEN 14 CONFIRMED BY READING: per-asset skew pricing, GLOBAL solvency constraint
+
+**Pricing is per-asset.** `wellSkew(core, base, isBTC, drainUsd6)` reads only its own asset's inventory
+via `_skewBasis(core, base, isBTC, 0)`. The basket accounting is likewise split — `basketUsdEth` /
+`basketUsdBtc`, selected by `isBTC` at `Core.sol:130`.
+
+**Solvency is GLOBAL.** `Aux._checkBacking()` computes `(committedSum, totalLiquid)` across everything
+and reverts `OverCommitted` when `committedSum > totalLiquid`. One pool, one revert.
+
+⇒ **NEITHER SKEW CAN SEE THE OTHER'S DRAW ON THE SHARED RESERVE.** Two drains that are each
+individually cheap — ample own-asset inventory, low skew — can jointly exhaust `totalLiquid`. The
+failure mode is NOT a price that rises to meet the pressure; it is a HARD REVERT landing on whoever
+arrives last, and `_checkBacking` guards the DRAIN paths specifically (redemption, arb, LP withdraw).
+So the party who gets refused is not the party who caused it.
+
+⇒ **NOT A TAIL CASE.** ETH and BTC correlate hardest in exactly the stress where both are drained, so
+the joint draw is the EXPECTED shape of a bad day, not an exotic one.
+
+**Why this is now the most prominent skew gap:** the parallel thread has made `wellSkew` size-aware
+(it takes `drainUsd6` — the size-blindness identified earlier this session is CLOSED). Size is
+therefore priced WITHIN each asset, while coupling remains unpriced ACROSS them.
+
+**Shape of a fix, not costed:** the skew denominator is per-asset deliverable inventory; the binding
+constraint at stress is global `totalLiquid`. Either the denominator has to acknowledge the shared
+reserve when it is the tighter of the two, or the global constraint needs to express itself as a
+price before it expresses itself as a revert. The second is the same principle already applied to the
+σ²=0 hole — an unpriced constraint that fails silently is worse than an expensive one that fails
+loudly.
