@@ -1,0 +1,36 @@
+diff --git a/evm/src/imports/SwapLib.sol b/evm/src/imports/SwapLib.sol
+index 944695c..5e3bfb3 100644
+--- a/evm/src/imports/SwapLib.sol
++++ b/evm/src/imports/SwapLib.sol
+@@ -862,7 +862,15 @@ library SwapLib {
+         //   changes how hard it is to sell the band's ETH.
+         //   What remains IS the E54 derivation: scarcity is inventory against the flow we shed into.
+         uint target = flowUsd;
+-        if (target == 0) return 0;
++        // §UNIT-A — RETURN THE BASE, NOT ZERO. `target == 0` is the UNMEASURED-FLOW case, which is
++        // the one we understand LEAST and must therefore charge MOST; returning 0 made a band with
++        // no measured flow the CHEAPEST to drain. It also short-circuited ABOVE `_maxWellSkew`, so
++        // neither `σ²·confFrac/8` NOR `SPLICE_FLOOR` was ever reached — §E98 measured BTC's floor
++        // (of which SPLICE_FLOOR is ~99.3%) never applying on a fresh band, and §E88-PROOF found
++        // §E59's σ²==0 ceiling unreachable for the same reason. This line's own justification is
++        // twenty lines below at §E89: "σ²·T/8 is incurred REGARDLESS OF SIZE — it is what the
++        // position costs us over the window no matter who trades or how much."
++        if (target == 0) return _maxWellSkew(sigmaSqWad, isBTC);
+         // §E68 — THE DRAIN IS NOW SIZE-AWARE, AND THIS IS WHERE THE LEAK WAS.
+         //
+         // `inv` used to be read PRE-swap and the flush test used to be `inv >= target ⇒ 0`. Two
+@@ -882,7 +890,13 @@ library SwapLib {
+         // Flush now means flush AFTER the drain. A swap that ends at/above target created no
+         // scarcity and is genuinely free; a swap that ENDS below it is charged for the crossing,
+         // however flush the band looked before it. Size-blindness cannot survive this test.
+-        if (inv1 >= target) return 0;
++        // §UNIT-A — THE FLUSH OWES THE BASE TOO. A well-stocked band is not an unexposed one: the
++        // settlement-window loss is incurred whether or not inventory is scarce, so only the
++        // DEPLETION (kernel) term is flushed away, never the adverse-selection floor. §E99 measured
++        // the consequence of returning 0 here: after 30 idle days `target` decays, this branch
++        // fires, and an UNCHANGED imbalance priced at 0 — an imbalance got CHEAPER the longer it
++        // was held.
++        if (inv1 >= target) return _maxWellSkew(sigmaSqWad, isBTC);
+         uint q1 = (target - inv1) * 1e18 / target;        // post-swap scarcity ∈ (0, 1e18]
+         uint q0 = inv0 >= target ? 0 : (target - inv0) * 1e18 / target;  // pre-swap, 0 if flush
+         uint oneMinusQ = 1e18 - q1;                       // pole is on the ENDING inventory
