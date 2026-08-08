@@ -8196,3 +8196,43 @@ weakens a guard that is currently doing real work — it caught this three times
 | **UNIT-SKEW-IS-NOISE** | 🔴🔴🔴 **RECONCILED IN ONE RUN: THE SKEW PREMIUM IS **0.04% OF WHAT THE SWAPPER ACTUALLY PAYS**. THE BAND'S OWN CUSHION DOMINATES IT BY ~2,500× (2026-08-06).** ✅ **MEASURED TOGETHER (`test_UNIT_PremiumRecordedEqualsPremiumPaid`), one 30,000 USDC drain into priced scarcity: **(a) TOTAL HAIRCUT BORNE BY THE SWAPPER = 63,354,762 usd6 = \$63.35 (21 bps)** — balance deltas at the swapper, the one number the failing code cannot produce · **(b) `skewPremiumCum` delta = 25,114 usd6 = \$0.025** · **(c) `USD_FEES` delta = 31,561 = \$0.032**.** ✅ **(b) vs (c) RECONCILE — the recorded premium DOES reach LPs, slightly exceeded by the ordinary fee. §E5's routing is SOUND, confirmed independently of `testGrindRemoval`.** ⚠️ **(a) vs (b) = 2,522× — BUT MY COMPARISON IS NOT CLEAN: (a) conflates the BAND CUSHION + PRICE IMPACT + SKEW, so it does **NOT** settle §UNIT-B-VERIFIED's 1000× question. Stated as a limitation, not a result.** 🔴🔴🔴 **WHAT IT DOES SETTLE, AND IT REFRAMES THE ENTIRE PROJECT: **THE SKEW IS \$0.025 OF A \$63.35 COST. 0.04%.** Two days of work — the integral, the cap→base inversion, the additive base, the amplifier split, the σ² sentinel, the overflow fix — refined the SHAPE of a term that is a **ROUNDING ERROR next to the cushion the band already charges.** ⇒ **EVERY DOWNSTREAM MAGNITUDE INHERITS THIS: §E131's `8P/V` and T*, §E125's coverage, §E108's +0.614 bps, §UNIT-LP-EXIT's \$404.85 — all are fractions of a term that is itself 0.04% of the swapper's bill. NONE of them can be economically material while this holds.** ▶️▶️ **THE QUESTIONS THIS FORCES, BEFORE ANY MORE SKEW WORK: (1) **IS THE CUSHION DOING THE SKEW'S JOB ALREADY?** 21 bps of spread IS an LVR defence (§E79's actual requirement) — if so the skew's marginal contribution is ~nil and the honest move may be to DELETE it, which also frees the EIP-170 budget §E92 needs. (2) **OR IS THE SKEW CORRECTLY SIZED AND THE CUSHION TOO LARGE?** (3) **IS THE SKEW UNREACHABLE AT MATERIAL SIZE** because §UNIT-A's short-circuit caps it in exactly the regime it matters? **§UNIT-A LANDS FIRST — it is the only one of the three that is a known defect rather than a hypothesis.** | 🔴🔴🔴 skew = 0.04% of swapper cost; cushion dominates 2,500×; every magnitude inherits this |
 
 | **UNIT-A-ATTEMPT-1** | ⛔✅ **UNIT-A WRITTEN, RUN, AND **REJECTED IN THIS FORM** — 107 FAILURES, ALL ATTRIBUTABLE, AND THEY EXPOSE THAT §E59's SENTINEL IS 14× TOO HOT ONCE REACHABLE (2026-08-06).** ✅ **THE CHANGE (patch kept at `docs/actionable/wip/UNIT-A-base-behind-shortcircuit.patch`, source REVERTED — rule 15, not committed): both early returns in `skewWad` return `_maxWellSkew(sigmaSqWad, isBTC)` instead of `0` — `target == 0` (`SwapLib.sol:865`) and the flush `inv1 >= target` (`:885`).** ✅ **PREDICTION STATED FIRST AND PARTLY CONFIRMED: premium on a scarce-state swap moved **25,114 → 31,559 usd6 (+25.7%)** — the base is charged, and NOT the 25× repricing that killed §E93-ATTEMPT-1.** ⛔ **SUITE (ONE captured run, `3609 tests: 3502 passed, 107 failed`), THREE DISTINCT CAUSES: • **`testSkewBarrierRamp_ConvexCapAndMonotone`** — *"flush at inv>=target: 475000000 != 0"*. **EXPECTED**: the test ASSERTS the old zero. It encodes the behaviour being changed, so it must be re-expressed, NOT weakened (§E81-r set this precedent). • 🔴🔴 **`testSwapPricing_EthInRange_PaysAboutOracle`** — *"no spurious skew, right scale"*, real delta **3.0426%** vs a 1.5% tolerance. **3% IS EXACTLY `MAX_WELL_SKEW`** ⇒ `σ² == 0` in that fixture ⇒ `_maxWellSkew` returns the **CEILING** on an ORDINARY IN-RANGE BUY. **The band's own cushion is ~21 bps (§UNIT-SKEW-IS-NOISE), so this is a 14× OVERCHARGE ON NORMAL FLOW.** • **`test_RunSim_AllExit_BtcLp`** — BTC LP exit mints 9.42 vs a 1.0 threshold, consistent with `SPLICE_FLOOR` now applying.** 🔴🔴🔴 **THE REAL FINDING, AND IT IS EXACTLY WHAT §E88-PROOF WARNED: arming the sentinel makes *"unmeasured variance charges the ceiling"* — a branch that has NEVER EXECUTED in the project's life — **REACHABLE BY ORDINARY FLOW.** §E59's conservative reading of "unknown" is defensible for a genuinely unknown band; it is indefensible as the price of a routine in-range swap. **The short-circuit was MASKING an over-hot sentinel, which is why removing it is not a local change.** ▶️ **THE REFINEMENT UNIT-A NEEDS: the σ²==0 sentinel and the FLUSH base must not be the same quantity. `σ² == 0` on a FRESH ring (cardinality 1, genuinely unmeasured) ⇒ ceiling is right; `σ² == 0` on a TRADED ring, or a flush swap in a live band, ⇒ the ceiling is wrong and the LVR base (`σ²·confFrac/8`, which is ~0 when σ² is ~0) is right. **§E88-r already added the cardinality discriminator and called it "defensive-only, guarding a state ordinary flow does not produce" — THIS RUN PROVES ordinary flow DOES produce it once the short-circuit is gone. That discriminator is now load-bearing.** | ⛔✅ attempt 1 rejected; patch kept; sentinel must split fresh-ring from flush |
+
+
+### ⭐ THE WHOLE CHAIN IS GATED ON `_fromUsd`/`_toUsd18` — five failed collapses were ONE prerequisite out of order
+
+**CORRECTION to yesterday's entry: `vogueOp` does NOT place capital into the band.** Read at
+`SwapLib.vogueOpBody:274` — `op == 0` does `weth.transferFrom(...)` then **`aux.supplySelf(weth, amount)`**,
+i.e. it supplies WETH into Aux's 4626 venue book (Galaxy/Morpho). So the venue collapse never thinned
+band depth. It removed a **WETH holding the lever was sourcing from**, which is why the failures were
+`ERC20: transfer amount exceeds balance` on the Liquity lever paths and `POOLED_USD paired against it`.
+⇒ The "keep a fraction in the band" idea from that entry is VOID. It solved a problem that does not
+exist, invented to explain a mechanism I had inferred without reading the function.
+
+**AND THE REAL BLOCKER DISSOLVES ONCE THE ORDER IS RIGHT.** The lever only needs to SOURCE WETH
+because it borrows STABLE and must buy WETH with it. Give it a WETH-loan market and it BORROWS WETH —
+nothing to source, and the WETH venues can go. The five collapse attempts were not five problems;
+they were one prerequisite attempted out of order:
+
+  1. **Make `_fromUsd`/`_toUsd18` price-aware.** ⛔ THE GATE. Today they do only a decimals shift, i.e.
+     they assume 1 token = $1. WETH has 18 decimals, so `_fromUsd(weth, usd)` returns `usd` UNCHANGED
+     — reading $4,000 of debt as 4,000 WETH, feeding `venue.borrow` directly at `LevMath:148`. Silent:
+     every shape and decimal typechecks.
+  2. Register the weETH-collateral / WETH-loan market (exists on AAVE v4, Morpho, Euler — LP chooses;
+     do NOT create one).
+  3. The lever borrows WETH ⇒ both stable↔WETH SOR legs vanish (the short-circuit is ALREADY LANDED
+     and verified no-op, commit 54e43bf) and there is nothing to source.
+  4. **Then** the venue collapse lands, because nothing depends on a WETH venue any more.
+
+**SCOPE OF STEP 1, measured:** 19 call sites, ALL inside `LevMath` — no cross-contract surface, which
+is the good news. The bad news: both helpers are `internal view` with no access to `aux`, so a price
+must be threaded through all 19, and not every site has one in scope. Sites already holding a price
+(`px`) include :171, :196, :197; sites needing one include :148 (the borrow itself), :326, :430, :669,
+:732, :735, :747.
+
+**Also lands cleanly with a WETH-loan lever:** the owner's requirement that a healthy IL-protect LP
+wound up by an imbalance must be RESTORED to its prior state after the refill. With WETH denomination
+neither the unwind nor the restore pays a stable↔WETH conversion, so the involuntary round trip does
+not cost the LP ~50 bps. ⚠️ Two things that requirement needs regardless: the prior state must be
+PERSISTED (collateral, debt, entry price, IL target) because `closeLev` discards it today — otherwise
+"restore" means "re-open at today's prices", silently re-pricing the LP's IL basis — and the restore
+must not pay the conversion twice.
