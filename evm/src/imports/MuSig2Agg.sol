@@ -77,11 +77,16 @@ library MuSig2Agg {
         uint256 t;
     }
 
+    /// @dev `public`, not `internal`, so this DEPLOYS AS A LINKED LIBRARY and is delegatecalled
+    ///      rather than inlined. Inlined it added ~4.8 KB to `BTCChannels` and pushed it 1,344
+    ///      bytes OVER EIP-170 — which `forge test` does not enforce and only
+    ///      `forge build --sizes` reveals. Same pattern the codebase already uses for SwapLib
+    ///      and LevMath; the large external surface is deliberate, not accidental API.
     function isTwoOfTwoOutputKey(
         bytes memory pkA33,
         bytes memory pkB33,
         bytes32 qXOnly
-    ) internal view returns (bool) {
+    ) public view returns (bool) {
         AggVars memory v;
         v.ec = curve();
 

@@ -9,6 +9,7 @@ import {ChannelLib} from "./imports/ChannelLib.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {MuSig2Agg} from "./imports/MuSig2Agg.sol";
 
 // ═══════════════════════════════════════════════════════════════════════
 //  BTCChannels — standard-LDK 2-of-2 channels for native BTC LP deposits,
@@ -1016,6 +1017,16 @@ contract BTCChannels is Ownable, ReentrancyGuard {
             channelId, rawSpliceTx, p.fundingBlockHash, spliceMerkleProof, p.fundingTxIndex);
         newVout = ChannelLib.locateChannelOutput(
             rawSpliceTx, p.lpPubkey, p.hopPubkey, p.fundingTaproot, p.amountSats);
+        // (E129) PROVE THE NEW `Q` REALLY IS THE 2-of-2 OF THESE TWO KEYS. Byte-matching
+        // above only shows the caller's 32 bytes appear in the output; `lpPubkey` was
+        // length-validated metadata. Without this a GROW-splice could move the channel's BTC
+        // into a `Q` the hop solely controls — and in fleet mode the operator holds both
+        // halves and can do it alone. `btcRecipientOf` does not bound this: it pins a
+        // SHRINK's withdrawal output, never the continuing funding output.
+        require(
+            MuSig2Agg.isTwoOfTwoOutputKey(p.lpPubkey, p.hopPubkey, p.fundingTaproot),
+            "splice: Q is not the 2-of-2 of lpPubkey+hopPubkey"
+        );
     }
 
     /// @notice ANTI-ROLLBACK: the channel's hop records the highest persisted
