@@ -250,10 +250,21 @@ library LevMath {
     ///         values, so it MUST be one of the manager-valuable tokens (`c0`/`c1`, e.g. {WETH,weETH} or {vBTC}) --
     ///         anything else would silently misvalue into PHANTOM backing (the exact rug the frozen allowlist
     ///         guards), so revert even for GOV (defense-in-depth against a config mistake).
+    /// ⚠️ ORDER CHANGED 2026-08-09 — the collateral check now runs UNCONDITIONALLY, before the classification.
+    ///    It used to sit behind `if (stable() == base) return true;`, so a BASE-DEBT venue was allowlisted with
+    ///    its collateral NEVER VALIDATED. The exemption was written for a genuine SHORT, whose collateral is a
+    ///    stable and so legitimately outside `{c0,c1}` — but the short subsystem was REMOVED 2026-07-24, so the
+    ///    branch no longer protects anything and only widened the gate this function exists to close.
+    ///    It became reachable when the weETH-collateral/WETH-LOAN venue landed: its `stable()` IS `WETH` IS
+    ///    `base`, so it took the early return. Its collateral is weETH and always was — the point is that
+    ///    nothing checked.
+    /// ⚠️ THE RETURN IS STILL LOAD-BEARING, DO NOT DROP IT. `LevManager:211` discards it (which is why
+    ///    `LevManager:210` calls the classification "unused" — true of THAT CALLER ONLY), but
+    ///    `BtcLevManager:108` consumes it as `if (isShort) revert BadAuth()`. Deleting it opens the BTC side.
     function vetVenue(address v, address base, address c0, address c1) public view returns (bool isShort) {
-        if (ILevVenueColl(v).stable() == base) return true;
         address coll = ILevVenueColl(v).COLLATERAL();
         if (coll != c0 && coll != c1) revert BadCollateral();
+        return ILevVenueColl(v).stable() == base;
     }
 
     /// @notice Gate a NEW levered open: the venue must be on the frozen allowlist AND not incident-flagged

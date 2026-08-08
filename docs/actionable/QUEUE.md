@@ -8541,3 +8541,41 @@ and it is exactly the "other callers" axis this repo's rule 9 says the regressio
 | **UNIT-RPC-SELFINFLICTED** | ⛔ **EVERY RPC FAILURE TODAY WAS MINE: I OVERRODE THE REPO'S CONFIGURED ENDPOINT ON EVERY RUN (owner: *"even with the new key i provided?"*, 2026-08-06).** ⛔ **I prefixed `FOUNDRY_RPC_ENDPOINTS_MAINNET=<public node>` to every `forge test` all session — CLAUDE.md documents that override for a DEAD key, and I applied it reflexively to a tree whose `.env` had a WORKING one. Result: publicnode timeouts and a drpc DNS failure that I reported as environment problems. **Running with NO override works.**** ✅ **AND IT UNBLOCKED THE FIXTURE: with the repo's own config, `test_UNIT_FixtureProducesRealisticVariance` runs and **σ² goes 0 → 1.375e-3 (implied vol 36 → 370 bps)** — a **10× improvement** from driving the POOL'S TICK with size instead of walking the oracle with 4k swaps. **§UNIT-A-FIXTURE-CORR's diagnosis is directionally CONFIRMED.**** ⚠️ **STILL INCONCLUSIVE — 3.7% against a realistic ~60% — and the guard reports it rather than letting the number be quoted. **Next: larger traversals and/or forced reseats until σ² lands in the plausible band.**** 📌 **RULE: do NOT override the RPC unless a run has ALREADY failed with `could not instantiate forked environment` AND `.env` is confirmed stale. The override is a diagnostic, not a default.** | ⛔ self-inflicted; fixture now 10× better and still inconclusive |
 
 | **UNIT-VOL-BRACKET** | 📐 **THE VARIANCE FIXTURE IS BRACKETED, AND THE DRIVER IS RESEATS — NOT THE FEED WALK (2026-08-06).** ✅ **THREE VERIFIED POINTS, same walk shape, amplitude the only variable: **±0.4% EVEN → 370 bps · ±0.6% UNEVEN → 556 bps · ±1.8% UNEVEN → 28,069 bps.** Target band is 4,500–11,000 bps (45–110% annualised).** 🔑 **THE SHAPE IS THE FINDING: a 3× amplitude change moved implied vol **50×**. That is not a smooth response — it is a THRESHOLD. Below it the band stays IN RANGE and the tick creeps; above it the band EXITS and RESEATS, and a reseat is a large discontinuous jump in `tickCumulative`'s rate. ⇒ **`ringVariance` is dominated by RESEAT EVENTS, not by intra-range drift.** That is a real property of the estimator and nobody had measured it.** 📌 **AND A SECOND MEASUREMENT WORTH KEEPING: at BOTH 556 bps and 28,069 bps, `wellSkew` read **exactly 3e16 = MAX_WELL_SKEW**. Since the BASE at those variances is ~1e8 (negligible, §UNIT-A-DECIDED), the ceiling is being hit by the **KERNEL** — i.e. these walks drain the band to `q ≈ 1`. **The fixture is measuring a near-empty band, which is its own confound and must be fixed before any pricing number is read off it.**** ⚠️ **CURRENT FILE STATE: walk set to ~2/3 amplitude (`mult` 1008/994/…/996), **UNVERIFIED** — the run failed in `setUp` with `could not instantiate forked environment` against publicnode, which is the CONFIGURED endpoint and is INTERMITTENT (the identical command passed twenty minutes earlier). **Infra, not code — do not read it as a regression** (§UNIT-RPC-SELFINFLICTED: and do NOT reach for an override; that was the mistake).** ▶️ **NEXT: (1) re-run at 2/3 amplitude to close the bracket; (2) **hold `q` away from 1** — either replenish between legs or size the walk so the band is never drained — so σ² is measured on a LIVE band rather than an empty one; (3) only then re-measure §E125/§E131/§UNIT-SKEW-IS-NOISE.** | 📐 bracketed 370→28,069 bps; reseats dominate; band is being emptied — confound to fix |
+
+### ✅ MEASURED — Aave V4 live collateral factors, and `collateralRisk` is a CONFIG ID not a risk value
+
+Chain of getters (spoke impl `0xabd0e26f…`, resolved through the EIP-1967 slot — the PROXY ABI has no
+risk surface at all, which is why a first look found "NONE"):
+`getReserveConfig(reserveId) -> (uint24 collateralRisk, bool paused, bool frozen, bool borrowable, bool receiveSharesEnabled)`
+`getDynamicReserveConfig(reserveId, configId) -> (uint16 collateralFactor, uint32 maxLiquidationBonus, uint16 liquidationFee)`
+
+**`collateralRisk` IS THE `configId`** to pass to the second call. Read as a risk number it looks like
+zero-risk/unconfigured; it is an INDEX. Measured 2026-08-09:
+
+| reserve | id | collateralFactor | maxLiqBonus | liqFee | borrowable |
+|---|---|---|---|---|---|
+| weETH | 2 | **8000** (80%) | 10777 | 1000 | false |
+| WETH  | 0 | **8300** (83%) | 10555 | 1000 | true |
+
+⇒ **RETRACTS the 2026-08-09 worry that weETH might not be usable as Aave V4 collateral.** It is, at 80%.
+The `collateralRisk = 0` reading was mine and was wrong. (weETH `borrowable = false` is correct and
+irrelevant — we supply it, never borrow it; WETH `borrowable = true` is the leg that matters.)
+
+⇒ **`collateralFactor` IS the field `AaveV4Venue.LIQ_THRESHOLD_BPS` stands in for.** Independent
+confirmation: the existing WETH/USDC venue hardcodes **8000** and its comment says "conservative vs the
+live ~83% gov param" — the live read is **8300**. The comment and the measurement agree, which is what
+makes this the right field rather than a plausible one.
+
+**⏸️ OWNER ASKED FOR THIS TO BE MEASURED LIVE AND CACHED, NOT HARDCODED** (2026-08-09): "gas-efficient
+but responsive". Shape, not yet built: replace the `LIQ_THRESHOLD_BPS` immutable with a cached storage
+value refreshed inside the state-changing venue calls (`supply`/`borrow`/`repay`/`withdraw`), which
+already pay storage writes — so views stay a single SLOAD and the value re-reads at every interaction
+rather than on a timer (a timer would be the governance latch the owner rules out). `configId` must be
+re-read from `getReserveConfig` on each refresh, NOT cached separately: governance can repoint a reserve
+at a new dynamic config, and a stale id would silently read the wrong row.
+⚠️ Needs `getDynamicReserveConfig`/`getReserveConfig` added to `IAaveV4Spoke` in `Interfaces.sol` (one
+declaration, shared file — standing rule 2).
+
+**Blocked-on-this and now unblocked:** the AaveV4 weETH/WETH venue (`scratchpad/aave-venue.patch`, reverted
+2026-08-09 pending exactly this question). Re-apply it, but source the threshold live instead of the
+hardcoded 7500 that prompted the owner's instruction.
