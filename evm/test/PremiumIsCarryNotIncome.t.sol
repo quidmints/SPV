@@ -124,6 +124,12 @@ contract PremiumIsCarryNotIncome is Alles {
         // ---- ARM 2: DRAINED until genuinely scarce, from the SAME starting state.
         vm.revertToState(snap);
         uint premium0 = CORE.skewPremiumETH();
+        // §E134-skew — WHERE DOES THE DRAINER'S USD LAND? E125 measured POOLED_USD_ETH NOT growing
+        // while POOLED_ETH fell 400->103, which is why the level comparison was wrong. Reading the
+        // BAND's usd leg and the BASKET's total backing across the same drain settles it by
+        // measurement rather than by tracing `inRange`-guarded delta accounting.
+        uint bandUsd0 = CORE.POOLED_USD_ETH();
+        (uint[15] memory d0,,,) = AUX.get_deposits();
         // DO NOT `break` THE INSTANT THE BAND TURNS SCARCE — that was this fixture's third
         // zero-premium reading and it was entirely self-inflicted. The premium accrues only on
         // swaps that EXECUTE while `inv < target`; breaking on the transition means every drain
@@ -156,6 +162,13 @@ contract PremiumIsCarryNotIncome is Alles {
         uint premium = CORE.skewPremiumETH() - premium0;
         uint ethDrained = CORE.POOLED_ETH();
 
+        {
+            (uint[15] memory d1,,,) = AUX.get_deposits();
+            emit log_named_uint("band USD leg BEFORE (POOLED_USD_ETH)", bandUsd0);
+            emit log_named_uint("band USD leg AFTER                  ", CORE.POOLED_USD_ETH());
+            emit log_named_uint("basket backing BEFORE (d[14])       ", d0[14]);
+            emit log_named_uint("basket backing AFTER                ", d1[14]);
+        }
         emit log_named_uint("POOLED_ETH quiet      ", ethQuiet);
         emit log_named_uint("POOLED_ETH drained    ", ethDrained);
         emit log_named_uint("premium collected u18 ", premium);
