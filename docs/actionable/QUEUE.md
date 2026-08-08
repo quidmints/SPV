@@ -8401,3 +8401,75 @@ price before it expresses itself as a revert. The second is the same principle a
 loudly.
 
 | **UNIT-RECOVERED** | ⛔⛔⛔ **FOUR OWNER DECISIONS RECOVERED FROM THE PRE-COMPACTION TRANSCRIPT THAT I SPENT TODAY RE-DERIVING — INCLUDING ONE THAT INVALIDATES §UNIT-B's FRAMING (2026-08-06).** ⛔ **(1) THE σ²==0 ANSWER WAS ALREADY SPECIFIED, AND IT IS NEITHER A CEILING NOR MY "CONSERVATIVE PRIOR": *"**store the last known good variance and remove max_well_skew**"*. ⇒ **§UNIT-A-PRIOR's 6.3e23 prior is SUPERSEDED — the owner's design is a LAST-KNOWN-GOOD register, which is strictly better: it needs no invented constant, degrades to the most recent REAL measurement, and cannot deadlock a cold band the way a huge prior threatens θ (§UNIT-A-PRIOR-THETA).** ⛔ **(2) THE CEILING WAS ALREADY SETTLED AND THE VARIANCE FIX ALREADY ORDERED: *"why did it take so long to land this fix? **fix variance to be properly sampling. we determined that 3% is not the right ceiling**, among other things"* ⇒ §UNIT-A-DECIDED re-derived a CLOSED decision, and §E59's sentinel has been dead policy since that message.** ✅ **(3) ALREADY BUILT: *"move the observation ring behind OracleLib and folding two calls into one seems like it would be a win"* — that IS `OracleLib.ringVariance(_obs, _obsState, 9)`, which I read today and treated as unfamiliar machinery.** ⛔⛔ **(4) THE ONE THAT INVALIDATES §UNIT-B: *"**consolidation is not quite what that integral was for**, if you remember the issue that i brought up which caused you to think of this"*. **THE INTEGRAL WAS FOR THE LEVEL-vs-MARGINAL DEFECT** — the owner's own words: *"skewWad sizes q on the LEVEL of imbalance — (target − inv)/target — not on the DELTA a given swap contributes. So the second swapper into an already-imbalanced pool pays a premium scaled to the whole imbalance, MOST OF WHICH THEY DIDN'T CAUSE."* ⇒ **`test_E71` MEASURES CONSOLIDATION, A DIFFERENT PROPERTY. I made a consolidation number (8.28% → 9.73% → 11.08%) the GATE on §UNIT-B all day, and gated the two-sided curve on it. §UNIT-B's acceptance criterion is WRONG: it must test whether a LATER swapper pays for damage they did not cause, NOT whether one big swap equals twelve small ones.**** 📌 **ALSO SETTLED, DO NOT REOPEN: *"avgYield has nothing to do with the band. it's a dollar only thing. your skew shouldnt even consider it"* · *"leverage shouldnt be perceived by this skew at all. a levered LP's band participation is no concern of the skew"*.** ▶️ **REVISED PLAN: (a) implement LAST-KNOWN-GOOD variance + delete `MAX_WELL_SKEW` (owner-specified, supersedes §UNIT-A-PRIOR); (b) re-express §UNIT-B's test around LEVEL-vs-MARGINAL, not consolidation; (c) THEN re-measure. | ⛔⛔⛔ 4 settled decisions re-derived; UNIT-B's gate was the wrong property |
+
+
+### ✅ FOUND AND VERIFIED ON CHAIN — the weETH/WETH Morpho market. The borrow leg is no longer blocked on discovery.
+
+Verified 2026-08-08 against mainnet (archive RPC), **not** taken from an API on faith: the Morpho
+GraphQL endpoint was used only to *discover* candidates, and every field below was then read back
+from `MorphoBlue.idToMarketParams(id)` on chain.
+
+**`marketId = 0x37e7484d642d90f14451f1910ba4b7b8e4c3ccdd0ec28f8b2bdb35479e472ba7`**
+
+| field | value | checked how |
+|---|---|---|
+| `loanToken` | `0xC02aaA39…756Cc2` | `symbol()` → **"WETH"** — read, not assumed from the address |
+| `collateralToken` | `0xCd5fE23C…9b7ee` | `symbol()` → **"weETH"** |
+| `oracle` | `0xbDd2F2D473E8D63d1BFb0185B5bDB8046ca48a72` | `price()` → `1.101042e36` = **1 weETH = 1.101042 WETH** |
+| `irm` | `0x870aC11D48B15DB9a138Cf899d20F13F79Ba00BC` | AdaptiveCurveIRM (the same adaptive IRM that RETRACTED the old "~6 bps" fixed-APY figure) |
+| `lltv` | `945000000000000000` | **94.5%** |
+
+**IDENTITY PROOF — this is what makes the table trustworthy rather than plausible.**
+`keccak256(abi.encode(loanToken, collateralToken, oracle, irm, lltv))` recomputes to
+`0x37e7484d…472ba7`, i.e. **exactly the id it came from**. A market id IS the hash of its params, so a
+match means these five values are the market — no field is stale, transposed, or from a sibling market.
+
+**Live state** (`market(id)`): supply **9,325.58 WETH** · borrow **7,555.21 WETH** · **liquidity 1,770.37 WETH**
+· utilisation **81.0%** · fee **0** · borrow APY **1.78%**.
+
+⚠️ **TWO SIBLING weETH/WETH MARKETS EXIST AND ARE DECOYS — both 86% LLTV, different oracles**
+(`0x90f336c5…c7b58`, supplied **$0.00016**; `0x698fe982…88a115`, supplied **$2,095**). They are
+*correctly formed and completely empty*. Hardcoding either would produce a venue that passes every
+structural check and cannot fill a single borrow. **The discriminator is liquidity, not well-formedness** —
+which is why the state row above belongs in this table permanently.
+
+---
+
+#### ⇒ THIS ANSWERS THE OPEN "why a FRACTION rather than all of it?" — AND THE ANSWER IS NOT THE ONE ASSUMED
+
+The standing worry was LTV headroom: that we could not borrow 1:1 in WETH against all the weETH.
+**That worry is refuted.** At `price = 1.101042` and `lltv = 94.5%`, one weETH supports
+`1.101042 × 0.945 = ` **1.0405 WETH** of debt — so a **1:1 borrow has ~4% of headroom** and is
+comfortably inside the limit. Capacity per unit of collateral is not the binding constraint.
+
+**Two OTHER constraints bind first, and they are the real reason for a fraction:**
+
+1. 🔴 **DEPEG PROXIMITY, not LTV.** Borrowing exactly 1:1 puts the position at
+   `LTV = 1/1.101042 = 90.82%` against a **94.5%** liquidation threshold. Liquidation arrives when the
+   weETH/WETH rate falls to `1/0.945 = 1.0582`, i.e. after a **3.89% depeg**. weETH/WETH has
+   historically moved 2–3% in stress, so **a 1:1 borrow sits inside one bad day of the liquidation
+   price.** The high LLTV that makes 1:1 *possible* is the same thing that makes it *thin* — 94.5%
+   leaves 5.5% of total room, and a 1:1 draw spends 3/4 of it immediately.
+2. 🔴 **MARKET LIQUIDITY IS THE HARD CEILING: 1,770 WETH.** The market is 81% utilised. No amount of
+   collateral borrows WETH that is not there, so any offramp larger than ~1,770 WETH cannot be served
+   by this leg **at all** and must fall back to the rung-1 sale or the rung-2 NFT. This is a sizing
+   input for the protocol and it MOVES — it must be read live, never hardcoded.
+
+⇒ So the fraction is set by **depeg buffer × available liquidity**, not by LTV capacity.
+
+#### ⇒ AND THE CARRY IS POSITIVE, WHICH IS THE WHOLE ECONOMIC CASE FOR THE BORROW LEG
+
+Borrow APY **1.78%** against the ether.fi ratchet of **2.46%/yr** (measured, +0.674 bps/day) ⇒ the
+collateral out-earns the debt by **+0.68%/yr**. Holding the borrow open is not merely cheap, it is
+**mildly profitable**, because selling the weETH would also stop the yield.
+
+Over a ~7-day redemption wait: borrow costs `1.78% × 7/365 =` **3.4 bps**, weETH earns **4.7 bps**,
+net **+1.3 bps** — against the **~25.6 bps** the rung-1 sale pays *today*. **The borrow leg is worth
+about 27 bps per exit**, and that is the number that justifies building it.
+⚠️ Both legs of that comparison are RATES ON AN ADAPTIVE CURVE and will move with utilisation; the
+1.78% is a spot reading at 81% utilisation, so treat 27 bps as the shape of the answer, not a constant.
+
+**Still required before the leg can ship** (unchanged, and neither is discovery):
+  * `_closeLev`'s `delete pos[lp]` destroys the state a post-refill restore needs — the involuntary
+    path (`closeLevFor`) must persist prior state first.
+  * The permissionless, piggybacked claim-and-repay step.
