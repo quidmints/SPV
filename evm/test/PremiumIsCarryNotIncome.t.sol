@@ -144,6 +144,15 @@ contract PremiumIsCarryNotIncome is Alles {
         // not a measurement. Logged so the regime is visible in the same run as the result.
         emit log_named_uint("realizedVarianceWad at settle", CORE.realizedVarianceWad(false));
         emit log_named_uint("wellSkew at settle           ", AUX.wellSkew(address(WETH)));
+        // §E130-skew — θ IS LOGGED AS CONTEXT AND MUST NOT BE ASSERTED ON HERE. It is an
+        // IL-PROTECTION CONTROL (band sizing), not a verdict on skew pricing, and using it as one
+        // is CIRCULAR: θ is DERIVED FROM the retained premium (`premiumEwmaUsd` is its numerator)
+        // and then used to CLAMP band exposure (`applyTheta`). A small premium ⇒ small θ ⇒ the
+        // protocol shrinks exposure — that is IL protection WORKING, so reading θ back as "the
+        // premium is inadequate" uses the system's own RESPONSE to the premium as evidence ABOUT
+        // it. §E129 briefly claimed adequacy was "one call to derivedThetaWad"; that is withdrawn.
+        emit log_named_uint("derivedThetaWad (1e18 = fees COVER IL)", V4.derivedThetaWad(false));
+        emit log_named_uint("premiumEwmaUsd (rate, usd6)  ", CORE.premiumEwmaUsd(false));
         uint premium = CORE.skewPremiumETH() - premium0;
         uint ethDrained = CORE.POOLED_ETH();
 
