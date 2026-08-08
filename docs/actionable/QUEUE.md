@@ -8484,3 +8484,53 @@ about 27 bps per exit**, and that is the number that justifies building it.
 | **UNIT-RESEATEPOCH** | 🎯 **`reseatEpoch` CAN BE REMOVED — THE BAND'S OWN BOUNDS ALREADY CARRY THE SIGNAL, AND THE REPLACEMENT IS STRICTLY MORE PRECISE. ONE CONDITION, PROVEN BY §E117 (owner, 2026-08-06).** ✅ **THE WORKAROUND: `reseatEpoch` is a CHANGE-DETECTOR — *"has the band recentred since I anchored?"* (`LevManager:487` stores `posEpoch[msg.sender] = ep`; `:431` re-anchors `entrySqrtP` when it advanced). **`Vogue.sol:1120` ALREADY RETURNS `(sqrtPriceX96, tickLower, tickUpper, …)`, so the band's CURRENT BOUNDS carry that information.** ⇒ **re-anchor when `entrySqrtP` falls OUTSIDE `[tickLower, tickUpper]`.** No counter, no hook call, no mapping.** ✅ **STRICTLY MORE PRECISE, NOT MERELY EQUIVALENT: the EPOCH fires on EVERY reseat, including ones that leave the anchor still inside the new range where no re-anchor is needed; the BOUNDS CHECK fires ONLY when the frame moved RELATIVE TO THAT POSITION. It also self-heals — there is no counter to desynchronise.** ✅ **DELETES: `Vogue.reseatEpoch()` · the `ILevSyncHook` call + `try/catch` at `LevManager:487` · `posEpoch` in `LevManager` · the `BtcLevManager:57` equivalent. **MATTERS FOR §E92: `LevManager` is 24,506 bytes with only 70 FREE — this is one of the few changes that BUYS headroom on the contract that has none.**** ⚠️🔴 **THE ONE CONDITION, AND §E117 IS ITS PROOF — WRITE IT DOWN, DO NOT ASSUME IT: a bounds check is POINT-IN-TIME. It answers *"is my anchor stale NOW"*, NOT *"were these two reads taken in the SAME FRAME"*. §E117 MEASURED the difference: `reseatEpoch` 0→4 across 40 sells, 1h TWAP tick **200766 sitting NEATLY INSIDE** the post-reseat band **[200730, 200770)**, normalized **0.9000** — *"0.9000 LOOKS FINE… every arithmetic sanity check passes, but the window it averages contains FOUR frame changes."* **A BOUNDS CHECK CANNOT SEE THAT.** ✅ **BUT THAT CONSUMER IS NOT LIVE: it is §E93's WINDOWED-TWAP composition signal, already refuted (`E93-b-REFUTED`) and blocked by the reseat (`E93-VERIFY`). **The LIVE consumers — `LevManager:487`, `BtcLevManager:57` — both ask the POINT-IN-TIME question, which the bounds check answers.**** ▶️ **⇒ REMOVE IT, and record in the deleting commit: **if anyone later builds a WINDOWED reading over the tick series, `reseatEpoch` must come back, and §E117 is the evidence for why.** | 🎯 removable; bounds check is more precise + buys LevManager headroom; windowed readings would need it back |
 
 | **UNIT-A-FIXTURE-CORR** | ⛔ **§UNIT-A-FIXTURE's DIAGNOSIS IS WRONG — I QUOTED THE DESCRIPTION OF A BUG §E59 ALREADY FIXED AS THE LIVE MECHANISM (2026-08-06).** ⛔ **I wrote that the low variance came from *"a swap spacing COARSER than the sampling grid flattening the tape to a straight line"*, citing the wall-clock-grid/interpolation comment. **`OracleLib.ringVariance:218` SAYS THE OPPOSITE IN ITS FIRST LINE: *"REALIZED TICK VARIANCE FROM THE STORED OBSERVATIONS, **not a wall-clock grid**"*, and the interpolation failure is described as the **PREVIOUS** estimator: *"Sampling the ring itself REMOVES THE INTERPOLATION ENTIRELY… each return is normalised by its OWN elapsed time… no fixed step to mis-match the swap cadence."*** ⇒ **THE ESTIMATOR IS IMMUNE TO SWAP SPACING BY CONSTRUCTION. My "every fixture warping 8-20 minutes has been measuring interpolation" is FALSE and must not be carried forward.** ✅ **THE ACTUAL MECHANISM: `card < 3 ⇒ 0`; walk back 9 stored points; `rate[i] = (Δ tickCumulative · 1e9)/dt` (fixed-point, because whole-tick truncation was the OTHER half of the zero-variance bug — a ~20-tick band rounds consecutive averages to the same integer); then the variance of consecutive RATE CHANGES, sample-corrected. **It reads the POOL'S TICK.**** ✅ **SO THE REAL CAUSE OF THE 36 bps IS SIMPLER AND IS MINE: I MOVED THE ORACLE 24 TIMES BUT THE POOL'S TICK BARELY MOVED.** 4,000 USDC swaps against a 400 ETH band do not traverse a ±0.2% range or force a reseat, so `tickCumulative` advanced at a NEARLY CONSTANT RATE — and the variance of near-constant returns is near zero. **The tape was flat in the only series that counts.** ▶️ **WHAT THE FIXTURE ACTUALLY NEEDS: drive the POOL'S TICK, not the feed — swaps large enough to traverse the range and/or force RESEATS, so consecutive `rate[i]` values genuinely DIFFER. Sizing, not spacing. **Keep the INCONCLUSIVE guard: it worked, and it is the only reason 36 bps was not published as a finding.** | ⛔ diagnosis corrected — estimator is spacing-immune; the fixture needs SIZE, not finer steps |
+
+### 🔴 OPEN — `LevMath.vetVenue` skips the collateral gate for base-debt venues, and ETH/BTC disagree about what that means
+
+`LevMath.sol:253-257`:
+```
+function vetVenue(address v, address base, address c0, address c1) public view returns (bool isShort) {
+    if (ILevVenueColl(v).stable() == base) return true;   // <- EARLY RETURN
+    address coll = ILevVenueColl(v).COLLATERAL();
+    if (coll != c0 && coll != c1) revert BadCollateral();  // <- NOT REACHED for a base-debt venue
+}
+```
+
+**The skipped line is the gate `LevManager.sol:206-208` calls "the rug the frozen allowlist stops"**:
+collateral outside `{WETH, weETH}` "silently misvalues into phantom ETH backing" through `_collToEth`.
+So **any venue whose debt token IS the base asset is allowlistable with arbitrary, unvalidated
+collateral.**
+
+**TWO CALLERS, AND THEY READ THE SAME BOOL OPPOSITE WAYS** — this is why it is not simply a dead branch:
+
+| caller | call | what `stable()==base` means there |
+|---|---|---|
+| `LevManager.sol:211` | `vetVenue(v, WETH, WETH, WEETH)` | return **DISCARDED** ⇒ the venue is **allowlisted**, collateral unchecked |
+| `BtcLevManager.sol:108` | `if (vetVenue(v, WBTC, VBTC, WBTC)) revert BadAuth();` | return **CONSUMED** ⇒ the venue is **REJECTED** |
+
+⇒ A base-denominated-debt venue is **forbidden on the BTC side and silently privileged on the ETH
+side**, from one shared function. That asymmetry is undocumented and nothing in either call site
+explains it.
+
+⚠️ **THE `isShort` RETURN IS NOT DEAD — do not delete it under the no-unreachable-code rule.**
+`LevManager` ignoring it makes it *look* vestigial (and `LevManager.sol:210` calls the classification
+"unused", which is true **only of that caller**). `BtcLevManager` depends on it to reject. Deleting the
+return would silently open the BTC side.
+
+**Reachable today.** The weETH-collateral / WETH-loan venue added 2026-08-09 (`DeployL1_s` `vs[5]`) is
+the FIRST venue to enter the allowlist through the unchecked branch. It is **benign** — its collateral
+is weETH, and `test/LevVenueMarketPins.t.sol` now proves that against live mainnet — but it is benign
+**by construction, not by validation**, and the hole is generic to the next WETH-debt venue.
+
+**Candidate fix (NOT applied — money path, needs a verified full-suite run):** check collateral
+unconditionally, then return the classification.
+```
+address coll = ILevVenueColl(v).COLLATERAL();
+if (coll != c0 && coll != c1) revert BadCollateral();
+return ILevVenueColl(v).stable() == base;
+```
+**Priced on the axes that matter:** ETH side gains the check and `vs[5]` still passes (`weETH == c1`).
+BTC side keeps rejecting — but a WBTC-debt venue with INVALID collateral would now revert
+`BadCollateral` where it used to revert `BadAuth`. **Same rejection, different selector**, so any test
+asserting `BadAuth` on that corner would flip. That is the one behavioural edge to look for in the run,
+and it is exactly the "other callers" axis this repo's rule 9 says the regression always hides on.
