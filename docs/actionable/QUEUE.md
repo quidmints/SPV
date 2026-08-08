@@ -8237,3 +8237,37 @@ not cost the LP ~50 bps. ⚠️ Two things that requirement needs regardless: th
 PERSISTED (collateral, debt, entry price, IL target) because `closeLev` discards it today — otherwise
 "restore" means "re-open at today's prices", silently re-pricing the LP's IL basis — and the restore
 must not pay the conversion twice.
+
+
+### ⭐ THE GATE IS OPEN: `_fromUsd`/`_toUsd18` are price-aware (landed 2026-08-08)
+
+`_fromUsd(tok, usd, pxUsd18) = usd * 10^dec / px` and `_toUsd18(tok, amt, px) = amt * px / 10^dec`,
+with `px` the USD price of ONE WHOLE token, 1e18-scaled. **29 sites across FOUR files** — `LevMath`,
+`SwapLib`, `LevManager`, `BtcLevManager` — all currently pass `USD_PX` (1e18), which reproduces the
+old decimals shift EXACTLY including integer flooring. Verified behaviour-identical.
+
+⚠️ **MY SCOPING WAS WRONG TWICE: "19 sites, all inside LevMath, no cross-contract surface."** It was 29
+across four files. A grep for `_toUsd18(` misses every call spelled `LevMath._toUsd18(`. The compiler
+found them in three rounds; the grep found none of them.
+
+**NO TRIPWIRE.** A `require(tok != WETH)` guard was written and rejected by the owner — correctly. A
+guard against a foreseeable misuse is a symptom that the root problem is unsolved, not a fix. ⇒ **TODO,
+owner's standing principle: sweep the codebase for guards of this shape, and for each, examine why the
+problem was not solved at root.** Awkward tripwires are a signal to re-examine the whole feature.
+
+**⇒ NEXT STEPS ARE NOW UNBLOCKED, in order:**
+  1. Register the weETH-collateral / WETH-loan market — exists on AAVE v4, Morpho and Euler; the LP
+     chooses; DO NOT create one. Then pass `IAux(aux).getTWAPforAsset(tok, TWAP_WIN_M)` instead of
+     `USD_PX` at the sites that carry the loan token.
+  2. The lever then BORROWS WETH rather than borrowing stable and buying WETH ⇒ both stable↔WETH SOR
+     legs vanish (short-circuit already landed, 54e43bf) ⇒ nothing needs to SOURCE WETH.
+  3. ⇒ The WETH supply venues can go, and the venue collapse finally lands. All five failed collapse
+     attempts were this single prerequisite attempted out of order.
+  4. The owner's restore-after-refill requirement lands cleanly here too: under WETH denomination
+     neither the involuntary unwind nor its restore pays a conversion. ⚠️ It still needs `closeLev` to
+     PERSIST the prior state (collateral, debt, entry price, IL target) — it discards them today, so
+     "restore" would silently re-price the LP's IL basis.
+
+**ATTRIBUTED, NOT MINE:** `test_E97_SellLegTaxOnOrdinaryFlow` reverts `SlippageMaxS()`. MEASURED at the
+pre-refactor commit (`e502f9a^`) — it fails there identically. It arrived with the parallel thread's
+merge (`0f8570f`, E97) already red. Belongs to whoever owns E97/E84-a.
