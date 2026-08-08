@@ -361,6 +361,7 @@ contract PremiumIsCarryNotIncome is Alles {
         _seed();
         deal(address(USDC), drainer, 20_000_000 * USDC_PRECISION);
         vm.prank(drainer); USDC.approve(address(AUX), type(uint).max);
+        vm.deal(drainer, 600 ether);
         vm.prank(lp); V4.deposit{value: 400 ether}(0, lp, 3);
         _settle();
 
@@ -368,15 +369,27 @@ contract PremiumIsCarryNotIncome is Alles {
         AUX.setAssetFeed(address(WETH), ETH_FEED);
         emit log_named_uint("sigma^2 BEFORE the walk", CORE.realizedVarianceWad(false));
 
-        // A PATH, not a pin: move the oracle, then trade AT the new price, 24 times.
+        // §UNIT-A-FIXTURE-CORR — DRIVE THE POOL'S TICK, NOT THE FEED, AND WITH SIZE.
+        // `ringVariance` reads `tickCumulative` off the POOL's ring and takes the variance of
+        // consecutive RATE CHANGES. The previous draft moved the ORACLE 24 times with 4,000 USDC
+        // swaps: far too small to traverse a +/-0.2% band or force a reseat, so tickCumulative
+        // advanced at a NEARLY CONSTANT rate and the variance of near-constant returns is ~0.
+        // Sizing, not spacing -- the estimator is spacing-immune by construction (each return is
+        // normalised by its own elapsed time).
+        // ALTERNATING large buys and sells is what makes consecutive rates DIFFER: a one-way ramp
+        // moves the tick at a steady rate, which is also low variance.
         uint p = px;
-        for (uint i; i < 24; ++i) {
-            p = (i % 2 == 0) ? p * 1003 / 1000 : p * 997 / 1000;   // ~+/-0.3% per step
+        for (uint i; i < 20; ++i) {
+            p = (i % 2 == 0) ? p * 1004 / 1000 : p * 996 / 1000;
             _setEthFeed(p / 1e10);
             vm.startPrank(drainer);
-            try AUX.swap(address(USDC), address(WETH), true, 4_000 * USDC_PRECISION, 0) {} catch {}
+            if (i % 2 == 0) {
+                try AUX.swap(address(USDC), address(WETH), true, 60_000 * USDC_PRECISION, 0) {} catch {}
+            } else {
+                try AUX.swap{value: 25 ether}(address(USDC), address(WETH), false, 0, 0) {} catch {}
+            }
             vm.stopPrank();
-            vm.roll(block.number + 1); vm.warp(block.timestamp + 8 minutes);
+            vm.roll(block.number + 1); vm.warp(block.timestamp + 3 minutes);
         }
 
         uint varWad = CORE.realizedVarianceWad(false);
