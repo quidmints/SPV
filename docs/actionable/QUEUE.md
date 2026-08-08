@@ -8274,6 +8274,38 @@ problem was not solved at root.** Awkward tripwires are a signal to re-examine t
 pre-refactor commit (`e502f9a^`) — it fails there identically. It arrived with the parallel thread's
 merge (`0f8570f`, E97) already red. Belongs to whoever owns E97/E84-a.
 
+
+### ⛔ RESTORE-AFTER-REFILL IS BLOCKED AT ROOT: `_closeLev` does `delete pos[lp]`
+
+**VERIFIED, not assumed** (`LevManager._closeLev`): the body takes `Pos storage p = pos[lp]`, unwinds,
+then **`delete pos[lp]`** and burns the levered band slice. Collateral, debt, entry price and IL target
+are all destroyed.
+
+⇒ The owner's requirement — *a perfectly healthy wound-up IL-protect LP must have its leverage
+position restored to the state it was in prior to the unwind, after the refill corrects the imbalance
+that caused it* — is currently **IMPOSSIBLE, not merely unimplemented.** There is nothing left to
+restore FROM. "Restore" today can only mean "re-open at present prices", which silently RE-PRICES the
+LP's IL basis: the whole point of IL-protect is that the hedge is struck against the LP's ENTRY, so
+re-striking it at post-imbalance prices hands them a different position wearing the same name.
+
+**AND THE INVOLUNTARY PATH ALREADY EXISTS AND IS THE ONE THAT FIRES.** `closeLevFor(lp, minOut)` is
+permissioned to `vogueSyncHook` precisely so a `Vogue._withdraw` can cover an open lever before the
+free-ladder burn — the exact scenario: a swap creates the imbalance, the LP is force-closed through no
+fault of its own, and the refill later corrects the imbalance with the LP's position already gone.
+Both `closeLev` (voluntary) and `closeLevFor` (involuntary) share `_closeLev`, so they delete alike.
+
+**WHAT IS NEEDED, and note it is a NEW REQUIREMENT rather than a fix to existing behaviour:**
+  1. Distinguish a VOLUNTARY close (LP asked; delete is correct) from an INVOLUNTARY one
+     (`closeLevFor`; the LP did not ask). Today `_closeLev` cannot tell them apart.
+  2. On the involuntary path, PERSIST the prior state rather than deleting it — at minimum entry price
+     and IL target, since those are what cannot be reconstructed after the fact.
+  3. Restore from that record once the refill lands, NOT from present prices.
+  4. Ensure the unwind+restore round trip does not pay the conversion twice. ⚠️ Under the CURRENT
+     stable-loan lever it would (each leg crosses stable↔WETH); under the WETH-loan market it does not,
+     which is another reason that market ordering matters.
+
+⚠️ This is a design item with a money-path consequence, not a cleanup. An LP force-closed by someone
+else's swap and "restored" at the wrong basis has silently had their hedge changed.
 | **UNIT-A-PRIOR** | ✅📐 **"IMPOSSIBLE" WAS WRONG — THE CONSERVATIVE-PRIOR FORM WORKS AND DELETES ALL THREE SENTINELS (owner: *"not impossible"*, 2026-08-06).** ⛔ **I asserted the ceiling and the base were *"not commensurable"* and that moving §E59's policy to the source was impossible, **from ONE calculation** (σ² would need 6.3e23 wad). **6.3e23 is an ordinary `uint256`.** The same assert-impossibility-from-one-measurement error I have been booking against myself all day.** ✅ **VERIFIED ARITHMETIC — `realizedVarianceWad` returns a CONSERVATIVE PRIOR for a genuinely fresh ring (cardinality 1) instead of 0, and every consumer computes normally with NO BRANCH: **prior σ² = 631,578,947,368,421,052,631,578 wad (6.316e5)** · **ETH base = 29,999,999,999,999,999 vs MAX_WELL_SKEW 30,000,000,000,000,000 — the ceiling to within 1 wei of integer division** · **BTC base = 9.002e18, clamped to the ceiling by the EXISTING tail clamp, no new code** · **overflow headroom 7.2e37 against 1.16e77.** ⇒ **THREE SENTINELS DELETE (`_maxWellSkew:809` · `skewWad:933` · `sellSkew:1270`), behaviour identical, and it FREES bytecode (§E92).** ⇒ **§UNIT-A-PLAN's step B is VIABLE as written; §UNIT-A's step A then becomes the two-line change with no parameter and no bundled policy.** ⚠️ **ONE ORDERING TO CONFIRM BEFORE IT LANDS — NOT A BLOCKER, BUT IT WOULD DEADLOCK A LAUNCH IF WRONG: the prior scales **θ's denominator by 4.07e9**, collapsing θ toward 0, and θ gates band sizing (`applyTheta`, `clampByBacking`). **`_bandFeeYieldWad` returns 0 when the premium is unmeasured and its doc says `derivedThetaWad` turns that into FAIL-OPEN — so on a fresh band the fail-open should fire BEFORE the σ² denominator is consulted. CONFIRM THAT ORDERING.** If it is the other way round, a fresh pool has θ≈0 and cannot commit capital at all.** 📌 **AND THE MEASUREMENT THAT REFRAMES UNIT-A REGARDLESS: **ETH base = 0.000000074 bps · BTC base = 0.000022 bps · BTC `SPLICE_FLOOR` = 20 bps.** The 12-second ETH window makes the LVR base VANISH by construction; the 1-hour BTC window plus the splice fee makes it real. **⇒ UNIT-A is materially a BTC FIX (20 bps currently never charged on a fresh band, §E98); on ETH it changes nothing economically and its only effect is arming the ceiling — which is the entire cause of the 107 failures.** | ✅📐 prior works, 3 sentinels delete; UNIT-A is a BTC fix; confirm θ fail-open ordering |
 
 | **UNIT-A-PRIOR-THETA** | ✅⚠️ **θ ORDERING CONFIRMED: THE PRIOR SURVIVES, BUT THROUGH A DIFFERENT FAIL-OPEN THAN THE ONE θ USES TODAY — AND IT FORCES A DELETION (2026-08-06).** ⛔ **`VogueLib.derivedThetaWad:377-378` fails open on **σ² ITSELF**, as its FIRST act: `uint sigmaSq = ICore(core).realizedVarianceWad(isBTC); if (sigmaSq == 0) return 1e18;`. ⇒ **change the source to return a PRIOR and that branch STOPS FIRING**; θ then computes with a 4.07e9-larger denominator and fails **CLOSED**. The function's own comment names the consequence: *"the exact deadlock the docstring warns about (no depth ⇒ no fees ⇒ no premium ⇒ no depth, forever). A cold band could never bootstrap"* — **already fixed once, 2026-07-26.**** ✅ **BUT THE PRIOR SURVIVES IT: the SECOND fail-open catches the same state. `_bandFeeYieldWad` returns 0 for `premium == 0` AND `pooled == 0`, and a genuinely fresh band has no premium ⇒ θ fails open on the YIELD path instead. **Bootstrap preserved, through a different door.** ⚠️ **The residual case to check is a band with SOME premium and a FRESH variance ring — unlikely, since premium implies swaps implies ring writes, but it is the one state where BOTH fail-opens miss.** 🔴 **AND IT FORCES A DELETION, NOT AN OPTION: if `realizedVarianceWad` never returns 0 again, `if (sigmaSq == 0) return 1e18;` is **UNREACHABLE CODE** — CLAUDE.md standing rule 1 (*"if a branch can't be hit, delete it — don't leave it 'for safety'"*). **It must be removed IN THE SAME CHANGE, or the prior ships a dead branch that reads like live protection.** ▶️ **REVISED STEP B, COMPLETE: (1) `Core.realizedVarianceWad` returns the prior 631,578,947,368,421,052,631,578 wad on a genuinely fresh ring (cardinality 1) — §E88-r's discriminator already separates that from a measured zero (1 wei); (2) delete the three `σ² == 0 ⇒ MAX_WELL_SKEW` sentinels (`_maxWellSkew:809` · `skewWad:933` · `sellSkew:1270`); (3) delete `derivedThetaWad`'s now-unreachable `sigmaSq == 0` fail-open; (4) assert the YIELD fail-open covers cold-band bootstrap — **that assertion is the whole safety case for this change** and must be a test, not a comment. **Suite green expected: no behaviour change, since the prior reproduces the ceiling to 1 wei and BTC clamps as before.**** | ✅⚠️ prior survives via the yield fail-open; forces deleting the σ² fail-open; step B now complete |
