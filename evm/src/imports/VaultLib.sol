@@ -454,7 +454,7 @@ library VaultLib {
         if (weethIn > bal) weethIn = bal;
         uint covered = (weethFull == 0 || weethIn == weethFull)
             ? amount : FullMath.mulDiv(amount, weethIn, weethFull);
-        // Rung 1 — v3 pool (only if Aux holds weETH).
+        // RUNG 1 — v3 pool (only if Aux holds weETH). The cheap tier is tried FIRST; see below.
         // TIER ORDER: pool B (0.01%) is tried BEFORE pool A (0.05%). MEASURED 2026-08-06 against live
         // mainnet (Quoter v1, vs getEETHByWeETH fair), weETH→WETH:
         //     size      0.01%      0.05%
@@ -479,13 +479,21 @@ library VaultLib {
                 catch {}
             }
         }
-        // Rung 2 (Rover unwind) REMOVED 2026-08-05 with Rover itself — `c.rover` is always
-        // address(0) once nothing funds it, so the rung was an unreachable branch on the offramp path.
-        // Rung 3 (ether.fi 0.3% instant-redeem) DELETED 2026-08-06, owner decision. Its capacity
-        // (`totalRedeemableAmount`) measured ZERO at every sampled block across 90 days and still does,
-        // because the v3 pool absorbs the flow first — it could never fill and never will. Its test only
-        // ever passed by MANUFACTURING capacity (vm.deal + mocked withdrawal lock).
-        // Rung 4 — last-resort no-fee withdrawal NFT.
+        // TWO RUNGS REMOVED 2026-08-05/06, both because they could never fill:
+        //   * Rover unwind — `c.rover` is always address(0) once nothing funds Rover, so the branch
+        //     was unreachable.
+        //   * ether.fi 0.3% instant-redeem — `totalRedeemableAmount` measured ZERO at every sampled
+        //     block across 90 days and still does, because the v3 pool absorbs the flow first. Its
+        //     test only ever passed by MANUFACTURING capacity (vm.deal + a mocked withdrawal lock),
+        //     so it guarded a path live state has never once permitted.
+        // RUNG 2 (last) — no-fee withdrawal NFT, minted to the WITHDRAWER.
+        //
+        // ⚠️ THE LADDER IS TWO RUNGS, NOT FOUR. It sells weETH (rung 1) or hands over a redemption
+        // claim (rung 2). It does NOT yet BORROW WETH against the weETH and repay from the
+        // redemption — that leg is unbuilt, which is why every exit currently pays the ~25.6 bps
+        // sale rather than ~borrow-interest. Building it needs a weETH-collateral / WETH-loan market
+        // registered; `MorphoEscrowVenue` is already loan-token-generic and `_fromUsd`/`_toUsd18` are
+        // now price-aware, so that is deploy config rather than a code change here.
         return waitNft(covered, recipient, c);
     }
 
