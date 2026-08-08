@@ -308,6 +308,7 @@ contract Deploy is Script {
             // any other) AND prove the checkpoint is canonical — an orphaned one cannot be
             // linked to, so the deploy reverts here instead of bricking silently later.
             spvCheckpointFollowers: _spvCheckpointFollowers(),
+            allowUnburiedCheckpoint: false,   // (E135-b) PRODUCTION: the checkpoint MUST be buried; followers above prove it
             deployChannels: true
         }));
         V4 = Vogue(payable(A.v4));

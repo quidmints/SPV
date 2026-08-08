@@ -475,6 +475,7 @@ contract Alles is ForkPin, Fixtures {
             hopOperator: address(0),
             spvCheckpointHeader: "", spvCheckpointHeight: 0, spvCheckpointWork: 0,
             spvCheckpointFollowers: new bytes[](0),   // (E135) tests build their own short chains
+            allowUnburiedCheckpoint: true,   // (E135-b) tests build their own short chains -- burial waived deliberately
             deployChannels: false
         }));
         // (Nothing to create — all three venues are the real mainnet curator vaults. `Vault`'s ctor

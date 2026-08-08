@@ -85,6 +85,10 @@ library DeployLib {
         // (E135) The headers that FOLLOW the checkpoint, submitted at deploy. See below —
         // this is not an added constraint, it is the catch-up the gateway needs anyway.
         bytes[] spvCheckpointFollowers;
+        // (E135-b) Waiver for the burial requirement below. There is no default: every
+        // `StackConfig` literal must name it, so a deploy CANNOT omit it by accident — the
+        // compiler makes the choice conscious. Production sets FALSE.
+        bool allowUnburiedCheckpoint;
         // ── optional add-ons (tests deploy their own doubles per-test) ──
         bool deployChannels;
     }
@@ -185,6 +189,19 @@ library DeployLib {
         // Empty is permitted (tests, and regtest fixtures with short chains) — that leaves
         // the gateway exactly as un-caught-up as it is today, no worse. A PRODUCTION deploy
         // must supply them, both to function and to prove the checkpoint is canonical.
+        // (E135-b) BURIAL IS NOW REQUIRED, NOT ADVISED. This used to be `if (length != 0)`
+        // with a comment saying "A PRODUCTION deploy must supply them" — a property true by
+        // CONVENTION, with nothing failing when the convention lapsed.
+        // ⚠️ NOT A DEPTH CLAMP (those were rejected, correctly). A non-empty follower batch is
+        //    SELF-PROVING: N valid PoW headers extending the checkpoint cannot exist unless
+        //    Bitcoin produced them, so requiring one cannot be satisfied by a lie and costs
+        //    nothing beyond the headers a deploy needs anyway.
+        // WHY IT MATTERS: `_initialize` validates nothing, and `initializer` means it can
+        // never re-run. Pin a checkpoint too shallow, let a ROUTINE 1-2 block reorg orphan it,
+        // and every later `addBlockHeader` fails its `prevBlockHash` link — a normal Bitcoin
+        // event permanently bricks the gateway and the whole BTC path.
+        require(cfg.spvCheckpointFollowers.length != 0 || cfg.allowUnburiedCheckpoint,
+            "DeployLib: checkpoint unburied (supply spvCheckpointFollowers, or waive it)");
         if (cfg.spvCheckpointFollowers.length != 0) {
             spv.addBlockHeaderBatch(cfg.spvCheckpointFollowers);
         }

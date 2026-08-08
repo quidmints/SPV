@@ -115,6 +115,7 @@ contract Deploy is Script {
             spvCheckpointHeight: 0,
             spvCheckpointWork: 0,
             spvCheckpointFollowers: new bytes[](0),   // (E135) no catch-up needed here
+            allowUnburiedCheckpoint: true,   // (E135-b) driver builds its own short chain -- burial waived deliberately
             deployChannels: true
         }));
 
