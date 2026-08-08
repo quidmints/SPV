@@ -114,6 +114,7 @@ contract Deploy is Script {
             spvCheckpointHeader: REGTEST_GENESIS_HEADER,
             spvCheckpointHeight: 0,
             spvCheckpointWork: 0,
+            spvCheckpointFollowers: new bytes[](0),   // (E135) no catch-up needed here
             deployChannels: true
         }));
 

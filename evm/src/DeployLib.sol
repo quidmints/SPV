@@ -82,6 +82,9 @@ library DeployLib {
         bytes spvCheckpointHeader;
         uint64 spvCheckpointHeight;
         uint256 spvCheckpointWork;
+        // (E135) The headers that FOLLOW the checkpoint, submitted at deploy. See below —
+        // this is not an added constraint, it is the catch-up the gateway needs anyway.
+        bytes[] spvCheckpointFollowers;
         // ── optional add-ons (tests deploy their own doubles per-test) ──
         bool deployChannels;
     }
@@ -158,6 +161,33 @@ library DeployLib {
     {
         SPVGateway spv = new SPVGateway();
         spv.__SPVGateway_init(cfg.spvCheckpointHeader, cfg.spvCheckpointHeight, cfg.spvCheckpointWork);
+        // (E135) CATCH THE GATEWAY UP AT DEPLOY, and get the checkpoint check for free.
+        //
+        // `checkTxInclusion` requires the tx's block to already be known, and after init the
+        // gateway knows EXACTLY ONE block. So it must be caught up before it can vouch for
+        // anything — today that happens by accident, whenever some keeper first submits
+        // headers. Doing it here is not an added constraint; it is the same mandatory work,
+        // earlier.
+        //
+        // ⚠️ AND IT IS WHAT CATCHES A BAD CHECKPOINT. `_initialize` takes `(header, height,
+        // cumulativeWork)` on trust — it cannot know Bitcoin's tip. If the checkpoint is
+        // orphaned (too shallow, and a routine 1-2 block reorg took it), these followers
+        // CANNOT link to it and this call REVERTS, failing the deploy loudly. Left to a
+        // keeper instead, the same break surfaces much later as a `prevBlockHash` mismatch
+        // nobody attributes to the checkpoint — possibly after channels already depend on
+        // the gateway, and `initializer` means it can never be re-initialised.
+        //
+        // Deliberately NOT a contract-level clamp: an earlier attempt made
+        // `checkTxInclusion` refuse to answer until the checkpoint was 100 blocks buried,
+        // which is a liveness constraint invented to guard a deploy-time mistake. This
+        // attacks the cause instead, and costs nothing on-chain.
+        //
+        // Empty is permitted (tests, and regtest fixtures with short chains) — that leaves
+        // the gateway exactly as un-caught-up as it is today, no worse. A PRODUCTION deploy
+        // must supply them, both to function and to prove the checkpoint is canonical.
+        if (cfg.spvCheckpointFollowers.length != 0) {
+            spv.addBlockHeaderBatch(cfg.spvCheckpointFollowers);
+        }
         // BTCChannels binds `btcVault = _vogue` (the 3rd arg). The BTC side was regrouped
         // into the merged Vault (`eth`) — creditSwapOut / registerBtcLp / resizeBtcLp all
         // live there (Vogue/`v4` has none). So the BtcVault is `eth`, NOT `v4`: passing v4

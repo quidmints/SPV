@@ -456,6 +456,7 @@ contract Alles is ForkPin, Fixtures {
             stables: STABLECOINS, vaults: VAULTS,
             hopOperator: address(0),
             spvCheckpointHeader: "", spvCheckpointHeight: 0, spvCheckpointWork: 0,
+            spvCheckpointFollowers: new bytes[](0),   // (E135) tests build their own short chains
             deployChannels: false
         }));
         // (Nothing to create — all three venues are the real mainnet curator vaults. `Vault`'s ctor

@@ -303,6 +303,11 @@ contract Deploy is Script {
             spvCheckpointHeader: checkpointHeader,
             spvCheckpointHeight: checkpointHeight,
             spvCheckpointWork: checkpointWork,
+            // (E135) PRODUCTION MUST SUPPLY THESE: the headers following the checkpoint. They
+            // catch the gateway up (it knows one block after init and cannot vouch for a tx in
+            // any other) AND prove the checkpoint is canonical — an orphaned one cannot be
+            // linked to, so the deploy reverts here instead of bricking silently later.
+            spvCheckpointFollowers: _spvCheckpointFollowers(),
             deployChannels: true
         }));
         V4 = Vogue(payable(A.v4));
@@ -461,6 +466,18 @@ contract Deploy is Script {
     ///   RealRateBtcMorphoOracle is deployed inline. (Down-side short venues REMOVED 2026-07-24 — up-side-only;
     ///   the short subsystem was an LVR leak, see docs §J.4. A directional-short product, if shipped, is a normal
     ///   position on an inverse venue added to the allowlist, per §K — not the removed hedge.)
+    /// (E135) Raw 80-byte headers following `spvCheckpointHeader`, oldest first, supplied as a
+    /// JSON array in `SPV_CHECKPOINT_FOLLOWERS`. They catch the gateway up — after init it
+    /// knows ONE block and cannot vouch for a tx in any other — and, because an orphaned
+    /// checkpoint cannot be linked to, submitting them makes a bad checkpoint fail the DEPLOY
+    /// rather than brick the gateway silently later. Empty is allowed (leaves today's
+    /// behaviour); a real deployment must set it.
+    function _spvCheckpointFollowers() internal view returns (bytes[] memory) {
+        string memory raw = vm.envOr("SPV_CHECKPOINT_FOLLOWERS", string(""));
+        if (bytes(raw).length == 0) return new bytes[](0);
+        return vm.parseJsonBytesArray(raw, "$");
+    }
+
     function _deployLeverageOverlay(address deployer) internal {
         if (!vm.envOr("DEPLOY_LEV", false)) { console.log("[DEPLOY_LEV unset] leverage overlay skipped"); return; }
         address gov    = vm.envOr("YB_GOV", deployer);
