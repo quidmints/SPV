@@ -656,6 +656,33 @@ contract DrainAtomicity is Alles {
     /// ⚠️ E104 measured that `reseat()` does NOT move `POOLED_ETH`. That is CONSISTENT with the
     /// mechanism (the range moves, the inventory does not) but it means any ratio shift here is a
     /// change in the REFERENCE, not in assets held — which is a bookkeeping move, NOT a repair.
+    /// §E115 — VALIDATES E93's INSTRUMENT: does NORMALIZED TICK POSITION track the composition
+    /// ratio monotonically? E113 confirmed composition is a function of price-in-range and that
+    /// `POOLED_*` IS the position. E114 restored the tick design. This checks the actual mapping the
+    /// design would consume: `(tick - tickLower) / (tickUpper - tickLower)` against `vol:USD`.
+    /// `reseatEpoch` is logged because a repack MOVES THE FRAME, and a normalized position read
+    /// across a frame move is not comparable -- that is the discriminator a naive TWAP would lack.
+    function test_E115_NormalizedTickTracksComposition() public {
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        _settle();
+        for (uint round = 0; round < 5; ++round) {
+            for (uint d = 0; d < 4; ++d) _drain(20_000 * 1e18);
+            (, int24 ct, uint128 liq) = CORE.poolStats(V4.LOWER_TICK(), V4.UPPER_TICK(), false);
+            int24 lo = V4.LOWER_TICK(); int24 hi = V4.UPPER_TICK();
+            uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+            uint volLeg = CORE.POOLED_ETH() * px / 1e30;
+            uint usdLeg = CORE.POOLED_USD_ETH();
+            uint norm = hi > lo && ct >= lo ? uint(int(ct - lo)) * 1e4 / uint(int(hi - lo)) : 0;
+            emit log_named_uint("normalized tick (1e-4)  ", norm);
+            emit log_named_uint("  vol:USD ratio (1e-4)  ", usdLeg == 0 ? 0 : volLeg * 1e4 / usdLeg);
+            emit log_named_uint("  reseatEpoch (frame)   ", V4.reseatEpoch());
+            emit log_named_uint("  liquidity             ", liq);
+        }
+        emit log("Monotone normalized-vs-ratio WITHIN a constant reseatEpoch => the instrument works.");
+        emit log("A jump where reseatEpoch changes is a FRAME MOVE, not a composition change.");
+    }
+
     function test_E109_DoesReseatMoveTheRatio() public {
         _seedBasket();
         vm.prank(lpA); V4.deposit{value: 300 ether}(0, lpA, 3);
