@@ -39,20 +39,16 @@ contract SPVGateway is ISPVGateway, Initializable {
         }
     }
 
-    function __SPVGateway_init_genesis() external initializer {
-        BlockHeader.HeaderData memory genesisBlockHeader_ = BlockHeader.HeaderData({
-            version: 1,
-            prevBlockHash: bytes32(0),
-            merkleRoot: 0x4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b,
-            time: 1231006505,
-            bits: 0x1d00ffff,
-            nonce: 2083236893
-        });
-        bytes32 genesisBlockHash_ = 0x000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f;
-
-        _initialize(genesisBlockHeader_, genesisBlockHash_, 0, 0);
-    }
-
+    /// @notice Start the header chain from a DEPLOYER-CHOSEN CHECKPOINT.
+    ///
+    ///         ⚠️ THIS IS A REAL TRUST ASSUMPTION AND IT USED TO BE OBSCURED. A companion
+    ///         `__SPVGateway_init_genesis()` hardcoding Bitcoin block 0 sat here until
+    ///         2026-08-08, called by NOTHING — production goes through this function
+    ///         (`DeployLib.sol:160`, from `cfg.spvCheckpointHeader`) and so does every test.
+    ///         Both carried `initializer`, so once this ran the genesis one could never fire:
+    ///         unreachable by construction. Its presence implied the gateway syncs from
+    ///         genesis. **It does not.** Everything FORWARD of the checkpoint is trustless by
+    ///         proof-of-work; the checkpoint itself is trusted because the deployer picked it.
     function __SPVGateway_init(
         bytes calldata blockHeaderRaw_,
         uint64 blockHeight_,
