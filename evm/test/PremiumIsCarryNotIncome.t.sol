@@ -384,7 +384,12 @@ contract PremiumIsCarryNotIncome is Alles {
         // 2 got 370 bps precisely because it was regular. Real tape is uneven in BOTH size and
         // spacing, so vary both.
         uint p = px;
-        uint16[8] memory mult = [uint16(1008), 994, 1003, 1010, 991, 1002, 1006, 996];  // uneven, ~2/3 amplitude
+        // FREQUENCY, NOT AMPLITUDE. Measured: 0.6% -> 556 bps, 1.0% -> 545 bps (NO change), 1.8% ->
+        // 28,069 bps. `ringVariance` is BIMODAL -- below the reseat threshold amplitude is
+        // irrelevant, above it reseats dominate -- so the target band is stepped OVER, never hit,
+        // by scaling amplitude. The lever is HOW OFTEN the walk CROSSES the band edge: two large
+        // (crossing) steps in eight, six small (non-crossing) ones.
+        uint16[8] memory mult = [uint16(1018), 997, 1002, 1004, 985, 1001, 1003, 998];
         uint16[8] memory size = [uint16(40), 150, 25, 90, 200, 60, 15, 120];            // uneven size
         for (uint i; i < 24; ++i) {
             p = p * mult[i % 8] / 1000;
