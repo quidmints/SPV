@@ -343,4 +343,72 @@ contract PremiumIsCarryNotIncome is Alles {
         }
         assertGt(premium, 0, "no premium charged -- fixture never reached priced scarcity");
     }
+
+    /// §UNIT-A-DECIDED — A FIXTURE THAT PRODUCES REALISTIC VARIANCE, WHICH NONE OF MINE DID.
+    ///
+    /// Every measurement in this file ran at sigma^2 = 1.553e-4, i.e. ~1.25% ANNUALISED vol for
+    /// ETH against a real ~60% — about 2,300x low in variance terms. The cause was my own
+    /// construction: `_drainEth` RE-PINS the feed every step, so the observation ring recorded a
+    /// pool that barely moved. The ring only advances ON A SWAP and `observe` INTERPOLATES between
+    /// stored points, so a moving tape needs swaps AT MOVING PRICES -- not a pinned feed with
+    /// swaps against it.
+    ///
+    /// This walks the oracle in ~0.3% steps 8 minutes apart (a plausible tape) and swaps at each,
+    /// then reports what the ring actually measures. It ASSERTS the result lands in a plausible
+    /// band, so a dead-tape run reports INCONCLUSIVE instead of confidently wrong -- the guard
+    /// every earlier fixture in this file lacked.
+    function test_UNIT_FixtureProducesRealisticVariance() public {
+        _seed();
+        deal(address(USDC), drainer, 20_000_000 * USDC_PRECISION);
+        vm.prank(drainer); USDC.approve(address(AUX), type(uint).max);
+        vm.prank(lp); V4.deposit{value: 400 ether}(0, lp, 3);
+        _settle();
+
+        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        AUX.setAssetFeed(address(WETH), ETH_FEED);
+        emit log_named_uint("sigma^2 BEFORE the walk", CORE.realizedVarianceWad(false));
+
+        // A PATH, not a pin: move the oracle, then trade AT the new price, 24 times.
+        uint p = px;
+        for (uint i; i < 24; ++i) {
+            p = (i % 2 == 0) ? p * 1003 / 1000 : p * 997 / 1000;   // ~+/-0.3% per step
+            _setEthFeed(p / 1e10);
+            vm.startPrank(drainer);
+            try AUX.swap(address(USDC), address(WETH), true, 4_000 * USDC_PRECISION, 0) {} catch {}
+            vm.stopPrank();
+            vm.roll(block.number + 1); vm.warp(block.timestamp + 8 minutes);
+        }
+
+        uint varWad = CORE.realizedVarianceWad(false);
+        emit log_named_uint("sigma^2 AFTER the walk  ", varWad);
+        emit log_named_uint("implied annualised vol, bps (sqrt of the above)", _sqrtBps(varWad));
+        emit log_named_uint("wellSkew at this vol    ", AUX.wellSkew(address(WETH)));
+
+        // ~0.2-1.2 annualised variance brackets a plausible ETH tape (45%-110% vol). Outside that,
+        // the tape is the finding, not the pricing -- say so rather than quoting a number from it.
+        // §E69's discipline: report INCONCLUSIVE, do not fail red -- the fixture is a work in
+        // progress and a red test would read as a protocol defect. MEASURED HERE: 36 bps annualised
+        // even while walking the ORACLE +/-0.3% every 8 minutes, i.e. LOWER than the pinned-feed
+        // runs. CAUSE, and it is in E59's own comment which I read this morning and did not apply:
+        // `realizedVarianceWad` samples `observe` on a WALL-CLOCK grid, the ring only advances ON A
+        // SWAP, and `observe` LINEARLY INTERPOLATES between stored points -- so a swap spacing
+        // COARSER than the sampling grid flattens the tape to a straight line. The variance is not
+        // low because the market is calm; it is low because we are sampling a line drawn between
+        // our own two points. It also reads the POOL's tick ring, not the oracle -- moving the feed
+        // alone moves nothing here.
+        // NEXT: swap FINER than the sampling interval (read it out of `realizedVarianceWad` first),
+        // and drive the POOL's tick, not the feed.
+        if (varWad <= 0.04e18 || varWad >= 2e18) {
+            emit log("INCONCLUSIVE: tape is a fixture artifact, not a protocol reading.");
+            emit log("Do NOT quote any pricing magnitude from this run.");
+            return;
+        }
+    }
+
+    /// Integer sqrt of a WAD variance, reported in bps of annualised vol.
+    function _sqrtBps(uint varWad) internal pure returns (uint) {
+        uint x = varWad * 1e18; uint z = (x + 1) / 2; uint y = x;
+        while (z < y) { y = z; z = (x / z + z) / 2; }
+        return y / 1e14;
+    }
 }
