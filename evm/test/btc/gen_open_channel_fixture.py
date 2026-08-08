@@ -76,6 +76,107 @@ def merkle_branch(leaves, index):
     return branch, layer[0]
 
 
+
+# ── BIP-327 MuSig2 KeyAgg + BIP-341 taproot tweak ────────────────────────────────────
+# ⚠️ ADDED (E147-d). The generator USED TO ask bitcoind for an unrelated `getnewaddress
+#    bech32m` and record its output key as `fundingTaproot`, while emitting two other
+#    unrelated wallet pubkeys as lpPubkey/hopPubkey. **The three had no relationship at
+#    all** — Q was a SINGLE-KEY BIP-86 wallet output standing in for a 2-of-2. That was
+#    invisible while the contract only byte-matched `0x5120||Q`, and it made the fixture
+#    structurally incapable of satisfying an on-chain KeyAgg check (E129/E142). The header's
+#    claim of "no custom Bitcoin crypto" was the reason it stayed that way; the honest
+#    version is that the ONE relationship the fixture must encode cannot come from the
+#    wallet, because the wallet does not know these are supposed to be channel keys.
+# This mirrors `quid-hop/src/funding.rs::taproot_funding_aggregate_xonly` and is checked
+# against the BIP-327 reference vector below, so a silent drift fails loudly at generation.
+P  = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
+N  = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+GX = 0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798
+GY = 0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8
+
+
+def _tagged(tag, msg):
+    t = sha256(tag.encode())
+    return sha256(t + t + msg)
+
+
+def _pt_add(p1, p2):
+    if p1 is None: return p2
+    if p2 is None: return p1
+    if p1[0] == p2[0] and (p1[1] + p2[1]) % P == 0: return None
+    if p1 == p2:
+        lam = 3 * p1[0] * p1[0] * pow(2 * p1[1], P - 2, P) % P
+    else:
+        lam = (p2[1] - p1[1]) * pow(p2[0] - p1[0], P - 2, P) % P
+    x = (lam * lam - p1[0] - p2[0]) % P
+    return (x, (lam * (p1[0] - x) - p1[1]) % P)
+
+
+def _pt_mul(k, pt):
+    r = None
+    while k:
+        if k & 1: r = _pt_add(r, pt)
+        pt = _pt_add(pt, pt); k >>= 1
+    return r
+
+
+def _decompress(pk33):
+    x = int.from_bytes(pk33[1:], "big")
+    y_sq = (pow(x, 3, P) + 7) % P
+    y = pow(y_sq, (P + 1) // 4, P)
+    assert pow(y, 2, P) == y_sq, "pubkey is not on the curve"
+    if y % 2 != pk33[0] % 2: y = P - y
+    return (x, y)
+
+
+def taproot_2of2_output_key(lp33, hop33):
+    """Q = lift_x(KeyAgg(KeySort(lp,hop))) + H_TapTweak(x(agg))*G, empty merkle root."""
+    p1, p2 = (lp33, hop33) if lp33 < hop33 else (hop33, lp33)   # BIP-327 KeySort
+    ell = _tagged("KeyAgg list", p1 + p2)
+    # BIP-327: the SECOND key's coefficient is 1, not a hash.
+    a1 = int.from_bytes(_tagged("KeyAgg coefficient", ell + p1), "big") % N
+    agg = _pt_add(_pt_mul(a1, _decompress(p1)), _decompress(p2))
+    even = (agg[0], agg[1] if agg[1] % 2 == 0 else P - agg[1])   # BIP-341 tweaks the even-y lift
+    t = int.from_bytes(_tagged("TapTweak", even[0].to_bytes(32, "big")), "big") % N
+    return _pt_add(even, _pt_mul(t, (GX, GY)))[0].to_bytes(32, "big")
+
+
+_B32 = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+
+
+def _bech32m(hrp, witver, prog):
+    def polymod(v):
+        gen = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3]
+        chk = 1
+        for x in v:
+            b = chk >> 25
+            chk = (chk & 0x1ffffff) << 5 ^ x
+            for i in range(5):
+                chk ^= gen[i] if ((b >> i) & 1) else 0
+        return chk
+    def conv(data):
+        acc = bits = 0; out = []
+        for b in data:
+            acc = (acc << 8) | b; bits += 8
+            while bits >= 5:
+                bits -= 5; out.append((acc >> bits) & 31)
+        if bits: out.append((acc << (5 - bits)) & 31)
+        return out
+    data = [witver] + conv(prog)
+    hrp_exp = [ord(c) >> 5 for c in hrp] + [0] + [ord(c) & 31 for c in hrp]
+    chk = polymod(hrp_exp + data + [0] * 6) ^ 0x2bc830a3          # bech32m constant
+    return hrp + "1" + "".join(_B32[d] for d in data + [(chk >> 5 * (5 - i)) & 31 for i in range(6)])
+
+
+# SELF-CHECK at import: the BIP-327 reference vector. If this ever fails, the fixture
+# would silently encode a Q the contract cannot reproduce -- which is the exact defect
+# E147 spent a session diagnosing. Fail at generation instead.
+assert taproot_2of2_output_key(
+    bytes.fromhex("02F9308A019258C31049344F85F89D5229B531C845836F99B08601F113BCE036F9"),
+    bytes.fromhex("03DFF1D77F2A671C5F36183726DB2341BE58FEAE1DA2DECED843240F7B502BA659"),
+).hex() == "dee725e810716d6f0748b3d82aa67cdc1066028ffc8a8ebbe5ca148148153325", \
+    "KeyAgg drifted from the BIP-327 reference vector"
+
 def newpub():
     a = cli("getnewaddress", "", "bech32")
     return clij("getaddressinfo", a)["pubkey"]            # 33-byte compressed
@@ -86,11 +187,19 @@ def one_open(seed, sats):
     lp = bytes.fromhex(newpub())
     hop = bytes.fromhex(newpub())
     assert len(lp) == 33 and len(hop) == 33
-    addr = cli("getnewaddress", "", "bech32m")
-    spk = bytes.fromhex(clij("getaddressinfo", addr)["scriptPubKey"])
-    assert len(spk) == 34 and spk[0] == 0x51 and spk[1] == 0x20, \
-        f"expected key-path P2TR 0x5120||Q, got {spk.hex()}"
-    q = spk[2:]
+    # (E147-d) Q IS DERIVED FROM lp/hop, NOT ASKED OF THE WALLET.
+    # This used to be `getnewaddress bech32m` + read back its scriptPubKey — an output key
+    # with NO relationship to lp/hop, so `KeyAgg(lpPubkey,hopPubkey) != fundingTaproot` for
+    # every entry ever generated. The funding output is a 2-of-2; the wallet cannot produce
+    # one, because it does not know these two keys are meant to be aggregated.
+    # ⚠️ The output is consequently NOT spendable by this wallet. That is correct and
+    #    intended: the fixture only needs the output to EXIST and be SPV-provable, which is
+    #    all BTCChannels.openChannel checks. Nothing in the suite spends it.
+    q = taproot_2of2_output_key(lp, hop)
+    spk = b"\x51\x20" + q
+    addr = _bech32m("bcrt", 1, q)
+    assert bytes.fromhex(clij("getaddressinfo", addr)["scriptPubKey"]) == spk, \
+        "bech32m encoding disagrees with bitcoind on the derived P2TR address"
     txid = cli("sendtoaddress", addr, "%.8f" % (sats / 1e8))
     return {"seed": seed, "sats": sats, "lp": lp, "hop": hop, "q": q, "spk": spk, "txid": txid}
 
