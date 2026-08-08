@@ -661,20 +661,23 @@ contract DrainAtomicity is Alles {
         // price ~0.15% against a +/-0.2% band and never exited -- which is why E109 tested nothing.
         // `reseatEpoch` incrementing IS the proof the band exited and re-centred, so no tick getter
         // is needed: drain hard, then assert the epoch moved before reading any result.
-        // Drain until the pool goes DRY (`SlippageMaxS` on `max == 0`), which in a concentrated
-        // position IS the approach to `tickUpper` -- draining converts the band toward 100% USD.
-        // The try/catch here DETECTS and REPORTS that boundary rather than hiding it; the failure
-        // is the signal, and it is logged, not swallowed.
-        uint rounds;
+        // §E111 -> §E112: DRAINING cannot arm this test -- it empties the band, and the repack needs
+        // `myLiquidity > 0`, so the liquidity is destroyed in the act of moving the price. The MIRROR
+        // construction avoids that: SELLING ETH IN pushes price DOWN toward `tickLower`, where a
+        // concentrated position converts to 100% VOLATILE -- so the band exits the range while still
+        // HOLDING assets rather than being emptied. That is a band that is out-of-range AND liquid,
+        // which is exactly the state E108-EXPLAINED's mechanism needs to be testable.
+        uint sells;
         for (uint d = 0; d < 40; ++d) {
-            deal(bold, drainer, 60_000 * 1e18);
+            deal(address(WETH), drainer, 30 ether);
             vm.startPrank(drainer);
-            IERC20(bold).approve(address(AUX), 60_000 * 1e18);
-            try AUX.swap(bold, address(WETH), true, 60_000 * 1e18, 0) { rounds++; }
-            catch { vm.stopPrank(); emit log_named_uint("pool went DRY after rounds", rounds); break; }
+            WETH.approve(address(AUX), 30 ether);
+            try AUX.swap(bold, address(WETH), false, 30 ether, 0) { sells++; }
+            catch { vm.stopPrank(); emit log_named_uint("sell path hit its limit after", sells); break; }
             vm.stopPrank();
             _settle();
         }
+        emit log_named_uint("sells completed           ", sells);
 
         uint px0   = AUX.getTWAPforAsset(address(WETH), 1800);
         uint vol0  = CORE.POOLED_ETH() * px0 / 1e30;

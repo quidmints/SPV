@@ -48,7 +48,28 @@ contract SPVGateway is ISPVGateway, Initializable {
     ///         Both carried `initializer`, so once this ran the genesis one could never fire:
     ///         unreachable by construction. Its presence implied the gateway syncs from
     ///         genesis. **It does not.** Everything FORWARD of the checkpoint is trustless by
-    ///         proof-of-work; the checkpoint itself is trusted because the deployer picked it.
+    ///         proof-of-work.
+    ///
+    ///         ⚠️ AND THE CHECKPOINT ASSUMPTION IS NARROWER THAN "trust the deployer" — a
+    ///         first draft of this note said that and overstated it. **PoW is unforgeable, so a
+    ///         bad checkpoint cannot be FABRICATED: it would have to be a genuine Bitcoin
+    ///         header that is merely off the main chain (an orphan, or another network).**
+    ///         Honest subsequent headers would not extend an orphan, and anyone can check the
+    ///         checkpoint against any Bitcoin node in seconds. So the assumption is "this block
+    ///         is on Bitcoin's main chain" — PUBLICLY VERIFIABLE, not a matter of taking the
+    ///         deployer's word. Syncing from genesis would remove even that, at ~900k headers
+    ///         of gas; the standard alternative is ZK historical proofs
+    ///         (distributed-lab's `HistoricalSPVGateway`), which we deliberately do not vendor.
+    ///         🔴 **AND THE DEPTH IS UNGUARDED — THIS IS THE REAL RISK, NOT THE TRUST.**
+    ///         `_initialize` accepts `(header, height, cumulativeWork)` with NO validation.
+    ///         Pin a block that is too shallow — the tip, say — and a ROUTINE 1-2 block reorg
+    ///         orphans it. Every later `addBlockHeader` then fails the `prevBlockHash` link,
+    ///         because the honest chain's block at that height has a different hash, and
+    ///         `initializer` means it can never be re-initialised. **A normal Bitcoin event
+    ///         would permanently brick the gateway and the whole BTC path with it.** The
+    ///         checkpoint must be BURIED (6 conventionally, 100 for comfort), and
+    ///         `cumulativeWork_` must be correct or every later reorg comparison is skewed.
+    ///         Neither is enforced here nor in `DeployLib`. Booked as E135.
     function __SPVGateway_init(
         bytes calldata blockHeaderRaw_,
         uint64 blockHeight_,
