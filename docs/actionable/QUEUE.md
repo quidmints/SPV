@@ -8539,3 +8539,42 @@ and it is exactly the "other callers" axis this repo's rule 9 says the regressio
 
 | **UNIT-15BPS** | ⛔ **THE 15 bps IS NOT IRREFUTABLE — ITS ARITHMETIC MAY SURVIVE BUT ITS *ATTRIBUTION* IS REFUTED (owner asked, 2026-08-06).** ⛔ **IT WAS REPORTED AS *"ordinary flow pays 15 bps FOR OTHERS' IMBALANCE"* — size-invariant across 60×, linear in depth. **§UNIT-SKEW-IS-NOISE MEASURED A SWAPPER PAYING \$63.35 ON \$30,000 ≈ 21 bps ALL-IN, OF WHICH THE SKEW IS \$0.025 — 0.04%.** ⇒ **WHATEVER 15 bps WAS, IT CANNOT HAVE BEEN THE SKEW, so it cannot have been payment FOR ANYONE'S IMBALANCE. It is the BAND'S CUSHION, which every swapper pays whether or not the band is imbalanced.** The number may be a real cost; the CAUSAL CLAIM attached to it is false.** ⛔ **THREE FURTHER REASONS IT CANNOT STAND AS WRITTEN: (1) §E120 bars fork magnitudes; (2) it was measured at **σ² ≈ 1.25% annualised**, now known to be a FIXTURE ARTIFACT (§UNIT-A-FIXTURE-CORR — the pool's tick barely moved); (3) it reads the same premium counter whose relationship to swapper-borne cost is STILL UNRECONCILED (§UNIT-B-VERIFIED's ~1000× gap).** ✅ **THE OWNER FLAGGED IT AT THE TIME — *"15 bps feels like a magic constant that i cant be sure of"* — and was right for a sharper reason than either of us had then: not that the measurement was noisy, but that it was **measuring the CUSHION and calling it the SKEW.** ▶️ **DO NOT RE-QUOTE. Re-derive from a run that (a) uses the repo's own RPC config, (b) reaches plausible σ², (c) separates cushion from skew from price impact — the decomposition §UNIT-SKEW-IS-NOISE explicitly could NOT do.** | ⛔ attribution refuted — it measured the cushion, not the skew |
 | **UNIT-RPC-SELFINFLICTED** | ⛔ **EVERY RPC FAILURE TODAY WAS MINE: I OVERRODE THE REPO'S CONFIGURED ENDPOINT ON EVERY RUN (owner: *"even with the new key i provided?"*, 2026-08-06).** ⛔ **I prefixed `FOUNDRY_RPC_ENDPOINTS_MAINNET=<public node>` to every `forge test` all session — CLAUDE.md documents that override for a DEAD key, and I applied it reflexively to a tree whose `.env` had a WORKING one. Result: publicnode timeouts and a drpc DNS failure that I reported as environment problems. **Running with NO override works.**** ✅ **AND IT UNBLOCKED THE FIXTURE: with the repo's own config, `test_UNIT_FixtureProducesRealisticVariance` runs and **σ² goes 0 → 1.375e-3 (implied vol 36 → 370 bps)** — a **10× improvement** from driving the POOL'S TICK with size instead of walking the oracle with 4k swaps. **§UNIT-A-FIXTURE-CORR's diagnosis is directionally CONFIRMED.**** ⚠️ **STILL INCONCLUSIVE — 3.7% against a realistic ~60% — and the guard reports it rather than letting the number be quoted. **Next: larger traversals and/or forced reseats until σ² lands in the plausible band.**** 📌 **RULE: do NOT override the RPC unless a run has ALREADY failed with `could not instantiate forked environment` AND `.env` is confirmed stale. The override is a diagnostic, not a default.** | ⛔ self-inflicted; fixture now 10× better and still inconclusive |
+
+
+### ✅ MEASURED — Aave V4 live collateral factors, and `collateralRisk` is a CONFIG ID not a risk value
+
+Chain of getters (spoke impl `0xabd0e26f…`, resolved through the EIP-1967 slot — the PROXY ABI has no
+risk surface at all, which is why a first look found "NONE"):
+`getReserveConfig(reserveId) -> (uint24 collateralRisk, bool paused, bool frozen, bool borrowable, bool receiveSharesEnabled)`
+`getDynamicReserveConfig(reserveId, configId) -> (uint16 collateralFactor, uint32 maxLiquidationBonus, uint16 liquidationFee)`
+
+**`collateralRisk` IS THE `configId`** to pass to the second call. Read as a risk number it looks like
+zero-risk/unconfigured; it is an INDEX. Measured 2026-08-09:
+
+| reserve | id | collateralFactor | maxLiqBonus | liqFee | borrowable |
+|---|---|---|---|---|---|
+| weETH | 2 | **8000** (80%) | 10777 | 1000 | false |
+| WETH  | 0 | **8300** (83%) | 10555 | 1000 | true |
+
+⇒ **RETRACTS the 2026-08-09 worry that weETH might not be usable as Aave V4 collateral.** It is, at 80%.
+The `collateralRisk = 0` reading was mine and was wrong. (weETH `borrowable = false` is correct and
+irrelevant — we supply it, never borrow it; WETH `borrowable = true` is the leg that matters.)
+
+⇒ **`collateralFactor` IS the field `AaveV4Venue.LIQ_THRESHOLD_BPS` stands in for.** Independent
+confirmation: the existing WETH/USDC venue hardcodes **8000** and its comment says "conservative vs the
+live ~83% gov param" — the live read is **8300**. The comment and the measurement agree, which is what
+makes this the right field rather than a plausible one.
+
+**⏸️ OWNER ASKED FOR THIS TO BE MEASURED LIVE AND CACHED, NOT HARDCODED** (2026-08-09): "gas-efficient
+but responsive". Shape, not yet built: replace the `LIQ_THRESHOLD_BPS` immutable with a cached storage
+value refreshed inside the state-changing venue calls (`supply`/`borrow`/`repay`/`withdraw`), which
+already pay storage writes — so views stay a single SLOAD and the value re-reads at every interaction
+rather than on a timer (a timer would be the governance latch the owner rules out). `configId` must be
+re-read from `getReserveConfig` on each refresh, NOT cached separately: governance can repoint a reserve
+at a new dynamic config, and a stale id would silently read the wrong row.
+⚠️ Needs `getDynamicReserveConfig`/`getReserveConfig` added to `IAaveV4Spoke` in `Interfaces.sol` (one
+declaration, shared file — standing rule 2).
+
+**Blocked-on-this and now unblocked:** the AaveV4 weETH/WETH venue (`scratchpad/aave-venue.patch`, reverted
+2026-08-09 pending exactly this question). Re-apply it, but source the threshold live instead of the
+hardcoded 7500 that prompted the owner's instruction.
