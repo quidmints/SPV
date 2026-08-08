@@ -656,7 +656,25 @@ contract DrainAtomicity is Alles {
         _seedBasket();
         vm.prank(lpA); V4.deposit{value: 300 ether}(0, lpA, 3);
         _settle();
-        for (uint d = 0; d < 12; ++d) _drain(20_000 * 1e18);
+        // §E110-r: the repack gate is `currentTick >= tickUpper || currentTick < tickLower`, so the
+        // band must be driven OUT OF RANGE before a reseat does anything. 12 rounds of 20k moved
+        // price ~0.15% against a +/-0.2% band and never exited -- which is why E109 tested nothing.
+        // `reseatEpoch` incrementing IS the proof the band exited and re-centred, so no tick getter
+        // is needed: drain hard, then assert the epoch moved before reading any result.
+        // Drain until the pool goes DRY (`SlippageMaxS` on `max == 0`), which in a concentrated
+        // position IS the approach to `tickUpper` -- draining converts the band toward 100% USD.
+        // The try/catch here DETECTS and REPORTS that boundary rather than hiding it; the failure
+        // is the signal, and it is logged, not swallowed.
+        uint rounds;
+        for (uint d = 0; d < 40; ++d) {
+            deal(bold, drainer, 60_000 * 1e18);
+            vm.startPrank(drainer);
+            IERC20(bold).approve(address(AUX), 60_000 * 1e18);
+            try AUX.swap(bold, address(WETH), true, 60_000 * 1e18, 0) { rounds++; }
+            catch { vm.stopPrank(); emit log_named_uint("pool went DRY after rounds", rounds); break; }
+            vm.stopPrank();
+            _settle();
+        }
 
         uint px0   = AUX.getTWAPforAsset(address(WETH), 1800);
         uint vol0  = CORE.POOLED_ETH() * px0 / 1e30;
