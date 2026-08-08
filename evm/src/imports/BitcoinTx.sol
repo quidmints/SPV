@@ -331,16 +331,25 @@ library BitcoinTx {
         return mulmod(y, y, FIELD_SIZE) == ySq;
     }
 
-    /// @dev `pure`: the square root is computed by square-and-multiply in-EVM rather than via
-    ///      the `modexp` precompile (0x05). ⚠️ THAT IS DELIBERATE AND THE REASON IS TOOLING, NOT
-    ///      GAS. On a mainnet FORK, the first touch of an address foundry has not cached triggers
-    ///      an account fetch, and a PUBLIC node answers a request for a block that is no longer
-    ///      its head with "Archive requests require a personal token" (403) — so every fork test
-    ///      touching this died with a database error naming `0x…05`, saying nothing about the
-    ///      code under test. `vm.makePersistent` does not avoid the initial fetch. Rather than
-    ///      make a money-path check contingent on the RPC endpoint's archive policy (E120: the
-    ///      suite is already fragile there), the exponentiation is done here. ~256 `mulmod`s,
-    ///      a few thousand gas, on a one-time registration — and one fewer external dependency.
+    /// @dev `pure`: the square root is square-and-multiply in-EVM rather than the `modexp`
+    ///      precompile (0x05). ~256 `mulmod`s, a few thousand gas, on a one-time registration.
+    ///
+    ///      ⛔ **THE REASON THIS COMMENT USED TO GIVE IS REFUTED BY THIS REPO'S OWN TESTS, and
+    ///      is removed rather than softened (E144).** It said the precompile is unusable on a
+    ///      mainnet fork because the first touch of `0x…05` triggers an account fetch a public
+    ///      node 403s, and — flatly — that *"`vm.makePersistent` does not avoid the initial
+    ///      fetch"*. **It does, if it runs BEFORE `createFork`:** `test/utils/ForkPin.sol:42-43`
+    ///      does `vm.deal(address(5), 0)` + `vm.makePersistent(address(5))` in that order, and
+    ///      `ModexpOnFork.t.sol` asserts the precompile then works on a fork. The ORDERING was
+    ///      the trick; the comment recorded the state before that was found.
+    ///
+    ///      ⚠️ **BUT DO NOT CONVERT THIS TO `Math.modExp` ON THAT BASIS ALONE.** The real
+    ///      blocker is unexplained and still open: swapping it reproduces `NoBtcRecipient()`
+    ///      **even with the precompile reachable** (E141). Nobody has chased why. Until someone
+    ///      does, this stays — and note the asymmetry it leaves, which is REAL and UNEXPLAINED,
+    ///      not a style choice: `MuSig2Agg.decompress` computes the SAME square root via
+    ///      `Math.modExp` and is green. **Two sibling paths, two methods, one unexplained
+    ///      behavioural difference.** Whoever resolves `NoBtcRecipient()` should unify them.
     function _modExp(uint256 base, uint256 exponent) private pure returns (uint256 result) {
         result = 1;
         base %= FIELD_SIZE;

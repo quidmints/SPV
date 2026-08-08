@@ -575,6 +575,25 @@ contract Vogue is
 
         // (JIT-lock) refuse a same-block exit — see _depositImpl. Blocks the atomic
         // deposit→swap→withdraw JIT fee-snipe the composition audit found on this 4626 path.
+        //
+        // ⚠️ WHY 1 BLOCK HERE AND 47 ON THE OOR PATHS (`VogueLib.pullBody`,
+        //    `BtcVaultLib.pullBtc`) — the asymmetry is REAL, not drift (E146):
+        //    a BAND position is UNCONDITIONALLY exposed the moment it is in range, so one
+        //    block already puts the whole deposit at risk of a block of price movement, and
+        //    breaking ATOMICITY is what matters — an atomic snipe risks nothing because it
+        //    borrows, captures and repays in one transaction. An OOR BOUNDARY ORDER is
+        //    CONDITIONALLY exposed: it only fills if price crosses it, so a short lock lets
+        //    the placer cancel the instant it moves against them and the option is free.
+        //    47 blocks (~9.4 min) forces it to bear real risk before cancellation.
+        //    ⇒ Different exposure shapes, therefore different locks.
+        // 🔎 WHAT IS STILL NOT ESTABLISHED, and is NOT what the above claims: that ONE block
+        //    SUFFICES here. It defeats the atomic case only. A deposit at block N and a
+        //    withdrawal at N+1, aimed at a large fee event visible in the mempool, is
+        //    untouched — fees are distributed pro-rata over `totalShares` AT THE INSTANT OF
+        //    ACCRUAL (`SwapLib.feeIncrements`), so a large enough deposit takes a share of an
+        //    event it was present for by one block. Whether that is PROFITABLE after a block
+        //    of price risk is a measurement nobody has taken (E146); do not raise 1→47 as a
+        //    reflex, it changes LP UX and the 4626 redeem semantics.
         require(block.number > lastDepositBlock[msg.sender], "too soon");
         (uint160 sqrtPriceX96, int24 tickLower, int24 tickUpper,,) = _rebalance();
         // §4.1 COMPOUND-not-transfer: settle with mintRecipient==0 so the USD fee leg
