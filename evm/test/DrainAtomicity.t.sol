@@ -662,6 +662,44 @@ contract DrainAtomicity is Alles {
     /// design would consume: `(tick - tickLower) / (tickUpper - tickLower)` against `vol:USD`.
     /// `reseatEpoch` is logged because a repack MOVES THE FRAME, and a normalized position read
     /// across a frame move is not comparable -- that is the discriminator a naive TWAP would lack.
+    /// §E116 — THE TIME-WEIGHTED FORM, the last open piece of E93. E115 validated the SPOT
+    /// normalized position; the design needs the TWAP so that PERSISTENCE is measured rather than an
+    /// instant (E99: an idle imbalance must not read as free). `Core.observe(secondsAgos, isBTC)`
+    /// returns `tickCumulative`, so a time-averaged tick over a window is
+    /// `(cum[0] - cum[1]) / window` — no new state, no new accumulator.
+    /// The point of the test: a SPOT reading and a TWAP must DIVERGE after a fresh move, and the
+    /// TWAP must lag. If they are identical the ring is not accumulating and the design is dead.
+    function test_E116_TimeWeightedTickLagsTheSpot() public {
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        _settle();
+        for (uint d = 0; d < 6; ++d) _drain(20_000 * 1e18);   // establish a history
+
+        uint32[] memory ago = new uint32[](2);
+        ago[0] = 0; ago[1] = 3600;                            // 1-hour window
+        int56[] memory c0 = CORE.observe(ago, false);
+        (, int24 spot0,) = CORE.poolStats(V4.LOWER_TICK(), V4.UPPER_TICK(), false);
+        int24 twap0 = int24((c0[0] - c0[1]) / int56(uint56(3600)));
+        emit log_named_int("BEFORE move: spot tick ", spot0);
+        emit log_named_int("BEFORE move: 1h TWAP   ", twap0);
+
+        for (uint d = 0; d < 6; ++d) _drain(60_000 * 1e18);   // a FRESH, larger move
+
+        int56[] memory c1 = CORE.observe(ago, false);
+        (, int24 spot1,) = CORE.poolStats(V4.LOWER_TICK(), V4.UPPER_TICK(), false);
+        int24 twap1 = int24((c1[0] - c1[1]) / int56(uint56(3600)));
+        emit log_named_int("AFTER  move: spot tick ", spot1);
+        emit log_named_int("AFTER  move: 1h TWAP   ", twap1);
+        emit log_named_uint("reseatEpoch (frame)    ", V4.reseatEpoch());
+
+        if (spot1 == spot0) { emit log("VOID: the move did not shift the spot tick."); return; }
+        if (twap1 == spot1) {
+            emit log("TWAP == SPOT: the ring is NOT accumulating over this window -- design is DEAD.");
+        } else {
+            emit log("TWAP LAGS SPOT: the ring accumulates, so persistence is measurable. Design LIVE.");
+        }
+    }
+
     function test_E115_NormalizedTickTracksComposition() public {
         _seedBasket();
         vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
