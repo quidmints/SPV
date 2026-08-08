@@ -378,18 +378,26 @@ contract PremiumIsCarryNotIncome is Alles {
         // normalised by its own elapsed time).
         // ALTERNATING large buys and sells is what makes consecutive rates DIFFER: a one-way ramp
         // moves the tick at a steady rate, which is also low variance.
+        // ATTEMPT 3: bigger excursions AND uneven step sizes. `ringVariance` takes the variance of
+        // consecutive RATE CHANGES, so a metronome -- same size, same interval -- produces a nearly
+        // CONSTANT rate and therefore near-zero variance no matter how large the swaps are. Attempt
+        // 2 got 370 bps precisely because it was regular. Real tape is uneven in BOTH size and
+        // spacing, so vary both.
         uint p = px;
-        for (uint i; i < 20; ++i) {
-            p = (i % 2 == 0) ? p * 1004 / 1000 : p * 996 / 1000;
+        uint16[8] memory mult = [uint16(1008), 994, 1003, 1010, 991, 1002, 1006, 996];  // uneven, ~2/3 amplitude
+        uint16[8] memory size = [uint16(40), 150, 25, 90, 200, 60, 15, 120];            // uneven size
+        for (uint i; i < 24; ++i) {
+            p = p * mult[i % 8] / 1000;
             _setEthFeed(p / 1e10);
             vm.startPrank(drainer);
-            if (i % 2 == 0) {
-                try AUX.swap(address(USDC), address(WETH), true, 60_000 * USDC_PRECISION, 0) {} catch {}
+            if (i % 3 != 1) {
+                try AUX.swap(address(USDC), address(WETH), true, uint(size[i % 8]) * 1_000 * USDC_PRECISION, 0) {} catch {}
             } else {
-                try AUX.swap{value: 25 ether}(address(USDC), address(WETH), false, 0, 0) {} catch {}
+                try AUX.swap{value: uint(size[i % 8]) * 4e17}(address(USDC), address(WETH), false, 0, 0) {} catch {}
             }
             vm.stopPrank();
-            vm.roll(block.number + 1); vm.warp(block.timestamp + 3 minutes);
+            vm.roll(block.number + 1);
+            vm.warp(block.timestamp + (i % 5 + 1) * 90);   // uneven spacing, 1.5-7.5 min
         }
 
         uint varWad = CORE.realizedVarianceWad(false);
