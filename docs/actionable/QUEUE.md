@@ -8307,3 +8307,30 @@ Both `closeLev` (voluntary) and `closeLevFor` (involuntary) share `_closeLev`, s
 ⚠️ This is a design item with a money-path consequence, not a cleanup. An LP force-closed by someone
 else's swap and "restored" at the wrong basis has silently had their hedge changed.
 | **UNIT-A-PRIOR** | ✅📐 **"IMPOSSIBLE" WAS WRONG — THE CONSERVATIVE-PRIOR FORM WORKS AND DELETES ALL THREE SENTINELS (owner: *"not impossible"*, 2026-08-06).** ⛔ **I asserted the ceiling and the base were *"not commensurable"* and that moving §E59's policy to the source was impossible, **from ONE calculation** (σ² would need 6.3e23 wad). **6.3e23 is an ordinary `uint256`.** The same assert-impossibility-from-one-measurement error I have been booking against myself all day.** ✅ **VERIFIED ARITHMETIC — `realizedVarianceWad` returns a CONSERVATIVE PRIOR for a genuinely fresh ring (cardinality 1) instead of 0, and every consumer computes normally with NO BRANCH: **prior σ² = 631,578,947,368,421,052,631,578 wad (6.316e5)** · **ETH base = 29,999,999,999,999,999 vs MAX_WELL_SKEW 30,000,000,000,000,000 — the ceiling to within 1 wei of integer division** · **BTC base = 9.002e18, clamped to the ceiling by the EXISTING tail clamp, no new code** · **overflow headroom 7.2e37 against 1.16e77.** ⇒ **THREE SENTINELS DELETE (`_maxWellSkew:809` · `skewWad:933` · `sellSkew:1270`), behaviour identical, and it FREES bytecode (§E92).** ⇒ **§UNIT-A-PLAN's step B is VIABLE as written; §UNIT-A's step A then becomes the two-line change with no parameter and no bundled policy.** ⚠️ **ONE ORDERING TO CONFIRM BEFORE IT LANDS — NOT A BLOCKER, BUT IT WOULD DEADLOCK A LAUNCH IF WRONG: the prior scales **θ's denominator by 4.07e9**, collapsing θ toward 0, and θ gates band sizing (`applyTheta`, `clampByBacking`). **`_bandFeeYieldWad` returns 0 when the premium is unmeasured and its doc says `derivedThetaWad` turns that into FAIL-OPEN — so on a fresh band the fail-open should fire BEFORE the σ² denominator is consulted. CONFIRM THAT ORDERING.** If it is the other way round, a fresh pool has θ≈0 and cannot commit capital at all.** 📌 **AND THE MEASUREMENT THAT REFRAMES UNIT-A REGARDLESS: **ETH base = 0.000000074 bps · BTC base = 0.000022 bps · BTC `SPLICE_FLOOR` = 20 bps.** The 12-second ETH window makes the LVR base VANISH by construction; the 1-hour BTC window plus the splice fee makes it real. **⇒ UNIT-A is materially a BTC FIX (20 bps currently never charged on a fresh band, §E98); on ETH it changes nothing economically and its only effect is arming the ceiling — which is the entire cause of the 107 failures.** | ✅📐 prior works, 3 sentinels delete; UNIT-A is a BTC fix; confirm θ fail-open ordering |
+
+
+### TRIPWIRE SWEEP — first pass, and it comes back nearly empty
+
+Scanned `evm/src/**.sol` for guards of the shape the owner ruled out: a `require`/`revert` that exists
+to catch a FORESEEABLE MISUSE rather than to enforce a real invariant. Four candidates surfaced and
+**none of them is a tripwire**:
+
+| site | what it is |
+|---|---|
+| `DeployLib:205` `btcVault must be the Vault` | deploy-time wiring assertion — a construction invariant |
+| `MuSig2Agg:57,123` `pubkey must be 33 bytes` | validation of EXTERNAL input, not of our own misuse |
+| `LevMath:772` `if (pxWeth == 0) revert NoPrice()` | the LEGITIMATE shape — a zero oracle anchor would otherwise produce plausible-looking garbage SILENTLY (the standing rule-3 inverse), and its own comment says "never panic on a zero anchor" |
+
+⇒ **The codebase largely does not have this problem, and the guard I proposed on 2026-08-08 would have
+been the first of its kind** — `require(tok != WETH)` in `_fromUsd`/`_toUsd18`, to make a planned
+WETH-loan market fail loudly rather than mis-size every borrow by the ETH price. Rejected by the owner
+and replaced with the root fix (a real price parameter, 29 sites). Correct call: the guard would have
+made the error LOUD rather than IMPOSSIBLE, left the dollar-peg assumption in place for the next
+caller, and blocked the very change it was meant to protect.
+
+⚠️ **WEAK EVIDENCE, do not read as a clean bill of health.** The scan was KEYWORD-based
+(`unsupported|cannot|must be|never|only.*stable|…`), so a tripwire with a neutral message or an
+`if (x) revert Foo()` whose name gives nothing away would not surface. A real sweep needs semantic
+judgement per guard, or an inventory of every `revert` in `src/` read individually. Worth doing once,
+not urgent — the finding is that the pattern is rare here, which raises the value of catching the next
+one early rather than lowering it.
