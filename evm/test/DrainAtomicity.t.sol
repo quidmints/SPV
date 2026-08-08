@@ -646,10 +646,16 @@ contract DrainAtomicity is Alles {
     /// full repair; if it flattens or turns, there is. Reported in 1e-8 units because the effect is
     /// sub-1bp and a bps denominator TRUNCATED it to zero on E108's first run.
     function test_E108b_HowMuchRepairIsOptimal() public {
-        uint[4] memory sizes = [uint(10 ether), 40 ether, 100 ether, 200 ether];
-        for (uint i = 0; i < 4; ++i) {
+        // §E108b-r: the old sweep (10/40/100/200) never left a DEEPLY IMBALANCED window — 0.666 to
+        // 0.714 volatile:USD — so its "optimum" could not be distinguished from "beyond my largest
+        // sample". These sizes REACH AND CROSS 1:1, which is the only way to state an optimum
+        // against a NAMED target rather than against whatever range I happened to pick.
+        uint[5] memory sizes = [uint(100 ether), 300 ether, 600 ether, 1000 ether, 1600 ether];
+        vm.deal(lpA, 6000 ether);   // the sweep now needs far more than the fixture's default
+        for (uint i = 0; i < 5; ++i) {
             uint snap = vm.snapshotState();
             _seedBasket();
+            vm.deal(lpA, 6000 ether);
             vm.prank(lpA); V4.deposit{value: 300 ether}(0, lpA, 3);
             _settle();
             for (uint d = 0; d < 12; ++d) _drain(20_000 * 1e18);
@@ -668,8 +674,9 @@ contract DrainAtomicity is Alles {
             // amount and reaching volatile==USD. The optimum must be stated against a named target.
             {
                 uint px = AUX.getTWAPforAsset(address(WETH), 1800);
-                emit log_named_uint("    volatile leg (usd6) ", CORE.POOLED_ETH() * px / 1e30);
-                emit log_named_uint("    USD leg (usd6)      ", CORE.POOLED_USD_ETH());
+                uint volLeg = CORE.POOLED_ETH() * px / 1e30;
+                uint usdLeg = CORE.POOLED_USD_ETH();
+                emit log_named_uint("    vol:USD ratio (1e-4)", usdLeg == 0 ? 0 : volLeg * 1e4 / usdLeg);
             }
             emit log_named_uint("--- repair size (wei)   ", sizes[i]);
             if (noRepair == 0) { emit log("    VOID: zero share value"); vm.revertToState(snap); continue; }
