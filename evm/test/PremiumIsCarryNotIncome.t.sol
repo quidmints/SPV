@@ -44,13 +44,17 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 ///
 /// The two arms run from ONE snapshot, so they differ only in whether the drain happened.
 ///
-/// ⚠️ WHAT THIS TEST DOES **NOT** ESTABLISH — READ BEFORE QUOTING A NUMBER FROM IT. The measured
-/// gap is ~56,912 USD of foregone upside against a premium of 428,780 wei (~4e-13 USD): a ratio
-/// near 1e17. That is NOT a credible economic margin, and it should not be reported as "the
-/// premium is 1e17x too small". It points at `skewPremiumETH` carrying units this fixture never
-/// established, and §E120 already records that magnitudes on this fork are unsupportable. THE
-/// SIGN IS WHAT THIS TEST OWNS: holding an imbalance does not out-earn the exposure it creates.
-/// Establishing the premium's units is the prerequisite for any magnitude claim here.
+/// ⚠️ THE PREMIUM COUNTER IS **usd6**, AND THIS TEST'S FIRST ASSERTION WAS DIMENSIONALLY WRONG
+/// BECAUSE OF IT. `SwapLib.retainSkewPremium:1629` records `premium` unconverted on the two drain
+/// legs ("the BUY-DRIVING USD, already 6-dec") and `mulDiv(premium, r.px, 1e30)` on the native
+/// sell leg — both land in 6 decimals. So 428,780 is **$0.43**, not the 4e-13 an 18-dec reading
+/// gives. The original `assertLt(premium, foregone)` compared usd6 against u18 and was therefore
+/// **biased 1e12 TOWARD PASSING — toward this file's own hypothesis.** It passed honestly only
+/// because the premium is genuinely small. `premium18` below is the fix; the comparison is now
+/// dimensionally sound and would FAIL if the premium ever did cover the exposure.
+///
+/// §E120 still bars quoting the magnitude as a protocol property — the fork cannot support it.
+/// THE SIGN IS WHAT THIS TEST OWNS: holding an imbalance does not out-earn the exposure it creates.
 contract PremiumIsCarryNotIncome is Alles {
     address lp = User02;
     address drainer = address(0xBEEF04);
@@ -167,6 +171,9 @@ contract PremiumIsCarryNotIncome is Alles {
         //      value(1.1·px) − value(px) for that arm — which is independent of where the stables
         //      went. The drained band is under-exposed by exactly the ETH it no longer holds, and
         //      THAT foregone upside is the risk the premium is meant to price.
+        // usd6 -> u18 so both sides of the assertion are the same unit. See the header: omitting
+        // this made the test 1e12 easier to pass, in the direction that confirms its hypothesis.
+        uint premium18     = premium * 1e12;
         uint quietUpside   = quietAt110 - quietAtPx;
         uint drainedUpside = _bandValue18(px * 110 / 100) - _bandValue18(px);
         uint foregone      = quietUpside - drainedUpside;
@@ -174,13 +181,13 @@ contract PremiumIsCarryNotIncome is Alles {
         emit log_named_uint("quiet band upside on +10%  ", quietUpside);
         emit log_named_uint("drained band upside on +10%", drainedUpside);
         emit log_named_uint("FOREGONE upside (the risk) ", foregone);
-        emit log_named_uint("premium collected          ", premium);
+        emit log_named_uint("premium collected u18 (=usd6*1e12)", premium18);
 
-        if (premium >= foregone) {
+        if (premium18 >= foregone) {
             emit log("RESULT: the premium COVERS the foregone upside -- farmable income.");
             emit log("=> E123 IS REFUTED; E122's consequence 2 must be reinstated.");
         } else {
-            emit log_named_uint("SHORTFALL (risk EXCEEDS premium)", foregone - premium);
+            emit log_named_uint("SHORTFALL (risk EXCEEDS premium)", foregone - premium18);
             emit log("RESULT: the premium does NOT cover the foregone upside. Carry, not income.");
         }
 
@@ -190,7 +197,7 @@ contract PremiumIsCarryNotIncome is Alles {
         // hypothesis with the one case that cannot discriminate. (It was logged in an earlier draft
         // and cost a `Stack too deep`; per CLAUDE.md the fix is fewer locals, not `via_ir`.)
 
-        assertLt(premium, foregone,
+        assertLt(premium18, foregone,
             "E123: premium must NOT cover the foregone upside, or it is farmable income");
     }
 }
