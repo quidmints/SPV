@@ -673,6 +673,50 @@ contract DrainAtomicity is Alles {
     /// mid-window? A reseat changes `tickLower`/`tickUpper`, so a normalized position computed from a
     /// TWAP that spans the change mixes TWO frames. E114/E115 identified `reseatEpoch` as the public,
     /// monotonic discriminator; this measures what actually goes wrong without it.
+    /// §E118 — CONSEQUENCES OF ELIMINATING THE MOVING FRAME, measured BEFORE proposing it. If the
+    /// band never re-centred, `reseatEpoch` and E117's frame-mixing hazard would both vanish. The
+    /// question is what that would COST: a fixed range that price leaves is OUT OF RANGE — 100% one
+    /// asset, earning NOTHING. So the measurable is TICK TRAVEL vs BAND WIDTH. If travel >> width,
+    /// a fixed frame is untenable and the epoch is unavoidable rather than incidental.
+    function test_E118_TickTravelVersusBandWidth() public {
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        _settle();
+        (, int24 t0,) = CORE.poolStats(V4.LOWER_TICK(), V4.UPPER_TICK(), false);
+        int24 origLo = V4.LOWER_TICK(); int24 origHi = V4.UPPER_TICK();
+        emit log_named_int ("band width (ticks)      ", origHi - origLo);
+        emit log_named_int ("start tick              ", t0);
+
+        int24 minT = t0; int24 maxT = t0;
+        for (uint d = 0; d < 30; ++d) {
+            deal(address(WETH), drainer, 30 ether);
+            vm.startPrank(drainer);
+            WETH.approve(address(AUX), 30 ether);
+            try AUX.swap(bold, address(WETH), false, 30 ether, 0) {} catch { vm.stopPrank(); break; }
+            vm.stopPrank(); _settle();
+            (, int24 t,) = CORE.poolStats(V4.LOWER_TICK(), V4.UPPER_TICK(), false);
+            if (t < minT) minT = t; if (t > maxT) maxT = t;
+        }
+        emit log_named_int ("tick range visited      ", maxT - minT);
+        emit log_named_int ("  min tick              ", minT);
+        emit log_named_int ("  max tick              ", maxT);
+        emit log_named_uint("reseats that occurred   ", V4.reseatEpoch());
+        emit log_named_int ("band NOW  LOWER         ", V4.LOWER_TICK());
+        emit log_named_int ("band NOW  UPPER         ", V4.UPPER_TICK());
+        emit log_named_int ("ORIGINAL  LOWER         ", origLo);
+        emit log_named_int ("ORIGINAL  UPPER         ", origHi);
+
+        int24 travel = maxT - minT; int24 width = origHi - origLo;
+        if (travel > width) {
+            emit log("TRAVEL EXCEEDS WIDTH: a FIXED band would have gone OUT OF RANGE and stayed there,");
+            emit log("holding 100% of one asset and earning nothing. The moving frame is REQUIRED, so");
+            emit log("reseatEpoch is UNAVOIDABLE -- not an incidental complication to design away.");
+        } else {
+            emit log("Travel stayed within width here -- a fixed band MIGHT be viable; widen the test");
+            emit log("before concluding, because one sequence is not the operating envelope.");
+        }
+    }
+
     function test_E117_TwapAcrossAReseatMixesFrames() public {
         _seedBasket();
         vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
