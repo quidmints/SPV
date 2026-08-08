@@ -8271,3 +8271,36 @@ problem was not solved at root.** Awkward tripwires are a signal to re-examine t
 **ATTRIBUTED, NOT MINE:** `test_E97_SellLegTaxOnOrdinaryFlow` reverts `SlippageMaxS()`. MEASURED at the
 pre-refactor commit (`e502f9a^`) — it fails there identically. It arrived with the parallel thread's
 merge (`0f8570f`, E97) already red. Belongs to whoever owns E97/E84-a.
+
+
+### ⛔ RESTORE-AFTER-REFILL IS BLOCKED AT ROOT: `_closeLev` does `delete pos[lp]`
+
+**VERIFIED, not assumed** (`LevManager._closeLev`): the body takes `Pos storage p = pos[lp]`, unwinds,
+then **`delete pos[lp]`** and burns the levered band slice. Collateral, debt, entry price and IL target
+are all destroyed.
+
+⇒ The owner's requirement — *a perfectly healthy wound-up IL-protect LP must have its leverage
+position restored to the state it was in prior to the unwind, after the refill corrects the imbalance
+that caused it* — is currently **IMPOSSIBLE, not merely unimplemented.** There is nothing left to
+restore FROM. "Restore" today can only mean "re-open at present prices", which silently RE-PRICES the
+LP's IL basis: the whole point of IL-protect is that the hedge is struck against the LP's ENTRY, so
+re-striking it at post-imbalance prices hands them a different position wearing the same name.
+
+**AND THE INVOLUNTARY PATH ALREADY EXISTS AND IS THE ONE THAT FIRES.** `closeLevFor(lp, minOut)` is
+permissioned to `vogueSyncHook` precisely so a `Vogue._withdraw` can cover an open lever before the
+free-ladder burn — the exact scenario: a swap creates the imbalance, the LP is force-closed through no
+fault of its own, and the refill later corrects the imbalance with the LP's position already gone.
+Both `closeLev` (voluntary) and `closeLevFor` (involuntary) share `_closeLev`, so they delete alike.
+
+**WHAT IS NEEDED, and note it is a NEW REQUIREMENT rather than a fix to existing behaviour:**
+  1. Distinguish a VOLUNTARY close (LP asked; delete is correct) from an INVOLUNTARY one
+     (`closeLevFor`; the LP did not ask). Today `_closeLev` cannot tell them apart.
+  2. On the involuntary path, PERSIST the prior state rather than deleting it — at minimum entry price
+     and IL target, since those are what cannot be reconstructed after the fact.
+  3. Restore from that record once the refill lands, NOT from present prices.
+  4. Ensure the unwind+restore round trip does not pay the conversion twice. ⚠️ Under the CURRENT
+     stable-loan lever it would (each leg crosses stable↔WETH); under the WETH-loan market it does not,
+     which is another reason that market ordering matters.
+
+⚠️ This is a design item with a money-path consequence, not a cleanup. An LP force-closed by someone
+else's swap and "restored" at the wrong basis has silently had their hedge changed.
