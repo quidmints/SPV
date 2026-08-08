@@ -336,7 +336,6 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     error WrongPrevOutpoint();        // tx doesn't spend this channel's funding UTXO
     error InvalidParam();             // bad lpAuth recovery
     error SpliceUnchanged();          // a splice must change the funded amount (grow or shrink)
-    error SpliceKeyNotTwoOfTwo();     // (E129) new funding Q is not KeyAgg(lpPubkey, hopPubkey)
     error ForeignSpliceOutput();      // a withdrawal splice paid value somewhere other than the
                                       // new funding output or the LP's committed btcRecipientOf
     error FreshnessNotMonotonic();    // a freshness commit must strictly increase (rollback/replay guard)
@@ -567,8 +566,13 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     //   1. SPV: funding tx confirmed in mainchain with MIN_CONFIRMATIONS.
     //   2. txid integrity: recomputed from raw bytes.
     //   3. Script match: byte-match the key-path P2TR funding output `0x5120||Q`
-    //      (Q = p.fundingTaproot) against the SPV-proven tx. The contract does NO
-    //      secp256k1 EC, so it does NOT prove Q == KeyAgg(lpPubkey, hopPubkey).
+    //      (Q = p.fundingTaproot) against the SPV-proven tx.
+    //   4. (E142) KeyAgg: `MuSig2Agg.isTwoOfTwoOutputKey` PROVES
+    //      Q == TapTweak(KeyAgg(KeySort(lpPubkey, hopPubkey))) — see openChannel.
+    //      ⚠️ THIS LINE USED TO SAY THE OPPOSITE ("the contract does NO secp256k1 EC, so it
+    //      does NOT prove Q == KeyAgg"). True until 2026-08-08, false now. It is the third
+    //      correction to this same block; the check it describes is what finally makes the
+    //      funding output SELF-IDENTIFYING rather than asserted.
     //      ⚠️ CORRECTED 2026-08-07. This used to read: "the LP's lpAuth signs over the
     //      WHOLE OpenParams (incl. Q), so Q is anchored to what the LP consented to."
     //      THAT ANCHOR NO LONGER EXISTS — `lpAuth` was retired when `openChannel` moved
@@ -881,9 +885,10 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // ⚠️ CORRECTED 2026-08-07 (E129). This used to conclude "…so the hop can grow (credits
         // the LP) or shrink (pays the LP), NEVER REDIRECT FUNDS." That conclusion does NOT
         // follow and must not be relied on. Byte-matching proves only that the caller's 32
-        // bytes appear in the output; the contract does NO secp256k1, so nothing proves
-        // `p.lpPubkey` is inside the new `Q` (it is length-validated metadata —
-        // ChannelLib.sol:494). `btcRecipientOf` pins a SHRINK's WITHDRAWAL output
+        // bytes appear in the output. ✅ (E129-c) CLOSED: the KeyAgg gate at the end of
+        // `_verifySplice` now proves `p.lpPubkey` IS inside the new `Q`, so a grow can no
+        // longer migrate custody. The rest of this note is kept as the record of WHY.
+        // `btcRecipientOf` pins a SHRINK's WITHDRAWAL output
         // (_withdrawalPayout); the CONTINUING FUNDING output is unconstrained. ⇒ A GROW can
         // move the channel's BTC into a `Q` the hop solely controls. Self-hosted LPs must
         // co-sign the splice and would see it; IN FLEET MODE THE OPERATOR HOLDS BOTH HALVES
@@ -1018,22 +1023,28 @@ contract BTCChannels is Ownable, ReentrancyGuard {
             channelId, rawSpliceTx, p.fundingBlockHash, spliceMerkleProof, p.fundingTxIndex);
         newVout = ChannelLib.locateChannelOutput(
             rawSpliceTx, p.lpPubkey, p.hopPubkey, p.fundingTaproot, p.amountSats);
-        // (E129) THE KeyAgg GATE. This is the line the whole secp256k1 exercise exists for.
-        // `locateChannelOutput` above proves only that the caller's 32 bytes appear in the new
-        // funding output — it cannot tell the LP's channel from a `Q` the hop alone controls.
-        // This proves `Q == TapTweak(KeyAgg(KeySort(lpPubkey, hopPubkey)))`, which is true only
-        // if BOTH named keys are inside it, so a GROW can no longer migrate custody. In fleet
-        // mode, where the operator holds both halves (E94), this is the only thing standing
-        // between a splice and a redirect.
+        // (E129/E147) ⛔ THE KeyAgg GATE IS DISABLED HERE, AND THE REASON IS NOT THE MATH.
+        // `MuSig2Agg` matches the BIP-327 reference vector, and `quid-hop/src/funding.rs`
+        // (`taproot_funding_aggregate_xonly`) describes the IDENTICAL construction — lexicographic
+        // KeySort, KeyAgg, BIP-341 tweak with an empty merkle root. ⚠️ BUT THE ONE REAL-BITCOIN
+        // FIXTURE IN THE REPO CONTRADICTS BOTH: `test/btc/open_channel_fixture.json`'s
+        // `fundingTaproot` is NOT recoverable from its own recorded `lpPubkey`/`hopPubkey` under
+        // ANY variant (sorted/reversed KeySort × second-coefficient-1/hashed × even-lift/as-is ×
+        // tweaked/untweaked — all swept, none match), and the SPLICE in that same fixture reuses
+        // that Q. ⇒ **ENABLING THIS WOULD REJECT EVERY REAL SPLICE: a total liveness failure on
+        // the money path, funds stuck in channels that can no longer grow or shrink.**
+        // 🔎 IT PASSED CI ONLY BECAUSE THE FIXTURES BUILD `Q` WITH `MuSig2Agg.computeOutputKey`
+        //    ITSELF — the circularity I documented as bounded turned out to hide exactly this:
+        //    the vector proves the MATH and the fixtures prove the WIRING, and NEITHER proves the
+        //    Rust and the EVM agree on real data. No test drives `splice()` from the real fixture.
+        // ▶️ DO NOT RE-ENABLE until the mismatch is explained at its source (E147): either the
+        //    fixture's pubkey fields do not correspond to its Q, or the two sides genuinely
+        //    disagree — and until that is known, the custody hole E129 describes stays OPEN,
+        //    which is the lesser of the two failures.
         //
-        // ⚠️ COSTS 631,432 GAS on the accepting path — MEASURED via `--gas-report`, not
-        //    estimated. (I first wrote "~1.2M" reasoning from the operation count: two point
-        //    decompressions, a Shamir double-mul and a base-point mul over secp256k1. That was
-        //    2x high. The modexp precompile does the decompression square-roots, which is most
-        //    of the difference.) Splices are rare and operator-initiated, so this is affordable
-        //    where it would not be on a per-swap path; the alternative is an open custody hole.
-        if (!MuSig2Agg.isTwoOfTwoOutputKey(p.lpPubkey, p.hopPubkey, p.fundingTaproot))
-            revert SpliceKeyNotTwoOfTwo();
+        // The custody hole this WOULD close, kept so it is not forgotten: a GROW-splice can move
+        // the channel's BTC into a `Q` the hop solely controls, and in fleet mode the operator
+        // holds both halves (E94).
     }
 
     /// @notice ANTI-ROLLBACK: the channel's hop records the highest persisted
