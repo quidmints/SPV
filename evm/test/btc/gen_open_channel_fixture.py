@@ -177,6 +177,65 @@ assert taproot_2of2_output_key(
 ).hex() == "dee725e810716d6f0748b3d82aa67cdc1066028ffc8a8ebbe5ca148148153325", \
     "KeyAgg drifted from the BIP-327 reference vector"
 
+
+def _privkey_wif(d, testnet=True):
+    """WIF-encode a 32-byte secret for a COMPRESSED key (regtest shares testnet's 0xEF)."""
+    payload = (b"\xef" if testnet else b"\x80") + d.to_bytes(32, "big") + b"\x01"
+    chk = dsha(payload)[:4]
+    raw = payload + chk
+    n = int.from_bytes(raw, "big")
+    alpha = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+    out = ""
+    while n:
+        n, r = divmod(n, 58); out = alpha[r] + out
+    leading_zeros = len(raw) - len(raw.lstrip(b"\x00"))   # base58 encodes each as "1"
+    return "1" * leading_zeros + out
+
+
+def _pubkey_compressed(d):
+    x, y = _pt_mul(d, (GX, GY))
+    return bytes([2 + (y & 1)]) + x.to_bytes(32, "big")
+
+
+def channel_keypair(label):
+    """A channel key we OWN the secret for. (E147-d2) These used to come from
+    `getnewaddress`+`getaddressinfo`, which meant the generator could not sign a
+    key-path spend of the 2-of-2 -- and `build_splice` DOES spend it. Deriving them
+    here is what makes the aggregate secret computable below."""
+    d = int.from_bytes(sha256(label.encode()), "big") % N
+    assert d != 0
+    return d, _pubkey_compressed(d)
+
+
+def aggregate_secret(d_lp, lp33, d_hop, hop33):
+    """The secret for `taproot_2of2_output_key(lp,hop)`.
+
+    Holding BOTH MuSig2 shares means the aggregate key has a known secret, so the
+    fixture can spend the funding output with an ordinary single-signer BIP-340
+    signature -- no MuSig2 nonce ceremony needed to produce a REAL confirmed splice.
+    ⚠️ Parity is the whole difficulty and every step below is forced:
+      * a secret whose pubkey is odd-y must be negated to represent the even-y point
+        BIP-327 aggregation works with;
+      * BIP-341 tweaks the EVEN-Y LIFT of the aggregate, so if the aggregate came out
+        odd-y the combined secret flips sign before the tweak is added.
+    """
+    p1, p2 = (lp33, hop33) if lp33 < hop33 else (hop33, lp33)
+    d1, d2 = (d_lp, d_hop) if lp33 < hop33 else (d_hop, d_lp)
+    ell = _tagged("KeyAgg list", p1 + p2)
+    a1 = int.from_bytes(_tagged("KeyAgg coefficient", ell + p1), "big") % N
+    # x-only convention: a key with odd y is represented by the negated secret.
+    if p1[0] == 3: d1 = N - d1
+    if p2[0] == 3: d2 = N - d2
+    # ...but KeyAgg operates on the FULL points, so undo that for the arithmetic.
+    if p1[0] == 3: d1 = N - d1
+    if p2[0] == 3: d2 = N - d2
+    d_agg = (a1 * d1 + d2) % N
+    agg = _pt_add(_pt_mul(a1, _decompress(p1)), _decompress(p2))
+    if agg[1] % 2 != 0: d_agg = N - d_agg          # tweak applies to the even-y lift
+    even_x = agg[0]
+    t = int.from_bytes(_tagged("TapTweak", even_x.to_bytes(32, "big")), "big") % N
+    return (d_agg + t) % N
+
 def newpub():
     a = cli("getnewaddress", "", "bech32")
     return clij("getaddressinfo", a)["pubkey"]            # 33-byte compressed
@@ -184,8 +243,9 @@ def newpub():
 
 def one_open(seed, sats):
     """One REAL funded key-path P2TR channel output, with its own proof."""
-    lp = bytes.fromhex(newpub())
-    hop = bytes.fromhex(newpub())
+    # (E147-d2) Keys we own the SECRET for -- see channel_keypair/aggregate_secret.
+    d_lp, lp = channel_keypair(f"quid-fixture-lp-{seed}-{sats}")
+    d_hop, hop = channel_keypair(f"quid-fixture-hop-{seed}-{sats}")
     assert len(lp) == 33 and len(hop) == 33
     # (E147-d) Q IS DERIVED FROM lp/hop, NOT ASKED OF THE WALLET.
     # This used to be `getnewaddress bech32m` + read back its scriptPubKey — an output key
@@ -200,6 +260,22 @@ def one_open(seed, sats):
     addr = _bech32m("bcrt", 1, q)
     assert bytes.fromhex(clij("getaddressinfo", addr)["scriptPubKey"]) == spk, \
         "bech32m encoding disagrees with bitcoind on the derived P2TR address"
+    # Import the AGGREGATE secret as a `rawtr()` descriptor so bitcoind can sign the
+    # key-path spend `build_splice` performs. `rawtr` takes the output key directly (no
+    # further BIP-86 tweak), which is exactly what Q already is.
+    d_q = aggregate_secret(d_lp, lp, d_hop, hop)
+    assert _pt_mul(d_q, (GX, GY))[0].to_bytes(32, "big") == q, \
+        "aggregate secret does not correspond to the aggregate output key"
+    desc = f"rawtr({_privkey_wif(d_q)})"
+    # ⚠️ APPEND THE CHECKSUM TO *THIS* STRING. `getdescriptorinfo(...)["descriptor"]` returns the
+    #    PUBLIC form with the secret stripped, and importing that fails with "Cannot import
+    #    descriptor without private keys to a wallet with private keys enabled" — which the old
+    #    code discarded, so the import silently did nothing and only surfaced later as an
+    #    unsignable splice input ("Witness program was passed an empty witness").
+    desc = f"{desc}#{clij('getdescriptorinfo', desc)['checksum']}"
+    res = json.loads(cli("importdescriptors",
+                         json.dumps([{"desc": desc, "timestamp": "now", "internal": False}])))
+    assert all(r.get("success") for r in res), f"importdescriptors failed: {res}"
     txid = cli("sendtoaddress", addr, "%.8f" % (sats / 1e8))
     return {"seed": seed, "sats": sats, "lp": lp, "hop": hop, "q": q, "spk": spk, "txid": txid}
 
