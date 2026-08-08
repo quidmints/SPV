@@ -8486,3 +8486,52 @@ about 27 bps per exit**, and that is the number that justifies building it.
 | **UNIT-A-FIXTURE-CORR** | ⛔ **§UNIT-A-FIXTURE's DIAGNOSIS IS WRONG — I QUOTED THE DESCRIPTION OF A BUG §E59 ALREADY FIXED AS THE LIVE MECHANISM (2026-08-06).** ⛔ **I wrote that the low variance came from *"a swap spacing COARSER than the sampling grid flattening the tape to a straight line"*, citing the wall-clock-grid/interpolation comment. **`OracleLib.ringVariance:218` SAYS THE OPPOSITE IN ITS FIRST LINE: *"REALIZED TICK VARIANCE FROM THE STORED OBSERVATIONS, **not a wall-clock grid**"*, and the interpolation failure is described as the **PREVIOUS** estimator: *"Sampling the ring itself REMOVES THE INTERPOLATION ENTIRELY… each return is normalised by its OWN elapsed time… no fixed step to mis-match the swap cadence."*** ⇒ **THE ESTIMATOR IS IMMUNE TO SWAP SPACING BY CONSTRUCTION. My "every fixture warping 8-20 minutes has been measuring interpolation" is FALSE and must not be carried forward.** ✅ **THE ACTUAL MECHANISM: `card < 3 ⇒ 0`; walk back 9 stored points; `rate[i] = (Δ tickCumulative · 1e9)/dt` (fixed-point, because whole-tick truncation was the OTHER half of the zero-variance bug — a ~20-tick band rounds consecutive averages to the same integer); then the variance of consecutive RATE CHANGES, sample-corrected. **It reads the POOL'S TICK.**** ✅ **SO THE REAL CAUSE OF THE 36 bps IS SIMPLER AND IS MINE: I MOVED THE ORACLE 24 TIMES BUT THE POOL'S TICK BARELY MOVED.** 4,000 USDC swaps against a 400 ETH band do not traverse a ±0.2% range or force a reseat, so `tickCumulative` advanced at a NEARLY CONSTANT RATE — and the variance of near-constant returns is near zero. **The tape was flat in the only series that counts.** ▶️ **WHAT THE FIXTURE ACTUALLY NEEDS: drive the POOL'S TICK, not the feed — swaps large enough to traverse the range and/or force RESEATS, so consecutive `rate[i]` values genuinely DIFFER. Sizing, not spacing. **Keep the INCONCLUSIVE guard: it worked, and it is the only reason 36 bps was not published as a finding.** | ⛔ diagnosis corrected — estimator is spacing-immune; the fixture needs SIZE, not finer steps |
 
 | **UNIT-VARIANCE-HISTORY** | 📌 **THE OBSERVATIONS-BASED VARIANCE MACHINERY IS BUILT AND LIVE — COMMIT TRAIL, so no thread re-derives it again (owner asked twice, 2026-08-06).** ✅ **`b2b6c2d` (2026-08-05) *"E59: sample variance from the ring, and keep sub-tick precision"* — **TWO dimensions in one change**: (i) sample the **STORED RING** instead of a wall-clock grid (the grid + `observe`'s linear interpolation has ZERO second derivative, so every sample inside an inter-swap gap returned the same average tick ⇒ variance EXACTLY 0 — measured on a drain that took `POOLED_ETH` 400 → 0.00097); (ii) **SUB-TICK FIXED POINT** (`×1e9` before the divide) — whole-tick truncation was the OTHER half of the same bug, since a ~20-tick band rounds consecutive averages to the SAME INTEGER and every difference is 0.** ✅ **`a661f29` (2026-08-05) *"E59: fix the zero-variance hole — a drained band now charges 3%, not nothing"* — the CEILING, which the owner has since ruled wrong (*"we determined that 3% is not the right ceiling"*, §UNIT-RECOVERED).** ✅ **`0b7d0bf` (2026-08-05) *"E61: Core was over EIP-170 and I shipped it — fixed by deleting the round trip"* — the move behind `OracleLib` + the two-calls-into-one fold the owner asked for.** ⚠️ **AND A WARNING VISIBLE IN THE SAME TRAIL, BEFORE ANYONE PROPOSES ANOTHER RESHAPE: `8dc68cf` (08-04) *"Rebuild the well skew: constant-product size term + settlement-risk base, **no A-S kernel**"* → `522e477` *"Delete the settlement-risk term"* → **`29f0cb0` *"Revert the skew rebuild source to the known-green state — VERIFIED 3856/0"*. A FROM-SCRATCH RESHAPE OF THIS CURVE HAS ALREADY BEEN TRIED AND ROLLED BACK ONCE.** 📌 **`git log -S` on `evm/src` is how this was recovered; note the pre-2026-07-26 history is SQUASHED behind the public snapshot (§UNIT-TWOSIDED-CORR), so for anything older the CODE COMMENTS are authoritative and `-S` silently under-reports.** | 📌 reference — variance machinery is E59+E61; a full reshape was reverted once |
+### 🔴 OPEN — `LevMath.vetVenue` skips the collateral gate for base-debt venues, and ETH/BTC disagree about what that means
+
+`LevMath.sol:253-257`:
+```
+function vetVenue(address v, address base, address c0, address c1) public view returns (bool isShort) {
+    if (ILevVenueColl(v).stable() == base) return true;   // <- EARLY RETURN
+    address coll = ILevVenueColl(v).COLLATERAL();
+    if (coll != c0 && coll != c1) revert BadCollateral();  // <- NOT REACHED for a base-debt venue
+}
+```
+
+**The skipped line is the gate `LevManager.sol:206-208` calls "the rug the frozen allowlist stops"**:
+collateral outside `{WETH, weETH}` "silently misvalues into phantom ETH backing" through `_collToEth`.
+So **any venue whose debt token IS the base asset is allowlistable with arbitrary, unvalidated
+collateral.**
+
+**TWO CALLERS, AND THEY READ THE SAME BOOL OPPOSITE WAYS** — this is why it is not simply a dead branch:
+
+| caller | call | what `stable()==base` means there |
+|---|---|---|
+| `LevManager.sol:211` | `vetVenue(v, WETH, WETH, WEETH)` | return **DISCARDED** ⇒ the venue is **allowlisted**, collateral unchecked |
+| `BtcLevManager.sol:108` | `if (vetVenue(v, WBTC, VBTC, WBTC)) revert BadAuth();` | return **CONSUMED** ⇒ the venue is **REJECTED** |
+
+⇒ A base-denominated-debt venue is **forbidden on the BTC side and silently privileged on the ETH
+side**, from one shared function. That asymmetry is undocumented and nothing in either call site
+explains it.
+
+⚠️ **THE `isShort` RETURN IS NOT DEAD — do not delete it under the no-unreachable-code rule.**
+`LevManager` ignoring it makes it *look* vestigial (and `LevManager.sol:210` calls the classification
+"unused", which is true **only of that caller**). `BtcLevManager` depends on it to reject. Deleting the
+return would silently open the BTC side.
+
+**Reachable today.** The weETH-collateral / WETH-loan venue added 2026-08-09 (`DeployL1_s` `vs[5]`) is
+the FIRST venue to enter the allowlist through the unchecked branch. It is **benign** — its collateral
+is weETH, and `test/LevVenueMarketPins.t.sol` now proves that against live mainnet — but it is benign
+**by construction, not by validation**, and the hole is generic to the next WETH-debt venue.
+
+**Candidate fix (NOT applied — money path, needs a verified full-suite run):** check collateral
+unconditionally, then return the classification.
+```
+address coll = ILevVenueColl(v).COLLATERAL();
+if (coll != c0 && coll != c1) revert BadCollateral();
+return ILevVenueColl(v).stable() == base;
+```
+**Priced on the axes that matter:** ETH side gains the check and `vs[5]` still passes (`weETH == c1`).
+BTC side keeps rejecting — but a WBTC-debt venue with INVALID collateral would now revert
+`BadCollateral` where it used to revert `BadAuth`. **Same rejection, different selector**, so any test
+asserting `BadAuth` on that corner would flip. That is the one behavioural edge to look for in the run,
+and it is exactly the "other callers" axis this repo's rule 9 says the regression always hides on.
