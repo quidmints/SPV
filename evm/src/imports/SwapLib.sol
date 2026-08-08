@@ -994,8 +994,13 @@ library SwapLib {
     ///            this bullet described a swap-IN skew BONUS "funded by and CLAMPED to the retained
     ///            drain premium" -- that design was REJECTED and `payRefillBonus` DELETED on
     ///            2026-07-22, as creditSwapInBody's own comment states. There is NO such clamp and no
-    ///            bonus: `skewPremium*` has NO consumer beyond the counters + theta EWMA. Paying a
-    ///            swapper a bonus is precisely what the removal stopped -- do NOT rebuild it.)
+    ///            bonus. Paying a swapper a bonus is precisely what the removal stopped -- do NOT
+    ///            rebuild it. §E132 CORRECTION (2026-08-06): this bullet used to add "`skewPremium*`
+    ///            has NO consumer beyond the counters + theta EWMA". That was true when written on
+    ///            2026-07-31 and was FALSIFIED by §E5, which added `ISkewSink.creditSkewPremium` --
+    ///            the premium now REACHES LPs via `V4.USD_FEES`, asserted by
+    ///            testGrindRemoval_DrainPaysRetainedSkewPremium. The premium is NOT inert; reading
+    ///            it as inert is exactly the wrong turn §E107 took.)
     ///         So the skew's whole job is to PRICE the scarcity -- making staking/refilling
     ///         attractive exactly when the reservoir needs it (the fee side already reflects
     ///         this) and the swap-in top-up lucrative. The refill is a PERMISSIONLESS response

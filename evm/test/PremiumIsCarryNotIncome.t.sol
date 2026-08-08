@@ -98,7 +98,7 @@ contract PremiumIsCarryNotIncome is Alles {
         vm.warp(block.timestamp + 8 minutes);
     }
 
-    function test_E125_PremiumDoesNotCoverTheInventoryLossItChargesFor() public {
+    function test_E131_PremiumFundsLvrOverItsPricedWindow() public {
         _seed();
         deal(address(USDC), drainer, 20_000_000 * USDC_PRECISION);
         vm.prank(drainer); USDC.approve(address(AUX), type(uint).max);
