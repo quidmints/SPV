@@ -294,4 +294,53 @@ contract PremiumIsCarryNotIncome is Alles {
         }
         total += QUID.balanceOf(who);
     }
+
+    /// §UNIT-B-VERIFIED — RECONCILE WHAT THE PROTOCOL *RECORDS* RETAINING AGAINST WHAT THE SWAPPER
+    /// *ACTUALLY PAYS*. The event trace showed a ~1000x disagreement between the premium counter
+    /// and E71's trader-side gap; E5 routes the RECORDED number to LPs via USD_FEES, so if the
+    /// record overstates, LPs are credited value no swapper paid. All three read in ONE run:
+    ///   (a) the swapper's own balance deltas  (the only number the failing code does not produce)
+    ///   (b) the skewPremiumCum delta          (what we say we retained)
+    ///   (c) the USD_FEES delta                (what reached LPs)
+    function test_UNIT_PremiumRecordedEqualsPremiumPaid() public {
+        _seed();
+        deal(address(USDC), drainer, 20_000_000 * USDC_PRECISION);
+        vm.prank(drainer); USDC.approve(address(AUX), type(uint).max);
+        vm.prank(lp); V4.deposit{value: 400 ether}(0, lp, 3);
+        _settle();
+
+        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        _setEthFeed(px / 1e10);
+        AUX.setAssetFeed(address(WETH), ETH_FEED);
+        // Drive into priced scarcity first: a flush-regime swap charges 0 and reconciles trivially.
+        for (uint i; i < 14; ++i) _drainEth(30_000 * USDC_PRECISION, px);
+
+        uint prem0 = CORE.skewPremiumCum(false);
+        uint fees0 = V4.USD_FEES();
+        uint usdc0 = USDC.balanceOf(drainer);
+        uint eth0  = drainer.balance + WETH.balanceOf(drainer);
+
+        _drainEth(30_000 * USDC_PRECISION, px);
+
+        uint usdcIn  = usdc0 - USDC.balanceOf(drainer);
+        uint ethOut  = (drainer.balance + WETH.balanceOf(drainer)) - eth0;
+        uint premium = CORE.skewPremiumCum(false) - prem0;   // usd6
+        uint feesDlt = V4.USD_FEES() - fees0;
+
+        // What the swapper ACTUALLY gave up vs an oracle fill of the same input, in usd6.
+        uint fairEth = FullMath.mulDiv(usdcIn * 1e12, 1e18, px);   // usd18 input / px -> ETH wei
+        uint paidUsd6 = fairEth > ethOut ? FullMath.mulDiv(fairEth - ethOut, px, 1e30) : 0;
+
+        emit log_named_uint("swapper USDC in (6d)        ", usdcIn);
+        emit log_named_uint("swapper ETH out (wei)       ", ethOut);
+        emit log_named_uint("oracle-fair ETH (wei)       ", fairEth);
+        emit log_named_uint("(a) haircut BORNE by swapper, usd6", paidUsd6);
+        emit log_named_uint("(b) skewPremiumCum delta,    usd6", premium);
+        emit log_named_uint("(c) USD_FEES delta               ", feesDlt);
+        if (premium > 0) {
+            uint ratio = paidUsd6 * 10_000 / premium;
+            emit log_named_uint("borne/recorded (bps, 10000 = exact)", ratio);
+        }
+        assertGt(premium, 0, "no premium charged -- fixture never reached priced scarcity");
+    }
 }
