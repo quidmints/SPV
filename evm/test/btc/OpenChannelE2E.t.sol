@@ -6,6 +6,7 @@ import {BTCChannels} from "../../src/BTCChannels.sol";
 import {Types} from "../../src/imports/Types.sol";
 import {SPVGateway} from "../../src/spv/SPVGateway.sol";
 import {BitcoinTx} from "../../src/imports/BitcoinTx.sol";
+import {MuSig2Agg} from "../../src/imports/MuSig2Agg.sol";
 
 /// @notice END-TO-END openChannel against a REAL Bitcoin funding tx.
 ///
@@ -181,6 +182,50 @@ contract OpenChannelE2ETest is Test {
         assertEq(ch.totalSatsLocked(), amount, "sats locked tracked");
         // BTC pool position credited to the LP for the locked sats.
         assertEq(vogue.registered(lpEth), amount, "registerBtcLp credited the LP");
+    }
+
+    /// (E147-g) THE ASSERTION WHOSE ABSENCE COST A WHOLE INVESTIGATION.
+    ///
+    /// The fixture's `fundingTaproot` MUST be the MuSig2 2-of-2 of its own recorded
+    /// `lpPubkey`/`hopPubkey`. For every fixture this repo ever had it was NOT: the generator
+    /// asked bitcoind for an unrelated `getnewaddress bech32m` and recorded THAT output key,
+    /// while emitting two other wallet pubkeys as the channel keys. **The three had no
+    /// relationship at all** — 0 of 19 entries satisfied this — and nothing noticed, because
+    /// the contract only byte-matched `0x5120||Q` and never asked where Q came from.
+    ///
+    /// ⚠️ IT MUST BE ASSERTED **HERE**, NOT INSIDE A MONEY-PATH GUARD. When the KeyAgg check
+    ///    was first wired into `_verifySplice`, this defect surfaced as "every real splice
+    ///    reverts" — a liveness failure that read as a broken contract and got the (correct)
+    ///    check reverted. A generator drift belongs in the fixture's own test, where it fails
+    ///    as "the fixture is wrong" instead of "the protocol is wrong".
+    function test_fixture_fundingTaproot_is_the_2of2_of_its_own_pubkeys() public view {
+        string memory json = vm.readFile(
+            string.concat(vm.projectRoot(), "/test/btc/open_channel_fixture.json"));
+        // The top-level entry the E2E open actually consumes.
+        assertEq(
+            MuSig2Agg.computeOutputKey(
+                vm.parseJsonBytes(json, ".lpPubkey"), vm.parseJsonBytes(json, ".hopPubkey")),
+            vm.parseJsonBytes32(json, ".fundingTaproot"),
+            "fundingTaproot is not KeyAgg(lpPubkey, hopPubkey)"
+        );
+        // ...and every funded output in `opens`, so a partially-regenerated fixture (keys from
+        // one run, transactions from another — the exact shape of the original defect) fails.
+        // Iterate `bySeed` by its KEYS. Neither `.opens.length` nor `.opens[*].field` is a
+        // valid forge json path -- both error with "must return exactly one JSON value" --
+        // and `parseJsonKeys` is the one that enumerates without a hardcoded count, so a
+        // fixture that grows or shrinks is still fully covered.
+        string[] memory keys = vm.parseJsonKeys(json, ".bySeed");
+        assertGt(keys.length, 0, "fixture carries no bySeed entries");
+        for (uint i = 0; i < keys.length; ++i) {
+            string memory at = string.concat(".bySeed.", keys[i]);
+            assertEq(
+                MuSig2Agg.computeOutputKey(
+                    vm.parseJsonBytes(json, string.concat(at, ".lpPubkey")),
+                    vm.parseJsonBytes(json, string.concat(at, ".hopPubkey"))),
+                vm.parseJsonBytes32(json, string.concat(at, ".fundingTaproot")),
+                string.concat(keys[i], ": fundingTaproot is not the 2-of-2 of its pubkeys")
+            );
+        }
     }
 }
 
