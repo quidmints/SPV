@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Alles} from "./Alles.t.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
+import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 
 /// §E125 — IS THE SKEW PREMIUM FAIR CARRY, OR IS IT FARMABLE INCOME?
 ///
@@ -60,12 +61,6 @@ contract PremiumIsCarryNotIncome is Alles {
     address drainer = address(0xBEEF04);
     address bold;
 
-    /// The band's whole value in 18-dec USD, marked at `px`. `POOLED_ETH * px / 1e30` is the usd6
-    /// form used everywhere in this repo; ×1e12 lifts it to usd18 to match `POOLED_USD_ETH`.
-    function _bandValue18(uint px) internal view returns (uint) {
-        return CORE.POOLED_ETH() * px / 1e18 + CORE.POOLED_USD_ETH();
-    }
-
     function _settle() internal {
         vm.roll(block.number + 1);
         vm.warp(block.timestamp + 20 minutes);
@@ -119,12 +114,12 @@ contract PremiumIsCarryNotIncome is Alles {
         uint snap = vm.snapshotState();
 
         // ---- ARM 1: NEVER DRAINED. The band keeps its full volatile inventory.
+        // ONLY THE ETH COUNT IS NEEDED NOW. Two earlier drafts marked the whole band's VALUE here
+        // (`POOLED_ETH*px + POOLED_USD_ETH`) and both were wrong for it: the level form measured
+        // the drain itself because `POOLED_USD_ETH` never absorbed the drainer's stables, and the
+        // sensitivity form needed a hand-picked move. The breakeven-vs-variance assertion below
+        // needs neither, so the band-value helper is gone rather than left around to be misused.
         uint ethQuiet = CORE.POOLED_ETH();
-        // A LOCAL, NOT A STATE VARIABLE. `vm.revertToState` rolls back THIS CONTRACT'S storage
-        // as well as the protocol's, so a state variable set here reads 0 after the revert below
-        // -- which silently turned the quiet band's upside into its whole value and underflowed.
-        uint quietAtPx = _bandValue18(px);
-        uint quietAt110 = _bandValue18(px * 110 / 100);
 
         // ---- ARM 2: DRAINED until genuinely scarce, from the SAME starting state.
         vm.revertToState(snap);
@@ -144,6 +139,11 @@ contract PremiumIsCarryNotIncome is Alles {
                 < CORE.flowEwmaUsd(false)) reachedScarce = true;
         }
         emit log_named_uint("swaps priced while SCARCE", scarceSwaps);
+        // THE PRICER'S OWN VOLATILITY INPUT. If this sits at the E88-r sentinel (1 wei) the premium
+        // was quoted for a market that will NOT move, and comparing it to a 10% move is arithmetic,
+        // not a measurement. Logged so the regime is visible in the same run as the result.
+        emit log_named_uint("realizedVarianceWad at settle", CORE.realizedVarianceWad(false));
+        emit log_named_uint("wellSkew at settle           ", AUX.wellSkew(address(WETH)));
         uint premium = CORE.skewPremiumETH() - premium0;
         uint ethDrained = CORE.POOLED_ETH();
 
@@ -160,44 +160,44 @@ contract PremiumIsCarryNotIncome is Alles {
         }
         assertGt(premium, 0, "the drain must have PAID a premium, or there is nothing to weigh");
 
-        // ---- THE COMPARISON. **NOT** a level comparison of the two bands: the first draft did
-        //      that and PASSED FOR THE WRONG REASON. Drained-band value came out 626,040 u18 below
-        //      the quiet band, which is almost exactly the 296.4 ETH that LEFT times the 10% move —
-        //      i.e. I was measuring THE DRAIN ITSELF, because `POOLED_USD_ETH` never absorbed the
-        //      stables the drainer paid in. Comparing a 400-ETH band to a 103-ETH band and calling
-        //      the gap "inventory risk" would have confirmed E123 with an accounting hole.
+        // ---- THE COMPARISON, WITH THE MOVE SIZE TAKEN FROM THE PRICER, NOT FROM ME.
         //
-        //      What actually answers the question is each arm's SENSITIVITY to the same move —
-        //      value(1.1·px) − value(px) for that arm — which is independent of where the stables
-        //      went. The drained band is under-exposed by exactly the ETH it no longer holds, and
-        //      THAT foregone upside is the risk the premium is meant to price.
-        // usd6 -> u18 so both sides of the assertion are the same unit. See the header: omitting
-        // this made the test 1e12 easier to pass, in the direction that confirms its hypothesis.
-        uint premium18     = premium * 1e12;
-        uint quietUpside   = quietAt110 - quietAtPx;
-        uint drainedUpside = _bandValue18(px * 110 / 100) - _bandValue18(px);
-        uint foregone      = quietUpside - drainedUpside;
+        // Two earlier forms were wrong. A LEVEL comparison of the two bands passed for the wrong
+        // reason: the 626,040 gap was just the 296.4 ETH that LEFT times the move, because
+        // `POOLED_USD_ETH` never absorbed the drainer's stables -- it compared a 400-ETH band to a
+        // 103-ETH band and called the difference inventory risk. A SENSITIVITY comparison at a
+        // hand-picked +10% fixed that, but 10% is 8 SIGMA here (measured sigma^2 = 1.553e-4, so
+        // sigma ~ 1.25%): it quoted a premium for a 1.25%-vol market and demanded it cover an 8x
+        // excursion. A premium failing THAT is arithmetic, not a measurement.
+        //
+        // So: derive the BREAKEVEN MOVE -- the fractional price move at which the premium is
+        // exactly exhausted by the foregone upside on the ETH the band no longer holds --
+        //     breakeven = premium / (missingEth * px)
+        // and compare it to the volatility the premium was ACTUALLY priced from. Comparing in
+        // VARIANCE space keeps this exact and needs no square root:
+        //     breakeven^2  <  realizedVarianceWad     <=>     breakeven < sigma
+        // If the premium cannot survive a ONE-SIGMA move by its own volatility input, it is carry
+        // for a risk that exceeds it. No chosen constant enters the assertion.
+        uint premium18  = premium * 1e12;   // usd6 -> u18; see the header on the 1e12 bias
+        uint missingEth = ethQuiet - ethDrained;
+        uint breakevenWad = FullMath.mulDiv(premium18, 1e18, FullMath.mulDiv(missingEth, px, 1e18));
+        uint breakevenSqWad = FullMath.mulDiv(breakevenWad, breakevenWad, 1e18);
+        uint varWad = CORE.realizedVarianceWad(false);
 
-        emit log_named_uint("quiet band upside on +10%  ", quietUpside);
-        emit log_named_uint("drained band upside on +10%", drainedUpside);
-        emit log_named_uint("FOREGONE upside (the risk) ", foregone);
-        emit log_named_uint("premium collected u18 (=usd6*1e12)", premium18);
+        emit log_named_uint("missing ETH                ", missingEth);
+        emit log_named_uint("premium u18 (=usd6*1e12)   ", premium18);
+        emit log_named_uint("BREAKEVEN move (wad)       ", breakevenWad);
+        emit log_named_uint("realizedVarianceWad (sig^2)", varWad);
+        emit log_named_uint("breakeven^2 (wad)          ", breakevenSqWad);
 
-        if (premium18 >= foregone) {
-            emit log("RESULT: the premium COVERS the foregone upside -- farmable income.");
+        if (breakevenSqWad >= varWad) {
+            emit log("RESULT: the premium SURVIVES a one-sigma move -- it is farmable income.");
             emit log("=> E123 IS REFUTED; E122's consequence 2 must be reinstated.");
         } else {
-            emit log_named_uint("SHORTFALL (risk EXCEEDS premium)", foregone - premium18);
-            emit log("RESULT: the premium does NOT cover the foregone upside. Carry, not income.");
+            emit log("RESULT: the premium is exhausted well INSIDE one sigma. Carry, not income.");
         }
 
-        // THE FAVOURABLE DIRECTION IS DELIBERATELY NOT MEASURED HERE. A drained band loses less
-        // when ETH FALLS and collects the premium either way, so "holding wins on the down move" is
-        // expected and carries no information about farmability -- asserting on it would confirm the
-        // hypothesis with the one case that cannot discriminate. (It was logged in an earlier draft
-        // and cost a `Stack too deep`; per CLAUDE.md the fix is fewer locals, not `via_ir`.)
-
-        assertLt(premium18, foregone,
-            "E123: premium must NOT cover the foregone upside, or it is farmable income");
+        assertLt(breakevenSqWad, varWad,
+            "E123: premium must NOT survive a one-sigma move by its own variance input");
     }
 }
