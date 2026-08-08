@@ -669,6 +669,53 @@ contract DrainAtomicity is Alles {
     /// `(cum[0] - cum[1]) / window` — no new state, no new accumulator.
     /// The point of the test: a SPOT reading and a TWAP must DIVERGE after a fresh move, and the
     /// TWAP must lag. If they are identical the ring is not accumulating and the design is dead.
+    /// §E117 — THE LAST UNMEASURED CASE: what does a `tickCumulative` window do when the FRAME MOVES
+    /// mid-window? A reseat changes `tickLower`/`tickUpper`, so a normalized position computed from a
+    /// TWAP that spans the change mixes TWO frames. E114/E115 identified `reseatEpoch` as the public,
+    /// monotonic discriminator; this measures what actually goes wrong without it.
+    function test_E117_TwapAcrossAReseatMixesFrames() public {
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        _settle();
+        for (uint d = 0; d < 6; ++d) _drain(20_000 * 1e18);
+
+        uint32[] memory ago = new uint32[](2); ago[0] = 0; ago[1] = 3600;
+        uint64 ep0 = V4.reseatEpoch();
+        int24 lo0 = V4.LOWER_TICK(); int24 hi0 = V4.UPPER_TICK();
+        int56[] memory c0 = CORE.observe(ago, false);
+        int24 twap0 = int24((c0[0] - c0[1]) / int56(uint56(3600)));
+        uint norm0 = hi0 > lo0 && twap0 >= lo0 ? uint(int(twap0 - lo0)) * 1e4 / uint(int(hi0 - lo0)) : 0;
+        emit log_named_uint("BEFORE: reseatEpoch    ", ep0);
+        emit log_named_int ("BEFORE: 1h TWAP tick   ", twap0);
+        emit log_named_uint("BEFORE: normalized(1e-4)", norm0);
+
+        // Force frame motion the way E112 did -- sells push price to tickLower and trigger repacks.
+        for (uint d = 0; d < 40; ++d) {
+            deal(address(WETH), drainer, 30 ether);
+            vm.startPrank(drainer);
+            WETH.approve(address(AUX), 30 ether);
+            try AUX.swap(bold, address(WETH), false, 30 ether, 0) {} catch { vm.stopPrank(); break; }
+            vm.stopPrank(); _settle();
+        }
+
+        uint64 ep1 = V4.reseatEpoch();
+        int24 lo1 = V4.LOWER_TICK(); int24 hi1 = V4.UPPER_TICK();
+        int56[] memory c1 = CORE.observe(ago, false);
+        int24 twap1 = int24((c1[0] - c1[1]) / int56(uint56(3600)));
+        uint norm1 = hi1 > lo1 && twap1 >= lo1 ? uint(int(twap1 - lo1)) * 1e4 / uint(int(hi1 - lo1)) : 0;
+        emit log_named_uint("AFTER : reseatEpoch    ", ep1);
+        emit log_named_int ("AFTER : 1h TWAP tick   ", twap1);
+        emit log_named_int ("AFTER : band LOWER     ", lo1);
+        emit log_named_int ("AFTER : band UPPER     ", hi1);
+        emit log_named_uint("AFTER : normalized(1e-4)", norm1);
+
+        if (ep1 == ep0) { emit log("VOID: no reseat occurred -- the frame never moved."); return; }
+        emit log("FRAME MOVED. The TWAP above spans BOTH frames, so `normalized` mixes a pre-reseat");
+        emit log("tick with a post-reseat range. reseatEpoch changing is the ONLY signal of that --");
+        emit log("without it the number looks perfectly ordinary. THAT is why it must be read.");
+        if (norm1 == 0) emit log("normalized CLAMPED to 0: the TWAP tick is BELOW the new tickLower.");
+    }
+
     function test_E116_TimeWeightedTickLagsTheSpot() public {
         _seedBasket();
         vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
