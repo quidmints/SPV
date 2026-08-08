@@ -5,6 +5,10 @@ import {Alles} from "./Alles.t.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {console} from "forge-std/console.sol";
 import {SwapLib} from "../src/imports/SwapLib.sol";
+// §E113: the v4-PERIPHERY LiquidityAmounts has only getLiquidityFor* (forward). The reverse
+// (amounts FROM liquidity) lives in v4-core/test/utils -- the one that can price a position.
+import {LiquidityAmounts} from "v4-core/test/utils/LiquidityAmounts.sol";
+import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 
 /// §E71 — DID E68 ACTUALLY KILL THE ATOMICITY ARBITRAGE? A FALSIFIABLE TEST OF MY OWN CHANGE.
 ///
@@ -678,6 +682,25 @@ contract DrainAtomicity is Alles {
             _settle();
         }
         emit log_named_uint("sells completed           ", sells);
+
+        // §E112 -> §E113 THE DECISIVE READ: is `POOLED_*` the v4 POSITION's asset split, or CORE'S
+        // LEDGER? Compute the position's TRUE amounts from (sqrtPrice, tickLower, tickUpper,
+        // liquidity) and compare. If they diverge, every "composition" number in this thread --
+        // the 0.758 asymptote, the 72:1 here, the whole E93 target discussion -- measures the ledger
+        // rather than the band, which is the same class of error as `max`-vs-delivery.
+        {
+            (uint160 sp, int24 ct, uint128 liq) = CORE.poolStats(V4.LOWER_TICK(), V4.UPPER_TICK(), false);
+            emit log_named_int ("currentTick               ", ct);
+            emit log_named_uint("position liquidity        ", liq);
+            (uint a0, uint a1) = LiquidityAmounts.getAmountsForLiquidity(
+                sp, TickMath.getSqrtPriceAtTick(V4.LOWER_TICK()),
+                    TickMath.getSqrtPriceAtTick(V4.UPPER_TICK()), liq);
+            emit log_named_uint("v4 position amount0       ", a0);
+            emit log_named_uint("v4 position amount1       ", a1);
+            emit log_named_uint("Core POOLED_ETH           ", CORE.POOLED_ETH());
+            emit log_named_uint("Core POOLED_USD_ETH       ", CORE.POOLED_USD_ETH());
+            emit log("^ if the v4 amounts and Core's POOLED_* disagree, POOLED_* is a LEDGER, not the band.");
+        }
 
         uint px0   = AUX.getTWAPforAsset(address(WETH), 1800);
         uint vol0  = CORE.POOLED_ETH() * px0 / 1e30;
