@@ -58,6 +58,10 @@ library MuSig2Agg {
         uint256 ySq = addmod(mulmod(mulmod(x, x, p), x, p), 7, p);
         uint256 y = Math.modExp(ySq, (p + 1) >> 2, p);   // p ≡ 3 (mod 4)
         require(mulmod(y, y, p) == ySq, "MuSig2Agg: x is not on the curve");
+        // `y == 0` would be an order-2 point. secp256k1's group order is PRIME, so none
+        // exists and `x³+7 == 0` has no on-curve solution — but the code should not rely on
+        // an unstated theorem, and the check costs nothing.
+        require(y != 0, "MuSig2Agg: degenerate point");
 
         if ((y & 1) != (prefix & 1)) y = p - y;                  // match the declared parity
         pt = EC256.APoint({x: x, y: y});
@@ -89,6 +93,11 @@ library MuSig2Agg {
         bytes memory pkB33,
         bytes32 qXOnly
     ) public view returns (bool) {
+        // ⚠️ VALIDATE LENGTH BEFORE SORTING. `_cmp` walks 33 bytes, so a short array used to
+        // panic inside the comparison rather than reverting with a reason — an unclear
+        // failure on the validation path itself.
+        require(pkA33.length == 33 && pkB33.length == 33, "MuSig2Agg: pubkey must be 33 bytes");
+
         AggVars memory v;
         v.ec = curve();
 

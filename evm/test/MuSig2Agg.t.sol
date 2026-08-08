@@ -73,6 +73,29 @@ contract MuSig2AggTest is Test {
         this.callIsTwoOfTwo(hex"04F9308A019258C31049344F85F89D5229B531C845836F99B08601F113BCE036F9", PK_B, EXPECTED_Q);
     }
 
+    /// The rejection paths `decompress` owns, none of which the reference vector exercises.
+    function test_rejects_out_of_field_and_non_residue_x() public {
+        // x >= p: outside the field entirely.
+        bytes memory oob = abi.encodePacked(hex"02",
+            bytes32(uint256(0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F)));
+        vm.expectRevert(bytes("MuSig2Agg: x out of field"));
+        this.callIsTwoOfTwo(oob, PK_B, EXPECTED_Q);
+
+        // x = 5: 5³+7 = 132, and 132 is NOT a quadratic residue mod p, so no point has this x.
+        // ⚠️ I first wrote x = 1 here, assuming 8 was a non-residue. It is not: p ≡ 7 (mod 8),
+        //    so 2 is a residue and 8 = 2³ is too — x = 1 is a perfectly good curve point.
+        //    Checked against the Legendre symbol rather than assumed.
+        bytes memory nonResidue = abi.encodePacked(hex"02", bytes32(uint256(5)));
+        vm.expectRevert(bytes("MuSig2Agg: x is not on the curve"));
+        this.callIsTwoOfTwo(nonResidue, PK_B, EXPECTED_Q);
+    }
+
+    /// A short key must revert with a REASON, not panic inside the 33-byte KeySort loop.
+    function test_short_pubkey_reverts_with_a_reason() public {
+        vm.expectRevert(bytes("MuSig2Agg: pubkey must be 33 bytes"));
+        this.callIsTwoOfTwo(hex"0201", PK_B, EXPECTED_Q);
+    }
+
     function callIsTwoOfTwo(bytes memory a, bytes memory b, bytes32 q)
         external view returns (bool) { return MuSig2Agg.isTwoOfTwoOutputKey(a, b, q); }
 }
