@@ -550,9 +550,24 @@ contract Deploy is Script {
     }
 
     /// @notice Build the ETH LevManager's frozen venue array in its own frame: [weETH Morpho, weETH Euler, WETH
-    ///         Morpho] + optional WETH-debt short (auto-detected by LevManager.init via stable()==WETH). WETH is
+    ///         Morpho]. WETH is
     ///         ETH-denominated and shares POOLED_ETH with weETH; the manager derives collateral type from the
     ///         venue's collateral token (WETH ⇒ 1:1 valuation + SOR-only legs, no ether.fi mint/redeem).
+    ///
+    /// ⚠️ CORRECTED 2026-08-08 — the removed clause claimed an "optional WETH-debt short (auto-detected by
+    ///    LevManager.init via stable()==WETH)". `init` (LevManager.sol:198-214) does NO such detection: it
+    ///    calls `LevMath.vetVenue(v, WETH, WETH, WEETH)`, which gates on the venue's COLLATERAL token, and
+    ///    `LevManager.sol:210` states outright that the inverse/stable-collateral classification "is unused"
+    ///    because the short subsystem was REMOVED 2026-07-24. A WETH-DEBT venue is therefore perfectly
+    ///    allowlistable — but it becomes an ordinary LONG, with no short behaviour of any kind.
+    ///
+    /// 📌 EVERY VENUE HERE BORROWS **USDC**, which is why an ETH-denominated IL-protect borrow currently pays
+    ///    a stable→WETH SOR round trip. A weETH-collateral/WETH-loan Morpho market EXISTS and is deep
+    ///    (id `0x37e7484d…472ba7`, 94.5% LLTV, 1,770 WETH liquid, verified on-chain 2026-08-08 — see QUEUE).
+    ///    Adding it here removes that round trip entirely. The plumbing is already in place and inert:
+    ///    `LevMath._stableToWethSor`/`_wethToStableDex` short-circuit when `stable == c.weth`, and
+    ///    `_fromUsd`/`_toUsd18` are now price-aware, so a WETH loan token sizes off the ETH price rather
+    ///    than silently assuming $1. NOT ADDED YET: it is a money-path change and needs its own verified run.
     function _ethLevVenues(address morpho, address lm, address weeth) internal returns (address[] memory vs) {
         address mv = _mkMorphoVenue(morpho, MarketParams({
             loanToken: address(USDC), collateralToken: weeth,
