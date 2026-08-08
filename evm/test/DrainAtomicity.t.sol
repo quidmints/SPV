@@ -665,8 +665,25 @@ contract DrainAtomicity is Alles {
         emit log_named_uint("BEFORE reseat: vol:USD (1e-4)", usd0 == 0 ? 0 : vol0 * 1e4 / usd0);
         emit log_named_uint("BEFORE reseat: POOLED_ETH   ", eth0);
 
+        // §E110 — THE CONTROL E109 LACKED: did the reseat ACTUALLY RE-RANGE? If `LOWER_TICK`/
+        // `UPPER_TICK`/`reseatEpoch` are unchanged, the reseat was a NO-OP and E109 tested NOTHING —
+        // its "refutation" of the price-in-range mechanism would itself be void. I asserted a
+        // negative result without checking the operation under test had any effect.
+        int24 lo0 = V4.LOWER_TICK(); int24 hi0 = V4.UPPER_TICK(); uint64 ep0 = V4.reseatEpoch();
         V4.reseat();
         vm.roll(block.number + 1);
+        int24 lo1 = V4.LOWER_TICK(); int24 hi1 = V4.UPPER_TICK(); uint64 ep1 = V4.reseatEpoch();
+        emit log_named_int ("LOWER_TICK before/after   ", lo0);
+        emit log_named_int ("                          ", lo1);
+        emit log_named_int ("UPPER_TICK before/after   ", hi0);
+        emit log_named_int ("                          ", hi1);
+        emit log_named_uint("reseatEpoch before/after  ", ep0);
+        emit log_named_uint("                          ", ep1);
+        if (lo0 == lo1 && hi0 == hi1 && ep0 == ep1) {
+            emit log("RESEAT WAS A NO-OP -- E109 tested nothing and its refutation is VOID.");
+        } else {
+            emit log("RESEAT DID re-range -- E109's negative result is a REAL test of the mechanism.");
+        }
 
         uint px1  = AUX.getTWAPforAsset(address(WETH), 1800);
         uint vol1 = CORE.POOLED_ETH() * px1 / 1e30;
