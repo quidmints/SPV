@@ -645,6 +645,49 @@ contract DrainAtomicity is Alles {
     /// the decision needs the SHAPE. If the gain rises with repair size there is no optimum short of
     /// full repair; if it flattens or turns, there is. Reported in 1e-8 units because the effect is
     /// sub-1bp and a bps denominator TRUNCATED it to zero on E108's first run.
+    /// §E109 — TESTS MY OWN EXPLANATION. E108-EXPLAINED claims composition is set by WHERE PRICE SITS
+    /// IN THE RANGE, which predicts that a RESEAT — which moves the RANGE around the price, with NO
+    /// deposit and NO swap — CHANGES THE RATIO. If the ratio does NOT move, the mechanism is wrong
+    /// and the 0.758 "identity" needs another explanation.
+    /// ⚠️ E104 measured that `reseat()` does NOT move `POOLED_ETH`. That is CONSISTENT with the
+    /// mechanism (the range moves, the inventory does not) but it means any ratio shift here is a
+    /// change in the REFERENCE, not in assets held — which is a bookkeeping move, NOT a repair.
+    function test_E109_DoesReseatMoveTheRatio() public {
+        _seedBasket();
+        vm.prank(lpA); V4.deposit{value: 300 ether}(0, lpA, 3);
+        _settle();
+        for (uint d = 0; d < 12; ++d) _drain(20_000 * 1e18);
+
+        uint px0   = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint vol0  = CORE.POOLED_ETH() * px0 / 1e30;
+        uint usd0  = CORE.POOLED_USD_ETH();
+        uint eth0  = CORE.POOLED_ETH();
+        emit log_named_uint("BEFORE reseat: vol:USD (1e-4)", usd0 == 0 ? 0 : vol0 * 1e4 / usd0);
+        emit log_named_uint("BEFORE reseat: POOLED_ETH   ", eth0);
+
+        V4.reseat();
+        vm.roll(block.number + 1);
+
+        uint px1  = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint vol1 = CORE.POOLED_ETH() * px1 / 1e30;
+        uint usd1 = CORE.POOLED_USD_ETH();
+        uint eth1 = CORE.POOLED_ETH();
+        emit log_named_uint("AFTER  reseat: vol:USD (1e-4)", usd1 == 0 ? 0 : vol1 * 1e4 / usd1);
+        emit log_named_uint("AFTER  reseat: POOLED_ETH   ", eth1);
+
+        if (usd0 == 0 || usd1 == 0) { emit log("VOID: a USD leg is zero."); return; }
+        uint r0 = vol0 * 1e4 / usd0; uint r1 = vol1 * 1e4 / usd1;
+        if (r1 != r0 && eth1 == eth0) {
+            emit log("PREDICTION HOLDS: the ratio moved with NO change in POOLED_ETH -- the reference");
+            emit log("moved, not the assets. Composition IS a function of price-in-range. NOT a repair.");
+        } else if (r1 == r0) {
+            emit log("PREDICTION FAILS: reseat did not move the ratio. My mechanism is WRONG and the");
+            emit log("0.758 identity needs another explanation -- do not build on E108-EXPLAINED.");
+        } else {
+            emit log("Ratio AND inventory both moved -- reseat is doing more than re-ranging; re-read.");
+        }
+    }
+
     function test_E108b_HowMuchRepairIsOptimal() public {
         // §E108b-r: the old sweep (10/40/100/200) never left a DEEPLY IMBALANCED window — 0.666 to
         // 0.714 volatile:USD — so its "optimum" could not be distinguished from "beyond my largest
