@@ -115,6 +115,16 @@ contract BTCChannelsAuthTest is Test {
     /// 7-field taproot OpenParams, pinning the Rust encoder byte-exact to Solidity's
     /// abi.encode. Field values below are the SAME fixture the Rust test builds.
     ///
+    /// ⚠️ `lpPubkey` HERE IS DELIBERATELY NOT A CURVE POINT, AND MUST NOT BE "FIXED".
+    ///    (E129-b) A sweep that replaced every off-curve compressed pubkey in `test/` with a
+    ///    real one changed this byte too and broke the pin — the hash moved, and the failure
+    ///    reads as "the Rust encoder went stale" when nothing about Rust had changed. Nothing
+    ///    on this path decompresses: the test is `pure`, it calls no contract, and the KeyAgg
+    ///    gate lives in `_verifySplice`, not the open. The only property these bytes need is
+    ///    being IDENTICAL to `evm_codec.rs`'s fixture. Changing them requires regenerating the
+    ///    Rust constant in the SAME commit, or the two sides disagree silently — which is the
+    ///    exact failure this test exists to catch.
+    ///
     /// This used to only `emit` the hash — it was a one-way broadcast that could print
     /// anything at all and still report PASS, so the pin existed only in Rust and only
     /// as long as somebody remembered to re-run this by hand and copy the number over.
@@ -164,8 +174,8 @@ contract BTCChannelsAuthTest is Test {
         if      (field == 0) t.fundingBlockHash   = bytes32(uint256(p.fundingBlockHash) ^ 1);
         else if (field == 1) t.fundingBlockHeight = p.fundingBlockHeight + 1;
         else if (field == 2) t.fundingTxIndex     = p.fundingTxIndex + 1;
-        else if (field == 3) t.lpPubkey           = hex"02ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
-        else if (field == 4) t.hopPubkey          = hex"03ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+        else if (field == 3) t.lpPubkey           = hex"02a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1";
+        else if (field == 4) t.hopPubkey          = hex"03b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b3";
         else if (field == 5) t.amountSats         = p.amountSats + 1;
         else                 t.fundingTaproot     = bytes32(uint256(p.fundingTaproot) ^ 1);
         require(keccak256(abi.encode(t)) != h, "PREMISE: a field is NOT covered by the pinned struct hash");

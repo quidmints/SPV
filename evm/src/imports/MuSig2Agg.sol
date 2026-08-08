@@ -2,8 +2,16 @@
 pragma solidity ^0.8.28;
 
 import {EC256} from "@solarity/solidity-lib/libs/crypto/EC256.sol";
-// OZ 5.4 for `Math.modExp` — our global OZ is 5.0.2 (transitive via v4-core) and predates it.
-import {Math} from "@openzeppelin-5.4/utils/math/Math.sol";
+// `Math.modExp` — reached through the `@openzeppelin-submodule/` alias, NOT the global
+// `@openzeppelin/` one. Two OZ copies coexist here and only one has this function: the global
+// alias resolves to `lib/v4-core/lib/openzeppelin-contracts` at **5.0.2**, which predates
+// `modExp` (verified: 0 matches for `function modExp` in its `Math.sol`); the alias below
+// resolves to the top-level submodule, currently **5.7.0**, which has it.
+// ⚠️ THE ALIAS IS DELIBERATELY NOT NAMED FOR A VERSION. It was `@openzeppelin-5.4/` and went
+//    stale the moment the submodule moved — I had locally downgraded 5.7.0 → 5.4.0 to get
+//    `modExp`, which was never necessary and would have committed a dependency regression.
+//    Name it for WHICH COPY it is, since that is what distinguishes the two and cannot drift.
+import {Math} from "@openzeppelin-submodule/utils/math/Math.sol";
 
 /// @title  MuSig2Agg — prove a taproot output key IS the 2-of-2 of two named pubkeys
 /// @notice Closes the gap `BTCChannels.sol` has always admitted: *"The contract does NO
@@ -93,6 +101,22 @@ library MuSig2Agg {
         bytes memory pkB33,
         bytes32 qXOnly
     ) public view returns (bool) {
+        return computeOutputKey(pkA33, pkB33) == qXOnly;
+    }
+
+    /// @notice The same aggregate, RETURNED rather than compared: the BIP-341 output key of
+    ///         the MuSig2 2-of-2 over these two pubkeys.
+    /// @dev    Exists because a test fixture that wants a channel the gate will ACCEPT has to
+    ///         be able to build a genuine `Q`, and the alternative — a hardcoded triple — pins
+    ///         every splice fixture to one key pair. Note the circularity this creates and why
+    ///         it is safe: fixtures built with this function cannot detect a bug IN it, so the
+    ///         correctness of the aggregation is pinned independently by
+    ///         `MuSig2Agg.t.sol`'s BIP-327 reference vector, which is ground truth from
+    ///         outside this repo. Fixtures prove the WIRING; the vector proves the MATH.
+    function computeOutputKey(
+        bytes memory pkA33,
+        bytes memory pkB33
+    ) public view returns (bytes32) {
         // ⚠️ VALIDATE LENGTH BEFORE SORTING. `_cmp` walks 33 bytes, so a short array used to
         // panic inside the comparison rather than reverting with a reason — an unclear
         // failure on the validation path itself.
@@ -128,9 +152,9 @@ library MuSig2Agg {
         if (v.agg.y % 2 != 0) v.agg.y = v.ec.p - v.agg.y;
         v.t = uint256(taggedHash("TapTweak", abi.encodePacked(bytes32(v.agg.x)))) % v.ec.n;
 
-        return v.ec.toAffine(
+        return bytes32(v.ec.toAffine(
             v.ec.jAddPoint(EC256.toJacobian(v.agg), v.ec.jMultShamir(v.ec.jbasepoint(), v.t))
-        ).x == uint256(qXOnly);
+        ).x);
     }
 
     function _lessThan(bytes memory a, bytes memory b) private pure returns (bool) {

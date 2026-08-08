@@ -98,7 +98,7 @@ contract VBtcLevFeeLane is Alles {
         internal
         returns (bytes32 channelId, bytes32 fundingTxId, address lpEth, bytes memory lpPubkey)
     {
-        lpPubkey = abi.encodePacked(hex"02", keccak256(abi.encode("lp-pk", seed)));
+        lpPubkey = _validCompressedPubkey(abi.encode("lp-pk", seed));
         uint lpPk;
         (lpEth, lpPk) = makeAddrAndKey(string(abi.encodePacked("btc-lp-", seed)));
 
@@ -176,7 +176,7 @@ contract VBtcLevFeeLane is Alles {
     function _openWithPayout(BTCChannels ch, uint seed, uint amountSats, bytes32 payoutKey)
         internal returns (bytes32 channelId, bytes32 fundingTxId, bytes memory lpPubkey)
     {
-        lpPubkey = abi.encodePacked(hex"02", keccak256(abi.encode("lp-pk", seed)));
+        lpPubkey = _validCompressedPubkey(abi.encode("lp-pk", seed));
         (address lpEth, uint lpPk) = makeAddrAndKey(string(abi.encodePacked("btc-lp-", seed)));
         bytes memory spk = buildTaprootFundingSpk(lpPubkey, HOP_PUBKEY);
         bytes memory fundingTx = abi.encodePacked(

@@ -336,6 +336,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     error WrongPrevOutpoint();        // tx doesn't spend this channel's funding UTXO
     error InvalidParam();             // bad lpAuth recovery
     error SpliceUnchanged();          // a splice must change the funded amount (grow or shrink)
+    error SpliceKeyNotTwoOfTwo();     // (E129) new funding Q is not KeyAgg(lpPubkey, hopPubkey)
     error ForeignSpliceOutput();      // a withdrawal splice paid value somewhere other than the
                                       // new funding output or the LP's committed btcRecipientOf
     error FreshnessNotMonotonic();    // a freshness commit must strictly increase (rollback/replay guard)
@@ -1017,14 +1018,22 @@ contract BTCChannels is Ownable, ReentrancyGuard {
             channelId, rawSpliceTx, p.fundingBlockHash, spliceMerkleProof, p.fundingTxIndex);
         newVout = ChannelLib.locateChannelOutput(
             rawSpliceTx, p.lpPubkey, p.hopPubkey, p.fundingTaproot, p.amountSats);
-        // (E129) ⛔ THE KeyAgg GATE IS NOT WIRED HERE YET, AND THE REASON IS FIXTURES.
-        // `MuSig2Agg.isTwoOfTwoOutputKey` is built and verified against the BIP-327 reference
-        // vector, but enabling it here fails 8 splice tests: their fixtures use SYNTHETIC
-        // lpPubkey/hopPubkey with an arbitrary `fundingTaproot`, so `Q` is not a real
-        // aggregate of those keys and the check correctly refuses them. That is the guard
-        // working — the fixtures have to carry genuine MuSig2 material first.
-        // Until then the hole stands: a GROW-splice can move the channel's BTC into a `Q` the
-        // hop solely controls, and in fleet mode the operator holds both halves. See E129-b.
+        // (E129) THE KeyAgg GATE. This is the line the whole secp256k1 exercise exists for.
+        // `locateChannelOutput` above proves only that the caller's 32 bytes appear in the new
+        // funding output — it cannot tell the LP's channel from a `Q` the hop alone controls.
+        // This proves `Q == TapTweak(KeyAgg(KeySort(lpPubkey, hopPubkey)))`, which is true only
+        // if BOTH named keys are inside it, so a GROW can no longer migrate custody. In fleet
+        // mode, where the operator holds both halves (E94), this is the only thing standing
+        // between a splice and a redirect.
+        //
+        // ⚠️ COSTS 631,432 GAS on the accepting path — MEASURED via `--gas-report`, not
+        //    estimated. (I first wrote "~1.2M" reasoning from the operation count: two point
+        //    decompressions, a Shamir double-mul and a base-point mul over secp256k1. That was
+        //    2x high. The modexp precompile does the decompression square-roots, which is most
+        //    of the difference.) Splices are rare and operator-initiated, so this is affordable
+        //    where it would not be on a per-swap path; the alternative is an open custody hole.
+        if (!MuSig2Agg.isTwoOfTwoOutputKey(p.lpPubkey, p.hopPubkey, p.fundingTaproot))
+            revert SpliceKeyNotTwoOfTwo();
     }
 
     /// @notice ANTI-ROLLBACK: the channel's hop records the highest persisted

@@ -39,6 +39,7 @@ import {DeployLib} from "../src/DeployLib.sol";
 import {SorPath} from "../src/imports/SOR.sol";
 import {BTCChannels} from "../src/BTCChannels.sol";
 import {BitcoinTx} from "../src/imports/BitcoinTx.sol";
+import {MuSig2Agg} from "../src/imports/MuSig2Agg.sol";
 import {SPVGateway} from "../src/spv/SPVGateway.sol";
 
 /// @notice Mock SPV gateway - always confirms inclusion. Lets the BTCChannels
@@ -146,13 +147,21 @@ contract Alles is ForkPin, Fixtures {
 
     address[] public STABLECOINS; address[] public VAULTS;
 
-    /// Test-only: a deterministic stand-in for the 32-byte x-only MuSig2 key-path
-    /// aggregate `Q` of a SIMPLE-TAPROOT channel. The production contract does NO
-    /// secp256k1 EC math — it just byte-matches the funding output against
-    /// `0x5120||Q` — so a synthetic-funding test only needs the SAME Q in the
-    /// funding tx and in `OpenParams.fundingTaproot`. (Cross-language e2e tests get
-    /// the real MuSig2 Q from the Rust harness; these MockSPV tests don't.) Derived
-    /// from the SORTED pubkey pair so it's symmetric, exactly like the real KeySort.
+    /// Test-only: the 32-byte x-only BIP-341 output key `Q` of the MuSig2 2-of-2 over
+    /// `lpPubkey` and `hopPubkey` — a SIMPLE-TAPROOT channel's funding key.
+    ///
+    /// ⚠️ THIS WAS A KECCAK STUB UNTIL (E129-b), AND THE STUB IS WHY THE GATE COULD NOT SHIP.
+    ///    It returned `keccak256("M7-Q", …)`: symmetric under KeySort, and a plausible-looking
+    ///    32 bytes, but not a curve point at all — so once `_verifySplice` began actually
+    ///    checking `Q == TapTweak(KeyAgg(…))`, every splice fixture in the repo failed. The
+    ///    old comment justified the stub with "the production contract does NO secp256k1 EC
+    ///    math", which was true when written and is now false. A fixture that encodes an
+    ///    absent check is load-bearing in exactly the wrong direction: it makes the check
+    ///    look untestable rather than untested.
+    ///
+    /// Now the REAL aggregate, from the same library the contract uses. See
+    /// `MuSig2Agg.computeOutputKey` on why that circularity is safe: the BIP-327 reference
+    /// vector in `MuSig2Agg.t.sol` pins the math from outside, these fixtures pin the wiring.
     ///
     /// NAMED `_taprootQ`, NOT `testTaprootQ`: it is a fixture builder, not a test. The
     /// old `test` prefix made it read as a test case in every listing and grep of this
@@ -160,19 +169,28 @@ contract Alles is ForkPin, Fixtures {
     /// A helper that claims to be a test is the same failure mode as a test with no
     /// assertion: the name promises a proof that does not exist.
     function _taprootQ(bytes memory lpPubkey, bytes memory hopPubkey)
-        internal pure returns (bytes32)
+        internal view returns (bytes32)
     {
-        return keccak256(abi.encodePacked(lpPubkey, hopPubkey)) <
-               keccak256(abi.encodePacked(hopPubkey, lpPubkey))
-            ? keccak256(abi.encodePacked("M7-Q", lpPubkey, hopPubkey))
-            : keccak256(abi.encodePacked("M7-Q", hopPubkey, lpPubkey));
+        return MuSig2Agg.computeOutputKey(lpPubkey, hopPubkey);
+    }
+
+    /// Test-only: a 33-byte SEC1 COMPRESSED pubkey that is a genuine curve point, for
+    /// fixtures that must survive `MuSig2Agg.decompress`. `_validXOnly` already grinds to an
+    /// x with an even-y solution, which is exactly what the `0x02` prefix declares — so the
+    /// two helpers agree by construction rather than by coincidence.
+    /// ⚠️ The old fixtures used `0x02 || keccak256(seed)` directly, which is off the curve
+    ///    for about half of all seeds. That is invisible while nothing decompresses the key.
+    function _validCompressedPubkey(bytes memory seed) internal pure returns (bytes memory) {
+        return abi.encodePacked(hex"02", _validXOnly(seed));
     }
 
     /// Test-only: the SIMPLE-TAPROOT channel-funding scriptPubKey `0x5120||Q` for
     /// the synthetic-funding fixtures (the production analogue is
     /// `BitcoinTx.buildTaprootScriptPubKey`).
+    /// @dev `view`, not `pure`: `_taprootQ` now does real EC math and reaches the modexp
+    ///      precompile (0x05) to decompress the pubkeys.
     function buildTaprootFundingSpk(bytes memory lpPubkey, bytes memory hopPubkey)
-        internal pure returns (bytes memory)
+        internal view returns (bytes memory)
     {
         return abi.encodePacked(hex"5120", _taprootQ(lpPubkey, hopPubkey));
     }
@@ -3971,7 +3989,7 @@ contract Alles is ForkPin, Fixtures {
     ///         retiring the long-standing untested-wiring gap.
     function testBtcChannels_OpenAndCloseEndToEnd() public {
         // 33-byte compressed pubkeys (channel script + hop).
-        bytes memory lpPubkey  = hex"020102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20";
+        bytes memory lpPubkey  = hex"020102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f21";
         bytes memory hopPubkey = hex"03a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0";
 
         // Real BTCChannels with a mock SPV gateway, wired as THE btcChannels.
@@ -4079,7 +4097,7 @@ contract Alles is ForkPin, Fixtures {
     ///         solvency-reconciliation branch (the former recordForceClose, now folded
     ///         into recordClose; the cooperative branch is covered end-to-end elsewhere).
     function testBtcChannels_NonCoopCloseRetires() public {
-        bytes memory lpPubkey  = hex"020102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20";
+        bytes memory lpPubkey  = hex"020102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f21";
         bytes memory hopPubkey = hex"03a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0";
         BTCChannels ch = new BTCChannels(
             address(new MockSPV()), address(AUX), address(ETH), makeAddr("hop"));
@@ -4147,7 +4165,7 @@ contract Alles is ForkPin, Fixtures {
     ///         _lpFinalBalance is read; the force branch never reads tx outputs, so
     ///         deliveredRaw = funded − funded = 0 and the §10#2 clamp is moot here.)
     function testBtcChannels_ForceClose_WithHTLCs_Retires() public {
-        bytes memory lpPubkey  = hex"020102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20";
+        bytes memory lpPubkey  = hex"020102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f21";
         bytes memory hopPubkey = hex"03a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0";
         BTCChannels ch = new BTCChannels(
             address(new MockSPV()), address(AUX), address(ETH), makeAddr("hop"));

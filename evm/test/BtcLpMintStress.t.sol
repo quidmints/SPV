@@ -44,7 +44,7 @@ contract BtcLpMintStress is Alles {
         returns (bytes32 channelId, bytes32 fundingTxId, address lpEth, bytes memory lpPubkey)
     {
         // A distinct, valid 33-byte compressed pubkey per channel (prefix 0x02).
-        lpPubkey = abi.encodePacked(hex"02", keccak256(abi.encode("lp-pk", seed)));
+        lpPubkey = _validCompressedPubkey(abi.encode("lp-pk", seed));
         uint lpPk;
         (lpEth, lpPk) = makeAddrAndKey(string(abi.encodePacked("btc-lp-", seed)));
 
@@ -788,7 +788,7 @@ contract BtcLpMintStress is Alles {
         // submit — the open reverts at the OneChannelPerLp gate, not the delegation gate.
         address lpEth = makeAddr(string(abi.encodePacked("btc-lp-", uint(7))));
         // A different LP pubkey → a different funding key than channel A's.
-        bytes memory lpPubkeyB = abi.encodePacked(hex"02", keccak256("different-pk"));
+        bytes memory lpPubkeyB = _validCompressedPubkey("different-pk");
         bytes memory p2wsh =
             buildTaprootFundingSpk(lpPubkeyB, HOP_PUBKEY);
         bytes memory fundingTx = abi.encodePacked(
