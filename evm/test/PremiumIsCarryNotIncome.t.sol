@@ -230,4 +230,68 @@ contract PremiumIsCarryNotIncome is Alles {
             "E131: the premium must fund LVR over at least the settlement window it priced for");
 
     }
+
+    /// §UNIT-WHY-IT-MATTERS — DOES AN LP WHO EXITS ACROSS AN IMBALANCE GET THEIR OWN P&L?
+    ///
+    /// The owner's framing, which is STRICTLY LARGER than the LVR one this file started with:
+    /// "why are we worried about a mock token imbalance. because LP withdrawal and P&L attribution
+    /// depends on that mock balance. the swap fee a swapper pays depends on that mock balance."
+    ///
+    /// A withdrawal is PRO-RATA of the mock position, so an LP entering at ~50/50 and exiting at
+    /// ~98/2 takes a slice of the DRAIN'S composition. At an UNCHANGED price that should still be
+    /// value-neutral -- the band sold ETH at oracle and holds the dollars -- so any shortfall here
+    /// is LEAKAGE, not market risk, and it is the kind that accrues silently.
+    ///
+    /// MEASURED AT THE LP, NEVER FROM PROTOCOL STATE (§S16/§E91): the only number the failing code
+    /// does not produce is the caller's own balance delta.
+    function test_UNIT_LpExitAcrossImbalanceIsValueNeutralAtFlatPrice() public {
+        _seed();
+        deal(address(USDC), drainer, 20_000_000 * USDC_PRECISION);
+        vm.prank(drainer); USDC.approve(address(AUX), type(uint).max);
+
+        uint ethIn = 400 ether;
+        vm.prank(lp);
+        V4.deposit{value: ethIn}(0, lp, 3);
+        _settle();
+
+        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        _setEthFeed(px / 1e10);
+        AUX.setAssetFeed(address(WETH), ETH_FEED);
+
+        // Someone ELSE drains. The exiting LP did not cause this imbalance.
+        for (uint i; i < 12; ++i) _drainEth(30_000 * USDC_PRECISION, px);
+
+        // Exit everything, and measure what ACTUALLY ARRIVES at the LP.
+        uint ethBefore = lp.balance + WETH.balanceOf(lp);
+        uint usdBefore = _stableValue18(lp);
+        vm.prank(lp);
+        try V4.withdraw(type(uint).max, lp, lp) {} catch { emit log("withdraw reverted"); }
+        uint ethOut = (lp.balance + WETH.balanceOf(lp)) - ethBefore;
+        uint usdOut = _stableValue18(lp) - usdBefore;
+
+        uint valueIn18  = FullMath.mulDiv(ethIn,  px, 1e18);
+        uint valueOut18 = FullMath.mulDiv(ethOut, px, 1e18) + usdOut;
+
+        emit log_named_uint("LP ETH in                 ", ethIn);
+        emit log_named_uint("LP ETH out                ", ethOut);
+        emit log_named_uint("LP USD out (usd18)        ", usdOut);
+        emit log_named_uint("LP value IN  (usd18)      ", valueIn18);
+        emit log_named_uint("LP value OUT (usd18)      ", valueOut18);
+        if (valueOut18 >= valueIn18) emit log_named_uint("SURPLUS (premium earned)", valueOut18 - valueIn18);
+        else                         emit log_named_uint("SHORTFALL (LEAKAGE)     ", valueIn18 - valueOut18);
+        assertGt(ethOut + usdOut, 0, "the LP received NOTHING -- delivery, not attribution");
+    }
+
+    /// Sum of every basket stable plus QUID held by `who`, in 18-dec USD (§E69's lesson: the payout
+    /// token is chosen by the basket, so guessing one turns a wrong guess into a fake zero).
+    function _stableValue18(address who) internal view returns (uint total) {
+        address[] memory ss = AUX.getStables();
+        for (uint i = 0; i < ss.length; ++i) {
+            uint bal = IERC20(ss[i]).balanceOf(who);
+            if (bal == 0) continue;
+            uint8 d = IERC20(ss[i]).decimals();
+            total += d < 18 ? bal * (10 ** (18 - d)) : bal;
+        }
+        total += QUID.balanceOf(who);
+    }
 }
