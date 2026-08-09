@@ -75,6 +75,22 @@ environment actually is*. Every line below was verified in-repo, not recalled.
 - **Line count is not identity.** Same-named, same-sized files can be complementary halves — `diff`
   before calling anything a duplicate, and find the *live* copy before editing.
 - **Check the mechanism before building around it.** The fix is usually smaller, or somewhere else.
+- **EXISTING MACHINERY IS POSITIVE EVIDENCE. Weigh it against your own search.** If you conclude a
+  path is unreachable, ask what the code that serves it is *for* — nobody builds an owed ledger, a
+  settlement entrypoint, an event and a daemon for a case that cannot occur. On 2026-08-09 three
+  independent strands and one measurement said the BTC fee leg never accrues; the machinery around it
+  said otherwise and was right. `creditSwapIn` sells into the pool via `onlyBTCChannels`, bypassing
+  the user-path guard entirely. **Each strand was true and they were jointly wrong**, because all
+  three were about the *user* path and the seller was the *protocol*.
+- **A NAMED-BUT-UNEXECUTED CHECK IS A FINDING THAT WILL BE LOST.** Rule 12 says lift a finding to a
+  task in the same turn; this is its other half — **if the task you booked is the one that would
+  FALSIFY your conclusion, execute it before building on the conclusion.** The same session wrote
+  "I have not enumerated those", consolidated that admission into a summary, committed a test
+  assertion encoding the unverified conclusion, and moved on to four other items. The check was
+  written down three times and run zero times.
+- **Count self-caught vs prompted corrections.** Five wrong conclusions were overturned on
+  2026-08-09; **zero were caught by the author.** If a session's corrections all arrive from outside,
+  its verification loop is not working, and the remaining unexecuted checks are the exposure.
 - **After any Solidity change, run `tools/check-client-abis.py`.** `forge` + `tsc` both green does
   **not** mean the TypeScript clients still work.
 
