@@ -64,7 +64,11 @@ import {SignatureChecker} from "@openzeppelin-submodule/utils/cryptography/Signa
 //  `0x5120 || Q`, where Q is the 32-byte x-only MuSig2 aggregate
 //  `Q = lift_x(KeyAgg(KeySort(lpPubkey, hopPubkey))) + H_TapTweak·G` of the two
 //  33-byte funding keys (BitcoinTx.buildTaprootScriptPubKey). The contract does
-//  NO secp256k1 EC: it byte-matches the lpAuth-committed Q, so it does NOT prove
+//  ⚠️ CORRECTED (E129/E142): this said "NO secp256k1 EC … so it does NOT prove". BOTH halves
+//  are now false. `MuSig2Agg.isTwoOfTwoOutputKey` PROVES Q == TapTweak(KeyAgg(lp,hop)) at the
+//  OPEN and at every SPLICE, and `lpAuth` is retired (see (B) below). Left as a marker because
+//  three separate notes in this file described the pre-delegation, pre-EC world as current.
+//  The historical text, for the record: it byte-matched the lpAuth-committed Q, so it did not prove
 //  on-chain that Q == KeyAgg(lp, hop). That 2-of-2 genuineness rests on the
 //  off-chain MuSig2 keygen (the LP recomputes Q from its own + the hop's key
 //  before signing lpAuth) + the hop-only msg.sender gate. SGX attestation IS wired
@@ -1525,8 +1529,16 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     }
 
     /// @notice Settle an on-chain swap-out: the hop submits the SPV-proven splice-out
-    ///         tx that paid the swapper. Hop-gated + lpAuth-consented like `splice`
-    ///         (the LP signs THIS exact tx via `swapOutDeliverDigest`). Verifies the tx
+    ///         tx that paid the swapper. HOP-GATED ONLY.
+    ///         ⚠️ THIS SAID "lpAuth-consented like `splice` (the LP signs THIS exact tx via
+    ///         `swapOutDeliverDigest`)". **NO SIGNATURE IS VERIFIED HERE — this function takes
+    ///         no signature parameter at all** (E148). Under the delegation model the fleet
+    ///         splices as the channel's hop and produces no per-call lpAuth
+    ///         (`quid-bridge/swap_out_onchain.rs:221-223`). `swapOutDeliverDigest` REMAINS as
+    ///         an off-chain-signing helper — the same status as `openChannelDigest`, which
+    ///         also has no on-chain consumer (E148-c) — but nothing signs it today.
+    ///         What actually bounds this call: the hop gate, the SPV proof, and the KeyAgg
+    ///         gate on the new funding key (E129). Verifies the tx
     ///         pays `swapperScript` ≥ the obligation, then shrinks the LP's channel and
     ///         settles the slice with delivered PINNED to the obligation: the swap-out's
     ///         `so.sats` (proven paid to the swapper) is the delivered BTC, and the LP
@@ -1583,7 +1595,8 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         ch.amountSats  = p.amountSats;
         _useOutpoint(newTxId, newVout); // rotated funding UTXO claimed once
         totalSatsLocked -= shrinkSats;
-        // Settle in a fresh frame: the calldata params (p / rawSpliceTx / proof / lpAuth)
+        // Settle in a fresh frame: the calldata params (p / rawSpliceTx / proof)
+        // — ⚠️ this used to list `lpAuth`, which is NOT a parameter of this function (E148).
         // are dead from here, so the settlement tail gets a clean legacy stack (no via_ir).
         _settleSwapOutSlice(swapId, channelId, ch.lpEth, shrinkSats, newTxId, newVout);
     }
