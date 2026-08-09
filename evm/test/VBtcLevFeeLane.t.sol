@@ -562,11 +562,14 @@ contract VBtcLevFeeLane is Alles {
             //    Asserting the legs SEPARATELY so the test states what is actually true and a
             //    future change that makes the BTC leg live shows up as a failure, not silence.
             assertGt(usdLeg, 0, "(a) levered LP accrues the USD-leg band fee on its equity");
-            assertEq(btcLeg, 0,
-                "(a) the BTC leg does NOT accrue -- see E145-n: BTC inflows are channels-only "
-                "(SwapLib:372), so the pool is never sold into and the token-side fee is never "
-                "earned. If this ever fails, feesPerShareBTC became reachable and the whole "
-                "btcFeesOwedSats/forgone machinery is live after all -- re-open E145.");
+            // ⚠️ REASONING CORRECTED (E145-p). This said the BTC leg "does NOT accrue" because
+            //    BTC inflows are channels-only. **That was wrong.** `creditSwapIn` sells BTC
+            //    into the pool as the PROTOCOL (`onlyBTCChannels`, BTC→USD), bypassing the
+            //    user-path guard — and `testBtcLp_swapInAccruesTheBtcLegFee` MEASURES it:
+            //    `feesPerShareBTC` 0 → 1.045e13, `btcFeesOwedSats` 0 → 209 sats.
+            //    The leg is zero HERE only because THIS lane drives no swap-in. That is a
+            //    property of the scenario, not of the protocol — do not read it as either.
+            assertEq(btcLeg, 0, "(a) no swap-in in this lane, so no BTC-leg fee is earned here");
         }
 
         // (b) UNWIND-ONLY: a normal channel splice-out (LP withdrawal, exactUsd==0) can only shrink

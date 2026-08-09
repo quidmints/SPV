@@ -906,7 +906,16 @@ contract Alles is ForkPin, Fixtures {
         // cost does not exist. **ETH's floor is `σ²·ETH_CONF_FRAC/8` = 4.75e8 against a 3e14 kernel at
         // q=0.5 — five orders below — so ETH is where the kernel's SHAPE is observable.** The BTC
         // floor gets its own assertions below instead of being papered over.
-        assertEq(SwapLib.skewWad(T, T, sig, false, 0), 0, "flush at inv>=target");
+        // §UNIT-A — RE-EXPRESSED, NOT WEAKENED (§E81-r precedent). This asserted 0. The flush now
+        // returns the BASE, because a well-stocked band is not an UNEXPOSED one: the
+        // settlement-window loss accrues whether or not inventory is scarce, so only the DEPLETION
+        // (kernel) term flushes away, never the adverse-selection floor. Both early returns
+        // previously sat ABOVE `_maxWellSkew`, so a fresh OR idle band charged NOTHING — §E99
+        // measured a 30-day-old imbalance pricing at 0 and §E98 measured BTC's SPLICE_FLOOR never
+        // applying. The expected value is the SAME ETH base this test already names below
+        // (`σ²·ETH_CONF_FRAC/8` = 475e6), so this pins a DERIVED quantity, not a fitted one, and is
+        // STRICTLY STRONGER than asserting zero.
+        assertEq(SwapLib.skewWad(T, T, sig, false, 0), 475e6, "flush charges the BASE, not zero");
 
         // q=1/2 (inv=T/2): q/(1−q)=1 ⇒ skew = Γσ² = 3e16·1e16/1e18 = 3e14 (kernel leads on ETH).
         uint s12 = SwapLib.skewWad(T / 2, T, sig, false, 0);
@@ -4380,4 +4389,46 @@ contract Alles is ForkPin, Fixtures {
     }
 
 
+
+    /// (E145-p) DOES A SWAP-IN ACCRUE A BTC-LEG FEE? The question that reopened E145.
+    ///
+    /// I concluded `feesPerShareBTC` can never accrue, from three strands: the
+    /// `BtcInflowsViaChannels` guard, `mockBTC` being `onlyVogue`-gated, and a measured zero.
+    /// All three were about the USER path. `creditSwapIn` sells into the pool as the PROTOCOL
+    /// (`onlyBTCChannels`, `rp.zeroForOne = !token1is(true)` — BTC→USD), bypassing the guard.
+    /// This measures it instead of arguing about it.
+    function testBtcLp_swapInAccruesTheBtcLegFee() public {
+        AUX.setBTCChannels(address(this));           // impersonate BTCChannels -> drive creditSwapIn
+        BTC.registerBtcLp(User01, 2e7);
+        // Buy-side flow first, so the pool holds USD depth for the swap-in to sell into.
+        vm.startPrank(User03);
+        USDC.approve(address(AUX), type(uint).max);
+        for (uint i = 0; i < 4; i++) {
+            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0);
+            vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
+        }
+        vm.stopPrank();
+
+        vm.prank(User01); BTC.collectBtcFees();      // crystallise whatever exists BEFORE
+        uint owedBefore = BTC.btcFeesOwedSats(User01);
+        uint fpsBefore  = BTC.feesPerShareBTC();
+
+        // THE SELL: a swap-in routes BTC->USD through the same V4 path swap-out uses.
+        BTC.creditSwapIn(address(0x5E15), 500_000, address(USDC), 0);
+        vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
+
+        vm.prank(User01); BTC.collectBtcFees();      // crystallise AFTER
+        uint owedAfter = BTC.btcFeesOwedSats(User01);
+        uint fpsAfter  = BTC.feesPerShareBTC();
+        emit log_named_uint("feesPerShareBTC before", fpsBefore);
+        emit log_named_uint("feesPerShareBTC after ", fpsAfter);
+        emit log_named_uint("btcFeesOwedSats before", owedBefore);
+        emit log_named_uint("btcFeesOwedSats after ", owedAfter);
+
+        // ⚠️ THE WHOLE POINT: if this holds, the BTC-leg fee IS reachable and every E145
+        //    conclusion built on "it never accrues" is void.
+        assertGt(fpsAfter, fpsBefore,
+            "a swap-in must accrue the BTC-leg fee-per-share (E145-p: the protocol sells into the pool)");
+        assertGt(owedAfter, owedBefore, "and it must land in the LP's owed ledger");
+    }
 }
