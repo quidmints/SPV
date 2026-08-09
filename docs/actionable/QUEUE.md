@@ -8685,3 +8685,42 @@ rebalances the pool exists. Land retention first, verified independently; wire t
 | **UNIT-TWAP-RESOLVE** | ✅✅ **READ, NOT GUESSED: `getTWAPforAsset` IS **POOL-PRIMARY WITH A CHAINLINK FALLBACK**, AND MY ±2.3% FEED WALK SAT ENTIRELY INSIDE THE FALLBACK'S DEADBAND (2026-08-06).** ✅ **`Aux.sol:625-633`: `price = SwapLib.twapBody(CORE, WETH, asset, period)` — **THE POOL'S OWN TWAP** — then `SwapLib.twapResolve(assetPriceFeed[asset], price, isWBTC, TWAP_MAX_DEVIATION_BPS, ASSET_FEED_MAX_AGE)`. `Aux.sol:635-638` states the rule: *"stale = the internal TWAP diverged **>5%** from a fresh Chainlink (returned price **IS** Chainlink)"*.** ⇒ **MY FEED MOVES (±2.3%) NEVER EXCEEDED THE 5% DEVIATION THRESHOLD, so `twapResolve` KEPT RETURNING THE FROZEN POOL TWAP AND IGNORED THE FEED ENTIRELY.** That is precisely the §UNIT-VOL-CAUSE reading — now explained by the CODE rather than by a fifth hypothesis.** ✅ **ANSWERS THE ORDERING QUESTION §UNIT-VOL-CAUSE POSED: it is **NOT anchored** — the pool TWAP is PRIMARY, so **trading CAN move it**. Option (1) is viable and option (3)'s worry does not apply.** 🔎 **BUT THE DEEPER FACT, AND IT IS THE ONE THAT MATTERS FOR THE WHOLE FIXTURE PROBLEM: **MY SWAPS DRAINED THE BAND TO `q ≈ 1` (`wellSkew` pinned at `MAX_WELL_SKEW` in every run) WITHOUT MOVING THE POOL TWAP.** Inventory left; the pool price did not travel. **That is oracle-pegged execution working as designed — `routeSwap` fills at the honest oracle, so a drain consumes inventory rather than walking the curve.** ⇒ **IN THIS ARCHITECTURE, TRADING VOLUME DOES NOT GENERATE POOL-TWAP MOVEMENT THE WAY IT WOULD IN AN ORDINARY AMM — the tick moves mainly when the band RESEATS onto a new oracle level.** ▶️ **⇒ THE FIXTURE MUST DRIVE **RESEATS**, and the open question is why ±1.8% feed moves (9× the ±0.2% band half-width) did NOT produce them: check whether `_rebalance`/`reseat()` needs an explicit trigger the fixture never fires. **MEASURE THE RESEAT COUNT before theorising — that is the fifth channel and the first four each cost a turn.** | ✅✅ pool-primary, 5% deadband; oracle-pegged fills mean volume ≠ tick movement; count reseats next |
 
 | **UNIT-RESEAT-COUNT** | ⏸️ **RESEAT INSTRUMENTATION WRITTEN, NOT RUN — network unreachable (2026-08-06).** ✅ **THE MEASUREMENT, READY TO EXECUTE: log `V4.reseatEpoch()` BEFORE and AFTER the walk. §UNIT-TWAP-RESOLVE established that in this architecture the pool tick moves mainly when the band **RESEATS** onto a new oracle level — oracle-pegged fills consume inventory WITHOUT walking the curve — so **the reseat count IS the variance driver**, and ±1.8% feed moves (9× the ±0.2% band half-width) should force them. **This is the fifth channel; the first four each cost a turn of reasoning that one measurement would have saved, so it is instrumented BEFORE any explanation is offered.** ⛔ **BLOCKED ON INFRASTRUCTURE, NOT CODE: `forge test` died in `setUp` with `could not instantiate forked environment … dns error: failed to lookup address information`. **Transient network loss, not a regression** — the identical command passed minutes earlier at pinned block 25,713,821.** 📌 **AND A CONFIG NOTE WORTH CHECKING NEXT SESSION: `ETH_RPC_URL` (which `foundry.toml:72` interpolates) resolves to **publicnode**, while `.env` ALSO carries an `ANKR_RPC_URL` key. **The owner provided a NEW key today; if it lives in `ANKR_RPC_URL`, then `ETH_RPC_URL` is not pointing at it and every run so far has used the public node.** That also explains why the pinned run succeeded WITHOUT archival access — I captured `FORK_BLOCK` with `cast block-number`, so it was HEAD, and §ForkPin's 403-on-non-head warning never applied. **A pin to a genuinely HISTORICAL block would need the key, and would need `ETH_RPC_URL` to point at it.** | ⏸️ written, unrun (network); check whether ETH_RPC_URL should point at ANKR_RPC_URL |
+### 🔴 RESTORE-AFTER-REFILL, AUDIT COMPLETE — retention needs THREE `.open` guards first. Named them.
+
+Follow-up to the entry above. Both gating checks are now answered against the code.
+
+**CHECK 1 — does `openLev` write every field? ✅ YES.** `LevManager:489-490` assigns a full struct
+literal naming all six members (`venue`, `targetLtvCapBps`, `entryPriceWad`, `e0Eth`, `entrySqrtP`,
+`open`). A fresh position CANNOT inherit a retained one's fields. **This risk is closed.**
+
+**CHECK 2 — does anything read `pos[lp]` without gating on `.open`? 🔴 YES — THREE functions.**
+Of 11 readers, 8 gate correctly. The three that do not:
+
+| fn | reads | today (`delete` ⇒ zeros) | under RETENTION |
+|---|---|---|---|
+| `ilLtvBps` `:389` | `pos[lp].e0Eth` | `ltvBps(0, 0)` = 0 | `ltvBps(0, e0Usd)` = **0** — harmless, debt is 0 |
+| `ilTargetLtvBps` `:413` | whole `Pos` | `_ilTargetLive` on zeros ⇒ 0 | **non-zero** target for a CLOSED position |
+| `debtDeltaToTarget` `:397` | whole `Pos` | `e0Usd`=0 ⇒ `(false, 0)` in-band | 🔴 **`(levUp=true, amountUsd>0)`** |
+
+🔴 **`debtDeltaToTarget` IS THE DEFECT.** `debtUsd` self-guards (`:345` `if (!pos[lp].open) return 0`),
+so `curDebt` is 0 — but `e0Usd` comes from the RETAINED `e0Eth` and `t` from the RETAINED `entrySqrtP`,
+so `targetDebt = e0Usd·t > 0` against `curDebt = 0`. The function reports **"lever UP by X"** on a
+position that was closed. **The guard that saves us today is the `delete` itself** — remove it without
+adding `.open` checks and the keeper is told to open leverage on a closed position.
+
+⇒ **Retention is NOT a one-line change.** `p.open = false` must land TOGETHER with `.open` gates on
+those three functions, or the involuntary-close path starts emitting lever-up instructions.
+
+✅ **Not currently exploitable, and that is a fact about CALLERS, not about these functions.** The batch
+keeper paths gate first (`:537`, `:621` both `if (!pos[...].open) continue;`). All three functions are
+`public`, so a keeper calling one directly for a single LP already gets an answer that is only correct
+because `delete` zeroed the storage. **The gap is latent today and becomes live the moment the delete
+goes.**
+
+⚠️ **BYTES: the three guards must fit in `LevManager`'s 172 free bytes ALONGSIDE the `keepState`
+branch.** Re-measure with `tools/check-contract-sizes.py` in the same change; a green suite will not
+catch an over-limit contract.
+
+⚠️ **METHOD NOTE — my first audit pass MISSED `ilLtvBps` because I hand-curated the line list from a
+grep of `Pos memory p = pos[lp]`, and `:391` reads `pos[lp].e0Eth` INLINE with no local.** Two spellings
+of the same access. Any re-audit must match on `pos[` and read every hit, not on the idiomatic form.
