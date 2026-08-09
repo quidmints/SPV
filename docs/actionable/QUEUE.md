@@ -9010,3 +9010,49 @@ expression, not just to functions.
 it goes") · then the entrypoint.
 
 | **UNIT-STALENESS-FLOOR** | 🎯🎯 **TWO PROBLEMS WITH OPPOSITE TRAJECTORIES — AND `T*` IS INVARIANT TO THE VARIANCE BUG, WHICH IS THE FIRST GOOD NEWS IN THIS THREAD (owner: *"will this always be an issue or only in the beginning"*, 2026-08-06).** ⛔ **(1) THE WRONG-INPUT PROBLEM IS **PERMANENT, NOT A BOOTSTRAP ISSUE**: we measure σ² on our own pool tick, and we will ALWAYS peg that tick to the oracle — that IS the product. Volume does not make a pegged price start moving. **It only goes away by changing the SERIES (§UNIT-VARIANCE-SOLVED).**** ✅ **(2) THE STALENESS PROBLEM **DOES** IMPROVE WITH VOLUME — BUT ONLY DOWN TO A FLOOR. Reseats fire on out-of-range checks that occur during ACTIVITY, so at low volume the band can sit out-of-range with nobody triggering the check, while at high volume it reseats promptly. **Volume removes the EXCESS lag.** It cannot remove the floor, because the band only reseats once it is ALREADY ±0.2% wrong ⇒ **irreducible staleness = the time for the market to move the band half-width**, a property of VOLATILITY AND BAND WIDTH, not of volume: `(δ/σ)² = (0.002/0.6)² ≈ 1.1e-5 yr ≈ **5.8 MINUTES** at 60% annual vol.** ✅✅ **AND `T*` SURVIVES THE VARIANCE BUG — ALGEBRAICALLY, NOT BY LUCK: `T* = 8P/(V·σ²)` and the premium `P = amount × skew` with `skew ∝ σ²` (BOTH terms: kernel `Γσ²q` and base `σ²·confFrac/8`), so `T* = 8·amount·k/V` — **σ² CANCELS TOP AND BOTTOM.** A 2,300× correction to σ² scales the premium AND the exposure equally and leaves T* WHERE IT IS. **§E131's 527s ≈ 8.8 min stands even though the σ² it was computed from is wrong.**** 🎯 **⇒ THE RESULT THAT REFRAMES THE WHOLE WORRY: **THE PREMIUM FUNDS ~8.8 MINUTES; THE IRREDUCIBLE STALENESS FLOOR IS ~5.8 MINUTES. COVERAGE WITH ~50% MARGIN**, and everything ABOVE that floor is exactly the part volume erodes. ⇒ **THE SKEW DOES NOT NEED TO BE LARGE IN ABSOLUTE TERMS — IT NEEDS TO COVER THE STALENESS WINDOW, AND ON THIS ARITHMETIC IT DOES.** §UNIT-SKEW-IS-NOISE's 0.04% was never the right question; COVERAGE is.** ⚠️ **WHAT IT CANNOT SURVIVE IS THE WRONG σ² **SERIES** — that is not a magnitude error that cancels, it is the difference between pricing the MARKET'S MOVEMENT and pricing OUR OWN STILLNESS. **Both quantities above assume σ(market) ≈ 60%; both must be re-derived from the oracle series once §UNIT-VARIANCE-SOLVED lands.** | 🎯🎯 wrong-input is permanent, staleness self-corrects to a ~5.8min floor; premium covers it ~1.5× |
+
+### ✅ RESOLVED — the protocol borrow needs NO new accounting. ONE line, at the netting that already exists.
+
+Owner: *"fix issues at their root instead of treating symptoms with guards and clamps."* Applying that
+dissolves the last three entries, which were all hunting for **a place to put debt**. This codebase never
+puts debt anywhere. **It subtracts it where collateral is valued.**
+
+**The existing pattern, end to end:**
+```
+Core.committedUsd18()            = _bandEquityUsd18(false) + _bandEquityUsd18(true)
+Core._bandEquityUsd18(isBTC):130 = pooled18 - _levDebtUsd18(isBTC)      // NET at the point of valuation
+Core._levDebtUsd18(isBTC)        -> LevManager.totalDebtUsd()
+LevManager.totalDebtUsd():335-338: for (i < _openLps.length) if (pos[lp].open) total += debtUsd(lp);
+```
+⇒ Leverage debt is **already** netted, once, where the equity is computed. There is no debt ledger, no
+corrective term, and nothing for a guard to catch — which is exactly why adding a term to
+`committedUsd18` would have DOUBLE-SUBTRACTED.
+
+🔴 **THE ACTUAL GAP, AND IT IS ONE LINE:** `totalDebtUsd` **iterates `_openLps` and requires
+`pos[lp].open`**. A position-free protocol borrow — the design settled above, and settled for independent
+reasons — **is invisible to that loop**. Not mispriced: *absent*. So `_bandEquityUsd18` subtracts a debt
+that omits it, `committedUsd18` overstates band equity by the borrowed amount, and every reader priced off
+it inherits the overstatement **silently**.
+
+✅ **THE FIX IS TO MAKE THE EXISTING SUM COMPLETE**, not to add a parallel one:
+```
+function totalDebtUsd() external view returns (uint256 total) {
+    total = protocolDebtUsd;                       // the offramp borrow -- no Pos, no _openLps entry
+    for (...) if (pos[...].open) total += debtUsd(...);
+}
+```
+⇒ **Every downstream reader is then correct by construction** — `_levDebtUsd18`, `_bandEquityUsd18`,
+`committedUsd18`, the backing gate, and anything else reading them. **Nothing else changes.** That is the
+test of a root fix: one edit at the source, zero edits at the consumers, no guard anywhere.
+
+⚠️ **`_openLps` STILL MATTERS AND MUST NOT BE JOINED.** The protocol borrow must NOT be entered in
+`_openLps`/`pos[]` — that is the circularity ruled out above (its net-equity would sync into the band as
+`levPooled` depth). The slot is summed by `totalDebtUsd` **without** being a position. Those two facts are
+consistent precisely because debt-summing and position-tracking are already separate concerns here.
+
+**Record of how this was reached, because the first three attempts were all the same error:** I asked
+"which sum does the debt join?", then "which invariant can it violate?", then "which readers must see it?"
+— three framings of *placing a term*. The owner's root-cause rule reframed it to "what is valued wrongly?",
+and the answer was a valuation that was already correct and merely **incomplete at its source**.
+
+**Prerequisites now:** ✅ bytes (453 free) · ✅ position-free design · ✅ accounting (this) · ▶️ the entrypoint.
