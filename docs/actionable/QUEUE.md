@@ -9418,3 +9418,41 @@ is the natural home.
 | **UNIT-A-SUITE** | 🟠✅ **UNIT-A RUN AGAINST THE FULL SUITE: **4,002 PASSED / 44 FAILED (8 DISTINCT)** vs a 4,046/2 baseline — AND THE FAILURES CLUSTER EXACTLY WHERE THE FIX IS MATERIAL (2026-08-06).** ✅ **ONE BASELINE FAILURE IS NOW FIXED: `test_E97_SellLegTaxOnOrdinaryFlow` FAILED at baseline and **PASSES** with UNIT-A. **The sell-leg tax on ordinary flow was a symptom of the unreachable base.**** 📊 **THE 7 NEW DISTINCT FAILURES ARE ALMOST ENTIRELY **BTC**: `test_RunSim_AllExit_BtcLp` · `..._BtcLpClose_AdversarialFinalBalance_CannotOverMint` · `..._BtcLpClose_MintBoundedByProceeds` · `test_SwapOutOnchain_DeliversViaSplice` · `test_E42_RedeemableIsInvariantToPureBtcTradingFlow` · plus `testReal_Euler_OpenAndDelever` / `..._CloseBeatsHodlModuloCosts`.** 🔑 **AND THAT CLUSTERING IS THE CONFIRMATION, NOT A PROBLEM: **the ETH base is 0.000000074 bps — INVISIBLE. The BTC base is `SPLICE_FLOOR` = 20 bps**, which §E98 measured as **NEVER APPLYING ON A FRESH BAND**. ⇒ **UNIT-A's only MATERIAL effect is on BTC, and every failing test is one that encoded a splice fee THAT NEVER FIRED.** §UNIT-ASYM predicted exactly this (*"UNIT-A is materially a BTC FIX"*) — **prediction stated BEFORE the run, confirmed BY it.**** ⚠️ **SO THE FAILURES ARE NOT A REFUTATION — THEY ARE THE FIX BECOMING VISIBLE. But each must be triaged INDIVIDUALLY, not waved through: a test asserting *"mint bounded by proceeds"* or *"cannot over-mint"* may be encoding a REAL invariant that a 20 bps charge genuinely breaks, which would be a DESIGN problem, not a stale expectation. **§E81-r's rule applies to every one: RE-EXPRESS where the test encodes the old zero-charge; INVESTIGATE where it encodes a conservation property. Do NOT weaken.**** ⛔ **SOURCE NOT COMMITTED (rule 15) — 42 net new failures is not a verified change. Patch preserved at `docs/actionable/wip/UNIT-A-LANDED-base-reachable.patch`; four targeted tests (`E58`, `E71`, `testSkewBarrierRamp`, `testSwapPricing_EthInRange`) pass.** ▶️ **NEXT: triage the 7, starting with `MintBoundedByProceeds` and `CannotOverMint` — those two are conservation assertions and are where a real defect would hide.** | 🟠✅ 4002/44; E97 FIXED; failures are BTC's 20bps splice floor finally firing — triage, don't weaken |
 
 | **UNIT-A-OVERMINT** | 🔴🔴🔴🔴 **TRIAGE RESULT: THE TWO CONSERVATION TESTS CAUGHT A **REAL SOLVENCY DEFECT**, NOT A STALE EXPECTATION. UNIT-A OVER-MINTS ~24 bps ON THE BTC PATH (2026-08-06).** ⛔ **MEASURED: `test_RunSim_BtcLpClose_AdversarialFinalBalance_CannotOverMint` — minted **1,200.502986** vs expected **1,197.600000**, excess **+2.902986 (+0.242%)**. `test_RunSim_BtcLpClose_MintBoundedByProceeds` — minted **2,501.047890** vs **2,494.999919**, excess **+6.047971 (+0.242%)**. **BOTH over-mint by the SAME 0.242%, and both in the INFLATIONARY direction: more QU!D than the realized proceeds justify.**** 🔑 **THE MECHANISM IS ALMOST CERTAINLY THE WITHHELD PREMIUM BEING MINTED ANYWAY: **0.242% ≈ 24 bps, and BTC's `SPLICE_FLOOR` is 20 bps.** `retainSkewPremium` withholds via **`r.amount -= premium`** (`SwapLib:446/469`), but the BTC DELIVERY path evidently mints against a quantity that was **NOT** reduced ⇒ the premium is withheld from the swapper AND minted into supply. **Before UNIT-A the base was unreachable on a fresh band (§E98), so `premium == 0` on these paths and the bug was INVISIBLE.** ⇒ **§UNIT-A did not CAUSE this defect; it UNCOVERED one that has been latent behind an unreachable branch.** ✅ **THE TESTS ARE RIGHT AND MY CHANGE IS INCOMPLETE. This is the §E81-r distinction landing on the "INVESTIGATE" side: these encode a CONSERVATION PROPERTY, not an old zero-charge. **DO NOT re-express them. DO NOT widen the tolerance** — §E81-r's *"re-express, do not weaken"* and the standing *"a tolerance that makes a test pass is the tell that the defect is still there"* both apply, and here the defect IS still there.** ▶️ **THE FIX BELONGS ON THE MINT SIDE, NOT THE SKEW SIDE: find where the BTC delivery path computes the mint amount and confirm it reads the POST-premium `r.amount`. **The ETH path does not fail these, which is a strong hint the two paths thread the reduced amount differently — the §UNIT-ASYM asymmetry again, and exactly the kind of divergence §J.2's consolidation exists to remove.**** ⚠️ **UNIT-A IS BLOCKED ON THIS. It cannot land while it inflates supply by 24 bps on every BTC swap-out that pays a splice floor — the fix is a PREREQUISITE, not a follow-up.** | 🔴🔴🔴🔴 real over-mint, ~24bps, BTC only; premium withheld from swapper AND minted; UNIT-A blocked |
+
+### ▶️ BORROW LEG — SAFETY-FIRST SIZING (owner, 2026-08-09). Liquidation must never be a concern.
+
+**Owner constraint:** the liquidation risk carried over the `waitNft` duration must never be something we
+have to think about — *"this may mean widening the exposure of when the v3 swap becomes relevant."*
+
+**What that costs, exactly.** Liquidation at **94.5% LTV**; borrowing at LTV `X` survives a weETH/WETH
+dislocation of `1 − X/0.945`:
+| borrow LTV | survives a depeg of | weETH encumbered per 1 ETH served |
+|---|---|---|
+| 90.8% (1:1) | **3.89%** — inside one bad day, weETH moved 2–3% in 2024 | 1.0× |
+| 70% | 25.9% | ~1.3× |
+| **50%** | **47.1%** — implausible short of an ether.fi SOLVENCY failure, in which case the collateral is impaired anyway and NO LTV helps | **~2.0×** |
+⇒ **~50% is the honest reading of "never a concern"**, and it **DOUBLES the weETH encumbered per unit
+served**. That is the price of the constraint, and it is the right price — but it must be stated, because
+it directly worsens the inventory contention found above.
+
+⇒ **THIS IS WHAT "WIDENS THE v3 EXPOSURE", and it is a FEATURE:** when free weETH `< 2×` the amount, the
+borrow cannot cover it and the **v3 sale takes the remainder**. So the ladder becomes
+**borrow-what-is-safely-coverable → sell the rest**, and the v3 leg is load-bearing permanently rather
+than a fallback. ⚠️ **Do NOT size the borrow to the withdrawal; size it to the SAFE collateral ratio and
+let the remainder fall through.**
+
+✅ **TIER ORDERING ALREADY SATISFIES THE OWNER'S THIRD POINT — no change needed.** `VaultLib:471-479` tries
+`poolFee2` (0.01%) FIRST against a 0.5%-of-fair floor and reaches `poolFee` (0.05%) only when the cheap
+fill cannot clear it — i.e. only when size exceeds the 0.01% tier's depth. The measured table in that
+comment is the proof: B cliffs to **−679 bps at 2,000 weETH**, which cannot clear the floor, so it falls
+through on its own. **No size condition to add.**
+
+▶️ **STILL UNMEASURED — the premise. "FIND OUT FOR SURE": what fraction of an exit actually reaches rung 1?**
+By construction it is `min(1, freeWeeth / weethFull)` (`offrampBody:452-457`), so it is entirely a
+function of the free-vs-encumbered weETH split, which depends on how much is out in LP lev positions.
+**The whole leg is worth ~18–28 bps ON THAT FRACTION ONLY** (measured 0.01% tier: −17.55 @1, −18.79 @100,
+−28.16 @1000). If regular flow rarely reaches it, the leg optimises a path that seldom runs.
+⚠️ **This is the gating measurement and it is NOT DONE.** Instrument the rung-1 clamp — log
+`weethIn/weethFull` per withdrawal across a realistic inventory mix — before writing the leg. **Deciding
+without it means sizing a feature to an unmeasured base**, which is the failure this queue has recorded
+repeatedly today.
