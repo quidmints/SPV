@@ -1,9 +1,9 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_23627_IVBtcToken {
+subgraph cluster_63862_IVBtcToken {
 label = "IVBtcToken"
-"23627_VAULT" [label="VAULT"]
+"63862_VAULT" [label="VAULT"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

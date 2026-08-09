@@ -1,9 +1,9 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_41615_IPermit2Approve {
+subgraph cluster_45658_IPermit2Approve {
 label = "IPermit2Approve"
-"41615_approve" [label="approve"]
+"45658_approve" [label="approve"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

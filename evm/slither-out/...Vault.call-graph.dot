@@ -1,178 +1,170 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_7273_Ownable {
-label = "Ownable"
-"7273_renounceOwnership" [label="renounceOwnership"]
-"7273_constructor" [label="constructor"]
-"7273_owner" [label="owner"]
-"7273__transferOwnership" [label="_transferOwnership"]
-"7273__checkOwner" [label="_checkOwner"]
-"7273_transferOwnership" [label="transferOwnership"]
-"7273__checkOwner" -> "7273__msgSender"
-"7273_constructor" -> "7273__transferOwnership"
-"7273_renounceOwnership" -> "7273_onlyOwner"
-"7273_transferOwnership" -> "7273__transferOwnership"
-"7273__checkOwner" -> "7273_owner"
-"7273_renounceOwnership" -> "7273__transferOwnership"
-"7273_transferOwnership" -> "7273_onlyOwner"
-}subgraph cluster_8892_Context {
-label = "Context"
-"8892__contextSuffixLength" [label="_contextSuffixLength"]
-"8892__msgData" [label="_msgData"]
-"8892__msgSender" [label="_msgSender"]
-}subgraph cluster_43925_Vault {
+subgraph cluster_47841_Vault {
 label = "Vault"
-"43925_setLevManagerBTC" [label="setLevManagerBTC"]
-"43925__updateTicks" [label="_updateTicks"]
-"43925_totalSharesBTC" [label="totalSharesBTC"]
-"43925_token1isBTC" [label="token1isBTC"]
-"43925_constructor" [label="constructor"]
-"43925_withdrawSelf" [label="withdrawSelf"]
-"43925_derivedThetaWadBtc" [label="derivedThetaWadBtc"]
-"43925_creditSwapOut" [label="creditSwapOut"]
-"43925_outOfRangeBtc" [label="outOfRangeBtc"]
-"43925_receive" [label="receive"]
-"43925_fallback" [label="fallback"]
-"43925_withdrawForAux" [label="withdrawForAux"]
-"43925__withdrawETH" [label="_withdrawETH"]
-"43925_resizeBtcLp" [label="resizeBtcLp"]
-"43925_bandSqrtP" [label="bandSqrtP"]
-"43925_supplyEtherFi" [label="supplyEtherFi"]
-"43925_supplyFromAux" [label="supplyFromAux"]
-"43925_repack" [label="repack"]
-"43925_unregisterBtcLp" [label="unregisterBtcLp"]
-"43925__btcCfg" [label="_btcCfg"]
-"43925_addPendingSwapOut" [label="addPendingSwapOut"]
-"43925_soldFractionWad" [label="soldFractionWad"]
-"43925_creditSwapIn" [label="creditSwapIn"]
-"43925_vogueOp" [label="vogueOp"]
-"43925_exposeBtcToLev" [label="exposeBtcToLev"]
-"43925_evacuateVenue" [label="evacuateVenue"]
-"43925_supplyAaveEth" [label="supplyAaveEth"]
-"43925_vogueETH" [label="vogueETH"]
-"43925_deliverableETH" [label="deliverableETH"]
-"43925_totalNetEquityBtc" [label="totalNetEquityBtc"]
-"43925_pullBtc" [label="pullBtc"]
-"43925_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
-"43925_supplyGauntlet" [label="supplyGauntlet"]
-"43925_offrampEtherFi" [label="offrampEtherFi"]
-"43925_collectBtcFees" [label="collectBtcFees"]
-"43925_supplyEulerEth" [label="supplyEulerEth"]
-"43925__resizeBtcLp" [label="_resizeBtcLp"]
-"43925_supplyEtherFiToRover" [label="supplyEtherFiToRover"]
-"43925__supplyETH" [label="_supplyETH"]
-"43925_unexposeBtcFromLev" [label="unexposeBtcFromLev"]
-"43925_registerBtcLp" [label="registerBtcLp"]
-"43925_venuePosition" [label="venuePosition"]
-"43925_setBTCChannels" [label="setBTCChannels"]
-"43925__etherfiCfg" [label="_etherfiCfg"]
-"43925_aaveEthBalance" [label="aaveEthBalance"]
-"43925__settleBtcLp" [label="_settleBtcLp"]
-"43925_setLevManager" [label="setLevManager"]
-"43925_bandBtcOf" [label="bandBtcOf"]
-"43925__rebalance" [label="_rebalance"]
-"43925_reseatEpoch" [label="reseatEpoch"]
-"43925_settleBtcFeesOwed" [label="settleBtcFeesOwed"]
-"43925_setRover" [label="setRover"]
-"43925_syncLevBTC" [label="syncLevBTC"]
-"43925_creditSkewPremium" [label="creditSkewPremium"]
-"43925_setup" [label="setup"]
-"43925__ethCfg" [label="_ethCfg"]
-"43925_supplySelf" [label="supplySelf"]
-"43925_subPendingSwapOut" [label="subPendingSwapOut"]
-"43925_supplyGauntlet" -> "43925__ethCfg"
-"43925_unregisterBtcLp" -> "43925__resizeBtcLp"
-"43925__withdrawETH" -> "43925__ethCfg"
-"43925_supplyAaveEth" -> "43925__ethCfg"
-"43925_outOfRangeBtc" -> "43925__rebalance"
-"43925_soldFractionWad" -> "43925_token1isBTC"
-"43925_collectBtcFees" -> "43925__settleBtcLp"
-"43925_vogueETH" -> "43925__ethCfg"
-"43925_setLevManagerBTC" -> "43925_onlyOwner"
-"43925_repack" -> "43925_onlyUsBtc"
-"43925_setLevManager" -> "43925_onlyOwner"
-"43925_creditSwapIn" -> "43925_onlyBTCChannels"
-"43925__supplyETH" -> "43925__ethCfg"
-"43925_supplyFromAux" -> "43925__ethCfg"
-"43925_collectBtcFees" -> "43925_nonReentrant"
-"43925_supplyEtherFi" -> "43925__ethCfg"
-"43925_pullBtc" -> "43925_nonReentrant"
-"43925_resizeBtcLp" -> "43925__resizeBtcLp"
-"43925_offrampEtherFi" -> "43925__etherfiCfg"
-"43925_outOfRangeBtc" -> "43925__btcCfg"
-"43925_repack" -> "43925__rebalance"
-"43925_registerBtcLp" -> "43925_nonReentrant"
-"43925_setup" -> "43925__updateTicks"
-"43925_setup" -> "43925_owner"
-"43925_supplyEtherFiToRover" -> "43925__ethCfg"
-"43925_supplyEulerEth" -> "43925__ethCfg"
-"43925_registerBtcLp" -> "43925_onlyBtcChannels"
-"43925_outOfRangeBtc" -> "43925_nonReentrant"
-"43925_unregisterBtcLp" -> "43925_onlyBtcChannels"
-"43925_deliverableETH" -> "43925__ethCfg"
-"43925__withdrawETH" -> "43925__etherfiCfg"
-"43925_subPendingSwapOut" -> "43925_onlyBTCChannels"
-"43925_evacuateVenue" -> "43925__ethCfg"
-"43925_syncLevBTC" -> "43925_nonReentrant"
-"43925_addPendingSwapOut" -> "43925_onlyBTCChannels"
-"43925_aaveEthBalance" -> "43925__ethCfg"
-"43925__rebalance" -> "43925__btcCfg"
-"43925_resizeBtcLp" -> "43925_nonReentrant"
-"43925_settleBtcFeesOwed" -> "43925_onlyBtcChannels"
-"43925_setRover" -> "43925_onlyOwner"
-"43925_creditSkewPremium" -> "43925_onlyUsBtc"
-"43925_unregisterBtcLp" -> "43925_nonReentrant"
-"43925_vogueOp" -> "43925_vogueETH"
-"43925_collectBtcFees" -> "43925__rebalance"
-"43925_constructor" -> "43925_constructor"
-"43925_resizeBtcLp" -> "43925_onlyBtcChannels"
-"43925_withdrawSelf" -> "43925__withdrawETH"
-"43925_registerBtcLp" -> "43925__btcCfg"
-"43925_syncLevBTC" -> "43925__btcCfg"
-"43925_withdrawForAux" -> "43925__withdrawETH"
-"43925_setBTCChannels" -> "43925_onlyUsBtc"
-"43925_supplySelf" -> "43925__supplyETH"
-"43925_creditSwapOut" -> "43925_onlyBTCChannels"
+"47841_creditSwapIn" [label="creditSwapIn"]
+"47841_setLevManagerBTC" [label="setLevManagerBTC"]
+"47841_receive" [label="receive"]
+"47841_creditSwapOut" [label="creditSwapOut"]
+"47841__btcCfg" [label="_btcCfg"]
+"47841_repack" [label="repack"]
+"47841_creditSkewPremium" [label="creditSkewPremium"]
+"47841__etherfiCfg" [label="_etherfiCfg"]
+"47841_totalNetEquityBtc" [label="totalNetEquityBtc"]
+"47841_setLevManager" [label="setLevManager"]
+"47841_addPendingSwapOut" [label="addPendingSwapOut"]
+"47841__ethCfg" [label="_ethCfg"]
+"47841_derivedThetaWadBtc" [label="derivedThetaWadBtc"]
+"47841_subPendingSwapOut" [label="subPendingSwapOut"]
+"47841_bandBtcOf" [label="bandBtcOf"]
+"47841_outOfRangeBtc" [label="outOfRangeBtc"]
+"47841_syncLevBTC" [label="syncLevBTC"]
+"47841_supplyGauntlet" [label="supplyGauntlet"]
+"47841_unexposeBtcFromLev" [label="unexposeBtcFromLev"]
+"47841_fallback" [label="fallback"]
+"47841_resizeBtcLp" [label="resizeBtcLp"]
+"47841_withdrawSelf" [label="withdrawSelf"]
+"47841__resizeBtcLp" [label="_resizeBtcLp"]
+"47841_evacuateVenue" [label="evacuateVenue"]
+"47841_setBTCChannels" [label="setBTCChannels"]
+"47841__settleBtcLp" [label="_settleBtcLp"]
+"47841_aaveEthBalance" [label="aaveEthBalance"]
+"47841_offrampEtherFi" [label="offrampEtherFi"]
+"47841_supplySelf" [label="supplySelf"]
+"47841_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"47841_venuePosition" [label="venuePosition"]
+"47841_registerBtcLp" [label="registerBtcLp"]
+"47841__supplyETH" [label="_supplyETH"]
+"47841_soldFractionWad" [label="soldFractionWad"]
+"47841_supplyEtherFi" [label="supplyEtherFi"]
+"47841_bandSqrtP" [label="bandSqrtP"]
+"47841_setup" [label="setup"]
+"47841_constructor" [label="constructor"]
+"47841__updateTicks" [label="_updateTicks"]
+"47841_unregisterBtcLp" [label="unregisterBtcLp"]
+"47841_vogueETH" [label="vogueETH"]
+"47841_pullBtc" [label="pullBtc"]
+"47841__withdrawETH" [label="_withdrawETH"]
+"47841_collectBtcFees" [label="collectBtcFees"]
+"47841_vogueOp" [label="vogueOp"]
+"47841_token1isBTC" [label="token1isBTC"]
+"47841_exposeBtcToLev" [label="exposeBtcToLev"]
+"47841_supplyEulerEth" [label="supplyEulerEth"]
+"47841_settleBtcFeesOwed" [label="settleBtcFeesOwed"]
+"47841_supplyAaveEth" [label="supplyAaveEth"]
+"47841_totalSharesBTC" [label="totalSharesBTC"]
+"47841__rebalance" [label="_rebalance"]
+"47841_supplyFromAux" [label="supplyFromAux"]
+"47841_withdrawForAux" [label="withdrawForAux"]
+"47841_deliverableETH" [label="deliverableETH"]
+"47841_setLevManagerBTC" -> "47841_onlyOwner"
+"47841_creditSwapIn" -> "47841_onlyBTCChannels"
+"47841_withdrawForAux" -> "47841__withdrawETH"
+"47841_repack" -> "47841_onlyUsBtc"
+"47841_creditSkewPremium" -> "47841_onlyUsBtc"
+"47841__withdrawETH" -> "47841__etherfiCfg"
+"47841_settleBtcFeesOwed" -> "47841_onlyBtcChannels"
+"47841_registerBtcLp" -> "47841__btcCfg"
+"47841_unregisterBtcLp" -> "47841_onlyBtcChannels"
+"47841_collectBtcFees" -> "47841__rebalance"
+"47841_soldFractionWad" -> "47841_token1isBTC"
+"47841_supplyAaveEth" -> "47841__ethCfg"
+"47841_outOfRangeBtc" -> "47841__btcCfg"
+"47841_resizeBtcLp" -> "47841__resizeBtcLp"
+"47841_offrampEtherFi" -> "47841__etherfiCfg"
+"47841__withdrawETH" -> "47841__ethCfg"
+"47841_setup" -> "47841_owner"
+"47841_evacuateVenue" -> "47841__ethCfg"
+"47841_supplyFromAux" -> "47841__ethCfg"
+"47841_addPendingSwapOut" -> "47841_onlyBTCChannels"
+"47841_resizeBtcLp" -> "47841_onlyBtcChannels"
+"47841_deliverableETH" -> "47841__ethCfg"
+"47841_outOfRangeBtc" -> "47841__rebalance"
+"47841_setLevManager" -> "47841_onlyOwner"
+"47841_outOfRangeBtc" -> "47841_nonReentrant"
+"47841_supplyGauntlet" -> "47841__ethCfg"
+"47841_syncLevBTC" -> "47841_nonReentrant"
+"47841_repack" -> "47841__rebalance"
+"47841_resizeBtcLp" -> "47841_nonReentrant"
+"47841_aaveEthBalance" -> "47841__ethCfg"
+"47841_withdrawSelf" -> "47841__withdrawETH"
+"47841_setup" -> "47841__updateTicks"
+"47841_supplySelf" -> "47841__supplyETH"
+"47841_setBTCChannels" -> "47841_onlyUsBtc"
+"47841_collectBtcFees" -> "47841_nonReentrant"
+"47841_collectBtcFees" -> "47841__settleBtcLp"
+"47841_registerBtcLp" -> "47841_onlyBtcChannels"
+"47841_vogueOp" -> "47841_vogueETH"
+"47841_syncLevBTC" -> "47841__btcCfg"
+"47841_supplyEulerEth" -> "47841__ethCfg"
+"47841_unregisterBtcLp" -> "47841__resizeBtcLp"
+"47841_supplyEtherFi" -> "47841__ethCfg"
+"47841__rebalance" -> "47841__btcCfg"
+"47841_creditSwapOut" -> "47841_onlyBTCChannels"
+"47841_pullBtc" -> "47841_nonReentrant"
+"47841_vogueETH" -> "47841__ethCfg"
+"47841_unregisterBtcLp" -> "47841_nonReentrant"
+"47841_constructor" -> "47841_constructor"
+"47841_registerBtcLp" -> "47841_nonReentrant"
+"47841__supplyETH" -> "47841__ethCfg"
+"47841_subPendingSwapOut" -> "47841_onlyBTCChannels"
+}subgraph cluster_13524_Ownable {
+label = "Ownable"
+"13524_transferOwnership" [label="transferOwnership"]
+"13524__transferOwnership" [label="_transferOwnership"]
+"13524_owner" [label="owner"]
+"13524_constructor" [label="constructor"]
+"13524__checkOwner" [label="_checkOwner"]
+"13524_renounceOwnership" [label="renounceOwnership"]
+"13524_constructor" -> "13524__transferOwnership"
+"13524__checkOwner" -> "13524__msgSender"
+"13524__checkOwner" -> "13524_owner"
+"13524_transferOwnership" -> "13524_onlyOwner"
+"13524_transferOwnership" -> "13524__transferOwnership"
+"13524_renounceOwnership" -> "13524_onlyOwner"
+"13524_renounceOwnership" -> "13524__transferOwnership"
+}subgraph cluster_15143_Context {
+label = "Context"
+"15143__msgData" [label="_msgData"]
+"15143__msgSender" [label="_msgSender"]
+"15143__contextSuffixLength" [label="_contextSuffixLength"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
-"revert LevManagerPinned()" 
-"revert NoBtcPosition()" 
-"revert OwnableUnauthorizedAccount(address)" 
-"revert RoverPinned()" 
-"revert Unauthorized()" 
 "revert BtcChannelsPinned()" 
-"require(bool,string)" 
-"revert NotLevManagerBtc()" 
 "revert NotVogueCore()" 
-"revert NotSelf()" 
-"revert AlreadyInitialized()" 
 "revert OwnableInvalidOwner(address)" 
+"revert NoBtcPosition()" 
 "revert NotAux()" 
-"43925_withdrawSelf" -> "revert NotSelf()"
-"43925_supplyAaveEth" -> "revert NotVogueCore()"
-"43925_collectBtcFees" -> "revert NoBtcPosition()"
-"43925_withdrawForAux" -> "revert NotAux()"
-"43925_supplyEtherFiToRover" -> "revert NotVogueCore()"
-"43925_setLevManagerBTC" -> "revert LevManagerPinned()"
-"43925_setBTCChannels" -> "revert BtcChannelsPinned()"
-"43925_setup" -> "revert AlreadyInitialized()"
-"43925_supplyFromAux" -> "revert NotAux()"
-"7273__checkOwner" -> "revert OwnableUnauthorizedAccount(address)"
-"7273_constructor" -> "revert OwnableInvalidOwner(address)"
-"43925_setLevManager" -> "revert LevManagerPinned()"
-"43925_constructor" -> "require(bool,string)"
-"43925_setup" -> "revert Unauthorized()"
-"43925_evacuateVenue" -> "revert NotAux()"
-"43925_unexposeBtcFromLev" -> "revert NotLevManagerBtc()"
-"43925_supplyEtherFi" -> "revert NotVogueCore()"
-"43925_exposeBtcToLev" -> "revert NotLevManagerBtc()"
-"43925_offrampEtherFi" -> "revert NotVogueCore()"
-"43925_setRover" -> "revert RoverPinned()"
-"7273_transferOwnership" -> "revert OwnableInvalidOwner(address)"
-"43925_supplySelf" -> "revert NotSelf()"
-"43925_supplyEulerEth" -> "revert NotVogueCore()"
-"43925_supplyGauntlet" -> "revert NotVogueCore()"
-"43925_vogueOp" -> "revert NotVogueCore()"
+"revert NotLevManagerBtc()" 
+"revert OwnableUnauthorizedAccount(address)" 
+"revert NotSelf()" 
+"require(bool,string)" 
+"revert AlreadyInitialized()" 
+"revert LevManagerPinned()" 
+"revert Unauthorized()" 
+"47841_setBTCChannels" -> "revert BtcChannelsPinned()"
+"13524_transferOwnership" -> "revert OwnableInvalidOwner(address)"
+"47841_supplyAaveEth" -> "revert NotVogueCore()"
+"47841_setLevManager" -> "revert LevManagerPinned()"
+"13524__checkOwner" -> "revert OwnableUnauthorizedAccount(address)"
+"47841_constructor" -> "require(bool,string)"
+"47841_vogueOp" -> "revert NotVogueCore()"
+"47841_supplyEulerEth" -> "revert NotVogueCore()"
+"47841_evacuateVenue" -> "revert NotAux()"
+"47841_setup" -> "revert AlreadyInitialized()"
+"47841_supplyFromAux" -> "revert NotAux()"
+"47841_supplyGauntlet" -> "revert NotVogueCore()"
+"47841_unexposeBtcFromLev" -> "revert NotLevManagerBtc()"
+"13524_constructor" -> "revert OwnableInvalidOwner(address)"
+"47841_exposeBtcToLev" -> "revert NotLevManagerBtc()"
+"47841_setLevManagerBTC" -> "revert LevManagerPinned()"
+"47841_withdrawForAux" -> "revert NotAux()"
+"47841_offrampEtherFi" -> "revert NotVogueCore()"
+"47841_collectBtcFees" -> "revert NoBtcPosition()"
+"47841_supplyEtherFi" -> "revert NotVogueCore()"
+"47841_withdrawSelf" -> "revert NotSelf()"
+"47841_supplySelf" -> "revert NotSelf()"
+"47841_setup" -> "revert Unauthorized()"
 }
 }

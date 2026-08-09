@@ -1,27 +1,27 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_9240_ECDSA {
+subgraph cluster_15491_ECDSA {
 label = "ECDSA"
-"9240_tryRecover" [label="tryRecover"]
-"9240__throwError" [label="_throwError"]
-"9240_recover" [label="recover"]
-"9240_recover" -> "9240__throwError"
-"9240_recover" -> "9240_tryRecover"
-"9240_tryRecover" -> "9240_tryRecover"
+"15491__throwError" [label="_throwError"]
+"15491_recover" [label="recover"]
+"15491_tryRecover" [label="tryRecover"]
+"15491_tryRecover" -> "15491_tryRecover"
+"15491_recover" -> "15491__throwError"
+"15491_recover" -> "15491_tryRecover"
 }subgraph cluster_solidity {
 label = "[Solidity]"
-"ecrecover(bytes32,uint8,bytes32,bytes32)" 
-"revert ECDSAInvalidSignatureS(bytes32)" 
 "byte(uint256,uint256)" 
-"revert ECDSAInvalidSignature()" 
 "revert ECDSAInvalidSignatureLength(uint256)" 
+"revert ECDSAInvalidSignatureS(bytes32)" 
+"ecrecover(bytes32,uint8,bytes32,bytes32)" 
 "mload(uint256)" 
-"9240_tryRecover" -> "mload(uint256)"
-"9240__throwError" -> "revert ECDSAInvalidSignature()"
-"9240__throwError" -> "revert ECDSAInvalidSignatureLength(uint256)"
-"9240_tryRecover" -> "byte(uint256,uint256)"
-"9240_tryRecover" -> "ecrecover(bytes32,uint8,bytes32,bytes32)"
-"9240__throwError" -> "revert ECDSAInvalidSignatureS(bytes32)"
+"revert ECDSAInvalidSignature()" 
+"15491__throwError" -> "revert ECDSAInvalidSignatureLength(uint256)"
+"15491_tryRecover" -> "byte(uint256,uint256)"
+"15491__throwError" -> "revert ECDSAInvalidSignatureS(bytes32)"
+"15491_tryRecover" -> "mload(uint256)"
+"15491_tryRecover" -> "ecrecover(bytes32,uint8,bytes32,bytes32)"
+"15491__throwError" -> "revert ECDSAInvalidSignature()"
 }
 }

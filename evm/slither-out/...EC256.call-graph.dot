@@ -1,0 +1,70 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_12533_EC256 {
+label = "EC256"
+"12533__jAdd" [label="_jAdd"]
+"12533_jSubPoint" [label="jSubPoint"]
+"12533__jDouble" [label="_jDouble"]
+"12533_jNegatePoint" [label="jNegatePoint"]
+"12533__preComputeJacobianPoints2" [label="_preComputeJacobianPoints2"]
+"12533_isOnCurve" [label="isOnCurve"]
+"12533_toJacobian" [label="toJacobian"]
+"12533_jDoublePoint" [label="jDoublePoint"]
+"12533_jbasepoint" [label="jbasepoint"]
+"12533_isJacobianInfinity" [label="isJacobianInfinity"]
+"12533__affineFromJacobian" [label="_affineFromJacobian"]
+"12533_toAffine" [label="toAffine"]
+"12533__isOnCurve" [label="_isOnCurve"]
+"12533_jEqual" [label="jEqual"]
+"12533_basepoint" [label="basepoint"]
+"12533__preComputeJacobianPoints" [label="_preComputeJacobianPoints"]
+"12533_jMultShamir2" [label="jMultShamir2"]
+"12533_jinfinity" [label="jinfinity"]
+"12533_toScalar" [label="toScalar"]
+"12533__jNegate" [label="_jNegate"]
+"12533_jAddPoint" [label="jAddPoint"]
+"12533_isValidScalar" [label="isValidScalar"]
+"12533_jMultShamir" [label="jMultShamir"]
+"12533_jSubPoint" -> "12533_jAddPoint"
+"12533_jMultShamir2" -> "12533_jDoublePoint"
+"12533_jSubPoint" -> "12533_jNegatePoint"
+"12533_jMultShamir" -> "12533_jAddPoint"
+"12533_toAffine" -> "12533__affineFromJacobian"
+"12533_jNegatePoint" -> "12533__jNegate"
+"12533_jMultShamir2" -> "12533__preComputeJacobianPoints2"
+"12533__preComputeJacobianPoints" -> "12533_jAddPoint"
+"12533__preComputeJacobianPoints" -> "12533_jDoublePoint"
+"12533_jMultShamir" -> "12533_jDoublePoint"
+"12533_jMultShamir2" -> "12533_jAddPoint"
+"12533_jDoublePoint" -> "12533_isJacobianInfinity"
+"12533_jMultShamir" -> "12533__preComputeJacobianPoints"
+"12533_jEqual" -> "12533_toAffine"
+"12533__preComputeJacobianPoints2" -> "12533_jDoublePoint"
+"12533_jAddPoint" -> "12533_isJacobianInfinity"
+"12533__preComputeJacobianPoints2" -> "12533_jAddPoint"
+"12533_jAddPoint" -> "12533__jAdd"
+"12533_isOnCurve" -> "12533__isOnCurve"
+"12533__affineFromJacobian" -> "12533_isJacobianInfinity"
+"12533__preComputeJacobianPoints2" -> "12533_jinfinity"
+"12533__preComputeJacobianPoints" -> "12533_jinfinity"
+"12533_jDoublePoint" -> "12533__jDouble"
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"mulmod(uint256,uint256,uint256)" 
+"mstore(uint256,uint256)" 
+"addmod(uint256,uint256,uint256)" 
+"mload(uint256)" 
+"12533__jNegate" -> "mstore(uint256,uint256)"
+"12533__jAdd" -> "mload(uint256)"
+"12533__jNegate" -> "mload(uint256)"
+"12533__affineFromJacobian" -> "mload(uint256)"
+"12533__jAdd" -> "addmod(uint256,uint256,uint256)"
+"12533__jAdd" -> "mulmod(uint256,uint256,uint256)"
+"12533__affineFromJacobian" -> "mulmod(uint256,uint256,uint256)"
+"12533__isOnCurve" -> "addmod(uint256,uint256,uint256)"
+"12533__isOnCurve" -> "mulmod(uint256,uint256,uint256)"
+"12533__jDouble" -> "addmod(uint256,uint256,uint256)"
+"12533__jDouble" -> "mulmod(uint256,uint256,uint256)"
+}
+}

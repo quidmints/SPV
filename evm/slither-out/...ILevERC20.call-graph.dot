@@ -1,12 +1,12 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_63875_ILevERC20 {
+subgraph cluster_67993_ILevERC20 {
 label = "ILevERC20"
-"63875_approve" [label="approve"]
-"63875_balanceOf" [label="balanceOf"]
-"63875_transferFrom" [label="transferFrom"]
-"63875_transfer" [label="transfer"]
+"67993_transferFrom" [label="transferFrom"]
+"67993_transfer" [label="transfer"]
+"67993_balanceOf" [label="balanceOf"]
+"67993_approve" [label="approve"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

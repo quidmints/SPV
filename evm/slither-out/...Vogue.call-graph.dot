@@ -1,201 +1,202 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_47440_Vogue {
+subgraph cluster_51339_Vogue {
 label = "Vogue"
-"47440_redeem" [label="redeem"]
-"47440__requirePinnedRecipient" [label="_requirePinnedRecipient"]
-"47440_unwindForRedeem" [label="unwindForRedeem"]
-"47440_reseat" [label="reseat"]
-"47440_withdraw" [label="withdraw"]
-"47440_kLvrWad" [label="kLvrWad"]
-"47440_compound" [label="compound"]
-"47440_mint" [label="mint"]
-"47440__refreshBookmarks" [label="_refreshBookmarks"]
-"47440__withdraw" [label="_withdraw"]
-"47440__depositImpl" [label="_depositImpl"]
-"47440__depositETH" [label="_depositETH"]
-"47440__transferShares" [label="_transferShares"]
-"47440__venueBalance" [label="_venueBalance"]
-"47440__modLpEth" [label="_modLpEth"]
-"47440_pendingRewards" [label="pendingRewards"]
-"47440__onExit" [label="_onExit"]
-"47440__sendETH" [label="_sendETH"]
-"47440__outOfRange" [label="_outOfRange"]
-"47440_creditSkewPremium" [label="creditSkewPremium"]
-"47440_totalSupply" [label="totalSupply"]
-"47440_pull" [label="pull"]
-"47440__updateTicks" [label="_updateTicks"]
-"47440_totalShares" [label="totalShares"]
-"47440_setEthVenueContract" [label="setEthVenueContract"]
-"47440_bandEthOf" [label="bandEthOf"]
-"47440_convertToAssets" [label="convertToAssets"]
-"47440__deliverVenueShortfall" [label="_deliverVenueShortfall"]
-"47440_derivedThetaWad" [label="derivedThetaWad"]
-"47440_takeETH" [label="takeETH"]
-"47440_deposit" [label="deposit"]
-"47440_setVEth" [label="setVEth"]
-"47440__reconcileLev" [label="_reconcileLev"]
-"47440__pricingBacking" [label="_pricingBacking"]
-"47440_repack" [label="repack"]
-"47440_fallback" [label="fallback"]
-"47440_bandSqrtP" [label="bandSqrtP"]
-"47440_addLiq" [label="addLiq"]
-"47440_transferSharesFor" [label="transferSharesFor"]
-"47440__pendingFor" [label="_pendingFor"]
-"47440_soldFractionWad" [label="soldFractionWad"]
-"47440__deposit4626" [label="_deposit4626"]
-"47440_paddedSqrtPrice" [label="paddedSqrtPrice"]
-"47440_realizedAlphaWad" [label="realizedAlphaWad"]
-"47440_constructor" [label="constructor"]
-"47440__burnInRange" [label="_burnInRange"]
-"47440_collectFees" [label="collectFees"]
-"47440_applyPinnedRecipient" [label="applyPinnedRecipient"]
-"47440_derivedThetaWadAt" [label="derivedThetaWadAt"]
-"47440_balanceOf" [label="balanceOf"]
-"47440__mint4626" [label="_mint4626"]
-"47440_setup" [label="setup"]
-"47440_realizedVarianceWad" [label="realizedVarianceWad"]
-"47440_outOfRange" [label="outOfRange"]
-"47440_pinRecipient" [label="pinRecipient"]
-"47440__rebalance" [label="_rebalance"]
-"47440_syncLev" [label="syncLev"]
-"47440_exitInstant" [label="exitInstant"]
-"47440_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
-"47440__doReconcile" [label="_doReconcile"]
-"47440__settlePending" [label="_settlePending"]
-"47440_convertToShares" [label="convertToShares"]
-"47440_exitInstant" -> "47440__withdraw"
-"47440__reconcileLev" -> "47440__doReconcile"
-"47440_exitInstant" -> "47440_nonReentrant"
-"47440_collectFees" -> "47440__refreshBookmarks"
-"47440_convertToShares" -> "47440__pricingBacking"
-"47440__deliverVenueShortfall" -> "47440__venueBalance"
-"47440__mint4626" -> "47440_convertToAssets"
-"47440_repack" -> "47440_onlyUs"
-"47440_pull" -> "47440_nonReentrant"
-"47440__onExit" -> "47440__refreshBookmarks"
-"47440_unwindForRedeem" -> "47440__rebalance"
-"47440_mint" -> "47440__mint4626"
-"47440_mint" -> "47440_nonReentrant"
-"47440_compound" -> "47440__pendingFor"
-"47440_setup" -> "47440__updateTicks"
-"47440__outOfRange" -> "47440__rebalance"
-"47440_deposit" -> "47440__deposit4626"
-"47440_unwindForRedeem" -> "47440_onlyUs"
-"47440_redeem" -> "47440_convertToAssets"
-"47440__depositImpl" -> "47440__depositETH"
-"47440_syncLev" -> "47440__reconcileLev"
-"47440_pendingRewards" -> "47440__pendingFor"
-"47440_addLiq" -> "47440_onlyUs"
-"47440_withdraw" -> "47440_nonReentrant"
-"47440_compound" -> "47440__refreshBookmarks"
-"47440_redeem" -> "47440__withdraw"
-"47440_outOfRange" -> "47440_nonReentrant"
-"47440_transferSharesFor" -> "47440_nonReentrant"
-"47440__withdraw" -> "47440__onExit"
-"47440__withdraw" -> "47440__settlePending"
-"47440__mint4626" -> "47440__depositImpl"
-"47440_withdraw" -> "47440__withdraw"
-"47440_compound" -> "47440__rebalance"
-"47440_creditSkewPremium" -> "47440_onlyUs"
-"47440_deposit" -> "47440_nonReentrant"
-"47440_setup" -> "47440_renounceOwnership"
-"47440__depositImpl" -> "47440__refreshBookmarks"
-"47440_takeETH" -> "47440__sendETH"
-"47440_transferSharesFor" -> "47440__transferShares"
-"47440__settlePending" -> "47440__pendingFor"
-"47440__deliverVenueShortfall" -> "47440__sendETH"
-"47440__depositImpl" -> "47440__venueBalance"
-"47440_constructor" -> "47440_constructor"
-"47440__withdraw" -> "47440__venueBalance"
-"47440__withdraw" -> "47440__deliverVenueShortfall"
-"47440__doReconcile" -> "47440__rebalance"
-"47440_setup" -> "47440_onlyOwner"
-"47440_withdraw" -> "47440_convertToShares"
-"47440__depositImpl" -> "47440__rebalance"
-"47440_convertToAssets" -> "47440__pricingBacking"
-"47440__deposit4626" -> "47440__depositImpl"
-"47440_compound" -> "47440_nonReentrant"
-"47440_unwindForRedeem" -> "47440__burnInRange"
-"47440__depositImpl" -> "47440__modLpEth"
-"47440_takeETH" -> "47440_onlyUs"
-"47440_reseat" -> "47440_nonReentrant"
-"47440_outOfRange" -> "47440__outOfRange"
-"47440_repack" -> "47440__rebalance"
-"47440_redeem" -> "47440_nonReentrant"
-"47440__withdraw" -> "47440__rebalance"
-"47440_withdraw" -> "47440__requirePinnedRecipient"
-"47440_collectFees" -> "47440__settlePending"
-"47440_collectFees" -> "47440__rebalance"
-"47440__withdraw" -> "47440__burnInRange"
-"47440__doReconcile" -> "47440__settlePending"
-"47440__doReconcile" -> "47440__onExit"
-"47440_compound" -> "47440__burnInRange"
-"47440_redeem" -> "47440__requirePinnedRecipient"
-"47440_reseat" -> "47440__rebalance"
-"47440_collectFees" -> "47440_nonReentrant"
-"47440__depositImpl" -> "47440__settlePending"
-"47440__withdraw" -> "47440__reconcileLev"
-"47440_exitInstant" -> "47440_convertToShares"
-}subgraph cluster_7273_Ownable {
+"51339__outOfRange" [label="_outOfRange"]
+"51339__pricingBacking" [label="_pricingBacking"]
+"51339_redeem" [label="redeem"]
+"51339_pendingRewards" [label="pendingRewards"]
+"51339_collectFees" [label="collectFees"]
+"51339_takeETH" [label="takeETH"]
+"51339_totalSupply" [label="totalSupply"]
+"51339_constructor" [label="constructor"]
+"51339_mint" [label="mint"]
+"51339_addLiq" [label="addLiq"]
+"51339__reconcileLev" [label="_reconcileLev"]
+"51339_outOfRange" [label="outOfRange"]
+"51339__refreshBookmarks" [label="_refreshBookmarks"]
+"51339__depositImpl" [label="_depositImpl"]
+"51339_setEthVenueContract" [label="setEthVenueContract"]
+"51339_deposit" [label="deposit"]
+"51339__venueBalance" [label="_venueBalance"]
+"51339__modLpEth" [label="_modLpEth"]
+"51339_unwindForRedeem" [label="unwindForRedeem"]
+"51339_reseat" [label="reseat"]
+"51339__transferShares" [label="_transferShares"]
+"51339_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"51339_repack" [label="repack"]
+"51339_setVEth" [label="setVEth"]
+"51339_setup" [label="setup"]
+"51339__settlePending" [label="_settlePending"]
+"51339__mint4626" [label="_mint4626"]
+"51339_kLvrWad" [label="kLvrWad"]
+"51339_withdraw" [label="withdraw"]
+"51339__deliverVenueShortfall" [label="_deliverVenueShortfall"]
+"51339_paddedSqrtPrice" [label="paddedSqrtPrice"]
+"51339_balanceOf" [label="balanceOf"]
+"51339_totalShares" [label="totalShares"]
+"51339_pinRecipient" [label="pinRecipient"]
+"51339__bandIncrement6" [label="_bandIncrement6"]
+"51339__payUsdLeg" [label="_payUsdLeg"]
+"51339_derivedThetaWadAt" [label="derivedThetaWadAt"]
+"51339__requirePinnedRecipient" [label="_requirePinnedRecipient"]
+"51339__doReconcile" [label="_doReconcile"]
+"51339_creditSkewPremium" [label="creditSkewPremium"]
+"51339__rebalance" [label="_rebalance"]
+"51339__sendETH" [label="_sendETH"]
+"51339__updateTicks" [label="_updateTicks"]
+"51339__depositETH" [label="_depositETH"]
+"51339_syncLev" [label="syncLev"]
+"51339_compound" [label="compound"]
+"51339_bandEthOf" [label="bandEthOf"]
+"51339_realizedAlphaWad" [label="realizedAlphaWad"]
+"51339__withdraw" [label="_withdraw"]
+"51339__burnAndDeliverUsdLeg" [label="_burnAndDeliverUsdLeg"]
+"51339_realizedVarianceWad" [label="realizedVarianceWad"]
+"51339_bandSqrtP" [label="bandSqrtP"]
+"51339_convertToShares" [label="convertToShares"]
+"51339_soldFractionWad" [label="soldFractionWad"]
+"51339_transferSharesFor" [label="transferSharesFor"]
+"51339__deposit4626" [label="_deposit4626"]
+"51339_convertToAssets" [label="convertToAssets"]
+"51339__burnInRange" [label="_burnInRange"]
+"51339_fallback" [label="fallback"]
+"51339_pull" [label="pull"]
+"51339_derivedThetaWad" [label="derivedThetaWad"]
+"51339__pendingFor" [label="_pendingFor"]
+"51339_applyPinnedRecipient" [label="applyPinnedRecipient"]
+"51339__onExit" [label="_onExit"]
+"51339_pull" -> "51339_nonReentrant"
+"51339_setup" -> "51339_onlyOwner"
+"51339_unwindForRedeem" -> "51339__burnInRange"
+"51339_deposit" -> "51339_nonReentrant"
+"51339_collectFees" -> "51339__rebalance"
+"51339_creditSkewPremium" -> "51339_onlyUs"
+"51339__depositImpl" -> "51339__settlePending"
+"51339_unwindForRedeem" -> "51339__rebalance"
+"51339_compound" -> "51339__rebalance"
+"51339__withdraw" -> "51339__settlePending"
+"51339__onExit" -> "51339__refreshBookmarks"
+"51339_compound" -> "51339__pendingFor"
+"51339__doReconcile" -> "51339__settlePending"
+"51339__depositImpl" -> "51339__modLpEth"
+"51339_outOfRange" -> "51339__outOfRange"
+"51339_reseat" -> "51339__rebalance"
+"51339_withdraw" -> "51339__requirePinnedRecipient"
+"51339_collectFees" -> "51339_nonReentrant"
+"51339_compound" -> "51339__burnInRange"
+"51339__deliverVenueShortfall" -> "51339__venueBalance"
+"51339_mint" -> "51339__mint4626"
+"51339__depositImpl" -> "51339__refreshBookmarks"
+"51339_unwindForRedeem" -> "51339_onlyUs"
+"51339_withdraw" -> "51339_convertToShares"
+"51339__withdraw" -> "51339__venueBalance"
+"51339_collectFees" -> "51339__refreshBookmarks"
+"51339_redeem" -> "51339__withdraw"
+"51339_takeETH" -> "51339_onlyUs"
+"51339_repack" -> "51339__rebalance"
+"51339__mint4626" -> "51339__depositImpl"
+"51339_reseat" -> "51339_nonReentrant"
+"51339_redeem" -> "51339_nonReentrant"
+"51339_setup" -> "51339_renounceOwnership"
+"51339_convertToAssets" -> "51339__pricingBacking"
+"51339_transferSharesFor" -> "51339__transferShares"
+"51339__withdraw" -> "51339__burnInRange"
+"51339__depositImpl" -> "51339__venueBalance"
+"51339__withdraw" -> "51339__rebalance"
+"51339__withdraw" -> "51339__bandIncrement6"
+"51339_addLiq" -> "51339_onlyUs"
+"51339__mint4626" -> "51339_convertToAssets"
+"51339_collectFees" -> "51339__settlePending"
+"51339__deliverVenueShortfall" -> "51339__sendETH"
+"51339_pendingRewards" -> "51339__pendingFor"
+"51339_compound" -> "51339__refreshBookmarks"
+"51339__depositImpl" -> "51339__depositETH"
+"51339_outOfRange" -> "51339_nonReentrant"
+"51339__doReconcile" -> "51339__rebalance"
+"51339_redeem" -> "51339_convertToAssets"
+"51339__burnAndDeliverUsdLeg" -> "51339__burnInRange"
+"51339_compound" -> "51339_nonReentrant"
+"51339__settlePending" -> "51339__pendingFor"
+"51339__burnAndDeliverUsdLeg" -> "51339__bandIncrement6"
+"51339__depositImpl" -> "51339__rebalance"
+"51339_mint" -> "51339_nonReentrant"
+"51339__deposit4626" -> "51339__depositImpl"
+"51339_withdraw" -> "51339__withdraw"
+"51339__withdraw" -> "51339__payUsdLeg"
+"51339_takeETH" -> "51339__sendETH"
+"51339__reconcileLev" -> "51339__doReconcile"
+"51339_convertToShares" -> "51339__pricingBacking"
+"51339_repack" -> "51339_onlyUs"
+"51339_constructor" -> "51339_constructor"
+"51339__doReconcile" -> "51339__onExit"
+"51339_redeem" -> "51339__requirePinnedRecipient"
+"51339__withdraw" -> "51339__reconcileLev"
+"51339_transferSharesFor" -> "51339_nonReentrant"
+"51339_withdraw" -> "51339_nonReentrant"
+"51339__withdraw" -> "51339__burnAndDeliverUsdLeg"
+"51339__withdraw" -> "51339__onExit"
+"51339_deposit" -> "51339__deposit4626"
+"51339__outOfRange" -> "51339__rebalance"
+"51339_syncLev" -> "51339__reconcileLev"
+"51339__withdraw" -> "51339__deliverVenueShortfall"
+"51339__burnAndDeliverUsdLeg" -> "51339__payUsdLeg"
+}subgraph cluster_13524_Ownable {
 label = "Ownable"
-"7273_renounceOwnership" [label="renounceOwnership"]
-"7273_constructor" [label="constructor"]
-"7273_owner" [label="owner"]
-"7273__transferOwnership" [label="_transferOwnership"]
-"7273__checkOwner" [label="_checkOwner"]
-"7273_transferOwnership" [label="transferOwnership"]
-"7273__checkOwner" -> "7273__msgSender"
-"7273_constructor" -> "7273__transferOwnership"
-"7273_renounceOwnership" -> "7273_onlyOwner"
-"7273_transferOwnership" -> "7273__transferOwnership"
-"7273__checkOwner" -> "7273_owner"
-"7273_renounceOwnership" -> "7273__transferOwnership"
-"7273_transferOwnership" -> "7273_onlyOwner"
-}subgraph cluster_8892_Context {
+"13524_transferOwnership" [label="transferOwnership"]
+"13524__transferOwnership" [label="_transferOwnership"]
+"13524_owner" [label="owner"]
+"13524_constructor" [label="constructor"]
+"13524__checkOwner" [label="_checkOwner"]
+"13524_renounceOwnership" [label="renounceOwnership"]
+"13524_constructor" -> "13524__transferOwnership"
+"13524__checkOwner" -> "13524__msgSender"
+"13524__checkOwner" -> "13524_owner"
+"13524_transferOwnership" -> "13524_onlyOwner"
+"13524_transferOwnership" -> "13524__transferOwnership"
+"13524_renounceOwnership" -> "13524_onlyOwner"
+"13524_renounceOwnership" -> "13524__transferOwnership"
+}subgraph cluster_15143_Context {
 label = "Context"
-"8892__contextSuffixLength" [label="_contextSuffixLength"]
-"8892__msgData" [label="_msgData"]
-"8892__msgSender" [label="_msgSender"]
+"15143__msgData" [label="_msgData"]
+"15143__msgSender" [label="_msgSender"]
+"15143__contextSuffixLength" [label="_contextSuffixLength"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
+"revert OwnableInvalidOwner(address)" 
+"revert RecipientTimelocked()" 
+"revert RecipientNotPinned()" 
+"revert Dust()" 
+"revert AllowanceFlow()" 
 "revert ZeroTwap()" 
 "revert OwnableUnauthorizedAccount(address)" 
-"revert AllowanceFlow()" 
-"balance(address)" 
 "revert EthVenuePinned()" 
-"revert RecipientNotPinned()" 
-"revert WrongV4()" 
-"revert Dust()" 
-"revert VEthPinned()" 
 "require(bool,string)" 
 "revert NoPosition()" 
-"revert RecipientTimelocked()" 
 "revert AlreadyInitialized()" 
-"revert OwnableInvalidOwner(address)" 
-"47440_setVEth" -> "require(bool,string)"
-"47440__mint4626" -> "require(bool,string)"
-"47440__outOfRange" -> "revert Dust()"
-"47440__sendETH" -> "balance(address)"
-"47440_withdraw" -> "revert AllowanceFlow()"
-"47440_setEthVenueContract" -> "revert EthVenuePinned()"
-"47440__withdraw" -> "revert NoPosition()"
-"47440_applyPinnedRecipient" -> "revert RecipientTimelocked()"
-"47440__sendETH" -> "require(bool,string)"
-"47440_setEthVenueContract" -> "require(bool,string)"
-"7273__checkOwner" -> "revert OwnableUnauthorizedAccount(address)"
-"7273_constructor" -> "revert OwnableInvalidOwner(address)"
-"47440__withdraw" -> "require(bool,string)"
-"47440__depositImpl" -> "revert ZeroTwap()"
-"47440_redeem" -> "revert AllowanceFlow()"
-"47440_setVEth" -> "revert VEthPinned()"
-"7273_transferOwnership" -> "revert OwnableInvalidOwner(address)"
-"47440__deposit4626" -> "require(bool,string)"
-"47440_setup" -> "revert WrongV4()"
-"47440_transferSharesFor" -> "require(bool,string)"
-"47440_setup" -> "revert AlreadyInitialized()"
-"47440_collectFees" -> "revert NoPosition()"
-"47440__requirePinnedRecipient" -> "revert RecipientNotPinned()"
-}"47440__depositImpl" -> "47440_addLiq"
+"revert VEthPinned()" 
+"revert WrongV4()" 
+"51339_setEthVenueContract" -> "require(bool,string)"
+"13524_transferOwnership" -> "revert OwnableInvalidOwner(address)"
+"51339_setEthVenueContract" -> "revert EthVenuePinned()"
+"13524__checkOwner" -> "revert OwnableUnauthorizedAccount(address)"
+"51339_applyPinnedRecipient" -> "revert RecipientTimelocked()"
+"51339_setup" -> "revert AlreadyInitialized()"
+"51339_transferSharesFor" -> "require(bool,string)"
+"51339_collectFees" -> "revert NoPosition()"
+"51339_setVEth" -> "require(bool,string)"
+"51339_setVEth" -> "revert VEthPinned()"
+"13524_constructor" -> "revert OwnableInvalidOwner(address)"
+"51339_withdraw" -> "revert AllowanceFlow()"
+"51339__withdraw" -> "require(bool,string)"
+"51339__requirePinnedRecipient" -> "revert RecipientNotPinned()"
+"51339__depositImpl" -> "revert ZeroTwap()"
+"51339_redeem" -> "revert AllowanceFlow()"
+"51339__deposit4626" -> "require(bool,string)"
+"51339__mint4626" -> "require(bool,string)"
+"51339__withdraw" -> "revert NoPosition()"
+"51339_setup" -> "revert WrongV4()"
+"51339__outOfRange" -> "revert Dust()"
+}"51339__depositImpl" -> "51339_addLiq"
 }

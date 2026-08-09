@@ -1,25 +1,25 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_41143_VBtc {
+subgraph cluster_45228_VBtc {
 label = "VBtc"
-"41143_constructor" [label="constructor"]
-"41143_transferFrom" [label="transferFrom"]
-"41143_mintTo" [label="mintTo"]
-"41143_asset" [label="asset"]
-"41143_burnFrom" [label="burnFrom"]
-"41143_convertToShares" [label="convertToShares"]
-"41143_approve" [label="approve"]
-"41143_transfer" [label="transfer"]
-"41143_convertToAssets" [label="convertToAssets"]
-"41143_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
-"41143_mintTo" -> "41143_onlyVault"
-"41143_burnFrom" -> "41143_onlyVault"
+"45228_burnFrom" [label="burnFrom"]
+"45228_convertToShares" [label="convertToShares"]
+"45228_constructor" [label="constructor"]
+"45228_convertToAssets" [label="convertToAssets"]
+"45228_asset" [label="asset"]
+"45228_transfer" [label="transfer"]
+"45228_approve" [label="approve"]
+"45228_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"45228_transferFrom" [label="transferFrom"]
+"45228_mintTo" [label="mintTo"]
+"45228_burnFrom" -> "45228_onlyVault"
+"45228_mintTo" -> "45228_onlyVault"
 }subgraph cluster_solidity {
 label = "[Solidity]"
 "revert InsufficientBalance()" 
-"41143_transferFrom" -> "revert InsufficientBalance()"
-"41143_burnFrom" -> "revert InsufficientBalance()"
-"41143_transfer" -> "revert InsufficientBalance()"
+"45228_transferFrom" -> "revert InsufficientBalance()"
+"45228_transfer" -> "revert InsufficientBalance()"
+"45228_burnFrom" -> "revert InsufficientBalance()"
 }
 }

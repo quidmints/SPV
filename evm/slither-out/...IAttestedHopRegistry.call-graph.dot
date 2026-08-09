@@ -1,9 +1,9 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_20091_IAttestedHopRegistry {
+subgraph cluster_26319_IAttestedHopRegistry {
 label = "IAttestedHopRegistry"
-"20091_isAttested" [label="isAttested"]
+"26319_isAttested" [label="isAttested"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

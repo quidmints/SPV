@@ -1,63 +1,63 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_54826_BtcVaultLib {
+subgraph cluster_58724_BtcVaultLib {
 label = "BtcVaultLib"
-"54826__modLpNetBtc" [label="_modLpNetBtc"]
-"54826_settleDelivered" [label="settleDelivered"]
-"54826_registerBtcLp" [label="registerBtcLp"]
-"54826_settleBtcLp" [label="settleBtcLp"]
-"54826_levAddGrossBtc" [label="levAddGrossBtc"]
-"54826_vbtcExposeBody" [label="vbtcExposeBody"]
-"54826_resizeBtcLp" [label="resizeBtcLp"]
-"54826_levAddNetBtc" [label="levAddNetBtc"]
-"54826_rebalanceBody" [label="rebalanceBody"]
-"54826__pairRegLeg" [label="_pairRegLeg"]
-"54826_levBurnAllBtc" [label="levBurnAllBtc"]
-"54826_vbtcUnexposeBody" [label="vbtcUnexposeBody"]
-"54826__thetaClampBtc" [label="_thetaClampBtc"]
-"54826_pullBtc" [label="pullBtc"]
-"54826_syncLevBTC" [label="syncLevBTC"]
-"54826__burnLpBtc" [label="_burnLpBtc"]
-"54826__modLpBufBtc" [label="_modLpBufBtc"]
-"54826_addLiqChannel" [label="addLiqChannel"]
-"54826_levAddBufBtc" [label="levAddBufBtc"]
-"54826__bufUsdBtc" [label="_bufUsdBtc"]
-"54826_resizeBtcLpTail" [label="resizeBtcLpTail"]
-"54826_outOfRangeBtc" [label="outOfRangeBtc"]
-"54826_resizeBtcLpTail" -> "54826_settleBtcLp"
-"54826_resizeBtcLpTail" -> "54826_settleDelivered"
-"54826_registerBtcLp" -> "54826_settleBtcLp"
-"54826_resizeBtcLp" -> "54826_resizeBtcLpTail"
-"54826_registerBtcLp" -> "54826__pairRegLeg"
-"54826_syncLevBTC" -> "54826_levAddGrossBtc"
-"54826_addLiqChannel" -> "54826__thetaClampBtc"
-"54826_syncLevBTC" -> "54826_settleBtcLp"
-"54826_levAddGrossBtc" -> "54826_levAddNetBtc"
-"54826_levAddNetBtc" -> "54826_addLiqChannel"
-"54826_levAddBufBtc" -> "54826__bufUsdBtc"
-"54826_levBurnAllBtc" -> "54826__burnLpBtc"
-"54826_registerBtcLp" -> "54826_addLiqChannel"
-"54826_levAddBufBtc" -> "54826__modLpBufBtc"
-"54826_syncLevBTC" -> "54826_levBurnAllBtc"
-"54826_levAddGrossBtc" -> "54826_levAddBufBtc"
-"54826_levAddNetBtc" -> "54826__modLpNetBtc"
+"58724_levAddBufBtc" [label="levAddBufBtc"]
+"58724__pairRegLeg" [label="_pairRegLeg"]
+"58724_vbtcUnexposeBody" [label="vbtcUnexposeBody"]
+"58724_levAddGrossBtc" [label="levAddGrossBtc"]
+"58724__modLpNetBtc" [label="_modLpNetBtc"]
+"58724_registerBtcLp" [label="registerBtcLp"]
+"58724_pullBtc" [label="pullBtc"]
+"58724_resizeBtcLp" [label="resizeBtcLp"]
+"58724_settleBtcLp" [label="settleBtcLp"]
+"58724_settleDelivered" [label="settleDelivered"]
+"58724_outOfRangeBtc" [label="outOfRangeBtc"]
+"58724_rebalanceBody" [label="rebalanceBody"]
+"58724__thetaClampBtc" [label="_thetaClampBtc"]
+"58724_syncLevBTC" [label="syncLevBTC"]
+"58724_resizeBtcLpTail" [label="resizeBtcLpTail"]
+"58724__burnLpBtc" [label="_burnLpBtc"]
+"58724__modLpBufBtc" [label="_modLpBufBtc"]
+"58724__bufUsdBtc" [label="_bufUsdBtc"]
+"58724_levAddNetBtc" [label="levAddNetBtc"]
+"58724_levBurnAllBtc" [label="levBurnAllBtc"]
+"58724_addLiqChannel" [label="addLiqChannel"]
+"58724_vbtcExposeBody" [label="vbtcExposeBody"]
+"58724_levAddNetBtc" -> "58724_addLiqChannel"
+"58724_levBurnAllBtc" -> "58724__burnLpBtc"
+"58724_resizeBtcLpTail" -> "58724_settleDelivered"
+"58724_addLiqChannel" -> "58724__thetaClampBtc"
+"58724_registerBtcLp" -> "58724__pairRegLeg"
+"58724_resizeBtcLp" -> "58724_resizeBtcLpTail"
+"58724_syncLevBTC" -> "58724_levAddGrossBtc"
+"58724_levAddBufBtc" -> "58724__modLpBufBtc"
+"58724_levAddGrossBtc" -> "58724_levAddBufBtc"
+"58724_registerBtcLp" -> "58724_addLiqChannel"
+"58724_syncLevBTC" -> "58724_levBurnAllBtc"
+"58724_resizeBtcLpTail" -> "58724_settleBtcLp"
+"58724_registerBtcLp" -> "58724_settleBtcLp"
+"58724_levAddGrossBtc" -> "58724_levAddNetBtc"
+"58724_syncLevBTC" -> "58724_settleBtcLp"
+"58724_levAddNetBtc" -> "58724__modLpNetBtc"
+"58724_levAddBufBtc" -> "58724__bufUsdBtc"
 }subgraph cluster_solidity {
 label = "[Solidity]"
+"revert Dust()" 
 "revert ZeroTwap()" 
 "revert NotOwner()" 
-"revert Dust()" 
-"revert NotAStable()" 
 "require(bool,string)" 
-"revert InsufficientChannelBtc()" 
+"revert NotAStable()" 
 "revert BadPercent()" 
-"54826_pullBtc" -> "revert Dust()"
-"54826_registerBtcLp" -> "revert ZeroTwap()"
-"54826_pullBtc" -> "revert NotOwner()"
-"54826_outOfRangeBtc" -> "revert NotAStable()"
-"54826_vbtcExposeBody" -> "revert InsufficientChannelBtc()"
-"54826_pullBtc" -> "require(bool,string)"
-"54826_outOfRangeBtc" -> "revert Dust()"
-"54826_pullBtc" -> "revert BadPercent()"
+"revert InsufficientChannelBtc()" 
+"58724_vbtcExposeBody" -> "revert InsufficientChannelBtc()"
+"58724_registerBtcLp" -> "revert ZeroTwap()"
+"58724_outOfRangeBtc" -> "revert Dust()"
+"58724_outOfRangeBtc" -> "revert NotAStable()"
+"58724_pullBtc" -> "revert Dust()"
+"58724_pullBtc" -> "require(bool,string)"
+"58724_pullBtc" -> "revert NotOwner()"
+"58724_pullBtc" -> "revert BadPercent()"
 }
 }

@@ -1,196 +1,238 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_7273_Ownable {
-label = "Ownable"
-"7273_renounceOwnership" [label="renounceOwnership"]
-"7273_constructor" [label="constructor"]
-"7273_owner" [label="owner"]
-"7273__transferOwnership" [label="_transferOwnership"]
-"7273__checkOwner" [label="_checkOwner"]
-"7273_transferOwnership" [label="transferOwnership"]
-"7273__checkOwner" -> "7273__msgSender"
-"7273_constructor" -> "7273__transferOwnership"
-"7273_renounceOwnership" -> "7273_onlyOwner"
-"7273_transferOwnership" -> "7273__transferOwnership"
-"7273__checkOwner" -> "7273_owner"
-"7273_renounceOwnership" -> "7273__transferOwnership"
-"7273_transferOwnership" -> "7273_onlyOwner"
-}subgraph cluster_22492_BTCChannels {
+subgraph cluster_29284_BTCChannels {
 label = "BTCChannels"
-"22492__finalizeClose" [label="_finalizeClose"]
-"22492__lpFinalBalance" [label="_lpFinalBalance"]
-"22492_constructor" [label="constructor"]
-"22492__registerBtcRecipient" [label="_registerBtcRecipient"]
-"22492_delegationDigest" [label="delegationDigest"]
-"22492_deliverSwapOutOnchain" [label="deliverSwapOutOnchain"]
-"22492__requireAttested" [label="_requireAttested"]
-"22492__verifyTxSpendsChannel" [label="_verifyTxSpendsChannel"]
-"22492__emitOpened" [label="_emitOpened"]
-"22492_markMigrationNonceUsed" [label="markMigrationNonceUsed"]
-"22492__settleSwapOutSlice" [label="_settleSwapOutSlice"]
-"22492_openChannel" [label="openChannel"]
-"22492_recordClose" [label="recordClose"]
-"22492_splice" [label="splice"]
-"22492__useOutpoint" [label="_useOutpoint"]
-"22492_emitDeadManExit" [label="emitDeadManExit"]
-"22492_setBtcRecipient" [label="setBtcRecipient"]
-"22492_refundExpiredSwapOut" [label="refundExpiredSwapOut"]
-"22492__authorizedHop" [label="_authorizedHop"]
-"22492_spliceDigest" [label="spliceDigest"]
-"22492_registerDelegation" [label="registerDelegation"]
-"22492__deliverSwapOut" [label="_deliverSwapOut"]
-"22492_openChannelDigest" [label="openChannelDigest"]
-"22492__lpPayoutScript" [label="_lpPayoutScript"]
-"22492_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
-"22492__applySplice" [label="_applySplice"]
-"22492__withdrawalPayout" [label="_withdrawalPayout"]
-"22492_setHopRegistry" [label="setHopRegistry"]
-"22492_recordForceClosePermissionless" [label="recordForceClosePermissionless"]
-"22492__verifySplice" [label="_verifySplice"]
-"22492_requestSwapOutOnchain" [label="requestSwapOutOnchain"]
-"22492_swapOutDeliverDigest" [label="swapOutDeliverDigest"]
-"22492__shrinkSplice" [label="_shrinkSplice"]
-"22492_commitManagerFreshness" [label="commitManagerFreshness"]
-"22492_settleSwapIn" [label="settleSwapIn"]
-"22492_commitFreshness" [label="commitFreshness"]
-"22492_recordClose" -> "22492_whenOpen"
-"22492_requestSwapOutOnchain" -> "22492_nonReentrant"
-"22492_deliverSwapOutOnchain" -> "22492__deliverSwapOut"
-"22492_deliverSwapOutOnchain" -> "22492_nonReentrant"
-"22492_setBtcRecipient" -> "22492__registerBtcRecipient"
-"22492__applySplice" -> "22492__useOutpoint"
-"22492_refundExpiredSwapOut" -> "22492_nonReentrant"
-"22492__shrinkSplice" -> "22492__withdrawalPayout"
-"22492__withdrawalPayout" -> "22492__lpPayoutScript"
-"22492_registerDelegation" -> "22492__registerBtcRecipient"
-"22492_settleSwapIn" -> "22492_nonReentrant"
-"22492_settleSwapIn" -> "22492__requireAttested"
-"22492_constructor" -> "22492_constructor"
-"22492_emitDeadManExit" -> "22492__requireAttested"
-"22492_emitDeadManExit" -> "22492__authorizedHop"
-"22492_openChannel" -> "22492__requireAttested"
-"22492_setHopRegistry" -> "22492_onlyOwner"
-"22492_openChannel" -> "22492_nonReentrant"
-"22492_recordClose" -> "22492__lpFinalBalance"
-"22492_recordForceClosePermissionless" -> "22492_whenOpen"
-"22492_recordClose" -> "22492_nonReentrant"
-"22492_openChannel" -> "22492__emitOpened"
-"22492_recordForceClosePermissionless" -> "22492__verifyTxSpendsChannel"
-"22492_splice" -> "22492_nonReentrant"
-"22492__lpFinalBalance" -> "22492__lpPayoutScript"
-"22492__deliverSwapOut" -> "22492__useOutpoint"
-"22492_recordClose" -> "22492__finalizeClose"
-"22492__applySplice" -> "22492__verifySplice"
-"22492_deliverSwapOutOnchain" -> "22492_whenOpen"
-"22492__verifySplice" -> "22492__verifyTxSpendsChannel"
-"22492_openChannel" -> "22492__authorizedHop"
-"22492_recordClose" -> "22492__verifyTxSpendsChannel"
-"22492_splice" -> "22492__applySplice"
-"22492_registerDelegation" -> "22492_delegationDigest"
-"22492__applySplice" -> "22492__shrinkSplice"
-"22492_recordForceClosePermissionless" -> "22492_nonReentrant"
-"22492_openChannel" -> "22492__useOutpoint"
-"22492__deliverSwapOut" -> "22492__settleSwapOutSlice"
-"22492_recordForceClosePermissionless" -> "22492__finalizeClose"
-"22492_splice" -> "22492_whenOpen"
-"22492_emitDeadManExit" -> "22492_whenOpen"
-"22492__deliverSwapOut" -> "22492__verifySplice"
-}subgraph cluster_8892_Context {
+"29284_fallbackDigest" [label="fallbackDigest"]
+"29284__withdrawalPayout" [label="_withdrawalPayout"]
+"29284_setHopRegistry" [label="setHopRegistry"]
+"29284__verifyTxSpendsChannel" [label="_verifyTxSpendsChannel"]
+"29284__registerFallback" [label="_registerFallback"]
+"29284__applySplice" [label="_applySplice"]
+"29284__lpFinalBalance" [label="_lpFinalBalance"]
+"29284__requireAttested" [label="_requireAttested"]
+"29284__verifySplice" [label="_verifySplice"]
+"29284__registerBtcRecipient" [label="_registerBtcRecipient"]
+"29284__useOutpoint" [label="_useOutpoint"]
+"29284_settleSwapIn" [label="settleSwapIn"]
+"29284_spliceDigest" [label="spliceDigest"]
+"29284__settleSwapOutSlice" [label="_settleSwapOutSlice"]
+"29284_commitManagerFreshness" [label="commitManagerFreshness"]
+"29284__shrinkSplice" [label="_shrinkSplice"]
+"29284__registerDelegation" [label="_registerDelegation"]
+"29284_refundExpiredSwapOut" [label="refundExpiredSwapOut"]
+"29284_recordForceClosePermissionless" [label="recordForceClosePermissionless"]
+"29284_delegationDigest" [label="delegationDigest"]
+"29284_registerDelegationFor" [label="registerDelegationFor"]
+"29284_splice" [label="splice"]
+"29284_markMigrationNonceUsed" [label="markMigrationNonceUsed"]
+"29284_openChannelDigest" [label="openChannelDigest"]
+"29284_registerFallback" [label="registerFallback"]
+"29284_recordClose" [label="recordClose"]
+"29284_constructor" [label="constructor"]
+"29284__authorizedHopForChannel" [label="_authorizedHopForChannel"]
+"29284_recordDeadManExit" [label="recordDeadManExit"]
+"29284_swapOutDeliverDigest" [label="swapOutDeliverDigest"]
+"29284__deliverSwapOut" [label="_deliverSwapOut"]
+"29284_setBtcRecipient" [label="setBtcRecipient"]
+"29284_openChannel" [label="openChannel"]
+"29284_registerFallbackFor" [label="registerFallbackFor"]
+"29284_registerDelegation" [label="registerDelegation"]
+"29284__authorizedHop" [label="_authorizedHop"]
+"29284_emitDeadManExit" [label="emitDeadManExit"]
+"29284__lpPayoutScript" [label="_lpPayoutScript"]
+"29284_deliverSwapOutOnchain" [label="deliverSwapOutOnchain"]
+"29284_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"29284__finalizeClose" [label="_finalizeClose"]
+"29284_commitFreshness" [label="commitFreshness"]
+"29284__emitOpened" [label="_emitOpened"]
+"29284_requestSwapOutOnchain" [label="requestSwapOutOnchain"]
+"29284_emitDeadManExit" -> "29284_whenOpen"
+"29284_openChannel" -> "29284__useOutpoint"
+"29284_recordDeadManExit" -> "29284_whenOpen"
+"29284__deliverSwapOut" -> "29284__useOutpoint"
+"29284_recordClose" -> "29284_nonReentrant"
+"29284__verifySplice" -> "29284__verifyTxSpendsChannel"
+"29284_deliverSwapOutOnchain" -> "29284_whenOpen"
+"29284_registerFallbackFor" -> "29284__registerFallback"
+"29284_openChannel" -> "29284__emitOpened"
+"29284_registerDelegationFor" -> "29284_delegationDigest"
+"29284_recordDeadManExit" -> "29284__finalizeClose"
+"29284_settleSwapIn" -> "29284_nonReentrant"
+"29284_recordForceClosePermissionless" -> "29284__finalizeClose"
+"29284__applySplice" -> "29284__useOutpoint"
+"29284_splice" -> "29284_nonReentrant"
+"29284_requestSwapOutOnchain" -> "29284_nonReentrant"
+"29284_settleSwapIn" -> "29284__requireAttested"
+"29284_refundExpiredSwapOut" -> "29284_nonReentrant"
+"29284_commitFreshness" -> "29284__authorizedHopForChannel"
+"29284_registerDelegationFor" -> "29284__registerDelegation"
+"29284__registerDelegation" -> "29284__registerBtcRecipient"
+"29284__authorizedHopForChannel" -> "29284__authorizedHop"
+"29284_openChannel" -> "29284__authorizedHop"
+"29284_recordClose" -> "29284__finalizeClose"
+"29284_openChannel" -> "29284__requireAttested"
+"29284_openChannel" -> "29284_nonReentrant"
+"29284_splice" -> "29284__authorizedHopForChannel"
+"29284_registerDelegation" -> "29284_delegationDigest"
+"29284__applySplice" -> "29284__verifySplice"
+"29284_recordDeadManExit" -> "29284__verifyTxSpendsChannel"
+"29284_setBtcRecipient" -> "29284__registerBtcRecipient"
+"29284_registerFallback" -> "29284__registerFallback"
+"29284_recordClose" -> "29284__verifyTxSpendsChannel"
+"29284__deliverSwapOut" -> "29284__verifySplice"
+"29284_splice" -> "29284__applySplice"
+"29284_recordForceClosePermissionless" -> "29284__verifyTxSpendsChannel"
+"29284_registerFallbackFor" -> "29284_fallbackDigest"
+"29284__lpFinalBalance" -> "29284__lpPayoutScript"
+"29284_splice" -> "29284_whenOpen"
+"29284_emitDeadManExit" -> "29284__requireAttested"
+"29284_recordDeadManExit" -> "29284__lpFinalBalance"
+"29284_registerFallback" -> "29284_fallbackDigest"
+"29284__applySplice" -> "29284__shrinkSplice"
+"29284_recordForceClosePermissionless" -> "29284_nonReentrant"
+"29284_recordDeadManExit" -> "29284_nonReentrant"
+"29284_deliverSwapOutOnchain" -> "29284_nonReentrant"
+"29284_setHopRegistry" -> "29284_onlyOwner"
+"29284__shrinkSplice" -> "29284__withdrawalPayout"
+"29284_constructor" -> "29284_constructor"
+"29284_registerDelegation" -> "29284__registerDelegation"
+"29284__deliverSwapOut" -> "29284__settleSwapOutSlice"
+"29284_recordClose" -> "29284_whenOpen"
+"29284_emitDeadManExit" -> "29284__authorizedHopForChannel"
+"29284_recordClose" -> "29284__lpFinalBalance"
+"29284__withdrawalPayout" -> "29284__lpPayoutScript"
+"29284_recordForceClosePermissionless" -> "29284_whenOpen"
+"29284_deliverSwapOutOnchain" -> "29284__deliverSwapOut"
+}subgraph cluster_13524_Ownable {
+label = "Ownable"
+"13524_transferOwnership" [label="transferOwnership"]
+"13524__transferOwnership" [label="_transferOwnership"]
+"13524_owner" [label="owner"]
+"13524_constructor" [label="constructor"]
+"13524__checkOwner" [label="_checkOwner"]
+"13524_renounceOwnership" [label="renounceOwnership"]
+"13524_constructor" -> "13524__transferOwnership"
+"13524__checkOwner" -> "13524__msgSender"
+"13524__checkOwner" -> "13524_owner"
+"13524_transferOwnership" -> "13524_onlyOwner"
+"13524_transferOwnership" -> "13524__transferOwnership"
+"13524_renounceOwnership" -> "13524_onlyOwner"
+"13524_renounceOwnership" -> "13524__transferOwnership"
+}subgraph cluster_15143_Context {
 label = "Context"
-"8892__contextSuffixLength" [label="_contextSuffixLength"]
-"8892__msgData" [label="_msgData"]
-"8892__msgSender" [label="_msgSender"]
+"15143__msgData" [label="_msgData"]
+"15143__msgSender" [label="_msgSender"]
+"15143__contextSuffixLength" [label="_contextSuffixLength"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
-"revert NotChannelHop()" 
-"revert StaleDelegation()" 
-"revert InvalidParam()" 
-"revert NotExpired()" 
-"revert AlreadyOpen()" 
-"revert WrongBtcRecipient()" 
-"revert SwapInReplay()" 
-"abi.encode()" 
-"revert OutpointReused()" 
-"revert NotAShrink()" 
-"revert FreshnessNotMonotonic()" 
-"revert MigrationNonceAlreadyUsed()" 
-"revert OwnableInvalidOwner(address)" 
-"revert OwnableUnauthorizedAccount(address)" 
-"revert BadSPV()" 
-"keccak256(bytes)" 
-"revert ForeignSpliceOutput()" 
-"revert NotLP()" 
-"revert SwapInPartialRejected()" 
-"revert NotForceClose()" 
-"revert NotPubkeyHash()" 
-"revert SwapOutNotDelivered()" 
-"revert NoSuchSwapOut()" 
-"revert SpliceUnchanged()" 
-"revert SwapOutReplay()" 
-"abi.encodePacked()" 
-"require(bool,string)" 
-"revert NotDelegatedHop()" 
 "revert WrongPrevOutpoint()" 
-"revert OneChannelPerLp()" 
-"revert BtcRecipientLockedErr()" 
+"revert OutpointReused()" 
+"revert AlreadyOpen()" 
+"revert NotForceClose()" 
+"revert FreshnessNotMonotonic()" 
+"revert SpliceUnchanged()" 
+"revert WrongBtcRecipient()" 
+"revert InvalidParam()" 
+"revert StaleDelegation()" 
+"revert ForeignSpliceOutput()" 
+"revert SwapInPartialRejected()" 
+"revert SwapOutReplay()" 
+"revert NotLP()" 
+"revert NotDeadManExit()" 
 "revert ManagerFreshnessNotMonotonic()" 
-"22492_requestSwapOutOnchain" -> "revert SwapOutReplay()"
-"22492__verifyTxSpendsChannel" -> "revert BadSPV()"
-"22492_setHopRegistry" -> "require(bool,string)"
-"22492_emitDeadManExit" -> "revert NotDelegatedHop()"
-"22492_openChannelDigest" -> "abi.encode()"
-"22492_setBtcRecipient" -> "revert BtcRecipientLockedErr()"
-"22492_swapOutDeliverDigest" -> "keccak256(bytes)"
-"22492_commitFreshness" -> "revert FreshnessNotMonotonic()"
-"22492_recordClose" -> "revert NotChannelHop()"
-"22492_refundExpiredSwapOut" -> "revert NotLP()"
-"22492_markMigrationNonceUsed" -> "revert MigrationNonceAlreadyUsed()"
-"22492_deliverSwapOutOnchain" -> "revert NoSuchSwapOut()"
-"22492_registerDelegation" -> "revert InvalidParam()"
-"22492_refundExpiredSwapOut" -> "revert NotExpired()"
-"22492_swapOutDeliverDigest" -> "abi.encode()"
-"22492_markMigrationNonceUsed" -> "revert NotChannelHop()"
-"22492_deliverSwapOutOnchain" -> "revert InvalidParam()"
-"22492_requestSwapOutOnchain" -> "keccak256(bytes)"
-"22492_openChannel" -> "revert OneChannelPerLp()"
-"22492__registerBtcRecipient" -> "revert NotPubkeyHash()"
-"22492__requireAttested" -> "require(bool,string)"
-"22492_delegationDigest" -> "abi.encode()"
-"22492_recordForceClosePermissionless" -> "revert NotForceClose()"
-"22492__verifyTxSpendsChannel" -> "revert WrongPrevOutpoint()"
-"7273__checkOwner" -> "revert OwnableUnauthorizedAccount(address)"
-"7273_constructor" -> "revert OwnableInvalidOwner(address)"
-"22492__deliverSwapOut" -> "revert NotAShrink()"
-"22492_commitManagerFreshness" -> "revert ManagerFreshnessNotMonotonic()"
-"22492_spliceDigest" -> "keccak256(bytes)"
-"22492_registerDelegation" -> "revert StaleDelegation()"
-"22492_commitFreshness" -> "revert NotChannelHop()"
-"22492_openChannelDigest" -> "keccak256(bytes)"
-"22492_spliceDigest" -> "abi.encode()"
-"22492_refundExpiredSwapOut" -> "revert SwapOutReplay()"
-"22492__useOutpoint" -> "keccak256(bytes)"
-"22492_deliverSwapOutOnchain" -> "revert SwapOutReplay()"
-"22492__useOutpoint" -> "revert OutpointReused()"
-"22492_splice" -> "revert SpliceUnchanged()"
-"22492_openChannel" -> "revert NotDelegatedHop()"
-"22492_settleSwapIn" -> "revert SwapInPartialRejected()"
-"22492_settleSwapIn" -> "revert NotChannelHop()"
-"22492_delegationDigest" -> "keccak256(bytes)"
-"22492_settleSwapIn" -> "revert SwapInReplay()"
-"22492_requestSwapOutOnchain" -> "revert InvalidParam()"
-"22492_splice" -> "require(bool,string)"
-"22492_deliverSwapOutOnchain" -> "revert NotChannelHop()"
-"22492__useOutpoint" -> "abi.encode()"
-"22492_recordClose" -> "revert NotForceClose()"
-"22492_deliverSwapOutOnchain" -> "revert SwapOutNotDelivered()"
-"7273_transferOwnership" -> "revert OwnableInvalidOwner(address)"
-"22492__lpPayoutScript" -> "abi.encodePacked()"
-"22492_registerDelegation" -> "revert WrongBtcRecipient()"
-"22492_splice" -> "revert NotChannelHop()"
-"22492__withdrawalPayout" -> "revert ForeignSpliceOutput()"
-"22492_refundExpiredSwapOut" -> "revert SwapInReplay()"
-"22492_deliverSwapOutOnchain" -> "keccak256(bytes)"
-"22492_openChannel" -> "revert AlreadyOpen()"
+"revert StaleClose()" 
+"revert SpliceKeyNotTwoOfTwo()" 
+"abi.encode()" 
+"require(bool,string)" 
+"revert BadSPV()" 
+"revert NotDelegatedHop()" 
+"revert OwnableInvalidOwner(address)" 
+"revert BtcRecipientLockedErr()" 
+"revert NoDeadManExit()" 
+"revert NotChannelHop()" 
+"revert MigrationNonceAlreadyUsed()" 
+"revert OwnableUnauthorizedAccount(address)" 
+"keccak256(bytes)" 
+"revert OneChannelPerLp()" 
+"revert SwapOutNotDelivered()" 
+"revert NotExpired()" 
+"revert NotAShrink()" 
+"abi.encodePacked()" 
+"revert SwapInReplay()" 
+"revert NoSuchSwapOut()" 
+"revert FundingKeyNotTwoOfTwo()" 
+"revert NotPubkeyHash()" 
+"29284_refundExpiredSwapOut" -> "revert SwapOutReplay()"
+"29284_registerFallbackFor" -> "revert InvalidParam()"
+"29284_openChannel" -> "revert AlreadyOpen()"
+"13524_transferOwnership" -> "revert OwnableInvalidOwner(address)"
+"29284__verifyTxSpendsChannel" -> "revert BadSPV()"
+"29284__useOutpoint" -> "abi.encode()"
+"29284_registerFallback" -> "revert InvalidParam()"
+"13524__checkOwner" -> "revert OwnableUnauthorizedAccount(address)"
+"29284_delegationDigest" -> "abi.encode()"
+"29284_deliverSwapOutOnchain" -> "revert InvalidParam()"
+"29284__requireAttested" -> "require(bool,string)"
+"29284__registerDelegation" -> "revert WrongBtcRecipient()"
+"29284__useOutpoint" -> "keccak256(bytes)"
+"29284_recordDeadManExit" -> "revert NoDeadManExit()"
+"29284_recordDeadManExit" -> "revert NotDeadManExit()"
+"29284_refundExpiredSwapOut" -> "revert SwapInReplay()"
+"29284_deliverSwapOutOnchain" -> "revert NotChannelHop()"
+"29284__lpPayoutScript" -> "abi.encodePacked()"
+"29284__deliverSwapOut" -> "revert NotAShrink()"
+"29284_deliverSwapOutOnchain" -> "keccak256(bytes)"
+"29284_deliverSwapOutOnchain" -> "revert SwapOutNotDelivered()"
+"29284_settleSwapIn" -> "revert SwapInReplay()"
+"29284__useOutpoint" -> "revert OutpointReused()"
+"29284_registerDelegation" -> "revert InvalidParam()"
+"29284__withdrawalPayout" -> "revert ForeignSpliceOutput()"
+"29284__registerFallback" -> "revert InvalidParam()"
+"29284_fallbackDigest" -> "keccak256(bytes)"
+"29284_delegationDigest" -> "keccak256(bytes)"
+"29284_emitDeadManExit" -> "revert NotDelegatedHop()"
+"29284_recordForceClosePermissionless" -> "revert NotForceClose()"
+"13524_constructor" -> "revert OwnableInvalidOwner(address)"
+"29284_swapOutDeliverDigest" -> "abi.encode()"
+"29284_recordClose" -> "revert NotForceClose()"
+"29284_spliceDigest" -> "keccak256(bytes)"
+"29284_spliceDigest" -> "abi.encode()"
+"29284__registerFallback" -> "revert NotDelegatedHop()"
+"29284_splice" -> "revert NotChannelHop()"
+"29284_commitManagerFreshness" -> "revert ManagerFreshnessNotMonotonic()"
+"29284_markMigrationNonceUsed" -> "revert MigrationNonceAlreadyUsed()"
+"29284_refundExpiredSwapOut" -> "revert NotExpired()"
+"29284_openChannel" -> "revert OneChannelPerLp()"
+"29284__registerBtcRecipient" -> "revert NotPubkeyHash()"
+"29284_openChannelDigest" -> "keccak256(bytes)"
+"29284_refundExpiredSwapOut" -> "revert NotLP()"
+"29284_swapOutDeliverDigest" -> "keccak256(bytes)"
+"29284__verifyTxSpendsChannel" -> "revert WrongPrevOutpoint()"
+"29284__registerDelegation" -> "revert StaleDelegation()"
+"29284_splice" -> "revert SpliceUnchanged()"
+"29284_requestSwapOutOnchain" -> "revert InvalidParam()"
+"29284_recordClose" -> "revert NotChannelHop()"
+"29284_settleSwapIn" -> "revert NotChannelHop()"
+"29284_commitFreshness" -> "revert FreshnessNotMonotonic()"
+"29284_fallbackDigest" -> "abi.encode()"
+"29284_setHopRegistry" -> "require(bool,string)"
+"29284_deliverSwapOutOnchain" -> "revert NoSuchSwapOut()"
+"29284_commitFreshness" -> "revert NotChannelHop()"
+"29284_markMigrationNonceUsed" -> "revert NotChannelHop()"
+"29284_setBtcRecipient" -> "revert BtcRecipientLockedErr()"
+"29284_recordClose" -> "revert StaleClose()"
+"29284_settleSwapIn" -> "revert SwapInPartialRejected()"
+"29284_openChannel" -> "revert FundingKeyNotTwoOfTwo()"
+"29284__registerFallback" -> "revert StaleDelegation()"
+"29284_recordDeadManExit" -> "revert NotLP()"
+"29284_deliverSwapOutOnchain" -> "revert SwapOutReplay()"
+"29284_splice" -> "require(bool,string)"
+"29284_openChannelDigest" -> "abi.encode()"
+"29284__verifySplice" -> "revert SpliceKeyNotTwoOfTwo()"
+"29284_requestSwapOutOnchain" -> "revert SwapOutReplay()"
+"29284_requestSwapOutOnchain" -> "keccak256(bytes)"
+"29284_registerDelegationFor" -> "revert InvalidParam()"
+"29284_openChannel" -> "revert NotDelegatedHop()"
 }
 }

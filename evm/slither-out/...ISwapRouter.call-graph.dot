@@ -1,15 +1,15 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_77685_IUniswapV3SwapCallback {
+subgraph cluster_82646_IUniswapV3SwapCallback {
 label = "IUniswapV3SwapCallback"
-"77685_uniswapV3SwapCallback" [label="uniswapV3SwapCallback"]
-}subgraph cluster_77229_ISwapRouter {
+"82646_uniswapV3SwapCallback" [label="uniswapV3SwapCallback"]
+}subgraph cluster_82190_ISwapRouter {
 label = "ISwapRouter"
-"77229_exactInputSingle" [label="exactInputSingle"]
-"77229_exactInput" [label="exactInput"]
-"77229_exactOutputSingle" [label="exactOutputSingle"]
-"77229_exactOutput" [label="exactOutput"]
+"82190_exactOutput" [label="exactOutput"]
+"82190_exactInputSingle" [label="exactInputSingle"]
+"82190_exactOutputSingle" [label="exactOutputSingle"]
+"82190_exactInput" [label="exactInput"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

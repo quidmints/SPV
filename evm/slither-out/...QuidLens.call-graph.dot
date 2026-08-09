@@ -1,12 +1,12 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_37941_QuidLens {
+subgraph cluster_44700_QuidLens {
 label = "QuidLens"
-"37941_quoteStrict" [label="quoteStrict"]
+"44700_quoteStrict" [label="quoteStrict"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 "require(bool,string)" 
-"37941_quoteStrict" -> "require(bool,string)"
+"44700_quoteStrict" -> "require(bool,string)"
 }
 }

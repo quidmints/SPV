@@ -1,237 +1,237 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_15112_IImmutableState {
-label = "IImmutableState"
-"15112_poolManager" [label="poolManager"]
-}subgraph cluster_7273_Ownable {
-label = "Ownable"
-"7273_renounceOwnership" [label="renounceOwnership"]
-"7273_constructor" [label="constructor"]
-"7273_owner" [label="owner"]
-"7273__transferOwnership" [label="_transferOwnership"]
-"7273__checkOwner" [label="_checkOwner"]
-"7273_transferOwnership" [label="transferOwnership"]
-"7273__checkOwner" -> "7273__msgSender"
-"7273_constructor" -> "7273__transferOwnership"
-"7273_renounceOwnership" -> "7273_onlyOwner"
-"7273_transferOwnership" -> "7273__transferOwnership"
-"7273__checkOwner" -> "7273_owner"
-"7273_renounceOwnership" -> "7273__transferOwnership"
-"7273_transferOwnership" -> "7273_onlyOwner"
-}subgraph cluster_58283_ISwap {
+subgraph cluster_62176_ISwap {
 label = "ISwap"
-"58283_resolvedTwap" [label="resolvedTwap"]
-"58283_swapFeePpm" [label="swapFeePpm"]
-"58283_swap" [label="swap"]
-"58283_getTWAPforAsset" [label="getTWAPforAsset"]
-"58283_wellSkew" [label="wellSkew"]
-}subgraph cluster_15052_ImmutableState {
-label = "ImmutableState"
-"15052_constructor" [label="constructor"]
-}subgraph cluster_11991_IUnlockCallback {
+"62176_resolvedTwap" [label="resolvedTwap"]
+"62176_swapFeePpm" [label="swapFeePpm"]
+"62176_getTWAPforAsset" [label="getTWAPforAsset"]
+"62176_wellSkew" [label="wellSkew"]
+"62176_swap" [label="swap"]
+}subgraph cluster_18242_IUnlockCallback {
 label = "IUnlockCallback"
-"11991_unlockCallback" [label="unlockCallback"]
-}subgraph cluster_19994_Aux {
-label = "Aux"
-"19994__requireFreshHoldings" [label="_requireFreshHoldings"]
-"19994_takeToSettle" [label="takeToSettle"]
-"19994_take" [label="take"]
-"19994_vaultBlocked" [label="vaultBlocked"]
-"19994__tryPath" [label="_tryPath"]
-"19994_bumpVogueBTC" [label="bumpVogueBTC"]
-"19994_wellSkew" [label="wellSkew"]
-"19994_setAssetFeed" [label="setAssetFeed"]
-"19994__refreshAllHoldings" [label="_refreshAllHoldings"]
-"19994_redeemableAmount" [label="redeemableAmount"]
-"19994_setEthVenue" [label="setEthVenue"]
-"19994__unlockCallback" [label="_unlockCallback"]
-"19994__deposit" [label="_deposit"]
-"19994_aaveShares" [label="aaveShares"]
-"19994_btcShortfall" [label="btcShortfall"]
-"19994_setStableFeed" [label="setStableFeed"]
-"19994__takeArgs" [label="_takeArgs"]
-"19994_checkBacking" [label="checkBacking"]
-"19994_setBTCChannels" [label="setBTCChannels"]
-"19994__redeemRequire" [label="_redeemRequire"]
-"19994__withdraw" [label="_withdraw"]
-"19994_refreshAllHoldingsSelf" [label="refreshAllHoldingsSelf"]
-"19994_evacuate" [label="evacuate"]
-"19994_swapTo" [label="swapTo"]
-"19994__requireUs" [label="_requireUs"]
-"19994_constructor" [label="constructor"]
-"19994__tip" [label="_tip"]
-"19994_getDepegSeverityBps" [label="getDepegSeverityBps"]
-"19994_redeemTo" [label="redeemTo"]
-"19994_sweep" [label="sweep"]
-"19994_receive" [label="receive"]
-"19994_avgYield" [label="avgYield"]
-"19994_getTWAPforAsset" [label="getTWAPforAsset"]
-"19994_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
-"19994_finalize" [label="finalize"]
-"19994_sorSelfFunded" [label="sorSelfFunded"]
-"19994_takeWith" [label="takeWith"]
-"19994_supplySelf" [label="supplySelf"]
-"19994__pinQuid" [label="_pinQuid"]
-"19994__reserveIdOf" [label="_reserveIdOf"]
-"19994__withdrawAaveUnsafe" [label="_withdrawAaveUnsafe"]
-"19994_setQuid" [label="setQuid"]
-"19994_sorSelfFundedReverse" [label="sorSelfFundedReverse"]
-"19994_illiquidLoss" [label="illiquidLoss"]
-"19994_refreshHoldingsSelf" [label="refreshHoldingsSelf"]
-"19994_deliverableETH" [label="deliverableETH"]
-"19994_vogueETH" [label="vogueETH"]
-"19994_deposit" [label="deposit"]
-"19994_swap" [label="swap"]
-"19994_withdrawSelf" [label="withdrawSelf"]
-"19994__depositVol" [label="_depositVol"]
-"19994_getVaults" [label="getVaults"]
-"19994_resolvedTwap" [label="resolvedTwap"]
-"19994_get_metricsWith" [label="get_metricsWith"]
-"19994__backingCore" [label="_backingCore"]
-"19994_redeem" [label="redeem"]
-"19994_getStables" [label="getStables"]
-"19994__refreshHoldings" [label="_refreshHoldings"]
-"19994_swapFeePpm" [label="swapFeePpm"]
-"19994_get_metrics" [label="get_metrics"]
-"19994_withdrawAaveLeg" [label="withdrawAaveLeg"]
-"19994_aaveBalance" [label="aaveBalance"]
-"19994_get_deposits" [label="get_deposits"]
-"19994_setVault" [label="setVault"]
-"19994_pokeVaultHealth" [label="pokeVaultHealth"]
-"19994_riskFactor" [label="riskFactor"]
-"19994__redeemAs" [label="_redeemAs"]
-"19994_tipSelf" [label="tipSelf"]
-"19994__checkBacking" [label="_checkBacking"]
-"19994_tryCheckBacking" [label="tryCheckBacking"]
-"19994_depegLoss" [label="depegLoss"]
-"19994_setVaultHealth" [label="setVaultHealth"]
-"19994_auxSwap" [label="auxSwap"]
-"19994__vaultHealthCfg" [label="_vaultHealthCfg"]
-"19994__aaveReserve" [label="_aaveReserve"]
-"19994__supply" [label="_supply"]
-"19994_reserveIdOf" [label="reserveIdOf"]
-"19994_btcShortfall" -> "19994_onlyUs"
-"19994_evacuate" -> "19994__vaultHealthCfg"
-"19994_constructor" -> "19994_constructor"
-"19994__checkBacking" -> "19994__backingCore"
-"19994_takeWith" -> "19994_onlyUs"
-"19994_setQuid" -> "19994_onlyOwner"
-"19994__redeemAs" -> "19994__requireFreshHoldings"
-"19994_refreshHoldingsSelf" -> "19994__refreshHoldings"
-"19994_pokeVaultHealth" -> "19994_nonReentrant"
-"19994_setVault" -> "19994_onlyOwner"
-"19994_finalize" -> "19994_onlyOwner"
-"19994_get_metrics" -> "19994_get_deposits"
-"19994_evacuate" -> "19994_onlyOwner"
-"19994_tipSelf" -> "19994__tip"
-"19994_setQuid" -> "19994__pinQuid"
-"19994_withdrawSelf" -> "19994__withdraw"
-"19994_setEthVenue" -> "19994_onlyOwner"
-"19994_swapTo" -> "19994_nonReentrant"
-"19994_pokeVaultHealth" -> "19994__vaultHealthCfg"
-"19994__aaveReserve" -> "19994__reserveIdOf"
-"19994_sorSelfFundedReverse" -> "19994_nonReentrant"
-"19994__requireFreshHoldings" -> "19994__refreshAllHoldings"
-"19994_setBTCChannels" -> "19994_onlyOwner"
-"19994_takeToSettle" -> "19994__takeArgs"
-"19994_redeemTo" -> "19994__redeemAs"
-"19994_takeToSettle" -> "19994_onlyUs"
-"19994_redeem" -> "19994__redeemRequire"
-"19994_take" -> "19994_onlyUs"
-"19994_redeem" -> "19994_nonReentrant"
-"19994_take" -> "19994__takeArgs"
-"19994_withdrawAaveLeg" -> "19994__reserveIdOf"
-"19994_tryCheckBacking" -> "19994__backingCore"
-"19994_checkBacking" -> "19994__checkBacking"
-"19994__redeemAs" -> "19994__refreshAllHoldings"
-"19994_wellSkew" -> "19994_getTWAPforAsset"
-"19994_sweep" -> "19994__refreshHoldings"
-"19994_auxSwap" -> "19994_onlyUs"
-"19994_refreshAllHoldingsSelf" -> "19994__refreshAllHoldings"
-"19994_redeemTo" -> "19994__redeemRequire"
-"19994_pokeVaultHealth" -> "19994__refreshHoldings"
-"19994__depositVol" -> "19994__deposit"
-"19994_sorSelfFunded" -> "19994_nonReentrant"
-"19994_redeemTo" -> "19994_nonReentrant"
-"19994_take" -> "19994_take"
-"19994_setStableFeed" -> "19994_onlyOwner"
-"19994_setVaultHealth" -> "19994_owner"
-"19994_evacuate" -> "19994__refreshHoldings"
-"19994_setAssetFeed" -> "19994_onlyOwner"
-"19994_finalize" -> "19994_owner"
-"19994_takeWith" -> "19994__takeArgs"
-"19994_aaveBalance" -> "19994__aaveReserve"
-"19994_sweep" -> "19994_nonReentrant"
-"19994_get_deposits" -> "19994_getDepegSeverityBps"
-"19994_get_metricsWith" -> "19994_onlyUs"
-"19994_evacuate" -> "19994_nonReentrant"
-"19994_aaveShares" -> "19994__aaveReserve"
-"19994_redeem" -> "19994__redeemAs"
-"19994_supplySelf" -> "19994__supply"
-"19994_auxSwap" -> "19994_nonReentrant"
-"19994_swap" -> "19994_swapTo"
-"19994_finalize" -> "19994_renounceOwnership"
-"19994_reserveIdOf" -> "19994__reserveIdOf"
-}subgraph cluster_15099_SafeCallback {
+"18242_unlockCallback" [label="unlockCallback"]
+}subgraph cluster_21350_SafeCallback {
 label = "SafeCallback"
-"15099__unlockCallback" [label="_unlockCallback"]
-"15099_unlockCallback" [label="unlockCallback"]
-"15099_constructor" [label="constructor"]
-"15099_constructor" -> "15099_constructor"
-"15099_unlockCallback" -> "15099__unlockCallback"
-"15099_unlockCallback" -> "15099_onlyPoolManager"
-}subgraph cluster_8892_Context {
+"21350_unlockCallback" [label="unlockCallback"]
+"21350_constructor" [label="constructor"]
+"21350__unlockCallback" [label="_unlockCallback"]
+"21350_unlockCallback" -> "21350__unlockCallback"
+"21350_unlockCallback" -> "21350_onlyPoolManager"
+"21350_constructor" -> "21350_constructor"
+}subgraph cluster_15143_Context {
 label = "Context"
-"8892__contextSuffixLength" [label="_contextSuffixLength"]
-"8892__msgData" [label="_msgData"]
-"8892__msgSender" [label="_msgSender"]
+"15143__msgData" [label="_msgData"]
+"15143__msgSender" [label="_msgSender"]
+"15143__contextSuffixLength" [label="_contextSuffixLength"]
+}subgraph cluster_26288_Aux {
+label = "Aux"
+"26288__depositVol" [label="_depositVol"]
+"26288__requireUs" [label="_requireUs"]
+"26288_sorSelfFunded" [label="sorSelfFunded"]
+"26288_refreshHoldingsSelf" [label="refreshHoldingsSelf"]
+"26288__deposit" [label="_deposit"]
+"26288__pinQuid" [label="_pinQuid"]
+"26288_bumpVogueBTC" [label="bumpVogueBTC"]
+"26288_withdrawSelf" [label="withdrawSelf"]
+"26288_sorSelfFundedReverse" [label="sorSelfFundedReverse"]
+"26288_vaultBlocked" [label="vaultBlocked"]
+"26288_sweep" [label="sweep"]
+"26288_btcShortfall" [label="btcShortfall"]
+"26288_get_metricsWith" [label="get_metricsWith"]
+"26288_getTWAPforAsset" [label="getTWAPforAsset"]
+"26288__withdrawAaveUnsafe" [label="_withdrawAaveUnsafe"]
+"26288__takeArgs" [label="_takeArgs"]
+"26288_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"26288__refreshAllHoldings" [label="_refreshAllHoldings"]
+"26288__vaultHealthCfg" [label="_vaultHealthCfg"]
+"26288_swap" [label="swap"]
+"26288_take" [label="take"]
+"26288_depegLoss" [label="depegLoss"]
+"26288_checkBacking" [label="checkBacking"]
+"26288_constructor" [label="constructor"]
+"26288_getVaults" [label="getVaults"]
+"26288_evacuate" [label="evacuate"]
+"26288__aaveReserve" [label="_aaveReserve"]
+"26288__withdraw" [label="_withdraw"]
+"26288_riskFactor" [label="riskFactor"]
+"26288_setVaultHealth" [label="setVaultHealth"]
+"26288_redeemableAmount" [label="redeemableAmount"]
+"26288_redeemTo" [label="redeemTo"]
+"26288_wellSkew" [label="wellSkew"]
+"26288_deliverableETH" [label="deliverableETH"]
+"26288_swapTo" [label="swapTo"]
+"26288_tryCheckBacking" [label="tryCheckBacking"]
+"26288_supplySelf" [label="supplySelf"]
+"26288_getDepegSeverityBps" [label="getDepegSeverityBps"]
+"26288_resolvedTwap" [label="resolvedTwap"]
+"26288_receive" [label="receive"]
+"26288_get_deposits" [label="get_deposits"]
+"26288_refreshAllHoldingsSelf" [label="refreshAllHoldingsSelf"]
+"26288_tipSelf" [label="tipSelf"]
+"26288__tryPath" [label="_tryPath"]
+"26288_setStableFeed" [label="setStableFeed"]
+"26288_finalize" [label="finalize"]
+"26288_withdrawAaveLeg" [label="withdrawAaveLeg"]
+"26288_swapFeePpm" [label="swapFeePpm"]
+"26288_setBTCChannels" [label="setBTCChannels"]
+"26288_avgYield" [label="avgYield"]
+"26288_vogueETH" [label="vogueETH"]
+"26288__unlockCallback" [label="_unlockCallback"]
+"26288_reserveIdOf" [label="reserveIdOf"]
+"26288__checkBacking" [label="_checkBacking"]
+"26288__tip" [label="_tip"]
+"26288_setAssetFeed" [label="setAssetFeed"]
+"26288_aaveBalance" [label="aaveBalance"]
+"26288__redeemAs" [label="_redeemAs"]
+"26288_getStables" [label="getStables"]
+"26288_pokeVaultHealth" [label="pokeVaultHealth"]
+"26288_takeWith" [label="takeWith"]
+"26288_redeem" [label="redeem"]
+"26288_setQuid" [label="setQuid"]
+"26288_deposit" [label="deposit"]
+"26288__reserveIdOf" [label="_reserveIdOf"]
+"26288_aaveShares" [label="aaveShares"]
+"26288_takeToSettle" [label="takeToSettle"]
+"26288__supply" [label="_supply"]
+"26288__backingCore" [label="_backingCore"]
+"26288_setEthVenue" [label="setEthVenue"]
+"26288_setVault" [label="setVault"]
+"26288_get_metrics" [label="get_metrics"]
+"26288__requireFreshHoldings" [label="_requireFreshHoldings"]
+"26288__refreshHoldings" [label="_refreshHoldings"]
+"26288_auxSwap" [label="auxSwap"]
+"26288_illiquidLoss" [label="illiquidLoss"]
+"26288__redeemRequire" [label="_redeemRequire"]
+"26288_reserveIdOf" -> "26288__reserveIdOf"
+"26288_get_metricsWith" -> "26288_onlyUs"
+"26288_redeemTo" -> "26288__redeemRequire"
+"26288_refreshAllHoldingsSelf" -> "26288__refreshAllHoldings"
+"26288_evacuate" -> "26288_nonReentrant"
+"26288_wellSkew" -> "26288_getTWAPforAsset"
+"26288_tipSelf" -> "26288__tip"
+"26288__checkBacking" -> "26288__backingCore"
+"26288_redeemTo" -> "26288_nonReentrant"
+"26288_supplySelf" -> "26288__supply"
+"26288_evacuate" -> "26288__refreshHoldings"
+"26288_constructor" -> "26288_constructor"
+"26288_aaveShares" -> "26288__aaveReserve"
+"26288_finalize" -> "26288_renounceOwnership"
+"26288__requireFreshHoldings" -> "26288__refreshAllHoldings"
+"26288_pokeVaultHealth" -> "26288_nonReentrant"
+"26288_auxSwap" -> "26288_nonReentrant"
+"26288__aaveReserve" -> "26288__reserveIdOf"
+"26288_checkBacking" -> "26288__checkBacking"
+"26288_takeWith" -> "26288_onlyUs"
+"26288_sweep" -> "26288__refreshHoldings"
+"26288_finalize" -> "26288_onlyOwner"
+"26288_take" -> "26288__takeArgs"
+"26288_pokeVaultHealth" -> "26288__refreshHoldings"
+"26288_setVault" -> "26288_onlyOwner"
+"26288_get_deposits" -> "26288_getDepegSeverityBps"
+"26288_setVaultHealth" -> "26288_owner"
+"26288__redeemAs" -> "26288__refreshAllHoldings"
+"26288_takeToSettle" -> "26288__takeArgs"
+"26288_sweep" -> "26288_nonReentrant"
+"26288_redeem" -> "26288__redeemRequire"
+"26288_evacuate" -> "26288_onlyOwner"
+"26288_takeToSettle" -> "26288_onlyUs"
+"26288_setStableFeed" -> "26288_onlyOwner"
+"26288_redeem" -> "26288_nonReentrant"
+"26288_pokeVaultHealth" -> "26288__vaultHealthCfg"
+"26288_setQuid" -> "26288__pinQuid"
+"26288_setBTCChannels" -> "26288_onlyOwner"
+"26288_withdrawAaveLeg" -> "26288__reserveIdOf"
+"26288_swapTo" -> "26288_nonReentrant"
+"26288_take" -> "26288_onlyUs"
+"26288_evacuate" -> "26288__vaultHealthCfg"
+"26288_refreshHoldingsSelf" -> "26288__refreshHoldings"
+"26288_setQuid" -> "26288_onlyOwner"
+"26288_auxSwap" -> "26288_onlyUs"
+"26288_aaveBalance" -> "26288__aaveReserve"
+"26288__redeemAs" -> "26288__requireFreshHoldings"
+"26288_finalize" -> "26288_owner"
+"26288_takeWith" -> "26288__takeArgs"
+"26288_swap" -> "26288_swapTo"
+"26288__depositVol" -> "26288__deposit"
+"26288_sorSelfFundedReverse" -> "26288_nonReentrant"
+"26288_btcShortfall" -> "26288_onlyUs"
+"26288_tryCheckBacking" -> "26288__backingCore"
+"26288_withdrawSelf" -> "26288__withdraw"
+"26288_redeemTo" -> "26288__redeemAs"
+"26288_get_metrics" -> "26288_get_deposits"
+"26288_setEthVenue" -> "26288_onlyOwner"
+"26288_redeem" -> "26288__redeemAs"
+"26288_take" -> "26288_take"
+"26288_sorSelfFunded" -> "26288_nonReentrant"
+"26288_setAssetFeed" -> "26288_onlyOwner"
+}subgraph cluster_21363_IImmutableState {
+label = "IImmutableState"
+"21363_poolManager" [label="poolManager"]
+}subgraph cluster_13524_Ownable {
+label = "Ownable"
+"13524_transferOwnership" [label="transferOwnership"]
+"13524__transferOwnership" [label="_transferOwnership"]
+"13524_owner" [label="owner"]
+"13524_constructor" [label="constructor"]
+"13524__checkOwner" [label="_checkOwner"]
+"13524_renounceOwnership" [label="renounceOwnership"]
+"13524_constructor" -> "13524__transferOwnership"
+"13524__checkOwner" -> "13524__msgSender"
+"13524__checkOwner" -> "13524_owner"
+"13524_transferOwnership" -> "13524_onlyOwner"
+"13524_transferOwnership" -> "13524__transferOwnership"
+"13524_renounceOwnership" -> "13524_onlyOwner"
+"13524_renounceOwnership" -> "13524__transferOwnership"
+}subgraph cluster_21303_ImmutableState {
+label = "ImmutableState"
+"21303_constructor" [label="constructor"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
-"revert OverCommitted()" 
-"revert NoSelfFundedPath()" 
-"revert OwnableUnauthorizedAccount(address)" 
-"revert NoReversePath()" 
-"revert EthVenuePinned()" 
-"revert Unauthorized()" 
 "revert BtcChannelsPinned()" 
-"require(bool,string)" 
-"revert QuidPinned()" 
-"revert GHONotOnAAVE()" 
-"revert LengthMismatch()" 
-"revert NotSelf()" 
-"revert ZeroSent()" 
-"revert FeedPinned()" 
 "revert OwnableInvalidOwner(address)" 
+"revert LengthMismatch()" 
+"revert QuidPinned()" 
+"revert ZeroSent()" 
+"revert NoReversePath()" 
+"revert OwnableUnauthorizedAccount(address)" 
+"revert NotSelf()" 
+"revert GHONotOnAAVE()" 
+"require(bool,string)" 
 "revert GHOIsAaveWired()" 
-"19994_bumpVogueBTC" -> "revert NotSelf()"
-"19994_tipSelf" -> "revert NotSelf()"
-"19994_refreshHoldingsSelf" -> "revert NotSelf()"
-"19994_redeemTo" -> "require(bool,string)"
-"19994__redeemRequire" -> "require(bool,string)"
-"19994_setAssetFeed" -> "revert FeedPinned()"
-"19994__withdrawAaveUnsafe" -> "revert NotSelf()"
-"19994__checkBacking" -> "revert OverCommitted()"
-"19994_supplySelf" -> "revert NotSelf()"
-"19994_setVaultHealth" -> "require(bool,string)"
-"19994_constructor" -> "revert LengthMismatch()"
-"19994__tryPath" -> "revert NotSelf()"
-"19994_sorSelfFundedReverse" -> "revert NoReversePath()"
-"7273__checkOwner" -> "revert OwnableUnauthorizedAccount(address)"
-"7273_constructor" -> "revert OwnableInvalidOwner(address)"
-"19994_setEthVenue" -> "revert EthVenuePinned()"
-"19994_withdrawAaveLeg" -> "revert NotSelf()"
-"19994_setVault" -> "revert GHOIsAaveWired()"
-"19994__depositVol" -> "revert NotSelf()"
-"19994_withdrawSelf" -> "revert NotSelf()"
-"19994_constructor" -> "revert GHONotOnAAVE()"
-"19994_sorSelfFunded" -> "revert NoSelfFundedPath()"
-"19994__deposit" -> "revert ZeroSent()"
-"19994__requireUs" -> "revert Unauthorized()"
-"7273_transferOwnership" -> "revert OwnableInvalidOwner(address)"
-"19994_setBTCChannels" -> "revert BtcChannelsPinned()"
-"19994_setStableFeed" -> "revert FeedPinned()"
-"19994_refreshAllHoldingsSelf" -> "revert NotSelf()"
-"19994__pinQuid" -> "revert QuidPinned()"
+"revert EthVenuePinned()" 
+"revert OverCommitted()" 
+"revert Unauthorized()" 
+"revert NoSelfFundedPath()" 
+"revert FeedPinned()" 
+"26288_setEthVenue" -> "revert EthVenuePinned()"
+"26288__redeemRequire" -> "require(bool,string)"
+"13524_transferOwnership" -> "revert OwnableInvalidOwner(address)"
+"26288__withdrawAaveUnsafe" -> "revert NotSelf()"
+"13524__checkOwner" -> "revert OwnableUnauthorizedAccount(address)"
+"26288_sorSelfFunded" -> "revert NoSelfFundedPath()"
+"26288__checkBacking" -> "revert OverCommitted()"
+"26288_tipSelf" -> "revert NotSelf()"
+"26288_bumpVogueBTC" -> "revert NotSelf()"
+"26288_redeemTo" -> "require(bool,string)"
+"26288_withdrawAaveLeg" -> "revert NotSelf()"
+"26288_refreshAllHoldingsSelf" -> "revert NotSelf()"
+"13524_constructor" -> "revert OwnableInvalidOwner(address)"
+"26288__tryPath" -> "revert NotSelf()"
+"26288_setVaultHealth" -> "require(bool,string)"
+"26288__requireUs" -> "revert Unauthorized()"
+"26288_constructor" -> "revert GHONotOnAAVE()"
+"26288__depositVol" -> "revert NotSelf()"
+"26288_sorSelfFundedReverse" -> "revert NoReversePath()"
+"26288_setBTCChannels" -> "revert BtcChannelsPinned()"
+"26288_constructor" -> "revert LengthMismatch()"
+"26288__deposit" -> "revert ZeroSent()"
+"26288__pinQuid" -> "revert QuidPinned()"
+"26288_setVault" -> "revert GHOIsAaveWired()"
+"26288_setAssetFeed" -> "revert FeedPinned()"
+"26288_refreshHoldingsSelf" -> "revert NotSelf()"
+"26288_setStableFeed" -> "revert FeedPinned()"
+"26288_supplySelf" -> "revert NotSelf()"
+"26288_withdrawSelf" -> "revert NotSelf()"
 }
 }

@@ -1,22 +1,22 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_4443_BlockHeader {
+subgraph cluster_9556_BlockHeader {
 label = "BlockHeader"
-"4443_toRawBytes" [label="toRawBytes"]
-"4443_parseBlockHeader" [label="parseBlockHeader"]
-"4443_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
-"4443__getBlockHeaderHash" [label="_getBlockHeaderHash"]
-"4443_parseBlockHeader" -> "4443__getBlockHeaderHash"
+"9556_parseBlockHeader" [label="parseBlockHeader"]
+"9556_toRawBytes" [label="toRawBytes"]
+"9556__getBlockHeaderHash" [label="_getBlockHeaderHash"]
+"9556_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"9556_parseBlockHeader" -> "9556__getBlockHeaderHash"
 }subgraph cluster_solidity {
 label = "[Solidity]"
-"abi.encodePacked()" 
-"sha256(bytes)" 
-"revert InvalidBlockHeaderDataLength()" 
 "abi.encode()" 
-"4443_parseBlockHeader" -> "revert InvalidBlockHeaderDataLength()"
-"4443__getBlockHeaderHash" -> "sha256(bytes)"
-"4443__getBlockHeaderHash" -> "abi.encode()"
-"4443_toRawBytes" -> "abi.encodePacked()"
+"sha256(bytes)" 
+"abi.encodePacked()" 
+"revert InvalidBlockHeaderDataLength()" 
+"9556__getBlockHeaderHash" -> "abi.encode()"
+"9556__getBlockHeaderHash" -> "sha256(bytes)"
+"9556_toRawBytes" -> "abi.encodePacked()"
+"9556_parseBlockHeader" -> "revert InvalidBlockHeaderDataLength()"
 }
 }

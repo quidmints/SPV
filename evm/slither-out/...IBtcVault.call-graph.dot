@@ -1,10 +1,10 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_17123_IBtcVault {
+subgraph cluster_63563_IBtcVault {
 label = "IBtcVault"
-"17123_setBTCChannels" [label="setBTCChannels"]
-"17123_repack" [label="repack"]
+"63563_repack" [label="repack"]
+"63563_setBTCChannels" [label="setBTCChannels"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

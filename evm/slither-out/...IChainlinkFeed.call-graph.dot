@@ -1,9 +1,9 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_35825_IChainlinkFeed {
+subgraph cluster_42584_IChainlinkFeed {
 label = "IChainlinkFeed"
-"35825_latestRoundData" [label="latestRoundData"]
+"42584_latestRoundData" [label="latestRoundData"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

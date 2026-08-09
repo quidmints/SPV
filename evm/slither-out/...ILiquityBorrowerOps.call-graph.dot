@@ -1,16 +1,16 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_36058_ILiquityBorrowerOps {
+subgraph cluster_42817_ILiquityBorrowerOps {
 label = "ILiquityBorrowerOps"
-"36058_addColl" [label="addColl"]
-"36058_repayBold" [label="repayBold"]
-"36058_withdrawColl" [label="withdrawColl"]
-"36058_closeTrove" [label="closeTrove"]
-"36058_adjustTroveInterestRate" [label="adjustTroveInterestRate"]
-"36058_openTrove" [label="openTrove"]
-"36058_MCR" [label="MCR"]
-"36058_withdrawBold" [label="withdrawBold"]
+"42817_MCR" [label="MCR"]
+"42817_withdrawBold" [label="withdrawBold"]
+"42817_adjustTroveInterestRate" [label="adjustTroveInterestRate"]
+"42817_closeTrove" [label="closeTrove"]
+"42817_addColl" [label="addColl"]
+"42817_openTrove" [label="openTrove"]
+"42817_repayBold" [label="repayBold"]
+"42817_withdrawColl" [label="withdrawColl"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

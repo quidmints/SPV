@@ -1,10 +1,10 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_58681_IAggregatorV3 {
+subgraph cluster_62627_IAggregatorV3 {
 label = "IAggregatorV3"
-"58681_decimals" [label="decimals"]
-"58681_latestRoundData" [label="latestRoundData"]
+"62627_latestRoundData" [label="latestRoundData"]
+"62627_decimals" [label="decimals"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

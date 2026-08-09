@@ -1,9 +1,9 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_12384_FixedPoint96 {
+subgraph cluster_18635_FixedPoint96 {
 label = "FixedPoint96"
-"12384_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"18635_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

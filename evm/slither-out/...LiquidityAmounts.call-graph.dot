@@ -1,25 +1,25 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_78120_LiquidityAmounts {
+subgraph cluster_83081_LiquidityAmounts {
 label = "LiquidityAmounts"
-"78120_getAmount0ForLiquidity" [label="getAmount0ForLiquidity"]
-"78120_getLiquidityForAmounts" [label="getLiquidityForAmounts"]
-"78120_toUint128" [label="toUint128"]
-"78120_getAmountsForLiquidity" [label="getAmountsForLiquidity"]
-"78120_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
-"78120_getLiquidityForAmount1" [label="getLiquidityForAmount1"]
-"78120_getLiquidityForAmount0" [label="getLiquidityForAmount0"]
-"78120_getAmount1ForLiquidity" [label="getAmount1ForLiquidity"]
-"78120_getLiquidityForAmounts" -> "78120_getLiquidityForAmount1"
-"78120_getLiquidityForAmounts" -> "78120_getLiquidityForAmount0"
-"78120_getLiquidityForAmount1" -> "78120_toUint128"
-"78120_getAmountsForLiquidity" -> "78120_getAmount1ForLiquidity"
-"78120_getAmountsForLiquidity" -> "78120_getAmount0ForLiquidity"
-"78120_getLiquidityForAmount0" -> "78120_toUint128"
+"83081_toUint128" [label="toUint128"]
+"83081_getLiquidityForAmounts" [label="getLiquidityForAmounts"]
+"83081_getLiquidityForAmount0" [label="getLiquidityForAmount0"]
+"83081_getAmount1ForLiquidity" [label="getAmount1ForLiquidity"]
+"83081_getAmountsForLiquidity" [label="getAmountsForLiquidity"]
+"83081_getLiquidityForAmount1" [label="getLiquidityForAmount1"]
+"83081_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"83081_getAmount0ForLiquidity" [label="getAmount0ForLiquidity"]
+"83081_getLiquidityForAmount1" -> "83081_toUint128"
+"83081_getLiquidityForAmounts" -> "83081_getLiquidityForAmount0"
+"83081_getAmountsForLiquidity" -> "83081_getAmount0ForLiquidity"
+"83081_getLiquidityForAmount0" -> "83081_toUint128"
+"83081_getLiquidityForAmounts" -> "83081_getLiquidityForAmount1"
+"83081_getAmountsForLiquidity" -> "83081_getAmount1ForLiquidity"
 }subgraph cluster_solidity {
 label = "[Solidity]"
 "require(bool)" 
-"78120_toUint128" -> "require(bool)"
+"83081_toUint128" -> "require(bool)"
 }
 }

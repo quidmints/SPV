@@ -1,10 +1,10 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_36096_ILiquityTroveManager {
+subgraph cluster_42855_ILiquityTroveManager {
 label = "ILiquityTroveManager"
-"36096_getLatestTroveData" [label="getLatestTroveData"]
-"36096_getTroveStatus" [label="getTroveStatus"]
+"42855_getLatestTroveData" [label="getLatestTroveData"]
+"42855_getTroveStatus" [label="getTroveStatus"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

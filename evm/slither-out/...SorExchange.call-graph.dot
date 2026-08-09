@@ -1,15 +1,15 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_40641_IExchange {
-label = "IExchange"
-"40641_swapFromBold" [label="swapFromBold"]
-"40641_swapToBold" [label="swapToBold"]
-}subgraph cluster_40797_SorExchange {
+subgraph cluster_44882_SorExchange {
 label = "SorExchange"
-"40797_swapFromBold" [label="swapFromBold"]
-"40797_constructor" [label="constructor"]
-"40797_swapToBold" [label="swapToBold"]
+"44882_swapFromBold" [label="swapFromBold"]
+"44882_constructor" [label="constructor"]
+"44882_swapToBold" [label="swapToBold"]
+}subgraph cluster_44726_IExchange {
+label = "IExchange"
+"44726_swapFromBold" [label="swapFromBold"]
+"44726_swapToBold" [label="swapToBold"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

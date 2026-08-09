@@ -1,16 +1,16 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_20082_IBtcVaultBridge {
+subgraph cluster_63837_IBtcVaultBridge {
 label = "IBtcVaultBridge"
-"20082_addPendingSwapOut" [label="addPendingSwapOut"]
-"20082_unregisterBtcLp" [label="unregisterBtcLp"]
-"20082_creditSwapOut" [label="creditSwapOut"]
-"20082_registerBtcLp" [label="registerBtcLp"]
-"20082_settleBtcFeesOwed" [label="settleBtcFeesOwed"]
-"20082_resizeBtcLp" [label="resizeBtcLp"]
-"20082_creditSwapIn" [label="creditSwapIn"]
-"20082_subPendingSwapOut" [label="subPendingSwapOut"]
+"63837_addPendingSwapOut" [label="addPendingSwapOut"]
+"63837_subPendingSwapOut" [label="subPendingSwapOut"]
+"63837_resizeBtcLp" [label="resizeBtcLp"]
+"63837_unregisterBtcLp" [label="unregisterBtcLp"]
+"63837_creditSwapOut" [label="creditSwapOut"]
+"63837_settleBtcFeesOwed" [label="settleBtcFeesOwed"]
+"63837_registerBtcLp" [label="registerBtcLp"]
+"63837_creditSwapIn" [label="creditSwapIn"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

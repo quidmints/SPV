@@ -1,13 +1,13 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_41182_IVogueShares {
+subgraph cluster_63766_IVogueShares {
 label = "IVogueShares"
-"41182_lpShares" [label="lpShares"]
-"41182_convertToAssets" [label="convertToAssets"]
-"41182_convertToShares" [label="convertToShares"]
-"41182_transferSharesFor" [label="transferSharesFor"]
-"41182_balanceOf" [label="balanceOf"]
+"63766_convertToShares" [label="convertToShares"]
+"63766_balanceOf" [label="balanceOf"]
+"63766_transferSharesFor" [label="transferSharesFor"]
+"63766_lpShares" [label="lpShares"]
+"63766_convertToAssets" [label="convertToAssets"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }
