@@ -555,7 +555,18 @@ contract VBtcLevFeeLane is Alles {
             ETH.collectBtcFees();                              // USD-leg -> QUID; BTC-leg -> btcFeesOwedSats
             uint usdLeg = QUID.balanceOf(lpEth) - qd0;
             uint btcLeg = ETH.btcFeesOwedSats(lpEth) - btcOwed0;
-            assertGt(usdLeg + btcLeg, 0, "(a) levered LP ACCRUES band fees on its equity");
+            // (E145-n) ⚠️ THIS USED TO BE `assertGt(usdLeg + btcLeg, 0)` — A SUM THE USD LEG
+            //    ALONE SATISFIES, so it passed identically whether the BTC leg was live or
+            //    permanently zero. MEASURED 2026-08-09: `usdLeg` ≈ 7.6e17, **`btcLeg == 0` and
+            //    `feesPerShareBTC == 0`** — the BTC leg does NOT accrue here, and the sum hid it.
+            //    Asserting the legs SEPARATELY so the test states what is actually true and a
+            //    future change that makes the BTC leg live shows up as a failure, not silence.
+            assertGt(usdLeg, 0, "(a) levered LP accrues the USD-leg band fee on its equity");
+            assertEq(btcLeg, 0,
+                "(a) the BTC leg does NOT accrue -- see E145-n: BTC inflows are channels-only "
+                "(SwapLib:372), so the pool is never sold into and the token-side fee is never "
+                "earned. If this ever fails, feesPerShareBTC became reachable and the whole "
+                "btcFeesOwedSats/forgone machinery is live after all -- re-open E145.");
         }
 
         // (b) UNWIND-ONLY: a normal channel splice-out (LP withdrawal, exactUsd==0) can only shrink
