@@ -4511,4 +4511,27 @@ contract Alles is ForkPin, Fixtures {
         if (volume18 > 0) emit log_named_uint("=> fee rate, bps of volume", paid18 * 10000 / volume18);
         assertGt(paid18, 0, "the single swap must accrue a USD-leg fee to the sole LP");
     }
+
+    /// (E145) THE LAST UNMEASURED PRICE IN THE FOLD: is `sats * price / WAD` really 18-dec USD?
+    ///
+    /// The fold pays the BTC-leg fee through the existing USD-leg mint, which needs the owed
+    /// SATS valued in USD. CLAUDE.md names this conversion as the repo's most common bug
+    /// source: three decimal bases coexist, and the WBTC price carries a x1e10 lift. Getting
+    /// it wrong under- or over-pays by 1e10. Measured here rather than reasoned about.
+    function testBtcFee_satsToUsdConversionIsWellScaled() public {
+        uint price = AUX.getTWAPforAsset(address(WBTC), 1800);   // the same call BtcVaultLib uses
+        assertGt(price, 0, "control: a live WBTC price, else the scaling below is vacuous");
+        // 1 BTC = 1e8 sats. `sats * price / WAD` is the canonical form (BtcVaultLib:93).
+        uint oneBtcSats = 1e8;
+        uint usd18 = oneBtcSats * price / WAD;
+        emit log_named_uint("WBTC price (raw)        ", price);
+        emit log_named_uint("1 BTC via sats*px/WAD   ", usd18);
+        // A whole BTC should be worth a plausible 18-dec USD figure: 1e3..1e7 dollars.
+        assertGt(usd18, 1_000e18,    "1 BTC prices above $1k -- scaling is not 1e10 too small");
+        assertLt(usd18, 10_000_000e18, "1 BTC prices below $10m -- scaling is not 1e10 too large");
+        // And the 209-sat fee measured in E145-q should land as sub-dollar dust, not thousands.
+        uint feeUsd18 = 209 * price / WAD;
+        emit log_named_uint("209 sats in 18-dec USD  ", feeUsd18);
+        assertLt(feeUsd18, 1e18, "a 209-sat fee is sub-dollar; a 1e10 slip would make it millions");
+    }
 }
