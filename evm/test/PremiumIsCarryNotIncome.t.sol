@@ -526,9 +526,68 @@ contract PremiumIsCarryNotIncome is Alles {
         emit log_named_uint("POOL implied vol, bps               ", _sqrtBps(poolAnnual));
         if (poolAnnual > 0) emit log_named_uint("RATIO chainlink/pool", clAnnual / poolAnnual);
     }
+
+    /// §UNIT-ZOOM-OUT — REAL BACKTEST, NOT A SYNTHETIC WALK. Instead of poking a mock feed and
+    /// hoping the band's tick follows, read the tick history of the REAL Uniswap v3 WETH/USDC pool
+    /// -- which carries real flow -- and the REAL Chainlink series over the SAME window, through
+    /// the SAME estimator (`OracleLib.ringVariance`'s exact arithmetic, per §UNIT-RINGVARIANCE-READ:
+    /// rate = dTickCum/dt scaled 1e9, variance of consecutive rate CHANGES, `+ mean*mean` for §E63's
+    /// drift term, `/ spanSecs`, then Core's `*31_536_000*1e10/1e18`).
+    /// THE QUESTION IS RESPONSIVENESS, NOT MAGNITUDE: does a tick series driven by REAL flow track
+    /// the oracle's variance, or is our pegged band structurally deaf to it?
+    function test_UNIT_BacktestV3TickVarianceVsChainlink() public {
+        IUniV3Pool POOL = IUniV3Pool(0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640); // WETH/USDC 0.05%
+        uint32[] memory ago = new uint32[](9);
+        for (uint i; i < 9; ++i) ago[i] = uint32((8 - i) * 3600);      // 9 points, 1h apart, 8h span
+        (int56[] memory tc,) = POOL.observe(ago);
+
+        int[8] memory rate;
+        for (uint i; i < 8; ++i) rate[i] = (int(tc[i + 1] - tc[i]) * 1e9) / int(uint(3600));
+        emit log_named_int("v3 avg tick, oldest hour", rate[0] / 1e9);
+        emit log_named_int("v3 avg tick, newest hour", rate[7] / 1e9);
+        emit log_named_uint("V3 POOL annualised sigma^2", _e63Variance(rate, 8 * 3600));
+
+        // Chainlink over the same 8h, converted to TICK space so the two are directly comparable.
+        (uint80 rid,,,,) = AggregatorV3Interface(AGG).latestRoundData();
+        int[8] memory clRate; uint got;
+        {
+            int tkHi; uint tHi;
+            for (uint i; i < 9; ++i) {
+                (, int px,, uint ts,) = AggregatorV3Interface(AGG).getRoundData(uint80(uint(rid) - i));
+                if (px <= 0 || ts == 0) break;
+                int tk = SoladyMath.lnWad(int(uint(px) * 1e10)) / 99995;   // ln(p)*1e18 / (ln(1.0001)*1e18) scaled to ticks*1e9  // ln(1.0001)
+                if (i > 0 && tHi > ts) { clRate[i - 1] = ((tkHi - tk) * 1e9) / int(tHi - ts); ++got; }
+                tkHi = tk; tHi = ts;
+            }
+        }
+        emit log_named_uint("chainlink intervals used ", got);
+        if (got >= 3) emit log_named_uint("CHAINLINK annualised sigma^2", _e63Variance(clRate, uint32(8 * 3600)));
+        emit log_named_uint("OUR BAND sigma^2 (for scale)", CORE.realizedVarianceWad(false));
+    }
+
+    address constant AGG = 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419;
+
+    /// `OracleLib.ringVariance`'s arithmetic, mirrored EXACTLY (§UNIT-RINGVARIANCE-READ) — including
+    /// §E63's `+ mean*mean`, without which a steadily-trending series measures as perfectly calm.
+    function _e63Variance(int[8] memory rate, uint32 spanSecs) internal pure returns (uint) {
+        uint m = 7; int mean;
+        for (uint i; i < m; ++i) mean += (rate[i] - rate[i + 1]);
+        mean /= int(m);
+        uint acc;
+        for (uint i; i < m; ++i) { int d = (rate[i] - rate[i + 1]) - mean; acc += uint(d * d); }
+        acc /= (m - 1);
+        acc += uint(mean * mean);                       // §E63 drift term
+        return (acc / spanSecs) * 31_536_000 * 1e10 / 1e18;   // Core's annualisation
+    }
 }
 
 interface AggregatorV3Interface {
     function latestRoundData() external view returns (uint80, int, uint, uint, uint80);
     function getRoundData(uint80) external view returns (uint80, int, uint, uint, uint80);
+}
+
+interface IUniV3Pool {
+    function observe(uint32[] calldata secondsAgos)
+        external view returns (int56[] memory tickCumulatives, uint160[] memory);
+    function slot0() external view returns (uint160, int24, uint16, uint16, uint16, uint8, bool);
 }
