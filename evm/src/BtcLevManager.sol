@@ -54,10 +54,6 @@ contract BtcLevManager {
     struct Pos { ILevVenue venue; uint64 targetLtvCapBps; uint128 entryPriceWad; uint128 e0Btc; uint160 entrySqrtP; bool open; }
     mapping(address => Pos) public pos;                     // per-LP isolated position
 
-    /// @notice The BTC band `reseatEpoch` a position last anchored at (kept OUTSIDE `Pos`). When the band
-    ///         recenters (`Vault.reseatEpoch()` advances), `_reanchorIfReseated` moves `entrySqrtP`/
-    ///         `entryPriceWad`/`e0Btc` to the NEW center — mirror of `LevManager.posEpoch`.
-    mapping(address => uint64) public posEpoch;
 
     /// @notice (B) Sold-fraction target activation. Default OFF ⇒ the PROVEN 1−√(entry/now) target stays active.
     ///         GOV flips it ON only AFTER the band-driven fork proof lands — parity with `LevManager`.
@@ -117,7 +113,9 @@ contract BtcLevManager {
     event Withdrawn(address indexed lp, uint vbtcOut);
     event Repaid(address indexed lp, uint stableIn);
     event Closed(address indexed lp, uint vbtcReturned);
-    event Reanchored(address indexed lp, uint64 epoch, uint160 entrySqrtP, uint e0Btc); // (B) BTC band recentered
+    /// @dev RENAMED from `Reanchored` 2026-08-09 — see the note on `LevManager.ReanchoredToBand`. A stale
+    ///      decoder reading the old 4-field shape MISPARSES a 3-field payload rather than reverting.
+    event ReanchoredToBand(address indexed lp, uint160 entrySqrtP, uint e0Btc);
     event ProtectedFromQuid(address indexed lp, uint quidRedeemed, uint debtRepaid);
     event DeleverFailed(address indexed lp, uint ltvBps);   // #10: a batch member skipped (couldn't source / native-only)
 
@@ -272,7 +270,7 @@ contract BtcLevManager {
     function _reanchorIfReseated(address lp) internal {
         Pos storage p = pos[lp];
         if (!p.open) return;
-        (bool go, uint64 ep, uint160 s) = LevMath.reanchorCompute(soldFractionActive, vogueSyncHook, posEpoch[lp], true);
+        (bool go, uint160 s) = LevMath.reanchorCompute(soldFractionActive, vogueSyncHook, p.entrySqrtP, true);
         if (!go) return;
         uint px = IAux(AUX).getTWAPforAsset(WBTC, TWAP_WINDOW);
         // (A): a reseat realizes accrued IL ⇒ re-anchor E0 to the position's CURRENT net-equity (sats) — NOT
@@ -281,8 +279,7 @@ contract BtcLevManager {
         p.entrySqrtP    = s;
         p.entryPriceWad = uint128(px);
         p.e0Btc         = uint128(base);
-        posEpoch[lp]    = ep;
-        emit Reanchored(lp, ep, s, base);
+        emit ReanchoredToBand(lp, s, base);
     }
     /// @notice Stable delta (USD 1e18) + direction to re-hit the IL target; oracle read ONCE.
     function debtDeltaToTarget(address lp) public returns (bool levUp, uint amountUsd) {
@@ -320,7 +317,6 @@ contract BtcLevManager {
         uint160 entrySqrtP;
         if (vogueSyncHook != address(0)) {
             try ILevSyncHook(vogueSyncHook).bandSqrtP(true) returns (uint160 s) { entrySqrtP = s; } catch {}
-            try ILevSyncHook(vogueSyncHook).reseatEpoch() returns (uint64 ep) { posEpoch[msg.sender] = ep; } catch {}
         }
         pos[msg.sender] = Pos({venue: venue, targetLtvCapBps: cap, entryPriceWad: uint128(entryPx),
                                e0Btc: uint128(e0), entrySqrtP: entrySqrtP, open: true});

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {FixedPointMathLib} from "solady/src/utils/FixedPointMathLib.sol";
+import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 // §A.52: the canonical view (was a file-local `ILevSyncHookM`).
 import {ILevSyncHook, IAux, IWeETH, IWiredVault,
         IDepositAdapter, ILevVenueColl, ILevMintVenue} from "./Interfaces.sol";
@@ -99,17 +100,36 @@ library LevMath {
         return ilBps > capBps ? capBps : ilBps;
     }
 
-    /// @notice The reseat DECISION folded out of both managers' `_reanchorIfReseated`: the two hook try/catch reads
-    ///         (`reseatEpoch` → is-newer, `bandSqrtP` → non-zero). The manager passes `active`/`hook`/current epoch/
-    ///         `isBTC` and, on `go`, keeps the oracle read + net-equity + `Pos` writes + `Reanchored` event itself
-    ///         (so the differing storage layout + asset valuation stay manager-side — layout-safe).
-    function reanchorCompute(bool active, address hook, uint64 curEpoch, bool isBTC)
-        public returns (bool go, uint64 newEpoch, uint160 newSqrtP) {
-        if (!active || hook == address(0)) return (false, 0, 0);
-        try ILevSyncHook(hook).reseatEpoch() returns (uint64 e) { newEpoch = e; } catch { return (false, 0, 0); }
-        if (newEpoch <= curEpoch) return (false, 0, 0);       // band hasn't recentered → nothing to re-anchor
-        try ILevSyncHook(hook).bandSqrtP(isBTC) returns (uint160 v) { newSqrtP = v; } catch { return (false, 0, 0); }
-        if (newSqrtP == 0) return (false, 0, 0);
+    /// @notice The reseat DECISION folded out of both managers' `_reanchorIfReseated`.
+    /// @dev  Re-anchor iff the position's `entrySqrtP` now sits OUTSIDE the band's current `[lower, upper]`.
+    ///       This REPLACED a `reseatEpoch` counter (removed 2026-08-09) and is strictly MORE PRECISE, not
+    ///       merely smaller: the counter fired on EVERY reseat, including ones that left this anchor still
+    ///       inside the new range and therefore needed no re-anchor. The bounds fire only when the frame moved
+    ///       RELATIVE TO THIS POSITION, and there is no counter to desynchronise.
+    /// ⚠️   IT IS A POINT-IN-TIME TEST. It answers "is my anchor stale NOW", NOT "were these two reads taken in
+    ///       the SAME frame". §E117 measured a 1h TWAP tick of 200766 sitting neatly inside a post-reseat band
+    ///       [200730, 200770) whose window spanned FOUR frame changes — no bounds check can see that. Safe here
+    ///       because BOTH live consumers ask the point-in-time question; the windowed consumer (§E93) is
+    ///       refuted and blocked. **If anyone builds a WINDOWED reading over the tick series, the epoch must
+    ///       come back, and §E117 is the evidence for why.**
+    /// @dev  Compared in SQRT space, never by converting `entrySqrtP` to a tick: tick conversion truncates, so
+    ///       a position anchored exactly at a boundary would flip on rounding.
+    function reanchorCompute(bool active, address hook, uint160 entrySqrtP, bool isBTC)
+        public returns (bool go, uint160 newSqrtP) {
+        if (!active || hook == address(0) || entrySqrtP == 0) return (false, 0);
+        try ILevSyncHook(hook).bandSqrtP(isBTC) returns (uint160 v) { newSqrtP = v; } catch { return (false, 0); }
+        if (newSqrtP == 0) return (false, 0);
+        int24 lo; int24 hi;
+        if (isBTC) {
+            try ILevSyncHook(hook).LOWER_TICK_BTC() returns (int24 l) { lo = l; } catch { return (false, 0); }
+            try ILevSyncHook(hook).UPPER_TICK_BTC() returns (int24 u) { hi = u; } catch { return (false, 0); }
+        } else {
+            try ILevSyncHook(hook).LOWER_TICK() returns (int24 l) { lo = l; } catch { return (false, 0); }
+            try ILevSyncHook(hook).UPPER_TICK() returns (int24 u) { hi = u; } catch { return (false, 0); }
+        }
+        if (lo >= hi) return (false, 0);                       // band unset/degenerate → nothing to compare against
+        if (entrySqrtP >= TickMath.getSqrtPriceAtTick(lo) &&
+            entrySqrtP <= TickMath.getSqrtPriceAtTick(hi)) return (false, 0);   // still inside its own frame
         go = true;
     }
 

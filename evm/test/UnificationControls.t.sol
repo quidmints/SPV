@@ -1188,7 +1188,7 @@ contract UnificationControls is Alles {
         // cranker — which is the right party, and it means COMPOUND_GAS does NOT have to carry a
         // reseat. Kept in the test because "I could not make it happen, and here is why" is the
         // evidence for that claim; delete it and the sizing becomes an assertion again.
-        uint epoch0 = V4.reseatEpoch();
+        int24 lo0 = V4.LOWER_TICK(); int24 hi0 = V4.UPPER_TICK();  // the FRAME (reseatEpoch removed 2026-08-09)
         for (uint i; i < 30; i++) _trade(12_000e18);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 1 hours);
         vm.txGasPrice(10 gwei);
@@ -1196,9 +1196,9 @@ contract UnificationControls is Alles {
         V4.compound(lpA);
         uint usedHeavy = g1 - gasleft();
         emit log_named_uint("compound() gas, HEAVY crank   ", usedHeavy);
-        emit log_named_uint("reseatEpoch before            ", epoch0);
-        emit log_named_uint("reseatEpoch after             ", V4.reseatEpoch());
-        assertEq(V4.reseatEpoch(), epoch0,
+        emit log_named_int("frame lower before/after      ", lo0);
+        emit log_named_int("                              ", V4.LOWER_TICK());
+        assertTrue(V4.LOWER_TICK() == lo0 && V4.UPPER_TICK() == hi0,
             "no reseat fired: the SWAP path recentres first, so the cranker never pays for one");
         emit log_named_uint("WORST observed crank (gas)    ", usedHeavy > used ? usedHeavy : used);
     }

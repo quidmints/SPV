@@ -368,7 +368,7 @@ contract PremiumIsCarryNotIncome is Alles {
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
         AUX.setAssetFeed(address(WETH), ETH_FEED);
         emit log_named_uint("sigma^2 BEFORE the walk", CORE.realizedVarianceWad(false));
-        emit log_named_uint("reseatEpoch BEFORE      ", V4.reseatEpoch());
+        emit log_named_int("frame lower BEFORE      ", V4.LOWER_TICK());
 
         // §UNIT-A-FIXTURE-CORR — DRIVE THE POOL'S TICK, NOT THE FEED, AND WITH SIZE.
         // `ringVariance` reads `tickCumulative` off the POOL's ring and takes the variance of
@@ -426,7 +426,7 @@ contract PremiumIsCarryNotIncome is Alles {
         // when the band RESEATS onto a new oracle level (oracle-pegged fills consume inventory
         // without walking the curve), so the reseat count IS the variance driver. +/-1.8% feed
         // moves are 9x the band half-width and should force reseats; measure whether they do.
-        emit log_named_uint("reseatEpoch AFTER the walk", V4.reseatEpoch());
+        emit log_named_int("frame lower AFTER the walk", V4.LOWER_TICK());
         emit log_named_uint("swaps LANDED  ", landed);
         emit log_named_uint("swaps REVERTED", reverted);
         uint varWad = CORE.realizedVarianceWad(false);

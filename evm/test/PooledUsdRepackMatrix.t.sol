@@ -53,7 +53,7 @@ contract PooledUsdRepackMatrix is Alles {
         uint feesPerShare; uint usdFees;
         uint feesPerShareBtc; uint usdFeesBtc;
         uint lastRepack;
-        uint64 epoch;
+        bytes32 epoch;   // FRAME id (band bounds); reseatEpoch counter removed 2026-08-09
         int24 tick;
     }
 
@@ -64,7 +64,7 @@ contract PooledUsdRepackMatrix is Alles {
         s.feesPerShare = V4.feesPerShare(); s.usdFees = V4.USD_FEES();
         s.feesPerShareBtc = BTC.feesPerShareBTC(); s.usdFeesBtc = BTC.USD_FEES_BTC();
         s.lastRepack = V4.LAST_REPACK();
-        s.epoch = V4.reseatEpoch();
+        s.epoch = keccak256(abi.encode(V4.LOWER_TICK(), V4.UPPER_TICK()));
         (,, s.tick) = CORE.poolTicks(false);
     }
 

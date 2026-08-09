@@ -110,7 +110,11 @@ contract LevManager {
     event Closed(address indexed lp, uint256 weethReturned);
     event DeleverFailed(address indexed lp, uint256 ltvBps);    // cascade skipped this LP → its venue liquidates it
     event RebalanceFailed(address indexed lp, uint256 ltvBps);  // batch rebalance skipped this LP (retried next tick)
-    event Reanchored(address indexed lp, uint64 epoch, uint160 entrySqrtP, uint256 e0Eth); // (B) band recentered → fresh hedge base
+    /// @dev RENAMED from `Reanchored` 2026-08-09 (was `(lp, uint64 epoch, uint160, uint256)`). The `epoch`
+    ///      field went with the `reseatEpoch` counter. Renaming rather than shortening in place is deliberate:
+    ///      a stale off-chain decoder reading the OLD 4-field shape does not revert on a 3-field payload, it
+    ///      MISPARSES. A new name makes it fail to match instead — loud beats plausible.
+    event ReanchoredToBand(address indexed lp, uint160 entrySqrtP, uint256 e0Eth);
 
     error AlreadyOpen();
     error NotOpen();
@@ -152,12 +156,6 @@ contract LevManager {
         soldFractionActive = on;
     }
 
-    /// @notice The band `reseatEpoch` a position last anchored at (kept OUTSIDE `Pos` so the public struct ABI /
-    ///         its 6-tuple test destructuring stay stable). When the band recenters (`Vogue.reseatEpoch()`
-    ///         advances past this), `_reanchorIfReseated` realizes: it moves `entrySqrtP`/`entryPriceWad`/`e0Eth`
-    ///         to the NEW band center, so the sold-fraction (B) is measured from the recentered band — not
-    ///         across the tick-config change, which would over-measure IL and over-hedge.
-    mapping(address => uint64) public posEpoch;
 
     /// @notice The Morpho singleton used PURELY as a zero-fee flash source for `_deleverFlash` (repay-first
     ///         de-lever). Pin-ONCE then frozen — NOT a rotatable setter: set at deploy to the canonical
@@ -440,7 +438,7 @@ contract LevManager {
     function _reanchorIfReseated(address lp) internal {
         Pos storage p = pos[lp];
         if (!p.open) return;
-        (bool go, uint64 ep, uint160 s) = LevMath.reanchorCompute(soldFractionActive, vogueSyncHook, posEpoch[lp], false);
+        (bool go, uint160 s) = LevMath.reanchorCompute(soldFractionActive, vogueSyncHook, p.entrySqrtP, false);
         if (!go) return;
         uint256 px = AUX.getTWAPforAsset(WETH, TWAP_WINDOW);
         // (A): a reseat REALIZES the accrued IL, so re-anchor E0 to the position's CURRENT net-equity (the new
@@ -451,8 +449,7 @@ contract LevManager {
         p.entrySqrtP    = s;
         p.entryPriceWad = uint128(px);
         p.e0Eth         = uint128(base);
-        posEpoch[lp]    = ep;
-        emit Reanchored(lp, ep, s, base);
+        emit ReanchoredToBand(lp, s, base);
     }
 
     // ════════════════════════════ OPEN ════════════════════════════
@@ -487,7 +484,6 @@ contract LevManager {
         uint160 entrySqrtP;
         if (vogueSyncHook != address(0)) {
             try ILevSyncHook(vogueSyncHook).bandSqrtP(false) returns (uint160 s) { entrySqrtP = s; } catch {}
-            try ILevSyncHook(vogueSyncHook).reseatEpoch() returns (uint64 ep) { posEpoch[msg.sender] = ep; } catch {}
         }
         pos[msg.sender] = Pos({venue: venue, targetLtvCapBps: targetLtvBps, entryPriceWad: uint128(entryPx),
                                e0Eth: uint128(e0), entrySqrtP: entrySqrtP, open: true});

@@ -534,7 +534,7 @@ library BtcVaultLib {
     ///      legacy stack (no via_ir).
     struct RebalOut {
         uint160 sqrtPriceX96; int24 tickLower; int24 tickUpper; uint128 myLiquidity; uint resolvedTwap;
-        uint feesPerShareBTC; uint usdFeesBtc; uint64 reseatEpochBTC;
+        uint feesPerShareBTC; uint usdFeesBtc;
     }
 
     /// @notice Body of Vault._rebalance (BTC side) — VERBATIM relocation (SwapLib.rebalanceCore + the repack/JIT
@@ -545,12 +545,12 @@ library BtcVaultLib {
     ///         forwarder writes back feesPerShareBTC/USD_FEES_BTC/reseatEpochBTC/LOWER_TICK_BTC/UPPER_TICK_BTC.
     function rebalanceBody(
         BtcCfg memory c, bool isBTC, int24 lowerTick, int24 upperTick,
-        uint feesPerShareBTC, uint usdFeesBtc, uint64 reseatEpochBTC, uint feeDenom
+        uint feesPerShareBTC, uint usdFeesBtc, uint feeDenom
     ) public returns (RebalOut memory o) {
         // BTC has no vault yield to sync (no WBTC supply); skip _syncYield.
         SwapLib.Rebalanced memory r = SwapLib.rebalanceCore(
             c.core, c.aux, IAux(c.aux).WBTC(), isBTC, upperTick, lowerTick);
-        o.feesPerShareBTC = feesPerShareBTC; o.usdFeesBtc = usdFeesBtc; o.reseatEpochBTC = reseatEpochBTC;
+        o.feesPerShareBTC = feesPerShareBTC; o.usdFeesBtc = usdFeesBtc;
         if (r.didRepack) {
             bool t1 = ICore(c.core).token1isBTC();
             uint feesTok = t1 ? r.fees1 : r.fees0;
@@ -562,7 +562,6 @@ library BtcVaultLib {
             (uint tokInc, uint usdInc) = SwapLib.feeIncrements(r.jitFeesTok, r.jitFeesUsd, feeDenom);
             o.feesPerShareBTC += tokInc; o.usdFeesBtc += usdInc;
         }
-        if (r.tickLower != lowerTick || r.tickUpper != upperTick) o.reseatEpochBTC++; // ticks recentered → re-anchor
         o.sqrtPriceX96 = r.sqrtPriceX96; o.tickLower = r.tickLower; o.tickUpper = r.tickUpper;
         o.myLiquidity = r.myLiquidity; o.resolvedTwap = r.resolvedTwap;
     }
