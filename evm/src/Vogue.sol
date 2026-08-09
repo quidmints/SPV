@@ -170,7 +170,7 @@ contract Vogue is
     ///         band's IL and moves the ticks, so the IL-protect re-anchors its `entrySqrtP`/`E0` when this
     ///         advances past a position's recorded epoch — otherwise the sold-fraction would be measured
     ///         across a tick-config change and mis-hedge.
-    uint64 public reseatEpoch;
+
 
     // V4.POOLED_ETH() = principal + ALL compounded fees (even unclaimed)
     // The previous singular `totalShares` is now exposed via this
@@ -1134,7 +1134,6 @@ contract Vogue is
         feesPerShare += o.feesPerShareInc; USD_FEES += o.usdFeesInc; // _distributeV4Fees
         
         if (o.setLastRepack) LAST_REPACK = block.timestamp;      // _calcYield's live effect
-        if (o.reseatBump) reseatEpoch++;                         // ticks recentered → re-anchor signal
         LOWER_TICK = o.tickLower; UPPER_TICK = o.tickUpper;      // write the (possibly new) range back
         return (o.sqrtPriceX96, o.tickLower, o.tickUpper, o.myLiquidity, o.resolvedTwap);
     }

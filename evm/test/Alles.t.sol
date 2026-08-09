@@ -817,7 +817,7 @@ contract Alles is ForkPin, Fixtures {
         (,, int24 tickBefore) = CORE.poolTicks(false);
         assertLe(tickBefore, V4.UPPER_TICK(), "PREMISE: swap saturates inside the band (upper)");
         assertGe(tickBefore, V4.LOWER_TICK(), "PREMISE: swap saturates inside the band (lower)");
-        uint64 epochBefore = V4.reseatEpoch();
+        int24 loBefore = V4.LOWER_TICK(); int24 hiBefore = V4.UPPER_TICK();
 
         // The permissionless reseat must handle the skewed pool without reverting.
         V4.reseat();
@@ -846,7 +846,8 @@ contract Alles is ForkPin, Fixtures {
         // the block comment above (that would be the FIX for the suspected defect, not a break).
         (,, int24 tickAfter) = CORE.poolTicks(false);
         assertEq(tickAfter, tickBefore, "reseat did not move the spot (no branch fired)");
-        assertEq(V4.reseatEpoch(), epochBefore, "reseat did not re-center the band (no branch fired)");
+        assertTrue(V4.LOWER_TICK() == loBefore && V4.UPPER_TICK() == hiBefore,
+            "reseat did not re-center the band (no branch fired)");
     }
 
     // Grind removed → the mover pays the reseat/repack gas INSIDE its own swap (SwapLib.rebalanceCore

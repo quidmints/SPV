@@ -8902,3 +8902,109 @@ The queue entry's original delete list named 4 items. Each re-verification pass 
 suspicion until a compile confirms it.**
 
 | **UNIT-VARIANCE-SOLVED** | 🎯🎯🎯 **SOLVED: THE FORMULA ALREADY SPLITS PRICE FROM INVENTORY — `σ²` IS THE **PRICE** FACTOR AND `q` IS THE INVENTORY ONE. THE POOL TICK SUPPLIES **NEITHER** (owner: *"that's overarching price variance which is different from our internal inventory's"*, 2026-08-06).** ✅ **THE ANSWER TO THE OWNER'S DISTINCTION: in Avellaneda–Stoikov the reservation shift is `q·γ·σ²·(T−t)` — **`q` IS the inventory term, `σ²` IS the ASSET PRICE variance**, and they MULTIPLY. The risk of an imbalance is not *"how much does our inventory swing"* but *"we hold `q` too much of a thing whose PRICE moves by `σ`"*. MMRZ is identical: `σ²/8` is price variance and position size enters separately. ⇒ **THE TWO DIMENSIONS ARE ALREADY SPLIT IN THE FORMULA; WE SUPPLY THEM FROM THE WRONG PLACES:** • inventory → `q = (target − inv)/target` ✅ already inventory-derived · • price → `σ²` ❌ currently the POOL TICK's variance.** 🔴🔴🔴 **AND THE POOL TICK MEASURES **NEITHER**: it is not PRICE variance (pegged to the oracle by construction, §UNIT-TWAP-RESOLVE) and it is not INVENTORY variance (§UNIT-ZERO-RESEATS measured inventory draining to `q ≈ 1` with the tick NEVER MOVING). **It is a third quantity that tracks neither factor the formula needs.**** ✅✅ **THIS EXPLAINS THE 0.04% MECHANICALLY AND CLOSES §UNIT-WHY-VARIANCE's THREE-WAY QUESTION: `q → 1` while `σ²` stays FLAT, so `Γ·σ²·q` stays negligible **EVEN AT MAXIMUM SCARCITY** — which is exactly what was measured: `wellSkew` 0.084 bps with the ceiling simultaneously pinned. **NOT a bad fixture. NOT "architecture, live with it". A WRONG INPUT.**** ▶️ **⇒ `σ²` SHOULD COME FROM THE ORACLE SERIES (Chainlink round history via `getRoundData`, no new state), reusing `OracleLib.ringVariance`'s SHAPE — it already normalises UNEVEN intervals by their own elapsed time, and Chainlink rounds are event-driven and irregular in exactly the same way. **Only the INPUT changes.**** ⚠️ **THE REFINEMENT THE OWNER'S INSTINCT IS ACTUALLY POINTING AT, AND IT IS RIGHT: we do NOT need ALL of Chainlink's variance. The LP is exposed only over the window between QUOTING and being able to REBALANCE — which is precisely why the base is `σ²·confFrac/8` and not raw `σ²`. Over ETH's 12-second settlement window that is a tiny slice; over the ACTUAL REPAIR window (§UNIT-C) it is far larger. **THE SAME DURATION INPUT THREE OTHER DECISIONS ARE WAITING ON (§UNIT-B, §UNIT-LP-EXIT, one-sided-vs-two-sided).**** ⚠️ **STILL MEASURE THE DIVERGENCE FIRST — five hypotheses died today; the survivor cost one log line. Pool-series σ² beside Chainlink-series σ² over the same window, BEFORE any money-path change.** | 🎯🎯🎯 σ²=price (Chainlink), q=inventory; pool tick is neither; measure divergence before landing |
+
+### ✅ ANSWERED — the vault must NOT be a synthetic LP. The borrow leg needs a POSITION-FREE path.
+
+The open question was: does a protocol-level borrow reuse `LevManager.openLev` (vault becomes an "LP" in
+`pos[]`) or bypass positions and use only the venues? **Reading `openLev` settles it, and not on taste.**
+
+🔴 **1. IT IS CIRCULAR. An LP's levered net-equity BECOMES BAND DEPTH.** `openLev:485` `_trackOpen` joins
+*"the book the Vault sums net-equity over"*, and the (A) intrinsic model (`:474-478`) states the deposit's
+*"net-equity is synced into the concentrated band (`levPooled`) as delta-1 (IL-free) depth"*
+(`Vault.sol:164,618` — `syncLevBTC` marks `levPooledBTC` to live net-equity; `Vogue.levPooled` is the ETH
+mirror). **So if the vault opened a position, the WETH it borrowed would be synced BACK INTO THE BAND as
+that band's own depth.** The band would count borrowed funds as its own liquidity — while the offramp
+exists *precisely because the band is SHORT of ETH*. **Adding phantom depth during a drain is exactly
+backwards**, and it is the `_checkBacking` phantom-backing failure mode arriving through a different door.
+
+🔴 **2. THE TWO FLOWS POINT IN OPPOSITE DIRECTIONS.** `openLev` puts weETH **IN** as levered band depth and
+requires `collWeeth >= MIN_OPEN_WEETH` from the caller. The offramp delivers WETH **OUT** to an exiting LP.
+Reusing the entrypoint would mean the protocol depositing to itself in order to pay someone leaving.
+
+🔴 **3. EVERY PER-LP INVARIANT WOULD ATTACH, AND EACH IS WRONG HERE.** A `Pos` carries an IL target
+(`targetDebt = E0·soldFrac`, sized to cancel *an LP's* impermanent loss — the protocol has none to cancel),
+an `entrySqrtP` re-anchor, a `syncLev` band slice, and exposure to `closeLevFor`. The protocol's borrow is
+a **loan against inventory**, not a hedge, so none of that machinery describes it.
+
+⇒ **BUILD: a position-free entrypoint on `LevManager`** — it must live there because venues are
+`onlyManager` (`LevVenueBase:23,28`) — that supplies protocol weETH, borrows WETH, hands it to the
+offramp, and records the debt in a SINGLE protocol slot, **never in `pos[]` and never through
+`_trackOpen`/`levPooled`**. Repaid from the `waitNft` redemption by the permissionless claim-and-repay step.
+
+✅ **AND IT NOW FITS.** `LevManager` has **453 free bytes** after the `reseatEpoch` removal (was 43). That
+removal was the gating task and it is DONE (`982410b`).
+
+⚠️ **The one thing to get right: the debt slot must be visible to `Aux._checkBacking`.** Protocol debt that
+solvency accounting cannot see is the same phantom-backing hole as #1, mirrored. Decide where it is summed
+BEFORE writing the entrypoint.
+
+
+### ▶️ WHERE THE PROTOCOL-DEBT SLOT GOES — the code decides it, and it exposes ONE question to answer first
+
+`Aux._backingCore` → `BasketLib.backingCoreBody:928-944` is two terms:
+```
+totalLiquid  = IAux(this).get_deposits()[14]      // standing holdings, counted at PAR on the drain side
+committedSum = ICore(core).committedUsd18()       // the commitments they must cover
+revert OverCommitted if committedSum > totalLiquid
+```
+⇒ **A protocol borrow is a COMMITMENT. It belongs in `Core.committedUsd18()`** — not as a new parallel
+sum, which would need every drain path taught about it. That is the placement, and it is forced by the
+shape of the gate, not a preference.
+
+🔴 **BUT THE REAL HAZARD IS ON THE OTHER TERM, AND IT MUST BE MEASURED BEFORE ANY CODE IS WRITTEN:**
+**does `deposits[14]` still count weETH once it has been POSTED AS VENUE COLLATERAL?**
+  * **If YES** → borrowing against it inflates backing twice over: the collateral stays in `totalLiquid`
+    while the WETH it raised has already been delivered out to the exiting LP. Recording the debt in
+    `committedUsd18` is then **necessary but NOT sufficient** — the collateral term needs correcting too.
+  * **If NO** (posting removes it from the liquid count) → the debt entry alone is correct and complete.
+
+⇒ **These two answers need DIFFERENT code**, so measuring first is not diligence, it is the difference
+between a correct fix and one that looks correct. **This is the same shape as the circularity that ruled
+out the synthetic-LP design** — value counted in two places at once — arriving on the collateral side
+instead of the depth side. Both terms of one inequality; both have to be right.
+
+⚠️ **Measure it, do not reason about it.** `deposits[14]` comes from `Aux.get_deposits()`, and what it
+includes for venue-posted weETH is a fact about `ChannelLib`/`ethVenue` accounting that no amount of
+reading the borrow path reveals. A fork test that posts collateral and reads `tryCheckBacking()` before
+and after answers it in one run — and `tryCheckBacking` is `external` and revert-free precisely so it can
+be read as a signal.
+
+**Prerequisites now standing:** ✅ bytes (453 free, `982410b`) · ✅ design settled (position-free, not a
+synthetic LP) · ▶️ **this measurement** · then the entrypoint.
+
+
+### ⛔ RETRACTION — "the protocol-debt slot is `committedUsd18`" WAS WRONG. Measured against the code.
+
+The entry above concluded a protocol borrow belongs in `Core.committedUsd18()`, and asked whether
+`deposits[14]` counts venue-posted weETH. **Both halves were wrong, and reading the two functions shows
+why in one pass.**
+
+**1. `deposits[14]` NEVER COUNTED weETH — posted as collateral or otherwise.** `BasketLib.get_deposits:93`
+loops `for (i < stables.length - 1)` and dispatches by token identity: **AAVE** for GHO/USDG, **ERC4626**
+for the rest, **BOLD** filled in `Aux`. `amounts[14]` is *"raw TVL total"* **of the STABLE basket**.
+⇒ The double-count I warned about **cannot occur**: there is no weETH term in `totalLiquid` to inflate.
+The question was well-formed and its subject does not exist.
+
+**2. AND `committedUsd18` IS ALREADY NET OF LEVERAGE DEBT.** `Core.sol:115-122`:
+*"committed is the BASKET's contribution **net of live leverage debt** — NOT the curve inventory"*, and
+`_bandEquityUsd18(isBTC)` = *"one pool's in-range USD **less that pool's live leverage debt**, floored at
+0"*.
+⇒ Adding protocol debt there would **subtract it a second time** on a term that already subtracts lev
+debt. **The "necessary but not sufficient" fix I proposed would have been actively double-counting** — the
+exact error I was trying to prevent, introduced by the prevention.
+
+⇒ 🔴 **THE REAL QUESTION IS ONE I NEVER ASKED: `_checkBacking` IS A STABLE-BASKET-vs-BAND-EQUITY GATE.
+Is it the right gate for a WETH-denominated protocol borrow AT ALL?** Both its terms are USD/stable-side.
+A WETH debt secured by weETH lives on the **ETH** accounting (`vogueETH`, `deliverableETH`, `POOLED_ETH`),
+which this inequality does not read. **Settle WHICH invariant the borrow can violate before choosing where
+to record it** — placing it in the gate it cannot breach protects nothing and costs a term.
+
+⚠️ **METHOD, and it is the lesson of the whole chain:** I reasoned from the SHAPE of `_backingCore`
+(two terms, one revert ⇒ "a commitment goes in the committed term") without reading what either term
+CONTAINS. The shape was right and both contents were wrong. **`committedUsd18` is nine lines away from
+the call site.** ⇒ Rule 12's *"check the mechanism before building around it"* applies to the terms of an
+expression, not just to functions.
+
+**Standing prerequisites for the borrow leg, corrected:** ✅ bytes (453 free) · ✅ position-free design ·
+▶️ **which solvency invariant a WETH protocol-borrow can actually violate** (NOT "where in `_checkBacking`
+it goes") · then the entrypoint.

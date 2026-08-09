@@ -133,7 +133,15 @@ interface ILevSyncHook {
     function syncLev(address lp) external;
     function soldFractionWad(uint160 entrySqrtP) external view returns (uint256);
     function bandSqrtP(bool isBTC) external view returns (uint160);
-    function reseatEpoch() external view returns (uint64);
+    // Band bounds. These replace the former `reseatEpoch()` counter as the re-anchor signal: the counter and
+    // the ticks are written in the same statement pair (Vogue:1137-1138, Vault:711-712), so the bounds carry
+    // the same information AND strictly more of it -- a reseat that leaves an anchor inside the new range
+    // bumped the counter but needs no re-anchor. All four are auto-generated getters for existing public
+    // state (Vogue:92-93, Vault:214-215); no new contract code implements them.
+    function LOWER_TICK() external view returns (int24);
+    function UPPER_TICK() external view returns (int24);
+    function LOWER_TICK_BTC() external view returns (int24);
+    function UPPER_TICK_BTC() external view returns (int24);
     function syncLevBTC(address lp) external;
 }
 

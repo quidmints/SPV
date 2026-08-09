@@ -214,10 +214,6 @@ contract Vault is Ownable, ReentrancyGuard {
     int24 public UPPER_TICK_BTC;
     int24 public LOWER_TICK_BTC;
 
-    /// @notice (B) Bumped whenever the BTC band ticks RECENTER (repack/reseat in `_rebalance(true)`). The
-    ///         BtcLevManager re-anchors its `entrySqrtP`/`E0` when this advances past a position's epoch —
-    ///         mirrors `Vogue.reseatEpoch` for the ETH band.
-    uint64 public reseatEpochBTC;
 
     error BtcChannelsPinned();
     error AlreadyInitialized();
@@ -676,10 +672,6 @@ contract Vault is Ownable, ReentrancyGuard {
     }
 
 
-    /// @notice (B) The BTC band reseat epoch (bumps on tick recenter) — mirror of `Vogue.reseatEpoch`.
-    function reseatEpoch() external view returns (uint64) {
-        return reseatEpochBTC;
-    }
 
     // ──── shared masterchef engine — BTC-specialized (isBTC=true) ────────
 
@@ -706,9 +698,8 @@ contract Vault is Ownable, ReentrancyGuard {
         int24 tickLower, int24 tickUpper, uint128 myLiquidity, uint resolvedTwap) {
         BtcVaultLib.RebalOut memory o = BtcVaultLib.rebalanceBody(
             _btcCfg(), isBTC, LOWER_TICK_BTC, UPPER_TICK_BTC,
-            feesPerShareBTC, USD_FEES_BTC, reseatEpochBTC, lpSharesBTC + totalBufferBTC);
+            feesPerShareBTC, USD_FEES_BTC, lpSharesBTC + totalBufferBTC);
         feesPerShareBTC = o.feesPerShareBTC; USD_FEES_BTC = o.usdFeesBtc;
-        reseatEpochBTC = o.reseatEpochBTC;
         LOWER_TICK_BTC = o.tickLower; UPPER_TICK_BTC = o.tickUpper;
         return (o.sqrtPriceX96, o.tickLower, o.tickUpper, o.myLiquidity, o.resolvedTwap);
     }

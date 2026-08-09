@@ -700,7 +700,8 @@ contract DrainAtomicity is Alles {
         emit log_named_int ("tick range visited      ", maxT - minT);
         emit log_named_int ("  min tick              ", minT);
         emit log_named_int ("  max tick              ", maxT);
-        emit log_named_uint("reseats that occurred   ", V4.reseatEpoch());
+        emit log_named_int("frame lower tick        ", V4.LOWER_TICK());
+        emit log_named_int("frame upper tick        ", V4.UPPER_TICK());
         emit log_named_int ("band NOW  LOWER         ", V4.LOWER_TICK());
         emit log_named_int ("band NOW  UPPER         ", V4.UPPER_TICK());
         emit log_named_int ("ORIGINAL  LOWER         ", origLo);
@@ -710,7 +711,7 @@ contract DrainAtomicity is Alles {
         if (travel > width) {
             emit log("TRAVEL EXCEEDS WIDTH: a FIXED band would have gone OUT OF RANGE and stayed there,");
             emit log("holding 100% of one asset and earning nothing. The moving frame is REQUIRED, so");
-            emit log("reseatEpoch is UNAVOIDABLE -- not an incidental complication to design away.");
+            emit log("FRAME MOVES are UNAVOIDABLE -- not an incidental complication to design away.");
         } else {
             emit log("Travel stayed within width here -- a fixed band MIGHT be viable; widen the test");
             emit log("before concluding, because one sequence is not the operating envelope.");
@@ -724,12 +725,12 @@ contract DrainAtomicity is Alles {
         for (uint d = 0; d < 6; ++d) _drain(20_000 * 1e18);
 
         uint32[] memory ago = new uint32[](2); ago[0] = 0; ago[1] = 3600;
-        uint64 ep0 = V4.reseatEpoch();
+        bytes32 ep0 = keccak256(abi.encode(V4.LOWER_TICK(), V4.UPPER_TICK()));  // the FRAME, not a count
         int24 lo0 = V4.LOWER_TICK(); int24 hi0 = V4.UPPER_TICK();
         int56[] memory c0 = CORE.observe(ago, false);
         int24 twap0 = int24((c0[0] - c0[1]) / int56(uint56(3600)));
         uint norm0 = hi0 > lo0 && twap0 >= lo0 ? uint(int(twap0 - lo0)) * 1e4 / uint(int(hi0 - lo0)) : 0;
-        emit log_named_uint("BEFORE: reseatEpoch    ", ep0);
+        emit log_named_int("BEFORE: lower tick     ", V4.LOWER_TICK());
         emit log_named_int ("BEFORE: 1h TWAP tick   ", twap0);
         emit log_named_uint("BEFORE: normalized(1e-4)", norm0);
 
@@ -742,12 +743,12 @@ contract DrainAtomicity is Alles {
             vm.stopPrank(); _settle();
         }
 
-        uint64 ep1 = V4.reseatEpoch();
+        bytes32 ep1 = keccak256(abi.encode(V4.LOWER_TICK(), V4.UPPER_TICK()));
         int24 lo1 = V4.LOWER_TICK(); int24 hi1 = V4.UPPER_TICK();
         int56[] memory c1 = CORE.observe(ago, false);
         int24 twap1 = int24((c1[0] - c1[1]) / int56(uint56(3600)));
         uint norm1 = hi1 > lo1 && twap1 >= lo1 ? uint(int(twap1 - lo1)) * 1e4 / uint(int(hi1 - lo1)) : 0;
-        emit log_named_uint("AFTER : reseatEpoch    ", ep1);
+        emit log_named_int("AFTER : lower tick     ", V4.LOWER_TICK());
         emit log_named_int ("AFTER : 1h TWAP tick   ", twap1);
         emit log_named_int ("AFTER : band LOWER     ", lo1);
         emit log_named_int ("AFTER : band UPPER     ", hi1);
@@ -755,7 +756,7 @@ contract DrainAtomicity is Alles {
 
         if (ep1 == ep0) { emit log("VOID: no reseat occurred -- the frame never moved."); return; }
         emit log("FRAME MOVED. The TWAP above spans BOTH frames, so `normalized` mixes a pre-reseat");
-        emit log("tick with a post-reseat range. reseatEpoch changing is the ONLY signal of that --");
+        emit log("tick with a post-reseat range. The band BOUNDS moving is the signal of that --");
         emit log("without it the number looks perfectly ordinary. THAT is why it must be read.");
         if (norm1 == 0) emit log("normalized CLAMPED to 0: the TWAP tick is BELOW the new tickLower.");
     }
@@ -781,7 +782,7 @@ contract DrainAtomicity is Alles {
         int24 twap1 = int24((c1[0] - c1[1]) / int56(uint56(3600)));
         emit log_named_int("AFTER  move: spot tick ", spot1);
         emit log_named_int("AFTER  move: 1h TWAP   ", twap1);
-        emit log_named_uint("reseatEpoch (frame)    ", V4.reseatEpoch());
+        emit log_named_int("frame lower tick       ", V4.LOWER_TICK());
 
         if (spot1 == spot0) { emit log("VOID: the move did not shift the spot tick."); return; }
         if (twap1 == spot1) {
@@ -805,11 +806,11 @@ contract DrainAtomicity is Alles {
             uint norm = hi > lo && ct >= lo ? uint(int(ct - lo)) * 1e4 / uint(int(hi - lo)) : 0;
             emit log_named_uint("normalized tick (1e-4)  ", norm);
             emit log_named_uint("  vol:USD ratio (1e-4)  ", usdLeg == 0 ? 0 : volLeg * 1e4 / usdLeg);
-            emit log_named_uint("  reseatEpoch (frame)   ", V4.reseatEpoch());
+            emit log_named_int("  frame lower tick      ", V4.LOWER_TICK());
             emit log_named_uint("  liquidity             ", liq);
         }
-        emit log("Monotone normalized-vs-ratio WITHIN a constant reseatEpoch => the instrument works.");
-        emit log("A jump where reseatEpoch changes is a FRAME MOVE, not a composition change.");
+        emit log("Monotone normalized-vs-ratio WITHIN one frame => the instrument works.");
+        emit log("A jump where the band bounds change is a FRAME MOVE, not a composition change.");
     }
 
     function test_E109_DoesReseatMoveTheRatio() public {
@@ -869,17 +870,15 @@ contract DrainAtomicity is Alles {
         // `UPPER_TICK`/`reseatEpoch` are unchanged, the reseat was a NO-OP and E109 tested NOTHING —
         // its "refutation" of the price-in-range mechanism would itself be void. I asserted a
         // negative result without checking the operation under test had any effect.
-        int24 lo0 = V4.LOWER_TICK(); int24 hi0 = V4.UPPER_TICK(); uint64 ep0 = V4.reseatEpoch();
+        int24 lo0 = V4.LOWER_TICK(); int24 hi0 = V4.UPPER_TICK();
         V4.reseat();
         vm.roll(block.number + 1);
-        int24 lo1 = V4.LOWER_TICK(); int24 hi1 = V4.UPPER_TICK(); uint64 ep1 = V4.reseatEpoch();
+        int24 lo1 = V4.LOWER_TICK(); int24 hi1 = V4.UPPER_TICK();
         emit log_named_int ("LOWER_TICK before/after   ", lo0);
         emit log_named_int ("                          ", lo1);
         emit log_named_int ("UPPER_TICK before/after   ", hi0);
         emit log_named_int ("                          ", hi1);
-        emit log_named_uint("reseatEpoch before/after  ", ep0);
-        emit log_named_uint("                          ", ep1);
-        if (lo0 == lo1 && hi0 == hi1 && ep0 == ep1) {
+        if (lo0 == lo1 && hi0 == hi1) {
             emit log("RESEAT WAS A NO-OP -- E109 tested nothing and its refutation is VOID.");
         } else {
             emit log("RESEAT DID re-range -- E109's negative result is a REAL test of the mechanism.");
