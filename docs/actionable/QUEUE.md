@@ -8741,7 +8741,8 @@ of the same access. Any re-audit must match on `pos[` and read every hit, not on
 
 | **UNIT-VARIANCE-SERIES** | 🔎 **CHECKED BEFORE BUILDING (§UNIT-RECOVERED's lesson): THE ORACLE SERIES WAS **NEVER CONSIDERED** FOR σ² — NOT CONSIDERED-AND-REJECTED (2026-08-06).** ✅ **TRANSCRIPT SCAN (full pre-compaction jsonl, regex linking `varian|vol` to `chainlink|oracle series|feed varian`): **THREE passages, TWO of them written by me minutes ago.** The only prior one (line 5281) is the §E79 discussion — about **QUOTING** Chainlink mid with no spread, NOT about which series the variance is measured ON.** ⇒ **§E59 chose the POOL RING (*"sample variance from the ring"*) without evaluating the ORACLE series as an alternative. **An UNEXAMINED design choice, not a settled one** — which STRENGTHENS §UNIT-WHY-VARIANCE's hypothesis rather than closing it.** 📌 **WHY §E59 REACHED FOR THE RING IS STILL DEFENSIBLE ON ITS OWN TERMS: the ring was already on-chain, zero extra storage/calls/gas on the money path, and §E59's PROBLEM was the estimator returning exactly 0 (wall-clock grid + interpolation + whole-tick truncation) — a MEASUREMENT bug it correctly fixed. **The question of WHICH SERIES was simply never asked, because the bug being fixed was about HOW, not WHAT.**** ⚠️ **STILL A HYPOTHESIS — five died today. **THE DISCRIMINATOR: on a fork where the oracle genuinely moves, log `realizedVarianceWad` (pool series) beside the variance of the CHAINLINK series over the SAME window. Materially divergent ⇒ the input is wrong; tracking ⇒ refuted.** §UNIT-ZERO-RESEATS predicts divergence (the pool tick is pegged and barely moves) but PREDICTION IS NOT MEASUREMENT.** ▶️ **AND A DESIGN CONSTRAINT TO CARRY IN: any oracle-series variance must NOT reintroduce what §E59 removed — no wall-clock grid, no interpolation between sparse points, no whole-tick truncation. Chainlink updates are EVENT-DRIVEN and IRREGULAR, exactly like the ring, so the same per-interval normalisation applies. **`OracleLib.ringVariance`'s shape is reusable; only its INPUT would change.**** | 🔎 never considered; hypothesis stands; discriminator is a two-series log on a moving oracle |
 
-### 🔴 THE BORROW LEG IS BLOCKED ON BYTES, NOT ON DESIGN — and the blocker is structural
+### ✅ CLEARED 2026-08-09 (982410b) — the byte blocker is GONE: LevManager 43 → 453 free.
+### ~~THE BORROW LEG IS BLOCKED ON BYTES, NOT ON DESIGN — and the blocker is structural~~ (evidence below still valid)
 
 The goal (owner): an LP exit should BORROW WETH against the protocol's weETH and repay from the
 `waitNft` redemption, instead of SELLING weETH at ~25.6 bps. Owner also fixed the approach:
@@ -8775,7 +8776,8 @@ venues.
 question — writing it in the other order produces code that cannot deploy.
 
 
-### 🔧 UNIT-RESEATEPOCH — MECHANISM CONFIRMED BUT ITS CITATION IS STALE; corrected plumbing + a BTC asymmetry
+### ✅ DONE 2026-08-09 (982410b) — removal LANDED, full suite 4,032/9 (both reds pre-existing), ABI check clean.
+### ~~UNIT-RESEATEPOCH — MECHANISM CONFIRMED BUT ITS CITATION IS STALE~~ — planning record; superseded by the commit
 
 Re-verified against the tree 2026-08-09 before writing the change. **The removal is still right and the
 owner's reasoning holds.** Two corrections and one new blocker.
@@ -8828,7 +8830,7 @@ tick series, the epoch must come back, and §E117 is the evidence.**
 spans `Vogue`, `Interfaces`, `LevMath`, `LevManager`, `BtcLevManager` and `Vault`, and item 3 is unresolved.
 
 
-### ✅ UNIT-RESEATEPOCH BLOCKER CLEARED — the BTC side IS symmetric. Plan is now complete and executable.
+### ✅ DONE 2026-08-09 (982410b) — planning record. ~~BTC side IS symmetric; plan complete and executable~~
 
 Item 3 of the correction above is resolved by measurement, and it resolves in the EASY direction.
 
@@ -8872,7 +8874,8 @@ point-in-time. **A future windowed reading needs the epoch back.**
 now execution across 7 files, not investigation.
 
 
-### ⚠️ UNIT-RESEATEPOCH — ONE MORE THING THE ENTRY NEVER LISTED: the epoch is in an EVENT SIGNATURE (ABI change)
+### ✅ DONE 2026-08-09 (982410b) — event RENAMED to `ReanchoredToBand` (owner's call); check-client-abis 76/0 drift.
+### ~~the epoch is in an EVENT SIGNATURE (ABI change)~~
 
 `LevManager.sol:113` · `BtcLevManager.sol:120`:
 ```
@@ -8940,7 +8943,9 @@ solvency accounting cannot see is the same phantom-backing hole as #1, mirrored.
 BEFORE writing the entrypoint.
 
 
-### ▶️ WHERE THE PROTOCOL-DEBT SLOT GOES — the code decides it, and it exposes ONE question to answer first
+### ⛔ SUPERSEDED — DO NOT ACT ON THIS ENTRY. Its conclusion is WRONG; see the RETRACTION directly below,
+### then the RESOLVED entry. Kept only because the reasoning it records is the error worth not repeating.
+### ~~WHERE THE PROTOCOL-DEBT SLOT GOES — the code decides it, and it exposes ONE question to answer first~~
 
 `Aux._backingCore` → `BasketLib.backingCoreBody:928-944` is two terms:
 ```
@@ -9059,3 +9064,48 @@ and the answer was a valuation that was already correct and merely **incomplete 
 **Prerequisites now:** ✅ bytes (453 free) · ✅ position-free design · ✅ accounting (this) · ▶️ the entrypoint.
 
 | **UNIT-SERIES-MEASURED** | ✅✅ **THE DISCRIMINATOR RAN: THE MARKET SERIES HAS REAL VARIANCE OVER ~8 HOURS WHERE OURS REPORTS **EXACTLY ZERO** (2026-08-06).** ✅ **`test_UNIT_PoolVarianceVsChainlinkVariance` — reads the REAL mainnet ETH/USD aggregator (`0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419`) on the fork, walks back **the same 9-point depth `ringVariance` uses**, and applies **the identical estimator shape** (per-interval rate, then variance of consecutive rate CHANGES) so the two are comparable rather than merely both being "a variance": **8 rounds walked · span 28,452 s (~7.9 h) · latest price 1,916.93 · CHAINLINK per-sec var (raw) = 25,491,717,649,254,939,997,364,490,138 · POOL `realizedVarianceWad` = 0.**** ⚠️ **TWO CAVEATS, STATED NOT BURIED: (1) this test does NOT run the swap walk, so the pool ring is **FRESH** — the 0 partly reflects an UNPOPULATED ring (`card < 3 ⇒ 0`), not only a flat tick; (2) the units are NOT yet comparable (Chainlink raw is 8-dec price ×1e9 ÷ seconds; ours is ANNUALISED WAD). ⇒ **THIS ESTABLISHES THAT THE MARKET SERIES CARRIES REAL VARIANCE WHERE OURS CARRIES NONE — IT DOES NOT YET ESTABLISH THE RATIO OVER AN IDENTICAL WINDOW.** The stronger claim needs the walk run first, then both read together, with the Chainlink figure annualised the same way (`×31,536,000`).** ✅ **BUT COMBINED WITH §UNIT-ZERO-RESEATS IT IS ALREADY DECISIVE ON DIRECTION: the pool tick did not move even when the band was DRAINED TO `q ≈ 1` across 24 landed swaps, so a POPULATED ring would still have reported ~flat. **The hypothesis survives its first real test; the three refuted alternatives (bad fixture / architecture-given / interpolation) do not explain a market that demonstrably moved.**** ▶️ **NEXT: run the walk, then read BOTH in the same test with matching annualisation — that closes the ratio and gives the number §UNIT-STALENESS-FLOOR needs (both its 8.8-min and 5.8-min figures currently ASSUME σ(market) ≈ 60%).** | ✅✅ market series has variance, ours has zero; ratio still needs a matched-window run |
+
+### 🔴🔴 CRITICAL — I SHIPPED HALF A TWO-PART CHANGE. WETH-denominated debt is valued at **$1 per WETH**.
+
+**Introduced by me this session.** I added TWO WETH-LOAN venues to the ETH lev allowlist —
+`vs[5]` Morpho weETH/WETH (`0x37e7484d…`) and `vs[6]` Aave V4 weETH/WETH — and did NOT make the paired
+change I had myself written down as required (*"flip loan-token sites from `USD_PX` to
+`getTWAPforAsset`"*). Adding the venues is what made the unflipped sites REACHABLE.
+
+**The arithmetic, confirmed:**
+```
+LevMath.USD_PX = 1e18                                       (:336)
+_toUsd18(stable, amt, px) = (amt * px) / 10**dec            (:875-877)
+LevManager.debtUsd(lp)    = _toUsd18(v.stable(), v.debtOf(lp), USD_PX)   (:351-352)
+```
+For an 18-dec loan token: `(amt * 1e18) / 1e18 == amt` ⇒ **1 WETH of debt reads as $1.**
+A ~4,000× understatement, silent, no revert.
+
+🔴 **BLAST RADIUS — every consumer of `debtUsd`, and they are the ones that matter:**
+| reader | consequence |
+|---|---|
+| `getCurrentLtvBps` (`:357`) | LTV ≈ **0** on a fully-levered position ⇒ **the keeper's liquidation-avoidance track NEVER FIRES** ⇒ the position runs to venue liquidation |
+| `netEquityUsd` (`:342`) | equity **overstated** by the full debt |
+| `totalDebtUsd` (`:335`) → `Core._levDebtUsd18` → `_bandEquityUsd18` → `committedUsd18` | band equity **overstated** ⇒ **the backing gate is too permissive** on every swap/mint/redeem |
+| `debtDeltaToTarget` / IL sizing | sizes against a debt that is not there |
+⇒ **This is the exact failure the standing rules name: plausible-looking output, no announcement.** The
+LTV reading is the worst of them — a number that says "healthy" about a position at liquidation.
+
+⚠️ **NOT hypothetical and NOT gated:** `openLev(targetLtvBps, venue, …)` accepts ANY allowlisted venue.
+Both WETH-loan venues are allowlisted, and `vetVenue` passes them (collateral is weETH). Nothing else
+stands between an LP and this.
+
+**THE ROOT, and it is one I half-fixed already:** `e502f9a` made `_fromUsd`/`_toUsd18` take a price across
+29 sites *precisely so a non-dollar loan token could work* — then every CALLER kept passing the `USD_PX`
+placeholder. **The gate was opened and nothing was driven through it.** The parameter is not the fix; the
+correct ARGUMENT at each loan-token site is.
+
+▶️ **FIX (root, not a guard): `debtUsd` must price the loan token live** —
+`AUX.getTWAPforAsset(v.stable(), TWAP_WINDOW)` — falling back to `USD_PX` only for a token that IS a
+dollar stable. ⚠️ **Do NOT special-case WETH**: the next non-dollar loan token re-opens it. And audit the
+OTHER `USD_PX` call sites the same way; a grep for `USD_PX` is the work-list.
+
+⏸️ **UNTIL THEN, THE TWO WETH-LOAN VENUES MUST NOT SHIP.** Nothing is deployed, so the exposure is zero
+today — but `vs[5]`/`vs[6]` are committed to the deploy script and would go live with it. Either land the
+pricing fix first, or drop them from the array and re-add after. **Owner's call, flagged rather than
+taken.**
