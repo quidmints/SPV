@@ -4479,4 +4479,36 @@ contract Alles is ForkPin, Fixtures {
         // Whichever way it lands, it decides whether the fold is a fix or a redistribution.
         assertTrue(owed2After >= owed2Before, "LP2's claim cannot shrink because someone else left");
     }
+
+    /// (E152-b) MEASURE THE USD-LEG FEE RATE DIRECTLY, on a single swap of known size.
+    ///
+    /// The `BtcLpMintStress` bound was DERIVED from this rate at 4.2 bps; the suite now shows
+    /// 24.24 bps. That test cannot discriminate, because its delta mixes proceeds and fees.
+    /// This isolates the fee: ONE LP (so its share is the whole band) and ONE swap, so the
+    /// accrued USD-leg fee IS the pool's rate on that volume.
+    function testBtcPool_measureUsdLegFeeRateOnASingleSwap() public {
+        AUX.setBTCChannels(address(this));
+        BTC.registerBtcLp(User01, 2e7);
+        vm.prank(User01); BTC.collectBtcFees();          // zero the LP's bookmark first
+
+        uint usdFees0 = BTC.USD_FEES_BTC();
+        uint qd0 = QUID.balanceOf(User01);
+
+        uint volume6 = 1_000 * USDC_PRECISION;           // ONE swap, known size
+        vm.startPrank(User03);
+        USDC.approve(address(AUX), type(uint).max);
+        AUX.swap(address(USDC), address(WBTC), true, volume6, 0);
+        vm.stopPrank();
+        vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
+
+        vm.prank(User01); BTC.collectBtcFees();          // crystallise -> QUID (18-dec)
+        uint paid18 = QUID.balanceOf(User01) - qd0;
+        emit log_named_uint("swap volume (6-dec)      ", volume6);
+        emit log_named_uint("USD_FEES_BTC delta       ", BTC.USD_FEES_BTC() - usdFees0);
+        emit log_named_uint("QUID paid to the LP (18) ", paid18);
+        // bps of volume: paid is 18-dec, volume is 6-dec ⇒ normalise volume to 18-dec.
+        uint volume18 = volume6 * 1e12;
+        if (volume18 > 0) emit log_named_uint("=> fee rate, bps of volume", paid18 * 10000 / volume18);
+        assertGt(paid18, 0, "the single swap must accrue a USD-leg fee to the sole LP");
+    }
 }
