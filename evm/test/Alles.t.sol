@@ -4377,4 +4377,5 @@ contract Alles is ForkPin, Fixtures {
         AUX.finalize();
         assertEq(AUX.owner(), address(this), "Aux NOT renounced on a mis-wire");
     }
+
 }
