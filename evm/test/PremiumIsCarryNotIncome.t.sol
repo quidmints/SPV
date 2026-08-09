@@ -481,7 +481,10 @@ contract PremiumIsCarryNotIncome is Alles {
             for (uint i; i < 8; ++i) {
                 (, int pLo,, uint tLo,) = AggregatorV3Interface(AGG).getRoundData(uint80(uint(rid) - i - 1));
                 if (pLo <= 0 || tLo == 0 || tLo >= tHi) break;
-                rate[i] = ((pHi - pLo) * 1e9) / int(tHi - tLo);
+                // FRACTIONAL return per second, in WAD. `ringVariance` works on tickCumulative,
+                // which is LOG-price, so its rate is dimensionless; a raw price delta is not.
+                // Dividing by pLo makes the two comparable rather than merely both "a variance".
+                rate[i] = ((pHi - pLo) * 1e18 / pLo) / int(tHi - tLo);
                 pHi = pLo; tHi = tLo; ++got;
                 spanSecs = uint32(t0 - tLo);
             }
@@ -496,8 +499,26 @@ contract PremiumIsCarryNotIncome is Alles {
         uint acc;
         for (uint i; i < m; ++i) { int d = (rate[i] - rate[i + 1]) - mean; acc += uint(d * d); }
         uint varPerSec = acc / m;
-        emit log_named_uint("CHAINLINK per-sec var (raw)", varPerSec);
-        emit log_named_uint("POOL sigma^2 (realizedVarianceWad)", CORE.realizedVarianceWad(false));
+        // Annualise EXACTLY as Core.realizedVarianceWad does (per-sec -> annualised).
+        uint clAnnual = varPerSec * 31_536_000;
+        emit log_named_uint("CHAINLINK annualised sigma^2 (wad)", clAnnual);
+        emit log_named_uint("CHAINLINK implied vol, bps        ", _sqrtBps(clAnnual));
+        emit log_named_uint("POOL sigma^2 BEFORE any walk      ", CORE.realizedVarianceWad(false));
+
+        // Now POPULATE the pool ring with the same walk the other fixture uses, so the pool figure
+        // is not merely "fresh ring returns 0" -- the caveat that kept this from closing the ratio.
+        deal(address(USDC), drainer, 20_000_000 * USDC_PRECISION);
+        vm.prank(drainer); USDC.approve(address(AUX), type(uint).max);
+        vm.deal(drainer, 600 ether);
+        vm.prank(lp); V4.deposit{value: 400 ether}(0, lp, 3);
+        _settle();
+        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        AUX.setAssetFeed(address(WETH), ETH_FEED);
+        for (uint i; i < 12; ++i) _drainEth(30_000 * USDC_PRECISION, px);
+        uint poolAnnual = CORE.realizedVarianceWad(false);
+        emit log_named_uint("POOL sigma^2 AFTER a populating walk", poolAnnual);
+        emit log_named_uint("POOL implied vol, bps               ", _sqrtBps(poolAnnual));
+        if (poolAnnual > 0) emit log_named_uint("RATIO chainlink/pool", clAnnual / poolAnnual);
     }
 }
 
