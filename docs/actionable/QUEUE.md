@@ -9062,3 +9062,49 @@ consistent precisely because debt-summing and position-tracking are already sepa
 and the answer was a valuation that was already correct and merely **incomplete at its source**.
 
 **Prerequisites now:** ✅ bytes (453 free) · ✅ position-free design · ✅ accounting (this) · ▶️ the entrypoint.
+
+
+### 🔴🔴 CRITICAL — I SHIPPED HALF A TWO-PART CHANGE. WETH-denominated debt is valued at **$1 per WETH**.
+
+**Introduced by me this session.** I added TWO WETH-LOAN venues to the ETH lev allowlist —
+`vs[5]` Morpho weETH/WETH (`0x37e7484d…`) and `vs[6]` Aave V4 weETH/WETH — and did NOT make the paired
+change I had myself written down as required (*"flip loan-token sites from `USD_PX` to
+`getTWAPforAsset`"*). Adding the venues is what made the unflipped sites REACHABLE.
+
+**The arithmetic, confirmed:**
+```
+LevMath.USD_PX = 1e18                                       (:336)
+_toUsd18(stable, amt, px) = (amt * px) / 10**dec            (:875-877)
+LevManager.debtUsd(lp)    = _toUsd18(v.stable(), v.debtOf(lp), USD_PX)   (:351-352)
+```
+For an 18-dec loan token: `(amt * 1e18) / 1e18 == amt` ⇒ **1 WETH of debt reads as $1.**
+A ~4,000× understatement, silent, no revert.
+
+🔴 **BLAST RADIUS — every consumer of `debtUsd`, and they are the ones that matter:**
+| reader | consequence |
+|---|---|
+| `getCurrentLtvBps` (`:357`) | LTV ≈ **0** on a fully-levered position ⇒ **the keeper's liquidation-avoidance track NEVER FIRES** ⇒ the position runs to venue liquidation |
+| `netEquityUsd` (`:342`) | equity **overstated** by the full debt |
+| `totalDebtUsd` (`:335`) → `Core._levDebtUsd18` → `_bandEquityUsd18` → `committedUsd18` | band equity **overstated** ⇒ **the backing gate is too permissive** on every swap/mint/redeem |
+| `debtDeltaToTarget` / IL sizing | sizes against a debt that is not there |
+⇒ **This is the exact failure the standing rules name: plausible-looking output, no announcement.** The
+LTV reading is the worst of them — a number that says "healthy" about a position at liquidation.
+
+⚠️ **NOT hypothetical and NOT gated:** `openLev(targetLtvBps, venue, …)` accepts ANY allowlisted venue.
+Both WETH-loan venues are allowlisted, and `vetVenue` passes them (collateral is weETH). Nothing else
+stands between an LP and this.
+
+**THE ROOT, and it is one I half-fixed already:** `e502f9a` made `_fromUsd`/`_toUsd18` take a price across
+29 sites *precisely so a non-dollar loan token could work* — then every CALLER kept passing the `USD_PX`
+placeholder. **The gate was opened and nothing was driven through it.** The parameter is not the fix; the
+correct ARGUMENT at each loan-token site is.
+
+▶️ **FIX (root, not a guard): `debtUsd` must price the loan token live** —
+`AUX.getTWAPforAsset(v.stable(), TWAP_WINDOW)` — falling back to `USD_PX` only for a token that IS a
+dollar stable. ⚠️ **Do NOT special-case WETH**: the next non-dollar loan token re-opens it. And audit the
+OTHER `USD_PX` call sites the same way; a grep for `USD_PX` is the work-list.
+
+⏸️ **UNTIL THEN, THE TWO WETH-LOAN VENUES MUST NOT SHIP.** Nothing is deployed, so the exposure is zero
+today — but `vs[5]`/`vs[6]` are committed to the deploy script and would go live with it. Either land the
+pricing fix first, or drop them from the array and re-add after. **Owner's call, flagged rather than
+taken.**
