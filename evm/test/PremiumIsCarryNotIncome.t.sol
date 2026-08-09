@@ -463,69 +463,6 @@ contract PremiumIsCarryNotIncome is Alles {
         return y / 1e14;
     }
 
-    /// §UNIT-VARIANCE-SOLVED — THE DISCRIMINATOR. Pool-series sigma^2 (what we price with) beside
-    /// the REAL Chainlink series over the same window (what the LP is actually exposed to).
-    /// Materially divergent ⇒ the input is wrong. Tracking ⇒ the hypothesis is refuted.
-    /// Five hypotheses died today; this is measured BEFORE any money-path change.
-    function test_UNIT_PoolVarianceVsChainlinkVariance() public {
-        address AGG = 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419;   // mainnet ETH/USD aggregator
-        (uint80 rid, int p0,, uint t0,) = AggregatorV3Interface(AGG).latestRoundData();
-        emit log_named_uint("latest chainlink round", uint(rid));
-        emit log_named_int ("latest chainlink price", p0);
-
-        // Walk back 9 rounds -- the SAME depth `ringVariance` uses -- and take the variance of
-        // consecutive per-second RATE CHANGES, the identical estimator shape, so the two numbers
-        // are comparable rather than merely both being "a variance".
-        int[8] memory rate; uint32 spanSecs; uint got;
-        {
-            int pHi = p0; uint tHi = t0;
-            for (uint i; i < 8; ++i) {
-                (, int pLo,, uint tLo,) = AggregatorV3Interface(AGG).getRoundData(uint80(uint(rid) - i - 1));
-                if (pLo <= 0 || tLo == 0 || tLo >= tHi) break;
-                // §UNIT-SERIES-RATIO-VOID — LOG-PRICE, matching tickCumulative's space. The
-                // previous draft used a per-second FRACTIONAL rate and then differenced it, which
-                // yields a change in VELOCITY, not a return: shape copied, meaning lost. A tick IS
-                // a log price, so `ln(pHi) - ln(pLo)` IS the return; normalise by elapsed time.
-                int lnHi = SoladyMath.lnWad(int(uint(pHi) * 1e10));   // 8-dec -> WAD before ln
-                int lnLo = SoladyMath.lnWad(int(uint(pLo) * 1e10));
-                rate[i] = ((lnHi - lnLo) * 1e18) / int(tHi - tLo);    // WAD return per second
-                pHi = pLo; tHi = tLo; ++got;
-                spanSecs = uint32(t0 - tLo);
-            }
-        }
-        emit log_named_uint("chainlink rounds walked", got);
-        emit log_named_uint("span seconds           ", spanSecs);
-        if (got < 3) { emit log("INCONCLUSIVE: too few chainlink rounds"); return; }
-
-        int mean; uint m = got - 1;
-        for (uint i; i < m; ++i) mean += (rate[i] - rate[i + 1]);
-        mean /= int(m);
-        uint acc;
-        for (uint i; i < m; ++i) { int d = (rate[i] - rate[i + 1]) - mean; acc += uint(d * d); }
-        uint varPerSec = acc / m;
-        // Annualise EXACTLY as Core.realizedVarianceWad does (per-sec -> annualised).
-        // `d*d` on WAD-scaled returns lands in 1e36; divide back to WAD, THEN annualise exactly
-        // as Core.realizedVarianceWad does. Both errors from the voided draft, fixed together.
-        uint clAnnual = (varPerSec / 1e18) * 31_536_000;
-        emit log_named_uint("CHAINLINK annualised sigma^2 (wad)", clAnnual);
-        emit log_named_uint("CHAINLINK implied vol, bps        ", _sqrtBps(clAnnual));
-        emit log_named_uint("POOL sigma^2 BEFORE any walk      ", CORE.realizedVarianceWad(false));
-
-        // Now POPULATE the pool ring with the same walk the other fixture uses, so the pool figure
-        // is not merely "fresh ring returns 0" -- the caveat that kept this from closing the ratio.
-        deal(address(USDC), drainer, 20_000_000 * USDC_PRECISION);
-        vm.prank(drainer); USDC.approve(address(AUX), type(uint).max);
-        vm.deal(drainer, 600 ether);
-        vm.prank(lp); V4.deposit{value: 400 ether}(0, lp, 3);
-        _settle();
-        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
-        AUX.setAssetFeed(address(WETH), ETH_FEED);
-        for (uint i; i < 12; ++i) _drainEth(30_000 * USDC_PRECISION, px);
-        uint poolAnnual = CORE.realizedVarianceWad(false);
-        emit log_named_uint("POOL sigma^2 AFTER a populating walk", poolAnnual);
-        emit log_named_uint("POOL implied vol, bps               ", _sqrtBps(poolAnnual));
-        if (poolAnnual > 0) emit log_named_uint("RATIO chainlink/pool", clAnnual / poolAnnual);
-    }
 
     /// §UNIT-ZOOM-OUT — REAL BACKTEST, NOT A SYNTHETIC WALK. Instead of poking a mock feed and
     /// hoping the band's tick follows, read the tick history of the REAL Uniswap v3 WETH/USDC pool
@@ -565,31 +502,6 @@ contract PremiumIsCarryNotIncome is Alles {
         emit log_named_uint("OUR BAND sigma^2 (for scale)", CORE.realizedVarianceWad(false));
     }
 
-    /// §UNIT-PRICE-LOOP — HOW OFTEN DOES THE LOOP OPEN? The band's price is self-referential
-    /// unless Chainlink diverges >TWAP_MAX_DEVIATION from the pool TWAP. Count real crossings over
-    /// real history: a threshold count, no estimator and no scaling chain.
-    function test_UNIT_HowOftenDoesChainlinkCrossTheDeadband() public {
-        (uint80 rid, int pNow,, uint tNow,) = AggregatorV3Interface(AGG).latestRoundData();
-        emit log_named_uint("TWAP_MAX_DEVIATION_BPS (from Aux)", AUX.TWAP_MAX_DEVIATION_BPS());
-
-        uint n; uint cross5; uint cross1; uint maxBps; uint spanS;
-        int pHi = pNow; uint tHi = tNow;
-        for (uint i = 1; i < 120; ++i) {
-            (, int pLo,, uint tLo,) = AggregatorV3Interface(AGG).getRoundData(uint80(uint(rid) - i));
-            if (pLo <= 0 || tLo == 0 || tLo >= tHi) break;
-            uint bps = uint(pHi > pLo ? pHi - pLo : pLo - pHi) * 10_000 / uint(pLo);
-            if (bps > maxBps) maxBps = bps;
-            if (bps >= 500) ++cross5;
-            if (bps >= 100) ++cross1;
-            ++n; spanS = tNow - tLo; pHi = pLo; tHi = tLo;
-        }
-        emit log_named_uint("rounds walked            ", n);
-        emit log_named_uint("history span, hours      ", spanS / 3600);
-        emit log_named_uint("avg seconds between rounds", n == 0 ? 0 : spanS / n);
-        emit log_named_uint("max single-round move, bps", maxBps);
-        emit log_named_uint("rounds moving >=1%       ", cross1);
-        emit log_named_uint("rounds moving >=5%       ", cross5);
-    }
 
     /// §UNIT-DEADBAND-COUNT's settling measurement. Our pool TWAP is FROZEN between re-pegs
     /// (§UNIT-PRICE-LOOP), so the divergence `twapResolve` gates on is simply how far Chainlink
