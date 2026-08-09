@@ -565,6 +565,32 @@ contract PremiumIsCarryNotIncome is Alles {
         emit log_named_uint("OUR BAND sigma^2 (for scale)", CORE.realizedVarianceWad(false));
     }
 
+    /// §UNIT-PRICE-LOOP — HOW OFTEN DOES THE LOOP OPEN? The band's price is self-referential
+    /// unless Chainlink diverges >TWAP_MAX_DEVIATION from the pool TWAP. Count real crossings over
+    /// real history: a threshold count, no estimator and no scaling chain.
+    function test_UNIT_HowOftenDoesChainlinkCrossTheDeadband() public {
+        (uint80 rid, int pNow,, uint tNow,) = AggregatorV3Interface(AGG).latestRoundData();
+        emit log_named_uint("TWAP_MAX_DEVIATION_BPS (from Aux)", AUX.TWAP_MAX_DEVIATION_BPS());
+
+        uint n; uint cross5; uint cross1; uint maxBps; uint spanS;
+        int pHi = pNow; uint tHi = tNow;
+        for (uint i = 1; i < 120; ++i) {
+            (, int pLo,, uint tLo,) = AggregatorV3Interface(AGG).getRoundData(uint80(uint(rid) - i));
+            if (pLo <= 0 || tLo == 0 || tLo >= tHi) break;
+            uint bps = uint(pHi > pLo ? pHi - pLo : pLo - pHi) * 10_000 / uint(pLo);
+            if (bps > maxBps) maxBps = bps;
+            if (bps >= 500) ++cross5;
+            if (bps >= 100) ++cross1;
+            ++n; spanS = tNow - tLo; pHi = pLo; tHi = tLo;
+        }
+        emit log_named_uint("rounds walked            ", n);
+        emit log_named_uint("history span, hours      ", spanS / 3600);
+        emit log_named_uint("avg seconds between rounds", n == 0 ? 0 : spanS / n);
+        emit log_named_uint("max single-round move, bps", maxBps);
+        emit log_named_uint("rounds moving >=1%       ", cross1);
+        emit log_named_uint("rounds moving >=5%       ", cross5);
+    }
+
     address constant AGG = 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419;
 
     /// `OracleLib.ringVariance`'s arithmetic, mirrored EXACTLY (§UNIT-RINGVARIANCE-READ) — including
