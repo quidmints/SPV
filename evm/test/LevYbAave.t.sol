@@ -38,7 +38,6 @@ contract LevYbAaveProbe is LevYbRealProbe {
         IERC20R(address(WETH)).approve(address(alm), 5 ether);
         alm.openLev(5000, ILevVenue(address(avenue)), 5 ether, mins); // cap 2x, zero leverage at entry
         vm.stopPrank();
-        alm.setSoldFractionActive(true);
         _rallyBand(_entrySqrt(alm, LP), 0.2e18, 20, 8_000 * USDC_PRECISION);
         alm.rebalance(LP, 0);         // lever up: borrow USDC from live Aave V4 + SOR-buy WETH, supply back
     }

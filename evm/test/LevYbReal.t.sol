@@ -317,7 +317,6 @@ contract LevYbRealProbe is Alles {
         IERC20R(WEETH).approve(address(rlm), 5 ether);
         rlm.openLev(5000, ILevVenue(address(rvenue)), 5 ether, mins); // cap = 2×
         vm.stopPrank();
-        rlm.setSoldFractionActive(true);   // target reads the REAL band's sold fraction (poolStats), not the lagging oracle
         // Real rally: buy ETH out of the band so it sells ETH ⇒ real IL accrues since the pinned entry.
         _rallyBand(_entrySqrt(rlm, LP), 0.2e18, 20, 8_000 * USDC_PRECISION);
         rlm.rebalance(LP, 0);         // lever up to the IL target (real Morpho borrow + real Uniswap buy)
@@ -499,7 +498,6 @@ contract LevYbRealProbe is Alles {
         IERC20R(WEETH).approve(address(elm), 5 ether);
         elm.openLev(5000, ILevVenue(address(evenue)), 5 ether, mins);
         vm.stopPrank();
-        elm.setSoldFractionActive(true);   // target reads the REAL band's sold fraction (poolStats)
         _rallyBand(_entrySqrt(elm, LP), 0.2e18, 20, 8_000 * USDC_PRECISION);   // real swaps ⇒ band sells ETH ⇒ real IL since entry
         elm.rebalance(LP, 0);         // lever up to the IL target (real Euler borrow + real Uniswap buy)
     }

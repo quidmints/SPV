@@ -57,11 +57,6 @@ contract BtcLevManager {
 
     /// @notice (B) Sold-fraction target activation. Default OFF ⇒ the PROVEN 1−√(entry/now) target stays active.
     ///         GOV flips it ON only AFTER the band-driven fork proof lands — parity with `LevManager`.
-    bool public soldFractionActive;
-    function setSoldFractionActive(bool on) external {
-        if (msg.sender != GOV) revert BadAuth();
-        soldFractionActive = on;
-    }
 
     // Enumerable open-LP set so `vogueBTC` can sum live net-equity on-chain (bounded via MIN_OPEN_VBTC).
     address[] private _openLps;
@@ -260,7 +255,7 @@ contract BtcLevManager {
     ///         at the LP's cap; falls back to the proven 1−√(entry/now) when the sold-fraction path is inactive
     ///         or unmeasurable. Mirror of `LevManager._ilTargetLive`.
     function _ilTargetLive(Pos memory p, uint px) internal returns (uint) {
-        return LevMath.ilTargetLive(soldFractionActive, vogueSyncHook, p.entrySqrtP, p.entryPriceWad, px, p.targetLtvCapBps);
+        return LevMath.ilTargetLive(vogueSyncHook, p.entrySqrtP, p.entryPriceWad, px, p.targetLtvCapBps);
     }
 
     /// @notice (B) Realize on a BTC band RESEAT — mirror of `LevManager._reanchorIfReseated`. E0 becomes the
@@ -270,7 +265,7 @@ contract BtcLevManager {
     function _reanchorIfReseated(address lp) internal {
         Pos storage p = pos[lp];
         if (!p.open) return;
-        (bool go, uint160 s) = LevMath.reanchorCompute(soldFractionActive, vogueSyncHook, p.entrySqrtP, true);
+        (bool go, uint160 s) = LevMath.reanchorCompute(vogueSyncHook, p.entrySqrtP, true);
         if (!go) return;
         uint px = IAux(AUX).getTWAPforAsset(WBTC, TWAP_WINDOW);
         // (A): a reseat realizes accrued IL ⇒ re-anchor E0 to the position's CURRENT net-equity (sats) — NOT
