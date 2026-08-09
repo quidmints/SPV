@@ -80,12 +80,11 @@ contract Vogue is
     // Per-LP attribution applies ONLY to the ether.fi slice (above): that exit is served from your
     // own weETH/Rover position. Every other venue is fungible pooled 4626 WETH — no per-LP venue tie.
 
-    // ether.fi-slice exit preference is PER-TX (no stored setting): ERC-4626 withdraw/redeem
-    // default to WAIT (instant=false — no forced ~0.3% redeem; the unserved slice retries
-    // later); an LP who wants the instant redeem in the rare both-pools-drained anomaly calls
-    // `exitInstant` for that one tx. No-op for LPs with no ether.fi slice. (Replaces the
-    // former `withdrawInstant` mapping + setWithdrawInstant — a stored flag was unnecessary
-    // for an edge-case-only, per-tx choice.)
+    // NO INSTANT/WAIT CHOICE EXISTS, and none is needed: the ~0.3% ether.fi instant redeem it used to
+    // select is GONE (its capacity measured ZERO at every sampled block — the v3 pool absorbs the flow
+    // first), so there was never a 0.3% for an LP to opt out of. The serve path is the borrow (flash
+    // serve) with the v3 pool as its ONLY alternative. Removed with `exitInstant` and the `instant`
+    // parameter 2026-08-09.
 
     bool public token1isETH;
     // range = between ticks
@@ -555,7 +554,7 @@ contract Vogue is
         if (px > 0) ethEquiv = FullMath.mulDiv(owed6 * 1e12, 1e18, px);
     }
 
-    function _withdraw(uint amount, address recipient, bool instant) internal {
+    function _withdraw(uint amount, address recipient) internal {
         // LENIENT: LP withdrawal SHRINKS POOLED_USD (Core lines
         // 512-513) → shrinks committedSum → heals over-commit. Allow
         // the repack attempt to run but don't gate the exit on its
@@ -639,7 +638,7 @@ contract Vogue is
             uint ethfiPart = amount;
             if (ethfiPart > 0) {
                 uint incrPre = _bandIncrement6();          // BEFORE the burn shrinks it
-                uint served = EV.offrampEtherFi(ethfiPart, recipient, instant);
+                uint served = EV.offrampEtherFi(ethfiPart, recipient);
                 if (served > 0) {
                     _burnInRange(sqrtPriceX96, served,
                     tickLower, tickUpper, address(0));
@@ -1417,7 +1416,7 @@ contract Vogue is
         if (owner != msg.sender) revert AllowanceFlow();
         _requirePinnedRecipient(owner, receiver);
         assets = convertToAssets(shares);
-        _withdraw(assets, receiver, false);   // 4626 path defaults to WAIT (no forced haircut)
+        _withdraw(assets, receiver);   // 4626 path defaults to WAIT (no forced haircut)
         emit Withdraw(msg.sender, receiver, owner, assets, shares);
     }
 
@@ -1450,19 +1449,8 @@ contract Vogue is
         uint ceiling = autoManaged[msg.sender].pooled;
         if (assets > ceiling) assets = ceiling;
         shares = convertToShares(assets);
-        _withdraw(assets, receiver, false);   // 4626 path defaults to WAIT (no forced haircut)
+        _withdraw(assets, receiver);   // 4626 path defaults to WAIT (no forced haircut)
         emit Withdraw(msg.sender, receiver, owner, assets, shares);
-    }
-
-    /// @notice Edge-case exit identical to `withdraw` but opts INTO the instant ether.fi
-    ///         redeem (~0.3%) for THIS tx only — used in the rare both-pools-drained anomaly.
-    ///         Per-tx replacement for the former withdrawInstant stored flag; owner is always
-    ///         msg.sender (no allowance flow, mirroring withdraw/redeem).
-    function exitInstant(uint assets, address receiver)
-        external nonReentrant returns (uint shares) {
-        shares = convertToShares(assets);
-        _withdraw(assets, receiver, true);
-        emit Withdraw(msg.sender, receiver, msg.sender, assets, shares);
     }
 
     /// @notice Harvest accrued fees WITHOUT withdrawing the position. The USD-leg

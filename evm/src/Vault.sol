@@ -401,10 +401,10 @@ contract Vault is Ownable, ReentrancyGuard {
     /// @notice OFFRAMP the ether.fi slice of a withdrawal: weETH → WETH for
     ///         `amount` ETH-worth, delivered to `recipient`. The ladder
     ///         (docs/ETH-MULTI-VENUE). Every call try/catch'd. Gated to Vogue.
-    function offrampEtherFi(uint amount, address recipient, bool instant)
+    function offrampEtherFi(uint amount, address recipient)
         external returns (uint served) {
         if (msg.sender != address(V4)) revert NotVogueCore();   // gate stays here
-        return VaultLib.offrampBody(amount, recipient, instant, _etherfiCfg());
+        return VaultLib.offrampBody(amount, recipient, _etherfiCfg());
     }
 
     /// @dev ether.fi offramp config from Vault immutables/consts (the

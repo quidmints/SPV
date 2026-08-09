@@ -65,14 +65,6 @@ interface IVogue {
     function pendingRewards(address user) external view returns (uint ethReward, uint usdReward);
 }
 
-/// Canonical ether.fi RedemptionManager view — union of the former per-file variants
-/// (`SwapLib::IRedeem_L`). `totalRedeemableAmount` takes the OUTPUT TOKEN, not a holder:
-/// verified against the live implementation's bytecode (selector cf52e9f6).
-interface IEtherFiRedemption {
-    function redeemWeEth(uint weEthAmount, address receiver, address outputToken) external;
-    function totalRedeemableAmount(address outputToken) external view returns (uint);
-}
-
 /// Canonical ether.fi LiquidityPool view — was `SwapLib::ILiq_L`.
 interface IEtherFiLiquidityPool { function requestWithdraw(address r, uint a) external returns (uint); }
 
@@ -326,7 +318,7 @@ interface IEthVenue {
     function supplyAaveEth(uint amount) external returns (uint);
     function supplyEulerEth(uint amount) external returns (uint);
     function supplyGauntlet(uint amount) external returns (uint);
-    function offrampEtherFi(uint amount, address recipient, bool instant) external returns (uint);
+    function offrampEtherFi(uint amount, address recipient) external returns (uint);
 }
 
 /// Canonical IAux — union of IAux, IAux.

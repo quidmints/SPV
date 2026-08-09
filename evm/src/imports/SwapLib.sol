@@ -15,7 +15,7 @@ import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 // §A.52: the SHARED WETH view (was a file-local `IWethDeposit` declaring just `deposit()`).
 import {IWETH9} from "./ILevVenue.sol";
 // §A.52: canonical shared views — these were file-local `IWeEth_L`/`IRedeem_L`/`ILiq_L`.
-import {IWeETH, IEtherFiRedemption, IEtherFiLiquidityPool} from "./Interfaces.sol";
+import {IWeETH, IEtherFiLiquidityPool} from "./Interfaces.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {LiquidityAmounts} from "v4-periphery/src/libraries/LiquidityAmounts.sol";
 import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
@@ -35,7 +35,6 @@ import {IAggregatorV3} from "./Interfaces.sol";
 
 // ether.fi offramp interfaces (suffixed `_L` to avoid clashing with Aux's own
 // copies, since Aux imports SwapLib). Same signatures as Aux's.
-// EtherFiRedemptionManager.redeemWeEth(weEthAmount, receiver, outputToken);
 // outputToken ∈ {0xEeee…EEeE native-ETH sentinel, stETH} — else InvalidOutputToken.
 /// Chainlink-style USD feed — the external anchor for the TWAP cross-check.
 

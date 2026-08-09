@@ -445,7 +445,7 @@ library VaultLib {
     ///         (clamped balance), the weETH-consuming rungs (1/3/4) report the
     ///         pro-rata `covered` slice, never the full ask — so the caller's
     ///         position accounting only decrements what was actually served.
-    function offrampBody(uint amount, address recipient, bool instant, SwapLib.OfframpCfg memory c)
+    function offrampBody(uint amount, address recipient, SwapLib.OfframpCfg memory c)
         external returns (uint) {
         if (amount == 0 || c.weeth == address(0)) return 0;
         uint weethFull = IWeETH(c.weeth).getWeETHByeETH(amount);
@@ -488,12 +488,22 @@ library VaultLib {
         //     so it guarded a path live state has never once permitted.
         // RUNG 2 (last) — no-fee withdrawal NFT, minted to the WITHDRAWER.
         //
-        // ⚠️ THE LADDER IS TWO RUNGS, NOT FOUR. It sells weETH (rung 1) or hands over a redemption
-        // claim (rung 2). It does NOT yet BORROW WETH against the weETH and repay from the
-        // redemption — that leg is unbuilt, which is why every exit currently pays the ~25.6 bps
-        // sale rather than ~borrow-interest. Building it needs a weETH-collateral / WETH-loan market
-        // registered; `MorphoEscrowVenue` is already loan-token-generic and `_fromUsd`/`_toUsd18` are
-        // now price-aware, so that is deploy config rather than a code change here.
+        // ⚠️ THE LADDER IS TWO RUNGS, AND THE INTENDED FIRST RUNG IS MISSING. Today it sells weETH on v3
+        // (rung 1) and falls back to a redemption claim (rung 2). The DESIGN is: BORROW WETH against the
+        // weETH, deliver that, and repay from the redemption — with the v3 pool as the borrow's ONLY
+        // alternative (owner, 2026-08-09). Under that design `waitNft` stops being a way to serve an LP
+        // and becomes the REPAYMENT of the borrow.
+        //
+        // The ~25.6 bps sale is charged ONLY on the slice `weethIn` covers — i.e. the weETH this contract
+        // holds FREE (`:452-457` clamps to `balanceOf(address(this))`). Levered collateral sits in per-LP
+        // venue escrows and is untouchable here, so the sale is a bounded slice, NOT the whole withdrawal.
+        // ⚠️ That makes it LARGEST IN BOOTSTRAP, when little is levered and most weETH is free.
+        //
+        // ▶️ Building it is NOT deploy config (an earlier note here said so, wrongly). Venue `borrow` is
+        // `onlyManager`, so the entrypoint must live on `LevManager` — and with ~100 free bytes there it
+        // needs the repo's forwarder shape: thin function in `LevManager`, body in `LevMath` (439 free).
+        // The protocol's debt is then seeded into `LevManager.totalDebtUsd`, which already flows to
+        // `Core._bandEquityUsd18` → `committedUsd18`; NO new accounting term (adding one double-subtracts).
         return waitNft(covered, recipient, c);
     }
 
