@@ -347,11 +347,13 @@ contract LevManager {
         return coll > d ? coll - d : 0;
     }
 
-    /// @notice `lp`'s debt in USD (1e18), normalizing the venue stable's decimals.
+    /// @notice `lp`'s debt in USD (1e18), normalizing the venue loan token's decimals AND its PRICE.
     function debtUsd(address lp) public view returns (uint256) {
         ILevVenue v = pos[lp].venue;
-        return LevMath._toUsd18(v.stable(), v.debtOf(lp), LevMath.USD_PX);           // canonical decimal-normalize (dedup)
+        address loan = v.stable();
+        return LevMath._toUsd18(address(AUX),loan, v.debtOf(lp));
     }
+
 
     /// @notice VENUE-SAFETY LTV of `lp`, in bps = debt / ACTUAL collateral. The keeper uses THIS (and only
     ///         this) for the liquidation-avoidance track — it must track the venue's own health basis.
@@ -735,7 +737,7 @@ contract LevManager {
         if (extractUsd > cap) extractUsd = cap;
         if (extractUsd == 0) return 0;
         uint256 repayStable = LevMath.sizeRepayStable(                     // d/netEq/clamp — body in LevMath (EIP-170)
-            p.venue, lp, extractUsd, debtUsd(lp), AUX.getTWAPforAsset(WETH, TWAP_WINDOW), _isWethVenue(p.venue), address(WEETH));
+            p.venue, lp, extractUsd, debtUsd(lp), AUX.getTWAPforAsset(WETH, TWAP_WINDOW), _isWethVenue(p.venue), address(WEETH), address(AUX));
         if (repayStable == 0) return 0;
         // mode 2 = flash the debt stable → repay-first → withdraw+sell paired collateral → surplus to `vault`.
         IMorphoFlash(flashProvider).flashLoan(p.venue.stable(), repayStable,
@@ -755,7 +757,7 @@ contract LevManager {
         if (!p.open) return (address(0), address(0), 0);
         venue = address(p.venue);
         stable = p.venue.stable();
-        amtNative = LevMath._fromUsd(stable, maxUsd18, LevMath.USD_PX);
+        amtNative = LevMath._fromUsd(address(AUX),stable, maxUsd18);
         uint256 debt = p.venue.debtOf(lp);
         if (amtNative > debt) amtNative = debt;                    // clamp to debt (matches swapOutDelever)
     }
@@ -886,7 +888,7 @@ contract LevManager {
     /// it to the venue for `who`. Shared by openLev's ladder + rebalance's up-leg (dedup).
     function _leverUpBuy(ILevVenue venue, address who, address stable, uint256 usd, uint256 minOut) internal {
         uint256 coll = LevMath.stableToColl(
-            _sellCtx(address(0)), _isWethVenue(venue), stable, venue.borrow(who, LevMath._fromUsd(stable, usd, LevMath.USD_PX)), minOut);
+            _sellCtx(address(0)), _isWethVenue(venue), stable, venue.borrow(who, LevMath._fromUsd(address(AUX),stable, usd)), minOut);
         IERC20Min(_collToken(venue)).transfer(address(venue), coll);
         venue.supply(who, coll);
     }

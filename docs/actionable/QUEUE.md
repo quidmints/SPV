@@ -9129,3 +9129,42 @@ taken.**
 | **UNIT-DEADBAND-COUNT** | 🔴🔴🔴 **MEASURED ON REAL HISTORY: CHAINLINK NEVER MOVED **1%** BETWEEN ROUNDS OVER 4.5 DAYS, LET ALONE 5%. THE LOOP'S GATE IS ESSENTIALLY UNCROSSABLE PER-ROUND (2026-08-06).** ✅ **`test_UNIT_HowOftenDoesChainlinkCrossTheDeadband` — a threshold count, no estimator, no scaling chain: **`TWAP_MAX_DEVIATION_BPS = 500` (5%, read from `Aux`) · 119 rounds · 107 HOURS (~4.5 days) · avg gap 3,246 s (~54 min) · MAX single-round move **67 bps (0.67%)** · rounds ≥1%: **0** · rounds ≥5%: **0**.**** 📐 **AND IT IS STRUCTURAL, NOT A QUIET WEEK: **Chainlink ETH/USD updates on ~0.5% DEVIATION**, so per-round moves are CAPPED BY CONSTRUCTION near that threshold. **A single round can essentially never cross a 5% gate.**** ⚠️ **THE CAVEAT, STATED BECAUSE IT IS THE WHOLE QUESTION: I measured **PER-ROUND deltas**; the loop's condition is **CUMULATIVE DIVERGENCE** between the FROZEN pool TWAP and a DRIFTING Chainlink. Different quantities. **This measurement does not capture the one that matters** — it only proves the gate cannot be crossed in one step.** 📊 **ESTIMATE FROM THIS DATA, LABELLED AS AN ESTIMATE: ~0.3% typical per-round move over a random walk of 119 rounds ⇒ cumulative σ ≈ 0.3%·√119 ≈ **3.3% over 4.5 days** ⇒ reaching 5% divergence takes **ON THE ORDER OF DAYS**. ⇒ **THE POOL RE-PEGS EVERY FEW DAYS AND SITS STALE IN BETWEEN — which is §UNIT-PRICE-LOOP's MALIGNANT reading, not the benign one.**** 🔴🔴 **IF THAT HOLDS: between re-pegs our quote follows OUR OWN STALE TICK, the ring stays unpopulated, **σ² reads 0, and the skew charges NOTHING for days at a time** — precisely §E79's failure (*"an AMM filling at oracle with no spread is a FREE OPTION to anyone whose information is fresher"*), except worse, because we fill at a price staler than the oracle. ▶️ **THE MEASUREMENT THAT SETTLES IT — and it is the last one this thread needs: track `|poolTWAP − chainlink|` over the same 119-round history and count how many times it CROSSES 500 bps. That is cumulative, not per-round, and it is the exact gate condition in `twapResolve`.** | 🔴🔴🔴 5% gate uncrossable per-round; cumulative estimate says days between re-pegs; measure the gap directly |
 
 | **UNIT-DEADBAND-NEVER-OPENS** | 🔴🔴🔴🔴 **MEASURED ON REAL HISTORY: THE 5% DEADBAND **NEVER OPENED ONCE IN 4.4 DAYS**, MAX CUMULATIVE DRIFT **398 bps**. THE MEV DEFENCE AND THE RISK PRICING ARE IN DIRECT CONFLICT, AND THE OWNER'S READING IS CORRECT (2026-08-06).** ✅ **`test_UNIT_HowLongUntilTheDeadbandOpens` — our pool TWAP is FROZEN between re-pegs (§UNIT-PRICE-LOOP), so `twapResolve`'s gate reduces to how far Chainlink drifts from a FIXED point, measurable from Chainlink history alone. **119 rounds · 106 HOURS · 118 origins tested · origins that EVER crossed 500 bps: ZERO · MAX cumulative drift: 398 bps (3.98%).**** 🔴🔴🔴 **⇒ THE CHAIN, EVERY LINK MEASURED: pool TWAP frozen for DAYS ⇒ ring unpopulated (`card < 3`) ⇒ **σ² = 0** ⇒ **the skew charges NOTHING** — WHILE the quote drifts up to **~4% away from true price.** ⇒ **A swapper takes ETH from us at ~400 bps below market and pays ZERO skew for it.** That is §E79's FREE OPTION, at 400 bps, with the defence that exists to price it reading 0 **precisely because the price is pegged.**** ✅ **THE OWNER'S DIAGNOSIS, REFINED: *"our MEV defense is breaking the accounting"* — CORRECT IN SUBSTANCE. Precisely: the peg does NOT corrupt the ledger (§E134 showed the dollars land correctly in `POOLED_USD_ETH`); it **ZEROES THE RISK PREMIUM THE LEDGER IS SUPPOSED TO COLLECT.** The accounting is arithmetically sound and economically STARVED. **And it is the SAME mechanism: executing at oracle is what stops sandwiching AND what stops the tick moving.**** 📌 **ROOT CAUSE IS A MISCALIBRATED CONSTANT, NOT A BROKEN DESIGN: `TWAP_MAX_DEVIATION_BPS = 500` is set ABOVE the range days-long ETH drift actually reaches (398 bps observed max). **It was chosen as a SANITY bound on a manipulated TWAP, and is being load-bearing as a RE-PEG TRIGGER — two different jobs, one number.**** ▶️ **WHAT TO MEASURE NEXT, IN ORDER: (1) **the same count at candidate thresholds** (50/100/200 bps) — how often would each re-peg, and does that reintroduce MEV surface? (2) **whether a re-peg is the only path to a populated ring**, or whether `_rebalance`'s out-of-range repack can populate it independently; (3) **the LP cost of 4% staleness over 4.4 days** vs the ~21 bps cushion — that is the size of the hole. | 🔴🔴🔴🔴 deadband never opens; skew reads 0 while quoting 4% stale; one constant doing two jobs |
+
+### 🔴 THE `USD_PX` HOLE IS ~20 SITES, NOT ONE — and `debtUsd` was the MILDEST of them
+
+Fixing `LevManager.debtUsd` (live loan-token price via the `assetPriceFeed` registry) is correct and
+**nowhere near sufficient**. Enumerated every remaining `USD_PX` argument:
+
+| site | call | what a WETH loan token does |
+|---|---|---|
+| `LevManager:906` | `venue.borrow(who, _fromUsd(stable, usd, USD_PX))` | 🔴 **borrows ~4,000× TOO MUCH** |
+| `LevMath:168` | `venue.borrow(lp, _fromUsd(stable, usd, USD_PX))` | 🔴 same — this is the MAIN lever-up path |
+| `LevManager:775` | `_fromUsd(stable, maxUsd18, USD_PX)` | over-sizes the native amount 4,000× |
+| `LevMath:191,216,217,360` | slippage FLOORS from `_fromUsd`/`_toUsd18` | floors computed on a 4,000× wrong base ⇒ **anti-MEV protection is void** |
+| `LevMath:448` | `_toUsd18(stable, stableAmt, USD_PX)` | WETH floor mis-based |
+| `SwapLib:1436,1468,1508` | `_toUsd18(stable, …, USD_PX)` | swap-out delever sized wrong |
+| `BtcLevManager:153,368,404,484,521,526,550` | full BTC mirror | same class |
+
+**`_fromUsd(WETH, usd18, 1e18) == usd18` raw** ⇒ an intended **$4,000** borrow requests **4,000 WETH**.
+
+⇒ **THE BORROW SITES ARE WORSE THAN THE VALUATION SITE.** `debtUsd` understates silently;
+`venue.borrow` over-requests by 4,000×, which mostly reverts on venue health — **but a revert is the GOOD
+case**. The slippage-floor sites (`:191/216/217/360`) are the dangerous middle: they neither revert nor
+report, they just compute an anti-MEV floor off a wrong base, **disabling the protection while looking
+enabled**.
+
+⚠️ **THIS RE-DATES THE DEFECT. It is NOT "introduced by adding the venues" as the entry above says** —
+every one of these sites predates this session. What the venues did was make the class REACHABLE. The
+honest statement: `e502f9a` threaded a price parameter through 29 sites and left the placeholder at every
+one; allowlisting a non-dollar loan token is what turned a dormant assumption into a live defect.
+
+▶️ **The fix is the same shape everywhere and should be ONE helper, not 20 edits**: a
+`loanPxUsd18(loan)` that returns par for a feedless token and the live TWAP otherwise, reverting on a
+pinned-but-dead feed. It belongs in **`LevMath`** (both managers and `SwapLib` call it; `LevManager` has
+only ~100 bytes left after the `debtUsd` fix and cannot host it). Then every `USD_PX` argument becomes
+`loanPxUsd18(stable)`.
+⚠️ **`USD_PX` should be DELETED once the last site is converted** — leaving it is leaving the footgun
+loaded, and `grep USD_PX` returning empty is the completion test.
+
+⏸️ **The two WETH-loan venues STILL must not ship.** The `debtUsd` fix alone does not make them safe; the
+borrow-sizing and slippage-floor sites do.
