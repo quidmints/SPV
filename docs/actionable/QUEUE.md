@@ -8732,3 +8732,36 @@ of the same access. Any re-audit must match on `pos[` and read every hit, not on
 | **UNIT-WHY-VARIANCE** | 🎯🎯🎯 **WHY σ² IS IN THE SKEW AT ALL — AND A DEFECT THE QUESTION EXPOSES: WE MEASURE THE VARIANCE OF A PRICE WE OURSELVES PEG (owner asked, 2026-08-06).** ✅ **BOTH TERMS NEED IT, FOR THE SAME REASON — THE SKEW PRICES AN OPTION THE LP WRITES: • **KERNEL** `Γ·σ²·q/(1−q)^ρ` is Avellaneda–Stoikov's INVENTORY term — holding a skewed inventory is risky IN PROPORTION TO HOW FAR PRICE CAN MOVE AGAINST IT; in a genuinely still market an imbalance costs nothing to hold and charging for it is a tax on nothing. • **BASE** `σ²·confFrac/8` is MMRZ eq.16's LVR rate — expected loss to better-informed flow over the settlement window, which IS variance × time. ⇒ **without σ² the skew charges IDENTICALLY in a calm tape and a crash: overcharging when there is no risk, undercharging exactly when there is.** §E79 makes it sharp — filling at a stale oracle is a FREE OPTION, and **the value of a free option IS the variance of the underlying.** Dropping σ² is not simplification; it is pricing an option with no volatility input.** 🔴🔴🔴 **THE DEFECT THE QUESTION EXPOSES, AND IT IS NEW: `realizedVarianceWad` measures the variance of **OUR OWN POOL'S TICK** (`OracleLib.ringVariance` over `tickCumulative`). **§UNIT-ZERO-RESEATS just proved that tick is PEGGED TO THE ORACLE AND BARELY MOVES — zero reseats, frozen TWAP, even while the band drained to `q ≈ 1`.** ⇒ **WE ARE MEASURING THE VARIANCE OF A PRICE WE OURSELVES PEG. THAT IS CIRCULAR, AND IT STRUCTURALLY UNDERSTATES THE RISK THE SKEW EXISTS TO PRICE.**** ▶️ **THE LP'S ACTUAL EXPOSURE IS THAT THE **EXTERNAL MARKET MOVES AWAY FROM OUR PEG** — i.e. **CHAINLINK'S variance, not ours.** Our pool being calm is NOT evidence the world is calm; it is evidence we quote off an oracle. ⇒ **CANDIDATE EXPLANATION FOR §UNIT-SKEW-IS-NOISE's 0.04% THAT IS NEITHER "bad fixture" NOR "architecture, live with it": the σ² INPUT IS MEASURED ON THE WRONG SERIES.** ⚠️ **DO NOT ACT ON THIS UNTIL MEASURED — it is a hypothesis, and five were refuted today. **THE TEST: log `realizedVarianceWad` (pool series) NEXT TO the variance of the CHAINLINK series over the same window, on a fork where the oracle genuinely moves. If they diverge materially, the input is wrong; if they track, this is refuted.**** 📌 **AND CHECK BEFORE BUILDING: §E59 chose the ring deliberately (*"sample variance from the ring"*) — find whether the oracle series was CONSIDERED AND REJECTED, or never considered. `git log -S` plus the pre-compaction transcript, per §UNIT-RECOVERED's lesson.** | 🎯🎯🎯 σ² prices the option; but it may be measured on OUR pegged price instead of the market's |
 
 | **UNIT-VARIANCE-SERIES** | 🔎 **CHECKED BEFORE BUILDING (§UNIT-RECOVERED's lesson): THE ORACLE SERIES WAS **NEVER CONSIDERED** FOR σ² — NOT CONSIDERED-AND-REJECTED (2026-08-06).** ✅ **TRANSCRIPT SCAN (full pre-compaction jsonl, regex linking `varian|vol` to `chainlink|oracle series|feed varian`): **THREE passages, TWO of them written by me minutes ago.** The only prior one (line 5281) is the §E79 discussion — about **QUOTING** Chainlink mid with no spread, NOT about which series the variance is measured ON.** ⇒ **§E59 chose the POOL RING (*"sample variance from the ring"*) without evaluating the ORACLE series as an alternative. **An UNEXAMINED design choice, not a settled one** — which STRENGTHENS §UNIT-WHY-VARIANCE's hypothesis rather than closing it.** 📌 **WHY §E59 REACHED FOR THE RING IS STILL DEFENSIBLE ON ITS OWN TERMS: the ring was already on-chain, zero extra storage/calls/gas on the money path, and §E59's PROBLEM was the estimator returning exactly 0 (wall-clock grid + interpolation + whole-tick truncation) — a MEASUREMENT bug it correctly fixed. **The question of WHICH SERIES was simply never asked, because the bug being fixed was about HOW, not WHAT.**** ⚠️ **STILL A HYPOTHESIS — five died today. **THE DISCRIMINATOR: on a fork where the oracle genuinely moves, log `realizedVarianceWad` (pool series) beside the variance of the CHAINLINK series over the SAME window. Materially divergent ⇒ the input is wrong; tracking ⇒ refuted.** §UNIT-ZERO-RESEATS predicts divergence (the pool tick is pegged and barely moves) but PREDICTION IS NOT MEASUREMENT.** ▶️ **AND A DESIGN CONSTRAINT TO CARRY IN: any oracle-series variance must NOT reintroduce what §E59 removed — no wall-clock grid, no interpolation between sparse points, no whole-tick truncation. Chainlink updates are EVENT-DRIVEN and IRREGULAR, exactly like the ring, so the same per-interval normalisation applies. **`OracleLib.ringVariance`'s shape is reusable; only its INPUT would change.**** | 🔎 never considered; hypothesis stands; discriminator is a two-series log on a moving oracle |
+
+### 🔴 THE BORROW LEG IS BLOCKED ON BYTES, NOT ON DESIGN — and the blocker is structural
+
+The goal (owner): an LP exit should BORROW WETH against the protocol's weETH and repay from the
+`waitNft` redemption, instead of SELLING weETH at ~25.6 bps. Owner also fixed the approach:
+*"we have a new offramp strategy that REUSES the leverage machinery we have for IL protect."*
+
+**Why it cannot be wired as-is — an access boundary, measured:**
+  * Every lev venue inherits `LevVenueBase`, whose `borrow` is `onlyManager`, and
+    `MANAGER` is *"the only caller (LevManager)"* (`LevVenueBase.sol:23,28`).
+  * The offramp is `VaultLib.offrampBody` (`:448`), called from **`Vault.sol:411`**.
+⇒ **`Vault` is not `LevManager`, so the offramp CANNOT call `venue.borrow` at all.** The reuse the owner
+asked for requires a new entrypoint ON `LevManager` that the vault side may call.
+
+🔴 **AND `LevManager` HAS 43 FREE BYTES** (24,533 / 24,576, measured 2026-08-09 after landing the
+retention branch; `Core` 38, `Vogue` 591, `LevMath` 1,566). A new external entrypoint — selector,
+dispatch, auth check, parameters — does not fit in 43 bytes. **The borrow leg therefore cannot be built
+until bytes are reclaimed from `LevManager`.**
+
+⇒ **THIS PROMOTES THE `reseatEpoch` REMOVAL FROM A TIDY-UP TO A PREREQUISITE.** §UNIT-RESEATEPOCH already
+concluded it is removable and noted it *"BUYS headroom on the contract that has none"* — deleting
+`Vogue.reseatEpoch()`, the `ILevSyncHook` call + try/catch at `LevManager:487`, and the `posEpoch`
+mapping. That is now the gating task for the borrow leg, not an optimisation.
+
+**Second design question, unanswered and NOT mine to settle:** `LevManager` keys positions per-LP
+(`pos[lp]`). A protocol-level borrow has no LP. Either the vault becomes an "LP" in that mapping (one
+synthetic position, with every per-LP invariant — IL target, liquidation, `syncLev` band slice —
+applying to it), or the borrow leg needs a position-free path. **These are materially different
+designs**; the first reuses the machinery literally as the owner asked, the second reuses only the
+venues.
+
+⚠️ Do not start the leg by writing the entrypoint. Reclaim the bytes first, then settle the per-LP
+question — writing it in the other order produces code that cannot deploy.
