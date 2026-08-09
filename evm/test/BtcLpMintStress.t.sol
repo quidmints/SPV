@@ -447,6 +447,14 @@ contract BtcLpMintStress is Alles {
         // The request bumped pendingSwapOutUsd by exactly the owed USD.
         assertEq(CORE.pendingSwapOutUsd(), owedUsd, "request recorded the obligation in pendingSwapOutUsd");
         uint locked0 = ch.totalSatsLocked();
+        // (E152-f) DRAIN THE FEE BOOKMARK FIRST, so the delta below measures ONE THING.
+        // Delivery mints TWICE to this address: `settleDelivered` pays the proceeds
+        // (exactly `exactUsd * 1e12`) and `settleBtcLp` pays accrued USD-leg fees. Snapshotting
+        // without draining made the delta `proceeds + cumulative fees`, which is why the bound
+        // had to be a fee-rate estimate — and why it could not distinguish a fee defect from a
+        // volume change from a haircut leak. Crystallising here zeroes the bookmark, so what
+        // follows is the proceeds mint alone and can be asserted EXACTLY.
+        vm.prank(s.lpEth); ETH.collectBtcFees();
         uint qdBefore = QUID.balanceOf(s.lpEth);
 
         // Hop delivers: splice-out the channel, paying the swapper their sats.
@@ -478,19 +486,13 @@ contract BtcLpMintStress is Alles {
         // notional — measured at a constant 4.2bps across 500/1200/2500 notionals — so an ABSOLUTE
         // allowance can never fit it. Bound = 6bps of the expected value (4.2bps measured + margin)
         // plus the original 1e15 for rounding. DERIVED from the fee rate; do NOT raise until green.
-        // (E152-c) INSTRUMENTED: split the delta into its two mints. `settleDelivered` mints
-        // exactly `owedUsd * 1e12`; anything above that is the LP's accrued USD-leg fee. The
-        // fee RATE is 4.2 bps (measured), so a larger excess means more VOLUME accrued before
-        // this delivery -- not a richer fee.
-        {
-            uint delta = QUID.balanceOf(s.lpEth) - qdBefore;
-            emit log_named_uint("E152 owedUsd*1e12 (proceeds)", owedUsd * 1e12);
-            emit log_named_uint("E152 actual QUID delta      ", delta);
-            emit log_named_uint("E152 excess = accrued fees  ", delta > owedUsd * 1e12 ? delta - owedUsd * 1e12 : 0);
-            emit log_named_uint("E152 USD_FEES_BTC (cum)     ", ETH.USD_FEES_BTC());
-        }
-        assertApproxEqAbs(QUID.balanceOf(s.lpEth) - qdBefore, owedUsd * 1e12, owedUsd * 1e12 * 6 / 10000 + 1e15,
-            "LP minted ~EXACTLY the swapper's USD as proceeds at delivery (+ fee dust)");
+        // (E152-f) NOW AN EXACT ASSERTION, not a fee-rate estimate. With the bookmark drained
+        // above, only fees accrued DURING the delivery itself can land here — bounded by one
+        // rebalance, not by cumulative volume. The previous form allowed 6 bps "fee dust"
+        // derived from a 4.2 bps rate, so it flagged ANY change in volume-per-delivery as an
+        // over-mint. It caught a real transient that way, but by accident of magnitude.
+        assertApproxEqAbs(QUID.balanceOf(s.lpEth) - qdBefore, owedUsd * 1e12, 1e15,
+            "LP minted EXACTLY the swapper's USD as proceeds at delivery (fees drained first)");
         assertGe(QUID.balanceOf(s.lpEth) - qdBefore, owedUsd * 1e12,
             "LP minted AT LEAST its full proceeds");
         assertEq(CORE.pendingSwapOutUsd(), 0, "obligation cleared on delivery (matched -=)");
