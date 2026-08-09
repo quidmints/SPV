@@ -383,6 +383,7 @@ contract PremiumIsCarryNotIncome is Alles {
         // CONSTANT rate and therefore near-zero variance no matter how large the swaps are. Attempt
         // 2 got 370 bps precisely because it was regular. Real tape is uneven in BOTH size and
         // spacing, so vary both.
+        uint landed; uint reverted;
         uint p = px;
         // FREQUENCY, NOT AMPLITUDE. Measured: 0.6% -> 556 bps, 1.0% -> 545 bps (NO change), 1.8% ->
         // 28,069 bps. `ringVariance` is BIMODAL -- below the reseat threshold amplitude is
@@ -394,17 +395,25 @@ contract PremiumIsCarryNotIncome is Alles {
         for (uint i; i < 24; ++i) {
             p = p * mult[i % 8] / 1000;
             _setEthFeed(p / 1e10);
+            // §UNIT-VOL-CONTROL / §UNIT-FORK-PINNED — THE LANDED SEQUENCE IS THE ONLY THING THAT
+            // MOVES σ², AND `try/catch` MADE IT INVISIBLE. Three walks produced two identical σ²
+            // values and one different, which is only explicable by WHICH swaps cleared the
+            // TWAP-deviation guards. Count them, so the workload is observable rather than inferred.
             vm.startPrank(drainer);
             if (i % 3 != 1) {
-                try AUX.swap(address(USDC), address(WETH), true, uint(size[i % 8]) * 1_000 * USDC_PRECISION, 0) {} catch {}
+                try AUX.swap(address(USDC), address(WETH), true, uint(size[i % 8]) * 1_000 * USDC_PRECISION, 0) { ++landed; }
+                catch { ++reverted; }
             } else {
-                try AUX.swap{value: uint(size[i % 8]) * 4e17}(address(USDC), address(WETH), false, 0, 0) {} catch {}
+                try AUX.swap{value: uint(size[i % 8]) * 4e17}(address(USDC), address(WETH), false, 0, 0) { ++landed; }
+                catch { ++reverted; }
             }
             vm.stopPrank();
             vm.roll(block.number + 1);
             vm.warp(block.timestamp + (i % 5 + 1) * 90);   // uneven spacing, 1.5-7.5 min
         }
 
+        emit log_named_uint("swaps LANDED  ", landed);
+        emit log_named_uint("swaps REVERTED", reverted);
         uint varWad = CORE.realizedVarianceWad(false);
         emit log_named_uint("sigma^2 AFTER the walk  ", varWad);
         emit log_named_uint("implied annualised vol, bps (sqrt of the above)", _sqrtBps(varWad));
