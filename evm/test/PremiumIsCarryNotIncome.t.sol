@@ -461,4 +461,47 @@ contract PremiumIsCarryNotIncome is Alles {
         while (z < y) { y = z; z = (x / z + z) / 2; }
         return y / 1e14;
     }
+
+    /// §UNIT-VARIANCE-SOLVED — THE DISCRIMINATOR. Pool-series sigma^2 (what we price with) beside
+    /// the REAL Chainlink series over the same window (what the LP is actually exposed to).
+    /// Materially divergent ⇒ the input is wrong. Tracking ⇒ the hypothesis is refuted.
+    /// Five hypotheses died today; this is measured BEFORE any money-path change.
+    function test_UNIT_PoolVarianceVsChainlinkVariance() public {
+        address AGG = 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419;   // mainnet ETH/USD aggregator
+        (uint80 rid, int p0,, uint t0,) = AggregatorV3Interface(AGG).latestRoundData();
+        emit log_named_uint("latest chainlink round", uint(rid));
+        emit log_named_int ("latest chainlink price", p0);
+
+        // Walk back 9 rounds -- the SAME depth `ringVariance` uses -- and take the variance of
+        // consecutive per-second RATE CHANGES, the identical estimator shape, so the two numbers
+        // are comparable rather than merely both being "a variance".
+        int[8] memory rate; uint32 spanSecs; uint got;
+        {
+            int pHi = p0; uint tHi = t0;
+            for (uint i; i < 8; ++i) {
+                (, int pLo,, uint tLo,) = AggregatorV3Interface(AGG).getRoundData(uint80(uint(rid) - i - 1));
+                if (pLo <= 0 || tLo == 0 || tLo >= tHi) break;
+                rate[i] = ((pHi - pLo) * 1e9) / int(tHi - tLo);
+                pHi = pLo; tHi = tLo; ++got;
+                spanSecs = uint32(t0 - tLo);
+            }
+        }
+        emit log_named_uint("chainlink rounds walked", got);
+        emit log_named_uint("span seconds           ", spanSecs);
+        if (got < 3) { emit log("INCONCLUSIVE: too few chainlink rounds"); return; }
+
+        int mean; uint m = got - 1;
+        for (uint i; i < m; ++i) mean += (rate[i] - rate[i + 1]);
+        mean /= int(m);
+        uint acc;
+        for (uint i; i < m; ++i) { int d = (rate[i] - rate[i + 1]) - mean; acc += uint(d * d); }
+        uint varPerSec = acc / m;
+        emit log_named_uint("CHAINLINK per-sec var (raw)", varPerSec);
+        emit log_named_uint("POOL sigma^2 (realizedVarianceWad)", CORE.realizedVarianceWad(false));
+    }
+}
+
+interface AggregatorV3Interface {
+    function latestRoundData() external view returns (uint80, int, uint, uint, uint80);
+    function getRoundData(uint80) external view returns (uint80, int, uint, uint, uint80);
 }
