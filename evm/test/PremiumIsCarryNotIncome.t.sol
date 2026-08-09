@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Alles} from "./Alles.t.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
+import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 
 /// §E125 — IS THE SKEW PREMIUM FAIR CARRY, OR IS IT FARMABLE INCOME?
@@ -481,10 +482,13 @@ contract PremiumIsCarryNotIncome is Alles {
             for (uint i; i < 8; ++i) {
                 (, int pLo,, uint tLo,) = AggregatorV3Interface(AGG).getRoundData(uint80(uint(rid) - i - 1));
                 if (pLo <= 0 || tLo == 0 || tLo >= tHi) break;
-                // FRACTIONAL return per second, in WAD. `ringVariance` works on tickCumulative,
-                // which is LOG-price, so its rate is dimensionless; a raw price delta is not.
-                // Dividing by pLo makes the two comparable rather than merely both "a variance".
-                rate[i] = ((pHi - pLo) * 1e18 / pLo) / int(tHi - tLo);
+                // §UNIT-SERIES-RATIO-VOID — LOG-PRICE, matching tickCumulative's space. The
+                // previous draft used a per-second FRACTIONAL rate and then differenced it, which
+                // yields a change in VELOCITY, not a return: shape copied, meaning lost. A tick IS
+                // a log price, so `ln(pHi) - ln(pLo)` IS the return; normalise by elapsed time.
+                int lnHi = SoladyMath.lnWad(int(uint(pHi) * 1e10));   // 8-dec -> WAD before ln
+                int lnLo = SoladyMath.lnWad(int(uint(pLo) * 1e10));
+                rate[i] = ((lnHi - lnLo) * 1e18) / int(tHi - tLo);    // WAD return per second
                 pHi = pLo; tHi = tLo; ++got;
                 spanSecs = uint32(t0 - tLo);
             }
@@ -500,7 +504,9 @@ contract PremiumIsCarryNotIncome is Alles {
         for (uint i; i < m; ++i) { int d = (rate[i] - rate[i + 1]) - mean; acc += uint(d * d); }
         uint varPerSec = acc / m;
         // Annualise EXACTLY as Core.realizedVarianceWad does (per-sec -> annualised).
-        uint clAnnual = varPerSec * 31_536_000;
+        // `d*d` on WAD-scaled returns lands in 1e36; divide back to WAD, THEN annualise exactly
+        // as Core.realizedVarianceWad does. Both errors from the voided draft, fixed together.
+        uint clAnnual = (varPerSec / 1e18) * 31_536_000;
         emit log_named_uint("CHAINLINK annualised sigma^2 (wad)", clAnnual);
         emit log_named_uint("CHAINLINK implied vol, bps        ", _sqrtBps(clAnnual));
         emit log_named_uint("POOL sigma^2 BEFORE any walk      ", CORE.realizedVarianceWad(false));
