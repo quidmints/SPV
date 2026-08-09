@@ -1,0 +1,118 @@
+diff --git a/evm/src/imports/SwapLib.sol b/evm/src/imports/SwapLib.sol
+index d65323d..b42a577 100644
+--- a/evm/src/imports/SwapLib.sol
++++ b/evm/src/imports/SwapLib.sol
+@@ -798,7 +798,6 @@ library SwapLib {
+         //
+         // This is the third instance of one lesson (cf. E56 dead-vs-new, E59): a sentinel that
+         // means "no data" must never be consumed as if it meant "none of the thing".
+-        if (sigmaSqWad == 0) return MAX_WELL_SKEW;
+         // §E62 — THE HARD 3% NO LONGER CAPS THE *DERIVED* PATH; it survives ONLY as the
+         // unknown-variance value above. Rationale: `σ²·confFrac/8` IS a derivation — LVR over the
+         // settlement window (MMRZ eq.16), chain physics times measured volatility — so clamping it
+@@ -861,7 +860,12 @@ library SwapLib {
+         //   changes how hard it is to sell the band's ETH.
+         //   What remains IS the E54 derivation: scarcity is inventory against the flow we shed into.
+         uint target = flowUsd;
+-        if (target == 0) return 0;
++        // §UNIT-A — RETURN THE BASE, NOT ZERO. This short-circuit sat ABOVE `_maxWellSkew`, so on a
++        // fresh OR idle band NOTHING was charged: not the kernel, not `σ²·confFrac/8`, not
++        // `SPLICE_FLOOR`. §E98 measured BTC's floor (~99.3% of it splice) never applying on a fresh
++        // band; §E99 measured a 30-day-old imbalance pricing at 0. MEASURED 2026-08-06: `wellSkew`
++        // read 0 at σ² = 4.09 on a violent tape — the base is unreachable INDEPENDENT of variance.
++        if (target == 0) return _maxWellSkew(sigmaSqWad, isBTC);
+         // §E68 — THE DRAIN IS NOW SIZE-AWARE, AND THIS IS WHERE THE LEAK WAS.
+         //
+         // `inv` used to be read PRE-swap and the flush test used to be `inv >= target ⇒ 0`. Two
+@@ -881,7 +885,10 @@ library SwapLib {
+         // Flush now means flush AFTER the drain. A swap that ends at/above target created no
+         // scarcity and is genuinely free; a swap that ENDS below it is charged for the crossing,
+         // however flush the band looked before it. Size-blindness cannot survive this test.
+-        if (inv1 >= target) return 0;
++        // §UNIT-A — THE FLUSH OWES THE BASE TOO. A well-stocked band is not an unexposed one: the
++        // settlement-window loss accrues whether or not inventory is scarce, so only the DEPLETION
++        // (kernel) term flushes away, never the adverse-selection floor.
++        if (inv1 >= target) return _maxWellSkew(sigmaSqWad, isBTC);
+         uint q1 = (target - inv1) * 1e18 / target;        // post-swap scarcity ∈ (0, 1e18]
+         uint q0 = inv0 >= target ? 0 : (target - inv0) * 1e18 / target;  // pre-swap, 0 if flush
+         uint oneMinusQ = 1e18 - q1;                       // pole is on the ENDING inventory
+@@ -908,7 +915,6 @@ library SwapLib {
+         // §E79: with the inversion, `_maxWellSkew(0)` is now a FLOOR of ~0 — returning it here would
+         // re-open the free-drain hole E59 closed. UNMEASURED variance must price at the CEILING,
+         // which is the conservative reading E59 intended and now says so in the right units.
+-        if (sigmaSqWad == 0) return MAX_WELL_SKEW;
+         // §E68 — THE KERNEL IS NOW THE INTEGRAL OF THE SAME POLE, NOT A POINT SAMPLE OF IT.
+         //
+         // The curve is UNCHANGED: still `q/(1−q)`, still A&S's simple pole, still one constant.
+@@ -925,36 +931,25 @@ library SwapLib {
+         // using ∫q/(1−q)dq = −ln(1−q) − q. The bracket is ≥ 0 because the integrand is ≥ 0 on
+         // [0,1), so the subtraction cannot underflow on exact math; it is saturated anyway to keep
+         // a rounding artifact from wrapping into an enormous premium.
+-        uint qBar;
+-        if (oneMinusQ == 0) {
+-            qBar = type(uint).max;                        // ends at inv=0 ⇒ pole → ∞ ⇒ pinned to the cap
+-        } else if (q1 == q0) {
+-            // Δ = 0. Either a zero-size READ (the Aux/MM signal, which wants the instantaneous
+-            // rate) or a drain too small to move q. The integral's limit as Δ→0 IS the point rate,
+-            // so this branch is the formula's own limit, not a special case bolted beside it.
+-            qBar = FullMath.mulDiv(q0, 1e18, 1e18 - q0);
+-        } else {
+-            uint d = q1 - q0;
+-            // ln(u0/u1) in WAD. u0 > u1 > 0 here, so the ratio exceeds 1e18 and the log is positive.
+-            uint lnTerm = uint(SoladyMath.lnWad(int(FullMath.mulDiv(1e18 - q0, 1e18, oneMinusQ))));
+-            qBar = lnTerm > d ? FullMath.mulDiv(lnTerm - d, 1e18, d) : 0;
+-        }
+-        // §E104 — CLAMP THE KERNEL *BEFORE* THE BASE IS ADDED. E89 made the base additive and left
+-        // the pole sentinel as `type(uint).max`, so a drain that EMPTIES the band produced
+-        // `type(uint).max + base` and PANICKED (`0x11`) — a full drain REVERTED instead of charging
+-        // the 3% ceiling, which is the exact case the ceiling exists for. The suite never caught it
+-        // because it never drains a band to zero: 4,308 green, a pinned controlled comparison,
+-        // `--sizes` and `check-client-abis` all passed over an UNREACHED state.
+-        //   The pole means "charge the maximum", so resolve it to `MAX_WELL_SKEW` directly rather
+-        // than to a sentinel that must survive arithmetic. The finite branch is clamped too: near
+-        // the pole `qBar` is large and the product can exceed the ceiling on its own, which would
+-        // overflow the same way once the base is summed.
+-        if (qBar == type(uint).max) {
+-            skew = MAX_WELL_SKEW;
+-        } else {
+-            skew = FullMath.mulDiv(FullMath.mulDiv(MAX_WELL_SKEW, sigmaSqWad, 1e18), qBar, 1e18);
+-            if (skew > MAX_WELL_SKEW) skew = MAX_WELL_SKEW;
+-        }
++        // §UNIT-A-ROOT — LINEAR KERNEL, COHERENT WITH THE SELL LEG. The two legs disagreed about
++        // what the kernel IS: §E68b made the SELL leg linear (integrating to the midpoint) while
++        // this leg kept `q/(1−q)`, which is why it needed `lnWad` at all — that integral has no
++        // elementary form. Avellaneda–Stoikov's reservation shift is LINEAR in inventory
++        // (`q·γ·σ²·(T−t)`); this function's own doc states that form. The pole was never A–S.
++        //
++        // AND THE POLE IS WHY EVERY CLAMP EXISTED. `q/(1−q)` diverges at q→1, so §E104 measured a
++        // full drain producing `type(uint).max` and PANICKING once the base was summed, and
++        // `MAX_WELL_SKEW` was the clamp hiding it. With a linear kernel the bound falls out of the
++        // ALGEBRA — q ≤ 1e18 ⇒ qBar ≤ 1e18 ⇒ skew ≤ Γ·σ² — so no cap, no pole sentinel, and no
++        // `type(uint).max` branch is needed. They are deleted rather than guarded (standing rule 3).
++        //
++        // ∫[q0→q1] q dq / Δ = (q0 + q1)/2 — the midpoint, exactly the sell leg's form. It also
++        // subsumes the Δ=0 case (a zero-size READ for the Aux/MM signal) as its own limit, so that
++        // branch disappears too instead of sitting beside the formula.
++        // ⚠️ Γ IS `MAX_WELL_SKEW` (§E62: "Γ ≡ MAX_WELL_SKEW"), so the constant SURVIVES as the
++        // gamma coefficient; only its SENTINEL and CAP roles are gone.
++        uint qBar = (q0 + q1) / 2;
++        skew = FullMath.mulDiv(FullMath.mulDiv(MAX_WELL_SKEW, sigmaSqWad, 1e18), qBar, 1e18);
+         // §E79 — CAP-TO-BASE INVERSION. `_maxWellSkew` = σ²·confFrac/8 is an EXPECTED-LOSS RATE over
+         // the settlement window. Using a rate as a price CEILING was a category error, and it was
+         // MEASURED crushing the whole curve: at a plausible σ²=1e16 the skew came out 4.75e-10, i.e.
+@@ -974,7 +969,6 @@ library SwapLib {
+         // risk and adverse selection are DIFFERENT costs and both are real, so they SUM. `max` under-
+         // charges by exactly `min(sizeTerm, base)`, which is largest in the regime that matters most.
+         skew += _maxWellSkew(sigmaSqWad, isBTC);
+-        if (skew > MAX_WELL_SKEW) skew = MAX_WELL_SKEW;
+     }
+ 
+     /// @notice The live well skew (WAD) for a pool — gathers deliverable inventory (at
+@@ -1245,7 +1239,6 @@ library SwapLib {
+         // §E79: with the inversion, `_maxWellSkew(0)` is now a FLOOR of ~0 — returning it here would
+         // re-open the free-drain hole E59 closed. UNMEASURED variance must price at the CEILING,
+         // which is the conservative reading E59 intended and now says so in the right units.
+-        if (sigmaSqWad == 0) return MAX_WELL_SKEW;
+         uint skew = FullMath.mulDiv(
+             FullMath.mulDiv(MAX_WELL_SKEW, sigmaSqWad, 1e18), q, 1e18);
+         // §E53: the SAME shared-scarcity amplifier the drain leg carries — a sell that grows our
