@@ -166,7 +166,9 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     // MULTI-HOP: number of OPEN channels each hop currently owns (++ at open, -- at
     // close). Gates swap-in attestation authority (`settleSwapIn`) without a per-call
     // channelId — only a hop with locked BTC (an open channel) may credit the shared
-    // USD pool, mirroring the old single-`hopNode` trust with per-instance scope.
+    // USD pool, mirroring the trust the RETIRED single-`hopNode` model carried, now with
+    // per-instance scope. (Tense matters: `:133` states there is NO single global `hopNode`
+    // today — this line describes what the gate INHERITS, not what exists. E149.)
     mapping(address => uint) public openChannelsOf;
 
     uint public totalSatsLocked;     // sum across all open channels
@@ -611,6 +613,21 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///        that will own the channel). Binding it into the digest lets the LP
     ///        designate its hop (fleet/self/family) and stops a genuine lpAuth from
     ///        being replayed through any other submitter. (v2: hop added to the digest.)
+    ///
+    /// ═══ THE DIGEST FAMILY SPLITS IN TWO, AND NOTHING SAID SO UNTIL NOW (E149) ═══
+    /// **VERIFIED ON-CHAIN** — a signature over these is recovered/checked in this contract:
+    ///     `delegationDigest`  (registerDelegation / registerDelegationFor)
+    ///     `fallbackDigest`    (registerFallback   / registerFallbackFor)
+    /// **OFF-CHAIN-SIGNING HELPERS** — `public view` so the off-chain side can compute the
+    /// EXACT bytes this contract would, but NO on-chain consumer verifies a signature:
+    ///     `openChannelDigest` · `spliceDigest` · `swapOutDeliverDigest`
+    /// ⚠️ **HAVING NO ON-CHAIN CONSUMER IS THE NORMAL, INTENDED STATE FOR THE SECOND GROUP —
+    ///    IT IS NOT EVIDENCE OF DEAD CODE.** Under the delegation model the fleet acts as the
+    ///    channel's hop and produces no per-call signature, so these are currently unsigned;
+    ///    the helpers were kept deliberately. **E148 nearly deleted `swapOutDeliverDigest` on
+    ///    exactly that misreading — the criterion "no `src` consumer" would equally condemn
+    ///    `openChannelDigest`, which has 9 test and 7 Rust callers.** Count the SIBLINGS
+    ///    before concluding any member of this family is dead.
     function openChannelDigest(
         Types.OpenParams calldata p,
         bytes calldata rawFundingTx,
