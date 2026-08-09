@@ -8969,3 +8969,40 @@ be read as a signal.
 
 **Prerequisites now standing:** ✅ bytes (453 free, `982410b`) · ✅ design settled (position-free, not a
 synthetic LP) · ▶️ **this measurement** · then the entrypoint.
+
+
+### ⛔ RETRACTION — "the protocol-debt slot is `committedUsd18`" WAS WRONG. Measured against the code.
+
+The entry above concluded a protocol borrow belongs in `Core.committedUsd18()`, and asked whether
+`deposits[14]` counts venue-posted weETH. **Both halves were wrong, and reading the two functions shows
+why in one pass.**
+
+**1. `deposits[14]` NEVER COUNTED weETH — posted as collateral or otherwise.** `BasketLib.get_deposits:93`
+loops `for (i < stables.length - 1)` and dispatches by token identity: **AAVE** for GHO/USDG, **ERC4626**
+for the rest, **BOLD** filled in `Aux`. `amounts[14]` is *"raw TVL total"* **of the STABLE basket**.
+⇒ The double-count I warned about **cannot occur**: there is no weETH term in `totalLiquid` to inflate.
+The question was well-formed and its subject does not exist.
+
+**2. AND `committedUsd18` IS ALREADY NET OF LEVERAGE DEBT.** `Core.sol:115-122`:
+*"committed is the BASKET's contribution **net of live leverage debt** — NOT the curve inventory"*, and
+`_bandEquityUsd18(isBTC)` = *"one pool's in-range USD **less that pool's live leverage debt**, floored at
+0"*.
+⇒ Adding protocol debt there would **subtract it a second time** on a term that already subtracts lev
+debt. **The "necessary but not sufficient" fix I proposed would have been actively double-counting** — the
+exact error I was trying to prevent, introduced by the prevention.
+
+⇒ 🔴 **THE REAL QUESTION IS ONE I NEVER ASKED: `_checkBacking` IS A STABLE-BASKET-vs-BAND-EQUITY GATE.
+Is it the right gate for a WETH-denominated protocol borrow AT ALL?** Both its terms are USD/stable-side.
+A WETH debt secured by weETH lives on the **ETH** accounting (`vogueETH`, `deliverableETH`, `POOLED_ETH`),
+which this inequality does not read. **Settle WHICH invariant the borrow can violate before choosing where
+to record it** — placing it in the gate it cannot breach protects nothing and costs a term.
+
+⚠️ **METHOD, and it is the lesson of the whole chain:** I reasoned from the SHAPE of `_backingCore`
+(two terms, one revert ⇒ "a commitment goes in the committed term") without reading what either term
+CONTAINS. The shape was right and both contents were wrong. **`committedUsd18` is nine lines away from
+the call site.** ⇒ Rule 12's *"check the mechanism before building around it"* applies to the terms of an
+expression, not just to functions.
+
+**Standing prerequisites for the borrow leg, corrected:** ✅ bytes (453 free) · ✅ position-free design ·
+▶️ **which solvency invariant a WETH protocol-borrow can actually violate** (NOT "where in `_checkBacking`
+it goes") · then the entrypoint.
