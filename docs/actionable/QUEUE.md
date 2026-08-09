@@ -8823,3 +8823,47 @@ tick series, the epoch must come back, and §E117 is the evidence.**
 
 **Not started.** `LevManager` is at 43 free bytes, so this is the gating task for the borrow leg — but it
 spans `Vogue`, `Interfaces`, `LevMath`, `LevManager`, `BtcLevManager` and `Vault`, and item 3 is unresolved.
+
+
+### ✅ UNIT-RESEATEPOCH BLOCKER CLEARED — the BTC side IS symmetric. Plan is now complete and executable.
+
+Item 3 of the correction above is resolved by measurement, and it resolves in the EASY direction.
+
+`Vault.sol:214-215` declare **`int24 public UPPER_TICK_BTC` / `LOWER_TICK_BTC`**, written at **`:712`**,
+the line immediately after **`reseatEpochBTC = o.reseatEpochBTC`** at `:711`. That is the SAME
+statement-pair relationship as `Vogue:1137-1138` — counter and bounds updated together, so the bounds
+can replace the counter on both sides.
+
+⇒ **The asymmetry I warned about does not exist here.** Recorded because the warning was correct to
+raise (`Vault` IS the fused contract) and wrong on the fact — a caution that survives measurement is
+worth as much as one that is confirmed, but only if the measurement is written next to it.
+
+**AND THE ORIGINAL CITATION NAMED THE WRONG CONTRACT.** `Vault.sol:713` returns
+`(o.sqrtPriceX96, o.tickLower, o.tickUpper, o.myLiquidity, o.resolvedTwap)` — **that** is the
+`(sqrtPriceX96, tickLower, tickUpper, …)` tuple the entry attributed to `Vogue.sol:1120`. So the
+tuple is real, it is just on the **BTC** path, in `Vault`, not the ETH path in `Vogue`. The ETH side
+carries the same information as two separate public `int24`s instead.
+
+**Complete delete list, both sides, all verified present today:**
+
+| file | delete |
+|---|---|
+| `Vogue.sol` | `:173` `uint64 public reseatEpoch` · `:1137` `if (o.reseatBump) reseatEpoch++` |
+| `Vault.sol` | `:220` `uint64 public reseatEpochBTC` · `:711` write · `:709` arg into `rebalanceBody` |
+| `Interfaces.sol` | `:136` `reseatEpoch()` — **and ADD** `LOWER_TICK()/UPPER_TICK()` (+ `_BTC` variants) |
+| `LevMath.sol` | `:109-110` the epoch read + is-newer test in `reanchorCompute`; signature swaps `curEpoch` → `entrySqrtP` |
+| `LevManager.sol` | `:160` `posEpoch` mapping · `:443` call arg · `:454` write · `:490` `try/catch` |
+| `BtcLevManager.sol` | `:57` equivalent |
+| `BtcVaultLib` | `RebalOut.reseatEpochBTC` field + the `reseatEpoch` parameter of `rebalanceBody` |
+
+⚠️ **`BtcVaultLib.RebalOut` IS AN EXTRA HOP THE ENTRY NEVER LISTED** — the BTC counter is threaded
+THROUGH a delegatecall struct (`:709` passes it in, `:711` reads it back). Removing the state var
+without removing the struct field leaves a dead field on a delegatecall boundary.
+
+**Still true, still must go in the deleting commit:** a bounds check is POINT-IN-TIME. §E117's 1h TWAP
+tick 200766 sat neatly inside `[200730, 200770)` with a window spanning FOUR frame changes. Safe today
+only because that consumer (§E93 windowed-TWAP) is refuted and blocked and both live consumers are
+point-in-time. **A future windowed reading needs the epoch back.**
+
+▶️ **Gating task for the borrow leg** (`LevManager` at 43 free bytes). Nothing unknown remains — this is
+now execution across 7 files, not investigation.
