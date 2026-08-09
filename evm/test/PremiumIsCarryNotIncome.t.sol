@@ -598,6 +598,38 @@ contract PremiumIsCarryNotIncome is Alles {
         emit log_named_uint("wellSkew AFTER   ", AUX.wellSkew(address(WETH)));
     }
 
+    /// §UNIT-REPEG-CADENCE's missing input, outstanding since it was listed six entries ago:
+    /// ISOLATED RESEAT GAS. `Vogue.reseat()` is the permissionless poke, so the cost can be read
+    /// on its own rather than inferred from a whole walk. Measured THREE ways because a single
+    /// number would not distinguish the no-op path from the real burn+move+re-range.
+    function test_UNIT_IsolatedReseatGas() public {
+        _seed();
+        deal(address(USDC), drainer, 20_000_000 * USDC_PRECISION);
+        vm.prank(drainer); USDC.approve(address(AUX), type(uint).max);
+        vm.prank(lp); V4.deposit{value: 400 ether}(0, lp, 3);
+        _settle();
+        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        AUX.setAssetFeed(address(WETH), ETH_FEED);
+
+        // (a) ALIGNED — the common case. Should be a cheap no-op (`targetSqrt == sqrtPriceX96`).
+        uint g = gasleft(); V4.reseat(); uint gNoop = g - gasleft();
+        emit log_named_uint("reseat gas: ALIGNED (no-op)   ", gNoop);
+
+        // (b) DRIFTED BELOW THE 5% GATE — the regime real ETH lives in (max 398 bps, §UNIT-DEADBAND-
+        //     NEVER-OPENS). Expect ANOTHER no-op: `stale` is false, so the auto-heal never runs.
+        _setEthFeed((px * 103 / 100) / 1e10);
+        vm.roll(block.number + 1); vm.warp(block.timestamp + 20 minutes);
+        g = gasleft(); V4.reseat(); uint gSub5 = g - gasleft();
+        emit log_named_uint("reseat gas: DRIFTED +3% (<5%) ", gSub5);
+
+        // (c) PAST THE GATE — the only regime the auto-heal fires in. This is the REAL cost.
+        _setEthFeed((px * 112 / 100) / 1e10);
+        vm.roll(block.number + 1); vm.warp(block.timestamp + 20 minutes);
+        g = gasleft(); V4.reseat(); uint gStale = g - gasleft();
+        emit log_named_uint("reseat gas: DRIFTED +12% (>5%)", gStale);
+        emit log_named_uint("  => real reseat cost (c - a) ", gStale > gNoop ? gStale - gNoop : 0);
+    }
+
     address constant AGG = 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419;
 
     /// `OracleLib.ringVariance`'s arithmetic, mirrored EXACTLY (§UNIT-RINGVARIANCE-READ) — including
