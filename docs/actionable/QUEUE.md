@@ -8730,3 +8730,37 @@ of the same access. Any re-audit must match on `pos[` and read every hit, not on
 | **UNIT-ZERO-RESEATS** | ✅✅✅ **MEASURED: **ZERO RESEATS** ACROSS 24 LANDED SWAPS AND ±1.8% FEED MOVES — AND THAT CLOSES THE ENTIRE CAUSAL CHAIN (2026-08-06, pinned @ 25,713,821).** ✅ **`reseatEpoch` **0 BEFORE, 0 AFTER**. 24 landed / 0 reverted. σ² 2,977,321,671,362,301 (545 bps). `wellSkew` pinned at `MAX_WELL_SKEW`.** ✅✅ **THE CHAIN, EVERY LINK NOW MEASURED RATHER THAN ARGUED: **no reseats → the pool tick never moves → the pool TWAP stays frozen (§UNIT-VOL-CAUSE: identical to the last digit across 12 steps) → `twapResolve` returns it because the feed stays inside the 5% deadband (§UNIT-TWAP-RESOLVE) → every swap executes at the SAME price → identical tick path → identical σ² across walks (§UNIT-VOL-CONTROL/§UNIT-FORK-PINNED).** **Five hypotheses were offered for this spread; the answer was one env-var read and two log lines.**** 🔴🔴 **THE STRUCTURAL FACT UNDERNEATH, AND IT IS BIGGER THAN THE FIXTURE: **THE BAND WAS DRAINED TO `q ≈ 1` WITHOUT THE POOL PRICE EVER LEAVING ITS RANGE.** Oracle-pegged fills burn mock inventory and drop `POOLED_ETH` while `sqrtPriceX96` SITS STILL — so `currentTick` never crosses `tickUpper`/`tickLower`, `didRepack` never fires, and `reseatEpoch` never bumps. ⇒ **A BAND CAN BE EMPTIED WITHOUT A SINGLE RESEAT.** ▶️ **CONSEQUENCES TO CHECK, EACH INDEPENDENTLY IMPORTANT: (1) **RESEATS ARE DRIVEN BY ORACLE MOVEMENT REACHING THE POOL, NOT BY TRADING VOLUME** — so a band can be fully drained and still hold a range centred on a price nobody is trading at; (2) **§UNIT-LP-EXIT's exposure transfer therefore happens with NO reseat to signal it** — nothing in the tick history marks the event; (3) **realized variance is structurally LOW in this venue by design**, which is a candidate explanation for §UNIT-SKEW-IS-NOISE's 0.04% that has nothing to do with fixtures: if σ² is genuinely small because oracle-pegged execution suppresses tick movement, then `Γ·σ²·q` is genuinely small, and **the skew's economic weight is a CONSEQUENCE OF THE ARCHITECTURE rather than a calibration error.** **THAT IS THE MOST IMPORTANT OPEN QUESTION IN THE SKEW WORK AND IT IS NOW WELL-POSED.**** | ✅✅✅ zero reseats; chain closed; low σ² may be architectural, not a fixture defect |
 
 | **UNIT-WHY-VARIANCE** | 🎯🎯🎯 **WHY σ² IS IN THE SKEW AT ALL — AND A DEFECT THE QUESTION EXPOSES: WE MEASURE THE VARIANCE OF A PRICE WE OURSELVES PEG (owner asked, 2026-08-06).** ✅ **BOTH TERMS NEED IT, FOR THE SAME REASON — THE SKEW PRICES AN OPTION THE LP WRITES: • **KERNEL** `Γ·σ²·q/(1−q)^ρ` is Avellaneda–Stoikov's INVENTORY term — holding a skewed inventory is risky IN PROPORTION TO HOW FAR PRICE CAN MOVE AGAINST IT; in a genuinely still market an imbalance costs nothing to hold and charging for it is a tax on nothing. • **BASE** `σ²·confFrac/8` is MMRZ eq.16's LVR rate — expected loss to better-informed flow over the settlement window, which IS variance × time. ⇒ **without σ² the skew charges IDENTICALLY in a calm tape and a crash: overcharging when there is no risk, undercharging exactly when there is.** §E79 makes it sharp — filling at a stale oracle is a FREE OPTION, and **the value of a free option IS the variance of the underlying.** Dropping σ² is not simplification; it is pricing an option with no volatility input.** 🔴🔴🔴 **THE DEFECT THE QUESTION EXPOSES, AND IT IS NEW: `realizedVarianceWad` measures the variance of **OUR OWN POOL'S TICK** (`OracleLib.ringVariance` over `tickCumulative`). **§UNIT-ZERO-RESEATS just proved that tick is PEGGED TO THE ORACLE AND BARELY MOVES — zero reseats, frozen TWAP, even while the band drained to `q ≈ 1`.** ⇒ **WE ARE MEASURING THE VARIANCE OF A PRICE WE OURSELVES PEG. THAT IS CIRCULAR, AND IT STRUCTURALLY UNDERSTATES THE RISK THE SKEW EXISTS TO PRICE.**** ▶️ **THE LP'S ACTUAL EXPOSURE IS THAT THE **EXTERNAL MARKET MOVES AWAY FROM OUR PEG** — i.e. **CHAINLINK'S variance, not ours.** Our pool being calm is NOT evidence the world is calm; it is evidence we quote off an oracle. ⇒ **CANDIDATE EXPLANATION FOR §UNIT-SKEW-IS-NOISE's 0.04% THAT IS NEITHER "bad fixture" NOR "architecture, live with it": the σ² INPUT IS MEASURED ON THE WRONG SERIES.** ⚠️ **DO NOT ACT ON THIS UNTIL MEASURED — it is a hypothesis, and five were refuted today. **THE TEST: log `realizedVarianceWad` (pool series) NEXT TO the variance of the CHAINLINK series over the same window, on a fork where the oracle genuinely moves. If they diverge materially, the input is wrong; if they track, this is refuted.**** 📌 **AND CHECK BEFORE BUILDING: §E59 chose the ring deliberately (*"sample variance from the ring"*) — find whether the oracle series was CONSIDERED AND REJECTED, or never considered. `git log -S` plus the pre-compaction transcript, per §UNIT-RECOVERED's lesson.** | 🎯🎯🎯 σ² prices the option; but it may be measured on OUR pegged price instead of the market's |
+
+
+### 🔴 THE BORROW LEG IS BLOCKED ON BYTES, NOT ON DESIGN — and the blocker is structural
+
+The goal (owner): an LP exit should BORROW WETH against the protocol's weETH and repay from the
+`waitNft` redemption, instead of SELLING weETH at ~25.6 bps. Owner also fixed the approach:
+*"we have a new offramp strategy that REUSES the leverage machinery we have for IL protect."*
+
+**Why it cannot be wired as-is — an access boundary, measured:**
+  * Every lev venue inherits `LevVenueBase`, whose `borrow` is `onlyManager`, and
+    `MANAGER` is *"the only caller (LevManager)"* (`LevVenueBase.sol:23,28`).
+  * The offramp is `VaultLib.offrampBody` (`:448`), called from **`Vault.sol:411`**.
+⇒ **`Vault` is not `LevManager`, so the offramp CANNOT call `venue.borrow` at all.** The reuse the owner
+asked for requires a new entrypoint ON `LevManager` that the vault side may call.
+
+🔴 **AND `LevManager` HAS 43 FREE BYTES** (24,533 / 24,576, measured 2026-08-09 after landing the
+retention branch; `Core` 38, `Vogue` 591, `LevMath` 1,566). A new external entrypoint — selector,
+dispatch, auth check, parameters — does not fit in 43 bytes. **The borrow leg therefore cannot be built
+until bytes are reclaimed from `LevManager`.**
+
+⇒ **THIS PROMOTES THE `reseatEpoch` REMOVAL FROM A TIDY-UP TO A PREREQUISITE.** §UNIT-RESEATEPOCH already
+concluded it is removable and noted it *"BUYS headroom on the contract that has none"* — deleting
+`Vogue.reseatEpoch()`, the `ILevSyncHook` call + try/catch at `LevManager:487`, and the `posEpoch`
+mapping. That is now the gating task for the borrow leg, not an optimisation.
+
+**Second design question, unanswered and NOT mine to settle:** `LevManager` keys positions per-LP
+(`pos[lp]`). A protocol-level borrow has no LP. Either the vault becomes an "LP" in that mapping (one
+synthetic position, with every per-LP invariant — IL target, liquidation, `syncLev` band slice —
+applying to it), or the borrow leg needs a position-free path. **These are materially different
+designs**; the first reuses the machinery literally as the owner asked, the second reuses only the
+venues.
+
+⚠️ Do not start the leg by writing the entrypoint. Reclaim the bytes first, then settle the per-LP
+question — writing it in the other order produces code that cannot deploy.
