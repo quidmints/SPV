@@ -478,6 +478,17 @@ contract BtcLpMintStress is Alles {
         // notional — measured at a constant 4.2bps across 500/1200/2500 notionals — so an ABSOLUTE
         // allowance can never fit it. Bound = 6bps of the expected value (4.2bps measured + margin)
         // plus the original 1e15 for rounding. DERIVED from the fee rate; do NOT raise until green.
+        // (E152-c) INSTRUMENTED: split the delta into its two mints. `settleDelivered` mints
+        // exactly `owedUsd * 1e12`; anything above that is the LP's accrued USD-leg fee. The
+        // fee RATE is 4.2 bps (measured), so a larger excess means more VOLUME accrued before
+        // this delivery -- not a richer fee.
+        {
+            uint delta = QUID.balanceOf(s.lpEth) - qdBefore;
+            emit log_named_uint("E152 owedUsd*1e12 (proceeds)", owedUsd * 1e12);
+            emit log_named_uint("E152 actual QUID delta      ", delta);
+            emit log_named_uint("E152 excess = accrued fees  ", delta > owedUsd * 1e12 ? delta - owedUsd * 1e12 : 0);
+            emit log_named_uint("E152 USD_FEES_BTC (cum)     ", ETH.USD_FEES_BTC());
+        }
         assertApproxEqAbs(QUID.balanceOf(s.lpEth) - qdBefore, owedUsd * 1e12, owedUsd * 1e12 * 6 / 10000 + 1e15,
             "LP minted ~EXACTLY the swapper's USD as proceeds at delivery (+ fee dust)");
         assertGe(QUID.balanceOf(s.lpEth) - qdBefore, owedUsd * 1e12,
