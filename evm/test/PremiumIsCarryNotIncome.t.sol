@@ -623,6 +623,33 @@ contract PremiumIsCarryNotIncome is Alles {
         emit log_named_uint("window span, hours              ", got < 2 ? 0 : (ts[got-1] - ts[0]) / 3600);
     }
 
+    /// §UNIT-DEADBAND-NEVER-OPENS step 1: the same crossing count at CANDIDATE thresholds, so the
+    /// re-peg cadence can be chosen from data rather than asserted. Reports, per threshold, how many
+    /// origins ever cross and the mean hours to cross -- i.e. how long the skew would read 0.
+    function test_UNIT_RepegCadenceByThreshold() public {
+        (uint80 rid,,,,) = AggregatorV3Interface(AGG).latestRoundData();
+        uint N = 119;
+        int[] memory px = new int[](N); uint[] memory ts = new uint[](N); uint got;
+        for (uint i; i < N; ++i) {
+            (, int p2,, uint t2,) = AggregatorV3Interface(AGG).getRoundData(uint80(uint(rid) - (N - 1 - i)));
+            if (p2 <= 0 || t2 == 0) break;
+            px[i] = p2; ts[i] = t2; ++got;
+        }
+        uint16[5] memory thresh = [uint16(25), 50, 100, 200, 500];
+        for (uint k; k < 5; ++k) {
+            uint opened; uint sumHrs;
+            for (uint a; a + 1 < got; ++a) {
+                for (uint b = a + 1; b < got; ++b) {
+                    uint d = uint(px[b] > px[a] ? px[b] - px[a] : px[a] - px[b]) * 10_000 / uint(px[a]);
+                    if (d >= thresh[k]) { ++opened; sumHrs += (ts[b] - ts[a]) / 3600; break; }
+                }
+            }
+            emit log_named_uint("threshold bps            ", thresh[k]);
+            emit log_named_uint("  origins crossing / 118 ", opened);
+            emit log_named_uint("  mean HOURS stale       ", opened == 0 ? 999 : sumHrs / opened);
+        }
+    }
+
     address constant AGG = 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419;
 
     /// `OracleLib.ringVariance`'s arithmetic, mirrored EXACTLY (§UNIT-RINGVARIANCE-READ) — including
