@@ -9172,3 +9172,40 @@ loaded, and `grep USD_PX` returning empty is the completion test.
 borrow-sizing and slippage-floor sites do.
 
 | **UNIT-REPEG-CADENCE** | ✅✅✅ **THE THRESHOLD TABLE, FROM REAL HISTORY — AND TIGHTENING THE DEADBAND MAKES US **LESS** MANIPULABLE, NOT MORE (2026-08-06).** 📊 **`test_UNIT_RepegCadenceByThreshold`, 119 rounds / 106 h / 118 origins: **25 bps → 112 cross (95%), ~3 h stale · 50 bps → 76 (64%), ~3 h · 100 bps → 62 (53%), ~13 h · 200 bps → 21 (18%), ~9 h · 500 bps (CURRENT) → 0, NEVER.**** ✅ **⇒ AT 25–50 bps THE POOL RE-PEGS EVERY ~3 HOURS — enough to keep the ring POPULATED and σ² LIVE. At the current 500 it never re-pegs, which is §UNIT-DEADBAND-NEVER-OPENS' zero-variance regime.** ⚠️ **ARTIFACT FLAGGED, NOT READ PAST: the mean-hours column is **NON-MONOTONIC** (13 h at 100 bps vs 9 h at 200 bps). That is **SURVIVORSHIP BIAS** — at higher thresholds only the FAST-MOVING origins ever cross and the slow ones are excluded from the average. **This is §E83's Kaplan–Meier warning appearing in MY OWN DATA** (*"a weighted average of REALIZED durations includes only imbalances that DID settle… biased LOW"*). **Treat the hours as INDICATIVE; the correct treatment is censored survival analysis, and §E83 already said so about the duration input three other decisions need.**** 🔑 **AND THE MEV INTUITION INVERTS — worth stating because it is counter-intuitive: the deadband exists to DISTRUST A MANIPULATED POOL TWAP (above it we fall back to Chainlink). **TIGHTENING to 50 bps means we distrust the pool SOONER and lean on Chainlink MORE ⇒ STRICTLY LESS MANIPULABLE.** The real costs are (a) GAS from more frequent re-pegs and (b) more frequent auto-heal moves of the pool spot (`resolvedTwap`'s *"move the pool spot onto `price` only in this dislocation regime"*) — **not attack surface.**** ▶️ **REMAINING BEFORE A NUMBER IS CHOSEN: (1) gas cost per re-peg × the implied cadence (~3 h at 50 bps) — is it self-funding from the premium it unlocks? (2) does a re-peg actually populate the ring, or only move the spot? (§UNIT-DEADBAND-NEVER-OPENS step 2, still unmeasured) (3) the LP cost of the CURRENT 4% staleness vs the ~21 bps cushion — the size of the hole being closed.** | ✅✅✅ 25–50 bps re-pegs every ~3h; 500 never; tightening REDUCES manipulability; hours are survivorship-biased |
+
+### 🔴 `instant` IS A DEAD PARAMETER — and the 4626 path's documented contract is now BROKEN
+
+`VaultLib.offrampBody(uint amount, address recipient, bool instant, OfframpCfg c)` **never reads
+`instant`.** It survives in the signature and three comments only; the sole consumer was **rung 3, the
+0.3% ether.fi instant-redeem, deleted 2026-08-06**.
+
+🔴 **BUT THE CALLERS STILL PASS A MEANINGFUL VALUE, so this is not merely dead — it is a SILENT
+CONTRACT BREAK:**
+| caller | passes | `Vogue.sol` comment |
+|---|---|---|
+| `withdraw` `:1420` / `redeem` `:1453` | **`false`** | *"4626 path defaults to WAIT (**no forced haircut**)"* |
+| `exitInstant` `:1464` | `true` | the opt-in for *"the rare both-pools-drained anomaly"* |
+`Vogue:82-87` states the design: *"ether.fi-slice exit preference is PER-TX… default to WAIT
+(`instant=false` — **no forced ~0.3% redeem**; the unserved slice retries later)"*.
+
+⇒ **A 4626 LP explicitly asks for "no forced haircut" and rung 1 sells their weETH at ~25.6 bps anyway.**
+The two entrypoints are now **behaviourally identical**, and `exitInstant` — a whole public function —
+selects nothing.
+
+**THE DECISION IS THE OWNER'S, and the two options are not close:**
+  a. **DELETE `instant`** (rule 1) + delete `exitInstant` + rewrite `Vogue:82-87`. Accepts that everyone
+     pays rung 1. **Defensible on the original goal** — that goal was *"don't pay the 0.3% instant rate
+     **without forcing them to wait**"*, and a 25.6 bps sale with no wait IS that answer, strictly better
+     than the 0.3% it replaced.
+  b. **WIRE `instant` TO GATE RUNG 1**: `instant=false` ⇒ skip the sale, go straight to rung 2
+     (`waitNft`, **no fee**, ~7 days). Restores the documented contract and gives the LP the real choice:
+     **pay ~25.6 bps now, or wait for free.**
+⇒ **(b) is what the comments promise and what the flag was built for.** (a) is a real simplification but
+must not be reached by DEFAULT — right now (a) is happening *by accident*, with (b)'s documentation still
+in the file.
+
+⚠️ **This is the ORIGINAL BRIEF's exact subject** (*"not require our LPs or swappers to pay the 0.3
+instant redeem rate without forcing them to wait"*), so it should not be settled by whichever behaviour
+the code drifted into. **Bootstrap relevance:** with a small pool, free weETH is the binding constraint,
+so the share of an exit that reaches rung 1 is LARGER early — making the choice matter most exactly when
+the protocol is youngest.
