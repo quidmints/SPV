@@ -4431,4 +4431,52 @@ contract Alles is ForkPin, Fixtures {
             "a swap-in must accrue the BTC-leg fee-per-share (E145-p: the protocol sells into the pool)");
         assertGt(owedAfter, owedBefore, "and it must land in the LP's owed ledger");
     }
+
+    /// (E145-q) WHEN AN EXITING LP'S BTC-LEG CLAIM IS FORGONE, WHAT DO THE REMAINING LPs GET?
+    ///
+    /// `Vault.sol:875-885` says the forgone sats "accrue to the remaining LPs". That sentence
+    /// has been repeated all thread -- by the code, and by me -- and never measured. It is the
+    /// load-bearing claim under every E145 option: if remaining LPs gain nothing, the value is
+    /// simply lost and the fold is a fix; if they gain, it is a transfer between LPs and the
+    /// fold changes who gets paid.
+    function testBtcLp_forgoneClaim_whatDoRemainingLpsActuallyGet() public {
+        AUX.setBTCChannels(address(this));
+        BTC.registerBtcLp(User01, 2e7);
+        BTC.registerBtcLp(User02, 2e7);
+        vm.startPrank(User03);
+        USDC.approve(address(AUX), type(uint).max);
+        for (uint i = 0; i < 4; i++) {
+            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0);
+            vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
+        }
+        vm.stopPrank();
+        // Swap-ins are what accrue the BTC leg (E145-q).
+        BTC.creditSwapIn(address(0x5E21), 500_000, address(USDC), 0);
+        vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
+        BTC.creditSwapIn(address(0x5E22), 500_000, address(USDC), 0);
+        vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
+
+        vm.prank(User01); BTC.collectBtcFees();
+        vm.prank(User02); BTC.collectBtcFees();
+        uint owed1 = BTC.btcFeesOwedSats(User01);
+        uint owed2Before = BTC.btcFeesOwedSats(User02);
+        // CONTROL: without a live claim to forgo, the measurement below is vacuous.
+        assertGt(owed1, 0, "control: the exiting LP HAS a BTC-leg claim to forgo");
+
+        uint fpsBefore = BTC.feesPerShareBTC();
+        BTC.unregisterBtcLp(User01, 2e7);                 // LP1 exits; owed1 is deleted
+        assertEq(BTC.btcFeesOwedSats(User01), 0, "the exiting LP's claim is forgone");
+
+        // THE MEASUREMENT: does LP2 receive any of it?
+        vm.prank(User02); BTC.collectBtcFees();
+        uint owed2After = BTC.btcFeesOwedSats(User02);
+        emit log_named_uint("forgone by LP1        ", owed1);
+        emit log_named_uint("LP2 owed before exit  ", owed2Before);
+        emit log_named_uint("LP2 owed after  exit  ", owed2After);
+        emit log_named_uint("feesPerShareBTC before", fpsBefore);
+        emit log_named_uint("feesPerShareBTC after ", BTC.feesPerShareBTC());
+        // Recorded, not asserted in a direction: this test exists to ESTABLISH the number.
+        // Whichever way it lands, it decides whether the fold is a fix or a redistribution.
+        assertTrue(owed2After >= owed2Before, "LP2's claim cannot shrink because someone else left");
+    }
 }
