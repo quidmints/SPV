@@ -738,7 +738,10 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///      ⚠️ The trade, so it is chosen rather than discovered: whoever holds the pre-signed
     ///      bytes can switch operators AT ANY TIME, not only on misbehaviour. Bounded — payouts
     ///      still pin to `btcRecipientOf`, so the worst case is churn, never theft.
-    ///      ⚠️ **THAT NOW HOLDS ONLY FOR AN EOA LP (E125-e).** For a SMART-WALLET LP the
+    ///      ⚠️ **AND A SECOND WAY THOSE BYTES DIE, INDEPENDENT OF ACCOUNT TYPE (E151):
+    ///      registering a FALLBACK bumps `delegationVersion`, so it invalidates a pre-signed
+    ///      re-delegation at or below that version. See `_registerFallback`.**
+    ///      ⚠️ **THE REVOCABILITY BELOW HOLDS ONLY FOR AN EOA LP (E125-e).** For a SMART-WALLET LP the
     ///      pre-signed bytes are REVOCABLE: ERC-1271 validity is stateful, so rotating the
     ///      wallet's owners invalidates a signature that verified yesterday. **The two LP
     ///      kinds therefore get DIFFERENT hand-over guarantees from identical bytes** —
@@ -824,6 +827,16 @@ contract BTCChannels is Ownable, ReentrancyGuard {
 
     /// @dev Shared so the primary-exists / staleness / not-equal-to-primary guards cannot
     ///      drift between the EOA and smart-wallet entrypoints.
+    /// @dev ⚠️ **THIS BUMPS `delegationVersion`, SO NAMING A FALLBACK INVALIDATES ANY
+    ///      PRE-SIGNED RE-DELEGATION AT OR BELOW THAT VERSION** (E151). The two authorities
+    ///      share ONE monotonic counter, so a write to either advances both. Consequences an
+    ///      LP would not expect from the function name:
+    ///        • register a fallback ⇒ cold pre-signed delegation bytes held for an emergency
+    ///          hand-over silently stop working, and the LP finds out at the worst moment;
+    ///        • the two operations cannot be pre-signed independently at the same version.
+    ///      **This is a REAL interaction, not a note about style** — it is why E151 proposes
+    ///      one `setAuthorities` taking BOTH, which makes the version mean one thing.
+    ///      Until then: re-sign the delegation whenever the fallback moves.
     function _registerFallback(address lpEth, address fallbackHop, uint64 version) internal {
         if (delegationVersion[lpEth] == 0) revert NotDelegatedHop();     // primary must exist
         if (version <= delegationVersion[lpEth]) revert StaleDelegation();
