@@ -8899,3 +8899,39 @@ file: an error that announces itself beats one that produces plausible output.
 The queue entry's original delete list named 4 items. Each re-verification pass has added surface —
 `BtcVaultLib.RebalOut` last pass, the events this one. ⚠️ **Treat any further "and that's all of it" with
 suspicion until a compile confirms it.**
+
+
+### ✅ ANSWERED — the vault must NOT be a synthetic LP. The borrow leg needs a POSITION-FREE path.
+
+The open question was: does a protocol-level borrow reuse `LevManager.openLev` (vault becomes an "LP" in
+`pos[]`) or bypass positions and use only the venues? **Reading `openLev` settles it, and not on taste.**
+
+🔴 **1. IT IS CIRCULAR. An LP's levered net-equity BECOMES BAND DEPTH.** `openLev:485` `_trackOpen` joins
+*"the book the Vault sums net-equity over"*, and the (A) intrinsic model (`:474-478`) states the deposit's
+*"net-equity is synced into the concentrated band (`levPooled`) as delta-1 (IL-free) depth"*
+(`Vault.sol:164,618` — `syncLevBTC` marks `levPooledBTC` to live net-equity; `Vogue.levPooled` is the ETH
+mirror). **So if the vault opened a position, the WETH it borrowed would be synced BACK INTO THE BAND as
+that band's own depth.** The band would count borrowed funds as its own liquidity — while the offramp
+exists *precisely because the band is SHORT of ETH*. **Adding phantom depth during a drain is exactly
+backwards**, and it is the `_checkBacking` phantom-backing failure mode arriving through a different door.
+
+🔴 **2. THE TWO FLOWS POINT IN OPPOSITE DIRECTIONS.** `openLev` puts weETH **IN** as levered band depth and
+requires `collWeeth >= MIN_OPEN_WEETH` from the caller. The offramp delivers WETH **OUT** to an exiting LP.
+Reusing the entrypoint would mean the protocol depositing to itself in order to pay someone leaving.
+
+🔴 **3. EVERY PER-LP INVARIANT WOULD ATTACH, AND EACH IS WRONG HERE.** A `Pos` carries an IL target
+(`targetDebt = E0·soldFrac`, sized to cancel *an LP's* impermanent loss — the protocol has none to cancel),
+an `entrySqrtP` re-anchor, a `syncLev` band slice, and exposure to `closeLevFor`. The protocol's borrow is
+a **loan against inventory**, not a hedge, so none of that machinery describes it.
+
+⇒ **BUILD: a position-free entrypoint on `LevManager`** — it must live there because venues are
+`onlyManager` (`LevVenueBase:23,28`) — that supplies protocol weETH, borrows WETH, hands it to the
+offramp, and records the debt in a SINGLE protocol slot, **never in `pos[]` and never through
+`_trackOpen`/`levPooled`**. Repaid from the `waitNft` redemption by the permissionless claim-and-repay step.
+
+✅ **AND IT NOW FITS.** `LevManager` has **453 free bytes** after the `reseatEpoch` removal (was 43). That
+removal was the gating task and it is DONE (`982410b`).
+
+⚠️ **The one thing to get right: the debt slot must be visible to `Aux._checkBacking`.** Protocol debt that
+solvency accounting cannot see is the same phantom-backing hole as #1, mirrored. Decide where it is summed
+BEFORE writing the entrypoint.
