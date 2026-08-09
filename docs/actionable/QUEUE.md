@@ -8935,3 +8935,37 @@ removal was the gating task and it is DONE (`982410b`).
 ⚠️ **The one thing to get right: the debt slot must be visible to `Aux._checkBacking`.** Protocol debt that
 solvency accounting cannot see is the same phantom-backing hole as #1, mirrored. Decide where it is summed
 BEFORE writing the entrypoint.
+
+
+### ▶️ WHERE THE PROTOCOL-DEBT SLOT GOES — the code decides it, and it exposes ONE question to answer first
+
+`Aux._backingCore` → `BasketLib.backingCoreBody:928-944` is two terms:
+```
+totalLiquid  = IAux(this).get_deposits()[14]      // standing holdings, counted at PAR on the drain side
+committedSum = ICore(core).committedUsd18()       // the commitments they must cover
+revert OverCommitted if committedSum > totalLiquid
+```
+⇒ **A protocol borrow is a COMMITMENT. It belongs in `Core.committedUsd18()`** — not as a new parallel
+sum, which would need every drain path taught about it. That is the placement, and it is forced by the
+shape of the gate, not a preference.
+
+🔴 **BUT THE REAL HAZARD IS ON THE OTHER TERM, AND IT MUST BE MEASURED BEFORE ANY CODE IS WRITTEN:**
+**does `deposits[14]` still count weETH once it has been POSTED AS VENUE COLLATERAL?**
+  * **If YES** → borrowing against it inflates backing twice over: the collateral stays in `totalLiquid`
+    while the WETH it raised has already been delivered out to the exiting LP. Recording the debt in
+    `committedUsd18` is then **necessary but NOT sufficient** — the collateral term needs correcting too.
+  * **If NO** (posting removes it from the liquid count) → the debt entry alone is correct and complete.
+
+⇒ **These two answers need DIFFERENT code**, so measuring first is not diligence, it is the difference
+between a correct fix and one that looks correct. **This is the same shape as the circularity that ruled
+out the synthetic-LP design** — value counted in two places at once — arriving on the collateral side
+instead of the depth side. Both terms of one inequality; both have to be right.
+
+⚠️ **Measure it, do not reason about it.** `deposits[14]` comes from `Aux.get_deposits()`, and what it
+includes for venue-posted weETH is a fact about `ChannelLib`/`ethVenue` accounting that no amount of
+reading the borrow path reveals. A fork test that posts collateral and reads `tryCheckBacking()` before
+and after answers it in one run — and `tryCheckBacking` is `external` and revert-free precisely so it can
+be read as a signal.
+
+**Prerequisites now standing:** ✅ bytes (453 free, `982410b`) · ✅ design settled (position-free, not a
+synthetic LP) · ▶️ **this measurement** · then the entrypoint.
