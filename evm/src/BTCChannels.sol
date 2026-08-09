@@ -539,6 +539,10 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     /// @param _hopNode LEGACY / no-op. Retained only to keep the 4-arg constructor
     ///        signature (deployers unchanged). There is no global hop under the
     ///        multi-hop model; authority is per-channel (`channel.hop`).
+    ///        ⚠️ CHECKED (E149-c): genuinely unused in the body, and it SHOULD be dead —
+    ///        multi-hop deliberately replaced the global hop. It survives as a live ARGUMENT
+    ///        rather than a comment, so every deployment still passes a value that is read
+    ///        nowhere. Removing it touches 18 construction sites; booked, not bundled.
     constructor(address _spv, address _aux, address _vogue, address _hopNode)
         Ownable(msg.sender)
     {
@@ -566,10 +570,13 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     }
 
     // ═════════════════════════════════════════════════════════════════
-    //  OPEN — anyone submits the raw funding tx + SPV proof + lpAuth.
+    //  OPEN — the LP's DELEGATED HOP submits the raw funding tx + SPV proof.
     //
-    //  ch.lpEth = the recovered signer of lpAuth (NOT msg.sender), so a
-    //  relayer/front-runner cannot redirect the credited pool position.
+    //  ⚠️ THIS SAID "anyone submits … + lpAuth" and "ch.lpEth = the recovered signer of
+    //  lpAuth". BOTH DESCRIBE THE RETIRED MODEL (E149): `lpAuth` is not a parameter
+    //  anywhere, and the open is gated on `_authorizedHop(lpEth, msg.sender)` — not open
+    //  to anyone. `lpEth` is passed EXPLICITLY and the caller must already be its
+    //  delegated authority, which is what stops a relayer redirecting the credit.
     //
     //  AIRTIGHT FUNDING CHECK (in ChannelLib.openChannelBody):
     //   1. SPV: funding tx confirmed in mainchain with MIN_CONFIRMATIONS.
