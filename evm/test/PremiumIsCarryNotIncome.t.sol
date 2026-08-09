@@ -591,6 +591,38 @@ contract PremiumIsCarryNotIncome is Alles {
         emit log_named_uint("rounds moving >=5%       ", cross5);
     }
 
+    /// §UNIT-DEADBAND-COUNT's settling measurement. Our pool TWAP is FROZEN between re-pegs
+    /// (§UNIT-PRICE-LOOP), so the divergence `twapResolve` gates on is simply how far Chainlink
+    /// drifts from a FIXED point. That is measurable from Chainlink history alone: walk forward
+    /// from each round and find how long until |p(t) - p0|/p0 crosses 500 bps. THAT interval IS the
+    /// re-peg period, and it is how long the skew charges nothing.
+    function test_UNIT_HowLongUntilTheDeadbandOpens() public {
+        (uint80 rid,,,,) = AggregatorV3Interface(AGG).latestRoundData();
+        uint N = 119;
+        int[] memory px = new int[](N); uint[] memory ts = new uint[](N); uint got;
+        for (uint i; i < N; ++i) {
+            (, int p2,, uint t2,) = AggregatorV3Interface(AGG).getRoundData(uint80(uint(rid) - (N - 1 - i)));
+            if (p2 <= 0 || t2 == 0) break;
+            px[i] = p2; ts[i] = t2; ++got;                 // oldest-first
+        }
+        emit log_named_uint("rounds", got);
+
+        uint opened; uint sumHrs; uint maxDriftBps;
+        for (uint a; a + 1 < got; ++a) {                    // each round as a "re-peg" origin
+            for (uint b = a + 1; b < got; ++b) {
+                uint d = uint(px[b] > px[a] ? px[b] - px[a] : px[a] - px[b]) * 10_000 / uint(px[a]);
+                if (d > maxDriftBps) maxDriftBps = d;
+                if (d >= 500) { ++opened; sumHrs += (ts[b] - ts[a]) / 3600; break; }
+                if (b + 1 == got) { /* never opened from this origin */ }
+            }
+        }
+        emit log_named_uint("origins that EVER crossed 500bps", opened);
+        emit log_named_uint("origins tested                  ", got - 1);
+        emit log_named_uint("mean HOURS to cross (when it did)", opened == 0 ? 0 : sumHrs / opened);
+        emit log_named_uint("MAX drift seen over window, bps ", maxDriftBps);
+        emit log_named_uint("window span, hours              ", got < 2 ? 0 : (ts[got-1] - ts[0]) / 3600);
+    }
+
     address constant AGG = 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419;
 
     /// `OracleLib.ringVariance`'s arithmetic, mirrored EXACTLY (§UNIT-RINGVARIANCE-READ) — including
