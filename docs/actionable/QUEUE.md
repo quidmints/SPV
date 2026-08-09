@@ -8769,3 +8769,56 @@ venues.
 
 ⚠️ Do not start the leg by writing the entrypoint. Reclaim the bytes first, then settle the per-LP
 question — writing it in the other order produces code that cannot deploy.
+
+
+### 🔧 UNIT-RESEATEPOCH — MECHANISM CONFIRMED BUT ITS CITATION IS STALE; corrected plumbing + a BTC asymmetry
+
+Re-verified against the tree 2026-08-09 before writing the change. **The removal is still right and the
+owner's reasoning holds.** Two corrections and one new blocker.
+
+**1. THE CITATION IS DEAD.** The entry rests on *"`Vogue.sol:1120` ALREADY RETURNS `(sqrtPriceX96,
+tickLower, tickUpper, …)`"*. **`Vogue.sol:1120` is now a comment about `rebalanceBody`** — the file moved
+under the reference. Nothing returns that tuple.
+
+**2. THE SIGNAL IS STILL THERE, VIA PUBLIC STATE — and this is CHEAPER than the entry assumed.**
+`Vogue.sol:92-93` declare `int24 public UPPER_TICK` / `int24 public LOWER_TICK`, written at **`:1138`**
+— the line immediately AFTER the `reseatEpoch++` at `:1137`. **The counter and the bounds are updated in
+the same statement pair**, which is exactly why one can replace the other. Being `public`, their getters
+already exist ⇒ **no new `Vogue` code at all**; only two declarations added to `ILevSyncHook`
+(`Interfaces.sol:131-136`, which today has NO tick accessor).
+
+**3. 🔴 NEW BLOCKER — THE BTC SIDE IS NOT A MIRROR.** The entry lists `BtcLevManager:57` as an equivalent
+delete. But BTC's epoch is **`Vault.reseatEpochBTC`** (`Vault.sol:220`), a **separate** counter whose own
+comment says it *"mirrors `Vogue.reseatEpoch` for the ETH band"*. So the swap needs BTC band bounds from
+`Vault`, and **it has not been checked that `Vault` publishes tick bounds the way `Vogue` does.** ⚠️ Do
+NOT assume symmetry here — `Vault` is the fused ETH-venue-custody + BTC-band contract (see CLAUDE.md), and
+this is precisely the kind of gap that classification exists to surface. **Check before touching BTC.**
+
+**4. Conversion detail:** `entrySqrtP` is a sqrtPriceX96 and the bounds are ticks. Compare in **sqrt
+space** (`getSqrtPriceAtTick(LOWER_TICK/UPPER_TICK)`), not by converting `entrySqrtP` to a tick — tick
+conversion truncates, and a position anchored exactly at a boundary would flip on rounding. Confirm
+`TickMath` is reachable from `LevMath` before writing.
+
+**Shape of the replacement** (`reanchorCompute` loses `curEpoch`, gains `entrySqrtP`):
+```
+if (!active || hook == address(0)) return (false, 0);
+try hook.bandSqrtP(isBTC) returns (uint160 v) { newSqrtP = v; } catch { return (false, 0); }
+if (newSqrtP == 0) return (false, 0);
+// still inside the frame it anchored to ⇒ nothing to re-anchor
+if (entrySqrtP >= sqrtLo && entrySqrtP <= sqrtHi) return (false, 0);
+go = true;
+```
+
+**Deletes:** `Vogue.reseatEpoch` (`:173` decl, `:1137` bump) · `ILevSyncHook.reseatEpoch`
+(`Interfaces.sol:136`) · `LevMath.reanchorCompute`'s epoch read (`:109-110`) · `LevManager.posEpoch`
+(`:160`) + its writes (`:454`, `:490` try/catch) · the BTC equivalent **pending item 3**.
+
+⚠️ **THE DELETING COMMIT MUST RECORD:** a bounds check is POINT-IN-TIME. It answers *"is my anchor stale
+now"*, NOT *"were these two reads taken in the same frame"*. §E117 measured a 1h TWAP tick of 200766
+sitting neatly inside a post-reseat band `[200730, 200770)` — a plausible 0.9000 whose window spanned
+FOUR frame changes. Safe today because that consumer is §E93's windowed-TWAP signal, already refuted and
+blocked, and both LIVE consumers are point-in-time. **If anyone later builds a WINDOWED reading over the
+tick series, the epoch must come back, and §E117 is the evidence.**
+
+**Not started.** `LevManager` is at 43 free bytes, so this is the gating task for the borrow leg — but it
+spans `Vogue`, `Interfaces`, `LevMath`, `LevManager`, `BtcLevManager` and `Vault`, and item 3 is unresolved.
