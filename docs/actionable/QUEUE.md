@@ -8867,3 +8867,34 @@ point-in-time. **A future windowed reading needs the epoch back.**
 
 ▶️ **Gating task for the borrow leg** (`LevManager` at 43 free bytes). Nothing unknown remains — this is
 now execution across 7 files, not investigation.
+
+
+### ⚠️ UNIT-RESEATEPOCH — ONE MORE THING THE ENTRY NEVER LISTED: the epoch is in an EVENT SIGNATURE (ABI change)
+
+`LevManager.sol:113` · `BtcLevManager.sol:120`:
+```
+event Reanchored(address indexed lp, uint64 epoch, uint160 entrySqrtP, uint256 e0Eth);
+```
+emitted at `LevManager:455` / `BtcLevManager:285`. **`epoch` is the second topic-less field.** Deleting
+`posEpoch` leaves nothing to emit there, so the event must lose a field on BOTH managers.
+
+⇒ **THIS IS AN ABI CHANGE, NOT AN INTERNAL REFACTOR.** No in-repo `.ts`/`.py` consumer greps for
+`Reanchored` today, but the standing rule is explicit: **after any Solidity change run
+`tools/check-client-abis.py`** — `forge` + `tsc` both green does NOT mean the TypeScript clients still
+work. An event-shape change is exactly the case that rule exists for, and an off-repo indexer/subgraph
+would break silently: a decoder reading 3 fields where 4 were emitted does not revert, it MISPARSES.
+
+**Options, not yet chosen (owner's call):**
+  a. **Drop the field** — cleanest, smallest, breaks any external decoder.
+  b. **Keep the field, emit the new `entrySqrtP`-vs-bounds trigger as `0`** — ABI-stable, but ships a
+     permanently-zero field, which is dead weight and misleading (**violates no-unreachable-code in
+     spirit**).
+  c. **Rename the event** (e.g. `ReanchoredV2`) — makes the break LOUD rather than silent, so a stale
+     decoder fails to match instead of misparsing.
+⇒ **(c) is the one that fails safely**, and the discriminator is the same as everywhere else in this
+file: an error that announces itself beats one that produces plausible output.
+
+**Running total for this "one-line" removal: 7 files + 2 event signatures + a client-ABI check.**
+The queue entry's original delete list named 4 items. Each re-verification pass has added surface —
+`BtcVaultLib.RebalOut` last pass, the events this one. ⚠️ **Treat any further "and that's all of it" with
+suspicion until a compile confirms it.**
