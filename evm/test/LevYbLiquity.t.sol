@@ -45,7 +45,6 @@ contract LevYbLiquityProbe is LevYbRealProbe {
         IERC20R(address(WETH)).approve(address(llm), 5 ether);
         llm.openLev(5000, ILevVenue(address(lvenue)), 5 ether, mins); // cap 2x, zero leverage at entry
         vm.stopPrank();
-        llm.setSoldFractionActive(true);
         // Rally +50% (not +20%): the Liquity MIN_DEBT floor (2000 BOLD) means the position opens ALREADY above a
         // small IL target, so it only levers up once t·E0·px clears the floor (~+33%). +50% clears it robustly
         // across the unpinned `latest` fork (at +20% whether it levers is block-marginal → flaky coll≈5).

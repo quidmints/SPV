@@ -67,7 +67,6 @@ contract LevYbWethProbe is LevYbRealProbe {
         IERC20R(address(WETH)).approve(address(wlm), 5 ether);
         wlm.openLev(5000, ILevVenue(address(wvenue)), 5 ether, mins); // cap = 2x, opens at zero leverage
         vm.stopPrank();
-        wlm.setSoldFractionActive(true);   // target reads the REAL band's sold fraction (poolStats)
         // Real rally: buy ETH out of the band so it sells ETH => real IL accrues since the pinned entry.
         _rallyBand(_entrySqrt(wlm, LP), 0.2e18, 20, 8_000 * USDC_PRECISION);
         wlm.rebalance(LP, 0);         // lever up to the IL target (real Morpho USDC borrow + real Uniswap WETH buy)

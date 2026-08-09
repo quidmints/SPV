@@ -114,9 +114,11 @@ library LevMath {
     ///       come back, and §E117 is the evidence for why.**
     /// @dev  Compared in SQRT space, never by converting `entrySqrtP` to a tick: tick conversion truncates, so
     ///       a position anchored exactly at a boundary would flip on rounding.
-    function reanchorCompute(bool active, address hook, uint160 entrySqrtP, bool isBTC)
+    /// @dev Same `active` deletion as `ilTargetLive` — this gate is why re-anchoring NEVER FIRED in
+    ///      production, including after the 2026-08-09 bounds-check rewrite.
+    function reanchorCompute(address hook, uint160 entrySqrtP, bool isBTC)
         public returns (bool go, uint160 newSqrtP) {
-        if (!active || hook == address(0) || entrySqrtP == 0) return (false, 0);
+        if (hook == address(0) || entrySqrtP == 0) return (false, 0);
         try ILevSyncHook(hook).bandSqrtP(isBTC) returns (uint160 v) { newSqrtP = v; } catch { return (false, 0); }
         if (newSqrtP == 0) return (false, 0);
         int24 lo; int24 hi;
@@ -137,9 +139,15 @@ library LevMath {
     ///         (delegatecall) ⇒ state-call-classed ⇒ the forwarders are non-view (BTC's `ilTargetLtvBps`/
     ///         `debtDeltaToTarget` drop `view` — no on-chain view caller depends on them; off-chain eth_call is
     ///         fine). Band's ACTUAL sold fraction (capped), else the 1−√(entry/now) estimate.
-    function ilTargetLive(bool active, address hook, uint160 entrySqrtP, uint128 entryPriceWad, uint256 px, uint64 capBps)
+    /// @dev The `bool active` gate was DELETED 2026-08-09. It was `LevManager.soldFractionActive`, a GOV-only
+    ///      flag defaulting FALSE that the deploy script never set — so in production this ALWAYS fell through
+    ///      to the estimate and the band's measured sold fraction was never read, while three test suites
+    ///      flipped it true in setUp and verified the path production did not run. The remaining conditions
+    ///      (`entrySqrtP != 0 && hook != address(0)`) already ARE the availability test the flag stood in for:
+    ///      use ground truth whenever it can be obtained, else the estimate. Adaptive by construction, no latch.
+    function ilTargetLive(address hook, uint160 entrySqrtP, uint128 entryPriceWad, uint256 px, uint64 capBps)
         public returns (uint256) {
-        if (active && entrySqrtP != 0 && hook != address(0)) {
+        if (entrySqrtP != 0 && hook != address(0)) {
             try ILevSyncHook(hook).soldFractionWad(entrySqrtP) returns (uint256 sf) {
                 if (sf != 0) { uint256 bps = sf / 1e14; return bps > capBps ? capBps : bps; }
             } catch {}

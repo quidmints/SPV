@@ -150,11 +150,6 @@ contract LevManager {
     ///         active. GOV flips it ON only AFTER the band-driven fork proof of the sold-fraction
     ///         IL-cancellation + the reseat re-anchor land — so the wiring ships without changing the proven
     ///         behavior or activating money-path math the oracle-mock unit tests cannot exercise.
-    bool internal soldFractionActive;
-    function setSoldFractionActive(bool on) external {
-        if (msg.sender != GOV) revert NotGov();
-        soldFractionActive = on;
-    }
 
 
     /// @notice The Morpho singleton used PURELY as a zero-fee flash source for `_deleverFlash` (repay-first
@@ -427,7 +422,7 @@ contract LevManager {
     ///         on every keeper cycle, and the sold-fraction IL-cancellation is fork-proven (LevYbReal/LevCascade
     ///         with `setSoldFractionActive(true)`).
     function _ilTargetLive(Pos memory p, uint256 px) internal returns (uint256) {
-        return LevMath.ilTargetLive(soldFractionActive, vogueSyncHook, p.entrySqrtP, p.entryPriceWad, px, p.targetLtvCapBps);
+        return LevMath.ilTargetLive(vogueSyncHook, p.entrySqrtP, p.entryPriceWad, px, p.targetLtvCapBps);
     }
 
     /// @notice (B) Realize on a band RESEAT. If the band recentered since this position last anchored
@@ -440,7 +435,7 @@ contract LevManager {
     function _reanchorIfReseated(address lp) internal {
         Pos storage p = pos[lp];
         if (!p.open) return;
-        (bool go, uint160 s) = LevMath.reanchorCompute(soldFractionActive, vogueSyncHook, p.entrySqrtP, false);
+        (bool go, uint160 s) = LevMath.reanchorCompute(vogueSyncHook, p.entrySqrtP, false);
         if (!go) return;
         uint256 px = AUX.getTWAPforAsset(WETH, TWAP_WINDOW);
         // (A): a reseat REALIZES the accrued IL, so re-anchor E0 to the position's CURRENT net-equity (the new

@@ -229,7 +229,6 @@ contract LevCascadeProbe is Alles {
         // Lever up on a REAL band rally (real IL): debt > 0, but the borrow is self-financing ⇒ equity ~principal.
         // (A real rally executes real swaps, which legitimately move POOLED_USD — so the mock's "POOLED_USD frozen
         // across the lever" assertion is unmeasurable here; the real invariant is deliverable-covers-band, below.)
-        lm.setSoldFractionActive(true);
         _rallyBand(_entrySqrt(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
         lm.rebalance(lps[0], 0);
         assertGt(venue.debtOf(lps[0]), 0, "levered: real Morpho debt > 0");
@@ -256,7 +255,6 @@ contract LevCascadeProbe is Alles {
         vm.deal(address(this), 20 ether);
         V4.deposit{value: 10 ether}(0, address(this), 3);
         _openAtEntry(lps[0], 5 ether);
-        lm.setSoldFractionActive(true);
         _rallyBand(_entrySqrt(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
         lm.rebalance(lps[0], 0);                                 // real levered position
         _calmVol();                                             // θ recovers ⇒ syncLev can add the depth
@@ -322,7 +320,6 @@ contract LevCascadeProbe is Alles {
     ///         (NoOptIn). No per-action quorum, no cap — the constraint is the guard.
     function test_ProtectFromQuid_HostileOperatorNetsZero() public {
         _setupLev();
-        lm.setSoldFractionActive(true);
         address lp = lps[0]; address lp2 = lps[1];
         _openAtEntry(lp, 1 ether);
         _openAtEntry(lp2, 1 ether);
@@ -387,7 +384,6 @@ contract LevCascadeProbe is Alles {
 
     function test_CascadeDelever_CorrelatedCrash() public {
         _setupLev();
-        lm.setSoldFractionActive(true);
         // 3 levered LPs on the SHARED real band (small so each loop's SOR buy stays under the manip cap).
         _openAtEntry(lps[0], 5 ether);
         _openAtEntry(lps[1], 4 ether);
@@ -445,7 +441,6 @@ contract LevCascadeProbe is Alles {
     ///   reverts atomically (repay-first is rolled back) → `cascadeDelever` catches it. Deterministic, no mock.
     function test_Isolation_StuckLpDoesNotTouchAnother() public {
         _setupLev();
-        lm.setSoldFractionActive(true);
         _openAtEntry(lps[0], 5 ether);
         _openAtEntry(lps[1], 4 ether);
         _rallyBand(_entrySqrt(lps[0]), 0.2e18, 24, 8_000 * USDC_PRECISION);
@@ -487,7 +482,6 @@ contract LevCascadeProbe is Alles {
     ///   minOut=0 case and is exercised on every happy-path rebalance.)
     function test_MEV_OracleFloorRejectsSandwich() public {
         _setupLev();
-        lm.setSoldFractionActive(true);
         _openAtEntry(lps[0], 5 ether);
         _rallyBand(_entrySqrt(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION); // IL accrues ⇒ a rebalance wants to lever
         // An impossibly high min-weETH-out (1e30) can never be met by the real mint ⇒ the floor reverts the trade.
@@ -527,7 +521,6 @@ contract LevCascadeProbe is Alles {
     function test_IlProtection_LeveredVsUnlevered_NoCrossSubsidy() public {
         _setupLev();
         ETH.setLevManager(address(lm));
-        lm.setSoldFractionActive(true);
         // Thick shared band so the rally's swaps clear the 50bps manip guard.
         vm.deal(address(this), 40 ether);
         V4.deposit{value: 20 ether}(0, address(this), 3);
@@ -629,7 +622,6 @@ contract LevCascadeProbe is Alles {
     ///   hard gate that the old "burn unmatured QD to maintain a Trove" vector (dead Liquity design) can't exist.
     function test_Leverage_NeverMintsOrBurnsQuid() public {
         _setupLev();
-        lm.setSoldFractionActive(true);
 
         uint s0 = QUID.totalSupply();
         _bandE0(lps[0], 5 ether);
@@ -661,7 +653,6 @@ contract LevCascadeProbe is Alles {
     function test_A_IntrinsicOneDeposit_IsTheLeverageBase() public {
         _setupLev();
         ETH.setLevManager(address(lm));
-        lm.setSoldFractionActive(true);
         address lp = address(0xBEEF8);
 
         // (A): ONE deposit — mint weETH + openLev. Deliberately NO V4.deposit (the LP has no separate band).
@@ -739,7 +730,6 @@ contract LevCascadeProbe is Alles {
     function test_V1b_CommittedDecomposesPerBandWithLiveLeverageDebt() public {
         _setupLev();
         ETH.setLevManager(address(lm));
-        lm.setSoldFractionActive(true);
         vm.deal(address(this), 40 ether);
         V4.deposit{value: 20 ether}(0, address(this), 3);
         _openAtEntry(lps[0], 5 ether);
@@ -809,7 +799,6 @@ contract LevCascadeProbe is Alles {
     function test_V1bdisc_OneBandsDebtExceedingItsOwnLegMustNotEatTheOther() public {
         _setupLev();
         ETH.setLevManager(address(lm));
-        lm.setSoldFractionActive(true);
         vm.deal(address(this), 40 ether);
         V4.deposit{value: 2 ether}(0, address(this), 3);
         _openAtEntry(lps[0], 5 ether);

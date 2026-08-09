@@ -177,7 +177,6 @@ contract LeverageCrossSubsidyProbe is Alles {
         ETH.setLevManager(address(lm));                     // pin the leveraged book into vogueETH
         _bandE0(LEVR, 5 ether);
         _openLevOnly(LEVR, 5 ether);
-        lm.setSoldFractionActive(true);
         _rallyBand(startSqrt, 0.2e18, 20, 8_000 * USDC_PRECISION);
         lm.rebalance(LEVR, 0);                              // real Morpho borrow + external Uniswap buy (NOT the band)
         require(venue.debtOf(LEVR) > 0, "precondition: levered position took real debt");

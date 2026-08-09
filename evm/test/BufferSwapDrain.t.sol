@@ -31,7 +31,6 @@ contract BufferSwapDrain is LevCascadeProbe {
     function test_BufferConsumingSwap_CommittedTracksLiveDebt_NoDrain() public {
         _setupLev();
         ETH.setLevManager(address(lm));
-        lm.setSoldFractionActive(true);
         // Thick shared band so the swaps clear the 50bps manip guard.
         vm.deal(address(this), 40 ether);
         V4.deposit{value: 20 ether}(0, address(this), 3);
@@ -94,7 +93,6 @@ contract BufferSwapDrain is LevCascadeProbe {
     function test_BufferSwap_CannotBeLeveragedIntoOverMint() public {
         _setupLev();
         ETH.setLevManager(address(lm));
-        lm.setSoldFractionActive(true);
         vm.deal(address(this), 40 ether);
         V4.deposit{value: 20 ether}(0, address(this), 3);
         _openAtEntry(lps[0], 5 ether);
