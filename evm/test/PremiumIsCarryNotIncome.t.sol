@@ -650,6 +650,42 @@ contract PremiumIsCarryNotIncome is Alles {
         }
     }
 
+    /// §UNIT-REPEG-CADENCE step 2 — THE MEASUREMENT THAT COULD INVALIDATE THE FIX. Tightening the
+    /// deadband only helps if crossing it POPULATES THE RING. A re-peg that merely moves the spot
+    /// without writing distinct observations leaves `card < 3` and sigma^2 at 0, and the whole
+    /// diagnosis would be moot. Cross the 5% gate deliberately and watch both.
+    function test_UNIT_DoesCrossingTheDeadbandPopulateTheRing() public {
+        _seed();
+        deal(address(USDC), drainer, 20_000_000 * USDC_PRECISION);
+        vm.prank(drainer); USDC.approve(address(AUX), type(uint).max);
+        vm.prank(lp); V4.deposit{value: 400 ether}(0, lp, 3);
+        _settle();
+
+        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        AUX.setAssetFeed(address(WETH), ETH_FEED);
+        emit log_named_uint("TWAP before      ", px);
+        emit log_named_uint("sigma^2 before   ", CORE.realizedVarianceWad(false));
+
+        // Walk the feed WELL PAST the 500 bps gate -- 8 steps of +1.5% compounds to ~12.6%.
+        uint p = px;
+        for (uint i; i < 8; ++i) {
+            p = p * 1015 / 1000;
+            _setEthFeed(p / 1e10);
+            vm.startPrank(drainer);
+            try AUX.swap(address(USDC), address(WETH), true, 20_000 * USDC_PRECISION, 0) {} catch {}
+            vm.stopPrank();
+            vm.roll(block.number + 1); vm.warp(block.timestamp + 5 minutes);
+            if (i % 3 == 0) {
+                emit log_named_uint("  step", i);
+                emit log_named_uint("   feed  ", p);
+                emit log_named_uint("   TWAP  ", AUX.getTWAPforAsset(address(WETH), 1800));
+            }
+        }
+        emit log_named_uint("TWAP after       ", AUX.getTWAPforAsset(address(WETH), 1800));
+        emit log_named_uint("sigma^2 AFTER    ", CORE.realizedVarianceWad(false));
+        emit log_named_uint("wellSkew AFTER   ", AUX.wellSkew(address(WETH)));
+    }
+
     address constant AGG = 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419;
 
     /// `OracleLib.ringVariance`'s arithmetic, mirrored EXACTLY (§UNIT-RINGVARIANCE-READ) — including
