@@ -710,6 +710,13 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///      ⚠️ The trade, so it is chosen rather than discovered: whoever holds the pre-signed
     ///      bytes can switch operators AT ANY TIME, not only on misbehaviour. Bounded — payouts
     ///      still pin to `btcRecipientOf`, so the worst case is churn, never theft.
+    ///      ⚠️ **THAT NOW HOLDS ONLY FOR AN EOA LP (E125-e).** For a SMART-WALLET LP the
+    ///      pre-signed bytes are REVOCABLE: ERC-1271 validity is stateful, so rotating the
+    ///      wallet's owners invalidates a signature that verified yesterday. **The two LP
+    ///      kinds therefore get DIFFERENT hand-over guarantees from identical bytes** —
+    ///      durable-but-unrevocable for an EOA, revocable-but-not-guaranteed for a Safe.
+    ///      Neither is strictly better: the EOA cannot take it back, the Safe cannot promise
+    ///      it will still work. Say which one an LP has before relying on either.
     function registerDelegation(address authority, bytes32 btcRecipient, uint64 version, bytes calldata sig)
         external
     {
@@ -768,6 +775,28 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     function registerFallback(address fallbackHop, uint64 version, bytes calldata sig) external {
         address lpEth = ECDSA.recover(fallbackDigest(fallbackHop, version), sig);
         if (lpEth == address(0)) revert InvalidParam();
+        _registerFallback(lpEth, fallbackHop, version);
+    }
+
+    /// @notice (E125-e) The smart-wallet counterpart, for the same reason as
+    ///         `registerDelegationFor`: a contract signature cannot be recovered from, so the
+    ///         account must be supplied and verified against.
+    /// @dev ⚠️ WITHOUT THIS A SMART-WALLET LP COULD DELEGATE BUT NOT NAME A FALLBACK — a
+    ///      HALF-CAPABLE account, which is worse than an unsupported one: the LP would look
+    ///      onboarded while silently lacking the liveness protection E122 exists to give, and
+    ///      would discover it only when a hop went dark and no fallback could mature.
+    function registerFallbackFor(
+        address lpEth, address fallbackHop, uint64 version, bytes calldata sig
+    ) external {
+        if (lpEth == address(0)) revert InvalidParam();
+        if (!SignatureChecker.isValidSignatureNow(lpEth, fallbackDigest(fallbackHop, version), sig))
+            revert InvalidParam();
+        _registerFallback(lpEth, fallbackHop, version);
+    }
+
+    /// @dev Shared so the primary-exists / staleness / not-equal-to-primary guards cannot
+    ///      drift between the EOA and smart-wallet entrypoints.
+    function _registerFallback(address lpEth, address fallbackHop, uint64 version) internal {
         if (delegationVersion[lpEth] == 0) revert NotDelegatedHop();     // primary must exist
         if (version <= delegationVersion[lpEth]) revert StaleDelegation();
         // Equal to the primary is a no-op that READS as protection — reject rather than store.

@@ -78,4 +78,35 @@ contract SmartWalletLpTest is Test {
         ch.registerDelegation(address(0xB0B), _payout(), 1, _sign(lpPk, d));
         assertEq(ch.delegatedAuthority(lp), address(0xB0B), "EOA delegation unchanged");
     }
+
+    /// (E125-e) A smart-wallet LP must be able to name a FALLBACK too. Without this it could
+    /// delegate but not protect itself — half-onboarded, and only discoverable when a hop went
+    /// dark and no fallback could mature.
+    function test_smartWalletLp_canRegisterFallback() public {
+        bytes32 d1 = ch.delegationDigest(address(0xB0B), _payout(), 1);
+        ch.registerDelegationFor(address(wallet), address(0xB0B), _payout(), 1, _sign(ownerPk, d1));
+        bytes32 d2 = ch.fallbackDigest(address(0xFA11), 2);
+        ch.registerFallbackFor(address(wallet), address(0xFA11), 2, _sign(ownerPk, d2));
+        assertEq(ch.fallbackAuthority(address(wallet)), address(0xFA11), "wallet named its fallback");
+        assertEq(ch.delegationVersion(address(wallet)), 2, "version advanced");
+    }
+
+    /// The same control as for delegation: you cannot name a fallback for an account you
+    /// cannot sign for, or anyone could insert themselves as an LP's standby operator.
+    function test_cannotRegisterFallbackForAnAccountYouCannotSignFor() public {
+        bytes32 d1 = ch.delegationDigest(address(0xB0B), _payout(), 1);
+        ch.registerDelegationFor(address(wallet), address(0xB0B), _payout(), 1, _sign(ownerPk, d1));
+        (, uint strangerPk) = makeAddrAndKey("stranger");
+        bytes32 d2 = ch.fallbackDigest(address(0xFA11), 2);
+        vm.expectRevert(BTCChannels.InvalidParam.selector);
+        ch.registerFallbackFor(address(wallet), address(0xFA11), 2, _sign(strangerPk, d2));
+    }
+
+    /// The shared guards must apply on the smart-wallet path too: no fallback without a
+    /// primary. Proving the refactor did not let the new entrypoint skip them.
+    function test_smartWalletFallbackStillRequiresAPrimary() public {
+        bytes32 d = ch.fallbackDigest(address(0xFA11), 1);
+        vm.expectRevert(BTCChannels.NotDelegatedHop.selector);
+        ch.registerFallbackFor(address(wallet), address(0xFA11), 1, _sign(ownerPk, d));
+    }
 }
