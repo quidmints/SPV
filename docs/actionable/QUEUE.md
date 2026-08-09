@@ -9359,3 +9359,41 @@ already holds the value* — worth stating because the next such decision will l
 fits. Body in `LevMath` (228 free — ⚠️ down from 439, it absorbed `TickMath` and `loanPxUsd18`).
 
 | **UNIT-SKEW-STATUS** | 🧭🔴 **STATE OF THE SKEW, ANSWERING ALL FOUR QUESTIONS — AND THE FOURTH IS THE WORST (owner, 2026-08-06).** ✅ **(1) THE 2-DAY OPTIMISATIONS ARE INTACT, AND THE WITHDRAWAL IS WHAT SAVED THEM: my linear kernel would have DELETED §E68's drain integral outright. Preserved: **§E68 (drain integral) · §E68b (sell leg) · §E81-r (cap→base) · §E89 (additive base) · §E89b (amplifier split) · §E104 (overflow fix) · §E59/§E61/§E63 (ring sampling · behind OracleLib · SECOND moment) · §E5 (premium→`USD_FEES`)**. Nothing removed.** 🔴 **(2) ASYMMETRIC TWO-SIDEDNESS: **NOT RESOLVED.** Two-sided was ORIGINAL (2026-07-17), removed 2026-07-22 as `payRefillBonus` for MEV (discrete jackpot, §:463) + §E6's extraction-from-the-LP-curve. The owner's mandate was **BOUND IT, NOT DELETE IT** (§UNIT-BOUND-NOT-DELETE) — the implementation overshot. My round-trip objection is CONDITIONAL on path-independence, which is **UNMEASURED** because `test_E71` tests CONSOLIDATION, not LEVEL-vs-MARGINAL (§UNIT-RECOVERED). ⇒ **BLOCKED on §UNIT-B, whose acceptance criterion is itself WRONG.**** 🔴 **(3) THE OTHER BIG QUESTIONS, ENUMERATED — convex depletion is ONE of EIGHT: **(a)** convex-but-CONVERGENT depletion term (§UNIT-A-ROOT-WITHDRAWN) · **(b)** asymmetric two-sided bound `S_in < S_out` · **(c)** §UNIT-A's base short-circuit — still live, and the fix must NOT ride on the refuted linear kernel · **(d)** the 500 bps deadband that NEVER OPENS (§UNIT-DEADBAND-NEVER-OPENS) · **(e)** §UNIT-B's acceptance criterion (level-vs-marginal, not consolidation) · **(f)** the **1000× premium-RECORDED vs premium-PAID discrepancy** (§UNIT-B-VERIFIED) — never reconciled · **(g)** the VENUE CEILING as a real bound (§UNIT-VENUE-CEILING) — no code exists · **(h)** CENSORED duration (§E83's Kaplan–Meier) — gates THREE decisions.** 🔴🔴🔴 **(4) VARIANCE/TESTABILITY — PARTLY SORTED, AND THE UNSORTED PART INVALIDATES THE VERIFICATION OF (1): **SORTED** — the estimator is sound (matches a real v3 pool at 2.52e-3, §UNIT-BACKTEST-V3); σ²=0 means an EMPTY RING, not a broken formula; the empty ring is the SELF-REFERENTIAL PRICE LOOP's signature (§UNIT-PRICE-LOOP); the loop is gated by a 500 bps deadband that never opens. **UNSORTED, AND IT IS THE OWNER'S EXACT WORRY: IF σ² READS 0 IN NORMAL OPERATION, THEN EVERY TEST THAT "VERIFIED" THE 2-DAY OPTIMISATIONS RAN IN A ZERO-SKEW REGIME — WHERE THE INTEGRAL, THE BASE AND THE AMPLIFIER ALL MULTIPLY ZERO AND PASS IDENTICALLY WHETHER CORRECT OR NOT.** Measured proof it happens: `wellSkew` = 0 at σ² = 4.09 (§UNIT-DEADBAND-POPULATES) and `test_E71`'s premium legs DELETED (§UNIT-B-VERIFIED). **This is §E71's premium-blind control failure, ONE LEVEL UP — the tests could not have distinguished a correct optimisation from a no-op.**** ▶️ **⇒ THE PREREQUISITE FOR EVERYTHING: **land §UNIT-A + the deadband so a NON-ZERO skew regime is REACHABLE, then RE-RUN the 2-day optimisations' tests IN THAT REGIME.** Until then their green is uninformative — **not wrong, UNINFORMATIVE.** | 🧭🔴 optimisations intact; two-sided unresolved; 8 open questions; the 2-day tests may be uninformative |
+
+### 🔴🔴 THE BORROW LEG DOES NOT FIT — BUILT IT, MEASURED IT, REVERTED IT. −500 / −638 BYTES.
+
+Written in full (designated `protocolVenue` at `init`, `vault` threaded, `protocolBorrowBody` in
+`LevMath`, forwarder + `protocolDebtUsd` in `LevManager`, debt seeded into `totalDebtUsd`, deploy pinned
+to the Aave leg). It **compiles and passes 1,104/0 on the lev suites.** It is also **undeployable**:
+
+| contract | before | after | limit 24,576 |
+|---|---|---|---|
+| `LevManager` | 24,352 (**224 free**) | **25,076** | 🔴 **−500** |
+| `LevMath` | 24,348 (**228 free**) | **25,214** | 🔴 **−638** |
+
+⇒ **~1,190 BYTES NEEDED ACROSS TWO CONTRACTS THAT HAVE ~450 BETWEEN THEM.** Not a trim — a factor.
+⚠️ **THE SUITE WENT GREEN ON UNDEPLOYABLE CODE**, exactly as CLAUDE.md warns (*"this repo has already
+shipped a `Core` at −126 bytes with a fully green suite"*). `forge test` never checks EIP-170.
+**`tools/check-contract-sizes.py` is the only thing that caught it**, and it must run in the same change,
+not after.
+
+**Where the bytes went** (LevManager +724): a `public protocolVenue` getter · a `public protocolDebtUsd`
+getter · the `borrowForOfframp` external + its dispatch · the extra `init` parameter. (LevMath +866: the
+`public` — i.e. delegatecall-dispatched — `protocolBorrowBody`.)
+
+**Cheap trims exist but do NOT close a 1,190-byte gap:** making `protocolVenue`/`protocolDebtUsd`
+`internal` saves the two auto-getters (~100–150 total). **Do not mistake that for a fix.**
+
+▶️ **THE SHAPE HAS TO CHANGE. Options, none costed yet:**
+  a. **A separate `ProtocolBorrow` contract** holding the venue, the borrow and the debt read; `LevManager`
+     gains only a one-line `totalDebtUsd` seed calling it. **Byte cost lands on a NEW contract with a full
+     24,576 budget** — the only option that clearly fits.
+  b. **Reuse an existing entrypoint** rather than adding one — e.g. drive it through the existing flash
+     path (`flashLoan` mode dispatch already exists in both managers), so no new external surface is added.
+  c. **Find offsetting removals first.** `soldFractionActive` bought 124; the whole `reseatEpoch` removal
+     bought 410 and the `USD_PX` fix spent 353 of it. **The budget is genuinely exhausted — further
+     features on these two contracts are gated on deletions, not on design.**
+
+⚠️ **AND THIS RE-PRICES EVERY REMAINING ITEM.** Restore-after-refill, claim-and-repay and the borrow leg
+all want surface on `LevManager`. **At 224 free, they cannot all land there** regardless of how well each
+is designed. That is now the binding constraint on the whole roadmap — not the venues, not the accounting.
