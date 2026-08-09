@@ -8633,3 +8633,50 @@ this entry stale in the safe direction. The measurement is one script:
 above ~15 calls/batch. The script backs off and **aborts loudly** rather than returning an empty list —
 an empty list here would read as "no Euler pair" and be a false negative of exactly the kind rule
 "never assert absence from a search" exists to stop.
+
+
+### ▶️ RESTORE-AFTER-REFILL — the blocker is `delete pos[lp]`, and the fix is CHEAPER than the obvious one
+
+**Owner requirement (2026-08-08):** *"perfectly healthy wound up ILprotect LPs must have their leverage
+positions restored to the same state they were prior to being unwound… but after the refill that
+restores the pool balance."*
+
+**Why it is blocked.** `LevManager._closeLev:670` does `delete pos[lp]`, destroying venue,
+`targetLtvCapBps`, `entryPriceWad`, `e0Eth` and `entrySqrtP` — everything a restore needs.
+
+**The distinction the shared body currently loses.** `_closeLev` is reached two ways:
+  * `closeLev` (`:631`) — **LP-initiated**. `delete` is CORRECT: they chose to exit, nothing to restore.
+  * `closeLevFor` (`:646`) — **INVOLUNTARY**, callable only by `vogueSyncHook`, so `Vogue._withdraw` can
+    cover an open lever before the free-ladder burn. Here the LP did **not** choose, and `delete` is the
+    defect.
+⇒ The two paths need different endings. Today they share one.
+
+🔴 **THE OBVIOUS FIX DOES NOT FIT — `LevManager` HAS 172 BYTES OF HEADROOM** (measured 2026-08-09;
+`Core` 38, `Vogue` 591, `LevMath` 1,566). A `mapping(address => Pos) public unwoundPos` is the natural
+shape and is very likely UNDEPLOYABLE: a **public** mapping-to-struct getter alone runs to a couple of
+hundred bytes, before the copy logic. **This repo has already shipped a `Core` at −126 bytes with a
+fully green suite**, so "tests pass" will NOT catch it — `python3 tools/check-contract-sizes.py` must be
+run as part of the change, not after.
+
+✅ **CHEAPER MECHANISM, NO NEW STORAGE: don't copy the position — just stop deleting it.**
+`Pos` already carries an `open` flag. On the involuntary path set **`p.open = false`** instead of
+`delete pos[lp]`; every field survives in place and a restore flips `open` back and re-establishes the
+venue leg. Cost is a bool parameter plus a branch (tens of bytes), not a second mapping.
+```
+function _closeLev(address lp, uint256 minOut, bool keepState) internal {
+    ...
+    if (keepState) p.open = false; else delete pos[lp];   // closeLevFor keeps, closeLev deletes
+```
+
+⚠️ **VERIFY BEFORE WRITING — a retained `Pos` is a NEW STATE THIS CONTRACT HAS NEVER HELD** (`open ==
+false` with non-zero fields). Two things must be checked, and neither is a formality:
+  1. **Does `openLev` write EVERY field?** If it sets only some, a fresh position inherits stale
+     `entryPriceWad`/`entrySqrtP` from the retained one — a mispriced entry that reverts nothing and
+     shows up as wrong IL accounting.
+  2. **Does anything read `pos[lp]` without checking `.open`?** Under `delete` those reads got zeros;
+     under retention they get live-looking stale values. **That is the silent-and-plausible failure the
+     standing guard rule names**, and it is the whole risk of this change.
+
+⏸️ **Restore itself is still gated on the REFILL (other thread).** Retaining the state is a
+prerequisite, NOT the feature — the restore entrypoint has nothing to fire on until the refill that
+rebalances the pool exists. Land retention first, verified independently; wire the restore after.
