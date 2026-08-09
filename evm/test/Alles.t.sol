@@ -3754,7 +3754,26 @@ contract Alles is ForkPin, Fixtures {
         vm.stopPrank();
         (uint pooledBefore,,,) = BTC.autoManagedBTC(User01);
         uint qBefore = QUID.balanceOf(User01);
+        // (E145-i) THE BACKING INVARIANT, MEASURED RATHER THAN READ. The fee leg mints QU!D
+        // WITHOUT a matching `drawPooled*`, while `settleDelivered` draws before it mints and
+        // `Core.drawPooledUsdBtc` states the rule outright: a mint unmatched by a draw leaves
+        // QU!D unbacked. Whether that makes the fee leg a double-count turns entirely on
+        // whether collecting fees MOVES the pooled accounting.
+        // Reading says no — `_handleCollect` passes `inRange = false` (`Core.sol:1060`), so the
+        // `if (inRange) _poolUsdInRange(...)` write never fires. **This asserts it instead of
+        // trusting that**, because the deciding fact is an ARGUMENT at the call site, not
+        // anything visible in the function being read.
+        uint pooledBtc0 = CORE.POOLED_BTC();
+        uint pooledUsdBtc0 = CORE.POOLED_USD_BTC();
+        // ⚠️ THE CONTROL: an equality assertion on two zeros proves nothing. Both balances must
+        //    be live before the comparison means anything.
+        assertGt(pooledBtc0, 0, "control: POOLED_BTC is live, so the equality below is not vacuous");
+        assertGt(pooledUsdBtc0, 0, "control: POOLED_USD_BTC is live, so the equality is not vacuous");
         vm.prank(User01); BTC.collectBtcFees();
+        assertEq(CORE.POOLED_BTC(), pooledBtc0,
+            "fee collection must NOT move POOLED_BTC (else the fee-leg mint is unbacked)");
+        assertEq(CORE.POOLED_USD_BTC(), pooledUsdBtc0,
+            "fee collection must NOT move POOLED_USD_BTC (else the fee-leg mint is unbacked)");
         uint claimed = QUID.balanceOf(User01) - qBefore;
         (uint pooledAfter,,,) = BTC.autoManagedBTC(User01);
         assertGt(claimed, 0, "USD-leg fees claimed as QUID without closing");
