@@ -210,6 +210,35 @@ contract Vault is Ownable, ReentrancyGuard {
     ///      the hop settles it in native BTC at channel close", describing path 2 as if it were the
     ///      only one. That was stale from before the fee-splice landed and it caused a downstream
     ///      doc error; do not restore it.
+    /// ⚠️ (E145) THIS LEDGER IS THE SYMPTOM OF A FIXABLE ROOT CAUSE — see below before extending it.
+    /// MEASURED 2026-08-09: a swap-in accrues a real BTC-leg fee (209 sats per 500k-sat swap-in;
+    /// `creditSwapIn` sells into the pool as the PROTOCOL, bypassing the user-path
+    /// `BtcInflowsViaChannels` guard). At close the balance is DELETED, and no remaining LP
+    /// receives it AS A FEE CLAIM — `feesPerShareBTC` does not move on exit, so the "accrues to
+    /// the remaining LPs" note at `_resizeBtcLp` is false AS STATED.
+    /// ⚠️ BUT "simply lost" IS NOT PROVEN AND MUST NOT BE ASSERTED: the sats remain in
+    /// `POOLED_BTC` as BACKING, which benefits remaining LPs diffusely through redemption value
+    /// rather than through any claim. A backing-per-share reading fell across an exit
+    /// (94,837,842 → 89,675,690) but the harness calls `unregisterBtcLp` DIRECTLY and may pay at
+    /// par in a way the real cooperative-close path does not — so that number is NOT evidence of
+    /// a defect. What is established is narrow: NO FEE CLAIM INCREASES. Where the value ends up
+    /// is unmeasured.
+    /// 🔎 ROOT CAUSE: settlement requires a HOP to FUND a grow-splice (`feeSettleSats <= grewBy`),
+    /// so it rides an unrelated operation, cannot be enforced without making the LP's EXIT depend
+    /// on hop liveness, and is bounded by nothing meanwhile.
+    /// ▶️ A CANDIDATE FOLD THAT WOULD KEEP SATS COMPOUNDING — PROPOSAL, NOT A PROVEN DESIGN:
+    /// accrue the BTC-leg fee as TOKENLESS BAND DEPTH,
+    /// exactly as the levered slice already does (`levPooledBTC`/`levBufBTC` are "backed by the
+    /// BtcLevManager net-equity, NOT real channel sats"). The fee value is already on-chain in the
+    /// pool; the INFERENCE (not a measurement) is that only its *location* — channel vs pool —
+    /// forces the hop into the loop. Compounding it
+    /// as pool-backed depth keeps the LP's fees DENOMINATED IN SATS (which converting them to USD
+    /// would sacrifice) while deleting this ledger, `settleBtcFeesOwed`, `feeSettleSats` and
+    /// `BtcLpFeesForgone`.
+    /// ⚠️ VERIFY FIRST, and this is what stopped it being done today: that pool-held fee value
+    /// genuinely backs tokenless depth the way net-equity does. A USD-denominated variant was
+    /// built and REVERTED — it routed BTC-side value into a USD accumulator without moving the
+    /// backing, and sacrificed sats compounding, which is the property the design exists to give.
     mapping(address => uint) public btcFeesOwedSats;
 
     int24 public UPPER_TICK_BTC;
