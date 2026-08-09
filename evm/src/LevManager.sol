@@ -387,6 +387,7 @@ contract LevManager {
     ///         basis the sizing (`debtDeltaToTarget = E0·t`) uses — NOT the actual-collateral LTV, which
     ///         would re-settle at the old 1/(1−t) over-hedge. Distinct from `getCurrentLtvBps` (venue safety).
     function ilLtvBps(address lp) public returns (uint256) {
+        if (!pos[lp].open) return 0;
         uint256 px = AUX.getTWAPforAsset(WETH, TWAP_WINDOW);
         uint256 e0Usd = LevMath.e0Usd(pos[lp].e0Eth, px);
         return LevMath.ltvBps(debtUsd(lp), e0Usd);
@@ -396,6 +397,7 @@ contract LevManager {
     ///         Reads the oracle ONCE (price-consistent — avoids the getTWAPforAsset-mutates-mid-call flip).
     function debtDeltaToTarget(address lp) public returns (bool levUp, uint256 amountUsd) {
         Pos memory p = pos[lp];
+        if (!p.open) return (false, 0);
         uint256 px = AUX.getTWAPforAsset(WETH, TWAP_WINDOW);
         uint256 curDebt = debtUsd(lp);
         // (B) LIVE IL target = the band's ACTUAL sold fraction (soldFractionWad), capped; √p fallback.
@@ -412,6 +414,7 @@ contract LevManager {
     ///         PROVEN in test/LevYbPnl.t.sol. This REPLACES the static knob / the wrong `L=1/α`.
     function ilTargetLtvBps(address lp) public returns (uint256) {
         Pos memory p = pos[lp];
+        if (!p.open) return 0;
         uint256 px = AUX.getTWAPforAsset(WETH, TWAP_WINDOW);
         return _ilTargetLive(p, px);
     }
