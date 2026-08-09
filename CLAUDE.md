@@ -18,6 +18,17 @@ environment actually is*. Every line below was verified in-repo, not recalled.
 6. **Fix on detect.** Don't file a follow-up for something you can fix now.
 7. **No cryptic names.**
 8. **Don't hand-roll** what an existing library or tool already does.
+8b. **MINTING QU!D IS A LAST RESORT** (owner, 2026-08-09): *"we should only be minting QU!D at
+    all anywhere in the scope if it's the only elegant way out of a grotesquely awkward
+    alternative."* A mint creates a liability against the basket; paying with value that
+    ALREADY EXISTS never does. Before adding one, show the non-minting route is grotesque, not
+    merely inconvenient. *Worked example (E145-r):* forgone BTC-leg fees could be paid by
+    minting QU!D at the BTC price — but those sats are **already in `POOLED_BTC`**, so settling
+    in sats is both simpler and liability-free. The mint was ruled out on this rule alone.
+    ⚠️ Note what this does NOT say: the seven existing mint sites are not thereby wrong — the
+    fee/redeem legs pay a 6-dec USD claim in an 18-dec token and have no pre-existing balance
+    to draw on. The rule bites on NEW mints, and on any mint added because it was the first
+    idea rather than the last.
 9. **Price every fix on every axis** before calling it done: correctness (tested, not reasoned),
    cost/frequency, blast radius, second-order effects, other callers, reversibility. The regression
    is always on the axis nobody measured. If an axis can't be measured yet, say so explicitly.
