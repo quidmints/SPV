@@ -9230,3 +9230,35 @@ pre-existing. **No new failures were observed, but ~300 tests did not run.** Re-
 before treating the venues as deploy-ready; the hold is lifted on the DEFECT, not on that coverage gap.
 
 | **UNIT-BASELINE+CLEAN** | 🧹 **BASELINE ESTABLISHED AND RESIDUE REMOVED, BEFORE §UNIT-A TOUCHES A MONEY PATH (2026-08-06).** ✅ **BASELINE, ONE CAPTURED RUN (815 s): **4,048 tests · 4,046 passed · 2 FAILED** — `test_E97_SellLegTaxOnOrdinaryFlow` and `testRoundTripNoRaceNoDrain`. **NEITHER IS MINE** (my only edits were new tests in my own file), so they are pre-existing or the other thread's. **That is the known state §UNIT-A must be attributed against — any THIRD failure after it lands is the change.**** 🧹 **RESIDUE DROPPED — two fixtures that never produced a valid number, per the standing "no tooling for one-off deliverables": • **`test_UNIT_PoolVarianceVsChainlinkVariance`** — the Chainlink estimator port, **THREE scaling attempts, all wrong** (§UNIT-SERIES-RATIO-VOID, §UNIT-SERIES-STOP). It never yielded a comparable number and would read as a working instrument to the next thread. • **`test_UNIT_HowOftenDoesChainlinkCrossTheDeadband`** — per-round crossings, **SUPERSEDED** by `test_UNIT_HowLongUntilTheDeadbandOpens`, which measures the CUMULATIVE gate `twapResolve` actually uses. **The per-round version answered a question the code does not ask.** ⇒ 10 → 8 tests.** ✅ **WHAT SURVIVES, AND WHY EACH EARNS ITS PLACE: `test_E131_...` (adequacy, σ²-invariant) · `..._LpExitAcrossImbalance...` (exposure transfer, balance-delta measured) · `..._PremiumRecordedEqualsPremiumPaid` (the recorded-vs-borne reconciliation, §UNIT-B-VERIFIED's open 1000× gap) · `..._FixtureProducesRealisticVariance` (its INCONCLUSIVE guard is the only reason 36 bps was never published) · `..._BacktestV3TickVarianceVsChainlink` (the REAL v3 reference, 2.52e-3) · `..._HowLongUntilTheDeadbandOpens` (0/118 crossings) · `..._RepegCadenceByThreshold` (the 25–500 bps table) · `..._DoesCrossingTheDeadbandPopulateTheRing` (σ² 0→4.09 with `wellSkew` still 0).** ⚠️ **VERIFICATION OF THE DELETION ITSELF WAS RATE-LIMITED (HTTP 429 from publicnode, immediately after the 815 s full run) — the change is two PURE REMOVALS, but say so rather than imply a green re-run.** | 🧹 baseline 4046/2; two void fixtures dropped; deletion re-run rate-limited |
+
+
+### ▶️ BORROW LEG — fully specified EXCEPT the caller gate. One decision, then it is mechanical.
+
+Everything else is settled: **bytes** (forwarder in `LevManager` ~100 free, body in `LevMath` 439),
+**design** (position-free — never `pos[]`/`_openLps`, or the levered net-equity syncs back into the band
+as `levPooled` depth), **accounting** (seed `LevManager.totalDebtUsd`, which already flows to
+`Core._bandEquityUsd18` → `committedUsd18` — a new term DOUBLE-SUBTRACTS).
+
+🔴 **THE OPEN QUESTION: WHO MAY CALL IT.** The call chain is `Vogue._withdraw` → `EV.offrampEtherFi`
+(`Vault`) → the borrow. But venue `borrow` is `onlyManager` ⇒ the entrypoint sits on `LevManager`, and
+**`LevManager` has no reference to the Vault.** Its existing band-initiated gates (`closeLevFor:647`,
+`deleverToVault:730`) all use `vogueSyncHook`, and `vault` there is a *parameter*, never stored.
+
+| option | shape | cost |
+|---|---|---|
+| **a. Gate to `vogueSyncHook`** (Vogue) | Vogue calls `LevManager` directly, then hands the WETH to the offramp | reuses the existing gate, **no new state**; but inverts the current flow (today Vogue calls the Vault, which owns the weETH) |
+| **b. Pin the Vault** on `LevManager` | Vault calls `LevManager` from inside `offrampBody` | matches where the weETH actually IS; costs an immutable/setter + a deploy wiring change, in a contract with ~100 free bytes |
+| **c. Thread the caller** like `deleverToVault` does with `vault` | gate to `vogueSyncHook`, pass the Vault as a param | no new state, keeps the Vault as the weETH custodian — but Vogue must then be the one to initiate |
+
+⚠️ **THE DISCRIMINATOR IS CUSTODY, NOT AUTH: the free weETH lives in the VAULT** (`offrampBody:452-457`
+clamps to `IERC20(weeth).balanceOf(address(this))` in the *Vault's* delegatecall context). Whoever calls
+must be able to move that weETH to the venue. (a) requires the Vault to release it to Vogue or the
+manager first; (b) keeps custody and initiation together. **(b) is the honest shape and the expensive
+one** — which is exactly the trade to put to the owner rather than pick silently.
+
+⚠️ **NOTE FOR WHOEVER LANDS IT:** `LevManager` is at **~100 free bytes**, so even the forwarder is tight,
+and `Core` is at 38. Re-measure with `tools/check-contract-sizes.py` in the same change — `forge build
+--sizes` does not list `Core` at all, and this repo has shipped an over-limit contract with a green suite.
+
+▶️ Once it lands, `waitNft` stops being a serve rung and becomes the REPAYMENT — so the
+"permissionless claim-and-repay" item is the same piece of work, not a separate one.
