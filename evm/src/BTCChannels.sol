@@ -10,6 +10,9 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MuSig2Agg} from "./imports/MuSig2Agg.sol";
+// (E125-d) ERC-1271 + ECDSA in one call, so a SMART-WALLET LP can register. Tries ECDSA
+// first, so the EOA path — the common one — keeps its cost.
+import {SignatureChecker} from "@openzeppelin-submodule/utils/cryptography/SignatureChecker.sol";
 
 // ═══════════════════════════════════════════════════════════════════════
 //  BTCChannels — standard-LDK 2-of-2 channels for native BTC LP deposits,
@@ -712,6 +715,43 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     {
         address lpEth = ECDSA.recover(delegationDigest(authority, btcRecipient, version), sig);
         if (lpEth == address(0)) revert InvalidParam();
+        _registerDelegation(lpEth, authority, btcRecipient, version);
+    }
+
+    /// @notice (E125-d) Same registration, for an LP whose `lpEth` is a SMART WALLET (Safe,
+    ///         4337 account) rather than an EOA. Owner's call: LPs may be smart wallets,
+    ///         though most will be EOAs.
+    /// @dev ⚠️ WHY A SECOND ENTRYPOINT RATHER THAN WIDENING THE FIRST — the two verifiers are
+    ///      NOT interchangeable in shape: `ECDSA.recover` RETURNS the signer, while ERC-1271
+    ///      can only ANSWER "did this address sign this?". **A contract signature cannot be
+    ///      recovered from — there is no key to recover — so the address must be SUPPLIED.**
+    ///      Widening `registerDelegation` in place would therefore have changed its ABI, and
+    ///      that signature is produced by the RUST side (`quid-bridge/evm_validating_signer.rs`,
+    ///      `quid-hop/evm_codec.rs`) and pinned byte-exact by `test_openparams_abi_ground_truth`.
+    ///      Additive keeps the EOA path and both Rust callers untouched.
+    /// @dev ⚠️ SUPPLYING `lpEth` IS NOT A TRUST HOLE: the signature is validated AGAINST the
+    ///      claimed address, so naming someone else's account simply fails to verify. The
+    ///      caller chooses WHOSE signature to present, never whose account is bound.
+    /// @dev ⚠️ ERC-1271 VALIDITY IS STATEFUL, and that is a REAL BEHAVIOURAL DIFFERENCE, not a
+    ///      detail: a Safe that rotates owners INVALIDATES its own earlier signature. That
+    ///      breaks the "pre-signed bytes are good forever" property the hand-over note relies
+    ///      on — and simultaneously supplies the revocation `delegationVersion` exists to
+    ///      simulate. For a smart-wallet LP the hand-over is REVOCABLE; for an EOA it is not.
+    function registerDelegationFor(
+        address lpEth, address authority, bytes32 btcRecipient, uint64 version, bytes calldata sig
+    ) external {
+        if (lpEth == address(0)) revert InvalidParam();
+        if (!SignatureChecker.isValidSignatureNow(
+                lpEth, delegationDigest(authority, btcRecipient, version), sig))
+            revert InvalidParam();
+        _registerDelegation(lpEth, authority, btcRecipient, version);
+    }
+
+    /// @dev The registration itself, shared by both entrypoints so the two can never drift on
+    ///      the version guard or the payout-key lock — the part that actually protects the LP.
+    function _registerDelegation(
+        address lpEth, address authority, bytes32 btcRecipient, uint64 version
+    ) internal {
         if (version <= delegationVersion[lpEth]) revert StaleDelegation();
         if (btcRecipientLocked[lpEth] && btcRecipientOf[lpEth] != btcRecipient) revert WrongBtcRecipient();
         delegatedAuthority[lpEth] = authority;
