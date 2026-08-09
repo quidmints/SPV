@@ -8591,3 +8591,93 @@ hardcoded 7500 that prompted the owner's instruction.
 | **UNIT-VOL-LANDED** | ⛔✅ **INSTRUMENTED: **24 LANDED, 0 REVERTED** — SO THE TWAP-GUARD HYPOTHESIS IS REFUTED TOO, AND THE PUZZLE IS NOW HONEST RATHER THAN EXPLAINED (2026-08-06, pinned @ 25,713,821).** ✅ **THE `try/catch` NOW COUNTS INSTEAD OF SWALLOWING (§UNIT-VOL-CONTROL's action item): **every one of the 24 swaps LANDED; ZERO reverted.**** ⛔ **⇒ §UNIT-FORK-PINNED's *"the feed acts indirectly, by changing which swaps clear the TWAP-deviation guards"* is **REFUTED BY MEASUREMENT — nothing was ever rejected.** That is the THIRD explanation I have offered for this spread and the third to fail: (i) interpolation-flattening (refuted — estimator samples the ring), (ii) reseat threshold (refuted — feed walk is not the driver), (iii) guard rejection (refuted — 0 reverts). **Each was plausible, none was checked before being written down.**** 🔎 **WHAT ACTUALLY REMAINS, STATED AS A PUZZLE AND NOT A STORY: with EVERY swap landing and the `size` array UNCHANGED, ⅔-amplitude and frequency-mixed give σ² **IDENTICAL TO THE LAST DIGIT** (2,977,321,671,362,301) while ⅓-amplitude DIFFERS (3,102,180,757,928,956). The only surviving channel is the feed's effect on EXECUTION PRICE → pool tick → `tickCumulative`. **LIKELIEST: the band executes against a TWAP (`getTWAPforAsset`), NOT the spot feed I am poking, so most `_setEthFeed` pokes never reach the execution price at all — which would ALSO explain why identical σ² is the COMMON case and a difference the exception.** **DO NOT BOOK THAT AS THE ANSWER UNTIL IT IS MEASURED: log the EXECUTION PRICE each swap actually got, next to the feed value set.** ▶️ **THE DISCIPLINE THIS SESSION KEEPS PROVING: instrument the mechanism BEFORE explaining the number. Three explanations cost more than one measurement would have.** | ⛔✅ 0 reverts; three explanations refuted; log execution price next |
 
 | **UNIT-VOL-CAUSE** | ✅✅✅ **CAUSE FOUND AND MEASURED: `_setEthFeed` NEVER REACHES THE EXECUTION PRICE. THE VENUE'S TWAP IS FROZEN WHILE THE FEED MOVES ±2.3% (2026-08-06, pinned @ 25,713,821).** ✅ **LOGGED SIDE BY SIDE, what I SET vs what the venue PRICES AGAINST: **step 0 feed 1,952,497,530,944,365,528,795 / TWAP 1,917,973,998,963,030,971,312 · step 6 feed 1,936,682,048,487,384,668,581 / TWAP **1,917,973,998,963,030,971,312** · step 12 feed 1,943,880,080,488,525,067,093 / TWAP **1,917,973,998,963,030,971,312** · step 18 feed 1,980,823,040,896,272,222,998 / TWAP 1,920,660,908,616,252,834,253.** ⇒ **THE TWAP IS IDENTICAL TO THE LAST DIGIT ACROSS 12 STEPS while the feed ranged ±2.3%; it budges 0.14% by step 18 and no more.** ✅✅ **THIS EXPLAINS THE ENTIRE SPREAD: every swap in every walk executed at ESSENTIALLY THE SAME PRICE, so the tick path was essentially identical, so σ² came out identical across different `mult` arrays — and ⅓-amplitude's difference was the EXCEPTION (the rare step where the TWAP budged), not the rule. **All my amplitude and frequency tuning was adjusting an input the venue does not read.**** 📌 **FOURTH HYPOTHESIS, AND THE FIRST TO SURVIVE — the three refuted ones (interpolation-flattening · reseat threshold · guard rejection) each cost a turn; this one cost ONE LOG LINE. **The lesson is not "be luckier at guessing" — it is that the channel between input and output was never instrumented, and instrumenting it was cheaper than any of the three theories.**** ▶️ **WHAT THE FIXTURE ACTUALLY NEEDS: **MOVE THE POOL, NOT THE FEED.** `getTWAPforAsset(WETH, 1800)` is a 1,800-second window over the venue's own observations, so it responds to SUSTAINED TICK MOVEMENT, not to instantaneous `_setEthFeed` pokes. Options, in order of directness: (1) swaps large enough to move the POOL's price within/through the band and hold it across the window; (2) advance time so the window rolls off the pre-walk history (24 steps × 1.5–7.5 min ≈ 2h already exceeds 1,800s, so this ALONE is insufficient — proven by the frozen readings); (3) check whether `getTWAPforAsset` reads the POOL ring or a Chainlink-anchored path, because if it is anchored, no amount of pool trading will move it and the fixture must move the ANCHOR. **Determine (3) FIRST — it decides whether (1) is even possible.** | ✅✅✅ cause measured: feed pokes never reach the venue's TWAP; move the pool or the anchor |
+### ⛔ EULER weETH→WETH — THE PAIR EXISTS AND IS EMPTY. WILL-NOT-ADD (measured 2026-08-09)
+
+Owner asked: add Euler if it exists, else AaveV4. **The question "does it exist" was the wrong
+discriminator** — it does exist, and adding it would still have been wrong.
+
+**Method (not a grep — an enumeration).** Euler `GenericFactory` `0x29a56a1b…` holds **874** vaults.
+Filtered to `asset() == WETH` → **48**. Of those, exactly **ONE** returns non-zero
+`LTVBorrow(eweETH-1 escrow)`:
+
+**`0xb4f7761c459d09f414e1190df275be3e24535750` — "EVK Vault eWETH-14"**
+· `LTVBorrow` **6700** (67%) · `LTVLiquidation` **7700** (77%) · escrow `governorAdmin` **`0x0`**
+(renounced ⇒ immutably escrow, satisfying INVARIANT #1 — no rehypothecation, ever)
+· **`totalAssets` 0 · `cash` 0 · `totalBorrows` 0.**
+
+⇒ **CORRECTLY CONFIGURED, ZERO LENDERS.** It is the same shape as `../CLAUDE.md`'s note on the USDC
+side (*"configured-but-thin: the venue degrades SAFE — LPs simply can't borrow there until lenders
+supply eUSDC-11"*), except at literally zero.
+
+⇒ **THIRD INSTANCE OF THIS EXACT FAILURE MODE**, which is why depth is now ASSERTED and not merely
+observed: two 86%-LLTV weETH/WETH Morpho markets ($0.0002 and $2,095 supplied) and now eWETH-14.
+**Every structural check passes on all three.** Only liquidity separates them.
+
+**The live ETH-denominated-debt legs, ranked by usable depth:**
+
+| venue | free liquidity | collateral param | status |
+|---|---|---|---|
+| **Aave V4** (weETH → WETH) | **≈22,484 WETH** (22,782 supplied − 299 debt) | collateralFactor **8000** | ✅ `vs[6]` |
+| **Morpho** `0x37e7484d…` | **1,770 WETH** | LLTV **9450** | ✅ `vs[5]` |
+| Euler eWETH-14 | **0** | LTVBorrow 6700 | ⛔ not added |
+
+⚠️ **Aave is ~12× deeper than Morpho** — the opposite of the assumption that Morpho was the primary
+leg. Whatever routes between them should prefer Aave on size, not treat Morpho as the default.
+
+**Guarded, not just recorded:** `test/LevVenueMarketPins.t.sol` now asserts free WETH > 100 ether on
+the Aave leg and a live non-zero `collateralFactor`, alongside the Morpho depth pins. 5/5 green.
+
+**Re-check Euler before mainnet** — a vault gaining lenders is exactly the kind of change that makes
+this entry stale in the safe direction. The measurement is one script:
+`scratchpad/euler.py` (enumerate → filter by asset → `LTVBorrow`).
+⚠️ It needs the ARCHIVE key: publicnode returns **HTTP 403 on batched `eth_call`**, and ankr **429s**
+above ~15 calls/batch. The script backs off and **aborts loudly** rather than returning an empty list —
+an empty list here would read as "no Euler pair" and be a false negative of exactly the kind rule
+"never assert absence from a search" exists to stop.
+
+
+### ▶️ RESTORE-AFTER-REFILL — the blocker is `delete pos[lp]`, and the fix is CHEAPER than the obvious one
+
+**Owner requirement (2026-08-08):** *"perfectly healthy wound up ILprotect LPs must have their leverage
+positions restored to the same state they were prior to being unwound… but after the refill that
+restores the pool balance."*
+
+**Why it is blocked.** `LevManager._closeLev:670` does `delete pos[lp]`, destroying venue,
+`targetLtvCapBps`, `entryPriceWad`, `e0Eth` and `entrySqrtP` — everything a restore needs.
+
+**The distinction the shared body currently loses.** `_closeLev` is reached two ways:
+  * `closeLev` (`:631`) — **LP-initiated**. `delete` is CORRECT: they chose to exit, nothing to restore.
+  * `closeLevFor` (`:646`) — **INVOLUNTARY**, callable only by `vogueSyncHook`, so `Vogue._withdraw` can
+    cover an open lever before the free-ladder burn. Here the LP did **not** choose, and `delete` is the
+    defect.
+⇒ The two paths need different endings. Today they share one.
+
+🔴 **THE OBVIOUS FIX DOES NOT FIT — `LevManager` HAS 172 BYTES OF HEADROOM** (measured 2026-08-09;
+`Core` 38, `Vogue` 591, `LevMath` 1,566). A `mapping(address => Pos) public unwoundPos` is the natural
+shape and is very likely UNDEPLOYABLE: a **public** mapping-to-struct getter alone runs to a couple of
+hundred bytes, before the copy logic. **This repo has already shipped a `Core` at −126 bytes with a
+fully green suite**, so "tests pass" will NOT catch it — `python3 tools/check-contract-sizes.py` must be
+run as part of the change, not after.
+
+✅ **CHEAPER MECHANISM, NO NEW STORAGE: don't copy the position — just stop deleting it.**
+`Pos` already carries an `open` flag. On the involuntary path set **`p.open = false`** instead of
+`delete pos[lp]`; every field survives in place and a restore flips `open` back and re-establishes the
+venue leg. Cost is a bool parameter plus a branch (tens of bytes), not a second mapping.
+```
+function _closeLev(address lp, uint256 minOut, bool keepState) internal {
+    ...
+    if (keepState) p.open = false; else delete pos[lp];   // closeLevFor keeps, closeLev deletes
+```
+
+⚠️ **VERIFY BEFORE WRITING — a retained `Pos` is a NEW STATE THIS CONTRACT HAS NEVER HELD** (`open ==
+false` with non-zero fields). Two things must be checked, and neither is a formality:
+  1. **Does `openLev` write EVERY field?** If it sets only some, a fresh position inherits stale
+     `entryPriceWad`/`entrySqrtP` from the retained one — a mispriced entry that reverts nothing and
+     shows up as wrong IL accounting.
+  2. **Does anything read `pos[lp]` without checking `.open`?** Under `delete` those reads got zeros;
+     under retention they get live-looking stale values. **That is the silent-and-plausible failure the
+     standing guard rule names**, and it is the whole risk of this change.
+
+⏸️ **Restore itself is still gated on the REFILL (other thread).** Retaining the state is a
+prerequisite, NOT the feature — the restore entrypoint has nothing to fire on until the refill that
+rebalances the pool exists. Land retention first, verified independently; wire the restore after.
