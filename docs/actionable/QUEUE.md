@@ -8741,7 +8741,8 @@ of the same access. Any re-audit must match on `pos[` and read every hit, not on
 
 | **UNIT-VARIANCE-SERIES** | 🔎 **CHECKED BEFORE BUILDING (§UNIT-RECOVERED's lesson): THE ORACLE SERIES WAS **NEVER CONSIDERED** FOR σ² — NOT CONSIDERED-AND-REJECTED (2026-08-06).** ✅ **TRANSCRIPT SCAN (full pre-compaction jsonl, regex linking `varian|vol` to `chainlink|oracle series|feed varian`): **THREE passages, TWO of them written by me minutes ago.** The only prior one (line 5281) is the §E79 discussion — about **QUOTING** Chainlink mid with no spread, NOT about which series the variance is measured ON.** ⇒ **§E59 chose the POOL RING (*"sample variance from the ring"*) without evaluating the ORACLE series as an alternative. **An UNEXAMINED design choice, not a settled one** — which STRENGTHENS §UNIT-WHY-VARIANCE's hypothesis rather than closing it.** 📌 **WHY §E59 REACHED FOR THE RING IS STILL DEFENSIBLE ON ITS OWN TERMS: the ring was already on-chain, zero extra storage/calls/gas on the money path, and §E59's PROBLEM was the estimator returning exactly 0 (wall-clock grid + interpolation + whole-tick truncation) — a MEASUREMENT bug it correctly fixed. **The question of WHICH SERIES was simply never asked, because the bug being fixed was about HOW, not WHAT.**** ⚠️ **STILL A HYPOTHESIS — five died today. **THE DISCRIMINATOR: on a fork where the oracle genuinely moves, log `realizedVarianceWad` (pool series) beside the variance of the CHAINLINK series over the SAME window. Materially divergent ⇒ the input is wrong; tracking ⇒ refuted.** §UNIT-ZERO-RESEATS predicts divergence (the pool tick is pegged and barely moves) but PREDICTION IS NOT MEASUREMENT.** ▶️ **AND A DESIGN CONSTRAINT TO CARRY IN: any oracle-series variance must NOT reintroduce what §E59 removed — no wall-clock grid, no interpolation between sparse points, no whole-tick truncation. Chainlink updates are EVENT-DRIVEN and IRREGULAR, exactly like the ring, so the same per-interval normalisation applies. **`OracleLib.ringVariance`'s shape is reusable; only its INPUT would change.**** | 🔎 never considered; hypothesis stands; discriminator is a two-series log on a moving oracle |
 
-### 🔴 THE BORROW LEG IS BLOCKED ON BYTES, NOT ON DESIGN — and the blocker is structural
+### ✅ CLEARED 2026-08-09 (982410b) — the byte blocker is GONE: LevManager 43 → 453 free.
+### ~~THE BORROW LEG IS BLOCKED ON BYTES, NOT ON DESIGN — and the blocker is structural~~ (evidence below still valid)
 
 The goal (owner): an LP exit should BORROW WETH against the protocol's weETH and repay from the
 `waitNft` redemption, instead of SELLING weETH at ~25.6 bps. Owner also fixed the approach:
@@ -8775,7 +8776,8 @@ venues.
 question — writing it in the other order produces code that cannot deploy.
 
 
-### 🔧 UNIT-RESEATEPOCH — MECHANISM CONFIRMED BUT ITS CITATION IS STALE; corrected plumbing + a BTC asymmetry
+### ✅ DONE 2026-08-09 (982410b) — removal LANDED, full suite 4,032/9 (both reds pre-existing), ABI check clean.
+### ~~UNIT-RESEATEPOCH — MECHANISM CONFIRMED BUT ITS CITATION IS STALE~~ — planning record; superseded by the commit
 
 Re-verified against the tree 2026-08-09 before writing the change. **The removal is still right and the
 owner's reasoning holds.** Two corrections and one new blocker.
@@ -8828,7 +8830,7 @@ tick series, the epoch must come back, and §E117 is the evidence.**
 spans `Vogue`, `Interfaces`, `LevMath`, `LevManager`, `BtcLevManager` and `Vault`, and item 3 is unresolved.
 
 
-### ✅ UNIT-RESEATEPOCH BLOCKER CLEARED — the BTC side IS symmetric. Plan is now complete and executable.
+### ✅ DONE 2026-08-09 (982410b) — planning record. ~~BTC side IS symmetric; plan complete and executable~~
 
 Item 3 of the correction above is resolved by measurement, and it resolves in the EASY direction.
 
@@ -8872,7 +8874,8 @@ point-in-time. **A future windowed reading needs the epoch back.**
 now execution across 7 files, not investigation.
 
 
-### ⚠️ UNIT-RESEATEPOCH — ONE MORE THING THE ENTRY NEVER LISTED: the epoch is in an EVENT SIGNATURE (ABI change)
+### ✅ DONE 2026-08-09 (982410b) — event RENAMED to `ReanchoredToBand` (owner's call); check-client-abis 76/0 drift.
+### ~~the epoch is in an EVENT SIGNATURE (ABI change)~~
 
 `LevManager.sol:113` · `BtcLevManager.sol:120`:
 ```
@@ -8940,7 +8943,9 @@ solvency accounting cannot see is the same phantom-backing hole as #1, mirrored.
 BEFORE writing the entrypoint.
 
 
-### ▶️ WHERE THE PROTOCOL-DEBT SLOT GOES — the code decides it, and it exposes ONE question to answer first
+### ⛔ SUPERSEDED — DO NOT ACT ON THIS ENTRY. Its conclusion is WRONG; see the RETRACTION directly below,
+### then the RESOLVED entry. Kept only because the reasoning it records is the error worth not repeating.
+### ~~WHERE THE PROTOCOL-DEBT SLOT GOES — the code decides it, and it exposes ONE question to answer first~~
 
 `Aux._backingCore` → `BasketLib.backingCoreBody:928-944` is two terms:
 ```
