@@ -29,7 +29,7 @@ contract AaveV4DonationProbeTest is ForkPin {
 
     function setUp() public {
         vm.selectFork(_forkMainnet());
-        venue = new AaveV4Venue(SPOKE, HUB, WETH, USDC, address(this), 8000);
+        venue = new AaveV4Venue(SPOKE, HUB, WETH, USDC, address(this));
     }
 
     function test_AaveV4_DonationInflation() public {
@@ -72,7 +72,7 @@ contract AaveV4DonationProbeTest is ForkPin {
 
         // Best-effort utilization spike (may hit an Aave borrow/supply cap on the fork — irrelevant to the
         // point): a (USDC-collateral, WETH-debt) venue borrows WETH to spike WETH utilization, SAME BLOCK.
-        AaveV4Venue atk = new AaveV4Venue(SPOKE, HUB, USDC, WETH, address(this), 8000);
+        AaveV4Venue atk = new AaveV4Venue(SPOKE, HUB, USDC, WETH, address(this));
         deal(USDC, address(atk), 5_000_000e6);
         try atk.supply(address(0xA771), 5_000_000e6) {
             try atk.borrow(address(0xA771), 50 ether) returns (uint g) { emit log_named_uint("spiked util, borrowed WETH", g); }

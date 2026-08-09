@@ -23,7 +23,7 @@ contract LevYbAaveProbe is LevYbRealProbe {
         _seedBasket();
         rpx = AUX.getTWAPforAsset(address(WETH), 1800);
         alm = new LevManager(WEETH, address(AUX), address(WETH), address(this), address(QUID));
-        avenue = new AaveV4Venue(AAVE_SPOKE, AAVE_HUB, address(WETH), address(USDC), address(alm), 8000);
+        avenue = new AaveV4Venue(AAVE_SPOKE, AAVE_HUB, address(WETH), address(USDC), address(alm));
         // Flash provider is MORPHO — USDC is Morpho-flashable, so the repay-first de-lever engine works unchanged.
         // No setAuthorization: Aave isolation is the per-LP escrow the venue deploys, not an onBehalf grant.
         { address[] memory vs = new address[](1); vs[0] = address(avenue); alm.init(address(V4), MORPHO, vs); }

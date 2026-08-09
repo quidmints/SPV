@@ -4,6 +4,7 @@ import {ForkPin} from "./utils/ForkPin.sol";
 
 import "forge-std/Test.sol";
 import {AaveV4Venue} from "../src/AaveV4Venue.sol";
+import {IAaveV4Spoke} from "../src/imports/Interfaces.sol";
 
 interface IERC20A {
     function approve(address, uint256) external returns (bool);
@@ -25,7 +26,7 @@ contract AaveV4VenueTest is ForkPin {
 
     function setUp() public {
         vm.selectFork(_forkMainnet());
-        venue = new AaveV4Venue(SPOKE, HUB, WETH, USDC, address(this), 8000); // WETH collateral, USDC debt
+        venue = new AaveV4Venue(SPOKE, HUB, WETH, USDC, address(this)); // WETH collateral, USDC debt
     }
 
     function test_AaveV4_FullLifecycle() public {
@@ -59,7 +60,14 @@ contract AaveV4VenueTest is ForkPin {
         assertApproxEqAbs(w, 1 ether, 1e15, "withdrew ~1 WETH");
         assertEq(IERC20A(WETH).balanceOf(address(this)) - wethBefore, w, "WETH delivered to MANAGER");
 
-        assertEq(venue.liqThresholdBps(), 8000, "LLTV view");
+        // Compare against what Aave reports RIGHT NOW, not a pasted number. This assertion used to read
+        // `8000` -- the value the constructor was handed -- so it verified the argument, not the chain, and
+        // passed while the live parameter was 8300. Re-deriving it here means a governance change moves the
+        // venue and the expectation together, which is the whole point of caching a live read.
+        (uint24 cfgId,,,,) = IAaveV4Spoke(SPOKE).getReserveConfig(venue.COLL_RESERVE());
+        (uint16 liveCf,,) = IAaveV4Spoke(SPOKE).getDynamicReserveConfig(venue.COLL_RESERVE(), uint32(cfgId));
+        assertEq(venue.liqThresholdBps(), liveCf, "cached threshold != live Aave collateralFactor");
+        assertGt(liveCf, 0, "live collateralFactor is 0 - the venue would size every position off zero");
     }
 
     /// Two LPs get SEPARATE escrows — the core isolation guarantee.

@@ -618,8 +618,8 @@ contract Deploy is Script {
         // LONG Aave V4 venue {collateral: WETH, debt: USDC} — per-LP isolated escrow (Aave has no sub-account),
         // fork-verified against live Aave V4 (test/AaveV4Venue.t.sol). WETH liquidation threshold 8000 bps
         // (conservative vs the live ~83% gov param; the venue reports it via liqThresholdBps for LevManager sizing).
-        address av = address(new AaveV4Venue(aaveSpoke, aaveHub, address(WETH), address(USDC), lm, 8000));
-        vs = new address[](6);   // SHORT venue removed (2026-07-24): the down-side short subsystem is gone (up-side-only)
+        address av = address(new AaveV4Venue(aaveSpoke, aaveHub, address(WETH), address(USDC), lm));
+        vs = new address[](7);   // SHORT venue removed (2026-07-24): the down-side short subsystem is gone (up-side-only)
         vs[0] = mv; vs[1] = ev; vs[2] = mvW; vs[3] = ltv; vs[4] = av;
         // LONG Morpho venue {collateral: weETH, debt: WETH} -- the ETH-DENOMINATED-DEBT leg. Every other venue
         // above borrows USDC, which is what makes an ETH IL-protect borrow pay a stable->WETH SOR round trip;
@@ -637,6 +637,12 @@ contract Deploy is Script {
             irm: vm.envOr("MORPHO_WEETH_WETH_IRM", ADAPTIVE_IRM),
             lltv: vm.envOr("MORPHO_WEETH_WETH_LLTV", MORPHO_LLTV_945)
         }), lm);
+        // SECOND ETH-denominated-debt venue {collateral: weETH, debt: WETH}, on Aave V4 -- so the WETH borrow
+        // is not single-sourced to Morpho. REUSES AaveV4Venue verbatim; only the token pair differs from the
+        // WETH/USDC instance above. Measured live 2026-08-09: weETH reserve 2, collateralFactor 8000 (80%),
+        // borrowable=false (correct -- we supply it, never borrow it); WETH reserve 0, borrowable=true.
+        // The threshold is NOT passed in -- the venue reads it from Aave and caches it.
+        vs[6] = address(new AaveV4Venue(aaveSpoke, aaveHub, weeth, address(WETH), lm));
     }
 
 }

@@ -82,25 +82,34 @@ contract AaveV4Escrow {
 ///         Custody (per ILevVenue): MANAGER sends collateral/stable to the venue before supply/repay; the venue
 ///         routes them through the LP's escrow and forwards borrowed stable / withdrawn collateral back to MANAGER.
 contract AaveV4Venue is LevVenueBase {
+    /// @dev A reserve with no collateral config would size every position off a zero threshold -- silently,
+    ///      and in the unsafe direction. Reverting is the only reading that announces itself.
+    error NoCollateralConfig();
     IAaveV4Spoke public immutable SPOKE;
     address public immutable HUB;
     address public immutable COLLATERAL;
     uint256 public immutable COLL_RESERVE;
     uint256 public immutable STABLE_RESERVE;
-    uint256 public immutable LIQ_THRESHOLD_BPS; // collateral reserve's liquidation threshold (Aave gov param)
+    /// @notice Collateral factor (bps) for COLLATERAL's reserve, CACHED from Aave rather than hardcoded.
+    /// @dev Refreshed inside every state-changing venue call, which already pays storage writes -- so the
+    ///      read costs one warm SSTORE on paths that write anyway, and `liqThresholdBps()` stays ONE SLOAD
+    ///      for the hot sizing path. Responsiveness comes from interaction frequency, NOT from a staleness
+    ///      timer: a timer would be a governance latch, and it would also be wrong in the only case that
+    ///      matters (a cut between two ticks is live immediately at the next interaction either way).
+    uint256 public liqThresholdBpsCached;
 
     mapping(address => AaveV4Escrow) public escrowOf; // lp → isolated Aave account (0 = none yet)
 
     /// @param spoke   Aave V4 Spoke.  @param hub Aave V4 Hub (asset-id resolver).
     /// @param coll    collateral underlying (WETH/weETH).  @param stable the borrowed stable (== stable()).
-    /// @param manager LevManager (sole caller).  @param liqThresholdBps collateral reserve liquidation threshold (bps).
-    constructor(address spoke, address hub, address coll, address stable, address manager, uint256 liqThresholdBps)
+    /// @param manager LevManager (sole caller). The collateral factor is READ FROM AAVE, never passed in.
+    constructor(address spoke, address hub, address coll, address stable, address manager)
         LevVenueBase(manager, stable)
     {
         SPOKE = IAaveV4Spoke(spoke); HUB = hub; COLLATERAL = coll;
         COLL_RESERVE   = IAaveV4Spoke(spoke).getReserveId(hub, IAaveHub(hub).getAssetId(coll));
         STABLE_RESERVE = IAaveV4Spoke(spoke).getReserveId(hub, IAaveHub(hub).getAssetId(stable));
-        LIQ_THRESHOLD_BPS = liqThresholdBps;
+        _refreshLiqThreshold();  // seed the cache; also reverts here if the reserve carries no collateral config
     }
 
     // ── ILevVenue ────────────────────────────────────────────────────────────────
@@ -113,12 +122,14 @@ contract AaveV4Venue is LevVenueBase {
         }
         ILevERC20(COLLATERAL).transfer(address(e), collAmount); // MANAGER already sent it to the venue
         e.supplyColl(collAmount);
+        _refreshLiqThreshold();
         return collAmount;
     }
 
     function borrow(address lp, uint256 stableAmount) external onlyManager nonReentrant returns (uint256) {
         AaveV4Escrow e = escrowOf[lp];
         if (address(e) == address(0) || stableAmount == 0) return 0;
+        _refreshLiqThreshold();
         return e.borrowStable(stableAmount, MANAGER);
     }
 
@@ -151,5 +162,17 @@ contract AaveV4Venue is LevVenueBase {
         return address(e) == address(0) ? 0 : SPOKE.getUserSuppliedAssets(COLL_RESERVE, address(e));
     }
 
-    function liqThresholdBps() external view returns (uint256) { return LIQ_THRESHOLD_BPS; }
+    /// @notice Re-read the collateral factor from Aave and cache it.
+    /// @dev The configId is re-read EVERY time and never cached beside the factor: governance can repoint a
+    ///      reserve at a different dynamic config, and a stale id would silently read the wrong row -- a
+    ///      failure that produces a plausible number rather than a revert, which is what earns the extra call.
+    function _refreshLiqThreshold() internal {
+        (uint24 configId,,,,) = SPOKE.getReserveConfig(COLL_RESERVE);
+        (uint16 cf,,) = SPOKE.getDynamicReserveConfig(COLL_RESERVE, uint32(configId));
+        if (cf == 0) revert NoCollateralConfig();  // an unconfigured collateral would size every position off 0
+        liqThresholdBpsCached = cf;
+    }
+
+    /// @notice Collateral factor (bps). One SLOAD -- the value is refreshed by the state-changing calls.
+    function liqThresholdBps() external view returns (uint256) { return liqThresholdBpsCached; }
 }
