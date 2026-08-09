@@ -632,7 +632,7 @@ contract LevManager {
     /// @notice Fully unwind `lp`'s position: repay all debt by selling collateral, return the remaining
     ///         weETH to the LP. Loop-bounded. `minOut` bounds each weETH→stable swap. LP-only.
     function closeLev(uint256 minOut) external nonReentrant {
-        _closeLev(msg.sender, minOut);
+        _closeLev(msg.sender, minOut, false);   // LP chose to exit -- nothing to restore, drop the slot
     }
 
     /// @notice Permissioned force-close of `lp`'s lever ON THEIR BEHALF — the §4.2 cover-lever entry
@@ -648,13 +648,13 @@ contract LevManager {
     ///         band context degrades to the permissionless slice reconcile.
     function closeLevFor(address lp, uint256 minOut) external nonReentrant {
         if (msg.sender != vogueSyncHook) revert NotGov();
-        _closeLev(lp, minOut);
+        _closeLev(lp, minOut, true);            // INVOLUNTARY -- retain state so the LP can be restored
     }
 
     /// @dev Shared close body — parameterized by `lp` so the LP-only `closeLev` and the permissioned
     ///      `closeLevFor` reuse ONE implementation (no duplicated flash/withdraw/short-unwind logic). Verbatim of
     ///      the prior in-line `closeLev` body; only `lp` moved from a local (`msg.sender`) to a parameter.
-    function _closeLev(address lp, uint256 minOut) internal {
+    function _closeLev(address lp, uint256 minOut, bool keepState) internal {
         Pos storage p = pos[lp];
         if (!p.open) revert NotOpen();
         ILevVenue venue = p.venue;
@@ -670,7 +670,12 @@ contract LevManager {
         uint256 remaining = venue.collateralOf(lp);
         uint256 back = remaining > 0 ? venue.withdraw(lp, remaining) : 0;
         if (back > 0) IERC20Min(_collToken(venue)).transfer(lp, back); // weETH OR WETH, per the venue (incl. rebuilt short base)
-        delete pos[lp];
+        // A voluntary close DROPS the slot. An involuntary one (closeLevFor, the band covering a lever
+        // before its free-ladder burn) RETAINS every field with open=false, because the LP did not choose to
+        // exit and must be restorable to the same position after the refill. Safe only because ilLtvBps,
+        // ilTargetLtvBps and debtDeltaToTarget now gate on .open -- before that, a retained Pos made
+        // debtDeltaToTarget report "lever up" on a closed position.
+        if (keepState) p.open = false; else delete pos[lp];
         _untrackOpen(lp);          // leave the book — net-equity contribution drops to 0
         // Burn the LP's levered band slice NOW (net-equity is 0 post-delete) so it can't keep earning band
         // fees on vanished backing. Non-fatal: the slice is also reconcilable permissionlessly via syncLev.
