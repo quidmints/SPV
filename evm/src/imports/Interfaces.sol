@@ -37,6 +37,12 @@ interface IAaveV4Spoke {
     function borrow(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256);
     function repay(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256);
     function getUserDebt(uint256 reserveId, address user) external view returns (uint256);
+    // Risk config. `collateralRisk` is a CONFIG ID, not a risk magnitude -- it is the second argument to
+    // getDynamicReserveConfig. Reading it as a number makes an ordinary reserve look unconfigured (0).
+    function getReserveConfig(uint256 reserveId)
+        external view returns (uint24 collateralRisk, bool paused, bool frozen, bool borrowable, bool receiveSharesEnabled);
+    function getDynamicReserveConfig(uint256 reserveId, uint32 configId)
+        external view returns (uint16 collateralFactor, uint32 maxLiquidationBonus, uint16 liquidationFee);
 }
 
 /// Canonical IWeETH — union of the former per-file variants.
