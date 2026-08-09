@@ -576,8 +576,8 @@ library SwapLib {
     // Immutables/consts passed in via OfframpCfg (the library can't read Aux's
     // immutables). The msg.sender==V4 gate stays in the Aux wrapper; these bodies
     // run via DELEGATECALL so address(this)==Aux (its weETH, its Rover-caller id).
-    /// ether.fi RedemptionManager's "pay me native ETH" output-token sentinel.
-    address constant ETHFI_NATIVE_ETH = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+    // (ETHFI_NATIVE_ETH removed 2026-08-09 — it was the RedemptionManager output-token sentinel for the
+    //  instant-redeem rung deleted 2026-08-05/06, and had no use site after that.)
 
     struct OfframpCfg {
         address weeth; address weth; address v3router;
@@ -1778,12 +1778,12 @@ library SwapLib {
         }
     }
 
-    /// @notice Rung 3 (ether.fi instant redeem) was skipped; the withdrawal fell through to rung 4's
-    ///         multi-day wait-NFT. `reason` is the revert selector — `0xdc9cb0e2` is ether.fi's
-    ///         `ExceededRedeemable()` (their pool was smaller than `weethRequested`); `0x00000000`
-    ///         means no reason was given. Emitted so this degradation is never silent (§C10).
-    ///         `SwapLib` is DELEGATECALL'd, so this surfaces in the CALLER's logs (Vogue/Aux).
-    event InstantRedeemSkipped(uint weethRequested, bytes4 reason);
+    // (event InstantRedeemSkipped removed 2026-08-09 — it announced a degradation from the instant-redeem
+    //  rung to the wait-NFT, and that rung was deleted 2026-08-05/06. It was never emitted after that, so it
+    //  was an ABI entry promising a signal that could not fire. ⚠️ The degradation it covered is now
+    //  UNANNOUNCED: rung 1 failing its 0.5% floor drops the withdrawer into the multi-day queue with no
+    //  event. If that signal is wanted back it must be re-armed on the rung-1 catch in
+    //  `VaultLib.offrampBody`, not here — see QUEUE §E152-nerve.)
 
     error TickOutOfRange();
     function updateTicks(uint160 sqrtPriceX96, uint delta)

@@ -61,8 +61,9 @@ interface IPermit2Approve {
 
 
 /// ether.fi venue (ETH-side, depositor-chosen). Stake WETH → weETH (restaking
-/// yield); value weETH in ETH via getEETHByWeETH; instant-redeem (0.3%) as the
-/// deterministic exit (see docs/ETH-MULTI-VENUE.md).
+/// yield); value weETH in ETH via getEETHByWeETH. ⚠️ THERE IS NO DETERMINISTIC EXIT: the instant-redeem
+/// (0.3%) this line used to name was removed 2026-08-05/06 (zero measured capacity). The exit is the
+/// two-rung offramp ladder — v3 pool sale, else a multi-day wait NFT (`VaultLib.offrampBody`).
 // Protocol-owned weETH/WETH v3 LP (Rover): deposit funds it (mints the position,
 // weETH leg via the adapter), take pulls WETH back for the offramp (fee captured
 // on our own position). See docs/ETHERFI.md.

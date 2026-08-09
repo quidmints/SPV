@@ -182,8 +182,9 @@ library VaultLib {
     ///         guarantee and NOT a view-twin of the withdraw ladder. It caps the three WETH-4626
     ///         venues via `_deliverableCap` and subtracts the levered net equity, but it counts the
     ///         AAVE-v4 leg, weETH at the Vault, raw eETH, and Rover at FULL FACE — none of which is
-    ///         instantly convertible (the ether.fi legs need the offramp ladder, whose rung 3 costs
-    ///         ~0.3% and rung 4 is a multi-day wait NFT).
+    ///         instantly convertible (the ether.fi legs need the offramp ladder, whose rung 1 is a v3 pool
+    ///         sale at up to the 0.5% slippage cap and whose rung 2 is a multi-day wait NFT — there is NO
+    ///         deterministic-cost tier between them since the instant-redeem was removed 2026-08-06).
     ///
     ///         WHY THAT IS SAFE RATHER THAN A BUG — it is not load-bearing for delivery. Its two
     ///         consumers both tolerate over-statement:
@@ -440,9 +441,11 @@ library VaultLib {
     //  concern living in a SWAP library. Moving it is not just tidiness: SwapLib was the binding
     //  EIP-170 contract at +14 bytes while VaultLib had 15,040 spare, and E55/E53 need room in
     //  SwapLib specifically. Put the code where the room is — the same trade as E32.
-    /// @notice Body of Aux.offrampEtherFi — the 4-rung exit ladder.
+    /// @notice Body of Aux.offrampEtherFi — the exit ladder. TWO rungs, not four: the Rover and
+    ///         ether.fi-instant-redeem rungs were removed 2026-08-05/06 (see the block below) and the
+    ///         numbering was never renumbered. Rung 1 = v3 pool sale; rung 2 = wait NFT.
     ///         HONEST SERVING: when the held weETH covers less than `amount`
-    ///         (clamped balance), the weETH-consuming rungs (1/3/4) report the
+    ///         (clamped balance), both rungs report the
     ///         pro-rata `covered` slice, never the full ask — so the caller's
     ///         position accounting only decrements what was actually served.
     function offrampBody(uint amount, address recipient, SwapLib.OfframpCfg memory c)
@@ -508,13 +511,16 @@ library VaultLib {
     }
 
 
-    /// @notice Rung-4 wait-NFT, standalone: unwrap up to `amount`-worth of the
+    /// @notice Rung-2 (last) wait-NFT, standalone: unwrap up to `amount`-worth of the
     ///         held idle weETH → eETH → LiquidityPool withdraw-request NFT
     ///         minted to `recipient`. Returns the ETH-worth actually covered
     ///         (honest: a clamped weETH balance covers proportionally less).
-    ///         Used by offrampBody — the LP-exit down-leg fallback when the
-    ///         ether.fi instant-redeem buffer is exhausted (the redemption-side
-    ///         wrapper was removed: redemption is stables-only).
+    ///         Used by offrampBody — the LP-exit down-leg fallback when the v3
+    ///         pool sale above it fails its 0.5% floor (the redemption-side
+    ///         wrapper was removed: redemption is stables-only). ⚠️ It is the ONLY
+    ///         thing under rung 1: there is no instant-redeem buffer to exhaust
+    ///         first, so a pool that cannot fill puts the withdrawer straight
+    ///         into a multi-day queue.
     function waitNft(uint amount, address recipient, SwapLib.OfframpCfg memory c)
         internal returns (uint) {
         if (amount == 0 || c.weeth == address(0) || c.lp == address(0)) return 0;

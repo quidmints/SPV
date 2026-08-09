@@ -401,8 +401,8 @@ contract LevCascadeProbe is Alles {
 
         // CORRELATED CRASH: one shared ~30% down-move drops every mark well below its pinned entry ⇒ each IL
         // target clamps to 0 ⇒ every position is far above target ⇒ a full de-lever fires. The hybrid down-leg
-        // (ether.fi instant-redeem, else the deep V3 weETH/WETH pool) services the large redeem, so all three
-        // de-lever without the ether.fi buffer bricking them.
+        // (the deep V3 weETH/WETH pool — the ether.fi instant-redeem tier that used to sit beside it was
+        // removed 2026-08-06) services the large redeem, so all three de-lever without bricking.
         _crashBand(3000, 24, 40 ether);
 
         address[] memory batch = new address[](3);

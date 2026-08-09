@@ -734,7 +734,7 @@ contract Vogue is
         if (LP.pooled == 0) {
             delete autoManaged[user];
             // Hygiene: clear the per-LP venue attribution so a stale residual
-            // (e.g. an instant-redeem haircut leaving ethfiBacked > 0) can't
+            // (e.g. a partial-fill offramp leaving ethfiBacked > 0) can't
             // mis-route a later re-deposit's exit venue.
             // Defensive: a fully-exited position carries no buffer depth (levBurnAll
             // already zeroed it on close); clear any residual so totalBuffer stays exact.

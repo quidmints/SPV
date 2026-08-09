@@ -18,8 +18,12 @@ import {ILevVenueColl} from "./imports/Interfaces.sol";
 
 /// @notice weETH↔WETH legs of the leverage swap (stable↔WETH is the basket SOR — `ISwapAux.sorSelfFunded`).
 ///         UP: MINT weETH via the ether.fi adapter at the fair rate (zero-slippage; never the thin pool).
-///         DOWN: INSTANT-REDEEM weETH → native ETH via the ether.fi RedemptionManager (deterministic 0.3%, no
-///         pool/MEV), then wrap. Symmetric, standalone, off our band — folds the former RealWeethSwapper in.
+///         DOWN: SELL weETH → WETH on the deep v3 pool (`LevMath._weethToWethDex`, two tiers cheapest-first,
+///         floored at `getEETHByWeETH` − `SELL_SLIP_BPS`). ⚠️ THE LEGS ARE NOT SYMMETRIC: the up-leg mints at
+///         the fair rate, the down-leg pays pool slippage. The ether.fi instant-redeem that once made them
+///         symmetric was REMOVED 2026-08-06 — it was unguarded, its capacity measured ZERO at every sampled
+///         block over 90 days, and reaching it REVERTED THE WHOLE CALL rather than degrading (see
+///         `LevMath._weethToWeth`). Do not re-describe this leg as deterministic-cost.
 // IERC20Min + IWETH9 (WETH deposit/withdraw) now come from ILevVenue.sol (shared across the lev cluster). The
 // ether.fi adapter/redeemer surfaces moved to LevMath with the sell/buy machinery.
 
@@ -48,10 +52,10 @@ contract LevManager {
     IWeETH    internal immutable RATE;    // weETH→ETH rate (== WEETH addr; getEETHByWeETH)
     IAux  public immutable AUX;     // oracle (getTWAPforAsset) + the caller-funded SOR (sorSelfFunded)
     IERC20Min public immutable QUID;    // the basket stablecoin — redeemed (via AUX) to protect a levered LP's debt
-    // ether.fi weETH↔WETH (folded RealWeethSwapper): mint (up) + instant-redeem→native-ETH (down); NOT our band.
+    // ether.fi weETH mint (up-leg only — the down-leg is the v3 pool; see the header). NOT our band.
     address public constant ETHERFI_ADAPTER  = 0xcfC6d9Bd7411962Bfe7145451A7EF71A24b6A7A2;
-    address internal constant ETHERFI_REDEEMER = 0xDadEf1fFBFeaAB4f68A9fD181395F68b4e4E7Ae0;
-    address internal constant ETHFI_NATIVE_ETH = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE; // redeemer output-token sentinel
+    // (ETHERFI_REDEEMER + ETHFI_NATIVE_ETH removed 2026-08-09 — the instant-redeem leg they addressed was
+    //  deleted 2026-08-06 and neither constant had a use site after it.)
     address internal constant SWAP_ROUTER_02   = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45; // Uniswap V3 (down-leg DEX fallback)
     address   public immutable WETH;    // oracle key (getTWAPforAsset(WETH))
     uint32    internal constant TWAP_WINDOW = 1800;
@@ -173,7 +177,12 @@ contract LevManager {
     event FlashProviderSet(address provider);
     // flashProvider is pinned atomically alongside the hook + venues in `init` (below).
 
-    receive() external payable {} // native ETH from the ether.fi instant-redeem (down-leg), wrapped to WETH in _sellWeeth
+    // LIVE AND LOAD-BEARING — do not delete on the strength of the comment that used to be here (it named the
+    // ether.fi instant-redeem, removed 2026-08-06, and a `_sellWeeth` that never existed in this contract).
+    // The REAL producer is `LevMath._reimburse:663`: `IWETH9(weth).withdraw(pay)` runs under DELEGATECALL, so
+    // WETH sends native ETH to THIS address before it is forwarded to the keeper. Removing this reverts the
+    // keeper-gas peel on every de-lever.
+    receive() external payable {}
 
     constructor(address weeth, address aux, address weth, address gov, address quid) {
         WEETH = IERC20Min(weeth); RATE = IWeETH(weeth); AUX = IAux(aux); WETH = weth;

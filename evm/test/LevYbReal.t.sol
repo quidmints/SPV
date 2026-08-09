@@ -118,7 +118,7 @@ interface IAuxSorSelf { function sorSelfFunded(address sourceAsset, uint amountI
 
 /// @notice REAL-FORK proof of the YB IL-protect production swap route. Proves the folded `LevManager` legs
 ///   perform a genuine stable↔weETH round-trip over LIVE markets — caller-funded SOR (stable→WETH via the
-///   basket's real Uniswap-V4 hops) + ether.fi adapter mint / instant-redeem (WETH↔weETH) — NOT our internal
+///   basket's real Uniswap-V4 hops) + ether.fi adapter mint UP / v3-pool sale DOWN (WETH↔weETH) — NOT our internal
 ///   band. (No sims; the bespoke RealWeethSwapper is gone, folded into LevManager.)
 contract LevYbRealProbe is Alles {
     // Real mainnet addresses (same fork Alles pins).
