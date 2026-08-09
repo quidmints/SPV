@@ -1,0 +1,10 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_13_IERC1271 {
+label = "IERC1271"
+"13_isValidSignature" [label="isValidSignature"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

@@ -1,59 +1,59 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_56912_ChannelLib {
+subgraph cluster_60826_ChannelLib {
 label = "ChannelLib"
-"56912__depositToSPInline" [label="_depositToSPInline"]
-"56912_calcSPValue" [label="calcSPValue"]
-"56912_initVaultsBody" [label="initVaultsBody"]
-"56912_aaveWithdrawTo" [label="aaveWithdrawTo"]
-"56912_openChannelBody" [label="openChannelBody"]
-"56912_withdrawBody" [label="withdrawBody"]
-"56912__verifyAndLocate" [label="_verifyAndLocate"]
-"56912_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
-"56912_withdrawFromSP" [label="withdrawFromSP"]
-"56912_depositBody" [label="depositBody"]
-"56912_locateChannelOutput" [label="locateChannelOutput"]
-"56912_setVaultBody" [label="setVaultBody"]
-"56912_supplyBody" [label="supplyBody"]
-"56912_withdrawBody" -> "56912_withdrawFromSP"
-"56912_openChannelBody" -> "56912__verifyAndLocate"
-"56912_supplyBody" -> "56912__depositToSPInline"
+"60826_withdrawBody" [label="withdrawBody"]
+"60826_supplyBody" [label="supplyBody"]
+"60826_openChannelBody" [label="openChannelBody"]
+"60826_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"60826__depositToSPInline" [label="_depositToSPInline"]
+"60826_calcSPValue" [label="calcSPValue"]
+"60826_depositBody" [label="depositBody"]
+"60826_aaveWithdrawTo" [label="aaveWithdrawTo"]
+"60826_withdrawFromSP" [label="withdrawFromSP"]
+"60826_initVaultsBody" [label="initVaultsBody"]
+"60826_locateChannelOutput" [label="locateChannelOutput"]
+"60826_setVaultBody" [label="setVaultBody"]
+"60826__verifyAndLocate" [label="_verifyAndLocate"]
+"60826_openChannelBody" -> "60826__verifyAndLocate"
+"60826_supplyBody" -> "60826__depositToSPInline"
+"60826_withdrawBody" -> "60826_withdrawFromSP"
 }subgraph cluster_solidity {
 label = "[Solidity]"
-"revert UnknownStable()" 
-"revert BadSPV()" 
-"revert VaultBlocked()" 
-"abi.encodeWithSelector()" 
-"revert ZeroDeposit()" 
-"revert VaultAssetMismatch()" 
-"revert InvalidParam()" 
-"keccak256(bytes)" 
 "revert AmountMismatch()" 
-"abi.encode()" 
-"revert GHONotOnAAVE()" 
-"revert VaultUnwired()" 
+"abi.encodeWithSelector()" 
 "revert VaultAlreadySet()" 
 "revert GHOIsAaveWired()" 
-"56912_openChannelBody" -> "abi.encode()"
-"56912_locateChannelOutput" -> "revert AmountMismatch()"
-"56912_initVaultsBody" -> "abi.encodeWithSelector()"
-"56912_setVaultBody" -> "abi.encodeWithSelector()"
-"56912_supplyBody" -> "revert VaultUnwired()"
-"56912_setVaultBody" -> "revert VaultAssetMismatch()"
-"56912_depositBody" -> "revert VaultBlocked()"
-"56912_setVaultBody" -> "revert VaultUnwired()"
-"56912_setVaultBody" -> "revert VaultAlreadySet()"
-"56912_depositBody" -> "revert UnknownStable()"
-"56912_depositBody" -> "revert ZeroDeposit()"
-"56912_setVaultBody" -> "revert GHONotOnAAVE()"
-"56912_withdrawBody" -> "revert VaultUnwired()"
-"56912_locateChannelOutput" -> "revert InvalidParam()"
-"56912_supplyBody" -> "revert GHOIsAaveWired()"
-"56912__verifyAndLocate" -> "revert AmountMismatch()"
-"56912__verifyAndLocate" -> "revert BadSPV()"
-"56912_openChannelBody" -> "keccak256(bytes)"
-"56912_openChannelBody" -> "revert InvalidParam()"
-"56912_setVaultBody" -> "revert UnknownStable()"
+"revert GHONotOnAAVE()" 
+"revert InvalidParam()" 
+"revert VaultUnwired()" 
+"revert VaultAssetMismatch()" 
+"abi.encode()" 
+"keccak256(bytes)" 
+"revert ZeroDeposit()" 
+"revert BadSPV()" 
+"revert VaultBlocked()" 
+"revert UnknownStable()" 
+"60826_setVaultBody" -> "revert VaultUnwired()"
+"60826_locateChannelOutput" -> "revert InvalidParam()"
+"60826_initVaultsBody" -> "abi.encodeWithSelector()"
+"60826_openChannelBody" -> "keccak256(bytes)"
+"60826_setVaultBody" -> "revert VaultAssetMismatch()"
+"60826_depositBody" -> "revert ZeroDeposit()"
+"60826_openChannelBody" -> "revert InvalidParam()"
+"60826_setVaultBody" -> "abi.encodeWithSelector()"
+"60826_openChannelBody" -> "abi.encode()"
+"60826__verifyAndLocate" -> "revert AmountMismatch()"
+"60826_supplyBody" -> "revert GHOIsAaveWired()"
+"60826_depositBody" -> "revert UnknownStable()"
+"60826_setVaultBody" -> "revert VaultAlreadySet()"
+"60826_depositBody" -> "revert VaultBlocked()"
+"60826_setVaultBody" -> "revert GHONotOnAAVE()"
+"60826_setVaultBody" -> "revert UnknownStable()"
+"60826_locateChannelOutput" -> "revert AmountMismatch()"
+"60826_supplyBody" -> "revert VaultUnwired()"
+"60826__verifyAndLocate" -> "revert BadSPV()"
+"60826_withdrawBody" -> "revert VaultUnwired()"
 }
 }

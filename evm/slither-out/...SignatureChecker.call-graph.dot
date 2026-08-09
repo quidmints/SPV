@@ -1,0 +1,46 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_1690_SignatureChecker {
+label = "SignatureChecker"
+"1690_isValidERC1271SignatureNow" [label="isValidERC1271SignatureNow"]
+"1690_isValidSignatureNow" [label="isValidSignatureNow"]
+"1690_isValidERC1271SignatureNowCalldata" [label="isValidERC1271SignatureNowCalldata"]
+"1690_isValidSignatureNowCalldata" [label="isValidSignatureNowCalldata"]
+"1690_areValidSignaturesNow" [label="areValidSignaturesNow"]
+"1690_isValidSignatureNowCalldata" -> "1690_isValidERC1271SignatureNowCalldata"
+"1690_isValidSignatureNow" -> "1690_isValidSignatureNow"
+"1690_isValidSignatureNow" -> "1690_isValidERC1271SignatureNow"
+"1690_areValidSignaturesNow" -> "1690_isValidSignatureNow"
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"returndatasize()" 
+"calldatacopy(uint256,uint256,uint256)" 
+"keccak256(bytes)" 
+"mcopy(uint256,uint256,uint256)" 
+"mstore(uint256,uint256)" 
+"code(address)" 
+"mload(uint256)" 
+"gas()" 
+"staticcall(uint256,uint256,uint256,uint256,uint256,uint256)" 
+"abi.encodeCall()" 
+"abi.decode()" 
+"1690_isValidSignatureNowCalldata" -> "code(address)"
+"1690_isValidERC1271SignatureNow" -> "gas()"
+"1690_isValidERC1271SignatureNowCalldata" -> "returndatasize()"
+"1690_isValidSignatureNow" -> "code(address)"
+"1690_areValidSignaturesNow" -> "keccak256(bytes)"
+"1690_isValidERC1271SignatureNowCalldata" -> "mstore(uint256,uint256)"
+"1690_isValidERC1271SignatureNow" -> "mstore(uint256,uint256)"
+"1690_isValidERC1271SignatureNowCalldata" -> "calldatacopy(uint256,uint256,uint256)"
+"1690_isValidERC1271SignatureNow" -> "mcopy(uint256,uint256,uint256)"
+"1690_isValidSignatureNow" -> "abi.encodeCall()"
+"1690_isValidSignatureNow" -> "abi.decode()"
+"1690_isValidERC1271SignatureNow" -> "mload(uint256)"
+"1690_isValidERC1271SignatureNow" -> "returndatasize()"
+"1690_isValidERC1271SignatureNow" -> "staticcall(uint256,uint256,uint256,uint256,uint256,uint256)"
+"1690_isValidERC1271SignatureNowCalldata" -> "staticcall(uint256,uint256,uint256,uint256,uint256,uint256)"
+"1690_isValidERC1271SignatureNowCalldata" -> "mload(uint256)"
+"1690_isValidERC1271SignatureNowCalldata" -> "gas()"
+}
+}

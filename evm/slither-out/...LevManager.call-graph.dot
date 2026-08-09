@@ -1,188 +1,188 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_35806_LevManager {
+subgraph cluster_42565_LevManager {
 label = "LevManager"
-"35806_rebalanceMany" [label="rebalanceMany"]
-"35806__leverUpBuy" [label="_leverUpBuy"]
-"35806_deleverToVault" [label="deleverToVault"]
-"35806_swapOutDeliverUnlevered" [label="swapOutDeliverUnlevered"]
-"35806_closeLev" [label="closeLev"]
-"35806_openLpAt" [label="openLpAt"]
-"35806_openLev" [label="openLev"]
-"35806_openLevCount" [label="openLevCount"]
-"35806__deleverSettle" [label="_deleverSettle"]
-"35806_closeLevFor" [label="closeLevFor"]
-"35806__ilTargetLive" [label="_ilTargetLive"]
-"35806_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
-"35806_constructor" [label="constructor"]
-"35806_ilTargetLtvBps" [label="ilTargetLtvBps"]
-"35806_totalDeliverableDollars" [label="totalDeliverableDollars"]
-"35806_deleverOne" [label="deleverOne"]
-"35806__rebalanceBody" [label="_rebalanceBody"]
-"35806__netEquityEthAt" [label="_netEquityEthAt"]
-"35806_grossCollateralEth" [label="grossCollateralEth"]
-"35806_setSoldFractionActive" [label="setSoldFractionActive"]
-"35806_ilLtvBps" [label="ilLtvBps"]
-"35806__sellCtx" [label="_sellCtx"]
-"35806_netEquityEth" [label="netEquityEth"]
-"35806_slitherConstructorVariables" [label="slitherConstructorVariables"]
-"35806__closeLev" [label="_closeLev"]
-"35806__collToken" [label="_collToken"]
-"35806_swapOutDelever" [label="swapOutDelever"]
-"35806_setTargetLtv" [label="setTargetLtv"]
-"35806_receive" [label="receive"]
-"35806_deleverBook" [label="deleverBook"]
-"35806_swapOutDeleverAmt" [label="swapOutDeleverAmt"]
-"35806_rebalance" [label="rebalance"]
-"35806__reimburseKeeper" [label="_reimburseKeeper"]
-"35806_weethValueUsd" [label="weethValueUsd"]
-"35806_totalGrossCollateralEth" [label="totalGrossCollateralEth"]
-"35806_debtDeltaToTarget" [label="debtDeltaToTarget"]
-"35806__trackOpen" [label="_trackOpen"]
-"35806__deliverableDollarsAt" [label="_deliverableDollarsAt"]
-"35806_fundBoldCloseReserve" [label="fundBoldCloseReserve"]
-"35806_deliverableDollars" [label="deliverableDollars"]
-"35806_totalNetEquityEth" [label="totalNetEquityEth"]
-"35806_debtUsd" [label="debtUsd"]
-"35806_protectFromQuid" [label="protectFromQuid"]
-"35806_rebalanceOne" [label="rebalanceOne"]
-"35806__extractSettle" [label="_extractSettle"]
-"35806__untrackOpen" [label="_untrackOpen"]
-"35806_fundGasReserve" [label="fundGasReserve"]
-"35806__onFlashMint" [label="_onFlashMint"]
-"35806__collToEth" [label="_collToEth"]
-"35806__collValueUsd" [label="_collValueUsd"]
-"35806_getCurrentLtvBps" [label="getCurrentLtvBps"]
-"35806_onMorphoFlashLoan" [label="onMorphoFlashLoan"]
-"35806__deleverFlash" [label="_deleverFlash"]
-"35806_init" [label="init"]
-"35806__supplyCollFrom" [label="_supplyCollFrom"]
-"35806_cascadeDelever" [label="cascadeDelever"]
-"35806_deleverRepayUsd" [label="deleverRepayUsd"]
-"35806__reanchorIfReseated" [label="_reanchorIfReseated"]
-"35806_totalDebtUsd" [label="totalDebtUsd"]
-"35806_netEquityUsd" [label="netEquityUsd"]
-"35806__isWethVenue" [label="_isWethVenue"]
-"35806__extractCfg" [label="_extractCfg"]
-"35806_debtDeltaToTarget" -> "35806_debtUsd"
-"35806_swapOutDeliverUnlevered" -> "35806__isWethVenue"
-"35806_swapOutDeliverUnlevered" -> "35806__extractCfg"
-"35806_cascadeDelever" -> "35806_nonReentrant"
-"35806_getCurrentLtvBps" -> "35806__collValueUsd"
-"35806__extractSettle" -> "35806__extractCfg"
-"35806__deleverSettle" -> "35806__isWethVenue"
-"35806__collToken" -> "35806__isWethVenue"
-"35806__extractSettle" -> "35806__isWethVenue"
-"35806__deleverSettle" -> "35806__extractCfg"
-"35806_totalGrossCollateralEth" -> "35806_grossCollateralEth"
-"35806__collValueUsd" -> "35806__collToEth"
-"35806_swapOutDelever" -> "35806__extractCfg"
-"35806_onMorphoFlashLoan" -> "35806__onFlashMint"
-"35806_openLev" -> "35806__trackOpen"
-"35806_closeLev" -> "35806_nonReentrant"
-"35806_rebalanceOne" -> "35806__rebalanceBody"
-"35806_deleverOne" -> "35806_getCurrentLtvBps"
-"35806__rebalanceBody" -> "35806__deleverFlash"
-"35806_openLev" -> "35806__collToEth"
-"35806_deleverToVault" -> "35806__isWethVenue"
-"35806_closeLev" -> "35806__closeLev"
-"35806_ilTargetLtvBps" -> "35806__ilTargetLive"
-"35806__deleverFlash" -> "35806__extractCfg"
-"35806_grossCollateralEth" -> "35806__collToEth"
-"35806__leverUpBuy" -> "35806__collToken"
-"35806__closeLev" -> "35806__deleverFlash"
-"35806__deliverableDollarsAt" -> "35806_debtUsd"
-"35806_getCurrentLtvBps" -> "35806_debtUsd"
-"35806__leverUpBuy" -> "35806__sellCtx"
-"35806_onMorphoFlashLoan" -> "35806__extractSettle"
-"35806_closeLevFor" -> "35806_nonReentrant"
-"35806_swapOutDelever" -> "35806__isWethVenue"
-"35806_deleverOne" -> "35806_deleverRepayUsd"
-"35806_netEquityEth" -> "35806__netEquityEthAt"
-"35806_totalNetEquityEth" -> "35806__netEquityEthAt"
-"35806__deliverableDollarsAt" -> "35806__collToEth"
-"35806_totalDeliverableDollars" -> "35806__deliverableDollarsAt"
-"35806_protectFromQuid" -> "35806__reimburseKeeper"
-"35806_openLev" -> "35806__supplyCollFrom"
-"35806_totalDebtUsd" -> "35806_debtUsd"
-"35806_rebalance" -> "35806_nonReentrant"
-"35806_deleverOne" -> "35806__deleverFlash"
-"35806__collToEth" -> "35806__isWethVenue"
-"35806__leverUpBuy" -> "35806__isWethVenue"
-"35806__rebalanceBody" -> "35806_getCurrentLtvBps"
-"35806__closeLev" -> "35806__untrackOpen"
-"35806__netEquityEthAt" -> "35806_debtUsd"
-"35806_ilLtvBps" -> "35806_debtUsd"
-"35806__supplyCollFrom" -> "35806__collToken"
-"35806_closeLevFor" -> "35806__closeLev"
-"35806_rebalance" -> "35806__rebalanceBody"
-"35806_onMorphoFlashLoan" -> "35806__deleverSettle"
-"35806_netEquityUsd" -> "35806_debtUsd"
-"35806_deleverBook" -> "35806_nonReentrant"
-"35806_deleverRepayUsd" -> "35806_debtUsd"
-"35806__rebalanceBody" -> "35806_debtDeltaToTarget"
-"35806__closeLev" -> "35806_debtUsd"
-"35806__reanchorIfReseated" -> "35806_netEquityEth"
-"35806_netEquityUsd" -> "35806__collValueUsd"
-"35806_openLev" -> "35806__leverUpBuy"
-"35806_deleverToVault" -> "35806_debtUsd"
-"35806_cascadeDelever" -> "35806_getCurrentLtvBps"
-"35806_swapOutDeliverUnlevered" -> "35806_nonReentrant"
-"35806__rebalanceBody" -> "35806__leverUpBuy"
-"35806__deleverFlash" -> "35806__isWethVenue"
-"35806__netEquityEthAt" -> "35806__collToEth"
-"35806_protectFromQuid" -> "35806_nonReentrant"
-"35806__closeLev" -> "35806__collToken"
-"35806_rebalanceMany" -> "35806_nonReentrant"
-"35806_protectFromQuid" -> "35806_getCurrentLtvBps"
-"35806_deliverableDollars" -> "35806__deliverableDollarsAt"
-"35806_swapOutDelever" -> "35806_nonReentrant"
-"35806_rebalanceMany" -> "35806_getCurrentLtvBps"
-"35806_debtDeltaToTarget" -> "35806__ilTargetLive"
-"35806_deleverToVault" -> "35806_deliverableDollars"
-"35806_openLev" -> "35806_debtDeltaToTarget"
-"35806__rebalanceBody" -> "35806_deleverRepayUsd"
-"35806_deleverRepayUsd" -> "35806__ilTargetLive"
-"35806__rebalanceBody" -> "35806__reanchorIfReseated"
-"35806_openLev" -> "35806_nonReentrant"
+"42565_fundBoldCloseReserve" [label="fundBoldCloseReserve"]
+"42565_totalGrossCollateralEth" [label="totalGrossCollateralEth"]
+"42565__closeLev" [label="_closeLev"]
+"42565_closeLev" [label="closeLev"]
+"42565_openLpAt" [label="openLpAt"]
+"42565_totalNetEquityEth" [label="totalNetEquityEth"]
+"42565__deliverableDollarsAt" [label="_deliverableDollarsAt"]
+"42565_grossCollateralEth" [label="grossCollateralEth"]
+"42565_ilTargetLtvBps" [label="ilTargetLtvBps"]
+"42565_closeLevFor" [label="closeLevFor"]
+"42565_rebalanceMany" [label="rebalanceMany"]
+"42565__collToEth" [label="_collToEth"]
+"42565__netEquityEthAt" [label="_netEquityEthAt"]
+"42565__trackOpen" [label="_trackOpen"]
+"42565_deleverOne" [label="deleverOne"]
+"42565_deleverToVault" [label="deleverToVault"]
+"42565_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"42565_protectFromQuid" [label="protectFromQuid"]
+"42565__extractSettle" [label="_extractSettle"]
+"42565__extractCfg" [label="_extractCfg"]
+"42565__deleverSettle" [label="_deleverSettle"]
+"42565_swapOutDeleverAmt" [label="swapOutDeleverAmt"]
+"42565__reanchorIfReseated" [label="_reanchorIfReseated"]
+"42565_deliverableDollars" [label="deliverableDollars"]
+"42565_getCurrentLtvBps" [label="getCurrentLtvBps"]
+"42565_netEquityUsd" [label="netEquityUsd"]
+"42565_openLevCount" [label="openLevCount"]
+"42565_totalDebtUsd" [label="totalDebtUsd"]
+"42565__leverUpBuy" [label="_leverUpBuy"]
+"42565_rebalanceOne" [label="rebalanceOne"]
+"42565_debtDeltaToTarget" [label="debtDeltaToTarget"]
+"42565__supplyCollFrom" [label="_supplyCollFrom"]
+"42565__rebalanceBody" [label="_rebalanceBody"]
+"42565_swapOutDelever" [label="swapOutDelever"]
+"42565_rebalance" [label="rebalance"]
+"42565__collValueUsd" [label="_collValueUsd"]
+"42565_receive" [label="receive"]
+"42565_deleverBook" [label="deleverBook"]
+"42565__reimburseKeeper" [label="_reimburseKeeper"]
+"42565_cascadeDelever" [label="cascadeDelever"]
+"42565_ilLtvBps" [label="ilLtvBps"]
+"42565_openLev" [label="openLev"]
+"42565_onMorphoFlashLoan" [label="onMorphoFlashLoan"]
+"42565__onFlashMint" [label="_onFlashMint"]
+"42565_fundGasReserve" [label="fundGasReserve"]
+"42565__collToken" [label="_collToken"]
+"42565__isWethVenue" [label="_isWethVenue"]
+"42565_init" [label="init"]
+"42565__ilTargetLive" [label="_ilTargetLive"]
+"42565__deleverFlash" [label="_deleverFlash"]
+"42565__sellCtx" [label="_sellCtx"]
+"42565_deleverRepayUsd" [label="deleverRepayUsd"]
+"42565_weethValueUsd" [label="weethValueUsd"]
+"42565_netEquityEth" [label="netEquityEth"]
+"42565_slitherConstructorVariables" [label="slitherConstructorVariables"]
+"42565_setTargetLtv" [label="setTargetLtv"]
+"42565_totalDeliverableDollars" [label="totalDeliverableDollars"]
+"42565_debtUsd" [label="debtUsd"]
+"42565_swapOutDeliverUnlevered" [label="swapOutDeliverUnlevered"]
+"42565__untrackOpen" [label="_untrackOpen"]
+"42565_setSoldFractionActive" [label="setSoldFractionActive"]
+"42565_constructor" [label="constructor"]
+"42565__closeLev" -> "42565__deleverFlash"
+"42565_deleverOne" -> "42565__deleverFlash"
+"42565__deleverSettle" -> "42565__extractCfg"
+"42565__leverUpBuy" -> "42565__sellCtx"
+"42565_ilLtvBps" -> "42565_debtUsd"
+"42565_openLev" -> "42565__leverUpBuy"
+"42565_rebalanceMany" -> "42565_getCurrentLtvBps"
+"42565__supplyCollFrom" -> "42565__collToken"
+"42565_rebalanceMany" -> "42565_nonReentrant"
+"42565_debtDeltaToTarget" -> "42565__ilTargetLive"
+"42565__rebalanceBody" -> "42565_deleverRepayUsd"
+"42565__collToken" -> "42565__isWethVenue"
+"42565_swapOutDelever" -> "42565_nonReentrant"
+"42565__collValueUsd" -> "42565__collToEth"
+"42565__reanchorIfReseated" -> "42565_netEquityEth"
+"42565__deliverableDollarsAt" -> "42565__collToEth"
+"42565_deleverToVault" -> "42565_debtUsd"
+"42565_openLev" -> "42565_nonReentrant"
+"42565_swapOutDeliverUnlevered" -> "42565__isWethVenue"
+"42565_deleverRepayUsd" -> "42565_debtUsd"
+"42565__closeLev" -> "42565__collToken"
+"42565_swapOutDeliverUnlevered" -> "42565_nonReentrant"
+"42565_openLev" -> "42565_debtDeltaToTarget"
+"42565_deleverBook" -> "42565_nonReentrant"
+"42565_protectFromQuid" -> "42565_nonReentrant"
+"42565_protectFromQuid" -> "42565_getCurrentLtvBps"
+"42565__deleverSettle" -> "42565__isWethVenue"
+"42565_grossCollateralEth" -> "42565__collToEth"
+"42565_openLev" -> "42565__supplyCollFrom"
+"42565_totalDebtUsd" -> "42565_debtUsd"
+"42565_deleverToVault" -> "42565__isWethVenue"
+"42565__rebalanceBody" -> "42565__leverUpBuy"
+"42565_cascadeDelever" -> "42565_nonReentrant"
+"42565_deliverableDollars" -> "42565__deliverableDollarsAt"
+"42565_netEquityUsd" -> "42565_debtUsd"
+"42565_netEquityEth" -> "42565__netEquityEthAt"
+"42565_getCurrentLtvBps" -> "42565__collValueUsd"
+"42565_netEquityUsd" -> "42565__collValueUsd"
+"42565_deleverToVault" -> "42565_deliverableDollars"
+"42565__leverUpBuy" -> "42565__isWethVenue"
+"42565_protectFromQuid" -> "42565__reimburseKeeper"
+"42565__deleverFlash" -> "42565__extractCfg"
+"42565__deliverableDollarsAt" -> "42565_debtUsd"
+"42565_closeLevFor" -> "42565__closeLev"
+"42565__closeLev" -> "42565__untrackOpen"
+"42565_swapOutDelever" -> "42565__extractCfg"
+"42565__extractSettle" -> "42565__isWethVenue"
+"42565_openLev" -> "42565__trackOpen"
+"42565__leverUpBuy" -> "42565__collToken"
+"42565__rebalanceBody" -> "42565__deleverFlash"
+"42565_onMorphoFlashLoan" -> "42565__onFlashMint"
+"42565_closeLev" -> "42565_nonReentrant"
+"42565__deleverFlash" -> "42565__isWethVenue"
+"42565_totalGrossCollateralEth" -> "42565_grossCollateralEth"
+"42565_deleverOne" -> "42565_getCurrentLtvBps"
+"42565_rebalance" -> "42565_nonReentrant"
+"42565_swapOutDelever" -> "42565__isWethVenue"
+"42565_swapOutDeliverUnlevered" -> "42565__extractCfg"
+"42565_deleverRepayUsd" -> "42565__ilTargetLive"
+"42565_cascadeDelever" -> "42565_getCurrentLtvBps"
+"42565_deleverOne" -> "42565_deleverRepayUsd"
+"42565_totalDeliverableDollars" -> "42565__deliverableDollarsAt"
+"42565_onMorphoFlashLoan" -> "42565__extractSettle"
+"42565_rebalance" -> "42565__rebalanceBody"
+"42565_openLev" -> "42565__collToEth"
+"42565__extractSettle" -> "42565__extractCfg"
+"42565__collToEth" -> "42565__isWethVenue"
+"42565__rebalanceBody" -> "42565_debtDeltaToTarget"
+"42565_closeLevFor" -> "42565_nonReentrant"
+"42565__netEquityEthAt" -> "42565_debtUsd"
+"42565_getCurrentLtvBps" -> "42565_debtUsd"
+"42565_closeLev" -> "42565__closeLev"
+"42565__rebalanceBody" -> "42565_getCurrentLtvBps"
+"42565__netEquityEthAt" -> "42565__collToEth"
+"42565_debtDeltaToTarget" -> "42565_debtUsd"
+"42565__rebalanceBody" -> "42565__reanchorIfReseated"
+"42565_onMorphoFlashLoan" -> "42565__deleverSettle"
+"42565__closeLev" -> "42565_debtUsd"
+"42565_totalNetEquityEth" -> "42565__netEquityEthAt"
+"42565_rebalanceOne" -> "42565__rebalanceBody"
+"42565_ilTargetLtvBps" -> "42565__ilTargetLive"
 }subgraph cluster_solidity {
 label = "[Solidity]"
-"revert NotGov()" 
-"revert LenMismatch()" 
-"revert VenueNotAllowed()" 
-"revert NotOpen()" 
 "revert Auth()" 
-"revert BadTarget()" 
-"abi.encode()" 
-"require(bool,string)" 
-"abi.decode()" 
-"revert NotFlash()" 
 "revert AlreadyOpen()" 
-"35806_cascadeDelever" -> "revert LenMismatch()"
-"35806_openLev" -> "revert BadTarget()"
-"35806_deleverOne" -> "revert Auth()"
-"35806_swapOutDeliverUnlevered" -> "revert NotGov()"
-"35806_setSoldFractionActive" -> "revert NotGov()"
-"35806_rebalanceMany" -> "revert LenMismatch()"
-"35806_setTargetLtv" -> "revert BadTarget()"
-"35806_protectFromQuid" -> "revert NotOpen()"
-"35806_closeLevFor" -> "revert NotGov()"
-"35806_deleverToVault" -> "revert NotGov()"
-"35806_setTargetLtv" -> "revert NotOpen()"
-"35806_deleverToVault" -> "abi.encode()"
-"35806__closeLev" -> "revert NotOpen()"
-"35806__extractSettle" -> "abi.decode()"
-"35806_deleverBook" -> "revert NotGov()"
-"35806_init" -> "revert VenueNotAllowed()"
-"35806_deleverOne" -> "require(bool,string)"
-"35806_openLev" -> "revert AlreadyOpen()"
-"35806_swapOutDelever" -> "revert NotGov()"
-"35806__rebalanceBody" -> "revert NotOpen()"
-"35806_rebalanceOne" -> "revert Auth()"
-"35806_onMorphoFlashLoan" -> "revert NotFlash()"
-"35806_onMorphoFlashLoan" -> "abi.decode()"
-}"35806_deleverBook" -> "35806_deleverToVault"
-"35806_rebalanceMany" -> "35806_rebalanceOne"
-"35806_cascadeDelever" -> "35806_deleverOne"
+"revert NotGov()" 
+"revert BadTarget()" 
+"revert NotOpen()" 
+"require(bool,string)" 
+"abi.encode()" 
+"revert VenueNotAllowed()" 
+"revert NotFlash()" 
+"revert LenMismatch()" 
+"abi.decode()" 
+"42565_swapOutDeliverUnlevered" -> "revert NotGov()"
+"42565_swapOutDelever" -> "revert NotGov()"
+"42565_openLev" -> "revert AlreadyOpen()"
+"42565_setTargetLtv" -> "revert BadTarget()"
+"42565_protectFromQuid" -> "revert NotOpen()"
+"42565__closeLev" -> "revert NotOpen()"
+"42565_deleverToVault" -> "abi.encode()"
+"42565_setTargetLtv" -> "revert NotOpen()"
+"42565_rebalanceMany" -> "revert LenMismatch()"
+"42565_onMorphoFlashLoan" -> "abi.decode()"
+"42565_openLev" -> "revert BadTarget()"
+"42565_rebalanceOne" -> "revert Auth()"
+"42565_setSoldFractionActive" -> "revert NotGov()"
+"42565_deleverToVault" -> "revert NotGov()"
+"42565_deleverOne" -> "revert Auth()"
+"42565_closeLevFor" -> "revert NotGov()"
+"42565_deleverOne" -> "require(bool,string)"
+"42565__extractSettle" -> "abi.decode()"
+"42565__rebalanceBody" -> "revert NotOpen()"
+"42565_deleverBook" -> "revert NotGov()"
+"42565_onMorphoFlashLoan" -> "revert NotFlash()"
+"42565_init" -> "revert VenueNotAllowed()"
+"42565_cascadeDelever" -> "revert LenMismatch()"
+}"42565_cascadeDelever" -> "42565_deleverOne"
+"42565_deleverBook" -> "42565_deleverToVault"
+"42565_rebalanceMany" -> "42565_rebalanceOne"
 }

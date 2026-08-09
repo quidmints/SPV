@@ -1,26 +1,26 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_12367_CustomRevert {
+subgraph cluster_18618_CustomRevert {
 label = "CustomRevert"
-"12367_bubbleUpAndRevertWith" [label="bubbleUpAndRevertWith"]
-"12367_revertWith" [label="revertWith"]
+"18618_revertWith" [label="revertWith"]
+"18618_bubbleUpAndRevertWith" [label="bubbleUpAndRevertWith"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
-"returndatasize()" 
+"revert(uint256,uint256)" 
 "signextend(uint256,uint256)" 
 "mstore(uint256,uint256)" 
-"returndatacopy(uint256,uint256,uint256)" 
 "mload(uint256)" 
-"revert(uint256,uint256)" 
-"12367_bubbleUpAndRevertWith" -> "mload(uint256)"
-"12367_bubbleUpAndRevertWith" -> "returndatasize()"
-"12367_bubbleUpAndRevertWith" -> "returndatacopy(uint256,uint256,uint256)"
-"12367_bubbleUpAndRevertWith" -> "mstore(uint256,uint256)"
-"12367_revertWith" -> "signextend(uint256,uint256)"
-"12367_revertWith" -> "mload(uint256)"
-"12367_bubbleUpAndRevertWith" -> "revert(uint256,uint256)"
-"12367_revertWith" -> "mstore(uint256,uint256)"
-"12367_revertWith" -> "revert(uint256,uint256)"
+"returndatacopy(uint256,uint256,uint256)" 
+"returndatasize()" 
+"18618_bubbleUpAndRevertWith" -> "revert(uint256,uint256)"
+"18618_bubbleUpAndRevertWith" -> "returndatacopy(uint256,uint256,uint256)"
+"18618_bubbleUpAndRevertWith" -> "mstore(uint256,uint256)"
+"18618_bubbleUpAndRevertWith" -> "mload(uint256)"
+"18618_bubbleUpAndRevertWith" -> "returndatasize()"
+"18618_revertWith" -> "signextend(uint256,uint256)"
+"18618_revertWith" -> "revert(uint256,uint256)"
+"18618_revertWith" -> "mload(uint256)"
+"18618_revertWith" -> "mstore(uint256,uint256)"
 }
 }

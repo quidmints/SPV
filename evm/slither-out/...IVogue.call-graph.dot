@@ -1,11 +1,13 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_58450_IVogue {
+subgraph cluster_62383_IVogue {
 label = "IVogue"
-"58450_derivedThetaWad" [label="derivedThetaWad"]
-"58450_addLiq" [label="addLiq"]
-"58450_pendingRewards" [label="pendingRewards"]
+"62383_EV" [label="EV"]
+"62383_derivedThetaWad" [label="derivedThetaWad"]
+"62383_addLiq" [label="addLiq"]
+"62383_unwindForRedeem" [label="unwindForRedeem"]
+"62383_pendingRewards" [label="pendingRewards"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

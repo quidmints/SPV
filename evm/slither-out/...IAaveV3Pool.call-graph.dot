@@ -1,13 +1,13 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_15353_IAaveV3Pool {
+subgraph cluster_21604_IAaveV3Pool {
 label = "IAaveV3Pool"
-"15353_repay" [label="repay"]
-"15353_supply" [label="supply"]
-"15353_borrow" [label="borrow"]
-"15353_setUserUseReserveAsCollateral" [label="setUserUseReserveAsCollateral"]
-"15353_withdraw" [label="withdraw"]
+"21604_withdraw" [label="withdraw"]
+"21604_repay" [label="repay"]
+"21604_setUserUseReserveAsCollateral" [label="setUserUseReserveAsCollateral"]
+"21604_supply" [label="supply"]
+"21604_borrow" [label="borrow"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

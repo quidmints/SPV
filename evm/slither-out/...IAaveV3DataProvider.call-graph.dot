@@ -1,9 +1,9 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_15380_IAaveV3DataProvider {
+subgraph cluster_21631_IAaveV3DataProvider {
 label = "IAaveV3DataProvider"
-"15380_getUserReserveData" [label="getUserReserveData"]
+"21631_getUserReserveData" [label="getUserReserveData"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

@@ -1,31 +1,31 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_17047_AttestedHopRegistry {
+subgraph cluster_23340_AttestedHopRegistry {
 label = "AttestedHopRegistry"
-"17047__parse" [label="_parse"]
-"17047_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
-"17047_registerHop" [label="registerHop"]
-"17047_setGovernance" [label="setGovernance"]
-"17047_isAttested" [label="isAttested"]
-"17047_revokeHop" [label="revokeHop"]
-"17047_constructor" [label="constructor"]
-"17047_setMrenclave" [label="setMrenclave"]
-"17047_setGovernance" -> "17047_onlyGovernance"
-"17047_revokeHop" -> "17047_onlyGovernance"
-"17047_setMrenclave" -> "17047_onlyGovernance"
-"17047_registerHop" -> "17047__parse"
+"23340_revokeHop" [label="revokeHop"]
+"23340_setGovernance" [label="setGovernance"]
+"23340__parse" [label="_parse"]
+"23340_registerHop" [label="registerHop"]
+"23340_isAttested" [label="isAttested"]
+"23340_constructor" [label="constructor"]
+"23340_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"23340_setMrenclave" [label="setMrenclave"]
+"23340_setGovernance" -> "23340_onlyGovernance"
+"23340_revokeHop" -> "23340_onlyGovernance"
+"23340_registerHop" -> "23340__parse"
+"23340_setMrenclave" -> "23340_onlyGovernance"
 }subgraph cluster_solidity {
 label = "[Solidity]"
-"revert KeyBindingMismatch()" 
-"revert QuoteInvalid()" 
-"revert OutputTooShort()" 
-"mload(uint256)" 
 "revert MeasurementNotAllowed()" 
-"17047__parse" -> "mload(uint256)"
-"17047_registerHop" -> "revert KeyBindingMismatch()"
-"17047__parse" -> "revert OutputTooShort()"
-"17047_registerHop" -> "revert QuoteInvalid()"
-"17047_registerHop" -> "revert MeasurementNotAllowed()"
+"revert QuoteInvalid()" 
+"mload(uint256)" 
+"revert OutputTooShort()" 
+"revert KeyBindingMismatch()" 
+"23340_registerHop" -> "revert KeyBindingMismatch()"
+"23340_registerHop" -> "revert QuoteInvalid()"
+"23340__parse" -> "revert OutputTooShort()"
+"23340_registerHop" -> "revert MeasurementNotAllowed()"
+"23340__parse" -> "mload(uint256)"
 }
 }

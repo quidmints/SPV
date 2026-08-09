@@ -1,18 +1,18 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_12592_Lock {
+subgraph cluster_18843_Lock {
 label = "Lock"
-"12592_isUnlocked" [label="isUnlocked"]
-"12592_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
-"12592_lock" [label="lock"]
-"12592_unlock" [label="unlock"]
+"18843_isUnlocked" [label="isUnlocked"]
+"18843_unlock" [label="unlock"]
+"18843_lock" [label="lock"]
+"18843_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 "tload(uint256)" 
 "tstore(uint256,uint256)" 
-"12592_isUnlocked" -> "tload(uint256)"
-"12592_unlock" -> "tstore(uint256,uint256)"
-"12592_lock" -> "tstore(uint256,uint256)"
+"18843_isUnlocked" -> "tload(uint256)"
+"18843_lock" -> "tstore(uint256,uint256)"
+"18843_unlock" -> "tstore(uint256,uint256)"
 }
 }

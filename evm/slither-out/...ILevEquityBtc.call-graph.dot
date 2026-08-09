@@ -1,12 +1,13 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_58598_ILevEquityBtc {
+subgraph cluster_62508_ILevEquityBtc {
 label = "ILevEquityBtc"
-"58598_netEquityBtc" [label="netEquityBtc"]
-"58598_grossCollateralBtc" [label="grossCollateralBtc"]
-"58598_totalNetEquityBtc" [label="totalNetEquityBtc"]
-"58598_debtUsd" [label="debtUsd"]
+"62508_debtUsd" [label="debtUsd"]
+"62508_netEquityBtc" [label="netEquityBtc"]
+"62508_totalNetEquityBtc" [label="totalNetEquityBtc"]
+"62508_totalGrossCollateralBtc" [label="totalGrossCollateralBtc"]
+"62508_grossCollateralBtc" [label="grossCollateralBtc"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

@@ -1,16 +1,16 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_37258_IMorpho {
+subgraph cluster_44017_IMorpho {
 label = "IMorpho"
-"37258_supplyCollateral" [label="supplyCollateral"]
-"37258_withdrawCollateral" [label="withdrawCollateral"]
-"37258_isAuthorized" [label="isAuthorized"]
-"37258_accrueInterest" [label="accrueInterest"]
-"37258_repay" [label="repay"]
-"37258_market" [label="market"]
-"37258_borrow" [label="borrow"]
-"37258_position" [label="position"]
+"44017_borrow" [label="borrow"]
+"44017_isAuthorized" [label="isAuthorized"]
+"44017_market" [label="market"]
+"44017_supplyCollateral" [label="supplyCollateral"]
+"44017_repay" [label="repay"]
+"44017_accrueInterest" [label="accrueInterest"]
+"44017_withdrawCollateral" [label="withdrawCollateral"]
+"44017_position" [label="position"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

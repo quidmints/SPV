@@ -1,42 +1,42 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_77537_IUniswapV3PoolImmutables {
+subgraph cluster_82498_IUniswapV3PoolImmutables {
 label = "IUniswapV3PoolImmutables"
-"77537_token0" [label="token0"]
-"77537_maxLiquidityPerTick" [label="maxLiquidityPerTick"]
-"77537_token1" [label="token1"]
-"77537_tickSpacing" [label="tickSpacing"]
-"77537_fee" [label="fee"]
-"77537_factory" [label="factory"]
-}subgraph cluster_77378_IUniswapV3PoolDerivedState {
+"82498_token1" [label="token1"]
+"82498_fee" [label="fee"]
+"82498_maxLiquidityPerTick" [label="maxLiquidityPerTick"]
+"82498_tickSpacing" [label="tickSpacing"]
+"82498_token0" [label="token0"]
+"82498_factory" [label="factory"]
+}subgraph cluster_82339_IUniswapV3PoolDerivedState {
 label = "IUniswapV3PoolDerivedState"
-"77378_observe" [label="observe"]
-"77378_snapshotCumulativesInside" [label="snapshotCumulativesInside"]
-}subgraph cluster_77347_IUniswapV3PoolActions {
+"82339_observe" [label="observe"]
+"82339_snapshotCumulativesInside" [label="snapshotCumulativesInside"]
+}subgraph cluster_82308_IUniswapV3PoolActions {
 label = "IUniswapV3PoolActions"
-"77347_initialize" [label="initialize"]
-"77347_flash" [label="flash"]
-"77347_mint" [label="mint"]
-"77347_swap" [label="swap"]
-"77347_burn" [label="burn"]
-"77347_collect" [label="collect"]
-"77347_increaseObservationCardinalityNext" [label="increaseObservationCardinalityNext"]
-}subgraph cluster_77671_IUniswapV3PoolState {
+"82308_initialize" [label="initialize"]
+"82308_swap" [label="swap"]
+"82308_increaseObservationCardinalityNext" [label="increaseObservationCardinalityNext"]
+"82308_collect" [label="collect"]
+"82308_mint" [label="mint"]
+"82308_flash" [label="flash"]
+"82308_burn" [label="burn"]
+}subgraph cluster_82632_IUniswapV3PoolState {
 label = "IUniswapV3PoolState"
-"77671_tickBitmap" [label="tickBitmap"]
-"77671_slot0" [label="slot0"]
-"77671_ticks" [label="ticks"]
-"77671_liquidity" [label="liquidity"]
-"77671_positions" [label="positions"]
-"77671_observations" [label="observations"]
-"77671_feeGrowthGlobal0X128" [label="feeGrowthGlobal0X128"]
-"77671_protocolFees" [label="protocolFees"]
-"77671_feeGrowthGlobal1X128" [label="feeGrowthGlobal1X128"]
-}subgraph cluster_77563_IUniswapV3PoolOwnerActions {
+"82632_slot0" [label="slot0"]
+"82632_ticks" [label="ticks"]
+"82632_positions" [label="positions"]
+"82632_protocolFees" [label="protocolFees"]
+"82632_feeGrowthGlobal1X128" [label="feeGrowthGlobal1X128"]
+"82632_observations" [label="observations"]
+"82632_liquidity" [label="liquidity"]
+"82632_feeGrowthGlobal0X128" [label="feeGrowthGlobal0X128"]
+"82632_tickBitmap" [label="tickBitmap"]
+}subgraph cluster_82524_IUniswapV3PoolOwnerActions {
 label = "IUniswapV3PoolOwnerActions"
-"77563_setFeeProtocol" [label="setFeeProtocol"]
-"77563_collectProtocol" [label="collectProtocol"]
+"82524_collectProtocol" [label="collectProtocol"]
+"82524_setFeeProtocol" [label="setFeeProtocol"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

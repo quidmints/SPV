@@ -9266,3 +9266,45 @@ and `Core` is at 38. Re-measure with `tools/check-contract-sizes.py` in the same
 "permissionless claim-and-repay" item is the same piece of work, not a separate one.
 
 | **UNIT-RPC-POLICY** | 🧹 **ENDPOINT STATUS PROBED, AND THE 73k-REQUEST BURN EXPLAINED — IT WAS MINE (owner, 2026-08-06).** ✅ **PROBED DIRECTLY (curl `eth_blockNumber`, URLs never printed): **`ANKR_RPC_URL` ✅ WORKS** (block `0x1886e12`) · **`QUID_FORK_RPC` ❌ `API key disabled`, json-rpc −32051 / rest 403** — the EARLIER key, DEAD · **`ETH_RPC_URL` (publicnode) ✅ WORKS**, same block.** ⛔⛔ **WHY 73k REQUESTS IN 24h — THREE COMPOUNDING MISTAKES, ALL MINE: **(1) I RAN THE FULL 4,048-TEST SUITE TWICE** (449 s + 815 s) plus dozens of targeted runs, when targeted alone answered every question. **(2) I NEVER PINNED `FORK_BLOCK`, AND THAT IS THE MULTIPLIER** — Foundry caches fork state **PER BLOCK** in `~/.foundry/cache`, so an UNPINNED run fetches a NEW latest block and is a **TOTAL CACHE MISS**. 4,048 tests × many storage reads × fresh block per run = exactly this. **I discovered `ForkPin.sol`, booked it, used it ONCE, then went straight back to unpinned runs.** **(3) I NEVER SPREAD THE LOAD** — `foundry.toml:70-72` defines only `mainnet = "${ETH_RPC_URL}"`, one endpoint, nothing to balance across.** ⚠️ **THE IRONY, RECORDED SO IT STICKS: I booked §UNIT-RPC-SELFINFLICTED for overriding the endpoint and drew *"the override is a diagnostic, not a default"* — then failed to draw the companion rule that was sitting right next to it.** ▶️ **POLICY (owner-set): **NO DEFAULT `FORK_BLOCK` — always CURRENT block; archive only for tests that genuinely need it.** ⇒ • **publicnode (`ETH_RPC_URL`) for ROUTINE/ITERATIVE runs** • **Ankr (`ANKR_RPC_URL`) ONLY for archive-needing tests** (`ForkPin.sol:33-41`: a public node 403s on non-head account fetches) • **`--match-test` by default; FULL suite only before committing on a money path** • **`QUID_FORK_RPC` is DEAD — remove or repoint it, it will 403 anything that reaches it.**** 🔐 **AND A DISCLOSURE: a 64-char hex was pasted into the session transcript. **Treat as DISCLOSED and ROTATE**, exactly as `foundry.toml:41-42` already requires of the previous plaintext Ankr token. It has not been written to any file here.** | 🧹 Ankr live, QUID_FORK_RPC dead; unpinned runs were the 73k multiplier; policy set |
+
+### 🔴🔴 `soldFractionActive` IS FALSE AT DEPLOY — the live IL target AND re-anchoring are BOTH OFF in production
+
+Surfaced by `slither --print vars-and-auth` (regenerated 2026-08-09; the on-disk copy was from Aug 4 and
+predated every change this session). **A grep pass had missed it three times.**
+
+```
+LevManager.sol:153   bool internal soldFractionActive;          // defaults FALSE
+LevManager.sol:154   setSoldFractionActive(bool) external, GOV-only
+DeployL1_s.sol       NEVER CALLS IT.
+```
+**The only callers are TESTS** — `LevYbWeth.t.sol:70`, `LeverageCrossSubsidyProbe.t.sol:180`,
+`LevCascade.t.sol:232` — each doing `setSoldFractionActive(true)` in setup.
+
+⇒ **AS DEPLOYED, TWO PATHS ARE DEAD:**
+| path | gate | deployed behaviour |
+|---|---|---|
+| `ilTargetLive` (`LevMath:142`) | `if (active && entrySqrtP != 0 && hook != 0)` | falls through to the **`1−√(entry/now)` ESTIMATE**; the band's measured sold fraction is never read |
+| `reanchorCompute` | `if (!active \|\| hook == 0 \|\| entrySqrtP == 0) return (false,0)` | **RE-ANCHORING NEVER FIRES** |
+
+⇒ 🔴 **THE SUITE VERIFIES A CONFIGURATION THE DEPLOY DOES NOT PRODUCE.** Three lev suites switch the flag
+ON in `setUp` and then pass. That is the same shape as the deleted instant-redeem test, which *"only ever
+passed by MANUFACTURING capacity"* — a green test guarding a path live state never permits, except here
+it is inverted: the tests exercise the GOOD path and production runs the fallback.
+
+⇒ ⚠️ **AND IT DEVALUES THIS SESSION'S `reseatEpoch` WORK.** `982410b` rewrote `reanchorCompute` from an
+epoch counter to a band-bounds check across nine files. Correct, verified — and **inert in production**,
+because its first gate is `active`. The improvement is real and currently unreachable.
+
+**Three questions, in order, and the third is the owner's:**
+  1. **Is `false` INTENDED at deploy?** If the estimate is the shipping design, then `soldFractionWad`,
+     `Vogue.poolStats`-backed measurement and the whole re-anchor machinery are dead weight to delete —
+     a large simplification.
+  2. **Or is it an unset switch?** Then the deploy is missing a `setSoldFractionActive(true)` and
+     production silently hedges off an estimate the code itself calls inferior to ground truth.
+  3. ⚠️ **Either way `setSoldFractionActive` is a GOVERNANCE LATCH on the hedge's ground truth**, which the
+     owner ruled out (*"no governance latches, 100% adaptive"*). The adaptive form is: use the measured
+     fraction whenever the hook and `entrySqrtP` make it available, else the estimate — i.e. **delete the
+     bool and keep the existing `entrySqrtP != 0 && hook != address(0)` conditions, which already encode
+     exactly that availability test.** No new parts; the flag is the only thing removed.
+⇒ **(3) resolves (1) and (2) without needing to answer them**, and is the maximum-reuse fix: the fallback
+stays, its trigger becomes availability instead of governance, and the deploy gap closes by construction.

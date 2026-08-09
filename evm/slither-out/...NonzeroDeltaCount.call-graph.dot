@@ -1,20 +1,20 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_12617_NonzeroDeltaCount {
+subgraph cluster_18868_NonzeroDeltaCount {
 label = "NonzeroDeltaCount"
-"12617_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
-"12617_increment" [label="increment"]
-"12617_read" [label="read"]
-"12617_decrement" [label="decrement"]
+"18868_read" [label="read"]
+"18868_increment" [label="increment"]
+"18868_decrement" [label="decrement"]
+"18868_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 "tload(uint256)" 
 "tstore(uint256,uint256)" 
-"12617_increment" -> "tload(uint256)"
-"12617_decrement" -> "tstore(uint256,uint256)"
-"12617_decrement" -> "tload(uint256)"
-"12617_read" -> "tload(uint256)"
-"12617_increment" -> "tstore(uint256,uint256)"
+"18868_decrement" -> "tstore(uint256,uint256)"
+"18868_decrement" -> "tload(uint256)"
+"18868_read" -> "tload(uint256)"
+"18868_increment" -> "tstore(uint256,uint256)"
+"18868_increment" -> "tload(uint256)"
 }
 }

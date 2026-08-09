@@ -1,19 +1,19 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_14306_TransientStateLibrary {
+subgraph cluster_20557_TransientStateLibrary {
 label = "TransientStateLibrary"
-"14306_getSyncedCurrency" [label="getSyncedCurrency"]
-"14306_getSyncedReserves" [label="getSyncedReserves"]
-"14306_currencyDelta" [label="currencyDelta"]
-"14306_isUnlocked" [label="isUnlocked"]
-"14306_getNonzeroDeltaCount" [label="getNonzeroDeltaCount"]
-"14306_getSyncedReserves" -> "14306_getSyncedCurrency"
+"20557_getSyncedCurrency" [label="getSyncedCurrency"]
+"20557_currencyDelta" [label="currencyDelta"]
+"20557_getSyncedReserves" [label="getSyncedReserves"]
+"20557_getNonzeroDeltaCount" [label="getNonzeroDeltaCount"]
+"20557_isUnlocked" [label="isUnlocked"]
+"20557_getSyncedReserves" -> "20557_getSyncedCurrency"
 }subgraph cluster_solidity {
 label = "[Solidity]"
 "mstore(uint256,uint256)" 
 "keccak256(uint256,uint256)" 
-"14306_currencyDelta" -> "mstore(uint256,uint256)"
-"14306_currencyDelta" -> "keccak256(uint256,uint256)"
+"20557_currencyDelta" -> "keccak256(uint256,uint256)"
+"20557_currencyDelta" -> "mstore(uint256,uint256)"
 }
 }

@@ -1,13 +1,13 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_35877_RealRateBtcMorphoOracle {
+subgraph cluster_42636_RealRateBtcMorphoOracle {
 label = "RealRateBtcMorphoOracle"
-"35877_constructor" [label="constructor"]
-"35877_price" [label="price"]
+"42636_constructor" [label="constructor"]
+"42636_price" [label="price"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 "revert NoPrice()" 
-"35877_price" -> "revert NoPrice()"
+"42636_price" -> "revert NoPrice()"
 }
 }

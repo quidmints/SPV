@@ -1,21 +1,21 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_78636_TickMath {
+subgraph cluster_83597_TickMath {
 label = "TickMath"
-"78636_getSqrtPriceAtTick" [label="getSqrtPriceAtTick"]
-"78636_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
-"78636_minUsableTick" [label="minUsableTick"]
-"78636_getTickAtSqrtPrice" [label="getTickAtSqrtPrice"]
-"78636_maxUsableTick" [label="maxUsableTick"]
-"78636_getTickAtSqrtPrice" -> "78636_getSqrtPriceAtTick"
+"83597_getTickAtSqrtPrice" [label="getTickAtSqrtPrice"]
+"83597_maxUsableTick" [label="maxUsableTick"]
+"83597_getSqrtPriceAtTick" [label="getSqrtPriceAtTick"]
+"83597_minUsableTick" [label="minUsableTick"]
+"83597_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"83597_getTickAtSqrtPrice" -> "83597_getSqrtPriceAtTick"
 }subgraph cluster_solidity {
 label = "[Solidity]"
 "mstore(uint256,uint256)" 
 "revert(uint256,uint256)" 
-"78636_getSqrtPriceAtTick" -> "mstore(uint256,uint256)"
-"78636_getTickAtSqrtPrice" -> "revert(uint256,uint256)"
-"78636_getTickAtSqrtPrice" -> "mstore(uint256,uint256)"
-"78636_getSqrtPriceAtTick" -> "revert(uint256,uint256)"
+"83597_getTickAtSqrtPrice" -> "mstore(uint256,uint256)"
+"83597_getSqrtPriceAtTick" -> "mstore(uint256,uint256)"
+"83597_getTickAtSqrtPrice" -> "revert(uint256,uint256)"
+"83597_getSqrtPriceAtTick" -> "revert(uint256,uint256)"
 }
 }
