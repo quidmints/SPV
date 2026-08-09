@@ -529,9 +529,15 @@ library ChannelLib {
     ///         (splice verifies the splice tx spends the channel's prior funding
     ///         UTXO). Reused for the splice path (grow or shrink) so the script/
     ///         amount match stays identical to openChannelBody's. NOTE: lpPubkey/
-    ///         hopPubkey are only length-validated here — the funding output is
-    ///         located purely by `Q` (key-path taproot reveals no script on-chain);
-    ///         the (keys ↔ Q) binding is the LP's lpAuth + off-chain MuSig2 keygen.
+    ///         hopPubkey are only length-validated HERE, and the funding output is located
+    ///         purely by `Q` (key-path taproot reveals no script on-chain) — **but that is no
+    ///         longer the whole story, and this note claimed it was.** The (keys ↔ Q) binding
+    ///         is PROVEN on-chain by `MuSig2Agg.isTwoOfTwoOutputKey` at BOTH call sites
+    ///         (`BTCChannels.openChannel` E142, `_verifySplice` E129). The retired text named
+    ///         "the LP's lpAuth + off-chain MuSig2 keygen" as the binding; `lpAuth` no longer
+    ///         exists as a parameter anywhere (E149).
+    ///         ⚠️ DO NOT add a caller that skips the gate on the strength of THIS function's
+    ///         laxity — the check lives at the call sites, deliberately.
     function locateChannelOutput(
         bytes calldata rawTx,
         bytes calldata lpPubkey,

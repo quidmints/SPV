@@ -80,9 +80,14 @@ library Types {
     /// the channel funds a key-path MuSig2 P2TR output
     /// `0x5120||fundingTaproot`. `fundingTaproot` is the 32-byte x-only key-path
     /// aggregate `Q = lift_x(KeyAgg(KeySort(lp,hop))) + H_TapTweak(agg)·G` (empty
-    /// merkle root). The contract does NO secp256k1 EC math: it byte-matches the
-    /// SPV-proven funding output against `0x5120||Q`. The LP's lpAuth signs the
-    /// whole OpenParams (incl. `fundingTaproot`), so Q is bound to the LP's consent
+    /// merkle root). The contract byte-matches the SPV-proven funding output against
+    /// `0x5120||Q` AND proves `Q == TapTweak(KeyAgg(KeySort(lp,hop)))` on-chain via
+    /// `MuSig2Agg` (E129/E142), so both named keys are provably inside it.
+    /// ⚠️ TWO CLAIMS THAT STOOD HERE ARE RETIRED, NOT RELOCATED: "the contract does NO
+    /// secp256k1 EC math" is false, and "the LP's lpAuth signs the whole OpenParams"
+    /// describes a mechanism removed when `openChannel` moved to `(…, address lpEth)` gated
+    /// on `_authorizedHop` — `lpAuth` is not a parameter anywhere (E149). Q is bound by the
+    /// EC proof now, not by consent to bytes
     /// — and spending the 2-of-2 still requires both parties' MuSig2 signatures
     /// (Bitcoin-enforced, SPV-verified at close). `lpPubkey`/`hopPubkey` remain the
     /// channel identity (channelId + btcRecipient derivation).
