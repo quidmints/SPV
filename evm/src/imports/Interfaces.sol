@@ -179,6 +179,10 @@ interface IAggregatorV3 {
 /// `ChannelLib::IAux`, `BasketLib::IAux`, `QuidLens::IAux`). SIX declarations described
 /// ONE contract; a signature change had to be made up to six times and a missed one still compiled.
 interface IAux {
+    /// @dev The per-asset price-feed registry. Its EMPTINESS is the honest discriminator for "this token
+    ///      is a dollar stable, worth par": a basket stable has no feed, a real asset (WETH/WBTC) does.
+    ///      Used instead of naming WETH, which would re-open on the next non-dollar loan token.
+    function assetPriceFeed(address asset) external view returns (address);
     function vaults(address) external returns (address);
     function tranche(address) external returns (uint);
     function take(address who, uint amount, address token, uint seed) external returns (uint);

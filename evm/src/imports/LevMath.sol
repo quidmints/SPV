@@ -165,7 +165,7 @@ library LevMath {
 
     function leverUpBuyWbtc(ILevVenue venue, address lp, address stable, uint256 usd, uint256 minOut, WbtcCfg memory cfg)
         public returns (uint256 borrowed, uint256 wbtcBought) {
-        borrowed = venue.borrow(lp, _fromUsd(stable, usd, USD_PX));                       // stable → manager (delegatecall ctx)
+        borrowed = venue.borrow(lp, _fromUsd(cfg.aux,stable, usd));                       // stable → manager (delegatecall ctx)
         if (borrowed == 0) return (0, 0);
         {   // anti-sandwich oracle floor — own frame so the local releases (stack)
             uint256 floorWbtc = (usd * 1e18 / IAux(cfg.aux).getTWAPforAsset(cfg.wbtc, cfg.twapWindow))
@@ -188,7 +188,7 @@ library LevMath {
         pulled = venue.withdraw(lp, repayUsd * 1e18 / px);                        // WBTC → manager (venue caps at position/health)
         if (pulled == 0) return (0, 0);
         {   // anti-sandwich oracle floor — own frame
-            uint256 floorStable = _fromUsd(stable, pulled * px / 1e18, USD_PX) * (10_000 - cfg.slipBps) / 10_000;
+            uint256 floorStable = _fromUsd(cfg.aux,stable, pulled * px / 1e18) * (10_000 - cfg.slipBps) / 10_000;
             if (minOut < floorStable) minOut = floorStable;
         }
         IERC20Min(cfg.wbtc).approve(cfg.aux, pulled);
@@ -213,8 +213,8 @@ library LevMath {
         {   // repay-FIRST → size + withdraw the freed WBTC → oracle floor (own frame for the stack, no via_ir)
             uint256 repaid = venue.repay(lp, assets);                            // == assets (capped ≤ debt upstream)
             uint256 px = IAux(cfg.aux).getTWAPforAsset(cfg.wbtc, cfg.twapWindow);
-            pulled = venue.withdraw(lp, (_toUsd18(stable, repaid, USD_PX) * 1e18 / px) * 10_000 / (10_000 - cfg.slipBps));
-            uint256 floorStable = _fromUsd(stable, pulled * px / 1e18, USD_PX) * (10_000 - cfg.slipBps) / 10_000;
+            pulled = venue.withdraw(lp, (_toUsd18(cfg.aux,stable, repaid) * 1e18 / px) * 10_000 / (10_000 - cfg.slipBps));
+            uint256 floorStable = _fromUsd(cfg.aux,stable, pulled * px / 1e18) * (10_000 - cfg.slipBps) / 10_000;
             if (minOut < floorStable) minOut = floorStable;
         }
         IERC20Min(cfg.wbtc).approve(cfg.aux, pulled);
@@ -333,7 +333,22 @@ library LevMath {
     address internal constant ETHERFI_ADAPTER_M  = 0xcfC6d9Bd7411962Bfe7145451A7EF71A24b6A7A2;   // WETH→weETH mint (up-leg)
     /// @dev The dollar peg, 1e18. Passed as `pxUsd18` wherever the token IS a stable — which is every
     ///      site today. Named rather than inlined so a switch to a real price is visible in a diff.
-    uint256 internal constant USD_PX = 1e18;
+    /// @dev PAR. Referenced ONLY by `loanPxUsd18` below — never passed as a price argument. Passing it at a
+    ///      call site is what made every WETH-denominated figure wrong by ~4,000x while looking fine.
+    uint256 private constant USD_PX = 1e18;
+
+    /// @notice USD price (1e18) of a venue's LOAN token — the single decision point for every `_toUsd18`
+    ///         / `_fromUsd` on the lever path.
+    /// @dev  DISCRIMINATED BY THE FEED REGISTRY, NOT BY NAMING WETH. `assetPriceFeed` is empty for a basket
+    ///       stable (par by construction) and set for a real asset. Naming WETH would re-open this the moment
+    ///       a second non-dollar loan token is allowlisted — which is exactly how it opened.
+    /// @dev  A pinned-but-DEAD feed reverts rather than returning 0: debt valued at zero reads as SOLVENT,
+    ///       and a zero-based slippage floor disables anti-MEV protection while still looking enabled.
+    function loanPxUsd18(address aux, address loan) internal view returns (uint256 px) {
+        if (IAux(aux).assetPriceFeed(loan) == address(0)) return USD_PX;   // dollar stable ⇒ par
+        px = IAux(aux).getTWAPforAsset(loan, TWAP_WIN_M);
+        if (px == 0) revert NoPrice();
+    }
     uint32  internal constant TWAP_WIN_M         = 1800;
     uint256 internal constant SELL_SLIP_BPS      = 100;                                           // 1% anti-MEV floor
     uint256 internal constant DELEVER_GAS        = 400_000;                                       // conservative de-lever crank gas
@@ -357,7 +372,7 @@ library LevMath {
         pulled -= skimmed;
         // WETH branch: floor at the ETH oracle value of what's LEFT (WETH==ETH, 1:1) − MAX_SLIPPAGE.
         uint256 usd18 = (pulled * IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M)) / 1e18;
-        uint256 floorOut = (_fromUsd(stable, usd18, USD_PX) * (10_000 - SELL_SLIP_BPS)) / 10_000;
+        uint256 floorOut = (_fromUsd(c.aux, stable, usd18) * (10_000 - SELL_SLIP_BPS)) / 10_000;
         uint256 useMin = minOut > floorOut ? minOut : floorOut;
         stableOut = _wethToStableDex(c, stable, pulled, useMin);
     }
@@ -445,7 +460,7 @@ library LevMath {
     ///      removes both legs by itself.
     function _stableToWethSor(SellCtx memory c, address stable, uint256 stableAmt) internal returns (uint256) {
         if (stable == c.weth) return stableAmt;          // loan token IS WETH — nothing to convert
-        uint256 wethFloor = (_toUsd18(stable, stableAmt, USD_PX) * 1e18 / IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M))
+        uint256 wethFloor = (_toUsd18(c.aux,stable, stableAmt) * 1e18 / IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M))
             * (10_000 - SELL_SLIP_BPS) / 10_000;
         IERC20Min(stable).approve(c.aux, stableAmt);
         return IAux(c.aux).sorSelfFunded(stable, stableAmt, c.weth, wethFloor);
@@ -461,12 +476,12 @@ library LevMath {
 
     function _stableFloor(SellCtx memory c, address stable, uint256 weethAmt) internal returns (uint256) {
         uint256 usd18 = (IWeETH(c.weeth).getEETHByWeETH(weethAmt) * IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M)) / 1e18;
-        return (_fromUsd(stable, usd18, USD_PX) * (10_000 - SELL_SLIP_BPS)) / 10_000;
+        return (_fromUsd(c.aux,stable, usd18) * (10_000 - SELL_SLIP_BPS)) / 10_000;
     }
 
     /// The WETH that must remain to repay `assets` (flashed stable) at worst-case slippage — above it is skimmable headroom.
     function _wethForAssets(SellCtx memory c, address stable, uint256 assets) internal returns (uint256) {
-        uint256 weth = (_toUsd18(stable, assets, USD_PX) * 1e18) / IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M);
+        uint256 weth = (_toUsd18(c.aux,stable, assets) * 1e18) / IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M);
         return (weth * 10_000) / (10_000 - SELL_SLIP_BPS);
     }
 
@@ -492,7 +507,7 @@ library LevMath {
     {
         IERC20Min(stable).transfer(venueAddr, assets);
         uint256 repaid = ILevVenue(venueAddr).repay(lp, assets);
-        uint256 ethAmt = ((_toUsd18(stable, repaid, USD_PX) + extractUsd) * 1e18) / IAux(cfg.aux).getTWAPforAsset(cfg.weth, TWAP_WIN_M);
+        uint256 ethAmt = ((_toUsd18(cfg.aux,stable, repaid) + extractUsd) * 1e18) / IAux(cfg.aux).getTWAPforAsset(cfg.weth, TWAP_WIN_M);
         uint256 collUnits = cfg.isWethVenue ? ethAmt : (ethAmt * 1e18) / IWeETH(cfg.weeth).getEETHByWeETH(1e18);
         collUnits = (collUnits * 10_000) / (10_000 - cfg.maxSlippageBps);
         pulled = ILevVenue(venueAddr).withdraw(lp, collUnits);
@@ -589,7 +604,7 @@ library LevMath {
             uint256 px = IAux(cfg.aux).getTWAPforAsset(cfg.weth, TWAP_WIN_M);
             IERC20Min(cfg.weth).transfer(venueAddr, wethFlashed);
             uint256 minted = ILevMintVenue(venueAddr).mintForClose(wethFlashed, repayBold);
-            fairDebtWeth = (_toUsd18(stable, minted, USD_PX) * 1e18) / px;          // fair WETH value of the BOLD repaid
+            fairDebtWeth = (_toUsd18(cfg.aux,stable, minted) * 1e18) / px;          // fair WETH value of the BOLD repaid
             // 2. Repay the LP's trove. Liquity returns ALL of its collateral here if this repay CLOSES the trove (full
             //    close); a partial de-lever returns nothing yet → we withdraw the LP's fair slice next.
             uint256 wBefore = IERC20Min(cfg.weth).balanceOf(address(this));
@@ -700,7 +715,7 @@ library LevMath {
             // Anti-MEV floor: stables are ~1:1, so expect ~the same USD out of the swap; allow CONSOL_SLIP_BPS for
             // pool fee + impact. A stable depegged below the floor can't clear either route ⇒ it refunds to the LP
             // (below) rather than swapping at a loss — fail-safe, mirroring `rebalance`'s oracle-derived `_floor`.
-            uint256 floor = _fromUsd(target, _toUsd18(s, bal, USD_PX), USD_PX) * (10_000 - CONSOL_SLIP_BPS) / 10_000;
+            uint256 floor = _fromUsd(aux,target, _toUsd18(aux,s, bal)) * (10_000 - CONSOL_SLIP_BPS) / 10_000;
             IERC20Min(s).approve(aux, bal);
             try IAux(aux).sorSelfFunded(s, bal, target, floor) returns (uint256) {}
             catch {
@@ -755,30 +770,30 @@ library LevMath {
     ///         @return usedUsd USD 1e18 actually applied to the debt. @return wethDelivered WETH handed to `recipient`.
     function swapOutDeleverBody(ILevVenue venue, address lp, uint256 stableUsd, address recipient, uint256 minWethOut, uint256 pxWeth, ExtractCfg memory cfg)
         public returns (uint256 usedUsd, uint256 wethDelivered) {
-        usedUsd = _repayPretransferred(venue, lp, stableUsd);                     // repay-with-Vault-pre-transferred (own frame)
+        usedUsd = _repayPretransferred(venue, lp, stableUsd, cfg.aux);                     // repay-with-Vault-pre-transferred (own frame)
         if (usedUsd > 0) wethDelivered = freeAndDeliverBody(venue, lp, usedUsd, recipient, minWethOut, pxWeth, cfg);
     }
 
     /// @dev Repay `stableUsd`-worth (clamped to debt) of `lp`'s debt with the stable the Vault pre-transferred to the
     ///      venue; returns the USD 1e18 actually applied. Own frame so `swapOutDeleverBody`'s stack stays shallow.
-    function _repayPretransferred(ILevVenue venue, address lp, uint256 stableUsd) private returns (uint256 usedUsd) {
+    function _repayPretransferred(ILevVenue venue, address lp, uint256 stableUsd, address aux) private returns (uint256 usedUsd) {
         address stable = venue.stable();
-        uint256 amt = _fromUsd(stable, stableUsd, USD_PX);
+        uint256 amt = _fromUsd(aux,stable, stableUsd);
         uint256 debt = venue.debtOf(lp);
         if (amt > debt) amt = debt;                                               // clamp to debt (never over-repay / strand)
-        if (amt > 0) usedUsd = _toUsd18(stable, venue.repay(lp, amt), USD_PX);            // USD 1e18 actually applied to the debt
+        if (amt > 0) usedUsd = _toUsd18(aux,stable, venue.repay(lp, amt));            // USD 1e18 actually applied to the debt
     }
 
     /// @notice §G.3 size the debt-stable to flash-repay for extracting `extractUsd` of value: ΔD = X·debt/netEq,
     ///         clamped to live debt. `debtUsd18` = the LP's live debt (USD 1e18, decimal-normalized by the manager);
     ///         `pxWeth` = USD/WETH TWAP. VERBATIM of the manager's former inline `_netEqUsd`+`_sizeRepayStable`.
-    function sizeRepayStable(ILevVenue venue, address lp, uint256 extractUsd, uint256 debtUsd18, uint256 pxWeth, bool isWethVenue, address weeth)
+    function sizeRepayStable(ILevVenue venue, address lp, uint256 extractUsd, uint256 debtUsd18, uint256 pxWeth, bool isWethVenue, address weeth, address aux)
         public view returns (uint256 repayStable) {
         uint256 rawColl = venue.collateralOf(lp);
         uint256 collUsd = ((isWethVenue ? rawColl : IWeETH(weeth).getEETHByWeETH(rawColl)) * pxWeth) / 1e18;
         uint256 netEq = collUsd > debtUsd18 ? collUsd - debtUsd18 : 0;
         if (netEq == 0) return 0;
-        repayStable = _fromUsd(venue.stable(), (extractUsd * debtUsd18) / netEq, USD_PX);
+        repayStable = _fromUsd(aux,venue.stable(), (extractUsd * debtUsd18) / netEq);
         uint256 debt = venue.debtOf(lp);
         if (repayStable > debt) repayStable = debt;
     }
@@ -801,7 +816,7 @@ library LevMath {
         IERC20Min(stable).transfer(venueAddr, assets);
         uint256 repaid = ILevVenue(venueAddr).repay(lp, assets);                 // == assets (capped ≤ debt upstream)
         if (pxWeth == 0) revert NoPrice();     // see the note above — never panic on a zero anchor
-        uint256 ethAmt = (_toUsd18(stable, repaid, USD_PX) * 1e18) / pxWeth;
+        uint256 ethAmt = (_toUsd18(cfg.aux,stable, repaid) * 1e18) / pxWeth;
         uint256 collUnits = cfg.isWethVenue ? ethAmt : (ethAmt * 1e18) / IWeETH(cfg.weeth).getEETHByWeETH(1e18);
         pulled = ILevVenue(venueAddr).withdraw(lp, (collUnits * 10_000) / (10_000 - cfg.maxSlippageBps));
     }
@@ -828,14 +843,14 @@ library LevMath {
         if (repayUsd == 0 || cfg.flashProvider == address(0)) return;
         uint256 debt = venue.debtOf(lp);
         if (debt == 0) return;
-        uint256 repayStable = _fromUsd(stable, repayUsd, USD_PX);
+        uint256 repayStable = _fromUsd(cfg.aux,stable, repayUsd);
         if (repayStable > debt) repayStable = debt;                              // never flash more than we can repay
         if (repayStable == 0) return;
         if (_isMintVenueM(address(venue))) {
             // BOLD/Liquity: flash WETH grossed up to mint `repayStable` BOLD at the protocol trove's safe LTV (so the
             // flash covers the over-collateralization), finish in the manager's mode-1 callback (_onFlashMint).
             uint256 px = IAux(cfg.aux).getTWAPforAsset(cfg.weth, TWAP_WIN_M);    // USD 1e18 / WETH
-            uint256 wethToFlash = ((_toUsd18(stable, repayStable, USD_PX) * 1e18 / px) * 10_000) / protocolMintLtvBps;
+            uint256 wethToFlash = ((_toUsd18(cfg.aux,stable, repayStable) * 1e18 / px) * 10_000) / protocolMintLtvBps;
             IMorphoFlash(cfg.flashProvider).flashLoan(cfg.weth, wethToFlash, abi.encode(uint8(1), lp, address(venue), stable, repayStable));
             return;
         }
@@ -854,17 +869,23 @@ library LevMath {
     ///
     ///         ⚠️ THE PRICE PARAMETER IS THE POINT. These two used to do a DECIMALS SHIFT ONLY, which
     ///         silently assumes ONE TOKEN = ONE DOLLAR. True of every basket stable; catastrophically
-    ///         false of WETH, which has 18 decimals — so `_fromUsd(weth, usd, USD_PX)` returned `usd`
+    ///         false of WETH, which has 18 decimals — so `_fromUsd(cfg.aux,weth, usd)` returned `usd`
     ///         UNCHANGED, reading $4,000 of debt as 4,000 WETH, and it feeds `venue.borrow` directly
     ///         at :148. Every shape and decimal typechecks, so the error would be SILENT.
     ///         This matters because the WETH-LOAN MARKET is the next step: it removes both
     ///         stable<->WETH SOR legs from every lever open and close, and lets the WETH supply
     ///         venues go. It cannot land while these assume a dollar peg.
     ///
-    ///         EVERY CALL SITE CURRENTLY PASSES `USD_PX` (1e18, USD_PX), which reproduces the old decimals
+    ///         Every call site passes `loanPxUsd18(aux, loan)` — the ONE decision point. It formerly passed a
+    ///         hardcoded `USD_PX`, correct for a dollar stable and a ~4,000x error for a WETH loan token
     ///         shift EXACTLY — verified by an unchanged suite. Switching a site to a real loan token
     ///         is now one argument: pass `IAux(aux).getTWAPforAsset(tok, TWAP_WIN_M)`.
-    function _fromUsd(address stable, uint256 usd, uint256 pxUsd18) internal view returns (uint256) {
+    /// @dev Takes `aux`, NOT a price. The price is resolved HERE, once, by `loanPxUsd18`. Composing it at the
+    ///      call site (`_fromUsd(aux,t, u)`) was tried and is UNBUILDABLE: the extra nested
+    ///      frame blew the stack in `sellForStable` with `via_ir` off by choice. Resolving inside is also the
+    ///      better shape — one decision point, and no call site can pass the wrong price.
+    function _fromUsd(address aux, address stable, uint256 usd) internal view returns (uint256) {
+        uint256 pxUsd18 = loanPxUsd18(aux, stable);
         uint8 dec = IERC20Min(stable).decimals();
         // Plain arithmetic: `usd` is 1e18-scaled USD and `10**dec` <= 1e18, so the product peaks
         // around 1e42 against a ~1.15e77 ceiling. No mulDiv needed and FullMath is not imported here.
@@ -872,7 +893,8 @@ library LevMath {
     }
     /// @notice Native token units -> USD(1e18), the inverse of `_fromUsd`. `usd = amt * px / 10^dec`.
     ///         Same price contract and same reasoning — see `_fromUsd` above.
-    function _toUsd18(address stable, uint256 amt, uint256 pxUsd18) internal view returns (uint256) {
+    function _toUsd18(address aux, address stable, uint256 amt) internal view returns (uint256) {
+        uint256 pxUsd18 = loanPxUsd18(aux, stable);
         uint8 dec = IERC20Min(stable).decimals();
         return (amt * pxUsd18) / (10 ** dec);
     }
