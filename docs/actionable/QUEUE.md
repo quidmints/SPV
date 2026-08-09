@@ -8589,3 +8589,47 @@ hardcoded 7500 that prompted the owner's instruction.
 | **UNIT-FORK-PINNED** | ✅⛔ **PINNING WORKS AND THE MACHINERY WAS ALREADY BUILT — AND THE PIN REFUTES §UNIT-FORK-UNPINNED's OWN CONSEQUENCE, PLUS OVERTURNS §UNIT-VOL-CONTROL (2026-08-06).** ⛔ **`test/utils/ForkPin.sol` ALREADY EXISTS and its header describes the exact problem I booked as a gap: *"Every fork test used `vm.createFork(vm.rpcUrl("mainnet"))`, i.e. LATEST BLOCK. Two runs minutes apart therefore see DIFFERENT mainnet state… three correct fixes were each blamed for 31 failures that a CLEAN TREE reproduced exactly."* **`FORK_BLOCK` UNSET ⇒ latest (default, CI); SET ⇒ every fork uses that block.** `Alles.setUp` already routes through `_forkMainnet()`. **I booked a fix for something that shipped, again.**** ✅ **AND IT ANSWERS THE OWNER'S ARCHIVE QUESTION EXACTLY — `ForkPin.sol:33-41`: *"on a fork, the first access to an address foundry has not cached triggers an `eth_getAccount`, and a PUBLIC node answers **FOR A NON-HEAD BLOCK** with 'Archive requests require a personal token' (403)"*. ⇒ **the key is needed precisely WHEN PINNING; my §UNIT-FORK-UNPINNED claim that archival is unnecessary was true ONLY for the unpinned runs I happened to be doing.**** ✅ **RUN PINNED AT BLOCK 25,713,821 (key served it): σ² = **2,977,321,671,362,301**, vol 545 bps — **IDENTICAL to the UNPINNED runs.** ⇒ **§UNIT-FORK-UNPINNED's consequence 1 ("the 370→556→28,069 spread includes chain drift") is REFUTED for this data point: the measurement is DETERMINISTIC given the same swap sequence.** Pinning is still correct discipline for attribution — but drift was not what moved those numbers.** ⛔⛔ **AND IT OVERTURNS §UNIT-VOL-CONTROL: three σ² values side by side — ⅓ amplitude **3,102,180,757,928,956** · ⅔ amplitude **2,977,321,671,362,301** · frequency-mixed **2,977,321,671,362,301**. **⅔ and frequency-mixed are identical, but ⅓ and ⅔ DIFFER.** I concluded *"the feed walk has ZERO effect"* from ONE pair. **Overgeneralised from a single comparison — the same error, one entry after booking it.** ⇒ **CORRECT STATEMENT: the feed acts INDIRECTLY, by changing which swaps clear the TWAP-deviation guards; two different `mult` arrays can yield the SAME landed sequence while a third does not.** ▶️ **THIS MAKES §UNIT-VOL-CONTROL's ACTION ITEM THE RIGHT ONE FOR THE WRONG REASON: still COUNT AND LOG LANDED vs REVERTED SWAPS — not because the feed is inert, but because the landed sequence is the ONLY thing that moves σ² and it is currently INVISIBLE behind `try/catch`.** | ✅⛔ pin works (archive key is for this); drift refuted; "feed is inert" overturned |
 
 | **UNIT-VOL-LANDED** | ⛔✅ **INSTRUMENTED: **24 LANDED, 0 REVERTED** — SO THE TWAP-GUARD HYPOTHESIS IS REFUTED TOO, AND THE PUZZLE IS NOW HONEST RATHER THAN EXPLAINED (2026-08-06, pinned @ 25,713,821).** ✅ **THE `try/catch` NOW COUNTS INSTEAD OF SWALLOWING (§UNIT-VOL-CONTROL's action item): **every one of the 24 swaps LANDED; ZERO reverted.**** ⛔ **⇒ §UNIT-FORK-PINNED's *"the feed acts indirectly, by changing which swaps clear the TWAP-deviation guards"* is **REFUTED BY MEASUREMENT — nothing was ever rejected.** That is the THIRD explanation I have offered for this spread and the third to fail: (i) interpolation-flattening (refuted — estimator samples the ring), (ii) reseat threshold (refuted — feed walk is not the driver), (iii) guard rejection (refuted — 0 reverts). **Each was plausible, none was checked before being written down.**** 🔎 **WHAT ACTUALLY REMAINS, STATED AS A PUZZLE AND NOT A STORY: with EVERY swap landing and the `size` array UNCHANGED, ⅔-amplitude and frequency-mixed give σ² **IDENTICAL TO THE LAST DIGIT** (2,977,321,671,362,301) while ⅓-amplitude DIFFERS (3,102,180,757,928,956). The only surviving channel is the feed's effect on EXECUTION PRICE → pool tick → `tickCumulative`. **LIKELIEST: the band executes against a TWAP (`getTWAPforAsset`), NOT the spot feed I am poking, so most `_setEthFeed` pokes never reach the execution price at all — which would ALSO explain why identical σ² is the COMMON case and a difference the exception.** **DO NOT BOOK THAT AS THE ANSWER UNTIL IT IS MEASURED: log the EXECUTION PRICE each swap actually got, next to the feed value set.** ▶️ **THE DISCIPLINE THIS SESSION KEEPS PROVING: instrument the mechanism BEFORE explaining the number. Three explanations cost more than one measurement would have.** | ⛔✅ 0 reverts; three explanations refuted; log execution price next |
+
+### ⛔ EULER weETH→WETH — THE PAIR EXISTS AND IS EMPTY. WILL-NOT-ADD (measured 2026-08-09)
+
+Owner asked: add Euler if it exists, else AaveV4. **The question "does it exist" was the wrong
+discriminator** — it does exist, and adding it would still have been wrong.
+
+**Method (not a grep — an enumeration).** Euler `GenericFactory` `0x29a56a1b…` holds **874** vaults.
+Filtered to `asset() == WETH` → **48**. Of those, exactly **ONE** returns non-zero
+`LTVBorrow(eweETH-1 escrow)`:
+
+**`0xb4f7761c459d09f414e1190df275be3e24535750` — "EVK Vault eWETH-14"**
+· `LTVBorrow` **6700** (67%) · `LTVLiquidation` **7700** (77%) · escrow `governorAdmin` **`0x0`**
+(renounced ⇒ immutably escrow, satisfying INVARIANT #1 — no rehypothecation, ever)
+· **`totalAssets` 0 · `cash` 0 · `totalBorrows` 0.**
+
+⇒ **CORRECTLY CONFIGURED, ZERO LENDERS.** It is the same shape as `../CLAUDE.md`'s note on the USDC
+side (*"configured-but-thin: the venue degrades SAFE — LPs simply can't borrow there until lenders
+supply eUSDC-11"*), except at literally zero.
+
+⇒ **THIRD INSTANCE OF THIS EXACT FAILURE MODE**, which is why depth is now ASSERTED and not merely
+observed: two 86%-LLTV weETH/WETH Morpho markets ($0.0002 and $2,095 supplied) and now eWETH-14.
+**Every structural check passes on all three.** Only liquidity separates them.
+
+**The live ETH-denominated-debt legs, ranked by usable depth:**
+
+| venue | free liquidity | collateral param | status |
+|---|---|---|---|
+| **Aave V4** (weETH → WETH) | **≈22,484 WETH** (22,782 supplied − 299 debt) | collateralFactor **8000** | ✅ `vs[6]` |
+| **Morpho** `0x37e7484d…` | **1,770 WETH** | LLTV **9450** | ✅ `vs[5]` |
+| Euler eWETH-14 | **0** | LTVBorrow 6700 | ⛔ not added |
+
+⚠️ **Aave is ~12× deeper than Morpho** — the opposite of the assumption that Morpho was the primary
+leg. Whatever routes between them should prefer Aave on size, not treat Morpho as the default.
+
+**Guarded, not just recorded:** `test/LevVenueMarketPins.t.sol` now asserts free WETH > 100 ether on
+the Aave leg and a live non-zero `collateralFactor`, alongside the Morpho depth pins. 5/5 green.
+
+**Re-check Euler before mainnet** — a vault gaining lenders is exactly the kind of change that makes
+this entry stale in the safe direction. The measurement is one script:
+`scratchpad/euler.py` (enumerate → filter by asset → `LTVBorrow`).
+⚠️ It needs the ARCHIVE key: publicnode returns **HTTP 403 on batched `eth_call`**, and ankr **429s**
+above ~15 calls/batch. The script backs off and **aborts loudly** rather than returning an empty list —
+an empty list here would read as "no Euler pair" and be a false negative of exactly the kind rule
+"never assert absence from a search" exists to stop.

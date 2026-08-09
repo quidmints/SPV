@@ -3,6 +3,7 @@ pragma solidity 0.8.30;
 
 import {ForkPin} from "./utils/ForkPin.sol";
 import {Deploy} from "../script/DeployL1_s.sol";
+import {IAaveV4Spoke} from "../src/imports/Interfaces.sol";
 
 /// @notice Pins the LIVE Morpho market that `Deploy._ethLevVenues` joins for the ETH-denominated-debt
 ///         lev venue (collateral weETH, debt WETH).
@@ -81,6 +82,30 @@ contract LevVenueMarketPins is ForkPin, Deploy {
         assertEq(oracle, WEETH_WETH_ORACLE,  "oracle constant drifted from the live market");
         assertEq(irm,    ADAPTIVE_IRM,       "irm constant drifted from the live market");
         assertEq(lltv,   MORPHO_LLTV_945,    "lltv constant drifted - 86% would be a DIFFERENT market");
+    }
+
+    /// The Aave V4 leg must be DEEP, not merely configured. A correctly-configured EMPTY market is the
+    /// failure mode that has now appeared THREE times: two 86% weETH/WETH Morpho markets holding $0.0002
+    /// and $2,095, and Euler's eWETH-14 -- which accepts the eweETH-1 escrow at 67% LTVBorrow / 77%
+    /// LTVLiquidation with a renounced governor, and has totalAssets, cash AND totalBorrows all ZERO.
+    /// Every structural check passes on all three. Only depth separates them, so only depth is asserted.
+    function test_AaveV4Legs_HaveRealDepth() public view {
+        IAaveV4Spoke sp = IAaveV4Spoke(aaveSpoke);
+        uint256 supplied = sp.getReserveSuppliedAssets(0);   // WETH -- the leg we BORROW
+        uint256 debt     = sp.getReserveTotalDebt(0);
+        assertGt(supplied - debt, 100 ether, "no free WETH on Aave V4 - the borrow leg cannot fill");
+        // weETH is supply-only here (borrowable=false, correctly). Depth still matters: an empty collateral
+        // reserve means no liquidator has any reason to be watching it.
+        assertGt(sp.getReserveSuppliedAssets(2), 10 ether, "weETH collateral reserve is empty");
+    }
+
+    /// The collateral factor must be live and sane, or LevManager sizes positions off nothing.
+    function test_AaveV4_CollateralFactorIsLive() public view {
+        IAaveV4Spoke sp = IAaveV4Spoke(aaveSpoke);
+        (uint24 cfg,,,,) = sp.getReserveConfig(2);
+        (uint16 cf,,)    = sp.getDynamicReserveConfig(2, uint32(cfg));
+        assertGt(cf, 0, "weETH collateralFactor 0 - positions would size off zero");
+        assertLe(cf, 10_000, "collateralFactor above 100% is not a bps value");
     }
 
     /// @dev The LLTV is deliberately NOT the 86% every USDC leg uses. Pinning the difference stops a
