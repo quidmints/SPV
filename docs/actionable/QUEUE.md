@@ -9367,3 +9367,49 @@ getter · the `borrowForOfframp` external + its dispatch · the extra `init` par
 ⚠️ **AND THIS RE-PRICES EVERY REMAINING ITEM.** Restore-after-refill, claim-and-repay and the borrow leg
 all want surface on `LevManager`. **At 224 free, they cannot all land there** regardless of how well each
 is designed. That is now the binding constraint on the whole roadmap — not the venues, not the accounting.
+
+
+### ✅ THE BORROW LEG COLLAPSES — no new contract, no new entrypoint, no LevManager change. ONE accounting term.
+
+Supersedes the −500/−638 measurement above. **Everything expensive there was solving problems created by
+putting the borrow in the wrong contract.**
+
+**The pivot: `MorphoEscrowVenue(morpho, marketParams, manager)` and `AaveV4Venue(spoke, hub, coll, stable,
+manager)` BOTH take their manager as a constructor argument.** So deploy a venue instance whose manager is
+**`Vault`**. Then:
+  * `offrampBody` is **delegatecalled into `Vault`'s context**, so `venue.borrow(address(this), …)` already
+    satisfies `onlyManager` — **no entrypoint on `LevManager`, no caller gate, no threading decision.**
+  * **The weETH is already in the Vault** — no `transferFrom`, no approval, no custody transfer.
+  * `LevManager`, `Vogue` and `committedUsd18` need **NO changes at all**.
+⇒ The `protocolVenue`/`protocolDebtUsd`/`borrowForOfframp`/`protocolBorrowBody` surface — the whole 1,190
+bytes — **was never necessary.**
+
+**ACCOUNTING IS SELF-CORRECTING EXCEPT FOR ONE TERM, and it cannot double-count.** `_vogueETH`
+(`VaultLib:125-141`) is **balance-based**: it sums `IERC20(weeth).balanceOf(address(this))`, idle WETH,
+eETH and the 4626 venues. So posting collateral **removes the weETH from the sum automatically**, and the
+borrowed WETH passes straight out to the exiting LP and is never counted. The only gap is the escrowed
+position: today it reads as a pure loss of `C` when the protocol still owns `C` and owes `B`.
+⇒ **Add ONE term — the venue position's EQUITY (collateral − debt).** It cannot double-count *because*
+posting already removed the balance. Same netting `Core._bandEquityUsd18` does for LPs, applied to a
+position the Vault holds.
+⇒ **And this confirms `_checkBacking` was the wrong gate**: ETH-denominated debt belongs in the ETH
+accounting (`vogueETH`), not the stable-basket-vs-band-equity inequality.
+
+⚠️ **THE ONE REAL ISSUE — INVENTORY CONTENTION, found by enumerating all SIX readers of the Vault's weETH
+balance:**
+| reader | effect of encumbering weETH |
+|---|---|
+| `VaultLib:129` `_vogueETH` | ✅ handled by the equity term |
+| `VaultLib:453` `offrampBody` rung-1 clamp | sale capacity shrinks — **correct, that is the point** |
+| `VaultLib:523` `waitNft` | redemption capacity shrinks — correct |
+| `SwapLib:590` `sourceWethBody` | opportunistic sourcing finds less; **non-blocking, degrades gracefully** |
+| `LevMath:452/454` | different context (`SellCtx`), not the Vault's balance |
+⇒ **Borrowing ENCUMBERS the same inventory the sale and the NFT paths draw on.** Not a bug — the direct
+consequence of borrowing against inventory — but it needs a **POLICY on how much may be encumbered**, and
+that policy is most binding in bootstrap, when free weETH is scarcest. **Nothing in the current code caps
+it.**
+
+⚠️ **UNVERIFIED, do not assume:** (1) a SECOND escrow instance on the same Morpho market, alongside the
+LP-facing one, behaving safely under liquidation; (2) the equity term reading correctly when the position
+is empty. Both are testable against live state rather than arguable, and `test/LevVenueMarketPins.t.sol`
+is the natural home.
