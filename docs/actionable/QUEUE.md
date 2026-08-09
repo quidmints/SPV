@@ -9320,3 +9320,36 @@ stays, its trigger becomes availability instead of governance, and the deploy ga
 | **UNIT-A-ROOT-WRITTEN** | 📐⏸️ **THE LINEAR KERNEL IS WRITTEN — THE TWO LEGS NOW AGREE — BUT THE TREE WILL NOT COMPILE BECAUSE OF ANOTHER THREAD'S IN-FLIGHT WORK (2026-08-06).** ✅ **THE CHANGE (patch: `docs/actionable/wip/UNIT-A-ROOT-linear-kernel.patch`): the drain leg's `q/(1−q)` integral — `lnWad`, the `oneMinusQ == 0` pole branch, the `q1 == q0` limit branch, the `type(uint).max` sentinel and the §E104 clamp — **ALL REPLACED BY `qBar = (q0 + q1) / 2`**, exactly the sell leg's form (§E68b). **Δ=0 is subsumed as the formula's own limit, so that branch disappears rather than sitting beside it.**** ✅ **WHY THIS IS THE ROOT FIX AND NOT ANOTHER CLAMP: `q ≤ 1e18 ⇒ qBar ≤ 1e18 ⇒ **skew ≤ Γ·σ²`. THE BOUND FALLS OUT OF THE ALGEBRA.** No cap, no pole sentinel, no overflow branch — they are DELETED, not guarded (standing rule 3). §E104's panic **cannot recur** because nothing diverges.** 🔑 **A TRAP CAUGHT BEFORE EDITING, WORTH RECORDING: **`MAX_WELL_SKEW` IS ALSO Γ** — `mulDiv(MAX_WELL_SKEW, sigmaSqWad, 1e18)` at `SwapLib:961`, and §E62 states *"Γ ≡ MAX_WELL_SKEW"*. **The constant wears THREE hats: the Γ COEFFICIENT, the σ²==0 SENTINEL, and the CAP.** Only the last two delete. **"Delete MAX_WELL_SKEW" taken literally would have removed the gamma coefficient and silently zeroed the entire kernel.**** ⏸️ **BLOCKED, NOT FAILED: `forge build` dies at `DeployLib.sol:214` — `new BTCChannels(address(spv), aux, eth, cfg.hopOperator)`, **4 args against a 2-arg constructor.** That is the OTHER THREAD's uncommitted `BTCChannels.sol` work, **NOT this change** (`git status` confirms it modified). **I did not touch their files** (rule 14). ⇒ **verification resumes once they land; the patch is preserved and the baseline for attribution is 4,046/2.**** ▶️ **STILL TO CHECK BEFORE IT LANDS (§UNIT-A-ROOT's two questions, neither answered): (1) **why the pole was added** — §E58 records *"pole removal (sell leg) → CUTS"* as ALREADY JUDGED, so read that decision first; (2) **does linear under-charge at depletion?** The pole made the LAST units expensive. **§E68b's sell leg is the live precedent to measure against, not to reason about.** | 📐⏸️ linear kernel written, legs coherent; blocked on another thread's build break |
 
 | **UNIT-A-ROOT-WITHDRAWN** | ⛔⛔⛔ **§UNIT-A-ROOT IS WITHDRAWN — I RE-MADE §E83's ARGUMENT AND §E84 ALREADY REFUTED IT. THE POLE IS NOT DECORATION; IT PRICES A THIRD COST (2026-08-06).** ⛔ **§E84, VERBATIM: *"WHAT E83 GOT WRONG: I collapsed THREE distinct costs into two and concluded the `q/(1−q)` barrier 'may be decoration'. **It is not.** Adverse selection prices being PICKED OFF; **the pole at q→1 prices RUNNING OUT — an inability-to-OPERATE cost that an LVR term is completely blind to.** A flat `σ²·Δt` charge sells the LAST unit at the same rate as the first and then the band is empty: **that is exactly the 'one trade converts the whole band' leak the owner identified at the outset. Removing the barrier REOPENS it.**"* ⇒ **MY *"A–S has no pole, therefore remove it"* IS §E83's ARGUMENT, RE-MADE ALMOST VERBATIM, ONE DAY AFTER IT WAS REFUTED.** §UNIT-RECOVERED's lesson, recurring: **read the decision before undoing it — and I even BOOKED that as §UNIT-A-ROOT's own check-before-landing item, then continued without doing it.**** 🔑 **THE THREE COSTS, WHICH IS WHY LINEAR CANNOT SUFFICE: **(1) ADVERSE SELECTION** — being picked off ⇒ priced by `σ²·confFrac/8` (the base). **(2) INVENTORY RISK** — holding a skewed position ⇒ A–S's LINEAR `q·γ·σ²`. **(3) DEPLETION** — RUNNING OUT, an inability-to-OPERATE cost ⇒ the POLE. **A–S has no pole because A–S never runs out of inventory; a BAND DOES.** My patch priced (1) and (2) and deleted (3).** 📌 **AND THE POLE IS LOAD-BEARING FOR THE REFILL ECONOMICS: *"the `q/(1−q)` pole means deeper imbalance taxes MORE while repair cost stays roughly flat"* — that asymmetry is WHY self-refill is dominant (repair 5 bps vs a 15 bps drag). **A linear kernel flattens the tax and the dominance argument weakens with it.**** ▶️ **SO THE REAL ROOT QUESTION IS NARROWER AND STILL OPEN: the pole STAYS, so the divergence stays, so SOMETHING must bound it — and the owner has ruled out an artificial cap. **The honest reframing: "running out" costs a FINITE amount — you lose the ability to serve flow you would have served, which is bounded by `target`. The `q/(1−q)` form DIVERGES where the underlying COST DOES NOT.** ⇒ **the root fix is a depletion term that is CONVEX in q (so the last units are expensive, preserving §E84) but CONVERGENT (so nothing needs clamping). NOT linear, NOT a pole.** ⚠️ **`docs/actionable/wip/UNIT-A-ROOT-linear-kernel.patch` MUST NOT BE APPLIED — kept only as the record of a refuted attempt.** | ⛔⛔⛔ withdrawn — pole prices DEPLETION; need convex-but-convergent, not linear, not a clamp |
+
+### ⚠️ BORROW LEG — "thread the venue as a parameter" HAS NO SOURCE. One address of new state is unavoidable.
+
+The gate decision (owner: thread it, don't pin) is right for `vault` — that is exactly the
+`deleverToVault(lp, extractUsd, vault, minOut)` shape, gated on `vogueSyncHook`, no new state. **But the
+same trick does not work for the VENUE, and the plan above assumed it would.**
+
+**Checked, not assumed:**
+  * `LevManager.allowedVenue` is a **`mapping(address => bool)`** (`:139`). `init` (`:191`) iterates the
+    `address[] calldata` and **discards it** — there is NO stored venue list to pick from, and no
+    "first WETH-loan venue" to look up.
+  * **`Vogue` holds no lev-venue reference at all.** Its only venue concept is the ETH YIELD venue
+    (Galaxy/AAVE/ether.fi, `:47` *"depositor-chosen, no primary, passed PER DEPOSIT"*) — a different
+    subsystem entirely.
+⇒ The offramp caller has nothing to thread. A parameter needs a source and there isn't one.
+
+**Options, cheapest first:**
+  a. **Store ONE designated protocol lev venue** on `LevManager` (`ILevVenue public protocolVenue`, set at
+     `init` alongside the allowlist so it inherits `venuesFrozen` and needs no new setter or auth).
+     **~1 slot, no new gate.** The borrow reads it; `protocolDebtUsd` reads it back for `totalDebtUsd`.
+  b. Have `init` **store the venue array** so one can be selected by index — strictly more state than (a)
+     for no gain here.
+  c. Let the offramp caller pass a venue — **rejected: no caller has one**, and letting an LP-facing path
+     choose the protocol's borrow venue is an authorization hole, not a parameter.
+⇒ **(a), and note it doubles as the `protocolDebtUsd` handle the accounting design already needs** — so
+the slot is not an extra part, it is the one the debt-visibility fix required anyway. Reuse, not addition.
+
+⚠️ **Do NOT read this as "the threading decision was wrong."** It was right for `vault`, which has a
+caller-side source. It simply does not extend to the venue, and the distinction is *whether a caller
+already holds the value* — worth stating because the next such decision will look identical.
+
+▶️ With `soldFractionActive` deleted, `LevManager` is at **224 free bytes**, so (a) plus a thin forwarder
+fits. Body in `LevMath` (228 free — ⚠️ down from 439, it absorbed `TickMath` and `loanPxUsd18`).
