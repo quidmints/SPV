@@ -408,6 +408,15 @@ contract PremiumIsCarryNotIncome is Alles {
                 catch { ++reverted; }
             }
             vm.stopPrank();
+            // §UNIT-VOL-LANDED — MEASURE THE CHANNEL INSTEAD OF THEORISING ABOUT IT. Three
+            // explanations for the sigma^2 spread have now been refuted. The only surviving one is
+            // that the band executes against a TWAP rather than the spot feed being poked, so log
+            // BOTH: what we SET, and what the venue actually PRICES against.
+            if (i % 6 == 0) {
+                emit log_named_uint("  step", i);
+                emit log_named_uint("   feed SET to        ", p);
+                emit log_named_uint("   TWAP the venue uses", AUX.getTWAPforAsset(address(WETH), 1800));
+            }
             vm.roll(block.number + 1);
             vm.warp(block.timestamp + (i % 5 + 1) * 90);   // uneven spacing, 1.5-7.5 min
         }
