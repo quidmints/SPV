@@ -10012,3 +10012,28 @@ mistaken for durable shed capacity"* — requires `slow < fast` after a spike, w
 3. 🔴 **§UNIT-B'S 13.71% IS UNDAMPED AND STAYS THAT WAY** until the lagged target is built. The
    owner's decision (*the target must not include the trade's own flow*) still stands and still needs
    a genuine `now − window` snapshot; there was never any partial protection to build on.
+
+### ⏸️ UNIT-B-SLOWDEL — deleting the dead slow registers RECOVERS 76 BYTES, but is UNVERIFIED and was REVERTED.
+
+**Done, measured, then backed out — reproduce it from here, it is 4 edits:** delete
+`_flowSlowBTC`/`_flowSlowETH` and `FLOW_SLOW_N`, drop the second `_bumpEwma` in `_bumpFlow`
+(`Core.sol:235`), and reduce `flowEwmaUsd` to `_decayed(isBTC ? _flowBTC : _flowETH)`.
+✅ **Compiles, and `Core` goes 24,548 → 24,472 — 28 bytes of margin becomes 104 (+76)**, plus one
+SSTORE per swap per pool saved. Justified by rule 1: §UNIT-B-MIN-STRUCTURAL proves the registers
+cannot affect any output at any decay ratio.
+⛔ **NOT LANDED — the verification run is not attributable, so rule 15 applies.** The full suite came
+back **4,158 passed / 270 failed**, but:
+1. 🔴 **ANOTHER THREAD IS MID-EDIT ON EXACTLY THE FAILING STACK.** `git status` shows UNCOMMITTED
+   `src/BTCChannels.sol`, `src/imports/ChannelLib.sol`, `src/imports/MuSig2Agg.sol`,
+   `src/imports/Types.sol` + ~10 BTC test files. **Every one of the 270 failures is
+   `BufferOverflow()` on a BTC/channel test** (`testBtcChannels_*`, `testSwapOut_*`, `test_Splice_*`,
+   `testStrand4_*`). My change touches neither BTC nor channels.
+2. 🔴 **THE BASELINE MOVED UNDER ME:** the run was **64 suites / 4,428 tests** vs **57 / 4,184** two
+   hours earlier. A count that grew by 244 is a different tree, not a regression signal.
+⇒ **The 270 are UNATTRIBUTED — I did NOT establish they are the other thread's, only that I cannot
+claim they are mine.** Re-run the deletion against a PINNED WORKTREE at a known-clean SHA (the
+memory note `pinned-worktree-for-shared-tree-verification` exists for exactly this), and compare
+failure SETS, not counts.
+⚠️ **AND THE EARLIER GREEN RUNS ARE STILL VALID** — the 4,290/1 results for the premium fix, UNIT-A
+and §E2-#1 were measured BEFORE these edits appeared in the tree, on a tree whose only uncommitted
+source was my own. Do not retro-doubt them on the strength of this run.
