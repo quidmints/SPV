@@ -1261,6 +1261,16 @@ contract DrainAtomicity is Alles {
         emit log_named_uint   ("flowEwmaUsd (the min)", CORE.flowEwmaUsd(false));
 
         assertTrue(uint(fastReg) != 0, "PREMISE: the registers must actually have been bumped");
+        // ⚠️ THE DEEPER INVARIANT, MEASURED BY EXPERIMENT AND NOT ASSERTED HERE. Today these are
+        // byte-identical because `_bumpEwma` decays BOTH at the fast rate. Fixing that (passing
+        // `slowN` on the write) was TRIED: the slow register rose to 361,562,545,899 vs the fast
+        // 146,668,048,963 — and `flowEwmaUsd` STILL returned 146,668,048,963, with §E71's
+        // consolidation discount UNCHANGED at 1371 bps. Reverted (it cost 9 of Core's 28 bytes and
+        // an SSTORE per swap to move a number nothing reads).
+        // REASON: these are DECAYING SUMS, `S = S_old*d^dt + x`, adding the FULL notional to BOTH
+        // legs — so a slower decay retains MORE ⇒ `slow >= fast` for ANY `slowN >= 1` ⇒ `min` can
+        // NEVER select the slow leg. §E55's defence needs a WEIGHTED EWMA (the slow leg absorbing a
+        // SMALLER share of each bump), not a slower sum. See §UNIT-B-MIN-STRUCTURAL.
         assertEq(fastReg, slowReg,
             "the two flow registers hold IDENTICAL state, so the slow leg can never be the smaller "
             "operand and min(fast,slow) is unconditionally the fast leg -- the E55 manipulation "

@@ -9978,3 +9978,37 @@ view added, `Core` has 28 bytes). Both words come back **byte-identical**:
 ⇒ `slow >= fast` at every read ⇒ **`min` is unconditionally the fast leg. The §E55 defence does not
 operate, and the §UNIT-B self-inflation is undamped.** The docblocks at `:188-196` and `:249` describe
 a property the code does not have.
+
+| **E162-rekey-CORRECTED** | ⛔ **I CALLED `newLp == oldLp` *"the prevention"*. IT PREVENTS INHERITANCE, NOT COMPROMISE — and the compromise it does not reach is the whole vault exposure (owner: *"but not what happens to the old image… can still be drained?"*, 2026-08-10).** ⛔ **TWO ROUTES BY WHICH A COMPROMISED **OLD** IMAGE STILL DRAINS: ① **BEFORE ANY ROTATION** — it holds BOTH halves for vault channels, so a compromise today drains today; rekeying is a future event and does nothing retroactively. ② **THROUGH THE ROTATION ITSELF** — `newLp == oldLp` forces the LP half to stay and the attacker ALREADY HOLDS IT; nothing constrains the hop half's destination, so it splices to `(oldLp, attackerHop)` with both halves in its own control. **The contract sees a perfectly valid rotation.**** ✅ **WHAT THE RULE ACTUALLY BUYS, STATED NARROWLY: it bounds what a malicious UPGRADE TARGET inherits. It protects against the Safe whitelisting a bad new image and that image receiving WORKING keys. That is real and it is small.** 🔴 **⇒ THE HONEST POSITION, UNSOFTENED: FOR VAULT CHANNELS, COMPROMISE OF THE RUNNING IMAGE IS UNMITIGATED. Every route explored is closed — covenants (no L1 support: §E159-research), MPC (owner: no), family plans (custody rationale dissolved, §E158-why-self-hosted), bonding/fraud proofs (owner: no), cold vault + key deletion (owner: no), rekey splice (does not reach it, this entry). **The residual is CODE REVIEW plus the sealing guarantee that a DIFFERENT measurement cannot unseal.**** ⛔ **PROCESS: this is the same over-claim shape as §E158-trust-root and §E158-both-halves — a mechanism described by what it is FOR rather than by what an adversary retains after it. **State the attacker's residual capability, not the mechanism's intent.**** | ⛔ rekey bounds inheritance only; a compromised running image drains regardless; vault compromise unmitigated |
+
+### 🔴🔴🔴 UNIT-B-MIN-STRUCTURAL — the `min(fast, slow)` defence CANNOT work at ANY decay ratio. It is not a bug, it is the wrong shape.
+
+**⛔ SUPERSEDES the one-line fix proposed in §UNIT-B-MIN-IS-NOOP. That fix was TRIED AND REVERTED.**
+
+**EXPERIMENT (2026-08-10, prediction stated first and REFUTED):** passed `slowN` on the WRITE in
+`_bumpEwma` so the slow register finally decays at `FLOW_SLOW_N`. Predicted §E71's consolidation
+discount would fall toward 0 bps. **Result:**
+- The registers DID diverge — slow `361,562,545,899` vs fast `146,668,048,963` (the write-decay bug
+  is real and the fix does address it), and it FIT: `Core` 24,548 → 24,557, **19 bytes left**.
+- ⛔ **But `flowEwmaUsd` STILL returned the FAST value, and the discount was UNCHANGED at 1371 bps.**
+- **REVERTED** — 9 of 28 bytes and an SSTORE per swap to move a number nothing can read.
+
+**WHY, AND THIS IS THE STRUCTURAL POINT:** these registers are **DECAYING SUMS**, `S = S_old·d^Δt + x`,
+and `_bumpFlow` adds the **FULL notional `x` to BOTH legs**. A slower decay therefore retains **MORE**
+⇒ **`slow >= fast` for ANY `slowN >= 1`** (induction from `S=0`, same `x`) ⇒ **`min(fast, slow)` is
+identically the fast leg, at every decay ratio, forever.** Making the slow leg "slower" makes it
+*larger*, which is the opposite of what a `min` needs.
+⇒ §E55's stated property — *"when flow SPIKES the slow leg LAGS, so a transient burst is never
+mistaken for durable shed capacity"* — requires `slow < fast` after a spike, which this construction
+**cannot produce**. A lagging leg needs a **WEIGHTED EWMA** (`S = (1−α)·S_old + α·x`, with
+`α_slow < α_fast`, so the slow leg absorbs a SMALLER SHARE of each bump), not a slower sum.
+
+▶️ **CONSEQUENCES, IN ORDER OF CONFIDENCE:**
+1. ✅ **`_flowSlowETH`/`_flowSlowBTC` ARE DEAD STATE** — they cannot affect any output. Per rule 1
+   (no unreachable code) they should be DELETED, recovering an SSTORE per swap per pool plus bytes
+   on a contract with 28 to spare. **Do this regardless of what replaces the defence.**
+2. 🔴 **THE MANIPULATION DEFENCE MUST BE REBUILT, NOT REPAIRED** — and note it was never operating,
+   so this is not a regression being introduced, it is a gap being discovered.
+3. 🔴 **§UNIT-B'S 13.71% IS UNDAMPED AND STAYS THAT WAY** until the lagged target is built. The
+   owner's decision (*the target must not include the trade's own flow*) still stands and still needs
+   a genuine `now − window` snapshot; there was never any partial protection to build on.
