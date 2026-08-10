@@ -360,20 +360,37 @@ contract BtcSelfManagedTest is Alles {
         // ⚠️ COVERAGE IS PARTIAL AND SAYS SO: the three REJECT branches run here against genuine
         // SPV data; the ACCEPT branch cannot, because no harness produces a CLTV-locked exit tx
         // spending the funding UTXO. Do not read a green run as proof the happy path works.
+        Types.OpenParams memory cp_ = _closeParams(b.lpPubkey, b.hopPubkey);
         vm.prank(lpEth);
         vm.expectRevert(BTCChannels.NoDeadManExit.selector);      // none emitted yet
-        ch.recordDeadManExit(channelId, b.rawCloseTx, b.closeBlockHash, b.closeMerkleProof, b.closeTxIndex);
+        ch.recordDeadManExit(channelId, cp_, b.rawCloseTx, b.closeBlockHash, b.closeMerkleProof, b.closeTxIndex);
 
         vm.prank(hop);
         ch.emitDeadManExit(channelId, uint64(block.number + 144), 50_000, hex"00");
 
-        vm.prank(hop);                                            // LP-gated: the hop is not the LP
-        vm.expectRevert(BTCChannels.NotLP.selector);
-        ch.recordDeadManExit(channelId, b.rawCloseTx, b.closeBlockHash, b.closeMerkleProof, b.closeTxIndex);
+        // (E155) PERMISSIONLESS. This asserted `NotLP` when the hop submitted. That gate is gone:
+        // its stated basis was "the same reasoning recordClose gives for participant-gating", and
+        // E153 deleted that reasoning. The assertion is deliberately that the hop now reaches the
+        // SUBSTANTIVE check (`NotDeadManExit` — locktime 0 != deadline) rather than being turned
+        // away at the door: reverting for a DIFFERENT reason is what distinguishes a removed gate
+        // from a renamed one. Retiring is safe from any caller because the payout is pinned to
+        // btcRecipientOf inside the signed bytes — and it must not depend on the LP showing up, or
+        // an absent LP leaves the EVM counting BTC that has provably left the 2-of-2.
+        vm.prank(hop);
+        vm.expectRevert(BTCChannels.NotDeadManExit.selector);
+        ch.recordDeadManExit(channelId, cp_, b.rawCloseTx, b.closeBlockHash, b.closeMerkleProof, b.closeTxIndex);
+
+        // (E155) The keys must match the pair pinned at open. Without this the derived 2-of-2
+        // script matches nothing, the splice test passes VACUOUSLY, and a continuation retires the
+        // position. Swapped order is a different pair, so it must be rejected.
+        vm.prank(lpEth);
+        vm.expectRevert(BTCChannels.ChannelKeysMismatch.selector);
+        ch.recordDeadManExit(channelId, _closeParams(b.hopPubkey, b.lpPubkey),
+            b.rawCloseTx, b.closeBlockHash, b.closeMerkleProof, b.closeTxIndex);
 
         vm.prank(lpEth);                                          // real coop close: locktime 0 != deadline
         vm.expectRevert(BTCChannels.NotDeadManExit.selector);
-        ch.recordDeadManExit(channelId, b.rawCloseTx, b.closeBlockHash, b.closeMerkleProof, b.closeTxIndex);
+        ch.recordDeadManExit(channelId, cp_, b.rawCloseTx, b.closeBlockHash, b.closeMerkleProof, b.closeTxIndex);
 
         // ── (#114) STALE-CLOSE GUARD — both defects of the first version covered ──
         // The guard is SKIPPED while checkpointOf == 0, i.e. every other channel in the
@@ -384,7 +401,6 @@ contract BtcSelfManagedTest is Alles {
         // (a) A HOP-submitted close against an overstated checkpoint is rejected.
         vm.prank(hop);
         vm.expectRevert(BTCChannels.StaleClose.selector);
-        Types.OpenParams memory cp_ = _closeParams(b.lpPubkey, b.hopPubkey);
         ch.recordClose(channelId, cp_, b.rawCloseTx, b.closeBlockHash, b.closeMerkleProof, b.closeTxIndex);
         // (b) DEFECT-2 REGRESSION: the LP must still be able to close with that SAME absurd
         // checkpoint standing. Without the submitter gate, any attested hop could attest

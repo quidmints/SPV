@@ -1284,16 +1284,26 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///         funding outpoint, which `_verifySplice` rotates — an earlier attempt bound the
     ///         keys that way and failed for every SPLICED channel (E153).**
     ///      ② If the tx pays a continuing 2-of-2 of those keys, it is a SPLICE, not a close.
-    function _requireCloseNotSplice(
-        bytes32 channelId, Types.OpenParams calldata p, bytes calldata rawCloseTx
+    /// @dev Does `rawTx` END this channel, or CONTINUE it? A splice recreates the 2-of-2 and the
+    ///      channel lives on; a close/dead-man exit leaves no such output. Both retirement paths
+    ///      (`recordClose`, `recordDeadManExit`) need this, and neither can tell without the two
+    ///      pubkeys — which is why they take `p` and why `keysHash` is pinned at open.
+    ///      ⚠️ THE KEYS CHECK IS NOT CEREMONY: without it a caller could pass ANY key pair, and the
+    ///      derived 2-of-2 script would match nothing in the tx, so the splice test would pass
+    ///      vacuously and a continuation would retire the position. The check is what makes the
+    ///      absence of that output MEAN something.
+    function _requireNotSplice(
+        bytes32 channelId, Types.OpenParams calldata p, bytes calldata rawTx
     ) private view {
-        require(keccak256(abi.encode(p.lpPubkey, p.hopPubkey)) == channels[channelId].keysHash,
-                "recordClose: keys do not match this channel");
-        if (BitcoinTx.sumOutputValuesToScript(rawCloseTx,
+        if (keccak256(abi.encode(p.lpPubkey, p.hopPubkey)) != channels[channelId].keysHash)
+            revert ChannelKeysMismatch();
+        if (BitcoinTx.sumOutputValuesToScript(rawTx,
                 abi.encodePacked(hex"5120",
                     MuSig2Agg.computeOutputKey(p.lpPubkey, p.hopPubkey))) > 0)
             revert SpliceIsNotAClose();
     }
+
+    error ChannelKeysMismatch();   // p.lpPubkey/p.hopPubkey != the keysHash pinned at open
 
     /// @param p this channel's `OpenParams` — only `lpPubkey`/`hopPubkey` are read, and both
     ///        are checked against the `keysHash` pinned at open.
@@ -1317,7 +1327,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         //   PERMISSIONLESS — a channel can be retired once Bitcoin confirms the close, with no
         //   dependence on hop OR LP liveness. Same shape as every other liveness fix here:
         //   remove the named party, keep the cryptographic bound.
-        _requireCloseNotSplice(channelId, p, rawCloseTx);
+        _requireNotSplice(channelId, p, rawCloseTx);
         _verifyTxSpendsChannel(channelId, rawCloseTx,
             closeBlockHash, merkleProof, txIndex);
         // Cooperative → the LP's co-signed BTC payout; non-cooperative → funded
@@ -1375,22 +1385,39 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///         no check — Bitcoin consensus will not confirm a CLTV tx before its locktime, so an
     ///         SPV-proven confirmation IS the proof it matured.
     ///
-    ///         AUTHORITY: the LP only. It is the party still present once the fleet is gone, and
-    ///         it cannot grief itself — retiring forfeits its own position (same reasoning
-    ///         `recordClose` gives for participant-gating). This deliberately does NOT accept a
-    ///         splice tx that happened to share the deadline's locktime: a splice recreates the
-    ///         funding output and the channel continues, so retiring on one would strand it.
+    ///         AUTHORITY: PERMISSIONLESS (E155). It was LP-only, on the stated grounds that this is
+    ///         "the same reasoning `recordClose` gives for participant-gating" — and **E153 deleted
+    ///         that reasoning**: the gate there was a PROXY for a missing splice-vs-close
+    ///         discriminator, and once the discriminator exists the identity of the submitter adds
+    ///         nothing. The payout is pinned to `btcRecipientOf` inside the signed bytes, so no
+    ///         submitter can redirect a satoshi.
+    ///         🔑 AND THE GATE WAS WORSE THAN REDUNDANT — IT CREATED THE HAZARD THIS FUNCTION EXISTS
+    ///         TO PREVENT. Once the exit confirms, the BTC has LEFT the 2-of-2. If the EVM does not
+    ///         follow, it keeps counting gone-BTC as backing (`:1368`). Gating on the LP meant an LP
+    ///         who lost its key, or simply never came back, left the position permanently
+    ///         un-retirable — QU!D mintable against BTC that is provably gone, reachable by
+    ///         ABSENCE rather than by attack. A reconciliation that MUST happen cannot be gated on
+    ///         one party choosing to show up.
+    ///         ⚠️ THE SPLICE REJECTION IS NOW REAL. The comment here USED to claim this "deliberately
+    ///         does NOT accept a splice tx that happened to share the deadline's locktime" — nothing
+    ///         enforced it. `_verifyTxSpendsChannel` deliberately ACCOMMODATES splices (it scans all
+    ///         inputs precisely because a splice carries extra ones), and locktime equality was the
+    ///         only test. A hop chooses BOTH the `cltvDeadline` it records here AND its splice's
+    ///         nLockTime, so it could make them equal and retire a live channel — wiping the LP's
+    ///         position while its sats stayed in a 2-of-2 the hop co-controls. `_requireNotSplice`
+    ///         now enforces what the comment promised.
     function recordDeadManExit(
         bytes32 channelId,
+        Types.OpenParams calldata p,
         bytes calldata rawExitTx,
         bytes32 exitBlockHash,
         bytes32[] calldata merkleProof,
         uint    txIndex
     ) external nonReentrant whenOpen(channelId) {
         address lpEth = channels[channelId].lpEth;
-        if (msg.sender != lpEth) revert NotLP();
         uint64 deadline = deadManDeadline[channelId];
         if (deadline == 0) revert NoDeadManExit();
+        _requireNotSplice(channelId, p, rawExitTx);
         _verifyTxSpendsChannel(channelId, rawExitTx, exitBlockHash, merkleProof, txIndex);
         if (BitcoinTx.extractLocktime(rawExitTx) != deadline) revert NotDeadManExit();
         // Same attribution as a cooperative close: sum every output paying the LP's committed
