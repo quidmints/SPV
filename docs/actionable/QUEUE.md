@@ -10110,3 +10110,31 @@ ELIMINATED FIRST** — it is the cheapest and the most likely.
 first has evidence.
 📌 The worktree is left in place at `scratchpad/clean-wt` (baseline artifacts cached, warm run ~123s
 vs 342s cold) — reuse it rather than rebuilding.
+
+### 🔬 UNIT-B-SLOWDEL-CAUSE — it is a STORAGE-LAYOUT shift, not gas. `Core`'s slot ORDER is load-bearing.
+
+**Candidate (c) ELIMINATED FIRST, as booked:** `git diff` on the worktree is EXACTLY the four intended
+edits — **1 insertion, 7 deletions**, nothing else. The behaviour change is real.
+
+**TRACED (`-vvvv`, `test_E60_MockDustUnderAnActivatedProtocolFee`):**
+`← [Revert] unrecognized function selector 0x70a08231 for contract 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a`
+`0x70a08231` is **`balanceOf(address)`**. A getter returned `0xf62849…` and the caller invoked
+`balanceOf` on it — **but that address is not a token.** So after deleting two `Flow` slots, an
+address-returning read hands back the WRONG CONTRACT.
+⇒ **LEADING HYPOTHESIS: removing `_flowSlowBTC`/`_flowSlowETH` shifted every subsequent slot by 2, and
+something addresses `Core`'s storage ABSOLUTELY** (assembly, a `vm.store` in a harness, or a
+layout-coupled deploy step) rather than by name. **NOT yet confirmed — confirm by identifying WHICH
+getter returned `0xf62849…` and what now sits at its slot.**
+⇒ ⛔ **This kills candidate (a) (incidental gas/dust sensitivity), the explanation I would have
+preferred because it left my "dead state" claim intact.** A wrong-address read is not a gas artifact.
+
+▶️ **AND IT GIVES A CHEAP FIX THAT KEEPS THE BYTES — TEST THIS NEXT:** delete the CODE, keep the
+SLOTS. Replace the two declarations with padding of identical shape
+(`Flow private __gap_flowSlow1; Flow private __gap_flowSlow2;` in the SAME position) and drop only
+the second `_bumpEwma` + the `min` read. Layout is preserved by construction, the SSTORE-per-swap and
+the read logic still go, and most of the +76 bytes should remain. **Acceptance: worktree run returns
+to 4,403 total / 1 failed** (the pre-existing round-trip drain only).
+⚠️ **STANDING CONSEQUENCE BEYOND THIS ITEM: treat `Core`'s STATE-VARIABLE ORDER as load-bearing.**
+Any future deletion or reordering of `Core` state — including further EIP-170 recovery — must either
+preserve slots with padding or first prove nothing addresses those slots absolutely. This is not
+documented anywhere in the contract today.
