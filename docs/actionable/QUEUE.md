@@ -10392,3 +10392,44 @@ doubly unreliable.
    A refill that is LVR-optimal but leaves withdrawals mis-attributed HAS NOT SOLVED THIS.**
    ⇒ **This is also the real answer to "is the skew material?" — materiality is not only 0.04% of a
    swapper's bill; it is whether LP exits are computed correctly.**
+
+### 🔴🔴🔴 SKEW-SYNTHESIS-CORRECTIONS-3 — §UNIT-FORELLA undercuts the INSTRUMENT of today's §UNIT-B work. And §UNIT-D outranks all of it by RISK.
+
+6. ⛔⛔ **`test_E71` MEASURES THE WRONG PROPERTY — AND IT IS THE INSTRUMENT BEHIND EVERY §UNIT-B NUMBER
+   I PRODUCED TODAY.** §UNIT-FORELLA, citing §UNIT-RECOVERED: *"this is **level-vs-marginal, NOT
+   consolidation** — `test_E71` measures the wrong property."* The integral's purpose was that **a
+   swap be charged for the imbalance it CREATES, not the standing level it arrives into** (*"the
+   level-sizing defect cuts both ways: it OVERCHARGES innocent later flow AND UNDERCHARGES the large
+   imbalancer"*). ⇒ **The 13.71%, its per-leg split (21,009 / 24,349) and the "consolidation discount"
+   framing all sit on a test already booked as measuring the wrong thing.** The TARGET-RAMP mechanism
+   I observed directly (380,432 → 467,694, §UNIT-B-MECHANISM) is a real, independently-measured fact
+   and survives; **the "consolidation discount" INTERPRETATION built on it does not.**
+
+7. 🔴🔴🔴 **PATH-INDEPENDENCE IS A HOLE, NOT THE GOAL — AND IT INTERACTS WITH THE OWNER'S DECISION.**
+   *"The integral is PATH-INDEPENDENT… correct against SPLITTING. **But a TROLLER'S MOTION IS A
+   CLOSED LOOP, and a path-independent measure is BLIND TO CLOSED LOOPS BY CONSTRUCTION.** Nudge q out
+   and back, repeatedly: ~zero net skew, extraction on every leg."* §UNIT-FORELLA predicted my exact
+   failure — *"I called it a virtue all day"* — and I did it again today.
+   ⚠️ **JOINT-ANALYSIS FLAG (do NOT design these separately):** the owner's decision (*the target must
+   not include the trade's own flow*) is about the **YARDSTICK** moving; §UNIT-FORELLA is about the
+   **MEASURE** (net displacement `q₁−q₀` vs total variation `Σ|dq|`). A naive "freeze the target
+   across a window" could satisfy the first **while making closed loops even cheaper** — the second's
+   whole concern. **The required asymmetry is: path-INDEPENDENT WITHIN a swap (splitting buys nothing)
+   + path-DEPENDENT ACROSS a sequence (oscillation charged).** §UNIT-FORELLA says ONE measure delivers
+   both: charge **`Σ|dq|`**, under which a monotone honest swapper pays **EXACTLY what they pay today**
+   (the two measures coincide on monotone paths — not a repricing of legitimate flow) while a troller
+   pays per leg, cost growing LINEARLY in drags. 📌 **No new state: `skewPremiumCum` is already
+   monotonic and `Flow{vol,ts}` + `_decayed` gives the trailing window.** ⚠️ Frame-check (`q` is built
+   from ABSOLUTE quantities, so it survives a reseat and a troller cannot reset accrued path cost)
+   **is reasoned, NOT tested — verify with a test before relying on it.**
+
+8. 🔴🔴 **§UNIT-D OUTRANKS EVERY SKEW ITEM BY RISK, AND IS INDEPENDENT OF ALL OF THEM — RUN IT IN
+   PARALLEL, NOW.** `SPVGateway._initialize` takes `(header, height, cumulativeWork)` and calls
+   `_addBlock` with **NO validation**; `DeployLib.sol:160` passes `cfg.spvCheckpoint*` straight
+   through. **A ROUTINE 1-2 block reorg orphans a shallow checkpoint**, every later `addBlockHeader`
+   fails the `prevBlockHash` link, and `initializer` means the gateway can **NEVER be re-initialised**
+   — *"a normal, expected Bitcoin event bricks it permanently."* And it is **LATENT**: `DeployLib`
+   never calls `addBlockHeader`, so it surfaces only when a keeper first submits a header, as a link
+   failure nobody attributes to the checkpoint. ⇒ **Fix at the DEPLOY layer: require the checkpoint
+   buried (6 conventional, 100 for comfort); `cumulativeWork_` is equally unvalidated.**
+   ⇒ **It is the only open item that is IRREVERSIBLE if it fires. Everything above is recoverable.**
