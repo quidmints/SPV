@@ -309,7 +309,7 @@ contract BtcSelfManagedTest is Alles {
             // `SmartWalletLp` does. What it proves is the SPV/channel machinery downstream, on
             // real regtest data, and that is why the fixture did not need regenerating.
             address lpEth = ECDSA.recover(
-                ch.openAuthDigest(hop, payout, p.fundingTaproot, p.amountSats), b.lpAuth);
+                ch.openAuthDigest(hop, payout), b.lpAuth);
             vm.prank(hop);
             channelId =
                 ch.openChannel(p, b.rawFundingTx, b.fundingMerkleProof,

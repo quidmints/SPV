@@ -73,7 +73,7 @@ contract SmartWalletLpTest is Test {
     /// A Safe's ERC-1271 signature is ACCEPTED: the open gets past consent and dies on the funding
     /// proof instead. If 1271 were unsupported this would revert `InvalidParam` right here.
     function test_smartWalletLp_consentIsAccepted() public {
-        bytes32 d = ch.openAuthDigest(address(this), _payout(), Q, 100_000);
+        bytes32 d = ch.openAuthDigest(address(this), _payout());
         vm.expectRevert();   // reverts BEYOND consent, on the absent SPV proof
         _open(address(wallet), _sign(ownerPk, d));
         // The discriminating half: a signature from a NON-owner is refused AT consent.
@@ -85,7 +85,7 @@ contract SmartWalletLpTest is Test {
     /// The EOA path is untouched — that is the whole point of one shared verifier.
     function test_eoaPathStillWorksUnchanged() public {
         (address lp, uint lpPk) = makeAddrAndKey("eoa-lp");
-        bytes32 d = ch.openAuthDigest(address(this), _payout(), Q, 100_000);
+        bytes32 d = ch.openAuthDigest(address(this), _payout());
         vm.expectRevert();   // past consent, dies on the funding proof
         _open(lp, _sign(lpPk, d));
         vm.expectRevert(BTCChannels.InvalidParam.selector);
@@ -97,7 +97,7 @@ contract SmartWalletLpTest is Test {
     /// E157 deleted the counter, so this is now the ONLY revocation a smart-wallet LP has — which
     /// is exactly why it is asserted rather than assumed.
     function test_ownerRotationRevokesAPriorSignature() public {
-        bytes32 d = ch.openAuthDigest(address(this), _payout(), Q, 100_000);
+        bytes32 d = ch.openAuthDigest(address(this), _payout());
         bytes memory sig = _sign(ownerPk, d);
         wallet.setOwner(address(0xDEAD));           // the Safe rotates owners
         vm.expectRevert(BTCChannels.InvalidParam.selector);

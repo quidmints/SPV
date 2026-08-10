@@ -96,7 +96,7 @@ contract VBtcLevFeeLane is Alles {
         Types.OpenParams memory p_, bytes memory fundingTx_
     ) private returns (bytes32 cid) {
         bytes memory dsig = _signOpen(
-            lpPk_, ch_.openAuthDigest(makeAddr("hop"), payout_, p_.fundingTaproot, p_.amountSats));
+            lpPk_, ch_.openAuthDigest(makeAddr("hop"), payout_));
         vm.prank(makeAddr("hop"));
         cid = ch_.openChannel(p_, fundingTx_, new bytes32[](0),
             Types.OpenAuth({lpEth: lpEth_, btcRecipient: payout_, lpSig: dsig}),

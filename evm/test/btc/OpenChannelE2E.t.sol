@@ -117,7 +117,7 @@ contract OpenChannelE2ETest is Test {
         // btcRecipientOf[lpEth]=payout and credits the position to lpEth.
         address lpEth = vm.addr(lpPk);
         bytes memory dsig = _signOpen(lpPk,
-            ch.openAuthDigest(address(0xB0B), payout, p.fundingTaproot, p.amountSats));
+            ch.openAuthDigest(address(0xB0B), payout));
         vm.prank(address(0xB0B)); // must be the hop the LP signed for
         channelId = ch.openChannel(p, rawTx, vm.parseJsonBytes32Array(json, ".merkleBranch"),
             Types.OpenAuth({lpEth: lpEth, btcRecipient: payout, lpSig: dsig}),

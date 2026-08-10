@@ -79,7 +79,7 @@ contract BtcLpMintStress is Alles {
         bytes32 payout = _validXOnly(abi.encode("lp-shutdown-xonly", p.lpPubkey));
         // (E157) The LP signs ONCE for THIS channel and the hop submits that consent with the
         // open — pinning btcRecipientOf=payout and naming the hop, in one transaction.
-        bytes memory dsig = _signOpen(lpPk, ch.openAuthDigest(makeAddr("hop"), payout, p.fundingTaproot, p.amountSats));
+        bytes memory dsig = _signOpen(lpPk, ch.openAuthDigest(makeAddr("hop"), payout));
         vm.prank(makeAddr("hop")); // must be the hop the LP signed for
         channelId = ch.openChannel(p, fundingTx, new bytes32[](0),
             Types.OpenAuth({lpEth: lpEth, btcRecipient: payout, lpSig: dsig}),

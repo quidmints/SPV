@@ -675,32 +675,46 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///         `authority` (a concrete hop, OR THE Safe-governed hopRegistry for fleet mode).
     ///         Binds chainId + this contract + authority + payout script + version, so it
     ///         can't be replayed to another deployment; a higher version supersedes.
-    /// @notice (E157) What the LP signs to open ONE channel. Binds the four things its consent is
-    ///         actually about: WHO operates the channel (`hop`), WHERE its BTC pays out
-    ///         (`btcRecipient`), WHICH 2-of-2 holds it (`fundingTaproot` = Q), and HOW MUCH
-    ///         (`amountSats`).
-    /// @dev ⚠️ WHY Q AND NOT THE FUNDING OUTPOINT — this was written against `(fundingTxId, vout)`
-    ///      first, which is strictly more precise, and it is recorded here because the weaker bind
-    ///      is a CHOICE, not an oversight. Nobody can cheaply produce a txid: `BitcoinTx.txid` is
-    ///      `internal` over `bytes calldata`, so every off-chain signer (and every test) would need
-    ///      a serialisation path just to know what it is signing, and a digest whose inputs are
-    ///      hard to reproduce is a digest that gets reproduced WRONG.
-    ///      What the weaker bind costs, stated plainly: the same bytes would open a SECOND channel
-    ///      against a different funding output paying the SAME Q for the SAME amount. That needs
-    ///      the fleet to deliberately re-fund a per-channel taproot with identical value, and
-    ///      `OneChannelPerLp` blocks any concurrent duplicate — so the reopened channel is
-    ///      materially the one the LP consented to: same operator, same payout, same size.
-    function openAuthDigest(
-        address hop, bytes32 btcRecipient, bytes32 fundingTaproot, uint amountSats
-    ) public view returns (bytes32) {
+    /// @notice (E157-b) What the LP signs so a hop may open its channel. ONE signature, made at
+    ///         onboarding, presented by the daemon at open. No transaction, no counter, no
+    ///         EOA/smart-wallet split — but still a signature, and this is why.
+    ///
+    /// 🔑 WHY CONSENT CANNOT BE DELETED BY secp256k1, THOUGH HALF OF §E125 DID LAND. E125's route
+    ///    had two halves: (1) prove `Q == KeyAgg(lpPubkey, hopPubkey)` and (2) derive `lpEth` from
+    ///    `lpPubkey`. **(1) IS LIVE** — `MuSig2Agg.isTwoOfTwoOutputKey` in `openChannel` — and it
+    ///    closed the hole where a hop opened with ANY Q. **(2) IS REFUTED TWICE**: §E125-r measured
+    ///    that `lpPubkey` is the PER-CHANNEL funding key (folded into `channelId`), so deriving
+    ///    yields a different EVM address per channel and FRAGMENTS the LP's position; §E125-d
+    ///    (owner) ruled derivation out because a derived address IS an EOA address and forecloses
+    ///    smart wallets. E125's own words on what is left: *"NOTHING on the Bitcoin side identifies
+    ///    the LP to the EVM; `lpEth` can only be ASSERTED, and only an LP signature makes the
+    ///    assertion trustworthy."*
+    /// ⚠️ AND ITS PREMISE DOES NOT HOLD FOR VAULT LPs. E125 argued the LP *"already co-signs the
+    ///    Bitcoin funding, so that signature does double duty"* — but the fleet holds BOTH funding
+    ///    halves (`quid-bridge/src/deadman_exit.rs`), so a vault LP co-signs NOTHING on either
+    ///    chain. Absent this signature a hop could name any `lpEth` and any `btcRecipient` and take
+    ///    the position outright. **Security, not ceremony.**
+    ///
+    /// 🔑 WHY IT BINDS NEITHER Q NOR `amountSats`, HAVING BRIEFLY BOUND BOTH. A per-channel digest
+    ///    is tighter and was written first. It is UNSIGNABLE by the only party that may sign it:
+    ///    `Q` comes from per-channel LDK keys generated AFTER the LP's deposit, so binding it
+    ///    forces the LP ONLINE AT OPEN — and the vault flow is built the other way
+    ///    (`channel_driver.rs:698`: *"there is NO lpAuth round-trip: the LP runs nothing"*).
+    ///    Standing-ness is what lets consent PRECEDE the channel, and it is the one property of
+    ///    `registerDelegation` that was load-bearing.
+    /// ⚠️ THE TRADE, ACCEPTED NOT DISCOVERED: these bytes replay for the same (hop, btcRecipient).
+    ///    That IS their meaning — "this hop may run my channels, paying me here" — and a replay
+    ///    opens a channel FOR the LP, PAYING the LP, funded by someone else's sats, with
+    ///    `OneChannelPerLp` allowing one at a time. What is genuinely lost is EOA revocation, which
+    ///    `delegationVersion` provided; a smart-wallet LP still revokes by rotating owners.
+    ///    §E125 flagged exactly this ("valid forever and cannot be revoked"), so it is a KNOWN cost.
+    function openAuthDigest(address hop, bytes32 btcRecipient) public view returns (bytes32) {
         return keccak256(abi.encode(
             keccak256("BTCChannels.open.v1"),
             block.chainid,
             address(this),
             hop,
-            btcRecipient,
-            fundingTaproot,
-            amountSats
+            btcRecipient
         ));
     }
 
@@ -733,7 +747,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // only what a FAILING open pays. `SignatureChecker` serves BOTH LP kinds, so the
         // EOA/smart-wallet entrypoint split is gone with the standing registration that forced it.
         if (!SignatureChecker.isValidSignatureNow(lpEth,
-                openAuthDigest(msg.sender, auth.btcRecipient, p.fundingTaproot, p.amountSats),
+                openAuthDigest(msg.sender, auth.btcRecipient),
                 auth.lpSig))
             revert InvalidParam();
         // Pin + LOCK the payout — the sole destination recordClose/_withdrawalPayout will enforce.

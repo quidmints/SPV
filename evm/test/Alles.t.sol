@@ -303,7 +303,7 @@ contract Alles is ForkPin, Fixtures {
         bytes32 payout = _validXOnly(abi.encode("lp-shutdown-xonly", p.lpPubkey));
         // (E157) The LP's consent rides WITH the open — no prior registerDelegation tx. It pins
         // btcRecipientOf[lpEth]=payout and names `hop` as this channel's operator.
-        bytes memory dsig = _signDigest(lpPk, ch.openAuthDigest(hop, payout, p.fundingTaproot, p.amountSats));
+        bytes memory dsig = _signDigest(lpPk, ch.openAuthDigest(hop, payout));
         vm.prank(hop);
         cid = ch.openChannel(p, fundingTx, merkleBranch,
             Types.OpenAuth({lpEth: lpEth, btcRecipient: payout, lpSig: dsig}), Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0, signedExitTx: hex"00"}));
@@ -317,7 +317,7 @@ contract Alles is ForkPin, Fixtures {
         Types.OpenParams memory p_, bytes memory fundingTx_
     ) private returns (bytes32 cid) {
         bytes memory dsig =
-            _signDigest(lpPk_, ch_.openAuthDigest(hop_, payout_, p_.fundingTaproot, p_.amountSats));
+            _signDigest(lpPk_, ch_.openAuthDigest(hop_, payout_));
         vm.prank(hop_);
         cid = ch_.openChannel(p_, fundingTx_, new bytes32[](0),
             Types.OpenAuth({lpEth: lpEth_, btcRecipient: payout_, lpSig: dsig}),
