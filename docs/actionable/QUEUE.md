@@ -10468,3 +10468,32 @@ never proposed.
 conclusion it does not support (therefore add validation). The other two were the per-share
 accumulator and "delete the skew". **The tell each time: I proposed the remedy before reading the
 mechanism.**
+
+### 🎯 CORE-ONLYUS-INLINE — the other thread's rule 8c applies to `Core`, and may reopen a conclusion I closed today.
+
+**FINDING (cited, not inferred):** `Core.sol:530` declares `modifier onlyUs` whose body is **three
+storage reads** (`AUX`, `VOGUE`, `BTCVAULT` — `Core.sol:459`), three address comparisons and a
+`require(..., "403")`. `grep -cE "\bonlyUs\b" src/Core.sol` = **19 refs ⇒ 18 USE SITES**.
+
+**CROSS-THREAD LINK (their work, uncommitted in the tree at time of writing):** a concurrent thread
+added **CLAUDE.md rule 8c** — *"a modifier's body is **inlined at every use site**, so N uses means N
+copies in bytecode; a function is one routine and N jumps"* — **measured (E164): four gates as one
+`onlyHop` modifier grew `BTCChannels` by 968 bytes; the same check as `_onlyHop()` gave 200 back.**
+⇒ `Core` has the identical pattern at **18 sites with a heavier body** (3 SLOADs vs their gate).
+
+⚠️ **REMEDY IS A HYPOTHESIS — THE SAVING IS UNMEASURED. Do not quote a number.** Their 968/200 are
+for `BTCChannels`' gate, not `onlyUs`; body size and use count both differ. Convert to
+`function _onlyUs() private view { ... }` called as the first statement, measure with
+`python3 tools/check-contract-sizes.py`, and run the suite in a PINNED WORKTREE (the shared tree is
+unstable — §TREE-UNSTABLE).
+
+▶️ **WHY IT MATTERS BEYOND HOUSEKEEPING — IT MAY REOPEN §UNIT-B-SLOTS-RECLAIM.** I closed that today
+on a measurement: a `mocks()` getter costs **91–98 bytes**, more than the 76 freed by
+§UNIT-B-SLOWDEL-PADDING, leaving `Core` tighter than the 28 it started at. **If `_onlyUs()` frees
+materially more than ~100 bytes, that conclusion changes**: the getter becomes affordable, the dust
+monitor stops reading raw slots, and the harness's coupling to `Core`'s state ORDER — the thing that
+made deleting two slots fail with an unrecognised `balanceOf` selector — dissolves. **`Core` sat at
+28 bytes and was flagged frozen for additions all session; this is the largest remaining lever on
+that constraint.**
+📌 Sequence: measure `_onlyUs()` FIRST (alone, one change, prediction stated), and only then re-open
+the getter — one money-path change per run.
