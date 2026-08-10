@@ -9688,3 +9688,34 @@ the deliberate choice to overturn, not a bug to patch. **NOT VALIDATED against t
 | **E140-r** | 🔑 **§E140 IS MIS-FRAMED AND THE MIS-FRAMING BLOCKS §E128: solarity's `TxParser` is not merely a SUBTRACTION, it supplies the one capability `BitcoinTx` REFUSES (2026-08-10).** 🔴 **`BitcoinTx._assertLegacy` (`:70-72`) REJECTS any witness-carrying tx (`raw[4] == 0x00` is the segwit marker). A fully-signed key-path taproot exit NECESSARILY carries a witness ⇒ **`BitcoinTx` cannot parse `signedExitTx` AT ALL** — not its locktime, not its outputs, let alone a signature.** ✅ **VERIFIED IN THE FILE, NOT THE QUEUE (`evm/lib/solidity-lib/contracts/libs/bitcoin/TxParser.sol`): `struct TransactionInput { …; bytes[] witnesses; }` — it EXPOSES the per-input witness stack, which is exactly where a key-path Schnorr signature lives; marker/flag handled with `InvalidFlag`; both `calculateTxId` (stripped) and `calculateWTxId`; plus `_removeWitness`.** ⇒ **ORDERING CORRECTION: §E140 is a PREREQUISITE for §E128, not cleanup afterwards.** §E140's own text already NOTED `calculateWTxId`/`_removeWitness` and still filed it under duplication — **the capability was written down and its significance missed.** ▶️ **§E128 PATH, now concrete: parse with `TxParser` → structural (input spends the funding outpoint · an output pays `_lpPayoutScript` · locktime == deadline) → BIP-340 verify `inputs[0].witnesses[0]` under `Q` over the BIP-341 sighash. The sighash needs EVERY prevout's value+SPK (`Prevouts::All`): funding is known on-chain, the FRESHNESS prevout must be caller-supplied — **safe, because supplying it wrong just fails verification.**** | 🔑 BitcoinTx can't parse witnesses at all; TxParser can — E140 gates E128 |
 
 | **E158-no-seed-migration** | 🎯 **ANSWER TO 'SECURE AGAINST A 4-of-7 SAFE COMPROMISE': DO NOT MIGRATE SEEDS AT ALL (owner asked, 2026-08-10).** 🔑 **The compromise only bites because a whitelisted image can INHERIT an existing channel's seed. Remove that path and the question dissolves: an upgrade runs the new image ALONGSIDE the old; NEW channels open under it; **EXISTING channels stay bound to the image that opened them** and drain by close/splice-out. Funding keys are sealed to the old MRENCLAVE and there is NO re-sealing path ⇒ **a compromised Safe cannot reach any channel that already exists.**** ✅ **BLAST RADIUS BOUNDED BY CONSTRUCTION, NOT BY VIGILANCE: a 4-of-7 compromise can only offer bad terms to LPs who open AFTER it, and those LPs can check the whitelist tx against the reproducible build during the timelock. **No quorum, no veto protocol, no panic — there is nothing to adjudicate.** This also retires §E158-upgrade-authority's key-splitting proposal for a second, independent reason.** ⚠️ **COST, STATED: old images keep running until their last channel closes.** 🔗 **HARD DEPENDENCY ON §E158-freshness-killswitch: this holds ONLY if the FRESHNESS UTXO does not migrate either. It is fleet-controlled and SHARED today, so a malicious new image inheriting that key could still invalidate every OLD channel's exit in one tx. **Scoping freshness per-channel (or at minimum per-image) is what closes it — the two findings are ONE fix.**** | 🎯 no seed migration ⇒ Safe compromise can't reach existing channels; needs non-global freshness |
+
+### UNIT-B — CONFIRMED LIVE AND QUANTIFIED post-UNIT-A: the consolidation discount is 13.71%, WORSE than 9.73%. 🔴 OPEN.
+
+**Measured 2026-08-10, `test_E71_OneBigDrainIsNotCheaperThanTheSameVolumeSplit`**, with UNIT-A landed
+so the base is actually reachable:
+
+| leg | skew charged (usd6) |
+|---|---|
+| ONE 120,000 drain | **21,009** |
+| twelve of 10,000  | **24,349** |
+| **discount** | **1,371 bps = 13.71%** (booked figure was 9.73% — it got WORSE) |
+
+✅ **THE CONTROL §UNIT-B-STALE-RETRACT DEMANDED IS NOW IN THE TEST AND PASSES.** That retraction stood
+because a path-independent result and a no-skew-charged result are indistinguishable from the
+trader's receipt. Both legs now assert `skew > 0` (21,009 / 24,349), so the ambiguity is closed and
+**§UNIT-B-STALE ("the discount is GONE") is definitively REFUTED.** A correct integral is
+path-independent BY CONSTRUCTION ⇒ the residual is in the TARGET, not the kernel, exactly as booked.
+
+⚠️ **TWO TRUE MEASUREMENTS THAT DISAGREE — DO NOT QUOTE ONE ALONE.** The same run emits
+*"TRADER-SIDE: PATH-INDEPENDENT to within rounding — consolidation buys NOTHING."* Both are correct;
+they use different denominators and answer different questions:
+  • **vs trade size** — gap is 1.73e-6 ETH on 62.18 ETH = **2.8e-8**. ⇒ *No arbitrage worth doing
+    today*: the gap is dwarfed by fees and gas. The trader-side test is RIGHT for its purpose.
+  • **vs skew charged** — the same gap is **13.71% of the skew**. ⇒ *The integral is not
+    path-independent*, which is the STRUCTURAL precondition §UNIT-B-BLOCKS-C requires before a signed
+    /two-sided curve is safe. A 1-bp-of-notional floor cannot see a 13.71%-of-skew defect.
+⇒ **The trader-side framing is why this looked closed. Judge path-independence against the SKEW.**
+
+▶️ **ORDER CONFIRMED FROM THE FILE (I had asserted the reverse from memory):** §UNIT-A ✅ →
+**§UNIT-B (here)** → then the two-sided curve, with §UNIT-C-BAR deciding whether it is needed.
+*"Building the signed side before §UNIT-B ships an exploit."* §UNIT-C is GATED, not next.

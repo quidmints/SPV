@@ -1170,6 +1170,12 @@ contract DrainAtomicity is Alles {
     function test_E71_OneBigDrainIsNotCheaperThanTheSameVolumeSplit() public {
         uint TOTAL = 120_000 * 1e18;
         uint N = 12;
+        // §UNIT-B CONTROL (2026-08-10) — the discriminator §UNIT-B-STALE-RETRACT demanded. A
+        // path-independent RESULT and a NO-SKEW-CHARGED result look identical from the trader's
+        // receipt, and that ambiguity is exactly what retracted the previous "the discount is gone".
+        // Post-§UNIT-A the base is reachable, so this asserts skew was ACTUALLY charged before the
+        // gap is allowed to mean anything.
+        uint premStart = CORE.skewPremiumETH();
 
         // §E71-r3 — MEASURES THE TRADER'S RECEIPT, NOT OUR BOOKKEEPING. The prior version compared
         // `skewPremiumCum`, i.e. the protocol's own record of what it retained. That is the trap that
@@ -1183,12 +1189,14 @@ contract DrainAtomicity is Alles {
         _setupBand();
         uint invA = CORE.POOLED_ETH() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
         uint ethA = _drain(TOTAL);
+        uint premA = CORE.skewPremiumETH() - premStart;   // ledger, BIG leg (pre-revert)
         vm.revertToState(snap);
 
         _setupBand();
         uint invB = CORE.POOLED_ETH() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
         uint ethB;
         for (uint i = 0; i < N; ++i) ethB += _drain(TOTAL / N);
+        uint premB = CORE.skewPremiumETH() - premStart;   // ledger, SPLIT leg
 
         emit log_named_uint("start inv A (usd6)    ", invA);
         emit log_named_uint("start inv B (usd6)    ", invB);
@@ -1207,7 +1215,14 @@ contract DrainAtomicity is Alles {
         uint gap = ethA > ethB ? ethA - ethB : ethB - ethA;
         if (gap * 10_000 / (ethA > ethB ? ethB : ethA) == 0) {
             emit log("TRADER-SIDE: PATH-INDEPENDENT to within rounding -- consolidation buys NOTHING.");
-            emit log_named_uint("gap (wei)", gap);
+            emit log_named_uint("CONTROL skew BIG   (usd6)", premA);
+        emit log_named_uint("CONTROL skew SPLIT (usd6)", premB);
+        emit log_named_uint("consolidation discount bps", premB > premA
+            ? (premB - premA) * 10_000 / premB : 0);
+        assertGt(premA, 0, "CONTROL: skew must actually have been charged on the BIG leg, else a "
+            "'path-independent' gap is indistinguishable from no skew at all (UNIT-B-STALE-RETRACT)");
+        assertGt(premB, 0, "CONTROL: skew must actually have been charged on the SPLIT leg too");
+        emit log_named_uint("gap (wei)", gap);
         } else if (ethA > ethB) {
             emit log("TRADER-SIDE: BIG DRAIN got MORE eth for the same dollars -- ARBITRAGE IS REAL.");
             emit log_named_uint("whale advantage bps", (ethA - ethB) * 10_000 / ethB);
