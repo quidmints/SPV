@@ -10591,3 +10591,41 @@ hypothesis.** Each row above dies on that question in seconds.
 §UNIT-A-FOLLOWON's dead-vs-new-pool discriminator · the now-stale `raw >= splice` comment
 (`SwapLib:1120`) · §UNIT-C-BAR-ARMB-SPEC (scoped, unbuilt) · §UNIT-FORELLA's frame-check ·
 §UNIT-D severity (is a gateway redeploy possible?) · **§CORE-ONLYUS's suite result.**
+
+### 🎯 ORACLE-FREE-Q — can a SHARED skew premium replace Chainlink? (owner question, 2026-08-10). HYPOTHESIS — nothing measured.
+
+**MECHANISM FIRST (cited, per §LEDGER's countermeasure):** `SwapLib.twapResolve:138-166`.
+**CHAINLINK IS NOT THE ORACLE — IT IS THE CIRCUIT BREAKER.** `:151` `if (feed == address(0)) return
+(price, false)`; `:166` returns the POOL's price in the normal path. It overrides ONLY at `:162`,
+when internal vs external diverge past `maxDevBps` (**500 = 5%**, `Aux.sol:189` — *"manipulation
+territory"*). ⇒ **The pool already IS the price source.** Removing the feed removes the DETECTOR of
+"our own price is no longer trustworthy", not a price input.
+
+⚠️ **THE CIRCULARITY THAT BLOCKS A FULL REPLACEMENT:** the premium is DENOMINATED IN THE PRICE IT
+WOULD PROTECT — `q` derives from `inv = POOLED_ETH·px`, `px` pool-derived. Price intact ⇒ the
+incentive is an EFFICIENCY tool, not a safety one. Price broken ⇒ **there is no valid `px` to size
+the incentive against.** ⇒ **Not a hypothetical: `:140-150` documents the exact state** — a
+one-directional drain walked the pool to `MAX_SQRT_RATIO`, `ticksToPrice` → 0, `rebalanceCore` left
+`didRepack == false`, the band could never re-pair. **MEASURED: 8 repacks, 0 `addLiq`, $176,779 of
+basket surplus and 7.88 ETH of headroom stranded.** The feed exists for precisely this.
+
+▶️ **COMPOSITION vs PRICE — the distinction the idea turns on.** Inside a ±0.2% band, composition
+ENCODES position-in-range, so a paid refiller genuinely does hold balance — the intuition is sound
+THERE. It does NOT fix where the RANGE sits, which is set at reseat from the TWAP. **Balance is
+relative; price is absolute.** Nothing internal anchors the band's absolute location.
+
+🔴 **TWO EXPLOITABLE IMBALANCES, ONE ALREADY BOOKED AND ONE NEW:**
+1. **Closed loop (§UNIT-FORELLA, known):** a path-independent measure is blind to a troller nudging
+   `q` out and back; if refills PAY, every leg extracts. **Defence is the bound — `S_in < S_out`
+   strictly — which §UNIT-BOUND-NOT-DELETE already identifies as what makes external participation
+   non-toxic.** Applies with or without Chainlink.
+2. 🔴 **NEW, AND SPECIFIC TO DROPPING THE ANCHOR:** today an arber's profit is CAPPED by what the
+   drainer paid. Without an external reference, **manipulating the pool price ALSO INFLATES THE
+   PREMIUM THE PROTOCOL PAYS** — both are computed from the same pool-derived `px`. That converts a
+   BOUNDED extraction into a **FUNDED** one. §UNIT-VENUE-CEILING establishes the counter-flow is an
+   arber sourcing from an EXTERNAL venue, so a real external price exists to manipulate away from.
+
+🔬 **CHEAPEST TEST, AND IT IS A MEASUREMENT NOT A DEBATE:** `feed == address(0)` already disables the
+anchor PER ASSET (`:151`), so the oracle-free configuration is expressible TODAY with no code change.
+**Run the existing drain / reseat / `_reseatIfStale` suites with the feed zeroed and record which
+invariants break.** Expect the `price == 0` deadlock path first. ⚠️ Pinned worktree (§TREE-UNSTABLE).
