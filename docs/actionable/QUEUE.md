@@ -10538,3 +10538,56 @@ FORK_BLOCK=<current> forge test`. **Acceptance: 4,402 passed / 1 failed** (the p
 3. 📌 **CHECK THE SIBLINGS.** `Vogue`, `Aux`, `LevManager`, `Vault` — CLAUDE.md 8c is a general
    result and `LevManager` (24,506, 70 free) and `LevMath` (24,556, 20 free) are the other frozen
    contracts. **Same one-line shape; measure each.**
+
+| **E164-one-hop-pair** | ✅ **MULTI-HOP COLLAPSED TO TWO IMMUTABLES — and it DISSOLVES §E163 rather than fixing it (owner: *"we are getting rid of multihop (except for the fallback)… one global variable"*, 2026-08-10).** ✅ **DELETED: four `msg.sender == channels[channelId].hop` gates · two `openChannelsOf[msg.sender] != 0` gates · the `openChannelsOf` mapping and BOTH write sites · the `channel.hop` STRUCT FIELD · two client-ABI declarations. **REPLACED BY:** `MAIN_HOP` + `FALLBACK_HOP` immutables and one `_onlyHop()` check.** 🔑 **§E163 BECOMES UNREPRESENTABLE: the fallback previously could open channels and operate NONE (authority was pinned to whoever opened). Now both work everywhere by construction — **no handover, no staleness clock, no nomination, no heartbeat.** All of E122's machinery existed because the fallback was PER-LP AND SEPARATELY TRUSTED; a single hardcoded fallback in the same trust domain needs none of it.** 🔑 **GOVERNANCE LEAVES THE ACCESS-CONTROL PATH: there is NO SETTER. A compromised Safe can still bless enclave IMAGES but can never add an operator — the lever a 4-of-7 compromise pulls. Owner: **one deployment only**, so per-test repinning is scaffolding, not a production concern.** 📊 **SIZE, and it contradicts the intuition that deletions shrink: 20,223 → **21,191 with the `onlyHop` MODIFIER (+968)** → 20,991 as a `private view` fn + `openChannelsOf` gone → **20,895** with `channel.hop` deleted. Net +672 (the immutables + constructor check are real new code), but per-channel STORAGE is gone — one less slot written at every open.** ⚠️ **WHAT IS LOST, DELIBERATELY: which of the two hops opened a channel is no longer on-chain queryable — it survives only in `ChannelOpened`. Stated in `Types.sol` AND `abi.ts` so it is not rediscovered as a bug.** 🔴 **AND A REAL CONSEQUENCE TO TRACK: removing `openChannelsOf` from `settleSwapIn` deletes the last skin-in-the-game proxy on the phantom-swap-in path (*"owns an open channel = has real BTC locked"*). It was always illusory with ONE operator — but the pool's protection now rests ENTIRELY on §E159's SPV proof, which is UNBUILT. **§E159 is load-bearing now, not an improvement.**** | ✅ four gates + a mapping + a struct field → two immutables and one view check; E163 dissolved |
+
+| **E164-b-rule-modifiers** | 🔑 **STANDING RULE (owner, 2026-08-10): PREFER A `private view` CHECK OVER A MODIFIER — recorded as CLAUDE.md rule 8c.** **A modifier's body is INLINED at every use site**, so N uses = N copies of the check in bytecode; a function is one routine and N jumps. **MEASURED: the `onlyHop` modifier cost +968 BYTES of `BTCChannels`** — on a contract whose deploy margin is the binding constraint — and the identical check as `_onlyHop()` gave 200 back. **Modifiers read well and cost size.** | 🔑 rule 8c: view fn, not modifier; +968 bytes measured |
+
+### 📒 LEDGER-2026-08-10 — EVERY CONCLUSION FROM THIS SESSION, CLASSIFIED **MEASURED / REASONED / DECIDED**. Read this first.
+
+**Why this exists:** today's discriminator, and the only one that held — **every error I caught, I
+caught by RUNNING something; every error I missed, I had REASONED to.** Both modes read identically
+in prose. The marker column (🔴/✅) encodes SEVERITY, not EPISTEMIC STATUS, which is how §UNIT-A sat
+at 🔴🔴🔴 after landing. **Trust column 1. Re-derive column 2 before building on it.**
+
+**① MEASURED — a run produced the number. Reproducible; quote freely.**
+| claim | number |
+|---|---|
+| §E42 premium leak closed at source | redeemable Δ **+$6.000099 → +$0.000006** |
+| §E2-#1 mint at the mark | paid **$50,000.00** → claim **$49,999.999998** (was ~$45,950) |
+| §E2 day-one two-minter | supply **462,378** vs dollars **352,000**; A still redeems **par** |
+| §UNIT-B target ramp | **380,432 → 467,694** across the split; BIG leg flat at 380,432 |
+| §UNIT-B-MIN-IS-NOOP | the two flow registers are **byte-identical** after a 3-day gap (`vm.load`) |
+| §UNIT-B-SLOWDEL arms | baseline **4,402/1** · deletion **4,399/3** · padding **4,401/1** |
+| §UNIT-B-SLOTS-RECLAIM | `mocks()` getter costs **91 / 98 bytes** — more than the 76 freed |
+| §CORE-ONLYUS | **907 bytes**; `Core` 24,472 → 23,565 ⚠️ **COMPILE-ONLY, NO TEST RUN** |
+| §TREE-UNSTABLE | 180 `BufferOverflow` present with **zero** of my code in the tree |
+
+**② REASONED — then REFUTED. This is the whole risk surface; none was caught by me.**
+| I concluded | what killed it |
+|---|---|
+| net `USD_FEES_BTC` as dollars | it is **per-share** (`SwapLib:1392`) — quote collapsed to 0 |
+| price off the **slow** EWMA leg | slow decays LESS ⇒ is LARGER ⇒ `min` already picks fast |
+| the `min` **damps** the self-inflation | it never binds at all ⇒ 13.71% is **undamped** |
+| the dead registers are **deletable** | 2 mock-dust tests broke (**4,399/3**) |
+| `Core`'s slot order is load-bearing | it is the **HARNESS** (`vm.load` on hardcoded slots), not `Core` |
+| our pools are hookless ⇒ outsiders can LP | those were **Uniswap's** reference pools, not our band |
+| the mint is **mark-neutral** | mark still rose **0.918981 → 0.957571** (bonus is immature) |
+| **§UNIT-C is next** | the file says **§UNIT-A → §UNIT-B → curve**; C is gated |
+| "price **deleting** the skew" | owner rejected; and the 0.04% **predates §UNIT-A** |
+| the two-sided **curve** cannot exist | owner: *"it exists, we just dont know the final form yet"* |
+| §UNIT-D: **require the checkpoint buried** | **circular** — the tip oracle IS `SPVGateway` |
+**⇒ PATTERN, THREE TIMES: a true local fact converted into a remedy proposed BEFORE reading the
+mechanism.** Countermeasure: **a remedy must cite `file:line` for what it acts on, or be labelled a
+hypothesis.** Each row above dies on that question in seconds.
+
+**③ DECIDED BY THE OWNER — not mine to revisit without them.**
+- **The target must NOT include the trade's own flow** (⇒ path-independence semantics; the 13.71% is
+  an OVERCHARGE ON THE SPLIT, not an underpayment by the whale).
+- **Deleting the skew is not honest.**
+- **The asymmetric two-sided idea EXISTS; only the CARRIER is undetermined.**
+
+**④ STILL ONLY REASONED — DO NOT BUILD ON THESE.**
+§UNIT-A-FOLLOWON's dead-vs-new-pool discriminator · the now-stale `raw >= splice` comment
+(`SwapLib:1120`) · §UNIT-C-BAR-ARMB-SPEC (scoped, unbuilt) · §UNIT-FORELLA's frame-check ·
+§UNIT-D severity (is a gateway redeploy possible?) · **§CORE-ONLYUS's suite result.**
