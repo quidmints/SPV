@@ -59,7 +59,6 @@ const enc = {
   redeem:      (n: bigint) => iface.encodeFunctionData('redeem(uint256)', [n]),
   auxSwap:     (tIn: string, tOut: string, amt: bigint, recip: string, minOut: bigint) =>
                 iface.encodeFunctionData('auxSwap(address,address,uint256,address,uint256)', [tIn, tOut, amt, recip, minOut]),
-  exitInstant: (a: bigint, r: string) => iface.encodeFunctionData('exitInstant', [a, r]),
   redeemable:  () => iface.encodeFunctionData('redeemableAmount', []),
   twapAsset:   (asset: string, p: number) => iface.encodeFunctionData('getTWAPforAsset', [asset, p]),
   metrics:     (force: boolean) => iface.encodeFunctionData('get_metrics', [force]),
@@ -218,9 +217,6 @@ export default function QuidApp() {
   const [closeTxIndex, setCloseTxIndex] = useState('')
   const [depositAmount, setDepositAmount] = useState('')
   const [withdrawAmount, setWithdrawAmount] = useState('')
-  // Per-tx ether.fi exit preference (replaces the former stored withdrawInstant flag): when
-  // true, THIS withdrawal calls Vogue.exitInstant (opts into the ~0.3% instant redeem).
-  const [instantExit, setInstantExit] = useState(false)
 
   // Self-managed (Vogue.outOfRange / pull) state
   const [oorAmount, setOorAmount] = useState('')
@@ -541,15 +537,14 @@ export default function QuidApp() {
       setStatus('Withdrawing from V4 LP…')
       const tx = await sendTx({
           from: address, to: CONTRACTS.vogue,
-          data: instantExit ? enc.exitInstant(assets, address)
-                            : enc.vogueWithdraw(assets, address, address),
+          data: enc.vogueWithdraw(assets, address, address),
         })
       setLastTx(tx); setStatus('Submitted, waiting…')
       await waitTx(tx); setStatus('Withdrawn.')
       setWithdrawAmount(''); void fetchBalances(); void fetchVogue()
     } catch (e: any) { setError(e.message || 'withdraw failed') }
     finally { setBusy(false); setTxMutex(false); setTimeout(() => setStatus(null), 6000) }
-  }, [withdrawAmount, instantExit, connected, txMutex, address, fetchBalances, fetchVogue])
+  }, [withdrawAmount, connected, txMutex, address, fetchBalances, fetchVogue])
 
   // ═══════════════════════════════════════════════════════════════════
   //   LEVERAGE OVERLAY (YB IL-protect, #65) — open / adjust / close.
@@ -820,8 +815,10 @@ export default function QuidApp() {
     finally { setBusy(false); setTxMutex(false); setTimeout(() => setStatus(null), 6000) }
   }, [swapAmount, swapDirection, swapToken, swapTokenOut, swapMinOut, swapBtcAddr, connected, txMutex, address, ethBal, wethBal, fetchBalances, fetchMetrics])
 
-  // ether.fi exit preference is now PER-TX (see the `instantExit` state) — no stored-setting
-  // tx; the checkbox just flips `instantExit`, which doWithdraw reads to pick exitInstant.
+  // NO ether.fi instant/wait CHOICE EXISTS. `Vogue.exitInstant` and the `instant` parameter were
+  // removed on-chain 2026-08-09: the ~0.3% instant redeem it selected had capacity measured ZERO
+  // at every sampled block, so there was never a fee for an LP to opt out of. Withdrawal is
+  // `vogueWithdraw` unconditionally. (This client kept calling the removed function until E154.)
 
   // ── BTC→USD swap-IN (on-chain, invoice-free): ask the hop for a deposit address +
   //    exact amount; the user sends BTC from any wallet; the hop SPV-settles it. ──
@@ -1194,14 +1191,6 @@ export default function QuidApp() {
               <p className="text-[11px] opacity-50 mb-2">
                 {ETH_VENUES[depositVenue]?.blurb} Your exit is served from this venue only.
               </p>
-              {(depositVenue === 0 || depositVenue === 4) && (
-                <label className="flex items-center gap-2 text-[11px] opacity-70 mb-4">
-                  <input type="checkbox" disabled={busy} checked={instantExit}
-                         onChange={e => setInstantExit(e.target.checked)} />
-                  ether.fi exit: on your NEXT withdrawal, instant redeem (~0.3% fee) instead of the free withdrawal-NFT queue
-                </label>
-              )}
-
               <label className="block text-sm mb-1">Amount (ETH)</label>
               <div className="flex gap-2 mb-4">
                 <input value={depositAmount} onChange={e => setDepositAmount(e.target.value)}

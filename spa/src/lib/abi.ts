@@ -142,8 +142,6 @@ export const VOGUE_ABI = [
   // outOfRange gained a uint8 venue (5th arg) — same ETH yield-venue enum as deposit
   // (0=Split 1=ether.fi 2=AAVE 3=Galaxy 4=Rover 5=Euler). 4-arg encoding now reverts.
   'function outOfRange(uint amount, address token, int24 distance, int24 range, uint8 venue) payable returns (uint next)',
-  // ether.fi LPs: instant-redeem (~0.3% fee) vs free withdrawal-NFT queue preference.
-  'function exitInstant(uint256 assets, address receiver) returns (uint256 shares)',
   // percent: 1..100 (signed int per Solidity decl, but contract validates 1..100)
   // token: 0x0 = receive as ETH, stable addr = receive as that stable
   'function pull(uint id, int percent, address token)',
@@ -187,8 +185,10 @@ export const BTCCHANNELS_ABI = [
   // channel's 2-of-2 from lpPubkey/hopPubkey (checked against the keysHash pinned at open)
   // to tell a SPLICE from a CLOSE. Only those two fields are read; the rest may be zero.
   'function recordClose(bytes32 channelId, tuple(bytes32 fundingBlockHash, uint64 fundingBlockHeight, uint fundingTxIndex, bytes lpPubkey, bytes hopPubkey, uint amountSats, bytes32 fundingTaproot) p, bytes rawCloseTx, bytes32 closeBlockHash, bytes32[] merkleProof, uint txIndex)',
-  // LP partial withdrawal via splice-out (also through recordClose-style proof).
-  'function recordSpliceOut(bytes32 channelId, bytes rawSpliceTx, bytes32 spliceBlockHash, bytes32[] merkleProof, uint txIndex)',
+  // (E154) There is NO `recordSpliceOut`. It was declared here but has never existed on any
+  // contract in recorded history — LP partial withdrawal is served by `splice`, which resizes the
+  // position against the same SPV proof. The checker could not see it: an unmatched NAME was
+  // skipped as "not ours", so the worst drift (function absent entirely) was the invisible kind.
   // USD→BTC swap-OUT. NOTE: the current contract exposes ONE swap-out entrypoint,
   // the on-chain rail below (`requestSwapOutOnchain`). The former separate Lightning
   // `requestSwapOut(...BOLT11 invoice...)` function was REMOVED — a swapper who wants

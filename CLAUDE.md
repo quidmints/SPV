@@ -91,8 +91,14 @@ environment actually is*. Every line below was verified in-repo, not recalled.
 - **Count self-caught vs prompted corrections.** Five wrong conclusions were overturned on
   2026-08-09; **zero were caught by the author.** If a session's corrections all arrive from outside,
   its verification loop is not working, and the remaining unexecuted checks are the exposure.
-- **After any Solidity change, run `tools/check-client-abis.py`.** `forge` + `tsc` both green does
-  **not** mean the TypeScript clients still work.
+- **After any Solidity change, run `tools/check-client-abis.py`** — and let its result GATE the commit.
+  `forge` + `tsc` both green does **not** mean the TypeScript clients still work. ⚠️ **In this tree
+  `tsc` cannot run at all: `spa/` has NO `node_modules`, so the ABI checker is the ONLY client-side
+  gate available.** That is why its coverage matters: until 2026-08-10 it skipped any declared name
+  matching nothing in `evm/out` as "not ours", so **argument drift was caught while a function being
+  DELETED OUTRIGHT was invisible** — the SPA was encoding a call to a removed `Vogue.exitInstant`
+  (§E154-client-ghosts). Unmatched names are now `ORPHAN` failures. **Chaining the check ahead of a
+  commit in one command is not gating it — I read "2 drifted" and committed anyway.**
 
 ## Code navigation — read this before answering a "how does X work" question
 

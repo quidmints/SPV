@@ -83,6 +83,12 @@ if not compiled:
     print("no compiled ABIs found under evm/out — run `forge build` first", file=sys.stderr)
     sys.exit(2)
 
+# Functions the SPA calls on contracts this repo does NOT compile (external protocols).
+# Deliberately a dict, not a set: an entry must carry the REASON it is not ours, because an
+# unmatched name is otherwise indistinguishable from one that was deleted from our contracts.
+# Empty today — every unmatched name found on 2026-08-10 turned out to be ours-and-removed.
+EXTERNAL_OK: dict = {}
+
 drift, checked = [], 0
 for raw in re.findall(r"'(function [^']+)'", ABI.read_text()):
     m = re.match(r"function\s+(\w+)\s*\((.*?)\)\s*(?:external|public|view|pure|returns|$)", raw)
@@ -99,7 +105,17 @@ for raw in re.findall(r"'(function [^']+)'", ABI.read_text()):
         same_name = sorted(k for k in compiled if k.startswith(name + "("))
         if same_name:
             drift.append((key, "ARG DRIFT — no such signature", same_name))
-        continue                       # genuinely not ours (ERC20 helpers etc.)
+        elif name not in EXTERNAL_OK:
+            # ⚠️ THE SECOND HOLE, closed 2026-08-10 (E154). The `continue` below used to be
+            # unconditional, on the assumption that a name matching NOTHING is an external
+            # contract's. That assumption was false in both cases it covered: `exitInstant`
+            # (deleted from Vogue 2026-08-09 — and the SPA still ENCODED A CALL to it, which
+            # would hit the fallback and revert) and `recordSpliceOut` (never existed at all).
+            # So the most severe drift — the function is GONE — was the one kind invisible here,
+            # while mere argument drift was caught. Absence must be louder than mismatch, not
+            # quieter. A genuine external belongs in EXTERNAL_OK with a reason.
+            drift.append((key, "ORPHAN — no contract has a function of this name", []))
+        continue
     checked += 1
     rm = re.search(r"returns\s*\((.*)\)\s*$", raw)
     declared = ",".join(norm(x.split()[0]) for x in rm.group(1).split(",")) if rm else ""
@@ -107,6 +123,7 @@ for raw in re.findall(r"'(function [^']+)'", ABI.read_text()):
         drift.append((key, declared, sorted(compiled[key])))
 
 for key, declared, actual in drift:
-    print(f"DRIFT  {key}\n   spa declares: ({declared})\n   contract has: {[f'({a})' for a in actual]}")
+    print(f"DRIFT  {key}\n   spa declares: ({declared})")
+    print(f"   contract has: {[f'({a})' for a in actual] if actual else 'NOTHING — no function of this name exists'}")
 print(f"\nchecked {checked} signatures against evm/out; {len(drift)} drifted")
 sys.exit(1 if drift else 0)
