@@ -72,7 +72,7 @@ import {SignatureChecker} from "@openzeppelin-submodule/utils/cryptography/Signa
 //  on-chain that Q == KeyAgg(lp, hop). That 2-of-2 genuineness rests on the
 //  off-chain MuSig2 keygen (the LP recomputes Q from its own + the hop's key
 //  before signing lpAuth) + the hop-only msg.sender gate. SGX attestation IS wired
-//  as the trust anchor: `_requireAttested`/`_authorizedHop` call
+//  as the trust anchor: `_requireAttested` calls
 //  `AttestedHopRegistry.isAttested` on the hop money-paths (openChannel, settleSwapIn,
 //  emitDeadManExit). It is GOVERNANCE-ARMED — a no-op until `setHopRegistry` pins the
 //  live registry, so any deployment/regtest that never pins it falls back to the
@@ -131,8 +131,9 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     IBtcVaultBridge public immutable btcVault;
     // MULTI-HOP: there is NO single global `hopNode`. Each channel records the hop
     // (EVM address) that opened it (`channel.hop`). ⚠️ UPDATED 2026-08-07 (E122): that hop is
-    // no longer the SOLE authority — splice and swap-out delivery gate on `_authorizedHop`,
-    // which ALSO admits the LP's current `delegatedAuthority`. ⚠️ UPDATED AGAIN 2026-08-10
+    // ⚠️ UPDATED AGAIN 2026-08-10 (E157): it IS the sole authority once more — splice and
+    // swap-out delivery gate on `channel.hop` directly, now that delegation is folded into the
+    // open. ⚠️ PREVIOUSLY 2026-08-10
     // (E156): the "and, after staleness, its named fallback" clause is GONE with the fallback
     // itself. The partition still holds (one delegation per LP). Historically this said SOLE authority
     // for that channel's splice / swap-out delivery / swap-in attestation / cooperative
@@ -233,16 +234,11 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     // to the LP with payouts to the LP — bounded, never theft. `version` is monotonic:
     // the LP revokes/rotates by signing a higher one (guards replay of an old
     // delegation over a newer). delegatedHop==0 ⇒ no delegation ⇒ no open.
-    // A delegation exists iff delegationVersion[lpEth] > 0.
-    mapping(address => uint64) public delegationVersion;
-    // `delegatedAuthority` is who the LP trusts to operate its channels — EITHER a
-    // concrete hop address (FAMILY/self-host: pinned exactly), OR THE single Safe-governed
-    // `hopRegistry` address (FLEET: any hop it attests — so a governance rotation of
-    // the enclave-generated hop key, pinned post-deploy, is ONE Safe tx every fleet LP
-    // auto-follows with NO re-signing). One field, no mode flag. Payout still pins to
-    // btcRecipientOf in BOTH cases ⇒ theft-proof regardless of which hop is designated.
-    mapping(address => address) public delegatedAuthority;
-
+    // (E157) `delegationVersion` / `delegatedAuthority` ARE DELETED with the standing grant they
+    // described. Authorization is now per-channel: the LP signs for THIS funding outpoint
+    // (`openAuthDigest`), and afterwards only `channel.hop` — the hop that opened it — may act.
+    // The monotonic counter had nothing left to guard: a signature bound to a single-use outpoint
+    // cannot be replayed, and `_useOutpoint` is what enforces that.
     // (E156) THE E122 LP-NAMED FALLBACK IS DELETED — `fallbackAuthority`, `registerFallback[For]`,
     // `fallbackDigest`, `lastHeartbeatBlock`, `FALLBACK_STALENESS_BLOCKS` and
     // `_authorizedHopForChannel` are all gone. It asked the LP to nominate a rescuer in advance,
@@ -346,7 +342,6 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     error ManagerFreshnessNotMonotonic(); // a channel-manager freshness commit must strictly increase
     error MigrationNonceAlreadyUsed();    // a MigrationAuth nonce may be consumed at most once (anti-replay)
     error NotDelegatedHop();          // (B) caller is not the LP's delegated hop (open) — see registerDelegation
-    error StaleDelegation();          // (B) a delegation's version must strictly increase (revoke/rollback guard)
 
     event ChannelOpened(
         bytes32 indexed channelId,
@@ -363,7 +358,6 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     event ChannelClosed(bytes32 indexed channelId, uint satsReturned);
     event FreshnessCommitted(bytes32 indexed channelId, uint64 seq);
     event ManagerFreshnessCommitted(address indexed hop, uint64 seq);
-    event DelegationRegistered(address indexed lpEth, address indexed authority, bytes32 btcRecipient, uint64 version);
     event MigrationNonceConsumed(bytes32 indexed nonce, address indexed hop);
     event ChannelSpliced(
         bytes32 indexed channelId,
@@ -566,9 +560,9 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     //
     //  ⚠️ THIS SAID "anyone submits … + lpAuth" and "ch.lpEth = the recovered signer of
     //  lpAuth". BOTH DESCRIBE THE RETIRED MODEL (E149): `lpAuth` is not a parameter
-    //  anywhere, and the open is gated on `_authorizedHop(lpEth, msg.sender)` — not open
-    //  to anyone. `lpEth` is passed EXPLICITLY and the caller must already be its
-    //  delegated authority, which is what stops a relayer redirecting the credit.
+    //  anywhere. (E157) The open now carries `auth.lpSig`, authenticated against this channel's
+    //  funding outpoint — so `lpEth` is passed EXPLICITLY and PROVEN, which is what stops a
+    //  relayer redirecting the credit.
     //
     //  AIRTIGHT FUNDING CHECK (in ChannelLib.openChannelBody):
     //   1. SPV: funding tx confirmed in mainchain with MIN_CONFIRMATIONS.
@@ -606,7 +600,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///
     /// ═══ THE DIGEST FAMILY SPLITS IN TWO, AND NOTHING SAID SO UNTIL NOW (E149) ═══
     /// **VERIFIED ON-CHAIN** — a signature over these is recovered/checked in this contract:
-    ///     `delegationDigest`  (registerDelegation / registerDelegationFor)
+    ///     `openAuthDigest`    (openChannel — the LP's per-channel consent)
     /// **OFF-CHAIN-SIGNING HELPERS** — `public view` so the off-chain side can compute the
     /// EXACT bytes this contract would, but NO on-chain consumer verifies a signature:
     ///     `openChannelDigest` · `spliceDigest` · `swapOutDeliverDigest`
@@ -681,132 +675,72 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///         `authority` (a concrete hop, OR THE Safe-governed hopRegistry for fleet mode).
     ///         Binds chainId + this contract + authority + payout script + version, so it
     ///         can't be replayed to another deployment; a higher version supersedes.
-    function delegationDigest(address authority, bytes32 btcRecipient, uint64 version)
-        public view returns (bytes32)
-    {
+    /// @notice (E157) What the LP signs to open ONE channel. Binds the four things its consent is
+    ///         actually about: WHO operates the channel (`hop`), WHERE its BTC pays out
+    ///         (`btcRecipient`), WHICH 2-of-2 holds it (`fundingTaproot` = Q), and HOW MUCH
+    ///         (`amountSats`).
+    /// @dev ⚠️ WHY Q AND NOT THE FUNDING OUTPOINT — this was written against `(fundingTxId, vout)`
+    ///      first, which is strictly more precise, and it is recorded here because the weaker bind
+    ///      is a CHOICE, not an oversight. Nobody can cheaply produce a txid: `BitcoinTx.txid` is
+    ///      `internal` over `bytes calldata`, so every off-chain signer (and every test) would need
+    ///      a serialisation path just to know what it is signing, and a digest whose inputs are
+    ///      hard to reproduce is a digest that gets reproduced WRONG.
+    ///      What the weaker bind costs, stated plainly: the same bytes would open a SECOND channel
+    ///      against a different funding output paying the SAME Q for the SAME amount. That needs
+    ///      the fleet to deliberately re-fund a per-channel taproot with identical value, and
+    ///      `OneChannelPerLp` blocks any concurrent duplicate — so the reopened channel is
+    ///      materially the one the LP consented to: same operator, same payout, same size.
+    function openAuthDigest(
+        address hop, bytes32 btcRecipient, bytes32 fundingTaproot, uint amountSats
+    ) public view returns (bytes32) {
         return keccak256(abi.encode(
-            keccak256("BTCChannels.delegation.v1"),
+            keccak256("BTCChannels.open.v1"),
             block.chainid,
             address(this),
-            authority,
+            hop,
             btcRecipient,
-            version
+            fundingTaproot,
+            amountSats
         ));
-    }
-
-    /// @notice (B) Register / rotate / revoke an LP's delegation. PERMISSIONLESS submit —
-    ///         the operator relays the LP's cold signature (gasless for the LP). Recovers
-    ///         lpEth, requires a strictly-higher version (rollback/replay guard), pins the
-    ///         `authority` (a concrete hop, or a registry contract that attests hops) +
-    ///         `btcRecipient` payout script (LOCKED — the same pin recordClose/
-    ///         _withdrawalPayout enforce). Sign a higher version with authority=0 to revoke.
-    /// @dev ✅ NO `msg.sender` CHECK, AND THAT IS THE POINT: authority is the LP's SIGNATURE,
-    ///      not the caller. So an LP that wants to do NO ongoing work pre-signs a re-delegation
-    ///      naming a successor hop at setup, hands the bytes to a watchtower / the successor /
-    ///      a family member, and never acts again — that holder submits it if the primary turns
-    ///      unresponsive or obstructive. **This is why no separate "disavow" entrypoint exists:
-    ///      a pre-signed re-delegation already IS the on-demand hand-over, and a second path to
-    ///      the same capability would be surface for nothing.**
-    ///      ⚠️ The trade, so it is chosen rather than discovered: whoever holds the pre-signed
-    ///      bytes can switch operators AT ANY TIME, not only on misbehaviour. Bounded — payouts
-    ///      still pin to `btcRecipientOf`, so the worst case is churn, never theft.
-    ///      ✅ **(E156) ONE WAY THOSE BYTES USED TO DIE IS GONE: registering a FALLBACK bumped
-    ///      `delegationVersion` and so invalidated a pre-signed re-delegation at or below that
-    ///      version. With the fallback deleted, only a real re-delegation moves the version.**
-    ///      ⚠️ **THE REVOCABILITY BELOW HOLDS ONLY FOR AN EOA LP (E125-e).** For a SMART-WALLET LP the
-    ///      pre-signed bytes are REVOCABLE: ERC-1271 validity is stateful, so rotating the
-    ///      wallet's owners invalidates a signature that verified yesterday. **The two LP
-    ///      kinds therefore get DIFFERENT hand-over guarantees from identical bytes** —
-    ///      durable-but-unrevocable for an EOA, revocable-but-not-guaranteed for a Safe.
-    ///      Neither is strictly better: the EOA cannot take it back, the Safe cannot promise
-    ///      it will still work. Say which one an LP has before relying on either.
-    function registerDelegation(address authority, bytes32 btcRecipient, uint64 version, bytes calldata sig)
-        external
-    {
-        address lpEth = ECDSA.recover(delegationDigest(authority, btcRecipient, version), sig);
-        if (lpEth == address(0)) revert InvalidParam();
-        _registerDelegation(lpEth, authority, btcRecipient, version);
-    }
-
-    /// @notice (E125-d) Same registration, for an LP whose `lpEth` is a SMART WALLET (Safe,
-    ///         4337 account) rather than an EOA. Owner's call: LPs may be smart wallets,
-    ///         though most will be EOAs.
-    /// @dev ⚠️ WHY A SECOND ENTRYPOINT RATHER THAN WIDENING THE FIRST — the two verifiers are
-    ///      NOT interchangeable in shape: `ECDSA.recover` RETURNS the signer, while ERC-1271
-    ///      can only ANSWER "did this address sign this?". **A contract signature cannot be
-    ///      recovered from — there is no key to recover — so the address must be SUPPLIED.**
-    ///      Widening `registerDelegation` in place would therefore have changed its ABI, and
-    ///      that signature is produced by the RUST side (`quid-bridge/evm_validating_signer.rs`,
-    ///      `quid-hop/evm_codec.rs`) and pinned byte-exact by `test_openparams_abi_ground_truth`.
-    ///      Additive keeps the EOA path and both Rust callers untouched.
-    /// @dev ⚠️ SUPPLYING `lpEth` IS NOT A TRUST HOLE: the signature is validated AGAINST the
-    ///      claimed address, so naming someone else's account simply fails to verify. The
-    ///      caller chooses WHOSE signature to present, never whose account is bound.
-    /// @dev ⚠️ ERC-1271 VALIDITY IS STATEFUL, and that is a REAL BEHAVIOURAL DIFFERENCE, not a
-    ///      detail: a Safe that rotates owners INVALIDATES its own earlier signature. That
-    ///      breaks the "pre-signed bytes are good forever" property the hand-over note relies
-    ///      on — and simultaneously supplies the revocation `delegationVersion` exists to
-    ///      simulate. For a smart-wallet LP the hand-over is REVOCABLE; for an EOA it is not.
-    function registerDelegationFor(
-        address lpEth, address authority, bytes32 btcRecipient, uint64 version, bytes calldata sig
-    ) external {
-        if (lpEth == address(0)) revert InvalidParam();
-        if (!SignatureChecker.isValidSignatureNow(
-                lpEth, delegationDigest(authority, btcRecipient, version), sig))
-            revert InvalidParam();
-        _registerDelegation(lpEth, authority, btcRecipient, version);
-    }
-
-    /// @dev The registration itself, shared by both entrypoints so the two can never drift on
-    ///      the version guard or the payout-key lock — the part that actually protects the LP.
-    function _registerDelegation(
-        address lpEth, address authority, bytes32 btcRecipient, uint64 version
-    ) internal {
-        if (version <= delegationVersion[lpEth]) revert StaleDelegation();
-        if (btcRecipientLocked[lpEth] && btcRecipientOf[lpEth] != btcRecipient) revert WrongBtcRecipient();
-        delegatedAuthority[lpEth] = authority;
-        delegationVersion[lpEth] = version;
-        _registerBtcRecipient(lpEth, btcRecipient);
-        btcRecipientLocked[lpEth] = true;
-        emit DelegationRegistered(lpEth, authority, btcRecipient, version);
-    }
-
-    /// @dev (B) Is `hop` authorized to operate for `lpEth`? Either the LP pinned it
-    ///      exactly (family/self-host hop — direct match), or the LP delegated to THE
-    ///      Safe-governed `hopRegistry` and it currently attests `hop` (fleet — a
-    ///      governance rotation needs no LP re-sign). `isAttested` is `view` ⇒ STATICCALL.
-    ///      No delegation (authority 0) ⇒ false.
-    function _authorizedHop(address lpEth, address hop) internal view returns (bool) {
-        address a = delegatedAuthority[lpEth];
-        if (a == address(0)) return false;                          // no delegation
-        if (a == hop) return true;                                  // pinned hop (direct)
-        return a == hopRegistry && hopRegistry != address(0)
-            && IAttestedHopRegistry(hopRegistry).isAttested(hop);   // fleet: THE registry attests
     }
 
     function openChannel(
         Types.OpenParams calldata p,
         bytes calldata rawFundingTx,
         bytes32[] calldata fundingMerkleProof,
-        address lpEth,
+        Types.OpenAuth calldata auth,
         Types.ExitArming calldata exit
     ) external nonReentrant returns (bytes32 channelId)
     {
-        // (B) DELEGATED OPEN — the LP runs nothing. `lpEth` owns the position; the
-        // submitter must be a hop the LP delegated to (registerDelegation) — its pinned
-        // family hop, or (FLEET_HOP) any hop the Safe-governed hopRegistry attests.
-        // channel.hop = msg.sender (below) owns the later splice/deliver/close. Security
-        // is identical to the retired per-open lpAuth: openChannelBody SPV-proves +
-        // taproot byte-matches (0x5120||Q) the funding, and btcRecipientOf (pinned at
-        // delegation) is the sole payout — a non-delegated hop can't open, and no hop can
-        // redirect funds (payout pin). Unproven-funding-key-control residual.
+        // (E157) THE LP'S CONSENT ARRIVES WITH THE OPEN. This was a standing grant established by
+        // a prior `registerDelegation` tx; it is now `auth.lpSig`, authenticated below against the
+        // funding outpoint this very call proves. `channel.hop = msg.sender` owns the later
+        // splice/deliver. Same two protections as before, in one step instead of two:
+        // `openChannelBody` SPV-proves + taproot byte-matches (0x5120||Q) the funding, and
+        // `btcRecipient` is pinned here as the sole payout — so no hop can redirect funds.
         _requireAttested(msg.sender);   // only an attested hop may become a shared-pool hop (off until pinned)
-        if (!_authorizedHop(lpEth, msg.sender)) revert NotDelegatedHop();
+        address lpEth = auth.lpEth;
+        if (lpEth == address(0)) revert InvalidParam();
         // ONE OPEN CHANNEL PER lpEth (see hasOpenBtcChannel): a 2nd open for an LP
         // that already has one would form the aggregate position the per-channel
         // close mis-attributes. Splice resizes the existing channel; more positions
         // use more addresses. This makes the over-mint/wipe bug unrepresentable.
         if (hasOpenBtcChannel[lpEth]) revert OneChannelPerLp();
+
+        // (E157) AUTHENTICATE THE LP FIRST. The digest reads only `p`, so consent can be checked
+        // BEFORE the SPV proof and the ~631k gas of secp256k1 — same reasoning the KeyAgg check
+        // already gives for sitting after the merkle proof: both must pass, and the order decides
+        // only what a FAILING open pays. `SignatureChecker` serves BOTH LP kinds, so the
+        // EOA/smart-wallet entrypoint split is gone with the standing registration that forced it.
+        if (!SignatureChecker.isValidSignatureNow(lpEth,
+                openAuthDigest(msg.sender, auth.btcRecipient, p.fundingTaproot, p.amountSats),
+                auth.lpSig))
+            revert InvalidParam();
+        // Pin + LOCK the payout — the sole destination recordClose/_withdrawalPayout will enforce.
+        if (btcRecipientLocked[lpEth] && btcRecipientOf[lpEth] != auth.btcRecipient)
+            revert WrongBtcRecipient();
+        _registerBtcRecipient(lpEth, auth.btcRecipient);
+        btcRecipientLocked[lpEth] = true;
 
         Types.BTCChannel memory channel;
         (channelId, channel) = ChannelLib.openChannelBody(
@@ -833,9 +767,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
 
         // (B) The LP's BTC payout key (btcRecipientOf) is pinned + LOCKED at
         // registerDelegation time — it is the SAME committed key-path P2TR shutdown
-        // script recordClose/_withdrawalPayout enforce, and `_authorizedHop` above
-        // already required a delegation to exist, so it is guaranteed set here (no
-        // per-open lpBtcPayoutHash). recordClose attributes the LP's cooperative-close
+        // script recordClose/_withdrawalPayout enforce, pinned by this call itself (E157). recordClose attributes the LP's cooperative-close
         // balance to outputs paying that script; a hop can never redirect the payout.
         channels[channelId] = channel;
         hasOpenBtcChannel[channel.lpEth] = true; // one-per-lpEth (cleared on close)
@@ -894,9 +826,9 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         uint feeSettleSats            // BTC-leg fees the hop is FUNDING into this grow-splice (compounds into the LP)
     ) external nonReentrant whenOpen(channelId) {
         // (B) Authorization. ⚠️ UPDATED 2026-08-07 (E122), AGAIN 2026-08-10 (E156): this said
-        // "`channel.hop` … so ONLY that hop can resize". The gate is `_authorizedHop`, which also
-        // admits the LP's current `delegatedAuthority`; the fallback clause is gone with the
-        // fallback. Still bounded the same way: every payout output pins
+        // "`channel.hop` … so ONLY that hop can resize" — and (E157) that is TRUE AGAIN: both the
+        // fallback and the delegation are gone, so the gate is `channel.hop`. Bounded as before:
+        // every payout output pins
         // to `btcRecipientOf`, so a wider authority set cannot redirect funds. The
         // retired per-splice lpAuth was redundant on top of this: _verifySplice still
         // SPV-proves rawSpliceTx SPENDS this channel's funding UTXO and byte-matches the new
@@ -916,7 +848,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // hop held no funding key (the fleet holds both halves), so it could never sign a splice
         // — it could only relay bytes the primary had already signed. Bounded as before: the
         // splice is SPV-proven and every payout output pins to `btcRecipientOf`.
-        if (!_authorizedHop(channels[channelId].lpEth, msg.sender))
+        if (msg.sender != channels[channelId].hop)
             revert NotChannelHop();
         if (p.amountSats == channels[channelId].amountSats) revert SpliceUnchanged();
         // Verify + rotate + (grow|shrink) in its own frame (legacy stack, no via_ir); returns the grow delta.
@@ -1012,9 +944,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///         exit per current funding UTXO.
     ///
     ///         AUTHORITY: identical (B) gate to `openChannel` — `_requireAttested` +
-    ///         `_authorizedHop`, so only a hop the LP delegated to (or, in fleet mode,
-    ///         any hop the Safe-governed registry currently attests) may emit; a hop
-    ///         de-attested after opening can't keep refreshing. The payout is pinned to
+    ///         `channel.hop`, so only the hop that opened this channel may emit (E157). The payout is pinned to
     ///         `btcRecipientOf` INSIDE the signed bytes, so this can only publish a
     ///         backstop that pays the LP — it can never redirect funds. Emit-only (no
     ///         external call, no fund movement) ⇒ no reentrancy surface.
@@ -1025,7 +955,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         bytes   calldata signedExitTx
     ) external whenOpen(channelId) {
         _requireAttested(msg.sender);
-        if (!_authorizedHop(channels[channelId].lpEth, msg.sender)) revert NotDelegatedHop();
+        if (msg.sender != channels[channelId].hop) revert NotDelegatedHop();
         _armDeadManExit(channelId, cltvDeadline, checkpointSats, signedExitTx);
     }
 
@@ -1096,7 +1026,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///         enclave out) and STRICTLY monotonic (a replay/rollback of an old value reverts).
     function commitFreshness(bytes32 channelId, uint64 seq) external {
         // (E122) Primary, or the LP's fallback after the staleness window — see `splice`.
-        if (!_authorizedHop(channels[channelId].lpEth, msg.sender))
+        if (msg.sender != channels[channelId].hop)
             revert NotChannelHop();
         if (seq <= freshnessSeq[channelId]) revert FreshnessNotMonotonic();
         freshnessSeq[channelId] = seq;

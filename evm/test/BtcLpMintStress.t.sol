@@ -77,13 +77,13 @@ contract BtcLpMintStress is Alles {
         // output. (A single-key `hash160(lpPubkey)` value no longer matches the P2TR
         // guard → sum 0 → delivered=funded, silently the reverse of the tests' intent.)
         bytes32 payout = _validXOnly(abi.encode("lp-shutdown-xonly", p.lpPubkey));
-        // (B) Option-B: the LP signs ONE cold delegation to its hop (permissionless
-        // submit), pinning btcRecipientOf=payout + delegatedAuthority=hop. openChannel is
-        // then hop-gated (no per-open lpAuth) and takes the LP's EVM identity.
-        bytes memory dsig = _signOpen(lpPk, ch.delegationDigest(makeAddr("hop"), payout, 1));
-        ch.registerDelegation(makeAddr("hop"), payout, 1, dsig);
-        vm.prank(makeAddr("hop")); // openChannel is hop-gated
-        channelId = ch.openChannel(p, fundingTx, new bytes32[](0), lpEth, Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0, signedExitTx: hex"00"}));
+        // (E157) The LP signs ONCE for THIS channel and the hop submits that consent with the
+        // open — pinning btcRecipientOf=payout and naming the hop, in one transaction.
+        bytes memory dsig = _signOpen(lpPk, ch.openAuthDigest(makeAddr("hop"), payout, p.fundingTaproot, p.amountSats));
+        vm.prank(makeAddr("hop")); // must be the hop the LP signed for
+        channelId = ch.openChannel(p, fundingTx, new bytes32[](0),
+            Types.OpenAuth({lpEth: lpEth, btcRecipient: payout, lpSig: dsig}),
+            Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0, signedExitTx: hex"00"}));
     }
 
     // Per-channel running funding outpoint, so successive deliveries on the same
@@ -825,8 +825,10 @@ contract BtcLpMintStress is Alles {
         _open(ch, 7, 1_000_000);                       // channel A → delegation + locks payout H(pubkeyA)
         // SAME lpEth as channel A — reconstruct _open's exact address derivation
         // (makeAddr(abi.encodePacked("btc-lp-", uint seed))). The channel-A delegation
-        // (delegatedAuthority[lpEth]=hop) is already pinned, so the hop is authorized to
-        // submit — the open reverts at the OneChannelPerLp gate, not the delegation gate.
+        // (E157) The auth below is DELIBERATELY UNSIGNED: `OneChannelPerLp` is checked BEFORE
+        // the LP signature (and before the SPV/KeyAgg work), so this must revert on the one-channel
+        // rule rather than on consent. If that ordering ever changes this test fails LOUDLY with a
+        // different selector, which is the point of asserting the exact one.
         address lpEth = makeAddr(string(abi.encodePacked("btc-lp-", uint(7))));
         // A different LP pubkey → a different funding key than channel A's.
         bytes memory lpPubkeyB = _validCompressedPubkey("different-pk");
@@ -841,7 +843,9 @@ contract BtcLpMintStress is Alles {
             fundingTaproot: _taprootQ(lpPubkeyB, HOP_PUBKEY) });
         vm.prank(makeAddr("hop"));
         vm.expectRevert(BTCChannels.OneChannelPerLp.selector); // 2nd open for the same lpEth
-        ch.openChannel(p, fundingTx, new bytes32[](0), lpEth, Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0, signedExitTx: hex"00"}));
+        ch.openChannel(p, fundingTx, new bytes32[](0),
+            Types.OpenAuth({lpEth: lpEth, btcRecipient: bytes32(0), lpSig: ""}),
+            Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0, signedExitTx: hex"00"}));
     }
 
     // ─────────────────────────────────────────────────────────────────────────

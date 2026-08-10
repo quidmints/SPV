@@ -89,6 +89,21 @@ contract VBtcLevFeeLane is Alles {
         AUX.setBTCChannels(address(ch));
     }
 
+    /// (E157) The open + its consent in their OWN FRAME — inlined twice it blew the legacy stack,
+    /// and the house fix is a frame, not `via_ir`.
+    function _openWithConsent(
+        BTCChannels ch_, uint lpPk_, address lpEth_, bytes32 payout_,
+        Types.OpenParams memory p_, bytes memory fundingTx_
+    ) private returns (bytes32 cid) {
+        bytes memory dsig = _signOpen(
+            lpPk_, ch_.openAuthDigest(makeAddr("hop"), payout_, p_.fundingTaproot, p_.amountSats));
+        vm.prank(makeAddr("hop"));
+        cid = ch_.openChannel(p_, fundingTx_, new bytes32[](0),
+            Types.OpenAuth({lpEth: lpEth_, btcRecipient: payout_, lpSig: dsig}),
+            Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0,
+                              signedExitTx: hex"00"}));
+    }
+
     function _signOpen(uint pk, bytes32 digest) internal pure returns (bytes memory) {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);
@@ -127,12 +142,8 @@ contract VBtcLevFeeLane is Alles {
         // external-0 P2TR), and it is a 32-byte x-only key. Single-key `hash160(lpPubkey)`
         // fixtures collapsed the two and masked the funding-vs-shutdown withdrawal seam.
         bytes32 payout = _validXOnly(abi.encode("lp-shutdown-xonly", seed));
-        // (B) Option-B cold delegation: the LP signs once (permissionless submit) to pin
-        // btcRecipientOf=payout + delegatedAuthority=hop; openChannel is then hop-gated.
-        bytes memory dsig = _signOpen(lpPk, ch.delegationDigest(makeAddr("hop"), payout, 1));
-        ch.registerDelegation(makeAddr("hop"), payout, 1, dsig);
-        vm.prank(makeAddr("hop"));
-        channelId = ch.openChannel(p, fundingTx, new bytes32[](0), lpEth, Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0, signedExitTx: hex"00"}));
+        // (E157) The LP signs once, for THIS channel, and the hop submits it with the open.
+        channelId = _openWithConsent(ch, lpPk, lpEth, payout, p, fundingTx);
     }
 
     /// Splice-OUT (partial LP withdrawal) shrinking `channelId` to `newAmountSats`. exactUsd==0 path:
@@ -187,13 +198,10 @@ contract VBtcLevFeeLane is Alles {
             fundingBlockHash: bytes32(uint(0x100 + seed)), fundingBlockHeight: 800000,
             fundingTxIndex: 0, lpPubkey: lpPubkey, hopPubkey: HOP_PUBKEY,
             amountSats: amountSats, fundingTaproot: _taprootQ(lpPubkey, HOP_PUBKEY) });
-        // (B) cold delegation pins btcRecipientOf=payoutKey (the SHUTDOWN key) + hop; the
-        // hop-gated open then takes lpEth. btcRecipientOf is exactly what the shrink guard
-        // (_withdrawalPayout) enforces in the seam test below.
-        bytes memory dsig = _signOpen(lpPk, ch.delegationDigest(makeAddr("hop"), payoutKey, 1));
-        ch.registerDelegation(makeAddr("hop"), payoutKey, 1, dsig);
-        vm.prank(makeAddr("hop"));
-        channelId = ch.openChannel(p, fundingTx, new bytes32[](0), lpEth, Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0, signedExitTx: hex"00"}));
+        // (E157) The open's own consent pins btcRecipientOf=payoutKey (the SHUTDOWN key) and names
+        // the hop. btcRecipientOf is exactly what the shrink guard (_withdrawalPayout) enforces in
+        // the seam test below — so signing the WRONG key here would surface there, not here.
+        channelId = _openWithConsent(ch, lpPk, lpEth, payoutKey, p, fundingTx);
     }
 
     // Build+sign a 2-output shrink splice (new funding + LP payout) WITHOUT submitting,

@@ -301,12 +301,28 @@ contract Alles is ForkPin, Fixtures {
         // funding material (this helper's callers never close/splice, so it is only
         // registered — but it must still look like a real key, not a hash160 in a slot).
         bytes32 payout = _validXOnly(abi.encode("lp-shutdown-xonly", p.lpPubkey));
-        // (B) LP delegates channel operation to `hop` COLD, once: pins+LOCKS
-        // btcRecipientOf[lpEth]=payout and delegatedAuthority[lpEth]=hop. Permissionless.
-        bytes memory dsig = _signDigest(lpPk, ch.delegationDigest(hop, payout, 1));
-        ch.registerDelegation(hop, payout, 1, dsig);
+        // (E157) The LP's consent rides WITH the open — no prior registerDelegation tx. It pins
+        // btcRecipientOf[lpEth]=payout and names `hop` as this channel's operator.
+        bytes memory dsig = _signDigest(lpPk, ch.openAuthDigest(hop, payout, p.fundingTaproot, p.amountSats));
         vm.prank(hop);
-        cid = ch.openChannel(p, fundingTx, merkleBranch, lpEth, Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0, signedExitTx: hex"00"}));
+        cid = ch.openChannel(p, fundingTx, merkleBranch,
+            Types.OpenAuth({lpEth: lpEth, btcRecipient: payout, lpSig: dsig}), Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0, signedExitTx: hex"00"}));
+    }
+
+    /// (E157) One open, one consent — extracted to its OWN FRAME. Inlining it a third time blew the
+    /// legacy stack (`Stack too deep` at the `OpenAuth` literal), and the house fix is a frame, not
+    /// `via_ir`. It also removes the copy-paste the three call sites had grown.
+    function _openWithConsent(
+        BTCChannels ch_, address hop_, uint lpPk_, address lpEth_, bytes32 payout_,
+        Types.OpenParams memory p_, bytes memory fundingTx_
+    ) private returns (bytes32 cid) {
+        bytes memory dsig =
+            _signDigest(lpPk_, ch_.openAuthDigest(hop_, payout_, p_.fundingTaproot, p_.amountSats));
+        vm.prank(hop_);
+        cid = ch_.openChannel(p_, fundingTx_, new bytes32[](0),
+            Types.OpenAuth({lpEth: lpEth_, btcRecipient: payout_, lpSig: dsig}),
+            Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0,
+                              signedExitTx: hex"00"}));
     }
 
     function _signDigest(uint pk, bytes32 digest) private pure returns (bytes memory) {
@@ -4077,12 +4093,9 @@ contract Alles is ForkPin, Fixtures {
             // DISTINCT from the funding material; the coop-close below pays 0x5120||key
             // so `_lpFinalBalance` matches it (not a legacy P2WPKH output, which would
             // mismatch the P2TR guard → sum 0 → delivered=funded) — and sets
-            // delegatedAuthority[lpEth]=hop, so only the hop may submit the open (§9b).
+            // (E157) consent carried by the open itself.
             bytes32 payout = _validXOnly(abi.encode("lp-shutdown-xonly", p.lpPubkey));
-            bytes memory dsig = _signDigest(lpPk, ch.delegationDigest(makeAddr("hop"), payout, 1));
-            ch.registerDelegation(makeAddr("hop"), payout, 1, dsig);
-            vm.prank(makeAddr("hop"));
-            channelId = ch.openChannel(p, fundingTx, new bytes32[](0), lpEth, Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0, signedExitTx: hex"00"}));
+            channelId = _openWithConsent(ch, makeAddr("hop"), lpPk, lpEth, payout, p, fundingTx);
         }
 
         // Funding SPV-proven -> the LP's BTC pool position is credited.
@@ -4168,12 +4181,9 @@ contract Alles is ForkPin, Fixtures {
             // force/non-coop close test: recordClose's non-coop branch retires with
             // delivered=funded and IGNORES all outputs, so the key is only registered.
             // (B) LP delegates to the hop COLD once (pins+LOCKS btcRecipientOf, sets
-            // delegatedAuthority=hop) before the hop-gated open.
+            // (E157) consent carried by the open itself.
             bytes32 payout = _validXOnly(abi.encode("lp-shutdown-xonly", p.lpPubkey));
-            bytes memory dsig = _signDigest(lpPk, ch.delegationDigest(makeAddr("hop"), payout, 1));
-            ch.registerDelegation(makeAddr("hop"), payout, 1, dsig);
-            vm.prank(makeAddr("hop"));
-            channelId = ch.openChannel(p, fundingTx, new bytes32[](0), lpEth, Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0, signedExitTx: hex"00"}));
+            channelId = _openWithConsent(ch, makeAddr("hop"), lpPk, lpEth, payout, p, fundingTx);
         }
         (uint pooledOpen,,,) = BTC.autoManagedBTC(lpEth);
         assertEq(pooledOpen, amountSats, "channel opened");
@@ -4236,12 +4246,9 @@ contract Alles is ForkPin, Fixtures {
             // force/non-coop close test: recordClose's non-coop branch retires with
             // delivered=funded and IGNORES all outputs, so the key is only registered.
             // (B) LP delegates to the hop COLD once (pins+LOCKS btcRecipientOf, sets
-            // delegatedAuthority=hop) before the hop-gated open.
+            // (E157) consent carried by the open itself.
             bytes32 payout = _validXOnly(abi.encode("lp-shutdown-xonly", p.lpPubkey));
-            bytes memory dsig = _signDigest(lpPk, ch.delegationDigest(makeAddr("hop"), payout, 1));
-            ch.registerDelegation(makeAddr("hop"), payout, 1, dsig);
-            vm.prank(makeAddr("hop"));
-            channelId = ch.openChannel(p, fundingTx, new bytes32[](0), lpEth, Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0, signedExitTx: hex"00"}));
+            channelId = _openWithConsent(ch, makeAddr("hop"), lpPk, lpEth, payout, p, fundingTx);
         }
         (uint pooledOpen,,,) = BTC.autoManagedBTC(lpEth);
         assertEq(pooledOpen, amountSats, "channel opened");

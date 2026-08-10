@@ -112,6 +112,31 @@ library Types {
         bytes32 fundingTaproot;   // 32-byte x-only MuSig2 key-path aggregate Q
     }
 
+    /// @notice (E157) The LP's consent, carried BY the open instead of pre-registered.
+    ///
+    /// `registerDelegation` existed to establish two things before any channel could open: WHO the
+    /// `lpEth` behind a position is, and WHERE its BTC pays out. Both are supplied here and
+    /// authenticated inline, so the standing registration — and every piece of state that existed
+    /// only to keep it safe — deletes.
+    ///
+    /// 🔑 WHY THERE IS NO `version`. `delegationVersion` was a monotonic counter guarding a
+    /// STANDING grant against replay and rollback. This signature is not standing: it commits to
+    /// THIS channel's funding outpoint, and `_useOutpoint` already enforces that a confirmed
+    /// funding UTXO backs at most one channel, ever. **Replaying it is not defeated by a counter,
+    /// it is arithmetically impossible** — there is no second channel for the bytes to open.
+    /// ⇒ The counter's other job (revocation) is also covered: an unused signature binds an
+    /// outpoint the LP simply never funds, and a smart wallet can invalidate it by rotating owners.
+    ///
+    /// `lpSig` is checked with `SignatureChecker`, so ONE path serves both LP kinds — EOAs take the
+    /// cheap ECDSA branch, Safes take ERC-1271. The EOA/smart-wallet entrypoint split existed only
+    /// because `ECDSA.recover` RETURNS a signer while ERC-1271 can only CONFIRM one; supplying
+    /// `lpEth` explicitly (as the `For` variant already did) removes the asymmetry that forced two.
+    struct OpenAuth {
+        address lpEth;         // the position's owner — supplied, then authenticated against lpSig
+        bytes32 btcRecipient;  // x-only P2TR payout key, pinned + locked at open
+        bytes   lpSig;         // over `openAuthDigest(hop, btcRecipient, fundingTxId, fundingVout)`
+    }
+
     /// @notice (E156) The pre-signed dead-man exit that ARMS a channel — supplied at `openChannel`
     /// and refreshed by `emitDeadManExit` for as long as the channel lives.
     ///

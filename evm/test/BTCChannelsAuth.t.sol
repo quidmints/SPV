@@ -52,10 +52,13 @@ contract BTCChannelsAuthTest is Test {
         // A non-attested submitter (this contract; never attested in `reg`) can no longer open a channel.
         bytes32[] memory proof;
         vm.expectRevert(bytes("hop !attested"));
-        // (B) 4-arg open (lpEth is the position owner). The registry gate
-        // (_requireAttested) fires FIRST — before the delegation check — so this reverts
-        // "hop !attested" regardless of whether a delegation exists.
-        ch.openChannel(_params(), hex"00", proof, address(0xdEAD), Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0, signedExitTx: hex"00"}));
+        // (E157) `_requireAttested` fires FIRST — before the LP-signature check — so this reverts
+        // "hop !attested" whatever the consent says. The auth below is unsigned deliberately: if
+        // the ordering ever inverted, this would fail with a signature error instead, which is the
+        // whole reason the exact revert string is asserted.
+        ch.openChannel(_params(), hex"00", proof,
+            Types.OpenAuth({lpEth: address(0xdEAD), btcRecipient: bytes32(0), lpSig: ""}),
+            Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0, signedExitTx: hex"00"}));
     }
 
     function test_digest_binds_chain_and_contract() public view {

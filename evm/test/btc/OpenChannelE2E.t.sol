@@ -112,14 +112,17 @@ contract OpenChannelE2ETest is Test {
         bytes32 payout = payoutOverride != bytes32(0)
             ? payoutOverride
             : _validXOnly(abi.encode("lp-shutdown-xonly", p.lpPubkey));
-        // (B) The LP delegates channel operation to the hop (0xB0B) COLD, once: pins +
-        // LOCKS btcRecipientOf[lpEth]=payout and delegatedAuthority[lpEth]=0xB0B. The
-        // 4-arg open is then hop-gated (0xB0B) and credits the position to lpEth.
+        // (E157) One transaction: the LP signs for THIS channel (hop 0xB0B, this payout, this Q,
+        // this size) and the hop submits that consent WITH the open. It pins + LOCKS
+        // btcRecipientOf[lpEth]=payout and credits the position to lpEth.
         address lpEth = vm.addr(lpPk);
-        bytes memory dsig = _signOpen(lpPk, ch.delegationDigest(address(0xB0B), payout, 1));
-        ch.registerDelegation(address(0xB0B), payout, 1, dsig);
-        vm.prank(address(0xB0B)); // this hop must == the delegated authority above
-        channelId = ch.openChannel(p, rawTx, vm.parseJsonBytes32Array(json, ".merkleBranch"), lpEth, Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0, signedExitTx: hex"00"}));
+        bytes memory dsig = _signOpen(lpPk,
+            ch.openAuthDigest(address(0xB0B), payout, p.fundingTaproot, p.amountSats));
+        vm.prank(address(0xB0B)); // must be the hop the LP signed for
+        channelId = ch.openChannel(p, rawTx, vm.parseJsonBytes32Array(json, ".merkleBranch"),
+            Types.OpenAuth({lpEth: lpEth, btcRecipient: payout, lpSig: dsig}),
+            Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0,
+                              signedExitTx: hex"00"}));
     }
 
     function test_openChannel_realRegtestFundingTx() public {

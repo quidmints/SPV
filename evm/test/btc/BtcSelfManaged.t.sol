@@ -302,17 +302,20 @@ contract BtcSelfManagedTest is Alles {
             // retire/no-mint invariant (>=0), so the synthetic key just needs to be a
             // proper key, not a hash160 in a slot.
             bytes32 payout = _validXOnly(abi.encode("lp-shutdown-xonly", p.lpPubkey));
-            // (B) The LP delegates channel operation to `hop` COLD, once. The bundle's
-            // `lpAuth` field now carries the DELEGATION signature over
-            // delegationDigest(hop, payout, 1) (the e2e_ffi bin signs that digest instead
-            // of the retired per-open openChannelDigest). registerDelegation recovers
-            // lpEth from the sig and pins+LOCKS btcRecipientOf[lpEth]=payout +
-            // delegatedAuthority[lpEth]=hop; openChannel is then gated on the hop caller.
-            address lpEth = ECDSA.recover(ch.delegationDigest(hop, payout, 1), b.lpAuth);
-            ch.registerDelegation(hop, payout, 1, b.lpAuth);
-            vm.prank(hop); // openChannel is hop-gated: only the delegated hop may submit
+            // (E157) The LP's consent rides WITH the open — no prior registerDelegation tx.
+            // ⚠️ `lpEth` is RECOVERED FROM the fixture's signature rather than checked against a
+            // known address, which is the pattern this test already used. It means the consent
+            // check passes by construction here, so THIS test does not prove LP authentication —
+            // `SmartWalletLp` does. What it proves is the SPV/channel machinery downstream, on
+            // real regtest data, and that is why the fixture did not need regenerating.
+            address lpEth = ECDSA.recover(
+                ch.openAuthDigest(hop, payout, p.fundingTaproot, p.amountSats), b.lpAuth);
+            vm.prank(hop);
             channelId =
-                ch.openChannel(p, b.rawFundingTx, b.fundingMerkleProof, lpEth, Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0, signedExitTx: hex"00"}));
+                ch.openChannel(p, b.rawFundingTx, b.fundingMerkleProof,
+                    Types.OpenAuth({lpEth: lpEth, btcRecipient: payout, lpSig: b.lpAuth}),
+                    Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0,
+                                      signedExitTx: hex"00"}));
         }
 
         // The lpAuth signer owns the credited BTC position.
