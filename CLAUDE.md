@@ -100,6 +100,30 @@ environment actually is*. Every line below was verified in-repo, not recalled.
   (§E154-client-ghosts). Unmatched names are now `ORPHAN` failures. **Chaining the check ahead of a
   commit in one command is not gating it — I read "2 drifted" and committed anyway.**
 
+## Traps verified on 2026-08-10 — each cost a wrong conclusion, all are cheap to avoid
+
+- **A SHARED TREE INVALIDATES EVERY FULL-SUITE NUMBER, AND IT IS NOT OBVIOUS.** Another thread's
+  UNCOMMITTED edits produced **180 `BufferOverflow` failures** in tests I never touched, and two runs
+  90s apart counted **4,428** vs **3,107** total tests (a reverting `setUp` drops its whole suite from
+  the count, so counts swing wildly). ⇒ **If `git status` shows files that are not yours, set the
+  worktree up BEFORE the first measurement, not after three ambiguous runs:**
+  `git worktree add --detach <path> HEAD` — their work is uncommitted, so HEAD excludes it BY
+  CONSTRUCTION — then copy the gitignored `evm/.env`. Cost: ~6 min cold compile (342s vs ~105s warm).
+  **Clean baseline that day: 4,402 passed / 1 failed**, the failure being `testRoundTripNoRaceNoDrain`
+  at `499224755743233795668` — pre-existing, and byte-identical across every arm all day.
+- **`redeemableAmount()` IS CACHE-SENSITIVE** — `get_metrics`/`get_deposits` are NOT `view`. Without
+  refreshing first it reports a collapse to **0** indistinguishable from a real defect.
+- **`USD_FEES`, `USD_FEES_BTC`, `feesPerShareBTC` ARE PER-SHARE ACCUMULATORS, NOT DOLLARS**
+  (`SwapLib.sol:1392` credits `mulDiv(usd6, WAD, totalShares)`). For dollars, multiply back by the
+  credit site's OWN share base (`Vault.sol:640`: `lpSharesBTC + totalBufferBTC`).
+- **`docs/actionable/QUEUE.md`'s STATUS-MARKER COLUMN IS UNRELIABLE — PLAN FROM ROW BODIES.**
+  `UNIT-A` still read 🔴🔴🔴 after it landed. Re-reading two rows overturned the plan twice running.
+- **`Core` CANNOT AFFORD A GETTER.** Measured: a two-address getter costs **91 bytes**, a
+  `(bool,bool)→address` one **98** — more than the 76 freed by deleting dead state. The dust monitor
+  reads mock addresses from RAW SLOTS (`UnificationControls.t.sol`) for exactly this reason, which
+  couples the HARNESS (not the contract) to `Core`'s state ORDER: reorder it and tests fail with
+  `unrecognized function selector 0x70a08231` four frames deep. A stale-slot guard now names it.
+
 ## Code navigation — read this before answering a "how does X work" question
 
 ⚠️ **`graphify-out/graph.json` contains ZERO Solidity.** Measured 2026-08-03: 17,624 nodes, of which
