@@ -3399,6 +3399,9 @@ contract Alles is ForkPin, Fixtures {
     /// over-burns the shared POOLED_BTC (virtual-accounting consistency).
     function test_RunSim_AllExit_BtcLp() public {
         AUX.setBTCChannels(address(this)); // impersonate BTCChannels -> drive register/unregister
+        // §UNIT-A — the retained skew premium reaches a BTC LP through the USD FEE LEG (§E5 →
+        // usdR → BtcVaultLib:69), so once the base is reachable "fee dust" is fee + premium.
+        uint premBefore = CORE.skewPremiumCum(true);
 
         // Two BTC LPs; fund POOLED_USD_BTC (median-governed) so SOME of their
         // sats pair into active virtual liquidity and the rest is retention.
@@ -3437,7 +3440,13 @@ contract Alles is ForkPin, Fixtures {
         // here) - confirming BTC LPs DO earn fees in QUI, like ETH LPs. Bound it
         // well under a proceeds-sized claim to prove no proceeds were minted.
         uint qdGain = QUID.balanceOf(User01) - qd1;
-        assertLt(qdGain, 1e18, "only fee dust minted (no proceeds claim when delivered==0)");
+        // §UNIT-A — RE-EXPRESSED, NOT WEAKENED. The 1e18 was a PROXY for "well under a
+        // proceeds-sized claim" (the comment above says so), not a dust measurement. UNIT-A makes
+        // the premium reach the LP through the fee leg, so the proxy broke while the INVARIANT —
+        // no proceeds were minted — still holds. Bound = the premium ACTUALLY CHARGED + the
+        // original 1e18 dust allowance, so a real proceeds claim (orders larger) still fails.
+        assertLt(qdGain, (CORE.skewPremiumCum(true) - premBefore) * 1e12 + 1e18,
+            "only fee dust + retained premium minted (no proceeds claim when delivered==0)");
         // Virtual consistency: the shared POOLED_BTC didn't go negative / wrap.
         assertLe(CORE.POOLED_BTC(), pooledBtc0, "POOLED_BTC only shrank - no over-burn across LPs");
     }
