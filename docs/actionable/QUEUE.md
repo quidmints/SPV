@@ -9939,3 +9939,37 @@ BOTH registers.** `FLOW_SLOW_N` is applied ONLY on the read, in `flowEwmaUsd` (`
    contributions — a true 14-day leg must retain visibly more of the first bump than the 48h leg.
    Expose them via a test-only read or infer from `flowEwmaUsd` across a controlled gap; do NOT add
    a view to `Core` (28 bytes of EIP-170 margin left).
+
+| **E140-r2** | 🔴 **`TxParser` IS NOT A DROP-IN — IT IS INTERNALLY BYTE-ORDER INCONSISTENT, AND OUR `BitcoinTx` IS NOT (verified 2026-08-10, before writing any code against it).** 🔎 **`TxParser.calculateTxId` = `_doubleSHA256(_removeWitness(data))` ⇒ **INTERNAL (LE) order**. `TxParser._parseTransactionInput` sets `previousHash = slice(...).bytes32LEtoBE()` ⇒ **REVERSED to DISPLAY (BE) order**. ⇒ **within TxParser itself, `calculateTxId(txA)` NEVER equals `parseTransaction(txB).inputs[i].previousHash` even when B genuinely spends A.**** ✅ **OURS IS CONSISTENT: `BitcoinTx.txid` is the raw double-SHA and `extractInputPrevOutpoint` does `hash := calldataload(...)` — the 32 bytes EXACTLY as serialized. Both internal order, so outpoint matching works today (`_verifyTxSpendsChannel`, `_verifySplice`).** ⛔ **⇒ §E140's *"subtraction available"* framing is wrong for the SECOND time (§E140-r corrected it once already): swapping our parser for theirs would flip byte order at EVERY outpoint comparison in the contract — a change that compiles, and whose failures are silent mismatches rather than reverts.** ✅ **THE NARROW, CORRECT ADOPTION: use `TxParser` ONLY for what `BitcoinTx` cannot do — parse a WITNESS-carrying tx and expose `inputs[i].witnesses` (§E140-r, needed by §E128). **Keep `BitcoinTx` for txid and outpoint logic**, and reverse explicitly at the boundary if a TxParser-derived outpoint is ever compared to a stored one.** 📌 **CAUGHT BY CHECKING THE MECHANISM BEFORE BUILDING ON IT — the byte order was never going to surface as a compile error or a revert, only as a comparison that is always false.** | 🔴 TxParser mixes LE txid with BE prevout; use it for witnesses only, keep BitcoinTx for outpoints |
+
+### 🔴🔴 UNIT-B-MIN-IS-NOOP — `min(fast, slow)` is UNCONDITIONALLY the fast leg. The §E55 defence does not operate.
+
+**Derived by inspection from three call sites, all of them shown — this is arithmetic, not a guess:**
+- `Core.sol:234-235` — `_bumpFlow` bumps BOTH registers with the **same `usd6`**, through the **same
+  `_bumpEwma`**, which decays with `_decayed(f)` == the **fast** rate for both. `:191-192/235/251`
+  is the COMPLETE set of references to `_flowSlow*` ⇒ **no other writer exists.**
+- ⇒ `vol_slow == vol_fast` and `ts_slow == ts_fast` **at all times**, from genesis (`ts == 0 ⇒ 0`).
+- ⇒ At read (`:249-252`): `fast = vol·d^m`, `slow = vol·d^(m/7)`, `d = FLOW_DECAY < 1`, `m/7 ≤ m`
+  ⇒ `d^(m/7) ≥ d^m` ⇒ **`slow ≥ fast` ALWAYS** ⇒ **`min(fast, slow) ≡ fast`, unconditionally.**
+
+**CONSEQUENCES:**
+1. 🔴 **THE MANIPULATION DEFENCE IS NOT REAL.** `:249` claims *"lifting this number requires
+   sustaining fake flow across the SLOW window, not one block."* The slow leg can never be the
+   binding constraint, so **one block of fake flow lifts the target exactly as much as sustained
+   flow does.** Security-adjacent: the skew target is manipulable on the fast half-life alone.
+2. 🔴 **THE BURST PROTECTION DOES NOT EXIST** — *"a transient burst is never mistaken for durable
+   shed capacity until it persists"* (`:194-196`) requires `slow < fast` after a spike, which cannot
+   occur. ⇒ **I WAS WRONG TO SAY THE `min` DAMPS THE SELF-INFLATION**: §UNIT-B's 13.71% is
+   **UNDAMPED**, so the lagged-target fix is the whole job, not a top-up on partial protection.
+3. ✅ The COLLAPSE half still works, but only trivially (`min == fast` prices a drop immediately).
+4. 💸 **PURE COST ON THE MONEY PATH:** an extra SSTORE of `vol` + `ts` per swap, per pool, for a
+   value that is never read as anything but the larger operand.
+▶️ **THE FIX AND §UNIT-B ARE THE SAME FIX.** A register that genuinely retains older flow is exactly
+the lagged target §UNIT-B-DECISION needs. Correct `_bumpEwma` to decay the slow register at
+`FLOW_SLOW_N` on WRITE (it already takes a `slowN` param via `_decayedBy`) and the slow leg becomes
+real, the `min` starts binding, and the self-inflation is damped at source — one change, both
+properties. **Then re-run §E71: acceptance is the discount → ~0 bps with both legs still charging.**
+⚠️ **MEASURE FIRST ANYWAY.** This contradicts a documented, deliberate design across two docblocks,
+and CLAUDE.md's rule is that existing machinery is positive evidence. The arithmetic is simple enough
+to be checkable, but confirm with a direct read of both registers (test-only; do NOT add a view —
+`Core` has 28 bytes) before changing a manipulation-defence code path.
