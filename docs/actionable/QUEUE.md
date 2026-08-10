@@ -9856,3 +9856,25 @@ the SAME pool, but only because a TEST can mint mocks by pranking as `rover`. Th
 must change with it: arm B is *"the same capital spread over several ticks INSIDE our own pool"*,
 not *"an outside Uniswap LP"*. The shared-price-path argument (why the fork's wrong σ² cancels out
 of the DIFFERENCE) is unaffected and still holds.
+
+### UNIT-C-BAR-ARMB-SPEC — how arm B must be built. Scoped 2026-08-10, NOT built.
+
+Feasibility settled, so the next session does not have to re-derive it:
+
+1. **THERE IS NO EXTERNAL LIQUIDITY PATH.** `_modifyLiquidity` is **internal to `Core`** and is only
+   reachable from `Core._unlockCallback` (`Core.sol:801/929/1011/1029`). Nothing in `src/` or `test/`
+   adds liquidity to a VANILLA pool any other way. ⇒ Arm B cannot call the pool through the protocol;
+   it needs its OWN `IUnlockCallback` contract calling `poolManager.unlock` directly.
+2. **SOURCING THE MOCKS.** `mock.mint(uint)` is `onlyVogue` (`require(msg.sender == address(rover))`)
+   and mints **to the caller**. ⇒ `vm.prank(rover); mock.mint(x)` puts supply on `rover`, then a
+   second prank transfers it to the arm-B LP (mock is a plain ERC20, so transfer is unrestricted).
+   Confirm which contract `rover` resolves to before writing it — do NOT assume it is `Vogue`.
+3. **SHAPE.** Same VANILLA pool, same trades, same fee tier; arm B is a WIDE tick range vs the band's
+   ±20 bps. Extend `_stageIL`/`_moveEth` (`Alles.t.sol:2908`), run one price path, and compare
+   `fees + premium − LVR` per §UNIT-C-BAR.
+4. ⚠️ **FRAMING (per the §UNIT-C-BAR-ARMB correction):** arm B is *"the same capital spread over
+   several ticks INSIDE our own pool"*, NOT *"an outside Uniswap LP"* — outsiders can hold neither
+   currency. State that when quoting the result, or it will be read as a claim about public Uniswap.
+5. ✅ **WHY THE FORK'S BAD σ² DOESN'T INVALIDATE IT:** both arms take the IDENTICAL price path from
+   the identical trades, so the path error is common-mode and cancels out of the DIFFERENCE. Report
+   the difference, never either arm's absolute number (§E120's limit applies to the path).
