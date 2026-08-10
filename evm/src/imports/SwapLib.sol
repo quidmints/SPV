@@ -798,7 +798,6 @@ library SwapLib {
         //
         // This is the third instance of one lesson (cf. E56 dead-vs-new, E59): a sentinel that
         // means "no data" must never be consumed as if it meant "none of the thing".
-        if (sigmaSqWad == 0) return MAX_WELL_SKEW;
         // §E62 — THE HARD 3% NO LONGER CAPS THE *DERIVED* PATH; it survives ONLY as the
         // unknown-variance value above. Rationale: `σ²·confFrac/8` IS a derivation — LVR over the
         // settlement window (MMRZ eq.16), chain physics times measured volatility — so clamping it
@@ -861,7 +860,12 @@ library SwapLib {
         //   changes how hard it is to sell the band's ETH.
         //   What remains IS the E54 derivation: scarcity is inventory against the flow we shed into.
         uint target = flowUsd;
-        if (target == 0) return 0;
+        // §UNIT-A — RETURN THE BASE, NOT ZERO. This sat ABOVE `_maxWellSkew`, so a fresh OR idle
+        // band charged NOTHING: not the kernel, not `σ²·confFrac/8`, not `SPLICE_FLOOR`. §E98
+        // measured BTC's floor never applying on a fresh band; §E99 measured a 30-day-old imbalance
+        // pricing at 0; and `wellSkew` read 0 at σ² = 4.09 on a violent tape, proving the base is
+        // unreachable INDEPENDENT of variance.
+        if (target == 0) return _maxWellSkew(sigmaSqWad, isBTC);
         // §E68 — THE DRAIN IS NOW SIZE-AWARE, AND THIS IS WHERE THE LEAK WAS.
         //
         // `inv` used to be read PRE-swap and the flush test used to be `inv >= target ⇒ 0`. Two
@@ -881,7 +885,10 @@ library SwapLib {
         // Flush now means flush AFTER the drain. A swap that ends at/above target created no
         // scarcity and is genuinely free; a swap that ENDS below it is charged for the crossing,
         // however flush the band looked before it. Size-blindness cannot survive this test.
-        if (inv1 >= target) return 0;
+        // §UNIT-A — THE FLUSH OWES THE BASE TOO. A well-stocked band is not an UNEXPOSED one: the
+        // settlement-window loss accrues whether or not inventory is scarce, so only the DEPLETION
+        // (kernel) term flushes away, never the adverse-selection floor.
+        if (inv1 >= target) return _maxWellSkew(sigmaSqWad, isBTC);
         uint q1 = (target - inv1) * 1e18 / target;        // post-swap scarcity ∈ (0, 1e18]
         uint q0 = inv0 >= target ? 0 : (target - inv0) * 1e18 / target;  // pre-swap, 0 if flush
         uint oneMinusQ = 1e18 - q1;                       // pole is on the ENDING inventory
@@ -908,7 +915,6 @@ library SwapLib {
         // §E79: with the inversion, `_maxWellSkew(0)` is now a FLOOR of ~0 — returning it here would
         // re-open the free-drain hole E59 closed. UNMEASURED variance must price at the CEILING,
         // which is the conservative reading E59 intended and now says so in the right units.
-        if (sigmaSqWad == 0) return MAX_WELL_SKEW;
         // §E68 — THE KERNEL IS NOW THE INTEGRAL OF THE SAME POLE, NOT A POINT SAMPLE OF IT.
         //
         // The curve is UNCHANGED: still `q/(1−q)`, still A&S's simple pole, still one constant.
@@ -1245,7 +1251,6 @@ library SwapLib {
         // §E79: with the inversion, `_maxWellSkew(0)` is now a FLOOR of ~0 — returning it here would
         // re-open the free-drain hole E59 closed. UNMEASURED variance must price at the CEILING,
         // which is the conservative reading E59 intended and now says so in the right units.
-        if (sigmaSqWad == 0) return MAX_WELL_SKEW;
         uint skew = FullMath.mulDiv(
             FullMath.mulDiv(MAX_WELL_SKEW, sigmaSqWad, 1e18), q, 1e18);
         // §E53: the SAME shared-scarcity amplifier the drain leg carries — a sell that grows our
