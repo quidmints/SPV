@@ -1238,4 +1238,32 @@ contract DrainAtomicity is Alles {
             emit log("TRADER-SIDE: IDENTICAL receipts -- path-independent, which is the goal.");
         }
     }
+
+    /// §UNIT-B-MIN-IS-NOOP — DOES THE SLOW FLOW REGISTER EVER BIND? Derived by inspection that it
+    /// cannot: `_bumpFlow` bumps BOTH registers with the same `usd6` through the same `_bumpEwma`,
+    /// which decays at the FAST rate for both, so they must hold identical `vol` and `ts` forever.
+    /// If so, at read `slow = vol*d^(m/7) >= fast = vol*d^m`, hence `min(fast, slow) == fast`
+    /// ALWAYS — and the §E55 defence ("lifting this number requires sustaining fake flow across the
+    /// SLOW window, not one block") never operates. Read the raw slots rather than adding a view:
+    /// `Core` has 28 bytes of EIP-170 margin. Slots from `forge inspect Core storageLayout`.
+    /// A LONG GAP BETWEEN THE TWO BUMPS IS THE POINT: if the write path decayed the slow register
+    /// any differently, this is where the two would diverge.
+    function test_UNITB_DoesTheSlowFlowRegisterEverBind() public {
+        _setupBand();
+        _drain(10_000 * 1e18);
+        vm.warp(block.timestamp + 3 days); vm.roll(block.number + 1);
+        _drain(10_000 * 1e18);
+
+        bytes32 fastReg = vm.load(address(CORE), bytes32(uint(131088)));  // _flowETH
+        bytes32 slowReg = vm.load(address(CORE), bytes32(uint(131090)));  // _flowSlowETH
+        emit log_named_bytes32("_flowETH     (vol|ts)", fastReg);
+        emit log_named_bytes32("_flowSlowETH (vol|ts)", slowReg);
+        emit log_named_uint   ("flowEwmaUsd (the min)", CORE.flowEwmaUsd(false));
+
+        assertTrue(uint(fastReg) != 0, "PREMISE: the registers must actually have been bumped");
+        assertEq(fastReg, slowReg,
+            "the two flow registers hold IDENTICAL state, so the slow leg can never be the smaller "
+            "operand and min(fast,slow) is unconditionally the fast leg -- the E55 manipulation "
+            "defence does not operate");
+    }
 }

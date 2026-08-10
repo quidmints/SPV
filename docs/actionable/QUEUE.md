@@ -9969,7 +9969,12 @@ the lagged target §UNIT-B-DECISION needs. Correct `_bumpEwma` to decay the slow
 `FLOW_SLOW_N` on WRITE (it already takes a `slowN` param via `_decayedBy`) and the slow leg becomes
 real, the `min` starts binding, and the self-inflation is damped at source — one change, both
 properties. **Then re-run §E71: acceptance is the discount → ~0 bps with both legs still charging.**
-⚠️ **MEASURE FIRST ANYWAY.** This contradicts a documented, deliberate design across two docblocks,
-and CLAUDE.md's rule is that existing machinery is positive evidence. The arithmetic is simple enough
-to be checkable, but confirm with a direct read of both registers (test-only; do NOT add a view —
-`Core` has 28 bytes) before changing a manipulation-defence code path.
+✅ **MEASURED AND CONFIRMED 2026-08-10 — no longer an inference.**
+`test_UNITB_DoesTheSlowFlowRegisterEverBind` (`DrainAtomicity.t.sol`) bumps twice with a **3-day gap**
+between them — the point at which any difference in write-decay would show — and reads the raw slots
+via `vm.load` (131088 `_flowETH`, 131090 `_flowSlowETH`, from `forge inspect Core storageLayout`; no
+view added, `Core` has 28 bytes). Both words come back **byte-identical**:
+`0x…6a7dfbe8 0000…225047573f` for BOTH. Same `vol`, same `ts`, after a 3-day separation.
+⇒ `slow >= fast` at every read ⇒ **`min` is unconditionally the fast leg. The §E55 defence does not
+operate, and the §UNIT-B self-inflation is undamped.** The docblocks at `:188-196` and `:249` describe
+a property the code does not have.
