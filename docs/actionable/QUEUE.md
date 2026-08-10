@@ -9878,3 +9878,36 @@ Feasibility settled, so the next session does not have to re-derive it:
 5. ✅ **WHY THE FORK'S BAD σ² DOESN'T INVALIDATE IT:** both arms take the IDENTICAL price path from
    the identical trades, so the path error is common-mode and cancels out of the DIFFERENCE. Report
    the difference, never either arm's absolute number (§E120's limit applies to the path).
+
+### ✅ UNIT-B-DECISION — SETTLED BY THE OWNER 2026-08-10: **the target must NOT include the trade's own flow.**
+
+Resolves the fork in §UNIT-B-DECISION. **Path-independence semantics is adopted; the
+estimator-correctness reading is REJECTED.** ⇒ The 13.71% is an OVERCHARGE ON THE SPLIT, not an
+underpayment by the whale, and the whale's pricing (target as of before its own flow) is the
+REFERENCE the split must be brought into line with. Every §UNIT-B fix is now judged against that.
+
+⚠️ **THE OBVIOUS IMPLEMENTATION IS SYBIL-ABLE — DO NOT BUILD IT.** Measured: each swap is ALREADY
+priced before its own bump lands (`t0` 380,432 pre-drain vs `t1` 498,029 post). So the splitter is
+not charged for its own ticket; it is charged for its PREDECESSORS'. Honouring the decision therefore
+means excluding the flow of the whole SEQUENCE — and "same trader's earlier tickets" cannot be
+identified on-chain: split across twelve addresses and any identity- or sender-based exclusion
+evaporates. **Identity is the wrong axis.**
+
+▶️ **THE ROBUST FORM IS TEMPORAL.** Price against the target as it stood BEFORE a recent window, so
+flow arriving inside that window cannot lift the yardstick it is priced against. Properties this
+buys, and the reason it is the right shape rather than merely a workaround:
+  • **Path-independent within the window** — N tickets inside it all price against ONE target, so
+    ∫ over the pieces == ∫ over the whole. That is the §UNIT-B-BLOCKS-C precondition, delivered.
+  • **Still adaptive across windows** — a genuinely spread-out sequence DOES raise the target,
+    which is correct: that is durable flow, not one trade measuring itself. §E54's derivation is
+    preserved, so this does not "freeze the target" (the failure mode §UNIT-B-MECHANISM warns of).
+  • **Sybil-proof by construction** — it keys on TIME, not on who is trading.
+  • **It is the mechanism already in the file**: `flowEwmaUsd` (`Core.sol:249`) takes `min(fast, slow)`
+    precisely because *"lifting this number requires sustaining fake flow across the SLOW window, not
+    one block."* This extends that argument from manipulation-resistance to PRICING.
+🔬 **FIRST EXPERIMENT (falsifiable, and it may show the fix is nearly free):** `_bumpFlow`
+(`Core.sol:233`) bumps BOTH registers; `flowEwmaUsd` returns `min(fast, slow)`. **Establish which leg
+the min actually selects during the §E71 split** — the target climbed ~8,100 per 10,000 ticket, which
+looks fast-leg-like. If the min is the FAST leg, pricing off the SLOW leg alone may deliver most of
+the property with no new state. **Measure before designing.** Acceptance: §E71's consolidation
+discount → ~0 bps with BOTH legs still asserting skew > 0 (the control is already in the test).
