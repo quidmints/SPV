@@ -10629,3 +10629,33 @@ relative; price is absolute.** Nothing internal anchors the band's absolute loca
 anchor PER ASSET (`:151`), so the oracle-free configuration is expressible TODAY with no code change.
 **Run the existing drain / reseat / `_reseatIfStale` suites with the feed zeroed and record which
 invariants break.** Expect the `price == 0` deadlock path first. ⚠️ Pinned worktree (§TREE-UNSTABLE).
+
+### 🔬 ORACLE-FREE-MEASURED — the A/B was VOID, and WHY it was void is the finding: **the ETH suite ALREADY runs oracle-free.**
+
+**Ran the owner's experiment (drain hard, then compare quoted price with the feed live vs neutered).
+RESULT VOID — and the void is informative.**
+`AUX.assetPriceFeed(WETH)` returned **`0x0000…0000`**: **NO ETH FEED IS PINNED IN THE FIXTURE.**
+`twapResolve` therefore returned at `:151` (`feed == address(0) ⇒ (price,false)`) on BOTH arms, so
+"ANCHOR IDLE / delta 0" says nothing about Chainlink — there was no anchor to remove.
+📌 **Caught by LOGGING THE FEED ADDRESS rather than trusting the arm labels** — the
+`confirm-what-the-value-refers-to` discipline, and the first self-caught reasoning error of the day.
+
+✅ **WHAT IT DOES ESTABLISH, AND IT IS SUBSTANTIAL:**
+1. 🔴 **THE ENTIRE ETH TEST SUITE ALREADY RUNS WITHOUT CHAINLINK.** Every ETH measurement in this repo
+   — §E71's skew arms, the reseat work, §UNIT-B's 13.71%, today's premium fix — used the **pure pool
+   price with no external anchor.** The oracle-free configuration is not hypothetical for ETH; it is
+   the status quo under test, and the suite passes **4,402/1**.
+2. ✅ **A HARD ONE-DIRECTIONAL DRAIN DID NOT REPRODUCE THE `price == 0` DEADLOCK.** 8 × 60,000 (480k
+   notional) left the quote at **1,931.446241193834309892** — sane. The `MAX_SQRT_RATIO` /
+   `ticksToPrice → 0` state documented at `SwapLib:140-150` did NOT occur at this size.
+⛔ **WHAT IT DOES NOT ESTABLISH — do not read this as "Chainlink is unnecessary":**
+   • 480k did not walk the pool to `MAX_SQRT_RATIO`; the deadlock's TRIGGER was not reached, so its
+     absence is **not evidence of safety**, only that this size is insufficient. **Find the size that
+     does reach it** (bisect upward) before concluding anything.
+   • **BTC may differ — check `assetPriceFeed(WBTC)` separately.** §UNIT-ASYM's standing warning is
+     that ETH results are reported as protocol properties when they are per-asset.
+   • The §ORACLE-FREE-Q circularity argument (the premium is denominated in the price it protects) is
+     **untouched by this** — it bites only in the state this run failed to reach.
+▶️ **NEXT: bisect the drain size until `getTWAPforAsset` returns 0 or the band fails to re-pair; THEN
+run the A/B with a real feed pinned.** That is the experiment the owner actually asked for, and it
+needs a fixture that pins a feed — which this one does not.
