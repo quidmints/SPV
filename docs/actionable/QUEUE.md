@@ -10078,3 +10078,35 @@ by construction — that is the clean baseline, and it costs one command.
 ⚠️ **DO NOT "fix" any of the 180** — they are another thread's in-flight work, and rule 14 says do
 not touch it. ⚠️ **AND DO NOT retro-doubt the 4,290/1 runs** (premium fix, §UNIT-A, §E2-#1): those
 predate these edits, on a tree whose only uncommitted source was mine.
+
+### ⛔⛔ UNIT-B-SLOWDEL — REFUTED ON A CLEAN WORKTREE. The deletion is NOT behaviour-neutral. DO NOT LAND IT.
+
+**The comparison the worktree was built for, both arms at `33550fb`, same block, only the 4 edits differing:**
+
+| arm | total | passed | failed |
+|---|---|---|---|
+| baseline | 4,404 | 4,402 | **1** (pre-existing round-trip drain) |
+| slow-register deletion | 4,403 | 4,399 | **3** |
+
+One test fewer is expected (the slot-reader was removed with the state it reads). **The two NEW
+failures are not:** `test_DUST_MocksAreContainedToAllowedHolders` and
+`test_E60_MockDustUnderAnActivatedProtocolFee`, both `EvmError: Revert`. `BufferOverflow: 0` in both
+arms, so this is clean signal, not the other thread.
+
+🔴 **MY PREDICTION ("bit-identical behaviour") IS REFUTED, AND SO IS THE CLAIM UNDER IT.**
+§UNIT-B-MIN-STRUCTURAL argued the slow registers *"cannot affect any output at any decay ratio"* —
+`slow >= fast` always ⇒ `min` is identically the fast leg. **Two MOCK-DUST tests disagree.** The
+structural argument has a hole and must be found before the deletion is retried. Candidates, NONE
+checked: (a) the argument is right and these tests are incidentally sensitive to the removed SSTORE
+(gas/dust thresholds); (b) `_decayedBy`'s `FLOW_MAX_MIN` exponent cap breaks the `slow >= fast`
+ordering in some regime; (c) my 4 edits did something beyond the intended deletion. **(c) MUST BE
+ELIMINATED FIRST** — it is the cheapest and the most likely.
+⚠️ **NOTE WHAT SURVIVES AND WHAT DOES NOT.** The MEASUREMENTS stand: registers byte-identical after a
+3-day gap; passing `slowN` on the write diverged them (361,562,545,899 vs 146,668,048,963) while
+`flowEwmaUsd` still returned the fast value and §E71 stayed at 1371 bps; `Core` 24,548 → 24,472
+(+76 bytes). **The INFERENCE from them — "therefore dead, therefore deletable" — does not.**
+⇒ §E55's defence still appears not to operate, and §UNIT-B's 13.71% is still undamped. But
+"the `min` never binds" and "the registers are removable" are now **separate claims**, and only the
+first has evidence.
+📌 The worktree is left in place at `scratchpad/clean-wt` (baseline artifacts cached, warm run ~123s
+vs 342s cold) — reuse it rather than rebuilding.
