@@ -49,7 +49,7 @@ contract HopDemo is Script {
         vm.startBroadcast(pk);
         MockSPV spv = new MockSPV();
         MockHopAux aux = new MockHopAux();
-        BTCChannels ch = new BTCChannels(address(spv), address(aux), address(aux), hop);
+        BTCChannels ch = new BTCChannels(address(spv), address(aux));
         vm.stopBroadcast();
         console.log("BTCChannels", address(ch));
         console.log("MockHopAux ", address(aux));

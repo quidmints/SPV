@@ -27,7 +27,7 @@ contract SmartWalletLpTest is Test {
     address ownerAddr; uint ownerPk;
 
     function setUp() public {
-        ch = new BTCChannels(address(0xCA11), address(0xA17), address(0x4006), address(0xB0B));
+        ch = new BTCChannels(address(0xCA11), address(0x4006));
         (ownerAddr, ownerPk) = makeAddrAndKey("safe-owner");
         wallet = new OwnerSignedWallet(ownerAddr);
     }

@@ -85,7 +85,7 @@ contract VBtcLevFeeLane is Alles {
     // ─────────────────────────── channel helpers (mirrors BtcLpMintStress) ───────────────────────────
 
     function _deployChannels() internal returns (BTCChannels ch) {
-        ch = new BTCChannels(address(new MockSPV()), address(AUX), address(ETH), makeAddr("hop"));
+        ch = new BTCChannels(address(new MockSPV()), address(ETH));
         AUX.setBTCChannels(address(ch));
     }
 

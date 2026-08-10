@@ -126,9 +126,8 @@ contract BTCChannels is Ownable, ReentrancyGuard {
 
     // ─── State ─────────────────────────────────────────────────────────
     ISPVGateway     public immutable spv;
-    // BtcVault — the regrouped BTC side (LP register/close + swap credit). The
-    // constructor still accepts the legacy (_aux, _vogue) pair for call-site
-    // compatibility; both now point at the SAME BtcVault, bound here.
+    // BtcVault — the regrouped BTC side (LP register/close + swap credit), bound in the
+    // constructor. (E150: the legacy `(_aux, _vogue)` pair and `_hopNode` are gone.)
     IBtcVaultBridge public immutable btcVault;
     // MULTI-HOP: there is NO single global `hopNode`. Each channel records the hop
     // (EVM address) that opened it (`channel.hop`). ⚠️ UPDATED 2026-08-07 (E122): that hop is
@@ -538,22 +537,20 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         return abi.encodePacked(bytes1(0x51), bytes1(0x20), btcRecipientOf[lpEth]);
     }
 
-    /// @param _hopNode LEGACY / no-op. Retained only to keep the 4-arg constructor
-    ///        signature (deployers unchanged). There is no global hop under the
-    ///        multi-hop model; authority is per-channel (`channel.hop`).
-    ///        ⚠️ CHECKED (E149-c): genuinely unused in the body, and it SHOULD be dead —
-    ///        multi-hop deliberately replaced the global hop. It survives as a live ARGUMENT
-    ///        rather than a comment, so every deployment still passes a value that is read
-    ///        nowhere. Removing it touches 18 construction sites; booked, not bundled.
-    constructor(address _spv, address _aux, address _vogue, address _hopNode)
+    /// @param _btcVault the merged BtcVault — LP register/close + swap credit.
+    /// @dev (E150) THIS TOOK FOUR PARAMS AND NEEDED TWO. Removed: `_hopNode`, read NOWHERE —
+    ///      the body carried `_hopNode;` purely to silence the unused-param warning, a
+    ///      statement whose only job was to hide a dead parameter — and the `_aux`/`_vogue`
+    ///      PAIR, which both designated the SAME vault via
+    ///      `_vogue != address(0) ? _vogue : _aux`, a shim for two calling conventions left
+    ///      from when the BTC side was split. **All 18 construction sites passed a non-zero
+    ///      `_vogue`, so the `_aux` fallback was never once exercised**, and the compatibility
+    ///      it preserved was with callers we control — none external, none in `quid-ln`.
+    constructor(address _spv, address _btcVault)
         Ownable(msg.sender)
     {
         spv = ISPVGateway(_spv);
-        // The BTC side regrouped into a single BtcVault; both legacy params now
-        // designate it (deployers pass the BtcVault address for _vogue, falling
-        // back to _aux). Behaviour-identical to the old split aux/vogue wiring.
-        btcVault = IBtcVaultBridge(_vogue != address(0) ? _vogue : _aux);
-        _hopNode; // silence unused-param (legacy signature retained)
+        btcVault = IBtcVaultBridge(_btcVault);
     }
 
     // ─── Attested-hop gate ──────────────────────────────────────

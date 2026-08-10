@@ -22,12 +22,7 @@ contract BTCChannelsAuthTest is Test {
     function setUp() public {
         // Minimal deploy. Constructor is (spv, aux, vogue, hopNode); we only call
         // the view digest + the recovery path, which don't depend on them.
-        ch = new BTCChannels(
-            address(0xCA11),                 // spv (unused on the recovery path)
-            address(0xA17),                  // aux
-            address(0x4006),                 // vogue (unused on the recovery path)
-            address(0xB0B)                   // hopNode
-        );
+        ch = new BTCChannels(address(0xCA11), address(0x4006));
     }
 
     function _params() internal view returns (Types.OpenParams memory p) {

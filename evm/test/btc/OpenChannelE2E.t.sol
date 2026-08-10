@@ -77,8 +77,7 @@ contract OpenChannelE2ETest is Test {
     {
         bytes memory hopPubkey = vm.parseJsonBytes(json, ".hopPubkey");
         // The hop's BTC pubkey is fixed at deploy; LP's is per-channel.
-        ch = new BTCChannels(
-            address(gw), address(0xA17), address(vogue), address(0xB0B));
+        ch = new BTCChannels(address(gw), address(vogue));
 
         Types.OpenParams memory p = Types.OpenParams({
             fundingBlockHash:   vm.parseJsonBytes32(json, ".fundingBlockHashBE"),

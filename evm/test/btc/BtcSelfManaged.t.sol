@@ -132,8 +132,7 @@ contract BtcSelfManagedTest is Alles {
 
         // Real BTCChannels wired as THE btcChannels (pin-once); hopNode = our addr.
         address hop = makeAddr("hop");
-        BTCChannels ch = new BTCChannels(
-            _realSPV(), address(AUX), address(ETH), hop);
+        BTCChannels ch = new BTCChannels(_realSPV(), address(ETH));
         AUX.setBTCChannels(address(ch));
         // The USD->BTC swaps deliver BTC to the swapper -> it needs a BTC recipient.
         vm.prank(User03); ch.setBtcRecipient(_validXOnly(abi.encode(uint(0xB7C))));
@@ -274,8 +273,7 @@ contract BtcSelfManagedTest is Alles {
         assertTrue(gw.isInMainchain(b.closeBlockHash),   "close block on mainchain");
 
         // ── REAL BTCChannels at the predicted address; hopNode = our hop ──
-        BTCChannels ch = new BTCChannels(
-            address(gw), address(AUX), address(ETH), hop);
+        BTCChannels ch = new BTCChannels(address(gw), address(ETH));
         require(address(ch) == predictedCh, "BTCChannels address prediction off");
         AUX.setBTCChannels(address(ch));
 

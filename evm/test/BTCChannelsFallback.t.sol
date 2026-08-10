@@ -33,7 +33,7 @@ contract BTCChannelsFallbackTest is Test {
     bytes32 payout = bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798));
 
     function setUp() public {
-        ch = new BTCChannels(address(0xCA11), address(0xA17), address(0x4006), primary);
+        ch = new BTCChannels(address(0xCA11), address(0x4006));
         lpEth = vm.addr(lpPk);
     }
 

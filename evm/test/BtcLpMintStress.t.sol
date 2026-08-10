@@ -26,8 +26,7 @@ contract BtcLpMintStress is Alles {
     /// Deploy a real BTCChannels (mock SPV - the SPV crypto is covered elsewhere)
     /// and pin it as THE channels contract so register/close drive the real Vault.
     function _deployChannels() internal returns (BTCChannels ch) {
-        ch = new BTCChannels(
-            address(new MockSPV()), address(AUX), address(ETH), makeAddr("hop"));
+        ch = new BTCChannels(address(new MockSPV()), address(ETH));
         AUX.setBTCChannels(address(ch));
     }
 

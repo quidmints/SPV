@@ -210,8 +210,8 @@ library DeployLib {
         // live there (Vogue/`v4` has none). So the BtcVault is `eth`, NOT `v4`: passing v4
         // pointed btcVault at Vogue, whose fallback returns empty ⇒ creditSwapOut decode-
         // reverts (swap-out) and registerBtcLp silently no-ops (open). Mirrors the canonical
-        // BtcLpMintStress._deployChannels wiring (`new BTCChannels(spv, AUX, ETH, hop)`).
-        BTCChannels c = new BTCChannels(address(spv), aux, eth, cfg.hopOperator);
+        // BtcLpMintStress._deployChannels wiring (`new BTCChannels(spv, ETH)`).
+        BTCChannels c = new BTCChannels(address(spv), eth);
         // WIRING INVARIANT (regression guard): btcVault MUST be the merged Vault `eth` —
         // where creditSwapOut / registerBtcLp / resizeBtcLp live. A prior version passed
         // `v4` (Vogue, which has none), silently breaking ALL BTC swap-out (creditSwapOut

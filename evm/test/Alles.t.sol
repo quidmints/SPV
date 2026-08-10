@@ -1760,8 +1760,7 @@ contract Alles is ForkPin, Fixtures {
     ///         swap-IN) - exercised here.
     function testSwapOut_RequestCreditAndFailureReversal() public {
         address hop = makeAddr("hop");
-        BTCChannels ch = new BTCChannels(
-            _realSPV(), address(AUX), address(ETH), hop);
+        BTCChannels ch = new BTCChannels(_realSPV(), address(ETH));
         AUX.setBTCChannels(address(ch));
 
         // Seed BTC inventory + POOLED_USD_BTC curve liquidity (the funding USD->BTC
@@ -1851,8 +1850,7 @@ contract Alles is ForkPin, Fixtures {
     ///         the timeout, by a non-swapper, double-refund).
     function testSwapOut_SwapperSelfRefundAfterTimeout() public {
         address hop = makeAddr("hopTO");
-        BTCChannels ch = new BTCChannels(
-            _realSPV(), address(AUX), address(ETH), hop);
+        BTCChannels ch = new BTCChannels(_realSPV(), address(ETH));
         AUX.setBTCChannels(address(ch));
 
         _openHopChannel(ch, hop, 91, 2e7); // MULTI-HOP: real open so `hop` may attest swap-ins (was a registerBtcLp shortcut)
@@ -1916,8 +1914,7 @@ contract Alles is ForkPin, Fixtures {
     ///         Symmetric to swap-OUT's minSats floor.
     function testStrand4_SwapInFloor_RevertsShort_UnwindsUsed() public {
         address hop = makeAddr("hopS4");
-        BTCChannels ch = new BTCChannels(
-            _realSPV(), address(AUX), address(ETH), hop);
+        BTCChannels ch = new BTCChannels(_realSPV(), address(ETH));
         AUX.setBTCChannels(address(ch));
 
         // Seed BTC inventory + POOLED_USD_BTC curve liquidity (mirror failure-reversal).
@@ -4023,9 +4020,7 @@ contract Alles is ForkPin, Fixtures {
         bytes memory hopPubkey = hex"03a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0";
 
         // Real BTCChannels with a mock SPV gateway, wired as THE btcChannels.
-        BTCChannels ch = new BTCChannels(
-            address(new MockSPV()), address(AUX), address(ETH),
-            makeAddr("hop"));
+        BTCChannels ch = new BTCChannels(address(new MockSPV()), address(ETH));
         AUX.setBTCChannels(address(ch));
 
         // LP: EVM key (signs lpAuth -> owns the position) is independent of the
@@ -4129,8 +4124,7 @@ contract Alles is ForkPin, Fixtures {
     function testBtcChannels_NonCoopCloseRetires() public {
         bytes memory lpPubkey  = hex"020102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f21";
         bytes memory hopPubkey = hex"03a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0";
-        BTCChannels ch = new BTCChannels(
-            address(new MockSPV()), address(AUX), address(ETH), makeAddr("hop"));
+        BTCChannels ch = new BTCChannels(address(new MockSPV()), address(ETH));
         AUX.setBTCChannels(address(ch));
         (address lpEth, uint lpPk) = makeAddrAndKey("btc-lp");
         uint amountSats = 2e7;
@@ -4197,8 +4191,7 @@ contract Alles is ForkPin, Fixtures {
     function testBtcChannels_ForceClose_WithHTLCs_Retires() public {
         bytes memory lpPubkey  = hex"020102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f21";
         bytes memory hopPubkey = hex"03a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0";
-        BTCChannels ch = new BTCChannels(
-            address(new MockSPV()), address(AUX), address(ETH), makeAddr("hop"));
+        BTCChannels ch = new BTCChannels(address(new MockSPV()), address(ETH));
         AUX.setBTCChannels(address(ch));
         (address lpEth, uint lpPk) = makeAddrAndKey("btc-lp");
         uint amountSats = 2e7;
