@@ -10037,3 +10037,30 @@ failure SETS, not counts.
 ⚠️ **AND THE EARLIER GREEN RUNS ARE STILL VALID** — the 4,290/1 results for the premium fix, UNIT-A
 and §E2-#1 were measured BEFORE these edits appeared in the tree, on a tree whose only uncommitted
 source was my own. Do not retro-doubt them on the strength of this run.
+
+### 🛑 TREE-UNSTABLE — the shared tree is being edited DURING runs. No full-suite number is attributable right now.
+
+**CONTROL RUN (my edits fully reverted, the other thread's still present):**
+**2,911 passed / 196 failed — and 180 of them are `BufferOverflow`.**
+⇒ ✅ **§UNIT-B-SLOWDEL IS EXONERATED for that entire class**: the `BufferOverflow` failures occur
+with ZERO of my code in the tree. The slow-register deletion did not cause them.
+
+🛑 **BUT THE STRONGER FINDING IS THAT THE TREE ITSELF IS MOVING UNDER MEASUREMENT:**
+| run, ~90s apart | suites | TOTAL tests | passed | failed |
+|---|---|---|---|---|
+| with the deletion | 64 | **4,428** | 4,158 | 270 |
+| deletion reverted | 64 | **3,107** | 2,911 | 196 |
+Reverting `Core.sol` + one test function **cannot remove 1,321 tests.** A test contract whose `setUp`
+reverts drops its whole set from the count, so the other thread's in-flight edits to
+`BTCChannels`/`ChannelLib`/`MuSig2Agg`/`Types` are landing BETWEEN runs and taking whole suites in
+and out. **Earlier today the same command reported 57 suites / 4,184 tests.**
+⇒ **NOTHING measured on this working tree is attributable until it settles** — not this deletion, not
+§UNIT-B, not anything. Counts AND failure sets are both compromised, so the usual
+"compare sets not counts" mitigation is insufficient here.
+▶️ **REQUIRED PROCEDURE (memory: `pinned-worktree-for-shared-tree-verification`):**
+`git worktree add --detach <path> <SHA>` at a known-clean commit, copy the gitignored `evm/.env`,
+and run BOTH arms there. The other thread's work is UNCOMMITTED, so a worktree at `HEAD` excludes it
+by construction — that is the clean baseline, and it costs one command.
+⚠️ **DO NOT "fix" any of the 180** — they are another thread's in-flight work, and rule 14 says do
+not touch it. ⚠️ **AND DO NOT retro-doubt the 4,290/1 runs** (premium fix, §UNIT-A, §E2-#1): those
+predate these edits, on a tree whose only uncommitted source was mine.
