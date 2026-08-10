@@ -83,7 +83,7 @@ contract BtcLpMintStress is Alles {
         bytes memory dsig = _signOpen(lpPk, ch.delegationDigest(makeAddr("hop"), payout, 1));
         ch.registerDelegation(makeAddr("hop"), payout, 1, dsig);
         vm.prank(makeAddr("hop")); // openChannel is hop-gated
-        channelId = ch.openChannel(p, fundingTx, new bytes32[](0), lpEth);
+        channelId = ch.openChannel(p, fundingTx, new bytes32[](0), lpEth, Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0, signedExitTx: hex"00"}));
     }
 
     // Per-channel running funding outpoint, so successive deliveries on the same
@@ -841,7 +841,7 @@ contract BtcLpMintStress is Alles {
             fundingTaproot: _taprootQ(lpPubkeyB, HOP_PUBKEY) });
         vm.prank(makeAddr("hop"));
         vm.expectRevert(BTCChannels.OneChannelPerLp.selector); // 2nd open for the same lpEth
-        ch.openChannel(p, fundingTx, new bytes32[](0), lpEth);
+        ch.openChannel(p, fundingTx, new bytes32[](0), lpEth, Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0, signedExitTx: hex"00"}));
     }
 
     // ─────────────────────────────────────────────────────────────────────────

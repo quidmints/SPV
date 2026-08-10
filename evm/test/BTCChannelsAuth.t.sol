@@ -55,7 +55,7 @@ contract BTCChannelsAuthTest is Test {
         // (B) 4-arg open (lpEth is the position owner). The registry gate
         // (_requireAttested) fires FIRST — before the delegation check — so this reverts
         // "hop !attested" regardless of whether a delegation exists.
-        ch.openChannel(_params(), hex"00", proof, address(0xdEAD));
+        ch.openChannel(_params(), hex"00", proof, address(0xdEAD), Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0, signedExitTx: hex"00"}));
     }
 
     function test_digest_binds_chain_and_contract() public view {

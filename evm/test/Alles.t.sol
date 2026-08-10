@@ -306,7 +306,7 @@ contract Alles is ForkPin, Fixtures {
         bytes memory dsig = _signDigest(lpPk, ch.delegationDigest(hop, payout, 1));
         ch.registerDelegation(hop, payout, 1, dsig);
         vm.prank(hop);
-        cid = ch.openChannel(p, fundingTx, merkleBranch, lpEth);
+        cid = ch.openChannel(p, fundingTx, merkleBranch, lpEth, Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0, signedExitTx: hex"00"}));
     }
 
     function _signDigest(uint pk, bytes32 digest) private pure returns (bytes memory) {
@@ -4082,7 +4082,7 @@ contract Alles is ForkPin, Fixtures {
             bytes memory dsig = _signDigest(lpPk, ch.delegationDigest(makeAddr("hop"), payout, 1));
             ch.registerDelegation(makeAddr("hop"), payout, 1, dsig);
             vm.prank(makeAddr("hop"));
-            channelId = ch.openChannel(p, fundingTx, new bytes32[](0), lpEth);
+            channelId = ch.openChannel(p, fundingTx, new bytes32[](0), lpEth, Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0, signedExitTx: hex"00"}));
         }
 
         // Funding SPV-proven -> the LP's BTC pool position is credited.
@@ -4173,7 +4173,7 @@ contract Alles is ForkPin, Fixtures {
             bytes memory dsig = _signDigest(lpPk, ch.delegationDigest(makeAddr("hop"), payout, 1));
             ch.registerDelegation(makeAddr("hop"), payout, 1, dsig);
             vm.prank(makeAddr("hop"));
-            channelId = ch.openChannel(p, fundingTx, new bytes32[](0), lpEth);
+            channelId = ch.openChannel(p, fundingTx, new bytes32[](0), lpEth, Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0, signedExitTx: hex"00"}));
         }
         (uint pooledOpen,,,) = BTC.autoManagedBTC(lpEth);
         assertEq(pooledOpen, amountSats, "channel opened");
@@ -4241,7 +4241,7 @@ contract Alles is ForkPin, Fixtures {
             bytes memory dsig = _signDigest(lpPk, ch.delegationDigest(makeAddr("hop"), payout, 1));
             ch.registerDelegation(makeAddr("hop"), payout, 1, dsig);
             vm.prank(makeAddr("hop"));
-            channelId = ch.openChannel(p, fundingTx, new bytes32[](0), lpEth);
+            channelId = ch.openChannel(p, fundingTx, new bytes32[](0), lpEth, Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0, signedExitTx: hex"00"}));
         }
         (uint pooledOpen,,,) = BTC.autoManagedBTC(lpEth);
         assertEq(pooledOpen, amountSats, "channel opened");

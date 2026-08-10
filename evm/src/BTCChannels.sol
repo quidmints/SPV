@@ -131,11 +131,10 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     IBtcVaultBridge public immutable btcVault;
     // MULTI-HOP: there is NO single global `hopNode`. Each channel records the hop
     // (EVM address) that opened it (`channel.hop`). ⚠️ UPDATED 2026-08-07 (E122): that hop is
-    // no longer the SOLE authority — splice and swap-out delivery now gate on
-    // `_authorizedHopForChannel`, which ALSO admits the LP's current `delegatedAuthority` and,
-    // after staleness or a disavowal, its named fallback. The partition still holds (one
-    // delegation per LP), and a primary/fallback overlap during the window is safe: splices
-    // self-serialise on the funding UTXO. Historically this said SOLE authority
+    // no longer the SOLE authority — splice and swap-out delivery gate on `_authorizedHop`,
+    // which ALSO admits the LP's current `delegatedAuthority`. ⚠️ UPDATED AGAIN 2026-08-10
+    // (E156): the "and, after staleness, its named fallback" clause is GONE with the fallback
+    // itself. The partition still holds (one delegation per LP). Historically this said SOLE authority
     // for that channel's splice / swap-out delivery / swap-in attestation / cooperative
     // close. This lets independent SGX instances — the hosted fleet, a person self-
     // hosting for themselves, or a family-plan group — run against the SAME contracts
@@ -244,21 +243,15 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     // btcRecipientOf in BOTH cases ⇒ theft-proof regardless of which hop is designated.
     mapping(address => address) public delegatedAuthority;
 
-    // (E122) LP-NAMED FALLBACK. `delegatedAuthority` is the primary; this hop may act on the
-    // LP's channel ONLY once the primary has stopped heartbeating for FALLBACK_STALENESS_BLOCKS.
-    // Chosen over a registry+attestation model deliberately: the fallback is named by the LP,
-    // so it can never become standing-over-everyone, and it drops the DCAP verifier + on-chain
-    // PCCS mirror (two third parties beyond Intel) out of the trust chain entirely.
-    // It also fixes an inversion in registry mode, where ANY attested hop could refresh the
-    // heartbeat forever and keep an LP's escape hatch permanently un-maturable.
-    mapping(address => address) public fallbackAuthority;
-
-    // Block of the last heartbeat (`emitDeadManExit`) for a channel; seeded at open so a
-    // primary that NEVER heartbeats still hands over rather than stranding the LP.
-    mapping(bytes32 => uint64) public lastHeartbeatBlock;
-
-    // ~1 hour at 12s. The primary must be down this long before the fallback may act.
-    uint64 public constant FALLBACK_STALENESS_BLOCKS = 300;
+    // (E156) THE E122 LP-NAMED FALLBACK IS DELETED — `fallbackAuthority`, `registerFallback[For]`,
+    // `fallbackDigest`, `lastHeartbeatBlock`, `FALLBACK_STALENESS_BLOCKS` and
+    // `_authorizedHopForChannel` are all gone. It asked the LP to nominate a rescuer in advance,
+    // and it could not deliver one: the fleet holds BOTH funding halves (`deadman_exit.rs`), so a
+    // nominated hop has no key to sign an exit with — it could only RELAY bytes the original hop
+    // had already signed. The rescue was always "those bytes exist and their CLTV matured", never
+    // "a named party acted". Arming at open (`Types.ExitArming`) makes the bytes an invariant, so
+    // the nomination protected nothing and its two clocks (`lastHeartbeatBlock` here, the CLTV
+    // deadline on Bitcoin) measured the same fact — one of them enforced by consensus.
 
     // ONE OPEN CHANNEL PER lpEth. The BTC-LP position (autoManagedBTC[lpEth]) is
     // keyed per-address; a SECOND open for an lpEth that already has one would let
@@ -371,7 +364,6 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     event FreshnessCommitted(bytes32 indexed channelId, uint64 seq);
     event ManagerFreshnessCommitted(address indexed hop, uint64 seq);
     event DelegationRegistered(address indexed lpEth, address indexed authority, bytes32 btcRecipient, uint64 version);
-    event FallbackRegistered(address indexed lpEth, address indexed fallbackHop, uint64 version);
     event MigrationNonceConsumed(bytes32 indexed nonce, address indexed hop);
     event ChannelSpliced(
         bytes32 indexed channelId,
@@ -615,7 +607,6 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     /// ═══ THE DIGEST FAMILY SPLITS IN TWO, AND NOTHING SAID SO UNTIL NOW (E149) ═══
     /// **VERIFIED ON-CHAIN** — a signature over these is recovered/checked in this contract:
     ///     `delegationDigest`  (registerDelegation / registerDelegationFor)
-    ///     `fallbackDigest`    (registerFallback   / registerFallbackFor)
     /// **OFF-CHAIN-SIGNING HELPERS** — `public view` so the off-chain side can compute the
     /// EXACT bytes this contract would, but NO on-chain consumer verifies a signature:
     ///     `openChannelDigest` · `spliceDigest` · `swapOutDeliverDigest`
@@ -703,23 +694,6 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         ));
     }
 
-    /// @notice (E122) Digest for the LP's OPTIONAL fallback hop. SEPARATE from the primary
-    ///         delegation on purpose: folding it into `delegationDigest` would have been tidier
-    ///         but breaks the v1 wire format shared by 19 Solidity call sites, the Rust `e2e_ffi`
-    ///         signer (`BtcSelfManaged.t.sol:309`) and the SPA ABI — three codebases for a field
-    ///         most LPs will leave unset. Additive keeps them all working.
-    ///         It is still LP-SIGNED, which is the property that matters: the operator relaying
-    ///         the gasless call must not be able to name the fallback itself.
-    function fallbackDigest(address fallbackHop, uint64 version) public view returns (bytes32) {
-        return keccak256(abi.encode(
-            keccak256("BTCChannels.fallback.v1"),
-            block.chainid,
-            address(this),
-            fallbackHop,
-            version
-        ));
-    }
-
     /// @notice (B) Register / rotate / revoke an LP's delegation. PERMISSIONLESS submit —
     ///         the operator relays the LP's cold signature (gasless for the LP). Recovers
     ///         lpEth, requires a strictly-higher version (rollback/replay guard), pins the
@@ -736,9 +710,9 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///      ⚠️ The trade, so it is chosen rather than discovered: whoever holds the pre-signed
     ///      bytes can switch operators AT ANY TIME, not only on misbehaviour. Bounded — payouts
     ///      still pin to `btcRecipientOf`, so the worst case is churn, never theft.
-    ///      ⚠️ **AND A SECOND WAY THOSE BYTES DIE, INDEPENDENT OF ACCOUNT TYPE (E151):
-    ///      registering a FALLBACK bumps `delegationVersion`, so it invalidates a pre-signed
-    ///      re-delegation at or below that version. See `_registerFallback`.**
+    ///      ✅ **(E156) ONE WAY THOSE BYTES USED TO DIE IS GONE: registering a FALLBACK bumped
+    ///      `delegationVersion` and so invalidated a pre-signed re-delegation at or below that
+    ///      version. With the fallback deleted, only a real re-delegation moves the version.**
     ///      ⚠️ **THE REVOCABILITY BELOW HOLDS ONLY FOR AN EOA LP (E125-e).** For a SMART-WALLET LP the
     ///      pre-signed bytes are REVOCABLE: ERC-1271 validity is stateful, so rotating the
     ///      wallet's owners invalidates a signature that verified yesterday. **The two LP
@@ -797,86 +771,6 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         emit DelegationRegistered(lpEth, authority, btcRecipient, version);
     }
 
-    /// @notice (E122) Name the LP's fallback hop, gaslessly, from a cold LP signature. Reuses
-    ///         `delegationVersion` as the monotonic guard so an old fallback cannot be replayed
-    ///         over a newer one, and requires a delegation to exist first — a fallback with no
-    ///         primary has nothing to fall back FROM.
-    function registerFallback(address fallbackHop, uint64 version, bytes calldata sig) external {
-        address lpEth = ECDSA.recover(fallbackDigest(fallbackHop, version), sig);
-        if (lpEth == address(0)) revert InvalidParam();
-        _registerFallback(lpEth, fallbackHop, version);
-    }
-
-    /// @notice (E125-e) The smart-wallet counterpart, for the same reason as
-    ///         `registerDelegationFor`: a contract signature cannot be recovered from, so the
-    ///         account must be supplied and verified against.
-    /// @dev ⚠️ WITHOUT THIS A SMART-WALLET LP COULD DELEGATE BUT NOT NAME A FALLBACK — a
-    ///      HALF-CAPABLE account, which is worse than an unsupported one: the LP would look
-    ///      onboarded while silently lacking the liveness protection E122 exists to give, and
-    ///      would discover it only when a hop went dark and no fallback could mature.
-    function registerFallbackFor(
-        address lpEth, address fallbackHop, uint64 version, bytes calldata sig
-    ) external {
-        if (lpEth == address(0)) revert InvalidParam();
-        if (!SignatureChecker.isValidSignatureNow(lpEth, fallbackDigest(fallbackHop, version), sig))
-            revert InvalidParam();
-        _registerFallback(lpEth, fallbackHop, version);
-    }
-
-    /// @dev Shared so the primary-exists / staleness / not-equal-to-primary guards cannot
-    ///      drift between the EOA and smart-wallet entrypoints.
-    /// @dev ⚠️ **THIS BUMPS `delegationVersion`, SO NAMING A FALLBACK INVALIDATES ANY
-    ///      PRE-SIGNED RE-DELEGATION AT OR BELOW THAT VERSION** (E151). The two authorities
-    ///      share ONE monotonic counter, so a write to either advances both. Consequences an
-    ///      LP would not expect from the function name:
-    ///        • register a fallback ⇒ cold pre-signed delegation bytes held for an emergency
-    ///          hand-over silently stop working, and the LP finds out at the worst moment;
-    ///        • the two operations cannot be pre-signed independently at the same version.
-    ///      **This is a REAL interaction, not a note about style** — it is why E151 proposes
-    ///      one `setAuthorities` taking BOTH, which makes the version mean one thing.
-    ///      Until then: re-sign the delegation whenever the fallback moves.
-    function _registerFallback(address lpEth, address fallbackHop, uint64 version) internal {
-        if (delegationVersion[lpEth] == 0) revert NotDelegatedHop();     // primary must exist
-        if (version <= delegationVersion[lpEth]) revert StaleDelegation();
-        // Equal to the primary is a no-op that READS as protection — reject rather than store.
-        if (fallbackHop == delegatedAuthority[lpEth]) revert InvalidParam();
-        fallbackAuthority[lpEth] = fallbackHop;
-        delegationVersion[lpEth] = version;
-        emit FallbackRegistered(lpEth, fallbackHop, version);
-    }
-
-    /// @dev (E122) Authorized to act on THIS channel: the primary always, or the LP's named
-    ///      fallback once the primary has gone quiet for `FALLBACK_STALENESS_BLOCKS`.
-    ///
-    ///      ⚠️ WHAT THIS PROTECTS AGAINST, AND WHAT IT DOES NOT. The clock is refreshed by any
-    ///      primary action — splice, delivery, or heartbeat. It therefore detects a DEAD
-    ///      primary, not a MALICIOUS one: `emitDeadManExit` is emit-only and cheap, so a hop
-    ///      that is alive but refusing to work can keep the clock fresh indefinitely and the
-    ///      fallback never activates.
-    ///
-    ///      That is not an oversight to be patched. Excluding the heartbeat from the clock
-    ///      would make a QUIET channel — no trades, nothing to splice — look dead and trigger
-    ///      a false hand-over. **On-chain liveness cannot distinguish "alive and idle" from
-    ///      "alive and refusing", because both look identical from here.**
-    ///
-    ///      So the LP has two remedies for two threat models: this fallback is AUTOMATIC
-    ///      protection against a dead primary, and re-delegation (`registerDelegation` at a
-    ///      higher version, cold-signed and gasless) is MANUAL protection against a malicious
-    ///      one. Do not extend this gate to try to cover the second — it cannot.
-    ///      `lastHeartbeatBlock` is seeded at open, so a primary that never heartbeats still
-    ///      hands over instead of stranding the LP. Channel-scoped on purpose — `openChannel`
-    ///      keeps using `_authorizedHop`, because a channel that does not exist has no
-    ///      liveness history and a fallback must not be able to open one.
-    function _authorizedHopForChannel(bytes32 channelId, address lpEth, address hop)
-        internal view returns (bool)
-    {
-        if (_authorizedHop(lpEth, hop)) return true;
-        address fb = fallbackAuthority[lpEth];
-        if (fb == address(0) || hop != fb) return false;
-        uint64 last = lastHeartbeatBlock[channelId];
-        return last != 0 && block.number > uint(last) + FALLBACK_STALENESS_BLOCKS;
-    }
-
     /// @dev (B) Is `hop` authorized to operate for `lpEth`? Either the LP pinned it
     ///      exactly (family/self-host hop — direct match), or the LP delegated to THE
     ///      Safe-governed `hopRegistry` and it currently attests `hop` (fleet — a
@@ -894,7 +788,8 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         Types.OpenParams calldata p,
         bytes calldata rawFundingTx,
         bytes32[] calldata fundingMerkleProof,
-        address lpEth
+        address lpEth,
+        Types.ExitArming calldata exit
     ) external nonReentrant returns (bytes32 channelId)
     {
         // (B) DELEGATED OPEN — the LP runs nothing. `lpEth` owns the position; the
@@ -944,8 +839,11 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // balance to outputs paying that script; a hop can never redirect the payout.
         channels[channelId] = channel;
         hasOpenBtcChannel[channel.lpEth] = true; // one-per-lpEth (cleared on close)
-        lastHeartbeatBlock[channelId] = uint64(block.number); // (E122) start the liveness clock
         totalSatsLocked += channel.amountSats;
+        // (E156) ARM THE ESCAPE BEFORE THE CHANNEL IS USABLE. Must follow the `channels[channelId]`
+        // write — `_armDeadManExit` reads `lpEth` back for the event — and it rejects a zero
+        // deadline, so no channel can exist without a live escape.
+        _armDeadManExit(channelId, exit.cltvDeadline, exit.checkpointSats, exit.signedExitTx);
 
         // Channel locks back the pool: credit the LP's BTC pool position with
         // the locked sats. One channel per lpEth (the position aggregates per
@@ -995,10 +893,10 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         bytes32[] calldata spliceMerkleProof,
         uint feeSettleSats            // BTC-leg fees the hop is FUNDING into this grow-splice (compounds into the LP)
     ) external nonReentrant whenOpen(channelId) {
-        // (B) Authorization. ⚠️ UPDATED 2026-08-07 (E122): this said "`channel.hop` … so ONLY
-        // that hop can resize". No longer true — the gate is `_authorizedHopForChannel`, which
-        // also admits the LP's current `delegatedAuthority` and, after staleness or an explicit
-        // disavowal, its named fallback. Still bounded the same way: every payout output pins
+        // (B) Authorization. ⚠️ UPDATED 2026-08-07 (E122), AGAIN 2026-08-10 (E156): this said
+        // "`channel.hop` … so ONLY that hop can resize". The gate is `_authorizedHop`, which also
+        // admits the LP's current `delegatedAuthority`; the fallback clause is gone with the
+        // fallback. Still bounded the same way: every payout output pins
         // to `btcRecipientOf`, so a wider authority set cannot redirect funds. The
         // retired per-splice lpAuth was redundant on top of this: _verifySplice still
         // SPV-proves rawSpliceTx SPENDS this channel's funding UTXO and byte-matches the new
@@ -1014,15 +912,13 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // move the channel's BTC into a `Q` the hop solely controls. Self-hosted LPs must
         // co-sign the splice and would see it; IN FLEET MODE THE OPERATOR HOLDS BOTH HALVES
         // (E94) AND CAN DO IT ALONE. Closing this needs on-chain KeyAgg verification (E127).
-        // (E122) Primary, OR the LP's named fallback after FALLBACK_STALENESS_BLOCKS of silence.
-        // Widening this is REQUIRED, not optional: a fallback that could only heartbeat would
-        // keep the LP's dead-man exit from maturing while being unable to operate the channel —
-        // strictly worse than no fallback. Bounded by the same guarantees as the primary: the
+        // (E156) The primary only. The fallback clause that stood here is deleted: a nominated
+        // hop held no funding key (the fleet holds both halves), so it could never sign a splice
+        // — it could only relay bytes the primary had already signed. Bounded as before: the
         // splice is SPV-proven and every payout output pins to `btcRecipientOf`.
-        if (!_authorizedHopForChannel(channelId, channels[channelId].lpEth, msg.sender))
+        if (!_authorizedHop(channels[channelId].lpEth, msg.sender))
             revert NotChannelHop();
         if (p.amountSats == channels[channelId].amountSats) revert SpliceUnchanged();
-        lastHeartbeatBlock[channelId] = uint64(block.number);   // (E122) work IS liveness
         // Verify + rotate + (grow|shrink) in its own frame (legacy stack, no via_ir); returns the grow delta.
         uint grewBy = _applySplice(channelId, p, rawSpliceTx, spliceMerkleProof);
         // FEE-INTO-CHANNEL: the hop may mark up to `grewBy` of this grow as BTC-leg fees it is FUNDING in —
@@ -1128,16 +1024,31 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         uint    checkpointSats,
         bytes   calldata signedExitTx
     ) external whenOpen(channelId) {
-        Types.BTCChannel storage ch = channels[channelId];
         _requireAttested(msg.sender);
-        if (!_authorizedHopForChannel(channelId, ch.lpEth, msg.sender)) revert NotDelegatedHop();
-        lastHeartbeatBlock[channelId] = uint64(block.number);   // (E122) the liveness signal
+        if (!_authorizedHop(channels[channelId].lpEth, msg.sender)) revert NotDelegatedHop();
+        _armDeadManExit(channelId, cltvDeadline, checkpointSats, signedExitTx);
+    }
+
+    /// @dev (E156) Record a pre-signed exit against a channel. ONE body, TWO callers: `openChannel`
+    ///      arms the first one (mandatory — see `Types.ExitArming`) and `emitDeadManExit` refreshes
+    ///      it. Keeping them separate is what let the open path ship with no exit at all.
+    ///      The tally restarts because the new attestation already reflects every payout before it.
+    function _armDeadManExit(
+        bytes32 channelId,
+        uint64  cltvDeadline,
+        uint    checkpointSats,
+        bytes   calldata signedExitTx
+    ) private {
+        // A ZERO DEADLINE IS DISARMING, NOT ARMING. `recordDeadManExit` cannot tell "deadline 0"
+        // from "never armed", so allowing it through `emitDeadManExit` would hand any authorized
+        // hop a way to strip the LP's escape with one call — reopening, on demand, the exact window
+        // arming-at-open closes. Rejected for BOTH callers, which is why the check lives here.
+        if (cltvDeadline == 0) revert InvalidParam();
         deadManDeadline[channelId] = cltvDeadline;
-        // Persist what was previously event-only. The tally restarts because the new
-        // attestation already reflects every payout that preceded it.
         checkpointOf[channelId] = checkpointSats;
         paidOutSinceCheckpoint[channelId] = 0;
-        emit DeadManExitEmitted(channelId, ch.lpEth, cltvDeadline, checkpointSats, signedExitTx);
+        emit DeadManExitEmitted(
+            channelId, channels[channelId].lpEth, cltvDeadline, checkpointSats, signedExitTx);
     }
 
     /// @dev SPV-verify the splice tx spends the channel's current funding UTXO,
@@ -1185,9 +1096,8 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///         enclave out) and STRICTLY monotonic (a replay/rollback of an old value reverts).
     function commitFreshness(bytes32 channelId, uint64 seq) external {
         // (E122) Primary, or the LP's fallback after the staleness window — see `splice`.
-        if (!_authorizedHopForChannel(channelId, channels[channelId].lpEth, msg.sender))
+        if (!_authorizedHop(channels[channelId].lpEth, msg.sender))
             revert NotChannelHop();
-        lastHeartbeatBlock[channelId] = uint64(block.number);   // (E122) work IS liveness
         if (seq <= freshnessSeq[channelId]) revert FreshnessNotMonotonic();
         freshnessSeq[channelId] = seq;
         emit FreshnessCommitted(channelId, seq);
@@ -1415,8 +1325,11 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         uint    txIndex
     ) external nonReentrant whenOpen(channelId) {
         address lpEth = channels[channelId].lpEth;
+        // (E156) NO `deadline == 0` CHECK: it is now UNREACHABLE, so it is gone rather than left
+        // "for safety" (rule 1). `deadManDeadline` is written in exactly one place, which rejects
+        // zero, and every channel is armed inside `openChannel` — so any channel passing `whenOpen`
+        // is armed by construction. The state that check defended against is unrepresentable.
         uint64 deadline = deadManDeadline[channelId];
-        if (deadline == 0) revert NoDeadManExit();
         _requireNotSplice(channelId, p, rawExitTx);
         _verifyTxSpendsChannel(channelId, rawExitTx, exitBlockHash, merkleProof, txIndex);
         if (BitcoinTx.extractLocktime(rawExitTx) != deadline) revert NotDeadManExit();
@@ -1426,7 +1339,6 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         emit ChannelClosed(channelId, total);
     }
 
-    error NoDeadManExit();   // no dead-man exit was ever emitted for this channel
     error NotDeadManExit();  // tx locktime != the recorded deadManDeadline
 
     /// @notice PERMISSIONLESS reconciliation of a FORCE-CLOSE. Anyone (a keeper, a

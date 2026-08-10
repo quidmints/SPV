@@ -112,6 +112,26 @@ library Types {
         bytes32 fundingTaproot;   // 32-byte x-only MuSig2 key-path aggregate Q
     }
 
+    /// @notice (E156) The pre-signed dead-man exit that ARMS a channel — supplied at `openChannel`
+    /// and refreshed by `emitDeadManExit` for as long as the channel lives.
+    ///
+    /// ⚠️ WHY THIS IS MANDATORY AT OPEN AND NOT A LATER HEARTBEAT. The fleet holds BOTH funding
+    /// halves (`quid-bridge/src/deadman_exit.rs`: *"the hop node's + the vault node's, same
+    /// process"*), so the LP has **no funding key and cannot sign anything, ever**. Its only exit is
+    /// bytes the fleet pre-signed while alive. The daemon used to produce those on its next
+    /// heartbeat tick — its own header says *"a freshly-opened channel is picked up on the NEXT
+    /// TICK"* — which left a window where `deadManDeadline == 0`: no exit existed, and if the fleet
+    /// died inside it, **no party in the system could ever produce one.** The LP's sats sit in a
+    /// 2-of-2 whose both halves died with the fleet.
+    /// ⇒ Arming is a CONSTRUCTION-TIME INVARIANT: a channel cannot exist without an escape. That is
+    /// what lets the LP-named fallback (E122) delete outright — the recovery story was never "a
+    /// nominated hop acts", it was already "the CLTV matures and ANYONE broadcasts the public bytes".
+    struct ExitArming {
+        uint64 cltvDeadline;    // absolute BTC height the exit may first confirm at; > tip while alive
+        uint   checkpointSats;  // the LP balance these bytes attest (feeds the stale-close guard)
+        bytes  signedExitTx;    // the FULLY-signed CLTV exit paying btcRecipientOf
+    }
+
     /// @notice routing. `asset` is the volatile side of the swap — WETH for the
     /// ETH pool, WBTC for the BTC pool.
     struct AuxContext {

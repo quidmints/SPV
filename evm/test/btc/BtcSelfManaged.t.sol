@@ -312,7 +312,7 @@ contract BtcSelfManagedTest is Alles {
             ch.registerDelegation(hop, payout, 1, b.lpAuth);
             vm.prank(hop); // openChannel is hop-gated: only the delegated hop may submit
             channelId =
-                ch.openChannel(p, b.rawFundingTx, b.fundingMerkleProof, lpEth);
+                ch.openChannel(p, b.rawFundingTx, b.fundingMerkleProof, lpEth, Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0, signedExitTx: hex"00"}));
         }
 
         // The lpAuth signer owns the credited BTC position.
@@ -361,9 +361,12 @@ contract BtcSelfManagedTest is Alles {
         // SPV data; the ACCEPT branch cannot, because no harness produces a CLTV-locked exit tx
         // spending the funding UTXO. Do not read a green run as proof the happy path works.
         Types.OpenParams memory cp_ = _closeParams(b.lpPubkey, b.hopPubkey);
-        vm.prank(lpEth);
-        vm.expectRevert(BTCChannels.NoDeadManExit.selector);      // none emitted yet
-        ch.recordDeadManExit(channelId, cp_, b.rawCloseTx, b.closeBlockHash, b.closeMerkleProof, b.closeTxIndex);
+        // (E156) THIS USED TO ASSERT `NoDeadManExit` — "none emitted yet". That state no longer
+        // exists: `openChannel` arms the exit, so a channel is never un-escaped. The assertion is
+        // inverted into the invariant that replaced it. It matters because the fleet holds BOTH
+        // funding halves; if it died before the old heartbeat's first tick, NOBODY could ever have
+        // signed an exit, and the LP's sats were unreachable forever.
+        assertTrue(ch.deadManDeadline(channelId) != 0, "openChannel ARMS the dead-man exit");
 
         vm.prank(hop);
         ch.emitDeadManExit(channelId, uint64(block.number + 144), 50_000, hex"00");

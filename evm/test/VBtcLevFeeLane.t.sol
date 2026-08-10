@@ -132,7 +132,7 @@ contract VBtcLevFeeLane is Alles {
         bytes memory dsig = _signOpen(lpPk, ch.delegationDigest(makeAddr("hop"), payout, 1));
         ch.registerDelegation(makeAddr("hop"), payout, 1, dsig);
         vm.prank(makeAddr("hop"));
-        channelId = ch.openChannel(p, fundingTx, new bytes32[](0), lpEth);
+        channelId = ch.openChannel(p, fundingTx, new bytes32[](0), lpEth, Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0, signedExitTx: hex"00"}));
     }
 
     /// Splice-OUT (partial LP withdrawal) shrinking `channelId` to `newAmountSats`. exactUsd==0 path:
@@ -193,7 +193,7 @@ contract VBtcLevFeeLane is Alles {
         bytes memory dsig = _signOpen(lpPk, ch.delegationDigest(makeAddr("hop"), payoutKey, 1));
         ch.registerDelegation(makeAddr("hop"), payoutKey, 1, dsig);
         vm.prank(makeAddr("hop"));
-        channelId = ch.openChannel(p, fundingTx, new bytes32[](0), lpEth);
+        channelId = ch.openChannel(p, fundingTx, new bytes32[](0), lpEth, Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0, signedExitTx: hex"00"}));
     }
 
     // Build+sign a 2-output shrink splice (new funding + LP payout) WITHOUT submitting,
