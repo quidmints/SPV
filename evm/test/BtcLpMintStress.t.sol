@@ -590,9 +590,8 @@ contract BtcLpMintStress is Alles {
         // bounds the ORDINARY fee; the premium becomes an explicit TERM read from what was actually
         // charged. §E81-r: re-express, never weaken — raising the bound would hide a future real
         // over-mint behind a premium-sized allowance.
-        uint premBeforeDeliver = CORE.skewPremiumCum(true);
+        uint premBefore = CORE.skewPremiumCum(true);   // the only new local; delta is taken inline
         uint proceeds = _swapOuts(ch, cid, ftx, 1, lpPk, lpEth, 5, 500 * USDC_PRECISION);
-        uint premCharged = CORE.skewPremiumCum(true) - premBeforeDeliver;
         assertGt(proceeds, 0, "swap-outs delivered BTC so the LP earned proceeds");
         // Deliver-time minted the realized proceeds (+ tiny USD-leg fee dust) — never
         // unbacked QUI. The proceeds component is pinned to `proceeds`; the dust bound
@@ -602,7 +601,7 @@ contract BtcLpMintStress is Alles {
         // notional — measured at a constant 4.2bps across 500/1200/2500 notionals — so an ABSOLUTE
         // allowance can never fit it. Bound = 6bps of the expected value (4.2bps measured + margin)
         // plus the original 1e15 for rounding. DERIVED from the fee rate; do NOT raise until green.
-        assertApproxEqAbs(QUID.balanceOf(lpEth) - qdBeforeDeliver, (proceeds + premCharged) * 1e12, proceeds * 1e12 * 6 / 10000 + 1e15,
+        assertApproxEqAbs(QUID.balanceOf(lpEth) - qdBeforeDeliver, (proceeds + CORE.skewPremiumCum(true) - premBefore) * 1e12, proceeds * 1e12 * 6 / 10000 + 1e15,
             "deliveries mint ~EXACTLY the realized proceeds (+ fee dust, no over-mint)");
         assertGe(QUID.balanceOf(lpEth) - qdBeforeDeliver, proceeds * 1e12,
             "LP received AT LEAST its full proceeds");
@@ -634,9 +633,8 @@ contract BtcLpMintStress is Alles {
         // bounds the ORDINARY fee; the premium becomes an explicit TERM read from what was actually
         // charged. §E81-r: re-express, never weaken — raising the bound would hide a future real
         // over-mint behind a premium-sized allowance.
-        uint premBeforeDeliver = CORE.skewPremiumCum(true);
+        uint premBefore = CORE.skewPremiumCum(true);   // the only new local; delta is taken inline
         uint proceeds = _swapOuts(ch, cid, ftx, 2, lpPk, lpEth, 3, 400 * USDC_PRECISION); // modest delivery
-        uint premCharged = CORE.skewPremiumCum(true) - premBeforeDeliver;
         assertGt(proceeds, 0, "some BTC delivered");
         // Deliver mints the obligation (+ tiny fee dust), NOT inflated by any
         // tx-output trick. The dust bound is ≫ fees but ≪ any inflation.
@@ -645,7 +643,7 @@ contract BtcLpMintStress is Alles {
         // notional — measured at a constant 4.2bps across 500/1200/2500 notionals — so an ABSOLUTE
         // allowance can never fit it. Bound = 6bps of the expected value (4.2bps measured + margin)
         // plus the original 1e15 for rounding. DERIVED from the fee rate; do NOT raise until green.
-        assertApproxEqAbs(QUID.balanceOf(lpEth) - qdBeforeDeliver, (proceeds + premCharged) * 1e12, proceeds * 1e12 * 6 / 10000 + 1e15,
+        assertApproxEqAbs(QUID.balanceOf(lpEth) - qdBeforeDeliver, (proceeds + CORE.skewPremiumCum(true) - premBefore) * 1e12, proceeds * 1e12 * 6 / 10000 + 1e15,
             "deliver mints ~EXACTLY the swapper's USD (no inflation, + fee dust)");
         assertGe(QUID.balanceOf(lpEth) - qdBeforeDeliver, proceeds * 1e12,
             "LP received AT LEAST its full proceeds");
@@ -680,7 +678,6 @@ contract BtcLpMintStress is Alles {
             uint n = 2 + (i % 3);                                    // 2–4 swaps, varied
             uint qdBefore = QUID.balanceOf(lpEth);
             uint proceeds = _swapOuts(ch, cid, ftx, 100 + i, lpPk, lpEth, n, usdcEach);
-        uint premCharged = CORE.skewPremiumCum(true) - premBeforeDeliver;
             cumProceeds += proceeds;
             // Every recorded obligation was delivered → pendingSwapOutUsd back to 0.
             assertEq(CORE.pendingSwapOutUsd(), 0,
