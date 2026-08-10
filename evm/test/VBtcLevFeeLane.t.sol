@@ -542,7 +542,7 @@ contract VBtcLevFeeLane is Alles {
             USDC.approve(address(AUX), type(uint).max);
             vm.stopPrank();
             uint qd0      = QUID.balanceOf(lpEth);
-            uint btcOwed0 = ETH.btcFeesOwedSats(lpEth);
+            // (E145) the BTC leg compounds into `pooled`; there is no owed ledger to read.
             // Same driver as the proven testBtcLp_collectBtcFees_NoClose: real (non-caught)
             // USDC->WBTC pool swaps generate BTC-band trading fees. Sizes kept modest so the
             // incoming USD stays under BtcShareCap (the lev slice already consumes headroom).
@@ -554,7 +554,7 @@ contract VBtcLevFeeLane is Alles {
             vm.prank(lpEth);
             ETH.collectBtcFees();                              // USD-leg -> QUID; BTC-leg -> btcFeesOwedSats
             uint usdLeg = QUID.balanceOf(lpEth) - qd0;
-            uint btcLeg = ETH.btcFeesOwedSats(lpEth) - btcOwed0;
+            uint btcLeg = 0;   // (E145) retired: the leg compounds into pooled as it is earned
             // (E145-n) ⚠️ THIS USED TO BE `assertGt(usdLeg + btcLeg, 0)` — A SUM THE USD LEG
             //    ALONE SATISFIES, so it passed identically whether the BTC leg was live or
             //    permanently zero. MEASURED 2026-08-09: `usdLeg` ≈ 7.6e17, **`btcLeg == 0` and

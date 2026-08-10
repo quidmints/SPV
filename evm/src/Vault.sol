@@ -197,7 +197,7 @@ contract Vault is Ownable, ReentrancyGuard {
     ///
     /// @dev TWO SETTLEMENT PATHS, and the first is the LIVE PRIMARY ONE:
     ///      1. COMPOUND (default). On a GROW splice the hop funds real sats in and marks up to
-    ///         `grewBy` of them as `feeSettleSats` (`BTCChannels.splice`). `settleBtcFeesOwed`
+    ///         (E145) HISTORICAL: the hop used to fund `feeSettleSats` into a grow-splice and
     ///         clears the counter, and the sats DO compound into `LP.pooled` — `registerBtcLp`
     ///         already grew pooled by the full delta, so `delivered` stays invariant. Driven from
     ///         `quid-bridge/channel_driver.rs`, which reads this counter and settles
@@ -210,36 +210,9 @@ contract Vault is Ownable, ReentrancyGuard {
     ///      the hop settles it in native BTC at channel close", describing path 2 as if it were the
     ///      only one. That was stale from before the fee-splice landed and it caused a downstream
     ///      doc error; do not restore it.
-    /// ⚠️ (E145) THIS LEDGER IS THE SYMPTOM OF A FIXABLE ROOT CAUSE — see below before extending it.
-    /// MEASURED 2026-08-09: a swap-in accrues a real BTC-leg fee (209 sats per 500k-sat swap-in;
-    /// `creditSwapIn` sells into the pool as the PROTOCOL, bypassing the user-path
-    /// `BtcInflowsViaChannels` guard). At close the balance is DELETED, and no remaining LP
-    /// receives it AS A FEE CLAIM — `feesPerShareBTC` does not move on exit, so the "accrues to
-    /// the remaining LPs" note at `_resizeBtcLp` is false AS STATED.
-    /// ⚠️ BUT "simply lost" IS NOT PROVEN AND MUST NOT BE ASSERTED: the sats remain in
-    /// `POOLED_BTC` as BACKING, which benefits remaining LPs diffusely through redemption value
-    /// rather than through any claim. A backing-per-share reading fell across an exit
-    /// (94,837,842 → 89,675,690) but the harness calls `unregisterBtcLp` DIRECTLY and may pay at
-    /// par in a way the real cooperative-close path does not — so that number is NOT evidence of
-    /// a defect. What is established is narrow: NO FEE CLAIM INCREASES. Where the value ends up
-    /// is unmeasured.
-    /// 🔎 ROOT CAUSE: settlement requires a HOP to FUND a grow-splice (`feeSettleSats <= grewBy`),
-    /// so it rides an unrelated operation, cannot be enforced without making the LP's EXIT depend
-    /// on hop liveness, and is bounded by nothing meanwhile.
-    /// ▶️ A CANDIDATE FOLD THAT WOULD KEEP SATS COMPOUNDING — PROPOSAL, NOT A PROVEN DESIGN:
-    /// accrue the BTC-leg fee as TOKENLESS BAND DEPTH,
-    /// exactly as the levered slice already does (`levPooledBTC`/`levBufBTC` are "backed by the
-    /// BtcLevManager net-equity, NOT real channel sats"). The fee value is already on-chain in the
-    /// pool; the INFERENCE (not a measurement) is that only its *location* — channel vs pool —
-    /// forces the hop into the loop. Compounding it
-    /// as pool-backed depth keeps the LP's fees DENOMINATED IN SATS (which converting them to USD
-    /// would sacrifice) while deleting this ledger, `settleBtcFeesOwed`, `feeSettleSats` and
-    /// `BtcLpFeesForgone`.
-    /// ⚠️ VERIFY FIRST, and this is what stopped it being done today: that pool-held fee value
-    /// genuinely backs tokenless depth the way net-equity does. A USD-denominated variant was
-    /// built and REVERTED — it routed BTC-side value into a USD accumulator without moving the
-    /// backing, and sacrificed sats compounding, which is the property the design exists to give.
-    mapping(address => uint) public btcFeesOwedSats;
+    // (E145) `btcFeesOwedSats` DELETED. The BTC fee leg now compounds into `LP.pooled` in sats
+    // as it is earned (see `BtcVaultLib.settleBtcLp`), so there is no unsettled claim to hold,
+    // no hop-funded grow-splice to settle it, and nothing to forfeit at close.
 
     int24 public UPPER_TICK_BTC;
     int24 public LOWER_TICK_BTC;
@@ -707,13 +680,13 @@ contract Vault is Ownable, ReentrancyGuard {
 
     /// @dev BTC-LP fee settle. Per-LP pro-rata, with the two legs settled in
     ///      their NATIVE denominations: USD-leg → QUID (or banked to usd_owed
-    ///      when payTo==0); BTC-leg → native sats (btcFeesOwedSats), settled by
+    ///      when payTo==0); BTC-leg → compounded into `pooled` in sats (E145), formerly
     ///      the hop at channel close.
     function _settleBtcLp(address lpEth, address payTo) internal {
         // (E145) The BTC leg now COMPOUNDS INTO `pooled` in sats rather than accruing to the
         // owed ledger, so `lpSharesBTC` — the SUM of every LP's `pooled` — must absorb it here
         // or the two drift apart. The backing is already in `POOLED_BTC` (see settleBtcLp).
-        lpSharesBTC += BtcVaultLib.settleBtcLp(autoManagedBTC[lpEth], btcFeesOwedSats,
+        lpSharesBTC += BtcVaultLib.settleBtcLp(autoManagedBTC[lpEth],
             lpEth, payTo, address(QUID), feesPerShareBTC, USD_FEES_BTC,
             autoManagedBTC[lpEth].pooled + levBufBTC[lpEth]); // GROSS fee weight = net pooled + buffer
     }
@@ -757,7 +730,6 @@ contract Vault is Ownable, ReentrancyGuard {
     // OWED to an external settler — it is FORGONE to the pool (dust; see _resizeBtcLp). Kept as
     // an observability signal so a NON-dust forgone amount (⇒ the fleet missed a pre-exit flush)
     // is alertable. The lp_fees.rs settler + the on-chain lpFeePaid dedup are retired.
-    event BtcLpFeesForgone(address indexed lpEth, uint sats);
 
     /// @notice Channel lock → BTC-pool LP position. `sats` are already locked in
     ///         the channel, so we just add the virtual liquidity + shares.
@@ -782,21 +754,8 @@ contract Vault is Ownable, ReentrancyGuard {
         // rebalance through the public repack self-call; the value-type lpSharesBTC
         // delta returns for the forwarder.
         lpSharesBTC += BtcVaultLib.registerBtcLp(
-            _btcCfg(), autoManagedBTC[lpEth], btcFeesOwedSats,
+            _btcCfg(), autoManagedBTC[lpEth],
             lpEth, sats, address(QUID), autoManagedBTC[lpEth].pooled + levBufBTC[lpEth]); // GROSS fee weight
-    }
-
-    /// @notice Clear up to `sats` of the LP's owed BTC-leg fees — called by BTCChannels when the hop FUNDS
-    ///         those fees into a grow-splice: they compound into the LP's `pooled` via `registerBtcLp`, and the
-    ///         bigger pooled share grows the LP's cooperative-close payout to `btcRecipientOf`. This retired the
-    ///         standalone settler (`run_lp_fee_settler`, deleted from quid-bridge). NOTE: an earlier version of
-    ///         this line said the hop also keysends the same sats onto the LP's Lightning balance off-chain —
-    ///         that leg is OBSOLETE under the delegation model, where the LP runs no Lightning node at all.
-    ///         CLAMPED: can never clear more than is owed (BTCChannels already caps `sats` at the spliced `delta`,
-    ///         so the hop can only clear fees it actually funded in — no theft, no over-settle).
-    function settleBtcFeesOwed(address lpEth, uint sats) external onlyBtcChannels {
-        uint owed = btcFeesOwedSats[lpEth];
-        btcFeesOwedSats[lpEth] = owed > sats ? owed - sats : 0;
     }
 
     // ═══════════════════════════ BTC IL-PROTECT: levered band slice ═══════════════════════════
@@ -814,7 +773,7 @@ contract Vault is Ownable, ReentrancyGuard {
         // over the Vault's storage via the passed refs (incl. levBufferUsdBTC).
         // Returns (added, burned); the forwarder applies the value-type delta.
         BtcVaultLib.LevDelta memory d = BtcVaultLib.syncLevBTC(
-            _btcCfg(), autoManagedBTC[lp], levPooledBTC, levBufferUsdBTC, levBufBTC, btcFeesOwedSats,
+            _btcCfg(), autoManagedBTC[lp], levPooledBTC, levBufferUsdBTC, levBufBTC,
             lp, LEV_MANAGER_BTC, address(QUID));
         lpSharesBTC = lpSharesBTC + d.addedNet - d.burnedNet;         // NET equity leg
         totalBufferBTC = totalBufferBTC + d.bufAdded - d.bufBurned;   // GROSS buffer depth (fee weight)
@@ -891,32 +850,20 @@ contract Vault is Ownable, ReentrancyGuard {
             delevUsd = SwapLib.deleverOnDelivery(address(CORE), address(AUX), LEV_MANAGER_BTC,
                 autoManagedBTC, levPooledBTC, lpEth, shrinkSats, lpPayoutSats, exactUsd);
         BtcVaultLib.ResizeOut memory o = BtcVaultLib.resizeBtcLp(
-            address(CORE), address(QUID), autoManagedBTC, levPooledBTC, levBufBTC, btcFeesOwedSats,
+            address(CORE), address(QUID), autoManagedBTC, levPooledBTC, levBufBTC,
             lpEth, shrinkSats, lpPayoutSats, full, exactUsd - delevUsd);
         // (E145) fees compounded into `pooled` during this resize must be added, or `lpSharesBTC`
         // drifts below the sum of positions it totals. Net movement, in one write.
         lpSharesBTC = lpSharesBTC + o.feeCompounded - o.sharesRemoved;   // NET equity
         totalBufferBTC -= o.bufRemoved;            // GROSS buffer freed on full close
         if (o.cleared) {
-            // FEES-IN-CHANNEL: the BTC-leg fee is settled DURING the position's life by
-            // the fee-splice (feeSettleSats compounds owed → LP.pooled), and the fleet flushes
-            // any remainder before an exit (the channel STRETCHES to fit — capacity is grown by
-            // splice). So at a clean exit only sub-economic DUST can remain, and its sats are
-            // ALREADY in POOLED_BTC — deleting the owed-ledger entry (in BtcVaultLib) FORGOES
-            // them to the pool (they accrue to the remaining LPs) instead of a separate
-            // hop-funded settler payout. This retires the `lp_fees.rs` settler + its on-chain
-            // `lpFeePaid` dedup. A NON-dust remainder here means the fleet failed to flush
-            // pre-exit (an operational bug, NOT a value leak — the sats stay in the pool);
-            // BtcLpFeesForgone surfaces it for monitoring. Force-close loses the residual either
-            // way (a dead hop can't flush — and the settler WAS the hop's wallet).
-            if (o.owed > 0) emit BtcLpFeesForgone(lpEth, o.owed);
             // Only zero the accumulators when NO fee-earning depth remains (net + gross buffer).
             if (lpSharesBTC == 0 && totalBufferBTC == 0) { feesPerShareBTC = 0; USD_FEES_BTC = 0; }
         }
     }
 
     /// @notice Harvest accrued BTC-LP fees WITHOUT closing the channel. The USD-leg
-    ///         mints as QUID to the LP; the BTC-leg accrues to `btcFeesOwedSats`
+    ///         mints as QUID to the LP; the BTC-leg COMPOUNDS INTO `pooled` in sats (E145)
     ///         (paid natively by the hop at close, as always). The position
     ///         (`pooled`) is unchanged. `_settleBtcLp` self-rebaselines the fee
     ///         bookmark, so a repeated call yields nothing (no double-pay). Mirrors
@@ -924,7 +871,7 @@ contract Vault is Ownable, ReentrancyGuard {
     function collectBtcFees() external nonReentrant {
         if (autoManagedBTC[msg.sender].pooled == 0) revert NoBtcPosition();
         _rebalance(true);                     // harvest BTC pool fees into the accumulators
-        _settleBtcLp(msg.sender, msg.sender); // USD-leg → QUID; BTC-leg → btcFeesOwedSats; rebaselines
+        _settleBtcLp(msg.sender, msg.sender); // USD-leg → QUID; BTC-leg → compounds into pooled; rebaselines
     }
 
     // ─── Self-managed BTC boundary orders (single-sided, USD-funded) ──────────

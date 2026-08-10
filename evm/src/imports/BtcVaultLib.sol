@@ -39,7 +39,6 @@ library BtcVaultLib {
     ///         (btcFeesOwedSats), settled by the hop at channel close.
     function settleBtcLp(
         Types.Deposit storage LP,
-        mapping(address => uint) storage btcFeesOwedSats,
         address lpEth, address payTo, address quid,
         uint feesPerShareBTC, uint usdFeesBtc, uint weight
     ) public returns (uint compoundedSats) {
@@ -61,7 +60,6 @@ library BtcVaultLib {
         // ⚠️ AND IT KEEPS THE FEE DENOMINATED IN SATS. A USD conversion was built and reverted:
         //    it silently changed what a BTC LP earns. The point of this leg is BTC exposure.
         if (tokR > 0) { LP.pooled += tokR; compoundedSats = tokR; }
-        btcFeesOwedSats;   // retained arg — the ledger is being retired (E145)
         if (payTo != address(0)) {                    // USD-leg → QUID
             usdR += LP.usd_owed;
             LP.usd_owed = 0;
@@ -173,13 +171,12 @@ library BtcVaultLib {
         mapping(address => Types.Deposit) storage autoManagedBTC,
         mapping(address => uint) storage levPooledBTC,
         mapping(address => uint) storage levBufBTC,
-        mapping(address => uint) storage btcFeesOwedSats,
         ResizeArgs memory a
     ) public returns (ResizeOut memory o) {
         Types.Deposit storage LP = autoManagedBTC[a.lpEth];
         {   // settlement + native burn scoped so its locals free before the tail
             // GROSS fee weight = net pooled + the debt-funded buffer (levBufBTC).
-            o.feeCompounded = settleBtcLp(LP, btcFeesOwedSats, a.lpEth, a.lpEth, quid, a.feesPerShareBTC, a.usdFeesBtc, LP.pooled + a.buf); // (E145)
+            o.feeCompounded = settleBtcLp(LP, a.lpEth, a.lpEth, quid, a.feesPerShareBTC, a.usdFeesBtc, LP.pooled + a.buf); // (E145)
             uint deliveredRaw = a.shrinkSats > a.lpPayoutSats ? a.shrinkSats - a.lpPayoutSats : 0;
             uint deliveredSlice = settleDelivered(a.lpEth, deliveredRaw, a.exactUsd, core, quid);
             uint nativeSlice = a.shrinkSats - deliveredSlice;
@@ -205,8 +202,6 @@ library BtcVaultLib {
         // Finalize: full exit publishes/clears the owed BTC-leg fee + retires the
         // slot; a partial splice rebaselines the remainder's fee bookmarks.
         if (LP.pooled == 0) {
-            o.owed = btcFeesOwedSats[a.lpEth];
-            delete btcFeesOwedSats[a.lpEth];
             delete autoManagedBTC[a.lpEth];       // retire the slot
             o.cleared = true;
         } else {
@@ -227,7 +222,6 @@ library BtcVaultLib {
         mapping(address => Types.Deposit) storage autoManagedBTC,
         mapping(address => uint) storage levPooledBTC,
         mapping(address => uint) storage levBufBTC,
-        mapping(address => uint) storage btcFeesOwedSats,
         address lpEth, uint shrinkSats, uint lpPayoutSats, bool full, uint exactUsd
     ) public returns (ResizeOut memory o) {
         // Route everything through the ResizeArgs memory slot so the input scalars go
@@ -251,7 +245,7 @@ library BtcVaultLib {
         (a.sqrtP, a.tickLower, a.tickUpper,,) = IEthVenue(address(this)).repack(true);
         a.feesPerShareBTC = IEthVenue(address(this)).feesPerShareBTC();
         a.usdFeesBtc = IEthVenue(address(this)).USD_FEES_BTC();
-        return resizeBtcLpTail(core, quid, autoManagedBTC, levPooledBTC, levBufBTC, btcFeesOwedSats, a);
+        return resizeBtcLpTail(core, quid, autoManagedBTC, levPooledBTC, levBufBTC, a);
     }
 
     // ════════════════════════════════════════════════════════════════════
@@ -368,7 +362,6 @@ library BtcVaultLib {
     function registerBtcLp(
         BtcCfg memory c,
         Types.Deposit storage LP,
-        mapping(address => uint) storage btcFeesOwedSats,
         address lpEth, uint sats, address quid, uint weight
     ) public returns (uint sharesAdded) {
         // `weight` = pooled + levBufBTC[lpEth] (the GROSS fee weight at entry, precomputed by the forwarder to
@@ -383,7 +376,7 @@ library BtcVaultLib {
         (p.sqrtP, p.tickLower, p.tickUpper,,) = IEthVenue(address(this)).repack(true);
         p.feesPerShareBTC = IEthVenue(address(this)).feesPerShareBTC();
         p.usdFeesBtc = IEthVenue(address(this)).USD_FEES_BTC();
-        sharesAdded += settleBtcLp(LP, btcFeesOwedSats, lpEth, address(0), quid, p.feesPerShareBTC, p.usdFeesBtc, weight); // (E145) fee compounds into pooled
+        sharesAdded += settleBtcLp(LP, lpEth, address(0), quid, p.feesPerShareBTC, p.usdFeesBtc, weight); // (E145) fee compounds into pooled
         // price computed AFTER the settle so it isn't live across it (legacy-pipeline stack). A price==0
         // revert here still rolls back the settle's state, so behavior is unchanged.
         uint price = IAux(c.aux).getTWAPforAsset(IAux(c.aux).WBTC(), 1800);
@@ -427,7 +420,6 @@ library BtcVaultLib {
         mapping(address => uint) storage levPooledBTC,
         mapping(address => uint) storage levBufferUsdBTC,
         mapping(address => uint) storage levBufBTC,
-        mapping(address => uint) storage btcFeesOwedSats,
         address lp, address mgr, address quid
     ) public returns (LevDelta memory d) {
         // NET model (mirror of Vogue): levPooledBTC is the NET leg (in pooled/lpSharesBTC); levBufBTC is the
@@ -444,7 +436,7 @@ library BtcVaultLib {
         p.feesPerShareBTC = IEthVenue(address(this)).feesPerShareBTC();
         p.usdFeesBtc = IEthVenue(address(this)).USD_FEES_BTC();
         p.mgr = mgr; p.gross = gross;
-        d.addedNet += settleBtcLp(LP, btcFeesOwedSats, lp, address(0), quid, p.feesPerShareBTC, p.usdFeesBtc, w); // (E145) fee compounds into pooled
+        d.addedNet += settleBtcLp(LP, lp, address(0), quid, p.feesPerShareBTC, p.usdFeesBtc, w); // (E145) fee compounds into pooled
         (d.burnedNet, d.bufBurned) = levBurnAllBtc(c, LP, levPooledBTC, levBufferUsdBTC, levBufBTC, lp, p);
         (d.addedNet, d.bufAdded)   = levAddGrossBtc(c, LP, levPooledBTC, levBufferUsdBTC, levBufBTC, lp, p);
     }

@@ -3705,7 +3705,7 @@ contract Alles is ForkPin, Fixtures {
 
         // Withdraw flow (channel close) pays each LP their USD-leg fee revenue
         // in QUID (basket-backed). BTC-leg fees, if any, accrue as native sats
-        // (btcFeesOwedSats) for the hop to settle at close - never as QUID.
+        // (E145) the BTC leg now compounds into `pooled` in sats - never as QUID.
         // Close with finalBalance == funded (these LPs delivered no BTC; the
         // swaps were pool swaps) -> delivered=0 -> payout is pure USD-leg fees.
         uint q1 = QUID.balanceOf(User01);
@@ -4411,7 +4411,6 @@ contract Alles is ForkPin, Fixtures {
 
         vm.prank(User01); BTC.collectBtcFees();      // crystallise whatever exists BEFORE
         (uint pooledPre,,,) = BTC.autoManagedBTC(User01);
-        uint owedBefore = BTC.btcFeesOwedSats(User01);
         uint fpsBefore  = BTC.feesPerShareBTC();
 
         // (E145) DOES THE SWAP ITSELF PUT THE FEE SATS INTO POOLED_BTC? This decides whether
@@ -4427,12 +4426,9 @@ contract Alles is ForkPin, Fixtures {
         vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
 
         vm.prank(User01); BTC.collectBtcFees();      // crystallise AFTER
-        uint owedAfter = BTC.btcFeesOwedSats(User01);
         uint fpsAfter  = BTC.feesPerShareBTC();
         emit log_named_uint("feesPerShareBTC before", fpsBefore);
         emit log_named_uint("feesPerShareBTC after ", fpsAfter);
-        emit log_named_uint("btcFeesOwedSats before", owedBefore);
-        emit log_named_uint("btcFeesOwedSats after ", owedAfter);
 
         // (E145) THE FEE NOW COMPOUNDS INTO THE POSITION, IN SATS.
         // The leg is still earned — `feesPerShareBTC` must rise, or the protocol stopped
@@ -4440,7 +4436,6 @@ contract Alles is ForkPin, Fixtures {
         // only a hop-funded grow-splice could settle. Asserting all three so a regression that
         // silently drops the fee, or re-introduces the ledger, fails here.
         assertGt(fpsAfter, fpsBefore, "the BTC-leg fee is still earned on a swap-in");
-        assertEq(owedAfter, owedBefore, "and NO LONGER lands in the owed ledger (E145: retired)");
         (uint pooledAfter,,,) = BTC.autoManagedBTC(User01);
         assertGt(pooledAfter, pooledPre, "it compounds into the LP's position, denominated in SATS");
     }
@@ -4471,29 +4466,20 @@ contract Alles is ForkPin, Fixtures {
 
         vm.prank(User01); BTC.collectBtcFees();
         vm.prank(User02); BTC.collectBtcFees();
-        uint owed1 = BTC.btcFeesOwedSats(User01);
-        uint owed2Before = BTC.btcFeesOwedSats(User02);
         // (E145) THE FORFEITURE IS GONE BECAUSE THE LEDGER IS. This test previously needed a
         // live claim to forgo, and MEASURED 209 sats vanishing at close with no remaining LP
         // gaining anything. The fee now compounds into `pooled` as it is earned, so there is
         // never an unsettled claim to lose — which is the fix, not a gap in the test.
-        assertEq(owed1, 0, "no owed claim can accrue at all now (E145: the ledger is retired)");
 
         uint fpsBefore = BTC.feesPerShareBTC();
-        BTC.unregisterBtcLp(User01, 2e7);                 // LP1 exits; owed1 is deleted
-        assertEq(BTC.btcFeesOwedSats(User01), 0, "the exiting LP's claim is forgone");
+        BTC.unregisterBtcLp(User01, 2e7);                 // LP1 exits fully
 
         // THE MEASUREMENT: does LP2 receive any of it?
         vm.prank(User02); BTC.collectBtcFees();
-        uint owed2After = BTC.btcFeesOwedSats(User02);
-        emit log_named_uint("forgone by LP1        ", owed1);
-        emit log_named_uint("LP2 owed before exit  ", owed2Before);
-        emit log_named_uint("LP2 owed after  exit  ", owed2After);
         emit log_named_uint("feesPerShareBTC before", fpsBefore);
         emit log_named_uint("feesPerShareBTC after ", BTC.feesPerShareBTC());
         // Recorded, not asserted in a direction: this test exists to ESTABLISH the number.
         // Whichever way it lands, it decides whether the fold is a fix or a redistribution.
-        assertTrue(owed2After >= owed2Before, "LP2's claim cannot shrink because someone else left");
     }
 
     /// (E152-b) MEASURE THE USD-LEG FEE RATE DIRECTLY, on a single swap of known size.
