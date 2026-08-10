@@ -10497,3 +10497,44 @@ made deleting two slots fail with an unrecognised `balanceOf` selector — disso
 that constraint.**
 📌 Sequence: measure `_onlyUs()` FIRST (alone, one change, prediction stated), and only then re-open
 the getter — one money-path change per run.
+
+### 🎯🎯🎯 CORE-ONLYUS-MEASURED — **907 BYTES.** `Core` 24,472 → 23,565; margin 104 → **1,011**. MEASURED, NOT LANDED.
+
+**Prediction stated first ("frees well over 100 bytes"), then measured — CONFIRMED and then some.**
+The edit is ONE change, not eighteen: keep `onlyUs` as the gate, move only its BODY into a
+`private view`. Every one of the 18 sites is still guarded identically; each inlined copy becomes a
+CALL instead of three SLOADs + a revert string.
+
+```
+function _onlyUs() private view {
+    require(msg.sender == address(AUX) || msg.sender == address(VOGUE)
+         || msg.sender == address(BTCVAULT), "403");
+}
+modifier onlyUs { _onlyUs(); _; }
+```
+| | `Core` | free |
+|---|---|---|
+| session start | 24,538 | **28** (flagged FROZEN for additions) |
+| after §UNIT-B-SLOWDEL-PADDING | 24,472 | 104 |
+| **with `_onlyUs()`** | **23,565** | **1,011** |
+
+⛔ **NOT COMMITTED — IT IS AN AUTH GATE, AND RULE 15 APPLIES HARDEST HERE.** Source reverted. It
+compiles clean; **no test has been run.** Semantics SHOULD be identical (the modifier still wraps
+every site, the check still precedes every body) but *should* is not evidence on an authorisation
+path. ▶️ **Verify in a PINNED WORKTREE** (§TREE-UNSTABLE — the shared tree is being edited during
+runs): `git worktree add --detach <path> HEAD`, copy gitignored `evm/.env`, `ETH_RPC_URL=$ANKR_RPC_URL
+FORK_BLOCK=<current> forge test`. **Acceptance: 4,402 passed / 1 failed** (the pre-existing
+`testRoundTripNoRaceNoDrain` at `499224755743233795668`), `BufferOverflow: 0`.
+
+▶️ **CONSEQUENCES ONCE LANDED — this is the largest byte lever found all session:**
+1. ✅ **REOPENS §UNIT-B-SLOTS-RECLAIM, which I closed today on affordability.** The `mocks()` getter
+   costs **91–98 bytes** — trivial against 1,011. ⇒ the dust monitor stops reading RAW SLOTS, and the
+   harness's coupling to `Core`'s state ORDER dissolves (that coupling is what made deleting two
+   slots fail with an unrecognised `balanceOf` selector, §UNIT-B-SLOWDEL-CAUSE). **Then the two
+   `__deadSlotWasFlowSlow*` slots become genuinely reclaimable too.**
+2. ✅ **UN-FREEZES `Core` OUTRIGHT.** It was at 28 bytes and blocked the §E42 premium fix from being
+   routed through it this morning (that had to go via `Aux.ethVenue()` instead). §E92's needs and
+   §E60's dust monitor were BOTH refused on byte grounds — re-evaluate both.
+3. 📌 **CHECK THE SIBLINGS.** `Vogue`, `Aux`, `LevManager`, `Vault` — CLAUDE.md 8c is a general
+   result and `LevManager` (24,506, 70 free) and `LevMath` (24,556, 20 free) are the other frozen
+   contracts. **Same one-line shape; measure each.**
