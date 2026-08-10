@@ -51,6 +51,16 @@ contract UnificationControls is Alles {
         address pm = address(CORE.poolManager());
         address mTok = address(uint160(uint(vm.load(address(CORE), bytes32(uint(isBTC ? 131096 : 131095))))));
         address mUsd = address(uint160(uint(vm.load(address(CORE), bytes32(uint(isBTC ? 131098 : 131097))))));
+        // §UNIT-B-SLOTS-RECLAIM — MAKE THE LAYOUT COUPLING ANNOUNCE ITSELF. These slots are read RAW
+        // because a `mocks()` getter on `Core` costs 91-98 bytes — MEASURED, more than the 76
+        // §UNIT-B-SLOWDEL-PADDING recovered — so §E60's "Core cannot afford it" still stands and the
+        // coupling is here to stay. What is fixable is the FAILURE MODE: reordering `Core` state used
+        // to surface as `unrecognized function selector 0x70a08231` on a non-token, four frames deep
+        // in an unrelated test (§UNIT-B-SLOWDEL-CAUSE). This says what actually broke.
+        assertGt(mTok.code.length, 0, "STALE SLOT: Core's storage layout moved -- re-read slots from "
+            "`forge inspect Core storageLayout` and update _mockDust (see UNIT-B-SLOTS-RECLAIM)");
+        assertGt(mUsd.code.length, 0, "STALE SLOT: Core's storage layout moved -- re-read slots from "
+            "`forge inspect Core storageLayout` and update _mockDust (see UNIT-B-SLOTS-RECLAIM)");
         usdDust = IERC20(mUsd).totalSupply() - (IERC20(mUsd).balanceOf(pm) + IERC20(mUsd).balanceOf(address(CORE)));
         tokDust = IERC20(mTok).totalSupply() - (IERC20(mTok).balanceOf(pm) + IERC20(mTok).balanceOf(address(CORE)));
     }
@@ -1312,6 +1322,9 @@ contract UnificationControls is Alles {
         // with the PoolManager, which `_dustOf` already counts, so nothing shows until this runs.
         // Mock addresses come from Core's storage (slots per `forge inspect Core storageLayout`) —
         // no getter exposes them and Core has +12 bytes, so adding one is not free.
+        // MEASURED 2026-08-10: a getter costs 91-98 bytes, MORE than the 76 freed by dropping the
+        // dead slow-flow logic — so "not free" is confirmed, not assumed. `_mockDust` carries the
+        // stale-slot guard; this site is covered by the same failure if the layout moves.
         {
             address mETH = address(uint160(uint(vm.load(address(CORE), bytes32(uint(131095))))));
             address mUSD = address(uint160(uint(vm.load(address(CORE), bytes32(uint(131097))))));

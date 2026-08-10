@@ -10177,12 +10177,30 @@ unrelated. **The HARNESS is coupled to the layout, not the contract.** I booked 
 state-variable ORDER is load-bearing" — true in effect, but it wrongly implicates the contract and
 would have made the next person hunt inside `Core` for something that is not there.
 
-### ▶️ UNIT-B-SLOTS-RECLAIM — the byte recovery has PAID FOR the getter that removes the fragility. OPEN, small.
+### ⛔ UNIT-B-SLOTS-RECLAIM — THE GETTER IS UNAFFORDABLE. MEASURED: it costs MORE than the padding freed.
 
-§E60 hardcoded those slots because `Core` could not spare ~37 bytes for a mock getter.
-**`Core` now has 104 bytes of margin** (28 before §UNIT-B-SLOWDEL-PADDING) — **that constraint is
-gone.** Add a public mock accessor, repoint `_mockDust` at it, and the harness stops depending on
-layout. **Then `__deadSlotWasFlowSlow*` become genuinely reclaimable** (2 more slots) and the whole
-class of "reordering Core breaks the tests" disappears.
-⚠️ Sequence it: getter + test repoint FIRST (verify in the worktree), slot removal SECOND — one
-money-path change per run. Do NOT reclaim the slots in the same commit as the getter.
+⛔ **MY PROPOSAL WAS WRONG AND THE MEASUREMENT KILLED IT.** I claimed the +76 bytes had "paid for"
+a `mocks()` getter, on §E60's estimate of ~37 bytes. **Built both variants in the worktree:**
+| variant | `Core` | free |
+|---|---|---|
+| padding only (landed) | 24,472 | **104** |
+| `mocks(bool) → (address,address)` | 24,563 | **13** |
+| `mocks(bool,bool) → address` | 24,570 | **6** |
+⇒ **91–98 bytes — MORE than the 76 recovered**, and it would leave `Core` TIGHTER than the 28 that
+had it frozen all session. §E60's *"Core cannot afford it"* stands; only its 37-byte figure was low.
+⇒ **The raw-slot read STAYS.** Reverted.
+
+### ✅ UNIT-B-SLOTS-GUARD — LANDED instead: the coupling is unfixable, so make it ANNOUNCE ITSELF.
+
+Rule 3's inverse — a check earns its place when the failure is otherwise SILENT and plausible.
+Reordering `Core` state surfaced as `unrecognized function selector 0x70a08231` on a non-token, four
+frames deep in a test about mock dust, with nothing naming the cause; it cost a full trace to find.
+`_mockDust` now asserts `mTok.code.length > 0` / `mUsd.code.length > 0` with **"STALE SLOT: Core's
+storage layout moved — re-read slots from `forge inspect Core storageLayout`"**. Costs `Core` zero
+bytes. Both dust tests pass; `Core` unchanged at 24,472 / 104.
+⇒ **`Core`'s state ORDER remains harness-load-bearing and that is now ACCEPTED, not pending** — the
+two `__deadSlotWasFlowSlow*` slots are NOT reclaimable at a price worth paying. Anyone reordering
+`Core` state gets a named failure instead of a mystery revert.
+
+
+| **E163-fallback-cannot-act** | 🔴🔴 **THE FALLBACK CAN NEVER ACT ON AN EXISTING CHANNEL — §E156 AND §E157 BETWEEN THEM REMOVED EVERY HANDOVER PATH, AND I DID NOT NOTICE (owner: *"it has to be a variable because it can get switched to the fallback?"*, 2026-08-10).** 🔎 **VERIFIED: `channel.hop` is written ONCE, at open (`BTCChannels.sol:776`), and NEVER again. FOUR gates require `msg.sender == channels[channelId].hop`: `splice` (`:865`) · `emitDeadManExit` (`:976`) · `commitFreshness` (`:1067`) · `deliverSwapOutOnchain` (`:1553`). ⇒ **a fallback can open NEW channels and nothing else — it cannot splice, refresh the dead-man exit, commit freshness, or deliver a swap-out on any channel the main opened.**** ⛔ **HOW IT HAPPENED: §E156 deleted `_authorizedHopForChannel`, which DID admit a named fallback after staleness; §E157 then pinned every remaining path to `channel.hop`. Each was right about the thing it removed (the per-LP nomination was useless — §E158-why-self-hosted), and TOGETHER they removed the CAPABILITY as well as the mechanism. **A deletion justified per-mechanism can still be wrong in aggregate.**** ✅ **THE FIX IS SMALLER THAN WHAT WAS DELETED: with main and fallback both HARDCODED and in the SAME TRUST DOMAIN, the gate is two addresses — `msg.sender == channel.hop || msg.sender == FALLBACK_HOP`. **No per-LP nomination, no staleness clock, no heartbeat, no `lastHeartbeatBlock`.** All of E122's machinery existed because the fallback was PER-LP AND SEPARATELY TRUSTED: it needed a nomination to know WHO and a staleness window to know WHEN. A single hardcoded fallback run by the same operator needs neither.** 📌 **AND IT ANSWERS WHY `channel.hop` IS PER-CHANNEL AT ALL: `Types.sol:64-72` gives MULTI-HOP as the reason (independent SGX instances coexisting). In a one-node-plus-fallback world it records WHICH OF THE TWO opened the channel — worth keeping for attribution — but it must stop being the SOLE authority.** | 🔴🔴 fallback can open but never operate; fix is a two-address gate, not E122's machinery |
