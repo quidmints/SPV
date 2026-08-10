@@ -10433,3 +10433,38 @@ doubly unreliable.
    failure nobody attributes to the checkpoint. ⇒ **Fix at the DEPLOY layer: require the checkpoint
    buried (6 conventional, 100 for comfort); `cumulativeWork_` is equally unvalidated.**
    ⇒ **It is the only open item that is IRREVERSIBLE if it fires. Everything above is recoverable.**
+
+### ⛔ UNIT-D-CORRECTION — I restated E135's fix WITHOUT READING THE FILE. It is not implementable as written.
+
+**Owner: *"the validation may not be needed based on the assumptions of that file, review it before
+jumping to conclusion."* Correct. Read `src/spv/SPVGateway.sol` — the assumption is stated at `:53-62`:**
+*"PoW is unforgeable, so a bad checkpoint cannot be FABRICATED: it would have to be a genuine Bitcoin
+header that is merely off the main chain… the assumption is 'this block is on Bitcoin's main chain' —
+**PUBLICLY VERIFIABLE**, not a matter of taking the deployer's word."*
+
+🔴 **"REQUIRE THE CHECKPOINT BURIED" CANNOT BE WRITTEN ON-CHAIN — THE CHECK IS CIRCULAR.** Validating
+depth requires Bitcoin's current TIP, and **`SPVGateway` IS the contract that supplies the tip.** No
+prior on-chain source exists to compare against — not in `__SPVGateway_init`, and not in `DeployLib`,
+which is equally on-chain. **`cumulativeWork_` has the identical problem.**
+⇒ E135's remedy as I restated it is **NOT a missing `require`.** It is an OFF-CHAIN DEPLOY-PROCEDURE
+concern — which is precisely what *"verifiable against any Bitcoin node in seconds"* already says.
+The contract's own docblock (`:63-72`) states the RISK correctly; I turned it into a code fix it
+never proposed.
+
+▶️ **WHAT IS ACTUALLY OPEN — AND I ASSERTED SEVERITY WITHOUT CHECKING IT:**
+- **(a) IS IT REALLY IRREVERSIBLE?** `initializer` blocks re-init of THAT INSTANCE. But if the gateway
+  can be **REDEPLOYED and the consumer repointed**, then *"permanently bricks the whole BTC path"*
+  OVERSTATES it — it becomes an operational redeploy, not a brick. **Find who holds the gateway
+  address and whether it is settable.** ⚠️ **This single check SIZES the item, and I ranked it "the
+  only irreversible item" without running it. Do not quote that ranking until (a) is answered.**
+- **(b)** Only if (a) shows genuine unrecoverability does a code change earn its place — and the
+  candidate is **re-initialisability under a guard**, NOT depth validation, with the trust and
+  governance surface that opens weighed explicitly (rule 3: does the guard's absence fail SILENTLY?
+  Here it fails LOUDLY, at the first `addBlockHeader` — which argues against a guard).
+- **(c)** The procedural mitigation — a deploy checklist: pick a buried block, verify against a node,
+  compute `cumulativeWork_` correctly — costs nothing and is worth writing down regardless of (a).
+
+📌 **PATTERN, THIRD TIME TODAY:** a true local fact (the depth is unguarded) converted into a
+conclusion it does not support (therefore add validation). The other two were the per-share
+accumulator and "delete the skew". **The tell each time: I proposed the remedy before reading the
+mechanism.**
