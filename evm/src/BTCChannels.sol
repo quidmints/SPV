@@ -1030,10 +1030,19 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // line added "and the hop keysends the same sats onto the LP's LN balance off-chain" — that leg is
         // OBSOLETE under delegation, where the LP runs no LN node.) `<= grewBy` ⇒ it
         // can only settle fees it actually spliced in (no theft); the Vault clamps to the real owed (no over-settle).
-        if (feeSettleSats > 0) {
-            require(feeSettleSats <= grewBy, "fee>splice");
-            btcVault.settleBtcFeesOwed(channels[channelId].lpEth, feeSettleSats);
-        }
+        // (E145) `feeSettleSats` IS NOW A NO-OP AND THE CALL BEHIND IT IS GONE.
+        // The BTC-leg fee compounds into `LP.pooled` in sats as it is earned, so there is no
+        // owed ledger for a hop to settle — `Vault.settleBtcFeesOwed` was deleted with it.
+        // ⚠️ THE PARAMETER IS RETAINED DELIBERATELY: `quid-bridge/channel_driver.rs:847` builds
+        //    splice calldata carrying `fee_settle_sats`, so removing it is a CROSS-REPO change
+        //    and must land in one commit with the Rust side. Accepting-and-ignoring keeps the
+        //    ABI stable meanwhile.
+        // ⚠️ THIS WAS A LIVE DEFECT FOR ONE COMMIT: the call survived my deletion because
+        //    `btcVault` is typed as an INTERFACE that still declared the function, so it
+        //    compiled clean and would have reverted at RUNTIME on any splice with
+        //    `feeSettleSats > 0`. A deleted implementation does not break a call routed
+        //    through an interface — the compiler cannot see the gap.
+        feeSettleSats;   // accepted, ignored (see above)
     }
 
     /// @dev Splice body in its own frame: SPV-verify the splice tx (spends THIS

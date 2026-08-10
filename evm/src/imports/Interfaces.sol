@@ -397,7 +397,9 @@ interface IBtcVaultBridge {
     // BTC LP position: open/close/splice (driven on channel open/close).
     function registerBtcLp(address lpEth, uint sats) external;
     function unregisterBtcLp(address lpEth, uint lpPayoutSats) external;
-    function settleBtcFeesOwed(address lpEth, uint sats) external; // clear owed BTC-leg fees paid into a splice
+    // (E145) `settleBtcFeesOwed` REMOVED — the BTC fee leg compounds into `pooled` in sats,
+    // so there is no owed ledger to clear. Leaving the DECLARATION here is what let a deleted
+    // implementation still compile at the call site; the two must be removed together.
     // `exactUsd` > 0 ⇒ on-chain swap-out delivery (pay the LP that exact proceeds);
     // 0 ⇒ LP-withdrawal splice-out (all native).
     function resizeBtcLp(address lpEth, uint shrinkSats, uint lpPayoutSats, uint exactUsd) external;
