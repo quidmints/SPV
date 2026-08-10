@@ -10235,3 +10235,33 @@ item" answer was WRONG and is retracted here).**
 
 3. 📌 **THE MARKER COLUMN IS UNRELIABLE — CONFIRMED.** `UNIT-A`'s row still reads 🔴🔴🔴 after landing.
    Re-read row BODIES before planning; do not plan from the status column.
+
+### 🔴🔴 UNIT-A-FOLLOWON — TWO THINGS UNIT-A CHANGED THAT NOTHING BOOKED. Found by re-reading agent-memory, not the queue.
+
+**Owner asked whether memory holds anything the queue does not. It does — one item, and it is
+load-bearing on what landed today.**
+
+1. 🔴 **`flow == 0` CANNOT DISTINGUISH A **DEAD** POOL FROM A **NEW** ONE — and §UNIT-A now charges
+   both the full base.** Memory (`land-changes-dont-revert-them`, SPV 2026-08-04) records this from a
+   `sellSkew` refusal that produced **644 failures** precisely because it conflated the two, plus the
+   discriminator that fixed it: **the monotonic `skewPremium*` counters, which never decay, so they
+   CAN tell new from dead** (a decayed/instantaneous register cannot). **Not in QUEUE.md** — grepped.
+   ⇒ `SwapLib.sol:868` (`if (target == 0) return _maxWellSkew(sigmaSqWad, isBTC);`) is §UNIT-A's own
+   line. On a **DEAD** pool charging the base is the intent. On a **NEW** pool it taxes bootstrap for
+   scarcity that has never existed. **UNTESTED IN EITHER DIRECTION.**
+   ▶️ The cheap discriminator already exists and is already read elsewhere: `skewPremiumCum > 0` ⇒ the
+   pool has traded ⇒ dead, not new. Compare with `Core.sol:327`'s §E59 sentinel, which solves the
+   IDENTICAL "zero means unmeasured vs measured-zero" problem for σ² at zero storage cost — the same
+   shape of fix. **Measure before adding it (rule 3): does a fresh band actually hit `target == 0`?**
+
+2. 🔴 **A NOW-STALE COMMENT ON THE MONEY PATH, AND A GUARD THAT MAY BE UNREACHABLE.**
+   `SwapLib.sol:1120-1122` still asserts: *"`raw >= splice` is NOT guaranteed: `skewWad` has EARLY
+   RETURNS (`target == 0`, and the FLUSH branch `inv1 >= target`) that never add the base, leaving
+   `raw == 0`. Assuming otherwise underflowed on a BALANCED band — the common case — and cost 782
+   failures."* **§UNIT-A MADE BOTH OF THOSE RETURNS ADD THE BASE TODAY.** So `raw == 0` may no longer
+   be reachable from either, and for BTC `raw >= SPLICE_FLOOR` by construction.
+   ⇒ Either the comment is merely stale (fix it) or the guard is now DEAD CODE (rule 1: delete it) —
+   **and the 782-failure history says do NOT guess which.** Determine by exercising a balanced band.
+   ⚠️ This is exactly the §UNIT-A "arms dead code" hazard `analyse-findings-jointly-not-serially`
+   warns about: fixing the target made a never-executed branch live. I landed §UNIT-A without
+   checking its downstream consumers.
