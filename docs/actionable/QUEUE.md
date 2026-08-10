@@ -10341,3 +10341,42 @@ measured on 8-20-minute-spaced fixtures. **The 0.04% materiality number inherits
 is suspect on TWO independent grounds (measured pre-§UNIT-A, and possibly on an interpolated tape).
 That strengthens the owner's rejection of "delete the skew": the number arguing for deletion is
 doubly unreliable.
+
+### ⛔⛔ SKEW-SYNTHESIS-CORRECTIONS-2 — §UNIT-CURVE-CORR and §UNIT-WHY-IT-MATTERS. Two more of my claims fall.
+
+4. ⛔ **"ASYMMETRIC TWO-SIDED CURVE" IS ARCHITECTURALLY IMPOSSIBLE — THERE IS NO MID TO MOVE.**
+   §UNIT-CURVE-CORR verified in code (not inferred): `SwapLib.sol:820` — the skew is *"a separate
+   output scalar"*; `retainSkewPremium` is **`r.amount -= premium`**; **`r.px` REMAINS THE HONEST
+   ORACLE** and the band executes AT oracle via `routeSwap`. **An AMOUNT HAIRCUT IS INHERENTLY
+   ONE-DIRECTIONAL:** a slice off what you deliver is a haircut; delivering MORE than oracle is **not
+   a shift, it is a PAYMENT, and it needs a funding source.**
+   ⇒ **My `S_in < S_out` "shared skew curve" (§SKEW-SYNTHESIS §2) DOES NOT EXIST in this
+   architecture. It collapses into exactly `payRefillBonus` — the bounded funded bonus.** §UNIT-
+   BOUND-NOT-DELETE and §UNIT-CURVE-CORR therefore AGREE, and my two entries were one idea double-
+   counted. **The real choice is binary and it is the owner's:**
+   **(A)** keep the amount haircut ⇒ the return leg can ONLY be a funded bonus, so the refill comes
+   from the flash-serve/keeper path, **NOT from pricing**; or
+   **(B)** move the skew into the execution price (`px × (1 ± skew)`) ⇒ genuine A–S symmetry and a
+   natural refill incentive, **but the band no longer executes at the honest oracle — the property
+   `routeSwap` exists to provide and §E79 calls the whole anti-LVR design.**
+   ⚠️ **(B) IS NOT A REFACTOR — IT CHANGES WHAT THE PROTOCOL PROMISES A SWAPPER.**
+
+5. 🔴🔴🔴 **THE ACCEPTANCE CRITERION I WROTE FOR ARM B TODAY IS INCOMPLETE — AND THE WHOLE LVR FRAMING
+   IS THE SMALLER HALF.** §UNIT-C-BAR-ARMB-SPEC scoped arm B as `fees + premium − LVR`. §UNIT-WHY-IT
+   -MATTERS (the OWNER's framing) says the imbalance is an **ACCOUNTING-CORRECTNESS** problem first:
+   three live consumers read the skewed composition — **LP WITHDRAWAL** (pro-rata of the mock
+   position, `Core.sol:1195-1203`: enter ~50/50, exit ~98/2 and you receive **the DRAIN'S directional
+   outcome, not your own** — §E6 measured 533 ETH vs $11.5k), **P&L ATTRIBUTION** (`feesPerShare`/
+   `USD_FEES` accrue against those balances), and **THE SWAP FEE** (what a swapper pays depends on
+   where price sits in the band, which IS the composition).
+   ⇒ **Every LP exit and every swap during an imbalance is computed against a distorted balance — a
+   correctness defect that accrues SILENTLY, not a yield drag you can price and accept.**
+   ⇒ **"Wait for organic flow" is NOT free**, and **"size down the band" is dead**: a reseat
+   re-centres the RANGE, never the RATIO (§E108-EXPLAINED), so it PRESERVES the distortion while
+   looking resolved. **Pass-through fails precisely at HIGH UTILISATION** — the crisis where the
+   imbalance is largest — which is why §E48 specifies THREE tiers, not one.
+   ▶️ **AMEND ARM B's ACCEPTANCE: add "does an LP who enters and exits across an imbalance receive
+   their OWN P&L or someone else's?", measured as a BALANCE DELTA AT THE EXITING LP (§S16/§E91).
+   A refill that is LVR-optimal but leaves withdrawals mis-attributed HAS NOT SOLVED THIS.**
+   ⇒ **This is also the real answer to "is the skew material?" — materiality is not only 0.04% of a
+   swapper's bill; it is whether LP exits are computed correctly.**
