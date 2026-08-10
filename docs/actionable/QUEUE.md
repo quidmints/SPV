@@ -9828,3 +9828,31 @@ tracing an external `PoolManager.swap` against the band before asserting anythin
 | **E162-splice-bricks-retirement** | 🔴🔴 **MY §E153 REGRESSION: A SPLICE CAN SILENTLY CHANGE A CHANNEL'S KEY PAIR AND MAKE IT PERMANENTLY UNRETIRABLE (found 2026-08-10 while designing the upgrade path).** 🔎 **`keysHash` is pinned at open and checked ONLY in `_requireNotSplice` (`:1152`) — the retirement paths. **`splice` neither checks nor updates it.** `_verifySplice` proves KeyAgg over the CALLER-SUPPLIED pair (`:1010`, and `:854`: *"proves `p.lpPubkey` IS inside the new `Q`"*), so a splice with a DIFFERENT pair passes, rotates the funding outpoint, and leaves `keysHash` at the ORIGINAL pair.** ⛔ **CONSEQUENCE: `recordClose` and `recordDeadManExit` then BOTH revert `ChannelKeysMismatch` ⇒ **the channel is unretirable forever — BTC alive in a live 2-of-2, the EVM position stuck open, backing OVER-COUNTED indefinitely.** That is the exact hazard §E155 removed the LP-only gate to prevent, reintroduced through a different door.** ⛔ **IT IS MINE. §E153 pinned `keysHash` at open and built the retirement paths on it **without checking that splice preserves the invariant they depend on**. Before §E153 there was no hash to mismatch. Reachable by any hop, since `p` is caller-supplied and the only gate is `msg.sender == channel.hop`.** ▶️ **FIX AND FEATURE ARE ONE CHANGE — either splice REJECTS key changes (preserving the invariant) or it UPDATES `keysHash` (enabling deliberate rotation). The upgrade path wants the latter: see §E162-rekey-splice.** | 🔴🔴 splice can rekey and brick retirement; E153 regression, live now |
 
 | **E162-rekey-splice** | 🎯 **UPGRADE WITHOUT SEED MIGRATION, WITHOUT CLOSING, WITHOUT LP ACTION AND WITHOUT A COORDINATED EVENT (owner rejected close+reopen: *"LPs need to check the new image. it's a bank run and predictably causes a price shift"*, 2026-08-10).** 🔑 **THE OLD IMAGE SIGNS A SPLICE PAYING TO A 2-of-2 OF **NEW-IMAGE** KEYS, and the contract updates `keysHash`. ⇒ **NO SEED EVER MIGRATES** (the new image generates its own keys; the old one merely pays to them, so sealing stays an unbroken boundary) · **THE CHANNEL NEVER CLOSES** (BTC stays in the protocol, backing unchanged, no liquidity event, no price shift — the pool sees a splice, which it sees routinely) · **NO LP ACTION** (the fleet holds both halves) · **STAGGERED BY CONSTRUCTION** (one channel at a time, so there is no coordinated moment and therefore no run).** ✅ **THE CONSTRAINT LIVES WHERE IT MUST: the contract already proves `Q == KeyAgg(newLp, newHop)` on the spliced output (§E142/§E129), so it verifies the rotation landed on the DECLARED new keys. Malicious Rust cannot fake that — it is checked on the EVM against SPV-proven Bitcoin data. **This is the answer to the owner's *"what executes the transaction though? rust that can be replaced with malicious rust?"***.** 🔴 **OPEN AND LOAD-BEARING: WHO MAY REKEY, AND TO WHAT. Unrestricted, a compromised hop splices to keys it SOLELY controls and cuts the LP out of its own 2-of-2. The new pair must retain the LP's key, or the rotation must be gated on something the hop alone cannot produce. **Do not implement the `keysHash` update without settling this — it is the difference between an upgrade path and a theft path.**** | 🎯 rekey splice: rotate custody without closing, no seed migration, no run; gating still open |
+
+### ⛔ CORRECTION to §UNIT-C-BAR-ARMB — I READ THE WRONG POOLS. And the question it raised is RESOLVED (negative).
+
+**MY ERROR:** I grepped `hooks:` in `DeployLib.sol`, got `IHooks(address(0))` at three sites, and
+concluded "our pools are hookless ⇒ outside LPs can join our band". **Those keys are not our band.**
+`_refKeys` builds the REAL mainnet ETH/USDT + WBTC/USDC pools used for TWAP reference, and `_pk`
+builds SOR routing paths through existing mainnet stable pools. They are hookless because they are
+**Uniswap's pools, not ours.** I took the first grep hits without asking what pool each key
+described — the control ("would this look the same if I were wrong?") was never run.
+
+**WHAT THE BAND ACTUALLY IS:** `Core._initPool(bool isBTC, address volMock, address usdMock, …)`
+(`Core.sol:591`) initialises `VANILLA_ETH`/`VANILLA_BTC` between **INTERNAL MOCK TOKENS**.
+`mock.sol:15` — `function mint(uint amount) onlyVogue`, gated `require(msg.sender == address(rover))`
+and minting to the caller ⇒ **the entire mock supply is held by the protocol.**
+
+✅ **§UNIT-C-BAR-ARMB-Q IS RESOLVED, NEGATIVE — THE SKEW IS NOT BYPASSABLE.** A swapper cannot trade
+directly against the band via `PoolManager` because they cannot ACQUIRE either currency. The absence
+of a hook is not a hole: the currencies themselves are the gate. Every skew number (incl. §UNIT-B's
+13.71%) describes a path that flow cannot decline. ⇒ **The hookless design is deliberate and
+sufficient** — precisely what the "existing machinery is positive evidence" rule predicted, which is
+why this was booked as a question rather than a finding.
+
+⚠️ **AND THE ARM-B CONCLUSION SURVIVES ONLY ON A DIFFERENT REASON.** It is NOT true that an external
+multi-tick LP can join our pool — they cannot obtain the mocks either. Arm B is still buildable in
+the SAME pool, but only because a TEST can mint mocks by pranking as `rover`. The economic framing
+must change with it: arm B is *"the same capital spread over several ticks INSIDE our own pool"*,
+not *"an outside Uniswap LP"*. The shared-price-path argument (why the fork's wrong σ² cancels out
+of the DIFFERENCE) is unaffected and still holds.
