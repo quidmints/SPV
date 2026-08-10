@@ -188,13 +188,20 @@ contract Core is SafeCallback {
     ///         `FLOW_DECAY`, decayed at 1/`FLOW_SLOW_N` the rate ⇒ an N× longer half-life with
     ///         **NO THIRD DECAY CONSTANT** (this file already warns that one would be "an
     ///         unjustified magic number"). Only an integer ratio is added.
-    Flow internal _flowSlowBTC;
-    Flow internal _flowSlowETH;
+    /// ⛔ §UNIT-B-MIN-STRUCTURAL — DEAD SLOTS, DELIBERATELY RETAINED. These were `_flowSlowBTC` /
+    ///    `_flowSlowETH`, the slow half of §E55's `min(fast, slow)`. That min could NEVER bind:
+    ///    `_bumpFlow` added the FULL notional to BOTH legs and these are decaying SUMS, so a slower
+    ///    decay retains MORE ⇒ `slow >= fast` at any ratio ⇒ `min` was identically the fast leg.
+    ///    The logic is gone; the SLOTS STAY because `Core`'s state ORDER IS LOAD-BEARING — deleting
+    ///    them outright shifted every later slot and a getter returned the wrong contract
+    ///    (`balanceOf` on a non-token). Do NOT reclaim these without proving nothing addresses
+    ///    `Core`'s storage absolutely.
+    Flow private __deadSlotWasFlowSlowBTC;
+    Flow private __deadSlotWasFlowSlowETH;
     /// @dev The slow register's half-life as a MULTIPLE of the fast one (48h × 7 ≈ 14 days). Its
     ///      exact value is deliberately NOT load-bearing: `flowEwmaUsd` takes the MIN of the two,
     ///      so the slow leg acts only as a CEILING. Being roughly right is enough, and erring LONG
     ///      is safe — which is the property a single fitted half-life does not have.
-    uint internal constant FLOW_SLOW_N = 7;
     uint internal constant FLOW_DECAY   = 999759352855809024; // per-min → 48h half-life (0.5^(1/2880)). The well's flow-EWMA / inventory-skew target wants a wide, manipulation-resistant memory. (The Aux redeem-fee `baseRate`, a separate 12h register, was REMOVED — QU!D has no peg-arb loop; this 48h flow decay is unrelated and stays.)
     uint internal constant FLOW_MAX_MIN = 525600000;          // decay-exponent cap (Liquity)
 
@@ -232,7 +239,6 @@ contract Core is SafeCallback {
     /// @notice Fold a swap's USD notional into this pool's flow EWMA. Called only from _handleSwap.
     function _bumpFlow(bool isBTC, uint usd6) internal {
         _bumpEwma(isBTC ? _flowBTC : _flowETH, usd6);
-        _bumpEwma(isBTC ? _flowSlowBTC : _flowSlowETH, usd6);   // §E55: the slow leg sees the same flow
     }
 
     /// @notice This pool's decayed swap-flow EWMA (6-dec USD) — the adaptive
@@ -247,9 +253,7 @@ contract Core is SafeCallback {
     /// It is also manipulation-resistant by construction: lifting this number requires sustaining
     /// fake flow across the SLOW window, not one block. (Same shape as `min-of-two-prices`.)
     function flowEwmaUsd(bool isBTC) public view returns (uint) {
-        uint fast = _decayed(isBTC ? _flowBTC : _flowETH);
-        uint slow = _decayedBy(isBTC ? _flowSlowBTC : _flowSlowETH, FLOW_SLOW_N);
-        return fast < slow ? fast : slow;
+        return _decayed(isBTC ? _flowBTC : _flowETH);
     }
 
     /// @notice This pool's decayed RETAINED-PREMIUM EWMA (6-dec USD) — the band's realized

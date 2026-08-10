@@ -10079,7 +10079,7 @@ by construction — that is the clean baseline, and it costs one command.
 not touch it. ⚠️ **AND DO NOT retro-doubt the 4,290/1 runs** (premium fix, §UNIT-A, §E2-#1): those
 predate these edits, on a tree whose only uncommitted source was mine.
 
-### ⛔⛔ UNIT-B-SLOWDEL — REFUTED ON A CLEAN WORKTREE. The deletion is NOT behaviour-neutral. DO NOT LAND IT.
+### ✅ UNIT-B-SLOWDEL — LANDED as the PADDING variant. (The outright deletion below is why. Kept: it is the evidence.)
 
 **The comparison the worktree was built for, both arms at `33550fb`, same block, only the 4 edits differing:**
 
@@ -10138,3 +10138,33 @@ to 4,403 total / 1 failed** (the pre-existing round-trip drain only).
 Any future deletion or reordering of `Core` state — including further EIP-170 recovery — must either
 preserve slots with padding or first prove nothing addresses those slots absolutely. This is not
 documented anywhere in the contract today.
+
+
+### ✅ UNIT-B-SLOWDEL-PADDING — LANDED 2026-08-10. +76 bytes, dead logic gone, slots retained.
+
+**Verified in the pinned worktree at `33550fb`, all three arms same block, only the edits differing:**
+
+| arm | total | passed | failed | `Core` |
+|---|---|---|---|---|
+| baseline | 4,404 | 4,402 | **1** | 24,548 / 28 free |
+| outright deletion | 4,403 | 4,399 | **3** | 24,472 / 104 |
+| **padding (LANDED)** | 4,403 | 4,401 | **1** | **24,472 / 104** |
+
+The single failure in the landed arm is `testRoundTripNoRaceNoDrain` at the byte-identical
+`499224755743233795668` — pre-existing. `BufferOverflow: 0`. ABI gate: 0 drifted.
+⇒ **The ONLY difference between the failing and passing arms is whether the slots are preserved,
+which CONFIRMS the storage-layout diagnosis outright** — it is no longer a hypothesis.
+⇒ **AND THE BYTES ARE FREE: 104 either way.** Slots are STORAGE, not code, so retaining them costs
+nothing on EIP-170. `Core` goes from **28 bytes of margin to 104** — it was flagged frozen all
+session — plus one SSTORE per swap per pool saved.
+
+**WHAT LANDED:** `_flowSlowBTC`/`_flowSlowETH` become `__deadSlotWasFlowSlow*` (same type, same
+position, never written), the second `_bumpEwma` in `_bumpFlow` is gone, `flowEwmaUsd` collapses to
+`_decayed(...)`, and `FLOW_SLOW_N` is removed. The docblock at the padding records WHY the slots stay.
+⚠️ **STILL OPEN AND UNCHANGED BY THIS:** §E55's manipulation defence never operated and is NOT
+restored — one block of fake flow still moves the target as much as sustained flow
+(§UNIT-B-MIN-STRUCTURAL); rebuilding it needs a WEIGHTED EWMA, not a slower sum. §UNIT-B's 13.71% is
+still undamped and still needs the owner-decided `now − window` target.
+📌 **The one thing NOT chased:** WHICH getter returned the wrong address under the outright deletion.
+The padding sidesteps it, so `Core`'s absolute-slot dependence is CONFIRMED but its SOURCE is
+unidentified. Anyone reordering `Core` state must still find it first.
