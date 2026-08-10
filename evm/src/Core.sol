@@ -330,10 +330,11 @@ contract Core is SafeCallback {
 
     /// @notice (well) Cumulative scarcity-premium the skew has RETAINED as backing, per
     ///         pool — the withheld fraction of a swap-out's USD when the pool is BTC/ETH-scarce
-    ///         (the swapper pays above oracle for scarce inventory; the difference stays as
-    ///         surplus basket backing). NOT segregated — it's fungible backing. The drainer's full USD enters
-    ///         Aux; only the post-skew `consumed` is minted into POOLED, so the withheld premium STAYS in the
-    ///         basket as pure LP backing (NAV). Tracked + evented here so the LP-retained skew profit is
+    ///         (the swapper pays above oracle for scarce inventory; the difference is
+    ///         retained for LPs). ⚠️ HISTORICAL NOTE: this said the premium "STAYS in the basket as pure LP
+    ///         backing (NAV)" — true pre-§E5, and the source of the §E42 leak. §E5 made it an LP CLAIM
+    ///         (`creditSkewPremium`), and §E42-netting moves its BACKING into the POOLED mirror to match, so
+    ///         it is no longer quoted as QU!D redeemability. Tracked + evented here so the LP-retained skew profit is
     ///         auditable P&L — the running total the fleet's self-funding JIT refill captures FOR the LPs.
     ///         (The old swapper-facing refill BONUS was REMOVED: refill is a self-funding fleet op — JIT
     ///         Morpho-flash BTC → creditSwapIn → repay, gas via #87 — so paying a separate bonus to the refiller
@@ -357,6 +358,17 @@ contract Core is SafeCallback {
         // ONE call site, dispatched by address: `Vogue` and `Vault` expose the same
         // `creditSkewPremium` signature, so this is a single encode instead of one per branch.
         ISkewSink(isBTC ? address(BTCVAULT) : address(VOGUE)).creditSkewPremium(premiumUsd);
+        // §E42-netting — PUT THE BACKING WHERE THE CLAIM IS. The credit above creates an LP claim;
+        // these are the dollars that back it, and until now they were the ONLY fee whose backing
+        // stayed in general basket assets. Every other fee leaves its backing in the POOLED mirror
+        // on purpose (BtcVaultLib:56 — "the sats stay in POOLED_BTC by design: the guard exists so
+        // creating the CLAIM does not remove its BACKING"), and `redeemableBody` nets that mirror.
+        // MEASURED (§E42, 6 x 500 USDC): swappers paid 3,000.000000 into the basket while the
+        // mirror rose only 2,993.999901 — the 6.000099 gap was the premium, quoted as QU!D
+        // redeemability while owed to LPs. Folding it in closes the gap AT SOURCE, so redeemable
+        // needs no premium-specific subtraction and no claimed/unclaimed counter to keep in sync:
+        // the mirror already falls as LPs draw. Symmetric across both bands via isBTC.
+        _addPooledUsd(isBTC, premiumUsd);
         // Also fold it into the decaying RATE register (#107/D3). The cumulative counters above
         // are monotonic totals — useless as a yield; θ needs a rate, which is what this provides.
         _bumpEwma(isBTC ? _premBTC : _premETH, premiumUsd);
