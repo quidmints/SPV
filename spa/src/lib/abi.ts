@@ -183,7 +183,10 @@ export const BTCCHANNELS_ABI = [
   // fix) — the hop relays it, not the user's wallet (full hop-mediated flow = task #8).
   // Close folded into ONE entrypoint: recordClose branches on the tx locktime
   // (cooperative vs unilateral-refund). forceCloseByLP/recordForceClose are GONE.
-  'function recordClose(bytes32 channelId, bytes rawCloseTx, bytes32 closeBlockHash, bytes32[] merkleProof, uint txIndex)',
+  // (E153) recordClose is PERMISSIONLESS and now takes OpenParams: it reconstructs the
+  // channel's 2-of-2 from lpPubkey/hopPubkey (checked against the keysHash pinned at open)
+  // to tell a SPLICE from a CLOSE. Only those two fields are read; the rest may be zero.
+  'function recordClose(bytes32 channelId, tuple(bytes32 fundingBlockHash, uint64 fundingBlockHeight, uint fundingTxIndex, bytes lpPubkey, bytes hopPubkey, uint amountSats, bytes32 fundingTaproot) p, bytes rawCloseTx, bytes32 closeBlockHash, bytes32[] merkleProof, uint txIndex)',
   // LP partial withdrawal via splice-out (also through recordClose-style proof).
   'function recordSpliceOut(bytes32 channelId, bytes rawSpliceTx, bytes32 spliceBlockHash, bytes32[] merkleProof, uint txIndex)',
   // USD→BTC swap-OUT. NOTE: the current contract exposes ONE swap-out entrypoint,
@@ -211,7 +214,9 @@ export const BTCCHANNELS_ABI = [
   // amountSats, fundingTxId, lpEth, fundingVout, status, hop). `selfRefundTime` was
   // removed (standard-LDK cut, no CLTV self-refund); `hop` is this channel's opening
   // hop (multi-hop). Decode by POSITION: status is index 4, hop is index 5.
-  'function channels(bytes32 channelId) view returns (uint amountSats, bytes32 fundingTxId, address lpEth, uint32 fundingVout, uint8 status, address hop)',
+  // (E153) `keysHash` = keccak256(lpPubkey, hopPubkey), pinned at open. It binds the keys
+  // independently of the funding outpoint, which a splice rotates.
+  'function channels(bytes32 channelId) view returns (uint amountSats, bytes32 fundingTxId, address lpEth, uint32 fundingVout, uint8 status, address hop, bytes32 keysHash)',
 
   // SELF_REFUND_MIN_SECS / MIN_CONFIRMATIONS are `uint constant` (no `public`),
   // so they have NO on-chain getter — not callable, intentionally omitted.
