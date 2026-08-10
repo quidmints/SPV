@@ -519,7 +519,11 @@ library ChannelLib {
             lpEth:          lpEth,
             fundingVout:    vout,
             status:         STATUS_OPEN,
-            hop:            address(0)
+            hop:            address(0),
+            // (E153) Pin the key pair independently of the funding outpoint, which a splice
+            // rotates. `channelId` above folds in the ORIGINAL outpoint and so cannot serve
+            // as the key binding after a resize.
+            keysHash:       keccak256(abi.encode(p.lpPubkey, p.hopPubkey))
         });
     }
 

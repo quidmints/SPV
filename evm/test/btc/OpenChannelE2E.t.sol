@@ -187,7 +187,7 @@ contract OpenChannelE2ETest is Test {
 
         // Channel written, credited to the LP signer, with the funded sats.
         uint amount = vm.parseJsonUint(json, ".amountSats");
-        (uint amountSats,, address ownerEth,, uint8 status,) = ch.channels(channelId);
+        (uint amountSats,, address ownerEth,, uint8 status,,) = ch.channels(channelId);
         assertEq(amountSats, amount, "channel records funded sats");
         assertEq(ownerEth, lpEth, "channel owned by the lpAuth signer");
         assertEq(status, 0, "status OPEN");
@@ -264,7 +264,7 @@ contract OpenChannelE2ETest is Test {
         assertTrue(BitcoinTx.isValidXOnlyKey(payoutKey), "fixture payout key is off-curve");
 
         (BTCChannels ch, bytes32 channelId,) = _openFromFixture(json, gw, payoutKey);
-        (uint before,,,,,) = ch.channels(channelId);
+        (uint before,,,,,,) = ch.channels(channelId);
         assertEq(before, vm.parseJsonUint(json, ".amountSats"), "channel opened at the funded size");
 
         // The splice keeps the SAME 2-of-2 -- a splice does not re-key the channel.
@@ -281,7 +281,7 @@ contract OpenChannelE2ETest is Test {
         ch.splice(channelId, sp, vm.parseJsonBytes(json, ".splice.spliceRawTx"),
                   vm.parseJsonBytes32Array(json, ".splice.spliceMerkleBranch"), 0);
 
-        (uint afterSats,,,,,) = ch.channels(channelId);
+        (uint afterSats,,,,,,) = ch.channels(channelId);
         assertEq(afterSats, vm.parseJsonUint(json, ".splice.newAmountSats"),
             "channel resized to the spliced amount");
         assertLt(afterSats, before, "this fixture splice is a SHRINK");
@@ -290,7 +290,7 @@ contract OpenChannelE2ETest is Test {
         // ⚠️ ASSERT ON WHAT THE VAULT WAS TOLD, not only on the channel struct the splice
         //    itself rewrote — a resize that never reached the LP's position would otherwise
         //    look identical here.
-        (,, address lpOwner,,,) = ch.channels(channelId);
+        (,, address lpOwner,,,,) = ch.channels(channelId);
         assertEq(vogue.resizedShrinkSats(lpOwner), vm.parseJsonUint(json, ".splice.withdrawSats"),
             "the vault was told the same shrink the splice performed");
         assertEq(vogue.registered(lpOwner), vm.parseJsonUint(json, ".splice.newAmountSats"),

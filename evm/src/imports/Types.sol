@@ -70,6 +70,17 @@ library Types {
         // channels. The genuine-party binding is proven at open by a BIP-340 Schnorr
         // signature under the funding key Q (see BTCChannels.openChannel/taprootAuth).
         address hop;
+        /// (E153) `keccak256(abi.encode(lpPubkey, hopPubkey))`, pinned at open.
+        /// ⚠️ WHY THIS AND NOT A RE-DERIVATION OF `channelId`: `channelId` is
+        /// `keccak256(lpPubkey, hopPubkey, fundingTxId, vout)` over the ORIGINAL funding
+        /// outpoint, and `_verifySplice` ROTATES that outpoint — so after any splice the
+        /// stored `fundingTxId`/`fundingVout` can no longer reproduce `channelId`, and a
+        /// key check built on re-derivation fails for exactly the channels most likely to
+        /// be closed. This binds the keys to the channel independently of rotation.
+        /// It exists so `recordClose` can reconstruct the 2-of-2 and tell a SPLICE from a
+        /// CLOSE — which is what lets recording be PERMISSIONLESS instead of restricted to
+        /// the hop or the LP.
+        bytes32 keysHash;
     }
 
     /// @notice Params for BTCChannels.openChannel; lives here so ChannelLib can

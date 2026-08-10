@@ -344,6 +344,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     error WrongPrevOutpoint();        // tx doesn't spend this channel's funding UTXO
     error InvalidParam();             // bad lpAuth recovery
     error SpliceUnchanged();          // a splice must change the funded amount (grow or shrink)
+    error SpliceIsNotAClose();        // (E153) tx pays a continuing 2-of-2 ⇒ it is a splice
     error SpliceKeyNotTwoOfTwo();     // (E129) new funding Q is not KeyAgg(lpPubkey, hopPubkey)
     error FundingKeyNotTwoOfTwo();    // (E142) initial funding Q is not KeyAgg(lpPubkey, hopPubkey)
     error ForeignSpliceOutput();      // a withdrawal splice paid value somewhere other than the
@@ -1275,26 +1276,48 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///           Bitcoin; the forfeited proceeds are exactly why an LP always prefers
     ///           cooperative close — and with the trusted-operator hop ~always online,
     ///           this branch is a backstop that should ~never fire.
+    /// @dev (E153) The key-binding + splice discriminator, in its OWN FRAME — an extra
+    ///      calldata param pushes `recordClose` over the legacy stack, and the house fix is a
+    ///      separate frame, never `via_ir`.
+    ///      ① The supplied keys must match `keysHash`, pinned at open, so they cannot be
+    ///         forged. **NOT a re-derivation of `channelId`: that folds in the ORIGINAL
+    ///         funding outpoint, which `_verifySplice` rotates — an earlier attempt bound the
+    ///         keys that way and failed for every SPLICED channel (E153).**
+    ///      ② If the tx pays a continuing 2-of-2 of those keys, it is a SPLICE, not a close.
+    function _requireCloseNotSplice(
+        bytes32 channelId, Types.OpenParams calldata p, bytes calldata rawCloseTx
+    ) private view {
+        require(keccak256(abi.encode(p.lpPubkey, p.hopPubkey)) == channels[channelId].keysHash,
+                "recordClose: keys do not match this channel");
+        if (BitcoinTx.sumOutputValuesToScript(rawCloseTx,
+                abi.encodePacked(hex"5120",
+                    MuSig2Agg.computeOutputKey(p.lpPubkey, p.hopPubkey))) > 0)
+            revert SpliceIsNotAClose();
+    }
+
+    /// @param p this channel's `OpenParams` — only `lpPubkey`/`hopPubkey` are read, and both
+    ///        are checked against the `keysHash` pinned at open.
     function recordClose(
         bytes32 channelId,
+        Types.OpenParams calldata p,
         bytes calldata rawCloseTx,
         bytes32 closeBlockHash,
         bytes32[] calldata merkleProof,
         uint    txIndex
     ) external nonReentrant whenOpen(channelId) {
-        // PARTICIPANT-GATE (SPV front-run fix): a SPLICE / swap-out-delivery tx
-        // spends the SAME funding UTXO a cooperative/force close does, and recordClose
-        // has no on-chain splice-vs-close discriminator (it can't reconstruct the
-        // rotated 2-of-2 keys of the splice's CONTINUING output). If recording were
-        // permissionless, a third party could replay the hop's confirmed splice tx here
-        // to force-retire an OPEN channel — delivered=0, the hop's splice()/deliver()
-        // bricked on whenOpen, and an in-flight on-chain swap-out stranded (swapper got
-        // BTC, settlement now impossible). Restrict recording to the channel's two
-        // participants: the hop, or the LP via its own lpEth (preserving the LP's
-        // liveness path when the hop is offline). Neither rationally griefs — the LP
-        // would forfeit its OWN proceeds, and the hop is the already-trusted operator.
-        if (msg.sender != channels[channelId].hop && msg.sender != channels[channelId].lpEth)
-            revert NotChannelHop();
+        // (E153) THE SPLICE-VS-CLOSE DISCRIMINATOR, REPLACING THE PARTICIPANT GATE.
+        // This used to read: "recordClose has no on-chain splice-vs-close discriminator (it
+        // can't reconstruct the rotated 2-of-2 keys of the splice's CONTINUING output)" — and
+        // therefore restricted recording to the hop or the LP, because a third party could
+        // otherwise replay the hop's confirmed SPLICE tx here to force-retire an OPEN channel
+        // (delivered=0, splice()/deliver() bricked on whenOpen, an in-flight swap-out stranded).
+        // `MuSig2Agg` reconstructs exactly those keys (E129/E142), so the ambiguity is gone:
+        // a SPLICE leaves a continuing 2-of-2 output; a CLOSE does not.
+        // ⇒ Attacking the cause means the gate no longer trusts WHO calls, so recording is
+        //   PERMISSIONLESS — a channel can be retired once Bitcoin confirms the close, with no
+        //   dependence on hop OR LP liveness. Same shape as every other liveness fix here:
+        //   remove the named party, keep the cryptographic bound.
+        _requireCloseNotSplice(channelId, p, rawCloseTx);
         _verifyTxSpendsChannel(channelId, rawCloseTx,
             closeBlockHash, merkleProof, txIndex);
         // Cooperative → the LP's co-signed BTC payout; non-cooperative → funded

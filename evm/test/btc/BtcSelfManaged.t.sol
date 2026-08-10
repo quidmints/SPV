@@ -316,7 +316,7 @@ contract BtcSelfManagedTest is Alles {
         }
 
         // The lpAuth signer owns the credited BTC position.
-        ( , , address lpEth, , uint8 status,) = ch.channels(channelId);
+        ( , , address lpEth, , uint8 status,,) = ch.channels(channelId);
         assertEq(status, 0, "channel OPEN");
         (uint pooledOpen,,,) = BTC.autoManagedBTC(lpEth);
         assertEq(pooledOpen, b.amountSats, "openChannel credits the BTC pool position");
@@ -384,7 +384,8 @@ contract BtcSelfManagedTest is Alles {
         // (a) A HOP-submitted close against an overstated checkpoint is rejected.
         vm.prank(hop);
         vm.expectRevert(BTCChannels.StaleClose.selector);
-        ch.recordClose(channelId, b.rawCloseTx, b.closeBlockHash, b.closeMerkleProof, b.closeTxIndex);
+        Types.OpenParams memory cp_ = _closeParams(b.lpPubkey, b.hopPubkey);
+        ch.recordClose(channelId, cp_, b.rawCloseTx, b.closeBlockHash, b.closeMerkleProof, b.closeTxIndex);
         // (b) DEFECT-2 REGRESSION: the LP must still be able to close with that SAME absurd
         // checkpoint standing. Without the submitter gate, any attested hop could attest
         // type(uint96).max and force every LP into a punitive force-close. The final
@@ -392,8 +393,8 @@ contract BtcSelfManagedTest is Alles {
 
         // ── recordClose: the REAL cooperative-close tx + SPV proof retires it ──
         uint qBefore = QUID.balanceOf(lpEth);
-        vm.prank(lpEth); // LP-submitted: participant-gated, AND proves the stale-close waiver
-        ch.recordClose(channelId, b.rawCloseTx, b.closeBlockHash,
+        vm.prank(lpEth); // LP-submitted: proves the stale-close waiver (E153: no longer gated)
+        ch.recordClose(channelId, cp_, b.rawCloseTx, b.closeBlockHash,
             b.closeMerkleProof, b.closeTxIndex);
         (uint pooledClose,,,) = BTC.autoManagedBTC(lpEth);
         assertEq(pooledClose, 0, "recordClose retires the BTC pool position");

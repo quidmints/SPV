@@ -168,6 +168,18 @@ contract Alles is ForkPin, Fixtures {
     /// suite while asserting nothing — it is `internal`, so forge never ran it either.
     /// A helper that claims to be a test is the same failure mode as a test with no
     /// assertion: the name promises a proof that does not exist.
+
+    /// (E153) `recordClose` takes `OpenParams` so it can reconstruct the 2-of-2 and reject a
+    /// replayed SPLICE. Only the two pubkeys are read and both are checked against the
+    /// channel's pinned `keysHash`, so a minimal literal is honest here rather than misleading.
+    function _closeParams(bytes memory lpPubkey, bytes memory hopPubkey)
+        internal pure returns (Types.OpenParams memory)
+    {
+        return Types.OpenParams({
+            fundingBlockHash: bytes32(0), fundingBlockHeight: 0, fundingTxIndex: 0,
+            lpPubkey: lpPubkey, hopPubkey: hopPubkey, amountSats: 0, fundingTaproot: bytes32(0)
+        });
+    }
     function _taprootQ(bytes memory lpPubkey, bytes memory hopPubkey)
         internal view returns (bytes32)
     {
@@ -4097,7 +4109,8 @@ contract Alles is ForkPin, Fixtures {
                 hex"01", _le(finalBalance, 8), bytes1(uint8(lpP2TR.length)), lpP2TR,
                 hex"00000000");                                      // locktime 0 -> cooperative
             vm.prank(makeAddr("hop")); // recordClose is participant-gated (hop or lpEth)
-            ch.recordClose(channelId, closeTx, bytes32(uint(2)), new bytes32[](0), 0);
+            Types.OpenParams memory cp_ = _closeParams(lpPubkey, hopPubkey);
+            ch.recordClose(channelId, cp_, closeTx, bytes32(uint(2)), new bytes32[](0), 0);
         }
 
         // Close reconciled through the REAL recordClose->unregisterBtcLp path:
@@ -4169,7 +4182,8 @@ contract Alles is ForkPin, Fixtures {
             hex"02000000", hex"01", fundingTxId, hex"00000000", hex"00", hex"00000080",
             hex"01", _le(amountSats, 8), hex"160014", anyPkh, hex"00000020"); // commitment markers
         vm.prank(makeAddr("hop")); // recordClose is participant-gated (hop or lpEth)
-        ch.recordClose(channelId, commitTx, bytes32(uint(3)), new bytes32[](0), 0);
+        Types.OpenParams memory cp_ = _closeParams(lpPubkey, hopPubkey);
+        ch.recordClose(channelId, cp_, commitTx, bytes32(uint(3)), new bytes32[](0), 0);
 
         (uint pooledClose,,,) = BTC.autoManagedBTC(lpEth);
         assertEq(pooledClose, 0, "non-coop close retires the BTC position");
@@ -4242,7 +4256,8 @@ contract Alles is ForkPin, Fixtures {
                 pOut, pOut,                                              // HTLC #1, #2 P2TR
                 hex"00000020");        // commitment markers: seq top 0x80 + locktime top 0x20
             vm.prank(makeAddr("hop"));
-            ch.recordClose(channelId, commitTx, bytes32(uint(7)), new bytes32[](0), 0);
+            Types.OpenParams memory cp_ = _closeParams(lpPubkey, hopPubkey);
+            ch.recordClose(channelId, cp_, commitTx, bytes32(uint(7)), new bytes32[](0), 0);
         }
 
         (uint pooledClose,,,) = BTC.autoManagedBTC(lpEth);

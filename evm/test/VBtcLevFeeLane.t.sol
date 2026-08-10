@@ -682,7 +682,7 @@ contract VBtcLevFeeLane is Alles {
     /// 2-output tx (new SMALLER 2-of-2 + the swapper's payout), fee-free so shrink == delivered == `sats`.
     function _deliverLevSwapOut(BTCChannels ch, bytes32 channelId, bytes32 fundingTxId, uint seed,
         bytes memory lpPubkey, bytes32 swapId, uint sats, bytes memory swapperScript) internal {
-        (uint old,,,,,) = ch.channels(channelId);
+        (uint old,,,,,,) = ch.channels(channelId);
         uint newAmount = old - sats;
         bytes memory spliceTx;
         {
