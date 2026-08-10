@@ -10350,8 +10350,20 @@ doubly unreliable.
    ORACLE** and the band executes AT oracle via `routeSwap`. **An AMOUNT HAIRCUT IS INHERENTLY
    ONE-DIRECTIONAL:** a slice off what you deliver is a haircut; delivering MORE than oracle is **not
    a shift, it is a PAYMENT, and it needs a funding source.**
-   ⇒ **My `S_in < S_out` "shared skew curve" (§SKEW-SYNTHESIS §2) DOES NOT EXIST in this
-   architecture. It collapses into exactly `payRefillBonus` — the bounded funded bonus.** §UNIT-
+   ⛔ **AND I THEN OVER-CONCLUDED — OWNER CORRECTED IT SAME DAY: *"it exists, we just dont know the
+   final form yet."*** I wrote that the `S_in < S_out` idea *"does not exist in this architecture"*.
+   **WRONG, and it is the error `land-changes-dont-revert-them` exists to prevent: A REFUTED
+   IMPLEMENTATION IS NOT A REFUTED IDEA.** §UNIT-CURVE-CORR itself does not say two-sided is
+   impossible — it says *"'two-sided' in THIS architecture **CAN ONLY MEAN** a bonus funded from the
+   retained premium"*, which is a constraint on FORM. **The INTENT — drain pays `S_out`, refill
+   receives `S_in` with `S_in < S_out` ENFORCED, LP keeps the margin — is form-independent and
+   STANDS.** What a mid-shift curve is refuted AS, not refuted.
+   ⇒ **THE IDEA IS OPEN; THE CARRIER IS UNDETERMINED.** Candidate forms, none chosen:
+   (i) a BOUNDED funded bonus (`payRefillBonus` revived under the `:487` bound);
+   (ii) execution-price shift (option B below — costs honest-oracle execution);
+   (iii) the flash-serve/keeper path capturing the margin instead of an external refiller;
+   (iv) something not yet enumerated. **Do NOT record this as closed on an architectural argument —
+   rule 16: a design decision is not a closure.** §UNIT-
    BOUND-NOT-DELETE and §UNIT-CURVE-CORR therefore AGREE, and my two entries were one idea double-
    counted. **The real choice is binary and it is the owner's:**
    **(A)** keep the amount haircut ⇒ the return leg can ONLY be a funded bonus, so the refill comes
