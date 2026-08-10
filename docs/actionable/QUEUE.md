@@ -10204,3 +10204,34 @@ two `__deadSlotWasFlowSlow*` slots are NOT reclaimable at a price worth paying. 
 
 
 | **E163-fallback-cannot-act** | 🔴🔴 **THE FALLBACK CAN NEVER ACT ON AN EXISTING CHANNEL — §E156 AND §E157 BETWEEN THEM REMOVED EVERY HANDOVER PATH, AND I DID NOT NOTICE (owner: *"it has to be a variable because it can get switched to the fallback?"*, 2026-08-10).** 🔎 **VERIFIED: `channel.hop` is written ONCE, at open (`BTCChannels.sol:776`), and NEVER again. FOUR gates require `msg.sender == channels[channelId].hop`: `splice` (`:865`) · `emitDeadManExit` (`:976`) · `commitFreshness` (`:1067`) · `deliverSwapOutOnchain` (`:1553`). ⇒ **a fallback can open NEW channels and nothing else — it cannot splice, refresh the dead-man exit, commit freshness, or deliver a swap-out on any channel the main opened.**** ⛔ **HOW IT HAPPENED: §E156 deleted `_authorizedHopForChannel`, which DID admit a named fallback after staleness; §E157 then pinned every remaining path to `channel.hop`. Each was right about the thing it removed (the per-LP nomination was useless — §E158-why-self-hosted), and TOGETHER they removed the CAPABILITY as well as the mechanism. **A deletion justified per-mechanism can still be wrong in aggregate.**** ✅ **THE FIX IS SMALLER THAN WHAT WAS DELETED: with main and fallback both HARDCODED and in the SAME TRUST DOMAIN, the gate is two addresses — `msg.sender == channel.hop || msg.sender == FALLBACK_HOP`. **No per-LP nomination, no staleness clock, no heartbeat, no `lastHeartbeatBlock`.** All of E122's machinery existed because the fallback was PER-LP AND SEPARATELY TRUSTED: it needed a nomination to know WHO and a staleness window to know WHEN. A single hardcoded fallback run by the same operator needs neither.** 📌 **AND IT ANSWERS WHY `channel.hop` IS PER-CHANNEL AT ALL: `Types.sol:64-72` gives MULTI-HOP as the reason (independent SGX instances coexisting). In a one-node-plus-fallback world it records WHICH OF THE TWO opened the channel — worth keeping for attribution — but it must stop being the SOLE authority.** | 🔴🔴 fallback can open but never operate; fix is a two-address gate, not E122's machinery |
+
+### 🔴🔴🔴 SKEW-PRIORITY-2026-08-10 — UNIT-A LANDED, SO §UNIT-SKEW-IS-NOISE'S GATE IS OPEN. It outranks §UNIT-B.
+
+**Re-read of the open UNIT-* rows (prompted by the owner; my own "UNIT-B is the one remaining core
+item" answer was WRONG and is retracted here).**
+
+1. 🔴 **§UNIT-SKEW-IS-NOISE IS THE GATE, AND IT IS NOW ACTIONABLE.** It measured the skew at
+   **$0.025 of a $63.35 swapper cost — 0.04%**, cushion dominating ~2,500×, and named three
+   questions to settle *before any more skew work*: (1) is the 21 bps cushion ALREADY doing the
+   skew's LVR job (⇒ delete the skew, freeing EIP-170)? (2) or is the cushion too large? (3) was the
+   skew unreachable at material size because of the short-circuit? It says **"§UNIT-A LANDS FIRST —
+   the only one of the three that is a known defect rather than a hypothesis."**
+   ⇒ **§UNIT-A LANDED 2026-08-10.** Question (3) is now answerable, and (1)/(2) gate everything else.
+   ▶️ **RE-RUN THE MATERIALITY MEASUREMENT POST-UNIT-A** (`test_UNIT_PremiumRecordedEqualsPremiumPaid`,
+   one 30,000 USDC drain): if the skew is STILL ~0.04% of the bill with the base reachable, then
+   §UNIT-B's 13.71%, §UNIT-C's refill economics and the two-sided curve are all refinements to a
+   rounding error — **and the honest move is to price DELETING the skew, not fixing it.**
+
+2. ⚠️ **§UNIT-B-VERIFIED'S 1000× DISCREPANCY APPLIES TO TODAY'S WORK AND I DID NOT RECONCILE IT.**
+   It records that the premium COUNTER and the TRADER-SIDE measure of the same swap disagree by
+   ~1000× ($2.69 = 22 ppm recorded vs a 2.2e-8 trader-side gap), and calls it a money-path issue:
+   §E5 routes the RECORDED number to LPs, so an overstating record credits LPs value no swapper paid.
+   **§UNIT-B-MECHANISM compared exactly those two quantities today** (2.8e-8 trader-side vs 13.71% of
+   skew) and concluded "judge path-independence against the skew, not the notional".
+   ✅ **THAT CONCLUSION SURVIVES** — a RATIO is invariant to a common multiplicative error on both
+   legs (21,009 vs 24,349 scale together). ⛔ **THE ABSOLUTE MAGNITUDES DO NOT.** Do not quote
+   "$21,009 usd6 of skew" as a real quantity until (a) swapper balance deltas, (b) `skewPremiumCum`
+   and (c) `USD_FEES` are reconciled in ONE run, as §UNIT-B-VERIFIED already specifies.
+
+3. 📌 **THE MARKER COLUMN IS UNRELIABLE — CONFIRMED.** `UNIT-A`'s row still reads 🔴🔴🔴 after landing.
+   Re-read row BODIES before planning; do not plan from the status column.
