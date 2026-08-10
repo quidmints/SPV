@@ -42,11 +42,26 @@ library BtcVaultLib {
         mapping(address => uint) storage btcFeesOwedSats,
         address lpEth, address payTo, address quid,
         uint feesPerShareBTC, uint usdFeesBtc, uint weight
-    ) public {
+    ) public returns (uint compoundedSats) {
         // `weight` is the GROSS fee depth: net pooled + the debt-funded levered buffer (levBufBTC).
-        if (weight == 0) return;
+        if (weight == 0) return 0;
         (uint tokR, uint usdR) = SwapLib.pendingFor(LP, weight, feesPerShareBTC, usdFeesBtc);
-        if (tokR > 0) btcFeesOwedSats[lpEth] += tokR; // BTC-leg → native sats
+        // (E145) THE BTC LEG COMPOUNDS INTO THE POSITION, IN SATS. It used to accrue to
+        // `btcFeesOwedSats`, a ledger only a hop-funded GROW-SPLICE could settle
+        // (`feeSettleSats <= grewBy`) — so it rode an unrelated operation, could not be enforced
+        // without making the LP's EXIT depend on hop liveness, and was DELETED at close.
+        // MEASURED: 209 sats per 500k-sat swap-in accrued, and on exit NO remaining LP's claim
+        // moved — it was simply dropped.
+        // ⚠️ THE BACKING IS ALREADY THERE, which is what makes this two writes and not three:
+        //    `Core._settleTokSide` adds to `POOLED_BTC` when tokens ENTER the pool (`inRange`,
+        //    fee included) and subtracts when they leave — but fee COLLECTION passes
+        //    `inRange=false` (`_handleCollect`), so the subtraction never fires. The sats stay in
+        //    `POOLED_BTC` by design: the guard exists so creating the CLAIM does not remove its
+        //    BACKING. Compounding therefore needs only `LP.pooled` + the caller's share total.
+        // ⚠️ AND IT KEEPS THE FEE DENOMINATED IN SATS. A USD conversion was built and reverted:
+        //    it silently changed what a BTC LP earns. The point of this leg is BTC exposure.
+        if (tokR > 0) { LP.pooled += tokR; compoundedSats = tokR; }
+        btcFeesOwedSats;   // retained arg — the ledger is being retired (E145)
         if (payTo != address(0)) {                    // USD-leg → QUID
             usdR += LP.usd_owed;
             LP.usd_owed = 0;
@@ -140,7 +155,10 @@ library BtcVaultLib {
     /// @dev resizeBtcLp/resizeBtcLpTail output as ONE struct (single memory pointer) rather than four
     ///      stack-slot returns — keeps both off the legacy-pipeline stack (no via_ir). The Vault forwarder
     ///      applies lpSharesBTC -= sharesRemoved, totalBufferBTC -= bufRemoved, and on `cleared` emits owed.
-    struct ResizeOut { uint sharesRemoved; bool cleared; uint owed; uint bufRemoved; }
+    /// @dev `feeCompounded` (E145): sats the BTC fee leg compounded into `LP.pooled` during
+    ///      this resize. The forwarder must ADD it to `lpSharesBTC` alongside subtracting
+    ///      `sharesRemoved`, or the sum drifts from the positions it totals.
+    struct ResizeOut { uint sharesRemoved; bool cleared; uint owed; uint bufRemoved; uint feeCompounded; }
 
     /// @notice Body of Vault._resizeBtcLp AFTER the funded/lev prologue + _rebalance
     ///         (both stay in the Vault). Settles fees, pays the swap-out proceeds,
@@ -161,7 +179,7 @@ library BtcVaultLib {
         Types.Deposit storage LP = autoManagedBTC[a.lpEth];
         {   // settlement + native burn scoped so its locals free before the tail
             // GROSS fee weight = net pooled + the debt-funded buffer (levBufBTC).
-            settleBtcLp(LP, btcFeesOwedSats, a.lpEth, a.lpEth, quid, a.feesPerShareBTC, a.usdFeesBtc, LP.pooled + a.buf);
+            o.feeCompounded = settleBtcLp(LP, btcFeesOwedSats, a.lpEth, a.lpEth, quid, a.feesPerShareBTC, a.usdFeesBtc, LP.pooled + a.buf); // (E145)
             uint deliveredRaw = a.shrinkSats > a.lpPayoutSats ? a.shrinkSats - a.lpPayoutSats : 0;
             uint deliveredSlice = settleDelivered(a.lpEth, deliveredRaw, a.exactUsd, core, quid);
             uint nativeSlice = a.shrinkSats - deliveredSlice;
@@ -175,7 +193,13 @@ library BtcVaultLib {
                 o.bufRemoved = a.buf;
             }
         }
-        o.sharesRemoved = a.full ? a.inrange : a.shrinkSats;
+        // (E145) A FULL CLOSE MUST RETIRE `LP.pooled` AS IT STANDS, NOT A PRE-COMPUTED FIGURE.
+        // `a.inrange` is captured BEFORE `settleBtcLp` runs, and settling now COMPOUNDS the
+        // BTC-leg fee into `pooled` — so closing on the stale figure stranded exactly the
+        // compounded sats in a retired position (`testCrossChain_FullE2E` caught 419 left
+        // behind). Reading `LP.pooled` here is also strictly more correct than it was before:
+        // it cannot disagree with the thing it is emptying.
+        o.sharesRemoved = a.full ? LP.pooled : a.shrinkSats;
         LP.pooled -= o.sharesRemoved;
         if (a.full) { levPooledBTC[a.lpEth] = 0; levBufBTC[a.lpEth] = 0; }
         // Finalize: full exit publishes/clears the owed BTC-leg fee + retires the
@@ -359,7 +383,7 @@ library BtcVaultLib {
         (p.sqrtP, p.tickLower, p.tickUpper,,) = IEthVenue(address(this)).repack(true);
         p.feesPerShareBTC = IEthVenue(address(this)).feesPerShareBTC();
         p.usdFeesBtc = IEthVenue(address(this)).USD_FEES_BTC();
-        settleBtcLp(LP, btcFeesOwedSats, lpEth, address(0), quid, p.feesPerShareBTC, p.usdFeesBtc, weight);
+        sharesAdded += settleBtcLp(LP, btcFeesOwedSats, lpEth, address(0), quid, p.feesPerShareBTC, p.usdFeesBtc, weight); // (E145) fee compounds into pooled
         // price computed AFTER the settle so it isn't live across it (legacy-pipeline stack). A price==0
         // revert here still rolls back the settle's state, so behavior is unchanged.
         uint price = IAux(c.aux).getTWAPforAsset(IAux(c.aux).WBTC(), 1800);
@@ -420,7 +444,7 @@ library BtcVaultLib {
         p.feesPerShareBTC = IEthVenue(address(this)).feesPerShareBTC();
         p.usdFeesBtc = IEthVenue(address(this)).USD_FEES_BTC();
         p.mgr = mgr; p.gross = gross;
-        settleBtcLp(LP, btcFeesOwedSats, lp, address(0), quid, p.feesPerShareBTC, p.usdFeesBtc, w);
+        d.addedNet += settleBtcLp(LP, btcFeesOwedSats, lp, address(0), quid, p.feesPerShareBTC, p.usdFeesBtc, w); // (E145) fee compounds into pooled
         (d.burnedNet, d.bufBurned) = levBurnAllBtc(c, LP, levPooledBTC, levBufferUsdBTC, levBufBTC, lp, p);
         (d.addedNet, d.bufAdded)   = levAddGrossBtc(c, LP, levPooledBTC, levBufferUsdBTC, levBufBTC, lp, p);
     }

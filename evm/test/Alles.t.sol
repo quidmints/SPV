@@ -4410,11 +4410,20 @@ contract Alles is ForkPin, Fixtures {
         vm.stopPrank();
 
         vm.prank(User01); BTC.collectBtcFees();      // crystallise whatever exists BEFORE
+        (uint pooledPre,,,) = BTC.autoManagedBTC(User01);
         uint owedBefore = BTC.btcFeesOwedSats(User01);
         uint fpsBefore  = BTC.feesPerShareBTC();
 
+        // (E145) DOES THE SWAP ITSELF PUT THE FEE SATS INTO POOLED_BTC? This decides whether
+        // compounding the fee into the LP's position needs TWO writes (pooled + shares) or
+        // THREE (plus backing). If the sats are already banked here, there is no backing gap
+        // and the owed ledger can be deleted without sacrificing sats compounding.
+        uint pooledBtcPre = CORE.POOLED_BTC();
         // THE SELL: a swap-in routes BTC->USD through the same V4 path swap-out uses.
         BTC.creditSwapIn(address(0x5E15), 500_000, address(USDC), 0);
+        emit log_named_uint("POOLED_BTC before swap-in", pooledBtcPre);
+        emit log_named_uint("POOLED_BTC after  swap-in", CORE.POOLED_BTC());
+        emit log_named_uint("swap-in sats             ", 500_000);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
 
         vm.prank(User01); BTC.collectBtcFees();      // crystallise AFTER
@@ -4425,11 +4434,15 @@ contract Alles is ForkPin, Fixtures {
         emit log_named_uint("btcFeesOwedSats before", owedBefore);
         emit log_named_uint("btcFeesOwedSats after ", owedAfter);
 
-        // ⚠️ THE WHOLE POINT: if this holds, the BTC-leg fee IS reachable and every E145
-        //    conclusion built on "it never accrues" is void.
-        assertGt(fpsAfter, fpsBefore,
-            "a swap-in must accrue the BTC-leg fee-per-share (E145-p: the protocol sells into the pool)");
-        assertGt(owedAfter, owedBefore, "and it must land in the LP's owed ledger");
+        // (E145) THE FEE NOW COMPOUNDS INTO THE POSITION, IN SATS.
+        // The leg is still earned — `feesPerShareBTC` must rise, or the protocol stopped
+        // charging. What changed is where it LANDS: `LP.pooled` grows instead of an owed ledger
+        // only a hop-funded grow-splice could settle. Asserting all three so a regression that
+        // silently drops the fee, or re-introduces the ledger, fails here.
+        assertGt(fpsAfter, fpsBefore, "the BTC-leg fee is still earned on a swap-in");
+        assertEq(owedAfter, owedBefore, "and NO LONGER lands in the owed ledger (E145: retired)");
+        (uint pooledAfter,,,) = BTC.autoManagedBTC(User01);
+        assertGt(pooledAfter, pooledPre, "it compounds into the LP's position, denominated in SATS");
     }
 
     /// (E145-q) WHEN AN EXITING LP'S BTC-LEG CLAIM IS FORGONE, WHAT DO THE REMAINING LPs GET?
@@ -4460,8 +4473,11 @@ contract Alles is ForkPin, Fixtures {
         vm.prank(User02); BTC.collectBtcFees();
         uint owed1 = BTC.btcFeesOwedSats(User01);
         uint owed2Before = BTC.btcFeesOwedSats(User02);
-        // CONTROL: without a live claim to forgo, the measurement below is vacuous.
-        assertGt(owed1, 0, "control: the exiting LP HAS a BTC-leg claim to forgo");
+        // (E145) THE FORFEITURE IS GONE BECAUSE THE LEDGER IS. This test previously needed a
+        // live claim to forgo, and MEASURED 209 sats vanishing at close with no remaining LP
+        // gaining anything. The fee now compounds into `pooled` as it is earned, so there is
+        // never an unsettled claim to lose — which is the fix, not a gap in the test.
+        assertEq(owed1, 0, "no owed claim can accrue at all now (E145: the ledger is retired)");
 
         uint fpsBefore = BTC.feesPerShareBTC();
         BTC.unregisterBtcLp(User01, 2e7);                 // LP1 exits; owed1 is deleted

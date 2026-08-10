@@ -710,7 +710,10 @@ contract Vault is Ownable, ReentrancyGuard {
     ///      when payTo==0); BTC-leg → native sats (btcFeesOwedSats), settled by
     ///      the hop at channel close.
     function _settleBtcLp(address lpEth, address payTo) internal {
-        BtcVaultLib.settleBtcLp(autoManagedBTC[lpEth], btcFeesOwedSats,
+        // (E145) The BTC leg now COMPOUNDS INTO `pooled` in sats rather than accruing to the
+        // owed ledger, so `lpSharesBTC` — the SUM of every LP's `pooled` — must absorb it here
+        // or the two drift apart. The backing is already in `POOLED_BTC` (see settleBtcLp).
+        lpSharesBTC += BtcVaultLib.settleBtcLp(autoManagedBTC[lpEth], btcFeesOwedSats,
             lpEth, payTo, address(QUID), feesPerShareBTC, USD_FEES_BTC,
             autoManagedBTC[lpEth].pooled + levBufBTC[lpEth]); // GROSS fee weight = net pooled + buffer
     }
@@ -890,7 +893,9 @@ contract Vault is Ownable, ReentrancyGuard {
         BtcVaultLib.ResizeOut memory o = BtcVaultLib.resizeBtcLp(
             address(CORE), address(QUID), autoManagedBTC, levPooledBTC, levBufBTC, btcFeesOwedSats,
             lpEth, shrinkSats, lpPayoutSats, full, exactUsd - delevUsd);
-        lpSharesBTC -= o.sharesRemoved;            // NET equity
+        // (E145) fees compounded into `pooled` during this resize must be added, or `lpSharesBTC`
+        // drifts below the sum of positions it totals. Net movement, in one write.
+        lpSharesBTC = lpSharesBTC + o.feeCompounded - o.sharesRemoved;   // NET equity
         totalBufferBTC -= o.bufRemoved;            // GROSS buffer freed on full close
         if (o.cleared) {
             // FEES-IN-CHANNEL: the BTC-leg fee is settled DURING the position's life by
