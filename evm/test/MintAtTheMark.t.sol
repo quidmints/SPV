@@ -139,3 +139,74 @@ contract MintAtTheMark is Alles {
         assertEq(_mark(), WAD, "a mint into a whole basket must leave the mark at par");
     }
 }
+
+/// §E2-dayone — THE OWNER'S EDGE CASE, MEASURED. Day one, two minters, no yield question: A
+/// deposits $100k to redeem as soon as it can; B deposits $100k against a 13-month vintage and the
+/// protocol mints B principal PLUS a projected-yield bonus ON THE SPOT. Supply exceeds dollars
+/// immediately. Does B's unbacked day-one supply reach A?
+///
+/// ✅ MEASURED: IT DOES NOT. Day one, supply 462,378 vs dollars 352,000 — over-minted by
+///    **$110,378, all of it B's projected yield**, exactly as the owner described. Yet at A's own
+///    maturity A burns 100,000 and receives **$99,999.999998** (shortfall $0.0000019 — par).
+///    The reason is the seniority ALREADY IN THE DESIGN (`Basket.sol:148-153`): B's 208,333 is
+///    IMMATURE, and `matureSupply` (254,044) excludes it, so the mark is capped at par.
+///    ⇒ The over-mint is real; it is simply JUNIOR, and does not touch a mature holder.
+///
+/// 🔴 WHAT THIS DOES *NOT* SHOW, and must not be read as showing:
+///    (a) **There is no same-day redemption.** On day one `matureSupply == 0` — a fresh mint lands
+///        in a FUTURE vintage, so A cannot redeem at all until its own vintage matures (~1 month).
+///        That is the live half of "how do I mint QU!D that is redeemable right away".
+///    (b) **Holding ACROSS a vesting event is still exposed.** At month 13 B's 208,333 becomes
+///        mature; if realised yield < $110,378 the mark falls for everyone then holding. That is
+///        the open item — the VEST BOUNDARY, not a ranking of claims.
+contract MintAtTheMarkDayOne is Alles {
+    function test_E2_DayOne_ImmediateRedeemerGetsPar() public {
+        deal(address(USDC), User01, 2_000_000 * USDC_PRECISION);
+        deal(address(USDC), User02, 2_000_000 * USDC_PRECISION);
+
+        { (, uint ay) = AUX.get_metrics(true);
+          emit log_named_uint("avgYield (WAD)    ", ay);
+          emit log_named_uint("currentMonth      ", QUID.currentMonth());
+          (uint sv,) = AUX.get_metrics(true);
+          emit log_named_uint("PRE solvent       ", sv);
+          emit log_named_uint("PRE totalSupply   ", QUID.totalSupply());
+          emit log_named_uint("PRE matureSupply  ", QUID.matureSupply());
+          emit log_named_uint("PRE immatureSupply", QUID.immatureSupply()); }
+        vm.startPrank(User01);                                   // A — immediate
+        USDC.approve(address(AUX), type(uint).max);
+        QUID.mint(User01, 100_000 * USDC_PRECISION, address(USDC), 0);
+        vm.stopPrank();
+        uint aQuid = QUID.balanceOf(User01); aQuid;
+
+        vm.startPrank(User02);                                   // B — 13-month bond
+        USDC.approve(address(AUX), type(uint).max);
+        QUID.mint(User02, 100_000 * USDC_PRECISION, address(USDC), 13);
+        vm.stopPrank();
+
+        (uint solvent,) = AUX.get_metrics(true);
+        emit log_named_uint("A minted (QUID)   ", aQuid);
+        emit log_named_uint("B minted (QUID)   ", QUID.balanceOf(User02));
+        emit log_named_uint("totalSupply       ", QUID.totalSupply());
+        emit log_named_uint("matureSupply      ", QUID.matureSupply());
+        emit log_named_uint("solvent (dollars) ", solvent);
+        emit log_named_int ("supply - dollars  ", int(QUID.totalSupply()) - int(solvent));
+
+        // A's OWN vintage matures ~1 month out; B's stays junior until month 13. Warp just past A's.
+        vm.warp(block.timestamp + 35 days); vm.roll(block.number + 1);
+        { (uint sv2,) = AUX.get_metrics(true);
+          emit log_named_uint("M1 solvent        ", sv2);
+          emit log_named_uint("M1 matureSupply   ", QUID.matureSupply());
+          emit log_named_uint("M1 immatureSupply ", QUID.immatureSupply()); }
+        (uint got, uint burned) = _redeemValue(User01, 100_000e18);  // A redeems its OWN $100k
+        emit log_named_uint("A burned          ", burned);
+        emit log_named_uint("A received (usd18)", got);
+        emit log_named_int ("A shortfall       ", int(100_000e18) - int(got));
+
+        assertApproxEqRel(got, 100_000e18, 0.001e18,
+            "A deposited $100k and redeems at its own maturity while B's forward mint is still "
+            "junior: A must receive par. Anything less means B's unbacked day-one supply reached A.");
+        assertGt(QUID.totalSupply(), 352_000e18,
+            "PREMISE: day-one supply MUST exceed dollars, else this proves nothing about the "
+            "over-mint being harmless");
+    }
+}

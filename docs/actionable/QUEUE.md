@@ -9640,7 +9640,36 @@ suite is **4,183 / 1 both with and without it** — that is the CONTROL, not evi
 the branch is simply unreachable in a healthy basket, which is why the suite never caught the defect
 and why the regime had to be constructed on purpose.
 
-### E2-seniority — a mint is NOT mark-neutral, and #1 does not make it so. 🔴 OPEN.
+### E2-vest-boundary — the over-mint is real but JUNIOR; only a VESTING EVENT can move it. 🔴 OPEN.
+### (renamed from "E2-seniority" — that name was WRONG and would have cost the next thread a week.)
+
+⚠️ **I NAMED THIS AFTER A FEATURE THAT ALREADY SHIPS.** `Basket.sol:148-153` already implements
+mature/immature seniority verbatim: *"This is the SENIOR claim … mature redeems at PAR and is NOT
+diluted by the immature forward-yield bonus (unvested = junior)."* Anyone reading "design a
+seniority scheme" would have rebuilt it.
+
+**MEASURED — the owner's two-minter edge case, `test_E2_DayOne_ImmediateRedeemerGetsPar`.**
+A deposits $100k to redeem ASAP; B deposits $100k against a 13-month vintage. Day one:
+supply **462,378** vs dollars **352,000** — over-minted by **$110,378, all of it B's projected
+yield**, before any yield question, exactly as stated. **Yet A receives $99,999.999998 (par).**
+`matureSupply` (254,044) excludes B's 208,333, so the mark is capped at par.
+⇒ **The premise "the immediate redeemer can't get 1:1" is REFUTED for this case.** The day-one
+over-mint is real and is junior; it does not reach a mature holder.
+
+**The two things that ARE live:**
+1. 🔴 **NO SAME-DAY REDEMPTION.** Day one `matureSupply == 0` — a fresh mint lands in a FUTURE
+   vintage, so nothing is redeemable until the minter's own vintage matures (~1 month). This is the
+   surviving half of *"how do I mint QU!D redeemable right away"*. **Not yet scoped.**
+2. 🔴 **HOLDING ACROSS A VESTING EVENT.** At month 13 B's 208,333 turns mature; if realised yield
+   < $110,378 the mark falls for everyone holding then. Discrimination is possible ONLY before
+   maturity (vintages are distinct ERC-6909 ids; after vest it is one fungible mark), so any fix
+   lives at the **vest boundary** — admit a maturing cohort's bonus only to the extent `solvent`
+   supports it — NOT at redeem. **UNTESTED, and it contradicts `Basket.sol:332-340`**, which calls
+   the shared haircut deliberate (*"nobody is time-pro-rated"*). Argue with that first.
+   ⚠️ Yield-collapse is the case that may break it: if `avgYield` was honest at mint and the vaults
+   later underperform, haircutting the cohort punishes them for a basket-wide event. Line unknown.
+
+**Superseded note (kept for the measurement):** a mint is not mark-neutral, and #1 does not make it so.
 
 I predicted entry-at-the-mark would leave `perShare` INVARIANT across a mint (the 4626 property).
 **Measured: it does not, and it cannot.** The mark still rose **0.918981 → 0.957571** on a $50k
