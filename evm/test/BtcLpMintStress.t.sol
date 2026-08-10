@@ -156,7 +156,8 @@ contract BtcLpMintStress is Alles {
             hex"01", _le(finalBalanceSats, 8), bytes1(uint8(lpP2TR.length)), lpP2TR,
             hex"00000000"); // locktime 0 → cooperative
         vm.prank(makeAddr("hop")); // recordClose is participant-gated (hop or lpEth)
-        ch.recordClose(channelId, closeTx, bytes32(uint(0x2C0)), new bytes32[](0), 0);
+        Types.OpenParams memory cp_ = _closeParams(lpPubkey, HOP_PUBKEY);
+        ch.recordClose(channelId, cp_, closeTx, bytes32(uint(0x2C0)), new bytes32[](0), 0);
     }
 
     /// SECURITY #1 (HIGH): recordClose is PARTICIPANT-GATED. A splice / swap-out
@@ -257,27 +258,41 @@ contract BtcLpMintStress is Alles {
         assertTrue(ch.migrationNonceUsed(nonce), "still consumed after rejected replay");
     }
 
-    function testBtcChannels_recordClose_participantGated() public {
+    /// (E153) recordClose is PERMISSIONLESS, and a replayed SPLICE is what gets rejected.
+    ///
+    /// This test used to assert a PARTICIPANT GATE: only the channel's hop or its lpEth could
+    /// record a close, because the contract could not tell a splice tx from a close tx — both
+    /// spend the same funding UTXO — so a third party could replay the hop's confirmed splice
+    /// to force-retire an OPEN channel. That gate was a proxy for a missing discriminator.
+    /// `MuSig2Agg` supplies the discriminator, so the gate is gone and ANYONE may record a
+    /// genuine close. Two properties now matter, and both are asserted:
+    ///   (a) a stranger CAN record a real close — the liveness win, and the whole point;
+    ///   (b) a tx paying a continuing 2-of-2 is REFUSED as a splice, whoever submits it.
+    function testBtcChannels_recordClose_permissionlessButRejectsSplice() public {
         BTCChannels ch = _deployChannels();
         (bytes32 cid, bytes32 ftx, address lpEth, bytes memory lpPubkey) = _open(ch, 7, 1_000_000);
-        // Pay the registered P2TR shutdown key (matches _open) so the coop-close guard
-        // parses a real payout instead of mismatching a legacy P2WPKH output.
+        Types.OpenParams memory cp_ = _closeParams(lpPubkey, HOP_PUBKEY);
+
+        // (b) A SPLICE tx — it pays the continuing 2-of-2 — must be refused as a close.
+        bytes memory contSpk = buildTaprootFundingSpk(lpPubkey, HOP_PUBKEY);
+        bytes memory spliceTx = abi.encodePacked(
+            hex"02000000", hex"01", ftx, hex"00000000", hex"00", hex"ffffffff",
+            hex"01", _le(900_000, 8), bytes1(uint8(contSpk.length)), contSpk,
+            hex"00000000");
+        vm.prank(makeAddr("attacker"));
+        vm.expectRevert(BTCChannels.SpliceIsNotAClose.selector);
+        ch.recordClose(cid, cp_, spliceTx, bytes32(uint(0x2C0)), new bytes32[](0), 0);
+        assertTrue(ch.hasOpenBtcChannel(lpEth), "a replayed splice cannot retire the channel");
+
+        // (a) A genuine cooperative close, submitted by a STRANGER, succeeds.
         bytes memory lpP2TR = abi.encodePacked(hex"5120", _validXOnly(abi.encode("lp-shutdown-xonly", lpPubkey)));
         bytes memory closeTx = abi.encodePacked(
             hex"02000000", hex"01", ftx, hex"00000000", hex"00", hex"ffffffff",
             hex"01", _le(1_000_000, 8), bytes1(uint8(lpP2TR.length)), lpP2TR,
             hex"00000000"); // locktime 0 → cooperative
-        // A third party (the splice front-runner) is rejected. MULTI-HOP: the gate is
-        // now per-channel (NotChannelHop) — only the channel's own hop or its lpEth.
-        vm.prank(makeAddr("attacker"));
-        vm.expectRevert(BTCChannels.NotChannelHop.selector);
-        ch.recordClose(cid, closeTx, bytes32(uint(0x2C0)), new bytes32[](0), 0);
-        assertTrue(ch.hasOpenBtcChannel(lpEth), "channel still open after blocked third-party close");
-        // The channel's own LP (lpEth) may record its close — liveness preserved if
-        // the hop is offline.
-        vm.prank(lpEth);
-        ch.recordClose(cid, closeTx, bytes32(uint(0x2C0)), new bytes32[](0), 0);
-        assertFalse(ch.hasOpenBtcChannel(lpEth), "channel retired by the LP participant");
+        vm.prank(makeAddr("stranger"));
+        ch.recordClose(cid, cp_, closeTx, bytes32(uint(0x2C0)), new bytes32[](0), 0);
+        assertFalse(ch.hasOpenBtcChannel(lpEth), "anyone may record a genuine confirmed close");
     }
 
     function _assertSolvent(string memory tag) internal {
@@ -323,11 +338,11 @@ contract BtcLpMintStress is Alles {
             _open(ch, 1, 1_000_000); // open 0.01 BTC
         uint pooled0; uint locked0 = ch.totalSatsLocked();
         { (uint p0,,,) = ETH.autoManagedBTC(lpEth); pooled0 = p0;
-          (uint a0,,,,,) = ch.channels(channelId); assertEq(a0, 1_000_000, "opened 1.0mm"); }
+          (uint a0,,,,,,) = ch.channels(channelId); assertEq(a0, 1_000_000, "opened 1.0mm"); }
 
         bytes32 newTxId = _splice(ch, channelId, fundingTxId, 1, lpPubkey, 1_600_000); // grow → 1.6mm
 
-        (uint a1, bytes32 ftx1,,, uint8 st1,) = ch.channels(channelId);
+        (uint a1, bytes32 ftx1,,, uint8 st1,,) = ch.channels(channelId);
         assertEq(a1, 1_600_000, "channel funded total grew to 1.6mm");
         assertEq(ftx1, newTxId, "live funding outpoint rotated to the splice tx");
         assertEq(st1, 0, "channel still OPEN");
@@ -398,7 +413,7 @@ contract BtcLpMintStress is Alles {
 
         bytes32 newTxId = _spliceOut(ch, channelId, fundingTxId, 7, lpPubkey, 1_000_000); // shrink → 1.0mm
 
-        (uint a1, bytes32 ftx1,,, uint8 st1,) = ch.channels(channelId);
+        (uint a1, bytes32 ftx1,,, uint8 st1,,) = ch.channels(channelId);
         assertEq(a1, 1_000_000, "channel funded total shrank to 1.0mm");
         assertEq(ftx1, newTxId, "live funding outpoint rotated to the splice-out tx");
         assertEq(st1, 0, "channel still OPEN after partial withdrawal");
@@ -460,7 +475,7 @@ contract BtcLpMintStress is Alles {
         bytes32 newTxId = _deliverOnchain(ch, s);
 
         {
-            (uint a1, bytes32 ftx1,,, uint8 st1,) = ch.channels(s.channelId);
+            (uint a1, bytes32 ftx1,,, uint8 st1,,) = ch.channels(s.channelId);
             assertEq(a1, 2_000_000 - s.sats, "channel shrank by the delivered sats");
             assertEq(ftx1, newTxId, "funding outpoint rotated to the delivery tx");
             assertEq(st1, 0, "channel still OPEN after the delivery");
@@ -502,7 +517,7 @@ contract BtcLpMintStress is Alles {
     /// swap-out: a 2-output tx (new SMALLER 2-of-2 + the swapper's payout), fee-free
     /// here so shrink == delivered == `s.sats`.
     function _deliverOnchain(BTCChannels ch, _OcSwap memory s) internal returns (bytes32 newTxId) {
-        (uint old,,,,,) = ch.channels(s.channelId);
+        (uint old,,,,,,) = ch.channels(s.channelId);
         uint newAmount = old - s.sats;
         bytes memory spliceTx;
         {
@@ -569,7 +584,15 @@ contract BtcLpMintStress is Alles {
         (bytes32 cid, bytes32 ftx, address lpEth, bytes memory lpPk) = _open(ch, 1, amountSats);
 
         uint qdBeforeDeliver = QUID.balanceOf(lpEth);
+        // §UNIT-A — the retained skew premium reaches the LP through the USD FEE LEG (§E5:
+        // creditSkewPremium → USD_FEES → usdR, minted at BtcVaultLib:69), so once the base is
+        // reachable the mint is proceeds + fee + PREMIUM. The 6bps dust bound stays as-is and still
+        // bounds the ORDINARY fee; the premium becomes an explicit TERM read from what was actually
+        // charged. §E81-r: re-express, never weaken — raising the bound would hide a future real
+        // over-mint behind a premium-sized allowance.
+        uint premBeforeDeliver = CORE.skewPremiumCum(true);
         uint proceeds = _swapOuts(ch, cid, ftx, 1, lpPk, lpEth, 5, 500 * USDC_PRECISION);
+        uint premCharged = CORE.skewPremiumCum(true) - premBeforeDeliver;
         assertGt(proceeds, 0, "swap-outs delivered BTC so the LP earned proceeds");
         // Deliver-time minted the realized proceeds (+ tiny USD-leg fee dust) — never
         // unbacked QUI. The proceeds component is pinned to `proceeds`; the dust bound
@@ -579,7 +602,7 @@ contract BtcLpMintStress is Alles {
         // notional — measured at a constant 4.2bps across 500/1200/2500 notionals — so an ABSOLUTE
         // allowance can never fit it. Bound = 6bps of the expected value (4.2bps measured + margin)
         // plus the original 1e15 for rounding. DERIVED from the fee rate; do NOT raise until green.
-        assertApproxEqAbs(QUID.balanceOf(lpEth) - qdBeforeDeliver, proceeds * 1e12, proceeds * 1e12 * 6 / 10000 + 1e15,
+        assertApproxEqAbs(QUID.balanceOf(lpEth) - qdBeforeDeliver, (proceeds + premCharged) * 1e12, proceeds * 1e12 * 6 / 10000 + 1e15,
             "deliveries mint ~EXACTLY the realized proceeds (+ fee dust, no over-mint)");
         assertGe(QUID.balanceOf(lpEth) - qdBeforeDeliver, proceeds * 1e12,
             "LP received AT LEAST its full proceeds");
@@ -587,7 +610,7 @@ contract BtcLpMintStress is Alles {
 
         // A close is now all-native: it mints ZERO additional proceeds.
         uint qdBeforeClose = QUID.balanceOf(lpEth);
-        (uint funded,,,,,) = ch.channels(cid);
+        (uint funded,,,,,,) = ch.channels(cid);
         _close(ch, cid, _liveFundingTxId[cid], lpPk, funded);
         assertLt(QUID.balanceOf(lpEth) - qdBeforeClose, 1e18,
             "close mints ~no extra QUI (proceeds already settled at deliver; fees only)");
@@ -605,7 +628,15 @@ contract BtcLpMintStress is Alles {
         (bytes32 cid, bytes32 ftx, address lpEth, bytes memory lpPk) = _open(ch, 2, amountSats);
 
         uint qdBeforeDeliver = QUID.balanceOf(lpEth);
+        // §UNIT-A — the retained skew premium reaches the LP through the USD FEE LEG (§E5:
+        // creditSkewPremium → USD_FEES → usdR, minted at BtcVaultLib:69), so once the base is
+        // reachable the mint is proceeds + fee + PREMIUM. The 6bps dust bound stays as-is and still
+        // bounds the ORDINARY fee; the premium becomes an explicit TERM read from what was actually
+        // charged. §E81-r: re-express, never weaken — raising the bound would hide a future real
+        // over-mint behind a premium-sized allowance.
+        uint premBeforeDeliver = CORE.skewPremiumCum(true);
         uint proceeds = _swapOuts(ch, cid, ftx, 2, lpPk, lpEth, 3, 400 * USDC_PRECISION); // modest delivery
+        uint premCharged = CORE.skewPremiumCum(true) - premBeforeDeliver;
         assertGt(proceeds, 0, "some BTC delivered");
         // Deliver mints the obligation (+ tiny fee dust), NOT inflated by any
         // tx-output trick. The dust bound is ≫ fees but ≪ any inflation.
@@ -614,11 +645,11 @@ contract BtcLpMintStress is Alles {
         // notional — measured at a constant 4.2bps across 500/1200/2500 notionals — so an ABSOLUTE
         // allowance can never fit it. Bound = 6bps of the expected value (4.2bps measured + margin)
         // plus the original 1e15 for rounding. DERIVED from the fee rate; do NOT raise until green.
-        assertApproxEqAbs(QUID.balanceOf(lpEth) - qdBeforeDeliver, proceeds * 1e12, proceeds * 1e12 * 6 / 10000 + 1e15,
+        assertApproxEqAbs(QUID.balanceOf(lpEth) - qdBeforeDeliver, (proceeds + premCharged) * 1e12, proceeds * 1e12 * 6 / 10000 + 1e15,
             "deliver mints ~EXACTLY the swapper's USD (no inflation, + fee dust)");
         assertGe(QUID.balanceOf(lpEth) - qdBeforeDeliver, proceeds * 1e12,
             "LP received AT LEAST its full proceeds");
-        (uint funded,,,,,) = ch.channels(cid);
+        (uint funded,,,,,,) = ch.channels(cid);
         assertGt(funded, 0, "channel still has funding to over-claim at close");
 
         // ADVERSARIAL close: finalBalance = 0 claims the WHOLE remaining funding as
@@ -649,6 +680,7 @@ contract BtcLpMintStress is Alles {
             uint n = 2 + (i % 3);                                    // 2–4 swaps, varied
             uint qdBefore = QUID.balanceOf(lpEth);
             uint proceeds = _swapOuts(ch, cid, ftx, 100 + i, lpPk, lpEth, n, usdcEach);
+        uint premCharged = CORE.skewPremiumCum(true) - premBeforeDeliver;
             cumProceeds += proceeds;
             // Every recorded obligation was delivered → pendingSwapOutUsd back to 0.
             assertEq(CORE.pendingSwapOutUsd(), 0,
@@ -656,7 +688,7 @@ contract BtcLpMintStress is Alles {
 
             // Close is all-native; total LP gain over the cycle is the deliver-time
             // proceeds (+ negligible fees).
-            (uint funded,,,,,) = ch.channels(cid);
+            (uint funded,,,,,,) = ch.channels(cid);
             _close(ch, cid, _liveFundingTxId[cid], lpPk, funded);
             cumMinted += QUID.balanceOf(lpEth) - qdBefore;
 
@@ -877,7 +909,7 @@ contract BtcLpMintStress is Alles {
         _multiAssert(ch, "shared swap-in", k);
 
         // 6) close A (all-native, mints ~0) — must not move B/C minted balances
-        { (uint funded,,,,,) = ch.channels(k[0].id);
+        { (uint funded,,,,,,) = ch.channels(k[0].id);
           _close(ch, k[0].id, _liveFundingTxId[k[0].id], k[0].pk, funded); }
         _multiAssert(ch, "A close", k);
 
@@ -887,7 +919,7 @@ contract BtcLpMintStress is Alles {
         _multiAssert(ch, "C adversarial close", k);
 
         // 8) close B
-        { (uint funded,,,,,) = ch.channels(k[1].id);
+        { (uint funded,,,,,,) = ch.channels(k[1].id);
           _close(ch, k[1].id, _liveFundingTxId[k[1].id], k[1].pk, funded); }
         _multiAssert(ch, "B close", k);
 
