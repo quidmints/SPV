@@ -10165,6 +10165,24 @@ position, never written), the second `_bumpEwma` in `_bumpFlow` is gone, `flowEw
 restored — one block of fake flow still moves the target as much as sustained flow
 (§UNIT-B-MIN-STRUCTURAL); rebuilding it needs a WEIGHTED EWMA, not a slower sum. §UNIT-B's 13.71% is
 still undamped and still needs the owner-decided `now − window` target.
-📌 **The one thing NOT chased:** WHICH getter returned the wrong address under the outright deletion.
-The padding sidesteps it, so `Core`'s absolute-slot dependence is CONFIRMED but its SOURCE is
-unidentified. Anyone reordering `Core` state must still find it first.
+✅ **SOURCE FOUND — AND IT IS TEST-SIDE, WHICH NARROWS MY OWN "standing consequence" MATERIALLY.**
+`test/UnificationControls.t.sol:52-53` (and `:1316-1317`) read Core's mock addresses with
+**`vm.load` on HARDCODED SLOTS 131095/131096/131097/131098**, commented *"Mock addresses come from
+Core's storage layout"*. The mocks are `internal` (`Core.sol:396-399`) with no public getter — §E60
+says why: *"the dust monitor lives here now, not on Core (**which is 37 bytes short of affording
+it**)"*. Deleting two slots shifted 131095→131093, `vm.load` returned the wrong word, and `balanceOf`
+hit a non-token.
+⇒ ⛔ **CORRECTION: `Core` has NO absolute-slot dependence.** Its only `assembly` (`:808`) is
+unrelated. **The HARNESS is coupled to the layout, not the contract.** I booked this as "Core's
+state-variable ORDER is load-bearing" — true in effect, but it wrongly implicates the contract and
+would have made the next person hunt inside `Core` for something that is not there.
+
+### ▶️ UNIT-B-SLOTS-RECLAIM — the byte recovery has PAID FOR the getter that removes the fragility. OPEN, small.
+
+§E60 hardcoded those slots because `Core` could not spare ~37 bytes for a mock getter.
+**`Core` now has 104 bytes of margin** (28 before §UNIT-B-SLOWDEL-PADDING) — **that constraint is
+gone.** Add a public mock accessor, repoint `_mockDust` at it, and the harness stops depending on
+layout. **Then `__deadSlotWasFlowSlow*` become genuinely reclaimable** (2 more slots) and the whole
+class of "reordering Core breaks the tests" disappears.
+⚠️ Sequence it: getter + test repoint FIRST (verify in the worktree), slot removal SECOND — one
+money-path change per run. Do NOT reclaim the slots in the same commit as the getter.
