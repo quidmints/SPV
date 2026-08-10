@@ -10300,3 +10300,44 @@ reads 🔴🔴🔴 after landing); read bodies.**
    input §UNIT-B needs. ⇒ **§E83 is the common gate for §UNIT-B, §UNIT-VENUE-CEILING and the
    two-sided decision.** It is a MEASUREMENT, not a design argument, and nothing above resolves
    without it.
+
+### ⛔⛔⛔ SKEW-SYNTHESIS-CORRECTIONS — §UNIT-A-FIXTURE and §UNIT-ASYM invalidate three claims I made TODAY.
+
+**Read after the owner said "read them, do not repeat your mistakes". Three of my own 2026-08-10
+statements are wrong, and each was warned against in a row I had not read.**
+
+1. ⛔ **THE ~527s FIGURE IS ETH-ONLY. I QUOTED IT AS A PROTOCOL PROPERTY IN §SKEW-SYNTHESIS.**
+   §UNIT-ASYM states it outright: `CONF_FRAC_WAD` ≈ **1 HOUR** (BTC) vs `ETH_CONF_FRAC_WAD` ≈ **12
+   SECONDS** (`SwapLib.sol:762`/`:766`), and the base is `σ²·confFrac/8`, so **for the same σ² and q
+   the BTC leg charges ~300× the ETH leg**, plus BTC-only `SPLICE_FLOOR` (§E98: ~99.3% of BTC's
+   floor). §E131's `8P/V` = 6.027e-6 and T* ≈ 527s **were computed on ETH's window**, and §UNIT-ASYM
+   already says *"I reported it as a protocol property. IT IS PER-ASSET."* ⇒ **My "the premium funds
+   ~527s of LVR" holds for ETH ONLY.** The one-sided-vs-two-sided trade-off must be decided PER LEG;
+   on BTC it may invert. **Re-run before stating anything for BTC.**
+
+2. ⛔ **I CONFLATED TWO DIFFERENT MECHANISMS.** §SKEW-SYNTHESIS said *"the form the record asked for
+   already exists: ASYMMETRIC TWO-SIDED"*, merging (a) §UNIT-BOUND-NOT-DELETE's **BOUNDED REFILL
+   BONUS** — genuinely in the record (`BUILD-QUEUE:487`/`:463`, a PAYMENT to a refiller) — with
+   (b) the **SIGNED / TWO-SIDED SKEW CURVE**, where the QUOTE itself pays. §UNIT-ASYM is explicit
+   that (b) is **the prior author's hypothesis, NOT the design of record**: `SwapLib.sol:685` states
+   the mechanism as *"flash the scarce asset, serve the opposite flow, repay… a flash-and-repay,
+   NEVER a subsidy to whoever swaps in first"* — **if flash-and-repay works, the band never bids
+   above oracle and the signed side is UNNECESSARY.** ⇒ **A bounded bonus does NOT imply a signed
+   curve.** §UNIT-C-BAR decides (b); §UNIT-B gates it only IF needed. **Do not build it.**
+
+3. ⚠️ **TODAY'S 13.71% HAS AN UNCONTROLLED σ² CONFOUND.** §UNIT-A-FIXTURE: `realizedVarianceWad`
+   samples `observe` on a WALL-CLOCK grid while the ring advances **only on a swap**, and `observe`
+   LINEARLY INTERPOLATES — so **any swap spacing coarser than the grid flattens the tape and yields
+   ~0 second difference.** *"EVERY fixture in this repo that warps 8-20 minutes between swaps has
+   been measuring interpolation, not volatility."* ⇒ §E71's two arms have **DIFFERENT swap spacing by
+   construction** (one lump vs twelve spaced), hence potentially **different σ²**, and skew scales
+   with σ². **The measured TARGET ramp (380,432 → 467,694) is real and directly observed — that
+   mechanism stands.** What is NOT established is that the ramp accounts for the FULL 13.71%.
+   ▶️ Re-run §E71 with swap spacing FINER than the sampling interval (**read the interval out of
+   `realizedVarianceWad` — do NOT guess it**) and drive the POOL TICK, not the feed.
+
+📌 **AND THE FIXTURE FINDING IS BIGGER THAN §UNIT-B:** §E125, §E131 and §UNIT-SKEW-IS-NOISE were all
+measured on 8-20-minute-spaced fixtures. **The 0.04% materiality number inherits this too** — so it
+is suspect on TWO independent grounds (measured pre-§UNIT-A, and possibly on an interpolated tape).
+That strengthens the owner's rejection of "delete the skew": the number arguing for deletion is
+doubly unreliable.
