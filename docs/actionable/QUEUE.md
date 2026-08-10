@@ -10038,7 +10038,21 @@ failure SETS, not counts.
 and §E2-#1 were measured BEFORE these edits appeared in the tree, on a tree whose only uncommitted
 source was my own. Do not retro-doubt them on the strength of this run.
 
-### 🛑 TREE-UNSTABLE — the shared tree is being edited DURING runs. No full-suite number is attributable right now.
+### ✅ TREE-UNSTABLE — RESOLVED BY A PINNED WORKTREE. Clean baseline is 4,402/1, and the 180 were never ours.
+
+✅ **CLEAN BASELINE, `git worktree add --detach <path> HEAD` at `33550fb`** (the other thread's work is
+UNCOMMITTED, so a worktree at HEAD excludes it BY CONSTRUCTION), `evm/lib` present, gitignored
+`evm/.env` copied in: **4,402 passed / 1 failed / 1 skipped (4,404 total). `BufferOverflow` count: 0.**
+The one failure is `testRoundTripNoRaceNoDrain` at the byte-identical `499224755743233795668` it has
+returned all session ⇒ the pre-existing round-trip drain, unrelated to any change made today.
+⇒ **ALL 180 `BufferOverflow` FAILURES WERE THE OTHER THREAD'S IN-FLIGHT WORK.** Every commit landed
+today is green against a tree containing only committed code.
+📌 **COST/BENEFIT, so this is reached for sooner next time:** ~6 min for the worktree's cold compile
+(342s vs ~105s warm in-place) and one `ln -s`/`cp` for `lib` + `.env`. That is the entire price of
+turning three unattributable runs into one decisive number. **Set it up BEFORE the first measurement
+whenever `git status` shows another thread's files, not after three ambiguous runs.**
+
+### (historical — the ambiguity that forced the worktree)
 
 **CONTROL RUN (my edits fully reverted, the other thread's still present):**
 **2,911 passed / 196 failed — and 180 of them are `BufferOverflow`.**
