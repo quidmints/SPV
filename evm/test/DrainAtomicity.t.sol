@@ -1188,14 +1188,19 @@ contract DrainAtomicity is Alles {
         uint snap = vm.snapshotState();
         _setupBand();
         uint invA = CORE.POOLED_ETH() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
+        emit log_named_uint("flow target t0 (BIG)  ", CORE.flowEwmaUsd(false));
         uint ethA = _drain(TOTAL);
+        emit log_named_uint("flow target t1 (BIG)  ", CORE.flowEwmaUsd(false));
         uint premA = CORE.skewPremiumETH() - premStart;   // ledger, BIG leg (pre-revert)
         vm.revertToState(snap);
 
         _setupBand();
         uint invB = CORE.POOLED_ETH() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
         uint ethB;
-        for (uint i = 0; i < N; ++i) ethB += _drain(TOTAL / N);
+        for (uint i = 0; i < N; ++i) {
+            emit log_named_uint("flow target (SPLIT i) ", CORE.flowEwmaUsd(false));
+            ethB += _drain(TOTAL / N);
+        }
         uint premB = CORE.skewPremiumETH() - premStart;   // ledger, SPLIT leg
 
         emit log_named_uint("start inv A (usd6)    ", invA);

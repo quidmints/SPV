@@ -9723,3 +9723,32 @@ they use different denominators and answer different questions:
 | **E158-why-self-hosted** | 🔑 **FAMILY/INDIVIDUAL DAEMONS ARE NOT ABOUT ANONYMITY — THEY ARE THE ONLY NON-CUSTODIAL CONFIGURATION (owner asked *"why are familyplan or individual daemons necessary at all. anonymity?"*, 2026-08-10).** ✅ **VERIFIED, `BTCChannels.sol:859-860`: *"Self-hosted LPs must co-sign the splice and would see it; **IN FLEET MODE THE OPERATOR HOLDS BOTH HALVES (E94) AND CAN DO IT ALONE.**"*** ⇒ **a self-hosted LP holds a REAL funding half, so the 2-of-2 actually binds and the fleet cannot move its BTC alone. It also does not need the dead-man exit: it holds commitment txs and can LDK force-close, which is what `recordForceClosePermissionless` serves.** 🔑 **THIS PARTITIONS THE ENTIRE TRUST DISCUSSION: image upgrades, seed inheritance, and the shared freshness kill switch (§E158-freshness-killswitch) apply **ONLY TO VAULT LPs**. ⇒ **REMOVING FAMILY/INDIVIDUAL DAEMONS MAKES THE SYSTEM ENTIRELY CUSTODIAL** — that, not anonymity, is what would be lost.** ⛔ **AND IT REFUTES THE PASSIVE FORM OF §E158-no-seed-migration (owner: *"we cant let the old channels drain under the old image because it might have a vulnerability"*): **the upgrade is often FOR the vulnerability**, so leaving channels on the old image leaves them exposed to the very bug being fixed.** ✅ **REFINEMENT THAT SURVIVES: LPs migrate by CLOSING AND REOPENING, not by seed transfer. Voluntary, per-LP, no authority decision, always available (the exit is armed at open, §E156; self-hosted LPs can force-close with no counterparty at all). Exposure is bounded to channels still on the old image, and each LP picks its own window.** 🔑 **AND THE SHARPER STATEMENT OF WHY INHERITANCE WAS THE TARGET: inheritance is not intrinsically bad — it REQUIRES AN AUTHORIZATION DECISION (which image may inherit), and that decision is exactly what a 4-of-7 compromise attacks. Remove inheritance and there is nothing left to compromise.** | 🔑 self-hosted = the only non-custodial config; enclave risk is vault-only; migrate by close+reopen |
 
 | **E158-worst-case** | 🔴🔴🔴 **BLAST RADIUS OF A COMPROMISED IMAGE, ENUMERATED AGAINST THE CODE — AND THE WORST PATH IS SWAP-**IN**, NOT SWAP-OUT (owner asked *"what is the worst that can happen"*, 2026-08-10).** 🔴 **(1) SHARED POOL, UP TO `POOLED_USD_BTC` — THE SYSTEMIC ONE. `SwapLib.creditSwapInBody:640-641`: *"the curve (POOLED_USD_BTC liquidity) bounds the payout — the old BtcInflowCap is gone; over-supply just slips / partial-fills"*. ⇒ **a compromised hop attests swap-ins for BTC THAT NEVER ARRIVED, sells phantom BTC into the shared pool and takes stables/QU!D out. Bounded by POOL LIQUIDITY, NOT by the hop's own locked sats** — exactly what `settleSwapIn:1345-1349` concedes: *"Per-hop bounding of pool drainage vs a hop's OWN locked sats is a tracked refinement"*. 🔑 **IT HITS EVERY LP AND TOUCHES NO CHANNEL — so LP vigilance is IRRELEVANT to it, and every mitigation resting on LPs closing/reopening (§E158-no-seed-migration's refinement) MISSES THE MAIN RISK.** ⇒ **THE PER-HOP DRAINAGE BOUND IS NOT A REFINEMENT, IT IS THE PRIMARY MITIGATION FOR ENCLAVE COMPROMISE. Re-rank it.** 🔴 **(2) ITS OWN CHANNELS' BTC — TOTAL LOSS, VAULT FLOW ONLY. Both halves in one process ⇒ key-path spend of the funding UTXO to anywhere; nothing on-chain prevents it (`:859-860`, E94). **Self-hosted LPs are IMMUNE** — they hold a real half (§E158-why-self-hosted).** ✅ **(3) WHAT IT CANNOT DO — VERIFIED, NOT ASSUMED: • NOT swap-OUT — `deliverSwapOutOnchain:1518-1524` pins `keccak256(swapperScript) == so.swapperScriptHash` (committed by the SWAPPER at request) AND requires the splice to actually pay ≥ `so.sats` to it, SPV-verified ⇒ proceeds cannot be redirected. • NOT another hop's channels — per-channel `channel.hop` gate. • NOT an LP's EVM-side close payout — `btcRecipientOf` pinned.** ⇒ **SUMMARY: it cannot move channel proceeds OUT THROUGH THE PROTOCOL. It can steal its own channels' BTC directly on Bitcoin, and — far worse — MINT AGAINST BTC THAT NEVER EXISTED up to pool liquidity.** | 🔴🔴🔴 worst = phantom swap-in draining POOLED_USD_BTC; swap-out is pinned; per-hop bound is THE mitigation |
+
+### UNIT-B-MECHANISM — WHY the discount exists: the TARGET is bumped by the flow it prices. 🎯 MEASURED 2026-08-10.
+
+The owner's question — *"why is there a discount at all? I thought the second integral got rid of
+it"* — is answered, and **the integral is NOT at fault.** §E68b made both legs integrate and the
+kernel IS path-independent in inventory. The residual is in the coordinate, exactly as §UNIT-B
+booked, and here is the mechanism rather than the inference:
+
+| leg | target it was priced against (usd6) |
+|---|---|
+| ONE 120,000 drain | **380,432,109,336 flat** — bumps to 498,029,035,630 only AFTER pricing |
+| twelve of 10,000 | **380,432,109,336 → 467,693,576,876**, ramping on EVERY ticket |
+
+`Core._bumpFlow` is *"called only from `_handleSwap`"* (`Core.sol:232-235`), so each swap folds its
+own notional into `_flowETH`/`_flowSlowETH`; `flowEwmaUsd` (`:249`) is the target, and
+`SwapLib.skewWad:862` sets `target = flowUsd`. Because `q = (target − inv)/target`, a LARGER target
+means MORE scarcity at the same inventory ⇒ later tickets pay more ⇒ split 24,349 vs big 21,009.
+⇒ **∫f(q)dq is path-independent only if `q` is a fixed function of state. Here the coordinate is
+RESCALED MID-PATH by the very trade being priced** — a ruler that stretches as you walk it.
+
+⚠️ **AND THE TARGET'S FLOW-DEPENDENCE IS NOT ITSELF THE BUG — DO NOT "FIX" IT BY FREEZING IT.**
+More flow genuinely means more inventory is needed to serve it, so a given inventory IS scarcer;
+that is §E54's derivation. The defect is the SELF-REFERENCE: a swap updates the estimator that
+prices it (and its successors), so a sequence pays for its own flow twice. `min(fast, slow)`
+(`Core.sol:249`) already damps this — which is why the discount is 13.71% and not far larger.
+▶️ Candidate directions, NONE tested: (a) price a whole drain against the target SNAPSHOT taken
+before the sequence; (b) exclude the pricing swap's own notional from the EWMA read it uses;
+(c) accept it and rely on `min(fast,slow)` — only viable if §UNIT-C-BAR says the signed curve is
+never built, since §UNIT-B-BLOCKS-C shows a round-tripper harvests exactly this.
