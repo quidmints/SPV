@@ -157,6 +157,40 @@ library MuSig2Agg {
         ).x);
     }
 
+    /// @notice (E159) BIP-341 TapLeaf hash for ONE script leaf:
+    ///         `tagged_hash("TapLeaf", leafVersion || compactSize(script) || script)`.
+    /// @dev Leaf version is fixed at 0xc0 (the only version taproot defines today). Scripts
+    ///      longer than 252 bytes revert rather than emitting a wrong compact size — a
+    ///      silently mis-encoded length would hash to a plausible leaf that simply is not the
+    ///      one on chain, which is the failure this whole path exists to make impossible.
+    function tapLeafHash(bytes memory script) public pure returns (bytes32) {
+        require(script.length < 0xfd, "MuSig2Agg: leaf script too long");
+        return taggedHash(
+            "TapLeaf", abi.encodePacked(bytes1(0xc0), bytes1(uint8(script.length)), script));
+    }
+
+    /// @notice (E159) BIP-341 output key for an internal key committing to a SINGLE leaf:
+    ///         `Q = lift_x_even(P) + H_TapTweak(x(P) || leafHash)·G`.
+    /// @dev Differs from `computeOutputKey` in exactly two ways, both load-bearing: the
+    ///      internal key is GIVEN (not aggregated from two pubkeys), and the TapTweak hash
+    ///      commits to the merkle root as well as the key. `computeOutputKey` passes only the
+    ///      key because a channel funding output has an EMPTY tree; a swap-in deposit has the
+    ///      user's CLTV refund leaf, so omitting the root here would compute the key for a
+    ///      DIFFERENT (key-path-only) address that no deposit will ever pay.
+    function taprootOutputKeyWithLeaf(bytes32 internalX, bytes32 leafHash)
+        public view returns (bytes32)
+    {
+        EC256.Curve memory ec = curve();
+        // Even-Y lift of the x-only internal key, exactly as BIP-341 specifies.
+        EC256.APoint memory P = decompress(abi.encodePacked(bytes1(0x02), internalX));
+        require(ec.isOnCurve(P), "MuSig2Agg: internal key off curve");
+        uint t = uint256(taggedHash(
+            "TapTweak", abi.encodePacked(internalX, leafHash))) % ec.n;
+        return bytes32(ec.toAffine(
+            ec.jAddPoint(EC256.toJacobian(P), ec.jMultShamir(ec.jbasepoint(), t))
+        ).x);
+    }
+
     function _lessThan(bytes memory a, bytes memory b) private pure returns (bool) {
         return uint256(keccak256(a)) == uint256(keccak256(b))
             ? false
