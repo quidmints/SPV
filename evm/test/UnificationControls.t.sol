@@ -1037,6 +1037,7 @@ contract UnificationControls is Alles {
         AUX.setBTCChannels(address(this));
         BTC.registerBtcLp(User01, 2e7);
 
+        { (uint _t,) = AUX.get_metrics(false); AUX.get_deposits(); _t; }   // refresh: reads are cache-sensitive
         uint redeem0 = AUX.redeemableAmount();
         uint curve0 = CORE.POOLED_USD_BTC();
         uint basket0 = CORE.basketUsdBtc();
@@ -1052,6 +1053,7 @@ contract UnificationControls is Alles {
         }
         vm.stopPrank();
 
+        { (uint _t,) = AUX.get_metrics(false); AUX.get_deposits(); _t; }   // refresh: reads are cache-sensitive
         uint redeem1 = AUX.redeemableAmount();
         uint curve1 = CORE.POOLED_USD_BTC();
         uint basket1 = CORE.basketUsdBtc();
