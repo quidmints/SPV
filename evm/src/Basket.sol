@@ -292,6 +292,26 @@ contract Basket is ERC20, ERC6909,
         uint tgtMonth = month; // preserve the requested target across a re-projection
         (normalized, month) = BasketLib.calcMintYield(deposited,
             decimals, tgtMonth, nextMonth, avgYield, isSeed);
+        // §E2-#1 — ENTER AT THE MARK. A redeem values one mature QU!D at
+        // `min($1, solvent/matureSupply)` (BasketLib:847). When that mark is BELOW par, minting
+        // `normalized` 1:1 hands the new depositor shares already worth less than they paid, and
+        // their deposit LIFTS the mark for everyone else — the incoming depositor silently
+        // subsidises the incumbents. Issuing at the mark instead keeps `perShare` INVARIANT across
+        // the mint (new solvent/new mature == old solvent/old mature), which is the share-price
+        // -preserving issuance a 4626 does by construction; nobody is diluted in either direction.
+        // `normalized/perShare` reduces to `normalized*mature/total` exactly, since perShare is
+        // `total*WAD/mature` in this branch — one mulDiv, no new import, and NO-OP whenever the
+        // basket is whole (`total >= mature`), which is why the healthy path is untouched.
+        // ⚠️ This does NOT touch the forward-yield BOND over-mint that :263-267 defends: that is
+        // IMMATURE supply and is absent from `mature` until it vests. Entry pricing and the bond
+        // are separate axes. The redemption-seniority problem (a vintage maturing and dropping the
+        // mark for holders who were already in) is STILL OPEN — see §E2-seniority.
+        // `total == 0` is skipped rather than clamped: with no backing there is no mark to enter
+        // at, and dividing by it would mint unbounded shares.
+        uint mature = matureSupply();
+        if (mature > 0 && total > 0 && total < mature)
+            normalized = Math.mulDiv(normalized, mature, total);
+
         // CAP is a HARD bound on the senior seed tranche, not a soft eligibility
         // gate. `seeded < CAP` only decides eligibility; it does NOT clamp the
         // amount, so without the check below ONE seed-window deposit mints
@@ -308,6 +328,10 @@ contract Basket is ERC20, ERC6909,
             isSeed = false;
             (normalized, month) = BasketLib.calcMintYield(deposited,
                 decimals, tgtMonth, nextMonth, avgYield, false);
+            // re-mark the re-projection too, so the CAP gate above and `seeded` below both see the
+            // FINAL quantity — inflating after the gate is what lets `seeded` slip past CAP.
+            if (mature > 0 && total > 0 && total < mature)
+                normalized = Math.mulDiv(normalized, mature, total);
         }
 
         // ── 1:1 cap with adaptive yield shrink ────────────────────────

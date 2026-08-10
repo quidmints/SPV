@@ -9620,3 +9620,36 @@ E42 work above for progress on this.
 | **E158-iface-drift** | 🟡 **`IAttestedHopRegistry` is declared at `BTCChannels.sol:106`, NOT in `src/imports/Interfaces.sol` — a per-file interface, which house rule 2 forbids (2026-08-10).** Small, but it is the exact pattern §A-scan counted 32 of. Fold it into the canonical file when the hop-gate work lands. | 🟡 per-file interface violating rule 2 |
 
 | **E158-upgrade-authority** | 🔴🔴 **MY WITHDRAWAL OF §E158-both-halves WAS HALF-WRONG, AND THE HALF I GOT WRONG IS THE ONE THAT MATTERS (owner: *"the main hop/daemon still rolls whatever image they want and everyone trusts it by default… only one distrusting family node is enough to cause a panic"*, 2026-08-10).** 🔑 **TWO DIFFERENT QUESTIONS I COLLAPSED INTO ONE: sealing answers *"can rogue code RUN?"* — no, a different MRENCLAVE cannot unseal the seed. It says NOTHING about *"who decides which code runs NEXT?"* **Both halves in one process ⇒ ONE operator makes ONE migration decision and control transfers UNILATERALLY.**** ⛔ **WHY 'EXIT, NOT VOICE' (my answer) IS NOT GOOD ENOUGH: everyone trusts the new image BY DEFAULT and the only recourse is to notice and leave. A dissent signal is UNFALSIFIABLE — *"I don't trust this image"* and *"this image is malicious"* are indistinguishable from outside — so ONE objecting family node forces EVERY LP to re-derive the question. **That is a panic mechanism, not a security mechanism**, and it is strictly worse than explicit consensus because nothing adjudicates it.** ✅ **THE FIX IS THE OWNER'S OWN FIRST FRAMING, USED PROPERLY: hold the two funding halves in TWO INDEPENDENTLY-OPERATED enclaves. Migration then requires BOTH to re-seal ⇒ **a dissenting operator BLOCKS the control transfer instead of raising an alarm.** Dissent becomes a veto with teeth. **NO QUORUM IS INVENTED** — it is the 2-of-2 Bitcoin already requires, finally load-bearing rather than decorative.** ✅ **AND DEADLOCK IS SAFE, WHICH IS WHY THIS DOES NOT REINTRODUCE DoS: if the two halves never agree, LPs still hold a dead-man exit presigned by the image they trusted at open (§E156 arms it from block zero). Permanent disagreement ⇒ LPs EXIT; it does not freeze funds.** 🔑 **⇒ THE SEGREGATION IS A CONSTRUCTION ARTIFACT *AGAINST MISBEHAVIOUR* (sealing covers that) AND A REAL TRUST BOUNDARY *AGAINST UPGRADE AUTHORITY*. Same mechanism, different deployment — one process vs two operators.** ▶️ **NEXT: (1) separate the vault-half and hop-half signers into independently-operated enclaves (`deadman_exit.rs` currently derives BOTH from one process: *"same process, Option B"*); (2) keep the whitelist TIMELOCK ≥ dead-man CLTV delta, but it is now the FALLBACK behind the 2-of-2, not the primary defence.** ⚠️ **COST NOT YET PRICED: two operators means two hosts, two attestations, and a co-signing round trip on every channel op — measure the latency before committing.** | 🔴🔴 sealing ≠ upgrade authority; one process = unilateral control transfer; fix is two operators, not a quorum |
+
+### E2-1 — mint at the mark. ✅ LANDED 2026-08-10 (entry only).
+
+`Basket._finishMint` minted `normalized` 1:1 even while the redeem mark
+`min($1, solvent/matureSupply)` (`BasketLib:847`) was BELOW par, so a new depositor received shares
+already worth less than they paid and their backing lifted the mark for the incumbents. Fixed by
+issuing at the mark — `normalized*mature/total`, which is `normalized/perShare` exactly, via the
+already-imported OpenZeppelin `Math.mulDiv`; no new import, no `Core` bytes.
+Applied after BOTH `calcMintYield` call sites so the seed-`CAP` gate and `seeded` see the FINAL
+quantity — inflating after the gate is what would let `seeded` slip past `CAP`.
+
+**MEASURED** (`test/MintAtTheMark.t.sol`, shortfall built from a vested seed bond, mark 0.918981):
+paid **$50,000.00** → claim **$49,999.999999**. Under the 1:1 mint the same shares were worth
+**~$45,950** — a **$4,050 entry haircut** on a shortfall the depositor had no part in creating.
+
+⚠️ **STRICT NO-OP WHILE THE BASKET IS WHOLE** (`total >= mature` ⇒ mark is par ⇒ identity). Full
+suite is **4,183 / 1 both with and without it** — that is the CONTROL, not evidence it does nothing;
+the branch is simply unreachable in a healthy basket, which is why the suite never caught the defect
+and why the regime had to be constructed on purpose.
+
+### E2-seniority — a mint is NOT mark-neutral, and #1 does not make it so. 🔴 OPEN.
+
+I predicted entry-at-the-mark would leave `perShare` INVARIANT across a mint (the 4626 property).
+**Measured: it does not, and it cannot.** The mark still rose **0.918981 → 0.957571** on a $50k
+deposit, because `normalized` carries the forward-yield bonus, which is **IMMATURE at mint** and
+joins `matureSupply` only when it vests: the depositor's backing lands NOW while part of their claim
+counts LATER. The rise **reverses when that bonus vests** — which is exactly the owner's original
+complaint (a holder taking a haircut for someone else's future-dated mint), now localised.
+⇒ **Entry pricing and the VESTING SCHEDULE are separate axes.** #1 closes the first. The second needs
+a vintage-aware answer, and `Basket.sol:332-340` is the design statement to argue with: it says the
+"SHARED solvency haircut is exactly what absorbs the over-mint … nobody is time-pro-rated." That is
+the deliberate choice to overturn, not a bug to patch. **NOT VALIDATED against the owner's edge cases
+(two-minter; shortest-tenor with unearned own bonus; yield collapse)** — do that before designing.
