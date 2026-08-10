@@ -9911,3 +9911,31 @@ the min actually selects during the §E71 split** — the target climbed ~8,100 
 looks fast-leg-like. If the min is the FAST leg, pricing off the SLOW leg alone may deliver most of
 the property with no new state. **Measure before designing.** Acceptance: §E71's consolidation
 discount → ~0 bps with BOTH legs still asserting skew > 0 (the control is already in the test).
+
+### ⛔ UNIT-B-SLOWLEG — the "price off the slow leg" shortcut is REFUTED, and the slow register may not be slow. 2026-08-10.
+
+**Refutes my own §UNIT-B-DECISION experiment before it was run** (read, not measured — see the caveat):
+
+`Core._bumpFlow` (`:233`) bumps BOTH registers with the same `usd6` through `_bumpEwma` (`:226`).
+`_bumpEwma` decays the stored value with **`_decayed(f)` == `_decayedBy(f, 1)` — the FAST rate — for
+BOTH registers.** `FLOW_SLOW_N` is applied ONLY on the read, in `flowEwmaUsd` (`:249-252`).
+
+1. ⛔ **THE SHORTCUT IS DEAD.** The slow register decays LESS between bumps ⇒ it is the LARGER of the
+   two ⇒ `min(fast, slow)` is ALREADY selecting the FAST leg. Pricing off the slow leg would RAISE
+   the target and make the consolidation discount WORSE. The docblock says as much and I missed it:
+   *"the slow leg acts only as a CEILING"* (`:194-196`). ⇒ **§UNIT-B needs a genuine LAG (a stored
+   snapshot of the target as of `now − window`), not a re-read of an existing register. Not free.**
+2. 🔴 **AND THE SLOW REGISTER MAY NOT HAVE ITS ADVERTISED HALF-LIFE.** `:188` claims the slow leg is
+   *"decayed at 1/`FLOW_SLOW_N` the rate ⇒ an N× longer half-life"* (48h × 7 ≈ 14 days). But because
+   every BUMP decays its history at the FAST rate, the longer memory exists only in the trailing gap
+   since the last bump — **not across accumulation.** Under steady flow the two registers would then
+   hold near-identical values and the `min` would be a near-no-op, which would also explain why
+   §E71's target tracked the split so closely (~8,100 per 10,000 ticket).
+   ⚠️ **THIS IS A CODE READING, NOT A MEASUREMENT — DO NOT ACT ON IT UNVERIFIED.** The `min` is a
+   documented manipulation defence (`:249`: *"lifting this number requires sustaining fake flow
+   across the SLOW window"*); if the slow leg is not actually slow, that defence is weaker than
+   stated, which is a SECURITY-adjacent claim and must be measured before it is believed or fixed.
+   🔬 Cheap decisive test: bump once, warp a long gap, bump again, and compare the two registers'
+   contributions — a true 14-day leg must retain visibly more of the first bump than the 48h leg.
+   Expose them via a test-only read or infer from `flowEwmaUsd` across a controlled gap; do NOT add
+   a view to `Core` (28 bytes of EIP-170 margin left).
