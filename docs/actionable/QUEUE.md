@@ -9758,3 +9758,31 @@ never built, since §UNIT-B-BLOCKS-C shows a round-tripper harvests exactly this
 | **E158-no-crypto-fix-for-LN** | 🎯 **secp256k1 CANNOT FIX `settleSwapIn`, AND THE REASON IS STRUCTURAL — NOT A MISSING LIBRARY (owner asked *"can we fix any of this with secp256k1?"*, 2026-08-10).** ✅ **VERIFIED: the HOP issues the swap-in invoice — `quid-bridge/src/swap_in_api.rs:4-7`, `SwapInInvoicer` returns `{invoice, payment_hash}` ⇒ **the hop generates the preimage and knows it from the start.**** ⛔ **BOTH CRYPTOGRAPHIC ROUTES FAIL, and they look like they should work: ① REQUIRING THE PREIMAGE proves nothing — `sha256(preimage) == paymentHash` would show the HTLC was fulfilled, except the hop CREATED the preimage, so the check passes for a payment that never happened. ② REQUIRING THE SELLER'S SIGNATURE fails to SELF-DEALING — the hop fabricates a seller address it controls and signs as that seller. **Any signature scheme has this hole, because the hop controls BOTH SIDES of a fabrication.**** 🔑 **THE FACT TO BE PROVEN — *"sats arrived over Lightning"* — LEAVES NO ON-CHAIN TRACE, and the only artifact is one the hop manufactures. **No signature can prove a negative-space event.** A limit of the setting, not of the toolchain.** ✅ **SO THE SPLIT IS: SPV for the on-chain path, ECONOMICS for the Lightning residue. (a) The on-chain (Design-A) deposit IS a Bitcoin tx — SPV-prove it exactly as `openChannel` proves funding, reusing `SPVGateway`/`checkTxInclusion` already wired into this contract; hop discretion on that path goes to ZERO. (b) The Lightning residue can only be BOUNDED: cap what a hop may attest against its OWN locked sats, so fabrication costs more than it gains.** ▶️ **AND WHERE secp256k1 IS THE RIGHT TOOL: §E128 — verifying the dead-man exit's Schnorr signature. A real signature over a real tx, which is what `MuSig2Agg`'s primitives were built for. §E140-r unblocks it (`BitcoinTx` cannot parse a witness at all; `TxParser` can).** | 🎯 no signature can prove an LN receipt — hop makes the preimage; SPV the on-chain path, bound the rest |
 
 | **E159-prove-onchain-swapin** | 🎯 **THE ON-CHAIN SWAP-IN RAIL IS ALREADY STRUCTURED TO BE PROVABLE — ONLY THE ON-CHAIN CHECK IS MISSING (owner: *"hop's discretion disappears: do this"*, 2026-08-10).** ⛔ **FIRST, A CORRECTION I MADE AND THE OWNER CAUGHT: I wrote *"swap-in is always hop-issued-invoice"*. **FALSE — THERE ARE TWO RAILS**: the seller sends to a normal Bitcoin address (on-chain, Design-A) OR pays our Lightning invoice. My 'control' grep only asked WHO ISSUES THE LN INVOICE and I generalised its answer across both rails — **a control that measured the wrong thing still reads like a control.**** ✅ **VERIFIED STRUCTURE (`quid-bridge/src/swap_in_onchain.rs:53-67`): `swap_index` is the *"BIP32 child index of the per-swap deposit key (`m/70'/swap_index'`)"* ⇒ **the deposit address is DETERMINISTICALLY DERIVED, not arbitrary**; it carries `user_refund` (x-only) + `cltv_height` ⇒ a taproot output with a key path (hop claims) and a **CLTV REFUND LEAF** for the user — a submarine-swap HTLC on-chain. `swap_id` doubles as *"the `settleSwapIn` payment-hash"*, so BOTH rails funnel through the ONE unproven settle (`:1341`).** 🔑 **THIS RESOLVES THE DESIGN CRUX THAT BLOCKED ME: the worry was that a hop could SPV-prove payment to ANY script (including its own) and collect USD for BTC that never entered protocol custody. **Because the deposit key is derived at a known path with a known script tree, the contract can RECOMPUTE the output key and check the proof lands on the right address.**** ▶️ **THE BUILD: recompute `Q_deposit` (same taproot machinery as `MuSig2Agg.computeOutputKey`, extended from an EMPTY merkle root to a SINGLE-LEAF tree for the CLTV refund) → SPV-prove a tx paying ≥ sats to `0x5120||Q_deposit` (reuses `SPVGateway`/`checkTxInclusion`) → credit the seller. **Hop discretion on this rail → ZERO.**** ⚠️ **THE LIGHTNING RAIL KEEPS THE ATTESTATION — no signature scheme fixes it (§E158-no-crypto-fix-for-LN: the hop is payee AND attester, and can play both sides) — and gets the PER-HOP ECONOMIC BOUND instead.** | 🎯 deposit key is BIP32-derived + script-known ⇒ contract can recompute and SPV-prove it; LN rail bounded instead |
+
+### UNIT-B-DECISION — the discount is a SEMANTICS choice, not a coding error. Settle it before writing code. 🎯 2026-08-10.
+
+Refines §UNIT-B-MECHANISM with two facts that change what the fix IS. Both are read off the same run,
+no new measurement needed:
+
+1. **THE RAMP IS ENTIRELY THE LEGS' OWN FLOW.** Split: target +$87,262 across 11 prior tickets of
+   $10,000 (~$8,100 of target per $10,000 of flow). Big: +$117,597 from one $120,000 bump. **No
+   external flow exists in this test**, so none of the climb is the estimator learning about the
+   market — it is the drain measuring itself.
+2. **EVERY SWAP IS ALREADY PRICED BEFORE ITS OWN BUMP LANDS** (`t0` pre-drain 380,432 vs `t1` post
+   498,029). ⇒ The splitter is NOT charged for its own ticket. It is charged for its
+   **PREDECESSORS'**. The whale simply has no predecessors.
+
+⇒ **SO THE QUESTION IS NOT "WHY IS THE INTEGRAL WRONG" — IT IS "MAY THE TARGET INCLUDE THE PRICING
+ENTITY'S OWN EARLIER FLOW?"** The two defensible answers conflict and CANNOT both be had:
+  • **Estimator-correct:** by ticket 5, $40,000 of flow really has arrived recently. A causal EWMA
+    SHOULD have risen. On this reading the splitter is priced correctly and **the WHALE is the one
+    underpriced** — it converts 120,000 while the target still reflects a quieter market.
+  • **Path-independent:** required by §UNIT-B-BLOCKS-C before any signed/two-sided curve, since a
+    round-tripper harvests exactly this residual once a leg can PAY. On this reading the split is
+    overcharged and the target must be frozen across the path.
+⚠️ **NOTE THE DIRECTION REVERSES DEPENDING ON WHICH IS ADOPTED** — one says the whale underpays, the
+other says the splitter overpays, and they name the SAME 13.71%. Any fix that does not first state
+which semantics it is enforcing will look correct and be arbitrary.
+▶️ **DO NOT PICK BY INTUITION — §UNIT-C-BAR DECIDES IT.** If the signed curve is never built,
+path-independence is not required and (c) accept-and-damp is legitimate. If it IS built, the
+estimator reading is unaffordable regardless of how right it looks in isolation.
