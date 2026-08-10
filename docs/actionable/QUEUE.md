@@ -10265,3 +10265,38 @@ load-bearing on what landed today.**
    ⚠️ This is exactly the §UNIT-A "arms dead code" hazard `analyse-findings-jointly-not-serially`
    warns about: fixing the target made a never-executed branch live. I landed §UNIT-A without
    checking its downstream consumers.
+
+### 🎯🎯🎯 SKEW-SYNTHESIS-2026-08-10 — the design answer is ALREADY IN THE RECORD, and §E83 is the common gate.
+
+**Fourth consecutive re-read to overturn the plan. Do not plan from the marker column (§UNIT-A still
+reads 🔴🔴🔴 after landing); read bodies.**
+
+1. ⛔ **"DELETE THE SKEW" REPEATS A DOCUMENTED PRIOR ERROR — the owner rejected it and §UNIT-BOUND-NOT
+   -DELETE says why in the project's own history.** The 2026-07-22 decision said **BOUND** the refill
+   bonus (`BUILD-QUEUE:487`, `:463`), twice, and never said delete. `:675` shipped *"payRefillBonus
+   REMOVAL"* — entire. §E6 then restated it as the first-principles rule *"do not build a refill that
+   earns a spread"*, **which reads as a derivation but is DOWNSTREAM of an implementation that had
+   already exceeded its mandate — a principle inferred from an overshoot.**
+   ⇒ **My §SKEW-PRIORITY line "the honest move is to price DELETING the skew" is THE SAME SHAPE:** a
+   magnitude measured under a known defect (§UNIT-SKEW-IS-NOISE predates §UNIT-A) promoted to a design
+   principle. **RETRACTED.** The measurement to run is materiality post-§UNIT-A; deletion is not on
+   the table as a default.
+
+2. ✅ **THE FORM THE RECORD ASKED FOR ALREADY EXISTS: ASYMMETRIC TWO-SIDED.** Drain pays `S_out`;
+   refill receives `S_in` with **`S_in < S_out` ENFORCED**; the LP keeps the margin. **SHARE the skew,
+   do not surrender it.** ⇒ This also **dissolves §UNIT-VENUE-CEILING**, which bites only on a
+   SYMMETRIC mirror: at `S_in = S_out` the arber competes the whole premium away and the LP nets zero;
+   with `S_in` bounded strictly below, the arber's profit is capped at what the DRAINER paid, the LP
+   retains a positive margin, and the imbalance still closes. **The BOUND is what makes external
+   participation non-toxic — exactly what `:487` said.**
+
+3. 🎯 **THE ONE MISSING INPUT IS §E83's CENSORED DURATION, AND IT GATES THREE THINGS AT ONCE.**
+   §UNIT-VENUE-CEILING states the trade-off correctly: **ONE-SIDED = LP KEEPS the premium and BEARS
+   the LVR of a persistent imbalance; TWO-SIDED = LP SURRENDERS the premium to an arber and AVOIDS the
+   LVR.** Which wins is measurable — the premium funds **~527s of LVR at 60%/yr** (`8P/V` = 6.027e-6,
+   σ²-free, so it survives the fork's wrong volatility). **If imbalances persist materially longer
+   than ~527s, paying to close them wins; if they clear faster, keeping the premium wins.**
+   ⇒ Needs **§E83's Kaplan–Meier censored duration, NOT a mean over completed imbalances** — the same
+   input §UNIT-B needs. ⇒ **§E83 is the common gate for §UNIT-B, §UNIT-VENUE-CEILING and the
+   two-sided decision.** It is a MEASUREMENT, not a design argument, and nothing above resolves
+   without it.
