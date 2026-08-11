@@ -11333,3 +11333,36 @@ this same ratio. **§E125, §E131's `8P/V`/T*, §E108 and §UNIT-LP-EXIT all inh
 are all understated by the same factor.**
 📌 Note the two numbers that ARE solid here regardless: the counter matches the swapper's loss to
 0.007% (§UNIT-B-VERIFIED), and the total cost is 4.34 bps of notional.
+
+### 🔴🔴 UNIT-A-FIXTURE-BUILT — the tick driver works (2.8×) and is still ~50× short. **The limit is STRUCTURAL: no exogenous price.**
+
+**Built `_driveTick(rounds)` + `test_UNITA_FixtureDrivesRealVariance` (`DrainAtomicity.t.sol`):
+alternating in-range buys/sells with varying size at 90s spacing, so the tick moves BOTH ways and
+the ring stores real second differences instead of a straight line.**
+| | σ² (wad) | annualized vol |
+|---|---|---|
+| before | 2.458e-5 | **0.50%** |
+| after 20 alternating swaps | **7.002e-5** | **0.83%** |
+✅ It DOES move the ring — 2.8× — so the driver is correct in kind. ⛔ **But 0.83% against ETH's real
+30–60% is still ~50× SHORT, and trading harder will not close it.**
+
+🔴 **WHY — AND THIS IS THE FINDING, NOT THE FIXTURE'S FAULT:**
+1. **The band is ±0.2% wide** (`BAND_DELTA = 20` bps) and executes AT oracle, so an in-range swap can
+   only jitter the tick INSIDE 20 bps. The tick's excursion is bounded by the band, not by the market.
+2. **There is NO EXOGENOUS PRICE PROCESS in this fixture.** ETH has **no feed pinned**
+   (`assetPriceFeed(WETH) == 0`, §ORACLE-FREE-MEASURED), so "oracle" IS the pool TWAP — **the price is
+   whatever our own swaps make it.** A self-referential price cannot produce market volatility.
+⇒ **σ² AS MEASURED IS THE BAND'S INTERNAL JITTER, NOT THE MARKET'S VOLATILITY.** Every σ²-derived
+figure in this repo (§E125, §E131's `8P/V`/T*, §E108, §UNIT-LP-EXIT, §UNIT-SKEW-IS-NOISE's share of
+the bill) inherits that.
+▶️ **WHAT A REAL FIXTURE NEEDS — it must supply the price path, not trade harder:**
+   (a) push price OUT of band repeatedly so **reseats walk the band** (§UNIT-A-FIXTURE named reseats
+       alongside in-range trades and I under-weighted them), or
+   (b) pin a real ETH feed and MOVE it, so reseats follow an exogenous path, or
+   (c) drive the REFERENCE pool's tick, which the band reads through `twapBody`.
+⚠️ **AND ONE QUESTION THIS RAISES THAT OUTRANKS THE FIXTURE — DO NOT ANSWER IT BY REASONING:**
+adverse selection is priced against MARKET volatility, but this σ² is computed from OUR OWN band's
+tick. **If the band pins price to oracle, can this input ever track market vol — or is the skew's
+steepness driven by a quantity structurally decoupled from the risk it prices?** Settle it by
+building (b) and comparing σ² against the feed's realised vol over the same window. **NOT by argument
+— five causes died that way today.**

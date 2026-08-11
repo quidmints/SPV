@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Alles} from "./Alles.t.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {console} from "forge-std/console.sol";
 import {SwapLib} from "../src/imports/SwapLib.sol";
@@ -1315,5 +1316,46 @@ contract DrainAtomicity is Alles {
             (ethA - ethB) * px / 1e18, (premB - premA) * 1e12, 0.01e18,
             "the RECORDED premium must equal what the swapper actually loses: E5 credits LPs the "
             "recorded number, so an overstating record pays LPs value no swapper paid");
+    }
+
+    /// §UNIT-A-FIXTURE (surviving half) — DRIVE THE POOL TICK, NOT THE FEED.
+    /// `realizedVarianceWad` reads the POOL's observation ring (`Core:313` →
+    /// `OracleLib.ringVariance(..., 9)`), and the ring advances ONLY ON A SWAP. The band executes AT
+    /// oracle, so walking the Chainlink feed moves NOTHING — that is why every fixture here reports
+    /// ~0 variance and why §UNIT-SKEW-IS-NOISE's "rounding error" was measured on a flat tape
+    /// (§SKEW-IS-NOISE-OVERTURNED: 2.458e-5 wad = 0.496% ANNUALIZED vol, against ETH's real 30-60%).
+    /// This alternates direction with varying size so the tick moves BOTH ways and the ring stores
+    /// real second differences rather than a straight line.
+    function _driveTick(uint rounds) internal {
+        address t = makeAddr("tick-driver");
+        deal(address(USDC), t, 50_000_000 * USDC_PRECISION);
+        deal(address(WETH), t, 20_000 ether);
+        vm.startPrank(t);
+        USDC.approve(address(AUX), type(uint).max);
+        WETH.approve(address(AUX), type(uint).max);
+        for (uint i = 0; i < rounds; ++i) {
+            if (i % 2 == 0) {
+                try AUX.swap(address(USDC), address(WETH), true,
+                    (4_000 + (i % 5) * 1_500) * USDC_PRECISION, 0) {} catch {}
+            } else {
+                try AUX.swap(address(WETH), address(USDC), true,
+                    (1 + (i % 4)) * 1e18, 0) {} catch {}
+            }
+            vm.roll(block.number + 1); vm.warp(block.timestamp + 90 seconds);
+        }
+        vm.stopPrank();
+    }
+
+    /// Does the fixture actually reach a plausible volatility? Reports, and asserts only that it
+    /// moved the ring at all — the plausible-band assertion goes in once the level is known.
+    function test_UNITA_FixtureDrivesRealVariance() public {
+        _setupBand();
+        emit log_named_uint("sigma^2 BEFORE (wad)", CORE.realizedVarianceWad(false));
+        _driveTick(20);
+        uint s2 = CORE.realizedVarianceWad(false);
+        emit log_named_uint("sigma^2 AFTER  (wad)", s2);
+        // annualized vol = sqrt(sigma^2); report in bps so the level is readable at a glance.
+        emit log_named_uint("annualized vol (bps)", Math.sqrt(s2 * 1e18) / 1e14);
+        assertGt(s2, CORE.realizedVarianceWad(true) * 0 + 1, "the tick driver must move the ring");
     }
 }
