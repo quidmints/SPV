@@ -11194,3 +11194,30 @@ assert the incumbent's QU!D balance is identical pre-redeem in both.
 ⚠️ **AND DO THE SAME FOR §E42** — it is still Tier-2 only (`redeemableAmount()`, whose subtrahend my
 own fix writes into). **A real redeemer's balance delta across a pure-BTC trading window is the
 honest check, and §E2 has now shown twice that Tier-2 and Tier-1 disagree.**
+
+### ⏸️ E2-VEST-BOUNDARY — **PARKED 2026-08-10 by the owner: they have a better solution. DO NOT BUILD THE HAIRCUT.**
+
+**Owner: *"we'll get back to e2-vest-boundary because i think there is an even better solution."*
+⇒ ⏸️, not 🎯. The vest-boundary haircut is a CANDIDATE that has been SUPERSEDED-PENDING, and building
+it now would be wasted work against a design decision the owner has not made.**
+
+📌 **THE PROBLEM STATEMENT IS SETTLED AND SHOULD SURVIVE WHATEVER REPLACES THE SOLUTION** — record it
+so the next thread does not re-derive it:
+- **Scenario (owner's, exact):** two minters, nobody else. **A mints at 1 month, B at 12–13 months.**
+  B's projected-yield bonus is minted **NOW**, so supply exceeds dollars from day one.
+- **A is protected only TEMPORALLY.** `matureSupply` excludes B's bonus while unvested
+  (`Basket.sol:148-153`), so A redeems at par — **MEASURED: A receives $99,999.999998 on $100,000**
+  (`test_E2_DayOne_ImmediateRedeemerGetsPar`, real balance deltas). **This is pre-existing seniority,
+  NOT anything landed today.**
+- 🔴 **THE UNRESOLVED DISCREPANCY: at month 12–13 B vests and A eats the projection error.**
+  Deferral, not protection. **§E2-#1 (entry at the mark) does NOT address this** — it prices entry
+  into an ALREADY-short basket and has nothing to say about B's supply.
+- ⚠️ **CONSTRAINT ANY SOLUTION MUST RESPECT:** vintages are separable ONLY while immature (distinct
+  ERC-6909 ids). **After vesting it is one fungible mark and two holders of the same token cannot be
+  paid differently.** So discrimination is expressible only BEFORE maturity.
+- ⚠️ **AND `Basket.sol:332-340` IS THE DESIGN DECISION TO ARGUE WITH, NOT A BUG:** *"the whole mature
+  pool marks to real backing … nobody is time-pro-rated."*
+- 📌 **Why the owner's earlier objection to option #3 does NOT transfer to the vest boundary:** #3
+  fails at MINT because the yield must be projected; at VEST it is REALISED and known. Whatever
+  replaces this should be checked against that same distinction.
+▶️ **OWNER IS RUNNING THE TEST.** Do not re-run or pre-empt it.
