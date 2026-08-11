@@ -457,29 +457,19 @@ library VaultLib {
         if (weethIn > bal) weethIn = bal;
         uint covered = (weethFull == 0 || weethIn == weethFull)
             ? amount : FullMath.mulDiv(amount, weethIn, weethFull);
-        // RUNG 1 — v3 pool (only if Aux holds weETH). The cheap tier is tried FIRST; see below.
-        // TIER ORDER: pool B (0.01%) is tried BEFORE pool A (0.05%). MEASURED 2026-08-06 against live
-        // mainnet (Quoter v1, vs getEETHByWeETH fair), weETH→WETH:
-        //     size      0.01%      0.05%
-        //        1    −17.55     −25.74
-        //      100    −18.79     −26.19
-        //     1000    −28.16     −30.26
-        //     2000   −679.33     −34.79   ← B runs out of WETH
-        // B is ~8 bps cheaper up to ~1k weETH and CLIFFS beyond it. The old order (A first) took the
-        // expensive tier on every fill that cleared the floor, so B was effectively unreachable and
-        // ~8bps was left on the table on every small offramp — where most flow lives. Safe because the
-        // 0.5% floor below is measured against FAIR: a −679 bps B fill cannot clear it, so it reverts
-        // and falls through to A. Do not loosen that floor without re-deriving this ordering.
+        // RUNG 1 — CURVE `weETH/WETH-ng` (only if this contract holds weETH). Replaced a two-tier
+        // Uniswap v3 loop 2026-08-09. Measured live against the weETH/WETH oracle, Curve vs the 0.01%
+        // v3 tier: −1.39 vs −17.55 bps @1, −1.51 vs −18.79 @100, −3.47 vs −28.16 @1000. ~17–25 bps
+        // better at every realistic size, so there is no tier to choose between and no ordering to get
+        // wrong. Both venues cliff near 2,000 weETH, where Curve's 2,047 WETH runs out — and THAT is the
+        // only case rung 2 now exists for.
+        // The 0.5%-of-FAIR floor is retained deliberately: at −1.4 bps typical, a fill that misses it by
+        // this margin means the pool has been drained, which is exactly the cliff.
         if (weethIn > 0) {
-            uint24[2] memory fees = [c.poolFee2, c.poolFee];   // CHEAP TIER FIRST
-            for (uint i; i < 2; i++) {
-                if (fees[i] == 0) continue;
-                try IV3SwapRouter(c.v3router).exactInput(IV3SwapRouter.ExactInputParams({
-                    path: abi.encodePacked(c.weeth, fees[i], c.weth),
-                    recipient: recipient, amountIn: weethIn,
-                    amountOutMinimum: (covered * 995) / 1000   // 0.5% slippage cap
-                })) returns (uint) { return covered; }
-                catch {}
+            uint got = SwapLib.curveSellWeeth(c, weethIn, (covered * 995) / 1000);
+            if (got > 0) {
+                IERC20(c.weth).transfer(recipient, got);   // Curve pays msg.sender; deliver onward
+                return covered;
             }
         }
         // TWO RUNGS REMOVED 2026-08-05/06, both because they could never fill:

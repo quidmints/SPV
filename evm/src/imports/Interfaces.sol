@@ -65,6 +65,14 @@ interface IVogue {
     function pendingRewards(address user) external view returns (uint ethReward, uint usdReward);
 }
 
+/// Curve `weETH/WETH-ng` (0xdb74dfdd…). ⚠️ THE `int128` SIGNATURE IS THE ONE THIS POOL ANSWERS — the
+/// uint256 `-ng` variant REVERTS on it (verified live 2026-08-09). coin0 = WETH, coin1 = weETH.
+interface ICurvePool {
+    function exchange(int128 i, int128 j, uint256 dx, uint256 min_dy) external returns (uint256);
+    function get_dy(int128 i, int128 j, uint256 dx) external view returns (uint256);
+    function coins(uint256 i) external view returns (address);
+}
+
 /// Canonical ether.fi LiquidityPool view — was `SwapLib::ILiq_L`.
 interface IEtherFiLiquidityPool { function requestWithdraw(address r, uint a) external returns (uint); }
 

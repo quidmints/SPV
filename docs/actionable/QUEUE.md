@@ -7595,7 +7595,10 @@ so the offramp gate becomes `LP.pooled > 0`, the pro-rata slice becomes the whol
 decrement and `delete` drop.
 
 
-### ⚠️ LIVE DEFECT ON MAIN: rung 4 retains principal. Owner chose to fix it by landing the borrow leg.
+### ✅ RESOLVED 2026-08-09 BY OPTION 1, NOT OPTION 2. `waitNft` mints to the WITHDRAWER again
+### (`VaultLib:534` `requestWithdraw(recipient, eeth)`), so no principal is retained. The borrow leg —
+### the chosen fix below — was later DROPPED on cost grounds, so this had to stop depending on it.
+### ~~LIVE DEFECT ON MAIN: rung 4 retains principal; owner chose to fix it by landing the borrow leg~~
 
 `waitNft` mints the withdrawal NFT to `address(this)` (the protocol), not the withdrawer. That change
 was made 2026-08-06 and was EXPLICITLY COUPLED to the borrow leg existing — the protocol takes the
@@ -9234,7 +9237,8 @@ before treating the venues as deploy-ready; the hold is lifted on the DEFECT, no
 | **UNIT-BASELINE+CLEAN** | 🧹 **BASELINE ESTABLISHED AND RESIDUE REMOVED, BEFORE §UNIT-A TOUCHES A MONEY PATH (2026-08-06).** ✅ **BASELINE, ONE CAPTURED RUN (815 s): **4,048 tests · 4,046 passed · 2 FAILED** — `test_E97_SellLegTaxOnOrdinaryFlow` and `testRoundTripNoRaceNoDrain`. **NEITHER IS MINE** (my only edits were new tests in my own file), so they are pre-existing or the other thread's. **That is the known state §UNIT-A must be attributed against — any THIRD failure after it lands is the change.**** 🧹 **RESIDUE DROPPED — two fixtures that never produced a valid number, per the standing "no tooling for one-off deliverables": • **`test_UNIT_PoolVarianceVsChainlinkVariance`** — the Chainlink estimator port, **THREE scaling attempts, all wrong** (§UNIT-SERIES-RATIO-VOID, §UNIT-SERIES-STOP). It never yielded a comparable number and would read as a working instrument to the next thread. • **`test_UNIT_HowOftenDoesChainlinkCrossTheDeadband`** — per-round crossings, **SUPERSEDED** by `test_UNIT_HowLongUntilTheDeadbandOpens`, which measures the CUMULATIVE gate `twapResolve` actually uses. **The per-round version answered a question the code does not ask.** ⇒ 10 → 8 tests.** ✅ **WHAT SURVIVES, AND WHY EACH EARNS ITS PLACE: `test_E131_...` (adequacy, σ²-invariant) · `..._LpExitAcrossImbalance...` (exposure transfer, balance-delta measured) · `..._PremiumRecordedEqualsPremiumPaid` (the recorded-vs-borne reconciliation, §UNIT-B-VERIFIED's open 1000× gap) · `..._FixtureProducesRealisticVariance` (its INCONCLUSIVE guard is the only reason 36 bps was never published) · `..._BacktestV3TickVarianceVsChainlink` (the REAL v3 reference, 2.52e-3) · `..._HowLongUntilTheDeadbandOpens` (0/118 crossings) · `..._RepegCadenceByThreshold` (the 25–500 bps table) · `..._DoesCrossingTheDeadbandPopulateTheRing` (σ² 0→4.09 with `wellSkew` still 0).** ⚠️ **VERIFICATION OF THE DELETION ITSELF WAS RATE-LIMITED (HTTP 429 from publicnode, immediately after the 815 s full run) — the change is two PURE REMOVALS, but say so rather than imply a green re-run.** | 🧹 baseline 4046/2; two void fixtures dropped; deletion re-run rate-limited |
 
 
-### ▶️ BORROW LEG — fully specified EXCEPT the caller gate. One decision, then it is mechanical.
+### ⛔ WILL-NOT-DO — superseded by Curve (~1.4–3.5 bps leaves nothing worth borrowing to avoid).
+### ~~BORROW LEG — fully specified EXCEPT the caller gate~~ (design record only)
 
 Everything else is settled: **bytes** (forwarder in `LevManager` ~100 free, body in `LevMath` 439),
 **design** (position-free — never `pos[]`/`_openLps`, or the levered net-equity syncs back into the band
@@ -9319,7 +9323,7 @@ stays, its trigger becomes availability instead of governance, and the deploy ga
 
 | **UNIT-A-ROOT-WITHDRAWN** | ⛔⛔⛔ **§UNIT-A-ROOT IS WITHDRAWN — I RE-MADE §E83's ARGUMENT AND §E84 ALREADY REFUTED IT. THE POLE IS NOT DECORATION; IT PRICES A THIRD COST (2026-08-06).** ⛔ **§E84, VERBATIM: *"WHAT E83 GOT WRONG: I collapsed THREE distinct costs into two and concluded the `q/(1−q)` barrier 'may be decoration'. **It is not.** Adverse selection prices being PICKED OFF; **the pole at q→1 prices RUNNING OUT — an inability-to-OPERATE cost that an LVR term is completely blind to.** A flat `σ²·Δt` charge sells the LAST unit at the same rate as the first and then the band is empty: **that is exactly the 'one trade converts the whole band' leak the owner identified at the outset. Removing the barrier REOPENS it.**"* ⇒ **MY *"A–S has no pole, therefore remove it"* IS §E83's ARGUMENT, RE-MADE ALMOST VERBATIM, ONE DAY AFTER IT WAS REFUTED.** §UNIT-RECOVERED's lesson, recurring: **read the decision before undoing it — and I even BOOKED that as §UNIT-A-ROOT's own check-before-landing item, then continued without doing it.**** 🔑 **THE THREE COSTS, WHICH IS WHY LINEAR CANNOT SUFFICE: **(1) ADVERSE SELECTION** — being picked off ⇒ priced by `σ²·confFrac/8` (the base). **(2) INVENTORY RISK** — holding a skewed position ⇒ A–S's LINEAR `q·γ·σ²`. **(3) DEPLETION** — RUNNING OUT, an inability-to-OPERATE cost ⇒ the POLE. **A–S has no pole because A–S never runs out of inventory; a BAND DOES.** My patch priced (1) and (2) and deleted (3).** 📌 **AND THE POLE IS LOAD-BEARING FOR THE REFILL ECONOMICS: *"the `q/(1−q)` pole means deeper imbalance taxes MORE while repair cost stays roughly flat"* — that asymmetry is WHY self-refill is dominant (repair 5 bps vs a 15 bps drag). **A linear kernel flattens the tax and the dominance argument weakens with it.**** ▶️ **SO THE REAL ROOT QUESTION IS NARROWER AND STILL OPEN: the pole STAYS, so the divergence stays, so SOMETHING must bound it — and the owner has ruled out an artificial cap. **The honest reframing: "running out" costs a FINITE amount — you lose the ability to serve flow you would have served, which is bounded by `target`. The `q/(1−q)` form DIVERGES where the underlying COST DOES NOT.** ⇒ **the root fix is a depletion term that is CONVEX in q (so the last units are expensive, preserving §E84) but CONVERGENT (so nothing needs clamping). NOT linear, NOT a pole.** ⚠️ **`docs/actionable/wip/UNIT-A-ROOT-linear-kernel.patch` MUST NOT BE APPLIED — kept only as the record of a refuted attempt.** | ⛔⛔⛔ withdrawn — pole prices DEPLETION; need convex-but-convergent, not linear, not a clamp |
 
-### ⚠️ BORROW LEG — "thread the venue as a parameter" HAS NO SOURCE. One address of new state is unavoidable.
+### ⛔ WILL-NOT-DO — see the Curve entry. ~~"thread the venue as a parameter" HAS NO SOURCE~~ (design record only)
 
 The gate decision (owner: thread it, don't pin) is right for `vault` — that is exactly the
 `deleverToVault(lp, extractUsd, vault, minOut)` shape, gated on `vogueSyncHook`, no new state. **But the
@@ -9393,7 +9397,8 @@ all want surface on `LevManager`. **At 224 free, they cannot all land there** re
 is designed. That is now the binding constraint on the whole roadmap — not the venues, not the accounting.
 
 
-### ✅ THE BORROW LEG COLLAPSES — no new contract, no new entrypoint, no LevManager change. ONE accounting term.
+### ⛔ WILL-NOT-DO — the collapse was correct and is now moot; Curve removed the reason to build it.
+### ~~THE BORROW LEG COLLAPSES — no new contract, no new entrypoint~~ (design record only)
 
 Supersedes the −500/−638 measurement above. **Everything expensive there was solving problems created by
 putting the borrow in the wrong contract.**
