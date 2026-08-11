@@ -11929,3 +11929,32 @@ decaying sum over few swaps is jumpy where a variance is smooth. **Unmeasured.**
 | id | state |
 |---|---|
 | **E177-f** | ✅ **WIRED — §E177 IS NOW LIVE, NOT MERELY BUILT.** `QuidKeysManager` gained `with_truth_factory(factory, role)` and **BOTH** `derive_channel_signer` and `derive_taproot_channel_signer` route through `attach_truth`. 🔑 **THE COMPOSITION THAT MAKES IT WORK:** `TruthSourceFactory::for_channel` returns a source **UNCONDITIONALLY, never an `Option`** — at derive time the on-chain `channelId` is usually unknown (it needs a funding outpoint that does not exist yet), and a signer born WITHOUT a comparand can never acquire one (`set_truth_source` is write-once and LDK owns the signer from then on). So the source is always attached and resolves the cid **LAZILY** via `CidRegistry` (`channel_keys_id → channelId`, the daemon already derives the latter through `onchain_cid_from_monitor`). **An unresolved cid IS `NotRecorded`** — which composes exactly with §E177-e: permissive while the channel opens, and one-way the moment the chain first answers, so the registry cannot be used to downgrade a channel already seen. ⚠️ `CidRegistry::bind` is **idempotent but never re-bindable** — the cid selects WHICH on-chain channel a signer is checked against, so a movable binding would let the node choose its own referee. 🔴 **THE CONTROL THAT MATTERS, AND IT IS MUTATION-TESTED:** `both_derive_paths_attach_a_comparand`. ECDSA and taproot signers come from SEPARATE LDK entrypoints and **a simple-taproot channel — what this protocol negotiates — uses the TAPROOT one**, so attaching on only the ECDSA path would leave exactly the protected channels unprotected with the whole suite still green. ⚠️ **Its first version wrote `.unwrap_or(true)` on the source read and would have PASSED on any machine where the read failed — asserting nothing.** Now the read is `expect`ed, the PREMISE (both methods exist) is asserted before the property, and **the assertion was verified to FAIL when `attach_truth` is removed from just the taproot path**. **Workspace 648 passed / 0 failed · ABI gate 0 drifted both sides.** ▶️ Remaining for full effect: the daemon must call `CidRegistry::bind` as channels are discovered, and a deployment must call `with_truth_factory` — until then the factory is absent and signers run §E176-C self-consistency, which is the documented `None` behaviour rather than a silent gap. |
+
+### ✅ SIGMA-REMOVE-P2-UNITS-PROVEN — the register's units are RIGHT (0.918×). The 8% residual is SAMPLING PHASE, not a base error.
+
+**The gating check from §SIGMA-REMOVE-P2-INFRA, done.** Snapshotting `realizedLossUsd` before the
+drain loop and diffing isolates the SAME interval the validated in-test trapezoid covers (`_drain`
+does not warp ⇒ no decay ⇒ the diff is exact, not approximate):
+| | value |
+|---|---|
+| on-chain DELTA over the loop | **368,258,044,992** |
+| in-test trapezoid ÷ 1e12 | **401,191,208,128** |
+| ratio | **0.918** |
+✅ **UNITS ARE CORRECT.** A decimal-base error in this repo is a factor of **1e6 or 1e12** (three bases
+coexist; §BasketLib's positional divisor shipped once and broke). **0.918 is not that.** The earlier
+1.87× reading was exactly what it looked like — `_setupBand`'s swaps included in the level but not in
+the in-test sum — and isolating the interval removed it.
+📌 **THE 8.2% RESIDUAL IS A SAMPLING-PHASE DIFFERENCE, and it is expected:** `_accrueRealizedLoss`
+runs INSIDE `_bumpFlow` (mid-swap), so it samples `POOLED_*` at that instant; the test samples
+OUTSIDE the whole `_drain` call. **Same quantity, different measurement instant.** ⚠️ Worth
+understanding before Phase 2 step 2 — if the mid-swap sample is systematically early, the register
+under-accrues by ~8% — **but it is a LEVEL bias, and the property that matters is the HISTORY GAP,
+which a constant factor cannot affect.**
+
+🔴 **WHAT IS STILL NOT MEASURED, AND IT IS THE ACTUAL ACCEPTANCE CRITERION:** the **ON-CHAIN
+register's OWN history gap.** The 1.025× was measured on the IN-TEST trapezoid. **The contract's
+version has not been compared whale-vs-split.** ▶️ One edit: capture `realizedLossUsd` deltas in BOTH
+arms and report `A/B`. **It must come back ~1.025×; if the mid-swap sampling breaks the telescoping,
+it will not, and that would refute the on-chain implementation while leaving the ESTIMATOR sound.**
+⚠️ **DO NOT SUBSTITUTE INTO `realizedVarianceWad` BEFORE THAT NUMBER EXISTS.** Units being right does
+not make the implementation right — today's ledger is nine measured against twelve reasoned.

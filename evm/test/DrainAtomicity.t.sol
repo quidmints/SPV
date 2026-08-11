@@ -1502,6 +1502,7 @@ contract DrainAtomicity is Alles {
         vm.revertToState(snap);
 
         _setupBand(); _pinFlow(380_432_109_336);
+        uint onchain0 = CORE.realizedLossUsd(false);   // isolate the SAME interval as the in-test sum
         for (uint k = 0; k < 12; ++k) {
             uint i0 = CORE.POOLED_ETH(); uint p0 = _bandPx();
             _drain(TOTAL / 12);
@@ -1520,7 +1521,11 @@ contract DrainAtomicity is Alles {
         emit log_named_uint("gap x1000 TRAPEZOID", B.trap  == 0 ? 0 : A.trap  * 1000 / B.trap);
         // ON-CHAIN register vs the in-test trapezoid: proves the CONTRACT's units before anything
         // is priced off it. The gap must match the in-test one; the LEVELS need only track.
-        emit log_named_uint("onchain loss  split", CORE.realizedLossUsd(false));
+        // UNIT PROOF: the on-chain DIFF over the drain loop must equal the in-test trapezoid
+        // rescaled usd18 -> usd6. `_drain` does not warp, so the register does not decay in between
+        // and the diff is exact rather than approximate.
+        emit log_named_uint("onchain DELTA split", CORE.realizedLossUsd(false) - onchain0);
+        emit log_named_uint("in-test /1e12 split", B.trap / 1e12);
 
         assertGt(A.trap, 0, "CONTROL: the trapezoid estimator must actually accrue");
         assertGt(B.trap, 0, "CONTROL: both arms must accrue");
