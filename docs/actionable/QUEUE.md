@@ -11125,3 +11125,33 @@ was `public` the whole time.
 | id | state |
 |---|---|
 | **E174-r** | ⛔ **BOTH §E174 CHECKS EXECUTED. Check (2) CLEARED; check (1) REFUTES "ADOPT VLS".** ✅ **(2) — MY CONCERN WAS UNFOUNDED, AND IT COST ONE GREP.** Simple-taproot support comes from the **vendored LDK fork itself** and is EXPLICITLY ENABLED: `quid-hop/src/node.rs:645` `h.negotiate_simple_taproot = true;` *("HOP+LP: simple-taproot-channels ON")*, asserted at `node.rs:1150`, with `deadman_exit.rs:79` calling `keys.derive_taproot_channel_signer(channel_keys_id)`; the fork carries `negotiate_simple_taproot` in `util/config.rs:242` (default **false** — we opt in), plus `chan_utils`/`funding.rs`/`interactivetxs`/`splicing_tests` support. ⚠️ The patch list I read was the INHERITED downstream one (quid-app lineage: onion-messenger, logging, zero-conf, monitor-sync); taproot lives in the LDK codebase, not in those patches — **absence from a changelog is not absence from the code**, the same trap as asserting absence from a grep. 🔴 **(1) — VLS DOES NOT SUPPORT TAPROOT/MuSig2 CHANNELS TODAY, SO IT CANNOT BE ADOPTED OFF THE SHELF.** [VLS's roadmap](https://vls.tech/roadmap/) lists this under *Multi-sig Lightning* as **"Pending maturity of Lightning network implementations of Taproot, Musig2 and FROST"** — and makes **no mention of simple-taproot channels or basic taproot signing at all**. The FAQ confirms CLN + LDK reference integrations but documents **no channel-type support**. Its policy code targets `EcdsaChannelSigner`; ours must be **`TaprootChannelSigner`** (§E171-r makes MuSig2 non-negotiable, and dropping taproot to fit VLS is the refused option). ⇒ **§E174's "adopt VLS's engine" is WITHDRAWN. The build is ours.** ✅ **WHAT IS STILL REUSABLE — the POLICY CATALOGUE, not the code.** VLS's audited list of *what a signer must refuse* is the valuable asset and is documentation, not ECDSA-specific. 🔑 **AND THE LEVERAGE THAT MAKES THIS SMALL: `BTCChannels` IS ALREADY THE POLICY SPECIFICATION.** It verifies splice structure, payout scripts, `btcRecipientOf` pinning and checkpoints — written, tested, on-chain. The LP signer's rule reduces to **"sign only a transaction the contract would accept as paying ME"**, so the policy is not reinvented, it is mirrored from a spec that already exists. **MINIMUM RULE SET:** (i) any non-commitment spend of the funding UTXO (close/splice) must pay `btcRecipientOf`; (ii) commitment txs must pay the LP balance to LP-controlled outputs; (iii) never sign against rolled-back state — **already covered** by the deterministic-nonce + `bind_nonce` guards and the on-chain freshness anchor (`quid-hop/src/freshness.rs`); (iv) a splice's new funding output must be the same 2-of-2 and its shrink must match the contract's record. ⇒ Scope is a narrow, auditable signer at an EXISTING seam (`QuidKeysManager` implements `SignerProvider`), not a general-purpose signer for arbitrary nodes. |
+
+### ⛔ E2-HAIRCUT-FOUND-REFUTED — the pre-deposit fix moved the HEALTHY case and left the BROKEN one identical. Causal story is WRONG.
+
+**Prediction (stated first): minted 52,486.90 → ~54,590; real-redeem `received` → ≈ `paid × m1/m0`.
+MEASURED — REFUTED ON BOTH, and it broke a passing control:**
+| test | before | after |
+|---|---|---|
+| shortfall `normalized` | 52,486.90 | **52,486.90 — IDENTICAL, to the digit** |
+| real redeem `received` | 48,293.98 | **48,293.98 — IDENTICAL** |
+| healthy no-op control | 10,000.000 (passed) | **10,028.40 — NOW FAILS** |
+**Edit:** `total -= Math.min(total, decimals < 18 ? deposited * 10**(18-decimals) : deposited);`
+immediately before the mark-up (mutating `total`, since two extra locals were stack-too-deep and
+`bufBps` had already consumed it). **REVERTED.**
+
+🔴 **WHAT THIS PROVES: `total` INSIDE `_finishMint` IS NOT POST-DEPOSIT — or the shortfall mint does
+not reach that branch at all.** Subtracting ~50,000 from a 1.3M basket MUST move a `mature/total`
+mark-up if the branch executes. **It moved the HEALTHY case (where the branch previously did NOT
+fire) and not the shortfall case (where it supposedly did) — which is backwards.**
+▶️ **NEXT, AND DO NOT PROPOSE ANOTHER CAUSE FIRST:** instrument INSIDE `_finishMint` — emit `total`,
+`mature`, `deposited` and `normalized` at entry and at the mark-up. **Every figure driving §E2-HAIRCUT
+-FOUND's arithmetic (`total_post = 1,302,000`) was RECONSTRUCTED FROM OUTSIDE and is now suspect** —
+the direct read that settled the deposit credit was never applied to `total` itself.
+⚠️ **AND CHECK WHETHER THE SHORTFALL MINT REACHES `_finishMint` AT ALL:** `Basket.sol:237-240` has an
+EARLY-RETURN path (`if (amount > 0) _mint(pledge, nextMonth, amount); return amount;`) that bypasses
+`_finishMint` entirely. If the shortfall case takes it, **§E2-#1's mark-up never runs there** and the
+whole §E2 measurement chain describes a branch the test does not execute.
+📌 **FIFTH consecutive §E2 cause proposed and refuted** (deposit credit · post-calibration path ·
+depth-scaling · post-deposit `total`). **The pattern is unchanged: each was reasoned from
+reconstructed numbers. The one time I read a value directly (`AUX.deposit` = par) it settled
+instantly. INSTRUMENT THE FUNCTION, stop inferring its inputs.**
