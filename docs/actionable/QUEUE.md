@@ -11601,3 +11601,33 @@ exact metric it targets, which is the "wrong" case, not the "test disagrees" cas
 📌 **THE OWNER'S DECISION IS UNAFFECTED** (*the target must not include the trade's own flow*). What is
 refuted is THIS IMPLEMENTATION of it. §UNIT-FORELLA's warning stands: this must be designed jointly
 with the total-variation measure, and §E83's censored duration still gates the window.
+
+### 🛑 UNIT-B-E71-NOT-AN-INSTRUMENT — two target fixes refuted, and the REASON is that §E71 CANNOT MEASURE THIS CLASS OF CHANGE.
+
+**Second attempt (sample the snapshot BEFORE the bump, so every ticket AND the whale price against the
+same pre-sequence value) also REFUTED — and worse again:**
+| variant | entry target `t0` | discount |
+|---|---|---|
+| live EWMA (HEAD) | **380,432** | 1,371 bps |
+| lagged, sampled AFTER bump | **360,528** | 2,263 bps |
+| lagged, sampled BEFORE bump | **340,720** | **2,916 bps** |
+
+🛑 **THE ENTRY TARGET MOVED EVERY TIME. That is the finding, not the discount.** Changing the target
+MECHANISM changes what `_setupBand`'s own swaps leave behind, so each variant starts from a DIFFERENT
+`q` — and the skew is non-linear in `q` (`Γ·σ²·q/(1−q)^ρ`). ⇒ **The three discounts are not
+comparable. §E71 cannot attribute ANY target-mechanism change**, because the fixture's entry state is
+downstream of the mechanism under test. **I ran two experiments whose control was broken by
+construction and drew a direction from both.**
+⇒ **REVERTED.** Not because the design is refuted — **it is UNTESTED** — but because two measurements
+were void and leaving an unevaluated money-path change in the tree is worse than leaving HEAD.
+
+▶️ **WHAT THE NEXT ATTEMPT NEEDS, BEFORE ANY MORE VARIANTS:**
+1. **PIN THE ENTRY STATE.** Assert `t0` is IDENTICAL across arms AND across variants — e.g. `vm.store`
+   the snapshot/EWMA to a fixed value after `_setupBand`, so the mechanism cannot move the starting
+   point. **Without this assertion every future run repeats today's error.**
+2. **§UNIT-FORELLA INDEPENDENTLY SAYS §E71 MEASURES THE WRONG PROPERTY** (level-vs-marginal, not
+   consolidation). ⇒ **Two separate reasons it is the wrong instrument. Build the right test first.**
+3. Only then re-run the two variants — the BEFORE-bump ordering is still the mechanically-motivated
+   one and deserves a valid measurement, not a third guess.
+📌 **THE OWNER'S DECISION REMAINS UNTOUCHED AND UNIMPLEMENTED** (*the target must not include the
+trade's own flow*). **Nothing today refuted it; today refuted my ability to MEASURE a fix for it.**
