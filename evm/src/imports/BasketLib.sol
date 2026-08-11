@@ -220,9 +220,35 @@ library BasketLib {
         return shares > 0 ? FullMath.mulDiv(assets, assets, shares) : assets;
     }
 
+    /// @dev The 4626 leg's yield weight = `b × sharePrice`, where sharePrice MUST be
+    ///      DIMENSIONLESS. `b/shares` is raw-assets-per-raw-SHARE and equals the share price
+    ///      only when the two carry the same decimals. MetaMorpho issues an 18-dec share
+    ///      against a 6-dec asset, so the raw ratio came out 1e-12 too small and EVERY 6-dec
+    ///      leg valued at zero yield — dragging `amounts[0]` under `amounts[14]` and pinning
+    ///      `metrics.yield` at 0 (E155; measured live: Galaxy USDC read 1e-12 against a true
+    ///      1.012358). ⚠️ THE LIFT MUST BE INSIDE THE DIVISION. `mulDiv(b, b, shares) * lift`
+    ///      returns exactly 1.0 — the inner divide has already truncated the appreciation
+    ///      away — so it looks repaired and silently reports zero yield.
+    ///      Guarded like every other vault read in this loop, but the fallback is the NEUTRAL
+    ///      factor (`b`, i.e. 1.0), never 0: a vault whose `decimals()` reverts must not drag
+    ///      the basket average the way a 0 would.
+    ///      Pinned by `test/YieldFactorDimensions.t.sol` — the factor is asserted DIMENSIONLESS
+    ///      (within [0.5, 2.0] of 1.0) for every funded stable, so a future decimals slip fails
+    ///      loudly instead of silently zeroing the bond premium.
+    function _yieldWeight(address v, uint b, uint shares, uint assetDec)
+        internal view returns (uint) {
+        try IERC20(v).decimals() returns (uint8 sd) {
+            return FullMath.mulDiv(b,
+                sd > assetDec ? b * (10 ** (uint(sd) - assetDec)) : b, shares);
+        } catch { return b; }
+    }
+
     function _valueStable(address stable, bool isAave, address aaveSpoke)
         internal returns (uint balance, uint yieldWeighted) {
         address aux = address(this);
+        // Read ONCE, up here: the 4626 yield factor below needs it to normalise the
+        // share price, and the tail scaling needs it too.
+        uint dec = IERC20(stable).decimals();
         address[] memory vs = IAux(aux).getVaults(stable);
         if (vs.length == 0) {
             // GHO/USDG are Aave-native (vault=0); any other unwired stable → 0.
@@ -262,14 +288,15 @@ library BasketLib {
                 // old `i>=5` gate forced slots 0-4 to factor 1.0, silently dropping
                 // the Morpho-vault yield of USDC/USDT/PYUSD/RLUSD → understated
                 // avgYield + cherry-pick fee firing on the wrong stables.
-                yieldWeighted += FullMath.mulDiv(b, b, shares);
+                yieldWeighted += _yieldWeight(v, b, shares, dec);
             }
         }
         if (balance == 0) return (0, 0);
         // Decimal scaling: detect 6-dec stables via token decimals(). Avoids the
         // prior `i < 3 ? 1e12 : 1` slot-hardcode which broke when USDG (6-dec)
-        // joined at slot 5.
-        uint dec = IERC20(stable).decimals();
+        // joined at slot 5. ⚠️ This scales balance and yieldWeighted by the SAME
+        // factor, so it cannot repair a RATIO — that is why the fix lives in
+        // `_yieldWeight` above and not here.
         if (dec < 18) {
             uint scale = 10 ** (18 - dec);
             balance *= scale;
