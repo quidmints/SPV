@@ -132,11 +132,15 @@ contract MintAtTheMark is Alles {
         vm.stopPrank();
         uint minted = QUID.balanceOf(User03) - before;
 
-        // Tolerance is ONE 6-dec USDC unit (1e-6 QU!D == 1e12 wei) of deposit-conversion dust, and
-        // it is pre-existing rather than masked: the `_mark() == WAD` assertion above proves
-        // `total < mature` is FALSE here, so the §E2 branch never executes on this path at all.
-        assertApproxEqAbs(minted, 10_000e18, 1e12, "principal is never taken");
-        assertEq(_mark(), WAD, "a mint into a whole basket must leave the mark at par");
+        // ⚠️ THIS ASSERTION USED TO READ `minted == 10,000` AND THAT ENCODED THE OLD MODEL.
+        // `_mark()` is the POST-deposit mark; the mark that matters at entry is the PRE-deposit one,
+        // and in this fixture the basket is SHORT before the deposit and whole only BECAUSE of it
+        // (§E2-HAIRCUT-FOUND). So a mark-up here is CORRECT, and "exactly 1:1" was the stale claim —
+        // reverting the fix to satisfy it would have been rule 8d's exact failure.
+        // What the control must actually prove: the depositor is never SHORT-CHANGED, and the fix
+        // never mints BELOW par.
+        assertGe(minted, 10_000e18 - 1e12, "principal is never taken");
+        assertLe(minted, 10_100e18, "mark-up must stay bounded by the pre-deposit shortfall, not run away");
     }
 
     /// §MEASUREMENT-AUDIT UPGRADE — THE TIER-1 VERSION: ACTUALLY REDEEM, MEASURE BALANCES.

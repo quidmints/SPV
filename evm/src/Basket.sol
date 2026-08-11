@@ -309,6 +309,11 @@ contract Basket is ERC20, ERC6909,
         // `total == 0` is skipped rather than clamped: with no backing there is no mark to enter
         // at, and dividing by it would mint unbounded shares.
         uint mature = matureSupply();
+        // §E2-HAIRCUT — mark up against the PRE-DEPOSIT basket: `total` is read AFTER `AUX.deposit`
+        // credited this deposit, so using it puts the depositor's own dollars in the denominator of
+        // their own mark-up. Mutates `total` (two locals were stack-too-deep; `bufBps` already
+        // consumed it and nothing below reads it).
+        total -= Math.min(total, decimals < 18 ? deposited * (10 ** (18 - decimals)) : deposited);
         if (mature > 0 && total > 0 && total < mature)
             normalized = Math.mulDiv(normalized, mature, total);
 
