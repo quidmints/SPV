@@ -263,6 +263,43 @@ contract MintAtTheMark is Alles {
         vm.stopPrank();
         emit log_named_uint("paid (18-dec reference)            ", 50_000e18);
     }
+
+    /// §REDEEM-SIDE-UNTESTED — THE FAIRNESS TEST. Every other redemption test here measures the NEW
+    /// DEPOSITOR's own round trip. This measures the party who CANNOT OPT OUT: someone already
+    /// holding when a new deposit lands. §E2-#1 issues ~9% MORE QU!D per deposit into a short basket,
+    /// so the question is whether that dilutes the incumbent.
+    /// A/B on ONE snapshot, so both arms redeem the SAME amount at the SAME timestamp and the only
+    /// difference is whether the new mint happened. `_redeemValue` = real ERC-20 balance deltas.
+    function test_E2_IncumbentIsNotHarmedByANewMint() public {
+        _seedBasket();      // User01 becomes the incumbent
+        _openShortfall();   // ...and the basket goes short, so the mark-up is LIVE
+
+        uint amt = 10_000e18;
+        assertGe(QUID.balanceOf(User01), amt, "PREMISE: incumbent must hold enough to redeem");
+
+        uint snap = vm.snapshotState();
+        (uint gotAlone, uint burnedAlone) = _redeemValue(User01, amt);
+        vm.revertToState(snap);
+
+        deal(address(USDC), User03, 2_000_000 * USDC_PRECISION);
+        vm.startPrank(User03);
+        USDC.approve(address(AUX), type(uint).max);
+        QUID.mint(User03, 50_000 * USDC_PRECISION, address(USDC), 0);
+        vm.stopPrank();
+
+        (uint gotAfter, uint burnedAfter) = _redeemValue(User01, amt);
+
+        emit log_named_uint("incumbent alone   ", gotAlone);
+        emit log_named_uint("incumbent after   ", gotAfter);
+        emit log_named_int ("delta             ", int(gotAfter) - int(gotAlone));
+
+        assertGt(gotAlone, 0, "CONTROL: the baseline redeem must actually pay out");
+        assertEq(burnedAfter, burnedAlone, "CONTROL: both arms must burn the SAME QU!D, else the "
+            "comparison is between different-sized redemptions");
+        assertGe(gotAfter, gotAlone, "an incumbent must NOT receive less because someone else "
+            "minted: E2-#1 issues ~9% more QU!D per deposit into a short basket, and the holder "
+            "who was already there cannot opt out");
+    }
 }
 
 /// §E2-dayone — THE OWNER'S EDGE CASE, MEASURED. Day one, two minters, no yield question: A
