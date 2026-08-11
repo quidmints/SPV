@@ -12089,3 +12089,32 @@ MEASURED input. **Acceptance (pre-stated): the probe's 2.34× premium gap → ~1
 1,371 bps falls — both on the PINNED instrument.**
 ⚠️ **KEEP σ² for the CONVEXITY in `q`. This replaces the STEEPNESS input only** (§UNIT-BOUND-NOT-DELETE:
 do not let "replace the level input" become "delete the term").
+
+### ⛔⛔ SIGMA-REMOVE-P1-COMPLETE-RETRACTED — two of the four numbers do not hold. **Risk 2 is NOT retired.**
+
+**Owner asked whether those numbers were healthy. TWO ARE NOT, and I should have caught both.**
+
+⛔ **1. THE "LEVEL SPREAD" IS THE HISTORY GAP RELABELLED — NOT AN INDEPENDENT PROPERTY.**
+`407,564,822,957 / 368,258,044,992 = 1.106` — those are the **1-piece and 12-piece arms**, i.e. the
+SAME TWO NUMBERS as the history gap. Taking max/min across partitions {1,2,3,4,6,12} when the extremes
+ARE 1 and 12 reproduces the history gap by construction. ⇒ **I measured ONE property twice and
+reported it as TWO.** ⇒ **§SIGMA-REMOVE-RESCOPED risk 2 REMAINS OPEN.** Risk 2 is RUN-TO-RUN NOISE —
+does the level wobble under the SAME partition with different sizes/timings? **Partition sensitivity
+is a different question and was already answered.**
+
+⛔ **2. σ² READS 43,799,999,999,999 FOR PIECES 2, 3 AND 4 — BIT-IDENTICAL.**
+Three different partitions cannot coincidentally produce the same variance to the last digit. **That
+is a CLAMP, a SATURATION, or a DEGENERATE BRANCH**, not a measurement. ⇒ **The 4.170× σ² spread I
+credited as "instability" may be an artifact of that ceiling.** ⚠️ It could also be a REAL and worse
+finding — a σ² that pins at a constant across a range of real flow patterns is not merely unstable,
+it is UNINFORMATIVE there. **Either way the number as reported is not evidence.**
+🔬 **FIND THE CEILING FIRST:** `realizedVarianceWad` = `mulDiv(ringVariance(obs, state, 9), 31536000·1e10, 1e18)`
+⇒ the ring value is `43,799,999,999,999 / 0.31536 ≈ 1.389e14`. **Read `OracleLib.ringVariance` for a
+cap, a `cardinality` floor, or an early return** — and note §E88's sentinel already makes 0 mean
+"unmeasured", so a SECOND reserved value would be exactly the overload §E88 removed.
+
+✅ **WHAT SURVIVES, and it is still the substantive result:** the **history gap** — register **1.106×**
+vs σ² **2.340×** vs trade-based **12.000×** — measured on the pinned instrument with identical
+inventories and one accrual per drain. **That is the property §SIGMA-REMOVE exists to buy and it
+stands.** ⚠️ **But PHASE 2 STEP 2 IS RE-GATED** on (a) real run-to-run noise and (b) explaining the
+σ² ceiling. **Do not substitute on a scoreboard with two bad rows.**
