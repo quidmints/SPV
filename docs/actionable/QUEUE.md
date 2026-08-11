@@ -10928,3 +10928,34 @@ across twelve tickets. **That ramp is the knob this design needs**, which is why
 | id | state |
 |---|---|
 | **E170-phone-tee-secp256k1** | ✅ **VERIFIED 2026-08-11 — §E166 item 8's ⚠️ UNVERIFIED note was RIGHT ABOUT SIGNING, WRONG AS A BLANKET, AND WRONG ABOUT THE CONSEQUENCE.** It read *"Phone TEEs do not do secp256k1, so a phone means a key in app storage — weaker per-LP custody"*. Checked against primary sources: **(a) TRUE for the two platforms that matter.** Apple's Secure Enclave supports **P-256 (secp256r1) ONLY** — the API is literally `SecureEnclave.P256`, and secp256k1 is absent. Android **StrongBox** is documented as *"ECDSA, ECDH P-256"* only; Android Keystore/KeyMint generally lists *"NIST P-224, P-256, P-384, and P-521"* and never names secp256k1. ⇒ An LP's iPhone or standard Android device **cannot SIGN a Bitcoin funding half in hardware.** **(b) FALSE as a blanket claim.** **Samsung Blockchain Keystore** signs secp256k1 (EIP-155 Ethereum, Bitcoin-family) inside **TrustZone** — a phone TEE doing exactly this, still shipping (v1.6.0, Dec 2023, Android 14 support, no EOL announced). But it is ONE vendor on Samsung hardware only, so it can be an optimisation for some LPs and **never a protocol requirement**. **(c) THE CONSEQUENCE WAS UNDERSTATED IN OUR FAVOUR — this is the part that changes the decision.** "A key in app storage" is not the fallback. The secp256k1 key can be **TEE-WRAPPED AT REST** (iOS Keychain / Android Keystore AES-wrapping) even though the TEE cannot sign with it — it is unwrapped into app memory only at signing time. So the exposure is a compromised app process or OS, **not device theft**. 🔑 **AND §E165 COLLAPSES THAT WINDOW TO A SINGLE EVENT:** with the pre-signed ladder the LP signs **ONCE, AT OPEN, AND NEVER AGAIN**, so the key is unwrapped exactly once in the channel's life instead of on every dead-man refresh. ⇒ **The ladder does not make per-LP custody unnecessary (see §E165: it only binds if somebody other than the fleet holds a funding half) — it makes the PHONE variant of per-LP custody defensible**, by turning a recurring hot-key exposure into a one-time one. ⚠️ **DO NOT quote "phone TEEs can't do secp256k1" as a reason to drop the phone route.** The signing limitation is real; the security conclusion drawn from it was not. |
+
+### 🔬 MEASUREMENT-AUDIT-2026-08-10 — owner asked *"are the measurements correct, or false positives / circular?"* **Three tiers. Two have real weaknesses.**
+
+**TIER 1 — INDEPENDENT INSTRUMENTS. Trust these.** The measuring device is not the code under test:
+- **Byte sizes** (`check-contract-sizes.py` reads `deployedBytecode.object` from artifacts): §CORE-ONLYUS 907, getter 91/98, padding 76. **Cannot be faked by contract logic.**
+- **Suite pass/fail** across controlled arms (§UNIT-B-SLOWDEL 4,402/1 · 4,399/3 · 4,401/1; `_onlyUs` vs control both 4,400/1/2).
+- **`vm.load` raw slots** (flow registers byte-identical) — reads storage beneath the ABI.
+- **`_redeemValue`** (`Alles.t.sol:3331-3345`) — sums **actual ERC-20 balance deltas** at the redeemer plus real QU!D burned. **This is the gold standard here** (`assert-on-what-you-measure`).
+⇒ **§E2's DAY-ONE two-minter result (A receives $99,999.999998) USES IT and is SOUND.**
+
+**TIER 2 — DISCRIMINATING BUT NOT INDEPENDENT. Weaker than I presented them.**
+- ⚠️ **§E2-#1's HEADLINE ($50,000 paid → $49,999.999998 claim) NEVER REDEEMED ANYTHING.** It computes
+  `claimUsd = minted × _mark()`, where `minted` comes from the code I changed and `_mark()` is the
+  test re-implementing the code's own formula. **It is not vacuous** — without the fix `claim < paid`
+  and it fails — so it discriminates. **But the "claim" is HYPOTHETICAL.** ▶️ **Strengthen it with
+  `_redeemValue`: actually redeem and measure stables received.** The tool was already in the file.
+- ⚠️ **§E42's invariant is partly TRUE BY CONSTRUCTION.** The fix adds the premium to
+  `POOLED_USD_BTC`, and `redeemableBody` SUBTRACTS `POOLED_USD_BTC`. So "redeemable became invariant"
+  partly reports that I moved a term into the subtrahend. **The MECHANISM is verified; the ECONOMIC
+  claim — that those dollars SHOULD be excluded from QU!D redeemability — rests on §E5's decision
+  that the premium is an LP claim.** That is a design assumption, not a measurement. ▶️ Independent
+  check: does a real redeemer's `_redeemValue` change across the same window?
+
+**TIER 3 — KNOWN-SUSPECT, ALREADY BOOKED.** §UNIT-B's 13.71% comes from `skewPremiumETH`, the
+protocol's own counter, which §UNIT-B-VERIFIED says may disagree with the trader-side by ~1000×. The
+RATIO survives a common multiplicative error; **the absolute magnitudes do not.**
+
+📌 **PATTERN: every Tier-1 result is about BYTES, PASS/FAIL, or a BALANCE DELTA. Every Tier-2/3 result
+is about a NUMBER THE PROTOCOL REPORTS ABOUT ITSELF.** That is the same line `assert-on-what-you-
+measure-not-what-is-reported` draws, and it sorts today's work cleanly. **No result is refuted here —
+but §E2-#1 and §E42 are weaker than stated and both have a cheap independent upgrade available.**
