@@ -9930,3 +9930,21 @@ by the band's sold fraction, so the churn that COSTS money is the churn the BAND
 was a GOV bool silently deciding whether the hedge used ground truth, default FALSE, never set by the
 deploy (deleted 2026-08-09). **A regime DETECTOR that flips anyone's mode is that same latch with better
 statistics.** It surfaces the number; the depositor opts in.
+
+
+### ✅ CLOSED — the 0.5%-of-fair offramp floor is CORRECT AS-IS. Decided from the measured curve.
+
+Raised as an open item ("is 0.5% too loose for Curve?"), and it is not. Two questions, both answered:
+
+**1. Is a floor needed at all?** YES. Without one a DRAINED pool fills silently at **−722.80 bps** — a
+completed swap returning a plausible number, never a revert. That is exactly the case standing rule 3's
+inverse says a check earns: *"violating it would be SILENT and produce plausible-but-wrong output."*
+
+**2. Is 50 bps the right number?** YES, and the measured curve places it rather than judgement:
+worst NORMAL execution **−3.47 bps** (1,000 weETH) · cliff **−722.80** (2,000, where the pool's 2,047
+WETH runs out). **50 bps sits ~14× above the worst normal fill and ~14× below the cliff — near-centred
+in LOG space.** Tightening toward ~10 bps buys only false rejections (which degrade to the wait-NFT rung,
+so they cost UX not money); loosening past ~100 bps starts admitting the cliff.
+⇒ **No change. Justification written into `VaultLib` at the floor itself** so the next reader does not
+re-open it — the number is inherited from the Uniswap era but is correct for Curve BY MEASUREMENT, which
+is not obvious and was worth checking.

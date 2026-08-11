@@ -463,8 +463,14 @@ library VaultLib {
         // better at every realistic size, so there is no tier to choose between and no ordering to get
         // wrong. Both venues cliff near 2,000 weETH, where Curve's 2,047 WETH runs out — and THAT is the
         // only case rung 2 now exists for.
-        // The 0.5%-of-FAIR floor is retained deliberately: at −1.4 bps typical, a fill that misses it by
-        // this margin means the pool has been drained, which is exactly the cliff.
+        // THE 0.5%-OF-FAIR FLOOR IS SETTLED, NOT INHERITED — do not re-tune it by feel.
+        // It EARNS its place (standing rule 3's inverse): without it a drained pool fills SILENTLY at
+        // −723 bps, which is plausible-looking output, not a revert. And 50 bps is where the MEASURED
+        // curve puts it: worst NORMAL execution is −3.47 bps (1,000 weETH), the cliff is −722.80 (2,000,
+        // where the pool's 2,047 WETH runs out). 50 bps sits ~14x above the worst normal fill and ~14x
+        // below the cliff — near-centred in LOG space, so it can neither false-reject ordinary flow nor
+        // pass a drained pool. Tightening toward ~10 bps only buys false rejections (which degrade to the
+        // wait-NFT rung); loosening past ~100 bps starts admitting the cliff.
         if (weethIn > 0) {
             uint got = SwapLib.curveSellWeeth(c, weethIn, (covered * 995) / 1000);
             if (got > 0) {
