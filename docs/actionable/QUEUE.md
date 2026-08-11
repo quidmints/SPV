@@ -11991,3 +11991,31 @@ an open discrepancy, not hidden inside a tolerance.**
 ⚠️ **PHASE 2 STEP 2 (substituting into `realizedVarianceWad`) IS STILL GATED** — on this 8%, and on
 the estimator's own run-to-run variance, which remains unmeasured (§SIGMA-REMOVE-RESCOPED risk 2).
 📌 `Core` **24,114 / 462 free**; register accrues on every swap; **nothing priced off it.**
+
+### 🔬 SIGMA-REMOVE-P2-GAP-LOCALISED — the 8% is entirely in the SPLIT arm. Not a phase offset; a MISSED or OVERWRITTEN sample.
+
+**No new run needed — the numbers already taken localise it:**
+| arm | on-chain | in-test ÷1e12 | ratio |
+|---|---|---|---|
+| whale (1 swap) | 407,564,822,957 | 411,367,007,203 | **0.991** |
+| split (12 swaps) | 368,258,044,992 | 401,191,208,128 | **0.918** |
+⇒ 🔴 **THE WHALE ARM MATCHES TO 1%. THE ENTIRE DISCREPANCY IS THE SPLIT ARM.**
+⇒ ⛔ **THAT KILLS THE SAMPLING-PHASE EXPLANATION** — a mis-timed sample biases BOTH arms equally. **The
+contract under-accrues on MULTI-SWAP paths specifically.**
+⇒ ✅ **AND IT INDEPENDENTLY CONFIRMS THE UNITS** (§SIGMA-REMOVE-P2-UNITS-PROVEN): the single-swap arm
+agrees with the validated estimator to **0.991**, which a decimal-base error could not produce.
+
+▶️ **REMAINING CANDIDATES — all about sample COUNT, and each is distinguishable:**
+1. **A MISSED ACCRUAL.** The first loop iteration accrues against `_setupBand`'s leftover pending;
+   if any iteration's `p.px == 0` or `px == 0` it silently skips (the guard in `_accrueRealizedLoss`).
+   **12 swaps should produce 12 accruals — COUNT THEM.**
+2. **AN OVERWRITTEN PENDING.** If a single `_drain` triggers `_bumpFlow` MORE THAN ONCE (SOR multi-hop
+   ⇒ several `_handleSwap` calls), intermediate samples overwrite `p` and some sub-intervals collapse.
+   **This would under-accrue exactly where there are more swaps — matching the observed direction.**
+3. **TRAPEZOID vs the test's COARSER tiling.** The contract may tile the path FINER than the test; a
+   finer trapezoid is MORE accurate, so the test's number would be the biased one, not the contract's.
+   **⚠️ If so the contract is RIGHT and the estimator's 1.025× is the artifact — do not assume the
+   in-test value is ground truth.**
+🔬 **ONE MEASUREMENT SEPARATES ALL THREE: count accruals per `_drain`.** Add a counter to
+`_accrueRealizedLoss` behind a test-only read, or `-vvvv` one `_drain` and count `_bumpFlow` frames.
+**Do not theorise further — the half-swap-lag theory already died this way.**
