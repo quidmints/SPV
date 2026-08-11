@@ -10991,3 +10991,35 @@ cheapest to eliminate: log `total`/`mature` INSIDE the mint and compare to the t
 📌 **VINDICATES THE AUDIT'S TIER SPLIT IMMEDIATELY:** the Tier-2 hypothetical said "whole", the Tier-1
 balance delta says "−3.4%". **Every remaining Tier-2 claim (§E42's `redeemableAmount` invariant) is
 now suspect on the same grounds and needs the same upgrade.**
+
+### 🔴🔴🔴 E2-DEPOSIT-HAIRCUT — **~3.745% IS LOST BETWEEN THE USDC ARRIVING AND `normalized`. It is NOT an §E2 defect.**
+
+**Traced from the real-redeem failure. MEASURED, all four legs, one run:**
+| quantity | value |
+|---|---|
+| USDC actually spent (balance delta) | **50,000.000000 — the FULL amount** |
+| `depegLoss()` at mint | **0** |
+| `total` the mint uses / `matureSupply` | 1,252,000.111 / 1,365,402.095 ⇒ mark **0.916946** |
+| QU!D minted | 52,486.90 |
+| **implied `normalized` (= minted × total/mature)** | **48,127.66** ⇒ **−1,872.34 = −3.745%** |
+
+⇒ **THREE CANDIDATES ELIMINATED BY MEASUREMENT:** (b) the mark basis — `depegLoss == 0`, so the
+mint's `total` EQUALS the test's and `total/mature` reproduces `m0` **to the digit**; the deposit
+TRANSFER — the full 50,000 left the depositor; and the seed-`CAP` path — this mint is `when=0`,
+not seed.
+⇒ 🔴 **THE LOSS IS UPSTREAM OF §E2-#1's MARK-UP AND INDEPENDENT OF IT.** `normalized` is
+`deposited * 10**(18-dec)` PLUS a POSITIVE yield bonus (`avgYield` ≈ 16.36% ⇒ ~+1.4% at one month),
+so `deposited` must be **BELOW 48,128 — i.e. ≥4% under the 50,000 actually paid in.**
+▶️ **TWO SURVIVING CANDIDATES — read the code, do not guess (the last four guesses all died):**
+  (i) **`AUX.deposit()` CREDITS LESS THAN IT RECEIVES** — it returns `deposited`, and `Basket.sol:241`
+      normalizes THAT, not the transfer amount. `testDepeg_DepositCreditedAtFairValue` exists, so
+      fair-value crediting is a real mechanism — but `depegLoss == 0` here, so if this is it, the
+      per-token valuation disagrees with the basket-level aggregate.
+  (ii) **A CLAMP INSIDE `_finishMint` AFTER `calcMintYield`.** Its comment claims *"NO mint-side 1:1
+      cap"* — **that comment is exactly the kind this session proved unreliable. Verify by structure.**
+⚠️ **THIS AFFECTS EVERY MINT, NOT JUST THE SHORTFALL PATH** — §E2-#1's mark-up is a no-op when the
+basket is whole, but this haircut is not conditioned on it. **Re-measure a mint into a HEALTHY basket:
+if 50,000 USDC still yields ~48,128 of `normalized`, this is a live, general defect and outranks
+everything else on the mint path.**
+📌 **AND IT EXPLAINS §E2-REAL-REDEEM's −3.4% ENTIRELY** (−3.745% at mint, partly offset by m1 > m0).
+§E2-#1 is doing its job; it was measured against a baseline that was already short.

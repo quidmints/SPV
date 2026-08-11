@@ -158,11 +158,30 @@ contract MintAtTheMark is Alles {
         uint m0 = _mark();
         assertLt(m0, WAD, "PREMISE: basket must be short at entry, else the fix is a no-op");
 
+        // §E2-REAL-REDEEM — WHERE IS THE 3.7%? Capture the mint's ACTUAL inputs, not the test's.
+        // `Basket._finishMint:258` does `total -= min(total, AUX.depegLoss())`; the test's `_mark()`
+        // does NOT subtract it. If they differ, `m0` is not the mark the mint used.
+        uint solventRaw; uint depeg; uint matPre;
+        { (solventRaw,) = AUX.get_metrics(true); depeg = AUX.depegLoss(); matPre = QUID.matureSupply(); }
+        uint totalCode = solventRaw > depeg ? solventRaw - depeg : 0;
+        emit log_named_uint("solvent RAW      ", solventRaw);
+        emit log_named_uint("depegLoss        ", depeg);
+        emit log_named_uint("total the MINT uses", totalCode);
+        emit log_named_uint("matureSupply     ", matPre);
+
+        uint qPre = QUID.balanceOf(User03);
         deal(address(USDC), User03, 2_000_000 * USDC_PRECISION);
+        emit log_named_uint("USDC before mint (6dec)", USDC.balanceOf(User03));
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         QUID.mint(User03, 50_000 * USDC_PRECISION, address(USDC), 0);
         vm.stopPrank();
+        uint mintedNow = QUID.balanceOf(User03) - qPre;
+        emit log_named_uint("USDC after  mint (6dec)", USDC.balanceOf(User03));
+        emit log_named_uint("QUID minted      ", mintedNow);
+        // Back out `normalized` using the mark the CODE used, then compare to the $50,000 deposited.
+        emit log_named_uint("implied normalized (minted*totalCode/mature)",
+            matPre == 0 ? mintedNow : FullMath.mulDiv(mintedNow, totalCode, matPre));
 
         // A fresh mint lands in a FUTURE vintage (day-one `matureSupply` is 0), so it cannot be
         // redeemed until it vests — measured in `test_E2_DayOne_ImmediateRedeemerGetsPar`.
