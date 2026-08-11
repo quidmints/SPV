@@ -9874,3 +9874,54 @@ single Curve `exchange(int128,int128,uint256,uint256)`; drop `v3router`/`poolFee
 ⚠️ Keep a floor: Curve's own `get_dy` is the natural pre-trade check, and the 0.5%-of-fair floor should be
 retained — at −1.4 bps typical, a fill that misses it by a wide margin means the pool has been drained,
 which is exactly the 2,000-size cliff above.
+
+
+### ⛔ CORRECTION + ▶️ OFF-CHAIN REGIME DETECTION (owner, 2026-08-09)
+
+**⛔ RETRACTING ONE OF MY TWO ARGUMENTS FOR DROPPING THE BORROW LEG.** I gave two; only one holds.
+  * **INVENTORY — WITHDRAWN.** I argued levered collateral leaves little free weETH for an offramp borrow.
+    But **IL-protect is OPT-IN PER DEPOSITOR, not a protocol default** (owner), and by the analysis below
+    it is usually the WRONG choice — so most weETH is FREE, and the borrow leg would have had inventory.
+    I generalised from a mode being AVAILABLE to it being TYPICAL. Same error class as assuming a test
+    config is the deployed one.
+  * ✅ **COST — STANDS, AND IS SUFFICIENT ALONE.** Curve executes at **−1.4 to −3.5 bps**. A borrow leg
+    avoids only that, while carrying liquidation exposure over the `waitNft` window, ~2× encumbrance at a
+    safe LTV, and a keeper lifecycle. **Bad trade at 2 bps however much weETH is free.**
+⇒ **Drop the borrow work. `waitNft` survives ONLY as the drained-Curve-pool fallback** (the size-2000
+cliff, where the pool's 2,047 WETH runs out).
+
+---
+
+**▶️ THE LEVER IS A VIEW, NOT A DEFAULT — AND THE DISCRIMINATOR IS COMPUTABLE.**
+
+Owner's framing: *an unlevered position's cost depends on where price ENDS; a levered position's cost
+depends on HOW IT GOT THERE.* The unlevered depositor realizes IL only at withdrawal and the repack
+crystallizes nothing along the way. The lever borrows-and-buys as price rises and sells-and-repays as it
+falls, **paying two spreads per cycle plus carry for the duration**. ⇒ **Path length, not destination.**
+
+| regime | who wins | why |
+|---|---|---|
+| **Choppy, round-tripping** (ETH's most common) | **unlevered** | two spreads per cycle while the cancelled IL reverts for free; the de-lever band suppresses small oscillations but large ones still trigger |
+| **Rise then fall** — the worst case | **unlevered, clearly** | bought with borrowed money on the way up, sold on the way down — buy-high/sell-low on the BUFFER, realized through `_deleverFlash` selling collateral to repay |
+| **Low volume** (today) | **unlevered outright** | buffer fees ≈ 0, so the amplification argument evaporates and you pay 1.8–3% carry purely to cancel an IMPERMANENT loss |
+| **Long horizon, no forced exit** | **unlevered** | the loss resolves itself; paying carry to hedge it is negative EV in every regime |
+| Sustained directional / high volume / **exit timing not your choice** | **lever** | fee capture on doubled depth dominates carry; and if the exit is forced, the impermanent loss may be PERMANENT when it matters |
+
+⚠️ **THE LEVER IS NOT DOWNSIDE PROTECTION.** The target is ZERO at or below entry, so a depositor
+expecting a fall gains nothing and pays spreads and interest to find out. **Bearish or flat ⇒ strictly a
+cost.**
+
+**THE METRIC:** the regimes split on **total path travelled ÷ net move** — `Σ|Δp| / |p_end − p_start|`,
+i.e. the inverse of Kaufman's efficiency ratio. **≈1 = clean trend (lever); large = churn (unlevered).**
+The other two inputs already exist: realized VOLUME sets fee capture on the doubled depth, and the live
+`ADAPTIVE_IRM` rate is the carry. **Lever wins iff**
+`fee_capture(volume, 2×depth) + directional_gain > 2·spread·cycles + carry·duration`.
+
+⚠️ **MEASURE THE PATH ON THE BAND'S OWN TICK SERIES, NOT A PRICE FEED.** The lever's cycles are triggered
+by the band's sold fraction, so the churn that COSTS money is the churn the BAND saw — the same tick data
+`soldFractionWad` reads. A CEX price path would count moves the band never acted on.
+
+🔴 **AND IT MUST INFORM, NEVER SWITCH.** This repo already shipped the failure mode: `soldFractionActive`
+was a GOV bool silently deciding whether the hedge used ground truth, default FALSE, never set by the
+deploy (deleted 2026-08-09). **A regime DETECTOR that flips anyone's mode is that same latch with better
+statistics.** It surfaces the number; the depositor opts in.
