@@ -11531,3 +11531,37 @@ needs the COST variance is being used to estimate.**
 ▶️ **NEXT, AND IT IS A READ NOT A BUILD:** open `VogueLib.derivedThetaWad` and establish what θ's
 DENOMINATOR is. **If it is realized IL, option 3 is mostly plumbing.** ⚠️ Do NOT design on the
 `Core.sol:201-208` docblock alone — five stale-comment errors today (rule: verify by structure).
+
+### ⛔ REFILL-FRAMING-CORRECTED — I presented the FLASH-SERVE as the ETH refill path. It is a BTC construct, and for ETH capital solves NOTHING.
+
+**Owner: *"i thought we decided we dont need the flash serve or that it cant solve anything."* CORRECT
+on both counts. §UNIT-C-DISAMBIG already settled it and I answered from a half-recall.**
+
+**"REFILL" IS THREE MECHANISMS (§UNIT-C-DISAMBIG) — I collapsed them into one:**
+1. **ORGANIC SWAP-IN** — a user sells the asset back; `SwapLib.creditSwapInBody:736` settles the USD
+   side from `POOLED_USD_*`. **No keeper, no capital, no policy.** The rail §E18 found already built.
+2. **THE REMOVED `refillETH`** — drew the BASKET'S SHARED SURPLUS to patch an LP shortfall; toxic
+   because it spent QU!D holders' backing on LP inventory. **DELETED** (§E106).
+3. **THE FLEET FLASH OP** — *"JIT Morpho-flash BTC → creditSwapIn → repay"*. **A BTC CONSTRUCT**: the
+   fleet holds no BTC and LN-custodied sats have no EVM token, so it must flash-borrow.
+
+⛔ **MY ERROR: I closed with *"the active flash-serve is still unbuilt (#100/J.3)"* as though it gated
+the refill generally. It is BTC-ONLY.** §E18/§E15: *"the ETH path is not a flash; **a flash cannot
+create an unborrowable asset**"*, and §E134-skew gives the concrete reason — after a drain the band
+**ALREADY HOLDS THE DOLLARS** (+$570,000 measured in `POOLED_USD_ETH`). **There is nothing to borrow
+FOR.**
+
+🔴 **AND THE DEEPER REASON CAPITAL CANNOT SOLVE IT — §E108-EXPLAINED MAKES IT AN IDENTITY:** for ETH
+the refill is a **COMPOSITION** operation, not a capital one. **Composition is set SOLELY by where
+price sits in `[P_lower, P_upper]`; a PAIRED DEPOSIT CANNOT CHANGE A RATIO.** ⇒ **No amount of
+capital — flashed, borrowed or held — "refills" an ETH band.** Only moving PRICE, or moving the
+RANGE (reseat), changes the ratio. **This is why the flash "can't solve anything" for ETH, and it is
+stronger than "not needed": it is structurally incapable.**
+📌 **WHAT SURVIVES FROM MY PREVIOUS ANSWER — the loss question was answered correctly, on the code:**
+`SwapLib:678-688` — the swap-in leg *"settles FLAT at the honest oracle, and that is FINAL"*, the
+refilling direction is skew-EXEMPT (`:452`/`:962`), and `payRefillBonus` was removed with *"Do NOT
+rebuild it."* **The band takes no loss ON THE REFILL; it takes the loss on the DRAIN, which the
+retained premium exists to compensate.** That stands.
+⚠️ **STANDING TRAP THIS RE-PROVES: §UNIT-C-DISAMBIG's whole point is that the funding question kept
+reopening BECAUSE the three senses were conflated. I reopened it again today. Name WHICH refill
+before answering anything about capital, borrowing or loss.**
