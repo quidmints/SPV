@@ -49,7 +49,19 @@ def type_of(a: str) -> str:
                 depth -= 1
                 if depth == 0:
                     rest = a[i + 1:].strip()
-                    return "tuple" + (rest.split()[0] if rest.startswith("[") else "")
+                    # (E178) EXPANDED, matching `ty()` on the artifact side. This used to
+                    # collapse to the bare token `tuple`, which only worked because the
+                    # artifact side collapsed identically — two wrongs agreeing. Neither
+                    # matched what the selector is actually computed over, so any client
+                    # writing the real expanded form read as drift.
+                    # RECURSIVE, and via `type_of` not a slice, so each component drops its
+                    # PARAMETER NAME (`bytes32 fundingBlockHash` → `bytes32`) and nested
+                    # structs expand too. A raw slice keeps the names and every struct
+                    # signature mismatches on text that is not part of the selector.
+                    inner = ",".join(
+                        type_of(x) for x in split_args(a[len("tuple("):i]) if x.strip()
+                    )
+                    return f"({inner})" + (rest.split()[0] if rest.startswith("[") else "")
     return a.split()[0]
 
 def norm(t: str) -> str:
@@ -59,13 +71,30 @@ def norm(t: str) -> str:
     t = re.sub(r"\bint\b(?!\d)", "int256", t)
     return re.sub(r"\s+", "", t)
 
+def ty(c):
+    """(E178) Canonical ABI type — struct params EXPANDED, not left as bare `tuple`.
+
+    ⚠️ THIS USED TO RETURN `c["type"]`, i.e. the literal string `tuple` for every struct
+    argument. That made the whole comparison blind on exactly the signatures that carry
+    structs — `openChannel`, `splice`, `recordClose`, `deliverSwapOutOnchain` — because a
+    client writing the real expanded form could never match `...,tuple,...`. The selector
+    is computed over the EXPANDED form, so `tuple` is not what any caller encodes.
+
+    It was survivable while only the SPA was checked (its declarations happened to sit in
+    the branch that skips unmatched names), but it produced 16 FALSE POSITIVES the moment
+    the Rust tree was added — and a gate that cries wolf is one people learn to ignore,
+    which is worse than no gate.
+    """
+    if c.get("type", "").startswith("tuple"):
+        inner = "(" + ",".join(ty(x) for x in c.get("components", [])) + ")"
+        return inner + c["type"][len("tuple"):]      # keep any [] / [k] suffix
+    return c["type"]
+
 def sig_from_artifact(entry) -> str:
-    def ty(c):
-        return c["type"]
     return f'{entry["name"]}({",".join(norm(ty(i)) for i in entry.get("inputs", []))})'
 
 def ret_from_artifact(entry) -> str:
-    return ",".join(norm(o["type"]) for o in entry.get("outputs", []))
+    return ",".join(norm(ty(o)) for o in entry.get("outputs", []))
 
 # index every compiled function: name(argtypes) -> returns
 compiled = {}
@@ -122,8 +151,59 @@ for raw in re.findall(r"'(function [^']+)'", ABI.read_text()):
     if declared not in compiled[key]:
         drift.append((key, declared, sorted(compiled[key])))
 
+# ─────────────────────────────────────────────────────────────────────────────────────
+# (E178) THE RUST TREE — the blind spot that let a BROKEN MONEY PATH be committed.
+#
+# ⚠️ WHY THIS SECTION EXISTS. On 2026-08-11 `openChannel`, `recordClose` and
+# `emitDeadManExit` all changed shape, and `quid-hop/src/evm_codec.rs` — the code that
+# BUILDS the calldata the daemon sends — kept the OLD signature strings. `forge` was green,
+# `tsc` was green, and this checker passed, because it only ever read `spa/`. The daemon
+# would have encoded calls to selectors that no longer exist.
+#
+# ⚠️ AND THE SECOND COPY IS WORSE THAN THE FIRST. `quid-bridge/src/evm_validating_signer.rs`
+# keeps a hand-written ALLOWLIST of the same signatures to bound what the hot key may sign.
+# It drifted identically — so "fix the allowlist" would have made the enclave cheerfully
+# sign calldata that reverts. An allowlist restating the ABI is a SECOND SOURCE OF TRUTH,
+# and the drift is the tell that it should be DERIVED, not maintained (§E178).
+#
+# The Rust strings are already canonical Solidity signatures, so they compare directly.
+RUST_ROOTS = [ROOT / "quid-ln"]
+RUST_SKIP  = ("/lib/", "/target/", "graphify", "/.git/")
+# `cast`-style strings carry a RETURN suffix — `synced()(bool)` — and are not call
+# signatures. Matching them would report drift that does not exist.
+rust_sig = re.compile(r'"([a-zA-Z_]\w*\([a-zA-Z0-9,\[\]()]*\))"')
+
+rust_drift, rust_checked = [], 0
+for base in RUST_ROOTS:
+    for p in base.rglob("*.rs"):
+        sp = str(p)
+        if any(k in sp for k in RUST_SKIP):
+            continue
+        try:
+            text = p.read_text(errors="ignore")
+        except OSError:
+            continue
+        for i, line in enumerate(text.splitlines(), 1):
+            for m in rust_sig.finditer(line):
+                key = m.group(1)
+                if ")(" in key:          # cast-style return suffix, not a call signature
+                    continue
+                name = key.split("(")[0]
+                same_name = sorted(k for k in compiled if k.startswith(name + "("))
+                if not same_name:
+                    continue            # not one of ours; the SPA rules do not apply here
+                if key in compiled:
+                    rust_checked += 1
+                else:
+                    rust_drift.append((key, f"{p.relative_to(ROOT)}:{i}", same_name))
+
+for key, where, actual in rust_drift:
+    print(f"RUST DRIFT  {key}\n   at: {where}")
+    print(f"   contract has: {[f'{a}' for a in actual]}")
+print(f"checked {rust_checked} Rust signatures against evm/out; {len(rust_drift)} drifted")
+
 for key, declared, actual in drift:
     print(f"DRIFT  {key}\n   spa declares: ({declared})")
     print(f"   contract has: {[f'({a})' for a in actual] if actual else 'NOTHING — no function of this name exists'}")
-print(f"\nchecked {checked} signatures against evm/out; {len(drift)} drifted")
-sys.exit(1 if drift else 0)
+print(f"\nchecked {checked} SPA signatures against evm/out; {len(drift)} drifted")
+sys.exit(1 if (drift or rust_drift) else 0)
