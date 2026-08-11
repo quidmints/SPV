@@ -104,6 +104,10 @@ losses first, and that waterfall carried forever with a separate valuation per l
 time instead of a person.** Future yield is the junior tranche. One elastic supply, no waterfall, no
 per-tranche accounting, because the thing subordinated is a date rather than a claimant.
 
+The band sells ETH as price rises — that is the impermanent loss. To cancel it you must buy as price rises. And symmetrically, the band buys as price falls, so the hedge sells. The overlay is the band's mirror image by construction.
+Invert it and you don't get buy-low-sell-high. You get the band's behaviour doubled. Selling as price rises while the band is also selling means shedding twice as much; buying as it falls while the band buys means accumulating twice as much. You'd take roughly 2× the impermanent loss instead of zero. The inverted version isn't a better hedge, it's an anti-hedge.
+That's the general fact underneath: delta-hedging a short-gamma position is always buy-high-sell-low. That's what negative gamma means — your hedge is always chasing. There's no parameterisation that escapes it. 
+
 **The impermanent loss on the way up is cancelled.** The problem in a rally is that the pool sold your
 Ethereum too cheaply, so we give the pool something else to sell. An optional overlay borrows dollars
 against your own collateral on an outside lending market, buys extra Ethereum, and hands that to the
@@ -322,59 +326,6 @@ proportionally by everyone holding a claim. Depeg protection today is diversific
 
 Part 4 is the full list, including three more from the current repository, because the pattern matters
 more than any single instance.
-
-## Tell us something about your company that's not going well.
-
-I am in Ukraine, and the war is the largest operational risk this company carries.
-
-The cost is mundane and relentless. Work stops when the power does. Anything needing a bank, a notary
-or a physical presence takes weeks here that it takes hours elsewhere. Hiring is close to impossible,
-because the people I would want are already abroad or already serving, and I cannot offer anyone still
-here the stability a job is supposed to come with. There is no redundancy in any of it. One person, in
-one place, holding the work. Ingrid splits her time with a produce cooperative in Portland, so the
-second founder is part-time by agreement.
-
-Plainer: no audit, nothing on mainnet, zero live deposits. Native Bitcoin leverage is harder than the
-Ethereum side and every clean path runs back through a custodial wrapper, so I would rather say out loud
-that it probably is not worth doing.
-
-What I will claim is that this was built by someone who assumed he might not be reachable. Nothing runs
-on a server we own, the contracts cannot be upgraded and have no administrator, and a depositor's exit
-needs nothing from us. Being here is also why the notary-registry work is built against Ukraine's
-Ministry of Justice open data rather than against a hypothetical.
-
-Part 7 is a fuller and less flattering readiness assessment, written so nobody has to discover it in a
-diligence meeting.
-
-## How will the next LLM model release affect your business?
-
-This codebase exists because of one. Ingrid's Claude subscription turned two years of prototypes into a
-working system, and this volume of Solidity, Rust, Noir and Go is not something two people write by
-hand in a country with rolling blackouts. Better models compress what we are worst at, which is audit
-preparation and adversarial review of our own money paths. The same improvement lets someone read our
-public repositories and rebuild the design, so defensibility has to come from what is deployed and
-integrated, and anyone probing unaudited contracts improves on that schedule too. The underrated effect
-is that continuous adversarial review used to be sold by firms at a price that excluded teams our size.
-
-## How do you use AI in your workflows today?
-
-As an adversary more than an author.
-
-We test by deleting the safeguard and confirming the test then fails, rather than trusting a green
-result. That caught two identity tests which had silently stopped checking anything and a bug letting
-one property be titled twice.
-
-We simulate to kill our own ideas. Measuring our trading losses on real crash data came back nearly
-three times worse than our own published study, so we treat those figures as conservative floors.
-Another run showed a fixed two-times position liquidating in five to nineteen percent of historical
-Ethereum windows, which is why leverage sits on the depositor's outside book rather than ours.
-
-The compliance research ran 105 sub-agents across 676 tool calls, ruled out the vendor we had assumed
-was our partner, and caught us citing a regulation for something it does not say.
-
-And we reconcile documentation against code on a schedule, because design notes go stale faster than
-code does and a stale paragraph is a trap for whoever reviews us next. The retraction banners across
-`docs/informational/` are the output of that practice.
 
 ## Who are your competitors, and why will you win?
 
@@ -645,6 +596,10 @@ that basis. A clamp inherited from the LVR literature prices a risk a public poo
 not.
 
 ## What is the skew, and why does the pool need one?
+
+Swap fees are skimmed off the input and retained, unconditionally, regardless of what the price does after a trade. That is what an LP actually earns.
+Slippage is the gap between the marginal price at the start of your trade and the average price you got walking the curve.
+ Nobody receives it. The pool simply ends up holding different reserves at a different price, and the LPs' position is marked wherever the curve stopped.
 
 By placing all the liquidity within a couple of ticks worth of range, we have eliminated slippage,
 which is sliding price that changes as it captures liquidity existing within a tick. 

@@ -147,9 +147,9 @@ pub async fn run(
     evm: Arc<DaemonEvm>,
     store: Arc<BridgeStore>,
     start_block: u64,
-    // Swap-in HTTP ingrid (B-1): listen addr + bearer token. Both required to
+    // Swap-in HTTP ingress: listen addr + bearer token. Both required to
     // enable it; a listen addr without a token is rejected (no unauthenticated
-    // invoice issuer). `None` ⇒ ingrid disabled (swap-ins can't be initiated).
+    // invoice issuer). `None` ⇒ disabled (swap-ins can't be initiated).
     swap_in_listen: Option<String>,
     swap_in_token: Option<String>,
     // (B) The fleet vault node (2nd in-process LP-side LDK node), booted in the binary
@@ -378,14 +378,14 @@ pub async fn run(
         cfg.channel_reconcile_secs,
         channel_active.clone(),
     ));
-    // Swap-in request ingrid (B-1). Enabled only with BOTH a listen addr AND an
+    // Swap-in request ingress. Enabled only with BOTH a listen addr AND an
     // auth token — a listen addr without a token would be an UNAUTHENTICATED
     // invoice issuer, which we refuse to start.
     match (swap_in_listen, swap_in_token) {
         (Some(listen), Some(token)) => {
-            info!(%listen, "ingrid's up and taking swap-ins at the door — invoices signed, HTLCs settled, that's the score");
-            // Enable the /swap-in/onchain rail only when the on-chain watcher runs (it
-            // services the registered deposits), sharing the SAME registry.
+            info!(%listen, "contadora de esplora, taking swap-ins at the door — invoices signed, HTLCs settled, that's the score");
+            // Enable the /swap-in/onchain rail only when the on-chain watcher runs
+            // (it services the registered deposits), sharing the SAME registry.
             let onchain_ingrid = onchain_enabled.then(|| crate::swap_in_api::OnchainIngrid {
                 master: Arc::new(node.master_xprv.clone()),
                 registry: swap_in_registry.clone(),
@@ -393,7 +393,7 @@ pub async fn run(
                 network: node.bitcoin_network,
                 cltv_window_blocks: crate::swap_in_onchain::SWAP_IN_CLTV_WINDOW_BLOCKS,
             });
-            // (B) LP delegation onboarding + raw-BTC withdrawal ingrid. The vault node
+            // LP delegation onboarding + raw-BTC withdrawal ingrid. The vault node
             // allocates the deposit address (its wallet) + owns the open orchestrator's
             // watch registry; the raw-BTC withdrawal reads the on-chain `btcRecipientOf`
             // pin and splices out to it (the reconciler mirrors the shrink).
@@ -402,7 +402,8 @@ pub async fn run(
                 rpc: rpc.clone(),
                 btc_channels: cfg.btc_channels,
             };
-            set.spawn(crate::swap_in_api::serve(listen, invoicer, token, onchain_ingrid, Some(onboard_ingrid)));
+            set.spawn(crate::swap_in_api::serve(listen, invoicer, 
+                token, onchain_ingrid, Some(onboard_ingrid)));
         }
         (Some(_), None) => {
             anyhow::bail!(
@@ -424,8 +425,7 @@ pub async fn run(
                 .parse()
                 .context("QUID_VOGUE not a valid address")?;
             let venue_liq_ltv_bps: u32 = std::env::var("QUID_LEV_VENUE_LIQ_BPS")
-                .ok()
-                .and_then(|s| s.parse().ok())
+                .ok().and_then(|s| s.parse().ok())
                 .unwrap_or(9000); // weETH market default liq LTV
             
             let dwell_secs: u64 = std::env::var("QUID_LEV_DWELL_SECS").ok()

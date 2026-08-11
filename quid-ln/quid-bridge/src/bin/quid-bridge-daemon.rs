@@ -261,12 +261,12 @@ async fn main() -> anyhow::Result<()> {
     .await
     .context("boot hop node")?;
 
-    // Swap-in ingrid (B-1): both must be set to enable it (token required).
+    // Swap-in: both must be set to enable it (token required).
     let swap_in_listen = std::env::var("QUID_SWAPIN_LISTEN").ok();
     let swap_in_token = std::env::var("QUID_SWAPIN_API_TOKEN").ok();
 
-    // (B) VAULT NODE — the fleet's 2nd in-process LP-side node that opens channels
-    // funded by each LP's on-chain BTC deposit (the LP runs nothing). The hop runs a
+    // VAULT NODE — the fleet's 2nd in-process LP-side node that opens channels
+    // funded by each LP's on-chain BTC deposit (LPs run nothing). The hop runs a
     // localhost p2p listener; the vault dials it. All handles are `Arc`/`Copy` (shared
     // by reference, never a deep copy). The `vault` Arc is held in scope for the
     // daemon's lifetime so the vault's LDK background tasks stay alive.

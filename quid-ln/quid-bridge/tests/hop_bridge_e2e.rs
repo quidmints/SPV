@@ -369,7 +369,7 @@ async fn crash_in_settle_claim_window_is_redriven_on_boot() {
 
     let evm2 = Arc::new(DeliveringEvm { calls: Mutex::new(0) });
     let claimer2 = node_a.swap_in_claimer();
-    let (_dead, dummy_rx) = tokio::sync::mpsc::unbounded_channel(); // no live ingrid — boot re-drive only
+    let (_dead, dummy_rx) = tokio::sync::mpsc::unbounded_channel(); // no live ingress — boot re-drive only
     let _run2 = tokio::spawn(run_swap_in_sender(
         test_cfg(),
         evm2.clone(),

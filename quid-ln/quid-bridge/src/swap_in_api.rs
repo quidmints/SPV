@@ -396,7 +396,7 @@ async fn lp_withdraw(
     Ok(Json(WithdrawResp { initiated: true }))
 }
 
-/// Serve the fleet ingrid API on `listen` until the process ends. `onchain` enables the
+/// Serve the fleet API on `listen` until the process ends. `onchain` enables the
 /// `/swap-in/onchain` rail and `onboard` the `/lp/onboard` + `/lp/withdraw` (B) routes
 /// (`None` ⇒ those return 503). Returns on bind / serve error (the daemon supervises this
 /// as a task → its return tears the daemon down).

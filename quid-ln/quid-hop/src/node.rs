@@ -493,7 +493,7 @@ impl HopNode {
     }
 
     /// A cheaply-cloneable handle that issues swap-in invoices, for a prod request
-    /// ingrid (the bridge's swap-in HTTP API, B-1) to hold without the whole node.
+    /// ingrid (i.e. ingress, bridge's swap-in HTTP API) to hold without the whole node.
     pub fn invoicer(&self) -> SwapInInvoicer {
         SwapInInvoicer {
             cm: self.channel_manager.clone(),
@@ -504,7 +504,7 @@ impl HopNode {
 }
 
 /// Swap-in invoice issuer — the `issue_swap_in_invoice` logic behind a
-/// `Clone`-able handle (holds only the Arcs it needs), so a request-ingrid
+/// `Clone`-able handle (holds only the Arcs it needs), so a request
 /// server can issue invoices without owning the `HopNode`.
 #[derive(Clone)]
 pub struct SwapInInvoicer {

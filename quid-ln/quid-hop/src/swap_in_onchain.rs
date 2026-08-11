@@ -1,6 +1,6 @@
 //! On-chain (non-LN) swap-in — **Design A, enclave-trusted** taproot primitives.
 //!
-//! The regular-BTC ingrid: a user (or an LP funding their own channel) sends
+//! The regular-BTC ingress: a user (or an LP funding their own channel) sends
 //! PLAIN on-chain BTC — not a Lightning HTLC — to a per-swap taproot deposit address.
 //! The trusted hop watches the address, and once the deposit buries under N confs runs
 //! the SAME settle-then-claim contract the LN rail uses (`swap.rs` / `swap_in.rs`):

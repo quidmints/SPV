@@ -2,7 +2,7 @@
 name = "quid-bridge"
 version = "0.1.0"
 edition = "2021"
-description = "QU!D EVM-sender bridge daemon — drives BTCChannels settleSwapIn/markSwapOutPaid from the hop node's swap events (the LN↔EVM glue, run as a parallel daemon on the hop box)."
+description = "bridge daemon — drives BTCChannels settleSwapIn/markSwapOutPaid from the hop node's swap events (the LN↔EVM glue, parallel daemon on the hop box)."
 
 [features]
 # Enables the hop regtest harness (bitcoind+LDK) for the hop↔bridge integration
@@ -19,6 +19,7 @@ harness = ["quid-hop/harness"]
 # Return panics w/ backtraces to the host via the shared debug buffer (NOT the
 # SGX platform DEBUG mode, which disables memory protections).
 debug = true
+
 # Heap (bytes). MUST be profiled on real SGX hardware under load — heap
 # exhaustion inside an enclave is a fatal abort, so over-provision deliberately.
 # Set ABOVE quid's proven 1.5 GiB LDK node (0x6000_0000): our hop is heavier —
@@ -27,10 +28,13 @@ debug = true
 # graph/scorer is kept fresh per boot (cheaper than a full pathfinding node),
 # which only partly offsets that. 2 GiB is a safety-margin starting point.
 heap-size = 0x8000_0000   # 2 GiB  (TUNE on hardware)
+
 # SSA frame size (pages) per thread. Leave at the default.
 ssaframesize = 1
+
 # Stack (bytes) per thread. Matches quid's proven node.
 stack-size = 0x0080_0000  # 8 MiB
+
 # Max concurrent enclave threads (TCS slots). The daemon runs several tokio
 # tasks (node + esplora sync + reconnect + rebalancer / bridge); allow a few
 # workers + async_usercalls (+1). Each slot costs enclave memory — tune on hw.
@@ -38,31 +42,42 @@ threads = 6
 
 [dependencies]
 quid-hop = { path = "../quid-hop" }
-# Daemon assembly: boot the hop + build the esplora header source + load config.
+
+# Daemon assembly: boot the hop + build 
+# the esplora header source + load config.
 quid-ln = { path = "../quid-ln" }
 quid-common = { path = "../quid-common" }
-# (#69) name LDK's ChannelId in the reconciler's hop-funded fee-splice (initiate_splice
-# takes &ChannelId). The workspace [patch] unifies this with quid-hop's LDK fork, so it
-# is the SAME type the chain monitor / channel manager already yield.
+
+# LDK's ChannelId in the reconciler's hop-funded fee-splice (initiate_splice
+# takes &ChannelId). workspace [patch] unifies this with our LDK fork, so it
+# is the same type that the chain monitor / channel manager already yield.
 lightning = { workspace = true }
 quid-api = { path = "../quid-api" }
+
 # Attested provisioning endpoint (the enclave serves an RA-TLS cert with its
 # quote; an operator CLI verifies it then POSTs a seed which is sealed in-enclave).
 quid-tls = { path = "../quid-tls" }
 quid-tls-attest-server = { path = "../quid-tls-attest-server" }
 quid-crypto = { path = "../quid-crypto" }
 quid-enclave = { path = "../quid-enclave" }
-# Serve axum over the attested rustls ServerConfig (the quidmints-forked axum-server).
+
+# Serve axum over the attested rustls
+# ServerConfig (the forked axum-server).
 axum-server = { workspace = true }
+
 # Operator-CLI provisioning client (verifies the enclave via a preconfigured
 # rustls ClientConfig from quid-tls, then POSTs the seed). json for the body.
 reqwest = { workspace = true, features = ["json"] }
+
 # Block-header (de)serialization for the esplora-backed BtcHeaderSource.
 bitcoin = { workspace = true }
+
 # Daemon logging.
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
-# Swap-in request ingrid (B-1): a small authenticated HTTP endpoint that issues
+
+# Swap-in request: a small authenticated HTTP endpoint that issues
 # swap-in invoices. Same axum version the workspace API server uses.
+
 axum = { version = "0.8", default-features = false, features = ["json", "tokio", "http1"] }
 # EVM word/address/hash types + calldata shaping (reuses quid-hop::swap helpers).
 alloy-primitives = "0.8"
