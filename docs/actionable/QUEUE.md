@@ -11271,3 +11271,34 @@ the mark-up stays bounded.
 INERT.** Any recorded "mints exactly principal" figure describes the defect, not the design. ⇒ It also
 explains the anomaly I noted and passed over during §E2: `avgYield` read 16.36% while the back-solved
 bonus was only ~0.12%. **That gap was §E155 showing through, and I moved on instead of chasing it.**
+
+### ✅✅✅ UNIT-B-VERIFIED — **RESOLVED. The premium counter MATCHES what the swapper loses (0.007%).** No money-path defect.
+
+**The open money-path question is closed by measurement.** §UNIT-B-VERIFIED recorded the counter and
+the trader-side receipt disagreeing by **~1000×** and flagged the consequence: §E5 credits LPs the
+RECORDED number, so an overstating record would pay LPs value no swapper paid.
+**`test_UNITB_CounterMatchesWhatTheSwapperLoses`:**
+| quantity | value (usd18) |
+|---|---|
+| ΔReceipt — what the swapper actually lost | **1,508,891,222,019,043** |
+| ΔCounter — what the protocol recorded | **1,509,000,000,000,000** |
+| **agreement** | **0.007%** |
+⇒ **THE ~1000× WAS AN ARTIFACT OF COMPARING A TOTAL TO A COMPONENT** — the swapper's whole $63.35
+haircut (band cushion + price impact + skew) against the $0.025 of skew alone. `retainSkewPremium`
+does `r.amount -= premium`, and that dollar IS the dollar the swapper does not receive. **No third
+destination, and none needed: the record is honest.**
+
+📐 **WHY THIS DESIGN WORKED WHERE TWO PRIOR ATTEMPTS COULD NOT:** hold INVENTORY fixed, move the
+DENOMINATOR. Both arms drain the SAME size from ONE snapshot; only the flow EWMA differs (arm A
+decayed one 48h half-life: target **380,432 → 190,216**). Cushion and curve impact are functions of
+SIZE and DEPTH ⇒ they cancel. ⚠️ The obvious alternative — reach a different `q` by DRAINING — is
+BROKEN, because `q = (target−inv)/target` and `inv` IS the depth (§UNIT-B-VERIFIED-DESIGN-FIX).
+✅ **CONTROLS, and both were needed:** `POOLED_ETH` and `POOLED_USD_ETH` asserted IDENTICAL **PRE-DRAIN
+IN BOTH ARMS** (comparing a pre-drain figure to a post-drain one fired it spuriously the first time),
+and the arms must actually differ in skew. 📌 `premA == 0` is LEGITIMATE, not a void run: ETH has no
+`SPLICE_FLOOR` and arm A's σ² is unmeasured, so `_maxWellSkew` is 0 there.
+
+▶️ **CONSEQUENCE FOR THE REST OF SKEW: the ABSOLUTE magnitudes are now TRUSTWORTHY.** §UNIT-B's
+13.71%, §UNIT-SKEW-IS-NOISE's 0.04% and §E131's inputs all read `skewPremiumCum`, which was Tier-3
+"known-suspect" pending exactly this. **They are no longer suspect on THAT ground** — §UNIT-FORELLA's
+separate objection (`test_E71` measures level-vs-marginal, not consolidation) still stands.

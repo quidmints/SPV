@@ -1239,4 +1239,74 @@ contract DrainAtomicity is Alles {
         }
     }
 
+
+    /// §UNIT-B-VERIFIED — DOES THE PREMIUM COUNTER MATCH WHAT THE SWAPPER ACTUALLY LOSES?
+    /// §UNIT-B-VERIFIED measured the counter and the trader-side receipt disagreeing by ~1000× and
+    /// called it a MONEY-PATH question: §E5 credits LPs the RECORDED number, so if the record
+    /// overstates what is withheld, LPs are paid value no swapper paid.
+    /// ⚠️ §UNIT-SKEW-IS-NOISE already tried "measure (a) balance deltas, (b) counter, (c) USD_FEES in
+    /// one run" and could NOT settle it: (a) conflates band cushion + price impact + skew.
+    /// ⚠️ AND THE OBVIOUS DIFFERENCING DESIGN IS BROKEN: `q = (target-inv)/target` and `inv` IS the
+    /// depth, so reaching a different `q` BY DRAINING changes the depth and the cushion stops
+    /// cancelling — silently, with every control passing (§UNIT-B-VERIFIED-DESIGN-FIX).
+    /// ⇒ SO: hold INVENTORY fixed and move the DENOMINATOR. Both arms drain the SAME size from the
+    /// SAME snapshot; the flow EWMA is decayed one 48h half-life in arm A, so only `target` differs.
+    /// Cushion and curve impact are functions of size and depth ⇒ they CANCEL. What remains is skew.
+    /// `retainSkewPremium` does `r.amount -= premium`, so a dollar withheld is a dollar the swapper
+    /// does not receive: **ΔReceipt must equal ΔCounter.**
+    function test_UNITB_CounterMatchesWhatTheSwapperLoses() public {
+        _setupBand();
+        uint SIZE = 30_000 * 1e18;
+        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint snap = vm.snapshotState();
+
+        // ARM A — decayed target (LOWER q ⇒ LESS skew ⇒ MORE volatile received)
+        vm.warp(block.timestamp + 2 days); vm.roll(block.number + 1);
+        emit log_named_uint("A target      ", CORE.flowEwmaUsd(false));
+        emit log_named_uint("A POOLED_ETH  ", CORE.POOLED_ETH());
+        emit log_named_uint("A POOLED_USD  ", CORE.POOLED_USD_ETH());
+        uint pooledEthA = CORE.POOLED_ETH(); uint pooledUsdA = CORE.POOLED_USD_ETH();
+        uint premA = CORE.skewPremiumETH();
+        uint ethA = _drain(SIZE);
+        premA = CORE.skewPremiumETH() - premA;
+
+        vm.revertToState(snap);
+
+        // ARM B — undecayed target (HIGHER q ⇒ MORE skew ⇒ LESS volatile received)
+        emit log_named_uint("B target      ", CORE.flowEwmaUsd(false));
+        emit log_named_uint("B POOLED_ETH  ", CORE.POOLED_ETH());
+        emit log_named_uint("B POOLED_USD  ", CORE.POOLED_USD_ETH());
+        // CONTROL, and it must be taken PRE-DRAIN in BOTH arms: identical depth is what makes the
+        // cushion and curve impact cancel. Comparing a pre-drain figure to a post-drain one is the
+        // mistake that made this assertion fire the first time.
+        assertEq(CORE.POOLED_ETH(), pooledEthA, "CONTROL: identical volatile depth across arms, "
+            "else the band cushion does not cancel and this measures the wrong thing");
+        assertEq(CORE.POOLED_USD_ETH(), pooledUsdA, "CONTROL: identical USD depth across arms");
+        uint premB = CORE.skewPremiumETH();
+        uint ethB = _drain(SIZE);
+        premB = CORE.skewPremiumETH() - premB;
+
+        emit log_named_uint("A eth received", ethA);
+        emit log_named_uint("B eth received", ethB);
+        emit log_named_uint("A skew (usd6) ", premA);
+        emit log_named_uint("B skew (usd6) ", premB);
+        // ETH is 18-dec, px is usd*1e18 per 1e18 wei scaled 1e30 in this repo's convention.
+        emit log_named_uint("dReceipt (usd18)", ethA > ethB
+            ? (ethA - ethB) * px / 1e18 : 0);
+        emit log_named_uint("dCounter (usd18)", premB > premA ? (premB - premA) * 1e12 : 0);
+
+        // CONTROLS. `premA == 0` is legitimate and NOT a void run: ETH has no `SPLICE_FLOOR` and
+        // arm A's sigma^2 is unmeasured, so `_maxWellSkew` is 0 there. What the comparison needs is
+        // that the arms DIFFER and that the depth is IDENTICAL — the second is what makes the
+        // cushion cancel, and its absence is the silent failure this design was rebuilt to avoid.
+        assertTrue(premB != premA, "CONTROL: the target move must change the skew, else the arms "
+            "are identical and any agreement is trivial");
+
+        // THE CLAIM: `retainSkewPremium` does `r.amount -= premium`, so a dollar withheld is a
+        // dollar the swapper does not receive. There is no third destination.
+        assertApproxEqRel(
+            (ethA - ethB) * px / 1e18, (premB - premA) * 1e12, 0.01e18,
+            "the RECORDED premium must equal what the swapper actually loses: E5 credits LPs the "
+            "recorded number, so an overstating record pays LPs value no swapper paid");
+    }
 }
