@@ -11569,3 +11569,35 @@ before answering anything about capital, borrowing or loss.**
 | id | state |
 |---|---|
 | **E177-b** | ✅ **THE PRODUCER, so §E177 IS NO LONGER INERT.** I had landed the CONSUMER (the `ChannelTruthSource` trait + its validation + tests against a fake) and **no implementation** — a trait with nothing behind it is inert in exactly the way §E165 is inert without per-LP custody, and it would have read as done. ✅ `quid-bridge/src/channel_truth.rs`: `OnChainChannelTruth` reads `channels(bytes32)` through the EXISTING **AGREEMENT-classed** reader (`eth_call_raw_agreed`, pinned to `tip − AGREED_READ_DEPTH`), so an untrusted host can only DEFLATE the tip to serve an OLDER view — never forge the value at the block it names. An older view is harmless here because both facts are pinned at OPEN and never move for a funding scope. ✅ `keys_hash()` added to `evm_codec` beside the `SIG_*` constants — one copy, mirroring `BTCChannels.sol:1310` `keccak256(abi.encode(p.lpPubkey, p.hopPubkey))`. 🔑 **ITS TEST IS PINNED TO AN INDEPENDENT IMPLEMENTATION** — foundry's `cast abi-encode "f(bytes,bytes)" | cast keccak` → `a55a3f24…de63` — **not** to our own encoder, because pinning it to our own output is the same circularity §E178 found in the selector tests. Plus two negative controls: `(lp,hop)` order must matter (`channelId` sorts, this does NOT), and it must not equal `keccak(lp‖hop)` — the plausible-looking wrong answer, since both args are dynamic `bytes` carrying offsets and length prefixes. ⚠️ **DELIBERATE:** `channels()` returns SIX static words since §E153 added `keysHash`; `channel_driver::read_channel_state` still says "5 static words" and requires only 160 bytes, which is why it never reads it. `channel_truth` requires the full 192 and REFUSES a short return rather than indexing into it, and refuses an out-of-range `amountSats` rather than truncating — a wrapped value would make the sighash comparison meaningless. ▶️ **REMAINING TO WIRE:** construct it where signers are built (`QuidKeysManager`) and pass `FundingRole::Lp`/`Hop`; until then no signer has a truth source and the §E176-C self-consistency behaviour is what runs. **Rust workspace 637 passed / 0 failed.** |
+
+### ⛔ UNIT-B-LAG-REFUTED — the lagged target made the discount WORSE (1371 → 2263 bps). Reverted, and the mechanism is UNEXPLAINED.
+
+**Built the owner-decided fix — price against a LAGGED SAMPLE of the flow EWMA rather than the live
+one — on the reclaimed `__deadSlotWasFlowSlow*` slots (no new storage; `Core` 23,842 / 734 free,
++186 bytes). Prediction stated first: §E71's consolidation discount → ~0 bps. MEASURED:**
+| | discount | BIG skew | SPLIT skew |
+|---|---|---|---|
+| before | **1,371 bps** | 21,009 | 24,349 |
+| lagged target | **2,263 bps** | 16,921 | 21,873 |
+⇒ **REFUTED, AND IN THE WRONG DIRECTION: the whale benefited MORE.** Both legs fell; BIG fell
+proportionally further.
+
+⛔ **AND IT IS NOT "INCOMPLETE PENDING A LONGER WINDOW" — I CHECKED BEFORE REVERTING (rule 8d).**
+`_drain` contains **NO `vm.warp`**, so all twelve §E71 tickets land at the SAME TIMESTAMP. A window
+cannot be "too short" for a sequence that takes zero time. ⇒ The failure is NOT calibration.
+⇒ **REVERTED, and under 8d that is the CORRECT call here:** the change is measurably WORSE on the
+exact metric it targets, which is the "wrong" case, not the "test disagrees" case.
+
+🔬 **WHAT IS UNEXPLAINED AND MUST BE UNDERSTOOD BEFORE THE NEXT ATTEMPT — DO NOT PROPOSE A FIX FIRST:**
+1. **Why did the BIG leg's skew drop at all?** It is ONE swap; with `snap.ts == 0` it takes the live
+   fallback, so its target should be unchanged. Yet `t0` moved **380,432 → 360,528** ⇒ **`_setupBand`'s
+   own swaps now write the snapshot**, so the FIXTURE's starting target shifted. **Both arms moved,
+   and the ratio is what worsened.** ⇒ Any future attempt must hold the fixture's entry state fixed,
+   or it is measuring the setup, not the fix.
+2. **The sampling order:** the snapshot is refreshed AFTER the bump, so ticket 1's flow enters the
+   target for tickets 2-12 while the whale never pays for its own. That asymmetry SURVIVES the lag —
+   freezing makes it permanent within the window instead of growing. **That is a plausible mechanism
+   and it is NOT verified; do not build on it.**
+📌 **THE OWNER'S DECISION IS UNAFFECTED** (*the target must not include the trade's own flow*). What is
+refuted is THIS IMPLEMENTATION of it. §UNIT-FORELLA's warning stands: this must be designed jointly
+with the total-variation measure, and §E83's censored duration still gates the window.
