@@ -11496,3 +11496,38 @@ adverse-selection charge than a trailing realised window. **Worth pricing both i
 (§ORACLE-FREE-ANSWERED). It is a different dependency though — a PRICING INPUT, not the
 circuit-breaker/liveness role — and it fails soft: a stale or absent vol feed can fall back to the
 ring, where a missing PRICE anchor bricks the reseat path.
+
+### 🎯🎯🎯 SIGMA-CAN-WE-AVOID-IT — σ² is a FORECAST OF A COST, not a requirement. The realized alternative may already be half-built.
+
+**Owner: *"why do we need it for this skew and could we get around it."* Both answered.**
+
+**WHY IT IS THERE:** σ² PREDICTS the loss. The base is literally `σ²·confFrac/8` — MMRZ eq.16's
+`LVR = σ²/8` per unit time × the settlement window (`SwapLib:778-782`); the kernel scales steepness by
+σ² for the same reason (`:961`), since the cost of holding inventory across the window is
+proportional to variance. ⇒ **σ² IS A MEANS, NOT AN END. Nothing in the design needs *variance*; it
+needs the COST variance is being used to estimate.**
+
+**THREE WAYS AROUND IT, worst to best:**
+1. ⛔ **A CONSTANT σ² (governance parameter).** Rejected by the repo's own principle — §E55 refuses "a
+   single fitted half-life" as *"a guess"*, and `Core.sol:198` refuses a third decay constant as *"an
+   unjustified magic number"*. Same objection, same force.
+2. 🎯 **EXTERNAL VOLATILITY FEED** (§SIGMA-SOURCE-CHAINLINK-VOL): one `latestRoundData()`,
+   deviation-triggered, exogenous. **Mainnet availability UNCONFIRMED and I could not settle it —
+   the addresses page exceeds the fetch limit. Needs a human look or an address to call on the fork.**
+3. 🎯🎯🎯 **PRICE OFF *REALIZED* ADVERSE SELECTION INSTEAD OF PREDICTED — AND THE MACHINERY LOOKS
+   HALF-BUILT.** `Core._premETH`/`_premBTC` already hold *"the band's realized market-making premium
+   as a decayed EWMA — **θ's NUMERATOR (#107/D3): the compensation the band actually receives for
+   bearing IL**"* (`Core.sol:201-208`), and `derivedThetaWad` (`Vogue.sol:946` → `VogueLib`) already
+   computes θ as a RATIO. ⇒ **IF θ's denominator is realized IL, θ IS ALREADY THE CALIBRATION and σ²
+   is redundant as a LEVEL input** (it may still earn its place shaping the CURVE in `q`).
+   ✅ **Why this is the strongest option:** you do not need to FORECAST a cost you can MEASURE. A fee
+   that must be right ON AVERAGE can be set from realized history. **Self-calibrating, needs NO
+   oracle, and cannot go stale against a price series it never references — it references the band's
+   own P&L.** It also sidesteps §SIGMA-SOURCE entirely: no exogenous-source problem if the input is
+   endogenous *by design* rather than by accident.
+   ⚠️ **THE HONEST COST:** backward-looking, so it lags a REGIME CHANGE. But it lags **the band's own
+   experience — the thing being compensated** — rather than lagging a market we do not observe, and
+   on the staleness axis it is **no worse than σ² from our own ring**, with no external dependency.
+▶️ **NEXT, AND IT IS A READ NOT A BUILD:** open `VogueLib.derivedThetaWad` and establish what θ's
+DENOMINATOR is. **If it is realized IL, option 3 is mostly plumbing.** ⚠️ Do NOT design on the
+`Core.sol:201-208` docblock alone — five stale-comment errors today (rule: verify by structure).
