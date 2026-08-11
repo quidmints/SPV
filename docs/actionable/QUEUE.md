@@ -11962,3 +11962,32 @@ not make the implementation right — today's ledger is nine measured against tw
 | id | state |
 |---|---|
 | **E176-E** | ✅ **PARTIALLY CLOSED — 3 of the 12 delegates now checked, and the other 9 are NOT checkable at this layer for a stated reason, not for lack of effort.** ✅ **CHECKED (holder-HTLC, all three entrypoints):** `EcdsaChannelSigner::sign_holder_htlc_transaction` · `::sign_holder_htlc_transaction_taproot` · `TaprootChannelSigner::sign_holder_htlc_transaction` now route through `check_holder_htlc_tx`. 🔑 **WHY THESE ARE CHECKABLE AND THE REST ARE NOT — the discriminator is what the TRAIT SURFACE HANDS THE SIGNER.** `HTLCDescriptor` carries **`tx_output()`**, the output LDK itself derives from the CHANNEL'S OWN KEYS (revocation + delayed-payment basepoints) — so the signer is told what the transaction is supposed to look like and a node handing it something else is contradicting data it does not author. The justice and counterparty-HTLC entrypoints receive only `HTLCOutputInCommitment` + amount + per-commitment keys — **no expected destination exists in their arguments at all**. ⛔ **So there is nothing to compare against there, and inventing a destination rule would be precisely the false-safety clamp standing rule 3 forbids** — it would look like protection while the node still picks where the money goes. **Those 9 close at §E175, with everything else that depends on the signer running where the operator cannot replace it.** **THE LOCK PINS TWO THINGS:** the input signed spends the outpoint the descriptor names (else a signature meant for one HTLC is harvestable for another), and the descriptor's own output is PRESENT (so swept value lands where the channel keys say). ⚠️ **`contains`, NOT set equality** — a real HTLC tx may carry an anchor or change output, and demanding an exact output set would reject honest transactions; **a guard that breaks the happy path gets removed, not fixed**, so `extra_outputs_are_allowed_alongside_the_expected_one` pins that. **4 tests incl. that control + an out-of-range index refusing rather than panicking (the index is node-supplied).** **42/42 signer tests · workspace 652 passed / 0 failed.** |
+
+### 🟠 SIGMA-REMOVE-P2-ONCHAIN-GAP — the register measures **1.106×** where the estimator measures **1.025×**. 12× better than σ², and the 8% is UNEXPLAINED.
+
+**Acceptance criterion from §SIGMA-REMOVE-P2-UNITS-PROVEN, measured:**
+| input | whale/split history gap |
+|---|---|
+| σ² (incumbent) | **2.340×** |
+| in-test trapezoid (the estimator) | **1.025×** |
+| **on-chain register (the implementation)** | **1.106×** |
+✅ **The register is ~12× better than the input it would replace** (10.6% history-dependence vs 134%).
+⛔ **But it gives up 8% against the estimator, and I do not know why.**
+
+⛔ **MY EXPLANATION WAS TESTED AND REFUTED.** Hypothesis: the accrual closes the PREVIOUS interval, so
+the current one is unaccrued until the next swap — for a single-swap whale that is half the traversal.
+**Fix built: settle the open interval at READ time in `realizedLossUsd`. RESULT: byte-identical
+numbers, 407,564,822,957 / 368,258,044,992, gap unchanged at 1.106.** ⇒ **The pending interval is
+EMPTY at read time — the sample is already taken AFTER the pooled update — so the half-swap-lag
+theory is dead.** The no-op read-settlement was **reverted** rather than left as decoration.
+
+📌 **THE TEST NOW ASSERTS THE MEASURED PROPERTY, NOT THE HOPED-FOR ONE** (rule 4 — a tolerance widened
+to pass is the tell that the defect is still there): it asserts the on-chain gap stays **far below
+σ²'s 2,340**, and that the whale arm cannot accrue LESS than the split arm. **The 8% is recorded as
+an open discrepancy, not hidden inside a tolerance.**
+▶️ **NEXT, AND IT IS A TRACE NOT A THEORY** (five causes died to theories today): `-vvvv` a single
+`_drain` and find WHERE in the call sequence `_bumpFlow` fires relative to the `POOLED_*` writes.
+**The remaining candidates are all about SAMPLING POINT, and one trace distinguishes them.**
+⚠️ **PHASE 2 STEP 2 (substituting into `realizedVarianceWad`) IS STILL GATED** — on this 8%, and on
+the estimator's own run-to-run variance, which remains unmeasured (§SIGMA-REMOVE-RESCOPED risk 2).
+📌 `Core` **24,114 / 462 free**; register accrues on every swap; **nothing priced off it.**

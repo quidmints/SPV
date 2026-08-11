@@ -1476,7 +1476,7 @@ contract DrainAtomicity is Alles {
     /// ⚠️ TRAPEZOID, not left-rectangle: a per-swap `inv·Δp` accrual is a Riemann sum whose error
     /// scales with SAMPLE COUNT — the same shape-dependence in a new costume. `(inv₀+inv₁)/2`
     /// telescopes exactly when inventory is linear in price, which it is inside a ±0.2% band.
-    struct P1 { uint trade; uint trap; uint s2; }
+    struct P1 { uint trade; uint trap; uint s2; uint chain; }
 
     function _bandPx() internal view returns (uint) {
         uint inv = CORE.POOLED_ETH();
@@ -1496,18 +1496,21 @@ contract DrainAtomicity is Alles {
         uint snap = vm.snapshotState();
 
         _setupBand(); _pinFlow(380_432_109_336);
+        A.chain = CORE.realizedLossUsd(false);
         { uint i0 = CORE.POOLED_ETH(); uint p0 = _bandPx(); _drain(TOTAL); _accrue(A, TOTAL, i0, p0); }
+        A.chain = CORE.realizedLossUsd(false) - A.chain;
         A.s2 = CORE.realizedVarianceWad(false);
 
         vm.revertToState(snap);
 
         _setupBand(); _pinFlow(380_432_109_336);
-        uint onchain0 = CORE.realizedLossUsd(false);   // isolate the SAME interval as the in-test sum
+        B.chain = CORE.realizedLossUsd(false);
         for (uint k = 0; k < 12; ++k) {
             uint i0 = CORE.POOLED_ETH(); uint p0 = _bandPx();
             _drain(TOTAL / 12);
             _accrue(B, TOTAL / 12, i0, p0);
         }
+        B.chain = CORE.realizedLossUsd(false) - B.chain;
         B.s2 = CORE.realizedVarianceWad(false);
 
         emit log_named_uint("sigma^2     whale  ", A.s2);
@@ -1524,8 +1527,21 @@ contract DrainAtomicity is Alles {
         // UNIT PROOF: the on-chain DIFF over the drain loop must equal the in-test trapezoid
         // rescaled usd18 -> usd6. `_drain` does not warp, so the register does not decay in between
         // and the diff is exact rather than approximate.
-        emit log_named_uint("onchain DELTA split", CORE.realizedLossUsd(false) - onchain0);
-        emit log_named_uint("in-test /1e12 split", B.trap / 1e12);
+        emit log_named_uint("ONCHAIN     whale  ", A.chain);
+        emit log_named_uint("ONCHAIN     split  ", B.chain);
+        emit log_named_uint("gap x1000 ONCHAIN  ", B.chain == 0 ? 0 : A.chain * 1000 / B.chain);
+        // THE ACCEPTANCE CRITERION: the CONTRACT's register must inherit the estimator's
+        // history-independence. If mid-swap sampling broke the telescoping this will not hold, which
+        // would refute the IMPLEMENTATION while leaving the ESTIMATOR (1.025x in-test) sound.
+        // ASSERT THE PROPERTY THAT IS MEASURED, NOT THE ONE I HOPED FOR. On-chain: 1.106x.
+        // In-test estimator: 1.025x. sigma^2: 2.340x. The register is ~12x better than the input it
+        // would replace, and that IS the claim worth locking. The 8% it gives up against the in-test
+        // trapezoid is UNEXPLAINED -- the half-swap-lag theory was tested (settle the open interval
+        // at read time) and made NO difference, so it is refuted. Do not widen this to hide it.
+        assertLt(A.chain * 1000 / B.chain, 1200,
+            "the on-chain trapezoid must stay far better than sigma^2's 2,340 history gap");
+        assertGt(A.chain * 1000 / B.chain, 1000,
+            "sanity: the whale arm cannot accrue LESS than the split arm");
 
         assertGt(A.trap, 0, "CONTROL: the trapezoid estimator must actually accrue");
         assertGt(B.trap, 0, "CONTROL: both arms must accrue");
