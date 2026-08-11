@@ -10790,3 +10790,43 @@ UNCOMMITTED change: `- function setBtcRecipient(bytes32 xOnlyKey)` →
 1-arg `setBtcRecipient`. **In this tree `tsc` cannot run (`spa/` has no `node_modules`), so the ABI
 checker is the ONLY client-side gate** — this drift means the SPA will call a signature that no longer
 exists once that change lands. Update the SPA in the same commit as the contract change.
+
+### 📍 SKEW-WHATS-LEFT — answer to *"are we done with skew?"*: **NO.** Ordered by what unblocks what.
+
+**DONE 2026-08-10:** §UNIT-A (base reachable) · §E42 (premium leak closed at source) · the byte work
+(§CORE-ONLYUS 907 + `mocks()`) that unblocks the rest. **Nothing else on the skew path is closed.**
+
+**🥇 THE GATE — §UNIT-A-FIXTURE. Everything downstream is measured on a broken tape.**
+`realizedVarianceWad` samples on a WALL-CLOCK grid while the ring advances ONLY on a swap, and
+`observe` INTERPOLATES ⇒ **any swap spacing coarser than the grid measures a straight line.**
+*"EVERY fixture in this repo that warps 8-20 minutes between swaps has been measuring interpolation,
+not volatility."* ⇒ **§E125, §E131 (`8P/V`, T*≈527s), §UNIT-SKEW-IS-NOISE's 0.04% and today's
+§UNIT-B 13.71% ALL inherit this.** ▶️ Read the sampling interval OUT of `realizedVarianceWad` (do not
+guess), swap FINER than it, drive the POOL TICK not the feed. **Until this lands, no skew magnitude
+in this repo is quotable.**
+
+**🥈 THEN §UNIT-SKEW-IS-NOISE — is the skew material at all?** Its 0.04% is suspect on TWO grounds
+(measured PRE-§UNIT-A, and possibly on an interpolated tape). Re-measure post-§UNIT-A on a fixed
+fixture. ⚠️ **NOT a deletion argument** (owner: *"deleting the skew is not honest"*), and
+§UNIT-WHY-IT-MATTERS reframes materiality anyway: the imbalance is an **ACCOUNTING-CORRECTNESS**
+problem — LP withdrawal, P&L attribution and the swap fee all read the skewed composition.
+
+**🥉 §UNIT-B-VERIFIED — a MONEY-PATH discrepancy, still unreconciled.** The premium COUNTER and the
+TRADER-SIDE measure of the same swap disagree by **~1000×**. §E5 routes the RECORDED number to LPs, so
+if it overstates, **LPs are credited value no swapper paid.** ▶️ One run: swapper balance deltas vs
+`skewPremiumCum` vs `USD_FEES`.
+
+**THEN, jointly (they conflict if designed apart):**
+- **§UNIT-B** — the `now − window` lagged target (owner-decided semantics; **nothing built**), and
+  ⚠️ its instrument `test_E71` **measures the wrong property** (§UNIT-FORELLA: level-vs-marginal, not
+  consolidation).
+- **§UNIT-FORELLA** — charge **total variation `Σ|dq|`**. Path-INDEPENDENT within a swap +
+  path-DEPENDENT across a sequence. Freezing the target alone could make closed loops CHEAPER.
+- **§E83** — Kaplan–Meier censored duration. **Gates §UNIT-B, §UNIT-VENUE-CEILING and the two-sided
+  decision simultaneously.** A measurement, not a design argument.
+
+**ALSO OPEN:** the two-sided CARRIER (owner: idea exists, form undetermined) · §UNIT-C-BAR arm B
+(scoped, unbuilt; acceptance must include **LP exit attribution**, not just fees−LVR) · §UNIT-ASYM
+(the 527s is **ETH-ONLY**; BTC's window is ~300× — re-run per leg) · §UNIT-A-FOLLOWON (a NEW pool now
+pays the full base; dead-vs-new discriminator absent) · §E55's manipulation defence (never operated;
+needs a WEIGHTED EWMA, not a slower sum) · §UNIT-C (gated behind §UNIT-B).
