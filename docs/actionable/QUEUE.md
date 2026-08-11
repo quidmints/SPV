@@ -10771,3 +10771,22 @@ outright slot deletion fail with `unrecognized function selector 0x70a08231` on 
 `__deadSlotWasFlowSlowBTC`/`ETH` outright (2 slots) and drop the stale-slot guard in `_mockDust`.
 **Prediction to state and test: 4,400/1/2 unchanged** — the failure mode that blocked it is gone.
 Re-run §UNIT-B-SLOWDEL's exact arms to confirm.
+
+### ⛔ ABI-GATE-NOT-GATED (again) + a LIVE DRIFT that belongs to the OTHER THREAD.
+
+⛔ **I COMMITTED WITH THE ABI GATE RED — the exact failure CLAUDE.md already records** (*"Chaining the
+check ahead of a commit in one command is not gating it — I read '2 drifted' and committed anyway"*).
+I ran `check-client-abis.py` and `git commit` in ONE `&&` chain; it printed **"1 drifted"** and the
+commit proceeded because the checker's output is not its exit status. **A gate you cannot fail is not
+a gate.** ▶️ **Run it as its OWN call and READ the result before the commit call. Never chain them.**
+
+✅ **THE DRIFT IS REAL AND IS NOT MINE — attributed, not assumed:**
+`DRIFT setBtcRecipient(bytes32)` · spa declares the 1-arg form · contract has
+`setBtcRecipient(bytes32,bytes)`. `git diff evm/src/BTCChannels.sol` shows the other thread's
+UNCOMMITTED change: `- function setBtcRecipient(bytes32 xOnlyKey)` →
+`+ function setBtcRecipient(bytes32 xOnlyKey, bytes calldata pop)`. My commit
+(`Core.sol` + `UnificationControls.t.sol` + `QUEUE.md`) touches none of it.
+⚠️ **FOR THE BTCChannels THREAD, NOT FOR ME TO FIX (rule 14):** `spa/src/lib/abi.ts` still encodes the
+1-arg `setBtcRecipient`. **In this tree `tsc` cannot run (`spa/` has no `node_modules`), so the ABI
+checker is the ONLY client-side gate** — this drift means the SPA will call a signature that no longer
+exists once that change lands. Update the SPA in the same commit as the contract change.
