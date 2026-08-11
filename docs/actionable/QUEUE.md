@@ -9828,3 +9828,49 @@ tracing an external `PoolManager.swap` against the band before asserting anythin
 | **E162-splice-bricks-retirement** | 🔴🔴 **MY §E153 REGRESSION: A SPLICE CAN SILENTLY CHANGE A CHANNEL'S KEY PAIR AND MAKE IT PERMANENTLY UNRETIRABLE (found 2026-08-10 while designing the upgrade path).** 🔎 **`keysHash` is pinned at open and checked ONLY in `_requireNotSplice` (`:1152`) — the retirement paths. **`splice` neither checks nor updates it.** `_verifySplice` proves KeyAgg over the CALLER-SUPPLIED pair (`:1010`, and `:854`: *"proves `p.lpPubkey` IS inside the new `Q`"*), so a splice with a DIFFERENT pair passes, rotates the funding outpoint, and leaves `keysHash` at the ORIGINAL pair.** ⛔ **CONSEQUENCE: `recordClose` and `recordDeadManExit` then BOTH revert `ChannelKeysMismatch` ⇒ **the channel is unretirable forever — BTC alive in a live 2-of-2, the EVM position stuck open, backing OVER-COUNTED indefinitely.** That is the exact hazard §E155 removed the LP-only gate to prevent, reintroduced through a different door.** ⛔ **IT IS MINE. §E153 pinned `keysHash` at open and built the retirement paths on it **without checking that splice preserves the invariant they depend on**. Before §E153 there was no hash to mismatch. Reachable by any hop, since `p` is caller-supplied and the only gate is `msg.sender == channel.hop`.** ▶️ **FIX AND FEATURE ARE ONE CHANGE — either splice REJECTS key changes (preserving the invariant) or it UPDATES `keysHash` (enabling deliberate rotation). The upgrade path wants the latter: see §E162-rekey-splice.** | 🔴🔴 splice can rekey and brick retirement; E153 regression, live now |
 
 | **E162-rekey-splice** | 🎯 **UPGRADE WITHOUT SEED MIGRATION, WITHOUT CLOSING, WITHOUT LP ACTION AND WITHOUT A COORDINATED EVENT (owner rejected close+reopen: *"LPs need to check the new image. it's a bank run and predictably causes a price shift"*, 2026-08-10).** 🔑 **THE OLD IMAGE SIGNS A SPLICE PAYING TO A 2-of-2 OF **NEW-IMAGE** KEYS, and the contract updates `keysHash`. ⇒ **NO SEED EVER MIGRATES** (the new image generates its own keys; the old one merely pays to them, so sealing stays an unbroken boundary) · **THE CHANNEL NEVER CLOSES** (BTC stays in the protocol, backing unchanged, no liquidity event, no price shift — the pool sees a splice, which it sees routinely) · **NO LP ACTION** (the fleet holds both halves) · **STAGGERED BY CONSTRUCTION** (one channel at a time, so there is no coordinated moment and therefore no run).** ✅ **THE CONSTRAINT LIVES WHERE IT MUST: the contract already proves `Q == KeyAgg(newLp, newHop)` on the spliced output (§E142/§E129), so it verifies the rotation landed on the DECLARED new keys. Malicious Rust cannot fake that — it is checked on the EVM against SPV-proven Bitcoin data. **This is the answer to the owner's *"what executes the transaction though? rust that can be replaced with malicious rust?"***.** 🔴 **OPEN AND LOAD-BEARING: WHO MAY REKEY, AND TO WHAT. Unrestricted, a compromised hop splices to keys it SOLELY controls and cuts the LP out of its own 2-of-2. The new pair must retain the LP's key, or the rotation must be gated on something the hop alone cannot produce. **Do not implement the `keysHash` update without settling this — it is the difference between an upgrade path and a theft path.**** | 🎯 rekey splice: rotate custody without closing, no seed migration, no run; gating still open |
+
+### 🎯 CURVE REPLACES UNIFORM v3 AND THE BORROW LEG IS NO LONGER JUSTIFIED. MEASURED, LIVE.
+
+**Owner (2026-08-09):** get rid of Uniswap for the weETH offramp entirely; use Curve
+`0xdb74dfdd3bb46be8ce6c33dc9d82777bcfc3ded5`.
+
+**Pool verified on-chain:** `weETH/WETH-ng` · coin0 **WETH**, coin1 **weETH** · balances **2,047.43 WETH /
+2,794.60 weETH** · **A = 5000** (tight-peg amplification) · **fee 0.5 bps** · `get_dy(int128,int128,uint256)`
+(the **int128** signature; the uint256 `-ng` variant REVERTS on this pool — do not assume).
+
+**Execution vs the live oracle (`0xbDd2F2D4…`, weETH→WETH), against the 0.01% Uniswap table already in
+`VaultLib`:**
+| size (weETH) | **Curve** | Uniswap 0.01% | Curve better by |
+|---|---|---|---|
+| 1 | **−1.39 bps** | −17.55 | **16.2** |
+| 10 | **−1.40** | — | — |
+| 100 | **−1.51** | −18.79 | **17.3** |
+| 500 | **−2.10** | — | — |
+| 1000 | **−3.47** | −28.16 | **24.7** |
+| 2000 | −722.80 | −679.33 | both CLIFF (pool holds 2,047 WETH) |
+
+⇒ **THE OFFRAMP CONVERSION COST DROPS FROM ~18–28 bps TO ~1.4–3.5 bps** across every realistic size.
+
+🎯 **AND THAT ANSWERS "IS THE BORROW LEG NEEDED?" — NO.** Its entire value was avoiding the v3 sale's
+18–28 bps. Against Curve it would be avoiding **1.4–3.5 bps**, while: carrying a leveraged position with
+liquidation exposure over the `waitNft` window; encumbering **~2× the weETH** per unit served (the
+safety-first ~50% LTV the owner requires); adding a multi-tx borrow→redeem→claim→repay lifecycle with a
+keeper dependency; and depending on external lending liquidity. **Trading a ~2 bps cost for a standing
+liquidation risk on protocol inventory is not a good trade.**
+⇒ **RECOMMEND: DROP THE BORROW LEG.** Everything designed for it stays useful as RECORD (the
+verified weETH/WETH markets, `LevVenueMarketPins`, the position-free/accounting analysis) — but nothing
+needs building. **The v3→Curve swap is the whole feature.**
+
+⚠️ **AND THE OWNER'S OTHER POINT COMPOUNDS THIS:** *"IL-protect LPs might already be collateralising their
+weETH, so most of the weETH on hand cannot be used for this offramp."* Levered collateral sits in per-LP
+venue escrows, NOT the Vault, so the Vault's free weETH — the ONLY thing `offrampBody:452-457` can sell —
+is the UNLEVERED remainder. **The more IL-protect succeeds, the smaller the slice rung 1 can serve**, and
+the more each exit leans on `waitNft`. A borrow leg would compete for that same shrinking inventory.
+
+▶️ **TO BUILD (the actual work):** replace the two-tier v3 `exactInput` loop (`VaultLib:470-481`) with a
+single Curve `exchange(int128,int128,uint256,uint256)`; drop `v3router`/`poolFee`/`poolFee2` from
+`SwapLib.OfframpCfg`; delete the tier-ordering machinery and its now-obsolete measured table; and check
+`SwapLib.sourceWethBody:590`, which uses the same cfg for opportunistic sourcing.
+⚠️ Keep a floor: Curve's own `get_dy` is the natural pre-trade check, and the 0.5%-of-fair floor should be
+retained — at −1.4 bps typical, a fill that misses it by a wide margin means the pool has been drained,
+which is exactly the 2,000-size cliff above.
