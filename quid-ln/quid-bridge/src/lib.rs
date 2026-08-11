@@ -34,6 +34,7 @@
 pub(crate) mod abi;
 pub mod boot;
 pub mod channel_driver;
+pub mod channel_truth;
 pub mod deadman_exit;
 pub mod recovery_broadcast;
 pub mod vault;

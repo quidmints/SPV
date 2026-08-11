@@ -55,6 +55,25 @@ use crate::spv::{block_hash_be, merkle_branch};
 //
 // ⚠️ These are the EXPANDED forms. A struct written as the bare token `tuple` hashes to a
 // different selector, and the calldata still looks plausible.
+/// (E177) `keysHash` — `keccak256(abi.encode(lpPubkey, hopPubkey))`, exactly as
+/// `BTCChannels._requireChannelKeys` computes it (`BTCChannels.sol:1310`).
+///
+/// This is the ON-CHAIN comparand a validating signer checks its taproot context against:
+/// it is pinned at OPEN and is therefore the one fact about a channel the node cannot
+/// restate. ⚠️ Both arguments are Solidity `bytes` (dynamic), so the encoding is two
+/// offsets followed by two length-prefixed, right-padded blobs — NOT the concatenation of
+/// the two keys. Hashing the concatenation gives a plausible-looking wrong answer.
+///
+/// ⚠️ ORDER IS SIGNIFICANT: `(lp, hop)`, not sorted. `channelId` sorts its keys; this does
+/// not, and swapping them yields a different hash and a rejected context.
+pub fn keys_hash(lp_pubkey: &[u8; 33], hop_pubkey: &[u8; 33]) -> [u8; 32] {
+    keccak256(encode_tuple(&[
+        Tok::Bytes(lp_pubkey.to_vec()),
+        Tok::Bytes(hop_pubkey.to_vec()),
+    ]))
+    .0
+}
+
 pub const SIG_OPEN_CHANNEL: &str =
     "openChannel((bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32[],\
 (address,bytes32,bytes,bytes),(uint64[],bytes[],uint64,uint256,bytes)[])";
@@ -1004,6 +1023,36 @@ fn t_params() -> OpenParams {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// (E177) `keys_hash` must equal what `BTCChannels._requireChannelKeys` computes.
+    ///
+    /// ⚠️ THE EXPECTED VALUE COMES FROM AN INDEPENDENT IMPLEMENTATION — foundry's
+    /// `cast abi-encode "f(bytes,bytes)" <lp> <hop> | cast keccak` — NOT from this
+    /// encoder. Pinning it against our own output would be circular in exactly the way
+    /// §E178's selector tests were: the encoder would be asserting it agrees with itself.
+    ///
+    /// This is the check that lets a validating signer refuse a forged taproot context, so
+    /// a silent mismatch here would disable the one comparand the node cannot author.
+    #[test]
+    fn keys_hash_matches_the_contract() {
+        let lp = [0x02u8; 33];
+        let hop = [0x03u8; 33];
+        assert_eq!(
+            hex_encode(&keys_hash(&lp, &hop)),
+            "a55a3f24cf7ab3c828acb2a80b6c317cb31cb62289e419a883fab2a20c17de63",
+            "keysHash != keccak256(abi.encode(lpPubkey, hopPubkey))"
+        );
+        // ORDER IS SIGNIFICANT — `channelId` sorts its keys, this does not. If these ever
+        // collide the signer would accept a context with the two halves swapped.
+        assert_ne!(keys_hash(&lp, &hop), keys_hash(&hop, &lp), "(lp,hop) order must matter");
+        // And it must not be the naive concatenation: both args are dynamic `bytes`, so the
+        // encoding carries offsets and length prefixes. Hashing the concatenation is the
+        // plausible-looking wrong answer.
+        let mut cat = Vec::new();
+        cat.extend_from_slice(&lp);
+        cat.extend_from_slice(&hop);
+        assert_ne!(keys_hash(&lp, &hop), keccak256(&cat).0, "must not be keccak(lp||hop)");
+    }
 
     fn hex_decode(s: &str) -> Vec<u8> {
         (0..s.len())
