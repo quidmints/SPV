@@ -505,6 +505,27 @@ pub enum TruthVerdict {
     Mismatch,
 }
 
+/// (E177) Builds the on-chain comparand for a channel the keys manager is about to derive
+/// a signer for.
+///
+/// 🔑 **WHY A FACTORY AND NOT JUST AN `Arc<dyn ChannelTruthSource>`.** The comparand is
+/// PER-CHANNEL, but the only place a signer can be reached is
+/// `SignerProvider::derive_channel_signer` (LDK takes the signer by value immediately, and
+/// `ChannelMonitor` exposes no accessor — §E177-d), which is handed a `channel_keys_id`
+/// and nothing else.
+///
+/// ⚠️ **IT RETURNS A SOURCE UNCONDITIONALLY, NEVER AN `Option`, AND THAT IS LOAD-BEARING.**
+/// At derive time the on-chain `channelId` is usually UNKNOWN — it needs a funding outpoint
+/// that does not exist yet. If the factory declined in that case, the signer would be born
+/// without a comparand and could never acquire one (write-once, and unreachable afterwards).
+/// So the source is always attached and resolves the cid LAZILY, reporting
+/// [`TruthVerdict::NotRecorded`] until it can. That composes exactly with the three-state
+/// check: unresolved *is* "not recorded", it is permissive while the channel is opening,
+/// and the `truth_recorded` latch makes it one-way the moment the chain first answers.
+pub trait TruthSourceFactory: Send + Sync {
+    fn for_channel(&self, channel_keys_id: [u8; 32]) -> std::sync::Arc<dyn ChannelTruthSource>;
+}
+
 /// Which side of the 2-of-2 this signer is, so a candidate pair can be ordered the way
 /// `BTCChannels` hashed it (`abi.encode(lpPubkey, hopPubkey)` — order is significant, and
 /// guessing it by trying both would pin only the SET, weakening the check for no gain).

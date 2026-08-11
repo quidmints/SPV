@@ -29,7 +29,7 @@
 use std::sync::Arc;
 
 use alloy_primitives::Address;
-use quid_ln::validating_signer::{ChannelTruthSource, TruthVerdict};
+use quid_ln::validating_signer::{ChannelTruthSource, TruthSourceFactory, TruthVerdict};
 
 use crate::client::eth_call_raw_agreed;
 use crate::transport::JsonRpc;
@@ -49,31 +49,110 @@ fn word(bytes: &[u8], i: usize) -> Result<&[u8], ()> {
     bytes.get(i * 32..(i + 1) * 32).ok_or(())
 }
 
+/// (E177) `channel_keys_id → on-chain channelId`.
+///
+/// The signer is derived from a `channel_keys_id`; the EVM knows the channel by
+/// `channelId = keccak(lpPubkey, hopPubkey, fundingTxid, vout)`, which needs a funding
+/// outpoint that does not exist at derive time. The daemon learns the pairing later (it
+/// already derives a cid from a monitor via `onchain_cid_from_monitor`) and records it
+/// here; the comparand resolves through it on every check.
+///
+/// ⚠️ **AN UNRESOLVED ENTRY IS `NotRecorded`, NOT AN ERROR.** That is exactly right and it
+/// is why the three-state check exists: a channel whose cid is not yet known is a channel
+/// the EVM has not recorded, the window is permissive so opening can proceed, and the
+/// signer's `truth_recorded` latch makes it ONE-WAY the moment the chain first answers —
+/// so this map cannot be used to downgrade a channel that has already been seen.
+#[derive(Default)]
+pub struct CidRegistry {
+    map: std::sync::RwLock<std::collections::HashMap<[u8; 32], [u8; 32]>>,
+}
+
+impl CidRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Record the pairing. Idempotent; a conflicting re-bind is REFUSED and returns `false`
+    /// rather than overwriting — the cid identifies which on-chain channel a signer is
+    /// checked against, so letting it move would let the node pick the comparand.
+    pub fn bind(&self, channel_keys_id: [u8; 32], channel_id: [u8; 32]) -> bool {
+        let mut m = match self.map.write() {
+            Ok(m) => m,
+            Err(_) => return false,
+        };
+        match m.get(&channel_keys_id) {
+            Some(existing) => *existing == channel_id,
+            None => {
+                m.insert(channel_keys_id, channel_id);
+                true
+            }
+        }
+    }
+
+    pub fn get(&self, channel_keys_id: &[u8; 32]) -> Option<[u8; 32]> {
+        self.map.read().ok().and_then(|m| m.get(channel_keys_id).copied())
+    }
+}
+
 /// A [`ChannelTruthSource`] backed by `BTCChannels` on the EVM.
 pub struct OnChainChannelTruth<R: JsonRpc> {
     rpc: Arc<R>,
     btc_channels: Address,
-    channel_id: [u8; 32],
+    cids: Arc<CidRegistry>,
+    channel_keys_id: [u8; 32],
 }
 
 impl<R: JsonRpc> OnChainChannelTruth<R> {
-    pub fn new(rpc: Arc<R>, btc_channels: Address, channel_id: [u8; 32]) -> Self {
-        Self { rpc, btc_channels, channel_id }
+    pub fn new(
+        rpc: Arc<R>,
+        btc_channels: Address,
+        cids: Arc<CidRegistry>,
+        channel_keys_id: [u8; 32],
+    ) -> Self {
+        Self { rpc, btc_channels, cids, channel_keys_id }
     }
 
-    /// The raw `channels(channelId)` return, refused unless it is the full six words.
-    fn read(&self) -> Result<Vec<u8>, ()> {
+    /// The raw `channels(channelId)` return. `Ok(None)` = the cid is not known yet, which
+    /// the caller reports as `NotRecorded`. Refused unless the return is the full six words.
+    fn read(&self) -> Result<Option<Vec<u8>>, ()> {
+        let Some(cid) = self.cids.get(&self.channel_keys_id) else {
+            return Ok(None);
+        };
         let bytes = eth_call_raw_agreed(
             &*self.rpc,
             self.btc_channels,
             "channels(bytes32)",
-            Some(&self.channel_id),
+            Some(&cid),
         )
         .map_err(|_| ())?;
         if bytes.len() < CHANNELS_WORDS * 32 {
             return Err(());
         }
-        Ok(bytes)
+        Ok(Some(bytes))
+    }
+}
+
+/// (E177) Builds a comparand per derived signer. Held by `QuidKeysManager`.
+pub struct OnChainTruthFactory<R: JsonRpc> {
+    rpc: Arc<R>,
+    btc_channels: Address,
+    cids: Arc<CidRegistry>,
+}
+
+impl<R: JsonRpc> OnChainTruthFactory<R> {
+    pub fn new(rpc: Arc<R>, btc_channels: Address, cids: Arc<CidRegistry>) -> Self {
+        Self { rpc, btc_channels, cids }
+    }
+}
+
+impl<R: JsonRpc + Send + Sync + 'static> TruthSourceFactory for OnChainTruthFactory<R> {
+    fn for_channel(&self, channel_keys_id: [u8; 32]) -> Arc<dyn ChannelTruthSource> {
+        Arc::new(OnChainChannelTruth::new(
+            self.rpc.clone(),
+            self.btc_channels,
+            self.cids.clone(),
+            channel_keys_id,
+        ))
     }
 }
 
@@ -84,7 +163,8 @@ impl<R: JsonRpc + Send + Sync> ChannelTruthSource for OnChainChannelTruth<R> {
         hop_pubkey: &[u8; 33],
         funding_value_sat: u64,
     ) -> Result<TruthVerdict, ()> {
-        let bytes = self.read()?;
+        // Cid not yet known ⇒ the EVM cannot have recorded this channel.
+        let Some(bytes) = self.read()? else { return Ok(TruthVerdict::NotRecorded) };
         let keys_hash = word(&bytes, W_KEYS_HASH)?;
 
         // ⚠️ `keysHash == 0` IS THE "no record" TEST, NOT `amountSats == 0`.
@@ -115,5 +195,32 @@ impl<R: JsonRpc + Send + Sync> ChannelTruthSource for OnChainChannelTruth<R> {
             return Ok(TruthVerdict::Mismatch);
         }
         Ok(TruthVerdict::Match)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The registry is a comparand SELECTOR: it decides which on-chain channel a signer is
+    /// checked against. Letting a bind move would let the node point the check at a
+    /// different (or empty) record — choosing its own referee.
+    #[test]
+    fn a_cid_bind_is_idempotent_but_never_rebindable() {
+        let r = CidRegistry::new();
+        let keys = [1u8; 32];
+        assert!(r.bind(keys, [9u8; 32]), "first bind");
+        assert!(r.bind(keys, [9u8; 32]), "identical re-bind is a no-op, not a failure");
+        assert!(!r.bind(keys, [7u8; 32]), "a CONFLICTING re-bind must be refused");
+        assert_eq!(r.get(&keys), Some([9u8; 32]), "the original binding survives");
+    }
+
+    /// An unknown `channel_keys_id` must read as NOT RECORDED rather than erroring: that is
+    /// the legitimate pre-record window (the EVM records a channel only once its funding is
+    /// SPV-proven), and erroring would fail closed and deadlock every channel open.
+    #[test]
+    fn an_unknown_channel_keys_id_is_not_recorded() {
+        let r = CidRegistry::new();
+        assert_eq!(r.get(&[3u8; 32]), None);
     }
 }

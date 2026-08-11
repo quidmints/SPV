@@ -46,9 +46,46 @@ use crate::{
 pub struct QuidKeysManager {
     inner: KeysManager,
     wallet: OnchainWallet,
+    /// (E177) Builds each derived signer's on-chain comparand. `None` leaves every signer
+    /// on §E176-C self-consistency only — which binds a node that contradicts itself and
+    /// nothing more, so a deployment that omits this is materially less checked and should
+    /// know it.
+    truth: Option<(std::sync::Arc<dyn crate::validating_signer::TruthSourceFactory>,
+                   crate::validating_signer::FundingRole)>,
 }
 
 impl QuidKeysManager {
+    /// (E177) Give every signer this manager derives an on-chain comparand.
+    ///
+    /// ⚠️ **BOTH DERIVE PATHS MUST GO THROUGH [`Self::attach_truth`].** `ChannelSigner` and
+    /// `TaprootChannelSigner` are derived by SEPARATE LDK entrypoints, and a simple-taproot
+    /// channel uses the taproot one — so attaching on only the ECDSA path would leave
+    /// exactly the channels this protects unprotected, with every test still green.
+    pub fn with_truth_factory(
+        mut self,
+        factory: std::sync::Arc<dyn crate::validating_signer::TruthSourceFactory>,
+        role: crate::validating_signer::FundingRole,
+    ) -> Self {
+        self.truth = Some((factory, role));
+        self
+    }
+
+    /// Attach the per-channel comparand, if one is configured. The source is built
+    /// unconditionally (see `TruthSourceFactory`): at derive time the on-chain `channelId`
+    /// is usually unknown, and a signer born without a comparand can never acquire one.
+    fn attach_truth(
+        &self,
+        signer: ValidatingChannelSigner,
+        channel_keys_id: [u8; 32],
+    ) -> ValidatingChannelSigner {
+        if let Some((factory, role)) = self.truth.as_ref() {
+            // `set_truth_source` is write-once; a freshly-derived signer always has room,
+            // so a `false` here would mean the signer was not fresh — not a retry case.
+            let _ = signer.set_truth_source(factory.for_channel(channel_keys_id), *role);
+        }
+        signer
+    }
+
     /// Initialize a [`QuidKeysManager`] from a [`RootSeed`] and
     /// [`OnchainWallet`].
     pub fn new(
@@ -73,7 +110,7 @@ impl QuidKeysManager {
             v2_remote_key_derivation,
         );
 
-        Ok(Self { inner, wallet })
+        Ok(Self { inner, wallet, truth: None })
     }
 
     /// Get the "Node ID" [`NodePk`] for this [`QuidKeysManager`].
@@ -274,7 +311,10 @@ impl SignerProvider for QuidKeysManager {
         let inner = self.inner.derive_channel_signer(channel_keys_id);
         let expected_holder_close_script =
             self.wallet.get_destination_script();
-        ValidatingChannelSigner::new(inner, expected_holder_close_script)
+        self.attach_truth(
+            ValidatingChannelSigner::new(inner, expected_holder_close_script),
+            channel_keys_id,
+        )
     }
 
     /// Simple-taproot channels (M6) hold a `ChannelSignerType::Taproot(_)`. QU!D's
@@ -289,7 +329,10 @@ impl SignerProvider for QuidKeysManager {
         let inner = self.inner.derive_taproot_channel_signer(channel_keys_id);
         let expected_holder_close_script =
             self.wallet.get_destination_script();
-        ValidatingChannelSigner::new(inner, expected_holder_close_script)
+        self.attach_truth(
+            ValidatingChannelSigner::new(inner, expected_holder_close_script),
+            channel_keys_id,
+        )
     }
 
     /// Returns the scriptpubkey that we should receive time-locked, contestible
@@ -390,5 +433,78 @@ mod test {
             // User 2 verifies
             assert!(keys_manager2.verify_message(&msg, &sig, &node_pk1));
         });
+    }
+}
+
+#[cfg(test)]
+mod truth_wiring_tests {
+    use crate::validating_signer::{ChannelTruthSource, TruthSourceFactory, TruthVerdict};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    struct CountingFactory {
+        calls: AtomicUsize,
+    }
+    struct NullTruth;
+    impl ChannelTruthSource for NullTruth {
+        fn verify(&self, _: &[u8; 33], _: &[u8; 33], _: u64) -> Result<TruthVerdict, ()> {
+            Ok(TruthVerdict::NotRecorded)
+        }
+    }
+    impl TruthSourceFactory for CountingFactory {
+        fn for_channel(&self, _: [u8; 32]) -> Arc<dyn ChannelTruthSource> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Arc::new(NullTruth)
+        }
+    }
+
+    /// 🔴 **BOTH DERIVE PATHS MUST ATTACH A COMPARAND.** `ChannelSigner` and
+    /// `TaprootChannelSigner` are derived by SEPARATE LDK entrypoints, and a
+    /// **simple-taproot channel — which is what this protocol negotiates
+    /// (`negotiate_simple_taproot = true`) — uses the TAPROOT one.** Attaching on only the
+    /// ECDSA path would leave exactly the channels this exists to protect unprotected,
+    /// with every other test in the suite still green.
+    ///
+    /// ⚠️ **THIS IS A STRUCTURAL TEST, AND IT MUST NOT BE ABLE TO PASS VACUOUSLY.**
+    /// Constructing a real `QuidKeysManager` needs a seed + wallet, so the wiring is
+    /// asserted by reading this module's own source. The first version of this test wrote
+    /// `.unwrap_or(true)` on the file read — which would have PASSED on any machine where
+    /// the read failed, asserting nothing. The read is now `expect`ed and the PREMISE (that
+    /// both methods exist at all) is asserted before the property, so a rename cannot
+    /// silently turn this green.
+    #[test]
+    fn both_derive_paths_attach_a_comparand() {
+        let src = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/keys_manager.rs"
+        ))
+        .expect("must be able to read keys_manager.rs; a failed read must NOT pass");
+
+        for method in ["fn derive_channel_signer", "fn derive_taproot_channel_signer"] {
+            let at = src.find(method).unwrap_or_else(|| {
+                panic!("PREMISE FAILED: `{method}` no longer exists — was it renamed?")
+            });
+            // The body ends at the next top-level `    }` after the signature.
+            let body_end = src[at..].find("\n    }").expect("method body");
+            let body = &src[at..at + body_end];
+            assert!(
+                body.contains("attach_truth"),
+                "`{method}` does not route through attach_truth — signers derived by this \
+                 path get NO on-chain comparand"
+            );
+        }
+    }
+
+    /// The factory is consulted once per channel, and returns a source unconditionally —
+    /// never an `Option`. A signer born without a comparand can never acquire one, because
+    /// `set_truth_source` is write-once and LDK owns the signer from then on.
+    #[test]
+    fn the_factory_is_consulted_per_channel() {
+        let factory = CountingFactory { calls: AtomicUsize::new(0) };
+        let _ = factory.for_channel([0u8; 32]);
+        let _ = factory.for_channel([1u8; 32]);
+        assert_eq!(factory.calls.load(Ordering::SeqCst), 2);
     }
 }
