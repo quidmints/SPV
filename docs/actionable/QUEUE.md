@@ -11031,3 +11031,30 @@ everything else on the mint path.**
 | id | state |
 |---|---|
 | **E171-r** | ⛔ **WITHDRAWN — §E171's "DO NOT REQUIRE MuSig2 FROM THE LP" IS WRONG AND MUST NOT BE ACTED ON** (owner, 2026-08-11: *"if we dont use musig 2 then everything is fucked… custom app is no problemo"*). **THE REFUTATION, IN THE CODE:** `quid-hop/src/funding.rs:48` builds the funding output *"per BIP327 + **BOLT simple-taproot-channels**"* — a key-path-only MuSig2 aggregate over an EMPTY merkle root, byte-matched on-chain as `0x5120||Q`. So MuSig2 is not a signing-UX choice layered on top; it **IS** the channel model. Dropping it takes out simple-taproot channels, the on-chain KeyAgg proof (`MuSig2Agg.computeOutputKey`, §E129/§E142), `funding.rs`, the fixture generator's `taproot_2of2_output_key`, and the key-path exit verification (§E128) — and a script tree is not a partial retreat either, because a non-empty merkle root **changes `Q`** and breaks the byte-match with what LDK produces. The fallback would be legacy P2WSH ECDSA 2-of-2, i.e. abandoning taproot outright. ⚠️ **MY ERROR, NAMED SO IT IS NOT REPEATED: I optimised for "works in a browser with wallets that exist" and let that outrank a load-bearing protocol dependency I had not checked.** The signing surface is a CONSEQUENCE of the channel model, never an input to it — check what the money path already depends on before proposing to change what signs it. ✅ **THE DECISION:** MuSig2 stays; the LP signer is a **custom app** (owner: no problem). Scope is bounded and one-time: hold one secp256k1 key (TEE-WRAPPED at rest per §E170, since no phone TEE can sign it), run N MuSig2 sessions for the §E165 ladder rungs in ONE interactive ceremony at open, then never come online again. 🔴 **THE ONE FAILURE THAT WOULD BE SILENT AND TOTAL — MuSig2 NONCE REUSE.** Signing two different messages under the same secnonce **leaks the LP's secret key**, and the fleet sees both partial signatures, so it recovers the key and holds BOTH halves again — the entire §E165 design defeated with every on-chain byte still looking correct. ⇒ **Use the same `musig2` crate the hop uses** (`funding.rs:88`, conduition), whose `FirstRound`/`SecondRound` types CONSUME `self` and make reuse a type error rather than a review item; delete secnonces after use and persist nothing replayable. This is precisely the rule-3 case where a check earns its place: violating it is silent and produces plausible-but-wrong output. ⇒ **WEBSITE ROLE, CORRECTED:** the site is NOT futile and NOT replaced — it keeps the EVM leg (`lpSig`, position monitoring, redemption) and drives the app as a signer over WalletConnect, exactly as it would drive a hardware wallet. Only the BTC key ceremony at open needs the app. ▶️ **WORTH CHECKING, NOT PROMISING:** Ledger Bitcoin app v2.4.0 does MuSig2 via BIP-373/388, which MIGHT cover a key-path `musig()` internal key (BIP-390) and give a no-app path for Ledger owners — the sources describe `musig()` in taproot SCRIPT expressions, so key-path support is unconfirmed. |
+
+### 🔬 E2-DEPOSIT-HAIRCUT-NARROWED — it is **SHORTFALL-SPECIFIC**, so `AUX.deposit` is exonerated. Suspect the post-month-12 cap.
+
+**The discriminator was already in the file and I did not use it before booking two candidates.**
+`test_E2_MintAtMark_IsExactNoOpWhileBasketIsWhole` mints into a HEALTHY basket and PASSES
+`assertApproxEqAbs(minted, 10_000e18, 1e12)` — **1:1 to within ONE 6-dec USDC unit.**
+⇒ ⛔ **CANDIDATE (i) `AUX.deposit()` CREDITS BELOW PAR IS REFUTED** — a valuation haircut would apply
+in BOTH states. **There is no haircut in a healthy basket.** The 3.745% appears ONLY on the
+`_openShortfall` path.
+
+▶️ **WHAT DIFFERS BETWEEN THE TWO STATES — and it points at ONE mechanism:**
+`_openShortfall` mints a 13-month seed bond then **warps 500 days**, so at the depositor's mint
+`currentMonth()` ≈ 16. `Basket._finishMint`'s calibration window is SKIPPED only when `isSeed` OR
+`currentMonth() < 12`; **this mint is neither** (`when=0` ⇒ not seed; month ≈ 16). ⇒ **the depositor
+lands on the post-calibration path for the first time**, and the healthy control never does
+(fresh basket ⇒ `currentMonth() == 0`).
+🔴 **PRIME SUSPECT: the 1:1 cap — *"totalSupply + normalized ≤ total; if the full yield bump pushes
+over, SHRINK `normalized` to fit."* In a shortfall `totalSupply > total` BY DEFINITION, so a cap of
+that shape shrinks every post-month-12 deposit, by more the deeper the shortfall.** ⚠️ The comment
+there claims **"NO mint-side 1:1 cap … the removed `if (!calibrating) shrink normalized to headroom`
+broke it for every post-month-12 deposit"** — i.e. it says this was REMOVED. **Verify by STRUCTURE,
+not by that comment** (four stale-comment errors today; this is exactly the pattern).
+🔬 **DECISIVE ONE-RUN TEST:** mint the SAME 50,000 into a HEALTHY basket that has been WARPED PAST
+MONTH 12 (no shortfall, `currentMonth() > 12`). **If it mints 1:1 the cause is the SHORTFALL; if it
+haircuts, the cause is the POST-CALIBRATION PATH** — and those imply completely different fixes.
+📌 **Neither is an §E2 defect.** §E2-#1 is a no-op in the healthy case and is doing its job in the
+shortfall case; it was measured against a baseline that was already short.
