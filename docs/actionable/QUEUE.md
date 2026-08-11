@@ -11635,3 +11635,23 @@ trade's own flow*). **Nothing today refuted it; today refuted my ability to MEAS
 | id | state |
 |---|---|
 | **E177-c** | ✅ **THE COMPARAND IS NOW ATTACHABLE TO THE SIGNER LDK ACTUALLY USES — which the builder form could never be.** Two facts force this and both were invisible until I tried to wire it: **(1)** LDK takes the signer **BY VALUE** the moment `derive_channel_signer` returns, so `with_truth_source(mut self)` can only ever decorate a copy that is thrown away; **(2)** the on-chain `channelId` is `keccak(lpPubkey, hopPubkey, fundingTxid, vout)` and **is not known at derive time** — the funding outpoint does not exist yet. ⇒ attachment must happen LATER, from whoever first knows the outpoint. `set_truth_source(&self, ..)` + `has_truth_source()` added. 🔴 **WRITE-ONCE, VIA `OnceLock` AND NOT `Mutex<Option<..>>`, DELIBERATELY: a comparand the untrusted node could REPLACE is not a comparand — it hands the attacker the referee.** A second set is refused and the first stays in force (`truth_source_is_write_once`), and `truth_source_can_be_attached_after_construction` proves a late attachment is actually CONSULTED rather than merely stored. **33/33 signer tests; workspace 639 passed / 0 failed.** ▶️ **STILL NOT LIVE — the last mile, and it is a real plumbing problem, not a line of code.** Nothing calls `set_truth_source` yet, so every signer today runs §E176-C self-consistency only. The blocker is the `channel_keys_id → on-chain channelId` mapping: `derive_channel_signer` has only the former, and the cid needs a funding outpoint. **The repo already has both halves of the answer** — `onchain_cid_from_monitor()` (`quid-hop/src/node.rs:834`) derives a cid from a monitor, and `vault.rs` already maintains a `funding_outpoint → lpEth` registry of exactly this shape. Wire the same pattern for `channel_keys_id → cid`, then attach on the first tick that sees a funded channel. ⚠️ **Until that lands, §E177 is BUILT AND NOT ENFORCING — do not read the green tests as protection.** |
+
+### ✅ UNIT-B-PINNED-INSTRUMENT — the entry state is now PINNED and ASSERTED. Target-mechanism changes are attributable again.
+
+**Built `test_UNITB_PinnedEntry_ConsolidationDiscount` (`DrainAtomicity.t.sol`), the instrument
+§UNIT-B-E71-NOT-AN-INSTRUMENT said had to exist before any further variant.**
+`_pinFlow(uint128 vol)` writes `(ts << 128) | vol` (the `Flow` packing) to **all four** flow slots —
+131087 `_flowBTC` · 131088 `_flowETH` · 131089/131090 the retained dead slow-flow slots that any
+lagged/snapshot mechanism would reuse — with `ts = now` so decay is zero and the value read back is
+exactly what was written. **All four, so the entry target is identical WHATEVER the mechanism reads.**
+✅ **SELF-VALIDATING:** `assertEq(CORE.flowEwmaUsd(false), PINNED)` in **BOTH arms** is what proves the
+pin found the right slots, and it fails loudly if `Core`'s storage layout moves.
+✅ **CALIBRATED AGAINST HEAD:** pinned entry **380,432,109,336** ⇒ BIG **21,009** · SPLIT **24,349** ⇒
+**1,371 bps — reproducing §E71's HEAD number EXACTLY.** At HEAD the pin is a no-op, which is precisely
+what a valid control should be.
+⇒ **THE TWO REFUTED VARIANTS CAN NOW BE RE-RUN VALIDLY.** Their measurements were void because the
+entry target moved (380,432 → 360,528 → 340,720); on this instrument it CANNOT. **The BEFORE-bump
+sampling order is the mechanically-motivated one and deserves the valid measurement it never got.**
+⚠️ **STILL TRUE AND NOT FIXED BY THIS:** §UNIT-FORELLA's separate objection that this SHAPE of test
+measures level-vs-marginal rather than consolidation. **This instrument makes the comparison
+ATTRIBUTABLE; it does not make it the RIGHT question.** Both are needed.

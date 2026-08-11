@@ -1358,4 +1358,62 @@ contract DrainAtomicity is Alles {
         emit log_named_uint("annualized vol (bps)", Math.sqrt(s2 * 1e18) / 1e14);
         assertGt(s2, CORE.realizedVarianceWad(true) * 0 + 1, "the tick driver must move the ring");
     }
+
+    /// §UNIT-B-E71-NOT-AN-INSTRUMENT — PIN THE ENTRY STATE so a target-mechanism change is
+    /// ATTRIBUTABLE. §E71 cannot do this: changing the mechanism changes what `_setupBand`'s own
+    /// swaps leave in the flow registers, so each variant starts from a different `q` — measured
+    /// 380,432 → 360,528 → 340,720 across three variants, and skew is NON-LINEAR in `q`, so the
+    /// discounts were never comparable. Two experiments were void on that broken control.
+    ///
+    /// `Flow` is `{uint128 vol; uint64 ts}` in ONE slot ⇒ `(ts << 128) | vol`. Slots from
+    /// `forge inspect Core storageLayout`: 131087 `_flowBTC` · 131088 `_flowETH` · 131089/131090 the
+    /// retained dead slow-flow slots (§UNIT-B-SLOWDEL-PADDING), which any lagged/snapshot mechanism
+    /// would reuse. **ALL FOUR are pinned so the entry target is the same whatever the mechanism
+    /// reads.** `ts = now` ⇒ zero decay ⇒ the value is exactly what was written.
+    function _pinFlow(uint128 vol) internal {
+        bytes32 packed = bytes32((uint(block.timestamp) << 128) | uint(vol));
+        for (uint slot = 131087; slot <= 131090; ++slot) {
+            vm.store(address(CORE), bytes32(slot), packed);
+        }
+    }
+
+    /// The instrument §UNIT-B needs. Same shape as §E71 (one big drain vs the same volume split),
+    /// but the entry target is PINNED and ASSERTED, so any difference is the mechanism and not the
+    /// fixture. ⚠️ The `assertEq(flowEwmaUsd, PINNED)` is not decoration: it is what proves the pin
+    /// found the right slots, and it fails loudly if `Core`'s layout moves.
+    function test_UNITB_PinnedEntry_ConsolidationDiscount() public {
+        uint TOTAL = 120_000 * 1e18;
+        uint N = 12;
+        uint128 PINNED = 380_432_109_336;   // the pre-fix entry target, so runs stay comparable
+
+        uint snap = vm.snapshotState();
+        _setupBand();
+        _pinFlow(PINNED);
+        assertEq(CORE.flowEwmaUsd(false), PINNED,
+            "CONTROL: the entry target must be exactly what was pinned -- if this fails the slots "
+            "moved and every number below is unattributable (this is the defect it exists to catch)");
+        uint premBig = CORE.skewPremiumETH();
+        uint ethBig = _drain(TOTAL);
+        premBig = CORE.skewPremiumETH() - premBig;
+
+        vm.revertToState(snap);
+        _setupBand();
+        _pinFlow(PINNED);
+        assertEq(CORE.flowEwmaUsd(false), PINNED, "CONTROL: identical pinned entry in BOTH arms");
+        uint premSplit = CORE.skewPremiumETH();
+        uint ethSplit;
+        for (uint i = 0; i < N; ++i) ethSplit += _drain(TOTAL / N);
+        premSplit = CORE.skewPremiumETH() - premSplit;
+
+        emit log_named_uint("pinned entry target ", PINNED);
+        emit log_named_uint("skew BIG   (usd6)   ", premBig);
+        emit log_named_uint("skew SPLIT (usd6)   ", premSplit);
+        emit log_named_uint("ETH big / split     ", ethBig);
+        emit log_named_uint("ETH split           ", ethSplit);
+        emit log_named_uint("discount bps        ", premSplit > premBig
+            ? (premSplit - premBig) * 10_000 / premSplit : 0);
+
+        assertGt(premBig, 0, "CONTROL: the big leg must actually be charged skew");
+        assertGt(premSplit, 0, "CONTROL: the split leg must actually be charged skew");
+    }
 }
