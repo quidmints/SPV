@@ -9948,3 +9948,41 @@ so they cost UX not money); loosening past ~100 bps starts admitting the cliff.
 ⇒ **No change. Justification written into `VaultLib` at the floor itself** so the next reader does not
 re-open it — the number is inherited from the Uniswap era but is correct for Curve BY MEASUREMENT, which
 is not obvious and was worth checking.
+
+
+### 🔴 REGIME DETECTION IS NOT BUILT — `realized_alpha` IS A DOC LINK TO A FUNCTION THAT DOES NOT EXIST
+
+⛔ **RETRACTS my own claim from earlier this session** that regime detection "partially exists, covering
+the volume axis." It does not exist at all. **`realized_alpha` appears EXACTLY ONCE in the whole
+`quid-ln` tree** — `quid-bridge/src/lev_keeper.rs:22`, inside a `//!` module doc, as a rustdoc link
+`[`realized_alpha`]`. **There is no implementation.** I read intent as shipped behaviour, which is the
+failure mode this file already records twice today under *"a comment describes past state"*.
+
+**What the doc DESCRIBES (worth keeping — it is a real design, just unbuilt):**
+> *`α` = the realized band concavity (how √p-like the position is), measured from flow. Busy flow →
+> `α→0.5` → `L→2` (cancel the IL the flow created). Quiet → `α→1` → `L→1` (no leverage, because there is
+> no realized IL to cancel). **Pinning `L=2` (ybamm's mistake) over-levers in quiet regimes and drains.***
+
+⇒ **NEITHER AXIS IS IMPLEMENTED:**
+| axis | what it separates | status |
+|---|---|---|
+| **volume** (`α` from flow) | busy vs quiet — the owner's "low volume" regime | ❌ doc only |
+| **path ÷ net move** | CHOPPY vs TRENDING — `Σ\|Δp\| / \|p_end − p_start\|` | ❌ not designed either |
+
+⚠️ **AND THE TWO ARE NOT INTERCHANGEABLE — this is the trap.** The α design keys on FLOW, so a
+**choppy-but-busy** market reads as "busy" and levers UP — precisely the regime the owner's analysis says
+the lever LOSES in, because each round trip pays two spreads while the cancelled IL reverts for free.
+**Building only α would produce confident wrong answers in ETH's most common regime.** The path ratio is
+not an enhancement to α; it is the axis that stops α from being harmful.
+
+**Constraints for whoever builds it:**
+  * **Measure the path on the BAND'S OWN tick series**, not a CEX/price feed — the cycles that COST money
+    are the ones the band acted on (the same ticks `soldFractionWad` reads). A price path counts moves the
+    band never traded.
+  * **INFORM, NEVER SWITCH.** `soldFractionActive` was exactly this and shipped as a GOV bool, default
+    FALSE, never set by the deploy — silently deciding whether the hedge used ground truth (deleted
+    2026-08-09). **A regime detector that flips anyone's mode is that latch with better statistics.**
+  * The lever is **opt-in per depositor** and is **NOT downside protection** — target is ZERO at or below
+    entry, so a bearish or flat depositor pays spreads and carry to learn nothing.
+  * ⚠️ **Rust does not build on macOS** (`quid-cvm` is Linux-only and transitive) — use the Docker image
+    per CLAUDE.md, or the metric cannot be run at all.
