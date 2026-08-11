@@ -31,7 +31,8 @@ contract ReentrancyProbe is Alles {
         hex"03a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0";
 
     function _deployChannels() internal returns (BTCChannels ch) {
-        ch = new BTCChannels(_realSPV(), address(ETH));
+        ch = new BTCChannels(_realSPV(), address(ETH), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
     }
 

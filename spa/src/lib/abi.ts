@@ -200,7 +200,7 @@ export const BTCCHANNELS_ABI = [
   'function requestSwapOutOnchain(address token, uint usdAmount, uint minSats, bytes32 swapId, bytes swapperScript) returns (uint sats)',
 
   // Set the BTC recipient (P2WPKH pubkey hash) for swap-out routing.
-  'function setBtcRecipient(bytes32 pubkeyHash)',
+  'function setBtcRecipient(bytes32 xOnlyKey, bytes pop)',
   'function btcRecipientOf(address user) view returns (bytes32)',
 
   // Hop info — protocol-published. Both hopBitcoinPubkey() (d5e7783) AND the global
@@ -208,7 +208,9 @@ export const BTCCHANNELS_ABI = [
   // node-supplied at open) and there is no single global hop — each channel binds its
   // own opening hop (channels().hop). LDK rotates funding keys per channel + splice.
   'function totalSatsLocked() view returns (uint)',
-  'function openChannelsOf(address hop) view returns (uint)',
+  // (E164) `openChannelsOf` is GONE. It gated `settleSwapIn`/`markMigrationNonceUsed` on
+  // "owns an open channel = has real BTC locked" — a proxy for "is a genuine hop" that a
+  // two-address check makes redundant. It was declared here and never called.
 
   // Channel state (storage getter) — CURRENT BTCChannel struct (field order:
   // amountSats, fundingTxId, lpEth, fundingVout, status, hop). `selfRefundTime` was
@@ -216,7 +218,9 @@ export const BTCCHANNELS_ABI = [
   // hop (multi-hop). Decode by POSITION: status is index 4, hop is index 5.
   // (E153) `keysHash` = keccak256(lpPubkey, hopPubkey), pinned at open. It binds the keys
   // independently of the funding outpoint, which a splice rotates.
-  'function channels(bytes32 channelId) view returns (uint amountSats, bytes32 fundingTxId, address lpEth, uint32 fundingVout, uint8 status, address hop, bytes32 keysHash)',
+  // (E164) `hop` removed: authority is the immutable MAIN_HOP/FALLBACK_HOP pair, not
+  // per-channel state. Which of the two opened a channel survives in ChannelOpened.
+  'function channels(bytes32 channelId) view returns (uint amountSats, bytes32 fundingTxId, address lpEth, uint32 fundingVout, uint8 status, bytes32 keysHash)',
 
   // SELF_REFUND_MIN_SECS / MIN_CONFIRMATIONS are `uint constant` (no `public`),
   // so they have NO on-chain getter — not callable, intentionally omitted.

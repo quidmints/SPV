@@ -27,6 +27,9 @@ import {Math} from "@openzeppelin-submodule/utils/math/Math.sol";
 ///         computes `u1·P1 + u2·P2` in one pass — which IS 2-key KeyAgg. That removes the
 ///         need for Chainlink's witness pattern (whose lifted code drops an on-curve check)
 ///         and for crysol (unaudited). secp256k1 is just parameters here: a=0, b=7.
+// (E128) `isValidXOnlyKey` is the lift_x precondition — see `schnorrVerify`.
+import {BitcoinTx} from "./BitcoinTx.sol";
+
 library MuSig2Agg {
     using EC256 for *;
 
@@ -189,6 +192,48 @@ library MuSig2Agg {
         return bytes32(ec.toAffine(
             ec.jAddPoint(EC256.toJacobian(P), ec.jMultShamir(ec.jbasepoint(), t))
         ).x);
+    }
+
+    /// @notice (E128) BIP-340 Schnorr verification: `s·G == R + e·P`, with `R.x == r` and R even-Y.
+    /// @param px x-only public key (the taproot output key `Q` for a key-path spend)
+    /// @param rx signature's R.x  · @param sig signature's s  · @param m the 32-byte message
+    ///
+    /// @dev ⚠️ WHY THIS IS HAND-WRITTEN RATHER THAN IMPORTED (§E128-r/§E128-r2): **no EVM Schnorr
+    ///      library verifies BITCOIN signatures.** Chronicle's Scribe, ERC-7816 and crysol all
+    ///      standardise a DIFFERENT scheme — a shared lineage that is not BIP-340 — so their
+    ///      contracts verify the wrong thing. Only the CURVE arithmetic is borrowed (solarity's
+    ///      audited `EC256`); the protocol layer is ours, exactly as with KeyAgg.
+    ///
+    /// @dev ⚠️ RETURNS FALSE, NEVER REVERTS, on every malformed input. BIP-340 defines an
+    ///      out-of-range `r`/`s`, an off-curve key, an infinite `R` and an odd-Y `R` as INVALID
+    ///      SIGNATURES — not as errors. Reverting instead would make a bad signature
+    ///      indistinguishable from a bad call at the call site.
+    function schnorrVerify(bytes32 px, bytes32 rx, bytes32 sig, bytes32 m)
+        public view returns (bool)
+    {
+        EC256.Curve memory ec = curve();
+        if (uint256(rx) >= ec.p || uint256(sig) >= ec.n) return false;
+
+        // ⚠️ THE ON-CURVE TEST MUST COME **BEFORE** `decompress`, WHICH REVERTS. I wrote this
+        // the other way round — decompress, then `isOnCurve` — and the off-curve test failed with
+        // `MuSig2Agg: x is not on the curve` instead of returning false, making the check
+        // UNREACHABLE. BIP-340 classifies an unliftable x as an INVALID SIGNATURE, not an error.
+        if (!BitcoinTx.isValidXOnlyKey(px)) return false;
+        // lift_x: BIP-340 keys are x-only and always the EVEN-Y point.
+        EC256.APoint memory P = decompress(abi.encodePacked(bytes1(0x02), px));
+
+        uint e = uint256(taggedHash(
+            "BIP0340/challenge", abi.encodePacked(rx, px, m))) % ec.n;
+
+        // R = s·G − e·P, computed as s·G + (n−e)·P in ONE Shamir pass.
+        // e == 0 would make the second scalar `n`, which is ≡ 0 but not necessarily handled as
+        // such by the ladder — so it is normalised here rather than relied upon.
+        EC256.APoint memory R = ec.toAffine(ec.jMultShamir2(
+            ec.jbasepoint(), EC256.toJacobian(P), uint256(sig), e == 0 ? 0 : ec.n - e));
+
+        if (R.x == 0 && R.y == 0) return false;   // point at infinity
+        if (R.y % 2 != 0) return false;           // BIP-340 requires even-Y R
+        return bytes32(R.x) == rx;
     }
 
     function _lessThan(bytes memory a, bytes memory b) private pure returns (bool) {

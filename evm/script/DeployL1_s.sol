@@ -296,9 +296,16 @@ contract Deploy is Script {
         // permissionless (sigs gate them), so the hop's per-channel LDK funding key
         // is supplied per open; this is just the address that may rotate the hop.
         address operatorHop = vm.envOr("HOP_NODE_OPERATOR", deployer);
+        // (E164) The two addresses that may operate a channel, pinned at construction and never
+        // settable. Defaulting the fallback to the deployer is a DEV convenience — on mainnet both
+        // must be real, separately-keyed operator addresses, or the fallback protects nothing.
+        address mainHop_ = vm.envOr("HOP_MAIN", operatorHop);
+        address fallbackHop_ = vm.envOr("HOP_FALLBACK", deployer);
 
         DeployLib.StackAddrs memory A = DeployLib.deployQuidStack(DeployLib.StackConfig({
             poolManager: poolManager,
+            mainHop: mainHop_, fallbackHop: fallbackHop_,
+            btcDepositKey: vm.envOr("BTC_DEPOSIT_KEY", bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798))),
             weth: address(WETH), wbtc: address(WBTC), gho: address(GHO), usdg: address(USDG),
             usdc: address(USDC), usdt: address(USDT), dai: address(DAI),
             usde: address(USDE), usds: address(USDS),

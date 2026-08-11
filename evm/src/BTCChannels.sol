@@ -6,6 +6,7 @@ import {Types} from "./imports/Types.sol";
 import {ISPVGateway} from "./spv/interfaces/ISPVGateway.sol";
 import {BitcoinTx} from "./imports/BitcoinTx.sol";
 import {ChannelLib} from "./imports/ChannelLib.sol";
+import {ExitLib} from "./imports/ExitLib.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
@@ -76,7 +77,7 @@ import {SignatureChecker} from "@openzeppelin-submodule/utils/cryptography/Signa
 //  `AttestedHopRegistry.isAttested` on the hop money-paths (openChannel, settleSwapIn,
 //  emitDeadManExit). It is GOVERNANCE-ARMED — a no-op until `setHopRegistry` pins the
 //  live registry, so any deployment/regtest that never pins it falls back to the
-//  `openChannelsOf` gate (owns an OPEN channel = has real BTC locked). Pinning the
+//  two-address hop check (E164). Pinning the
 //  registry requires the born-in-enclave DCAP identity-quote flow (SGX hardware) so
 //  prod hops can actually attest; regtest has no real quote, hence the armed fallback.
 //  NOTE: this is the SAME
@@ -168,7 +169,6 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     // USD pool, mirroring the trust the RETIRED single-`hopNode` model carried, now with
     // per-instance scope. (Tense matters: `:133` states there is NO single global `hopNode`
     // today — this line describes what the gate INHERITS, not what exists. E149.)
-    mapping(address => uint) public openChannelsOf;
 
     uint public totalSatsLocked;     // sum across all open channels
 
@@ -274,7 +274,27 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     // signing. Bitcoin's CLTV is the enforcement; the EVM is only the trustless
     // bulletin board. Each splice recreates the 2-of-2 Q (spends the funding UTXO) ⇒
     // any prior exit is invalid on-chain ⇒ ONE live exit per current funding UTXO.
-    mapping(bytes32 => uint64) public deadManDeadline;
+    /// (E165) EVERY deadline this channel has a VERIFIED pre-signed exit for.
+    ///
+    /// 🔑 WHY A SET AND NOT ONE. With the LP holding a funding half, refreshing an exit costs LP
+    /// PARTICIPATION — and the whole design is built on the LP running nothing. Pre-signing a
+    /// LADDER at open makes the LP's involvement a ONE-TIME act: it signs once, goes offline
+    /// forever, and the fleet can execute any armed shape and **nothing else**, because it cannot
+    /// produce a signature for a shape that was never signed.
+    ///
+    /// 🔑 THAT IS WHAT BOUNDS A COMPROMISED FLEET. "Spend anywhere" needs a signature; the LP's
+    /// half only ever signed these. So the failure mode inverts: an operation outside the set
+    /// cannot happen, which is DEGRADED SERVICE (the channel cannot splice) rather than LOSS OF
+    /// FUNDS (the exits are already signed and remain broadcastable).
+    ///
+    /// ⚠️ `deadManDeadline` was ONE `uint64` and is now this map. A zero value means NOT ARMED,
+    /// which is why arming rejects a zero deadline — the two would otherwise be indistinguishable.
+    mapping(bytes32 => mapping(uint64 => bool)) public exitArmedAt;
+
+    /// (E165) There is NO per-deadline checkpoint map. One was added with the ladder and NOTHING
+    /// EVER READ IT — the stale-close guard lives in `recordClose` (a cooperative close has no
+    /// deadline) and `recordDeadManExit` finalises from the tx's own outputs. Dead state deleted
+    /// rather than kept "in case" (rule 1).
 
     // (#114) The LP balance the fleet last ATTESTED in its pre-signed dead-man exit, and
     // everything legitimately paid OUT of the channel since that attestation. A cooperative
@@ -465,7 +485,6 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         totalSats = ch.amountSats;
         ch.status = ChannelLib.STATUS_CLOSED;
         hasOpenBtcChannel[ch.lpEth] = false; // free the LP to open a fresh channel
-        if (openChannelsOf[ch.hop] != 0) openChannelsOf[ch.hop] -= 1; // hop no longer owns this open channel
         totalSatsLocked -= totalSats;
         // Retire the LP's BTC pool position + close-time reconcile: pays USD-leg
         // fees + the deferred swap-out principal (funded − final) as QUID. The
@@ -533,11 +552,61 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///      from when the BTC side was split. **All 18 construction sites passed a non-zero
     ///      `_vogue`, so the `_aux` fallback was never once exercised**, and the compatibility
     ///      it preserved was with callers we control — none external, none in `quid-ln`.
-    constructor(address _spv, address _btcVault)
+    constructor(address _spv, address _btcVault, address _mainHop, address _fallbackHop,
+                bytes32 _btcDepositKey)
         Ownable(msg.sender)
     {
+        if (_mainHop == address(0) || _fallbackHop == address(0) || _mainHop == _fallbackHop)
+            revert InvalidParam();
         spv = ISPVGateway(_spv);
         btcVault = IBtcVaultBridge(_btcVault);
+        MAIN_HOP = _mainHop;
+        FALLBACK_HOP = _fallbackHop;
+        BTC_DEPOSIT_KEY = _btcDepositKey;
+    }
+
+    /// (E164) THE ONLY TWO ADDRESSES THAT MAY OPERATE A CHANNEL, fixed at deploy.
+    ///
+    /// 🔑 WHY IMMUTABLE AND NOT GOVERNED: a Safe-governed hop set is a Safe that can grant itself
+    /// channels, which is the lever a 4-of-7 compromise pulls. Pinning both at construction takes
+    /// governance out of the access-control path entirely — it can still bless enclave IMAGES,
+    /// but it can never add an operator.
+    ///
+    /// 🔑 WHY TWO AND NOT ONE: `MAIN_HOP` runs the fleet; `FALLBACK_HOP` exists so a dead main
+    /// does not strand every channel. They are the SAME trust domain (same operator, same image),
+    /// which is what makes this a bare address check — there is nothing to nominate and no reason
+    /// to make the fallback wait, so E122's per-LP nomination, staleness clock and heartbeat are
+    /// all unnecessary rather than merely deleted.
+    address public immutable MAIN_HOP;
+    address public immutable FALLBACK_HOP;
+
+    /// (E159) The fleet's PINNED swap-in deposit internal key (x-only). Every on-chain swap-in
+    /// deposit address is `TapTweak(this, cltvRefundLeaf(userRefund, cltvHeight))`, so the contract
+    /// can RECOMPUTE where a deposit had to land instead of trusting a hop to name it.
+    ///
+    /// ⚠️ THIS REPLACES A DERIVATION THE CHAIN CANNOT DO. `swap_in_onchain.rs` derives the deposit
+    /// key at `m/70'/swap_index'` — BOTH LEVELS HARDENED — and a hardened child cannot be derived
+    /// from any xpub, only from the private key. So no pinned PUBLIC key could ever reproduce it,
+    /// and "is this deposit ours?" was unanswerable on-chain. Pinning ONE internal key and taking
+    /// per-swap uniqueness from the CLTV leaf makes it answerable.
+    bytes32 public immutable BTC_DEPOSIT_KEY;
+
+
+    /// (E164/E163) The one authority check. It replaces FOUR separate `msg.sender ==
+    /// channels[channelId].hop` gates and TWO `openChannelsOf[msg.sender] != 0` gates (both deleted).
+    ///
+    /// 🔴 THE BUG IT DISSOLVES (§E163): pinning authority to the hop that OPENED a channel meant
+    /// the fallback could open new channels and operate NONE — it could not splice, refresh a
+    /// dead-man exit, commit freshness or deliver a swap-out on anything the main opened.
+    /// §E156 removed the staleness-based handover and §E157 pinned everything to `channel.hop`;
+    /// each was right about its own mechanism and together they removed the CAPABILITY. Here the
+    /// fallback works everywhere by construction, so there is no handover to get wrong.
+    /// ⚠️ A FUNCTION, NOT A MODIFIER, DELIBERATELY: a modifier's body is INLINED at every use
+    /// site, so six uses meant six copies of the check. As a `private view` it is one routine and
+    /// six JUMPs. Measured: the modifier form cost +968 bytes of `BTCChannels` bytecode, on a
+    /// contract whose margin is the binding constraint.
+    function _onlyHop() private view {
+        if (msg.sender != MAIN_HOP && msg.sender != FALLBACK_HOP) revert NotChannelHop();
     }
 
     // ─── Attested-hop gate ──────────────────────────────────────
@@ -723,7 +792,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         bytes calldata rawFundingTx,
         bytes32[] calldata fundingMerkleProof,
         Types.OpenAuth calldata auth,
-        Types.ExitArming calldata exit
+        Types.ExitArming[] calldata exits
     ) external nonReentrant returns (bytes32 channelId)
     {
         // (E157) THE LP'S CONSENT ARRIVES WITH THE OPEN. This was a standing grant established by
@@ -753,6 +822,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // Pin + LOCK the payout — the sole destination recordClose/_withdrawalPayout will enforce.
         if (btcRecipientLocked[lpEth] && btcRecipientOf[lpEth] != auth.btcRecipient)
             revert WrongBtcRecipient();
+        _requireRecipientPoP(lpEth, auth.btcRecipient, auth.btcRecipientPoP);
         _registerBtcRecipient(lpEth, auth.btcRecipient);
         btcRecipientLocked[lpEth] = true;
 
@@ -769,12 +839,9 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         //    failing open pays.
         // ⇒ With this, `p.lpPubkey` is PROVEN rather than asserted — the precondition E125
         //   names for deriving `lpEth` from it and deleting delegation outright.
-        if (!MuSig2Agg.isTwoOfTwoOutputKey(p.lpPubkey, p.hopPubkey, p.fundingTaproot))
-            revert FundingKeyNotTwoOfTwo();
+        _proveFundingKeys(p);
         if (channels[channelId].amountSats != 0) revert AlreadyOpen();
         // MULTI-HOP: bind this channel to its opening hop + bump its open-channel count.
-        channel.hop = msg.sender;
-        openChannelsOf[msg.sender] += 1;
         // OUTPOINT-UNIQUENESS: this confirmed funding UTXO may back only ONE channel
         // (else the same on-chain BTC double-counts as backing under two channelIds).
         _useOutpoint(channel.fundingTxId, channel.fundingVout);
@@ -789,7 +856,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // (E156) ARM THE ESCAPE BEFORE THE CHANNEL IS USABLE. Must follow the `channels[channelId]`
         // write — `_armDeadManExit` reads `lpEth` back for the event — and it rejects a zero
         // deadline, so no channel can exist without a live escape.
-        _armDeadManExit(channelId, exit.cltvDeadline, exit.checkpointSats, exit.signedExitTx);
+        _armLadder(channelId, p, exits);
 
         // Channel locks back the pool: credit the LP's BTC pool position with
         // the locked sats. One channel per lpEth (the position aggregates per
@@ -807,7 +874,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         Types.OpenParams calldata p
     ) private {
         emit ChannelOpened(
-            channelId, channel.lpEth, channel.hop, channel.amountSats,
+            channelId, channel.lpEth, msg.sender, channel.amountSats,
             p.lpPubkey, p.hopPubkey, channel.fundingTxId, channel.fundingVout,
             p.fundingBlockHash, p.fundingBlockHeight
         );
@@ -839,6 +906,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         bytes32[] calldata spliceMerkleProof,
         uint feeSettleSats            // BTC-leg fees the hop is FUNDING into this grow-splice (compounds into the LP)
     ) external nonReentrant whenOpen(channelId) {
+        _onlyHop();
         // (B) Authorization. ⚠️ UPDATED 2026-08-07 (E122), AGAIN 2026-08-10 (E156): this said
         // "`channel.hop` … so ONLY that hop can resize" — and (E157) that is TRUE AGAIN: both the
         // fallback and the delegation are gone, so the gate is `channel.hop`. Bounded as before:
@@ -862,8 +930,12 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // hop held no funding key (the fleet holds both halves), so it could never sign a splice
         // — it could only relay bytes the primary had already signed. Bounded as before: the
         // splice is SPV-proven and every payout output pins to `btcRecipientOf`.
-        if (msg.sender != channels[channelId].hop)
-            revert NotChannelHop();
+
+        // (E162) A SPLICE MAY RESIZE A CHANNEL — IT MAY NOT REKEY ONE. Without this, a splice
+        // carrying a different pair passed (`_verifySplice` proves KeyAgg over whatever pair it
+        // is given), rotated the funding outpoint, and left `keysHash` stale — after which both
+        // retirement paths reverted and the position could never be closed.
+        _requireChannelKeys(channelId, p);
         if (p.amountSats == channels[channelId].amountSats) revert SpliceUnchanged();
         // Verify + rotate + (grow|shrink) in its own frame (legacy stack, no via_ir); returns the grow delta.
         uint grewBy = _applySplice(channelId, p, rawSpliceTx, spliceMerkleProof);
@@ -964,13 +1036,53 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///         external call, no fund movement) ⇒ no reentrancy surface.
     function emitDeadManExit(
         bytes32 channelId,
-        uint64  cltvDeadline,
-        uint    checkpointSats,
-        bytes   calldata signedExitTx
+        Types.OpenParams calldata p,
+        Types.ExitArming calldata exit
     ) external whenOpen(channelId) {
+        _onlyHop();
         _requireAttested(msg.sender);
-        if (msg.sender != channels[channelId].hop) revert NotDelegatedHop();
-        _armDeadManExit(channelId, cltvDeadline, checkpointSats, signedExitTx);
+        // (E128) `p` is needed to recompute `Q`; `_requireChannelKeys` is what stops a hop naming
+        // a key pair whose aggregate it controls and verifying the exit against THAT.
+        _requireChannelKeys(channelId, p);
+        // (E165) Refreshing arms ONE more shape; the LADDER is armed at open. This path still
+        // exists because a long-lived channel may outrun its pre-signed set — but with the LP
+        // holding a funding half it costs LP participation, which is exactly what the ladder is
+        // for. Using it should be the exception, not the heartbeat.
+        _armDeadManExit(channelId, p, exit);
+        // A REFRESH SUPERSEDES rather than accumulating: the balance may have DROPPED, and keeping
+        // a stale higher attestation would reject legitimate closes. That is why the ladder takes
+        // a max and this does not — they mean different things by "attested".
+        checkpointOf[channelId] = exit.checkpointSats;
+    }
+
+    /// @dev (E142/E129) The (keys ↔ Q) proof, in its own frame — `openChannel` gained a calldata
+    ///      ARRAY for the exit ladder (two more stack slots) and went over the legacy limit.
+    ///      Frame, never `via_ir`.
+    function _proveFundingKeys(Types.OpenParams calldata p) private view {
+        if (!MuSig2Agg.isTwoOfTwoOutputKey(p.lpPubkey, p.hopPubkey, p.fundingTaproot))
+            revert FundingKeyNotTwoOfTwo();
+    }
+
+    /// @dev (E165) ARM THE WHOLE LADDER, in its own frame — `openChannel` is already at the legacy
+    ///      stack limit, and the house fix is a frame, never `via_ir`. Each shape is verified
+    ///      (structure, sighash, signature), so the LP's ONE-TIME participation buys every exit it
+    ///      will ever need. At least one is required: a channel with no armed escape is precisely
+    ///      the window §E156 closed.
+    function _armLadder(
+        bytes32 channelId, Types.OpenParams calldata p, Types.ExitArming[] calldata exits
+    ) private {
+        if (exits.length == 0) revert InvalidParam();
+        // ⚠️ THE LADDER IS ONE ATTESTATION SET, so its rungs must not overwrite each other's
+        // checkpoint — arming N of them used to write `checkpointOf` N times and keep whichever
+        // came LAST, i.e. an arbitrary rung. Take the HIGHEST: the stale-close guard rejects a
+        // cooperative close paying less than the attested balance, so the highest attestation is
+        // the most protective of the LP.
+        uint hi;
+        for (uint i; i < exits.length; ++i) {
+            _armDeadManExit(channelId, p, exits[i]);
+            if (exits[i].checkpointSats > hi) hi = exits[i].checkpointSats;
+        }
+        checkpointOf[channelId] = hi;
     }
 
     /// @dev (E156) Record a pre-signed exit against a channel. ONE body, TWO callers: `openChannel`
@@ -979,20 +1091,43 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///      The tally restarts because the new attestation already reflects every payout before it.
     function _armDeadManExit(
         bytes32 channelId,
-        uint64  cltvDeadline,
-        uint    checkpointSats,
-        bytes   calldata signedExitTx
+        Types.OpenParams calldata p,
+        Types.ExitArming calldata exit
     ) private {
         // A ZERO DEADLINE IS DISARMING, NOT ARMING. `recordDeadManExit` cannot tell "deadline 0"
-        // from "never armed", so allowing it through `emitDeadManExit` would hand any authorized
-        // hop a way to strip the LP's escape with one call — reopening, on demand, the exact window
-        // arming-at-open closes. Rejected for BOTH callers, which is why the check lives here.
-        if (cltvDeadline == 0) revert InvalidParam();
-        deadManDeadline[channelId] = cltvDeadline;
-        checkpointOf[channelId] = checkpointSats;
+        // from "never armed", so allowing it would hand any authorized hop a way to strip the
+        // LP's escape with one call. Rejected for BOTH callers, which is why it lives here.
+        if (exit.cltvDeadline == 0) revert InvalidParam();
+
+        // (E128) VERIFY THE BYTES. Until now this only EMITTED them: the LP's sole
+        // fleet-independent escape was whatever the hop chose to hand over, and a hop could arm
+        // every channel with garbage while the chain recorded it as protection. Structure,
+        // BIP-341 sighash and BIP-340 signature are all checked against the funding key `Q`
+        // recomputed from the pubkeys pinned at open.
+        // (E165-b) THE RETURNED AMOUNT IS NOT DECORATION. `verifyDeadManExit` returns what the
+        // exit actually pays the LP, and it used to be DISCARDED — so a hop could arm a
+        // structurally perfect, correctly-signed exit paying ONE SATOSHI and every check passed.
+        // The escape would exist, verify, and be worthless. Requiring it to honour the arming's
+        // own `checkpointSats` ties the two numbers together: claim more than you pay and the
+        // arming reverts; claim less and the stale-close guard you fed is the one that suffers.
+        uint paid = ExitLib.verifyDeadManExit(
+            exit.signedExitTx,
+            ExitLib.ExitCheck({
+                fundingTxId: channels[channelId].fundingTxId,
+                fundingVout: channels[channelId].fundingVout,
+                fundingSats: channels[channelId].amountSats,
+                q:           MuSig2Agg.computeOutputKey(p.lpPubkey, p.hopPubkey),
+                cltvDeadline: exit.cltvDeadline
+            }),
+            _lpPayoutScript(channels[channelId].lpEth),
+            exit.prevValues, exit.prevScripts
+        );
+        if (paid < exit.checkpointSats) revert ExitUnderpaysCheckpoint();
+
+        exitArmedAt[channelId][exit.cltvDeadline] = true;
         paidOutSinceCheckpoint[channelId] = 0;
-        emit DeadManExitEmitted(
-            channelId, channels[channelId].lpEth, cltvDeadline, checkpointSats, signedExitTx);
+        emit DeadManExitEmitted(channelId, channels[channelId].lpEth,
+            exit.cltvDeadline, exit.checkpointSats, exit.signedExitTx);
     }
 
     /// @dev SPV-verify the splice tx spends the channel's current funding UTXO,
@@ -1039,9 +1174,9 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///         to the channel's hop (a foreign caller can't bump the counter to lock the
     ///         enclave out) and STRICTLY monotonic (a replay/rollback of an old value reverts).
     function commitFreshness(bytes32 channelId, uint64 seq) external {
+        _onlyHop();
         // (E122) Primary, or the LP's fallback after the staleness window — see `splice`.
-        if (msg.sender != channels[channelId].hop)
-            revert NotChannelHop();
+
         if (seq <= freshnessSeq[channelId]) revert FreshnessNotMonotonic();
         freshnessSeq[channelId] = seq;
         emit FreshnessCommitted(channelId, seq);
@@ -1071,7 +1206,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///         holds live channels) so a non-hop can't bloat storage; the nonce itself is
     ///         secret (in the signed bundle) until first use, so it can't be pre-consumed.
     function markMigrationNonceUsed(bytes32 nonce) external {
-        if (openChannelsOf[msg.sender] == 0) revert NotChannelHop();
+        _onlyHop();
         if (migrationNonceUsed[nonce]) revert MigrationNonceAlreadyUsed();
         migrationNonceUsed[nonce] = true;
         emit MigrationNonceConsumed(nonce, msg.sender);
@@ -1149,13 +1284,34 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     function _requireNotSplice(
         bytes32 channelId, Types.OpenParams calldata p, bytes calldata rawTx
     ) private view {
-        if (keccak256(abi.encode(p.lpPubkey, p.hopPubkey)) != channels[channelId].keysHash)
-            revert ChannelKeysMismatch();
+        _requireChannelKeys(channelId, p);
         if (BitcoinTx.sumOutputValuesToScript(rawTx,
                 abi.encodePacked(hex"5120",
                     MuSig2Agg.computeOutputKey(p.lpPubkey, p.hopPubkey))) > 0)
             revert SpliceIsNotAClose();
     }
+
+    /// @dev (E162) The supplied pair IS this channel's pair. Shared by the retirement paths and
+    ///      by `splice`, because `keysHash` is an INVARIANT and every path taking `p` must
+    ///      preserve it — not only the paths that read it.
+    ///      🔴 WHY SPLICE NEEDS THIS, AND WHY ITS ABSENCE WAS A LIVE DEFECT (my §E153 regression):
+    ///      `_verifySplice` proves KeyAgg over the CALLER-SUPPLIED pair, so a splice carrying a
+    ///      DIFFERENT pair passed, rotated the funding outpoint, and left `keysHash` at the
+    ///      original pair. `recordClose` and `recordDeadManExit` then both reverted
+    ///      `ChannelKeysMismatch` — **the channel was unretirable FOREVER**: BTC alive in a live
+    ///      2-of-2, the EVM position stuck open, backing over-counted indefinitely. That is the
+    ///      hazard §E155 removed the LP-only gate to prevent, arriving through a different door.
+    ///      ⚠️ THIS DELIBERATELY FORBIDS KEY ROTATION. Rotating custody to a new image's keys
+    ///      without closing the channel (§E162-rekey-splice) is a REAL and wanted capability, but
+    ///      it must UPDATE `keysHash` and must be gated on who may rotate and to what — otherwise
+    ///      a compromised hop splices to keys it solely controls and cuts the LP out of its own
+    ///      2-of-2. Until that gating is settled, rejecting the change is the safe half.
+    function _requireChannelKeys(bytes32 channelId, Types.OpenParams calldata p) private view {
+        if (keccak256(abi.encode(p.lpPubkey, p.hopPubkey)) != channels[channelId].keysHash)
+            revert ChannelKeysMismatch();
+    }
+
+    error ExitUnderpaysCheckpoint();   // the armed exit pays less than it attests
 
     error ChannelKeysMismatch();   // p.lpPubkey/p.hopPubkey != the keysHash pinned at open
 
@@ -1269,21 +1425,24 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         uint    txIndex
     ) external nonReentrant whenOpen(channelId) {
         address lpEth = channels[channelId].lpEth;
-        // (E156) NO `deadline == 0` CHECK: it is now UNREACHABLE, so it is gone rather than left
-        // "for safety" (rule 1). `deadManDeadline` is written in exactly one place, which rejects
-        // zero, and every channel is armed inside `openChannel` — so any channel passing `whenOpen`
-        // is armed by construction. The state that check defended against is unrepresentable.
-        uint64 deadline = deadManDeadline[channelId];
+        // (E156/E165) NO `deadline == 0` CHECK: `exitArmedAt` is false for an unarmed deadline,
+        // and zero is rejected at arming — so a zero locktime simply fails the membership test
+        // below. The state a separate check defended against is unrepresentable.
+        uint64 deadline = BitcoinTx.extractLocktime(rawExitTx);
+        // (E165) ANY armed deadline retires the channel — the LP pre-signed a ladder at open, so
+        // there is no single "current" one. An unarmed locktime is not a dead-man exit at all.
+        if (!exitArmedAt[channelId][deadline]) revert NotDeadManExit();
         _requireNotSplice(channelId, p, rawExitTx);
         _verifyTxSpendsChannel(channelId, rawExitTx, exitBlockHash, merkleProof, txIndex);
-        if (BitcoinTx.extractLocktime(rawExitTx) != deadline) revert NotDeadManExit();
+        // (E165) NO second locktime comparison: `deadline` IS `extractLocktime(rawExitTx)`, so the
+        // old check compared a value to itself. It read as a guard and asserted nothing.
         // Same attribution as a cooperative close: sum every output paying the LP's committed
         // P2TR. The exit pays `btcRecipientOf` by construction, pinned inside the signed bytes.
         uint total = _finalizeClose(channelId, _lpFinalBalance(lpEth, rawExitTx));
         emit ChannelClosed(channelId, total);
     }
 
-    error NotDeadManExit();  // tx locktime != the recorded deadManDeadline
+    error NotDeadManExit();  // the tx's locktime is not an ARMED deadline for this channel
 
     /// @notice PERMISSIONLESS reconciliation of a FORCE-CLOSE. Anyone (a keeper, a
     ///         QUI holder, a watchtower) may retire a channel whose funding UTXO is
@@ -1338,8 +1497,61 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     //  proves nothing to the EVM here (unlike swap-OUT, where the swapper
     //  generates it). The capacity gate is the bound on a dishonest hop.
     // ═════════════════════════════════════════════════════════════════
+    error SwapInDepositReplay();   // this deposit outpoint has already been credited
+
+    /// @notice (E159) Credit an on-chain swap-in against a PROVEN Bitcoin deposit.
+    ///
+    /// 🔴 WHAT IT REPLACES: `settleSwapIn` credits the SHARED pool on the hop's WORD — no proof any
+    ///    BTC arrived. A compromised hop can attest swap-ins for sats that never existed and drain
+    ///    `POOLED_USD_BTC` to its liquidity limit. That reaches QU!D holders and other LPs who
+    ///    never opted into enclave trust, which is why it is worse IN KIND than a hop stealing its
+    ///    own channels' BTC. Here the credit cannot exceed what a Bitcoin block says arrived.
+    ///
+    /// 🔑 THE ADDRESS IS DERIVED, NOT NAMED. `BTC_DEPOSIT_KEY` is pinned at construction and the
+    ///    swap's own CLTV refund leaf supplies per-swap uniqueness, so a hop cannot SPV-prove a
+    ///    genuine payment to a script IT controls and collect USD for BTC that never entered
+    ///    protocol custody — the proof would be real and worthless.
+    ///
+    /// ⚠️ DEDUP IS ON THE DEPOSIT OUTPOINT, NOT A HOP-CHOSEN HASH. The old rail keyed replay
+    ///    protection on `paymentHash`, a value the hop invents; a txid is a fact.
+    ///
+    /// ⚠️ STILL TRUSTED, AND NAMED SO IT IS NOT MISTAKEN FOR PROVEN: `seller`, `token` and
+    ///    `minDeliveredUsd` remain the hop's assertions. What is proven is that the SATS EXIST and
+    ///    landed at an address only this protocol controls.
+    function settleSwapInProven(
+        address seller, address token, uint minDeliveredUsd,
+        Types.DepositProof calldata proof,
+        bytes calldata rawDepositTx
+    ) external nonReentrant {
+        _onlyHop();
+        (bytes32 txid, uint sats) = _provenDeposit(proof, rawDepositTx);
+
+        // Partials are accepted on this rail: the seller's remainder is refundable trustlessly via
+        // the deposit's own CLTV leaf, which is exactly why the on-chain rail can take them and the
+        // all-or-nothing LN rail cannot.
+        uint consumed = btcVault.creditSwapIn(seller, sats, token, minDeliveredUsd);
+        emit SwapInSettled(seller, txid, sats, consumed, token);
+    }
+
+    /// @dev Own frame: dedup, SPV inclusion, and the derived-address check. Returns the deposit
+    ///      txid (the replay key) and the sats it actually paid this protocol.
+    function _provenDeposit(Types.DepositProof calldata proof, bytes calldata rawDepositTx)
+        private returns (bytes32 txid, uint sats)
+    {
+        txid = BitcoinTx.txid(rawDepositTx);
+        // Dedup on the deposit OUTPOINT, not a hop-chosen hash: the old rail keyed replay
+        // protection on `paymentHash`, a value the hop invents; a txid is a fact.
+        if (swapInUsed[txid]) revert SwapInDepositReplay();
+        swapInUsed[txid] = true;
+        if (!spv.checkTxInclusion(proof.merkleProof, proof.blockHash, txid, proof.txIndex,
+                                  ChannelLib.MIN_CONFIRMATIONS)) revert BadSPV();
+        sats = ExitLib.verifySwapInDeposit(
+            BTC_DEPOSIT_KEY, proof.userRefund, proof.cltvHeight, rawDepositTx);
+    }
+
     function settleSwapIn(address seller, uint sats, address token,
         bytes32 paymentHash, uint minDeliveredUsd, bool requireFull) external nonReentrant {
+        _onlyHop();
         // MULTI-HOP attestation authority: a swap-in credit draws the shared
         // POOLED_USD_BTC, so only a GENUINE hop — one that currently owns at least one
         // OPEN channel (i.e. has BTC locked) — may attest, exactly as only the single
@@ -1347,7 +1559,6 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // count (++ at open, -- at close). Per-hop bounding of pool drainage vs a hop's
         // OWN locked sats is a tracked refinement; the has-an-open-channel gate is the
         // essential authority binding that keeps a random address from crediting.
-        if (openChannelsOf[msg.sender] == 0) revert NotChannelHop();
         _requireAttested(msg.sender);   // defence-in-depth: a hop de-attested AFTER opening can't keep crediting
         // Dedup on the LN HTLC hashlock — one credit per swap-in, ever.
         if (paymentHash == bytes32(0) || swapInUsed[paymentHash])
@@ -1503,11 +1714,11 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         bytes32[] calldata spliceMerkleProof,
         bytes calldata swapperScript
     ) external nonReentrant whenOpen(channelId) {
+        _onlyHop();
         // (B) Authorization = the channel's HOP GATE (channel.hop was fixed at open to a
         // delegated hop). The retired per-delivery lpAuth was redundant: the swapper's BTC
         // payment is SPV-proven below, the shrink pins the delivered slice to the on-chain
         // obligation, and any withdrawal output still pins to btcRecipientOf.
-        if (msg.sender != channels[channelId].hop) revert NotChannelHop();
         PendingOnchainSwapOut memory so = pendingOnchainSwapOut[swapId];
         if (so.sats == 0) revert NoSuchSwapOut();
         // Anti-double-spend: if this swap-out was already REVERSED (its USD returned
@@ -1603,11 +1814,16 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     // ═════════════════════════════════════════════════════════════════
     /// @notice Setter for users who haven't opened a channel. They register
     /// their P2WPKH destination as the low 20 bytes of bytes32.
-    function setBtcRecipient(bytes32 xOnlyKey) external {
+    function setBtcRecipient(bytes32 xOnlyKey, bytes calldata pop) external {
         // A channel LP's payout is pinned by its channels (see btcRecipientLocked);
         // only non-channel swap users may set/update it freely. `xOnlyKey` = the LP's
         // 32-byte x-only taproot key (key-path P2TR payout, `0x5120||xOnlyKey`).
         if (btcRecipientLocked[msg.sender]) revert BtcRecipientLockedErr();
+        // (E138) SAME PROOF AS THE OPEN PATH. Requiring possession only at `openChannel` would
+        // leave this entrypoint as a bypass — a swap user could still pin an unspendable or
+        // someone else's key — and a guard with a hole around it is worse than no guard, because
+        // it reads as covered.
+        _requireRecipientPoP(msg.sender, xOnlyKey, pop);
         _registerBtcRecipient(msg.sender, xOnlyKey);
     }
 
@@ -1616,6 +1832,22 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     /// x-only taproot key; the payout is key-path P2TR `0x5120||xOnlyKey`. A malformed key
     /// makes only the LP's OWN payout unspendable (its loss), so on-chain we require only
     /// nonzero (all 32 bytes are the key — no high-bytes-zero mask).
+    /// @notice (E138) The message a payout key signs to prove possession. Public so the LP's
+    ///         wallet signs EXACTLY what the contract checks rather than a reconstruction.
+    function btcRecipientPoPDigest(address lpEth) public view returns (bytes32) {
+        return sha256(abi.encode(
+            keccak256("BTCChannels.btcRecipient.pop.v1"), block.chainid, address(this), lpEth));
+    }
+
+    /// @dev (E138) Own frame — `openChannel` is at the legacy stack limit.
+    function _requireRecipientPoP(address lpEth, bytes32 xOnlyKey, bytes calldata sig) private view {
+        if (sig.length != 64) revert NotPubkeyHash();
+        bytes32 r; bytes32 s_;
+        assembly { r := calldataload(sig.offset) s_ := calldataload(add(sig.offset, 32)) }
+        if (!MuSig2Agg.schnorrVerify(xOnlyKey, r, s_, btcRecipientPoPDigest(lpEth)))
+            revert NotPubkeyHash();
+    }
+
     function _registerBtcRecipient(address who, bytes32 xOnlyKey) internal {
         if (xOnlyKey == bytes32(0)) revert NotPubkeyHash();
         // (E130) It must be a REAL x-only key, or `0x5120||xOnlyKey` is UNSPENDABLE and every

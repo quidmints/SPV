@@ -2,6 +2,7 @@
 pragma solidity 0.8.30;
 
 import {Alles, MockSPV} from "./Alles.t.sol";
+import {ExitFixture} from "./btc/ExitFixture.sol";
 import {BTCChannels} from "../src/BTCChannels.sol";
 import {BtcLevManager} from "../src/BtcLevManager.sol";
 import {ILevVenue} from "../src/imports/ILevVenue.sol";
@@ -62,6 +63,10 @@ interface IMorphoOraclePrice { function price() external view returns (uint256);
 ///             (net-equity == collateral); the "levered-but-equity-intact" self-financing sub-step
 ///             from the ETH test has no synchronous analogue and is out of scope for a unit test.
 contract VBtcLevFeeLane is Alles {
+    /// (E128) A FIXED dead-man deadline. `block.number + n` cannot be used: the BIP-341 sighash
+    /// commits to nLockTime, so the exit must be signed for a height known before the tx is built.
+    uint64 constant EXIT_DEADLINE = 900_000;
+
     // Fixed hop pubkey the BTCChannels deployment is bound to (33-byte compressed).
     bytes constant HOP_PUBKEY =
         hex"03a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0";
@@ -85,23 +90,40 @@ contract VBtcLevFeeLane is Alles {
     // ─────────────────────────── channel helpers (mirrors BtcLpMintStress) ───────────────────────────
 
     function _deployChannels() internal returns (BTCChannels ch) {
-        ch = new BTCChannels(address(new MockSPV()), address(ETH));
+        ch = new BTCChannels(address(new MockSPV()), address(ETH), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
     }
 
     /// (E157) The open + its consent in their OWN FRAME — inlined twice it blew the legacy stack,
     /// and the house fix is a frame, not `via_ir`.
+    /// One label per channel seed. Kept in its own frame so building it inline does not push the
+    /// callers over the legacy stack.
+    function _label(uint seed) private view returns (string memory) {
+        return string.concat("levfee-", vm.toString(seed));
+    }
+
+    /// (E128/E157) Everything the submission needs, derived from `seed_` rather than passed:
+    /// four callers were each holding `lpPk`, `lpEth` and `payout` live across the call, which is
+    /// what pushed `_open` over the legacy stack. They all come from the same seed anyway.
     function _openWithConsent(
-        BTCChannels ch_, uint lpPk_, address lpEth_, bytes32 payout_,
-        Types.OpenParams memory p_, bytes memory fundingTx_
+        BTCChannels ch_, Types.OpenParams memory p_, bytes memory fundingTx_, uint seed_
     ) private returns (bytes32 cid) {
-        bytes memory dsig = _signOpen(
-            lpPk_, ch_.openAuthDigest(makeAddr("hop"), payout_));
+        (address lpEth_, uint lpPk_) =
+            makeAddrAndKey(string(abi.encodePacked("btc-lp-", seed_)));
+        bytes32 payout_ = payoutKeyOnly(abi.encode(seed_));
+        _btcChannels = address(ch_);
+        Types.OpenAuth memory auth_ = Types.OpenAuth({
+            lpEth: lpEth_, btcRecipient: payout_,
+            lpSig: _signOpen(lpPk_, ch_.openAuthDigest(makeAddr("hop"), payout_)),
+            btcRecipientPoP: _popFor(payout_, lpEth_)});
+        // (E128) A REAL signed exit for the funding tx this call is about to prove. Built BEFORE
+        // the prank so the FFI round-trip cannot consume it.
+        Types.ExitArming memory arm_ = armingFor(
+            _label(seed_), sha256(abi.encodePacked(sha256(fundingTx_))), 0, p_.amountSats,
+            abi.encodePacked(hex"5120", payout_), EXIT_DEADLINE, 1_000);
         vm.prank(makeAddr("hop"));
-        cid = ch_.openChannel(p_, fundingTx_, new bytes32[](0),
-            Types.OpenAuth({lpEth: lpEth_, btcRecipient: payout_, lpSig: dsig}),
-            Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0,
-                              signedExitTx: hex"00"}));
+        cid = ch_.openChannel(p_, fundingTx_, new bytes32[](0), auth_, _ladder(arm_));
     }
 
     function _signOpen(uint pk, bytes32 digest) internal pure returns (bytes memory) {
@@ -109,50 +131,57 @@ contract VBtcLevFeeLane is Alles {
         return abi.encodePacked(r, s, v);
     }
 
-    function _open(BTCChannels ch, uint seed, uint amountSats)
-        internal
-        returns (bytes32 channelId, bytes32 fundingTxId, address lpEth, bytes memory lpPubkey)
+    /// (E128) Own frame: the funding tx + open params. Keeps `_open` under the legacy stack once
+    /// the owned keys and the signed arming are also live in it.
+    function _mkFundingLev(uint seed, uint amountSats, bytes memory lpPubkey, bytes memory hopKey_)
+        private view returns (Types.OpenParams memory p, bytes memory fundingTx, bytes32 fundingTxId)
     {
-        lpPubkey = _validCompressedPubkey(abi.encode("lp-pk", seed));
-        uint lpPk;
-        (lpEth, lpPk) = makeAddrAndKey(string(abi.encodePacked("btc-lp-", seed)));
-
-        bytes memory fundingTx;
-        {
-            bytes memory p2wsh = buildTaprootFundingSpk(lpPubkey, HOP_PUBKEY);
-            fundingTx = abi.encodePacked(
-                hex"02000000", hex"01",
-                bytes32(0), hex"00000000", hex"00", hex"ffffffff",
-                hex"01", _le(amountSats, 8), bytes1(uint8(p2wsh.length)), p2wsh,
-                hex"00000000");
-        }
+        bytes memory p2wsh = buildTaprootFundingSpk(lpPubkey, hopKey_);
+        fundingTx = abi.encodePacked(
+            hex"02000000", hex"01",
+            bytes32(0), hex"00000000", hex"00", hex"ffffffff",
+            hex"01", _le(amountSats, 8), bytes1(uint8(p2wsh.length)), p2wsh,
+            hex"00000000");
         fundingTxId = sha256(abi.encodePacked(sha256(fundingTx)));
-
-        Types.OpenParams memory p = Types.OpenParams({
+        p = Types.OpenParams({
             fundingBlockHash:   bytes32(uint(0x100 + seed)),
             fundingBlockHeight: 800000,
             fundingTxIndex:     0,
             lpPubkey:           lpPubkey,
-            hopPubkey:          HOP_PUBKEY,
+            hopPubkey:          hopKey_,
             amountSats:         amountSats,
-            fundingTaproot:     _taprootQ(lpPubkey, HOP_PUBKEY)
+            fundingTaproot:     _taprootQ(lpPubkey, hopKey_)
         });
-        // REALISTIC: the LP's SHUTDOWN key (= btcRecipientOf) is DISTINCT from the funding
-        // pubkey (production: funding = per-channel MuSig2; shutdown = the wallet's stable
-        // external-0 P2TR), and it is a 32-byte x-only key. Single-key `hash160(lpPubkey)`
-        // fixtures collapsed the two and masked the funding-vs-shutdown withdrawal seam.
-        bytes32 payout = _validXOnly(abi.encode("lp-shutdown-xonly", seed));
+    }
+
+    function _open(BTCChannels ch, uint seed, uint amountSats)
+        internal
+        returns (bytes32 channelId, bytes32 fundingTxId, address lpEth, bytes memory lpPubkey)
+    {
+        // (E128) OWNED keys — arming now VERIFIES, and an exit can only be signed for a `Q`
+        // whose aggregate secret we hold.
+        bytes memory hopKey_;
+        (lpPubkey, hopKey_, ) = ownedChannelKeys(_label(seed));
+        (lpEth, ) = makeAddrAndKey(string(abi.encodePacked("btc-lp-", seed)));
+
+        Types.OpenParams memory p;
+        bytes memory fundingTx;
+        (p, fundingTx, fundingTxId) = _mkFundingLev(seed, amountSats, lpPubkey, hopKey_);
+        bytes32 payout = payoutKeyOnly(abi.encode(seed));
         // (E157) The LP signs once, for THIS channel, and the hop submits it with the open.
-        channelId = _openWithConsent(ch, lpPk, lpEth, payout, p, fundingTx);
+        channelId = _openWithConsent(ch, p, fundingTx, seed);
     }
 
     /// Splice-OUT (partial LP withdrawal) shrinking `channelId` to `newAmountSats`. exactUsd==0 path:
     /// all-native withdrawal (no proceeds), so it must clamp to the true channel funding.
     function _spliceOut(BTCChannels ch, bytes32 channelId, bytes32 fundingTxId, uint seed,
         bytes memory lpPubkey, uint newAmountSats) internal returns (bytes32 newTxId) {
+        // (E162) A splice may RESIZE a channel, never REKEY one — `keysHash` is pinned at open.
+        // So the splice must carry the SAME owned pair the channel was opened with.
+        ( , bytes memory hopKey_, ) = ownedChannelKeys(_label(seed));
         bytes memory spliceTx;
         {
-            bytes memory p2wsh = buildTaprootFundingSpk(lpPubkey, HOP_PUBKEY);
+            bytes memory p2wsh = buildTaprootFundingSpk(lpPubkey, hopKey_);
             spliceTx = abi.encodePacked(
                 hex"02000000", hex"01",
                 fundingTxId, hex"00000000", hex"00", hex"ffffffff",
@@ -165,9 +194,9 @@ contract VBtcLevFeeLane is Alles {
             fundingBlockHeight: 800001,
             fundingTxIndex:     0,
             lpPubkey:           lpPubkey,
-            hopPubkey:          HOP_PUBKEY,
+            hopPubkey:          hopKey_,
             amountSats:         newAmountSats,
-            fundingTaproot:     _taprootQ(lpPubkey, HOP_PUBKEY)
+            fundingTaproot:     _taprootQ(lpPubkey, hopKey_)
         });
         vm.prank(makeAddr("hop"));
         ch.splice(channelId, p, spliceTx, new bytes32[](0), 0);
@@ -187,31 +216,37 @@ contract VBtcLevFeeLane is Alles {
     function _openWithPayout(BTCChannels ch, uint seed, uint amountSats, bytes32 payoutKey)
         internal returns (bytes32 channelId, bytes32 fundingTxId, bytes memory lpPubkey)
     {
-        lpPubkey = _validCompressedPubkey(abi.encode("lp-pk", seed));
+        // (E128) OWNED keys — arming now VERIFIES, and an exit can only be signed for a `Q`
+        // whose aggregate secret we hold.
+        bytes memory hopKey_;
+        (lpPubkey, hopKey_, ) = ownedChannelKeys(_label(seed));
         (address lpEth, uint lpPk) = makeAddrAndKey(string(abi.encodePacked("btc-lp-", seed)));
-        bytes memory spk = buildTaprootFundingSpk(lpPubkey, HOP_PUBKEY);
+        bytes memory spk = buildTaprootFundingSpk(lpPubkey, hopKey_);
         bytes memory fundingTx = abi.encodePacked(
             hex"02000000", hex"01", bytes32(0), hex"00000000", hex"00", hex"ffffffff",
             hex"01", _le(amountSats, 8), bytes1(uint8(spk.length)), spk, hex"00000000");
         fundingTxId = sha256(abi.encodePacked(sha256(fundingTx)));
         Types.OpenParams memory p = Types.OpenParams({
             fundingBlockHash: bytes32(uint(0x100 + seed)), fundingBlockHeight: 800000,
-            fundingTxIndex: 0, lpPubkey: lpPubkey, hopPubkey: HOP_PUBKEY,
-            amountSats: amountSats, fundingTaproot: _taprootQ(lpPubkey, HOP_PUBKEY) });
+            fundingTxIndex: 0, lpPubkey: lpPubkey, hopPubkey: hopKey_,
+            amountSats: amountSats, fundingTaproot: _taprootQ(lpPubkey, hopKey_) });
         // (E157) The open's own consent pins btcRecipientOf=payoutKey (the SHUTDOWN key) and names
         // the hop. btcRecipientOf is exactly what the shrink guard (_withdrawalPayout) enforces in
         // the seam test below — so signing the WRONG key here would surface there, not here.
-        channelId = _openWithConsent(ch, lpPk, lpEth, payoutKey, p, fundingTx);
+        channelId = _openWithConsent(ch, p, fundingTx, seed);
     }
 
     // Build+sign a 2-output shrink splice (new funding + LP payout) WITHOUT submitting,
     // so a test can put `vm.expectRevert` immediately before the `splice()` external call
     // (else expectRevert is consumed by the `spliceDigest` view).
+    /// (E162) Same rule as `_spliceOut`: a shrink is a splice, so it must carry the channel's OWN
+    /// pinned pair. Re-derived from the seed rather than passed, to keep the signature stable.
     function _buildShrink(BTCChannels ch, bytes32 channelId, uint seed, bytes memory lpPubkey,
         uint newAmountSats, uint withdrawSats, bytes memory payoutScript, bytes32 fundingTxId)
-        internal view returns (Types.OpenParams memory p, bytes memory spliceTx)
+        internal returns (Types.OpenParams memory p, bytes memory spliceTx)
     {
-        bytes memory fundingSpk = buildTaprootFundingSpk(lpPubkey, HOP_PUBKEY);
+        ( , bytes memory hopKey_, ) = ownedChannelKeys(_label(seed));
+        bytes memory fundingSpk = buildTaprootFundingSpk(lpPubkey, hopKey_);
         spliceTx = abi.encodePacked(
             hex"02000000", hex"01", fundingTxId, hex"00000000", hex"00", hex"ffffffff",
             hex"02",  // TWO outputs: the new (smaller) funding + the LP payout
@@ -220,8 +255,8 @@ contract VBtcLevFeeLane is Alles {
             hex"00000000");
         p = Types.OpenParams({
             fundingBlockHash: bytes32(uint(0x5217CE + seed)), fundingBlockHeight: 800001,
-            fundingTxIndex: 0, lpPubkey: lpPubkey, hopPubkey: HOP_PUBKEY,
-            amountSats: newAmountSats, fundingTaproot: _taprootQ(lpPubkey, HOP_PUBKEY) });
+            fundingTxIndex: 0, lpPubkey: lpPubkey, hopPubkey: hopKey_,
+            amountSats: newAmountSats, fundingTaproot: _taprootQ(lpPubkey, hopKey_) });
     }
 
     // Each case in its own frame (non-via-ir stack limit). `_buildShrink` makes no external
@@ -243,9 +278,47 @@ contract VBtcLevFeeLane is Alles {
         ch.splice(cid, p, tx_, new bytes32[](0), 0);
     }
 
+    /// (E162) A SPLICE MAY RESIZE A CHANNEL; IT MAY NOT REKEY ONE.
+    ///
+    /// 🔴 This was a live defect and it was mine (§E153). `keysHash` is pinned at open and read
+    /// only by the RETIREMENT paths, while `_verifySplice` proves KeyAgg over whatever pair it is
+    /// handed — so a splice carrying a DIFFERENT pair passed, rotated the funding outpoint, and
+    /// left `keysHash` stale. `recordClose` and `recordDeadManExit` then BOTH reverted
+    /// `ChannelKeysMismatch` and the channel was **unretirable forever**: BTC alive in a live
+    /// 2-of-2, the EVM position stuck open, backing over-counted indefinitely.
+    ///
+    /// ⚠️ The check is deliberately ordered BEFORE `_verifySplice`, so this asserts the keys
+    /// mismatch rather than an output-not-found — a rekeying splice must be refused on the
+    /// INVARIANT, not incidentally because its taproot happens not to appear in the tx.
+    function test_spliceCannotRekeyTheChannel() public {
+        BTCChannels ch = _deployChannels();
+        (bytes32 cid,,, bytes memory lpPubkey) = _open(ch, 91, 2e6);
+
+        ( , bytes memory hopKey_, ) = ownedChannelKeys(_label(91));
+        bytes memory otherLp = _validCompressedPubkey("a-different-lp-key");
+        assertTrue(keccak256(otherLp) != keccak256(lpPubkey), "must actually differ");
+
+        Types.OpenParams memory p = Types.OpenParams({
+            fundingBlockHash: bytes32(uint(0x5217CE)), fundingBlockHeight: 800001,
+            fundingTxIndex: 0, lpPubkey: otherLp, hopPubkey: hopKey_,
+            amountSats: 3e6, fundingTaproot: _taprootQ(otherLp, HOP_PUBKEY) });
+
+        vm.prank(makeAddr("hop"));
+        vm.expectRevert(BTCChannels.ChannelKeysMismatch.selector);
+        ch.splice(cid, p, hex"00", new bytes32[](0), 0);
+    }
+
+    /// The companion: the SAME pair still splices. Without this the rejection above could be
+    /// satisfied by a check that refuses every splice.
+    function test_spliceWithTheChannelsOwnKeysStillWorks() public {
+        BTCChannels ch = _deployChannels();
+        (bytes32 cid, bytes32 ftx,, bytes memory lpPubkey) = _open(ch, 92, 2e6);
+        _spliceOut(ch, cid, ftx, 92, lpPubkey, 1e6);   // reverts if the keys check is too broad
+    }
+
     function test_Seam_WithdrawalPayout_MustMatchShutdownKey_NotFundingKey() public {
         BTCChannels ch = _deployChannels();
-        bytes32 shutdownKey = _validXOnly(abi.encode("lp-shutdown-xonly", uint(77))); // = btcRecipientOf
+        bytes32 shutdownKey = payoutKeyOnly(abi.encode(uint(77))); // = btcRecipientOf
         (bytes32 cid, bytes32 ftx, bytes memory lpPubkey) = _openWithPayout(ch, 77, 20e6, shutdownKey);
         bytes32 fundingKey = keccak256(abi.encode("lp-funding-xonly", uint(77)));
         assertTrue(fundingKey != shutdownKey, "keys must be distinct to test the seam");
@@ -545,7 +618,7 @@ contract VBtcLevFeeLane is Alles {
           assertApproxEqAbs(CORE.POOLED_USD_BTC(), puPreSlice, 1, "POOLED_USD_BTC FLAT: reclassify, not new pairing"); }
 
         // (a) drive BTC-pool swaps -> band fees; the levered LP is part of the fee-earning depth.
-        {   vm.prank(User03); ch.setBtcRecipient(_validXOnly(abi.encode(uint(0xB7C)))); // native USD->BTC path recipient
+        {   _setRecipient(address(ch), abi.encode(uint(0xB7C)), User03); // native USD->BTC path recipient
             vm.startPrank(User03);
             USDC.approve(address(AUX), type(uint).max);
             vm.stopPrank();
@@ -690,11 +763,13 @@ contract VBtcLevFeeLane is Alles {
     /// 2-output tx (new SMALLER 2-of-2 + the swapper's payout), fee-free so shrink == delivered == `sats`.
     function _deliverLevSwapOut(BTCChannels ch, bytes32 channelId, bytes32 fundingTxId, uint seed,
         bytes memory lpPubkey, bytes32 swapId, uint sats, bytes memory swapperScript) internal {
-        (uint old,,,,,,) = ch.channels(channelId);
+        // (E162) A delivery is a splice — same pinned pair as the channel.
+        ( , bytes memory hopKey_, ) = ownedChannelKeys(_label(seed));
+        (uint old, , , , , ) = ch.channels(channelId);
         uint newAmount = old - sats;
         bytes memory spliceTx;
         {
-            bytes memory p2wsh = buildTaprootFundingSpk(lpPubkey, HOP_PUBKEY);
+            bytes memory p2wsh = buildTaprootFundingSpk(lpPubkey, hopKey_);
             spliceTx = abi.encodePacked(
                 hex"02000000", hex"01",
                 fundingTxId, hex"00000000", hex"00", hex"ffffffff",
@@ -708,9 +783,9 @@ contract VBtcLevFeeLane is Alles {
             fundingBlockHeight: 800001,
             fundingTxIndex:     0,
             lpPubkey:           lpPubkey,
-            hopPubkey:          HOP_PUBKEY,
+            hopPubkey:          hopKey_,
             amountSats:         newAmount,
-            fundingTaproot:     _taprootQ(lpPubkey, HOP_PUBKEY)
+            fundingTaproot:     _taprootQ(lpPubkey, hopKey_)
         });
         vm.prank(makeAddr("hop"));
         ch.deliverSwapOutOnchain(swapId, channelId, p, spliceTx, new bytes32[](0), swapperScript);

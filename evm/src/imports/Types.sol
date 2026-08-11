@@ -61,15 +61,13 @@ library Types {
         address lpEth;
         uint32  fundingVout;
         uint8   status;
-        // MULTI-HOP: the hop (EVM address) that opened this channel — set to
-        // msg.sender at open, and the SOLE authority for this channel's splice /
-        // swap-out delivery / swap-in attestation / cooperative recordClose. There
-        // is no longer a single global `hopNode`: each channel is bound to its own
-        // hop so independent SGX instances (fleet, self-hosted, family-plan) coexist
-        // against the same contracts without one being able to act on another's
-        // channels. The genuine-party binding is proven at open by a BIP-340 Schnorr
-        // signature under the funding key Q (see BTCChannels.openChannel/taprootAuth).
-        address hop;
+        // (E164) `hop` IS DELETED. It recorded which EVM address opened the channel and was the
+        // SOLE authority for splice / swap-out delivery / dead-man refresh — the MULTI-HOP model,
+        // where independent SGX instances coexisted and each channel had to remember its own.
+        // With one node plus a hardcoded fallback (`MAIN_HOP`/`FALLBACK_HOP`, immutable), the
+        // authorized set is a two-address constant, so per-channel storage bought nothing and
+        // COST something: it made the fallback unable to operate any channel the main had opened
+        // (§E163). Which of the two opened it survives in the `ChannelOpened` event.
         /// (E153) `keccak256(abi.encode(lpPubkey, hopPubkey))`, pinned at open.
         /// ⚠️ WHY THIS AND NOT A RE-DERIVATION OF `channelId`: `channelId` is
         /// `keccak256(lpPubkey, hopPubkey, fundingTxId, vout)` over the ORIGINAL funding
@@ -134,7 +132,12 @@ library Types {
     struct OpenAuth {
         address lpEth;         // the position's owner — supplied, then authenticated against lpSig
         bytes32 btcRecipient;  // x-only P2TR payout key, pinned + locked at open
-        bytes   lpSig;         // over `openAuthDigest(hop, btcRecipient, fundingTxId, fundingVout)`
+        bytes   lpSig;
+        /// (E138) BIP-340 signature BY `btcRecipient` over `btcRecipientPoPDigest(lpEth)`.
+        /// `_registerBtcRecipient` proves the key is ON THE CURVE (§E130), never that the LP
+        /// CONTROLS it — and close, splice-out and the dead-man exit ALL pin to it, so a wrong
+        /// key takes every escape at once and is found only after the sats are gone.
+        bytes   btcRecipientPoP;         // over `openAuthDigest(hop, btcRecipient, fundingTxId, fundingVout)`
     }
 
     /// @notice (E156) The pre-signed dead-man exit that ARMS a channel — supplied at `openChannel`
@@ -152,9 +155,31 @@ library Types {
     /// what lets the LP-named fallback (E122) delete outright — the recovery story was never "a
     /// nominated hop acts", it was already "the CLTV matures and ANYONE broadcasts the public bytes".
     struct ExitArming {
+        /// (E128) Prevout value + scriptPubKey for EVERY input of `signedExitTx`, in input order.
+        /// BIP-341 `Prevouts::All` commits to them and they live in EARLIER transactions, so the
+        /// chain cannot read them from this one. ⚠️ THE FUNDING ENTRY IS OVERWRITTEN by the
+        /// contract with what it already knows — a hop that could supply it would sign a sighash
+        /// over a DIFFERENT amount and pass. Only the freshness input's entry is honoured, and a
+        /// wrong value there just makes verification fail.
+        uint64[] prevValues;
+        bytes[]  prevScripts;
         uint64 cltvDeadline;    // absolute BTC height the exit may first confirm at; > tip while alive
         uint   checkpointSats;  // the LP balance these bytes attest (feeds the stale-close guard)
         bytes  signedExitTx;    // the FULLY-signed CLTV exit paying btcRecipientOf
+    }
+
+    /// @notice (E159) Everything needed to PROVE an on-chain swap-in deposit. Bundled because the
+    /// entrypoint otherwise exceeds the legacy stack, and the house fix is a struct, not `via_ir`.
+    ///
+    /// `userRefund` + `cltvHeight` are the swap's CLTV refund leaf — with one pinned internal key
+    /// they ARE the per-swap identity, and together they determine the deposit address the contract
+    /// recomputes. Supplying them wrongly derives a different address and the proof simply fails.
+    struct DepositProof {
+        bytes32   userRefund;    // x-only key of the deposit's CLTV refund leaf
+        uint32    cltvHeight;    // absolute refund height in that leaf
+        bytes32   blockHash;     // block the deposit is proven against
+        uint      txIndex;
+        bytes32[] merkleProof;
     }
 
     /// @notice routing. `asset` is the volatile side of the swap — WETH for the

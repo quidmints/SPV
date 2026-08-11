@@ -2,6 +2,7 @@
 pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
+import {ExitFixture} from "./btc/ExitFixture.sol";
 import {BTCChannels} from "../src/BTCChannels.sol";
 import {AttestedHopRegistry, IDcapAttestation} from "../src/AttestedHopRegistry.sol";
 import {Types} from "../src/imports/Types.sol";
@@ -16,13 +17,14 @@ import {Types} from "../src/imports/Types.sol";
 ///
 ///         End-to-end openChannel (valid SPV proof → channel written) is
 ///         covered by the Phase-B funding-tx fixture (separate, pending).
-contract BTCChannelsAuthTest is Test {
+contract BTCChannelsAuthTest is Test, ExitFixture {
     BTCChannels ch;
 
     function setUp() public {
         // Minimal deploy. Constructor is (spv, aux, vogue, hopNode); we only call
         // the view digest + the recovery path, which don't depend on them.
-        ch = new BTCChannels(address(0xCA11), address(0x4006));
+        ch = new BTCChannels(address(0xCA11), address(0x4006), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        _btcChannels = address(ch);   // (E138) PoP digest binds this address
     }
 
     function _params() internal view returns (Types.OpenParams memory p) {
@@ -56,9 +58,12 @@ contract BTCChannelsAuthTest is Test {
         // "hop !attested" whatever the consent says. The auth below is unsigned deliberately: if
         // the ordering ever inverted, this would fail with a signature error instead, which is the
         // whole reason the exact revert string is asserted.
+        // ⚠️ (E138) The PoP is an EMPTY placeholder, not a generated one. Building it would run an
+        // FFI cheatcode, and a cheatcode call CONSUMES the pending `expectRevert` — the same trap
+        // that made `vm.prank` silently ineffective in the arming path.
         ch.openChannel(_params(), hex"00", proof,
-            Types.OpenAuth({lpEth: address(0xdEAD), btcRecipient: bytes32(0), lpSig: ""}),
-            Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0, signedExitTx: hex"00"}));
+            Types.OpenAuth({lpEth: address(0xdEAD), btcRecipient: bytes32(0), lpSig: "", btcRecipientPoP: ""}),
+            _ladder(Types.ExitArming({prevValues: new uint64[](1), prevScripts: new bytes[](1), cltvDeadline: uint64(block.number + 144), checkpointSats: 0, signedExitTx: hex"00"}))); 
     }
 
     function test_digest_binds_chain_and_contract() public view {

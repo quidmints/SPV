@@ -132,10 +132,11 @@ contract BtcSelfManagedTest is Alles {
 
         // Real BTCChannels wired as THE btcChannels (pin-once); hopNode = our addr.
         address hop = makeAddr("hop");
-        BTCChannels ch = new BTCChannels(_realSPV(), address(ETH));
+        BTCChannels ch = new BTCChannels(_realSPV(), address(ETH), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
         // The USD->BTC swaps deliver BTC to the swapper -> it needs a BTC recipient.
-        vm.prank(User03); ch.setBtcRecipient(_validXOnly(abi.encode(uint(0xB7C))));
+        _setRecipient(address(ch), abi.encode(uint(0xB7C)), User03);
 
         // Fund POOLED_USD_BTC headroom (a swap-in draws the swappers' dollars).
         // MULTI-HOP: a REAL open (not a registerBtcLp shortcut) so `hop` owns an OPEN
@@ -273,7 +274,8 @@ contract BtcSelfManagedTest is Alles {
         assertTrue(gw.isInMainchain(b.closeBlockHash),   "close block on mainchain");
 
         // ── REAL BTCChannels at the predicted address; hopNode = our hop ──
-        BTCChannels ch = new BTCChannels(address(gw), address(ETH));
+        BTCChannels ch = new BTCChannels(address(gw), address(ETH), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        _btcChannels = address(ch);   // (E138) PoP digest binds this address
         require(address(ch) == predictedCh, "BTCChannels address prediction off");
         AUX.setBTCChannels(address(ch));
 
@@ -301,7 +303,7 @@ contract BtcSelfManagedTest is Alles {
             // and closes with the real tx. This e2e_ffi bundle variant asserts only the
             // retire/no-mint invariant (>=0), so the synthetic key just needs to be a
             // proper key, not a hash160 in a slot.
-            bytes32 payout = _validXOnly(abi.encode("lp-shutdown-xonly", p.lpPubkey));
+            bytes32 payout = payoutKeyOnly(abi.encode(p.lpPubkey));
             // (E157) The LP's consent rides WITH the open — no prior registerDelegation tx.
             // ⚠️ `lpEth` is RECOVERED FROM the fixture's signature rather than checked against a
             // known address, which is the pattern this test already used. It means the consent
@@ -310,22 +312,24 @@ contract BtcSelfManagedTest is Alles {
             // real regtest data, and that is why the fixture did not need regenerating.
             address lpEth = ECDSA.recover(
                 ch.openAuthDigest(hop, payout), b.lpAuth);
+            // (E138) Built BEFORE the prank — `mkAuth` derives the payout PoP over FFI, and a
+            // cheatcode call consumes a pending prank.
+            Types.OpenAuth memory auth_ = mkAuth(lpEth, payout, b.lpAuth);
             vm.prank(hop);
             channelId =
-                ch.openChannel(p, b.rawFundingTx, b.fundingMerkleProof,
-                    Types.OpenAuth({lpEth: lpEth, btcRecipient: payout, lpSig: b.lpAuth}),
-                    Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0,
-                                      signedExitTx: hex"00"}));
+                ch.openChannel(p, b.rawFundingTx, b.fundingMerkleProof, auth_,
+                    _ladder(Types.ExitArming({prevValues: new uint64[](1), prevScripts: new bytes[](1), cltvDeadline: uint64(block.number + 144), checkpointSats: 0,
+                                      signedExitTx: hex"00"}))); 
         }
 
         // The lpAuth signer owns the credited BTC position.
-        ( , , address lpEth, , uint8 status,,) = ch.channels(channelId);
+        (, , address lpEth, , uint8 status, ) = ch.channels(channelId);
         assertEq(status, 0, "channel OPEN");
         (uint pooledOpen,,,) = BTC.autoManagedBTC(lpEth);
         assertEq(pooledOpen, b.amountSats, "openChannel credits the BTC pool position");
 
         // ── fund POOLED_USD_BTC headroom (a swap-in draws swapper dollars) ──
-        vm.prank(User03); ch.setBtcRecipient(_validXOnly(abi.encode(uint(0xB7C))));
+        _setRecipient(address(ch), abi.encode(uint(0xB7C)), User03);
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
@@ -369,10 +373,13 @@ contract BtcSelfManagedTest is Alles {
         // inverted into the invariant that replaced it. It matters because the fleet holds BOTH
         // funding halves; if it died before the old heartbeat's first tick, NOBODY could ever have
         // signed an exit, and the LP's sats were unreachable forever.
-        assertTrue(ch.deadManDeadline(channelId) != 0, "openChannel ARMS the dead-man exit");
+        // (E165) The single `deadManDeadline` became a SET: the LP pre-signs a ladder at open, so
+        // "is this channel armed" is membership, not equality.
+        assertTrue(ch.exitArmedAt(channelId, EXIT_DEADLINE_ALLES),
+                   "openChannel ARMS the pre-signed exit ladder");
 
         vm.prank(hop);
-        ch.emitDeadManExit(channelId, uint64(block.number + 144), 50_000, hex"00");
+        ch.emitDeadManExit(channelId, cp_, Types.ExitArming({prevValues: new uint64[](1), prevScripts: new bytes[](1), cltvDeadline: uint64(block.number + 144), checkpointSats: 50_000, signedExitTx: hex"00"}));
 
         // (E155) PERMISSIONLESS. This asserted `NotLP` when the hop submitted. That gate is gone:
         // its stated basis was "the same reasoning recordClose gives for participant-gating", and
@@ -402,7 +409,7 @@ contract BtcSelfManagedTest is Alles {
         // The guard is SKIPPED while checkpointOf == 0, i.e. every other channel in the
         // suite, so a green run does not exercise it. Trip it here on the REAL close tx.
         vm.prank(hop);
-        ch.emitDeadManExit(channelId, uint64(block.number + 144), type(uint96).max, hex"00");
+        ch.emitDeadManExit(channelId, cp_, Types.ExitArming({prevValues: new uint64[](1), prevScripts: new bytes[](1), cltvDeadline: uint64(block.number + 144), checkpointSats: type(uint96).max, signedExitTx: hex"00"}));
 
         // (a) A HOP-submitted close against an overstated checkpoint is rejected.
         vm.prank(hop);

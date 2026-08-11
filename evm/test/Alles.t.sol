@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 import {ForkPin} from "./utils/ForkPin.sol";
+import {ChannelLib} from "../src/imports/ChannelLib.sol";
+import {ExitFixture} from "./btc/ExitFixture.sol";
 
 import "forge-std/Test.sol";
 import "forge-std/console.sol";
@@ -116,7 +118,11 @@ interface IAngelF8N {
     function transferFrom(address, address, uint256) external;
 }
 
-contract Alles is ForkPin, Fixtures {
+contract Alles is ForkPin, Fixtures, ExitFixture {
+    /// (E128) FIXED dead-man deadline — the BIP-341 sighash commits to nLockTime, so the exit must
+    /// be signed for a height known before the funding tx is built. `block.number + n` cannot work.
+    uint64 constant EXIT_DEADLINE_ALLES = 900_000;
+
     /// (E130) A deterministic VALID x-only key from a seed. `_registerBtcRecipient` now
     /// requires `0x5120||k` to be SPENDABLE, and ~half of arbitrary 32-byte values are not
     /// curve points — so grind, exactly as real key generation does when lift_x fails.
@@ -291,6 +297,32 @@ contract Alles is ForkPin, Fixtures {
             vm.parseJsonBytes32Array(j, string.concat(b, "merkleBranch")));
     }
 
+    /// (E128) Arm the REGTEST-FIXTURE channel. Three things differ from a synthetic one, and all
+    /// three were needed before these tests could open at all:
+    ///   • the keys come from the FIXTURE's label convention, `quid-fixture-{lp,hop}-{seed}-{sats}`
+    ///     (verified: those labels reproduce its recorded pubkeys exactly);
+    ///   • the funding output is NOT necessarily vout 0 — a real tx has change — so it is LOCATED
+    ///     by matching `0x5120||Q`, exactly as the contract does;
+    ///   • the txid is the INTERNAL-order double-SHA of the raw tx, not the fixture's
+    ///     `fundingTxidDisplay`, which is byte-reversed.
+    function _armFixture(
+        Types.OpenParams memory p, bytes memory fundingTx, uint seed, bytes32 payout
+    ) private returns (Types.ExitArming memory) {
+        uint32 vout = ChannelLib.locateChannelOutput(
+            fundingTx, p.lpPubkey, p.hopPubkey, p.fundingTaproot, p.amountSats);
+        return Types.ExitArming({
+            prevValues:  new uint64[](1),
+            prevScripts: new bytes[](1),
+            cltvDeadline: EXIT_DEADLINE_ALLES,
+            checkpointSats: 0,
+            signedExitTx: signedExitFull(
+                string.concat("quid-fixture-lp-", vm.toString(seed), "-", vm.toString(p.amountSats)),
+                string.concat("quid-fixture-hop-", vm.toString(seed), "-", vm.toString(p.amountSats)),
+                sha256(abi.encodePacked(sha256(fundingTx))), vout, p.amountSats,
+                abi.encodePacked(hex"5120", payout), EXIT_DEADLINE_ALLES, 1_000)
+        });
+    }
+
     /// Sign (LP binds the submitter `hop` into the digest) + open, in its own frame.
     function _finishHopOpen(
         BTCChannels ch, address hop, Types.OpenParams memory p, bytes memory fundingTx, uint seed,
@@ -300,13 +332,19 @@ contract Alles is ForkPin, Fixtures {
         // Realistic btcRecipientOf: a full 32-byte x-only shutdown key distinct from the
         // funding material (this helper's callers never close/splice, so it is only
         // registered — but it must still look like a real key, not a hash160 in a slot).
-        bytes32 payout = _validXOnly(abi.encode("lp-shutdown-xonly", p.lpPubkey));
+        bytes32 payout = payoutKeyOnly(abi.encode(p.lpPubkey));
         // (E157) The LP's consent rides WITH the open — no prior registerDelegation tx. It pins
         // btcRecipientOf[lpEth]=payout and names `hop` as this channel's operator.
         bytes memory dsig = _signDigest(lpPk, ch.openAuthDigest(hop, payout));
+        // (E128) Built BEFORE the prank: `armingFor` runs an FFI cheatcode, and a cheatcode call
+        // consumes a pending prank — evaluating it as a call argument would send `openChannel`
+        // from the test contract instead of `hop`.
+        Types.ExitArming memory arm_ = _armFixture(p, fundingTx, seed, payout);
+        // (E138) `mkAuth` ALSO shells out now — it derives the payout key's proof-of-possession —
+        // so it is subject to the same rule as the arming above and must be built before the prank.
+        Types.OpenAuth memory auth_ = mkAuth(lpEth, payout, dsig);
         vm.prank(hop);
-        cid = ch.openChannel(p, fundingTx, merkleBranch,
-            Types.OpenAuth({lpEth: lpEth, btcRecipient: payout, lpSig: dsig}), Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0, signedExitTx: hex"00"}));
+        cid = ch.openChannel(p, fundingTx, merkleBranch, auth_, _ladder(arm_));
     }
 
     /// (E157) One open, one consent — extracted to its OWN FRAME. Inlining it a third time blew the
@@ -314,15 +352,29 @@ contract Alles is ForkPin, Fixtures {
     /// `via_ir`. It also removes the copy-paste the three call sites had grown.
     function _openWithConsent(
         BTCChannels ch_, address hop_, uint lpPk_, address lpEth_, bytes32 payout_,
-        Types.OpenParams memory p_, bytes memory fundingTx_
+        Types.OpenParams memory p_, bytes memory fundingTx_, string memory label_
     ) private returns (bytes32 cid) {
         bytes memory dsig =
             _signDigest(lpPk_, ch_.openAuthDigest(hop_, payout_));
+        // ⚠️ THE ARMING MUST BE BUILT BEFORE `vm.prank`. `armingFor` runs an FFI cheatcode, and a
+        // cheatcode call CONSUMES a pending prank — so evaluating it as a call ARGUMENT meant
+        // `openChannel` arrived from the test contract, not from `hop_`. The contract then hashed
+        // the digest over a different hop and the LP signature failed to recover, surfacing as a
+        // bare `InvalidParam()` with nothing pointing at the prank.
+        Types.ExitArming memory arm_ = _armAlles(label_, fundingTx_, p_.amountSats, payout_);
+        // (E138) Same rule, second FFI: `mkAuth` derives the payout PoP by shelling out.
+        Types.OpenAuth memory auth_ = mkAuth(lpEth_, payout_, dsig);
         vm.prank(hop_);
-        cid = ch_.openChannel(p_, fundingTx_, new bytes32[](0),
-            Types.OpenAuth({lpEth: lpEth_, btcRecipient: payout_, lpSig: dsig}),
-            Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0,
-                              signedExitTx: hex"00"}));
+        cid = ch_.openChannel(p_, fundingTx_, new bytes32[](0), auth_, _ladder(arm_));
+    }
+
+    /// (E128) Own frame — building the arming inline pushes `_openWithConsent` over the legacy
+    /// stack. House fix is a frame, never `via_ir`.
+    function _armAlles(string memory label_, bytes memory fundingTx_, uint sats_, bytes32 payout_)
+        private returns (Types.ExitArming memory)
+    {
+        return armingFor(label_, sha256(abi.encodePacked(sha256(fundingTx_))), 0, sats_,
+                         abi.encodePacked(hex"5120", payout_), EXIT_DEADLINE_ALLES, 1_000);
     }
 
     function _signDigest(uint pk, bytes32 digest) private pure returns (bytes memory) {
@@ -490,6 +542,9 @@ contract Alles is ForkPin, Fixtures {
             IAngelF8N(0x3B3ee1931Dc30C1957379FAc9aba94D1C48a5405).transferFrom(_angelOwner, address(this), 16508);
         }
         DeployLib.StackAddrs memory A = DeployLib.deployQuidStack(DeployLib.StackConfig({
+            // (E164) MAIN_HOP must be the address tests prank as, or every channel op reverts.
+            mainHop: makeAddr("hop"), fallbackHop: makeAddr("hop-fallback"),
+            btcDepositKey: bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)),
             poolManager: poolManager,
             weth: address(WETH), wbtc: address(WBTC), gho: address(GHO), usdg: address(USDG),
             usdc: address(USDC), usdt: address(USDT), dai: address(DAI),
@@ -1788,14 +1843,15 @@ contract Alles is ForkPin, Fixtures {
     ///         swap-IN) - exercised here.
     function testSwapOut_RequestCreditAndFailureReversal() public {
         address hop = makeAddr("hop");
-        BTCChannels ch = new BTCChannels(_realSPV(), address(ETH));
+        BTCChannels ch = new BTCChannels(_realSPV(), address(ETH), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
 
         // Seed BTC inventory + POOLED_USD_BTC curve liquidity (the funding USD->BTC
         // swaps deliver BTC to User03, so it needs a BTC recipient - the swap-out
         // request itself does NOT, since its proceeds go to the pool).
         _openHopChannel(ch, hop, 91, 2e7); // MULTI-HOP: real open so `hop` may attest swap-ins (was a registerBtcLp shortcut)
-        vm.prank(User03); ch.setBtcRecipient(_validXOnly(abi.encode(uint(0xB7C))));
+        _setRecipient(address(ch), abi.encode(uint(0xB7C)), User03);
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
@@ -1814,7 +1870,7 @@ contract Alles is ForkPin, Fixtures {
         vm.prank(swapper); USDC.approve(address(AUX), type(uint).max);
         // A recipient for the pool's shortfall-arb path (the large test buy can
         // drain POOLED_BTC below shares -> arb refill, which routes to a recipient).
-        vm.prank(swapper); ch.setBtcRecipient(_validXOnly(abi.encode(uint(0xB7C2))));
+        _setRecipient(address(ch), abi.encode(uint(0xB7C2)), swapper);
 
         bytes memory swapperScript = abi.encodePacked(hex"5120", _validXOnly(abi.encode(0x5A7C))); // key-path P2TR
         bytes32 swapId = keccak256("quid-swap-out-onchain");
@@ -1878,11 +1934,12 @@ contract Alles is ForkPin, Fixtures {
     ///         the timeout, by a non-swapper, double-refund).
     function testSwapOut_SwapperSelfRefundAfterTimeout() public {
         address hop = makeAddr("hopTO");
-        BTCChannels ch = new BTCChannels(_realSPV(), address(ETH));
+        BTCChannels ch = new BTCChannels(_realSPV(), address(ETH), hop, makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
 
         _openHopChannel(ch, hop, 91, 2e7); // MULTI-HOP: real open so `hop` may attest swap-ins (was a registerBtcLp shortcut)
-        vm.prank(User03); ch.setBtcRecipient(_validXOnly(abi.encode(uint(0xB7C))));
+        _setRecipient(address(ch), abi.encode(uint(0xB7C)), User03);
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
@@ -1896,7 +1953,7 @@ contract Alles is ForkPin, Fixtures {
 
         address swapper = User02;
         vm.prank(swapper); USDC.approve(address(AUX), type(uint).max);
-        vm.prank(swapper); ch.setBtcRecipient(_validXOnly(abi.encode(uint(0xB7C3))));
+        _setRecipient(address(ch), abi.encode(uint(0xB7C3)), swapper);
         bytes memory swapperScript = abi.encodePacked(hex"5120", keccak256(abi.encode(0x5A7D)));
         bytes32 swapId = keccak256("quid-swap-out-timeout-refund");
 
@@ -1942,12 +1999,13 @@ contract Alles is ForkPin, Fixtures {
     ///         Symmetric to swap-OUT's minSats floor.
     function testStrand4_SwapInFloor_RevertsShort_UnwindsUsed() public {
         address hop = makeAddr("hopS4");
-        BTCChannels ch = new BTCChannels(_realSPV(), address(ETH));
+        BTCChannels ch = new BTCChannels(_realSPV(), address(ETH), hop, makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
 
         // Seed BTC inventory + POOLED_USD_BTC curve liquidity (mirror failure-reversal).
         _openHopChannel(ch, hop, 91, 2e7); // MULTI-HOP: real open so `hop` may attest swap-ins (was a registerBtcLp shortcut)
-        vm.prank(User03); ch.setBtcRecipient(_validXOnly(abi.encode(uint(0xB7C))));
+        _setRecipient(address(ch), abi.encode(uint(0xB7C)), User03);
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
@@ -4053,11 +4111,13 @@ contract Alles is ForkPin, Fixtures {
     ///         retiring the long-standing untested-wiring gap.
     function testBtcChannels_OpenAndCloseEndToEnd() public {
         // 33-byte compressed pubkeys (channel script + hop).
-        bytes memory lpPubkey  = hex"020102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f21";
-        bytes memory hopPubkey = hex"03a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0";
+        // (E128) OWNED keys. These were hardcoded points with no known discrete log, so no
+        // dead-man exit could ever be signed for the resulting `Q` — and arming now VERIFIES.
+        (bytes memory lpPubkey, bytes memory hopPubkey, ) = ownedChannelKeys("alles-chan");
 
         // Real BTCChannels with a mock SPV gateway, wired as THE btcChannels.
-        BTCChannels ch = new BTCChannels(address(new MockSPV()), address(ETH));
+        BTCChannels ch = new BTCChannels(address(new MockSPV()), address(ETH), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
 
         // LP: EVM key (signs lpAuth -> owns the position) is independent of the
@@ -4094,8 +4154,8 @@ contract Alles is ForkPin, Fixtures {
             // so `_lpFinalBalance` matches it (not a legacy P2WPKH output, which would
             // mismatch the P2TR guard → sum 0 → delivered=funded) — and sets
             // (E157) consent carried by the open itself.
-            bytes32 payout = _validXOnly(abi.encode("lp-shutdown-xonly", p.lpPubkey));
-            channelId = _openWithConsent(ch, makeAddr("hop"), lpPk, lpEth, payout, p, fundingTx);
+            bytes32 payout = payoutKeyOnly(abi.encode(p.lpPubkey));
+            channelId = _openWithConsent(ch, makeAddr("hop"), lpPk, lpEth, payout, p, fundingTx, "alles-chan");
         }
 
         // Funding SPV-proven -> the LP's BTC pool position is credited.
@@ -4106,8 +4166,7 @@ contract Alles is ForkPin, Fixtures {
         // only at deliverSwapOutOnchain (covered end-to-end in BtcLpMintStress). The
         // priming curve buys below just fund POOLED_USD_BTC (a donation; they record
         // no obligation). The buyer must register a BTC recipient.
-        vm.prank(User03);
-        ch.setBtcRecipient(_validXOnly(abi.encode(uint(0xBEEF))));
+        _setRecipient(address(ch), abi.encode(uint(0xBEEF)), User03);
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
@@ -4124,7 +4183,7 @@ contract Alles is ForkPin, Fixtures {
         uint supBefore = QUID.totalSupply();
         {
             uint finalBalance = amountSats; // all-native, no delivery
-            bytes memory lpP2TR = abi.encodePacked(hex"5120", _validXOnly(abi.encode("lp-shutdown-xonly", lpPubkey)));
+            bytes memory lpP2TR = abi.encodePacked(hex"5120", payoutKeyOnly(abi.encode(lpPubkey)));
             bytes memory closeTx = abi.encodePacked(
                 hex"02000000", hex"01",
                 fundingTxId, hex"00000000", hex"00", hex"ffffffff",  // spends (fundingTxId, 0)
@@ -4157,9 +4216,11 @@ contract Alles is ForkPin, Fixtures {
     ///         solvency-reconciliation branch (the former recordForceClose, now folded
     ///         into recordClose; the cooperative branch is covered end-to-end elsewhere).
     function testBtcChannels_NonCoopCloseRetires() public {
-        bytes memory lpPubkey  = hex"020102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f21";
-        bytes memory hopPubkey = hex"03a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0";
-        BTCChannels ch = new BTCChannels(address(new MockSPV()), address(ETH));
+        // (E128) OWNED keys. These were hardcoded points with no known discrete log, so no
+        // dead-man exit could ever be signed for the resulting `Q` — and arming now VERIFIES.
+        (bytes memory lpPubkey, bytes memory hopPubkey, ) = ownedChannelKeys("alles-chan");
+        BTCChannels ch = new BTCChannels(address(new MockSPV()), address(ETH), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
         (address lpEth, uint lpPk) = makeAddrAndKey("btc-lp");
         uint amountSats = 2e7;
@@ -4182,8 +4243,8 @@ contract Alles is ForkPin, Fixtures {
             // delivered=funded and IGNORES all outputs, so the key is only registered.
             // (B) LP delegates to the hop COLD once (pins+LOCKS btcRecipientOf, sets
             // (E157) consent carried by the open itself.
-            bytes32 payout = _validXOnly(abi.encode("lp-shutdown-xonly", p.lpPubkey));
-            channelId = _openWithConsent(ch, makeAddr("hop"), lpPk, lpEth, payout, p, fundingTx);
+            bytes32 payout = payoutKeyOnly(abi.encode(p.lpPubkey));
+            channelId = _openWithConsent(ch, makeAddr("hop"), lpPk, lpEth, payout, p, fundingTx, "alles-chan");
         }
         (uint pooledOpen,,,) = BTC.autoManagedBTC(lpEth);
         assertEq(pooledOpen, amountSats, "channel opened");
@@ -4222,9 +4283,11 @@ contract Alles is ForkPin, Fixtures {
     ///         _lpFinalBalance is read; the force branch never reads tx outputs, so
     ///         deliveredRaw = funded − funded = 0 and the §10#2 clamp is moot here.)
     function testBtcChannels_ForceClose_WithHTLCs_Retires() public {
-        bytes memory lpPubkey  = hex"020102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f21";
-        bytes memory hopPubkey = hex"03a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0";
-        BTCChannels ch = new BTCChannels(address(new MockSPV()), address(ETH));
+        // (E128) OWNED keys. These were hardcoded points with no known discrete log, so no
+        // dead-man exit could ever be signed for the resulting `Q` — and arming now VERIFIES.
+        (bytes memory lpPubkey, bytes memory hopPubkey, ) = ownedChannelKeys("alles-chan");
+        BTCChannels ch = new BTCChannels(address(new MockSPV()), address(ETH), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
         (address lpEth, uint lpPk) = makeAddrAndKey("btc-lp");
         uint amountSats = 2e7;
@@ -4247,8 +4310,8 @@ contract Alles is ForkPin, Fixtures {
             // delivered=funded and IGNORES all outputs, so the key is only registered.
             // (B) LP delegates to the hop COLD once (pins+LOCKS btcRecipientOf, sets
             // (E157) consent carried by the open itself.
-            bytes32 payout = _validXOnly(abi.encode("lp-shutdown-xonly", p.lpPubkey));
-            channelId = _openWithConsent(ch, makeAddr("hop"), lpPk, lpEth, payout, p, fundingTx);
+            bytes32 payout = payoutKeyOnly(abi.encode(p.lpPubkey));
+            channelId = _openWithConsent(ch, makeAddr("hop"), lpPk, lpEth, payout, p, fundingTx, "alles-chan");
         }
         (uint pooledOpen,,,) = BTC.autoManagedBTC(lpEth);
         assertEq(pooledOpen, amountSats, "channel opened");

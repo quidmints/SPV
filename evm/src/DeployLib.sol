@@ -91,6 +91,13 @@ library DeployLib {
         bool allowUnburiedCheckpoint;
         // ── optional add-ons (tests deploy their own doubles per-test) ──
         bool deployChannels;
+        /// (E164) The ONLY two addresses that may operate a channel, pinned at construction.
+        /// Named here so a deployment chooses them explicitly — there is no setter, by design.
+        address mainHop;
+        address fallbackHop;
+        /// (E159) The fleet's pinned x-only swap-in deposit key. Every deposit address is derived
+        /// from it, so a swap-in credit can be PROVEN against a Bitcoin block instead of attested.
+        bytes32 btcDepositKey;
     }
 
     /// @dev The deployed core-stack addresses. `rover`/`spvGateway`/`btcChannels`
@@ -211,7 +218,12 @@ library DeployLib {
         // pointed btcVault at Vogue, whose fallback returns empty ⇒ creditSwapOut decode-
         // reverts (swap-out) and registerBtcLp silently no-ops (open). Mirrors the canonical
         // BtcLpMintStress._deployChannels wiring (`new BTCChannels(spv, ETH)`).
-        BTCChannels c = new BTCChannels(address(spv), eth);
+        // (E164) MAIN_HOP + FALLBACK_HOP are pinned at construction and can never be added to:
+        // a governed hop set is a Safe that can grant itself channels, which is the lever a
+        // 4-of-7 compromise pulls. `cfg` carries both so a deployment names them explicitly
+        // rather than inheriting a default nobody chose.
+        BTCChannels c = new BTCChannels(address(spv), eth, cfg.mainHop, cfg.fallbackHop,
+                                        cfg.btcDepositKey);
         // WIRING INVARIANT (regression guard): btcVault MUST be the merged Vault `eth` —
         // where creditSwapOut / registerBtcLp / resizeBtcLp live. A prior version passed
         // `v4` (Vogue, which has none), silently breaking ALL BTC swap-out (creditSwapOut

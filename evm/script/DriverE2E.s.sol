@@ -101,6 +101,8 @@ contract Deploy is Script {
 
         // ── The ONE shared deploy (same as production / the forge suite) ──
         DeployLib.StackAddrs memory A = DeployLib.deployQuidStack(DeployLib.StackConfig({
+            mainHop: msg.sender, fallbackHop: address(uint160(msg.sender) + 1),
+            btcDepositKey: bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)),
             poolManager: POOL_MANAGER,
             weth: WETH, wbtc: WBTC, gho: GHO, usdg: USDG,
             usdc: USDC, usdt: USDT, dai: DAI, usde: USDE, usds: USDS,

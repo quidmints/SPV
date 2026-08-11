@@ -29,6 +29,11 @@ environment actually is*. Every line below was verified in-repo, not recalled.
     fee/redeem legs pay a 6-dec USD claim in an 18-dec token and have no pre-existing balance
     to draw on. The rule bites on NEW mints, and on any mint added because it was the first
     idea rather than the last.
+8c. **PREFER A `private view` CHECK OVER A MODIFIER** (owner, 2026-08-10). A modifier's body is
+    **inlined at every use site**, so N uses means N copies in bytecode; a function is one routine
+    and N jumps. *Measured (E164):* replacing four per-channel gates with one `onlyHop` modifier
+    grew `BTCChannels` by **968 bytes** — on a contract whose deploy margin is the binding
+    constraint. The same check as `_onlyHop()` gave 200 back. Modifiers read well and cost size.
 9. **Price every fix on every axis** before calling it done: correctness (tested, not reasoned),
    cost/frequency, blast radius, second-order effects, other callers, reversibility. The regression
    is always on the axis nobody measured. If an axis can't be measured yet, say so explicitly.

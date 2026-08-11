@@ -6,6 +6,14 @@ import {Types} from "./Types.sol";
 import {IAux} from "./Interfaces.sol";
 import {IQuidTarget} from "./Interfaces.sol";
 import {BitcoinTx} from "./BitcoinTx.sol";
+// (E128/§E140-r) `BitcoinTx._assertLegacy` REJECTS any witness-carrying tx, so it cannot parse a
+// fully-signed key-path taproot exit at all — not even its locktime. `TxParser` can, and exposes
+// `inputs[i].witnesses`, which is where a key-path Schnorr signature lives. Used ONLY for that:
+// §E140-r2 measured that its `previousHash` is byte-REVERSED relative to its own `calculateTxId`
+// and to our `BitcoinTx`, so it is not a drop-in for outpoint logic.
+import {TxParser} from "@solarity/solidity-lib/libs/bitcoin/TxParser.sol";
+import {MuSig2Agg} from "./MuSig2Agg.sol";
+import {EndianConverter} from "@solarity/solidity-lib/libs/utils/EndianConverter.sol";
 import {ISPVGateway} from "../spv/interfaces/ISPVGateway.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {FullMath} from "v4-core/src/libraries/FullMath.sol";
@@ -511,15 +519,14 @@ library ChannelLib {
 
         // MULTI-HOP: the `hop` field is now READ (per-channel authority — no single
         // global `hopNode`), so it earns its storage slot. It is set by the caller
-        // (BTCChannels.openChannel) to msg.sender after this body returns; here it is
-        // just zero-initialized so the named struct literal is complete.
+        // (E164) The `hop` field is gone — authority is the immutable MAIN_HOP/FALLBACK_HOP
+        // pair, not per-channel state.
         channel = Types.BTCChannel({
             amountSats:     p.amountSats,
             fundingTxId:    fundingTxId,
             lpEth:          lpEth,
             fundingVout:    vout,
             status:         STATUS_OPEN,
-            hop:            address(0),
             // (E153) Pin the key pair independently of the funding outpoint, which a splice
             // rotates. `channelId` above folds in the ORIGINAL outpoint and so cannot serve
             // as the key binding after a resize.

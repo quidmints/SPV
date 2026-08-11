@@ -2,6 +2,8 @@
 pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
+import {ExitFixture} from "./ExitFixture.sol";
+import {ChannelLib} from "../../src/imports/ChannelLib.sol";
 import {BTCChannels} from "../../src/BTCChannels.sol";
 import {Types} from "../../src/imports/Types.sol";
 import {SPVGateway} from "../../src/spv/SPVGateway.sol";
@@ -27,7 +29,7 @@ import {MuSig2Agg} from "../../src/imports/MuSig2Agg.sol";
 ///         one still wrote a single flat open, so regenerating there would have silently
 ///         collapsed the fixture and made every lookup revert.
 
-contract OpenChannelE2ETest is Test {
+contract OpenChannelE2ETest is Test, ExitFixture {
     /// (E130) Deterministic VALID x-only key — `0x5120||k` must be spendable, and ~half of
     /// arbitrary 32-byte values are not curve points. Grind, as real keygen does.
     function _validXOnly(bytes memory seed) internal pure returns (bytes32 k) {
@@ -77,7 +79,10 @@ contract OpenChannelE2ETest is Test {
     {
         bytes memory hopPubkey = vm.parseJsonBytes(json, ".hopPubkey");
         // The hop's BTC pubkey is fixed at deploy; LP's is per-channel.
-        ch = new BTCChannels(address(gw), address(vogue));
+        // (E164) This file operates the channel as 0xB0B, so that address must BE `MAIN_HOP` —
+        // authority is a global immutable pair now, not per-channel state.
+        ch = new BTCChannels(address(gw), address(vogue), address(0xB0B), address(0xFA11), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        _btcChannels = address(ch);   // (E138) PoP digest binds this address
 
         Types.OpenParams memory p = Types.OpenParams({
             fundingBlockHash:   vm.parseJsonBytes32(json, ".fundingBlockHashBE"),
@@ -111,18 +116,43 @@ contract OpenChannelE2ETest is Test {
         // so the key is registered but not guard-validated — it must still be a proper key.
         bytes32 payout = payoutOverride != bytes32(0)
             ? payoutOverride
-            : _validXOnly(abi.encode("lp-shutdown-xonly", p.lpPubkey));
+            : payoutKeyOnly(abi.encode(p.lpPubkey));
         // (E157) One transaction: the LP signs for THIS channel (hop 0xB0B, this payout, this Q,
         // this size) and the hop submits that consent WITH the open. It pins + LOCKS
         // btcRecipientOf[lpEth]=payout and credits the position to lpEth.
         address lpEth = vm.addr(lpPk);
         bytes memory dsig = _signOpen(lpPk,
             ch.openAuthDigest(address(0xB0B), payout));
+        // (E128) Built BEFORE the prank: `signedExitFull` runs an FFI cheatcode, and a cheatcode
+        // call CONSUMES a pending prank — as a call argument it would send `openChannel` from the
+        // test contract instead of 0xB0B, and the LP signature would fail to recover.
+        Types.ExitArming memory arm_ = _armRegtest(p, rawTx, json, payout);
+        // (E138) `mkAuth` is a second FFI caller now (the payout PoP) — same hoist, same reason.
+        Types.OpenAuth memory auth_ = mkAuth(lpEth, payout, dsig);
+        bytes32[] memory branch_ = vm.parseJsonBytes32Array(json, ".merkleBranch");
         vm.prank(address(0xB0B)); // must be the hop the LP signed for
-        channelId = ch.openChannel(p, rawTx, vm.parseJsonBytes32Array(json, ".merkleBranch"),
-            Types.OpenAuth({lpEth: lpEth, btcRecipient: payout, lpSig: dsig}),
-            Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0,
-                              signedExitTx: hex"00"}));
+        channelId = ch.openChannel(p, rawTx, branch_, auth_, _ladder(arm_));
+    }
+
+    /// (E128) Arm the REGTEST channel with a genuinely signed exit. Its keys come from the
+    /// fixture's own label convention (`quid-fixture-{lp,hop}-{seed}-{sats}`), the funding output
+    /// is LOCATED rather than assumed to be vout 0 (a real tx has change), and the txid is the
+    /// INTERNAL-order double-SHA — not the fixture's byte-reversed `fundingTxidDisplay`.
+    function _armRegtest(
+        Types.OpenParams memory p, bytes memory rawTx, string memory json, bytes32 payout
+    ) private returns (Types.ExitArming memory) {
+        uint seed = vm.parseJsonUint(json, ".seed");
+        uint32 vout = ChannelLib.locateChannelOutput(
+            rawTx, p.lpPubkey, p.hopPubkey, p.fundingTaproot, p.amountSats);
+        return Types.ExitArming({
+            prevValues: new uint64[](1), prevScripts: new bytes[](1),
+            cltvDeadline: 900_000, checkpointSats: 0,
+            signedExitTx: signedExitFull(
+                string.concat("quid-fixture-lp-", vm.toString(seed), "-", vm.toString(p.amountSats)),
+                string.concat("quid-fixture-hop-", vm.toString(seed), "-", vm.toString(p.amountSats)),
+                sha256(abi.encodePacked(sha256(rawTx))), vout, p.amountSats,
+                abi.encodePacked(hex"5120", payout), 900_000, 1_000)
+        });
     }
 
     function test_openChannel_realRegtestFundingTx() public {
@@ -141,7 +171,7 @@ contract OpenChannelE2ETest is Test {
 
         // Channel written, credited to the LP signer, with the funded sats.
         uint amount = vm.parseJsonUint(json, ".amountSats");
-        (uint amountSats,, address ownerEth,, uint8 status,,) = ch.channels(channelId);
+        (uint amountSats, , address ownerEth, , uint8 status, ) = ch.channels(channelId);
         assertEq(amountSats, amount, "channel records funded sats");
         assertEq(ownerEth, lpEth, "channel owned by the lpAuth signer");
         assertEq(status, 0, "status OPEN");
@@ -216,9 +246,16 @@ contract OpenChannelE2ETest is Test {
         bytes32 payoutKey;
         assembly { payoutKey := mload(add(payoutSpk, 34)) }   // bytes 2..33
         assertTrue(BitcoinTx.isValidXOnlyKey(payoutKey), "fixture payout key is off-curve");
+        // (E138) The key must be one WE HOLD THE SECRET FOR, or `openChannel` cannot be given the
+        // proof-of-possession it now demands. It used to be `0x11…11` — on-curve, and owned by
+        // nobody. Deriving it here from the label the Python generator bakes in turns the two
+        // generators agreeing into an ASSERTION rather than an assumption: regenerate the fixture
+        // against a different key and this fails at the compare, not somewhere inside the splice.
+        assertEq(payoutKeyForLabel("quid-regtest-splice-payout-1"), payoutKey,
+            "fixture splice payout != the key this harness can sign for");
 
         (BTCChannels ch, bytes32 channelId,) = _openFromFixture(json, gw, payoutKey);
-        (uint before,,,,,,) = ch.channels(channelId);
+        (uint before, , , , , ) = ch.channels(channelId);
         assertEq(before, vm.parseJsonUint(json, ".amountSats"), "channel opened at the funded size");
 
         // The splice keeps the SAME 2-of-2 -- a splice does not re-key the channel.
@@ -235,7 +272,7 @@ contract OpenChannelE2ETest is Test {
         ch.splice(channelId, sp, vm.parseJsonBytes(json, ".splice.spliceRawTx"),
                   vm.parseJsonBytes32Array(json, ".splice.spliceMerkleBranch"), 0);
 
-        (uint afterSats,,,,,,) = ch.channels(channelId);
+        (uint afterSats, , , , , ) = ch.channels(channelId);
         assertEq(afterSats, vm.parseJsonUint(json, ".splice.newAmountSats"),
             "channel resized to the spliced amount");
         assertLt(afterSats, before, "this fixture splice is a SHRINK");
@@ -244,7 +281,7 @@ contract OpenChannelE2ETest is Test {
         // ⚠️ ASSERT ON WHAT THE VAULT WAS TOLD, not only on the channel struct the splice
         //    itself rewrote — a resize that never reached the LP's position would otherwise
         //    look identical here.
-        (,, address lpOwner,,,,) = ch.channels(channelId);
+        (, , address lpOwner, , , ) = ch.channels(channelId);
         assertEq(vogue.resizedShrinkSats(lpOwner), vm.parseJsonUint(json, ".splice.withdrawSats"),
             "the vault was told the same shrink the splice performed");
         assertEq(vogue.registered(lpOwner), vm.parseJsonUint(json, ".splice.newAmountSats"),

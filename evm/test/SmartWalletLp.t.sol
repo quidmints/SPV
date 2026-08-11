@@ -2,6 +2,7 @@
 pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
+import {ExitFixture} from "./btc/ExitFixture.sol";
 import {BTCChannels} from "../src/BTCChannels.sol";
 import {Types} from "../src/imports/Types.sol";
 
@@ -33,15 +34,33 @@ contract OwnerSignedWallet {
 ///         consent check runs BEFORE the SPV proof, so a VALID signature reverts LATER (on the
 ///         funding proof) and an INVALID one reverts with `InvalidParam`. **The test is that the
 ///         revert MOVES.** It does not prove a channel opens — `OpenChannelE2E` does that.
-contract SmartWalletLpTest is Test {
+contract SmartWalletLpTest is Test, ExitFixture {
     BTCChannels ch;
     OwnerSignedWallet wallet;
     address ownerAddr; uint ownerPk;
 
+    bytes32 internal payoutKey;
+    mapping(address => bytes) internal popFor;   // lpEth -> its proof-of-possession
+
+    /// (E138) Precomputed in setUp, NOT inside `_open`. Building a PoP runs an FFI cheatcode, and
+    /// a cheatcode call CONSUMES a pending `vm.expectRevert` — so generating it lazily made every
+    /// revert assertion in this file fail with "call didn't revert at a lower depth", pointing
+    /// nowhere near the cause. Same trap as `vm.prank` in the arming path.
+    function _preparePoPs(address[] memory lps) internal {
+        _btcChannels = address(ch);
+        payoutKey = payoutKeyOnly(abi.encode("smartwallet-payout"));
+        for (uint i; i < lps.length; ++i) popFor[lps[i]] = _popFor(payoutKey, lps[i]);
+    }
+
     function setUp() public {
-        ch = new BTCChannels(address(0xCA11), address(0x4006));
+        ch = new BTCChannels(address(0xCA11), address(0x4006), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        _btcChannels = address(ch);   // (E138) PoP digest binds this address
         (ownerAddr, ownerPk) = makeAddrAndKey("safe-owner");
         wallet = new OwnerSignedWallet(ownerAddr);
+        (address eoaLp, ) = makeAddrAndKey("eoa-lp");
+        address[] memory lps = new address[](2);
+        lps[0] = address(wallet); lps[1] = eoaLp;
+        _preparePoPs(lps);
     }
 
     function _sign(uint pk, bytes32 digest) internal pure returns (bytes memory) {
@@ -49,10 +68,7 @@ contract SmartWalletLpTest is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    function _payout() internal pure returns (bytes32) {
-        // A real x-only curve point (G.x) — `_registerBtcRecipient` rejects off-curve keys.
-        return bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798));
-    }
+    function _payout() internal view returns (bytes32) { return payoutKey; }
 
     bytes32 constant Q = bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798));
 
@@ -65,9 +81,10 @@ contract SmartWalletLpTest is Test {
     function _open(address lpEth, bytes memory sig) internal {
         bytes32[] memory proof;
         ch.openChannel(_params(), hex"00", proof,
-            Types.OpenAuth({lpEth: lpEth, btcRecipient: _payout(), lpSig: sig}),
-            Types.ExitArming({cltvDeadline: uint64(block.number + 144), checkpointSats: 0,
-                              signedExitTx: hex"00"}));
+            Types.OpenAuth({lpEth: lpEth, btcRecipient: payoutKey, lpSig: sig,
+                            btcRecipientPoP: popFor[lpEth]}),
+            _ladder(Types.ExitArming({prevValues: new uint64[](1), prevScripts: new bytes[](1), cltvDeadline: uint64(block.number + 144), checkpointSats: 0,
+                              signedExitTx: hex"00"}))); 
     }
 
     /// A Safe's ERC-1271 signature is ACCEPTED: the open gets past consent and dies on the funding

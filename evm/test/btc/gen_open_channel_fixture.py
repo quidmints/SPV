@@ -397,10 +397,16 @@ def main():
     # the funding UTXO, so each needs a REAL confirmed splice — a fabricated one is what
     # `MockSPV` was hiding.
     SPLICES = {
+        # (E138) An OWNED payout key, not a placeholder. `openChannel` now demands a BIP-340
+        # proof-of-possession from whatever key it pins as `btcRecipient`, and the old
+        # `5120||11*32` had no private key anywhere in the project, so no PoP could exist for it.
+        # This is the x-only key for label `quid-regtest-splice-payout` in
+        # `gen_deadman_exit_fixture.py` — the same generator the Solidity harness signs with, so
+        # the test asserts the two agree instead of trusting a literal.
         (77, 20_000_000): (15_000_000, 5_000_000,
-                           "5120" + "11" * 32),   # payout P2TR; the Solidity side pins the real key
-        (1,  20_000_000): (15_000_000, 5_000_000, "5120" + "22" * 32),
-        (7,   1_000_000): (  600_000,    400_000, "5120" + "33" * 32),
+                           "5120" + "341c97732d7cd4898b50e1c33d6595057e2837e2f6ef243812314900d000be59"),
+        (1,  20_000_000): (15_000_000, 5_000_000, "5120" + "b714d36ca74a86bbab56edec81751664f666f8e4e18546c493d123feffc2b892"),
+        (7,   1_000_000): (  600_000,    400_000, "5120" + "d8c3651375aaed27f6cec90c7787e85e83ce05c25787b8dbd25369fa1595081b"),
         # FEE-BEARING shape. Every other entry sums EXACTLY to the input, so they only ever
         # exercise perfect conservation — but a mainnet splice MUST pay a miner fee, so
         # newAmount + withdraw is ALWAYS < funding there. Verified against the contract before
@@ -409,7 +415,7 @@ def main():
         # additionally requires outputs OTHER than funding+payout to sum to zero, which a fee
         # satisfies because a fee is implicit (inputs - outputs), not an output. So this SHOULD
         # pass — and if it ever does not, every real mainnet splice is broken.
-        (9,  50_000_000): (30_000_000, 19_900_000, "5120" + "44" * 32),   # 100_000 sat to fee
+        (9,  50_000_000): (30_000_000, 19_900_000, "5120" + "ad332795cfa1efcda2c4f5b80825b9a09d70eb553d5b60cb87bf36f085cebb00"),   # 100_000 sat to fee
     }
     opens = [one_open(s, a) for s, a in PAIRS]
     cli("generatetoaddress", 7, cli("getnewaddress"))       # 7 confirmations (>=6)
