@@ -379,6 +379,10 @@ pub struct ValidatingChannelSigner {
     /// safe response is to stop signing this channel, not to guess which context was
     /// the honest one.
     ctx_poisoned: std::sync::atomic::AtomicBool,
+    /// (E177) The on-chain comparand, and this signer's side of the 2-of-2. `None` keeps
+    /// the §E176-C self-consistency behaviour unchanged — so this is additive and a node
+    /// without an EVM view is no worse off than before, never silently less checked.
+    truth: Option<(std::sync::Arc<dyn ChannelTruthSource>, FundingRole)>,
 }
 
 /// The late-bound per-channel data the MuSig2 (`TaprootChannelSigner`) bodies
@@ -413,6 +417,53 @@ pub struct TaprootSignerContext {
     pub splice_parent_funding_txid: Option<bitcoin::Txid>,
 }
 
+/// (E177) An **on-chain** view of what a channel IS, for checks that must not be
+/// answerable by the node.
+///
+/// 🔑 **WHY THIS TRAIT EXISTS AT ALL.** Every other input the signer receives is supplied
+/// by the node — including the "previous" context §E176-C compares against. Self-consistency
+/// binds a node that CONTRADICTS ITSELF; it does not bind one that lies consistently from
+/// the first context onward, nor one that restarts the signer to clear the comparand
+/// (measured: `nonce_binding_does_not_survive_a_restart`). The only checks that bind a
+/// consistently-lying node are checks against a source of truth the node does not author.
+///
+/// `BTCChannels` is that source: it pins `keysHash = keccak256(abi.encode(lpPubkey,
+/// hopPubkey))` and `amountSats` per channel, at open, on-chain.
+///
+/// ⚠️ **`keysHash` IS A HASH, SO THIS IS A VERIFIER, NOT A GETTER.** The pubkeys cannot be
+/// recovered from it; a candidate pair can only be confirmed. That is enough — the signer
+/// always HAS a candidate (its own base funding key plus the counterparty key the node
+/// claims), and confirming it is exactly the check that matters.
+///
+/// ⚠️ **THE KEYS ARE THE BASE (UNROTATED) ONES.** `keysHash` is pinned at open and a splice
+/// ROTATES the live funding keys, so the comparand is `inner.funding_key(None)`, never the
+/// rotated scope key. Using the rotated key would fail for exactly the channels most likely
+/// to be spliced.
+///
+/// Implemented in `quid-bridge` over the existing AGREEMENT-classed reader
+/// (`client::eth_read_agreed`, pinned to `tip − AGREED_READ_DEPTH`), so a host can only
+/// DEFLATE the tip to serve an older view — never forge the value at the block it names.
+pub trait ChannelTruthSource: Send + Sync {
+    /// Confirm a candidate `(lpPubkey, hopPubkey)` pair against the on-chain `keysHash`.
+    /// `Err(())` if it does not match, or if the truth could not be read — **fail closed**:
+    /// an unreadable chain is not permission to sign against an unchecked context.
+    fn verify_funding_keys(&self, lp_pubkey: &[u8; 33], hop_pubkey: &[u8; 33])
+        -> Result<(), ()>;
+    /// The on-chain funded size in satoshis for this channel's CURRENT funding scope.
+    fn amount_sats(&self) -> Result<u64, ()>;
+}
+
+/// Which side of the 2-of-2 this signer is, so a candidate pair can be ordered the way
+/// `BTCChannels` hashed it (`abi.encode(lpPubkey, hopPubkey)` — order is significant, and
+/// guessing it by trying both would pin only the SET, weakening the check for no gain).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FundingRole {
+    /// This signer is the vault/LP half — its base funding key is `lpPubkey`.
+    Lp,
+    /// This signer is the hop half — its base funding key is `hopPubkey`.
+    Hop,
+}
+
 impl ValidatingChannelSigner {
     /// Build a validating signer.
     ///
@@ -430,7 +481,41 @@ impl ValidatingChannelSigner {
             policy: PolicyState::new(expected_holder_close_script),
             taproot_ctx: Mutex::new(None),
             ctx_poisoned: std::sync::atomic::AtomicBool::new(false),
+            truth: None,
         }
+    }
+
+    /// (E177) Bind this signer to the on-chain truth for its channel. Once set, a taproot
+    /// context is additionally checked against `BTCChannels` — which the node does not
+    /// author — so a node that lies CONSISTENTLY, or that restarts to clear the in-memory
+    /// comparand, is caught where §E176-C's self-consistency checks cannot reach.
+    pub fn with_truth_source(
+        mut self,
+        truth: std::sync::Arc<dyn ChannelTruthSource>,
+        role: FundingRole,
+    ) -> Self {
+        self.truth = Some((truth, role));
+        self
+    }
+
+    /// (E177) Check a candidate taproot context against the chain. `Ok(())` when there is
+    /// no truth source (unchanged §E176-C behaviour); otherwise both the funding-key pair
+    /// and the funded size must match what `BTCChannels` pinned.
+    fn check_against_chain(&self, ctx: &TaprootSignerContext) -> Result<(), ()> {
+        let Some((truth, role)) = self.truth.as_ref() else { return Ok(()) };
+        // The BASE key: `keysHash` was pinned at open, before any splice rotation.
+        let secp = Secp256k1::new();
+        let ours = self.inner.funding_key(None).public_key(&secp).serialize();
+        let theirs = ctx.counterparty_funding_pubkey.serialize();
+        let (lp, hop) = match role {
+            FundingRole::Lp => (&ours, &theirs),
+            FundingRole::Hop => (&theirs, &ours),
+        };
+        truth.verify_funding_keys(lp, hop)?;
+        if truth.amount_sats()? != ctx.funding_value_sat {
+            return Err(());
+        }
+        Ok(())
     }
 
     /// (E176-C) True once the node has contradicted a taproot context already in force.
@@ -504,6 +589,14 @@ impl ValidatingChannelSigner {
                     self.ctx_poisoned.store(true, std::sync::atomic::Ordering::SeqCst);
                     return; // leave the in-force context untouched; signing now fails closed
                 }
+            }
+            // (E177) The check that does NOT reduce to trusting the node. Applied to the
+            // FIRST context too — which is the whole point: the checks above have nothing
+            // to compare a first context against, and that is precisely the gap a
+            // consistently-lying node (or one that restarted the signer) walks through.
+            if self.check_against_chain(&ctx).is_err() {
+                self.ctx_poisoned.store(true, std::sync::atomic::Ordering::SeqCst);
+                return;
             }
             *slot = Some(ctx);
         }
@@ -1670,6 +1763,142 @@ mod tests {
         let rebuilt = PolicyState::new(committed_script());
         assert!(rebuilt.bind_nonce(&nonce, &cp, &[2u8; 32]).is_ok(),
                 "MEASURED: the reuse guard does not survive a restart (see §E177)");
+    }
+
+    // --- (E177) On-chain comparand -------------------------------------------
+
+    /// A truth source that answers from a FIXED expectation, standing in for the
+    /// AGREEMENT-classed `BTCChannels` read that `quid-bridge` implements.
+    struct FakeTruth {
+        lp: [u8; 33],
+        hop: [u8; 33],
+        sats: u64,
+        readable: bool,
+    }
+    impl ChannelTruthSource for FakeTruth {
+        fn verify_funding_keys(&self, lp: &[u8; 33], hop: &[u8; 33]) -> Result<(), ()> {
+            if !self.readable { return Err(()); }
+            if *lp == self.lp && *hop == self.hop { Ok(()) } else { Err(()) }
+        }
+        fn amount_sats(&self) -> Result<u64, ()> {
+            if self.readable { Ok(self.sats) } else { Err(()) }
+        }
+    }
+
+    fn base_funding_pk(s: &InMemorySigner, secp: &Secp256k1<secp256k1::All>) -> [u8; 33] {
+        s.funding_key(None).public_key(secp).serialize()
+    }
+
+    /// 🔑 THE CHECK §E176-C STRUCTURALLY COULD NOT MAKE. A node that lies from the FIRST
+    /// context has nothing to contradict, so self-consistency passes it. The chain does not.
+    #[test]
+    fn first_context_with_a_forged_counterparty_key_is_refused_by_the_chain() {
+        let secp = Secp256k1::new();
+        let inner = make_signer(1);
+        let honest_cp = make_signer(2);
+        let truth = std::sync::Arc::new(FakeTruth {
+            lp: base_funding_pk(&inner, &secp),
+            hop: base_funding_pk(&honest_cp, &secp),
+            sats: FUNDING_SATS,
+            readable: true,
+        });
+        let signer = ValidatingChannelSigner::new(inner, committed_script())
+            .with_truth_source(truth, FundingRole::Lp);
+        // A FIRST context naming a counterparty key the chain never pinned.
+        give_ctx_round(&signer, &make_signer(9), None, 0, &secp);
+        assert!(signer.ctx_poisoned(),
+                "a forged first context must be caught by the on-chain keysHash");
+        assert!(signer.taproot_key_agg(&secp).is_err());
+    }
+
+    /// ⚠️ CONTROL — the honest first context must still be accepted, or the check above
+    /// would be indistinguishable from "refuse everything".
+    #[test]
+    fn honest_first_context_passes_the_chain_check() {
+        let secp = Secp256k1::new();
+        let inner = make_signer(1);
+        let cp = make_signer(2);
+        let truth = std::sync::Arc::new(FakeTruth {
+            lp: base_funding_pk(&inner, &secp),
+            hop: base_funding_pk(&cp, &secp),
+            sats: FUNDING_SATS,
+            readable: true,
+        });
+        let signer = ValidatingChannelSigner::new(inner, committed_script())
+            .with_truth_source(truth, FundingRole::Lp);
+        give_ctx_round(&signer, &cp, None, 0, &secp);
+        assert!(!signer.ctx_poisoned(), "the real pair must be accepted");
+        assert!(signer.taproot_key_agg(&secp).is_ok());
+    }
+
+    /// The funded size is committed in the BIP-341 key-path sighash, so it is pinned
+    /// against `amountSats` too — not only against the previous context.
+    #[test]
+    fn funding_value_is_pinned_against_the_chain_not_just_the_previous_context() {
+        let secp = Secp256k1::new();
+        let inner = make_signer(1);
+        let cp = make_signer(2);
+        let truth = std::sync::Arc::new(FakeTruth {
+            lp: base_funding_pk(&inner, &secp),
+            hop: base_funding_pk(&cp, &secp),
+            sats: FUNDING_SATS + 12_345,   // the chain says something else
+            readable: true,
+        });
+        let signer = ValidatingChannelSigner::new(inner, committed_script())
+            .with_truth_source(truth, FundingRole::Lp);
+        give_ctx_round(&signer, &cp, None, 0, &secp);
+        assert!(signer.ctx_poisoned(), "a funded size the chain does not agree with is refused");
+    }
+
+    /// 🔴 FAIL CLOSED. An unreadable chain is NOT permission to sign against an unchecked
+    /// context — otherwise a hostile host disables the whole check by breaking its own RPC.
+    #[test]
+    fn an_unreadable_chain_fails_closed() {
+        let secp = Secp256k1::new();
+        let inner = make_signer(1);
+        let cp = make_signer(2);
+        let truth = std::sync::Arc::new(FakeTruth {
+            lp: base_funding_pk(&inner, &secp),
+            hop: base_funding_pk(&cp, &secp),
+            sats: FUNDING_SATS,
+            readable: false,
+        });
+        let signer = ValidatingChannelSigner::new(inner, committed_script())
+            .with_truth_source(truth, FundingRole::Lp);
+        give_ctx_round(&signer, &cp, None, 0, &secp);
+        assert!(signer.ctx_poisoned(),
+                "an unreadable comparand must refuse, never wave the context through");
+    }
+
+    /// Role ordering is significant: `keysHash` is `abi.encode(lpPubkey, hopPubkey)`, so a
+    /// signer that mis-declares its side must NOT accidentally validate.
+    #[test]
+    fn funding_role_ordering_is_significant() {
+        let secp = Secp256k1::new();
+        let inner = make_signer(1);
+        let cp = make_signer(2);
+        let truth = std::sync::Arc::new(FakeTruth {
+            lp: base_funding_pk(&inner, &secp),
+            hop: base_funding_pk(&cp, &secp),
+            sats: FUNDING_SATS,
+            readable: true,
+        });
+        // Same keys, wrong declared side ⇒ the pair hashes in the other order.
+        let signer = ValidatingChannelSigner::new(inner, committed_script())
+            .with_truth_source(truth, FundingRole::Hop);
+        give_ctx_round(&signer, &cp, None, 0, &secp);
+        assert!(signer.ctx_poisoned(), "the (lp, hop) order must be part of the check");
+    }
+
+    /// Without a truth source the signer behaves exactly as §E176-C left it — additive,
+    /// never silently less checked.
+    #[test]
+    fn no_truth_source_keeps_the_self_consistency_behaviour() {
+        let secp = Secp256k1::new();
+        let signer = make_validating(1);
+        give_ctx_round(&signer, &make_signer(2), None, 0, &secp);
+        assert!(!signer.ctx_poisoned());
+        assert!(signer.taproot_key_agg(&secp).is_ok());
     }
 
     // --- Monotonic state machine: pure helpers --------------------------------
