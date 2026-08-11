@@ -11434,3 +11434,33 @@ which inherit the flat-tape value. **Cheaper and lower-stakes than the structura
 ⚠️ **ONE RESIDUAL, GENUINELY SHARED WITH THE TWAP:** the ring advances **ONLY ON A SWAP**, so a market
 that moves while our pool is idle updates NEITHER. That is a known property of the TWAP the system
 already accepts — **it is not a new defect in σ², and it should not be re-litigated as one.**
+
+### 🎯🎯 SIGMA-SOURCE — σ² GOES STALE EXACTLY WHEN IT MATTERS. Owner: source it exogenously.
+
+**THE PROBLEM, sharpened from §SKEW-HOLISTIC-RESOLVED's "residual".** The ring advances **ONLY ON OUR
+SWAPS**. If the market moves while our pool is idle, σ² still describes the OLD regime — and **THE
+FIRST TRADE AFTER THE GAP IS PRICED ON IT.** That trade is the MOST adversely-selected one in the
+whole distribution, and it is the one the skew exists to charge. ⇒ **The input is stalest precisely
+when it is most load-bearing.** ⚠️ This is NOT the same as the TWAP's accepted staleness: a stale
+TWAP misprices in a direction arbers correct; a stale σ² **under-charges the adverse selection it was
+built to price**, with nobody on the other side to correct it.
+
+**OWNER'S PROPOSAL — Chainlink as the variance source. FEASIBLE, TWO REAL TRAPS:**
+1. ⛔ **`IAggregatorV3` here exposes ONLY `decimals()` + `latestRoundData()`** (`Interfaces.sol:164-167`)
+   — **no `getRoundData`**, and NOTHING in `src/` reads historical rounds. It would be new surface.
+2. ⛔ **`roundId` IS `(phaseId << 64) | aggregatorRoundId`.** Decrementing it naively across a phase
+   boundary returns garbage or reverts. Any walk-back needs phase-aware handling.
+3. 💸 N historical rounds ⇒ N external calls on a money path.
+4. ⚠️ It DEEPENS the Chainlink dependency the owner was probing REMOVING (§ORACLE-FREE-ANSWERED).
+✅ **WHAT IS RIGHT ABOUT IT: Chainlink updates on a DEVIATION THRESHOLD — i.e. WHEN THE MARKET MOVES,
+not when we trade.** That is exactly the property our ring lacks, and it is the correct instinct.
+
+▶️ **CANDIDATE THAT KEEPS THE PROPERTY WITHOUT THE TRAPS — MEASURE BOTH, DO NOT PICK BY ARGUMENT:**
+the **REFERENCE POOL** (`DeployLib._refKeys`: the real mainnet ETH/USDT v4 pool) has its OWN
+observation ring, advancing on ITS swaps — **market-driven, not ours**. We already read its tick at
+init (`Core._initPool`'s `refTick`). Same `observe()` machinery, **no new interface, no round-walking,
+no added Chainlink surface, exogenous by construction.**
+🔬 **THE TEST:** on a fork, compute σ² from (a) our ring, (b) the reference pool's ring, (c) Chainlink
+round history — over the SAME window — and compare each against the feed's realised vol. **This also
+supplies the calibration number §SKEW-HOLISTIC-RESOLVED still wants.** ⚠️ Cost each on the swap path
+must be priced too (rule 9), not just accuracy.
