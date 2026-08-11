@@ -11797,3 +11797,38 @@ already realized; only the LOSS side is a forecast.** ⇒ **What is MISSING is a
      leaves a second-moment statistic as the steepness input (§SIGMA-REMOVE's whole point).
 📌 **STATUS CHANGE: §SIGMA-REMOVE is DIRECTIONALLY CORRECT AND MORE EXPENSIVE THAN BOOKED.** The
 owner's call stands; the cost estimate does not. **Re-scope before committing to it.**
+
+### 📐 SIGMA-REMOVE-RESCOPED — it is a TWO-PHASE BUILD, not plumbing. **Phase 1 measures; Phase 2 wires.**
+
+**Why it is not plumbing — a property of the design, not an implementation detail:**
+**THE BAND EXECUTES *AT* ORACLE, SO PER-SWAP P&L IS ZERO BY CONSTRUCTION** (`retainSkewPremium` is an
+AMOUNT haircut; `r.px` stays the honest oracle — §UNIT-CURVE-CORR). **Adverse selection is INVISIBLE
+at execution time.** The band sold ETH at 2,000; the loss exists only once the market is at 2,100.
+⇒ **A realized-loss register cannot be an accumulator at the swap. It needs a SETTLE-LATER step**, and
+therefore a lookback window — which is a NEW CALIBRATION CONSTANT on the same axis §E83 gates.
+
+▶️ **PHASE 1 — SHADOW-MEASURE ONLY. Nothing wired to pricing. This is the whole de-risking.**
+1. **Record one PENDING swap per pool**: `(size, direction, execPrice, ts)`. **One slot each** — and
+   `Core` has **920 bytes** free (§CORE-ONLYUS + `mocks()`), so this is affordable for the first time
+   this session.
+2. **Settle it on the NEXT swap** (or on reseat): `loss += size · (P_now − P_exec)`, signed by the
+   direction the band was on the wrong side of. **A rolling one-slot pending record avoids a queue.**
+3. **Accrue into a DECAYING SUM** (`_bumpEwma` shape) ⇒ path-independent by construction, which is the
+   entire reason for the change (§SIGMA-REMOVE).
+4. **EMIT BOTH, PRICE NEITHER.** Run the existing suites and compare the realized-loss rate against
+   `kLvrWad · σ²` — the quantity it would replace. ⚠️ **Also re-run the PROBE test
+   (§UNIT-B-ROOT-FOUND): the candidate must NOT reproduce the 2.34× history gap.** That is the
+   acceptance criterion, and it is falsifiable before a single pricing byte changes.
+
+▶️ **PHASE 2 — WIRE IT, gated on Phase 1's comparison.** Replace `work = kLvrWad · σ²` in
+`VogueLib.derivedThetaWad:381` and the steepness in `SwapLib:961`. ⚠️ **KEEP σ² where it is still
+right: the CONVEXITY shape in `q`, and `_maxWellSkew`'s `σ²·confFrac/8` LVR derivation. Removing more
+than the argument supports is how "bound the bonus" became "delete it" (§UNIT-BOUND-NOT-DELETE).**
+
+⚠️ **THREE RISKS TO PRICE, NOT DISCOVER (rule 9):**
+- **BACKWARD-LOOKING:** a regime change is priced LATE. σ² has the same lag; the candidate is not
+  worse, but this must be stated, not assumed away.
+- **NOISE ON SMALL SAMPLES:** a decaying sum of few swaps is jumpy where a variance is smooth.
+  **Measure the variance OF the estimator in Phase 1.**
+- **THE NEW WINDOW CONSTANT** is the same calibration axis §E83 gates — this does not escape §E83, it
+  relocates the dependency from the FORECAST to the SETTLEMENT lag.
