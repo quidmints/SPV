@@ -49,16 +49,7 @@ contract UnificationControls is Alles {
     /// it). Mock addresses come from Core's storage layout; 's logic, restated once.
     function _mockDust(bool isBTC) internal view returns (uint usdDust, uint tokDust) {
         address pm = address(CORE.poolManager());
-        address mTok = address(uint160(uint(vm.load(address(CORE), bytes32(uint(isBTC ? 131096 : 131095))))));
-        address mUsd = address(uint160(uint(vm.load(address(CORE), bytes32(uint(isBTC ? 131098 : 131097))))));
-        // §UNIT-B-SLOTS-RECLAIM — MAKE THE LAYOUT COUPLING ANNOUNCE ITSELF. These slots are read RAW
-        // because a `mocks()` getter on `Core` costs 91-98 bytes — MEASURED, more than the 76
-        // §UNIT-B-SLOWDEL-PADDING recovered — so §E60's "Core cannot afford it" still stands and the
-        // coupling is here to stay. What is fixable is the FAILURE MODE: reordering `Core` state used
-        // to surface as `unrecognized function selector 0x70a08231` on a non-token, four frames deep
-        // in an unrelated test (§UNIT-B-SLOWDEL-CAUSE). This says what actually broke.
-        assertGt(mTok.code.length, 0, "STALE SLOT: Core's storage layout moved -- re-read slots from "
-            "`forge inspect Core storageLayout` and update _mockDust (see UNIT-B-SLOTS-RECLAIM)");
+        (address mTok, address mUsd) = CORE.mocks(isBTC);
         assertGt(mUsd.code.length, 0, "STALE SLOT: Core's storage layout moved -- re-read slots from "
             "`forge inspect Core storageLayout` and update _mockDust (see UNIT-B-SLOTS-RECLAIM)");
         usdDust = IERC20(mUsd).totalSupply() - (IERC20(mUsd).balanceOf(pm) + IERC20(mUsd).balanceOf(address(CORE)));
@@ -1326,8 +1317,7 @@ contract UnificationControls is Alles {
         // dead slow-flow logic — so "not free" is confirmed, not assumed. `_mockDust` carries the
         // stale-slot guard; this site is covered by the same failure if the layout moves.
         {
-            address mETH = address(uint160(uint(vm.load(address(CORE), bytes32(uint(131095))))));
-            address mUSD = address(uint160(uint(vm.load(address(CORE), bytes32(uint(131097))))));
+            (address mETH, address mUSD) = CORE.mocks(false);
             IProtoFeeAccrued pm = IProtoFeeAccrued(address(CORE.poolManager()));
             uint accETH = pm.protocolFeesAccrued(mETH);
             uint accUSD = pm.protocolFeesAccrued(mUSD);

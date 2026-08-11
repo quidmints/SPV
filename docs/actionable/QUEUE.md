@@ -10749,3 +10749,25 @@ Chainlink's 5% deviation gate (`Aux.sol:189`) adds.
    which is the honest shape of the answer.**
 📌 §UNIT-ASYM: check `assetPriceFeed(WBTC)` separately; ETH has NO feed pinned in the fixture
 (§ORACLE-FREE-MEASURED), so ETH's `isManipulated` is ALREADY spot-vs-own-TWAP today.
+
+### ✅✅ UNIT-B-SLOTS-RECLAIM — REOPENED AND LANDED. The dust monitor no longer reads raw slots.
+
+**Closed this morning on affordability (a getter cost 91–98 bytes against 76 freed); §CORE-ONLYUS
+freed 907, so it was re-opened and done.** `Core.mocks(bool) → (tok, usd)` reuses the existing
+`_mockTok`/`_mockUsd` dispatchers; `_mockDust` and the §E60 protocol-fee site now call it.
+**`vm.load(address(CORE), …)` count in `UnificationControls.t.sol`: 0.**
+✅ **VERIFIED — same dedicated worktree, only this change differing, against the §CORE-ONLYUS arm:**
+| arm | result |
+|---|---|
+| baseline (`_onlyUs` only) | 4,400 passed / 1 failed / 2 skipped (4,403) |
+| **+ getter + repoint** | **4,400 / 1 / 2 (4,403) — IDENTICAL** |
+Same pre-existing `testRoundTripNoRaceNoDrain`; both skips environment-gated in both arms;
+`BufferOverflow: 0`. **`Core` 23,565 → 23,656, still 920 free** (getter = **91 bytes**, as measured).
+
+⇒ 🔴 **THE HARNESS IS NO LONGER COUPLED TO `Core`'s STATE ORDER.** That coupling is what made the
+outright slot deletion fail with `unrecognized function selector 0x70a08231` on a non-token
+(§UNIT-B-SLOWDEL-CAUSE), and what forced the `__deadSlotWasFlowSlow*` padding.
+▶️ **NEXT, AND NOW UNBLOCKED — SEPARATE COMMIT, ONE CHANGE PER RUN:** delete
+`__deadSlotWasFlowSlowBTC`/`ETH` outright (2 slots) and drop the stale-slot guard in `_mockDust`.
+**Prediction to state and test: 4,400/1/2 unchanged** — the failure mode that blocked it is gone.
+Re-run §UNIT-B-SLOWDEL's exact arms to confirm.

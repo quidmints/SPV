@@ -455,6 +455,16 @@ contract Core is SafeCallback {
     function _mockTok(bool isBTC) internal view returns (mock) {
         return isBTC ? mockBTC : mockETH;
     }
+
+    /// @notice The pool's two synthetic mocks. EXISTS SO THE HARNESS STOPS READING RAW SLOTS: §E60's
+    ///         dust monitor resolved these with `vm.load` on HARDCODED slots 131095-131098 because
+    ///         `Core` was "37 bytes short of affording" a getter — which coupled the TESTS to `Core`'s
+    ///         storage ORDER, so deleting two state vars made `vm.load` return a non-token and
+    ///         `balanceOf` revert (§UNIT-B-SLOWDEL-CAUSE). §CORE-ONLYUS freed 907 bytes; measured cost
+    ///         of this getter is 91, against 1,011 free. The constraint that forced raw slots is gone.
+    function mocks(bool isBTC) external view returns (address tok, address usd) {
+        return (address(_mockTok(isBTC)), address(_mockUsd(isBTC)));
+    }
     // Value types can't be storage-ref'd, so POOLED_* moves go through these
     // isBTC-dispatched mutators (Math.min floors mirror the originals).
     function _addPooledUsd(bool isBTC, uint a) internal {
