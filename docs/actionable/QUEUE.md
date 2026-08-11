@@ -11168,3 +11168,29 @@ instantly. INSTRUMENT THE FUNCTION, stop inferring its inputs.**
 |---|---|
 | **E176-C/D** | ✅ **LANDED + VERIFIED (25/25 signer tests).** `provide_taproot_context` now enforces three invariants against the context in force: **`closing_round` never regresses** (killing the funding-key-leak vector `x=(s1−s2)/((e1−e2)·a)` AT ITS SOURCE, where the node controls it, not only at `bind_nonce`'s use-time check); **counterparty funding pubkey** and **funding value** are **immutable for a funding scope**, relaxed EXACTLY when `splice_parent_funding_txid` changes — the one honest reason either moves — so a rebind cannot be requested without also declaring the rotation. A contradiction **latches `ctx_poisoned` and `taproot_key_agg` fails closed**: the trait returns `()` so a refusal cannot be propagated, and silently keeping the old context would look like success. ✅ **CONTROL INCLUDED** (`taproot_ctx_allows_rebind_across_a_declared_splice`) — without it the rule would be indistinguishable from "never change anything", which breaks every splice. 🔴 **§E176-D IS NO LONGER A HYPOTHESIS — IT IS MEASURED.** `nonce_binding_does_not_survive_a_restart` PASSES: a rebuilt `PolicyState` re-accepts a nonce that already signed a different message. The in-memory guards bind a RUNNING PROCESS, not one the host can restart at will. ✅ Header corrected (§E175 item 3) — it still asserted the self-host model. |
 | **E177-onchain-comparand** | 🔴 **THE ROOT ALL THREE REMAINING ITEMS REDUCE TO — AND WHY MORE CHECKS OF THE SAME KIND WILL NOT FINISH THE JOB.** 🔑 **In a hostile-node model EVERY input to the signer is node-supplied.** Self-consistency checks — including the ones just landed — bind a node that **contradicts itself**; they do not bind one that lies **consistently from the first context onward**, nor one that **restarts the signer to clear the comparand** (`taproot_ctx` and `nonce_bindings` both start empty — §E176-D, measured). ⇒ **The only checks that bind a consistently-lying node are checks against a source of truth the node does not author.** ✅ **THAT SOURCE ALREADY EXISTS AND IS ALREADY AUTHORITATIVE:** `BTCChannels` pins, on-chain and per channel, the funding outpoint, `amountSats`, `keysHash = keccak256(lpPubkey, hopPubkey)` and `btcRecipientOf` — and `quid-hop/src/freshness.rs` already demonstrates the pattern (a rollback-resistant **on-chain** anchor chosen over a cloud provider precisely because the host is untrusted). **THE WORK:** give the signer an independent read of `BTCChannels` and validate the taproot context against it (`keysHash` pins the counterparty funding pubkey; `amountSats` pins the funding value), and extend the freshness anchor to cover the close round / nonce bindings so §E176-D's restart gap closes with the mechanism the repo already trusts, **not more in-memory state**. ⚠️ **DEPENDENCY, STATED: this gives the signer an EVM read path it does not have today** (the RPC machinery exists in `quid-bridge`). ⇒ **§E176-E (the 12 HTLC/justice delegates) IS DELIBERATELY NOT PATCHED YET, AND THAT IS A DECISION, NOT AN OMISSION.** A sound narrowing exists — recompute the expected HTLC transaction from `HTLCDescriptor` (LDK exposes the builders) and require `htlc_tx` to match, forcing the node to lie consistently in two places. But (a) it is still self-consistency, so §E177 subsumes it, and (b) landing a **destination policy** on justice/sweep paths without exercising real HTLC and anchor-variant flows would break legitimate sweeps and is exactly the **false-sense-of-safety clamp standing rule 3 forbids** — a guard that makes the path look protected while the root is untouched. Do §E177 first; then §E176-E is a small, verified addition instead of a guess. **Exposure meanwhile is bounded by in-flight HTLC value, not the channel balance** (these spend COMMITMENT outputs, and the commitment that created them WAS checked). |
+
+### 🔴🔴 REDEEM-SIDE-UNTESTED — the mint changes move EVERY holder's redemption, and no INCUMBENT has ever redeemed in these tests.
+
+**Owner: *"the premium fix was not the only thing we did to redemption."* Correct — I framed §E42 as
+the redemption-side change and it is not. FOUR of today's changes move what a redeemer gets:**
+| change | how it reaches redemption |
+|---|---|
+| §E42 premium → `_addPooledUsd` | raises `POOLED_USD_BTC`, `redeemableBody`'s SUBTRAHEND |
+| §E2-#1 mark-up | mints MORE QU!D per deposit ⇒ raises supply ⇒ moves `perShare` for EVERY holder |
+| §E2 pre-deposit basis | **same lever, LARGER** — 52,487 → **54,566** on ONE $50k deposit |
+| §UNIT-A | larger premiums ⇒ feeds the §E42 path |
+
+🔴 **THE GAP: EVERY redemption test written today measures the NEW DEPOSITOR's round trip.**
+`test_E2_MintAtMark_RealRedeemMatchesTheMark` redeems the depositor. `NeverDilutesIncumbents` checks
+the mark does not FALL — but via `_mark()`, **a value the TEST computes from the code under test**
+(Tier-2, the exact pattern that produced a false "made whole" this morning). **NO INCUMBENT HAS EVER
+ACTUALLY REDEEMED.** ⇒ Issuing ~9% more QU!D per deposit is verified FAIR TO THE DEPOSITOR and
+**UNVERIFIED FOR EVERYONE ALREADY HOLDING** — the one party who cannot opt out.
+▶️ **THE TEST TO WRITE — Tier-1, balance deltas, and it is the mirror of the one that exposed §E2:**
+an incumbent (User01, in before the shortfall) redeems a FIXED QU!D amount; snapshot; revert; a new
+depositor mints $50k; the SAME incumbent redeems the SAME amount. **`received` must not fall.**
+Use `_redeemValue` both arms. **Controls:** same block/warp both arms (the mark drifts with time) and
+assert the incumbent's QU!D balance is identical pre-redeem in both.
+⚠️ **AND DO THE SAME FOR §E42** — it is still Tier-2 only (`redeemableAmount()`, whose subtrahend my
+own fix writes into). **A real redeemer's balance delta across a pure-BTC trading window is the
+honest check, and §E2 has now shown twice that Tier-2 and Tier-1 disagree.**
