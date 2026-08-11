@@ -11766,3 +11766,34 @@ stale-comment errors today.
 ⚠️ **KEEP: σ² may still earn a place shaping the CURVE in `q` (convexity), and `_maxWellSkew`'s
 `σ²·confFrac/8` is the LVR derivation. This removes it as the STEEPNESS/LEVEL input, not necessarily
 from the file. Do not delete more than the argument supports.**
+
+### ⛔ SIGMA-REMOVE-GATE-READ — θ's DENOMINATOR IS σ²-BASED PREDICTED LVR, NOT REALIZED IL. My "mostly plumbing" is REFUTED.
+
+**The gating read, done. `VogueLib.derivedThetaWad:376-403`:**
+```
+sigmaSq = ICore(core).realizedVarianceWad(isBTC);
+kWad    = kLvrWad(core, lo, up, isBTC);
+work    = kWad · sigmaSq;                       // <-- THE DENOMINATOR
+return    mulDiv(_bandFeeYieldWad(core, isBTC), 1e18, work);
+```
+⇒ **θ = REALIZED band fee yield ÷ PREDICTED LVR.** Half measured, half forecast — and the forecast
+half is **exactly the σ² term §SIGMA-REMOVE wants to eliminate.**
+⛔ **SO θ IS NOT THE σ²-FREE CALIBRATION.** §SIGMA-CAN-WE-AVOID-IT's option 3 said *"if θ's denominator
+is realized IL, θ IS already the calibration and this is mostly plumbing."* **It is not. That estimate
+is withdrawn.**
+
+✅ **WHAT THE READ DOES ESTABLISH — half the machinery exists, and it is the harder half to fake:**
+`_bandFeeYieldWad` is a REALIZED measure of what the band actually EARNS. **The earnings side is
+already realized; only the LOSS side is a forecast.** ⇒ **What is MISSING is a REALIZED-LOSS register
+— realized IL / adverse selection actually suffered — which is NOT currently computed anywhere.**
+▶️ **THAT IS THE BUILD, and it is a real one, not plumbing:**
+   • **Where it is observable:** `reseat` REALIZES IL (owner, this session: the mock tokens DO
+     correspond to real assets, so a reseat realizes it — my "mock-only, real assets untouched"
+     reading of `Core.sol:756` was corrected). A realized-loss register accrued AT RESEAT is
+     therefore measurable from state the protocol already moves.
+   • **Why it keeps §SIGMA-REMOVE's proof:** a realized-loss register is a **DECAYING SUM**, so it is
+     path-independent by construction — the property that makes σ² unfixable is absent.
+   • ⚠️ **Do NOT simply swap `work`'s σ² for a feed** — that fixes the entry-history carrier and
+     leaves a second-moment statistic as the steepness input (§SIGMA-REMOVE's whole point).
+📌 **STATUS CHANGE: §SIGMA-REMOVE is DIRECTIONALLY CORRECT AND MORE EXPENSIVE THAN BOOKED.** The
+owner's call stands; the cost estimate does not. **Re-scope before committing to it.**
