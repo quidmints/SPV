@@ -10830,3 +10830,36 @@ if it overstates, **LPs are credited value no swapper paid.** ▶️ One run: sw
 (the 527s is **ETH-ONLY**; BTC's window is ~300× — re-run per leg) · §UNIT-A-FOLLOWON (a NEW pool now
 pays the full base; dead-vs-new discriminator absent) · §E55's manipulation defence (never operated;
 needs a WEIGHTED EWMA, not a slower sum) · §UNIT-C (gated behind §UNIT-B).
+
+### ⛔⛔ SKEW-WHATS-LEFT-CORRECTION — the "interpolation" GATE IS STALE. I withdrew nothing correctly; §E59 already fixed it.
+
+**I declared §UNIT-A-FIXTURE the gate and said "no skew magnitude in this repo is quotable". READ THE
+CODE — that premise describes an implementation that no longer exists.**
+
+`Core.sol:301-313` (§E59), in the PAST TENSE: *"**Was** a round trip (Core → VogueLib → back into
+Core) sampling `observe` on a wall-clock grid; **that grid was the bug** — `observe` INTERPOLATES
+between stored points and linear interpolation has zero second derivative, so any stretch quieter
+than the sample interval measured EXACTLY 0 however far price moved. **One hop now, one source.**"*
+Current implementation: `OracleLib.ringVariance(_obs(isBTC), _obsState(isBTC), 9)` — **9 STORED RING
+POINTS, read DIRECTLY.** Ring entries advance ON A SWAP, so **the points ARE the observations; there
+is no interpolation between grid samples.**
+⇒ ⛔ **"EVERY fixture that warps 8-20 min between swaps measured interpolation, not volatility" IS
+STALE.** §UNIT-A-FIXTURE (2026-08-06) quoted §E59's comment as if it described the CURRENT path; it
+describes the bug §E59 REMOVED. **§E125, §E131 (`8P/V`, T*≈527s), §UNIT-SKEW-IS-NOISE's 0.04% and
+today's §UNIT-B 13.71% are NOT invalidated on this ground. The gate is WITHDRAWN.**
+
+✅ **WHAT SURVIVES FROM §UNIT-A-FIXTURE — its OTHER cause, which is independent and still true:**
+*"`realizedVarianceWad` READS THE POOL'S TICK RING, NOT THE ORACLE. Moving the feed alone moves
+nothing — the band executes AT oracle, so the pool's tick need not follow."* ⇒ **To exercise σ² you
+must drive the POOL TICK (in-range trades, reseats), not the Chainlink feed.** That is why the
+fixture reported 36 bps and INCONCLUSIVE, and it is unaffected by the above.
+
+📌 **THE ERROR CLASS, AND IT IS THE ONE THIS REPO WARNS ABOUT MOST: I trusted a QUEUE ENTRY'S
+CHARACTERISATION OF CODE INSTEAD OF THE CODE.** `stale-comments-are-false-evidence` says a comment
+describes PAST state; a QUEUE row quoting a comment is **two** removes from the code. §UNIT-A-FIXTURE
+was itself quoting a docblock about a bug that had already been fixed. **Fourth instance today of
+"cite the mechanism, then read it" — and the first where the stale source was our own ledger.**
+▶️ **§SKEW-WHATS-LEFT's ORDER IS THEREFORE WRONG.** New first item: **§UNIT-B-VERIFIED's ~1000×
+counter-vs-trader discrepancy** — a MONEY-PATH issue (§E5 credits LPs the RECORDED number), settled
+in ONE run: swapper balance deltas vs `skewPremiumCum` vs `USD_FEES`. Then materiality post-§UNIT-A
+(driving the POOL TICK, per the surviving cause above).
