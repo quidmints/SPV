@@ -11092,3 +11092,32 @@ depth-dependent effect that §E2's real-redeem test happened to expose.
 | id | state |
 |---|---|
 | **E174-adopt-vls-not-greenlight** | 📋 **ADOPT VLS; DO NOT USE GREENLIGHT; DO NOT PUT THE SIGNER IN THE APP.** ⛔ **GREENLIGHT IS THE WRONG TOOL — implementation mismatch, not a preference.** It is hosted **Core Lightning**; this stack is a **vendored LDK fork** (`quid-ln/lib/rust-lightning`, patched via `[patch.crates-io]`). Adopting it puts a SECOND Lightning implementation in the system, makes **Blockstream an operational dependency for every LP**, and requires CLN to negotiate the simple-taproot funding output the contract byte-matches as `0x5120||Q` — CLN has splicing (v23.08, default in 2026) but simple-taproot channels are not established there. ✅ **BUT WE DO NOT BUILD THE POLICY ENGINE EITHER — VLS SHIPS A REFERENCE LDK INTEGRATION.** CLN integrates by replacing the `hsmd` binary; **LDK integrates via the `vls-proxy` crate inside the node** (`lnrod` is the reference LDK node). LND and Eclair are unsupported — we are on the supported side. ⇒ **We adopt VLS's audited policy catalogue and wire it to the seam that ALREADY EXISTS: `QuidKeysManager` implements LDK's `SignerProvider`** (`quid-hop/src/node.rs:350`), which is exactly where a validating signer substitutes in. 🔑 **WHERE IT LIVES — A SEPARATE CRATE/PROCESS, NOT APP CODE.** The app is a **deployment target**, not the signer's home. Building it *in* the app (a) bakes in an availability ceiling that cannot later be lifted — phone asleep ⇒ the channel cannot forward ⇒ the LP earns nothing (§E172: every swap-in is a commitment update) — and (b) forks an audited policy engine into application code. One crate, one policy, compiled to phone (UniFFI) **or** a small always-on LP-hosted signer **or** an enclave; deployment becomes an LP's security/availability CHOICE instead of an architectural commitment. ⛔ **Fleet-hosted is the one deployment to refuse** — it is circular, the §2 compromised-image problem again. 🔴 **EXECUTE BEFORE COMMITTING TO THIS (named, not assumed — two recommendations were already overturned this session):** **(1)** does VLS's policy set + `vls-proxy` cover **simple-taproot / MuSig2** channels? Its policies were written for legacy + anchor channels, and §E171-r makes MuSig2 non-negotiable here. **(2)** the vendored LDK fork's patch list is entirely operational — onion-messenger queuing, logging, zero-conf, monitor-sync bypass, a handshake-config helper, offers `best_block` — **nothing taproot or MuSig2**. So where simple-taproot-channel support actually comes from is UNESTABLISHED, and it is the same load-bearing dependency §E171-r was wrong about once. Settle (2) first: it decides whether (1) is even the right question. |
+
+### ✅🔴 E2-HAIRCUT-FOUND — **the mark-up's denominator INCLUDES THE DEPOSITOR'S OWN DEPOSIT.** Measured, not inferred.
+
+**Both quantities read DIRECTLY at last (`AUX.deposit` is `public returns (uint usd)`; `Basket.mint`
+returns `normalized`), deposit measured under a snapshot then reverted so the mint saw identical state:**
+| measured | value |
+|---|---|
+| `AUX.deposit` credited for 50,000 USDC | **49,999.999999 — PAR** ⇒ ⛔ **deposit credit EXONERATED, directly** |
+| `mint` returned `normalized` | **52,486.90** ⇒ multiplier **1.04974** on the deposit |
+| entry-at-the-mark would need | `1/0.916946` = **1.09057** |
+
+🔴 **CAUSE: `Basket._finishMint` reads `total` from `AUX.get_metrics(true)` AFTER the deposit has
+LANDED IN THE BASKET.** Pre-deposit `total` = 1,252,000.111; post-deposit = **1,302,000.111**;
+`mature` = 1,365,402.095 ⇒ `mature/total_post` = **1.048465**, which with the observed ~0.12% yield
+bonus reproduces **52,486.90 exactly.** ⇒ **The depositor's own dollars sit in the DENOMINATOR of
+their own mark-up, so they are marked up LESS than the mark they are buying into.**
+⇒ **THIS IS THE ENTIRE RESIDUAL, AND IT IS AN §E2-#1 DEFECT AFTER ALL** — I wrongly cleared §E2 twice
+(§E2-DEPOSIT-HAIRCUT, §E2-HAIRCUT-SCALES-WITH-DEPTH). It also explains the mark RISING 0.918981 →
+0.957571 in `test_E2_MintAtMark_NeverDilutesIncumbents`: backing lands before the shares are counted.
+✅ **AND IT EXPLAINS THE DEPTH SCALING** that looked mysterious: the dilution is
+`deposit/(total+deposit)`, so it grows as the deposit's share of the basket grows — −0.142% on a
+1.25M basket at mark 0.9956, −3.745% at mark 0.9169. **No new mechanism needed.**
+▶️ **FIX (state the prediction first, then measure):** mark up against the PRE-DEPOSIT `total`, i.e.
+`total - deposited18` (or capture `total` before `AUX.deposit`). **Prediction: minted → 54,528 for
+$50,000 at mark 0.916946, and the real-redeem test's received → ≈ `paid × m1/m0`.**
+⚠️ **DO NOT tune a coefficient until the number lands** — the correction is structural (use the
+pre-deposit basis), and §never-mask-the-question applies.
+📌 **METHOD NOTE: three candidates died to back-solving; ONE direct read settled it.** `AUX.deposit`
+was `public` the whole time.
