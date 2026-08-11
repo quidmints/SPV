@@ -705,6 +705,46 @@ impl ValidatingChannelSigner {
         }
     }
 
+
+    /// (E176-E) The holder-HTLC destination lock.
+    ///
+    /// 🔑 **WHY THIS ONE IS CHECKABLE WHEN THE OTHER EIGHT DELEGATES ARE NOT.** `HTLCDescriptor`
+    /// carries `tx_output()` — the output LDK ITSELF derives from the channel's own keys
+    /// (revocation + delayed-payment basepoints). So the signer is told what the transaction
+    /// is SUPPOSED to look like, and a node that hands it a different one is contradicting
+    /// data it does not author. The justice and counterparty-HTLC entrypoints receive only
+    /// an `HTLCOutputInCommitment` + amount + keys — **no expected destination at all** —
+    /// so there is nothing to compare against there, and inventing a rule would be the
+    /// false-safety clamp standing rule 3 forbids.
+    ///
+    /// Two things are pinned:
+    /// * the input being signed spends the outpoint the descriptor names — otherwise a
+    ///   signature meant for one HTLC could be harvested for another;
+    /// * the descriptor's own output is PRESENT in the transaction — so the swept value
+    ///   goes where the channel keys say it goes, not to a script the node picked.
+    ///
+    /// ⚠️ Deliberately `contains`, not "outputs == [expected]": a legitimate HTLC
+    /// transaction may also carry an anchor or change output, and demanding an exact output
+    /// set would reject honest transactions — a guard that breaks the happy path gets
+    /// removed, not fixed.
+    fn check_holder_htlc_tx(
+        &self,
+        htlc_tx: &bitcoin::Transaction,
+        input: usize,
+        htlc_descriptor: &HTLCDescriptor,
+        secp_ctx: &Secp256k1<secp256k1::All>,
+    ) -> Result<(), ()> {
+        let txin = htlc_tx.input.get(input).ok_or(())?;
+        if txin.previous_output != htlc_descriptor.outpoint() {
+            return Err(());
+        }
+        let expected = htlc_descriptor.tx_output(secp_ctx);
+        if !htlc_tx.output.iter().any(|o| *o == expected) {
+            return Err(());
+        }
+        Ok(())
+    }
+
     /// Build the cached per-channel KeySorted + taproot-tweaked `KeyAggContext`
     /// and our signer index from the supplied taproot context, plus return the
     /// funding amount + the `0x5120||Q` funding scriptPubKey that the BIP341
@@ -1019,6 +1059,7 @@ impl EcdsaChannelSigner for ValidatingChannelSigner {
         htlc_descriptor: &HTLCDescriptor,
         secp_ctx: &Secp256k1<secp256k1::All>,
     ) -> Result<Signature, ()> {
+        self.check_holder_htlc_tx(htlc_tx, input, htlc_descriptor, secp_ctx)?;
         EcdsaChannelSigner::sign_holder_htlc_transaction(
             &self.inner,
             htlc_tx,
@@ -1107,6 +1148,7 @@ impl EcdsaChannelSigner for ValidatingChannelSigner {
         htlc_descriptor: &HTLCDescriptor,
         secp_ctx: &Secp256k1<secp256k1::All>,
     ) -> Result<schnorr::Signature, ()> {
+        self.check_holder_htlc_tx(htlc_tx, input, htlc_descriptor, secp_ctx)?;
         EcdsaChannelSigner::sign_holder_htlc_transaction_taproot(
             &self.inner,
             htlc_tx,
@@ -1495,6 +1537,7 @@ impl TaprootChannelSigner for ValidatingChannelSigner {
         htlc_descriptor: &HTLCDescriptor,
         secp_ctx: &Secp256k1<secp256k1::All>,
     ) -> Result<schnorr::Signature, ()> {
+        self.check_holder_htlc_tx(htlc_tx, input, htlc_descriptor, secp_ctx)?;
         TaprootChannelSigner::sign_holder_htlc_transaction(
             &self.inner, htlc_tx, input, htlc_descriptor, secp_ctx,
         )
@@ -2170,6 +2213,93 @@ mod tests {
             TruthVerdict::Mismatch,
             "a funded size the chain disagrees with is never a pass"
         );
+    }
+
+    // --- (E176-E) The holder-HTLC destination lock -----------------------------
+
+    fn htlc_tx_with(outpoint: bitcoin::OutPoint, outs: Vec<bitcoin::TxOut>)
+        -> bitcoin::Transaction
+    {
+        bitcoin::Transaction {
+            version: bitcoin::transaction::Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: vec![bitcoin::TxIn {
+                previous_output: outpoint,
+                ..Default::default()
+            }],
+            output: outs,
+        }
+    }
+
+    fn an_outpoint(b: u8) -> bitcoin::OutPoint {
+        bitcoin::OutPoint {
+            txid: bitcoin::Txid::from_raw_hash(bitcoin::hashes::Hash::from_byte_array([b; 32])),
+            vout: 0,
+        }
+    }
+
+    fn a_txout(sats: u64, script_byte: u8) -> bitcoin::TxOut {
+        bitcoin::TxOut {
+            value: bitcoin::Amount::from_sat(sats),
+            script_pubkey: bitcoin::ScriptBuf::from_bytes(vec![script_byte; 22]),
+        }
+    }
+
+    /// The lock reduces to two comparisons, so pin them directly rather than through a
+    /// full `HTLCDescriptor` (which needs a populated channel). These mirror
+    /// `check_holder_htlc_tx` exactly: same input outpoint, and the expected output present.
+    fn lock_holds(tx: &bitcoin::Transaction, idx: usize, want_in: bitcoin::OutPoint,
+                  want_out: &bitcoin::TxOut) -> bool {
+        tx.input.get(idx).map(|i| i.previous_output) == Some(want_in)
+            && tx.output.iter().any(|o| o == want_out)
+    }
+
+    /// 🔴 THE ATTACK IT STOPS: a hostile node hands the signer an otherwise-valid HTLC
+    /// transaction whose output pays a script IT chose. The descriptor's `tx_output()` is
+    /// derived from the CHANNEL'S OWN KEYS, so the swept value must land where those keys
+    /// say — not where the node says.
+    #[test]
+    fn a_redirected_holder_htlc_output_is_refused() {
+        let op = an_outpoint(0xAA);
+        let expected = a_txout(10_000, 0x51);
+        let attacker = a_txout(10_000, 0x99);
+        assert!(lock_holds(&htlc_tx_with(op, vec![expected.clone()]), 0, op, &expected),
+                "PREMISE: the honest transaction passes");
+        assert!(!lock_holds(&htlc_tx_with(op, vec![attacker]), 0, op, &expected),
+                "an output redirected to the node's own script must be refused");
+    }
+
+    /// Signing the wrong INPUT is the other half: a signature meant for one HTLC must not
+    /// be obtainable for another by handing over a different outpoint.
+    #[test]
+    fn signing_a_different_outpoint_is_refused() {
+        let (op, other) = (an_outpoint(0xAA), an_outpoint(0xBB));
+        let expected = a_txout(10_000, 0x51);
+        assert!(!lock_holds(&htlc_tx_with(other, vec![expected.clone()]), 0, op, &expected),
+                "the input signed must be the outpoint the descriptor names");
+    }
+
+    /// ⚠️ CONTROL — the lock uses `contains`, NOT equality on the output set. A real HTLC
+    /// transaction may also carry an anchor or change output, and demanding an exact set
+    /// would reject honest transactions. A guard that breaks the happy path gets removed
+    /// rather than fixed, so this pins that it does not.
+    #[test]
+    fn extra_outputs_are_allowed_alongside_the_expected_one() {
+        let op = an_outpoint(0xAA);
+        let expected = a_txout(10_000, 0x51);
+        let anchor = a_txout(330, 0x77);
+        let tx = htlc_tx_with(op, vec![anchor, expected.clone()]);
+        assert!(lock_holds(&tx, 0, op, &expected),
+                "an anchor/change output alongside the expected one must still pass");
+    }
+
+    /// An out-of-range input index must refuse, not panic — the index is node-supplied.
+    #[test]
+    fn an_out_of_range_input_index_refuses() {
+        let op = an_outpoint(0xAA);
+        let expected = a_txout(10_000, 0x51);
+        let tx = htlc_tx_with(op, vec![expected.clone()]);
+        assert!(!lock_holds(&tx, 7, op, &expected), "index past the end must refuse");
     }
 
     // --- Monotonic state machine: pure helpers --------------------------------
