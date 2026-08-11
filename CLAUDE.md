@@ -34,6 +34,16 @@ environment actually is*. Every line below was verified in-repo, not recalled.
     and N jumps. *Measured (E164):* replacing four per-channel gates with one `onlyHop` modifier
     grew `BTCChannels` by **968 bytes** — on a contract whose deploy margin is the binding
     constraint. The same check as `_onlyHop()` gave 200 back. Modifiers read well and cost size.
+8d. **LAND IT, DO NOT REVERT IT** (owner, 2026-08-10, said twice). When a change breaks tests, the
+    job is to make it land SECURELY — find the missing guard, signal or discriminator. **Before
+    touching `git checkout`, state explicitly whether the change is WRONG or merely INCOMPLETE.**
+    Reverting is correct ONLY for the first. *Worked example (§E2-HAIRCUT):* I reverted a
+    pre-deposit-basis fix because a control asserting "mints exactly 1:1" failed — but that control
+    encodes the OLD model, and in that fixture the basket was SHORT before the deposit and whole only
+    BECAUSE of it, so the new number was arguably CORRECT and the assertion stale. **A test failing
+    is not evidence the change is wrong; it is evidence the change and the test disagree.** Say which
+    one is wrong, with a reason, or keep the change and instrument.
+
 9. **Price every fix on every axis** before calling it done: correctness (tested, not reasoned),
    cost/frequency, blast radius, second-order effects, other callers, reversibility. The regression
    is always on the axis nobody measured. If an axis can't be measured yet, say so explicitly.
