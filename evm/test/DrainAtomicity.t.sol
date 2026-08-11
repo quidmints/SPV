@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Alles} from "./Alles.t.sol";
+import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {console} from "forge-std/console.sol";
@@ -1464,5 +1465,61 @@ contract DrainAtomicity is Alles {
         assertApproxEqRel(pA, pB, 0.01e18,
             "(P2) the SAME traversal must cost the SAME however the band reached q0 -- a gap is "
             "entry HISTORY leaking into the charge, which is what a signed curve cannot tolerate");
+    }
+
+
+    /// §SIGMA-REMOVE-P1 — SHADOW-MEASURE THREE CANDIDATE STEEPNESS INPUTS. Nothing wired to pricing.
+    /// Acceptance is the HISTORY GAP on the probe scenario (whale vs twelve splitters, SAME
+    /// endpoints): σ² measured **2.34×** (§UNIT-B-ROOT-FOUND); a trade-based proxy is predicted ~12×
+    /// by algebra (§SIGMA-REMOVE-P1-CONSTRAINT) and measured here for the first time; the inventory
+    /// TRAPEZOID must be ~1× or the direction is refuted.
+    /// ⚠️ TRAPEZOID, not left-rectangle: a per-swap `inv·Δp` accrual is a Riemann sum whose error
+    /// scales with SAMPLE COUNT — the same shape-dependence in a new costume. `(inv₀+inv₁)/2`
+    /// telescopes exactly when inventory is linear in price, which it is inside a ±0.2% band.
+    struct P1 { uint trade; uint trap; uint s2; }
+
+    function _bandPx() internal view returns (uint) {
+        uint inv = CORE.POOLED_ETH();
+        return inv == 0 ? 0 : CORE.POOLED_USD_ETH() * 1e30 / inv;
+    }
+
+    function _accrue(P1 memory a, uint size, uint i0, uint p0) internal view {
+        uint i1 = CORE.POOLED_ETH();
+        uint dp; { uint p1 = _bandPx(); dp = p1 > p0 ? p1 - p0 : p0 - p1; }
+        a.trade += FullMath.mulDiv(size, dp, 1e18);
+        a.trap  += FullMath.mulDiv((i0 + i1) / 2, dp, 1e18);
+    }
+
+    function test_SIGMA_P1_ThreeEstimatorsHistoryGap() public {
+        uint TOTAL = 120_000 * 1e18;
+        P1 memory A; P1 memory B;
+        uint snap = vm.snapshotState();
+
+        _setupBand(); _pinFlow(380_432_109_336);
+        { uint i0 = CORE.POOLED_ETH(); uint p0 = _bandPx(); _drain(TOTAL); _accrue(A, TOTAL, i0, p0); }
+        A.s2 = CORE.realizedVarianceWad(false);
+
+        vm.revertToState(snap);
+
+        _setupBand(); _pinFlow(380_432_109_336);
+        for (uint k = 0; k < 12; ++k) {
+            uint i0 = CORE.POOLED_ETH(); uint p0 = _bandPx();
+            _drain(TOTAL / 12);
+            _accrue(B, TOTAL / 12, i0, p0);
+        }
+        B.s2 = CORE.realizedVarianceWad(false);
+
+        emit log_named_uint("sigma^2     whale  ", A.s2);
+        emit log_named_uint("sigma^2     split  ", B.s2);
+        emit log_named_uint("trade-based whale  ", A.trade);
+        emit log_named_uint("trade-based split  ", B.trade);
+        emit log_named_uint("TRAPEZOID   whale  ", A.trap);
+        emit log_named_uint("TRAPEZOID   split  ", B.trap);
+        emit log_named_uint("gap x1000 sigma^2  ", B.s2    == 0 ? 0 : A.s2    * 1000 / B.s2);
+        emit log_named_uint("gap x1000 trade    ", B.trade == 0 ? 0 : A.trade * 1000 / B.trade);
+        emit log_named_uint("gap x1000 TRAPEZOID", B.trap  == 0 ? 0 : A.trap  * 1000 / B.trap);
+
+        assertGt(A.trap, 0, "CONTROL: the trapezoid estimator must actually accrue");
+        assertGt(B.trap, 0, "CONTROL: both arms must accrue");
     }
 }

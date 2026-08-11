@@ -11864,3 +11864,35 @@ through the curve.
    3. Measure the ESTIMATOR'S OWN VARIANCE alongside its level (§SIGMA-REMOVE-RESCOPED risk 2).
 ⚠️ **DO NOT SKIP TO WIRING ON THE STRENGTH OF THE ALGEBRA ABOVE.** It is analysis, not measurement —
 today's ledger is nine measured against twelve reasoned-and-withdrawn.
+
+### ✅✅✅ SIGMA-REMOVE-P1-MEASURED — the inventory TRAPEZOID is history-independent to **2.5%**. σ² is 134% off; trade-based is 1100% off.
+
+**Phase 1 complete: three candidate steepness inputs shadow-measured on the probe scenario (whale vs
+twelve splitters, SAME endpoints, entry PINNED). NOTHING WIRED TO PRICING.**
+`test_SIGMA_P1_ThreeEstimatorsHistoryGap` (`DrainAtomicity.t.sol`):
+| estimator | whale | split | **history gap** |
+|---|---|---|---|
+| **σ² (incumbent)** | 2.458e13 | 1.050e13 | **2.340×** |
+| **trade-based `Σ size·Δp`** | 3.058e26 | 2.548e25 | **12.000×** |
+| **inventory TRAPEZOID `Σ inv̄·Δp`** | 4.1137e23 | 4.0119e23 | **1.025×** |
+
+✅ **THE TRAPEZOID IS HISTORY-INDEPENDENT TO 2.5%** — against **134%** for σ² and **1,100%** for the
+trade-based proxy. **That is the property §SIGMA-REMOVE exists to buy, now MEASURED rather than
+argued.**
+✅ **AND THE 12.000× CONFIRMS §SIGMA-REMOVE-P1-CONSTRAINT's ALGEBRA TO FOUR FIGURES** — the predicted
+`S·ΔT` vs `S·ΔT/12` came back as exactly 12.000. **The constraint that killed the naive estimator was
+right, and it was found before any contract code was written. That is what Phase 1 is for.**
+📌 **WHY TRAPEZOID AND NOT LEFT-RECTANGLE:** a per-swap `inv·Δp` accrual is a Riemann sum whose error
+scales with SAMPLE COUNT — the same shape-dependence in a new costume. `(inv₀+inv₁)/2` telescopes
+exactly when inventory is linear in price, which it is inside a ±0.2% band. **The residual 2.5% IS
+that second-order term, not a leak.**
+
+▶️ **PHASE 2 IS NOW UNBLOCKED AND ITS ACCEPTANCE IS PRE-STATED:** replace `work = kLvrWad · σ²`
+(`VogueLib.derivedThetaWad:381`) and the steepness in `SwapLib:961` with the trapezoid register.
+**Acceptance: the PROBE test's 2.34× premium gap (§UNIT-B-ROOT-FOUND) must collapse toward 1×, and
+§E71-PINNED's 1,371 bps discount must fall.** ⚠️ **Both on the PINNED instrument — the unpinned §E71
+cannot attribute a mechanism change (§UNIT-B-E71-NOT-AN-INSTRUMENT).**
+⚠️ **STILL OWED BEFORE WIRING (§SIGMA-REMOVE-RESCOPED risk 2): the ESTIMATOR'S OWN VARIANCE.** A
+decaying sum over few swaps is jumpy where a variance is smooth. **Measure its level stability across
+runs, not just its history-gap.** ⚠️ **AND KEEP σ² for the CONVEXITY in `q` and `_maxWellSkew`'s LVR
+derivation — this replaces the STEEPNESS input only.**
