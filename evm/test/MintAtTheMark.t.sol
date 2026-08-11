@@ -205,6 +205,32 @@ contract MintAtTheMark is Alles {
             "paid*m1/m0 -- their dollars scaled ONLY by mark movement AFTER entry, never a "
             "haircut for a shortfall that predates them");
     }
+
+    /// §E2-DEPOSIT-HAIRCUT-NARROWED — THE DISCRIMINATOR. Healthy basket, but warped PAST MONTH 12 so
+    /// the mint takes the SAME post-calibration path as the shortfall case (`isSeed` false,
+    /// `currentMonth() >= 12`). The only thing that differs from the failing case is the SHORTFALL.
+    ///   • mints ~1:1  ⇒ the haircut needs the shortfall ⇒ suspect the 1:1 cap shrinking to headroom.
+    ///   • haircuts    ⇒ the POST-CALIBRATION PATH itself takes ~3.7% from ORDINARY deposits — a live
+    ///                   general defect, far bigger than anything §E2 touches.
+    function test_E2_Haircut_HealthyButPastMonth12() public {
+        _seedBasket();
+        vm.warp(block.timestamp + 400 days); vm.roll(block.number + 1);   // past the calibration window
+
+        emit log_named_uint("currentMonth       ", QUID.currentMonth());
+        emit log_named_uint("mark (WAD = healthy)", _mark());
+
+        uint before = QUID.balanceOf(User03);
+        deal(address(USDC), User03, 2_000_000 * USDC_PRECISION);
+        vm.startPrank(User03);
+        USDC.approve(address(AUX), type(uint).max);
+        QUID.mint(User03, 50_000 * USDC_PRECISION, address(USDC), 0);
+        vm.stopPrank();
+
+        emit log_named_uint("QUID minted for $50k", QUID.balanceOf(User03) - before);
+        emit log_named_uint("shortfall-case gave ", 52486900558949540224705);
+        assertGe(QUID.balanceOf(User03) - before, 50_000e18 - 1e12,
+            "post-calibration path must not haircut an ORDINARY deposit into a HEALTHY basket");
+    }
 }
 
 /// §E2-dayone — THE OWNER'S EDGE CASE, MEASURED. Day one, two minters, no yield question: A
