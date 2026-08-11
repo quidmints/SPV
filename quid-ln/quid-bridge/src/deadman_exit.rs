@@ -38,7 +38,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use alloy_primitives::{hex, Address, U256};
+use alloy_primitives::{hex, Address};
 use lightning::sign::SignerProvider;
 use tracing::{info, warn};
 
@@ -163,12 +163,39 @@ fn build_exit_call(
     )
     .ok()?;
 
-    let calldata = quid_hop::evm_codec::encode_emit_dead_man_exit(
-        on_chain_cid,
-        cltv.to_consensus_u32() as u64,
-        U256::from(amount_sats),
-        &raw_tx,
-    );
+    // (E178) `emitDeadManExit` now takes the channel's `OpenParams` + one `ExitArming`
+    // instead of four flat arguments. ⚠️ ONLY THE PUBKEYS ARE READ on this path — the
+    // contract calls `_requireChannelKeys(channelId, p)` (which hashes lpPubkey‖hopPubkey
+    // against the pinned `keysHash`) and recomputes `Q`; the SPV block fields are NOT used,
+    // because the funding was already proven at open. They are zeroed here deliberately
+    // rather than fabricated, and this comment is the reason they may be.
+    //
+    // `hop_cp` is the HOP's counterparty = the vault/LP half; `vault_cp` is the VAULT's
+    // counterparty = the hop half. Getting these the wrong way round hashes to a different
+    // `keysHash` and the contract rejects — which is the correct failure, not a silent one.
+    let params = quid_hop::evm_codec::OpenParams {
+        funding_block_hash_be: [0u8; 32],
+        funding_block_height: 0,
+        funding_tx_index: 0,
+        lp_pubkey: hop_cp.serialize(),
+        hop_pubkey: vault_cp.serialize(),
+        amount_sats,
+        funding_taproot: quid_hop::funding::taproot_funding_aggregate_xonly(
+            &hop_cp.serialize(),
+            &vault_cp.serialize(),
+        ),
+    };
+    let exit = quid_hop::evm_codec::ExitArming {
+        // The contract OVERWRITES the funding entry with what it already knows, and only
+        // the freshness input's entry is honoured — so a single placeholder pair is correct
+        // for the base (non-freshness) shape and a wrong value simply fails verification.
+        prev_values: vec![0u64],
+        prev_scripts: vec![Vec::new()],
+        cltv_deadline: cltv.to_consensus_u32() as u64,
+        checkpoint_sats: amount_sats,
+        signed_exit_tx: raw_tx.clone(),
+    };
+    let calldata = quid_hop::evm_codec::encode_emit_dead_man_exit(on_chain_cid, &params, &exit);
     Some((calldata, amount_sats))
 }
 

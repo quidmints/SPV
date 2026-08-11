@@ -34,15 +34,15 @@ const HOP_SIGNED_FN_SIGS: &[&str] = &[
     // --- BTCChannels ---
     "settleSwapIn(address,uint256,address,bytes32,uint256,bool)",
     "markMigrationNonceUsed(bytes32)",
-    // (B) openChannel/splice/deliver dropped the per-call lpAuth: openChannel takes the
-    // on-chain-delegated `lpEth`, splice carries `feeSettleSats`, deliver is gated on
-    // the channel hop. Selectors MUST match the contract exactly or the signer rejects.
-    "openChannel((bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32[],address)",
-    "splice(bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32[],uint256)",
-    "registerDelegation(address,bytes32,uint64,bytes)",
-    "recordClose(bytes32,bytes,bytes32,bytes32[],uint256)",
-    "recordForceClosePermissionless(bytes32,bytes,bytes32,bytes32[],uint256)",
-    "deliverSwapOutOnchain(bytes32,bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32[],bytes)",
+    // ⚠️ (E178) THE BTCChannels CHANNEL-LIFECYCLE SIGNATURES ARE NO LONGER LISTED HERE.
+    // They used to be, and they DRIFTED: `openChannel` and `recordClose` changed shape and
+    // `registerDelegation` was deleted outright, while this list kept the old text. Because
+    // the header below promises "selectors MUST match the contract exactly or the signer
+    // rejects", the effect of patching this list in isolation would have been an enclave
+    // happily signing calldata that reverts — the list is a SECOND SOURCE OF TRUTH for
+    // something `evm_codec` already states, and the drift was the tell.
+    // They now come from `HOP_BTCCHANNELS_SIGS`, the SAME constants the codec uses to BUILD
+    // the calldata, so the policy cannot disagree with what is actually sent.
     "commitFreshness(bytes32,uint64)",
     "commitManagerFreshness(uint64)",
     // --- SPV gateway ---
@@ -70,8 +70,11 @@ impl EvmTxPolicy {
     /// address is filtered out, so unset/optional contracts simply aren't allowed).
     /// The selector allowlist is the fixed hop write-surface above.
     pub fn new(allowed_to: impl IntoIterator<Item = Address>) -> Self {
+        // (E178) DERIVED, not duplicated: the hand-written list above plus the channel
+        // lifecycle signatures the codec itself encodes with.
         let allowed_selectors = HOP_SIGNED_FN_SIGS
             .iter()
+            .chain(quid_hop::evm_codec::HOP_BTCCHANNELS_SIGS.iter())
             .map(|sig| {
                 let s = selector4(sig);
                 [s[0], s[1], s[2], s[3]]

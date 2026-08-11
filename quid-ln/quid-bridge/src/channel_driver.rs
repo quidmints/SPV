@@ -31,7 +31,7 @@ use tracing::{debug, error, info, warn};
 
 use quid_hop::event_handler::ChannelLifecycleEvent;
 use quid_hop::evm_codec::{
-    build_open_params, build_splice_params, channel_id, encode_open_channel, encode_record_close,
+    build_open_params, build_splice_params, channel_id, encode_record_close,
     encode_record_force_close_permissionless, encode_splice, is_commitment_tx,
     sort_funding_pubkeys, tx_inclusion, txid_internal,
 };
@@ -473,8 +473,29 @@ pub async fn drive_close<R: JsonRpc>(cfg: Arc<BridgeConfig>,
     // 5. Build + submit. ONE entrypoint — recordClose handles both close types; the
     // EVM reads the tx's locktime and branches (coop settles proceeds, non-coop
     // retires with delivered=0). `kind` is still used for the log label below.
+    // (E178/E153) `recordClose` gained the channel's `OpenParams` so it can reconstruct the
+    // 2-of-2 and tell a SPLICE from a CLOSE — which is what makes recording PERMISSIONLESS
+    // rather than hop-only. Only the pubkeys are read (see `_requireChannelKeys`), so the
+    // SPV fields are zeroed, as in the dead-man path.
+    // ⚠️ THIS IS WHY `funding_pubkeys` IS NOW REQUIRED and not just "when `known_cid` is
+    // None": without it there is nothing to reconstruct the 2-of-2 from, and a close cannot
+    // be recorded at all. Failing here is correct — submitting without it would revert.
+    let (lp_pk, hop_pk) = funding_pubkeys.context(
+        "drive_close: recordClose needs the channel's funding pubkeys (E178) — a taproot \
+         key-path close has no witnessScript to recover them from",
+    )?;
+    let close_params = quid_hop::evm_codec::OpenParams {
+        funding_block_hash_be: [0u8; 32],
+        funding_block_height: 0,
+        funding_tx_index: 0,
+        lp_pubkey: lp_pk,
+        hop_pubkey: hop_pk,
+        amount_sats: 0,
+        funding_taproot: quid_hop::funding::taproot_funding_aggregate_xonly(&lp_pk, &hop_pk),
+    };
     let calldata = encode_record_close(
         cid,
+        &close_params,
         &incl.raw,
         incl.block_hash_be,
         &incl.merkle_proof,
@@ -609,6 +630,7 @@ pub async fn drive_force_close<R: JsonRpc>(
 #[allow(clippy::too_many_arguments)]
 pub async fn drive_open<R: JsonRpc + Send + Sync + 'static>(
     cfg: Arc<BridgeConfig>,
+    #[allow(unused_variables)]
     evm: Arc<JsonRpcEvmClient<R, LocalSigner>>,
     rpc: Arc<R>,
     esplora: Arc<Esplora>,
@@ -705,8 +727,29 @@ pub async fn drive_open<R: JsonRpc + Send + Sync + 'static>(
     };
     debug!(%funding_txid, lp_eth = %lp_eth, "open: resolved lpEth from vault registry; submitting openChannel");
 
-    // 7. Build + submit openChannel (delegation-gated on-chain; no lpAuth).
-    let calldata = encode_open_channel(&params, &raw, &proof, lp_eth);
+    // 7. ⛔ (E178/E157/E165) THE DAEMON CANNOT OPEN A CHANNEL ON ITS OWN ANY MORE, AND
+    //    PRETENDING OTHERWISE WOULD SUBMIT A TX THAT REVERTS.
+    //
+    //    `openChannel` now requires `OpenAuth` — the LP's signature over
+    //    `openAuthDigest(hop, btcRecipient)`, plus a BIP-340 proof-of-possession for the
+    //    payout key (§E138) — and a non-empty `ExitArming[]` ladder (§E165). The fleet CAN
+    //    produce the ladder (it holds both funding halves), but it CANNOT produce `lp_sig`:
+    //    that is the whole point of §E157, which deleted `registerDelegation` precisely so
+    //    consent rides with the open instead of being pre-granted to the fleet.
+    //
+    //    ⇒ This is §E166 item 3, and it is a DESIGN gap, not a wiring one. It is surfaced
+    //    as a loud error rather than a fabricated auth so the missing piece stays visible.
+    //    Wire the LP consent in (from the LP app / a stored signed consent) and pass it
+    //    here; do NOT invent an `OpenAuth` to make this compile.
+    let _ = (&params, &raw, &proof, lp_eth);
+    anyhow::bail!(
+        "drive_open: cannot submit openChannel for {funding_txid}:{funding_vout} — no LP \
+         consent (OpenAuth: lpSig + btcRecipientPoP) and no pre-signed ExitArming ladder \
+         available to this daemon (E166-3). The LP must sign; the fleet cannot."
+    );
+    #[allow(unreachable_code)]
+    #[allow(unused_variables)]
+    let calldata: Vec<u8> = unreachable!();
     let diag_calldata = calldata.clone();
     let ok = estimate_gas_and_send(&evm, &rpc, btc_channels, calldata, cfg.gas_limit).await?;
     if !ok {

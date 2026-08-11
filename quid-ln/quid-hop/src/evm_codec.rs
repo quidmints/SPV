@@ -36,6 +36,56 @@ use crate::spv::{block_hash_be, merkle_branch};
 // Hand-rolled head/tail ABI encoding (verifiable byte-exact vs `cast abi-encode`).
 // We only model the token kinds the channel calldata + digests use.
 
+// ─────────────────────────────────────────────────────────────────────────────────────
+// (E178) THE SIGNATURES, ONCE. Every Solidity signature this codec encodes lives here and
+// NOWHERE ELSE.
+//
+// 🔴 WHY. On 2026-08-11 three of them drifted from the contract and the daemon would have
+// encoded dead selectors, with `forge`, the full test suite and the ABI checker all green.
+// The reason the tests could not catch it is instructive: they asserted
+// `selector(encoder_output) == keccak(<literal>)` — the encoder against a SECOND COPY of
+// the same string — which is circular. Two copies that drift together still agree, so the
+// assertion holds while the call is dead. A THIRD copy sat in the hot-key policy allowlist
+// in `quid-bridge/src/evm_validating_signer.rs`, and it drifted identically, which is why
+// "just fix the allowlist" would have made the enclave sign calldata that reverts.
+//
+// ⇒ ONE copy, used to BUILD the calldata; the policy and the tests DERIVE from it; and
+// `tools/check-client-abis.py` compares this one copy against the compiled ABI. An
+// allowlist that restates the ABI is a second source of truth — the drift was the tell.
+//
+// ⚠️ These are the EXPANDED forms. A struct written as the bare token `tuple` hashes to a
+// different selector, and the calldata still looks plausible.
+pub const SIG_OPEN_CHANNEL: &str =
+    "openChannel((bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32[],\
+(address,bytes32,bytes,bytes),(uint64[],bytes[],uint64,uint256,bytes)[])";
+pub const SIG_SPLICE: &str =
+    "splice(bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32[],uint256)";
+pub const SIG_RECORD_CLOSE: &str =
+    "recordClose(bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32,\
+bytes32[],uint256)";
+pub const SIG_RECORD_FORCE_CLOSE_PERMISSIONLESS: &str =
+    "recordForceClosePermissionless(bytes32,bytes,bytes32,bytes32[],uint256)";
+pub const SIG_DELIVER_SWAP_OUT_ONCHAIN: &str =
+    "deliverSwapOutOnchain(bytes32,bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),\
+bytes,bytes32[],bytes)";
+pub const SIG_EMIT_DEAD_MAN_EXIT: &str =
+    "emitDeadManExit(bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),\
+(uint64[],bytes[],uint64,uint256,bytes))";
+pub const SIG_REQUEST_SWAP_OUT_ONCHAIN: &str =
+    "requestSwapOutOnchain(address,uint256,uint256,bytes32,bytes)";
+
+/// (E178) Every signature the hop's hot key may legitimately be asked to sign on
+/// `BTCChannels`. The EVM tx policy derives its selector set from THIS — it does not keep
+/// its own list — so the policy cannot disagree with what the codec actually sends.
+pub const HOP_BTCCHANNELS_SIGS: &[&str] = &[
+    SIG_OPEN_CHANNEL,
+    SIG_SPLICE,
+    SIG_RECORD_CLOSE,
+    SIG_RECORD_FORCE_CLOSE_PERMISSIONLESS,
+    SIG_DELIVER_SWAP_OUT_ONCHAIN,
+    SIG_EMIT_DEAD_MAN_EXIT,
+];
+
 /// An ABI token. Static tokens contribute one 32-byte word to the head; dynamic
 /// tokens contribute a 32-byte offset in the head and their bytes in the tail.
 #[derive(Clone, Debug)]
@@ -52,6 +102,16 @@ pub enum Tok {
     /// inlines an all-static struct without an offset — we never need that here,
     /// and assert against it).
     Tuple(Vec<Tok>),
+    /// (E178) A dynamic array of a STATIC numeric type — `uint64[]`, `uint256[]`.
+    /// Needed by `ExitArming.prevValues`. Every element occupies one word, so the
+    /// tail is simply `length ‖ words` with no offset table.
+    UintArray(Vec<U256>),
+    /// (E178) A dynamic array of TUPLES — `ExitArming[]`. The element tuples here are
+    /// themselves dynamic (they carry `uint64[]`, `bytes[]` and `bytes`), so the tail
+    /// is `length ‖ per-element offsets ‖ each encoded tuple`, exactly like
+    /// [`Tok::BytesArray`]. An all-static element tuple would need the inline
+    /// (offset-free) layout instead and is rejected rather than mis-encoded.
+    TupleArray(Vec<Vec<Tok>>),
 }
 
 use crate::abi::word_u64;
@@ -59,7 +119,11 @@ use crate::abi::word_u64;
 impl Tok {
     fn is_dynamic(&self) -> bool {
         match self {
-            Tok::Bytes(_) | Tok::BytesArray(_) | Tok::FixedBytes32Array(_) => true,
+            Tok::Bytes(_)
+            | Tok::BytesArray(_)
+            | Tok::FixedBytes32Array(_)
+            | Tok::UintArray(_)
+            | Tok::TupleArray(_) => true,
             Tok::Tuple(fields) => {
                 // A tuple is dynamic iff any field is. We only construct dynamic
                 // tuples (OpenParams carries `bytes` pubkeys); guard the static
@@ -114,6 +178,36 @@ impl Tok {
                 out
             }
             Tok::Tuple(fields) => encode_tuple(fields),
+            Tok::UintArray(items) => {
+                // length ‖ one word per element (a static element type needs no offsets)
+                let mut out = word_u64(items.len() as u64).to_vec();
+                for v in items {
+                    out.extend_from_slice(&v.to_be_bytes::<32>());
+                }
+                out
+            }
+            Tok::TupleArray(items) => {
+                // length ‖ per-element offsets ‖ each encoded tuple. The offsets are
+                // relative to the START OF THE OFFSET TABLE (i.e. just after the length
+                // word), NOT to the start of the array — getting that wrong shifts every
+                // element and decodes as garbage rather than failing.
+                debug_assert!(
+                    items.iter().all(|f| f.iter().any(Tok::is_dynamic)),
+                    "Tok::TupleArray is only supported for element tuples with a dynamic \
+                     field; an all-static element uses the inline (offset-free) layout"
+                );
+                let mut out = word_u64(items.len() as u64).to_vec();
+                let mut off = (items.len() * 32) as u64;
+                let mut tails = Vec::new();
+                for fields in items {
+                    out.extend_from_slice(&word_u64(off));
+                    let enc = encode_tuple(fields);
+                    off += enc.len() as u64;
+                    tails.extend_from_slice(&enc);
+                }
+                out.extend_from_slice(&tails);
+                out
+            }
             _ => unreachable!("static token has no tail"),
         }
     }
@@ -336,6 +430,67 @@ pub struct OpenParams {
     pub funding_taproot: [u8; 32],
 }
 
+/// (E157/E138) `Types.OpenAuth` — the LP's consent, carried BY the open instead of
+/// pre-registered. `registerDelegation` is GONE; this replaced it.
+///
+/// `lp_sig` is checked with `SignatureChecker`, so one path serves EOAs (ECDSA) and smart
+/// wallets (ERC-1271). `btc_recipient_pop` is a BIP-340 signature BY `btc_recipient` over
+/// `btcRecipientPoPDigest(lpEth)` — §E138 added it because registration proved the payout
+/// key was ON THE CURVE but never that the LP CONTROLLED it, and close, splice-out and the
+/// dead-man exit all pin to it, so a wrong key loses every escape at once.
+#[derive(Clone, Debug)]
+pub struct OpenAuth {
+    pub lp_eth: Address,
+    pub btc_recipient: [u8; 32],
+    pub lp_sig: Vec<u8>,
+    pub btc_recipient_pop: Vec<u8>,
+}
+
+impl OpenAuth {
+    /// `(address,bytes32,bytes,bytes)` in `Types.OpenAuth` field order.
+    pub fn tokens(&self) -> Vec<Tok> {
+        vec![
+            Tok::Address(self.lp_eth),
+            Tok::FixedBytes32(self.btc_recipient),
+            Tok::Bytes(self.lp_sig.clone()),
+            Tok::Bytes(self.btc_recipient_pop.clone()),
+        ]
+    }
+}
+
+/// (E128/E156/E165) `Types.ExitArming` — a pre-signed dead-man exit shape.
+///
+/// ⚠️ MANDATORY AT OPEN. The fleet holds BOTH funding halves, so the LP has no funding key
+/// and cannot sign anything, ever; its only escape is bytes the fleet pre-signed while
+/// alive. Arming is therefore a CONSTRUCTION-TIME invariant — a channel cannot exist
+/// without an escape — which is what let the LP-nominated fallback delete outright.
+///
+/// `prev_values`/`prev_scripts` are the prevout value + scriptPubKey for EVERY input of
+/// `signed_exit_tx`, in input order: BIP-341 `Prevouts::All` commits to them and they live
+/// in EARLIER transactions, so the chain cannot read them from this one. The contract
+/// OVERWRITES the funding entry with what it already knows.
+#[derive(Clone, Debug, Default)]
+pub struct ExitArming {
+    pub prev_values: Vec<u64>,
+    pub prev_scripts: Vec<Vec<u8>>,
+    pub cltv_deadline: u64,
+    pub checkpoint_sats: u64,
+    pub signed_exit_tx: Vec<u8>,
+}
+
+impl ExitArming {
+    /// `(uint64[],bytes[],uint64,uint256,bytes)` in `Types.ExitArming` field order.
+    pub fn tokens(&self) -> Vec<Tok> {
+        vec![
+            Tok::UintArray(self.prev_values.iter().copied().map(U256::from).collect()),
+            Tok::BytesArray(self.prev_scripts.clone()),
+            Tok::Uint(U256::from(self.cltv_deadline)),
+            Tok::Uint(U256::from(self.checkpoint_sats)),
+            Tok::Bytes(self.signed_exit_tx.clone()),
+        ]
+    }
+}
+
 impl OpenParams {
     /// The ABI token tuple `(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32)`
     /// in `Types.OpenParams` field order (taproot `fundingTaproot` is the last).
@@ -502,24 +657,34 @@ pub fn evm_address_of(pk: &bitcoin::secp256k1::PublicKey) -> Address {
 
 /// `openChannel(OpenParams,bytes,bytes32[],bytes)` calldata. `lp_auth` is the
 /// LP's 65-byte `r‖s‖v` ECDSA over [`open_channel_digest`].
-/// (B) `openChannel(OpenParams, bytes, bytes32[], address lpEth)` — the fleet opens a
-/// channel it funded from `lpEth`'s BTC deposit and CREDITS it to that lpEth. No lpAuth
-/// and no payout hash: authorization is the on-chain delegation (`delegatedAuthority[lpEth]
-/// == msg.sender` or the Safe hopRegistry) and `btcRecipientOf` is pinned at
-/// `registerDelegation`. The LP runs nothing.
+/// (E178) `openChannel(OpenParams, bytes, bytes32[], OpenAuth, ExitArming[])`.
+///
+/// ⚠️ **THIS SIGNATURE DRIFTED AND THE DAEMON WOULD HAVE ENCODED A DEAD SELECTOR.** The old
+/// form took a bare `address lpEth` and the comment described `registerDelegation` pinning
+/// `btcRecipientOf` — but §E157 DELETED `registerDelegation` and folded the LP's consent
+/// into `OpenAuth`, and §E165 made a pre-signed exit ladder mandatory at open. `forge`,
+/// the test suite and `check-client-abis.py` were all green throughout, because the checker
+/// only read `spa/`. It now reads this tree too (§E178) — do not hand-edit either this
+/// string or the allowlist in `quid-bridge/src/evm_validating_signer.rs` without running it.
+///
+/// `auth` carries `lpEth` + the pinned payout key + the LP signature + the §E138
+/// proof-of-possession. `exits` is the ladder: at least one shape, each fully verified
+/// on-chain (structure + BIP-341 sighash + BIP-340 signature) before the channel exists.
 pub fn encode_open_channel(
     params: &OpenParams,
     raw_funding_tx: &[u8],
     funding_merkle_proof: &[[u8; 32]],
-    lp_eth: Address,
+    auth: &OpenAuth,
+    exits: &[ExitArming],
 ) -> Vec<u8> {
     encode_call(
-        "openChannel((bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32[],address)",
+        SIG_OPEN_CHANNEL,
         &[
             Tok::Tuple(params.tokens()),
             Tok::Bytes(raw_funding_tx.to_vec()),
             Tok::FixedBytes32Array(funding_merkle_proof.to_vec()),
-            Tok::Address(lp_eth),
+            Tok::Tuple(auth.tokens()),
+            Tok::TupleArray(exits.iter().map(ExitArming::tokens).collect()),
         ],
     )
 }
@@ -571,7 +736,7 @@ pub fn encode_splice(
     fee_settle_sats: u64,
 ) -> Vec<u8> {
     encode_call(
-        "splice(bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32[],uint256)",
+        SIG_SPLICE,
         &[
             Tok::FixedBytes32(channel_id),
             Tok::Tuple(params.tokens()),
@@ -597,7 +762,7 @@ pub fn encode_deliver_swap_out_onchain(
     swapper_script: &[u8],
 ) -> Vec<u8> {
     encode_call(
-        "deliverSwapOutOnchain(bytes32,bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32[],bytes)",
+        SIG_DELIVER_SWAP_OUT_ONCHAIN,
         &[
             Tok::FixedBytes32(swap_id),
             Tok::FixedBytes32(channel_id),
@@ -618,22 +783,27 @@ pub fn encode_deliver_swap_out_onchain(
 /// AUTHORITY is the same (B) gate as `openChannel` (`_requireAttested` + delegated hop),
 /// so the fleet submits this as the channel's HOP.
 ///
-/// NB: `cltvDeadline` is `uint64` in the contract — the selector must say `uint64`
-/// (the calldata word is 32-byte-padded either way, but the 4-byte selector differs),
-/// exactly as [`encode_register_delegation`] notes for its own `uint64`.
+/// ⚠️ (E178/E165) THE FLAT FORM IS GONE. This took four flat arguments
+/// (`bytes32,uint64,uint256,bytes`); §E165 replaced them with the channel's `OpenParams`
+/// plus ONE `ExitArming` — the same struct `openChannel` arms the ladder with, so an exit
+/// is verified identically whether it arrives at open or on a refresh, and there is only
+/// one shape to keep in step. `cltv_deadline`/`checkpoint_sats`/`signed_exit_tx` are now
+/// FIELDS of that struct rather than positional arguments.
+///
+/// The old NB about `uint64` still applies in spirit: the 4-byte selector is computed over
+/// the EXPANDED tuple types, so a struct written as `tuple` — or a field whose width is
+/// wrong — yields a selector no contract answers, with calldata that still looks plausible.
 pub fn encode_emit_dead_man_exit(
     channel_id: [u8; 32],
-    cltv_deadline: u64,
-    checkpoint_sats: U256,
-    signed_exit_tx: &[u8],
+    params: &OpenParams,
+    exit: &ExitArming,
 ) -> Vec<u8> {
     encode_call(
-        "emitDeadManExit(bytes32,uint64,uint256,bytes)",
+        SIG_EMIT_DEAD_MAN_EXIT,
         &[
             Tok::FixedBytes32(channel_id),
-            Tok::Uint(U256::from(cltv_deadline)),
-            Tok::Uint(checkpoint_sats),
-            Tok::Bytes(signed_exit_tx.to_vec()),
+            Tok::Tuple(params.tokens()),
+            Tok::Tuple(exit.tokens()),
         ],
     )
 }
@@ -650,7 +820,7 @@ pub fn encode_request_swap_out_onchain(
     swapper_script: &[u8],
 ) -> Vec<u8> {
     encode_call(
-        "requestSwapOutOnchain(address,uint256,uint256,bytes32,bytes)",
+        SIG_REQUEST_SWAP_OUT_ONCHAIN,
         &[
             Tok::Address(token),
             Tok::Uint(usd_amount),
@@ -663,17 +833,24 @@ pub fn encode_request_swap_out_onchain(
 
 /// `recordClose(bytes32,bytes,bytes32,bytes32[],uint256)` calldata for a
 /// COOPERATIVE close (`locktime == 0`).
+///
+/// ⚠️ (E178/E153) `close_params` IS NOT OPTIONAL AND WAS MISSING. `recordClose` gained an
+/// `OpenParams` argument so it can reconstruct the channel's 2-of-2 and tell a SPLICE from
+/// a CLOSE — which is what lets recording be PERMISSIONLESS instead of hop-only. Encoding
+/// the old 5-argument form produced a selector no contract answers.
 pub fn encode_record_close(
     channel_id: [u8; 32],
+    close_params: &OpenParams,
     raw_close_tx: &[u8],
     close_block_hash_be: [u8; 32],
     merkle_proof: &[[u8; 32]],
     tx_index: u64,
 ) -> Vec<u8> {
     encode_call(
-        "recordClose(bytes32,bytes,bytes32,bytes32[],uint256)",
+        SIG_RECORD_CLOSE,
         &[
             Tok::FixedBytes32(channel_id),
+            Tok::Tuple(close_params.tokens()),
             Tok::Bytes(raw_close_tx.to_vec()),
             Tok::FixedBytes32(close_block_hash_be),
             Tok::FixedBytes32Array(merkle_proof.to_vec()),
@@ -707,7 +884,7 @@ pub fn encode_record_force_close_permissionless(
     tx_index: u64,
 ) -> Vec<u8> {
     encode_call(
-        "recordForceClosePermissionless(bytes32,bytes,bytes32,bytes32[],uint256)",
+        SIG_RECORD_FORCE_CLOSE_PERMISSIONLESS,
         &[
             Tok::FixedBytes32(channel_id),
             Tok::Bytes(raw_close_tx.to_vec()),
@@ -783,6 +960,45 @@ pub async fn build_splice_params(
     pubkey_b: [u8; 33],
 ) -> anyhow::Result<(OpenParams, Vec<u8>, Vec<[u8; 32]>)> {
     build_open_params(esplora, splice_txid, splice_vout, pubkey_a, pubkey_b).await
+}
+
+
+/// (E178) Minimal well-formed `OpenAuth`/`ExitArming` for encoder-shape tests. The
+/// VALUES are irrelevant here — these tests pin the ABI LAYOUT and the selector, and
+/// the selector is checked against `SIG_*`, which `tools/check-client-abis.py` in turn
+/// checks against the compiled contract. That three-step chain is what makes these
+/// assertions non-circular: before §E178 they compared the encoder to a second copy of
+/// the same literal, so both could drift together and the test still passed.
+#[cfg(test)]
+fn t_auth() -> OpenAuth {
+    OpenAuth {
+        lp_eth: Address::repeat_byte(0xCC),
+        btc_recipient: [0x11u8; 32],
+        lp_sig: vec![0x22u8; 65],
+        btc_recipient_pop: vec![0x33u8; 64],
+    }
+}
+#[cfg(test)]
+fn t_exits() -> Vec<ExitArming> {
+    vec![ExitArming {
+        prev_values: vec![1_000u64, 2_000u64],
+        prev_scripts: vec![vec![0x51, 0x20], vec![]],
+        cltv_deadline: 0x0203,
+        checkpoint_sats: 7,
+        signed_exit_tx: vec![0xAAu8; 3], // odd length ⇒ exercises 32-byte padding
+    }]
+}
+#[cfg(test)]
+fn t_params() -> OpenParams {
+    OpenParams {
+        funding_block_hash_be: [0u8; 32],
+        funding_block_height: 0,
+        funding_tx_index: 0,
+        lp_pubkey: [2u8; 33],
+        hop_pubkey: [3u8; 33],
+        amount_sats: 0,
+        funding_taproot: [0u8; 32],
+    }
 }
 
 #[cfg(test)]
@@ -863,8 +1079,8 @@ mod tests {
     #[test]
     fn selectors() {
         assert_eq!(
-            hex_encode(&encode_record_close([0u8; 32], &[], [0u8; 32], &[], 0)[..4]),
-            hex_encode(&keccak256("recordClose(bytes32,bytes,bytes32,bytes32[],uint256)")[..4]),
+            hex_encode(&encode_record_close([0u8; 32], &t_params(), &[], [0u8; 32], &[], 0)[..4]),
+            hex_encode(&keccak256(SIG_RECORD_CLOSE)[..4]),
         );
         assert_eq!(
             hex_encode(&encode_open_channel(
@@ -879,18 +1095,19 @@ mod tests {
                 },
                 &[],
                 &[],
-                Address::repeat_byte(0),
+                &t_auth(),
+                &t_exits(),
             )[..4]),
             hex_encode(
                 &keccak256(
-                    "openChannel((bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32[],address)"
+                    SIG_OPEN_CHANNEL
                 )[..4]
             ),
         );
         // (#114) emitDeadManExit — uint64 cltvDeadline (selector, not word, distinguishes it).
         assert_eq!(
-            hex_encode(&encode_emit_dead_man_exit([0u8; 32], 0, U256::ZERO, &[])[..4]),
-            hex_encode(&keccak256("emitDeadManExit(bytes32,uint64,uint256,bytes)")[..4]),
+            hex_encode(&encode_emit_dead_man_exit([0u8; 32], &t_params(), &ExitArming::default())[..4]),
+            hex_encode(&keccak256(SIG_EMIT_DEAD_MAN_EXIT)[..4]),
         );
     }
 
@@ -898,24 +1115,42 @@ mod tests {
     // + 1 dynamic bytes ⇒ head is 4 words; word3 is the offset to the bytes = 0x80.
     #[test]
     fn emit_dead_man_exit_calldata_layout() {
+        // ⚠️ (E178) THE SHAPE CHANGED: `emitDeadManExit(bytes32, OpenParams, ExitArming)`.
+        // It used to be four FLAT arguments (`bytes32,uint64,uint256,bytes`), so the old
+        // assertions read `cltvDeadline` out of word1 and `checkpointSats` out of word2.
+        // Those are now FIELDS INSIDE the `ExitArming` tuple, and words 1 and 2 are the
+        // OFFSETS to the two tuples — reading them as scalars is exactly the silent
+        // mis-decode this test exists to catch.
         let cid = [0x11u8; 32];
-        let raw = vec![0xAAu8; 3]; // odd length ⇒ exercises the 32-byte padding
-        let cd = encode_emit_dead_man_exit(cid, 0x0203, U256::from(7u64), &raw);
-        // 4-byte selector + 32-aligned body.
-        assert_eq!(cd.len() % 32, 4);
+        let exit = t_exits()[0].clone();
+        let cd = encode_emit_dead_man_exit(cid, &t_params(), &exit);
+        assert_eq!(cd.len() % 32, 4, "4-byte selector + 32-aligned body");
         let body = &cd[4..];
-        assert_eq!(&body[0..32], &cid[..], "word0 = channelId");
-        assert_eq!(U256::from_be_slice(&body[32..64]), U256::from(0x0203u64), "word1 = cltvDeadline");
-        assert_eq!(U256::from_be_slice(&body[64..96]), U256::from(7u64), "word2 = checkpointSats");
-        assert_eq!(U256::from_be_slice(&body[96..128]), U256::from(0x80u64), "word3 = offset to bytes");
-        assert_eq!(U256::from_be_slice(&body[128..160]), U256::from(3u64), "bytes length = 3");
-        assert_eq!(&body[160..163], &raw[..], "bytes data");
-        assert_eq!(&body[163..192], &[0u8; 29], "bytes right-padded to 32");
+        assert_eq!(&body[0..32], &cid[..], "word0 = channelId (static, inline)");
+        // Head = 3 words: one static + two dynamic offsets, so arg1's tail starts at 0x60.
+        let off_params = U256::from_be_slice(&body[32..64]).to::<u64>() as usize;
+        let off_exit = U256::from_be_slice(&body[64..96]).to::<u64>() as usize;
+        assert_eq!(off_params, 0x60, "word1 = offset to the OpenParams tuple");
+        assert!(off_exit > off_params, "word2 = offset to the ExitArming tuple, after it");
+        // The ExitArming tail begins with its own 5-word head; field 2 (`cltvDeadline`) and
+        // field 3 (`checkpointSats`) are STATIC, so they sit inline at words 2 and 3 of it.
+        let et = &body[off_exit..];
+        assert_eq!(U256::from_be_slice(&et[64..96]), U256::from(0x0203u64),
+                   "ExitArming.cltvDeadline");
+        assert_eq!(U256::from_be_slice(&et[96..128]), U256::from(7u64),
+                   "ExitArming.checkpointSats");
+        // …and `signedExitTx` is the last, dynamic, field: length then right-padded data.
+        let off_tx = U256::from_be_slice(&et[128..160]).to::<u64>() as usize;
+        assert_eq!(U256::from_be_slice(&et[off_tx..off_tx + 32]), U256::from(3u64),
+                   "signedExitTx length = 3");
+        assert_eq!(&et[off_tx + 32..off_tx + 35], &exit.signed_exit_tx[..], "signedExitTx data");
+        assert_eq!(&et[off_tx + 35..off_tx + 64], &[0u8; 29], "right-padded to 32");
     }
 
-    // (B) openChannel calldata: 3 dynamic top-level args (tuple, bytes, bytes32[])
-    // + 1 static (address lpEth) ⇒ head is 4 words, the first being the offset to
-    // arg0 (the tuple) = 0x80 (4×32). The OpenParams tuple tail then follows.
+    // (E178) openChannel calldata: FIVE top-level args, ALL dynamic — tuple, bytes,
+    // bytes32[], tuple (OpenAuth), tuple[] (ExitArming ladder) — so the head is 5 words
+    // and the first is the offset to arg0 = 0xA0 (5×32). It was 0x80 when the last arg
+    // was a static `address lpEth`; that argument is gone (§E157).
     #[test]
     fn open_channel_calldata_layout() {
         let p = OpenParams {
@@ -927,13 +1162,13 @@ mod tests {
             amount_sats: 1_000_000,
             funding_taproot: [0u8; 32],
         };
-        let cd = encode_open_channel(&p, &[0xAAu8; 64], &[[0xBBu8; 32]], Address::repeat_byte(0xCC));
+        let cd = encode_open_channel(&p, &[0xAAu8; 64], &[[0xBBu8; 32]], &t_auth(), &t_exits());
         // after the 4-byte selector: first head word = offset to arg0 (the tuple)
-        // = 0x80 (4 args × 32; the trailing address lpEth is a static head word).
+        // = 0xA0 (5 dynamic args × 32).
         let first_off = &cd[4..36];
         assert_eq!(
             hex_encode(first_off),
-            "0000000000000000000000000000000000000000000000000000000000000080",
+            "00000000000000000000000000000000000000000000000000000000000000a0",
         );
     }
 
@@ -951,15 +1186,15 @@ mod tests {
             funding_taproot: [0u8; 32],
         };
         let oc_sel =
-            keccak256("openChannel((bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32[],address)");
-        let rc_sel = keccak256("recordClose(bytes32,bytes,bytes32,bytes32[],uint256)");
+            keccak256(SIG_OPEN_CHANNEL);
+        let rc_sel = keccak256(SIG_RECORD_CLOSE);
         for proof_len in [0usize, 1, 12, 1000] {
             let proof = vec![[0xABu8; 32]; proof_len];
-            let oc = encode_open_channel(&p, &[], &proof, Address::repeat_byte(0));
+            let oc = encode_open_channel(&p, &[], &proof, &t_auth(), &t_exits());
             assert_eq!(&oc[..4], &oc_sel[..4]);
             // dynamic-tail length is always a 32-byte multiple (well-formed ABI).
             assert_eq!(oc.len() % 32, 4);
-            let rc = encode_record_close([0u8; 32], &vec![0u8; 4096], [0u8; 32], &proof, u64::MAX);
+            let rc = encode_record_close([0u8; 32], &t_params(), &vec![0u8; 4096], [0u8; 32], &proof, u64::MAX);
             assert_eq!(&rc[..4], &rc_sel[..4]);
             assert_eq!(rc.len() % 32, 4);
         }
@@ -971,7 +1206,7 @@ mod tests {
         let _ = channel_id(&[0xff; 33], &[0x00; 33], [0xaa; 32], u32::MAX);
         // splice encoder + digest with extreme values — must not panic, right shape.
         let sp_sel = keccak256(
-            "splice(bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32[],uint256)",
+            SIG_SPLICE,
         );
         for proof_len in [0usize, 1, 12, 1000] {
             let proof = vec![[0xABu8; 32]; proof_len];
@@ -1000,7 +1235,7 @@ mod tests {
             hex_encode(&encode_splice([0u8; 32], &p, &[], &[], 0)[..4]),
             hex_encode(
                 &keccak256(
-                    "splice(bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32[],uint256)"
+                    SIG_SPLICE
                 )[..4]
             ),
         );
@@ -1096,7 +1331,7 @@ mod tests {
             funding_taproot: [0u8; 32],
         };
         let cd = encode_deliver_swap_out_onchain([1u8; 32], [2u8; 32], &p, &[], &[], &[0x00, 0x14]);
-        let sig = "deliverSwapOutOnchain(bytes32,bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32[],bytes)";
+        let sig = SIG_DELIVER_SWAP_OUT_ONCHAIN;
         assert_eq!(hex_encode(&cd[..4]), hex_encode(&keccak256(sig)[..4]));
         assert_eq!(cd.len() % 32, 4); // well-formed
     }
@@ -1107,7 +1342,7 @@ mod tests {
         let cd = encode_request_swap_out_onchain(
             Address::repeat_byte(0x11), U256::from(500_000u64), 0, [0xA1u8; 32], &[0x00, 0x14, 0x5A],
         );
-        let sig = "requestSwapOutOnchain(address,uint256,uint256,bytes32,bytes)";
+        let sig = SIG_REQUEST_SWAP_OUT_ONCHAIN;
         assert_eq!(hex_encode(&cd[..4]), hex_encode(&keccak256(sig)[..4]));
         assert_eq!(cd.len() % 32, 4);
     }
@@ -1222,9 +1457,9 @@ mod proptests {
             lp in proptest::array::uniform20(any::<u8>()),
         ) {
             let proof = vec![[0xABu8; 32]; proof_len];
-            let cd = encode_open_channel(&p, &raw, &proof, Address::from(lp));
+            let cd = encode_open_channel(&p, &raw, &proof, &t_auth(), &t_exits());
             prop_assert_eq!(&cd[..4], &keccak256(
-                "openChannel((bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32[],address)"
+                SIG_OPEN_CHANNEL
             )[..4]);
             prop_assert_eq!(cd.len() % 32, 4);
         }
@@ -1239,7 +1474,7 @@ mod proptests {
             let proof = vec![[0xABu8; 32]; proof_len];
             let cd = encode_splice(cid, &p, &raw, &proof, 0);
             prop_assert_eq!(&cd[..4], &keccak256(
-                "splice(bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32[],uint256)"
+                SIG_SPLICE
             )[..4]);
             prop_assert_eq!(cd.len() % 32, 4);
         }
@@ -1253,7 +1488,7 @@ mod proptests {
             tx_index in any::<u64>(),
         ) {
             let proof = vec![[0xABu8; 32]; proof_len];
-            let cd = encode_record_close(cid, &raw, bhash, &proof, tx_index);
+            let cd = encode_record_close(cid, &t_params(), &raw, bhash, &proof, tx_index);
             prop_assert_eq!(cd.len() % 32, 4);
         }
 
