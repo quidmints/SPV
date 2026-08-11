@@ -229,7 +229,10 @@ pub async fn run(
     // holds its own); the fleet runs both halves in-process, so both are reachable here.
     let deadman_hop_keys = node.keys_manager.clone();
     let deadman_hop_monitors = node.chain_monitor.clone();
-    let deadman_vault = vault.clone();
+    // (E175) `Some` only while the fleet co-hosts the vault node. In the LP-hosted split
+    // this is `None` — the fleet has no vault seed, so it cannot arm the LP funding half,
+    // and the heartbeat disables itself rather than finding another route to it.
+    let deadman_vault = Some(vault.clone());
 
     // Read-only JSON-RPC pollers for the log-watching loops. They share the SAME
     // quorum transport as the EVM client, so cross-checking applies here too and

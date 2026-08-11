@@ -203,10 +203,28 @@ fn build_exit_call(
 /// `daemon::run` JoinSet, alongside the other bridge loops). Runs forever; a per-channel
 /// failure logs + continues (never tears the daemon down).
 #[allow(clippy::too_many_arguments)]
+/// ⚠️ (E175) `vault` IS `Option` BECAUSE THAT IS THE WHOLE SECURITY SPLIT.
+///
+/// This heartbeat is the ONE place the fleet derives BOTH funding halves — it arms the hop
+/// signer AND the vault signer in a single process and calls `presign_deadman_exit` with
+/// the pair. That is exactly the property that makes a compromised fleet able to spend an
+/// LP's channel unilaterally.
+///
+/// In the **LP-hosted** deployment the vault node runs on the LP's own always-on box with
+/// the LP's own seed, so the fleet's process HAS NO VAULT NODE TO PASS — and `None` here is
+/// not a configuration choice the fleet can flip, it is the absence of a seed it never had.
+/// The heartbeat then does not run at all, and a channel's exits come from the §E165 ladder
+/// the LP pre-signed at open. **That is why §E165 and this split land together: remove the
+/// heartbeat without the ladder and channels have no escape; keep the heartbeat and the
+/// fleet still holds both halves.**
+///
+/// ⇒ **Do not "fix" a `None` vault by deriving the half locally.** Any code that can
+/// reconstruct the vault signer inside the fleet process re-creates the exact capability
+/// this removes, and every check in `validating_signer` becomes decoration again.
 pub async fn run_deadman_exit_heartbeat(
     hop_keys: Arc<QuidKeysManager>,
     hop_monitors: Arc<HopChainMonitor>,
-    vault: Arc<VaultNode>,
+    vault: Option<Arc<VaultNode>>,
     evm: Arc<DaemonEvm>,
     btc_channels: Address,
     gas_limit: u64,
@@ -225,6 +243,23 @@ pub async fn run_deadman_exit_heartbeat(
     use crate::client::eth_call_raw;
     use crate::channel_driver::{estimate_gas_and_send, read_channel_state};
 
+    // (E175) NO VAULT IN THIS PROCESS ⇒ NO HEARTBEAT, AND NOTHING TO FALL BACK ON.
+    //
+    // This is the LP-hosted deployment: the vault node lives on the LP's own always-on box
+    // with the LP's own seed, so the fleet cannot arm a vault signer — not because it
+    // declines to, but because the key is not here. Exits for these channels come from the
+    // §E165 ladder the LP pre-signed at open.
+    //
+    // Returning is the CORRECT behaviour and must stay loud: a fleet that silently
+    // continued would be a fleet that found some other way to reach the vault half.
+    let Some(vault) = vault else {
+        info!(
+            "dead-man-exit heartbeat: DISABLED — no vault node in this process (E175 \
+             LP-hosted split). Exits come from the pre-signed ladder armed at openChannel; \
+             the fleet cannot and must not derive the LP funding half here."
+        );
+        return;
+    };
     let interval = Duration::from_secs(interval_secs.max(1));
     // Re-wrap the shared quorum transport as the read handle the blocking readers +
     // `estimate_gas_and_send` expect (`&Arc<DaemonRpc>`).
@@ -480,5 +515,80 @@ pub async fn run_deadman_exit_heartbeat(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod e175_split_tests {
+    /// (E175) **THE FLEET MUST NOT BE ABLE TO ARM THE LP FUNDING HALF.**
+    ///
+    /// The property is enforced by the TYPE SYSTEM, not by a runtime flag a compromised
+    /// fleet could flip: `build_exit_call` takes `&VaultNode` by value-reference, so no
+    /// vault node means no exit can be constructed at all. What a runtime check *can*
+    /// still get wrong is the heartbeat reaching a `vault.` use before its `None` guard —
+    /// which would panic or, worse, be "fixed" later by deriving the half locally.
+    ///
+    /// ⚠️ **STRUCTURAL, AND DELIBERATELY NOT ABLE TO PASS VACUOUSLY.** Constructing a real
+    /// heartbeat needs a keys manager, chain monitor and EVM client, so this asserts on
+    /// this module's own source. The read is `expect`ed (a failed read must NOT pass), and
+    /// each PREMISE is asserted before the property so a rename cannot silently green it.
+    #[test]
+    fn the_heartbeat_cannot_reach_the_vault_before_its_none_guard() {
+        let src = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/deadman_exit.rs"
+        ))
+        .expect("must be able to read deadman_exit.rs; a failed read must NOT pass");
+
+        // ⚠️ SCOPE THE SEARCH TO THE CODE, NOT THIS TEST. The module reads the very file it
+        // lives in, and the assertions below quote the patterns they look for — so an
+        // unscoped search matches THIS TEST'S OWN SOURCE and reports a violation that does
+        // not exist in the code. (It did exactly that on the first run.) Truncating at the
+        // test module makes the test observe only what it is testing.
+        let marker = "mod e175_split_tests";
+        let src = &src[..src.find(marker).expect("test module marker")];
+
+        // PREMISE 1 — the dependency is optional at all. If this signature is ever changed
+        // back to `Arc<VaultNode>`, the fleet co-hosts the vault half again by construction.
+        let sig = "vault: Option<Arc<VaultNode>>";
+        let at_sig = src.find(sig).unwrap_or_else(|| {
+            panic!("PREMISE FAILED: the heartbeat no longer takes an OPTIONAL vault — the \
+                   fleet can hold both funding halves again")
+        });
+
+        // PREMISE 2 — the guard exists.
+        let guard = "let Some(vault) = vault else";
+        let at_guard = src[at_sig..].find(guard).map(|i| i + at_sig).unwrap_or_else(|| {
+            panic!("PREMISE FAILED: the `None` guard is gone")
+        });
+
+        // THE PROPERTY — no use of the vault occurs between the signature and the guard.
+        let between = &src[at_sig + sig.len()..at_guard];
+        assert!(
+            !between.contains("vault."),
+            "the heartbeat touches `vault.` BEFORE its None guard — it would panic on the \
+             LP-hosted split, and the tempting fix is to derive the LP half in-process, \
+             which is exactly the capability E175 removes"
+        );
+
+        // THE OTHER HALF OF THE PROPERTY — an exit cannot be BUILT without a vault node.
+        //
+        // ⚠️ An earlier version of this test compared SOURCE POSITIONS: it asserted the
+        // `arm_signer` call appears after the guard. That was wrong and the test caught it
+        // — `arm_signer` lives in `build_exit_call`, which is *defined earlier in the file*
+        // than the heartbeat. **File order is not reachability.** What actually makes the
+        // arming unreachable is the TYPE: `build_exit_call` demands `&VaultNode`, so
+        // without one it cannot be called at all, wherever it sits.
+        assert!(
+            src.contains("    vault: &VaultNode,"),
+            "PREMISE FAILED: `build_exit_call` no longer REQUIRES a &VaultNode — if it can \
+             be called without one, the fleet can build an exit for a channel whose funding \
+             half it should not hold"
+        );
+        assert!(
+            !src.contains("vault: Option<&VaultNode>"),
+            "an OPTIONAL vault in `build_exit_call` would mean an exit can be built without \
+             the LP half — the exact capability E175 removes"
+        );
     }
 }
