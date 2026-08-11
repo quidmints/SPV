@@ -9986,3 +9986,43 @@ not an enhancement to α; it is the axis that stops α from being harmful.
     entry, so a bearish or flat depositor pays spreads and carry to learn nothing.
   * ⚠️ **Rust does not build on macOS** (`quid-cvm` is Linux-only and transitive) — use the Docker image
     per CLAUDE.md, or the metric cannot be run at all.
+
+
+### 🎯 REGIME DETECTION — BUILD IT ON THE RING THAT ALREADY EXISTS. Zero new on-chain surface.
+
+Owner: *reuse as much as possible of what is there.* Applied, and it removes essentially all of the new
+machinery I was about to specify.
+
+**WHAT ALREADY EXISTS — the canonical tick series, already walked:**
+`OracleLib.ringVariance(Observation[65535] storage obs, ObsState storage st, uint n)` (`:233`) walks the
+band's own observation ring, taking `Δ tickCumulative` normalised by each point's OWN elapsed time
+(`rate[i] = Δ tickCumulative · 1e9 / dt`) and returning realized variance per second. Called from
+`Core.sol:311` with `n = 9`.
+⇒ **The exact series the owner requires ("measure the path on the BAND'S OWN ticks, not a price feed")
+is already sampled, already time-normalised, and already read.** No new oracle, no new keeper input, no
+new storage.
+
+**THE MISSING SIGNAL IS TWO NUMBERS OFF THE SAME WALK:**
+```
+path = Σ |rate[i] − rate[i−1]|          (total distance travelled)
+net  = |rate[n−1] − rate[0]|            (displacement, the SAME two endpoints)
+regime = path / net
+```
+⚠️ **Normalise against the DIFFUSION BASELINE, or the number is unreadable.** A pure random walk already
+gives `path/net ≈ √(n·2/π)` — so a raw ratio of 3 means nothing until you know whether n makes 3 high or
+low. **Report `(path/net) ÷ √(n·2/π)`: >1 = choppier than diffusion (lever LOSES, two spreads per cycle
+against IL that reverts free), <1 = trending (lever wins).**
+
+🔴 **KEEP IT OFF-CHAIN — this is not a preference, it is a hard constraint.** `Core` has **28 FREE BYTES**
+(after `58e983f`), the tightest margin in the repo. The strat reads the same ring by `eth_call` and
+computes both numbers itself. **Adding an on-chain accessor for this would be the change that makes
+`Core` undeployable.**
+
+⇒ **Reuse summary: the data source, the sampling, the time-normalisation and the ring walk are all
+already built. What is missing is two accumulators over a walk that already happens, computed off-chain.**
+
+**Unchanged constraints:** it INFORMS the per-depositor opt-in and must never switch a mode
+(`soldFractionActive` was exactly that latch); the lever is not downside protection (target is zero at or
+below entry); and the volume axis the `lev_keeper.rs:22` doc describes (`α` from flow) is ALSO unbuilt —
+**building α without this ratio levers UP in choppy-but-busy markets, which is the regime the lever loses
+in.**
