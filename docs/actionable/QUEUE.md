@@ -11366,3 +11366,45 @@ tick. **If the band pins price to oracle, can this input ever track market vol �
 steepness driven by a quantity structurally decoupled from the risk it prices?** Settle it by
 building (b) and comparing σ² against the feed's realised vol over the same window. **NOT by argument
 — five causes died that way today.**
+
+### 🧭 SKEW-HOLISTIC-2026-08-10 — everything reduces to ONE unverified premise. **Nothing landed should be undone.**
+
+**Read this before touching any skew item. It reorganises the day's results; it RETRACTS nothing.**
+
+**① THE SINGLE PREMISE EVERYTHING RESTS ON: does `realizedVarianceWad` track MARKET volatility?**
+Skew is `Γ·σ²·q/(1−q)^ρ` and the base is `σ²·confFrac/8 + SPLICE_FLOOR`. **ETH has NO `SPLICE_FLOOR`**
+⇒ at σ² ≈ 0 **BOTH the kernel AND the base are ≈ 0**. Measured: arm A of
+`test_UNITB_CounterMatchesWhatTheSwapperLoses` charged **exactly 0** skew — *post*-§UNIT-A.
+⇒ **§UNIT-A IS CORRECT AND CURRENTLY INERT FOR ETH.** Contingent, not wrong. **DO NOT REVERT IT** —
+it is the base's only reachable path, and it becomes load-bearing the moment σ² is real. **BTC is
+unaffected: `SPLICE_FLOOR` (2e15) is non-zero regardless (§E98: ~99.3% of BTC's floor).**
+🔬 **THE DECIDING TEST (unbuilt):** pin a real ETH feed, MOVE it, let reseats walk the band, and
+compare `realizedVarianceWad` against the feed's realised vol over the same window.
+  • **Tracks ⇒** the fixture was the problem; §SKEW-IS-NOISE-OVERTURNED holds; §UNIT-B, §UNIT-C and
+    calibration all matter, and at 30–60% vol the skew pins at the 3% cap.
+  • **Does NOT track ⇒** the skew's steepness is driven by a quantity structurally decoupled from the
+    risk it prices — the band pins execution to oracle and is ±0.2% wide, so its tick may only ever
+    record its own jitter. **Then §UNIT-B's calibration is moot and the real work is the INPUT.**
+
+**② WHAT IS SETTLED — do not re-derive, do not undo:**
+| result | status |
+|---|---|
+| §UNIT-A base reachable | ✅ landed, correct, inert-for-ETH-at-low-σ² |
+| §E42 premium leak closed at source | ✅ landed (+$6.000099 → +$0.000006) |
+| Counter == swapper's loss (0.007%) | ✅ **money-path question CLOSED** |
+| `min(fast, slow)` inert at any decay ratio | ✅ proven; §E55's defence never operated |
+| Slow registers dead → padding, +76 bytes | ✅ landed |
+| Owner: target must exclude the trade's own flow | ✅ DECIDED |
+| Two-sided idea exists, carrier undetermined | ⏸️ owner |
+
+**③ WHAT THE DAY'S CORRECTIONS ACTUALLY MEAN — none is a reason to undo code:**
+- §UNIT-SKEW-IS-NOISE's 0.04% and §SKEW-IS-NOISE-OVERTURNED are the SAME measurement read at two
+  different σ². **Neither is wrong; both are conditional on ①.**
+- §UNIT-FORELLA (path-independence is a hole, `test_E71` measures level-vs-marginal) is INDEPENDENT
+  of ① and survives either answer.
+- The interpolation gate was WITHDRAWN because §E59 already fixed it — **a correction to my claim,
+  not to the code.**
+
+**④ ORDER, GIVEN ①:** build the feed-driven fixture FIRST. It is cheap, it is a measurement not a
+design argument, and **§UNIT-B / §UNIT-C / §UNIT-C-BAR / §E83 all inherit its answer.** Calibrating a
+term whose input may be structurally flat is the definition of the axis nobody measured (rule 9).
