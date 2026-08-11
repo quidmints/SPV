@@ -10709,3 +10709,43 @@ was clean because the worktree was dedicated and untouched.
 4. 📌 **MEASURE THE SIBLINGS — same one-line shape:** `LevManager` (24,506 / 70 free), `LevMath`
    (24,556 / 20), `Vogue` (24,160 / 416), `Vault`, `Aux`. CLAUDE.md 8c is a GENERAL result; `LevMath`
    and `LevManager` are the other contracts flagged frozen.
+
+| **E165-presigned-ladder** | ✅ **THE LP SIGNS ONCE, AT OPEN, AND NEVER AGAIN — pre-signed exit shapes turn loss-of-funds risk into degraded service (owner: *"allowed shapes at open is something that should happen anyway"*, 2026-08-10).** ✅ **`openChannel` takes `Types.ExitArming[]` and VERIFIES EVERY SHAPE (structure + BIP-341 sighash + BIP-340 signature, §E128). `exitArmedAt[channelId][deadline]` records the set; `recordDeadManExit` accepts ANY armed deadline instead of a single current one.** 🔑 **THE INVERSION, which is why this beats every earlier proposal: the fleet can execute any PRE-SIGNED shape and **nothing else**, because it cannot manufacture a signature for a shape the LP's half never signed. An operation outside the set is **DEGRADED SERVICE** (the channel cannot splice) rather than **LOSS OF FUNDS** (the exits are already signed and stay broadcastable). **The first construction in this thread whose failure mode has a floor.**** 🔑 **AND IT REMOVES THE LIVENESS COST THAT KILLED PER-LP CUSTODY: refreshing an exit needs the LP's funding half, i.e. LP PARTICIPATION. A ladder pre-signed at open makes that a ONE-TIME act — the LP signs and goes offline forever. `emitDeadManExit` survives as a refresh path but its role INVERTS: it is now the exception, not the heartbeat.** ⚠️ **HARD DEPENDENCY, STATED SO IT IS NOT OVERSOLD: this bounds a compromised fleet **ONLY IF THE LP ACTUALLY HOLDS A FUNDING HALF.** In today's vault flow the fleet holds both, so the ladder constrains nothing — it is the mechanism that makes PER-LP CUSTODY WORKABLE, not a substitute for it. **The two land together or neither does.** ⇒ see §E166-open-items item 8.** 🧹 **TWO RULE-1 CLEANUPS THE CHANGE FORCED: (a) `recordDeadManExit` compared `extractLocktime(rawExitTx)` against `deadline` — which, once `deadline` BECAME that value, compared a thing to itself: it read as a guard and asserted nothing. (b) two more FRAMES (`_armLadder`, `_proveFundingKeys`) because a calldata array cost two stack slots. **22,280 bytes, margin 2,296.** | ✅ pre-signed ladder: LP signs once; failure mode becomes service, not funds |
+
+| **E166-open-items** | 📋 **CONSOLIDATED OPEN LIST — owner: *"make sure you dont lose track of these"* (2026-08-10). Booked in ONE place because these were accumulating across a long session and prose does not survive a context window (rule 12).** **1. LAZY `openChannel` / LAZY close — DELETE BOTH ENTRYPOINTS** (owner, this message). The intent is that a channel's existence is DERIVED from proofs presented at point of use, rather than announced by an explicit lifecycle call. ⚠️ I previously read *"lazy-load openChannel"* as folding `registerDelegation` into it (§E157) — **that was a different thing and the original ask is still open.** Open question: `openChannel` CREDITS the LP's pool position, so deferring it defers the LP's earnings; the close side is easier since retirement is already permissionless (§E153/§E155). **2. §E159 remainder** — pin the fleet deposit key in RUST (off `m/70'/swap_index'`, both levels hardened and therefore underivable from any xpub); BOLT11 rail gated on an on-chain splice proof so EVERY credit path ends in a Bitcoin proof. **3. Rust driver `channel_driver.rs:709`** — presign the exit + carry the LP signature (§E156/§E157). **The daemon cannot open channels until this lands.** **4. `e2e_ffi` must emit a SIGNED dead-man exit** (§E164-c) — the only remaining test failure of mine. **5. NON-GLOBAL FRESHNESS** (§E158-freshness-killswitch) — the shared freshness UTXO is a one-tx revocation of EVERY LP's escape. Fee cost of per-channel freshness UNMEASURED. **6. §E138** — proof-of-possession: `btcRecipientOf` proves on-curve, not control. **7. §E140 subtraction** — `TxParser` is now used for WITNESS parsing (§E128); the duplicated `BitcoinTx` surface is NOT yet removed, and §E140-r2 says outpoint logic must NOT move (byte-order inconsistency). **8. PER-LP CUSTODY** — cloud enclave or phone key. **§E165 is inert without it.** Phone TEEs do not do secp256k1 (⚠️ UNVERIFIED, general platform knowledge), so a phone means a key in app storage — weaker per-instance but HETEROGENEOUS, which is the one thing §E160's monoculture argument says is missing. **9. ATTESTATION TTL** — make governance fail CLOSED: an image loses authority when its attestation lapses, so a slow Safe disables rather than permits. Costs liveness. **10. IMAGE-ROTATION TIMELOCK ≥ dead-man CLTV delta** — so LPs can exit before new code can act. **11. PER-HOP DRAINAGE BOUND** — reduces to *pin the registry* at n=1 (§E160-c). **12. `src/mock.sol` RENAME** — a crucial production contract with a name that reads as test scaffolding. **13. `unregisterBtcLp` MERGE** — a one-line wrapper over `_resizeBtcLp(full=true)`. **14. §E146 JIT measurement · §E144 residual diagnosis.** | 📋 14 open items incl. the lazy open/close deletion I mis-read as E157 |
+
+### ✅ ORACLE-FREE-ANSWERED — the band CANNOT recover from an unusable internal price without a feed. Cited, by design.
+
+**Owner: *"can the band recover from an unusable internal price without an external feed — that's a
+question about the reseat path, not the premium."* Correct framing, and the reseat path answers it.**
+
+🔴 **NO — AND THE REFUSAL IS DELIBERATE.** `SwapLib.sol:1874-1877` (repack, on going out of range):
+```
+if (twap == 0) return r; // didRepack stays false → keep current range
+```
+with the comment *"Don't repack to a manipulated spot — need the oracle. If unavailable (twap==0,
+e.g. bootstrap) … keep the range."* And `twapResolve:151` returns `(price,false)` when `feed==0`, so
+a zero pool price STAYS zero ⇒ repack returns immediately ⇒ the §A.13 deadlock (**measured: 8 repacks,
+0 `addLiq`, $176,779 surplus + 7.88 ETH stranded**). **§A.13's FIX WAS the anchor** — routing
+`price==0` through to `(ext18, true)`, which `:150` calls *"the auto-heal signal the curve-reseat keys
+off."* ⇒ **The recovery mechanism IS the feed. There is no internal path.**
+
+⚠️ **AND THE PREMIUM CANNOT SUBSTITUTE — the circularity now shows up in the SAFETY CHECK, not just
+the incentive.** `isManipulated(spot, twap, 300)` (`:1881`) compares spot to twap; if twap is
+pool-derived, the pool is being checked against itself.
+✅ **BUT IT DEGRADES RATHER THAN VANISHES — state this precisely, do not overclaim either way:** twap
+is TIME-AVERAGED and spot is INSTANTANEOUS, so spot-vs-own-TWAP still catches a **ONE-BLOCK SPIKE**.
+What it cannot catch is **manipulation SUSTAINED ACROSS THE TWAP WINDOW** — which is exactly what
+Chainlink's 5% deviation gate (`Aux.sol:189`) adds.
+
+⇒ **DROPPING CHAINLINK COSTS TWO SEPARABLE THINGS:**
+1. **Sustained-manipulation defence** — a RISK decision that could legitimately be taken (bounded by
+   how deep the band is and how long an attacker must hold the pool off-market).
+2. **The `twap == 0` auto-heal** — a **LIVENESS BUG with a measured $176,779 precedent**, NOT a risk
+   decision. ⇒ **If Chainlink is ever removed, (2) MUST be replaced first**, and the replacement has
+   to produce a usable price from something that is not the pool. Candidates (none evaluated):
+   another venue's TWAP read on-chain · a keeper-submitted price under a bound · a wider-window
+   internal TWAP that survives the excursion. **All reintroduce an external reference in some form —
+   which is the honest shape of the answer.**
+📌 §UNIT-ASYM: check `assetPriceFeed(WBTC)` separately; ETH has NO feed pinned in the fixture
+(§ORACLE-FREE-MEASURED), so ETH's `isManipulated` is ALREADY spot-vs-own-TWAP today.
