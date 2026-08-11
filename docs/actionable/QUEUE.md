@@ -11832,3 +11832,35 @@ than the argument supports is how "bound the bonus" became "delete it" (§UNIT-B
   **Measure the variance OF the estimator in Phase 1.**
 - **THE NEW WINDOW CONSTANT** is the same calibration axis §E83 gates — this does not escape §E83, it
   relocates the dependency from the FORECAST to the SETTLEMENT lag.
+
+### 🔬 SIGMA-REMOVE-P1-CONSTRAINT — the obvious realized-loss estimator is ALSO shape-dependent (12×). It must be INVENTORY-based.
+
+**Phase 1 started, and its first output is a constraint that kills the naive implementation BEFORE any
+contract code — which is what Phase 1 is for.**
+
+⛔ **A TRADE-BASED PROXY REPRODUCES THE PATHOLOGY.** Take `loss = size · |Δprice|` accrued per swap:
+| path | accrued loss |
+|---|---|
+| whale: one swap `S`, tick moves `ΔT` | **`S·ΔT`** |
+| split: twelve of `S/12`, each moving `ΔT/12` | `12 · (S/12)(ΔT/12)` = **`S·ΔT/12`** |
+⇒ **A 12× GAP BETWEEN IDENTICAL ENDPOINTS** — worse than σ²'s measured 2.34×. **Because per-trade
+price impact scales WITH TRADE SIZE, any per-trade product of size × move is quadratic in the split
+factor.** ⇒ **§SIGMA-REMOVE's proof does NOT transfer automatically: "it's a decaying sum" is
+necessary but NOT sufficient — the SUMMAND must be path-independent too.**
+
+✅ **THE CONSTRAINT: THE ESTIMATOR MUST BE INVENTORY-BASED, NOT TRADE-BASED.** Accrue mark-to-market on
+the **INVENTORY HELD ACROSS THE INTERVAL** — `inv · Δprice` between observations — which **TELESCOPES**:
+twelve intervals summing the same total move give the same total as one, for the same inventory. ⇒
+Path-independent BY CONSTRUCTION, which is the property the whole change exists to buy.
+📌 **AND IT IS THE ECONOMICALLY RIGHT QUANTITY ANYWAY:** LVR is the loss on the POSITION as price
+moves, not a per-fill toll. A trade-based measure double-counts impact the swapper already paid
+through the curve.
+▶️ **PHASE 1 REVISED — still measure-only, still no wiring:**
+   1. Accrue `inv · Δtick` (tick = log-price, so it needs NO price oracle — `Core` already reads its
+      own ring) into a decaying sum, per pool.
+   2. **Acceptance is unchanged and now sharper: re-run the PROBE test (§UNIT-B-ROOT-FOUND). σ² gave
+      2.34×; a trade-based proxy would give ~12×; the inventory-based one must give ~1×.** Three
+      candidates, one falsifiable number, no pricing byte touched.
+   3. Measure the ESTIMATOR'S OWN VARIANCE alongside its level (§SIGMA-REMOVE-RESCOPED risk 2).
+⚠️ **DO NOT SKIP TO WIRING ON THE STRENGTH OF THE ALGEBRA ABOVE.** It is analysis, not measurement —
+today's ledger is nine measured against twelve reasoned-and-withdrawn.
