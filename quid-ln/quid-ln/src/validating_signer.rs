@@ -394,6 +394,15 @@ pub struct ValidatingChannelSigner {
     /// **write-once**. A settable-twice comparand could be REPLACED by the same untrusted
     /// node it exists to check, which would hand the attacker the referee.
     truth: std::sync::OnceLock<(std::sync::Arc<dyn ChannelTruthSource>, FundingRole)>,
+    /// (E177-d) Set the first time the chain reports a RECORD for this channel.
+    ///
+    /// 🔑 **THIS IS WHAT CLOSES THE DOWNGRADE.** Without it, a hostile node could hold the
+    /// signer in [`TruthVerdict::NotRecorded`] forever — naming a funding outpoint that
+    /// resolves to no channel — and so keep the on-chain comparand permanently out of play,
+    /// silently reducing every check to §E176-C self-consistency. With it, `NotRecorded`
+    /// after a `Match` is a REGRESSION and poisons: the pre-record window becomes strictly
+    /// one-way, entered once and never re-entered.
+    truth_recorded: std::sync::atomic::AtomicBool,
 }
 
 /// The late-bound per-channel data the MuSig2 (`TaprootChannelSigner`) bodies
@@ -455,13 +464,45 @@ pub struct TaprootSignerContext {
 /// (`client::eth_read_agreed`, pinned to `tip − AGREED_READ_DEPTH`), so a host can only
 /// DEFLATE the tip to serve an older view — never forge the value at the block it names.
 pub trait ChannelTruthSource: Send + Sync {
-    /// Confirm a candidate `(lpPubkey, hopPubkey)` pair against the on-chain `keysHash`.
-    /// `Err(())` if it does not match, or if the truth could not be read — **fail closed**:
-    /// an unreadable chain is not permission to sign against an unchecked context.
-    fn verify_funding_keys(&self, lp_pubkey: &[u8; 33], hop_pubkey: &[u8; 33])
-        -> Result<(), ()>;
-    /// The on-chain funded size in satoshis for this channel's CURRENT funding scope.
-    fn amount_sats(&self) -> Result<u64, ()>;
+    /// Compare a candidate context against the chain.
+    ///
+    /// `Err(())` means the chain could not be READ, which is **fail closed** — an
+    /// unreadable comparand is not permission to sign against an unchecked context, or a
+    /// hostile host disables the whole check by breaking its own RPC.
+    ///
+    /// A successful read returns one of the three [`TruthVerdict`] states; see that type
+    /// for why two would be wrong.
+    fn verify(
+        &self,
+        lp_pubkey: &[u8; 33],
+        hop_pubkey: &[u8; 33],
+        funding_value_sat: u64,
+    ) -> Result<TruthVerdict, ()>;
+}
+
+/// (E177-d) What the chain says about a channel. **THREE states, and the third is not
+/// padding — omitting it deadlocks every channel open.**
+///
+/// The EVM's `openChannel` requires the funding transaction to be **SPV-proven**, which
+/// happens strictly AFTER LDK has signed `funding_created` and the first commitments. So a
+/// real, live, honest channel genuinely has NO on-chain record for part of its life. A
+/// two-state check (match / mismatch) would refuse to sign during exactly that window and
+/// no channel could ever be opened.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TruthVerdict {
+    /// The chain has no record of this channel yet.
+    ///
+    /// ⚠️ **THIS IS THE CHECK'S DOMAIN OF DEFINITION, NOT A HOLE IN IT.** Before the record
+    /// exists there is nothing to compare against — and, crucially, **the EVM has not
+    /// credited the LP either**, because the record and the credit are the SAME event
+    /// (`openChannel` → `registerBtcLp`). So a channel held in this state has no protocol
+    /// position to steal *through the books*; the comparand is absent because the thing it
+    /// would protect does not exist yet.
+    NotRecorded,
+    /// Recorded, and the candidate keys + funded size match what was pinned at open.
+    Match,
+    /// Recorded, and the candidate CONTRADICTS it.
+    Mismatch,
 }
 
 /// Which side of the 2-of-2 this signer is, so a candidate pair can be ordered the way
@@ -493,6 +534,7 @@ impl ValidatingChannelSigner {
             taproot_ctx: Mutex::new(None),
             ctx_poisoned: std::sync::atomic::AtomicBool::new(false),
             truth: std::sync::OnceLock::new(),
+            truth_recorded: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -533,6 +575,7 @@ impl ValidatingChannelSigner {
     /// no truth source (unchanged §E176-C behaviour); otherwise both the funding-key pair
     /// and the funded size must match what `BTCChannels` pinned.
     fn check_against_chain(&self, ctx: &TaprootSignerContext) -> Result<(), ()> {
+        use std::sync::atomic::Ordering::SeqCst;
         let Some((truth, role)) = self.truth.get() else { return Ok(()) };
         // The BASE key: `keysHash` was pinned at open, before any splice rotation.
         let secp = Secp256k1::new();
@@ -542,11 +585,19 @@ impl ValidatingChannelSigner {
             FundingRole::Lp => (&ours, &theirs),
             FundingRole::Hop => (&theirs, &ours),
         };
-        truth.verify_funding_keys(lp, hop)?;
-        if truth.amount_sats()? != ctx.funding_value_sat {
-            return Err(());
+        // `Err` = unreadable chain ⇒ fail closed (propagated, poisons at the call site).
+        match truth.verify(lp, hop, ctx.funding_value_sat)? {
+            TruthVerdict::Match => {
+                self.truth_recorded.store(true, SeqCst);
+                Ok(())
+            }
+            TruthVerdict::Mismatch => Err(()),
+            // The one-way window. Legitimate BEFORE the record exists; a DOWNGRADE ATTEMPT
+            // after one has been seen, which is the only form the downgrade can take.
+            TruthVerdict::NotRecorded => {
+                if self.truth_recorded.load(SeqCst) { Err(()) } else { Ok(()) }
+            }
         }
-        Ok(())
     }
 
     /// (E176-C) True once the node has contradicted a taproot context already in force.
@@ -1805,14 +1856,25 @@ mod tests {
         hop: [u8; 33],
         sats: u64,
         readable: bool,
+        /// Flips the source to `NotRecorded` on demand, so a test can drive the chain
+        /// BACKWARDS — which is the only shape the downgrade attack can take.
+        not_recorded: std::sync::atomic::AtomicBool,
     }
     impl ChannelTruthSource for FakeTruth {
-        fn verify_funding_keys(&self, lp: &[u8; 33], hop: &[u8; 33]) -> Result<(), ()> {
-            if !self.readable { return Err(()); }
-            if *lp == self.lp && *hop == self.hop { Ok(()) } else { Err(()) }
-        }
-        fn amount_sats(&self) -> Result<u64, ()> {
-            if self.readable { Ok(self.sats) } else { Err(()) }
+        fn verify(
+            &self, lp: &[u8; 33], hop: &[u8; 33], funding_value_sat: u64,
+        ) -> Result<TruthVerdict, ()> {
+            if !self.readable {
+                return Err(()); // unreadable chain
+            }
+            if self.not_recorded.load(std::sync::atomic::Ordering::SeqCst) {
+                return Ok(TruthVerdict::NotRecorded);
+            }
+            if *lp == self.lp && *hop == self.hop && funding_value_sat == self.sats {
+                Ok(TruthVerdict::Match)
+            } else {
+                Ok(TruthVerdict::Mismatch)
+            }
         }
     }
 
@@ -1832,6 +1894,7 @@ mod tests {
             hop: base_funding_pk(&honest_cp, &secp),
             sats: FUNDING_SATS,
             readable: true,
+            not_recorded: std::sync::atomic::AtomicBool::new(false),
         });
         let signer = ValidatingChannelSigner::new(inner, committed_script())
             .with_truth_source(truth, FundingRole::Lp);
@@ -1854,6 +1917,7 @@ mod tests {
             hop: base_funding_pk(&cp, &secp),
             sats: FUNDING_SATS,
             readable: true,
+            not_recorded: std::sync::atomic::AtomicBool::new(false),
         });
         let signer = ValidatingChannelSigner::new(inner, committed_script())
             .with_truth_source(truth, FundingRole::Lp);
@@ -1874,6 +1938,7 @@ mod tests {
             hop: base_funding_pk(&cp, &secp),
             sats: FUNDING_SATS + 12_345,   // the chain says something else
             readable: true,
+            not_recorded: std::sync::atomic::AtomicBool::new(false),
         });
         let signer = ValidatingChannelSigner::new(inner, committed_script())
             .with_truth_source(truth, FundingRole::Lp);
@@ -1893,6 +1958,7 @@ mod tests {
             hop: base_funding_pk(&cp, &secp),
             sats: FUNDING_SATS,
             readable: false,
+            not_recorded: std::sync::atomic::AtomicBool::new(false),
         });
         let signer = ValidatingChannelSigner::new(inner, committed_script())
             .with_truth_source(truth, FundingRole::Lp);
@@ -1913,6 +1979,7 @@ mod tests {
             hop: base_funding_pk(&cp, &secp),
             sats: FUNDING_SATS,
             readable: true,
+            not_recorded: std::sync::atomic::AtomicBool::new(false),
         });
         // Same keys, wrong declared side ⇒ the pair hashes in the other order.
         let signer = ValidatingChannelSigner::new(inner, committed_script())
@@ -1948,6 +2015,7 @@ mod tests {
                 hop: base_funding_pk(&cp, &secp),
                 sats: FUNDING_SATS,
                 readable: true,
+                not_recorded: std::sync::atomic::AtomicBool::new(false),
             }),
             FundingRole::Lp,
         ));
@@ -1968,6 +2036,7 @@ mod tests {
             hop: base_funding_pk(&make_signer(2), &secp),
             sats: FUNDING_SATS,
             readable: true,
+            not_recorded: std::sync::atomic::AtomicBool::new(false),
         });
         // An attacker-supplied source that would rubber-stamp anything.
         let permissive = std::sync::Arc::new(FakeTruth {
@@ -1975,11 +2044,111 @@ mod tests {
             hop: base_funding_pk(&make_signer(9), &secp),
             sats: 0,
             readable: true,
+            not_recorded: std::sync::atomic::AtomicBool::new(false),
         });
         let signer = ValidatingChannelSigner::new(inner, committed_script());
         assert!(signer.set_truth_source(honest, FundingRole::Lp));
         assert!(!signer.set_truth_source(permissive, FundingRole::Lp),
                 "a second truth source must be REFUSED, not swapped in");
+    }
+
+    // --- (E177-d) The THREE states, and the latch that closes the downgrade ---------
+
+    fn truth_for(inner: &InMemorySigner, cp: &InMemorySigner, secp: &Secp256k1<secp256k1::All>)
+        -> std::sync::Arc<FakeTruth>
+    {
+        std::sync::Arc::new(FakeTruth {
+            lp: base_funding_pk(inner, secp),
+            hop: base_funding_pk(cp, secp),
+            sats: FUNDING_SATS,
+            readable: true,
+            not_recorded: std::sync::atomic::AtomicBool::new(false),
+        })
+    }
+
+    /// 🔑 STATE (a) MUST BE PERMISSIVE, OR NO CHANNEL CAN EVER OPEN. The EVM's
+    /// `openChannel` needs an SPV proof, which lands only AFTER LDK has signed
+    /// `funding_created` and the first commitments — so an honest, live channel genuinely
+    /// has no on-chain record for part of its life. A two-state check would deadlock here.
+    #[test]
+    fn pre_record_window_is_permissive() {
+        let secp = Secp256k1::new();
+        let (inner, cp) = (make_signer(1), make_signer(2));
+        let truth = truth_for(&inner, &cp, &secp);
+        truth.not_recorded.store(true, std::sync::atomic::Ordering::SeqCst);
+        let signer = ValidatingChannelSigner::new(inner, committed_script())
+            .with_truth_source(truth, FundingRole::Lp);
+        give_ctx_round(&signer, &cp, None, 0, &secp);
+        assert!(!signer.ctx_poisoned(), "an unrecorded channel must still be openable");
+        assert!(signer.taproot_key_agg(&secp).is_ok());
+    }
+
+    /// 🔴 THE CLOSURE. Once the chain has reported a RECORD, "no record" is a REGRESSION —
+    /// the only shape the downgrade attack can take — and must poison. Without this latch a
+    /// hostile node keeps the comparand permanently out of play by naming a funding
+    /// outpoint that resolves to no channel, silently reducing every check to §E176-C
+    /// self-consistency. With it, the pre-record window is strictly ONE-WAY.
+    #[test]
+    fn a_recorded_channel_can_never_go_back_to_unrecorded() {
+        let secp = Secp256k1::new();
+        let (inner, cp) = (make_signer(1), make_signer(2));
+        let truth = truth_for(&inner, &cp, &secp);
+        let signer = ValidatingChannelSigner::new(inner, committed_script())
+            .with_truth_source(truth.clone(), FundingRole::Lp);
+        give_ctx_round(&signer, &cp, None, 0, &secp);
+        assert!(!signer.ctx_poisoned(), "PREMISE: a matching record passes and latches");
+        // The node now serves a view in which the channel does not exist.
+        truth.not_recorded.store(true, std::sync::atomic::Ordering::SeqCst);
+        give_ctx_round(&signer, &cp, None, 1, &secp);
+        assert!(signer.ctx_poisoned(), "downgrading a RECORDED channel must poison");
+        assert!(signer.taproot_key_agg(&secp).is_err());
+    }
+
+    /// ⚠️ CONTROL — the latch must not fire on ordinary repeated success, or it would be
+    /// indistinguishable from "poison on the second context" and break every live channel.
+    #[test]
+    fn repeated_matching_reads_do_not_poison() {
+        let secp = Secp256k1::new();
+        let (inner, cp) = (make_signer(1), make_signer(2));
+        let truth = truth_for(&inner, &cp, &secp);
+        let signer = ValidatingChannelSigner::new(inner, committed_script())
+            .with_truth_source(truth, FundingRole::Lp);
+        for round in 0..4 {
+            give_ctx_round(&signer, &cp, None, round, &secp);
+        }
+        assert!(!signer.ctx_poisoned(), "a healthy channel must survive repeated checks");
+    }
+
+    /// A wrong candidate against a REAL record is a mismatch, not a "no record" — the
+    /// distinction is what makes the latch meaningful.
+    #[test]
+    fn recorded_but_contradicted_is_a_mismatch() {
+        let secp = Secp256k1::new();
+        let (inner, cp) = (make_signer(1), make_signer(2));
+        let signer = ValidatingChannelSigner::new(inner.clone(), committed_script())
+            .with_truth_source(truth_for(&inner, &cp, &secp), FundingRole::Lp);
+        give_ctx_round(&signer, &make_signer(9), None, 0, &secp);
+        assert!(signer.ctx_poisoned(), "a forged key against a real record must poison");
+    }
+
+    /// 🔑 THE PROPERTY, ASSERTED RATHER THAN INFERRED: a wrong candidate can only ever
+    /// DOWNGRADE or REFUSE — it can never be made to PASS. Here the funded size disagrees
+    /// with the chain, which is `Mismatch`, never `Match`.
+    #[test]
+    fn a_wrong_funding_value_can_never_pass() {
+        let secp = Secp256k1::new();
+        let (inner, cp) = (make_signer(1), make_signer(2));
+        let truth = truth_for(&inner, &cp, &secp);
+        assert_eq!(
+            truth.verify(&truth.lp, &truth.hop, FUNDING_SATS).unwrap(),
+            TruthVerdict::Match,
+            "PREMISE: the honest tuple matches"
+        );
+        assert_eq!(
+            truth.verify(&truth.lp, &truth.hop, FUNDING_SATS + 1).unwrap(),
+            TruthVerdict::Mismatch,
+            "a funded size the chain disagrees with is never a pass"
+        );
     }
 
     // --- Monotonic state machine: pure helpers --------------------------------

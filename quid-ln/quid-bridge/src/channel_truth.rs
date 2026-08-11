@@ -29,7 +29,7 @@
 use std::sync::Arc;
 
 use alloy_primitives::Address;
-use quid_ln::validating_signer::ChannelTruthSource;
+use quid_ln::validating_signer::{ChannelTruthSource, TruthVerdict};
 
 use crate::client::eth_call_raw_agreed;
 use crate::transport::JsonRpc;
@@ -78,29 +78,42 @@ impl<R: JsonRpc> OnChainChannelTruth<R> {
 }
 
 impl<R: JsonRpc + Send + Sync> ChannelTruthSource for OnChainChannelTruth<R> {
-    fn verify_funding_keys(&self, lp_pubkey: &[u8; 33], hop_pubkey: &[u8; 33]) -> Result<(), ()> {
+    fn verify(
+        &self,
+        lp_pubkey: &[u8; 33],
+        hop_pubkey: &[u8; 33],
+        funding_value_sat: u64,
+    ) -> Result<TruthVerdict, ()> {
         let bytes = self.read()?;
-        // Constant-time-ness is not required (both sides are public), but an EXACT match is:
-        // this is the whole check, and a prefix comparison would accept a truncated read.
-        if word(&bytes, W_KEYS_HASH)? == quid_hop::evm_codec::keys_hash(lp_pubkey, hop_pubkey) {
-            Ok(())
-        } else {
-            Err(())
-        }
-    }
+        let keys_hash = word(&bytes, W_KEYS_HASH)?;
 
-    fn amount_sats(&self) -> Result<u64, ()> {
-        let bytes = self.read()?;
+        // ⚠️ `keysHash == 0` IS THE "no record" TEST, NOT `amountSats == 0`.
+        // `keysHash` is pinned at open and never cleared, whereas `amountSats` legitimately
+        // reaches 0 on a CLOSED channel — so testing the amount would report a closed
+        // channel as never-recorded, which is precisely the state a downgrade wants to
+        // reach. An unwritten mapping entry reads as all-zero words.
+        if keys_hash.iter().all(|b| *b == 0) {
+            return Ok(TruthVerdict::NotRecorded);
+        }
+
+        if keys_hash != quid_hop::evm_codec::keys_hash(lp_pubkey, hop_pubkey) {
+            return Ok(TruthVerdict::Mismatch);
+        }
+
+        // The funded size is committed in the BIP-341 key-path sighash, so it is part of
+        // the identity being checked, not a separate nicety.
         let w = word(&bytes, W_AMOUNT_SATS)?;
-        // ⚠️ REFUSE an out-of-range value rather than truncating it. `amountSats` is compared
-        // against the funding value committed in the BIP-341 sighash, so silently wrapping a
-        // garbage response into a plausible u64 would make the comparison meaningless — the
-        // same reasoning `read_channel_state` gives for not capping to u128::MAX.
+        // ⚠️ REFUSE an out-of-range value rather than truncating it: silently wrapping a
+        // garbage response into a plausible u64 would make the comparison meaningless —
+        // the same reasoning `read_channel_state` gives for not capping to u128::MAX.
         if w[..24].iter().any(|b| *b != 0) {
             return Err(());
         }
-        let mut le = [0u8; 8];
-        le.copy_from_slice(&w[24..32]);
-        Ok(u64::from_be_bytes(le))
+        let mut be = [0u8; 8];
+        be.copy_from_slice(&w[24..32]);
+        if u64::from_be_bytes(be) != funding_value_sat {
+            return Ok(TruthVerdict::Mismatch);
+        }
+        Ok(TruthVerdict::Match)
     }
 }
