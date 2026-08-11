@@ -2302,6 +2302,153 @@ mod tests {
         assert!(!lock_holds(&tx, 7, op, &expected), "index past the end must refuse");
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // (E180) THE MALICIOUSNESS SUITE — one hostile node, every attack this signer
+    // is supposed to stop, asserted as refusals rather than as prose.
+    //
+    // ⚠️ READ THE SCOPE BEFORE READING THE RESULTS. These prove the signer refuses a
+    // node that MISBEHAVES. They do NOT prove anything against an attacker who
+    // REPLACES THE BINARY — every check below lives in the binary, so an adversary
+    // who owns the enclave deletes the checks and the tests still pass. That gap is
+    // §E175 (run the signer where the operator cannot replace it) and no test in this
+    // file can close it. What these DO establish is that a compromised node which must
+    // keep running THIS code cannot steal, and that is the property §E175 will make
+    // load-bearing.
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// ⚠️ **THE CONTROL, AND IT COMES FIRST ON PURPOSE.** Every test below asserts a
+    /// REFUSAL, and a signer that refused everything would pass all of them while being
+    /// completely broken. This pins that the honest path still works: a real counterparty,
+    /// the funded size the chain agrees with, several close rounds, and a commitment — all
+    /// accepted, signer unpoisoned.
+    #[test]
+    fn honest_session_is_accepted_throughout() {
+        let secp = Secp256k1::new();
+        let (inner, cp) = (make_signer(1), make_signer(2));
+        let signer = ValidatingChannelSigner::new(inner.clone(), committed_script())
+            .with_truth_source(truth_for(&inner, &cp, &secp), FundingRole::Lp);
+        for round in 0..3 {
+            give_ctx_round(&signer, &cp, None, round, &secp);
+        }
+        assert!(!signer.ctx_poisoned(), "the honest path must not poison");
+        assert!(signer.taproot_key_agg(&secp).is_ok(), "and must still be able to sign");
+        assert!(signer.policy().record_holder_commitment(u64::MAX - 1).is_ok());
+    }
+
+    /// ATTACK 1 — rebuild `Q` around a counterparty key the LP never agreed to, so every
+    /// later partial signs for a different channel. Caught by the on-chain `keysHash`.
+    #[test]
+    fn attack_swap_the_counterparty_funding_key() {
+        let secp = Secp256k1::new();
+        let (inner, cp) = (make_signer(1), make_signer(2));
+        let signer = ValidatingChannelSigner::new(inner.clone(), committed_script())
+            .with_truth_source(truth_for(&inner, &cp, &secp), FundingRole::Lp);
+        give_ctx_round(&signer, &make_signer(9), None, 0, &secp);
+        assert!(signer.ctx_poisoned());
+        assert!(signer.taproot_key_agg(&secp).is_err(), "must stop signing entirely");
+    }
+
+    /// ATTACK 2 — the FUNDING-KEY LEAK. Replay a cooperative-close round with a DIFFERENT
+    /// closing transaction: same derived nonce, different sighash ⇒ two partials that
+    /// solve for the secret (`x = (s1−s2)/((e1−e2)·a)`). Refused at the source, where the
+    /// node controls the round, not merely at `bind_nonce`'s use-time check.
+    #[test]
+    fn attack_replay_a_closing_round_to_leak_the_funding_key() {
+        let secp = Secp256k1::new();
+        let (inner, cp) = (make_signer(1), make_signer(2));
+        let signer = ValidatingChannelSigner::new(inner.clone(), committed_script())
+            .with_truth_source(truth_for(&inner, &cp, &secp), FundingRole::Lp);
+        give_ctx_round(&signer, &cp, None, 4, &secp);
+        give_ctx_round(&signer, &cp, None, 3, &secp); // rewind the round
+        assert!(signer.ctx_poisoned(), "a regressed close round must poison");
+    }
+
+    /// ATTACK 3 — serve a chain view in which the channel does not exist, to put the
+    /// comparand permanently out of play and silently fall back to self-consistency.
+    #[test]
+    fn attack_downgrade_a_recorded_channel_to_unrecorded() {
+        let secp = Secp256k1::new();
+        let (inner, cp) = (make_signer(1), make_signer(2));
+        let truth = truth_for(&inner, &cp, &secp);
+        let signer = ValidatingChannelSigner::new(inner, committed_script())
+            .with_truth_source(truth.clone(), FundingRole::Lp);
+        give_ctx_round(&signer, &cp, None, 0, &secp);
+        truth.not_recorded.store(true, std::sync::atomic::Ordering::SeqCst);
+        give_ctx_round(&signer, &cp, None, 1, &secp);
+        assert!(signer.ctx_poisoned(), "the pre-record window is ONE-WAY");
+    }
+
+    /// ATTACK 4 — the cheapest attack available to a host: break your own RPC so the
+    /// comparand cannot be read, hoping the signer treats "unknown" as "fine".
+    #[test]
+    fn attack_break_the_rpc_to_disable_the_comparand() {
+        let secp = Secp256k1::new();
+        let (inner, cp) = (make_signer(1), make_signer(2));
+        let truth = std::sync::Arc::new(FakeTruth {
+            lp: base_funding_pk(&inner, &secp),
+            hop: base_funding_pk(&cp, &secp),
+            sats: FUNDING_SATS,
+            readable: false, // the chain cannot be read
+            not_recorded: std::sync::atomic::AtomicBool::new(false),
+        });
+        let signer = ValidatingChannelSigner::new(inner, committed_script())
+            .with_truth_source(truth, FundingRole::Lp);
+        give_ctx_round(&signer, &cp, None, 0, &secp);
+        assert!(signer.ctx_poisoned(), "an unreadable comparand must FAIL CLOSED");
+    }
+
+    /// ATTACK 5 — swap in a permissive comparand of the attacker's own, i.e. appoint the
+    /// referee. Refused: the truth source is write-once.
+    #[test]
+    fn attack_replace_the_comparand_with_a_permissive_one() {
+        let secp = Secp256k1::new();
+        let (inner, cp) = (make_signer(1), make_signer(2));
+        let signer = ValidatingChannelSigner::new(inner.clone(), committed_script())
+            .with_truth_source(truth_for(&inner, &cp, &secp), FundingRole::Lp);
+        let attacker = truth_for(&make_signer(9), &make_signer(8), &secp);
+        assert!(!signer.set_truth_source(attacker, FundingRole::Lp),
+                "a second comparand must be refused");
+        // …and the ORIGINAL is still the one enforcing.
+        give_ctx_round(&signer, &make_signer(9), None, 0, &secp);
+        assert!(signer.ctx_poisoned(), "the first comparand still binds");
+    }
+
+    /// ATTACK 6 — hand over an HTLC transaction that sweeps to a script the attacker chose.
+    #[test]
+    fn attack_redirect_a_holder_htlc_payout() {
+        let op = an_outpoint(0xAA);
+        let expected = a_txout(50_000, 0x51);
+        let to_attacker = a_txout(50_000, 0x99);
+        assert!(!lock_holds(&htlc_tx_with(op, vec![to_attacker]), 0, op, &expected),
+                "the HTLC sweep must land where the CHANNEL KEYS say");
+    }
+
+    /// ATTACK 7 — resurrect a revoked commitment after its secret was released, which is
+    /// how a counterparty steals a channel balance outright.
+    #[test]
+    fn attack_resign_a_revoked_commitment() {
+        let p = PolicyState::new(committed_script());
+        // Commitment numbers count BACKWARDS: a lower index is more advanced.
+        assert!(p.record_holder_commitment(100).is_ok(), "PREMISE: state 100 signed");
+        assert!(p.record_secret_release(100).is_ok(), "PREMISE: state 100 revoked");
+        assert!(p.record_holder_commitment(100).is_err(),
+                "re-signing a REVOKED holder state must be refused");
+        assert!(p.record_holder_commitment(101).is_err(),
+                "and so must regressing to an older one");
+    }
+
+    /// ATTACK 8 — redirect a cooperative close so the LP's balance pays the attacker.
+    /// This is the theft the whole design exists to stop; the payout-script lock catches it.
+    #[test]
+    fn attack_redirect_a_cooperative_close() {
+        let good = closing_tx_to(committed_script(), 50_000);
+        assert!(check_closing_payout_script(&good, &committed_script()).is_ok(),
+                "PREMISE: the honest close passes");
+        let stolen = closing_tx_to(other_script(), 50_000);
+        assert!(check_closing_payout_script(&stolen, &committed_script()).is_err(),
+                "a close paying the holder output ELSEWHERE must be refused");
+    }
+
     // --- Monotonic state machine: pure helpers --------------------------------
 
     #[test]
