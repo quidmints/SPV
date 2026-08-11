@@ -8,15 +8,35 @@
 //! signing request is routed through explicit policy checks before a signature
 //! is ever produced.
 //!
-//! # Deployment model: SELF-HOST
+//! # Deployment model — ⚠️ THE SELF-HOST ASSUMPTION THIS FILE WAS WRITTEN UNDER
+//! # NO LONGER HOLDS (§E175)
 //!
-//! QU!D LP nodes are self-hosted. There is no managed host and no remote
-//! signer: the keys live in-process in an [`InMemorySigner`] on the LP's own
-//! machine. A self-hosting LP fundamentally trusts its own node — so these
-//! policy checks are *defense-in-depth* against a bug or a partial compromise of
-//! the node's higher layers, not a trust boundary against the custody backend.
+//! This header used to state: *"QU!D LP nodes are self-hosted… the keys live
+//! in-process on the LP's own machine. A self-hosting LP fundamentally trusts
+//! its own node — so these policy checks are defense-in-depth against a bug or
+//! a partial compromise, not a trust boundary against the custody backend."*
+//!
+//! **That is no longer the architecture.** `quid-bridge/src/vault.rs:612` —
+//! *"no lpAuth — the LP runs nothing"* — and `quid-bridge/src/deadman_exit.rs`
+//! derives BOTH the hop and vault funding-half signers **in the fleet's own
+//! process**. So as deployed, this signer wraps keys the fleet holds and runs
+//! inside the fleet: **it is the fleet checking itself**, and the checks below
+//! enforce nothing against the one adversary that matters.
+//!
+//! Two consequences, and neither is fixed by editing this comment:
+//!
+//! * **The checks only become a trust boundary once the signer runs where the
+//!   node operator cannot replace it** (relocation to LP control — §E175). No
+//!   check added to this file survives an attacker who swaps the binary.
+//! * **Every method that delegates straight to `inner` was scoped to a BUGGY
+//!   node and is an UNCHECKED path against a HOSTILE one.** They are enumerated
+//!   and classified in §E176: 32 trait methods, 10 checked, 22 delegating.
+//!   `provide_taproot_context` was the highest-risk of them and is now validated
+//!   (§E176-C, below); the HTLC/justice group remains delegated by design, with
+//!   exposure bounded by in-flight HTLC value rather than the channel balance.
+//!
 //! Accordingly [`ValidatingChannelSigner`] wraps the [`InMemorySigner`]
-//! directly (no custody seam / backend abstraction), runs the two sound checks
+//! directly (no custody seam / backend abstraction), runs the checks
 //! below, and delegates everything else straight through.
 //!
 //! ```text
@@ -346,6 +366,19 @@ pub struct ValidatingChannelSigner {
     /// signers from multiple contexts. Never persisted (re-supplied by the
     /// handler from the reloaded `FundingScope` on restart).
     taproot_ctx: Mutex<Option<TaprootSignerContext>>,
+    /// (E176-C) Set once the node offers a taproot context that CONTRADICTS the one
+    /// already in force. Latching, and every key-path signing path checks it, so a
+    /// contradiction is **fail-closed and loud** rather than a silently-stale context
+    /// that would go on producing partials against the wrong aggregate.
+    ///
+    /// ⚠️ WHY A LATCH AND NOT "REJECT THE UPDATE". `TaprootChannelSigner::
+    /// provide_taproot_context` returns `()`, so a refusal cannot be propagated to the
+    /// caller. Merely ignoring the bad context would leave the previous good one in
+    /// place and keep signing — which looks like success. A node that contradicts
+    /// itself about what the channel IS is either broken or hostile; in both cases the
+    /// safe response is to stop signing this channel, not to guess which context was
+    /// the honest one.
+    ctx_poisoned: std::sync::atomic::AtomicBool,
 }
 
 /// The late-bound per-channel data the MuSig2 (`TaprootChannelSigner`) bodies
@@ -396,7 +429,14 @@ impl ValidatingChannelSigner {
             inner,
             policy: PolicyState::new(expected_holder_close_script),
             taproot_ctx: Mutex::new(None),
+            ctx_poisoned: std::sync::atomic::AtomicBool::new(false),
         }
+    }
+
+    /// (E176-C) True once the node has contradicted a taproot context already in force.
+    /// Every key-path signing path refuses while this is set.
+    pub fn ctx_poisoned(&self) -> bool {
+        self.ctx_poisoned.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// Borrow the wrapped in-process signer.
@@ -418,8 +458,53 @@ impl ValidatingChannelSigner {
     /// re-supplying a *different* context replaces it (a splice rebinds Q). This
     /// is the data the MuSig2 funding key-path bodies need but the
     /// `TaprootChannelSigner` trait surface does not pass.
+    /// (E176-C) ⚠️ **EVERY FIELD HERE IS SUPPLIED BY THE NODE AND NONE OF IT USED TO BE
+    /// CHECKED.** This was the highest-risk delegating path in the signer: the context
+    /// is what `taproot_key_agg` builds `Q` from and what the closing nonce height is
+    /// derived from, so a node that could rewrite it did not have to defeat the policy
+    /// checks — it moved the frame of reference they are computed against.
+    ///
+    /// Three invariants are enforced, all against the context ALREADY in force (the
+    /// signer's only trustworthy comparand here — see the on-chain note below):
+    ///
+    /// 1. **`closing_round` NEVER REGRESSES.** The cooperative-close secret nonce is
+    ///    derived at `closing_nonce_height(closing_round)`, so replaying a round with a
+    ///    DIFFERENT closing transaction signs a different message under the SAME nonce
+    ///    — the funding-key leak `x=(s1−s2)/((e1−e2)·a)`. `bind_nonce` catches this at
+    ///    use time; this catches it at the source, which is where the node controls it.
+    /// 2. **The counterparty funding pubkey is IMMUTABLE** for a funding scope. Swapping
+    ///    it mid-channel rebuilds `Q` around a key the counterparty chose, and every
+    ///    subsequent partial would be against a channel the LP never agreed to.
+    /// 3. **The funding value is IMMUTABLE** for a funding scope. It is committed in the
+    ///    BIP-341 key-path sighash, so a wrong value signs a different message.
+    ///
+    /// (2) and (3) are relaxed EXACTLY when `splice_parent_funding_txid` changes, because
+    /// a splice legitimately rotates the funding key and resizes the channel. That is the
+    /// one honest reason for either to move, and tying the relaxation to it means a
+    /// rebind cannot be requested without also declaring the rotation.
+    ///
+    /// 🔴 **WHAT THIS STILL DOES NOT DO, STATED SO IT IS NOT MISTAKEN FOR COMPLETE.**
+    /// These checks compare node-supplied data against EARLIER node-supplied data, so
+    /// they bind a node that contradicts itself — not one that lies CONSISTENTLY from
+    /// the first context onward, nor one that restarts the signer to clear the
+    /// comparand (`taproot_ctx` starts `None`, exactly like `nonce_bindings`). Closing
+    /// that requires validating against a source of truth the node does not author:
+    /// `BTCChannels` already pins `keysHash = keccak256(lpPubkey, hopPubkey)`,
+    /// `amountSats` and `btcRecipientOf` on-chain. See §E177.
     pub fn provide_taproot_context(&self, ctx: TaprootSignerContext) {
         if let Ok(mut slot) = self.taproot_ctx.lock() {
+            if let Some(prev) = slot.as_ref() {
+                let splice_rotated =
+                    prev.splice_parent_funding_txid != ctx.splice_parent_funding_txid;
+                let regressed_round = ctx.closing_round < prev.closing_round;
+                let rebound_identity = !splice_rotated
+                    && (ctx.counterparty_funding_pubkey != prev.counterparty_funding_pubkey
+                        || ctx.funding_value_sat != prev.funding_value_sat);
+                if regressed_round || rebound_identity {
+                    self.ctx_poisoned.store(true, std::sync::atomic::Ordering::SeqCst);
+                    return; // leave the in-force context untouched; signing now fails closed
+                }
+            }
             *slot = Some(ctx);
         }
     }
@@ -433,6 +518,12 @@ impl ValidatingChannelSigner {
         &self,
         secp_ctx: &Secp256k1<secp256k1::All>,
     ) -> Result<(musig2::KeyAggContext, usize, usize, u64, bitcoin::ScriptBuf), ()> {
+        // (E176-C) Fail closed on a self-contradicting node. This is the ONE choke point
+        // every key-path partial passes through — commitment, close and splice all build
+        // their aggregate here — so the latch is checked once and covers all of them.
+        if self.ctx_poisoned() {
+            return Err(());
+        }
         let ctx = {
             let slot = self.taproot_ctx.lock().map_err(|_| ())?;
             slot.clone().ok_or(())?
@@ -1466,6 +1557,119 @@ mod tests {
     fn make_validating(seed_byte: u8) -> ValidatingChannelSigner {
         let inner = make_signer(seed_byte);
         ValidatingChannelSigner::new(inner, committed_script())
+    }
+
+    // --- (E176-C) Taproot-context validation ---------------------------------
+    //
+    // `provide_taproot_context` was a pure pass-through of five NODE-SUPPLIED fields.
+    // It is the frame of reference every key-path check is computed against, so these
+    // tests pin the three invariants and the ONE case that may legitimately relax two
+    // of them.
+
+    /// THE NONCE-LEAK VECTOR AT ITS SOURCE. The cooperative-close secret nonce is
+    /// derived at `closing_nonce_height(closing_round)`, so a node that replays a round
+    /// with a different closing tx signs a different message under the same nonce and
+    /// leaks the funding key. Refuse the regression where the node controls it.
+    #[test]
+    fn taproot_ctx_rejects_closing_round_regression() {
+        let secp = Secp256k1::new();
+        let signer = make_validating(1);
+        let cp = make_signer(2);
+        give_ctx_round(&signer, &cp, None, 3, &secp);
+        assert!(!signer.ctx_poisoned(), "a first context is always accepted");
+        give_ctx_round(&signer, &cp, None, 2, &secp);
+        assert!(signer.ctx_poisoned(), "a REGRESSED closing round must poison the signer");
+        assert!(signer.taproot_key_agg(&secp).is_err(),
+                "every key-path partial must fail closed once poisoned");
+    }
+
+    /// Re-supplying the same round, and advancing it, are both normal.
+    #[test]
+    fn taproot_ctx_allows_round_advance_and_resupply() {
+        let secp = Secp256k1::new();
+        let signer = make_validating(1);
+        let cp = make_signer(2);
+        give_ctx_round(&signer, &cp, None, 0, &secp);
+        give_ctx_round(&signer, &cp, None, 0, &secp); // idempotent re-supply
+        give_ctx_round(&signer, &cp, None, 1, &secp); // fee-negotiation round
+        assert!(!signer.ctx_poisoned(), "advancing the close round is legitimate");
+        assert!(signer.taproot_key_agg(&secp).is_ok());
+    }
+
+    /// Swapping the counterparty funding pubkey rebuilds Q around a key the LP never
+    /// agreed to, so every later partial would sign for a different channel.
+    #[test]
+    fn taproot_ctx_rejects_counterparty_funding_key_swap() {
+        let secp = Secp256k1::new();
+        let signer = make_validating(1);
+        give_ctx_round(&signer, &make_signer(2), None, 0, &secp);
+        give_ctx_round(&signer, &make_signer(9), None, 0, &secp); // different cp key
+        assert!(signer.ctx_poisoned(), "rebinding the counterparty funding key must poison");
+    }
+
+    /// The funding value is committed in the BIP-341 key-path sighash, so moving it
+    /// silently signs a different message.
+    #[test]
+    fn taproot_ctx_rejects_funding_value_change() {
+        let secp = Secp256k1::new();
+        let signer = make_validating(1);
+        let cp = make_signer(2);
+        give_ctx_round(&signer, &cp, None, 0, &secp);
+        signer.provide_taproot_context(TaprootSignerContext {
+            counterparty_funding_pubkey: cp.pubkeys(&secp).funding_pubkey,
+            funding_value_sat: FUNDING_SATS + 1,
+            counterparty_closing_nonce: None,
+            closing_round: 0,
+            splice_parent_funding_txid: None,
+        });
+        assert!(signer.ctx_poisoned(), "changing the funding value must poison");
+    }
+
+    /// ⚠️ THE CONTROL — would this measurement look the same if the rule were wrong?
+    /// A splice legitimately rotates the funding key AND resizes the channel, so the
+    /// same two changes that poison above must be ACCEPTED when the node also declares
+    /// the rotation. Without this the rule would be indistinguishable from "never
+    /// change anything", which would break every splice.
+    #[test]
+    fn taproot_ctx_allows_rebind_across_a_declared_splice() {
+        let secp = Secp256k1::new();
+        let signer = make_validating(1);
+        give_ctx_round(&signer, &make_signer(2), None, 0, &secp);
+        signer.provide_taproot_context(TaprootSignerContext {
+            counterparty_funding_pubkey: make_signer(9).pubkeys(&secp).funding_pubkey,
+            funding_value_sat: FUNDING_SATS * 2,
+            counterparty_closing_nonce: None,
+            closing_round: 0,
+            splice_parent_funding_txid: Some(bitcoin::Txid::from_raw_hash(
+                bitcoin::hashes::Hash::from_byte_array([7u8; 32]))),
+        });
+        assert!(!signer.ctx_poisoned(),
+                "a splice may rotate the funding key and resize the channel");
+        assert!(signer.taproot_key_agg(&secp).is_ok());
+    }
+
+    /// 🔴 §E176-D — THE RESTART HYPOTHESIS, SETTLED BY MEASUREMENT RATHER THAN LEFT OPEN.
+    /// `bind_nonce`'s map and the round comparand both live in memory, and the module
+    /// header states the policy tracker "starts fresh" on restart. This test asserts the
+    /// CURRENT behaviour: a reconstructed signer has NO memory of what its nonces
+    /// already signed, so the guard that refuses a second message under one nonce is
+    /// absent after a restart. It documents a real residual gap — the in-memory guards
+    /// bind a running process, not a process the host can restart at will. Closing it
+    /// needs the rollback-resistant on-chain freshness anchor that already protects
+    /// channel monitors (`quid-hop/src/freshness.rs`), NOT more in-memory state. If this
+    /// test ever starts failing, the gap has been closed and §E177 can be marked done.
+    #[test]
+    fn nonce_binding_does_not_survive_a_restart() {
+        let nonce = [3u8; 66];
+        let cp = [4u8; 66];
+        let first = PolicyState::new(committed_script());
+        assert!(first.bind_nonce(&nonce, &cp, &[1u8; 32]).is_ok());
+        assert!(first.bind_nonce(&nonce, &cp, &[2u8; 32]).is_err(),
+                "PREMISE: within one process the second message under one nonce is refused");
+        // Restart: `PolicyState` is never persisted, so it is rebuilt empty.
+        let rebuilt = PolicyState::new(committed_script());
+        assert!(rebuilt.bind_nonce(&nonce, &cp, &[2u8; 32]).is_ok(),
+                "MEASURED: the reuse guard does not survive a restart (see §E177)");
     }
 
     // --- Monotonic state machine: pure helpers --------------------------------
