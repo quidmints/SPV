@@ -11408,3 +11408,29 @@ compare `realizedVarianceWad` against the feed's realised vol over the same wind
 **④ ORDER, GIVEN ①:** build the feed-driven fixture FIRST. It is cheap, it is a measurement not a
 design argument, and **§UNIT-B / §UNIT-C / §UNIT-C-BAR / §E83 all inherit its answer.** Calibrating a
 term whose input may be structurally flat is the definition of the axis nobody measured (rule 9).
+
+### ✅ SKEW-HOLISTIC-RESOLVED — σ² and the TWAP are TWO MOMENTS OF ONE SERIES. The decoupling worry is REFUTED.
+
+**Owner's point, and it closes §SKEW-HOLISTIC's ① without needing the feed-driven fixture to answer
+the STRUCTURAL half:** the variance and the TWAP read the **SAME observation ring**.
+- `SwapLib.twapBody:106` → `ICore(core).observe(secondsAgos, !isETH)`
+- `Core.realizedVarianceWad:313` → `OracleLib.ringVariance(_obs(isBTC), _obsState(isBTC), 9)`
+Both on `observationsETH`/`observationsBTC`. ⇒ **σ² is the SECOND MOMENT of exactly the series whose
+FIRST MOMENT is the TWAP.**
+
+⇒ ⛔ **"THE SKEW'S STEEPNESS MAY BE DRIVEN BY A QUANTITY STRUCTURALLY DECOUPLED FROM THE RISK IT
+PRICES" IS REFUTED.** They cannot decouple — they are two statistics of one tick series. **If the
+TWAP tracks the market (and the whole system prices off it, with Chainlink only as a >5% circuit
+breaker), then its variance tracks that market's volatility.** No separate validation of σ² is
+needed beyond the validation the TWAP already carries.
+⇒ ✅ **THE FLAT 0.496% IS THEREFORE PURELY A FIXTURE PROPERTY**: no price movement in ⇒ no variance
+out. §SKEW-IS-NOISE-OVERTURNED stands on firmer ground than when written — the "rounding error" was
+measured on a tape with no price process, and §UNIT-A's base is inert for ETH *in the fixture*, not
+in production.
+📌 **WHAT THE FEED-DRIVEN FIXTURE IS STILL FOR — and it is now a CALIBRATION question, not a
+STRUCTURAL one:** measure the LEVEL σ² reaches under a realistic path, to size the skew against the
+3% `MAX_WELL_SKEW` cap and to re-run §E125 / §E131's `8P/V` and T* / §E108 / §UNIT-LP-EXIT, all of
+which inherit the flat-tape value. **Cheaper and lower-stakes than the structural test it replaces.**
+⚠️ **ONE RESIDUAL, GENUINELY SHARED WITH THE TWAP:** the ring advances **ONLY ON A SWAP**, so a market
+that moves while our pool is idle updates NEITHER. That is a known property of the TWAP the system
+already accepts — **it is not a new defect in σ², and it should not be re-litigated as one.**
