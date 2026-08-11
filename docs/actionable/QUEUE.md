@@ -10026,3 +10026,41 @@ already built. What is missing is two accumulators over a walk that already happ
 below entry); and the volume axis the `lev_keeper.rs:22` doc describes (`α` from flow) is ALSO unbuilt —
 **building α without this ratio levers UP in choppy-but-busy markets, which is the regime the lever loses
 in.**
+
+
+### ⛔ CORRECTIONS to the regime-on-the-ring design above — THREE errors, one of them structural
+
+Double-checked against the code before anyone builds on it. The reuse idea survives; three stated details
+do not.
+
+**1. 🔴 THE RING IS `internal`, SO `eth_call` CANNOT READ IT.** `Core.sol:70-71` declare
+`OracleLib.Observation[65535] internal observationsETH / observationsBTC` — **no public getter**, and
+`_obs()` is `internal` too. My "the strat reads the same ring by `eth_call`" is FALSE.
+⇒ **Use `eth_getStorageAt`.** The ring sits at a computable slot and raw storage reads need NO contract
+change — which is what keeps `Core` (28 free bytes) untouched. But this is **LAYOUT-FRAGILE**: reordering
+Core's state variables silently moves the ring and the reader gets garbage that still decodes.
+⚠️ **Pin the layout in the reader and re-check it with `slither --print variable-order`** (already in the
+printer set CLAUDE.md prescribes) whenever `Core` changes. A silently-wrong offset is exactly the
+plausible-but-wrong failure this file keeps recording.
+⇒ The alternative — adding a public getter — is what the 28-byte margin forbids. **Do not "just add an
+accessor."**
+
+**2. `rate[]` IS `n − 1` LONG, NEWEST-FIRST.** `ringVariance:241` allocates `new int[](n - 1)` and
+`rate[0]` is the NEWEST interval (`:246-256` walks back from `st.index`). My `rate[n−1]` index is out of
+bounds; the endpoints are `rate[0]` (newest) and `rate[n−2]` (oldest), and there are **n − 2 increments**,
+not n.
+
+**3. THE DIFFUSION BASELINE TAKES THE INCREMENT COUNT, NOT `n`.** For m Gaussian increments,
+`E[path] = m·σ√(2/π)` and `E[|net|] ≈ σ√m`, so the random-walk ratio is **`√(m·2/π)` with m = n − 2**.
+With `n = 9` (Core's call) that is **m = 7**, baseline **≈ 2.11** — so a raw ratio near 2 is DIFFUSION,
+not chop. Using n would overstate the baseline and make choppy markets read as trending.
+
+**4. ⚠️ AND `rate[i]` IS AN AVERAGE TICK, NOT A PRICE.** It is `Δ tickCumulative · 1e9 / dt` — the mean
+tick over each interval, fixed-point-scaled (§E59: whole-tick truncation was half the zero-variance bug,
+since a ~20-tick band rounds consecutive averages to the same integer). Path and net over THIS series are
+in scaled-tick units; the ratio is dimensionless so it survives, but **any absolute figure derived from it
+is not a price move.**
+
+⇒ **The reuse conclusion HOLDS** — the sampling, time-normalisation and ring already exist and no on-chain
+surface is needed. **The access method changes from `eth_call` to `eth_getStorageAt`, and it carries a
+layout-pinning obligation the original entry did not mention.**
