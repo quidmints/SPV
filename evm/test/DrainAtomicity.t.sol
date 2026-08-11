@@ -1574,4 +1574,36 @@ contract DrainAtomicity is Alles {
 
         assertGt(n, 0, "CONTROL: a drain must accrue at least once, else the slot is wrong");
     }
+
+    /// §SIGMA-REMOVE-RESCOPED risk 2 — THE LAST GATE: is the register's LEVEL stable, or is a decaying
+    /// sum over few swaps too jumpy to price on? History-independence is proven (1.106x vs sigma^2's
+    /// 2.340x); this asks the different question of whether the LEVEL swings when the same total
+    /// volume arrives in a different number of pieces. A jumpy input reprices the band on noise.
+    function test_SIGMA_P1_LevelStabilityAcrossPartitions() public {
+        uint TOTAL = 120_000 * 1e18;
+        uint8[6] memory ks = [1, 2, 3, 4, 6, 12];
+        uint loMk = type(uint).max; uint hiMk;
+        uint loS2 = type(uint).max; uint hiS2;
+
+        for (uint j = 0; j < 6; ++j) {
+            uint snap = vm.snapshotState();
+            _setupBand(); _pinFlow(380_432_109_336);
+            uint base = CORE.realizedLossUsd(false);
+            for (uint k = 0; k < ks[j]; ++k) _drain(TOTAL / ks[j]);
+            uint mk = CORE.realizedLossUsd(false) - base;
+            uint s2 = CORE.realizedVarianceWad(false);
+            emit log_named_uint("pieces             ", ks[j]);
+            emit log_named_uint("  register (usd6)  ", mk);
+            emit log_named_uint("  sigma^2 (wad)    ", s2);
+            if (mk < loMk) loMk = mk;  if (mk > hiMk) hiMk = mk;
+            if (s2 < loS2) loS2 = s2;  if (s2 > hiS2) hiS2 = s2;
+            vm.revertToState(snap);
+        }
+        emit log_named_uint("SPREAD x1000 register", loMk == 0 ? 0 : hiMk * 1000 / loMk);
+        emit log_named_uint("SPREAD x1000 sigma^2 ", loS2 == 0 ? 0 : hiS2 * 1000 / loS2);
+        assertGt(loMk, 0, "CONTROL: every partition must accrue");
+        assertLt(hiMk * 1000 / loMk, hiS2 * 1000 / loS2,
+            "the register's LEVEL must be at least as stable as sigma^2's across partitions -- a "
+            "jumpier input would reprice the band on how flow happened to be chopped up");
+    }
 }

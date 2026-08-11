@@ -12053,3 +12053,39 @@ no "outside the swap" vantage point to sample from.
 | id | state |
 |---|---|
 | **E180-maliciousness-suite** | ✅ **THE THREAT MODEL IS NOW EXECUTABLE — 8 attacks + 1 control, one hostile node, asserted as refusals instead of prose** (owner: *"do a maliciousness tets"*). **ATTACKS:** swap the counterparty funding key (rebuilds `Q` around a key the LP never agreed to) · **replay a cooperative-close round with a different tx — the FUNDING-KEY LEAK** `x=(s1−s2)/((e1−e2)·a)` · downgrade a recorded channel to unrecorded (put the comparand permanently out of play) · **break your own RPC** so the comparand cannot be read (the cheapest attack a host has) · replace the comparand with a permissive one (appoint the referee) · redirect a holder-HTLC sweep · re-sign a REVOKED commitment · **redirect a cooperative close so the LP's balance pays the attacker** — the theft the whole design exists to stop. ⚠️ **THE CONTROL COMES FIRST AND IS THE POINT:** `honest_session_is_accepted_throughout`. Every other test asserts a REFUSAL, and **a signer that refused everything would pass all of them while being completely broken** — so the honest path (real counterparty, agreed funded size, several close rounds, a commitment) is pinned as accepted. 🔴 **MUTATION-VERIFIED, not assumed:** removing the `truth_recorded` latch makes `attack_downgrade_a_recorded_channel_to_unrecorded` FAIL (and its unit counterpart with it). A suite of refusals that cannot fail is theatre; this one demonstrably can. ⚠️ **SCOPE, WRITTEN INTO THE SUITE HEADER SO IT CANNOT BE MISREAD:** these prove a node that MISBEHAVES cannot steal. They prove **NOTHING** against an attacker who **REPLACES THE BINARY** — every check lives in that binary, so an adversary owning the enclave deletes the checks and the suite still passes. **That gap is §E175 and no test in this file can close it.** What the suite establishes is the property §E175 will make load-bearing: a compromised node that must keep running THIS code cannot steal. **51/51 signer tests · workspace 661 passed / 0 failed · ABI gate 0 drifted both sides.** |
+
+### ✅✅✅ SIGMA-REMOVE-P1-COMPLETE — the LAST GATE passes. Register spread **1.106×** vs σ²'s **4.170×**. **Phase 1 is done.**
+
+**§SIGMA-REMOVE-RESCOPED risk 2 (the estimator's own level stability) — the axis nobody had measured
+— is now measured.** Same total volume, six partitions, entry PINNED:
+| pieces | register (usd6) | σ² (wad) |
+|---|---|---|
+| 1 | 407,564,822,957 | 2.458e13 |
+| 2 | 397,283,731,852 | **4.380e13** |
+| 3 | 393,148,224,077 | **4.380e13** |
+| 4 | 389,954,375,182 | **4.380e13** |
+| 6 | 384,247,603,253 | 2.883e13 |
+| 12 | 368,258,044,992 | 1.050e13 |
+| **SPREAD** | **1.106×** | **4.170×** |
+✅ **The register moves MONOTONICALLY and gently** (407.6 → 368.3, −10.6% across a 12× partition
+change). ⛔ **σ² swings 4.170× and NON-MONOTONICALLY** — up to 4.380e13 at 2–4 pieces, then collapsing
+to 1.050e13 at 12. **The non-monotonicity is the worse property: σ² does not merely vary with how flow
+is chopped, it varies UNPREDICTABLY, so no calibration constant can compensate for it.**
+⇒ **THE REGISTER IS 3.8× MORE STABLE IN LEVEL, ON TOP OF BEING 2.1× MORE HISTORY-INDEPENDENT
+(1.106 vs 2.340).** The jumpiness risk that gated the substitution is **RETIRED — it ran the other
+way.**
+
+📋 **PHASE 1 SCOREBOARD — every claim measured, none reasoned:**
+| property | σ² | trade-based | **register** |
+|---|---|---|---|
+| history gap (whale/split) | 2.340× | 12.000× | **1.106×** |
+| level spread (6 partitions) | 4.170× | — | **1.106×** |
+| units vs validated estimator | — | — | **0.991 (whale arm)** |
+| accruals per drain | — | — | **exactly 1** |
+▶️ **PHASE 2 STEP 2 IS FULLY UNBLOCKED.** Substitute via the IMPLIED-VARIANCE shape so units are
+preserved by construction: `σ²_implied = 8 · lossFraction / window` returned from
+`realizedVarianceWad`, so `skewWad`, `_maxWellSkew`'s LVR derivation and θ all keep working with a
+MEASURED input. **Acceptance (pre-stated): the probe's 2.34× premium gap → ~1×, and §E71-PINNED's
+1,371 bps falls — both on the PINNED instrument.**
+⚠️ **KEEP σ² for the CONVEXITY in `q`. This replaces the STEEPNESS input only** (§UNIT-BOUND-NOT-DELETE:
+do not let "replace the level input" become "delete the term").
