@@ -1416,4 +1416,53 @@ contract DrainAtomicity is Alles {
         assertGt(premBig, 0, "CONTROL: the big leg must actually be charged skew");
         assertGt(premSplit, 0, "CONTROL: the split leg must actually be charged skew");
     }
+
+    /// §UNIT-B-RIGHT-QUESTION (P2) — ENTRY-HISTORY INDEPENDENCE. The SAME traversal must cost the
+    /// SAME however the band reached its starting point. This is the property a signed/two-sided
+    /// curve needs (§UNIT-B-BLOCKS-C), and §E71 cannot see it: comparing SEQUENCE TOTALS conflates
+    /// "what this swap created" with "what the history did".
+    /// ⚠️ THE FLOW IS RE-PINNED IMMEDIATELY BEFORE THE PROBE, and that is not optional: arm B has
+    /// taken twelve EWMA bumps to arm A's one, so without it the TARGET differs, `q` differs at the
+    /// same inventory, and the two probes are NOT traversing the same interval. Pinning isolates the
+    /// KERNEL's history-dependence from the TARGET-path effect already measured in §UNIT-B-MECHANISM.
+    function test_UNITB_ProbeSwapIsEntryHistoryIndependent() public {
+        uint TOTAL = 120_000 * 1e18; uint N = 12; uint PROBE = 10_000 * 1e18;
+        uint128 PINNED = 380_432_109_336;
+        uint snap = vm.snapshotState();
+
+        _setupBand(); _pinFlow(PINNED);
+        _drain(TOTAL);                                   // ARM A: one whale walks 0 -> q0
+        uint invA = CORE.POOLED_ETH();
+        emit log_named_uint("sigma^2 after whale   ", CORE.realizedVarianceWad(false));
+        _pinFlow(PINNED);                                // same target for the probe
+        uint pA = CORE.skewPremiumETH();
+        _drain(PROBE);
+        pA = CORE.skewPremiumETH() - pA;
+
+        vm.revertToState(snap);
+
+        _setupBand(); _pinFlow(PINNED);
+        for (uint i = 0; i < N; ++i) _drain(TOTAL / N);   // ARM B: twelve walk to the SAME q0
+        uint invB = CORE.POOLED_ETH();
+        emit log_named_uint("sigma^2 after split   ", CORE.realizedVarianceWad(false));
+        _pinFlow(PINNED);
+        uint pB = CORE.skewPremiumETH();
+        _drain(PROBE);
+        pB = CORE.skewPremiumETH() - pB;
+
+        emit log_named_uint("inventory after whale ", invA);
+        emit log_named_uint("inventory after split ", invB);
+        emit log_named_uint("probe premium (whale) ", pA);
+        emit log_named_uint("probe premium (split) ", pB);
+        emit log_named_int ("probe delta           ", int(pA) - int(pB));
+
+        // CONTROL: the probes must start from the SAME inventory, else they traverse different
+        // intervals and the comparison is void. This is the assertion the whole design rests on.
+        assertApproxEqRel(invA, invB, 0.001e18,
+            "CONTROL: both arms must reach the SAME q0, else the probes are not the same traversal");
+        assertGt(pA, 0, "CONTROL: the probe must actually be charged skew");
+        assertApproxEqRel(pA, pB, 0.01e18,
+            "(P2) the SAME traversal must cost the SAME however the band reached q0 -- a gap is "
+            "entry HISTORY leaking into the charge, which is what a signed curve cannot tolerate");
+    }
 }

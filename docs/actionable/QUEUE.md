@@ -11692,3 +11692,37 @@ ratio between two arms, so it cannot be satisfied by both legs moving together (
 | id | state |
 |---|---|
 | **E177-d** | 🔑 **THE LAST MILE IS ARCHITECTURALLY DETERMINED — two measurements settle it, and one of them is a residual hole that CANNOT be closed at this layer.** ✅ **(1) THERE IS NO EXTERNAL HANDLE ON THE SIGNER LDK USES.** `ChannelMonitor` exposes **no** `get_signer` (checked: only `signer_unblocked`), and the existing `deadman_exit::arm_signer` gets its signer by **RE-DERIVING** one (`keys.derive_taproot_channel_signer(channel_keys_id)`) — a FRESH instance, not the one LDK holds. ⇒ Attaching a comparand from the daemon is impossible; **`QuidKeysManager::derive_channel_signer` is the only place it can happen**, which is exactly the place that does not know the `channelId`. ⇒ **The truth source must resolve the cid LAZILY, at check time, not at construction.** ✅ **(2) THERE IS A WINDOW WHERE THE CHAIN HAS NO RECORD, BY CONSTRUCTION.** The EVM `openChannel` requires the funding tx to be **SPV-proven**, which happens strictly AFTER LDK has signed `funding_created` and the first commitments. So `channels(cid).amountSats == 0` for a real, live channel during opening. **Failing closed there would deadlock every channel open** — the check must therefore have THREE states, not two: *(a)* no on-chain record yet ⇒ §E176-C self-consistency only; *(b)* recorded and matching ⇒ pass; *(c)* recorded and mismatching ⇒ poison. 🔴 **THE RESIDUAL, STATED PLAINLY BECAUSE IT IS NOT FIXABLE HERE:** a hostile node can hold a channel in state *(a)* forever — by naming a funding outpoint (or registry entry) that resolves to no on-chain channel — and thereby **DOWNGRADE the check to self-consistency at will**. ⚠️ **What it can NEVER do is forge a PASS**: a wrong outpoint yields a wrong cid, and `channels(wrongCid)` reads empty, which is state *(a)*, not state *(b)*. **Downgrade-only, never forge — that asymmetry is the actual security property and it should be written into the code, not inferred.** ⇒ Closing the downgrade needs the signer to learn the funding outpoint from a source the node does not author; for LDK that source is the monitor, which the node ALSO feeds. **So it does not close at this layer at all — it closes at §E175**, when the signer runs where the operator cannot replace it. ⚠️ **DO NOT "FIX" THE DOWNGRADE WITH A LOCAL GUARD.** Any check the hostile node also feeds is theatre, and standing rule 3 names exactly this: a clamp that makes the path look protected while the root is untouched. **Land the three states + the downgrade-only property with tests; leave the downgrade documented and open until §E175.** |
+
+### 🔴🔴🔴 UNIT-B-ROOT-FOUND — **σ² CARRIES ENTRY HISTORY.** The same traversal costs 2.34× more via a whale than via twelve splitters.
+
+**The probe test (§UNIT-B-RIGHT-QUESTION P2) found the root, and it is NOT the target.**
+Two arms walk the band to the SAME `q₀`, then run ONE IDENTICAL PROBE with the flow target RE-PINNED
+so both probes see the same target:
+| | whale history | split history | ratio |
+|---|---|---|---|
+| inventory at probe | 130,348,989,475,604,719,751 | 130,348,991,208,125,766,567 | **1.3e-11 apart ✅** |
+| **σ² at probe** | **2.458e13** | **1.050e13** | **2.34×** |
+| **probe premium** | **4,007** | **1,711** | **2.34×** |
+⇒ **THE PREMIUM RATIO IS THE VARIANCE RATIO, TO THE DIGIT.** Skew is linear in σ² (`SwapLib:961`), and
+with inventory and target both held identical, **σ² is the ONLY remaining carrier.**
+
+🔴 **THE MECHANISM: THE RING RECORDS THE *SHAPE* OF THE FLOW, NOT JUST ITS SIZE.** One whale writes ONE
+LARGE tick jump ⇒ a big second difference ⇒ HIGH σ². Twelve tickets write a SMOOTH series ⇒ low second
+difference ⇒ LOW σ². Same start, same end, same target — **different charge, because of how the band
+got there.**
+⇒ ✅ **THIS EXPLAINS EVERY FAILURE OF THE LAST HOUR:** my two target fixes could not work because
+**the target was the wrong carrier**; §E71's "consolidation discount" is σ² responding to flow SHAPE;
+and path-independence is **IMPOSSIBLE while σ² is computed from a swap-driven ring** — the integral
+can be perfect in `q` and the charge will still depend on history through `Γ·σ²`.
+⚠️ **NOTE THE DIRECTION IS OPPOSITE TO §E71's, AND BOTH ARE σ² EFFECTS:** here whale-history charges
+MORE (it created more measured variance); in §E71 the whale's TOTAL was LESS. **Do not treat these as
+contradictory — they are the same term measured over different windows.**
+
+▶️ **CONSEQUENCE FOR THE OWNER'S DECISION** (*the target must not include the trade's own flow*):
+**correct but insufficient.** Fixing the target leaves the larger carrier untouched. ⇒ **The σ²-SOURCE
+work (§SIGMA-SOURCE / §SIGMA-SOURCE-CHAINLINK-VOL / §SIGMA-CAN-WE-AVOID-IT) IS NOT A SIDE QUEST — IT
+IS THE FIX.** An EXOGENOUS σ² (volatility feed, reference-pool ring, or realized-θ) is history-free by
+construction and would deliver path-independence that no target change can.
+📌 **AND IT RAISES §UNIT-FORELLA:** a troller's oscillation writes MANY small ring entries ⇒ SUPPRESSES
+σ² ⇒ **cheapens their own subsequent legs.** Unverified, mechanically plausible, and it would make the
+loop cheaper the longer it runs. **Test it before designing the brake.**
