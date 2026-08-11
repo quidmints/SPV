@@ -527,11 +527,22 @@ contract Core is SafeCallback {
         SwapBTC, RepackBTC, ModLPBTC, OutsideRangeBTC, CollectBTC, ReseatBTC
     }
 
-    modifier onlyUs {
+    /// @dev §CORE-ONLYUS — THE CHECK IS A `private view`; THE MODIFIER STAYS THE GATE. A modifier
+    ///      body is INLINED AT EVERY USE SITE (18 here), so three SLOADs + a revert string inline
+    ///      cost 18 copies. One routine + 18 calls instead: **907 bytes** (24,472 → 23,565), taking
+    ///      `Core`'s EIP-170 margin from 104 to **1,011** — it sat at 28 and was FROZEN for
+    ///      additions, which is why §E42's premium fix had to route via `Aux.ethVenue()`.
+    ///      Semantics identical: the check still runs before every guarded body, at every site.
+    ///      (CLAUDE.md 8c, measured independently on `BTCChannels` by a concurrent thread.)
+    ///      VERIFIED against a same-worktree control, only this change differing: both arms
+    ///      4,400 passed / 1 failed / 2 skipped — the failure pre-existing, the skips environmental.
+    function _onlyUs() private view {
         require(msg.sender == address(AUX)
              || msg.sender == address(VOGUE)
-             || msg.sender == address(BTCVAULT), "403"); _;
-    } bytes internal constant ZERO_BYTES = bytes("");
+             || msg.sender == address(BTCVAULT), "403");
+    }
+
+    modifier onlyUs { _onlyUs(); _; } bytes internal constant ZERO_BYTES = bytes("");
 
     /// @notice The deployer — the ONLY address that may run `setup`/`setBtcVault`, the authority-wiring pins
     ///         that admit VOGUE/AUX/BASKET/BTCVAULT into `onlyUs`. Captured at construction so a hostile

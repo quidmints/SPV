@@ -10680,3 +10680,32 @@ unchanged: **4,402 / 1**, `BufferOverflow: 0`, that same failure byte-identical.
 is unaffected** (compile-only, independently reproducible); only the SUITE result is void.
 📌 **PROCESS RULE EARNED TODAY: one worktree, one change, no edits while a run is in flight.** A
 long run is not a background task you can work around — it is a lock on that directory.
+
+### ✅✅✅ CORE-ONLYUS — **LANDED 2026-08-10. 907 bytes. `Core` margin 28 → 1,011.** Verified against a same-worktree control.
+
+**THE VERIFICATION THAT COUNTS — both arms in ONE dedicated worktree, same block, same environment,
+nothing else touching it, only the change differing:**
+| arm | result |
+|---|---|
+| `_onlyUs()` | **4,400 passed / 1 failed / 2 skipped (4,403)** |
+| control (reverted) | **4,400 passed / 1 failed / 2 skipped (4,403)** — IDENTICAL |
+Sole failure both arms: `testRoundTripNoRaceNoDrain` at `499224755743233795668` (pre-existing,
+byte-identical all session). Both skips are `testCrossChain_FullE2E` / `testSwapIn_RealLightningHTLC`
+— **environment-gated (regtest/LN daemon), present in BOTH arms.** `BufferOverflow: 0`.
+📌 **THE EARLIER "1 skipped" WAS AN ENVIRONMENT MOMENT, NOT A SIGNAL.** I nearly attributed a
+pass→skip delta to an auth-gate refactor; the control dissolved it in 51s. **Two prior runs of this
+same change were VOID** (§CORE-ONLYUS-RUN-CONTAMINATED — I edited the worktree mid-run). Third attempt
+was clean because the worktree was dedicated and untouched.
+✅ Gates: `Core` **23,565 / 1,011 free**, deployable · ABI checker **0 drifted**.
+
+▶️ **WHAT THIS UNFREEZES — `Core` was at 28 bytes and blocked real work TODAY:**
+1. **§UNIT-B-SLOTS-RECLAIM REOPENS** (I closed it on affordability): the `mocks()` getter costs
+   **91–98 bytes**, trivial against 1,011 ⇒ the dust monitor stops reading RAW SLOTS ⇒ the harness's
+   coupling to `Core`'s state ORDER dissolves ⇒ the two `__deadSlotWasFlowSlow*` slots become
+   reclaimable. **Sequence: getter + test repoint FIRST, slot removal SECOND, one change per run.**
+2. **§E42's premium fix routed via `Aux.ethVenue()` ONLY because `Core` had 38 bytes.** Still correct,
+   but the constraint that forced it is gone — re-examine if a Core-side route is cleaner.
+3. **§E92 and §E60's dust monitor were BOTH refused on byte grounds.** Re-evaluate both.
+4. 📌 **MEASURE THE SIBLINGS — same one-line shape:** `LevManager` (24,506 / 70 free), `LevMath`
+   (24,556 / 20), `Vogue` (24,160 / 416), `Vault`, `Aux`. CLAUDE.md 8c is a GENERAL result; `LevMath`
+   and `LevManager` are the other contracts flagged frozen.
