@@ -10891,3 +10891,36 @@ no swapper paid — a REAL money-path defect.** Either way it is decided by ONE 
 `assertGt(ΔCounter, 0)` — else the arms differ in nothing; and assert the two arms saw the SAME
 `POOLED_*` depth pre-swap — else the cushion does not cancel and the whole design fails silently.
 📌 Convert to USD with the SAME `px` both arms (snapshot it) — §E134-skew's decimals trap.
+
+| id | state |
+|---|---|
+| **E167-eip170-exitlib** | 🔴→✅ **`ChannelLib` WAS 1,292 BYTES OVER EIP-170 — UNDEPLOYABLE — WITH A FULLY GREEN SUITE.** Measured 2026-08-11: **25,868 bytes**. Everything §E128/§E159 added (`verifyExitStructure`, `verifyDeadManExit`, `taprootKeyPathSighash`, `verifySwapInDeposit`, `swapInDepositKey` + their BIP-341 helpers) went into `ChannelLib`, and nothing in the normal loop could see it. **CONTROL RUN (detached worktree at HEAD, per CLAUDE.md):** `ChannelLib` does not even appear in the top-5 table there (⇒ < 23,023), so the overflow is **100% attributable to this session** — not pre-existing. ⚠️ **THE THREE REASONS IT WAS INVISIBLE, ALL ALREADY WRITTEN DOWN IN `CLAUDE.md` AND ALL BYPASSED ANYWAY:** `forge test` does not enforce EIP-170; `forge build --sizes` **omits library-linked contracts entirely**; and the suite was green the whole time. Only `python3 tools/check-contract-sizes.py` sees it, and I ran it *after* the tests rather than before. ⇒ **RUN THE SIZE CHECK BEFORE THE SUITE, NOT AFTER** — the suite takes ~9 minutes and cannot fail on this, the size check takes seconds and is the only thing that can. **FIX (landed):** the block moved to a new `src/imports/ExitLib.sol`. ⚠️ **NOT MERELY A SIZE HACK — the boundary is real:** `ChannelLib` is EVM-side channel/venue bookkeeping (SPV open, Aave/Euler/Liquity bodies) with storage and protocol state; `ExitLib` is pure Bitcoin consensus arithmetic with neither, already exercised standalone by four test files. Two linked libraries also mean two 24 KB budgets. **MEASURED AFTER:** `ChannelLib` 16,676 (margin 7,900) · `ExitLib` 10,628 (13,948) · `BTCChannels` 22,871 (1,705) · tightest in repo unchanged at `LevManager` 224. |
+| **E168-ffi-eats-the-prank** | ✅ **ONE ROOT CAUSE, 256 FAILURES, AND THE COMMENT WARNING ABOUT IT WAS SITTING TWO LINES ABOVE.** The §E138 PoP made `mkAuth` and `_setRecipient` shell out to `vm.ffi`, and **a cheatcode call CONSUMES a pending `vm.prank`/`vm.expectRevert`** — so evaluating them as CALL ARGUMENTS sent `openChannel` from the test contract instead of the hop. `openChannel` hashes `openAuthDigest(msg.sender, …)`, so the LP signature stopped recovering and surfaced as a bare `InvalidParam()` with nothing pointing at the prank. `_openWithConsent` already carried a five-line comment saying exactly this about the *arming*; E138 added a second FFI caller on the same line and it was not re-read. ⚠️ **THE 256 WAS ~22 DISTINCT TESTS.** ~41 suites inherit `Alles`, so the six shared-base failures were counted 41 times — **read failures-per-suite before triaging a large number; a flat 6-per-suite is a signature, not a spread.** **SECOND DEFECT FOUND WHILE FIXING IT:** every call site read `vm.prank(who); _setRecipient(ch, seed, msg.sender)` — and `msg.sender` inside a test function is the *runner's* default sender, not the pranked actor, so the PoP bound a **third** address. **FIX:** `_setRecipient` now takes the actor and pranks ITSELF after the last FFI, `_recipientArgs` splits the shell-out from the arming for the `expectRevert` site, and every `mkAuth` is hoisted into a local. ⇒ **Make the ordering unrepresentable rather than documented — the doc was there and lost anyway.** |
+| **E169-fixture-owned-payout** | ✅ **THE REGTEST SPLICE PAYOUT WAS A KEY NOBODY OWNED.** `gen_open_channel_fixture.py` baked `5120||11*32` (and `22`/`33`/`44`) as the splice payout — on-curve, and with no private key anywhere in the project, so once §E138 demanded a proof-of-possession from whatever `openChannel` pins, `test_splice_realRegtestShrink` could not be satisfied at all. All four shapes now derive from labels (`quid-regtest-splice-payout[-N]`) in `gen_deadman_exit_fixture.py` — the SAME generator the Solidity harness signs with — and the fixture was regenerated against live Core 30.2. The test now **asserts** `payoutKeyForLabel(...) == the fixture's key`, so the two generators agreeing is checked rather than assumed: regenerate against a different key and it fails at the compare, not somewhere inside the splice. |
+
+### ⛔ UNIT-B-VERIFIED-DESIGN-FIX — my own differencing design is BROKEN AS WRITTEN. Vary the TARGET, not the inventory.
+
+**Caught before running it — this is the silent failure the entry itself warned about.**
+§UNIT-B-VERIFIED-DESIGN says: *"run the SAME size swap from TWO different `q` … cushion and impact
+CANCEL (same size, same depth)."* ⛔ **THOSE TWO CONDITIONS ARE CONTRADICTORY.**
+`SwapLib.skewWad:862+`: `q = (target − inv)/target`, and **`inv = poolVolUsd` IS THE POOL DEPTH.**
+⇒ Reaching a different `q` by DRAINING changes `inv`, i.e. changes the depth ⇒ **the cushion and the
+price impact differ between arms by exactly the quantity the design assumes constant.** ΔReceipt
+would then contain a depth term, and the comparison to ΔCounter would produce a **confident wrong
+number** — with both booked controls (counter moved; arms differ) PASSING. Precisely the silent
+failure the entry flagged, sitting in its own design.
+
+✅ **THE FIX — VARY THE DENOMINATOR, NOT THE NUMERATOR: hold `inv` FIXED and move `target`.**
+`target = flowUsd = Core.flowEwmaUsd(isBTC)` (`Core.sol:249`), an EWMA bumped by swap NOTIONAL and
+DECAYED BY TIME — **it is movable without touching pool inventory**:
+  • **Arm A:** snapshot → let the flow EWMA decay (`vm.warp`, no swaps) → LOW `target` → LOW `q`.
+  • **Arm B:** revert to the SAME snapshot → bump the flow EWMA with swaps on the OTHER pool, or warp
+    less → HIGHER `target` → HIGHER `q`.
+  • **`POOLED_ETH`/`POOLED_USD_ETH` IDENTICAL in both** ⇒ depth, cushion and curve impact all cancel;
+    only the skew differs. Then ΔReceipt must equal ΔCounter in USD.
+⚠️ **THIRD CONTROL, NOW MANDATORY AND IT IS THE ONE THAT MATTERS:** `assertEq` the pre-swap
+`POOLED_ETH` **and** `POOLED_USD_ETH` across arms. Without it the design fails silently — that is the
+whole lesson here. ⚠️ And confirm the EWMA move actually changed `q` (`assertGt(ΔCounter, 0)`), else
+the arms are identical and ΔReceipt ≈ 0 trivially "confirms" equality.
+📌 **§UNIT-B-MECHANISM measured this exact lever already** — the target ramping 380,432 → 467,694
+across twelve tickets. **That ramp is the knob this design needs**, which is why it is reachable.
