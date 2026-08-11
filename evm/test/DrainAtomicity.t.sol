@@ -1546,4 +1546,32 @@ contract DrainAtomicity is Alles {
         assertGt(A.trap, 0, "CONTROL: the trapezoid estimator must actually accrue");
         assertGt(B.trap, 0, "CONTROL: both arms must accrue");
     }
+
+    /// §SIGMA-REMOVE-P2-GAP-LOCALISED — COUNT THE ACCRUALS. The 8% is entirely in the SPLIT arm
+    /// (whale 0.991 vs estimator, split 0.918), so it is a sample-COUNT effect, not a phase offset.
+    /// Three candidates: a missed accrual, an overwritten pending from multi-hop routing, or the
+    /// contract tiling FINER than the test — in which case the CONTRACT is the accurate one and the
+    /// in-test 1.025x is the artifact. Counting SSTOREs to `_lossETH` (slot 131090, which replaced
+    /// the dead slow-flow slot) separates all three, with no contract change.
+    function test_SIGMA_P1_CountAccrualsPerDrain() public {
+        _setupBand(); _pinFlow(380_432_109_336);
+
+        uint SZ = 10_000 * 1e18;
+        vm.record();
+        _drain(SZ);
+        (, bytes32[] memory w) = vm.accesses(address(CORE));
+        uint n;
+        for (uint i = 0; i < w.length; ++i) if (uint(w[i]) == 131090) ++n;
+        emit log_named_uint("SSTOREs to _lossETH in ONE _drain", n);
+        emit log_named_uint("total CORE writes in that drain  ", w.length);
+
+        vm.record();
+        for (uint k = 0; k < 12; ++k) _drain(SZ / 12);
+        (, bytes32[] memory w2) = vm.accesses(address(CORE));
+        uint n2;
+        for (uint i = 0; i < w2.length; ++i) if (uint(w2[i]) == 131090) ++n2;
+        emit log_named_uint("SSTOREs to _lossETH in TWELVE    ", n2);
+
+        assertGt(n, 0, "CONTROL: a drain must accrue at least once, else the slot is wrong");
+    }
 }

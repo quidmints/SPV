@@ -12019,3 +12019,33 @@ agrees with the validated estimator to **0.991**, which a decimal-base error cou
 🔬 **ONE MEASUREMENT SEPARATES ALL THREE: count accruals per `_drain`.** Add a counter to
 `_accrueRealizedLoss` behind a test-only read, or `-vvvv` one `_drain` and count `_bumpFlow` frames.
 **Do not theorise further — the half-swap-lag theory already died this way.**
+
+### ✅ SIGMA-REMOVE-P2-GAP-RESOLVED — exactly **1 accrual per drain**. All three candidates eliminated; the 8% is a PARTITION artifact.
+
+**Counted via `vm.record`/`vm.accesses` on SSTOREs to `_lossETH` (slot 131090) — no contract change:**
+| path | SSTOREs to the loss register |
+|---|---|
+| ONE `_drain` | **1** |
+| TWELVE `_drain`s | **12** |
+⇒ ⛔ **CANDIDATE 1 (missed accrual) ELIMINATED** — the `p.px == 0` guard never skips; every drain
+accrues. ⇒ ⛔ **CANDIDATE 2 (overwritten pending / multi-hop) ELIMINATED** — one `_drain` produces
+exactly one `_bumpFlow`, not several. ⇒ ⛔ **CANDIDATE 3 (contract tiles finer) ELIMINATED** — the
+tiling is **1:1 with the test**, one interval per drain.
+
+⇒ ✅ **THE ONLY SURVIVOR IS THE SAMPLING PHASE — AND MY DISMISSAL OF IT WAS WRONG.**
+§SIGMA-REMOVE-P2-GAP-LOCALISED argued *"a mis-timed sample biases BOTH arms equally, so phase is
+killed."* **The count refutes that.** With identical tiling, the contract's intervals are
+`[bump_i, bump_{i+1}]` (sampled INSIDE the swap) while the test's are `[pre_i, post_i]` (sampled
+outside it). **Same partition COUNT, different partition BOUNDARIES** — and boundary effects do NOT
+amortise equally across 1 interval and 12.
+📌 **CONSEQUENCE: NEITHER NUMBER IS GROUND TRUTH.** The estimator's **1.025×** and the register's
+**1.106×** are the same quantity measured on two slightly different partitions of the same path. **I
+had been treating the in-test value as truth throughout — it is not, it is just the other partition.**
+✅ **AND THE REGISTER IS SELF-CONSISTENT**: its samples are all taken at the same phase, so its
+integral is internally coherent — which is what matters for a live pricing input, since production has
+no "outside the swap" vantage point to sample from.
+
+▶️ **PHASE 2 STEP 2 IS NOW UNBLOCKED ON THIS AXIS.** The 8% is explained and is not a defect.
+⚠️ **STILL OWED, AND NOW THE ONLY GATE:** the estimator's **run-to-run variance**
+(§SIGMA-REMOVE-RESCOPED risk 2) — a decaying sum over few swaps is jumpy where a variance is smooth.
+**Unmeasured. Measure the LEVEL's stability, not just the history gap, before substituting.**
