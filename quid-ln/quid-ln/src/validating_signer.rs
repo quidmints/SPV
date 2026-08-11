@@ -379,10 +379,21 @@ pub struct ValidatingChannelSigner {
     /// safe response is to stop signing this channel, not to guess which context was
     /// the honest one.
     ctx_poisoned: std::sync::atomic::AtomicBool,
-    /// (E177) The on-chain comparand, and this signer's side of the 2-of-2. `None` keeps
+    /// (E177) The on-chain comparand, and this signer's side of the 2-of-2. Unset keeps
     /// the §E176-C self-consistency behaviour unchanged — so this is additive and a node
     /// without an EVM view is no worse off than before, never silently less checked.
-    truth: Option<(std::sync::Arc<dyn ChannelTruthSource>, FundingRole)>,
+    ///
+    /// ⚠️ **A `OnceLock`, NOT A BUILDER FIELD, AND THAT IS FORCED BY TWO FACTS.** (1) LDK
+    /// takes the signer BY VALUE the moment `derive_channel_signer` returns, so a
+    /// `with_truth_source(mut self)` can never be applied to the signer LDK actually uses.
+    /// (2) The on-chain `channelId` is `keccak(lpPubkey, hopPubkey, fundingTxid, vout)` and
+    /// therefore **is not known at derive time** — the funding outpoint does not exist yet.
+    /// So the comparand can only be attached LATER, by whoever first knows the outpoint.
+    ///
+    /// `OnceLock` rather than a `Mutex<Option<..>>` on purpose: the truth source must be
+    /// **write-once**. A settable-twice comparand could be REPLACED by the same untrusted
+    /// node it exists to check, which would hand the attacker the referee.
+    truth: std::sync::OnceLock<(std::sync::Arc<dyn ChannelTruthSource>, FundingRole)>,
 }
 
 /// The late-bound per-channel data the MuSig2 (`TaprootChannelSigner`) bodies
@@ -481,7 +492,7 @@ impl ValidatingChannelSigner {
             policy: PolicyState::new(expected_holder_close_script),
             taproot_ctx: Mutex::new(None),
             ctx_poisoned: std::sync::atomic::AtomicBool::new(false),
-            truth: None,
+            truth: std::sync::OnceLock::new(),
         }
     }
 
@@ -490,19 +501,39 @@ impl ValidatingChannelSigner {
     /// author — so a node that lies CONSISTENTLY, or that restarts to clear the in-memory
     /// comparand, is caught where §E176-C's self-consistency checks cannot reach.
     pub fn with_truth_source(
-        mut self,
+        self,
         truth: std::sync::Arc<dyn ChannelTruthSource>,
         role: FundingRole,
     ) -> Self {
-        self.truth = Some((truth, role));
+        let _ = self.set_truth_source(truth, role);
         self
+    }
+
+    /// (E177) Attach the on-chain comparand to a signer LDK already owns.
+    ///
+    /// Returns `false` if one was already set — **write-once by design** (see the field
+    /// doc): a comparand the node could replace is not a comparand. A `false` return is a
+    /// programming error at the call site, not a condition to retry.
+    pub fn set_truth_source(
+        &self,
+        truth: std::sync::Arc<dyn ChannelTruthSource>,
+        role: FundingRole,
+    ) -> bool {
+        self.truth.set((truth, role)).is_ok()
+    }
+
+    /// (E177) Whether an on-chain comparand is attached. A signer WITHOUT one runs only the
+    /// §E176-C self-consistency checks, which bind a node that contradicts itself and
+    /// nothing more — worth being able to assert on rather than assume.
+    pub fn has_truth_source(&self) -> bool {
+        self.truth.get().is_some()
     }
 
     /// (E177) Check a candidate taproot context against the chain. `Ok(())` when there is
     /// no truth source (unchanged §E176-C behaviour); otherwise both the funding-key pair
     /// and the funded size must match what `BTCChannels` pinned.
     fn check_against_chain(&self, ctx: &TaprootSignerContext) -> Result<(), ()> {
-        let Some((truth, role)) = self.truth.as_ref() else { return Ok(()) };
+        let Some((truth, role)) = self.truth.get() else { return Ok(()) };
         // The BASE key: `keysHash` was pinned at open, before any splice rotation.
         let secp = Secp256k1::new();
         let ours = self.inner.funding_key(None).public_key(&secp).serialize();
@@ -1899,6 +1930,56 @@ mod tests {
         give_ctx_round(&signer, &make_signer(2), None, 0, &secp);
         assert!(!signer.ctx_poisoned());
         assert!(signer.taproot_key_agg(&secp).is_ok());
+    }
+
+    /// (E177) LDK owns the signer by value and the on-chain `channelId` needs a funding
+    /// outpoint that does not exist at derive time, so the comparand MUST be attachable
+    /// after construction or it can never be attached to the signer LDK actually uses.
+    #[test]
+    fn truth_source_can_be_attached_after_construction() {
+        let secp = Secp256k1::new();
+        let inner = make_signer(1);
+        let cp = make_signer(2);
+        let signer = ValidatingChannelSigner::new(inner.clone(), committed_script());
+        assert!(!signer.has_truth_source(), "PREMISE: starts without a comparand");
+        assert!(signer.set_truth_source(
+            std::sync::Arc::new(FakeTruth {
+                lp: base_funding_pk(&inner, &secp),
+                hop: base_funding_pk(&cp, &secp),
+                sats: FUNDING_SATS,
+                readable: true,
+            }),
+            FundingRole::Lp,
+        ));
+        assert!(signer.has_truth_source());
+        // …and it is LIVE: a forged context is now refused where it would have passed.
+        give_ctx_round(&signer, &make_signer(9), None, 0, &secp);
+        assert!(signer.ctx_poisoned(), "a late-attached comparand must actually be consulted");
+    }
+
+    /// 🔴 WRITE-ONCE. A comparand the untrusted node could REPLACE is not a comparand — it
+    /// would hand the attacker the referee. Second set must fail and leave the first in force.
+    #[test]
+    fn truth_source_is_write_once() {
+        let secp = Secp256k1::new();
+        let inner = make_signer(1);
+        let honest = std::sync::Arc::new(FakeTruth {
+            lp: base_funding_pk(&inner, &secp),
+            hop: base_funding_pk(&make_signer(2), &secp),
+            sats: FUNDING_SATS,
+            readable: true,
+        });
+        // An attacker-supplied source that would rubber-stamp anything.
+        let permissive = std::sync::Arc::new(FakeTruth {
+            lp: base_funding_pk(&make_signer(9), &secp),
+            hop: base_funding_pk(&make_signer(9), &secp),
+            sats: 0,
+            readable: true,
+        });
+        let signer = ValidatingChannelSigner::new(inner, committed_script());
+        assert!(signer.set_truth_source(honest, FundingRole::Lp));
+        assert!(!signer.set_truth_source(permissive, FundingRole::Lp),
+                "a second truth source must be REFUSED, not swapped in");
     }
 
     // --- Monotonic state machine: pure helpers --------------------------------
