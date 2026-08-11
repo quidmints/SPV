@@ -10959,3 +10959,35 @@ RATIO survives a common multiplicative error; **the absolute magnitudes do not.*
 is about a NUMBER THE PROTOCOL REPORTS ABOUT ITSELF.** That is the same line `assert-on-what-you-
 measure-not-what-is-reported` draws, and it sorts today's work cleanly. **No result is refuted here —
 but §E2-#1 and §E42 are weaker than stated and both have a cheap independent upgrade available.**
+
+### 🔴🔴 E2-REAL-REDEEM — TIER-1 MEASUREMENT REFUTES §E2-#1's HEADLINE. The depositor is NOT made whole.
+
+**Owner asked for the real thing: redeem and measure balances.** `test_E2_MintAtMark_RealRedeemMatches
+TheMark` uses `_redeemValue` (actual ERC-20 balance deltas + real QU!D burned). **FAILS.**
+| quantity | value |
+|---|---|
+| paid | **$50,000.00** |
+| **stables ACTUALLY received** | **$48,293.98** ⇒ **−$1,706 (−3.4%)** |
+| predicted `paid × m1/m0` | $50,165.80 |
+| old 1:1 mint would give | $45,999.33 (−8.0%) |
+| marks | m0 = 0.916946 (entry) · m1 = 0.919986 (redeem) |
+⇒ **§E2-#1 IS DIRECTIONALLY RIGHT (+$2,295 vs 1:1 — it recovers about HALF the haircut) BUT THE
+"paid → $49,999.999998 claim" HEADLINE IS AN ARTIFACT OF THE HYPOTHETICAL TEST.** The Tier-2 version
+computed `minted × _mark()` — code times code. A real redemption disagrees by **$1,706**.
+
+🔬 **AND THE GAP IS LOCALISED — IT IS NOT IN THE REDEEM:**
+**`received / burned` = 48,293.98 / 52,486.90 = 0.9201 ≈ m1 (0.919986).** ⇒ **The redeem pays EXACTLY
+at the mark; that path is correct.** The loss is at MINT: entry at the mark should give
+`50,000 / 0.916946` = **54,528** QU!D; the depositor got **52,487** (**−3.7%**). Back-solving,
+`normalized` was ≈ **48,128** BEFORE my `× mature/total` mark-up, not 50,000.
+▶️ **SO ~3.7% IS LOST UPSTREAM OF THE MARK-UP — FIND IT BEFORE TOUCHING §E2 AGAIN.** Candidates, NONE
+checked: (a) `AUX.deposit()` credits less than par for 50,000 USDC (depeg/illiquid haircut on the
+deposited stable); (b) `_finishMint`'s `total` is depeg-adjusted (`total -= min(total, depegLoss)`,
+`Basket.sol:258`) while the test's `_mark()` may be computed at a different instant or basis, so
+`m0` is not the mark the mint actually used; (c) the seed-`CAP` re-projection path. **(b) is the
+cheapest to eliminate: log `total`/`mature` INSIDE the mint and compare to the test's `m0`.**
+⚠️ **DO NOT "fix" this by scaling the mark-up until the number lands on 50,000** — that is
+§never-mask-the-question. Find which of (a)/(b)/(c) it is first.
+📌 **VINDICATES THE AUDIT'S TIER SPLIT IMMEDIATELY:** the Tier-2 hypothetical said "whole", the Tier-1
+balance delta says "−3.4%". **Every remaining Tier-2 claim (§E42's `redeemableAmount` invariant) is
+now suspect on the same grounds and needs the same upgrade.**

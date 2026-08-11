@@ -138,6 +138,54 @@ contract MintAtTheMark is Alles {
         assertApproxEqAbs(minted, 10_000e18, 1e12, "principal is never taken");
         assertEq(_mark(), WAD, "a mint into a whole basket must leave the mark at par");
     }
+
+    /// §MEASUREMENT-AUDIT UPGRADE — THE TIER-1 VERSION: ACTUALLY REDEEM, MEASURE BALANCES.
+    /// `test_E2_MintAtMark_NewDepositorIsNotHaircut` computes `minted * _mark()` — both downstream of
+    /// the code under test, so it discriminates but is not INDEPENDENT (the claim is hypothetical and
+    /// nothing is ever redeemed). This uses `_redeemValue`, which sums ACTUAL ERC-20 balance deltas
+    /// at the redeemer plus real QU!D burned — the one instrument here the failing code cannot author.
+    ///
+    /// THE EXACT CLAIM OF ENTRY-AT-THE-MARK, in balance terms: a depositor who enters at mark `m0`
+    /// and redeems at mark `m1` should receive `paid * m1/m0` — their dollars back, scaled ONLY by how
+    /// the mark moved AFTER they entered. They share subsequent performance; they do NOT eat a
+    /// shortfall that predates them. Under the old 1:1 mint they would receive `paid * m1` instead —
+    /// the entry haircut. Note `m1/m0 >= 1` is NOT asserted: the mark may legitimately fall later
+    /// (§E2-seniority, a vesting cohort), and that is not this fix's job.
+    function test_E2_MintAtMark_RealRedeemMatchesTheMark() public {
+        _seedBasket();
+        _openShortfall();
+
+        uint m0 = _mark();
+        assertLt(m0, WAD, "PREMISE: basket must be short at entry, else the fix is a no-op");
+
+        deal(address(USDC), User03, 2_000_000 * USDC_PRECISION);
+        vm.startPrank(User03);
+        USDC.approve(address(AUX), type(uint).max);
+        QUID.mint(User03, 50_000 * USDC_PRECISION, address(USDC), 0);
+        vm.stopPrank();
+
+        // A fresh mint lands in a FUTURE vintage (day-one `matureSupply` is 0), so it cannot be
+        // redeemed until it vests — measured in `test_E2_DayOne_ImmediateRedeemerGetsPar`.
+        vm.warp(block.timestamp + 35 days); vm.roll(block.number + 1);
+
+        uint m1 = _mark();
+        uint held = QUID.balanceOf(User03);
+        (uint received, uint burned) = _redeemValue(User03, held);   // REAL balance deltas
+
+        emit log_named_uint("mark at entry  m0", m0);
+        emit log_named_uint("mark at redeem m1", m1);
+        emit log_named_uint("QUID burned      ", burned);
+        emit log_named_uint("stables received ", received);
+        emit log_named_uint("expected paid*m1/m0", FullMath.mulDiv(50_000e18, m1, m0));
+        emit log_named_uint("old 1:1 would give ", FullMath.mulDiv(50_000e18, m1, WAD));
+
+        assertGt(burned, 0, "CONTROL: the redeem must actually have burned QU!D");
+        assertGt(received, 0, "CONTROL: stables must actually have moved to the redeemer");
+        assertApproxEqRel(received, FullMath.mulDiv(50_000e18, m1, m0), 0.02e18,
+            "entry at the mark: a depositor entering at m0 and redeeming at m1 must receive "
+            "paid*m1/m0 -- their dollars scaled ONLY by mark movement AFTER entry, never a "
+            "haircut for a shortfall that predates them");
+    }
 }
 
 /// §E2-dayone — THE OWNER'S EDGE CASE, MEASURED. Day one, two minters, no yield question: A
@@ -209,4 +257,5 @@ contract MintAtTheMarkDayOne is Alles {
             "PREMISE: day-one supply MUST exceed dollars, else this proves nothing about the "
             "over-mint being harmless");
     }
+
 }
