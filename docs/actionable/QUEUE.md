@@ -11655,3 +11655,36 @@ sampling order is the mechanically-motivated one and deserves the valid measurem
 ⚠️ **STILL TRUE AND NOT FIXED BY THIS:** §UNIT-FORELLA's separate objection that this SHAPE of test
 measures level-vs-marginal rather than consolidation. **This instrument makes the comparison
 ATTRIBUTABLE; it does not make it the RIGHT question.** Both are needed.
+
+### 🎯🎯🎯 UNIT-B-RIGHT-QUESTION — it is LEVEL-vs-MARGINAL, and the test is a PROBE SWAP, not a sequence comparison.
+
+**§UNIT-FORELLA said §E71 measures the wrong property. This is the right one, in the integral's own
+words (transcript 4854):** *"a drain traversing q₀→q₁ pays `rate(q₀)` on every unit … the
+level-sizing defect cuts both ways: it **OVERCHARGES innocent later flow** AND **UNDERCHARGES the
+large imbalancer**"* ⇒ **A SWAP MUST BE CHARGED FOR THE IMBALANCE IT CREATES, NOT THE STANDING LEVEL
+IT ARRIVES INTO.**
+
+⛔ **WHY §E71 CANNOT SEE IT — even pinned.** It compares TOTALS across whole SEQUENCES (one 120k vs
+twelve 10k). That conflates *"what did this swap create"* with *"what did the band's history do"*,
+and its answer is dominated by the target/EWMA path (§UNIT-B-MECHANISM) rather than by the kernel.
+**Consolidation is a SYMPTOM; level-vs-marginal is the PROPERTY.**
+
+▶️ **THE TWO PROPERTIES TO ASSERT:**
+- **(P1) MARGINAL, NOT LEVEL.** A swap traversing `q₀→q₁` pays `∫[q₀→q₁] rate(q) dq` — **NOT**
+  `rate(q₀)·size` (the old defect, which under-charges the imbalancer) and **NOT** `rate(q₁)·size`
+  (which over-charges innocent later flow). ⚠️ The kernel is CONVEX in `q`, so the same Δq costing
+  MORE at higher `q` is CORRECT, not a defect — do not "fix" that.
+- **(P2) ENTRY-HISTORY INDEPENDENCE.** The SAME traversal `q₀→q₁` costs the SAME, **however the band
+  reached `q₀`.** This is the property a signed/two-sided curve needs (§UNIT-B-BLOCKS-C), and it is
+  NOT what §E71 measures.
+
+🔬 **THE TEST — A PROBE SWAP, on the pinned instrument (§UNIT-B-PINNED-INSTRUMENT):**
+  1. **Arm A:** one whale drain walks the band `0 → q₀`. **Arm B:** twelve splitters walk it to the
+     SAME `q₀` (assert the inventories MATCH — that is the control the whole design rests on).
+  2. In BOTH arms, run **ONE IDENTICAL PROBE SWAP** `q₀ → q₁` and record ONLY the probe's premium.
+  3. **(P2) ⇒ the two probe premiums must be EQUAL.** Any gap is history leaking into the charge.
+  4. **(P1) ⇒ compare the probe's premium to the ANALYTIC `∫[q₀→q₁]`** computed in-test from the same
+     constants. Equality proves marginal pricing; `rate(q₀)·size` or `rate(q₁)·size` proves level.
+✅ **WHY THIS IS THE RIGHT SHAPE:** it isolates ONE swap's charge from the sequence that preceded it,
+so the target-EWMA path cannot dominate the answer — and it yields a REFERENCE VALUE, not just a
+ratio between two arms, so it cannot be satisfied by both legs moving together (today's failure mode).
