@@ -11249,3 +11249,25 @@ the mature mark RISES.
 the immediate term only; the reversal at the vest boundary is untested and is exactly the open item.
 📌 **Both directions are now Tier-1:** depositor $50,000 → **$50,138.48** received; incumbent
 **+3.97%**. Mint-side fairness is measured, not reasoned.
+
+### ✅ E155-INTENDED — the +0.285% on a whole-basket mint is the BOND PREMIUM GOING LIVE, not a leak. Green on HEAD.
+
+**Owner flagged `BasketLib.sol` as red on a money path: `test_E2_MintAtMark_IsExactNoOpWhileBasketIs
+Whole` failing at 10,028.53 vs 10,000, attributed by control (HEAD + that file alone reproduces it,
+bare HEAD passes). CONFIRMED INTENDED.**
+⇒ **§E155's OWN ENTRY PREDICTED THIS EXACT NUMBER'S CAUSE:** *"VICTIM 1 (real, user-facing) — THE
+MINT-SIDE BOND PREMIUM IS INERT. `metrics.yield` floors to 0 ⇒ `calcMintYield` mints exactly
+principal."* Before the fix every 6-dec leg valued at ZERO yield (Galaxy USDC read 1e-12 against a
+true 1.012358), so the projected-yield bonus was 0 and a mint returned exactly 1:1.
+⇒ **`10,028.533368469769163052 / 10,000 = 1.0028533` — ONE MONTH at ~3.4% APR.** The depositor now
+receives principal PLUS the projected month, which is what the bond IS. **Un-inerting it was the
+entire point of §E155.**
+✅ **GREEN ON HEAD (`5c9f15b`).** The red was real against the STALE ASSERTION (`assertApproxEqAbs(
+minted, 10_000e18, 1e12)`), which encoded the broken-yield world. Corrected in `afb7d21` under the
+new **rule 8d** — the change and the test disagreed and the TEST was wrong — to
+`assertGe(minted, 10_000e18 - 1e12)` + `assertLe(minted, 10_100e18)`: principal is never taken, and
+the mark-up stays bounded.
+⚠️ **CONSEQUENCE WORTH CARRYING: EVERY PRE-§E155 MINT MEASUREMENT WAS TAKEN WITH THE BOND PREMIUM
+INERT.** Any recorded "mints exactly principal" figure describes the defect, not the design. ⇒ It also
+explains the anomaly I noted and passed over during §E2: `avgYield` read 16.36% while the back-solved
+bonus was only ~0.12%. **That gap was §E155 showing through, and I moved on instead of chasing it.**
