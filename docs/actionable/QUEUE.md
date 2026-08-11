@@ -11302,3 +11302,34 @@ and the arms must actually differ in skew. 📌 `premA == 0` is LEGITIMATE, not 
 13.71%, §UNIT-SKEW-IS-NOISE's 0.04% and §E131's inputs all read `skewPremiumCum`, which was Tier-3
 "known-suspect" pending exactly this. **They are no longer suspect on THAT ground** — §UNIT-FORELLA's
 separate objection (`test_E71` measures level-vs-marginal, not consolidation) still stands.
+
+### 🔴🔴🔴 SKEW-IS-NOISE-OVERTURNED — the skew is negligible ONLY because the fixture's σ² is ~0.5% ANNUALIZED VOL.
+
+**Materiality re-measured post-§UNIT-A, and the headline reverses.** Same run as
+§UNIT-B-VERIFIED's resolution, $30,000 drain:
+| quantity | value |
+|---|---|
+| px | 1,928.744 usd/ETH |
+| ETH at oracle vs received | 15.554161783 vs **15.547413922** |
+| **swapper's TOTAL cost** | **$13.0149** (4.34 bps of notional) |
+| of which SKEW | **$0.001509** |
+| **skew share of the bill** | **0.0116%** |
+| **`realizedVarianceWad`** | **2.458e-5** |
+
+🔴 **THAT σ² IS 0.496% ANNUALIZED VOLATILITY** (`sqrt(2.4582e-5)`). **ETH's realized vol is 30–60%.**
+⇒ **§UNIT-SKEW-IS-NOISE's "the skew is a ROUNDING ERROR next to the cushion" IS AN ARTIFACT OF A FLAT
+TAPE, NOT A PROPERTY OF THE DESIGN.** It is the same root as §UNIT-A-FIXTURE's SURVIVING half: the
+variance reads the **POOL TICK RING**, and nothing in these fixtures drives the pool tick — the band
+executes AT oracle, so moving the feed moves nothing.
+📐 **THE SCALING IS LINEAR IN σ²** (`Γ·σ²·q/(1−q)^ρ`, `SwapLib:961`). At 60% vol σ² ≈ 0.36, i.e.
+**~14,600× the fixture's 2.458e-5.** The skew would not be a rounding error; it would be **pinned at
+the 3% `MAX_WELL_SKEW` cap** long before reaching proportional scale.
+⇒ ⛔ **DO NOT ACT ON "the skew is immaterial" — it is measured in a regime that does not exist**, and
+the owner's rejection of deleting it is vindicated on a THIRD independent ground (the first two:
+measured pre-§UNIT-A, and §UNIT-WHY-IT-MATTERS reframing materiality as accounting correctness).
+▶️ **THE MEASUREMENT THAT WOULD SETTLE IT, and it is now the top skew item:** build a fixture that
+drives the **POOL TICK** (in-range trades and reseats, NOT the feed) to a plausible σ², then re-run
+this same ratio. **§E125, §E131's `8P/V`/T*, §E108 and §UNIT-LP-EXIT all inherit the flat-tape σ² and
+are all understated by the same factor.**
+📌 Note the two numbers that ARE solid here regardless: the counter matches the swapper's loss to
+0.007% (§UNIT-B-VERIFIED), and the total cost is 4.34 bps of notional.

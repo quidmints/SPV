@@ -1291,6 +1291,13 @@ contract DrainAtomicity is Alles {
         emit log_named_uint("A skew (usd6) ", premA);
         emit log_named_uint("B skew (usd6) ", premB);
         // ETH is 18-dec, px is usd*1e18 per 1e18 wei scaled 1e30 in this repo's convention.
+        // §UNIT-SKEW-IS-NOISE post-§UNIT-A: what FRACTION of the swapper's bill is the skew?
+        emit log_named_uint("px (usd18/ETH)  ", px);
+        emit log_named_uint("ETH at oracle   ", SIZE * 1e18 / px);
+        emit log_named_uint("ETH received (B)", ethB);
+        emit log_named_uint("TOTAL cost usd18", (SIZE * 1e18 / px - ethB) * px / 1e18);
+        emit log_named_uint("skew  cost usd18", premB * 1e12);
+        emit log_named_uint("sigma^2 (wad)   ", CORE.realizedVarianceWad(false));
         emit log_named_uint("dReceipt (usd18)", ethA > ethB
             ? (ethA - ethB) * px / 1e18 : 0);
         emit log_named_uint("dCounter (usd18)", premB > premA ? (premB - premA) * 1e12 : 0);
