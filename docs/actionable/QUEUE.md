@@ -11730,3 +11730,39 @@ loop cheaper the longer it runs. **Test it before designing the brake.**
 | id | state |
 |---|---|
 | **E177-e** | ✅ **THE THREE STATES ARE LANDED AND THE DOWNGRADE IS CLOSED. §E177-d's "closes at §E175" WAS WRONG — owner: *"dont leave any residuals for later. close properly"*, and they were right.** `TruthVerdict::{NotRecorded, Match, Mismatch}` + a `truth_recorded` latch. 🔑 **WHY I HAD IT WRONG:** I treated the pre-record window as a HOLE IN the check when it is the check's DOMAIN OF DEFINITION, and I never asked what shape the downgrade could actually take. It has exactly one: **regression** — reporting `NotRecorded` for a channel the chain has already shown as recorded. A latch closes that completely, and it costs one atomic bool. ⇒ **The pre-record window is now strictly ONE-WAY: entered once, never re-entered.** ✅ **AND THE WINDOW ITSELF IS NOT A HOLE, WHICH IS THE PART I MISSED:** the on-chain record and the LP's credit are the **SAME EVENT** (`openChannel` → `registerBtcLp`), so a channel held in `NotRecorded` has **no protocol position to steal through the books** — the comparand is absent exactly while the thing it protects does not yet exist. The window cannot be extended by an attacker to cover a credited channel, because crediting IS recording. **State (a) must also be permissive or NO CHANNEL CAN EVER OPEN** — the EVM needs an SPV proof, which lands strictly after LDK has signed `funding_created` and the first commitments (`pre_record_window_is_permissive` pins this; a two-state check deadlocks every open). ⚠️ **`keysHash == 0`, NOT `amountSats == 0`, IS THE "no record" TEST.** `keysHash` is pinned at open and never cleared; `amountSats` legitimately reaches 0 on a CLOSED channel — so testing the amount would report a closed channel as never-recorded, which is precisely the state a downgrade wants to reach. **5 NEW TESTS, INCLUDING THE TWO CONTROLS THAT MAKE THEM MEAN SOMETHING:** `a_recorded_channel_can_never_go_back_to_unrecorded` (the closure) · `repeated_matching_reads_do_not_poison` (else the latch is indistinguishable from "poison on the second context" and breaks every live channel) · `pre_record_window_is_permissive` · `recorded_but_contradicted_is_a_mismatch` · `a_wrong_funding_value_can_never_pass`. **38/38 signer tests · workspace 644 passed / 0 failed · ABI gate 0 drifted both sides.** ⇒ **§E177 IS COMPLETE AS A MECHANISM.** The one thing still outstanding is wiring `set_truth_source` at `derive_channel_signer` (§E177-c) — until that lands the mechanism is correct but unattached, and that is plumbing with no open design question left in it. |
+
+### 🎯🎯🎯 SIGMA-REMOVE — **drop σ² as the steepness input.** A SUM is path-independent; a SECOND DIFFERENCE is not. Owner-directed.
+
+**Owner: *"we dont need it like you said."* §UNIT-B-ROOT-FOUND is the argument, and it is now a
+one-line proof rather than a preference.**
+
+📐 **THE PROOF:**
+- `realizedVarianceWad` is built from **SECOND DIFFERENCES** of stored ticks (`OracleLib.ringVariance`
+  over 9 ring points). A second difference encodes the **SHAPE** of the path: one jump and twelve
+  steps between the SAME endpoints give DIFFERENT variance. **MEASURED: 2.458e13 vs 1.050e13, and the
+  probe premium tracked it 2.34× to the digit.** ⇒ **σ² CANNOT be path-independent. That is not a
+  defect in the ring — it is what variance IS.**
+- The realized-cost register is a **DECAYING SUM**: `_bumpEwma` is `v = _decayed(v) + usd6`
+  (`Core.sol:226-230`). Twelve tickets of `X/12` add `X`; one whale adds `X`. **IDENTICAL up to
+  decay.** ⇒ **Path-independent BY CONSTRUCTION, not by calibration.**
+⇒ **THIS IS WHY NO TARGET FIX COULD WORK, AND WHY NO σ² SOURCING FIX FULLY WOULD EITHER.** An
+exogenous feed removes the *entry-history* carrier, but the steepness input would still be a
+second-moment statistic. **Replacing the INPUT KIND — forecast variance → realized cost — removes the
+whole class.**
+
+▶️ **WHAT THIS RESOLVES AT ONCE:**
+1. **§UNIT-B's root** — the charge stops depending on flow SHAPE.
+2. **§SIGMA-SOURCE's staleness** — no forecast to go stale; realized cost is what already happened.
+3. **§SIGMA-SOURCE-CHAINLINK-VOL's dependency** — no volatility feed needed, so the mainnet-
+   availability unknown stops gating anything.
+4. **§UNIT-FORELLA's suspected σ²-suppression by a troller** — dissolved: a SUM cannot be suppressed
+   by oscillating, since every leg ADDS. **(The total-variation brake is still needed for the
+   INVENTORY axis; this only removes the variance channel.)**
+🔬 **THE ONE READ THAT GATES IT, AND IT IS NOT A BUILD:** open `VogueLib.derivedThetaWad` and establish
+θ's **DENOMINATOR**. `Core._premETH/_premBTC` are already documented as *"θ's NUMERATOR — the
+compensation the band actually receives for bearing IL"*. **If the denominator is realized IL, θ IS
+the calibration and this is mostly plumbing.** ⚠️ Verify by STRUCTURE, not the docblock — five
+stale-comment errors today.
+⚠️ **KEEP: σ² may still earn a place shaping the CURVE in `q` (convexity), and `_maxWellSkew`'s
+`σ²·confFrac/8` is the LVR derivation. This removes it as the STEEPNESS/LEVEL input, not necessarily
+from the file. Do not delete more than the argument supports.**
