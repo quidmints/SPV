@@ -196,8 +196,21 @@ contract Core is SafeCallback {
     ///    them outright shifted every later slot and a getter returned the wrong contract
     ///    (`balanceOf` on a non-token). Do NOT reclaim these without proving nothing addresses
     ///    `Core`'s storage absolutely.
-    Flow private __deadSlotWasFlowSlowBTC;
-    Flow private __deadSlotWasFlowSlowETH;
+    /// @notice §SIGMA-REMOVE-P1 — REALIZED adverse-selection register (the TRAPEZOID), reusing the
+    ///         dead `_flowSlow*` slots so layout is unchanged and this costs NO new storage.
+    ///         MEASURED history-independence: **1.025×** whale-vs-split between identical endpoints,
+    ///         against **2.340×** for σ² and **12.000×** for a trade-based proxy.
+    ///         ⚠️ TRAPEZOID, not left-rectangle: a per-swap `inv·Δp` accrual is a Riemann sum whose
+    ///         error scales with SAMPLE COUNT — the same shape-dependence in a new costume.
+    ///         `(inv₀+inv₁)/2` telescopes exactly when inventory is linear in price.
+    ///         ⛔ NOT WIRED TO PRICING YET (§SIGMA-REMOVE-P1-MEASURED Phase 2 gate): this accrues and
+    ///         is readable, and the substitution into `realizedVarianceWad` is a SEPARATE change
+    ///         gated on the estimator's own variance being measured.
+    Flow private _lossBTC;
+    Flow private _lossETH;
+    struct Pend { uint128 inv; uint128 px; }
+    Pend private _pendBTC;
+    Pend private _pendETH;
     /// @dev The slow register's half-life as a MULTIPLE of the fast one (48h × 7 ≈ 14 days). Its
     ///      exact value is deliberately NOT load-bearing: `flowEwmaUsd` takes the MIN of the two,
     ///      so the slow leg acts only as a CEILING. Being roughly right is enough, and erring LONG
@@ -239,6 +252,38 @@ contract Core is SafeCallback {
     /// @notice Fold a swap's USD notional into this pool's flow EWMA. Called only from _handleSwap.
     function _bumpFlow(bool isBTC, uint usd6) internal {
         _bumpEwma(isBTC ? _flowBTC : _flowETH, usd6);
+        _accrueRealizedLoss(isBTC);
+    }
+
+    /// @dev The band's implied price, usd18 per 1e18 raw volatile units. `POOLED_USD_*` is 6-dec and
+    ///      `POOLED_*` is raw (1e18 ETH / 1e8 sats), so the ×1e12 lifts usd6→usd18 and the ratio
+    ///      carries the raw-unit basis — the SAME convention `SwapLib` prices in.
+    function _bandPxWad(bool isBTC) internal view returns (uint) {
+        uint inv = isBTC ? POOLED_BTC : POOLED_ETH;
+        if (inv == 0) return 0;
+        return Math.mulDiv((isBTC ? POOLED_USD_BTC : POOLED_USD_ETH) * 1e12, 1e18, inv);
+    }
+
+    /// @dev Trapezoid mark-to-market on the inventory HELD across the interval since the last swap.
+    ///      Accrues into a DECAYING SUM, so it is path-independent by construction — unlike σ², which
+    ///      is a SECOND DIFFERENCE and therefore encodes the SHAPE of the flow (§UNIT-B-ROOT-FOUND).
+    function _accrueRealizedLoss(bool isBTC) internal {
+        Pend storage p = isBTC ? _pendBTC : _pendETH;
+        uint inv = isBTC ? POOLED_BTC : POOLED_ETH;
+        uint px  = _bandPxWad(isBTC);
+        if (p.px != 0 && px != 0) {
+            uint dp = px > p.px ? px - p.px : uint(p.px) - px;
+            // (inv̄ · |Δpx|) / 1e18 ⇒ usd18, then /1e12 ⇒ usd6, matching the flow register's basis.
+            _bumpEwma(isBTC ? _lossBTC : _lossETH,
+                Math.mulDiv((uint(p.inv) + inv) / 2, dp, 1e30));
+        }
+        p.inv = uint128(inv); p.px = uint128(px);
+    }
+
+    /// @notice The realized adverse-selection register (6-dec USD, decayed). Phase-1 measurement
+    ///         surface: read it alongside `realizedVarianceWad` to compare the two inputs.
+    function realizedLossUsd(bool isBTC) external view returns (uint) {
+        return _decayed(isBTC ? _lossBTC : _lossETH);
     }
 
     /// @notice This pool's decayed swap-flow EWMA (6-dec USD) — the adaptive

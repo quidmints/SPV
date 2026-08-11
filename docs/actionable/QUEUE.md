@@ -11896,3 +11896,32 @@ cannot attribute a mechanism change (§UNIT-B-E71-NOT-AN-INSTRUMENT).**
 decaying sum over few swaps is jumpy where a variance is smooth. **Measure its level stability across
 runs, not just its history-gap.** ⚠️ **AND KEEP σ² for the CONVEXITY in `q` and `_maxWellSkew`'s LVR
 derivation — this replaces the STEEPNESS input only.**
+
+### ⏸️ SIGMA-REMOVE-P2-INFRA — the on-chain trapezoid register is LANDED and ACCRUING. **Pricing untouched. Units UNVERIFIED.**
+
+**Phase 2 step 1 of 2: build the register, prove its units, THEN substitute. Step 1 done, step 2 gated.**
+`Core._accrueRealizedLoss` accrues `(inv₀+inv₁)/2 · |Δpx| / 1e30` into a decaying sum per pool, hooked
+from `_bumpFlow` (i.e. every swap). `Core.realizedLossUsd(bool)` exposes it. **Reuses the dead
+`_flowSlow*` slots ⇒ layout unchanged, NO new storage.** `Core` **24,114 / 462 free** (458 bytes).
+⛔ **NOTHING IS PRICED OFF IT.** `realizedVarianceWad` is untouched; `skewWad`, `_maxWellSkew` and θ
+all still read σ².
+
+⚠️ **THE UNIT CHECK IS INCONCLUSIVE — DO NOT SUBSTITUTE UNTIL IT PASSES.**
+On-chain register after the split arm: **748,690,154,328**. In-test trapezoid predicts
+**401,191,208,128** (`4.0119e23` ÷ `1e12`, the usd18→usd6 basis). **~1.87× apart.**
+📌 **Most likely benign:** the on-chain register ALSO accrued during `_setupBand`'s swaps, while the
+in-test accumulator starts at the drain loop — so the levels are not comparable as taken. **But that
+is a HYPOTHESIS, and this repo's #1 bug source is decimal bases** (three bases coexist; a positional
+divisor shipped once and broke).
+🔬 **THE CHECK, one edit:** snapshot `realizedLossUsd` BEFORE the drain loop and diff, isolating the
+same interval the in-test accumulator covers. **The DIFF must match `4.0119e23 / 1e12` to within
+rounding.** Only then is the substitution safe.
+
+▶️ **THEN STEP 2 — THE SUBSTITUTION, and the shape is chosen to keep units by construction:** express
+the register as an IMPLIED VARIANCE — `LVR = σ²/8 · window` ⇒ `σ²_implied = 8 · lossFraction /
+window` — and return THAT from `realizedVarianceWad`. **One substitution point; `skewWad`,
+`_maxWellSkew`'s LVR derivation and θ all keep working unchanged, with a MEASURED input replacing a
+FORECAST one.** Acceptance (pre-stated): the probe's **2.34×** gap → ~1×, and §E71-PINNED's **1,371
+bps** falls — both on the PINNED instrument.
+⚠️ **STILL OWED (§SIGMA-REMOVE-RESCOPED risk 2): the ESTIMATOR'S OWN VARIANCE across runs.** A
+decaying sum over few swaps is jumpy where a variance is smooth. **Unmeasured.**

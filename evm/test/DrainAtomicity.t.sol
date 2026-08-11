@@ -1518,6 +1518,9 @@ contract DrainAtomicity is Alles {
         emit log_named_uint("gap x1000 sigma^2  ", B.s2    == 0 ? 0 : A.s2    * 1000 / B.s2);
         emit log_named_uint("gap x1000 trade    ", B.trade == 0 ? 0 : A.trade * 1000 / B.trade);
         emit log_named_uint("gap x1000 TRAPEZOID", B.trap  == 0 ? 0 : A.trap  * 1000 / B.trap);
+        // ON-CHAIN register vs the in-test trapezoid: proves the CONTRACT's units before anything
+        // is priced off it. The gap must match the in-test one; the LEVELS need only track.
+        emit log_named_uint("onchain loss  split", CORE.realizedLossUsd(false));
 
         assertGt(A.trap, 0, "CONTROL: the trapezoid estimator must actually accrue");
         assertGt(B.trap, 0, "CONTROL: both arms must accrue");
