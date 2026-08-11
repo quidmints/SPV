@@ -11464,3 +11464,35 @@ no added Chainlink surface, exogenous by construction.**
 round history — over the SAME window — and compare each against the feed's realised vol. **This also
 supplies the calibration number §SKEW-HOLISTIC-RESOLVED still wants.** ⚠️ Cost each on the swap path
 must be priced too (rule 9), not just accuracy.
+
+### 🎯🎯🎯 SIGMA-SOURCE-CHAINLINK-VOL — **a literal VOLATILITY FEED exists** (owner). Strictly better than both candidates, IF it is on mainnet.
+
+**Researched, and it dissolves every objection I raised to §SIGMA-SOURCE's Chainlink option.**
+Chainlink publishes **REALIZED VOLATILITY** feeds over **24h / 7d / 30d** look-backs: providers
+sample price every ~10 min and push on **heartbeat OR deviation threshold**. **They are read EXACTLY
+like a price feed — the SAME `AggregatorV3Interface`, ONE `latestRoundData()` call.**
+⇒ ⛔ **MY THREE OBJECTIONS ARE ALL VOID:** no `getRoundData` needed · no `(phaseId << 64)` roundId
+walk-back trap · no N-calls-per-read on the money path. **And we already have the interface**
+(`Interfaces.sol:164-167`) and the registry shape (`assetPriceFeed`) — this is a second feed address,
+not new machinery.
+✅ **AND IT HAS THE PROPERTY OUR RING STRUCTURALLY LACKS: deviation-triggered ⇒ it updates WHEN THE
+MARKET MOVES, not when WE trade.** That is the direct fix for §SIGMA-SOURCE's defect — σ² stale on
+the first trade after an idle gap, i.e. the most adversely-selected trade in the distribution.
+
+🔴 **THE ONE GATING UNKNOWN — DO NOT BUILD BEFORE SETTLING IT.** Chainlink's own announcement lists
+the rollout as **FOUR TESTNETS: Arbitrum Goerli · Avalanche Fuji · Ethereum Sepolia · Polygon Mumbai.**
+**I could NOT confirm an ETHEREUM MAINNET address** (the addresses page exceeds the fetch limit).
+⚠️ **Goerli and Mumbai are DEPRECATED, so that post is stale in BOTH directions** — the program may
+have graduated to mainnet or been wound down. **Its absence from a stale blog is not evidence.**
+🔬 **SETTLE IT IN ONE STEP:** take the ETH/USD realized-volatility address from
+`docs.chain.link/data-feeds/rates-feeds/addresses`, then **call `latestRoundData()` against our
+mainnet fork** (`ETH_RPC_URL=$ANKR_RPC_URL`). Answers ⇒ this REPLACES the whole σ²-source
+investigation (no reference-pool ring, no round-walking). Reverts/absent ⇒ fall back to
+§SIGMA-SOURCE's reference-pool ring, which is exogenous and already read at init.
+📌 **ALSO NOTE — IMPLIED, NOT JUST REALIZED:** dxFeed and Volmex publish **implied** volatility
+(EVIV/BVIV) through Chainlink. Implied is FORWARD-looking, which is arguably the better input for an
+adverse-selection charge than a trailing realised window. **Worth pricing both if either is live.**
+⚠️ **TENSION TO NAME: this DEEPENS the Chainlink dependency the owner was probing REMOVING**
+(§ORACLE-FREE-ANSWERED). It is a different dependency though — a PRICING INPUT, not the
+circuit-breaker/liveness role — and it fails soft: a stale or absent vol feed can fall back to the
+ring, where a missing PRICE anchor bricks the reseat path.
