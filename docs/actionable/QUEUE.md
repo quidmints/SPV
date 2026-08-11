@@ -10863,3 +10863,31 @@ was itself quoting a docblock about a bug that had already been fixed. **Fourth 
 counter-vs-trader discrepancy** — a MONEY-PATH issue (§E5 credits LPs the RECORDED number), settled
 in ONE run: swapper balance deltas vs `skewPremiumCum` vs `USD_FEES`. Then materiality post-§UNIT-A
 (driving the POOL TICK, per the surviving cause above).
+
+| **E138-pop + E165-b** | ✅ **PROOF-OF-POSSESSION FOR `btcRecipientOf`, AND THE ARMED EXIT MUST HONOUR ITS OWN CLAIM (2026-08-10).** 🔴 **§E130 proved the payout key is ON THE CURVE — i.e. `0x5120||key` is spendable by SOMEONE. It never proved the LP CONTROLS it. A typo, a truncated paste, or a key lifted from a block explorer all passed, and **cooperative close, withdrawal splice AND the dead-man exit ALL pin to this key**, so a wrong one takes every escape route at once and is discovered only after the sats are gone.** ✅ **FIXED with the §E128 Schnorr verifier: `OpenAuth.btcRecipientPoP` is a BIP-340 signature BY the payout key over `btcRecipientPoPDigest(lpEth)` — which BINDS `lpEth`, so a PoP cannot be lifted from one LP's open and replayed on another's.** ✅ **AND THE BYPASS CLOSED IN THE SAME CHANGE: `setBtcRecipient` reaches the same registration, so requiring the proof only at `openChannel` would have left a swap user able to pin an unspendable or someone else's key. **A guard with a hole around it is worse than no guard, because it reads as covered.**** 🔴 **§E165-b — THE RETURNED AMOUNT WAS BEING DISCARDED. `_armDeadManExit` called `verifyDeadManExit`, which RETURNS what the exit pays the LP, and threw it away ⇒ **a hop could arm a structurally perfect, correctly signed exit paying ONE SATOSHI** and every check passed. The escape would exist, verify, and be worthless. Now `paid >= checkpointSats` — claim more than you pay and the arming reverts.** 🧹 **DEAD STATE DELETED (rule 1): `exitCheckpointAt` was written by arming and READ BY NOTHING. Owner asked what it was for — the answer is that it reached for a real gap (is this rung's payout sane?) but stored it in the wrong place: `recordDeadManExit` finalises from `_lpFinalBalance`, so **the tx IS the attestation** and a stored copy is redundant. The real gap was the discarded return value, fixed above.** 🧹 **AND A SEMANTIC WOBBLE THE DELETION EXPOSED: arming N rungs wrote `checkpointOf` N times, keeping whichever came LAST — an arbitrary rung. The ladder now takes the MAX (highest attestation ⇒ most protective, since the stale-close guard rejects closes paying less), while a REFRESH sets it exactly (a balance may have DROPPED, and a stale-high checkpoint would reject legitimate closes). **They mean different things by 'attested'.**** ⚠️ **TEST COST, and the trap that made it expensive: test payout keys were `_validXOnly(...)` — valid points with NO known secret, so possession could never be proven. All 13 derivations now route through ONE owned derivation so open and close cannot disagree. **`_popFor` runs FFI, and a cheatcode call CONSUMES a pending `vm.expectRevert` — the same trap as `vm.prank`** — so proofs must be built BEFORE the expectation, never as a call argument.** | ✅ payout key now proves control; armed exit must honour its claim; dead map deleted |
+
+### 🔬 UNIT-B-VERIFIED-DESIGN — how to actually settle the ~1000×. The booked "one run" CANNOT do it.
+
+**§UNIT-B-VERIFIED says: measure (a) swapper balance deltas, (b) `skewPremiumCum`, (c) `USD_FEES` in
+one run. §UNIT-SKEW-IS-NOISE ALREADY DID THAT and stated the limitation itself:** (b) $0.025 and
+(c) $0.032 **reconcile**, but **(a) $63.35 CONFLATES the band cushion + price impact + skew**, so the
+comparison *"(a) vs (b) = 2,522×"* was explicitly *"stated as a limitation, not a result."*
+⇒ **Re-running it reproduces the same ambiguity. The instrument, not the diligence, is the problem.**
+
+▶️ **THE DESIGN THAT WORKS — DIFFERENCE TWO SWAPS, NO CODE TOGGLE NEEDED.** The cushion and the
+curve's price impact are functions of SIZE and DEPTH; the skew is a function of SCARCITY `q`. So run
+the **SAME size** swap from **TWO different `q`** (e.g. a flush band vs a drained one), from a
+`vm.snapshotState` so both see identical depth:
+  • **ΔReceipt** = trader's volatile received at q₁ minus at q₂ ⇒ **cushion and impact CANCEL**
+    (same size, same depth); what remains is the skew's own contribution to the FILL.
+  • **ΔCounter** = `skewPremiumCum` at q₁ minus at q₂ ⇒ the skew's contribution to the RECORD.
+  • **They must be EQUAL in USD.** `retainSkewPremium` does `r.amount -= premium`, so a dollar
+    withheld is a dollar the swapper does not receive — there is no third destination.
+⇒ **If ΔReceipt ≈ ΔCounter, the ~1000× was an artifact of comparing a TOTAL to a COMPONENT and the
+money path is sound. If they differ, the record overstates what is withheld and §E5 credits LPs value
+no swapper paid — a REAL money-path defect.** Either way it is decided by ONE ratio, and unlike
+(a)-vs-(b) that ratio has no conflated terms.
+⚠️ **CONTROLS (both mandatory, and their absence is what made every prior attempt ambiguous):**
+`assertGt(ΔCounter, 0)` — else the arms differ in nothing; and assert the two arms saw the SAME
+`POOLED_*` depth pre-swap — else the cushion does not cancel and the whole design fails silently.
+📌 Convert to USD with the SAME `px` both arms (snapshot it) — §E134-skew's decimals trap.
