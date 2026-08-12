@@ -1,0 +1,101 @@
+# TRAPDOORS — every place the protocol KNOWINGLY trusts something
+
+Audit input, requested 2026-08-12: *"enumerate all the knowing trapdoors we have that were
+existing before the #1 and #2 fix and the secp256k1 landing."*
+
+A **trapdoor** here means a capability or an accepted-without-proof input that could move or
+mis-account funds if the trusted party misbehaves. Bugs are not trapdoors; these are the
+places the design *chose* to trust, plus the privileged powers that exist by construction.
+
+⚠️ **EVERY ROW IS VERIFIED IN THE CODE, NOT READ FROM A QUEUE MARKER.** On 2026-08-12 four
+🔴 rows (§E107, §E130, §E142, §E115) turned out to be fixed already, and one enumeration row
+was stale *because a third path had been added since it was written*. Re-verify before
+acting; the cost is one grep.
+
+`#1` = the phantom swap-in. `#2` = a compromised running enclave image.
+
+---
+
+## T1 🔴 OPEN — `settleSwapIn` credits the shared pool on the hop's WORD
+
+`BTCChannels.sol:1553`. **This is `#1`, and it is NOT closed — it is NARROWED.**
+`settleSwapInProven` (`:1522`) was added and derives the deposit address on-chain from the
+pinned `BTC_DEPOSIT_KEY`, so a credit can be *proven*. **But the old unproven entrypoint
+still exists beside it and is still callable by the hop.** A compromised hop credits sats
+that never arrived and drains `POOLED_USD_BTC` to its liquidity limit.
+
+⚠️ **WORSE IN KIND than a hop stealing its own channels' BTC** — the loss reaches QU!D
+holders and other LPs who never opted into enclave trust.
+
+▶️ **The fix is deletion, not addition:** remove `settleSwapIn` once every caller uses the
+proven path. Until then `#1` is open regardless of what the proven path does.
+
+## T2 🔴 OPEN — `seller`, `token`, `minDeliveredUsd` are hop assertions
+
+`BTCChannels.sol:1519`, and the code says so: *"STILL TRUSTED, AND NAMED SO IT IS NOT
+MISTAKEN FOR PROVEN."* Even on the **proven** path, only *the sats exist and landed at an
+address only this protocol controls* is proven. **Who** gets credited, in **which** token,
+and the **USD floor** remain the hop's word.
+
+## T3 🔴 OPEN — the shared freshness UTXO is a one-transaction revocation of EVERY escape
+
+One fleet-controlled outpoint is bound into every emitted dead-man exit (BIP-341
+`Prevouts::All` commits to all prevouts), so **spending that one UTXO invalidates every
+LP's pre-signed exit at once**. That is the intended invalidation mechanism *and* a single
+point of revocation for the whole system's escape hatch. Per-channel freshness fee cost is
+**unmeasured** (§E166 item 5).
+
+## T4 🟡 NARROWED — the fleet held BOTH funding halves
+
+Was `#2`'s core: `deadman_exit.rs` armed the hop signer *and* the vault signer in one
+process. **Closed structurally by §E175-a** — the heartbeat's vault is `Option`, and
+reverting it does not fail a test, it **fails to compile**. ⚠️ Residual: this is a property
+of the *deployment* (the fleet must not hold a vault seed), not of the code alone.
+
+## T5 🔴 OPEN — enclave image rotation has no TTL and no timelock
+
+`AttestedHopRegistry.governance` (a Safe) can attest and revoke image measurements. There is
+**no attestation expiry** (so a lapsed attestation still permits, rather than failing closed)
+and **no rotation timelock** (so new code can act before LPs could exit). §E166 items 9/10,
+§E111. ⚠️ §E185 unwired the registry from `BTCChannels`, which removed a **no-op**; it did
+not answer the image-authorisation question, and the contract + tests remain for when this
+is built.
+
+## T6 🟡 BY DESIGN — pin-once deployer powers
+
+`Core.setBtcVault` (`Core.sol:577`) is `DEPLOYER`-gated **and** pin-once
+(`BtcVaultPinned`). Same shape elsewhere. Not a standing power — a one-way wiring step — but
+it is a trapdoor **until pinned**, and nothing forces pinning before use.
+
+## T7 ✅ CLOSED — `openChannel` had no hop gate
+
+`_onlyHop()` guarded seven entrypoints and `openChannel` was **not** one of them; its only
+hop-side gate was `_requireAttested`, a **no-op** while the registry was unpinned. Closed by
+§E185. **A no-op reads like a check, which is why it survived.**
+
+## T8 ✅ CLOSED — `btcRecipientOf` proved on-curve, never controlled
+
+An LP (§E138) or a swapper (§E184) could pin a valid-but-not-theirs x-only key; ~half of
+arbitrary 32-byte values are valid points, so ~half of typos land funds on a key someone
+else may hold. Closed by proof-of-possession, and for swap-out by **deriving** the
+destination from the registered key rather than accepting one.
+
+## T9 ✅ CLOSED — a channel could exist with no escape
+
+Arming is now a construction-time invariant (§E156/§E165): `openChannel` verifies a
+pre-signed exit ladder, so a channel cannot exist without a recovery path.
+
+---
+
+## The secp256k1 items — 6, verified, not 7
+
+Enumerated in §E138's row and checked against `evm/src` (§E183):
+`_proveFundingKeys` + splice KeyAgg · exit-tx Schnorr · §E130/§E131 curve validity ·
+§E138 PoP · §E159 swap-in deposit derivation · delete-delegation.
+
+**Every EC consumer in `evm/src` maps to one of those six** — `:1062`, `:1119`, `:1165`,
+`:1290`, `:1669`, `:1847`, `:1857`, `ExitLib:123`, `ExitLib:166`. **There is no seventh
+USE.** §E131 (swapper script) is part of item 4, which bundles E130+E131.
+
+⚠️ **Item 1 (delete delegation) IS NOT DONE** — `BTCChannels.sol:818` still verifies
+`auth.lpSig`. §E157 deleted the delegation *transaction*, not the LP's signature.
