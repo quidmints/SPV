@@ -215,7 +215,10 @@ contract Core is SafeCallback {
     ///         directions are accrued separately and NETTED at read.
     Flow private _gainBTC;
     Flow private _gainETH;
-    struct Pend { uint128 inv; uint128 px; }
+    /// @dev §SIGMA-REMOVE-SIGNED-REFUTED — the HODL counterfactual needs the START composition:
+    ///      inventory, price AND the USD leg. Repacked to ONE slot: inv ~1.3e20 (67 bits) and
+    ///      px ~1.9e21 (71 bits) fit uint96; usd6 ~6.6e11 (40 bits) fits uint64. 96+96+64 = 256.
+    struct Pend { uint96 inv; uint96 px; uint64 usd; }
     Pend private _pendBTC;
     Pend private _pendETH;
     /// @dev The slow register's half-life as a MULTIPLE of the fast one (48h × 7 ≈ 14 days). Its
@@ -278,15 +281,21 @@ contract Core is SafeCallback {
         Pend storage p = isBTC ? _pendBTC : _pendETH;
         uint inv = isBTC ? POOLED_BTC : POOLED_ETH;
         uint px  = _bandPxWad(isBTC);
+        uint usd6 = isBTC ? POOLED_USD_BTC : POOLED_USD_ETH;
         if (p.px != 0 && px != 0) {
-            // SIGNED: price DOWN while holding volatile ⇒ loss; price UP ⇒ gain. Accrued to separate
-            // registers because the EWMA is `uint`; netted in `realizedLossUsd`.
-            bool down = px < p.px;
-            uint dp = down ? uint(p.px) - px : px - uint(p.px);
-            _bumpEwma(down ? (isBTC ? _lossBTC : _lossETH) : (isBTC ? _gainBTC : _gainETH),
-                Math.mulDiv((uint(p.inv) + inv) / 2, dp, 1e30));
+            // TEXTBOOK LVR: the HODL basket (START composition) marked at the END price, minus the
+            // band's actual END basket. Both are marked at `px`, so it collapses to
+            //   (inv₀ − inv₁)·px + (usd₀ − usd₁)
+            // = the volatile the band GAVE UP valued at where price ENDED, minus the USD it actually
+            // RECEIVED. POSITIVE ⇒ it sold below the closing price ⇒ adverse selection.
+            // ⚠️ `Σ inv̄·Δp` (the previous summand) measured P&L on inventory HELD and read the band
+            // NET AHEAD — LVR is a DIFFERENCE OF TWO PORTFOLIOS, not the level of one.
+            int lvr = (int(uint(p.inv)) - int(inv)) * int(px) / 1e30
+                    + (int(uint(p.usd)) - int(usd6));
+            if (lvr > 0) _bumpEwma(isBTC ? _lossBTC : _lossETH, uint(lvr));
+            else if (lvr < 0) _bumpEwma(isBTC ? _gainBTC : _gainETH, uint(-lvr));
         }
-        p.inv = uint128(inv); p.px = uint128(px);
+        p.inv = uint96(inv); p.px = uint96(px); p.usd = uint64(usd6);
     }
 
     /// @notice The realized adverse-selection register (6-dec USD, decayed). Phase-1 measurement

@@ -12379,3 +12379,35 @@ packed price). ⚠️ **Verify by measurement, not by this derivation — three 
 |---|---|
 | **E183-b** | ✅ **§E159's CONTRADICTION RESOLVED IN FAVOUR OF THE CONTRACT — and nothing was actually given up, which is why there is no third design.** I looked for one: a per-swap internal key the contract could still verify would need **non-hardened** derivation from a pinned xpub (contract computes `P_i = P + H(chaincode,i)·G`). That is buildable — we already have the EC machinery — but it **trades the exact property the hardened path existed for** (an xpub + one leaked child key recovers the master) and adds a scalar-mult per verification, to buy a privacy improvement §E159 does not need. **Discarded.** ⇒ **The contract's design wins on the only axis that matters here: VERIFIABILITY.** A hardened per-swap key is by definition underivable from any xpub, so the contract could never recompute it and would have to be **TOLD** it — a hop-supplied internal key is a hop-chosen address, which reopens the phantom hole §E159 exists to close. **The phantom credit reaches QU!D holders who never opted into enclave trust; key isolation for one deposit does not outrank that.** ✅ **AND THE HARDENED PATH'S REAL PROPERTY IS KEPT IN FULL:** the key is still derived at a **hardened** `m/70'/0'`, still disjoint from the BIP86 `m/86'/…` wallet branches, still underivable from the wallet xpub — *"a deposit key is never a wallet address"* holds unchanged. Only the per-swap INDEX moves, and per-swap uniqueness is not lost: it lives in the CLTV leaf, so every deposit still gets a DISTINCT output key via a different merkle root. **LANDED:** `derive_deposit_keypair(secp, master, swap_index)` → `derive_deposit_key(secp, master)` at `PINNED_DEPOSIT_INDEX = 0`; both call sites updated. ⚠️ **THE OLD UNIT TEST ASSERTED THE PROPERTY I REMOVED** (*"different swap index ⇒ isolated key"*) — replaced rather than deleted, with the new invariant pinned (one re-derivable key) **plus a control that per-swap uniqueness survived the move**: two swaps differing only in their refund leaf must still derive DIFFERENT addresses, or every swap shares one address and dedup/attribution collapses. **Workspace 665 passed / 0 failed.** ▶️ Remaining for §E159: deploy-time wiring so `BTC_DEPOSIT_KEY` is constructed from this exact key (a mismatch now fails loudly at the first proof rather than silently). |
 | **E184-swapout-pop** | 📋 **THE SEVENTH ITEM, AND IT IS A GAP RATHER THAN A USE.** Enumerating every EC consumer in `evm/src` accounts for all six: `_proveFundingKeys` + splice (`isTwoOfTwoOutputKey`/`computeOutputKey` at `:1062/:1119/:1165/:1290`), `ExitLib:123` `schnorrVerify` (exit), `BTCChannels:1857` `isValidXOnlyKey` (§E130 `btcRecipientOf`), `:1669` `isValidXOnlyKey` (§E131 swapper script — **item 4 bundles E130+E131, so this is not a seventh USE**), `:1847` `schnorrVerify` (§E138 PoP), `ExitLib:166` `taprootOutputKeyWithLeaf` (§E159). 🔎 **BUT IT EXPOSES A SEVENTH GAP: §E138's ARGUMENT WAS NEVER APPLIED TO THE SWAP-OUT SWAPPER KEY.** §E131 proves `swapperScript`'s 32 bytes are ON the curve; nothing proves the SWAPPER CONTROLS them — the identical half-failure §E138 fixed for the LP. A typo landing on a valid x-coordinate (≈half of all typos) sends the swapper's BTC to a key someone else may hold. ⚠️ **BUT THE ASYMMETRY IS REAL AND MAY JUSTIFY LEAVING IT:** `btcRecipientOf` is pinned ONCE and reused by close, splice-out AND the dead-man exit, so one wrong key loses everything forever; `swapperScript` is per-swap and self-chosen, and a PoP means the swapper produces a BIP-340 signature inside a swap flow. **Decide explicitly rather than by omission — that is what §E138 was booked for in the first place.** |
+
+### 🎯🎯🎯 SIGMA-REMOVE-LVR-IS-PATH-DEPENDENT — the CORRECT summand reads a LOSS (sign fixed) and is **1.692×** history-dependent. **That is real economics, not artifact.**
+
+**Implemented textbook LVR: `HODL − band = (inv₀ − inv₁)·p₁ + (usd₀ − usd₁)` — the volatile given up,
+marked at the CLOSING price, minus the USD actually received. `Pend` repacked to ONE slot
+(`uint96 inv, uint96 px, uint64 usd`). `Core` 24,428 / 148 free.**
+| | previous (`Σ inv̄·Δp`) | **LVR** |
+|---|---|---|
+| gross loss | 356,496,773,146 | **519,974,291,080** |
+| gross gain | 1,040,440,320,184 | **67,812,454,127** |
+| **net** | **0 (band AHEAD 3×)** | **+452,161,836,953 (band BEHIND)** |
+| history gap | 1.100× | **1.692×** |
+✅ **THE SIGN IS FIXED.** The band now reads BEHIND, as LVR theory requires — the previous summand had
+it ahead by 3× because it tracked P&L on inventory held rather than the shortfall versus holding.
+
+🔴 **AND THE GAP ROSE — WHICH IS THE REAL FINDING: LVR IS INTRINSICALLY PATH-DEPENDENT.** A whale
+realises its whole position at ONE price; twelve tranches realise at TWELVE. **Their actual adverse
+selection GENUINELY DIFFERS.** ⇒ **The earlier 1.100× looked better because it was measuring the
+WRONG QUANTITY.** A more path-independent estimator is not automatically a better one.
+⚠️ **THIS PUTS TWO GOALS IN TENSION, AND THE TENSION IS STRUCTURAL:**
+- **Measure the RIGHT thing** (adverse selection actually suffered) ⇒ path-dependent, because the
+  economics are.
+- **Path-INDEPENDENCE**, which §UNIT-B-BLOCKS-C requires before a SIGNED/two-sided curve is safe.
+⇒ **§UNIT-B's premise may be partly WRONG: some of the 13.71% consolidation discount is REAL
+ECONOMICS, not a defect.** ⚠️ **DO NOT "fix" the part that is real** (§UNIT-BOUND-NOT-DELETE's lesson:
+a principle inferred from an overshoot).
+✅ **BUT σ² IS STILL WORSE — 2.632× vs 1.692×** ⇒ **σ² carries ESTIMATOR ARTIFACT ON TOP of the real
+path-dependence.** The ~0.94× excess is what §SIGMA-REMOVE can legitimately remove; the rest is the
+market.
+▶️ **THE QUESTION FOR THE OWNER, NOW SHARP:** if correct pricing is path-dependent, **is the signed
+curve reachable at all** — or must it be BOUNDED against the residual rather than made exact
+(§UNIT-BOUND-NOT-DELETE's `S_in < S_out`)? **This decides whether §UNIT-B closes or is reframed.**
