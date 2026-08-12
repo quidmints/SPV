@@ -12472,3 +12472,35 @@ entry. **Record it: the same reflex will recur on the next EIP-170 squeeze.**
    caller) so the helper's dispatch disappears. **Unmeasured; cheapest to try next.**
 ⚠️ **STILL NOT AN OPTION: cutting the gain register or the HODL leg.** Both were required to get the
 SIGN right (§SIGMA-REMOVE-SIGNED-REFUTED read the band NET AHEAD without them).
+
+### ⏸️ SKEW-BTC-SYMMETRY — **the skew must be SYMMETRIC across BTC/ETH; the REFILL asymmetry is what legitimately differs.** Deferred behind the refill (owner, 2026-08-12).
+
+**Owner: *"we need skew symmetry between btc and eth, but there is a difference for how the refill
+works on that, so that will be reflected in the skew — maybe this is an effort we have to return to
+after building the refill (after the skew is done at least for eth)."* NOT PREVIOUSLY BOOKED.**
+Partial coverage existed and none of it says this: §UNIT-ASYM (units are ETH-shaped; `CONF_FRAC_WAD`
+≈1h vs `ETH_CONF_FRAC_WAD` ≈12s ⇒ the BTC leg charges ~300× at equal σ² and q), §UNIT-C-DISAMBIG (the
+flash refill is a BTC CONSTRUCT — the fleet holds no BTC and LN sats have no EVM token; ETH needs
+nothing because the drainer already paid the dollars in), and `:6064` (*"only BTC is
+refill-constrained"*). **None ties them, and none sets the ORDER.**
+
+📐 **THE PRINCIPLE, AS STATED: THE SKEW ITSELF IS SYMMETRIC. WHAT DIFFERS IS THE REFILL, AND THAT
+DIFFERENCE IS AN INPUT TO THE SKEW, NOT A SECOND SKEW.**
+⇒ **A per-asset skew FORMULA would be the wrong shape.** The asymmetry belongs in the INPUTS the one
+formula reads — the settlement window (`confFrac`), `SPLICE_FLOOR`, and **how long an imbalance
+PERSISTS**, which is where the refill difference enters: **BTC repair depends on a flash the fleet
+must execute; ETH repair does not.** ⇒ **Different expected repair LATENCY ⇒ different exposure ⇒
+different skew — from the SAME kernel.** ✅ This is §E83's censored-duration input, PER ASSET.
+
+▶️ **SEQUENCING (owner):** finish the skew **for ETH**, then build the **refill**, THEN return to BTC
+symmetry — **because the BTC skew's key input (repair latency) is not knowable until the BTC refill
+exists.** ⇒ **Doing BTC now would hard-code a latency assumption that the refill design would then
+invalidate.** ⏸️, not 🔴.
+⚠️ **STANDING TRAP THIS BOOKING EXISTS TO STOP — `:1181`: *"I scoped #12 ETH-only FOUR times and was
+corrected each time."*** Today added a fifth instance: **every §SIGMA-REMOVE measurement is
+`realizedVarianceWad(false)` — ETH ONLY** (gap 1.692×, noise 1.006×, units 0.991). The register is
+`isBTC`-dispatched so both PATHS exist, **but the BTC path is UNMEASURED**, and `POOLED_BTC` is 8-dec
+sats against ETH's 1e18. **CLAUDE.md says the WBTC ×1e10 lift makes a flat `/1e30` correct for BOTH —
+that is REASONING, and decimals are this repo's #1 bug source. Measure before claiming symmetry.**
+📌 **Deferring is NOT skipping:** when §SIGMA-REMOVE lands for ETH, **state in the entry that BTC is
+unmeasured** rather than letting the result read as a protocol property (§UNIT-ASYM's exact complaint).
