@@ -113,26 +113,6 @@ library FeeLib {
         return feeBps > MAX_FEE ? MAX_FEE : feeBps;
     }
 
-    /// @notice `calcFeeL1` scaled by DRAW MAGNITUDE. The yield-vs-baseline fee
-    ///         prices the basket-average degradation a draw causes — which is
-    ///         magnitude-dependent, not flat. A pro-rata slice shifts the mix by
-    ///         zero (priced separately, at BASE/baseRate only); a PREFERRED draw
-    ///         of `amount` from ONE stable shifts it in proportion to how much of
-    ///         that stable it depletes. So scale the per-unit excess (the part of
-    ///         calcFeeL1 above BASE) by the drained fraction `amount/depᵢ`: a
-    ///         small cherry-pick ≈ BASE, draining the whole stable → full
-    ///         calcFeeL1. Convex in draw size, so it stops overcharging small
-    ///         redemptions and stops under-pricing basket-cratering ones.
-    function scaledFeeL1(uint idx, uint amount,
-        uint[15] memory deps, uint[15] memory yields) public pure returns (uint)
-    {
-        uint full = calcFeeL1(idx, deps, yields);     // [BASE, MAX_FEE] per-unit rate
-        uint depI = deps[idx + 1];
-        if (depI == 0 || full <= BASE) return full;   // nothing above BASE to scale
-        uint frac = FullMath.mulDiv(amount, WAD, depI);
-        if (frac > WAD) frac = WAD;
-        return BASE + FullMath.mulDiv(full - BASE, frac, WAD);
-    }
 
     /// @notice Gross-up the amount a depositor must send to net the
     ///         requested amount after fee + depeg haircut. Aux uses this
