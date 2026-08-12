@@ -18,7 +18,6 @@ import {Types} from "./imports/Types.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
-import {IUniswapV3Pool} from "./imports/v3/IUniswapV3Pool.sol";
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
@@ -128,14 +127,12 @@ contract Vault is Ownable, ReentrancyGuard {
     address public constant ETHERFI_ADAPTER  = 0xcfC6d9Bd7411962Bfe7145451A7EF71A24b6A7A2;
     /// Canonical Permit2 — same address on every chain. Euler's EVault pulls deposits through it.
     address public constant PERMIT2          = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
-    address public constant ETHERFI_V3ROUTER = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45;
-    address public constant ETHERFI_POOL_A   = 0x7A415B19932c0105c82FDB6b720bb01B0CC2CAe3; // weETH/WETH 0.05%
-    address public constant ETHERFI_POOL_B   = 0x202A6012894Ae5c288eA824cbc8A9bfb26A49b93; // weETH/WETH 0.01%
+    /// @notice Curve `weETH/WETH-ng`. Replaced the Uniswap v3 router + two fee tiers 2026-08-09:
+    ///         measured −1.4 to −3.5 bps against v3's −17.6 to −28.2 across every realistic size.
+    address public constant ETHERFI_CURVE_POOL = 0xDB74dfDD3BB46bE8Ce6C33dC9D82777BCFc3dEd5;
     address public constant ETHERFI_LP       = 0x308861A430be4cce5502d0A12724771Fc6DaF216;
     address public constant ETHERFI_EETH     = 0x35fA164735182de50811E8e2E824cFb9B6118ac2;
     address public immutable WEETH;             // cached from the adapter at construction
-    uint24  public immutable ETHERFI_POOL_FEE;  // fee tier of pool A
-    uint24  public immutable ETHERFI_POOL_FEE2; // fee tier of pool B (0 = none)
 
 
     /// @notice The IL-protect orchestrator. Its leveraged book's LIVE net-equity counts in `vogueETH`.
@@ -339,10 +336,7 @@ contract Vault is Ownable, ReentrancyGuard {
         // ether.fi venue — immutable wiring. Cache weETH + the v3 pool fees from
         // the fixed mainnet contracts and set the standing approvals once.
         WEETH = IDepositAdapter(ETHERFI_ADAPTER).weETH();
-        ETHERFI_POOL_FEE  = IUniswapV3Pool(ETHERFI_POOL_A).fee();
-        ETHERFI_POOL_FEE2 = IUniswapV3Pool(ETHERFI_POOL_B).fee();
         IERC20(address(WETH)).approve(ETHERFI_ADAPTER, type(uint).max);
-        IERC20(WEETH).approve(ETHERFI_V3ROUTER, type(uint).max);   // offramp swap
         IERC20(ETHERFI_EETH).approve(ETHERFI_LP, type(uint).max);  // wait-path NFT
     }
     receive() external payable {}
@@ -415,9 +409,7 @@ contract Vault is Ownable, ReentrancyGuard {
     ///      the opportunistic sourcing.
     function _etherfiCfg() internal view returns (SwapLib.OfframpCfg memory) {
         return SwapLib.OfframpCfg({
-            weeth: WEETH, weth: address(WETH), v3router: ETHERFI_V3ROUTER,
-            lp: ETHERFI_LP,
-            poolFee: ETHERFI_POOL_FEE, poolFee2: ETHERFI_POOL_FEE2
+            weeth: WEETH, weth: address(WETH), curvePool: ETHERFI_CURVE_POOL, lp: ETHERFI_LP
         });
     }
 

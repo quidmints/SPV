@@ -7595,7 +7595,10 @@ so the offramp gate becomes `LP.pooled > 0`, the pro-rata slice becomes the whol
 decrement and `delete` drop.
 
 
-### ⚠️ LIVE DEFECT ON MAIN: rung 4 retains principal. Owner chose to fix it by landing the borrow leg.
+### ✅ RESOLVED 2026-08-09 BY OPTION 1, NOT OPTION 2. `waitNft` mints to the WITHDRAWER again
+### (`VaultLib:534` `requestWithdraw(recipient, eeth)`), so no principal is retained. The borrow leg —
+### the chosen fix below — was later DROPPED on cost grounds, so this had to stop depending on it.
+### ~~LIVE DEFECT ON MAIN: rung 4 retains principal; owner chose to fix it by landing the borrow leg~~
 
 `waitNft` mints the withdrawal NFT to `address(this)` (the protocol), not the withdrawer. That change
 was made 2026-08-06 and was EXPLICITLY COUPLED to the borrow leg existing — the protocol takes the
@@ -9234,7 +9237,8 @@ before treating the venues as deploy-ready; the hold is lifted on the DEFECT, no
 | **UNIT-BASELINE+CLEAN** | 🧹 **BASELINE ESTABLISHED AND RESIDUE REMOVED, BEFORE §UNIT-A TOUCHES A MONEY PATH (2026-08-06).** ✅ **BASELINE, ONE CAPTURED RUN (815 s): **4,048 tests · 4,046 passed · 2 FAILED** — `test_E97_SellLegTaxOnOrdinaryFlow` and `testRoundTripNoRaceNoDrain`. **NEITHER IS MINE** (my only edits were new tests in my own file), so they are pre-existing or the other thread's. **That is the known state §UNIT-A must be attributed against — any THIRD failure after it lands is the change.**** 🧹 **RESIDUE DROPPED — two fixtures that never produced a valid number, per the standing "no tooling for one-off deliverables": • **`test_UNIT_PoolVarianceVsChainlinkVariance`** — the Chainlink estimator port, **THREE scaling attempts, all wrong** (§UNIT-SERIES-RATIO-VOID, §UNIT-SERIES-STOP). It never yielded a comparable number and would read as a working instrument to the next thread. • **`test_UNIT_HowOftenDoesChainlinkCrossTheDeadband`** — per-round crossings, **SUPERSEDED** by `test_UNIT_HowLongUntilTheDeadbandOpens`, which measures the CUMULATIVE gate `twapResolve` actually uses. **The per-round version answered a question the code does not ask.** ⇒ 10 → 8 tests.** ✅ **WHAT SURVIVES, AND WHY EACH EARNS ITS PLACE: `test_E131_...` (adequacy, σ²-invariant) · `..._LpExitAcrossImbalance...` (exposure transfer, balance-delta measured) · `..._PremiumRecordedEqualsPremiumPaid` (the recorded-vs-borne reconciliation, §UNIT-B-VERIFIED's open 1000× gap) · `..._FixtureProducesRealisticVariance` (its INCONCLUSIVE guard is the only reason 36 bps was never published) · `..._BacktestV3TickVarianceVsChainlink` (the REAL v3 reference, 2.52e-3) · `..._HowLongUntilTheDeadbandOpens` (0/118 crossings) · `..._RepegCadenceByThreshold` (the 25–500 bps table) · `..._DoesCrossingTheDeadbandPopulateTheRing` (σ² 0→4.09 with `wellSkew` still 0).** ⚠️ **VERIFICATION OF THE DELETION ITSELF WAS RATE-LIMITED (HTTP 429 from publicnode, immediately after the 815 s full run) — the change is two PURE REMOVALS, but say so rather than imply a green re-run.** | 🧹 baseline 4046/2; two void fixtures dropped; deletion re-run rate-limited |
 
 
-### ▶️ BORROW LEG — fully specified EXCEPT the caller gate. One decision, then it is mechanical.
+### ⛔ WILL-NOT-DO — superseded by Curve (~1.4–3.5 bps leaves nothing worth borrowing to avoid).
+### ~~BORROW LEG — fully specified EXCEPT the caller gate~~ (design record only)
 
 Everything else is settled: **bytes** (forwarder in `LevManager` ~100 free, body in `LevMath` 439),
 **design** (position-free — never `pos[]`/`_openLps`, or the levered net-equity syncs back into the band
@@ -9319,7 +9323,7 @@ stays, its trigger becomes availability instead of governance, and the deploy ga
 
 | **UNIT-A-ROOT-WITHDRAWN** | ⛔⛔⛔ **§UNIT-A-ROOT IS WITHDRAWN — I RE-MADE §E83's ARGUMENT AND §E84 ALREADY REFUTED IT. THE POLE IS NOT DECORATION; IT PRICES A THIRD COST (2026-08-06).** ⛔ **§E84, VERBATIM: *"WHAT E83 GOT WRONG: I collapsed THREE distinct costs into two and concluded the `q/(1−q)` barrier 'may be decoration'. **It is not.** Adverse selection prices being PICKED OFF; **the pole at q→1 prices RUNNING OUT — an inability-to-OPERATE cost that an LVR term is completely blind to.** A flat `σ²·Δt` charge sells the LAST unit at the same rate as the first and then the band is empty: **that is exactly the 'one trade converts the whole band' leak the owner identified at the outset. Removing the barrier REOPENS it.**"* ⇒ **MY *"A–S has no pole, therefore remove it"* IS §E83's ARGUMENT, RE-MADE ALMOST VERBATIM, ONE DAY AFTER IT WAS REFUTED.** §UNIT-RECOVERED's lesson, recurring: **read the decision before undoing it — and I even BOOKED that as §UNIT-A-ROOT's own check-before-landing item, then continued without doing it.**** 🔑 **THE THREE COSTS, WHICH IS WHY LINEAR CANNOT SUFFICE: **(1) ADVERSE SELECTION** — being picked off ⇒ priced by `σ²·confFrac/8` (the base). **(2) INVENTORY RISK** — holding a skewed position ⇒ A–S's LINEAR `q·γ·σ²`. **(3) DEPLETION** — RUNNING OUT, an inability-to-OPERATE cost ⇒ the POLE. **A–S has no pole because A–S never runs out of inventory; a BAND DOES.** My patch priced (1) and (2) and deleted (3).** 📌 **AND THE POLE IS LOAD-BEARING FOR THE REFILL ECONOMICS: *"the `q/(1−q)` pole means deeper imbalance taxes MORE while repair cost stays roughly flat"* — that asymmetry is WHY self-refill is dominant (repair 5 bps vs a 15 bps drag). **A linear kernel flattens the tax and the dominance argument weakens with it.**** ▶️ **SO THE REAL ROOT QUESTION IS NARROWER AND STILL OPEN: the pole STAYS, so the divergence stays, so SOMETHING must bound it — and the owner has ruled out an artificial cap. **The honest reframing: "running out" costs a FINITE amount — you lose the ability to serve flow you would have served, which is bounded by `target`. The `q/(1−q)` form DIVERGES where the underlying COST DOES NOT.** ⇒ **the root fix is a depletion term that is CONVEX in q (so the last units are expensive, preserving §E84) but CONVERGENT (so nothing needs clamping). NOT linear, NOT a pole.** ⚠️ **`docs/actionable/wip/UNIT-A-ROOT-linear-kernel.patch` MUST NOT BE APPLIED — kept only as the record of a refuted attempt.** | ⛔⛔⛔ withdrawn — pole prices DEPLETION; need convex-but-convergent, not linear, not a clamp |
 
-### ⚠️ BORROW LEG — "thread the venue as a parameter" HAS NO SOURCE. One address of new state is unavoidable.
+### ⛔ WILL-NOT-DO — see the Curve entry. ~~"thread the venue as a parameter" HAS NO SOURCE~~ (design record only)
 
 The gate decision (owner: thread it, don't pin) is right for `vault` — that is exactly the
 `deleverToVault(lp, extractUsd, vault, minOut)` shape, gated on `vogueSyncHook`, no new state. **But the
@@ -9393,7 +9397,8 @@ all want surface on `LevManager`. **At 224 free, they cannot all land there** re
 is designed. That is now the binding constraint on the whole roadmap — not the venues, not the accounting.
 
 
-### ✅ THE BORROW LEG COLLAPSES — no new contract, no new entrypoint, no LevManager change. ONE accounting term.
+### ⛔ WILL-NOT-DO — the collapse was correct and is now moot; Curve removed the reason to build it.
+### ~~THE BORROW LEG COLLAPSES — no new contract, no new entrypoint~~ (design record only)
 
 Supersedes the −500/−638 measurement above. **Everything expensive there was solving problems created by
 putting the borrow in the wrong contract.**
@@ -9829,6 +9834,7 @@ tracing an external `PoolManager.swap` against the band before asserting anythin
 
 | **E162-rekey-splice** | 🎯 **UPGRADE WITHOUT SEED MIGRATION, WITHOUT CLOSING, WITHOUT LP ACTION AND WITHOUT A COORDINATED EVENT (owner rejected close+reopen: *"LPs need to check the new image. it's a bank run and predictably causes a price shift"*, 2026-08-10).** 🔑 **THE OLD IMAGE SIGNS A SPLICE PAYING TO A 2-of-2 OF **NEW-IMAGE** KEYS, and the contract updates `keysHash`. ⇒ **NO SEED EVER MIGRATES** (the new image generates its own keys; the old one merely pays to them, so sealing stays an unbroken boundary) · **THE CHANNEL NEVER CLOSES** (BTC stays in the protocol, backing unchanged, no liquidity event, no price shift — the pool sees a splice, which it sees routinely) · **NO LP ACTION** (the fleet holds both halves) · **STAGGERED BY CONSTRUCTION** (one channel at a time, so there is no coordinated moment and therefore no run).** ✅ **THE CONSTRAINT LIVES WHERE IT MUST: the contract already proves `Q == KeyAgg(newLp, newHop)` on the spliced output (§E142/§E129), so it verifies the rotation landed on the DECLARED new keys. Malicious Rust cannot fake that — it is checked on the EVM against SPV-proven Bitcoin data. **This is the answer to the owner's *"what executes the transaction though? rust that can be replaced with malicious rust?"***.** 🔴 **OPEN AND LOAD-BEARING: WHO MAY REKEY, AND TO WHAT. Unrestricted, a compromised hop splices to keys it SOLELY controls and cuts the LP out of its own 2-of-2. The new pair must retain the LP's key, or the rotation must be gated on something the hop alone cannot produce. **Do not implement the `keysHash` update without settling this — it is the difference between an upgrade path and a theft path.**** | 🎯 rekey splice: rotate custody without closing, no seed migration, no run; gating still open |
 
+<<<<<<< HEAD
 ### ⛔ CORRECTION to §UNIT-C-BAR-ARMB — I READ THE WRONG POOLS. And the question it raised is RESOLVED (negative).
 
 **MY ERROR:** I grepped `hooks:` in `DeployLib.sol`, got `IHooks(address(0))` at three sites, and
@@ -12631,3 +12637,239 @@ handful.** ⚠️ **A library that WRITES `Core`'s storage must be `delegatecall
 `_bumpFlow` is a WRITE path, so this works where the view-side conversion did not.**
 ⚠️ **MEASURE IT; DO NOT ASSUME.** The conversion route was booked as "likely frees more than it costs"
 and cost 81 more. **The shape argument above is a hypothesis until `check-contract-sizes.py` says so.**
+=======
+### 🎯 CURVE REPLACES UNIFORM v3 AND THE BORROW LEG IS NO LONGER JUSTIFIED. MEASURED, LIVE.
+
+**Owner (2026-08-09):** get rid of Uniswap for the weETH offramp entirely; use Curve
+`0xdb74dfdd3bb46be8ce6c33dc9d82777bcfc3ded5`.
+
+**Pool verified on-chain:** `weETH/WETH-ng` · coin0 **WETH**, coin1 **weETH** · balances **2,047.43 WETH /
+2,794.60 weETH** · **A = 5000** (tight-peg amplification) · **fee 0.5 bps** · `get_dy(int128,int128,uint256)`
+(the **int128** signature; the uint256 `-ng` variant REVERTS on this pool — do not assume).
+
+**Execution vs the live oracle (`0xbDd2F2D4…`, weETH→WETH), against the 0.01% Uniswap table already in
+`VaultLib`:**
+| size (weETH) | **Curve** | Uniswap 0.01% | Curve better by |
+|---|---|---|---|
+| 1 | **−1.39 bps** | −17.55 | **16.2** |
+| 10 | **−1.40** | — | — |
+| 100 | **−1.51** | −18.79 | **17.3** |
+| 500 | **−2.10** | — | — |
+| 1000 | **−3.47** | −28.16 | **24.7** |
+| 2000 | −722.80 | −679.33 | both CLIFF (pool holds 2,047 WETH) |
+
+⇒ **THE OFFRAMP CONVERSION COST DROPS FROM ~18–28 bps TO ~1.4–3.5 bps** across every realistic size.
+
+🎯 **AND THAT ANSWERS "IS THE BORROW LEG NEEDED?" — NO.** Its entire value was avoiding the v3 sale's
+18–28 bps. Against Curve it would be avoiding **1.4–3.5 bps**, while: carrying a leveraged position with
+liquidation exposure over the `waitNft` window; encumbering **~2× the weETH** per unit served (the
+safety-first ~50% LTV the owner requires); adding a multi-tx borrow→redeem→claim→repay lifecycle with a
+keeper dependency; and depending on external lending liquidity. **Trading a ~2 bps cost for a standing
+liquidation risk on protocol inventory is not a good trade.**
+⇒ **RECOMMEND: DROP THE BORROW LEG.** Everything designed for it stays useful as RECORD (the
+verified weETH/WETH markets, `LevVenueMarketPins`, the position-free/accounting analysis) — but nothing
+needs building. **The v3→Curve swap is the whole feature.**
+
+⚠️ **AND THE OWNER'S OTHER POINT COMPOUNDS THIS:** *"IL-protect LPs might already be collateralising their
+weETH, so most of the weETH on hand cannot be used for this offramp."* Levered collateral sits in per-LP
+venue escrows, NOT the Vault, so the Vault's free weETH — the ONLY thing `offrampBody:452-457` can sell —
+is the UNLEVERED remainder. **The more IL-protect succeeds, the smaller the slice rung 1 can serve**, and
+the more each exit leans on `waitNft`. A borrow leg would compete for that same shrinking inventory.
+
+▶️ **TO BUILD (the actual work):** replace the two-tier v3 `exactInput` loop (`VaultLib:470-481`) with a
+single Curve `exchange(int128,int128,uint256,uint256)`; drop `v3router`/`poolFee`/`poolFee2` from
+`SwapLib.OfframpCfg`; delete the tier-ordering machinery and its now-obsolete measured table; and check
+`SwapLib.sourceWethBody:590`, which uses the same cfg for opportunistic sourcing.
+⚠️ Keep a floor: Curve's own `get_dy` is the natural pre-trade check, and the 0.5%-of-fair floor should be
+retained — at −1.4 bps typical, a fill that misses it by a wide margin means the pool has been drained,
+which is exactly the 2,000-size cliff above.
+
+
+### ⛔ CORRECTION + ▶️ OFF-CHAIN REGIME DETECTION (owner, 2026-08-09)
+
+**⛔ RETRACTING ONE OF MY TWO ARGUMENTS FOR DROPPING THE BORROW LEG.** I gave two; only one holds.
+  * **INVENTORY — WITHDRAWN.** I argued levered collateral leaves little free weETH for an offramp borrow.
+    But **IL-protect is OPT-IN PER DEPOSITOR, not a protocol default** (owner), and by the analysis below
+    it is usually the WRONG choice — so most weETH is FREE, and the borrow leg would have had inventory.
+    I generalised from a mode being AVAILABLE to it being TYPICAL. Same error class as assuming a test
+    config is the deployed one.
+  * ✅ **COST — STANDS, AND IS SUFFICIENT ALONE.** Curve executes at **−1.4 to −3.5 bps**. A borrow leg
+    avoids only that, while carrying liquidation exposure over the `waitNft` window, ~2× encumbrance at a
+    safe LTV, and a keeper lifecycle. **Bad trade at 2 bps however much weETH is free.**
+⇒ **Drop the borrow work. `waitNft` survives ONLY as the drained-Curve-pool fallback** (the size-2000
+cliff, where the pool's 2,047 WETH runs out).
+
+---
+
+**▶️ THE LEVER IS A VIEW, NOT A DEFAULT — AND THE DISCRIMINATOR IS COMPUTABLE.**
+
+Owner's framing: *an unlevered position's cost depends on where price ENDS; a levered position's cost
+depends on HOW IT GOT THERE.* The unlevered depositor realizes IL only at withdrawal and the repack
+crystallizes nothing along the way. The lever borrows-and-buys as price rises and sells-and-repays as it
+falls, **paying two spreads per cycle plus carry for the duration**. ⇒ **Path length, not destination.**
+
+| regime | who wins | why |
+|---|---|---|
+| **Choppy, round-tripping** (ETH's most common) | **unlevered** | two spreads per cycle while the cancelled IL reverts for free; the de-lever band suppresses small oscillations but large ones still trigger |
+| **Rise then fall** — the worst case | **unlevered, clearly** | bought with borrowed money on the way up, sold on the way down — buy-high/sell-low on the BUFFER, realized through `_deleverFlash` selling collateral to repay |
+| **Low volume** (today) | **unlevered outright** | buffer fees ≈ 0, so the amplification argument evaporates and you pay 1.8–3% carry purely to cancel an IMPERMANENT loss |
+| **Long horizon, no forced exit** | **unlevered** | the loss resolves itself; paying carry to hedge it is negative EV in every regime |
+| Sustained directional / high volume / **exit timing not your choice** | **lever** | fee capture on doubled depth dominates carry; and if the exit is forced, the impermanent loss may be PERMANENT when it matters |
+
+⚠️ **THE LEVER IS NOT DOWNSIDE PROTECTION.** The target is ZERO at or below entry, so a depositor
+expecting a fall gains nothing and pays spreads and interest to find out. **Bearish or flat ⇒ strictly a
+cost.**
+
+**THE METRIC:** the regimes split on **total path travelled ÷ net move** — `Σ|Δp| / |p_end − p_start|`,
+i.e. the inverse of Kaufman's efficiency ratio. **≈1 = clean trend (lever); large = churn (unlevered).**
+The other two inputs already exist: realized VOLUME sets fee capture on the doubled depth, and the live
+`ADAPTIVE_IRM` rate is the carry. **Lever wins iff**
+`fee_capture(volume, 2×depth) + directional_gain > 2·spread·cycles + carry·duration`.
+
+⚠️ **MEASURE THE PATH ON THE BAND'S OWN TICK SERIES, NOT A PRICE FEED.** The lever's cycles are triggered
+by the band's sold fraction, so the churn that COSTS money is the churn the BAND saw — the same tick data
+`soldFractionWad` reads. A CEX price path would count moves the band never acted on.
+
+🔴 **AND IT MUST INFORM, NEVER SWITCH.** This repo already shipped the failure mode: `soldFractionActive`
+was a GOV bool silently deciding whether the hedge used ground truth, default FALSE, never set by the
+deploy (deleted 2026-08-09). **A regime DETECTOR that flips anyone's mode is that same latch with better
+statistics.** It surfaces the number; the depositor opts in.
+
+
+### ✅ CLOSED — the 0.5%-of-fair offramp floor is CORRECT AS-IS. Decided from the measured curve.
+
+Raised as an open item ("is 0.5% too loose for Curve?"), and it is not. Two questions, both answered:
+
+**1. Is a floor needed at all?** YES. Without one a DRAINED pool fills silently at **−722.80 bps** — a
+completed swap returning a plausible number, never a revert. That is exactly the case standing rule 3's
+inverse says a check earns: *"violating it would be SILENT and produce plausible-but-wrong output."*
+
+**2. Is 50 bps the right number?** YES, and the measured curve places it rather than judgement:
+worst NORMAL execution **−3.47 bps** (1,000 weETH) · cliff **−722.80** (2,000, where the pool's 2,047
+WETH runs out). **50 bps sits ~14× above the worst normal fill and ~14× below the cliff — near-centred
+in LOG space.** Tightening toward ~10 bps buys only false rejections (which degrade to the wait-NFT rung,
+so they cost UX not money); loosening past ~100 bps starts admitting the cliff.
+⇒ **No change. Justification written into `VaultLib` at the floor itself** so the next reader does not
+re-open it — the number is inherited from the Uniswap era but is correct for Curve BY MEASUREMENT, which
+is not obvious and was worth checking.
+
+
+### 🔴 REGIME DETECTION IS NOT BUILT — `realized_alpha` IS A DOC LINK TO A FUNCTION THAT DOES NOT EXIST
+
+⛔ **RETRACTS my own claim from earlier this session** that regime detection "partially exists, covering
+the volume axis." It does not exist at all. **`realized_alpha` appears EXACTLY ONCE in the whole
+`quid-ln` tree** — `quid-bridge/src/lev_keeper.rs:22`, inside a `//!` module doc, as a rustdoc link
+`[`realized_alpha`]`. **There is no implementation.** I read intent as shipped behaviour, which is the
+failure mode this file already records twice today under *"a comment describes past state"*.
+
+**What the doc DESCRIBES (worth keeping — it is a real design, just unbuilt):**
+> *`α` = the realized band concavity (how √p-like the position is), measured from flow. Busy flow →
+> `α→0.5` → `L→2` (cancel the IL the flow created). Quiet → `α→1` → `L→1` (no leverage, because there is
+> no realized IL to cancel). **Pinning `L=2` (ybamm's mistake) over-levers in quiet regimes and drains.***
+
+⇒ **NEITHER AXIS IS IMPLEMENTED:**
+| axis | what it separates | status |
+|---|---|---|
+| **volume** (`α` from flow) | busy vs quiet — the owner's "low volume" regime | ❌ doc only |
+| **path ÷ net move** | CHOPPY vs TRENDING — `Σ\|Δp\| / \|p_end − p_start\|` | ❌ not designed either |
+
+⚠️ **AND THE TWO ARE NOT INTERCHANGEABLE — this is the trap.** The α design keys on FLOW, so a
+**choppy-but-busy** market reads as "busy" and levers UP — precisely the regime the owner's analysis says
+the lever LOSES in, because each round trip pays two spreads while the cancelled IL reverts for free.
+**Building only α would produce confident wrong answers in ETH's most common regime.** The path ratio is
+not an enhancement to α; it is the axis that stops α from being harmful.
+
+**Constraints for whoever builds it:**
+  * **Measure the path on the BAND'S OWN tick series**, not a CEX/price feed — the cycles that COST money
+    are the ones the band acted on (the same ticks `soldFractionWad` reads). A price path counts moves the
+    band never traded.
+  * **INFORM, NEVER SWITCH.** `soldFractionActive` was exactly this and shipped as a GOV bool, default
+    FALSE, never set by the deploy — silently deciding whether the hedge used ground truth (deleted
+    2026-08-09). **A regime detector that flips anyone's mode is that latch with better statistics.**
+  * The lever is **opt-in per depositor** and is **NOT downside protection** — target is ZERO at or below
+    entry, so a bearish or flat depositor pays spreads and carry to learn nothing.
+  * ⚠️ **Rust does not build on macOS** (`quid-cvm` is Linux-only and transitive) — use the Docker image
+    per CLAUDE.md, or the metric cannot be run at all.
+
+
+### 🎯 REGIME DETECTION — BUILD IT ON THE RING THAT ALREADY EXISTS. Zero new on-chain surface.
+
+Owner: *reuse as much as possible of what is there.* Applied, and it removes essentially all of the new
+machinery I was about to specify.
+
+**WHAT ALREADY EXISTS — the canonical tick series, already walked:**
+`OracleLib.ringVariance(Observation[65535] storage obs, ObsState storage st, uint n)` (`:233`) walks the
+band's own observation ring, taking `Δ tickCumulative` normalised by each point's OWN elapsed time
+(`rate[i] = Δ tickCumulative · 1e9 / dt`) and returning realized variance per second. Called from
+`Core.sol:311` with `n = 9`.
+⇒ **The exact series the owner requires ("measure the path on the BAND'S OWN ticks, not a price feed")
+is already sampled, already time-normalised, and already read.** No new oracle, no new keeper input, no
+new storage.
+
+**THE MISSING SIGNAL IS TWO NUMBERS OFF THE SAME WALK:**
+```
+path = Σ |rate[i] − rate[i−1]|          (total distance travelled)
+net  = |rate[n−1] − rate[0]|            (displacement, the SAME two endpoints)
+regime = path / net
+```
+⚠️ **Normalise against the DIFFUSION BASELINE, or the number is unreadable.** A pure random walk already
+gives `path/net ≈ √(n·2/π)` — so a raw ratio of 3 means nothing until you know whether n makes 3 high or
+low. **Report `(path/net) ÷ √(n·2/π)`: >1 = choppier than diffusion (lever LOSES, two spreads per cycle
+against IL that reverts free), <1 = trending (lever wins).**
+
+🔴 **KEEP IT OFF-CHAIN — this is not a preference, it is a hard constraint.** `Core` has **28 FREE BYTES**
+(after `58e983f`), the tightest margin in the repo. The strat reads the same ring by `eth_call` and
+computes both numbers itself. **Adding an on-chain accessor for this would be the change that makes
+`Core` undeployable.**
+
+⇒ **Reuse summary: the data source, the sampling, the time-normalisation and the ring walk are all
+already built. What is missing is two accumulators over a walk that already happens, computed off-chain.**
+
+**Unchanged constraints:** it INFORMS the per-depositor opt-in and must never switch a mode
+(`soldFractionActive` was exactly that latch); the lever is not downside protection (target is zero at or
+below entry); and the volume axis the `lev_keeper.rs:22` doc describes (`α` from flow) is ALSO unbuilt —
+**building α without this ratio levers UP in choppy-but-busy markets, which is the regime the lever loses
+in.**
+
+
+### ⛔ CORRECTIONS to the regime-on-the-ring design above — THREE errors, one of them structural
+
+Double-checked against the code before anyone builds on it. The reuse idea survives; three stated details
+do not.
+
+**1. 🔴 THE RING IS `internal`, SO `eth_call` CANNOT READ IT.** `Core.sol:70-71` declare
+`OracleLib.Observation[65535] internal observationsETH / observationsBTC` — **no public getter**, and
+`_obs()` is `internal` too. My "the strat reads the same ring by `eth_call`" is FALSE.
+⇒ **Use `eth_getStorageAt`.** The ring sits at a computable slot and raw storage reads need NO contract
+change — which is what keeps `Core` (28 free bytes) untouched. But this is **LAYOUT-FRAGILE**: reordering
+Core's state variables silently moves the ring and the reader gets garbage that still decodes.
+⚠️ **Pin the layout in the reader and re-check it with `slither --print variable-order`** (already in the
+printer set CLAUDE.md prescribes) whenever `Core` changes. A silently-wrong offset is exactly the
+plausible-but-wrong failure this file keeps recording.
+⇒ The alternative — adding a public getter — is what the 28-byte margin forbids. **Do not "just add an
+accessor."**
+
+**2. `rate[]` IS `n − 1` LONG, NEWEST-FIRST.** `ringVariance:241` allocates `new int[](n - 1)` and
+`rate[0]` is the NEWEST interval (`:246-256` walks back from `st.index`). My `rate[n−1]` index is out of
+bounds; the endpoints are `rate[0]` (newest) and `rate[n−2]` (oldest), and there are **n − 2 increments**,
+not n.
+
+**3. THE DIFFUSION BASELINE TAKES THE INCREMENT COUNT, NOT `n`.** For m Gaussian increments,
+`E[path] = m·σ√(2/π)` and `E[|net|] ≈ σ√m`, so the random-walk ratio is **`√(m·2/π)` with m = n − 2**.
+With `n = 9` (Core's call) that is **m = 7**, baseline **≈ 2.11** — so a raw ratio near 2 is DIFFUSION,
+not chop. Using n would overstate the baseline and make choppy markets read as trending.
+
+**4. ⚠️ AND `rate[i]` IS AN AVERAGE TICK, NOT A PRICE.** It is `Δ tickCumulative · 1e9 / dt` — the mean
+tick over each interval, fixed-point-scaled (§E59: whole-tick truncation was half the zero-variance bug,
+since a ~20-tick band rounds consecutive averages to the same integer). Path and net over THIS series are
+in scaled-tick units; the ratio is dimensionless so it survives, but **any absolute figure derived from it
+is not a price move.**
+
+⇒ **The reuse conclusion HOLDS** — the sampling, time-normalisation and ring already exist and no on-chain
+surface is needed. **The access method changes from `eth_call` to `eth_getStorageAt`, and it carries a
+layout-pinning obligation the original entry did not mention.**
+>>>>>>> origin/main
+
+| id | state |
+|---|---|
+| **E182-UNBLOCKED** | 🎯 **§E175-a DISSOLVES §E162-rekey-CORRECTED. The rekey splice is no longer blocked — the two items unblock each other.** The correction killed `newLp == oldLp` with route ②: *"`newLp == oldLp` forces the LP half to stay and **THE ATTACKER ALREADY HOLDS IT**; nothing constrains the hop half's destination, so it splices to `(oldLp, attackerHop)` with both halves in its own control."* 🔑 **THAT PREMISE IS EXACTLY WHAT §E175-a REMOVES.** With the LP funding half on the LP's own always-on box, a hop that rekeys to `(oldLp, attackerHop)` obtains a 2-of-2 **it still cannot spend alone**, because it does not have `oldLp`'s secret. ⇒ **`newLp == oldLp` becomes a REAL prevention rather than an inheritance bound**, and §E162's own note — *"it must UPDATE `keysHash` and must be gated on who may rotate and to what… until that gating is settled, rejecting the change is the safe half"* (`BTCChannels.sol:1305-1309`) — is now settled. ✅ **AND THE ORIGINAL GOAL SURVIVES INTACT: no seed migrates** (the new image generates its own keys; the old one merely pays to them, so sealing stays an unbroken boundary) · **the channel never closes** (no liquidity event, no price shift — the pool sees a routine splice) · **NO LP ACTION** — and this is the part §E175 makes true rather than merely asserted: the LP does nothing *because its key simply stays in the aggregate*, enforced by the contract, not because the fleet signs for it. ⚠️ **STILL COUPLED: the ENFORCEMENT can land now, but it is only EFFECTIVE once the §E175 deployment puts the LP half outside the fleet.** In a co-located deployment it neither helps nor harms — the fleet already holds everything. Same shape as §E165↔§E175. 🔴 **ONE DECISION BEFORE CODE — the contract stores `keysHash = keccak256(abi.encode(lpPubkey, hopPubkey))` JOINTLY, so the LP half cannot be isolated from it. Two routes, both costing something:** **(A) pass the OLD hop pubkey** to `splice`, proving which pair is pinned (`keccak256(abi.encode(p.lpPubkey, oldHopPubkey)) == keysHash`), then update `keysHash` to the new pair — **cost: an ABI change to `splice`**, which the Rust codec and the SPA both reference (the §E178 gate will catch both). **(B) store `lpKeyHash = keccak256(lpPubkey)`** as its own field, set at open — **cost: one storage slot per channel and a change to `channels()`'s return shape**, also an ABI change. ⇒ **(B) is the more honest data model** — the LP half is an INVARIANT of the channel, so it deserves its own field rather than being recoverable only jointly — but it is the more invasive one. **Owner's call; do not pick by default.** |

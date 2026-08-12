@@ -15,7 +15,7 @@ import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 // §A.52: the SHARED WETH view (was a file-local `IWethDeposit` declaring just `deposit()`).
 import {IWETH9} from "./ILevVenue.sol";
 // §A.52: canonical shared views — these were file-local `IWeEth_L`/`IRedeem_L`/`ILiq_L`.
-import {IWeETH, IEtherFiLiquidityPool} from "./Interfaces.sol";
+import {IWeETH, IEtherFiLiquidityPool, ICurvePool} from "./Interfaces.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {LiquidityAmounts} from "v4-periphery/src/libraries/LiquidityAmounts.sol";
 import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
@@ -579,14 +579,30 @@ library SwapLib {
     // (ETHFI_NATIVE_ETH removed 2026-08-09 — it was the RedemptionManager output-token sentinel for the
     //  instant-redeem rung deleted 2026-08-05/06, and had no use site after that.)
 
+    /// @dev `curvePool` REPLACED `v3router`+`poolFee`+`poolFee2` (2026-08-09). Measured live against the
+    ///      weETH/WETH oracle, Curve vs the Uniswap 0.01% tier: −1.39 vs −17.55 bps at size 1, −1.51 vs
+    ///      −18.79 at 100, −3.47 vs −28.16 at 1000. Both cliff near 2,000 where Curve's 2,047 WETH runs
+    ///      out — which is the ONLY case the wait-NFT rung now exists for.
     struct OfframpCfg {
-        address weeth; address weth; address v3router;
-        address lp; uint24 poolFee; uint24 poolFee2;
+        address weeth; address weth; address curvePool; address lp;
+    }
+
+    /// @notice Sell `weethIn` for WETH on Curve, floored at `minOut`. Returns 0 on failure (caller decides).
+    /// @dev  weETH is coin1, WETH is coin0 -> exchange(1, 0, ...). The pool pays msg.sender, so a caller
+    ///       needing delivery elsewhere transfers after. Approval is set per call rather than infinite:
+    ///       this runs in the VAULT's delegatecall context and a standing allowance there is protocol
+    ///       inventory exposed to a pool upgrade.
+    function curveSellWeeth(OfframpCfg memory c, uint weethIn, uint minOut) internal returns (uint) {
+        if (c.curvePool == address(0) || weethIn == 0) return 0;
+        IERC20(c.weeth).approve(c.curvePool, weethIn);
+        try ICurvePool(c.curvePool).exchange(int128(1), int128(0), weethIn, minOut) returns (uint out) {
+            return out;
+        } catch { IERC20(c.weeth).approve(c.curvePool, 0); return 0; }
     }
 
     /// @notice Body of Aux._sourceWethFromEtherfi — opportunistic, non-blocking.
     function sourceWethBody(uint want, OfframpCfg memory c) external returns (uint) {
-        if (want == 0 || c.weeth == address(0) || c.v3router == address(0)) return 0;
+        if (want == 0 || c.weeth == address(0) || c.curvePool == address(0)) return 0;
         uint idle = IERC20(c.weeth).balanceOf(address(this));
         if (idle == 0) return 0;
         uint weethFull = IWeETH(c.weeth).getWeETHByeETH(want);
@@ -595,17 +611,7 @@ library SwapLib {
         if (weethIn == 0) return 0;
         uint fairWeth = FullMath.mulDiv(want, weethIn, weethFull);
         uint minOut = (fairWeth * 995) / 1000;            // 0.5% slippage cap
-        uint24[2] memory fees = [c.poolFee, c.poolFee2];
-        for (uint i; i < 2; i++) {
-            if (fees[i] == 0) continue;
-            try IV3SwapRouter(c.v3router).exactInput(IV3SwapRouter.ExactInputParams({
-                path: abi.encodePacked(c.weeth, fees[i], c.weth),
-                recipient: address(this), amountIn: weethIn,
-                amountOutMinimum: minOut
-            })) returns (uint out) { return out; }
-            catch {}
-        }
-        return 0;
+        return curveSellWeeth(c, weethIn, minOut);   // proceeds land here; caller is the Vault
     }
 
     // ─── BTC swap-IN / swap-OUT bodies (extracted from Aux to free bytecode) ──
