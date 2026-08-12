@@ -12961,3 +12961,35 @@ strictly inside the cap, most of §UNIT-B closes as a side effect — which is e
 | id | state |
 |---|---|
 | **E188-lp-funding-half** | 🎯 **THE MOST TRUSTLESS AND FAULTLESS FORM OF THE LP FUNDING HALF — and the answer is a LAYERING, because "trustless" and "faultless" pull in opposite directions and must be satisfied on DIFFERENT paths** (owner, 2026-08-12). 🔑 **THE DECOMPOSITION THAT MAKES BOTH ACHIEVABLE: FUNDS SAFETY MUST NOT NEED THE KEY AT ALL; ONLY SERVICE MAY.** §E165 already delivers the first half — the exit ladder is pre-signed AT OPEN and the bytes are **public** (`DeadManExitEmitted`), so once a CLTV matures **anyone** may broadcast. **Recovery requires no key, no device and no LP participation, so no key-management scheme can ever cost an LP its BTC.** That is what lets us choose the key's home on SERVICE grounds alone. ✅ **THE KEY ITSELF: a hardened-path secp256k1 key off the LP's OWN BIP-39 seed, held by the app.** Trustless — nobody else can produce it, and the §E175 split means the fleet structurally cannot. Faultless — **a lost phone restores from words the LP already backs up**, adding no new loss mode beyond the one every Bitcoin user already manages. Works with MuSig2 unchanged (§E171-r), and needs no new custody party. ⛔ **REJECTED — DERIVING IT FROM AN EVM SIGNATURE** (`k = keccak(sig)` over a fixed message, the usual "no new backup" trick): ECDSA is deterministic under RFC-6979, so **one phished signature on that message hands over the Bitcoin funding key forever**. It trades a backup burden for a phishing surface on a key that cannot be rotated without a rekey splice. ⛔ **REJECTED — reusing `btcRecipientOf`** (§E182-b): one key as both payout destination and funding half converts a degraded-service event into fund loss, and stacks plain BIP-340 with MuSig2 partials on one secret. ▶️ **OPTIONAL THIRD LAYER, AND ITS PLACE IS EXACT: social recovery (`unforgettable`-style, phones co-present for a shared transaction history recovering each other's keys) RESTORES SERVICE FASTER — it must NEVER be on the funds path.** It carries a quorum trust assumption, which is acceptable for *"my channel can splice again sooner"* and unacceptable for *"my BTC is recoverable"*. **Keep it strictly optional and strictly off the safety path.** ⇒ **NET: funds = no key (ladder) · service = one seed-derived key (app) · faster service = optional social recovery. Liveness is then tuned by LADDER DEPTH (§E187), which is signed once at open and free at runtime.** |
+
+### 🎯🎯🎯 ARCH-VARIANCE-VARIABLE — **PROPOSAL: the simpler variable is the REALIZED EXECUTION PRICE.** Derived from today's results, not invented.
+
+**§ARCH-OWN-POOLMANAGER asks for "same logic, simpler variable format, no ticks". The candidate falls
+out of owning the PM: IF WE EXECUTE THE SWAP, WE KNOW ITS PRICE — we do not have to DERIVE it.**
+```
+p_exec = usdIn / tokOut          // a plain ratio of amounts ACTUALLY EXCHANGED
+LVR    = qty · (p_close − p_exec)  // p_close = the NEXT swap's p_exec
+```
+**Store per pool: `(qty, p_exec)` of the last swap. Two plain uints. That is the whole state.**
+
+✅ **WHY THIS IS THE RIGHT SHAPE — every property was MEASURED today, not assumed:**
+| requirement | how this satisfies it |
+|---|---|
+| **no ticks** | never forms one — no `tickCumulative`, no `int56` walk, no `1e9` rescale, no `observe` interpolation |
+| **bounded by construction** (§…-DIVERGENCE-FIX) | `p_exec` is a ratio of exchanged amounts; **it cannot diverge as `inv → 0`, which is exactly what killed `POOLED_USD/inv`** |
+| **a SUM, not a second difference** (§SIGMA-REMOVE) | LVR accrues additively; **the property σ² structurally cannot have** |
+| **no observation-COUNT carrier** (§UNIT-B-ROOT-FOUND) | there is no ring, so "one swap writes one point, twelve write twelve" has nothing to bite on |
+| **correct quantity** (§…-SIGNED-REFUTED) | it IS `HODL − band` rewritten; P&L-on-inventory read the band net AHEAD by 3× |
+| **no oracle, no feed** (§SIGMA-SOURCE) | endogenous BY DESIGN rather than by accident |
+
+⚠️ **WHAT IT DOES *NOT* FIX, AND MUST NOT BE EXPECTED TO:**
+- **LVR IS INTRINSICALLY PATH-DEPENDENT** (§…-LVR-IS-PATH-DEPENDENT, **1.692×**): a whale realises at
+  ONE price, twelve tranches at TWELVE. **Real economics. The gap will NOT go to 1.000× and should not.**
+- **§UNIT-FORELLA's closed loops** — a different axis (total variation), untouched by this.
+- **The WINDOW/decay constant** still needs §E83's censored duration.
+🔬 **ACCEPTANCE — the six instruments already exist and port unchanged
+(§UNIT-B-INSTRUMENTS-HARDENED):** history gap **materially below σ²'s 2.632×** and near the 1.692×
+economic floor · **skew STRICTLY INSIDE the 3% cap** (the control that caught the false pass) ·
+one accrual per swap · run-to-run noise ≤ σ²'s 1.084×.
+📌 **AND IT IS A PROPOSAL.** Three estimators died today, each sound-looking when written down.
+**Measure it against the instruments before believing any row above.**
