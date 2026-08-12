@@ -12446,3 +12446,29 @@ with a green suite. **`python3 tools/check-contract-sizes.py` is the only gate t
    removes the fresh-band protection, so it is a design decision, not a byte trick.
 ⚠️ **DO NOT SHRINK BY DELETING THE GAIN REGISTER OR THE HODL LEG** — both were required to get the
 SIGN right (§SIGMA-REMOVE-SIGNED-REFUTED). **The bytes are load-bearing.**
+
+### ⛔ SIGMA-REMOVE-P2-LIBRARY-ROUTE-REFUTED — moving the math to `OracleLib` made `Core` **BIGGER** (−60 → −141). Reverted.
+
+**§SIGMA-REMOVE-P2-OVER-EIP170's route 1 ("move the arithmetic into a delegatecalled library — likely
+frees more than the substitution costs") is REFUTED BY MEASUREMENT.**
+| variant | `Core` | free |
+|---|---|---|
+| substitution INLINE | 24,636 | **−60** |
+| substitution via `OracleLib.impliedVarianceWad(...)` | **24,717** | **−141** |
+⇒ **81 bytes WORSE.** ⚠️ **An `external` library call with FIVE arguments costs more in calldata
+setup + staticcall machinery than the inline arithmetic saves.** ⇒ **LIBRARY EXTRACTION PAYS FOR
+LARGE BODIES, NOT SMALL ARITHMETIC WITH WIDE SIGNATURES** — the opposite of the assumption in that
+entry. **Record it: the same reflex will recur on the next EIP-170 squeeze.**
+📌 `FullMath` (not OZ `Math`) is the right primitive here per the owner — 512-bit intermediate, so
+`inv · pxWad` cannot overflow. **That was already applied and is unrelated to the size result.**
+
+▶️ **REMAINING ROUTES — routes 1 is dead, so:**
+2. **CLAUDE.md 8c on whatever is still inlined in `Core`.** `_onlyUs` returned **907 bytes** from ONE
+   modifier at 18 sites. **Enumerate `Core`'s remaining modifiers and their use counts before
+   assuming there is nothing left.**
+3. **Drop the cold-start `_ringVarianceWad` fallback** — a DESIGN decision (it protects a fresh band
+   from being priced at zero steepness), not a byte trick. **Only with the owner.**
+4. **Shrink the SUMMAND's own footprint** — e.g. fold `_bandPxWad` into `_accrueRealizedLoss` (its only
+   caller) so the helper's dispatch disappears. **Unmeasured; cheapest to try next.**
+⚠️ **STILL NOT AN OPTION: cutting the gain register or the HODL leg.** Both were required to get the
+SIGN right (§SIGMA-REMOVE-SIGNED-REFUTED read the band NET AHEAD without them).
