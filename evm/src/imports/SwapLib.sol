@@ -780,6 +780,12 @@ library SwapLib {
         // PER-ASSET settlement window: BTC locks capital through ~1hr of confirmations (CONF_FRAC_WAD) + an
         // on-chain splice-fee floor; ETH settles in ~one block with no confirmation lock and no splice.
         uint confFrac = isBTC ? CONF_FRAC_WAD : ETH_CONF_FRAC_WAD;
+        // §UNIT-B-PATIENCE — σ² IS ATTACKER-STRETCHABLE AND THIS WINDOW DOES NOT DEFEND IT.
+        // σ² is a per-unit-time rate whose ring advances only on swaps, so spacing slices collapses it
+        // (MEASURED: 4h gaps → σ² 24× down, charge 93.3% down). Pricing this base over the ACTUAL idle
+        // window was built and measured: it moves the charge ~1% because the base is ~0.002% of it, and
+        // it cost 378 bytes + 2 staticcalls/swap, so it was REVERTED. The vector sits in the KERNEL's
+        // σ² linearity. See §UNIT-B-PATIENCE / §UNIT-B-PATIENCE-STEP2 before attempting either again.
         // LVR = σ²/8 per unit time (Milionis-Moallemi-Roughgarden-Zhang arXiv:2208.06046 eq.16: for a
         // constant-product pool the loss per unit time as a fraction of pool value is exactly σ²/8).
         // This is the EXPECTED cost of the displacement being arbitrageable over the settlement
@@ -985,6 +991,22 @@ library SwapLib {
         // is what the position costs us over the window no matter who trades or how much. Depletion
         // risk and adverse selection are DIFFERENT costs and both are real, so they SUM. `max` under-
         // charges by exactly `min(sizeTerm, base)`, which is largest in the regime that matters most.
+        // §UNIT-B-PATIENCE STEP 2 — THE KERNEL CARRIES THE VECTOR, NOT THE BASE. Correcting only the
+        // base's window was MEASURED to do nothing (93.28% vs 93.27%), because on ETH the base is
+        // ~0.002% of the charge: at σ²=1.19e12 it is 5.65e4 against a wellSkew of 2.7e9. The kernel
+        // `Γ·σ²·qBar` is LINEAR IN σ² AND HAS NO HORIZON TERM, so a σ² collapsed by clock-stretching
+        // takes the whole charge down with it.
+        //   A-S's reservation premium is `q·γ·σ²·(T−t)` — it HAS a horizon. Ours folded a constant
+        // horizon into Γ, which is exactly what makes it stretchable. Scaling by how much longer than
+        // the nominal window the band actually carried the imbalance restores σ²·T, the quantity LVR
+        // is really made of (δ²/8 for a displacement δ, independent of elapsed time).
+        //   ⛔ SCALING THE KERNEL BY `idle/nominal` WAS TRIED AND MEASURED, AND IT IS WRONG AS
+        // CALIBRATED — DO NOT RE-ADD IT WITHOUT SETTLING Γ's HORIZON FIRST. It DOES close the vector
+        // (chopper advantage → 0 bps at every delay), but against `nominalSecs = 12` it repriced
+        // ORDINARY same-block chopped flow 97× (28,829 → 2,802,810 usd6). 12s is the SETTLEMENT
+        // window; it is not the inventory-holding horizon Γ folded in, and any real gap dwarfs it.
+        // The principle is right and the constant is unknown, which makes this a calibration
+        // question (§UNIT-B-PATIENCE-STEP2), not a patch.
         skew += _maxWellSkew(sigmaSqWad, isBTC);
         if (skew > MAX_WELL_SKEW) skew = MAX_WELL_SKEW;
     }
@@ -1074,6 +1096,8 @@ library SwapLib {
     function _composePrice(address core, uint kernel, uint sigmaSqWad, bool isBTC)
         private view returns (uint) {
         uint splice = isBTC ? SPLICE_FLOOR : 0;
+        // §UNIT-B-PATIENCE: read the exposure clock here rather than threading it in — this frame
+        // exists to RELIEVE stack pressure (no via_ir), so a fifth parameter would work against it.
         uint risk = _maxWellSkew(sigmaSqWad, isBTC) - splice;
         uint out = FullMath.mulDiv(kernel + risk, _sharedScarcityWad(core, isBTC), 1e18) + splice;
         return out > MAX_WELL_SKEW ? MAX_WELL_SKEW : out;
