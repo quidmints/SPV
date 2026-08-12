@@ -6008,7 +6008,11 @@ They are not competing explanations; they answer **different questions**:
 ⇒ **The gap between them IS #12.** "Count once" cannot be evaluated without stating which pool owns the
   proceeds of a band→basket sale. **That is the sentence the doc is missing.**
 
-### ▶️ THE SPEC #12 NEEDS (write this first; it is one decision, then everything else follows)
+### ⛔ STALE HEADER — THE SPEC WAS SUPPLIED 2026-08-02, SIXTEEN LINES BELOW (`🔑 #12 — THE ACTUAL SPEC`).
+### The (a)/(b) ownership question here is recorded there as THE WRONG QUESTION — owner: *"who owns it?
+### they both do."* Do not answer it. ⚠️ This header sent me here as "one decision, then everything
+### follows" when the decision was already made; the entry below is the live one.
+### ~~THE SPEC #12 NEEDS (write this first)~~
 > **When `AUX.swap` sources the volatile leg from the BAND, who owns the stable proceeds?**
 > 1. **Basket owns them, band LPs bear it** (current behaviour) ⇒ document it, and re-scope BOTH probes +
 >    `LeveragePnLProbe`'s assertion, which currently asserts the opposite.
@@ -10149,3 +10153,37 @@ must **INFORM, NEVER SWITCH** (`soldFractionActive` was that latch, deleted 2026
 
 ▶️ Remaining: confirm the register's accrual is readable per-depositor over an arbitrary window (it is
 band-level as measured), and confirm `1ae947c` closed the run-to-run gate `dc15478` left open.
+
+
+### 🎯 `#12` AND `OPEN 14` ARE THE SAME DEFECT, FOUND INDEPENDENTLY — AND THEY CONVERGE ON THE SAME FIX
+
+Found 2026-08-12 while looking for the next task. **`OPEN 14` (mine, 2026-08-09) restates `#12` (owner,
+2026-08-02) without knowing it.** Neither entry references the other. Merge them; do not work them twice.
+
+| | `#12` | `OPEN 14` |
+|---|---|---|
+| mechanism | `committedUsd18() = ETH band equity + BTC band equity` (`Core:106`), enforced `if (committedSum > totalLiquid) revert OverCommitted()` (`Aux:1085`), **STRICT on drain paths only** | per-asset skew pricing (`wellSkew(core, base, isBTC, drainUsd6)` reads only its own inventory) against ONE global solvency gate |
+| symptom | *"the ETH LP feels it as a **reverting withdraw**, not as a price"* | *"NOT a price that rises to meet the pressure; it is a **HARD REVERT** landing on whoever arrives last"* |
+⇒ **Two independent derivations, same mechanism, same symptom, and the same prescription in the same
+words.** That convergence is stronger evidence than either entry alone.
+
+✅ **WHAT `#12` ADDS THAT `OPEN 14` LACKED — the asymmetry, which is why it BITES.** Shared budget alone
+would be tolerable if both bands could refill on demand. **The BTC band cannot:** there is nowhere to buy
+BTC except our own band; **WBTC deliberately cannot substitute** (opt-in SOR and the opt-in levered BTC LP
+only); so refill is **LP-arrival-paced** (`Vault.registerBtcLp`) or swap-in-paced, **never market-paced**.
+⇒ **BTC commitments are STICKY while ETH's are not**, so a BTC draw strands ETH exits for as long as the
+BTC band stays un-refilled. `OPEN 14` called the joint draw "the expected shape of a bad day" but missed
+that ONE SIDE CANNOT RECOVER.
+
+✅ **AND WHAT `OPEN 14` ADDS TO `#12`:** the per-asset SKEW is the specific machinery that cannot see the
+coupling — `#12` names the gate, `OPEN 14` names the pricing that should have absorbed the pressure before
+the gate fired.
+
+▶️ **ACTIONABLE, and both entries already point at it: make the shared constraint express itself as a
+PRICE before it expresses itself as a REVERT.** A revert lands on whoever arrives last, which is
+arbitrary; a price lands on whoever causes the draw, which is correct. ⚠️ Note the standing warning
+against clamps does NOT apply — this is the inverse case: the current behaviour is a hard revert with no
+warning, and the proposal REMOVES a tripwire by pricing the thing it guards.
+⚠️ **Do not start by editing `_checkBacking`.** The measured 400→367.48 claim shrink is this same mechanic
+seen from the ETH LP's side — **not** a missing credit and **not** LVR; both earlier readings are recorded
+as superseded. Confirm which of `wellSkew`'s inputs can see global `totalLiquid` before designing.
