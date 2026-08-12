@@ -6,14 +6,14 @@ import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 import {Currency} from "v4-core/src/types/Currency.sol";
 import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 
-import {Vogue} from "./Vogue.sol";
-import {Core} from "./Core.sol";
-import {Aux} from "./Aux.sol";
-import {Basket} from "./Basket.sol";
-import {Vault} from "./Vault.sol";
-import {SPVGateway} from "./spv/SPVGateway.sol";
-import {BTCChannels} from "./BTCChannels.sol";
-import {SorPath} from "./imports/SOR.sol";
+import {Vogue} from "../src/Vogue.sol";
+import {Core} from "../src/Core.sol";
+import {Aux} from "../src/Aux.sol";
+import {Basket} from "../src/Basket.sol";
+import {Vault} from "../src/Vault.sol";
+import {SPVGateway} from "../src/spv/SPVGateway.sol";
+import {BTCChannels} from "../src/BTCChannels.sol";
+import {SorPath} from "../src/imports/SOR.sol";
 
 /// @dev The Foundation (F8N) ANGEL seed NFT: the Safe approves Aux for it mid-deploy (below), and Basket's
 ///      constructor requires that approval — so the seed commitment is atomic with Basket's birth, with NO

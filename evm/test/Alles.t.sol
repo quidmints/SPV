@@ -37,7 +37,7 @@ import {FeeLib} from "../src/imports/FeeLib.sol";
 import {BasketLib} from "../src/imports/BasketLib.sol";
 import {Types} from "../src/imports/Types.sol";
 import {Core} from "../src/Core.sol";
-import {DeployLib} from "../src/DeployLib.sol";
+import {DeployLib} from "../script/DeployLib.sol";
 import {SorPath} from "../src/imports/SOR.sol";
 import {BTCChannels} from "../src/BTCChannels.sol";
 import {BitcoinTx} from "../src/imports/BitcoinTx.sol";

@@ -19,7 +19,7 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 
 import {Aux} from "../src/Aux.sol";
-import {DeployLib} from "../src/DeployLib.sol";
+import {DeployLib} from "./DeployLib.sol";
 import {Vault} from "../src/Vault.sol";
 import {BTCChannels} from "../src/BTCChannels.sol";
 import {SPVGateway} from "../src/spv/SPVGateway.sol";

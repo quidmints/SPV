@@ -5,7 +5,7 @@ import {Script, console} from "forge-std/Script.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 
-import {DeployLib} from "../src/DeployLib.sol";
+import {DeployLib} from "./DeployLib.sol";
 import {Basket} from "../src/Basket.sol";
 import {Aux} from "../src/Aux.sol";
 
