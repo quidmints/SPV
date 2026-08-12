@@ -1,0 +1,159 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.30;
+
+import "forge-std/Test.sol";
+import {SwapLib} from "../src/imports/SwapLib.sol";
+
+/// @title §UNIT-ASYM — the BTC/ETH skew asymmetry, measured instead of asserted.
+/// @notice §UNIT-ASYM records the asymmetry as "the priced window differs by 300x" and calls that
+///         the material omission. That claim was never executed. This measures it.
+///
+///         The instrument is `SwapLib.skewWad`, which is `public pure`: identical inputs with one
+///         bool flipped is a CONTROL that band state cannot confound. That matters because every
+///         previous skew measurement here ran against a fixture, and two were overturned when the
+///         fixture (not the code) turned out to explain the number.
+///
+///         The decomposition needs no duplicated constants: §UNIT-A changed the `target == 0`
+///         early return to yield exactly `_maxWellSkew(sigma2, isBTC)`, so calling with `flow = 0`
+///         reads the BASE through the public API. The kernel is then (total - base).
+contract SkewAsymmetry is Test {
+    uint constant WAD = 1e18;
+
+    /// Reads the per-asset BASE alone, via UNIT-A's target==0 early return.
+    function _base(uint sigmaSqWad, bool isBTC) internal pure returns (uint) {
+        return SwapLib.skewWad(1_000_000e6, 0, sigmaSqWad, isBTC, 0);
+    }
+
+    /// @notice THE WINDOW RATIO IS EXACTLY 300x — and that is the LEAST important thing about the
+    ///         asymmetry. Prediction (stated before running): base_BTC - base_ETH*300 == SPLICE_FLOOR.
+    function test_UNITASYM_WindowGapIs300x_ButSpliceDominates() public {
+        // sigma^2 = 1e18 == 100%/yr variance: a round, unambiguous reference point.
+        uint s = WAD;
+        uint bBtc = _base(s, true);
+        uint bEth = _base(s, false);
+
+        emit log_named_uint("base BTC (wad)       ", bBtc);
+        emit log_named_uint("base ETH (wad)       ", bEth);
+
+        // The ETH base is the pure window term (no splice). Scaling it by the window ratio must
+        // reproduce BTC's window term exactly -- leaving the splice as the whole remainder.
+        uint ethScaled = bEth * 300;
+        assertGt(bBtc, ethScaled, "BTC base must exceed the scaled ETH window term by the splice");
+        uint remainder = bBtc - ethScaled;
+
+        emit log_named_uint("ETH window x300      ", ethScaled);
+        emit log_named_uint("remainder (= splice?)", remainder);
+
+        // SPLICE_FLOOR is 2e15. If the window ratio is exactly 300, the remainder IS the splice.
+        assertEq(remainder, 2e15, "remainder is not exactly SPLICE_FLOOR => window ratio is not 300");
+
+        // THE POINT: what fraction of BTC's base is the splice, not the window?
+        uint splicePctE4 = (2e15 * 1e4) / bBtc;      // basis points of the BTC base
+        emit log_named_uint("splice as bps of base", splicePctE4);
+        assertGt(splicePctE4, 9_900, "splice should dominate BTC's base (>99%)");
+    }
+
+    /// @notice THE ASYMMETRY IS SCALE-DEPENDENT: the window term grows with sigma^2, the splice does
+    ///         not. So there is a variance above which the window stops being a rounding detail.
+    ///         Finding that crossover is the actual UNIT-ASYM question -- "300x" alone is unitless
+    ///         and cannot tell anyone when it matters.
+    function test_UNITASYM_FindTheVarianceWhereTheWindowStopsBeingNoise() public {
+        uint[6] memory sigmas = [uint(1e16), 1e17, 1e18, 1e19, 1e20, 1e21]; // 1% .. 10000%/yr
+        for (uint i; i < sigmas.length; i++) {
+            uint s = sigmas[i];
+            uint bBtc = _base(s, true);
+            uint bEth = _base(s, false);
+            // window term on the BTC leg = base - splice
+            uint win = bBtc > 2e15 ? bBtc - 2e15 : 0;
+            uint winBpsOfBase = bBtc == 0 ? 0 : (win * 1e4) / bBtc;
+            emit log_named_uint("--- sigma^2 (wad)    ", s);
+            emit log_named_uint("    base BTC         ", bBtc);
+            emit log_named_uint("    base ETH         ", bEth);
+            emit log_named_uint("    window bps of BTC", winBpsOfBase);
+        }
+    }
+
+    /// @notice §E131's ADEQUACY TEST, RE-RUN ON BTC — §UNIT-ASYM's second named-but-unexecuted check.
+    ///         E131 measured the breakeven exposure window `T* = 8P/(V*sigma^2)` on ETH and asserted
+    ///         `T* >= ETH_CONF_FRAC_WAD`: the premium must fund LVR over at least the window
+    ///         `_maxWellSkew` charges for, or the formula contradicts its own derivation. That row
+    ///         says the result is PER-ASSET and must be re-run for BTC before anything is claimed
+    ///         for that leg. This is that run, on a FLUSH band (kernel == 0), which is the worst
+    ///         case: the base is then the entire premium.
+    function test_UNITASYM_E131_AdequacyOnBothLegs_FlushBand() public {
+        uint[3] memory sigmas = [uint(36e16), 1e18, 4e18];   // 60%/yr (E131's reference), 100%, 200%
+        for (uint i; i < sigmas.length; i++) {
+            uint s = sigmas[i];
+            // T* in WAD-years = 8 * skew / sigma^2. On a flush band skew == base.
+            uint tBtc = (8 * _base(s, true)  * WAD) / s;
+            uint tEth = (8 * _base(s, false) * WAD) / s;
+            // WAD-years -> seconds
+            uint secBtc = (tBtc * 31_536_000) / WAD;
+            uint secEth = (tEth * 31_536_000) / WAD;
+
+            emit log_named_uint("=== sigma^2 (wad)    ", s);
+            emit log_named_uint("    T* BTC (seconds) ", secBtc);
+            emit log_named_uint("    T* ETH (seconds) ", secEth);
+
+            // E131's assertion, per asset: T* must cover the window each leg prices for.
+            assertGe(tBtc, 114_000_000_000_000, "BTC: premium under-funds its own 1hr window");
+            assertGe(tEth, 380_000_000_000,     "ETH: premium under-funds its own 12s window");
+        }
+    }
+
+    /// @notice THE ADEQUACY MARGIN IS THE REAL ASYMMETRY, AND IT RUNS THE OPPOSITE WAY TO UNIT-ASYM's
+    ///         FRAMING. BTC's base carries a variance-INDEPENDENT splice on top of the LVR term, so
+    ///         its T* strictly exceeds its window. ETH's base is EXACTLY sigma^2*window/8, so on a
+    ///         flush band T* equals its window with ZERO margin -- E131's assertion passes by
+    ///         equality, not by headroom. Everything ETH has above breakeven comes from the kernel,
+    ///         which is zero precisely when the band is flush.
+    function test_UNITASYM_EthFlushBandIsExactlyBreakeven_BtcIsNot() public {
+        uint s = WAD;
+        uint tEth = (8 * _base(s, false) * WAD) / s;
+        uint tBtc = (8 * _base(s, true)  * WAD) / s;
+
+        emit log_named_uint("ETH T* (wad-years)   ", tEth);
+        emit log_named_uint("ETH window (wad-yrs) ", uint(380_000_000_000));
+        emit log_named_uint("BTC T* (wad-years)   ", tBtc);
+        emit log_named_uint("BTC window (wad-yrs) ", uint(114_000_000_000_000));
+
+        // ETH: exact equality. No margin whatsoever on a flush band.
+        assertEq(tEth, 380_000_000_000, "ETH flush T* should be EXACTLY its 12s window");
+
+        // BTC: strictly greater, and the excess is the splice re-expressed as time.
+        assertGt(tBtc, 114_000_000_000_000, "BTC flush T* should exceed its window via the splice");
+        uint marginSec = ((tBtc - 114_000_000_000_000) * 31_536_000) / WAD;
+        emit log_named_uint("BTC margin (seconds) ", marginSec);
+        emit log_named_uint("BTC margin (days)    ", marginSec / 86_400);
+    }
+
+    /// @notice CONTROL: the A-S kernel itself must be asset-independent. If it is not, the
+    ///         asymmetry is wider than the window+splice and UNIT-ASYM's framing is incomplete.
+    ///         Same poolVol, same flow, same sigma^2, same drain -- only the bool differs.
+    function test_UNITASYM_KernelIsAssetIndependent() public {
+        uint s = WAD;
+        // MILD scarcity on purpose. At inv/target = 0.25 the kernel is MAX_WELL_SKEW*qBar = 3x the
+        // ceiling, so BOTH legs clamp to 3e16 and the comparison silently measures (cap - base)
+        // instead of the kernel -- it FAILED that way first, and 3e16 on both legs was the tell.
+        // inv/target = 0.75 => qBar = 1/3 => kernel ~1e16, comfortably under the 3% ceiling.
+        uint poolVol = 300_000e6;
+        uint flow    = 400_000e6;
+        uint tBtc = SwapLib.skewWad(poolVol, flow, s, true,  0);
+        uint tEth = SwapLib.skewWad(poolVol, flow, s, false, 0);
+
+        // ANTI-SATURATION CONTROL: at the cap every input maps to the same output, so a clamped
+        // run would "prove" asset-independence by erasing the difference rather than by absence of one.
+        assertLt(tBtc, 3e16, "BTC leg saturated at MAX_WELL_SKEW - fixture cannot test the kernel");
+        assertLt(tEth, 3e16, "ETH leg saturated at MAX_WELL_SKEW - fixture cannot test the kernel");
+
+        emit log_named_uint("total BTC (wad)      ", tBtc);
+        emit log_named_uint("total ETH (wad)      ", tEth);
+
+        uint kBtc = tBtc - _base(s, true);
+        uint kEth = tEth - _base(s, false);
+        emit log_named_uint("kernel BTC (wad)     ", kBtc);
+        emit log_named_uint("kernel ETH (wad)     ", kEth);
+
+        assertEq(kBtc, kEth, "the A-S kernel must not depend on which asset it is");
+    }
+}
