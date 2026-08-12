@@ -31,7 +31,7 @@ use tracing::{debug, error, info, warn};
 
 use quid_hop::event_handler::ChannelLifecycleEvent;
 use quid_hop::evm_codec::{
-    build_open_params, build_splice_params, channel_id, encode_record_close,
+    build_open_params, build_splice_params, channel_id, encode_open_channel, encode_record_close,
     encode_record_force_close_permissionless, encode_splice, is_commitment_tx,
     sort_funding_pubkeys, tx_inclusion, txid_internal,
 };
@@ -727,29 +727,25 @@ pub async fn drive_open<R: JsonRpc + Send + Sync + 'static>(
     };
     debug!(%funding_txid, lp_eth = %lp_eth, "open: resolved lpEth from vault registry; submitting openChannel");
 
-    // 7. ⛔ (E178/E157/E165) THE DAEMON CANNOT OPEN A CHANNEL ON ITS OWN ANY MORE, AND
-    //    PRETENDING OTHERWISE WOULD SUBMIT A TX THAT REVERTS.
+    // 7. (E166-3) RELAY the LP's consent — the fleet cannot manufacture it.
     //
-    //    `openChannel` now requires `OpenAuth` — the LP's signature over
-    //    `openAuthDigest(hop, btcRecipient)`, plus a BIP-340 proof-of-possession for the
-    //    payout key (§E138) — and a non-empty `ExitArming[]` ladder (§E165). The fleet CAN
-    //    produce the ladder (it holds both funding halves), but it CANNOT produce `lp_sig`:
-    //    that is the whole point of §E157, which deleted `registerDelegation` precisely so
-    //    consent rides with the open instead of being pre-granted to the fleet.
+    // `openChannel` needs an `OpenAuth` (the LP's signature over `openAuthDigest` plus the
+    // §E138 proof-of-possession) and a non-empty §E165 `ExitArming` ladder. Both are spends
+    // or signatures requiring the LP funding half, which after §E175 lives on the LP's own
+    // box — so the fleet RELAYS consent and never synthesises it.
     //
-    //    ⇒ This is §E166 item 3, and it is a DESIGN gap, not a wiring one. It is surfaced
-    //    as a loud error rather than a fabricated auth so the missing piece stays visible.
-    //    Wire the LP consent in (from the LP app / a stored signed consent) and pass it
-    //    here; do NOT invent an `OpenAuth` to make this compile.
-    let _ = (&params, &raw, &proof, lp_eth);
-    anyhow::bail!(
-        "drive_open: cannot submit openChannel for {funding_txid}:{funding_vout} — no LP \
-         consent (OpenAuth: lpSig + btcRecipientPoP) and no pre-signed ExitArming ladder \
-         available to this daemon (E166-3). The LP must sign; the fleet cannot."
-    );
-    #[allow(unreachable_code)]
-    #[allow(unused_variables)]
-    let calldata: Vec<u8> = unreachable!();
+    // ⚠️ ABSENT CONSENT IS DORMANCY, NOT FAILURE. This used to `bail!`, which turned an
+    // ordinary "the LP has not signed yet" into a loud error on every reconciler tick. It
+    // now skips exactly as the missing-lpEth binding above does: the open stays pending and
+    // is retried, which is the same additive-state discipline the rest of this path uses.
+    let Some(consent) = registry.consent_for_funding(&funding_txid.to_string(), funding_vout)
+    else {
+        debug!(%funding_txid, lp_eth = %lp_eth,
+            "open: no LP consent (OpenAuth + ExitArming ladder) yet; skip (reconciler retries)");
+        return Ok(());
+    };
+    let calldata =
+        encode_open_channel(&params, &raw, &proof, &consent.auth, &consent.exits);
     let diag_calldata = calldata.clone();
     let ok = estimate_gas_and_send(&evm, &rpc, btc_channels, calldata, cfg.gas_limit).await?;
     if !ok {

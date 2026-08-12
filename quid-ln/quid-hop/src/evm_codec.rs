@@ -457,7 +457,7 @@ pub struct OpenParams {
 /// `btcRecipientPoPDigest(lpEth)` — §E138 added it because registration proved the payout
 /// key was ON THE CURVE but never that the LP CONTROLLED it, and close, splice-out and the
 /// dead-man exit all pin to it, so a wrong key loses every escape at once.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct OpenAuth {
     pub lp_eth: Address,
     pub btc_recipient: [u8; 32],
@@ -488,7 +488,7 @@ impl OpenAuth {
 /// `signed_exit_tx`, in input order: BIP-341 `Prevouts::All` commits to them and they live
 /// in EARLIER transactions, so the chain cannot read them from this one. The contract
 /// OVERWRITES the funding entry with what it already knows.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ExitArming {
     pub prev_values: Vec<u64>,
     pub prev_scripts: Vec<Vec<u8>>,

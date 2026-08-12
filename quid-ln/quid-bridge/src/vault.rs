@@ -92,10 +92,36 @@ pub async fn spawn_p2p_listener(
 /// (it KNOWS lpEth: it derived that LP's deposit address); read by `drive_open`,
 /// which no longer recovers lpEth from an lpAuth signature. Also maps a vault-wallet
 /// deposit address → lpEth so a confirmed deposit is attributed to its LP.
+/// (E166-3) The LP's consent for one open: everything `openChannel` needs that the fleet
+/// cannot produce for itself.
+///
+/// After §E175 the LP funding half lives on the LP's own box, so both fields are made
+/// there and relayed: `auth.lp_sig` signs `openAuthDigest`, and each `exits` rung is a
+/// pre-signed spend of the 2-of-2. A fleet that could construct these would, by
+/// definition, still hold the LP half.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LpConsent {
+    pub auth: quid_hop::evm_codec::OpenAuth,
+    pub exits: Vec<quid_hop::evm_codec::ExitArming>,
+}
+
 #[derive(Default)]
 pub struct VaultRegistry {
     /// `funding_txid_hex:vout` → lpEth (for drive_open).
     by_funding: Mutex<HashMap<String, Address>>,
+    /// (E166-3) `funding_txid_hex:vout` → the LP's CONSENT for that open: the `OpenAuth`
+    /// and the pre-signed `ExitArming` ladder.
+    ///
+    /// 🔑 **WHY THIS EXISTS AND WHY THE FLEET CANNOT SYNTHESISE IT.** §E157 deleted
+    /// `registerDelegation` precisely so consent rides WITH the open instead of being
+    /// pre-granted to the fleet, and §E165 made a pre-signed exit ladder mandatory at open.
+    /// `OpenAuth.lp_sig` is the LP's signature over `openAuthDigest`, and the ladder rungs
+    /// are spends of the 2-of-2 — **both require the LP funding half, which after §E175 the
+    /// fleet does not have.** So the fleet RELAYS consent; it never manufactures it.
+    ///
+    /// ⚠️ Same lifecycle as `by_funding`: only IN-FLIGHT opens, dropped once mirrored
+    /// on-chain, so it cannot grow without bound over the daemon's lifetime.
+    consent: Mutex<HashMap<String, LpConsent>>,
     /// vault deposit address string → (lpEth, btcRecipient x-only key, desired sats).
     by_deposit_addr: Mutex<HashMap<String, LpFunding>>,
     /// `user_channel_id → lpEth` for opens in flight (create_channel called, funding
@@ -214,6 +240,7 @@ impl VaultRegistry {
         info!(inflight = by_funding.len(), "vault registry: reloaded in-flight opens from store");
         Arc::new(Self {
             by_funding: Mutex::new(by_funding),
+            consent: Mutex::new(HashMap::new()),
             store: Some(store),
             ..Default::default()
         })
@@ -252,6 +279,39 @@ impl VaultRegistry {
     }
 
     /// Resolve a funding outpoint → lpEth (drive_open). None if not a vault-owned open.
+    /// (E166-3) Record the LP's consent for an in-flight open. Idempotent; a CONFLICTING
+    /// re-bind is refused rather than overwritten — the consent authorises one specific
+    /// open, and letting it move would let a relay swap in a different one.
+    pub fn bind_consent(
+        &self,
+        funding_txid_hex: &str,
+        vout: u32,
+        consent: LpConsent,
+    ) -> bool {
+        let key = format!("{funding_txid_hex}:{vout}");
+        let mut m = match self.consent.lock() {
+            Ok(m) => m,
+            Err(_) => return false,
+        };
+        match m.get(&key) {
+            Some(existing) => existing == &consent,
+            None => {
+                m.insert(key, consent);
+                true
+            }
+        }
+    }
+
+    /// (E166-3) The LP's consent for an in-flight open, if it has arrived yet. `None` is
+    /// the ORDINARY pre-consent state, not an error: `drive_open` goes dormant and the
+    /// reconciler retries, exactly as it already does for a missing lpEth binding.
+    pub fn consent_for_funding(&self, funding_txid_hex: &str, vout: u32) -> Option<LpConsent> {
+        self.consent
+            .lock()
+            .ok()
+            .and_then(|m| m.get(&format!("{funding_txid_hex}:{vout}")).cloned())
+    }
+
     pub fn lp_for_funding(&self, funding_txid_hex: &str, vout: u32) -> Option<Address> {
         self.by_funding
             .lock()
@@ -732,5 +792,62 @@ mod tests {
         // It is a valid Bitcoin scriptpubkey (segwit v1, 32-byte program).
         let script = bitcoin::ScriptBuf::from_bytes(spk);
         assert!(script.is_p2tr(), "recognised as P2TR by rust-bitcoin");
+    }
+}
+
+#[cfg(test)]
+mod e166_consent_tests {
+    use super::*;
+
+    fn a_consent(sig_byte: u8) -> LpConsent {
+        LpConsent {
+            auth: quid_hop::evm_codec::OpenAuth {
+                lp_eth: Address::repeat_byte(0xCC),
+                btc_recipient: [0x11u8; 32],
+                lp_sig: vec![sig_byte; 65],
+                btc_recipient_pop: vec![0x33u8; 64],
+            },
+            exits: vec![quid_hop::evm_codec::ExitArming {
+                cltv_deadline: 800_000,
+                checkpoint_sats: 1_000_000,
+                signed_exit_tx: vec![0xAAu8; 4],
+                ..Default::default()
+            }],
+        }
+    }
+
+    /// ⚠️ **ABSENT CONSENT IS THE ORDINARY STATE, NOT AN ERROR.** `drive_open` used to
+    /// `bail!` here, which turned "the LP has not signed yet" into a loud failure on every
+    /// reconciler tick. A lookup returning `None` is what makes the open go DORMANT and be
+    /// retried, exactly as the missing-lpEth binding already does.
+    #[test]
+    fn consent_is_absent_until_the_lp_provides_it() {
+        let r = VaultRegistry::new();
+        assert!(r.consent_for_funding("aa", 0).is_none(),
+                "no consent yet must read as absent, not as a failure");
+    }
+
+    /// The consent authorises ONE specific open. Letting a re-bind overwrite it would let
+    /// whatever relays it swap in a different `OpenAuth` or a different exit ladder — and
+    /// after §E175 the relay is exactly the party that must not be able to.
+    #[test]
+    fn consent_is_idempotent_but_never_rebindable() {
+        let r = VaultRegistry::new();
+        assert!(r.bind_consent("aa", 0, a_consent(0x22)), "first bind");
+        assert!(r.bind_consent("aa", 0, a_consent(0x22)), "identical re-bind is a no-op");
+        assert!(!r.bind_consent("aa", 0, a_consent(0x99)),
+                "a CONFLICTING consent must be refused, not swapped in");
+        assert_eq!(r.consent_for_funding("aa", 0).unwrap().auth.lp_sig, vec![0x22u8; 65],
+                   "the original consent survives");
+    }
+
+    /// Consent is keyed per funding outpoint: one LP's consent must never satisfy another
+    /// open. (Same key shape as `by_funding`, so the two cannot drift apart.)
+    #[test]
+    fn consent_does_not_leak_across_funding_outpoints() {
+        let r = VaultRegistry::new();
+        assert!(r.bind_consent("aa", 0, a_consent(0x22)));
+        assert!(r.consent_for_funding("aa", 1).is_none(), "a different vout is a different open");
+        assert!(r.consent_for_funding("bb", 0).is_none(), "a different txid is a different open");
     }
 }
