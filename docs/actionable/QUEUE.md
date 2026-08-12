@@ -12411,3 +12411,38 @@ market.
 ▶️ **THE QUESTION FOR THE OWNER, NOW SHARP:** if correct pricing is path-dependent, **is the signed
 curve reachable at all** — or must it be BOUNDED against the residual rather than made exact
 (§UNIT-BOUND-NOT-DELETE's `S_in < S_out`)? **This decides whether §UNIT-B closes or is reframed.**
+
+### 🛑 SIGMA-REMOVE-P2-OVER-EIP170 — the substitution puts `Core` at **−60 bytes. UNDEPLOYABLE.** Reverted.
+
+**Wired the LVR register in as the steepness input (§SIGMA-REMOVE). It compiles, and
+`check-contract-sizes.py` reports `Core` **24,636 / −60`** — PAST the 24,576 limit.**
+⛔ **STOP CONDITION, not a tuning problem.** ⚠️ **`forge test` does NOT enforce EIP-170 and
+`forge build --sizes` does NOT LIST `Core` at all** (CLAUDE.md, measured 2026-08-05). **A fully green
+4,400-test suite would have told me NOTHING** — this repo has already shipped a `Core` at −126 bytes
+with a green suite. **`python3 tools/check-contract-sizes.py` is the only gate that sees it.**
+
+📐 **THE BUDGET, AND WHY IT RAN OUT — every step was measured and none was wasted:**
+| step | `Core` | free |
+|---|---|---|
+| session start | 24,538 | **28** (frozen) |
+| §CORE-ONLYUS (`_onlyUs` private view) | 23,565 | **1,011** |
+| `mocks()` getter | 23,656 | 920 |
+| trapezoid register + pending | 24,114 | 462 |
+| signed gain/loss split | 24,264 | 312 |
+| LVR summand (HODL − band) | 24,428 | 148 |
+| **+ steepness substitution** | **24,636** | **−60** |
+⇒ **The 907 bytes `_onlyUs` freed were spent, and the last 208 overran.**
+
+▶️ **THE SUBSTITUTION NEEDS ~250 BYTES `Core` DOES NOT HAVE. Three routes, cheapest first:**
+1. **MOVE THE MATH OUT OF `Core`.** `realizedVarianceWad`'s implied-variance conversion is pure
+   arithmetic on values `Core` already exposes — put it in `VogueLib`/`SwapLib` (both delegatecalled,
+   both with room) and leave `Core` publishing only the raw register. **Likely frees more than the
+   substitution costs.**
+2. **APPLY CLAUDE.md 8c TO THE SIBLINGS.** `_onlyUs` returned 907 bytes from ONE modifier at 18 sites.
+   **`LevManager` (70 free) and `LevMath` (20 free) are the other frozen contracts and have not been
+   measured** (§CORE-ONLYUS's "measure the siblings" item is still open) — but for `Core` itself, look
+   for any remaining inlined modifier.
+3. **DROP THE COLD-START FALLBACK** (`_ringVarianceWad`) once the register is trusted — but that
+   removes the fresh-band protection, so it is a design decision, not a byte trick.
+⚠️ **DO NOT SHRINK BY DELETING THE GAIN REGISTER OR THE HODL LEG** — both were required to get the
+SIGN right (§SIGMA-REMOVE-SIGNED-REFUTED). **The bytes are load-bearing.**
