@@ -256,16 +256,45 @@ use bitcoin::bip32::{ChildNumber, DerivationPath, Xpriv};
 /// BIP86 receive/change branches (`m/86'/…`), so a deposit key is never a wallet address.
 pub const SWAP_IN_DEPOSIT_ACCOUNT: u32 = 70;
 
-/// Derive the per-swap hop deposit keypair at `m/SWAP_IN_DEPOSIT_ACCOUNT'/swap_index'`.
-pub fn derive_deposit_keypair<C: Signing>(
+/// The ONE hardened index the pinned deposit internal key lives at.
+///
+/// 🔴 (E183) **THIS USED TO BE THE PER-SWAP INDEX, AND THAT MADE THE TWO HALVES OF §E159
+/// MUTUALLY INCOMPATIBLE.** The contract pins ONE `BTC_DEPOSIT_KEY` at construction and
+/// derives each deposit address as `TapTweak(BTC_DEPOSIT_KEY, leaf(userRefund, cltvHeight))`
+/// — per-swap uniqueness lives in the **LEAF**. Rust derived a per-swap INTERNAL key at
+/// `m/70'/swap_index'`, so the address it generated was never the address the contract
+/// recomputes, and `verifySwapInDeposit` would reject every real deposit.
+///
+/// 🔑 **THE CONTRADICTION WAS STRUCTURAL, NOT A TYPO, WHICH IS WHY THE CONTRACT WINS.**
+/// A hardened per-swap key is *by definition* underivable from any xpub — so the contract
+/// could never recompute it and would have to be **told** it by the hop. A hop-supplied
+/// internal key is a hop-chosen address, which reopens the exact phantom-swap-in hole
+/// §E159 exists to close: SPV-prove a genuine payment to a script you control, collect USD
+/// for BTC that never entered custody. **Verifiability has to win over key isolation here,
+/// because the phantom credit reaches QU!D holders who never opted into enclave trust.**
+///
+/// ✅ **AND NOTHING IS ACTUALLY GIVEN UP.** The property the hardened path was for — *"a
+/// deposit key is never a wallet address"*, disjoint from the BIP86 branches — is kept in
+/// full: the key is still derived at a HARDENED `m/70'/0'`, still outside `m/86'/…`, still
+/// underivable from the wallet xpub. Only the per-swap *index* moves, and per-swap
+/// uniqueness is not lost — it moves to the leaf, so every deposit still gets a DISTINCT
+/// output key (`TapTweak` over a different merkle root each time).
+pub const PINNED_DEPOSIT_INDEX: u32 = 0;
+
+/// Derive the PINNED hop deposit internal key at `m/SWAP_IN_DEPOSIT_ACCOUNT'/0'`.
+///
+/// This is the key whose x-only form is pinned on-chain as `BTCChannels.BTC_DEPOSIT_KEY`.
+/// ⚠️ It takes no `swap_index` ON PURPOSE — see [`PINNED_DEPOSIT_INDEX`]. Re-introducing one
+/// silently un-verifies every deposit.
+pub fn derive_deposit_key<C: Signing>(
     secp: &Secp256k1<C>,
     master: &Xpriv,
-    swap_index: u32,
 ) -> Result<Keypair, SwapInOnchainError> {
     let path = DerivationPath::from(vec![
         ChildNumber::from_hardened_idx(SWAP_IN_DEPOSIT_ACCOUNT)
             .map_err(|_| SwapInOnchainError::Derive)?,
-        ChildNumber::from_hardened_idx(swap_index).map_err(|_| SwapInOnchainError::Derive)?,
+        ChildNumber::from_hardened_idx(PINNED_DEPOSIT_INDEX)
+            .map_err(|_| SwapInOnchainError::Derive)?,
     ]);
     let xpriv = master.derive_priv(secp, &path).map_err(|_| SwapInOnchainError::Derive)?;
     Ok(Keypair::from_secret_key(secp, &xpriv.private_key))
@@ -277,12 +306,12 @@ pub fn derive_deposit_keypair<C: Signing>(
 pub fn deposit_for<C: Signing + Verification>(
     secp: &Secp256k1<C>,
     master: &Xpriv,
-    swap_index: u32,
+    _swap_index: u32,
     user_refund: XOnlyPublicKey,
     cltv: LockTime,
     network: Network,
 ) -> Result<(Address, TaprootSpendInfo, ScriptBuf), SwapInOnchainError> {
-    let hop = derive_deposit_keypair(secp, master, swap_index)?;
+    let hop = derive_deposit_key(secp, master)?;
     let (hop_x, _) = hop.x_only_public_key();
     let (si, leaf) = deposit_spend_info(secp, hop_x, user_refund, cltv)?;
     Ok((deposit_address(&si, network), si, leaf))
@@ -295,13 +324,13 @@ pub fn deposit_for<C: Signing + Verification>(
 pub fn sign_claim<C: Signing + Verification>(
     secp: &Secp256k1<C>,
     master: &Xpriv,
-    swap_index: u32,
+    _swap_index: u32,
     user_refund: XOnlyPublicKey,
     cltv: LockTime,
     mut claim_tx: Transaction,
     deposit: &TxOut,
 ) -> Result<Transaction, SwapInOnchainError> {
-    let hop = derive_deposit_keypair(secp, master, swap_index)?;
+    let hop = derive_deposit_key(secp, master)?;
     let (hop_x, _) = hop.x_only_public_key();
     let (si, _leaf) = deposit_spend_info(secp, hop_x, user_refund, cltv)?;
     let sighash = key_path_sighash(&claim_tx, deposit)?;
@@ -440,11 +469,28 @@ mod tests {
     fn deposit_key_is_deterministic_and_index_scoped() {
         let secp = Secp256k1::new();
         let m = master();
-        let a1 = derive_deposit_keypair(&secp, &m, 7).unwrap();
-        let a2 = derive_deposit_keypair(&secp, &m, 7).unwrap();
-        let b = derive_deposit_keypair(&secp, &m, 8).unwrap();
-        assert_eq!(a1.secret_bytes(), a2.secret_bytes(), "same index ⇒ same key (re-derivable on restart)");
-        assert_ne!(a1.secret_bytes(), b.secret_bytes(), "different swap index ⇒ isolated key");
+        // 🔴 (E183) THIS TEST USED TO ASSERT THE OPPOSITE — that a different `swap_index`
+        // gives an ISOLATED key. That is exactly what made the Rust deposit address
+        // unverifiable by the contract, which pins ONE `BTC_DEPOSIT_KEY` and puts per-swap
+        // uniqueness in the CLTV LEAF. New invariant: ONE pinned key, re-derivable, with no
+        // swap index anywhere near it.
+        let a1 = derive_deposit_key(&secp, &m).unwrap();
+        let a2 = derive_deposit_key(&secp, &m).unwrap();
+        assert_eq!(a1.secret_bytes(), a2.secret_bytes(),
+                   "the pinned deposit key must be re-derivable on demand");
+
+        // ⚠️ PER-SWAP UNIQUENESS IS NOT LOST — IT MOVED. Two swaps differing only in their
+        // refund leaf must still give DIFFERENT deposit addresses, or every swap shares one
+        // address and dedup/attribution collapses.
+        let user_a = Keypair::from_seckey_slice(&secp, &[0x11u8; 32]).unwrap()
+            .x_only_public_key().0;
+        let user_b = Keypair::from_seckey_slice(&secp, &[0x22u8; 32]).unwrap()
+            .x_only_public_key().0;
+        let cltv = LockTime::from_height(800_000).unwrap();
+        let (si_a, _) = deposit_spend_info(&secp, a1.x_only_public_key().0, user_a, cltv).unwrap();
+        let (si_b, _) = deposit_spend_info(&secp, a1.x_only_public_key().0, user_b, cltv).unwrap();
+        assert_ne!(si_a.output_key(), si_b.output_key(),
+                   "a different refund leaf must still give a different deposit address");
     }
 
     #[test]
