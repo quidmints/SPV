@@ -9834,7 +9834,6 @@ tracing an external `PoolManager.swap` against the band before asserting anythin
 
 | **E162-rekey-splice** | 🎯 **UPGRADE WITHOUT SEED MIGRATION, WITHOUT CLOSING, WITHOUT LP ACTION AND WITHOUT A COORDINATED EVENT (owner rejected close+reopen: *"LPs need to check the new image. it's a bank run and predictably causes a price shift"*, 2026-08-10).** 🔑 **THE OLD IMAGE SIGNS A SPLICE PAYING TO A 2-of-2 OF **NEW-IMAGE** KEYS, and the contract updates `keysHash`. ⇒ **NO SEED EVER MIGRATES** (the new image generates its own keys; the old one merely pays to them, so sealing stays an unbroken boundary) · **THE CHANNEL NEVER CLOSES** (BTC stays in the protocol, backing unchanged, no liquidity event, no price shift — the pool sees a splice, which it sees routinely) · **NO LP ACTION** (the fleet holds both halves) · **STAGGERED BY CONSTRUCTION** (one channel at a time, so there is no coordinated moment and therefore no run).** ✅ **THE CONSTRAINT LIVES WHERE IT MUST: the contract already proves `Q == KeyAgg(newLp, newHop)` on the spliced output (§E142/§E129), so it verifies the rotation landed on the DECLARED new keys. Malicious Rust cannot fake that — it is checked on the EVM against SPV-proven Bitcoin data. **This is the answer to the owner's *"what executes the transaction though? rust that can be replaced with malicious rust?"***.** 🔴 **OPEN AND LOAD-BEARING: WHO MAY REKEY, AND TO WHAT. Unrestricted, a compromised hop splices to keys it SOLELY controls and cuts the LP out of its own 2-of-2. The new pair must retain the LP's key, or the rotation must be gated on something the hop alone cannot produce. **Do not implement the `keysHash` update without settling this — it is the difference between an upgrade path and a theft path.**** | 🎯 rekey splice: rotate custody without closing, no seed migration, no run; gating still open |
 
-<<<<<<< HEAD
 ### ⛔ CORRECTION to §UNIT-C-BAR-ARMB — I READ THE WRONG POOLS. And the question it raised is RESOLVED (negative).
 
 **MY ERROR:** I grepped `hooks:` in `DeployLib.sol`, got `IHooks(address(0))` at three sites, and
@@ -12637,7 +12636,6 @@ handful.** ⚠️ **A library that WRITES `Core`'s storage must be `delegatecall
 `_bumpFlow` is a WRITE path, so this works where the view-side conversion did not.**
 ⚠️ **MEASURE IT; DO NOT ASSUME.** The conversion route was booked as "likely frees more than it costs"
 and cost 81 more. **The shape argument above is a hypothesis until `check-contract-sizes.py` says so.**
-=======
 ### 🎯 CURVE REPLACES UNIFORM v3 AND THE BORROW LEG IS NO LONGER JUSTIFIED. MEASURED, LIVE.
 
 **Owner (2026-08-09):** get rid of Uniswap for the weETH offramp entirely; use Curve
@@ -12868,7 +12866,6 @@ is not a price move.**
 ⇒ **The reuse conclusion HOLDS** — the sampling, time-normalisation and ring already exist and no on-chain
 surface is needed. **The access method changes from `eth_call` to `eth_getStorageAt`, and it carries a
 layout-pinning obligation the original entry did not mention.**
->>>>>>> origin/main
 
 | id | state |
 |---|---|
