@@ -196,31 +196,23 @@ contract Core is SafeCallback {
     ///    them outright shifted every later slot and a getter returned the wrong contract
     ///    (`balanceOf` on a non-token). Do NOT reclaim these without proving nothing addresses
     ///    `Core`'s storage absolutely.
-    /// @notice §SIGMA-REMOVE-P1 — REALIZED adverse-selection register (the TRAPEZOID), reusing the
-    ///         dead `_flowSlow*` slots so layout is unchanged and this costs NO new storage.
-    ///         MEASURED history-independence: **1.025×** whale-vs-split between identical endpoints,
-    ///         against **2.340×** for σ² and **12.000×** for a trade-based proxy.
-    ///         ⚠️ TRAPEZOID, not left-rectangle: a per-swap `inv·Δp` accrual is a Riemann sum whose
-    ///         error scales with SAMPLE COUNT — the same shape-dependence in a new costume.
-    ///         `(inv₀+inv₁)/2` telescopes exactly when inventory is linear in price.
-    ///         ⛔ NOT WIRED TO PRICING YET (§SIGMA-REMOVE-P1-MEASURED Phase 2 gate): this accrues and
-    ///         is readable, and the substitution into `realizedVarianceWad` is a SEPARATE change
-    ///         gated on the estimator's own variance being measured.
-    Flow private _lossBTC;
-    Flow private _lossETH;
-    /// @notice §SIGMA-REMOVE-SOLVED-② — the GAIN side. The register must accrue SIGNED: `|Δp|` is
-    ///         TOTAL VARIATION and grows with sample count (shape-dependence in a third costume, the
-    ///         same trap as the 12x trade-based proxy), whereas signed `Δp` TELESCOPES to
-    ///         `p_end − p_start` regardless of sampling. A `uint` EWMA cannot go down, so the two
-    ///         directions are accrued separately and NETTED at read.
-    Flow private _gainBTC;
-    Flow private _gainETH;
-    /// @dev §SIGMA-REMOVE-SIGNED-REFUTED — the HODL counterfactual needs the START composition:
-    ///      inventory, price AND the USD leg. Repacked to ONE slot: inv ~1.3e20 (67 bits) and
-    ///      px ~1.9e21 (71 bits) fit uint96; usd6 ~6.6e11 (40 bits) fits uint64. 96+96+64 = 256.
-    struct Pend { uint96 inv; uint96 px; uint64 usd; }
-    Pend private _pendBTC;
-    Pend private _pendETH;
+    /// ⛔ §SKEW-NOT-FINISHED-AND-NET-ADDED — DEAD SLOTS, DELIBERATELY RETAINED. These held the
+    ///    realized-LVR register (loss/gain/pending) built for §SIGMA-REMOVE Phase 1. Its RESULTS are
+    ///    measured and booked (history gap 1.100x, LVR 1.692x, noise 1.006x, units 0.991, one accrual
+    ///    per swap, plus the 12.000x and 439,492% refutations); the IMPLEMENTATION is superseded by
+    ///    §ARCH-VARIANCE-VARIABLE, which uses the REALIZED EXECUTION PRICE (bounded by construction)
+    ///    instead of `POOLED_USD/inv` (which diverges as inventory drains). It was never wired to
+    ///    pricing, so it was per-swap gas buying nothing.
+    ///    ⚠️ THE SLOTS STAY: `Core`'s state ORDER is harness-load-bearing (`_pinFlow` reads
+    ///    131087-131090, the dust monitor 131095-131098). Deleting them shifted every later slot and
+    ///    made a getter return a non-token (§UNIT-B-SLOWDEL-CAUSE). Do NOT reclaim without proving
+    ///    nothing addresses `Core`'s storage absolutely.
+    uint256 private __deadSlotLossBTC;
+    uint256 private __deadSlotLossETH;
+    uint256 private __deadSlotGainBTC;
+    uint256 private __deadSlotGainETH;
+    uint256 private __deadSlotPendBTC;
+    uint256 private __deadSlotPendETH;
     /// @dev The slow register's half-life as a MULTIPLE of the fast one (48h × 7 ≈ 14 days). Its
     ///      exact value is deliberately NOT load-bearing: `flowEwmaUsd` takes the MIN of the two,
     ///      so the slow leg acts only as a CEILING. Being roughly right is enough, and erring LONG
@@ -262,41 +254,13 @@ contract Core is SafeCallback {
     /// @notice Fold a swap's USD notional into this pool's flow EWMA. Called only from _handleSwap.
     function _bumpFlow(bool isBTC, uint usd6) internal {
         _bumpEwma(isBTC ? _flowBTC : _flowETH, usd6);
-        _accrueRealizedLoss(isBTC);
     }
 
     /// @dev The band's implied price, usd18 per 1e18 raw volatile units. `POOLED_USD_*` is 6-dec and
     ///      `POOLED_*` is raw (1e18 ETH / 1e8 sats), so the ×1e12 lifts usd6→usd18 and the ratio
-    ///      carries the raw-unit basis — the SAME convention `SwapLib` prices in.
-    function _bandPxWad(bool isBTC) internal view returns (uint) {
-        uint inv = isBTC ? POOLED_BTC : POOLED_ETH;
-        if (inv == 0) return 0;
-        return Math.mulDiv((isBTC ? POOLED_USD_BTC : POOLED_USD_ETH) * 1e12, 1e18, inv);
-    }
 
     /// @dev Trapezoid mark-to-market on the inventory HELD across the interval since the last swap.
     ///      Accrues into a DECAYING SUM, so it is path-independent by construction — unlike σ², which
-    ///      is a SECOND DIFFERENCE and therefore encodes the SHAPE of the flow (§UNIT-B-ROOT-FOUND).
-    function _accrueRealizedLoss(bool isBTC) internal {
-        Pend storage p = isBTC ? _pendBTC : _pendETH;
-        uint inv = isBTC ? POOLED_BTC : POOLED_ETH;
-        uint px  = _bandPxWad(isBTC);
-        uint usd6 = isBTC ? POOLED_USD_BTC : POOLED_USD_ETH;
-        if (p.px != 0 && px != 0) {
-            // TEXTBOOK LVR: the HODL basket (START composition) marked at the END price, minus the
-            // band's actual END basket. Both are marked at `px`, so it collapses to
-            //   (inv₀ − inv₁)·px + (usd₀ − usd₁)
-            // = the volatile the band GAVE UP valued at where price ENDED, minus the USD it actually
-            // RECEIVED. POSITIVE ⇒ it sold below the closing price ⇒ adverse selection.
-            // ⚠️ `Σ inv̄·Δp` (the previous summand) measured P&L on inventory HELD and read the band
-            // NET AHEAD — LVR is a DIFFERENCE OF TWO PORTFOLIOS, not the level of one.
-            int lvr = (int(uint(p.inv)) - int(inv)) * int(px) / 1e30
-                    + (int(uint(p.usd)) - int(usd6));
-            if (lvr > 0) _bumpEwma(isBTC ? _lossBTC : _lossETH, uint(lvr));
-            else if (lvr < 0) _bumpEwma(isBTC ? _gainBTC : _gainETH, uint(-lvr));
-        }
-        p.inv = uint96(inv); p.px = uint96(px); p.usd = uint64(usd6);
-    }
 
     /// @notice The realized adverse-selection register (6-dec USD, decayed). Phase-1 measurement
     ///         surface: read it alongside `realizedVarianceWad` to compare the two inputs.
@@ -305,17 +269,7 @@ contract Core is SafeCallback {
     ///         ⚠️ STILL GROSS OF EARNINGS: the swapper's OWN price impact is not an uncompensated
     ///         loss (they paid for it through the fee and the skew), so the consumer must net this
     ///         against `_bandFeeYieldWad` before using it as a steepness input
-    ///         (§SIGMA-REMOVE-SOLVED-②). NOT WIRED TO PRICING.
-    function realizedLossUsd(bool isBTC) external view returns (uint) {
-        uint l = _decayed(isBTC ? _lossBTC : _lossETH);
-        uint g = _decayed(isBTC ? _gainBTC : _gainETH);
-        return l > g ? l - g : 0;
-    }
 
-    /// @notice The two sides separately — measurement surface for §SIGMA-REMOVE Phase 1.
-    function realizedLossGross(bool isBTC) external view returns (uint lossSide, uint gainSide) {
-        return (_decayed(isBTC ? _lossBTC : _lossETH), _decayed(isBTC ? _gainBTC : _gainETH));
-    }
 
     /// @notice This pool's decayed swap-flow EWMA (6-dec USD) — the adaptive
     ///         normal-flow buffer the skew target is built on. Pure decay of the stored

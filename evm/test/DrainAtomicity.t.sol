@@ -1373,7 +1373,8 @@ contract DrainAtomicity is Alles {
     /// reads.** `ts = now` ⇒ zero decay ⇒ the value is exactly what was written.
     function _pinFlow(uint128 vol) internal {
         bytes32 packed = bytes32((uint(block.timestamp) << 128) | uint(vol));
-        for (uint slot = 131087; slot <= 131090; ++slot) {
+        // only the two FLOW registers — 131089/131090 held the deleted LVR register
+        for (uint slot = 131087; slot <= 131088; ++slot) {
             vm.store(address(CORE), bytes32(slot), packed);
         }
     }
@@ -1493,219 +1494,26 @@ contract DrainAtomicity is Alles {
     /// TRAPEZOID must be ~1× or the direction is refuted.
     /// ⚠️ TRAPEZOID, not left-rectangle: a per-swap `inv·Δp` accrual is a Riemann sum whose error
     /// scales with SAMPLE COUNT — the same shape-dependence in a new costume. `(inv₀+inv₁)/2`
-    /// telescopes exactly when inventory is linear in price, which it is inside a ±0.2% band.
-    struct P1 { uint trade; uint trap; uint s2; uint chain; }
-
-    function _bandPx() internal view returns (uint) {
-        uint inv = CORE.POOLED_ETH();
-        return inv == 0 ? 0 : CORE.POOLED_USD_ETH() * 1e30 / inv;
-    }
-
-    function _accrue(P1 memory a, uint size, uint i0, uint p0) internal view {
-        uint i1 = CORE.POOLED_ETH();
-        uint dp; { uint p1 = _bandPx(); dp = p1 > p0 ? p1 - p0 : p0 - p1; }
-        a.trade += FullMath.mulDiv(size, dp, 1e18);
-        a.trap  += FullMath.mulDiv((i0 + i1) / 2, dp, 1e18);
-    }
-
-    function test_SIGMA_P1_ThreeEstimatorsHistoryGap() public {
-        uint TOTAL = 120_000 * 1e18;
-        P1 memory A; P1 memory B;
-        uint snap = vm.snapshotState();
-
-        _setupBand(); _pinFlow(380_432_109_336);
-        A.chain = CORE.realizedLossUsd(false);
-        { uint i0 = CORE.POOLED_ETH(); uint p0 = _bandPx(); _drain(TOTAL); _accrue(A, TOTAL, i0, p0); }
-        // §SIGMA-CEILING-EXPLAINED — the ring is keyed on TIMESTAMPS and stores at most one
-        // observation per timestamp, so same-block drains leave it dominated by `_setupBand`.
-        // Advance the block so the ring records THIS path. Both arms advance the SAME TOTAL span
-        // (12 x 150s), else `spanSecs` differs and sigma^2 moves for that reason alone.
-        vm.roll(block.number + 12); vm.warp(block.timestamp + 12 * 150);
-        A.chain = CORE.realizedLossUsd(false) - A.chain;
-        A.s2 = CORE.realizedVarianceWad(false);
-
-        vm.revertToState(snap);
-
-        _setupBand(); _pinFlow(380_432_109_336);
-        B.chain = CORE.realizedLossUsd(false);
-        for (uint k = 0; k < 12; ++k) {
-            uint i0 = CORE.POOLED_ETH(); uint p0 = _bandPx();
-            _drain(TOTAL / 12);
-            _accrue(B, TOTAL / 12, i0, p0);
-            vm.roll(block.number + 1); vm.warp(block.timestamp + 150);   // same total span as arm A
-        }
-        B.chain = CORE.realizedLossUsd(false) - B.chain;
-        B.s2 = CORE.realizedVarianceWad(false);
-
-        emit log_named_uint("sigma^2     whale  ", A.s2);
-        emit log_named_uint("sigma^2     split  ", B.s2);
-        emit log_named_uint("trade-based whale  ", A.trade);
-        emit log_named_uint("trade-based split  ", B.trade);
-        emit log_named_uint("TRAPEZOID   whale  ", A.trap);
-        emit log_named_uint("TRAPEZOID   split  ", B.trap);
-        emit log_named_uint("gap x1000 sigma^2  ", B.s2    == 0 ? 0 : A.s2    * 1000 / B.s2);
-        emit log_named_uint("gap x1000 trade    ", B.trade == 0 ? 0 : A.trade * 1000 / B.trade);
-        emit log_named_uint("gap x1000 TRAPEZOID", B.trap  == 0 ? 0 : A.trap  * 1000 / B.trap);
-        // ON-CHAIN register vs the in-test trapezoid: proves the CONTRACT's units before anything
-        // is priced off it. The gap must match the in-test one; the LEVELS need only track.
-        // UNIT PROOF: the on-chain DIFF over the drain loop must equal the in-test trapezoid
-        // rescaled usd18 -> usd6. `_drain` does not warp, so the register does not decay in between
-        // and the diff is exact rather than approximate.
-        emit log_named_uint("ONCHAIN     whale  ", A.chain);
-        emit log_named_uint("ONCHAIN     split  ", B.chain);
-        emit log_named_uint("gap x1000 ONCHAIN  ", B.chain == 0 ? 0 : A.chain * 1000 / B.chain);   // 0 when the net floors
-        // §SIGMA-REMOVE-SOLVED-② — SIGNED. The prediction: in a fixture with NO exogenous price
-        // process, every move present was CAUSED by a swapper who paid for it, so the NET should
-        // collapse against the GROSS. A non-trivial net means the signing is wrong.
-        { (uint ls, uint gs) = CORE.realizedLossGross(false);
-          emit log_named_uint("gross LOSS side    ", ls);
-          emit log_named_uint("gross GAIN side    ", gs);
-          emit log_named_uint("NET (loss - gain)  ", CORE.realizedLossUsd(false)); }
-        // THE ACCEPTANCE CRITERION: the CONTRACT's register must inherit the estimator's
-        // history-independence. If mid-swap sampling broke the telescoping this will not hold, which
-        // would refute the IMPLEMENTATION while leaving the ESTIMATOR (1.025x in-test) sound.
-        // ASSERT THE PROPERTY THAT IS MEASURED, NOT THE ONE I HOPED FOR. On-chain: 1.106x.
-        // In-test estimator: 1.025x. sigma^2: 2.340x. The register is ~12x better than the input it
-        // would replace, and that IS the claim worth locking. The 8% it gives up against the in-test
-        // trapezoid is UNEXPLAINED -- the half-swap-lag theory was tested (settle the open interval
-        // at read time) and made NO difference, so it is refuted. Do not widen this to hide it.
-        // 1,692 with the CORRECT LVR summand, up from 1,100 with the (wrong) inv-times-dp one.
-        // That is not a regression: LVR is INTRINSICALLY path-dependent -- one lump realises at one
-        // price, twelve tranches at twelve. Still well below sigma^2's 2,632, so sigma^2 carries
-        // ESTIMATOR artifact ON TOP of real economics. See SIGMA-REMOVE-LVR-IS-PATH-DEPENDENT.
-        assertLt(A.chain * 1000 / B.chain, 2000,
-            "the register must stay below sigma^2's 2,632 history gap");
-        assertGt(A.chain * 1000 / B.chain, 1000,
-            "sanity: the whale arm cannot accrue LESS than the split arm");
-
-        assertGt(A.trap, 0, "CONTROL: the trapezoid estimator must actually accrue");
-        assertGt(B.trap, 0, "CONTROL: both arms must accrue");
-    }
 
     /// §SIGMA-REMOVE-P2-GAP-LOCALISED — COUNT THE ACCRUALS. The 8% is entirely in the SPLIT arm
     /// (whale 0.991 vs estimator, split 0.918), so it is a sample-COUNT effect, not a phase offset.
     /// Three candidates: a missed accrual, an overwritten pending from multi-hop routing, or the
     /// contract tiling FINER than the test — in which case the CONTRACT is the accurate one and the
     /// in-test 1.025x is the artifact. Counting SSTOREs to `_lossETH` (slot 131090, which replaced
-    /// the dead slow-flow slot) separates all three, with no contract change.
-    function test_SIGMA_P1_CountAccrualsPerDrain() public {
-        _setupBand(); _pinFlow(380_432_109_336);
-
-        uint SZ = 10_000 * 1e18;
-        vm.record();
-        _drain(SZ);
-        (, bytes32[] memory w) = vm.accesses(address(CORE));
-        uint n;
-        for (uint i = 0; i < w.length; ++i) if (uint(w[i]) == 131090) ++n;
-        emit log_named_uint("SSTOREs to _lossETH in ONE _drain", n);
-        emit log_named_uint("total CORE writes in that drain  ", w.length);
-
-        vm.record();
-        for (uint k = 0; k < 12; ++k) _drain(SZ / 12);
-        (, bytes32[] memory w2) = vm.accesses(address(CORE));
-        uint n2;
-        for (uint i = 0; i < w2.length; ++i) if (uint(w2[i]) == 131090) ++n2;
-        emit log_named_uint("SSTOREs to _lossETH in TWELVE    ", n2);
-
-        assertGt(n, 0, "CONTROL: a drain must accrue at least once, else the slot is wrong");
-    }
 
     /// §SIGMA-REMOVE-RESCOPED risk 2 — THE LAST GATE: is the register's LEVEL stable, or is a decaying
     /// sum over few swaps too jumpy to price on? History-independence is proven (1.106x vs sigma^2's
     /// 2.340x); this asks the different question of whether the LEVEL swings when the same total
-    /// volume arrives in a different number of pieces. A jumpy input reprices the band on noise.
-    function test_SIGMA_P1_LevelStabilityAcrossPartitions() public {
-        uint TOTAL = 120_000 * 1e18;
-        uint8[6] memory ks = [1, 2, 3, 4, 6, 12];
-        uint loMk = type(uint).max; uint hiMk;
-        uint loS2 = type(uint).max; uint hiS2;
-
-        for (uint j = 0; j < 6; ++j) {
-            uint snap = vm.snapshotState();
-            _setupBand(); _pinFlow(380_432_109_336);
-            uint base = CORE.realizedLossUsd(false);
-            for (uint k = 0; k < ks[j]; ++k) _drain(TOTAL / ks[j]);
-            uint mk = CORE.realizedLossUsd(false) - base;
-            uint s2 = CORE.realizedVarianceWad(false);
-            emit log_named_uint("pieces             ", ks[j]);
-            emit log_named_uint("  register (usd6)  ", mk);
-            emit log_named_uint("  sigma^2 (wad)    ", s2);
-            if (mk < loMk) loMk = mk;  if (mk > hiMk) hiMk = mk;
-            if (s2 < loS2) loS2 = s2;  if (s2 > hiS2) hiS2 = s2;
-            vm.revertToState(snap);
-        }
-        emit log_named_uint("SPREAD x1000 register", loMk == 0 ? 0 : hiMk * 1000 / loMk);
-        emit log_named_uint("SPREAD x1000 sigma^2 ", loS2 == 0 ? 0 : hiS2 * 1000 / loS2);
-        assertGt(loMk, 0, "CONTROL: every partition must accrue");
-        assertLt(hiMk * 1000 / loMk, hiS2 * 1000 / loS2,
-            "the register's LEVEL must be at least as stable as sigma^2's across partitions -- a "
-            "jumpier input would reprice the band on how flow happened to be chopped up");
-    }
 
     /// §SIGMA-REMOVE-RESCOPED risk 2 — THE ONLY REMAINING GATE: REAL run-to-run noise. Holds the
     /// PARTITION FIXED (6 pieces, same total volume) and varies only the TIMING and the size jitter,
     /// so this is independent of the history gap — unlike the earlier "level spread", which was the
     /// history gap relabelled (§SIGMA-REMOVE-P1-COMPLETE-RETRACTED).
     /// A decaying SUM should barely notice; a SECOND-MOMENT statistic reads spacing directly through
-    /// `spanSecs` and the tick second-differences, so it should not.
-    function test_SIGMA_P1_RunToRunNoise() public {
-        uint TOTAL = 120_000 * 1e18;
-        uint16[5] memory gaps = [uint16(90), 130, 150, 200, 260];
-        uint loMk = type(uint).max; uint hiMk; uint loS2 = type(uint).max; uint hiS2;
-
-        for (uint j = 0; j < 5; ++j) {
-            uint snap = vm.snapshotState();
-            _setupBand(); _pinFlow(380_432_109_336);
-            uint base = CORE.realizedLossUsd(false);
-            for (uint k = 0; k < 6; ++k) {
-                // same total, jittered piece sizes: 6 pieces summing to TOTAL
-                uint piece = TOTAL / 6 + (k % 2 == 0 ? TOTAL / 60 : 0) - (k % 2 == 1 ? TOTAL / 60 : 0);
-                _drain(piece);
-                vm.roll(block.number + 1); vm.warp(block.timestamp + gaps[j]);
-            }
-            uint mk = CORE.realizedLossUsd(false) - base;
-            uint s2 = CORE.realizedVarianceWad(false);
-            emit log_named_uint("gap secs        ", gaps[j]);
-            emit log_named_uint("  register      ", mk);
-            emit log_named_uint("  sigma^2       ", s2);
-            if (mk < loMk) loMk = mk;  if (mk > hiMk) hiMk = mk;
-            if (s2 < loS2) loS2 = s2;  if (s2 > hiS2) hiS2 = s2;
-            vm.revertToState(snap);
-        }
-        emit log_named_uint("NOISE x1000 register", loMk == 0 ? 0 : hiMk * 1000 / loMk);
-        emit log_named_uint("NOISE x1000 sigma^2 ", loS2 == 0 ? 0 : hiS2 * 1000 / loS2);
-        assertGt(loMk, 0, "CONTROL: every trial must accrue");
-        assertGt(loS2, 0, "CONTROL: sigma^2 must be measured in every trial, else the spread is void");
-    }
 
     /// §SIGMA-REMOVE-P2-FITS-BUT-SATURATES — IS THE SATURATION THE SWAP-TO-BAND RATIO?
     /// A 120,000 drain is ~9% of a ~$1.3M band — a pathological ratio, not a production one. The
     /// substitution implies `sigma^2 = 8 · lossFraction / 0.0079 = 1012 · lossFraction`, and the 3%
     /// `MAX_WELL_SKEW` cap binds around `sigma^2 ~ 1`, so **`lossFraction` must stay under ~0.1%**.
     /// This measures the fraction at REALISTIC sizes with NO contract change (the register is live;
-    /// only the substitution was reverted), so it separates "mis-scaled" from "correct under stress".
-    function test_SIGMA_P2_LossFractionVersusSwapSize() public {
-        uint16[5] memory bps = [uint16(5), 25, 100, 400, 900];   // swap as bps of the band
-        for (uint j = 0; j < 5; ++j) {
-            uint snap = vm.snapshotState();
-            _setupBand(); _pinFlow(380_432_109_336);
-            uint band; { uint inv = CORE.POOLED_ETH();
-                band = CORE.POOLED_USD_ETH() + FullMath.mulDiv(inv, _bandPx(), 1e30); }
-            uint base = CORE.realizedLossUsd(false);
-            // six swaps of the given size, block-advancing so the ring records the path
-            for (uint k = 0; k < 6; ++k) {
-                _drain(FullMath.mulDiv(band, bps[j], 10_000) * 1e12);
-                vm.roll(block.number + 1); vm.warp(block.timestamp + 150);
-            }
-            // the NET floors at 0, so it can DECREASE between readings -- saturating subtraction
-            uint nowLvr = CORE.realizedLossUsd(false);
-            uint lvr = nowLvr > base ? nowLvr - base : 0;
-            emit log_named_uint("swap size (bps of band)", bps[j]);
-            emit log_named_uint("  band (usd6)          ", band);
-            emit log_named_uint("  net LVR (usd6)       ", lvr);
-            emit log_named_uint("  lossFraction x1e6    ", band == 0 ? 0 : lvr * 1_000_000 / band);
-            emit log_named_uint("  implied sigma^2 x1e3 ", band == 0 ? 0 : lvr * 1012 * 1000 / band);
-            vm.revertToState(snap);
-        }
-    }
 }
