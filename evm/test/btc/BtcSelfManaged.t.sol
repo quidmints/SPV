@@ -220,6 +220,29 @@ contract BtcSelfManagedTest is Alles {
         bytes32   closeBlockHash;    // 18 (BE)
         bytes32[] closeMerkleProof;  // 19
         uint256   closeTxIndex;      // 20
+        // (E166-4) The channel's pre-signed dead-man exit, produced by the Rust harness
+        // with BOTH LDK-derived funding halves — the Solidity side cannot sign for these
+        // keys, which is why the stub `hex"00"` could never have worked.
+        bytes     signedExitTx;      // 21
+        uint256   exitCltvDeadline;  // 22
+        uint256   exitCheckpointSats;// 23
+    }
+
+    /// (E166-4) Own FRAME — building this arming inline blew the legacy stack
+    /// (`Stack too deep` at `cltvDeadline`), and the house fix here is a frame, never
+    /// `via_ir` (CLAUDE.md build-environment rules).
+    function _ladderFromBundle(Bundle memory b)
+        private pure returns (Types.ExitArming[] memory)
+    {
+        Types.ExitArming[] memory set = new Types.ExitArming[](1);
+        set[0] = Types.ExitArming({
+            prevValues: new uint64[](1),
+            prevScripts: new bytes[](1),
+            cltvDeadline: uint64(b.exitCltvDeadline),
+            checkpointSats: b.exitCheckpointSats,
+            signedExitTx: b.signedExitTx
+        });
+        return set;
     }
 
     function testCrossChain_FullE2E() public {
@@ -318,8 +341,7 @@ contract BtcSelfManagedTest is Alles {
             vm.prank(hop);
             channelId =
                 ch.openChannel(p, b.rawFundingTx, b.fundingMerkleProof, auth_,
-                    _ladder(Types.ExitArming({prevValues: new uint64[](1), prevScripts: new bytes[](1), cltvDeadline: uint64(block.number + 144), checkpointSats: 0,
-                                      signedExitTx: hex"00"}))); 
+                    _ladderFromBundle(b));
         }
 
         // The lpAuth signer owns the credited BTC position.

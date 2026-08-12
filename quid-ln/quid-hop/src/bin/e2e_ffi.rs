@@ -266,7 +266,7 @@ async fn run(chain_id: u64, btc_channels: Address) -> Vec<u8> {
     // P2TR `0x5120||Q` funding output by its scriptPubKey (`funded_output_taproot`).
     let (lp_pubkey, hop_pubkey) =
         quid_hop::evm_codec::sort_funding_pubkeys(holder_pk, cp_pk);
-    let (_funding_vout, amount_sats_open) = quid_hop::evm_codec::funded_output_taproot(
+    let (funding_vout, amount_sats_open) = quid_hop::evm_codec::funded_output_taproot(
         &funding.raw,
         &lp_pubkey,
         &hop_pubkey,
@@ -315,6 +315,26 @@ async fn run(chain_id: u64, btc_channels: Address) -> Vec<u8> {
     lp_auth.push(27 + rec_id.to_i32() as u8);
     eprintln!("e2e_ffi: lpEth = {lp_eth} (recovers from lpAuth over the digest)");
 
+    // ── (E166-4) A GENUINELY SIGNED DEAD-MAN EXIT ────────────────────────────────
+    //
+    // §E165 made an exit ladder MANDATORY at `openChannel`, and the Solidity test used to
+    // pass `signedExitTx: hex"00"` — which `ExitLib::verifyDeadManExit` rejects with
+    // `BufferOverflow`, leaving `testCrossChain_FullE2E` the last red test of mine.
+    //
+    // ⚠️ THE EXIT CANNOT BE BUILT ON THE SOLIDITY SIDE. The other channel tests arm from
+    // `ExitFixture`, whose keys the harness owns — but this channel's funding keys are
+    // LDK-DERIVED inside the two live nodes, so only Rust can sign for them. That is the
+    // whole reason this test needed the harness changed rather than the fixture.
+    //
+    // Both halves are armed here exactly as `quid-bridge::deadman_exit` does in production
+    // (`derive_taproot_channel_signer` + `provide_taproot_context`), so the bytes the
+    // contract verifies are produced by the SAME path the fleet uses — not a test-only
+    // shortcut that could pass while production is broken.
+    let (exit_raw, exit_cltv, exit_checkpoint) = presign_e2e_exit(
+        &node_a, &node_b, funding_txid, funding_vout, funding.height,
+        amount_sats_open, lp_pubkey,
+    );
+
     // ── the bundle (Solidity abi.decode(out, (Bundle)) order). A single struct
     // ⇒ leading 0x20 offset + the field tuple (encode_struct). ──
     let toks = vec![
@@ -348,6 +368,10 @@ async fn run(chain_id: u64, btc_channels: Address) -> Vec<u8> {
         Tok::FixedBytes32(close.block_hash_be),      // 18 closeBlockHash (BE)
         Tok::FixedBytes32Array(close.merkle_proof),  // 19 closeMerkleProof
         Tok::Uint(U256::from(close.tx_index)),       // 20 closeTxIndex
+        // (E166-4) the pre-signed dead-man exit for this channel
+        Tok::Bytes(exit_raw),                        // 21 signedExitTx
+        Tok::Uint(U256::from(exit_cltv)),            // 22 exitCltvDeadline
+        Tok::Uint(U256::from(exit_checkpoint)),      // 23 exitCheckpointSats
     ];
     let bundle = encode_struct(&toks);
 
@@ -368,4 +392,83 @@ async fn wait_until<F: Fn() -> bool>(tries: u32, delay: Duration, cond: F) {
         tokio::time::sleep(delay).await;
     }
     panic!("condition not met after {tries} tries");
+}
+
+/// (E166-4) Pre-sign this channel's dead-man exit with BOTH LDK-derived funding halves.
+///
+/// Mirrors `quid-bridge::deadman_exit::build_exit_call` deliberately: the same
+/// `derive_taproot_channel_signer` + `provide_taproot_context` arming, and the same
+/// `presign_deadman_exit` call. A test-only shortcut here could pass while the production
+/// path is broken, which is exactly the failure this test exists to catch.
+///
+/// ⚠️ This harness holds BOTH halves on purpose — it is standing in for a co-located
+/// deployment. §E175-a removed that capability from the FLEET, not from a test that plays
+/// both parties.
+///
+/// Returns `(raw_signed_tx, cltv_deadline, checkpoint_sats)`.
+fn presign_e2e_exit(
+    node_a: &quid_hop::node::HopNode,
+    node_b: &quid_hop::node::HopNode,
+    funding_txid: Txid,
+    funding_vout: u32,
+    funding_height: u64,
+    amount_sats: u64,
+    lp_pubkey: [u8; 33],
+) -> (Vec<u8>, u64, u64) {
+    use quid_ln::validating_signer::TaprootSignerContext;
+
+    let secp = bitcoin::secp256k1::Secp256k1::new();
+    // The exit spends the funding outpoint the SPV proof above pins.
+    let outpoint = bitcoin::OutPoint { txid: funding_txid, vout: funding_vout };
+
+    // One monitor per side gives each half its `channel_keys_id` + the counterparty
+    // funding pubkey from its OWN scope — the same two facts production reads.
+    let arm = |node: &quid_hop::node::HopNode| {
+        let ids = node.chain_monitor.list_monitors();
+        let id = *ids.first().expect("e2e: a channel monitor must exist by now");
+        let mon = node.chain_monitor.get_monitor(id).expect("monitor");
+        let (_holder, counterparty) = mon.funding_pubkeys().expect("funding pubkeys");
+        let ckid = mon.channel_keys_id();
+        let splice_parent = mon.splice_parent_funding_txid();
+        let signer = lightning::sign::SignerProvider::derive_taproot_channel_signer(
+            &*node.keys_manager, ckid);
+        signer.provide_taproot_context(TaprootSignerContext {
+            counterparty_funding_pubkey: counterparty,
+            funding_value_sat: amount_sats,
+            counterparty_closing_nonce: None,
+            closing_round: 0,
+            splice_parent_funding_txid: splice_parent,
+        });
+        signer
+    };
+    let hop_signer = arm(node_a);
+    let vault_signer = arm(node_b);
+
+    // The payout key the exit pays: the LP's x-only shutdown key. The Solidity side pins
+    // `btcRecipientOf` to the SAME value via `OpenAuth`, so a mismatch fails on-chain
+    // rather than silently paying elsewhere.
+    let recipient = bitcoin::key::XOnlyPublicKey::from_slice(&lp_pubkey[1..33])
+        .expect("lp pubkey x-only");
+
+    // Far enough ahead that the exit is NOT broadcastable while the harness runs — the
+    // contract only records it; nothing may confirm.
+    let cltv = bitcoin::absolute::LockTime::from_height(funding_height as u32 + 144)
+        .expect("cltv height");
+    let fee_sats = 1_000u64;
+
+    let raw = quid_ln::deadman_exit::presign_deadman_exit(
+        &hop_signer,
+        &vault_signer,
+        outpoint,
+        amount_sats,
+        fee_sats,
+        recipient,
+        cltv,
+        funding_height,
+        &secp,
+        None, // no freshness input in the harness — reproduces the single-input exit
+    )
+    .expect("e2e: pre-signing the dead-man exit must succeed");
+
+    (raw, cltv.to_consensus_u32() as u64, amount_sats)
 }
