@@ -1427,6 +1427,77 @@ contract DrainAtomicity is Alles {
         assertLt(premSplit, TOTAL / 1e12 * 3 / 100, "SATURATION: the split leg is pinned at the 3% cap");
     }
 
+    /// §UNIT-B-PATIENCE — HOW MUCH OF THE RATCHET'S DEFENCE DOES WAITING BUY?
+    /// §UNIT-B-RATCHET-IS-A-DEFENCE measured the chopper 14.4% cheaper than the whale, and the
+    /// frozen-target arm 43.5% cheaper. Those are not two rival numbers: they are the SAME curve at
+    /// its two ends, because `_bumpEwma` is DECAY-THEN-ADD over elapsed whole minutes (`Core:241-252`)
+    /// and `_drain` does not warp time. So the 14.4% arm ran every slice at one timestamp, giving the
+    /// ratchet its MAXIMUM bite, and the frozen arm is the infinitely-patient limit.
+    ///
+    /// The open question is therefore not "how big is the residual" but "what does patience cost the
+    /// chopper", and that is a risk curve, not a scalar. `FLOW_DECAY` is a 48h half-life, so the
+    /// attack should be slow to develop -- a wide, manipulation-resistant memory is exactly the
+    /// design intent. This measures where between the two ends real delays land.
+    function test_UNITB_PatienceCurve_WhatWaitingBuysTheChopper() public {
+        uint TOTAL = 120_000 * 1e18;
+        uint N = 12;
+        uint128 PINNED = 380_432_109_336;
+        uint[3] memory delays = [uint(0), 30 minutes, 4 hours];
+
+        uint snap = vm.snapshotState();
+        _setupBand();
+        _pinFlow(PINNED);
+        uint premBig = CORE.skewPremiumETH();
+        _drain(TOTAL);
+        premBig = CORE.skewPremiumETH() - premBig;
+        emit log_named_uint("whale, one drain    ", premBig);
+
+        for (uint d; d < delays.length; d++) {
+            vm.revertToState(snap);
+            _setupBand();
+            _pinFlow(PINNED);
+            uint prem = CORE.skewPremiumETH();
+            for (uint i = 0; i < N; ++i) {
+                if (i > 0 && delays[d] > 0) vm.warp(block.timestamp + delays[d]);
+                _drain(TOTAL / N);
+            }
+            prem = CORE.skewPremiumETH() - prem;
+
+            emit log_named_uint("--- inter-slice delay(s)", delays[d]);
+            emit log_named_uint("    chopper premium    ", prem);
+            emit log_named_uint("    chopper cheaper bps", prem < premBig
+                ? (premBig - prem) * 10_000 / premBig : 0);
+            // CONTROL: a reverting or zero-charging arm must not read as a cheap one.
+            assertGt(prem, 0, "CONTROL: this delay arm charged nothing");
+            assertLt(prem, TOTAL / 1e12 * 3 / 100, "SATURATION: arm pinned at the 3% cap");
+        }
+    }
+
+    /// §UNIT-B-PATIENCE-WHY — WHICH INPUT COLLAPSES WHEN THE CHOPPER WAITS?
+    /// The patience curve shows a 4h gap making the chop 93.3% cheaper. `FLOW_DECAY` is a 48h
+    /// half-life, so EWMA decay over 4h is ~5.6% per gap and CANNOT produce that. Something else
+    /// moves. The candidates are the three inputs to the charge -- the target (`flowEwmaUsd`),
+    /// the variance (`realizedVarianceWad`), and the inventory/price basis -- so log all of them
+    /// per slice rather than reason about which it is.
+    function test_UNITB_PatienceWhy_LogTheInputsPerSlice() public {
+        uint TOTAL = 120_000 * 1e18;
+        uint N = 12;
+        _setupBand();
+        _pinFlow(380_432_109_336);
+
+        for (uint i = 0; i < N; ++i) {
+            if (i > 0) vm.warp(block.timestamp + 4 hours);
+            uint premBefore = CORE.skewPremiumETH();
+            emit log_named_uint("== slice             ", i);
+            emit log_named_uint("   sigma^2 (wad)     ", CORE.realizedVarianceWad(false));
+            emit log_named_uint("   flowEwmaUsd       ", CORE.flowEwmaUsd(false));
+            emit log_named_uint("   wellSkew (wad)    ", AUX.wellSkew(address(WETH)));
+            emit log_named_uint("   POOLED_ETH        ", CORE.POOLED_ETH());
+            _drain(TOTAL / N);
+            emit log_named_uint("   premium charged   ", CORE.skewPremiumETH() - premBefore);
+        }
+    }
+
     /// §UNIT-FORELLA FRAME CHECK — the row's OWN named prerequisite: *"`q` SURVIVES A RESEAT and a
     /// troller CANNOT reset their accrued path cost by triggering one. VERIFY WITH A TEST before
     /// relying on it."* The brake charges total variation along `q`, so if a permissionless `reseat()`
