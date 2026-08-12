@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {IVaultExposeB, IVBtcToken} from "./imports/Interfaces.sol";
+import {Types} from "./imports/Types.sol";
 import {LevMath} from "./imports/LevMath.sol";
 import {ILevVenue, IERC20Min} from "./imports/ILevVenue.sol";
 import {IMorphoFlash} from "./imports/Interfaces.sol";
@@ -51,8 +52,7 @@ contract BtcLevManager {
     uint256 public constant MIN_OPEN_VBTC      = 50_000;   // anti-Sybil: 0.0005 BTC in 8-dec sats (real confirmed collateral to join)
     uint256 internal constant WAD = 1e18;
 
-    struct Pos { ILevVenue venue; uint64 targetLtvCapBps; uint128 entryPriceWad; uint128 e0; uint160 entrySqrtP; bool open; }
-    mapping(address => Pos) public pos;                     // per-LP isolated position
+    mapping(address => Types.Pos) public pos;                     // per-LP isolated position
 
 
     /// @notice (B) Sold-fraction target activation. Default OFF ⇒ the PROVEN 1−√(entry/now) target stays active.
@@ -156,7 +156,7 @@ contract BtcLevManager {
         return _netEquityBtcAt(lp, px);
     }
     function _netEquityBtcAt(address lp, uint px) internal view returns (uint) {
-        Pos memory p = pos[lp];
+        Types.Pos memory p = pos[lp];
         if (!p.open) return 0;
         uint collBtc = p.venue.collateralOf(lp);           // vBTC (8-dec sats), price-independent
         // netEquityBase returns collBase − debtUsd·WAD/px. Pass the GENUINE 18-dec debtUsd: because the WBTC
@@ -177,7 +177,7 @@ contract BtcLevManager {
     ///         + the debt-funded buffer). vBTC IS sats, so no conversion. Buffer USD folds into POOLED_USD_BTC
     ///         (excluded from committed via committedUsd18's live-debt subtraction).
     function grossCollateralBtc(address lp) public view returns (uint) {
-        Pos memory p = pos[lp];
+        Types.Pos memory p = pos[lp];
         return p.open ? p.venue.collateralOf(lp) : 0;
     }
     /// @notice LIVE sum of every open position's GROSS collateral (sats) — the single term the BTC band CAPACITY
@@ -203,7 +203,7 @@ contract BtcLevManager {
         return _deliverableDollarsAt(lp, px);
     }
     function _deliverableDollarsAt(address lp, uint px) internal view returns (uint) {
-        Pos memory p = pos[lp];
+        Types.Pos memory p = pos[lp];
         if (!p.open) return 0;
         uint coll = (p.venue.collateralOf(lp) * px) / 1e18;     // C (USD 1e18) = vBtcValueUsd inline (px reused)
         uint d = debtUsd(lp);                                   // D (USD 1e18)
@@ -246,7 +246,7 @@ contract BtcLevManager {
     }
     /// @notice IL-cancelling target LTV (bps) = `1 − √(entry/now)`, clamped to the LP's cap. 0 flat/down.
     function ilTargetLtvBps(address lp) public returns (uint) {
-        Pos memory p = pos[lp];
+        Types.Pos memory p = pos[lp];
         uint px = IAux(AUX).getTWAPforAsset(WBTC, TWAP_WINDOW);
         return _ilTargetLive(p, px);
     }
@@ -254,7 +254,7 @@ contract BtcLevManager {
     /// @notice (B) LIVE IL target (bps): the BTC band's ACTUAL sold fraction (`Vault.soldFractionWad`), capped
     ///         at the LP's cap; falls back to the proven 1−√(entry/now) when the sold-fraction path is inactive
     ///         or unmeasurable. Mirror of `LevManager._ilTargetLive`.
-    function _ilTargetLive(Pos memory p, uint px) internal returns (uint) {
+    function _ilTargetLive(Types.Pos memory p, uint px) internal returns (uint) {
         return LevMath.ilTargetLive(vogueSyncHook, p.entrySqrtP, p.entryPriceWad, px, p.targetLtvCapBps);
     }
 
@@ -263,7 +263,7 @@ contract BtcLevManager {
     ///         equity, not IL); the sold-fraction reference resets to the recentered band spot. No-op unless the
     ///         sold-fraction target is active. Mutating ⇒ only reachable from the keeper legs.
     function _reanchorIfReseated(address lp) internal {
-        Pos storage p = pos[lp];
+        Types.Pos storage p = pos[lp];
         if (!p.open) return;
         (bool go, uint160 s) = LevMath.reanchorCompute(vogueSyncHook, p.entrySqrtP, true);
         if (!go) return;
@@ -278,7 +278,7 @@ contract BtcLevManager {
     }
     /// @notice Stable delta (USD 1e18) + direction to re-hit the IL target; oracle read ONCE.
     function debtDeltaToTarget(address lp) public returns (bool levUp, uint amountUsd) {
-        Pos memory p = pos[lp];
+        Types.Pos memory p = pos[lp];
         uint px = IAux(AUX).getTWAPforAsset(WBTC, TWAP_WINDOW);
         // Size to the FIXED, BAND-ONLY E0 (band sats at entry) valued at px — NOT band+buffer (over-hedge) and
         // NOT the buffer's growing collateral (the 1/(1−t) over-hedge). e0Usd = e0·px/1e18 (18-dec, matching
@@ -313,7 +313,7 @@ contract BtcLevManager {
         if (vogueSyncHook != address(0)) {
             try ILevSyncHook(vogueSyncHook).bandSqrtP(true) returns (uint160 s) { entrySqrtP = s; } catch {}
         }
-        pos[msg.sender] = Pos({venue: venue, targetLtvCapBps: cap, entryPriceWad: uint128(entryPx),
+        pos[msg.sender] = Types.Pos({venue: venue, targetLtvCapBps: cap, entryPriceWad: uint128(entryPx),
                                e0: uint128(e0), entrySqrtP: entrySqrtP, open: true});
         _trackOpen(msg.sender);
         // SAME-BTC: expose `initialVbtc` of the LP's OWN free channel band BTC as the levered slice — the Vault
@@ -355,7 +355,7 @@ contract BtcLevManager {
     function leverBorrow(uint stableUsd) external nonReentrant returns (uint got) {
         address lp = msg.sender;
         _reanchorIfReseated(lp);                 // (B) realize + re-anchor if the BTC band recentered
-        Pos memory p = pos[lp];
+        Types.Pos memory p = pos[lp];
         if (!p.open) revert NotOpen();
         (bool levUp, uint room) = debtDeltaToTarget(lp);
         if (!levUp || room == 0) revert BadTarget();                   // only toward target
@@ -370,7 +370,7 @@ contract BtcLevManager {
     ///         the second half of a lever-up step, after the keeper has sourced+minted the BTC.
     function leverSupply(uint vbtc) external nonReentrant {
         address lp = msg.sender;
-        Pos memory p = pos[lp];
+        Types.Pos memory p = pos[lp];
         if (!p.open) revert NotOpen();
         VBTC.transferFrom(lp, address(this), vbtc);
         VBTC.transfer(address(p.venue), vbtc);
@@ -394,7 +394,7 @@ contract BtcLevManager {
     /// @notice Repay `stableUsd`-worth of the position's debt (stable already transferred in / approved).
     function repay(uint stableUsd) external nonReentrant returns (uint repaid) {
         address lp = msg.sender;
-        Pos memory p = pos[lp];
+        Types.Pos memory p = pos[lp];
         if (!p.open) revert NotOpen();
         uint amt = LevMath._fromUsd(AUX,p.venue.stable(), stableUsd);
         // Clamp to the current debt BEFORE the transfer. `venue.repay` already caps the repaid amount at
@@ -423,7 +423,7 @@ contract BtcLevManager {
     /// @notice Atomic rebalance toward the IL target for a WBTC-collateral position (native vBTC uses the async legs).
     function rebalanceWbtc(address lp, uint minOut) external nonReentrant {
         _reanchorIfReseated(lp);                                          // (B) realize + re-anchor on a band reseat
-        Pos memory p = pos[lp];
+        Types.Pos memory p = pos[lp];
         if (!p.open) revert NotOpen();
         if (ILevVenueColl(address(p.venue)).COLLATERAL() != WBTC) revert BadTarget(); // WBTC-mode ONLY — a native vBTC
         //   venue would get WBTC supplied into it (collateral mismatch). Native positions use the async legs above.
@@ -511,7 +511,7 @@ contract BtcLevManager {
     function swapOutDelever(address lp, uint stableUsd, uint freeSats)
         external nonReentrant returns (uint usedUsd, uint freedSats) {
         if (msg.sender != vogueSyncHook) revert BadAuth();          // Vault settle path only
-        Pos memory p = pos[lp];
+        Types.Pos memory p = pos[lp];
         if (!p.open) return (0, 0);
         uint amt = LevMath._fromUsd(AUX,p.venue.stable(), stableUsd);   // usd → native stable units
         uint debt = p.venue.debtOf(lp);
@@ -538,7 +538,7 @@ contract BtcLevManager {
     ///         the venue adapter (swapOutDelever repays exactly this, recomputing the same clamp). View.
     function swapOutDeleverAmt(address lp, uint maxUsd18)
         external view returns (address venue, address stable, uint amtNative) {
-        Pos memory p = pos[lp];
+        Types.Pos memory p = pos[lp];
         if (!p.open) return (address(0), address(0), 0);
         venue = address(p.venue);
         stable = p.venue.stable();
@@ -551,7 +551,7 @@ contract BtcLevManager {
     ///         delete the position, and re-sync the levered band slice so it stops earning on vanished backing.
     function closeBtcLev() external nonReentrant {
         address lp = msg.sender;
-        Pos memory p = pos[lp];
+        Types.Pos memory p = pos[lp];
         if (!p.open) revert NotOpen();
         if (p.venue.debtOf(lp) != 0) revert BadTarget();               // repay first (keeper unwinds async)
         // Mark the levered slice to the live (now zero-debt) net-equity BEFORE unwinding, so it == `back`.

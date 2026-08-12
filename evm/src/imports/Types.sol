@@ -2,7 +2,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+import {ILevVenue} from "./ILevVenue.sol";
+
 library Types {
+
+    /// @notice One LP's isolated leverage position. §A.71: LevManager and BtcLevManager
+    ///         declared this SEPARATELY with identical shape (only the equity field differed,
+    ///         e0Eth vs e0Btc). ONE declaration now, per the shared-file rule.
+    ///         ⚠️ FIELD ORDER IS ABI-VISIBLE: `pos` is a PUBLIC mapping, so its generated
+    ///         getter is a 6-tuple. Reordering or retyping breaks every client that decodes it.
+    struct Pos { ILevVenue venue; uint64 targetLtvCapBps; uint128 entryPriceWad; uint128 e0; uint160 entrySqrtP; bool open; }
+
     /// @notice Vogue
     /// self-managed LP
     struct SelfManaged {
