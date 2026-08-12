@@ -1239,10 +1239,25 @@ USDC**. That gap is narrower now (C1/C3/C4/C5/C10 closed on other evidence) but 
   are ahead by two (legacy's observation interpolation lives in `OracleLib` here). Measured NEGATIVE —
   do not re-open.
 - ✅ **§A.52 interface dedup DONE** — 7→0 underscore interfaces, Aux 6→1, Core 4→1.
-- 🟠 **§A.71b NEAR-MATCH dedup — STILL OPEN and still correct.** The scan matches EXACT signatures, so
-  `{a,b,c}` vs `{a,b,c,d}` reads as unrelated. NEEDED: subset/±1-field structs; same CALL-SEQUENCE
-  SKELETON with identifiers normalised; ETH/BTC twins compared BODY-BY-BODY. Start at
-  `ChannelLib.supplyBody`'s three branches (Aave / BOLD / 4626).
+- 🟠 **§A.71b NEAR-MATCH dedup — PARTLY DONE 2026-08-12; the METHOD is proven, the SWEEP is not.**
+  The scan matches EXACT signatures, so `{a,b,c}` vs `{a,b,c,d}` reads as unrelated. Three things were
+  NEEDED; one is now done.
+  ✅ **ETH/BTC TWINS COMPARED BODY-BY-BODY — done, and the method works.** Strip comments, collapse
+  whitespace, ERASE THE ASSET IDENTITY (`btc|eth|weth|wbtc|sats|vbtc|channel` → one token), then
+  `difflib` the bodies and **DIFF THE RESIDUAL** — never merge on the score. Measured:
+  `LevManager` vs `BtcLevManager` → **15 of 33 near-duplicate bodies**, 7 at ≥0.96, 2 at 0.99
+  (`swapOutDeleverAmt`, `_untrackOpen` — identical modulo `uint256`/`uint`).
+  `VogueLib` vs `BtcVaultLib` → **4**, incl. `pullBody`~`pullBtc` at 0.99.
+  ⚠️ A NAME-BASED CHECK CANNOT FIND THIS: most duplicate pairs SHARE A NAME, so an ETH-named /
+  BTC-named / neutral classification scores them "neutral" on both sides and reads as clean. Identical
+  duplication is the case that looks tidiest. COMPARE BODIES.
+  ⏸️ STILL NEEDED: subset/±1-field structs; same CALL-SEQUENCE SKELETON with identifiers normalised;
+  and the same body-diff run against the OTHER pairs — `Vogue`/`Vault`, `VEth`/`VBtc`, and
+  `ChannelLib.supplyBody`'s three branches (Aave / BOLD / 4626), which is where this row said to start
+  and which remains untouched.
+  ▶️ ACTING ON THE RESULT IS GATED BY **B4-r**: the lev fold is bytecode-NEGATIVE via a shared parent,
+  so dedup found this way must be landed as DELEGATECALL LIBRARIES or contract DELETIONS, not as
+  members on an abstract base.
 - 🟠 **§A.56 part 2** — out-of-range ARGS; a responsibility-boundary move, not a signature change.
 - 🟠 **§A.61** boundary definition — 6/8↔18; §A.72 proved a needed helper is missing. (task #7)
 - 🟠 **G1–G10** gas (tracked as **B11**): basket scan 2–3× per tx; `decimals()` STATICCALL at 33 seams;
