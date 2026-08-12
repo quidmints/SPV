@@ -12918,3 +12918,42 @@ simple one that serves only our pool, no hooks, none of that. The PM is Aux itse
 (which would close §SIGMA-REMOVE-P2-DIVERGENCE-FIX for free); and what happens to the ~5,500 lines of
 `isBTC` duplication (§J.2) when the PM is ours — **one PM serving both bands is the same "one
 implementation, two instances" target.**
+
+### 📌📌 SKEW-FOLDS-INTO-ARCH — **do NOT finish the skew UNIT in the old architecture.** Land the skew work INSIDE §ARCH-OWN-POOLMANAGER (owner, 2026-08-12).
+
+**Owner: *"land all the work from the skew into this before finishing the UNIT for the skew, as things
+might resolve themselves on the way."* ⇒ §UNIT-B stays OPEN and its remaining items are carried into
+the new design rather than closed against the old one.** ⚠️ **Finishing them first would calibrate
+against a representation being deleted** — the §SIGMA-REMOVE-P2 saturation and the `TickMath` byte
+wall are both artifacts of machinery that is going away.
+
+**① EXPECTED TO RESOLVE ON THE WAY — re-check, do NOT pre-solve:**
+| open item | why it may dissolve |
+|---|---|
+| σ² carries entry history (**2.34×**, §UNIT-B-ROOT-FOUND) | the carrier was **observation COUNT** in a ring; a non-ring variable has no such count |
+| `p₁` diverges as `inv → 0` (§…-DIVERGENCE-FIX) | if the simpler variable is bounded BY CONSTRUCTION, this closes for free |
+| the **~15×** calibration gap (§…-CALIBRATION-MEASURED) | every reading was inflated by that divergence ⇒ it is an UPPER bound |
+| EIP-170 (**148-byte ceiling**, §CORE-8C-EXHAUSTED) | owning the PM reopens the whole storage/bytecode layout |
+| "drive the POOL TICK, not the feed" (§UNIT-A-FIXTURE) | we would own the state; it can be driven directly |
+| the missing exogenous-price fixture (3 lines converge on it) | ditto — the PM is ours to seed |
+
+**② MUST BE CARRIED — these are about ECONOMICS or DECISIONS, not representation:**
+- ✅ **OWNER DECISION: the target must not include the trade's own flow.** Unimplemented; two attempts
+  refuted (§UNIT-B-LAG-REFUTED) — **but the refutations were about the CARRIER, and the decision stands.**
+- ✅ **§UNIT-FORELLA: charge TOTAL VARIATION `Σ|dq|`.** A path-independent measure is blind to CLOSED
+  LOOPS. **About the MEASURE, not the encoding.**
+- ✅ **LVR IS INTRINSICALLY PATH-DEPENDENT** (§…-LVR-IS-PATH-DEPENDENT, 1.692×): part of the 13.71% is
+  REAL ECONOMICS. **Do not "fix" the real part in the new design either.**
+- ✅ **A SUM is path-independent; a SECOND DIFFERENCE is not** — the reason for the whole direction.
+- ✅ **LVR = HODL − band** (P&L-on-inventory read the band net AHEAD by 3×).
+- ✅ **ALL SIX INSTRUMENTS** (§UNIT-B-INSTRUMENTS-HARDENED): pinned entry · probe swap · saturation
+  control · accrual counting · run-to-run noise · three-estimator comparison. **They test BEHAVIOUR,
+  so they port — and the saturation control has already caught one false pass.**
+- ✅ **§UNIT-C-BAR** (the bar is multi-tick Uniswap, not zero) · **§E83** (censored duration, gates
+  three things) · **§SKEW-BTC-SYMMETRY** (deferred behind the refill).
+- ✅ **§UNIT-B-VERIFIED is CLOSED** — the counter matches the swapper's loss to 0.007%. **Money-path
+  question settled; it does not reopen.**
+
+▶️ **SO THE ORDER IS: design the new variable → re-run the SIX INSTRUMENTS against it → only then
+revisit §UNIT-B's calibration.** **If the instruments come back ~1× on the history gap with the skew
+strictly inside the cap, most of §UNIT-B closes as a side effect — which is exactly the owner's point.**
