@@ -2,6 +2,7 @@
 pragma solidity 0.8.30;
 
 import {Alles, MockSPV} from "./Alles.t.sol";
+import {LevBase} from "../src/imports/LevBase.sol";
 import {ExitFixture} from "./btc/ExitFixture.sol";
 import {BTCChannels} from "../src/BTCChannels.sol";
 import {BtcLevManager} from "../src/BtcLevManager.sol";
@@ -492,7 +493,7 @@ contract VBtcLevFeeLane is Alles {
         _setupBtcLev();                               // native vBTC venue on `lm`
         (,, address lp,) = _open(ch, 88, 3e8);        // 3 BTC channel = free band to expose
         _openLev(lp, 2e8);                            // native vBTC position
-        vm.expectRevert(BtcLevManager.BadTarget.selector);
+        vm.expectRevert(LevBase.BadTarget.selector);
         lm.rebalanceWbtc(lp, 0);                       // vBTC venue ⇒ BadTarget (WBTC-mode only)
     }
 
