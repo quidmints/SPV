@@ -12308,3 +12308,32 @@ adverse selection at all.** ⇒ **NO SCALING CONSTANT IS NEEDED, AND ONE WOULD H
 | id | state |
 |---|---|
 | **E181-status-reconciliation** | 📋 **ACCOUNTING AFTER THE OWNER CALLED OUT THAT I WAS SKIPPING AHEAD (2026-08-12).** ✅ **STALE 🔴 MARKERS, VERIFIED FIXED IN THE CODE — the queue's status column lied in both directions, exactly as CLAUDE.md warns:** **§E130** (*"`btcRecipientOf` is never validated as a curve point"*) — `_registerBtcRecipient` calls `BitcoinTx.isValidXOnlyKey(xOnlyKey)`; **CLOSED**. **§E142** (*"`openChannel` does not verify the KeyAgg"*) — `BTCChannels.sol:842` calls `_proveFundingKeys(p)`, which runs `MuSig2Agg.computeOutputKey`; **CLOSED**. 🔴 **§E107 IS STILL OPEN AND IS THE MOST CONSEQUENTIAL THING THIS SCAN FOUND — IT UNDERMINES THE WHOLE ESCAPE STORY THIS SESSION HARDENED.** Both retire paths gate a non-cooperative close on `BitcoinTx.isCommitmentTx` (BOLT#3: nLockTime top byte `0x20` + input nSequence top byte `0x80`), and **a dead-man exit cannot satisfy it BY CONSTRUCTION** — it carries an absolute CLTV deadline, so its locktime is a block height (top byte `0x00`) or a near-term timestamp, never `0x20`. ⇒ **the LP broadcasts the exit, recovers its BTC, and the EVM position KEEPS COUNTING AS BACKING** — over-counted backing against QU!D. **§E165's ladder and §E175's split both make the exit MORE likely to be used, so this gets worse, not better, as a result of this session's work.** ⇒ **NEXT after the in-flight §E166-4.** 🔴 **§E182 BOOKED FROM THE OWNER'S OWN TABLE — "rekey splice (LP half immutable, hop half rotates), designed this turn, not built". IT WAS NEVER IN §E166's LIST AND WOULD HAVE BEEN LOST** (rule 12, again). **REMAINING OPEN, honestly:** §E107 · §E182 rekey splice · §E159 **Rust half only** (the contract half — `verifySwapInDeposit`/`swapInDepositKey`/leaf building — LANDED; **pinning the fleet deposit key off hardened `m/70'/swap_index'` did NOT**, so the phantom swap-in is **NOT finished**) · §E166 items 1 (lazy open/close deletion), 4 (in flight), 5 (non-global freshness), 7 (§E140 subtraction), 9, 10, 11, 13, 14 · the §E175 deployment remainder · §E179. |
+
+### 🎯 SIGMA-REMOVE-SOLVED-② — the exogenous-only split needs a hook that does not exist. **Net-of-earnings does not, and reuses θ's numerator.**
+
+**Implementing §SIGMA-REMOVE-SOLVED part ① hit a blocker, and today's evidence locates it precisely.**
+⛔ **`_bumpFlow` FIRES AFTER THE `POOLED_*` UPDATES.** Proven, not assumed: settling the open interval
+at READ time produced **byte-identical** numbers (§SIGMA-REMOVE-P2-GAP-RESOLVED), which can only
+happen if the pending record ALREADY equals current state. ⇒ The only interval it can observe is
+`[post_i, post_{i+1}]` = **idle gap PLUS swap i+1's impact.** ⇒ **Isolating the exogenous gap needs a
+sample at SWAP START, and no such hook exists** — adding one means a second call site on the money
+path, in `_handleSwap`, which is stack-tight (`via_ir = false`).
+
+✅ **THE ROUTE THAT NEEDS NO NEW HOOK — AND IT IS ARGUABLY THE RIGHT QUANTITY ANYWAY:**
+**NET the total signed mark-to-market against what the band EARNED.** The swapper's own impact is not
+an uncompensated loss — **they PAID for it, through the curve fee and the skew.** So:
+```
+net adverse selection = (signed inventory mark-to-market) − (fees + premium earned)
+```
+⇒ **Own-impact CANCELS on its own**, because the price move a swapper causes is matched by the fee
+that swapper pays. **No start-of-swap sample is needed; no second hook; no new state.**
+📌 **AND THE EARNINGS SIDE ALREADY EXISTS:** `_bandFeeYieldWad` is θ's numerator, documented as *"the
+compensation the band actually receives for bearing IL"* (§SIGMA-REMOVE-GATE-READ). ⇒ **This is
+θ's own structure with the DENOMINATOR replaced** — realized loss instead of `kLvrWad · σ²` — which is
+exactly what §SIGMA-CAN-WE-AVOID-IT proposed before the read showed θ's denominator was a forecast.
+⇒ **The two threads converge: θ was half-right, and this completes it.**
+▶️ **STILL REQUIRED, UNCHANGED:** signed accrual (`int` accumulator or a gain/loss pair — the EWMA is
+`uint`), and the acceptance run on all six hardened instruments with the SATURATION CONTROL live.
+🔬 **THE FALSIFIABLE PREDICTION IS SHARPER NOW:** in a fixture with **no exogenous price process**, a
+correctly netted register reads **≈ 0** — because every price move present was caused by a swapper who
+paid for it. **A non-trivial reading means the netting is wrong, not that the market moved.**
