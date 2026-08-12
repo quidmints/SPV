@@ -12881,3 +12881,40 @@ layout-pinning obligation the original entry did not mention.**
 |---|---|
 | **T1-BLOCKED** | 🔴 **"THE FIX IS A DELETION" WAS WRONG — `settleSwapIn` HAS A SECOND JOB AND DELETING IT TODAY DELETES THE LIGHTNING RAIL.** I wrote in `TRAPDOORS.md` that closing `#1` is just removing the unproven entrypoint once callers move to `settleSwapInProven`. The callers say otherwise: `quid-hop/src/swap.rs:4` — *"swap-IN — a SETTLED inbound invoice (the seller paid us BTC, we learned the preimage) → emit `BTCChannels.settleSwapIn(...)`"*. ⇒ **On the LN rail there IS NO ON-CHAIN DEPOSIT TO PROVE.** `settleSwapInProven` requires an SPV inclusion proof of a payment to the derived deposit address; an HTLC settled inside a channel produces no such transaction. Deleting `settleSwapIn` removes BTC-for-USD over Lightning entirely. ⇒ **THE DELETION IS GATED ON §E166 ITEM 2, WHICH I HAD ALREADY BOOKED AND FAILED TO CONNECT: *"BOLT11 rail gated on an on-chain splice proof so EVERY credit path ends in a Bitcoin proof."*** Once an LN credit is anchored to a splice the contract verifies, the unproven entrypoint has no remaining caller and deletes cleanly. **Order: §E166-2 first, then T1. `TRAPDOORS.md` T1 updated to say so.** ⚠️ Also note `settleSwapIn(paymentHash = swapId)` is the swap-out FAILURE-REVERSAL path (`BTCChannels.sol:1814`) — a refund of USD the swapper already paid, where nothing arrives and nothing is provable. That role is legitimate and must SURVIVE the deletion under its own name. |
 | **E187-liveness-phone-loss** | ✅ **PHONE LOSS CANNOT LOCK AN LP OUT OF ITS FUNDS — the property is already designed, and this is what §E165 was FOR** (owner: *"dont allow lockout by phone to be possible… we need to increase liveness completely"*). **① FUNDS:** the §E165 ladder is pre-signed AT OPEN and the bytes are PUBLIC (`DeadManExitEmitted`), so once a CLTV matures **ANYONE may broadcast** — no key, no phone, no LP participation. Recovery does not depend on the LP being alive at all. **② REKEY:** §E182's shape is *LP half IMMUTABLE, hop half rotates*, so **the LP never acts in a rekey** — a lost phone does not block an image upgrade. That is not a happy accident; it is why the immutable-LP-half formulation was chosen over anything needing LP consent. **③ WHAT IS ACTUALLY LOST:** the ability to co-sign NEW state — splices, cooperative closes, new ladder rungs. **Degraded service, never lost funds**, which is the property this whole thread has been converging on. 🔴 **THE ONE REAL RESIDUAL, AND IT IS THE LIVENESS DIAL: THE LADDER IS FINITE.** A long-lived channel that exhausts its pre-signed rungs with no phone can no longer be spliced and must exit. ⇒ **"Increase liveness completely" = DEEPEN THE LADDER**, and the cost is asymmetric in our favour: rungs are signed ONCE, at open, in one ceremony, and cost nothing at runtime. **Depth should be a deploy parameter, not a constant, and it should be generous.** ⚠️ **AND THIS KILLS §E182-b's REMAINING CANDIDATE INDEPENDENTLY:** anchoring the funding half to `btcRecipientOf` would make ONE key both the payout destination and the MuSig2 funding half — so losing it would lose the payout destination too, converting a degraded-service event into a fund-loss event. **The key-reuse third way is dead on liveness grounds as well as cryptographic ones.** |
+
+### 🚧🚧🚧 ARCH-OWN-POOLMANAGER — **Aux BECOMES THE POOL MANAGER.** Own PM, no hooks, no ticks. Owner direction, 2026-08-12.
+
+**Owner: *"we are using a new technique for the variance, same logic but simpler variable format that
+doesn't need the technical debt of ticks, and the uniswap unlock callback / handle delta can be kept,
+but we only use it for imbalance calculation instead of talking to an external PM — we write our own
+simple one that serves only our pool, no hooks, none of that. The PM is Aux itself."***
+
+📐 **THE FOUR PARTS:**
+1. **`Aux` IS the PoolManager.** No external Uniswap v4 PM for the VANILLA pools.
+2. **NO HOOKS.** (Consistent with what is already there — §UNIT-C-BAR-ARMB-Q established our pools are
+   hookless and that outsiders cannot reach them anyway, since the currencies are protocol-held mocks.)
+3. **VARIANCE: SAME LOGIC, SIMPLER VARIABLES — NO TICKS.** The `tickCumulative` ring, `int56` walks,
+   `1e9` fixed-point rescaling and second-difference algebra all go.
+4. **KEEP the unlock-callback / delta-settlement SHAPE, but only for IMBALANCE calculation.**
+
+⚠️ **WHAT THIS DISSOLVES — do NOT keep working these:**
+- §SIGMA-CEILING-EXPLAINED (the ring stores ≤1 observation per timestamp; same-block drains collapse) —
+  **a property of the v4 oracle we would no longer use.**
+- §UNIT-B-ROOT-FOUND's mechanism (σ² carries entry history because one swap writes ONE observation and
+  twelve write TWELVE) — **observation COUNT stops being the carrier if the format is not a ring.**
+- §UNIT-A-FIXTURE's whole class (moving the feed moves nothing; you must drive the POOL TICK).
+- §SIGMA-REMOVE-P2-DIVERGENCE-FIX's plan to source `p₁` from the ring's tick — **there is no ring.**
+- The `TickMath`-won't-fit byte blocker, and §CORE-8C-EXHAUSTED's 148-byte ceiling: **owning the PM
+  re-opens the entire storage/bytecode layout question.**
+✅ **WHAT SURVIVES — it was never about ticks:**
+- **A SUM is path-independent; a SECOND DIFFERENCE is not.** (§SIGMA-REMOVE) The argument is about the
+  STATISTIC, not the encoding, and it is the reason for the whole direction.
+- **LVR = HODL − band**, and that P&L-on-inventory-held is NOT it (§SIGMA-REMOVE-SIGNED-REFUTED).
+- **`p_exec` is bounded by construction; only a composition-ratio `p₁` diverges.**
+- Every INSTRUMENT: pinned entry, probe swap, saturation control, accrual counting
+  (§UNIT-B-INSTRUMENTS-HARDENED). **These test BEHAVIOUR, not representation.**
+▶️ **FIRST QUESTIONS FOR THE NEW DESIGN — answer before writing it:** what IS the simpler variable
+(band composition? a running signed inventory-value?); does it make `p₁` bounded BY CONSTRUCTION
+(which would close §SIGMA-REMOVE-P2-DIVERGENCE-FIX for free); and what happens to the ~5,500 lines of
+`isBTC` duplication (§J.2) when the PM is ours — **one PM serving both bands is the same "one
+implementation, two instances" target.**
