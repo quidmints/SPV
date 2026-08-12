@@ -107,7 +107,7 @@ contract BtcLevManager is LevBase {
     uint private _lock = 1;
     modifier nonReentrant() { if (_lock != 1) revert Reentrancy(); _lock = 2; _; _lock = 1; }
 
-    constructor(address vbtc, address aux, address wbtc, address gov, address quid) LevBase(aux) {
+    constructor(address vbtc, address aux, address wbtc, address gov, address quid) LevBase(aux, wbtc) {
         VBTC = IERC20Min(vbtc); VAULT = IVBtcToken(vbtc).VAULT(); WBTC = wbtc; GOV = gov; QUID = quid;
     }
 
@@ -122,7 +122,7 @@ contract BtcLevManager is LevBase {
     /// @notice USD (1e18) value of `vbtc` (8-dec) collateral: `vbtc · px / 1e18` (px is USD18/1e18-raw, WBTC-lifted).
     function vBtcValueUsd(uint vbtc) public view returns (uint) {
         if (vbtc == 0) return 0;
-        return (vbtc * AUX.getTWAPforAsset(WBTC, TWAP_WINDOW)) / 1e18;
+        return (vbtc * AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW)) / 1e18;
     }
 
     /// @notice `lp`'s debt in USD (1e18), normalizing the venue stable's decimals.
@@ -135,7 +135,7 @@ contract BtcLevManager is LevBase {
     ///         The single SOLVENCY term `Vault.vogueBTC()` adds — never deliverable (cross-chain custody).
     ///         All-view (collateralOf/debtOf/getTWAPforAsset are views), safe from `vogueBTC()`.
     function netEquityBtc(address lp) public view returns (uint) {
-        uint px = AUX.getTWAPforAsset(WBTC, TWAP_WINDOW);
+        uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         return _netEquityBtcAt(lp, px);
     }
     function _netEquityBtcAt(address lp, uint px) internal view returns (uint) {
@@ -152,7 +152,7 @@ contract BtcLevManager is LevBase {
     function totalNetEquityBtc() external view returns (uint total) {
         uint n = _openLps.length;
         if (n == 0) return 0;
-        uint px = AUX.getTWAPforAsset(WBTC, TWAP_WINDOW);
+        uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         for (uint i; i < n; i++) total += _netEquityBtcAt(_openLps[i], px);
     }
 
@@ -182,7 +182,7 @@ contract BtcLevManager is LevBase {
     ///         (LEVERED-DELIVERABILITY-SPEC.md) so levered volatile pairs + earns fees even at basket surplus==0;
     ///         margin-bounded (never phantom). All-view.
     function deliverableDollars(address lp) public view returns (uint) {
-        uint px = AUX.getTWAPforAsset(WBTC, TWAP_WINDOW);
+        uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         return _deliverableDollarsAt(lp, px);
     }
     function _deliverableDollarsAt(address lp, uint px) internal view returns (uint) {
@@ -198,7 +198,7 @@ contract BtcLevManager is LevBase {
     function totalDeliverableDollars() external view returns (uint total) {
         uint n = _openLps.length;
         if (n == 0) return 0;
-        uint px = AUX.getTWAPforAsset(WBTC, TWAP_WINDOW);
+        uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         for (uint i; i < n; i++) total += _deliverableDollarsAt(_openLps[i], px);
     }
 
@@ -223,14 +223,14 @@ contract BtcLevManager is LevBase {
     /// @notice IL-TARGET LTV (bps) = debt / E0 (the FIXED band-only base) — the keeper's IL-track basis,
     ///         consistent with the debt=E0·t sizing. Distinct from getCurrentLtvBps (venue safety).
     function ilLtvBps(address lp) public view returns (uint) {
-        uint px = AUX.getTWAPforAsset(WBTC, TWAP_WINDOW);
+        uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         uint e0Usd = LevMath.e0Usd(pos[lp].e0, px);   // shared scale layer (WBTC-lifted px ⇒ /1e18)
         return LevMath.ltvBps(debtUsd(lp), e0Usd);
     }
     /// @notice IL-cancelling target LTV (bps) = `1 − √(entry/now)`, clamped to the LP's cap. 0 flat/down.
     function ilTargetLtvBps(address lp) public returns (uint) {
         Types.Pos memory p = pos[lp];
-        uint px = AUX.getTWAPforAsset(WBTC, TWAP_WINDOW);
+        uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         return _ilTargetLive(p, px);
     }
 
@@ -250,7 +250,7 @@ contract BtcLevManager is LevBase {
         if (!p.open) return;
         (bool go, uint160 s) = LevMath.reanchorCompute(vogueSyncHook, p.entrySqrtP, true);
         if (!go) return;
-        uint px = AUX.getTWAPforAsset(WBTC, TWAP_WINDOW);
+        uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         // (A): a reseat realizes accrued IL ⇒ re-anchor E0 to the position's CURRENT net-equity (sats) — NOT
         // bandBtcOf (0 in the (A) model). The over-hedge fix holds: E0 tracks net-equity, not growing collateral.
         uint base = netEquityBtc(lp);
@@ -262,7 +262,7 @@ contract BtcLevManager is LevBase {
     /// @notice Stable delta (USD 1e18) + direction to re-hit the IL target; oracle read ONCE.
     function debtDeltaToTarget(address lp) public returns (bool levUp, uint amountUsd) {
         Types.Pos memory p = pos[lp];
-        uint px = AUX.getTWAPforAsset(WBTC, TWAP_WINDOW);
+        uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         // Size to the FIXED, BAND-ONLY E0 (band sats at entry) valued at px — NOT band+buffer (over-hedge) and
         // NOT the buffer's growing collateral (the 1/(1−t) over-hedge). e0Usd = e0·px/1e18 (18-dec, matching
         // debtUsd; px is WBTC-lifted ×1e10 — /1e8 inflated targetDebt 1e10 ⇒ over-hedge to the venue ceiling).
@@ -285,7 +285,7 @@ contract BtcLevManager is LevBase {
         LevMath.requireOpenable(allowedVenue[address(venue)], address(AUX), address(venue));
         if (initialVbtc < MIN_OPEN_VBTC) revert BadTarget();           // anti-Sybil
         if (cap == 0 || cap > TARGET_LTV_CAP_BPS) revert BadTarget();
-        uint entryPx = AUX.getTWAPforAsset(WBTC, TWAP_WINDOW);
+        uint entryPx = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         // (A) INTRINSIC deposit model (2026-07-03, mirror of LevManager): the LP's ONE deposit (`initialVbtc`)
         // IS the levered position — its net-equity is synced into the BTC band (levPooledBTC) as delta-1 depth by
         // the 2× leverage, so E0 (the FIXED IL base) = the DEPOSIT ITSELF (in sats — vBTC IS sats, no conversion),

@@ -36,6 +36,12 @@ abstract contract LevBase {
     /// Oracle (`getTWAPforAsset`) + the caller-funded paths both managers reach through.
     IAux public immutable AUX;
 
+    /// @notice The asset this instance prices against — WETH on the ETH side, WBTC on the BTC side.
+    ///         THE ONLY per-asset input to the shared valuation bodies. Before this existed, every
+    ///         shared function differed solely by naming `WETH` or `WBTC` in its TWAP call, which is
+    ///         what kept ~20 otherwise-identical lines from being one implementation.
+    address public immutable ORACLE_KEY;
+
     /// Per-LP, one isolated position. PUBLIC ⇒ ABI-visible 6-tuple getter (see note above).
     mapping(address => Types.Pos) public pos;
 
@@ -49,7 +55,7 @@ abstract contract LevBase {
     error NotOpen();
     error BadTarget();
 
-    constructor(address aux) { AUX = IAux(aux); }
+    constructor(address aux, address oracleKey) { AUX = IAux(aux); ORACLE_KEY = oracleKey; }
 
     function _trackOpen(address lp) internal {
         if (_lpIdx[lp] == 0) { _openLps.push(lp); _lpIdx[lp] = _openLps.length; }
