@@ -12512,3 +12512,36 @@ unmeasured** rather than letting the result read as a protocol property (§UNIT-
 | id | state |
 |---|---|
 | **E186-stale-markers** | ✅ **§E107 IS CLOSED, AND THAT MAKES FOUR STALE 🔴 MARKERS FOUND IN ONE DAY.** `recordDeadManExit` (`BTCChannels.sol:1420`) is a THIRD retire path that does **not** gate on `isCommitmentTx`: it extracts the locktime, requires `exitArmedAt[channelId][deadline]`, SPV-proves the spend, and finalises with `_lpFinalBalance`. Tests at `BtcSelfManaged.t.sol:384-428` — one of which is literally commented *"Without `recordDeadManExit` a CLTV exit is unrecordable"*. **The fixing commit is `cf8c511`, titled "E107 fix: retire a channel ended by the dead-man exit (phantom backing)".** ⚠️ **I RE-DERIVED E107's ARGUMENT FROM ITS ROW AND PRESENTED IT AS THE MOST CONSEQUENTIAL OPEN FINDING OF THE SCAN.** The row's premise (*"BOTH retire paths gate on `isCommitmentTx`"*) was true when written and false by the time I read it, because a third path was added. **A row that enumerates paths goes stale the moment a path is added — and enumeration rows are the most dangerous kind, because they read as exhaustive.** 🔑 **THE DAY'S TALLY: §E130 (curve check exists), §E142 (KeyAgg proof exists), §E107 (third retire path exists), plus §E115/§E158-rogue-hop mooted by §E185's registry deletion — FIVE items I would have "fixed" or re-analysed if I had trusted the column.** ⇒ **STANDING CONSEQUENCE: for any 🔴 row older than the current session, VERIFY IN THE CODE BEFORE PLANNING FROM IT.** CLAUDE.md already says the marker column is unreliable and to plan from row BODIES — **that is not enough: the BODIES go stale too.** Only the code is current. **Cost of checking: one grep. Cost of not checking: I spent a turn presenting a closed defect as the top open risk.** |
+
+### 🟠 SIGMA-REMOVE-P2-FITS-BUT-SATURATES — the byte problem is SOLVED (25 bytes free). The CALIBRATION problem is now isolated.
+
+**Two results, and they are separate problems.**
+✅ **① IT FITS.** `Core` **24,551 / 25 free**, deployable, substitution live. **How, after route 1
+(library) measured 81 bytes WORSE:**
+| step | `Core` |
+|---|---|
+| baseline (register + LVR summand) | 24,428 / 148 |
+| − `realizedLossGross` (Phase-1 diagnostic; tests can `vm.load`, they already do for `_pinFlow`) | |
+| + `_bandPxWad` folded into its only caller | |
+| + substitution INLINE, `FullMath` (owner: *"use fullmath, it's better"*) | **24,551 / 25** |
+⇒ **THE DIAGNOSTIC SURFACE WAS THE BUDGET.** Phase-1 measurement views are not needed once the input
+is LIVE — **that is the general lesson, and it is reusable on the next squeeze.** ⚠️ 25 bytes is not
+headroom; treat `Core` as frozen again.
+
+🟠 **② IT SATURATES — AND THE CONTROL CAUGHT IT.** `assertLt(prem, size·3%)`
+(§UNIT-B-INSTRUMENTS-HARDENED, added after §SIGMA-REMOVE-P2-FALSE-PASS) **FIRED**: both legs pinned
+at **3,600,000,000 = exactly 3% of $120,000**, probes at **300,000,000 = 3% of $10,000**. ✅ **The
+harness did its job — two hours ago this same state PASSED and was nearly banked.**
+⛔ **REVERTED** (rule 15: unverified money-path change).
+
+🔬 **WHAT SATURATION CANNOT DISTINGUISH, AND WHY THE FIXTURE CANNOT SETTLE IT:** a **120,000 drain is
+~9% of a ~$1.3M band.** Net LVR $452k on $1.3M = a **35% loss fraction** ⇒ `σ²_implied ≈ 354` against
+the ring's `2.5e-5`. **Charging the 3% maximum may be CORRECT for a band losing 35%** — or the window
+normalisation may be wrong. **Both produce identical output here.**
+▶️ **THE FIXTURE MUST CHANGE, NOT THE CONSTANT** (rule 4 — dividing until it fits is fitting the
+fixture): build a scenario with a **REALISTIC swap-to-band ratio** (basis points, not 9%) and a real
+price path, then re-run. **If the skew lands strictly inside the cap and tracks scarcity, the
+substitution is calibrated; if it still pins, the window normalisation is wrong.**
+📌 **This is the SAME fixture requirement §SIGMA-SOURCE and §SIGMA-REMOVE-SOLVED already need** — an
+exogenous price process. **Three separate lines of work now converge on one missing fixture; build it
+once.**
