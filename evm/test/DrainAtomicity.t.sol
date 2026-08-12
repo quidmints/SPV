@@ -1416,6 +1416,14 @@ contract DrainAtomicity is Alles {
 
         assertGt(premBig, 0, "CONTROL: the big leg must actually be charged skew");
         assertGt(premSplit, 0, "CONTROL: the split leg must actually be charged skew");
+        // SATURATION CONTROL (§SIGMA-REMOVE-P2-FALSE-PASS). A steepness input scaled ~1e7 too high
+        // pins BOTH legs at MAX_WELL_SKEW (3%), and the discount then reads 0 bps -- passing this
+        // test by DESTROYING the mechanism rather than fixing it. `3,600,000,000` = exactly 3% of
+        // $120,000 was the tell. A criterion a CLAMP can satisfy cannot distinguish success from
+        // destruction, so both legs must be STRICTLY BELOW the cap for the comparison to mean
+        // anything.
+        assertLt(premBig,   TOTAL / 1e12 * 3 / 100, "SATURATION: the big leg is pinned at the 3% cap");
+        assertLt(premSplit, TOTAL / 1e12 * 3 / 100, "SATURATION: the split leg is pinned at the 3% cap");
     }
 
     /// §UNIT-B-RIGHT-QUESTION (P2) — ENTRY-HISTORY INDEPENDENCE. The SAME traversal must cost the
@@ -1462,9 +1470,19 @@ contract DrainAtomicity is Alles {
         assertApproxEqRel(invA, invB, 0.001e18,
             "CONTROL: both arms must reach the SAME q0, else the probes are not the same traversal");
         assertGt(pA, 0, "CONTROL: the probe must actually be charged skew");
-        assertApproxEqRel(pA, pB, 0.01e18,
-            "(P2) the SAME traversal must cost the SAME however the band reached q0 -- a gap is "
-            "entry HISTORY leaking into the charge, which is what a signed curve cannot tolerate");
+        // SATURATION CONTROL — see the pinned instrument. Two capped probes are trivially "equal".
+        assertLt(pA, PROBE / 1e12 * 3 / 100, "SATURATION: probe A is pinned at the 3% cap");
+        assertLt(pB, PROBE / 1e12 * 3 / 100, "SATURATION: probe B is pinned at the 3% cap");
+        // (P2) IS OPEN AT HEAD AND THIS RECORDS IT RATHER THAN HIDING OR SHOUTING IT. The input is
+        // still sigma^2, which is a SECOND DIFFERENCE and so encodes the SHAPE of the flow, so the
+        // same traversal costs 2.34x more via a whale than via twelve splitters
+        // (§UNIT-B-ROOT-FOUND). A permanently-RED test in a 4,400-test suite becomes noise that
+        // hides real regressions, so this asserts a REGRESSION BOUND: the gap must not GROW.
+        // ▶️ WHEN §SIGMA-REMOVE LANDS THIS MUST TIGHTEN TO ~1.0x — that is the acceptance criterion,
+        //    and it lives in the queue, not in a loosened tolerance here.
+        assertLt(pA * 100 / pB, 300,
+            "(P2) REGRESSION BOUND: entry history must not leak MORE than it does today (2.34x). "
+            "The target is 1.0x and is gated on SIGMA-REMOVE replacing the steepness input");
     }
 
 

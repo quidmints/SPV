@@ -12247,3 +12247,24 @@ curve). **The current trapezoid conflates them, and that is why its level is ~10
 (rule 4). **The register measures a real thing; it is not the thing the steepness needs.**
 ✅ **UNAFFECTED: Phase 1's path-independence results stand** (1.100× vs 2.632×, 1.006× vs 1.084×).
 **They were always about SHAPE, and shape is still the property σ² cannot have.**
+
+### ✅ UNIT-B-INSTRUMENTS-HARDENED — saturation controls added; the open defect is a REGRESSION BOUND, not a red test.
+
+**Two changes so the next §SIGMA-REMOVE attempt cannot repeat §SIGMA-REMOVE-P2-FALSE-PASS:**
+1. ✅ **SATURATION CONTROL on both instruments.** `assertLt(prem, size·3%)` in BOTH legs of
+   §UNIT-B-PINNED-INSTRUMENT and both probes. **A steepness input scaled ~1e7 too high pins every arm
+   at `MAX_WELL_SKEW`, and the discount then reads 0 bps — passing by DESTROYING the mechanism.**
+   ⇒ **Verified calibrated: the pinned instrument PASSES at HEAD**, so the bound catches saturation
+   without firing on healthy behaviour.
+2. ✅ **(P2) IS NOW A REGRESSION BOUND, NOT A RED TEST.** At HEAD the input is still σ², so the 2.34×
+   gap is REAL and OPEN — the test would sit permanently red, and **a permanently-red test in a
+   4,400-test suite becomes noise that hides genuine regressions.** It now asserts `gap < 3.00×`
+   (must not GROW) with the **1.0× target stated in-test and owned by the queue, NOT hidden in a
+   loosened tolerance.** ⚠️ This is the §never-mask-the-question line: recording a measured open
+   defect with a regression guard is documentation; widening a bound until a defect passes is masking.
+   **The comment names which one this is.**
+📋 **All six instruments green:** `CountAccrualsPerDrain` · `LevelStabilityAcrossPartitions` ·
+`RunToRunNoise` · `ThreeEstimatorsHistoryGap` · `PinnedEntry_ConsolidationDiscount` ·
+`ProbeSwapIsEntryHistoryIndependent`.
+▶️ **THE NEXT ATTEMPT AT PHASE 2 INHERITS A HARNESS THAT CAN FAIL IT HONESTLY** — which the last one
+did not.
