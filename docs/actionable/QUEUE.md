@@ -10108,3 +10108,38 @@ but confirm the ordering before relying on it.
 several turns while a 128-commit branch had already refuted its core assumption. **Nothing in `main` or in
 this worktree pointed at that branch.** Check `git worktree list` and branches ahead of main BEFORE
 designing in an area, not after.
+
+
+### 🎯 THE REGIME QUESTION RESOLVES WITHOUT A PROXY — BOTH SIDES ARE ALREADY MEASURABLE
+
+Following the `isbtc-fold` sync. The owner's framing was: *unlevered cost depends on where price ENDS;
+levered cost depends on HOW IT GOT THERE.* Both quantities turn out to be directly observable, so the
+path/net ratio was solving a problem that does not need solving.
+
+**BENEFIT SIDE — the register already is it, by construction.** It accrues **SIGNED**, so it telescopes to
+the endpoint difference (`9268ceb`). ⇒ **A choppy round-trip nets to ≈0; a sustained trend retains its
+full move.** That IS the choppy-vs-trending discrimination — obtained structurally, not inferred from a
+shape ratio. And it is the right quantity: the register measures the **realized, PERMANENT** IL the lever
+exists to cancel, so where it is ≈0 there is nothing to hedge.
+Measured (`d90c3fd`, `1ae947c`): **3.8× more stable in level**, **2.1× more history-independent**,
+run-to-run noise **1.006× vs the variance's 1.084×**. Critically the variance is **NON-MONOTONIC**
+(4.170× spread, rising then collapsing), so *"no calibration constant can compensate"* — a proxy built on
+it could not have been rescued by tuning.
+
+**COST SIDE — the keeper already knows it, exactly.** The lever's cost is `spreads × cycles + carry ×
+duration`. **The keeper EXECUTES those cycles**, so realized spread paid and interest accrued are its own
+history, not something to infer from a tick series. ⇒ **No estimator needed on this side at all.**
+
+⇒ **THE OPT-IN SIGNAL IS A COMPARISON OF TWO MEASURED QUANTITIES**, not a regime classifier:
+`register (permanent IL that would be cancelled)` **vs** `realized spreads × cycles + carry × duration`.
+Positive ⇒ the lever earned its cost for that depositor over that window; negative ⇒ it did not.
+⚠️ **This is strictly better than a regime label**: it is per-depositor, per-window, denominated in the
+same units on both sides, and it needs no threshold, no baseline, and no `√(m·2/π)` normalisation — all of
+which the path ratio required and any of which could be tuned wrong.
+
+⇒ **CONFIRMS THE OWNER'S DESIGN CALL.** The lever is *"a view, not a default"*, opt-in per depositor. This
+signal reports what the view WOULD HAVE COST, which is what a depositor needs to form one — and it still
+must **INFORM, NEVER SWITCH** (`soldFractionActive` was that latch, deleted 2026-08-09).
+
+▶️ Remaining: confirm the register's accrual is readable per-depositor over an arbitrary window (it is
+band-level as measured), and confirm `1ae947c` closed the run-to-run gate `dc15478` left open.
