@@ -48,8 +48,16 @@ library BasketLib {
         uint yieldAccum;
     }
 
+    /// @param rateWeighted `yieldW[0]` = Σ balanceᵢ × rateᵢ, the balance-weighted ANNUALISED-RATE
+    ///        numerator built in `get_deposits`. ⚠️ THIS USED TO BE `amounts[0]` (Σ yieldWeighted) and
+    ///        the body derived `yield` as `Σyw/Σb − 1` — the basket's mean SHARE PRICE minus one.
+    ///        That is a cumulative LEVEL, and `calcMintYield` consumes it as an ANNUAL rate, so the
+    ///        bond premium scaled with venue age and with each venue's arbitrary price base rather
+    ///        than with yield. Measured live at the moment of this change: mean level 18.72% against
+    ///        a mean true APR of 3.10% — 6.04× over-issuance — with PYUSD alone contributing 101.49%,
+    ///        of which 99.80pp was a base offset that no annualisation could ever remove. §E155-overreport.
     function computeMetrics(Metrics memory stats,
-        uint elapsed, uint raw, uint yieldWeighted,
+        uint elapsed, uint raw, uint rateWeighted,
         uint tvl) internal view returns (Metrics memory) {
 
         if (stats.trackingStart > 0 && stats.last > 0)
@@ -58,33 +66,14 @@ library BasketLib {
         else if (stats.trackingStart == 0)
             stats.trackingStart = block.timestamp;
 
-        // Yield-rate update with three cases:
-        //   raw == 0:                 nothing to compute; keep prior
-        //     (this is the "empty basket" case — no deposits, no
-        //     meaningful yield rate; preserving prior is the right
-        //     no-op rather than crashing on divide-by-zero)
-        //   yieldWeighted >= raw:     positive yield, compute rate
-        //   yieldWeighted < raw:      zero yield for this period
-        //     (depeg-discounted contribution dragged yieldWeighted
-        //     below raw, OR a vault is genuinely losing money. Either
-        //     way the SPOT yield rate is non-positive — since `yield`
-        //     is uint we floor at 0 instead of keeping a stale prior
-        //     value. yieldAccum then accrues at 0 for this window, so
-        //     the time-weighted average decays toward zero in
-        //     proportion to how long the non-positive period lasts.
-        //     That is just the ordinary behavior of a time-average —
-        //     NOT a special "depression" regime; there is no extra
-        //     mechanism, the decay falls straight out of accruing 0.
-        //     Returning 0 instead of stale removes the indeterminacy in
-        //     heavily-discounted regimes where the depeg signal would
-        //     otherwise be lost.)
-        if (raw == 0) {
-            // keep stats.yield as is
-        } else if (yieldWeighted >= raw) {
-            stats.yield = FullMath.mulDiv(WAD, yieldWeighted, raw) - WAD;
-        } else {
-            stats.yield = 0;
-        }
+        // `raw == 0` is the empty-basket case: nothing to divide by, so keep the prior rate rather
+        // than crash. Otherwise the weighted mean of the per-leg rates, which are ALREADY annualised
+        // and ALREADY floored at 0 per leg in `_refreshOne` — so there is no `< raw` arm any more and
+        // no `- WAD`. That matters: the old floor-to-zero arm is what turned the (then-live) decimals
+        // defect into PERMANENT suppression rather than a visible wobble, because a basket dragged
+        // under `raw` by one broken leg pinned `yield` at 0 forever. With per-leg rates a broken leg
+        // can only zero ITS OWN contribution.
+        if (raw != 0) stats.yield = FullMath.mulDiv(WAD, rateWeighted, raw);
         stats.total = tvl; stats.last = block.timestamp;
 
         return stats;
@@ -164,6 +153,13 @@ library BasketLib {
             amounts[14] += balance;
             amounts[0] += yieldWeighted;
             yieldW[i + 1] = yieldWeighted;
+            // yieldW[0] = Σ balanceᵢ × rateᵢ — the balance-weighted ANNUALISED rate numerator, which
+            // `computeMetrics` divides by amounts[14] to get `metrics.yield`. Slot 0 of `yieldW` was
+            // the only unwritten cell in either vector, so this needs no new return value. Weighted by
+            // `balance` (post-tranche), the same quantity that lands in amounts[14], so the ratio is a
+            // true weighted mean. `amounts[0]` is UNCHANGED — it is `calcFeeL1`'s baseline and moving
+            // it would be a second money-path change in one run.
+            yieldW[0] += FullMath.mulDiv(balance, h.rate, WAD);
         }
     }
 
@@ -180,15 +176,52 @@ library BasketLib {
     // ─── Stored-holdings cache bodies — run in Aux's context via
     // delegatecall (address(this)==Aux), so the storage-ref mappings resolve to
     // Aux's slots. Kept HERE (not Aux) to stay under Aux's EIP-170 ceiling.
-    struct Holding { uint balance; uint yieldWeighted; }
+    /// @dev `lastLevel`/`rate`/`lastAt` are the RATE ESTIMATOR's per-stable state (§E155-overreport).
+    ///      They are PER-STABLE and not aggregate ON PURPOSE: the basket level is a balance-weighted
+    ///      mean of per-leg levels that differ by up to 100pp (PYUSD's vault prices at 2.01, USDS at
+    ///      1.002), so a deposit that shifts weight between two legs moves the AGGREGATE level with no
+    ///      yield involved at all. A finite difference on the aggregate would read that composition
+    ///      shift as yield. Differencing each leg against its own previous level is immune to it.
+    struct Holding { uint balance; uint yieldWeighted; uint lastLevel; uint rate; uint40 lastAt; }
+
+    /// Minimum spacing between rate samples. `_refreshOne` runs on EVERY mutation, so without this the
+    /// estimator would difference two observations seconds apart, where integer truncation makes the
+    /// numerator 0 and the reported rate flaps to zero on ordinary traffic.
+    uint internal constant RATE_SAMPLE_MIN = 1 days;
+    uint internal constant YEAR = 365 days;
 
     /// @dev Recompute ONE stable's cached vault-sum and store it. Shared core.
+    ///      Also advances that stable's RATE estimate — see `Holding` above and §E155-overreport.
+    ///      MEASURED, which is why this is a delta and not the level: `yieldWeighted/balance` is the
+    ///      venue's share price, a CUMULATIVE quantity, so `level - 1` scales with venue AGE and with
+    ///      the venue's arbitrary price BASE, not with yield. Live evidence — the five Morpho legs all
+    ///      implied the same 0.34-0.37yr age, and PYUSD, whose vault has priced at ~2.0 since it was
+    ///      deployed 238 days ago, reported 101.49% of which 99.80pp was pure base offset.
+    ///      Subtracting cancels the base; dividing by elapsed cancels the age.
     function _refreshOne(address stable,
         mapping(address => Holding) storage sh) internal {
         address aux = address(this);
         bool isAave = (stable == IAux(aux).GHO() || stable == IAux(aux).USDG());
         (uint b, uint yw) = _valueStable(stable, isAave, IAux(aux).AAVE_SPOKE());
-        sh[stable] = Holding(b, yw);
+        Holding storage h = sh[stable];
+        (uint lastLevel, uint rate, uint40 lastAt) = (h.lastLevel, h.rate, h.lastAt);
+        if (b > 0) {
+            uint level = FullMath.mulDiv(WAD, yw, b);
+            if (lastAt == 0) {
+                // BOOTSTRAP: one observation cannot yield a rate. Anchor it and report 0 until the
+                // next sample — the conservative side (under-mints the bond, never over-mints).
+                lastLevel = level; lastAt = uint40(block.timestamp);
+            } else if (block.timestamp - lastAt >= RATE_SAMPLE_MIN) {
+                // A FALLING level (venue loss) reports 0, not a negative rate, and still re-anchors —
+                // so the recovery back to the old level is not later paid out as if it were yield.
+                rate = level > lastLevel
+                    ? FullMath.mulDiv(FullMath.mulDiv(WAD, level - lastLevel, lastLevel),
+                                      YEAR, block.timestamp - lastAt)
+                    : 0;
+                lastLevel = level; lastAt = uint40(block.timestamp);
+            }
+        }
+        sh[stable] = Holding(b, yw, lastLevel, rate, lastAt);
     }
 
     /// @notice Refresh one stable's cached vault-sum. Skips unwired (toIndex 0)
@@ -864,9 +897,9 @@ library BasketLib {
     ///          `committed` OVERLAP (band-committed USD shows as throttled maxWithdraw, counted in `il`), so
     ///          subtract the MAX not the sum; `committed` can exceed `il` when the band's USD leg > vault-missing.
     ///          BOTH bands are excluded here; redeemAsBody unwinds ONLY the ETH band for the remainder.
-    function _redeemQuote(RedeemArgs memory r, uint raw, uint yw, uint depegLoss)
+    function _redeemQuote(RedeemArgs memory r, uint raw, uint rateWeighted, uint depegLoss)
         private returns (uint perShare, uint freeUsd) {
-        (uint solvent,) = IAux(address(this)).get_metricsWith(raw, yw);
+        (uint solvent,) = IAux(address(this)).get_metricsWith(raw, rateWeighted);
         solvent = solvent > depegLoss ? solvent - depegLoss : 0;
         uint mature = IBasketTurn(r.quid).matureSupply();
         // ONE valuation for redeem AND swap (no swap↔redeem arb): per-share = qdShareValue of a single share.
@@ -882,7 +915,8 @@ library BasketLib {
         // DEDUP: fetch the basket deposit vectors ONCE here (pre-burn) for the depeg haircut + the take leg.
         (uint[15] memory amts, uint[15] memory yW,, uint depegLoss) =
             IAux(address(this)).get_deposits();
-        (uint perShare, uint freeUsd) = _redeemQuote(r, amts[14], amts[0], depegLoss);
+        // yW[0] (Σ balance×rate), NOT amts[0] (Σ yieldWeighted) — see computeMetrics's @param.
+        (uint perShare, uint freeUsd) = _redeemQuote(r, amts[14], yW[0], depegLoss);
         // UNWIND-FIRST, BURN-EXACT (own frame): free what this redemption can ACTUALLY deliver, then burn ONLY
         // that — burn follows delivery, so there is never a burn without delivery and never an over-unwind.
         (uint usdPart, uint seedBurned, bool unwound) = _settleRedeem(r, perShare, freeUsd);

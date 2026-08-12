@@ -53,13 +53,63 @@ contract YieldFactorDimensions is Alles {
         assertGt(checked, 0, "no funded stable found - the assertion was vacuous");
     }
 
-    /// THE CONSEQUENCE. `metrics.yield` is what `calcMintYield` multiplies the tenor by; if it is zero
-    /// the bond premium is zero no matter what the vaults earn.
-    function test_AvgYieldIsNonZero_SoTheBondActuallyPays() public {
+    /// THE CONSEQUENCE. `metrics.yield` is what `calcMintYield` multiplies the tenor by, so it must be
+    /// non-zero — and it must be a RATE.
+    ///
+    /// ⚠️ THE WARP IS NOT TEST SUGAR, IT IS THE POINT (§E155-rate). `metrics.yield` is now an
+    /// ANNUALISED DELTA between two samples of each leg's share price, so it is 0 until a leg has been
+    /// observed TWICE at least `RATE_SAMPLE_MIN` apart. A level needed no elapsed time; a rate does.
+    /// This assertion originally passed with no warp at all — that it now requires one is the change
+    /// working, not a regression, and 0-before-the-second-sample is the conservative direction
+    /// (under-mints the bond, never over-mints).
+    ///
+    /// 🔴 THIS TEST ASSERTS SHAPE, NOT MAGNITUDE, AND THE NUMBER IT PRINTS IS NOT A REAL YIELD.
+    /// `vm.warp` moves the EVM clock but the forked venue state is frozen at the fork block, so a
+    /// MetaMorpho vault accrues almost nothing across the warp. MEASURED here: `lastLevel` moved
+    /// ~3e-6 relative over a 30-day warp where the real 30-day accrual is ~3e-3 — a thousandfold
+    /// short — which is why this reports ~0.34% instead of USDC's real ~3.7%. Do not tighten the
+    /// bounds below into a magnitude check on this harness; it structurally cannot support one.
+    /// THE ARITHMETIC IS VALIDATED SEPARATELY against real archive reads 30 days apart: the USDC
+    /// vault levelled 1.009559 -> 1.012621, a 0.3033% 30-day growth, and `growth x YEAR/elapsed`
+    /// gives 3.690% against a 3.753% compounded reference. Note the estimator annualises SIMPLY, so
+    /// it under-states by ~0.06pp at these rates — the safe direction for a mint.
+    /// ▶️ A magnitude harness needs `FORK_BLOCK` set to a past block plus `vm.rollFork` forward, so
+    /// both samples read REAL venue state. Booked, not built.
+    function test_AvgYieldIsARate_NonZeroAndSane() public {
+        _seedBasket();
+        AUX.get_metrics(true);                 // sample 1: bootstrap anchors each leg, rate stays 0
+
+        (, uint atBootstrap) = AUX.get_metrics(true);
+        assertEq(atBootstrap, 0, "a single observation cannot produce a rate - bootstrap must report 0");
+
+        vm.warp(block.timestamp + 30 days);    // let the real forked vaults accrue
+        vm.roll(block.number + 1);
+        // Sample 2 comes from a MUTATION, not from a read: the estimator advances inside
+        // `_refreshOne`, which runs on the mint/redeem refresh. There is no public refresh
+        // entrypoint (`refreshAllHoldingsSelf` is `onlySelf`), so the second observation is
+        // organic-traffic-driven — the same dependency the vault-health poke has.
         _seedBasket();
         (, uint avgYield) = AUX.get_metrics(true);
+
+        // DIAGNOSTIC: decompose the reported rate into its inputs, so a wrong number can be
+        // attributed to the estimator vs to how much the forked vault actually accrued.
+        {
+            (uint bal,, uint lastLevel, uint rate, uint40 lastAt) = AUX.storedHoldings(address(USDC));
+            emit log_named_uint("USDC balance      ", bal);
+            emit log_named_uint("USDC lastLevel WAD", lastLevel);
+            emit log_named_uint("USDC rate      WAD", rate);
+            emit log_named_uint("USDC lastAt       ", uint(lastAt));
+            emit log_named_uint("now               ", block.timestamp);
+        }
         emit log_named_uint("metrics.yield (WAD)", avgYield);
         assertGt(avgYield, 0,
-            "metrics.yield floored to 0 - every vintage mints exactly principal, the term premium is inert");
+            "metrics.yield is 0 after two samples - every vintage mints exactly principal, the premium is inert");
+        // THE REGRESSION GUARD, and the reason this test earns its place: a CUMULATIVE level reads
+        // 8.36% here and up to 101% on a single leg, because it carries venue age and the venue's
+        // arbitrary price base. A genuine annualised rate on this basket is single-digit percent.
+        // 20% is far above any real stablecoin yield and far below what a level reports, so nothing
+        // sits near the boundary.
+        assertLt(avgYield, 0.20e18,
+            "metrics.yield looks like a cumulative LEVEL again, not an annualised rate (see E155-overreport)");
     }
 }

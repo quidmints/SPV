@@ -542,10 +542,12 @@ contract Aux is // Auxiliary
         BasketLib.Metrics memory stats = metrics;
         uint elapsed = block.timestamp - stats.last;
         if (force || elapsed > 10 minutes) {
-            (uint[15] memory amounts,,,) = get_deposits();
+            (uint[15] memory amounts, uint[15] memory yieldW,,) = get_deposits();
             uint raw = amounts[14];
+            // yieldW[0] is the balance-weighted ANNUALISED-RATE numerator; amounts[0] is the
+            // cumulative share-price sum and is NOT a rate (§E155-overreport).
             metrics = BasketLib.computeMetrics(stats,
-                elapsed, raw, amounts[0], amounts[14]);
+                elapsed, raw, yieldW[0], amounts[14]);
         } return (metrics.total, metrics.yield);
     }
 

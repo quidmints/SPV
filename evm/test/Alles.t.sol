@@ -3115,7 +3115,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         address[] memory st = AUX.getStables();
         (uint[15] memory amounts,,,) = AUX.get_deposits();
         for (uint i; i + 1 < st.length; i++) {        // skip BOLD (last; SP path)
-            (uint cb,) = AUX.storedHoldings(st[i]);
+            (uint cb,,,,) = AUX.storedHoldings(st[i]);
             uint live = _liveVaultSum(st[i]);
             // (1) THE INVARIANT THE NAME CLAIMS: the cached vault-sum must equal the
             // sum the venues actually report right now. Tolerance is for 6-dec
@@ -3135,16 +3135,16 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     function test_HoldingsCache_ReconcilesToLive() public {
         // (1) MINTS across two stables (deposit → _supply per stable + the
         // msg.sender==QUID full refresh).
-        (uint usdc0,) = AUX.storedHoldings(address(USDC));
-        (uint dai0,)  = AUX.storedHoldings(address(DAI));
+        (uint usdc0,,,,) = AUX.storedHoldings(address(USDC));
+        (uint dai0,,,,)  = AUX.storedHoldings(address(DAI));
         vm.startPrank(User01);
         USDC.approve(address(AUX), type(uint).max);
         DAI.approve(address(AUX), type(uint).max);
         QUID.mint(User01, 40_000 * USDC_PRECISION, address(USDC), 0);
         QUID.mint(User01, 40_000 * 1e18, address(DAI), 0);
         vm.stopPrank();
-        (uint usdc1,) = AUX.storedHoldings(address(USDC));
-        (uint dai1,)  = AUX.storedHoldings(address(DAI));
+        (uint usdc1,,,,) = AUX.storedHoldings(address(USDC));
+        (uint dai1,,,,)  = AUX.storedHoldings(address(DAI));
         emit log_named_uint("cache USDC before/after mint (18d) - before", usdc0);
         emit log_named_uint("cache USDC after mint (18d)", usdc1);
         // PREMISE: the mint leg must actually MOVE the cache. If a mint deposited
@@ -3161,7 +3161,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         address sw = makeAddr("cache-sw"); vm.deal(sw, 30 ether);
         vm.prank(sw);
         try AUX.swap{value: 5 ether}(address(USDC), address(WETH), false, 0, 0) {} catch {}
-        (uint usdc2,) = AUX.storedHoldings(address(USDC));
+        (uint usdc2,,,,) = AUX.storedHoldings(address(USDC));
         emit log_named_uint("swapper USDC out (6d)", USDC.balanceOf(sw));
         emit log_named_uint("cache USDC after swap (18d)", usdc2);
         // PREMISE: the swap sits in a try/catch, and this step exists ONLY to exercise
@@ -3214,7 +3214,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
             console.log("BOLD slot before/after", before[13], aft[13]);
             assertGt(aft[13], before[13], "SP leg fired (BOLD valued via calcSPValue)");
             // Cache EXCLUDES BOLD: storedHoldings[BOLD] stays 0 (SP-routed).
-            (uint cbBold,) = AUX.storedHoldings(bold);
+            (uint cbBold,,,,) = AUX.storedHoldings(bold);
             assertEq(cbBold, 0, "BOLD correctly excluded from the storedHoldings cache");
         } catch {
             vm.stopPrank();

@@ -558,8 +558,9 @@ library SwapLib {
         private returns (uint) {
         (uint burned, uint seedBurned) = IBasketTurn(quid).turn(msg.sender, amount);
         uint solvent;
-        {   (uint[15] memory d,,, uint dl) = aux.get_deposits();
-            (solvent,) = aux.get_metricsWith(d[14], d[0]);
+        {   (uint[15] memory d, uint[15] memory yW,, uint dl) = aux.get_deposits();
+            // yW[0] = Σ balance×rate (the annualised-rate numerator), NOT d[0] = Σ yieldWeighted.
+            (solvent,) = aux.get_metricsWith(d[14], yW[0]);
             solvent = solvent > dl ? solvent - dl : 0; }
         amount = ShareMath.qdShareValue(burned, solvent, IBasketTurn(quid).matureSupply() + burned) / 1e12;
         if (seedBurned > 0) {

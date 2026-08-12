@@ -25,7 +25,7 @@ contract ZZBoldProbe is Alles {
         emit log_named_uint("weth out", w);
         emit log_named_uint("SP after", ISPq2(sp).getCompoundedBoldDeposit(address(AUX)));
         emit log_named_uint("AUX bold bal after", IERC20(bold).balanceOf(address(AUX)));
-        (uint cb,) = AUX.storedHoldings(bold);
+        (uint cb,,,,) = AUX.storedHoldings(bold);
         emit log_named_uint("storedHoldings bold", cb);
     }
 }
