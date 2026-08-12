@@ -12993,3 +12993,36 @@ economic floor · **skew STRICTLY INSIDE the 3% cap** (the control that caught t
 one accrual per swap · run-to-run noise ≤ σ²'s 1.084×.
 📌 **AND IT IS A PROPOSAL.** Three estimators died today, each sound-looking when written down.
 **Measure it against the instruments before believing any row above.**
+
+### ⚠️ CROSS-THREAD-ALIGN-2026-08-12 — one correction ACCEPTED against my work, and one removal I CANNOT FIND.
+
+**Owner: *"make all your calculations consistent with the other thread's removals of uniswap and tick
+related work, and do the refill in accordance with that after you finish all units of the skew."***
+
+**① ACCEPTED — §E155-overreport CORRECTS MY §E155-INTENDED.** Their measurement: `metrics.yield`
+reads **8.36%** against a basket truth of **3.10%** (6.04×), because
+`convertToAssets(10^shareDec)/10^assetDec − 1` is a **CUMULATIVE LEVEL, not a RATE** — fingerprint:
+each leg's level ÷ its own APR gives the SAME implied age (~0.35 yr) across all five Morpho vaults.
+⇒ **My §E155-INTENDED was right that the bond premium went LIVE and WRONG about its magnitude.** I
+read the 0.285% mint bonus as *"one month at ~3.4% APR"*; the input is a LEVEL misread as a RATE, so
+**the bonus is ~6× too generous.** ⚠️ **`calcMintYield` consumes `avgYield` AS AN APR** ⇒ this is a
+LIVE MINT-PATH over-issuance, not a reporting cosmetic. **§E2's measurements (mint at the mark, the
+incumbent-fairness run) were all taken with this input live — their RATIOS hold, their LEVELS inherit
+the 6×.**
+
+**② CANNOT FIND THE TICK REMOVAL — flagging rather than aligning to something unverified.**
+- ✅ **Uniswap removal FOUND, but it is the OFFRAMP:** `5b2fc36`/`f3f9339` — **Curve replaces Uniswap
+  on the weETH offramp** (measured 17–25 bps better; it also killed the borrow leg). **Not the band's
+  PoolManager.**
+- ⛔ **No TICK removal found.** Their tick-adjacent work runs the OTHER WAY: `b3c050f`/`583dd73`
+  **BUILD regime detection ON the observation ring**, off-chain. Recent commits (E175–E188) are
+  Lightning/signer/HTLC.
+⇒ **Either the removal is in flight and uncommitted, or the band's ticks are MINE to remove under
+§ARCH-OWN-POOLMANAGER.** ⚠️ **§ARCH-VARIANCE-VARIABLE (execution price, no ticks) is consistent with
+BOTH readings, so it is safe to proceed on** — but **anything that DELETES the ring must be
+reconciled with their regime-detection work first, which READS it.**
+
+**③ REFILL SEQUENCING — recorded, not started:** refill comes AFTER all skew units, and must be built
+against the own-PM architecture. ⚠️ **§UNIT-C-DISAMBIG still governs: three different mechanisms, and
+for ETH refill is a COMPOSITION identity that capital cannot change** — **owning the PM does not
+repeal that; it changes WHO computes the composition.** **Re-read §UNIT-C-DISAMBIG before designing.**
