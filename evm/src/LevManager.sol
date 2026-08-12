@@ -87,7 +87,7 @@ contract LevManager {
     ///      bps is the IL-neutral value, higher is opt-in directional). `entryPriceWad` = ETH/USD at open: the IL
     ///      target is `1 − √(entryPrice/pxNow)` = the ETH the band has sold since entry (capped). Opens at
     ///      ZERO leverage and grows only with the realized move — proven in test/LevYbPnl.t.sol.
-    struct Pos { ILevVenue venue; uint64 targetLtvCapBps; uint128 entryPriceWad; uint128 e0Eth; uint160 entrySqrtP; bool open; }
+    struct Pos { ILevVenue venue; uint64 targetLtvCapBps; uint128 entryPriceWad; uint128 e0; uint160 entrySqrtP; bool open; }
     mapping(address => Pos) public pos;                // per-LP, one isolated position
 
     /// @dev Enumerable set of LPs with an open position, so the Vault can sum the LIVE net-equity of the
@@ -118,7 +118,7 @@ contract LevManager {
     ///      field went with the `reseatEpoch` counter. Renaming rather than shortening in place is deliberate:
     ///      a stale off-chain decoder reading the OLD 4-field shape does not revert on a 3-field payload, it
     ///      MISPARSES. A new name makes it fail to match instead — loud beats plausible.
-    event ReanchoredToBand(address indexed lp, uint160 entrySqrtP, uint256 e0Eth);
+    event ReanchoredToBand(address indexed lp, uint160 entrySqrtP, uint256 e0);
 
     error AlreadyOpen();
     error NotOpen();
@@ -393,7 +393,7 @@ contract LevManager {
     function ilLtvBps(address lp) public returns (uint256) {
         if (!pos[lp].open) return 0;
         uint256 px = AUX.getTWAPforAsset(WETH, TWAP_WINDOW);
-        uint256 e0Usd = LevMath.e0Usd(pos[lp].e0Eth, px);
+        uint256 e0Usd = LevMath.e0Usd(pos[lp].e0, px);
         return LevMath.ltvBps(debtUsd(lp), e0Usd);
     }
 
@@ -409,7 +409,7 @@ contract LevManager {
         // Size the IL hedge to the FIXED E0 (band-only at entry), valued at the current px — NOT the
         // buffer's own growing collateral, which caused the 1/(1−t) over-hedge. targetDebt = E0·t; band in bps.
         // Shared target/in-band/direction math (identical to the BTC path — see LevMath.debtDelta).
-        uint256 e0Usd = LevMath.e0Usd(p.e0Eth, px);
+        uint256 e0Usd = LevMath.e0Usd(p.e0, px);
         return LevMath.debtDelta(e0Usd, curDebt, t, BAND_BPS);
     }
 
@@ -454,7 +454,7 @@ contract LevManager {
         uint256 base = netEquityEth(lp);
         p.entrySqrtP    = s;
         p.entryPriceWad = uint128(px);
-        p.e0Eth         = uint128(base);
+        p.e0         = uint128(base);
         emit ReanchoredToBand(lp, s, base);
     }
 
@@ -492,7 +492,7 @@ contract LevManager {
             try ILevSyncHook(vogueSyncHook).bandSqrtP(false) returns (uint160 s) { entrySqrtP = s; } catch {}
         }
         pos[msg.sender] = Pos({venue: venue, targetLtvCapBps: targetLtvBps, entryPriceWad: uint128(entryPx),
-                               e0Eth: uint128(e0), entrySqrtP: entrySqrtP, open: true});
+                               e0: uint128(e0), entrySqrtP: entrySqrtP, open: true});
         _trackOpen(msg.sender);   // join the book the Vault sums net-equity over
 
         // 1. Pull equity collateral (weETH OR WETH, per the venue) and supply as isolated collateral.
@@ -697,7 +697,7 @@ contract LevManager {
         // Compare-math folded to LevMath.deleverRepay: on the FIXED E0 the repay is simply curDebt − targetDebt
         // (no Δ/(1−t) inflation — that was only needed when the target tracked the shrinking collateral).
         uint256 px = AUX.getTWAPforAsset(WETH, TWAP_WINDOW);
-        return LevMath.deleverRepay(LevMath.e0Usd(p.e0Eth, px), debtUsd(lp), _ilTargetLive(p, px), BAND_BPS);
+        return LevMath.deleverRepay(LevMath.e0Usd(p.e0, px), debtUsd(lp), _ilTargetLive(p, px), BAND_BPS);
     }
 
     // ════════════════════════════ DE-LEVER — flash-repay-FIRST (no health breach by construction) ══════════

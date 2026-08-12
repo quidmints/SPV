@@ -51,7 +51,7 @@ contract BtcLevManager {
     uint256 public constant MIN_OPEN_VBTC      = 50_000;   // anti-Sybil: 0.0005 BTC in 8-dec sats (real confirmed collateral to join)
     uint256 internal constant WAD = 1e18;
 
-    struct Pos { ILevVenue venue; uint64 targetLtvCapBps; uint128 entryPriceWad; uint128 e0Btc; uint160 entrySqrtP; bool open; }
+    struct Pos { ILevVenue venue; uint64 targetLtvCapBps; uint128 entryPriceWad; uint128 e0; uint160 entrySqrtP; bool open; }
     mapping(address => Pos) public pos;                     // per-LP isolated position
 
 
@@ -110,7 +110,7 @@ contract BtcLevManager {
     event Closed(address indexed lp, uint vbtcReturned);
     /// @dev RENAMED from `Reanchored` 2026-08-09 — see the note on `LevManager.ReanchoredToBand`. A stale
     ///      decoder reading the old 4-field shape MISPARSES a 3-field payload rather than reverting.
-    event ReanchoredToBand(address indexed lp, uint160 entrySqrtP, uint e0Btc);
+    event ReanchoredToBand(address indexed lp, uint160 entrySqrtP, uint e0);
     event ProtectedFromQuid(address indexed lp, uint quidRedeemed, uint debtRepaid);
     event DeleverFailed(address indexed lp, uint ltvBps);   // #10: a batch member skipped (couldn't source / native-only)
 
@@ -241,7 +241,7 @@ contract BtcLevManager {
     ///         consistent with the debt=E0·t sizing. Distinct from getCurrentLtvBps (venue safety).
     function ilLtvBps(address lp) public view returns (uint) {
         uint px = IAux(AUX).getTWAPforAsset(WBTC, TWAP_WINDOW);
-        uint e0Usd = LevMath.e0Usd(pos[lp].e0Btc, px);   // shared scale layer (WBTC-lifted px ⇒ /1e18)
+        uint e0Usd = LevMath.e0Usd(pos[lp].e0, px);   // shared scale layer (WBTC-lifted px ⇒ /1e18)
         return LevMath.ltvBps(debtUsd(lp), e0Usd);
     }
     /// @notice IL-cancelling target LTV (bps) = `1 − √(entry/now)`, clamped to the LP's cap. 0 flat/down.
@@ -273,7 +273,7 @@ contract BtcLevManager {
         uint base = netEquityBtc(lp);
         p.entrySqrtP    = s;
         p.entryPriceWad = uint128(px);
-        p.e0Btc         = uint128(base);
+        p.e0         = uint128(base);
         emit ReanchoredToBand(lp, s, base);
     }
     /// @notice Stable delta (USD 1e18) + direction to re-hit the IL target; oracle read ONCE.
@@ -281,9 +281,9 @@ contract BtcLevManager {
         Pos memory p = pos[lp];
         uint px = IAux(AUX).getTWAPforAsset(WBTC, TWAP_WINDOW);
         // Size to the FIXED, BAND-ONLY E0 (band sats at entry) valued at px — NOT band+buffer (over-hedge) and
-        // NOT the buffer's growing collateral (the 1/(1−t) over-hedge). e0Usd = e0Btc·px/1e18 (18-dec, matching
+        // NOT the buffer's growing collateral (the 1/(1−t) over-hedge). e0Usd = e0·px/1e18 (18-dec, matching
         // debtUsd; px is WBTC-lifted ×1e10 — /1e8 inflated targetDebt 1e10 ⇒ over-hedge to the venue ceiling).
-        uint e0Usd = LevMath.e0Usd(p.e0Btc, px);
+        uint e0Usd = LevMath.e0Usd(p.e0, px);
         uint t = _ilTargetLive(p, px);                    // (B) live sold fraction, capped; √p fallback
         return LevMath.debtDelta(e0Usd, debtUsd(lp), t, BAND_BPS);
     }
@@ -314,7 +314,7 @@ contract BtcLevManager {
             try ILevSyncHook(vogueSyncHook).bandSqrtP(true) returns (uint160 s) { entrySqrtP = s; } catch {}
         }
         pos[msg.sender] = Pos({venue: venue, targetLtvCapBps: cap, entryPriceWad: uint128(entryPx),
-                               e0Btc: uint128(e0), entrySqrtP: entrySqrtP, open: true});
+                               e0: uint128(e0), entrySqrtP: entrySqrtP, open: true});
         _trackOpen(msg.sender);
         // SAME-BTC: expose `initialVbtc` of the LP's OWN free channel band BTC as the levered slice — the Vault
         // mints the vBTC face straight to this manager (no LP pre-mint / transferFrom roundtrip). Opens at zero
