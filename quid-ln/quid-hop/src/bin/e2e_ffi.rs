@@ -77,13 +77,22 @@ fn main() {
         .next()
         .and_then(|s| s.parse().ok())
         .expect("argv[2] = BTCChannels address (0x…)");
+    // (E166-4) argv[3] = the x-only payout key the Solidity side will register as
+    // `btcRecipientOf`. The exit MUST pay it, because `verifyDeadManExit` counts only
+    // outputs to that script — paying anything else attests a balance it does not deliver.
+    let payout_xonly: [u8; 32] = {
+        let a = args.next().expect("argv[3] = payout x-only key (0x…32 bytes)");
+        let h = a.strip_prefix("0x").unwrap_or(&a);
+        let v = alloy_primitives::hex::decode(h).expect("argv[3] is not hex");
+        v.try_into().expect("argv[3] must be exactly 32 bytes")
+    };
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(4)
         .enable_all()
         .build()
         .expect("tokio runtime");
 
-    let bundle = rt.block_on(run(chain_id, btc_channels));
+    let bundle = rt.block_on(run(chain_id, btc_channels, payout_xonly));
     // ONLY the bundle hex on stdout.
     println!("0x{}", hex_encode(&bundle));
 }
@@ -96,7 +105,7 @@ fn hex_encode(b: &[u8]) -> String {
     s
 }
 
-async fn run(chain_id: u64, btc_channels: Address) -> Vec<u8> {
+async fn run(chain_id: u64, btc_channels: Address, payout_xonly: [u8; 32]) -> Vec<u8> {
     // ── infra + two nodes (A = hop / Lightning receiver, B = LP / funder) ──
     let regtest = Regtest::start();
     let seed_a = 0xA11CE_u64;
@@ -332,7 +341,7 @@ async fn run(chain_id: u64, btc_channels: Address) -> Vec<u8> {
     // shortcut that could pass while production is broken.
     let (exit_raw, exit_cltv, exit_checkpoint) = presign_e2e_exit(
         &node_a, &node_b, funding_txid, funding_vout, funding.height,
-        amount_sats_open, lp_pubkey,
+        amount_sats_open, payout_xonly,
     );
 
     // ── the bundle (Solidity abi.decode(out, (Bundle)) order). A single struct
@@ -413,7 +422,7 @@ fn presign_e2e_exit(
     funding_vout: u32,
     funding_height: u64,
     amount_sats: u64,
-    lp_pubkey: [u8; 33],
+    payout_xonly: [u8; 32],
 ) -> (Vec<u8>, u64, u64) {
     use quid_ln::validating_signer::TaprootSignerContext;
 
@@ -447,8 +456,10 @@ fn presign_e2e_exit(
     // The payout key the exit pays: the LP's x-only shutdown key. The Solidity side pins
     // `btcRecipientOf` to the SAME value via `OpenAuth`, so a mismatch fails on-chain
     // rather than silently paying elsewhere.
-    let recipient = bitcoin::key::XOnlyPublicKey::from_slice(&lp_pubkey[1..33])
-        .expect("lp pubkey x-only");
+    // (E166-4) The payout key is supplied by the Solidity side (argv[3]) because the exit
+    // must pay `btcRecipientOf`, and only the test knows which key it will register.
+    let recipient = bitcoin::key::XOnlyPublicKey::from_slice(&payout_xonly)
+        .expect("payout x-only");
 
     // Far enough ahead that the exit is NOT broadcastable while the harness runs — the
     // contract only records it; nothing may confirm.
@@ -470,5 +481,10 @@ fn presign_e2e_exit(
     )
     .expect("e2e: pre-signing the dead-man exit must succeed");
 
-    (raw, cltv.to_consensus_u32() as u64, amount_sats)
+    // ⚠️ (E165-b) THE CHECKPOINT IS WHAT THE EXIT PAYS, NOT THE CHANNEL SIZE. `presign_deadman_exit`
+    // deducts `fee_sats` from the output, so attesting the full `amount_sats` makes the bytes pay
+    // LESS than they claim and `_armDeadManExit` correctly rejects with `ExitUnderpaysCheckpoint`.
+    // That guard fired on the first real run of this harness — it is doing exactly its job, which
+    // is refusing an exit that over-states the balance it delivers.
+    (raw, cltv.to_consensus_u32() as u64, amount_sats - fee_sats)
 }

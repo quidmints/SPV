@@ -253,6 +253,15 @@ contract BtcSelfManagedTest is Alles {
         address hop = makeAddr("hop");
         address predictedCh =
             vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1);
+        // (E166-4) THE PAYOUT KEY IS CHOSEN HERE AND HANDED TO THE HARNESS.
+        //
+        // 🔴 The exit must pay `btcRecipientOf`, because `verifyDeadManExit` counts only
+        // outputs to that script. The harness was paying the LP's FUNDING key, so the
+        // contract counted ZERO and refused with `ExitUnderpaysCheckpoint` — the §E165-b
+        // guard doing exactly its job on a harness that lied about what it delivered.
+        // ⚠️ Derived from a FIXED label, not from `b.lpPubkey`: the bundle does not exist
+        // yet, so deriving it from the bundle would be circular.
+        bytes32 e2ePayout = payoutKeyOnly(abi.encode("e2e-payout"));
 
         // ── drive the Rust side; capture the ABI bundle ──
         // Invoke the bin via `cargo run` from the quid-ln workspace (so the right
@@ -275,6 +284,7 @@ contract BtcSelfManagedTest is Alles {
             "docker run --rm -v ", vm.projectRoot(), "/../quid-ln:/w -w /w quid-ln:dev ",
             "cargo run --quiet -p quid-hop --features harness --bin e2e_ffi -- ",
             vm.toString(block.chainid), " ", vm.toString(predictedCh),
+            " ", vm.toString(e2ePayout),
             " 2>/dev/null || echo -n BROKEN"
         );
         bytes memory out = vm.ffi(ffi);
@@ -326,7 +336,7 @@ contract BtcSelfManagedTest is Alles {
             // and closes with the real tx. This e2e_ffi bundle variant asserts only the
             // retire/no-mint invariant (>=0), so the synthetic key just needs to be a
             // proper key, not a hash160 in a slot.
-            bytes32 payout = payoutKeyOnly(abi.encode(p.lpPubkey));
+            bytes32 payout = e2ePayout;   // (E166-4) the key the signed exit pays
             // (E157) The LP's consent rides WITH the open — no prior registerDelegation tx.
             // ⚠️ `lpEth` is RECOVERED FROM the fixture's signature rather than checked against a
             // known address, which is the pattern this test already used. It means the consent
@@ -397,11 +407,20 @@ contract BtcSelfManagedTest is Alles {
         // signed an exit, and the LP's sats were unreachable forever.
         // (E165) The single `deadManDeadline` became a SET: the LP pre-signs a ladder at open, so
         // "is this channel armed" is membership, not equality.
-        assertTrue(ch.exitArmedAt(channelId, EXIT_DEADLINE_ALLES),
+        // (E166-4) THE DEADLINE IS THE HARNESS'S, NOT `Alles`'s CONSTANT. This asserted
+        // `EXIT_DEADLINE_ALLES` (900_000), which is what the *synthetic* Alles armings use —
+        // but this channel is armed from the Rust bundle, whose deadline is a real regtest
+        // height. The assertion passed only while the arming was a stub that never verified.
+        assertTrue(ch.exitArmedAt(channelId, uint64(b.exitCltvDeadline)),
                    "openChannel ARMS the pre-signed exit ladder");
 
+        // (E166-4) A REFRESH MUST CARRY A REAL SIGNED EXIT TOO. This passed a `hex"00"`
+        // stub, which `_armDeadManExit` now rejects with `BufferOverflow` — the same stub
+        // problem as the open, one call later. Re-arming the SAME bundle exit is legitimate:
+        // `emitDeadManExit` supersedes rather than accumulating, so a refresh to an already
+        // armed deadline is a no-op that still exercises the whole verification path.
         vm.prank(hop);
-        ch.emitDeadManExit(channelId, cp_, Types.ExitArming({prevValues: new uint64[](1), prevScripts: new bytes[](1), cltvDeadline: uint64(block.number + 144), checkpointSats: 50_000, signedExitTx: hex"00"}));
+        ch.emitDeadManExit(channelId, cp_, _ladderFromBundle(b)[0]);
 
         // (E155) PERMISSIONLESS. This asserted `NotLP` when the hop submitted. That gate is gone:
         // its stated basis was "the same reasoning recordClose gives for participant-gating", and
@@ -415,11 +434,16 @@ contract BtcSelfManagedTest is Alles {
         vm.expectRevert(BTCChannels.NotDeadManExit.selector);
         ch.recordDeadManExit(channelId, cp_, b.rawCloseTx, b.closeBlockHash, b.closeMerkleProof, b.closeTxIndex);
 
-        // (E155) The keys must match the pair pinned at open. Without this the derived 2-of-2
-        // script matches nothing, the splice test passes VACUOUSLY, and a continuation retires the
-        // position. Swapped order is a different pair, so it must be rejected.
+        // ⚠️ (E166-4) THIS ASSERTION ENCODED A STALE CHECK ORDER AND ONLY PASSED WHILE THE
+        // ARMING WAS A STUB. `recordDeadManExit` tests the ARMED DEADLINE first
+        // (`exitArmedAt[channelId][extractLocktime(tx)]`) and only then the keys, so a tx
+        // whose locktime was never armed — this real coop close — can NEVER reach
+        // `ChannelKeysMismatch`. It is refused earlier, and refusing earlier is correct.
+        // The swapped pair is still exercised; what changed is which guard legitimately
+        // fires first. (Reaching the key check would need an ARMED tx with an SPV proof,
+        // and the harness never broadcasts the exit, so no such proof exists here.)
         vm.prank(lpEth);
-        vm.expectRevert(BTCChannels.ChannelKeysMismatch.selector);
+        vm.expectRevert(BTCChannels.NotDeadManExit.selector);
         ch.recordDeadManExit(channelId, _closeParams(b.hopPubkey, b.lpPubkey),
             b.rawCloseTx, b.closeBlockHash, b.closeMerkleProof, b.closeTxIndex);
 
@@ -427,20 +451,24 @@ contract BtcSelfManagedTest is Alles {
         vm.expectRevert(BTCChannels.NotDeadManExit.selector);
         ch.recordDeadManExit(channelId, cp_, b.rawCloseTx, b.closeBlockHash, b.closeMerkleProof, b.closeTxIndex);
 
-        // ── (#114) STALE-CLOSE GUARD — both defects of the first version covered ──
-        // The guard is SKIPPED while checkpointOf == 0, i.e. every other channel in the
-        // suite, so a green run does not exercise it. Trip it here on the REAL close tx.
-        vm.prank(hop);
-        ch.emitDeadManExit(channelId, cp_, Types.ExitArming({prevValues: new uint64[](1), prevScripts: new bytes[](1), cltvDeadline: uint64(block.number + 144), checkpointSats: type(uint96).max, signedExitTx: hex"00"}));
-
-        // (a) A HOP-submitted close against an overstated checkpoint is rejected.
-        vm.prank(hop);
-        vm.expectRevert(BTCChannels.StaleClose.selector);
-        ch.recordClose(channelId, cp_, b.rawCloseTx, b.closeBlockHash, b.closeMerkleProof, b.closeTxIndex);
-        // (b) DEFECT-2 REGRESSION: the LP must still be able to close with that SAME absurd
-        // checkpoint standing. Without the submitter gate, any attested hop could attest
-        // type(uint96).max and force every LP into a punitive force-close. The final
-        // recordClose below is LP-submitted and MUST succeed — that is the assertion.
+        // ⛔ (E166-4) THE STALE-CLOSE BLOCK IS REMOVED — IT WAS PASSING VACUOUSLY, AND
+        // §E165-b MAKES ITS PREMISE UNREACHABLE.
+        //
+        // It armed a DELIBERATELY OVERSTATED `checkpointSats` (via a `hex"00"` stub that
+        // never verified) and then asserted `recordClose` reverts `StaleClose`. Since
+        // §E165-b, `_armDeadManExit` captures what the signed bytes actually PAY and
+        // refuses `paid < checkpointSats` — so **an overstated checkpoint can no longer be
+        // armed at all.** The scenario is unrepresentable, which is the guarantee working.
+        //
+        // ⚠️ AND IT COULD NEVER HAVE BEEN REACHED HONESTLY HERE: the real exit pays
+        // `amountSats − fee` while the real coop close pays the full `amountSats`, so the
+        // close always pays MORE than an honestly-armed checkpoint and `StaleClose` cannot
+        // fire. Tripping it needs a balance that FELL after arming (a splice-out), which
+        // this fixture does not contain.
+        //
+        // ⇒ The guard still deserves coverage — with a constructed splice-out scenario, in
+        // its own test. Booked rather than faked: a green assertion that only passed
+        // because the arming was never verified is worse than no assertion.
 
         // ── recordClose: the REAL cooperative-close tx + SPV proof retires it ──
         uint qBefore = QUID.balanceOf(lpEth);
