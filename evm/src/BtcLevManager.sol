@@ -43,7 +43,6 @@ contract BtcLevManager is LevBase {
     /// split the token face out of the Vault; before that split one address served as both.
     address public immutable VAULT;   // basket stablecoin — redeemed via AUX to repay a levered LP's OWN debt
     address internal constant SWAP_ROUTER_02 = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45; // UniV3 protect-consolidation fallback
-    uint32  public constant TWAP_WINDOW        = 1800;
     // QU!D policy ceiling on the LP's CHOSEN target LTV. 50%=2× is IL-neutral (delta-1); above = opt-in
     // DIRECTIONAL (LP's own risk, isolated). 7500=75%≈4×, headroom below the 86% venue LLTV. Tunable. (ETH parity.)
     uint256 public constant BAND_BPS           = 300;       // ±3% LTV before a rebalance is worth doing
@@ -185,7 +184,7 @@ contract BtcLevManager is LevBase {
         uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         return _deliverableDollarsAt(lp, px);
     }
-    function _deliverableDollarsAt(address lp, uint px) internal view returns (uint) {
+    function _deliverableDollarsAt(address lp, uint px) internal view virtual override returns (uint) {
         Types.Pos memory p = pos[lp];
         if (!p.open) return 0;
         uint coll = (p.venue.collateralOf(lp) * px) / 1e18;     // C (USD 1e18) = vBtcValueUsd inline (px reused)
@@ -195,12 +194,6 @@ contract BtcLevManager is LevBase {
     }
     /// @notice LIVE sum of every open position's deliverableDollars — the aggregate #67 counts as available USD
     ///         backing in the band-pairing sizer (sizeBySurplus addend). Reads the oracle ONCE (price-consistent).
-    function totalDeliverableDollars() external view returns (uint total) {
-        uint n = _openLps.length;
-        if (n == 0) return 0;
-        uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        for (uint i; i < n; i++) total += _deliverableDollarsAt(_openLps[i], px);
-    }
 
     /// @notice VENUE-SAFETY LTV (bps) = debt / ACTUAL collateral. The keeper uses THIS only for the
     ///         liquidation-avoidance track (it tracks the venue's health basis).

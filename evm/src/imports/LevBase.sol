@@ -30,6 +30,11 @@ import {LevMath} from "./LevMath.sol";
 ///         ⚠️ `pos` is PUBLIC, so its generated getter is an ABI-visible 6-tuple. Do not reorder
 ///         `Types.Pos`'s fields for tidiness; clients decode by position.
 abstract contract LevBase {
+    /// TWAP window both sides price against. Identical (1800) in each manager; PUBLIC here because
+    /// BtcLevManager already exposed a getter and removing it would be an ABI break, while adding one
+    /// to LevManager is affordable (317 bytes of margin, measured).
+    uint32 public constant TWAP_WINDOW = 1800;
+
     /// Max-leverage LTV ceiling an LP may set for itself: 7500 bps ≈ 4×.
     uint256 public constant TARGET_LTV_CAP_BPS = 7500;
 
@@ -86,5 +91,22 @@ abstract contract LevBase {
         venue = address(p.venue);
         stable = p.venue.stable();
         amtNative = LevMath._fromUsd(address(AUX), stable, maxUsd18);
+    }
+
+    /// @dev Per-LP deliverable dollars — the ONLY per-asset part of the book-level sum below.
+    ///      ETH values collateral via _collToEth, BTC via its vBTC equivalent, so the hook stays
+    ///      in each manager while the ITERATION is shared.
+    function _deliverableDollarsAt(address lp, uint px) internal view virtual returns (uint);
+
+    /// @notice Book-level deliverable dollars across every open LP.
+    ///         LIFTED from both managers — after ORACLE_KEY the two copies were BYTE-IDENTICAL.
+    ///         Safe over `_openLps` because _untrackOpen is called UNCONDITIONALLY on close
+    ///         (LevManager:659, BtcLevManager:529), including the ETH keepState branch that
+    ///         retains the Pos with open=false. So this never iterates a closed position.
+    function totalDeliverableDollars() external view returns (uint total) {
+        uint n = _openLps.length;
+        if (n == 0) return 0;
+        uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
+        for (uint i; i < n; i++) total += _deliverableDollarsAt(_openLps[i], px);
     }
 }

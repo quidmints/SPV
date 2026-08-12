@@ -59,7 +59,6 @@ contract LevManager is LevBase {
     //  deleted 2026-08-06 and neither constant had a use site after it.)
     address internal constant SWAP_ROUTER_02   = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45; // Uniswap V3 (down-leg DEX fallback)
     address   public immutable WETH;    // oracle key (getTWAPforAsset(WETH))
-    uint32    internal constant TWAP_WINDOW = 1800;
 
     // ── leverage band ──
     // QU!D policy ceiling on the LP's CHOSEN target LTV. 50% = 2× is the IL-NEUTRAL max (delta-1); above it is
@@ -279,7 +278,7 @@ contract LevManager is LevBase {
         uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         return _deliverableDollarsAt(lp, px);
     }
-    function _deliverableDollarsAt(address lp, uint256 px) internal view returns (uint256) {
+    function _deliverableDollarsAt(address lp, uint256 px) internal view virtual override returns (uint256) {
         Types.Pos memory p = pos[lp];
         if (!p.open) return 0;
         uint256 collUsd = (_collToEth(p.venue, p.venue.collateralOf(lp)) * px) / 1e18;  // C (USD 1e18)
@@ -289,12 +288,6 @@ contract LevManager is LevBase {
     }
     /// @notice LIVE sum of every open position's deliverableDollars — the aggregate #67 counts as available USD
     ///         backing in the band-pairing sizer (sizeBySurplus addend). Reads the oracle ONCE (price-consistent).
-    function totalDeliverableDollars() external view returns (uint256 total) {
-        uint256 n = _openLps.length;
-        if (n == 0) return 0;
-        uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        for (uint256 i; i < n; i++) total += _deliverableDollarsAt(_openLps[i], px);
-    }
 
     /// @notice `lp`'s GROSS collateral in ETH (1e18) = weETH→ETH, NO debt subtraction. This is the full-2× band
     ///         CAPACITY (net-equity + the debt-funded buffer). Price-independent (the ether.fi staking rate).
