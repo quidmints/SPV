@@ -12606,3 +12606,28 @@ LIBRARY route is REFUTED for this shape (§SIGMA-REMOVE-P2-LIBRARY-ROUTE-REFUTED
 by the divergence, so **fixing `p₁` may move the calibration on its own** — §SIGMA-REMOVE-P2-
 CALIBRATION-MEASURED's ~15× is an UPPER bound on the real error, not an estimate of it. **Do not
 re-derive `LOSS_WINDOW_YEARS_WAD` until `p₁` is bounded.**
+
+### 🛑 CORE-8C-EXHAUSTED — `Core` has ONE modifier and it is already converted. **148 bytes is the ceiling.** The remaining route is moving the ACCRUAL, not the conversion.
+
+**Enumerated (the check §CORE-ONLYUS booked and never ran):**
+- **`Core` declares exactly ONE modifier: `onlyUs` (`:631`)** — and it is ALREADY
+  `modifier onlyUs { _onlyUs(); _; }`, i.e. the private-view form that returned **907 bytes**.
+- **NO inherited modifiers are used in `Core`** — no `nonReentrant`, `onlyOwner`, `onlyPoolManager`,
+  `initializer`. ⇒ **CLAUDE.md 8c is EXHAUSTED here. There is no second `_onlyUs`.**
+⇒ **148 free bytes is the CEILING, not a starting point.** ⚠️ Any plan that assumed more 8c recovery
+in `Core` (including §SIGMA-REMOVE-P2-DIVERGENCE-FIX's "recover bytes first") **must be re-planned.**
+
+▶️ **THE ROUTE THAT REMAINS, AND IT IS THE INVERSE OF THE ONE THAT FAILED:**
+**Move `_accrueRealizedLoss` (a LARGE body) into `OracleLib`, NOT the conversion (a SMALL body).**
+§SIGMA-REMOVE-P2-LIBRARY-ROUTE-REFUTED measured **+81 bytes** for the conversion because an external
+call with FIVE arguments costs more than the arithmetic saves. **The accrual is the opposite shape:**
+a big body (LVR algebra, signed split, two `_bumpEwma` calls, pending write) reachable with **STORAGE
+POINTERS** rather than wide value args.
+📌 **THE PATTERN IS ALREADY IN THIS FILE AND DOCUMENTED:** `OracleLib.initPool` takes the `VANILLA_*`
+struct and the observation ring **by storage pointer** precisely because *"deploy-time-only code was
+costing `Core` RUNTIME bytes under a hard EIP-170 deficit"* (`Core.sol:594-599`). ⇒ **Pass
+`_lossX`/`_gainX`/`_pendX` as `Flow storage` / `Pend storage` and the value args collapse to a
+handful.** ⚠️ **A library that WRITES `Core`'s storage must be `delegatecall`ed, not `staticcall`ed —
+`_bumpFlow` is a WRITE path, so this works where the view-side conversion did not.**
+⚠️ **MEASURE IT; DO NOT ASSUME.** The conversion route was booked as "likely frees more than it costs"
+and cost 81 more. **The shape argument above is a hypothesis until `check-contract-sizes.py` says so.**
