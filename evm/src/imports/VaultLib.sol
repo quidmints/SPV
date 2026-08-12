@@ -5,7 +5,6 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {SwapLib} from "./SwapLib.sol";
 import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 // §E57: ether.fi's native-ETH sentinel, moved here with the offramp body that is its only user.
-import {IV3SwapRouter} from "./v3/IV3SwapRouter.sol";
 import {IEtherFiLiquidityPool} from "./Interfaces.sol";   // §E57: the shared OfframpCfg shape (declared there;  still uses it)
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {SwapLib} from "./SwapLib.sol";

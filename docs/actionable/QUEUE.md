@@ -1239,10 +1239,25 @@ USDC**. That gap is narrower now (C1/C3/C4/C5/C10 closed on other evidence) but 
   are ahead by two (legacy's observation interpolation lives in `OracleLib` here). Measured NEGATIVE —
   do not re-open.
 - ✅ **§A.52 interface dedup DONE** — 7→0 underscore interfaces, Aux 6→1, Core 4→1.
-- 🟠 **§A.71b NEAR-MATCH dedup — STILL OPEN and still correct.** The scan matches EXACT signatures, so
-  `{a,b,c}` vs `{a,b,c,d}` reads as unrelated. NEEDED: subset/±1-field structs; same CALL-SEQUENCE
-  SKELETON with identifiers normalised; ETH/BTC twins compared BODY-BY-BODY. Start at
-  `ChannelLib.supplyBody`'s three branches (Aave / BOLD / 4626).
+- 🟠 **§A.71b NEAR-MATCH dedup — PARTLY DONE 2026-08-12; the METHOD is proven, the SWEEP is not.**
+  The scan matches EXACT signatures, so `{a,b,c}` vs `{a,b,c,d}` reads as unrelated. Three things were
+  NEEDED; one is now done.
+  ✅ **ETH/BTC TWINS COMPARED BODY-BY-BODY — done, and the method works.** Strip comments, collapse
+  whitespace, ERASE THE ASSET IDENTITY (`btc|eth|weth|wbtc|sats|vbtc|channel` → one token), then
+  `difflib` the bodies and **DIFF THE RESIDUAL** — never merge on the score. Measured:
+  `LevManager` vs `BtcLevManager` → **15 of 33 near-duplicate bodies**, 7 at ≥0.96, 2 at 0.99
+  (`swapOutDeleverAmt`, `_untrackOpen` — identical modulo `uint256`/`uint`).
+  `VogueLib` vs `BtcVaultLib` → **4**, incl. `pullBody`~`pullBtc` at 0.99.
+  ⚠️ A NAME-BASED CHECK CANNOT FIND THIS: most duplicate pairs SHARE A NAME, so an ETH-named /
+  BTC-named / neutral classification scores them "neutral" on both sides and reads as clean. Identical
+  duplication is the case that looks tidiest. COMPARE BODIES.
+  ⏸️ STILL NEEDED: subset/±1-field structs; same CALL-SEQUENCE SKELETON with identifiers normalised;
+  and the same body-diff run against the OTHER pairs — `Vogue`/`Vault`, `VEth`/`VBtc`, and
+  `ChannelLib.supplyBody`'s three branches (Aave / BOLD / 4626), which is where this row said to start
+  and which remains untouched.
+  ▶️ ACTING ON THE RESULT IS GATED BY **B4-r**: the lev fold is bytecode-NEGATIVE via a shared parent,
+  so dedup found this way must be landed as DELEGATECALL LIBRARIES or contract DELETIONS, not as
+  members on an abstract base.
 - 🟠 **§A.56 part 2** — out-of-range ARGS; a responsibility-boundary move, not a signature change.
 - 🟠 **§A.61** boundary definition — 6/8↔18; §A.72 proved a needed helper is missing. (task #7)
 - 🟠 **G1–G10** gas (tracked as **B11**): basket scan 2–3× per tx; `decimals()` STATICCALL at 33 seams;
@@ -1627,7 +1642,8 @@ Every open item, each with the exact next action. No item appears only in conver
 | B1 | **§J.2c** Vogue's ambiguous ERC-20 face | move `transfer`/`transferFrom`/`approve`/`balanceOf`/`totalSupply` to `VEth`, forward into `_transferShares` (`Vogue.sol:1209`), gate that internal to `VEth` (mirror `VBtc.onlyVault`). Run `check-client-abis.py`; EIP-170 both ways. **BTC side CLOSED — build no face for `autoManagedBTC`** |
 | B2 | **D5** targeted-redemption streamline | drive the pro-rata loop by INDEX; make "preferred" a weight/skip on that loop, not a branch (`BasketLib.sol:530-532`, `:579-591`). Legacy did it with one positional loop. **Do WITH §A.61** — same function as the C1/C2 seam |
 | B3 | **§A.61** define the 6/8↔18 BOUNDARY | name the functions where conversion happens; convert ONLY there; put the basis in parameter NAMES (`amountUsd18`/`amountNative`/`sats8`). `from6` now exists; `scaleTo6` is its inverse |
-| B4 | **§A.71** `LevManager.Pos` == `BtcLevManager.Pos` | same name+shape, different files. Merge into `Types.sol`; check EIP-170 (25,164 / 21,843 initcode) |
+| B4 | ~~**§A.71** `LevManager.Pos` == `BtcLevManager.Pos`~~ | ✅ **DONE 2026-08-12** (`811c92a`, `11a64a0`). The two structs differed in EXACTLY ONE field name — `e0Eth` vs `e0Btc`, 7 refs each, file-local, zero test refs — renamed to `e0` (matching `LevMath.e0Usd`), which made them byte-identical, then hoisted to ONE declaration in `Types.sol`. Field ORDER preserved deliberately: `pos` is a PUBLIC mapping so its getter is an ABI-visible 6-tuple; that warning now lives in the `Types.Pos` docstring. Verified: build clean + exactly one `struct Pos` in `evm/src` + artifacts newer than source. ⚠️ THE EIP-170 CHECK THIS ROW ASKED FOR WAS RUN AND CUTS THE OTHER WAY — see B4-r |
+| B4-r | 🔴 **THE LEV FOLD IS BYTECODE-NEGATIVE SO FAR — MEASURED** | `LevManager` **24,352 → 24,389 (+37 bytes)** across the whole fold, while source fell 918 → 879 lines. TWO causes, both measured with controls: (1) **an abstract base DOUBLE-COUNTS** — `LevBase`'s deployedBytecode is **1 byte**, it is never deployed, so every lifted body is compiled into BOTH children (the first lift cost **62 bytes** on LevManager); (2) two constants became `public` to preserve `BtcLevManager`'s existing getters (**68 bytes**), a deliberate ABI purchase. ⇒ **STOP LIFTING BODIES INTO `LevBase`** — LevManager has 187 bytes left. ⇒ The reduction comes from **DELEGATECALL LIBRARIES** (deployed once, callers hold a jump — the `VogueLib.transferSharesBody(...)` pattern) and from **DELETING CONTRACTS** (`VEth`, the lev managers), not from a shared parent. ⚠️ Shape problem to solve first: a library CANNOT call a virtual on its caller, and the lifted `totalDeliverableDollars` calls the abstract `_deliverableDollarsAt` |
 | B5 | **13 near-match dedup findings** | see `GAS-AND-CORRECTNESS-AUDIT.md`. Biggest: `_valueStable` vs `_illiquidLoss` share a whole 4626 ladder; `SPWithdrawResult ⊃ SPState`; `isEthVenue` verbatim twice; hand-rolled decimal scaling ×2 |
 | B6 | 🔴 **`initVaultsBody` omits validation** | `ChannelLib.sol:470-476` vs `setVaultBody:441-448` — constructor path skips the `asset() != stable` check, duplicate scan, and primary guard. **Deliberate or bug? VERIFY** |
 | B7 | **§A.52** interface dedup | 95 locals, ZERO name-duplicates ⇒ semantic. Group by target contract (`IAux*`/`ILev*`/`ICore*`), diff member sets. Minimal shims are EIP-170 optimisations — do not blindly fold |
@@ -6008,7 +6024,11 @@ They are not competing explanations; they answer **different questions**:
 ⇒ **The gap between them IS #12.** "Count once" cannot be evaluated without stating which pool owns the
   proceeds of a band→basket sale. **That is the sentence the doc is missing.**
 
-### ▶️ THE SPEC #12 NEEDS (write this first; it is one decision, then everything else follows)
+### ⛔ STALE HEADER — THE SPEC WAS SUPPLIED 2026-08-02, SIXTEEN LINES BELOW (`🔑 #12 — THE ACTUAL SPEC`).
+### The (a)/(b) ownership question here is recorded there as THE WRONG QUESTION — owner: *"who owns it?
+### they both do."* Do not answer it. ⚠️ This header sent me here as "one decision, then everything
+### follows" when the decision was already made; the entry below is the live one.
+### ~~THE SPEC #12 NEEDS (write this first)~~
 > **When `AUX.swap` sources the volatile leg from the BAND, who owns the stable proceeds?**
 > 1. **Basket owns them, band LPs bear it** (current behaviour) ⇒ document it, and re-scope BOTH probes +
 >    `LeveragePnLProbe`'s assertion, which currently asserts the opposite.
@@ -8523,7 +8543,9 @@ about 27 bps per exit**, and that is the number that justifies building it.
 | **UNIT-A-FIXTURE-CORR** | ⛔ **§UNIT-A-FIXTURE's DIAGNOSIS IS WRONG — I QUOTED THE DESCRIPTION OF A BUG §E59 ALREADY FIXED AS THE LIVE MECHANISM (2026-08-06).** ⛔ **I wrote that the low variance came from *"a swap spacing COARSER than the sampling grid flattening the tape to a straight line"*, citing the wall-clock-grid/interpolation comment. **`OracleLib.ringVariance:218` SAYS THE OPPOSITE IN ITS FIRST LINE: *"REALIZED TICK VARIANCE FROM THE STORED OBSERVATIONS, **not a wall-clock grid**"*, and the interpolation failure is described as the **PREVIOUS** estimator: *"Sampling the ring itself REMOVES THE INTERPOLATION ENTIRELY… each return is normalised by its OWN elapsed time… no fixed step to mis-match the swap cadence."*** ⇒ **THE ESTIMATOR IS IMMUNE TO SWAP SPACING BY CONSTRUCTION. My "every fixture warping 8-20 minutes has been measuring interpolation" is FALSE and must not be carried forward.** ✅ **THE ACTUAL MECHANISM: `card < 3 ⇒ 0`; walk back 9 stored points; `rate[i] = (Δ tickCumulative · 1e9)/dt` (fixed-point, because whole-tick truncation was the OTHER half of the zero-variance bug — a ~20-tick band rounds consecutive averages to the same integer); then the variance of consecutive RATE CHANGES, sample-corrected. **It reads the POOL'S TICK.**** ✅ **SO THE REAL CAUSE OF THE 36 bps IS SIMPLER AND IS MINE: I MOVED THE ORACLE 24 TIMES BUT THE POOL'S TICK BARELY MOVED.** 4,000 USDC swaps against a 400 ETH band do not traverse a ±0.2% range or force a reseat, so `tickCumulative` advanced at a NEARLY CONSTANT RATE — and the variance of near-constant returns is near zero. **The tape was flat in the only series that counts.** ▶️ **WHAT THE FIXTURE ACTUALLY NEEDS: drive the POOL'S TICK, not the feed — swaps large enough to traverse the range and/or force RESEATS, so consecutive `rate[i]` values genuinely DIFFER. Sizing, not spacing. **Keep the INCONCLUSIVE guard: it worked, and it is the only reason 36 bps was not published as a finding.** | ⛔ diagnosis corrected — estimator is spacing-immune; the fixture needs SIZE, not finer steps |
 
 | **UNIT-VARIANCE-HISTORY** | 📌 **THE OBSERVATIONS-BASED VARIANCE MACHINERY IS BUILT AND LIVE — COMMIT TRAIL, so no thread re-derives it again (owner asked twice, 2026-08-06).** ✅ **`b2b6c2d` (2026-08-05) *"E59: sample variance from the ring, and keep sub-tick precision"* — **TWO dimensions in one change**: (i) sample the **STORED RING** instead of a wall-clock grid (the grid + `observe`'s linear interpolation has ZERO second derivative, so every sample inside an inter-swap gap returned the same average tick ⇒ variance EXACTLY 0 — measured on a drain that took `POOLED_ETH` 400 → 0.00097); (ii) **SUB-TICK FIXED POINT** (`×1e9` before the divide) — whole-tick truncation was the OTHER half of the same bug, since a ~20-tick band rounds consecutive averages to the SAME INTEGER and every difference is 0.** ✅ **`a661f29` (2026-08-05) *"E59: fix the zero-variance hole — a drained band now charges 3%, not nothing"* — the CEILING, which the owner has since ruled wrong (*"we determined that 3% is not the right ceiling"*, §UNIT-RECOVERED).** ✅ **`0b7d0bf` (2026-08-05) *"E61: Core was over EIP-170 and I shipped it — fixed by deleting the round trip"* — the move behind `OracleLib` + the two-calls-into-one fold the owner asked for.** ⚠️ **AND A WARNING VISIBLE IN THE SAME TRAIL, BEFORE ANYONE PROPOSES ANOTHER RESHAPE: `8dc68cf` (08-04) *"Rebuild the well skew: constant-product size term + settlement-risk base, **no A-S kernel**"* → `522e477` *"Delete the settlement-risk term"* → **`29f0cb0` *"Revert the skew rebuild source to the known-green state — VERIFIED 3856/0"*. A FROM-SCRATCH RESHAPE OF THIS CURVE HAS ALREADY BEEN TRIED AND ROLLED BACK ONCE.** 📌 **`git log -S` on `evm/src` is how this was recovered; note the pre-2026-07-26 history is SQUASHED behind the public snapshot (§UNIT-TWOSIDED-CORR), so for anything older the CODE COMMENTS are authoritative and `-S` silently under-reports.** | 📌 reference — variance machinery is E59+E61; a full reshape was reverted once |
-### 🔴 OPEN — `LevMath.vetVenue` skips the collateral gate for base-debt venues, and ETH/BTC disagree about what that means
+### ✅ FIXED 2026-08-09 — collateral is now checked UNCONDITIONALLY, before the classification; the
+### `isShort` return is kept because `BtcLevManager:108` consumes it. Full suite 3,922/8, no new failures.
+### ~~vetVenue skips the collateral gate for base-debt venues~~ (analysis below still the record)
 
 `LevMath.sol:253-257`:
 ```
@@ -8670,7 +8692,9 @@ an empty list here would read as "no Euler pair" and be a false negative of exac
 "never assert absence from a search" exists to stop.
 
 
-### ▶️ RESTORE-AFTER-REFILL — the blocker is `delete pos[lp]`, and the fix is CHEAPER than the obvious one
+### ✅ LANDED 2026-08-09 — `_closeLev` gained `keepState`; the involuntary path sets `p.open = false`
+### instead of deleting. 31 bytes, not the mapping. ⏸️ The RESTORE ENTRYPOINT still waits on the refill.
+### ~~RESTORE-AFTER-REFILL — the blocker is `delete pos[lp]`~~
 
 **Owner requirement (2026-08-08):** *"perfectly healthy wound up ILprotect LPs must have their leverage
 positions restored to the same state they were prior to being unwound… but after the refill that
@@ -8719,7 +8743,9 @@ rebalances the pool exists. Land retention first, verified independently; wire t
 | **UNIT-TWAP-RESOLVE** | ✅✅ **READ, NOT GUESSED: `getTWAPforAsset` IS **POOL-PRIMARY WITH A CHAINLINK FALLBACK**, AND MY ±2.3% FEED WALK SAT ENTIRELY INSIDE THE FALLBACK'S DEADBAND (2026-08-06).** ✅ **`Aux.sol:625-633`: `price = SwapLib.twapBody(CORE, WETH, asset, period)` — **THE POOL'S OWN TWAP** — then `SwapLib.twapResolve(assetPriceFeed[asset], price, isWBTC, TWAP_MAX_DEVIATION_BPS, ASSET_FEED_MAX_AGE)`. `Aux.sol:635-638` states the rule: *"stale = the internal TWAP diverged **>5%** from a fresh Chainlink (returned price **IS** Chainlink)"*.** ⇒ **MY FEED MOVES (±2.3%) NEVER EXCEEDED THE 5% DEVIATION THRESHOLD, so `twapResolve` KEPT RETURNING THE FROZEN POOL TWAP AND IGNORED THE FEED ENTIRELY.** That is precisely the §UNIT-VOL-CAUSE reading — now explained by the CODE rather than by a fifth hypothesis.** ✅ **ANSWERS THE ORDERING QUESTION §UNIT-VOL-CAUSE POSED: it is **NOT anchored** — the pool TWAP is PRIMARY, so **trading CAN move it**. Option (1) is viable and option (3)'s worry does not apply.** 🔎 **BUT THE DEEPER FACT, AND IT IS THE ONE THAT MATTERS FOR THE WHOLE FIXTURE PROBLEM: **MY SWAPS DRAINED THE BAND TO `q ≈ 1` (`wellSkew` pinned at `MAX_WELL_SKEW` in every run) WITHOUT MOVING THE POOL TWAP.** Inventory left; the pool price did not travel. **That is oracle-pegged execution working as designed — `routeSwap` fills at the honest oracle, so a drain consumes inventory rather than walking the curve.** ⇒ **IN THIS ARCHITECTURE, TRADING VOLUME DOES NOT GENERATE POOL-TWAP MOVEMENT THE WAY IT WOULD IN AN ORDINARY AMM — the tick moves mainly when the band RESEATS onto a new oracle level.** ▶️ **⇒ THE FIXTURE MUST DRIVE **RESEATS**, and the open question is why ±1.8% feed moves (9× the ±0.2% band half-width) did NOT produce them: check whether `_rebalance`/`reseat()` needs an explicit trigger the fixture never fires. **MEASURE THE RESEAT COUNT before theorising — that is the fifth channel and the first four each cost a turn.** | ✅✅ pool-primary, 5% deadband; oracle-pegged fills mean volume ≠ tick movement; count reseats next |
 
 | **UNIT-RESEAT-COUNT** | ⏸️ **RESEAT INSTRUMENTATION WRITTEN, NOT RUN — network unreachable (2026-08-06).** ✅ **THE MEASUREMENT, READY TO EXECUTE: log `V4.reseatEpoch()` BEFORE and AFTER the walk. §UNIT-TWAP-RESOLVE established that in this architecture the pool tick moves mainly when the band **RESEATS** onto a new oracle level — oracle-pegged fills consume inventory WITHOUT walking the curve — so **the reseat count IS the variance driver**, and ±1.8% feed moves (9× the ±0.2% band half-width) should force them. **This is the fifth channel; the first four each cost a turn of reasoning that one measurement would have saved, so it is instrumented BEFORE any explanation is offered.** ⛔ **BLOCKED ON INFRASTRUCTURE, NOT CODE: `forge test` died in `setUp` with `could not instantiate forked environment … dns error: failed to lookup address information`. **Transient network loss, not a regression** — the identical command passed minutes earlier at pinned block 25,713,821.** 📌 **AND A CONFIG NOTE WORTH CHECKING NEXT SESSION: `ETH_RPC_URL` (which `foundry.toml:72` interpolates) resolves to **publicnode**, while `.env` ALSO carries an `ANKR_RPC_URL` key. **The owner provided a NEW key today; if it lives in `ANKR_RPC_URL`, then `ETH_RPC_URL` is not pointing at it and every run so far has used the public node.** That also explains why the pinned run succeeded WITHOUT archival access — I captured `FORK_BLOCK` with `cast block-number`, so it was HEAD, and §ForkPin's 403-on-non-head warning never applied. **A pin to a genuinely HISTORICAL block would need the key, and would need `ETH_RPC_URL` to point at it.** | ⏸️ written, unrun (network); check whether ETH_RPC_URL should point at ANKR_RPC_URL |
-### 🔴 RESTORE-AFTER-REFILL, AUDIT COMPLETE — retention needs THREE `.open` guards first. Named them.
+### ✅ FIXED 2026-08-09 — all three guards added (`ilLtvBps`, `ilTargetLtvBps`, `debtDeltaToTarget`),
+### landed SEPARATELY as a provable no-op before retention. Cost 98 bytes. 1,104/0.
+### ~~retention needs THREE `.open` guards first~~
 
 Follow-up to the entry above. Both gating checks are now answered against the code.
 
@@ -13137,3 +13163,114 @@ to be rebuilt, not tuned; keeping it was per-swap gas buying nothing.**
 | id | state |
 |---|---|
 | **E191-feeSettleSats** | ✅ **DELETED ACROSS BOTH REPOS IN ONE COMMIT — which is what the code itself asked for.** `splice`'s `feeSettleSats` had been accepted-and-ignored since §E145; the comment said removing it *"is a CROSS-REPO change and must land in one commit with the Rust side"*. 🔴 **IT WAS WORSE THAN A DEAD PARAMETER — IT DROVE A DEAD RPC CALL ON EVERY SPLICE.** `channel_driver.rs` computed it by reading `Vault.btcFeesOwedSats(address)`, a function **§E145 DELETED** (`Vault.sol:210`). So each splice made a round-trip to a nonexistent selector, swallowed the revert with `.unwrap_or(0)`, and handed the zero to a parameter the contract discarded. **Both halves failed quietly, so the waste was invisible from either side** — the same shape as §E185's no-op gate. ✅ **COMPOUNDING IS NOT AFFECTED, VERIFIED IN CODE RATHER THAN FROM THE COMMENT** (owner asked directly): `BtcVaultLib.settleBtcLp:62` — `if (tokR > 0) { LP.pooled += tokR; compoundedSats = tokR; }`. The BTC fee leg compounds into `LP.pooled` **as it is earned**, which is precisely *why* §E145 deleted the owed ledger: there is no unsettled claim to hold, nothing for a hop-funded grow-splice to settle, and nothing to forfeit at close. The deleted parameter was a settlement mechanism for a ledger that no longer exists. **`splice` head shrinks 5 words → 4**; layout test updated to `0x80`. **Rust 665 passed / 0 failed · ABI gate 0 drifted both sides.** |
+### ⛔ MY REGIME DESIGN IS REFUTED BY `isbtc-fold` — SYNC BEFORE BUILDING ANYTHING
+
+**Thread sync 2026-08-12.** `isbtc-fold` is **128 commits ahead of `origin/main`** and has already solved
+the problem my path/net design was aimed at. **Read it before touching this area.**
+
+🔴 **THE REFUTATION IS DIRECT.** `9268ceb`:
+> *"**Absolute differences are total variation and grow with sample count**, which is shape-dependence in
+> a third costume and the same trap as the 12x one. **Signed differences telescope to the endpoint
+> difference regardless of sample count**, and signed is the correct quantity anyway since LVR is a net
+> P&L against holding rather than a sum of absolute moves."*
+⇒ My proposed `path = Σ|Δrate[i]|` **IS** total variation. Named, measured, rejected.
+
+🔴 **AND THE ROOT CAUSE KILLS THE RING AS A PATH SOURCE.** `dc15478`:
+> *"the variance's history-dependence is **inherent to observation count** rather than a fixture artifact,
+> since one swap writes one observation and twelve write twelve, and a second-moment statistic over n
+> samples cannot be invariant to n. **No sourcing change, window or calibration constant fixes that; only
+> replacing the kind of input does.**"*
+⇒ **The ring's sampling is ENDOGENOUS TO TRADE FREQUENCY.** Twelve small swaps and one large swap over the
+SAME price path give twelve vs one increment. A path metric over that measures **trade frequency wearing
+the costume of churn** — precisely the choppy/trending confusion it was meant to resolve.
+
+✅ **THE REPLACEMENT ALREADY EXISTS AND IS MEASURED: the REGISTER.**
+`d90c3fd` — *"the register's level is **3.8x more stable** than the variance's"* ·
+`1ae947c` — *"run-to-run noise is **1.006x for the register, 1.084x for the variance**"* ·
+`9268ceb` — accrues **only the exogenous gap** (sample at each swap's END, accrue at the NEXT swap's
+START, before its impact lands — so the swapper's own curve impact is not charged twice) and accrues
+**signed**.
+
+⇒ **AND IT MAY MAKE A REGIME PROXY UNNECESSARY.** The register measures **realized adverse selection /
+LVR directly** — which is the lever's actual cost. The whole point of a path/net ratio was to INFER
+whether churn was eating the lever; the register **measures that P&L** instead of inferring it from shape.
+**Prefer the measurement over the proxy.**
+
+▶️ **ACTION: do NOT build the path ratio.** Read `isbtc-fold` (`9268ceb`, `dc15478`, `d90c3fd`, `1ae947c`,
+`1d08afe`, `2592b63`) and derive the opt-in signal from the register. ⚠️ One gate was still open at
+`dc15478`: *"real run-to-run noise under the same partition"* — `1ae947c` appears to close it at 1.006x,
+but confirm the ordering before relying on it.
+
+⚠️ **PROCESS NOTE — THIS IS WHY THE SYNC MATTERS.** I specified, corrected, and re-corrected a design over
+several turns while a 128-commit branch had already refuted its core assumption. **Nothing in `main` or in
+this worktree pointed at that branch.** Check `git worktree list` and branches ahead of main BEFORE
+designing in an area, not after.
+
+
+### 🎯 THE REGIME QUESTION RESOLVES WITHOUT A PROXY — BOTH SIDES ARE ALREADY MEASURABLE
+
+Following the `isbtc-fold` sync. The owner's framing was: *unlevered cost depends on where price ENDS;
+levered cost depends on HOW IT GOT THERE.* Both quantities turn out to be directly observable, so the
+path/net ratio was solving a problem that does not need solving.
+
+**BENEFIT SIDE — the register already is it, by construction.** It accrues **SIGNED**, so it telescopes to
+the endpoint difference (`9268ceb`). ⇒ **A choppy round-trip nets to ≈0; a sustained trend retains its
+full move.** That IS the choppy-vs-trending discrimination — obtained structurally, not inferred from a
+shape ratio. And it is the right quantity: the register measures the **realized, PERMANENT** IL the lever
+exists to cancel, so where it is ≈0 there is nothing to hedge.
+Measured (`d90c3fd`, `1ae947c`): **3.8× more stable in level**, **2.1× more history-independent**,
+run-to-run noise **1.006× vs the variance's 1.084×**. Critically the variance is **NON-MONOTONIC**
+(4.170× spread, rising then collapsing), so *"no calibration constant can compensate"* — a proxy built on
+it could not have been rescued by tuning.
+
+**COST SIDE — the keeper already knows it, exactly.** The lever's cost is `spreads × cycles + carry ×
+duration`. **The keeper EXECUTES those cycles**, so realized spread paid and interest accrued are its own
+history, not something to infer from a tick series. ⇒ **No estimator needed on this side at all.**
+
+⇒ **THE OPT-IN SIGNAL IS A COMPARISON OF TWO MEASURED QUANTITIES**, not a regime classifier:
+`register (permanent IL that would be cancelled)` **vs** `realized spreads × cycles + carry × duration`.
+Positive ⇒ the lever earned its cost for that depositor over that window; negative ⇒ it did not.
+⚠️ **This is strictly better than a regime label**: it is per-depositor, per-window, denominated in the
+same units on both sides, and it needs no threshold, no baseline, and no `√(m·2/π)` normalisation — all of
+which the path ratio required and any of which could be tuned wrong.
+
+⇒ **CONFIRMS THE OWNER'S DESIGN CALL.** The lever is *"a view, not a default"*, opt-in per depositor. This
+signal reports what the view WOULD HAVE COST, which is what a depositor needs to form one — and it still
+must **INFORM, NEVER SWITCH** (`soldFractionActive` was that latch, deleted 2026-08-09).
+
+▶️ Remaining: confirm the register's accrual is readable per-depositor over an arbitrary window (it is
+band-level as measured), and confirm `1ae947c` closed the run-to-run gate `dc15478` left open.
+
+
+### 🎯 `#12` AND `OPEN 14` ARE THE SAME DEFECT, FOUND INDEPENDENTLY — AND THEY CONVERGE ON THE SAME FIX
+
+Found 2026-08-12 while looking for the next task. **`OPEN 14` (mine, 2026-08-09) restates `#12` (owner,
+2026-08-02) without knowing it.** Neither entry references the other. Merge them; do not work them twice.
+
+| | `#12` | `OPEN 14` |
+|---|---|---|
+| mechanism | `committedUsd18() = ETH band equity + BTC band equity` (`Core:106`), enforced `if (committedSum > totalLiquid) revert OverCommitted()` (`Aux:1085`), **STRICT on drain paths only** | per-asset skew pricing (`wellSkew(core, base, isBTC, drainUsd6)` reads only its own inventory) against ONE global solvency gate |
+| symptom | *"the ETH LP feels it as a **reverting withdraw**, not as a price"* | *"NOT a price that rises to meet the pressure; it is a **HARD REVERT** landing on whoever arrives last"* |
+⇒ **Two independent derivations, same mechanism, same symptom, and the same prescription in the same
+words.** That convergence is stronger evidence than either entry alone.
+
+✅ **WHAT `#12` ADDS THAT `OPEN 14` LACKED — the asymmetry, which is why it BITES.** Shared budget alone
+would be tolerable if both bands could refill on demand. **The BTC band cannot:** there is nowhere to buy
+BTC except our own band; **WBTC deliberately cannot substitute** (opt-in SOR and the opt-in levered BTC LP
+only); so refill is **LP-arrival-paced** (`Vault.registerBtcLp`) or swap-in-paced, **never market-paced**.
+⇒ **BTC commitments are STICKY while ETH's are not**, so a BTC draw strands ETH exits for as long as the
+BTC band stays un-refilled. `OPEN 14` called the joint draw "the expected shape of a bad day" but missed
+that ONE SIDE CANNOT RECOVER.
+
+✅ **AND WHAT `OPEN 14` ADDS TO `#12`:** the per-asset SKEW is the specific machinery that cannot see the
+coupling — `#12` names the gate, `OPEN 14` names the pricing that should have absorbed the pressure before
+the gate fired.
+
+▶️ **ACTIONABLE, and both entries already point at it: make the shared constraint express itself as a
+PRICE before it expresses itself as a REVERT.** A revert lands on whoever arrives last, which is
+arbitrary; a price lands on whoever causes the draw, which is correct. ⚠️ Note the standing warning
+against clamps does NOT apply — this is the inverse case: the current behaviour is a hard revert with no
+warning, and the proposal REMOVES a tripwire by pricing the thing it guards.
+⚠️ **Do not start by editing `_checkBacking`.** The measured 400→367.48 claim shrink is this same mechanic
+seen from the ETH LP's side — **not** a missing credit and **not** LVR; both earlier readings are recorded
+as superseded. Confirm which of `wellSkew`'s inputs can see global `totalLiquid` before designing.

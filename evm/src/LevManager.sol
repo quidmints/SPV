@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {LevMath} from "./imports/LevMath.sol";
+import {LevBase} from "./imports/LevBase.sol";
 import {Types} from "./imports/Types.sol";
 import {ILevVenue, IERC20Min, IWETH9} from "./imports/ILevVenue.sol";
 import {IWeETH} from "./imports/Interfaces.sol";
@@ -47,11 +48,10 @@ import {ILevVenueColl} from "./imports/Interfaces.sol";
 ///         venue's liquidation engine never fires; a position it can't save falls to the venue's OWN
 ///         isolated liquidation (that LP only, never the basket). No QUI is minted; nothing touches
 ///         `POOLED_USD`. (The old LEVERAGE-ENGINE-SPEC.md is gone; this file is the canonical design.)
-contract LevManager {
+contract LevManager is LevBase {
     // ── immutables ──
     IERC20Min public immutable WEETH;   // collateral token (ether.fi weETH)
     IWeETH    internal immutable RATE;    // weETH→ETH rate (== WEETH addr; getEETHByWeETH)
-    IAux  public immutable AUX;     // oracle (getTWAPforAsset) + the caller-funded SOR (sorSelfFunded)
     IERC20Min public immutable QUID;    // the basket stablecoin — redeemed (via AUX) to protect a levered LP's debt
     // ether.fi weETH mint (up-leg only — the down-leg is the v3 pool; see the header). NOT our band.
     address public constant ETHERFI_ADAPTER  = 0xcfC6d9Bd7411962Bfe7145451A7EF71A24b6A7A2;
@@ -59,7 +59,6 @@ contract LevManager {
     //  deleted 2026-08-06 and neither constant had a use site after it.)
     address internal constant SWAP_ROUTER_02   = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45; // Uniswap V3 (down-leg DEX fallback)
     address   public immutable WETH;    // oracle key (getTWAPforAsset(WETH))
-    uint32    internal constant TWAP_WINDOW = 1800;
 
     // ── leverage band ──
     // QU!D policy ceiling on the LP's CHOSEN target LTV. 50% = 2× is the IL-NEUTRAL max (delta-1); above it is
@@ -70,7 +69,6 @@ contract LevManager {
     // the test's own permissionless `createMarket`). Morpho Blue markets are IMMUTABLE, so a market's LLTV is
     // exactly knowable via `idToMarketParams(id).lltv` and should be READ, never configured. Until it is, the
     // headroom this constant leaves is an assumption, not a fact — see QUEUE.md OPEN 19.
-    uint256 internal constant TARGET_LTV_CAP_BPS = 7500;
     uint256 internal constant BAND_BPS           = 300;  // ±3% LTV before a rebalance is worth doing
     uint256 internal constant MAX_LOOPS          = 8;    // bound the open/rebalance loop
     uint256 internal constant MAX_SLIPPAGE_BPS   = 100;  // 1% oracle-derived floor on EVERY swap (anti-MEV; see _floor)
@@ -88,28 +86,15 @@ contract LevManager {
     ///      bps is the IL-neutral value, higher is opt-in directional). `entryPriceWad` = ETH/USD at open: the IL
     ///      target is `1 − √(entryPrice/pxNow)` = the ETH the band has sold since entry (capped). Opens at
     ///      ZERO leverage and grows only with the realized move — proven in test/LevYbPnl.t.sol.
-    mapping(address => Types.Pos) public pos;                // per-LP, one isolated position
 
     /// @dev Enumerable set of LPs with an open position, so the Vault can sum the LIVE net-equity of the
     ///      whole book on-chain (`totalNetEquityEth`). `_lpIdx` is 1-based (0 = absent). Swap-pop on close.
-    address[] private _openLps;
-    mapping(address => uint256) private _lpIdx;
-    function _trackOpen(address lp) internal { if (_lpIdx[lp] == 0) { _openLps.push(lp); _lpIdx[lp] = _openLps.length; } }
-    function _untrackOpen(address lp) internal {
-        uint256 idx = _lpIdx[lp];
-        if (idx == 0) return;
-        uint256 last = _openLps.length;
-        if (idx != last) { address moved = _openLps[last - 1]; _openLps[idx - 1] = moved; _lpIdx[moved] = idx; }
-        _openLps.pop();
-        _lpIdx[lp] = 0;
-    }
     /// @notice Number of LPs with an open levered position (the cardinality the Vault iterates).
     function openLevCount() external view returns (uint256) { return _openLps.length; }
     /// @notice The `i`-th open LP — lets the off-chain keeper enumerate the book (`openLevCount` + `openLpAt`).
     function openLpAt(uint256 i) external view returns (address) { return _openLps[i]; }
 
     event Opened(address indexed lp, address venue, uint256 targetLtvBps);
-    event TargetSet(address indexed lp, uint256 targetLtvBps);
     event Rebalanced(address indexed lp, bool levUp, uint256 amount, uint256 ltvBps);
     event Closed(address indexed lp, uint256 weethReturned);
     event DeleverFailed(address indexed lp, uint256 ltvBps);    // cascade skipped this LP → its venue liquidates it
@@ -121,8 +106,6 @@ contract LevManager {
     event ReanchoredToBand(address indexed lp, uint160 entrySqrtP, uint256 e0);
 
     error AlreadyOpen();
-    error NotOpen();
-    error BadTarget();
     error Reentrancy();
     error VenueNotAllowed();
     error NotGov();
@@ -184,8 +167,8 @@ contract LevManager {
     // keeper-gas peel on every de-lever.
     receive() external payable {}
 
-    constructor(address weeth, address aux, address weth, address gov, address quid) {
-        WEETH = IERC20Min(weeth); RATE = IWeETH(weeth); AUX = IAux(aux); WETH = weth;
+    constructor(address weeth, address aux, address weth, address gov, address quid) LevBase(aux, weth) {
+        WEETH = IERC20Min(weeth); RATE = IWeETH(weeth); WETH = weth;
         GOV = gov; QUID = IERC20Min(quid);
     }
 
@@ -240,7 +223,7 @@ contract LevManager {
     /// @notice USD (1e18) value of `units` collateral on `venue` = coll->ETH x ETH->USD oracle.
     function _collValueUsd(ILevVenue venue, uint256 units) internal returns (uint256) {
         if (units == 0) return 0;
-        return (_collToEth(venue, units) * AUX.getTWAPforAsset(WETH, TWAP_WINDOW)) / 1e18;
+        return (_collToEth(venue, units) * AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW)) / 1e18;
     }
     /// @notice Pull `amount` of the venue's equity collateral (weETH OR WETH) from `lp` and supply it as `lp`'s
     ///         isolated collateral. Own frame so `openLev` stays under the no-via_ir stack limit.
@@ -257,7 +240,7 @@ contract LevManager {
     function weethValueUsd(uint256 weethUnits) public returns (uint256) {
         if (weethUnits == 0) return 0;
         uint256 ethAmt = RATE.getEETHByWeETH(weethUnits);           // 1e18 ETH
-        uint256 pxUsd  = AUX.getTWAPforAsset(WETH, TWAP_WINDOW);    // 1e18 USD/ETH
+        uint256 pxUsd  = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);    // 1e18 USD/ETH
         return (ethAmt * pxUsd) / 1e18;
     }
 
@@ -269,7 +252,7 @@ contract LevManager {
     ///         the conservative side). All-`view`: `collateralOf`/`debtOf`/`getEETHByWeETH`/the TWAP read are
     ///         every one a `view`, so this is safe to call from `Vault.vogueETH()`.
     function netEquityEth(address lp) public view returns (uint256) {
-        uint256 px = AUX.getTWAPforAsset(WETH, TWAP_WINDOW);
+        uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         return _netEquityEthAt(lp, px);
     }
     function _netEquityEthAt(address lp, uint256 px) internal view returns (uint256) {
@@ -283,7 +266,7 @@ contract LevManager {
     function totalNetEquityEth() external view returns (uint256 total) {
         uint256 n = _openLps.length;
         if (n == 0) return 0;
-        uint256 px = AUX.getTWAPforAsset(WETH, TWAP_WINDOW);
+        uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         for (uint256 i; i < n; i++) total += _netEquityEthAt(_openLps[i], px);
     }
 
@@ -292,10 +275,10 @@ contract LevManager {
     ///         (LEVERED-DELIVERABILITY-SPEC.md) so levered volatile pairs + earns fees even at basket surplus==0;
     ///         margin-bounded (never phantom). All-view (mirrors netEquityEth's view path — safe mid-swap).
     function deliverableDollars(address lp) public view returns (uint256) {
-        uint256 px = AUX.getTWAPforAsset(WETH, TWAP_WINDOW);
+        uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         return _deliverableDollarsAt(lp, px);
     }
-    function _deliverableDollarsAt(address lp, uint256 px) internal view returns (uint256) {
+    function _deliverableDollarsAt(address lp, uint256 px) internal view virtual override returns (uint256) {
         Types.Pos memory p = pos[lp];
         if (!p.open) return 0;
         uint256 collUsd = (_collToEth(p.venue, p.venue.collateralOf(lp)) * px) / 1e18;  // C (USD 1e18)
@@ -305,12 +288,6 @@ contract LevManager {
     }
     /// @notice LIVE sum of every open position's deliverableDollars — the aggregate #67 counts as available USD
     ///         backing in the band-pairing sizer (sizeBySurplus addend). Reads the oracle ONCE (price-consistent).
-    function totalDeliverableDollars() external view returns (uint256 total) {
-        uint256 n = _openLps.length;
-        if (n == 0) return 0;
-        uint256 px = AUX.getTWAPforAsset(WETH, TWAP_WINDOW);
-        for (uint256 i; i < n; i++) total += _deliverableDollarsAt(_openLps[i], px);
-    }
 
     /// @notice `lp`'s GROSS collateral in ETH (1e18) = weETH→ETH, NO debt subtraction. This is the full-2× band
     ///         CAPACITY (net-equity + the debt-funded buffer). Price-independent (the ether.fi staking rate).
@@ -392,7 +369,7 @@ contract LevManager {
     ///         would re-settle at the old 1/(1−t) over-hedge. Distinct from `getCurrentLtvBps` (venue safety).
     function ilLtvBps(address lp) public returns (uint256) {
         if (!pos[lp].open) return 0;
-        uint256 px = AUX.getTWAPforAsset(WETH, TWAP_WINDOW);
+        uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         uint256 e0Usd = LevMath.e0Usd(pos[lp].e0, px);
         return LevMath.ltvBps(debtUsd(lp), e0Usd);
     }
@@ -402,7 +379,7 @@ contract LevManager {
     function debtDeltaToTarget(address lp) public returns (bool levUp, uint256 amountUsd) {
         Types.Pos memory p = pos[lp];
         if (!p.open) return (false, 0);
-        uint256 px = AUX.getTWAPforAsset(WETH, TWAP_WINDOW);
+        uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         uint256 curDebt = debtUsd(lp);
         // (B) LIVE IL target = the band's ACTUAL sold fraction (soldFractionWad), capped; √p fallback.
         uint256 t = _ilTargetLive(p, px);
@@ -419,7 +396,7 @@ contract LevManager {
     function ilTargetLtvBps(address lp) public returns (uint256) {
         Types.Pos memory p = pos[lp];
         if (!p.open) return 0;
-        uint256 px = AUX.getTWAPforAsset(WETH, TWAP_WINDOW);
+        uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         return _ilTargetLive(p, px);
     }
     /// @notice (B) LIVE IL target (bps): the band's ACTUAL sold fraction (`Vogue.soldFractionWad`) capped at
@@ -446,7 +423,7 @@ contract LevManager {
         if (!p.open) return;
         (bool go, uint160 s) = LevMath.reanchorCompute(vogueSyncHook, p.entrySqrtP, false);
         if (!go) return;
-        uint256 px = AUX.getTWAPforAsset(WETH, TWAP_WINDOW);
+        uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         // (A): a reseat REALIZES the accrued IL, so re-anchor E0 to the position's CURRENT net-equity (the new
         // fixed base) — NOT bandEthOf (which is 0 in the (A) model, since the deposit has no separate unlevered
         // band position). Net-equity is the delta-1 slice now in the recentered band; the next hedge cycle sizes
@@ -476,7 +453,7 @@ contract LevManager {
         if (targetLtvBps == 0 || targetLtvBps > TARGET_LTV_CAP_BPS) revert BadTarget();
         // `targetLtvBps` is the LP's max-leverage CAP; the live target is the entry-price-driven IL target.
         // Pin the entry price so the position opens at ZERO leverage and levers only as the band sells.
-        uint256 entryPx = AUX.getTWAPforAsset(WETH, TWAP_WINDOW);
+        uint256 entryPx = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         // (A) INTRINSIC deposit model (2026-07-03): the LP's ONE deposit (`collWeeth`) IS the levered position.
         // Its net-equity is synced into the concentrated band (`levPooled`) as delta-1 (IL-free) depth by the 2×
         // leverage — so E0, the FIXED IL base the hedge sizes against, is the DEPOSIT ITSELF (in ETH), NOT a
@@ -514,12 +491,6 @@ contract LevManager {
     /// @notice Adjust the caller's max-leverage CAP (bps LTV, ≤ TARGET_LTV_CAP_BPS = 7500 ≈ 4×). The live IL target = the band's sold
     ///         fraction `1 − √(entry/now)` and is auto-computed each tick, never exceeding this cap. Permissioned
     ///         to the LP because the cap is a risk choice — `rebalance` toward the target stays permissionless.
-    function setTargetLtv(uint64 capBps) external {
-        if (!pos[msg.sender].open) revert NotOpen();
-        if (capBps == 0 || capBps > TARGET_LTV_CAP_BPS) revert BadTarget();
-        pos[msg.sender].targetLtvCapBps = capBps;
-        emit TargetSet(msg.sender, capBps);
-    }
     // ════════════════════════════ REBALANCE (keeper, up-side overlay) ════════════════════════════
 
     /// @notice Hold `lp`'s LTV inside the band. levUp: borrow→buy-weETH→supply. levDown (the
@@ -696,7 +667,7 @@ contract LevManager {
         // on an open short — below entry the long debt is 0, so de-lever is a natural no-op there anyway.)
         // Compare-math folded to LevMath.deleverRepay: on the FIXED E0 the repay is simply curDebt − targetDebt
         // (no Δ/(1−t) inflation — that was only needed when the target tracked the shrinking collateral).
-        uint256 px = AUX.getTWAPforAsset(WETH, TWAP_WINDOW);
+        uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         return LevMath.deleverRepay(LevMath.e0Usd(p.e0, px), debtUsd(lp), _ilTargetLive(p, px), BAND_BPS);
     }
 
@@ -741,7 +712,7 @@ contract LevManager {
         if (extractUsd > cap) extractUsd = cap;
         if (extractUsd == 0) return 0;
         uint256 repayStable = LevMath.sizeRepayStable(                     // d/netEq/clamp — body in LevMath (EIP-170)
-            p.venue, lp, extractUsd, debtUsd(lp), AUX.getTWAPforAsset(WETH, TWAP_WINDOW), _isWethVenue(p.venue), address(WEETH), address(AUX));
+            p.venue, lp, extractUsd, debtUsd(lp), AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW), _isWethVenue(p.venue), address(WEETH), address(AUX));
         if (repayStable == 0) return 0;
         // mode 2 = flash the debt stable → repay-first → withdraw+sell paired collateral → surplus to `vault`.
         IMorphoFlash(flashProvider).flashLoan(p.venue.stable(), repayStable,
@@ -755,16 +726,6 @@ contract LevManager {
     ///         pre-fund to the venue to de-lever up to `maxUsd18` of debt (clamped to LIVE debt so no stray stable
     ///         strands on the adapter — `swapOutDelever` repays exactly this, recomputing the same clamp). View.
     ///         IDENTICAL shape to `BtcLevManager.swapOutDeleverAmt` (the ETH swap-out mirror of #54).
-    function swapOutDeleverAmt(address lp, uint256 maxUsd18)
-        external view returns (address venue, address stable, uint256 amtNative) {
-        Types.Pos memory p = pos[lp];
-        if (!p.open) return (address(0), address(0), 0);
-        venue = address(p.venue);
-        stable = p.venue.stable();
-        amtNative = LevMath._fromUsd(address(AUX),stable, maxUsd18);
-        uint256 debt = p.venue.debtOf(lp);
-        if (amtNative > debt) amtNative = debt;                    // clamp to debt (matches swapOutDelever)
-    }
 
     /// @notice §M.1 UNLEVERED (0-debt) net-equity delivery — the HODL slice below entry where the keeper has
     ///         de-levered target debt → 0. `swapOutDelever` no-ops here (nothing to repay), which would leave the
@@ -799,7 +760,7 @@ contract LevManager {
         // repay-with-the-Vault-pre-transferred-stable → free EXACTLY the repaid value of collateral → deliver as
         // WETH (value-neutral): body in LevMath (delegatecall, bytecode OUTSIDE this contract).
         (usedUsd, wethDelivered) = LevMath.swapOutDeleverBody(
-            p.venue, lp, stableUsd, recipient, minWethOut, AUX.getTWAPforAsset(WETH, TWAP_WINDOW), _extractCfg(_isWethVenue(p.venue)));
+            p.venue, lp, stableUsd, recipient, minWethOut, AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW), _extractCfg(_isWethVenue(p.venue)));
         // Reconcile the shrunk slice into the band (try/catch: never block the settle).
         if (vogueSyncHook != address(0)) { try ILevSyncHook(vogueSyncHook).syncLev(lp) {} catch {} }
     }
@@ -858,7 +819,7 @@ contract LevManager {
     function _deleverSettle(uint256 assets, address lp, address venueAddr, address stable, uint256 last) internal {
         // repay-first → withdraw the freed collateral → sell → return the flash + surplus: body in LevMath (EIP-170).
         gasReserve = LevMath.deleverSettleBody(assets, lp, venueAddr, stable, last,
-            AUX.getTWAPforAsset(WETH, TWAP_WINDOW), _extractCfg(_isWethVenue(ILevVenue(venueAddr))));
+            AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW), _extractCfg(_isWethVenue(ILevVenue(venueAddr))));
     }
 
     /// @notice mode-1 (BOLD) callback: flashed `wethFlashed` WETH in hand. Mint `repayBold` BOLD at face value via
