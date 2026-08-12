@@ -12545,3 +12545,34 @@ substitution is calibrated; if it still pins, the window normalisation is wrong.
 📌 **This is the SAME fixture requirement §SIGMA-SOURCE and §SIGMA-REMOVE-SOLVED already need** — an
 exogenous price process. **Three separate lines of work now converge on one missing fixture; build it
 once.**
+
+### 🔴 SIGMA-REMOVE-P2-CALIBRATION-MEASURED — the estimator DIVERGES at large drains and its usable band is ~10–15 bps wide.
+
+**Measured the LVR fraction against swap size (register live, substitution NOT applied — no contract
+change). `sigma^2 = 1012 · lossFraction`; the 3% cap binds near `sigma^2 ≈ 1`.**
+| swap (bps of band) | net LVR (usd6) | lossFraction | implied σ² |
+|---|---|---|---|
+| 5 | **0** | 0 | 0 ⇒ **ring fallback** |
+| 25 | 7,010,520,597 | 0.53% | **5.4** ⇒ saturates |
+| 100 | 81,426,469,142 | 6.2% | 62.7 |
+| 400 | 1,753,459,453,277 | 133% | 1,350 |
+| 900 | 5,773,902,222,125,459 | **439,492%** | 4.4e6 |
+
+🔴 **① THE ESTIMATOR DIVERGES — THE 900 bps ROW IS NOT "LARGE", IT IS NONSENSE.** LVR cannot be
+**4,000× the band's own value**. Cause: **`_bandPxWad = POOLED_USD / inv` → ∞ as `inv` → 0.** Using
+the band's COMPOSITION RATIO as a price breaks down as inventory drains. ⇒ **The estimator is only
+valid while inventory is comfortably non-zero, and NOTHING currently enforces that.** ⚠️ This is a
+REAL defect in the summand, independent of calibration — **and it would fire in production on a deep
+drain, exactly when the skew matters most.**
+🔴 **② THE USABLE BAND IS ~10–15 bps WIDE.** Below ~10 bps the register reads **0** and falls over to
+the ring; above ~15 bps it **saturates**. **A pricing input with a usable range that narrow is not
+robust.**
+📐 **③ THE TARGET, DERIVED: for a realistic 60% ETH vol, `σ² = 0.36` needs `lossFraction ≈ 3.6 bps`
+per 48h window** — which annualises to **~6.6%/yr LVR**, entirely plausible for an ETH LP. **Measured
+53 bps at 25-bps swaps ⇒ ~15× TOO HIGH.** ⇒ **The gap is a factor of ~15, not the ~1000 that
+saturation suggested** — so it is a CALIBRATION question, not a category error.
+▶️ **NEXT, IN ORDER:** (a) **bound `_bandPxWad`** (or replace the composition-ratio price with the
+oracle/TWAP) so ① cannot fire — **this is a correctness fix, not a tuning knob**; (b) only then
+re-derive the window: **`LOSS_WINDOW_YEARS_WAD` (7.911e-3, from 48h/ln2) is the prime suspect for the
+~15×**, and §E83's censored duration is the principled source for it.
+⚠️ **DO NOT divide by 15 to make the fixture fit** (rule 4). **Fix ① first — it may move ③ on its own.**

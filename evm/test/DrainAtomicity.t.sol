@@ -1677,4 +1677,35 @@ contract DrainAtomicity is Alles {
         assertGt(loMk, 0, "CONTROL: every trial must accrue");
         assertGt(loS2, 0, "CONTROL: sigma^2 must be measured in every trial, else the spread is void");
     }
+
+    /// §SIGMA-REMOVE-P2-FITS-BUT-SATURATES — IS THE SATURATION THE SWAP-TO-BAND RATIO?
+    /// A 120,000 drain is ~9% of a ~$1.3M band — a pathological ratio, not a production one. The
+    /// substitution implies `sigma^2 = 8 · lossFraction / 0.0079 = 1012 · lossFraction`, and the 3%
+    /// `MAX_WELL_SKEW` cap binds around `sigma^2 ~ 1`, so **`lossFraction` must stay under ~0.1%**.
+    /// This measures the fraction at REALISTIC sizes with NO contract change (the register is live;
+    /// only the substitution was reverted), so it separates "mis-scaled" from "correct under stress".
+    function test_SIGMA_P2_LossFractionVersusSwapSize() public {
+        uint16[5] memory bps = [uint16(5), 25, 100, 400, 900];   // swap as bps of the band
+        for (uint j = 0; j < 5; ++j) {
+            uint snap = vm.snapshotState();
+            _setupBand(); _pinFlow(380_432_109_336);
+            uint band; { uint inv = CORE.POOLED_ETH();
+                band = CORE.POOLED_USD_ETH() + FullMath.mulDiv(inv, _bandPx(), 1e30); }
+            uint base = CORE.realizedLossUsd(false);
+            // six swaps of the given size, block-advancing so the ring records the path
+            for (uint k = 0; k < 6; ++k) {
+                _drain(FullMath.mulDiv(band, bps[j], 10_000) * 1e12);
+                vm.roll(block.number + 1); vm.warp(block.timestamp + 150);
+            }
+            // the NET floors at 0, so it can DECREASE between readings -- saturating subtraction
+            uint nowLvr = CORE.realizedLossUsd(false);
+            uint lvr = nowLvr > base ? nowLvr - base : 0;
+            emit log_named_uint("swap size (bps of band)", bps[j]);
+            emit log_named_uint("  band (usd6)          ", band);
+            emit log_named_uint("  net LVR (usd6)       ", lvr);
+            emit log_named_uint("  lossFraction x1e6    ", band == 0 ? 0 : lvr * 1_000_000 / band);
+            emit log_named_uint("  implied sigma^2 x1e3 ", band == 0 ? 0 : lvr * 1012 * 1000 / band);
+            vm.revertToState(snap);
+        }
+    }
 }
