@@ -176,7 +176,7 @@ interface IAggregatorV3 {
 
 /// Canonical IAux — union of IAux, IAux_VG.
 /// Canonical Aux view — union of the former per-file variants (`IAux`, `IAux`,
-/// `ChannelLib::IAux`, `BasketLib::IAux`, `QuidLens::IAux`). SIX declarations described
+/// `ChannelLib::IAux`, `BasketLib::IAux`). FIVE declarations described
 /// ONE contract; a signature change had to be made up to six times and a missed one still compiled.
 interface IAux {
     /// @dev The per-asset price-feed registry. Its EMPTINESS is the honest discriminator for "this token

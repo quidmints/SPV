@@ -75,7 +75,8 @@ contract DepegCadenceTest is Test {
         // 6000 bps deviation and the factor is 4000 (40% of par), NOT clamped up to 6500 — clamping
         // would have valued a 60%-depegged stable at 65c, overstating basket backing exactly when it
         // matters most. Verified pre-existing (not caused by this session's clamp removals, which
-        // touched QuidLens MAX_FEE and the theta ceiling, neither of them this floor).
+        // touched FeeLib MAX_FEE and the theta ceiling, neither of them this floor; the QuidLens
+        // lens that used to read it is deleted).
         MockAggregator deep = new MockAggregator(0.40e8, 8, block.timestamp);
         assertEq(_rf(deep), 4000, "deep depeg recognizes FULL severity (no 65% floor)");
     }
