@@ -12268,3 +12268,39 @@ curve). **The current trapezoid conflates them, and that is why its level is ~10
 `ProbeSwapIsEntryHistoryIndependent`.
 ▶️ **THE NEXT ATTEMPT AT PHASE 2 INHERITS A HARNESS THAT CAN FAIL IT HONESTLY** — which the last one
 did not.
+
+### 🎯🎯🎯 SIGMA-REMOVE-SOLVED — the register must accrue only the EXOGENOUS gap, and accrue it SIGNED. Both derived, neither tuned.
+
+**§SIGMA-REMOVE-P2-FALSE-PASS left one problem: the register's LEVEL is ~1e7 too large because it
+conflates adverse selection with intended price impact. Solved, in two parts.**
+
+**① ACCRUE ONLY THE EXOGENOUS INTERVAL.** The current accrual spans `[swap i, swap i+1]`, which
+contains BOTH the drift while we HELD inventory (**that is adverse selection**) AND **swap i+1's own
+impact** — which the swapper ALREADY PAID through the curve, so charging it again is double-counting.
+▶️ **Sample at the END of each swap; accrue at the START of the next, BEFORE its impact lands.** The
+within-swap move is discarded. One extra sample point, no new state (the pending record already
+exists — it is the SAMPLING MOMENT that changes, not the shape).
+
+**② ACCRUE SIGNED, NOT ABSOLUTE.** `dp = |px − p.px|` is TOTAL VARIATION, which GROWS WITH SAMPLE
+COUNT — **shape-dependence in a third costume**, and the same trap as §SIGMA-REMOVE-P1-CONSTRAINT's
+12×. **Signed `Δp` TELESCOPES**: `Σ(p_{i+1} − p_i) = p_end − p_start`, independent of sample count.
+✅ **And signed is the CORRECT quantity anyway: LVR is a NET P&L against holding, not a sum of
+absolute moves.** Losses and gains must net. ⚠️ Implementation note: the EWMA register is `uint`;
+signed accrual needs an `int` accumulator or a two-sided (gain/loss) pair.
+
+✅ **THIS PREDICTS THE 1e7 ERROR RATHER THAN PATCHING IT — the test of a real explanation.** These
+fixtures have **NO EXOGENOUS PRICE PROCESS** (measured: no ETH feed pinned, 0.496% annualised vol, the
+tape entirely self-generated — §ORACLE-FREE-MEASURED, §UNIT-A-FIXTURE-BUILT). ⇒ **True adverse
+selection here is ≈ 0**, so a correct register reads ≈ 0 and **fails over to the ring**, exactly as
+the cold-start branch already does. **The huge number was the drains' own impact, which was never
+adverse selection at all.** ⇒ **NO SCALING CONSTANT IS NEEDED, AND ONE WOULD HAVE BEEN WRONG** (rule 4).
+
+🔬 **HOW TO TEST IT — the fixture's weakness becomes the control:**
+- **In THIS fixture (no exogenous price): the corrected register must read ≈ 0.** That is a positive
+  result, not a failure — and it is falsifiable: a non-trivial reading means own-impact is still
+  leaking in.
+- **To exercise it, an exogenous move is required** — pin a real ETH feed and move it, or drive the
+  reference pool (§SIGMA-SOURCE's candidates). **The σ²-source work and this now converge on the same
+  fixture requirement.**
+- **Then re-run all six hardened instruments**, with the SATURATION CONTROL live
+  (§UNIT-B-INSTRUMENTS-HARDENED) so a mis-scaled input cannot pass by clamping again.
