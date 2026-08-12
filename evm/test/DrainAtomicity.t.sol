@@ -1612,4 +1612,40 @@ contract DrainAtomicity is Alles {
             "the register's LEVEL must be at least as stable as sigma^2's across partitions -- a "
             "jumpier input would reprice the band on how flow happened to be chopped up");
     }
+
+    /// §SIGMA-REMOVE-RESCOPED risk 2 — THE ONLY REMAINING GATE: REAL run-to-run noise. Holds the
+    /// PARTITION FIXED (6 pieces, same total volume) and varies only the TIMING and the size jitter,
+    /// so this is independent of the history gap — unlike the earlier "level spread", which was the
+    /// history gap relabelled (§SIGMA-REMOVE-P1-COMPLETE-RETRACTED).
+    /// A decaying SUM should barely notice; a SECOND-MOMENT statistic reads spacing directly through
+    /// `spanSecs` and the tick second-differences, so it should not.
+    function test_SIGMA_P1_RunToRunNoise() public {
+        uint TOTAL = 120_000 * 1e18;
+        uint16[5] memory gaps = [uint16(90), 130, 150, 200, 260];
+        uint loMk = type(uint).max; uint hiMk; uint loS2 = type(uint).max; uint hiS2;
+
+        for (uint j = 0; j < 5; ++j) {
+            uint snap = vm.snapshotState();
+            _setupBand(); _pinFlow(380_432_109_336);
+            uint base = CORE.realizedLossUsd(false);
+            for (uint k = 0; k < 6; ++k) {
+                // same total, jittered piece sizes: 6 pieces summing to TOTAL
+                uint piece = TOTAL / 6 + (k % 2 == 0 ? TOTAL / 60 : 0) - (k % 2 == 1 ? TOTAL / 60 : 0);
+                _drain(piece);
+                vm.roll(block.number + 1); vm.warp(block.timestamp + gaps[j]);
+            }
+            uint mk = CORE.realizedLossUsd(false) - base;
+            uint s2 = CORE.realizedVarianceWad(false);
+            emit log_named_uint("gap secs        ", gaps[j]);
+            emit log_named_uint("  register      ", mk);
+            emit log_named_uint("  sigma^2       ", s2);
+            if (mk < loMk) loMk = mk;  if (mk > hiMk) hiMk = mk;
+            if (s2 < loS2) loS2 = s2;  if (s2 > hiS2) hiS2 = s2;
+            vm.revertToState(snap);
+        }
+        emit log_named_uint("NOISE x1000 register", loMk == 0 ? 0 : hiMk * 1000 / loMk);
+        emit log_named_uint("NOISE x1000 sigma^2 ", loS2 == 0 ? 0 : hiS2 * 1000 / loS2);
+        assertGt(loMk, 0, "CONTROL: every trial must accrue");
+        assertGt(loS2, 0, "CONTROL: sigma^2 must be measured in every trial, else the spread is void");
+    }
 }

@@ -12182,3 +12182,37 @@ gap relabelled and does NOT count** (§SIGMA-REMOVE-P1-COMPLETE-RETRACTED). **Th
 | id | state |
 |---|---|
 | **E166-3** | ✅ **`drive_open` NOW RELAYS THE LP'S CONSENT INSTEAD OF BAILING.** After §E178 exposed the drifted `openChannel` shape I made `drive_open` `bail!` rather than submit a reverting tx — correct at the time, but wrong as a resting state: it turned *"the LP has not signed yet"*, which is the ORDINARY condition, into a loud failure on every reconciler tick. ✅ **`VaultRegistry` gained `LpConsent { auth, exits }`**, keyed by funding outpoint with the SAME key shape as `by_funding` so the two cannot drift apart, and `drive_open` now goes **DORMANT** on absence exactly as the missing-lpEth binding already does — the additive-state discipline the rest of that path uses. 🔑 **THE FLEET RELAYS CONSENT AND CANNOT MANUFACTURE IT, WHICH IS THE POINT.** `auth.lp_sig` signs `openAuthDigest` and every `exits` rung is a pre-signed spend of the 2-of-2 — **both need the LP funding half, which after §E175-a the fleet does not have.** A fleet able to construct these would by definition still hold that half, so this type is the interface the split creates rather than a convenience. ⚠️ **A CONFLICTING RE-BIND IS REFUSED, NOT OVERWRITTEN** — consent authorises ONE open, and after §E175 the relay is precisely the party that must not be able to swap in a different `OpenAuth` or a different ladder. **3 tests: absence reads as absent (not failure) · idempotent-but-never-rebindable · no leak across funding outpoints.** ▶️ **REMAINING (deployment, not security):** the LP side must populate `bind_consent` — an interactive MuSig2 session per ladder rung between the LP's vault node and the fleet's hop at open, plus the LP's EVM signature. That protocol is the last piece of the §E175 deployment and re-creates no capability the split removed. **Workspace 665 passed / 0 failed · ABI gate 0 drifted both sides.** |
+
+### ✅✅✅ SIGMA-REMOVE-P1-GATE-CLOSED — real run-to-run noise: register **1.006×**, σ² **1.084×**. **Phase 1 is genuinely complete.**
+
+**The ONLY remaining gate (§SIGMA-REMOVE-RESCOPED risk 2), measured properly this time: PARTITION HELD
+FIXED at 6 pieces, same total volume, varying only TIMING (90–260s gaps) and size jitter — so it is
+independent of the history gap, unlike the retracted "level spread".**
+| gap | register | σ² |
+|---|---|---|
+| 90s | 383,303,720,080 | 2.754e13 |
+| 130s | 382,453,452,893 | 2.700e13 |
+| 150s | 382,453,453,416 | 2.674e13 |
+| 200s | 381,604,276,927 | 2.611e13 |
+| 260s | 380,756,189,642 | 2.539e13 |
+| **NOISE** | **1.006×** | **1.084×** |
+✅ **The jumpiness risk that gated the substitution is INVERTED: 0.6% vs 8.4%.** A decaying SUM barely
+notices spacing; σ² reads it directly through `spanSecs` and the tick second-differences.
+⚠️ **BUT STATE IT HONESTLY — 14×, NOT THE 4× I WRONGLY CLAIMED FROM THE RETRACTED TEST.** And **BOTH
+ARE MONOTONE in the gap**, so neither is "noisy" in the random sense: **both DRIFT with spacing, σ²
+just drifts more.** A monotone drift is calibratable; random noise is not. **Do not oversell this as
+"σ² is unstable" — it is not. It is more spacing-sensitive.**
+
+📋 **PHASE 1 FINAL SCOREBOARD — every row measured, every retraction applied:**
+| property | σ² | trade-based | **register** |
+|---|---|---|---|
+| history gap (block-advancing) | 2.632× | 12.000× | **1.100×** |
+| run-to-run noise (fixed partition) | 1.084× | — | **1.006×** |
+| units vs validated estimator | — | — | **0.991** |
+| accruals per drain | — | — | **exactly 1** |
+▶️ **PHASE 2 STEP 2 IS UNBLOCKED WITH NO OPEN GATES.** Substitute via the implied-variance shape —
+`σ²_implied = 8 · lossFraction / window` returned from `realizedVarianceWad` — so `skewWad`,
+`_maxWellSkew`'s LVR derivation and θ keep working on a MEASURED input.
+**Acceptance, pre-stated: the probe's 2.34× premium gap → ~1×, and §E71-PINNED's 1,371 bps falls —
+both on the PINNED instrument.** ⚠️ **KEEP σ² for the convexity in `q`; this replaces the STEEPNESS
+input only.**
