@@ -1427,6 +1427,46 @@ contract DrainAtomicity is Alles {
         assertLt(premSplit, TOTAL / 1e12 * 3 / 100, "SATURATION: the split leg is pinned at the 3% cap");
     }
 
+    /// §UNIT-FORELLA FRAME CHECK — the row's OWN named prerequisite: *"`q` SURVIVES A RESEAT and a
+    /// troller CANNOT reset their accrued path cost by triggering one. VERIFY WITH A TEST before
+    /// relying on it."* The brake charges total variation along `q`, so if a permissionless `reseat()`
+    /// moved `q`, a troller would simply reseat between drags and pay nothing -- the brake would be
+    /// defeated by its own frame. §E93-VERIFY found exactly that defect for a TICK-POSITION signal;
+    /// the claim is that `q` does not inherit it, being built from ABSOLUTE quantities
+    /// (`inv = POOLED_ETH*px` against `target = flowEwmaUsd`) rather than from position within a range.
+    ///
+    /// Asserts the INPUTS as well as the output: if only the composed skew were checked, two
+    /// compensating moves could cancel and read as survival.
+    function test_FORELLA_ScarcitySurvivesAPermissionlessReseat() public {
+        _setupBand();
+        _drain(60_000 * 1e18);                     // create real imbalance, so q > 0
+
+        uint skewBefore   = AUX.wellSkew(address(WETH));
+        uint pooledBefore = CORE.POOLED_ETH();
+        uint flowBefore   = CORE.flowEwmaUsd(false);
+
+        // CONTROL: a band that is not skewed cannot demonstrate that skew survives anything.
+        assertGt(skewBefore, 0, "CONTROL: the band must actually be skewed before the reseat");
+
+        V4.reseat();
+
+        uint skewAfter   = AUX.wellSkew(address(WETH));
+        uint pooledAfter = CORE.POOLED_ETH();
+        uint flowAfter   = CORE.flowEwmaUsd(false);
+
+        emit log_named_uint("skew before reseat  ", skewBefore);
+        emit log_named_uint("skew after  reseat  ", skewAfter);
+        emit log_named_uint("POOLED_ETH before   ", pooledBefore);
+        emit log_named_uint("POOLED_ETH after    ", pooledAfter);
+        emit log_named_uint("flow EWMA before    ", flowBefore);
+        emit log_named_uint("flow EWMA after     ", flowAfter);
+
+        // Both of q's operands must be untouched -- inventory and target.
+        assertEq(pooledAfter, pooledBefore, "reseat moved POOLED_ETH: q's numerator is frame-relative");
+        assertEq(flowAfter,   flowBefore,   "reseat moved the flow EWMA: q's denominator is resettable");
+        assertEq(skewAfter,   skewBefore,   "reseat changed the skew: a troller can reset accrued path cost");
+    }
+
     /// §UNIT-B-REMEDY — THE DECISIVE EXPERIMENT: FREEZE THE TARGET ACROSS THE WHOLE EPISODE.
     /// §UNIT-B-ATTRIBUTED isolated the EWMA ratchet as the SOLE mover of the consolidation discount,
     /// using `skewWad`'s purity to hold flow constant. That is a statement about the FORMULA. This is
