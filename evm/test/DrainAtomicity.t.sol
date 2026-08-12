@@ -1427,6 +1427,77 @@ contract DrainAtomicity is Alles {
         assertLt(premSplit, TOTAL / 1e12 * 3 / 100, "SATURATION: the split leg is pinned at the 3% cap");
     }
 
+    /// §UNIT-B-REMEDY — THE DECISIVE EXPERIMENT: FREEZE THE TARGET ACROSS THE WHOLE EPISODE.
+    /// §UNIT-B-ATTRIBUTED isolated the EWMA ratchet as the SOLE mover of the consolidation discount,
+    /// using `skewWad`'s purity to hold flow constant. That is a statement about the FORMULA. This is
+    /// the same claim end-to-end in a REAL fixture, which is the harder and more honest test.
+    ///
+    /// The difference from `test_UNITB_PinnedEntry_ConsolidationDiscount` is one line: that test pins
+    /// the target ONCE at entry and then lets twelve drains bump it, so the ratchet is LIVE and the
+    /// discount it measures is ratchet + curve. Re-pinning before EVERY slice freezes the target for
+    /// the whole episode -- which is what "the target must not include the trade's own flow" means
+    /// once a chopped trade is recognised as ONE trade.
+    ///
+    /// PREDICTION, STATED BEFORE RUNNING: the split arm pays LESS once the target is frozen, because
+    /// the only remaining path effects are inventory depletion and the own-size `drainUsd6` term, and
+    /// the pure-function run showed those net in the chopper's favour (254 bps).
+    ///
+    /// ⚠️ WHAT THE RUN ACTUALLY SHOWED, AND IT REFUTES THE REMEDY THIS TEST WAS BUILT TO SUPPORT:
+    /// MEASURED at HEAD -- big 30,385 · split-with-ratchet 25,998 · split-frozen 17,159. So the
+    /// chopper is cheaper by 14.4% WITH the ratchet and by 43.5% WITHOUT it. **The ratchet is not the
+    /// defect; it is the only thing currently RESISTING the chop**, clawing back about two thirds of
+    /// the advantage. Freezing the target would make chopping 34% cheaper still.
+    /// ⚠️ AND §UNIT-B's HEADLINE IS STALE: it records the WHALE as the discounted party (23,560 vs
+    /// 25,853). At HEAD the whale pays MORE (30,385 vs 25,998) and the sibling test prints a
+    /// discount of 0 bps. The whale discount no longer reproduces; the live defect is the residual
+    /// 14.4% CHOPPING advantage, which is the opposite party and needs the opposite fix.
+    function test_UNITB_FrozenTargetInvertsTheConsolidationDiscount() public {
+        uint TOTAL = 120_000 * 1e18;
+        uint N = 12;
+        uint128 PINNED = 380_432_109_336;   // same entry target as the sibling test, so runs compare
+
+        uint snap = vm.snapshotState();
+        _setupBand();
+        _pinFlow(PINNED);
+        assertEq(CORE.flowEwmaUsd(false), PINNED, "CONTROL: pinned entry target, big arm");
+        uint premBig = CORE.skewPremiumETH();
+        _drain(TOTAL);                      // one trade: already priced at the frozen target
+        premBig = CORE.skewPremiumETH() - premBig;
+
+        vm.revertToState(snap);
+        _setupBand();
+        _pinFlow(PINNED);
+        assertEq(CORE.flowEwmaUsd(false), PINNED, "CONTROL: pinned entry target, split arm");
+        uint premSplit = CORE.skewPremiumETH();
+        for (uint i = 0; i < N; ++i) {
+            _pinFlow(PINNED);               // THE CHANGE: re-freeze before each slice is priced
+            _drain(TOTAL / N);
+        }
+        premSplit = CORE.skewPremiumETH() - premSplit;
+
+        emit log_named_uint("frozen target       ", PINNED);
+        emit log_named_uint("skew BIG   (usd6)   ", premBig);
+        emit log_named_uint("skew SPLIT (usd6)   ", premSplit);
+        emit log_named_string("direction           ", premSplit > premBig
+            ? "split pays MORE (whale still discounted)"
+            : "split pays LESS (discount INVERTED - ratchet was the mover)");
+        emit log_named_uint("gap bps of premium  ", premSplit > premBig
+            ? (premSplit - premBig) * 10_000 / premSplit
+            : (premBig - premSplit) * 10_000 / premBig);
+
+        assertGt(premBig, 0, "CONTROL: the big leg must actually be charged skew");
+        assertGt(premSplit, 0, "CONTROL: the split leg must actually be charged skew");
+        // SATURATION CONTROL -- at the 3% cap every arm reads alike and a "pass" would mean the
+        // mechanism was destroyed, not fixed (§SIGMA-REMOVE-P2-FALSE-PASS).
+        assertLt(premBig,   TOTAL / 1e12 * 3 / 100, "SATURATION: big leg pinned at the 3% cap");
+        assertLt(premSplit, TOTAL / 1e12 * 3 / 100, "SATURATION: split leg pinned at the 3% cap");
+
+        // THE CLAIM UNDER TEST. If this fails, the ratchet is NOT the sole mover and
+        // §UNIT-B-ATTRIBUTED's pure-function result does not survive contact with the real path.
+        assertLt(premSplit, premBig,
+            "with the target frozen the whale must no longer be the cheaper path");
+    }
+
     /// §UNIT-B-RIGHT-QUESTION (P2) — ENTRY-HISTORY INDEPENDENCE. The SAME traversal must cost the
     /// SAME however the band reached its starting point. This is the property a signed/two-sided
     /// curve needs (§UNIT-B-BLOCKS-C), and §E71 cannot see it: comparing SEQUENCE TOTALS conflates
