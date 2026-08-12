@@ -127,6 +127,58 @@ contract SkewAsymmetry is Test {
         emit log_named_uint("BTC margin (days)    ", marginSec / 86_400);
     }
 
+    /// @notice §UNIT-B ATTRIBUTION — SPLIT THE CONSOLIDATION DISCOUNT INTO ITS TWO CANDIDATE MOVERS.
+    ///         §UNIT-B proves the target, not the kernel, is the mover (a correct integral is
+    ///         path-independent). Two mechanisms can move it, and they need separating because they
+    ///         have OPPOSITE fixes:
+    ///           (a) THE INVENTORY TRAPEZOID — as a drain proceeds, poolVol falls, so later slices
+    ///               are priced on a scarcer band. This is INTRINSIC to integrating a convex curve
+    ///               and is not a defect: the chopped path pays MORE because it genuinely does more
+    ///               damage per later dollar.
+    ///           (b) THE EWMA RATCHET — each slice bumps `flowEwmaUsd`, raising the TARGET for the
+    ///               next, so the chopped path is priced against a walking target.
+    ///         This isolates (a) EXACTLY by holding flow CONSTANT and decrementing only inventory --
+    ///         which the pure function permits and a fixture cannot, since a fixture bumps the EWMA
+    ///         as a side effect of trading. Whatever the fixture's total discount exceeds this by is
+    ///         attributable to (b).
+    ///
+    ///         The owner's decision -- "the target should not include the trade's own flow" -- is
+    ///         ALREADY the code's behaviour: pricing happens at SwapLib:444/467 and the bump at
+    ///         Core:939, inside _finishSwap, called at :471. So own-flow inclusion cannot be the
+    ///         mover, and (b) is specifically the PRECEDING slices, not the trade itself.
+    function test_UNITB_AttributeTheDiscount_TrapezoidVsRatchet() public {
+        uint s      = WAD;
+        uint flow   = 400_000e6;      // HELD CONSTANT: no ratchet, so only the trapezoid can act
+        uint pool0  = 300_000e6;
+        uint total  = 120_000e6;
+
+        // PATH A -- one drain of the whole notional, priced once on the entry band.
+        uint premA = (SwapLib.skewWad(pool0, flow, s, false, total) * total) / WAD;
+
+        // PATH B -- twelve slices. Inventory falls as it would in reality; flow does NOT move.
+        uint slice = total / 12;
+        uint premB;
+        uint pool = pool0;
+        for (uint i; i < 12; i++) {
+            premB += (SwapLib.skewWad(pool, flow, s, false, slice) * slice) / WAD;
+            pool = pool > slice ? pool - slice : 0;
+        }
+
+        emit log_named_uint("path A premium (usd6)", premA);
+        emit log_named_uint("path B premium (usd6)", premB);
+        assertGt(premA, 0, "path A charged nothing - fixture proves nothing");
+        assertGt(premB, 0, "path B charged nothing - fixture proves nothing");
+
+        // Report against the SKEW, not the notional: a 1bp-of-notional denominator structurally
+        // cannot see a defect measured as a fraction of the premium.
+        uint discountBps = premB > premA
+            ? ((premB - premA) * 10_000) / premB
+            : ((premA - premB) * 10_000) / premA;
+        emit log_named_string("direction            ",
+            premB > premA ? "chopped pays MORE (whale discount)" : "chopped pays LESS");
+        emit log_named_uint("trapezoid-only bps   ", discountBps);
+    }
+
     /// @notice CONTROL: the A-S kernel itself must be asset-independent. If it is not, the
     ///         asymmetry is wider than the window+splice and UNIT-ASYM's framing is incomplete.
     ///         Same poolVol, same flow, same sigma^2, same drain -- only the bool differs.
