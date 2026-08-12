@@ -377,6 +377,116 @@ contract BtcLpMintStress is Alles {
         ch.splice(channelId, p, spliceTx, new bytes32[](0));
     }
 
+    /// (E166-2) Build a splice tx + its `OpenParams` WITHOUT submitting — the proven swap-in
+    /// entrypoint consumes the same arguments `splice` does, so they are built once here
+    /// rather than duplicated per test.
+    function _growSpliceArgs(
+        BTCChannels ch, bytes32 channelId, bytes32 fundingTxId, uint seed,
+        bytes memory lpPubkey, uint newAmountSats
+    ) internal view returns (bytes memory spliceTx, Types.OpenParams memory p) {
+        ch;
+        bytes memory spk = buildTaprootFundingSpk(lpPubkey, _hopKeyOf[channelId]);
+        spliceTx = abi.encodePacked(
+            hex"02000000", hex"01",
+            fundingTxId, hex"00000000", hex"00", hex"ffffffff",
+            hex"01", _le(newAmountSats, 8), bytes1(uint8(spk.length)), spk,
+            hex"00000000");
+        p = Types.OpenParams({
+            fundingBlockHash:   bytes32(uint(0x5217CE + seed)),
+            fundingBlockHeight: 800001,
+            fundingTxIndex:     0,
+            lpPubkey:           lpPubkey,
+            hopPubkey:          _hopKeyOf[channelId],
+            amountSats:         newAmountSats,
+            fundingTaproot:     _taprootQ(lpPubkey, _hopKeyOf[channelId])
+        });
+    }
+
+    /// `creditSwapIn` draws POOLED_USD_BTC, so the pool needs dollars or the credit is
+    /// bounded by an empty pool and the test asserts nothing.
+    function _primePoolUsd(BTCChannels ch) internal {
+        ch;
+        // ⚠️ `vm.deal` gives ETH, not USDC — the setUp only funds ETH, so without this the
+        // priming swaps spend nothing, POOLED_USD_BTC stays empty, and the swap-in trips
+        // `SlippageMaxS` for a reason that has nothing to do with what is under test.
+        deal(address(USDC), User03, 500_000 * USDC_PRECISION);
+        vm.startPrank(User03);
+        USDC.approve(address(AUX), type(uint).max);
+        for (uint i = 0; i < 6; i++) {
+            AUX.swap(address(USDC), address(WBTC), true, 300 * USDC_PRECISION, 0);
+            vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
+        }
+        vm.stopPrank();
+    }
+
+    // ── (E166-2) THE PROVEN SWAP-IN ───────────────────────────────────────────────
+    /// 🔴 `#1`, THE PHANTOM SWAP-IN, CLOSED FOR THE LIGHTNING RAIL. `settleSwapIn` credits the
+    /// shared pool on the hop's WORD — a compromised hop attests sats that never existed and
+    /// drains `POOLED_USD_BTC`, and that harm reaches QU!D holders who never opted into enclave
+    /// trust. `settleSwapInProven` proves an ON-CHAIN deposit, but an LN swap-in resolves inside
+    /// a channel and produces no transaction to prove — which is why the unproven entrypoint
+    /// could not be deleted. A grow-splice IS the proof: the sats become visible on-chain, and
+    /// `grewBy` is what actually entered custody.
+    ///
+    /// ⚠️ THE ASSERTION THAT MATTERS IS THE CREDITED AMOUNT vs `grewBy`, NOT vs a supplied
+    /// number — `sats` is deliberately not a parameter, so a hop cannot assert it.
+    function test_E166_2_ProvenSwapIn_CreditsOnlyWhatTheSpliceProves() public {
+        BTCChannels ch = _deployChannels();
+        (bytes32 channelId, bytes32 fundingTxId, address lpEth, bytes memory lpPubkey) =
+            _open(ch, 31, 1_000_000);
+        // ⚠️ PRIME WITH REAL SWAP-OUTS, NOT BUYS. `creditSwapIn` SELLS sats into the pool, and a
+        // pool primed only by curve buys is too thin to absorb one — it trips `SlippageMaxS` in
+        // `BasketLib.routeSwap`, which is a genuine depth guard, not a test artifact. The
+        // neighbouring over-mint tests build depth this way and absorb the same 50k sats.
+        _swapOuts(ch, channelId, fundingTxId, 31, lpPubkey, lpEth, 2, 400 * USDC_PRECISION);
+
+        address seller = makeAddr("ln-seller");
+        uint growTo = 1_050_000;
+
+        // ⚠️ THE OUTPOINT ROTATED. The priming swap-outs SPLICED this channel, so the funding
+        // UTXO is no longer the one `_open` returned — the suite tracks the live one, and using
+        // the stale id fails `WrongPrevOutpoint`.
+        bytes32 liveTxId = _liveFundingTxId[channelId];
+        // ⚠️ MEASURE THE DELTA, DO NOT ASSUME IT. The priming swap-outs SHRANK this channel, so
+        // `growTo - <opening size>` is not the grow — reading the CURRENT size is. Assuming it
+        // made the first version of this test fail against a number that was simply wrong.
+        (uint sizeBefore,,,,,) = ch.channels(channelId);
+        uint expectedGrew = growTo - sizeBefore;
+        (bytes memory spliceTx, Types.OpenParams memory p) =
+            _growSpliceArgs(ch, channelId, liveTxId, 31, lpPubkey, growTo);
+
+        (uint pooledBefore,,,) = BTC.autoManagedBTC(lpEth);
+        vm.prank(makeAddr("hop"));
+        uint consumed = ch.settleSwapInSpliced(
+            channelId, p, spliceTx, new bytes32[](0), seller, address(USDC), 0);
+
+        // (a) The credit is bounded by what the splice PROVED, never by an assertion.
+        assertLe(consumed, expectedGrew, "credit never exceeds the sats the splice proved");
+        // (b) CONSERVATION: the same sats became the LP's backing.
+        (uint pooledAfter,,,) = BTC.autoManagedBTC(lpEth);
+        assertEq(pooledAfter - pooledBefore, expectedGrew,
+                 "the spliced sats become LP backing while the seller is paid USD");
+        // (c) REPLAY on the splice TXID — a fact, not a hop-chosen hash.
+        vm.prank(makeAddr("hop"));
+        vm.expectRevert(BTCChannels.SwapInDepositReplay.selector);
+        ch.settleSwapInSpliced(channelId, p, spliceTx, new bytes32[](0), seller, address(USDC), 0);
+    }
+
+    /// ⚠️ A SHRINK PROVES SATS LEFT, NOT ARRIVED. Crediting one would be the phantom by another
+    /// door, so it must refuse rather than credit zero — a zero credit reads as success.
+    function test_E166_2_ShrinkSpliceCannotFundASwapIn() public {
+        BTCChannels ch = _deployChannels();
+        (bytes32 channelId, bytes32 fundingTxId, , bytes memory lpPubkey) =
+            _open(ch, 32, 1_000_000);
+        _setRecipient(address(ch), abi.encode(uint(0xB7C)), User03);
+        (bytes memory spliceTx, Types.OpenParams memory p) =
+            _growSpliceArgs(ch, channelId, fundingTxId, 32, lpPubkey, 400_000);   // SHRINK
+        vm.prank(makeAddr("hop"));
+        vm.expectRevert(BTCChannels.NotAGrow.selector);
+        ch.settleSwapInSpliced(channelId, p, spliceTx, new bytes32[](0),
+                               makeAddr("ln-seller"), address(USDC), 0);
+    }
+
     /// spliceChannel grows the LP's BTC pool position + the channel's funded total
     /// and rotates the live funding outpoint to the splice tx — channel stays OPEN.
     function test_Splice_GrowsPositionAndChannel() public {

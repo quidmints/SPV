@@ -16,7 +16,7 @@ acting; the cost is one grep.
 
 ---
 
-## T1 🔴 OPEN — `settleSwapIn` credits the shared pool on the hop's WORD
+## T1 🟡 NARROWED → DELETABLE — `settleSwapIn` credits the shared pool on the hop's WORD
 
 `BTCChannels.sol:1553`. **This is `#1`, and it is NOT closed — it is NARROWED.**
 `settleSwapInProven` (`:1522`) was added and derives the deposit address on-chain from the
@@ -27,15 +27,16 @@ that never arrived and drains `POOLED_USD_BTC` to its liquidity limit.
 ⚠️ **WORSE IN KIND than a hop stealing its own channels' BTC** — the loss reaches QU!D
 holders and other LPs who never opted into enclave trust.
 
-▶️ **The fix is deletion — BUT IT IS GATED, and "just delete it" was wrong.** `settleSwapIn`
-also serves the **Lightning** rail (`quid-hop/src/swap.rs:4`), where a settled inbound HTLC
-produces **no on-chain transaction to prove**, so `settleSwapInProven` cannot replace it.
-Deleting it today removes BTC-for-USD over Lightning. ⇒ **Do §E166 item 2 first** — anchor
-the BOLT11 credit to an on-chain splice proof so every credit path ends in a Bitcoin proof —
-**then** the unproven entrypoint has no caller and deletes cleanly. ⚠️ Its OTHER role, the
-swap-out failure reversal (`BTCChannels.sol:1814`), refunds USD the swapper already paid;
-nothing arrives and nothing is provable, so that role is legitimate and must survive under
-its own name.
+✅ **(E166-2) THE GATE IS NOW OPEN: the LN rail HAS a provable form.** `settleSwapInSpliced`
+credits a seller ONLY against sats an SPV-verified grow-splice proves entered custody — and
+`sats` is deliberately NOT a parameter, it is `grewBy`, so the hop cannot assert it. A
+Lightning HTLC produces no transaction to prove, but the sats become provable the moment the
+hop splices them into a channel. Conservation holds: the spliced sats become LP backing while
+the seller is paid USD.
+
+▶️ **WHAT REMAINS IS THE DELETION ITSELF** — repoint `quid-hop/src/swap.rs` at the spliced
+entrypoint, then remove `settleSwapIn`. Its OTHER role must survive under its own name: the swap-out failure reversal (`BTCChannels.sol:1814`) refunds USD the swapper
+already paid, where nothing arrives and nothing is provable.
 
 ## T2 🔴 OPEN — `seller`, `token`, `minDeliveredUsd` are hop assertions
 
