@@ -12216,3 +12216,34 @@ just drifts more.** A monotone drift is calibratable; random noise is not. **Do 
 **Acceptance, pre-stated: the probe's 2.34× premium gap → ~1×, and §E71-PINNED's 1,371 bps falls —
 both on the PINNED instrument.** ⚠️ **KEEP σ² for the convexity in `q`; this replaces the STEEPNESS
 input only.**
+
+### ⛔⛔ SIGMA-REMOVE-P2-FALSE-PASS — the substitution SATURATED the skew, and the acceptance criterion could not tell.
+
+**Phase 2 step 2 built and REVERTED. It "passed" both pre-stated criteria and the pass was FALSE.**
+| test | result | what it actually was |
+|---|---|---|
+| §E71-PINNED discount | **1,371 bps → 0 bps** | BIG = SPLIT = **3,600,000,000** = **exactly 3% of $120,000** |
+| probe premium gap | **2.34× → 1.00×** | both arms **300,000,000** = **exactly 3% of $10,000** |
+⇒ 🔴 **EVERY ARM WAS PINNED AT `MAX_WELL_SKEW` (3%).** The discount is 0 because both legs are
+CLAMPED, not because the input is path-independent. **Perfectly round numbers were the tell.**
+
+🔬 **SCALE ERROR, ~10⁷:** loss ≈ $400k over a band of ≈$1.3M ⇒ fraction 0.307 ⇒
+`σ²_implied = 8 · 0.307 / 0.0079 ≈ 310`, against the ring's ≈ 2.5e-5. ⇒ **The register accumulates
+the FULL mark-to-market of a DELIBERATE DRAIN — which is the INTENDED price move, not adverse
+selection.** §SIGMA-REMOVE-P1 measured its PATH-INDEPENDENCE and never its LEVEL against a
+meaningful reference. **Phase 1's scoreboard is silent on magnitude, and I read it as if it were not.**
+
+⛔ **THE DEEPER FAILURE IS THE ACCEPTANCE CRITERION, NOT THE CODE.** *"The discount → ~0"* and *"the
+probe gap → ~1×"* are **BOTH SATISFIED BY SATURATION.** A criterion a clamp can satisfy cannot
+distinguish success from destruction. ⇒ **EVERY FUTURE ARM MUST CARRY THE CONTROL: assert the skew is
+STRICTLY BELOW `MAX_WELL_SKEW` in both legs**, else the comparison is void. **Add it to
+§UNIT-B-PINNED-INSTRUMENT and the probe test before the next attempt.**
+
+▶️ **WHAT THE REGISTER STILL NEEDS — and it is a MEASUREMENT question, not a scaling constant:**
+distinguish **ADVERSE SELECTION** (the band filled at a price the market then left behind) from
+**INTENDED PRICE IMPACT** (the drain's own move, which the swapper already paid for through the
+curve). **The current trapezoid conflates them, and that is why its level is ~10⁷ too large.**
+⚠️ **DO NOT simply divide by a constant to make it fit** — that fits the fixture, not the quantity
+(rule 4). **The register measures a real thing; it is not the thing the steepness needs.**
+✅ **UNAFFECTED: Phase 1's path-independence results stand** (1.100× vs 2.632×, 1.006× vs 1.084×).
+**They were always about SHAPE, and shape is still the property σ² cannot have.**
