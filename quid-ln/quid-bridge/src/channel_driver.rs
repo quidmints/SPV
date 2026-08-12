@@ -889,25 +889,13 @@ pub async fn drive_splice<R: JsonRpc + Send + Sync + 'static>(
     // LP's coop-close payout to btcRecipientOf, so `delivered` stays invariant with NO
     // LN-balance leg (under B the LP has no LN node — the old keysend is obsolete). A
     // shrink grows nothing → settle 0.
-    let grew_by: u64 = new_total.saturating_sub(state.amount_sats).try_into().unwrap_or(u64::MAX);
-    let fee_settle_sats: u64 = if grew_by > 0 {
-        let vault = cfg.btc_vault;
-        let mut arg = [0u8; 32];
-        arg[12..].copy_from_slice(lp_eth.as_slice());
-        let rpc = rpc.clone();
-        let owed = tokio::task::spawn_blocking(move || {
-            crate::client::eth_call_raw(&*rpc, vault, "btcFeesOwedSats(address)", Some(&arg))
-                .and_then(|b| crate::client::word_to_uint::<u64>(&b, "btcFeesOwedSats exceeds u64"))
-        })
-        .await
-        .context("btcFeesOwedSats read join")?
-        .unwrap_or(0); // a read blip must NOT block the splice — just settle no fees this pass
-        owed.min(grew_by)
-    } else {
-        0
-    };
+    // ⛔ (E191) THE `fee_settle_sats` COMPUTATION IS DELETED — it was a per-splice RPC
+    // round-trip to a function that no longer exists. It read `Vault.btcFeesOwedSats(address)`,
+    // which §E145 DELETED (`Vault.sol:210`), swallowed the resulting revert with
+    // `.unwrap_or(0)`, and passed the zero to a `splice` parameter the contract explicitly
+    // ignored. Both halves failed quietly, so the waste was invisible from either side.
     // 6. Build + submit splice (channelId is the STABLE original). No lpAuth (B).
-    let calldata = encode_splice(cid, &params, &raw, &proof, fee_settle_sats);
+    let calldata = encode_splice(cid, &params, &raw, &proof);
     let ok = estimate_gas_and_send(&evm, &rpc, btc_channels, calldata, cfg.gas_limit).await?;
     if !ok {
         // A concurrent splice may have raced us in; re-read and treat the

@@ -199,7 +199,7 @@ contract VBtcLevFeeLane is Alles {
             fundingTaproot:     _taprootQ(lpPubkey, hopKey_)
         });
         vm.prank(makeAddr("hop"));
-        ch.splice(channelId, p, spliceTx, new bytes32[](0), 0);
+        ch.splice(channelId, p, spliceTx, new bytes32[](0));
     }
 
     // ── Cross-side SEAM coverage: distinct funding vs shutdown/payout keys + a real
@@ -267,7 +267,7 @@ contract VBtcLevFeeLane is Alles {
             _buildShrink(ch, cid, 77, lpPubkey, 15e6, 5e6, payoutScript, ftx);
         vm.prank(makeAddr("hop"));
         vm.expectRevert(BTCChannels.ForeignSpliceOutput.selector);
-        ch.splice(cid, p, tx_, new bytes32[](0), 0);
+        ch.splice(cid, p, tx_, new bytes32[](0));
     }
 
     function _shrinkExpectOk(BTCChannels ch, bytes32 cid, bytes32 ftx,
@@ -275,7 +275,7 @@ contract VBtcLevFeeLane is Alles {
         (Types.OpenParams memory p, bytes memory tx_) =
             _buildShrink(ch, cid, 77, lpPubkey, 15e6, 5e6, payoutScript, ftx);
         vm.prank(makeAddr("hop"));
-        ch.splice(cid, p, tx_, new bytes32[](0), 0);
+        ch.splice(cid, p, tx_, new bytes32[](0));
     }
 
     /// (E162) A SPLICE MAY RESIZE A CHANNEL; IT MAY NOT REKEY ONE.
@@ -305,7 +305,7 @@ contract VBtcLevFeeLane is Alles {
 
         vm.prank(makeAddr("hop"));
         vm.expectRevert(BTCChannels.ChannelKeysMismatch.selector);
-        ch.splice(cid, p, hex"00", new bytes32[](0), 0);
+        ch.splice(cid, p, hex"00", new bytes32[](0));
     }
 
     /// The companion: the SAME pair still splices. Without this the rejection above could be

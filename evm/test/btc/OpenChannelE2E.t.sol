@@ -270,7 +270,7 @@ contract OpenChannelE2ETest is Test, ExitFixture {
         });
         vm.prank(address(0xB0B));   // the delegated authority registered at open
         ch.splice(channelId, sp, vm.parseJsonBytes(json, ".splice.spliceRawTx"),
-                  vm.parseJsonBytes32Array(json, ".splice.spliceMerkleBranch"), 0);
+                  vm.parseJsonBytes32Array(json, ".splice.spliceMerkleBranch"));
 
         (uint afterSats, , , , , ) = ch.channels(channelId);
         assertEq(afterSats, vm.parseJsonUint(json, ".splice.newAmountSats"),

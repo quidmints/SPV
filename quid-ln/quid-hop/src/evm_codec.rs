@@ -78,7 +78,7 @@ pub const SIG_OPEN_CHANNEL: &str =
     "openChannel((bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32[],\
 (address,bytes32,bytes,bytes),(uint64[],bytes[],uint64,uint256,bytes)[])";
 pub const SIG_SPLICE: &str =
-    "splice(bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32[],uint256)";
+    "splice(bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32[])";
 pub const SIG_RECORD_CLOSE: &str =
     "recordClose(bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32,\
 bytes32[],uint256)";
@@ -752,7 +752,6 @@ pub fn encode_splice(
     params: &OpenParams,
     raw_splice_tx: &[u8],
     splice_merkle_proof: &[[u8; 32]],
-    fee_settle_sats: u64,
 ) -> Vec<u8> {
     encode_call(
         SIG_SPLICE,
@@ -761,7 +760,6 @@ pub fn encode_splice(
             Tok::Tuple(params.tokens()),
             Tok::Bytes(raw_splice_tx.to_vec()),
             Tok::FixedBytes32Array(splice_merkle_proof.to_vec()),
-            Tok::Uint(U256::from(fee_settle_sats)),
         ],
     )
 }
@@ -1259,7 +1257,7 @@ mod tests {
         );
         for proof_len in [0usize, 1, 12, 1000] {
             let proof = vec![[0xABu8; 32]; proof_len];
-            let sp = encode_splice([0xCDu8; 32], &p, &vec![0u8; 4096], &proof, 0);
+            let sp = encode_splice([0xCDu8; 32], &p, &vec![0u8; 4096], &proof);
             assert_eq!(&sp[..4], &sp_sel[..4]);
             assert_eq!(sp.len() % 32, 4);
         }
@@ -1281,7 +1279,7 @@ mod tests {
             funding_taproot: [0u8; 32],
         };
         assert_eq!(
-            hex_encode(&encode_splice([0u8; 32], &p, &[], &[], 0)[..4]),
+            hex_encode(&encode_splice([0u8; 32], &p, &[], &[])[..4]),
             hex_encode(
                 &keccak256(
                     SIG_SPLICE
@@ -1317,8 +1315,8 @@ mod tests {
 
     // splice calldata: arg0 is a STATIC bytes32 (channelId, inlined in the head);
     // args are (channelId static, params dynamic, raw dynamic, proof dynamic,
-    // feeSettleSats static) → head is 5 words, so word1 (the offset to the OpenParams
-    // tuple) = 0xA0 (5 × 32). (B) lpAuth dropped.
+    // (E191) head is now 4 words — `feeSettleSats` is DELETED — so word1 (the offset to the
+    // OpenParams tuple) = 0x80 (4 × 32). It was 0xA0 while the dead 5th word was carried.
     #[test]
     fn splice_calldata_layout() {
         let p = OpenParams {
@@ -1331,15 +1329,15 @@ mod tests {
             funding_taproot: [0u8; 32],
         };
         let cid = [0x7Au8; 32];
-        let cd = encode_splice(cid, &p, &[0xAAu8; 64], &[[0xBBu8; 32]], 0);
+        let cd = encode_splice(cid, &p, &[0xAAu8; 64], &[[0xBBu8; 32]]);
         // head word0 = channelId (static, inlined verbatim).
         assert_eq!(&cd[4..36], &cid);
-        // head word1 = offset to arg1 (the dynamic OpenParams tuple) = 0xA0: the head is
-        // 5 words (channelId, params-offset, raw-offset, proof-offset, feeSettleSats) so
-        // the first dynamic arg starts at 5 × 32.
+        // head word1 = offset to arg1 (the dynamic OpenParams tuple) = 0x80: the head is
+        // 4 words (channelId, params-offset, raw-offset, proof-offset). The dead
+        // `feeSettleSats` word that made this 0xA0 is gone (§E191).
         assert_eq!(
             hex_encode(&cd[36..68]),
-            "00000000000000000000000000000000000000000000000000000000000000a0",
+            "0000000000000000000000000000000000000000000000000000000000000080",
         );
     }
 
@@ -1521,7 +1519,7 @@ mod proptests {
             proof_len in 0usize..40,
         ) {
             let proof = vec![[0xABu8; 32]; proof_len];
-            let cd = encode_splice(cid, &p, &raw, &proof, 0);
+            let cd = encode_splice(cid, &p, &raw, &proof);
             prop_assert_eq!(&cd[..4], &keccak256(
                 SIG_SPLICE
             )[..4]);

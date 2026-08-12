@@ -374,7 +374,7 @@ contract BtcLpMintStress is Alles {
             fundingTaproot:     _taprootQ(lpPubkey, _hopKeyOf[channelId])
         });
         vm.prank(makeAddr("hop")); // splice is hop-gated (channel.hop pinned at open)
-        ch.splice(channelId, p, spliceTx, new bytes32[](0), 0);
+        ch.splice(channelId, p, spliceTx, new bytes32[](0));
     }
 
     /// spliceChannel grows the LP's BTC pool position + the channel's funded total
@@ -414,7 +414,7 @@ contract BtcLpMintStress is Alles {
             fundingTaproot: _taprootQ(lpPubkey, _hopKeyOf[channelId]) }); // same total = not growing
         vm.prank(makeAddr("hop"));
         vm.expectRevert(BTCChannels.SpliceUnchanged.selector);
-        ch.splice(channelId, p, spliceTx, new bytes32[](0), 0);
+        ch.splice(channelId, p, spliceTx, new bytes32[](0));
     }
 
     /// Build + submit a SPLICE-OUT (partial withdrawal) shrinking `channelId` to
@@ -445,7 +445,7 @@ contract BtcLpMintStress is Alles {
             fundingTaproot:     _taprootQ(lpPubkey, _hopKeyOf[channelId])
         });
         vm.prank(makeAddr("hop")); // splice is hop-gated (channel.hop pinned at open)
-        ch.splice(channelId, p, spliceTx, new bytes32[](0), 0);
+        ch.splice(channelId, p, spliceTx, new bytes32[](0));
     }
 
     /// splice (shrink) reduces the LP's BTC pool position + the channel's funded total

@@ -905,8 +905,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         bytes32 channelId,
         Types.OpenParams calldata p,
         bytes calldata rawSpliceTx,
-        bytes32[] calldata spliceMerkleProof,
-        uint feeSettleSats            // BTC-leg fees the hop is FUNDING into this grow-splice (compounds into the LP)
+        bytes32[] calldata spliceMerkleProof
     ) external nonReentrant whenOpen(channelId) {
         _onlyHop();
         // (B) Authorization. ⚠️ UPDATED 2026-08-07 (E122), AGAIN 2026-08-10 (E156): this said
@@ -947,19 +946,16 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // line added "and the hop keysends the same sats onto the LP's LN balance off-chain" — that leg is
         // OBSOLETE under delegation, where the LP runs no LN node.) `<= grewBy` ⇒ it
         // can only settle fees it actually spliced in (no theft); the Vault clamps to the real owed (no over-settle).
-        // (E145) `feeSettleSats` IS NOW A NO-OP AND THE CALL BEHIND IT IS GONE.
-        // The BTC-leg fee compounds into `LP.pooled` in sats as it is earned, so there is no
-        // owed ledger for a hop to settle — `Vault.settleBtcFeesOwed` was deleted with it.
-        // ⚠️ THE PARAMETER IS RETAINED DELIBERATELY: `quid-bridge/channel_driver.rs:847` builds
-        //    splice calldata carrying `fee_settle_sats`, so removing it is a CROSS-REPO change
-        //    and must land in one commit with the Rust side. Accepting-and-ignoring keeps the
-        //    ABI stable meanwhile.
-        // ⚠️ THIS WAS A LIVE DEFECT FOR ONE COMMIT: the call survived my deletion because
-        //    `btcVault` is typed as an INTERFACE that still declared the function, so it
-        //    compiled clean and would have reverted at RUNTIME on any splice with
-        //    `feeSettleSats > 0`. A deleted implementation does not break a call routed
-        //    through an interface — the compiler cannot see the gap.
-        feeSettleSats;   // accepted, ignored (see above)
+        // ⛔ (E191) `feeSettleSats` IS DELETED. It was accepted-and-ignored since §E145, kept
+        // only for ABI stability with the Rust driver — and the note here said the removal
+        // "must land in one commit with the Rust side", which this is.
+        //
+        // 🔴 IT WAS WORSE THAN DEAD WEIGHT: `channel_driver.rs` computed it by RPC-reading
+        // `Vault.btcFeesOwedSats(address)` on EVERY splice — a function §E145 DELETED
+        // (`Vault.sol:210`). So each splice made a round-trip to a nonexistent selector,
+        // swallowed the revert with `.unwrap_or(0)`, and passed the zero to a parameter the
+        // contract discarded. A dead read feeding a dead argument, invisible because both
+        // halves failed quietly.
     }
 
     /// @dev Splice body in its own frame: SPV-verify the splice tx (spends THIS
