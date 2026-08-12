@@ -30,8 +30,18 @@ library BitcoinTx {
     // ─── VarInt ────────────────────────────────────────────────────────
 
     /// @dev Read a Bitcoin VarInt at `offset`. Returns (value, bytesConsumed).
+    /// ⚠️ (E140) `private`, NOT `internal` — MEASURED, not assumed. §E140 expected a
+    /// "duplicated `BitcoinTx` surface" to delete once `TxParser` took over witness
+    /// parsing. Counting real callers says otherwise: **every other function here has at
+    /// least one live use**, so there is no dead surface to subtract. `readVarInt` was the
+    /// only one used purely INTERNALLY (13 call sites in this file, zero outside), so the
+    /// whole available subtraction is this visibility tightening.
+    /// ⇒ §E140 is CLOSED BY MEASUREMENT: the two parsers are not redundant. `TxParser`
+    /// reads witness-carrying txs (which `_assertLegacy` rejects outright), and §E140-r2
+    /// already established that outpoint logic must NOT move, because `TxParser`'s
+    /// `previousHash` is byte-REVERSED relative to our `txid`.
     function readVarInt(bytes calldata raw, uint offset)
-        internal pure returns (uint value, uint consumed)
+        private pure returns (uint value, uint consumed)
     {
         if (offset >= raw.length) revert TruncatedTx();
         uint8 first = uint8(raw[offset]);
