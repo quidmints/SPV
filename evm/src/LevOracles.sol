@@ -41,36 +41,24 @@ contract RealRateBtcMorphoOracle {
     }
 }
 
-/// @notice INVERSE Morpho oracle for the BTC down-side SHORT market {collateral: USDC (6-dec), loan: WBTC (8-dec)}.
-///   Morpho wants `collateralAmount(6d) · price / 1e36 = loanValue in WBTC-raw`. With `twap = getTWAPforAsset(WBTC)`
-///   (USD18 per 1e18-raw, WBTC-lifted ×1e10 ⇒ plain USD/WBTC = twap/1e28): 1 USDC-raw (1e6) = 1e36/twap WBTC-raw
-///   ⇒ price = 1e66 / twap. (Sanity: BTC=$60k ⇒ twap=6e32 ⇒ $1 = 1.67e-5 WBTC. ✓) Fork-proven in
-///   test/VBtcLevFeeLane.t.sol.
-contract InverseRateBtcMorphoOracle {
-    address public immutable AUX;
-    address public immutable WBTC;
-    constructor(address aux, address wbtc) { AUX = aux; WBTC = wbtc; }
-    function price() external view returns (uint256) {
-        uint256 twap = IAux(AUX).getTWAPforAsset(WBTC, 1800);
-        if (twap == 0) revert NoPrice();   // would PANIC (div-by-zero) and freeze the market opaquely
-        return 1e66 / twap;
-    }
-}
-
-/// @notice INVERSE Morpho IOracle for the ETH SHORT leg's market {collateral: USDC (6-dec), loan: WETH (18-dec)}.
-///   `price()` = collateral→loan, 1e36-scaled: `collateral·price/1e36` = loan units ⇒ for 1 USDC (=$1) that is
-///   `1e18/ethUsd` wei, so `price = 1e48/ethUsd = 1e56/p` (p = the real Chainlink ETH/USD, 8-dec — the same
-///   anchor AUX pins for WETH, so the short's Morpho health and the manager's sizing move together).
-///   Fork-proven in test/LevYbReal.t.sol (testReal_Bidirectional_ShortClose).
-contract InverseRateMorphoOracle {
-    IChainlinkFeed public immutable ETH_USD;
-    constructor(address ethUsd) { ETH_USD = IChainlinkFeed(ethUsd); }
-    function price() external view returns (uint256) {
-        (, int256 p,,,) = ETH_USD.latestRoundData();
-        // `p <= 0` is the real hazard, not just `p == 0`: Chainlink returns int256, and `uint256(p)` on
-        // a NEGATIVE answer wraps to ~2^256, driving price to ~0 — the mass-liquidation case — while
-        // `p == 0` panics. One check covers both.
-        if (p <= 0) revert NoPrice();
-        return 1e56 / uint256(p);
-    }
-}
+// ⛔ (E189) THE TWO **INVERSE** (SHORT-LEG) ORACLES ARE DELETED — `InverseRateBtcMorphoOracle`
+// and `InverseRateMorphoOracle`. Both served the SHORT leg, which is gone (CLAUDE.md lists it
+// among the removed mechanisms), and neither was referenced anywhere in `src/` or `script/` —
+// only `RealRateBtcMorphoOracle` is deployed (`DeployL1_s.sol:41`). Standing rule 1: no
+// unreachable code.
+//
+// 🔑 AND THIS REMOVES THE LAST ETH/USD CHAINLINK DEPENDENCY IN THE PROTOCOL. `InverseRateMorphoOracle`
+// was the only live-looking consumer of an ETH/USD feed, and it was wiring nothing. What
+// remains is exactly the intended posture (owner, 2026-08-12):
+//
+//   • the two volatile legs relate to each other through ONE BTC↔ETH relation — never through
+//     two USD legs, which would compound two independent oracle errors into the one ratio that
+//     actually matters, and would double-count dollar risk;
+//   • the DOLLAR side comes from the basket itself, whose peg is already monitored by
+//     `FeeLib.liveDepegBps` — a CIRCUIT BREAKER, not a price source, which defers on a stale
+//     feed rather than inflicting a haircut;
+//   • so Chainlink is never asked "what is ETH worth" — only "is the dollar still a dollar".
+//
+// ⚠️ Morpho adapters are the one place a USD leg can be forced on us: a market pairing USDC
+// against WETH demands a collateral→loan price in ITS terms. That is a property of the external
+// venue, not of our design, and it must not leak back into internal pricing.
