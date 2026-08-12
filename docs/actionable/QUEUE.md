@@ -12151,3 +12151,30 @@ pooled state — **they do not route through σ² and do not inherit this artifa
 between tickets (finer than the sampling grid) so the ring actually records the drain path, then
 re-run BOTH the history gap and the level test. **Until then σ²'s side of every comparison is
 under-measured, and the register's advantage is UNQUANTIFIED rather than proven.**
+
+### ✅✅ SIGMA-REMOVE-P1-REVALIDATED — with the ring recording the path, the register's advantage HOLDS: **1.100× vs σ²'s 2.632×**.
+
+**§SIGMA-CEILING-EXPLAINED's fix applied — `vm.roll`+`vm.warp` between tickets so the ring stores
+distinct observations, with BOTH ARMS ADVANCING THE SAME TOTAL SPAN (12×150s) so `spanSecs` cannot
+move σ² for the wrong reason.**
+| estimator | same-block (artifact-prone) | **block-advancing** |
+|---|---|---|
+| σ² | 2.340× | **2.632×** |
+| trade-based | 12.000× | **12.000×** |
+| in-test trapezoid | 1.025× | **1.025×** |
+| **on-chain register** | 1.106× | **1.100×** |
+✅ **The register is UNMOVED (1.106 → 1.100); σ² got WORSE (2.340 → 2.632).** The retraction in
+§SIGMA-REMOVE-P1-COMPLETE-RETRACTED was right to demand this, and the result survived it.
+📌 **The whale's σ² is BIT-IDENTICAL across both runs** (24,581,632,639,652) — correct, since the warp
+adds no swaps and therefore no observations. **Only the split moved** (1.050e13 → 9.34e12), as twelve
+tickets finally wrote twelve distinct observations instead of collapsing into one timestamp.
+
+🔴 **AND THIS IS THE STRUCTURAL POINT, NOW ISOLATED: σ²'s HISTORY-DEPENDENCE IS INHERENT TO
+OBSERVATION COUNT, NOT A FIXTURE ARTIFACT.** One swap writes ONE observation; twelve write TWELVE. A
+second-moment statistic over `n` samples cannot be invariant to `n`. ⇒ **No sourcing change, no
+window, and no calibration constant fixes it — only replacing the KIND of input does**
+(§SIGMA-REMOVE). **The fixture merely EXAGGERATED it; removing the artifact left it larger, not
+smaller.**
+▶️ **STILL OWED BEFORE PHASE 2 STEP 2 — one item, unchanged:** §SIGMA-REMOVE-RESCOPED risk 2, REAL
+run-to-run noise (same partition, varied sizes/timings). **The earlier "level spread" was the history
+gap relabelled and does NOT count** (§SIGMA-REMOVE-P1-COMPLETE-RETRACTED). **This is now the ONLY gate.**

@@ -1498,6 +1498,11 @@ contract DrainAtomicity is Alles {
         _setupBand(); _pinFlow(380_432_109_336);
         A.chain = CORE.realizedLossUsd(false);
         { uint i0 = CORE.POOLED_ETH(); uint p0 = _bandPx(); _drain(TOTAL); _accrue(A, TOTAL, i0, p0); }
+        // §SIGMA-CEILING-EXPLAINED — the ring is keyed on TIMESTAMPS and stores at most one
+        // observation per timestamp, so same-block drains leave it dominated by `_setupBand`.
+        // Advance the block so the ring records THIS path. Both arms advance the SAME TOTAL span
+        // (12 x 150s), else `spanSecs` differs and sigma^2 moves for that reason alone.
+        vm.roll(block.number + 12); vm.warp(block.timestamp + 12 * 150);
         A.chain = CORE.realizedLossUsd(false) - A.chain;
         A.s2 = CORE.realizedVarianceWad(false);
 
@@ -1509,6 +1514,7 @@ contract DrainAtomicity is Alles {
             uint i0 = CORE.POOLED_ETH(); uint p0 = _bandPx();
             _drain(TOTAL / 12);
             _accrue(B, TOTAL / 12, i0, p0);
+            vm.roll(block.number + 1); vm.warp(block.timestamp + 150);   // same total span as arm A
         }
         B.chain = CORE.realizedLossUsd(false) - B.chain;
         B.s2 = CORE.realizedVarianceWad(false);
