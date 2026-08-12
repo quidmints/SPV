@@ -10064,3 +10064,47 @@ is not a price move.**
 ⇒ **The reuse conclusion HOLDS** — the sampling, time-normalisation and ring already exist and no on-chain
 surface is needed. **The access method changes from `eth_call` to `eth_getStorageAt`, and it carries a
 layout-pinning obligation the original entry did not mention.**
+
+
+### ⛔ MY REGIME DESIGN IS REFUTED BY `isbtc-fold` — SYNC BEFORE BUILDING ANYTHING
+
+**Thread sync 2026-08-12.** `isbtc-fold` is **128 commits ahead of `origin/main`** and has already solved
+the problem my path/net design was aimed at. **Read it before touching this area.**
+
+🔴 **THE REFUTATION IS DIRECT.** `9268ceb`:
+> *"**Absolute differences are total variation and grow with sample count**, which is shape-dependence in
+> a third costume and the same trap as the 12x one. **Signed differences telescope to the endpoint
+> difference regardless of sample count**, and signed is the correct quantity anyway since LVR is a net
+> P&L against holding rather than a sum of absolute moves."*
+⇒ My proposed `path = Σ|Δrate[i]|` **IS** total variation. Named, measured, rejected.
+
+🔴 **AND THE ROOT CAUSE KILLS THE RING AS A PATH SOURCE.** `dc15478`:
+> *"the variance's history-dependence is **inherent to observation count** rather than a fixture artifact,
+> since one swap writes one observation and twelve write twelve, and a second-moment statistic over n
+> samples cannot be invariant to n. **No sourcing change, window or calibration constant fixes that; only
+> replacing the kind of input does.**"*
+⇒ **The ring's sampling is ENDOGENOUS TO TRADE FREQUENCY.** Twelve small swaps and one large swap over the
+SAME price path give twelve vs one increment. A path metric over that measures **trade frequency wearing
+the costume of churn** — precisely the choppy/trending confusion it was meant to resolve.
+
+✅ **THE REPLACEMENT ALREADY EXISTS AND IS MEASURED: the REGISTER.**
+`d90c3fd` — *"the register's level is **3.8x more stable** than the variance's"* ·
+`1ae947c` — *"run-to-run noise is **1.006x for the register, 1.084x for the variance**"* ·
+`9268ceb` — accrues **only the exogenous gap** (sample at each swap's END, accrue at the NEXT swap's
+START, before its impact lands — so the swapper's own curve impact is not charged twice) and accrues
+**signed**.
+
+⇒ **AND IT MAY MAKE A REGIME PROXY UNNECESSARY.** The register measures **realized adverse selection /
+LVR directly** — which is the lever's actual cost. The whole point of a path/net ratio was to INFER
+whether churn was eating the lever; the register **measures that P&L** instead of inferring it from shape.
+**Prefer the measurement over the proxy.**
+
+▶️ **ACTION: do NOT build the path ratio.** Read `isbtc-fold` (`9268ceb`, `dc15478`, `d90c3fd`, `1ae947c`,
+`1d08afe`, `2592b63`) and derive the opt-in signal from the register. ⚠️ One gate was still open at
+`dc15478`: *"real run-to-run noise under the same partition"* — `1ae947c` appears to close it at 1.006x,
+but confirm the ordering before relying on it.
+
+⚠️ **PROCESS NOTE — THIS IS WHY THE SYNC MATTERS.** I specified, corrected, and re-corrected a design over
+several turns while a 128-commit branch had already refuted its core assumption. **Nothing in `main` or in
+this worktree pointed at that branch.** Check `git worktree list` and branches ahead of main BEFORE
+designing in an area, not after.
