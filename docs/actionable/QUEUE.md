@@ -13060,3 +13060,36 @@ DIRECTION was right and the MAGNITUDE was 6× off. That entry is corrected by §
 both options priced rather than choosing.** ⚠️ **AND IT OUTRANKS THE SKEW WORK ON SEVERITY** — the skew
 is a calibration question on a term worth 0.0116% of a swapper's bill; this is live over-issuance on
 every mint.
+
+### 🔴 SKEW-NOT-FINISHED-AND-NET-ADDED — audit: I added **6 slots + per-swap gas**, wired to NOTHING, and removed no tick machinery.
+
+**Owner asked whether the skew work is finished with unneeded data structures taken out. AUDITED, and
+the answer runs the other way.**
+| | state |
+|---|---|
+| `_lossBTC/_lossETH`, `_gainBTC/_gainETH`, `_pendBTC/_pendETH` | **6 slots ADDED to `Core`, committed** |
+| `_flowSlowBTC/ETH` | **REPURPOSED, not freed** — the "removal" was a rename |
+| wired to pricing? | ⛔ **NO.** `realizedVarianceWad` still returns the RING |
+| cost | **accrues on EVERY swap** (LVR algebra + signed branch + `_bumpEwma` + pending write) |
+| read by | **tests only** |
+| tick machinery | ✅ **fully intact** — 16 `tickCumulative` refs in `OracleLib`, `ringVariance` live |
+⇒ **LIVE GAS ON THE MONEY PATH BUYING NOTHING**, and `Core` sits at **148 free** partly because of it.
+
+⛔ **AND THE REGISTER MEASURES THE VARIABLE THAT IS BEING REPLACED.** §ARCH-VARIANCE-VARIABLE moves to
+the **REALIZED EXECUTION PRICE** (`usdIn/tokOut`, bounded by construction); the committed register
+uses `_bandPxWad = POOLED_USD/inv`, **the composition ratio that DIVERGES**
+(§SIGMA-REMOVE-P2-CALIBRATION-MEASURED: 439,492% at 900 bps). ⇒ **It will be rebuilt, not tuned.**
+
+▶️ **RECOMMENDATION — REMOVE IT, and this is rule 1 (no unreachable code) applied to my own work:**
+delete `_loss*`/`_gain*`/`_pend*`, `_accrueRealizedLoss`, `_bandPxWad`, `realizedLossUsd`,
+`realizedLossGross`, and the `_bumpFlow` hook. **Frees 6 slots, ~450 bytes, and per-swap gas.**
+✅ **NOTHING IS LOST:** the Phase-1 RESULTS are measured and booked (history gap 1.100× / LVR 1.692× ·
+noise 1.006× · units 0.991 · one accrual per swap · the 12.000× and 439,492% refutations), and the
+SIX INSTRUMENTS test behaviour so they port. **The knowledge is in the queue; only the superseded
+implementation would go.**
+⚠️ **It is a money-path change** (removes an accrual from `_bumpFlow`) ⇒ **clean-worktree verification
+before it lands**, and it must NOT be bundled with anything else (rule 10).
+📌 **AND THE HONEST HEADLINE: THE SKEW IS NOT FINISHED.** Open: §UNIT-B calibration · §UNIT-FORELLA ·
+§E83 · §UNIT-C-BAR arm B · §SKEW-BTC-SYMMETRY · the whole §ARCH rebuild. **What IS closed:
+§UNIT-B-VERIFIED (counter honest to 0.007%), §UNIT-A (landed), §E42 (premium leak), and the six
+instruments.**
