@@ -1553,7 +1553,14 @@ contract DrainAtomicity is Alles {
         // and the diff is exact rather than approximate.
         emit log_named_uint("ONCHAIN     whale  ", A.chain);
         emit log_named_uint("ONCHAIN     split  ", B.chain);
-        emit log_named_uint("gap x1000 ONCHAIN  ", B.chain == 0 ? 0 : A.chain * 1000 / B.chain);
+        emit log_named_uint("gap x1000 ONCHAIN  ", B.chain == 0 ? 0 : A.chain * 1000 / B.chain);   // 0 when the net floors
+        // §SIGMA-REMOVE-SOLVED-② — SIGNED. The prediction: in a fixture with NO exogenous price
+        // process, every move present was CAUSED by a swapper who paid for it, so the NET should
+        // collapse against the GROSS. A non-trivial net means the signing is wrong.
+        { (uint ls, uint gs) = CORE.realizedLossGross(false);
+          emit log_named_uint("gross LOSS side    ", ls);
+          emit log_named_uint("gross GAIN side    ", gs);
+          emit log_named_uint("NET (loss - gain)  ", CORE.realizedLossUsd(false)); }
         // THE ACCEPTANCE CRITERION: the CONTRACT's register must inherit the estimator's
         // history-independence. If mid-swap sampling broke the telescoping this will not hold, which
         // would refute the IMPLEMENTATION while leaving the ESTIMATOR (1.025x in-test) sound.

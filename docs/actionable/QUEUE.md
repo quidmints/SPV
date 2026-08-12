@@ -12341,3 +12341,36 @@ paid for it. **A non-trivial reading means the netting is wrong, not that the ma
 | id | state |
 |---|---|
 | **E183-secp256k1-six** | 🔴 **THE SIX secp256k1 ITEMS, CHECKED IN THE CODE. TWO ARE NOT DONE, AND I HAD REPORTED ONE OF THEM WRONG** (owner: *"there were six total items for secp256k1, are you sure all of them are done?"*). The enumeration lives in §E138's row. **(2) §E129 SPLICE `Q` ✅** — `MuSig2Agg.computeOutputKey` at `BTCChannels.sol:1290`, alongside `:1119` for the open. **(3) §E128 EXIT-TX SIGNATURE ✅** · **(4) §E130/§E131 CURVE VALIDITY ✅** · **(5) §E138 PROOF-OF-POSSESSION ✅**. ❌ **(1) "DELETE DELEGATION" IS NOT DONE, AND §E157 IS NOT IT.** The stated goal was: prove `Q == KeyAgg(lpPubkey, hopPubkey)` ⇒ `lpPubkey` is proven ⇒ **`lpEth` is DERIVABLE from it** ⇒ **the LP signs NOTHING on the EVM.** What landed (§E157) deleted the delegation **TRANSACTION** and moved consent into `OpenAuth` — but `BTCChannels.sol:818` still runs `SignatureChecker.isValidSignatureNow(lpEth, openAuthDigest(...), auth.lpSig)`. **The LP still signs.** I recorded §E157 as satisfying this and it does not; the KeyAgg proof now makes the signature genuinely redundant *if* the LP's funding key is its EVM key, which is the assumption the item rests on and which must be settled before deleting `lpSig`. 🔴 **(6) §E159 SWAP-IN DEPOSIT DERIVATION — BOTH HALVES ARE BUILT AND THEY ARE MUTUALLY INCOMPATIBLE. I told the owner "the Rust half is not done"; that was WRONG and the truth is worse, because it LOOKS done from either side.** **Contract:** `BTC_DEPOSIT_KEY` is `immutable`, pinned at construction, and `settleSwapInProven` derives the address as `TapTweak(BTC_DEPOSIT_KEY, leaf(userRefund, cltvHeight))` — its own doc says *"the swap's own CLTV refund leaf supplies per-swap uniqueness"* (`:1510`, `:1549`). **Rust:** `swap_in_onchain.rs:259-280` derives a **PER-SWAP INTERNAL KEY** at `m/70'/swap_index'` and uses `hop_x` as the taproot internal key. ⇒ **The two disagree about WHERE per-swap uniqueness lives** — leaf-only vs internal-key — so a deposit address the Rust generates is not the address the contract recomputes, and `verifySwapInDeposit` would revert `DepositNotPaid` on every real deposit. ⚠️ **AND THE CONTRADICTION IS STRUCTURAL, NOT A TYPO:** §E166 item 2 specified the Rust path as *"both levels hardened and therefore underivable from any xpub"* — **hardened ⇒ no xpub can derive it ⇒ the CONTRACT cannot recompute it ⇒ it would have to be TOLD the key ⇒ hop-chosen ⇒ the phantom hole reopens.** Hardened per-swap derivation and on-chain pinning cannot both hold. **Pick one before writing any more code on this path:** either the contract's fixed pinned key with leaf-only uniqueness (Rust changes), or a per-swap key the contract can verify without trusting the hop (needs a different derivation than hardened). |
+
+### ⛔⛔⛔ SIGMA-REMOVE-SIGNED-REFUTED — the estimator measures P&L ON INVENTORY, not the SHORTFALL VS HOLDING. LVR is a DIFFERENCE of two portfolios.
+
+**Made the register SIGNED (gain/loss split, since a `uint` EWMA cannot go down) and the result
+refutes the construction, not the sign convention:**
+| side | value |
+|---|---|
+| gross LOSS | 356,496,773,146 |
+| **gross GAIN** | **1,040,440,320,184** |
+| **NET** | **0 — floored; the band reads NET AHEAD by ~3×** |
+
+🔴 **THE DEFECT IS CONCEPTUAL, AND IT INVALIDATES THE WHOLE `inv·Δp` FAMILY:**
+`Σ inv̄·Δp` is the **mark-to-market P&L ON INVENTORY HELD** — price rises, the holder gains. **But LVR
+is the SHORTFALL VERSUS HOLDING.** A `_drain` makes the band **GIVE ETH and RECEIVE USD as the price
+RISES** — it **sells the appreciating asset**, capturing LESS of the rise than a HODLer. ⇒ **The loss
+is a DIFFERENCE BETWEEN TWO PORTFOLIOS (rebalancing vs HODL), and this estimator only ever tracked
+ONE of them.** Its "gain" is real — and irrelevant, because the counterfactual gained MORE.
+⇒ **NO SIGN CONVENTION, NETTING, OR SCALING FIXES THIS.** §SIGMA-REMOVE-SOLVED-②'s net-of-earnings
+route does not either: netting a wrong quantity against earnings still leaves a wrong quantity.
+
+✅ **WHAT SURVIVES, AND IT IS NOT NOTHING:**
+- **The PATH-INDEPENDENCE result stands** (register 1.100× vs σ² 2.632×; noise 1.006× vs 1.084×).
+  **A decaying SUM cannot encode flow SHAPE and a SECOND DIFFERENCE must** — that argument never
+  depended on WHICH quantity is summed, only that it is summed. **§SIGMA-REMOVE's core claim is
+  unharmed; its candidate implementation is refuted.**
+- **The infrastructure is right**: one accrual per swap, correct units (0.991), a pending record, a
+  decaying sum, and now a signed pair. **Only the SUMMAND is wrong.**
+▶️ **THE CORRECT SUMMAND — and it is standard LVR, computable from state already tracked:**
+`LVR = (value of the HODL basket) − (value of the band)`, accrued per interval. The HODL leg needs
+the composition at the interval's START marked at its END price: `inv₀·p₁ + usd₀` vs `inv₁·p₁ + usd₁`.
+**Both legs are already in `POOLED_*`; the pending record already holds `(inv₀, p₀)` and needs `usd₀`
+added — one more field, no new slot** (`Pend` is `uint128+uint128`; `usd6` fits a `uint96` beside a
+packed price). ⚠️ **Verify by measurement, not by this derivation — three estimators have now died.**

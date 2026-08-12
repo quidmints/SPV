@@ -208,6 +208,13 @@ contract Core is SafeCallback {
     ///         gated on the estimator's own variance being measured.
     Flow private _lossBTC;
     Flow private _lossETH;
+    /// @notice §SIGMA-REMOVE-SOLVED-② — the GAIN side. The register must accrue SIGNED: `|Δp|` is
+    ///         TOTAL VARIATION and grows with sample count (shape-dependence in a third costume, the
+    ///         same trap as the 12x trade-based proxy), whereas signed `Δp` TELESCOPES to
+    ///         `p_end − p_start` regardless of sampling. A `uint` EWMA cannot go down, so the two
+    ///         directions are accrued separately and NETTED at read.
+    Flow private _gainBTC;
+    Flow private _gainETH;
     struct Pend { uint128 inv; uint128 px; }
     Pend private _pendBTC;
     Pend private _pendETH;
@@ -272,9 +279,11 @@ contract Core is SafeCallback {
         uint inv = isBTC ? POOLED_BTC : POOLED_ETH;
         uint px  = _bandPxWad(isBTC);
         if (p.px != 0 && px != 0) {
-            uint dp = px > p.px ? px - p.px : uint(p.px) - px;
-            // (inv̄ · |Δpx|) / 1e18 ⇒ usd18, then /1e12 ⇒ usd6, matching the flow register's basis.
-            _bumpEwma(isBTC ? _lossBTC : _lossETH,
+            // SIGNED: price DOWN while holding volatile ⇒ loss; price UP ⇒ gain. Accrued to separate
+            // registers because the EWMA is `uint`; netted in `realizedLossUsd`.
+            bool down = px < p.px;
+            uint dp = down ? uint(p.px) - px : px - uint(p.px);
+            _bumpEwma(down ? (isBTC ? _lossBTC : _lossETH) : (isBTC ? _gainBTC : _gainETH),
                 Math.mulDiv((uint(p.inv) + inv) / 2, dp, 1e30));
         }
         p.inv = uint128(inv); p.px = uint128(px);
@@ -282,8 +291,21 @@ contract Core is SafeCallback {
 
     /// @notice The realized adverse-selection register (6-dec USD, decayed). Phase-1 measurement
     ///         surface: read it alongside `realizedVarianceWad` to compare the two inputs.
+    /// @notice NET realized adverse selection (6-dec USD, decayed): losses minus gains. Floors at 0
+    ///         — a band that is net AHEAD has suffered no adverse selection to charge for.
+    ///         ⚠️ STILL GROSS OF EARNINGS: the swapper's OWN price impact is not an uncompensated
+    ///         loss (they paid for it through the fee and the skew), so the consumer must net this
+    ///         against `_bandFeeYieldWad` before using it as a steepness input
+    ///         (§SIGMA-REMOVE-SOLVED-②). NOT WIRED TO PRICING.
     function realizedLossUsd(bool isBTC) external view returns (uint) {
-        return _decayed(isBTC ? _lossBTC : _lossETH);
+        uint l = _decayed(isBTC ? _lossBTC : _lossETH);
+        uint g = _decayed(isBTC ? _gainBTC : _gainETH);
+        return l > g ? l - g : 0;
+    }
+
+    /// @notice The two sides separately — measurement surface for §SIGMA-REMOVE Phase 1.
+    function realizedLossGross(bool isBTC) external view returns (uint lossSide, uint gainSide) {
+        return (_decayed(isBTC ? _lossBTC : _lossETH), _decayed(isBTC ? _gainBTC : _gainETH));
     }
 
     /// @notice This pool's decayed swap-flow EWMA (6-dec USD) — the adaptive
