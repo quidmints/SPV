@@ -12576,3 +12576,33 @@ oracle/TWAP) so ① cannot fire — **this is a correctness fix, not a tuning kn
 re-derive the window: **`LOSS_WINDOW_YEARS_WAD` (7.911e-3, from 48h/ln2) is the prime suspect for the
 ~15×**, and §E83's censored duration is the principled source for it.
 ⚠️ **DO NOT divide by 15 to make the fixture fit** (rule 4). **Fix ① first — it may move ③ on its own.**
+
+### 🔴 SIGMA-REMOVE-P2-DIVERGENCE-FIX — the fix is a BOUNDED `p₁`, and `Core` has 148 bytes. Blocked on byte recovery, not on design.
+
+**The divergence (§SIGMA-REMOVE-P2-CALIBRATION-MEASURED ①) is localised to ONE term, and rewriting the
+identity shows it:**
+```
+LVR = (inv₀ − inv₁)·p₁ + (usd₀ − usd₁)
+    = (inv₀ − inv₁)·(p₁ − p_exec),   where p_exec = (usd₁ − usd₀)/(inv₀ − inv₁)
+```
+⇒ **`p_exec` IS BOUNDED BY CONSTRUCTION** — a ratio of amounts ACTUALLY EXCHANGED. **Only `p₁` blows
+up**, because `_bandPxWad = POOLED_USD/inv → ∞` as `inv → 0`. ⇒ **The estimator's structure is sound;
+one input is unbounded.**
+
+▶️ **THE PRINCIPLED FIX — source `p₁` from a BOUNDED price, not the composition ratio:**
+- ✅ **The RING's tick.** `Core` already holds it (`_obs`/`_obsState`), and a tick is an `int24` — it
+  **cannot diverge**. This is the same series the TWAP and σ² read (§SKEW-HOLISTIC-RESOLVED), so it is
+  consistent with everything else the band prices on.
+- ⛔ **NOT a clamp on `_bandPxWad`.** Rule 3: attack the cause. A ceiling on a diverging ratio hides
+  the invalid measurement instead of not making it.
+- ⛔ **NOT `Aux.getTWAPforAsset`** — a cross-contract call on the swap path.
+🛑 **BLOCKED ON BYTES, NOT DESIGN: tick→price needs `TickMath`, and `Core` has 148 free.** The
+substitution itself needs ~120 of those (§SIGMA-REMOVE-P2-FITS-BUT-SATURATES landed at 25 free).
+▶️ **SO THE ORDER IS: RECOVER BYTES FIRST.** The one route with a measured precedent is **CLAUDE.md 8c**
+— `_onlyUs` returned **907 bytes** from ONE modifier at 18 sites. **`Core`'s remaining modifiers have
+never been enumerated** (§CORE-ONLYUS booked "measure the siblings" and it is still open). ⚠️ The
+LIBRARY route is REFUTED for this shape (§SIGMA-REMOVE-P2-LIBRARY-ROUTE-REFUTED: +81 bytes).
+📌 **AND NOTE WHAT THIS MEANS FOR THE 15× GAP:** every reading that included a large swap was inflated
+by the divergence, so **fixing `p₁` may move the calibration on its own** — §SIGMA-REMOVE-P2-
+CALIBRATION-MEASURED's ~15× is an UPPER bound on the real error, not an estimate of it. **Do not
+re-derive `LOSS_WINDOW_YEARS_WAD` until `p₁` is bounded.**
