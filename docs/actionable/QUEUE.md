@@ -12122,3 +12122,32 @@ stands.** ⚠️ **But PHASE 2 STEP 2 IS RE-GATED** on (a) real run-to-run noise
 | id | state |
 |---|---|
 | **E175-a** | ✅ **THE SECURITY CORE OF THE LP-HOSTED SPLIT IS LANDED — the fleet can no longer arm the LP funding half, and that is COMPILER-ENFORCED** (owner: *"LP-hosted always-on, do it"*). 🔑 **THE WHOLE PROPERTY LIVED IN ONE PLACE.** `run_deadman_exit_heartbeat` was the ONLY code that armed the hop signer **and** the vault signer in one process and called `presign_deadman_exit` with the pair — i.e. the literal expression of *"the fleet holds both halves"* (`quid-bridge/src/deadman_exit.rs:7-8`). Its `vault` parameter is now **`Option<Arc<VaultNode>>`**, and `None` disables the heartbeat outright. ⚠️ **`None` IS NOT A FLAG A COMPROMISED FLEET CAN FLIP — it is the absence of a seed the fleet never had.** In the LP-hosted deployment the vault node runs on the LP's own always-on box with the LP's own seed, so there is nothing to pass. 🔑 **AND THIS IS WHY §E165 AND THIS LAND TOGETHER:** remove the heartbeat WITHOUT the pre-signed ladder and channels have no escape at all; keep the heartbeat and the fleet still holds both halves. The ladder armed at `openChannel` is what makes the heartbeat removable. ⇒ **`build_exit_call` demands `&VaultNode` BY TYPE**, so an exit cannot be built without one, wherever the code sits. 🔴 **MUTATION-VERIFIED, AND THE RESULT IS STRONGER THAN A FAILING TEST: reverting the signature to `Arc<VaultNode>` does not fail a test, it FAILS TO COMPILE** (2× `E0308`). The split is enforced by the type system, not by a runtime check. ⚠️ **TWO ERRORS THE TEST ITSELF CAUGHT, both worth keeping:** (1) my first assertion compared SOURCE POSITIONS (`arm_signer` must appear after the guard) — wrong, because `arm_signer` lives in `build_exit_call`, *defined earlier in the file*; **file order is not reachability**, and the type is what makes it unreachable. (2) the test reads the file it lives in, so its own quoted patterns matched and it reported a violation that did not exist — the search is now truncated at the test module. ▶️ **WHAT REMAINS IS DEPLOYMENT, NOT SECURITY:** the vault's other four uses in `daemon.rs` (registry → lpEth resolution, swap-out splice source, hop reconnect, driver handle) are FUNCTIONAL — in a split deployment they move to the LP's process. Standing those up is a vault-only binary/mode + LP seed provisioning; none of it re-creates the capability removed here. **Workspace 662 passed / 0 failed · ABI gate 0 drifted both sides.** |
+
+### 🔬 SIGMA-CEILING-EXPLAINED — there is NO cap in `ringVariance`. The identical triple is the RING BEING DOMINATED BY `_setupBand`.
+
+**Read `OracleLib.ringVariance:233-278` in full. NO clamp, NO saturation, NO reserved second value**
+(so §E88's "0 means unmeasured, and only that" is NOT re-overloaded — that worry is dead).
+`varPerSecWad = acc / spanSecs`, plain.
+
+🔴 **THE REAL CAUSE, and it is visible in the guard at `:250`:**
+`if (!lo.initialized || lo.blockTimestamp >= hi.blockTimestamp) return 0;` — **the ring is keyed on
+TIMESTAMPS**, and a v4 oracle stores **at most ONE observation per timestamp**. **`_drain` NEVER
+ADVANCES THE BLOCK** (confirmed earlier when testing whether the lag window could be too short). ⇒
+Twelve same-block drains write essentially the SAME ring as one. **The 9 points are dominated by
+`_setupBand`'s observations, which are IDENTICAL across every partition — hence 2, 3 and 4 pieces
+returning the same value to the last digit.**
+⇒ 🔴 **σ² IN THESE TESTS IS LARGELY MEASURING THE FIXTURE'S SETUP, NOT THE DRAINS.** Consistent with
+everything else today: the flat tape, the 0.496% annualised vol, and §UNIT-A-FIXTURE's surviving half.
+
+⚠️ **CONSEQUENCE — THIS WEAKENS BOTH σ² COMPARISONS, INCLUDING THE ONE THAT FAVOURED MY RESULT:**
+- The **4.170× "instability"** is not a measurement of σ²'s behaviour. **Withdrawn** (already retracted).
+- ⚠️ **The 2.340× HISTORY GAP is also partly fixture-driven** — σ² did still differ across arms
+  (2.458e13 vs 1.050e13), so it is not zero signal, **but it cannot be quoted as σ²'s true
+  history-dependence under real flow.**
+✅ **WHAT IS UNAFFECTED: the REGISTER's own numbers.** `1.106×` history gap, `0.991` units on the
+single-swap arm, and exactly 1 accrual per drain are measured DIRECTLY from the register and the
+pooled state — **they do not route through σ² and do not inherit this artifact.**
+▶️ **TO COMPARE THE TWO INPUTS HONESTLY, THE DRAINS MUST ADVANCE THE BLOCK.** Add `vm.roll`+`vm.warp`
+between tickets (finer than the sampling grid) so the ring actually records the drain path, then
+re-run BOTH the history gap and the level test. **Until then σ²'s side of every comparison is
+under-measured, and the register's advantage is UNQUANTIFIED rather than proven.**
