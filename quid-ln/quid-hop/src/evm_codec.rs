@@ -91,7 +91,7 @@ pub const SIG_EMIT_DEAD_MAN_EXIT: &str =
     "emitDeadManExit(bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),\
 (uint64[],bytes[],uint64,uint256,bytes))";
 pub const SIG_REQUEST_SWAP_OUT_ONCHAIN: &str =
-    "requestSwapOutOnchain(address,uint256,uint256,bytes32,bytes)";
+    "requestSwapOutOnchain(address,uint256,uint256,bytes32)";
 
 /// (E178) Every signature the hop's hot key may legitimately be asked to sign on
 /// `BTCChannels`. The EVM tx policy derives its selector set from THIS — it does not keep

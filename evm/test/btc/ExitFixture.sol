@@ -4,7 +4,10 @@ pragma solidity 0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {Types} from "../../src/imports/Types.sol";
 
-interface BTCChannelsLike { function setBtcRecipient(bytes32, bytes calldata) external; }
+interface BTCChannelsLike {
+    function setBtcRecipient(bytes32, bytes calldata) external;
+    function btcRecipientOf(address) external view returns (bytes32);
+}
 
 /// @notice (E128) Test-side helper for channels that must be opened with a GENUINELY SIGNED
 ///         dead-man exit.
@@ -87,6 +90,19 @@ abstract contract ExitFixture is Test {
     /// (E138) Set a swap user's payout key WITH its proof. One helper because the key and the
     /// proof must come from the SAME derivation — inlining both was what produced a nest of
     /// parentheses that compiled to the wrong shape.
+
+    /// (E185) The swap-out destination script, read from the CONTRACT's own registration.
+    ///
+    /// `requestSwapOutOnchain` no longer takes a script — it derives one from
+    /// `btcRecipientOf[msg.sender]`, which `setBtcRecipient` already proved on-curve (§E130)
+    /// and under the caller's control (§E138). Tests must therefore ask the contract what the
+    /// destination IS rather than inventing one, or the delivery-side hash match fails.
+    /// ⚠️ No FFI here on purpose: this is a plain view read, so it is safe under a pending
+    /// `vm.prank`/`vm.expectRevert`, unlike `payoutKeyOnly`.
+    function _swapperScript(address ch_, address who) internal view returns (bytes memory) {
+        return abi.encodePacked(hex"5120", BTCChannelsLike(ch_).btcRecipientOf(who));
+    }
+
     /// (E138) Derive the payout key AND its proof-of-possession — every FFI this path needs, and
     /// nothing that touches sender state. Split out because a cheatcode call CONSUMES a pending
     /// `prank`/`expectRevert`, so the arming must happen strictly after the last shell-out.

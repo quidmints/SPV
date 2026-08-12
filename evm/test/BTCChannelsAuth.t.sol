@@ -4,7 +4,6 @@ pragma solidity 0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {ExitFixture} from "./btc/ExitFixture.sol";
 import {BTCChannels} from "../src/BTCChannels.sol";
-import {AttestedHopRegistry, IDcapAttestation} from "../src/AttestedHopRegistry.sol";
 import {Types} from "../src/imports/Types.sol";
 
 /// @notice Focused coverage for the openChannel sig-recovery FRONT-RUN FIX.
@@ -39,31 +38,31 @@ contract BTCChannelsAuthTest is Test, ExitFixture {
         });
     }
 
-    /// (#77) The attested-hop gate: pin-once, and once pinned a non-attested submitter can't become a shared-pool
-    /// hop. The gate fires FIRST in openChannel (before any SPV/funding validation), so dummy funding data is fine.
-    /// The DCAP verifier is external SGX infra never invoked on the not-attested path, so address(0) suffices here.
-    function test_hopRegistry_gates_open_and_pins_once() public {
-        AttestedHopRegistry reg = new AttestedHopRegistry(IDcapAttestation(address(0)), address(0x5AFE));
-        // OFF by default (permissionless-open bootstrap). Pin it to turn the gate ON.
-        ch.setHopRegistry(address(reg));
-        // PIN-ONCE — a second set (even same addr, or to 0) reverts, so a later compromised owner can't disable it.
-        vm.expectRevert(bytes("pinned"));
-        ch.setHopRegistry(address(reg));
-        vm.expectRevert(bytes("pinned"));
-        ch.setHopRegistry(address(0));
-        // A non-attested submitter (this contract; never attested in `reg`) can no longer open a channel.
+    /// 🔴 (E185) `openChannel` IS HOP-GATED — this test replaces the attested-registry one, and
+    /// the replacement is STRICTLY STRONGER.
+    ///
+    /// The old test pinned a registry and asserted a non-attested submitter was refused. Its own
+    /// comment gave the game away: *"OFF by default (permissionless-open bootstrap)"* — the gate
+    /// did nothing unless somebody pinned the registry, and nobody ever did. `_onlyHop()` guarded
+    /// SEVEN entrypoints and `openChannel` was not one of them, so its only hop-side gate was a
+    /// no-op. **A no-op reads like a check, which is exactly why it survived so long.**
+    ///
+    /// The registry is deleted (§E164 decided it; it was never executed) — with `MAIN_HOP` and
+    /// `FALLBACK_HOP` immutable, asking a registry whether one of two fixed addresses is attested
+    /// answers a question that cannot vary. Now the gate is unconditional and needs no pinning.
+    ///
+    /// ⚠️ The gate must fire BEFORE the LP-signature check, so the auth below is deliberately
+    /// unsigned: if the ordering ever inverted this would fail with a signature error instead,
+    /// which is the whole reason the exact error is asserted. (E138) The PoP is an EMPTY
+    /// placeholder, not a generated one — building it runs an FFI cheatcode, and a cheatcode call
+    /// CONSUMES the pending `expectRevert`.
+    function test_openChannel_is_hop_gated_unconditionally() public {
         bytes32[] memory proof;
-        vm.expectRevert(bytes("hop !attested"));
-        // (E157) `_requireAttested` fires FIRST — before the LP-signature check — so this reverts
-        // "hop !attested" whatever the consent says. The auth below is unsigned deliberately: if
-        // the ordering ever inverted, this would fail with a signature error instead, which is the
-        // whole reason the exact revert string is asserted.
-        // ⚠️ (E138) The PoP is an EMPTY placeholder, not a generated one. Building it would run an
-        // FFI cheatcode, and a cheatcode call CONSUMES the pending `expectRevert` — the same trap
-        // that made `vm.prank` silently ineffective in the arming path.
+        vm.expectRevert(BTCChannels.NotChannelHop.selector);
+        // `address(this)` is neither MAIN_HOP nor FALLBACK_HOP.
         ch.openChannel(_params(), hex"00", proof,
             Types.OpenAuth({lpEth: address(0xdEAD), btcRecipient: bytes32(0), lpSig: "", btcRecipientPoP: ""}),
-            _ladder(Types.ExitArming({prevValues: new uint64[](1), prevScripts: new bytes[](1), cltvDeadline: uint64(block.number + 144), checkpointSats: 0, signedExitTx: hex"00"}))); 
+            _ladder(Types.ExitArming({prevValues: new uint64[](1), prevScripts: new bytes[](1), cltvDeadline: 1, checkpointSats: 0, signedExitTx: hex"00"})));
     }
 
     function test_digest_binds_chain_and_contract() public view {

@@ -1880,7 +1880,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         bytes32 id2 = keccak256("quid-swap-out-2");
         vm.prank(swapper);
         vm.expectRevert(Vault.SwapOutShort.selector);
-        ch.requestSwapOutOnchain(address(USDC), 500 * USDC_PRECISION, type(uint).max, id2, swapperScript);
+        ch.requestSwapOutOnchain(address(USDC), 500 * USDC_PRECISION, type(uint).max, id2);
         assertFalse(ch.swapOutUsed(id2), "reverted swap-out did not burn the id");
 
         uint pooledUsdBefore = CORE.POOLED_USD_BTC();
@@ -1889,7 +1889,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         uint usdcBefore      = USDC.balanceOf(swapper);
 
         vm.prank(swapper);
-        uint sats = ch.requestSwapOutOnchain(address(USDC), 500 * USDC_PRECISION, 0, swapId, swapperScript);
+        uint sats = ch.requestSwapOutOnchain(address(USDC), 500 * USDC_PRECISION, 0, swapId);
 
         assertGt(sats, 0, "curve bought BTC for the swapper");
         assertGt(CORE.POOLED_USD_BTC(), pooledUsdBefore, "swapper USD entered the pool");
@@ -1905,7 +1905,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // call (one swap-out per id).
         vm.prank(swapper);
         vm.expectRevert(BTCChannels.SwapOutReplay.selector);
-        ch.requestSwapOutOnchain(address(USDC), 500 * USDC_PRECISION, 0, swapId, swapperScript);
+        ch.requestSwapOutOnchain(address(USDC), 500 * USDC_PRECISION, 0, swapId);
 
         // Let the TWAP catch up to the post-request spot before the reverse swap
         // (else the 30-min TWAP lags the price the buy just moved -> manip guard).
@@ -1958,7 +1958,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         bytes32 swapId = keccak256("quid-swap-out-timeout-refund");
 
         vm.prank(swapper);
-        uint sats = ch.requestSwapOutOnchain(address(USDC), 500 * USDC_PRECISION, 0, swapId, swapperScript);
+        uint sats = ch.requestSwapOutOnchain(address(USDC), 500 * USDC_PRECISION, 0, swapId);
         assertGt(sats, 0, "curve bought BTC for the swapper");
         uint owedUsd; { (,,, uint96 u,) = ch.pendingOnchainSwapOut(swapId); owedUsd = uint(u); }
         uint pendingAfterReq = CORE.pendingSwapOutUsd();

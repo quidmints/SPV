@@ -798,7 +798,12 @@ contract VBtcLevFeeLane is Alles {
     }
 
     function _levDelivSwapId() internal pure returns (bytes32) { return keccak256("delever54-swapout"); }
-    function _levDelivScript() internal pure returns (bytes memory) { return abi.encodePacked(hex"5120", _validXOnly(abi.encode(abi.encode(0x54)))); }
+    /// (E185) The delivery script must be the swapper's REGISTERED destination — the request
+    /// no longer takes one, it derives it from `btcRecipientOf`, so an invented key would fail
+    /// the delivery-side hash match.
+    function _levDelivScript(address ch_) internal returns (bytes memory) {
+        return _swapperScript(ch_, makeAddr("swapper54"));
+    }
 
     /// Pre-delivery snapshot: funded band, venue debt/collateral, net-equity, LTV, levered slice, LP QUID.
     function _snapLevPosition(LevDelivery memory d) internal {
@@ -815,10 +820,14 @@ contract VBtcLevFeeLane is Alles {
     /// Swap-out buys ~0.05 BTC (much more than the ~1e6-sat free band), so the delivery must tap the levered slice.
     function _requestLevSwapOut(LevDelivery memory d) internal {
         address swapper = makeAddr("swapper54");
+        // (E185) Register the destination first — `requestSwapOutOnchain` derives it from
+        // `btcRecipientOf` rather than accepting an unproven script, so an unregistered
+        // swapper is refused before any USD is pulled.
+        _setRecipient(address(d.ch), abi.encode(uint(0x54D)), swapper);
         deal(address(USDC), swapper, 50_000 * USDC_PRECISION);
         vm.startPrank(swapper);
         USDC.approve(address(AUX), type(uint).max);
-        d.sats = d.ch.requestSwapOutOnchain(address(USDC), 5_000 * USDC_PRECISION, 0, _levDelivSwapId(), _levDelivScript());
+        d.sats = d.ch.requestSwapOutOnchain(address(USDC), 5_000 * USDC_PRECISION, 0, _levDelivSwapId());
         vm.stopPrank();
         (,,, uint96 owedU,) = d.ch.pendingOnchainSwapOut(_levDelivSwapId());
         d.owedUsd = uint(owedU);
@@ -851,7 +860,7 @@ contract VBtcLevFeeLane is Alles {
 
         // The vBTC withdraw inside swapOutDelever needs the LP to authorize the venue as its Morpho manager.
         vm.prank(d.lp); IMorphoTest(MORPHO).setAuthorization(address(venue), true);
-        _deliverLevSwapOut(d.ch, d.channelId, d.fundingTxId, 54, d.lpPubkey, _levDelivSwapId(), d.sats, _levDelivScript());
+        _deliverLevSwapOut(d.ch, d.channelId, d.fundingTxId, 54, d.lpPubkey, _levDelivSwapId(), d.sats, _levDelivScript(address(d.ch)));
         // Keeper reconcile: the delivery repaid debt in-tx but syncLevBTC is nonReentrant (can't run inside the
         // delivery lock), so the debt-buffer's POOLED_USD is resized to the smaller debt here — exactly the async
         // reconcile the lev keeper performs. Until it runs, committed is only OVERSTATED (a stricter gate).

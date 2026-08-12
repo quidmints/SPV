@@ -104,7 +104,6 @@ import {SignatureChecker} from "@openzeppelin-submodule/utils/cryptography/Signa
 ///         btcChannels), so only this contract can drive them.
 /// The Safe-governed MRENCLAVE whitelist — `isAttested(hop)` is true only for an EVM address whose SGX
 /// quote the registry's governance has verified (Automata DCAP). Gates who may become a shared-pool hop.
-interface IAttestedHopRegistry { function isAttested(address hop) external view returns (bool); }
 
 contract BTCChannels is Ownable, ReentrancyGuard {
     // ─── Constants ────────────────────────────────────────────────────
@@ -613,16 +612,19 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     // The whitelist that decides who may become a shared-pool hop. UNSET (0) ⇒ the gate is OFF (the permissionless
     // open behaviour, for testnet / pre-attestation bootstrap). Governance PINS it ONCE to the live registry to turn
     // the gate on; PIN-ONCE (can never be un-set or repointed) so a later compromised owner cannot disable it.
-    address public hopRegistry;
-    function setHopRegistry(address r) external onlyOwner {
-        require(hopRegistry == address(0) && r != address(0), "pinned"); // one-way: off → on, forever
-        hopRegistry = r;
-    }
-    /// Revert unless `hop` is an attested shared-pool hop — a no-op while the registry is unset (bootstrap).
-    function _requireAttested(address hop) internal view {
-        address reg = hopRegistry;
-        if (reg != address(0)) require(IAttestedHopRegistry(reg).isAttested(hop), "hop !attested");
-    }
+    // ⛔ (E185) THE ATTESTED-HOP REGISTRY IS DELETED — the decision was taken during §E164 and
+    // never executed, so a no-op guard sat on a size-constrained contract pretending to gate.
+    //
+    // `hopRegistry` defaulted to `address(0)` and `_requireAttested` did NOTHING until someone
+    // pinned it, which nobody ever did. With §E164's single node plus a hardcoded fallback the
+    // authorised set is the two-address constant `MAIN_HOP`/`FALLBACK_HOP`, so asking a registry
+    // whether one of two IMMUTABLE addresses is "attested" answers a question that cannot vary.
+    //
+    // 🔴 AND IT WAS HIDING A REAL GAP. `_onlyHop()` guards seven entrypoints; `openChannel` was
+    // NOT one of them — its only hop-side gate was `_requireAttested`, i.e. nothing. That was
+    // invisible precisely because a no-op reads like a check. `openChannel` now calls `_onlyHop()`
+    // like every other hop entrypoint, which is what §E166-3 assumes when the fleet RELAYS the
+    // LP's consent.
 
     // ═════════════════════════════════════════════════════════════════
     //  OPEN — the LP's DELEGATED HOP submits the raw funding tx + SPV proof.
@@ -801,7 +803,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // splice/deliver. Same two protections as before, in one step instead of two:
         // `openChannelBody` SPV-proves + taproot byte-matches (0x5120||Q) the funding, and
         // `btcRecipient` is pinned here as the sole payout — so no hop can redirect funds.
-        _requireAttested(msg.sender);   // only an attested hop may become a shared-pool hop (off until pinned)
+        _onlyHop();   // (E185) a real gate; this line used to be a no-op registry check
         address lpEth = auth.lpEth;
         if (lpEth == address(0)) revert InvalidParam();
         // ONE OPEN CHANNEL PER lpEth (see hasOpenBtcChannel): a 2nd open for an LP
@@ -1040,7 +1042,6 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         Types.ExitArming calldata exit
     ) external whenOpen(channelId) {
         _onlyHop();
-        _requireAttested(msg.sender);
         // (E128) `p` is needed to recompute `Q`; `_requireChannelKeys` is what stops a hop naming
         // a key pair whose aggregate it controls and verifying the exit against THAT.
         _requireChannelKeys(channelId, p);
@@ -1559,7 +1560,6 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // count (++ at open, -- at close). Per-hop bounding of pool drainage vs a hop's
         // OWN locked sats is a tracked refinement; the has-an-open-channel gate is the
         // essential authority binding that keeps a random address from crediting.
-        _requireAttested(msg.sender);   // defence-in-depth: a hop de-attested AFTER opening can't keep crediting
         // Dedup on the LN HTLC hashlock — one credit per swap-in, ever.
         if (paymentHash == bytes32(0) || swapInUsed[paymentHash])
             revert SwapInReplay();
@@ -1643,8 +1643,26 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///         splice-out pays `swapperScript`. `swapId` is a client-unique dedup key
     ///         (shares `swapOutUsed`). A failed delivery reverses via `settleSwapIn`
     ///         (USD back to the swapper) — the SAME unhappy path as the LN rail.
+    /// ⚠️ (E184) THE DESTINATION IS NOT A PARAMETER ANY MORE — it is `btcRecipientOf[msg.sender]`.
+    ///
+    /// 🔴 THE HALF-FAILURE THIS CLOSES. §E131 proved the supplied script's 32 bytes were ON the
+    /// curve; **nothing proved the swapper CONTROLLED them** — the identical half of the failure
+    /// §E138 fixed for the LP. A typo landing on a valid x-coordinate (≈HALF of all typos, since
+    /// ~half of arbitrary 32-byte values are valid points) sent the swapper's BTC to a key someone
+    /// else may hold, and the system recorded a successful delivery.
+    ///
+    /// 🔑 THE FIX REMOVES CODE RATHER THAN ADDING A CHECK. `setBtcRecipient` ALREADY demands a
+    /// BIP-340 proof-of-possession (§E138) and already rejects an off-curve key (§E130). Deriving
+    /// the destination from that registration inherits BOTH proofs for free, so the prefix test and
+    /// the `isValidXOnlyKey` call here are not merely redundant — they were the WEAKER half of a
+    /// guarantee that now holds in full. Adding a second PoP parameter instead would have been the
+    /// clamp standing rule 3 warns about: more surface, same hole.
+    ///
+    /// ⇒ Uniform with the LP payout (`_lpPayoutScript`), so a swapper and an LP are protected by
+    /// the same one mechanism, and a swapper who wants a different destination re-registers — WITH
+    /// a proof — rather than naming an unproven key per swap.
     function requestSwapOutOnchain(
-        address token, uint usdAmount, uint minSats, bytes32 swapId, bytes calldata swapperScript
+        address token, uint usdAmount, uint minSats, bytes32 swapId
     ) external nonReentrant returns (uint sats) {
         if (swapId == bytes32(0) || swapOutUsed[swapId]) revert SwapOutReplay();
         // Symmetric dedup: a swapId that collides with an already-used swap-IN key
@@ -1653,20 +1671,11 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // (settleSwapIn reverts on swapInUsed) → the swapper's USD would strand with no
         // recovery. Reject it up front, BEFORE creditSwapOut pulls the USD.
         if (swapInUsed[swapId]) revert SwapOutReplay();
-        // P2TR ONLY (tightened 2026-07-27). This was a loose 22..34 length range that also admitted
-        // P2WPKH (22), P2PKH (25) and P2WSH (34) — the last outlier in a protocol that is taproot
-        // everywhere else: the funding output is byte-matched as `0x5120||Q` (BitcoinTx:281,
-        // ChannelLib:529) and the LP payout script is built as `0x51 0x20 || btcRecipientOf` (:506).
-        // A key-path P2TR scriptPubKey is EXACTLY `OP_1 (0x51) PUSH32 (0x20) || 32-byte x-only key`,
-        // so check the prefix, not just a plausible length — a length-only test accepts any 34-byte
-        // blob, including a P2WSH script the rest of the stack cannot produce or match.
-        if (swapperScript.length != 34
-            || swapperScript[0] != bytes1(0x51) || swapperScript[1] != bytes1(0x20)) revert InvalidParam();
-        // (E131) The PREFIX check above says it is shaped like P2TR; it says nothing about the
-        // 32 bytes after it. Without this, a malformed key makes the delivery output unspendable
-        // — the hop SPV-proves payment to it, the obligation settles, the delivering LP is paid,
-        // and the swapper's BTC is burned while the system records a successful delivery.
-        if (!BitcoinTx.isValidXOnlyKey(bytes32(swapperScript[2:34]))) revert InvalidParam();
+        // (E184) The destination is the swapper's REGISTERED payout key, which `setBtcRecipient`
+        // already proved is on the curve (§E130) AND under their control (§E138). Building it here
+        // means the P2TR shape is true by construction — there is no supplied blob to prefix-check.
+        if (btcRecipientOf[msg.sender] == bytes32(0)) revert NotPubkeyHash();
+        bytes memory swapperScript = _lpPayoutScript(msg.sender);
         swapOutUsed[swapId] = true;
         uint usd6;
         (sats, usd6) = btcVault.creditSwapOut(msg.sender, token, usdAmount, minSats);

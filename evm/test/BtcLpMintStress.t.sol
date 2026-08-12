@@ -161,14 +161,14 @@ contract BtcLpMintStress is Alles {
             s.fundingTxId = _liveFundingTxId[channelId];
             s.lpPubkey = lpPubkey;
             s.lpEth = lpEth;
-            s.swapperScript = abi.encodePacked(hex"5120", _validXOnly(abi.encode(abi.encode("oc", seed, i))));
+            s.swapperScript = _swapperScript(address(ch), User03);   // (E185) the REGISTERED destination
             s.swapId = keccak256(abi.encode("oc-swap", channelId, seed, i));
 
             // Curve pairing depth is finite; a request that would exhaust it reverts.
             // For a stress loop that's "enough delivered this round" — deliver what the
             // curve allows, then stop.
             vm.prank(User03);
-            try ch.requestSwapOutOnchain(address(USDC), usdcEach, 0, s.swapId, s.swapperScript)
+            try ch.requestSwapOutOnchain(address(USDC), usdcEach, 0, s.swapId)
                 returns (uint sats)
             {
                 s.sats = sats;
@@ -486,13 +486,17 @@ contract BtcLpMintStress is Alles {
         _OcSwap memory s;
         s.seed = 7;
         (s.channelId, s.fundingTxId, s.lpEth, s.lpPubkey) = _open(ch, s.seed, 2_000_000);
-        s.swapperScript = abi.encodePacked(hex"5120", _validXOnly(abi.encode("swapper"))); // swapper P2TR (0x5120||x-only key)
+        // (E185) The destination is no longer a parameter — it is the swapper's REGISTERED payout
+        // key, so the swapper must register BEFORE requesting. That IS the fix: the key is proven
+        // on-curve (E130) and under their control (E138) before any BTC is owed to it.
+        _setRecipient(address(ch), abi.encode(uint(0xB7C)), User03);
+        s.swapperScript = _swapperScript(address(ch), User03);
         s.swapId = keccak256("swap-out-onchain-1");
 
         // Swapper commits USD → BTC to their on-chain address (rail B; no LN wallet).
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
-        s.sats = ch.requestSwapOutOnchain(address(USDC), 500 * USDC_PRECISION, 0, s.swapId, s.swapperScript);
+        s.sats = ch.requestSwapOutOnchain(address(USDC), 500 * USDC_PRECISION, 0, s.swapId);
         vm.stopPrank();
         assertGt(s.sats, 0, "swap-out bought BTC");
         assertLt(s.sats, 2_000_000, "swap-out fits within the channel");
@@ -795,9 +799,9 @@ contract BtcLpMintStress is Alles {
         // Each grows POOLED_USD_BTC AND pendingSwapOutUsd by the same USD, so the FREE
         // reserve (POOLED − pending) STAYS ≈ freeReserve0 while pending climbs.
         for (uint i = 0; i < 6; i++) {
-            bytes memory scr = abi.encodePacked(hex"5120", _validXOnly(abi.encode(abi.encode(uint(keccak256(abi.encode("gate", i)))))));
+            bytes memory scr = _swapperScript(address(ch), User03);   // (E185) the REGISTERED destination
             vm.prank(User03);
-            try ch.requestSwapOutOnchain(address(USDC), 500 * USDC_PRECISION, 0, keccak256(abi.encode("gate-id", i)), scr)
+            try ch.requestSwapOutOnchain(address(USDC), 500 * USDC_PRECISION, 0, keccak256(abi.encode("gate-id")))
                 returns (uint) {
                 vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
             } catch { break; }
@@ -1021,9 +1025,9 @@ contract BtcLpMintStress is Alles {
         }
         vm.stopPrank();
         for (uint i = 0; i < 4; i++) {
-            bytes memory scr = abi.encodePacked(hex"5120", _validXOnly(abi.encode(abi.encode(uint(keccak256(abi.encode("v7", i)))))));
+            bytes memory scr = _swapperScript(address(ch), User03);   // (E185) the REGISTERED destination
             vm.prank(User03);
-            try ch.requestSwapOutOnchain(address(USDC), 400 * USDC_PRECISION, 0, keccak256(abi.encode("v7-id", i)), scr)
+            try ch.requestSwapOutOnchain(address(USDC), 400 * USDC_PRECISION, 0, keccak256(abi.encode("v7-id")))
                 returns (uint) { vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes); } catch { break; }
         }
 

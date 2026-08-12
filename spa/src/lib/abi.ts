@@ -197,7 +197,7 @@ export const BTCCHANNELS_ABI = [
   // On-chain swap-out for a user who has a Bitcoin ADDRESS (or an LN swapper the hop
   // fills off-chain). The hop delivers via a splice-out paying `swapperScript` (the
   // address as a 22–34 byte scriptPubKey). swapId = caller-chosen unique dedup key.
-  'function requestSwapOutOnchain(address token, uint usdAmount, uint minSats, bytes32 swapId, bytes swapperScript) returns (uint sats)',
+  'function requestSwapOutOnchain(address token, uint usdAmount, uint minSats, bytes32 swapId) returns (uint sats)',
 
   // Set the BTC recipient (P2WPKH pubkey hash) for swap-out routing.
   'function setBtcRecipient(bytes32 xOnlyKey, bytes pop)',
