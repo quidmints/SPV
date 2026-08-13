@@ -114,6 +114,56 @@ destination from the registered key rather than accepting one.
 Arming is now a construction-time invariant (§E156/§E165): `openChannel` verifies a
 pre-signed exit ladder, so a channel cannot exist without a recovery path.
 
+## T10 🔴 OPEN — `MigrationAuth`: a 2-of-3 Safe can export the enclave seed
+
+**This document existed for a day without its most powerful row, and it was found by the owner
+asking why an answer was about LPs when the question was about migration authority.** Zero
+matches for "migration" in this file before 2026-08-13.
+
+`migration.rs` — the foundation's **operator Gnosis Safe** (n-of-m, EIP-712 `MigrationAuth`,
+verified in-enclave by `ecrecover` against a sealed snapshot of the Safe's owner set) authorises
+a successor enclave, and the old enclave **exports its seed to it**. The code says the
+consequence outright: forging a 2-of-3 lets you *"redirect the seed export (total enclave
+defeat)"*.
+
+⇒ **Whoever holds that quorum holds the hop's seed, and therefore the hop half of every
+channel.** And because the fleet's vault seed is an HKDF sibling of the hop's (§E175-b, and
+deliberately so), that same quorum today holds **both** halves of every 2-of-2.
+
+⚠️ **THIS IS NOT FIXED BY PER-LP CUSTODY — AND IT IS EXACTLY WHAT PER-LP CUSTODY BOUNDS.** Who
+holds the LP half is a different question with a different answer (the LP). The relationship is
+one of *blast radius*: with the halves as they are, a Safe compromise can spend **every LP's
+funding UTXO**; with the LP holding its own half, the same compromise yields the hop side only
+and **cannot spend an LP's UTXO alone**. Neither fact substitutes for the other.
+
+🔴 Residual, separate from the above: `OPERATOR_SAFE`/`OPERATOR_OWNERS` still ship as the
+well-known addresses of **secp256k1 secret keys 1/2/3**. `guard_prod_trust_anchors` refuses to
+boot staging/prod with them, which is the right shape — but the real values *"MUST replace these
+before mainnet"* and have not. There is also **no timelock** on a migration, same gap as T5.
+
+## T11 🟡 BY DESIGN — an LP holding a real half can GRIEF, and that is the trade
+
+Enumerated because introducing per-LP custody **creates** this: today the LP holds no key, so it
+cannot misbehave at all. With one half of the 2-of-2 an LP **cannot steal** — spending the
+funding UTXO needs both halves, splice outputs are bound to the new funding output or
+`btcRecipientOf` (`ForeignSpliceOutput`, the cross-LP-theft guard), and swap-out proceeds are
+pinned to recorded state. What it **can** do:
+
+1. **Refuse to co-sign** — no splices, no cooperative close, no new ladder rungs. Its own channel
+   freezes and cannot source swap-out BTC; the protocol degrades to `reverseSwapOut` refunding
+   the swapper, so this is **capacity loss, not a loss of funds**. §E187's answer is ladder depth.
+2. **Broadcast a REVOKED commitment** — the classic LN theft attempt, defended by LDK's justice
+   path **only while the hop is online within the CSV window**.
+
+⚠️ **AND THE OBVIOUS PLACE TO LOOK FOR THAT DEFENCE IS THE WRONG ONE:** `quid-watchtower` is a
+**dead-man-exit** watchtower — *"KEYLESS… broadcasts the already-public signed bytes"*. It does
+**not** watch for revoked commitments and cannot produce a justice transaction. A name that reads
+like LN penalty coverage while providing none is the §E185 no-op shape again. ▶️ Before per-LP
+custody ships, settle who runs penalty coverage and with what liveness assumption.
+
+⇒ **The trade is fleet-can-STEAL → LP-can-GRIEF, and it is a good one** — griefing is bounded and
+recoverable, theft is neither — but it must be booked, not discovered.
+
 ---
 
 ## The secp256k1 items — 6, verified, not 7
