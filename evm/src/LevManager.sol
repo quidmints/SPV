@@ -39,7 +39,7 @@ import {ILevVenueColl} from "./imports/Interfaces.sol";
 
 /// @title  LevManager — the IL-protect: a per-LP, isolated, weETH-collateral leverage overlay
 /// @notice Each LP's leverage is an ISOLATED position on an external `ILevVenue` (real Euler EVK or Morpho
-///         Blue — see `EulerEscrowVenue`/`MorphoEscrowVenue`). The COLLATERAL is **weETH** (staked, not lent ⇒
+///         Blue — see `MorphoEscrowVenue`). The COLLATERAL is **weETH** (staked, not lent ⇒
 ///         no rehypothecation; earns ether.fi yield while pledged). The loop borrows the venue stable, buys
 ///         weETH, supplies it, until LTV hits the live target = the band's SOLD FRACTION `1 − √(entry/now)`
 ///         (NOT the static `L=1/α` knob — see the `debtDeltaToTarget` comment), capped at 2× — so the leverage

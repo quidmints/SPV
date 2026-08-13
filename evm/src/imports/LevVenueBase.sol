@@ -12,8 +12,8 @@ interface ILevERC20 {
 }
 
 /// @title  LevVenueBase — shared scaffolding for the per-LP-isolated weETH lending adapters
-/// @notice `EulerEscrowVenue` and `MorphoEscrowVenue` differ ONLY in the venue's isolation mechanism (EVC
-///         sub-accounts vs Morpho `onBehalf`) and its borrow/repay/withdraw calls. Everything else — the
+/// @notice `MorphoEscrowVenue` and `AaveV3Venue` differ ONLY in the venue's isolation mechanism (Morpho
+///         `onBehalf` vs a per-LP escrow) and their borrow/repay/withdraw calls. Everything else — the
 ///         `MANAGER`-only auth, the reentrancy guard, the `stable()` accessor, the custody convention — is
 ///         identical and lives here. (`SorExchange` is NOT unified in: it's the adapter for a SEPARATE,
 ///         live product — the optional Liquity-V2 ~10x directional long (BOLD into the Stability Pool, or

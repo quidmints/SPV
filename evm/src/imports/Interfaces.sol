@@ -21,7 +21,7 @@ library Interfaces {}   // no code — this file exists purely to host the decla
 /// Aave v4 spoke. Union of the five former variants: `IAaveV4Spoke` (Aux, Vault, BasketLib),
 /// `IAaveV4Spoke_V` (VaultLib), `IAaveV4SpokeCL` (ChannelLib).
 /// Canonical Aave **v4** spoke view — union of the former per-file variants
-/// (`AaveV4Venue::IAaveSpoke`). NOTE `getReserveId` is `view`: the two declarations DISAGREED on
+/// (formerly also `AaveV4Venue::IAaveSpoke`, removed 2026-08-13). NOTE `getReserveId` is `view`: the declarations DISAGREED on
 /// mutability, and `view` is correct — four live call sites (`Aux`, `Vault`, `ChannelLib`) already
 /// STATICCALL it in production. Aave **v3** is a DIFFERENT protocol with its own ABI
 /// (`AaveV3Venue::IAaveV3Pool`/`IAaveV3DataProvider`, WBTC-only) and is deliberately NOT merged here.

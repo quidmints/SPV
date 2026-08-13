@@ -6,7 +6,7 @@ import {LevVenueBase, ILevERC20} from "./imports/LevVenueBase.sol";
 /// ── Aave V3 Pool surface this adapter needs. Signatures proven against the LIVE Aave V3 Pool by the (tested)
 ///    Amp.sol integration: supply(asset,amt,onBehalf,ref) / borrow(asset,amt,rateMode,ref,onBehalf) /
 ///    repay(asset,amt,rateMode,onBehalf) / withdraw(asset,amt,to). V3 keys a position by the CALLER (no
-///    sub-account / on-behalf-borrow), so per-LP isolation uses a per-LP escrow (mirror of AaveV4Venue).
+///    sub-account / on-behalf-borrow), so per-LP isolation uses a per-LP escrow (the pattern `LevVenueBase` holds).
 interface IAaveV3Pool {
     function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external;
     function borrow(address asset, uint256 amount, uint256 interestRateMode, uint16 referralCode, address onBehalfOf) external;
@@ -75,7 +75,7 @@ contract AaveV3Escrow {
 }
 
 /// @title  AaveV3Venue — per-LP isolated Aave V3 borrow venue as an `ILevVenue`
-/// @notice The Aave V3 sibling of `AaveV4Venue`/`EulerEscrowVenue`/`MorphoEscrowVenue` (same `ILevVenue`, so the
+/// @notice The WBTC lev venue, sibling of `MorphoEscrowVenue` (same `ILevVenue`, so the
 ///         managers stay venue-agnostic). Collateral (WBTC/vBTC/weETH) supplied, `stable()` (USDC) borrowed on Aave
 ///         V3 — the DEEPEST WBTC/USDC book (data-verified 2026-07: ~$14–19B TVL, deepest liquidity, vs Morpho's
 ///         thin ~$14M-avail isolated market), so the SPA picks it for sizeable positions. ISOLATION: each LP gets

@@ -33,10 +33,14 @@ contract RecipientPin is Alles {
     function test_Unpinned_ArbitraryRecipientStillAllowed() public {
         _seed(User01);
         assertEq(V4.pinnedRecipient(User01), address(0), "default must be unpinned");
-        uint before = User02.balance;
+        // ETH+WETH. The Curve offramp settles the band's exit in WETH, not native ETH, so a guard
+        // that counts only `.balance` reads a real payment as ZERO -- the delivery happened, the
+        // measurement missed it. Count both legs, as `Alles.t_EthLp_RedeemConservationAndFairness`
+        // already does; asserting on the recipient's TOTAL is what the pin property is actually about.
+        uint before = User02.balance + WETH.balanceOf(User02);
         vm.prank(User01);
         V4.withdraw(1 ether, User02, User01);           // pays a third party, as before
-        assertGt(User02.balance, before, "unpinned LP can still pay an arbitrary receiver");
+        assertGt(User02.balance + WETH.balanceOf(User02), before, "unpinned LP can still pay an arbitrary receiver");
     }
 
     /// PINNED — payments to anywhere else revert; payments to the pin succeed.
@@ -48,9 +52,13 @@ contract RecipientPin is Alles {
         vm.prank(User01);
         vm.expectRevert(Vogue.RecipientNotPinned.selector); V4.withdraw(1 ether, ATTACKER, User01);
 
-        uint before = User01.balance;
+        // ETH+WETH. The Curve offramp settles the band's exit in WETH, not native ETH, so a guard
+        // that counts only `.balance` reads a real payment as ZERO -- the delivery happened, the
+        // measurement missed it. Count both legs, as `Alles.t_EthLp_RedeemConservationAndFairness`
+        // already does; asserting on the recipient's TOTAL is what the pin property is actually about.
+        uint before = User01.balance + WETH.balanceOf(User01);
         vm.prank(User01); V4.withdraw(1 ether, User01, User01);
-        assertGt(User01.balance, before, "the pinned recipient is still payable");
+        assertGt(User01.balance + WETH.balanceOf(User01), before, "the pinned recipient is still payable");
     }
 
     /// THE LOAD-BEARING TEST. A stolen key cannot re-point and drain in one go — it can only REQUEST
@@ -81,8 +89,12 @@ contract RecipientPin is Alles {
         vm.prank(User01); V4.applyPinnedRecipient();
         assertEq(V4.pinnedRecipient(User01), User02, "re-point applies after the window");
 
-        uint before = User02.balance;
+        // ETH+WETH. The Curve offramp settles the band's exit in WETH, not native ETH, so a guard
+        // that counts only `.balance` reads a real payment as ZERO -- the delivery happened, the
+        // measurement missed it. Count both legs, as `Alles.t_EthLp_RedeemConservationAndFairness`
+        // already does; asserting on the recipient's TOTAL is what the pin property is actually about.
+        uint before = User02.balance + WETH.balanceOf(User02);
         vm.prank(User01); V4.withdraw(1 ether, User02, User01);
-        assertGt(User02.balance, before, "the new pin is payable");
+        assertGt(User02.balance + WETH.balanceOf(User02), before, "the new pin is payable");
     }
 }
