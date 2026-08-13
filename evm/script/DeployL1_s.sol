@@ -31,10 +31,8 @@ import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 import {LevManager} from "../src/LevManager.sol";
 import {BtcLevManager} from "../src/BtcLevManager.sol";
 import {MorphoEscrowVenue, MarketParams} from "../src/MorphoEscrowVenue.sol";
-import {EulerEscrowVenue} from "../src/EulerEscrowVenue.sol";
 import {ISwap} from "../src/imports/ISwap.sol";
 import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {AaveV4Venue} from "../src/AaveV4Venue.sol";
 import {AaveV3Venue} from "../src/AaveV3Venue.sol";
 import {RealRateBtcMorphoOracle} from "../src/LevOracles.sol";   // InverseRateMorphoOracle removed with the short subsystem (2026-07-24)
 
@@ -121,14 +119,6 @@ contract Deploy is Script {
     //    check and can never fill a borrow. The discriminator is LIQUIDITY, not well-formedness.
     address constant WEETH_WETH_ORACLE = 0xbDd2F2D473E8D63d1BFb0185B5bDB8046ca48a72;
     uint256 constant MORPHO_LLTV_945   = 0.945e18; // this market's own LLTV -- NOT the 86% the USDC legs use
-    // Euler EVK pair honoring INVARIANT #1 (the collateral vault MUST be escrow): eweETH-1 is
-    // governor-RENOUNCED (immutably escrow — no IRM, no borrows, ever); eUSDC-11 accepts it at 67%
-    // LTVBorrow / 82%-class liquidation config. No live escrow-weETH + LIQUID-USDC pair exists on
-    // mainnet (every liquid USDC vault only accepts BORROWABLE weETH vaults, which re-lend — the
-    // double-lend INVARIANT #1 forbids), so this pair is configured-but-thin: the venue degrades
-    // SAFE — LPs simply can't borrow there until lenders supply eUSDC-11.
-    address constant EULER_WEETH_ESCROW = 0xD440bA5122d68626b5da5399B7157f813735397c;
-    address constant EULER_USDC_VAULT   = 0x41722452C0348501825C494ec6C1579e9c32D277;
     address constant CL_ETH_USD = 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419; // Chainlink ETH/USD (8-dec)
 
     address public stabilityPool = 0x5721cbbd64fc7Ae3Ef44A0A3F9a790A9264Cf9BF;
@@ -473,8 +463,8 @@ contract Deploy is Script {
     ///   ongoing power (allowlist + hooks frozen). ENV (only when DEPLOY_LEV=1) — EVERY external address has a
     ///   LIVE mainnet default (the constants above), so a bare `DEPLOY_LEV=1` deploys the whole overlay;
     ///   overrides: MORPHO, MORPHO_ORACLE/IRM/LLTV (weETH long), MORPHO_WETH_ORACLE/IRM/LLTV (plain-WETH long),
-    ///   EULER_COLL_VAULT/EULER_DEBT_VAULT, MORPHO_VBTC_IRM/LLTV; optional EULER_VBTC_COLL_VAULT +
-    ///   EULER_VBTC_DEBT_VAULT + LEV_BTC_VENUE ("morpho"|"euler", default "morpho"); optional YB_GOV.
+    ///   MORPHO_VBTC_IRM/LLTV; optional YB_GOV. (The EULER_* pair vars and LEV_BTC_VENUE went with
+    ///   Euler v2 borrowing, 2026-08-13.)
     ///   MORPHO_VBTC_ORACLE cannot pre-exist (it prices vBTC through AUX, deployed THIS broadcast) — unset ⇒ a
     ///   RealRateBtcMorphoOracle is deployed inline. (Down-side short venues REMOVED 2026-07-24 — up-side-only;
     ///   the short subsystem was an LVR leak, see docs §J.4. A directional-short product, if shipped, is a normal
@@ -528,15 +518,11 @@ contract Deploy is Script {
             if (luB == 0) IMorphoMkt(morpho).createMarket(mpB);
             mvB = address(new MorphoEscrowVenue(morpho, mpB, address(bm)));
         }
-        address evB;
-        {
-            address ec = vm.envOr("EULER_VBTC_COLL_VAULT", address(0));
-            address ed = vm.envOr("EULER_VBTC_DEBT_VAULT", address(0));
-            if (ec != address(0) && ed != address(0)) evB = address(new EulerEscrowVenue(ec, ed, address(bm)));
-        }
-        string memory kind = vm.envOr("LEV_BTC_VENUE", string("morpho"));
-        address pin = keccak256(bytes(kind)) == keccak256(bytes("euler")) ? evB : mvB;
-        require(pin != address(0), "LEV_BTC_VENUE: selected venue not deployed");
+        // NO VENUE SELECTION. `LEV_BTC_VENUE` chose between Euler and Morpho; Euler v2 borrowing is
+        // removed (owner, 2026-08-13), so the switch had one arm and the env var was friction pretending
+        // to be configuration. Morpho is the BTC lev venue; Aave V3 remains for the WBTC fallback below.
+        address pin = mvB;
+        require(pin != address(0), "BTC lev venue not deployed");
         // WBTC-FALLBACK venue (#106/#81/#74): a REAL Aave v3 {collateral: WBTC, debt: USDC} escrow — the deepest
         // WBTC book, so the SPA routes sizeable positions here. The keeper's atomic `rebalanceWbtc` folds up /
         // flash-repay-first de-levers it fully on-chain (no channel-vBTC, no acquirer). Allowlisted ALONGSIDE the
@@ -596,19 +582,14 @@ contract Deploy is Script {
             oracle: vm.envOr("MORPHO_ORACLE", WEETH_USDC_ORACLE), irm: vm.envOr("MORPHO_IRM", ADAPTIVE_IRM),
             lltv: vm.envOr("MORPHO_LLTV", MORPHO_LLTV_86)
         }), lm);
-        address ev = address(new EulerEscrowVenue(
-            vm.envOr("EULER_COLL_VAULT", EULER_WEETH_ESCROW), vm.envOr("EULER_DEBT_VAULT", EULER_USDC_VAULT), lm));
         address mvW = _mkMorphoVenue(morpho, MarketParams({
             loanToken: address(USDC), collateralToken: address(WETH),
             oracle: vm.envOr("MORPHO_WETH_ORACLE", WETH_USDC_ORACLE), irm: vm.envOr("MORPHO_WETH_IRM", ADAPTIVE_IRM),
             lltv: vm.envOr("MORPHO_WETH_LLTV", MORPHO_LLTV_86)
         }), lm);
-        // LONG Aave V4 venue {collateral: WETH, debt: USDC} — per-LP isolated escrow (Aave has no sub-account),
-        // fork-verified against live Aave V4 (test/AaveV4Venue.t.sol). WETH liquidation threshold 8000 bps
-        // (conservative vs the live ~83% gov param; the venue reports it via liqThresholdBps for LevManager sizing).
-        address av = address(new AaveV4Venue(aaveSpoke, aaveHub, address(WETH), address(USDC), lm));
-        vs = new address[](6);   // SHORT venue removed (2026-07-24): the down-side short subsystem is gone (up-side-only)
-        vs[0] = mv; vs[1] = ev; vs[2] = mvW; vs[3] = av;
+        // MORPHO ONLY (owner, 2026-08-13). Euler v2 and Aave v4 BORROWING are removed: every remaining
+        // ETH lev venue is a Morpho market. The BTC side keeps Aave V3 for WBTC.
+        vs = new address[](3);
         // LONG Morpho venue {collateral: weETH, debt: WETH} -- the ETH-DENOMINATED-DEBT leg. Every other venue
         // above borrows USDC, which is what makes an ETH IL-protect borrow pay a stable->WETH SOR round trip;
         // this one borrows the asset the position is already denominated in, so that leg disappears. The
@@ -619,18 +600,13 @@ contract Deploy is Script {
         // NEVER checked (see the 🔴 note on this function). It is weETH and therefore valuable by `_collToEth`,
         // but that is true by CONSTRUCTION here, not because anything verified it.
         // Constructed INLINE rather than into a local: this frame is stack-tight and via_ir is off by choice.
-        vs[4] = _mkMorphoVenue(morpho, MarketParams({
+        address mvWeth = _mkMorphoVenue(morpho, MarketParams({
             loanToken: address(WETH), collateralToken: weeth,
             oracle: vm.envOr("MORPHO_WEETH_WETH_ORACLE", WEETH_WETH_ORACLE),
             irm: vm.envOr("MORPHO_WEETH_WETH_IRM", ADAPTIVE_IRM),
             lltv: vm.envOr("MORPHO_WEETH_WETH_LLTV", MORPHO_LLTV_945)
         }), lm);
-        // SECOND ETH-denominated-debt venue {collateral: weETH, debt: WETH}, on Aave V4 -- so the WETH borrow
-        // is not single-sourced to Morpho. REUSES AaveV4Venue verbatim; only the token pair differs from the
-        // WETH/USDC instance above. Measured live 2026-08-09: weETH reserve 2, collateralFactor 8000 (80%),
-        // borrowable=false (correct -- we supply it, never borrow it); WETH reserve 0, borrowable=true.
-        // The threshold is NOT passed in -- the venue reads it from Aave and caches it.
-        vs[5] = address(new AaveV4Venue(aaveSpoke, aaveHub, weeth, address(WETH), lm));
+        vs[0] = mv; vs[1] = mvW; vs[2] = mvWeth;
     }
 
 }
