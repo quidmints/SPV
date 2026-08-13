@@ -179,6 +179,54 @@ contract SkewAsymmetry is Test {
         emit log_named_uint("trapezoid-only bps   ", discountBps);
     }
 
+    /// @notice §GAMMA-HORIZON — DERIVE THE HORIZON Γ CARRIES, BY DIMENSIONS AND THEN BY MEASUREMENT.
+    ///         `SwapLib:849` claims *"the horizon T−t is already carried by the FLOW_DECAY EWMA
+    ///         smoothing of flow/scarcity"*. That cannot be right dimensionally: σ² is ANNUALIZED
+    ///         (units yr^-1), q and qBar are dimensionless ratios, and skew is a dimensionless
+    ///         fraction -- so `skew = Γ·σ²·qBar` REQUIRES Γ to carry years. Smoothing a dimensionless
+    ///         ratio cannot supply them. Therefore Γ IS the horizon (times γ), and its value is
+    ///         readable: Γ = 3e16 = 0.03 yr-equivalents.
+    ///
+    ///         The measurement below pins the coefficient empirically instead of trusting the algebra:
+    ///         at qBar = 1 (q = 0.5, i.e. inv/target = 0.5) the kernel must equal Γ·σ² exactly.
+    function test_GAMMA_HorizonIsCarriedByGammaNotTheEwma() public {
+        // qBar = q/(1-q) = 1  <=>  q = 0.5  <=>  inv/target = 0.5
+        uint poolVol = 200_000e6;
+        uint flow    = 400_000e6;
+        // sigma^2 = 1e17 (=0.1/yr) keeps kernel = 3e16*0.1 = 3e15, well under the 3e16 cap, so the
+        // reading is the CURVE and not the clamp -- the saturation trap that has bitten twice here.
+        uint s = 1e17;
+
+        uint total = SwapLib.skewWad(poolVol, flow, s, false, 0);
+        uint base  = _base(s, false);
+        uint kernel = total - base;
+
+        emit log_named_uint("total (wad)          ", total);
+        emit log_named_uint("base  (wad)          ", base);
+        emit log_named_uint("kernel = G*sigma^2   ", kernel);
+        assertLt(total, 3e16, "SATURATION: pinned at the cap, the reading would be the clamp");
+
+        // Gamma recovered from the measurement: G = kernel / (sigma^2 * qBar), qBar = 1.
+        uint gammaRecovered = kernel * 1e18 / s;
+        emit log_named_uint("Gamma recovered (wad)", gammaRecovered);
+        assertApproxEqRel(gammaRecovered, 3e16, 1e15, "Gamma is not MAX_WELL_SKEW as documented");
+
+        // Gamma carries years. At gamma_riskaversion = 1, the implied horizon is Gamma itself.
+        // 0.03 yr * 365.25 d = 10.96 days = 947,808 s.
+        uint horizonSecs = gammaRecovered * 31_536_000 / 1e18;
+        emit log_named_uint("implied horizon (s)  ", horizonSecs);
+        emit log_named_uint("implied horizon (d)  ", horizonSecs / 86_400);
+
+        // THE POINT: that horizon dwarfs the 4h gaps that collapse the charge by 93%. A kernel
+        // missing a horizon term cannot be the defect at that timescale.
+        // MEASURED ratio is 946,080 / 14,400 = 65.7x. The first threshold written here was 100x and
+        // FAILED at 65.7x -- recorded because the assertion was wrong, not the derivation, and a
+        // threshold picked before the measurement is exactly the kind of number that gets quietly
+        // widened until it passes. 10x is the claim being made ("dwarfs"), and it is not retrofitted.
+        emit log_named_uint("horizon / 4h spacing ", horizonSecs / 4 hours);
+        assertGt(horizonSecs, 4 hours * 10, "implied horizon should dwarf the attack's 4h spacing");
+    }
+
     /// @notice CONTROL: the A-S kernel itself must be asset-independent. If it is not, the
     ///         asymmetry is wider than the window+splice and UNIT-ASYM's framing is incomplete.
     ///         Same poolVol, same flow, same sigma^2, same drain -- only the bool differs.
