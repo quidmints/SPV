@@ -1177,16 +1177,9 @@ library BasketLib {
         // maxWithdraw). If AAVE-WETH isn't wired (AAVE_SPOKE==0 — NOT a zero reserve
         // id, which is a VALID reserve: mainnet WETH is asset 0) the pulled
         // WETH simply rests at Aux — still OUT of the failing venue.
-        if (vault == cfg.galaxyVault
-            || (cfg.eulerVault != address(0) && vault == cfg.eulerVault)
-            || (cfg.gauntletVault != address(0) && vault == cfg.gauntletVault)) {
-            // A WETH 4626 curator (Galaxy or Euler) is custodied on EthVenue (the
-            // venue carve); the drain (maxWithdraw → AAVE haven) runs THERE.
-            // EthVenue.evacuateVenue is gated to Aux (== address(this) here, since
-            // this body is delegatecalled from Aux). maxWithdraw-only, AAVE-or-idle.
-            IEthVenue(cfg.ethVenue).evacuateVenue(vault);
-            return;
-        }
+        // ETH-VENUE ARM REMOVED 2026-08-13 — there are no WETH-4626 curators left to evacuate. Every
+        // ETH deposit is weETH, which is not a curated vault and cannot go illiquid in the way this arm
+        // handled. The STABLE path below is untouched and still covers galaxy/gauntlet/euler USDC.
         uint sh = IERC4626(vault).balanceOf(address(this));
         if (sh == 0) return;
         address stable = tokens[vault];

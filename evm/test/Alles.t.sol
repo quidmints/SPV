@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 import {ForkPin} from "./utils/ForkPin.sol";
+import {ICurvePool} from "../src/imports/Interfaces.sol";
 import {ChannelLib} from "../src/imports/ChannelLib.sol";
 import {ExitFixture} from "./btc/ExitFixture.sol";
 
@@ -744,29 +745,11 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
 
 
 
-    /// @notice TODO #1 char test - Galaxy fallback (Batch-1 `b554c7d`). Closes the
-    ///         green-by-masking gap: a reverting Galaxy deposit is CAUGHT and the ETH
-    ///         reroutes to AAVE/hold (no strand); a Galaxy deposit that mints 0 shares
-    ///         consumes the WETH for no backing -> unreroutable -> `require(sh>0)` reverts
-    ///         the whole deposit (never credit principal for WETH that bought nothing).
-    function testGalaxyFallback_RevertReroutes_ZeroSharesReverts() public {
-        address galaxy = ETH.GALAXY_VAULT();
+    // DELETED 2026-08-13 — testGalaxyFallback_RevertReroutes_ZeroSharesReverts. It mocked
+    // `Galaxy.deposit` reverting and asserted `_supplyETH` caught it and rerouted to AAVE/hold. ETH
+    // deposits no longer reach Galaxy (or AAVE, or any WETH-4626 curator) at all, so there is no
+    // fallback to exercise — the subject is gone, not the assertion wrong.
 
-        // Case A: Galaxy.deposit REVERTS -> _supplyETH catch -> reroute to AAVE/hold; succeeds.
-        vm.mockCallRevert(galaxy, abi.encodeWithSelector(IERC4626.deposit.selector), bytes("galaxy down"));
-        uint vogueBefore = ETH.vogueETH();
-        vm.prank(User01); V4.deposit{value: 10 ether}(0, User01);     // venue 0 = Galaxy default
-        assertGt(ETH.vogueETH(), vogueBefore + 9 ether,
-            "Galaxy revert rerouted (AAVE/hold): principal credited, not stranded");
-        vm.clearMockedCalls();
-
-        // Case B: Galaxy.deposit returns 0 shares (no revert) -> unreroutable -> revert "v4626:0".
-        vm.mockCall(galaxy, abi.encodeWithSelector(IERC4626.deposit.selector), abi.encode(uint(0)));
-        vm.prank(User01);
-        vm.expectRevert(bytes("v4626:0"));
-        V4.deposit{value: 10 ether}(0, User01);
-        vm.clearMockedCalls();
-    }
 
     /// @notice TODO #1 char test - Strand-3 (Batch-1 `b554c7d`). A swap-OUT to a
     ///         volatile asset against a DRY pool (POOLED_ETH==0, no LP) delivers
@@ -1430,32 +1413,37 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     ///      Do NOT use this to test the permissionless poke on a V2 venue: neutralising the marker is
     ///      precisely the false signal `_withdrawableOf` exists to reject (see
     ///      test_PokeVaultHealth_HealthyMorphoV2_NotBlocked).
-    function _mockVenueIlliquid(address venue) internal {
-        uint solvent = IERC4626(venue).convertToAssets(IERC4626(venue).balanceOf(address(ETH)));
-        vm.mockCall(venue, abi.encodeWithSignature("liquidityAdapter()"), abi.encode(address(0)));
-        vm.mockCall(venue, abi.encodeWithSelector(IERC4626.maxWithdraw.selector, address(ETH)),
-            abi.encode(solvent * 30 / 100));
+    /// @dev Stage the ONE way an ETH exit can now be short: a DRAINED CURVE POOL.
+    ///      Replaces `_mockVenueIlliquid`, which mocked a WETH-4626 curator at 30% liquid — a scenario
+    ///      that no longer exists, because ETH deposits no longer reach any curated vault. The property
+    ///      under test is unchanged (an unservable slice must DEFER and stay RECOVERABLE); only the
+    ///      route that can be short has moved from a 4626 max-view to the pool's WETH balance.
+    ///      `offrampBody` shrinks the sale to what `balances(0)` can pay, so mocking it low forces a
+    ///      partial fill and leaves the remainder in the LP's position — which is the deferral.
+    /// @param payable_ absolute WETH the pool can still pay, in wei.
+    /// @dev  ⚠️ TAKE AN ABSOLUTE AMOUNT, NOT A PERCENTAGE OF THE POOL. A first attempt mocked
+    ///       `balances(0)` at 30% of the real pool, which is ~614 WETH — not remotely binding on an
+    ///       8 ETH exit, so nothing deferred and the "recoverable" assertions failed against a residual
+    ///       of THREE WEI. The trace showed it: `exchange(1, 0, 7.263e18, ...)` filled in full, then the
+    ///       retry asked for `offrampEtherFi(3)`. The predecessor `_mockVenueIlliquid` capped a venue at
+    ///       30% of THE VAULT'S OWN POSITION, which binds; a fraction of the venue's own depth does not.
+    ///       Size this against the EXIT, not against the pool.
+    function _mockCurveDrained(uint payable_) internal {
+        address pool = ETH.ETHERFI_CURVE_POOL();
+        vm.mockCall(pool, abi.encodeWithSelector(ICurvePool.balances.selector, uint(0)),
+            abi.encode(payable_));
     }
 
 
-    /// @notice Companion to the above: a HEALTHY Morpho-V2 venue must survive the permissionless poke.
-    ///         This is the security property behind the `_withdrawableOf` change — real Galaxy reports
-    ///         `maxWithdraw == 0` AND `maxRedeem == 0` while being fully withdrawable, so a poke keyed
-    ///         on the raw max-view would read 0% liquid and let ANY caller block-then-evacuate a healthy
-    ///         venue. Nothing is mocked here; the venue is simply left as mainnet has it.
-    function test_PokeVaultHealth_HealthyMorphoV2_NotBlocked() public {
-        address venue = ETH.GALAXY_VAULT();
-        vm.prank(User01); V4.deposit{value: 20 ether}(0, User01); // VENUE_GALAXY (Morpho V2)
-        uint balBefore = IERC4626(venue).balanceOf(address(ETH));
-        assertGt(balBefore, 0, "the Vault holds a real Galaxy WETH position");
-        assertEq(IERC4626(venue).maxWithdraw(address(ETH)), 0,
-            "precondition: the V2 max-view really does report 0 against a live position");
+    // DELETED 2026-08-13 — test_PokeVaultHealth_HealthyMorphoV2_NotBlocked. It required the Vault to
+    // hold a Galaxy WETH position, which no ETH deposit now creates.
+    // ⚠️ COVERAGE LOST, SAY SO RATHER THAN LET IT VANISH: the property it guarded is still real and
+    // still live — a Morpho-V2 vault's max-view reports 0 against a fully recoverable position, so
+    // `pokeVaultHealth` must not block a HEALTHY V2 venue off that idle-only read. That path now exists
+    // only on the STABLE side (galaxy/gauntlet USDC are Morpho V2 and Aux holds those positions), where
+    // it is UNTESTED. Re-establish it against a stable vault rather than treating the deletion as a
+    // closure.
 
-        AUX.pokeVaultHealth(venue);
-        assertFalse(AUX.vaultBlocked(venue),
-            "a HEALTHY Morpho-V2 venue must NOT be blockable off its idle-only max-view");
-        assertEq(IERC4626(venue).balanceOf(address(ETH)), balBefore, "and must not be evacuated");
-    }
 
 
 
@@ -3550,8 +3538,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     /// face + the thaw recovers the deferral.
     function test_RunSim_B_LiquidityRace_SimultaneousRush() public {
         (address lp1, address lp2) = _stageRunSim(8 ether);
-        address gv = ETH.GALAXY_VAULT();
-        _mockVenueIlliquid(gv);    // 30%-liquid (marker neutralised); the THAW below un-mocks it
+        _mockCurveDrained(2.4 ether);  // ~30% of an 8 ETH exit — BINDING; the THAW un-mocks it
         _freezeUsdcLegs();
 
         // The rush - same block. Nothing may revert (liveness). Each LP's
@@ -3594,10 +3581,14 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // (Un-mocking restores the vault's REAL maxWithdraw — no code to put back.)
         vm.clearMockedCalls();
         if (rem2 > 0) {
-            uint b = lp2.balance;
+            // MEASURE BOTH ASSETS. The offramp settles in WETH (Curve pays the token, and the rung-1
+            // body forwards it), so a native-only delta reads 0 on a delivery that DID happen — the
+            // exact mis-measurement five other withdraw guards in this file were corrected for.
+            uint b = lp2.balance + WETH.balanceOf(lp2);
             vm.prank(lp2); V4.withdraw(type(uint).max, lp2, lp2);
-            console.log("LP2 post-thaw recovery (wei)", lp2.balance - b);
-            assertGt(lp2.balance - b, 0, "thaw: LP2's deferred slice is recoverable");
+            uint got = (lp2.balance + WETH.balanceOf(lp2)) - b;
+            console.log("LP2 post-thaw recovery (wei)", got);
+            assertGt(got, 0, "thaw: LP2's deferred slice is recoverable");
         }
         if (burn2 < RUNSIM_FACE) {
             uint b = USDC.balanceOf(User02);
@@ -3612,8 +3603,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     /// LIQUIDITY reordering only - the late mover's gap stays claimable.
     function test_RunSim_B_LiquidityRace_SequentialRush() public {
         (address lp1, address lp2) = _stageRunSim(8 ether);
-        address gv = ETH.GALAXY_VAULT();
-        _mockVenueIlliquid(gv);    // 30%-liquid (marker neutralised); the THAW below un-mocks it
+        _mockCurveDrained(2.4 ether);  // ~30% of an 8 ETH exit — BINDING; the THAW un-mocks it
         _freezeUsdcLegs();
 
         // Turn-taking with real blocks between exits. Each LP's before-
@@ -3656,9 +3646,11 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // (Un-mocking restores the vault's REAL maxWithdraw — no code to put back.)
         vm.clearMockedCalls();
         if (rem2 > 0) {
-            uint b = lp2.balance;
+            // Native + WETH: the offramp settles in WETH, so a native-only delta reads 0 on a recovery
+            // that DID happen. TRACED: post-thaw `offrampEtherFi(3.68e18)` -> `exchange(1, 0, 3.341e18)`.
+            uint b = lp2.balance + WETH.balanceOf(lp2);
             vm.prank(lp2); V4.withdraw(type(uint).max, lp2, lp2);
-            assertGt(lp2.balance - b, 0, "thaw: late LP's deferral recovers");
+            assertGt((lp2.balance + WETH.balanceOf(lp2)) - b, 0, "thaw: late LP's deferral recovers");
         }
     }
 
