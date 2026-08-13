@@ -940,6 +940,10 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         if (p.amountSats == channels[channelId].amountSats) revert SpliceUnchanged();
         // Verify + rotate + (grow|shrink) in its own frame (legacy stack, no via_ir); returns the grow delta.
         uint grewBy = _applySplice(channelId, p, rawSpliceTx, spliceMerkleProof);
+        // (T1-f) THE CLAIM, decided here rather than inside the splice: an ordinary grow is
+        // funded BY this LP, so it is a deposit and earns the LP its shares. The swap-in path
+        // deliberately does NOT do this — see `settleSwapInSpliced`.
+        if (grewBy != 0) btcVault.registerBtcLp(channels[channelId].lpEth, grewBy);
         // FEE-INTO-CHANNEL: the hop may mark up to `grewBy` of this grow as BTC-leg fees it is FUNDING in —
         // they compound into the LP's position (registerBtcLp already grew pooled by the full delta, so `delivered`
         // stays invariant); the bigger pooled share grows the LP's coop-close payout. (An earlier version of this
@@ -1020,6 +1024,15 @@ contract BTCChannels is Ownable, ReentrancyGuard {
 
     error NotAGrow();   // a shrink-splice cannot fund a swap-in: no sats entered custody
 
+    /// @dev CUSTODY ONLY — this rotates the funding outpoint and moves `amountSats`; it does
+    ///      NOT decide who owns the grown slice. **(§T1-f) The claim is the CALLER's decision**,
+    ///      because the two callers differ on it: an ordinary `splice` grow is funded BY the LP
+    ///      and so is a deposit that earns shares, while a swap-in's grow is BOUGHT BY THE POOL,
+    ///      which also pays the seller USD — registering shares there paid twice for one set of
+    ///      sats, once as a position and once in dollars, to a party that funded neither.
+    ///      Custody grows either way, because the sats really did arrive.
+    ///      (Lifting `registerBtcLp` out to the caller also relieved this frame's stack — a
+    ///      `bool` parameter here compiled to Stack-too-deep, and `via_ir` is off deliberately.)
     function _applySplice(
         bytes32 channelId,
         Types.OpenParams calldata p,
@@ -1037,7 +1050,6 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         if (p.amountSats > old) {
             uint delta = p.amountSats - old;
             totalSatsLocked += delta;
-            btcVault.registerBtcLp(ch.lpEth, delta); // deposit: add liquidity, no settle
             grewBy = delta;                          // caller settles ≤ this as funded BTC-leg fees
             emit ChannelSpliced(channelId, ch.lpEth, true, delta, p.amountSats, newTxId, newVout);
         } else {

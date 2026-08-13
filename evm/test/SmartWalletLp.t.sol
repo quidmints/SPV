@@ -78,8 +78,16 @@ contract SmartWalletLpTest is Test, ExitFixture {
             lpPubkey: hex"02", hopPubkey: hex"03", amountSats: 100_000, fundingTaproot: Q });
     }
 
+    /// ⚠️ **PRANKS AS THE HOP, AND WITHOUT IT THESE TESTS ASSERT NOTHING.** §E185 closed T7 by
+    /// putting `_onlyHop()` on `openChannel` — `msg.sender` must be `MAIN_HOP`/`FALLBACK_HOP`.
+    /// This helper called it from the test contract, so every open reverted `NotChannelHop`
+    /// BEFORE reaching the consent check these tests exist to exercise. They were red, and the
+    /// two that use a bare `vm.expectRevert()` would have gone GREEN on the wrong revert —
+    /// asserting only that *something* failed. Authority-before-work is the right order for the
+    /// contract; the tests simply had not caught up.
     function _open(address lpEth, bytes memory sig) internal {
         bytes32[] memory proof;
+        vm.prank(makeAddr("hop"));   // the MAIN_HOP this suite's `setUp` constructs with
         ch.openChannel(_params(), hex"00", proof,
             Types.OpenAuth({lpEth: lpEth, btcRecipient: payoutKey, lpSig: sig,
                             btcRecipientPoP: popFor[lpEth]}),
