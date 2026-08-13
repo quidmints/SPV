@@ -34,9 +34,22 @@ Lightning HTLC produces no transaction to prove, but the sats become provable th
 hop splices them into a channel. Conservation holds: the spliced sats become LP backing while
 the seller is paid USD.
 
-▶️ **WHAT REMAINS IS THE DELETION ITSELF** — repoint `quid-hop/src/swap.rs` at the spliced
-entrypoint, then remove `settleSwapIn`. Its OTHER role must survive under its own name: the swap-out failure reversal (`BTCChannels.sol:1814`) refunds USD the swapper
-already paid, where nothing arrives and nothing is provable.
+▶️ **WHAT REMAINS IS THE DELETION ITSELF.** Its OTHER role already survives under its own
+name: `reverseSwapOut` refunds USD the swapper already paid, where nothing arrives and
+nothing is provable — and the daemon now calls it (T1-b).
+
+⚠️ **THE CALLER COUNT IN THIS ROW WAS WRONG — THERE ARE THREE, NOT TWO** (verified 2026-08-13
+by enumerating, which is the only way this row was ever going to be right):
+
+| caller | destiny | state |
+|---|---|---|
+| `swap_out_onchain.rs` reversal | `reverseSwapOut` | ✅ done (T1-b) |
+| `swap_in_onchain.rs:159` on-chain deposit rail | **`settleSwapInProven`** | 🔴 **still unproven** |
+| `swap_in.rs:291` LN rail | `settleSwapInSpliced` | 🔴 needs a splice first |
+
+🔴 **The middle row is the one to be uncomfortable about.** It is the rail where a real
+transaction to prove EXISTS, `settleSwapInProven` was built for it in §E159, and the daemon
+was never repointed — so the trapdoor is open where it is cheapest to close. §T1-c.
 
 ## T2 🔴 OPEN — `seller`, `token`, `minDeliveredUsd` are hop assertions
 

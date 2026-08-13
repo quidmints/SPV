@@ -51,6 +51,32 @@ pub fn settle_swapin_calldata(
     Bytes::from(data)
 }
 
+/// ABI-encode [`SIG_REVERSE_SWAP_OUT`] — `reverseSwapOut(swapId, token, minDeliveredUsd,
+/// requireFull)`, which returns the USD an undeliverable on-chain swap-out already took
+/// from the swapper.
+///
+/// This is NOT a swap-in and it deliberately does not look like one. A swap-in credit is an
+/// assertion that BTC arrived; a reversal asserts nothing, because the swapper's own USD is
+/// still sitting in `pendingOnchainSwapOut[swapId]` where their `requestSwapOutOnchain` put
+/// it. Hence there is no `seller` and no `sats` to encode: the contract reads both from that
+/// record. `require_full = true` because a partial refund would strand the remainder — on
+/// this path the swapper has no deposit or HTLC to reclaim it from.
+pub fn reverse_swap_out_calldata(
+    swap_id: [u8; 32],
+    token: Address,
+    min_delivered_usd: U256,
+    require_full: bool,
+) -> Bytes {
+    let sel = keccak256(crate::evm_codec::SIG_REVERSE_SWAP_OUT);
+    let mut data = Vec::with_capacity(4 + 128);
+    data.extend_from_slice(&sel[..4]);
+    data.extend_from_slice(&swap_id);
+    data.extend_from_slice(&crate::abi::address_word(token));
+    data.extend_from_slice(&min_delivered_usd.to_be_bytes::<32>());
+    data.extend_from_slice(&U256::from(require_full as u8).to_be_bytes::<32>());
+    Bytes::from(data)
+}
+
 /// The floor (the `min_delivered_usd` for `issue_swap_in_invoice`): the
 /// seller's minimum acceptable USD for `sats` BTC, at the hop's quoted
 /// `price_per_btc` (the OUTPUT stable's smallest units per 1 BTC — e.g. USDC
@@ -182,6 +208,37 @@ mod tests {
         // requireFull = false → last byte 0.
         let cd0 = settle_swapin_calldata(seller, 50_000, token, hash, U256::from(1_000_000u64), false);
         assert_eq!(U256::from_be_slice(&cd0[4 + 160..4 + 192]), U256::ZERO);
+    }
+
+    /// (T1-b) The reversal's calldata layout — and, in the length assertion, the security
+    /// property that separates it from a credit: FOUR words, not six. There is nowhere to
+    /// put a payee or an amount, so a compromised hop cannot supply either. If someone ever
+    /// re-adds them, this test fails on length before anything reaches the chain.
+    #[test]
+    fn reverse_swap_out_calldata_layout_and_carries_no_payee() {
+        let token = Address::from([0x22u8; 20]);
+        let swap_id = [0xCDu8; 32];
+        let cd = reverse_swap_out_calldata(swap_id, token, U256::from(7u64), true);
+        assert_eq!(cd.len(), 4 + 128, "reversal must carry exactly swapId/token/floor/flag");
+        assert_eq!(&cd[..4], &keccak256(crate::evm_codec::SIG_REVERSE_SWAP_OUT)[..4]);
+        assert_eq!(&cd[4..4 + 32], &swap_id, "word 0: swapId verbatim");
+        assert_eq!(&cd[4 + 44..4 + 64], &[0x22u8; 20], "word 1: token in the low 20 bytes");
+        assert_eq!(U256::from_be_slice(&cd[4 + 64..4 + 96]), U256::from(7u64));
+        assert_eq!(U256::from_be_slice(&cd[4 + 96..4 + 128]), U256::from(1u64), "requireFull");
+        // A reversal must never be mistakable for a credit: different selector entirely.
+        let credit = keccak256("settleSwapIn(address,uint256,address,bytes32,uint256,bool)");
+        assert_ne!(&cd[..4], &credit[..4]);
+        let cd0 = reverse_swap_out_calldata(swap_id, token, U256::ZERO, false);
+        assert_eq!(U256::from_be_slice(&cd0[4 + 96..4 + 128]), U256::ZERO);
+    }
+
+    /// The hop's tx policy must ALLOW the reversal — §E178's drift was a policy that
+    /// disagreed with the codec, so assert the shared constant is actually in the set the
+    /// policy derives from rather than trusting that it was added.
+    #[test]
+    fn reversal_is_in_the_hop_signed_set() {
+        assert!(crate::evm_codec::HOP_BTCCHANNELS_SIGS
+            .contains(&crate::evm_codec::SIG_REVERSE_SWAP_OUT));
     }
 
     #[test]

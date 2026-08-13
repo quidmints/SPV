@@ -578,6 +578,49 @@ impl<R: JsonRpc, S: TxSigner> JsonRpcEvmClient<R, S> {
         }
         Ok(())
     }
+
+    /// (T1-b) Return the USD an undeliverable on-chain swap-out already took from the
+    /// swapper, via `reverseSwapOut`. Deliberately NOT a method on [`EvmClient`]: that trait
+    /// is "the EVM calls the swap-in SENDER needs", and a reversal is not a swap-in — it
+    /// credits no BTC and attests nothing. The only caller holds a concrete client, so the
+    /// distinction costs nothing and stops the two paths sharing a stub.
+    ///
+    /// The outcome disambiguation is identical in SHAPE to `settle_swap_in` and identical in
+    /// KIND: the dedup key is `swapInUsed[swapId]` on both paths (the contract reuses that
+    /// map for reversals), so a revert with the key SET is a replay of a reversal that already
+    /// landed, and a revert with it CLEAR is a genuine failure to refund. `consumed_sats` is
+    /// not read back: nothing is claimed against a reversal, so there is no remainder to
+    /// refund and no log to decode.
+    pub fn reverse_swap_out(
+        &self,
+        swap_id: B256,
+        token: Address,
+        min_delivered_usd: U256,
+        require_full: bool,
+    ) -> anyhow::Result<SettleOutcome> {
+        let data =
+            quid_hop::swap::reverse_swap_out_calldata(swap_id.0, token, min_delivered_usd, require_full);
+        let depth = self.cfg.settle_min_confirmations;
+        let mined = self.submit(self.cfg.btc_channels, &data, self.cfg.gas_limit)?;
+        debug!(success = mined.success, block = mined.block, "reversal mined");
+
+        // Same uniform reorg gate as the credit path: a status-1 receipt whose `swapInUsed`
+        // does not survive burial was reorged out → transient, retry.
+        if self.swap_in_used_buried(swap_id, depth, mined.block)? {
+            // `consumed_sats` is meaningless for a reversal (see above); report the whole
+            // amount so the variants stay shape-compatible with the credit path's.
+            return Ok(if mined.success {
+                SettleOutcome::Delivered { consumed_sats: 0 }
+            } else {
+                warn!("reverseSwapOut reverted but swapInUsed set — already reversed");
+                SettleOutcome::AlreadySettled { consumed_sats: 0 }
+            });
+        }
+        if mined.success {
+            anyhow::bail!("reversal mined but swapInUsed unconfirmed (reorg?) — retry");
+        }
+        Ok(SettleOutcome::Undeliverable)
+    }
 }
 
 // The LpFeeMarker impl (markLpFeePaid/lpFeePaid F4 dedup) was REMOVED with the

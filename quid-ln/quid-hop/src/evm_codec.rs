@@ -92,6 +92,12 @@ pub const SIG_EMIT_DEAD_MAN_EXIT: &str =
 (uint64[],bytes[],uint64,uint256,bytes))";
 pub const SIG_REQUEST_SWAP_OUT_ONCHAIN: &str =
     "requestSwapOutOnchain(address,uint256,uint256,bytes32)";
+/// (T1-b) Reverse an undeliverable on-chain swap-out. Note what is NOT a parameter: the
+/// payee and the sats. Both are read on-chain from `pendingOnchainSwapOut[swapId]`, which
+/// only `requestSwapOutOnchain` writes — so unlike `settleSwapIn`, a compromised hop cannot
+/// redirect a refund or inflate it. That is the whole reason this is a separate entrypoint
+/// rather than a flag on the credit path.
+pub const SIG_REVERSE_SWAP_OUT: &str = "reverseSwapOut(bytes32,address,uint256,bool)";
 
 /// (E178) Every signature the hop's hot key may legitimately be asked to sign on
 /// `BTCChannels`. The EVM tx policy derives its selector set from THIS — it does not keep
@@ -103,6 +109,7 @@ pub const HOP_BTCCHANNELS_SIGS: &[&str] = &[
     SIG_RECORD_FORCE_CLOSE_PERMISSIONLESS,
     SIG_DELIVER_SWAP_OUT_ONCHAIN,
     SIG_EMIT_DEAD_MAN_EXIT,
+    SIG_REVERSE_SWAP_OUT,
 ];
 
 /// An ABI token. Static tokens contribute one 32-byte word to the head; dynamic

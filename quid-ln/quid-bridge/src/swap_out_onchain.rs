@@ -47,7 +47,9 @@ use quid_hop::swap::{
 use crate::channel_driver::{gas_limit_for, read_channel_state};
 use crate::client::JsonRpcEvmClient;
 use crate::config::BridgeConfig;
-use crate::evm::{EvmClient, SettleOutcome};
+// The `EvmClient` TRAIT is deliberately not imported here: since T1-b this file's only EVM
+// call is the inherent `reverse_swap_out`, and a reversal is not a swap-in.
+use crate::evm::SettleOutcome;
 use crate::signer::LocalSigner;
 use crate::transport::JsonRpc;
 use quid_ln::esplora::Esplora;
@@ -293,23 +295,35 @@ pub async fn drive_swap_out_onchain<R: JsonRpc + Send + Sync + 'static>(
     Ok(())
 }
 
-/// Reverse an undeliverable on-chain swap-out: `settleSwapIn` returns the swapper's
+/// Reverse an undeliverable on-chain swap-out: `reverseSwapOut` returns the swapper's
 /// USD (in their token), keyed by `swapId` (the on-chain dedup `swapInUsed` makes it
-/// idempotent). Same authority + path as the LN rail's reversal.
+/// idempotent).
+///
+/// (T1-b) This used to ride the `settleSwap_in` credit path, passing `req.swapper` and
+/// `req.sats` as if they were a seller and a delivery. They are neither, and passing them
+/// was the risk: on that path the hop's word set the payee and the amount. `reverseSwapOut`
+/// takes only the id, and the contract reads the payee and sats from the record the
+/// swapper's OWN `requestSwapOutOnchain` wrote — so a compromised hop can at worst reverse a
+/// swap-out that really is pending, to the address that really requested it.
+///
+/// ⚠️ NARROWED, NOT SEALED: `token` is still ours to assert, because
+/// `PendingOnchainSwapOut` does not store one. Pinning it is §T1-d (the struct has exactly
+/// 20 spare bytes, so it is free); until then this is the same class as T2, not a hole T1-b
+/// introduced.
 async fn reverse_swap_out_onchain<R: JsonRpc + Send + Sync + 'static>(
     evm: &Arc<JsonRpcEvmClient<R, LocalSigner>>,
     req: &OnchainSwapOutRequest,
 ) -> anyhow::Result<()> {
-    let (swapper, sats, token, swap_id) = (req.swapper, req.sats, req.token, req.swap_id);
+    let (token, swap_id) = (req.token, req.swap_id);
     let evm = evm.clone();
     // A reversal returns the swapper's OWN committed USD (the freed swap-out reserve), so it
     // must be all-or-nothing: require_full = true → a can't-fully-return reverts to
     // Undeliverable and is retried, never a partial return.
     let outcome = tokio::task::spawn_blocking(move || {
-        evm.settle_swap_in(swapper, sats, token, B256::from(swap_id), U256::ZERO, true)
+        evm.reverse_swap_out(B256::from(swap_id), token, U256::ZERO, true)
     })
     .await
-    .context("reverse settle_swap_in join")??;
+    .context("reverse_swap_out join")??;
     match outcome {
         SettleOutcome::Delivered { .. } | SettleOutcome::AlreadySettled { .. } => {
             info!(swap_id = %hex::encode(req.swap_id), "on-chain swap-out reversed (USD returned)");
