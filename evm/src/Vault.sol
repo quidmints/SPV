@@ -432,13 +432,14 @@ contract Vault is Ownable, ReentrancyGuard {
     /// @notice Unified Vogue↔Vault op selector (ETH side only; the BTC ops that
     ///         shared this entry stayed in Aux's vogueBTC counter).
     /// @param  op    0=deposit, 1=take, 2=return current balance
-    function vogueOp(bool /*isBTC*/, uint amount, uint8 op, bytes32 /*ctx*/)
+    /// @dev `isBTC` and `ctx` were DELETED from this signature 2026-08-13. The body has been ETH-only
+    ///      since the dead BTC branches went, both arguments were ignored, and ALL THREE call sites
+    ///      passed the same literals (`false`, `bytes32(0)`) — so they were 64 bytes of calldata per
+    ///      call carrying no information. Not in any client ABI, so nothing downstream saw them.
+    function vogueOp(uint amount, uint8 op)
         external returns (uint sent) {
         if (msg.sender != address(V4)) revert NotVogueCore();
-        // Body in SwapLib.vogueOpBody (ETH-only; the dead BTC branches + result
-        // struct were removed). isBTC/ctx stay in the signature for the V4 caller
-        // ABI but are unused. The live ETH claim is read via vogueETH() (real 4626
-        // shares), not a stored principal.
+        // The live ETH claim is read via vogueETH() (real 4626 shares), not a stored principal.
         sent = SwapLib.vogueOpBody(amount, op, WETH, vogueETH());
     }
 

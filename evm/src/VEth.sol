@@ -10,7 +10,7 @@ import {IVogueShares, IAux} from "./imports/Interfaces.sol";
 ///
 /// @notice WHY THIS EXISTS. `Vogue` is the BAND MANAGER for BOTH asset classes: its math is parameterised
 ///         by `isBTC` throughout (`kLvrWad(bool)`, `derivedThetaWad(bool)`, `realizedVarianceWad(bool)`,
-///         `bandSqrtP(bool)`, `vogueOp(bool, ...)`). A contract that manages two asset classes CANNOT
+///         `bandSqrtP(bool)`; `vogueOp`'s own bool was deleted 2026-08-13 as dead). A contract that manages two asset classes CANNOT
 ///         honestly implement ERC-4626, which is defined around ONE `asset()`. Vogue nevertheless used to
 ///         declare `asset() => WETH`, `name = "QU!D Vogue ETH LP"` and the full `max*`/`preview*` surface,
 ///         so any 4626-aware integrator (aggregator, router, pricing venue) would read the ETH identity

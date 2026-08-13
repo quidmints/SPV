@@ -905,7 +905,7 @@ contract Vogue is
     ///      including it would (a) skim plain LPs' venue yield and (b) make a lev open/close appear
     ///      as fake venue yield in _syncYield. No-op when no leverage (totalNetEquityEth == 0).
     function _venueBalance() internal returns (uint) {
-        uint total = EV.vogueOp(false, 0, 2, bytes32(0));   // vogueETH (all plain venues + lev net-equity)
+        uint total = EV.vogueOp(0, 2);   // vogueETH (all plain venues + lev net-equity)
         address lm = VogueLib.levManager(address(AUX));
         if (lm != address(0)) {
             try ILevEquity(lm).totalNetEquityEth() returns (uint n) { total = total > n ? total - n : 0; } catch {}

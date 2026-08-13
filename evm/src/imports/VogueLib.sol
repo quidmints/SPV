@@ -419,7 +419,7 @@ library VogueLib {
     /// @dev Plain-venue ETH balance = vogueETH − lev net-equity (replica of Vogue._venueBalance; that one STAYS in
     ///      Vogue for its _withdraw/_depositImpl callers). No-op subtraction when no leverage.
     function _venueBalanceLib(address ev, address aux) internal returns (uint total) {
-        total = IEthVenue(ev).vogueOp(false, 0, 2, bytes32(0));
+        total = IEthVenue(ev).vogueOp(0, 2);
         address lm = levManager(aux);
         if (lm != address(0)) {
             try ILevEquity(lm).totalNetEquityEth() returns (uint n) { total = total > n ? total - n : 0; } catch {}
@@ -620,7 +620,7 @@ library VogueLib {
         else { uint needed = howMuch - alreadyInETH;
             uint inWETH = IWETH9(weth).balanceOf(address(this));
             if (needed > inWETH) {
-                inWETH += IEthVenue(ev).vogueOp(false, needed - inWETH, 1, bytes32(0));
+                inWETH += IEthVenue(ev).vogueOp(needed - inWETH, 1);
                 if (inWETH < needed) {
                     address mgr = ILevHost(ev).LEV_MANAGER();
                     if (mgr != address(0)) {

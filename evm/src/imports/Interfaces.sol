@@ -326,7 +326,7 @@ interface IEthVenue {
     function btcChannels() external view returns (address);
     function evacuateVenue(address vault) external;
     function venuePosition(address vault) external view returns (uint reported, uint liquid);
-    function vogueOp(bool isBTC, uint amount, uint8 op, bytes32 ctx) external returns (uint);
+    function vogueOp(uint amount, uint8 op) external returns (uint);
     function supplyEtherFi(uint amount) external returns (uint);
     function offrampEtherFi(uint amount, address recipient) external returns (uint);
 }
