@@ -1280,6 +1280,23 @@ impl OnchainWallet {
         // Build drain transaction using BDK's drain_wallet + drain_to. This
         // will fail if the balance is dust (can't cover fees).
         let mut tx_builder = locked_wallet.build_tx();
+        // 🔴 (#114) A DRAIN MUST STILL RESPECT RESERVED OUTPOINTS, AND THIS DOES NOT COME FOR
+        // FREE HERE. `build_tx()` is called directly rather than through the shared builder
+        // helper, so the `unspendable` exclusion that helper applies is NOT inherited — despite
+        // its comment promising "every builder path, including any added later". It is applied
+        // explicitly instead.
+        //
+        // WHAT IT PREVENTS: the reserved set holds the fleet's FRESHNESS UTXO, and every emitted
+        // dead-man exit commits to it via BIP-341 `Prevouts::All`. Spending it invalidates EVERY
+        // LP's pre-signed escape in one transaction. A wallet drain is exactly the kind of
+        // sweeping operation that would have taken it without noticing, and the resulting harm —
+        // every LP silently losing its unilateral exit — is far worse than leaving one UTXO
+        // behind. Rotation, which legitimately needs to spend it, still can: an explicit
+        // `add_utxo` overrides `unspendable` by BDK's own semantics.
+        let reserved = self.reserved.read().unwrap().clone();
+        if !reserved.is_empty() {
+            tx_builder.unspendable(reserved.iter().copied().collect());
+        }
         tx_builder
             .drain_wallet()
             .drain_to(dest_script)
@@ -2882,6 +2899,54 @@ mod test {
     /// with no error path anywhere, which is exactly why this is asserted rather than
     /// assumed. The control case (same request, nothing reserved) succeeds, so the failure
     /// is attributable to the reservation and not to the wallet simply being too poor.
+    /// 🔴 THE SWEEP IS THE PATH THAT ESCAPED THE ONE ABOVE, AND ITS NAME SAYS SO: "ordinary
+    /// building". `create_sweep_tx` calls `build_tx()` directly instead of the shared helper, so
+    /// it did NOT inherit the `unspendable` exclusion the helper's own comment promises to
+    /// "every builder path, including any added later". A full `drain_wallet()` would therefore
+    /// have taken the reserved FRESHNESS UTXO — and every emitted dead-man exit commits to it via
+    /// BIP-341 `Prevouts::All`, so one authorized sweep would have silently invalidated EVERY
+    /// LP's unilateral escape.
+    ///
+    /// Asserted on the built transaction's INPUTS, which is the only place the answer is
+    /// observable: a sweep that wrongly included it still succeeds and still looks like a sweep.
+    #[test]
+    fn a_sweep_does_not_spend_the_reserved_freshness_outpoint() {
+        let h = Harness::new(20260813);
+        {
+            let mut w = h.ww();
+            w.fund(External, sat!(100_000));
+            w.fund(External, sat!(80_000));
+        }
+        h.persist();
+
+        let utxos = h.wallet.get_utxos();
+        assert_eq!(utxos.len(), 2, "harness funded two outputs");
+        let reserved = utxos
+            .iter()
+            .max_by_key(|u| u.txout.value.to_sat())
+            .expect("non-empty")
+            .outpoint;
+        h.wallet.reserve_outpoint(reserved);
+
+        let dest = bitcoin::Address::from_script(
+            &bitcoin::ScriptBuf::new_p2wpkh(&bitcoin::WPubkeyHash::from_byte_array([7u8; 20])),
+            bitcoin::Network::Regtest,
+        )
+        .expect("valid p2wpkh");
+
+        let (tx, _fee) = h
+            .wallet
+            .create_sweep_tx(&dest, ConfirmationPriority::Normal)
+            .expect("the unreserved 80k output can still fund a sweep");
+
+        assert!(
+            tx.input.iter().all(|i| i.previous_output != reserved),
+            "a sweep must not spend the reserved freshness outpoint -- doing so invalidates \
+             every emitted dead-man exit"
+        );
+        assert!(!tx.input.is_empty(), "control: the sweep did spend something");
+    }
+
     #[test]
     fn reserved_outpoint_is_unspendable_by_ordinary_building() {
         let h = Harness::new(20260801);

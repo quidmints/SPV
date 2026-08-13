@@ -74,6 +74,17 @@ LP's pre-signed exit at once**. That is the intended invalidation mechanism *and
 point of revocation for the whole system's escape hatch. Per-channel freshness fee cost is
 **unmeasured** (§E166 item 5).
 
+🔴 **AND IT ALMOST GAINED A SECOND TRIGGER (2026-08-13, found by the owner asking what a sweep
+is FOR).** `OnchainWallet::create_sweep_tx` calls `build_tx()` directly rather than through the
+shared builder, so it did **not** inherit the `unspendable` reservation — despite that helper's
+comment promising *"every builder path — including any added later — inherits it"*. A
+`drain_wallet()` would therefore have spent the freshness UTXO, and **one authorized sweep would
+have silently invalidated every LP's pre-signed exit.** Fixed by applying the exclusion in the
+sweep, with a test asserting on the built tx's INPUTS — and mutation-tested: removing the
+exclusion makes it fail. ⚠️ The pre-existing test that should have caught it is named
+`reserved_outpoint_is_unspendable_by_ordinary_building` — **"ordinary" is exactly the word that
+let a drain through.**
+
 ## T4 🟡 NARROWED — the fleet held BOTH funding halves
 
 Was `#2`'s core: `deadman_exit.rs` armed the hop signer *and* the vault signer in one
