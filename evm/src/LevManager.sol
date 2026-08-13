@@ -253,13 +253,7 @@ contract LevManager is LevBase {
     ///         every one a `view`, so this is safe to call from `Vault.vogueETH()`.
     function netEquityEth(address lp) public view returns (uint256) {
         uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        return _netEquityEthAt(lp, px);
-    }
-    function _netEquityEthAt(address lp, uint256 px) internal view returns (uint256) {
-        Types.Pos memory p = pos[lp];
-        if (!p.open) return 0;
-        uint256 collEth = _collToEth(p.venue, p.venue.collateralOf(lp)); // weETH → ETH (rate) OR WETH 1:1
-        return LevMath.netEquityBase(collEth, debtUsd(lp), px);            // coll − debt/px, floored (shared math)
+        return _netEquityAt(lp, px);
     }
     /// @notice LIVE sum of every open position's net-equity (ETH, 1e18). Reads the oracle ONCE for the whole
     ///         book (price-consistent + cheaper). This is the single term `Vault.vogueETH()` adds.
@@ -267,7 +261,7 @@ contract LevManager is LevBase {
         uint256 n = _openLps.length;
         if (n == 0) return 0;
         uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        for (uint256 i; i < n; i++) total += _netEquityEthAt(_openLps[i], px);
+        for (uint256 i; i < n; i++) total += _netEquityAt(_openLps[i], px);
     }
 
     /// @notice #67 deliverability — USD this ETH-levered position can produce via a bounded, value-neutral
@@ -277,14 +271,6 @@ contract LevManager is LevBase {
     function deliverableDollars(address lp) public view returns (uint256) {
         uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         return _deliverableDollarsAt(lp, px);
-    }
-    function _deliverableDollarsAt(address lp, uint256 px) internal view virtual override returns (uint256) {
-        Types.Pos memory p = pos[lp];
-        if (!p.open) return 0;
-        uint256 collUsd = (_collToEth(p.venue, p.venue.collateralOf(lp)) * px) / 1e18;  // C (USD 1e18)
-        uint256 d = debtUsd(lp);                                                        // D (USD 1e18)
-        uint256 netEq = collUsd > d ? collUsd - d : 0;
-        return LevMath.deliverableDollars(netEq, collUsd, LevMath.ltvBps(d, collUsd), p.venue.liqThresholdBps());
     }
     /// @notice LIVE sum of every open position's deliverableDollars — the aggregate #67 counts as available USD
     ///         backing in the band-pairing sizer (sizeBySurplus addend). Reads the oracle ONCE (price-consistent).
@@ -329,7 +315,7 @@ contract LevManager is LevBase {
     }
 
     /// @notice `lp`'s debt in USD (1e18), normalizing the venue loan token's decimals AND its PRICE.
-    function debtUsd(address lp) public view returns (uint256) {
+    function debtUsd(address lp) public view override returns (uint256) {
         ILevVenue v = pos[lp].venue;
         address loan = v.stable();
         return LevMath._toUsd18(address(AUX),loan, v.debtOf(lp));
@@ -876,4 +862,8 @@ contract LevManager is LevBase {
         (skimmed, gasReserve) = LevMath.reimburseKeeper(WETH, keeper, availWeth, gasReserve);
     }
 
+    /// @dev ETH: weETH is rate-bearing, so native units need the ether.fi conversion.
+    function _collNative(ILevVenue v, address lp) internal view override returns (uint) {
+        return _collToEth(v, v.collateralOf(lp));   // weETH → ETH via the ether.fi rate, or WETH 1:1
+    }
 }

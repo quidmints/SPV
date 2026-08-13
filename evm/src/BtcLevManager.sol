@@ -125,7 +125,7 @@ contract BtcLevManager is LevBase {
     }
 
     /// @notice `lp`'s debt in USD (1e18), normalizing the venue stable's decimals.
-    function debtUsd(address lp) public view returns (uint) {
+    function debtUsd(address lp) public view override returns (uint) {
         ILevVenue v = pos[lp].venue;
         return LevMath._toUsd18(address(AUX),v.stable(), v.debtOf(lp));          // canonical decimal-normalize (dedup)
     }
@@ -135,24 +135,14 @@ contract BtcLevManager is LevBase {
     ///         All-view (collateralOf/debtOf/getTWAPforAsset are views), safe from `vogueBTC()`.
     function netEquityBtc(address lp) public view returns (uint) {
         uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        return _netEquityBtcAt(lp, px);
-    }
-    function _netEquityBtcAt(address lp, uint px) internal view returns (uint) {
-        Types.Pos memory p = pos[lp];
-        if (!p.open) return 0;
-        uint collBtc = p.venue.collateralOf(lp);           // vBTC (8-dec sats), price-independent
-        // netEquityBase returns collBase − debtUsd·WAD/px. Pass the GENUINE 18-dec debtUsd: because the WBTC
-        // px is ×1e10-lifted, debtUsd·1e18/px lands in 8-dec SATS, matching collBtc — so the result is 8-DEC
-        // SATS, exactly what Vault.syncLevBTC adds to LP.pooled + what vogueBTC sums. (The former /1e10 made
-        // the debt leg ~1e10 too small ⇒ ≈invisible ⇒ phantom vogueBTC backing — CRITICAL, now fixed.)
-        return LevMath.netEquityBase(collBtc, debtUsd(lp), px);
+        return _netEquityAt(lp, px);
     }
     /// @notice LIVE sum of every open position's net-equity (BTC-units, 1e18); reads the oracle ONCE.
     function totalNetEquityBtc() external view returns (uint total) {
         uint n = _openLps.length;
         if (n == 0) return 0;
         uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        for (uint i; i < n; i++) total += _netEquityBtcAt(_openLps[i], px);
+        for (uint i; i < n; i++) total += _netEquityAt(_openLps[i], px);
     }
 
     /// @notice `lp`'s GROSS collateral in sats (8-dec, price-independent) — the full-2× band CAPACITY (net-equity
@@ -183,14 +173,6 @@ contract BtcLevManager is LevBase {
     function deliverableDollars(address lp) public view returns (uint) {
         uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         return _deliverableDollarsAt(lp, px);
-    }
-    function _deliverableDollarsAt(address lp, uint px) internal view virtual override returns (uint) {
-        Types.Pos memory p = pos[lp];
-        if (!p.open) return 0;
-        uint coll = (p.venue.collateralOf(lp) * px) / 1e18;     // C (USD 1e18) = vBtcValueUsd inline (px reused)
-        uint d = debtUsd(lp);                                   // D (USD 1e18)
-        uint netEq = coll > d ? coll - d : 0;
-        return LevMath.deliverableDollars(netEq, coll, LevMath.ltvBps(d, coll), p.venue.liqThresholdBps());
     }
     /// @notice LIVE sum of every open position's deliverableDollars — the aggregate #67 counts as available USD
     ///         backing in the band-pairing sizer (sizeBySurplus addend). Reads the oracle ONCE (price-consistent).
@@ -526,5 +508,11 @@ contract BtcLevManager is LevBase {
         // slice is zeroed here, and the position is gone.
         if (back > 0) IVaultExposeB(VAULT).unexposeBtcFromLev(lp, back);
         emit Closed(lp, back);
+    }
+
+    /// @dev BTC: vBTC is sats already; there is no rate to apply and _collToEth would MIS-CONVERT (it tests
+    ///      COLLATERAL() == WETH, false here, and would route sats through getEETHByWeETH).
+    function _collNative(ILevVenue v, address lp) internal view override returns (uint) {
+        return v.collateralOf(lp);                  // vBTC IS sats — no conversion exists to apply
     }
 }

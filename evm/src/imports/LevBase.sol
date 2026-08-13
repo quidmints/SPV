@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Types} from "./Types.sol";
+import {ILevVenue} from "./ILevVenue.sol";
 import {IAux} from "./Interfaces.sol";
 import {LevMath} from "./LevMath.sol";
 
@@ -93,11 +94,6 @@ abstract contract LevBase {
         amtNative = LevMath._fromUsd(address(AUX), stable, maxUsd18);
     }
 
-    /// @dev Per-LP deliverable dollars — the ONLY per-asset part of the book-level sum below.
-    ///      ETH values collateral via _collToEth, BTC via its vBTC equivalent, so the hook stays
-    ///      in each manager while the ITERATION is shared.
-    function _deliverableDollarsAt(address lp, uint px) internal view virtual returns (uint);
-
     /// @notice Book-level deliverable dollars across every open LP.
     ///         LIFTED from both managers — after ORACLE_KEY the two copies were BYTE-IDENTICAL.
     ///         Safe over `_openLps` because _untrackOpen is called UNCONDITIONALLY on close
@@ -109,4 +105,35 @@ abstract contract LevBase {
         uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         for (uint i; i < n; i++) total += _deliverableDollarsAt(_openLps[i], px);
     }
+
+    /// @dev The ONLY per-asset step in the two valuation bodies below: native collateral units for
+    ///      `lp` at `v`. Everything else — the debt read, the net-equity floor, the LTV and the
+    ///      deliverable formula — was IDENTICAL in both managers and now exists once.
+    ///      ⚠️ It is a hook rather than a shared helper because `_collToEth` CANNOT serve BTC: it
+    ///      tests `COLLATERAL() == WETH`, which is false for a vBTC venue, so sats would be routed
+    ///      through `getEETHByWeETH` and silently mis-converted.
+    ///      ⚠️ When these move to a delegatecall library, the CALLER computes this and passes it as a
+    ///      VALUE — a library cannot call a virtual on its caller.
+    function _collNative(ILevVenue v, address lp) internal view virtual returns (uint);
+
+    /// @notice Per-LP deliverable dollars at price `px`. LIFTED from both managers 2026-08-13 —
+    ///         identical once `_collNative` absorbed the collateral conversion.
+    function _deliverableDollarsAt(address lp, uint px) internal view returns (uint) {
+        Types.Pos memory p = pos[lp];
+        if (!p.open) return 0;
+        uint collUsd = (_collNative(p.venue, lp) * px) / 1e18;          // C (USD 1e18)
+        uint d = debtUsd(lp);                                           // D (USD 1e18)
+        uint netEq = collUsd > d ? collUsd - d : 0;
+        return LevMath.deliverableDollars(netEq, collUsd, LevMath.ltvBps(d, collUsd), p.venue.liqThresholdBps());
+    }
+
+    /// @notice Per-LP net equity in NATIVE units at price `px`. Same lift, same reason.
+    function _netEquityAt(address lp, uint px) internal view returns (uint) {
+        Types.Pos memory p = pos[lp];
+        if (!p.open) return 0;
+        return LevMath.netEquityBase(_collNative(p.venue, lp), debtUsd(lp), px);
+    }
+
+    /// @dev Debt in USD 1e18 for `lp` — per-asset only in which stable the venue names.
+    function debtUsd(address lp) public view virtual returns (uint);
 }
