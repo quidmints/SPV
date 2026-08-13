@@ -5,8 +5,12 @@ import {FixedPointMathLib} from "solady/src/utils/FixedPointMathLib.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 // §A.52: the canonical view (was a file-local `ILevSyncHookM`).
 import {ILevSyncHook, IAux, IWeETH, IWiredVault,
-        IDepositAdapter, ILevVenueColl, ILevMintVenue, IV3Router, V3_SWAP_ROUTER} from "./Interfaces.sol";
+        IDepositAdapter, ILevVenueColl, ILevMintVenue} from "./Interfaces.sol";
 import {ILevVenue, IERC20Min, IWETH9} from "../imports/ILevVenue.sol";
+import {ICurvePool} from "./Interfaces.sol";
+
+// ether.fi weETH/WETH Curve pool (weETH is coin1, WETH coin0). Same address as Vault.ETHERFI_CURVE_POOL.
+address constant ETHERFI_CURVE_POOL = 0xDB74dfDD3BB46bE8Ce6C33dC9D82777BCFc3dEd5;
 import {IMorphoFlash} from "../imports/Interfaces.sol";
 
 /// @dev Token/SOR surfaces the leg mechanics touch. IERC20Min + IWETH9 come from ILevVenue (shared).
@@ -293,24 +297,6 @@ library LevMath {
         if (IAux(aux).vaultBlocked(venue)) revert VenueBlocked();
     }
 
-    /// @notice DOWN-leg V3 swap: sell `amountIn` of `tokenIn` -> `tokenOut` across two fee tiers, each floored at
-    ///         `minOut` (anti-MEV). Returns the output, or 0 if NEITHER tier meets the floor -- the caller decides
-    ///         (fall back to an emergency route, or revert). `public` (delegatecall-linked, bytecode OUTSIDE the
-    ///         manager) so BOTH LevManager down-legs (weETH->WETH, WETH->stable) share ONE body, keeping the
-    ///         EIP-170-critical LevManager under the limit. Runs in the manager's context (address(this)==manager).
-    function v3SwapTiered(
-        address router, address tokenIn, address tokenOut, uint256 amountIn, uint256 minOut, uint24 fee0, uint24 fee1
-    ) public returns (uint256 out) {
-        IERC20Min(tokenIn).approve(router, amountIn);
-        uint24[2] memory fees = [fee0, fee1];
-        for (uint256 i; i < 2; i++) {
-            try IV3Router(router).exactInputSingle(IV3Router.ExactInputSingleParams({
-                tokenIn: tokenIn, tokenOut: tokenOut, fee: fees[i], recipient: address(this),
-                amountIn: amountIn, amountOutMinimum: minOut, sqrtPriceLimitX96: 0
-            })) returns (uint256 got) { return got; } catch { /* try next tier; else caller falls back */ }
-        }
-        IERC20Min(tokenIn).approve(router, 0);
-    }
 
     error NoOptIn();
     error Slippage();
@@ -326,7 +312,6 @@ library LevMath {
     // mainnet addresses are constants here. The keeper-gas peel is folded into the down-leg sells: the crank's
     // gas is reimbursed as native ETH from the de-lever's over-collateralization HEADROOM (never the flash-repay
     // amount), shortfall from the passed WETH gas-reserve (threaded in/out), so the operator funds ZERO gas.
-    uint24  internal constant WEETH_WETH_FEE_M   = 500;                                          // weETH/WETH 0.05% pool
     address internal constant ETHERFI_ADAPTER_M  = 0xcfC6d9Bd7411962Bfe7145451A7EF71A24b6A7A2;   // WETH→weETH mint (up-leg)
     /// @dev The dollar peg, 1e18. Passed as `pxUsd18` wherever the token IS a stable — which is every
     ///      site today. Named rather than inlined so a switch to a real price is visible in a diff.
@@ -393,8 +378,7 @@ library LevMath {
         stableOut = _wethToStableDex(c, stable, wethGot, minOut > floorOut ? minOut : floorOut);
     }
 
-    /// weETH → WETH via the deep V3 weETH/WETH pool. Two tiers are tried inside `_weethToWethDex`,
-    /// cheapest first.
+    /// weETH → WETH via the Curve weETH/WETH pool (weETH is coin1, WETH coin0).
     ///
     /// TWO TIERS BELOW THIS WERE REMOVED AND NEITHER WAS DOING WORK:
     ///   * Rover fair-rate absorb (2026-08-05, Rover deleted) — returned 0 whenever Rover was unset,
@@ -413,7 +397,10 @@ library LevMath {
 
     function _weethToWethDex(SellCtx memory c, uint256 pulled) internal returns (uint256) {
         uint256 wethFloor = IWeETH(c.weeth).getEETHByWeETH(pulled) * (10_000 - SELL_SLIP_BPS) / 10_000;
-        return v3SwapTiered(V3_SWAP_ROUTER, c.weeth, c.weth, pulled, wethFloor, WEETH_WETH_FEE_M, 100);
+        IERC20Min(c.weeth).approve(ETHERFI_CURVE_POOL, pulled);
+        try ICurvePool(ETHERFI_CURVE_POOL).exchange(int128(1), int128(0), pulled, wethFloor) returns (uint256 out) {
+            return out;
+        } catch { IERC20Min(c.weeth).approve(ETHERFI_CURVE_POOL, 0); return 0; }
     }
 
     /// stable → collateral (lever-up BUY). weETH venue mints via ether.fi; WETH venue supplies WETH directly.
@@ -661,7 +648,7 @@ library LevMath {
     ///         but `lp` (debt repaid + any excess refunded to `lp`). The pull is DERIVED from the debt (capped by
     ///         the LP's allowance/balance), so a hostile caller can neither over-redeem nor skim.
     /// @return pull   QUID actually redeemed. @return repaid stable applied to `lp`'s debt.
-    function protectExec(address quid, address aux, address router, address venue, address lp, uint256 curLtvBps, uint256 minStableOut)
+    function protectExec(address quid, address aux, address venue, address lp, uint256 curLtvBps, uint256 minStableOut)
         public returns (uint256 pull, uint256 repaid)
     {
         if (curLtvBps + PROTECT_MARGIN_BPS < ILevVenue(venue).liqThresholdBps()) revert NotNearLiq();
@@ -683,7 +670,7 @@ library LevMath {
         // the basket of one stable (the targeted path over-commits under leverage). Then consolidate that mix into
         // the venue's own loan token via the multi-route SOR (basket V4 hops, UniV3-backed fallback).
         IAux(aux).redeem(pull);                           // burn THIS manager's QUID → a mix of stables here
-        _consolidateTo(aux, router, stable, lp);
+        _consolidateTo(aux, stable, lp);
         got = IERC20Min(stable).balanceOf(address(this)) - got;    // venue-stable gained (direct slice + swaps)
         if (got < minStableOut) revert Slippage();
         // Clamp to the debt BEFORE transferring in; debt only accrues upward in-tx, so `repay`'s own clamp uses
@@ -702,7 +689,7 @@ library LevMath {
     ///      that BOTH routes can't move only lowers `got`, tripping that floor (fail-safe, never a silent shortfall).
     uint256 internal constant CONSOL_SLIP_BPS = 100;  // 1% anti-MEV floor on each stable→loan-token consolidation swap
 
-    function _consolidateTo(address aux, address router, address target, address lp) private {
+    function _consolidateTo(address aux, address target, address lp) private {
         address[] memory sts = IAux(aux).getStables();
         for (uint256 i; i < sts.length; i++) {
             address s = sts[i];
@@ -715,10 +702,7 @@ library LevMath {
             uint256 floor = _fromUsd(aux,target, _toUsd18(aux,s, bal)) * (10_000 - CONSOL_SLIP_BPS) / 10_000;
             IERC20Min(s).approve(aux, bal);
             try IAux(aux).sorSelfFunded(s, bal, target, floor) returns (uint256) {}
-            catch {
-                IERC20Min(s).approve(aux, 0);
-                v3SwapTiered(router, s, target, bal, floor, 100, 500);   // external UniV3: 0.01% then 0.05% stable tiers
-            }
+            catch { IERC20Min(s).approve(aux, 0); }   // slice unmoved -> refunded to the LP below
             // If BOTH routes failed to move this slice (no pool at all), refund it to the LP — never strand the
             // LP's own redeemed value in the manager (it only lowers `got`, which the aggregate floor already guards).
             uint256 rem = IERC20Min(s).balanceOf(address(this));

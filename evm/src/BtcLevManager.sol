@@ -7,7 +7,6 @@ import {Types} from "./imports/Types.sol";
 import {LevMath} from "./imports/LevMath.sol";
 import {ILevVenue, IERC20Min} from "./imports/ILevVenue.sol";
 import {IMorphoFlash} from "./imports/Interfaces.sol";
-import {V3_SWAP_ROUTER} from "./imports/Interfaces.sol";
 import {ILevSyncHook} from "./imports/Interfaces.sol";
 // §A.52: use the SHARED `IAux` rather than a file-local `IAuxTWAP_BView` that restated the
 // same signature — one declaration, so a change to it cannot silently miss this consumer.
@@ -192,7 +191,7 @@ contract BtcLevManager is LevBase {
         if (!pos[lp].open) revert NotOpen();
         uint pull;
         (pull, repaid) = LevMath.protectExec(
-            QUID, address(AUX), V3_SWAP_ROUTER, address(pos[lp].venue), lp, getCurrentLtvBps(lp), minStableOut);
+            QUID, address(AUX), address(pos[lp].venue), lp, getCurrentLtvBps(lp), minStableOut);
         emit ProtectedFromQuid(lp, pull, repaid);
     }
     /// @notice IL-TARGET LTV (bps) = debt / E0 (the FIXED band-only base) — the keeper's IL-track basis,

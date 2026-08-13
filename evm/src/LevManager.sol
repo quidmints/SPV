@@ -6,7 +6,6 @@ import {LevBase} from "./imports/LevBase.sol";
 import {Types} from "./imports/Types.sol";
 import {ILevVenue, IERC20Min, IWETH9} from "./imports/ILevVenue.sol";
 import {IWeETH} from "./imports/Interfaces.sol";
-import {V3_SWAP_ROUTER} from "./imports/Interfaces.sol";
 import {IAux} from "./imports/Interfaces.sol";
 import {IMorphoFlash} from "./imports/Interfaces.sol";
 import {ILevSyncHook} from "./imports/Interfaces.sol";
@@ -344,7 +343,7 @@ contract LevManager is LevBase {
         // excess to the LP) live in LevMath (public, delegatecall — bytecode OUTSIDE this contract, run in-context).
         uint256 pull;
         (pull, repaid) = LevMath.protectExec(
-            address(QUID), address(AUX), V3_SWAP_ROUTER, address(pos[lp].venue), lp, getCurrentLtvBps(lp), minStableOut);
+            address(QUID), address(AUX), address(pos[lp].venue), lp, getCurrentLtvBps(lp), minStableOut);
         _reimburseKeeper(msg.sender, 0);   // the refund is stable (no WETH to peel) ⇒ keeper gas drawn from gasReserve
         emit ProtectedFromQuid(lp, pull, repaid);
     }
