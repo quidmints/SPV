@@ -62,10 +62,26 @@ const VAULT_SEED_LABEL: &[u8] = b"quid-vault-node-v1";
 /// like a second custodian and is not one, which is the shape of thing standing rule 3 exists
 /// to remove. There is now no configuration that can misrepresent this.
 ///
-/// ⚠️ **SO THE 2-of-2 IS NOMINAL IN THIS DEPLOYMENT, AND NOTHING SHOULD CLAIM OTHERWISE.** A
-/// genuine second half requires a **different party on a different host** calling [`boot_vault`]
-/// with a seed the fleet never has — the LP-hosted split (§E175 remainder). That is a topology,
-/// not a seed setting, which is precisely why it cannot be reached by editing this function.
+/// ⚠️ **SO THE 2-of-2 IS NOMINAL IN THIS DEPLOYMENT, AND NOTHING SHOULD CLAIM OTHERWISE.**
+///
+/// 🔑 **THE PARTY THAT MUST HOLD THE OTHER HALF IS THE LP — NOT "a separate operator".** This
+/// module's own first line calls the vault *"the in-process **LP-side** LDK node"*, holding
+/// *"the LP-side channel keys"*: the half is **already the LP's**, the fleet merely holds it on
+/// their behalf. So the fix is to give it to them (§E165/§E171-r/§E188 — a key off the LP's own
+/// BIP-39 seed, in their app or on their always-on box), and a third-party custodian would
+/// **not** be a weaker version of that. It would be a different thing that misses the point:
+/// the threat is *the LP's UTXO spent without the LP*, and two custodians who can jointly spend
+/// without them leaves that threat exactly where it was, while adding a collusion assumption
+/// §E188 ruled out for the funds path (acceptable for service, never for safety).
+///
+/// ⇒ It is also why "migration authority on a DIFFERENT Safe" is not a requirement here, despite
+/// appearing in older rows: once the LP holds the seed, the fleet's `MigrationAuth` **cannot
+/// reach it at all** — it was never in the fleet's enclave. That requirement was an artifact of
+/// the separate-operator framing, and it dissolves with it.
+///
+/// A genuine second half is therefore a **topology** — the LP running [`boot_vault`] with a seed
+/// the fleet never has (§E175 remainder) — not a seed setting, which is precisely why it cannot
+/// be reached by editing this function.
 pub fn derive_vault_seed(hop_seed: &RootSeed) -> RootSeed {
     RootSeed::new(hop_seed.derive(&[VAULT_SEED_LABEL]))
 }
