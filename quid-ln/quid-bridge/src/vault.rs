@@ -37,41 +37,38 @@ use quid_hop::node::{boot, initiate_splice_out_to, HopNode};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{info, warn};
 
-// (E175-b) `derive_vault_seed` AND `VaultSeedSource` WERE DELETED HERE, NOT GUARDED.
-//
-// The vault seed used to be HKDF-derived from the hop's under a public label, selected by a
-// `VaultSeedSource::{DerivedFromHop, Independent}` enum whose default branch was the derived
-// one. That branch meant **one seed compromise yielded BOTH halves of every channel's 2-of-2**
-// — the exact property per-LP custody exists to remove — and you got it by not setting an
-// environment variable.
-//
-// ⚠️ **THE FIRST FIX ATTEMPTED HERE WAS A TRIPWIRE AND IT WAS WRONG:** an acknowledgement flag
-// (`QUID_SINGLE_OPERATOR=1`) that made an operator opt into the derived seed on purpose. That
-// is a guard against foreseeable misuse, which is the tell that the root problem is unfixed —
-// the mode still existed, and a mode that must not be used is one that must not be reachable.
-// Owner, 2026-08-13: *"what insecure mode? there should be no insecure mode possible."*
-//
-// ⇒ **The capability is gone.** `boot_vault` takes a `&RootSeed` and has no way to invent one
-// from the hop's. Independence is now structural: there is no code that relates the two seeds,
-// so it cannot be re-enabled by configuration, only by writing the derivation back.
-//
-// ⚠️ **MIGRATION, AND IT IS A REAL BREAK — READ THIS BEFORE BOOTING AN EXISTING DATA DIR.** A
-// node that already ran with the derived seed has a vault identity equal to
-// `RootSeed::new(hop_seed.derive(&[b"quid-vault-node-v1"]))`. On the next boot it will instead
-// find no sealed seed under `<data_dir>/vault` and **provision a fresh one**, so the vault's
-// node id and every funding half it holds CHANGE: existing channels can no longer be co-signed.
-// Already-emitted dead-man exits still work (they were signed with the old key and their bytes
-// are public), but nothing new can be. ⇒ To carry an existing identity across, recompute that
-// value once and import it via `QUID_VAULT_SEED` on one boot; it is sealed thereafter and the
-// variable can be removed. The derivation is recorded here **as a migration recipe, not as a
-// code path** — nothing computes it any more.
-//
-// ⚠️ **STILL NECESSARY, NOT SUFFICIENT — do not read this as independent custody.** Two seeds
-// held by ONE operator is still one party holding both halves. The property needs the vault run
-// by a SEPARATE operator, in its own enclave, with its own attestation, and migration authority
-// pinned to a DIFFERENT Safe (`MigrationAuth` exports whatever seed the enclave it authorises
-// holds). What this change removes is the *cryptographic* link; the *operational* one is the
-// §E175 deployment remainder.
+/// Domain-separation label for the fleet-hosted vault's sibling identity.
+const VAULT_SEED_LABEL: &[u8] = b"quid-vault-node-v1";
+
+/// The FLEET-HOSTED vault's `RootSeed`, an HKDF sibling of the hop's (`RootSeed::derive` — no
+/// hand-rolled KDF).
+///
+/// 🔑 **(E175-b) THIS IS DELIBERATE, AND THE HONEST CHOICE — read before "hardening" it.** When
+/// the fleet co-hosts the vault, the two nodes are **one custodian**: both seeds live in one
+/// process's memory and are sealed to the SAME enclave on the SAME machine. An attacker who
+/// reaches either reaches both, so an independent vault seed would buy **no security whatever**
+/// while costing two things that are real:
+///
+/// 1. 🔴 **MIGRATION WOULD SILENTLY DESTROY THE VAULT HALF.** `provision_api` carries a
+///    **single `root_seed`** to a successor enclave. Any vault seed that is not a function of it
+///    is simply absent after a rotation — the successor provisions a *fresh* one, the vault's
+///    node id changes, and **every existing channel's vault half becomes unusable.** Enclave
+///    rotation is a designed, expected operation, so this is not an edge case.
+/// 2. A second secret to back up, whose loss is unrecoverable.
+///
+/// ⇒ Deriving it says exactly what is true — *one custodian, one secret* — and cannot be
+/// mistaken for two. **`VaultSeedSource::{DerivedFromHop, Independent}` was deleted rather than
+/// kept as a knob**, because an in-process "independent" seed is a FALSE ASSURANCE: it looks
+/// like a second custodian and is not one, which is the shape of thing standing rule 3 exists
+/// to remove. There is now no configuration that can misrepresent this.
+///
+/// ⚠️ **SO THE 2-of-2 IS NOMINAL IN THIS DEPLOYMENT, AND NOTHING SHOULD CLAIM OTHERWISE.** A
+/// genuine second half requires a **different party on a different host** calling [`boot_vault`]
+/// with a seed the fleet never has — the LP-hosted split (§E175 remainder). That is a topology,
+/// not a seed setting, which is precisely why it cannot be reached by editing this function.
+pub fn derive_vault_seed(hop_seed: &RootSeed) -> RootSeed {
+    RootSeed::new(hop_seed.derive(&[VAULT_SEED_LABEL]))
+}
 
 /// Spawn a localhost TCP p2p listener for `node` on `port`, feeding inbound
 /// connections to its peer manager (production twin of `harness::spawn_listener`,
@@ -585,9 +582,11 @@ pub async fn run_vault_delivery_correlator(
 /// dials the hop over localhost (the hop runs `spawn_p2p_listener`). `lsp_info` for the vault =
 /// the HOP (its single counterparty).
 ///
-/// ⚠️ **`vault_seed` MUST NOT BE DERIVABLE FROM THE HOP'S SEED, AND THIS FUNCTION CAN NO LONGER
-/// MAKE THAT MISTAKE FOR YOU** — it takes a seed and has no way to compute one (§E175-b deleted
-/// the derivation). Supply a seed from its own sealed store, never a function of the hop's.
+/// 🔑 **`vault_seed` IS A PARAMETER SO THAT PROVENANCE IS THE CALLER'S, NOT THIS FUNCTION'S**
+/// (§E175-b). The fleet daemon passes [`derive_vault_seed`] and is thereby one custodian, by
+/// construction and in the open. An **LP-hosted** vault — a different party, a different host —
+/// passes its OWN seed, and no derivation is involved because the hop's seed is not there to
+/// derive from. Both are expressible here; neither can pretend to be the other.
 #[allow(clippy::too_many_arguments)]
 pub async fn boot_vault(
     network: Network,

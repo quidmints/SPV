@@ -275,44 +275,31 @@ async fn main() -> anyhow::Result<()> {
     let _hop_listener = quid_bridge::vault::spawn_p2p_listener(&node, vault_port).await?;
     let (vault_anchor, _vault_committer) =
         quid_bridge::daemon::build_freshness_anchor(deploy_env, evm.clone(), &cfg);
-    // Vault seed provenance. Default DERIVES from the hop seed, which makes the 2-of-2
-    // nominal (one compromise yields both halves). `QUID_VAULT_ROOT_SEED` supplies an
-    // independent one. ⚠️ Necessary, not sufficient: independence only becomes real when
-    // a SEPARATE operator holds it in its own enclave — the same operator setting both
-    // still holds both.
-    // (E175-b) The vault seed is BORN IN ITS OWN SEALED STORE, never derived from the hop's.
+    // (E175-b) THE FLEET IS ONE CUSTODIAN, AND SAYS SO. The vault is a sibling identity of the
+    // hop, derived from the one seed migration actually carries.
     //
-    // It used to default to an HKDF of the hop seed, so one compromise yielded both halves of
-    // every channel's 2-of-2 — and that was what you got by not setting an env var. The
-    // derivation is now deleted outright rather than guarded: there is no insecure mode to
-    // opt out of, because there is no code relating the two seeds.
+    // ⚠️ **Three things were tried here before this, and the first two were wrong:**
+    //   1. A `VaultSeedSource::{DerivedFromHop, Independent}` knob whose default was derived —
+    //      i.e. the both-halves property was reachable by omission. Deleted.
+    //   2. An acknowledgement flag (`QUID_SINGLE_OPERATOR=1`) to opt into it. A tripwire against
+    //      foreseeable misuse is the tell that the root problem is unfixed. Deleted.
+    //   3. A second born-in-enclave seed in its own sealed store. That LOOKED like the secure
+    //      answer and is the one to understand, because it is worse than what it replaced:
+    //      🔴 `provision_api` migrates a **single `root_seed`**, so a vault seed that is not a
+    //      function of it is ABSENT after an enclave rotation — the successor provisions a fresh
+    //      one, the vault node id changes, and **every existing channel's vault half becomes
+    //      unusable.** It also bought no security: both seeds sat in one process's memory,
+    //      sealed to the same enclave on the same machine.
     //
-    // 🔑 **This costs the operator nothing, which is why it can be unconditional.** It uses the
-    // SAME `load_or_provision_from_env` path as the hop seed — same attestation policy, same
-    // fail-closed backend checks, same sealing — pointed at `<data_dir>/vault`. First boot
-    // provisions a fresh seed and seals it; later boots unseal it. No second secret to hand
-    // around, and nothing to forget.
-    //
-    // ⚠️ Two seeds held by ONE operator is still one party holding both halves. This removes the
-    // CRYPTOGRAPHIC link; the OPERATIONAL one (separate operator, own enclave + attestation,
-    // migration authority on a different Safe) is the §E175 deployment remainder.
-    let vault_seed_dir = data_dir.join("vault");
-    let vault_seed_ffs = quid_hop::ffs::DiskFs::create_dir_all(vault_seed_dir.clone())
-        .context("create the vault's sealed-seed dir")?;
-    // ⚠️ `QUID_VAULT_SEED`, NOT `QUID_SEED`: the import variable must differ, or an operator
-    // setting `QUID_SEED` for a migration would import the SAME seed into both stores and make
-    // the two halves IDENTICAL — worse than the derivation just deleted, and invisible on-chain.
-    let vault_seed = quid_hop::seed::load_or_provision_from_env_var(
-        &vault_seed_ffs,
-        network,
-        "QUID_VAULT_SEED",
-    )
-    .context("load/provision the vault's sealed seed")?;
+    // ⇒ Derivation is the honest encoding of a single-custodian deployment, and the knob is gone
+    // so nothing can claim otherwise. A REAL second half is a different party on a different
+    // host passing its own seed to `boot_vault` — a topology, not a setting (§E175 remainder).
+    let vault_seed = quid_bridge::vault::derive_vault_seed(&root_seed);
     let mut vault = quid_bridge::vault::boot_vault(
         network,
         env("QUID_ESPLORA_URL")?,
         &vault_seed,
-        vault_seed_dir,
+        data_dir.join("vault"),
         hop_pk,
         vault_port,
         quid_hop::rebalancer::SPLICE_FUNDING_FEERATE_SAT_PER_KW,

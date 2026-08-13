@@ -246,28 +246,6 @@ pub fn load_or_provision_from_env<F: Ffs>(
     ffs: &F,
     network: Network,
 ) -> anyhow::Result<RootSeed> {
-    load_or_provision_from_env_var(ffs, network, "QUID_SEED")
-}
-
-/// As [`load_or_provision_from_env`], but reading the optional import seed from
-/// `import_var` instead of `QUID_SEED`.
-///
-/// 🔑 **(E175-b) THIS EXISTS SO A SECOND NODE IN THE SAME PROCESS CANNOT INHERIT THE FIRST'S
-/// SEED BY ACCIDENT.** The bridge daemon provisions two identities — the hop's and the vault's
-/// — and they are the two halves of every channel's 2-of-2. If both called the `QUID_SEED`
-/// version, then an operator setting `QUID_SEED` for migration or recovery would import **the
-/// same seed into both stores**, making the halves *identical*: strictly worse than the
-/// derived-seed mode §E175-b deleted, and invisible on-chain. Distinct variables make that
-/// unexpressible rather than merely discouraged.
-///
-/// Every guard is shared with the caller above — attestation policy, the fail-closed backend
-/// check, the dev-trust-anchor refusal, seal-on-first-provision and disk-wins — because this is
-/// the same function with one name parameterised, not a second copy of it.
-pub fn load_or_provision_from_env_var<F: Ffs>(
-    ffs: &F,
-    network: Network,
-    import_var: &str,
-) -> anyhow::Result<RootSeed> {
     let deploy_env = match std::env::var("DEPLOY_ENVIRONMENT") {
         Ok(s) =>
             DeployEnv::from_str(s.trim()).context("Invalid DEPLOY_ENVIRONMENT")?,
@@ -300,10 +278,16 @@ pub fn load_or_provision_from_env_var<F: Ffs>(
     enclave::require_backend_for_role(role, enclave::detect())?;
     crate::migration::guard_prod_trust_anchors(deploy_env)?;
 
-    let source = match std::env::var(import_var) {
+    // ⚠️ (E175-b) IF A SECOND SEALED IDENTITY IS EVER PROVISIONED IN THIS PROCESS, IT MUST NOT
+    // REUSE THIS FUNCTION. `QUID_SEED` is a single import variable, so two callers would import
+    // the SAME seed into both stores — for the hop and vault nodes that would make the two
+    // halves of every channel's 2-of-2 IDENTICAL, and nothing on-chain would look wrong. The
+    // fleet vault therefore derives a sibling seed instead of provisioning its own; see
+    // `vault::derive_vault_seed` for why that is the honest encoding rather than a shortcut.
+    let source = match std::env::var("QUID_SEED") {
         Ok(hex) => {
             let seed = RootSeed::from_str(hex.trim())
-                .with_context(|| format!("Invalid {import_var} (expected 32-byte hex)"))?;
+                .context("Invalid QUID_SEED (expected 32-byte hex)")?;
             SeedSource::Import(seed)
         }
         Err(_) => SeedSource::BornInEnclave,
