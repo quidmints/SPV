@@ -122,9 +122,7 @@ export const VOGUE_ABI = [
   // 2=AAVE-v4 3=Galaxy 4=ether.fi Rover 5=Euler. Hard-walled per-LP: your exit is
   // served from YOUR venue only.
   'function deposit(uint assets, address receiver) payable returns (uint shares)',
-  'function deposit(uint assets, address receiver, uint8 venue) payable returns (uint shares)',
   'function mint(uint shares, address receiver) payable returns (uint assets)',
-  'function mint(uint shares, address receiver, uint8 venue) payable returns (uint assets)',
   'function withdraw(uint assets, address receiver, address owner) returns (uint shares)',
   'function redeem(uint shares, address receiver, address owner) returns (uint assets)',
   // Auto-getter for `mapping(address => Types.Deposit)`. Types.Deposit field
@@ -141,7 +139,7 @@ export const VOGUE_ABI = [
   //   token:    0x0 for ETH side, stable address for USD side
   // outOfRange gained a uint8 venue (5th arg) — same ETH yield-venue enum as deposit
   // (0=Split 1=ether.fi 2=AAVE 3=Galaxy 4=Rover 5=Euler). 4-arg encoding now reverts.
-  'function outOfRange(uint amount, address token, int24 distance, int24 range, uint8 venue) payable returns (uint next)',
+  'function outOfRange(uint amount, address token, int24 distance, int24 range) payable returns (uint next)',
   // percent: 1..100 (signed int per Solidity decl, but contract validates 1..100)
   // token: 0x0 = receive as ETH, stable addr = receive as that stable
   'function pull(uint id, int percent, address token)',

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { ethers } from 'ethers'
 import {
   CHAIN_ID, CHAIN_HEX, CHAIN_NAME, EXPLORER,
-  CONTRACTS, STABLES, WBTC_DECIMALS, isUsdtLike, ETH_VENUES, type StableToken, type LevVenue,
+  CONTRACTS, STABLES, WBTC_DECIMALS, isUsdtLike,  type StableToken, type LevVenue,
 } from '@/lib/chains'
 import { ERC20_ABI, BASKET_ABI, AUX_ABI, VOGUE_ABI, BTCCHANNELS_ABI, LEV_MANAGER_ABI } from '@/lib/abi'
 import { addressToScriptPubKey, randomSwapId } from '@/lib/btcaddress'
@@ -65,7 +65,7 @@ const enc = {
   deposits:    () => iface.encodeFunctionData('get_deposits', []),
   avgYield:    () => iface.encodeFunctionData('avgYield', []),
   // Vogue (ETH side ERC4626-shaped)
-  vogueDepositV: (a: bigint, r: string, v: number) => iface.encodeFunctionData('deposit(uint256,address,uint8)', [a, r, v]),
+  vogueDeposit:  (a: bigint, r: string) => iface.encodeFunctionData('deposit(uint256,address)', [a, r]),
   vogueWithdraw: (a: bigint, r: string, o: string) =>
                 iface.encodeFunctionData('withdraw(uint256,address,address)', [a, r, o]),
   autoManaged:    (u: string) => iface.encodeFunctionData('autoManaged', [u]),
@@ -205,7 +205,6 @@ export default function QuidApp() {
   const [maturityMonths, setMaturityMonths] = useState(12)
 
   const [depositSubTab, setDepositSubTab] = useState<'auto' | 'self'>('auto')
-  const [depositVenue, setDepositVenue] = useState(0) // ETH_VENUES id; 0 = Split (default)
   const [withdrawSubTab, setWithdrawSubTab] = useState<'auto' | 'self' | 'btc'>('auto')
   // BTC LP withdrawal (channel close) — lives in the withdraw screen alongside ETH.
   const [myChannels, setMyChannels] = useState<{ id: string; sats: bigint; status: number }[]>([])
@@ -516,7 +515,7 @@ export default function QuidApp() {
       setStatus('Depositing to V4 LP…')
       const tx = await sendTx({
           from: address, to: CONTRACTS.vogue,
-          data: enc.vogueDepositV(wethAmount, address, depositVenue),
+          data: enc.vogueDeposit(wethAmount, address),
           ...(msgValue > 0n ? { value: '0x' + msgValue.toString(16) } : {}),
         })
       setLastTx(tx); setStatus('Submitted, waiting…')
@@ -524,7 +523,7 @@ export default function QuidApp() {
       setDepositAmount(''); void fetchBalances(); void fetchVogue()
     } catch (e: any) { setError(e.message || 'deposit failed') }
     finally { setBusy(false); setTxMutex(false); setTimeout(() => setStatus(null), 6000) }
-  }, [depositAmount, depositVenue, connected, txMutex, ethBal, wethBal, address, fetchBalances, fetchVogue])
+  }, [depositAmount, connected, txMutex, ethBal, wethBal, address, fetchBalances, fetchVogue])
 
   // ═══════════════════════════════════════════════════════════════════
   //   ETH LP WITHDRAW (Vogue.withdraw)
@@ -696,14 +695,14 @@ export default function QuidApp() {
       setStatus('Opening self-managed position…')
       const tx = await sendTx({
           from: address, to: CONTRACTS.vogue,
-          data: enc.outOfRange(amount, tokenAddr, distanceTicks, rangeTicks, depositVenue),
+          data: enc.outOfRange(amount, tokenAddr, distanceTicks, rangeTicks),
           ...(msgValue > 0n ? { value: '0x' + msgValue.toString(16) } : {}),
         })
       setLastTx(tx); await waitTx(tx); setStatus('Position opened.')
       setOorAmount(''); void fetchBalances(); void fetchSmPositions(); void fetchVogue()
     } catch (e: any) { setError(e.message || 'open failed') }
     finally { setBusy(false); setTxMutex(false); setTimeout(() => setStatus(null), 6000) }
-  }, [oorAmount, oorSide, oorStable, oorDistance, oorRange, depositVenue, connected, txMutex, ethBal, wethBal, address, fetchBalances, fetchVogue, fetchSmPositions])
+  }, [oorAmount, oorSide, oorStable, oorDistance, oorRange, connected, txMutex, ethBal, wethBal, address, fetchBalances, fetchVogue, fetchSmPositions])
 
   const doPullPosition = useCallback(async (id: bigint) => {
     if (!connected || txMutex) return
@@ -1170,7 +1169,7 @@ export default function QuidApp() {
             <>
               <p className="text-xs opacity-70 mb-3">
                 Single-sided ETH placed out-of-range on the V4 vanilla ETH/USD pool —
-                one shared vault, pro-rata fees + Galaxy/Morpho yield. ERC4626 shares.
+                one shared vault, pro-rata fees + ether.fi (weETH) yield. ERC4626 shares.
                 Combined ETH + WETH balance: <strong>{fmt(combinedEth)}</strong>.
               </p>
 
@@ -1183,13 +1182,10 @@ export default function QuidApp() {
                 </div>
               )}
 
-              <label className="block text-sm mb-1">Yield venue</label>
-              <select value={depositVenue} onChange={e => setDepositVenue(Number(e.target.value))}
-                className="w-full mb-1 p-2 rounded bg-black/30 border border-white/10 text-sm">
-                {ETH_VENUES.map(v => <option key={v.id} value={v.id}>{v.label}</option>)}
-              </select>
               <p className="text-[11px] opacity-50 mb-2">
-                {ETH_VENUES[depositVenue]?.blurb} Your exit is served from this venue only.
+                ETH deposits are supplied to ether.fi (weETH). The venue selector was removed because
+                the contract no longer takes one &mdash; every deposit routes to the same adapter, so
+                offering a choice misstated where the funds go.
               </p>
               <label className="block text-sm mb-1">Amount (ETH)</label>
               <div className="flex gap-2 mb-4">
@@ -1806,7 +1802,7 @@ export default function QuidApp() {
             <p>
               <strong>LP:</strong> Vogue runs a single-sided V4 position out-of-range
               on the vanilla ETH/USD and BTC/USD pools. ETH side earns trading
-              fees + Morpho/Galaxy yield. BTC side earns trading fees settled as
+              fees + ether.fi (weETH) yield. BTC side earns trading fees settled as
               native sats (<code>btcFeesOwedSats</code>, paid by the hop at close).
             </p>
             <p>
