@@ -32,8 +32,6 @@ import {LevManager} from "../src/LevManager.sol";
 import {BtcLevManager} from "../src/BtcLevManager.sol";
 import {MorphoEscrowVenue, MarketParams} from "../src/MorphoEscrowVenue.sol";
 import {EulerEscrowVenue} from "../src/EulerEscrowVenue.sol";
-import {LiquityTroveVenue} from "../src/LiquityTroveVenue.sol";
-import {SorExchange} from "../src/SorExchange.sol";
 import {ISwap} from "../src/imports/ISwap.sol";
 import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {AaveV4Venue} from "../src/AaveV4Venue.sol";
@@ -210,7 +208,6 @@ contract Deploy is Script {
     Core public CORE;
     Vogue public V4;
     Aux public AUX;
-    SorExchange public sorExchange;   // QU!D-side IExchange for Liquity's LeverageWETHZapper (BOLD<->WETH via SOR)
     LevManager public LEVM;           // lev overlay (0x0 when DEPLOY_LEV unset)
     BtcLevManager public BTCLEVM;
     Vault public ETH;   // merged Vault — ETH-venue face
@@ -456,7 +453,6 @@ contract Deploy is Script {
         vm.serializeAddress(j, "vault", address(ETH));
         vm.serializeAddress(j, "spvGateway", address(spvGateway));
         vm.serializeAddress(j, "btcChannels", address(btcChannels));
-        vm.serializeAddress(j, "sorExchange", address(sorExchange));
         vm.serializeAddress(j, "levManager", address(LEVM));
         vm.serializeAddress(j, "btcLevManager", address(BTCLEVM));
         vm.writeJson(vm.serializeUint(j, "checkpointHeight", checkpointHeight), "deployments/l1.json");
@@ -607,27 +603,12 @@ contract Deploy is Script {
             oracle: vm.envOr("MORPHO_WETH_ORACLE", WETH_USDC_ORACLE), irm: vm.envOr("MORPHO_WETH_IRM", ADAPTIVE_IRM),
             lltv: vm.envOr("MORPHO_WETH_LLTV", MORPHO_LLTV_86)
         }), lm);
-        // LONG Liquity V2 (BOLD) trove venue {collateral: WETH, debt: BOLD} — per-LP isolated Trove, fork-verified
-        // against live Liquity V2 (test/LiquityVenue.t.sol). Classified LONG by LevManager.init (stable()==BOLD !=
-        // WETH, COLLATERAL()==WETH ⇒ 1:1 valuation, SOR-only legs). Borrowed BOLD is swapped to WETH collateral via
-        // the external SOR to build the levered LONG. (CORRECTED 2026-07-26: the trailing clause used
-        // to say "the down-side hedge is the generic inverse shortVenue, not this" — there IS no short
-        // venue; the whole down-side short subsystem was REMOVED 2026-07-24, as `:459`/`:561` already
-        // state. The built down-side behaviour is HOLD, not hedge; a delta-1-maintained down-side is an
-        // OPEN product decision, spec'd in docs/actionable/IMPAIRMENT-DERISK-TRIGGER.md.)
-        address ltv = address(new LiquityTroveVenue(
-            liquityBorrowerOps, liquityTroveManager, address(BOLD), address(WETH), lm, 0.05e18, 2000e18));
-        // SorExchange: the QU!D-side `IExchange` for Liquity's OWN `LeverageWETHZapper` — routes the zapper's
-        // BOLD<->WETH leg through our SOR (Aux.swap), so external Liquity leverage users trade against QU!D and QU!D
-        // earns the spread. Permissionless + published: any `LeverageWETHZapper(registry, flashProvider, sorExchange)`
-        // calls it. Deployed HERE so the adapter is LIVE + addressable, not dormant tested-only code.
-        sorExchange = new SorExchange(IERC20OZ(address(BOLD)), IERC20OZ(address(WETH)), ISwap(address(AUX)));
         // LONG Aave V4 venue {collateral: WETH, debt: USDC} — per-LP isolated escrow (Aave has no sub-account),
         // fork-verified against live Aave V4 (test/AaveV4Venue.t.sol). WETH liquidation threshold 8000 bps
         // (conservative vs the live ~83% gov param; the venue reports it via liqThresholdBps for LevManager sizing).
         address av = address(new AaveV4Venue(aaveSpoke, aaveHub, address(WETH), address(USDC), lm));
-        vs = new address[](7);   // SHORT venue removed (2026-07-24): the down-side short subsystem is gone (up-side-only)
-        vs[0] = mv; vs[1] = ev; vs[2] = mvW; vs[3] = ltv; vs[4] = av;
+        vs = new address[](6);   // SHORT venue removed (2026-07-24): the down-side short subsystem is gone (up-side-only)
+        vs[0] = mv; vs[1] = ev; vs[2] = mvW; vs[3] = av;
         // LONG Morpho venue {collateral: weETH, debt: WETH} -- the ETH-DENOMINATED-DEBT leg. Every other venue
         // above borrows USDC, which is what makes an ETH IL-protect borrow pay a stable->WETH SOR round trip;
         // this one borrows the asset the position is already denominated in, so that leg disappears. The
@@ -638,7 +619,7 @@ contract Deploy is Script {
         // NEVER checked (see the 🔴 note on this function). It is weETH and therefore valuable by `_collToEth`,
         // but that is true by CONSTRUCTION here, not because anything verified it.
         // Constructed INLINE rather than into a local: this frame is stack-tight and via_ir is off by choice.
-        vs[5] = _mkMorphoVenue(morpho, MarketParams({
+        vs[4] = _mkMorphoVenue(morpho, MarketParams({
             loanToken: address(WETH), collateralToken: weeth,
             oracle: vm.envOr("MORPHO_WEETH_WETH_ORACLE", WEETH_WETH_ORACLE),
             irm: vm.envOr("MORPHO_WEETH_WETH_IRM", ADAPTIVE_IRM),
@@ -649,7 +630,7 @@ contract Deploy is Script {
         // WETH/USDC instance above. Measured live 2026-08-09: weETH reserve 2, collateralFactor 8000 (80%),
         // borrowable=false (correct -- we supply it, never borrow it); WETH reserve 0, borrowable=true.
         // The threshold is NOT passed in -- the venue reads it from Aave and caches it.
-        vs[6] = address(new AaveV4Venue(aaveSpoke, aaveHub, weeth, address(WETH), lm));
+        vs[5] = address(new AaveV4Venue(aaveSpoke, aaveHub, weeth, address(WETH), lm));
     }
 
 }

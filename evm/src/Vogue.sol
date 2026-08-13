@@ -643,6 +643,26 @@ contract Vogue is
                     LP.pooled -= served; 
                     lpShares -= served;
                     amount -= served;
+                } else if (incrPre > 0) {
+                    // THE USD LEG MUST BE PAYABLE INDEPENDENTLY OF THE ETH LEG.
+                    // When the offramp serves nothing -- no weETH left to sell -- `_payUsdLeg` above is
+                    // never reached, and the `amount > 0` fallback then caps its burn at
+                    // `deliverableETH`, which is ~0 for the same reason. So a residual whose backing is
+                    // USD became UNRECOVERABLE: measured as a bit-identical position across a second
+                    // redeem (12.67e18 both sides) in test_CHECK_FullExitResidualIsRecoverable and
+                    // test_SETTLE_LvrResidualIsDeferralNotLeak.
+                    // It passed before the all-weETH change only incidentally: the venue split left
+                    // non-weETH backing, so `served > 0` on the second pass and the USD leg was paid as
+                    // a side effect. Removing venue choice removed that accident without replacing it.
+                    // Gating a USD claim on ETH deliverability is the defect; the two legs are
+                    // independent settlements of the same position.
+                    uint usdEq = _payUsdLeg(incrPre, lpShares, ethfiPart, recipient);
+                    if (usdEq > 0) {
+                        _burnInRange(sqrtPriceX96, usdEq, tickLower, tickUpper, address(0));
+                        LP.pooled -= usdEq;
+                        lpShares  -= usdEq;
+                        amount    -= usdEq;
+                    }
                 }
             }
         } if (amount > 0) {

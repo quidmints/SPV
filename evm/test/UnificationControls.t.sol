@@ -1206,65 +1206,10 @@ contract UnificationControls is Alles {
         emit log_named_uint("WORST observed crank (gas)    ", usedHeavy > used ? usedHeavy : used);
     }
 
-    /// §E40 — THE LAST #12 AXIS: LEVERAGE CAPACITY. With the Rover guard the owner asked for.
-    ///
-    /// WHAT ACTUALLY GATES IT: `SwapLib.sizeBySurplus` sizes BOTH band-add paths — `VogueLib.addLiq`
-    /// (ETH) and `BtcVaultLib.addLiqChannel` (BTC) — off `surplus = liquidTotal - committedBoth`,
-    /// and `syncLev` adds the levered slice through that same sizer. So levered depth is gated by
-    /// the EXACT figure #12 freed, and the capacity gain is the surplus gain converted at price.
-    ///
-    /// ⚠️ THE ROVER TRAP, and why this test looks for it. `vogueETH` folds the Rover in via
-    /// `try IRover(rover).valueWeth() returns (uint rv) { total += rv; } catch {}`
-    /// (`VaultLib.sol:141-143`). A REVERTING Rover contributes **0 SILENTLY** — the comment calls
-    /// that "conservative", and it is, but it means any capacity number measured while the Rover
-    /// leg is dead UNDER-REPORTS with nothing to say so. So: establish whether a Rover is wired,
-    /// and if one is, prove its leg is LIVE before trusting the figure.
-    function test_E40_LeverageCapacityWithTheRoverLegProvenLive() public {
-        _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
-        vm.roll(block.number + 1);
-
-        // ── THE ROVER GUARD ────────────────────────────────────────────────────────────────
-        address venue = AUX.ethVenue();
-        (bool okR, bytes memory rd) = venue.staticcall(abi.encodeWithSignature("ROVER()"));
-        address rover = okR && rd.length == 32 ? abi.decode(rd, (address)) : address(0);
-        if (rover == address(0)) {
-            emit log("ROVER not wired in this fixture -- the term is ABSENT, not silently zeroed");
-        } else {
-            (bool okV, bytes memory vd) = rover.staticcall(abi.encodeWithSignature("valueWeth()"));
-            emit log_named_address("ROVER", rover);
-            emit log_named_uint("ROVER.valueWeth()", okV && vd.length == 32 ? abi.decode(vd, (uint)) : 0);
-            // THE POINT OF THE GUARD: a reverting Rover is swallowed by VaultLib's try/catch, so
-            // without this assertion the capacity below would silently exclude the Rover's ETH.
-            assertTrue(okV, "ROVER.valueWeth() REVERTS -- vogueETH is silently short the Rover leg, "
-                            "and every capacity number below would under-report with no warning");
-        }
-        emit log_named_uint("vogueETH (incl. Rover + lev net-equity)", AUX.vogueETH());
-
-        // ── THE MEASUREMENT ────────────────────────────────────────────────────────────────
-        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
-        assertGt(px, 0, "PREMISE: a live TWAP, else capacity cannot be denominated in ETH");
-        for (uint i; i < 20; i++) _trade(3_000e18);
-
-        (uint[15] memory d,,, uint dp) = AUX.get_deposits();
-        uint liquidTotal = d[14] > dp ? d[14] - dp : 0;
-        uint committedNew = CORE.committedUsd18();
-        uint committedOld = (CORE.POOLED_USD_ETH() + CORE.POOLED_USD_BTC()) * 1e12;
-
-        uint surplusNew = liquidTotal > committedNew ? liquidTotal - committedNew : 0;
-        uint surplusOld = liquidTotal > committedOld ? liquidTotal - committedOld : 0;
-
-        emit log_named_uint("levered-depth surplus, OLD defn (18d)", surplusOld);
-        emit log_named_uint("levered-depth surplus, NEW defn (18d)", surplusNew);
-        emit log_named_uint("EXTRA levered band depth unlocked (wei)",
-            px == 0 ? 0 : (surplusNew - surplusOld) * 1e18 / px);
-
-        assertGt(committedOld, committedNew, "PREMISE: flow inflated the OLD figure, not the NEW one");
-        // THE RESULT: `sizeBySurplus` back-solves `deltaOut = surplus * WAD / price`, so every dollar
-        // of freed surplus is a dollar of levered band depth that `syncLev` may now add.
-        assertGt(surplusNew, surplusOld,
-            "#12 frees levered-depth capacity by exactly the flow the old figure had reserved");
-    }
+    // DELETED 2026-08-13 — test_E40_LeverageCapacityWithTheRoverLegProvenLive. It staticcalled
+    // `ROVER()` on the venue and, when absent, logged "ROVER not wired in this fixture" and returned.
+    // Rover was deleted, so that branch is the ONLY one reachable: the test PASSED while asserting
+    // nothing. A vacuous pass is worse than a failure — it reports coverage that does not exist.
 
     /// §E60 — THE DUST CONTAINMENT TEST UNDER AN **ACTIVATED** PROTOCOL FEE.
     ///
