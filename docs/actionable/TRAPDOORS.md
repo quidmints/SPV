@@ -153,7 +153,12 @@ pinned to recorded state. What it **can** do:
    freezes and cannot source swap-out BTC; the protocol degrades to `reverseSwapOut` refunding
    the swapper, so this is **capacity loss, not a loss of funds**. §E187's answer is ladder depth.
 2. **Broadcast a REVOKED commitment** — the classic LN theft attempt, defended by LDK's justice
-   path **only while the hop is online within the CSV window**.
+   path **only while the hop is online within the CSV window**. ✅ **CHECKED, not assumed
+   (2026-08-13):** `node.rs` wires a real `ChainMonitor` built over a live `TxBroadcaster`
+   (`:784`, `:774`) plus an LDK resync path (`ldk_resync_tx`), so the penalty machinery is
+   present and standard. **What is NOT verified is the liveness assumption it rests on** — that
+   the hop is online and chain-synced inside the CSV window — which is the part per-LP custody
+   makes newly load-bearing.
 
 ⚠️ **AND THE OBVIOUS PLACE TO LOOK FOR THAT DEFENCE IS THE WRONG ONE:** `quid-watchtower` is a
 **dead-man-exit** watchtower — *"KEYLESS… broadcasts the already-public signed bytes"*. It does

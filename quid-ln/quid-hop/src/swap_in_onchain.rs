@@ -300,13 +300,20 @@ pub fn derive_deposit_key<C: Signing>(
     Ok(Keypair::from_secret_key(secp, &xpriv.private_key))
 }
 
-/// Build the deposit (address + spend-info + refund leaf) for swap `swap_index` from the
-/// hop master + the user's refund key + timelock. The one call the registration API and
-/// the watcher share — so both derive the SAME address for a given swap.
+/// Build the deposit (address + spend-info + refund leaf) from the hop master + the user's
+/// refund key + timelock. The one call the registration API and the watcher share — so both
+/// derive the SAME address for a given swap.
+///
+/// ⚠️ **There is no `swap_index` parameter, and that absence is §E183's fix made structural.**
+/// Per-swap uniqueness lives in the LEAF (`user_refund`, `cltv`), not in the internal key: the
+/// contract derives `TapTweak(BTC_DEPOSIT_KEY, leaf(...))` from ONE pinned key, so a per-swap
+/// internal key produced an address the contract could never recompute. The parameter survived
+/// as an ignored `_swap_index` after that fix — dead weight that still read as if it selected
+/// something. Taking it away means a caller cannot pass one, rather than passing one that is
+/// silently discarded.
 pub fn deposit_for<C: Signing + Verification>(
     secp: &Secp256k1<C>,
     master: &Xpriv,
-    _swap_index: u32,
     user_refund: XOnlyPublicKey,
     cltv: LockTime,
     network: Network,
@@ -317,14 +324,17 @@ pub fn deposit_for<C: Signing + Verification>(
     Ok((deposit_address(&si, network), si, leaf))
 }
 
-/// Sign the hop's KEY-PATH claim of swap `swap_index`'s deposit, returning the claim tx
-/// with its witness attached. Re-derives the per-swap key + spend-info from the master,
-/// so the watcher needs only the persisted swap params (index/user_refund/cltv) — never a
-/// stored secret. `claim_tx` comes from [`build_claim_tx`]; `deposit` is its funded prevout.
+/// Sign the hop's KEY-PATH claim of a deposit, returning the claim tx with its witness
+/// attached. Re-derives the PINNED deposit key + this swap's spend-info from the master, so the
+/// watcher needs only the persisted swap params (`user_refund`/`cltv`) — never a stored secret.
+/// `claim_tx` comes from [`build_claim_tx`]; `deposit` is its funded prevout.
+///
+/// ⚠️ The doc here used to say *"re-derives the per-swap key"* and list `index` among the params
+/// it needs. Both were false after §E183 pinned the internal key — see [`deposit_for`]. The
+/// parameter is gone with the sentence.
 pub fn sign_claim<C: Signing + Verification>(
     secp: &Secp256k1<C>,
     master: &Xpriv,
-    _swap_index: u32,
     user_refund: XOnlyPublicKey,
     cltv: LockTime,
     mut claim_tx: Transaction,
@@ -499,7 +509,7 @@ mod tests {
         let m = master();
         let (usr_x, _) = kp(&secp, 0x33).x_only_public_key();
         let cltv = LockTime::from_height(800_000).unwrap();
-        let (addr, si, _leaf) = deposit_for(&secp, &m, 7, usr_x, cltv, Network::Regtest).unwrap();
+        let (addr, si, _leaf) = deposit_for(&secp, &m, usr_x, cltv, Network::Regtest).unwrap();
 
         let deposit = TxOut { value: Amount::from_sat(1_000_000), script_pubkey: addr.script_pubkey() };
         let outpoint = OutPoint { txid: bitcoin::Txid::from_slice(&[0x9; 32]).unwrap(), vout: 0 };
@@ -529,7 +539,7 @@ mod tests {
 
         // The hop's key-path signature over the TWO-output tx still verifies (SIGHASH ALL
         // commits to the refund output, so it can't be stripped after signing).
-        let signed = sign_claim(&secp, &m, 7, usr_x, cltv, tx, &deposit).unwrap();
+        let signed = sign_claim(&secp, &m, usr_x, cltv, tx, &deposit).unwrap();
         let sig = schnorr::Signature::from_slice(&signed.input[0].witness[0]).unwrap();
         let msg = key_path_sighash(&signed, &deposit).unwrap();
         secp.verify_schnorr(&sig, &msg, &si.output_key().to_x_only_public_key())
@@ -544,7 +554,7 @@ mod tests {
         let cltv = LockTime::from_height(800_000).unwrap();
 
         // Registration side: derive the address the user pays.
-        let (addr, si, _leaf) = deposit_for(&secp, &m, 42, usr_x, cltv, Network::Regtest).unwrap();
+        let (addr, si, _leaf) = deposit_for(&secp, &m, usr_x, cltv, Network::Regtest).unwrap();
         assert!(addr.script_pubkey().is_p2tr());
 
         // Watcher side: a deposit lands at that address; the hop signs the key-path claim.
@@ -552,7 +562,7 @@ mod tests {
         let outpoint = OutPoint { txid: bitcoin::Txid::from_slice(&[0x9; 32]).unwrap(), vout: 1 };
         let dest = ScriptBuf::new_p2tr_tweaked(si.output_key());
         let claim = build_claim_tx(outpoint, deposit.value, Amount::from_sat(400), dest);
-        let signed = sign_claim(&secp, &m, 42, usr_x, cltv, claim, &deposit).unwrap();
+        let signed = sign_claim(&secp, &m, usr_x, cltv, claim, &deposit).unwrap();
 
         assert_eq!(signed.input[0].witness.len(), 1, "single key-path sig");
         let sig = schnorr::Signature::from_slice(&signed.input[0].witness[0]).unwrap();

@@ -247,7 +247,7 @@ async fn swap_in_onchain(
     let idx = oc.next_index.fetch_add(1, Ordering::SeqCst);
     let swap_id = keccak256([b"quid-swapin-onchain-v1".as_slice(), &idx.to_be_bytes()].concat());
     let secp = bitcoin::secp256k1::Secp256k1::new();
-    let (addr, _si, _leaf) = deposit_for(&secp, &oc.master, idx, user_refund, cltv, oc.network)
+    let (addr, _si, _leaf) = deposit_for(&secp, &oc.master, user_refund, cltv, oc.network)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("derive deposit: {e:?}")))?;
 
     oc.registry.register(OnchainSwapIn {

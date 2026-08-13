@@ -51,7 +51,7 @@ fn onchain_swap_in_keypath_claim_and_cltv_refund_on_regtest() {
     {
         let cltv = LockTime::from_height(tip(&bd) + 50).unwrap();
         let idx = 7u32;
-        let (addr, _si, _leaf) = deposit_for(&secp, &master, idx, user_x, cltv, Network::Regtest).unwrap();
+        let (addr, _si, _leaf) = deposit_for(&secp, &master, user_x, cltv, Network::Regtest).unwrap();
 
         // Deposit → confirm.
         let dep_txid = call(&bd, "sendtoaddress", &[json!(addr.to_string()), json!(0.005)])
@@ -63,7 +63,7 @@ fn onchain_swap_in_keypath_claim_and_cltv_refund_on_regtest() {
         let outpoint = OutPoint { txid: Txid::from_str(&dep_txid).unwrap(), vout };
         let deposit_txout = TxOut { value, script_pubkey: addr.script_pubkey() };
         let claim = build_claim_tx(outpoint, value, FEE, newaddr_spk(&bd));
-        let signed = sign_claim(&secp, &master, idx, user_x, cltv, claim, &deposit_txout).unwrap();
+        let signed = sign_claim(&secp, &master, user_x, cltv, claim, &deposit_txout).unwrap();
 
         // sendrawtransaction ⇒ real consensus validates the witness/sig/script. Accept = pass.
         let claim_txid = bd
@@ -79,7 +79,7 @@ fn onchain_swap_in_keypath_claim_and_cltv_refund_on_regtest() {
     {
         let cltv = LockTime::from_height(tip(&bd) + 12).unwrap(); // window > the 6 confs mined below
         let idx = 8u32;
-        let (addr, si, leaf) = deposit_for(&secp, &master, idx, user_x, cltv, Network::Regtest).unwrap();
+        let (addr, si, leaf) = deposit_for(&secp, &master, user_x, cltv, Network::Regtest).unwrap();
 
         let dep_txid = call(&bd, "sendtoaddress", &[json!(addr.to_string()), json!(0.004)])
             .as_str().unwrap().to_string();

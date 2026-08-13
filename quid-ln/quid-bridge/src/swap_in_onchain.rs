@@ -325,7 +325,7 @@ async fn broadcast_claim(
     };
     let claim = build_claim_tx_with_refund(deposit.outpoint, deposit.value, fee, dest_spk, refund);
     let signed = sign_claim(
-        &secp, master, swap.swap_index, swap.user_refund, swap.cltv, claim, &deposit_txout,
+        &secp, master, swap.user_refund, swap.cltv, claim, &deposit_txout,
     )
     .map_err(|e| anyhow::anyhow!("sign claim: {e:?}"))?;
     esplora.client().broadcast(&signed).await.context("broadcast key-path claim")?;
