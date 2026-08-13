@@ -309,7 +309,7 @@ contract LevYbRealProbe is Alles {
     function _openLp() internal {
         // REAL band position (the E0 IL base) — bandEthOf(LP) == 5 ETH deposit, read live from V4.
         vm.deal(LP, 6 ether);
-        vm.prank(LP); V4.deposit{value: 5 ether}(0, LP, 3);   // venue 3 = all-Galaxy (no ether.fi offramp noise)
+        vm.prank(LP); V4.deposit{value: 5 ether}(0, LP);   // venue 3 = all-Galaxy (no ether.fi offramp noise)
         deal(WEETH, LP, 5 ether);
         uint[] memory mins = new uint[](8);
         // Open at the CURRENT real band price (entry pinned from V4.bandSqrtP); zero leverage at entry.
@@ -491,7 +491,7 @@ contract LevYbRealProbe is Alles {
     function _openEulerLp() internal {
         // REAL band position (E0) — read live from V4; no MockBandHost.
         vm.deal(LP, 6 ether);
-        vm.prank(LP); V4.deposit{value: 5 ether}(0, LP, 3);
+        vm.prank(LP); V4.deposit{value: 5 ether}(0, LP);
         deal(WEETH, LP, 5 ether);
         uint[] memory mins = new uint[](8);
         vm.startPrank(LP);

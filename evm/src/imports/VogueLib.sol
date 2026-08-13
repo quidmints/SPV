@@ -33,30 +33,11 @@ import {IEthVenue} from "./Interfaces.sol";
 library VogueLib {
     uint constant WAD = 1e18;
 
-    // Venue tags mirror Vogue's constants (per-deposit venue routing).
-    // Deliberately NO VENUE_ETHERFI (=1) dispatch tag: per the venue TODO, ether.fi is NOT a distinct
-    // user choice — it ALWAYS routes through Rover (VENUE_ROVER), and direct weETH is used internally
-    // ONLY as the Rover-self-liquidated fallback (see `_supplyEtherFi`).
-    uint8 constant VENUE_AAVE    = 2;
-    uint8 constant VENUE_GALAXY  = 3;
-    uint8 constant VENUE_ETHERFI = 4;   // was VENUE_ROVER; Rover is deleted, this is direct weETH
-    uint8 constant VENUE_EULER   = 5;
-    uint8 constant VENUE_GAUNTLET= 6;
-    uint8 constant VENUE_SPLIT   = 0;
     /// A chosen venue (or a SPLIT leg) placed 0 — paused / unwired / de-allowlisted. We do NOT
     /// silently redirect to a fallback venue: Galaxy AND Gauntlet are Morpho CURATED vaults (Aave/
     /// Euler likewise), so NONE can be assumed always-live. Fail loud — the depositor picks a live venue.
     error VenueUnavailable();
 
-    /// @dev ether.fi supply — ALWAYS via Rover (the protocol-owned weETH/WETH v3 LP). Direct weETH
-    ///      (supplyEtherFi) is used ONLY here, and ONLY as the internal FALLBACK when Rover cannot take
-    ///      the deposit. Two ways Rover declines, BOTH fall through to direct weETH:
-    ///        1. self-liquidated — the v3 pool has drained, so `rover.deposit` REVERTS (caught below);
-    ///        2. unavailable — Rover is unset/inert, so `supplyEtherFiToRover` RETURNS 0 (no revert).
-    ///      Either way the ether.fi exposure is preserved as a direct weETH position on the SAME
-    ///      ethfiBacked wall + offramp ladder. VENUE_ETHERFI is not a user-facing venue — this is the
-    ///      single internal use of the direct-weETH path. Returns 0 only if BOTH paths place nothing
-    ///      (⇒ caller reverts VenueUnavailable, no silent strand).
     /// @dev DIRECT weETH, always. Rover is REMOVED (2026-08-05, owner decision (a)): this used to try
     ///      `supplyEtherFiToRover` first and fall back to direct weETH only when the Rover deposit
     ///      reverted. The fallback is now the primary and only path.
@@ -194,7 +175,7 @@ library VogueLib {
     // ════════════════════════════════════════════════════════════════════
     function depositETH(
         address weth, address aux, address ev,
-        address sender, address pledge, uint amount, uint8 venue
+        address sender, address pledge, uint amount
     ) public returns (uint sent) {
         if (msg.value > 0) {
             IWETH9(weth).deposit{value: msg.value}();
@@ -208,60 +189,23 @@ library VogueLib {
             if (took > 0) { IWETH9(weth).transferFrom(sender, address(this), took); sent += took; }
         }
         if (sent > 0) {
-            // Route ALL WETH at Vogue to the depositor's CHOSEN ETH venue. Only the ether.fi/Rover
-            // slice is attributed (ethfiBacked, capped at `sent` = the LP's own capital) — it exits via
-            // the isolated offramp ladder; the fungible 4626 venues (AAVE/Euler/Galaxy/Gauntlet) withdraw
-            // from the pooled book and need no per-LP attribution.
-            // NO ALWAYS-LIVE FALLBACK (user, 2026-07-26): Galaxy AND Gauntlet are Morpho CURATED vaults
-            // (Aave/Euler curated too), so NONE can be assumed always-live. A chosen venue (or a SPLIT
-            // leg) that places 0 — paused / unwired / de-allowlisted — REVERTS; it is NEVER silently
-            // swept to Galaxy or any other default. The depositor must pick a venue that is live.
+            // ONE DESTINATION. Every ETH deposit is weETH (owner, all-in on ether.fi), so there is no
+            // venue choice, no default, and no dispatch. This replaced a six-way branch over
+            // {AAVE, Euler, ETHERFI, Gauntlet, Galaxy, SPLIT}.
+            // ⚠️ THIS IS A BEHAVIOUR CHANGE, NOT DEAD-CODE REMOVAL — say so rather than treating a red
+            // test as proof the change is wrong (standing rule 8d). Four of those branches WERE
+            // equivalent: `VaultLib.supplyVenueBody` opens `kind; // retained-but-ignored` and routes
+            // AAVE/Euler/ETHERFI/Gauntlet into the ether.fi adapter alike. GALAXY WAS NOT — it went
+            // `vogueOp` → `vogueOpBody(op=0)` → `Aux.supplySelf` into the Galaxy Morpho vault, PROVEN by
+            // A/B (`testEthVenueIncidentEvacuation` fails "ETH deposit landed in Galaxy: 0 <= 0" when
+            // Galaxy is folded in). Tracing that path by hand concluded the opposite and was WRONG.
+            // So removing Galaxy MOVES real deposits from the Galaxy vault into weETH. That is the
+            // intent; any test asserting Galaxy shares after a deposit now encodes the OLD model.
             uint toDeposit = IWETH9(weth).balanceOf(address(this));
             IWETH9(weth).approve(aux, toDeposit);
-            uint placed;
             bool attrib = pledge != address(0);
-            uint8 v = venue;
-            if (v == VENUE_ETHERFI) {
-                // ether.fi = the depositor's ONLY ether.fi choice, and it ALWAYS routes through Rover
-                // (the protocol-owned weETH/WETH v3 LP). Per the venue TODO, VENUE_ETHERFI (direct weETH)
-                // is NOT a user-facing venue — `_supplyEtherFi` uses it INTERNALLY, and ONLY as the
-                // fallback for when the Rover NFT has self-liquidated (v3 pool drained ⇒ the Rover deposit
-                // reverts). Either path is ether.fi-sourced ⇒ attributed (ethfiBacked) + exits via the offramp.
-                placed = _supplyEtherFi(ev, toDeposit);
-            } else if (v == VENUE_AAVE) {
-                placed = IEthVenue(ev).supplyAaveEth(toDeposit);
-            } else if (v == VENUE_EULER) {
-                placed = IEthVenue(ev).supplyEulerEth(toDeposit);
-            } else if (v == VENUE_GAUNTLET) {
-                placed = IEthVenue(ev).supplyGauntlet(toDeposit);
-            } else if (v == VENUE_GALAXY) {
-                // Explicit Galaxy (its own Morpho vault, via vogueOp). vogueOp REVERTS if that vault is
-                // paused/de-allowlisted, so a down Galaxy fails loud right here — no fallback.
-                IEthVenue(ev).vogueOp(false, toDeposit, 0, bytes32(0));
-                placed = toDeposit;
-            } else if (v == VENUE_SPLIT) {
-                // User TODO: split EQUALLY across ALL venues {AAVE, Euler, Rover, Galaxy, Gauntlet} to
-                // diversify curator risk. NO sink: if ANY leg places short — a paused/unwired curated
-                // vault — the WHOLE deposit REVERTS, never over-concentrated into one venue. Only the
-                // Rover (ether.fi) fifth is attributed.
-                uint fifth = toDeposit / 5;
-                uint extSum;                              // the 4 curated 4626 legs (return the WETH placed)
-                extSum += IEthVenue(ev).supplyAaveEth(fifth);
-                extSum += IEthVenue(ev).supplyEulerEth(fifth);
-                uint ethfiPut = _supplyEtherFi(ev, fifth);   // ether.fi leg: direct weETH
-                extSum += ethfiPut;
-                extSum += IEthVenue(ev).supplyGauntlet(fifth);
-                if (extSum < fifth * 4) revert VenueUnavailable();   // a curated leg placed short ⇒ fail loud
-                IEthVenue(ev).vogueOp(false, toDeposit - extSum, 0, bytes32(0)); // Galaxy leg = its fifth + dust; reverts if paused
-                placed = toDeposit;
-            }
+            uint placed = _supplyEtherFi(ev, toDeposit);
             if (placed == 0) revert VenueUnavailable();   // chosen venue placed nothing ⇒ paused/unwired ⇒ NO fallback
-            // ATTRIBUTE EVERY VENUE, not just ether.fi (2026-08-06 correctness fix). `supplyVenueBody`
-            // now routes EVERY kind into the ether.fi adapter, so every deposit is ether.fi-sourced
-            // whatever venue the depositor named. Crediting only the VENUE_ROVER branch left an LP who
-            // picked e.g. VENUE_AAVE holding weETH with `ethfiBacked == 0` — and `Vogue`'s exit gates
-            // the offramp ladder on `ethfiBacked > 0`, so their funds were ether.fi-sourced while their
-            // exit path said otherwise. Attribution must follow where the funds actually GO.
             // Attribution DELETED 2026-08-07: every deposit is ether.fi-sourced, so a per-LP
             // "which slice came from ether.fi" mapping recorded a constant equal to `pooled`.
             attrib;
@@ -626,7 +570,7 @@ library VogueLib {
 
     function sizeOutOfRange(
         address weth, address aux, address ev,
-        uint amount, address token, bool token1isETH, uint8 venue, SwapLib.Oor memory t
+        uint amount, address token, bool token1isETH, SwapLib.Oor memory t
     ) public returns (uint128 liquidity) {
         // §A.56: both branches were an INLINE COPY of `SwapLib.sizeOorUsd` — the same helper the BTC
         // path (`BtcVaultLib.outOfRangeBtc`) already calls. Verified byte-identical: the USD side maps
@@ -635,7 +579,7 @@ library VogueLib {
         // One definition now sizes every out-of-range order, ETH and BTC alike. The bare `require`s
         // became `TickOutOfRange()` (the helper's named error) — same guard, better diagnostics.
         if (token == address(0)) {
-            amount = depositETH(weth, aux, ev, msg.sender, address(0), amount, venue);
+            amount = depositETH(weth, aux, ev, msg.sender, address(0), amount);
             liquidity = SwapLib.sizeOorUsd(amount, t, !token1isETH);
         } else {
             amount = SwapLib.scaleTo6(IAux(aux).deposit(msg.sender, token, amount), token);

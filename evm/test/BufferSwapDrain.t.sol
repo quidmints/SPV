@@ -33,7 +33,7 @@ contract BufferSwapDrain is LevCascadeProbe {
         ETH.setLevManager(address(lm));
         // Thick shared band so the swaps clear the 50bps manip guard.
         vm.deal(address(this), 40 ether);
-        V4.deposit{value: 20 ether}(0, address(this), 3);
+        V4.deposit{value: 20 ether}(0, address(this));
 
         // Full-2x levered position ⇒ a real debt-funded buffer folded into POOLED_USD_ETH.
         _openAtEntry(lps[0], 5 ether);
@@ -94,7 +94,7 @@ contract BufferSwapDrain is LevCascadeProbe {
         _setupLev();
         ETH.setLevManager(address(lm));
         vm.deal(address(this), 40 ether);
-        V4.deposit{value: 20 ether}(0, address(this), 3);
+        V4.deposit{value: 20 ether}(0, address(this));
         _openAtEntry(lps[0], 5 ether);
         _rallyBand(_entrySqrt(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
         lm.rebalance(lps[0], 0);

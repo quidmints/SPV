@@ -69,12 +69,6 @@ contract Vogue is
     // only as the Rover-self-liquidated fallback (VogueLib._supplyEtherFi). And NO always-live sink:
     // Galaxy AND Gauntlet are Morpho CURATED vaults (Aave/Euler curated too), so a chosen venue (or a
     // SPLIT leg) that places 0 REVERTS — it is NEVER swept to Galaxy or any other default.
-    uint8 constant VENUE_SPLIT   = 0; // DEFAULT — equal 5-way {AAVE, Euler, ether.fi, Galaxy, Gauntlet}; diversify curator risk
-    uint8 constant VENUE_AAVE    = 2; // AAVEv4
-    uint8 constant VENUE_GALAXY  = 3; // Galaxy — its OWN Morpho WETH 4626 vault (a normal venue, NOT a fallback sink)
-    uint8 constant VENUE_ETHERFI = 4; // ether.fi, direct weETH (was VENUE_ROVER; Rover is deleted)
-    uint8 constant VENUE_EULER   = 5; // Euler ETH (WETH 4626 curator; fungible w/ Galaxy)
-    uint8 constant VENUE_GAUNTLET= 6; // Gauntlet (2nd Morpho WETH 4626 curator; fungible w/ Galaxy)
 
 
     // Per-LP attribution applies ONLY to the ether.fi slice (above): that exit is served from your
@@ -308,13 +302,13 @@ contract Vogue is
     ///         attribution (there's no pledge): exits via pull() are served by
     ///         the generic withdraw ladder, which reaches every venue.
     function outOfRange(uint amount, address token,
-        int24 distance, int24 range, uint8 venue) 
+        int24 distance, int24 range) 
         external nonReentrant payable returns (uint next) {
-        return _outOfRange(amount, token, distance, range, venue);
+        return _outOfRange(amount, token, distance, range);
     }
 
     function _outOfRange(uint amount, address token,
-        int24 distance, int24 range, uint8 venue) internal
+        int24 distance, int24 range) internal
         returns (uint next) {
         SwapLib.validateOorParams(range, distance);
 
@@ -334,7 +328,7 @@ contract Vogue is
         // headroom); self-managed positions take no wall attribution (pledge==0).
         uint128 liquidity = VogueLib.sizeOutOfRange(
             address(WETH), address(AUX), address(EV),
-            amount, token, token1isETH, venue, t);
+            amount, token, token1isETH, t);
         if (liquidity == 0) revert Dust();
 
         next = ++ID;
@@ -649,6 +643,26 @@ contract Vogue is
                     LP.pooled -= served; 
                     lpShares -= served;
                     amount -= served;
+                } else if (incrPre > 0) {
+                    // THE USD LEG MUST BE PAYABLE INDEPENDENTLY OF THE ETH LEG.
+                    // When the offramp serves nothing -- no weETH left to sell -- `_payUsdLeg` above is
+                    // never reached, and the `amount > 0` fallback then caps its burn at
+                    // `deliverableETH`, which is ~0 for the same reason. So a residual whose backing is
+                    // USD became UNRECOVERABLE: measured as a bit-identical position across a second
+                    // redeem (12.67e18 both sides) in test_CHECK_FullExitResidualIsRecoverable and
+                    // test_SETTLE_LvrResidualIsDeferralNotLeak.
+                    // It passed before the all-weETH change only incidentally: the venue split left
+                    // non-weETH backing, so `served > 0` on the second pass and the USD leg was paid as
+                    // a side effect. Removing venue choice removed that accident without replacing it.
+                    // Gating a USD claim on ETH deliverability is the defect; the two legs are
+                    // independent settlements of the same position.
+                    uint usdEq = _payUsdLeg(incrPre, lpShares, ethfiPart, recipient);
+                    if (usdEq > 0) {
+                        _burnInRange(sqrtPriceX96, usdEq, tickLower, tickUpper, address(0));
+                        LP.pooled -= usdEq;
+                        lpShares  -= usdEq;
+                        amount    -= usdEq;
+                    }
                 }
             }
         } if (amount > 0) {
@@ -800,7 +814,7 @@ contract Vogue is
         _onExit(LP, lp);                              // refresh bookmarks (or clear the slot if fully exited)
     }
 
-    function _depositImpl(uint amount, address pledge, uint8 venue) internal {
+    function _depositImpl(uint amount, address pledge) internal {
         // (JIT-lock) Stamp the receiving position's deposit block. `_withdraw`
         // refuses a same-block exit, so `deposit → Aux.swap → withdraw` can't be
         // composed atomically to snipe a victim swap's fee (the ONE composition the
@@ -834,7 +848,7 @@ contract Vogue is
 
         // _depositETH pulls WETH from msg.sender (payer), routes it to the
         // per-deposit chosen venue, and attributes the slice (hard-wall)...
-        amount = _depositETH(msg.sender, pledge, amount, venue);
+        amount = _depositETH(msg.sender, pledge, amount);
 
         // Guard: if nothing was pulled, no bookmark update is needed.
         // Without this early-return, _settlePending would compound pending
@@ -1013,9 +1027,9 @@ contract Vogue is
     ///      headroom). Delegatecall preserves msg.value/address(this), so the WETH
     ///      wrap + venue placement + per-LP wall attribution behave identically.
     function _depositETH(address sender, address pledge,
-        uint amount, uint8 venue) internal returns (uint sent) {
+        uint amount) internal returns (uint sent) {
         return VogueLib.depositETH(address(WETH), address(AUX), address(EV),
-            sender, pledge, amount, venue);
+            sender, pledge, amount);
     }
 
     /// @notice Pull ETH from the basket and send to recipient. Used by
@@ -1356,46 +1370,31 @@ contract Vogue is
 
     function deposit(uint assets, address receiver)
         external payable nonReentrant returns (uint shares) {
-        return _deposit4626(assets, receiver, VENUE_SPLIT);
+        return _deposit4626(assets, receiver);
     }
 
-    /// @notice Per-deposit venue variant — the venue rides the deposit call
-    ///         (0 = SPLIT 5-way, 2 = AAVE-v4, 3 = Galaxy, 4 = ether.fi via Rover,
-    ///         5 = Euler, 6 = Gauntlet; there is deliberately no "1"/ether.fi code —
-    ///         ether.fi always routes through Rover). No standing preference, no separate tx.
-    function deposit(uint assets, address receiver, uint8 venue)
-        external payable nonReentrant returns (uint shares) {
-        return _deposit4626(assets, receiver, venue);
-    }
-
-    function _deposit4626(uint assets, address receiver, uint8 venue)
+    function _deposit4626(uint assets, address receiver)
         internal returns (uint shares) {
         require(receiver != address(0), "receiver");
         uint preShares = autoManaged[receiver].pooled;
-        _depositImpl(assets, receiver, venue);
+        _depositImpl(assets, receiver);
         shares = autoManaged[receiver].pooled - preShares;
         emit Deposit(msg.sender, receiver, assets, shares);
     }
 
     function mint(uint shares, address receiver)
         external payable nonReentrant returns (uint assets) {
-        return _mint4626(shares, receiver, VENUE_SPLIT);
-    }
-
-    /// @notice Per-deposit venue variant of mint (see deposit overload).
-    function mint(uint shares, address receiver, uint8 venue)
-        external payable nonReentrant returns (uint assets) {
-        return _mint4626(shares, receiver, venue);
+        return _mint4626(shares, receiver);
     }
 
     function _mint4626(uint shares, 
-        address receiver, uint8 venue)
+        address receiver)
         internal returns (uint assets) {
         require(receiver != address(0), "receiver");
         assets = convertToAssets(shares);
         uint preShares = autoManaged[receiver].pooled;
         
-        _depositImpl(assets, receiver, venue);
+        _depositImpl(assets, receiver);
         uint actualShares = autoManaged[receiver].pooled - preShares;
         // 4626-compliance: mint must yield AT LEAST the requested shares.
         // If the caller's allowance/balance falls short, _depositImpl pulls

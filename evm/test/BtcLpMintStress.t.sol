@@ -1212,7 +1212,7 @@ contract BtcLpMintStress is Alles {
         // Now drive REAL ETH-side activity: an LP deposit (which runs checkBacking and commits ETH-band
         // USD) plus swaps in both directions on the ETH curve.
         vm.deal(User01, 500 ether);
-        vm.prank(User01); V4.deposit{value: 200 ether}(0, User01, 3);
+        vm.prank(User01); V4.deposit{value: 200 ether}(0, User01);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         for (uint i = 0; i < 3; i++) {
             vm.prank(User01);

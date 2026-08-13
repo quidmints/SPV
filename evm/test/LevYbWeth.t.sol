@@ -59,7 +59,7 @@ contract LevYbWethProbe is LevYbRealProbe {
     function _openWethLp() internal {
         // REAL band position (the E0 IL base) — bandEthOf(LP) == 5 ETH deposit, read live from V4.
         vm.deal(LP, 6 ether);
-        vm.prank(LP); V4.deposit{value: 5 ether}(0, LP, 3);   // venue 3 = all-Galaxy (no ether.fi offramp noise)
+        vm.prank(LP); V4.deposit{value: 5 ether}(0, LP);   // venue 3 = all-Galaxy (no ether.fi offramp noise)
         // Equity is PLAIN WETH (not weETH): give the LP 5 WETH.
         deal(address(WETH), LP, 5 ether);
         uint[] memory mins = new uint[](8);

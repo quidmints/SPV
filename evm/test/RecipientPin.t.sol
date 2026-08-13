@@ -22,7 +22,7 @@ contract RecipientPin is Alles {
 
     function _seed(address lp) internal {
         vm.prank(lp);
-        V4.deposit{value: 10 ether}(0, lp, 3);          // VENUE_GALAXY
+        V4.deposit{value: 10 ether}(0, lp);          // VENUE_GALAXY
         // Vogue:538 bars a withdraw in the SAME BLOCK as a deposit ("too soon"). Clear it, or every
         // `expectRevert` below would catch the COOLDOWN instead of the pin and pass vacuously —
         // which is exactly what happened on the first run of this file.

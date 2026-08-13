@@ -40,7 +40,7 @@ contract SkewCalibration is Alles {
     /// Fixed fixture, fixed flow, then read the LIVE skew off the public surface.
     function test_E58_SkewMagnitudeOnAFixedFixture() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
         vm.roll(block.number + 1);
         // §E58 DRAIN FIXTURE: 12x3,000 left inv/target at 20x and the flush branch firing. To reach
         // the SCARCITY regime the band must shed most of its ~$714k, so drain hard and let the TWAP

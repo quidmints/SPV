@@ -190,7 +190,7 @@ contract LevCascadeProbe is Alles {
     /// weETH equity + does the one-time Morpho authorization.
     function _bandE0(address lp, uint sizeEth) internal {
         vm.deal(lp, sizeEth + 1 ether);
-        vm.prank(lp); V4.deposit{value: sizeEth}(0, lp, 3);   // venue 3 = all-Galaxy (no offramp noise)
+        vm.prank(lp); V4.deposit{value: sizeEth}(0, lp);   // venue 3 = all-Galaxy (no offramp noise)
         deal(WEETH, lp, sizeEth);
         vm.prank(lp); IMorphoTest(MORPHO).setAuthorization(address(venue), true); // one-time Morpho isolation
     }
@@ -253,7 +253,7 @@ contract LevCascadeProbe is Alles {
         ETH.setLevManager(address(lm));
         // Thicken the band with a normal ETH-LP so small swaps clear the manip guard.
         vm.deal(address(this), 20 ether);
-        V4.deposit{value: 10 ether}(0, address(this), 3);
+        V4.deposit{value: 10 ether}(0, address(this));
         _openAtEntry(lps[0], 5 ether);
         _rallyBand(_entrySqrt(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
         lm.rebalance(lps[0], 0);                                 // real levered position
@@ -271,7 +271,14 @@ contract LevCascadeProbe is Alles {
         // already happened, and could only ever pass or fail on rounding noise.
         assertGe(CORE.POOLED_ETH(), lev, "the levered slice is part of the band's in-range depth");
         assertGt(V4.levBuf(lps[0]), 0, "the debt-funded buffer is live and fee-earning");
-        assertGt(CORE.POOLED_USD_ETH(), pu0, "POOLED_USD paired against it (in-range, fee-earning)");
+        // SAME DEFECT AS THE `pe0` ASSERTION ABOVE, fixed the same way. `pu0` is captured AFTER
+        // `lm.rebalance`, which already minted the slice via the manager's syncLev hook, so the explicit
+        // `V4.syncLev` is IDEMPOTENT and POOLED_USD cannot GROW here. The old `assertGt(.., pu0)` was
+        // asserting a transition that had already happened, and could only pass or fail on modLP
+        // rounding — MEASURED at 3,596 of 6-dec USD ($0.0036), the same order as the -23 wei the ETH
+        // side moves. Assert the STATE that matters (USD is paired against the levered slice, so the
+        // depth is in-range and fee-earning) rather than a delta that is pure noise.
+        assertGt(CORE.POOLED_USD_ETH(), 0, "POOLED_USD paired against it (in-range, fee-earning)");
 
         // (a) small swaps generate band fees; the levered LP IS band depth.
         for (uint i; i < 10; i++) {
@@ -301,7 +308,7 @@ contract LevCascadeProbe is Alles {
         // Fresh LP so the AlreadyOpen guard doesn't mask the venue check.
         address lp = address(0xBEEF4);
         vm.deal(lp, 6 ether);
-        vm.prank(lp); V4.deposit{value: 5 ether}(0, lp, 3);
+        vm.prank(lp); V4.deposit{value: 5 ether}(0, lp);
         deal(WEETH, lp, 5 ether);
         vm.prank(lp); IMorphoTest(MORPHO).setAuthorization(address(rogue), true);
         uint[] memory mins = new uint[](8);
@@ -523,7 +530,7 @@ contract LevCascadeProbe is Alles {
         ETH.setLevManager(address(lm));
         // Thick shared band so the rally's swaps clear the 50bps manip guard.
         vm.deal(address(this), 40 ether);
-        V4.deposit{value: 20 ether}(0, address(this), 3);
+        V4.deposit{value: 20 ether}(0, address(this));
 
         // Two EQUAL band LPs: lps[0] levers, lps[1] stays a plain ETH-LP.
         _openAtEntry(lps[0], 5 ether);        // levered: band E0 + openLev at ZERO leverage
@@ -731,7 +738,7 @@ contract LevCascadeProbe is Alles {
         _setupLev();
         ETH.setLevManager(address(lm));
         vm.deal(address(this), 40 ether);
-        V4.deposit{value: 20 ether}(0, address(this), 3);
+        V4.deposit{value: 20 ether}(0, address(this));
         _openAtEntry(lps[0], 5 ether);
 
         // Debt is entry-price-driven: `openLev` opens at ZERO leverage, so a rally is what creates
@@ -800,7 +807,7 @@ contract LevCascadeProbe is Alles {
         _setupLev();
         ETH.setLevManager(address(lm));
         vm.deal(address(this), 40 ether);
-        V4.deposit{value: 2 ether}(0, address(this), 3);
+        V4.deposit{value: 2 ether}(0, address(this));
         _openAtEntry(lps[0], 5 ether);
 
         _rallyBand(_entrySqrt(lps[0]), 0.2e18, 40, 16_000 * USDC_PRECISION);

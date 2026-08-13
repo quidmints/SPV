@@ -10,6 +10,7 @@ import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {SwapLib} from "./SwapLib.sol";
 import {IAaveV4Spoke} from "./Interfaces.sol";
 import {IWeETH} from "./Interfaces.sol";
+import {ICurvePool} from "./Interfaces.sol";
 import {IDepositAdapter} from "./Interfaces.sol";
 import {ILevEquity} from "./Interfaces.sol";
 import {IAux} from "./Interfaces.sol";
@@ -17,6 +18,14 @@ import {IAux} from "./Interfaces.sol";
 // The ETH-venue ladder's external surface is the canonical `IAux` in Interfaces.sol (`vaultBlocked`
 // — vault-health state stays Aux-owned). The Rover supply-leg surface went with Rover (2026-08-05).
 //
+/// @title  VaultLib — the ETH yield-venue custody ladder extracted from Vault
+///         to free bytecode under the EIP-170 limit. DELEGATECALL'd by Vault:
+///         inside each public function `address(this)` resolves to the Vault,
+///         so all token custody, balances, and the AAVE/4626/Rover positions
+///         are the Vault's. The library holds NO storage; every immutable Vault
+///         reads (WETH/AUX/GALAXY/EULER/AAVE spoke+reserveId/WEETH/EETH/
+///         LEV_MANAGER) is passed in via `EthCfg`. Semantics are byte-for-byte
+///         with the former in-Vault bodies — only the home moved.
 /// Morpho-V2 MARKER (NOT MetaMorpho v1.1, which has a withdrawQueue instead). A V2 vault keeps its
 /// assets in ADAPTERS and auto-allocates on deposit, so its ERC-4626 max-views track IDLE rather than
 /// what the holder owns. `liquidityAdapter()` is the cheapest published read that only a V2 exposes, so
@@ -30,14 +39,6 @@ interface IMorphoV2 {
     function liquidityAdapter() external view returns (address);
 }
 
-/// @title  VaultLib — the ETH yield-venue custody ladder extracted from Vault
-///         to free bytecode under the EIP-170 limit. DELEGATECALL'd by Vault:
-///         inside each public function `address(this)` resolves to the Vault,
-///         so all token custody, balances, and the AAVE/4626/Rover positions
-///         are the Vault's. The library holds NO storage; every immutable Vault
-///         reads (WETH/AUX/GALAXY/EULER/AAVE spoke+reserveId/WEETH/EETH/
-///         LEV_MANAGER) is passed in via `EthCfg`. Semantics are byte-for-byte
-///         with the former in-Vault bodies — only the home moved.
 library VaultLib {
     /// §E57: moved with the offramp body — its only emitter.
 
@@ -50,9 +51,7 @@ library VaultLib {
     struct EthCfg {
         address weth;
         address aux;
-        address galaxy;
-        address euler;
-        address gauntlet;
+        address curvePool;   // bounds what weETH is DELIVERABLE — see deliverableETH
         address aaveSpoke;
         uint256 wethReserveId;
         address weeth;
@@ -66,34 +65,6 @@ library VaultLib {
 
     // ── Venue valuation ───────────────────────────────────────────────────
 
-    /// @dev ETH-equivalent value of our position in a WETH 4626 venue (Galaxy or
-    ///      Euler). A BLOCKED (incident) venue is valued at its WITHDRAWABLE
-    ///      amount (maxWithdraw); else the optimistic convertToAssets.
-    function _venue4626Value(address vault, address aux) internal view returns (uint) {
-        if (vault == address(0)) return 0;
-        // A venue whose 4626 VIEW functions REVERT (self-destructed / paused-that-reverts /
-        // malicious) must value at 0 — never brick EVERY ETH LP's withdraw + the backing read.
-        // This helper feeds _syncYield / vogueETH / get_deposits (and AUX.tryCheckBacking on the
-        // withdraw path), all of which run bare today; full utilization already returns 0 from a
-        // LIVE venue, but a throwing view would revert the whole call. Valuing a throwing venue at
-        // 0 is the conservative side (understates backing ⇒ cannot over-mint), and the LP's
-        // undelivered slice stays a recoverable deferral (re-withdrawn once the venue is fixed).
-        try IERC20(vault).balanceOf(address(this)) returns (uint shares) {
-            if (shares == 0) return 0;
-            if (IAux(aux).vaultBlocked(vault)) {
-                // ONE definition (2026-07-26). This was the LAST raw `maxWithdraw` reader and the most
-                // dangerous one left: it is the SOLVENCY read (feeds vogueETH / get_deposits /
-                // tryCheckBacking), so on a Morpho-V2 venue — whose max-view reports 0 against a fully
-                // recoverable position — blocking Galaxy or Gauntlet would have written their ENTIRE
-                // backing to zero in one call and broken `D >= S + L` on a healthy protocol. Since the
-                // poke that sets `blocked` now uses this same definition, a V2 venue can no longer be
-                // blocked off that false signal either; the two fixes have to agree or the write-down
-                // contradicts the trigger.
-                return _withdrawableOf(vault, address(this));
-            }
-            try IERC4626(vault).convertToAssets(shares) returns (uint v) { return v; } catch { return 0; }
-        } catch { return 0; }
-    }
 
     /// @dev WETH currently supplied to AAVE-v4 (yield-accrued). 0 if unwired.
     ///      Gate on `aaveSpoke`, NOT on `wethReserveId`: reserve 0 is a legitimate reserve
@@ -108,22 +79,9 @@ library VaultLib {
         return _aaveBal(c);
     }
 
-    /// @dev The WETH-4626 curator set, in ONE place. Every consumer (`_vogueETH` value sum,
-    ///      `deliverableETH` caps, the `withdrawETH` pull ladder, the `evacuate` membership check)
-    ///      used to enumerate `c.galaxy`/`c.euler`/`c.gauntlet` by hand — 9 sites over 3 addresses,
-    ///      so a 4th curator meant editing every one and an omission was silent. Now they loop.
-    ///      NOTE the slots MUST stay pairwise distinct: these are SUMMED into backing, so aliasing
-    ///      two of them double-counts (measured: vogueETH 14 for a 10 ETH deposit when gauntlet
-    ///      aliased euler). `Vault`'s ctor enforces distinctness ("vault:dupVenue").
-    function _venues(EthCfg memory c) internal pure returns (address[3] memory) {
-        return [c.galaxy, c.euler, c.gauntlet];
-    }
-
     /// @dev Body of Vault.vogueETH — AGGREGATE ETH-equivalent backing across the
     ///      depositor-chosen venues.
     function _vogueETH(EthCfg memory c) internal view returns (uint total) {
-        address[3] memory venues = _venues(c);
-        for (uint i; i < 3; ++i) total += _venue4626Value(venues[i], c.aux);
         if (c.weeth != address(0)) {
             uint w = IERC20(c.weeth).balanceOf(address(this));
             if (w > 0) total += IWeETH(c.weeth).getEETHByWeETH(w);
@@ -154,26 +112,6 @@ library VaultLib {
         return _vogueETH(c);
     }
 
-    /// @dev Deliverable cap for one UNBLOCKED 4626 venue: subtract the
-    ///      undeliverable slice (convertToAssets − maxWithdraw) so the redemption
-    ///      ETH leg defers it rather than over-burning.
-    function _deliverableCap(address vault, address aux, uint total) internal view returns (uint) {
-        if (vault == address(0)) return total;
-        uint shares = IERC20(vault).balanceOf(address(this));
-        if (shares == 0 || IAux(aux).vaultBlocked(vault)) return total;
-        uint solvent = IERC4626(vault).convertToAssets(shares);
-        // ONE definition, shared with `_pull4626` and `evacuate` (see `_withdrawableOf`). For a
-        // Morpho-V2 venue this equals `solvent`, so the haircut below is correctly ZERO — the old raw
-        // `maxWithdraw` read it as 0 withdrawable and haircut the ENTIRE position, which is what made
-        // `deliverableETH` return 0 against 16 solvent ETH in Galaxy. Still fully guarded: a venue whose
-        // view reverts is treated as 0 withdrawable = the CONSERVATIVE side (defers, never over-promises).
-        uint withdrawable = _withdrawableOf(vault, address(this));
-        if (solvent > withdrawable) {
-            uint undeliverable = solvent - withdrawable;
-            return total > undeliverable ? total - undeliverable : 0;
-        }
-        return total;
-    }
 
     /// @notice Body of Vault.deliverableETH — SOLVENCY-side ETH backing with PARTIAL liquidity haircuts.
     ///
@@ -197,89 +135,6 @@ library VaultLib {
     ///         (`test_RunSim_AllExit_Normal`). Do NOT "fix" this by rebuilding it as a ladder twin
     ///         without first re-establishing a harm — the previous attempt to do so rested on a
     ///         19.4%-short figure that measurement showed to be stale (~3%, and DEFERRED not lost).
-    function deliverableETH(EthCfg memory c) public view returns (uint total) {
-        total = _vogueETH(c);
-        address[3] memory venues = _venues(c);
-        for (uint i; i < 3; ++i) total = _deliverableCap(venues[i], c.aux, total);
-        // The leverage net-equity is solvency backing (now counted in vogueETH as net) but NOT deliverable
-        // from this Vault (unwind-only via closeLev -- the LP gets it back by repaying debt + withdrawing coll,
-        // not from redemption). Exclude the same net-equity term vogueETH added, so deliverableETH == base
-        // (non-levered venue ETH), byte-identical to the prior gross-in/gross-out result. Redemptions never draw it.
-        if (c.levManager != address(0)) {
-            try ILevEquity(c.levManager).totalNetEquityEth() returns (uint n) {
-                total = total > n ? total - n : 0;
-            } catch {}
-        }
-    }
-
-    // ── Supply ────────────────────────────────────────────────────────────
-
-    /// @dev Deposit `amount` WETH to a WETH 4626 venue (Galaxy or Euler). INCIDENT:
-    ///      blocked/reverting venue → AAVE haven if wired, else hold at the Vault.
-    ///      A SUCCESS that mints 0 shares reverts (never credit unbacked WETH).
-    function _supply4626(EthCfg memory c, address vault, uint amount) internal returns (uint) {
-        if (amount == 0) return 0;
-        if (vault != address(0) && !IAux(c.aux).vaultBlocked(vault)) {
-            try IERC4626(vault).deposit(amount, address(this)) returns (uint sh) {
-                require(sh > 0, "v4626:0");
-                return amount;
-            } catch {}
-        }
-        if (c.aaveSpoke != address(0))   // reserve 0 is valid — spoke is the wiring flag
-            IAaveV4Spoke(c.aaveSpoke).supply(c.wethReserveId, amount, address(this));
-        return amount;
-    }
-
-    /// @notice WETH supply — default Galaxy (Morpho 4626). Only WETH is accepted.
-    function supplyETH(EthCfg memory c, address token, uint amount) public returns (uint) {
-        require(token == c.weth, "ethv:notWeth");
-        return _supply4626(c, c.galaxy, amount);
-    }
-
-    /// @notice ETH-venue = Euler (second WETH 4626 curator).
-    function supplyEuler(EthCfg memory c, uint amount) public returns (uint) {
-        return _supply4626(c, c.euler, amount);
-    }
-
-    /// @notice ETH-venue = Gauntlet (third WETH 4626 curator).
-    function supplyGauntlet(EthCfg memory c, uint amount) public returns (uint) {
-        return _supply4626(c, c.gauntlet, amount);
-    }
-
-    /// @notice Consolidated venue-supply body — the `transferFrom` + venue call for every ETH supply wrapper, so the
-    ///         Vault forwarders keep ONLY their `NotVogueCore`/`NotAux` gate (bytecode OUTSIDE the EIP-170-critical
-    ///         Vault). `kind`: 0=(removed, was Rover), 1=ether.fi adapter stake, 2=AAVE-v4, 3=Euler 4626, 4=Galaxy default
-    ///         (`supplyFromAux`), 5=Gauntlet 4626. `from` = the approver the WETH is pulled from (V4 for the venue wrappers, AUX for
-    ///         `supplyFromAux`). Each branch is byte-identical to the former in-Vault body (guard → pull → supply).
-    /// @dev `kind` IS NOW IGNORED — every venue routes to weETH (see below). Kept so the Vogue/Vault
-    ///      call sites and the venue-selection surface need not change in the same commit as the
-    ///      routing decision; remove it once the WETH venues are fully drained.
-    function supplyVenueBody(EthCfg memory c, uint8 kind, uint amount, address from) public returns (uint) {
-        kind;   // retained-but-ignored, see docblock
-        if (amount == 0) return 0;
-        // ALL ETH SUPPLY IS NOW weETH (owner decision 2026-08-06). Every `kind` routes to the
-        // ether.fi adapter; the WETH-holding venues (2 AAVE-v4, 3 Euler, 4 Galaxy, 5 Gauntlet) are no
-        // longer supplied to.
-        //
-        // WHY: holding weETH earns the ether.fi ratchet, MEASURED at +0.674 bps/day = 2.46%/yr
-        // (`analysis/rover/decompose.py`). That is the hurdle any WETH-holding venue must clear just
-        // to break even, before conversion friction each way. AAVE v4 measured 2026-08-06 on live
-        // mainnet: WETH 21,103 supplied / 400 borrowed = 1.90% utilisation ⇒ supply APY in SINGLE
-        // BASIS POINTS; weETH 714 supplied / ZERO borrowed = 0.00% ⇒ exactly zero yield whatever the
-        // rate curve says. Supplying WETH there is a strict loss of ~2.46 points, and the only thing
-        // it buys is borrow capacity against the collateral — which is encumbrance (the offramp
-        // design), not yield.
-        //
-        // ⚠️ SUPPLY ONLY. The withdraw ladder below is DELIBERATELY UNTOUCHED so existing positions in
-        // those venues stay pullable. Do not remove the withdraw rungs until the balances are drained.
-        if (ETHERFI_ADAPTER_VL == address(0)) return 0;
-        IERC20(c.weth).transferFrom(from, address(this), amount);
-        IDepositAdapter(ETHERFI_ADAPTER_VL).depositWETHForWeETH(amount, address(this));
-        return amount;
-    }
-
-    // ── Withdraw ladder ─────────────────────────────────────────────────────
-
     /// @notice The ONE `withdrawable` definition for a WETH 4626 venue — what it can actually pay us.
     ///
     ///         MORPHO-V2 (2026-07-26, PROBED against the real Galaxy vault). A V2 vault parks its assets
@@ -330,39 +185,112 @@ library VaultLib {
         }
     }
 
-    function _pull4626(EthCfg memory c, address vault, uint amount) internal {
-        if (vault == address(0)) return;
-        uint bal = IERC20(c.weth).balanceOf(address(this));
-        if (bal >= amount) return;
-        uint need = amount - bal;
-        uint maxOut = _withdrawableOf(vault, address(this));
-        uint pull = need > maxOut ? maxOut : need;
-        if (pull > 0) {
-            // OPTIMISTIC-THEN-FALL-BACK. For a Morpho-V2 venue `pull` is the REPORTED position, which
-            // the vault satisfies by self-deallocating — but unlike the old `maxWithdraw` clamp it is
-            // no longer a figure the venue has itself promised, so a stressed V2 market can legitimately
-            // fail to fill it. Retry at the venue's own conservative number instead of reverting the
-            // LP's entire withdraw; the unfilled remainder stays a recoverable deferral and the ladder
-            // moves to the next source. A venue that fails BOTH is genuinely broken, and that revert is
-            // a real fault worth surfacing (a silent short `sent` would be SILENT LP value loss — see
-            // withdrawETH's `sent = wethBal >= amount ? amount : wethBal`).
-            try IERC4626(vault).withdraw(pull, address(this), address(this)) {}
-            catch {
-                uint conservative;
-                try IERC4626(vault).maxWithdraw(address(this)) returns (uint m) { conservative = m; } catch {}
-                if (conservative > need) conservative = need;
-                // MUST NOT swallow a zero fallback. On a Morpho-V2 venue `maxWithdraw` is ALWAYS 0, so
-                // `conservative == 0` is the GUARANTEED case there, not an edge one — and simply
-                // skipping would hand the LP a short delivery reported as success (`withdrawETH`'s
-                // `sent = wethBal >= amount ? amount : wethBal`). That is precisely the SILENT LP VALUE
-                // LOSS this function's own comment forbids, on 2 of our 3 ETH venues. If the venue
-                // cannot fill the optimistic amount AND admits no smaller number, it is genuinely
-                // faulted: surface it rather than paying the LP short and calling it done.
-                require(conservative > 0, "ethv:venuePullFailed");
-                IERC4626(vault).withdraw(conservative, address(this), address(this));
+    /// @dev BOUNDED BY WHAT CURVE CAN PAY, and this is NOT a clamp -- it is what the word DELIVERABLE
+    ///      means here. `deliverableETH` is INSTANT deliverability, and weETH's instant deliverability
+    ///      genuinely is bounded by the pool: the wait-NFT makes it EVENTUALLY deliverable at fair value,
+    ///      which is a different quantity. Conflating the two is what made an earlier attempt argue this
+    ///      bound away as unnecessary.
+    ///      ⚠️ MEASURED BOTH WAYS. Removing it does not merely under-report: the `amount > 0` fallback in
+    ///      `Vogue`'s exit then OVER-delivers against backing the offramp cannot source, so nothing
+    ///      defers and both test_RunSim_B_LiquidityRace_* fail "deferral recovers: 0 <= 0" -- there is
+    ///      no deferral left to recover. It replaces the three per-venue `_deliverableCap` bounds that
+    ///      went with the ETH venues, and serves the same purpose: virtual burn == real delivery.
+    ///      (Superseded framing, 2026-08-13.) The three `_deliverableCap` venue bounds
+    ///      removed with the ETH venues existed because a 4626 curator could hold value that was
+    ///      genuinely UNREACHABLE — `maxWithdraw` short of the position with no other exit. weETH has no
+    ///      such state: if Curve cannot absorb it the wait-NFT redeems it at fair value from ether.fi, so
+    ///      the value is SLOWER, never stuck. A cap here would model an unreachable state that cannot
+    ///      occur, and would understate backing on every read.
+    function deliverableETH(EthCfg memory c) public view returns (uint total) {
+        total = _vogueETH(c);
+        // WEETH IS ONLY DELIVERABLE TO THE EXTENT CURVE CAN PAY FOR IT.
+        // RE-DERIVED 2026-08-13, replacing the three `_deliverableCap` venue caps removed with the ETH
+        // venues. Those caps were what made an undeliverable slice DEFER; deleting them without a
+        // replacement left `_vogueETH` counting weETH at full oracle value while the exit can realise at
+        // most the pool's WETH, so delivery was overstated and the deferral machinery never engaged.
+        // (Measured: that regression broke test_SETTLE_LvrResidualIsDeferralNotLeak,
+        // test_RunSim_B_LiquidityRace_* and testRT_DeliveredPlusRetainedEqualsPrincipal, all of which
+        // pass on stock main — a control run, not an inference.)
+        // Bound only the weETH-sourced portion: idle WETH, AAVE and eETH are already deliverable as-is.
+        if (c.curvePool != address(0) && c.weeth != address(0)) {
+            uint w = IERC20(c.weeth).balanceOf(address(this));
+            if (w > 0) {
+                uint weethEth = IWeETH(c.weeth).getEETHByWeETH(w);
+                uint payable_ = (ICurvePool(c.curvePool).balances(0) * 9) / 10;   // same headroom as offrampBody
+                if (weethEth > payable_) total -= (weethEth - payable_);          // the surplus DEFERS
             }
         }
+        // The leverage net-equity is solvency backing (now counted in vogueETH as net) but NOT deliverable
+        // from this Vault (unwind-only via closeLev -- the LP gets it back by repaying debt + withdrawing coll,
+        // not from redemption). Exclude the same net-equity term vogueETH added, so deliverableETH == base
+        // (non-levered venue ETH), byte-identical to the prior gross-in/gross-out result. Redemptions never draw it.
+        if (c.levManager != address(0)) {
+            try ILevEquity(c.levManager).totalNetEquityEth() returns (uint n) {
+                total = total > n ? total - n : 0;
+            } catch {}
+        }
     }
+
+    // ── Supply ────────────────────────────────────────────────────────────
+
+
+    /// @notice WETH supply — into weETH. Only WETH is accepted.
+    /// @dev  REPOINTED FROM GALAXY 2026-08-13. This is the destination for WETH swept by SwapLib
+    ///       (`:179`, `:190`, `:234` via `Aux.supplySelf`), which is a LIVE path — it is NOT part of the
+    ///       depositor-venue surface that was deleted, and must not be removed with it. With the
+    ///       WETH-4626 curators gone it had no destination left, so it routes where every other ETH
+    ///       supply now routes: the ether.fi adapter.
+    function supplyETH(EthCfg memory c, address token, uint amount) public returns (uint) {
+        require(token == c.weth, "ethv:notWeth");
+        // HOLD IT AS WETH. This is the sink for WETH swept by SwapLib (`:179`, `:190`, `:234` via
+        // `Aux.supplySelf`) -- transient balances on swap/sweep paths, NOT depositor capital.
+        // It previously went to Galaxy; repointing it to the ether.fi adapter (2026-08-13) was WRONG and
+        // measured so: eagerly converting starves every path that sweeps WETH and then spends it
+        // (`testReal_Liquity_*` revert "transfer amount exceeds balance"), and makes a deferred exit
+        // unrecoverable because the retry has no WETH to deliver.
+        // Idle WETH is already counted as backing by `_vogueETH` and is DIRECTLY deliverable -- no
+        // conversion, no spread, no pool capacity. Buying the ratchet on a transient balance costs two
+        // spreads to earn a few hours of yield. So: no destination at all.
+        return amount;
+    }
+
+
+
+    /// @notice Consolidated venue-supply body — the `transferFrom` + venue call for every ETH supply wrapper, so the
+    ///         Vault forwarders keep ONLY their `NotVogueCore`/`NotAux` gate (bytecode OUTSIDE the EIP-170-critical
+    ///         Vault). `kind`: 0=(removed, was Rover), 1=ether.fi adapter stake, 2=AAVE-v4, 3=Euler 4626, 4=Galaxy default
+    ///         (`supplyFromAux`), 5=Gauntlet 4626. `from` = the approver the WETH is pulled from (V4 for the venue wrappers, AUX for
+    ///         `supplyFromAux`). Each branch is byte-identical to the former in-Vault body (guard → pull → supply).
+    /// @dev `kind` IS NOW IGNORED — every venue routes to weETH (see below). Kept so the Vogue/Vault
+    ///      call sites and the venue-selection surface need not change in the same commit as the
+    ///      routing decision; remove it once the WETH venues are fully drained.
+    function supplyVenueBody(EthCfg memory c, uint8 kind, uint amount, address from) public returns (uint) {
+        kind;   // retained-but-ignored, see docblock
+        if (amount == 0) return 0;
+        // ALL ETH SUPPLY IS NOW weETH (owner decision 2026-08-06). Every `kind` routes to the
+        // ether.fi adapter; the WETH-holding venues (2 AAVE-v4, 3 Euler, 4 Galaxy, 5 Gauntlet) are no
+        // longer supplied to.
+        //
+        // WHY: holding weETH earns the ether.fi ratchet, MEASURED at +0.674 bps/day = 2.46%/yr
+        // (`analysis/rover/decompose.py`). That is the hurdle any WETH-holding venue must clear just
+        // to break even, before conversion friction each way. AAVE v4 measured 2026-08-06 on live
+        // mainnet: WETH 21,103 supplied / 400 borrowed = 1.90% utilisation ⇒ supply APY in SINGLE
+        // BASIS POINTS; weETH 714 supplied / ZERO borrowed = 0.00% ⇒ exactly zero yield whatever the
+        // rate curve says. Supplying WETH there is a strict loss of ~2.46 points, and the only thing
+        // it buys is borrow capacity against the collateral — which is encumbrance (the offramp
+        // design), not yield.
+        //
+        // ⚠️ SUPPLY ONLY. The withdraw ladder below is DELIBERATELY UNTOUCHED so existing positions in
+        // those venues stay pullable. Do not remove the withdraw rungs until the balances are drained.
+        if (ETHERFI_ADAPTER_VL == address(0)) return 0;
+        IERC20(c.weth).transferFrom(from, address(this), amount);
+        IDepositAdapter(ETHERFI_ADAPTER_VL).depositWETHForWeETH(amount, address(this));
+        return amount;
+    }
+
+    // ── Withdraw ladder ─────────────────────────────────────────────────────
+
+
 
     /// @notice Body of Vault._withdrawETH — idle-then-ether.fi(opportunistic)-then
     ///         -Galaxy/Euler-then-AAVE-then-Rover ladder. Only WETH is served.
@@ -384,9 +312,6 @@ library VaultLib {
                 wethBal = IERC20(c.weth).balanceOf(address(this));
         }
         if (wethBal < amount) {
-            // Galaxy + Euler are fungible; pull from each at its maxWithdraw.
-            address[3] memory venues = _venues(c);
-            for (uint i; i < 3; ++i) _pull4626(c, venues[i], amount);
             wethBal = IERC20(c.weth).balanceOf(address(this));
             // Still short → pull from the AAVE-v4 WETH venue (ETH venue 2).
             if (wethBal < amount && c.aaveSpoke != address(0)) {   // reserve 0 is valid
@@ -410,29 +335,6 @@ library VaultLib {
 
     // ── Vault-health evacuate ────────────────────────────────────────────────
 
-    /// @notice Body of Vault.evacuateVenue — ETH-VENUE incident drain for a WETH
-    ///         4626 curator (Galaxy or Euler): pull the WITHDRAWABLE WETH to the
-    ///         AAVE haven (or hold at the Vault if AAVE-WETH is unwired).
-    function evacuate(EthCfg memory c, address vault) public {
-        // Membership over the ONE curator set (see `_venues`). The old hand-rolled disjunction had to
-        // special-case `vault != address(0)` per slot to stop an UNWIRED (zero) venue matching a zero
-        // `vault` argument; hoisting that single check covers all slots at once.
-        require(vault != address(0), "ethv:notVenue");
-        address[3] memory venues = _venues(c);
-        require(vault == venues[0] || vault == venues[1] || vault == venues[2], "ethv:notVenue");
-        // Same ONE definition as the ladder (see `_withdrawableOf`), which for a Morpho-V2 venue is the
-        // full reported position rather than its idle-only `maxWithdraw`. That matters most here:
-        // Galaxy and Gauntlet both sit at 0 idle by policy, so the old bare `maxWithdraw` read returned
-        // early and made this emergency rescue a NO-OP on 2 of our 3 ETH venues. Guarded, so a failing
-        // venue's own reverting view is not what prevents its rescue.
-        uint maxW = _withdrawableOf(vault, address(this));
-        if (maxW == 0) return; // genuinely frozen → blocked; vogueETH writes it down
-        try IERC4626(vault).withdraw(maxW, address(this), address(this))
-            returns (uint got) {
-            if (got > 0 && c.aaveSpoke != address(0))   // reserve 0 is valid — see _aaveBal
-                IAaveV4Spoke(c.aaveSpoke).supply(c.wethReserveId, got, address(this));
-        } catch { /* froze mid-pull: blocked + written down */ }
-    }
 
 
     // ── ether.fi OFFRAMP (moved from SwapLib, §E57) ──────────────────────────────────────────
@@ -454,6 +356,25 @@ library VaultLib {
         uint weethIn = weethFull;
         uint bal = IERC20(c.weeth).balanceOf(address(this));
         if (weethIn > bal) weethIn = bal;
+        // CAPACITY — shrink to what the pool can actually pay. This MUST happen before `covered` is
+        // derived: `covered` is returned as the amount SERVED, and `Vogue` burns it and decrements
+        // `LP.pooled` by it. Shrinking inside `curveSellWeeth` instead would leave `covered` reflecting
+        // the pre-shrink size, so the offramp would report serving more than it sold — a silent
+        // over-credit on the exit path. Same arithmetic, wrong place, money-path defect.
+        // MEASURED 2026-08-09: fills track ~1.4 + 55·(dx/D)² bps up to ~1,000 weETH (−1.39 at 1, −1.51 at
+        // 100, −3.47 at 1,000) and then break by 70× — −722.80 at 2,000. That cliff is NOT slippage but
+        // EXHAUSTION: 2,000 weETH asks ~2,202 WETH out of a pool holding 2,047. No floor value survives
+        // it, because the pool cannot pay; only sizing does.
+        // NEVER GATE — shrink. The unserved remainder falls to the wait-NFT rung on its own, so a partial
+        // fill still serves most of a large exit instead of deferring all of it for ~7 days.
+        if (c.curvePool != address(0) && weethIn > 0) {
+            uint wantOut = (weethFull == 0 || weethIn == weethFull)
+                ? amount : FullMath.mulDiv(amount, weethIn, weethFull);
+            // 90% of the pool's WETH: slippage steepens toward the edge, so leave headroom rather than
+            // sizing to the exact boundary the quadratic stops describing.
+            uint cap = (ICurvePool(c.curvePool).balances(0) * 9) / 10;
+            if (wantOut > cap) weethIn = FullMath.mulDiv(weethIn, cap, wantOut);
+        }
         uint covered = (weethFull == 0 || weethIn == weethFull)
             ? amount : FullMath.mulDiv(amount, weethIn, weethFull);
         // RUNG 1 — CURVE `weETH/WETH-ng` (only if this contract holds weETH). Replaced a two-tier
@@ -462,16 +383,17 @@ library VaultLib {
         // better at every realistic size, so there is no tier to choose between and no ordering to get
         // wrong. Both venues cliff near 2,000 weETH, where Curve's 2,047 WETH runs out — and THAT is the
         // only case rung 2 now exists for.
-        // THE 0.5%-OF-FAIR FLOOR IS SETTLED, NOT INHERITED — do not re-tune it by feel.
-        // It EARNS its place (standing rule 3's inverse): without it a drained pool fills SILENTLY at
-        // −723 bps, which is plausible-looking output, not a revert. And 50 bps is where the MEASURED
-        // curve puts it: worst NORMAL execution is −3.47 bps (1,000 weETH), the cliff is −722.80 (2,000,
-        // where the pool's 2,047 WETH runs out). 50 bps sits ~14x above the worst normal fill and ~14x
-        // below the cliff — near-centred in LOG space, so it can neither false-reject ordinary flow nor
-        // pass a drained pool. Tightening toward ~10 bps only buys false rejections (which degrade to the
-        // wait-NFT rung); loosening past ~100 bps starts admitting the cliff.
+        // THE FLOOR GUARDS **MEV**, NOT CAPACITY — those were one number until 2026-08-09 and are now two.
+        // 50 bps had to straddle "normal" and "drained" because a single constant did both jobs; with the
+        // shrink above handling capacity, the floor only has to sit above HONEST execution.
+        // 25 bps = worst measured slippage (3.5 bps) + room for the pool-vs-ether.fi-rate offset, which
+        // widens at up to 0.674 bps/day (the ratchet) when the pool is unarbed — roughly a month's drift.
+        // ⚠️ THAT SECOND TERM IS WHY IT IS NOT 15: sizing against slippage alone ignores a divergence that
+        // grows with TIME rather than trade size, and a false reject costs the LP a ~7-day wait-NFT.
+        // Anchored to `covered`, i.e. the ether.fi rate — NOT to any pool-derived quote, which a
+        // front-runner moves along with the fill it is supposed to police.
         if (weethIn > 0) {
-            uint got = SwapLib.curveSellWeeth(c, weethIn, (covered * 995) / 1000);
+            uint got = SwapLib.curveSellWeeth(c, weethIn, (covered * 9975) / 10_000);
             if (got > 0) {
                 IERC20(c.weth).transfer(recipient, got);   // Curve pays msg.sender; deliver onward
                 return covered;

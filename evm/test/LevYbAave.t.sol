@@ -31,7 +31,7 @@ contract LevYbAaveProbe is LevYbRealProbe {
 
     function _openAaveLp() internal {
         vm.deal(LP, 6 ether);
-        vm.prank(LP); V4.deposit{value: 5 ether}(0, LP, 3);   // 5 ETH plain band equity (all-Galaxy venue)
+        vm.prank(LP); V4.deposit{value: 5 ether}(0, LP);   // 5 ETH plain band equity (all-Galaxy venue)
         deal(address(WETH), LP, 5 ether);                       // 5 WETH lev equity
         uint[] memory mins = new uint[](8);
         vm.startPrank(LP);
