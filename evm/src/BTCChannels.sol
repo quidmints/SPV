@@ -1605,6 +1605,41 @@ contract BTCChannels is Ownable, ReentrancyGuard {
             BTC_DEPOSIT_KEY, proof.userRefund, proof.cltvHeight, rawDepositTx);
     }
 
+    /// @notice (T1) REVERSE a failed on-chain swap-out — refund the swapper's own USD.
+    ///
+    /// 🔑 EXTRACTED FROM `settleSwapIn` SO THAT ENTRYPOINT CAN BE DELETED. `settleSwapIn` had
+    ///    TWO jobs: crediting a swap-in on the hop's WORD (`#1`, the phantom — now provable via
+    ///    `settleSwapInSpliced`), and this reversal. **They are not the same kind of thing.** A
+    ///    swap-in credit asserts BTC arrived and must be PROVEN; a reversal returns dollars the
+    ///    swapper ALREADY PAID IN, so nothing arrives and there is nothing to prove. Deleting
+    ///    the unproven credit must not take the reversal with it.
+    ///
+    /// ⚠️ THE PAYEE AND AMOUNT ARE PINNED TO RECORDED STATE, never hop-supplied: `so.swapper`
+    ///    and `so.sats` come from `pendingOnchainSwapOut[swapId]`, so a malicious hop can
+    ///    neither redirect the refund nor short it. That property is why this needs no proof.
+    ///
+    /// ⚠️ ORDER IS LOAD-BEARING: the obligation is cleared and `pendingSwapOutUsd` reduced
+    ///    BEFORE the credit, so the solvency gate sees the freed reserve and a reversal is never
+    ///    blocked by its own obligation. CEI — state deleted before the external call.
+    function reverseSwapOut(bytes32 swapId, address token, uint minDeliveredUsd, bool requireFull)
+        external nonReentrant returns (uint consumed)
+    {
+        _onlyHop();
+        if (swapId == bytes32(0) || swapInUsed[swapId]) revert SwapInReplay();
+        PendingOnchainSwapOut memory so = pendingOnchainSwapOut[swapId];
+        if (so.sats == 0) revert NotAReversal();
+        swapInUsed[swapId] = true;
+        delete pendingOnchainSwapOut[swapId];
+        btcVault.subPendingSwapOut(so.usd);
+        consumed = btcVault.creditSwapIn(so.swapper, so.sats, token, minDeliveredUsd);
+        // All-or-nothing: a partial refund strands the remainder, because the swapper has no
+        // deposit or HTLC to reclaim it from on this path.
+        if (requireFull && consumed < so.sats) revert SwapInPartialRejected();
+        emit SwapInSettled(so.swapper, swapId, so.sats, consumed, token);
+    }
+
+    error NotAReversal();   // no pending swap-out for this id — nothing to refund
+
     function settleSwapIn(address seller, uint sats, address token,
         bytes32 paymentHash, uint minDeliveredUsd, bool requireFull) external nonReentrant {
         _onlyHop();
