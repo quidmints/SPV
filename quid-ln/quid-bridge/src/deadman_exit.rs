@@ -2,12 +2,22 @@
 //! channel's CLTV-timelocked unilateral-exit tx (`BTCChannels.emitDeadManExit`).
 //!
 //! This is the daemon plumbing around the audited crypto in
-//! [`quid_ln::deadman_exit`]: it NEVER touches key material. Per open vault-owned
-//! channel, each heartbeat tick it
-//! 1. re-derives BOTH funding-half signers (the hop node's + the vault node's,
-//!    same process = "the fleet holds both halves") off their OWN `keys_manager`s
-//!    and arms each with the channel's taproot context (counterparty funding pubkey
-//!    + funding value) — the funding secret key never leaves either signer;
+//! [`quid_ln::deadman_exit`]: it NEVER touches key material.
+//!
+//! ⚠️ **THIS HEADER USED TO SAY "same process = the fleet holds both halves" FLATLY, AND
+//! THAT IS NO LONGER TRUE — it describes only the FLEET-HOSTED vault deployment.** Since
+//! §E175 the vault is an `Option` and its absence is the security split (see
+//! [`run_deadman_exit_heartbeat`]): in the **LP-hosted** deployment the vault node runs on the
+//! LP's own always-on box with the LP's own seed, this process has no vault node to pass, and
+//! **the heartbeat does not run at all** — exits come from the §E165 ladder the LP pre-signed
+//! at open. A stale comment is false evidence; this one was quoted into another repo's spec
+//! before it was caught.
+//!
+//! Per open vault-owned channel, each heartbeat tick it
+//! 1. re-derives BOTH funding-half signers (the hop node's + the vault node's) off their OWN
+//!    `keys_manager`s — which is only reachable when a vault node IS in this process, i.e. the
+//!    fleet-hosted deployment — and arms each with the channel's taproot context (counterparty
+//!    funding pubkey + funding value); the funding secret key never leaves either signer;
 //! 2. reads the on-chain `channels()` record (funded `amountSats` = the LP's
 //!    custody balance) + the LP's committed `btcRecipientOf` payout key;
 //! 3. calls [`quid_ln::deadman_exit::presign_deadman_exit`] to produce the FULLY-
