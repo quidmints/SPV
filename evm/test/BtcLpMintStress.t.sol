@@ -177,7 +177,7 @@ contract BtcLpMintStress is Alles {
                 break;
             }
             // The swapper's recorded USD for THIS obligation = the proceeds minted on deliver.
-            uint owedUsd; { (,,, uint96 u,) = ch.pendingOnchainSwapOut(s.swapId); owedUsd = uint(u); }
+            uint owedUsd; { (,,,, uint96 u,) = ch.pendingOnchainSwapOut(s.swapId); owedUsd = uint(u); }
             bytes32 newTxId = _deliverOnchain(ch, s);
             _liveFundingTxId[channelId] = newTxId;
             proceedsUsd += owedUsd;
@@ -669,7 +669,7 @@ contract BtcLpMintStress is Alles {
         assertLt(s.sats, 2_000_000, "swap-out fits within the channel");
         uint owedUsd;
         {
-            (address sw, uint96 soSats, bytes32 sh, uint96 u,) = ch.pendingOnchainSwapOut(s.swapId);
+            (address sw, uint64 soSats,, bytes32 sh, uint96 u,) = ch.pendingOnchainSwapOut(s.swapId);
             assertEq(sw, User03, "pending records the swapper");
             assertEq(uint(soSats), s.sats, "pending records the bought sats");
             assertEq(sh, keccak256(s.swapperScript), "pending records the script hash");
@@ -700,7 +700,7 @@ contract BtcLpMintStress is Alles {
         }
         assertEq(ch.totalSatsLocked(), locked0 - s.sats, "totalSatsLocked shrank by delivered");
         {
-            (address sw2, uint96 soSats2,,,) = ch.pendingOnchainSwapOut(s.swapId);
+            (address sw2, uint64 soSats2,,,,) = ch.pendingOnchainSwapOut(s.swapId);
             assertEq(sw2, address(0), "pending swap-out cleared on delivery");
             assertEq(uint(soSats2), 0, "pending sats zeroed");
         }

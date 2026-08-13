@@ -1922,7 +1922,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         assertLt(USDC.balanceOf(swapper), usdcBefore, "swapper's USDC was pulled");
         assertEq(QUID.balanceOf(swapper), qdBefore, "swap-OUT minted NO QUI to the swapper");
         // The obligation owed to whichever LP delivers is recorded in pendingSwapOutUsd.
-        uint owedUsd; { (,,, uint96 u,) = ch.pendingOnchainSwapOut(swapId); owedUsd = uint(u); }
+        uint owedUsd; { (,,,, uint96 u,) = ch.pendingOnchainSwapOut(swapId); owedUsd = uint(u); }
         assertGt(owedUsd, 0, "pending obligation recorded the swapper's USD");
         assertEq(CORE.pendingSwapOutUsd(), pendingBefore + owedUsd,
             "pendingSwapOutUsd rose by exactly the swapper's USD");
@@ -1950,7 +1950,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
             "reversal returned a basket stable to the swapper");
         assertEq(CORE.pendingSwapOutUsd(), pendingAfterReq - owedUsd,
             "reversal unwound the pending obligation (matched -= for the request +=)");
-        { (address sw,,,,) = ch.pendingOnchainSwapOut(swapId);
+        { (address sw,,,,,) = ch.pendingOnchainSwapOut(swapId);
           assertEq(sw, address(0), "pending swap-out cleared on reversal"); }
     }
 
@@ -1986,7 +1986,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         vm.prank(swapper);
         uint sats = ch.requestSwapOutOnchain(address(USDC), 500 * USDC_PRECISION, 0, swapId);
         assertGt(sats, 0, "curve bought BTC for the swapper");
-        uint owedUsd; { (,,, uint96 u,) = ch.pendingOnchainSwapOut(swapId); owedUsd = uint(u); }
+        uint owedUsd; { (,,,, uint96 u,) = ch.pendingOnchainSwapOut(swapId); owedUsd = uint(u); }
         uint pendingAfterReq = CORE.pendingSwapOutUsd();
 
         // GUARD 1: cannot self-refund before the timeout.
@@ -2008,7 +2008,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         ch.refundExpiredSwapOut(swapId, address(USDC), 0);
         assertGt(USDC.balanceOf(swapper), usdcBefore, "swapper recovered principal with NO hop");
         assertEq(CORE.pendingSwapOutUsd(), pendingAfterReq - owedUsd, "pending obligation unwound");
-        { (address sw,,,,) = ch.pendingOnchainSwapOut(swapId);
+        { (address sw,,,,,) = ch.pendingOnchainSwapOut(swapId);
           assertEq(sw, address(0), "pending cleared after self-refund"); }
 
         // GUARD 3: double-refund reverts (the obligation is consumed).

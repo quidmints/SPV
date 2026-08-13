@@ -306,21 +306,20 @@ pub async fn drive_swap_out_onchain<R: JsonRpc + Send + Sync + 'static>(
 /// swapper's OWN `requestSwapOutOnchain` wrote — so a compromised hop can at worst reverse a
 /// swap-out that really is pending, to the address that really requested it.
 ///
-/// ⚠️ NARROWED, NOT SEALED: `token` is still ours to assert, because
-/// `PendingOnchainSwapOut` does not store one. Pinning it is §T1-d — free only if the struct
-/// is repacked (`sats` to `uint64`), not free as-is. Until then this is the same class as T2,
-/// not a hole T1-b introduced.
+/// ✅ SEALED as of §T1-d: `token` is no longer ours to assert either. The record was repacked
+/// (`sats` to `uint64`, freeing slot space) so it now stores the token the swapper's OWN request
+/// named, and the parameter is gone. Payee, amount and asset all come from the chain.
 async fn reverse_swap_out_onchain<R: JsonRpc + Send + Sync + 'static>(
     evm: &Arc<JsonRpcEvmClient<R, LocalSigner>>,
     req: &OnchainSwapOutRequest,
 ) -> anyhow::Result<()> {
-    let (token, swap_id) = (req.token, req.swap_id);
+    let swap_id = req.swap_id;
     let evm = evm.clone();
     // A reversal returns the swapper's OWN committed USD (the freed swap-out reserve), so it
     // must be all-or-nothing: require_full = true → a can't-fully-return reverts to
     // Undeliverable and is retried, never a partial return.
     let outcome = tokio::task::spawn_blocking(move || {
-        evm.reverse_swap_out(B256::from(swap_id), token, U256::ZERO, true)
+        evm.reverse_swap_out(B256::from(swap_id), U256::ZERO, true)
     })
     .await
     .context("reverse_swap_out join")??;

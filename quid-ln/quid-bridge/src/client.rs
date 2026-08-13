@@ -594,12 +594,11 @@ impl<R: JsonRpc, S: TxSigner> JsonRpcEvmClient<R, S> {
     pub fn reverse_swap_out(
         &self,
         swap_id: B256,
-        token: Address,
         min_delivered_usd: U256,
         require_full: bool,
     ) -> anyhow::Result<SettleOutcome> {
         let data =
-            quid_hop::swap::reverse_swap_out_calldata(swap_id.0, token, min_delivered_usd, require_full);
+            quid_hop::swap::reverse_swap_out_calldata(swap_id.0, min_delivered_usd, require_full);
         let depth = self.cfg.settle_min_confirmations;
         let mined = self.submit(self.cfg.btc_channels, &data, self.cfg.gas_limit)?;
         debug!(success = mined.success, block = mined.block, "reversal mined");

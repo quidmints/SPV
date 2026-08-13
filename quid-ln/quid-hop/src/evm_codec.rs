@@ -101,12 +101,12 @@ pub const SIG_REQUEST_SWAP_OUT_ONCHAIN: &str =
 /// per-swap uniqueness lives in the leaf.
 pub const SIG_SETTLE_SWAP_IN_PROVEN: &str =
     "settleSwapInProven(address,address,uint256,(bytes32,uint32,bytes32,uint256,bytes32[]),bytes)";
-/// (T1-b) Reverse an undeliverable on-chain swap-out. Note what is NOT a parameter: the
-/// payee and the sats. Both are read on-chain from `pendingOnchainSwapOut[swapId]`, which
-/// only `requestSwapOutOnchain` writes — so unlike `settleSwapIn`, a compromised hop cannot
-/// redirect a refund or inflate it. That is the whole reason this is a separate entrypoint
-/// rather than a flag on the credit path.
-pub const SIG_REVERSE_SWAP_OUT: &str = "reverseSwapOut(bytes32,address,uint256,bool)";
+/// (T1-b, tightened by §T1-d) Reverse an undeliverable on-chain swap-out. Note what is NOT a
+/// parameter: the payee, the sats, **and now the token**. All three are read on-chain from
+/// `pendingOnchainSwapOut[swapId]`, which only `requestSwapOutOnchain` writes — so unlike
+/// `settleSwapIn`, a compromised hop cannot redirect a refund, inflate it, or re-denominate it.
+/// That is the whole reason this is a separate entrypoint rather than a flag on the credit path.
+pub const SIG_REVERSE_SWAP_OUT: &str = "reverseSwapOut(bytes32,uint256,bool)";
 
 /// (E178) Every signature the hop's hot key may legitimately be asked to sign on
 /// `BTCChannels`. The EVM tx policy derives its selector set from THIS — it does not keep

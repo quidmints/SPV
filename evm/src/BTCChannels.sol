@@ -338,7 +338,21 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     // `usd` (6-dec) = the swapper's recorded payment — paid EXACTLY to the
     // delivering LP at deliverSwapOutOnchain, or cleared from pendingSwapOutUsd on
     // reversal (settleSwapIn). swapper/sats pack into slot 1; scriptHash slot 2; usd slot 3.
-    struct PendingOnchainSwapOut { address swapper; uint96 sats; bytes32 swapperScriptHash; uint96 usd; uint32 requestBlock; }
+    /// (§T1-d / M1#3) PACKED SO THE TOKEN FITS WITHOUT A FOURTH SLOT.
+    /// slot0 = swapper(20) + sats(8) + requestBlock(4) = 32 · slot1 = hash · slot2 = usd(12) + token(20)
+    ///
+    /// `sats` is `uint64`, not `uint96`: 2^64 sats is ~184 billion BTC against a 21-million-BTC
+    /// supply, so the narrowing loses no reachable value and frees the 4 bytes `requestBlock`
+    /// needs in slot 0 — which is what lets `token` occupy slot 2 alongside `usd`.
+    ///
+    /// 🔑 WHY `token` IS HERE AT ALL: a reversal used to take the token as a PARAMETER, i.e. the
+    /// hop chose which asset the swapper was refunded in. It is now read from what the swapper's
+    /// OWN `requestSwapOutOnchain` recorded, so the hop can neither redirect a refund, resize it,
+    /// nor re-denominate it. That closes the token half of T2 on this path (M1#3).
+    struct PendingOnchainSwapOut {
+        address swapper; uint64 sats; uint32 requestBlock; bytes32 swapperScriptHash;
+        uint96 usd; address token;
+    }
     mapping(bytes32 => PendingOnchainSwapOut) public pendingOnchainSwapOut;
 
     event BtcRecipientRegistered(address indexed owner, bytes32 pubkeyHash);
@@ -1640,7 +1654,10 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     /// ⚠️ ORDER IS LOAD-BEARING: the obligation is cleared and `pendingSwapOutUsd` reduced
     ///    BEFORE the credit, so the solvency gate sees the freed reserve and a reversal is never
     ///    blocked by its own obligation. CEI — state deleted before the external call.
-    function reverseSwapOut(bytes32 swapId, address token, uint minDeliveredUsd, bool requireFull)
+    /// (§T1-d / M1#3) NO `token` PARAMETER: payee, amount AND asset now all come from the record
+    /// the swapper's own request wrote. A reversal is the one credit path where the contract can
+    /// know all three without trusting anyone, so it does.
+    function reverseSwapOut(bytes32 swapId, uint minDeliveredUsd, bool requireFull)
         external nonReentrant returns (uint consumed)
     {
         _onlyHop();
@@ -1650,11 +1667,11 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         swapInUsed[swapId] = true;
         delete pendingOnchainSwapOut[swapId];
         btcVault.subPendingSwapOut(so.usd);
-        consumed = btcVault.creditSwapIn(so.swapper, so.sats, token, minDeliveredUsd);
+        consumed = btcVault.creditSwapIn(so.swapper, so.sats, so.token, minDeliveredUsd);
         // All-or-nothing: a partial refund strands the remainder, because the swapper has no
         // deposit or HTLC to reclaim it from on this path.
         if (requireFull && consumed < so.sats) revert SwapInPartialRejected();
-        emit SwapInSettled(so.swapper, swapId, so.sats, consumed, token);
+        emit SwapInSettled(so.swapper, swapId, so.sats, consumed, so.token);
     }
 
     error NotAReversal();   // no pending swap-out for this id — nothing to refund
@@ -1793,10 +1810,11 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         if (sats > type(uint96).max || usd6 > type(uint96).max) revert InvalidParam();
         pendingOnchainSwapOut[swapId] = PendingOnchainSwapOut({
             swapper:           msg.sender,
-            sats:              uint96(sats),
+            sats:              uint64(sats),
+            requestBlock:      uint32(block.number),  // starts the self-refund timeout
             swapperScriptHash: keccak256(swapperScript),
             usd:               uint96(usd6),
-            requestBlock:      uint32(block.number)   // starts the self-refund timeout
+            token:             token                  // (T1-d) the swapper's OWN choice, pinned
         });
         // pendingSwapOutUsd += usd6 (proceeds owed to the LP that delivers). creditSwapOut
         // grew POOLED_USD_BTC by the same usd6, so the swap-in FREE reserve
