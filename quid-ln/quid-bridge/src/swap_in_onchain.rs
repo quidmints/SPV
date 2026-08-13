@@ -57,8 +57,19 @@ pub const SWAP_IN_CLTV_WINDOW_BLOCKS: u32 = 288; // ~2 days at 10-min blocks (> 
 pub struct OnchainSwapIn {
     /// The swap nonce — also the `settleSwapIn` payment-hash / on-chain dedup key.
     pub swap_id: B256,
-    /// BIP32 child index of the per-swap deposit key (`m/70'/swap_index'`) — lets the
-    /// watcher re-derive the hop key for the key-path claim from the master alone.
+    /// Monotonic per-swap counter — the **nonce `swap_id` is built from**
+    /// (`keccak256("quid-swapin-onchain-v1" ‖ idx)`), persisted so `next_index_seed` can
+    /// resume at max+1 and a reboot never re-issues an id.
+    ///
+    /// ⚠️ **It is NOT a BIP32 child index, and this comment said it was.** It read *"BIP32
+    /// child index of the per-swap deposit key (`m/70'/swap_index'`) — lets the watcher
+    /// re-derive the hop key"*, which stopped being true when §E183 pinned the deposit key:
+    /// per-swap uniqueness moved into the LEAF, and nothing derives a key from this any more.
+    /// The stale text nearly cost the field its life — it reads as vestigial (written,
+    /// persisted, and only ever read to compute its own successor) until you follow `idx` into
+    /// `swap_in_api` and find it seeding the id. **Deleting it would have made `swap_id`
+    /// restart-unsafe**, which is the kind of break that shows up once, in production, after a
+    /// reboot.
     pub swap_index: u32,
     /// EVM recipient of the delivered USD (the seller).
     pub seller: Address,
