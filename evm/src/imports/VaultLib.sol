@@ -258,18 +258,18 @@ library VaultLib {
 
     /// @notice Consolidated venue-supply body — the `transferFrom` + venue call for every ETH supply wrapper, so the
     ///         Vault forwarders keep ONLY their `NotVogueCore`/`NotAux` gate (bytecode OUTSIDE the EIP-170-critical
-    ///         Vault). `kind`: 0=(removed, was Rover), 1=ether.fi adapter stake, 2=AAVE-v4, 3=Euler 4626, 4=Galaxy default
-    ///         (`supplyFromAux`), 5=Gauntlet 4626. `from` = the approver the WETH is pulled from (V4 for the venue wrappers, AUX for
-    ///         `supplyFromAux`). Each branch is byte-identical to the former in-Vault body (guard → pull → supply).
-    /// @dev `kind` IS NOW IGNORED — every venue routes to weETH (see below). Kept so the Vogue/Vault
-    ///      call sites and the venue-selection surface need not change in the same commit as the
-    ///      routing decision; remove it once the WETH venues are fully drained.
-    function supplyVenueBody(EthCfg memory c, uint8 kind, uint amount, address from) public returns (uint) {
-        kind;   // retained-but-ignored, see docblock
+    ///         Vault). `from` = the approver the WETH is pulled from (V4 for the venue wrappers, AUX for
+    ///         `supplyFromAux`).
+    /// @dev THE `kind` SELECTOR IS GONE (2026-08-13). It was already ignored — every value routed to the
+    ///      ether.fi adapter — and its own docblock said to remove it once the routing decision was
+    ///      final. It is: there are no WETH-holding venues left to select (Galaxy, Gauntlet, Aave v4 and
+    ///      Euler are all removed), so the parameter had nothing left to choose between. An ignored
+    ///      argument that two call sites still pass distinct values to (1 and 4) reads like a live
+    ///      choice at every call site and is not one.
+    function supplyVenueBody(EthCfg memory c, uint amount, address from) public returns (uint) {
         if (amount == 0) return 0;
-        // ALL ETH SUPPLY IS NOW weETH (owner decision 2026-08-06). Every `kind` routes to the
-        // ether.fi adapter; the WETH-holding venues (2 AAVE-v4, 3 Euler, 4 Galaxy, 5 Gauntlet) are no
-        // longer supplied to.
+        // ALL ETH SUPPLY IS weETH (owner decision 2026-08-06). The WETH-holding venues it used to
+        // choose between (AAVE-v4, Euler, Galaxy, Gauntlet) are gone.
         //
         // WHY: holding weETH earns the ether.fi ratchet, MEASURED at +0.674 bps/day = 2.46%/yr
         // (`analysis/rover/decompose.py`). That is the hurdle any WETH-holding venue must clear just

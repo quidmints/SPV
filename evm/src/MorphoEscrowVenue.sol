@@ -30,7 +30,8 @@ interface IMorpho {
 }
 
 /// @title  MorphoEscrowVenue — generic (escrow-equivalent) collateral / stable-debt `ILevVenue` on Morpho Blue (weETH on ETH, vBTC on BTC)
-/// @notice The Morpho sibling of `EulerEscrowVenue` (same `ILevVenue`, so `LevManager` is venue-agnostic).
+/// @notice The weETH lev venue. Since Euler v2 and Aave V4 borrowing were removed (2026-08-13) this is the
+///         ONLY ETH-side venue; it still implements `ILevVenue`, so `LevManager` stays venue-agnostic.
 ///         ISOLATION is Morpho-native: each LP's position lives under the **LP's own address**
 ///         (`onBehalf = lp`), so it's isolated by construction — one liquidation hits that LP's Morpho
 ///         account, never another LP and never the QU!D basket. The adapter acts as the LP's authorized
