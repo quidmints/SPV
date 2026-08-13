@@ -131,8 +131,26 @@ library BasketLib {
             uint reserved = tranche[stable];              // direct SLOAD (was IAux.tranche)
             if (reserved > 0) {
                 uint cap = Math.min(balance, reserved);
+                // §E190 — REMOVE THE SAME FRACTION FROM BOTH, NOT THE SAME NOMINAL AMOUNT.
+                // `yieldWeighted == balance × f` where f is the venue's (dimensionless) share
+                // price, so taking `cap` off each leaves `(b·f − cap)/(b − cap)`, which is NOT f:
+                // the seniority carve-out silently INFLATED the leg's apparent yield, in
+                // proportion to how much of it was reserved. MEASURED at the live Galaxy-USDC
+                // price f = 1.012631 on a 100k leg: a 50k tranche read 1.025262 (+1.2%), 80k read
+                // 1.063155 (+5.0%), 95k read 1.252620 (+23.7%) — nonlinear, and always upward.
+                //   `../quid` (legacy) got this right on its 4626 legs by removing SHARES
+                // (`shares -= convertToShares(reserved)`) and valuing the remainder, which
+                // preserves the ratio exactly; its AAVE legs carried the same nominal bug we did.
+                // We value off the CACHE here and have no share count, so scale instead — which is
+                // the same thing: removing `cap` of assets removes `cap × f` of yield-weighted
+                // value. `balance != 0` is guaranteed by the guard above, so the mulDiv is safe.
+                //   WHY IT BELONGS HERE AND NOT IN THE CLAIM: the tranche is a property of the
+                // CLAIM (senior, non-redeemable), not of the VENUE. A seed reserve does not change
+                // what a vault earns per share, so excluding it from the MEASUREMENT is what
+                // introduced the error. It stays excluded from redeemable backing, as before.
+                uint ywCap = FullMath.mulDiv(yieldWeighted, cap, balance);
                 balance -= cap;
-                yieldWeighted -= Math.min(yieldWeighted, cap);
+                yieldWeighted -= Math.min(yieldWeighted, ywCap);
             }
             // Depeg-yield discount: subtracts balance × severity/10000 from yieldWeighted.
             // Recognize the FULL live severity (no 3500/65c floor). liveDepegBps already
