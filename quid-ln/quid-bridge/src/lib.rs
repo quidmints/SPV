@@ -56,6 +56,9 @@ pub mod provision_api;
 pub mod relayer;
 pub mod signer;
 pub mod store;
+/// (§W1) The authorized trigger for a full wallet drain — the control that was missing,
+/// not the code. Mirrors the seed export's operator-Safe authorization.
+pub mod sweep;
 pub mod swap_in;
 pub mod swap_in_api;
 pub mod swap_in_onchain;

@@ -347,6 +347,164 @@ pub fn verify_migration_auth(
     Ok((bundle.auth.measurement, bundle.auth.nonce))
 }
 
+
+// ═══════════════════════════ SWEEP AUTHORIZATION (§W1) ═══════════════════════════
+//
+// `OnchainWallet::create_sweep_tx` drains the hop's entire on-chain balance to one
+// caller-supplied address. It existed for a long time with NO trigger, and its `dead_code`
+// warning was twice mistaken for litter and deleted. The reason it was never simply wired to an
+// endpoint is that **"send the entire balance to address X" is the same severity as a seed
+// export** — so it gets the same control, mirrored here rather than reinvented.
+//
+// 🔑 **THE ONE THING THAT MUST NOT BE SHARED IS THE DOMAIN.** `SweepAuth` uses its own EIP-712
+// domain name (`QUID Sweep`) and its own type string, so a captured `MigrationAuth` signature can
+// never be replayed as a sweep authorization, nor the reverse. Everything else — the operator
+// Safe, the owner set, `recover_signer`, the threshold discipline — is deliberately the SAME
+// machinery, because two divergent copies of an authorization path is how one of them rots.
+
+/// Distinct operator signatures required to authorize a full wallet drain.
+///
+/// Equal to [`MIGRATION_THRESHOLD`] today and deliberately a SEPARATE constant: the two powers
+/// are different (a sweep moves coins, a migration moves the seed), so raising one must not
+/// silently raise the other.
+pub const SWEEP_THRESHOLD: usize = 2;
+
+/// An operator-signed authorization to drain the hop's on-chain wallet to `destination`.
+///
+/// Bound to a deploy env + network so it cannot be replayed across environments, and to a
+/// `nonce` so a captured bundle authorizes **at most one** drain.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SweepAuth {
+    /// The Bitcoin address the entire balance is swept to, as the string the operators SAW and
+    /// signed. Kept as text on purpose: the signers approved a human-readable address, and
+    /// re-encoding it into bytes here would let a parsing difference change what they approved.
+    pub destination: String,
+    /// The deploy env this authorization is valid for.
+    pub deploy_env: DeployEnv,
+    /// The network this authorization is valid for.
+    pub network: Network,
+    /// ANTI-REPLAY: consumed on-chain (the same one-shot nonce registry a migration uses)
+    /// BEFORE the sweep broadcasts, so a captured bundle cannot drain the wallet twice.
+    pub nonce: [u8; 32],
+}
+
+impl SweepAuth {
+    /// `digest = keccak256(0x1901 ‖ domainSeparator ‖ hashStruct(SweepAuth))`.
+    ///
+    /// ⚠️ The domain name is **`QUID Sweep`**, not `QUID Migration`. That single difference is
+    /// what makes the two authorization types non-interchangeable; a test below asserts the
+    /// digests differ for otherwise-identical fields.
+    pub fn eip712_digest(&self) -> [u8; 32] {
+        let domain_type_hash = keccak256(
+            b"EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)",
+        );
+        let name_hash = keccak256(b"QUID Sweep");
+        let version_hash = keccak256(b"1");
+        let mut dom = Vec::with_capacity(32 * 5);
+        dom.extend_from_slice(domain_type_hash.as_slice());
+        dom.extend_from_slice(name_hash.as_slice());
+        dom.extend_from_slice(version_hash.as_slice());
+        dom.extend_from_slice(&word_u64(OPERATOR_SAFE_CHAIN_ID));
+        dom.extend_from_slice(&address_word(OPERATOR_SAFE));
+        let domain_separator = keccak256(&dom);
+
+        let type_hash = keccak256(
+            b"SweepAuth(string destination,string deployEnv,string network,bytes32 nonce)",
+        );
+        let dest_hash = keccak256(self.destination.as_bytes());
+        let deploy_env_hash = keccak256(self.deploy_env.to_string().as_bytes());
+        let network_hash = keccak256(self.network.to_string().as_bytes());
+        let mut st = Vec::with_capacity(32 * 5);
+        st.extend_from_slice(type_hash.as_slice());
+        st.extend_from_slice(dest_hash.as_slice());
+        st.extend_from_slice(deploy_env_hash.as_slice());
+        st.extend_from_slice(network_hash.as_slice());
+        st.extend_from_slice(&self.nonce);
+        let struct_hash = keccak256(&st);
+
+        let mut buf = Vec::with_capacity(2 + 64);
+        buf.push(0x19);
+        buf.push(0x01);
+        buf.extend_from_slice(domain_separator.as_slice());
+        buf.extend_from_slice(struct_hash.as_slice());
+        keccak256(&buf).0
+    }
+}
+
+/// The bundle carried to the enclave: the [`SweepAuth`] plus the owner signatures over its
+/// digest. The host cannot tamper the auth — the signatures commit to the exact digest.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SweepAuthBundle {
+    pub auth: SweepAuth,
+    /// Each entry is a 65-byte EVM signature `r ‖ s ‖ v` (v ∈ {27, 28}).
+    pub signatures: Vec<Vec<u8>>,
+}
+
+/// Produce ONE operator signature over a [`SweepAuth`] (dev/CI + the signing tool; in production
+/// operators sign the digest in their own wallet).
+pub fn sign_sweep_auth(secret: &[u8; 32], auth: &SweepAuth) -> anyhow::Result<Vec<u8>> {
+    let secp = Secp256k1::new();
+    let sk = SecretKey::from_slice(secret).context("invalid operator secret key")?;
+    let msg = Message::from_digest(auth.eip712_digest());
+    let rsig = secp.sign_ecdsa_recoverable(&msg, &sk);
+    let (recid, compact) = rsig.serialize_compact();
+    let mut out = vec![0u8; 65];
+    out[..64].copy_from_slice(&compact);
+    out[64] = recid.to_i32() as u8 + 27;
+    Ok(out)
+}
+
+/// Join a [`SweepAuth`] + collected owner signatures into the bundle the enclave verifies.
+pub fn combine_sweep_auths(
+    auth: SweepAuth,
+    signatures: Vec<Vec<u8>>,
+) -> anyhow::Result<Vec<u8>> {
+    serde_json::to_vec(&SweepAuthBundle { auth, signatures })
+        .context("serialize sweep auth bundle")
+}
+
+/// Verify a sweep bundle and return the authorized `(destination, nonce)`.
+///
+/// ⚠️ **THE CALLER MUST CONSUME THE NONCE ON-CHAIN BEFORE BROADCASTING THE SWEEP** — exactly as
+/// the migration path consumes its nonce before exporting the seed. Verification alone does not
+/// spend the authorization, so without that step a captured bundle drains the wallet repeatedly.
+pub fn verify_sweep_auth(
+    bundle: &[u8],
+    owners: &[Address],
+    threshold: usize,
+    deploy_env: DeployEnv,
+    network: Network,
+) -> anyhow::Result<(String, [u8; 32])> {
+    let bundle: SweepAuthBundle =
+        serde_json::from_slice(bundle).context("deserialize sweep auth bundle")?;
+
+    ensure!(
+        bundle.auth.deploy_env == deploy_env,
+        "sweep auth deploy_env ({}) != expected ({deploy_env})",
+        bundle.auth.deploy_env,
+    );
+    ensure!(
+        bundle.auth.network == network,
+        "sweep auth network ({}) != expected ({network})",
+        bundle.auth.network,
+    );
+    ensure!(!bundle.auth.destination.is_empty(), "sweep auth destination is empty");
+
+    let digest = bundle.auth.eip712_digest();
+    let mut signers: HashSet<Address> = HashSet::new();
+    for sig in &bundle.signatures {
+        let addr = recover_signer(&digest, sig).context("invalid operator signature")?;
+        ensure!(owners.contains(&addr), "signature from non-owner address {addr}");
+        signers.insert(addr); // distinct owners only
+    }
+    ensure!(
+        signers.len() >= threshold,
+        "sweep needs {threshold} distinct operator signatures, got {}",
+        signers.len(),
+    );
+    Ok((bundle.auth.destination, bundle.auth.nonce))
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -502,6 +660,96 @@ mod test {
         let bundle = combine_migration_auths(a, vec![s1, s2]).unwrap();
         // Verified against a different network than signed.
         verify_migration_auth(&bundle, &OPERATOR_OWNERS, 2, DeployEnv::Dev, Network::Testnet3)
+            .unwrap_err();
+    }
+    // ─────────────────────────── SWEEP AUTH (§W1) ───────────────────────────
+
+    fn sweep_auth() -> SweepAuth {
+        SweepAuth {
+            destination: "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080".to_string(),
+            deploy_env: DeployEnv::Dev,
+            network: Network::Regtest,
+            nonce: [0x5Au8; 32],
+        }
+    }
+
+    #[test]
+    fn sweep_threshold_of_distinct_owners_verifies() {
+        let a = sweep_auth();
+        let s1 = sign_sweep_auth(&secret(1), &a).unwrap();
+        let s2 = sign_sweep_auth(&secret(2), &a).unwrap();
+        let bundle = combine_sweep_auths(a.clone(), vec![s1, s2]).unwrap();
+        let (dest, nonce) =
+            verify_sweep_auth(&bundle, &OPERATOR_OWNERS, SWEEP_THRESHOLD, DeployEnv::Dev, Network::Regtest)
+                .unwrap();
+        assert_eq!(dest, a.destination);
+        assert_eq!(nonce, a.nonce, "the nonce comes back so the caller can consume it on-chain");
+    }
+
+    #[test]
+    fn sweep_one_signature_is_below_threshold() {
+        let a = sweep_auth();
+        let s1 = sign_sweep_auth(&secret(1), &a).unwrap();
+        let bundle = combine_sweep_auths(a, vec![s1]).unwrap();
+        verify_sweep_auth(&bundle, &OPERATOR_OWNERS, SWEEP_THRESHOLD, DeployEnv::Dev, Network::Regtest)
+            .unwrap_err();
+    }
+
+    /// The same owner twice is ONE signer. Without the distinct-signer set, a single compromised
+    /// operator key would reach any threshold by signing repeatedly.
+    #[test]
+    fn sweep_duplicate_owner_does_not_reach_threshold() {
+        let a = sweep_auth();
+        let s1 = sign_sweep_auth(&secret(1), &a).unwrap();
+        let s1_again = sign_sweep_auth(&secret(1), &a).unwrap();
+        let bundle = combine_sweep_auths(a, vec![s1, s1_again]).unwrap();
+        verify_sweep_auth(&bundle, &OPERATOR_OWNERS, SWEEP_THRESHOLD, DeployEnv::Dev, Network::Regtest)
+            .unwrap_err();
+    }
+
+    /// 🔑 THE PROPERTY THE SEPARATE EIP-712 DOMAIN EXISTS FOR: an authorization to migrate the
+    /// SEED must not also authorize draining the WALLET. Same nonce, same env, same network — and
+    /// the digests must still differ, or operator signatures would be interchangeable between two
+    /// powers of very different shape.
+    #[test]
+    fn a_migration_signature_cannot_authorize_a_sweep() {
+        let m = MigrationAuth {
+            measurement: Measurement::new([0xAB; 32]),
+            deploy_env: DeployEnv::Dev,
+            network: Network::Regtest,
+            nonce: [0x5Au8; 32],
+        };
+        let s = sweep_auth(); // same nonce/env/network
+        assert_ne!(m.eip712_digest(), s.eip712_digest(), "domains must not collide");
+
+        // And concretely: migration signatures do not verify as a sweep bundle.
+        let m1 = sign_migration_auth(&secret(1), &m).unwrap();
+        let m2 = sign_migration_auth(&secret(2), &m).unwrap();
+        let bundle = combine_sweep_auths(s, vec![m1, m2]).unwrap();
+        verify_sweep_auth(&bundle, &OPERATOR_OWNERS, SWEEP_THRESHOLD, DeployEnv::Dev, Network::Regtest)
+            .unwrap_err();
+    }
+
+    /// A tampered destination invalidates the signatures — the address the operators approved is
+    /// inside the digest, so the host cannot redirect the drain after they signed.
+    #[test]
+    fn sweep_destination_cannot_be_swapped_after_signing() {
+        let a = sweep_auth();
+        let s1 = sign_sweep_auth(&secret(1), &a).unwrap();
+        let s2 = sign_sweep_auth(&secret(2), &a).unwrap();
+        let redirected = SweepAuth { destination: "bcrt1qattacker".to_string(), ..a };
+        let bundle = combine_sweep_auths(redirected, vec![s1, s2]).unwrap();
+        verify_sweep_auth(&bundle, &OPERATOR_OWNERS, SWEEP_THRESHOLD, DeployEnv::Dev, Network::Regtest)
+            .unwrap_err();
+    }
+
+    #[test]
+    fn sweep_env_mismatch_rejected() {
+        let a = sweep_auth();
+        let s1 = sign_sweep_auth(&secret(1), &a).unwrap();
+        let s2 = sign_sweep_auth(&secret(2), &a).unwrap();
+        let bundle = combine_sweep_auths(a, vec![s1, s2]).unwrap();
+        verify_sweep_auth(&bundle, &OPERATOR_OWNERS, SWEEP_THRESHOLD, DeployEnv::Dev, Network::Testnet3)
             .unwrap_err();
     }
 }

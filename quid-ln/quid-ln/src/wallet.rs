@@ -1267,7 +1267,7 @@ impl OnchainWallet {
     /// that was the argument used the second time. Seed migration covers the successor-enclave
     /// case; it does not cover decommissioning to a treasury or an emergency evacuation to an
     /// address the seed does not derive.
-    pub(crate) fn create_sweep_tx(
+    pub fn create_sweep_tx(
         &self,
         dest_address: &bitcoin::Address,
         priority: ConfirmationPriority,
