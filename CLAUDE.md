@@ -297,6 +297,14 @@ double-counts it.
 - **`../ibiza` consumes SPV as a pinned git submodule** and depends on exactly four Vogue/Basket
   signatures staying permissionless and stable. Changing them is a breaking change for a repo that
   isn't in this working tree.
+- 📱 **THE LP SIGNER APP SPEC LIVES IN `../ibiza/TODO.md` §3b, NOT HERE** (owner, 2026-08-13:
+  *"this shouldn't be in our own queue… it should be in the ibiza TODO.md"*). ibiza owns the mobile
+  client (react-native/expo); SPV owns the protocol. **What the phone must do — the seed-derived
+  secp256k1 key, the one-time MuSig2 ladder ceremony, TEE-wrapping at rest, the nonce-reuse rule,
+  the three deployment targets, social recovery's exact place — is written there, self-contained.**
+  ⚠️ **Do not restate it in `QUEUE.md`.** The SPV rows (§E170/§E171-r/§E174/§E187/§E188) now keep
+  only the protocol-side facts and point at §3b; two copies of a spec drift, and the one that drifts
+  is always the copy in the repo that cannot build the thing.
 - `docs/informational/` **contradicts the contracts in ~10 verified places** (the band is ±0.2%, not
   ±2%; the short leg, `baseRate`, CRE, and the swap-in bonus are gone; the stable count moved).
   Never quote it without checking the code.
