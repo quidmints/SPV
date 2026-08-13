@@ -185,7 +185,17 @@ library VaultLib {
         }
     }
 
-    /// @dev NO CAP, BY CONSTRUCTION (re-derived 2026-08-13). The three `_deliverableCap` venue bounds
+    /// @dev BOUNDED BY WHAT CURVE CAN PAY, and this is NOT a clamp -- it is what the word DELIVERABLE
+    ///      means here. `deliverableETH` is INSTANT deliverability, and weETH's instant deliverability
+    ///      genuinely is bounded by the pool: the wait-NFT makes it EVENTUALLY deliverable at fair value,
+    ///      which is a different quantity. Conflating the two is what made an earlier attempt argue this
+    ///      bound away as unnecessary.
+    ///      ⚠️ MEASURED BOTH WAYS. Removing it does not merely under-report: the `amount > 0` fallback in
+    ///      `Vogue`'s exit then OVER-delivers against backing the offramp cannot source, so nothing
+    ///      defers and both test_RunSim_B_LiquidityRace_* fail "deferral recovers: 0 <= 0" -- there is
+    ///      no deferral left to recover. It replaces the three per-venue `_deliverableCap` bounds that
+    ///      went with the ETH venues, and serves the same purpose: virtual burn == real delivery.
+    ///      (Superseded framing, 2026-08-13.) The three `_deliverableCap` venue bounds
     ///      removed with the ETH venues existed because a 4626 curator could hold value that was
     ///      genuinely UNREACHABLE — `maxWithdraw` short of the position with no other exit. weETH has no
     ///      such state: if Curve cannot absorb it the wait-NFT redeems it at fair value from ether.fi, so
