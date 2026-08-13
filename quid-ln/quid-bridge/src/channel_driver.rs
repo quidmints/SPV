@@ -877,8 +877,11 @@ pub async fn drive_splice<R: JsonRpc + Send + Sync + 'static>(
 
     // (B) No lpAuth round-trip — the LP runs nothing. `splice` is authorized on-chain by
     // the channel's HOP GATE (channel.hop, fixed at open to a delegated hop), so we just
-    // build + submit. `lp_eth` (the position owner) comes from the on-chain channel record.
-    let lp_eth = state.lp_eth;
+    // build + submit.
+    //
+    // (§E191 follow-on) The `let lp_eth = state.lp_eth;` binding that stood here is deleted: it
+    // was read ONLY by the `fee_settle_sats` computation §E191 removed, so it had been dead
+    // since — surfacing as a compiler warning that named the leftover exactly.
 
     // FEE-INTO-CHANNEL: on a GROW, opportunistically flush this LP's accrued
     // BTC-leg fees (`Vault.btcFeesOwedSats`) INTO the position instead of paying them out
@@ -1530,7 +1533,6 @@ pub async fn run_channel_reconciler<R: JsonRpc + Send + Sync + 'static>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy_primitives::keccak256; // test-only: compute an expected EVM address
     use serde_json::Value;
 
     // ActiveSlot is the RAII in-flight guard. The slot MUST be released on BOTH

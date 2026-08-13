@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 import {ForkPin} from "./utils/ForkPin.sol";
 import {ChannelLib} from "../src/imports/ChannelLib.sol";
+import {BasketLib} from "../src/imports/BasketLib.sol";
 import {ExitFixture} from "./btc/ExitFixture.sol";
 
 import "forge-std/Test.sol";
@@ -2518,7 +2519,18 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
             "delivered == burned*perShare (no over-burn with a committed BTC band)");
     }
 
-    /// EXTREME: dust (1 wei) + whole-mature-balance single redeem — no revert, never over-delivers (<= par/QD
+    /// EXTREME: dust (1 wei) + whole-mature-balance single redeem, at both ends of the size range.
+    ///
+    /// 🔴 **THIS TEST WAS RED, AND THE CONTRACT WAS RIGHT.** Its header used to promise dust
+    /// causes "no revert", and the dust leg reverted `NothingDelivered` — so the whole-balance
+    /// leg below never ran at all. **The premise was wrong, not the code:** 1 wei of QU!D is
+    /// below the granularity of a 6-decimal stable, so the basket can deliver nothing for it, and
+    /// both non-reverting outcomes are SILENT — burning the wei for a zero delivery (value the
+    /// holder cannot see leaving) or returning 0 having done nothing (the holder believes they
+    /// redeemed). `BasketLib`'s aggregate guard (§E91-r5) reverts instead, on the rule that
+    /// *"asking for a non-zero amount and receiving nothing is never a valid outcome"*.
+    /// ⇒ The property worth asserting is therefore the opposite of what was written: a
+    /// sub-deliverable redeem **cannot silently burn**, asserted on the balance itself.QD
     /// with no depeg), so burn-follows-delivery holds at both ends of the size range.
     function test_Redeem_DustAndWholeSupply() public {
         for (uint i = 0; i < AUX.getStables().length; i++)
@@ -2529,8 +2541,14 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         QUID.mint(User01, 50_000 * USDC_PRECISION, address(USDC), 0);
         vm.stopPrank();
         vm.warp(block.timestamp + 35 days);
-        (uint dRed, uint dBurn) = _redeemValue(User01, 1);           // 1-wei dust: no revert, no over-deliver
-        assertLe(dRed, dBurn + 1, "dust redeem never over-delivers");
+        // 1-wei dust: refused, and -- the half that matters -- refused WITHOUT burning.
+        // Measured on the QU!D balance itself, not on a value the redeem path reports about
+        // its own success.
+        uint qBefore = QUID.balanceOf(User01);
+        vm.prank(User01);
+        vm.expectRevert(BasketLib.NothingDelivered.selector);
+        AUX.redeem(1);
+        assertEq(QUID.balanceOf(User01), qBefore, "a sub-deliverable redeem burns nothing");
         uint bal = QUID.balanceOf(User01);
         (uint wRed, uint wBurn) = _redeemValue(User01, bal);         // whole mature balance in one shot
         assertGt(wBurn, 0, "whole-balance redeem burned");

@@ -1558,7 +1558,11 @@ mod proptests {
             lp in proptest::array::uniform20(any::<u8>()),
         ) {
             let proof = vec![[0xABu8; 32]; proof_len];
-            let cd = encode_open_channel(&p, &raw, &proof, &t_auth(), &t_exits());
+            // `lp` is USED, not dropped: it was generated and then ignored, so this property
+            // held the LP address fixed at `t_auth()`'s 0xCC while claiming to fuzz the open.
+            // Threading it in is what makes the generator mean anything.
+            let auth = OpenAuth { lp_eth: Address::from(lp), ..t_auth() };
+            let cd = encode_open_channel(&p, &raw, &proof, &auth, &t_exits());
             prop_assert_eq!(&cd[..4], &keccak256(
                 SIG_OPEN_CHANNEL
             )[..4]);
