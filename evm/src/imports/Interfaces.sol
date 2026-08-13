@@ -71,6 +71,11 @@ interface ICurvePool {
     function exchange(int128 i, int128 j, uint256 dx, uint256 min_dy) external returns (uint256);
     function get_dy(int128 i, int128 j, uint256 dx) external view returns (uint256);
     function coins(uint256 i) external view returns (address);
+    /// @dev Coin balances. Read for a CAPACITY decision only — never to size a tolerance. A live balance
+    ///      read is sound for capacity because shrinking is monotone in the safe direction (an attacker who
+    ///      REMOVES WETH shrinks us further; one who ADDS improves the fill), and unsound for a tolerance,
+    ///      where the same manipulation WIDENS the guard exactly when it needs to hold.
+    function balances(uint256 i) external view returns (uint256);
 }
 
 /// Canonical ether.fi LiquidityPool view — was `SwapLib::ILiq_L`.
@@ -323,9 +328,6 @@ interface IEthVenue {
     function venuePosition(address vault) external view returns (uint reported, uint liquid);
     function vogueOp(bool isBTC, uint amount, uint8 op, bytes32 ctx) external returns (uint);
     function supplyEtherFi(uint amount) external returns (uint);
-    function supplyAaveEth(uint amount) external returns (uint);
-    function supplyEulerEth(uint amount) external returns (uint);
-    function supplyGauntlet(uint amount) external returns (uint);
     function offrampEtherFi(uint amount, address recipient) external returns (uint);
 }
 

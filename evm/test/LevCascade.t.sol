@@ -190,7 +190,7 @@ contract LevCascadeProbe is Alles {
     /// weETH equity + does the one-time Morpho authorization.
     function _bandE0(address lp, uint sizeEth) internal {
         vm.deal(lp, sizeEth + 1 ether);
-        vm.prank(lp); V4.deposit{value: sizeEth}(0, lp, 3);   // venue 3 = all-Galaxy (no offramp noise)
+        vm.prank(lp); V4.deposit{value: sizeEth}(0, lp);   // venue 3 = all-Galaxy (no offramp noise)
         deal(WEETH, lp, sizeEth);
         vm.prank(lp); IMorphoTest(MORPHO).setAuthorization(address(venue), true); // one-time Morpho isolation
     }
@@ -253,7 +253,7 @@ contract LevCascadeProbe is Alles {
         ETH.setLevManager(address(lm));
         // Thicken the band with a normal ETH-LP so small swaps clear the manip guard.
         vm.deal(address(this), 20 ether);
-        V4.deposit{value: 10 ether}(0, address(this), 3);
+        V4.deposit{value: 10 ether}(0, address(this));
         _openAtEntry(lps[0], 5 ether);
         _rallyBand(_entrySqrt(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
         lm.rebalance(lps[0], 0);                                 // real levered position
@@ -301,7 +301,7 @@ contract LevCascadeProbe is Alles {
         // Fresh LP so the AlreadyOpen guard doesn't mask the venue check.
         address lp = address(0xBEEF4);
         vm.deal(lp, 6 ether);
-        vm.prank(lp); V4.deposit{value: 5 ether}(0, lp, 3);
+        vm.prank(lp); V4.deposit{value: 5 ether}(0, lp);
         deal(WEETH, lp, 5 ether);
         vm.prank(lp); IMorphoTest(MORPHO).setAuthorization(address(rogue), true);
         uint[] memory mins = new uint[](8);
@@ -523,7 +523,7 @@ contract LevCascadeProbe is Alles {
         ETH.setLevManager(address(lm));
         // Thick shared band so the rally's swaps clear the 50bps manip guard.
         vm.deal(address(this), 40 ether);
-        V4.deposit{value: 20 ether}(0, address(this), 3);
+        V4.deposit{value: 20 ether}(0, address(this));
 
         // Two EQUAL band LPs: lps[0] levers, lps[1] stays a plain ETH-LP.
         _openAtEntry(lps[0], 5 ether);        // levered: band E0 + openLev at ZERO leverage
@@ -731,7 +731,7 @@ contract LevCascadeProbe is Alles {
         _setupLev();
         ETH.setLevManager(address(lm));
         vm.deal(address(this), 40 ether);
-        V4.deposit{value: 20 ether}(0, address(this), 3);
+        V4.deposit{value: 20 ether}(0, address(this));
         _openAtEntry(lps[0], 5 ether);
 
         // Debt is entry-price-driven: `openLev` opens at ZERO leverage, so a rally is what creates
@@ -800,7 +800,7 @@ contract LevCascadeProbe is Alles {
         _setupLev();
         ETH.setLevManager(address(lm));
         vm.deal(address(this), 40 ether);
-        V4.deposit{value: 2 ether}(0, address(this), 3);
+        V4.deposit{value: 2 ether}(0, address(this));
         _openAtEntry(lps[0], 5 ether);
 
         _rallyBand(_entrySqrt(lps[0]), 0.2e18, 40, 16_000 * USDC_PRECISION);

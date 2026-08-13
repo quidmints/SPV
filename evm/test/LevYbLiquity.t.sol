@@ -38,7 +38,7 @@ contract LevYbLiquityProbe is LevYbRealProbe {
 
     function _openLiquityLp() internal {
         vm.deal(LP, 6 ether);
-        vm.prank(LP); V4.deposit{value: 5 ether}(0, LP, 3);   // 5 ETH plain band equity
+        vm.prank(LP); V4.deposit{value: 5 ether}(0, LP);   // 5 ETH plain band equity
         deal(address(WETH), LP, 5 ether);                       // 5 WETH lev equity
         uint[] memory mins = new uint[](8);
         vm.startPrank(LP);

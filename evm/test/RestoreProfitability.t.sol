@@ -84,7 +84,7 @@ contract RestoreProfitability is Alles {
     function test_E69_IsRestoringNaturallyProfitable() public {
         _seedBasket();
         vm.prank(lpA);
-        V4.deposit{value: 400 ether}(0, lpA, 3);
+        V4.deposit{value: 400 ether}(0, lpA);
         _settle();
 
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);

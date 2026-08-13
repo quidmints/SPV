@@ -32,7 +32,7 @@ contract VEthIdentity is Alles {
         VEth veth = new VEth(address(V4), address(WETH), address(AUX));
 
         vm.prank(User01);
-        V4.deposit{value: 10 ether}(0, User01, 3);          // VENUE_GALAXY
+        V4.deposit{value: 10 ether}(0, User01);          // VENUE_GALAXY
 
         // ── the identity itself ──────────────────────────────────────────────────────────────────
         assertEq(veth.asset(), address(WETH), "asset() is the ONE asset this identity is over");
@@ -91,7 +91,7 @@ contract VEthIdentity is Alles {
         V4.setVEth(address(veth));
 
         vm.prank(User01);
-        V4.deposit{value: 10 ether}(0, User01, 3);          // VENUE_GALAXY
+        V4.deposit{value: 10 ether}(0, User01);          // VENUE_GALAXY
         uint from0 = V4.balanceOf(User01);
         uint to0   = V4.balanceOf(User02);
         assertGt(from0, 0, "PREMISE: the sender must hold band shares, else the move proves nothing");

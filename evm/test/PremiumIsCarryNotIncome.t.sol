@@ -104,7 +104,7 @@ contract PremiumIsCarryNotIncome is Alles {
         deal(address(USDC), drainer, 20_000_000 * USDC_PRECISION);
         vm.prank(drainer); USDC.approve(address(AUX), type(uint).max);
         vm.prank(lp);
-        V4.deposit{value: 400 ether}(0, lp, 3);
+        V4.deposit{value: 400 ether}(0, lp);
         _settle();
 
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
@@ -252,7 +252,7 @@ contract PremiumIsCarryNotIncome is Alles {
 
         uint ethIn = 400 ether;
         vm.prank(lp);
-        V4.deposit{value: ethIn}(0, lp, 3);
+        V4.deposit{value: ethIn}(0, lp);
         _settle();
 
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
@@ -307,7 +307,7 @@ contract PremiumIsCarryNotIncome is Alles {
         _seed();
         deal(address(USDC), drainer, 20_000_000 * USDC_PRECISION);
         vm.prank(drainer); USDC.approve(address(AUX), type(uint).max);
-        vm.prank(lp); V4.deposit{value: 400 ether}(0, lp, 3);
+        vm.prank(lp); V4.deposit{value: 400 ether}(0, lp);
         _settle();
 
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
@@ -363,7 +363,7 @@ contract PremiumIsCarryNotIncome is Alles {
         deal(address(USDC), drainer, 20_000_000 * USDC_PRECISION);
         vm.prank(drainer); USDC.approve(address(AUX), type(uint).max);
         vm.deal(drainer, 600 ether);
-        vm.prank(lp); V4.deposit{value: 400 ether}(0, lp, 3);
+        vm.prank(lp); V4.deposit{value: 400 ether}(0, lp);
         _settle();
 
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
@@ -570,7 +570,7 @@ contract PremiumIsCarryNotIncome is Alles {
         _seed();
         deal(address(USDC), drainer, 20_000_000 * USDC_PRECISION);
         vm.prank(drainer); USDC.approve(address(AUX), type(uint).max);
-        vm.prank(lp); V4.deposit{value: 400 ether}(0, lp, 3);
+        vm.prank(lp); V4.deposit{value: 400 ether}(0, lp);
         _settle();
 
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
@@ -606,7 +606,7 @@ contract PremiumIsCarryNotIncome is Alles {
         _seed();
         deal(address(USDC), drainer, 20_000_000 * USDC_PRECISION);
         vm.prank(drainer); USDC.approve(address(AUX), type(uint).max);
-        vm.prank(lp); V4.deposit{value: 400 ether}(0, lp, 3);
+        vm.prank(lp); V4.deposit{value: 400 ether}(0, lp);
         _settle();
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
         AUX.setAssetFeed(address(WETH), ETH_FEED);

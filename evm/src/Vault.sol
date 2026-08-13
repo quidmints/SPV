@@ -388,13 +388,6 @@ contract Vault is Ownable, ReentrancyGuard {
         return VaultLib.supplyVenueBody(_ethCfg(), 1, amount, address(V4));
     }
 
-    /// @notice ETH-venue = AAVE-v4 (venue 2). Pull the Vogue-approved WETH and
-    ///         supply it to the AAVE-v4 spoke's WETH reserve. Gated to Vogue.
-    function supplyAaveEth(uint amount) external returns (uint) {
-        if (msg.sender != address(V4)) revert NotVogueCore();   // gate stays here
-        return VaultLib.supplyVenueBody(_ethCfg(), 2, amount, address(V4));
-    }
-
     /// @notice OFFRAMP the ether.fi slice of a withdrawal: weETH → WETH for
     ///         `amount` ETH-worth, delivered to `recipient`. The ladder
     ///         (docs/ETH-MULTI-VENUE). Every call try/catch'd. Gated to Vogue.
@@ -510,20 +503,6 @@ contract Vault is Ownable, ReentrancyGuard {
     ///         Vogue-approved WETH and deposit to Euler. Gated to Vogue (V4).
     ///         FUNGIBLE: counted in vogueETH and pulled by the withdraw ladder
     ///         like Galaxy; no separate per-LP slice (Galaxy carries none either).
-    function supplyEulerEth(uint amount) external returns (uint) {
-        if (msg.sender != address(V4)) revert NotVogueCore();   // gate stays here
-        return VaultLib.supplyVenueBody(_ethCfg(), 3, amount, address(V4));
-    }
-
-    /// @notice ETH-venue = Gauntlet (third WETH 4626 curator). Pull the
-    ///         Vogue-approved WETH and deposit to Gauntlet. Gated to Vogue (V4).
-    ///         FUNGIBLE: counted in vogueETH and pulled by the withdraw ladder
-    ///         like Galaxy/Euler; no separate per-LP slice.
-    function supplyGauntlet(uint amount) external returns (uint) {
-        if (msg.sender != address(V4)) revert NotVogueCore();   // gate stays here
-        return VaultLib.supplyVenueBody(_ethCfg(), 5, amount, address(V4));
-    }
-
     /// @notice WETH withdraw — idle-then-Galaxy(+ether.fi opportunistic)+AAVE+Rover
     ///         ladder. Body in VaultLib.withdrawETH (delegatecall; see its docblock).
     function _withdrawETH(address token, uint amount, address to)

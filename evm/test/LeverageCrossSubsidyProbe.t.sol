@@ -116,7 +116,7 @@ contract LeverageCrossSubsidyProbe is Alles {
 
     function _bandE0(address lp, uint sizeEth) internal {
         vm.deal(lp, sizeEth + 1 ether);
-        vm.prank(lp); V4.deposit{value: sizeEth}(0, lp, 3);
+        vm.prank(lp); V4.deposit{value: sizeEth}(0, lp);
         deal(WEETH, lp, sizeEth);
         vm.prank(lp); IMorphoTest(MORPHO).setAuthorization(address(venue), true);
     }
@@ -167,7 +167,7 @@ contract LeverageCrossSubsidyProbe is Alles {
 
         // A passive REGULAR band LP (no leverage) — the party that must not be expensed.
         vm.deal(PASSIVE, 20 ether);
-        vm.prank(PASSIVE); uint shares = V4.deposit{value: 10 ether}(0, PASSIVE, 3);
+        vm.prank(PASSIVE); uint shares = V4.deposit{value: 10 ether}(0, PASSIVE);
         require(shares > 0 && CORE.POOLED_ETH() > 0, "no in-range pool for the passive LP");
         uint160 startSqrt = ILevBandView(address(V4)).bandSqrtP(false);   // shared rally reference for both arms
 

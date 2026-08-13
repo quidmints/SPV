@@ -341,7 +341,7 @@ contract UnificationControls is Alles {
         vm.warp(block.timestamp + 35 days);
 
         vm.deal(lpA, 900 ether);
-        vm.prank(lpA); V4.deposit{value: 700 ether}(0, lpA, 3);
+        vm.prank(lpA); V4.deposit{value: 700 ether}(0, lpA);
 
         // Seed the BTC band so "the unwind cannot reach it" is a real claim, not 0 == 0.
         AUX.setBTCChannels(address(this));
@@ -414,7 +414,7 @@ contract UnificationControls is Alles {
     /// distinguishes "recorded" from "received", which is the whole defect.
     function test_E16_RetainedPremiumReachesLpsNotOnlyTheCounter() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 200 ether}(0, lpA, 3);
+        vm.prank(lpA); V4.deposit{value: 200 ether}(0, lpA);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 30 minutes);
 
         uint prem0 = CORE.skewPremiumETH();
@@ -463,7 +463,7 @@ contract UnificationControls is Alles {
     /// not prove the win is often collected.
     function test_E3sizing_StarvedCurveVsIdleCapitalOnTheOther() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
         AUX.setBTCChannels(address(this));
         BTC.registerBtcLp(lpB, 2e7);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 30 minutes);
@@ -549,7 +549,7 @@ contract UnificationControls is Alles {
     /// close it. Measurement only; the assertions are PREMISES so it cannot pass vacuously.
     function test_E6target_DeployGapAtRestAndAfterDrain() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
         AUX.setBTCChannels(address(this));
         BTC.registerBtcLp(lpB, 2e7);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 30 minutes);
@@ -578,7 +578,7 @@ contract UnificationControls is Alles {
         // composition drift, not solely on range exit. A deposit is the cheapest way to exercise
         // the same `addLiq` -> `_modLpEth` path without changing production code.
         vm.deal(lpB, 20 ether);
-        vm.prank(lpB); V4.deposit{value: 10 ether}(0, lpB, 3);
+        vm.prank(lpB); V4.deposit{value: 10 ether}(0, lpB);
         _logDeployGap("AFTER a deposit (exercises addLiq re-add)");
         emit log_named_uint("ETH band USD after re-add", CORE.POOLED_USD_ETH());
         emit log_named_uint("ETH band ETH after re-add", CORE.POOLED_ETH());
@@ -601,7 +601,7 @@ contract UnificationControls is Alles {
     /// PREMISE-GUARDED: reads BOTH pools, so it cannot pass by looking at an uninitialised one.
     function test_ProtocolFee_IsZeroOnBothOurPools() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 50 ether}(0, lpA, 3);
+        vm.prank(lpA); V4.deposit{value: 50 ether}(0, lpA);
 
         (, , uint24 pFeeEth, uint24 lpFeeEth) =
             StateLibrary.getSlot0(CORE.poolManager(), CORE.POOL_ID_VANILLA_ETH());
@@ -673,7 +673,7 @@ contract UnificationControls is Alles {
     /// different (and worse) answer, so it is measured rather than assumed.
     function test_CHECK_FullExitResidualIsRecoverable() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 300 ether}(0, lpA, 3);
+        vm.prank(lpA); V4.deposit{value: 300 ether}(0, lpA);
         vm.roll(block.number + 1);
         for (uint i; i < 8; i++) _trade(3_000e18);
         vm.warp(block.timestamp + 1 hours);
@@ -710,7 +710,7 @@ contract UnificationControls is Alles {
     /// query on the band's range returns the band's position ALONE.
     function test_PROVE_PooledIsDerivableFromPoolState() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 200 ether}(0, lpA, 3);
+        vm.prank(lpA); V4.deposit{value: 200 ether}(0, lpA);
         vm.roll(block.number + 1);
         for (uint i; i < 4; i++) _trade(3_000e18);
 
@@ -743,7 +743,7 @@ contract UnificationControls is Alles {
     /// containment now and fails loudly the day it breaks.
     function test_DUST_MocksAreContainedToAllowedHolders() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 100 ether}(0, lpA, 3);
+        vm.prank(lpA); V4.deposit{value: 100 ether}(0, lpA);
         vm.roll(block.number + 1);
         for (uint i; i < 4; i++) _trade(3_000e18);
 
@@ -766,7 +766,7 @@ contract UnificationControls is Alles {
     /// rather than reasoned, because I got the previous residual wrong exactly this way (E26).
     function test_SETTLE_LvrResidualIsDeferralNotLeak() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
         vm.roll(block.number + 1);
         for (uint i; i < 20; i++) _trade(3_000e18);
 
@@ -798,7 +798,7 @@ contract UnificationControls is Alles {
     /// the thing to examine; if claim > delivered the leak is in the delivery path.
     function test_PINPOINT_ClaimVsDelivered() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
         vm.roll(block.number + 1);
         for (uint i; i < 20; i++) _trade(3_000e18);
 
@@ -846,7 +846,7 @@ contract UnificationControls is Alles {
     /// removes depth. This test runs real flow and asserts the OLD definition is strictly worse.
     function test_E36_CommittedNoLongerCountsDollarsTheBasketNeverSupplied() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
         vm.roll(block.number + 1);
 
         uint oldBefore = CORE.POOLED_USD_ETH() + CORE.POOLED_USD_BTC();
@@ -901,7 +901,7 @@ contract UnificationControls is Alles {
     /// externality, not just a headroom rounding.
     function test_E39_EthTradingNoLongerStarvesTheBtcBandsCapacity() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
         vm.roll(block.number + 1);
 
         (uint[15] memory d0,,, uint depeg0) = AUX.get_deposits();
@@ -967,7 +967,7 @@ contract UnificationControls is Alles {
     /// legs redefined, ETH's fees must not land on BTC LPs or the reverse.
     function test_E41_SwapCapacityAndPerBandPnlAttribution() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
         vm.roll(block.number + 1);
 
         // A BTC LP exists BEFORE the ETH flow, so its P&L has a baseline to be measured against.
@@ -1095,7 +1095,7 @@ contract UnificationControls is Alles {
     /// on-chain carries that history — the V4 position knows only the total.
     function test_E44_BasketUsdIsNotDerivableFromTheCurveMirror() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 200 ether}(0, lpA, 3);
+        vm.prank(lpA); V4.deposit{value: 200 ether}(0, lpA);
         vm.roll(block.number + 1);
 
         uint pooled0 = CORE.POOLED_USD_ETH();
@@ -1113,7 +1113,7 @@ contract UnificationControls is Alles {
 
         // (b) A BASKET ADD — both move, together.
         vm.roll(block.number + 1); vm.warp(block.timestamp + 1 hours);
-        vm.prank(lpB); V4.deposit{value: 200 ether}(0, lpB, 3);
+        vm.prank(lpB); V4.deposit{value: 200 ether}(0, lpB);
         uint pooled2 = CORE.POOLED_USD_ETH();
         uint basket2 = CORE.basketUsdEth();
         emit log_named_uint("after basket add: POOLED_USD_ETH", pooled2);
@@ -1155,7 +1155,7 @@ contract UnificationControls is Alles {
     /// under-reimbursed TODAY, and any refill work added to `_rebalance()` makes it worse.
     function test_E45_CompoundCrankGasVsTheSelfFundingConstant() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
         vm.roll(block.number + 1);
         for (uint i; i < 10; i++) _trade(3_000e18);   // real harvest for the tip to come out of
         vm.roll(block.number + 1); vm.warp(block.timestamp + 1 hours);
@@ -1221,7 +1221,7 @@ contract UnificationControls is Alles {
     /// and if one is, prove its leg is LIVE before trusting the figure.
     function test_E40_LeverageCapacityWithTheRoverLegProvenLive() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA, 3);
+        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
         vm.roll(block.number + 1);
 
         // ── THE ROVER GUARD ────────────────────────────────────────────────────────────────
@@ -1280,7 +1280,7 @@ contract UnificationControls is Alles {
     /// `protocolFeeController` — and then measures the dust rather than reasoning about it.
     function test_E60_MockDustUnderAnActivatedProtocolFee() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 200 ether}(0, lpA, 3);
+        vm.prank(lpA); V4.deposit{value: 200 ether}(0, lpA);
         vm.roll(block.number + 1);
 
         (uint usd0, uint tok0) = _mockDust(false);

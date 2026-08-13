@@ -796,7 +796,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         USDC.approve(address(AUX), rack);
         uint balanceBefore = USDC.balanceOf(User01);
 
-        uint id = V4.outOfRange(rack / 10, address(USDC), 1000, 100, 0);
+        uint id = V4.outOfRange(rack / 10, address(USDC), 1000, 100);
 
         assertGt(id, 0, "Position ID should be > 0");
         assertApproxEqAbs(USDC.balanceOf(User01), balanceBefore - rack / 10,
@@ -818,7 +818,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
 
         vm.roll(vm.getBlockNumber() + 1);
 
-        uint id = V4.outOfRange{value: 2 ether}(0, address(0), -1000, 100, 0);
+        uint id = V4.outOfRange{value: 2 ether}(0, address(0), -1000, 100);
         assertGt(id, 0, "Should create position");
 
         vm.roll(vm.getBlockNumber() + 1000);
@@ -840,13 +840,13 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // rejected, so a bare form would let one shared incidental revert (a cooldown, a TWAP gate)
         // satisfy all four and prove nothing. Verified: all four really do reach `BadOorParam`.
         vm.expectRevert(SwapLib.BadOorParam.selector);
-        V4.outOfRange{value: 1 ether}(0, address(0), -1000, 50, 0);
+        V4.outOfRange{value: 1 ether}(0, address(0), -1000, 50);
         vm.expectRevert(SwapLib.BadOorParam.selector);
-        V4.outOfRange{value: 1 ether}(0, address(0), -1000, 1500, 0);
+        V4.outOfRange{value: 1 ether}(0, address(0), -1000, 1500);
         vm.expectRevert(SwapLib.BadOorParam.selector);
-        V4.outOfRange{value: 1 ether}(0, address(0), -6000, 100, 0);
+        V4.outOfRange{value: 1 ether}(0, address(0), -6000, 100);
         vm.expectRevert(SwapLib.BadOorParam.selector);
-        V4.outOfRange{value: 1 ether}(0, address(0), -1050, 100, 0);
+        V4.outOfRange{value: 1 ether}(0, address(0), -1050, 100);
 
         vm.stopPrank();
     }
@@ -1389,7 +1389,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // never a distinct "ether.fi" code; the base deploy has Rover off (address(0)), so venue 4 hits
         // VogueLib._supplyEtherFi's direct-weETH FALLBACK (supplyEtherFiToRover returns 0). Same slice.
         uint vEthBefore = ETH.vogueETH();
-        vm.prank(User01); V4.deposit{value: 10 ether}(0, User01, 4);
+        vm.prank(User01); V4.deposit{value: 10 ether}(0, User01);
 
         // weETH held at EthVenue + aggregated into vogueETH + attributed to the slice.
         assertGt(IERC20(weeth).balanceOf(address(ETH)), 0, "weETH held at EthVenue");
@@ -1445,7 +1445,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     ///         venue. Nothing is mocked here; the venue is simply left as mainnet has it.
     function test_PokeVaultHealth_HealthyMorphoV2_NotBlocked() public {
         address venue = ETH.GALAXY_VAULT();
-        vm.prank(User01); V4.deposit{value: 20 ether}(0, User01, 3); // VENUE_GALAXY (Morpho V2)
+        vm.prank(User01); V4.deposit{value: 20 ether}(0, User01); // VENUE_GALAXY (Morpho V2)
         uint balBefore = IERC4626(venue).balanceOf(address(ETH));
         assertGt(balBefore, 0, "the Vault holds a real Galaxy WETH position");
         assertEq(IERC4626(venue).maxWithdraw(address(ETH)), 0,
@@ -1466,7 +1466,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
 
     function testEthVenue_AaveV4_DepositAndWithdraw() public {
         uint aaveBefore = ETH.aaveEthBalance();
-        vm.prank(User01); V4.deposit{value: 10 ether}(0, User01, 2); // AAVE-v4
+        vm.prank(User01); V4.deposit{value: 10 ether}(0, User01); // AAVE-v4
         (uint pooled,,,) = V4.autoManaged(User01);
         assertEq(pooled, 10 ether, "deposit credited (whichever venue served)");
         // Two-world assertion RETIRED 2026-08-06: every deposit now lands in weETH whatever venue
@@ -2135,7 +2135,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         vm.startPrank(User01);
         V4.deposit{value: 25 ether}(0, User01);
 
-        uint id = V4.outOfRange{value: 5 ether}(0, address(0), -1000, 100, 0);
+        uint id = V4.outOfRange{value: 5 ether}(0, address(0), -1000, 100);
         assertGt(id, 0, "out-of-range position created");
 
         vm.stopPrank();
@@ -2429,7 +2429,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // LP deposits a LARGE ETH band position -> committedUsd18 grows toward TVL, driving
         // usdAvailable below the redeemer's MATURE QU!D so the redemption MUST unwind the band.
         vm.deal(User02, 900 ether);
-        vm.prank(User02); V4.deposit{value: 700 ether}(0, User02, 3);
+        vm.prank(User02); V4.deposit{value: 700 ether}(0, User02);
 
         (uint[15] memory d0,,,) = AUX.get_deposits();
         uint committed0 = CORE.committedUsd18();
@@ -2765,8 +2765,8 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
 
         lp1 = makeAddr("runsim-lp1"); lp2 = makeAddr("runsim-lp2");
         vm.deal(lp1, lpEth); vm.deal(lp2, lpEth);
-        vm.prank(lp1); V4.deposit{value: lpEth}(0, lp1, 3); // all-Galaxy
-        vm.prank(lp2); V4.deposit{value: lpEth}(0, lp2, 3);
+        vm.prank(lp1); V4.deposit{value: lpEth}(0, lp1); // all-Galaxy
+        vm.prank(lp2); V4.deposit{value: lpEth}(0, lp2);
         vm.roll(block.number + 1); // JIT-lock: withdraws below must be a later block than these deposits
     }
 
@@ -2955,7 +2955,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         _setEthFeed(px / 1e10);
         AUX.setAssetFeed(address(WETH), ETH_FEED);   // pin the anchor (owner, pre-renounce)
         vm.deal(lp, lpEth);
-        vm.prank(lp); V4.deposit{value: lpEth}(0, lp, 3); // all-Galaxy ETH LP
+        vm.prank(lp); V4.deposit{value: lpEth}(0, lp); // all-Galaxy ETH LP
     }
 
     /// (IL-A) CHOP through a price round-trip. On the fork this asserts the LP
@@ -3157,7 +3157,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // (2) A SWAP that draws a specific stable (ETH→USDC) — exercises
         // take/_withdraw per-stable refresh, NOT the mint full-refresh.
         address elp = makeAddr("cache-elp"); vm.deal(elp, 100 ether);
-        vm.prank(elp); V4.deposit{value: 50 ether}(0, elp, 3);
+        vm.prank(elp); V4.deposit{value: 50 ether}(0, elp);
         address sw = makeAddr("cache-sw"); vm.deal(sw, 30 ether);
         vm.prank(sw);
         try AUX.swap{value: 5 ether}(address(USDC), address(WETH), false, 0, 0) {} catch {}
@@ -3240,7 +3240,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // needs in-range ETH-pool liquidity). This adds ETH backing, not stables,
         // so it doesn't perturb the stable-share measurement.
         address elp = makeAddr("d-ethlp"); vm.deal(elp, 200 ether);
-        vm.prank(elp); V4.deposit{value: 100 ether}(0, elp, 3);
+        vm.prank(elp); V4.deposit{value: 100 ether}(0, elp);
 
         (uint[15] memory dep,,,) = AUX.get_deposits();
         uint usdcIdx; for (uint i; i < st.length; i++) if (st[i] == address(USDC)) usdcIdx = i;

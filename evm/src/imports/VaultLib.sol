@@ -10,6 +10,7 @@ import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {SwapLib} from "./SwapLib.sol";
 import {IAaveV4Spoke} from "./Interfaces.sol";
 import {IWeETH} from "./Interfaces.sol";
+import {ICurvePool} from "./Interfaces.sol";
 import {IDepositAdapter} from "./Interfaces.sol";
 import {ILevEquity} from "./Interfaces.sol";
 import {IAux} from "./Interfaces.sol";
@@ -454,6 +455,25 @@ library VaultLib {
         uint weethIn = weethFull;
         uint bal = IERC20(c.weeth).balanceOf(address(this));
         if (weethIn > bal) weethIn = bal;
+        // CAPACITY — shrink to what the pool can actually pay. This MUST happen before `covered` is
+        // derived: `covered` is returned as the amount SERVED, and `Vogue` burns it and decrements
+        // `LP.pooled` by it. Shrinking inside `curveSellWeeth` instead would leave `covered` reflecting
+        // the pre-shrink size, so the offramp would report serving more than it sold — a silent
+        // over-credit on the exit path. Same arithmetic, wrong place, money-path defect.
+        // MEASURED 2026-08-09: fills track ~1.4 + 55·(dx/D)² bps up to ~1,000 weETH (−1.39 at 1, −1.51 at
+        // 100, −3.47 at 1,000) and then break by 70× — −722.80 at 2,000. That cliff is NOT slippage but
+        // EXHAUSTION: 2,000 weETH asks ~2,202 WETH out of a pool holding 2,047. No floor value survives
+        // it, because the pool cannot pay; only sizing does.
+        // NEVER GATE — shrink. The unserved remainder falls to the wait-NFT rung on its own, so a partial
+        // fill still serves most of a large exit instead of deferring all of it for ~7 days.
+        if (c.curvePool != address(0) && weethIn > 0) {
+            uint wantOut = (weethFull == 0 || weethIn == weethFull)
+                ? amount : FullMath.mulDiv(amount, weethIn, weethFull);
+            // 90% of the pool's WETH: slippage steepens toward the edge, so leave headroom rather than
+            // sizing to the exact boundary the quadratic stops describing.
+            uint cap = (ICurvePool(c.curvePool).balances(0) * 9) / 10;
+            if (wantOut > cap) weethIn = FullMath.mulDiv(weethIn, cap, wantOut);
+        }
         uint covered = (weethFull == 0 || weethIn == weethFull)
             ? amount : FullMath.mulDiv(amount, weethIn, weethFull);
         // RUNG 1 — CURVE `weETH/WETH-ng` (only if this contract holds weETH). Replaced a two-tier
@@ -462,16 +482,17 @@ library VaultLib {
         // better at every realistic size, so there is no tier to choose between and no ordering to get
         // wrong. Both venues cliff near 2,000 weETH, where Curve's 2,047 WETH runs out — and THAT is the
         // only case rung 2 now exists for.
-        // THE 0.5%-OF-FAIR FLOOR IS SETTLED, NOT INHERITED — do not re-tune it by feel.
-        // It EARNS its place (standing rule 3's inverse): without it a drained pool fills SILENTLY at
-        // −723 bps, which is plausible-looking output, not a revert. And 50 bps is where the MEASURED
-        // curve puts it: worst NORMAL execution is −3.47 bps (1,000 weETH), the cliff is −722.80 (2,000,
-        // where the pool's 2,047 WETH runs out). 50 bps sits ~14x above the worst normal fill and ~14x
-        // below the cliff — near-centred in LOG space, so it can neither false-reject ordinary flow nor
-        // pass a drained pool. Tightening toward ~10 bps only buys false rejections (which degrade to the
-        // wait-NFT rung); loosening past ~100 bps starts admitting the cliff.
+        // THE FLOOR GUARDS **MEV**, NOT CAPACITY — those were one number until 2026-08-09 and are now two.
+        // 50 bps had to straddle "normal" and "drained" because a single constant did both jobs; with the
+        // shrink above handling capacity, the floor only has to sit above HONEST execution.
+        // 25 bps = worst measured slippage (3.5 bps) + room for the pool-vs-ether.fi-rate offset, which
+        // widens at up to 0.674 bps/day (the ratchet) when the pool is unarbed — roughly a month's drift.
+        // ⚠️ THAT SECOND TERM IS WHY IT IS NOT 15: sizing against slippage alone ignores a divergence that
+        // grows with TIME rather than trade size, and a false reject costs the LP a ~7-day wait-NFT.
+        // Anchored to `covered`, i.e. the ether.fi rate — NOT to any pool-derived quote, which a
+        // front-runner moves along with the fill it is supposed to police.
         if (weethIn > 0) {
-            uint got = SwapLib.curveSellWeeth(c, weethIn, (covered * 995) / 1000);
+            uint got = SwapLib.curveSellWeeth(c, weethIn, (covered * 9975) / 10_000);
             if (got > 0) {
                 IERC20(c.weth).transfer(recipient, got);   // Curve pays msg.sender; deliver onward
                 return covered;
