@@ -1435,6 +1435,41 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     }
 
 
+    /// @notice A HEALTHY Morpho-V2 vault must not be blockable off its idle-only max-view — on the
+    ///         STABLE side, where the property now lives.
+    /// @dev  RE-ESTABLISHED 2026-08-13. The ETH-side version of this test was deleted with the ETH
+    ///       venues, and the property went untested for a day. It is NOT obsolete: VERIFIED LIVE that
+    ///       all four stable curators answer `liquidityAdapter()`, i.e. they ARE Morpho-V2 —
+    ///       galaxyUsdc 0x7df529c9…, gauntletUsdc 0x3dd6e19D…, galaxyUsdt 0x0B4BCdD4…,
+    ///       gauntletUsdt 0x282f61f3… — so a V2 vault's max-view reporting 0 against a fully
+    ///       recoverable position is a live condition on the basket's dollar leg.
+    ///       WHY IT MATTERS: `_venue4626Value` values a BLOCKED venue at `_withdrawableOf`. Blocking a
+    ///       healthy V2 vault off its idle-only read would write its ENTIRE backing to zero in one call
+    ///       and break `D >= S + L` on a solvent protocol. The poke and the valuation must agree on the
+    ///       definition or the write-down contradicts its own trigger.
+    function test_PokeVaultHealth_HealthyMorphoV2_NotBlocked_Stable() public {
+        address venue = AUX.vaults(address(USDC));
+        if (venue == address(0)) { emit log("no USDC vault wired in this fixture"); return; }
+        // Only meaningful for a V2 vault: a v1.1 MetaMorpho reports a truthful max-view and the
+        // idle-only hazard does not arise. Prove the precondition rather than assuming it.
+        (bool isV2,) = venue.staticcall(abi.encodeWithSignature("liquidityAdapter()"));
+        if (!isV2) { emit log("USDC vault is not Morpho-V2 in this fixture"); return; }
+
+        QUID.mint(User01, 15_000 * USDC_PRECISION, address(USDC), 0);   // routes USDC into the vault
+        assertGt(IERC4626(venue).balanceOf(address(AUX)), 0, "Aux holds a real USDC position");
+        // THE PRECONDITION IS WHAT GIVES THIS TEST TEETH. Without it the final assertFalse could pass
+        // simply because nothing would ever have blocked the vault -- a vacuous pass, which is worse
+        // than a failure because it reports coverage that does not exist. Assert that the V2 max-view
+        // really does report 0 against the live position, so the poke HAD a reason to block and
+        // declined to.
+        assertEq(IERC4626(venue).maxWithdraw(address(AUX)), 0,
+            "precondition: the V2 max-view reports 0 against a live position");
+
+        AUX.pokeVaultHealth(venue);
+        assertFalse(AUX.vaultBlocked(venue),
+            "a HEALTHY Morpho-V2 stable venue must NOT be blockable off its idle-only max-view");
+    }
+
     // DELETED 2026-08-13 — test_PokeVaultHealth_HealthyMorphoV2_NotBlocked. It required the Vault to
     // hold a Galaxy WETH position, which no ETH deposit now creates.
     // ⚠️ COVERAGE LOST, SAY SO RATHER THAN LET IT VANISH: the property it guarded is still real and
