@@ -307,9 +307,9 @@ pub async fn drive_swap_out_onchain<R: JsonRpc + Send + Sync + 'static>(
 /// swap-out that really is pending, to the address that really requested it.
 ///
 /// ⚠️ NARROWED, NOT SEALED: `token` is still ours to assert, because
-/// `PendingOnchainSwapOut` does not store one. Pinning it is §T1-d (the struct has exactly
-/// 20 spare bytes, so it is free); until then this is the same class as T2, not a hole T1-b
-/// introduced.
+/// `PendingOnchainSwapOut` does not store one. Pinning it is §T1-d — free only if the struct
+/// is repacked (`sats` to `uint64`), not free as-is. Until then this is the same class as T2,
+/// not a hole T1-b introduced.
 async fn reverse_swap_out_onchain<R: JsonRpc + Send + Sync + 'static>(
     evm: &Arc<JsonRpcEvmClient<R, LocalSigner>>,
     req: &OnchainSwapOutRequest,
