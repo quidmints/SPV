@@ -92,7 +92,50 @@ process. **Closed structurally by §E175-a** — the heartbeat's vault is `Optio
 reverting it does not fail a test, it **fails to compile**. ⚠️ Residual: this is a property
 of the *deployment* (the fleet must not hold a vault seed), not of the code alone.
 
-## T5 🔴 OPEN — enclave image rotation has no TTL and no timelock
+## M1 🎯 THE ACTUAL SECURITY MODEL — every place a MALICIOUS HOP can still take value
+
+Owner, 2026-08-13: *"there should be no attestation gates of any kind anywhere because it's
+something a compromised enclave/daemon could replace with malicious code. **there should be no
+malicious code attacks possible**."*
+
+⇒ **The invariant is: NO PATH MAY DEPEND ON THE HOP BEING HONEST.** An attestation gate asserts
+an address runs approved *code*, which is only as strong as whoever controls the whitelist —
+and buys nothing against any of the attacks below, **every one of which is available to a hop
+running perfectly attested code**. That is why §E185's unwiring was the right direction and why
+T5 is struck: hardening a gate that should not exist is motion, not progress.
+
+**The list, in severity order. This is what "complete the security model" means:**
+
+| # | a malicious hop can… | why | fix |
+|---|---|---|---|
+| 1 | **conjure USD from nothing** — credit sats that never arrived, draining `POOLED_USD_BTC` | `settleSwapIn` takes the hop's WORD; the loss reaches QU!D holders who never opted into any enclave trust | §T1-e-r pre-proven buffer, then DELETE the entrypoint |
+| 2 | **spend any LP's funding UTXO alone** | the fleet process holds BOTH halves of the 2-of-2 (§E175-b: `daemon.rs:235` passes `Some(vault)` unconditionally) | the LP holds its own half — LP-hosted vault or the app |
+| 3 | **misdirect a proven credit** — choose the payee, the token and the USD floor | T2: only *the sats exist and landed* is proven | pin what can be pinned (§T1-d: the record has room for `token`) |
+| 4 | **revoke every LP's escape in one transaction** | T3: the shared freshness UTXO is bound into every emitted exit | per-channel freshness (fee cost unmeasured) |
+| 5 | **strand LPs on a stale balance** | exits pay `checkpointOf`; a hop that stops emitting freezes that number | deepen the ladder (§E187), checkpoint on every splice |
+
+⚠️ **Note what is NOT on this list: anything an attestation gate would have stopped.** That is
+the whole argument.
+
+## T5 ⛔ STRUCK — do not harden the attestation registry; it should not gate anything
+
+**Was:** *enclave image rotation has no TTL and no timelock*. Both are true of
+`AttestedHopRegistry`, and I implemented them (attestation expiry + a notice period on
+whitelisting, revocation deliberately instant) before the owner's direction above made clear the
+work was misdirected — **reverted unlanded.**
+
+⚠️ **Two things worth keeping from the attempt, because they were nearly shipped as settled:**
+(a) I wrote that the grant-delayed / revoke-instant asymmetry was *"the whole point"* and that a
+symmetric timelock *"would be a bug"*. **That was an overclaim.** Instant revocation is a global,
+no-notice halt: it disables every hop money path **and `emitDeadManExit`**, so the heartbeat stops
+refreshing exits and every LP is pushed onto its LAST-EMITTED exit at a possibly-stale checkpoint.
+One Safe transaction could wind the protocol down and impose a haircut. (b) That is the same
+single-point-of-revocation shape as T3 — and it is an argument for having no such gate at all,
+not for tuning it.
+
+▶️ **The registry is now referenced by NO code** — §E185 deleted every call site, leaving only
+comments (since corrected). Deleting the contract + its tests is the consistent next step; it is
+left as a decision only because deleting a whole contract deserves an explicit yes.
 
 `AttestedHopRegistry.governance` (a Safe) can attest and revoke image measurements. There is
 **no attestation expiry** (so a lapsed attestation still permits, rather than failing closed)

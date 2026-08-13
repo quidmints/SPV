@@ -72,14 +72,21 @@ import {SignatureChecker} from "@openzeppelin-submodule/utils/cryptography/Signa
 //  The historical text, for the record: it byte-matched the lpAuth-committed Q, so it did not prove
 //  on-chain that Q == KeyAgg(lp, hop). That 2-of-2 genuineness rests on the
 //  off-chain MuSig2 keygen (the LP recomputes Q from its own + the hop's key
-//  before signing lpAuth) + the hop-only msg.sender gate. SGX attestation IS wired
-//  as the trust anchor: `_requireAttested` calls
-//  `AttestedHopRegistry.isAttested` on the hop money-paths (openChannel, settleSwapIn,
-//  emitDeadManExit). It is GOVERNANCE-ARMED — a no-op until `setHopRegistry` pins the
-//  live registry, so any deployment/regtest that never pins it falls back to the
-//  two-address hop check (E164). Pinning the
-//  registry requires the born-in-enclave DCAP identity-quote flow (SGX hardware) so
-//  prod hops can actually attest; regtest has no real quote, hence the armed fallback.
+//  before signing lpAuth) + the hop-only msg.sender gate.
+//
+//  ⛔ ATTESTATION IS NOT A TRUST ANCHOR HERE, AND THIS COMMENT USED TO SAY IT WAS.
+//  It read "SGX attestation IS wired as the trust anchor: `_requireAttested` calls
+//  `AttestedHopRegistry.isAttested` on the hop money-paths". §E185 deleted every one of those
+//  call sites (they were a no-op while the registry was unpinned), so the sentence described
+//  code that no longer existed — and the direction is deliberate, not an accident of cleanup.
+//
+//  🔑 THE DESIGN POSITION (owner, 2026-08-13): "there should be no attestation gates of any
+//  kind anywhere… there should be no malicious code attacks possible." An attestation gate
+//  asserts that an address runs approved CODE, which (a) is only as strong as whoever controls
+//  the measurement whitelist, and (b) buys nothing against the attacks that actually matter —
+//  every one of them is available to a hop running perfectly attested code. The invariant to
+//  build toward is therefore stronger and simpler: NO PATH MAY DEPEND ON THE HOP BEING HONEST.
+//  Where that does not yet hold is enumerated in §M1, not papered over with a gate.
 //  NOTE: this is the SAME
 //  trust posture as the prior P2WSH path —
 //  that path reconstructed the script SHAPE but likewise never proved the LP
