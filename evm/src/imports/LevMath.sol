@@ -116,19 +116,16 @@ library LevMath {
     ///       a position anchored exactly at a boundary would flip on rounding.
     /// @dev Same `active` deletion as `ilTargetLive` — this gate is why re-anchoring NEVER FIRED in
     ///      production, including after the 2026-08-09 bounds-check rewrite.
-    function reanchorCompute(address hook, uint160 entrySqrtP, bool isBTC)
+    function reanchorCompute(address hook, uint160 entrySqrtP)
         public returns (bool go, uint160 newSqrtP) {
         if (hook == address(0) || entrySqrtP == 0) return (false, 0);
-        try ILevSyncHook(hook).bandSqrtP(isBTC) returns (uint160 v) { newSqrtP = v; } catch { return (false, 0); }
+        try ILevSyncHook(hook).bandSqrtP() returns (uint160 v) { newSqrtP = v; } catch { return (false, 0); }
         if (newSqrtP == 0) return (false, 0);
+        // ONE accessor pair. The hook is per-asset and answers for its own band, so there is no name
+        // to select — which is all the removed `isBTC` did here.
         int24 lo; int24 hi;
-        if (isBTC) {
-            try ILevSyncHook(hook).LOWER_TICK_BTC() returns (int24 l) { lo = l; } catch { return (false, 0); }
-            try ILevSyncHook(hook).UPPER_TICK_BTC() returns (int24 u) { hi = u; } catch { return (false, 0); }
-        } else {
-            try ILevSyncHook(hook).LOWER_TICK() returns (int24 l) { lo = l; } catch { return (false, 0); }
-            try ILevSyncHook(hook).UPPER_TICK() returns (int24 u) { hi = u; } catch { return (false, 0); }
-        }
+        try ILevSyncHook(hook).LOWER_TICK() returns (int24 l) { lo = l; } catch { return (false, 0); }
+        try ILevSyncHook(hook).UPPER_TICK() returns (int24 u) { hi = u; } catch { return (false, 0); }
         if (lo >= hi) return (false, 0);                       // band unset/degenerate → nothing to compare against
         if (entrySqrtP >= TickMath.getSqrtPriceAtTick(lo) &&
             entrySqrtP <= TickMath.getSqrtPriceAtTick(hi)) return (false, 0);   // still inside its own frame

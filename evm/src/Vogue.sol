@@ -951,8 +951,14 @@ contract Vogue is
 
     /// @notice The band's current spot √P (Q96) — the leverage records this as its `entrySqrtP` at open so
     ///         `soldFractionWad` can measure the IL from the true band price (not the oracle).
-    function bandSqrtP(bool isBTC) external view returns (uint160 sqrtP) {
-        (sqrtP,,) = V4.poolStats(0, 0, isBTC);
+    /// @dev NO isBTC ARGUMENT, deliberately. Vogue is the ETH band manager, so it reads the ETH pool
+    ///      — full stop. It previously FORWARDED the caller's flag, meaning `bandSqrtP(true)` returned
+    ///      the BTC pool's price from the ETH contract, while `Vault.bandSqrtP` IGNORED the same flag
+    ///      and always read BTC. Two implementations disagreeing about one parameter is a silent
+    ///      mis-pricing waiting on a hook mis-wiring: it returns the wrong asset's price rather than
+    ///      reverting. Each side now names its own asset and cannot be asked for the other's.
+    function bandSqrtP() external view returns (uint160 sqrtP) {
+        (sqrtP,,) = V4.poolStats(0, 0, false);
     }
 
     /// @notice θ derived live: yield / (K·σ²), clamped to ≤1. Body in VogueLib

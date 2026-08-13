@@ -407,7 +407,7 @@ contract LevManager is LevBase {
     function _reanchorIfReseated(address lp) internal {
         Types.Pos storage p = pos[lp];
         if (!p.open) return;
-        (bool go, uint160 s) = LevMath.reanchorCompute(vogueSyncHook, p.entrySqrtP, false);
+        (bool go, uint160 s) = LevMath.reanchorCompute(vogueSyncHook, p.entrySqrtP);
         if (!go) return;
         uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         // (A): a reseat REALIZES the accrued IL, so re-anchor E0 to the position's CURRENT net-equity (the new
@@ -452,7 +452,7 @@ contract LevManager is LevBase {
         uint256 e0 = _collToEth(venue, collWeeth);   // (A): the deposit (weETH→ETH rate, or WETH 1:1) is the IL base
         uint160 entrySqrtP;
         if (vogueSyncHook != address(0)) {
-            try ILevSyncHook(vogueSyncHook).bandSqrtP(false) returns (uint160 s) { entrySqrtP = s; } catch {}
+            try ILevSyncHook(vogueSyncHook).bandSqrtP() returns (uint160 s) { entrySqrtP = s; } catch {}
         }
         pos[msg.sender] = Types.Pos({venue: venue, targetLtvCapBps: targetLtvBps, entryPriceWad: uint128(entryPx),
                                e0: uint128(e0), entrySqrtP: entrySqrtP, open: true});

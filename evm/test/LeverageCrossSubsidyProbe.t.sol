@@ -23,7 +23,7 @@ interface IMorphoTest {
     function position(bytes32 id, address user) external view returns (uint256, uint128, uint128);
 }
 interface IMorphoOraclePrice { function price() external view returns (uint256); }
-interface ILevBandView { function bandSqrtP(bool isBtc) external view returns (uint160); }
+interface ILevBandView { function bandSqrtP() external view returns (uint160); }
 
 /// Morpho IOracle from REAL sources (weETH→ETH ether.fi rate × real Chainlink ETH/USD), 1e36-scaled. No mock price.
 contract RealRateMorphoOracle {
@@ -169,7 +169,7 @@ contract LeverageCrossSubsidyProbe is Alles {
         vm.deal(PASSIVE, 20 ether);
         vm.prank(PASSIVE); uint shares = V4.deposit{value: 10 ether}(0, PASSIVE);
         require(shares > 0 && CORE.POOLED_ETH() > 0, "no in-range pool for the passive LP");
-        uint160 startSqrt = ILevBandView(address(V4)).bandSqrtP(false);   // shared rally reference for both arms
+        uint160 startSqrt = ILevBandView(address(V4)).bandSqrtP();   // shared rally reference for both arms
 
         uint snap = vm.snapshotState();
 
