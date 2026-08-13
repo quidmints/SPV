@@ -90,6 +90,20 @@ environment actually is*. Every line below was verified in-repo, not recalled.
 - **Line count is not identity.** Same-named, same-sized files can be complementary halves — `diff`
   before calling anything a duplicate, and find the *live* copy before editing.
 - **Check the mechanism before building around it.** The fix is usually smaller, or somewhere else.
+- ⛔ **A `dead_code` WARNING IN THIS REPO IS SOMETIMES A DELIBERATE MARKER FOR A GAP. `git log -S`
+  THE SYMBOL BEFORE DELETING IT.** `create_sweep_tx` has now been deleted **twice** and restored
+  twice by people reading "never used" as litter — and the restoring commit (`36d0de2`) says so
+  outright: *"the dead_code warning therefore returns, and it is now accurate: it marks a real gap
+  (missing authorized trigger), not litter to delete."* One `git log -S "<symbol>"` would have
+  surfaced that in seconds, both times. **Rule 1 deletes UNREACHABLE code; it does not delete a
+  maintained, tested function whose caller is a security feature nobody has built yet** — that
+  distinction is the whole difference, and "the seed migrates so a sweep is unnecessary" was the
+  plausible-sounding argument that got it wrong the second time (it covers the successor-enclave
+  case, not decommissioning or evacuation to an address the seed does not derive).
+- ⚠️ **TEST THE CRATE YOU EDITED.** That deletion was "verified" with
+  `cargo test -p quid-hop -p quid-bridge` while the edit was in **`quid-ln`**, whose test at
+  `wallet.rs:2701` calls the deleted function. The run was green because the crate was never
+  compiled. A green suite is what an uncompiled crate produces.
 - **EXISTING MACHINERY IS POSITIVE EVIDENCE. Weigh it against your own search.** If you conclude a
   path is unreachable, ask what the code that serves it is *for* — nobody builds an owed ledger, a
   settlement entrypoint, an event and a daemon for a case that cannot occur. On 2026-08-09 three

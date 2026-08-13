@@ -1246,11 +1246,67 @@ impl OnchainWallet {
             .context("Failed to create payment")
     }
 
-    // (2026-08-13) `create_sweep_tx` — a drain-the-wallet builder — was DELETED here as dead
-    // code: nothing in the workspace called it, and nothing should. A successor enclave
-    // inherits this wallet by DERIVING it from the migrated seed (`provision_api` carries the
-    // root seed), so decommissioning never needs to move coins to a fresh wallet. Re-adding a
-    // sweep would mean the seed no longer travels — check that premise first.
+    /// Create a sweep transaction that drains all funds from the wallet to
+    /// `dest_address`.
+    ///
+    /// ⛔ **ITS `dead_code` WARNING IS DELIBERATE — DO NOT DELETE THIS TO SILENCE IT. It has now
+    /// been deleted TWICE and restored twice** (`36d0de2`, then again 2026-08-13), each time by
+    /// someone reading "never used" as litter. **The warning is a MARKER FOR A REAL GAP: there
+    /// is no authorized trigger**, not evidence the code is unwanted. The body is maintained
+    /// (updated for the BIP86 P2TR migration) and its test covers real invariants — conservation
+    /// (`swept output + fee == inputs`), dust rejection, and no double-sweep after broadcast.
+    ///
+    /// 🔑 **WHY IT IS NOT SIMPLY WIRED UP:** *"send the entire balance to address X"* is the same
+    /// severity as a seed export, and this codebase already has the control for that —
+    /// `migration.rs` guards seed export with an EIP-712 `MigrationAuth` bound to the operator
+    /// Safe, ≥ `MIGRATION_THRESHOLD` owner signatures verified in-enclave by `ecrecover`, plus
+    /// `guard_prod_trust_anchors`. A drain must reuse that shape (a `SweepAuth` mirroring
+    /// `MigrationAuth`), which is a security feature deserving its own run — not a wire-up.
+    ///
+    /// ⚠️ **And "the seed migrates, so a sweep is unnecessary" is NOT a reason to delete it** —
+    /// that was the argument used the second time. Seed migration covers the successor-enclave
+    /// case; it does not cover decommissioning to a treasury or an emergency evacuation to an
+    /// address the seed does not derive.
+    pub(crate) fn create_sweep_tx(
+        &self,
+        dest_address: &bitcoin::Address,
+        priority: ConfirmationPriority,
+    ) -> anyhow::Result<(Transaction, Amount)> {
+        let dest_script = dest_address.script_pubkey();
+        let feerate = self.fee_estimates.conf_prio_to_feerate(priority);
+
+        let mut locked_wallet = self.inner.write().unwrap();
+
+        // Build drain transaction using BDK's drain_wallet + drain_to. This
+        // will fail if the balance is dust (can't cover fees).
+        let mut tx_builder = locked_wallet.build_tx();
+        tx_builder
+            .drain_wallet()
+            .drain_to(dest_script)
+            .fee_rate(feerate);
+
+        let mut psbt =
+            tx_builder.finish().context("Failed to build sweep tx")?;
+
+        // Get the sweep tx fee
+        let fee = psbt.fee().context("Bad sweep fee")?;
+        let fee = Amount::try_from(fee).context("Bad sweep fee amount")?;
+
+        // Sign the transaction. Uses the shared helper rather than repeating
+        // `SignOptions::default()` + a finalized check: the semantics here are IDENTICAL
+        // to it (every input is ours, so signing must finalize), and a single signing
+        // implementation is one place to enforce policy rather than three.
+        Self::default_sign_psbt(&locked_wallet, &mut psbt)
+            .context("Failed to sign sweep tx")?;
+        let tx = psbt
+            .extract_tx()
+            .context("Failed to extract signed sweep tx")?;
+
+        // NOTE(phlip9): don't need to trigger_persist(), as we don't need to
+        // e.g. reveal a change address when sweeping the wallet.
+
+        Ok((tx, fee))
+    }
 
     /// Estimate the network fee for a potential onchain send payment. We return
     /// estimates for each [`ConfirmationPriority`] preset.
