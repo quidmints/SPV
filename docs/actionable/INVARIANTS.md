@@ -54,7 +54,14 @@ Status legend: **[A]** asserted somewhere today · **[U]** unasserted anywhere.
 
 - **[U] Credited sats ≤ sats provably paid to the derived deposit address.** ⚠️ Only holds on
   the proven path — **T1 says the unproven `settleSwapIn` still exists**, so this invariant
-  is *how you would detect* that trapdoor being used.
+  is *how you would detect* that trapdoor being used. ✅ The on-chain deposit rail now settles
+  through `settleSwapInProven` (§T1-c), so it holds there; the LN rail is the remaining hole.
+- **[U] `Σ swap-in credits issued ≤ Σ SPV-proven sats spliced into custody`, per hop.** 🎯 This
+  is the whole of §T1-e-r stated as one property, and it is the reason that design needs no
+  bond: if it holds at every moment, **no credit was ever issued against sats that were not
+  already in custody** — which is exactly what the unproven entrypoint cannot promise. Note it
+  is deliberately a RUNNING-TOTAL inequality rather than a per-swap match: sats are fungible, so
+  the invariant is about the balance, not about which coins settled which swap.
 - **[A] Deposit dedup is on the outpoint, not a hop-chosen hash** (`swapInUsed[txid]`).
 - **[U] `swapOutUsed` and `swapInUsed` never both hold for one id** — the strand that would
   make a swap both undeliverable and unreversible.
