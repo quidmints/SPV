@@ -298,6 +298,38 @@ fn recover_signer(digest: &[u8; 32], sig: &[u8]) -> anyhow::Result<Address> {
         .context("ecrecover failed")?;
     Ok(crate::evm_codec::evm_address_of(&pk))
 }
+/// The threshold check BOTH operator-authorized powers run — seed export and wallet drain.
+///
+/// 🔑 **ONE COPY ON PURPOSE.** The two powers legitimately differ in their PAYLOAD (a successor
+/// measurement vs a destination address), so they have different digests. They do **not** differ
+/// in how a quorum is established, and the first version of the sweep path duplicated this loop.
+/// Two copies of one security check is exactly the drift §E178 was booked for: a fix applied to
+/// one and not the other is invisible until it matters.
+///
+/// What it enforces: every signature recovers to an address in `owners`, DISTINCT owners only
+/// (a single compromised key must not reach any threshold by signing repeatedly), and at least
+/// `threshold` of them. `what` names the power in the error, so a failure says which one.
+fn verify_threshold_signatures(
+    digest: &[u8; 32],
+    signatures: &[Vec<u8>],
+    owners: &[Address],
+    threshold: usize,
+    what: &str,
+) -> anyhow::Result<()> {
+    let mut signers: HashSet<Address> = HashSet::new();
+    for sig in signatures {
+        let addr = recover_signer(digest, sig).context("invalid operator signature")?;
+        ensure!(owners.contains(&addr), "signature from non-owner address {addr}");
+        signers.insert(addr); // distinct owners only
+    }
+    ensure!(
+        signers.len() >= threshold,
+        "{what} needs {threshold} distinct operator signatures, got {}",
+        signers.len(),
+    );
+    Ok(())
+}
+
 
 /// Verify a migration authorization bundle: ≥`threshold` DISTINCT Safe-owner
 /// (`owners`) signatures over the SAME EIP-712 [`MigrationAuth`], bound to the
@@ -328,19 +360,9 @@ pub fn verify_migration_auth(
         bundle.auth.network,
     );
 
-    let digest = bundle.auth.eip712_digest();
-    let mut signers: HashSet<Address> = HashSet::new();
-    for sig in &bundle.signatures {
-        let addr = recover_signer(&digest, sig).context("invalid operator signature")?;
-        ensure!(owners.contains(&addr), "signature from non-owner address {addr}");
-        signers.insert(addr); // distinct owners only
-    }
-
-    ensure!(
-        signers.len() >= threshold,
-        "migration needs {threshold} distinct operator signatures, got {}",
-        signers.len(),
-    );
+    verify_threshold_signatures(
+        &bundle.auth.eip712_digest(), &bundle.signatures, owners, threshold, "migration",
+    )?;
     // Return the authorized measurement AND the anti-replay nonce; the caller MUST consume
     // the nonce on-chain (markMigrationNonceUsed) before exporting the seed, so a replayed
     // bundle is rejected (the nonce is already used).
@@ -490,18 +512,9 @@ pub fn verify_sweep_auth(
     );
     ensure!(!bundle.auth.destination.is_empty(), "sweep auth destination is empty");
 
-    let digest = bundle.auth.eip712_digest();
-    let mut signers: HashSet<Address> = HashSet::new();
-    for sig in &bundle.signatures {
-        let addr = recover_signer(&digest, sig).context("invalid operator signature")?;
-        ensure!(owners.contains(&addr), "signature from non-owner address {addr}");
-        signers.insert(addr); // distinct owners only
-    }
-    ensure!(
-        signers.len() >= threshold,
-        "sweep needs {threshold} distinct operator signatures, got {}",
-        signers.len(),
-    );
+    verify_threshold_signatures(
+        &bundle.auth.eip712_digest(), &bundle.signatures, owners, threshold, "sweep",
+    )?;
     Ok((bundle.auth.destination, bundle.auth.nonce))
 }
 
