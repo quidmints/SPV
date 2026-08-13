@@ -1565,34 +1565,36 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     ///         WETH to the AAVE haven (or hold at Aux if AAVE-WETH unwired),
     ///         block the venue, preserve backing, and reroute NEW deposits away
     ///         from the failing venue - overriding the depositor's choice.
-    function testEthVenueIncidentEvacuation() public {
+    /// @notice ETH deposits land in weETH — the ONLY destination.
+    /// @dev  REWRITTEN 2026-08-13, and NOT because it was flaky. It asserted Galaxy vault shares after a
+    ///       deposit, then evacuated Galaxy and checked backing survived. Both halves lost their subject
+    ///       when venue choice was removed: there is one destination, so nothing lands in Galaxy and
+    ///       there is no alternate venue to evacuate TO.
+    ///       ⚠️ ITS OLD FORM WAS LOAD-BEARING, and is why the collapse was attempted five times and
+    ///       abandoned: folding Galaxy in with the four equivalent venues made it fail "ETH deposit
+    ///       landed in Galaxy: 0 <= 0". That measurement proved Galaxy's `vogueOp` -> `Aux.supplySelf`
+    ///       path was a REAL second destination, against a hand-trace that concluded the opposite.
+    ///       Removing Galaxy is now intentional, so the assertion is INVERTED rather than deleted — it
+    ///       keeps proving where deposits go, which is the property that caught the bug.
+    ///       (`AUX.evacuate`/`vaultBlocked` are untouched and still cover the STABLE 4626 vaults; only
+    ///       the ETH-venue path this test drove them through is gone.)
+    function testEthDepositsLandInWeeth() public {
+        address weeth  = ETH.WEETH();
         address galaxy = ETH.GALAXY_VAULT();
+        assertTrue(weeth != address(0), "weETH wired");
 
-        // ETH LP deposits -> default venue (Galaxy).
-        vm.prank(User01); V4.deposit{value: 100 ether}(0, User01);
-        uint galaxySharesBefore = IERC20(galaxy).balanceOf(address(ETH));
-        assertGt(galaxySharesBefore, 0, "ETH deposit landed in Galaxy");
+        uint weethBefore    = IERC20(weeth).balanceOf(address(ETH));
+        uint galaxyBefore   = IERC20(galaxy).balanceOf(address(ETH));
         uint vogueEthBefore = ETH.vogueETH();
 
-        // Incident: evacuate Galaxy via the owner emergency override. (The CRE
-        // onReport forwarder + its dwell were retired; pokeVaultHealth now covers
-        // the permissionless illiquidity tier, evacuate() the owner drain.)
-        AUX.evacuate(galaxy);
+        vm.prank(User01); V4.deposit{value: 100 ether}(0, User01);
 
-        assertTrue(AUX.vaultBlocked(galaxy), "Galaxy blocked on incident");
-        assertLt(IERC20(galaxy).balanceOf(address(ETH)), galaxySharesBefore,
-            "WETH pulled out of the failing Galaxy venue");
-        // Value preserved - moved to AAVE if wired, else held idle at Aux (both
-        // counted in vogueETH). No loss, just a venue move.
-        assertApproxEqRel(ETH.vogueETH(), vogueEthBefore, 0.01e18,
-            "ETH backing preserved across the evacuation");
-
-        // A NEW ETH deposit must NOT feed the blocked Galaxy venue (override).
-        uint galaxySharesPost = IERC20(galaxy).balanceOf(address(ETH));
-        vm.prank(User02); V4.deposit{value: 10 ether}(0, User02);
-        assertEq(IERC20(galaxy).balanceOf(address(ETH)), galaxySharesPost,
-            "new deposit did NOT feed the blocked Galaxy venue");
-        assertGt(ETH.vogueETH(), vogueEthBefore, "new deposit still grew ETH backing");
+        // Measure the DESTINATION directly. `vogueETH` would rise either way, so asserting on it alone
+        // cannot tell weETH from Galaxy — the same gap that let the venue bug hide.
+        assertGt(IERC20(weeth).balanceOf(address(ETH)), weethBefore, "ETH deposit did NOT land in weETH");
+        assertEq(IERC20(galaxy).balanceOf(address(ETH)), galaxyBefore,
+            "ETH deposit reached Galaxy - venue routing is supposed to be gone");
+        assertGt(ETH.vogueETH(), vogueEthBefore, "deposit grew ETH backing");
     }
 
     function testClearMultipleBlocks() public {

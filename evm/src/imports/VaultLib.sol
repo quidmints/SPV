@@ -51,9 +51,6 @@ library VaultLib {
     struct EthCfg {
         address weth;
         address aux;
-        address galaxy;
-        address euler;
-        address gauntlet;
         address aaveSpoke;
         uint256 wethReserveId;
         address weeth;
@@ -109,22 +106,9 @@ library VaultLib {
         return _aaveBal(c);
     }
 
-    /// @dev The WETH-4626 curator set, in ONE place. Every consumer (`_vogueETH` value sum,
-    ///      `deliverableETH` caps, the `withdrawETH` pull ladder, the `evacuate` membership check)
-    ///      used to enumerate `c.galaxy`/`c.euler`/`c.gauntlet` by hand — 9 sites over 3 addresses,
-    ///      so a 4th curator meant editing every one and an omission was silent. Now they loop.
-    ///      NOTE the slots MUST stay pairwise distinct: these are SUMMED into backing, so aliasing
-    ///      two of them double-counts (measured: vogueETH 14 for a 10 ETH deposit when gauntlet
-    ///      aliased euler). `Vault`'s ctor enforces distinctness ("vault:dupVenue").
-    function _venues(EthCfg memory c) internal pure returns (address[3] memory) {
-        return [c.galaxy, c.euler, c.gauntlet];
-    }
-
     /// @dev Body of Vault.vogueETH — AGGREGATE ETH-equivalent backing across the
     ///      depositor-chosen venues.
     function _vogueETH(EthCfg memory c) internal view returns (uint total) {
-        address[3] memory venues = _venues(c);
-        for (uint i; i < 3; ++i) total += _venue4626Value(venues[i], c.aux);
         if (c.weeth != address(0)) {
             uint w = IERC20(c.weeth).balanceOf(address(this));
             if (w > 0) total += IWeETH(c.weeth).getEETHByWeETH(w);
@@ -200,8 +184,6 @@ library VaultLib {
     ///         19.4%-short figure that measurement showed to be stale (~3%, and DEFERRED not lost).
     function deliverableETH(EthCfg memory c) public view returns (uint total) {
         total = _vogueETH(c);
-        address[3] memory venues = _venues(c);
-        for (uint i; i < 3; ++i) total = _deliverableCap(venues[i], c.aux, total);
         // The leverage net-equity is solvency backing (now counted in vogueETH as net) but NOT deliverable
         // from this Vault (unwind-only via closeLev -- the LP gets it back by repaying debt + withdrawing coll,
         // not from redemption). Exclude the same net-equity term vogueETH added, so deliverableETH == base
@@ -231,21 +213,18 @@ library VaultLib {
         return amount;
     }
 
-    /// @notice WETH supply — default Galaxy (Morpho 4626). Only WETH is accepted.
+    /// @notice WETH supply — into weETH. Only WETH is accepted.
+    /// @dev  REPOINTED FROM GALAXY 2026-08-13. This is the destination for WETH swept by SwapLib
+    ///       (`:179`, `:190`, `:234` via `Aux.supplySelf`), which is a LIVE path — it is NOT part of the
+    ///       depositor-venue surface that was deleted, and must not be removed with it. With the
+    ///       WETH-4626 curators gone it had no destination left, so it routes where every other ETH
+    ///       supply now routes: the ether.fi adapter.
     function supplyETH(EthCfg memory c, address token, uint amount) public returns (uint) {
         require(token == c.weth, "ethv:notWeth");
-        return _supply4626(c, c.galaxy, amount);
+        return supplyVenueBody(c, 1, amount, address(this));
     }
 
-    /// @notice ETH-venue = Euler (second WETH 4626 curator).
-    function supplyEuler(EthCfg memory c, uint amount) public returns (uint) {
-        return _supply4626(c, c.euler, amount);
-    }
 
-    /// @notice ETH-venue = Gauntlet (third WETH 4626 curator).
-    function supplyGauntlet(EthCfg memory c, uint amount) public returns (uint) {
-        return _supply4626(c, c.gauntlet, amount);
-    }
 
     /// @notice Consolidated venue-supply body — the `transferFrom` + venue call for every ETH supply wrapper, so the
     ///         Vault forwarders keep ONLY their `NotVogueCore`/`NotAux` gate (bytecode OUTSIDE the EIP-170-critical
@@ -385,9 +364,6 @@ library VaultLib {
                 wethBal = IERC20(c.weth).balanceOf(address(this));
         }
         if (wethBal < amount) {
-            // Galaxy + Euler are fungible; pull from each at its maxWithdraw.
-            address[3] memory venues = _venues(c);
-            for (uint i; i < 3; ++i) _pull4626(c, venues[i], amount);
             wethBal = IERC20(c.weth).balanceOf(address(this));
             // Still short → pull from the AAVE-v4 WETH venue (ETH venue 2).
             if (wethBal < amount && c.aaveSpoke != address(0)) {   // reserve 0 is valid
@@ -415,12 +391,12 @@ library VaultLib {
     ///         4626 curator (Galaxy or Euler): pull the WITHDRAWABLE WETH to the
     ///         AAVE haven (or hold at the Vault if AAVE-WETH is unwired).
     function evacuate(EthCfg memory c, address vault) public {
-        // Membership over the ONE curator set (see `_venues`). The old hand-rolled disjunction had to
-        // special-case `vault != address(0)` per slot to stop an UNWIRED (zero) venue matching a zero
-        // `vault` argument; hoisting that single check covers all slots at once.
-        require(vault != address(0), "ethv:notVenue");
-        address[3] memory venues = _venues(c);
-        require(vault == venues[0] || vault == venues[1] || vault == venues[2], "ethv:notVenue");
+        // ETH-VENUE CURATOR SET REMOVED 2026-08-13 — there is nothing left to be a member of. Every ETH
+        // deposit is weETH, so no WETH-4626 curator (Galaxy/Euler/Gauntlet) holds protocol ETH and this
+        // body has no target. The `require(vault != 0)` above is retained so a caller that still reaches
+        // here fails loudly rather than silently draining nothing.
+        // ⚠️ `AUX.evacuate`/`vaultBlocked` themselves are NOT dead — they still cover the STABLE 4626
+        // vaults, which are a different set and untouched by the ETH work.
         // Same ONE definition as the ladder (see `_withdrawableOf`), which for a Morpho-V2 venue is the
         // full reported position rather than its idle-only `maxWithdraw`. That matters most here:
         // Galaxy and Gauntlet both sit at 0 idle by policy, so the old bare `maxWithdraw` read returned
