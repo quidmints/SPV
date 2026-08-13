@@ -4,14 +4,18 @@
 //! This is the daemon plumbing around the audited crypto in
 //! [`quid_ln::deadman_exit`]: it NEVER touches key material.
 //!
-//! ⚠️ **THIS HEADER USED TO SAY "same process = the fleet holds both halves" FLATLY, AND
-//! THAT IS NO LONGER TRUE — it describes only the FLEET-HOSTED vault deployment.** Since
-//! §E175 the vault is an `Option` and its absence is the security split (see
-//! [`run_deadman_exit_heartbeat`]): in the **LP-hosted** deployment the vault node runs on the
-//! LP's own always-on box with the LP's own seed, this process has no vault node to pass, and
-//! **the heartbeat does not run at all** — exits come from the §E165 ladder the LP pre-signed
-//! at open. A stale comment is false evidence; this one was quoted into another repo's spec
-//! before it was caught.
+//! ⚠️ **READ THIS BEFORE QUOTING EITHER THIS HEADER OR [`run_deadman_exit_heartbeat`]'S DOC —
+//! THEY DESCRIBE A DEPLOYMENT NO CONFIGURATION CURRENTLY PRODUCES.** §E175 made the vault an
+//! `Option` and made its absence the security split, and that half is real and enforced: the
+//! heartbeat disables itself on `None` and must never re-derive the half locally. **But
+//! `daemon.rs:235` passes `Some(vault.clone())` UNCONDITIONALLY** — there is no flag, config
+//! or binary that starts the fleet without a vault seed. ⇒ **In every deployment that ships
+//! today, one process still reaches both funding halves**, exactly as `daemon.rs:228-229`
+//! says outright (*"the fleet runs both halves in-process"*).
+//!
+//! ⇒ The `Option` is the MECHANISM for the LP-hosted split, not evidence the split is live.
+//! What is missing is the deployment: a vault-only mode and LP seed provisioning (§E175
+//! remainder). Do not report the both-halves trapdoor as closed on the strength of the type.
 //!
 //! Per open vault-owned channel, each heartbeat tick it
 //! 1. re-derives BOTH funding-half signers (the hop node's + the vault node's) off their OWN
