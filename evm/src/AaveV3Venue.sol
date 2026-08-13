@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {LevVenueBase, ILevERC20} from "./imports/LevVenueBase.sol";
+import {LevVenueBase} from "./imports/LevVenueBase.sol";
+import {IERC20Min} from "./imports/ILevVenue.sol";
 
 /// ── Aave V3 Pool surface this adapter needs. Signatures proven against the LIVE Aave V3 Pool by the (tested)
 ///    Amp.sol integration: supply(asset,amt,onBehalf,ref) / borrow(asset,amt,rateMode,ref,onBehalf) /
@@ -42,8 +43,8 @@ contract AaveV3Escrow {
         VENUE = msg.sender;
         POOL = pool; COLLATERAL = coll; STABLE = stable;
         // Max-approve the POOL once: supply/repay pull the tokens via transferFrom in the Pool's context.
-        ILevERC20(coll).approve(address(pool), type(uint256).max);
-        ILevERC20(stable).approve(address(pool), type(uint256).max);
+        IERC20Min(coll).approve(address(pool), type(uint256).max);
+        IERC20Min(stable).approve(address(pool), type(uint256).max);
     }
 
     /// Supply `amt` collateral (already transferred in by the venue) → the escrow's own Aave account, marked as
@@ -55,17 +56,17 @@ contract AaveV3Escrow {
 
     /// Borrow `amt` stable (variable rate) against this account, forward to `to` (venue → MANAGER). Returns delivered.
     function borrowStable(uint256 amt, address to) external onlyVenue returns (uint256 got) {
-        uint256 bef = ILevERC20(STABLE).balanceOf(address(this));
+        uint256 bef = IERC20Min(STABLE).balanceOf(address(this));
         POOL.borrow(STABLE, amt, VARIABLE_RATE, 0, address(this));
-        got = ILevERC20(STABLE).balanceOf(address(this)) - bef;
-        if (got > 0) ILevERC20(STABLE).transfer(to, got);
+        got = IERC20Min(STABLE).balanceOf(address(this)) - bef;
+        if (got > 0) IERC20Min(STABLE).transfer(to, got);
     }
 
     /// Repay `amt` stable (already transferred in by the venue). Returns ASSETS actually spent (balance delta).
     function repayStable(uint256 amt) external onlyVenue returns (uint256 spent) {
-        uint256 bef = ILevERC20(STABLE).balanceOf(address(this));
+        uint256 bef = IERC20Min(STABLE).balanceOf(address(this));
         POOL.repay(STABLE, amt, VARIABLE_RATE, address(this));
-        spent = bef - ILevERC20(STABLE).balanceOf(address(this));
+        spent = bef - IERC20Min(STABLE).balanceOf(address(this));
     }
 
     /// Withdraw `amt` collateral straight to `to` (venue → MANAGER). V3's withdraw sends to `to` and returns the amount.
@@ -110,7 +111,7 @@ contract AaveV3Venue is LevVenueBase {
         if (collAmount == 0) return 0;
         AaveV3Escrow e = escrowOf[lp];
         if (address(e) == address(0)) { e = new AaveV3Escrow(POOL, COLLATERAL, STABLE); escrowOf[lp] = e; }
-        ILevERC20(COLLATERAL).transfer(address(e), collAmount); // MANAGER already sent it to the venue
+        IERC20Min(COLLATERAL).transfer(address(e), collAmount); // MANAGER already sent it to the venue
         e.supplyColl(collAmount);
         return collAmount;
     }
@@ -127,7 +128,7 @@ contract AaveV3Venue is LevVenueBase {
         uint256 d = debtOf(lp);
         uint256 r = stableAmount > d ? d : stableAmount;   // never over-repay (clamp to current debt)
         if (r == 0) return 0;
-        ILevERC20(STABLE).transfer(address(e), r);          // stable already transferred in by MANAGER
+        IERC20Min(STABLE).transfer(address(e), r);          // stable already transferred in by MANAGER
         return e.repayStable(r);
     }
 

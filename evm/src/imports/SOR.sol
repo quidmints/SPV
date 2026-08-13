@@ -11,7 +11,7 @@ import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
 import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20}   from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {FeeLib}      from "./FeeLib.sol";
-import {IV3SwapRouter} from "./v3/IV3SwapRouter.sol";
+import {IV3Router, V3_SWAP_ROUTER} from "./Interfaces.sol";
 import {IAux} from "./Interfaces.sol";
 
 /// @notice A swap path is a chain of V4 hops sharing an entry stable +
@@ -284,16 +284,15 @@ library SOR {
         return _v3Route(weth, targetStable, amountIn, recipient, minOut);
     }
 
-    address private constant V3_ROUTER_SF = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45; // Uniswap V3 SwapRouter02
     address private constant USDC_HUB      = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48; // multi-hop intermediary
     /// @dev Uniswap V3 as a FIRST-CLASS SOR route (used by BOTH self-funded directions): try the direct
     ///      `tokenIn`/`tokenOut` pool (0.05% then 0.30% tiers), then a 2-hop via the deep USDC hub
     ///      (`tokenIn`/USDC 0.05% -> USDC/`tokenOut` 0.05% then 0.30%) for a stable with no deep direct WETH pool.
     ///      Multi-hop, `minOut`-floored (anti-MEV); returns 0 (=> caller reverts) iff no tier/route fills. External
-    ///      real markets only — never the reserve. Reuses the offramp's IV3SwapRouter leg; no new dependency.
+    ///      real markets only — never the reserve. Reuses the offramp's IV3Router leg; no new dependency.
     function _v3Route(address tokenIn, address tokenOut, uint amountIn, address recipient, uint minOut)
         private returns (uint) {
-        IERC20OZ(tokenIn).forceApprove(V3_ROUTER_SF, amountIn);
+        IERC20OZ(tokenIn).forceApprove(V3_SWAP_ROUTER, amountIn);
         bytes[4] memory paths;
         uint n;
         paths[n++] = abi.encodePacked(tokenIn, uint24(500), tokenOut);
@@ -303,7 +302,7 @@ library SOR {
             paths[n++] = abi.encodePacked(tokenIn, uint24(500), USDC_HUB, uint24(3000), tokenOut);
         }
         for (uint i; i < n; i++) {
-            try IV3SwapRouter(V3_ROUTER_SF).exactInput(IV3SwapRouter.ExactInputParams({
+            try IV3Router(V3_SWAP_ROUTER).exactInput(IV3Router.ExactInputParams({
                 path: paths[i], recipient: recipient, amountIn: amountIn, amountOutMinimum: minOut
             })) returns (uint out) { if (out > 0) return out; } catch { /* try next route */ }
         }

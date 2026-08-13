@@ -24,29 +24,15 @@ import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 import {SafeCallback} from "v4-periphery/src/base/SafeCallback.sol";
-import {IAaveV4Spoke} from "./imports/Interfaces.sol";
-import {IAaveV4Hub} from "./imports/Interfaces.sol";
-import {ICollection} from "./imports/Interfaces.sol";
-import {IEthVenue} from "./imports/Interfaces.sol";
+// §rule-2: Interfaces.sol is the canonical declaration site. `IBTCChannels` and `IBtcVault` were
+// declared HERE as well, byte-identically — so a signature change had to be made twice and a missed
+// one still compiled. `IBtcVault` is gone outright: its `repack` was dead AND drifted (4 returns
+// against an implementation returning 5), and its one live member `setBTCChannels` is called on
+// `ethVenue` — the very address every `IEthVenue` call targets — so it belongs on that interface.
+import {IAaveV4Spoke, IAaveV4Hub, ICollection, IEthVenue, IBTCChannels} from "./imports/Interfaces.sol";
 
 
 /// AAVE-v4 GHO spoke. Aux self-supplies via the self-allow trampoline.
-
-
-/// Read-only view into BTCChannels for swap-out recipient resolution.
-interface IBTCChannels {
-    function btcRecipientOf(address user) external view returns (bytes32);
-}
-
-/// BtcVault (regrouped BTC side). Aux drives the BTC pool's repack from the
-/// public WBTC swap path + the backing-invariant healer, and pins the
-/// BTCChannels address on it (mirroring the old V4.setBTCChannels). The BTC
-/// LP accounting + swap-credit live entirely on BtcVault.
-interface IBtcVault {
-    function repack(bool isBTC) external returns (uint160 sqrtPriceX96,
-        int24 tickLower, int24 tickUpper, uint128 myLiquidity);
-    function setBTCChannels(address b) external;
-}
 
 /// EthVenue — the ETH yield-venue custody (Galaxy/AAVE/ether.fi WETH), carved
 /// out of Aux. Aux keeps thin forwarders (vogueETH/arbETH) for callers that
@@ -1284,7 +1270,7 @@ contract Aux is // Auxiliary
         // independent accounting domains (channels store sats for routing/
         // swap-out, the V4 BTC pool holds mockBTC/mockUSD_BTC for spot
         // liquidity).
-        IBtcVault(ethVenue).setBTCChannels(b);
+        IEthVenue(ethVenue).setBTCChannels(b);
     }
 
     // Rover (protocol-owned weETH/WETH LP) wiring + setRover/supplyEtherFiToRover

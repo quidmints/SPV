@@ -5,7 +5,7 @@ import {FixedPointMathLib} from "solady/src/utils/FixedPointMathLib.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 // §A.52: the canonical view (was a file-local `ILevSyncHookM`).
 import {ILevSyncHook, IAux, IWeETH, IWiredVault,
-        IDepositAdapter, ILevVenueColl, ILevMintVenue} from "./Interfaces.sol";
+        IDepositAdapter, ILevVenueColl, ILevMintVenue, IV3Router, V3_SWAP_ROUTER} from "./Interfaces.sol";
 import {ILevVenue, IERC20Min, IWETH9} from "../imports/ILevVenue.sol";
 import {IMorphoFlash} from "../imports/Interfaces.sol";
 
@@ -23,13 +23,6 @@ import {IMorphoFlash} from "../imports/Interfaces.sol";
 /// hook address in. All view: the Vogue impls are all view (soldFractionWad/bandSqrtP are
 /// `view` fns, reseatEpoch is a `public` state var), and `view` external calls are STATICCALL-safe inside the
 /// try/catch below (Solidity allows try/catch on view calls) and callable from both view and non-view callers.
-interface ISwapRouter02M {
-    struct ExactInputSingleParams {
-        address tokenIn; address tokenOut; uint24 fee; address recipient;
-        uint256 amountIn; uint256 amountOutMinimum; uint160 sqrtPriceLimitX96;
-    }
-    function exactInputSingle(ExactInputSingleParams calldata params) external payable returns (uint256 amountOut);
-}
 
 /// @title  LevMath — asset-agnostic IL-protect leverage economics + up-side leg mechanics
 /// @notice ONE leverage library shared by the ETH (`LevManager`, weETH) and BTC (`BtcLevManager`, vBTC) paths.
@@ -311,7 +304,7 @@ library LevMath {
         IERC20Min(tokenIn).approve(router, amountIn);
         uint24[2] memory fees = [fee0, fee1];
         for (uint256 i; i < 2; i++) {
-            try ISwapRouter02M(router).exactInputSingle(ISwapRouter02M.ExactInputSingleParams({
+            try IV3Router(router).exactInputSingle(IV3Router.ExactInputSingleParams({
                 tokenIn: tokenIn, tokenOut: tokenOut, fee: fees[i], recipient: address(this),
                 amountIn: amountIn, amountOutMinimum: minOut, sqrtPriceLimitX96: 0
             })) returns (uint256 got) { return got; } catch { /* try next tier; else caller falls back */ }
@@ -334,7 +327,6 @@ library LevMath {
     // gas is reimbursed as native ETH from the de-lever's over-collateralization HEADROOM (never the flash-repay
     // amount), shortfall from the passed WETH gas-reserve (threaded in/out), so the operator funds ZERO gas.
     uint24  internal constant WEETH_WETH_FEE_M   = 500;                                          // weETH/WETH 0.05% pool
-    address internal constant SWAP_ROUTER_02_M   = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45;   // Uniswap V3 down-leg DEX
     address internal constant ETHERFI_ADAPTER_M  = 0xcfC6d9Bd7411962Bfe7145451A7EF71A24b6A7A2;   // WETH→weETH mint (up-leg)
     /// @dev The dollar peg, 1e18. Passed as `pxUsd18` wherever the token IS a stable — which is every
     ///      site today. Named rather than inlined so a switch to a real price is visible in a diff.
@@ -421,7 +413,7 @@ library LevMath {
 
     function _weethToWethDex(SellCtx memory c, uint256 pulled) internal returns (uint256) {
         uint256 wethFloor = IWeETH(c.weeth).getEETHByWeETH(pulled) * (10_000 - SELL_SLIP_BPS) / 10_000;
-        return v3SwapTiered(SWAP_ROUTER_02_M, c.weeth, c.weth, pulled, wethFloor, WEETH_WETH_FEE_M, 100);
+        return v3SwapTiered(V3_SWAP_ROUTER, c.weeth, c.weth, pulled, wethFloor, WEETH_WETH_FEE_M, 100);
     }
 
     /// stable → collateral (lever-up BUY). weETH venue mints via ether.fi; WETH venue supplies WETH directly.

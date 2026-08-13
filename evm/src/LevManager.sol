@@ -6,6 +6,7 @@ import {LevBase} from "./imports/LevBase.sol";
 import {Types} from "./imports/Types.sol";
 import {ILevVenue, IERC20Min, IWETH9} from "./imports/ILevVenue.sol";
 import {IWeETH} from "./imports/Interfaces.sol";
+import {V3_SWAP_ROUTER} from "./imports/Interfaces.sol";
 import {IAux} from "./imports/Interfaces.sol";
 import {IMorphoFlash} from "./imports/Interfaces.sol";
 import {ILevSyncHook} from "./imports/Interfaces.sol";
@@ -57,7 +58,6 @@ contract LevManager is LevBase {
     address public constant ETHERFI_ADAPTER  = 0xcfC6d9Bd7411962Bfe7145451A7EF71A24b6A7A2;
     // (ETHERFI_REDEEMER + ETHFI_NATIVE_ETH removed 2026-08-09 — the instant-redeem leg they addressed was
     //  deleted 2026-08-06 and neither constant had a use site after it.)
-    address internal constant SWAP_ROUTER_02   = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45; // Uniswap V3 (down-leg DEX fallback)
     address   public immutable WETH;    // oracle key (getTWAPforAsset(WETH))
 
     // ── leverage band ──
@@ -344,7 +344,7 @@ contract LevManager is LevBase {
         // excess to the LP) live in LevMath (public, delegatecall — bytecode OUTSIDE this contract, run in-context).
         uint256 pull;
         (pull, repaid) = LevMath.protectExec(
-            address(QUID), address(AUX), SWAP_ROUTER_02, address(pos[lp].venue), lp, getCurrentLtvBps(lp), minStableOut);
+            address(QUID), address(AUX), V3_SWAP_ROUTER, address(pos[lp].venue), lp, getCurrentLtvBps(lp), minStableOut);
         _reimburseKeeper(msg.sender, 0);   // the refund is stable (no WETH to peel) ⇒ keeper gas drawn from gasReserve
         emit ProtectedFromQuid(lp, pull, repaid);
     }

@@ -177,6 +177,28 @@ interface IAggregatorV3 {
     function latestRoundData() external view returns ( uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound);
 }
 
+// Uniswap V3 SwapRouter02. The address was declared FOUR times under four names — `SWAP_ROUTER_02`
+// (LevManager), `SWAP_ROUTER_02` (BtcLevManager), `V3_ROUTER_SF` (SOR), `SWAP_ROUTER_02_M` (LevMath):
+// one constant, four chances to update three of them. File-level here so there is exactly one.
+// (Plain `//`, not NatSpec — solc rejects @notice/@dev on file-level variables.)
+address constant V3_SWAP_ROUTER = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45;
+
+/// @notice Uniswap V3 SwapRouter02 — the down-leg/fallback DEX route. ONE declaration replacing TWO:
+///         `imports/v3/IV3SwapRouter.sol` (used only by SOR) and `LevMath.ISwapRouter02M` (a stripped
+///         hand-rolled copy under the numeric-suffix spelling rule 2 bans). The `IUniswapV3SwapCallback`
+///         base of the old file is NOT carried across: the callback is implemented by POOLS, and every
+///         caller here is a swap INITIATOR, so inheriting it declared a member nobody could use.
+interface IV3Router {
+    struct ExactInputSingleParams {
+        address tokenIn; address tokenOut; uint24 fee; address recipient;
+        uint256 amountIn; uint256 amountOutMinimum; uint160 sqrtPriceLimitX96;
+    }
+    function exactInputSingle(ExactInputSingleParams calldata params) external payable returns (uint256 amountOut);
+
+    struct ExactInputParams { bytes path; address recipient; uint256 amountIn; uint256 amountOutMinimum; }
+    function exactInput(ExactInputParams calldata params) external payable returns (uint256 amountOut);
+}
+
 /// Canonical IAux — union of IAux, IAux_VG.
 /// Canonical Aux view — union of the former per-file variants (`IAux`, `IAux`,
 /// `ChannelLib::IAux`, `BasketLib::IAux`). FIVE declarations described
@@ -327,6 +349,9 @@ interface IEthVenue {
     function vogueOp(uint amount, uint8 op) external returns (uint);
     function supplyEtherFi(uint amount) external returns (uint);
     function offrampEtherFi(uint amount, address recipient) external returns (uint);
+    /// Absorbed from `IBtcVault`, which is gone: Aux called `setBTCChannels` on `ethVenue`, the same
+    /// address it makes every call above on, so a second interface over one contract bought nothing.
+    function setBTCChannels(address b) external;
 }
 
 /// Canonical IAux — union of IAux, IAux.
@@ -339,11 +364,6 @@ interface IEthVenue {
 /// numeric-suffix spelling of the very `IFoo_` pattern rule 2 bans.
 interface IBTCChannels { function btcRecipientOf(address user) external view returns (bytes32); }
 
-interface IBtcVault {
-    function repack(bool isBTC) external returns (uint160 sqrtPriceX96,
-        int24 tickLower, int24 tickUpper, uint128 myLiquidity);
-    function setBTCChannels(address b) external;
-}
 
 /// G.6 redeem shortfall sweep: the ETH LevManager's ONE reactive de-lever entry (SHARED with
 /// swap-out). Frees levered net-equity into the sink value-neutrally. (was BasketLib.ILevSweepB)

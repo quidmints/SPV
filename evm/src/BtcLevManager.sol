@@ -7,6 +7,7 @@ import {Types} from "./imports/Types.sol";
 import {LevMath} from "./imports/LevMath.sol";
 import {ILevVenue, IERC20Min} from "./imports/ILevVenue.sol";
 import {IMorphoFlash} from "./imports/Interfaces.sol";
+import {V3_SWAP_ROUTER} from "./imports/Interfaces.sol";
 import {ILevSyncHook} from "./imports/Interfaces.sol";
 // §A.52: use the SHARED `IAux` rather than a file-local `IAuxTWAP_BView` that restated the
 // same signature — one declaration, so a change to it cannot silently miss this consumer.
@@ -42,7 +43,6 @@ contract BtcLevManager is LevBase {
     /// The Vault behind `VBTC` — band authority for expose/unexpose. Distinct from `VBTC` since §J.2
     /// split the token face out of the Vault; before that split one address served as both.
     address public immutable VAULT;   // basket stablecoin — redeemed via AUX to repay a levered LP's OWN debt
-    address internal constant SWAP_ROUTER_02 = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45; // UniV3 protect-consolidation fallback
     // QU!D policy ceiling on the LP's CHOSEN target LTV. 50%=2× is IL-neutral (delta-1); above = opt-in
     // DIRECTIONAL (LP's own risk, isolated). 7500=75%≈4×, headroom below the 86% venue LLTV. Tunable. (ETH parity.)
     uint256 public constant BAND_BPS           = 300;       // ±3% LTV before a rebalance is worth doing
@@ -192,7 +192,7 @@ contract BtcLevManager is LevBase {
         if (!pos[lp].open) revert NotOpen();
         uint pull;
         (pull, repaid) = LevMath.protectExec(
-            QUID, address(AUX), SWAP_ROUTER_02, address(pos[lp].venue), lp, getCurrentLtvBps(lp), minStableOut);
+            QUID, address(AUX), V3_SWAP_ROUTER, address(pos[lp].venue), lp, getCurrentLtvBps(lp), minStableOut);
         emit ProtectedFromQuid(lp, pull, repaid);
     }
     /// @notice IL-TARGET LTV (bps) = debt / E0 (the FIXED band-only base) — the keeper's IL-track basis,

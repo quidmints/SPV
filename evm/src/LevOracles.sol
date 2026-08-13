@@ -13,7 +13,6 @@ import {IAux} from "./imports/Interfaces.sol";
 ///         The long weETH/WETH markets are NOT here: those join the LIVE deep Morpho markets
 ///         (their battle-tested oracles are the env defaults in DeployL1_s).
 
-interface IChainlinkFeed { function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80); }
 
 /// @notice No usable price. These are Morpho `IOracle` implementations, so MORPHO calls them — which
 ///         makes the failure mode a security decision, not a style one (BUILD-QUEUE §A.13/§A.25):

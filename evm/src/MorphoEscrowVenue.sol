@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {LevVenueBase, ILevERC20} from "./imports/LevVenueBase.sol";
+import {LevVenueBase} from "./imports/LevVenueBase.sol";
+import {IERC20Min} from "./imports/ILevVenue.sol";
 
 /// Morpho Blue market parameters (the tuple whose hash IS the market id).
 struct MarketParams {
@@ -81,8 +82,8 @@ contract MorphoEscrowVenue is LevVenueBase {
         uint256 d = debtOf(lp);
         uint256 r = amount > d ? d : amount;                 // clamp to current debt (never over-repay)
         if (r == 0) return 0;
-        ILevERC20(STABLE).transferFrom(msg.sender, address(this), r);
-        ILevERC20(STABLE).approve(address(MORPHO), r);
+        IERC20Min(STABLE).transferFrom(msg.sender, address(this), r);
+        IERC20Min(STABLE).approve(address(MORPHO), r);
         (repaid,) = MORPHO.repay(_params(), r, 0, lp, "");
     }
 
@@ -104,7 +105,7 @@ contract MorphoEscrowVenue is LevVenueBase {
     // ── ILevVenue ────────────────────────────────────────────────────────────────
     function supply(address lp, uint256 collAmount) external onlyManager nonReentrant returns (uint256) {
         if (collAmount == 0) return 0;
-        ILevERC20(COLLATERAL).approve(address(MORPHO), collAmount); // weETH already transferred in by MANAGER
+        IERC20Min(COLLATERAL).approve(address(MORPHO), collAmount); // weETH already transferred in by MANAGER
         MORPHO.supplyCollateral(_params(), collAmount, lp, "");  // credits the LP's own account
         return collAmount;
     }
@@ -114,7 +115,7 @@ contract MorphoEscrowVenue is LevVenueBase {
         // The adapter must be the LP's authorized Morpho manager (one-time LP setAuthorization).
         if (!MORPHO.isAuthorized(lp, address(this))) revert NotAuthorized();
         (uint256 got,) = MORPHO.borrow(_params(), stableAmount, 0, lp, address(this)); // debit lp, stable → adapter
-        if (got > 0) ILevERC20(STABLE).transfer(MANAGER, got);
+        if (got > 0) IERC20Min(STABLE).transfer(MANAGER, got);
         return got;
     }
 
@@ -123,7 +124,7 @@ contract MorphoEscrowVenue is LevVenueBase {
         uint256 d = debtOf(lp);
         uint256 r = stableAmount > d ? d : stableAmount; // never over-repay (clamp to current debt)
         if (r == 0) return 0;
-        ILevERC20(STABLE).approve(address(MORPHO), r);  // stable already transferred in by MANAGER
+        IERC20Min(STABLE).approve(address(MORPHO), r);  // stable already transferred in by MANAGER
         (uint256 repaid,) = MORPHO.repay(_params(), r, 0, lp, "");
         return repaid;
     }
@@ -134,10 +135,10 @@ contract MorphoEscrowVenue is LevVenueBase {
         uint256 bal = collateralOf(lp);
         uint256 w = collAmount > bal ? bal : collAmount; // capped at the position
         if (w == 0) return 0;
-        uint256 before = ILevERC20(COLLATERAL).balanceOf(address(this));
+        uint256 before = IERC20Min(COLLATERAL).balanceOf(address(this));
         MORPHO.withdrawCollateral(_params(), w, lp, address(this)); // weETH → adapter
-        uint256 got = ILevERC20(COLLATERAL).balanceOf(address(this)) - before;
-        if (got > 0) ILevERC20(COLLATERAL).transfer(MANAGER, got);
+        uint256 got = IERC20Min(COLLATERAL).balanceOf(address(this)) - before;
+        if (got > 0) IERC20Min(COLLATERAL).transfer(MANAGER, got);
         return got;
     }
 

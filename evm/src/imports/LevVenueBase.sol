@@ -1,15 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {ILevVenue} from "./ILevVenue.sol";
+// `IERC20Min` was declared here: a strict SUBSET of `IERC20Min` (4 of its members, identical
+// signatures) — the same rule-2 violation `IERC20Min` records already absorbing once, from Core.
+import {ILevVenue, IERC20Min} from "./ILevVenue.sol";
 
 /// Minimal ERC20 surface shared by both weETH lending-venue adapters.
-interface ILevERC20 {
-    function approve(address spender, uint256 amount) external returns (bool);
-    function transfer(address to, uint256 amount) external returns (bool);
-    function transferFrom(address from, address to, uint256 amount) external returns (bool);
-    function balanceOf(address) external view returns (uint256);
-}
 
 /// @title  LevVenueBase — shared scaffolding for the per-LP-isolated weETH lending adapters
 /// @notice `MorphoEscrowVenue` and `AaveV3Venue` differ ONLY in the venue's isolation mechanism (Morpho

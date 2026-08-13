@@ -7,6 +7,14 @@ import {IBasketTurn} from "./Interfaces.sol";   // §rule-2: Interfaces.sol is t
                                                      // (BasketLib only RE-imports it, so importing from there does not resolve)
 // §A.52: the canonical Core view (was a file-local variant).
 import {ICore} from "./Interfaces.sol";
+// `ILevManagerDeliver` and `ILevEthDeliver` were declared here AND in Interfaces.sol, byte-identically
+// (verified by diff before removal). One declaration each now; the ETH/BTC signature asymmetry they
+// encode is REAL and documented at the canonical site.
+import {ILevManagerDeliver, ILevEthDeliver} from "./Interfaces.sol";
+// `IBtcChan2` used to be declared below — a byte-identical second copy of `IBTCChannels` under the
+// numeric-suffix spelling of the very `IFoo_` pattern rule 2 bans. Interfaces.sol already documented
+// this as absorbed; the declaration had in fact survived. Now it really is gone.
+import {IBTCChannels} from "./Interfaces.sol";
 import {IEthVenue} from "./Interfaces.sol";
 import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -37,39 +45,12 @@ import {IAggregatorV3} from "./Interfaces.sol";
 // outputToken ∈ {0xEeee…EEeE native-ETH sentinel, stETH} — else InvalidOutputToken.
 /// Chainlink-style USD feed — the external anchor for the TWAP cross-check.
 
-/// @notice Subset of Aux's public surface that SwapLib calls back into
-///         via DELEGATECALL → external self-CALL pattern. See Aux's
-///         supplySelf / withdrawSelf docblock for the security invariants
-///         that gate these entries.
-/// Delivery-side de-lever: the BtcLevManager reads/mutations for the swap-out settle de-lever.
-interface ILevManagerDeliver {
-    function swapOutDeleverAmt(address lp, uint maxUsd18)
-        external view returns (address venue, address stable, uint amtNative);
-    function swapOutDelever(address lp, uint stableUsd, uint freeSats)
-        external returns (uint usedUsd, uint freedSats);
-}
-/// §M.1 ETH delivery-side de-lever: the LevManager (ETH) reads/mutations for the swap-out `_sendETH` de-lever.
-/// Distinct from BTC's `swapOutDelever` (ETH DELIVERS WETH to a recipient; BTC un-encumbers spliced sats), and
-/// ETH is POOLED so it walks the book (`openLevCount`/`openLpAt`) vs BTC's single delivering-LP.
-interface ILevEthDeliver {
-    function openLevCount() external view returns (uint);
-    function openLpAt(uint i) external view returns (address);
-    function swapOutDeleverAmt(address lp, uint maxUsd18)
-        external view returns (address venue, address stable, uint amtNative);
-    function swapOutDelever(address lp, uint stableUsd, address recipient, uint minWethOut)
-        external returns (uint usedUsd, uint wethDelivered);
-    function swapOutDeliverUnlevered(address lp, uint wethWanted, address recipient, uint minWethOut)
-        external returns (uint wethDelivered);
-}
 
 /// @notice V4 (Vogue) repack. 5th return = the resolved oracle price (Chainlink-when-stale, else internal
 ///         TWAP) computed during the repack-first; the swap reuses it as v4Price so it doesn't read the
 ///         internal `observe` ring a 2nd time. 0 ⇒ live-read fallback. (Was two identical decls
 ///         IVogueRepack2/IVogueRepackRet — now collapsed onto the CANONICAL `IEthVenue.repack`
 ///         in `Interfaces.sol` (rule 2), which already declared this exact signature.)
-interface IBtcChan2 {
-    function btcRecipientOf(address user) external view returns (bytes32);
-}
 
 /// @title  SwapLib — non-V4-callback bodies extracted from Aux to free
 ///         bytecode under the EIP-170 limit. unlockCallback itself stays
@@ -374,7 +355,7 @@ library SwapLib {
         // zeros r.token — volatile-in = the asset, stable-in = the token, QD-in = 0 (burned => unrefundable).
         r.inToken = r.forVolatile ? (r.token == c.quid ? address(0) : r.token) : r.asset;
         if (r.forVolatile && isBTC && r.recipient != address(this)) {
-            if (IBtcChan2(c.btcChannels).btcRecipientOf(r.recipient) == bytes32(0)) revert NoBtcRecipient();
+            if (IBTCChannels(c.btcChannels).btcRecipientOf(r.recipient) == bytes32(0)) revert NoBtcRecipient();
         }
         // _buildContext(asset): ETH-side vault always address(0) (dispatched to
         // GALAXY via the venue); nativeWETH on ETH.
