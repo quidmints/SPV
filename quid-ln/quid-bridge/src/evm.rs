@@ -51,3 +51,35 @@ pub trait EvmClient: Send + Sync + 'static {
         require_full: bool,
     ) -> anyhow::Result<SettleOutcome>;
 }
+
+/// (T1-c) The PROVEN on-chain deposit rail's one EVM call.
+///
+/// Deliberately a SEPARATE trait from [`EvmClient`] rather than a method on it, because the
+/// two are not variants of one operation: `settle_swap_in` asks the chain to take the hop's
+/// word for `sats`, and this asks it to derive `sats` from a transaction. Keeping them apart
+/// means the on-chain rail's test stubs cannot accidentally satisfy the unproven interface,
+/// and when the LN rail finally moves (T1-e) `EvmClient` deletes whole rather than shrinking.
+///
+/// ⚠️ **THE DEDUP KEY IS THE DEPOSIT TXID, NOT THE SWAP ID.** The contract keys
+/// `swapInUsed` on the txid it computes from `raw_deposit_tx` — *"a txid is a fact"* — so a
+/// caller confirming the settle must read burial against that txid. A `swap_id` here would
+/// be the hop-invented key this rail exists to stop trusting.
+pub trait ProvenSwapInSettler: Send + Sync + 'static {
+    /// Neither trailing argument is sent as calldata — the contract recomputes both.
+    /// `deposit_txid` (EVM/BE order) is how the caller gates on `swapInUsed`; `deposited_sats`
+    /// is ONLY the fallback for `consumed_sats` when the `SwapInSettled` log cannot be read,
+    /// where "the pool converted everything, refund nothing" is the safe direction — an
+    /// over-refund would give away the hop's own BTC.
+    #[allow(clippy::too_many_arguments)]
+    fn settle_swap_in_proven(
+        &self,
+        seller: Address,
+        token: Address,
+        min_delivered_usd: U256,
+        user_refund: [u8; 32],
+        cltv_height: u32,
+        inclusion: &quid_hop::evm_codec::TxInclusion,
+        deposit_txid: B256,
+        deposited_sats: u64,
+    ) -> anyhow::Result<SettleOutcome>;
+}

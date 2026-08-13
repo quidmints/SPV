@@ -12,11 +12,14 @@
 //!      the refund could unlock. This is the on-chain analogue of `swap_in.rs`'s
 //!      settle-time CLTV re-check; it fails **safe** (defer/skip → the user refunds), so
 //!      the hop never delivers USD for BTC it can no longer claim in time.
-//!   2. **SETTLE against the ACTUAL deposited sats** (never the quoted amount) via
-//!      `settleSwapIn(seller, actualSats, token, swapId, floor)` — so an under-payment
-//!      delivers proportionally less USD and can never mint free USD (mirrors the LN
-//!      rail's "credit only against sats actually claimed"). `swapId` is the on-chain
-//!      dedup key (`swapInUsed`), so a re-drive is idempotent (`AlreadySettled`).
+//!   2. **SETTLE against the deposit the CONTRACT reads out of the transaction**, via
+//!      `settleSwapInProven` — the hop supplies the tx and its SPV inclusion proof, and the
+//!      contract derives the sats itself from the output paying the address it recomputes
+//!      from the pinned `BTC_DEPOSIT_KEY` and this swap's CLTV leaf. **(T1-c)** This rail
+//!      used to call `settleSwapIn` and assert the amount, which was the phantom-swap-in
+//!      trapdoor sitting on the one rail where a provable transaction exists. The dedup key
+//!      moved with it: from the hop-invented `swapId` to the deposit **txid** — *a txid is a
+//!      fact* — so a re-drive is still idempotent (`AlreadySettled`).
 //!   3. On `Delivered`/`AlreadySettled` → **CLAIM** the deposit by key path (the hop's
 //!      unilateral BIP340 sig). On `Undeliverable` → do nothing: the hop delivered no
 //!      USD, so it takes no BTC, and the user reclaims via the CLTV refund leaf.
@@ -29,7 +32,8 @@
 use alloy_primitives::{Address, B256, U256};
 use bitcoin::{Amount, OutPoint, ScriptBuf};
 
-use crate::evm::{EvmClient, SettleOutcome};
+use crate::evm::{ProvenSwapInSettler, SettleOutcome};
+use quid_hop::evm_codec::{tx_inclusion, txid_internal, TxInclusion};
 use quid_hop::swap::swap_in_floor_usd;
 
 /// Minimum CLTV headroom (blocks) between the current tip and the user's refund
@@ -131,32 +135,62 @@ pub fn settle_floor(swap: &OnchainSwapIn, actual_sats: u64) -> U256 {
 
 /// Decide what to do with a confirmed deposit: the headroom gate + the settle, returning
 /// the resulting action (or `None` if the gate deferred). The ONLY effect is the injected
-/// `evm.settle_swap_in`; the caller performs the follow-on effect the action names (the
-/// async key-path CLAIM lives in the watcher). Splitting the decision from the claim keeps
-/// this core sync + unit-testable AND lets the watcher `await` the broadcast.
+/// `evm.settle_swap_in_proven`; the caller performs the follow-on effect the action names
+/// (the async key-path CLAIM lives in the watcher). Splitting the decision from the claim
+/// keeps this core sync + unit-testable AND lets the watcher `await` the broadcast.
 ///
 ///   1. CLTV-headroom gate — fail-safe: too little room ⇒ do NOT settle (the user refunds
 ///      via the leaf); never deliver USD we can't claim in time.
-///   2. SETTLE against the ACTUAL deposited sats + the actual-sats floor (dedup by swap_id
-///      on the EVM). A transient EVM error surfaces as `Err` — safe to retry, nothing
-///      irreversible has happened (the claim only runs AFTER a definite delivered outcome).
-pub fn decide_deposit<E: EvmClient>(
+///   2. SETTLE against the ACTUAL deposited sats + the actual-sats floor. A transient EVM
+///      error surfaces as `Err` — safe to retry, nothing irreversible has happened (the
+///      claim only runs AFTER a definite delivered outcome).
+///
+/// 🔑 **(T1-c) THIS RAIL NOW PROVES ITS DEPOSIT INSTEAD OF ASSERTING IT.** It used to call
+/// `settleSwapIn`, handing the contract a hop-chosen `sats` and a hop-chosen dedup key on the
+/// one rail where a real Bitcoin transaction to prove *exists*. `settleSwapInProven` was
+/// built for exactly this in §E159 and the daemon was simply never repointed. The contract
+/// now derives the sats from `inclusion.raw` and dedups on the deposit txid.
+///
+/// ⚠️ `inclusion` is a PARAMETER rather than something fetched here on purpose: fetching is
+/// async and esplora-bound, and doing it inline would dissolve the sync/unit-testable split
+/// this function's whole shape exists to preserve.
+pub fn decide_deposit<E: ProvenSwapInSettler>(
     evm: &E,
     swap: &OnchainSwapIn,
     deposit: &ConfirmedDeposit,
     best_height: u32,
+    inclusion: &TxInclusion,
 ) -> anyhow::Result<Option<OnchainAction>> {
     if !cltv_headroom_ok(swap.cltv, best_height) {
         return Ok(None);
     }
     let actual_sats = deposit.value.to_sat();
     let floor = settle_floor(swap, actual_sats);
-    // require_full = FALSE: the on-chain rail ACCEPTS an inventory-bounded partial and refunds
-    // the unconverted remainder via the claim's second output (see `broadcast_claim`) — unlike
-    // the atomic LN rail, it has a refund path (the deposit's CLTV key), so a partial delivers
-    // USD for what converted and returns the rest rather than reverting the whole swap.
-    let outcome =
-        evm.settle_swap_in(swap.seller, actual_sats, swap.token, swap.swap_id, floor, false)?;
+    // No `require_full` to pass: the proven entrypoint ALWAYS accepts an inventory-bounded
+    // partial, and this rail always wanted that — it refunds the unconverted remainder via the
+    // claim's second output (see `broadcast_claim`), because it has a refund path (the
+    // deposit's CLTV leaf) that the atomic LN rail does not.
+    // The contract rebuilds the deposit leaf from a BLOCK HEIGHT, so only a height can name
+    // an address the hop can spend from. `cltv_headroom_ok` above already returns false for a
+    // time-based lock, so this cannot fire — it is written as that gate's SAME fail-safe
+    // (defer, let the user refund) rather than a second, divergent policy.
+    let bitcoin::absolute::LockTime::Blocks(cltv_blocks) = swap.cltv else {
+        return Ok(None);
+    };
+    let cltv_height = cltv_blocks.to_consensus_u32();
+    let outcome = evm.settle_swap_in_proven(
+        swap.seller,
+        swap.token,
+        floor,
+        swap.user_refund.serialize(),
+        cltv_height,
+        inclusion,
+        // INTERNAL byte order, not display order: the contract's key is
+        // `sha256(sha256(rawLegacy))` verbatim, so a reversed txid would gate on a slot
+        // nothing ever writes and report every settle as unconfirmed.
+        B256::from(txid_internal(&deposit.outpoint.txid)),
+        actual_sats,
+    )?;
     Ok(Some(outcome_action(outcome, actual_sats)))
 }
 
@@ -303,7 +337,7 @@ async fn broadcast_claim(
 /// the unified on-chain watcher (`swap_out_onchain::run_swap_out_onchain_watcher`) and
 /// called once per pass, so the two on-chain rails share ONE task + timer + esplora client
 /// (no second polling task). Reads the BTC tip once, then delegates each swap.
-pub async fn drive_swap_in_pass<E: EvmClient>(
+pub async fn drive_swap_in_pass<E: ProvenSwapInSettler>(
     cfg: &BridgeConfig,
     evm: &Arc<E>,
     esplora: &Arc<Esplora>,
@@ -330,7 +364,7 @@ pub async fn drive_swap_in_pass<E: EvmClient>(
 /// One registered swap-in's settle-then-claim step (own frame — a `return` skips just this
 /// swap, never the whole sweep). `claim_dest` is the hop scriptPubKey the claimed BTC lands on.
 #[allow(clippy::too_many_arguments)]
-async fn drive_one_swap_in<E: EvmClient>(
+async fn drive_one_swap_in<E: ProvenSwapInSettler>(
     cfg: &BridgeConfig,
     evm: &E,
     esplora: &Esplora,
@@ -372,7 +406,18 @@ async fn drive_one_swap_in<E: EvmClient>(
     let Some(deposit) = find_confirmed_deposit(&scan, spk.as_script(), tip, min_confs) else {
         return;
     };
-    match decide_deposit(evm, swap, &deposit, tip) {
+    // (T1-c) The inclusion proof the contract will verify. Fetched HERE, not inside
+    // `decide_deposit`, so that core stays sync and unit-testable. A failure is transient
+    // (esplora), so return and retry next pass — never settle without the proof, which is
+    // the whole point of the proven rail.
+    let inclusion = match tx_inclusion(esplora, &deposit.outpoint.txid).await {
+        Ok(i) => i,
+        Err(e) => {
+            warn!(error = %e, "on-chain swap-in: inclusion proof unavailable (retry next pass)");
+            return;
+        }
+    };
+    match decide_deposit(evm, swap, &deposit, tip, &inclusion) {
         Ok(Some(OnchainAction::Claim { refund_sats })) => {
             match broadcast_claim(esplora, master, swap, &deposit, claim_dest.clone(), fee, refund_sats).await {
                 Ok(()) => {
@@ -384,6 +429,12 @@ async fn drive_one_swap_in<E: EvmClient>(
         }
         // Undeliverable now — leave registered to retry until the pool can deliver, or the
         // CLTV opens (pruned above; the user then refunds).
+        // ⚠️ (T1-c) THIS OUTCOME HAS A NEW CAUSE AND IT IS NOT A DRY POOL: the contract
+        // re-checks inclusion against the SPV GATEWAY's height, not esplora's, so a gateway
+        // still catching up on headers reverts a settle for a deposit that is genuinely
+        // 6-deep. It lands here, which is the safe direction (no USD delivered ⇒ no BTC
+        // taken) and retries next pass — but do not read a run of these as insolvency
+        // without checking the relayer first.
         Ok(Some(OnchainAction::DropToRefund)) => {}
         // Headroom defer — retry next pass.
         Ok(None) => {}
@@ -451,6 +502,7 @@ mod tests {
         seen_sats: Cell<u64>,
         seen_floor: Cell<U256>,
         calls: Cell<u32>,
+        seen_txid: Cell<B256>,
     }
     impl FakeEvm {
         fn new(outcome: SettleOutcome) -> Self {
@@ -459,26 +511,43 @@ mod tests {
                 seen_sats: Cell::new(0),
                 seen_floor: Cell::new(U256::ZERO),
                 calls: Cell::new(0),
+                seen_txid: Cell::new(B256::ZERO),
             }
         }
     }
     // Cell isn't Sync; the driver core is single-threaded, so a thin unsafe Sync shim keeps
     // the trait bound satisfied for the test only.
     unsafe impl Sync for FakeEvm {}
-    impl EvmClient for FakeEvm {
-        fn settle_swap_in(
+    impl ProvenSwapInSettler for FakeEvm {
+        fn settle_swap_in_proven(
             &self,
             _seller: Address,
-            sats: u64,
             _token: Address,
-            _payment_hash: B256,
             min_delivered_usd: U256,
-            _require_full: bool,
+            _user_refund: [u8; 32],
+            _cltv_height: u32,
+            _inclusion: &TxInclusion,
+            deposit_txid: B256,
+            deposited_sats: u64,
         ) -> anyhow::Result<SettleOutcome> {
             self.calls.set(self.calls.get() + 1);
-            self.seen_sats.set(sats);
+            self.seen_sats.set(deposited_sats);
             self.seen_floor.set(min_delivered_usd);
+            self.seen_txid.set(deposit_txid);
             Ok(self.outcome)
+        }
+    }
+
+    /// An inclusion proof stands in for a real one here: `decide_deposit` passes it straight
+    /// through without inspecting it (the CONTRACT is what verifies it), so its contents are
+    /// not what these tests are about.
+    fn an_inclusion() -> TxInclusion {
+        TxInclusion {
+            raw: vec![0x01, 0x02, 0x03],
+            block_hash_be: [0xBB; 32],
+            height: 700_001,
+            tx_index: 3,
+            merkle_proof: vec![[0xCC; 32]],
         }
     }
 
@@ -488,11 +557,30 @@ mod tests {
         let deposit = a_deposit(40_000_000); // 0.4 BTC — LESS than a nominal 0.5 quote
         // Full fill: the pool converted the whole 0.4 BTC ⇒ no refund remainder.
         let evm = FakeEvm::new(SettleOutcome::Delivered { consumed_sats: 40_000_000 });
-        let act = decide_deposit(&evm, &swap, &deposit, 700_000).unwrap(); // tip far below cltv → ample headroom
+        let act = decide_deposit(&evm, &swap, &deposit, 700_000, &an_inclusion()).unwrap(); // tip far below cltv → ample headroom
         assert_eq!(act, Some(OnchainAction::Claim { refund_sats: 0 }), "full fill ⇒ take the whole deposit");
         // settled against the ACTUAL 0.4 BTC, not a quote — floor = 0.4*50k*(1-1%) = $19,800.
         assert_eq!(evm.seen_sats.get(), 40_000_000);
         assert_eq!(evm.seen_floor.get(), U256::from(19_800u64) * U256::from(1_000_000u64));
+    }
+
+    /// (T1-c) The property the repoint exists for: the replay key the caller gates on is the
+    /// DEPOSIT TXID in internal byte order, never the hop-invented `swap_id`. Getting this
+    /// wrong is silent in the worst way — the settle lands on-chain, the gate reads a slot
+    /// nothing ever writes, and every settle reports as unconfirmed forever. Both halves are
+    /// asserted, because equality with the txid alone would still pass if the two collided.
+    #[test]
+    fn the_replay_key_is_the_deposit_txid_not_the_swap_id() {
+        let swap = a_swap(800_000);
+        let deposit = a_deposit(40_000_000);
+        let evm = FakeEvm::new(SettleOutcome::Delivered { consumed_sats: 40_000_000 });
+        decide_deposit(&evm, &swap, &deposit, 700_000, &an_inclusion()).unwrap();
+        assert_eq!(
+            evm.seen_txid.get(),
+            B256::from(txid_internal(&deposit.outpoint.txid)),
+            "must gate on the txid the contract itself computes"
+        );
+        assert_ne!(evm.seen_txid.get(), swap.swap_id, "the hop-invented id is not the key");
     }
 
     #[test]
@@ -502,7 +590,7 @@ mod tests {
         let swap = a_swap(800_000);
         let deposit = a_deposit(50_000_000);
         let evm = FakeEvm::new(SettleOutcome::Delivered { consumed_sats: 30_000_000 });
-        let act = decide_deposit(&evm, &swap, &deposit, 700_000).unwrap();
+        let act = decide_deposit(&evm, &swap, &deposit, 700_000, &an_inclusion()).unwrap();
         assert_eq!(act, Some(OnchainAction::Claim { refund_sats: 20_000_000 }), "refund = deposited − converted");
     }
 
@@ -532,7 +620,7 @@ mod tests {
         let swap = a_swap(800_000);
         let deposit = a_deposit(50_000_000);
         let evm = FakeEvm::new(SettleOutcome::Undeliverable);
-        let act = decide_deposit(&evm, &swap, &deposit, 700_000).unwrap();
+        let act = decide_deposit(&evm, &swap, &deposit, 700_000, &an_inclusion()).unwrap();
         assert_eq!(act, Some(OnchainAction::DropToRefund), "undeliverable ⇒ no BTC; user refunds via CLTV");
     }
 
@@ -541,7 +629,7 @@ mod tests {
         let swap = a_swap(800_000);
         let deposit = a_deposit(50_000_000);
         let evm = FakeEvm::new(SettleOutcome::AlreadySettled { consumed_sats: 50_000_000 });
-        let act = decide_deposit(&evm, &swap, &deposit, 700_000).unwrap();
+        let act = decide_deposit(&evm, &swap, &deposit, 700_000, &an_inclusion()).unwrap();
         assert_eq!(act, Some(OnchainAction::Claim { refund_sats: 0 }), "re-drive of an already-delivered full swap still takes the BTC");
     }
 
@@ -551,7 +639,7 @@ mod tests {
         let deposit = a_deposit(50_000_000);
         let evm = FakeEvm::new(SettleOutcome::Delivered { consumed_sats: 50_000_000 });
         // tip only 10 blocks below cltv — far under the required headroom.
-        let act = decide_deposit(&evm, &swap, &deposit, 799_990).unwrap();
+        let act = decide_deposit(&evm, &swap, &deposit, 799_990, &an_inclusion()).unwrap();
         assert_eq!(act, None, "insufficient CLTV headroom ⇒ defer");
         assert_eq!(evm.calls.get(), 0, "MUST NOT settle when it can't claim in time (fail-safe)");
     }

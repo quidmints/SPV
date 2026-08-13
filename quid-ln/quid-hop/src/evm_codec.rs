@@ -92,6 +92,15 @@ pub const SIG_EMIT_DEAD_MAN_EXIT: &str =
 (uint64[],bytes[],uint64,uint256,bytes))";
 pub const SIG_REQUEST_SWAP_OUT_ONCHAIN: &str =
     "requestSwapOutOnchain(address,uint256,uint256,bytes32)";
+/// (T1-c) The PROVEN on-chain swap-in credit. Note what is NOT a parameter: `sats`. The
+/// contract recomputes it from `rawDepositTx` by finding the output that pays the address it
+/// derives itself from the pinned `BTC_DEPOSIT_KEY` and the swap's own CLTV leaf — so the
+/// hop proves a deposit rather than asserting one. There is also no `requireFull`: this rail
+/// always accepts a partial, because the seller's remainder is refundable trustlessly via
+/// that same CLTV leaf. See `PINNED_DEPOSIT_INDEX` for why the internal key is pinned and
+/// per-swap uniqueness lives in the leaf.
+pub const SIG_SETTLE_SWAP_IN_PROVEN: &str =
+    "settleSwapInProven(address,address,uint256,(bytes32,uint32,bytes32,uint256,bytes32[]),bytes)";
 /// (T1-b) Reverse an undeliverable on-chain swap-out. Note what is NOT a parameter: the
 /// payee and the sats. Both are read on-chain from `pendingOnchainSwapOut[swapId]`, which
 /// only `requestSwapOutOnchain` writes — so unlike `settleSwapIn`, a compromised hop cannot
@@ -110,6 +119,7 @@ pub const HOP_BTCCHANNELS_SIGS: &[&str] = &[
     SIG_DELIVER_SWAP_OUT_ONCHAIN,
     SIG_EMIT_DEAD_MAN_EXIT,
     SIG_REVERSE_SWAP_OUT,
+    SIG_SETTLE_SWAP_IN_PROVEN,
 ];
 
 /// An ABI token. Static tokens contribute one 32-byte word to the head; dynamic
@@ -767,6 +777,43 @@ pub fn encode_splice(
             Tok::Tuple(params.tokens()),
             Tok::Bytes(raw_splice_tx.to_vec()),
             Tok::FixedBytes32Array(splice_merkle_proof.to_vec()),
+        ],
+    )
+}
+
+/// (T1-c) [`SIG_SETTLE_SWAP_IN_PROVEN`] calldata — credit an on-chain swap-in against a
+/// deposit the contract VERIFIES, replacing the `settleSwapIn` call this rail used to make.
+///
+/// `user_refund` and `cltv_height` are not decoration: they are the two values that
+/// reconstruct the deposit's CLTV leaf, and therefore the tweaked output key. The contract
+/// derives the address from `TapTweak(BTC_DEPOSIT_KEY, leaf(user_refund, cltv_height))` and
+/// pays out only for value that landed THERE — so a hop that supplies a leaf it does not
+/// control proves a payment to an address it cannot spend from, which is not an attack.
+///
+/// The inclusion half (`block_hash`, `tx_index`, `merkle_proof`, `raw_deposit_tx`) comes
+/// verbatim from [`tx_inclusion`], the same helper the splice and close paths use.
+pub fn encode_settle_swap_in_proven(
+    seller: Address,
+    token: Address,
+    min_delivered_usd: U256,
+    user_refund: [u8; 32],
+    cltv_height: u32,
+    inclusion: &TxInclusion,
+) -> Vec<u8> {
+    encode_call(
+        SIG_SETTLE_SWAP_IN_PROVEN,
+        &[
+            Tok::Address(seller),
+            Tok::Address(token),
+            Tok::Uint(min_delivered_usd),
+            Tok::Tuple(vec![
+                Tok::FixedBytes32(user_refund),
+                Tok::Uint(U256::from(cltv_height)),
+                Tok::FixedBytes32(inclusion.block_hash_be),
+                Tok::Uint(U256::from(inclusion.tx_index)),
+                Tok::FixedBytes32Array(inclusion.merkle_proof.clone()),
+            ]),
+            Tok::Bytes(inclusion.raw.clone()),
         ],
     )
 }

@@ -623,6 +623,59 @@ impl<R: JsonRpc, S: TxSigner> JsonRpcEvmClient<R, S> {
     }
 }
 
+impl<R: JsonRpc, S: TxSigner> crate::evm::ProvenSwapInSettler for JsonRpcEvmClient<R, S> {
+    fn settle_swap_in_proven(
+        &self,
+        seller: Address,
+        token: Address,
+        min_delivered_usd: U256,
+        user_refund: [u8; 32],
+        cltv_height: u32,
+        inclusion: &quid_hop::evm_codec::TxInclusion,
+        deposit_txid: B256,
+        deposited_sats: u64,
+    ) -> anyhow::Result<SettleOutcome> {
+        let data = quid_hop::evm_codec::encode_settle_swap_in_proven(
+            seller,
+            token,
+            min_delivered_usd,
+            user_refund,
+            cltv_height,
+            inclusion,
+        );
+        let depth = self.cfg.settle_min_confirmations;
+        let mined = self.submit(self.cfg.btc_channels, &data, self.cfg.gas_limit)?;
+        debug!(success = mined.success, block = mined.block, "proven settle mined");
+
+        // Identical uniform reorg gate to the unproven path — but keyed on the DEPOSIT TXID,
+        // which is what the contract writes into `swapInUsed`. Gating on a swap id here would
+        // read a slot that is never set and report every settle as unconfirmed.
+        if self.swap_in_used_buried(deposit_txid, depth, mined.block)? {
+            return Ok(if mined.success {
+                SettleOutcome::Delivered {
+                    consumed_sats: self.read_consumed_sats(
+                        deposit_txid,
+                        mined.block,
+                        mined.block,
+                        deposited_sats,
+                    ),
+                }
+            } else {
+                warn!("settleSwapInProven reverted but swapInUsed set — already settled");
+                let tip = self.block_number().unwrap_or(mined.block);
+                let from = tip.saturating_sub(SWAP_IN_SETTLED_LOOKBACK_BLOCKS);
+                SettleOutcome::AlreadySettled {
+                    consumed_sats: self.read_consumed_sats(deposit_txid, from, tip, deposited_sats),
+                }
+            });
+        }
+        if mined.success {
+            anyhow::bail!("proven settle mined but swapInUsed unconfirmed (reorg?) — retry");
+        }
+        Ok(SettleOutcome::Undeliverable)
+    }
+}
+
 // The LpFeeMarker impl (markLpFeePaid/lpFeePaid F4 dedup) was REMOVED with the
 // off-chain fee settler — fees now compound in-channel, so there is no native payout to
 // dedup on-chain.

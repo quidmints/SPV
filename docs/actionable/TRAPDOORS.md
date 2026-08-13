@@ -44,12 +44,20 @@ by enumerating, which is the only way this row was ever going to be right):
 | caller | destiny | state |
 |---|---|---|
 | `swap_out_onchain.rs` reversal | `reverseSwapOut` | ✅ done (T1-b) |
-| `swap_in_onchain.rs:159` on-chain deposit rail | **`settleSwapInProven`** | 🔴 **still unproven** |
-| `swap_in.rs:291` LN rail | `settleSwapInSpliced` | 🔴 needs a splice first |
+| `swap_in_onchain.rs` on-chain deposit rail | `settleSwapInProven` | ✅ done (T1-c) |
+| `swap_in.rs:291` LN rail | `settleSwapInSpliced` | 🔴 **blocked on an owner decision — §T1-e** |
 
-🔴 **The middle row is the one to be uncomfortable about.** It is the rail where a real
-transaction to prove EXISTS, `settleSwapInProven` was built for it in §E159, and the daemon
-was never repointed — so the trapdoor is open where it is cheapest to close. §T1-c.
+⇒ **TWO OF THE THREE ARE OFF THE PHANTOM, AND `EvmClient` IS NOW THE LN RAIL'S TRAIT ALONE**
+(verified by enumeration: `swap_in.rs` is its only remaining production consumer). The
+on-chain rail now hands the contract a transaction and an SPV proof, and the contract derives
+the sats and dedups on the **txid** it computes itself.
+
+🔴 **BUT `settleSwapIn` CANNOT BE DELETED, AND THE OBSTACLE IS NOT EFFORT — IT IS ORDERING.**
+The LN rail settles USD **first** and claims the preimage only on success, so a dry pool fails
+the HTLC back and the seller keeps 100% of their BTC. Proving instead requires
+claim → splice → prove → credit, i.e. **taking the seller's BTC before knowing the pool can
+pay for it.** The rail buys atomicity WITH the trust; §E166-2's proof buys trustlessness WITH
+the atomicity. Options and their costs are in **§T1-e** — this needs a decision, not a patch.
 
 ## T2 🔴 OPEN — `seller`, `token`, `minDeliveredUsd` are hop assertions
 
