@@ -37,35 +37,41 @@ use quid_hop::node::{boot, initiate_splice_out_to, HopNode};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{info, warn};
 
-/// Domain-separation label for deriving the vault node's seed from the hop's.
-const VAULT_SEED_LABEL: &[u8] = b"quid-vault-node-v1";
-
-/// Derive the vault node's `RootSeed` from the hop's via `RootSeed::derive` (its own
-/// HKDF — no hand-rolled KDF): a deterministic, enclave-sealed sibling identity of the
-/// hop (both descend from the one born-in-enclave seed), NOT a separate operator key.
-pub fn derive_vault_seed(hop_seed: &RootSeed) -> RootSeed {
-    RootSeed::new(hop_seed.derive(&[VAULT_SEED_LABEL]))
-}
-
-/// Where the vault node's identity comes from. An EXPLICIT choice at the call site,
-/// because it decides whether the MuSig2 2-of-2 is real or nominal.
-pub enum VaultSeedSource<'a> {
-    /// SINGLE-OPERATOR (today's default). HKDF-derived from the hop's seed under a
-    /// PUBLIC label, so anyone holding the hop seed computes this one with a single
-    /// call. Both halves of every channel's 2-of-2 share an ancestor ⇒ **one seed
-    /// compromise yields BOTH**. The 2-of-2 is Lightning's mandatory shape here, not
-    /// an added protection.
-    DerivedFromHop(&'a RootSeed),
-    /// INDEPENDENT. A seed that did not come from the hop's. Compromising the hop seed
-    /// does not yield this one.
-    ///
-    /// ⚠️ Supplying a different seed is NECESSARY but NOT SUFFICIENT for independent
-    /// custody: if the same operator holds both, it still holds both halves. The
-    /// property needs the vault run by a SEPARATE operator, in its own enclave, with
-    /// its own attestation — and migration authority pinned to a DIFFERENT Safe, since
-    /// `MigrationAuth` exports whatever seed the enclave it authorises is holding.
-    Independent(&'a RootSeed),
-}
+// (E175-b) `derive_vault_seed` AND `VaultSeedSource` WERE DELETED HERE, NOT GUARDED.
+//
+// The vault seed used to be HKDF-derived from the hop's under a public label, selected by a
+// `VaultSeedSource::{DerivedFromHop, Independent}` enum whose default branch was the derived
+// one. That branch meant **one seed compromise yielded BOTH halves of every channel's 2-of-2**
+// — the exact property per-LP custody exists to remove — and you got it by not setting an
+// environment variable.
+//
+// ⚠️ **THE FIRST FIX ATTEMPTED HERE WAS A TRIPWIRE AND IT WAS WRONG:** an acknowledgement flag
+// (`QUID_SINGLE_OPERATOR=1`) that made an operator opt into the derived seed on purpose. That
+// is a guard against foreseeable misuse, which is the tell that the root problem is unfixed —
+// the mode still existed, and a mode that must not be used is one that must not be reachable.
+// Owner, 2026-08-13: *"what insecure mode? there should be no insecure mode possible."*
+//
+// ⇒ **The capability is gone.** `boot_vault` takes a `&RootSeed` and has no way to invent one
+// from the hop's. Independence is now structural: there is no code that relates the two seeds,
+// so it cannot be re-enabled by configuration, only by writing the derivation back.
+//
+// ⚠️ **MIGRATION, AND IT IS A REAL BREAK — READ THIS BEFORE BOOTING AN EXISTING DATA DIR.** A
+// node that already ran with the derived seed has a vault identity equal to
+// `RootSeed::new(hop_seed.derive(&[b"quid-vault-node-v1"]))`. On the next boot it will instead
+// find no sealed seed under `<data_dir>/vault` and **provision a fresh one**, so the vault's
+// node id and every funding half it holds CHANGE: existing channels can no longer be co-signed.
+// Already-emitted dead-man exits still work (they were signed with the old key and their bytes
+// are public), but nothing new can be. ⇒ To carry an existing identity across, recompute that
+// value once and import it via `QUID_VAULT_SEED` on one boot; it is sealed thereafter and the
+// variable can be removed. The derivation is recorded here **as a migration recipe, not as a
+// code path** — nothing computes it any more.
+//
+// ⚠️ **STILL NECESSARY, NOT SUFFICIENT — do not read this as independent custody.** Two seeds
+// held by ONE operator is still one party holding both halves. The property needs the vault run
+// by a SEPARATE operator, in its own enclave, with its own attestation, and migration authority
+// pinned to a DIFFERENT Safe (`MigrationAuth` exports whatever seed the enclave it authorises
+// holds). What this change removes is the *cryptographic* link; the *operational* one is the
+// §E175 deployment remainder.
 
 /// Spawn a localhost TCP p2p listener for `node` on `port`, feeding inbound
 /// connections to its peer manager (production twin of `harness::spawn_listener`,
@@ -575,15 +581,18 @@ pub async fn run_vault_delivery_correlator(
 
 /// Boot the vault node (2nd in-process `HopNode`) and peer it to the hop.
 ///
-/// Reuses `node::boot` (identical to the hop boot) with the vault seed named by
-/// [`VaultSeedSource`] +
-/// its own data dir, then dials the hop over localhost (the hop runs
-/// `spawn_p2p_listener`). `lsp_info` for the vault = the HOP (its single counterparty).
+/// Reuses `node::boot` (identical to the hop boot) with `vault_seed` + its own data dir, then
+/// dials the hop over localhost (the hop runs `spawn_p2p_listener`). `lsp_info` for the vault =
+/// the HOP (its single counterparty).
+///
+/// ⚠️ **`vault_seed` MUST NOT BE DERIVABLE FROM THE HOP'S SEED, AND THIS FUNCTION CAN NO LONGER
+/// MAKE THAT MISTAKE FOR YOU** — it takes a seed and has no way to compute one (§E175-b deleted
+/// the derivation). Supply a seed from its own sealed store, never a function of the hop's.
 #[allow(clippy::too_many_arguments)]
 pub async fn boot_vault(
     network: Network,
     esplora_url: String,
-    seed_source: VaultSeedSource<'_>,
+    vault_seed: &RootSeed,
     vault_data_dir: PathBuf,
     hop_node_pk: NodePk,
     hop_listen_port: u16,
@@ -591,22 +600,6 @@ pub async fn boot_vault(
     store: Arc<crate::store::BridgeStore>,
     anchor: Arc<dyn quid_hop::freshness::FreshnessAnchor + Send + Sync>,
 ) -> anyhow::Result<VaultNode> {
-    // Keep the derived value alive for the borrow below; `RootSeed` is not `Clone`.
-    let derived;
-    let vault_seed: &RootSeed = match seed_source {
-        VaultSeedSource::Independent(s) => {
-            info!("vault seed: INDEPENDENT (not derived from the hop seed)");
-            s
-        }
-        VaultSeedSource::DerivedFromHop(h) => {
-            warn!(
-                "vault seed: DERIVED FROM THE HOP SEED — the 2-of-2 is nominal, \
-                 one seed compromise yields both halves of every channel"
-            );
-            derived = derive_vault_seed(h);
-            &derived
-        }
-    };
     // The vault's LSP = the hop it opens channels to (localhost listener).
     let lsp_info = LspInfo {
         node_pk: hop_node_pk,

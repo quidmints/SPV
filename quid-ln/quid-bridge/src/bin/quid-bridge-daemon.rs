@@ -280,22 +280,39 @@ async fn main() -> anyhow::Result<()> {
     // independent one. ⚠️ Necessary, not sufficient: independence only becomes real when
     // a SEPARATE operator holds it in its own enclave — the same operator setting both
     // still holds both.
-    let vault_seed_env = std::env::var("QUID_VAULT_ROOT_SEED").ok();
-    let vault_seed_indep = match vault_seed_env.as_deref() {
-        Some(s) => Some(
-            quid_common::root_seed::RootSeed::from_str(s).context("QUID_VAULT_ROOT_SEED is not a valid RootSeed")?,
-        ),
-        None => None,
-    };
-    let seed_source = match vault_seed_indep.as_ref() {
-        Some(s) => quid_bridge::vault::VaultSeedSource::Independent(s),
-        None => quid_bridge::vault::VaultSeedSource::DerivedFromHop(&root_seed),
-    };
+    // (E175-b) The vault seed is BORN IN ITS OWN SEALED STORE, never derived from the hop's.
+    //
+    // It used to default to an HKDF of the hop seed, so one compromise yielded both halves of
+    // every channel's 2-of-2 — and that was what you got by not setting an env var. The
+    // derivation is now deleted outright rather than guarded: there is no insecure mode to
+    // opt out of, because there is no code relating the two seeds.
+    //
+    // 🔑 **This costs the operator nothing, which is why it can be unconditional.** It uses the
+    // SAME `load_or_provision_from_env` path as the hop seed — same attestation policy, same
+    // fail-closed backend checks, same sealing — pointed at `<data_dir>/vault`. First boot
+    // provisions a fresh seed and seals it; later boots unseal it. No second secret to hand
+    // around, and nothing to forget.
+    //
+    // ⚠️ Two seeds held by ONE operator is still one party holding both halves. This removes the
+    // CRYPTOGRAPHIC link; the OPERATIONAL one (separate operator, own enclave + attestation,
+    // migration authority on a different Safe) is the §E175 deployment remainder.
+    let vault_seed_dir = data_dir.join("vault");
+    let vault_seed_ffs = quid_hop::ffs::DiskFs::create_dir_all(vault_seed_dir.clone())
+        .context("create the vault's sealed-seed dir")?;
+    // ⚠️ `QUID_VAULT_SEED`, NOT `QUID_SEED`: the import variable must differ, or an operator
+    // setting `QUID_SEED` for a migration would import the SAME seed into both stores and make
+    // the two halves IDENTICAL — worse than the derivation just deleted, and invisible on-chain.
+    let vault_seed = quid_hop::seed::load_or_provision_from_env_var(
+        &vault_seed_ffs,
+        network,
+        "QUID_VAULT_SEED",
+    )
+    .context("load/provision the vault's sealed seed")?;
     let mut vault = quid_bridge::vault::boot_vault(
         network,
         env("QUID_ESPLORA_URL")?,
-        seed_source,
-        data_dir.join("vault"),
+        &vault_seed,
+        vault_seed_dir,
         hop_pk,
         vault_port,
         quid_hop::rebalancer::SPLICE_FUNDING_FEERATE_SAT_PER_KW,
