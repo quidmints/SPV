@@ -165,7 +165,33 @@ contract LiquityTroveVenue is LevVenueBase {
             BORROWER_OPS.withdrawBold(id, more, type(uint256).max);
             sent += ILevERC20(STABLE).balanceOf(address(this)) - before;             // actual (net upfront fee)
         }
-        if (sent > 0) ILevERC20(STABLE).transfer(MANAGER, sent);
+        if (sent > 0) {
+            // RECONCILE THE LEDGER TO THE BALANCE, rather than transferring a figure derived from it.
+            // `pendingBold` is a PER-LP ledger over a SHARED contract balance (there is also
+            // `protocolPending`), and Liquity moves that balance outside our accounting --
+            // `mintAggInterestAndAccountForTroveChange` mints accrued interest to several recipients
+            // including this venue on the same call. So the ledger can drift ABOVE what is actually
+            // held: MEASURED at balance 4,741.457 BOLD against a computed 4,742.425 (~0.97 short on
+            // 4,741), which reverted the whole close with "transfer amount exceeds balance".
+            // Delivering what is HELD and returning the shortfall to the ledger keeps the two in
+            // agreement BY CONSTRUCTION and preserves the claim -- the undelivered part stays owed and
+            // collectable on the next call, which is a deferral, not a loss. The `more` branch above
+            // already works this way (it credits the MEASURED withdrawBold delta, not the request);
+            // this extends the same discipline to the pending branch, which trusted the ledger.
+            uint256 bal = ILevERC20(STABLE).balanceOf(address(this));
+            if (sent > bal) {
+                // SOURCE THE SHORTFALL, DO NOT SHORT-DELIVER. Handing back less than asked breaks the
+                // caller's invariant downstream -- measured: it left the trove at ICRBelowMCR(). Draw the
+                // difference the same way the `more` branch does, and only defer what genuinely cannot
+                // be sourced (which stays owed on the ledger, collectable next call).
+                uint256 gap = sent - bal;
+                uint256 pre = bal;
+                BORROWER_OPS.withdrawBold(id, gap, type(uint256).max);
+                uint256 drawn = ILevERC20(STABLE).balanceOf(address(this)) - pre;
+                if (drawn < gap) { pendingBold[lp] += gap - drawn; sent -= (gap - drawn); }
+            }
+            if (sent > 0) ILevERC20(STABLE).transfer(MANAGER, sent);
+        }
         return sent;
     }
 

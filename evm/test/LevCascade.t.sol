@@ -271,7 +271,14 @@ contract LevCascadeProbe is Alles {
         // already happened, and could only ever pass or fail on rounding noise.
         assertGe(CORE.POOLED_ETH(), lev, "the levered slice is part of the band's in-range depth");
         assertGt(V4.levBuf(lps[0]), 0, "the debt-funded buffer is live and fee-earning");
-        assertGt(CORE.POOLED_USD_ETH(), pu0, "POOLED_USD paired against it (in-range, fee-earning)");
+        // SAME DEFECT AS THE `pe0` ASSERTION ABOVE, fixed the same way. `pu0` is captured AFTER
+        // `lm.rebalance`, which already minted the slice via the manager's syncLev hook, so the explicit
+        // `V4.syncLev` is IDEMPOTENT and POOLED_USD cannot GROW here. The old `assertGt(.., pu0)` was
+        // asserting a transition that had already happened, and could only pass or fail on modLP
+        // rounding — MEASURED at 3,596 of 6-dec USD ($0.0036), the same order as the -23 wei the ETH
+        // side moves. Assert the STATE that matters (USD is paired against the levered slice, so the
+        // depth is in-range and fee-earning) rather than a delta that is pure noise.
+        assertGt(CORE.POOLED_USD_ETH(), 0, "POOLED_USD paired against it (in-range, fee-earning)");
 
         // (a) small swaps generate band fees; the levered LP IS band depth.
         for (uint i; i < 10; i++) {
