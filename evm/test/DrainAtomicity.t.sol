@@ -1498,6 +1498,67 @@ contract DrainAtomicity is Alles {
         }
     }
 
+    /// §UNIT-B-PATIENCE-BACKGROUND — THE RE-MEASURE §UNIT-B-PATIENCE BOOKED AS REQUIRED BEFORE THE
+    /// EXPOSURE COULD BE SIZED. That entry measured a 4h-spaced chopper paying 93.3% less, and bounded
+    /// the claim honestly: the fixture has NO EXOGENOUS PRICE PROCESS, so the attacker held the clock
+    /// still by simply not trading. But the observation ring advances on ANY swap, so in a pool with
+    /// other traders the attacker cannot stop σ² being sampled. This measures how much that protects.
+    ///
+    /// Background trades are deliberately SMALL (1% of a slice). They are still drains, so they do
+    /// deplete inventory and that is a confound in the raising direction -- kept small so it cannot
+    /// account for the effect, and σ² is logged per arm so the MECHANISM is visible rather than
+    /// inferred from the premium alone.
+    function test_UNITB_PatienceBackground_DoesOtherFlowDefendThePool() public {
+        uint TOTAL = 120_000 * 1e18;
+        uint N = 12;
+        uint SLICE = TOTAL / N;
+        uint BG = SLICE / 100;             // 1% of a slice — advances the ring, barely drains
+
+        // ARM A — quiet pool: the attacker is the only trader (reproduces §UNIT-B-PATIENCE).
+        uint snap = vm.snapshotState();
+        _setupBand();
+        _pinFlow(380_432_109_336);
+        uint premQuiet = CORE.skewPremiumETH();
+        for (uint i = 0; i < N; ++i) {
+            if (i > 0) vm.warp(block.timestamp + 4 hours);
+            _drain(SLICE);
+        }
+        premQuiet = CORE.skewPremiumETH() - premQuiet;
+        uint sigQuiet = CORE.realizedVarianceWad(false);
+
+        // ARM B — busy pool: three small swaps inside each 4h gap, so the ring keeps advancing.
+        vm.revertToState(snap);
+        _setupBand();
+        _pinFlow(380_432_109_336);
+        uint premBusy = CORE.skewPremiumETH();
+        uint bgPaid;
+        for (uint i = 0; i < N; ++i) {
+            if (i > 0) {
+                for (uint k = 0; k < 3; ++k) {
+                    vm.warp(block.timestamp + 1 hours);
+                    uint b4 = CORE.skewPremiumETH();
+                    _drain(BG);
+                    bgPaid += CORE.skewPremiumETH() - b4;
+                }
+                vm.warp(block.timestamp + 1 hours);
+            }
+            _drain(SLICE);
+        }
+        // Charge the attacker ONLY for their own slices; background flow is somebody else's bill.
+        premBusy = CORE.skewPremiumETH() - premBusy - bgPaid;
+        uint sigBusy = CORE.realizedVarianceWad(false);
+
+        emit log_named_uint("QUIET: attacker pays  ", premQuiet);
+        emit log_named_uint("QUIET: final sigma^2  ", sigQuiet);
+        emit log_named_uint("BUSY : attacker pays  ", premBusy);
+        emit log_named_uint("BUSY : final sigma^2  ", sigBusy);
+        emit log_named_uint("BUSY : background bill", bgPaid);
+        emit log_named_uint("busy/quiet ratio x1e4 ", premQuiet == 0 ? 0 : premBusy * 1e4 / premQuiet);
+
+        assertGt(premQuiet, 0, "CONTROL: the quiet arm charged nothing");
+        assertGt(premBusy,  0, "CONTROL: the busy arm charged nothing");
+    }
+
     /// §UNIT-FORELLA FRAME CHECK — the row's OWN named prerequisite: *"`q` SURVIVES A RESEAT and a
     /// troller CANNOT reset their accrued path cost by triggering one. VERIFY WITH A TEST before
     /// relying on it."* The brake charges total variation along `q`, so if a permissionless `reseat()`
