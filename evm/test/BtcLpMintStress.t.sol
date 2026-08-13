@@ -529,6 +529,53 @@ contract BtcLpMintStress is Alles {
         assertEq(sizeAfter, growTo, "the channel's custody balance still reflects the splice");
     }
 
+    /// 🔑 (M1#1) THE BOUND THAT REPLACED THE PHANTOM: a hop cannot credit beyond what it has
+    /// SPV-proven into custody. `settleSwapIn` would have paid this out on the hop's word alone,
+    /// draining `POOLED_USD_BTC` for sats that never existed — a loss reaching QU!D holders who
+    /// opted into no enclave trust.
+    ///
+    /// ⚠️ NOTE WHAT THE BOUND IS ON: `consumed`, not the request. Asking for more than you proved
+    /// is harmless when the pool converts less, so this needs a SMALL buffer and a pool deep
+    /// enough to convert past it — otherwise the POOL, not the balance, is what stops the credit
+    /// and the test would pass without exercising the guard at all.
+    function test_M1_1_CannotCreditBeyondWhatWasProven() public {
+        BTCChannels ch = _deployChannels();
+        (bytes32 cid, bytes32 ftx, address lpEth, bytes memory lp) = _open(ch, 31, 1_000_000);
+        // ⚠️ PRIME WITH REAL SWAP-OUTS, NOT CURVE BUYS. A credit SELLS sats into the pool, and a
+        // pool primed only by buys is too thin to absorb one — it trips `SlippageMaxS` in
+        // `routeSwap`, a genuine depth guard, and the test would fail for a reason that has
+        // nothing to do with the bound under test. (Same trap as §E166-2.)
+        _swapOuts(ch, cid, ftx, 31, lp, lpEth, 2, 400 * USDC_PRECISION);
+
+        uint parked = 10_000;   // deliberately small, and well inside what the pool can convert
+        {
+            (uint cur,,,,,) = ch.channels(cid);
+            // The priming swap-outs SPLICED this channel, so the funding outpoint has rotated —
+            // using the opening txid fails `WrongPrevOutpoint` (§E166-2 hit this too).
+            (bytes memory stx, Types.OpenParams memory sp) =
+                _growSpliceArgs(ch, cid, _liveFundingTxId[cid], 31, lp, cur + parked);
+            vm.prank(makeAddr("hop"));
+            ch.parkProvenSats(cid, sp, stx, new bytes32[](0));
+        }
+        assertEq(ch.provenSatsAvailable(makeAddr("hop")), parked, "premise: a small proven balance");
+
+        // A credit the pool COULD fill, but the balance cannot cover, is refused.
+        // 5x the balance — comfortably inside the pool's depth (the neighbouring proven-swap-in
+        // test absorbs 50k sats on this priming), so what stops it is the BALANCE, not the curve.
+        vm.prank(makeAddr("hop"));
+        vm.expectRevert(BTCChannels.InsufficientProvenSats.selector);
+        ch.settleSwapInBuffered(address(0x5EE0), parked * 5, address(USDC), keccak256("over"), 0, false);
+
+        // CONTROL: the same call WITHIN the balance succeeds, so the refusal above is
+        // attributable to the bound and not to a pool that simply could not deliver.
+        uint before = USDC.balanceOf(address(0x5EE0));
+        vm.prank(makeAddr("hop"));
+        uint consumed = ch.settleSwapInBuffered(address(0x5EE0), parked, address(USDC), keccak256("ok"), 0, false);
+        assertGt(USDC.balanceOf(address(0x5EE0)), before, "control: a within-balance credit pays");
+        assertEq(ch.provenSatsAvailable(makeAddr("hop")), parked - consumed,
+            "the balance falls by consumed, never by the request");
+    }
+
     /// ⚠️ A SHRINK PROVES SATS LEFT, NOT ARRIVED. Crediting one would be the phantom by another
     /// door, so it must refuse rather than credit zero — a zero credit reads as success.
     function test_E166_2_ShrinkSpliceCannotFundASwapIn() public {
@@ -946,7 +993,7 @@ contract BtcLpMintStress is Alles {
     /// pool below pendingSwapOutUsd reverts SwapInDrainsProceeds.
     function test_SwapInGate_RevertsIfDrainsPendingProceeds() public {
         BTCChannels ch = _deployChannels();
-        _open(ch, 9, 5e7); // 0.5 BTC liquidity
+        (bytes32 cid9, bytes32 ftx9, , bytes memory lp9) = _open(ch, 9, 5e7); // 0.5 BTC liquidity
         _setRecipient(address(ch), abi.encode(uint(0xB7C)), User03);
         vm.startPrank(User03); USDC.approve(address(AUX), type(uint).max); vm.stopPrank();
 
@@ -987,12 +1034,25 @@ contract BtcLpMintStress is Alles {
         uint price = AUX.getTWAPforAsset(address(WBTC), 1800);
         uint fixedSats = (freeReserve0 / 4 * 1e12 * 1e18) / price; // ~1/4 of the free reserve per swap
         if (fixedSats == 0) fixedSats = 1e3;
+        // (M1#1) FUND THE HOP'S PROVEN BUFFER. A buffered credit draws sats the hop has already
+        // SPV-proven into custody, so without a park every iteration below would revert
+        // `InsufficientProvenSats` and `accepted` would stay 0 — the loop would spin 500 times
+        // testing nothing. Parking generously here keeps the BUFFER out of the way, so the
+        // draining still stops for the reason this test is about (the proceeds gate or the
+        // curve), never because the hop ran out of inventory.
+        {
+            (uint cur9,,,,,) = ch.channels(cid9);
+            (bytes memory stx9, Types.OpenParams memory sp9) =
+                _growSpliceArgs(ch, cid9, ftx9, 9, lp9, cur9 + fixedSats * 501);
+            vm.prank(makeAddr("hop"));
+            ch.parkProvenSats(cid9, sp9, stx9, new bytes32[](0));
+        }
         uint pooledStart = CORE.POOLED_USD_BTC();
         bool gateFired; bool curveSelfLimited; uint accepted;
         for (uint i = 0; i < 500 && !gateFired && !curveSelfLimited; i++) {
             if (CORE.POOLED_USD_BTC() <= pending) break;
             vm.prank(makeAddr("hop"));
-            try ch.settleSwapIn(address(0x5EE0), fixedSats, address(USDC),
+            try ch.settleSwapInBuffered(address(0x5EE0), fixedSats, address(USDC),
                     keccak256(abi.encode("gate-swapin", i)), 0, false) {
                 assertGe(CORE.POOLED_USD_BTC(), pending,
                     "swap-in left POOLED_USD_BTC >= pending (LP proceeds not drained)");
@@ -1131,9 +1191,22 @@ contract BtcLpMintStress is Alles {
         _multiAssert(ch, "B swaps post-splice", k);
 
         // 5) a swap-IN draws the SHARED pool while obligations may be pending — must
-        //    not draw POOLED_USD_BTC below the cross-channel pending total
+        //    not draw POOLED_USD_BTC below the cross-channel pending total.
+        //    (M1#1) Park first, or the credit reverts on an empty buffer and this step stops
+        //    exercising the shared pool at all — the `try` would swallow it silently.
+        {
+            (uint curB,,,,,) = ch.channels(k[1].id);
+            (bytes memory stxB, Types.OpenParams memory spB) = _growSpliceArgs(
+                ch, k[1].id, _liveFundingTxId[k[1].id], 202, k[1].pk, curB + 60_000);
+            vm.prank(makeAddr("hop"));
+            ch.parkProvenSats(k[1].id, spB, stxB, new bytes32[](0));
+            // ⚠️ A PARK IS A SPLICE, SO IT ROTATES THE FUNDING OUTPOINT. Without tracking that,
+            // every later step on this channel builds against a stale outpoint and dies on
+            // `WrongPrevOutpoint` — which is exactly how this test failed once.
+            _liveFundingTxId[k[1].id] = sha256(abi.encodePacked(sha256(stxB)));
+        }
         vm.prank(makeAddr("hop"));
-        try ch.settleSwapIn(address(0x5EE0), 50_000, address(USDC), bytes32(uint(0x5117)), 0, false) {} catch {}
+        try ch.settleSwapInBuffered(address(0x5EE0), 50_000, address(USDC), bytes32(uint(0x5117)), 0, false) {} catch {}
         _multiAssert(ch, "shared swap-in", k);
 
         // 6) close A (all-native, mints ~0) — must not move B/C minted balances

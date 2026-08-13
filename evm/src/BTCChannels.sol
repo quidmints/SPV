@@ -1044,6 +1044,84 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     }
 
     error NotAGrow();   // a shrink-splice cannot fund a swap-in: no sats entered custody
+    error InsufficientProvenSats();  // a credit would exceed what this hop has proven into custody
+
+    /// (M1#1) Sats this hop has SPV-proven into custody and not yet credited against.
+    ///
+    /// 🔑 **THIS BALANCE IS THE REPLAY PROTECTION, WHICH IS WHY THE BUFFERED CREDIT NEEDS NO
+    /// DEDUP KEY.** `settleSwapIn` keyed replay on a `paymentHash` the hop invented; here a hop
+    /// simply cannot credit more than it proved, so a replayed credit runs out of balance instead
+    /// of running past a guard. One accumulator replaces both the trust and the bookkeeping.
+    mapping(address => uint) public provenSatsAvailable;
+
+    event ProvenSatsParked(address indexed hop, bytes32 indexed spliceTxId, uint sats, uint balance);
+
+    /// (M1#1) Prove a grow-splice into custody WITHOUT crediting anyone — bank it for later.
+    ///
+    /// This is half of the answer to "provability or atomicity", and the half that makes the
+    /// other half free. A Lightning HTLC produces no transaction to prove, so the LN rail could
+    /// only be made provable by claiming the seller's BTC BEFORE knowing the pool could pay for
+    /// it. Sats are fungible, so they need not be the SAME sats: the hop proves its own BTC into
+    /// custody AHEAD of demand here, and a credit later draws that balance down.
+    ///
+    /// ⚠️ Credits NO LP position — §T1-f. The parked sats are not a deposit anyone owns; they are
+    /// inventory awaiting a credit that will move them into `POOLED_BTC`.
+    function parkProvenSats(
+        bytes32 channelId,
+        Types.OpenParams calldata p,
+        bytes calldata rawSpliceTx,
+        bytes32[] calldata spliceMerkleProof
+    ) external nonReentrant whenOpen(channelId) {
+        _onlyHop();
+        _requireChannelKeys(channelId, p);
+        bytes32 spliceTxId = BitcoinTx.txid(rawSpliceTx);
+        if (swapInUsed[spliceTxId]) revert SwapInDepositReplay();
+        swapInUsed[spliceTxId] = true;
+        if (p.amountSats == channels[channelId].amountSats) revert SpliceUnchanged();
+        uint grewBy = _applySplice(channelId, p, rawSpliceTx, spliceMerkleProof);
+        if (grewBy == 0) revert NotAGrow();   // a shrink proves sats LEFT, not arrived
+        uint bal = provenSatsAvailable[msg.sender] + grewBy;
+        provenSatsAvailable[msg.sender] = bal;
+        emit ProvenSatsParked(msg.sender, spliceTxId, grewBy, bal);
+    }
+
+    /// (M1#1) Credit a seller by DRAWING DOWN sats this hop proved earlier.
+    ///
+    /// Replaces `settleSwapIn`. The hop still names the seller, the token and the floor (T2), but
+    /// it can no longer conjure the SATS: every credit is bounded by a balance that only an
+    /// SPV-proven splice can raise. That is the phantom closed without costing the seller
+    /// atomicity — they settle instantly, out of inventory proven before they ever paid.
+    ///
+    /// ⚠️ **THE BALANCE CHECK IS DELIBERATELY *AFTER* THE CREDIT, NOT BEFORE.** Both orders are
+    /// equally safe (a revert rolls the whole call back), but checking after means `creditSwapIn`
+    /// validates the payout token FIRST — so an unregistered hook-token is still rejected with
+    /// `StableMissing` rather than being masked by an empty-buffer error. Checking early would
+    /// have silently stopped `ReentrancyProbe`'s token test from testing what it names.
+    ///
+    /// ⚠️ **AND IT DEDUCTS `consumed`, NOT `sats`.** On an inventory-bounded partial the pool
+    /// converts less than asked; deducting the request would burn proven sats the hop still owns
+    /// and could still sell. `requireFull` is preserved for the LN rail, which cannot refund a
+    /// partial and must fail the HTLC back instead.
+    function settleSwapInBuffered(
+        address seller, uint sats, address token, bytes32 paymentHash,
+        uint minDeliveredUsd, bool requireFull
+    ) external nonReentrant returns (uint consumed) {
+        _onlyHop();
+        // ⚠️ `paymentHash` IS IDEMPOTENCY, NOT THE BOUND — do not confuse the two, because the
+        // old entrypoint conflated them and that is what made it a trapdoor. What stops a hop
+        // conjuring value is `provenSatsAvailable`; a hash the hop invents could never do that.
+        // What this dedup stops is the DAEMON crediting the same HTLC twice after a retry or a
+        // restart, which would pay the seller twice and drain the hop's own proven balance.
+        // ⇒ The pool is protected by the balance; the hop and the seller are protected by this.
+        if (paymentHash == bytes32(0) || swapInUsed[paymentHash]) revert SwapInReplay();
+        swapInUsed[paymentHash] = true;
+        uint avail = provenSatsAvailable[msg.sender];
+        consumed = btcVault.creditSwapIn(seller, sats, token, minDeliveredUsd);
+        if (consumed > avail) revert InsufficientProvenSats();
+        provenSatsAvailable[msg.sender] = avail - consumed;
+        if (requireFull && consumed < sats) revert SwapInPartialRejected();
+        emit SwapInSettled(seller, paymentHash, sats, consumed, token);
+    }
 
     /// @dev CUSTODY ONLY — this rotates the funding outpoint and moves `amountSats`; it does
     ///      NOT decide who owns the grown slice. **(§T1-f) The claim is the CALLER's decision**,
@@ -1676,58 +1754,14 @@ contract BTCChannels is Ownable, ReentrancyGuard {
 
     error NotAReversal();   // no pending swap-out for this id — nothing to refund
 
-    function settleSwapIn(address seller, uint sats, address token,
-        bytes32 paymentHash, uint minDeliveredUsd, bool requireFull) external nonReentrant {
-        _onlyHop();
-        // MULTI-HOP attestation authority: a swap-in credit draws the shared
-        // POOLED_USD_BTC, so only a GENUINE hop — one that currently owns at least one
-        // OPEN channel (i.e. has BTC locked) — may attest, exactly as only the single
-        // trusted `hopNode` could before. `openChannelsOf` is the per-hop open-channel
-        // count (++ at open, -- at close). Per-hop bounding of pool drainage vs a hop's
-        // OWN locked sats is a tracked refinement; the has-an-open-channel gate is the
-        // essential authority binding that keeps a random address from crediting.
-        // Dedup on the LN HTLC hashlock — one credit per swap-in, ever.
-        if (paymentHash == bytes32(0) || swapInUsed[paymentHash])
-            revert SwapInReplay();
-        swapInUsed[paymentHash] = true;
-        // REVERSAL of an on-chain swap-out (paymentHash == its swapId): clear the
-        // obligation and free its owed proceeds (pendingSwapOutUsd -= so.usd) BEFORE
-        // the credit. This (a) honors the matched -= for the request's += and (b)
-        // lets the swap-in solvency gate see the freed reserve, so a reversal is
-        // never blocked by its own obligation. CEI: delete state before the call.
-        PendingOnchainSwapOut memory so = pendingOnchainSwapOut[paymentHash];
-        if (so.sats != 0) {
-            // REVERSAL: the refund payee + amount are PINNED to the recorded
-            // swap-out (so.swapper / so.sats), NOT the hop-supplied `seller`/`sats`, so
-            // a malicious hop can't redirect or short the swapper's refunded principal.
-            delete pendingOnchainSwapOut[paymentHash];
-            btcVault.subPendingSwapOut(so.usd);
-            uint consumedRev = btcVault.creditSwapIn(so.swapper, so.sats, token, minDeliveredUsd);
-            // A reversal returns the swapper's OWN principal — all-or-nothing: a partial refund would strand the
-            // remainder (the swapper has no deposit/HTLC to reclaim from on this path). requireFull reverts it so
-            // the whole reversal rolls back and is retried once the pool can fully honor it (the caller passes true).
-            if (requireFull && consumedRev < so.sats) revert SwapInPartialRejected();
-            emit SwapInSettled(so.swapper, paymentHash, so.sats, consumedRev, token);
-            return;
-        }
-        // minDeliveredUsd is the hop's attestation of the seller's
-        // expected USD; creditSwapIn reverts (rolling back the swapInUsed mark
-        // above) if a thin POOLED_USD_BTC can't deliver it — symmetric to the
-        // swap-OUT minSats floor, so the seller never eats a short fill BELOW its floor.
-        // ABOVE the floor a thin POOLED_USD_BTC can still convert only PART of the input
-        // (inventory-bounded); creditSwapIn returns the sats actually converted so the
-        // hop refunds the `sats − consumedSats` remainder to the seller (its BTC is held
-        // off-chain over the deposit/HTLC — see SwapInSettled).
-        uint consumedSats = btcVault.creditSwapIn(seller, sats, token, minDeliveredUsd);
-        // ATOMIC full-fill (the LN rail): if the pool converted only PART of `sats` (inventory-bounded), revert
-        // the WHOLE settle — the draw + USD delivery roll back, so the hop delivers no USD and FAILS the HTLC,
-        // and the seller keeps 100% of their BTC. LN HTLCs are all-or-nothing and the fleet has NO seller LN
-        // node to refund a remainder to, so a partial can never be settled on this rail (the seller retries once
-        // the reservoir refills). The on-chain rail passes requireFull=false: it accepts partials and refunds the
-        // `sats − consumedSats` remainder trustlessly via the deposit's CLTV leaf (SwapInSettled → claim-tx output).
-        if (requireFull && consumedSats < sats) revert SwapInPartialRejected();
-        emit SwapInSettled(seller, paymentHash, sats, consumedSats, token);
-    }
+    // ⛔ (M1#1) `settleSwapIn` IS DELETED — the phantom swap-in is gone from the contract.
+    //
+    // It credited the shared POOLED_USD_BTC on the hop's WORD, so a malicious hop asserted sats
+    // that never arrived and the loss reached QU!D holders who opted into no enclave trust. It
+    // survived this long only because the LN rail had no provable form.
+    //
+    // REPLACED, not merely removed: `parkProvenSats` + `settleSwapInBuffered` above. Its OTHER
+    // role already lives under its own name — `reverseSwapOut` (T1-b/T1-d).
 
     /// @notice A swapper recovers their committed USD if the hop never delivers
     ///         the on-chain swap-out (or never reverses it). Permissionless of the HOP —

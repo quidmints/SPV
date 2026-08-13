@@ -107,6 +107,15 @@ pub const SIG_SETTLE_SWAP_IN_PROVEN: &str =
 /// `settleSwapIn`, a compromised hop cannot redirect a refund, inflate it, or re-denominate it.
 /// That is the whole reason this is a separate entrypoint rather than a flag on the credit path.
 pub const SIG_REVERSE_SWAP_OUT: &str = "reverseSwapOut(bytes32,uint256,bool)";
+/// (M1#1) The buffered swap-in credit — draws down sats the hop has already SPV-proven into
+/// custody via `parkProvenSats`. **Replaces `settleSwapIn`, which is deleted.**
+///
+/// ⚠️ It still carries a `paymentHash`, but the hash's JOB CHANGED and that is the point: it is
+/// IDEMPOTENCY (stop the daemon crediting one HTLC twice across a retry or restart), never the
+/// bound. What stops a hop conjuring value is `provenSatsAvailable` on-chain. The old entrypoint
+/// conflated the two, and that conflation was the trapdoor.
+pub const SIG_SETTLE_SWAP_IN_BUFFERED: &str =
+    "settleSwapInBuffered(address,uint256,address,bytes32,uint256,bool)";
 
 /// (E178) Every signature the hop's hot key may legitimately be asked to sign on
 /// `BTCChannels`. The EVM tx policy derives its selector set from THIS — it does not keep
@@ -120,6 +129,7 @@ pub const HOP_BTCCHANNELS_SIGS: &[&str] = &[
     SIG_EMIT_DEAD_MAN_EXIT,
     SIG_REVERSE_SWAP_OUT,
     SIG_SETTLE_SWAP_IN_PROVEN,
+    SIG_SETTLE_SWAP_IN_BUFFERED,
 ];
 
 /// An ABI token. Static tokens contribute one 32-byte word to the head; dynamic

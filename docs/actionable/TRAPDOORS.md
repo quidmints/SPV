@@ -16,7 +16,7 @@ acting; the cost is one grep.
 
 ---
 
-## T1 🟡 NARROWED → DELETABLE — `settleSwapIn` credits the shared pool on the hop's WORD
+## T1 ✅ CLOSED — `settleSwapIn` IS DELETED; every credit is now bounded by proof
 
 `BTCChannels.sol:1553`. **This is `#1`, and it is NOT closed — it is NARROWED.**
 `settleSwapInProven` (`:1522`) was added and derives the deposit address on-chain from the
@@ -45,19 +45,33 @@ by enumerating, which is the only way this row was ever going to be right):
 |---|---|---|
 | `swap_out_onchain.rs` reversal | `reverseSwapOut` | ✅ done (T1-b) |
 | `swap_in_onchain.rs` on-chain deposit rail | `settleSwapInProven` | ✅ done (T1-c) |
-| `swap_in.rs:291` LN rail | `settleSwapInSpliced` | 🔴 **blocked on an owner decision — §T1-e** |
+| `swap_in.rs` LN rail | `settleSwapInBuffered` | ✅ done (M1#1) |
 
 ⇒ **TWO OF THE THREE ARE OFF THE PHANTOM, AND `EvmClient` IS NOW THE LN RAIL'S TRAIT ALONE**
 (verified by enumeration: `swap_in.rs` is its only remaining production consumer). The
 on-chain rail now hands the contract a transaction and an SPV proof, and the contract derives
 the sats and dedups on the **txid** it computes itself.
 
-🔴 **BUT `settleSwapIn` CANNOT BE DELETED, AND THE OBSTACLE IS NOT EFFORT — IT IS ORDERING.**
-The LN rail settles USD **first** and claims the preimage only on success, so a dry pool fails
-the HTLC back and the seller keeps 100% of their BTC. Proving instead requires
-claim → splice → prove → credit, i.e. **taking the seller's BTC before knowing the pool can
-pay for it.** The rail buys atomicity WITH the trust; §E166-2's proof buys trustlessness WITH
-the atomicity. Options and their costs are in **§T1-e** — this needs a decision, not a patch.
+✅ **AND THE LN RAIL IS DONE TOO (M1#1, 2026-08-14) — the ordering conflict dissolved rather
+than being traded away.** Provability wants the sats in custody BEFORE the credit; atomicity
+wants the credit BEFORE taking the seller's sats. **Sats are fungible, so they need not be the
+SAME sats:** `parkProvenSats` proves the hop's own BTC into custody AHEAD of demand, and
+`settleSwapInBuffered` draws that balance down. Every credit is therefore debited against sats
+already proven, while the seller still settles instantly and is never exposed.
+
+🔑 **WHAT THE HOP CAN NO LONGER DO:** conjure sats. `provenSatsAvailable` bounds it, and only an
+SPV-proven grow-splice raises that balance. ⚠️ **The bound is on `consumed`, not the request** —
+asking for more than you proved is harmless when the pool converts less; the guard fires only
+when the pool WOULD convert past the balance.
+
+⚠️ **THE `paymentHash` SURVIVES BUT ITS JOB CHANGED, AND CONFLATING THE TWO IS WHAT MADE THE OLD
+ENTRYPOINT A TRAPDOOR.** It is now IDEMPOTENCY ONLY — one credit per HTLC across daemon retries
+and restarts, protecting the hop's own balance and the seller from a double payment. It is **not**
+what bounds the credit; a value the hop invents never could be. Dropping it entirely was tried and
+reverted: the bridge gates restart-safety on `swapInUsed`, so without it a retried submission
+credits twice.
+
+▶️ **STILL THE HOP'S WORD (T2), UNCHANGED:** the seller, the token and the USD floor.
 
 ## T2 🔴 OPEN — `seller`, `token`, `minDeliveredUsd` are hop assertions
 

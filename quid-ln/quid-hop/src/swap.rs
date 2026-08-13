@@ -23,9 +23,14 @@
 
 use alloy_primitives::{keccak256, Address, Bytes, U256};
 
-/// ABI-encode `settleSwapIn(address seller, uint256 sats, address token, bytes32 paymentHash,
-/// uint256 minDeliveredUsd, bool requireFull)`. This is exactly what the hop submits to
-/// BTCChannels when an inbound HTLC / on-chain deposit settles. `require_full = true` makes
+/// ABI-encode [`SIG_SETTLE_SWAP_IN_BUFFERED`] — what the hop submits when an inbound HTLC
+/// settles. **(M1#1) `settleSwapIn` is DELETED and this replaces it.**
+///
+/// 🔑 The `paymentHash` survives but its JOB CHANGED: it is IDEMPOTENCY (one credit per HTLC
+/// across daemon retries and restarts), never the bound. The credit is bounded by sats the hop
+/// already SPV-proved into custody with `parkProvenSats`, so a hop can no longer conjure sats —
+/// only the seller, token and floor remain its word (T2). Conflating those two roles is exactly
+/// what made `settleSwapIn` a trapdoor. `require_full = true` makes
 /// the contract REVERT (`SwapInPartialRejected`, rolling back the draw + USD delivery) when
 /// the POOLED_USD_BTC reserve could only convert PART of `sats` — used by the atomic LN rail,
 /// which has no way to refund a partial remainder. `false` allows an inventory-bounded
@@ -38,7 +43,7 @@ pub fn settle_swapin_calldata(
     min_delivered_usd: U256,
     require_full: bool,
 ) -> Bytes {
-    let sel = keccak256("settleSwapIn(address,uint256,address,bytes32,uint256,bool)");
+    let sel = keccak256(crate::evm_codec::SIG_SETTLE_SWAP_IN_BUFFERED);
     let mut data = Vec::with_capacity(4 + 192);
     data.extend_from_slice(&sel[..4]);
     data.extend_from_slice(&crate::abi::address_word(seller));
@@ -189,21 +194,13 @@ mod tests {
         let token = Address::ZERO;
         let hash = [0xABu8; 32];
         let cd = settle_swapin_calldata(seller, 50_000, token, hash, U256::from(1_000_000u64), true);
-        // selector + 6 words
         assert_eq!(cd.len(), 4 + 192);
-        let sel = keccak256("settleSwapIn(address,uint256,address,bytes32,uint256,bool)");
-        assert_eq!(&cd[..4], &sel[..4]);
-        // word 0: seller in the low 20 bytes
-        assert_eq!(&cd[4 + 12..4 + 32], &[0x11u8; 20]);
-        // word 1: sats = 50000 big-endian
-        assert_eq!(U256::from_be_slice(&cd[4 + 32..4 + 64]), U256::from(50_000u64));
-        // word 3: paymentHash verbatim
-        assert_eq!(&cd[4 + 96..4 + 128], &hash);
-        // word 4: minDeliveredUsd big-endian
-        assert_eq!(U256::from_be_slice(&cd[4 + 128..4 + 160]), U256::from(1_000_000u64));
-        // word 5: requireFull = true → last byte 1
-        assert_eq!(U256::from_be_slice(&cd[4 + 160..4 + 192]), U256::from(1u64));
-        // requireFull = false → last byte 0.
+        assert_eq!(&cd[..4], &keccak256(crate::evm_codec::SIG_SETTLE_SWAP_IN_BUFFERED)[..4]);
+        assert_eq!(&cd[4 + 12..4 + 32], &[0x11u8; 20], "word 0: seller");
+        assert_eq!(U256::from_be_slice(&cd[4 + 32..4 + 64]), U256::from(50_000u64), "word 1: sats");
+        assert_eq!(&cd[4 + 96..4 + 128], &hash, "word 3: paymentHash (idempotency, not the bound)");
+        assert_eq!(U256::from_be_slice(&cd[4 + 128..4 + 160]), U256::from(1_000_000u64), "floor");
+        assert_eq!(U256::from_be_slice(&cd[4 + 160..4 + 192]), U256::from(1u64), "requireFull");
         let cd0 = settle_swapin_calldata(seller, 50_000, token, hash, U256::from(1_000_000u64), false);
         assert_eq!(U256::from_be_slice(&cd0[4 + 160..4 + 192]), U256::ZERO);
     }

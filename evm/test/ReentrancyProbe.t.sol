@@ -53,14 +53,14 @@ contract ReentrancyProbe is Alles {
         ETH.creditSwapOut(address(0xBAD), address(USDC), 1e18, 0);
     }
 
-    // (2) settleSwapIn is hop-gated: a non-hop caller can't initiate a swap-in
-    //     credit (so the only entry is the hop, through the nonReentrant guard).
+    // (2) the buffered swap-in is hop-gated: a non-hop caller can't initiate a credit
+    //     (so the only entry is the hop, through the nonReentrant guard).
     function test_settleSwapIn_only_hop() public {
         BTCChannels ch = _deployChannels();
         // MULTI-HOP: a caller that owns no open channel cannot attest a swap-in.
         vm.prank(address(0xBAD));
         vm.expectRevert(BTCChannels.NotChannelHop.selector);
-        ch.settleSwapIn(address(0xBAD), 1_000_000, address(USDC), bytes32(uint(1)), 0, false);
+        ch.settleSwapInBuffered(address(0xBAD), 1_000_000, address(USDC), bytes32(uint(1)), 0, false);
     }
 
     // (3) THE creditSwapIn re-entry-vector closure: the payout token must be a
@@ -69,6 +69,11 @@ contract ReentrancyProbe is Alles {
     //     so it never gets the callback the agent's theory relied on. We pass the
     //     hop-gate (prank hop) and nonzero sats so we actually reach the
     //     creditSwapInBody validation.
+    //
+    //     ⚠️ (M1#1) THIS STILL REACHES THE TOKEN CHECK BECAUSE THE BUFFER CHECK RUNS AFTER
+    //     THE CREDIT, NOT BEFORE. An empty `provenSatsAvailable` would otherwise revert
+    //     `InsufficientProvenSats` first and this test would silently stop testing its own
+    //     name — the ordering in `settleSwapInBuffered` is deliberate for exactly this.
     function test_swapIn_rejects_unregistered_hook_token() public {
         BTCChannels ch = _deployChannels();
         address evil = address(new EvilToken());
@@ -77,7 +82,7 @@ contract ReentrancyProbe is Alles {
         _openHopChannel(ch, makeAddr("hop"), 1, 2e7);
         vm.prank(makeAddr("hop"));
         vm.expectRevert(bytes4(keccak256("StableMissing()")));
-        ch.settleSwapIn(address(0x5E), 1_000_000, evil, bytes32(uint(7)), 0, false);
+        ch.settleSwapInBuffered(address(0x5E), 1_000_000, evil, bytes32(uint(7)), 0, false);
     }
 
     // (4) The Uniswap-v4 unlock callback is PoolManager-gated. An attacker can't

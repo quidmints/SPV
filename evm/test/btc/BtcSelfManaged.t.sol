@@ -132,7 +132,13 @@ contract BtcSelfManagedTest is Alles {
 
         // Real BTCChannels wired as THE btcChannels (pin-once); hopNode = our addr.
         address hop = makeAddr("hop");
-        BTCChannels ch = new BTCChannels(_realSPV(), address(ETH), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        // (M1#1) MockSPV, not `_realSPV()`. What this test is FOR is the live Lightning HTLC —
+        // its name says so — and a buffered credit now needs a PARKED balance, which needs a
+        // grow-splice the gateway will accept. The real gateway only knows the fixture's recorded
+        // headers, and no splice fixture exists for this pair. Real-SPV inclusion is covered by
+        // the proven-swap-in and deposit-proof tests; what moves here is coverage those already
+        // hold. ▶️ Restoring it needs a splice added to the fixture generator (booked).
+        BTCChannels ch = new BTCChannels(address(new MockSPV()), address(ETH), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
         _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
         // The USD->BTC swaps deliver BTC to the swapper -> it needs a BTC recipient.
@@ -145,7 +151,8 @@ contract BtcSelfManagedTest is Alles {
         // old single trusted hopNode. (This test previously kept the direct
         // registerBtcLp shortcut and only stayed green because the live-harness ffi
         // was SKIPping; with the harness fixed it runs and requires the real open.)
-        _openHopChannel(ch, hop, 91, 2e7);
+        // (M1#1) open AND park: a buffered credit spends SPV-proven sats.
+        _parkSats(ch, hop, 91, 2e7, 2e7);
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
@@ -162,18 +169,24 @@ contract BtcSelfManagedTest is Alles {
         address seller = address(0x5EE7);
         uint usdcBefore   = USDC.balanceOf(seller);
         uint pooledBefore = CORE.POOLED_USD_BTC();
+        uint parkedBefore = ch.provenSatsAvailable(hop);
         vm.prank(hop);
-        ch.settleSwapIn(seller, sats, address(USDC), paymentHash, 0, false);
+        ch.settleSwapInBuffered(seller, sats, address(USDC), paymentHash, 0, false);
         // ETH-parity: the real LN swap-in settles ON-CURVE from existing pooled
         // dollars - the seller receives USDC, NOT minted QUI.
         assertGt(USDC.balanceOf(seller), usdcBefore, "seller received USDC for the real LN swap-in");
         assertLt(CORE.POOLED_USD_BTC(), pooledBefore, "POOLED_USD_BTC drawn down by the curve");
-        assertTrue(ch.swapInUsed(paymentHash), "real HTLC hash recorded");
+        assertLt(ch.provenSatsAvailable(hop), parkedBefore, "the credit drew the proven buffer down");
 
-        // Replaying the SAME real hash must revert - one credit per HTLC, ever.
+        // (M1#1) IDEMPOTENCY, which is what the hash is FOR now: re-submitting the same HTLC —
+        // a daemon retry or a restart — must not credit the seller twice or drain the hop's
+        // buffer twice. The BOUND is a different property, asserted where it can actually fire
+        // (`test_M1_1_CannotCreditBeyondWhatWasProven`): it triggers on `consumed`, so a request
+        // above the balance is a no-op when the pool converts less, and asserting it here would
+        // only be testing the pool's depth.
         vm.prank(hop);
         vm.expectRevert(BTCChannels.SwapInReplay.selector);
-        ch.settleSwapIn(seller, sats, address(USDC), paymentHash, 0, false);
+        ch.settleSwapInBuffered(seller, sats, address(USDC), paymentHash, 0, false);
     }
 
     // ── CROSS-CHAIN E2E — housed here, NOT in `Alles.t.sol`, for the same reason as the LN test ──
@@ -378,17 +391,19 @@ contract BtcSelfManagedTest is Alles {
 
         // ── settleSwapIn: the REAL Lightning HTLC hash settles the seller ──
         {
-            uint usdcBefore = USDC.balanceOf(b.seller);
+            // (M1#1) THIS E2E KEEPS ITS REAL SPV GATEWAY — it asserts real header-chain
+            // properties above, which is what it is for — and that means it cannot PARK: a park
+            // is a grow-splice, and no splice fixture exists for this bundle. So the credit here
+            // asserts the BOUND rather than a payout: an unparked hop cannot credit at all, in
+            // the most realistic setting the suite has. The paid-seller path is covered by
+            // `testSwapIn_RealLightningHTLC` and the stress suite.
+            // ▶️ To assert the payout here too, the fixture generator needs to emit a splice.
             vm.prank(hop);
-            ch.settleSwapIn(b.seller, b.sats, address(USDC), b.paymentHash, 0, false);
-            assertGt(USDC.balanceOf(b.seller), usdcBefore, "seller paid USDC for the real swap-in");
-            assertTrue(ch.swapInUsed(b.paymentHash), "real HTLC hash recorded");
+            vm.expectRevert(BTCChannels.InsufficientProvenSats.selector);
+            ch.settleSwapInBuffered(b.seller, b.sats, address(USDC), b.paymentHash, 0, false);
         }
 
-        // Replaying the SAME real hash must revert.
-        vm.prank(hop);
-        vm.expectRevert(BTCChannels.SwapInReplay.selector);
-        ch.settleSwapIn(b.seller, b.sats, address(USDC), b.paymentHash, 0, false);
+
 
         // ── (#114/E107) DEAD-MAN RETIRE PATH, on the REAL SPV-proven tx ──
         // Without `recordDeadManExit` a CLTV exit is unrecordable: recordClose sends any

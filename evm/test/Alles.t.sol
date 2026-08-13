@@ -279,6 +279,53 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
             fundingTaproot:     vm.parseJsonBytes32(j, string.concat(b, "fundingTaproot")) });
     }
 
+    /// (M1#1) Open a channel for `hop` and PARK `growBy` SPV-proven sats against it, so any test
+    /// can exercise `settleSwapInBuffered` without re-deriving a splice fixture in its own file.
+    ///
+    /// It lives in `Alles` because `ReentrancyProbe`, `BtcSelfManagedTest` and `BtcLpMintStress`
+    /// all inherit it — the alternative was three copies of the same synthetic splice, which is
+    /// how fixtures drift apart.
+    ///
+    /// ⚠️ The splice must spend the channel's RECORDED outpoint, so both the txid and the vout
+    /// are read back from `channels(cid)` rather than assumed to be vout 0: a real funding tx has
+    /// change, so the 2-of-2 output is not always first (the same trap `_armFixture` documents).
+    function _parkSats(BTCChannels ch, address hop, uint seed, uint sats, uint growBy)
+        internal returns (bytes32 cid)
+    {
+        cid = _openHopChannel(ch, hop, seed, sats);
+        (bytes memory spliceTx, Types.OpenParams memory p) =
+            _parkSpliceArgs(ch, cid, seed, sats, sats + growBy);
+        vm.prank(hop);
+        ch.parkProvenSats(cid, p, spliceTx, new bytes32[](0));
+    }
+
+    /// The splice half of [`_parkSats`], in its OWN frame. Inlining it overflowed the legacy
+    /// stack (`via_ir` is off deliberately in this repo) — one memory pointer per return costs
+    /// less stack than eleven live locals.
+    function _parkSpliceArgs(BTCChannels ch, bytes32 cid, uint seed, uint sats, uint newAmount)
+        internal view returns (bytes memory spliceTx, Types.OpenParams memory p)
+    {
+        string memory j = _spvFixture();
+        string memory b = _fixtureKey(seed, sats);
+        p = Types.OpenParams({
+            fundingBlockHash:   bytes32(uint(0x9A12CE + seed)),
+            fundingBlockHeight: 800001,
+            fundingTxIndex:     0,
+            lpPubkey:           vm.parseJsonBytes(j, string.concat(b, "lpPubkey")),
+            hopPubkey:          vm.parseJsonBytes(j, string.concat(b, "hopPubkey")),
+            amountSats:         newAmount,
+            fundingTaproot:     bytes32(0)
+        });
+        p.fundingTaproot = _taprootQ(p.lpPubkey, p.hopPubkey);
+        bytes memory spk = buildTaprootFundingSpk(p.lpPubkey, p.hopPubkey);
+        (, bytes32 fundingTxId, , uint32 vout, , ) = ch.channels(cid);
+        spliceTx = abi.encodePacked(
+            hex"02000000", hex"01",
+            fundingTxId, _le(vout, 4), hex"00", hex"ffffffff",
+            hex"01", _le(newAmount, 8), bytes1(uint8(spk.length)), spk,
+            hex"00000000");
+    }
+
     function _openHopChannel(BTCChannels ch, address hop, uint seed, uint sats)
         internal returns (bytes32 cid)
     {
@@ -1945,7 +1992,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         uint pendingAfterReq = CORE.pendingSwapOutUsd();
         uint swapperUsdcBeforeRefund = USDC.balanceOf(swapper);
         vm.prank(hop);
-        ch.settleSwapIn(swapper, sats, address(USDC), swapId, 0, false);
+        ch.reverseSwapOut(swapId, 0, false);
         assertGt(USDC.balanceOf(swapper), swapperUsdcBeforeRefund,
             "reversal returned a basket stable to the swapper");
         assertEq(CORE.pendingSwapOutUsd(), pendingAfterReq - owedUsd,
@@ -2025,12 +2072,19 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     ///         Symmetric to swap-OUT's minSats floor.
     function testStrand4_SwapInFloor_RevertsShort_UnwindsUsed() public {
         address hop = makeAddr("hopS4");
-        BTCChannels ch = new BTCChannels(_realSPV(), address(ETH), hop, makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        // (M1#1) MockSPV, not `_realSPV()`: this test is about the swap-in FLOOR and the atomic
+        // full-fill, not about inclusion proofs, and parking a buffer needs a splice the gateway
+        // will accept. The real gateway only knows the fixture's recorded headers, so a synthetic
+        // grow-splice cannot prove against it — and the buffer is this test's premise now.
+        BTCChannels ch = new BTCChannels(address(new MockSPV()), address(ETH), hop, makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
         _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
 
         // Seed BTC inventory + POOLED_USD_BTC curve liquidity (mirror failure-reversal).
-        _openHopChannel(ch, hop, 91, 2e7); // MULTI-HOP: real open so `hop` may attest swap-ins (was a registerBtcLp shortcut)
+        // Park generously: step (3) below asks for 4x the pool's reserve to force an
+        // inventory-bounded PARTIAL, and the buffer must not be what stops it — otherwise the
+        // atomic-full-fill assertion would be testing the buffer bound instead of `requireFull`.
+        _parkSats(ch, hop, 91, 2e7, 5e9); // MULTI-HOP: real open so `hop` may attest swap-ins (was a registerBtcLp shortcut)
         _setRecipient(address(ch), abi.encode(uint(0xB7C)), User03);
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
@@ -2049,36 +2103,47 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         address seller = address(0x5704);
         bytes32 hash   = keccak256("strand4-swapin");
 
-        // (1) An unreachable floor reverts SwapInShort AND unwinds the swapInUsed
-        // mark (the whole tx, including the partial USD delivery, rolls back).
-        vm.prank(hop);
+        // (M1#1) The hash-consumption semantics these four steps used to assert are GONE with
+        // `settleSwapIn`: a buffered credit has no dedup key, because `provenSatsAvailable` IS
+        // the replay protection — you cannot credit more than you proved. So each step now
+        // asserts the same guarantee against the BALANCE, which is a stronger statement: it says
+        // what the hop can still do, not merely what a hash records.
+        address hopA = hop;
+        uint parked = ch.provenSatsAvailable(hopA);
+        assertGt(parked, 0, "premise: the hop has proven sats to spend");
+
+        // (1) An unreachable floor reverts SwapInShort AND rolls the whole call back, so the
+        //     hop's proven balance is untouched — nothing was spent for nothing.
+        vm.prank(hopA);
         vm.expectRevert(abi.encodeWithSignature("SwapInShort()"));
-        ch.settleSwapIn(seller, sats, address(USDC), hash, type(uint).max, false);
-        assertFalse(ch.swapInUsed(hash), "floor revert unwound swapInUsed (hash not burned)");
+        ch.settleSwapInBuffered(seller, sats, address(USDC), keccak256("s4-floor"), type(uint).max, false);
+        assertEq(ch.provenSatsAvailable(hopA), parked, "a floor revert spends no proven sats");
 
-        // (2) Re-settle the SAME hash with a 0 floor -> succeeds (prior revert
-        // never consumed the hash).
+        // (2) The same credit with a 0 floor succeeds, and the balance falls by what was
+        //     actually CONSUMED — not by what was asked for.
         uint sellerBefore = USDC.balanceOf(seller);
-        vm.prank(hop);
-        ch.settleSwapIn(seller, sats, address(USDC), hash, 0, false);
-        assertGt(USDC.balanceOf(seller), sellerBefore, "re-settle (0 floor) delivered USDC");
-        assertTrue(ch.swapInUsed(hash), "hash consumed only on the successful settle");
+        vm.prank(hopA);
+        uint consumed = ch.settleSwapInBuffered(seller, sats, address(USDC), keccak256("s4-ok"), 0, false);
+        assertGt(USDC.balanceOf(seller), sellerBefore, "0-floor credit delivered USDC");
+        assertEq(ch.provenSatsAvailable(hopA), parked - consumed,
+            "the balance falls by consumed, never by the request");
 
-        // (3) ATOMIC full-fill (the LN rail: requireFull=true). A swap-in the pool can only PARTIALLY convert
-        //     (oversized vs the remaining POOLED_USD_BTC reserve) REVERTS SwapInPartialRejected — the whole settle
-        //     rolls back, so the hop delivers NO USD and fails the HTLC, and the seller keeps 100% of their BTC.
-        uint bigSats  = ((CORE.POOLED_USD_BTC() * 1e12 * 4) * 1e18) / price; // 4x the remaining reserve ⇒ partial
-        bytes32 hash2 = keccak256("strand4-atomic");
-        vm.prank(hop);
+        // (3) ATOMIC full-fill (the LN rail, requireFull=true). A credit the pool can only
+        //     PARTIALLY fill reverts SwapInPartialRejected, the whole call rolls back, the hop
+        //     delivers no USD and fails the HTLC, and the seller keeps 100% of their BTC.
+        uint balBefore3 = ch.provenSatsAvailable(hopA);
+        uint bigSats = ((CORE.POOLED_USD_BTC() * 1e12 * 4) * 1e18) / price; // 4x the reserve
+        vm.prank(hopA);
         vm.expectRevert(abi.encodeWithSignature("SwapInPartialRejected()"));
-        ch.settleSwapIn(seller, bigSats, address(USDC), hash2, 0, true);
-        assertFalse(ch.swapInUsed(hash2), "atomic-partial revert unwound swapInUsed (seller keeps their BTC)");
+        ch.settleSwapInBuffered(seller, bigSats, address(USDC), keccak256("s4-atomic"), 0, true);
+        assertEq(ch.provenSatsAvailable(hopA), balBefore3, "an atomic-partial revert spends nothing");
 
-        // (4) The SAME oversized swap-in with requireFull=false (the on-chain rail) PARTIAL-fills: it succeeds,
-        //     converting only what the reserve allows; the hop refunds the remainder off-chain via the CLTV leaf.
-        vm.prank(hop);
-        ch.settleSwapIn(seller, bigSats, address(USDC), hash2, 0, false);
-        assertTrue(ch.swapInUsed(hash2), "on-chain rail (requireFull=false) accepts the inventory-bounded partial");
+        // (4) The bound that replaces the phantom — a hop cannot credit beyond what it proved —
+        //     is asserted in `test_M1_1_CannotCreditBeyondWhatWasProven`, NOT here. It needs a
+        //     SMALL buffer and a deep pool, which is the opposite of what step (3) above needs,
+        //     and the reason is worth stating: the buffer bounds what is CONSUMED, not what is
+        //     REQUESTED. Asking for more than you proved is harmless when the pool converts less;
+        //     the revert only fires when the pool would actually convert past the balance.
     }
 
     function testMetricsCalculation() public {
