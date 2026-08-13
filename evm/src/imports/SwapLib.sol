@@ -629,8 +629,11 @@ library SwapLib {
 
     /// @notice Body of Aux.creditSwapIn — settle a BTC→USD swap-IN. See Aux's
     ///         wrapper docblock for the full semantics.
+    /// @param bandVault THE BTC VAULT, not Vogue. It was named `v4` — which means Vogue/ETH everywhere
+///        else — while `Vault.creditSwapIn` passes `address(this)`. That is why `repack(true)` below
+///        is CORRECT and must not be "fixed" to false during the isBTC fold.
     function creditSwapInBody(address seller, uint sats, address token, uint minDeliveredUsd,
-        address core, address v4, address wbtc, address aux) external returns (uint consumedSats) {
+        address core, address bandVault, address wbtc, address aux) external returns (uint consumedSats) {
         if (sats == 0) return 0;
         // The USD-side output must be a real basket stable. QUID is NOT takeable
         // (it's the liability, not a reserve asset) — so a swap-IN can never mint
@@ -673,7 +676,7 @@ library SwapLib {
         uint v4p;
         Types.RouteParams memory rp;
         {
-            (, int24 lo, int24 hi,, uint p_) = IEthVenue(v4).repack(true);
+            (, int24 lo, int24 hi,, uint p_) = IEthVenue(bandVault).repack(true);
             v4p = p_;
             rp.sqrtPriceX96 = _packBandTicks(lo, hi);
         }
