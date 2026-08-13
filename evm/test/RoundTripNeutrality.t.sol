@@ -46,7 +46,16 @@ contract RoundTripNeutrality is Alles {
         uint delivered = (User01.balance + WETH.balanceOf(User01)) - e0;
         (uint retained,,,) = V4.autoManaged(User01);
 
-        assertApproxEqAbs(delivered + retained, principal, 1e12,
+        // TOLERANCE 1e12 -> 3e15 (0.001 bps -> 3 bps of 10 ETH). NOT a nudge to green: the mechanism is
+        // TRACED. The exit runs `Curve.exchange(1, 0, 9.0795e18, ...)` and mints NO wait-NFT, so the
+        // principal crosses TWO conversions -- WETH->weETH in, weETH->WETH out -- at ~0.5 bp each.
+        // Measured residual 1.03e15 on 1e19 = ~1.03 bps. 1e12 asserted a LOSSLESS round trip, which was
+        // only ever true because the old venue split sent a fifth to Galaxy as WETH and never converted
+        // it; all-weETH converts the whole principal both ways.
+        // ⚠️ THE SPREAD GOES TO THE MARKET, NOT THE PROTOCOL -- `retained` is ~0, so this is a cost, not
+        // the RETAINED PRINCIPAL this test exists to catch. That leak measured 0.18% (1.8e16); 3e15 is
+        // 6x tighter, so the defect it was written for still fails it by a wide margin.
+        assertApproxEqAbs(delivered + retained, principal, 3e15,
             "delivered + retained == principal (deferral is a claim, not a loss)");
     }
 
