@@ -542,7 +542,9 @@ contract BTCChannels is Ownable, ReentrancyGuard {
             emit PoolSatsLeftWithLp(channelId, ch.lpEth, lpPayoutSats - lpEntitled);
             lpPayoutSats = lpEntitled;
         }
+        _releasePoolSats(channelId, 0);   // the channel is gone: ALL its pool inventory left
         delete poolOwnedSats[channelId];
+        delete poolSatsParker[channelId];
         btcVault.unregisterBtcLp(ch.lpEth, lpPayoutSats);
     }
 
@@ -1049,6 +1051,32 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     /// prevents it and the §INVARIANTS.md §1 conservation check that would catch it.
     mapping(bytes32 => uint) public poolOwnedSats;
 
+    /// Which hop parked the inventory in a channel, so its ALLOWANCE can be reduced when that
+    /// inventory leaves. Without this the two ledgers drift apart and the phantom returns: see
+    /// `_releasePoolSats`.
+    mapping(bytes32 => address) public poolSatsParker;
+
+    /// @dev Pool inventory in `channelId` is leaving custody, down to `remaining`. Reduces BOTH
+    ///      the per-channel ledger AND the parker's credit allowance by the same delta.
+    ///
+    /// 🔴 **THIS IS THE PHANTOM'S RETURN PATH, AND IT WAS OPEN.** `provenSatsAvailable` was
+    ///      incremented at `parkProvenSats` and decremented only at a credit — nothing touched it
+    ///      when the parked sats LEFT. So a hop could park 1 BTC, close the channel (the sats go
+    ///      to the LP, bounded), and keep a 1 BTC allowance to credit sellers against sats that no
+    ///      longer exist. That is exactly what M1#1 deleted `settleSwapIn` to stop, reintroduced
+    ///      by its own replacement.
+    function _releasePoolSats(bytes32 channelId, uint remaining) private {
+        uint booked = poolOwnedSats[channelId];
+        if (booked <= remaining) return;
+        uint gone = booked - remaining;
+        poolOwnedSats[channelId] = remaining;
+        address parker = poolSatsParker[channelId];
+        uint allowance = provenSatsAvailable[parker];
+        // Clamped: the allowance may already have been spent on credits, which is legitimate —
+        // those credits were made while the sats were still in custody.
+        provenSatsAvailable[parker] = allowance > gone ? allowance - gone : 0;
+    }
+
     /// A close paid the LP more than its entitlement — `over` sats of pool inventory left with it.
     event PoolSatsLeftWithLp(bytes32 indexed channelId, address indexed lpEth, uint over);
 
@@ -1087,6 +1115,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         uint grewBy = _applySplice(channelId, p, rawSpliceTx, spliceMerkleProof);
         if (grewBy == 0) revert NotAGrow();   // a shrink proves sats LEFT, not arrived
         poolOwnedSats[channelId] += grewBy;    // parked inventory: no LP claim (§T1-f-general)
+        poolSatsParker[channelId] = msg.sender; // whose allowance falls when it leaves
         uint bal = provenSatsAvailable[msg.sender] + grewBy;
         provenSatsAvailable[msg.sender] = bal;
         emit ProvenSatsParked(msg.sender, spliceTxId, grewBy, bal);
@@ -1203,7 +1232,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
             }
             // Pool inventory cannot exceed what is left in the channel. This IS the decrement the
             // close-side clamp was standing in for.
-            if (pool > p.amountSats) poolOwnedSats[channelId] = p.amountSats;
+            _releasePoolSats(channelId, p.amountSats);
         }
         paidOutSinceCheckpoint[channelId] += lpPayoutSats;   // legitimate balance fall
         btcVault.resizeBtcLp(lpEth, shrinkSats, lpPayoutSats, 0);
@@ -1965,7 +1994,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // live range across that call — a first attempt did exactly that and four close/retire
         // tests reverted. `ch.amountSats` was assigned `p.amountSats` three lines up, so it is
         // the same number with none of the cost.
-        if (poolOwnedSats[channelId] > ch.amountSats) poolOwnedSats[channelId] = ch.amountSats;
+        _releasePoolSats(channelId, ch.amountSats);
         // Settle in a fresh frame: the calldata params (p / rawSpliceTx / proof)
         // — ⚠️ this used to list `lpAuth`, which is NOT a parameter of this function (E148).
         // are dead from here, so the settlement tail gets a clean legacy stack (no via_ir).
