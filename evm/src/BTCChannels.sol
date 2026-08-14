@@ -158,7 +158,20 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     // opens becomes this channel's hop. The residual "self-deal" — a party citing a
     // funding UTXO it doesn't truly control — is the SAME unproven-Bitcoin-key-control
     // residual the design accepts everywhere (bounded by the no-over-mint clamp
-    // + the outpoint-uniqueness guard below), resolved by SGX attestation.
+    // + the outpoint-uniqueness guard below).
+    //
+    // ✅ (2026-08-14) THIS SENTENCE USED TO END "resolved by SGX attestation", AND THAT IS BOTH
+    // DEAD AND AN UNDERSTATEMENT. Attestation gates nothing here (§M1/§E185) — but the residual
+    // was closed by §E165 as a side effect, after this comment was written. `openChannel` REQUIRES
+    // a non-empty exit ladder, and every rung is verified by `ExitLib.verifyDeadManExit` against
+    // `Q` recomputed from the pinned pubkeys — a BIP-340 signature under a 2-of-2 aggregate.
+    // ⇒ TO OPEN A CHANNEL YOU MUST PRODUCE A VALID SIGNATURE UNDER `KeyAgg(lpPubkey, hopPubkey)`
+    // OVER A SPEND OF THE CITED FUNDING OUTPOINT. A party citing a UTXO it does not control
+    // cannot do that, because it cannot produce that signature.
+    // ⚠️ `_proveFundingKeys` alone does NOT close it — it checks only that `Q` EQUALS
+    // `KeyAgg(lp, hop)`, an algebraic relation over supplied bytes that proves nothing about
+    // control. The proof of control is the SIGNATURE the ladder demands, not the key equality.
+    // ⇒ The no-over-mint clamp is therefore no longer load-bearing for self-deal (rule 17).
     // (There is likewise no global hop Bitcoin pubkey: the hop derives a per-channel
     // funding key that rotates on every splice, so there is nothing static to pin.)
 
