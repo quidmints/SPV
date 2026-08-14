@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 import {ForkPin} from "./utils/ForkPin.sol";
+import {EthVenue} from "../src/EthVenue.sol";
 import {ICurvePool} from "../src/imports/Interfaces.sol";
 import {ChannelLib} from "../src/imports/ChannelLib.sol";
 import {BasketLib} from "../src/imports/BasketLib.sol";
@@ -482,6 +483,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     // The merged Vault, viewed from its two faces: ETH (yield-venue ops) and
     // BTC (LP/hop ops). Same instance - BTC == ETH - named for readability.
     Vault    public ETH;
+    EthVenue EV;
     Vault    public BTC;
     uint rack = 1000 * USDC_PRECISION;
 
@@ -616,6 +618,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         AUX = Aux(payable(A.aux));
         QUID = Basket(A.quid);
         ETH = Vault(payable(A.vault));
+        EV  = EthVenue(payable(A.ethVenue));   // ETH-venue custody (carved out of Vault)
         BTC = ETH;
 
         vm.startPrank(User01);
@@ -1412,18 +1415,18 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     function testEthVenue_EtherFi_DepositAndOfframp() public {
         // ether.fi is wired immutably in Aux's constructor (fixed mainnet
         // contracts) - no setEtherFi.
-        address weeth = ETH.WEETH();
+        address weeth = EV.WEETH();
         assertTrue(weeth != address(0), "weETH wired");
 
         // User01 picks ether.fi per-deposit (venue rides the call). ether.fi is VENUE_ROVER (4) — it is
         // never a distinct "ether.fi" code; the base deploy has Rover off (address(0)), so venue 4 hits
         // VogueLib._supplyEtherFi's direct-weETH path. Same slice.
-        uint vEthBefore = ETH.vogueETH();
+        uint vEthBefore = EV.vogueETH();
         vm.prank(User01); V4.deposit{value: 10 ether}(0, User01);
 
         // weETH held at EthVenue + aggregated into vogueETH + attributed to the slice.
         assertGt(IERC20(weeth).balanceOf(address(ETH)), 0, "weETH held at EthVenue");
-        assertGt(ETH.vogueETH(), vEthBefore, "vogueETH aggregates the weETH");
+        assertGt(EV.vogueETH(), vEthBefore, "vogueETH aggregates the weETH");
         // ethfiBacked assertion removed 2026-08-07 with the mapping: every deposit is
         // ether.fi-sourced, so the slice was a constant equal to `pooled`.
         (uint pooled,,,) = V4.autoManaged(User01);
@@ -1476,7 +1479,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     ///       30% of THE VAULT'S OWN POSITION, which binds; a fraction of the venue's own depth does not.
     ///       Size this against the EXIT, not against the pool.
     function _mockCurveDrained(uint payable_) internal {
-        address pool = ETH.ETHERFI_CURVE_POOL();
+        address pool = EV.ETHERFI_CURVE_POOL();
         vm.mockCall(pool, abi.encodeWithSelector(ICurvePool.balances.selector, uint(0)),
             abi.encode(payable_));
     }
@@ -1618,18 +1621,18 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     ///       (`AUX.evacuate`/`vaultBlocked` are untouched and still cover the STABLE 4626 vaults; only
     ///       the ETH-venue path this test drove them through is gone.)
     function testEthDepositsLandInWeeth() public {
-        address weeth  = ETH.WEETH();
+        address weeth  = EV.WEETH();
         assertTrue(weeth != address(0), "weETH wired");
 
         uint weethBefore    = IERC20(weeth).balanceOf(address(ETH));
-        uint vogueEthBefore = ETH.vogueETH();
+        uint vogueEthBefore = EV.vogueETH();
 
         vm.prank(User01); V4.deposit{value: 100 ether}(0, User01);
 
         // Measure the DESTINATION directly. `vogueETH` would rise either way, so asserting on it alone
         // cannot tell weETH from Galaxy — the same gap that let the venue bug hide.
         assertGt(IERC20(weeth).balanceOf(address(ETH)), weethBefore, "ETH deposit did NOT land in weETH");
-        assertGt(ETH.vogueETH(), vogueEthBefore, "deposit grew ETH backing");
+        assertGt(EV.vogueETH(), vogueEthBefore, "deposit grew ETH backing");
     }
 
     function testClearMultipleBlocks() public {

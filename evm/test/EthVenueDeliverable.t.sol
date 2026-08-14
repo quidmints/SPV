@@ -95,8 +95,8 @@ contract EthVenueDeliverableProbe is Alles {
         vm.prank(User01);
         V4.deposit{value: 10 ether}(0, User01);
 
-        uint vogue = ETH.vogueETH();
-        uint deliv = ETH.deliverableETH();
+        uint vogue = EV.vogueETH();
+        uint deliv = EV.deliverableETH();
 
         emit log_named_decimal_uint("deposited          ", 10 ether, 18);
         emit log_named_decimal_uint("vogueETH           ", vogue, 18);

@@ -10,7 +10,6 @@ import {Aux} from "./Aux.sol";
 import {Basket} from "./Basket.sol";
 
 import {SwapLib} from "./imports/SwapLib.sol";
-import {VaultLib} from "./imports/VaultLib.sol";
 import {BtcVaultLib} from "./imports/BtcVaultLib.sol";
 import {VBtc} from "./VBtc.sol";
 import {Types} from "./imports/Types.sol";
@@ -22,7 +21,6 @@ import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 import {IWeETH} from "./imports/Interfaces.sol";
-import {IDepositAdapter} from "./imports/Interfaces.sol";
 import {ILevEquity} from "./imports/Interfaces.sol";
 import {ILevEquityBtc} from "./imports/Interfaces.sol";
 
@@ -89,16 +87,7 @@ contract Vault is Ownable, ReentrancyGuard {
 
 
 
-    // ether.fi (ETH-side venue, depositor-chosen). FIXED mainnet contracts, wired
-    // IMMUTABLY in the constructor. The protocol holds only weETH; ETHERFI_LP/EETH
-    // are the last-resort no-fee withdrawal NFT queue.
-    address public constant ETHERFI_ADAPTER  = 0xcfC6d9Bd7411962Bfe7145451A7EF71A24b6A7A2;
-    /// @notice Curve `weETH/WETH-ng`. Replaced the Uniswap v3 router + two fee tiers 2026-08-09:
-    ///         measured −1.4 to −3.5 bps against v3's −17.6 to −28.2 across every realistic size.
-    address public constant ETHERFI_CURVE_POOL = 0xDB74dfDD3BB46bE8Ce6C33dC9D82777BCFc3dEd5;
-    address public constant ETHERFI_LP       = 0x308861A430be4cce5502d0A12724771Fc6DaF216;
-    address public constant ETHERFI_EETH     = 0x35fA164735182de50811E8e2E824cFb9B6118ac2;
-    address public immutable WEETH;             // cached from the adapter at construction
+
 
 
     /// @notice The IL-protect orchestrator. Its leveraged book's LIVE net-equity counts in `vogueETH`.
@@ -236,11 +225,6 @@ contract Vault is Ownable, ReentrancyGuard {
         VBTC = new VBtc(address(this), address(Aux(payable(_aux)).WBTC()));
         WETH = WETH9(payable(_weth));
 
-        // ether.fi venue — immutable wiring. Cache weETH + the v3 pool fees from
-        // the fixed mainnet contracts and set the standing approvals once.
-        WEETH = IDepositAdapter(ETHERFI_ADAPTER).weETH();
-        IERC20(address(WETH)).approve(ETHERFI_ADAPTER, type(uint).max);
-        IERC20(ETHERFI_EETH).approve(ETHERFI_LP, type(uint).max);  // wait-path NFT
     }
     receive() external payable {}
     fallback() external payable {}
@@ -279,114 +263,6 @@ contract Vault is Ownable, ReentrancyGuard {
     function totalNetEquityBtc() external view returns (uint) {
         if (LEV_MANAGER_BTC == address(0)) return 0;
         try ILevEquityBtc(LEV_MANAGER_BTC).totalNetEquityBtc() returns (uint ne) { return ne; } catch { return 0; }
-    }
-
-
-    /// @notice ETH-venue = ether.fi. Pull the Vogue-approved WETH and stake it
-    ///         into weETH (restaking yield), held at the Vault and valued in
-    ///         vogueETH() via getEETHByWeETH. Gated to Vogue (V4).
-    function supplyEtherFi(uint amount) external returns (uint) {
-        if (msg.sender != address(V4)) revert NotVogueCore();   // gate stays here
-        return VaultLib.supplyVenueBody(_ethCfg(), amount, address(V4));
-    }
-
-    /// @notice OFFRAMP the ether.fi slice of a withdrawal: weETH → WETH for
-    ///         `amount` ETH-worth, delivered to `recipient`. The ladder
-    ///         (docs/ETH-MULTI-VENUE). Every call try/catch'd. Gated to Vogue.
-    function offrampEtherFi(uint amount, address recipient)
-        external returns (uint served) {
-        if (msg.sender != address(V4)) revert NotVogueCore();   // gate stays here
-        return VaultLib.offrampBody(amount, recipient, _etherfiCfg());
-    }
-
-    /// @dev ether.fi offramp config from Vault immutables/consts (the
-    ///      delegatecalled library can't read them). Shared by offrampEtherFi +
-    ///      the opportunistic sourcing.
-    function _etherfiCfg() internal view returns (SwapLib.OfframpCfg memory) {
-        return SwapLib.OfframpCfg({
-            weeth: WEETH, weth: address(WETH), curvePool: ETHERFI_CURVE_POOL, lp: ETHERFI_LP
-        });
-    }
-
-    /// @dev ETH-venue immutables gathered for the delegatecalled VaultLib (it
-    ///      can't read Vault's immutable slots). Shared by every VaultLib forward.
-    function _ethCfg() internal view returns (VaultLib.EthCfg memory) {
-        return VaultLib.EthCfg({
-            weth: address(WETH), aux: address(AUX), curvePool: ETHERFI_CURVE_POOL,
-            weeth: WEETH, eeth: ETHERFI_EETH, levManager: LEV_MANAGER
-        });
-    }
-
-    /// @notice Current ETH-equivalent backing on the ETH side — AGGREGATE across
-    ///         the depositor-chosen venues: ether.fi weETH valued in ETH + AAVE-v4
-    ///         WETH + idle.
-    ///         Body in VaultLib.vogueETH (delegatecall; see its docblock).
-    function vogueETH() public view returns (uint) {
-        return VaultLib.vogueETH(_ethCfg());
-    }
-
-    /// @notice Unified Vogue↔Vault op selector (ETH side only; the BTC ops that
-    ///         shared this entry stayed in Aux's vogueBTC counter).
-    /// @param  op    0=deposit, 1=take, 2=return current balance
-    /// @dev `isBTC` and `ctx` were DELETED from this signature 2026-08-13. The body has been ETH-only
-    ///      since the dead BTC branches went, both arguments were ignored, and ALL THREE call sites
-    ///      passed the same literals (`false`, `bytes32(0)`) — so they were 64 bytes of calldata per
-    ///      call carrying no information. Not in any client ABI, so nothing downstream saw them.
-    function vogueOp(uint amount, uint8 op)
-        external returns (uint sent) {
-        if (msg.sender != address(V4)) revert NotVogueCore();
-        // The live ETH claim is read via vogueETH() (real 4626 shares), not a stored principal.
-        sent = SwapLib.vogueOpBody(amount, op, WETH, vogueETH());
-    }
-
-    // REMOVED: _arbEth / arbETH — the ETH-pool shortfall buy from basket surplus.
-    // Toxic (spent the shared safety margin to patch a usually-impermanent shortfall)
-    // and now caller-less (Vogue._withdraw + Core.refillETH both removed). IL is borne
-    // fairly via the share price (convertToAssets = pro-rata of vogueETH).
-
-    /// @notice DELIVERABLE ETH backing for the redemption path. vogueETH
-    ///         values a blocked venue at maxWithdraw but an unblocked one at
-    ///         convertToAssets — so a frozen-but-unflagged venue would let the
-    ///         redemption ETH leg over-burn QU!D for ETH it can't source. The
-    ///         weETH/AAVE/idle legs are capped at what is actually
-    ///         withdrawable, so the ETH leg DEFERS the undeliverable slice (the ETH
-    ///         analog of _illiquidLoss).
-    ///         Body in VaultLib.deliverableETH (delegatecall; see its docblock).
-    function deliverableETH() external view returns (uint total) {
-        return VaultLib.deliverableETH(_ethCfg());
-    }
-
-    // (arbETH removed — see note above deliverableETH.)
-
-
-    function withdrawSelf(address token, uint amount, address to) external returns (uint sent) {
-        if (msg.sender != address(this)) revert NotSelf();
-        return _withdrawETH(token, amount, to);
-    }
-
-    /// @notice Aux-gated WETH supply. Aux's basket-side `_supply(WETH)` (the
-    ///         BOLD/SP liquidation re-supply) routes here: pull the WETH gain
-    ///         from Aux (standing approval) then run the same weETH deposit as every
-    ///         other ETH inflow. Returns the deposited amount.
-    function supplyFromAux(uint amount) external returns (uint) {
-        if (msg.sender != address(AUX)) revert NotAux();   // gate stays here
-        return VaultLib.supplyVenueBody(_ethCfg(), amount, address(AUX));
-    }
-
-    /// @notice Aux-gated WETH withdraw. Aux's basket-side `_withdraw(WETH)`
-    ///         (redemption / take / ETH-fallback legs) routes here. Runs the
-    ///         withdraw ladder and delivers `to`.
-    function withdrawForAux(uint amount, address to) external returns (uint) {
-        if (msg.sender != address(AUX)) revert NotAux();
-        return _withdrawETH(address(WETH), amount, to);
-    }
-
-
-    /// @notice WETH withdraw — the ladder in VaultLib.withdrawETH (delegatecall; see its docblock).
-    ///         The rungs for the removed WETH venues stay so any residual position is still pullable.
-    function _withdrawETH(address token, uint amount, address to)
-        internal returns (uint sent) {
-        return VaultLib.withdrawETH(_ethCfg(), _etherfiCfg(), token, amount, to);
     }
 
 

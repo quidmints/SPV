@@ -45,7 +45,7 @@ contract RefillKeeperProbe is Alles {
         uint freeBefore = lBefore > cBefore ? lBefore - cBefore : 0;
 
         for (uint i = 0; i < 12; i++) _buyEth(5_000 * USDC_PRECISION);
-        uint vShort = ETH.vogueETH();
+        uint vShort = EV.vogueETH();
         uint shares = V4.totalShares();
         require(vShort < shares, "expected a shortfall to exist");
 

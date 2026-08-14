@@ -20,6 +20,7 @@ import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 
 import {Aux} from "../src/Aux.sol";
 import {DeployLib} from "./DeployLib.sol";
+import {EthVenue} from "../src/EthVenue.sol";
 import {Vault} from "../src/Vault.sol";
 import {BTCChannels} from "../src/BTCChannels.sol";
 import {SPVGateway} from "../src/spv/SPVGateway.sol";
@@ -452,7 +453,7 @@ contract Deploy is Script {
     ///       `pinVenue` (singular, frozen) → `setSyncHook`(Vault.syncLevBTC) → `Vault.setLevManagerBTC`
     ///       (backing: vogueBTC counts the book). No swapper / no flash — BTC acquisition is external+async.
     ///   Skipped when `DEPLOY_LEV` is unset, so a core / fork-e2e deploy needs no lev-infra env. External-infra
-    ///   addresses come from env; the in-script tokens (weETH via `ETH.WEETH()`, WBTC/USDC/AUX/V4) are reused.
+    ///   addresses come from env; the in-script tokens (weETH via the ETH venue, WBTC/USDC/AUX/V4) are reused.
     ///   GOV (`YB_GOV`, default = deployer) must be the broadcaster so the pin-once calls land, then has no
     ///   ongoing power (allowlist + hooks frozen). ENV (only when DEPLOY_LEV=1) — EVERY external address has a
     ///   LIVE mainnet default (the constants above), so a bare `DEPLOY_LEV=1` deploys the whole overlay;
@@ -479,7 +480,7 @@ contract Deploy is Script {
         if (!vm.envOr("DEPLOY_LEV", false)) { console.log("[DEPLOY_LEV unset] leverage overlay skipped"); return; }
         address gov    = vm.envOr("YB_GOV", deployer);
         address morpho = vm.envOr("MORPHO", MORPHO_BLUE);
-        address weeth  = ETH.WEETH();
+        address weeth  = EthVenue(payable(AUX.ethVenue())).WEETH();
 
         // ── ETH leverage: weETH-collateral leverage. Swaps reuse the basket SOR (stable↔WETH, sorSelfFunded) + the
         //    ether.fi adapter/redeemer (weETH↔WETH) — no bespoke swapper contract (RealWeethSwapper is gone). ──
@@ -488,7 +489,10 @@ contract Deploy is Script {
         // Morpho, weETH Euler, WETH Morpho, + optional WETH-debt short), then FROZEN. The venue array is built in
         // its own frame (_ethLevVenues) so this method stays within the legacy stack (no via_ir).
         lm.init(address(V4), morpho, _ethLevVenues(morpho, address(lm), weeth));
-        ETH.setLevManager(address(lm));                    // BACKING: vogueETH counts the ETH lev book
+        // BACKING: vogueETH counts the ETH lev book. PINNED ON EthVenue, not the Vault — `_ethCfg`
+        // lives there now, and `Core`/`VogueLib`/`BasketLib` all read `LEV_MANAGER()` THROUGH the
+        // `ethVenue` pointer. Pinning the wrong one compiles and silently reads leverage as disabled.
+        EthVenue(payable(AUX.ethVenue())).setLevManager(address(lm));
 
         // ── BTC lev: vBTC-collateral (vBTC == the Vault). External+async acquisition ⇒ no swapper/flash ──
         BtcLevManager bm = new BtcLevManager(address(ETH.VBTC()), address(AUX), address(WBTC), gov, address(QUID));

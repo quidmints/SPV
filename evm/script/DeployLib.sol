@@ -11,6 +11,7 @@ import {Core} from "../src/Core.sol";
 import {Aux} from "../src/Aux.sol";
 import {Basket} from "../src/Basket.sol";
 import {Vault} from "../src/Vault.sol";
+import {EthVenue} from "../src/EthVenue.sol";
 import {SPVGateway} from "../src/spv/SPVGateway.sol";
 import {BTCChannels} from "../src/BTCChannels.sol";
 import {SorPath} from "../src/imports/SOR.sol";
@@ -104,6 +105,7 @@ library DeployLib {
         address aux;
         address quid;
         address vault;
+        address ethVenue;
         address spvGateway;
         address btcChannels;
     }
@@ -134,10 +136,13 @@ library DeployLib {
         v4.setup(address(quid), address(aux), address(core));
         aux.setQuid(address(quid));
 
-        // ── merged Vault (ETH yield-venue custody + BTC LP/hop side) ──
+        // ── Vault (BTC LP/hop side) + EthVenue (ETH yield-venue custody) ──
         Vault eth = _newVault(cfg, address(v4), address(core), address(aux));  // own frame (no via_ir)
-        aux.setEthVenue(address(eth));           // MUST run after V4.setup (WETH set)
-        v4.setEthVenueContract(address(eth));
+        // The ETH-venue pointers now target the CUSTODY contract, not the Vault. Every
+        // `IEthVenue(...)` call site follows the pin, so nothing else moves.
+        EthVenue ev = new EthVenue(address(v4), address(aux), cfg.weth);
+        aux.setEthVenue(address(ev));            // MUST run after V4.setup (WETH set)
+        v4.setEthVenueContract(address(ev));
         eth.setup(address(quid));                // reads BTC pool slot0 (needs CORE.setup)
         core.setBtcVault(address(eth));
         quid.setBtcVault(address(eth));
@@ -147,8 +152,8 @@ library DeployLib {
         a.aux = address(aux);
         a.quid = address(quid);
         a.vault = address(eth);
+        a.ethVenue = address(ev);
 
-        // ether.fi Rover deploy REMOVED 2026-08-05 — the contract is gone.
 
         // ── native BTC LP infrastructure (SPV gateway + per-LP channel registry) ──
         if (cfg.deployChannels) {
