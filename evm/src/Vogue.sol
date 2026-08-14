@@ -586,17 +586,10 @@ contract Vogue is
         // auto-close above (or LP-initiated LevManager.closeLev) — repay debt → withdraw collateral — never the
         // free ladder, so a levered claim can never pull deliverable ETH that backs unlevered LPs.
         amount = Math.min(amount, SwapLib.plainNet(LP.pooled, levPooled[msg.sender]));
-        // HARD WALL: the ether.fi slice exits via the offramp ladder (ether.fi-
-        // sourced + isolated). Gauntlet or Galaxy/AAVEv4 LP (ethfiBacked==0) 
-        // skips this and never touches the offramp/wait/fee. 
-        // Served slice burns its virtual liquidity with 
-        // no on-chain delivery (WETH came from ether.fi).
+        // The exit is served via the offramp ladder. The served slice burns its virtual
+        // liquidity with no on-chain delivery (the WETH came from ether.fi).
         if (amount > 0) {
-            // EVERY exit is an ether.fi exit (2026-08-06, all-in on weETH). This used to take the
-            // pro-rata slice `amount x ethfiBacked/pooled`, because only ether.fi-sourced deposits
-            // exited through the offramp while AAVE/Euler/Galaxy/Gauntlet LPs skipped it. With every
-            // deposit landing in weETH that ratio is identically 1, so the slice IS the withdrawal
-            // and `ethfiBacked` was bookkeeping for a distinction that no longer exists.
+            // Every exit is an ether.fi exit: all ETH is weETH, so the slice IS the withdrawal.
             uint ethfiPart = amount;
             if (ethfiPart > 0) {
                 uint incrPre = _bandIncrement6();          // BEFORE the burn shrinks it
@@ -849,7 +842,7 @@ contract Vogue is
         uint unpaired = amount - deltaETH;
         if (unpaired > 0) {
             // Universal retention. Unpaired ETH stays on deposit at the
-            // venue (Galaxy) earning Morpho yield. LP shares grow by
+            // ETH venue earning its yield. LP shares grow by
             // the unpaired amount so the deposit isn't silently
             // discarded and the LP can withdraw + earn fees
             // proportionally. Withdrawals always honour the full
@@ -867,8 +860,7 @@ contract Vogue is
     }
 
     /// @dev Live PLAIN-venue ETH balance for the venue-yield sync + withdrawal delivery. `vogueOp`
-    ///      op=2 returns vogueETH -- ALL plain venues (Galaxy/Euler/weETH/AAVE/idle/Rover, incl
-    ///      ether.fi) PLUS the lev net-equity. SUBTRACT the lev net-equity so this is the
+    ///      op=2 returns vogueETH -- ALL plain venues (weETH/AAVE/idle) PLUS the lev net-equity. SUBTRACT the lev net-equity so this is the
     ///      pure plain-venue value: the lev collateral earns its own yield via the LevManager, so
     ///      including it would (a) skim plain LPs' venue yield and (b) make a lev open/close appear
     ///      as fake venue yield in _syncYield. No-op when no leverage (totalNetEquityEth == 0).
@@ -1480,7 +1472,7 @@ contract Vogue is
     ///         compounding to the pool. SELF-FUNDING: reimburses the caller's gas as an ETH tip
     ///         skimmed from the LP's OWN harvested token-leg (grief-capped, ≤ half the harvest so the
     ///         LP always keeps the majority), unwrapped from the JUST-HARVESTED WETH (in-flight — no
-    ///         idle WETH is ever held, per the Rover ethos). Below the floor ⇒ keeper-safe no-op:
+    ///         idle WETH is ever held). Below the floor ⇒ keeper-safe no-op:
     ///         the fees stay pending and compound later (a bigger crank, or when the LP itself touches
     ///         its position). Backing-consistent: `pooled` grows by exactly `tokR − tipSent`, and
     ///         exactly `tipSent` WETH leaves, so `pooled` ↔ backing stays matched.

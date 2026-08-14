@@ -359,7 +359,7 @@ library LevMath {
         stableOut = _wethToStableDex(c, stable, pulled, useMin);
     }
 
-    /// weETH → WETH (cheapest-first: Rover absorb → deep V3 pool → EMERGENCY ether.fi redeem) → peel keeper gas →
+    /// weETH → WETH (Curve pool) → peel keeper gas →
     /// WETH → stable. The weETH→WETH acquisition is its OWN frame (`_weethToWeth`) so the peel below fits the stack.
     function sellWeeth(SellCtx memory c, address stable, uint256 pulled, uint256 minOut, uint256 assets)
         internal returns (uint256 stableOut, uint256 reserveOut)
@@ -379,17 +379,10 @@ library LevMath {
     }
 
     /// weETH → WETH via the Curve weETH/WETH pool (weETH is coin1, WETH coin0).
-    ///
-    /// TWO TIERS BELOW THIS WERE REMOVED AND NEITHER WAS DOING WORK:
-    ///   * Rover fair-rate absorb (2026-08-05, Rover deleted) — returned 0 whenever Rover was unset,
-    ///     so once nothing funded Rover it was a guaranteed no-op that still paid two external calls.
-    ///   * ether.fi EMERGENCY redeem for the residual (2026-08-06) — it was UNGUARDED (no try/catch)
-    ///     against a manager whose capacity measured ZERO at every sampled block over 90 days, so
-    ///     reaching it did not degrade gracefully, it REVERTED THE WHOLE CALL — turning a partial fill
-    ///     into a total failure in precisely the crisis case the fallback existed for.
-    /// Under-delivery is now surfaced by the caller's own floor (`collToWethDeliver`'s
-    /// `require(wethDelivered >= minOut)`), which fails closed with a legible reason instead of an
-    /// opaque revert inside ether.fi.
+    /// There is deliberately NO ether.fi emergency-redeem fallback: its capacity measures ZERO at every
+    /// sampled block, and being unguarded it would revert the WHOLE call rather than degrade. Under-delivery
+    /// is surfaced by the caller's own floor (`collToWethDeliver`'s `require(wethDelivered >= minOut)`),
+    /// which fails closed with a legible reason.
     function _weethToWeth(SellCtx memory c, uint256 pulled) internal returns (uint256 wethGot) {
         if (pulled > 0) wethGot = _weethToWethDex(c, pulled);
     }
@@ -418,9 +411,7 @@ library LevMath {
         if (weethOut < minWeethOut) revert Slippage();
     }
 
-    /// WETH → weETH on-ramp (the INVERSE of `_weethToWeth`): mint at ether.fi's fair rate. The Rover idle-inventory
-    /// absorb tier was REMOVED 2026-08-05 with Rover itself — an unfunded Rover has no idle inventory, so it was a
-    /// guaranteed no-op costing two external calls per on-ramp. NON-reverting (fair-rate mint always clears) so the short-close
+    /// WETH → weETH on-ramp (the INVERSE of `_weethToWeth`): mint at ether.fi's fair rate. NON-reverting (fair-rate mint always clears) so the short-close
     /// can call it after its own try/catch'd stable→WETH SOR without a nested revert escaping the catch.
     function _wethToWeeth(SellCtx memory c, uint256 wethRem) internal returns (uint256 weethOut) {
         if (wethRem > 0) { // mint the remainder WETH→weETH at ether.fi's fair rate.

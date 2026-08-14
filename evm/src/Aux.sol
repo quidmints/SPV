@@ -35,7 +35,7 @@ import {IAaveV4Spoke, IAaveV4Hub, ICollection, IEthVenue, IBandManager, IBTCChan
 
 // Deploy-finalize helpers (see Aux.finalize; linkage asserts live in BasketLib.assertFullyWired).
 
-// (ether.fi / Rover interfaces moved to EthVenue with the venue custody; the
+// (ether.fi interfaces moved to EthVenue with the venue custody; the
 //  Chainlink IAggregatorV3 anchor interface moved to SwapLib with twapAnchorBody.)
 contract Aux is // Auxiliary
     Ownable, ReentrancyGuard, SafeCallback, ISwap {
@@ -60,7 +60,7 @@ contract Aux is // Auxiliary
 
     ChannelLib.SPState internal sp;
 
-    // _vogueETHPrincipal + the ETH-venue (Galaxy/AAVE/ether.fi) custody moved
+    // _vogueETHPrincipal + the ETH-venue (AAVE/ether.fi) custody moved
     // to EthVenue (the venue carve). `ethVenue` is pinned once below.
 
     /// @notice Accumulator of WBTC ERC20 (BitGo) held by Aux on behalf
@@ -316,8 +316,8 @@ contract Aux is // Auxiliary
         ChannelLib.initVaultsBody(
             a.stables, a.vaults, a.paths,
             toIndex, tokens, vaults, vaultsOf, _pathEncodings);
-        // WETH→Galaxy / ether.fi venue wiring (approvals, weETH cache, v3 pool
-        // fees) moved to EthVenue, which now custodies the ETH-side positions.
+        // ETH venue wiring (approvals, weETH cache) moved to EthVenue, which
+        // now custodies the ETH-side positions.
     } receive() external payable {}
 
     // ─── CRE vault-health watcher (the "dollars are there" venue check) ──
@@ -491,8 +491,8 @@ contract Aux is // Auxiliary
     /// @notice Permissionless sweep — supply any free balance of `token`
     ///         sitting on Aux into its canonical destination so donations
     ///         and dust are absorbed into the basket instead of being lost.
-    ///         - `token == 0`: native ETH → wrap → Galaxy via _supply
-    ///         - WETH: → Galaxy via _supply (bumps _vogueETHPrincipal)
+    ///         - `token == 0`: native ETH → wrap → the ETH venue via _supply
+    ///         - WETH: → the ETH venue via _supply (bumps _vogueETHPrincipal)
     ///         - WBTC: bumped into vogueBTC accumulator (no vault exists)
     ///         - registered stables: → vault via _supply
     ///         Unknown tokens revert — sweep is not a free transfer surface.
@@ -797,8 +797,8 @@ contract Aux is // Auxiliary
         );
     }
 
-    // ─── ETH yield venue (Galaxy/AAVE/ether.fi) — REGROUPED into EthVenue ────
-    // The WETH-side custody (Galaxy 4626 shares, AAVE WETH, weETH) + its ops
+    // ─── ETH yield venue (AAVE/ether.fi) — REGROUPED into EthVenue ──────────
+    // The WETH-side custody (AAVE WETH, weETH) + its ops
     // (supplyETH/withdrawETH, supplyEtherFi/supplyAaveEth, offrampEtherFi,
     // aaveEthBalance, arbETH) now live on EthVenue. Aux keeps a pinned handle +
     // thin forwarders only where callers must not change target.
@@ -1077,7 +1077,7 @@ contract Aux is // Auxiliary
     }
 
     /// @notice Asset-withdraw dispatcher (mirror of _supply). WETH idle-
-    ///         then-Galaxy + decrements principal. GHO via AAVE-v4 try/catch
+    ///         then-venue + decrements principal. GHO via AAVE-v4 try/catch
     ///         (paused reserve doesn't brick basket loop). BOLD via SP +
     ///         re-supply WETH gain. Other stables: 4626 redeem.
     function _withdraw(address token, uint amount, address to)
@@ -1266,7 +1266,7 @@ contract Aux is // Auxiliary
     // BtcVault's context; the onlyBTCChannels gate moved with them.
 
 
-    /// @notice Asset-supply dispatcher. WETH → Galaxy (Morpho 4626) +
+    /// @notice Asset-supply dispatcher. WETH → the ETH venue (weETH) +
     ///         increments _vogueETHPrincipal. GHO → AAVE-v4 spoke. BOLD
     ///         → Liquity SP. Other stables → vaults[token] (ERC4626).
     ///         Returns the deposited amount in token-native units.

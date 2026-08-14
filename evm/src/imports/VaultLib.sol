@@ -16,12 +16,12 @@ import {ILevEquity} from "./Interfaces.sol";
 import {IAux} from "./Interfaces.sol";
 
 // The ETH-venue ladder's external surface is the canonical `IAux` in Interfaces.sol (`vaultBlocked`
-// — vault-health state stays Aux-owned). The Rover supply-leg surface went with Rover (2026-08-05).
+// — vault-health state stays Aux-owned).
 //
 /// @title  VaultLib — the ETH yield-venue custody ladder extracted from Vault
 ///         to free bytecode under the EIP-170 limit. DELEGATECALL'd by Vault:
 ///         inside each public function `address(this)` resolves to the Vault,
-///         so all token custody, balances, and the AAVE/4626/Rover positions
+///         so all token custody, balances, and the AAVE/weETH positions
 ///         are the Vault's. The library holds NO storage; every immutable Vault
 ///         reads (WETH/AUX/GALAXY/EULER/AAVE spoke+reserveId/WEETH/EETH/
 ///         LEV_MANAGER) is passed in via `EthCfg`. Semantics are byte-for-byte
@@ -31,9 +31,9 @@ import {IAux} from "./Interfaces.sol";
 /// what the holder owns. `liquidityAdapter()` is the cheapest published read that only a V2 exposes, so
 /// we use it purely to IDENTIFY the impl — see `_withdrawableOf`.
 ///
-/// `forceDeallocate`/`liquidityData` were removed 2026-07-26: PROBED against real Galaxy, the call
-/// SUCCEEDS and returns `penaltyAssets: 0` while leaving `maxWithdraw` at 0, because `liquidityData()`
-/// names ONE market and the vault's assets sit in others. It cost ~113k gas per pull and freed nothing.
+/// We do NOT call `forceDeallocate`/`liquidityData`: probed live, the call SUCCEEDS and returns
+/// `penaltyAssets: 0` while leaving `maxWithdraw` at 0, because `liquidityData()` names ONE market
+/// and the vault's assets sit in others. ~113k gas per pull, freeing nothing.
 /// It is also unnecessary — `withdraw()` self-deallocates (see `_withdrawableOf`).
 interface IMorphoV2 {
     function liquidityAdapter() external view returns (address);
@@ -118,7 +118,7 @@ library VaultLib {
     /// @dev    READ THE NAME NARROWLY (§A.5c, re-derived 2026-07-27). This is NOT a promptness
     ///         guarantee and NOT a view-twin of the withdraw ladder. It caps the three WETH-4626
     ///         venues via `_deliverableCap` and subtracts the levered net equity, but it counts the
-    ///         AAVE-v4 leg, weETH at the Vault, raw eETH, and Rover at FULL FACE — none of which is
+    ///         AAVE-v4 leg, weETH at the Vault, and raw eETH at FULL FACE — none of which is
     ///         instantly convertible (the ether.fi legs need the offramp ladder, whose rung 1 is a v3 pool
     ///         sale at up to the 0.5% slippage cap and whose rung 2 is a multi-day wait NFT — there is NO
     ///         deterministic-cost tier between them since the instant-redeem was removed 2026-08-06).
@@ -137,13 +137,13 @@ library VaultLib {
     ///         19.4%-short figure that measurement showed to be stale (~3%, and DEFERRED not lost).
     /// @notice The ONE `withdrawable` definition for a WETH 4626 venue — what it can actually pay us.
     ///
-    ///         MORPHO-V2 (2026-07-26, PROBED against the real Galaxy vault). A V2 vault parks its assets
+    ///         MORPHO-V2 (probed live). A V2 vault parks its assets
     ///         in ADAPTERS and auto-allocates on deposit, so BOTH its max-views are idle-only: with our
     ///         own 20 ETH position it reported `maxWithdraw == 0` AND `maxRedeem == 0`. That is NOT
     ///         illiquidity — `withdraw(1 ether)` SUCCEEDED (burned 0.9939 shares) and `redeem` returned
     ///         1.875 ETH, because `withdraw()` self-deallocates from the adapters. Clamping a pull by
     ///         `maxWithdraw` therefore means we NEVER TRY: measured, that zeroed `deliverableETH` with
-    ///         16 ETH sitting solvent in Galaxy and made EVERY ETH LP exit return 0 while the LP kept a
+    ///         16 ETH sitting solvent in the vault and made EVERY ETH LP exit return 0 while the LP kept a
     ///         full pooled balance. So for a V2 vault the REPORTED position is the deliverable amount.
     ///
     ///         Everything else (Euler, AAVE, MetaMorpho v1.1) has honest max-views — real Euler reports
@@ -244,8 +244,7 @@ library VaultLib {
         require(token == c.weth, "ethv:notWeth");
         // HOLD IT AS WETH. This is the sink for WETH swept by SwapLib (`:179`, `:190`, `:234` via
         // `Aux.supplySelf`) -- transient balances on swap/sweep paths, NOT depositor capital.
-        // It previously went to Galaxy; repointing it to the ether.fi adapter (2026-08-13) was WRONG and
-        // measured so: eagerly converting starves every path that sweeps WETH and then spends it
+        // Do NOT eagerly convert it to weETH: measured, that starves every path that sweeps WETH and then spends it
         // (`testReal_Liquity_*` revert "transfer amount exceeds balance"), and makes a deferred exit
         // unrecoverable because the retry has no WETH to deliver.
         // Idle WETH is already counted as backing by `_vogueETH` and is DIRECTLY deliverable -- no
@@ -262,17 +261,12 @@ library VaultLib {
     ///         `supplyFromAux`).
     /// @dev THE `kind` SELECTOR IS GONE (2026-08-13). It was already ignored — every value routed to the
     ///      ether.fi adapter — and its own docblock said to remove it once the routing decision was
-    ///      final. It is: there are no WETH-holding venues left to select (Galaxy, Gauntlet, Aave v4 and
-    ///      Euler are all removed), so the parameter had nothing left to choose between. An ignored
-    ///      argument that two call sites still pass distinct values to (1 and 4) reads like a live
-    ///      choice at every call site and is not one.
+    ///      final. It is: there are no WETH-holding venues left to select, so the parameter had
+    ///      nothing left to choose between.
     function supplyVenueBody(EthCfg memory c, uint amount, address from) public returns (uint) {
         if (amount == 0) return 0;
-        // ALL ETH SUPPLY IS weETH (owner decision 2026-08-06). The WETH-holding venues it used to
-        // choose between (AAVE-v4, Euler, Galaxy, Gauntlet) are gone.
-        //
-        // WHY: holding weETH earns the ether.fi ratchet, MEASURED at +0.674 bps/day = 2.46%/yr
-        // (`analysis/rover/decompose.py`). That is the hurdle any WETH-holding venue must clear just
+        // ALL ETH SUPPLY IS weETH: it earns the ether.fi ratchet, measured at +0.674 bps/day =
+        // 2.46%/yr. That is the hurdle any WETH-holding venue must clear just
         // to break even, before conversion friction each way. AAVE v4 measured 2026-08-06 on live
         // mainnet: WETH 21,103 supplied / 400 borrowed = 1.90% utilisation ⇒ supply APY in SINGLE
         // BASIS POINTS; weETH 714 supplied / ZERO borrowed = 0.00% ⇒ exactly zero yield whatever the
@@ -293,7 +287,7 @@ library VaultLib {
 
 
     /// @notice Body of Vault._withdrawETH — idle-then-ether.fi(opportunistic)-then
-    ///         -Galaxy/Euler-then-AAVE-then-Rover ladder. Only WETH is served.
+    ///         -then-AAVE ladder. Only WETH is served.
     function withdrawETH(EthCfg memory c, SwapLib.OfframpCfg memory off,
         address token, uint amount, address to) public returns (uint sent) {
         if (amount == 0) return 0;
@@ -306,7 +300,7 @@ library VaultLib {
         }
         uint wethBal = IERC20(c.weth).balanceOf(address(this));
         if (wethBal < amount) {
-            // OPPORTUNISTIC, NON-BLOCKING: before Galaxy/AAVE, sell idle ether.fi
+            // OPPORTUNISTIC, NON-BLOCKING: before AAVE, sell idle ether.fi
             // weETH → WETH on the deep pool. Any failure swallowed (returns 0).
             if (SwapLib.sourceWethBody(amount - wethBal, off) > 0)
                 wethBal = IERC20(c.weth).balanceOf(address(this));
@@ -342,9 +336,7 @@ library VaultLib {
     //  concern living in a SWAP library. Moving it is not just tidiness: SwapLib was the binding
     //  EIP-170 contract at +14 bytes while VaultLib had 15,040 spare, and E55/E53 need room in
     //  SwapLib specifically. Put the code where the room is — the same trade as E32.
-    /// @notice Body of Aux.offrampEtherFi — the exit ladder. TWO rungs, not four: the Rover and
-    ///         ether.fi-instant-redeem rungs were removed 2026-08-05/06 (see the block below) and the
-    ///         numbering was never renumbered. Rung 1 = v3 pool sale; rung 2 = wait NFT.
+    /// @notice Body of Aux.offrampEtherFi — the exit ladder. Rung 1 = Curve pool sale; rung 2 = wait NFT.
     ///         HONEST SERVING: when the held weETH covers less than `amount`
     ///         (clamped balance), both rungs report the
     ///         pro-rata `covered` slice, never the full ask — so the caller's
@@ -399,13 +391,8 @@ library VaultLib {
                 return covered;
             }
         }
-        // TWO RUNGS REMOVED 2026-08-05/06, both because they could never fill:
-        //   * Rover unwind — `c.rover` is always address(0) once nothing funds Rover, so the branch
-        //     was unreachable.
-        //   * ether.fi 0.3% instant-redeem — `totalRedeemableAmount` measured ZERO at every sampled
-        //     block across 90 days and still does, because the v3 pool absorbs the flow first. Its
-        //     test only ever passed by MANUFACTURING capacity (vm.deal + a mocked withdrawal lock),
-        //     so it guarded a path live state has never once permitted.
+        // There is deliberately NO ether.fi instant-redeem rung: `totalRedeemableAmount` measures ZERO
+        // at every sampled block, because the pool absorbs the flow first.
         // RUNG 2 (last) — no-fee withdrawal NFT, minted to the WITHDRAWER.
         //
         // ⚠️ THE LADDER IS TWO RUNGS, AND THE INTENDED FIRST RUNG IS MISSING. Today it sells weETH on v3

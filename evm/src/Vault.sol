@@ -61,7 +61,7 @@ import {ILevEquityBtc} from "./imports/Interfaces.sol";
 /// two-rung offramp ladder — v3 pool sale, else a multi-day wait NFT (`VaultLib.offrampBody`).
 
 /// Aux read surface the Vault needs: WBTC handle (for the shared arbBody
-/// signature) and the Galaxy block flag (vault-health state stays Aux-owned).
+/// signature); vault-health state stays Aux-owned.
 
 /// LevManager read surface: the leveraged book's collateral (ETH, 1e18). The weETH lives on external
 /// Euler/Morpho as per-LP collateral (the Vault never holds it). The book is counted at NET equity
@@ -252,8 +252,7 @@ contract Vault is Ownable, ReentrancyGuard {
             // LEGITIMATE reserve: on live mainnet WETH is asset 0 → reserve 0 (chain-verified, and
             // this was confirmed by a passing AaveV4Venue fork test, since removed with the venue).
             // The former `WETH_RESERVE_ID != 0` test therefore read a perfectly-wired venue as
-            // "absent" and silently disabled ETH venue 2 — masked for a long time by the old
-            // fall-back-to-Galaxy sweep, and fatal once that sweep was removed.
+            // "absent" and silently disabled the AAVE ETH venue.
             //
             // `getAssetId` REVERTS for an unlisted asset (it does NOT return 0), so the try/catch —
             // not a zero-check — is the real listedness probe. On revert we leave AAVE_SPOKE at 0
@@ -381,10 +380,10 @@ contract Vault is Ownable, ReentrancyGuard {
     // fairly via the share price (convertToAssets = pro-rata of vogueETH).
 
     /// @notice DELIVERABLE ETH backing for the redemption path. vogueETH
-    ///         already writes Galaxy down to maxWithdraw WHEN BLOCKED, but values it
-    ///         at convertToAssets when UNBLOCKED — so a frozen-but-unflagged Galaxy
-    ///         would let the redemption ETH leg over-burn QU!D for ETH it can't
-    ///         source. The weETH/AAVE/idle legs are capped at what is actually
+    ///         values a blocked venue at maxWithdraw but an unblocked one at
+    ///         convertToAssets — so a frozen-but-unflagged venue would let the
+    ///         redemption ETH leg over-burn QU!D for ETH it can't source. The
+    ///         weETH/AAVE/idle legs are capped at what is actually
     ///         withdrawable, so the ETH leg DEFERS the undeliverable slice (the ETH
     ///         analog of _illiquidLoss).
     ///         Body in VaultLib.deliverableETH (delegatecall; see its docblock).
@@ -452,13 +451,10 @@ contract Vault is Ownable, ReentrancyGuard {
         // evacuate. Every ETH deposit is weETH, which is not a curated vault"), and that body returns
         // early on `tokens[vault] == 0`, which is every ETH venue. So the blast radius of a false
         // illiquidity signal is BLOCK-ONLY here; the stable path still blocks AND evacuates. A Morpho-V2 vault runs ~0 idle
-        // by policy (Galaxy: 8971 WETH held, 0 idle), so the old raw `maxWithdraw` read it as
-        // permanently illiquid and any caller could have drained a healthy venue on that false signal.
-        // WIRED 2026-07-26 — the paragraph above described this fix but the code below it still read a
-        // raw `maxWithdraw`, so the hazard it warns about was LIVE: real Galaxy reports `maxWithdraw`
-        // AND `maxRedeem` of 0 against a fully withdrawable position, i.e. 0% liquid, and anyone could
-        // have used that false signal to block-then-evacuate a healthy venue through the permissionless
-        // poke. `_withdrawableOf` returns the reported position for a Morpho-V2 impl and the honest
+        // by policy (measured live: 8,971 WETH held, 0 idle), so a raw `maxWithdraw` reads such a
+        // vault as permanently illiquid — it reports `maxWithdraw` AND `maxRedeem` of 0 against a
+        // fully withdrawable position. Any caller could use that false 0%-liquid signal to
+        // block-then-evacuate a healthy vault through the permissionless poke. `_withdrawableOf` returns the reported position for a Morpho-V2 impl and the honest
         // `maxWithdraw` for everything else. It is itself GUARDED, so a venue whose view reverts
         // (Euler's real EVault does — `EVC.getControllers` inside `maxWithdraw`) reads as 0 liquid
         // rather than making the poke revert; 0 is the conservative side here too.

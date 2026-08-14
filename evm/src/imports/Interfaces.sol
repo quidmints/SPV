@@ -343,7 +343,7 @@ interface IBandManager {
     function setBTCChannels(address b) external;
 }
 
-/// @notice ETH-VENUE CUSTODY ONLY — the Galaxy/AAVE/Euler/ether.fi WETH positions. Today `Vault`
+/// @notice ETH-VENUE CUSTODY ONLY — the AAVE-v4 WETH + ether.fi weETH positions. Today `Vault`
 ///         implements this; the slice is being extracted to its own contract, and because callers
 ///         already speak this interface at an `ethVenue` pointer, that extraction repoints a pointer
 ///         instead of re-typing every site.

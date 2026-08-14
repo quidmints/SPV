@@ -550,7 +550,7 @@ library SwapLib {
     // ─── ether.fi offramp (extracted from Aux to free bytecode) ──────────────
     // Immutables/consts passed in via OfframpCfg (the library can't read Aux's
     // immutables). The msg.sender==V4 gate stays in the Aux wrapper; these bodies
-    // run via DELEGATECALL so address(this)==Aux (its weETH, its Rover-caller id).
+    // run via DELEGATECALL so address(this)==Aux (its weETH, its caller id).
     // (ETHFI_NATIVE_ETH removed 2026-08-09 — it was the RedemptionManager output-token sentinel for the
     //  instant-redeem rung deleted 2026-08-05/06, and had no use site after that.)
 
@@ -732,7 +732,7 @@ library SwapLib {
     // ρ>1 = a harder barrier. Calculus-derived — the one parameter is a barrier order, not a curve fit.
     // Volatile band half-width, in bps of price (paddedSqrtPrice reads it as (10000±delta)/10000).
     // THIN band (±0.2%). Vogue SERVES swaps and RESEATS, so it can't go to a literal one-tick like a static
-    // Rover position: at delta=10 the reseat re-add (updateTicks(targetSqrt,10)) collapses lower==upper and V4
+    // static position: at delta=10 the reseat re-add (updateTicks(targetSqrt,10)) collapses lower==upper and V4
     // reverts. 0.2% is the thinnest that keeps the reseat re-add non-degenerate while staying maximally thin
     // (near-zero natural slippage, whale-friendly). Frequent repacks are covered by repack-first (swapper-paid)
     // + the self-funded reseat keeper — no separate gas budget needed.

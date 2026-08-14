@@ -23,9 +23,8 @@ import {VaultLib} from "./VaultLib.sol";
 /// AAVE-v4 GHO spoke (vault-health evac haven). Mirrors Aux.IAaveV4Spoke.
 /// The two reserve-level reads are asset-denominated (verified live: GHO reserve
 /// supplied/debt in 1e18); available cash = supplied − debt.
-/// EthVenue — the ETH-venue custody (Galaxy/AAVE WETH). vault-health STATE
-/// stays Aux-owned, but the Galaxy WETH position is custodied on EthVenue after
-/// the venue carve, so the evac/poke Galaxy leg reads + drains via this handle.
+/// EthVenue — the ETH-venue custody (AAVE WETH + ether.fi weETH). vault-health
+/// STATE stays Aux-owned; the basket's stable 4626s are held by Aux itself.
 // §G.6 redeem shortfall sweep: the ETH LevManager's ONE reactive de-lever entry (SHARED with swap-out). Reached
 // via core→Vault (IWiredCore.btcVault → IWiredVault.LEV_MANAGER, both existing). `deleverBook` frees levered
 // net-equity into the sink (= this Aux) value-neutrally and returns the stable routed there.
@@ -780,7 +779,7 @@ library BasketLib {
     }
 
     /// @notice ETH→stable fallback body for redemption. Pulls `ethAmount`
-    ///         WETH from Galaxy via the self-gated withdraw, then opens a
+    ///         WETH from the ETH venue via the self-gated withdraw, then opens a
     ///         V4 unlock that the host's `unlockCallback` recognizes as
     ///         the ETH-source variant (sourceAsset = WETH, first hop's
     ///         currency0 = native ETH). PoolKey is the canonical V4
@@ -1120,9 +1119,6 @@ library BasketLib {
         mapping(address => address[]) storage vaultsOf,
         mapping(address => address) storage tokens
     ) external {
-        // The Galaxy WETH position is custodied on EthVenue (the venue carve), so
-        // its illiquidity is read from THERE; all other (stable) vaults are held
-        // by Aux (== address(this)) and read directly.
         // Every vault reaching here is a basket STABLE vault held by Aux (== address(this)).
         uint reported = IERC4626(vault).convertToAssets(IERC4626(vault).balanceOf(address(this)));
         // ONE `withdrawable` definition (see the haircut above). This is the PERMISSIONLESS poke: a
@@ -1158,18 +1154,8 @@ library BasketLib {
         mapping(address => address) storage tokens
     ) public {
         vaultHealth[vault].blocked = true; // block first → spread skips it
-        // ETH-VENUE incident (Galaxy/Morpho WETH): pull the WITHDRAWABLE WETH to
-        // the AAVE haven (the spec: send the ETH to the AAVE spoke). WETH is not a
-        // basket stable, so the stable path below skips it (tokens[GALAXY]==0); we
-        // handle it here. We move only `maxWithdraw` — the on-chain-measurable
-        // withdrawable amount (no fuzzy solvency oracle) — and any frozen remainder
-        // stays in the blocked venue, written down in vogueETH (valued at
-        // maxWithdraw). If AAVE-WETH isn't wired (AAVE_SPOKE==0 — NOT a zero reserve
-        // id, which is a VALID reserve: mainnet WETH is asset 0) the pulled
-        // WETH simply rests at Aux — still OUT of the failing venue.
-        // ETH-VENUE ARM REMOVED 2026-08-13 — there are no WETH-4626 curators left to evacuate. Every
-        // ETH deposit is weETH, which is not a curated vault and cannot go illiquid in the way this arm
-        // handled. The STABLE path below is untouched and still covers galaxy/gauntlet/euler USDC.
+        // Basket STABLE vaults only: redeem the position and spread it across that stable's
+        // healthy vaults. A frozen vault stays blocked and haircut'd; the loss is socialized.
         uint sh = IERC4626(vault).balanceOf(address(this));
         if (sh == 0) return;
         address stable = tokens[vault];

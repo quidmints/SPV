@@ -742,7 +742,7 @@ contract Core is SafeCallback {
             ? BTCVAULT.totalSharesBTC() + BTCVAULT.totalBufferBTC()
             : VOGUE.totalShares();
         // BOTH sides compare REAL inventory, never just the in-pool token.
-        // ETH = vogueETH() (in-range POOLED_ETH + Galaxy/AAVE/ether.fi venue
+        // ETH = vogueETH() (in-range POOLED_ETH + AAVE/ether.fi venue
         // retention + idle). BTC has no yield-venue, but the protocol still HOLDS
         // off-pool WBTC (swept donations + swap deltas, accrued in vogueBTC), so
         // the BTC analogue is POOLED_BTC + vogueBTC. Comparing raw POOLED_BTC

@@ -105,8 +105,8 @@ library SOR {
             // ETH-source = the redemption ETH-fallback (ethToStableFallback). The
             // caller (Aux) has ALREADY pulled `amountIn` WETH to itself from the
             // ETH venue (withdrawSelf → EthVenue.withdrawForAux) before this
-            // unlock, since the Galaxy shares are custodied on EthVenue now and
-            // are not Aux's to redeem here. So just unwrap the WETH already held
+            // unlock, since the venue position is custodied on EthVenue and is
+            // not Aux's to redeem here. So just unwrap the WETH already held
             // and settle the native ETH. (sourceVault retained in UnlockData for
             // shape/back-compat; no longer redeemed from in this branch.)
             WETH9(payable(weth)).withdraw(u.amountIn);
