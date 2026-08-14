@@ -177,18 +177,7 @@ library VogueLib {
             if (took > 0) { IWETH9(weth).transferFrom(sender, address(this), took); sent += took; }
         }
         if (sent > 0) {
-            // ONE DESTINATION. Every ETH deposit is weETH (owner, all-in on ether.fi), so there is no
-            // venue choice, no default, and no dispatch. This replaced a six-way branch over
-            // {AAVE, Euler, ETHERFI, Gauntlet, Galaxy, SPLIT}.
-            // ⚠️ THIS IS A BEHAVIOUR CHANGE, NOT DEAD-CODE REMOVAL — say so rather than treating a red
-            // test as proof the change is wrong (standing rule 8d). Four of those branches WERE
-            // equivalent: `VaultLib.supplyVenueBody` opens `kind; // retained-but-ignored` and routes
-            // AAVE/Euler/ETHERFI/Gauntlet into the ether.fi adapter alike. GALAXY WAS NOT — it went
-            // `vogueOp` → `vogueOpBody(op=0)` → `Aux.supplySelf` into the Galaxy Morpho vault, PROVEN by
-            // A/B (`testEthVenueIncidentEvacuation` fails "ETH deposit landed in Galaxy: 0 <= 0" when
-            // Galaxy is folded in). Tracing that path by hand concluded the opposite and was WRONG.
-            // So removing Galaxy MOVES real deposits from the Galaxy vault into weETH. That is the
-            // intent; any test asserting Galaxy shares after a deposit now encodes the OLD model.
+            // ONE DESTINATION: every ETH deposit becomes weETH. No venue choice, no default, no dispatch.
             uint toDeposit = IWETH9(weth).balanceOf(address(this));
             IWETH9(weth).approve(aux, toDeposit);
             bool attrib = pledge != address(0);

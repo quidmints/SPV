@@ -19,7 +19,7 @@ import {Basket} from "./Basket.sol";
 import {Aux} from "./Aux.sol";
 import {ILevHost, ILevEquity, ILevClose} from "./imports/Interfaces.sol";
 
-/// EthVenue — the ETH yield-venue custody (Galaxy/AAVE/ether.fi WETH) carved out
+/// EthVenue — the ETH yield-venue custody (AAVE WETH + ether.fi weETH) carved out
 /// of Aux. Vogue routes its WETH venue ops here. vogueETH() is still read via AUX
 /// (a thin forwarder), so only the WRITE ops (vogueOp/supply*/offramp/arb) re-point.
 
@@ -44,44 +44,9 @@ contract Vogue is
     uint constant WAD = 1e18;
     Core V4; WETH9 WETH;
 
-    // ETH-venue pick (depositor-chosen, no primary), passed PER DEPOSIT via the
-    // 3-arg deposit/mint overloads — no standing per-address setting, no separate
-    // setter tx. The 2-arg 4626 entrypoints route to the SPLIT default.
-
-    // RESOLVED 2026-07-27 (was the last surviving user [TODO]). The concern was that an LP withdraws
-    // only from the venues they directed to, while their FEE slices were never part of that deposit and
-    // we do not track where those slices landed. USER'S CALL: let withdrawals source fee value from ANY
-    // venue — the direction constraint existed only so nobody is forced into ether.fi's wait time, and
-    // anything broader is unnecessarily heavy.
-    //
-    // VERIFIED: THE CODE ALREADY DOES EXACTLY THIS.
-    //  • Non-ether.fi venues are FUNGIBLE on exit — "Galaxy + Euler are fungible; pull from each at its
-    //    maxWithdraw" (VaultLib) — so a withdrawal already sources from whichever venue can pay.
-    //  • `ethfiBacked` was DELETED 2026-08-07: with every deposit ether.fi-sourced it recorded a
-    //    constant equal to `pooled`, and the exit gate it fed is now unconditional.
-
-    // Venue codes (per-deposit; NO default sink): 0 = SPLIT, 2 = AAVE-v4 (spoke supply/withdraw —
-    // 4626-LIKE, aToken/spoke, not a true ERC4626), 4 = ether.fi (direct weETH). A chosen venue that
-    // places 0 fails loud (`VenueUnavailable`) rather than redirecting: no venue is always-live.
-
-    // supply/withdraw — 4626-LIKE, aToken/spoke, not a true ERC4626), 3 = Galaxy (its OWN Morpho WETH
-    // 4626 vault), 4 = ether.fi (routed through the protocol-owned Rover weETH/WETH v3 LP; attributed to
-    // the ether.fi slice, exits via the offramp ladder's Rover rung), 5 = Euler, 6 = Gauntlet.
-    // There is deliberately NO ether.fi venue code (the old "1"): per the venue TODO above, ether.fi is
-    // NEVER a distinct user choice — it always goes through Rover, and direct weETH is used INTERNALLY
-    // only as the Rover-self-liquidated fallback (VogueLib._supplyEtherFi). And NO always-live sink:
-    // Galaxy AND Gauntlet are Morpho CURATED vaults (Aave/Euler curated too), so a chosen venue (or a
-    // SPLIT leg) that places 0 REVERTS — it is NEVER swept to Galaxy or any other default.
-
-
-    // Per-LP attribution applies ONLY to the ether.fi slice (above): that exit is served from your
-    // own weETH/Rover position. Every other venue is fungible pooled 4626 WETH — no per-LP venue tie.
-
-    // NO INSTANT/WAIT CHOICE EXISTS, and none is needed: the ~0.3% ether.fi instant redeem it used to
-    // select is GONE (its capacity measured ZERO at every sampled block — the v3 pool absorbs the flow
-    // first), so there was never a 0.3% for an LP to opt out of. The serve path is the borrow (flash
-    // serve) with the v3 pool as its ONLY alternative. Removed with `exitInstant` and the `instant`
-    // parameter 2026-08-09.
+    // There is NO venue choice: `deposit(assets, receiver)` takes no venue argument and every ETH
+    // deposit becomes weETH. `VogueLib._supplyEtherFi` is the single destination, and a placement of
+    // 0 reverts `VenueUnavailable` rather than redirecting.
 
     bool public token1isETH;
     // range = between ticks
@@ -93,7 +58,7 @@ contract Vogue is
     uint public USD_FEES;
     Basket QUID; Aux AUX;
 
-    /// @notice EthVenue — the ETH yield-venue custody (Galaxy/AAVE/ether.fi),
+    /// @notice EthVenue — the ETH yield-venue custody (AAVE + ether.fi),
     ///         carved out of Aux. Vogue routes its WETH venue ops (vogueOp,
     ///         supplyEtherFi/supplyAaveEth, offrampEtherFi, arbETH) here. Pinned
     ///         once via setEthVenue (after EthVenue is deployed). vogueETH() is
@@ -301,7 +266,7 @@ contract Vogue is
     /// @return next The ID of the newly created position
     /// @notice Per-deposit venue variant (same idea as the LP deposit
     ///         overload): the self-managed position's ETH backing earns at the
-    ///         caller-chosen venue instead of pinning Galaxy. No wall
+    ///         single weETH destination. No wall
     ///         attribution (there's no pledge): exits via pull() are served by
     ///         the generic withdraw ladder, which reaches every venue.
     function outOfRange(uint amount, address token,
@@ -361,7 +326,7 @@ contract Vogue is
 
     /// @dev Shared body for ETH/BTC pending rewards. Picks the right
     ///      LP mapping + fee accumulators based on isBTC. ETH yield is
-    ///      from Morpho (Galaxy); BTC LPs earn USD fees only (no native
+    ///      from the ETH venue; BTC LPs earn USD fees only (no native
     ///      BTC yield source — feesPerShareBTC holds V4 trading fees in
     ///      WBTC raw).
     /// @dev Refresh LP's fee bookmarks against current per-share accumulators.
