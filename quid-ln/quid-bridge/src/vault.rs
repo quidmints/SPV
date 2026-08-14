@@ -610,6 +610,11 @@ pub async fn boot_vault(
     vault_seed: &RootSeed,
     vault_data_dir: PathBuf,
     hop_node_pk: NodePk,
+    // (M1#2) Where the hop listens — NOT hardcoded to localhost any more, which was the last
+    // thing pinning the vault to the fleet's own machine. A co-hosted vault passes
+    // `Ipv4Addr::LOCALHOST`; an LP running its own passes the fleet's address, and nothing else
+    // about the node changes. The split is a TOPOLOGY, so it should cost a parameter.
+    hop_addr: Ipv4Addr,
     hop_listen_port: u16,
     splice_feerate: u32,
     store: Arc<crate::store::BridgeStore>,
@@ -619,7 +624,7 @@ pub async fn boot_vault(
     let lsp_info = LspInfo {
         node_pk: hop_node_pk,
         private_p2p_addr: LxSocketAddress::TcpIpv4 {
-            ip: Ipv4Addr::LOCALHOST,
+            ip: hop_addr,
             port: hop_listen_port,
         },
         lsp_usernode_base_fee_msat: 0,

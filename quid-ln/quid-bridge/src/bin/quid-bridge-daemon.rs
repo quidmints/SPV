@@ -301,6 +301,9 @@ async fn main() -> anyhow::Result<()> {
         &vault_seed,
         data_dir.join("vault"),
         hop_pk,
+        // The fleet co-hosts this vault, so the hop is on this machine. An LP-hosted vault
+        // passes the fleet's address here instead — that parameter IS the split (M1#2).
+        std::net::Ipv4Addr::LOCALHOST,
         vault_port,
         quid_hop::rebalancer::SPLICE_FUNDING_FEERATE_SAT_PER_KW,
         store.clone(), // durable by_funding: reload in-flight opens on restart
