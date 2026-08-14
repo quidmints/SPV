@@ -37,7 +37,7 @@ import {IAaveV4Spoke, IAaveV4Hub, ICollection, IEthVenue, IBandManager, IBTCChan
 /// EthVenue — the ETH yield-venue custody (Galaxy/AAVE/ether.fi WETH), carved
 /// out of Aux. Aux keeps thin forwarders (vogueETH/arbETH) for callers that
 /// must not change target (BasketLib IAux read, Core), drives the Galaxy
-/// vault-health drain (state stays Aux-owned), and reads GALAXY_VAULT off it.
+/// vault-health drain (state stays Aux-owned).
 
 // Deploy-finalize helpers (see Aux.finalize; linkage asserts live in BasketLib.assertFullyWired).
 
@@ -440,17 +440,10 @@ contract Aux is // Auxiliary
     /// @dev Vault-health config from Aux immutables (the delegatecalled
     ///      library can't read them). Shared by poke / evacuate.
     function _vaultHealthCfg() internal view returns (BasketLib.VaultHealthCfg memory) {
-        // GALAXY_VAULT / AAVE-WETH wiring moved to EthVenue (which custodies the
-        // ETH-side position). The Galaxy evac/poke leg runs THERE (gated to Aux);
-        // the cfg only needs the galaxyVault id (to recognise that vault) +
-        // ethVenue (to drive its drain) — aaveSpoke/wethReserveId are unused now
-        // for the Galaxy leg but kept zeroed for struct shape.
-        return BasketLib.VaultHealthCfg({
-            galaxyVault:   IEthVenue(ethVenue).GALAXY_VAULT(),
-            ethVenue:      ethVenue,
-            eulerVault:    IEthVenue(ethVenue).EULER_VAULT(),
-            gauntletVault: IEthVenue(ethVenue).GAUNTLET_VAULT()
-        });
+        // The WETH-4626 curator venues were deleted 2026-08-14 (their VENUE_* selectors were already
+        // gone, so no deposit could reach them), so the health path has no ETH branch left: every vault
+        // it sees is a basket STABLE vault held by Aux. `ethVenue` is all the cfg still carries.
+        return BasketLib.VaultHealthCfg({ ethVenue: ethVenue });
     }
 
     /// @notice EVACUATE a deteriorating vault into the healthy ones (the

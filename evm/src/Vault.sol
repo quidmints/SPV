@@ -54,10 +54,6 @@ import {ILevEquityBtc} from "./imports/Interfaces.sol";
 /// pulls via `Permit2.transferFrom`, so the depositor must both approve Permit2 on the token AND grant
 /// Permit2 an allowance naming the vault as spender. Declared minimally rather than importing
 /// `IAllowanceTransfer` (which drags the whole permit/signature surface we never touch).
-interface IPermit2Approve {
-    function approve(address token, address spender, uint160 amount, uint48 expiration) external;
-}
-
 
 /// ether.fi venue (ETH-side, depositor-chosen). Stake WETH → weETH (restaking
 /// yield); value weETH in ETH via getEETHByWeETH. ⚠️ THERE IS NO DETERMINISTIC EXIT: the instant-redeem
@@ -99,34 +95,13 @@ contract Vault is Ownable, ReentrancyGuard {
     ///         asset 0 → reserve 0), so this is NOT a wiring flag — test `AAVE_SPOKE != 0` instead.
     uint256 public immutable WETH_RESERVE_ID;
 
-    /// @notice WETH yield vault (Galaxy Morpho-V2 in production = 0x1878805799273d10aE96a58201A6f5254CF9824F).
-    /// Injected via constructor so tests can swap in a liquid mock when
-    /// the production venue is illiquid at the fork block.
-    address public immutable GALAXY_VAULT;
 
-    /// @notice Second WETH 4626 curator venue (Euler ETH = 0xD8b27CF359b7D15710a5BE299AF6e7Bf904984C2).
-    /// FUNGIBLE with Galaxy: both are Morpho-style WETH 4626s, so vogueETH/
-    /// deliverableETH count both, the withdraw ladder pulls from both, and the
-    /// per-vault health/evacuate path treats both as ETH-venue vaults (NOT
-    /// stables). 0 = disabled (tests that don't wire a second venue). Depositors
-    /// elect it via VENUE_EULER; an Euler incident is written down per-vault via
-    /// vaultBlocked[EULER_VAULT], same as Galaxy.
-    address public immutable EULER_VAULT;
 
-    /// @notice Third WETH 4626 curator venue (Gauntlet WETH Morpho = 0x43fCd85E8D9D003D515f886891B7C742AC9f92da).
-    /// FUNGIBLE with Galaxy/Euler: same Morpho-style WETH 4626, so vogueETH/
-    /// deliverableETH count it, the withdraw ladder pulls from it, and the
-    /// per-vault health/evacuate path treats it as an ETH-venue vault. 0 =
-    /// disabled. Depositors elect it via VENUE_GAUNTLET; a Gauntlet incident is
-    /// written down per-vault via vaultBlocked[GAUNTLET_VAULT], same as Galaxy.
-    address public immutable GAUNTLET_VAULT;
 
     // ether.fi (ETH-side venue, depositor-chosen). FIXED mainnet contracts, wired
     // IMMUTABLY in the constructor. The protocol holds only weETH; ETHERFI_LP/EETH
     // are the last-resort no-fee withdrawal NFT queue.
     address public constant ETHERFI_ADAPTER  = 0xcfC6d9Bd7411962Bfe7145451A7EF71A24b6A7A2;
-    /// Canonical Permit2 — same address on every chain. Euler's EVault pulls deposits through it.
-    address public constant PERMIT2          = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
     /// @notice Curve `weETH/WETH-ng`. Replaced the Uniswap v3 router + two fee tiers 2026-08-09:
     ///         measured −1.4 to −3.5 bps against v3's −17.6 to −28.2 across every realistic size.
     address public constant ETHERFI_CURVE_POOL = 0xDB74dfDD3BB46bE8Ce6C33dC9D82777BCFc3dEd5;
@@ -263,30 +238,13 @@ contract Vault is Ownable, ReentrancyGuard {
     /// ether.fi is wired from the fixed mainnet adapter + v3 pool fees, with the
     /// standing approvals set once.
     constructor(address _vogue, address _core, address _aux,
-        address _weth, address _aaveSpoke, address _aaveHub,
-        address _galaxyVault, address _eulerVault, address _gauntletVault)
+        address _weth, address _aaveSpoke, address _aaveHub)
         Ownable(msg.sender) {
         V4 = Vogue(payable(_vogue));
         CORE = Core(_core);
         AUX = Aux(payable(_aux));
         VBTC = new VBtc(address(this), address(Aux(payable(_aux)).WBTC()));
         WETH = WETH9(payable(_weth));
-        GALAXY_VAULT = _galaxyVault;
-        EULER_VAULT = _eulerVault;
-        GAUNTLET_VAULT = _gauntletVault;
-        // The three WETH-4626 curator slots MUST be pairwise distinct. `VaultLib._vogueETH`
-        // SUMS all three (`:97-98`) with no dedup, so aliasing two slots double-counts that
-        // vault's WETH as backing — and vogueETH feeds the solvency/backing gate, so it would
-        // silently overstate backing (measured: a 10 ETH SPLIT deposit reported vogueETH == 14
-        // when gauntlet aliased euler). `_deliverableCap` and `_pull4626` iterate the same three
-        // slots and mis-behave the same way. Cheapest correct-by-construction fix: make the
-        // aliasing UNREACHABLE at deploy rather than dedup on every read (which would cost
-        // bytecode on a hot path, in a contract set where LevManager has 70 bytes of headroom).
-        // Zero is exempt — an unwired slot is legitimate and contributes nothing.
-        require((_galaxyVault != _eulerVault    || _galaxyVault == address(0))
-             && (_galaxyVault != _gauntletVault || _galaxyVault == address(0))
-             && (_eulerVault  != _gauntletVault || _eulerVault  == address(0)),
-            "vault:dupVenue");
         // NB: AAVE_SPOKE is assigned INSIDE the try below, not here — it doubles as the
         // "venue 2 is wired" flag, so it must stay 0 unless WETH actually resolved.
 
@@ -310,33 +268,8 @@ contract Vault is Ownable, ReentrancyGuard {
             } catch {}
         }
 
-        // One-time unlimited WETH→Galaxy approval. WETH9 returns bool on approve
-        // so a direct call is safe.
-        IERC20(address(WETH)).approve(GALAXY_VAULT, type(uint).max);
-        // Same standing approval for the second 4626 curator (Euler), if wired.
-        if (_eulerVault != address(0)) {
-            IERC20(address(WETH)).approve(_eulerVault, type(uint).max);
-            // ── PERMIT2 (2026-07-26) — REQUIRED for the real Euler EVault, and the plain allowance
-            //    above is NOT enough on its own. Euler's `EVault.deposit` pulls the asset through
-            //    canonical Permit2, not `WETH.transferFrom`: the fork backtrace is
-            //      Permit2.transferFrom <- EVault.deposit <- EthereumVaultConnector.call
-            //      <- VaultLib.supplyVenueBody <- Vault.supplyEulerEth <- Vogue.deposit
-            //    and a DIRECT transferFrom is never even attempted, so it routes via Permit2
-            //    unconditionally when configured. Without these two grants every Euler deposit
-            //    REVERTS — which also reverts every VENUE_SPLIT deposit, since SPLIT has an Euler leg
-            //    and (post the no-sink refactor) fails loud instead of sweeping to Galaxy.
-            //    Permit2 needs BOTH: an ERC-20 allowance to Permit2 itself, then a Permit2 allowance
-            //    naming the vault as spender. Max uint160 amount / max uint48 expiration = standing.
-            //    NEVER exercised before today: `supplyEulerEth` had only ever run against an injected
-            //    stand-in vault, so this integration was unvalidated on mainnet — the same shape as
-            //    the reserve-0 sentinel bug (code that never met its real counterparty).
-            IERC20(address(WETH)).approve(PERMIT2, type(uint).max);
-            IPermit2Approve(PERMIT2).approve(
-                address(WETH), _eulerVault, type(uint160).max, type(uint48).max);
-        }
-        // Same standing approval for the third 4626 curator (Gauntlet), if wired.
-        if (_gauntletVault != address(0))
-            IERC20(address(WETH)).approve(_gauntletVault, type(uint).max);
+        // WETH-4626 curator venues (Galaxy/Euler/Gauntlet) deleted 2026-08-14: their VENUE_* selectors
+        // were already gone, so no deposit could reach them. Permit2 went with Euler, its only user.
 
         // ether.fi venue — immutable wiring. Cache weETH + the v3 pool fees from
         // the fixed mainnet contracts and set the standing approvals once.

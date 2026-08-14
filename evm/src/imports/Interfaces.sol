@@ -356,9 +356,6 @@ interface IBandManager {
 interface IEthVenue {
     function vogueETH() external view returns (uint);
     function deliverableETH() external view returns (uint);
-    function GALAXY_VAULT() external view returns (address);
-    function EULER_VAULT() external view returns (address);
-    function GAUNTLET_VAULT() external view returns (address);
     function supplyFromAux(uint amount) external returns (uint);
     function withdrawForAux(uint amount, address to) external returns (uint);
     function venuePosition(address vault) external view returns (uint reported, uint liquid);

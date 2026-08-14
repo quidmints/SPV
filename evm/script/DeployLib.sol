@@ -46,7 +46,6 @@ uint constant ANGEL_ID = 16508; // == Basket.ANGEL
 library DeployLib {
     /// @dev Everything the shared deploy needs; each caller populates it from its
     ///      own env/constants. Token/vault addresses are inputs (they legitimately
-    ///      differ — e.g. tests inject a liquid mock WETH 4626 for GALAXY_VAULT and
     ///      use a different Morpho USDC vault than production).
     struct StackConfig {
         IPoolManager poolManager;
@@ -70,9 +69,6 @@ library DeployLib {
         address aaveSpoke;
         address aaveHub;
         // ── ETH-venue WETH 4626s (mock in tests, real in prod) ──
-        address galaxyVault;
-        address eulerVault;
-        address gauntletVault;
         address nfpm;
         // ── basket set (order load-bearing: BOLD LAST) ──
         address[] stables;
@@ -163,8 +159,7 @@ library DeployLib {
     /// @dev SPV gateway + BTCChannels + the Aux pin, in its own frame.
     /// @dev `new Vault(...)` in its OWN frame (no via_ir) — the 9-arg ctor tips deployQuidStack's stack inline.
     function _newVault(StackConfig memory cfg, address v4, address core, address aux) internal returns (Vault) {
-        return new Vault(v4, core, aux, cfg.weth, cfg.aaveSpoke, cfg.aaveHub,
-            cfg.galaxyVault, cfg.eulerVault, cfg.gauntletVault);
+        return new Vault(v4, core, aux, cfg.weth, cfg.aaveSpoke, cfg.aaveHub);
     }
 
     function _deployChannels(StackConfig memory cfg, address aux, address /*v4*/, address eth)

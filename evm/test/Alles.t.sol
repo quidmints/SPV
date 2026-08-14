@@ -601,7 +601,6 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
             morphoUsdcVault: morphoUsdcVault, morphoUsdtVault: morphoUsdtVault,
             morphoUsdsVault: morphoUsdsVault, sdai: address(SDAI), susde: address(SUSDE),
             aaveSpoke: aaveSpoke, aaveHub: aaveHub,
-            galaxyVault: _galaxyV, eulerVault: _eulerV, gauntletVault: _gauntletV,
             nfpm: address(0),
             stables: STABLECOINS, vaults: VAULTS,
             hopOperator: address(0),
@@ -1645,17 +1644,18 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     ///       abandoned: folding Galaxy in with the four equivalent venues made it fail "ETH deposit
     ///       landed in Galaxy: 0 <= 0". That measurement proved Galaxy's `vogueOp` -> `Aux.supplySelf`
     ///       path was a REAL second destination, against a hand-trace that concluded the opposite.
-    ///       Removing Galaxy is now intentional, so the assertion is INVERTED rather than deleted — it
-    ///       keeps proving where deposits go, which is the property that caught the bug.
+    ///       Removing Galaxy was intentional, and as of 2026-08-14 the three WETH-4626 curator venues
+    ///       are DELETED outright (their VENUE_* selectors were already gone, so nothing could reach
+    ///       them) — so the inverted Galaxy assertion is dropped with the venue it named. The weETH
+    ///       assertion below is the one that caught the bug and it stays: it measures the DESTINATION
+    ///       directly, which `vogueETH` alone cannot do.
     ///       (`AUX.evacuate`/`vaultBlocked` are untouched and still cover the STABLE 4626 vaults; only
     ///       the ETH-venue path this test drove them through is gone.)
     function testEthDepositsLandInWeeth() public {
         address weeth  = ETH.WEETH();
-        address galaxy = ETH.GALAXY_VAULT();
         assertTrue(weeth != address(0), "weETH wired");
 
         uint weethBefore    = IERC20(weeth).balanceOf(address(ETH));
-        uint galaxyBefore   = IERC20(galaxy).balanceOf(address(ETH));
         uint vogueEthBefore = ETH.vogueETH();
 
         vm.prank(User01); V4.deposit{value: 100 ether}(0, User01);
@@ -1663,8 +1663,6 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // Measure the DESTINATION directly. `vogueETH` would rise either way, so asserting on it alone
         // cannot tell weETH from Galaxy — the same gap that let the venue bug hide.
         assertGt(IERC20(weeth).balanceOf(address(ETH)), weethBefore, "ETH deposit did NOT land in weETH");
-        assertEq(IERC20(galaxy).balanceOf(address(ETH)), galaxyBefore,
-            "ETH deposit reached Galaxy - venue routing is supposed to be gone");
         assertGt(ETH.vogueETH(), vogueEthBefore, "deposit grew ETH backing");
     }
 

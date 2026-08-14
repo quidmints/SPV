@@ -69,7 +69,6 @@ contract Deploy is Script {
     // Gauntlet-curated Morpho vaults (appended as additional curators, same as euler/sky above).
     address constant gauntletUsdc   = 0x9a1D6bd5b8642C41F25e0958129B85f8E1176F3e;
     address constant gauntletUsdt   = 0xE571B648569619566CF6ce1060C97B621CB635D3;
-    // (Gauntlet WETH: now WIRED as the third ETH-4626 curator via GAUNTLET_VAULT below — EthCfg gained a
     //  `gauntlet` slot + Vault immutable + supplyGauntlet wrapper, so it's counted/withdrawn/health-checked
     //  identically to Galaxy/Euler. ETH venues are custodied on EthVenue, not via setVault.)
     // USDT0 (USD₮0) REMOVED (2026-07-22, on-chain verified): Tether's omnichain USDT is BY DESIGN not an
@@ -82,7 +81,6 @@ contract Deploy is Script {
     address public morphoRlusdVault = 0x6dC58a0FdfC8D694e571DC59B9A52EEEa780E6bf;
     address public morphoUsdsVault  = 0xE15fcC81118895b67b6647BBd393182dF44E11E0; // Sky Money USDS Flagship
     // ETH-side: WETH supplied to the Galaxy Morpho V2 vault. Standard
-    // 4626 — see GALAXY_VAULT constant below. Single venue, no state
     // machine.
 
     // GHO is AAVE's native stablecoin → routes directly through AAVE v4
@@ -131,15 +129,12 @@ contract Deploy is Script {
     // interim, ERC4626 share revaluation surfaces any underperformance
     // through the standard deficit-reporting path.
     // Galaxy vault uses WETH as its underlying asset (not ETH).
-    address constant GALAXY_VAULT = 0x1878805799273d10aE96a58201A6f5254CF9824F;
     // Second WETH 4626 curator: Euler ETH (fungible with Galaxy in the ETH-venue
     // set — counted/withdrawn/health-checked identically). Depositors elect it
     // via VENUE_EULER (5).
-    address constant EULER_VAULT  = 0xD8b27CF359b7D15710a5BE299AF6e7Bf904984C2;
     // Third WETH 4626 curator: Gauntlet WETH Morpho (fungible with Galaxy/Euler in
     // the ETH-venue set — counted/withdrawn/health-checked identically). Depositors
     // elect it via VENUE_GAUNTLET.
-    address constant GAUNTLET_VAULT = 0x43fCd85E8D9D003D515f886891B7C742AC9f92da;
 
     // v3 router) is read from Aux's immutable constants at deploy (single source
     // of truth), so it can never drift from what the offramp uses.
@@ -299,7 +294,6 @@ contract Deploy is Script {
             morphoUsdcVault: morphoUsdcVault, morphoUsdtVault: morphoUsdtVault,
             morphoUsdsVault: morphoUsdsVault, sdai: address(SDAI), susde: address(SUSDE),
             aaveSpoke: aaveSpoke, aaveHub: aaveHub,
-            galaxyVault: GALAXY_VAULT, eulerVault: EULER_VAULT, gauntletVault: GAUNTLET_VAULT,
             nfpm: NFPM,
             stables: STABLECOINS, vaults: VAULTS,
             hopOperator: operatorHop,

@@ -1082,10 +1082,7 @@ library BasketLib {
     ///         delegatecalled library can't read Aux's immutables, so the
     ///         wrapper passes them in.
     struct VaultHealthCfg {
-        address galaxyVault;
-        address ethVenue;   // holder of the Galaxy/Euler/Gauntlet/AAVE WETH position (post-carve)
-        address eulerVault; // second WETH 4626 curator (0 if unwired)
-        address gauntletVault; // third WETH 4626 curator (0 if unwired)
+        address ethVenue;   // holder of the AAVE WETH position (post-carve)
     }
 
     /// @notice Per-VENUE health state. BINARY (blocked) + the evac clock —
@@ -1126,20 +1123,13 @@ library BasketLib {
         // The Galaxy WETH position is custodied on EthVenue (the venue carve), so
         // its illiquidity is read from THERE; all other (stable) vaults are held
         // by Aux (== address(this)) and read directly.
-        uint reported; uint liquid;
-        bool isEthVenue = vault == cfg.galaxyVault
-            || (cfg.eulerVault != address(0) && vault == cfg.eulerVault)
-            || (cfg.gauntletVault != address(0) && vault == cfg.gauntletVault);
-        if (isEthVenue) {
-            (reported, liquid) = IEthVenue(cfg.ethVenue).venuePosition(vault);
-        } else {
-            reported = IERC4626(vault).convertToAssets(IERC4626(vault).balanceOf(address(this)));
-            // Same ONE definition (see the haircut above). This is the PERMISSIONLESS poke: a
-            // Morpho-V2 stable vault reads 0 liquid on the raw max-view, so `liqBps` was 0 and ANY
-            // caller could block-then-evacuate a perfectly healthy vault holding real TVL. The ETH
-            // branch above already routes through the fixed `venuePosition`; this else-branch did not.
-            liquid = VaultLib._withdrawableOf(vault, address(this));
-        }
+        // Every vault reaching here is a basket STABLE vault held by Aux (== address(this)).
+        // The ETH branch is gone with the WETH-4626 curators (deleted 2026-08-14).
+        uint reported = IERC4626(vault).convertToAssets(IERC4626(vault).balanceOf(address(this)));
+        // ONE `withdrawable` definition (see the haircut above). This is the PERMISSIONLESS poke: a
+        // Morpho-V2 stable vault reads 0 liquid on the raw max-view, so `liqBps` was 0 and ANY caller
+        // could block-then-evacuate a perfectly healthy vault holding real TVL.
+        uint liquid = VaultLib._withdrawableOf(vault, address(this));
         if (reported == 0) return;                       // empty position → no-op
         uint liqBps = FullMath.mulDiv(liquid, 10000, reported);
         if (liqBps >= LIQ_TOL_BPS) {

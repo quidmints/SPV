@@ -78,9 +78,6 @@ contract Deploy is Script {
     address constant stabilityPool    = 0x5721cbbd64fc7Ae3Ef44A0A3F9a790A9264Cf9BF;
     address constant aaveSpoke = 0x94e7A5dCbE816e498b89aB752661904E2F56c485;
     address constant aaveHub   = 0xCca852Bc40e560adC3b1Cc58CA5b55638ce826c9;
-    address constant GALAXY_VAULT = 0x1878805799273d10aE96a58201A6f5254CF9824F;
-    address constant EULER_VAULT  = 0xD8b27CF359b7D15710a5BE299AF6e7Bf904984C2;
-    address constant GAUNTLET_VAULT = 0x43fCd85E8D9D003D515f886891B7C742AC9f92da;
 
     function run() external {
         uint pk = vm.envUint("PRIVATE_KEY");
@@ -109,7 +106,6 @@ contract Deploy is Script {
             morphoUsdcVault: morphoUsdcVault, morphoUsdtVault: morphoUsdtVault,
             morphoUsdsVault: morphoUsdsVault, sdai: SDAI, susde: SUSDE,
             aaveSpoke: aaveSpoke, aaveHub: aaveHub,
-            galaxyVault: GALAXY_VAULT, eulerVault: EULER_VAULT, gauntletVault: GAUNTLET_VAULT,
             nfpm: address(0),
             stables: stables, vaults: vaults,
             hopOperator: hop,
