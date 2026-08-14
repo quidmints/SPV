@@ -131,32 +131,30 @@ T5 is struck: hardening a gate that should not exist is motion, not progress.
 ⚠️ **Note what is NOT on this list: anything an attestation gate would have stopped.** That is
 the whole argument.
 
-## T5 ⛔ STRUCK — do not harden the attestation registry; it should not gate anything
+## T5 ✅ GONE — the attestation registry is DELETED, not merely unwired
 
-**Was:** *enclave image rotation has no TTL and no timelock*. Both are true of
-`AttestedHopRegistry`, and I implemented them (attestation expiry + a notice period on
-whitelisting, revocation deliberately instant) before the owner's direction above made clear the
-work was misdirected — **reverted unlanded.**
+**Was:** *enclave image rotation has no TTL and no timelock*. Both were true of
+`AttestedHopRegistry`, and I implemented them before the owner's direction made the work
+misdirected. **The contract and its test file are now deleted outright (2026-08-14).**
 
-⚠️ **Two things worth keeping from the attempt, because they were nearly shipped as settled:**
-(a) I wrote that the grant-delayed / revoke-instant asymmetry was *"the whole point"* and that a
-symmetric timelock *"would be a bug"*. **That was an overclaim.** Instant revocation is a global,
-no-notice halt: it disables every hop money path **and `emitDeadManExit`**, so the heartbeat stops
-refreshing exits and every LP is pushed onto its LAST-EMITTED exit at a possibly-stale checkpoint.
-One Safe transaction could wind the protocol down and impose a haircut. (b) That is the same
-single-point-of-revocation shape as T3 — and it is an argument for having no such gate at all,
-not for tuning it.
+⇒ **There is no attestation gate anywhere in this protocol.** §E185 removed every call site;
+this removes the thing they called. Nothing referenced it but comments, and those are corrected.
 
-▶️ **The registry is now referenced by NO code** — §E185 deleted every call site, leaving only
-comments (since corrected). Deleting the contract + its tests is the consistent next step; it is
-left as a decision only because deleting a whole contract deserves an explicit yes.
+🔑 **WHY, in the owner's terms:** *"there should be no attestation gates of any kind anywhere
+because it's something a compromised enclave/daemon could replace with malicious code. there
+should be no malicious code attacks possible."* An attestation gate asserts an address runs
+approved CODE — only as strong as whoever controls the whitelist, and worthless against every
+attack in §M1, each of which is available to a hop running perfectly attested code.
 
-`AttestedHopRegistry.governance` (a Safe) can attest and revoke image measurements. There is
-**no attestation expiry** (so a lapsed attestation still permits, rather than failing closed)
-and **no rotation timelock** (so new code can act before LPs could exit). §E166 items 9/10,
-§E111. ⚠️ §E185 unwired the registry from `BTCChannels`, which removed a **no-op**; it did
-not answer the image-authorisation question, and the contract + tests remain for when this
-is built.
+⚠️ **TWO THINGS THE DELETION DOES NOT DO, said plainly:** it does not remove the enclave from
+the deployment (seeds are still sealed, `MigrationAuth` still governs export — that is T10), and
+it does not by itself make any path trustless. **The invariant is §M1's — no path may depend on
+the hop being honest — and it is met by proof, custody and pre-signed escapes, never by a gate.**
+
+⚠️ **Kept from the reverted TTL/timelock attempt, because it was nearly shipped as settled:** the
+grant-delayed / revoke-instant asymmetry is NOT free. Instant revocation is a global, no-notice
+halt that also disables `emitDeadManExit`. That was an argument for having no such gate — which
+is now the state.
 
 ## T6 🟡 BY DESIGN — pin-once deployer powers
 

@@ -416,10 +416,6 @@ contract Vault is Ownable, ReentrancyGuard {
         return _withdrawETH(address(WETH), amount, to);
     }
 
-    /// @notice WETH supply. Only the WETH branch lives here; body in VaultLib.supplyETH.
-    function _supplyETH(address token, uint amount) internal returns (uint deposited) {
-        return VaultLib.supplyETH(_ethCfg(), token, amount);
-    }
 
     /// @notice WETH withdraw — the ladder in VaultLib.withdrawETH (delegatecall; see its docblock).
     ///         The rungs for the removed WETH venues stay so any residual position is still pullable.
