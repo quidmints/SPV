@@ -24,20 +24,14 @@ import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 import {SafeCallback} from "v4-periphery/src/base/SafeCallback.sol";
-// §rule-2: Interfaces.sol is the canonical declaration site. `IBTCChannels` and `IBtcVault` were
-// declared HERE as well, byte-identically — so a signature change had to be made twice and a missed
-// one still compiled. `IBtcVault` is gone outright: its `repack` was dead AND drifted (4 returns
-// against an implementation returning 5), and its one live member `setBTCChannels` is called on
-// `ethVenue` — the very address every `IEthVenue` call targets — so it belongs on that interface.
 import {IAaveV4Spoke, IAaveV4Hub, ICollection, IEthVenue, IBandManager, IBTCChannels} from "./imports/Interfaces.sol";
 
 
 /// AAVE-v4 GHO spoke. Aux self-supplies via the self-allow trampoline.
 
-/// EthVenue — the ETH yield-venue custody (Galaxy/AAVE/ether.fi WETH), carved
-/// out of Aux. Aux keeps thin forwarders (vogueETH/arbETH) for callers that
-/// must not change target (BasketLib IAux read, Core), drives the Galaxy
-/// vault-health drain (state stays Aux-owned).
+/// EthVenue — the ETH yield-venue custody (AAVE-v4 WETH + ether.fi weETH). Aux keeps thin
+/// forwarders (vogueETH) for callers that must not change target (BasketLib IAux read, Core),
+/// and owns the vault-health state for the basket's stable 4626s.
 
 // Deploy-finalize helpers (see Aux.finalize; linkage asserts live in BasketLib.assertFullyWired).
 
@@ -806,7 +800,6 @@ contract Aux is // Auxiliary
     // ─── ETH yield venue (Galaxy/AAVE/ether.fi) — REGROUPED into EthVenue ────
     // The WETH-side custody (Galaxy 4626 shares, AAVE WETH, weETH) + its ops
     // (supplyETH/withdrawETH, supplyEtherFi/supplyAaveEth, offrampEtherFi,
-    // _sourceWethFromEtherfi, supplyEtherFiToRover, setRover, vogueOp, vogueETH,
     // aaveEthBalance, arbETH) now live on EthVenue. Aux keeps a pinned handle +
     // thin forwarders only where callers must not change target.
 
@@ -1266,7 +1259,6 @@ contract Aux is // Auxiliary
         IBandManager(ethVenue).setBTCChannels(b);
     }
 
-    // Rover (protocol-owned weETH/WETH LP) wiring + setRover/supplyEtherFiToRover
     // moved to EthVenue (the ETH-venue custody home).
 
     // creditSwapIn / creditSwapOut (BTC swap-IN/OUT settle) REGROUPED into

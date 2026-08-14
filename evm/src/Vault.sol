@@ -36,8 +36,8 @@ import {ILevEquityBtc} from "./imports/Interfaces.sol";
 //  `V4` and Core is `CORE` (the slot EthVenue already carried). Both
 //  init paths are preserved: the EthVenue constructor pins the ETH-venue
 //  immutables + approvals; `setup(quid)` does BtcVault's post-CORE-init
-//  poolStats read + BTC tick seed. Owner is NOT renounced (kept for the
-//  one-shot setRover, per EthVenue's design — BtcVault's renounce dropped).
+//  poolStats read + BTC tick seed. Ownership is renounced at deploy, once both
+//  lev-manager slots are pinned — they are the only owner-gated functions here.
 //
 //  GATES stay SPLIT, byte-for-byte with the originals — no widening:
 //    • onlyUs    = {Vogue(V4), AUX, this}      → arbETH (ETH side)
@@ -59,9 +59,6 @@ import {ILevEquityBtc} from "./imports/Interfaces.sol";
 /// yield); value weETH in ETH via getEETHByWeETH. ⚠️ THERE IS NO DETERMINISTIC EXIT: the instant-redeem
 /// (0.3%) this line used to name was removed 2026-08-05/06 (zero measured capacity). The exit is the
 /// two-rung offramp ladder — v3 pool sale, else a multi-day wait NFT (`VaultLib.offrampBody`).
-// Protocol-owned weETH/WETH v3 LP (Rover): deposit funds it (mints the position,
-// weETH leg via the adapter), take pulls WETH back for the offramp (fee captured
-// on our own position). See docs/ETHERFI.md.
 
 /// Aux read surface the Vault needs: WBTC handle (for the shared arbBody
 /// signature) and the Galaxy block flag (vault-health state stays Aux-owned).
@@ -268,8 +265,6 @@ contract Vault is Ownable, ReentrancyGuard {
             } catch {}
         }
 
-        // WETH-4626 curator venues (Galaxy/Euler/Gauntlet) deleted 2026-08-14: their VENUE_* selectors
-        // were already gone, so no deposit could reach them. Permit2 went with Euler, its only user.
 
         // ether.fi venue — immutable wiring. Cache weETH + the v3 pool fees from
         // the fixed mainnet contracts and set the standing approvals once.
@@ -283,7 +278,6 @@ contract Vault is Ownable, ReentrancyGuard {
     /// @notice BTC-side init (formerly BtcVault.setup): pin QUID, read the BTC
     ///         pool slot0 (needs CORE.setup done) and seed the BTC ticks. AUX/
     ///         CORE are constructor-set immutables, so only QUID is taken here.
-    ///         Owner is intentionally NOT renounced (setRover needs it).
     function setup(address _quid) external {
         if (msg.sender != owner()) revert Unauthorized();   // was front-runnable
         if (address(QUID) != address(0)) revert AlreadyInitialized();
@@ -360,8 +354,8 @@ contract Vault is Ownable, ReentrancyGuard {
     }
 
     /// @notice Current ETH-equivalent backing on the ETH side — AGGREGATE across
-    ///         the depositor-chosen venues: Galaxy + Euler (Morpho-style WETH
-    ///         4626s) + ether.fi weETH valued in ETH + AAVE-v4 WETH + idle + Rover.
+    ///         the depositor-chosen venues: ether.fi weETH valued in ETH + AAVE-v4
+    ///         WETH + idle.
     ///         Body in VaultLib.vogueETH (delegatecall; see its docblock).
     function vogueETH() public view returns (uint) {
         return VaultLib.vogueETH(_ethCfg());
@@ -390,9 +384,9 @@ contract Vault is Ownable, ReentrancyGuard {
     ///         already writes Galaxy down to maxWithdraw WHEN BLOCKED, but values it
     ///         at convertToAssets when UNBLOCKED — so a frozen-but-unflagged Galaxy
     ///         would let the redemption ETH leg over-burn QU!D for ETH it can't
-    ///         source. This caps the Galaxy term at maxWithdraw ALWAYS, so the ETH
-    ///         leg DEFERS the undeliverable slice (the ETH analog of _illiquidLoss).
-    ///         weETH/AAVE/idle/Rover legs stay — their freeze is a narrower residual.
+    ///         source. The weETH/AAVE/idle legs are capped at what is actually
+    ///         withdrawable, so the ETH leg DEFERS the undeliverable slice (the ETH
+    ///         analog of _illiquidLoss).
     ///         Body in VaultLib.deliverableETH (delegatecall; see its docblock).
     function deliverableETH() external view returns (uint total) {
         return VaultLib.deliverableETH(_ethCfg());

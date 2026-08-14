@@ -540,7 +540,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         //     vault has maxWithdraw=0 at the fork block, which would block every LP
         //     withdraw + the redemption ETH-fallback), and it deploys NO Rover /
         //     SPVGateway / BTCChannels here — individual tests stand up their own
-        //     doubles (setRover / setBTCChannels are pin-once). Basket's ctor now
+        //     doubles (setBTCChannels is pin-once). Basket's ctor now
         //     REQUIRES the Safe's ANGEL approval to Aux (DeployLib commits it mid-
         //     deploy), so setUp first hands the deployer (this) the real F8N ANGEL
         //     NFT — identical to production, where the Safe owns it. ───
@@ -1417,7 +1417,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
 
         // User01 picks ether.fi per-deposit (venue rides the call). ether.fi is VENUE_ROVER (4) — it is
         // never a distinct "ether.fi" code; the base deploy has Rover off (address(0)), so venue 4 hits
-        // VogueLib._supplyEtherFi's direct-weETH FALLBACK (supplyEtherFiToRover returns 0). Same slice.
+        // VogueLib._supplyEtherFi's direct-weETH path. Same slice.
         uint vEthBefore = ETH.vogueETH();
         vm.prank(User01); V4.deposit{value: 10 ether}(0, User01);
 

@@ -7,13 +7,7 @@ import {IBasketTurn} from "./Interfaces.sol";   // §rule-2: Interfaces.sol is t
                                                      // (BasketLib only RE-imports it, so importing from there does not resolve)
 // §A.52: the canonical Core view (was a file-local variant).
 import {ICore} from "./Interfaces.sol";
-// `ILevManagerDeliver` and `ILevEthDeliver` were declared here AND in Interfaces.sol, byte-identically
-// (verified by diff before removal). One declaration each now; the ETH/BTC signature asymmetry they
-// encode is REAL and documented at the canonical site.
 import {ILevManagerDeliver, ILevEthDeliver} from "./Interfaces.sol";
-// `IBtcChan2` used to be declared below — a byte-identical second copy of `IBTCChannels` under the
-// numeric-suffix spelling of the very `IFoo_` pattern rule 2 bans. Interfaces.sol already documented
-// this as absorbed; the declaration had in fact survived. Now it really is gone.
 import {IBTCChannels} from "./Interfaces.sol";
 import {IEthVenue, IBandManager} from "./Interfaces.sol";
 import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";

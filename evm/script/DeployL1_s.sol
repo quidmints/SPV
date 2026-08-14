@@ -527,6 +527,9 @@ contract Deploy is Script {
         address[] memory vsB = new address[](2); vsB[0] = pin; vsB[1] = wbtcV;
         bm.init(address(ETH), morpho, vsB);                // atomic pin-once: hook + Morpho flash provider + venue allowlist, FROZEN
         ETH.setLevManagerBTC(address(bm));                 // BACKING: vogueBTC counts the BTC lev book
+        // Both lev-manager slots are one-shot pins (`LevManagerPinned`) and are the Vault's ONLY
+        // owner-gated functions, so with both set the owner has nothing left to call. Renounce.
+        Ownable(address(ETH)).renounceOwnership();
 
         LEVM = lm; BTCLEVM = bm;                           // recorded into deployments/l1.json
         console.log("LevManager (ETH weETH):", address(lm));

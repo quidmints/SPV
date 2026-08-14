@@ -60,7 +60,10 @@ contract Vogue is
     //  • `ethfiBacked` was DELETED 2026-08-07: with every deposit ether.fi-sourced it recorded a
     //    constant equal to `pooled`, and the exit gate it fed is now unconditional.
 
-    // Venue codes (per-deposit; NO default sink): 0 = SPLIT (equal 5-way, below), 2 = AAVE-v4 (spoke
+    // Venue codes (per-deposit; NO default sink): 0 = SPLIT, 2 = AAVE-v4 (spoke supply/withdraw —
+    // 4626-LIKE, aToken/spoke, not a true ERC4626), 4 = ether.fi (direct weETH). A chosen venue that
+    // places 0 fails loud (`VenueUnavailable`) rather than redirecting: no venue is always-live.
+
     // supply/withdraw — 4626-LIKE, aToken/spoke, not a true ERC4626), 3 = Galaxy (its OWN Morpho WETH
     // 4626 vault), 4 = ether.fi (routed through the protocol-owned Rover weETH/WETH v3 LP; attributed to
     // the ether.fi slice, exits via the offramp ladder's Rover rung), 5 = Euler, 6 = Gauntlet.
@@ -105,7 +108,7 @@ contract Vogue is
         if (address(EV) != address(0)) revert EthVenuePinned();
         EV = IEthVenue(e);
         // Standing WETH approval so EthVenue can pull the depositor's WETH on
-        // supplyEtherFi/supplyAaveEth/vogueOp/supplyEtherFiToRover (mirrors the
+        // supplyEtherFi / supplyAaveEth / vogueOp (mirrors the
         // prior AUX approval). WETH is set in setup(), which must run first.
         WETH.approve(e, type(uint).max);
     }

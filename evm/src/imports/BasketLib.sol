@@ -1124,7 +1124,6 @@ library BasketLib {
         // its illiquidity is read from THERE; all other (stable) vaults are held
         // by Aux (== address(this)) and read directly.
         // Every vault reaching here is a basket STABLE vault held by Aux (== address(this)).
-        // The ETH branch is gone with the WETH-4626 curators (deleted 2026-08-14).
         uint reported = IERC4626(vault).convertToAssets(IERC4626(vault).balanceOf(address(this)));
         // ONE `withdrawable` definition (see the haircut above). This is the PERMISSIONLESS poke: a
         // Morpho-V2 stable vault reads 0 liquid on the raw max-view, so `liqBps` was 0 and ANY caller

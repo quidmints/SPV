@@ -33,23 +33,11 @@ import {IEthVenue} from "./Interfaces.sol";
 library VogueLib {
     uint constant WAD = 1e18;
 
-    /// A chosen venue (or a SPLIT leg) placed 0 — paused / unwired / de-allowlisted. We do NOT
-    /// silently redirect to a fallback venue: Galaxy AND Gauntlet are Morpho CURATED vaults (Aave/
-    /// Euler likewise), so NONE can be assumed always-live. Fail loud — the depositor picks a live venue.
+    /// A chosen venue placed 0 — paused / unwired / de-allowlisted. We do NOT silently redirect to a
+    /// fallback venue: no venue can be assumed always-live. Fail loud — the depositor picks a live one.
     error VenueUnavailable();
 
-    /// @dev DIRECT weETH, always. Rover is REMOVED (2026-08-05, owner decision (a)): this used to try
-    ///      `supplyEtherFiToRover` first and fall back to direct weETH only when the Rover deposit
-    ///      reverted. The fallback is now the primary and only path.
-    ///
-    ///      WHY: Rover's cost is STANDING — ~0.72%/yr of forgone lending yield on its WETH leg (it
-    ///      parks ~half the position in WETH earning nothing) plus 0.86–2.21%/yr of LVR — and it is
-    ///      paid whether or not anybody swaps. The demand it served is EPISODIC: the offramp rung it
-    ///      fed was empty in 9 of 11 sampled blocks. A standing cost against episodic demand loses by
-    ///      construction, and no parameter choice repairs a mismatch of that shape.
-    ///      Measured too: Rover's LVR is ~100% the ether.fi RATCHET DRIFT (+0.674 bps/day, monotonic)
-    ///      and ~0% volatility (`analysis/rover/decompose.py`), so it was never a risk being managed —
-    ///      it was yield being handed to arbitrageurs. Direct weETH earns the full staking rate.
+    /// @dev DIRECT weETH, always: it earns the full ether.fi staking rate.
     function _supplyEtherFi(address ev, uint amount) private returns (uint placed) {
         placed = IEthVenue(ev).supplyEtherFi(amount);
     }
