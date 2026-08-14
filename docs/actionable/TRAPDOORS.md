@@ -126,7 +126,7 @@ T5 is struck: hardening a gate that should not exist is motion, not progress.
 | 2 | **spend any LP's funding UTXO alone** | the fleet process holds BOTH halves of the 2-of-2 (§E175-b: `daemon.rs:235` passes `Some(vault)` unconditionally) | the LP holds its own half — LP-hosted vault or the app |
 | 3 | **misdirect a proven credit** — choose the payee, the token and the USD floor | T2: only *the sats exist and landed* is proven | pin what can be pinned (§T1-d: the record has room for `token`) |
 | 4 | **revoke every LP's escape in one transaction** | T3: the shared freshness UTXO is bound into every emitted exit | per-channel freshness (fee cost unmeasured) |
-| 5 | **strand LPs on a stale balance** | exits pay `checkpointOf`; a hop that stops emitting freezes that number | deepen the ladder (§E187), checkpoint on every splice |
+| 5 | **void every LP's escape by splicing** | a splice rotates the funding outpoint, so every armed rung is unbroadcastable, and NOTHING re-arms — see the reopened **T9** | make re-arming atomic with the splice |
 
 ⚠️ **Note what is NOT on this list: anything an attestation gate would have stopped.** That is
 the whole argument.
@@ -177,10 +177,29 @@ arbitrary 32-byte values are valid points, so ~half of typos land funds on a key
 else may hold. Closed by proof-of-possession, and for swap-out by **deriving** the
 destination from the registered key rather than accepting one.
 
-## T9 ✅ CLOSED — a channel could exist with no escape
+## T9 🔴 REOPENED — a SPLICE silently voids the whole exit ladder (M1#5)
 
-Arming is now a construction-time invariant (§E156/§E165): `openChannel` verifies a
-pre-signed exit ladder, so a channel cannot exist without a recovery path.
+Arming is a construction-time invariant **at open only** (§E156/§E165): `openChannel` verifies a
+pre-signed ladder, so a channel cannot be CREATED without a recovery path.
+
+🔴 **BUT A SPLICE DESTROYS IT, AND NOTHING RE-ARMS (verified 2026-08-14).** `_armDeadManExit`
+checks every rung against `channels[cid].fundingTxId` / `fundingVout` / `amountSats`; a splice
+rotates all three. Every rung armed at open therefore spends a **spent outpoint** and attests a
+stale amount — it is not merely short, it is **unbroadcastable**. And `_armLadder` has exactly one
+caller: `openChannel` (`:882`). Four entrypoints rotate the outpoint — `splice`,
+`settleSwapInSpliced`, `parkProvenSats`, `deliverSwapOutOnchain` — and **none of them re-arm.**
+
+⚠️ **THE HEARTBEAT NORMALLY HIDES THIS**, which is why it survived: `emitDeadManExit` re-arms
+against the current outpoint every tick, so an honest fleet leaves only a one-tick window. **But
+the hop chooses when to splice.** A malicious hop splices and stops emitting, and the LP has no
+escape at all — attacker-controlled, which is exactly the M1 criterion (*no path may depend on the
+hop being honest*).
+
+▶️ **THE FIX HAS T9's OWN SHAPE: make re-arming atomic with the rotation**, so a splice cannot
+leave a channel without a valid escape any more than an open can. That means a ladder argument on
+each of the four entrypoints (or inside `_applySplice`, which is where the rotation happens —
+note it has already overflowed the legacy stack once, so measure before choosing). Sized like
+M1#1: contract + Rust encoders + the daemon supplying rungs it already knows how to build.
 
 ## T10 🔴 OPEN — `MigrationAuth`: a 2-of-3 Safe can export the enclave seed
 
