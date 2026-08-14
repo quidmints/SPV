@@ -247,12 +247,6 @@ library SwapLib {
     function vogueOpBody(uint amount, uint8 op, WETH9 weth, uint vogueETHLive)
         external returns (uint sent) {
         IAux aux = IAux(address(this));
-        // op == 0: LP deposit — WETH → supplySelf.
-        if (op == 0) {
-            weth.transferFrom(msg.sender, address(this), amount);
-            aux.supplySelf(address(weth), amount);
-            return amount;
-        }
         // op == 1: take ETH, capped at the live vogueETH claim.
         if (op == 1) {
             amount = Math.min(amount, vogueETHLive);

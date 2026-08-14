@@ -393,15 +393,6 @@ contract Vault is Ownable, ReentrancyGuard {
 
     // (arbETH removed — see note above deliverableETH.)
 
-    // ─── Self-gated supply/withdraw trampolines ──────────────────────────────
-    /// @notice Self-gated wrappers for the WETH supply/withdraw branches.
-    ///         DELEGATECALL'd library functions (vogueOpBody / arbBody) reach
-    ///         back here via IAux(address(this)).X(...) — msg.sender ==
-    ///         address(this) so the gate passes.
-    function supplySelf(address token, uint amount) external returns (uint deposited) {
-        if (msg.sender != address(this)) revert NotSelf();
-        return _supplyETH(token, amount);
-    }
 
     function withdrawSelf(address token, uint amount, address to) external returns (uint sent) {
         if (msg.sender != address(this)) revert NotSelf();
