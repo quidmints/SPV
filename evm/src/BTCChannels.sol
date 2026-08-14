@@ -1953,6 +1953,19 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         ch.amountSats  = p.amountSats;
         _useOutpoint(newTxId, newVout); // rotated funding UTXO claimed once
         totalSatsLocked -= shrinkSats;
+        // (§T1-f-general) RECONCILE THE POOL LEDGER — this path writes `ch.amountSats` DIRECTLY
+        // and never routes through `_shrinkSplice`, so without this a delivery shrinks a channel
+        // while `poolOwnedSats` keeps claiming the old figure, and the close-side clamp then
+        // truncates it in silence. Found by diffing every writer of `amountSats` against every
+        // site that maintains the ledger; the lists differed by exactly this one.
+        //
+        // ⚠️ READS `ch.amountSats`, NOT `p.amountSats`, AND THE DIFFERENCE IS NOT COSMETIC: the
+        // comment below records that the calldata params are DEAD from here so the settlement
+        // tail keeps a clean legacy stack (via_ir is off). Re-referencing `p` here extends its
+        // live range across that call — a first attempt did exactly that and four close/retire
+        // tests reverted. `ch.amountSats` was assigned `p.amountSats` three lines up, so it is
+        // the same number with none of the cost.
+        if (poolOwnedSats[channelId] > ch.amountSats) poolOwnedSats[channelId] = ch.amountSats;
         // Settle in a fresh frame: the calldata params (p / rawSpliceTx / proof)
         // — ⚠️ this used to list `lpAuth`, which is NOT a parameter of this function (E148).
         // are dead from here, so the settlement tail gets a clean legacy stack (no via_ir).
