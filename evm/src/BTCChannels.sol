@@ -509,6 +509,20 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // Retire the LP's BTC pool position + close-time reconcile: pays USD-leg
         // fees + the deferred swap-out principal (funded − final) as QUID. The
         // LP's remaining BTC is recovered by the close tx itself, off this path.
+        // (§T1-f-general) The LP is entitled to the channel MINUS the pool's inventory in it.
+        // `Math.min` on the ledger keeps this safe if a shrink ever removed pool sats without
+        // decrementing it — a decrement path is still owed, and an underflow here would brick
+        // every close on the channel.
+        uint booked = poolOwnedSats[channelId];
+        uint pool = booked > totalSats ? totalSats : booked;
+        uint lpEntitled = totalSats - pool;
+        if (lpPayoutSats > lpEntitled) {
+            // The BTC has already moved — this cannot claw it back. It makes the divergence
+            // VISIBLE, which is the whole point: `unregisterBtcLp` clamps in silence.
+            emit PoolSatsLeftWithLp(channelId, ch.lpEth, lpPayoutSats - lpEntitled);
+            lpPayoutSats = lpEntitled;
+        }
+        delete poolOwnedSats[channelId];
         btcVault.unregisterBtcLp(ch.lpEth, lpPayoutSats);
     }
 
@@ -1039,12 +1053,32 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // A SHRINK proves nothing entered custody — it took sats OUT. Only a grow can fund a
         // swap-in, and `grewBy` is 0 on a shrink, so this refuses rather than crediting zero.
         if (grewBy == 0) revert NotAGrow();
+        poolOwnedSats[channelId] += grewBy;    // the POOL bought these sats (§T1-f-general)
         consumed = btcVault.creditSwapIn(seller, grewBy, token, minDeliveredUsd);
         emit SwapInSettled(seller, spliceTxId, grewBy, consumed, token);
     }
 
     error NotAGrow();   // a shrink-splice cannot fund a swap-in: no sats entered custody
     error InsufficientProvenSats();  // a credit would exceed what this hop has proven into custody
+
+    /// (§T1-f-general) Sats sitting in a channel that the LP has NO claim to — inventory the
+    /// POOL owns, parked or bought there.
+    ///
+    /// 🔴 **THIS EXISTS BECAUSE THE CONDITION IT MEASURES IS OTHERWISE INVISIBLE.** §T1-f stopped
+    /// a swap-in grow from minting the LP shares (right: the pool bought those sats) and M1#1's
+    /// park does the same — so a channel's `amountSats` can exceed its LP's registered position.
+    /// A close then pays the LP the WHOLE channel, and `unregisterBtcLp` **clamps** the oversized
+    /// settle rather than reverting, so the pool absorbs the difference in silence: no revert, no
+    /// unusual event, nothing to notice. A leak, not a brick.
+    ///
+    /// ⚠️ Not a full fix on its own — the Bitcoin payout has already happened by the time a close
+    /// is recorded, so this cannot claw anything back. What it does is make the divergence
+    /// COMPUTABLE and EMITTED, which is the precondition for both the off-chain refusal that
+    /// prevents it and the §INVARIANTS.md §1 conservation check that would catch it.
+    mapping(bytes32 => uint) public poolOwnedSats;
+
+    /// A close paid the LP more than its entitlement — `over` sats of pool inventory left with it.
+    event PoolSatsLeftWithLp(bytes32 indexed channelId, address indexed lpEth, uint over);
 
     /// (M1#1) Sats this hop has SPV-proven into custody and not yet credited against.
     ///
@@ -1080,6 +1114,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         if (p.amountSats == channels[channelId].amountSats) revert SpliceUnchanged();
         uint grewBy = _applySplice(channelId, p, rawSpliceTx, spliceMerkleProof);
         if (grewBy == 0) revert NotAGrow();   // a shrink proves sats LEFT, not arrived
+        poolOwnedSats[channelId] += grewBy;    // parked inventory: no LP claim (§T1-f-general)
         uint bal = provenSatsAvailable[msg.sender] + grewBy;
         provenSatsAvailable[msg.sender] = bal;
         emit ProvenSatsParked(msg.sender, spliceTxId, grewBy, bal);
