@@ -1184,6 +1184,27 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         uint shrinkSats = old - p.amountSats;
         totalSatsLocked -= shrinkSats;
         uint lpPayoutSats = _withdrawalPayout(lpEth, rawSpliceTx, newVout);
+        // (§T1-f-general) THE SAME BOUND AS `_finalizeClose`, ON THE PATH AN LP WOULD REACH FIRST.
+        // A withdrawal shrink pays whatever the splice tx sent to `btcRecipientOf`, so without
+        // this an LP withdraws the POOL's inventory and never touches the close-time guard — the
+        // cheaper, quieter route (the channel stays open, nothing retires).
+        //
+        // ⚠️ CLAMP, NOT REVERT, AND THE REASON IS NOT SQUEAMISHNESS: the splice is already
+        // broadcast and SPV-proven by the time this runs, so reverting cannot recall the sats —
+        // it would only leave the EVM believing the channel is bigger than it is, which is the
+        // "unretirable forever" hazard §E162 exists to prevent. Recording the truth beats
+        // refusing to record it.
+        {
+            uint pool = poolOwnedSats[channelId];
+            uint lpEntitled = old > pool ? old - pool : 0;
+            if (lpPayoutSats > lpEntitled) {
+                emit PoolSatsLeftWithLp(channelId, lpEth, lpPayoutSats - lpEntitled);
+                lpPayoutSats = lpEntitled;
+            }
+            // Pool inventory cannot exceed what is left in the channel. This IS the decrement the
+            // close-side clamp was standing in for.
+            if (pool > p.amountSats) poolOwnedSats[channelId] = p.amountSats;
+        }
         paidOutSinceCheckpoint[channelId] += lpPayoutSats;   // legitimate balance fall
         btcVault.resizeBtcLp(lpEth, shrinkSats, lpPayoutSats, 0);
         emit ChannelSpliced(channelId, lpEth, false, shrinkSats, p.amountSats, newTxId, newVout);
