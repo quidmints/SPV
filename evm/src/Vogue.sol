@@ -1269,10 +1269,6 @@ contract Vogue is
         return autoManaged[user].pooled;
     }
 
-    /// @notice ERC-20 supply = sum of all LPs' pooled.
-    function totalSupply() public view returns (uint) {
-        return lpShares;
-    }
 
     // §J.2c: `approve` / `transfer` / `transferFrom` MOVED TO `VEth`, together with the
     // `allowance` storage and the `Approval`/`Transfer` events. Vogue keeps the STATE and stays
