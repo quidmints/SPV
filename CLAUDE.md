@@ -77,6 +77,23 @@ environment actually is*. Every line below was verified in-repo, not recalled.
     from the project's attention while the work is still undone, and the loss is silent — the exact
     failure mode rules 12 and 13 exist to prevent, arriving through the status column instead of prose.
 
+17. **A ROOT FIX MAKES THE PREVIOUS FIX DELETABLE; A CLAMP ADDS ANOTHER BOUND** (owner,
+    2026-08-14, promoted to a standing rule). This is the operational test for standing rule 3 —
+    apply it to your own landed work, not only to proposals. *Worked example (§T1-f-root):* pool
+    inventory and LP sats shared one funding UTXO, so **every** payout path had to subtract to
+    work out who owned what — close, shrink, and the exit rung each needed their own bound, and
+    each was a place to get it wrong. I landed `poolOwnedSats` to make the divergence observable,
+    which was a good instrument for a condition that **should not be reachable at all**. The root
+    fix — pool sats may only enter where no LP can claim them — makes that ledger and both bounds
+    **delete themselves**.
+    ⇒ **When you find yourself adding a second guard for the same class of thing, stop and ask
+    what state makes both necessary.** If the answer is "the state is wrong", fix the state:
+    prefer making the bad state UNCONSTRUCTIBLE over making it DETECTABLE. A clamp that survives
+    a root fix was never the fix.
+    ⚠️ The inverse still holds (rule 3): an instrument that makes a *silent* failure observable
+    earns its place **while the root is still reachable** — `poolOwnedSats` was correct to land
+    and is correct to remove, in that order.
+
 ## Verification discipline
 
 - **An empty grep proves nothing.** Never assert absence from a search. **Run the CONTROL before
