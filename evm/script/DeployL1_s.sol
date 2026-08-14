@@ -590,24 +590,25 @@ contract Deploy is Script {
         }), lm);
         // MORPHO ONLY (owner, 2026-08-13). Euler v2 and Aave v4 BORROWING are removed: every remaining
         // ETH lev venue is a Morpho market. The BTC side keeps Aave V3 for WBTC.
-        vs = new address[](3);
+        vs = new address[](2);
         // LONG Morpho venue {collateral: weETH, debt: WETH} -- the ETH-DENOMINATED-DEBT leg. Every other venue
         // above borrows USDC, which is what makes an ETH IL-protect borrow pay a stable->WETH SOR round trip;
-        // this one borrows the asset the position is already denominated in, so that leg disappears. The
-        // plumbing was landed inert ahead of it: `LevMath._stableToWethSor`/`_wethToStableDex` return early
-        // when `stable == c.weth`, and `_fromUsd`/`_toUsd18` take a price, so a WETH loan token sizes off the
-        // ETH price instead of silently assuming $1 (a ~4,000x error before that gate opened).
-        // ⚠️ This venue is allowlisted through `vetVenue`'s `stable()==base` EARLY RETURN, so its collateral is
-        // NEVER checked (see the 🔴 note on this function). It is weETH and therefore valuable by `_collToEth`,
-        // but that is true by CONSTRUCTION here, not because anything verified it.
-        // Constructed INLINE rather than into a local: this frame is stack-tight and via_ir is off by choice.
-        address mvWeth = _mkMorphoVenue(morpho, MarketParams({
-            loanToken: address(WETH), collateralToken: weeth,
-            oracle: vm.envOr("MORPHO_WEETH_WETH_ORACLE", WEETH_WETH_ORACLE),
-            irm: vm.envOr("MORPHO_WEETH_WETH_IRM", ADAPTIVE_IRM),
-            lltv: vm.envOr("MORPHO_WEETH_WETH_LLTV", MORPHO_LLTV_945)
-        }), lm);
-        vs[0] = mv; vs[1] = mvW; vs[2] = mvWeth;
+        // 🔴 THE WETH-DEBT VENUE {loanToken: WETH, collateralToken: weETH} WAS DELETED HERE. It could not
+        // hedge, and was added on the belief that it could. THE ALGEBRA: the band sold `soldFrac·E0` of ETH,
+        // so it holds `E0(1−soldFrac)` ETH plus the USD proceeds; delta-1 requires netting `E0`.
+        //   • Borrow WETH `soldFrac·E0` ⇒ hold `E0` but OWE `soldFrac·E0` ETH ⇒ net `E0(1−soldFrac)`.
+        //     UNCHANGED — the debt cancels exactly what the borrow bought.
+        //   • Borrow USD and buy ETH ⇒ hold `E0`, owe DOLLARS ⇒ net `E0`. RESTORED.
+        // ⇒ THE LIABILITY MUST BE IN THE ASSET YOU ARE NOT LONG. A weETH/WETH market is a STAKING CARRY,
+        //   not IL protect, and its depth is irrelevant — infinitely deep it would still hedge nothing.
+        //   It was added to avoid the stable→WETH hop; it avoided the hop by not hedging.
+        //   (BTC has no equivalent gap: its hedge also needs a dollar liability, which Aave V3 WBTC +
+        //   the _hop1B/_hop2B stable→WBTC paths already provide.)
+        // It was also NEVER EXERCISED — no test file imports from `script/`, so the green suite its commit
+        // cited could not distinguish working from broken — and it was the ONLY venue reaching the
+        // allowlist through `vetVenue`'s `stable() == base` early return, which skips the
+        // `coll != c0 && coll != c1 → BadCollateral` gate. Deleting it removes that hole's only user.
+        vs[0] = mv; vs[1] = mvW;
     }
 
 }
