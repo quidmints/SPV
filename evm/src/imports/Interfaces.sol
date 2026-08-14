@@ -361,7 +361,6 @@ interface IEthVenue {
     function GAUNTLET_VAULT() external view returns (address);
     function supplyFromAux(uint amount) external returns (uint);
     function withdrawForAux(uint amount, address to) external returns (uint);
-    function evacuateVenue(address vault) external;
     function venuePosition(address vault) external view returns (uint reported, uint liquid);
     function vogueOp(uint amount, uint8 op) external returns (uint);
     function supplyEtherFi(uint amount) external returns (uint);

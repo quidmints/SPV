@@ -520,7 +520,11 @@ contract Vault is Ownable, ReentrancyGuard {
         reported = IERC4626(vault).convertToAssets(IERC4626(vault).balanceOf(address(this)));
         // Shares the ONE `withdrawable` definition with the four VaultLib consumers. This read is the
         // liquidity ratio behind the PERMISSIONLESS `Aux.pokeVaultHealth`, so a wrong definition here
-        // is not a mis-report — it BLOCKS and then EVACUATES the venue. A Morpho-V2 vault runs ~0 idle
+        // is not a mis-report — it BLOCKS the venue. ⚠️ It no longer EVACUATES one: the ETH-venue arm
+        // of `BasketLib.evacuateBody` was removed 2026-08-13 ("there are no WETH-4626 curators left to
+        // evacuate. Every ETH deposit is weETH, which is not a curated vault"), and that body returns
+        // early on `tokens[vault] == 0`, which is every ETH venue. So the blast radius of a false
+        // illiquidity signal is BLOCK-ONLY here; the stable path still blocks AND evacuates. A Morpho-V2 vault runs ~0 idle
         // by policy (Galaxy: 8971 WETH held, 0 idle), so the old raw `maxWithdraw` read it as
         // permanently illiquid and any caller could have drained a healthy venue on that false signal.
         // WIRED 2026-07-26 — the paragraph above described this fix but the code below it still read a
