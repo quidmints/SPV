@@ -352,7 +352,6 @@ interface IEthVenue {
     function deliverableETH() external view returns (uint);
     function supplyFromAux(uint amount) external returns (uint);
     function withdrawForAux(uint amount, address to) external returns (uint);
-    function venuePosition(address vault) external view returns (uint reported, uint liquid);
     function vogueOp(uint amount, uint8 op) external returns (uint);
     function supplyEtherFi(uint amount) external returns (uint);
     function offrampEtherFi(uint amount, address recipient) external returns (uint);

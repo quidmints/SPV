@@ -390,28 +390,6 @@ contract Vault is Ownable, ReentrancyGuard {
     }
 
 
-    /// @notice ETH 4626 venue position read for Aux's permissionless poke
-    ///         (illiquidity check reads the holder's balance/maxWithdraw; the
-    ///         holder is the Vault). Returns (reported, liquid) in WETH terms.
-    function venuePosition(address vault) external view returns (uint reported, uint liquid) {
-        if (vault == address(0)) return (0, 0);
-        reported = IERC4626(vault).convertToAssets(IERC4626(vault).balanceOf(address(this)));
-        // Shares the ONE `withdrawable` definition with the four VaultLib consumers. This read is the
-        // liquidity ratio behind the PERMISSIONLESS `Aux.pokeVaultHealth`, so a wrong definition here
-        // is not a mis-report — it BLOCKS the venue. ⚠️ It no longer EVACUATES one: the ETH-venue arm
-        // of `BasketLib.evacuateBody` was removed 2026-08-13 ("there are no WETH-4626 curators left to
-        // evacuate. Every ETH deposit is weETH, which is not a curated vault"), and that body returns
-        // early on `tokens[vault] == 0`, which is every ETH venue. So the blast radius of a false
-        // illiquidity signal is BLOCK-ONLY here; the stable path still blocks AND evacuates. A Morpho-V2 vault runs ~0 idle
-        // by policy (measured live: 8,971 WETH held, 0 idle), so a raw `maxWithdraw` reads such a
-        // vault as permanently illiquid — it reports `maxWithdraw` AND `maxRedeem` of 0 against a
-        // fully withdrawable position. Any caller could use that false 0%-liquid signal to
-        // block-then-evacuate a healthy vault through the permissionless poke. `_withdrawableOf` returns the reported position for a Morpho-V2 impl and the honest
-        // `maxWithdraw` for everything else. It is itself GUARDED, so a venue whose view reverts
-        // (Euler's real EVault does — `EVC.getControllers` inside `maxWithdraw`) reads as 0 liquid
-        // rather than making the poke revert; 0 is the conservative side here too.
-        liquid = VaultLib._withdrawableOf(vault, address(this));
-    }
 
     // ════════════════════════════════════════════════════════════════
     //                        BTC side (was BtcVault)

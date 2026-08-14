@@ -156,19 +156,4 @@ contract EthVenue is Ownable {
         return VaultLib.withdrawETH(_ethCfg(), _etherfiCfg(), token, amount, to);
     }
 
-    /// @notice 4626 venue position read for Aux's permissionless poke. Returns (reported, liquid) in
-    ///         WETH terms; the holder whose balance is read is THIS contract.
-    /// @dev    `_withdrawableOf` is the ONE `withdrawable` definition, shared with VaultLib's consumers.
-    ///         A Morpho-V2 vault runs ~0 idle by policy (measured live: 8,971 WETH held, 0 idle), so a
-    ///         raw `maxWithdraw` reads it as permanently illiquid — it reports `maxWithdraw` AND
-    ///         `maxRedeem` of 0 against a fully withdrawable position, and any caller could use that
-    ///         false 0%-liquid signal through the permissionless poke. `_withdrawableOf` returns the
-    ///         reported position for a Morpho-V2 impl and the honest `maxWithdraw` otherwise. It is
-    ///         GUARDED, so a venue whose view reverts (Euler's EVault does — `EVC.getControllers`
-    ///         inside `maxWithdraw`) reads as 0 liquid rather than making the poke revert.
-    function venuePosition(address vault) external view returns (uint reported, uint liquid) {
-        if (vault == address(0)) return (0, 0);
-        reported = IERC4626(vault).convertToAssets(IERC4626(vault).balanceOf(address(this)));
-        liquid   = VaultLib._withdrawableOf(vault, address(this));
-    }
 }
