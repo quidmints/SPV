@@ -222,7 +222,7 @@ lev distinction, or the socialised-liquidation race in `§A.16b` reopens.
 
 | slice | what it is | members |
 |---|---|---|
-| **ETH venue custody** | 4626 venue positions | `supplyEtherFi` `supplyAaveEth` `supplyEulerEth` `offrampEtherFi` `_supplyETH` `_withdrawETH` `aaveEthBalance` `vogueETH` (`:444`) `deliverableETH` `_ethCfg` + every venue address (`AAVE_SPOKE` `GALAXY_VAULT` `EULER_VAULT` `GAUNTLET_VAULT` `ETHERFI_*` `WEETH`) |
+| **ETH venue custody** | 4626 venue positions | `supplyEtherFi` `supplyAaveEth` `supplyEulerEth` `offrampEtherFi` `_supplyETH` `_withdrawETH` `aaveEthBalance` `vogueETH` (`:444`) `deliverableETH` `_ethCfg` + every venue address (`AAVE_SPOKE` `ETHERFI_*` `WEETH`) |
 | **BTC band accounting** | the actual counterpart of `Vogue` | `registerBtcLp` `resizeBtcLp` `unregisterBtcLp` `exposeBtcToLev` `unexposeBtcFromLev` `syncLevBTC` `totalSharesBTC` `bandBtcOf` `_settleBtcLp` `settleBtcFeesOwed` `derivedThetaWadBtc` `lpSharesBTC` `autoManagedBTC` `levPooledBTC` |
 
 ⇒ **`Vogue`'s pair is the BTC-band SLICE of `Vault`, not `Vault`.** The ETH-venue slice is a THIRD
