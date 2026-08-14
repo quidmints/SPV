@@ -109,8 +109,12 @@ import {SignatureChecker} from "@openzeppelin-submodule/utils/cryptography/Signa
 ///         resizeBtcLp are gated `onlyBtcChannels` and creditSwapIn /
 ///         creditSwapOut `onlyBTCChannels` on BtcVault (msg.sender == its pinned
 ///         btcChannels), so only this contract can drive them.
-/// The Safe-governed MRENCLAVE whitelist — `isAttested(hop)` is true only for an EVM address whose SGX
-/// quote the registry's governance has verified (Automata DCAP). Gates who may become a shared-pool hop.
+/// ⛔ (M1) THE MRENCLAVE WHITELIST GATES NOTHING HERE — this doc described `isAttested(hop)` as
+/// gating "who may become a shared-pool hop", and §E185 deleted every call site. The registry is
+/// referenced by NO code in this contract. It is left described only so the next reader knows the
+/// absence is DELIBERATE: an attestation gate asserts an address runs approved CODE, which is
+/// only as strong as whoever controls the whitelist and buys nothing against the attacks that
+/// matter — every one of them is available to a hop running perfectly attested code (§M1).
 
 contract BTCChannels is Ownable, ReentrancyGuard {
     // ─── Constants ────────────────────────────────────────────────────
@@ -170,7 +174,10 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     mapping(bytes32 => bool) public fundingOutpointUsed;
 
     // MULTI-HOP: number of OPEN channels each hop currently owns (++ at open, -- at
-    // close). Gates swap-in attestation authority (`settleSwapIn`) without a per-call
+    // close). ⚠️ It used to gate "swap-in attestation authority (`settleSwapIn`)" — that
+    // entrypoint is DELETED (M1#1): a credit is now bounded by `provenSatsAvailable`, sats the
+    // hop SPV-proved into custody, so the open-channel count no longer stands in for solvency.
+    // What it still does is bind hop authority to having BTC locked, without a per-call
     // channelId — only a hop with locked BTC (an open channel) may credit the shared
     // USD pool, mirroring the trust the RETIRED single-`hopNode` model carried, now with
     // per-instance scope. (Tense matters: `:133` states there is NO single global `hopNode`
