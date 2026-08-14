@@ -105,7 +105,7 @@ contract EthVenueDeliverableProbe is Alles {
         // The three WETH-4626 curator venues were deleted 2026-08-14, so there are no per-venue legs
         // left to break down here — weETH + AAVE + idle is the whole ETH position.
 
-        emit log_named_decimal_uint("idle WETH @Vault   ", IERC20(address(WETH)).balanceOf(address(ETH)), 18);
+        emit log_named_decimal_uint("idle WETH @EthVenue", IERC20(address(WETH)).balanceOf(address(EV)), 18);
         emit log_named_decimal_uint("idle WETH @Aux     ", IERC20(address(WETH)).balanceOf(address(AUX)), 18);
 
         // The subtracted lev term (deliverableETH removes totalNetEquityEth).

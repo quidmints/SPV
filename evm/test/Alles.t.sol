@@ -1425,7 +1425,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         vm.prank(User01); V4.deposit{value: 10 ether}(0, User01);
 
         // weETH held at EthVenue + aggregated into vogueETH + attributed to the slice.
-        assertGt(IERC20(weeth).balanceOf(address(ETH)), 0, "weETH held at EthVenue");
+        assertGt(IERC20(weeth).balanceOf(address(EV)), 0, "weETH held at EthVenue");
         assertGt(EV.vogueETH(), vEthBefore, "vogueETH aggregates the weETH");
         // ethfiBacked assertion removed 2026-08-07 with the mapping: every deposit is
         // ether.fi-sourced, so the slice was a constant equal to `pooled`.
@@ -1624,14 +1624,14 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         address weeth  = EV.WEETH();
         assertTrue(weeth != address(0), "weETH wired");
 
-        uint weethBefore    = IERC20(weeth).balanceOf(address(ETH));
+        uint weethBefore    = IERC20(weeth).balanceOf(address(EV));
         uint vogueEthBefore = EV.vogueETH();
 
         vm.prank(User01); V4.deposit{value: 100 ether}(0, User01);
 
         // Measure the DESTINATION directly. `vogueETH` would rise either way, so asserting on it alone
         // cannot tell weETH from Galaxy — the same gap that let the venue bug hide.
-        assertGt(IERC20(weeth).balanceOf(address(ETH)), weethBefore, "ETH deposit did NOT land in weETH");
+        assertGt(IERC20(weeth).balanceOf(address(EV)), weethBefore, "ETH deposit did NOT land in weETH");
         assertGt(EV.vogueETH(), vogueEthBefore, "deposit grew ETH backing");
     }
 

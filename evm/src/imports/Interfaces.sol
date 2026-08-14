@@ -338,8 +338,6 @@ interface IBandManager {
     function feesPerShareBTC() external view returns (uint);
     function USD_FEES_BTC() external view returns (uint);
     function derivedThetaWadBtc() external view returns (uint);
-    function totalBufferBTC() external view returns (uint);
-    function btcChannels() external view returns (address);
     function setBTCChannels(address b) external;
 }
 

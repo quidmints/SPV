@@ -298,6 +298,40 @@ before deciding, and reconcile the two documents whichever way it goes.
 explained by this fusion, not by drift — which is exactly why every gap must be classified before
 merging.
 
+## Tooling traps — measured 2026-08-15. EVERY ONE FAILED SILENTLY (exit 0, no output, wrong result)
+
+One session lost roughly an hour to these, and **not one was the compiler reporting something true**.
+The common shape: a tool that reports success while doing nothing, or a check whose own exit code
+lies. ⇒ **VERIFY THE EFFECT WITH AN INDEPENDENT GREP, NEVER THE TOOL'S EXIT CODE.**
+
+- **USE THE `Edit` TOOL FOR EDITS, NOT `python3 - <<EOF` OR `sed`.** `Edit` does exact string
+  replacement and **ERRORS IF THE STRING IS NOT FOUND** — which is exactly the verification that
+  python `assert`s were hand-rolling and that `sed` cannot do at all. One call, no interpreter spawn,
+  no regex engine.
+- 🔴 **CATASTROPHIC REGEX BACKTRACKING LOOKS LIKE A HUNG MACHINE.** `(?:    ///[^\n]*\n|    //[^\n]*\n)*`
+  followed by `.*?\n    \}\n` under `re.S` ran for **40 MINUTES** on one file. It was blamed on
+  machine contention twice. If a python edit "hangs", it is the pattern, not the box. Line-based
+  `awk`/`Edit` does the same job instantly.
+- **BSD `sed` ON macOS IS NOT GNU `sed`, AND FAILS SILENTLY:** `\(a\|b\)` alternation needs `-E`;
+  **`\b` IS A LITERAL BACKSPACE, NOT A WORD BOUNDARY** (use `[[:<:]]`/`[[:>:]]`, or don't use sed).
+  Both reported success and changed zero lines.
+- **`grep -A5 "^Error (" file` EXITS NON-ZERO ON A CLEAN BUILD LOG** — no matches is failure to grep.
+  Twice read as "the build was killed". Check the build's OWN exit code, captured separately.
+- **`forge build 2>&1 | grep …; echo $(forge build …)` RUNS THE COMPILER TWICE.** Every "one build"
+  in that shape is two, at ~8 min each. Capture ONCE to a file, then read the file as many times as
+  needed.
+- 🔴 **DO NOT `pkill -f "forge build"` — IT ORPHANS `solc`.** Overlapping builds leave two
+  `solc-0.8.30 --standard-json` children; killing the parent forge leaves them running and the log
+  stops dead at `Compiling N files with Solc`, which reads exactly like an OOM or a crash. **Run ONE
+  build at a time and never launch a second while one is in flight.**
+- **DO NOT POLL FOR BACKGROUND COMMANDS — THE HARNESS NOTIFIES ON COMPLETION.** `until … sleep 60`
+  loops have their own timeout, so when they expire the harness backgrounds *them* too and they
+  accumulate: three such waiters were found alive after 15+ hours. Worse, `until ! pgrep -f 'forge
+  test'` **MATCHES ITSELF** (its own command line contains the pattern), so it can never exit.
+  Wait on a FILE (`until [ -s f ]`) if you must wait at all, never on process state.
+- **Build+test in ONE call** (`forge build && forge test`) rather than two turns — it removes a whole
+  turnaround per verification.
+
 ## Build environment
 
 | | |

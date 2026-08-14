@@ -1245,8 +1245,8 @@ contract Aux is // Auxiliary
     }
 
     // The BTC side rides the SAME merged Vault as the ETH side, so it reuses the
-    // `ethVenue` pin (formerly a duplicate `btcVault` slot held equal to it via a
-    // wire assertion). swapTo / _backingCore / the BTCChannels pin all read it.
+    // `ethVenue` pin — the ETH-VENUE CUSTODY contract. Distinct from Core's `btcVault` since the
+    // venue carve; anything BTC-band must go through `CORE.btcVault()`, not this.
 
     function setBTCChannels(address b) external onlyOwner {
         if (_btcChannels != address(0)) revert BtcChannelsPinned();
@@ -1256,7 +1256,9 @@ contract Aux is // Auxiliary
         // independent accounting domains (channels store sats for routing/
         // swap-out, the V4 BTC pool holds mockBTC/mockUSD_BTC for spot
         // liquidity).
-        IBandManager(ethVenue).setBTCChannels(b);
+        // ON THE BTC VAULT, not `ethVenue`: those were one address until the venue carve, and
+        // `setBTCChannels` is a BTC-BAND function. Read the vault from Core so there is no second pin.
+        IBandManager(CORE.btcVault()).setBTCChannels(b);
     }
 
     // moved to EthVenue (the ETH-venue custody home).

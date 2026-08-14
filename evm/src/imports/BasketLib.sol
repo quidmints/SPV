@@ -1036,14 +1036,19 @@ library BasketLib {
     ///         front-runner's malicious-but-non-zero pin in an ungated setter.
     function assertFullyWired(address q, address ethVenue, address btcChannels,
         address core, address v4) external view {
+        // ETH-VENUE CUSTODY AND THE BTC BAND MANAGER ARE DIFFERENT CONTRACTS since the venue carve.
+        // This assert used to take one address for both because they used to BE one address; each
+        // fact is now checked against the contract that actually holds it. `btcVault` is derived
+        // from Core rather than passed, so a caller cannot supply a mismatched pair.
+        address btcVault = ICore(core).btcVault();
         require(q != address(0),                                    "wire:quid");
-        require(ethVenue != address(0),                             "wire:vault");
-        require(IVogue(v4).EV() == ethVenue,                 "wire:vogue"); // Vogue→Vault
-        require(ICore(core).btcVault() == ethVenue,            "wire:core");  // Core→Vault
+        require(ethVenue != address(0),                             "wire:ethv");
+        require(btcVault != address(0),                              "wire:vault");
+        require(IVogue(v4).EV() == ethVenue,                        "wire:vogue"); // Vogue→EthVenue
         require(btcChannels != address(0)
-             && IWiredVault(ethVenue).btcChannels() == btcChannels, "wire:chan");  // Vault→Channels
+             && IWiredVault(btcVault).btcChannels() == btcChannels,  "wire:chan");  // Vault→Channels
         require(IWiredBasket(q).AUX() == address(this),             "wire:bAux");  // Basket→Aux
-        require(IWiredBasket(q).BTC_VAULT() == ethVenue,            "wire:bVlt");  // Basket→Vault
+        require(IWiredBasket(q).BTC_VAULT() == btcVault,            "wire:bVlt");  // Basket→Vault
     }
 
     /// @notice Body of Aux.redeemableAmount (delegatecall, address(this)==Aux).
