@@ -195,11 +195,37 @@ the hop chooses when to splice.** A malicious hop splices and stops emitting, an
 escape at all — attacker-controlled, which is exactly the M1 criterion (*no path may depend on the
 hop being honest*).
 
-▶️ **THE FIX HAS T9's OWN SHAPE: make re-arming atomic with the rotation**, so a splice cannot
-leave a channel without a valid escape any more than an open can. That means a ladder argument on
-each of the four entrypoints (or inside `_applySplice`, which is where the rotation happens —
-note it has already overflowed the legacy stack once, so measure before choosing). Sized like
-M1#1: contract + Rust encoders + the daemon supplying rungs it already knows how to build.
+▶️ **THE FIX HAS T9's OWN SHAPE: make re-arming atomic with the rotation** (owner: *"make
+re-arming atomic with the splice"*). ✅ **THE CONTRACT HALF IS WRITTEN AND MEASURED — built,
+compiled, sized, then reverted unlanded because the test surface could not be finished in the
+same pass.** Exactly what worked:
+
+- `Types.ExitArming[] calldata exits` added to **`splice`**, **`parkProvenSats`**,
+  **`settleSwapInSpliced`** and **`deliverSwapOutOnchain`**, each calling
+  `_armLadder(channelId, p, exits)` **after** `_applySplice` (which is what updates
+  `fundingTxId`/`fundingVout`/`amountSats`, so arming after is what binds the NEW state).
+- ⚠️ `deliverSwapOutOnchain` delegates to a private `_deliverSwapOut` frame, so `exits` must be
+  threaded through BOTH or the compiler reports an undeclared identifier inside the private one.
+- ⚠️ Putting the argument on `_applySplice` instead was NOT tried on purpose: that frame already
+  compiled to Stack-too-deep once when a single `bool` was added (§T1-f), and `via_ir` is off.
+- **Measured: BTCChannels 24,252 — 324 to spare.** It fits.
+- `_armLadder` requires `exits.length != 0`, so the invariant is enforced by construction.
+
+🔴 **WHAT REMAINS IS THE TEST SURFACE: 18 call sites** (BtcLpMintStress 11, VBtcLevFeeLane 5,
+Alles 1, OpenChannelE2E 1) **plus one shared re-arm helper.** Each splice now needs a
+*cryptographically valid* exit for its POST-splice state, which `ExitFixture.signedExitFull` can
+produce for arbitrary `(txid, vout, sats)` over FFI.
+
+⚠️ **THE TRAP THAT WILL COST AN HOUR IF UNKNOWN: the FFI key labels are
+`quid-fixture-{lp,hop}-{seed}-{OPENING sats}`** (see `_armFixture`). A splice changes
+`p.amountSats`, so a helper that builds the label from the *new* amount signs with the wrong keys
+and every arming fails verification. **The label takes the opening sats; the exit is signed for
+the new ones.** The rung is otherwise `armingSet`-shaped — `prevValues`/`prevScripts` are
+placeholders the contract overwrites — with `txid = sha256d(spliceTx)` and the payout script read
+from `ch.btcRecipientOf(lpEth)`.
+
+⏱️ Expect the suite to slow: one python FFI invocation per splice, and helpers like `_swapOuts`
+splice repeatedly.
 
 ## T10 🔴 OPEN — `MigrationAuth`: a 2-of-3 Safe can export the enclave seed
 
