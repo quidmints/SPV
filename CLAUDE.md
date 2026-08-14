@@ -298,6 +298,37 @@ before deciding, and reconcile the two documents whichever way it goes.
 explained by this fusion, not by drift — which is exactly why every gap must be classified before
 merging.
 
+## 🔴 SPLITTING ONE CONTRACT INTO TWO: audit ASSIGNMENTS, not call sites (measured 2026-08-15)
+
+Extracting `EthVenue` out of `Vault` planted **three** instances of one bug, all of which COMPILED
+CLEAN and reverted only at runtime, because in Solidity every contract handle is an `address` and the
+compiler cannot tell two of them apart.
+
+**THE ROOT: code that merged two identities because they SHARED AN ADDRESS.** `IBtcVault` had existed
+as a separate interface precisely to mark that ETH-venue custody and the BTC band manager are
+different things. It was deleted as "a second interface over one contract" — true while the address
+was shared, false the moment it was not. ⇒ **MERGE ON WHAT THINGS ARE, NEVER ON WHAT ADDRESS THEY
+CURRENTLY SHARE.** Same shape as `create_sweep_tx`: a marker for a gap that has not opened yet is
+indistinguishable from duplication.
+
+**THE AUDIT METHOD THAT FAILED:** I enumerated every `IBandManager(x).member` / `IEthVenue(x).member`
+call site and scored 29/29 correct — and that was TRUE. `IBandManager(c.btcVault).repack(true)` is a
+correct call site; the defect was that `c.btcVault` had been ASSIGNED the ETH-venue address upstream.
+⇒ **WHEN TWO IDENTITIES SEPARATE, GREP THE ASSIGNMENTS**: `grep -rn "btcVault:" src` and
+`grep -rn "ethVenue" src`, then classify each by what the CONSUMER does with it. The worst instance
+passed `ethVenue` into a parameter LITERALLY NAMED `btcVault` (`BasketLib.backingCoreBody`), which
+then called `repack(true)` on it.
+
+**THE THREE, and what found each:** `Aux.setBTCChannels` targeting `ethVenue` (found by TRACE);
+`btcVault: ethVenue` in the swap cfg (TRACE); `backingCoreBody(…, ethVenue)` (GREP — only after the
+second trace taught me what to grep for). Reasoning found none of them; `forge test -vvv` and one
+grep found all three. A bare `EvmError: Revert` on ~23 suites is ONE broken `setUp`, not 23 bugs —
+trace one and the rest usually collapse.
+
+**AND THE COMMENTS WERE RIGHT WHILE THE CODE WAS WRONG:** "Pin the BTCChannels address on BtcVault"
+sat directly above a call to `ethVenue`. When one address serves two roles, prose stays true and code
+silently drifts.
+
 ## Tooling traps — measured 2026-08-15. EVERY ONE FAILED SILENTLY (exit 0, no output, wrong result)
 
 One session lost roughly an hour to these, and **not one was the compiler reporting something true**.

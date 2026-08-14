@@ -214,14 +214,18 @@ contract Aux is // Auxiliary
         if (msg.sender != address(V4)
          && msg.sender != address(CORE)
          && msg.sender != address(QUID)
-         && msg.sender != ethVenue          // the merged Vault (ETH+BTC): arbBody
-                                             // delegatecalls into SwapLib with
-                                             // address(this)==Vault, so its auxSwap
-                                             // callback arrives as msg.sender==Vault.
-                                             // Without this the basket→WETH arb (and
-                                             // the Vogue/Core shortfall fills) silently
-                                             // revert→catch→0. One address (ethVenue)
-                                             // covers ETH and BTC arb.
+         && msg.sender != ethVenue          // ETH-venue custody: it delegatecalls into
+                                             // SwapLib/VaultLib with address(this)==EthVenue,
+                                             // so its auxSwap callback arrives as msg.sender
+                                             // ==EthVenue. Without this the basket→WETH arb
+                                             // and the Vogue/Core shortfall fills silently
+                                             // revert→catch→0.
+         && msg.sender != CORE.btcVault()   // BTC band manager: same delegatecall shape on the
+                                             // BTC side (BtcVaultLib/SwapLib run as the Vault).
+                                             // ⚠️ TWO ENTRIES, NOT ONE, SINCE THE VENUE CARVE —
+                                             // this used to read "one address (ethVenue) covers
+                                             // ETH and BTC arb", true only while they WERE one
+                                             // address. Read from Core so there is no second pin.
          && msg.sender != address(this))
             revert Unauthorized();
     }
@@ -667,7 +671,7 @@ contract Aux is // Auxiliary
             SwapLib.SwapReq(token, asset, forVolatile, amount, minOut, recipient, address(0), 0),
             SwapLib.SwapToCfg({
                 weth: address(WETH), wbtc: address(WBTC), quid: address(QUID),
-                core: address(CORE), v4: address(V4), btcVault: ethVenue,
+                core: address(CORE), v4: address(V4), btcVault: CORE.btcVault(),
                 btcChannels: _btcChannels
             }),
             stables
@@ -1073,7 +1077,7 @@ contract Aux is // Auxiliary
     function _backingCore()
         internal returns (uint committedSum, uint totalLiquid) {
         // Body extracted to BasketLib.backingCoreBody to free Aux bytecode.
-        return BasketLib.backingCoreBody(address(CORE), address(V4), ethVenue);
+        return BasketLib.backingCoreBody(address(CORE), address(V4), CORE.btcVault());
     }
 
     /// @notice Asset-withdraw dispatcher (mirror of _supply). WETH idle-
