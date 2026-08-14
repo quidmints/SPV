@@ -8,7 +8,6 @@ import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 import {IEtherFiLiquidityPool} from "./Interfaces.sol";   // §E57: the shared OfframpCfg shape (declared there;  still uses it)
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {SwapLib} from "./SwapLib.sol";
-import {IAaveV4Spoke} from "./Interfaces.sol";
 import {IWeETH} from "./Interfaces.sol";
 import {ICurvePool} from "./Interfaces.sol";
 import {IDepositAdapter} from "./Interfaces.sol";
@@ -21,9 +20,9 @@ import {IAux} from "./Interfaces.sol";
 /// @title  VaultLib — the ETH yield-venue custody ladder extracted from Vault
 ///         to free bytecode under the EIP-170 limit. DELEGATECALL'd by Vault:
 ///         inside each public function `address(this)` resolves to the Vault,
-///         so all token custody, balances, and the AAVE/weETH positions
+///         so all token custody, balances, and the weETH position
 ///         are the Vault's. The library holds NO storage; every immutable Vault
-///         reads (WETH/AUX/GALAXY/EULER/AAVE spoke+reserveId/WEETH/EETH/
+///         reads (WETH/AUX/WEETH/EETH/
 ///         LEV_MANAGER) is passed in via `EthCfg`. Semantics are byte-for-byte
 ///         with the former in-Vault bodies — only the home moved.
 /// Morpho-V2 MARKER (NOT MetaMorpho v1.1, which has a withdrawQueue instead). A V2 vault keeps its
@@ -52,8 +51,6 @@ library VaultLib {
         address weth;
         address aux;
         address curvePool;   // bounds what weETH is DELIVERABLE — see deliverableETH
-        address aaveSpoke;
-        uint256 wethReserveId;
         address weeth;
         address eeth;        // ETHERFI_EETH (raw eETH transiently held mid wait-NFT)
         address levManager;
@@ -66,19 +63,6 @@ library VaultLib {
     // ── Venue valuation ───────────────────────────────────────────────────
 
 
-    /// @dev WETH currently supplied to AAVE-v4 (yield-accrued). 0 if unwired.
-    ///      Gate on `aaveSpoke`, NOT on `wethReserveId`: reserve 0 is a legitimate reserve
-    ///      (mainnet WETH == asset 0 == reserve 0), so a zero-id check disables a live venue.
-    function _aaveBal(EthCfg memory c) internal view returns (uint) {
-        if (c.aaveSpoke == address(0)) return 0;
-        return IAaveV4Spoke(c.aaveSpoke).getUserSuppliedAssets(c.wethReserveId, address(this));
-    }
-
-    /// @notice Public AAVE-WETH balance read (Vault.aaveEthBalance forwards here).
-    function aaveBal(EthCfg memory c) public view returns (uint) {
-        return _aaveBal(c);
-    }
-
     /// @dev Body of Vault.vogueETH — AGGREGATE ETH-equivalent backing across the
     ///      depositor-chosen venues.
     function _vogueETH(EthCfg memory c) internal view returns (uint total) {
@@ -86,7 +70,6 @@ library VaultLib {
             uint w = IERC20(c.weeth).balanceOf(address(this));
             if (w > 0) total += IWeETH(c.weeth).getEETHByWeETH(w);
         }
-        total += _aaveBal(c);
         // Idle WETH is still ETH backing — count it at BOTH the Vault (venue
         // custody, evacuated remainders) AND Aux (transient swap/deposit legs).
         total += IERC20(c.weth).balanceOf(address(this));
@@ -118,7 +101,7 @@ library VaultLib {
     /// @dev    READ THE NAME NARROWLY (§A.5c, re-derived 2026-07-27). This is NOT a promptness
     ///         guarantee and NOT a view-twin of the withdraw ladder. It caps the three WETH-4626
     ///         venues via `_deliverableCap` and subtracts the levered net equity, but it counts the
-    ///         AAVE-v4 leg, weETH at the Vault, and raw eETH at FULL FACE — none of which is
+    ///         weETH at the venue and raw eETH at FULL FACE — neither of which is
     ///         instantly convertible (the ether.fi legs need the offramp ladder, whose rung 1 is a v3 pool
     ///         sale at up to the 0.5% slippage cap and whose rung 2 is a multi-day wait NFT — there is NO
     ///         deterministic-cost tier between them since the instant-redeem was removed 2026-08-06).
@@ -211,7 +194,7 @@ library VaultLib {
         // (Measured: that regression broke test_SETTLE_LvrResidualIsDeferralNotLeak,
         // test_RunSim_B_LiquidityRace_* and testRT_DeliveredPlusRetainedEqualsPrincipal, all of which
         // pass on stock main — a control run, not an inference.)
-        // Bound only the weETH-sourced portion: idle WETH, AAVE and eETH are already deliverable as-is.
+        // Bound only the weETH-sourced portion: idle WETH and eETH are already deliverable as-is.
         if (c.curvePool != address(0) && c.weeth != address(0)) {
             uint w = IERC20(c.weeth).balanceOf(address(this));
             if (w > 0) {
@@ -269,7 +252,7 @@ library VaultLib {
 
 
     /// @notice Body of Vault._withdrawETH — idle-then-ether.fi(opportunistic)-then
-    ///         -then-AAVE ladder. Only WETH is served.
+    ///         ladder. Only WETH is served.
     function withdrawETH(EthCfg memory c, SwapLib.OfframpCfg memory off,
         address token, uint amount, address to) public returns (uint sent) {
         if (amount == 0) return 0;
@@ -282,25 +265,13 @@ library VaultLib {
         }
         uint wethBal = IERC20(c.weth).balanceOf(address(this));
         if (wethBal < amount) {
-            // OPPORTUNISTIC, NON-BLOCKING: before AAVE, sell idle ether.fi
+            // OPPORTUNISTIC, NON-BLOCKING: sell idle ether.fi
             // weETH → WETH on the deep pool. Any failure swallowed (returns 0).
             if (SwapLib.sourceWethBody(amount - wethBal, off) > 0)
                 wethBal = IERC20(c.weth).balanceOf(address(this));
         }
         if (wethBal < amount) {
             wethBal = IERC20(c.weth).balanceOf(address(this));
-            // Still short → pull from the AAVE-v4 WETH venue (ETH venue 2).
-            if (wethBal < amount && c.aaveSpoke != address(0)) {   // reserve 0 is valid
-                uint need = amount - wethBal;
-                uint aaveBalance = IAaveV4Spoke(c.aaveSpoke)
-                    .getUserSuppliedAssets(c.wethReserveId, address(this));
-                uint apull = need > aaveBalance ? aaveBalance : need;
-                if (apull > 0) {
-                    try IAaveV4Spoke(c.aaveSpoke).withdraw(
-                        c.wethReserveId, apull, address(this)) {} catch {}
-                }
-                wethBal = IERC20(c.weth).balanceOf(address(this));
-            }
         }
         sent = wethBal >= amount ? amount : wethBal;
         if (sent > 0 && to != address(this)) {

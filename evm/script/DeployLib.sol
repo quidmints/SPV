@@ -157,9 +157,9 @@ library DeployLib {
     }
 
     /// @dev SPV gateway + BTCChannels + the Aux pin, in its own frame.
-    /// @dev `new Vault(...)` in its OWN frame (no via_ir) — the 9-arg ctor tips deployQuidStack's stack inline.
+    /// @dev `new Vault(...)` in its OWN frame (no via_ir) — it tips deployQuidStack's stack inline.
     function _newVault(StackConfig memory cfg, address v4, address core, address aux) internal returns (Vault) {
-        return new Vault(v4, core, aux, cfg.weth, cfg.aaveSpoke, cfg.aaveHub);
+        return new Vault(v4, core, aux, cfg.weth);
     }
 
     function _deployChannels(StackConfig memory cfg, address aux, address /*v4*/, address eth)

@@ -21,10 +21,8 @@ import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
-import {IAaveV4Spoke} from "./imports/Interfaces.sol";
 import {IWeETH} from "./imports/Interfaces.sol";
 import {IDepositAdapter} from "./imports/Interfaces.sol";
-import {IAaveV4Hub} from "./imports/Interfaces.sol";
 import {ILevEquity} from "./imports/Interfaces.sol";
 import {ILevEquityBtc} from "./imports/Interfaces.sol";
 
@@ -87,10 +85,6 @@ contract Vault is Ownable, ReentrancyGuard {
     WETH9     public    immutable WETH;
 
 
-    address public immutable AAVE_SPOKE;
-    /// @notice AAVE-v4 WETH reserve id (ETH venue 2). **0 IS A VALID RESERVE** (mainnet WETH is
-    ///         asset 0 → reserve 0), so this is NOT a wiring flag — test `AAVE_SPOKE != 0` instead.
-    uint256 public immutable WETH_RESERVE_ID;
 
 
 
@@ -234,36 +228,13 @@ contract Vault is Ownable, ReentrancyGuard {
     /// resolved + approved only if the spoke lists WETH; else venue 2 stays inert.
     /// ether.fi is wired from the fixed mainnet adapter + v3 pool fees, with the
     /// standing approvals set once.
-    constructor(address _vogue, address _core, address _aux,
-        address _weth, address _aaveSpoke, address _aaveHub)
+    constructor(address _vogue, address _core, address _aux, address _weth)
         Ownable(msg.sender) {
         V4 = Vogue(payable(_vogue));
         CORE = Core(_core);
         AUX = Aux(payable(_aux));
         VBTC = new VBtc(address(this), address(Aux(payable(_aux)).WBTC()));
         WETH = WETH9(payable(_weth));
-        // NB: AAVE_SPOKE is assigned INSIDE the try below, not here — it doubles as the
-        // "venue 2 is wired" flag, so it must stay 0 unless WETH actually resolved.
-
-        if (_aaveSpoke != address(0) && _aaveHub != address(0)) {
-            // AAVE-v4 WETH (ETH venue 2). Optional — unwired if WETH isn't listed.
-            //
-            // WIRING IS KEYED OFF `AAVE_SPOKE`, *NOT* off a nonzero reserve id. Reserve id 0 is a
-            // LEGITIMATE reserve: on live mainnet WETH is asset 0 → reserve 0 (chain-verified, and
-            // this was confirmed by a passing AaveV4Venue fork test, since removed with the venue).
-            // The former `WETH_RESERVE_ID != 0` test therefore read a perfectly-wired venue as
-            // "absent" and silently disabled the AAVE ETH venue.
-            //
-            // `getAssetId` REVERTS for an unlisted asset (it does NOT return 0), so the try/catch —
-            // not a zero-check — is the real listedness probe. On revert we leave AAVE_SPOKE at 0
-            // and venue 2 stays unwired, with no revert propagated to the deploy.
-            try IAaveV4Hub(_aaveHub).getAssetId(address(WETH)) returns (uint256 assetId) {
-                WETH_RESERVE_ID = IAaveV4Spoke(_aaveSpoke).getReserveId(_aaveHub, assetId);
-                AAVE_SPOKE = _aaveSpoke;
-                IERC20(address(WETH)).approve(_aaveSpoke, type(uint).max);
-            } catch {}
-        }
-
 
         // ether.fi venue — immutable wiring. Cache weETH + the v3 pool fees from
         // the fixed mainnet contracts and set the standing approvals once.
@@ -342,14 +313,8 @@ contract Vault is Ownable, ReentrancyGuard {
     function _ethCfg() internal view returns (VaultLib.EthCfg memory) {
         return VaultLib.EthCfg({
             weth: address(WETH), aux: address(AUX), curvePool: ETHERFI_CURVE_POOL,
-            aaveSpoke: AAVE_SPOKE, wethReserveId: WETH_RESERVE_ID,
             weeth: WEETH, eeth: ETHERFI_EETH, levManager: LEV_MANAGER
         });
-    }
-
-    /// @notice WETH currently supplied to AAVE-v4 (yield-accrued). 0 if unwired.
-    function aaveEthBalance() public view returns (uint) {
-        return VaultLib.aaveBal(_ethCfg());
     }
 
     /// @notice Current ETH-equivalent backing on the ETH side — AGGREGATE across

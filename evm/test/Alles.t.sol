@@ -1534,40 +1534,6 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
 
 
 
-    function testEthVenue_AaveV4_DepositAndWithdraw() public {
-        uint aaveBefore = ETH.aaveEthBalance();
-        vm.prank(User01); V4.deposit{value: 10 ether}(0, User01); // AAVE-v4
-        (uint pooled,,,) = V4.autoManaged(User01);
-        assertEq(pooled, 10 ether, "deposit credited (whichever venue served)");
-        // Two-world assertion RETIRED 2026-08-06: every deposit now lands in weETH whatever venue
-        // the depositor named, and attribution follows where the funds GO -- so there is no
-        // "no ether.fi slice" case left. Crediting only VENUE_ROVER was the bug: an LP picking
-        // AAVE held weETH with ethfiBacked == 0 and was gated out of the offramp by Vogue:626.
-        // ethfiBacked assertion removed 2026-08-07 with the mapping: every deposit is
-        // ether.fi-sourced, so the slice was a constant equal to `pooled`.
-
-        if (ETH.WETH_RESERVE_ID() != 0) {
-            // LIVE: WETH supplied to AAVE-v4, attributed to the AAVE slice.
-            assertGt(ETH.aaveEthBalance(), aaveBefore, "WETH supplied to AAVE-v4");
-            // (aaveBacked per-LP attribution dropped — AAVE is a fungible 4626 venue now; the
-            //  aaveEthBalance check above already proves the WETH was supplied to AAVE-v4.)
-        } else {
-            // FALLBACK: venue-2 unwired -> Galaxy; no AAVE attribution, not stranded.
-            // (aaveBacked dropped — the unwired-venue fallback still delivers via the pooled 4626 book)
-        }
-
-        uint balBefore = User01.balance;
-        uint wethBefore = IERC20(address(WETH)).balanceOf(User01);
-        vm.roll(block.number + 1); // JIT-lock: withdraw must be a later block than the deposit
-        vm.prank(User01); V4.withdraw(5 ether, User01, User01);
-        // MEASURE BOTH ASSETS. Every exit now routes through the ether.fi offramp, which pays WETH;
-        // it used to reach the band burn (Vogue:530, _burnInRange(..., recipient)) which pays NATIVE
-        // ETH. Watching only `.balance` reported "delivered 0" for a day while the trace showed
-        // 4.99 WETH arriving -- the guard was reading the wrong asset, not catching a real zero.
-        assertGt((User01.balance - balBefore)
-               + (IERC20(address(WETH)).balanceOf(User01) - wethBefore), 0,
-            "withdraw delivered value (native ETH or WETH)");
-    }
 
 
     /// @notice Vault health is BINARY (blocked) + evac — the graded haircut was

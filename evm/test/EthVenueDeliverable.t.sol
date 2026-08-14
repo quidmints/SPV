@@ -97,12 +97,10 @@ contract EthVenueDeliverableProbe is Alles {
 
         uint vogue = ETH.vogueETH();
         uint deliv = ETH.deliverableETH();
-        uint aave  = ETH.aaveEthBalance();
 
         emit log_named_decimal_uint("deposited          ", 10 ether, 18);
         emit log_named_decimal_uint("vogueETH           ", vogue, 18);
         emit log_named_decimal_uint("deliverableETH     ", deliv, 18);
-        emit log_named_decimal_uint("aaveEthBalance     ", aave, 18);
 
         // The three WETH-4626 curator venues were deleted 2026-08-14, so there are no per-venue legs
         // left to break down here — weETH + AAVE + idle is the whole ETH position.
