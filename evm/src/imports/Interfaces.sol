@@ -330,12 +330,30 @@ interface ICore {
 /// mis-decode at runtime in the delegatecalled library instead of failing the build.
 /// Canonical view — union of the former per-file variants (`IEthVenueV`). Two declarations
 /// described ONE contract, so a signature change had to be made twice and a missed one still compiled.
-interface IEthVenue {
+/// @notice The BAND MANAGER surface — implemented by BOTH `Vogue` (ETH) and `Vault` (BTC), which is why
+///         every dispatch site already casts both to ONE type: `IBandManager(v4).repack(false)` vs
+///         `IBandManager(btcVault).repack(true)`. Callers therefore do NOT block the one-band-manager
+///         merge; they already treat the two as a single type.
+/// @dev    Split out of `IEthVenue` (2026-08-14), which had fused these with ETH-VENUE CUSTODY under a
+///         name that asserted ETH while declaring `feesPerShareBTC`/`USD_FEES_BTC`/`derivedThetaWadBtc`.
+///         `Aux.sol` called it "the merged Vault (ETH+BTC)" in a comment. The split follows the same
+///         fault line the `Vault` contract splits on, so extracting ETH-venue custody becomes a matter
+///         of repointing `ethVenue` rather than re-typing call sites.
+interface IBandManager {
     function repack(bool isBTC) external returns (uint160, int24, int24, uint128, uint);
     function feesPerShareBTC() external view returns (uint);
     function USD_FEES_BTC() external view returns (uint);
     function derivedThetaWadBtc() external view returns (uint);
     function totalBufferBTC() external view returns (uint);
+    function btcChannels() external view returns (address);
+    function setBTCChannels(address b) external;
+}
+
+/// @notice ETH-VENUE CUSTODY ONLY — the Galaxy/AAVE/Euler/ether.fi WETH positions. Today `Vault`
+///         implements this; the slice is being extracted to its own contract, and because callers
+///         already speak this interface at an `ethVenue` pointer, that extraction repoints a pointer
+///         instead of re-typing every site.
+interface IEthVenue {
     function vogueETH() external view returns (uint);
     function deliverableETH() external view returns (uint);
     function GALAXY_VAULT() external view returns (address);
@@ -343,15 +361,11 @@ interface IEthVenue {
     function GAUNTLET_VAULT() external view returns (address);
     function supplyFromAux(uint amount) external returns (uint);
     function withdrawForAux(uint amount, address to) external returns (uint);
-    function btcChannels() external view returns (address);
     function evacuateVenue(address vault) external;
     function venuePosition(address vault) external view returns (uint reported, uint liquid);
     function vogueOp(uint amount, uint8 op) external returns (uint);
     function supplyEtherFi(uint amount) external returns (uint);
     function offrampEtherFi(uint amount, address recipient) external returns (uint);
-    /// Absorbed from `IBtcVault`, which is gone: Aux called `setBTCChannels` on `ethVenue`, the same
-    /// address it makes every call above on, so a second interface over one contract bought nothing.
-    function setBTCChannels(address b) external;
 }
 
 /// Canonical IAux — union of IAux, IAux.

@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 // §A.52: the canonical Core view (was a file-local variant).
 import {ICore} from "./Interfaces.sol";
+import {IBandManager} from "./Interfaces.sol";
 import {IBasketTurn, IWiredVault, IWiredBasket, ILevSweep, IVogue} from "./Interfaces.sol";
 import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
@@ -1025,8 +1026,8 @@ library BasketLib {
     /// @dev Route a pool repack to its owning contract: BTC → BtcVault,
     ///      ETH → Vogue. (The BTC LP side was regrouped out of Vogue.)
     function _repackPool(bool isBTC, address v4, address btcVault) private {
-        if (isBTC) IEthVenue(btcVault).repack(true);
-        else       IEthVenue(v4).repack(false);
+        if (isBTC) IBandManager(btcVault).repack(true);
+        else       IBandManager(v4).repack(false);
     }
 
     /// @notice All-or-nothing deploy-finalize linkage assert (delegatecall from

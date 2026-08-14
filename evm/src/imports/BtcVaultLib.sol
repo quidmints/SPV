@@ -5,6 +5,7 @@ import {SwapLib} from "./SwapLib.sol";
 import {Types} from "./Types.sol";
 import {LevMath} from "./LevMath.sol";
 import {ICore} from "./Interfaces.sol";
+import {IBandManager} from "./Interfaces.sol";
 import {IBasketMint} from "./Interfaces.sol";
 import {ILevEquityBtc} from "./Interfaces.sol";
 import {IEthVenue} from "./Interfaces.sol";
@@ -123,7 +124,7 @@ library BtcVaultLib {
     ///      structurally unrelated to the band's risk capital -- basing theta on it throttled the band to ~0
     ///      whenever donations were thin (the opposite of what scarcity should do).
     function _thetaClampBtc(address core, uint deltaTok, uint sats) private view returns (uint) {
-        uint thetaEff = IEthVenue(address(this)).derivedThetaWadBtc();
+        uint thetaEff = IBandManager(address(this)).derivedThetaWadBtc();
         if (thetaEff == 0) thetaEff = 1e18;
         // ONE principle (SwapLib.clampByBacking): bound by both the physical backing headroom AND theta —
         // shared verbatim with the reseat clamp (VogueLib.addLiq) and the ETH band. backing = the native
@@ -242,9 +243,9 @@ library BtcVaultLib {
                 a.shrinkSats = shrinkSats > funded ? funded : shrinkSats;
             }
         }
-        (a.sqrtP, a.tickLower, a.tickUpper,,) = IEthVenue(address(this)).repack(true);
-        a.feesPerShareBTC = IEthVenue(address(this)).feesPerShareBTC();
-        a.usdFeesBtc = IEthVenue(address(this)).USD_FEES_BTC();
+        (a.sqrtP, a.tickLower, a.tickUpper,,) = IBandManager(address(this)).repack(true);
+        a.feesPerShareBTC = IBandManager(address(this)).feesPerShareBTC();
+        a.usdFeesBtc = IBandManager(address(this)).USD_FEES_BTC();
         return resizeBtcLpTail(core, quid, autoManagedBTC, levPooledBTC, levBufBTC, a);
     }
 
@@ -373,9 +374,9 @@ library BtcVaultLib {
         // frame stays off the legacy stack (no via_ir). _rebalance (via repack) already
         // accrued any V4 fees into the accumulators; read them fresh.
         LevParams memory p;
-        (p.sqrtP, p.tickLower, p.tickUpper,,) = IEthVenue(address(this)).repack(true);
-        p.feesPerShareBTC = IEthVenue(address(this)).feesPerShareBTC();
-        p.usdFeesBtc = IEthVenue(address(this)).USD_FEES_BTC();
+        (p.sqrtP, p.tickLower, p.tickUpper,,) = IBandManager(address(this)).repack(true);
+        p.feesPerShareBTC = IBandManager(address(this)).feesPerShareBTC();
+        p.usdFeesBtc = IBandManager(address(this)).USD_FEES_BTC();
         sharesAdded += settleBtcLp(LP, lpEth, address(0), quid, p.feesPerShareBTC, p.usdFeesBtc, weight); // (E145) fee compounds into pooled
         // price computed AFTER the settle so it isn't live across it (legacy-pipeline stack). A price==0
         // revert here still rolls back the settle's state, so behavior is unchanged.
@@ -432,9 +433,9 @@ library BtcVaultLib {
         // literal) so external-call temporaries free between assignments — both keep this off the legacy stack.
         uint w = LP.pooled + levBufBTC[lp];
         LevParams memory p;
-        (p.sqrtP, p.tickLower, p.tickUpper,,) = IEthVenue(address(this)).repack(true);
-        p.feesPerShareBTC = IEthVenue(address(this)).feesPerShareBTC();
-        p.usdFeesBtc = IEthVenue(address(this)).USD_FEES_BTC();
+        (p.sqrtP, p.tickLower, p.tickUpper,,) = IBandManager(address(this)).repack(true);
+        p.feesPerShareBTC = IBandManager(address(this)).feesPerShareBTC();
+        p.usdFeesBtc = IBandManager(address(this)).USD_FEES_BTC();
         p.mgr = mgr; p.gross = gross;
         d.addedNet += settleBtcLp(LP, lp, address(0), quid, p.feesPerShareBTC, p.usdFeesBtc, w); // (E145) fee compounds into pooled
         (d.burnedNet, d.bufBurned) = levBurnAllBtc(c, LP, levPooledBTC, levBufferUsdBTC, levBufBTC, lp, p);

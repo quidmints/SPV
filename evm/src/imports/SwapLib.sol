@@ -15,7 +15,7 @@ import {ILevManagerDeliver, ILevEthDeliver} from "./Interfaces.sol";
 // numeric-suffix spelling of the very `IFoo_` pattern rule 2 bans. Interfaces.sol already documented
 // this as absorbed; the declaration had in fact survived. Now it really is gone.
 import {IBTCChannels} from "./Interfaces.sol";
-import {IEthVenue} from "./Interfaces.sol";
+import {IEthVenue, IBandManager} from "./Interfaces.sol";
 import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -376,8 +376,8 @@ library SwapLib {
         uint160 bandTicks; uint v4p;
         {
             (, int24 lo, int24 hi,, uint p) = isBTC
-                ? IEthVenue(c.btcVault).repack(true)
-                : IEthVenue(c.v4).repack(false);
+                ? IBandManager(c.btcVault).repack(true)
+                : IBandManager(c.v4).repack(false);
             v4p = p;
             bandTicks = _packBandTicks(lo, hi);
         }
@@ -657,7 +657,7 @@ library SwapLib {
         uint v4p;
         Types.RouteParams memory rp;
         {
-            (, int24 lo, int24 hi,, uint p_) = IEthVenue(bandVault).repack(true);
+            (, int24 lo, int24 hi,, uint p_) = IBandManager(bandVault).repack(true);
             v4p = p_;
             rp.sqrtPriceX96 = _packBandTicks(lo, hi);
         }
@@ -1313,7 +1313,7 @@ library SwapLib {
         // §E9 — packed band ticks, not a price (see creditSwapInBody). Block-scoped for stack.
         uint v4p;
         {
-            (, int24 lo, int24 hi,, uint p_) = IEthVenue(address(this)).repack(true);
+            (, int24 lo, int24 hi,, uint p_) = IBandManager(address(this)).repack(true);
             v4p = p_;
             rp.sqrtPriceX96 = _packBandTicks(lo, hi);
         }

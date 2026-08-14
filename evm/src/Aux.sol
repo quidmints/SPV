@@ -29,7 +29,7 @@ import {SafeCallback} from "v4-periphery/src/base/SafeCallback.sol";
 // one still compiled. `IBtcVault` is gone outright: its `repack` was dead AND drifted (4 returns
 // against an implementation returning 5), and its one live member `setBTCChannels` is called on
 // `ethVenue` — the very address every `IEthVenue` call targets — so it belongs on that interface.
-import {IAaveV4Spoke, IAaveV4Hub, ICollection, IEthVenue, IBTCChannels} from "./imports/Interfaces.sol";
+import {IAaveV4Spoke, IAaveV4Hub, ICollection, IEthVenue, IBandManager, IBTCChannels} from "./imports/Interfaces.sol";
 
 
 /// AAVE-v4 GHO spoke. Aux self-supplies via the self-allow trampoline.
@@ -1270,7 +1270,7 @@ contract Aux is // Auxiliary
         // independent accounting domains (channels store sats for routing/
         // swap-out, the V4 BTC pool holds mockBTC/mockUSD_BTC for spot
         // liquidity).
-        IEthVenue(ethVenue).setBTCChannels(b);
+        IBandManager(ethVenue).setBTCChannels(b);
     }
 
     // Rover (protocol-owned weETH/WETH LP) wiring + setRover/supplyEtherFiToRover
