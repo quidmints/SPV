@@ -195,72 +195,35 @@ the hop chooses when to splice.** A malicious hop splices and stops emitting, an
 escape at all — attacker-controlled, which is exactly the M1 criterion (*no path may depend on the
 hop being honest*).
 
-▶️ **THE FIX HAS T9's OWN SHAPE: make re-arming atomic with the rotation** (owner: *"make
-re-arming atomic with the splice"*). ✅ **THE CONTRACT HALF IS WRITTEN AND MEASURED — built,
-compiled, sized, then reverted unlanded because the test surface could not be finished in the
-same pass.** Exactly what worked:
+⛔ **DO NOT BUILD THE FOUR-ENTRYPOINT VERSION FIRST — IT IS PROBABLY THE WRONG SHAPE**
+(2026-08-14, after the owner asked whether it was the most elegant solution; it is not).
 
-- `Types.ExitArming[] calldata exits` added to **`splice`**, **`parkProvenSats`**,
-  **`settleSwapInSpliced`** and **`deliverSwapOutOnchain`**, each calling
-  `_armLadder(channelId, p, exits)` **after** `_applySplice` (which is what updates
-  `fundingTxId`/`fundingVout`/`amountSats`, so arming after is what binds the NEW state).
-- ⚠️ `deliverSwapOutOnchain` delegates to a private `_deliverSwapOut` frame, so `exits` must be
-  threaded through BOTH or the compiler reports an undeclared identifier inside the private one.
-- ⚠️ Putting the argument on `_applySplice` instead was NOT tried on purpose: that frame already
-  compiled to Stack-too-deep once when a single `bool` was added (§T1-f), and `via_ir` is off.
-- **Measured: BTCChannels 24,252 — 324 to spare.** It fits.
-- `_armLadder` requires `exits.length != 0`, so the invariant is enforced by construction.
+🔑 **THE FACT THAT DECIDES IT: A SPLICE SPENDS THE 2-of-2 FUNDING UTXO.** `WrongPrevOutpoint`
+says so — *"tx doesn't spend this channel's funding UTXO"* — and `SpliceKeyNotTwoOfTwo` requires
+the new output to be `KeyAgg(lpPubkey, hopPubkey)`. **A splice therefore CANNOT HAPPEN without
+the LP's own signature.** The LP is already in the loop for every rotation.
 
-🔴 **WHAT REMAINS IS THE TEST SURFACE: 18 call sites** (BtcLpMintStress 11, VBtcLevFeeLane 5,
-Alles 1, OpenChannelE2E 1) **plus one shared re-arm helper.** Each splice now needs a
-*cryptographically valid* exit for its POST-splice state, which `ExitFixture.signedExitFull` can
-produce for arbitrary `(txid, vout, sats)` over FFI.
+⇒ **The property belongs in the LP's validating signer, not in the contract: refuse to co-sign a
+splice until a valid signed exit for the POST-splice state is in hand.** That is enforced exactly
+where the LP's interest lives, costs no ABI change, no Rust encoder change and none of the 17
+test sites — and it is what `validating_signer.rs` exists for. A malicious hop then cannot splice
+at all without handing over the replacement escape first.
 
-⚠️ **THE TRAP THAT WILL COST AN HOUR IF UNKNOWN: the FFI key labels are
-`quid-fixture-{lp,hop}-{seed}-{OPENING sats}`** (see `_armFixture`). A splice changes
-`p.amountSats`, so a helper that builds the label from the *new* amount signs with the wrong keys
-and every arming fails verification. **The label takes the opening sats; the exit is signed for
-the new ones.** The rung is otherwise `armingSet`-shaped — `prevValues`/`prevScripts` are
-placeholders the contract overwrites — with `txid = sha256d(spliceTx)` and the payout script read
-from `ch.btcRecipientOf(lpEth)`.
+⚠️ **AND IT ONLY MATTERS AFTER M1#2.** Today the fleet holds BOTH halves (`daemon.rs:235`), so it
+can spend the funding output outright and the ladder is moot regardless of how it is armed. **The
+on-chain arming cannot fix a hole that exists because one party holds both keys.** ⇒ **M1#2 is the
+keystone, and T9's real fix is downstream of it** — which also means the four-entrypoint change
+would have been built, tested and shipped while still not closing the attack it names.
 
-⏱️ Expect the suite to slow: one python FFI invocation per splice, and helpers like `_swapOuts`
-splice repeatedly.
+📋 **WHAT THE CHAIN STILL UNIQUELY PROVIDES, and the only part worth keeping on-chain:** PUBLIC
+availability of the exit bytes (`DeadManExitEmitted`), so a third party can broadcast for an LP
+that is itself gone. LP-side refusal covers the LP-is-alive case completely (it holds the bytes
+and can broadcast); the public emission is the backstop for the case where the LP is dead too,
+which is the same case the dead-man design already targets. That is a far smaller requirement
+than "every splice entrypoint takes a ladder".
 
-✅ **THE HELPER IS WRITTEN AND COMPILES — paste it into `Alles` and the 17 remaining sites are
-mechanical.** It was built and verified in the same pass, then reverted with the contract because
-an unused helper is dead code:
-
-```solidity
-function _lpEthOf(BTCChannels ch, bytes32 cid) internal view returns (address lpEth) {
-    (, , lpEth, , , ) = ch.channels(cid);
-}
-
-/// ⚠️ THE LABEL TAKES THE *OPENING* SATS; THE EXIT IS SIGNED FOR THE NEW ONES.
-function _reArm(
-    BTCChannels ch, bytes memory spliceTx, uint32 vout, uint newSats,
-    uint seed, uint openSats, address lpEth
-) internal returns (Types.ExitArming[] memory set) {
-    set = new Types.ExitArming[](1);
-    set[0] = Types.ExitArming({
-        prevValues:  new uint64[](1),   // placeholders; the contract overwrites both
-        prevScripts: new bytes[](1),
-        cltvDeadline: EXIT_DEADLINE_ALLES,
-        checkpointSats: 0,
-        signedExitTx: signedExitFull(
-            string.concat("quid-fixture-lp-",  vm.toString(seed), "-", vm.toString(openSats)),
-            string.concat("quid-fixture-hop-", vm.toString(seed), "-", vm.toString(openSats)),
-            sha256(abi.encodePacked(sha256(spliceTx))), vout, newSats,
-            abi.encodePacked(hex"5120", ch.btcRecipientOf(lpEth)), EXIT_DEADLINE_ALLES, 1_000)
-    });
-}
-```
-
-📍 **THE 17 SITES** (each takes `_reArm(ch, spliceTx, 0, p.amountSats, seed, openSats, lpEth)` as
-its new last argument): `BtcLpMintStress` :377 :460 :477 :516 :558 :590 :631 :662 :810 :1048 :1202
-· `VBtcLevFeeLane` :203 :271 :279 :309 :792 · `OpenChannelE2E` :272. ⚠️ Several sit in helpers
-that do not currently carry `seed`/`openSats` — thread those through first, or the label trap
-above bites silently.
+✅ **The heavier version IS built and measured** — see the recipe below — so if defence-in-depth
+is wanted later it is a paste, not a design. But it should not be the first move.
 
 ## T10 🔴 OPEN — `MigrationAuth`: a 2-of-3 Safe can export the enclave seed
 
