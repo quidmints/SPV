@@ -419,115 +419,7 @@ contract BtcLpMintStress is Alles {
         vm.stopPrank();
     }
 
-    // ── (E166-2) THE PROVEN SWAP-IN ───────────────────────────────────────────────
-    /// 🔴 `#1`, THE PHANTOM SWAP-IN, CLOSED FOR THE LIGHTNING RAIL. `settleSwapIn` credits the
-    /// shared pool on the hop's WORD — a compromised hop attests sats that never existed and
-    /// drains `POOLED_USD_BTC`, and that harm reaches QU!D holders who never opted into enclave
-    /// trust. `settleSwapInProven` proves an ON-CHAIN deposit, but an LN swap-in resolves inside
-    /// a channel and produces no transaction to prove — which is why the unproven entrypoint
-    /// could not be deleted. A grow-splice IS the proof: the sats become visible on-chain, and
-    /// `grewBy` is what actually entered custody.
-    ///
-    /// ⚠️ THE ASSERTION THAT MATTERS IS THE CREDITED AMOUNT vs `grewBy`, NOT vs a supplied
-    /// number — `sats` is deliberately not a parameter, so a hop cannot assert it.
-    function test_E166_2_ProvenSwapIn_CreditsOnlyWhatTheSpliceProves() public {
-        BTCChannels ch = _deployChannels();
-        (bytes32 channelId, bytes32 fundingTxId, address lpEth, bytes memory lpPubkey) =
-            _open(ch, 31, 1_000_000);
-        // ⚠️ PRIME WITH REAL SWAP-OUTS, NOT BUYS. `creditSwapIn` SELLS sats into the pool, and a
-        // pool primed only by curve buys is too thin to absorb one — it trips `SlippageMaxS` in
-        // `BasketLib.routeSwap`, which is a genuine depth guard, not a test artifact. The
-        // neighbouring over-mint tests build depth this way and absorb the same 50k sats.
-        _swapOuts(ch, channelId, fundingTxId, 31, lpPubkey, lpEth, 2, 400 * USDC_PRECISION);
 
-        address seller = makeAddr("ln-seller");
-        uint growTo = 1_050_000;
-
-        // ⚠️ THE OUTPOINT ROTATED. The priming swap-outs SPLICED this channel, so the funding
-        // UTXO is no longer the one `_open` returned — the suite tracks the live one, and using
-        // the stale id fails `WrongPrevOutpoint`.
-        bytes32 liveTxId = _liveFundingTxId[channelId];
-        // ⚠️ MEASURE THE DELTA, DO NOT ASSUME IT. The priming swap-outs SHRANK this channel, so
-        // `growTo - <opening size>` is not the grow — reading the CURRENT size is. Assuming it
-        // made the first version of this test fail against a number that was simply wrong.
-        (uint sizeBefore,,,,,) = ch.channels(channelId);
-        uint expectedGrew = growTo - sizeBefore;
-        (bytes memory spliceTx, Types.OpenParams memory p) =
-            _growSpliceArgs(ch, channelId, liveTxId, 31, lpPubkey, growTo);
-
-        (uint pooledBefore,,,) = BTC.autoManagedBTC(lpEth);
-        vm.prank(makeAddr("hop"));
-        uint consumed = ch.settleSwapInSpliced(
-            channelId, p, spliceTx, new bytes32[](0), seller, address(USDC), 0);
-
-        // (a) The credit is bounded by what the splice PROVED, never by an assertion.
-        assertLe(consumed, expectedGrew, "credit never exceeds the sats the splice proved");
-        // (b) 🔴 (T1-f) THIS ASSERTION USED TO READ `== expectedGrew`, AND I CALLED IT
-        // "conservation". It was the defect: the channel LP was credited the full spliced amount
-        // while a DIFFERENT address was paid the USD. The sats entering custody was the half I
-        // checked; who received the CLAIM was the half I never asked. A swap-in's grow is bought
-        // by the POOL, so it now registers no LP liquidity at all.
-        (uint pooledAfter,,,) = BTC.autoManagedBTC(lpEth);
-        assertEq(pooledAfter, pooledBefore,
-                 "a pool-bought grow must not mint the channel LP a position");
-        assertTrue(seller != lpEth, "premise: the seller is not the channel LP");
-        // (c) REPLAY on the splice TXID — a fact, not a hop-chosen hash.
-        vm.prank(makeAddr("hop"));
-        vm.expectRevert(BTCChannels.SwapInDepositReplay.selector);
-        ch.settleSwapInSpliced(channelId, p, spliceTx, new bytes32[](0), seller, address(USDC), 0);
-    }
-
-    /// 🔴 (T1-f) **THE POOL PAYS THE SELLER *AND* HANDS THE CHANNEL LP THE CLAIM FOR THE SAME
-    /// SATS.** Both halves measured independently — the seller's USDC balance delta (a token
-    /// balance, not a number the credit path returned) and the LP's band position delta.
-    ///
-    /// A swap-in is the pool BUYING sats: it pays USD out, and the sats should become the
-    /// pool's inventory. They do (`Core:508` `POOLED_BTC += a` via the V4 swap). But the splice
-    /// that proves them ALSO runs `_applySplice → registerBtcLp(ch.lpEth, delta)`, which mints
-    /// `lpSharesBTC` to the channel LP — a party that supplied nothing here. The LP's claim is
-    /// redeemable (a shrink-splice pays it out), so QU!D holders funded a position they do not
-    /// own.
-    ///
-    /// ⚠️ **THE SHARE ISSUANCE WAS INHERITED, NOT INTENDED:** `_applySplice` registers on every
-    /// grow because an ordinary grow IS an LP deposit funded by that LP. The swap-in path reused
-    /// it and inherited the deposit semantics along with the proof. `creditLp = false` separates
-    /// the two: custody still grows (the sats really arrived), the CLAIM does not.
-    ///
-    /// This test now asserts the FIX — seller paid, LP position untouched — and would have
-    /// failed before it.
-    function test_T1f_PoolBuysTheSats_LpIsNotAlsoCredited() public {
-        BTCChannels ch = _deployChannels();
-        (bytes32 channelId, bytes32 fundingTxId, address lpEth, bytes memory lpPubkey) =
-            _open(ch, 33, 1_000_000);
-        _swapOuts(ch, channelId, fundingTxId, 33, lpPubkey, lpEth, 2, 400 * USDC_PRECISION);
-
-        address seller = makeAddr("t1f-seller");
-        assertTrue(seller != lpEth, "premise: seller is not the channel LP");
-
-        (uint sizeBefore,,,,,) = ch.channels(channelId);
-        uint growTo = sizeBefore + 50_000;
-        (bytes memory spliceTx, Types.OpenParams memory p) = _growSpliceArgs(
-            ch, channelId, _liveFundingTxId[channelId], 33, lpPubkey, growTo);
-
-        (uint lpPooledBefore,,,) = BTC.autoManagedBTC(lpEth);
-        uint sellerUsdBefore = USDC.balanceOf(seller);
-
-        vm.prank(makeAddr("hop"));
-        ch.settleSwapInSpliced(channelId, p, spliceTx, new bytes32[](0), seller, address(USDC), 0);
-
-        (uint lpPooledAfter,,,) = BTC.autoManagedBTC(lpEth);
-        uint sellerUsdAfter = USDC.balanceOf(seller);
-
-        // The seller really was paid — measured on the TOKEN, so the failing path cannot report
-        // its own success (three guards once missed a zero-delivery bug for exactly that reason).
-        assertGt(sellerUsdAfter, sellerUsdBefore, "the pool paid the seller real USDC");
-        // And the LP is NOT also credited for sats it did not fund — the half that was wrong.
-        assertEq(lpPooledAfter, lpPooledBefore,
-                 "T1-f: a pool-bought grow must not credit the channel LP");
-        // Custody still grew, because the sats really did arrive — only the claim differs.
-        (uint sizeAfter,,,,,) = ch.channels(channelId);
-        assertEq(sizeAfter, growTo, "the channel's custody balance still reflects the splice");
-    }
 
     /// 🔑 (M1#1) THE BOUND THAT REPLACED THE PHANTOM: a hop cannot credit beyond what it has
     /// SPV-proven into custody. `settleSwapIn` would have paid this out on the hop's word alone,
@@ -585,10 +477,12 @@ contract BtcLpMintStress is Alles {
         _setRecipient(address(ch), abi.encode(uint(0xB7C)), User03);
         (bytes memory spliceTx, Types.OpenParams memory p) =
             _growSpliceArgs(ch, channelId, fundingTxId, 32, lpPubkey, 400_000);   // SHRINK
+        // (T1-f-root) Repointed to `parkProvenSats` when `settleSwapInSpliced` was deleted: the
+        // property is the entrypoint-independent one — a shrink proves sats LEFT, so it can never
+        // fund anything — and it now guards the ONE path by which pool sats enter a channel.
         vm.prank(makeAddr("hop"));
         vm.expectRevert(BTCChannels.NotAGrow.selector);
-        ch.settleSwapInSpliced(channelId, p, spliceTx, new bytes32[](0),
-                               makeAddr("ln-seller"), address(USDC), 0);
+        ch.parkProvenSats(channelId, p, spliceTx, new bytes32[](0));
     }
 
     /// spliceChannel grows the LP's BTC pool position + the channel's funded total

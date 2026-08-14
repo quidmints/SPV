@@ -997,66 +997,18 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // halves failed quietly.
     }
 
-    /// @dev Splice body in its own frame: SPV-verify the splice tx (spends THIS
-    ///      channel's funding UTXO + the new 2-of-2 == p.amountSats, larger OR smaller
-    ///      is fine), rotate the live outpoint, then grow or shrink the LP's position.
-    /// @notice (E166-2) A swap-in credited ONLY against sats PROVEN to have entered custody.
-    ///
-    /// 🔴 THE HOLE THIS CLOSES — `#1`, THE PHANTOM SWAP-IN. `settleSwapIn` credits the shared
-    ///    `POOLED_USD_BTC` on the hop's WORD: no proof any BTC arrived. A compromised hop
-    ///    attests swap-ins for sats that never existed and drains the pool to its liquidity
-    ///    limit. That harm reaches QU!D holders and other LPs who never opted into enclave
-    ///    trust, which is what makes it worse IN KIND than a hop stealing its own channels'
-    ///    BTC.
-    ///
-    /// 🔑 WHY A SPLICE IS THE PROOF, AND WHY THE LIGHTNING RAIL NEEDED ONE. `settleSwapInProven`
-    ///    proves an ON-CHAIN deposit, but a swap-in settled over Lightning produces NO
-    ///    transaction to prove — the HTLC resolves inside a channel. So the LN rail had no
-    ///    provable form and `settleSwapIn` could not be deleted. The sats DO become provable
-    ///    the moment the hop splices them into a channel: a grow-splice is SPV-verified here,
-    ///    against real Bitcoin data, and `grewBy` is the quantity that actually entered
-    ///    custody. **Credit the seller for THAT, never for what the hop asserts.**
-    ///
-    /// ⚠️ THE CONSERVATION THIS PRESERVES. The spliced sats become the LP's backing
-    ///    (`_applySplice` → `registerBtcLp` grows the position by the full delta) while the
-    ///    seller is paid USD from the pool. Pool gains sats-backing, pays out dollars —
-    ///    balanced, and both halves are proven rather than attested.
-    ///
-    /// ⚠️ `sats` IS NOT A PARAMETER. It is `grewBy`. A hop-supplied amount would reintroduce
-    ///    exactly the assertion this exists to remove.
-    /// ⚠️ STILL TRUSTED, AND NAMED SO IT IS NOT MISTAKEN FOR PROVEN: `seller`, `token` and
-    ///    `minDeliveredUsd` remain the hop's word — same residual as the on-chain rail (T2).
-    ///    What is proven is that the SATS EXIST and entered a channel this protocol controls.
-    function settleSwapInSpliced(
-        bytes32 channelId,
-        Types.OpenParams calldata p,
-        bytes calldata rawSpliceTx,
-        bytes32[] calldata spliceMerkleProof,
-        address seller,
-        address token,
-        uint minDeliveredUsd
-    ) external nonReentrant whenOpen(channelId) returns (uint consumed) {
-        _onlyHop();
-        _requireChannelKeys(channelId, p);
-        // ⚠️ THE REPLAY GUARD RUNS BEFORE THE SIZE SANITY CHECK, AND THE ORDER IS DELIBERATE.
-        // With `SpliceUnchanged` first, an immediate re-submission of the SAME splice reverted
-        // `SpliceUnchanged` — the size already matched — so the dedup never fired and was
-        // effectively unreachable on the one path it exists for. A security guard shadowed by a
-        // sanity check reads as present and enforces nothing (§E185's no-op gate, again).
-        // Dedup on the SPLICE TX, not a hop-chosen hash: a txid is a fact, and the old rail
-        // keyed replay protection on `paymentHash`, a value the hop invents.
-        bytes32 spliceTxId = BitcoinTx.txid(rawSpliceTx);
-        if (swapInUsed[spliceTxId]) revert SwapInDepositReplay();
-        swapInUsed[spliceTxId] = true;
-        if (p.amountSats == channels[channelId].amountSats) revert SpliceUnchanged();
-        uint grewBy = _applySplice(channelId, p, rawSpliceTx, spliceMerkleProof);
-        // A SHRINK proves nothing entered custody — it took sats OUT. Only a grow can fund a
-        // swap-in, and `grewBy` is 0 on a shrink, so this refuses rather than crediting zero.
-        if (grewBy == 0) revert NotAGrow();
-        poolOwnedSats[channelId] += grewBy;    // the POOL bought these sats (§T1-f-general)
-        consumed = btcVault.creditSwapIn(seller, grewBy, token, minDeliveredUsd);
-        emit SwapInSettled(seller, spliceTxId, grewBy, consumed, token);
-    }
+    // ⛔ (T1-f-root) `settleSwapInSpliced` IS DELETED — M1#1 superseded it and it was one of the
+    // two ways POOL-OWNED SATS ENTERED AN LP'S CHANNEL.
+    //
+    // It spliced and credited in ONE call, which meant the sats it proved into custody landed in
+    // whatever channel the hop chose — commingling pool inventory with an LP's own balance in one
+    // UTXO. Every payout path then had to SUBTRACT to work out who owned what, and a clamp at
+    // every exit is the tell that the STATE is wrong rather than the exits.
+    //
+    // `parkProvenSats` + `settleSwapInBuffered` do the same job better: the same proof, split
+    // into a provable half and an instant half, with ONE place pool sats enter — where the
+    // hop-owns-this-channel condition can be stated and commingling becomes unconstructible.
+    // It had no caller in quid-ln, the SPA or the scripts when it was removed.
 
     error NotAGrow();   // a shrink-splice cannot fund a swap-in: no sats entered custody
     error InsufficientProvenSats();  // a credit would exceed what this hop has proven into custody
