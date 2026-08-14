@@ -195,8 +195,24 @@ the hop chooses when to splice.** A malicious hop splices and stops emitting, an
 escape at all — attacker-controlled, which is exactly the M1 criterion (*no path may depend on the
 hop being honest*).
 
-⛔ **DO NOT BUILD THE FOUR-ENTRYPOINT VERSION FIRST — IT IS PROBABLY THE WRONG SHAPE**
-(2026-08-14, after the owner asked whether it was the most elegant solution; it is not).
+⏸️ **THE FOUR-ENTRYPOINT VERSION IS NOT WRONG — IT IS SECOND. SETTLED 2026-08-14** after the
+owner twice refused to let *"probably the wrong shape"* stand as an answer.
+
+**The two mechanisms cover DIFFERENT failure cases, so neither replaces the other:**
+
+| mechanism | protects | how |
+|---|---|---|
+| **LP-side refusal** — don't co-sign a splice without a fresh exit | a **LIVE** LP | it holds the bytes and broadcasts them itself; a hop cannot splice without handing them over |
+| **on-chain arming** at the splice | an LP that is **GONE** | it is the only thing that makes the bytes PUBLIC (`DeadManExitEmitted`), which is what lets ANYONE broadcast — the dead-man premise |
+
+⇒ **The residual after LP-side refusal alone is narrow but real: the LP is dead AND the hop never
+emitted after the splice.** Nothing forces the emission today — the heartbeat does it by habit,
+and habit is exactly what a malicious hop drops. Making arming atomic with the splice is the only
+way to force it, which is why the recipe below stays.
+
+⚠️ **AND IT CANNOT BE CIRCULAR, WHICH WAS THE OTHER WORRY:** the splice tx is negotiated, so its
+txid is known once both parties sign; the exit for the post-splice state can therefore be signed
+BEFORE the splice is broadcast, and submitted with it.
 
 🔑 **THE FACT THAT DECIDES IT: A SPLICE SPENDS THE 2-of-2 FUNDING UTXO.** `WrongPrevOutpoint`
 says so — *"tx doesn't spend this channel's funding UTXO"* — and `SpliceKeyNotTwoOfTwo` requires
