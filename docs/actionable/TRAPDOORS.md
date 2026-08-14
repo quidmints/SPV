@@ -227,6 +227,41 @@ from `ch.btcRecipientOf(lpEth)`.
 ⏱️ Expect the suite to slow: one python FFI invocation per splice, and helpers like `_swapOuts`
 splice repeatedly.
 
+✅ **THE HELPER IS WRITTEN AND COMPILES — paste it into `Alles` and the 17 remaining sites are
+mechanical.** It was built and verified in the same pass, then reverted with the contract because
+an unused helper is dead code:
+
+```solidity
+function _lpEthOf(BTCChannels ch, bytes32 cid) internal view returns (address lpEth) {
+    (, , lpEth, , , ) = ch.channels(cid);
+}
+
+/// ⚠️ THE LABEL TAKES THE *OPENING* SATS; THE EXIT IS SIGNED FOR THE NEW ONES.
+function _reArm(
+    BTCChannels ch, bytes memory spliceTx, uint32 vout, uint newSats,
+    uint seed, uint openSats, address lpEth
+) internal returns (Types.ExitArming[] memory set) {
+    set = new Types.ExitArming[](1);
+    set[0] = Types.ExitArming({
+        prevValues:  new uint64[](1),   // placeholders; the contract overwrites both
+        prevScripts: new bytes[](1),
+        cltvDeadline: EXIT_DEADLINE_ALLES,
+        checkpointSats: 0,
+        signedExitTx: signedExitFull(
+            string.concat("quid-fixture-lp-",  vm.toString(seed), "-", vm.toString(openSats)),
+            string.concat("quid-fixture-hop-", vm.toString(seed), "-", vm.toString(openSats)),
+            sha256(abi.encodePacked(sha256(spliceTx))), vout, newSats,
+            abi.encodePacked(hex"5120", ch.btcRecipientOf(lpEth)), EXIT_DEADLINE_ALLES, 1_000)
+    });
+}
+```
+
+📍 **THE 17 SITES** (each takes `_reArm(ch, spliceTx, 0, p.amountSats, seed, openSats, lpEth)` as
+its new last argument): `BtcLpMintStress` :377 :460 :477 :516 :558 :590 :631 :662 :810 :1048 :1202
+· `VBtcLevFeeLane` :203 :271 :279 :309 :792 · `OpenChannelE2E` :272. ⚠️ Several sit in helpers
+that do not currently carry `seed`/`openSats` — thread those through first, or the label trap
+above bites silently.
+
 ## T10 🔴 OPEN — `MigrationAuth`: a 2-of-3 Safe can export the enclave seed
 
 **This document existed for a day without its most powerful row, and it was found by the owner
