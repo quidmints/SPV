@@ -234,24 +234,6 @@ library VaultLib {
     // ── Supply ────────────────────────────────────────────────────────────
 
 
-    /// @notice WETH supply — into weETH. Only WETH is accepted.
-    /// @dev  REPOINTED FROM GALAXY 2026-08-13. This is the destination for WETH swept by SwapLib
-    ///       (`:179`, `:190`, `:234` via `Aux.supplySelf`), which is a LIVE path — it is NOT part of the
-    ///       depositor-venue surface that was deleted, and must not be removed with it. With the
-    ///       WETH-4626 curators gone it had no destination left, so it routes where every other ETH
-    ///       supply now routes: the ether.fi adapter.
-    function supplyETH(EthCfg memory c, address token, uint amount) public returns (uint) {
-        require(token == c.weth, "ethv:notWeth");
-        // HOLD IT AS WETH. This is the sink for WETH swept by SwapLib (`:179`, `:190`, `:234` via
-        // `Aux.supplySelf`) -- transient balances on swap/sweep paths, NOT depositor capital.
-        // Do NOT eagerly convert it to weETH: measured, that starves every path that sweeps WETH and then spends it
-        // (`testReal_Liquity_*` revert "transfer amount exceeds balance"), and makes a deferred exit
-        // unrecoverable because the retry has no WETH to deliver.
-        // Idle WETH is already counted as backing by `_vogueETH` and is DIRECTLY deliverable -- no
-        // conversion, no spread, no pool capacity. Buying the ratchet on a transient balance costs two
-        // spreads to earn a few hours of yield. So: no destination at all.
-        return amount;
-    }
 
 
 
