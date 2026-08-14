@@ -5,7 +5,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 // §A.52: the canonical Core view (was a file-local variant).
 import {ICore} from "./Interfaces.sol";
 import {IBandManager} from "./Interfaces.sol";
-import {IBasketTurn, IWiredVault, IWiredBasket, ILevSweep, IVogue} from "./Interfaces.sol";
+import {IBasketTurn, IWiredVault, IWiredBasket, ILevSweep, IVogue, ILevHost} from "./Interfaces.sol";
 import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
@@ -980,7 +980,8 @@ library BasketLib {
     function _deleverBookForRedeem(address core, uint usdWanted) private returns (uint) {
         address vault = ICore(core).btcVault();
         if (vault == address(0)) return 0;
-        address mgr = IWiredVault(vault).LEV_MANAGER();
+        // ETH lev manager lives on the ETH-VENUE contract; reach it the way VogueLib does.
+        address mgr = ILevHost(IAux(address(this)).ethVenue()).LEV_MANAGER();
         if (mgr == address(0)) return 0;
         return ILevSweep(mgr).deleverBook(usdWanted, address(this), 0);
     }

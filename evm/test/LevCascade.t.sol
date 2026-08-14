@@ -213,7 +213,7 @@ contract LevCascadeProbe is Alles {
     /// stays intact — no socialization.
     function test_NetEquity_BackingRecognized_SeizureLeavesPooledUsdIntact() public {
         _setupLev();
-        ETH.setLevManager(address(lm));                         // pin the leveraged book into vogueETH
+        EV.setLevManager(address(lm));                         // pin the leveraged book into vogueETH
 
         // Establish the REAL band position FIRST, then baseline — the band deposit itself adds to vogueETH
         // (unlike the old mock), so the leverage's OWN contribution is measured from the post-deposit baseline.
@@ -250,7 +250,7 @@ contract LevCascadeProbe is Alles {
     /// (b) is UNWIND-ONLY (the free ladder can't pull it), and (c) a REAL seizure burns the slice clean.
     function test_LevFeeLane_EarnsFees_UnwindOnly_SeizureBurnsClean() public {
         _setupLev();
-        ETH.setLevManager(address(lm));
+        EV.setLevManager(address(lm));
         // Thicken the band with a normal ETH-LP so small swaps clear the manip guard.
         vm.deal(address(this), 20 ether);
         V4.deposit{value: 10 ether}(0, address(this));
@@ -527,7 +527,7 @@ contract LevCascadeProbe is Alles {
     ///         call with no equity change does not double-credit the levered slice.
     function test_IlProtection_LeveredVsUnlevered_NoCrossSubsidy() public {
         _setupLev();
-        ETH.setLevManager(address(lm));
+        EV.setLevManager(address(lm));
         // Thick shared band so the rally's swaps clear the 50bps manip guard.
         vm.deal(address(this), 40 ether);
         V4.deposit{value: 20 ether}(0, address(this));
@@ -659,7 +659,7 @@ contract LevCascadeProbe is Alles {
     ///   depth — so the LP hedges with one capital leg, not a principal-band-plus-separate-buffer (the old (B)).
     function test_A_IntrinsicOneDeposit_IsTheLeverageBase() public {
         _setupLev();
-        ETH.setLevManager(address(lm));
+        EV.setLevManager(address(lm));
         address lp = address(0xBEEF8);
 
         // (A): ONE deposit — mint weETH + openLev. Deliberately NO V4.deposit (the LP has no separate band).
@@ -705,7 +705,7 @@ contract LevCascadeProbe is Alles {
     ///   fresh collateral must never land on a broken market. Close/rebalance stay OPEN (not asserted here).
     function test_LevVenueGate_OpenRejectsBlockedVenue() public {
         _setupLev();
-        ETH.setLevManager(address(lm));
+        EV.setLevManager(address(lm));
         AUX.setVaultHealth(address(venue), true);   // real incident flag (AUX owner == this test)
         uint256[] memory mins = new uint256[](0);
         vm.prank(lps[0]);
@@ -736,7 +736,7 @@ contract LevCascadeProbe is Alles {
     // leverage or a deliberately thin ETH leg and is NOT built here — tracked as V1b-disc.
     function test_V1b_CommittedDecomposesPerBandWithLiveLeverageDebt() public {
         _setupLev();
-        ETH.setLevManager(address(lm));
+        EV.setLevManager(address(lm));
         vm.deal(address(this), 40 ether);
         V4.deposit{value: 20 ether}(0, address(this));
         _openAtEntry(lps[0], 5 ether);
@@ -805,7 +805,7 @@ contract LevCascadeProbe is Alles {
     // BTC band, then DRAIN the ETH band's USD leg with sells until it falls BELOW the debt.
     function test_V1bdisc_OneBandsDebtExceedingItsOwnLegMustNotEatTheOther() public {
         _setupLev();
-        ETH.setLevManager(address(lm));
+        EV.setLevManager(address(lm));
         vm.deal(address(this), 40 ether);
         V4.deposit{value: 2 ether}(0, address(this));
         _openAtEntry(lps[0], 5 ether);

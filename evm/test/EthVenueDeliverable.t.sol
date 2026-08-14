@@ -109,7 +109,7 @@ contract EthVenueDeliverableProbe is Alles {
         emit log_named_decimal_uint("idle WETH @Aux     ", IERC20(address(WETH)).balanceOf(address(AUX)), 18);
 
         // The subtracted lev term (deliverableETH removes totalNetEquityEth).
-        address lm = ETH.LEV_MANAGER();
+        address lm = EV.LEV_MANAGER();
         emit log_named_address("levManager         ", lm);
 
         // THE POINT: a 5-ETH exit out of a 10-ETH position must be fully deliverable.

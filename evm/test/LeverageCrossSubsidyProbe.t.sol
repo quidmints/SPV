@@ -174,7 +174,7 @@ contract LeverageCrossSubsidyProbe is Alles {
         uint snap = vm.snapshotState();
 
         // ── TREATMENT: a levered LP runs its FULL lifecycle over the SAME rally price path ──
-        ETH.setLevManager(address(lm));                     // pin the leveraged book into vogueETH
+        EV.setLevManager(address(lm));                     // pin the leveraged book into vogueETH
         _bandE0(LEVR, 5 ether);
         _openLevOnly(LEVR, 5 ether);
         _rallyBand(startSqrt, 0.2e18, 20, 8_000 * USDC_PRECISION);

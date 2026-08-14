@@ -92,7 +92,7 @@ contract RoundTripNeutralityLevered is LevYbRealProbe {
     /// regression breaks (it produced 0.1886 vs 0.614 when the recorded term was not restored).
     function testRT_SharePriceHoldsWithLeverageOpen() public {
         _setupMorpho();
-        ETH.setLevManager(address(rlm));
+        EV.setLevManager(address(rlm));
         _openLp();
         V4.syncLev(LP);
 

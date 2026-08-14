@@ -334,7 +334,7 @@ contract LevYbRealProbe is Alles {
     ///         venue denominator excludes it by construction.
     function testReal_VenueYield_LevExcludedFromDenominator() public {
         _setupMorpho();
-        ETH.setLevManager(address(rlm));   // register V4/AUX -> manager so the band syncs the levered slice
+        EV.setLevManager(address(rlm));   // register V4/AUX -> manager so the band syncs the levered slice
         _openLp();          // 5 ETH plain band (Galaxy) + 5 ETH weETH lev, rallied + rebalanced
         V4.syncLev(LP);     // force the levered-slice reconcile (the rebalance's auto-sync is best-effort)
 
@@ -362,7 +362,7 @@ contract LevYbRealProbe is Alles {
     ///   the adapter's Morpho-authorization + position/borrow/repay/withdraw semantics against the LIVE contract.
     function testReal_Morpho_OpenAndDelever() public {
         _setupMorpho();
-        ETH.setLevManager(address(rlm));   // register V4/AUX -> manager so the band syncs the levered slice
+        EV.setLevManager(address(rlm));   // register V4/AUX -> manager so the band syncs the levered slice
         _openLp();
 
         uint debt0 = rvenue.debtOf(LP);
@@ -410,7 +410,7 @@ contract LevYbRealProbe is Alles {
     ///   liquidator-health deferral, no EVC), so the liquidator just repays + seizes in one call.
     function testReal_Morpho_LiquidationLeavesBasketIntact() public {
         _setupMorpho();
-        ETH.setLevManager(address(rlm));
+        EV.setLevManager(address(rlm));
         _openLp();
         _calmVol();                    // vol calms after the IL event ⇒ θ recovers ⇒ syncLev can add the levered depth
         uint tvl0 = _tvl();

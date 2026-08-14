@@ -77,7 +77,7 @@ contract LevYbWethProbe is LevYbRealProbe {
     ///   net-equity -> close (sell WETH -> repay -> return WETH). Proves the additive branch end-to-end.
     function testReal_Weth_OpenLeverClose() public {
         _setupMorphoWeth();
-        ETH.setLevManager(address(wlm));    // BACKING: vogueETH counts this WETH lev book
+        EV.setLevManager(address(wlm));    // BACKING: vogueETH counts this WETH lev book
         _openWethLp();
 
         uint debt0 = wvenue.debtOf(LP);

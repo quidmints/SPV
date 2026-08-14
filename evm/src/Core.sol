@@ -8,6 +8,7 @@ import {Vogue} from "./Vogue.sol";
 import {Vault} from "./Vault.sol";
 import {Basket} from "./Basket.sol";
 import {BasketLib} from "./imports/BasketLib.sol";
+import {ILevHost} from "./imports/Interfaces.sol";
 import {OracleLib} from "./imports/OracleLib.sol";
 import {FeeLib} from "./imports/FeeLib.sol";
 import {VogueLib} from "./imports/VogueLib.sol";
@@ -139,14 +140,15 @@ contract Core is SafeCallback {
     function btcBandEquityUsd18() external view returns (uint) { return _bandEquityUsd18(true); }
 
     /// @dev That pool's total leverage debt (18-dec), read live from the pinned LevManager (0 if unset). The
-    ///      ETH manager (`LEV_MANAGER`) and BTC manager (`LEV_MANAGER_BTC`) both live on the Vault (`BTCVAULT`).
+    ///      The BTC manager (`LEV_MANAGER_BTC`) lives on the Vault; the ETH one lives on the ETH-VENUE
+    ///      contract, reached via `VOGUE.EV()` — the same indirection `VogueLib` uses.
     ///      FAIL-SAFE: `totalDebtUsd` iterates the open-LP book (external venue reads); a revert there must NOT
     ///      brick `committedUsd18` (the backing gate on every swap/mint/redeem). On failure we subtract 0 debt,
     ///      which only RAISES committed ⇒ a STRICTER gate + LOWER redeemable — conservative, never over-issue.
     ///      Mirrors `vogueETH`'s try/catch over the same LevManager reads.
     function _levDebtUsd18(bool isBTC) internal view returns (uint) {
         if (address(BTCVAULT) == address(0)) return 0;
-        address mgr = isBTC ? BTCVAULT.LEV_MANAGER_BTC() : BTCVAULT.LEV_MANAGER();
+        address mgr = isBTC ? BTCVAULT.LEV_MANAGER_BTC() : ILevHost(address(VOGUE.EV())).LEV_MANAGER();
         if (mgr == address(0)) return 0;
         try ILevEquity(mgr).totalDebtUsd() returns (uint d) { return d; } catch { return 0; }
     }
@@ -322,7 +324,7 @@ contract Core is SafeCallback {
             if (mgr == address(0)) return 0;
             try ILevEquityBtc(mgr).totalGrossCollateralBtc() returns (uint256 g) { return g; } catch { return 0; }
         }
-        address m = BTCVAULT.LEV_MANAGER();
+        address m = ILevHost(address(VOGUE.EV())).LEV_MANAGER();
         if (m == address(0)) return 0;
         try ILevEquity(m).totalGrossCollateralEth() returns (uint256 g) { return g; } catch { return 0; }
     }

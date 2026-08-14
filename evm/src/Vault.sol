@@ -92,7 +92,6 @@ contract Vault is Ownable, ReentrancyGuard {
 
     /// @notice The IL-protect orchestrator. Its leveraged book's LIVE net-equity counts in `vogueETH`.
     ///         Pinned once post-deploy (LevManager needs Aux/weETH first). 0 = leverage disabled.
-    address public LEV_MANAGER;
 
     error NotVogueCore();
     error NotSelf();
@@ -243,13 +242,6 @@ contract Vault is Ownable, ReentrancyGuard {
     // ════════════════════════════════════════════════════════════════
     //                    ETH yield-venue side (was EthVenue)
     // ════════════════════════════════════════════════════════════════
-
-
-    /// @notice Pin the LevManager (one-shot, no repoint) so `vogueETH` counts the leveraged book's net-equity.
-    function setLevManager(address m) external onlyOwner {
-        if (LEV_MANAGER != address(0)) revert LevManagerPinned();
-        LEV_MANAGER = m;
-    }
 
     /// @notice Pin the BtcLevManager (one-shot) so `vogueBTC` counts the BTC leveraged book's
     ///         net-equity and `syncLevBTC` can read the per-LP target. Distinct from the ETH LEV_MANAGER.
