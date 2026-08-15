@@ -30,10 +30,10 @@ import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 // ─── IL-protect (leverage overlay) — deployed IN THIS SAME SCRIPT, gated by DEPLOY_LEV ───
 import {LevManager} from "../src/LevManager.sol";
 import {BtcLevManager} from "../src/BtcLevManager.sol";
-import {MorphoEscrowVenue, MarketParams} from "../src/MorphoEscrowVenue.sol";
+import {MorphoEscrowVenue, MarketParams} from "../src/imports/LevVenueBase.sol";
 import {ISwap} from "../src/imports/ISwap.sol";
 import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {AaveV3Venue} from "../src/AaveV3Venue.sol";
+import {AaveV3Venue} from "../src/imports/LevVenueBase.sol";
 import {RealRateBtcMorphoOracle} from "../src/imports/LevBase.sol";   // InverseRateMorphoOracle removed with the short subsystem (2026-07-24)
 
 interface IAaveV3AddrProvider { function getPoolDataProvider() external view returns (address); }

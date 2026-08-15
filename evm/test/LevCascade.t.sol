@@ -5,7 +5,7 @@ import {Alles} from "./Alles.t.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {LevManager} from "../src/LevManager.sol";
 import {ILevVenue} from "../src/imports/ILevVenue.sol";
-import {MorphoEscrowVenue, MarketParams} from "../src/MorphoEscrowVenue.sol";
+import {MorphoEscrowVenue, MarketParams} from "../src/imports/LevVenueBase.sol";
 import {LevMath} from "../src/imports/LevMath.sol";
 
 interface IERC20R {

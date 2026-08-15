@@ -8,8 +8,8 @@ import {BTCChannels} from "../src/BTCChannels.sol";
 import {BtcLevManager} from "../src/BtcLevManager.sol";
 import {ILevVenue} from "../src/imports/ILevVenue.sol";
 import {Types} from "../src/imports/Types.sol";
-import {MorphoEscrowVenue, MarketParams} from "../src/MorphoEscrowVenue.sol";
-import {AaveV3Venue} from "../src/AaveV3Venue.sol";
+import {MorphoEscrowVenue, MarketParams} from "../src/imports/LevVenueBase.sol";
+import {AaveV3Venue} from "../src/imports/LevVenueBase.sol";
 import {LevMath} from "../src/imports/LevMath.sol";
 import {RealRateBtcMorphoOracle} from "../src/imports/LevBase.sol";
 
