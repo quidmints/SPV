@@ -48,6 +48,23 @@ interface IStabilityPool {
 ///         as SwapLib / BasketLib: external functions run in the calling
 ///         contract's storage context.
 library ChannelLib {
+    /// @dev §E198 — one stack slot instead of two. Resolves the aave member's PER-RESERVE health key.
+    ///      Inline `(bool,) = aux.vaultHealth(...)` in the routing loop went stack-too-deep; `via_ir`
+    ///      stays off by design, so the fix is to remove the local, not to enable the IR pipeline.
+    /// One argument on purpose: the routing loop's frame is at the legacy stack limit, and every wider
+    /// shape tried (inline `(bool,)`, a guarded `continue`, a ternary, a 3-arg call) went stack-too-deep.
+    /// `via_ir` stays off by design, so the helper resolves `aux` and the spoke itself — it runs under
+    /// DELEGATECALL, so `address(this)` IS Aux.
+    function _aaveLegDepth(address token) internal view returns (uint) {
+        IAux aux = IAux(address(this));
+        address spoke = aux.AAVE_SPOKE();
+        (bool blocked,) = aux.vaultHealth(BasketLib.aaveHealthKey(spoke, aux.reserveIdOf(token)));
+        // MAX, not 0: the caller picks the LEAST-full member, so a blocked leg must look maximally
+        // full or it would be preferred rather than skipped. If every member is blocked the caller's
+        // `vault` stays address(0) and its existing `revert VaultUnwired()` fires.
+        return blocked ? type(uint).max : aux.aaveBalance(token);
+    }
+
     uint internal constant WAD = 1e18;
 
     // ─── Liquity StabilityPool (BOLD) cluster — relocated from BasketLib to
@@ -215,7 +232,19 @@ library ChannelLib {
             address vj = vs[j];
             uint bj;  // A reverting vault is skipped, never bricks routing
             if (vj == cfg.aaveSpoke) {
-                bj = aux.aaveBalance(token);
+                // §E198 — this branch had NO health check at all: a blocked Aave leg still received new
+                // deposits, because the `blocked` test lived only in the 4626 `else` below. Keyed per
+                // RESERVE, so blocking one reserve leaves the other aave-routed stables routable.
+                // Via a helper, NOT an inline tuple destructure: the `(bool,)` added one stack slot to a
+                // loop frame that is already at the legacy limit and it went stack-too-deep. `via_ir`
+                // stays off by design — the fix is to remove locals (CLAUDE.md build environment).
+                // A blocked aave leg reports MAX so the `bj < lo` selector below can never pick it —
+                // no `continue`, no new local. Both earlier shapes (an inline `(bool,)` destructure and
+                // a guarded `continue`) went stack-too-deep in this already-full legacy frame, and
+                // `via_ir` stays off by design, so the fix has to cost ZERO stack. If every member is
+                // blocked, `vault` stays address(0) and the existing `revert VaultUnwired()` fires —
+                // which is the behaviour the comment above already promises.
+                bj = _aaveLegDepth(token);
             } else {
                 (bool blocked,) = aux.vaultHealth(vj);
                 if (blocked) continue;
