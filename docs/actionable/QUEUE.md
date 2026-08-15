@@ -80,10 +80,24 @@ they create** — i.e. pre-committed settlement.
    are zero — that is a *conservation check*, and it is **separable** from pricing (ticks/√P) and from
    custody. Reimplement as snapshot → run → assert over our own balances. The `POOLED_*` accumulators
    live in `Core`, not in v4, so they survive untouched. **This is the part not to just delete.**
-4. **THEN delete, in ONE cut:** v4 + `SOR.sol` (372 lines — it *is* the v4 flash-accounting router via
-   `Aux.unlockCallback` → `SOR.unlockBody`, which is why it could not go earlier) + all remaining
-   `isBTC` (358 occurrences) + the tick machinery. `Types.Pos` is an ABI-visible 6-tuple — clients
-   decode by position, so the SPA changes with it.
+4. **THEN delete, in ONE cut:** v4 + `SOR.sol` + all remaining `isBTC` + the tick machinery.
+   `Types.Pos` is an ABI-visible 6-tuple — clients decode by position, so the SPA changes with it.
+
+### 📏 MEASURED SCOPE OF THE CUT — counted 2026-08-15, NOTHING BELOW IS DONE
+| target | remaining | note |
+|---|---|---|
+| `SOR.sol` | **372 lines** | IS the v4 flash-accounting router (`Aux.unlockCallback` → `SOR.unlockBody`); cannot precede v4 |
+| `isBTC` | **345 in `src`, 9 in `test`** | nothing to select between only once ONE settlement path exists |
+| v4 / Uniswap | **14 files in `src`** | reference `IPoolManager` / `unlockCallback` / v4 libs |
+| `TickMath` | **34 refs in `src`** | delete outright — the grid serves ONE band with ONE position |
+| `sqrtPrice`/`sqrtP` | **232 refs in `src`** | ⚠️ CONDITIONAL on the fill shape — see the ticks/√P split above |
+
+⚠️ **DO NOT READ "PHASES 1–2 COMPLETE" AS PROGRESS ON THESE.** Phases 1–2 were consolidation
+(`VEth` fold, `LevOracles` rehome, prose corrections, margin re-measurement). **ALL FIVE of the
+headline deletions — SOR, isBTC, Uniswap/v4, ticks, √P — sit ENTIRELY in Phase 3, and Phase 3 has
+not started.** They are ONE cut, not five: delete any one first and it must be re-added to keep the
+others compiling. The lev half of the SOR is the only piece already gone (`084bc5c`, six legs onto
+Curve), which is precisely why every remaining SOR caller is the band's AMM.
 
 ### 🔑 TICKS AND √P ARE **DIFFERENT DECISIONS** — decided separately (owner, 2026-08-15)
 **TICKS: DELETE OUTRIGHT. The rationale collapses entirely.** The tick grid (`P(i) = 1.0001^i`)
