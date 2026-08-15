@@ -1658,6 +1658,58 @@ library SwapLib {
 
     // ── Tick math (pure/view) ─────────────────────────────────────────
 
+    /// @notice §E48 REFILL PLACEMENT — the refill's core arithmetic, and it is NOT A TRADE.
+    ///         Given what the band ALREADY HOLDS and the current price, decide how much of it can be
+    ///         REPRESENTED in a band centred on that price, and where the bounds go.
+    ///
+    ///         WHY THIS IS THE WHOLE OPERATION. Once liquidity settles against inventory rather than
+    ///         a pool position, "putting ETH into the band" is crediting inventory, and the RANGE is
+    ///         a pricing parameter rather than a custody boundary. So a refill is a PLACEMENT
+    ///         COMPUTATION, not an acquisition — which is exactly why the owner ruled buying ETH
+    ///         out-of-band a misuse: *"it's not repairing of assets we already hold because that just
+    ///         makes the pool smaller"*, and *"maximise representation of the ETH already held"*.
+    ///
+    ///         1:1 BY CONSTRUCTION, WITH NO SQUARE ROOT. A concentrated position is 1:1 by value
+    ///         exactly when the price is the GEOMETRIC MEAN of its bounds: equating x·P = y through
+    ///         x = L(1/√P − 1/√Pb) and y = L(√P − √Pa) collapses to P = √(Pa·Pb). Placing the bounds
+    ///         SYMMETRICALLY IN RATIO around `px` (Pa = px/(1+δ), Pb = px·(1+δ)) satisfies that
+    ///         identically, so the target composition needs no root, no tick and no sqrt-price — the
+    ///         roots cancel before any arithmetic happens.
+    ///
+    ///         MAXIMISING REPRESENTATION IS A MIN, AND THE SURPLUS IS THE ANSWER TO "SHORT ETH".
+    ///         A 1:1 band consumes the two legs in equal VALUE, so the placeable amount is set by the
+    ///         SCARCER side and the remainder stays idle. If the band is short ETH outright, no
+    ///         placement fixes it — `tokIdle` will be 0 and `usd6Idle` positive, and that is the
+    ///         honest report rather than a failure. **This is where "restore to 1:1" and "maximise
+    ///         representation of what we hold" diverge, and the caller must not confuse them.**
+    /// @param invTok   inventory of the volatile leg, raw (1e18 ETH / 1e8 sats)
+    /// @param invUsd6  inventory of the USD leg, 6-dec
+    /// @param px       USD18 per 1e18 raw volatile — the SAME base the skew takes (the WBTC ×1e10
+    ///                 lift already closes the 8↔18 gap, so one flat scale serves both legs)
+    /// @param deltaBps half-width in bps of price (`BAND_DELTA` = 20 ⇒ ±0.2%)
+    function refillPlacement(uint invTok, uint invUsd6, uint px, uint deltaBps)
+        internal pure returns (uint tokPlaced, uint usd6Placed,
+                               uint tokIdle, uint usd6Idle, uint pLower, uint pUpper)
+    {
+        if (px == 0) return (0, 0, invTok, invUsd6, 0, 0);
+        // Each leg expressed in the OTHER's unit, so the binding side is a plain comparison.
+        uint tokAsUsd6 = FullMath.mulDiv(invTok, px, 1e30);   // raw·USD18/1e30 -> 6-dec USD
+        if (tokAsUsd6 <= invUsd6) {
+            // volatile is the scarce leg: place ALL of it, match its value in USD, idle the rest
+            tokPlaced  = invTok;
+            usd6Placed = tokAsUsd6;
+        } else {
+            // USD is the scarce leg: place ALL of it, match its value in volatile, idle the rest
+            usd6Placed = invUsd6;
+            tokPlaced  = FullMath.mulDiv(invUsd6, 1e30, px);
+        }
+        tokIdle  = invTok  - tokPlaced;
+        usd6Idle = invUsd6 - usd6Placed;
+        // Ratio-symmetric bounds ⇒ px is their geometric mean ⇒ the placement above IS 1:1 at px.
+        pLower = FullMath.mulDiv(px, 10_000, 10_000 + deltaBps);
+        pUpper = FullMath.mulDiv(px, 10_000 + deltaBps, 10_000);
+    }
+
     function paddedSqrtPrice(uint160 sqrtPriceX96, bool up, uint delta)
         internal pure returns (uint160) {
         uint factor = up ? FixedPointMathLib.sqrt((10000 + delta) * 1e18 / 10000)
