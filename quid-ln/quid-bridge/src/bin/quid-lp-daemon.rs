@@ -43,10 +43,36 @@
 //! anchor is worthless against it. That LP needs an EVM key and gas, which is a deployment
 //! choice for them to make, not a protocol requirement to impose on every LP.
 //!
+//! # The seed path (§M1#2 phase 1c), and the asymmetry at the heart of it
+//!
+//! Phase 1b's security content is that the fleet cannot derive this seed. Read from the other
+//! side, that says: **nobody can recover it either.** The LP's half of every 2-of-2 lives in one
+//! sealed file on one disk, and off-TEE that seal is a mock — so the exposure is a lost disk,
+//! not a compromised one.
+//!
+//! Three things close that, and they are one mechanism, not three features:
+//!
+//!   1. this binary declares itself [`Individual`][role] instead of inheriting the fleet's
+//!      network-derived default, **without which it does not boot on mainnet at all**;
+//!   2. on the single boot where the seed is born, and only on a machine whose seal protects
+//!      nothing, the 24-word mnemonic is written to `SEED-BACKUP-WRITE-THIS-DOWN.txt` (0600,
+//!      never overwritten) — see [`quid_bridge::lp_seed`];
+//!   3. `QUID_SEED` takes that sentence back, not only 32-byte hex, so the backup restores.
+//!
+//! ⚠️ **An export nothing can import is not a backup**, which is why (3) is part of this and not
+//! a follow-up: before it, `RootSeed` could emit a mnemonic and no code in the workspace could
+//! turn one back into a seed.
+//!
+//! [role]: quid_enclave::enclave::HostingRole::Individual
+//!
 //! # Environment
 //!
 //!   QUID_NETWORK           mainnet | testnet3 | testnet4 | signet | regtest
 //!   QUID_DATA_DIR          this LP's own directory: sealed seed + vault state
+//!   QUID_SEED              (restore only) the mnemonic from a backup, or 32-byte hex.
+//!                          Ignored once a sealed seed exists — restore into an EMPTY dir.
+//!   QUID_HOSTING_ROLE      optional; defaults to `individual` here. Set it only to declare a
+//!                          STRICTER role (`family`), which reimposes the TEE requirement.
 //!   QUID_ESPLORA_URL       chain source
 //!   QUID_HOP_NODE_PK       the fleet hop's node pubkey (33-byte compressed hex)
 //!   QUID_HOP_ADDR          the fleet's IPv4 address   ← THE SPLIT (§E175)
@@ -90,8 +116,58 @@ async fn main() -> anyhow::Result<()> {
     // enclave to migrate.
     let seed_ffs = quid_hop::ffs::DiskFs::create_dir_all(data_dir.clone())
         .context("open LP data dir for sealed seed")?;
-    let lp_seed = quid_hop::seed::load_or_provision_from_env(&seed_ffs, network)
-        .context("load/provision this LP's sealed vault seed")?;
+
+    // Read BEFORE provisioning: afterwards a sealed seed always exists, so this is the only
+    // point at which "was one born on this boot?" is answerable. It is the whole trigger for
+    // the backup below.
+    let seed_existed_before = quid_hop::seed::is_provisioned(&seed_ffs)
+        .context("check whether this LP is already provisioned")?;
+    let operator_supplied_seed = std::env::var("QUID_SEED").is_ok();
+
+    // 🔑 `Individual`, declared here rather than inferred from the network — and without it
+    // THIS BINARY CANNOT BOOT ON MAINNET. The env-only default reads mainnet as `Prod` and
+    // `Prod` as `Fleet`; a serves-others role requires a custody-ready TEE, so an LP on an
+    // ordinary box was refused with an error about serving other LPs, which it does not do.
+    // An LP vault serves exactly one operator's funds and is its own trust root.
+    // ⚠️ `QUID_HOSTING_ROLE` still wins where set, so an LP hosting a family plan can declare
+    // the stricter role and get the stricter check.
+    let lp_seed = quid_hop::seed::load_or_provision_from_env_with_role(
+        &seed_ffs,
+        network,
+        Some(quid_enclave::enclave::HostingRole::Individual),
+    )
+    .context("load/provision this LP's sealed vault seed")?;
+
+    // ⚠️ THE OTHER SIDE OF "THE FLEET CANNOT DERIVE IT": nobody else can recover it either.
+    // On the one boot where the seed is born, on a machine whose seal is a mock, hand the
+    // operator the only copy they will ever be offered. See `lp_seed` for why the gate is the
+    // backend rather than a flag.
+    match quid_bridge::lp_seed::decide(
+        seed_existed_before,
+        operator_supplied_seed,
+        quid_enclave::enclave::detect(),
+    ) {
+        quid_bridge::lp_seed::BackupDecision::Write => {
+            let path = quid_bridge::lp_seed::write_mnemonic_backup(&data_dir, &lp_seed)
+                .context("write the LP seed backup")?;
+            // The path, never the words: logs get shipped and retained, data dirs do not.
+            tracing::warn!(
+                path = %path.display(),
+                "🔑 A NEW SEED WAS BORN AND IS BACKED UP ONLY IN THIS FILE. It is your half \
+                 of every channel this node opens; nobody else holds a copy. Write the words \
+                 on paper, store it away from this disk, then delete the file.",
+            );
+        }
+        quid_bridge::lp_seed::BackupDecision::SkipAlreadyProvisioned =>
+            tracing::info!("sealed seed already present; nothing new to back up"),
+        quid_bridge::lp_seed::BackupDecision::SkipOperatorSuppliedSeed => tracing::info!(
+            "seed imported from QUID_SEED; no backup written (you already hold it)"
+        ),
+        quid_bridge::lp_seed::BackupDecision::SkipCustodyReadyBackend => tracing::info!(
+            "seed sealed by a custody-ready TEE; no plaintext backup written (exporting it \
+             would defeat the seal — recover via attested provisioning instead)"
+        ),
+    }
 
     let store_seal = Arc::new(lp_seed.derive_vfs_master_key());
     let store = Arc::new(

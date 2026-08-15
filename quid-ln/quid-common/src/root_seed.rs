@@ -73,6 +73,45 @@ impl RootSeed {
         .expect("Always succeeds for 256 bits")
     }
 
+    /// Recover a [`RootSeed`] from the 24-word sentence an operator wrote down.
+    ///
+    /// ⚠️ **THIS IS THE HALF THAT MAKES A MNEMONIC BACKUP MEAN ANYTHING.** The
+    /// seed→words direction ([`Self::to_mnemonic`]) and the mnemonic→seed
+    /// direction ([`TryFrom<bip39::Mnemonic>`]) both already existed; what did
+    /// not was any way in from a *string*, since [`FromStr`] takes 32-byte hex.
+    /// So an operator holding a written-down sentence held something no code in
+    /// this workspace could turn back into a seed. An export without an import
+    /// is not a backup, it is a keepsake.
+    ///
+    /// Two deliberate choices, both about failing loudly:
+    ///
+    /// * `parse_in_normalized` rather than the `_without_checksum_check`
+    ///   sibling, so a mistyped or transposed word is REFUSED. Accepting it
+    ///   would yield a different, perfectly valid, empty node — which for an LP
+    ///   looks exactly like "my channels are gone", with nothing pointing at the
+    ///   typo as the cause.
+    /// * the language is named rather than detected. `Mnemonic::from_str`
+    ///   auto-detects, which resolves to English only because English is the
+    ///   sole wordlist this workspace compiles in; enabling another feature
+    ///   later would make some sentences ambiguous. Naming it keeps this path
+    ///   deciding for itself.
+    ///
+    /// (`parse_in_normalized` is also the ungated spelling — plain `parse_in`
+    /// needs bip39's `unicode-normalization` feature, which is off here. For the
+    /// English wordlist the two agree, every word being ASCII.)
+    pub fn from_mnemonic_str(s: &str) -> anyhow::Result<Self> {
+        // `map_err` rather than `.context()`: bip39's `Error` only implements
+        // `std::error::Error` under its `std` feature, which this workspace does
+        // not enable. Its variants carry word COUNTS and INDICES, never the
+        // words themselves, so surfacing it does not leak the sentence.
+        let mnemonic =
+            bip39::Mnemonic::parse_in_normalized(bip39::Language::English, s.trim())
+                .map_err(|e| {
+                    anyhow::anyhow!("Not a valid BIP39 English mnemonic: {e}")
+                })?;
+        Self::try_from(mnemonic)
+    }
+
     /// Derives the BIP39-compatible 64-byte seed from this [`RootSeed`].
     ///
     /// This uses the standard BIP39 derivation:
@@ -663,6 +702,56 @@ mod test {
             "root_seed: '{root_seed_hex}', \
              user_pk: '{user_pk}', node_pk: '{node_pk}'"
         );
+    }
+
+    /// ⚠️ A MISTYPED WORD MUST BE REFUSED, NOT SILENTLY ACCEPTED. Swapping one
+    /// word breaks the BIP39 checksum; if that parsed, an LP restoring from a
+    /// slightly wrong sheet of paper would boot a healthy-looking node holding
+    /// none of their channels, with nothing pointing at the typo.
+    #[test]
+    fn test_mnemonic_checksum_is_enforced() {
+        let seed = RootSeed::from_u64(7);
+        let sentence = seed.to_mnemonic().to_string();
+
+        let mut words: Vec<&str> = sentence.split_whitespace().collect();
+        words.swap(0, 1);
+        let swapped = words.join(" ");
+        assert_ne!(swapped, sentence, "the fixture's first two words are equal");
+
+        RootSeed::from_mnemonic_str(&swapped)
+            .expect_err("a transposed word must fail the checksum");
+
+        // Truncation is the other common transcription error.
+        let short = sentence.split_whitespace().take(23).collect::<Vec<_>>().join(" ");
+        RootSeed::from_mnemonic_str(&short)
+            .expect_err("a 23-word sentence must be refused");
+    }
+
+    /// Hex and words are DIFFERENT ENCODINGS OF THE SAME SEED, and
+    /// `quid_hop::seed`'s `QUID_SEED` parser accepts either. If they ever
+    /// disagreed, WHICH BACKUP an operator kept would decide which node they got
+    /// back — a divergence that shows up as an empty node, not as an error.
+    ///
+    /// This is also the round trip through the STRING entry point.
+    /// `root_seed_mnemonic_round_trip` and `mnemonic_fromstr_display_roundtrip`
+    /// already cover seed↔`Mnemonic` and `Mnemonic`↔`String` separately; what
+    /// they never traverse is `from_mnemonic_str`, which is the composition and
+    /// the only thing an operator actually calls.
+    #[test]
+    fn test_hex_and_mnemonic_agree() {
+        let mut rng = FastRng::from_u64(20260816);
+        for _ in 0..16 {
+            let seed = RootSeed::from_rng(&mut rng);
+            let sentence = seed.to_mnemonic().to_string();
+            assert_eq!(sentence.split_whitespace().count(), 24);
+
+            let from_hex =
+                RootSeed::from_str(&hex::encode(seed.expose_secret())).unwrap();
+            let from_words = RootSeed::from_mnemonic_str(&sentence).unwrap();
+
+            assert_eq!(from_hex.expose_secret(), seed.expose_secret());
+            assert_eq!(from_words.expose_secret(), seed.expose_secret());
+        }
     }
 
     #[test]

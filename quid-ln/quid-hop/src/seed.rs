@@ -228,23 +228,112 @@ pub fn deploy_env_for_network(network: Network) -> DeployEnv {
     }
 }
 
+/// Parse the `QUID_SEED` import value, accepting EITHER 32-byte hex OR the
+/// 24-word BIP39 sentence [`RootSeed::to_mnemonic`] emits.
+///
+/// 🔑 **WHY BOTH, AND WHY STILL ONE VARIABLE.** The backup an operator can
+/// actually keep — on paper, in a safe, away from the disk that holds the
+/// sealed seed — is the mnemonic; the hex form exists for machine-to-machine
+/// migration. Accepting only hex meant a written-down sentence had no way back
+/// in. But adding a SECOND import variable would break the invariant the
+/// §E175-b note below rests on ("`QUID_SEED` is a single import variable"), so
+/// the two encodings share one name and are told apart by shape: a mnemonic
+/// contains spaces, hex does not.
+///
+/// The error names both accepted forms, because the failure an operator hits at
+/// 3am is "I pasted the thing and it said invalid".
+fn parse_seed_import(raw: &str) -> anyhow::Result<RootSeed> {
+    let raw = raw.trim();
+    if raw.contains(char::is_whitespace) {
+        return RootSeed::from_mnemonic_str(raw).context(
+            "QUID_SEED looks like a mnemonic but did not parse (check for a \
+             mistyped or transposed word — the BIP39 checksum is enforced)",
+        );
+    }
+    RootSeed::from_str(raw).map_err(|e| {
+        anyhow::anyhow!(
+            "Invalid QUID_SEED: expected either 32-byte hex or a 24-word BIP39 \
+             mnemonic; as hex it failed with: {e}"
+        )
+    })
+}
+
+/// The hosting-role precedence, factored out so it can be asserted rather than
+/// re-read: **operator declaration > caller's construction > network default.**
+///
+/// Each step exists for a different reason and they are not interchangeable.
+/// The operator's `QUID_HOSTING_ROLE` wins because only they know whether this
+/// deployment serves others. `default_role` comes next because a binary like
+/// `quid-lp-daemon` knows its own role by construction and the network cannot
+/// tell (an LP and the fleet hop both run on mainnet). The network fallback is
+/// last and is deliberately STRICT — a forgotten role in staging/prod fails
+/// closed as [`Fleet`][enclave::HostingRole::Fleet], never open.
+fn resolve_role(
+    env_role: Option<&str>,
+    default_role: Option<enclave::HostingRole>,
+    deploy_env: DeployEnv,
+) -> enclave::HostingRole {
+    env_role
+        .and_then(enclave::HostingRole::parse)
+        .or(default_role)
+        .unwrap_or(if deploy_env.is_staging_or_prod() {
+            enclave::HostingRole::Fleet
+        } else {
+            enclave::HostingRole::Individual
+        })
+}
+
 /// Load-or-provision the sealed seed using the process environment — the entry
 /// point the daemons call at boot.
 ///
 /// Seed-source convention:
-/// - `QUID_SEED` set (32-byte hex) => guarded [`SeedSource::Import`] of that
-///   seed (migration / recovery — whoever set it has seen the plaintext). On
-///   first boot it is sealed; thereafter the on-disk sealed seed wins and
-///   `QUID_SEED` is ignored (so leaving it set is harmless, and removing it does
-///   not lose the node's identity).
+/// - `QUID_SEED` set (32-byte hex **or** a 24-word BIP39 mnemonic, see
+///   [`parse_seed_import`]) => guarded [`SeedSource::Import`] of that seed
+///   (migration / recovery — whoever set it has seen the plaintext). On first
+///   boot it is sealed; thereafter the on-disk sealed seed wins and `QUID_SEED`
+///   is ignored (so leaving it set is harmless, and removing it does not lose
+///   the node's identity).
 /// - `QUID_SEED` unset => [`SeedSource::BornInEnclave`] (default, zero-trust).
 ///
 /// `deploy_env` is read from `DEPLOY_ENVIRONMENT` if present, else inferred from
 /// `network`. See [`load_or_provision`] for the seal-on-first-provision and
 /// disk-wins semantics.
+///
+/// The hosting role falls back to the network-derived default — strict
+/// [`HostingRole::Fleet`][enclave::HostingRole::Fleet] in staging/prod. A binary
+/// that KNOWS its role by construction should call
+/// [`load_or_provision_from_env_with_role`] instead; see its docs for why that
+/// is not a convenience.
 pub fn load_or_provision_from_env<F: Ffs>(
     ffs: &F,
     network: Network,
+) -> anyhow::Result<RootSeed> {
+    load_or_provision_from_env_with_role(ffs, network, None)
+}
+
+/// [`load_or_provision_from_env`] with the caller declaring what the node's
+/// hosting role is WHEN THE OPERATOR HAS NOT.
+///
+/// 🔴 **THIS IS NOT A CONVENIENCE — WITHOUT IT AN LP CANNOT BOOT ON MAINNET.**
+/// The env-only default is derived from the network: mainnet ⇒
+/// [`DeployEnv::Prod`] ⇒ [`HostingRole::Fleet`][enclave::HostingRole::Fleet],
+/// and `Fleet.serves_others()`, so [`enclave::require_backend_for_role`] refuses
+/// a machine with no TEE. That is exactly right for the fleet hop and exactly
+/// wrong for `quid-lp-daemon`, which serves ONLY its own operator's funds and is
+/// [`Individual`][enclave::HostingRole::Individual] by construction — an
+/// individual self-host is its own trust root and may run on any backend.
+/// Before this parameter existed, an LP on an ordinary box hit a
+/// `RoleRequiresAttestation` error about serving other LPs, which it does not do.
+///
+/// ⚠️ **`default_role` is a FALLBACK, never an override.** `QUID_HOSTING_ROLE`
+/// still wins where it is set, so an operator can declare a STRICTER role (an
+/// LP hosting a family plan) and get the stricter check. What a caller must not
+/// do is pass `Individual` for something that serves others: the guardrail is
+/// only as honest as the role each binary declares about itself.
+pub fn load_or_provision_from_env_with_role<F: Ffs>(
+    ffs: &F,
+    network: Network,
+    default_role: Option<enclave::HostingRole>,
 ) -> anyhow::Result<RootSeed> {
     let deploy_env = match std::env::var("DEPLOY_ENVIRONMENT") {
         Ok(s) =>
@@ -267,14 +356,11 @@ pub fn load_or_provision_from_env<F: Ffs>(
     //       designating it (see quid_enclave::backend).
     //   (2) refuse the dev migration trust anchors (well-known keys 1/2/3), which
     //       would otherwise let anyone forge a MigrationAuth and steal the seed.
-    let role = std::env::var("QUID_HOSTING_ROLE")
-        .ok()
-        .and_then(|s| enclave::HostingRole::parse(&s))
-        .unwrap_or(if deploy_env.is_staging_or_prod() {
-            enclave::HostingRole::Fleet
-        } else {
-            enclave::HostingRole::Individual
-        });
+    let role = resolve_role(
+        std::env::var("QUID_HOSTING_ROLE").ok().as_deref(),
+        default_role,
+        deploy_env,
+    );
     enclave::require_backend_for_role(role, enclave::detect())?;
     crate::migration::guard_prod_trust_anchors(deploy_env)?;
 
@@ -285,11 +371,7 @@ pub fn load_or_provision_from_env<F: Ffs>(
     // fleet vault therefore derives a sibling seed instead of provisioning its own; see
     // `vault::derive_vault_seed` for why that is the honest encoding rather than a shortcut.
     let source = match std::env::var("QUID_SEED") {
-        Ok(hex) => {
-            let seed = RootSeed::from_str(hex.trim())
-                .context("Invalid QUID_SEED (expected 32-byte hex)")?;
-            SeedSource::Import(seed)
-        }
+        Ok(raw) => SeedSource::Import(parse_seed_import(&raw)?),
         Err(_) => SeedSource::BornInEnclave,
     };
 
@@ -380,6 +462,98 @@ mod test {
             reloaded.as_bytes(),
             imported_bytes.as_slice(),
         );
+    }
+
+    // --- The LP seed path (§M1#2 phase 1c) ---------------------------------
+    //
+    // These do NOT go through `load_or_provision_from_env*`: that function reads
+    // process-wide env vars, and cargo runs tests in threads of ONE process, so
+    // a test that set `QUID_SEED` or `QUID_HOSTING_ROLE` would be visible to
+    // every other test running beside it. The role precedence and the import
+    // parser are the parts that can actually be wrong, and both are pure.
+
+    /// 🔴 **THE DEFECT THIS PARAMETER EXISTS FOR, STATED AS AN ASSERTION.**
+    /// Mainnet infers `Prod`, `Prod` infers `Fleet`, `Fleet` serves others, and
+    /// a serves-others role on a box with no TEE is refused. So before the
+    /// `default_role` fallback, `quid-lp-daemon` on an ordinary mainnet machine
+    /// failed to boot with an error about serving other LPs — which it does not
+    /// do. Declaring `Individual` is what makes it bootable, and the fleet's
+    /// strict default is untouched.
+    #[test]
+    fn an_lp_can_boot_on_mainnet_without_a_tee_but_a_fleet_cannot() {
+        let mainnet = deploy_env_for_network(Network::Mainnet);
+        assert_eq!(mainnet, DeployEnv::Prod);
+
+        let no_default = resolve_role(None, None, mainnet);
+        assert_eq!(no_default, enclave::HostingRole::Fleet);
+        assert!(
+            enclave::require_backend_for_role(no_default, enclave::Backend::None)
+                .is_err(),
+            "the network-derived default must still refuse a no-TEE fleet",
+        );
+
+        let lp = resolve_role(None, Some(enclave::HostingRole::Individual), mainnet);
+        assert_eq!(lp, enclave::HostingRole::Individual);
+        assert!(
+            enclave::require_backend_for_role(lp, enclave::Backend::None).is_ok(),
+            "an LP serving only itself must boot on any backend",
+        );
+    }
+
+    /// The operator's declaration outranks the binary's construction — an LP
+    /// that grows into a family plan can say so and get the stricter check.
+    #[test]
+    fn the_operator_declaration_outranks_the_callers_default() {
+        let role = resolve_role(
+            Some("family"),
+            Some(enclave::HostingRole::Individual),
+            DeployEnv::Prod,
+        );
+        assert_eq!(role, enclave::HostingRole::Family);
+        assert!(
+            enclave::require_backend_for_role(role, enclave::Backend::None).is_err(),
+            "declaring a serves-others role must reimpose the TEE requirement",
+        );
+
+        // An UNPARSEABLE value must not silently win either — it falls through
+        // to the caller's default rather than being read as permission.
+        assert_eq!(
+            resolve_role(
+                Some("wharrgarbl"),
+                Some(enclave::HostingRole::Individual),
+                DeployEnv::Prod
+            ),
+            enclave::HostingRole::Individual,
+        );
+    }
+
+    /// `QUID_SEED` takes hex OR words, and both must land on the same seed —
+    /// otherwise which backup an operator kept would decide which node they get.
+    #[test]
+    fn the_seed_import_accepts_hex_and_words_identically() {
+        let mut rng = FastRng::from_u64(11);
+        let seed = RootSeed::from_rng(&mut rng);
+
+        let as_hex = quid_hex::hex::encode(seed.as_bytes());
+        let as_words = seed.to_mnemonic().to_string();
+
+        let from_hex = parse_seed_import(&as_hex).unwrap();
+        let from_words = parse_seed_import(&as_words).unwrap();
+
+        assert_eq!(from_hex.as_bytes(), seed.as_bytes());
+        assert_eq!(from_words.as_bytes(), seed.as_bytes());
+    }
+
+    /// Surrounding whitespace is what a copy-paste out of a terminal or a text
+    /// file actually carries; it must not be the reason a restore fails.
+    #[test]
+    fn the_seed_import_tolerates_padding_but_not_corruption() {
+        let seed = RootSeed::from_u64(99);
+        let padded = format!("  {}\n", seed.to_mnemonic());
+        assert_eq!(parse_seed_import(&padded).unwrap().as_bytes(), seed.as_bytes());
+
+        parse_seed_import("not a seed at all").unwrap_err();
+        parse_seed_import("deadbeef").unwrap_err();
     }
 
     #[test]
