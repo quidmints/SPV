@@ -64,6 +64,19 @@ environment actually is*. Every line below was verified in-repo, not recalled.
     never commit with `-a`** — stage your own files by name, or you will sweep someone else's
     staged work into your commit. If there is an unpushed commit that is not yours, do not amend or
     rebase it; pushing it is fine and backs it up.
+14b. 🔴 **`git rm` STAGES IMMEDIATELY — SO A DELETION IS A LANDMINE FOR WHOEVER COMMITS NEXT**
+    (measured 2026-08-15, it broke `main`). Rule 14 warns about sweeping someone else's work into
+    YOUR commit. This is the MIRROR IMAGE and nobody plans for it: three `git rm`-staged deletions
+    (`VEth.sol`, `VEthIdentity.t.sol`, `LevOracles.sol`) sat in the index while the code REPLACING
+    them was still unstaged. Another thread committed, picked up the whole index, and landed my
+    deletions inside `8debdb7` — *"Routing fees are absent by design: the node is unannounced"*, a
+    Lightning change. For that window `main` had the contract DELETED, `Vogue` without the
+    replacement face, and `DeployL1_s` importing a file that no longer existed: **it could not
+    compile, and the history attributes a Solidity deletion to a commit about Lightning.**
+    ⇒ **A DELETION AND ITS REPLACEMENT MUST BE STAGED AND COMMITTED TOGETHER**, or the deletion
+    waits. If you must remove a file early, use `rm` (leaves it unstaged) and `git rm` only in the
+    same breath as the commit. **`git status --short` showing no `D ` rows does NOT mean your
+    deletion is safe — it can mean someone already committed it for you.** Check `git log -- <path>`.
 15. **Never commit an unverified change on a money or proof path.** A plausible-but-wrong constraint
     is worse than a documented open hole, because it looks fixed. One was committed on 2026-08-02
     and broke `main`. If the verification run has not finished, say it is in flight and wait.
