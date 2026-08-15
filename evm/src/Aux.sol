@@ -1165,6 +1165,17 @@ contract Aux is // Auxiliary
         return _withdraw(token, amount, to);
     }
 
+    /// @notice §E197 — self-gated vault-health FLAG, called by the delegatecalled redeem/redeemable
+    ///         bodies when the deliverability loop they already run sees a leg below `LIQ_TOL_BPS`.
+    ///         DETECTION ONLY: blocks and starts the evac dwell, never moves funds. This is what
+    ///         replaces a poke SCHEDULE — the measurement was already being made on every redeem and
+    ///         thrown away, so the health clock now starts on organic traffic instead of waiting for
+    ///         somebody to call `pokeVaultHealth`. Evacuation still requires that deliberate call.
+    function flagIlliquidSelf(address vault, bool illiquid) external {
+        if (msg.sender != address(this)) revert NotSelf();
+        BasketLib.flagIlliquidBody(vault, illiquid, vaultHealth);
+    }
+
     function tipSelf(uint cut, address token, int sign) external {
         if (msg.sender != address(this)) revert NotSelf();
         _tip(cut, token, sign);

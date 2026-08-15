@@ -816,7 +816,7 @@ library BasketLib {
     ///         subtracts `_illiquidLoss` in redeemAsBody/redeemableBody). Closes the freeze-window
     ///         over-issuance that does NOT self-heal when a frozen venue is IMPAIRED (stale-high
     ///         convertToAssets it can never actually deliver).
-    function illiquidLoss() external view returns (uint) { return _illiquidLoss(); }
+    function illiquidLoss() external view returns (uint) { (uint l,,) = _illiquidLoss(); return l; }
 
     /// @notice Redemption-only DELIVERABILITY haircut. get_deposits values
     /// each 4626 leg at convertToAssets (PAR/solvency), which can exceed what the
@@ -836,7 +836,21 @@ library BasketLib {
     /// withdraw NOW defers like a frozen 4626 (verified live: GHO reserve ~78%
     /// utilized). BOLD/SP needs no cap — getCompoundedBoldDeposit is withdrawable
     /// (the SP doesn't lend it out), so deliverable == solvent there.
-    function _illiquidLoss() internal view returns (uint loss) {
+    /// @return loss the deliverability haircut, unchanged.
+    /// @return worst the 4626 leg with the LOWEST liquidity ratio, and @return worstBps that ratio.
+    ///         §E197 — THIS LOOP ALREADY COMPUTES THE VAULT-HEALTH POKE'S TWO INPUTS. `solv` IS the
+    ///         poke's `reported` and `deliv` IS its `liquid`; we were paying for both reads on every
+    ///         redeem and discarding the per-vault verdict, keeping only the aggregate. Reporting the
+    ///         worst leg lets the caller start the health clock off ORGANIC TRAFFIC — no scheduler, no
+    ///         extra external call. Worst-only (not a list) keeps this within the legacy stack; repeated
+    ///         traffic walks the set, and the worst leg is the one that matters first.
+    function _illiquidLoss() internal view returns (uint loss, address worst, uint worstBps) {
+        worstBps = type(uint).max;      // sentinel: the FIRST leg seen must always win.
+        // ⚠️ NOT 10000. Initialising at "perfectly liquid" with a strict `<` means a fully-liquid
+        // basket (every bps == 10000) never beats the sentinel, so `worst` stays address(0) and the
+        // caller skips the flag call — which silently disables the RELEASE direction while leaving
+        // blocking intact. Caught by test_trafficReleasesTheVaultOnceLiquidAgain, which is the whole
+        // reason that test exists. Callers gate on `worst != address(0)`, so the no-legs case is safe.
         address aux = address(this);
         address[] memory stables = IAux(aux).getStables();
         address aaveSpoke = IAux(aux).AAVE_SPOKE();
@@ -880,6 +894,9 @@ library BasketLib {
                     // for an unreadable view (conservative: over-haircut, never over-promise).
                     uint deliv = VaultLib._withdrawableOf(v, aux);
                     if (solv > deliv) shortfall += solv - deliv;
+                    // Free: `solv` and `deliv` are already in hand. Same ratio the poke computes.
+                    uint bps = FullMath.mulDiv(deliv, 10000, solv);
+                    if (bps < worstBps) { worstBps = bps; worst = v; }
                 } catch { continue; }
             }
             if (shortfall == 0) continue;
@@ -923,7 +940,12 @@ library BasketLib {
         // ONE valuation for redeem AND swap (no swap↔redeem arb): per-share = qdShareValue of a single share.
         // Byte-equivalent to the old `min(WAD, solvent·WAD/mature)` incl. the mature==0→WAD guard. #U1.
         perShare = ShareMath.qdShareValue(WAD, solvent, mature);
-        uint il = _illiquidLoss();
+        (uint il, address worst, uint worstBps) = _illiquidLoss();
+        // DETECTION ONLY — never evacuation. A user's redeem must not trigger a multi-vault drain,
+        // so this starts the EVAC_DWELL clock and leaves the fund-moving step to the existing
+        // permissionless poke. That is the §E152-nerve gap: `flaggedAt` could not start until
+        // somebody poked, so a 30-minute dwell had an UNBOUNDED start. It now starts on traffic.
+        if (worst != address(0)) IAux(address(this)).flagIlliquidSelf(worst, worstBps < LIQ_TOL_BPS);
         uint committed = ICore(r.core).committedUsd18();
         uint locked = il > committed ? il : committed;
         freeUsd = solvent > locked ? solvent - locked : 0;
@@ -1058,7 +1080,9 @@ library BasketLib {
         // Cap at DELIVERABLE backing (Σ max(0, convertToAssets −
         // maxWithdraw) per 4626) so QU!D is never quoted against a frozen-but-solvent
         // vault's undeliverable slice; that portion defers until the vault is liquid again.
-        { uint il = _illiquidLoss(); total = total > il ? total - il : 0; }
+        { (uint il, address worst, uint worstBps) = _illiquidLoss();
+          total = total > il ? total - il : 0;
+          if (worst != address(0)) IAux(address(this)).flagIlliquidSelf(worst, worstBps < LIQ_TOL_BPS); }
         // NB: this quotes AGGREGATE deliverable dollars (a capacity view). The per-QD `min(par, share)` cap lives
         // in the money path (redeemAsBody + SwapLib); `total` is a conservative upper bound and never under-reports.
         // STABLES-ONLY with the Option-4 unwind: QU!D's dollars deployed as the ETH band's
@@ -1151,6 +1175,31 @@ library BasketLib {
         if (flagged == 0) vaultHealth[vault].flaggedAt = uint40(block.timestamp);
         else if (block.timestamp - flagged >= EVAC_DWELL)
             evacuateBody(vault, cfg, vaultHealth, vaultsOf, tokens);
+    }
+
+    /// @notice §E197 — DETECTION-ONLY half of the poke, driven by organic traffic. Blocks the vault and
+    ///         STARTS the `EVAC_DWELL` clock; it never evacuates and never unblocks. Evacuation stays on
+    ///         the deliberate `pokeVaultHealth`/`evacuate` calls, so a redeem can never drain vaults
+    ///         mid-call. Idempotent: a vault already flagged keeps its ORIGINAL `flaggedAt`, so repeated
+    ///         traffic cannot keep resetting the clock and postponing the evacuation forever.
+    /// @dev ⚠️ SYMMETRIC ON PURPOSE, AND MY FIRST VERSION WAS NOT. Blocking on traffic while leaving the
+    ///      RELEASE to `pokeVaultHealth` reads as conservative and is a LIVENESS BUG: nothing calls the
+    ///      poke (§E152-nerve), so a vault that dipped below tolerance for one block would stay blocked
+    ///      forever — new deposits permanently unrouted — on a transient reading. If traffic is trusted to
+    ///      tighten it must be trusted to release. A ONE-WAY GUARD IS NOT THE SAFE HALF OF A TWO-WAY ONE;
+    ///      the same shape as `computeMetrics`' old floor-to-zero arm, which could tighten but never
+    ///      recover and so turned a mis-measurement into permanent suppression (§E155).
+    ///      The release reuses the poke's OWN guard: only a vault THIS path flagged (`flaggedAt != 0`) is
+    ///      auto-released, so an owner block via `setVaultHealth` (which leaves `flaggedAt == 0`) is never
+    ///      overridden. Blocking stays idempotent, so repeated traffic cannot reset the dwell clock.
+    function flagIlliquidBody(address vault, bool illiquid,
+        mapping(address => VaultHealth) storage vaultHealth) external {
+        if (illiquid) {
+            setVaultHealthBody(vault, true, vaultHealth);
+            if (vaultHealth[vault].flaggedAt == 0) vaultHealth[vault].flaggedAt = uint40(block.timestamp);
+        } else if (vaultHealth[vault].blocked && vaultHealth[vault].flaggedAt != 0) {
+            setVaultHealthBody(vault, false, vaultHealth);   // clears flaggedAt too
+        }
     }
 
     function evacuateBody(
