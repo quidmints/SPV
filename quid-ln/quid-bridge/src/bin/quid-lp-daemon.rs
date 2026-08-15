@@ -69,10 +69,13 @@
 //!
 //!   QUID_NETWORK           mainnet | testnet3 | testnet4 | signet | regtest
 //!   QUID_DATA_DIR          this LP's own directory: sealed seed + vault state
-//!   QUID_SEED              (restore only) the mnemonic from a backup, or 32-byte hex.
+//!   QUID_SEED              (restore only) the mnemonic from a backup, 32-byte hex, or K
+//!                          `quid-seed-share` lines pasted together for a family plan.
 //!                          Ignored once a sealed seed exists — restore into an EMPTY dir.
-//!   QUID_HOSTING_ROLE      optional; defaults to `individual` here. Set it only to declare a
-//!                          STRICTER role (`family`), which reimposes the TEE requirement.
+//!   QUID_HOSTING_ROLE      optional; defaults to `individual` here. `family` reimposes the TEE
+//!                          requirement AND switches the backup from one mnemonic to K-of-N
+//!                          shares (see [`quid_bridge::lp_seed`]).
+//!   QUID_SEED_SPLIT        `K-of-N` for a family plan (default `2-of-3`). Ignored otherwise.
 //!   QUID_ESPLORA_URL       chain source
 //!   QUID_HOP_NODE_PK       the fleet hop's node pubkey (33-byte compressed hex)
 //!   QUID_HOP_ADDR          the fleet's IPv4 address   ← THE SPLIT (§E175)
@@ -91,6 +94,29 @@ use quid_bridge::boot::{env, env_parse};
 use quid_bridge::store::BridgeStore;
 use quid_common::api::user::NodePk;
 use quid_common::ln::network::Network;
+
+/// Parse `QUID_SEED_SPLIT` as `K-of-N`, empty meaning the default.
+///
+/// Rejected rather than clamped: a `K-of-N` an operator got wrong is a family that discovers at
+/// recovery time that its shares do not reconstruct anything, and there is no safe direction to
+/// round in. `seed_shares::split` refuses the degenerate combinations too, but failing HERE names
+/// the environment variable, which is what the operator can actually fix.
+fn parse_split(raw: &str) -> anyhow::Result<(u8, u8)> {
+    use quid_common::seed_shares::{DEFAULT_COUNT, DEFAULT_THRESHOLD};
+
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Ok((DEFAULT_THRESHOLD, DEFAULT_COUNT));
+    }
+    let (k, n) = raw
+        .split_once("-of-")
+        .context("QUID_SEED_SPLIT must look like `2-of-3`")?;
+    let k: u8 = k.trim().parse().context("QUID_SEED_SPLIT threshold")?;
+    let n: u8 = n.trim().parse().context("QUID_SEED_SPLIT count")?;
+    anyhow::ensure!(k >= 2, "QUID_SEED_SPLIT threshold must be at least 2 (got {k})");
+    anyhow::ensure!(n >= k, "QUID_SEED_SPLIT: {k}-of-{n} can never be recovered");
+    Ok((k, n))
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -142,11 +168,37 @@ async fn main() -> anyhow::Result<()> {
     // On the one boot where the seed is born, on a machine whose seal is a mock, hand the
     // operator the only copy they will ever be offered. See `lp_seed` for why the gate is the
     // backend rather than a flag.
+    // A family plan gets its seed SPLIT rather than written down whole. `QUID_SEED_SPLIT` is
+    // `K-of-N`; the default matches the operator quorum's 2-of-3 shape.
+    let (threshold, count) = parse_split(&std::env::var("QUID_SEED_SPLIT").unwrap_or_default())?;
+    let role = std::env::var("QUID_HOSTING_ROLE")
+        .ok()
+        .and_then(|s| quid_enclave::enclave::HostingRole::parse(&s))
+        .unwrap_or(quid_enclave::enclave::HostingRole::Individual);
+
     match quid_bridge::lp_seed::decide(
         seed_existed_before,
         operator_supplied_seed,
         quid_enclave::enclave::detect(),
+        role,
+        (threshold, count),
     ) {
+        quid_bridge::lp_seed::BackupDecision::WriteShares { threshold, count } => {
+            let mut rng = quid_crypto::rng::SysRng::new();
+            let paths = quid_bridge::lp_seed::write_seed_shares(
+                &data_dir, &lp_seed, threshold, count, &mut rng,
+            )
+            .context("write the family seed shares")?;
+            tracing::warn!(
+                shares = paths.len(),
+                threshold,
+                dir = %data_dir.display(),
+                "🔑 A NEW SEED WAS BORN AND IS SPLIT ACROSS {count} SHARES, ANY {threshold} OF \
+                 WHICH RECOVER IT. They are ALL in this directory right now, which is the one \
+                 place they must not stay — hand each to a different holder and delete them. \
+                 Any {threshold} holders acting together can spend this node's channel funds.",
+            );
+        }
         quid_bridge::lp_seed::BackupDecision::Write => {
             let path = quid_bridge::lp_seed::write_mnemonic_backup(&data_dir, &lp_seed)
                 .context("write the LP seed backup")?;

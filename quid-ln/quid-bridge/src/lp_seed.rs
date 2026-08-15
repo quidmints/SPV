@@ -65,7 +65,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use quid_common::root_seed::RootSeed;
-use quid_enclave::enclave::Backend;
+use quid_common::seed_shares;
+use quid_crypto::rng::Crng;
+use quid_enclave::enclave::{Backend, HostingRole};
 
 /// Filename of the one-time plaintext mnemonic backup, inside the LP's data dir.
 ///
@@ -82,6 +84,11 @@ pub enum BackupDecision {
     /// The seed was born on this boot, on a machine whose seal protects nothing, and the
     /// operator has no other copy. Write it.
     Write,
+    /// As [`Write`][Self::Write], but the node serves a FAMILY, so the seed is split K-of-N
+    /// instead of written down whole. Same trigger, different artefact: a family already has
+    /// several people, and handing all of them the same sheet of paper would multiply the
+    /// theft surface by N while leaving the loss surface at one.
+    WriteShares { threshold: u8, count: u8 },
     /// A sealed seed already existed, so nothing was born here and any backup was taken on the
     /// boot that did create it.
     SkipAlreadyProvisioned,
@@ -103,6 +110,8 @@ pub fn decide(
     sealed_seed_existed_before: bool,
     operator_supplied_seed: bool,
     backend: Backend,
+    role: HostingRole,
+    split: (u8, u8),
 ) -> BackupDecision {
     if sealed_seed_existed_before {
         BackupDecision::SkipAlreadyProvisioned
@@ -110,6 +119,11 @@ pub fn decide(
         BackupDecision::SkipOperatorSuppliedSeed
     } else if backend.custody_ready() {
         BackupDecision::SkipCustodyReadyBackend
+    } else if matches!(role, HostingRole::Family) {
+        // ⚠️ KEYED ON `Family` ALONE, not on a separate opt-in. A node that declared it serves a
+        // group HAS a group, which is the only thing sharding needs — asking the operator to
+        // turn it on again would just be a way for the default to be wrong.
+        BackupDecision::WriteShares { threshold: split.0, count: split.1 }
     } else {
         BackupDecision::Write
     }
@@ -170,15 +184,94 @@ pub fn write_mnemonic_backup(
     Ok(path)
 }
 
+/// Filename of share `i`. The threshold is in the name so an operator holding one file knows how
+/// many they need without opening it; **the count is not**, because a filename gets photographed
+/// alongside the share and the set size is the one thing the artefact deliberately withholds.
+pub fn share_filename(index: u8, threshold: u8) -> String {
+    format!("SEED-SHARE-{index}-NEED-{threshold}.txt")
+}
+
+/// Split `seed` K-of-N and write one file per share, each 0600 and each refusing to clobber.
+///
+/// Returns the paths in share order. **The files are written into the SAME data directory**,
+/// which is not where they may stay: a family plan whose N shares all sit on one disk has the
+/// original single point of failure back, plus N copies of the risk. That is why the caller logs
+/// a distribution instruction rather than treating this as done.
+pub fn write_seed_shares<R: Crng>(
+    data_dir: &Path,
+    seed: &RootSeed,
+    threshold: u8,
+    count: u8,
+    rng: &mut R,
+) -> anyhow::Result<Vec<PathBuf>> {
+    use std::io::Write;
+
+    let shares = seed_shares::split(seed, threshold, count, rng)
+        .context("split the seed into family shares")?;
+
+    let mut paths = Vec::with_capacity(shares.len());
+    for share in &shares {
+        let path = data_dir.join(share_filename(share.index(), share.threshold()));
+
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        let mut f = opts.open(&path).with_context(|| {
+            format!(
+                "refusing to write share {} at {}: it already exists (a seed was born on this \
+                 boot, so an existing share belongs to a DIFFERENT split — move it aside \
+                 deliberately rather than letting this overwrite it)",
+                share.index(),
+                path.display(),
+            )
+        })?;
+
+        writeln!(
+            f,
+            "# QuidMint family seed share {} — {} of these recover the node.\n\
+             #\n\
+             # This share ALONE reveals nothing: fewer than {} of them are worthless, so a\n\
+             # single lost or stolen share is not a loss and not a theft.\n\
+             # But {} holders acting together CAN reconstruct the seed and spend the node's\n\
+             # channel funds. Give them to people you would already trust with the whole thing.\n\
+             #\n\
+             # 1. Give this to exactly ONE holder. 2. Do not keep a copy.\n\
+             # 3. Delete this file once it has been handed over.\n\
+             #\n\
+             # To recover: collect any {} shares, set QUID_SEED to their lines pasted together,\n\
+             # and boot with an EMPTY data directory. Whoever collects them never sees the seed.\n",
+            share.index(),
+            share.threshold(),
+            share.threshold(),
+            share.threshold(),
+            share.threshold(),
+        )
+        .context("write share header")?;
+        writeln!(f, "{share}").context("write share line")?;
+        f.sync_all().context("fsync share")?;
+
+        paths.push(path);
+    }
+    Ok(paths)
+}
+
 #[cfg(test)]
 mod test {
     use quid_crypto::rng::FastRng;
+    use secrecy::ExposeSecret;
 
     use super::*;
 
+    const SOLO: HostingRole = HostingRole::Individual;
+    const SPLIT: (u8, u8) = (seed_shares::DEFAULT_THRESHOLD, seed_shares::DEFAULT_COUNT);
+
     #[test]
     fn a_fresh_seed_on_an_ordinary_box_is_backed_up() {
-        assert_eq!(decide(false, false, Backend::None), BackupDecision::Write);
+        assert_eq!(decide(false, false, Backend::None, SOLO, SPLIT), BackupDecision::Write);
     }
 
     /// Each skip must be reported for the RIGHT reason, which is what pins the order. A reboot
@@ -187,15 +280,15 @@ mod test {
     #[test]
     fn the_reasons_are_reported_in_precedence_order() {
         assert_eq!(
-            decide(true, true, Backend::Sgx),
+            decide(true, true, Backend::Sgx, SOLO, SPLIT),
             BackupDecision::SkipAlreadyProvisioned,
         );
         assert_eq!(
-            decide(false, true, Backend::Sgx),
+            decide(false, true, Backend::Sgx, SOLO, SPLIT),
             BackupDecision::SkipOperatorSuppliedSeed,
         );
         assert_eq!(
-            decide(false, false, Backend::Sgx),
+            decide(false, false, Backend::Sgx, SOLO, SPLIT),
             BackupDecision::SkipCustodyReadyBackend,
         );
     }
@@ -209,7 +302,7 @@ mod test {
     fn a_detected_but_unwired_tee_still_gets_a_backup() {
         for b in [Backend::Tdx, Backend::Nitro, Backend::None] {
             assert_eq!(
-                decide(false, false, b),
+                decide(false, false, b, SOLO, SPLIT),
                 BackupDecision::Write,
                 "{} seals with the mock, so its seed needs a backup",
                 b.as_str(),
@@ -217,7 +310,7 @@ mod test {
         }
         for b in [Backend::Sgx, Backend::SevSnp] {
             assert_eq!(
-                decide(false, false, b),
+                decide(false, false, b, SOLO, SPLIT),
                 BackupDecision::SkipCustodyReadyBackend,
                 "{} seals in hardware, so exporting would defeat it",
                 b.as_str(),
@@ -243,7 +336,7 @@ mod test {
             .find(|l| !l.starts_with('#') && !l.trim().is_empty())
             .expect("the file must carry exactly one non-comment line");
         let restored = RootSeed::from_mnemonic_str(words).unwrap();
-        assert_eq!(restored.as_bytes(), seed.as_bytes());
+        assert_eq!(restored.expose_secret(), seed.expose_secret());
     }
 
     /// A second call must FAIL rather than overwrite. The failure mode this prevents is quiet:
@@ -265,10 +358,81 @@ mod test {
             .find(|l| !l.starts_with('#') && !l.trim().is_empty())
             .unwrap();
         assert_eq!(
-            RootSeed::from_mnemonic_str(words).unwrap().as_bytes(),
-            first.as_bytes(),
+            RootSeed::from_mnemonic_str(words).unwrap().expose_secret(),
+            first.expose_secret(),
             "the ORIGINAL seed must still be the one on disk",
         );
+    }
+
+    /// A family gets SHARES on the same trigger a solo LP gets a whole mnemonic — the role is
+    /// the only difference, and it is not a separate opt-in.
+    #[test]
+    fn a_family_gets_shares_where_a_solo_lp_gets_the_whole_mnemonic() {
+        assert_eq!(
+            decide(false, false, Backend::None, HostingRole::Family, (2, 3)),
+            BackupDecision::WriteShares { threshold: 2, count: 3 },
+        );
+        assert_eq!(
+            decide(false, false, Backend::None, HostingRole::Individual, (2, 3)),
+            BackupDecision::Write,
+        );
+        // The skips still outrank the role: a family on a TEE exports nothing either.
+        assert_eq!(
+            decide(false, false, Backend::Sgx, HostingRole::Family, (2, 3)),
+            BackupDecision::SkipCustodyReadyBackend,
+        );
+    }
+
+    /// The family artefact end to end: N files land, any K of them restore the seed through the
+    /// SAME parser `QUID_SEED` uses, and — the point of the whole exercise — K−1 do not.
+    #[test]
+    fn any_threshold_of_the_written_shares_restores_the_seed() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut rng = FastRng::from_u64(0xFA1);
+        let seed = RootSeed::from_rng(&mut rng);
+
+        let paths = write_seed_shares(dir.path(), &seed, 2, 3, &mut rng).unwrap();
+        assert_eq!(paths.len(), 3);
+
+        for (i, j) in [(0, 1), (0, 2), (1, 2)] {
+            let pasted = format!(
+                "{}\n{}",
+                std::fs::read_to_string(&paths[i]).unwrap(),
+                std::fs::read_to_string(&paths[j]).unwrap(),
+            );
+            let shares = seed_shares::parse_share_set(&pasted).unwrap();
+            assert_eq!(
+                seed_shares::combine(&shares).unwrap().expose_secret(),
+                seed.expose_secret(),
+                "shares {i}+{j} did not restore the seed",
+            );
+        }
+
+        let one = std::fs::read_to_string(&paths[0]).unwrap();
+        let shares = seed_shares::parse_share_set(&one).unwrap();
+        seed_shares::combine(&shares)
+            .expect_err("one share of a 2-of-3 must not reconstruct anything");
+    }
+
+    /// ⚠️ THE FILENAME IS PART OF THE DISCLOSURE SURFACE — it gets photographed with the share.
+    /// It may say how many are NEEDED, because a holder must know that; it must not say how many
+    /// EXIST, which is the set size the share body deliberately withholds.
+    #[test]
+    fn a_share_filename_names_the_threshold_and_not_the_set_size() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut rng = FastRng::from_u64(5);
+        let seed = RootSeed::from_rng(&mut rng);
+
+        let small = tempfile::tempdir().unwrap();
+        let paths_3 = write_seed_shares(small.path(), &seed, 2, 3, &mut rng).unwrap();
+        let paths_9 = write_seed_shares(dir.path(), &seed, 2, 9, &mut rng).unwrap();
+
+        let name = |p: &PathBuf| p.file_name().unwrap().to_string_lossy().into_owned();
+        // The first three shares of a 2-of-3 and a 2-of-9 are named identically.
+        for k in 0..3 {
+            assert_eq!(name(&paths_3[k]), name(&paths_9[k]), "filenames disclose N");
+        }
+        assert!(name(&paths_3[0]).contains("NEED-2"), "{}", name(&paths_3[0]));
     }
 
     /// The file holds a spendable secret; it must not be readable by other users on the box.

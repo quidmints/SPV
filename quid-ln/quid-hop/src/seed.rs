@@ -240,10 +240,22 @@ pub fn deploy_env_for_network(network: Network) -> DeployEnv {
 /// the two encodings share one name and are told apart by shape: a mnemonic
 /// contains spaces, hex does not.
 ///
+/// A THIRD shape is accepted for a family plan: K or more `quid-seed-share` lines, which are
+/// combined here. 🔑 **This is what stops any one member ever handling the whole seed** — the
+/// alternative, an operator reconstructing it on their laptop and pasting the result, would put
+/// the plaintext on exactly the machine sharding exists to keep it off. Combining inside the
+/// process means the collector holds K shares and never the secret.
+///
 /// The error names both accepted forms, because the failure an operator hits at
 /// 3am is "I pasted the thing and it said invalid".
 fn parse_seed_import(raw: &str) -> anyhow::Result<RootSeed> {
     let raw = raw.trim();
+    if raw.contains(quid_common::seed_shares::SHARE_TAG) {
+        let shares = quid_common::seed_shares::parse_share_set(raw)
+            .context("QUID_SEED looks like a family share set but did not parse")?;
+        return quid_common::seed_shares::combine(&shares)
+            .context("could not reconstruct the seed from these shares");
+    }
     if raw.contains(char::is_whitespace) {
         return RootSeed::from_mnemonic_str(raw).context(
             "QUID_SEED looks like a mnemonic but did not parse (check for a \
@@ -542,6 +554,35 @@ mod test {
 
         assert_eq!(from_hex.as_bytes(), seed.as_bytes());
         assert_eq!(from_words.as_bytes(), seed.as_bytes());
+    }
+
+    /// The family-plan restore, through the parser an operator actually reaches: K share files
+    /// pasted one after another into `QUID_SEED`.
+    ///
+    /// 🔑 The point is what does NOT appear in this test — at no step is the whole seed a value
+    /// anyone holds. The collector pastes shares; the seed exists only inside the process that
+    /// is about to seal it.
+    #[test]
+    fn the_seed_import_reconstructs_a_family_share_set() {
+        use quid_common::seed_shares;
+
+        let mut rng = FastRng::from_u64(0xFA_11);
+        let seed = RootSeed::from_rng(&mut rng);
+        let shares = seed_shares::split(&seed, 2, 3, &mut rng).unwrap();
+
+        // Two of three, with the comment lines a real file carries.
+        let pasted = format!(
+            "# share one\n{}\n\n# share three\n{}\n",
+            shares[0], shares[2],
+        );
+        assert_eq!(parse_seed_import(&pasted).unwrap().as_bytes(), seed.as_bytes());
+
+        // One is not enough, and it must SAY so rather than reconstruct something.
+        let err = parse_seed_import(&format!("{}", shares[1])).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("need 2 shares"),
+            "expected a threshold refusal, got: {err:#}",
+        );
     }
 
     /// Surrounding whitespace is what a copy-paste out of a terminal or a text

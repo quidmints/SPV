@@ -103,6 +103,11 @@ ureq = { version = "2", features = ["json"] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync", "time", "signal"] }
 
 [dev-dependencies]
+# `ExposeSecret`, to compare recovered seeds in the lp_seed tests. Deliberately this
+# rather than quid-common's `test-utils` feature (which would also give `as_bytes`):
+# a dev-dep feature on a normal dependency is a feature-unification question, and this
+# is one import with none.
+secrecy = { workspace = true }
 # For the hop↔bridge integration test only (paying a swap-in invoice via the
 # hop's channel manager). The workspace [patch] unifies this with quid-hop's fork.
 lightning = { version = "0.2" }
