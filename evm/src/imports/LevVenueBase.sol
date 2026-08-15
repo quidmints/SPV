@@ -24,14 +24,18 @@ import {ILevVenue, IERC20Min} from "./ILevVenue.sol";
 ///    market: `DeployL1_s.sol:93` keeps it on a DEPTH measurement (deepest WBTC/USDC book), which is
 ///    a REAL asymmetry, not drift.
 ///
-///         (`SorExchange` is NOT unified in either, for a DIFFERENT and stronger reason: it is the
-///         adapter for a SEPARATE, LIVE product — the optional Liquity-V2 ~10x directional long (BOLD
-///         into the Stability Pool, or WETH into the venues), still wired in the UI. Different
-///         protocol + BOLD/WETH collateral, so it cannot be a weETH `ILevVenue`. ⛔ A DISTINCT
-///         PRODUCT, NOT A DEPRECATED PATH — do not delete it as an unmerged straggler.) (`SorExchange` is NOT unified in: it's the adapter for a SEPARATE,
-///         live product — the optional Liquity-V2 ~10x directional long (BOLD into the Stability Pool, or
-///         WETH into the venues), still wired in the UI. Different protocol + BOLD/WETH collateral, so it
-///         can't be a weETH `ILevVenue` — a distinct product, NOT a deprecated path.)
+///         (⛔ `SorExchange` IS DELETED, AND SO IS THE PRODUCT IT ADAPTED. This block used to argue
+///         the opposite -- "a DISTINCT PRODUCT, NOT A DEPRECATED PATH -- do not delete it as an
+///         unmerged straggler" -- and it outlived both `SorExchange.sol` and `LiquityTroveVenue.sol`,
+///         which were removed with the Liquity-V2 directional long (owner: there is no way to borrow
+///         against weETH with Liquity, so the tests were testing something untestable). The text had
+///         also become duplicated mid-sentence, so it read as two overlapping claims.
+///         WHY THIS MATTERED ENOUGH TO REWRITE RATHER THAN DELETE: an instruction NOT to delete
+///         something is the one kind of stale comment that can resurrect dead code. A reader
+///         restoring `SorExchange` on its authority would bring back the BOLD/Liquity mint path with
+///         it. There is no BOLD mint anywhere in `evm/src` today -- no `withdrawBold`, no
+///         `BORROWER_OPS`, no `openTrove`, verified by structure 2026-08-15 -- and BOLD survives ONLY
+///         as basket stable slot 11, SUPPLIED to the Liquity Stability Pool. Held, never minted.)
 abstract contract LevVenueBase is ILevVenue {
     address public immutable MANAGER;   // the only caller (LevManager)
     address public immutable STABLE;    // the debt asset this venue lends

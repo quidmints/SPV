@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 /// @notice Aux's public stable<->volatile swap surface (Aux.sol `swap`), declared
 ///         once here as the single source of truth. `Aux` implements it; peripherals
-///         (e.g. `SorExchange`, the Liquity-zapper venue adapter) consume it without
+///         (formerly also `SorExchange`, the Liquity-zapper adapter, deleted 2026-08) consume it without
 ///         re-declaring a duplicate interface. `token` = stable side (or QUID/zero),
 ///         `asset` = volatile side (WETH/WBTC), `forVolatile` true = stable->volatile.
 interface ISwap {
