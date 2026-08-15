@@ -13106,3 +13106,45 @@ parallel branches BEFORE designing, not after committing.
 | §V-D5 | ✅ CLOSED | **Six weETH/USDC 86% markets exist on Morpho; five hold $0.00M** — the `_mkMorphoVenue` empty-twin hazard, live on chain. Closed by `fd1fd78` "A wrong Morpho param must revert, not silently create an empty market". The id assert now proves the whole param set including irm and collateral. |
 | §V-D6 | 🔴 **OPEN — THE ONLY ROW THAT SURVIVES** | **`evm/deployments/l1.json` is `chainId: 1` and still names `rover` and `sorExchange`, both deleted.** Re-checked 2026-08-15: still 2 occurrences. Either the record is stale and must say so, or those addresses hold value and the Rover/Sor purge has a live-contract dimension nobody has priced. Blocks deciding whether the dead WETH-venue withdraw rungs are unreachable code (rule 1) or the only exit for residual positions. |
 | §V-D7 | ✅ CLOSED | **"Does the weETH/WETH 94.5% market hedge anything?"** — no, and it is gone: `92b5b56` "Delete the weETH/WETH lev venue: it could not hedge, and was added believing it could". The algebra: borrow WETH `soldFrac·E0` against weETH and you hold `E0` but owe `soldFrac·E0` of ETH ⇒ net `E0(1−soldFrac)`, unchanged — the debt cancels exactly what the borrow bought. Only a NON-ETH liability creates the delta that offsets band IL. VERIFIED: `MORPHO_WEETH_WETH_LLTV` has 0 occurrences in the deploy script. |
+
+---
+
+# 🔴 THE v4 CUT — MEASURED SURFACE (2026-08-15, from the SPV-v4cut worktree)
+
+**14 files import v4, and that number is misleading. Classified by WHAT they import:**
+
+| class | files | what they need |
+|---|---|---|
+| **REAL AMM coupling** | `Aux` `Core` `SOR` `OracleLib` | `IPoolManager`, `SafeCallback`, `BalanceDelta`, `StateLibrary`, `CurrencySettler`, `TransientStateLibrary` |
+| **`FullMath` ONLY** | `ChannelLib` `FeeLib` `ShareMath` `VaultLib` | pure 512-bit `mulDiv`. **NOTHING to do with the AMM** |
+| **Tick/liquidity math** | `BasketLib` `LevMath` `SwapLib` `VogueLib` `Vogue` | `TickMath`, `LiquidityAmounts` — these leave WITH the tick deletion |
+| **nothing** | `MuSig2Agg` | false positive; imports nothing from v4 |
+
+⇒ **ONLY FOUR FILES ARE ACTUALLY COUPLED TO THE AMM.** `FullMath` is pure arithmetic and can simply
+stay (or be vendored — it is ~50 lines). Sizing this as "14 files" would have made the cut look
+three times larger than it is, and would have invited pointless churn in four files that only do math.
+
+## 🔴 THE BLOCKER THE PLAN DID NOT HAVE: v4 IS ALSO OUR PRICE REFERENCE
+
+`OracleLib.prepRefs` (`:213-217`) reads `StateLibrary.getSlot0(pm, refETH)` / `(pm, refBTC)` — the
+TWAP references are **seeded from v4 reference pools**. `getTWAPforAsset` then prices *everything*:
+~54 call sites across 10 files (`LevManager` 15, `LevMath` 13, `BtcLevManager` 10, `Aux` 5, `Vogue` 3,
+`BtcVaultLib` 3, `Vault` 2, `Core`/`VBtc`/`ISwap` 1 each).
+
+**The good news is narrower than the risk:** the observation ring is OURS — `OracleLib:196` states
+*"The READ path — twap and variance — no longer touches ticks or sqrt-prices at all."* So `observe`
+survives the cut untouched. Only the **seeding** reads v4.
+
+⇒ **THE CUT HAS TWO SEPARABLE HALVES, AND ONLY ONE IS DESIGNED:**
+  1. **Our AMM** (`Core`/`Aux`/`SOR` — unlock, callback, deltas, custody) — replaced by
+     `FixedRateFill` + `BatchLedger`. Built and tested.
+  2. **v4 as a PRICE REFERENCE** (`OracleLib.prepRefs`) — **NOT designed, NOT decided.**
+     Deleting v4 wholesale without answering this removes the price source for the entire lev book.
+
+**The consistent answer is Curve**, since every swap leg is already there (`084bc5c`) and Curve pools
+expose `price_oracle()`/`get_dy`. ⚠️ But that is a NEW oracle dependency on the money path and must be
+priced as one: manipulation surface, staleness behaviour, and the standing posture that *Chainlink is
+the circuit breaker, not the price source*. **Decide this BEFORE the deletion, not during it.**
+
+⚠️ Note the asymmetry that makes this safe to defer: keeping v4 as a read-only PRICE REFERENCE while
+deleting our AMM is a coherent intermediate state. The reverse is not.
