@@ -776,6 +776,24 @@ contract Core is SafeCallback {
     function swap(uint160 sqrtPriceX96, address sender,
         bool forOne, address token, uint amount)
         onlyUs public returns (uint out) {
+        // 🛑🛑🛑 DO NOT MERGE THIS WORKTREE. TRANSITIONAL SOLVENCY HAZARD, KNOWINGLY OPEN. 🛑🛑🛑
+        //
+        // SWAPS HAVE STOPPED BEING v4 OPERATIONS; LIQUIDITY HAS NOT. This settles against `POOLED_*`
+        // and pays out REAL tokens via `AUX.take` / `VOGUE.takeETH` — but the band's tokens are
+        // still custodied by the PoolManager, because `_modifyLiquidity` (6 sites) and four `unlock`
+        // sites still put liquidity there. THE AUTHORITATIVE BALANCE AND THE ACTUAL CUSTODIAN
+        // DISAGREE for as long as this window is open.
+        //
+        // The failure is not a revert. `POOLED_ETH` claims inventory sitting inside a v4 position;
+        // each swap decrements that claim and pays out from a DIFFERENT pot. Run it enough and
+        // either the payout pot drains while `POOLED_*` still reports backing, or `POOLED_*` reaches
+        // zero with the v4 position untouched. Both price every LP claim off a number that is no
+        // longer physical.
+        //
+        // ⇒ CLOSING IT = FINISHING THE CUT: dissolve Repack/Reseat/ModLP/Collect and delete
+        // `_modifyLiquidity`, so custody and accounting are one thing again. Until then this branch
+        // is work-in-progress, not a candidate. (Found by the skew thread; verified here.)
+        //
         // ═══════════════ §V4-CUT — SETTLE AT ORACLE, BOUNDED BY INVENTORY ═══════════════
         // No unlock, no callback, no curve traversal, no price discovery. ONE price for the whole
         // size. The skew is deliberately NOT folded into this rate: we restore 1:1 from the inside

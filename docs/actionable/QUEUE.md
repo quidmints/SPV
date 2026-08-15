@@ -13398,3 +13398,55 @@ via Lightning cooperative close. That asymmetry is REAL — but it is an argumen
 with different payout behaviour**, NOT for a runtime flag. Conflating those is what kept `isBTC`
 alive: a boolean selecting between two behaviours at runtime IS the hand-rolled polymorphism the
 refactor exists to delete.
+
+## 🛑 MERGE BLOCKER — the v4-cut worktree has a TRANSITIONAL SOLVENCY DIVERGENCE
+
+**SWAPS HAVE STOPPED BEING v4 OPERATIONS; LIQUIDITY HAS NOT.** `Core.swap` settles against
+`POOLED_*` and pays out real tokens via `AUX.take` / `VOGUE.takeETH`, while `_modifyLiquidity`
+(6 sites) and four `unlock` sites still custody the band's tokens in the PoolManager.
+
+⇒ **The authoritative balance and the actual custodian disagree.** Not a revert: `POOLED_ETH` claims
+inventory that is inside a v4 position, each swap decrements that claim and pays from a DIFFERENT
+pot. Either the payout pot drains while `POOLED_*` still reports backing, or `POOLED_*` reaches zero
+with the v4 position untouched. Both price every LP claim off a number that is no longer physical.
+
+**Closing it IS finishing the cut** — dissolve Repack/Reseat/ModLP/Collect, delete
+`_modifyLiquidity`, and custody and accounting become one thing again. Marked in `Core.swap` itself.
+*(Found by the skew thread; verified here.)*
+
+## ⭐ THE REFILL IS A RANGE-PLACEMENT COMPUTATION, NOT A TRADE (skew thread, and it reconciles §E48)
+
+Once liquidity settles against inventory too, **the band stops being a position and becomes inventory
+we own**. "Putting ETH into the band" is then crediting `POOLED_ETH` — bookkeeping, not a trade — and
+the range becomes a PRICING PARAMETER rather than a custody boundary.
+
+⇒ A refill is: **choose the range so that inventory ALREADY HELD sits at the target composition at
+the current price.** No counterparty, no external leg, no restoration cost.
+
+**Why believe it: every clause of §E48 falls out at once.**
+
+| owner's words | why it follows |
+|---|---|
+| *"shouldn't be sold for ETH out of band… a misuse"* | there is nothing to buy — the ETH is already held |
+| *"maximise representation of the ETH already held"* | that IS range placement |
+| *"external impact should net the zero"* | no external leg exists to carry impact |
+| *"no premium paid to a restorer"* | no external party restores |
+| *"reseats fire together with refill JIT"* | not two operations — one |
+
+⇒ **CONSEQUENCE FOR `requireNonAbusable`:** the grind floor `w >= 1 − fee/C` costs an EXTERNAL
+purchase that was already ruled out. It survives ONLY at §E48's third tier, the premium-attracted
+hop, where an external cost is real. It must not gate the atomic tier — which is why it now REVERTS
+on `costPpm == 0` rather than passing.
+
+### Three things this does NOT dissolve
+1. **If the band is SHORT ETH outright, no reseat fixes it.** You can only represent what you hold —
+   and that is exactly where *"restore to 1:1"* and *"maximise representation"* diverge. Owner's call.
+2. §E48's three opens are untouched: who pays the gas, Rust-automatic vs on-chain trigger (asked to be
+   COMPARED, not assumed), and nothing tying the skew collected to the external price impact a flash
+   refill pays.
+3. The merge blocker above.
+
+## ✅ θ CANNOT INFLATE DEPTH PAST BACKING (skew thread, checked)
+`clampByBacking` computes physical backing − pooled FIRST, and `applyTheta`'s fail-open branch returns
+it unchanged ⇒ θ can only TIGHTEN an already-physical bound. **Driving σ² to zero cannot inflate depth
+past backing.** Closes the obvious attack on the variance input.
