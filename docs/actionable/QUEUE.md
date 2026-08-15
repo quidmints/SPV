@@ -108,7 +108,20 @@ initialised tick, no crossing, no bitmap, no aggregation — the structure solve
 already removed. *Evidence (B4):* 12 opens and 6 buy-backs swung the USD leg by 45k and moved the
 tick by **two**. We are paying for a coordinate system to express a quantity that barely varies.
 
-**√P: THE WEAKER CASE — DECIDE ON WHAT THE FILL MATH NEEDS, NOT ON "IT CAME FROM UNISWAP".**
+## ✅ DECIDED (owner, 2026-08-15): **WORK AROUND GEOMETRIC MEANS ⇒ √P IS DELETED TOO.**
+The fill is a **FIXED RATE BOUNDED BY INVENTORY** — one price, no traversal. With no traversal there
+is no average-execution-across-a-range to compute, so there is **no geometric mean to take**, and the
+sole argument for keeping √P (below) has no referent. **√P and the ticks go in the SAME cut.**
+⇒ **This unblocks the whole of Phase 3 sizing:** all 232 `sqrtPrice`/`sqrtP` references in `src` are
+in scope, plus `entrySqrtP`, `LevMath.reanchorCompute`, and `Types.Pos`'s sqrtP field. ⚠️ `Types.Pos`
+is an ABI-visible 6-tuple decoded BY POSITION — the SPA changes in the same cut, not after it.
+⇒ It also settles **#46**: the `oorTicks` off-by-one exists only because ticks are derived from a
+sqrt price. Both sides of that defect are deleted, so it needs NO tolerance and NO patch — exactly
+rule 17 (a root fix makes the guard delete itself).
+*The reasoning that was weighed and rejected is kept below, because a decision without its
+counter-argument cannot be re-examined when the fill shape is revisited.*
+
+**√P — THE CASE THAT WAS MADE FOR KEEPING IT, NOW OVERRIDDEN BY THE FIXED-RATE DECISION ABOVE.**
 √P is a change of variable that makes swap arithmetic LINEAR: under `x·y = k` with liquidity `L`,
 `x = L/√P` and `y = L·√P`, so `Δy = L·Δ(√P)` and `Δx = L·Δ(1/√P)` — add/multiply, no square roots at
 execution time. **The argument AGAINST removing it** (stated against the tick conclusion, not with
