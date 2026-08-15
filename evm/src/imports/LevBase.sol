@@ -56,7 +56,12 @@ abstract contract LevBase {
     address[] internal _openLps;
     mapping(address => uint256) internal _lpIdx;
 
+    /// The band's sync hook (Vogue's `syncLev` / Vault's `syncLevBTC`). GOV pin-once, then frozen —
+    ///  the SETTER stays per-manager (BtcLevManager fuses it into `init` alongside `venuesFrozen`).
+    address public vogueSyncHook;
+
     event TargetSet(address indexed lp, uint256 targetLtvBps);
+    event ReanchoredToBand(address indexed lp, uint160 entrySqrtP, uint256 e0);
 
     error NotOpen();
     error BadTarget();
@@ -136,4 +141,30 @@ abstract contract LevBase {
 
     /// @dev Debt in USD 1e18 for `lp` — per-asset only in which stable the venue names.
     function debtUsd(address lp) public view virtual returns (uint);
+
+    /// @notice Per-LP net-of-debt equity in the instance's OWN native unit — 1e18 ETH on the ETH side,
+    ///         8-dec sats on the BTC side. The unit differs; the MEANING does not, which is why one
+    ///         name serves both. (Was `netEquityEth`/`netEquityBtc`; those two names were the last
+    ///         per-asset difference in `_reanchorIfReseated`.)
+    function netEquity(address lp) public view virtual returns (uint256);
+
+    /// @notice A band reseat REALIZES accrued IL, so re-anchor `E0` to the position's CURRENT
+    ///         net-equity — the new fixed base — NOT the band position (which is 0 in the (A) model,
+    ///         the deposit having no separate unlevered band slice). Net-equity IS the delta-1 slice
+    ///         now sitting in the recentered band; the next hedge cycle sizes from it at zero IL.
+    /// @dev    The over-hedge fix still holds: `E0` tracks NET-EQUITY, never the growing collateral.
+    ///         IDENTICAL on both sides once `netEquity` replaced the two per-asset accessors — the
+    ///         bodies differed only in `uint` vs `uint256` spelling and comment framing.
+    function _reanchorIfReseated(address lp) internal {
+        Types.Pos storage p = pos[lp];
+        if (!p.open) return;
+        (bool go, uint160 s) = LevMath.reanchorCompute(vogueSyncHook, p.entrySqrtP);
+        if (!go) return;
+        uint256 px   = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
+        uint256 base = netEquity(lp);
+        p.entrySqrtP    = s;
+        p.entryPriceWad = uint128(px);
+        p.e0            = uint128(base);
+        emit ReanchoredToBand(lp, s, base);
+    }
 }

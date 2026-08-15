@@ -64,7 +64,6 @@ contract BtcLevManager is LevBase {
     bool    public venuesFrozen;
     address public flashProvider;   // Morpho zero-fee flash (set in init) — powers the WBTC flash-repay-first de-lever
     event VenueAllowed(address venue);
-    address public vogueSyncHook;                          // Vault.syncLevBTC — GOV pin-ONCE then frozen
     /// @notice ONE-SHOT GOV config — pin-once, then FROZEN, atomic. Wires the audited venue ALLOWLIST
     ///         (`venues`, then frozen) and the band sync-hook (`hook` = Vault.syncLevBTC, poked by
     ///         closeBtcLev) together. NOT rotatable (a new venue/hook ⇒ deploy a new BtcLevManager). No flash
@@ -91,9 +90,6 @@ contract BtcLevManager is LevBase {
     event Withdrawn(address indexed lp, uint vbtcOut);
     event Repaid(address indexed lp, uint stableIn);
     event Closed(address indexed lp, uint vbtcReturned);
-    /// @dev RENAMED from `Reanchored` 2026-08-09 — see the note on `LevManager.ReanchoredToBand`. A stale
-    ///      decoder reading the old 4-field shape MISPARSES a 3-field payload rather than reverting.
-    event ReanchoredToBand(address indexed lp, uint160 entrySqrtP, uint e0);
     event ProtectedFromQuid(address indexed lp, uint quidRedeemed, uint debtRepaid);
     event DeleverFailed(address indexed lp, uint ltvBps);   // #10: a batch member skipped (couldn't source / native-only)
 
@@ -132,7 +128,7 @@ contract BtcLevManager is LevBase {
     /// @notice `lp`'s LIVE net-equity in BTC-units (1e18) = collateral(vBTC) − debt(USD→BTC), floored at 0.
     ///         The single SOLVENCY term `Vault.vogueBTC()` adds — never deliverable (cross-chain custody).
     ///         All-view (collateralOf/debtOf/getTWAPforAsset are views), safe from `vogueBTC()`.
-    function netEquity(address lp) public view returns (uint) {
+    function netEquity(address lp) public view override returns (uint256) {
         uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         return _netEquityAt(lp, px);
     }
@@ -215,24 +211,6 @@ contract BtcLevManager is LevBase {
         return LevMath.ilTargetLive(vogueSyncHook, p.entrySqrtP, p.entryPriceWad, px, p.targetLtvCapBps);
     }
 
-    /// @notice (B) Realize on a BTC band RESEAT — mirror of `LevManager._reanchorIfReseated`. E0 becomes the
-    ///         LP's CURRENT band-BTC depth (BAND-ONLY, matching `openBtcLev`; the buffer is HODL-neutral BTC
-    ///         equity, not IL); the sold-fraction reference resets to the recentered band spot. No-op unless the
-    ///         sold-fraction target is active. Mutating ⇒ only reachable from the keeper legs.
-    function _reanchorIfReseated(address lp) internal {
-        Types.Pos storage p = pos[lp];
-        if (!p.open) return;
-        (bool go, uint160 s) = LevMath.reanchorCompute(vogueSyncHook, p.entrySqrtP);
-        if (!go) return;
-        uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        // (A): a reseat realizes accrued IL ⇒ re-anchor E0 to the position's CURRENT net-equity (sats) — NOT
-        // bandBtcOf (0 in the (A) model). The over-hedge fix holds: E0 tracks net-equity, not growing collateral.
-        uint base = netEquity(lp);
-        p.entrySqrtP    = s;
-        p.entryPriceWad = uint128(px);
-        p.e0         = uint128(base);
-        emit ReanchoredToBand(lp, s, base);
-    }
     /// @notice Stable delta (USD 1e18) + direction to re-hit the IL target; oracle read ONCE.
     function debtDeltaToTarget(address lp) public returns (bool levUp, uint amountUsd) {
         Types.Pos memory p = pos[lp];

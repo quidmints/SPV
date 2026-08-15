@@ -98,11 +98,6 @@ contract LevManager is LevBase {
     event Closed(address indexed lp, uint256 weethReturned);
     event DeleverFailed(address indexed lp, uint256 ltvBps);    // cascade skipped this LP → its venue liquidates it
     event RebalanceFailed(address indexed lp, uint256 ltvBps);  // batch rebalance skipped this LP (retried next tick)
-    /// @dev RENAMED from `Reanchored` 2026-08-09 (was `(lp, uint64 epoch, uint160, uint256)`). The `epoch`
-    ///      field went with the `reseatEpoch` counter. Renaming rather than shortening in place is deliberate:
-    ///      a stale off-chain decoder reading the OLD 4-field shape does not revert on a 3-field payload, it
-    ///      MISPARSES. A new name makes it fail to match instead — loud beats plausible.
-    event ReanchoredToBand(address indexed lp, uint160 entrySqrtP, uint256 e0);
 
     error AlreadyOpen();
     error Reentrancy();
@@ -126,10 +121,6 @@ contract LevManager is LevBase {
     bool internal venuesFrozen;                              // set by pinVenues → allowlist immutable thereafter
     event VenueAllowed(address indexed venue, bool ok);
 
-    /// @notice Vogue (the band) — `closeLev` calls `syncLev` on it so a closed position's levered fee slice is
-    ///         burned atomically (else it keeps earning band fees on backing that's gone, diluting honest LPs,
-    ///         and the closer is incentivized never to poke the permissionless syncLev). GOV-pinned. 0 = unset.
-    address public vogueSyncHook;
     /// PIN-ONCE via `init` (below), then frozen (not rotatable) — matches the renounce-everything posture.
 
     /// @notice (B) Sold-fraction target activation. Default OFF ⇒ the PROVEN 1−√(entry/now) target stays
@@ -250,7 +241,7 @@ contract LevManager is LevBase {
     ///         leg is valued at the SAME oracle px the band pairs at; `px==0` (dead oracle) ⇒ 0 (no credit,
     ///         the conservative side). All-`view`: `collateralOf`/`debtOf`/`getEETHByWeETH`/the TWAP read are
     ///         every one a `view`, so this is safe to call from `Vault.vogueETH()`.
-    function netEquity(address lp) public view returns (uint256) {
+    function netEquity(address lp) public view override returns (uint256) {
         uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         return _netEquityAt(lp, px);
     }
@@ -396,29 +387,6 @@ contract LevManager is LevBase {
         return LevMath.ilTargetLive(vogueSyncHook, p.entrySqrtP, p.entryPriceWad, px, p.targetLtvCapBps);
     }
 
-    /// @notice (B) Realize on a band RESEAT. If the band recentered since this position last anchored
-    ///         (`Vogue.reseatEpoch()` advanced), re-anchor the sold-fraction reference (`entrySqrtP`), the
-    ///         entry price, and E0 to the NEW center — E0 becomes the LP's CURRENT band ETH depth (BAND-ONLY,
-    ///         matching `openLev`; the buffer is HODL-neutral equity, not IL), so the next hedge cycle starts at
-    ///         ZERO IL from the recentered band instead of measuring the sold fraction across the tick-config
-    ///         change (which over-hedges). No-op unless the sold-fraction target is active (the √p fallback
-    ///         re-anchors implicitly via px). Mutating ⇒ only reachable from the keeper's `rebalance`.
-    function _reanchorIfReseated(address lp) internal {
-        Types.Pos storage p = pos[lp];
-        if (!p.open) return;
-        (bool go, uint160 s) = LevMath.reanchorCompute(vogueSyncHook, p.entrySqrtP);
-        if (!go) return;
-        uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        // (A): a reseat REALIZES the accrued IL, so re-anchor E0 to the position's CURRENT net-equity (the new
-        // fixed base) — NOT bandEthOf (which is 0 in the (A) model, since the deposit has no separate unlevered
-        // band position). Net-equity is the delta-1 slice now in the recentered band; the next hedge cycle sizes
-        // from it at zero IL. (The over-hedge fix still holds: E0 tracks net-equity, NOT the growing collateral.)
-        uint256 base = netEquity(lp);
-        p.entrySqrtP    = s;
-        p.entryPriceWad = uint128(px);
-        p.e0         = uint128(base);
-        emit ReanchoredToBand(lp, s, base);
-    }
 
     // ════════════════════════════ OPEN ════════════════════════════
 
