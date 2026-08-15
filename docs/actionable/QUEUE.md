@@ -107,7 +107,18 @@ The file was drafted BEFORE the owner changed the charge model. Do not build fur
    **not** `Γ·σ²·q`. Model vs receipt — see §SKEW-DESIGN-VERDICT for why every measured defect belongs to the model.
 3. **WHO PAYS: the swapper.** Both alternatives are CLOSED, not ranked — see §WHO-PAYS above (LPs refuted by
    grinding arithmetic, −1.6 to −43.6 bp per round trip; the basket refuted as a pattern deleted twice as toxic).
-4. **Route it to LPs.** §E107: the premium currently accrues to QU!D holders, not to whoever bore the cost.
+4. ⛔ **RETRACTED — THE ROUTING IS ALREADY CORRECT. DO NOT CHANGE IT (owner caught this 2026-08-15).** I wrote
+   *"§E107: the premium currently accrues to QU!D holders"* **without opening the code. It is FALSE for current
+   main.** `Core.recordSkewPremium` does BOTH `ISkewSink(isBTC ? BTCVAULT : VOGUE).creditSkewPremium(premiumUsd)`
+   (the credit that reaches LPs) and `_addPooledUsd(isBTC, premiumUsd)` (§E42 — the backing behind that claim).
+   Its own comment says it: *"the counters below are an AUDIT RECORD; the CREDIT is what actually reaches LPs.
+   Without it the premium accrues to basket backing, which prices QU!D and not LP shares."* **§E107 describes the
+   state BEFORE that credit existed — adding a routing change now would DOUBLE-CREDIT.**
+   📌 **AND THE OWNER'S FRAMING IS THE CLEANER WAY TO HOLD IT: QU!D is a 1:1 REDEEMABLE DOLLAR SHARE, so value
+   accruing 'to QU!D holders' cannot make them richer — a $1 claim still pays $1, it only gets a thicker buffer.
+   The residual/EQUITY claim is the 4626 SHARES, which is where a premium must land to compensate anyone.**
+   ⚠️ **METHOD: I cited a ledger row four times today without opening the file it quotes.** That is the
+   two-removes-from-the-code trap, and it reached a PEER SESSION as an instruction before it was caught.
 5. **`get_dy` makes it quotable — but NEVER quote it naked.** Sizing a charge from live Curve state is a
    TOLERANCE, not a capacity read, and `Interfaces.sol:74-77` warns manipulation *"WIDENS the guard exactly
    when it needs to hold"*. **Settle at ACTUAL, or FLOOR the quote.**
