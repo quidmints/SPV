@@ -141,7 +141,11 @@ for f in OUT.rglob("*.json"):
     except Exception:
         continue
     for e in art.get("abi", []) or []:
-        if e.get("type") != "function":
+        # EVENTS COUNT. Clients encode `Event(argtypes)` to compute topic0, and that string is
+        # indistinguishable from a call signature to the extractor below. Indexing only functions
+        # made every event name an ORPHAN — noise that would have taught readers to ignore the
+        # gate, which is how a real finding gets missed.
+        if e.get("type") not in ("function", "event"):
             continue
         compiled.setdefault(sig_from_artifact(e), set()).add(ret_from_artifact(e))
 
@@ -239,6 +243,13 @@ for base in RUST_ROOTS:
                     # it, and this gate reported `0 drifted` on every run. Argument drift was
                     # caught; a function being GONE was invisible — on the RUST side, which is the
                     # side that signs money-path transactions.
+                    # `f` is not a contract of ours and never will be: it is the conventional
+                    # PLACEHOLDER in a `cast abi-encode "f(bytes,bytes)"` doc example
+                    # (`evm_codec.rs:1092`) and a dummy selector in an eth_call test
+                    # (`client.rs:1114`/`:1128`). Named here WITH THE REASON rather than filtered
+                    # by a length or shape heuristic, which would silently swallow real names.
+                    if name == "f":
+                        continue
                     if name not in EXTERNAL_OK:
                         rust_drift.append((key, f"{p.relative_to(ROOT)}:{i}", []))
                     continue
