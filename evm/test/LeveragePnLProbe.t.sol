@@ -95,6 +95,10 @@ contract LeveragePnLProbe is Alles {
         try V4.redeem(lpShares, lp, lp) {} catch {}
         uint ethG  = (lp.balance - eth0) + (WETH.balanceOf(lp) - weth0);
         uint quidG = QUID.balanceOf(lp) - q0;
+        // §WHICH-BRANCH — DID THE REDEEM BURN EVERYTHING? `BasketLib:1023` is UNWIND-FIRST,
+        // BURN-EXACT: it burns ONLY what it can actually deliver. If shares SURVIVE the redeem,
+        // this function under-measures the LP, because the undelivered value is still THEIRS.
+        emit log_named_uint("  shares left   ", V4.balanceOf(lp));
         emit log_named_uint("  leg ETH (wei)", ethG);
         emit log_named_uint("  leg QUID(18d)", quidG);
         usd = ethG * ethPx18 / 1e18 + quidG;
@@ -165,6 +169,44 @@ contract LeveragePnLProbe is Alles {
     // (2) LVR / value transfer: control (no opens) vs treatment (N opens), valued at
     //     the SAME final ETH price. Difference = pure leverage externality on the LP.
     // ───────────────────────────────────────────────────────────────────────────
+    /// @notice THE DISCRIMINATOR for the 0.63% passive-LP leak (owner asked "check which", 2026-08-16).
+    ///         The leak is NOT the band swap — that sells 0.05% ABOVE mid and leaves band value
+    ///         unchanged. It is the REDEMPTION's ETH→QUID conversion, which pays 92.1 cents on the
+    ///         dollar. `_redeemQuote` forms `perShare = min(WAD, solvent·WAD/mature)`, so the whole
+    ///         fork reduces to ONE comparison:
+    ///           solvent >= mature  ⇒ perShare == $1, the haircut is NOT solvency, and the QUID mint
+    ///                                path is the defect.
+    ///           solvent <  mature  ⇒ the basket is GENUINELY SHORT, the 7.90% is CORRECT, and the
+    ///                                defect is the ASYMMETRY: an ETH-paid redeemer escapes what an
+    ///                                otherwise-identical QUID-paid redeemer bears.
+    ///         Measured AFTER the same 20 opens, so it reads the state the failing test redeems from.
+    function test_WhichBranch_IsTheBasketActuallyShort() public {
+        _seed(400 ether);
+        for (uint r = 0; r < 20; r++) { if (_open(3_000e18) == 0) break; }
+
+        (uint solvent,) = AUX.get_metrics(true);
+        uint mature   = QUID.matureSupply();
+        uint immature = QUID.immatureSupply();
+
+        emit log_named_uint("solvent (USD18)   ", solvent);
+        emit log_named_uint("matureSupply      ", mature);
+        emit log_named_uint("immatureSupply    ", immature);
+        emit log_named_uint("perShare x1e18    ", mature == 0 ? 1e18
+            : (solvent * 1e18 / mature > 1e18 ? 1e18 : solvent * 1e18 / mature));
+        if (mature != 0) {
+            emit log_named_uint("solvent/mature bps", solvent * 10_000 / mature);
+            if (solvent >= mature) emit log("BRANCH (b): NOT short -> perShare is par; the 7.90% is a MINT-PATH defect.");
+            else emit log("BRANCH (a): SHORT -> the 7.90% is a CORRECT solvency haircut; the defect is the ASYMMETRY.");
+        }
+        // No assertion on the VALUE — the value IS the answer. Only a premise, so a zeroed
+        // fixture cannot masquerade as a branch verdict.
+        // PREMISE: something must be outstanding, or "is the basket short" has no referent.
+        // NOTE mature == 0 here is not a fixture defect -- it is the ANSWER: nothing has vested,
+        // so `qdShareValue`'s mature==0 guard returns WAD and perShare is PAR by construction.
+        assertGt(mature + immature, 0, "PREMISE: no supply at all, nothing to price a share against");
+        assertGt(solvent, 0, "PREMISE: solvent reads zero, so the comparison is vacuous");
+    }
+
     function testLeverage_LvrControlVsTreatment() public {
         _seed(400 ether);
         uint px0 = AUX.getTWAPforAsset(address(WETH), 1800); // USD18 per 1e18 ETH

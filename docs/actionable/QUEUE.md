@@ -98,6 +98,32 @@ passthrough is not mistaken for having closed it.**
 not less** — and `SwapLib.clampByBacking`'s physical `backing − pooled` headroom is what actually bounds it
 (audit #8). **That is the guard to re-verify once σ² leaves pricing, because it becomes the only one left.**
 
+## ✅ THE 0.63% PASSIVE-LP LEAK IS A TEST ARTIFACT, NOT A DEFECT — **THE TEST COMPARES A FULL REDEMPTION AGAINST A PARTIAL ONE (owner asked "check which", 2026-08-16).**
+The fork below asked whether the 7.90% conversion haircut was a correct solvency mark-down (basket short)
+or a mint-path defect. **It is NEITHER. Both branches were wrong because the premise was.**
+✅ **DISCRIMINATOR 1 — THE BASKET IS NOT SHORT.** Measured after the same 20 opens: `solvent` = **$1,212,001**,
+`immatureSupply` = **$1,152,000**, and **`matureSupply` = 0**. So `qdShareValue`'s `mature == 0 → WAD` guard
+fires and **`perShare` is PAR**. No solvency haircut exists to explain the gap.
+🔴 **DISCRIMINATOR 2 — THE REDEEM IS *BURN-EXACT*, AND THE TWO ARMS ARE NOT COMPARABLE.** `BasketLib:1023` is
+*"UNWIND-FIRST, BURN-EXACT: free what this redemption can ACTUALLY deliver, then burn ONLY"* that much.
+Measured `V4.balanceOf(lp)` AFTER the redeem in each arm:
+| arm | ETH out | QUID out | **shares LEFT** |
+|---|---|---|---|
+| control (no opens) | 399.939 | 0 | **2 wei — fully burned** |
+| treatment (20 opens) | 368.109 | 55,225 | **31.833 shares RETAINED** |
+⇒ **`_lpValueUsd` values only what LEAVES the redeem. The control LP redeems everything; the treatment LP
+redeems PARTIALLY and still holds 31.833 shares — against the 31.834 ETH the band sold, i.e. the retained
+claim is exactly the leg that could not be freed. The "shortfall" is unmeasured residue, not lost value.**
+📌 **AND THE BAND SWAP WAS FAIR ALL ALONG** (below): +$60,000.00 for −31.8340 ETH, implied $1,884.78 against
+`px0` $1,883.76 — sold 0.05% ABOVE mid, band value unchanged either side. **There was never a leak in the
+exchange, and now there is none in the redemption either.**
+⚠️ **CORRECTION OWED: I reported this to `spv-a0` as a real defect and they flipped their §F5 row from
+"possible drift" to a confirmed 0.63% owned by this thread. That attribution is WITHDRAWN.** The test needs
+its comparison fixed (value the RETAINED SHARES, or force both arms to redeem fully); the code does not.
+📌 **METHOD: three plausible mechanisms died here — the sale price (refuted: 0.05% above mid), the solvency
+haircut (refuted: perShare is par), and the mint path (never reached). Each was checked by running one
+measurement. The one that survived was the one about the INSTRUMENT, not the system.**
+
 ## 🔴 THE 0.63% PASSIVE-LP LEAK IS DIAGNOSED — **IT IS NOT THE SWAP. THE BAND SELLS FAIRLY; THE *REDEMPTION* PAYS 92.1 CENTS ON THE DOLLAR (2026-08-16).**
 `LeveragePnLProbe::testLeverage_LvrControlVsTreatment` — pre-existing, not the tick removal (§CORRECTION above).
 ✅ **THE BAND SWAP IS FAIR, SO THE LEAK IS NOT WHERE IT LOOKS.** 20 opens moved the band by **+$60,000.00 exactly**
