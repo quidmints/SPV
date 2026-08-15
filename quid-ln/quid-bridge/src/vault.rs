@@ -604,6 +604,42 @@ pub async fn run_vault_delivery_correlator(
 /// passes its OWN seed, and no derivation is involved because the hop's seed is not there to
 /// derive from. Both are expressible here; neither can pretend to be the other.
 #[allow(clippy::too_many_arguments)]
+/// The hop's p2p socket, built from the address the caller actually supplied.
+///
+/// Trivial on purpose — it exists so the bug below CANNOT come back silently. This address
+/// used to be built twice: once from the `hop_addr` parameter and once with
+/// `Ipv4Addr::LOCALHOST` hardcoded. The hardcoded copy won both uses that matter (the dial,
+/// and the address stored for every later re-dial), so an LP-hosted vault could never reach
+/// the fleet while the signature advertised that it could. Reintroducing the constant now
+/// fails the test below instead of compiling clean.
+pub(crate) fn hop_socket_addr(ip: Ipv4Addr, port: u16) -> LxSocketAddress {
+    LxSocketAddress::TcpIpv4 { ip, port }
+}
+
+#[cfg(test)]
+mod hop_socket_tests {
+    use super::{hop_socket_addr, LxSocketAddress};
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn a_remote_hop_address_survives_construction() {
+        // TEST-NET-3 (RFC 5737) — unroutable, and unmistakably not localhost.
+        let remote = Ipv4Addr::new(203, 0, 113, 7);
+        match hop_socket_addr(remote, 9735) {
+            LxSocketAddress::TcpIpv4 { ip, port } => {
+                assert_eq!(
+                    ip, remote,
+                    "the hop address must be the one supplied: hardcoding LOCALHOST here \
+                     pins every vault to the fleet's own machine and silently defeats the \
+                     LP-hosted split (M1#2)"
+                );
+                assert_eq!(port, 9735);
+            }
+            other => panic!("expected TcpIpv4, got {other:?}"),
+        }
+    }
+}
+
 pub async fn boot_vault(
     network: Network,
     esplora_url: String,
@@ -620,13 +656,19 @@ pub async fn boot_vault(
     store: Arc<crate::store::BridgeStore>,
     anchor: Arc<dyn quid_hop::freshness::FreshnessAnchor + Send + Sync>,
 ) -> anyhow::Result<VaultNode> {
-    // The vault's LSP = the hop it opens channels to (localhost listener).
+    // 🔴 ONE CONSTRUCTION, THREE USES — and that is the fix, not a tidy-up. This address was
+    // built TWICE: once here from `hop_addr` (correct) and once below with
+    // `ip: Ipv4Addr::LOCALHOST` HARDCODED (wrong). The second one won everything that
+    // matters — it was the address actually dialled, and it was the one stored on the node,
+    // so `ensure_hop_connected` re-dialled localhost forever too. An LP-hosted vault could
+    // therefore never reach the fleet: the parameter whose own comment calls it "the split"
+    // was accepted and then discarded. It compiled because both sides are `Ipv4Addr`.
+    // Building it once makes the divergence UNCONSTRUCTIBLE rather than merely fixed.
+    let hop_socket = hop_socket_addr(hop_addr, hop_listen_port);
+    // The vault's LSP = the hop it opens channels to.
     let lsp_info = LspInfo {
         node_pk: hop_node_pk,
-        private_p2p_addr: LxSocketAddress::TcpIpv4 {
-            ip: hop_addr,
-            port: hop_listen_port,
-        },
+        private_p2p_addr: hop_socket.clone(),
         lsp_usernode_base_fee_msat: 0,
         lsp_usernode_prop_fee: Ppm::ZERO,
         lsp_external_prop_fee: Ppm::ZERO,
@@ -639,9 +681,10 @@ pub async fn boot_vault(
     let node = boot(network, esplora_url, vault_seed, vault_data_dir, lsp_info, anchor)
         .await
         .context("boot vault node")?;
-    // Dial the hop (in-process, localhost). The connection task lives inside the
-    // returned handle; connect_peer_if_necessary is a no-op if already connected.
-    let addr = LxSocketAddress::TcpIpv4 { ip: Ipv4Addr::LOCALHOST, port: hop_listen_port };
+    // Dial the hop at the address we were GIVEN — co-hosted that is localhost, LP-hosted it
+    // is the fleet. The connection task lives inside the returned handle;
+    // connect_peer_if_necessary is a no-op if already connected.
+    let addr = hop_socket;
     if let Err(e) =
         quid_ln::p2p::connect_peer_if_necessary(&node.peer_manager, &hop_node_pk, &[addr.clone()]).await
     {
