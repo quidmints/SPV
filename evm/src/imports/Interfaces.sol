@@ -78,6 +78,32 @@ interface ICurvePool {
     function balances(uint256 i) external view returns (uint256);
 }
 
+// Curve TriCryptoUSDC — the ONLY external route to WETH/WBTC. VERIFIED LIVE 2026-08-15 on mainnet:
+//   coins(0)=USDC 0xA0b8…eB48 · coins(1)=WBTC 0x2260…C599 · coins(2)=WETH 0xC02a…6Cc2
+//   get_dy(0→2, 10_000 USDC) = 5.293e18   (~$1,889/ETH)
+//   get_dy(0→1, 10_000 USDC) = 1.584e7 sats (~$63.1k/BTC)
+// The ORDERING was read from the chain, not assumed — a wrong index swaps the wrong pair at size and
+// there is no id to assert against, unlike the Morpho markets.
+// (Plain `//`, not NatSpec — solc rejects @notice/@dev on file-level variables.)
+address constant CURVE_TRICRYPTO_USDC = 0x7F86Bf177Dd4F3494b841a37e810A34dD56c829B;
+uint256 constant TRICRYPTO_USDC_IDX = 0;
+uint256 constant TRICRYPTO_WBTC_IDX = 1;
+uint256 constant TRICRYPTO_WETH_IDX = 2;
+
+/// @notice Curve crypto-swap (TriCrypto). Uniswap is gone from every leg: stable→stable goes through
+///         the stableswap pools via `ICurvePool` (int128), stable→volatile through this one (uint256).
+/// @dev    🔴 A SEPARATE INTERFACE, NOT AN OVERLOAD ON `ICurvePool`, DELIBERATELY. Curve's two families
+///         encode indices differently — stableswap `int128`, crypto-swap `uint256` — and calling the
+///         wrong one REVERTS (CLAUDE.md records the uint256 variant reverting on the weETH/WETH ng
+///         pool). Overloading both on one interface would let a caller pick the wrong ABI by
+///         integer-literal inference. Two named types make the choice explicit, and reverting is the
+///         SAFE failure: a mis-encoded index would otherwise swap the wrong pair.
+interface ICurveTriCrypto {
+    function exchange(uint256 i, uint256 j, uint256 dx, uint256 min_dy) external payable returns (uint256);
+    function get_dy(uint256 i, uint256 j, uint256 dx) external view returns (uint256);
+    function coins(uint256 i) external view returns (address);
+}
+
 /// Canonical ether.fi LiquidityPool view — was `SwapLib::ILiq_L`.
 interface IEtherFiLiquidityPool { function requestWithdraw(address r, uint a) external returns (uint); }
 
