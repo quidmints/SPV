@@ -90,6 +90,23 @@ uint256 constant TRICRYPTO_USDC_IDX = 0;
 uint256 constant TRICRYPTO_WBTC_IDX = 1;
 uint256 constant TRICRYPTO_WETH_IDX = 2;
 
+// Stableswap legs: the borrowed stable → USDC, before TriCrypto takes USDC → WETH/WBTC.
+// 🔴 THE TWO POOLS ARE ORDERED OPPOSITELY. Read from mainnet 2026-08-15:
+//     0xD001aE43…  coins(0)=USDC  coins(1)=RLUSD   ⇒ RLUSD is 1, USDC is 0
+//     0x383E6b44…  coins(0)=PYUSD coins(1)=USDC    ⇒ PYUSD is 0, USDC is 1
+// A SHARED index constant would therefore be silently wrong for one of them — wrong-pair swap at
+// size, no revert, no id to assert against. Each pool carries its own pair of indices for that reason.
+// Token handles for the routing branch (the basket's own stables; USDC is TriCrypto's coin 0).
+address constant CURVE_TRICRYPTO_USDC_TOKEN = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
+address constant RLUSD_TOKEN                = 0x8292Bb45bf1Ee4d140127049757C2E0fF06317eD;
+address constant PYUSD_TOKEN                = 0x6c3ea9036406852006290770BEdFcAbA0e23A0e8;
+address constant CURVE_USDC_RLUSD      = 0xD001aE433f254283FeCE51d4ACcE8c53263aa186;
+int128  constant CRV_RLUSD_IDX         = 1;
+int128  constant CRV_RLUSD_USDC_IDX    = 0;
+address constant CURVE_PYUSD_USDC      = 0x383E6b4437b59fff47B619CBA855CA29342A8559;
+int128  constant CRV_PYUSD_IDX         = 0;
+int128  constant CRV_PYUSD_USDC_IDX    = 1;
+
 /// @notice Curve crypto-swap (TriCrypto). Uniswap is gone from every leg: stable→stable goes through
 ///         the stableswap pools via `ICurvePool` (int128), stable→volatile through this one (uint256).
 /// @dev    🔴 A SEPARATE INTERFACE, NOT AN OVERLOAD ON `ICurvePool`, DELIBERATELY. Curve's two families
@@ -269,6 +286,7 @@ interface IAux {
     function WETH() external view returns (address);
     function tokens(address vault) external view returns (address);
     function illiquidLoss() external view returns (uint);
+    function flagIlliquidSelf(address vault) external;
     function _depositVol(bool isBTC, address sender, uint amount) external payable returns (uint sent);
     function tipSelf(uint cut, address token, int sign) external;
     function bumpVogueBTC(uint amount) external;

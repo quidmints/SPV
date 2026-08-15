@@ -7,7 +7,9 @@ import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {ILevSyncHook, IAux, IWeETH, IWiredVault,
         IDepositAdapter, ILevVenueColl, ILevMintVenue} from "./Interfaces.sol";
 import {ILevVenue, IERC20Min, IWETH9} from "../imports/ILevVenue.sol";
-import {ICurvePool} from "./Interfaces.sol";
+import {ICurvePool, ICurveTriCrypto, CURVE_TRICRYPTO_USDC, TRICRYPTO_USDC_IDX, TRICRYPTO_WETH_IDX,
+        CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX,
+        CRV_PYUSD_USDC_IDX, CURVE_TRICRYPTO_USDC_TOKEN, RLUSD_TOKEN, PYUSD_TOKEN} from "./Interfaces.sol";
 
 // ether.fi weETH/WETH Curve pool (weETH is coin1, WETH coin0). Same address as Vault.ETHERFI_CURVE_POOL.
 address constant ETHERFI_CURVE_POOL = 0xDB74dfDD3BB46bE8Ce6C33dC9D82777BCFc3dEd5;
@@ -298,6 +300,7 @@ library LevMath {
     }
 
 
+    error NoStableRoute();
     error NoOptIn();
     error Slippage();
     error NotNearLiq();
@@ -437,12 +440,37 @@ library LevMath {
     ///      This short-circuit makes the lever WETH-LOAN-READY with zero behaviour change while the
     ///      market still lends a stable. Registering a weETH-collateral / WETH-loan market then
     ///      removes both legs by itself.
+    /// @dev Borrowed stable → WETH, ENTIRELY ON CURVE (no Uniswap on this path). Two hops, because the
+    ///      deep dollar markets are RLUSD/PYUSD and the deep volatile book is TriCrypto's USDC leg:
+    ///          stable →(stableswap, int128)→ USDC →(TriCrypto, uint256)→ WETH
+    ///      The caller mints the result straight into weETH; WETH never rests as collateral.
+    /// ⚠️ THE FLOOR IS ORACLE-DERIVED AND APPLIED TO THE WHOLE ROUTE, not per hop. A per-hop floor
+    ///      would let the pair of hops lose more than the stated slippage between them. This is the
+    ///      only real protection on the leg — the caller's `minOut` is an ADDITIONAL check, and a
+    ///      permissionless `rebalance` may pass 0 for it.
     function _stableToWethSor(SellCtx memory c, address stable, uint256 stableAmt) internal returns (uint256) {
         if (stable == c.weth) return stableAmt;          // loan token IS WETH — nothing to convert
         uint256 wethFloor = (_toUsd18(c.aux,stable, stableAmt) * 1e18 / IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M))
             * (10_000 - SELL_SLIP_BPS) / 10_000;
-        IERC20Min(stable).approve(c.aux, stableAmt);
-        return IAux(c.aux).sorSelfFunded(stable, stableAmt, c.weth, wethFloor);
+
+        // Hop 1 — stable → USDC. Each pool carries its OWN index pair: the two are ordered oppositely.
+        uint256 usdc;
+        if (stable == CURVE_TRICRYPTO_USDC_TOKEN) {
+            usdc = stableAmt;                            // already USDC, no hop
+        } else if (stable == RLUSD_TOKEN) {
+            IERC20Min(stable).approve(CURVE_USDC_RLUSD, stableAmt);
+            usdc = ICurvePool(CURVE_USDC_RLUSD).exchange(CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, stableAmt, 0);
+        } else if (stable == PYUSD_TOKEN) {
+            IERC20Min(stable).approve(CURVE_PYUSD_USDC, stableAmt);
+            usdc = ICurvePool(CURVE_PYUSD_USDC).exchange(CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, stableAmt, 0);
+        } else {
+            revert NoStableRoute();                      // fail closed: an unrouted stable must not silently no-op
+        }
+
+        // Hop 2 — USDC → WETH. `wethFloor` guards the COMBINED route.
+        IERC20Min(CURVE_TRICRYPTO_USDC_TOKEN).approve(CURVE_TRICRYPTO_USDC, usdc);
+        return ICurveTriCrypto(CURVE_TRICRYPTO_USDC)
+            .exchange(TRICRYPTO_USDC_IDX, TRICRYPTO_WETH_IDX, usdc, wethFloor);
     }
 
     /// @dev IDENTITY WHEN THE LOAN TOKEN IS ALREADY WETH — the close-side twin of the note on
