@@ -681,9 +681,20 @@ contract Core is SafeCallback {
     }
 
     /// @notice Clear an obligation's USD when it is delivered (paid exact to the
-    ///         LP) or reversed. Floored at 0.
+    ///         LP) or reversed. FAIL-LOUD, matching its sibling `drawPooledUsdBtc`
+    ///         above — the two take the same argument in the same transaction
+    ///         (`BtcVaultLib.sol:85-86`) and must not disagree on discipline.
+    ///         Every clearing path subtracts EXACTLY what its request added:
+    ///         delivery is one-LP-per-slice with the swapId consumed
+    ///         (`BTCChannels._settleSwapOutSlice`), and the de-lever split is a
+    ///         partition — `Vault.sol:539` hands `resizeBtcLp` the remainder
+    ///         `exactUsd - delevUsd` with `delevUsd` clamped to `[0, exactUsd]`,
+    ///         so the round-UP at `SwapLib.sol:1456` moves the SPLIT POINT and
+    ///         never the total. A clamp here could only hide a reserve that was
+    ///         already understated — which silently overstates free USD and lets
+    ///         the pool commit capacity it owes. Checked math surfaces that.
     function subPendingSwapOut(uint usd6) external onlyUs {
-        pendingSwapOutUsd -= Math.min(usd6, pendingSwapOutUsd);
+        pendingSwapOutUsd -= usd6;
     }
 
     // ─── External entrypoints — same surface as before, parallel BTC ──
