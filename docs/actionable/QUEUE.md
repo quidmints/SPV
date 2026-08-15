@@ -67,6 +67,37 @@ The single-asset instance the fold needed already existed. This does NOT wait fo
   pool". Those legs call **Curve** now. Prose describing a router the code no longer reaches is the
   exact failure mode that has already cost this refactor several wrong conclusions.
 
+## 📐 WHAT ACTUALLY SIMPLIFIES ACROSS THE REFACTOR — **σ² DOES NOT DELETE. IT MOVES FROM *PRICING* TO *SIZING* (measured 2026-08-15).**
+The expected cascade was: charge becomes a passthrough ⇒ σ² has no consumer ⇒ `ringVariance` and the ring
+delete with it. **That is wrong, and the reason is a SECOND, INDEPENDENT CONSUMER.**
+⛔ **`VogueLib.derivedThetaWad:303-304` reads `realizedVarianceWad` to size the band's DEPTH BUDGET** —
+θ weighs `kLvrWad · σ²` (the LVR work the band takes on) against the premium it earns. That is the
+band-SIZING decision, not the swap CHARGE, and it survives every change to how a swap is priced.
+`Vogue.sol:939` re-exposes the same number.
+✅ **WHAT DOES DELETE when the charge becomes the realized restoration cost:**
+| | |
+|---|---|
+| `skewWad` | **159 lines** — the A-S kernel `Γ·σ²·q/(1−q)^ρ` |
+| `_maxWellSkew` | **43 lines** — its σ² term goes; only `SPLICE_FLOOR` (BTC) had another reason to exist |
+| `_composePrice` | **9 lines** — the §E89b risk-vs-fee split exists to separate σ²·confFrac from the splice |
+| `CONF_FRAC_WAD`, `ETH_CONF_FRAC_WAD` | they exist ONLY to multiply σ² |
+| Γ as a variance coefficient | survives ONLY as the 3% cap; ρ is already gone |
+⛔ **WHAT SURVIVES:** `Core.realizedVarianceWad`, `OracleLib.ringVariance`, and the observation ring — the
+ring feeds BOTH the TWAP and θ, so it outlives the skew either way.
+✅ **AND `qBar` SURVIVES WITH A CHANGED JOB — this is the owner's *"used for attribution rather than pricing"*.**
+The integral `(1/Δ)·∫[q0→q1] q/(1−q) dq` stops being a price and becomes the MEASURE OF IMBALANCE CREATED,
+i.e. the key by which the restoration cost is attributed to the causer. **The one genuinely derived piece of
+the machinery is the one that keeps its job.**
+🔴 **CONSEQUENCE THAT MUST NOT BE LOST: every σ² DEFECT MEASURED THIS SESSION STILL APPLIES — TO θ.**
+Attacker-stretchable (93.3% at 4h spacing, §UNIT-B-PATIENCE), not patchable by re-normalization
+(§SIGMA-ESTIMATOR-NOT-PATCHABLE), and representation-sensitive (±31% on an encoding-ONLY change,
+§SKEW-DESIGN-VERDICT ⓸). **Moving σ² out of the charge lowers the stakes — a manipulated σ² then moves BAND
+DEPTH rather than the price a swapper pays — but it does NOT close the exposure, and this row exists so the
+passthrough is not mistaken for having closed it.**
+📌 **θ FAILS OPEN AT σ² = 0 (`derivedThetaWad` returns 1e18), so a σ² an attacker drives DOWN buys MORE depth,
+not less** — and `SwapLib.clampByBacking`'s physical `backing − pooled` headroom is what actually bounds it
+(audit #8). **That is the guard to re-verify once σ² leaves pricing, because it becomes the only one left.**
+
 ## ⛔ CORRECTION + A LIVE DEFECT NOBODY OWNS — **I MISATTRIBUTED ONE OF THE TWO TICK-REMOVAL FAILURES; THE CONTROL SPLITS THEM (2026-08-15).**
 `4b656eb5`'s message says *"both failures are real and attributable to this change by mechanism"*. **That is
 wrong for one of them, and the mechanism story was exactly the kind that feels like evidence and is not.**
