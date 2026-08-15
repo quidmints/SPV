@@ -2614,51 +2614,59 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
 
     /// EXTREME: a deep 60% depeg must not brick redemption nor let over-extraction — liveness + burned/delivered
     /// both > 0, no revert (the write-down magnitude is covered by C_DepegFee's redeemableAmount monotonicity).
-    /// @notice GHO round-trips through the AAVE-v4 spoke: mint against it, then redeem and prove the
-    ///         dollars actually come back out.
-    /// @dev  NEW 2026-08-15. GHO and USDG are the only two basket stables whose vault slot is
-    ///       `address(0)` -- they route through the AAVE-v4 SPOKE, not a 4626 -- and NOTHING exercised
-    ///       that withdrawal path. The two loops that walk every venue both `continue` past
-    ///       `aaveSpoke`, CORRECTLY (they mock `maxWithdraw`, which a non-4626 does not have), but the
-    ///       effect was that the spoke leg was stepped over everywhere and covered nowhere. Aave v4
-    ///       BORROWING was removed 2026-08-13; this SUPPLY path deliberately survived, and a surviving
-    ///       money path with no test is exactly the shape E145-p was.
-    ///       MEASURES A BALANCE DELTA, NOT A REPORTED NUMBER: `_redeemValue` diffs the caller's balance
-    ///       across every stable, so a spoke that reports a healthy position while delivering zero
-    ///       fails here -- the failure mode three guards missed by reading numbers the failing code
-    ///       itself produced.
-    function test_Redeem_GhoViaAaveSpoke_ActuallyDelivers() public {
+    /// @notice Every AAVE-v4-spoke stable round-trips: mint against it, then redeem and prove the
+    ///         dollars come back out THROUGH THE SPOKE.
+    /// @dev  NEW 2026-08-15, EXTENDED TO USDG the same day. GHO and USDG are the ONLY two basket
+    ///       stables whose VAULTS slot is `address(0)` -- both route through the AAVE-v4 SPOKE, not a
+    ///       4626 -- and nothing exercised that withdrawal path. The two loops that walk every venue
+    ///       both `continue` past `aaveSpoke`, CORRECTLY (they mock `maxWithdraw`, which a non-4626
+    ///       does not have), so the leg was stepped over everywhere and covered nowhere. Aave v4
+    ///       BORROWING was removed 2026-08-13; this SUPPLY path deliberately survived.
+    ///       ⚠️ COVERING ONLY GHO WOULD HAVE BEEN A HALF-FIX: the two share one code path but are
+    ///       DIFFERENT RESERVES with independent ids resolved in `Aux`'s constructor, so a wiring
+    ///       defect can hit one and not the other. Both, or the pair is untested.
+    function _assertSpokeStableRoundTrips(IERC20 stable, string memory name) internal {
         for (uint i = 0; i < AUX.getStables().length; i++)
             vm.mockCall(address(AUX), abi.encodeWithSignature("getDepegSeverityBps(address)", AUX.getStables()[i]), abi.encode(uint(0)));
 
-        // Precondition, asserted rather than assumed: GHO really is spoke-routed here. If a later
-        // rewiring gives it a 4626, this test would be measuring something else and should say so.
-        address[] memory vs = AUX.getVaults(address(GHO));
+        // Precondition, asserted rather than assumed: this really is spoke-routed here. If a later
+        // rewiring gives it a 4626, the test would be measuring something else and should say so.
+        address[] memory vs = AUX.getVaults(address(stable));
         assertTrue(vs.length == 0 || vs[0] == address(0) || vs[0] == AUX.AAVE_SPOKE(),
-            "precondition: GHO is AAVE-v4-spoke routed, not 4626-routed");
+            string.concat("precondition: ", name, " is AAVE-v4-spoke routed, not 4626-routed"));
 
-        deal(address(GHO), User01, 50_000e18);
+        uint d = IERC20(address(stable)).decimals();
+        uint amountIn = 50_000 * (10 ** d);
+        deal(address(stable), User01, amountIn);
         vm.startPrank(User01);
-        GHO.approve(address(AUX), 50_000e18);
-        QUID.mint(User01, 50_000e18, address(GHO), 0);
+        stable.approve(address(AUX), amountIn);
+        QUID.mint(User01, amountIn, address(stable), 0);
         vm.stopPrank();
-        assertGt(QUID.balanceOf(User01), 0, "minting against GHO produced QD");
+        assertGt(QUID.balanceOf(User01), 0, string.concat("minting against ", name, " produced QD"));
 
         vm.warp(block.timestamp + 35 days);
         uint bal = QUID.balanceOf(User01);
         // ISOLATE THE SPOKE. `_redeemValue` sums deltas across EVERY stable, so its `red > 0` is
         // satisfied by USDC or DAI coming back while the AAVE-v4 leg delivers nothing -- it would
-        // pass for the exact defect this test exists to catch. Measure GHO's OWN delta, which is
-        // the only number that can distinguish "the spoke paid" from "something paid".
-        uint ghoBefore = GHO.balanceOf(User01);
+        // pass for the exact defect this test exists to catch. Measure THIS stable's OWN delta,
+        // the only number that distinguishes "the spoke paid" from "something paid".
+        uint before = stable.balanceOf(User01);
         (uint red, uint burn) = _redeemValue(User01, bal);
-        uint ghoDelta = GHO.balanceOf(User01) - ghoBefore;
+        uint delta = stable.balanceOf(User01) - before;
         assertGt(burn, 0, "redeem burned mature QD");
         assertGt(red, 0, "redeem delivered something");
-        assertGt(ghoDelta, 0,
-            "GHO supplied through the AAVE-v4 spoke must come BACK OUT through it -- a pro-rata redeem "
-            "that pays only the 4626 legs means the spoke's balance is bookable but not deliverable");
+        assertGt(delta, 0, string.concat(
+            name, " supplied through the AAVE-v4 spoke must come BACK OUT through it -- a pro-rata "
+            "redeem that pays only the 4626 legs means the spoke's balance is bookable, not deliverable"));
         assertLe(red, burn + burn / 100, "spoke redeem never over-delivers");
+    }
+
+    function test_Redeem_GhoViaAaveSpoke_ActuallyDelivers() public {
+        _assertSpokeStableRoundTrips(GHO, "GHO");
+    }
+
+    function test_Redeem_UsdgViaAaveSpoke_ActuallyDelivers() public {
+        _assertSpokeStableRoundTrips(USDG, "USDG");
     }
 
     function test_Redeem_DeepDepeg_Liveness() public {
