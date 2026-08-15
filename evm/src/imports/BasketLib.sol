@@ -1025,7 +1025,7 @@ library BasketLib {
     function _dispatchTake(RedeemArgs memory r, uint usdPart, uint seedBurned,
         uint[15] memory amts, uint[15] memory yW, bool fresh) private {
         // Reuse the pre-burn (amts, yW) ONLY when no seed burned AND no unwind. A seed redemption shifts
-        // `tranche`; an unwind is a COUNTER shrink (POOLED_USD_ETH ↓, relaxing the committed<=backing gate so
+        // `tranche`; an unwind is a COUNTER shrink (POOLED_USD ↓, relaxing the committed<=backing gate so
         // take can withdraw the already-in-vault stables) — the pre-fetch vectors don't reflect the relaxed gate,
         // so re-fetch to be safe. (No real stables move on unwind; deposits[14] is unchanged.)
         if (seedBurned == 0 && !fresh) {
@@ -1046,7 +1046,7 @@ library BasketLib {
         totalLiquid = deposits[14];
         committedSum = ICore(core).committedUsd18();
         if (committedSum <= totalLiquid) return (committedSum, totalLiquid);
-        bool ethFirst = ICore(core).POOLED_USD_ETH() >= ICore(core).POOLED_USD_BTC();
+        bool ethFirst = ICore(core).POOLED_USD() >= ICore(core).POOLED_USD();
         // ETH pool repack → Vogue (v4); BTC pool repack → BtcVault (regrouped).
         _repackPool(!ethFirst, v4, btcVault);
         committedSum = ICore(core).committedUsd18();
@@ -1099,9 +1099,9 @@ library BasketLib {
         // STABLES-ONLY with the Option-4 unwind: QU!D's dollars deployed as the ETH band's
         // USD side are freeable on redemption (Vogue.unwindForRedeem), so the redeemable is ALL
         // haircut stables EXCEPT what is committed to the BTC band (an ETH-side redemption cannot
-        // unwind the BTC band). Conservative: subtract POOLED_USD_BTC (>= BTC-band equity; ignores
+        // unwind the BTC band). Conservative: subtract POOLED_USD (>= BTC-band equity; ignores
         // the debt that would only shrink it), so the quote never over-reports.
-        uint btcCommitted = ICore(core).POOLED_USD_BTC() * 1e12;
+        uint btcCommitted = ICore(core).POOLED_USD() * 1e12;
         return total > btcCommitted ? total - btcCommitted : 0;
     }
 

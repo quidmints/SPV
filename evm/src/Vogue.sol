@@ -48,7 +48,7 @@ contract Vogue is
     // deposit becomes weETH. `VogueLib._supplyEtherFi` is the single destination, and a placement of
     // 0 reverts `VenueUnavailable` rather than redirecting.
 
-    bool public token1isETH;
+    bool public token1isVol;
     // range = between ticks
     int24 public UPPER_TICK;
     int24 public LOWER_TICK;
@@ -133,7 +133,7 @@ contract Vogue is
     ///         across a tick-config change and mis-hedge.
 
 
-    // V4.POOLED_ETH() = principal + ALL compounded fees (even unclaimed)
+    // V4.POOLED() = principal + ALL compounded fees (even unclaimed)
     // The previous singular `totalShares` is now exposed via this
     // view because Core reads `VOGUE.totalShares()`.
     function totalShares() public view returns (uint) {
@@ -252,7 +252,7 @@ contract Vogue is
         // writes stay here; they have no storage pointer to hand the library.
         address weth; bool t1;
         (weth, t1, LOWER_TICK, UPPER_TICK) = VogueLib.setupBody(_aux, _core);
-        WETH = WETH9(payable(weth)); token1isETH = t1;
+        WETH = WETH9(payable(weth)); token1isVol = t1;
     }
 
 
@@ -290,13 +290,13 @@ contract Vogue is
             // so the caller must NOT pre-negate it (doing both would place the order on the wrong
             // side of spot).
             (uint160 currentSqrtPrice, int24 curLo, int24 curUp,,) = _rebalance();
-            t = SwapLib.oorTicks(currentSqrtPrice, range, distance, token1isETH, curLo, curUp);
+            t = SwapLib.oorTicks(currentSqrtPrice, range, distance, token1isVol, curLo, curUp);
         }
         // Backing deposit + single-sided sizing lives in VogueLib (EIP-170
         // headroom); self-managed positions take no wall attribution (pledge==0).
         uint128 liquidity = VogueLib.sizeOutOfRange(
             address(WETH), address(AUX), address(EV),
-            amount, token, token1isETH, t);
+            amount, token, token1isVol, t);
         if (liquidity == 0) revert Dust();
 
         next = ++ID;
@@ -305,7 +305,7 @@ contract Vogue is
             lower: t.newLo, upper: t.newUp,
             liq: int(uint(liquidity)) });
         positions[msg.sender].push(next);
-        V4.outOfRange(false, msg.sender,
+        V4.outOfRange(msg.sender,
             int(uint(liquidity)),
             t.newLo, t.newUp,
             address(0));
@@ -432,12 +432,12 @@ contract Vogue is
 
     /// @dev Venue-shortfall delivery frame, extracted from _withdraw to stay within the legacy
     ///      stack (no via_ir): the LP's pro-rata share of the PLAIN venue balance, capped by what
-    ///      POOLED_ETH can't already cover. Returns the ETH actually sent to `recipient`.
+    ///      POOLED can't already cover. Returns the ETH actually sent to `recipient`.
     function _deliverVenueShortfall(uint amount, uint shortfall, uint plainDepth, address recipient)
         private returns (uint excess) {
         uint venueBal = _venueBalance();
         uint vaultShare = plainDepth > 0 ? FullMath.mulDiv(venueBal, amount, plainDepth) : venueBal;
-        uint inPool = V4.POOLED_ETH();
+        uint inPool = V4.POOLED();
         excess = Math.min(shortfall, vaultShare > inPool ? vaultShare - inPool : 0);
         if (excess > 0) excess = _sendETH(excess, recipient);
     }
@@ -445,8 +445,8 @@ contract Vogue is
     /// @dev §#12 DELIVERY LEG — its OWN frame because `_withdraw` is the tightest stack in this
     ///      file (two extra function-scope locals there is stack-too-deep; `via_ir` stays off).
     ///
-    ///      The burn releases BOTH legs. It reduces `POOLED_USD_ETH` (the curve's USD) AND
-    ///      `basketUsdEth` (the basket's contribution — the mod path passes `basketLeg = true`),
+    ///      The burn releases BOTH legs. It reduces `POOLED_USD` (the curve's USD) AND
+    ///      `basketUsd` (the basket's contribution — the mod path passes `basketLeg = true`),
     ///      so the DIFFERENCE between those two reductions IS the LP-owned slice. No ratio math,
     ///      no oracle, no new state.
     ///
@@ -484,7 +484,7 @@ contract Vogue is
     ///      BASKET put there. Signed-safe — a band that BOUGHT ETH with basket dollars reads 0 here
     ///      (the negative case is priced, not paid: see `_pricingBacking`).
     function _bandIncrement6() private view returns (uint) {
-        uint usd6 = V4.POOLED_USD_ETH(); uint base6 = V4.basketUsdEth();
+        uint usd6 = V4.POOLED_USD(); uint base6 = V4.basketUsd();
         return usd6 > base6 ? usd6 - base6 : 0;
     }
 
@@ -508,7 +508,7 @@ contract Vogue is
         QUID.mint(recipient, owed6 * 1e12, address(QUID), 0);
         // Re-anchor the mirror: what the LP still owns is what it owned MINUS what was just paid,
         // NOT whatever the burn happened to release. See `Core.absorbPaidUsd` for the measurement.
-        V4.absorbPaidUsd(false, incrPre - owed6);
+        V4.absorbPaidUsd(incrPre - owed6);
         // Valued at the SAME basis the claim was PRICED at — the ORACLE, never the band's leg
         // ratio, which is not a price for a concentrated position (measured: it implied ~840
         // USD/ETH against an actual 1,854, over-pricing a 400-share claim by 73,116 USD).
@@ -730,7 +730,7 @@ contract Vogue is
     ///      the legacy stack (no via_ir crutch). Mirrors Vault._modLpBtc.
     function _modLpEth(uint160 sqrtP, uint deltaETH, uint deltaUSD,
         int24 tickLower, int24 tickUpper, address pledge) private {
-        V4.modLP(false, sqrtP, deltaETH, deltaUSD, tickLower, tickUpper, pledge);
+        V4.modLP(sqrtP, deltaETH, deltaUSD, tickLower, tickUpper, pledge);
     }
     /// @notice Reconcile `lp`'s LEVERED band position to its LIVE net-equity — the IL-protect fee lane.
     ///         PERMISSIONLESS (keeper/monitor/anyone): when the leverage's net-equity GROWS, mint band depth
@@ -828,8 +828,7 @@ contract Vogue is
         // — so read the accumulators directly (the old pre-settle snapshot was
         // redundant; its two locals only pinned the stack). Mirrors registerBtcLp.
         _settlePending(LP, pledge, address(0));
-        (deltaUSD, deltaETH) = this.addLiq(
-                      amount, price, false);
+        (deltaUSD, deltaETH) = this.addLiq(                      amount, price);
         if (deltaETH > 0) {
             LP.pooled += deltaETH;
             lpShares += deltaETH;
@@ -905,8 +904,8 @@ contract Vogue is
     ///         Returns 0 on the non-IL side (up-side-only, matching the current target) or a degenerate band.
     ///         ETH band (the BTC parallel lives on the Vault with the BTC ticks/ordering).
     function soldFractionWad(uint160 entrySqrtP) public view returns (uint) {
-        (uint160 sqrtP,,) = V4.poolStats(0, 0, false);
-        return SwapLib.soldFractionWad(entrySqrtP, sqrtP, LOWER_TICK, UPPER_TICK, token1isETH);
+        (uint160 sqrtP,,) = V4.poolStats(0, 0);
+        return SwapLib.soldFractionWad(entrySqrtP, sqrtP, LOWER_TICK, UPPER_TICK, token1isVol);
     }
 
     /// @notice The band's current spot √P (Q96) — the leverage records this as its `entrySqrtP` at open so
@@ -918,7 +917,7 @@ contract Vogue is
     ///      mis-pricing waiting on a hook mis-wiring: it returns the wrong asset's price rather than
     ///      reverting. Each side now names its own asset and cannot be asked for the other's.
     function bandSqrtP() external view returns (uint160 sqrtP) {
-        (sqrtP,,) = V4.poolStats(0, 0, false);
+        (sqrtP,,) = V4.poolStats(0, 0);
     }
 
     /// @notice θ derived live: yield / (K·σ²), clamped to ≤1. Body in VogueLib
@@ -936,7 +935,7 @@ contract Vogue is
 
     /// @notice Annualized realized variance (WAD) from Core's oracle ring. Body in VogueLib.
     function realizedVarianceWad(bool isBTC) public view returns (uint) {
-        return V4.realizedVarianceWad(isBTC);   // §E59: ONE source — Core reads its own ring
+        return V4.realizedVarianceWad();   // §E59: ONE source — Core reads its own ring
     }
 
     /// @notice Size how much of the volatile asset (`deltaTok`) + paired
@@ -967,12 +966,12 @@ contract Vogue is
     ///         ROUNDING: every mulDiv floors → commits ≤ requested, never more
     ///         (conservative; can only under-pair by dust, never over-commit).
     function addLiq(
-        uint deltaTok, uint price, bool isBTC) public
+        uint deltaTok, uint price) public
         onlyUs returns (uint usdOut, uint outDelta) {
         // Body in VogueLib (EIP-170 headroom). The onlyUs guard stays here; the
         // delegatecalled body preserves address(this) == Vogue for the θ self-call.
         // Pass totalBuffer so addLiq sizes headroom on GROSS band backing (Vogue is ETH-only).
-        return VogueLib.addLiq(address(V4), address(AUX), deltaTok, price, isBTC, totalBuffer);
+        return VogueLib.addLiq(address(V4), address(AUX), deltaTok, price, false, totalBuffer);   // §ISBTC-SPLIT: Vogue IS the ETH band -- the flag was always false here, as the line above says
     }
 
     // _addLiqChannel (channel-lock liquidity sizer) regrouped into BtcVault.sol.
@@ -1012,23 +1011,23 @@ contract Vogue is
     ///         LP-withdraw burn primitive (_burnInRange) with recipient=0: the paired ETH is NOT
     ///         paid out (Core._settleTokSide gates delivery on `who != 0`), so it stays in the
     ///         venue -- LP EQUITY NEUTRAL (vogueETH/lpShares unchanged; only the band's mock
-    ///         mirror shrinks, returning ETH from in-band to in-venue). Bounded by POOLED_ETH
+    ///         mirror shrinks, returning ETH from in-band to in-venue). Bounded by POOLED
     ///         (_burnInRange caps at it), so a truly insolvent basket simply frees all it can and
     ///         QU!D bears the residual via the haircut. onlyUs -- Aux drives it inside redeemAsBody.
     /// @param usdWanted 18-dec USD shortfall to free. @return usdFreed 18-dec USD actually freed.
     function unwindForRedeem(uint usdWanted) external onlyUs returns (uint usdFreed) {
         if (usdWanted == 0) return 0;
-        uint usd6 = V4.POOLED_USD_ETH();     // band's in-range USD leg (6-dec)
-        uint eth  = V4.POOLED_ETH();         // band's in-range ETH leg (18-dec)
+        uint usd6 = V4.POOLED_USD();     // band's in-range USD leg (6-dec)
+        uint eth  = V4.POOLED();         // band's in-range ETH leg (18-dec)
         if (usd6 == 0 || eth == 0) return 0; // empty band -> free stables only
         (uint160 sqrtP, int24 tickLower, int24 tickUpper,,) = _rebalance();
         // ROOT-PRECISE: size the ETH removal by the band's OWN in-range USD/ETH ratio, NOT an external TWAP.
         // Removing the fraction `usdWanted/(usd6·1e12)` of the position releases EXACTLY `usdWanted` USD (plus
         // the paired ETH, which stays in-venue). ETH to pull = usdWanted·eth/(usd6·1e12); _burnInRange caps at
-        // POOLED_ETH. This frees precisely what redemption asks (no over/under-free) with ZERO oracle dependency
+        // POOLED. This frees precisely what redemption asks (no over/under-free) with ZERO oracle dependency
         // — so a dead TWAP no longer zeroes the unwind, and the mixed USD/ETH release no longer under-delivers.
         _burnInRange(sqrtP, FullMath.mulDiv(usdWanted, eth, usd6 * 1e12), tickLower, tickUpper, address(0));
-        uint after6 = V4.POOLED_USD_ETH();
+        uint after6 = V4.POOLED_USD();
         usdFreed = usd6 > after6 ? (usd6 - after6) * 1e12 : 0;
     }
 
@@ -1106,7 +1105,7 @@ contract Vogue is
         int24 tickLower, int24 tickUpper, uint128 myLiquidity, uint resolvedTwap) {
         VogueLib.RebalOut memory o = VogueLib.rebalanceBody(VogueLib.RebalIn({
             core: address(V4), aux: address(AUX), ev: address(EV), weth: address(WETH),
-            token1isETH: token1isETH, lpShares: lpShares, totalLevPooled: totalLevPooled,
+            token1isVol: token1isVol, lpShares: lpShares, totalLevPooled: totalLevPooled,
             totalBuffer: totalBuffer, lowerTick: LOWER_TICK, upperTick: UPPER_TICK, bookmark: bookmark}));
         venueFeesPerShare += o.venueFeesPerShareInc;             // _syncYield accrual
         bookmark = o.newBookmark;
@@ -1309,15 +1308,15 @@ contract Vogue is
     function _pricingBacking() internal view returns (uint total) {
         total = AUX.vogueETH();
         // §#12 — READ BOTH LEGS. `vogueETH` is the ETH leg of a TWO-legged band position; the USD
-        // leg beyond what the BASKET supplied (`basketUsdEth`) is LP-owned and was invisible here,
+        // leg beyond what the BASKET supplied (`basketUsd`) is LP-owned and was invisible here,
         // so a band that sold LP ETH for USD priced the LP down by the whole sale.
         // Valued at the band's OWN in-range ratio — NOT a TWAP — so this stays `view` and carries
         // no oracle dependency, the same choice `unwindForRedeem` makes deliberately.
         // SIGNED: when the band has BOUGHT ETH with basket dollars the increment is NEGATIVE and
         // must REDUCE the claim (B11) — flooring at zero would gift the LP the basket's capital.
         {
-            uint usd6 = V4.POOLED_USD_ETH(); uint base6 = V4.basketUsdEth();
-            // ⚠️ VALUED AT THE ORACLE, NOT THE BAND'S LEG RATIO. `POOLED_ETH / POOLED_USD_ETH` is
+            uint usd6 = V4.POOLED_USD(); uint base6 = V4.basketUsd();
+            // ⚠️ VALUED AT THE ORACLE, NOT THE BAND'S LEG RATIO. `POOLED / POOLED_USD` is
             // NOT a price for a CONCENTRATED position — measured, it implied ~840 USD/ETH against
             // an actual 1,854, valuing the increment ~2.2x too high and inflating a 400-share claim
             // to 439.44 ETH (a 73,116 USD over-price). `unwindForRedeem` uses that ratio to size a

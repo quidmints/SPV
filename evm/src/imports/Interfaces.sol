@@ -58,7 +58,7 @@ interface IWeETH {
 /// `IVogueView_VG`), which split ONE contract's surface across two declarations so a signature
 /// change had to be made twice and a missed one still compiled.
 interface IVogue {
-    function addLiq(uint deltaTok, uint price, bool isBTC) external returns (uint usdOut, uint outDelta);
+    function addLiq(uint deltaTok, uint price) external returns (uint usdOut, uint outDelta);
     function unwindForRedeem(uint usdWanted) external returns (uint usdFreed);  // E21: was BasketLib.IVogueUnwind
     function EV() external view returns (address);                              // E21: was BasketLib.IWiredVogue
     function derivedThetaWad(bool isBTC) external view returns (uint);
@@ -317,30 +317,27 @@ interface ICore {
     function drawPooledUsdBtc(uint usd6) external;
     function subPendingSwapOut(uint usd6) external;
     function committedUsd18() external view returns (uint);
-    function modLP(bool isBTC, uint160 sqrtPriceX96, uint delta, uint deltaUSD, int24 tickLower, int24 tickUpper, address sender) external returns (uint);
-    function outOfRange(bool isBTC, address sender, int liquidity, int24 tickLower, int24 tickUpper, address token) external returns (uint);
-    function token1isBTC() external view returns (bool);
-    function POOLED_BTC() external view returns (uint);
+    function modLP(uint160 sqrtPriceX96, uint delta, uint deltaUSD, int24 tickLower, int24 tickUpper, address sender) external returns (uint);
+    function outOfRange(address sender, int liquidity, int24 tickLower, int24 tickUpper, address token) external returns (uint);
+    function token1isVol() external view returns (bool);
+    function POOLED() external view returns (uint);
     function btcThetaBacking() external view returns (uint);
-    function poolStats(int24 tickLower, int24 tickUpper, bool isBTC) external view returns (uint160 sqrtPriceX96, int24 currentTick, uint128 liquidity);
+    function poolStats(int24 tickLower, int24 tickUpper) external view returns (uint160 sqrtPriceX96, int24 currentTick, uint128 liquidity);
     function observe(uint32[] calldata secondsAgos, bool isBTC) external view returns (uint192[] memory);
-    function POOLED_ETH() external view returns (uint);
     function premiumEwmaUsd(bool isBTC) external view returns (uint);
-    function POOLED_USD_ETH() external view returns (uint);
-    function POOLED_USD_BTC() external view returns (uint);
+    function POOLED_USD() external view returns (uint);
     function token1is(bool isBTC) external view returns (bool);
     function pendingSwapOutUsd() external view returns (uint);
     function levClaimUsd6(bool isBTC) external view returns (uint);
     function levGrossNative(bool isBTC) external view returns (uint);
     function flowEwmaUsd(bool isBTC) external view returns (uint);
-    function realizedVarianceWad(bool isBTC) external view returns (uint);
+    function realizedVarianceWad() external view returns (uint);
     function recordSkewPremium(bool isBTC, uint256 premiumUsd) external;
     function refundUnfilled(address token, uint amount, address to) external;
-    function repack(bool isBTC, uint128 myLiquidity, uint160 sqrtPriceX96, int24 tickLower, int24 tickUpper, int24 newTickLower, int24 newTickUpper) external returns (uint price, uint fees0, uint fees1, uint delta0, uint delta1);
+    function repack(uint128 myLiquidity, uint160 sqrtPriceX96, int24 tickLower, int24 tickUpper, int24 newTickLower, int24 newTickUpper) external returns (uint price, uint fees0, uint fees1, uint delta0, uint delta1);
     function reseat(bool isBTC, uint128 myLiquidity, uint160 currentSqrt, uint160 targetSqrt, int24 oldTickLower, int24 oldTickUpper, int24 newTickLower, int24 newTickUpper) external returns (uint price, uint fees0, uint fees1, uint delta0, uint delta1);
     function collectFees(int24 tickLower, int24 tickUpper, bool isBTC) external returns (uint, uint);
-    function poolTicks(bool isBTC) external view returns (bytes32, uint160, int24);
-    function token1isETH() external view returns (bool);
+    function poolTicks() external view returns (bytes32, uint160, int24);
     function btcVault() external view returns (address);   // E21: was BasketLib.IWiredCore
     /// §E56 — the MONOTONIC (never-decayed) retained-premium counters. Their value here is NOT the
     /// amount: it is that they are CUMULATIVE, which makes them the liveness signal a decayed EWMA
@@ -353,7 +350,7 @@ interface ICore {
     /// §E53 — the BTC band's equity alone. With committedUsd18() (the SUM) this yields the OTHER
     /// band's share of the one bound both compete for, which is what the shared-scarcity amplifier
     /// needs and what no isBTC-scoped input could ever supply.
-    function btcBandEquityUsd18() external view returns (uint);
+    function bandEquityUsd18() external view returns (uint);
     function swap(bool isBTC, uint160 sqrtPriceX96, address sender, bool forOne, address token, uint amount) external returns (uint);
 }
 

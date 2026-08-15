@@ -32,6 +32,14 @@ import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 import {ISkewSink, ILevEquity, ILevEquityBtc} from "./imports/Interfaces.sol";
 // §E21: IERC20Min had TWO declarations (here and imports/ILevVenue.sol). One home now.
 import {IERC20Min} from "./imports/ILevVenue.sol";
+
+/// §ISBTC-SPLIT — see `BandBacking.sol`. Declared here rather than in Interfaces.sol only until the
+/// split lands tree-wide; it is OUR OWN contract and belongs in the canonical file (standing rule 2).
+interface IBandBacking {
+    function report(uint256 equityUsd18) external;
+    function total() external view returns (uint256);
+    function otherThan(address band) external view returns (uint256);
+}
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 
@@ -47,7 +55,7 @@ import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 /// accounting. A swap in the ETH pool that inflates the ETH-side dollar
 /// balance does NOT affect the BTC pool's dollars (and vice-versa). The
 /// per-pool USD slice is bounded by a single safety invariant —
-/// POOLED_USD_ETH + POOLED_USD_BTC ≤ current basket TVL — enforced
+/// POOLED_USD + POOLED_USD ≤ current basket TVL — enforced
 /// inline in _handleDelta on every USD add. BTC's share of the total is
 /// demand-driven within that ≤TVL invariant (no separate allocation cap).
 /// mockUSD_ETH and mockUSD_BTC stay as separate mocks because each pool
@@ -63,18 +71,18 @@ contract Core is SafeCallback {
 
     /// Per-pool oracle rings — the engine now lives in OracleLib (delegatecall),
     /// so the structs come from there. The scalar trio is grouped per pool so
-    /// the helpers take one `ObsState storage` ref (isBTC-dispatched via
+    /// the helpers take one `ObsState storage` ref (IS_BTC-dispatched via
     /// `_obsState`). These were never read externally; only POOLED_* getters
     /// (kept) are.
     OracleLib.ObsState internal obsETH;
     OracleLib.ObsState internal obsBTC;
     OracleLib.Observation[65535] internal observationsETH;
     OracleLib.Observation[65535] internal observationsBTC;
-    function _obsState(bool isBTC) internal view returns (OracleLib.ObsState storage) {
-        return isBTC ? obsBTC : obsETH;
+    function _obsState() internal view returns (OracleLib.ObsState storage) {
+        return IS_BTC ? obsBTC : obsETH;
     }
-    function _obs(bool isBTC) internal view returns (OracleLib.Observation[65535] storage) {
-        return isBTC ? observationsBTC : observationsETH;
+    function _obs() internal view returns (OracleLib.Observation[65535] storage) {
+        return IS_BTC ? observationsBTC : observationsETH;
     }
 
     PoolKey VANILLA_ETH;
@@ -88,7 +96,7 @@ contract Core is SafeCallback {
     PoolId public POOL_ID_VANILLA_BTC;
 
     /// @notice In-range USD slice held against the ETH/USD pool. Sum of
-    /// this plus POOLED_USD_BTC is the total in-range USD; out-of-range
+    /// this plus POOLED_USD is the total in-range USD; out-of-range
     /// USD lives in mockUSD_ETH/mockUSD_BTC respectively.
     /// @notice §#12 — BASKET-SUPPLIED quoting depth (6-dec, shared across both bands). The split
     ///         #12 is named for: `POOLED_USD_*` track what is IN each CURVE (they move on every
@@ -96,13 +104,11 @@ contract Core is SafeCallback {
     ///         basket adds or removes depth via `addLiq`/burn — never on a swap).
     ///         `committedUsd18` is derived from THIS, so the backing gate stops counting an LP's
     ///         sale proceeds as a basket commitment.
-    uint public basketUsdEth;
-    uint public basketUsdBtc;
-    uint public POOLED_USD_ETH;
+    /// §ISBTC-SPLIT — one instance, one asset. Was basketUsd/basketUsd.
+    uint public basketUsd;
+    uint public POOLED_USD;
     /// @notice In-range USD slice held against the BTC/USD pool.
-    uint public POOLED_USD_BTC;
-    uint public POOLED_ETH;
-    uint public POOLED_BTC;
+    uint public POOLED;
 
     /// @notice Committed BASKET USD (both pools, 18-dec) — the single `committed ≤ TVL` term + LP surplus sizing.
     /// The full-2× band holds the LP's equity AND a debt-funded buffer in ONE `POOLED_USD_*` slice (no separate
@@ -115,29 +121,42 @@ contract Core is SafeCallback {
     /// see BufferSwapDrain.t.sol). Floored PER BAND so ETH debt never eats BTC equity. Centralized ×1e12 scale.
     /// §#12: committed is the BASKET's contribution net of live leverage debt — NOT the curve
     /// inventory. A swap moves `POOLED_USD_*` but not `basketUsd`, so it no longer moves committed.
+    /// §ISBTC-SPLIT — THE SUM MOVED TO THE SHARED ACCOUNTANT, AND IT HAD TO.
+    /// This was `_bandEquityUsd18(false) + _bandEquityUsd18(true)` — one contract adding up both
+    /// bands because one contract WAS both bands. With two instances neither can see the other, and
+    /// two instances each gating against the FULL TVL would DOUBLE-COMMIT the same backing without
+    /// reverting. `BandBacking` holds the joint figure; each instance pushes only its own.
     function committedUsd18() public view returns (uint) {
-        return _bandEquityUsd18(false) + _bandEquityUsd18(true);
+        return BACKING.total();
     }
 
+    /// @notice Push THIS instance's equity to the shared accountant. PUSH, not pull, and at the
+    ///         moment the equity changes — a sum of per-band figures is only meaningful if every
+    ///         term is on the same clock, which is §A.16b one level up. A lazy pull would let the
+    ///         bound pass against a total that was never simultaneously true.
+    function _reportEquity() internal { BACKING.report(_bandEquityUsd18()); }
+
     /// @dev One pool's equity USD (18-dec): its in-range USD less that pool's live leverage debt, floored at 0.
-    function _bandEquityUsd18(bool isBTC) internal view returns (uint) {
+    function _bandEquityUsd18() internal view returns (uint) {
         // §E60 — COUNT OUT MOCK THAT HAS LEFT THE ALLOWED HOLDER SET. Once the v4 protocol fee is
         // targeted at our key AND collected, the cut is transferred to a recipient outside
         // {poolManager, Core}: MEASURED $120 of mockUSD on $120,000 of volume, up to 10 bps of
         // throughput indefinitely. Those dollars are gone from the band but `basketUsd*` still
         // claims them, so every LP claim and the backing gate would price against backing that is
         // no longer there. Subtracting the dust is what makes "committed" mean committed.
-        uint dust6 = _dustOf(address(_mockUsd(isBTC)));
-        uint base6 = isBTC ? basketUsdBtc : basketUsdEth;
+        uint dust6 = _dustOf(address(_mockUsd()));
+        uint base6 = basketUsd;
         uint pooled18 = (base6 > dust6 ? base6 - dust6 : 0) * 1e12;   // §#12: BASKET contribution
-        uint debt18 = _levDebtUsd18(isBTC);
+        uint debt18 = _levDebtUsd18();
         return pooled18 > debt18 ? pooled18 - debt18 : 0;
     }
 
-    /// @notice The BTC band's NET equity USD (18-dec): in-range BTC-pool USD less that pool's live leverage
-    ///         debt. External read surface (monitoring / band-sizing probes); measures NET so the debt-funded
-    ///         buffer is not counted as consuming basket-USD headroom.
-    function btcBandEquityUsd18() external view returns (uint) { return _bandEquityUsd18(true); }
+    /// @notice THIS instance's NET equity USD (18-dec). Was `btcBandEquityUsd18`, which existed so
+    ///         `SwapLib._sharedScarcityWad` could subtract one band from the total to learn what the
+    ///         OTHER holds. That subtraction now lives in `BandBacking.otherThan`, derived from the
+    ///         SAME total the solvency bound uses — so the amplifier and the gate cannot disagree
+    ///         about the denominator, which two independent computations eventually would.
+    function bandEquityUsd18() external view returns (uint) { return _bandEquityUsd18(); }
 
     /// @dev That pool's total leverage debt (18-dec), read live from the pinned LevManager (0 if unset). The
     ///      The BTC manager (`LEV_MANAGER_BTC`) lives on the Vault; the ETH one lives on the ETH-VENUE
@@ -146,9 +165,9 @@ contract Core is SafeCallback {
     ///      brick `committedUsd18` (the backing gate on every swap/mint/redeem). On failure we subtract 0 debt,
     ///      which only RAISES committed ⇒ a STRICTER gate + LOWER redeemable — conservative, never over-issue.
     ///      Mirrors `vogueETH`'s try/catch over the same LevManager reads.
-    function _levDebtUsd18(bool isBTC) internal view returns (uint) {
+    function _levDebtUsd18() internal view returns (uint) {
         if (address(BTCVAULT) == address(0)) return 0;
-        address mgr = isBTC ? BTCVAULT.LEV_MANAGER_BTC() : ILevHost(address(VOGUE.EV())).LEV_MANAGER();
+        address mgr = IS_BTC ? BTCVAULT.LEV_MANAGER_BTC() : ILevHost(address(VOGUE.EV())).LEV_MANAGER();
         if (mgr == address(0)) return 0;
         try ILevEquity(mgr).totalDebtUsd() returns (uint d) { return d; } catch { return 0; }
     }
@@ -165,7 +184,7 @@ contract Core is SafeCallback {
     /// (the recorded per-obligation usd), so there is no global delivered/proceeds
     /// pool, no rate, and no clamp — and thus no cross-channel proceeds race.
     /// It exists solely as the swap-in solvency-gate denominator: a swap-in may
-    /// draw at most the FREE reserve `POOLED_USD_BTC − pendingSwapOutUsd`, so
+    /// draw at most the FREE reserve `POOLED_USD − pendingSwapOutUsd`, so
     /// undelivered proceeds owed to LPs can never be drained out from under them.
     /// INVARIANT: every `+= x` is matched by a `-= x` on BOTH the deliver and the
     /// reverse path, and `x` never exceeds the USD actually pulled into the pool.
@@ -254,8 +273,8 @@ contract Core is SafeCallback {
     }
 
     /// @notice Fold a swap's USD notional into this pool's flow EWMA. Called only from _handleSwap.
-    function _bumpFlow(bool isBTC, uint usd6) internal {
-        _bumpEwma(isBTC ? _flowBTC : _flowETH, usd6);
+    function _bumpFlow(uint usd6) internal {
+        _bumpEwma(IS_BTC ? _flowBTC : _flowETH, usd6);
     }
 
 
@@ -270,8 +289,8 @@ contract Core is SafeCallback {
     /// lags, so **a transient burst is never mistaken for durable shed capacity** until it persists.
     /// It is also manipulation-resistant by construction: lifting this number requires sustaining
     /// fake flow across the SLOW window, not one block. (Same shape as `min-of-two-prices`.)
-    function flowEwmaUsd(bool isBTC) public view returns (uint) {
-        return _decayed(isBTC ? _flowBTC : _flowETH);
+    function flowEwmaUsd() public view returns (uint) {
+        return _decayed(IS_BTC ? _flowBTC : _flowETH);
     }
 
     /// @notice This pool's decayed RETAINED-PREMIUM EWMA (6-dec USD) — the band's realized
@@ -281,8 +300,8 @@ contract Core is SafeCallback {
     ///         has nothing to do with how big the band should be (user, 2026-07-26); the dollar leg
     ///         earns the reserve baseline whether it is banded or idle (`spec.md`), so reserve yield
     ///         is not marginal compensation for IL risk and must not inflate the risk budget.
-    function premiumEwmaUsd(bool isBTC) public view returns (uint) {
-        return _decayed(isBTC ? _premBTC : _premETH);
+    function premiumEwmaUsd() public view returns (uint) {
+        return _decayed(IS_BTC ? _premBTC : _premETH);
     }
 
     /// @notice Aggregate leverage claim on this pool (6-dec USD) — the well's
@@ -290,8 +309,8 @@ contract Core is SafeCallback {
     ///         (shrinking deliverable inventory) AND will draw/return it (raising demand),
     ///         so it enters the skew scarcity on BOTH sides. Reuses the live
     ///         LevManager debt total already read for committedUsd18 — no new aggregate.
-    function levClaimUsd6(bool isBTC) public view returns (uint) {
-        return _levDebtUsd18(isBTC) / 1e12;
+    function levClaimUsd6() public view returns (uint) {
+        return _levDebtUsd18() / 1e12;
     }
 
     /// @notice This pool's aggregate levered GROSS collateral in NATIVE units (wei for ETH, sats for BTC), read
@@ -303,9 +322,9 @@ contract Core is SafeCallback {
     ///         self-heals via bounded de-lever, so only the debt leg is an uncovered forward claim on the reservoir).
     ///         FAIL-SAFE: a revert in the venue-iterating read must not brick the swap; on failure returns 0 (the
     ///         skew merely relaxes toward the base oracle curve — the pricing signal, not a hard backing gate).
-    function levGrossNative(bool isBTC) public view returns (uint) {
+    function levGrossNative() public view returns (uint) {
         if (address(BTCVAULT) == address(0)) return 0;
-        if (isBTC) {
+        if (IS_BTC) {
             address mgr = BTCVAULT.LEV_MANAGER_BTC();
             if (mgr == address(0)) return 0;
             try ILevEquityBtc(mgr).totalGrossCollateralBtc() returns (uint256 g) { return g; } catch { return 0; }
@@ -328,14 +347,14 @@ contract Core is SafeCallback {
     ///         sample interval measured EXACTLY 0 however far price moved. One hop now, one source.
     ///         **0 means UNKNOWN (too few real updates), NEVER "calm"** — `SwapLib._maxWellSkew`
     ///         charges the ceiling on it and theta fails open, and both readers agree on that.
-    function realizedVarianceWad(bool isBTC) external view returns (uint) {
+    function realizedVarianceWad() external view returns (uint) {
         // 9 ring points → 8 returns.
         // §TICK-REMOVAL — THE 1e10 WENT WITH THE TICKS, AND THE UNITS ARE UNCHANGED. It was never
         // a tuning constant: a tick is 1 bp, so tick²→relative² is 1e-8 and WAD is 1e18, giving
         // exactly 1e-8 × 1e18 = 1e10. `ringVariance` now returns (WAD relative return)² per second,
         // i.e. relative²·1e36, so ONE division by 1e18 lands on WAD relative variance — same
         // magnitude, same meaning ⇒ Γ (`MAX_WELL_SKEW`) needs NO recalibration.
-        uint v = Math.mulDiv(OracleLib.ringVariance(_obs(isBTC), _obsState(isBTC), 9),
+        uint v = Math.mulDiv(OracleLib.ringVariance(_obs(), _obsState(), 9),
                             31536000, 1e18);          // per-sec → annualized
         // §E88 — ZERO IS NOW RESERVED FOR "UNMEASURED", AND ONLY THAT.
         //
@@ -351,7 +370,7 @@ contract Core is SafeCallback {
         //   variance itself can. A populated ring that computes a true zero returns 1 wei, so the
         //   two states are distinguishable downstream at ZERO extra storage, calls, or gas on the
         //   money path, and the E59 sentinel keeps its exact meaning for the case it was written for.
-        if (v == 0 && _obsState(isBTC).cardinality >= 2) return 1;
+        if (v == 0 && _obsState().cardinality >= 2) return 1;
         return v;
     }
 
@@ -367,39 +386,38 @@ contract Core is SafeCallback {
     ///         Morpho-flash BTC → creditSwapIn → repay, gas via #87 — so paying a separate bonus to the refiller
     ///         was redundant; the premium accrues to LPs directly, no payout.)
     ///         Units = the swap-out's USD driving amount for that pool (6-dec).
-    uint public skewPremiumBTC;
-    uint public skewPremiumETH;
-    event SkewPremiumRetained(bool indexed isBTC, uint256 premiumUsd, uint256 cumulative);
+    uint public skewPremium;
+    event SkewPremiumRetained(uint256 premiumUsd, uint256 cumulative);
 
     /// @notice Record a scarcity-premium retained on a swap-out. Called by the well swap
     ///         bodies (SwapLib.creditSwapOutBody in the Vault context, swapToBody in Aux) — same
     ///         onlyUs seam as Core.swap. No-op on a flush pool (premium == 0).
-    function recordSkewPremium(bool isBTC, uint256 premiumUsd) external onlyUs {
+    function recordSkewPremium(uint256 premiumUsd) external onlyUs {
         if (premiumUsd == 0) return;
         uint256 cum;
         // §E5 — the counters below are an AUDIT RECORD (asserted by
         // testGrindRemoval_DrainPaysRetainedSkewPremium); the CREDIT is what actually reaches LPs.
         // Without it the premium accrues to basket backing, which prices QU!D and not LP shares.
-        if (isBTC) { skewPremiumBTC += premiumUsd; cum = skewPremiumBTC; }
-        else       { skewPremiumETH += premiumUsd; cum = skewPremiumETH; }
+        if (IS_BTC) { skewPremium += premiumUsd; cum = skewPremium; }
+        else       { skewPremium += premiumUsd; cum = skewPremium; }
         // ONE call site, dispatched by address: `Vogue` and `Vault` expose the same
         // `creditSkewPremium` signature, so this is a single encode instead of one per branch.
-        ISkewSink(isBTC ? address(BTCVAULT) : address(VOGUE)).creditSkewPremium(premiumUsd);
+        ISkewSink(IS_BTC ? address(BTCVAULT) : address(VOGUE)).creditSkewPremium(premiumUsd);
         // §E42-netting — PUT THE BACKING WHERE THE CLAIM IS. The credit above creates an LP claim;
         // these are the dollars that back it, and until now they were the ONLY fee whose backing
         // stayed in general basket assets. Every other fee leaves its backing in the POOLED mirror
-        // on purpose (BtcVaultLib:56 — "the sats stay in POOLED_BTC by design: the guard exists so
+        // on purpose (BtcVaultLib:56 — "the sats stay in POOLED by design: the guard exists so
         // creating the CLAIM does not remove its BACKING"), and `redeemableBody` nets that mirror.
         // MEASURED (§E42, 6 x 500 USDC): swappers paid 3,000.000000 into the basket while the
         // mirror rose only 2,993.999901 — the 6.000099 gap was the premium, quoted as QU!D
         // redeemability while owed to LPs. Folding it in closes the gap AT SOURCE, so redeemable
         // needs no premium-specific subtraction and no claimed/unclaimed counter to keep in sync:
-        // the mirror already falls as LPs draw. Symmetric across both bands via isBTC.
-        _addPooledUsd(isBTC, premiumUsd);
+        // the mirror already falls as LPs draw. Symmetric across both bands via IS_BTC.
+        _addPooledUsd(premiumUsd);
         // Also fold it into the decaying RATE register (#107/D3). The cumulative counters above
         // are monotonic totals — useless as a yield; θ needs a rate, which is what this provides.
-        _bumpEwma(isBTC ? _premBTC : _premETH, premiumUsd);
-        emit SkewPremiumRetained(isBTC, premiumUsd, cum);
+        _bumpEwma(IS_BTC ? _premBTC : _premETH, premiumUsd);
+        emit SkewPremiumRetained(premiumUsd, cum);
     }
 
     // payRefillBonus REMOVED (2026-07-22): the swap-in refill no longer pays the refiller a bonus. Refill is a
@@ -421,27 +439,37 @@ contract Core is SafeCallback {
     mock internal mockUSD_ETH; // synthetic $-side of ETH pool (in & out of range)
     mock internal mockUSD_BTC; // synthetic $-side of BTC pool (in & out of range)
 
-    bool public token1isETH;  // ETH pool ordering
-    bool public token1isBTC;  // BTC pool ordering
+    /// Pool ordering for THIS instance's asset. Was token1isVol/token1isVol.
+    bool public token1isVol;
+
+    /// §ISBTC-SPLIT — WHAT THIS INSTANCE IS. Not a parameter threaded through every call: an
+    /// IMMUTABLE the contract holds about itself. That distinction is the point of the split — a
+    /// runtime boolean selecting between two behaviours IS the hand-rolled polymorphism being
+    /// removed, whereas an instance knowing its own asset is what having instances MEANS.
+    /// Use it ONLY where the asymmetry is REAL (ETH pays out ether; BTC settles via a Lightning
+    /// cooperative close), never to pick between two paths that should have been one.
+    bool public immutable IS_BTC;
+
+    /// §ISBTC-SPLIT — the shared accountant. Holds the ONE thing two instances still share: the
+    /// joint committed equity that `require(committedUsd18() <= haircutTvl)` gates on, and the
+    /// cross-band input `SwapLib._sharedScarcityWad` needs. Neither instance knows the other exists.
+    IBandBacking public immutable BACKING;
 
     /// @notice Fused token-ordering accessor. Replaces the
-    /// `isBTC ? token1isBTC() : token1isETH()` ternary at callsites.
-    function token1is(bool isBTC) external view returns (bool) {
-        return _t1(isBTC);
+    /// `IS_BTC ? token1isVol() : token1isVol()` ternary at callsites.
+    function token1is() external view returns (bool) {
+        return token1isVol;
     }
 
-    // ─── isBTC storage-ref selectors (EIP-170 dedup) ─────────────────
+    // ─── IS_BTC storage-ref selectors (EIP-170 dedup) ─────────────────
     // Each picks the per-pool slot/array so the swap/repack/delta/observation
-    // bodies run ONE isBTC-parameterized path instead of mirrored ETH/BTC
+    // bodies run ONE IS_BTC-parameterized path instead of mirrored ETH/BTC
     // branches. Value types can't be returned by storage ref, so the scalar
     // observation state is grouped in `_obsState` (ABI-preserving: the old
     // public obs getters were unread externally; only the array getters and
     // POOLED_* getters, which stay, are read by tests).
-    function _t1(bool isBTC) internal view returns (bool) {
-        return isBTC ? token1isBTC : token1isETH;
-    }
-    function _poolId(bool isBTC) internal view returns (PoolId) {
-        return isBTC ? POOL_ID_VANILLA_BTC : POOL_ID_VANILLA_ETH;
+        function _poolId() internal view returns (PoolId) {
+        return IS_BTC ? POOL_ID_VANILLA_BTC : POOL_ID_VANILLA_ETH;
     }
     /// @notice DUST SWEEP — mock tokens held OUTSIDE the allowed set, which must never count
     ///         toward shares or P&L attribution.
@@ -472,11 +500,11 @@ contract Core is SafeCallback {
         return supply > held ? supply - held : 0;   // never counted toward shares or P&L
     }
 
-    function _mockUsd(bool isBTC) internal view returns (mock) {
-        return isBTC ? mockUSD_BTC : mockUSD_ETH;
+    function _mockUsd() internal view returns (mock) {
+        return IS_BTC ? mockUSD_BTC : mockUSD_ETH;
     }
-    function _mockTok(bool isBTC) internal view returns (mock) {
-        return isBTC ? mockBTC : mockETH;
+    function _mockTok() internal view returns (mock) {
+        return IS_BTC ? mockBTC : mockETH;
     }
 
     /// @notice The pool's two synthetic mocks. EXISTS SO THE HARNESS STOPS READING RAW SLOTS: §E60's
@@ -485,24 +513,24 @@ contract Core is SafeCallback {
     ///         storage ORDER, so deleting two state vars made `vm.load` return a non-token and
     ///         `balanceOf` revert (§UNIT-B-SLOWDEL-CAUSE). §CORE-ONLYUS freed 907 bytes; measured cost
     ///         of this getter is 91, against 1,011 free. The constraint that forced raw slots is gone.
-    function mocks(bool isBTC) external view returns (address tok, address usd) {
-        return (address(_mockTok(isBTC)), address(_mockUsd(isBTC)));
+    function mocks() external view returns (address tok, address usd) {
+        return (address(_mockTok()), address(_mockUsd()));
     }
     // Value types can't be storage-ref'd, so POOLED_* moves go through these
-    // isBTC-dispatched mutators (Math.min floors mirror the originals).
-    function _addPooledUsd(bool isBTC, uint a) internal {
-        if (isBTC) POOLED_USD_BTC += a; else POOLED_USD_ETH += a;
+    // IS_BTC-dispatched mutators (Math.min floors mirror the originals).
+    function _addPooledUsd(uint a) internal {
+        if (IS_BTC) POOLED_USD += a; else POOLED_USD += a;
     }
-    function _subPooledUsd(bool isBTC, uint a) internal {
-        if (isBTC) POOLED_USD_BTC -= Math.min(a, POOLED_USD_BTC);
-        else       POOLED_USD_ETH -= Math.min(a, POOLED_USD_ETH);
+    function _subPooledUsd(uint a) internal {
+        if (IS_BTC) POOLED_USD -= Math.min(a, POOLED_USD);
+        else       POOLED_USD -= Math.min(a, POOLED_USD);
     }
-    function _addPooledTok(bool isBTC, uint a) internal {
-        if (isBTC) POOLED_BTC += a; else POOLED_ETH += a;
+    function _addPooledTok(uint a) internal {
+        if (IS_BTC) POOLED += a; else POOLED += a;
     }
-    function _subPooledTok(bool isBTC, uint a) internal {
-        if (isBTC) POOLED_BTC -= Math.min(a, POOLED_BTC);
-        else       POOLED_ETH -= Math.min(a, POOLED_ETH);
+    function _subPooledTok(uint a) internal {
+        if (IS_BTC) POOLED -= Math.min(a, POOLED);
+        else       POOLED -= Math.min(a, POOLED);
     }
 
     Aux AUX; Vogue VOGUE; Basket BASKET; Vault BTCVAULT;
@@ -538,14 +566,14 @@ contract Core is SafeCallback {
     /// @dev    Dispatched HERE rather than read as two public getters from `SwapLib`: the two-branch
     ///         read cost SwapLib 87 bytes it does not have (measured, -87 over EIP-170), and Core has
     ///         the margin. Same trade as E32 — put the code where the room is.
-    function skewPremiumCum(bool isBTC) external view returns (uint) {
-        return isBTC ? skewPremiumBTC : skewPremiumETH;
+    function skewPremiumCum() external view returns (uint) {
+        return skewPremium;
     }
 
     /// @notice BTC band theta-numerator: the native IL-bearing backing = aggregate locked sats (lpSharesBTC,
     ///         net) + gross debt-funded buffer (totalBufferBTC). The BTC analogue of (vogueETH + totalBuffer)
     ///         on ETH. ONE source of truth for BOTH the LP-add clamp (BtcVaultLib._thetaClampBtc) and the
-    ///         reseat clamp (VogueLib.addLiq isBTC) so they throttle on the SAME real capital -- NEVER the
+    ///         reseat clamp (VogueLib.addLiq IS_BTC) so they throttle on the SAME real capital -- NEVER the
     ///         disjoint WBTC-donation `vogueBTC` pool (that mis-base collapsed the band whenever donations were
     ///         thin, the opposite of what scarcity should do). 0 if no BTC vault wired.
     function btcThetaBacking() external view returns (uint) {
@@ -553,7 +581,7 @@ contract Core is SafeCallback {
     }
 
     // NOTE: ReseatETH is the LAST ETH action and ReseatBTC the LAST BTC action so
-    // the `isBTC = uint8(a) >= uint8(Action.SwapBTC)` split in _unlockCallback
+    // the `IS_BTC = uint8(a) >= uint8(Action.SwapBTC)` split in _unlockCallback
     // stays correct (all ETH actions < SwapBTC, all BTC actions >= SwapBTC).
     enum Action {
         SwapETH, RepackETH, ModLPETH, OutsideRangeETH, CollectETH, ReseatETH,
@@ -583,7 +611,14 @@ contract Core is SafeCallback {
     ///         `onlyUs` member (Core isn't Ownable; this is the immutable analog of the owner-gate the
     ///         siblings Basket.setBtcVault / Aux.setEthVenue already carry).
     address immutable DEPLOYER;
-    constructor(IPoolManager _manager) SafeCallback(_manager) { DEPLOYER = msg.sender; }
+    /// §ISBTC-SPLIT — `isBtc` is instance identity and is set ONCE, here. Two instances are
+    /// deployed: one ETH, one BTC. Nothing downstream may change it, which is why it is immutable
+    /// rather than a settable flag — a settable one would reintroduce the runtime selector.
+    constructor(IPoolManager _manager, bool isBtc, address backing) SafeCallback(_manager) {
+        DEPLOYER = msg.sender;
+        IS_BTC = isBtc;
+        BACKING = IBandBacking(backing);
+    }
 
     /// @param _vogue            Vogue contract (LP wrapper)
     /// @param _aux              Aux (settlement adapter)
@@ -627,16 +662,18 @@ contract Core is SafeCallback {
                 mE, mB, mUE, mUB, address(AUX.WBTC()));
 
         // Both pools init identically; only the direction probe differs.
-        _initPool(false, mE, mUE, ethVolIsC0, refTickEth);
-        _initPool(true,  mB, mUB, btcVolIsC0, refTickBtc);
+        // §ISBTC-SPLIT — ONE instance initialises ONE pool. This was two calls because one contract
+        // held both rings; each instance now seeds only its own from its own reference pool.
+        if (IS_BTC) _initPool(mB, mUB, btcVolIsC0, refTickBtc);
+        else        _initPool(mE, mUE, ethVolIsC0, refTickEth);
     }
 
     /// @dev Per-pool VANILLA init, shared by ETH and BTC. Builds the lex-sorted
-    ///      PoolKey, records the ordering (token1isETH/BTC), initializes the V4
+    ///      PoolKey, records the ordering (token1isVol/BTC), initializes the V4
     ///      pool at the reference pool's live tick (direction-corrected via
     ///      `refVolIsC0`, floored toward −∞ to tickSpacing), and seeds the
     ///      oracle ring. Behavior-identical to the two prior inlined blocks.
-    function _initPool(bool isBTC, address volMock,
+    function _initPool(address volMock,
         address usdMock, bool refVolIsC0, int24 refTick) internal {
         // Everything but the two VALUE-TYPE state writes lives in OracleLib: the
         // PoolKey assembly, the lex sort, the tick direction-correction + align, the
@@ -646,11 +683,11 @@ contract Core is SafeCallback {
         // what makes the move possible; `token1is*` and `POOL_ID_*` are value types
         // with no pointer to pass, so those two assignments stay here.
         (bool token1isVol, PoolId id) = OracleLib.initPool(poolManager,
-            isBTC ? VANILLA_BTC : VANILLA_ETH, _obsState(isBTC), _obs(isBTC),
+            IS_BTC ? VANILLA_BTC : VANILLA_ETH, _obsState(), _obs(),
             volMock, usdMock, refVolIsC0, refTick);
 
-        if (isBTC) { token1isBTC = token1isVol; POOL_ID_VANILLA_BTC = id; }
-        else       { token1isETH = token1isVol; POOL_ID_VANILLA_ETH = id; }
+        if (IS_BTC) { token1isVol = token1isVol; POOL_ID_VANILLA_BTC = id; }
+        else       { token1isVol = token1isVol; POOL_ID_VANILLA_ETH = id; }
     }
 
     /// @notice Draw down the BTC pool's committed USD side when an on-chain
@@ -658,10 +695,10 @@ contract Core is SafeCallback {
     function drawPooledUsdBtc(uint usd6) external onlyUs {
         // FAIL-LOUD, not silent-clamp: the sole caller (BtcVaultLib.settleDelivered) mints QUI for the FULL
         // `exactUsd` it draws here, so a `Math.min` under-draw would leave that excess QUI unbacked. The
-        // request/gate invariant (exactUsd ≤ pendingSwapOutUsd ≤ POOLED_USD_BTC) makes this subtraction never
+        // request/gate invariant (exactUsd ≤ pendingSwapOutUsd ≤ POOLED_USD) makes this subtraction never
         // underflow in correct operation; checked math reverts the whole settlement if a future change breaks
         // it — the draw and the mint can never disagree by construction.
-        POOLED_USD_BTC -= usd6;
+        POOLED_USD -= usd6;
     }
 
     /// @notice Record a new undelivered on-chain swap-out obligation's USD
@@ -689,7 +726,7 @@ contract Core is SafeCallback {
     }
 
     // ─── External entrypoints — same surface as before, parallel BTC ──
-    /// @notice Fused modLP — isBTC selects which pool. `delta` is the
+    /// @notice Fused modLP — IS_BTC selects which pool. `delta` is the
     /// volatile-side change (ETH amount for ETH pool, BTC sats for BTC).
     /// @notice full-2× band op. The debt-funded buffer leg folds into POOLED_USD_* like any in-range USD;
     ///         committedUsd18 recovers equity by subtracting min(live debt, pooled buffer). No separate buffer
@@ -704,39 +741,39 @@ contract Core is SafeCallback {
     /// "the add failed" would be wrong — that is the line to check when wiring callers.
     /// ⚠️ `sqrtPriceX96` and the tick bounds are unused; they stay only until the callers are
     /// updated in this same cut.
-    function modLP(bool isBTC, uint160 /*sqrtPriceX96*/, uint delta,
+    function modLP(uint160 /*sqrtPriceX96*/, uint delta,
         uint deltaUSD, int24 /*tickLower*/, int24 /*tickUpper*/,
         address sender) public onlyUs returns (uint sent) {
         // Both legs ENTER the band ⇒ NEGATIVE, per the convention derived in `swap` (positive leaves
         // the pool, negative enters it). `_t1` says which leg carries USD.
-        Delta memory d = _t1(isBTC)
+        Delta memory d = token1isVol
             ? Delta(-int256(deltaUSD), -int256(delta))
             : Delta(-int256(delta), -int256(deltaUSD));
-        _handleDelta(d, true, deltaUSD == 0, sender, address(0), isBTC, true);
+        _handleDelta(d, true, deltaUSD == 0, sender, address(0), true);
         sent = 0;   // nothing is refused, so nothing comes back
     }
 
     /// @notice Fused outOfRange. Action enum differentiates ETH vs BTC.
-    function outOfRange(bool isBTC, address sender, int liquidity,
+    function outOfRange(address sender, int liquidity,
         int24 tickLower, int24 tickUpper, address token)
         public onlyUs returns (uint tokOut) {
         BalanceDelta d = abi.decode(poolManager.unlock(abi.encode(
-            isBTC ? Action.OutsideRangeBTC : Action.OutsideRangeETH,
+            IS_BTC ? Action.OutsideRangeBTC : Action.OutsideRangeETH,
             sender, liquidity, tickLower, tickUpper, token)),
             (BalanceDelta));
         // On a burn (liquidity<0) the token (BTC/ETH) leg is positive — the mock
         // amount the order held. Returned so a closing BTC LP can net the boundary
         // orders' unfilled (native) sats out of its in-range native burn (callers
         // that don't need it, e.g. Vogue.pull, simply ignore the return).
-        int128 t = _t1(isBTC) ? d.amount1() : d.amount0();
+        int128 t = token1isVol ? d.amount1() : d.amount0();
         tokOut = t > 0 ? uint(int(t)) : 0;
     }
 
-    /// @notice Fused swap — isBTC selects which V4 pool. The shortfall signal is
+    /// @notice Fused swap — IS_BTC selects which V4 pool. The shortfall signal is
     ///         ASYNC per-pool (in-frame refill is unsafe — re-enters Aux on
     ///         half-settled backing): ETH emits ETHRefillRequest (keeper → refillETH
     ///         buys back from free surplus); BTC emits a hop request (we don't mint WBTC).
-    function swap(bool isBTC, uint160 sqrtPriceX96, address sender,
+    function swap(uint160 sqrtPriceX96, address sender,
         bool forOne, address token, uint amount)
         onlyUs public returns (uint out) {
         // ═══════════════ §V4-CUT — SETTLE AT ORACLE, BOUNDED BY INVENTORY ═══════════════
@@ -769,9 +806,9 @@ contract Core is SafeCallback {
         // `out` come back. Inlining them here blows the stack at `_handleDelta`, twice measured.
         // This is the same idiom `_handleDelta`'s own settle legs use ("each leg settles in its own
         // frame -- legacy stack, no via_ir crutch"). Do not inline for readability; it will not compile.
-        uint px = AUX.getTWAPforAsset(isBTC ? address(AUX.WBTC()) : address(AUX.WETH()), 1800);
+        uint px = AUX.getTWAPforAsset(IS_BTC ? address(AUX.WBTC()) : address(AUX.WETH()), 1800);
         Delta memory delta;
-        (delta, out) = _fillDelta(isBTC, forOne, amount, px);
+        (delta, out) = _fillDelta(forOne, amount, px);
 
         // 🔴 THE THREE LINES BELOW LIVED IN `_handleSwap`, WHICH THIS CUT DELETED. Moving the seam
         // without carrying the body left `swap` computing a delta and doing NOTHING with it — no
@@ -781,10 +818,10 @@ contract Core is SafeCallback {
         // (1) OBSERVATION. `_writeObservation` took a sqrt-price only because v4's API handed one
         // over; the ring has stored PLAIN PRICE since §TICK-REMOVAL, and we now HAVE the price, so
         // it goes in directly with no conversion. This is the whole of the oracle repoint.
-        _writeObservationPrice(uint160(px), isBTC);
+        _writeObservationPrice(uint160(px));
 
         // (2) SETTLEMENT. Without this `POOLED_*` never moves and nobody is paid.
-        _handleDelta(delta, true, false, sender, token, isBTC);
+        _handleDelta(delta, true, false, sender, token);
 
         // (3) FLOW EWMA — LOAD-BEARING, AND ITS ABSENCE WOULD HAVE BEEN SILENT. `flowEwmaUsd` decays
         // with no replenishment if this is missing, and flow IS the `target` in `skewWad`/`sellSkew`.
@@ -792,9 +829,9 @@ contract Core is SafeCallback {
         // — looking exactly like a skew that simply never fires. Every band and well swap routes
         // through here, so this remains the ONE bump point.
         {
-            int256 usdLeg = _t1(isBTC) ? delta.amt0 : delta.amt1;
+            int256 usdLeg = token1isVol ? delta.amt0 : delta.amt1;
             uint usd6 = uint(usdLeg < 0 ? -usdLeg : usdLeg);
-            if (usd6 != 0) _bumpFlow(isBTC, usd6);
+            if (usd6 != 0) _bumpFlow(usd6);
         }
 
         // Per-pool shortfall arb. Threshold (1%) and trigger logic are
@@ -803,30 +840,30 @@ contract Core is SafeCallback {
         // totalSharesX = 0, so the trigger naturally doesn't fire until
         // LPs join via modLP (which grows both in lockstep).
         // GROSS fee depth on both sides: for BTC, totalSharesBTC is NET, so add the levered buffer
-        // (totalBufferBTC) to match POOLED_BTC (gross, includes the buffer) — keeps the shortfall
+        // (totalBufferBTC) to match POOLED (gross, includes the buffer) — keeps the shortfall
         // comparison gross-to-gross (unchanged behavior). ETH: vogueETH(net) vs totalShares(net) already balanced.
-        uint totalSharesPool = isBTC
+        uint totalSharesPool = IS_BTC
             ? BTCVAULT.totalSharesBTC() + BTCVAULT.totalBufferBTC()
             : VOGUE.totalShares();
         // BOTH sides compare REAL inventory, never just the in-pool token.
-        // ETH = vogueETH() (in-range POOLED_ETH + AAVE/ether.fi venue
+        // ETH = vogueETH() (in-range POOLED + AAVE/ether.fi venue
         // retention + idle). BTC has no yield-venue, but the protocol still HOLDS
         // off-pool WBTC (swept donations + swap deltas, accrued in vogueBTC), so
-        // the BTC analogue is POOLED_BTC + vogueBTC. Comparing raw POOLED_BTC
-        // over-fired the shortfall arb on off-range retention (lpShares > POOLED_BTC
+        // the BTC analogue is POOLED + vogueBTC. Comparing raw POOLED
+        // over-fired the shortfall arb on off-range retention (lpShares > POOLED
         // by construction) — requesting a hop-source of BTC the protocol already
         // holds. Adding vogueBTC is monotone-safe: it can only SHRINK the measured
         // shortfall, never grow it, and suppressing a "shortfall" we can cover from
         // our own WBTC is correct (no need to source what we already hold).
         // BTC IL-protect: totalSharesBTC includes each LP's LEVERED slice (levPooledBTC), and its backing is
-        // ALREADY inside POOLED_BTC — `syncLevBTC` pairs the net-equity as deltaBTC into POOLED_BTC in lockstep
+        // ALREADY inside POOLED — `syncLevBTC` pairs the net-equity as deltaBTC into POOLED in lockstep
         // with levPooledBTC (VaultLib.levAddNetBtc/levAddBufBtc), so the lev slice is monotone-neutral here.
         // (The ETH branch is NET-vs-NET: vogueETH() adds the lev book's NET equity (totalNetEquityEth, the
         // debt-funded buffer half offset by the LP's borrow) and totalShares() is NET, so no gross term is added
-        // here — POOLED_BTC, by contrast, DOES include the lev slice gross (levAddBtc pairs the gross buffer in),
+        // here — POOLED, by contrast, DOES include the lev slice gross (levAddBtc pairs the gross buffer in),
         // so BTC alone needs the +totalBufferBTC above to keep totalSharesBTC's comparison gross-to-gross.)
-        uint pooledTok = isBTC
-            ? POOLED_BTC + AUX.vogueBTC()
+        uint pooledTok = IS_BTC
+            ? POOLED + AUX.vogueBTC()
             : AUX.vogueETH();
         // The load-balance (the shortfall arb/refill this swap would trigger) is the
         // SWAPPER's to consent to — it routes through the SOR / hop and can add MEV/slippage
@@ -844,7 +881,7 @@ contract Core is SafeCallback {
                 // demand is met fairly at withdrawal: convertToAssets pays each LP
                 // pro-rata of vogueETH, so the IL is socialized via the share price,
                 // never patched from surplus.
-                if (isBTC) AUX.btcShortfall(sender, shortfall);
+                if (IS_BTC) AUX.btcShortfall(sender, shortfall);
             }
         }
     }
@@ -868,13 +905,13 @@ contract Core is SafeCallback {
     // it (see Vogue._withdraw). BTC keeps its hop delivery rail (Aux.btcShortfall).
 
     /// @notice Fused repack — replaces separate repack/repackBTC. Pass
-    ///         isBTC=true to repack the BTC/USD pool, false for ETH/USD.
-    function repack(bool isBTC, uint128 myLiquidity, uint160 sqrtPriceX96,
+    ///         IS_BTC=true to repack the BTC/USD pool, false for ETH/USD.
+    function repack(uint128 myLiquidity, uint160 sqrtPriceX96,
         int24 oldTickLower, int24 oldTickUpper,
         int24 newTickLower, int24 newTickUpper) public onlyUs
         returns (uint price, uint fees0, uint fees1, uint delta0, uint delta1) {
         (price, fees0, fees1, delta0, delta1) = abi.decode(poolManager.unlock(
-            abi.encode(isBTC ? Action.RepackBTC : Action.RepackETH,
+            abi.encode(IS_BTC ? Action.RepackBTC : Action.RepackETH,
                 myLiquidity, sqrtPriceX96, oldTickLower,
                 oldTickUpper, newTickLower, newTickUpper)),
             (uint, uint, uint, uint, uint));
@@ -888,12 +925,12 @@ contract Core is SafeCallback {
     ///         once it's stale → deadlock). Driven by Vogue/BtcVault, which compute
     ///         `targetSqrt` from `getTWAPforAsset` (Chainlink-resolved) + the new
     ///         range. Mock-only: real assets in the basket/venue are untouched.
-    function reseat(bool isBTC, uint128 myLiquidity, uint160 currentSqrt,
+    function reseat(uint128 myLiquidity, uint160 currentSqrt,
         uint160 targetSqrt, int24 oldTickLower, int24 oldTickUpper,
         int24 newTickLower, int24 newTickUpper) public onlyUs
         returns (uint price, uint fees0, uint fees1, uint delta0, uint delta1) {
         (price, fees0, fees1, delta0, delta1) = abi.decode(poolManager.unlock(
-            abi.encode(isBTC ? Action.ReseatBTC : Action.ReseatETH,
+            abi.encode(IS_BTC ? Action.ReseatBTC : Action.ReseatETH,
                 myLiquidity, currentSqrt, targetSqrt, oldTickLower,
                 oldTickUpper, newTickLower, newTickUpper)),
             (uint, uint, uint, uint, uint));
@@ -911,10 +948,10 @@ contract Core is SafeCallback {
     ///
     /// Cost: one V4 modifyLiquidity(0) — read the position's tokensOwed
     /// and zero them, no token movement on liquidity (only on fees).
-    function collectFees(int24 tickLower, int24 tickUpper, bool isBTC)
+    function collectFees(int24 tickLower, int24 tickUpper)
         public onlyUs returns (uint fees0, uint fees1) {
         (fees0, fees1) = abi.decode(poolManager.unlock(
-            abi.encode(isBTC ? Action.CollectBTC : Action.CollectETH,
+            abi.encode(IS_BTC ? Action.CollectBTC : Action.CollectETH,
                 tickLower, tickUpper)),
             (uint, uint));
     }
@@ -928,40 +965,39 @@ contract Core is SafeCallback {
             firstByte := and(word, 0xFF)
         }
         Action a = Action(firstByte);
-        bool isBTC = (uint8(a) >= uint8(Action.SwapBTC));
         bytes calldata payload = data[32:];
 
         if (a == Action.RepackETH || a == Action.RepackBTC)
-            return _handleRepack(payload, isBTC);
+            return _handleRepack(payload);
         if (a == Action.ReseatETH || a == Action.ReseatBTC)
-            return _handleReseat(payload, isBTC);
+            return _handleReseat(payload);
         if (a == Action.ModLPETH || a == Action.ModLPBTC)
-            return _handleMod(payload, isBTC);
+            return _handleMod(payload);
         if (a == Action.OutsideRangeETH || a == Action.OutsideRangeBTC)
-            return _handleOutsideRange(payload, isBTC);
+            return _handleOutsideRange(payload);
         if (a == Action.CollectETH || a == Action.CollectBTC)
-            return _handleCollect(payload, isBTC);
+            return _handleCollect(payload);
         return "";
     }
 
-    function _key(bool isBTC) internal view returns (PoolKey memory) {
-        return isBTC ? VANILLA_BTC : VANILLA_ETH;
+    function _key() internal view returns (PoolKey memory) {
+        return IS_BTC ? VANILLA_BTC : VANILLA_ETH;
     }
 
-    function _handleRepack(bytes calldata data, bool isBTC)
+    function _handleRepack(bytes calldata data)
         internal returns (bytes memory) {
         // Per-pool zeroing: clear only the side being repacked. The other
         // pool's slice is independent and untouched.
-        if (isBTC) { POOLED_USD_BTC = 0; POOLED_BTC = 0; basketUsdBtc = 0; }
-        else       { POOLED_USD_ETH = 0; POOLED_ETH = 0; basketUsdEth = 0; }
+        if (IS_BTC) { POOLED_USD = 0; POOLED = 0; basketUsd = 0; }
+        else       { POOLED_USD = 0; POOLED = 0; basketUsd = 0; }
 
-        (Reseat memory rng, BalanceDelta fees, uint delta0, uint delta1) = _repackBurn(data, isBTC);
-        uint price = BasketLib.getPrice(rng.sqrtP, _t1(isBTC));
-        // Pull next-round liquidity from Vogue (own frame, isBTC selects path).
-        BalanceDelta addDelta = _repackAdd(delta0, delta1, price, rng, isBTC);
+        (Reseat memory rng, BalanceDelta fees, uint delta0, uint delta1) = _repackBurn(data);
+        uint price = BasketLib.getPrice(rng.sqrtP, token1isVol);
+        // Pull next-round liquidity from Vogue (own frame, IS_BTC selects path).
+        BalanceDelta addDelta = _repackAdd(delta0, delta1, price, rng);
 
-        (uint160 sqrtP,,,) = poolManager.getSlot0(_poolId(isBTC));
-        _writeObservation(sqrtP, isBTC);
+        (uint160 sqrtP,,,) = poolManager.getSlot0(_poolId());
+        _writeObservation(sqrtP);
 
         return abi.encode(price, uint(int(fees.amount0())),
             uint(int(fees.amount1())), uint(int(addDelta.amount0())),
@@ -976,40 +1012,40 @@ contract Core is SafeCallback {
     ///      removed amounts — own frame so the old-range ticks / myLiquidity / burn
     ///      delta don't pin _handleRepack's legacy stack. Returns the NEW range +
     ///      collected fees + the two settled token amounts.
-    function _repackBurn(bytes calldata data, bool isBTC)
+    function _repackBurn(bytes calldata data)
         private returns (Reseat memory rng, BalanceDelta fees, uint delta0, uint delta1) {
         int24 oldLo; int24 oldHi; uint128 myLiquidity;
         (myLiquidity, rng.sqrtP, oldLo, oldHi, rng.lower, rng.upper) =
             abi.decode(data, (uint128, uint160, int24, int24, int24, int24));
         BalanceDelta delta;
-        (delta, fees) = _modifyLiquidity(-int(uint(myLiquidity)), oldLo, oldHi, isBTC);
+        (delta, fees) = _modifyLiquidity(-int(uint(myLiquidity)), oldLo, oldHi);
         // TRUSTED-ARG CHECK (audit residual, §A.24). `myLiquidity` is supplied by the caller (from
         // `poolStats`), and `onlyUs` puts it inside the Vogue keeper trust boundary — but a STALE value
         // fails ASYMMETRICALLY: too HIGH already reverts inside `_modifyLiquidity` (cannot remove more
         // than exists), while too LOW silently under-removes and STRANDS liquidity in the old range,
         // where the repack then re-seats around it and POOLED_* no longer equals realized depth.
         // Assert the burn actually emptied the old position — the cheap, direct invariant.
-        require(StateLibrary.getPositionLiquidity(poolManager, _poolId(isBTC),
+        require(StateLibrary.getPositionLiquidity(poolManager, _poolId(),
             keccak256(abi.encodePacked(address(this), oldLo, oldHi, bytes32(0)))) == 0, "repack:stale");
-        (delta0, delta1) = _handleDelta(Delta(int256(delta.amount0()), int256(delta.amount1())), false, true, address(0), address(0), isBTC);
+        (delta0, delta1) = _handleDelta(Delta(int256(delta.amount0()), int256(delta.amount1())), false, true, address(0), address(0));
     }
 
     /// @dev Re-seat the repacked position with next-round liquidity pulled from
     ///      Vogue (own frame so _handleRepack's burn locals don't pin the legacy
-    ///      stack). token1is(isBTC) selects which leg the volatile token is.
-    function _repackAdd(uint delta0, uint delta1, uint price, Reseat memory rng, bool isBTC)
+    ///      stack). token1is(IS_BTC) selects which leg the volatile token is.
+    function _repackAdd(uint delta0, uint delta1, uint price, Reseat memory rng)
         private returns (BalanceDelta addDelta) {
-        if (_t1(isBTC)) {
-            (delta0, delta1) = VOGUE.addLiq(delta1, price, isBTC);
+        if (token1isVol) {
+            (delta0, delta1) = VOGUE.addLiq(delta1, price);
             if (delta0 > 0 && delta1 > 0) {
-                addDelta = _modLP(delta0, delta1, rng.lower, rng.upper, rng.sqrtP, isBTC);
-                _handleDelta(Delta(int256(addDelta.amount0()), int256(addDelta.amount1())), true, false, address(0), address(0), isBTC, true);
+                addDelta = _modLP(delta0, delta1, rng.lower, rng.upper, rng.sqrtP);
+                _handleDelta(Delta(int256(addDelta.amount0()), int256(addDelta.amount1())), true, false, address(0), address(0), true);
             }
         } else {
-            (delta1, delta0) = VOGUE.addLiq(delta0, price, isBTC);
+            (delta1, delta0) = VOGUE.addLiq(delta0, price);
             if (delta1 > 0 && delta0 > 0) {
-                addDelta = _modLP(delta1, delta0, rng.lower, rng.upper, rng.sqrtP, isBTC);
-                _handleDelta(Delta(int256(addDelta.amount0()), int256(addDelta.amount1())), true, false, address(0), address(0), isBTC, true);
+                addDelta = _modLP(delta1, delta0, rng.lower, rng.upper, rng.sqrtP);
+                _handleDelta(Delta(int256(addDelta.amount0()), int256(addDelta.amount1())), true, false, address(0), address(0), true);
             }
         }
     }
@@ -1027,21 +1063,21 @@ contract Core is SafeCallback {
     ///      but with the explicit spot-move. Mock-only — no AUX.take/VOGUE.takeETH
     ///      (keep=true, who=0) — so basket/venue real assets are untouched; only
     ///      the virtual POOLED slice + the curve spot move.
-    function _handleReseat(bytes calldata data, bool isBTC)
+    function _handleReseat(bytes calldata data)
         internal returns (bytes memory) {
         ReseatParams memory p = abi.decode(data, (ReseatParams));
         // Per-pool zeroing — re-established by the re-add (as in _handleRepack).
-        if (isBTC) { POOLED_USD_BTC = 0; POOLED_BTC = 0; basketUsdBtc = 0; }
-        else       { POOLED_USD_ETH = 0; POOLED_ETH = 0; basketUsdEth = 0; }
+        if (IS_BTC) { POOLED_USD = 0; POOLED = 0; basketUsd = 0; }
+        else       { POOLED_USD = 0; POOLED = 0; basketUsd = 0; }
 
-        (BalanceDelta fees, uint d0, uint d1) = _reseatBurnMove(p, isBTC);
+        (BalanceDelta fees, uint d0, uint d1) = _reseatBurnMove(p);
 
-        uint price = BasketLib.getPrice(p.targetSqrt, _t1(isBTC));
+        uint price = BasketLib.getPrice(p.targetSqrt, token1isVol);
         Reseat memory rng = Reseat({ sqrtP: p.targetSqrt, lower: p.newLo, upper: p.newHi });
-        BalanceDelta addDelta = _repackAdd(d0, d1, price, rng, isBTC);
+        BalanceDelta addDelta = _repackAdd(d0, d1, price, rng);
 
-        (uint160 sqrtP,,,) = poolManager.getSlot0(_poolId(isBTC));
-        _writeObservation(sqrtP, isBTC);
+        (uint160 sqrtP,,,) = poolManager.getSlot0(_poolId());
+        _writeObservation(sqrtP);
         return abi.encode(price, uint(int(fees.amount0())),
             uint(int(fees.amount1())), uint(int(addDelta.amount0())),
             uint(int(addDelta.amount1())));
@@ -1060,35 +1096,35 @@ contract Core is SafeCallback {
     ///      V4 + paid at pull. Direction + limit are unchanged from the probe; only the
     ///      input cap grows. The price limit stops the swap at targetSqrt, so the realized
     ///      delta stays int128-bounded by the (bounded) path liquidity. Settle mock-only.
-    function _reseatBurnMove(ReseatParams memory p, bool isBTC)
+    function _reseatBurnMove(ReseatParams memory p)
         private returns (BalanceDelta fees, uint d0, uint d1) {
         if (p.myLiquidity > 0) {
             BalanceDelta burnDelta;
-            (burnDelta, fees) = _modifyLiquidity(-int(uint(p.myLiquidity)), p.oldLo, p.oldHi, isBTC);
-            (d0, d1) = _handleDelta(Delta(int256(burnDelta.amount0()), int256(burnDelta.amount1())), false, true, address(0), address(0), isBTC);
+            (burnDelta, fees) = _modifyLiquidity(-int(uint(p.myLiquidity)), p.oldLo, p.oldHi);
+            (d0, d1) = _handleDelta(Delta(int256(burnDelta.amount0()), int256(burnDelta.amount1())), false, true, address(0), address(0));
         }
         if (p.targetSqrt != 0 && p.targetSqrt != p.currentSqrt) {
-            BalanceDelta moveDelta = poolManager.swap(_key(isBTC),
+            BalanceDelta moveDelta = poolManager.swap(_key(),
                 IPoolManager.SwapParams({ zeroForOne: p.targetSqrt < p.currentSqrt,
                     amountSpecified: -int(uint(type(uint128).max)), sqrtPriceLimitX96: p.targetSqrt }),
                 ZERO_BYTES);
-            _handleDelta(Delta(int256(moveDelta.amount0()), int256(moveDelta.amount1())), false, true, address(0), address(0), isBTC);
+            _handleDelta(Delta(int256(moveDelta.amount0()), int256(moveDelta.amount1())), false, true, address(0), address(0));
         }
     }
 
-    function _handleOutsideRange(bytes calldata data, bool isBTC)
+    function _handleOutsideRange(bytes calldata data)
         internal returns (bytes memory) {
         (address sender, int liquidity, int24 tickLower,
             int24 tickUpper, address token) = abi.decode(data,
             (address, int, int24, int24, address));
 
         (BalanceDelta delta,) = _modifyLiquidity(liquidity,
-                                tickLower, tickUpper, isBTC);
-        _handleDelta(Delta(int256(delta.amount0()), int256(delta.amount1())), false, false, sender, token, isBTC);
+                                tickLower, tickUpper);
+        _handleDelta(Delta(int256(delta.amount0()), int256(delta.amount1())), false, false, sender, token);
         return abi.encode(delta);
     }
 
-    function _handleMod(bytes calldata data, bool isBTC)
+    function _handleMod(bytes calldata data)
         internal returns (bytes memory) {
         // Buffer USD folds into POOLED_USD like any in-range USD (committedUsd18 recovers equity by subtracting
         // min(live debt, pooled buffer)); the old no-op `levUsd` field has been removed from the modLP ABI.
@@ -1098,9 +1134,9 @@ contract Core is SafeCallback {
             (uint160, uint, uint, int24, int24, address));
 
         BalanceDelta delta = _modLP(deltaUSD, deltaTokenOut,
-            tickLower, tickUpper, sqrtPriceX96, isBTC);
+            tickLower, tickUpper, sqrtPriceX96);
 
-        _handleDelta(Delta(int256(delta.amount0()), int256(delta.amount1())), true, deltaUSD == 0, sender, address(0), isBTC, true);
+        _handleDelta(Delta(int256(delta.amount0()), int256(delta.amount1())), true, deltaUSD == 0, sender, address(0), true);
         return abi.encode(delta);
     }
 
@@ -1113,21 +1149,21 @@ contract Core is SafeCallback {
     ///      mock-burn path; the token side bumps POOLED_X). The caller
     ///      (Vogue) needs the raw fee magnitudes per currency to drive
     ///      feesPerShare and USD_FEES, so we return them separately.
-    function _handleCollect(bytes calldata data, bool isBTC)
+    function _handleCollect(bytes calldata data)
         internal returns (bytes memory) {
         (int24 tickLower, int24 tickUpper) =
             abi.decode(data, (int24, int24));
 
         (BalanceDelta totalDelta, ) = _modifyLiquidity(
-            int(0), tickLower, tickUpper, isBTC);
+            int(0), tickLower, tickUpper);
 
         // With liquidityDelta=0, totalDelta IS the fee credit (V4
         // composes callerDelta = liquidityDelta - feesAccrued; when
         // the first term is zero, the second dominates as fees owed
         // to the caller — positive amounts in both currencies).
-        _handleDelta(Delta(int256(totalDelta.amount0()), int256(totalDelta.amount1())), false, false, address(0), address(0), isBTC);
+        _handleDelta(Delta(int256(totalDelta.amount0()), int256(totalDelta.amount1())), false, false, address(0), address(0));
 
-        bool token1isTok = _t1(isBTC);
+        bool token1isTok = token1isVol;
         // Order the returned fees so caller can read them as
         // (feesUSD, feesTok). Aligns with Vogue._calcYield's
         // existing variable order.
@@ -1150,20 +1186,20 @@ contract Core is SafeCallback {
     struct Delta { int256 amt0; int256 amt1; }
 
     function _handleDelta(Delta memory d, bool inRange, bool keep,
-        address who, address token, bool isBTC) internal returns (uint, uint) {
-        return _handleDelta(d, inRange, keep, who, token, isBTC, false);
+        address who, address token) internal returns (uint, uint) {
+        return _handleDelta(d, inRange, keep, who, token, false);
     }
 
     /// §#12 `basketLeg`: TRUE only from `_handleMod` (the basket adding/removing depth via
     /// `addLiq`). Swap/collect/reseat legs pass FALSE, so a swap moves the curve mirror
     /// (`POOLED_USD_*`) without moving the basket's contribution (`basketUsd`).
     function _handleDelta(Delta memory d, bool inRange, bool keep,
-        address who, address token, bool isBTC, bool basketLeg) internal returns (uint, uint) {
+        address who, address token, bool basketLeg) internal returns (uint, uint) {
         // Each leg settles in its own frame (legacy stack — no via_ir crutch); they
         // recompute the cheap token ordering rather than thread 4 locals through.
-        uint usdAmount = _settleUsdSide(d.amt0, d.amt1, inRange, keep, who, token, isBTC, basketLeg);
-        uint tokAmount = _settleTokSide(d.amt0, d.amt1, inRange, who, isBTC);
-        return _t1(isBTC) ? (usdAmount, tokAmount) : (tokAmount, usdAmount);
+        uint usdAmount = _settleUsdSide(d.amt0, d.amt1, inRange, keep, who, token, basketLeg);
+        uint tokAmount = _settleTokSide(d.amt0, d.amt1, inRange, who);
+        return token1isVol ? (usdAmount, tokAmount) : (tokAmount, usdAmount);
     }
 
     /// @dev USD-leg of _handleDelta. delta>0 → take+burn; delta<0 → mint+settle and
@@ -1182,11 +1218,11 @@ contract Core is SafeCallback {
     /// `_poolUsdInRange`, `AUX.take`, the 6-dec basis and the §A.50/C2 conversion are UNCHANGED —
     /// that fix is about DECIMALS and has nothing to do with v4.
     function _settleUsdSide(int256 amt0, int256 amt1, bool inRange, bool keep,
-        address who, address token, bool isBTC, bool basketLeg) private returns (uint usdAmount) {
-        int256 usdDelta = _t1(isBTC) ? amt0 : amt1;
+        address who, address token, bool basketLeg) private returns (uint usdAmount) {
+        int256 usdDelta = token1isVol ? amt0 : amt1;
         if (usdDelta > 0) {
             usdAmount = uint(usdDelta);
-            if (inRange) _poolUsdInRange(isBTC, usdAmount, false, basketLeg);
+            if (inRange) _poolUsdInRange(usdAmount, false, basketLeg);
             if (!keep && token != address(0))
                 // §A.50/C2: `usdAmount` is the 6-dec mockUSD leg, but `AUX.take` wants the payout
                 // token's NATIVE units (`BasketLib.sol:620-628`; the two callers that already convert
@@ -1197,7 +1233,7 @@ contract Core is SafeCallback {
                 AUX.take(who, BasketLib.from6(usdAmount, token), token, 0);
         } else if (usdDelta < 0) {
             usdAmount = uint(-usdDelta);
-            if (inRange) _poolUsdInRange(isBTC, usdAmount, true, basketLeg);
+            if (inRange) _poolUsdInRange(usdAmount, true, basketLeg);
         }
     }
 
@@ -1206,7 +1242,7 @@ contract Core is SafeCallback {
     ///      equity claim by subtracting live leverage debt. The ≤TVL backing gate is checked against that live
     ///      EQUITY (`committedUsd18`), so the debt-funded buffer consumes no basket-USD headroom — exactly as
     ///      the old `_LEV` segregation did, but drift-free.
-    function _poolUsdInRange(bool isBTC, uint usdAmount, bool mint, bool basketLeg) private {
+    function _poolUsdInRange(uint usdAmount, bool mint, bool basketLeg) private {
         if (mint) {
             (uint[15] memory _d, ,, uint depegLoss) = AUX.get_deposits();
             // Depeg-at-par fix: gate against the SOLVENCY haircut — par TVL minus the LIVE depeg loss (the
@@ -1218,12 +1254,12 @@ contract Core is SafeCallback {
             //   DEFER a single withdrawal; the standing solvency gate must not. depegLoss == 0 in normal
             //   operation ⇒ byte-identical to the old par gate; it only tightens under an ACTUAL depeg.
             uint haircutTvl = _d[14] > depegLoss ? _d[14] - depegLoss : 0;
-            _addPooledUsd(isBTC, usdAmount);
-            if (basketLeg) { if (isBTC) basketUsdBtc += usdAmount; else basketUsdEth += usdAmount; }
+            _addPooledUsd(usdAmount);
+            if (basketLeg) { if (IS_BTC) basketUsd += usdAmount; else basketUsd += usdAmount; }
             require(committedUsd18() <= haircutTvl, "backing");
         } else {
-            uint pooledPre = isBTC ? POOLED_USD_BTC : POOLED_USD_ETH;
-            _subPooledUsd(isBTC, usdAmount);
+            uint pooledPre = POOLED_USD;
+            _subPooledUsd(usdAmount);
             if (basketLeg) {
                 // §#12/E28-r — PROPORTIONAL, not first-out. A burn releases a MIX: the band's USD leg
                 // holds basket dollars AND the LP-owned increment, and modifyLiquidity returns them in
@@ -1232,10 +1268,10 @@ contract Core is SafeCallback {
                 // now reads as LP backing) grew by the whole released basket slice — phantom backing
                 // paid to whoever withdrew next. Measured on a FULL exit: basket floored to 0 against a
                 // 25.200001 residue, leaving that entire residue mispriced as LP equity.
-                uint b = isBTC ? basketUsdBtc : basketUsdEth;
+                uint b = basketUsd;
                 uint out_ = pooledPre <= usdAmount ? b   // whole leg left: basket leaves with it
                           : Math.mulDiv(b, usdAmount, pooledPre);
-                if (isBTC) basketUsdBtc = b - out_; else basketUsdEth = b - out_;
+                if (IS_BTC) basketUsd = b - out_; else basketUsd = b - out_;
             }
         }
     }
@@ -1254,10 +1290,10 @@ contract Core is SafeCallback {
     ///         minted against basket backing.
     /// @dev    The floor is not a safety clamp: `lpOwned6 > POOLED_USD_*` means the venue believes it owes
     ///         more LP-owned dollars than the curve mirror holds, which the SUBTRACTION would silently wrap.
-    function absorbPaidUsd(bool isBTC, uint lpOwned6) external onlyUs {
-        uint pooled = isBTC ? POOLED_USD_BTC : POOLED_USD_ETH;
+    function absorbPaidUsd(uint lpOwned6) external onlyUs {
+        uint pooled = POOLED_USD;
         uint base = pooled > lpOwned6 ? pooled - lpOwned6 : 0;
-        if (isBTC) basketUsdBtc = base; else basketUsdEth = base;
+        if (IS_BTC) basketUsd = base; else basketUsd = base;
     }
 
     /// @dev Token-leg (ETH or BTC) of _handleDelta. delta>0 → take+burn (ETH pays
@@ -1265,34 +1301,32 @@ contract Core is SafeCallback {
     /// §V4-CUT — same removal as the USD leg, and the SAME reason it is safe: the comment below
     /// already said the real ETH payout was SEPARATE from the mock burn ("the burned mockETH is
     /// matched by real ETH paid out"). `VOGUE.takeETH` is where value moves; the mock was a shadow.
-    /// ⚠️ THE `!isBTC` GUARD STAYS AND IS **NOT** isBTC-DRIFT TO BE DELETED LATER: ETH pays out real
+    /// ⚠️ THE `!IS_BTC` GUARD STAYS AND IS **NOT** IS_BTC-DRIFT TO BE DELETED LATER: ETH pays out real
     /// ether here, BTC does not (its settlement is a Lightning cooperative close, not an on-chain
     /// transfer). That is one of the four known-REAL ETH/BTC asymmetries — see CLAUDE.md.
-    function _settleTokSide(int256 amt0, int256 amt1, bool inRange, address who, bool isBTC)
+    function _settleTokSide(int256 amt0, int256 amt1, bool inRange, address who)
         private returns (uint tokAmount) {
-        int256 tokDelta = _t1(isBTC) ? amt1 : amt0;
+        int256 tokDelta = token1isVol ? amt1 : amt0;
         if (tokDelta > 0) {
             tokAmount = uint(tokDelta);
-            if (inRange) _subPooledTok(isBTC, tokAmount);
-            if (!isBTC && who != address(0)) VOGUE.takeETH(tokAmount, who);
+            if (inRange) _subPooledTok(tokAmount);
+            if (!IS_BTC && who != address(0)) VOGUE.takeETH(tokAmount, who);
         } else if (tokDelta < 0) {
             tokAmount = uint(-tokDelta);
-            if (inRange) _addPooledTok(isBTC, tokAmount);
+            if (inRange) _addPooledTok(tokAmount);
         }
     }
 
-    function _modifyLiquidity(int delta, int24 lowerTick, int24 upperTick,
-        bool isBTC) internal returns (BalanceDelta totalDelta, BalanceDelta feesAccrued) {
+    function _modifyLiquidity(int delta, int24 lowerTick, int24 upperTick) internal returns (BalanceDelta totalDelta, BalanceDelta feesAccrued) {
         (totalDelta, feesAccrued) = poolManager.modifyLiquidity(
-            _key(isBTC), IPoolManager.ModifyLiquidityParams({
+            _key(), IPoolManager.ModifyLiquidityParams({
                 tickLower: lowerTick, tickUpper: upperTick,
                 liquidityDelta: delta, salt: bytes32(0)}), ZERO_BYTES);
     }
 
     function _modLP(uint deltaUSD, uint deltaTok,
-        int24 tickLower, int24 tickUpper, uint160 sqrtPriceX96,
-        bool isBTC) internal returns (BalanceDelta totalDelta) {
-        bool token1isTok = _t1(isBTC);
+        int24 tickLower, int24 tickUpper, uint160 sqrtPriceX96) internal returns (BalanceDelta totalDelta) {
+        bool token1isTok = token1isVol;
         int flip = deltaUSD > 0 ? int(1) : int(-1);
         uint128 liquidity = token1isTok ? LiquidityAmounts.getLiquidityForAmount1(
                    TickMath.getSqrtPriceAtTick(tickLower), sqrtPriceX96, deltaTok): 
@@ -1315,26 +1349,26 @@ contract Core is SafeCallback {
 
             if (usdLiq < liquidity) liquidity = usdLiq;
         } if (flip < 0) {
-            (,, uint128 posLiquidity) = poolStats(tickLower, tickUpper, isBTC);
+            (,, uint128 posLiquidity) = poolStats(tickLower, tickUpper);
             if (posLiquidity == 0) return BalanceDeltaLibrary.ZERO_DELTA;
             if (liquidity > posLiquidity) liquidity = posLiquidity;
         }
         (totalDelta,) = _modifyLiquidity(
              flip * int(uint(liquidity)), 
-            tickLower, tickUpper, isBTC);
+            tickLower, tickUpper);
     } 
 
-    function poolStats(int24 tickLower, int24 tickUpper, bool isBTC)
+    function poolStats(int24 tickLower, int24 tickUpper)
         public view returns (uint160 sqrtPriceX96, int24 currentTick,
         uint128 liquidity) { PoolId pool;
-        (pool, sqrtPriceX96, currentTick) = poolTicks(isBTC);
+        (pool, sqrtPriceX96, currentTick) = poolTicks();
         (liquidity,,) = poolManager.getPositionInfo(pool,
         address(this), tickLower, tickUpper, bytes32(0));
     }
 
-    function poolTicks(bool isBTC) public view
+    function poolTicks() public view
         returns (PoolId, uint160, int24) {
-        PoolId pool = _poolId(isBTC);
+        PoolId pool = _poolId();
         (uint160 sqrtPriceX96, int24 currentTick,,) = poolManager.getSlot0(pool);
         return (pool, sqrtPriceX96, currentTick);
     }
@@ -1343,11 +1377,10 @@ contract Core is SafeCallback {
     /// v4's API, and stays until the PM is ours), but it is converted ONCE HERE, at the write, so
     /// neither ticks nor sqrt-prices survive in storage or on any read path. Writing costs one
     /// conversion per swap and saves one on every valuation, and valuations are the frequent side.
-    function _writeObservation(uint160 sqrtPriceX96,
-                    bool isBTC) internal {
-        OracleLib.writeObservation(_obs(isBTC), _obsState(isBTC),
+    function _writeObservation(uint160 sqrtPriceX96) internal {
+        OracleLib.writeObservation(_obs(), _obsState(),
             uint160(BasketLib.getPrice(sqrtPriceX96,
-                isBTC ? token1isBTC : token1isETH)));   // `token1is` is external
+                token1isVol)));   // `token1is` is external
     }
 
     /// @dev §V4-CUT — the fill, in its OWN FRAME so `swap` stays under the stack limit.
@@ -1357,11 +1390,11 @@ contract Core is SafeCallback {
     ///      bridge and is the same conversion `routeSwap` uses; a second one here is how the
     ///      §A.50/C2 asymmetry happened.
     ///      SIGN: positive leaves the pool, negative enters it. `forOne` pays leg 0, receives leg 1.
-    function _fillDelta(bool isBTC, bool forOne, uint amount, uint px)
+    function _fillDelta(bool forOne, uint amount, uint px)
         private view returns (Delta memory d, uint out) {
         // `forOne` receives leg 1. With USD on leg 0, leg 1 is VOLATILE, so the user pays USD and
         // buys volatile ⇒ the INPUT is USD and `convert` runs toVol.
-        bool inputIsUsd = _t1(isBTC) ? forOne : !forOne;
+        bool inputIsUsd = token1isVol ? forOne : !forOne;
         out = BasketLib.convert(amount, px, inputIsUsd);
         // 🔴 FIRM QUOTE (owner) — THE IMBALANCE CHARGE IS IN THE PRICE, NOT TRUED UP AFTERWARDS.
         // We feed 1inch / Khalani, so the counterparty is a SOLVER that has ALREADY committed a
@@ -1375,8 +1408,8 @@ contract Core is SafeCallback {
         // DRAIN vs FILL: buying volatile drains the scarce side (`wellSkew`, A&S pole — you CAN run
         // out); selling into us grows inventory (`sellSkew`, linear — you cannot run out of surplus).
         out -= (out * (inputIsUsd
-            ? SwapLib.wellSkew(address(this), px, isBTC, amount)
-            : SwapLib.sellSkew(address(this), px, isBTC, amount))) / 1e18;
+            ? SwapLib.wellSkew(address(this), px, IS_BTC, amount)
+            : SwapLib.sellSkew(address(this), px, IS_BTC, amount))) / 1e18;
         // THE 420 PPM, CHARGED HERE BECAUSE v4 WAS CHARGING IT. `OracleLib:180` set `k.fee = 420` as
         // the POOL TIER; v4 collected it and `Collect` harvested it into `feesPerShare`/`USD_FEES`.
         // Deleting v4 deletes the collector, so without this the fill charges NOTHING: the LP fee
@@ -1389,8 +1422,8 @@ contract Core is SafeCallback {
         // traversal used to run out of liquidity, this runs out of inventory. Partial fill, never a
         // revert — `minOut` upstream carries the caller's tolerance.
         uint held = inputIsUsd
-            ? (isBTC ? POOLED_BTC : POOLED_ETH)              // paying out volatile
-            : (isBTC ? POOLED_USD_BTC : POOLED_USD_ETH);     // paying out USD
+            ? (POOLED)              // paying out volatile
+            : (POOLED_USD);     // paying out USD
         if (out > held) {
             out = held;
             amount = BasketLib.convert(out, px, !inputIsUsd);   // re-derive input for a partial
@@ -1407,8 +1440,8 @@ contract Core is SafeCallback {
     /// variance estimator was already price-based, so nothing downstream needs re-deriving.
     /// The sqrt-taking variant above survives only while Repack/Reseat/Collect still read `getSlot0`,
     /// and deletes with them.
-    function _writeObservationPrice(uint160 price, bool isBTC) internal {
-        OracleLib.writeObservation(_obs(isBTC), _obsState(isBTC), price);
+    function _writeObservationPrice(uint160 price) internal {
+        OracleLib.writeObservation(_obs(), _obsState(), price);
     }
 
     /// @notice §E63 — ONE observe, dispatched. These were TWO externals with IDENTICAL bodies
@@ -1420,8 +1453,8 @@ contract Core is SafeCallback {
     ///         Core has measured WORSE three times (−73, −207, −471) because the caller pays the
     ///         call overhead. Not client-facing — `tools/check-client-abis.py` has zero references
     ///         to either name; the only callers are `SwapLib:104-105`.
-    function observe(uint32[] calldata secondsAgos, bool isBTC)
+    function observe(uint32[] calldata secondsAgos)
         external view returns (uint192[] memory) {
-        return OracleLib.observe(_obs(isBTC), _obsState(isBTC), secondsAgos);
+        return OracleLib.observe(_obs(), _obsState(), secondsAgos);
     }
 }

@@ -28,7 +28,7 @@ import {ILevVenueColl} from "./imports/Interfaces.sol";
 ///         confirmation, there is **no synchronous swap loop** like `openLev`'s — the fleet keeper drives the
 ///         fill/unwind over async steps (borrow → source BTC externally → mint vBTC → supply), so this manager
 ///         only exposes the **venue legs** (`leverBorrow`/`leverSupply`/`deleverWithdraw`/`repay`) that the
-///         keeper sequences, plus the read side (`netEquityBtc`, paired into `POOLED_BTC` by `syncLevBTC` —
+///         keeper sequences, plus the read side (`netEquityBtc`, paired into `POOLED` by `syncLevBTC` —
 ///         that is the solvency count; `vogueBTC` is WBTC-only and is never credited the net-equity).
 ///
 ///         Reuses verbatim: `LevMath` (target `1−√(entry/now)`, net-equity, debt-delta), `ILevVenue` (the
@@ -141,7 +141,7 @@ contract BtcLevManager is LevBase {
     }
 
     /// @notice `lp`'s GROSS collateral in sats (8-dec, price-independent) — the full-2× band CAPACITY (net-equity
-    ///         + the debt-funded buffer). vBTC IS sats, so no conversion. Buffer USD folds into POOLED_USD_BTC
+    ///         + the debt-funded buffer). vBTC IS sats, so no conversion. Buffer USD folds into POOLED_USD
     ///         (excluded from committed via committedUsd18's live-debt subtraction).
     function grossCollateralBtc(address lp) public view returns (uint) {
         Types.Pos memory p = pos[lp];
@@ -427,7 +427,7 @@ contract BtcLevManager is LevBase {
     /// @notice #54 DELIVERY-SIDE de-lever (partial-burn vBTC deliverability). When a native-BTC swap-out is
     ///         delivered from `lp`'s channel but draws on its LEVERED slice (free band exhausted — the stranded
     ///         state), the swap-out PROCEEDS (`stableUsd`-worth, pre-transferred to the venue by the Vault settle
-    ///         path from POOLED_USD_BTC) repay `lp`'s debt, freeing the matching vBTC collateral — the Vault then
+    ///         path from POOLED_USD) repay `lp`'s debt, freeing the matching vBTC collateral — the Vault then
     ///         un-encumbers it (funded rises) so the settled shrink can deliver it. VALUE-NEUTRAL: −BTC −debt of
     ///         equal oracle value ⇒ net-equity preserved, LTV IMPROVES. The LP is paid ONCE — its proceeds became
     ///         debt-reduction instead of the QUI mint (single-pay). Mechanics here mirror closeBtcLev: repay →

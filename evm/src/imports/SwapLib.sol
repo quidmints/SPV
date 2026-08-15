@@ -384,7 +384,7 @@ library SwapLib {
             if (r.token != c.quid && !stable) revert StableMissingS();
             r.amount = aux._depositVol{value: msg.value}(isBTC, msg.sender, r.amount);
             zeroForOne = !ICore(c.core).token1is(isBTC);
-            max = isBTC ? ICore(c.core).POOLED_USD_BTC() : ICore(c.core).POOLED_USD_ETH();
+            max = ICore(c.core).POOLED_USD();
             // JIT-DEPTH-GUARANTEE.md §2 hook site (DEFERRED — design gap, NOT built): this is the
             // volatile→USD leg whose fill is bounded by the band's in-range USD depth (`max`), so a
             // large sell can exhaust it / partial-fill → uncertain impact → sandwich room. The
@@ -411,7 +411,7 @@ library SwapLib {
                 uint skew = sellSkew(c.core, r.px, isBTC, r.amount); // inline (swapToBody stack-tight)
                 retainSkewPremium(c.core, isBTC, r, skew, true);   // NATIVE volatile input ⇒ convert   // mutates r.amount; r.px declares NATIVE
             }
-        } else { max = isBTC ? ICore(c.core).POOLED_BTC() : ICore(c.core).POOLED_ETH();
+        } else { max = ICore(c.core).POOLED();
             zeroForOne = ICore(c.core).token1is(isBTC);
             // QD-in valued at the SAME perShare a redeem uses (no-drain: never worth more swapped than redeemed).
             // DESIGN NOTE: unlike redeem, swap-out is NOT capacity-gated / deferred during stable
@@ -425,7 +425,7 @@ library SwapLib {
             r.token = address(0);
             // same effective-rate scarcity skew on the volatile-OUT drain as the
             // native-BTC well (creditSwapOutBody). ETH reuses the IDENTICAL surface (SOR depth
-            // isn't guaranteed); WBTC swap-out drains the same POOLED_BTC, so it's skewed too
+            // isn't guaranteed); WBTC swap-out drains the same POOLED, so it's skewed too
             // (else arbers route around the premium). Scale the buy DOWN so a scarce pool hands
             // out less volatile; the withheld input stays as backing. The swap still executes at
             // the honest oracle (v4p) through routeSwap ⇒ no manip-guard exemption.
@@ -614,7 +614,7 @@ library SwapLib {
         // so from here we run the SAME V4 swap path swap-OUT uses, in the BTC→USD
         // direction (`!forVolatile`), delivering the USD output to `seller` as
         // `token`. Consequences, all by construction (no special-casing):
-        //   • the curve (POOLED_USD_BTC liquidity) bounds the payout — the old
+        //   • the curve (POOLED_USD liquidity) bounds the payout — the old
         //     BtcInflowCap is gone; over-supply just slips / partial-fills;
         //   • netDeliveredBtc / swapUsdBtc decrement from the swap DELTA in
         //     Core._handleSwap (the symmetric `-=`), so per-channel exit
@@ -623,7 +623,7 @@ library SwapLib {
         //     so a swap-IN can NEVER mint QUI — settlement is always existing
         //     pooled dollars, exactly like the ETH side.
         // `sats` are 8-dec (== mockBTC), so they are the exact BTC input; the
-        // USD-side cap (POOLED_USD_BTC) converts to sats via the same flat-1e18 scale
+        // USD-side cap (POOLED_USD) converts to sats via the same flat-1e18 scale
         // swap-OUT uses, keeping units coherent.
         // ctx + RouteParams built field-by-field (not an inline literal) so the
         // added v4p reuse fits this body's legacy stack without via_ir — the literal
@@ -632,7 +632,7 @@ library SwapLib {
         Types.AuxContext memory ctx;
         ctx.asset = wbtc; ctx.core = core;
         // Reuse the repack-resolved oracle price (5th return); live-read only if
-        // v4p==0 — same as _finishSwap. POOLED_USD_BTC is passed RAW: `convert` now uses a flat
+        // v4p==0 — same as _finishSwap. POOLED_USD is passed RAW: `convert` now uses a flat
         // 1e18 for both assets, so the reserve converts to its true sats-equivalent directly. The
         // former ×1e10 pre-scale here CANCELLED convert's 1e18/1e8 under-scaling — two wrongs that
         // agreed on this path only; both are removed together, leaving this path unit-neutral.
@@ -651,7 +651,7 @@ library SwapLib {
         rp.zeroForOne   = !ICore(core).token1is(true);   // BTC→USD (mirror of the buy)
         rp.token        = token;                            // USD-side output stable → seller
         rp.amount       = sats;                             // exact BTC input
-        rp.pooled       = ICore(core).POOLED_USD_BTC();
+        rp.pooled       = ICore(core).POOLED_USD();
         // SWAP-IN REFILL PRICING. This leg settles FLAT at the honest oracle, and that is FINAL —
         // not a placeholder. CORRECTED 2026-07-26: this comment used to describe a SYMMETRIC skew
         // BONUS (mirror of the swap-OUT drain penalty) as a "corrected design" that would "land with
@@ -683,13 +683,13 @@ library SwapLib {
         // core / seller / token are already carried by the structs (ctx.core, rp.recipient, rp.token) — read
         // them here rather than as params so creditSwapInBody's call site stays within the legacy stack.
         address core = ctx.core;
-        // `consumedSats` = the seller's BTC actually converted (routeSwap caps input at the POOLED_USD_BTC USD
+        // `consumedSats` = the seller's BTC actually converted (routeSwap caps input at the POOLED_USD USD
         // inventory). On an inventory-bounded partial it is < the `sats` sent, and the caller signals the hop to
         // refund the `sats − consumedSats` remainder (the seller's BTC is held off-chain over the deposit/HTLC).
         uint deliveredUsd;
         (deliveredUsd,, consumedSats) = BasketLib.routeSwap(ctx, rp);
         if (deliveredUsd < minDeliveredUsd) revert SwapInShort();
-        if (ICore(core).POOLED_USD_BTC() < ICore(core).pendingSwapOutUsd())
+        if (ICore(core).POOLED_USD() < ICore(core).pendingSwapOutUsd())
             revert SwapInDrainsProceeds();
         // NO refill BONUS: the refill is a self-funding fleet op (JIT Morpho-flash BTC → creditSwapIn → repay,
         // gas already refunded via #87). The drainer's retained skew premium stays in the basket as LP backing
@@ -769,7 +769,7 @@ library SwapLib {
         // of a genuinely still market: `realizedVarianceWad` samples `observe` on a WALL-CLOCK grid
         // while the observation ring only advances ON A SWAP, and `observe` LINEARLY INTERPOLATES
         // between stored points — so any stretch quieter than the sample interval has zero second
-        // difference and yields EXACTLY 0. MEASURED: a drain that took POOLED_ETH from 400 to
+        // difference and yields EXACTLY 0. MEASURED: a drain that took POOLED from 400 to
         // 0.00097 ETH — a total inventory wipe — reported variance 0.
         //
         // Feeding that 0 through the formula gave `cap = 0` on ETH (which, unlike BTC, has no
@@ -1030,7 +1030,7 @@ library SwapLib {
         private view returns (uint poolVolUsd)
     {
         poolVolUsd = FullMath.mulDiv(
-            (isBTC ? ICore(core).POOLED_BTC() : ICore(core).POOLED_ETH()) + addedTok,
+            (ICore(core).POOLED()) + addedTok,
             base, 1e30);
     }
 
@@ -1047,7 +1047,7 @@ library SwapLib {
     ///      **TVL is NOT reachable here** — `Aux.get_deposits`, `checkBacking` and `tryCheckBacking`
     ///      are all NON-VIEW, and these skews are `view`. So the term is RELATIVE (how much of the
     ///      shared commitment belongs to the OTHER band) rather than absolute, built only from
-    ///      `committedUsd18()` and `btcBandEquityUsd18()`, both of which are view.
+    ///      `committedUsd18()` and `bandEquityUsd18()`, both of which are view.
     ///
     ///      Returns a WAD multiplier in [1e18, 2e18): 1× when this band is the only claimant, →2× as
     ///      the other band's equity dominates the shared bound. Bounded by construction — it can
@@ -1077,7 +1077,7 @@ library SwapLib {
     function _sharedScarcityWad(address core, bool isBTC) private view returns (uint) {
         uint both = ICore(core).committedUsd18();
         if (both == 0) return 1e18;
-        uint btc = ICore(core).btcBandEquityUsd18();
+        uint btc = ICore(core).bandEquityUsd18();
         uint other = isBTC ? (both > btc ? both - btc : 0) : btc;
         return 1e18 + FullMath.mulDiv(other, 1e18, both);
     }
@@ -1105,7 +1105,7 @@ library SwapLib {
         uint raw = skewWad(
             poolVolUsd,
             ICore(core).flowEwmaUsd(isBTC),
-            ICore(core).realizedVarianceWad(isBTC), isBTC, drainUsd6);
+            ICore(core).realizedVarianceWad(), isBTC, drainUsd6);
         // §E53: amplify by how much of the SHARED bound the other band already holds, then re-cap —
         // the amplifier must never lift the skew past the same ceiling the raw curve obeys.
         // §E89b — THE AMPLIFIER SCALES RISK, NOT FEES. E89 made the base additive, which silently put
@@ -1243,7 +1243,7 @@ library SwapLib {
             if (q0 > 1e18) q0 = 1e18;
             q = (q0 + q1) / 2;                            // the integral's mean over THIS sell
         }
-        uint sigmaSqWad = ICore(core).realizedVarianceWad(isBTC);
+        uint sigmaSqWad = ICore(core).realizedVarianceWad();
         // §E54-r REMOVED (owner, 2026-08-04: *"avgYield has nothing to do with the band. it's a
         // dollar only thing. your skew shouldnt even consider it"*). I had added an opportunity-cost
         // term `r = Aux.avgYield()`, reasoning that the premium should equal what a counterparty
@@ -1295,7 +1295,7 @@ library SwapLib {
     function _swapOutPrep(address swapper, address token, uint usdAmount, address core, address aux)
         private returns (Types.AuxContext memory ctx, Types.RouteParams memory rp) {
         address wbtc = address(IAux(aux).WBTC());
-        // The normalized 6-dec USD pulled in — exactly what enters POOLED_USD_BTC (exact-input curve buy)
+        // The normalized 6-dec USD pulled in — exactly what enters POOLED_USD (exact-input curve buy)
         // and thus the exact proceeds owed to the delivering LP (returned so requestSwapOutOnchain records it).
         // §A.50/C1: `deposit` returns TOKEN-NATIVE; this comment long claimed 6-dec. `scaleTo6` is
         // native→6, which is exactly the conversion needed, and it is a NO-OP for the 6-dec stables
@@ -1313,7 +1313,7 @@ library SwapLib {
         }
         rp.zeroForOne   = ICore(core).token1is(true);    // USD→BTC buy (mirror of the sell)
         rp.token        = address(0);                       // volatile (BTC) output
-        rp.pooled       = ICore(core).POOLED_BTC();      // BTC inventory bounds the fill
+        rp.pooled       = ICore(core).POOLED();      // BTC inventory bounds the fill
         uint basePrice  = _priceOr(v4p, aux, wbtc);
         rp.v4Price      = basePrice;                         // HONEST oracle — manip-guard stays unskewed
         // Effective-rate scarcity skew on the drain: scale the buy-driving USD DOWN by (1−skew) so a
@@ -1407,12 +1407,12 @@ library SwapLib {
     ///   (`shrinkSats > funded = pooled − levPooled`). The delivery's OWN proceeds de-lever the shortfall
     ///   `want = min(shrinkSats−funded, levPooled)`: source the venue's debt stable from the basket, repay the
     ///   LP's debt (the manager burns the freed vBTC + un-encumbers the channel BTC, lev→funded, so the clamp in
-    ///   resizeBtcLp then delivers the full shrink), and DRAW the retired-debt share out of POOLED_USD_BTC + clear
+    ///   resizeBtcLp then delivers the full shrink), and DRAW the retired-debt share out of POOLED_USD + clear
     ///   its obligation. The Vault hands resizeBtcLp `exactUsd − deLeverUsd6`, so `settleDelivered` mints QUI for
     ///   the FUNDED (+ any pure-equity) remainder only — the de-levered slice is paid ONCE (debt-reduction, not a
     ///   QUI mint). VALUE-NEUTRAL: −BTC −debt of equal oracle value ⇒ net-equity preserved, LTV IMPROVES. The
     ///   levered slice's V4 depth was already consumed by the curve at REQUEST (it sold against the full
-    ///   POOLED_BTC), so this only reconciles the per-LP accounting — no second burnInRange. DELEGATECALL'd by the
+    ///   POOLED), so this only reconciles the per-LP accounting — no second burnInRange. DELEGATECALL'd by the
     ///   Vault (address(this)==Vault): AUX/CORE see msg.sender==Vault (onlyUs), the manager sees Vault (==its
     ///   vogueSyncHook gate), and the manager's unexpose callback arrives as msg.sender==manager (==LEV_MANAGER_BTC).
     ///   Returns the 6-dec debt-share withheld from the QUI mint.
@@ -1439,7 +1439,7 @@ library SwapLib {
     /// @dev Source→repay→free→draw body of deleverOnDelivery in its OWN frame. Sources the venue debt stable from
     ///   the basket (cherry-pick, held-clamped so `takeToSettle` never falls to the pro-rata leg — which would
     ///   deliver OTHER stables the venue can't repay with), repays min(wantUsd,debt) + un-encumbers `want` sats
-    ///   (manager burns the vBTC), and draws the retired-debt share out of POOLED_USD_BTC + clears its obligation.
+    ///   (manager burns the vBTC), and draws the retired-debt share out of POOLED_USD + clears its obligation.
     function _sourceRepayFree(address core, address aux, address mgr, address lp, uint want, uint wantUsd6, uint exactUsd6)
         private returns (uint deLeverUsd6) {
         (address venue, address stable, uint amtNative) =
@@ -1461,10 +1461,10 @@ library SwapLib {
         }
         deLeverUsd6 = (takeUsd18 + 1e12 - 1) / 1e12;             // 18→6 dec, round UP (never over-mint QUI)
         if (deLeverUsd6 > exactUsd6) deLeverUsd6 = exactUsd6;
-        // Draw the retired-debt share out of POOLED_USD_BTC BEFORE the drain: takeToSettle uses the SOFT backing
+        // Draw the retired-debt share out of POOLED_USD BEFORE the drain: takeToSettle uses the SOFT backing
         // check (its mid-drain instant is offset by the repay below), and drawing first keeps committed and liquid
         // moving together. The debt-buffer's stale POOLED_USD is reconciled by the keeper's async syncLevBTC.
-        ICore(core).drawPooledUsdBtc(deLeverUsd6);          // retired-debt share leaves POOLED_USD_BTC
+        ICore(core).drawPooledUsdBtc(deLeverUsd6);          // retired-debt share leaves POOLED_USD
         ICore(core).subPendingSwapOut(deLeverUsd6);        // obligation share cleared (matched at request)
         uint got;
         {
@@ -1542,12 +1542,12 @@ library SwapLib {
     function burnInRange(address v4, bool isBTC, uint160 sqrtPriceX96, uint amount,
         int24 tickLower, int24 tickUpper, address recipient)
         internal returns (uint sent) {
-        uint pooled = isBTC ? ICore(v4).POOLED_BTC() : ICore(v4).POOLED_ETH();
+        uint pooled = ICore(v4).POOLED();
         uint pulled = Math.min(amount, pooled);
         if (pulled == 0) return 0;
-        (,, uint128 posLiquidity) = ICore(v4).poolStats(tickLower, tickUpper, isBTC);
+        (,, uint128 posLiquidity) = ICore(v4).poolStats(tickLower, tickUpper);
         if (posLiquidity > 0) {
-            sent = ICore(v4).modLP(isBTC, sqrtPriceX96, pulled, 0,
+            sent = ICore(v4).modLP(sqrtPriceX96, pulled, 0,
                             tickLower, tickUpper, recipient);
         }
     }
@@ -1604,7 +1604,7 @@ library SwapLib {
     ///           • HEADROOM = `backing − pooled` — the physical room the IL-bearing capital leaves ABOVE the
     ///             current in-range depth. `backing` = that capital (ETH: vogueETH venue principal + gross
     ///             buffer; BTC: lpSharesBTC + gross buffer, +this add's sats); `pooled` = current in-range band
-    ///             depth (POOLED_ETH/BTC). The band can never exceed what backs it.
+    ///             depth (POOLED/BTC). The band can never exceed what backs it.
     ///           • THETA budget = `θ·backing − pooled` (via applyTheta) — θ = avgYield/(K·σ²) (Merton), the
     ///             fraction of backing it is optimal to RISK in-range given yield vs realized variance; θ≥1
     ///             fails open (calm/unmeasured) → only HEADROOM binds.
@@ -1673,7 +1673,7 @@ library SwapLib {
     ///         soldFrac = 1 − amount_now/amount_entry. Returns 0 on the non-IL side (up-side-only, matching the
     ///         current target) or a degenerate band. VALID WITHIN ONE TICK-CONFIG ONLY — a reseat recenters the
     ///         ticks and realizes IL, so the CALLER must re-anchor `entrySqrtP` on a reseat. Shared verbatim by
-    ///         the ETH band (Vogue, `token1isETH`) and the BTC band (Vault, `token1isBTC`).
+    ///         the ETH band (Vogue, `token1isVol`) and the BTC band (Vault, `token1isVol`).
     /// @notice held-volatile amount NOW / held-volatile amount AT ENTRY (WAD), straight from the
     ///         concentrated-band geometry, clamped to the live band. `1e18` = at entry. `>1e18` ⇒ the band
     ///         BOUGHT the volatile (price fell — the OVER-hold the short cancels); `<1e18` ⇒ it SOLD (price
@@ -1852,7 +1852,7 @@ library SwapLib {
         r.tickLower = tickLower;
         int24 currentTick;
         (r.sqrtPriceX96, currentTick, r.myLiquidity) =
-            ICore(v4).poolStats(tickLower, tickUpper, isBTC);
+            ICore(v4).poolStats(tickLower, tickUpper);
 
         // Resolved oracle price + staleness. try/catch so a bootstrap pre-history
         // / dead-feed read NEVER bricks the op (falls through to legacy handling).
@@ -1892,7 +1892,7 @@ library SwapLib {
             (int24 newTickLower,, int24 newTickUpper,) = updateTicks(r.sqrtPriceX96, BAND_DELTA);
             if (r.myLiquidity > 0) {
                 (r.price, r.fees0, r.fees1, r.delta0, r.delta1) =
-                    ICore(v4).repack(isBTC, r.myLiquidity, r.sqrtPriceX96,
+                    ICore(v4).repack(r.myLiquidity, r.sqrtPriceX96,
                         tickLower, tickUpper, newTickLower, newTickUpper);
                 r.didRepack = true;
             }

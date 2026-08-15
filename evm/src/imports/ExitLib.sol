@@ -129,7 +129,7 @@ library ExitLib {
     ///
     /// 🔴 WHY THIS EXISTS: `settleSwapIn` credits the SHARED pool on the hop's WORD — no proof any
     ///    BTC arrived. A compromised hop can attest swap-ins for sats that never existed and drain
-    ///    `POOLED_USD_BTC` to its liquidity limit, harming QU!D holders and other LPs who never
+    ///    `POOLED_USD` to its liquidity limit, harming QU!D holders and other LPs who never
     ///    opted into that trust. This is the on-chain rail's half of the fix: prove the deposit.
     ///
     /// 🔑 WHY THE ADDRESS IS RECOMPUTED RATHER THAN SUPPLIED. If the caller named the script, a hop

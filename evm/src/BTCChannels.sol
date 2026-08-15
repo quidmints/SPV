@@ -337,7 +337,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     // Swap-in replay guard: the Lightning HTLC hashlock (payment hash) of each
     // settled BTC→USD swap-in, marked used so a buggy/compromised/double-
     // submitting hop can't credit the same swap-in twice (which would drain
-    // POOLED_USD_BTC for the seller — the old per-call `BtcInflowCap` bound was
+    // POOLED_USD for the seller — the old per-call `BtcInflowCap` bound was
     // REMOVED (SwapLib:701-702), so this replay guard + the soft-backing check
     // are the protection; the residual hop-trust drain is tracked as §A #22).
     mapping(bytes32 => bool) public swapInUsed;
@@ -441,7 +441,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         bytes32 newFundingTxId, uint32 newFundingVout
     );
     // A swap-IN settled: `consumedSats` of the seller's `sats` were converted to USD. On an inventory-bounded
-    // partial (`consumedSats < sats`, the POOLED_USD_BTC USD reserve couldn't absorb the whole input) the hop
+    // partial (`consumedSats < sats`, the POOLED_USD USD reserve couldn't absorb the whole input) the hop
     // MUST refund the `sats − consumedSats` remainder to the seller (their BTC is held off-chain over the
     // deposit/HTLC — the contract can only signal, not move native BTC). `paymentHash` keys the swap-in.
     event SwapInSettled(
@@ -1101,7 +1101,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     /// custody AHEAD of demand here, and a credit later draws that balance down.
     ///
     /// ⚠️ Credits NO LP position — §T1-f. The parked sats are not a deposit anyone owns; they are
-    /// inventory awaiting a credit that will move them into `POOLED_BTC`.
+    /// inventory awaiting a credit that will move them into `POOLED`.
     function parkProvenSats(
         bytes32 channelId,
         Types.OpenParams calldata p,
@@ -1732,7 +1732,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///
     /// 🔴 WHAT IT REPLACES: `settleSwapIn` credits the SHARED pool on the hop's WORD — no proof any
     ///    BTC arrived. A compromised hop can attest swap-ins for sats that never existed and drain
-    ///    `POOLED_USD_BTC` to its liquidity limit. That reaches QU!D holders and other LPs who
+    ///    `POOLED_USD` to its liquidity limit. That reaches QU!D holders and other LPs who
     ///    never opted into enclave trust, which is why it is worse IN KIND than a hop stealing its
     ///    own channels' BTC. Here the credit cannot exceed what a Bitcoin block says arrived.
     ///
@@ -1818,7 +1818,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
 
     // ⛔ (M1#1) `settleSwapIn` IS DELETED — the phantom swap-in is gone from the contract.
     //
-    // It credited the shared POOLED_USD_BTC on the hop's WORD, so a malicious hop asserted sats
+    // It credited the shared POOLED_USD on the hop's WORD, so a malicious hop asserted sats
     // that never arrived and the loss reached QU!D holders who opted into no enclave trust. It
     // survived this long only because the LN rail had no provable form.
     //
@@ -1913,7 +1913,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
             token:             token                  // (T1-d) the swapper's OWN choice, pinned
         });
         // pendingSwapOutUsd += usd6 (proceeds owed to the LP that delivers). creditSwapOut
-        // grew POOLED_USD_BTC by the same usd6, so the swap-in FREE reserve
+        // grew POOLED_USD by the same usd6, so the swap-in FREE reserve
         // (POOLED − pending) is UNCHANGED → spamming requests can't grief the gate.
         // Matched -= on delivery (_settleDelivered) or reversal (settleSwapIn).
         btcVault.addPendingSwapOut(usd6);
@@ -2041,7 +2041,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         paidOutSinceCheckpoint[channelId] += shrinkSats;
         // Pay the delivering LP EXACTLY the swapper's recorded USD (so.usd) as
         // proceeds: lpPayout = shrink − sats is the LP's native change; exactUsd =
-        // so.usd is its dollar leg. _settleDelivered draws POOLED_USD_BTC + clears
+        // so.usd is its dollar leg. _settleDelivered draws POOLED_USD + clears
         // pendingSwapOutUsd by so.usd (the matched -= for the request's +=).
         btcVault.resizeBtcLp(lpEth, shrinkSats, shrinkSats > sats ? shrinkSats - sats : 0, so.usd);
         // Mark the swapId consumed on the swap-IN side too: delivery and reversal are now

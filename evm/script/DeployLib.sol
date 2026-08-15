@@ -7,6 +7,7 @@ import {Currency} from "v4-core/src/types/Currency.sol";
 import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 
 import {Vogue} from "../src/Vogue.sol";
+import {BandBacking} from "../src/BandBacking.sol";
 import {Core} from "../src/Core.sol";
 import {Aux} from "../src/Aux.sol";
 import {Basket} from "../src/Basket.sol";
@@ -113,7 +114,19 @@ library DeployLib {
     /// @notice Deploy + wire the core QU!D stack in the exact production order.
     function deployQuidStack(StackConfig memory cfg) internal returns (StackAddrs memory a) {
         Vogue v4 = new Vogue();
-        Core core = new Core(cfg.poolManager);
+        // §ISBTC-SPLIT — TWO INSTANCES, ONE ACCOUNTANT.
+        // `Core` is single-asset now, so the stack deploys one per band and a `BandBacking` that
+        // holds the ONE thing they still share: the joint committed equity that
+        // `require(committedUsd18() <= haircutTvl)` gates on, and the cross-band input
+        // `SwapLib._sharedScarcityWad` needs. Neither instance knows the other exists.
+        // ⚠️ SEAL IS NOT OPTIONAL: `BandBacking.total()` REFUSES to answer before `seal()`, because a
+        // partial sum under-reports and would pass a bound it should fail.
+        BandBacking backing = new BandBacking();
+        Core core    = new Core(cfg.poolManager, false, address(backing));   // ETH band
+        Core btcCore = new Core(cfg.poolManager, true,  address(backing));   // BTC band
+        backing.register(address(core));
+        backing.register(address(btcCore));
+        backing.seal();
         Aux aux = new Aux(Aux.AuxInit({
             vogue: address(v4), core: address(core),
             poolManager: address(cfg.poolManager),

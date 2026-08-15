@@ -102,7 +102,7 @@ library VogueLib {
         bufBurned = levBuf[lp];
         uint grossRem = netRem + bufBurned;
         if (grossRem == 0) { levBufferUsd[lp] = 0; return (0, 0); }
-        ICore(c.core).modLP(false, p.sqrtP, grossRem, 0, p.tickLower, p.tickUpper, address(0));
+        ICore(c.core).modLP(p.sqrtP, grossRem, 0, p.tickLower, p.tickUpper, address(0));
         LP.pooled -= netRem; levPooled[lp] -= netRem;  // net leg leaves pooled/lpShares
         levBuf[lp] = 0; levBufferUsd[lp] = 0;          // buffer leg leaves totalBuffer (bufBurned)
         return (netRem, bufBurned);
@@ -132,10 +132,10 @@ library VogueLib {
         mapping(address => uint) storage levPooled,
         address lp, uint netEq, uint price, LevP memory p
     ) public returns (uint added) {
-        (uint netUsd, uint netEth) = IVogue(address(this)).addLiq(netEq, price, false);
+        (uint netUsd, uint netEth) = IVogue(address(this)).addLiq(netEq, price);
         if (netEth == 0) return 0;
         LP.pooled += netEth; levPooled[lp] += netEth;
-        ICore(c.core).modLP(false, p.sqrtP, netEth, netUsd, p.tickLower, p.tickUpper, lp);
+        ICore(c.core).modLP(p.sqrtP, netEth, netUsd, p.tickLower, p.tickUpper, lp);
         return netEth;
     }
 
@@ -151,7 +151,7 @@ library VogueLib {
         uint bufUsd = LevMath.capBufferUsd(bufEth, price, ILevEquity(p.lm).debtUsd(lp));
         if (bufUsd == 0) return 0;
         levBuf[lp] += bufEth; levBufferUsd[lp] += bufUsd;   // depth + fee weight, NOT equity
-        ICore(c.core).modLP(false, p.sqrtP, bufEth, bufUsd, p.tickLower, p.tickUpper, lp);
+        ICore(c.core).modLP(p.sqrtP, bufEth, bufUsd, p.tickLower, p.tickUpper, lp);
         return bufEth;
     }
 
@@ -207,7 +207,7 @@ library VogueLib {
 
     /// @notice The LVR coefficient K (WAD), derived LIVE from band geometry.
     function kLvrWad(address core, int24 lo, int24 up, bool isBTC) public view returns (uint) {
-        (uint160 sqrtP,,) = ICore(core).poolStats(0, 0, isBTC);
+        (uint160 sqrtP,,) = ICore(core).poolStats(0, 0);
         if (lo >= up) return 0;
         uint sqrtPa = TickMath.getSqrtPriceAtTick(lo);
         uint sqrtPb = TickMath.getSqrtPriceAtTick(up);
@@ -222,7 +222,7 @@ library VogueLib {
 
     /// @notice The band's LIVE realized concavity α (WAD).
     function realizedAlphaWad(address core, int24 lo, int24 up, bool isBTC) public view returns (uint) {
-        (uint160 sqrtP,,) = ICore(core).poolStats(0, 0, isBTC);
+        (uint160 sqrtP,,) = ICore(core).poolStats(0, 0);
         if (lo >= up) return 0;
         uint sqrtPa = TickMath.getSqrtPriceAtTick(lo);
         uint sqrtPb = TickMath.getSqrtPriceAtTick(up);
@@ -267,7 +267,7 @@ library VogueLib {
     function _bandFeeYieldWad(address core, bool isBTC) internal view returns (uint) {
         uint prem6 = ICore(core).premiumEwmaUsd(isBTC);
         if (prem6 == 0) return 0;                       // unmeasured ⇒ caller fails OPEN
-        uint pooled6 = isBTC ? ICore(core).POOLED_USD_BTC() : ICore(core).POOLED_USD_ETH();
+        uint pooled6 = ICore(core).POOLED_USD();
         if (pooled6 == 0) return 0;                     // no band capital at risk ⇒ nothing to size
         return FullMath.mulDiv(prem6 * PREMIUM_ANNUALIZE, 1e18, pooled6);
     }
@@ -301,7 +301,7 @@ library VogueLib {
     ///      numerator, which #107/D3 replaced with the band-fee premium EWMA read off `core`. The
     ///      parameter has been dead since that change — the compiler flagged it as unused.
     function derivedThetaWad(address core, int24 lo, int24 up, bool isBTC) public view returns (uint) {
-        uint sigmaSq = ICore(core).realizedVarianceWad(isBTC);   // §E59: ONE source, read from Core
+        uint sigmaSq = ICore(core).realizedVarianceWad();   // §E59: ONE source, read from Core
         if (sigmaSq == 0) return 1e18;
         uint kWad = kLvrWad(core, lo, up, isBTC);
         if (kWad == 0) return 1e18;
@@ -348,7 +348,7 @@ library VogueLib {
             SwapLib.sizeBySurplus(deposits[14], committedBoth, deltaTok, price);
         if (surplus == 0) return (0, 0);
 
-        // ETH: vogueETH (NET venue principal) + grossBuffer (totalBuffer) = gross-consistent with POOLED_ETH.
+        // ETH: vogueETH (NET venue principal) + grossBuffer (totalBuffer) = gross-consistent with POOLED.
         // BTC: native backing = Core.btcThetaBacking() (lpSharesBTC net + totalBufferBTC gross) -- the SAME
         // source the LP-add clamp (BtcVaultLib._thetaClampBtc) uses, so this reseat throttles on the real
         // risk capital and can't collapse the band to ~0. NOT the disjoint WBTC-donation vogueBTC, and NOT
@@ -361,7 +361,7 @@ library VogueLib {
         uint capped = SwapLib.clampByBacking(
             _liveTheta(isBTC),
             isBTC ? ICore(core).btcThetaBacking() : IAux(aux).vogueETH() + grossBuffer,
-            isBTC ? ICore(core).POOLED_BTC() : ICore(core).POOLED_ETH(),
+            ICore(core).POOLED(),
             deltaTok);
         if (capped < deltaTok) {
             deltaTok = capped;
@@ -390,7 +390,7 @@ library VogueLib {
     // ════════════════════════════════════════════════════════════════════
     struct RebalIn {
         address core; address aux; address ev; address weth;
-        bool token1isETH; uint lpShares; uint totalLevPooled; uint totalBuffer;
+        bool token1isVol; uint lpShares; uint totalLevPooled; uint totalBuffer;
         int24 lowerTick; int24 upperTick; uint bookmark;
     }
     struct RebalOut {
@@ -427,7 +427,7 @@ library VogueLib {
         if (r.didRepack) {
             // _calcYield's live effect: reorder to token-canonical + _distributeV4Fees; the APY `yield` it also
             // computed was discarded by _rebalance, so it is dropped. LAST_REPACK := block.timestamp (forwarder).
-            (uint fees, uint usd_fees) = c.token1isETH ? (r.fees1, r.fees0) : (r.fees0, r.fees1);
+            (uint fees, uint usd_fees) = c.token1isVol ? (r.fees1, r.fees0) : (r.fees0, r.fees1);
             (o.feesPerShareInc, o.usdFeesInc) = SwapLib.feeIncrements(fees, usd_fees, c.lpShares + c.totalBuffer);
             o.setLastRepack = true;
         } else if (r.jitFees) {
@@ -537,7 +537,7 @@ library VogueLib {
             position.liq -= liquidity;
             if (position.liq == 0) revert Dust();
         }
-        ICore(core).outOfRange(false, owner, -liquidity, lower, upper, token);
+        ICore(core).outOfRange(owner, -liquidity, lower, upper, token);
     }
 
     // ════════════════════════════════════════════════════════════════════
@@ -553,20 +553,20 @@ library VogueLib {
 
     function sizeOutOfRange(
         address weth, address aux, address ev,
-        uint amount, address token, bool token1isETH, SwapLib.Oor memory t
+        uint amount, address token, bool token1isVol, SwapLib.Oor memory t
     ) public returns (uint128 liquidity) {
         // §A.56: both branches were an INLINE COPY of `SwapLib.sizeOorUsd` — the same helper the BTC
         // path (`BtcVaultLib.outOfRangeBtc`) already calls. Verified byte-identical: the USD side maps
-        // to `sizeOorUsd(.., token1isETH)` and the ETH side is its MIRROR (`!token1isETH`), because
+        // to `sizeOorUsd(.., token1isVol)` and the ETH side is its MIRROR (`!token1isVol`), because
         // depositing the ASSET places the order on the opposite side of spot from depositing USD.
         // One definition now sizes every out-of-range order, ETH and BTC alike. The bare `require`s
         // became `TickOutOfRange()` (the helper's named error) — same guard, better diagnostics.
         if (token == address(0)) {
             amount = depositETH(weth, aux, ev, msg.sender, address(0), amount);
-            liquidity = SwapLib.sizeOorUsd(amount, t, !token1isETH);
+            liquidity = SwapLib.sizeOorUsd(amount, t, !token1isVol);
         } else {
             amount = SwapLib.scaleTo6(IAux(aux).deposit(msg.sender, token, amount), token);
-            liquidity = SwapLib.sizeOorUsd(amount, t, token1isETH);
+            liquidity = SwapLib.sizeOorUsd(amount, t, token1isVol);
         }
     }
 
@@ -577,17 +577,17 @@ library VogueLib {
     ///      `renounceOwnership()` (Ownable's slot is Vogue's), the QUID back-pin check,
     ///      and the assignments of the value-type state this returns.
     function setupBody(address _aux, address _core)
-        external returns (address weth, bool token1isETH, int24 lower, int24 upper) {
+        external returns (address weth, bool token1isVol, int24 lower, int24 upper) {
         weth = IAux(_aux).WETH();
         IWETH9(weth).approve(_aux, type(uint).max);
-        (uint160 sqrtPriceX96,,) = ICore(_core).poolStats(0, 0, false);
-        token1isETH = ICore(_core).token1isETH();
+        (uint160 sqrtPriceX96,,) = ICore(_core).poolStats(0, 0);
+        token1isVol = ICore(_core).token1isVol();
         (lower,, upper,) = SwapLib.updateTicks(sqrtPriceX96, SwapLib.BAND_DELTA);
     }
 
     /// @dev Vogue's ETH delivery ladder, moved here for EIP-170 (E32). Native balance
     ///      first, then this contract's WETH, then a venue pull, then — only if the
-    ///      venue base is exhausted while POOLED_ETH priced the swap against the
+    ///      venue base is exhausted while POOLED priced the swap against the
     ///      LEVERED slice too — de-lever the levered book with the delivery's OWN
     ///      proceeds, turning §M phantom depth into real deliverable ETH.
     ///      VALUE-NEUTRAL per LP, and NOT the removed toxic arbETH (which spent shared

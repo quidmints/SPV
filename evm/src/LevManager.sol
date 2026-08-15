@@ -237,7 +237,7 @@ contract LevManager is LevBase {
 
     /// @notice `lp`'s LIVE net-equity in ETH (1e18) = collateral(weETH→ETH) − debt(USD→ETH), floored at 0.
     ///         This — NOT the gross collateral — is what the Vault counts as band backing (`vogueETH`): only
-    ///         the LP's un-encumbered slice can ever be paired into `POOLED_ETH`, so a venue liquidation
+    ///         the LP's un-encumbered slice can ever be paired into `POOLED`, so a venue liquidation
     ///         (collateral seized, the equity term →0) can never strand the basket's `POOLED_USD`. The debt
     ///         leg is valued at the SAME oracle px the band pairs at; `px==0` (dead oracle) ⇒ 0 (no credit,
     ///         the conservative side). All-`view`: `collateralOf`/`debtOf`/`getEETHByWeETH`/the TWAP read are
@@ -278,7 +278,7 @@ contract LevManager is LevBase {
     }
 
     /// @notice LIVE sum of every open position's GROSS collateral (ETH, 1e18). Consumed as the well skew's
-    ///         LOCKED-INVENTORY basis (Core.levGrossNative → SwapLib.skewWad `inv`): POOLED_ETH already pairs the
+    ///         LOCKED-INVENTORY basis (Core.levGrossNative → SwapLib.skewWad `inv`): POOLED already pairs the
     ///         full 2× gross buffer in as tokenless depth, so the deliverable reservoir is `poolVol − gross`.
     ///         (Solvency accounting uses NET, not this: `vogueETH()` adds `totalNetEquityEth` and the shortfall
     ///         compares net-vs-net — the debt-funded buffer half is offset by the LP's borrow, see VaultLib.)
@@ -683,7 +683,7 @@ contract LevManager is LevBase {
 
     /// @notice §M.1 UNLEVERED (0-debt) net-equity delivery — the HODL slice below entry where the keeper has
     ///         de-levered target debt → 0. `swapOutDelever` no-ops here (nothing to repay), which would leave the
-    ///         unlevered net-equity PHANTOM (priced in POOLED_ETH, undeliverable because its collateral sits in the
+    ///         unlevered net-equity PHANTOM (priced in POOLED, undeliverable because its collateral sits in the
     ///         lev venue, not the base 4626). This delivers it. NO repay / NO `takeToSettle` (no debt) ⇒ NO basket-
     ///         stable draw ⇒ NO backing hazard: withdraw up to `wethWanted`-worth of the net-equity collateral and
     ///         deliver it as WETH. The V4 curve already did the ETH→USD rebalance for the LP's band slice; `syncLev`

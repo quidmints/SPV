@@ -1282,7 +1282,7 @@ contract Aux is // Auxiliary
         if (_btcChannels != address(0)) revert BtcChannelsPinned();
         _btcChannels = b;
         // Pin the BTCChannels address on BtcVault (its onlyBtcChannels /
-        // onlyBTCChannels gates read it). Channel sats and POOLED_USD_BTC are
+        // onlyBTCChannels gates read it). Channel sats and POOLED_USD are
         // independent accounting domains (channels store sats for routing/
         // swap-out, the V4 BTC pool holds mockBTC/mockUSD_BTC for spot
         // liquidity).

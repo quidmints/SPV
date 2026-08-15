@@ -165,7 +165,7 @@ library OracleLib {
     ///      RUNTIME code against a hard EIP-170 deficit.
     ///
     ///      Core keeps the parts that are cheap there and dear here: the lex-order
-    ///      comparison (it must assign `token1isETH`/`token1isBTC`, which are
+    ///      comparison (it must assign `token1isVol`/`token1isVol`, which are
     ///      value-type state with no storage pointer to pass) and the tick
     ///      direction-correction + `SwapLib.alignTick` (Core already links SwapLib;
     ///      importing it here would add a lib->lib delegatecall to re-derive three
@@ -197,7 +197,7 @@ library OracleLib {
         uint160 seedSqrtP = TickMath.getSqrtPriceAtTick(tick);
         pm.initialize(k, seedSqrtP);
         // `token0isUSD == token1isVol`: token1 is the VOLATILE (`token1isVol = volMock > usdMock`),
-        // so token0 is the USD leg. `Core:653` assigns `token1isETH = token1isVol` and `twapBody`
+        // so token0 is the USD leg. `Core:653` assigns `token1isVol = token1isVol` and `twapBody`
         // passes that same bool as `token0isUSD` — writer and reader must agree or the seed is a
         // RECIPROCAL price. (They did not, first run: `PriceLimitAlreadyExceeded` at setUp.)
         st.lastPrice = uint160(BasketLib.getPrice(seedSqrtP, token1isVol));
@@ -238,7 +238,7 @@ library OracleLib {
     /// ring only advances ON A SWAP and `observe` LINEARLY INTERPOLATES between stored points.
     /// Linear interpolation has ZERO SECOND DERIVATIVE, so every sample inside one inter-swap gap
     /// returned the same average tick and the variance came out EXACTLY 0 — however violently price
-    /// had moved. MEASURED: a drain that took `POOLED_ETH` from 400 to 0.00097 ETH reported 0.
+    /// had moved. MEASURED: a drain that took `POOLED` from 400 to 0.00097 ETH reported 0.
     ///
     /// Sampling the ring itself removes the interpolation entirely: every point is a REAL price
     /// update, so a gap contributes one observation rather than a run of identical fabrications.
