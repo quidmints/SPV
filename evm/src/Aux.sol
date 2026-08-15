@@ -530,17 +530,28 @@ contract Aux is // Auxiliary
 
     /// @notice get_metrics(force=true) with PRE-FETCHED deposit totals. The redeem path
     ///         already ran a fresh get_deposits() this call (freshness); it threads
-    ///         that pass's `raw`(=amounts[14]) and `yieldWeighted`(=amounts[0]) here so
+    ///         that pass's `raw`(=amounts[14]) and `rateWeighted`(=**yieldW[0]**) here so
     ///         the par-backing metric is recomputed WITHOUT a second get_deposits scan.
+    /// 🔴 **THE SECOND ARGUMENT IS `yieldW[0]` (Σ balance×rate), *NEVER* `amounts[0]` (Σ yieldWeighted).**
+    ///         This docblock and the parameter name both said `amounts[0]` until 2026-08-16 — they were
+    ///         left behind by §E155-overreport's fix, which corrected `computeMetrics` and both call
+    ///         sites but not the surface that DOCUMENTS what to pass. `amounts[0]` is a cumulative
+    ///         SHARE-PRICE LEVEL; `computeMetrics` consumes this slot as an ANNUAL RATE. Passing the
+    ///         level measured **18.72% against a 3.10% true APR — 6.04× over-issuance**, with PYUSD
+    ///         alone contributing 101.49% of which 99.80pp was a base offset no annualisation removes.
+    ///         **Nothing reverts if you get this wrong: the mint simply issues ~6× the intended bond
+    ///         premium as a permanent liability against the basket.** Both live callers are correct
+    ///         (`SwapLib:530` and `BasketLib:1022`); this comment was the only thing still pointing
+    ///         at the defect, which is the exact "a comment describes past state" trap — here armed.
     ///         Identical to get_metrics(true): the values are exactly what the forced
     ///         refresh would have fetched (no state change between), and the same
     ///         `metrics` write + yield-accumulator advance happen. onlyUs — an untrusted
     ///         caller passing fabricated totals would poison the metrics cache.
-    function get_metricsWith(uint raw, uint yieldWeighted)
+    function get_metricsWith(uint raw, uint rateWeighted)
         external onlyUs returns (uint, uint) {
         BasketLib.Metrics memory stats = metrics;
         uint elapsed = block.timestamp - stats.last;
-        metrics = BasketLib.computeMetrics(stats, elapsed, raw, yieldWeighted, raw);
+        metrics = BasketLib.computeMetrics(stats, elapsed, raw, rateWeighted, raw);
         return (metrics.total, metrics.yield);
     }
 
