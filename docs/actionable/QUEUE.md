@@ -67,6 +67,38 @@ The single-asset instance the fold needed already existed. This does NOT wait fo
   pool". Those legs call **Curve** now. Prose describing a router the code no longer reaches is the
   exact failure mode that has already cost this refactor several wrong conclusions.
 
+## ✅ WHO PAYS FOR THE REBALANCE — **RESOLVED BY EVIDENCE ALREADY IN THE TREE: THE SWAPPER. THE OTHER TWO ARE CLOSED, NOT MERELY WORSE (2026-08-15).**
+Restoring 1:1 through Curve costs a fee plus slippage, incurred because someone pushed the band off
+target. Three candidates were raised; two are refuted.
+⛔ **LPs PAY — REFUTED BY ARITHMETIC.** A grinder with NO price view displaces and reverts: they pay our
+fee twice (2 × 4.2 = **8.4 bp**), we pay the Curve leg twice. At a 4 / 5 / 10 / 26 bp leg the LPs net
+**+0.4 / −1.6 / −11.6 / −43.6 bp PER ROUND TRIP.** TriCrypto's dynamic fee spans that entire range, so
+this is the expected case, not a tail. **Free displacement is a pump for draining LPs.**
+⛔ **THE BASKET PAYS — NOT "WORST OF THREE", IT IS A PATTERN THIS REPO REMOVED TWICE AND LABELLED TOXIC.**
+`Aux.sol:841-843` (WBTC shortfall) and `Core.sol:787-791` (its ETH twin), both: *"spent the SHARED safety
+margin … compensating the flow at every claimholder's expense (toxic)"*. Choosing it re-adds what two
+commits deliberately deleted, and §CLAUDE.md's own "Toxic" note names the shape.
+✅ **⇒ THE SWAPPER PAYS, AND THE AMOUNT IS THE REALIZED RESTORATION COST — A RECEIPT, NOT A MODEL.**
+**This is NOT "the skew again" in the sense that matters:** every defect measured against the skew this
+session belongs to the MODEL (σ² stretchable 24×, Γ never derived, ρ=1 with a dead branch, ±31% on an
+encoding-ONLY change). A passthrough has none of them, and it is **self-calibrating at exactly the
+non-abusability floor** — where `Γ·σ²·q` must be TUNED to sit above a cost it never observes.
+📌 **IT ALSO COLLAPSES INTO §#41, WHICH IS ALREADY DERIVED:** that row requires an internal fill to pay
+**oracle + the band's own cost, never the mid**. Under the passthrough the band's own cost IS the
+restoration cost — **two constraints turn out to be one.**
+🔑 **THE TIMING WRINKLE AND ITS TRAP — READ BEFORE QUOTING.** A cost not yet incurred still has to be
+quotable: **`get_dy` is a `view` on BOTH `ICurvePool` (int128) and `ICurveTriCrypto` (uint256)**, so the
+restoration cost IS knowable before settlement.
+⚠️ **BUT SIZING A CHARGE FROM `get_dy` IS A *TOLERANCE*, NOT A CAPACITY READ, AND `Interfaces.sol:74-77`
+ALREADY WARNS WHY:** a live Curve read is sound for capacity because manipulation is monotone in the safe
+direction, and unsound for a tolerance *"where the same manipulation WIDENS the guard exactly when it
+needs to hold"*. **An attacker moves Curve so the quote reads cheap, displaces us, and we eat the real
+cost.** ⇒ **Settle at the ACTUAL cost, or FLOOR the quote. Never quote naked `get_dy`.**
+▶️ **CONSEQUENCE FOR `FixedRateFill`: `_applySkew` moving the settlement rate against the swapper is the
+MODEL and should go; the fill settles at oracle and the swapper is charged the measured restoration cost.
+The free-option problem dissolves with it — there is no off-mid committed rate left to arb, so
+`Quote.deadline` drops from load-bearing to hygiene.**
+
 ## 🔴 BLOCKER ON PHASE 3 STEP 1 — **"MAKE SKEW BE THE QUOTE" AND "WE DON'T COLLECT IT" SPECIFY DIFFERENT CHARGES. SETTLE BEFORE `FixedRateFill` LANDS (raised 2026-08-15).**
 Step 1 below says *"skew pricing the swapper for the imbalance they create… make skew BE the quote"*,
 and `FixedRateFill` (in `SPV-v4cut`, untracked) implements exactly that — it quotes `wellSkew`/`sellSkew`,
