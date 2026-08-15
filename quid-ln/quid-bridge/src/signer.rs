@@ -178,7 +178,7 @@ mod tests {
             to: allowed,
             value: U256::ZERO,
             data: crate::abi::selector4(
-                "settleSwapIn(address,uint256,address,bytes32,uint256,bool)",
+                "settleSwapInBuffered(address,uint256,address,bytes32,uint256,bool)",
             ),
         };
         // Allowed contract + known selector + zero value → signs.

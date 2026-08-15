@@ -32,7 +32,7 @@ use crate::client::TxFields;
 /// signer, so they are intentionally absent.
 const HOP_SIGNED_FN_SIGS: &[&str] = &[
     // --- BTCChannels ---
-    "settleSwapIn(address,uint256,address,bytes32,uint256,bool)",
+    "settleSwapInBuffered(address,uint256,address,bytes32,uint256,bool)",
     "markMigrationNonceUsed(bytes32)",
     // ⚠️ (E178) THE BTCChannels CHANNEL-LIFECYCLE SIGNATURES ARE NO LONGER LISTED HERE.
     // They used to be, and they DRIFTED: `openChannel` and `recordClose` changed shape and
@@ -146,7 +146,7 @@ mod tests {
         let p = EvmTxPolicy::new([BTC_CHANNELS]);
         p.check(&fields(
             BTC_CHANNELS,
-            "settleSwapIn(address,uint256,address,bytes32,uint256,bool)",
+            "settleSwapInBuffered(address,uint256,address,bytes32,uint256,bool)",
             U256::ZERO,
         ))
         .expect("known selector + contract + zero value must pass");
@@ -158,7 +158,7 @@ mod tests {
         assert!(
             p.check(&fields(
                 ATTACKER,
-                "settleSwapIn(address,uint256,address,bytes32,uint256,bool)",
+                "settleSwapInBuffered(address,uint256,address,bytes32,uint256,bool)",
                 U256::ZERO,
             ))
             .is_err(),
@@ -182,7 +182,7 @@ mod tests {
         assert!(
             p.check(&fields(
                 BTC_CHANNELS,
-                "settleSwapIn(address,uint256,address,bytes32,uint256,bool)",
+                "settleSwapInBuffered(address,uint256,address,bytes32,uint256,bool)",
                 U256::from(1),
             ))
             .is_err(),

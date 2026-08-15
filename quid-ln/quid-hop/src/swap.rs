@@ -221,7 +221,7 @@ mod tests {
         assert_eq!(U256::from_be_slice(&cd[4 + 32..4 + 64]), U256::from(7u64));
         assert_eq!(U256::from_be_slice(&cd[4 + 64..4 + 96]), U256::from(1u64), "requireFull");
         // A reversal must never be mistakable for a credit: different selector entirely.
-        let credit = keccak256("settleSwapIn(address,uint256,address,bytes32,uint256,bool)");
+        let credit = keccak256("settleSwapInBuffered(address,uint256,address,bytes32,uint256,bool)");
         assert_ne!(&cd[..4], &credit[..4]);
         let cd0 = reverse_swap_out_calldata(swap_id, U256::ZERO, false);
         assert_eq!(U256::from_be_slice(&cd0[4 + 64..4 + 96]), U256::ZERO);
