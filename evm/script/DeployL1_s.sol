@@ -116,6 +116,19 @@ contract Deploy is Script {
     // ⚠️ TWO SIBLING weETH/WETH MARKETS EXIST AT 86% LLTV AND ARE EMPTY ($0.0002 and $2,095 supplied).
     //    They are correctly formed, so a wrong oracle here yields a venue that passes every structural
     //    check and can never fill a borrow. The discriminator is LIQUIDITY, not well-formedness.
+    // ── weETH dollar-borrow markets (Morpho, 86% LLTV). The marketId is `keccak256(abi.encode(mp))`,
+    //    so `_mkMorphoVenue`'s id assert proves the whole param set — including irm/collateral, which
+    //    are inferred rather than looked up.
+    // ⚠️ The borrow tokens are the basket's OWN stables — `RLUSD` (18 dec) and `PYUSD` (6 dec) are
+    //    already declared below as `IERC20`. Do not re-declare: the lev leg borrows a stable the
+    //    basket already holds and prices, which is why no new token wiring is needed.
+    address constant RLUSD_WEETH_ORACLE = 0x6ab351FfDe101BB24a97332f4f7162C1711f110b;
+    bytes32 constant RLUSD_WEETH_MARKET_ID =
+        0xea4bfb18df0ee6bffb7b3f0270899a8adb92ab6b684709634c8276128813cfd4;
+    address constant PYUSD_WEETH_ORACLE = 0x221898dA0890Fc5fb6c890Fcdc051FA97946eE11;
+    bytes32 constant PYUSD_WEETH_MARKET_ID =
+        0x85d59152eeeab7ca024804895b358868d8dd1e134171be400d7792d5604a212c;
+
     address constant WEETH_WETH_ORACLE = 0xbDd2F2D473E8D63d1BFb0185B5bDB8046ca48a72;
     uint256 constant MORPHO_LLTV_945   = 0.945e18; // this market's own LLTV -- NOT the 86% the USDC legs use
     address constant CL_ETH_USD = 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419; // Chainlink ETH/USD (8-dec)
@@ -553,6 +566,15 @@ contract Deploy is Script {
     ///      ⚠️ Existence is NOT depth: `lu != 0` only proves the market was created. Borrowable depth
     ///      is IDLE liquidity (supply − borrow), and utilisation on these runs ~90%, so a market can
     ///      exist, look well-supplied, and still lend nothing. Pin depth separately.
+    /// @dev Overload taking the market's KNOWN id. The id IS `keccak256(abi.encode(mp))`, so asserting it
+    ///      proves EVERY field reconstructs the intended market — including the ones we infer rather than
+    ///      look up (irm, collateralToken). A wrong inference reverts here instead of becoming a twin.
+    function _mkMorphoVenue(address morpho, MarketParams memory mp, address mgr, bytes32 wantId)
+        internal returns (address) {
+        require(keccak256(abi.encode(mp)) == wantId, "morpho: params do not reconstruct the known marketId");
+        return _mkMorphoVenue(morpho, mp, mgr);
+    }
+
     function _mkMorphoVenue(address morpho, MarketParams memory mp, address mgr) internal returns (address) {
         bytes32 id = keccak256(abi.encode(mp));
         (,,,,uint128 lu,) = IMorphoMkt(morpho).market(id);
@@ -593,18 +615,25 @@ contract Deploy is Script {
     ///    `_fromUsd`/`_toUsd18` are now price-aware, so a WETH loan token sizes off the ETH price rather
     ///    than silently assuming $1. NOT ADDED YET: it is a money-path change and needs its own verified run.
     function _ethLevVenues(address morpho, address lm, address weeth) internal returns (address[] memory vs) {
-        address mv = _mkMorphoVenue(morpho, MarketParams({
-            loanToken: address(USDC), collateralToken: weeth,
-            oracle: vm.envOr("MORPHO_ORACLE", WEETH_USDC_ORACLE), irm: vm.envOr("MORPHO_IRM", ADAPTIVE_IRM),
-            lltv: vm.envOr("MORPHO_LLTV", MORPHO_LLTV_86)
-        }), lm);
-        address mvW = _mkMorphoVenue(morpho, MarketParams({
-            loanToken: address(USDC), collateralToken: address(WETH),
-            oracle: vm.envOr("MORPHO_WETH_ORACLE", WETH_USDC_ORACLE), irm: vm.envOr("MORPHO_WETH_IRM", ADAPTIVE_IRM),
-            lltv: vm.envOr("MORPHO_WETH_LLTV", MORPHO_LLTV_86)
-        }), lm);
-        // MORPHO ONLY (owner, 2026-08-13). Euler v2 and Aave v4 BORROWING are removed: every remaining
-        // ETH lev venue is a Morpho market. The BTC side keeps Aave V3 for WBTC.
+        // MORPHO ONLY. Euler v2 and Aave v4 BORROWING are removed; the BTC side keeps Aave V3 for WBTC.
+        // RLUSD and PYUSD weETH markets — added because the market we shipped CANNOT LEND. Measured:
+        //   weETH/USDC 86% (shipped)  supply $0.74M median, IDLE $0.17M, 100 of 100 weeks under $1M
+        //   weETH/RLUSD 86%           supply $95.00M,       IDLE $9.66M
+        //   weETH/PYUSD 86%           supply $47.14M,       IDLE $4.32M
+        // BORROWABLE DEPTH IS IDLE, NOT SUPPLY (utilisation ~90% across all of them), so this takes the
+        // dollar leg from ~$0.17M to ~$14.2M — roughly 85×. USDC is DEMOTED, not deleted: it is the only
+        // 100-week dollar market, and thin-always is a measured fact while young-but-deep is an unknown.
+        // ⚠️ RLUSD is 18-dec and PYUSD is 6-dec. `_fromUsd`/`_toUsd18` are decimals-aware via
+        //    `IERC20(stable).decimals()`; never infer a stable's decimals from its slot.
+        address mvR = _mkMorphoVenue(morpho, MarketParams({
+            loanToken: address(RLUSD), collateralToken: weeth,
+            oracle: RLUSD_WEETH_ORACLE, irm: vm.envOr("MORPHO_IRM", ADAPTIVE_IRM), lltv: MORPHO_LLTV_86
+        }), lm, RLUSD_WEETH_MARKET_ID);
+        address mvP = _mkMorphoVenue(morpho, MarketParams({
+            loanToken: address(PYUSD), collateralToken: weeth,
+            oracle: PYUSD_WEETH_ORACLE, irm: vm.envOr("MORPHO_IRM", ADAPTIVE_IRM), lltv: MORPHO_LLTV_86
+        }), lm, PYUSD_WEETH_MARKET_ID);
+
         vs = new address[](2);
         // LONG Morpho venue {collateral: weETH, debt: WETH} -- the ETH-DENOMINATED-DEBT leg. Every other venue
         // above borrows USDC, which is what makes an ETH IL-protect borrow pay a stable->WETH SOR round trip;
@@ -623,7 +652,12 @@ contract Deploy is Script {
         // cited could not distinguish working from broken — and it was the ONLY venue reaching the
         // allowlist through `vetVenue`'s `stable() == base` early return, which skips the
         // `coll != c0 && coll != c1 → BadCollateral` gate. Deleting it removes that hole's only user.
-        vs[0] = mv; vs[1] = mvW;
+        // USDC IS NOT AN ALLOWLISTED BORROW AT ALL. Both USDC markets are gone, not demoted: the
+        // weETH/USDC 86% market has $0.17M idle across 100 of 100 weeks under $1M, so it cannot fund a
+        // hedge at any size — an allowlisted venue that reverts on borrow is worse than no venue,
+        // because the keeper spends a rebalance discovering it. WETH-collateral went with it (dominated:
+        // same delta, same IL offset, minus the ether.fi ratchet).
+        vs[0] = mvR; vs[1] = mvP;
     }
 
 }
