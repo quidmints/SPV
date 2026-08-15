@@ -124,6 +124,51 @@ library FixedRateFill {
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
+    // TRUE-UP — settlement charges an ESTIMATE; the batch's REALISED cost is authoritative
+    // ─────────────────────────────────────────────────────────────────────────────
+    /// DECIDED (owner, 2026-08-15): ESTIMATE WITH TRUE-UP, not a final charge.
+    /// The alternative — charge the A-S skew and call it done — substitutes a MODEL for a
+    /// MEASURABLE FACT (what Curve actually cost to restore 1:1). The skew is a good relative
+    /// measure of who created how much imbalance; it is not a prediction of an execution price.
+    /// Letting the model BE the price is how a plausible-but-wrong number becomes unfalsifiable.
+    ///
+    /// SHAPE: at settlement, collect `estimateWad` and record the swapper's `skewWad` into the open
+    /// batch. When the keeper rebalances, it measures the REALISED cost (a balance delta over the
+    /// Curve legs — never a number the swap path reports about itself) and each participant's share
+    /// is that cost pro-rata by CONTRIBUTED SKEW. The difference against their estimate is owed or
+    /// refunded.
+    ///
+    /// ⚠️ THE SWAPPER HAS USUALLY LEFT BY THEN. A true-up that assumes a live counterparty does not
+    /// work here, so the difference must land in a CLAIMABLE balance keyed by address, not a
+    /// push-payment. (Storage lives in the caller — this library holds none. Sizing that mapping is
+    /// an EIP-170 question and `Vogue` has 190 bytes; measure before siting it there.)
+    ///
+    /// ⚠️ AND THE BATCH MUST NOT BE ABLE TO STRAND ANYONE. If a batch never rebalances, its
+    /// participants are owed a true-up that never comes and their estimate is a silent
+    /// over-collection. Whatever holds `Batch` needs a path that settles or refunds unconditionally.
+    /// NOT SOLVED HERE — named so it is not discovered later.
+
+    /// @param realisedCost total measured cost of the batch's rebalance (balance delta, 6-dec USD).
+    /// @param mySkewWad    this participant's contributed skew.
+    /// @param totalSkewWad sum of contributed skew across the batch. MUST be the same accumulator
+    ///                     `mySkewWad` was added to, or the split is against the wrong denominator.
+    /// @param myEstimate   what this participant was charged at settlement.
+    /// @return owed        additional amount due FROM the participant (0 if they overpaid).
+    /// @return refund      amount due TO the participant (0 if they underpaid).
+    function trueUpShare(uint realisedCost, uint mySkewWad, uint totalSkewWad, uint myEstimate)
+        internal pure returns (uint owed, uint refund)
+    {
+        // A batch with no recorded skew cannot attribute anything. Returning (0,0) would silently
+        // absorb the whole realised cost into the fee lane, which is the socialisation this design
+        // exists to avoid — so refuse rather than paper over it.
+        if (totalSkewWad == 0) revert NoQuote();
+        uint myShare = (realisedCost * mySkewWad) / totalSkewWad;
+        return myShare > myEstimate
+            ? (myShare - myEstimate, 0)
+            : (0, myEstimate - myShare);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
     // CONSERVATION — the ONE property worth keeping from v4's `unlockCallback`
     // ─────────────────────────────────────────────────────────────────────────────
     /// @notice v4's flash accounting reverts unless every delta nets to zero. That is a CONSERVATION
