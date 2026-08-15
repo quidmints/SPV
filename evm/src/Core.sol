@@ -764,45 +764,38 @@ contract Core is SafeCallback {
         // (`PooledUsdRepackMatrix::testMatrix_S6`). The inventory bound below replaces it with a
         // PHYSICAL limit, and an edge that does not exist cannot be crossed. The parameter stays
         // only until `BasketLib.routeSwap`'s call site is updated in the same cut.
+        // OWN FRAME (`via_ir = false`). The fill's locals -- price, leg ordering, inventory bound,
+        // partial-fill re-derivation -- are computed in `_fillDelta` and only a struct pointer and
+        // `out` come back. Inlining them here blows the stack at `_handleDelta`, twice measured.
+        // This is the same idiom `_handleDelta`'s own settle legs use ("each leg settles in its own
+        // frame -- legacy stack, no via_ir crutch"). Do not inline for readability; it will not compile.
         uint px = AUX.getTWAPforAsset(isBTC ? address(AUX.WBTC()) : address(AUX.WETH()), 1800);
-        bool usdIsLeg0 = _t1(isBTC);
-        // `forOne` receives leg 1. With `usdIsLeg0`, leg 1 is the VOLATILE side, so the user is
-        // paying USD and buying volatile ⇒ the INPUT is USD and `convert` runs toVol.
-        bool inputIsUsd = usdIsLeg0 ? forOne : !forOne;
-        out = BasketLib.convert(amount, px, inputIsUsd);
-        // 🔴 §V4-CUT — THE 420 PPM MUST BE CHARGED HERE, BECAUSE v4 WAS CHARGING IT.
-        // `OracleLib:180` sets `k.fee = 420`: the flat fee was the POOL'S TIER, collected by v4 and
-        // harvested by `Collect` into `feesPerShare`/`USD_FEES`. Deleting v4 deletes the collection
-        // mechanism, so without this line the fill charges NOTHING and the LP fee lane earns zero.
-        // It is also the `fee` term in the anti-grinding bound (w >= 1 - fee/C) — at fee = 0 that
-        // floor demands w = 100% at any external cost, i.e. the whole design degenerates.
-        // Matches the documented composition (`Aux.sol:639`): out ≈ base·(1 − skew)·(1 − fee/1e6),
-        // with the skew term absent here by design — we settle at oracle and attribute separately.
-        uint feeTaken = (out * 420) / 1_000_000;
-        out -= feeTaken;
-        // WHERE THE RETAINED FEE LANDS — CHECKED, because I first wrote "never claimable" and that
-        // was WRONG. Paying out less leaves `feeTaken` in `POOLED_*`, and `Vogue.sol:136` states
-        // "V4.POOLED_ETH() = principal + ALL compounded fees (even unclaimed)" — Vogue reads it at
-        // `:440` and `:1022`. So the fee DOES reach LP claims: this is the COMPOUNDING path.
-        // ⚠️ WHAT DIFFERS IS ATTRIBUTION TIMING, NOT EXISTENCE. `_handleCollect` fed `feesPerShare`
-        // / `USD_FEES`, which credit PER SHARE AT ACCRUAL — the holder at swap time earns it.
-        // Compounding into `POOLED_*` raises NAV instead, so it accrues to whoever holds AT CLAIM
-        // TIME. A holder who exits before the claim earns nothing they were owed, and one who enters
-        // after earns something they did not bear risk for. Decide which mechanism is intended when
-        // `Collect` is dissolved; do not let the choice be made by which line was easier to write.
-        // BOUNDED BY WHAT WE ACTUALLY HOLD. At oracle price with no curve, nothing else stops a
-        // drain: the old traversal ran out of liquidity, this must run out of inventory. Partial
-        // fill, never a revert — `minOut` upstream is what expresses the caller's tolerance.
-        uint held = inputIsUsd
-            ? (isBTC ? POOLED_BTC : POOLED_ETH)              // paying out volatile
-            : (isBTC ? POOLED_USD_BTC : POOLED_USD_ETH);     // paying out USD
-        if (out > held) {
-            out = held;
-            amount = BasketLib.convert(out, px, !inputIsUsd);   // re-derive the input for a partial
+        Delta memory delta;
+        (delta, out) = _fillDelta(isBTC, forOne, amount, px);
+
+        // 🔴 THE THREE LINES BELOW LIVED IN `_handleSwap`, WHICH THIS CUT DELETED. Moving the seam
+        // without carrying the body left `swap` computing a delta and doing NOTHING with it — no
+        // settlement, no observation, no flow bump — and it compiled. Recorded because "the seam is
+        // one statement" was true of the SOURCE of the delta and false of everything downstream.
+
+        // (1) OBSERVATION. `_writeObservation` took a sqrt-price only because v4's API handed one
+        // over; the ring has stored PLAIN PRICE since §TICK-REMOVAL, and we now HAVE the price, so
+        // it goes in directly with no conversion. This is the whole of the oracle repoint.
+        _writeObservationPrice(uint160(px), isBTC);
+
+        // (2) SETTLEMENT. Without this `POOLED_*` never moves and nobody is paid.
+        _handleDelta(delta, true, false, sender, token, isBTC);
+
+        // (3) FLOW EWMA — LOAD-BEARING, AND ITS ABSENCE WOULD HAVE BEEN SILENT. `flowEwmaUsd` decays
+        // with no replenishment if this is missing, and flow IS the `target` in `skewWad`/`sellSkew`.
+        // At `target == 0` `sellSkew` RETURNS 0, so every sell goes exempt from the imbalance charge
+        // — looking exactly like a skew that simply never fires. Every band and well swap routes
+        // through here, so this remains the ONE bump point.
+        {
+            int256 usdLeg = _t1(isBTC) ? delta.amt0 : delta.amt1;
+            uint usd6 = uint(usdLeg < 0 ? -usdLeg : usdLeg);
+            if (usd6 != 0) _bumpFlow(isBTC, usd6);
         }
-        Delta memory delta = forOne
-            ? Delta(-int256(amount), int256(out))
-            : Delta(int256(out), -int256(amount));
 
         // Per-pool shortfall arb. Threshold (1%) and trigger logic are
         // identical across pools; only the remediation differs. Both
@@ -938,8 +931,6 @@ contract Core is SafeCallback {
         bool isBTC = (uint8(a) >= uint8(Action.SwapBTC));
         bytes calldata payload = data[32:];
 
-        if (a == Action.SwapETH || a == Action.SwapBTC)
-            return _handleSwap(payload, isBTC);
         if (a == Action.RepackETH || a == Action.RepackBTC)
             return _handleRepack(payload, isBTC);
         if (a == Action.ReseatETH || a == Action.ReseatBTC)
@@ -955,73 +946,6 @@ contract Core is SafeCallback {
 
     function _key(bool isBTC) internal view returns (PoolKey memory) {
         return isBTC ? VANILLA_BTC : VANILLA_ETH;
-    }
-
-    /// @dev §E9 — the swap's price limit: the BAND'S OWN EDGE, unpacked from the two int24 ticks
-    ///      `SwapLib.swapToBody` packed into one word. Its OWN frame for two reasons: `_handleSwap`
-    ///      is stack-tight (`via_ir = false`), and `TickMath.getSqrtPriceAtTick` is a large inlined
-    ///      chain that must land here rather than in `SwapLib`, which sits ~150 bytes from EIP-170.
-    ///      `zeroForOne` moves price DOWN, so it bounds at the LOWER tick; otherwise the UPPER.
-    ///      int24→uint24→int24 is bit-preserving, so negative ticks round-trip exactly.
-    function _bandEdgeLimit(uint160 bandTicks, bool zeroForOne) private pure returns (uint160) {
-        return zeroForOne
-            ? TickMath.getSqrtPriceAtTick(int24(uint24(uint(bandTicks) >> 24)))
-            : TickMath.getSqrtPriceAtTick(int24(uint24(uint(bandTicks) & 0xFFFFFF)));
-    }
-
-    function _handleSwap(bytes calldata data, bool isBTC)
-        internal returns (bytes memory) {
-        // sqrtPriceX96 (1st field) no longer used — the swap now runs to the extreme limit
-        // (grinding removed); the pool's own current price drives execution.
-        (uint160 bandTicks, address sender, bool forOne,
-            address token, uint amount) = abi.decode(data,
-            (uint160, address, bool, address, uint));
-
-        PoolKey memory k = _key(isBTC);
-        BalanceDelta delta = poolManager.swap(k,
-            IPoolManager.SwapParams({ zeroForOne: forOne,
-                // GRINDING REMOVED and NOT reinstated: there is still no artificial per-swap price
-                // cap. The swap walks the real curve until its input is consumed or the band's
-                // in-range liquidity runs out — partial-fill at the TRUE edge, not a 0.5% wall.
-                //
-                // §E9 — the limit is the BAND EDGE (passed in `sqrtPriceLimit`), not the tick
-                // extreme. The comment here used to claim "a swap can't move the spot past the band
-                // edge (no liquidity there)". That is BACKWARDS, and measured false
-                // (`PooledUsdRepackMatrix::testMatrix_S6`): BECAUSE there is no liquidity there, the
-                // price crosses it at ZERO COST. A swap crossing `tickUpper` with input remaining
-                // drove the spot to `MAX_SQRT_PRICE - 1` while exchanging zero tokens, where
-                // `BasketLib.getPrice` truncates to 0 and `_reseatIfStale` then refuses to heal
-                // (`spot == 0`) — a permanently bricked band.
-                //
-                // This is NOT the removed grinding cap: grinding truncated fills INSIDE liquidity;
-                // this bounds price movement OUTSIDE it, where no fill is possible either way. Fills
-                // are bit-identical (measured: the crossing swap filled 5,292.59 USD / 2.84 ETH
-                // before the boundary and moved ZERO tokens past it) — only the resting spot differs.
-                amountSpecified: -int(amount),
-                sqrtPriceLimitX96: _bandEdgeLimit(bandTicks, forOne)}),
-            ZERO_BYTES);
-
-        (uint160 sqrtP,,,) = poolManager.getSlot0(_poolId(isBTC));
-        _writeObservation(sqrtP, isBTC);
-        // §V4-CUT step 1: the delta is DECOMPOSED at the v4 boundary. `_handleDelta` and both settle
-        // legs now take plain signed amounts, so nothing below this line knows what a `BalanceDelta`
-        // is — when `poolManager.swap` is replaced by the fill, only this call site changes.
-        _handleDelta(Delta(int256(delta.amount0()), int256(delta.amount1())), true, false, sender, token, isBTC);
-        // fold this swap's USD notional into the pool's flow EWMA (the adaptive
-        // skew target). Every band + well swap routes through here, so this is the ONE bump
-        // point. USD leg = the non-volatile side of the delta (token0 when token1 is volatile).
-        {
-            int128 usdLeg = _t1(isBTC) ? delta.amount0() : delta.amount1();
-            uint usd6 = uint(int(usdLeg < 0 ? -usdLeg : usdLeg));
-            if (usd6 != 0) _bumpFlow(isBTC, usd6);
-        }
-        // BTC proceeds are NO LONGER tracked via global curve counters. Per-channel
-        // exit P&L is settled EXACTLY at on-chain swap-out delivery: the swapper's
-        // actual USD is recorded per-obligation (pendingOnchainSwapOut.usd) at
-        // request and paid to the delivering LP at deliverSwapOutOnchain — so there
-        // is no shared proceeds pool to race over (see Core.pendingSwapOutUsd). The
-        // old netDeliveredBtc/swapUsdBtc rate machinery + clamp are gone.
-        return abi.encode(delta);
     }
 
     function _handleRepack(bytes calldata data, bool isBTC)
@@ -1419,11 +1343,58 @@ contract Core is SafeCallback {
     /// v4's API, and stays until the PM is ours), but it is converted ONCE HERE, at the write, so
     /// neither ticks nor sqrt-prices survive in storage or on any read path. Writing costs one
     /// conversion per swap and saves one on every valuation, and valuations are the frequent side.
-    function _writeObservation(uint160 sqrtPriceX96, 
+    function _writeObservation(uint160 sqrtPriceX96,
                     bool isBTC) internal {
         OracleLib.writeObservation(_obs(isBTC), _obsState(isBTC),
             uint160(BasketLib.getPrice(sqrtPriceX96,
                 isBTC ? token1isBTC : token1isETH)));   // `token1is` is external
+    }
+
+    /// @dev §V4-CUT — the fill, in its OWN FRAME so `swap` stays under the stack limit.
+    ///      Settles AT ORACLE against inventory: one price, no traversal, no discovery.
+    ///      UNITS: `px` is WAD USD per unit volatile — the SAME basis as `BasketLib.getPrice`, the
+    ///      observation ring's stored price, and `getTWAPforAsset`. `convert` carries the 6<->18
+    ///      bridge and is the same conversion `routeSwap` uses; a second one here is how the
+    ///      §A.50/C2 asymmetry happened.
+    ///      SIGN: positive leaves the pool, negative enters it. `forOne` pays leg 0, receives leg 1.
+    function _fillDelta(bool isBTC, bool forOne, uint amount, uint px)
+        private view returns (Delta memory d, uint out) {
+        // `forOne` receives leg 1. With USD on leg 0, leg 1 is VOLATILE, so the user pays USD and
+        // buys volatile ⇒ the INPUT is USD and `convert` runs toVol.
+        bool inputIsUsd = _t1(isBTC) ? forOne : !forOne;
+        out = BasketLib.convert(amount, px, inputIsUsd);
+        // THE 420 PPM, CHARGED HERE BECAUSE v4 WAS CHARGING IT. `OracleLib:180` set `k.fee = 420` as
+        // the POOL TIER; v4 collected it and `Collect` harvested it into `feesPerShare`/`USD_FEES`.
+        // Deleting v4 deletes the collector, so without this the fill charges NOTHING: the LP fee
+        // lane earns zero, and the anti-grinding bound `w >= 1 - fee/C` degenerates to w = 100%.
+        // Retained in `POOLED_*`, which `Vogue.sol:136` calls "principal + ALL compounded fees" —
+        // so it DOES reach LP claims, by compounding rather than per-share accrual. That difference
+        // is one of TIMING (holder at claim vs holder at swap) and is decided when `Collect` goes.
+        out -= (out * 420) / 1_000_000;
+        // BOUNDED BY WHAT WE HOLD. At oracle price with no curve, nothing else stops a drain: the
+        // traversal used to run out of liquidity, this runs out of inventory. Partial fill, never a
+        // revert — `minOut` upstream carries the caller's tolerance.
+        uint held = inputIsUsd
+            ? (isBTC ? POOLED_BTC : POOLED_ETH)              // paying out volatile
+            : (isBTC ? POOLED_USD_BTC : POOLED_USD_ETH);     // paying out USD
+        if (out > held) {
+            out = held;
+            amount = BasketLib.convert(out, px, !inputIsUsd);   // re-derive input for a partial
+        }
+        d = forOne ? Delta(-int256(amount), int256(out))
+                   : Delta(int256(out), -int256(amount));
+    }
+
+    /// §V4-CUT — THE ORACLE REPOINT, AND IT IS THIS SMALL. The ring has stored PLAIN PRICE since
+    /// §TICK-REMOVAL; `getSlot0` only ever handed over a sqrt-price because that was v4's API, and
+    /// the docblock above said so outright ("stays until the PM is ours"). The fill computes the
+    /// price directly, so it goes straight in with NO conversion — no `getPrice`, no sqrt, no tick.
+    /// ⚠️ `observe`, `ringVariance` and all ~54 `getTWAPforAsset` call sites are UNTOUCHED: the
+    /// variance estimator was already price-based, so nothing downstream needs re-deriving.
+    /// The sqrt-taking variant above survives only while Repack/Reseat/Collect still read `getSlot0`,
+    /// and deletes with them.
+    function _writeObservationPrice(uint160 price, bool isBTC) internal {
+        OracleLib.writeObservation(_obs(isBTC), _obsState(isBTC), price);
     }
 
     /// @notice §E63 — ONE observe, dispatched. These were TWO externals with IDENTICAL bodies

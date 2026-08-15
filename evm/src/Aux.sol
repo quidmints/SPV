@@ -634,12 +634,27 @@ contract Aux is // Auxiliary
         return SwapLib.wellSkew(address(CORE), getTWAPforAsset(asset, 1800), asset == address(WBTC), 0);  // §E68: 0 = read-only quote ⇒ instantaneous rate
     }
 
-    /// @notice The flat swap fee (V4 pool tier, parts-per-million — 420 = 0.042%) every
-    ///         stable↔volatile swap pays, exposed on the unified seam so an RFQ maker / solver
-    ///         reconstructs the full fill: out ≈ base·(1 − wellSkew)·(1 − swapFeePpm/1e6), then
-    ///         the `riskFactor(token)` depeg haircut. The swap fee is FLAT (calcFeeL1 is the
-    ///         redeem/draw degradation fee, not charged here); the DYNAMIC axes are wellSkew
-    ///         (inventory) + riskFactor (depeg). Mirrors the pool tier set in Core's pool key.
+    /// @notice The flat swap fee (parts-per-million — 420 = 0.042%) every stable↔volatile swap pays,
+    ///         exposed on the unified seam so an RFQ maker / solver can reconstruct the fill:
+    ///
+    ///             out ≈ base·(1 − swapFeePpm/1e6),  then the `riskFactor(token)` depeg haircut.
+    ///
+    /// 🔴 §V4-CUT — **THE SKEW TERM IS GONE FROM THIS COMPOSITION, AND NO SIGNATURE DIFF CAN SHOW
+    ///         THAT.** It used to read `out ≈ base·(1 − wellSkew)·(1 − fee/1e6)`, which was true
+    ///         while v4 discovered the price along a curve. Settlement is now AT ORACLE: the skew is
+    ///         the ATTRIBUTION KEY for the restoration cost, not a price adjustment, so it does not
+    ///         appear in the fill. A solver still applying the old formula UNDER-PREDICTS `out` by
+    ///         the whole skew factor — same selector, same units, wrong meaning, and INVISIBLE to
+    ///         `tools/check-client-abis.py`, which compares signatures rather than semantics.
+    ///         ⇒ Any solver-facing quote path must be updated in this same cut, not after it.
+    ///
+    /// ⚠️ AND THE NUMBER IS NOW **OUR POLICY, NOT A MIRROR**. This used to say "Mirrors the pool tier
+    ///         set in Core's pool key" — `OracleLib:180`'s `k.fee = 420`. v4 charged it and
+    ///         `_handleCollect` harvested it; with v4 gone the FILL charges it (`Core.swap`), so 420
+    ///         is a parameter we own and must justify, not a reflection of someone else's tier.
+    ///
+    ///         The fee is FLAT (`calcFeeL1` is the redeem/draw degradation fee, not charged here);
+    ///         the remaining DYNAMIC axis is `riskFactor` (depeg).
     function swapFeePpm() external pure returns (uint24) { return 420; }
 
     // _buildContext moved into SwapLib.swapToBody (the only consumer) — its
