@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import {Alles} from "./Alles.t.sol";
 import {LevManager} from "../src/LevManager.sol";
 import {ILevVenue} from "../src/imports/ILevVenue.sol";
-import {MorphoEscrowVenue, MarketParams} from "../src/MorphoEscrowVenue.sol";
+import {MorphoEscrowVenue, MarketParams} from "../src/imports/LevVenueBase.sol";
 
 interface IERC20R {
     function approve(address, uint) external returns (bool);

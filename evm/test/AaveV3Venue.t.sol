@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 import {ForkPin} from "./utils/ForkPin.sol";
 
 import "forge-std/Test.sol";
-import {AaveV3Venue} from "../src/AaveV3Venue.sol";
+import {AaveV3Venue} from "../src/imports/LevVenueBase.sol";
 
 interface IERC20A {
     function approve(address, uint256) external returns (bool);
