@@ -13361,3 +13361,40 @@ side.
 (ticks/√P), a CUSTODIAN (PoolManager) and a TYPE SYSTEM (ERC20 currencies). All three leave. The
 accounting — `POOLED_*`, the 420 ppm accumulators, the flow EWMA, the observation ring, the backing
 invariant — was always ours and none of it moves.**
+
+## 🔴 THE INSTANCE SPLIT NEEDS A SHARED ACCOUNTANT — the bands are COUPLED, deliberately
+
+Owner directed the `isBTC` instance split in the same pass as the v4 cut. **Checked first, and the
+two bands are NOT independent.** Two couplings, both intentional:
+
+1. **The solvency bound is a SUM.** `Core.committedUsd18() = _bandEquityUsd18(false) +
+   _bandEquityUsd18(true)`, gated by `require(committedUsd18() <= haircutTvl)` in `_poolUsdInRange`.
+   The code states the intent: *"There is NO per-band cap and NO fixed ETH/BTC split: the ONLY shared
+   bound is the SUM, so either band may draw the whole free surplus if the other is not using it."*
+2. **The skew amplifier READS ACROSS.** `SwapLib._sharedScarcityWad(core, isBTC)` computes
+   `other = isBTC ? both - btc : btc` from `committedUsd18()` and `btcBandEquityUsd18()`, then
+   amplifies the skew by `1e18 + other/both`. §E53's economics: *the other band has already claimed
+   the shared backing, so the SAME dollar of exposure is dearer to carry.*
+
+⇒ **TWO INDEPENDENT INSTANCES WOULD BREAK BOTH — SILENTLY.** Each band would gate against the full
+TVL as if the sibling did not exist (double-committing the same backing), and the amplifier would
+read `other = 0` forever, under-pricing every skew. Neither failure reverts.
+
+### The shape that works
+- **Each instance owns its own** `POOLED_USD`, `POOLED`, `basketUsd`, observation ring, accumulators.
+  `isBTC` disappears from every one of those — the instance IS the asset.
+- **A SHARED ACCOUNTANT owns the joint state**: aggregate committed equity, the `<= haircutTvl` gate,
+  and the input to `_sharedScarcityWad`. Natural home is the **basket**, which owns the TVL the bound
+  is measured against.
+- Each instance reports its own equity to the accountant; the accountant answers "what does the
+  OTHER side hold" without either instance knowing about its sibling.
+
+⚠️ **This is the one part of the split that is a DESIGN change rather than a mechanical one.** The
+per-asset state separation is mechanical; the shared bound is not, and getting it wrong reproduces
+the §A.16b class of defect (a numerator and denominator on different clocks) at the band level.
+
+⚠️ Also note `_settleTokSide`'s `if (!isBTC) VOGUE.takeETH(...)`: ETH pays out real ether, BTC settles
+via Lightning cooperative close. That asymmetry is REAL — but it is an argument for **two instances
+with different payout behaviour**, NOT for a runtime flag. Conflating those is what kept `isBTC`
+alive: a boolean selecting between two behaviours at runtime IS the hand-rolled polymorphism the
+refactor exists to delete.
