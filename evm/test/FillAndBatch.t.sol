@@ -78,6 +78,26 @@ contract FillAndBatchTest is Test {
         return FixedRateFill.trueUpShare(c, m, t, e);
     }
 
+    // ─── the estimate floor ───────────────────────────────────────────────────
+
+    /// The true-up is one-directional: refunds are payable, `owed` is not collectible from a
+    /// departed swapper. So an under-estimate silently moves cost off the causer and onto the fee
+    /// lane. A discount is therefore a broken invariant, not a configuration, and must REVERT rather
+    /// than clamp — clamping would let a caller believe it configured a discount and hear nothing.
+    function test_estimate_rejectsAnyDiscount() public {
+        vm.expectRevert(FixedRateFill.UpliftBelowFloor.selector);
+        this.callEstimate(1000, 9_999);
+    }
+
+    function test_estimate_parityIsTheFloor_andUpliftScales() public view {
+        assertEq(FixedRateFill.estimateFrom(1000, 10_000), 1000, "parity is allowed");
+        assertEq(FixedRateFill.estimateFrom(1000, 12_000), 1200, "120% uplift");
+    }
+
+    function callEstimate(uint c, uint16 b) external pure returns (uint) {
+        return FixedRateFill.estimateFrom(c, b);
+    }
+
     // ─── BatchLedger lifecycle ────────────────────────────────────────────────
 
     function _record(address who, uint skew, uint est) internal {

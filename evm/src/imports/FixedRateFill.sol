@@ -173,6 +173,33 @@ library FixedRateFill {
     /// NOT SOLVED HERE — named so it is not discovered later.
 
     // ─────────────────────────────────────────────────────────────────────────────
+    // THE ESTIMATE FLOOR — enforced, because the true-up is ONE-DIRECTIONAL
+    // ─────────────────────────────────────────────────────────────────────────────
+    error UpliftBelowFloor();
+
+    /// @notice Convert a modelled skew charge into the estimate actually collected at settlement.
+    ///
+    /// @dev 🔴 THIS EXISTS BECAUSE THE TRUE-UP CANNOT PULL. A refund is payable — we are holding the
+    ///      money. `owed` is NOT collectible: by the time the batch closes the swapper has left, and
+    ///      there is nothing to pull from. So an UNDER-estimate is absorbed, and it lands on the fee
+    ///      lane rather than on the causer — silently inverting the decision the whole design rests
+    ///      on ("the swapper who caused it pays"). Nothing reverts; the money simply comes from the
+    ///      wrong party.
+    ///      ⇒ **ONLY OVER-COLLECTION IS REFUNDABLE, SO THE ESTIMATE MUST OVER-COLLECT.**
+    ///      `upliftBps < 10_000` is therefore not a tuning choice, it is a broken invariant, and it
+    ///      is rejected rather than clamped: clamping would let a caller believe it had configured a
+    ///      discount and get silence instead. (Standing rule 3's discriminator — the failure would
+    ///      otherwise be silent and produce plausible-but-wrong output.)
+    ///      ⚠️ The RIGHT uplift is an empirical question — it should exceed realised Curve cost in
+    ///      the tail, not the median. Over-collecting is cheap (refunded); under-collecting is a
+    ///      transfer nobody voted for. NOT YET CALIBRATED; measure realised-vs-modelled before
+    ///      choosing, and the batch events carry both numbers for exactly that purpose.
+    function estimateFrom(uint skewCharge, uint16 upliftBps) internal pure returns (uint) {
+        if (upliftBps < 10_000) revert UpliftBelowFloor();
+        return (skewCharge * upliftBps) / 10_000;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
     // THE THREE-WAY SPLIT — weights are INPUTS, and the OOR case cannot be skipped
     // ─────────────────────────────────────────────────────────────────────────────
     /// Basis-point weights for apportioning a realised rebalance cost. MUST sum to 10_000.
