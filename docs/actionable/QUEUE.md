@@ -67,6 +67,32 @@ The single-asset instance the fold needed already existed. This does NOT wait fo
   pool". Those legs call **Curve** now. Prose describing a router the code no longer reaches is the
   exact failure mode that has already cost this refactor several wrong conclusions.
 
+## ⛔ CORRECTION + A LIVE DEFECT NOBODY OWNS — **I MISATTRIBUTED ONE OF THE TWO TICK-REMOVAL FAILURES; THE CONTROL SPLITS THEM (2026-08-15).**
+`4b656eb5`'s message says *"both failures are real and attributable to this change by mechanism"*. **That is
+wrong for one of them, and the mechanism story was exactly the kind that feels like evidence and is not.**
+⚠️ **No clean pre-change commit exists to check out** — my `Interfaces.sol` edit had been swept into an
+earlier commit by an add-all commit, so every commit back to the sweep is non-compiling. The baseline had to
+be MANUFACTURED by reverting that one swept line in a detached worktree.
+| test | pre-change baseline | after the tick removal | verdict |
+|---|---|---|---|
+| `UNITB_ProbeSwapIsEntryHistoryIndependent` | **PASS** | **FAIL** (4× against a 3× bound) | ✅ **MINE** — entry-history leakage genuinely worsened 2.34× → 4× |
+| `LeveragePnLProbe::testLeverage_LvrControlVsTreatment` | **FAIL** 748,653… < 753,387… (**0.628%**) | **FAIL** 749,412… < 754,142… (**0.627%**) | ⛔ **PRE-EXISTING — NOT MINE.** My change moved it 0.001 pp |
+🔴 **AND THAT SECOND ONE IS A LIVE MONEY-PATH DEFECT WITH NO OWNER: at UNCHANGED ETH price the passive LP
+ends 0.63% BEHIND the no-leverage control.** The test states the interpretation itself — the LP *"sold ETH
+into the opens at or above mid and collected fees, so if it still comes out behind the control, leverage flow
+is extracting value from passive liquidity outright."* **The flat leg has no two-sided-LVR excuse; that is
+the whole point of testing at unchanged price.**
+📌 **AND IT IS NOT §#41's MECHANISM — WHICH MAKES IT A SECOND, INDEPENDENT LEAK.** §#41-NOT-LIVE-YET verified
+there is NO internal fill: `LevMath` routes every leg externally through Curve and cannot reach the band. So
+this 0.63% leaks through the ORDINARY external lev path, before any netting exists. **Whatever #41 would have
+added, this is already happening without it.**
+▶️ **Magnitude is stable across both arms (0.628% / 0.627%), so it is a systematic property of the lev path,
+not noise.** Owner should decide whether it blocks Phase 3 — it is the same party (passive LPs) that
+§WHO-PAYS just protected from grinding, leaking through a different door.
+📌 **METHOD: the mechanism reasoning was plausible and wrong.** Lower σ² → smaller premium → LP behind is a
+clean causal story; the control says my change moved it by one part in a thousand. *Everything I caught this
+session, I caught by running something.*
+
 ## ✅ WHO PAYS FOR THE REBALANCE — **RESOLVED BY EVIDENCE ALREADY IN THE TREE: THE SWAPPER. THE OTHER TWO ARE CLOSED, NOT MERELY WORSE (2026-08-15).**
 Restoring 1:1 through Curve costs a fee plus slippage, incurred because someone pushed the band off
 target. Three candidates were raised; two are refuted.
