@@ -111,43 +111,21 @@ pub fn find_fork_point(
     Ok(found)
 }
 
-/// Read `BTCChannels.MAIN_HOP()` (the primary on-chain hop operator) via `eth_call`.
-/// The daemon checks this against its hot-key address so a key rotated out on-chain
-/// can't keep signing settles that all revert (I-3).
-///
-/// WAS `hopNode()`, WHICH NO LONGER EXISTS -- the attestation registry was deleted
-/// (`812e682`, "Attestation is fully phased out"). This is a rename, not a behaviour
-/// change, so the decode below and its tests are untouched.
-///
-/// FOR AN AUTHORISATION DECISION USE `is_authorised_hop`, NOT THIS. `_onlyHop()`
-/// (`BTCChannels.sol:664-665`) accepts EITHER `MAIN_HOP` or `FALLBACK_HOP`, and the
-/// pair exists precisely so a dead main can be taken over by the fallback. A daemon
-/// running as the fallback is fully authorised on-chain while comparing unequal to
-/// this value, so `== read_hop_node(..)` would refuse to sign in exactly the takeover
-/// case the fallback was built for.
-pub fn read_hop_node<R: JsonRpc>(rpc: &R, btc_channels: Address) -> anyhow::Result<Address> {
-    read_hop_address(rpc, btc_channels, "MAIN_HOP()")
-}
-
-/// Read `BTCChannels.FALLBACK_HOP()` -- the takeover operator.
-pub fn read_fallback_hop<R: JsonRpc>(rpc: &R, btc_channels: Address) -> anyhow::Result<Address> {
-    read_hop_address(rpc, btc_channels, "FALLBACK_HOP()")
-}
-
-fn read_hop_address<R: JsonRpc>(rpc: &R, btc_channels: Address, sig: &str) -> anyhow::Result<Address> {
-    let bytes = crate::client::eth_call_raw(rpc, btc_channels, sig, None)?;
-    if bytes.len() < 32 {
-        anyhow::bail!("{sig}: short return");
-    }
-    // address right-aligned in the 32-byte word.
-    Ok(Address::from_slice(&bytes[12..32]))
-}
-
-/// Is `who` authorised to act as the hop? Mirrors `BTCChannels._onlyHop()` exactly:
-/// MEMBERSHIP of {MAIN_HOP, FALLBACK_HOP}, not equality with either one.
-pub fn is_authorised_hop<R: JsonRpc>(rpc: &R, btc_channels: Address, who: Address) -> anyhow::Result<bool> {
-    Ok(who == read_hop_node(rpc, btc_channels)? || who == read_fallback_hop(rpc, btc_channels)?)
-}
+// HOP-OPERATOR READ DELETED 2026-08-15 (owner: remove dead code; standing rule 1).
+// `read_hop_node` had NO production caller -- every use was a test asserting the decode of the
+// function's own output. It survived a rename I made hours earlier (`hopNode()` ->
+// `MAIN_HOP()`), which fixed the string in a routine nothing invoked.
+//
+// ⚠️ WHAT GOES WITH IT, STATED SO IT IS A DECISION AND NOT AN ACCIDENT: the docblock claimed
+// "the daemon checks this against its hot-key address so a key rotated out on-chain can't keep
+// signing settles that all revert (I-3)". THE DAEMON NEVER DID. That check was written, tested
+// against a mock, and never wired to the signing path, so I-3 was documented rather than
+// enforced -- a green test suite over a guard that could not fire, which is worse than an
+// absent guard because it reads as present.
+// If I-3 is wanted, it is `who == MAIN_HOP() || who == FALLBACK_HOP()` (mirroring
+// `BTCChannels._onlyHop()`, :664-665) evaluated ON THE SIGNING PATH. Membership, not equality:
+// the pair exists so a dead main can be taken over by the fallback (:631), and an equality
+// check would refuse to sign in exactly that takeover.
 
 /// Read `SPVGateway.getMainchainHeight()` via `eth_call`.
 pub fn read_gateway_height<R: JsonRpc>(rpc: &R, gateway: Address) -> anyhow::Result<u64> {
@@ -444,23 +422,6 @@ mod tests {
     }
 
     #[test]
-    fn read_hop_node_extracts_address() {
-        use crate::transport::JsonRpc;
-        struct HopRpc(String);
-        impl JsonRpc for HopRpc {
-            fn call(&self, method: &str, _p: serde_json::Value) -> anyhow::Result<serde_json::Value> {
-                assert_eq!(method, "eth_call");
-                Ok(serde_json::json!(self.0))
-            }
-        }
-        let addr = Address::repeat_byte(0xAB);
-        let mut word = [0u8; 32];
-        word[12..].copy_from_slice(addr.as_slice()); // address right-aligned
-        let rpc = HopRpc(format!("0x{}", hex::encode(word)));
-        assert_eq!(read_hop_node(&rpc, Address::repeat_byte(0xBC)).unwrap(), addr);
-    }
-
-    #[test]
     fn get_mainchain_height_selector() {
         assert_eq!(
             format!("0x{}", hex::encode(&keccak256("getMainchainHeight()")[..4])),
@@ -630,14 +591,12 @@ mod tests {
             // INVARIANT: a malformed/garbage response yields Ok/Err, never a panic.
             let _ = read_gateway_height(&rpc, z);
             let _ = estimate_gas(&rpc, z, &[]);
-            let _ = read_hop_node(&rpc, z);
             let _ = read_gateway_block_exists(&rpc, z, [0u8; 32]);
         }
         // A transport error propagates as Err (never panics, never a sentinel).
         let e = Erroring;
         assert!(read_gateway_height(&e, z).is_err());
         assert!(estimate_gas(&e, z, &[]).is_err());
-        assert!(read_hop_node(&e, z).is_err());
         assert!(read_gateway_block_exists(&e, z, [0u8; 32]).is_err());
     }
 
@@ -917,7 +876,7 @@ mod tests {
 // ───────────────────────────── property-based fuzz ────────────────────────────
 //
 // Generalizes `rpc_readers_never_panic_on_adversarial_responses` to generated
-// inputs. The eth_call return decoders (`read_gateway_height`, `read_hop_node`,
+// inputs. The eth_call return decoders (`read_gateway_height`,
 // `read_gateway_block_exists`, `estimate_gas`) all decode UNTRUSTED RPC strings
 // and must reject garbage as Err — never slice-panic or overflow. `relay_range`
 // is fuzzed for its bounded-window invariant.
@@ -953,7 +912,6 @@ mod proptests {
             let z = Address::ZERO;
             let rpc = Canned(ret);
             let _ = read_gateway_height(&rpc, z);
-            let _ = read_hop_node(&rpc, z);
             let _ = read_gateway_block_exists(&rpc, z, [0u8; 32]);
             let _ = estimate_gas(&rpc, z, &[]);
         }
@@ -963,9 +921,6 @@ mod proptests {
         fn rpc_readers_decode_clean_word(bytes in proptest::collection::vec(any::<u8>(), 32..64)) {
             let z = Address::ZERO;
             let rpc = Canned(Value::String(format!("0x{}", hex::encode(&bytes))));
-            // read_hop_node takes the low-20 bytes of word0.
-            let hop = read_hop_node(&rpc, z).unwrap();
-            prop_assert_eq!(hop, Address::from_slice(&bytes[12..32]));
             // read_gateway_height decodes word0 into u64; a value that exceeds u64
             // is rejected as an error (NOT silently clamped to 0 — that would re-
             // submit headers from genesis). A clean small word decodes Ok; an
