@@ -17,14 +17,27 @@
 //!   hop never settles, the sender reclaims via the CLTV refund leaf after `cltv_height`.
 //!   Enabled only when the on-chain rail is running (else 503).
 //!
-//! POST /lp/onboard        ((B) LP delegation onboarding) — the QU!D app calls this after
-//!   the LP has signed `registerDelegation` on-chain. Allocates the vault-wallet DEPOSIT
-//!   ADDRESS the LP funds its channel from and starts watching it (the open orchestrator
-//!   opens once the deposit buries). GATED on-chain: refuses unless `delegationVersion[lpEth]
-//!   > 0` (the anti-spam gate — the LP paid gas to delegate). Idempotent per lpEth.
+//! POST /lp/onboard        ((B) LP onboarding) — the QU!D app calls this to start an open.
+//!   Allocates the vault-wallet DEPOSIT ADDRESS the LP funds its channel from and starts
+//!   watching it (the open orchestrator opens once the deposit buries). Idempotent per lpEth.
 //!   { "lp_eth":"0x..", "btc_recipient":"<32-byte x-only hex>", "desired_sats":N,
 //!     "payout_mode":"invoice"|"raw_btc" }
 //!   → 200 { "deposit_address":"bcrt1p.." }
+//!
+//!   ⚠️ **THIS USED TO DESCRIBE A GATE THAT NO LONGER EXISTS**, and the description outlived
+//!   the code twice over. It said the LP must first "sign `registerDelegation` on-chain" and
+//!   that the endpoint "refuses unless `delegationVersion[lpEth] > 0` (the anti-spam gate —
+//!   the LP paid gas to delegate)". §E157 (`e0fed54`) folded delegation INTO the open, so
+//!   `registerDelegation` and `delegationVersion` are both gone from `BTCChannels`; the
+//!   `delegationVersion` read here was still being made against the deleted selector and
+//!   returned `BAD_GATEWAY` on every call until it was removed.
+//!
+//!   🔴 **SO THE ANTI-SPAM PROPERTY IS GONE, NOT MOVED.** The gate's real job was to make an
+//!   onboard cost gas, and nothing replaced it: `/lp/onboard` now allocates a watched deposit
+//!   address for any authenticated caller. The bearer token is the only thing limiting it.
+//!   Booked rather than papered over — a rate limit here would be a clamp; the question is
+//!   whether consent-riding-with-the-open should also carry a cost, or whether the token is
+//!   considered sufficient because the app is the only client.
 
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
@@ -312,17 +325,26 @@ async fn lp_onboard(
     // can't forge a false positive into a real open (the open still requires the LP's
     // funds + the on-chain `_authorizedHop` gate); a false negative just refuses a real
     // LP, who retries.
-    // (E157) `delegationVersion(address)` NO LONGER EXISTS: `e0fed54` folded delegation INTO THE
-    // OPEN — "the registration tx goes" — so there is no separate registration to read a version
-    // from. This call was still being made against the deleted selector, which means the eth_call
-    // failed and this `?` returned BAD_GATEWAY: LP registration was BROKEN, not merely stale. The
-    // ORPHAN check on the Rust side is what surfaced it.
+    // (E157) THE DELEGATION PRE-CHECK IS GONE ENTIRELY, IN TWO STEPS.
     //
-    // `true` is the safe value here, and by the ARGUMENT THIS SITE ALREADY MADE (above): a false
-    // positive "can't forge a false positive into a real open (the open still requires the LP's
-    // funds + the on-chain `_authorizedHop` gate)", whereas a false negative "just refuses a real
-    // LP". Post-E157 an LP that has opened is delegated BY CONSTRUCTION, so the pre-check has
-    // nothing left to discriminate — the on-chain gate is the real one and always was.
+    // First: this called `delegationVersion(address)`, which `e0fed54` deleted when it folded
+    // delegation INTO the open ("the registration tx goes"). The eth_call therefore failed on a
+    // deleted selector and this handler returned BAD_GATEWAY on every request — LP onboarding was
+    // BROKEN, not merely stale, and only the Rust-side ORPHAN check surfaced it. It was replaced
+    // with a constant `true`, on the reasoning quoted just above: post-E157 an LP that has opened
+    // is delegated BY CONSTRUCTION, so the pre-check had nothing left to discriminate.
+    //
+    // Then the flag itself was removed from `register_lp`, which is the better end state: a
+    // parameter that is always `true` is a lie about there being a choice.
+    //
+    // 🔴 WHAT WAS LOST WITH IT, STATED PLAINLY: the old gate ALSO made an onboard COST GAS, and
+    // nothing replaced that. `register_lp` is still idempotent per `lpEth`, so one identity
+    // cannot inflate the watch set — but identities are now free, where they used to cost a
+    // delegation tx. The bearer token is the only remaining limit on how many distinct `lpEth`
+    // values can each claim a watched deposit address. Recorded rather than patched: a rate limit
+    // here would be a clamp on the symptom, and the real question is whether consent riding with
+    // the open should carry a cost of its own, or whether the token suffices because the app is
+    // the only client.
     let f = LpFunding { lp_eth, btc_recipient, desired_sats: req.desired_sats, payout_mode };
     let addr = register_lp(&ob.vault.registry, &ob.vault.node, f).map_err(|e| {
         warn!(%lp_eth, error = %e, "lp onboard refused");

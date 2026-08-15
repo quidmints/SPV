@@ -566,27 +566,6 @@ impl OpenParams {
 /// bound into the digest, so only that hop can open the LP's channel and a genuine
 /// lpAuth cannot be replayed through a different submitter. For a self-hosted or
 /// family-plan instance, `hop` is that instance's own EVM address.
-/// (B) The digest an LP signs COLD to delegate channel operation — mirrors
-/// `BTCChannels.delegationDigest(authority, btcRecipient, version)`. The SPA (MetaMask)
-/// signs this once; `encode_register_delegation` relays the 65-byte r‖s‖v sig.
-pub fn delegation_digest(
-    chain_id: u64,
-    btc_channels: Address,
-    authority: Address,
-    btc_recipient: [u8; 32],
-    version: u64,
-) -> [u8; 32] {
-    let preimage = encode_tuple(&[
-        Tok::FixedBytes32(keccak256("BTCChannels.delegation.v1").0),
-        Tok::Uint(U256::from(chain_id)),
-        Tok::Address(btc_channels),
-        Tok::Address(authority),
-        Tok::FixedBytes32(btc_recipient),
-        Tok::Uint(U256::from(version)),
-    ]);
-    keccak256(preimage).0
-}
-
 pub fn open_channel_digest(
     chain_id: u64,
     btc_channels: Address,
@@ -731,28 +710,6 @@ pub fn encode_open_channel(
             Tok::FixedBytes32Array(funding_merkle_proof.to_vec()),
             Tok::Tuple(auth.tokens()),
             Tok::TupleArray(exits.iter().map(ExitArming::tokens).collect()),
-        ],
-    )
-}
-
-/// (B) `registerDelegation(address authority, bytes32 btcRecipient, uint256 version,
-/// bytes sig)` — relays the LP's cold EIP-712 delegation. `authority` = a concrete hop
-/// or THE Safe hopRegistry (fleet). `sig` is the LP's 65-byte r‖s‖v over `delegationDigest`.
-pub fn encode_register_delegation(
-    authority: Address,
-    btc_recipient: [u8; 32],
-    version: u64,
-    sig: &[u8],
-) -> Vec<u8> {
-    encode_call(
-        // NB: `version` is uint64 in the contract — the selector must say uint64 (the
-        // calldata word is 32-byte-padded either way, but the 4-byte selector differs).
-        "registerDelegation(address,bytes32,uint64,bytes)",
-        &[
-            Tok::Address(authority),
-            Tok::FixedBytes32(btc_recipient),
-            Tok::Uint(U256::from(version)),
-            Tok::Bytes(sig.to_vec()),
         ],
     )
 }
