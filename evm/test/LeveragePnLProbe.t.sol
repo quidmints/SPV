@@ -207,6 +207,33 @@ contract LeveragePnLProbe is Alles {
         assertGt(solvent, 0, "PREMISE: solvent reads zero, so the comparison is vacuous");
     }
 
+    /// @notice INSTRUMENT CHECK for the arm-asymmetry fix: value the LP position DIRECTLY,
+    ///         BEFORE any redeem, so no partial-settlement artifact can enter. If control and
+    ///         treatment agree here at unchanged price, the band swap was value-neutral and the
+    ///         0.63% is entirely an artifact of measuring redemption PROCEEDS.
+    function test_Instrument_PositionValueBeforeAnyRedeem() public {
+        _seed(400 ether);
+        uint px0 = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint snap0 = vm.snapshotState();
+
+        for (uint r = 0; r < 20; r++) { if (_open(3_000e18) == 0) break; }
+        uint tShares = V4.balanceOf(lp);
+        uint tAssets = V4.convertToAssets(tShares);
+        emit log_named_uint("TREAT shares      ", tShares);
+        emit log_named_uint("TREAT assets(ETH) ", tAssets);
+        emit log_named_uint("TREAT value (USD) ", tAssets * px0 / 1e18);
+
+        vm.revertToState(snap0);
+        uint cShares = V4.balanceOf(lp);
+        uint cAssets = V4.convertToAssets(cShares);
+        emit log_named_uint("CTRL  shares      ", cShares);
+        emit log_named_uint("CTRL  assets(ETH) ", cAssets);
+        emit log_named_uint("CTRL  value (USD) ", cAssets * px0 / 1e18);
+
+        assertGt(cShares, 0, "PREMISE: control LP holds no shares");
+        assertGt(tShares, 0, "PREMISE: treatment LP holds no shares");
+    }
+
     function testLeverage_LvrControlVsTreatment() public {
         _seed(400 ether);
         uint px0 = AUX.getTWAPforAsset(address(WETH), 1800); // USD18 per 1e18 ETH

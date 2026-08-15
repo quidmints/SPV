@@ -247,6 +247,25 @@ claim is exactly the leg that could not be freed. The "shortfall" is unmeasured 
 📌 **AND THE BAND SWAP WAS FAIR ALL ALONG** (below): +$60,000.00 for −31.8340 ETH, implied $1,884.78 against
 `px0` $1,883.76 — sold 0.05% ABOVE mid, band value unchanged either side. **There was never a leak in the
 exchange, and now there is none in the redemption either.**
+✅ **RESOLVED FURTHER 2026-08-16 — IT IS A LIQUIDITY DEFERRAL, NOT A VALUE LOSS, AND THE POSITION MEASURES AHEAD.**
+Valuing the POSITION instead of the proceeds (`convertToAssets`, BEFORE any redeem, both arms):
+**treatment $754,277.63 vs control $754,258.25 — the LP is $19.38 AHEAD**, which is exactly what selling
+0.05% above mid plus fees should produce. **The band swap was value-positive for the LP the whole time.**
+⛔ **AND THE RESIDUE IS GENUINELY UN-FREEABLE, NOT MERELY UN-ASKED-FOR:** driving the redeem to exhaustion
+(8 passes, stopping when a pass frees nothing) still leaves **31.80 shares**. So the treatment LP cannot
+liquidate it NOW — but they own it, and it is worth more than the control's position.
+🔴 **THE TEST THEREFORE ASSERTS ABOUT *VALUE* WHILE MEASURING *IMMEDIATE REDEEMABILITY*, AND FIXING THAT IS A
+REDESIGN, NOT A PATCH — THREE ATTEMPTS, EACH TRADING ONE FAILURE FOR ANOTHER:**
+  ⓵ value the residue via `convertToAssets` AFTER the redeem → **$25.19 for 31.8 shares**, because the redeem
+     has already drained `_pricingBacking`; a post-drain valuation of what the drain could not take.
+  ⓶ value the POSITION directly → fixes the flat assertion, **breaks PREMISE 3**: `(up − down)` is meant to
+     measure the ETH LEG, and `convertToAssets × px` makes the price a bare multiplier (it reads the live
+     oracle internally), so the spread stops measuring the ETH/USD mix.
+  ⓷ redeem to exhaustion → residue is un-freeable, so nothing changes.
+▶️ **WHAT THE TEST NEEDS IS A DECISION, NOT A FIX: does 'worse off' mean VALUE (use the position, and rewrite
+PREMISE 3, which encodes a real property) or LIQUIDITY (keep proceeds, and restate the assertion as a
+deferral claim)? Left RED and unchanged rather than pick one silently.** `_lpValueUsd` is restored verbatim
+to HEAD; the two diagnostics that settled this are kept and pass.
 ⚠️ **CORRECTION OWED: I reported this to `spv-a0` as a real defect and they flipped their §F5 row from
 "possible drift" to a confirmed 0.63% owned by this thread. That attribution is WITHDRAWN.** The test needs
 its comparison fixed (value the RETAINED SHARES, or force both arms to redeem fully); the code does not.
