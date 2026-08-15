@@ -780,11 +780,16 @@ contract Core is SafeCallback {
         // with the skew term absent here by design — we settle at oracle and attribute separately.
         uint feeTaken = (out * 420) / 1_000_000;
         out -= feeTaken;
-        // ⚠️ CHARGED BUT NOT YET CREDITED. `_handleCollect` returned fees0/fees1 to Vogue, which drove
-        // `feesPerShare` and `USD_FEES`. `feeTaken` must reach those SAME accumulators or the fee is
-        // silently retained as band inventory — LPs would see it in backing but never as a claim,
-        // which is the §E107 shape (value landing where it does not compensate whoever bore the
-        // cost). Wire this to the accumulator when `Collect` is dissolved, in the same commit.
+        // WHERE THE RETAINED FEE LANDS — CHECKED, because I first wrote "never claimable" and that
+        // was WRONG. Paying out less leaves `feeTaken` in `POOLED_*`, and `Vogue.sol:136` states
+        // "V4.POOLED_ETH() = principal + ALL compounded fees (even unclaimed)" — Vogue reads it at
+        // `:440` and `:1022`. So the fee DOES reach LP claims: this is the COMPOUNDING path.
+        // ⚠️ WHAT DIFFERS IS ATTRIBUTION TIMING, NOT EXISTENCE. `_handleCollect` fed `feesPerShare`
+        // / `USD_FEES`, which credit PER SHARE AT ACCRUAL — the holder at swap time earns it.
+        // Compounding into `POOLED_*` raises NAV instead, so it accrues to whoever holds AT CLAIM
+        // TIME. A holder who exits before the claim earns nothing they were owed, and one who enters
+        // after earns something they did not bear risk for. Decide which mechanism is intended when
+        // `Collect` is dissolved; do not let the choice be made by which line was easier to write.
         // BOUNDED BY WHAT WE ACTUALLY HOLD. At oracle price with no curve, nothing else stops a
         // drain: the old traversal ran out of liquidity, this must run out of inventory. Partial
         // fill, never a revert — `minOut` upstream is what expresses the caller's tolerance.
