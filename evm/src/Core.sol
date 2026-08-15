@@ -770,6 +770,21 @@ contract Core is SafeCallback {
         // paying USD and buying volatile ⇒ the INPUT is USD and `convert` runs toVol.
         bool inputIsUsd = usdIsLeg0 ? forOne : !forOne;
         out = BasketLib.convert(amount, px, inputIsUsd);
+        // 🔴 §V4-CUT — THE 420 PPM MUST BE CHARGED HERE, BECAUSE v4 WAS CHARGING IT.
+        // `OracleLib:180` sets `k.fee = 420`: the flat fee was the POOL'S TIER, collected by v4 and
+        // harvested by `Collect` into `feesPerShare`/`USD_FEES`. Deleting v4 deletes the collection
+        // mechanism, so without this line the fill charges NOTHING and the LP fee lane earns zero.
+        // It is also the `fee` term in the anti-grinding bound (w >= 1 - fee/C) — at fee = 0 that
+        // floor demands w = 100% at any external cost, i.e. the whole design degenerates.
+        // Matches the documented composition (`Aux.sol:639`): out ≈ base·(1 − skew)·(1 − fee/1e6),
+        // with the skew term absent here by design — we settle at oracle and attribute separately.
+        uint feeTaken = (out * 420) / 1_000_000;
+        out -= feeTaken;
+        // ⚠️ CHARGED BUT NOT YET CREDITED. `_handleCollect` returned fees0/fees1 to Vogue, which drove
+        // `feesPerShare` and `USD_FEES`. `feeTaken` must reach those SAME accumulators or the fee is
+        // silently retained as band inventory — LPs would see it in backing but never as a claim,
+        // which is the §E107 shape (value landing where it does not compensate whoever bore the
+        // cost). Wire this to the accumulator when `Collect` is dissolved, in the same commit.
         // BOUNDED BY WHAT WE ACTUALLY HOLD. At oracle price with no curve, nothing else stops a
         // drain: the old traversal ran out of liquidity, this must run out of inventory. Partial
         // fill, never a revert — `minOut` upstream is what expresses the caller's tolerance.
