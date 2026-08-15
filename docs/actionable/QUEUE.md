@@ -13242,3 +13242,41 @@ cross-subsidy.**
     load-bearing (the opposite of what I concluded when settlement was at-oracle).
   • The keeper's rebalance being a fill means it, too, records into `BatchLedger` — check that a
     batch cannot attribute the keeper's own rebalance cost back to the keeper as a participant.
+
+### ✅ CORRECTION: THE "PRICE REFERENCE BLOCKER" IS NOT ONE. I overstated it twice.
+
+Three reads dissolved it:
+1. **`_refKeyETH`/`_refKeyBTC` are EXTERNAL pools, read ONCE AT SETUP.** `Core:591` — *"Hardcoded V4
+   PoolKey for the REAL on-chain ETH/stable pool (e.g. ETH/USDT). Its current tick is read at setup
+   time and used to SEED VANILLA_ETH at the live market price."* A one-time seed, not a runtime feed.
+2. **`OracleLib.writeObservation` has exactly ONE call site** (`Core:1343`) and it takes a **PRICE**,
+   not a tick.
+3. **The ring already stores PLAIN PRICE, and the code says the rest is temporary** (`Core:1337`):
+   *"§TICK-REMOVAL — the ring stores PLAIN PRICE. `getSlot0` still hands us a sqrt-price (that is v4's
+   API, **and stays until the PM is ours**), but it is converted ONCE HERE, at the write, so neither
+   ticks nor sqrt-prices survive in storage or on any read path."*
+
+⇒ **THE ORACLE WORK IS ALREADY STAGED, AND IT IS ONE FUNCTION.** `_writeObservation` swaps
+`poolManager.getSlot0(pool)` for the price the fill already computes; `BasketLib.getPrice`'s
+sqrt-conversion disappears with it. `observe`, the variance ring and all ~54 `getTWAPforAsset` call
+sites are untouched. **The TWAP survives the cut entirely.**
+
+### ✅ WHAT SURVIVES, AND WHY THE ACCOUNTING IS NOT THE PROBLEM (owner, same day)
+
+*"There are compound 420 bp fee accumulators and the delta due to imbalance to charge that 420 ppm
+against — handle-delta can still work with balances, they don't need to be ERC20 mock tokens; there
+is still compounding and pricing going on even though we don't use sqrtprice and ticks."*
+
+Exactly the separation the cut rests on:
+
+| survives | leaves |
+|---|---|
+| the 420 ppm accumulators (`feesPerShare`, `USD_FEES`) and their compounding | the tick grid and √P |
+| delta handling — now over **plain balances** | currencies registered with a `PoolManager` |
+| pricing — now the fill's quoted rate | price DISCOVERY along a curve |
+| `POOLED_*` (lives in `Core`, never in v4) | `unlock`/`unlockCallback` custody round-trip |
+| the conservation property (all-deltas-zero) | v4 as the thing that ENFORCES it |
+
+⇒ The accounting was never the hard part. **`POOLED_*`, the accumulators and the conservation
+obligation are all ours already** — v4 supplied the coordinate system and the custody, and those are
+the only two things being removed.
