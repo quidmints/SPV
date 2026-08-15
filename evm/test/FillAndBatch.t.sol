@@ -78,6 +78,36 @@ contract FillAndBatchTest is Test {
         return FixedRateFill.trueUpShare(c, m, t, e);
     }
 
+    // ─── grindability: no FIXED weight is safe ────────────────────────────────
+
+    /// The four data points from the grinding derivation, asserted exactly. w >= 1 - fee/C with
+    /// fee = 420 ppm. If this drifts, the floor has stopped matching the arithmetic it encodes.
+    function test_grindFloor_matchesTheDerivedBound() public view {
+        // C = 4.2bp: the fee alone covers the round trip, so ANY split is safe.
+        FixedRateFill.requireNonAbusable(0, 420, 420);
+        // C = 5bp -> 16%, C = 10bp -> 58%, C = 26bp -> 83.85%
+        FixedRateFill.requireNonAbusable(1600, 420, 500);
+        FixedRateFill.requireNonAbusable(5800, 420, 1000);
+        FixedRateFill.requireNonAbusable(8385, 420, 2600);
+    }
+
+    /// 🔴 THE POINT OF THE CHECK: a weight that is SAFE at one Curve fee is GRINDABLE at another,
+    /// and TriCrypto's fee is dynamic across that range. 50% passes at 5bp and must fail at 10bp.
+    function test_sameWeightSafeAtOneFeeAndGrindableAtAnother() public {
+        FixedRateFill.requireNonAbusable(5000, 420, 500);      // 5bp: floor 16%, 50% clears it
+        vm.expectRevert(FixedRateFill.SplitIsGrindable.selector);
+        this.callGrind(5000, 420, 1000);                        // 10bp: floor 58%, 50% does NOT
+    }
+
+    function test_grindFloor_rejectsJustBelow() public {
+        vm.expectRevert(FixedRateFill.SplitIsGrindable.selector);
+        this.callGrind(5799, 420, 1000);                        // one bp under the 58% floor
+    }
+
+    function callGrind(uint16 w, uint f, uint c) external pure {
+        FixedRateFill.requireNonAbusable(w, f, c);
+    }
+
     // ─── the estimate floor ───────────────────────────────────────────────────
 
     /// The true-up is one-directional: refunds are payable, `owed` is not collectible from a

@@ -206,6 +206,36 @@ library FixedRateFill {
     struct Split { uint16 swapperBps; uint16 lpBps; uint16 basketBps; }
 
     error WeightsMustSumToOne();
+    error SplitIsGrindable();
+
+    /// @notice Reject a split the swapper can GRIND against. **NO FIXED WEIGHT IS SAFE**, which is
+    ///         why this is a runtime check on live cost rather than a constant chosen once.
+    ///
+    /// @dev THE ARITHMETIC (from the skew thread, verified against its four data points). A grinder
+    ///      with no price view displaces the band and reverts it, paying our fee TWICE while we pay
+    ///      the restoration leg twice:
+    ///          trader pays 2·(fee + w·C)   ·   we pay 2·C   ·   non-abusable iff 2·fee + 2C(w−1) ≥ 0
+    ///      ⇒   **w ≥ 1 − fee/C**   (w = swapper's share, C = per-leg restoration cost, fee = 420 ppm)
+    ///
+    ///          C = 4.2bp → w ≥ 0%        C = 10bp → w ≥ 58.0%
+    ///          C = 5bp   → w ≥ 16.0%     C = 26bp → w ≥ 83.8%
+    ///
+    ///      🔴 **TriCrypto's fee is DYNAMIC across roughly that whole 4–26bp range**, so a constant
+    ///      w is safe at 5bp and grindable at 10bp+. The weights being INPUTS is not sufficient —
+    ///      they must clear this floor at the cost that actually applies.
+    ///
+    ///      ⚠️ IN-RANGE ONLY. The derivation assumes TWO supplier legs. Out of range the band holds a
+    ///      SINGLE asset, so the round-trip it models does not exist and this bound says nothing —
+    ///      do not apply it to the OOR split.
+    ///      ⚠️ `costPpm` READ LIVE IS A TOLERANCE, NOT A CAPACITY READ. An attacker who moves Curve so
+    ///      the cost reads CHEAP lowers this floor exactly when it needs to hold — the same hazard
+    ///      `Interfaces.sol:74-77` records for `balances()`. FLOOR the cost conservatively; never
+    ///      pass a naked `get_dy`.
+    function requireNonAbusable(uint16 swapperBps, uint feePpm, uint costPpm) internal pure {
+        if (costPpm == 0 || feePpm >= costPpm) return;   // fee alone already covers the round trip
+        uint floorBps = 10_000 - (feePpm * 10_000) / costPpm;
+        if (swapperBps < floorBps) revert SplitIsGrindable();
+    }
 
     /// @notice Apportion a realised rebalance cost across the three parties with a stake in it.
     ///
