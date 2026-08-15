@@ -98,6 +98,33 @@ passthrough is not mistaken for having closed it.**
 not less** — and `SwapLib.clampByBacking`'s physical `backing − pooled` headroom is what actually bounds it
 (audit #8). **That is the guard to re-verify once σ² leaves pricing, because it becomes the only one left.**
 
+## 🔴 THE 0.63% PASSIVE-LP LEAK IS DIAGNOSED — **IT IS NOT THE SWAP. THE BAND SELLS FAIRLY; THE *REDEMPTION* PAYS 92.1 CENTS ON THE DOLLAR (2026-08-16).**
+`LeveragePnLProbe::testLeverage_LvrControlVsTreatment` — pre-existing, not the tick removal (§CORRECTION above).
+✅ **THE BAND SWAP IS FAIR, SO THE LEAK IS NOT WHERE IT LOOKS.** 20 opens moved the band by **+$60,000.00 exactly**
+and **−31.8340 ETH** ⇒ implied sale **$1,884.78/ETH** against `px0` = **$1,883.76** — the band sold **0.05% ABOVE
+mid**, exactly as the test's own comment says it should. Band value is unchanged either side
+(`400×1883.76 + 251,294` = `368.166×1883.76 + 311,294` = **$1,004,798**).
+🔴 **THE LEAK IS THE REDEMPTION'S ETH→QUID CONVERSION.** `_lpValueUsd` does a REAL redeem and measures balance
+deltas, and the two arms come out as:
+| arm | ETH leg | QUID leg |
+|---|---|---|
+| control (no opens) | **399.938 ETH** | **0** |
+| treatment (20 opens) | 368.108 ETH | 55,225 QUID |
+**The LP gives up 31.8297 ETH = \$59,959.64 and receives \$55,224.99 of QUID ⇒ \$4,734.65 short, a 7.90% HAIRCUT
+ON THE CONVERTED LEG** — which reproduces the test's reported gap TO THE CENT.
+📌 **MECHANISM: leverage flow does not take value from the LP directly. It shifts the BAND'S COMPOSITION toward
+USD (the band sold ETH fairly), which shifts the LP's REDEMPTION from a pure-ETH claim to a part-QUID claim —
+and only the QUID claim carries a haircut. The control escapes it purely by being paid in ETH.**
+⚠️ **THE FORK, WHICH IS AN OWNER CALL AND NOT MINE:**
+**(a)** If the basket is genuinely short, **the 7.90% haircut is CORRECT** — the LP is sharing a real shortfall —
+and the DEFECT IS THE ASYMMETRY: an ETH-paid redeemer escapes a haircut an otherwise-identical QUID-paid
+redeemer bears. **Then the test's premise is what is wrong**, and the fix is to make the ETH leg bear it too.
+**(b)** If the basket is NOT short, the 7.90% is an unjustified loss in the QUID mint path and the redemption is
+the defect. ▶️ **DISCRIMINATOR: measure basket solvency in this fixture.** The likeliest source is the
+solvency normalization in `Basket._finishMint` (§E2 measured a same-order mark-up there), so check that FIRST.
+📌 **This is the same party §WHO-PAYS protects from grinding, leaking through a different door — and it is
+INDEPENDENT of §#41, which cannot be the cause since no internal fill exists (§#41-NOT-LIVE-YET).**
+
 ## 📋 BRIEF FOR WHOEVER HOLDS `FixedRateFill` — **THE NINE THINGS, INDEXED. Sent to `spv-2d`/`spv-a0` 2026-08-15; this is the copy that survives a session ending.**
 The file was drafted BEFORE the owner changed the charge model. Do not build further on it until 1–3 are settled.
 1. **`_applySkew` GOES. The fill settles AT ORACLE.** Moving the rate against the swapper IS "collecting the
