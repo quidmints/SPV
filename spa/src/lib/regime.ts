@@ -49,11 +49,38 @@ export const regimePosture: Record<Regime, string> = {
   trend: 'Sustained directional move — IL / LVR elevated; LP with care.',
 }
 
-// Decode observe() tickCumulatives → interval-average ticks, oldest→newest.
-export function decodeTickSeries(cumulatives: bigint[], stepSec: number): number[] {
+// Decode observe() PRICE-cumulatives → an interval-average TICK series, oldest→newest.
+//
+// 🔴 (2026-08-15) THE TICK REMOVAL CHANGED WHAT THIS RECEIVES, AND THE OLD VERSION WAS
+// SILENTLY WRONG FOR EVERY READ IN BETWEEN. `Core.observe` once returned Uniswap-style
+// `int56[] tickCumulatives`; it now returns `uint192[]` cumulative **usd18-price·seconds**
+// (`OracleLib.Observation.priceCumulative`, built as `priceCumulative + lastPrice*dt`, where
+// the struct doc states the value is a "usd18 price" carrying the BTC leg's ×1e10 lift).
+//
+// The DIFFERENCING was always right — these are still cumulatives, so
+// `(cum[i+1] - cum[i]) / dt` is a time-weighted average. What broke is the UNIT: it now
+// yields a PRICE where everything downstream expects a TICK.
+//
+// ⚠️ Fixing it downstream would have meant touching three calibrated things —
+// `realizedVol`'s `* LN_1_0001` (the tick→log-price constant), `CHOP_TICKS = 200` (≈ ±2%
+// peak-to-trough, i.e. 200 × 1bp) and `TREND_RATIO` — and `classifyRegime` documents itself
+// as running on "any tick (log-price) series". So the honest fix is ONE conversion at this
+// boundary: put the series back into tick units and every consumer is correct as written,
+// including `realizedVol`, whose `(t[i]-t[i-1]) * LN_1_0001` becomes exactly the log return
+// `ln(p_i) - ln(p_{i-1})` again.
+//
+// The `/1e18` is for interpretability only — every downstream use is a DIFFERENCE, and a
+// constant log offset cancels in all of them.
+export function decodeTwapTicks(cumulatives: bigint[], stepSec: number): number[] {
   const out: number[] = []
   for (let i = 0; i < cumulatives.length - 1; i++) {
-    out.push(Number(cumulatives[i + 1] - cumulatives[i]) / stepSec)
+    const twapUsd18 = Number(cumulatives[i + 1] - cumulatives[i]) / stepSec
+    // A non-positive TWAP means two `secondsAgos` resolved to the same observation (or the
+    // ring is not yet warm). `Math.log` would yield -Infinity/NaN and poison range, net and
+    // vol alike, so bail on the WHOLE series rather than emit a shorter one — dropping a
+    // sample would silently misalign the remaining points from `stepSec`.
+    if (!(twapUsd18 > 0)) return []
+    out.push(Math.log(twapUsd18 / 1e18) / LN_1_0001)
   }
   return out
 }
@@ -96,5 +123,5 @@ export async function fetchRegime(
   const res = await readOne(coreAddr, 'observe', [agos, isBTC])   // §E63: one entry, band as an arg
   if (!res) return null
   const cumulatives: bigint[] = (res as any[]).map((x) => BigInt(x))
-  return classifyRegime(decodeTickSeries(cumulatives, stepSec), stepSec, 'pool')
+  return classifyRegime(decodeTwapTicks(cumulatives, stepSec), stepSec, 'pool')
 }
