@@ -46,7 +46,7 @@ interface IMorphoOraclePrice { function price() external view returns (uint256);
 ///
 ///         The exercised path is `Vault.syncLevBTC` → `VaultLib.syncLevBtc` → `levAddBtc`/`levBurnBtc`
 ///         (the BTC counterpart of `Vogue.syncLev`/`_levAdd`/`_levBurn`), driven by
-///         `BtcLevManager.netEquityBtc(lp)`, plus the `totalNetEquityBtc()` backing read.
+///         `BtcLevManager.netEquity(lp)`, plus the `totalNetEquityBtc()` backing read.
 ///
 ///         BTC-vs-ETH ADAPTATIONS (faithful, documented):
 ///           • Collateral is vBTC (8-dec, the Vault's own ERC-20 face minted `onlyBtcChannels`), not
@@ -515,7 +515,7 @@ contract VBtcLevFeeLane is Alles {
         // C-2: the venue LTV is the true ~50%, NOT ~0 (before the fix vBtcValueUsd was 1e10 too big).
         assertApproxEqAbs(lm.getCurrentLtvBps(lp), 5000, 400, "getCurrentLtvBps ~50%, not ~0 (C-2)");
         // C-1: net-equity = collateral − debt = ~1 BTC, NOT ~2 BTC (before the fix the debt leg was ~0).
-        assertApproxEqAbs(lm.netEquityBtc(lp), 1e8, 6e6, "netEquityBtc ~1 BTC = coll-debt, not ~2 (C-1)");
+        assertApproxEqAbs(lm.netEquity(lp), 1e8, 6e6, "netEquityBtc ~1 BTC = coll-debt, not ~2 (C-1)");
     }
 
     /// @notice (#43) PERMISSIONLESS `repayFor` reduces the LP's ISOLATED Morpho debt -- the on-chain primitive
@@ -605,7 +605,7 @@ contract VBtcLevFeeLane is Alles {
 
         // Seed a zero-leverage lev position by EXPOSING part of the LP's own channel band BTC (funded→lev).
         _openLev(lpEth, 2_000_000); // expose 0.02 BTC of the 0.2 BTC channel as vBTC collateral
-        assertEq(lm.netEquityBtc(lpEth), 2_000_000, "net-equity == collateral (zero leverage)");
+        assertEq(lm.netEquity(lpEth), 2_000_000, "net-equity == collateral (zero leverage)");
         assertGt(ETH.levPooledBTC(lpEth), 0, "open reclassified channel BTC funded-to-lev (levered slice)");
 
         { uint puPreSlice = CORE.POOLED_USD_BTC();
@@ -703,7 +703,7 @@ contract VBtcLevFeeLane is Alles {
         // Open at zero leverage => net-equity == collateral (8-dec sats). Opening does NOT touch the
         // band (no syncLevBTC), so POOLED_USD_BTC is untouched — but the backing term is recognized.
         _openLev(lpEth, 5_000_000); // expose 0.05 BTC of the 0.3 BTC channel
-        assertEq(lm.netEquityBtc(lpEth), 5_000_000, "net-equity == principal (zero leverage)");
+        assertEq(lm.netEquity(lpEth), 5_000_000, "net-equity == principal (zero leverage)");
         assertEq(lm.totalNetEquityBtc(), 5_000_000, "book total == principal");
         assertEq(ETH.totalNetEquityBtc(), 5_000_000, "vogueBTC counts the leveraged book's net-equity");
         assertEq(CORE.POOLED_USD_BTC(), pooledUsd0, "open: basket POOLED_USD_BTC untouched (no band pairing)");
@@ -715,12 +715,12 @@ contract VBtcLevFeeLane is Alles {
         // net-equity SHRINKS rather than vanishing — the mock's clean full-clear was an idealization.)
         uint collUsd = 5_000_000 * AUX.getTWAPforAsset(address(WBTC), 1800) / 1e18;
         _borrowMorpho(lpEth, (collUsd / 2) / 1e12);            // ~50% LTV of real Morpho debt
-        uint neqBefore = lm.netEquityBtc(lpEth);
+        uint neqBefore = lm.netEquity(lpEth);
         assertLt(neqBefore, 5_000_000, "debt reduces net-equity below the collateral");
         assertEq(ETH.totalNetEquityBtc(), neqBefore, "vogueBTC counts the (now-levered) live net-equity");
         _seizeRealBtc(lpEth, 1, 2);                            // REAL Morpho liquidation (repay half the debt)
-        assertLt(lm.netEquityBtc(lpEth), neqBefore, "seized: net-equity backing REDUCED by the real liquidation");
-        assertEq(ETH.totalNetEquityBtc(), lm.netEquityBtc(lpEth), "seized: vogueBTC tracks the reduced live net-equity");
+        assertLt(lm.netEquity(lpEth), neqBefore, "seized: net-equity backing REDUCED by the real liquidation");
+        assertEq(ETH.totalNetEquityBtc(), lm.netEquity(lpEth), "seized: vogueBTC tracks the reduced live net-equity");
         assertEq(CORE.POOLED_USD_BTC(), pooledUsd0, "seized: basket POOLED_USD_BTC FULLY INTACT (no socialization)");
         _assertSolvent("seized: solvent, no socialization");
     }
@@ -812,7 +812,7 @@ contract VBtcLevFeeLane is Alles {
         d.funded = pooled - ETH.levPooledBTC(d.lp);
         d.debt   = venue.debtOf(d.lp);
         d.coll   = venue.collateralOf(d.lp);
-        d.netEq  = lm.netEquityBtc(d.lp);
+        d.netEq  = lm.netEquity(d.lp);
         d.ltv    = lm.getCurrentLtvBps(d.lp);
         d.lev    = ETH.levPooledBTC(d.lp);
         d.qd     = QUID.balanceOf(d.lp);
@@ -876,14 +876,14 @@ contract VBtcLevFeeLane is Alles {
         assertLt(venue.collateralOf(d.lp), d.coll, "collateral reduced - vBTC burned to deliver the levered slice");
         assertApproxEqAbs(d.coll - venue.collateralOf(d.lp), want, want / 50, "freed ~= the delivered levered sats");
         // (b) VALUE-NEUTRAL: the leverage position's net-equity is preserved (-BTC -debt of equal value).
-        assertApproxEqRel(lm.netEquityBtc(d.lp), d.netEq, 0.03e18, "net-equity preserved (value-neutral de-lever)");
+        assertApproxEqRel(lm.netEquity(d.lp), d.netEq, 0.03e18, "net-equity preserved (value-neutral de-lever)");
         // (c) LTV IMPROVES (removing near-1.0-ratio value from a ~0.5-LTV position lowers the ratio).
         assertLe(lm.getCurrentLtvBps(d.lp), d.ltv, "LTV improved");
         // (d) NO phantom band depth behind the delivered vBTC: after the keeper sync the levered slice never
         //     exceeds the LP's live net-equity (levPooled pairs net-equity only up to basket surplus — it may be
         //     LESS at surplus==0, the "stranded volatile" state, but never MORE, which would double-count the
         //     BTC just delivered to the swapper). The freed sats show up as the collateral drop asserted in (a).
-        assertLe(ETH.levPooledBTC(d.lp), lm.netEquityBtc(d.lp) + 1e3, "levered band depth <= net-equity (no phantom)");
+        assertLe(ETH.levPooledBTC(d.lp), lm.netEquity(d.lp) + 1e3, "levered band depth <= net-equity (no phantom)");
         // (e) SINGLE-PAY: QUI minted only for the FUNDED proceeds share - the de-levered slice was paid via
         //     debt-reduction, NOT a second QUI mint.
         uint qdMinted = QUID.balanceOf(d.lp) - d.qd;
@@ -937,7 +937,7 @@ contract VBtcLevFeeLane is Alles {
 
         assertEq(venue.collateralOf(lp), 0, "close: all vBTC withdrawn from Morpho");
         assertEq(ETH.levPooledBTC(lp), 0, "close: unexposeBtcFromLev un-folded the levered slice (lev to funded)");
-        assertEq(lm.netEquityBtc(lp), 0, "close: no live net-equity for a deleted position");
+        assertEq(lm.netEquity(lp), 0, "close: no live net-equity for a deleted position");
         (,,,,, bool open) = lm.pos(lp);
         assertTrue(!open, "close: position deleted");
         assertEq(lm.openLevCount(), 0, "close: LP de-tracked from the open book");

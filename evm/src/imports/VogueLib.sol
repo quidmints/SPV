@@ -119,7 +119,7 @@ library VogueLib {
     ) public returns (uint addedNet, uint bufAdded) {
         uint price = IAux(c.aux).getTWAPforAsset(c.weth, 1800);
         if (price == 0) return (0, 0);
-        uint netEq = ILevEquity(p.lm).netEquityEth(lp);
+        uint netEq = ILevEquity(p.lm).netEquity(lp);
         addedNet = levAddNet(c, LP, levPooled, lp, netEq, price, p);
         if (p.gross > netEq)
             bufAdded = levAddBuf(c, LP, levBufferUsd, levBuf, lp, p.gross - netEq, price, p);

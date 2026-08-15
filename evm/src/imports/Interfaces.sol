@@ -145,7 +145,7 @@ interface IMorphoFlash {
 interface ILevEquity {
     function totalGrossCollateralEth() external view returns (uint256);
     function totalNetEquityEth() external view returns (uint256);
-    function netEquityEth(address lp) external view returns (uint);
+    function netEquity(address lp) external view returns (uint);
     function grossCollateralEth(address lp) external view returns (uint);
     function debtUsd(address lp) external view returns (uint);
     function totalDebtUsd() external view returns (uint256);          // §E21: was Core.ILevDebtTotal
@@ -162,7 +162,7 @@ interface ILevClose { function closeLevFor(address lp, uint256 minOut) external;
 /// selector on a distinct manager contract (BtcLevManager, sats/8-dec) — only `debtUsd` is shared,
 /// and a single interface would let a caller reach a BTC read on the ETH manager (and vice versa).
 interface ILevEquityBtc {
-    function netEquityBtc(address lp) external view returns (uint256);   // 8-dec sats
+    function netEquity(address lp) external view returns (uint256);   // 8-dec sats
     function totalNetEquityBtc() external view returns (uint256);        // 8-dec sats
     function grossCollateralBtc(address lp) external view returns (uint256); // full-2× band CAPACITY (sats)
     function debtUsd(address lp) external view returns (uint256);        // 1e18 USD (short-stable leg)
@@ -286,7 +286,7 @@ interface IAux {
     function WETH() external view returns (address);
     function tokens(address vault) external view returns (address);
     function illiquidLoss() external view returns (uint);
-    function flagIlliquidSelf(address vault) external;
+    function flagIlliquidSelf(address vault, bool illiquid) external;
     function _depositVol(bool isBTC, address sender, uint amount) external payable returns (uint sent);
     function tipSelf(uint cut, address token, int sign) external;
     function bumpVogueBTC(uint amount) external;

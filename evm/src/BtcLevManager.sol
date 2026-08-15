@@ -132,7 +132,7 @@ contract BtcLevManager is LevBase {
     /// @notice `lp`'s LIVE net-equity in BTC-units (1e18) = collateral(vBTC) − debt(USD→BTC), floored at 0.
     ///         The single SOLVENCY term `Vault.vogueBTC()` adds — never deliverable (cross-chain custody).
     ///         All-view (collateralOf/debtOf/getTWAPforAsset are views), safe from `vogueBTC()`.
-    function netEquityBtc(address lp) public view returns (uint) {
+    function netEquity(address lp) public view returns (uint) {
         uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         return _netEquityAt(lp, px);
     }
@@ -227,7 +227,7 @@ contract BtcLevManager is LevBase {
         uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         // (A): a reseat realizes accrued IL ⇒ re-anchor E0 to the position's CURRENT net-equity (sats) — NOT
         // bandBtcOf (0 in the (A) model). The over-hedge fix holds: E0 tracks net-equity, not growing collateral.
-        uint base = netEquityBtc(lp);
+        uint base = netEquity(lp);
         p.entrySqrtP    = s;
         p.entryPriceWad = uint128(px);
         p.e0         = uint128(base);

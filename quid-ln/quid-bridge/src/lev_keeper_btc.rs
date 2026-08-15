@@ -296,7 +296,7 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> BtcLevKeeperEvm for Daemon
             let cur: u32 = word_to_uint(&evm.eth_read(bm, "getCurrentLtvBps(address)", Some(&a))?, "getCurrentLtvBps")?;
             let tgt: u32 = word_to_uint(&evm.eth_read(bm, "ilTargetLtvBps(address)", Some(&a))?, "ilTargetLtvBps")?;
             // netEquityBtc is 8-dec sats; value it in 6-dec USD for the economic floor via the live px.
-            let ne_raw = evm.eth_read(bm, "netEquityBtc(address)", Some(&a))?;
+            let ne_raw = evm.eth_read(bm, "netEquity(address)", Some(&a))?;
             let ne_word = ne_raw.get(..32).ok_or_else(|| anyhow::anyhow!("netEquityBtc short return"))?;
             let ne_sats = U256::from_be_slice(ne_word);
             let px_raw = evm.eth_read(bm, "vBtcValueUsd(uint256)", Some(&u64_word(100_000_000)))?; // USD18 per BTC

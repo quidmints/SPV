@@ -249,7 +249,7 @@ export const LEV_MANAGER_ABI = [
   'function netEquityUsd(address lp) returns (uint256)',       // collateral − debt, USD 1e18
   'function debtUsd(address lp) view returns (uint256)',       // outstanding debt, USD 1e18
   'function grossCollateralEth(address lp) view returns (uint256)', // gross collateral, ETH 1e18
-  'function netEquityEth(address lp) view returns (uint256)',       // net equity, ETH 1e18
+  'function netEquity(address lp) view returns (uint256)',          // net equity, ETH 1e18
   'function TARGET_LTV_CAP_BPS() view returns (uint256)',      // hard leverage cap (bps LTV)
   // ── WRITE (the #65 leverage-choice txs). openLev opens a position at ZERO leverage on the chosen borrow venue
   //    with `collWeeth` of the venue's collateral (weETH or WETH) already approved+pulled; the keeper then levers

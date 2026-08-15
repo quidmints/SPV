@@ -250,7 +250,7 @@ contract LevManager is LevBase {
     ///         leg is valued at the SAME oracle px the band pairs at; `px==0` (dead oracle) ⇒ 0 (no credit,
     ///         the conservative side). All-`view`: `collateralOf`/`debtOf`/`getEETHByWeETH`/the TWAP read are
     ///         every one a `view`, so this is safe to call from `Vault.vogueETH()`.
-    function netEquityEth(address lp) public view returns (uint256) {
+    function netEquity(address lp) public view returns (uint256) {
         uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         return _netEquityAt(lp, px);
     }
@@ -413,7 +413,7 @@ contract LevManager is LevBase {
         // fixed base) — NOT bandEthOf (which is 0 in the (A) model, since the deposit has no separate unlevered
         // band position). Net-equity is the delta-1 slice now in the recentered band; the next hedge cycle sizes
         // from it at zero IL. (The over-hedge fix still holds: E0 tracks net-equity, NOT the growing collateral.)
-        uint256 base = netEquityEth(lp);
+        uint256 base = netEquity(lp);
         p.entrySqrtP    = s;
         p.entryPriceWad = uint128(px);
         p.e0         = uint128(base);

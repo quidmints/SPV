@@ -452,7 +452,7 @@ library BtcVaultLib {
         address lp, LevParams memory p
     ) public returns (uint addedNet, uint bufAdded) {
         if (p.gross == 0) return (0, 0);
-        uint netEq = ILevEquityBtc(p.mgr).netEquityBtc(lp);
+        uint netEq = ILevEquityBtc(p.mgr).netEquity(lp);
         addedNet = levAddNetBtc(c, LP, levPooledBTC, levBufBTC, lp, netEq, p);
         if (p.gross > netEq) bufAdded = levAddBufBtc(c, LP, levBufferUsdBTC, levBufBTC, lp, p.gross - netEq, p);
     }

@@ -223,7 +223,7 @@ contract LevCascadeProbe is Alles {
         // Open at entry ⇒ ZERO leverage ⇒ net-equity == principal (weETH→ETH via the real staking rate).
         _openLevOnly(lps[0], 5 ether);
         uint principalEth = IWeETHRateT(WEETH).getEETHByWeETH(5 ether);
-        assertApproxEqAbs(lm.netEquityEth(lps[0]), principalEth, 1e15, "open: net-equity == principal");
+        assertApproxEqAbs(lm.netEquity(lps[0]), principalEth, 1e15, "open: net-equity == principal");
         assertApproxEqAbs(AUX.vogueETH(), vogue0 + principalEth, 1e15, "open: vogueETH gains exactly the net-equity");
 
         // Lever up on a REAL band rally (real IL): debt > 0, but the borrow is self-financing ⇒ equity ~principal.
@@ -544,7 +544,7 @@ contract LevCascadeProbe is Alles {
         assertGt(venue.debtOf(lps[0]), 0, "levered LP hedged: debt = IL target > 0");
 
         // (1) LEVERED LP IL-protected: ETH exposure preserved despite the band selling ETH.
-        assertApproxEqRel(lm.netEquityEth(lps[0]), principalEth, 0.05e18,
+        assertApproxEqRel(lm.netEquity(lps[0]), principalEth, 0.05e18,
             "(1) levered: net-equity (ETH exposure) preserved = IL cancelled by the hedge");
 
         // (3) NO CROSS-SUBSIDY: mint the levered depth; the unlevered LP's claim + basket TVL are untouched.
@@ -566,7 +566,7 @@ contract LevCascadeProbe is Alles {
         // levBuf), so its gap grew with leverage. Assert the true identity: net leg + buffer == gross (full-2×).
         assertApproxEqRel(V4.levPooled(lps[0]) + V4.levBuf(lps[0]), lm.grossCollateralEth(lps[0]), 0.05e18,
             "(3b) full-2x: band CAPACITY (net leg levPooled + debt buffer levBuf) == GROSS collateral (2x)");
-        assertGt(lm.grossCollateralEth(lps[0]), lm.netEquityEth(lps[0]),
+        assertGt(lm.grossCollateralEth(lps[0]), lm.netEquity(lps[0]),
             "(3b) full-2x: gross > net => a real debt-funded buffer is in the band");
         assertGt(lm.totalDebtUsd(), 0, "(3b) full-2x: a real debt-funded buffer exists (live leverage debt > 0)");
         // §#12 RE-DERIVED: same claim — committed EXCLUDES the debt-funded buffer — but measured
@@ -676,7 +676,7 @@ contract LevCascadeProbe is Alles {
         ( , , , uint128 e0, , ) = lm.pos(lp);
         assertApproxEqAbs(uint(e0), depositEth, 1e15, "(A): E0 == the single deposit, not a separate band slice");
         // Zero leverage at open ⇒ the deposit's net-equity == the deposit; it IS the LP's entire band presence.
-        assertApproxEqAbs(lm.netEquityEth(lp), depositEth, 1e15, "(A): net-equity == the single deposit");
+        assertApproxEqAbs(lm.netEquity(lp), depositEth, 1e15, "(A): net-equity == the single deposit");
 
         // syncLev turns the single deposit into the LP's IL-free levered band slice — no principal band needed.
         uint pe0 = CORE.POOLED_ETH();
