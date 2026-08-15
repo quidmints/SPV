@@ -450,6 +450,12 @@ contract Core is SafeCallback {
     /// cooperative close), never to pick between two paths that should have been one.
     bool public immutable IS_BTC;
 
+    /// §V4-CUT — THE BAND'S RANGE, now OURS to store. It used to live inside the v4 position, which
+    /// is why re-ranging required burning and re-adding liquidity. With inventory held directly the
+    /// range is a PRICING PARAMETER: moving it changes what we quote against, not what we hold.
+    int24 public LOWER_TICK;
+    int24 public UPPER_TICK;
+
     /// §ISBTC-SPLIT — the shared accountant. Holds the ONE thing two instances still share: the
     /// joint committed equity that `require(committedUsd18() <= haircutTvl)` gates on, and the
     /// cross-band input `SwapLib._sharedScarcityWad` needs. Neither instance knows the other exists.
@@ -924,15 +930,24 @@ contract Core is SafeCallback {
 
     /// @notice Fused repack — replaces separate repack/repackBTC. Pass
     ///         IS_BTC=true to repack the BTC/USD pool, false for ETH/USD.
-    function repack(uint128 myLiquidity, uint160 sqrtPriceX96,
-        int24 oldTickLower, int24 oldTickUpper,
+    /// §V4-CUT — REPACKING MOVES NO TOKENS. Once liquidity settles against inventory, the range is
+    /// a PRICING PARAMETER, not a custody boundary: the band holds what it holds, and re-ranging
+    /// only changes the bounds we price against. So this stores the new range and returns zeros for
+    /// every delta — there is nothing to burn and nothing to re-add.
+    /// ⚠️ `POOLED_*` IS NOT ZEROED HERE ANY MORE. `_handleRepack` used to clear it and rebuild from
+    /// the re-added position, which was correct while the position WAS the inventory. Zeroing it now
+    /// would delete the band's holdings on a bookkeeping operation.
+    /// Fees return 0 because there is no v4 accrual to harvest: the 420 ppm is charged in the fill
+    /// and compounds into `POOLED_*` at swap time.
+    function repack(uint128 /*myLiquidity*/, uint160 /*sqrtPriceX96*/,
+        int24 /*oldTickLower*/, int24 /*oldTickUpper*/,
         int24 newTickLower, int24 newTickUpper) public onlyUs
         returns (uint price, uint fees0, uint fees1, uint delta0, uint delta1) {
-        (price, fees0, fees1, delta0, delta1) = abi.decode(poolManager.unlock(
-            abi.encode(IS_BTC ? Action.RepackBTC : Action.RepackETH,
-                myLiquidity, sqrtPriceX96, oldTickLower,
-                oldTickUpper, newTickLower, newTickUpper)),
-            (uint, uint, uint, uint, uint));
+        LOWER_TICK = newTickLower;
+        UPPER_TICK = newTickUpper;
+        price = AUX.getTWAPforAsset(IS_BTC ? address(AUX.WBTC()) : address(AUX.WETH()), 1800);
+        _writeObservationPrice(uint160(price));
+        return (price, 0, 0, 0, 0);
     }
 
     /// @notice Re-seat the pool: move slot0 onto `targetSqrt` (the oracle-resolved
@@ -943,35 +958,36 @@ contract Core is SafeCallback {
     ///         once it's stale → deadlock). Driven by Vogue/BtcVault, which compute
     ///         `targetSqrt` from `getTWAPforAsset` (Chainlink-resolved) + the new
     ///         range. Mock-only: real assets in the basket/venue are untouched.
-    function reseat(uint128 myLiquidity, uint160 currentSqrt,
-        uint160 targetSqrt, int24 oldTickLower, int24 oldTickUpper,
+    /// §V4-CUT — RESEAT IS NOW THE SAME OPERATION AS REPACK, and that is the point.
+    /// The two differed ONLY because `reseat` had to MOVE THE CURVE SPOT: the mock pool's price
+    /// moved only via swaps, and the price guards blocked swaps once it was stale — a deadlock the
+    /// reseat existed to break. With settlement at oracle there is no curve spot to move and no
+    /// deadlock to break: the price IS the oracle, every block, and the range is a parameter.
+    /// ⚠️ KEPT AS A DISTINCT ENTRYPOINT ONLY because its callers pass a different argument list.
+    /// It should collapse into `repack` when those callers are updated — flagged rather than done,
+    /// because merging two entrypoints is an ABI change and belongs with the caller pass.
+    function reseat(uint128 /*myLiquidity*/, uint160 /*currentSqrt*/,
+        uint160 /*targetSqrt*/, int24 /*oldTickLower*/, int24 /*oldTickUpper*/,
         int24 newTickLower, int24 newTickUpper) public onlyUs
         returns (uint price, uint fees0, uint fees1, uint delta0, uint delta1) {
-        (price, fees0, fees1, delta0, delta1) = abi.decode(poolManager.unlock(
-            abi.encode(IS_BTC ? Action.ReseatBTC : Action.ReseatETH,
-                myLiquidity, currentSqrt, targetSqrt, oldTickLower,
-                oldTickUpper, newTickLower, newTickUpper)),
-            (uint, uint, uint, uint, uint));
+        LOWER_TICK = newTickLower;
+        UPPER_TICK = newTickUpper;
+        price = AUX.getTWAPforAsset(IS_BTC ? address(AUX.WBTC()) : address(AUX.WETH()), 1800);
+        _writeObservationPrice(uint160(price));
+        return (price, 0, 0, 0, 0);
     }
 
-    /// @notice Force-sync accumulated V4 trading fees on the position
-    ///         WITHOUT moving the position. Defends Vogue's MasterChef-
-    ///         style yield attribution against JIT snipes: an attacker
-    ///         who deposits in the same block as a large swap (or
-    ///         immediately before a fee-bearing repack) would otherwise
-    ///         capture pro-rata of fees they did not earn. Calling this
-    ///         before every Vogue deposit/withdraw bookmark update
-    ///         drains the V4-side accrual into feesPerShare for the
-    ///         pre-existing LPs only.
-    ///
-    /// Cost: one V4 modifyLiquidity(0) — read the position's tokensOwed
-    /// and zero them, no token movement on liquidity (only on fees).
-    function collectFees(int24 tickLower, int24 tickUpper)
-        public onlyUs returns (uint fees0, uint fees1) {
-        (fees0, fees1) = abi.decode(poolManager.unlock(
-            abi.encode(IS_BTC ? Action.CollectBTC : Action.CollectETH,
-                tickLower, tickUpper)),
-            (uint, uint));
+    /// §V4-CUT — NOTHING TO COLLECT. This drained v4's fee accrual into `feesPerShare` before every
+    /// bookmark update, as anti-dilution: v4 fees sat OUTSIDE `POOLED_*`, so NAV did not reflect them
+    /// and a depositor arriving in the same block as a large swap would capture fees they had not
+    /// earned. Under compounding the 420 ppm lands in `POOLED_*` AT SWAP TIME, and shares are minted
+    /// against `_pricingBacking()` which includes it — so a new depositor buys in at the fee-inclusive
+    /// price and dilutes nobody. **The protection now holds BY CONSTRUCTION rather than by a pre-mint
+    /// drain**, and the window this guarded closes on its own.
+    /// ⚠️ Returns (0,0) rather than being deleted only while its callers still destructure the pair;
+    /// the JIT branches in `VogueLib`/`BtcVaultLib` go with it in the caller pass.
+    function collectFees(int24, int24) public view onlyUs returns (uint, uint) {
+        return (0, 0);
     }
 
     // ─── Unlock dispatcher ───────────────────────────────────────────
