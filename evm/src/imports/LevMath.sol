@@ -8,6 +8,7 @@ import {ILevSyncHook, IAux, IWeETH, IWiredVault,
         IDepositAdapter, ILevVenueColl, ILevMintVenue} from "./Interfaces.sol";
 import {ILevVenue, IERC20Min, IWETH9} from "../imports/ILevVenue.sol";
 import {ICurvePool, ICurveTriCrypto, CURVE_TRICRYPTO_USDC, TRICRYPTO_USDC_IDX, TRICRYPTO_WETH_IDX,
+        TRICRYPTO_WBTC_IDX,
         CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX,
         CRV_PYUSD_USDC_IDX, CURVE_TRICRYPTO_USDC_TOKEN, RLUSD_TOKEN, PYUSD_TOKEN} from "./Interfaces.sol";
 
@@ -37,7 +38,7 @@ import {IMorphoFlash} from "../imports/Interfaces.sol";
 ///         `public` (delegatecall-linked, bytecode OUTSIDE the manager) so the managers fit EIP-170. Only the
 ///         *acquisition/exit rails* differ between assets — the economics don't — so both managers reuse this. Leg
 ///         funcs run in the MANAGER's context (`address(this)`==manager); immutables the manager owns (AUX/volatile)
-///         come in via the cfg structs; the swaps reuse the basket SOR (`sorSelfFunded`, UniV3-backed).
+///         come in via the cfg structs; every swap routes on CURVE (stableswap + TriCrypto).
 ///         (The below-entry SHORT / inverse-venue subsystem was removed — up-side-only is the design.)
 library LevMath {
 
@@ -177,7 +178,7 @@ library LevMath {
             if (minOut < floorWbtc) minOut = floorWbtc;
         }
         IERC20Min(stable).approve(cfg.aux, borrowed);
-        wbtcBought = IAux(cfg.aux).sorSelfFunded(stable, borrowed, cfg.wbtc, minOut); // SOR → WBTC → manager
+        wbtcBought = _stableToWbtc(stable, borrowed, minOut);   // Curve: stable → USDC → WBTC
         IERC20Min(cfg.wbtc).transfer(address(venue), wbtcBought);                 // manager → venue
         venue.supply(lp, wbtcBought);                                            // venue → escrow
     }
@@ -196,7 +197,7 @@ library LevMath {
             if (minOut < floorStable) minOut = floorStable;
         }
         IERC20Min(cfg.wbtc).approve(cfg.aux, pulled);
-        uint256 got = IAux(cfg.aux).sorSelfFundedReverse(cfg.wbtc, stable, pulled, minOut); // WBTC → stable → manager
+        uint256 got = _wbtcToStable(cfg.wbtc, stable, pulled, minOut);  // Curve: WBTC → USDC → stable
         { uint256 debt = venue.debtOf(lp); if (got > debt) got = debt; }          // never over-repay — own frame
         if (got == 0) return (pulled, 0);
         IERC20Min(stable).transfer(address(venue), got);
@@ -222,7 +223,7 @@ library LevMath {
             if (minOut < floorStable) minOut = floorStable;
         }
         IERC20Min(cfg.wbtc).approve(cfg.aux, pulled);
-        uint256 stableOut = IAux(cfg.aux).sorSelfFundedReverse(cfg.wbtc, stable, pulled, minOut);
+        uint256 stableOut = _wbtcToStable(cfg.wbtc, stable, pulled, minOut);   // Curve
         IERC20Min(stable).approve(flashProvider, assets);                        // provider pulls `assets` back; short approve ⇒ whole op reverts (underwater-safe)
         if (stableOut > assets) IERC20Min(stable).transfer(lp, stableOut - assets); // realized surplus → LP
     }
@@ -453,24 +454,78 @@ library LevMath {
         uint256 wethFloor = (_toUsd18(c.aux,stable, stableAmt) * 1e18 / IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M))
             * (10_000 - SELL_SLIP_BPS) / 10_000;
 
-        // Hop 1 — stable → USDC. Each pool carries its OWN index pair: the two are ordered oppositely.
-        uint256 usdc;
-        if (stable == CURVE_TRICRYPTO_USDC_TOKEN) {
-            usdc = stableAmt;                            // already USDC, no hop
-        } else if (stable == RLUSD_TOKEN) {
-            IERC20Min(stable).approve(CURVE_USDC_RLUSD, stableAmt);
-            usdc = ICurvePool(CURVE_USDC_RLUSD).exchange(CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, stableAmt, 0);
-        } else if (stable == PYUSD_TOKEN) {
-            IERC20Min(stable).approve(CURVE_PYUSD_USDC, stableAmt);
-            usdc = ICurvePool(CURVE_PYUSD_USDC).exchange(CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, stableAmt, 0);
-        } else {
-            revert NoStableRoute();                      // fail closed: an unrouted stable must not silently no-op
-        }
-
-        // Hop 2 — USDC → WETH. `wethFloor` guards the COMBINED route.
+        // Hop 2's floor guards the COMBINED route, so hop 1 passes 0.
+        uint256 usdc = _toUsdc(stable, stableAmt);
         IERC20Min(CURVE_TRICRYPTO_USDC_TOKEN).approve(CURVE_TRICRYPTO_USDC, usdc);
         return ICurveTriCrypto(CURVE_TRICRYPTO_USDC)
             .exchange(TRICRYPTO_USDC_IDX, TRICRYPTO_WETH_IDX, usdc, wethFloor);
+    }
+
+    /// @dev stable → USDC on Curve stableswap. ONE routing table, shared by every leg, so a pool or an
+    ///      index is written down exactly once. Each pool carries its OWN index pair — the two live
+    ///      pools are ordered OPPOSITELY (verified on-chain), so a shared constant would be wrong for
+    ///      one of them with no revert to catch it.
+    function _toUsdc(address stable, uint256 amt) internal returns (uint256) {
+        if (amt == 0) return 0;
+        if (stable == CURVE_TRICRYPTO_USDC_TOKEN) return amt;            // already USDC
+        if (stable == RLUSD_TOKEN) {
+            IERC20Min(stable).approve(CURVE_USDC_RLUSD, amt);
+            return ICurvePool(CURVE_USDC_RLUSD).exchange(CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, amt, 0);
+        }
+        if (stable == PYUSD_TOKEN) {
+            IERC20Min(stable).approve(CURVE_PYUSD_USDC, amt);
+            return ICurvePool(CURVE_PYUSD_USDC).exchange(CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, amt, 0);
+        }
+        revert NoStableRoute();   // fail closed — a silent 0 would leave the position unhedged
+    }
+
+    /// @dev Is this stable on the Curve routing table? Checked rather than caught: an unroutable
+    ///      slice must be SKIPPED and refunded, not swapped at whatever a fallback would give.
+    function _routableStable(address t) internal pure returns (bool) {
+        return t == CURVE_TRICRYPTO_USDC_TOKEN || t == RLUSD_TOKEN || t == PYUSD_TOKEN;
+    }
+
+    /// @dev USDC → stable, the inverse leg. Same table, indices swapped.
+    function _fromUsdc(address stable, uint256 usdcAmt) internal returns (uint256) {
+        if (usdcAmt == 0) return 0;
+        if (stable == CURVE_TRICRYPTO_USDC_TOKEN) return usdcAmt;
+        if (stable == RLUSD_TOKEN) {
+            IERC20Min(CURVE_TRICRYPTO_USDC_TOKEN).approve(CURVE_USDC_RLUSD, usdcAmt);
+            return ICurvePool(CURVE_USDC_RLUSD).exchange(CRV_RLUSD_USDC_IDX, CRV_RLUSD_IDX, usdcAmt, 0);
+        }
+        if (stable == PYUSD_TOKEN) {
+            IERC20Min(CURVE_TRICRYPTO_USDC_TOKEN).approve(CURVE_PYUSD_USDC, usdcAmt);
+            return ICurvePool(CURVE_PYUSD_USDC).exchange(CRV_PYUSD_USDC_IDX, CRV_PYUSD_IDX, usdcAmt, 0);
+        }
+        revert NoStableRoute();
+    }
+
+    /// @dev stable → WBTC (BTC lev open) and WBTC → stable (close), both via USDC on Curve.
+    ///      `minOut` is applied on the LAST hop so it bounds the whole route.
+    function _stableToWbtc(address stable, uint256 amt, uint256 minOut) internal returns (uint256) {
+        uint256 usdc = _toUsdc(stable, amt);
+        IERC20Min(CURVE_TRICRYPTO_USDC_TOKEN).approve(CURVE_TRICRYPTO_USDC, usdc);
+        return ICurveTriCrypto(CURVE_TRICRYPTO_USDC)
+            .exchange(TRICRYPTO_USDC_IDX, TRICRYPTO_WBTC_IDX, usdc, minOut);
+    }
+
+    function _wbtcToStable(address wbtc, address stable, uint256 amt, uint256 minOut) internal returns (uint256) {
+        IERC20Min(wbtc).approve(CURVE_TRICRYPTO_USDC, amt);
+        uint256 usdc = ICurveTriCrypto(CURVE_TRICRYPTO_USDC)
+            .exchange(TRICRYPTO_WBTC_IDX, TRICRYPTO_USDC_IDX, amt, 0);
+        uint256 out = _fromUsdc(stable, usdc);
+        if (out < minOut) revert Slippage();
+        return out;
+    }
+
+    /// @dev WETH → stable (the sell leg's down-leg tail), via USDC on Curve.
+    function _wethToStableCurve(address weth, address stable, uint256 amt, uint256 minOut) internal returns (uint256) {
+        IERC20Min(weth).approve(CURVE_TRICRYPTO_USDC, amt);
+        uint256 usdc = ICurveTriCrypto(CURVE_TRICRYPTO_USDC)
+            .exchange(TRICRYPTO_WETH_IDX, TRICRYPTO_USDC_IDX, amt, 0);
+        uint256 out = _fromUsdc(stable, usdc);
+        if (out < minOut) revert Slippage();
+        return out;
     }
 
     /// @dev IDENTITY WHEN THE LOAN TOKEN IS ALREADY WETH — the close-side twin of the note on
@@ -478,7 +533,7 @@ library LevMath {
     function _wethToStableDex(SellCtx memory c, address stable, uint256 wethIn, uint256 minOut) internal returns (uint256) {
         if (stable == c.weth) return wethIn;              // loan token IS WETH — nothing to convert
         IERC20Min(c.weth).approve(c.aux, wethIn);
-        return IAux(c.aux).sorSelfFundedReverse(c.weth, stable, wethIn, minOut);
+        return _wethToStableCurve(c.weth, stable, wethIn, minOut);   // Curve: WETH → USDC → stable
     }
 
     function _stableFloor(SellCtx memory c, address stable, uint256 weethAmt) internal returns (uint256) {
@@ -723,9 +778,18 @@ library LevMath {
             // pool fee + impact. A stable depegged below the floor can't clear either route ⇒ it refunds to the LP
             // (below) rather than swapping at a loss — fail-safe, mirroring `rebalance`'s oracle-derived `_floor`.
             uint256 floor = _fromUsd(aux,target, _toUsd18(aux,s, bal)) * (10_000 - CONSOL_SLIP_BPS) / 10_000;
-            IERC20Min(s).approve(aux, bal);
-            try IAux(aux).sorSelfFunded(s, bal, target, floor) returns (uint256) {}
-            catch { IERC20Min(s).approve(aux, 0); }   // slice unmoved -> refunded to the LP below
+            // ROUTABILITY IS CHECKED, NOT CAUGHT. A library cannot `try this.…` — in a delegatecalled
+            // library `this` is the CALLER — and the condition the old try/catch actually guarded was
+            // "this stable has no route", which is now a pure predicate. An unroutable slice is skipped
+            // and refunded to the LP below, exactly as before.
+            // ⚠️ BEHAVIOUR NARROWED, DELIBERATELY: a REVERT INSIDE CURVE (pool paused, depeg past the
+            //    floor) now propagates instead of being swallowed per-slice. That is the safer
+            //    direction here — the old catch could silently leave a consolidate half-done, and the
+            //    floor already refuses a bad price rather than trading at a loss.
+            if (_routableStable(s) && _routableStable(target)) {
+                uint256 moved = _fromUsdc(target, _toUsdc(s, bal));
+                if (moved < floor) revert Slippage();
+            }
             // If BOTH routes failed to move this slice (no pool at all), refund it to the LP — never strand the
             // LP's own redeemed value in the manager (it only lowers `got`, which the aggregate floor already guards).
             uint256 rem = IERC20Min(s).balanceOf(address(this));
