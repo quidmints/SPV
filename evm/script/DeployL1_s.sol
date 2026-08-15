@@ -542,10 +542,25 @@ contract Deploy is Script {
 
     /// @dev Create the Morpho market if unlisted, then a MorphoEscrowVenue bound to `mgr`. Own frame keeps the
     ///      market-existence check (id/lu temporaries) out of the caller's stack (no via_ir).
+    /// @dev 🔴 A WRONG PARAM MUST NOT SILENTLY BECOME AN EMPTY MARKET. `market(id)` keys off
+    ///      `keccak256(abi.encode(mp))`, so ONE wrong field — oracle, irm, lltv — is a DIFFERENT market
+    ///      that does not exist yet. This used to `createMarket` it unconditionally and carry on, which
+    ///      is how six weETH/USDC 86% markets exist on mainnet with FIVE of them at $0.00M: the deploy
+    ///      would allowlist a venue over an empty twin and every borrow against it would find no
+    ///      liquidity, with nothing having reverted.
+    ///      Creation is now OPT-IN (`MORPHO_ALLOW_CREATE`, default false) so mainnet FAILS LOUD on a
+    ///      typo'd constant, while a fresh chain / fork can still bootstrap deliberately.
+    ///      ⚠️ Existence is NOT depth: `lu != 0` only proves the market was created. Borrowable depth
+    ///      is IDLE liquidity (supply − borrow), and utilisation on these runs ~90%, so a market can
+    ///      exist, look well-supplied, and still lend nothing. Pin depth separately.
     function _mkMorphoVenue(address morpho, MarketParams memory mp, address mgr) internal returns (address) {
         bytes32 id = keccak256(abi.encode(mp));
         (,,,,uint128 lu,) = IMorphoMkt(morpho).market(id);
-        if (lu == 0) IMorphoMkt(morpho).createMarket(mp);
+        if (lu == 0) {
+            require(vm.envOr("MORPHO_ALLOW_CREATE", false),
+                "morpho: market does not exist -- a wrong oracle/irm/lltv is a DIFFERENT market, not a missing one");
+            IMorphoMkt(morpho).createMarket(mp);
+        }
         return address(new MorphoEscrowVenue(morpho, mp, mgr));
     }
 
