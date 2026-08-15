@@ -8,7 +8,6 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 
 import {Vogue} from "../src/Vogue.sol";
-import {VEth} from "../src/VEth.sol";
 
 import {Basket} from "../src/Basket.sol";
 import {Core} from "../src/Core.sol";
@@ -35,7 +34,7 @@ import {MorphoEscrowVenue, MarketParams} from "../src/MorphoEscrowVenue.sol";
 import {ISwap} from "../src/imports/ISwap.sol";
 import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {AaveV3Venue} from "../src/AaveV3Venue.sol";
-import {RealRateBtcMorphoOracle} from "../src/LevOracles.sol";   // InverseRateMorphoOracle removed with the short subsystem (2026-07-24)
+import {RealRateBtcMorphoOracle} from "../src/imports/LevBase.sol";   // InverseRateMorphoOracle removed with the short subsystem (2026-07-24)
 
 interface IAaveV3AddrProvider { function getPoolDataProvider() external view returns (address); }
 
@@ -214,7 +213,6 @@ contract Deploy is Script {
 
     /// §J.2b: the vETH ERC-4626 IDENTITY (stateless projection over Vogue). Integrators PRICE against
     /// this and TRANSACT against Vogue, which is the two-asset band manager and not itself a 4626.
-    VEth public VETH;
 
     function run() public {
         string memory privateKeyStr = vm.envString("PRIVATE_KEY");
@@ -328,10 +326,6 @@ contract Deploy is Script {
         QUID = Basket(A.quid);
         ETH = Vault(payable(A.vault));
         BTC = ETH;
-        VETH = new VEth(A.v4, address(WETH), A.aux);
-        // §J.2c: pin the token face. `transferSharesFor` is gated to this address, so WITHOUT
-        // this call every vETH transfer reverts — the pin is not optional wiring.
-        Vogue(payable(A.v4)).setVEth(address(VETH));
         SPVGateway spvGateway = SPVGateway(A.spvGateway);
         BTCChannels btcChannels = BTCChannels(A.btcChannels);
 

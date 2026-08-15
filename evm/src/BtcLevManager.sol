@@ -45,7 +45,7 @@ contract BtcLevManager is LevBase {
     // QU!D policy ceiling on the LP's CHOSEN target LTV. 50%=2× is IL-neutral (delta-1); above = opt-in
     // DIRECTIONAL (LP's own risk, isolated). 7500=75%≈4×, headroom below the 86% venue LLTV. Tunable. (ETH parity.)
     uint256 public constant BAND_BPS           = 300;       // ±3% LTV before a rebalance is worth doing
-    uint256 internal constant MAX_SLIPPAGE_BPS = 100;       // 1% anti-MEV floor on the leg's SOR swaps
+    uint256 internal constant MAX_SLIPPAGE_BPS = 100;       // 1% anti-MEV floor on the leg's Curve swaps
     uint256 public constant MIN_OPEN_VBTC      = 50_000;   // anti-Sybil: 0.0005 BTC in 8-dec sats (real confirmed collateral to join)
     uint256 internal constant WAD = 1e18;
 
@@ -342,12 +342,15 @@ contract BtcLevManager is LevBase {
         if (vogueSyncHook != address(0)) { try ILevSyncHook(vogueSyncHook).syncLevBTC(lp) {} catch {} }
     }
 
-    // ═══════════════════════ ATOMIC WBTC-MODE (on-chain SOR, no external BTC sourcing) ═══════════════════════
+    // ═══════════════════════ ATOMIC WBTC-MODE (on-chain swap, no external BTC sourcing) ═══════════════════════
     // WBTC-collateral positions (the #74 fallback) lever/de-lever ATOMICALLY on-chain — no Bitcoin-confirmation
-    // async legs. PERMISSIONLESS like the ETH LevManager: the borrow is SOR'd stable→WBTC IN-TX and nothing leaves
-    // to an external party, so there is no drain vector. Reuses `Aux.sorSelfFunded`(fwd) / `sorSelfFundedReverse`
-    // (rev) — the SAME caller-funded SOR the ETH weETH lever uses, output=WBTC — through the V4 USDC/WBTC pool.
-    // Venue-agnostic: every leg is an `ILevVenue` call, so it runs identically on Morpho/Euler/Aave-v4/Aave-v3.
+    // async legs. PERMISSIONLESS like the ETH LevManager: the borrow is swapped stable→WBTC IN-TX and nothing
+    // leaves to an external party, so there is no drain vector. Routed through CURVE by
+    // `LevMath._stableToWbtc` / `_wbtcToStable` (084bc5c) — the SAME Curve helpers the ETH lever uses.
+    // ⚠️ This previously read "SOR'd … through the V4 USDC/WBTC pool", naming `Aux.sorSelfFunded` /
+    //    `sorSelfFundedReverse`. Neither is on this path any more; the SOR is now the BAND's AMM only.
+    // Venue-agnostic in shape (every leg is an `ILevVenue` call), but the BTC allowlist is exactly TWO
+    // venues — Morpho vBTC and AaveV3 WBTC. Euler and Aave-v4 borrowing were REMOVED.
 
     /// @notice Atomic rebalance toward the IL target for a WBTC-collateral position (native vBTC uses the async legs).
     function rebalanceWbtc(address lp, uint minOut) external nonReentrant {
@@ -384,17 +387,17 @@ contract BtcLevManager is LevBase {
         }
     }
 
-    /// @dev Lever-UP: borrow stable → SOR to WBTC → supply. EXACT 4-step custody of `LevManager._leverUpBuy`
-    ///      (borrow→manager, SOR→manager, manager→venue transfer, venue.supply→escrow), collateral = WBTC.
+    /// @dev Lever-UP: borrow stable → Curve to WBTC → supply. EXACT 4-step custody of `LevManager._leverUpBuy`
+    ///      (borrow→manager, swap→manager, manager→venue transfer, venue.supply→escrow), collateral = WBTC.
     function _leverUpBuyWbtc(ILevVenue venue, address lp, address stable, uint usd, uint minOut) internal {
         (uint borrowed, uint wbtc) = LevMath.leverUpBuyWbtc(venue, lp, stable, usd, minOut, LevMath.WbtcCfg(address(AUX), WBTC, uint32(TWAP_WINDOW), uint16(MAX_SLIPPAGE_BPS)));
         if (borrowed > 0) { emit Borrowed(lp, borrowed); emit Supplied(lp, wbtc); }   // body + oracle floor in LevMath (EIP-170)
     }
 
-    /// @dev De-lever: withdraw `repayUsd`-worth of WBTC → SOR to stable → repay (clamp-before-transfer like `repay`).
+    /// @dev De-lever: withdraw `repayUsd`-worth of WBTC → Curve to stable → repay (clamp-before-transfer like `repay`).
     ///      DIRECT — health-safe at the low LTV the IL target holds (opens at 0, levers as IL accrues). A near-liq
     ///      flash-repay-first hardening (mirror `LevManager._deleverFlash`) is the follow-on if the venue's withdraw
-    ///      LTV-gate ever blocks the pre-repay withdraw. SOR slippage ⇒ slightly under-target; next tick finishes.
+    ///      LTV-gate ever blocks the pre-repay withdraw. Swap slippage ⇒ slightly under-target; next tick finishes.
     function _deleverWbtc(ILevVenue venue, address lp, address stable, uint repayUsd, uint minOut) internal {
         (uint pulled, uint repaid) = LevMath.deleverWbtc(venue, lp, stable, repayUsd, minOut, LevMath.WbtcCfg(address(AUX), WBTC, uint32(TWAP_WINDOW), uint16(MAX_SLIPPAGE_BPS)));
         if (pulled > 0) { emit Withdrawn(lp, pulled); emit Repaid(lp, repaid); }       // body + oracle floor in LevMath (EIP-170)
@@ -402,7 +405,7 @@ contract BtcLevManager is LevBase {
 
     /// @dev FLASH-repay-first de-lever: flash `repayUsd`-worth stable from the provider; the callback repays FIRST
     ///      (LTV drops ⇒ withdraw always health-safe — kills the direct path's near-liq wall), then withdraws freed
-    ///      WBTC → SOR→stable → returns the flash + surplus. `repayUsd` (= deltaUsd) is already ≤ debt.
+    ///      WBTC → Curve→stable → returns the flash + surplus. `repayUsd` (= deltaUsd) is already ≤ debt.
     function _flashDeleverWbtc(ILevVenue venue, address lp, address stable, uint repayUsd, uint minOut) internal {
         if (repayUsd == 0) return;
         IMorphoFlash(flashProvider).flashLoan(stable, LevMath._fromUsd(address(AUX),stable, repayUsd),

@@ -1157,17 +1157,13 @@ contract Vogue is
     // PRESERVED EXACTLY — this layer adds standard ERC-20 transfer/
     // approve plus the deposit/redeem entrypoints.
     //
-    // §J.2b — THE ERC-4626 VIEWS ARE NO LONGER HERE. `asset`, `totalAssets`,
-    // `convertTo*`, `preview*`, `max*`, `name` and `symbol` moved to
-    // `VEth.sol`, because Vogue is the band manager for BOTH asset classes
-    // (its math is parameterised by `isBTC` throughout) and so cannot
-    // honestly implement a single-asset 4626. `VEthIdentity.t.sol` asserts
-    // that Vogue returns EMPTY for each of those selectors.
-    // What stays here is deliberate: the ERC-20 face is the TRANSFER
-    // AUTHORITY over `autoManaged[].pooled`, which is load-bearing band
-    // state, and the entrypoints carry the per-deposit `venue` selector and
-    // the payable ETH path. `VEth` is a stateless PROJECTION that reads
-    // both back through this contract — it owns no balances of its own.
+    // THE ERC-4626 IDENTITY IS HERE, with the state it describes. It was split to
+    // `VEth.sol` on the premise that Vogue manages both asset classes; that was
+    // measured false (no BTC state, and nothing ever supplied the `isBTC`
+    // arguments), so the projection was an indirection over a distinction that
+    // did not exist. `asset`, `totalAssets`, `convertTo*`, `preview*`, `max*`,
+    // `name`, `symbol` and the ERC-20 mutators all sit below, over the same
+    // `autoManaged[].pooled` / `lpShares` they have always described.
     //
     // Yield attribution preservation invariant:
     //   On any transfer, BOTH parties' pending rewards are settled
@@ -1199,44 +1195,81 @@ contract Vogue is
     /// @notice ERC-20 balance = LP's principal in pool. This is the
     /// already-compounded value; pending rewards (not yet credited)
     /// are revealed via previewRedeem / pendingRewards.
-    // ─── §J.2c: the TOKEN FACE lives on `VEth`, the STATE lives here ──────────────
-    // `Vogue` manages BOTH asset classes, so an ERC-20 face on it is ill-defined by
-    // construction: `transferFrom` moved ETH-band shares while nothing in the signature
-    // said WHICH, and BTC band shares (`Vault.autoManagedBTC`) have no transfer face at
-    // all. The mutators therefore move to `VEth`, which is unambiguously the vETH token;
-    // Vogue keeps the state and stays the authority.
+    // ─── THE vETH TOKEN FACE — 4626 identity and ERC-20, both HERE ────────────────
+    // §J.2b/§J.2c split this out to `VEth` on the premise that "Vogue manages BOTH asset
+    // classes, so a single-asset 4626 on it would be dishonest". THAT PREMISE WAS MEASURED
+    // FALSE (2026-08-15): Vogue declares NO BTC state — not one `Btc`/`BTC` member. Its
+    // `isBTC` arguments were pass-throughs to VogueLib math bodies, and NOTHING supplied
+    // them. Vogue is, and was, the ETH band manager; `bandSqrtP` already said so in its own
+    // docblock while the comments here said the opposite.
     //
-    // One-shot pin, mirroring `setEthVenueContract`: `VEth` is deployed AFTER Vogue, so
-    // this cannot fold into `setup()`.
-    address public VETH;
-    error VEthPinned();
-    function setVEth(address v) external {
-        require(msg.sender == DEPLOYER, "403");   // Vogue is ownerless post-setup (renounced)
-        if (VETH != address(0)) revert VEthPinned();
-        VETH = v;
-    }
+    // So the face returns to the state instead of projecting through a call boundary. That
+    // deletes the whole span the split needed to exist: the `VETH` pin, its one-shot setter,
+    // `VEthPinned`, the `msg.sender == VETH` gate, and `transferSharesFor` — a trampoline
+    // whose only job was letting the projection reach `_transferShares`. The allowance is no
+    // longer stranded on a contract that owns none of the balances it approves.
+    //
+    // The ENTRYPOINTS (`deposit`/`mint`/`withdraw`/`redeem`) remain the protocol's native LP
+    // API below, carrying the per-deposit `venue` selector and the payable ETH path.
 
-    /// @notice Move band shares on `VEth`'s behalf. The ONLY external door to
-    ///         `_transferShares`, and it is gated to `VEth` so "which shares?" can no
-    ///         longer be asked of Vogue. Allowance accounting lives on `VEth` (it is the
-    ///         token's own approval semantics); this call is the authority half only.
-    function transferSharesFor(address from, address to, uint amount) external nonReentrant {
-        require(msg.sender == VETH, "403");
-        _transferShares(from, to, amount);
-    }
+    string public constant name   = "QU!D Vogue ETH LP";
+    string public constant symbol = "vETH";
 
+    /// The single asset this vault is defined over.
+    function asset() external view returns (address) { return address(WETH); }
+
+    /// @notice Total ETH-equivalent backing all LP positions: principal + ALL accrued
+    ///         V4/Morpho fees, claimed or not. Deliberately `vogueETH()` RAW, NOT
+    ///         `_pricingBacking()`, which restates the levered book onto the denominator's
+    ///         clock for SHARE PRICING (§A.16b); the conversions below carry that
+    ///         restatement, so applying it here too would double-count it.
+    function totalAssets() external view returns (uint) { return AUX.vogueETH(); }
+
+    function totalSupply() external view returns (uint) { return lpShares; }
+
+    /// @notice ERC-20 balance = LP's principal in pool. This is the already-compounded
+    ///         value; pending rewards (not yet credited) are revealed via previewRedeem /
+    ///         pendingRewards.
     function balanceOf(address user) public view returns (uint) {
         return autoManaged[user].pooled;
     }
 
+    function maxDeposit(address) external pure returns (uint) { return type(uint).max; }
+    function maxMint(address) external pure returns (uint) { return type(uint).max; }
+    function previewDeposit(uint assets) external view returns (uint) { return convertToShares(assets); }
+    function previewMint(uint shares) external view returns (uint) { return convertToAssets(shares); }
+    function maxWithdraw(address owner) external view returns (uint) { return convertToAssets(balanceOf(owner)); }
+    function previewWithdraw(uint assets) external view returns (uint) { return convertToShares(assets); }
+    function maxRedeem(address owner) external view returns (uint) { return balanceOf(owner); }
+    function previewRedeem(uint shares) external view returns (uint) { return convertToAssets(shares); }
 
-    // §J.2c: `approve` / `transfer` / `transferFrom` MOVED TO `VEth`, together with the
-    // `allowance` storage and the `Approval`/`Transfer` events. Vogue keeps the STATE and stays
-    // the transfer AUTHORITY (`transferSharesFor` above, gated to `VEth`), but no longer presents
-    // a token face — so "which asset's shares am I moving?" can no longer be asked of a contract
-    // that manages two. `balanceOf`/`totalSupply` remain as plain ACCESSORS (59 test sites read
-    // them, and `VEth` re-exposes both as the canonical token face); without the mutators they
-    // are no longer an ERC-20 surface, just reads.
+    mapping(address => mapping(address => uint)) public allowance;
+    event Transfer(address indexed from, address indexed to, uint value);
+    event Approval(address indexed owner, address indexed spender, uint value);
+    error InsufficientAllowance();
+
+    function approve(address spender, uint amount) external returns (bool) {
+        allowance[msg.sender][spender] = amount;
+        emit Approval(msg.sender, spender, amount);
+        return true;
+    }
+
+    function transfer(address to, uint amount) external nonReentrant returns (bool) {
+        _transferShares(msg.sender, to, amount);
+        emit Transfer(msg.sender, to, amount);
+        return true;
+    }
+
+    function transferFrom(address from, address to, uint amount) external nonReentrant returns (bool) {
+        uint allowed = allowance[from][msg.sender];
+        if (allowed != type(uint).max) {
+            if (allowed < amount) revert InsufficientAllowance();
+            allowance[from][msg.sender] = allowed - amount;
+        }
+        _transferShares(from, to, amount);
+        emit Transfer(from, to, amount);
+        return true;
+    }
 
     /// @dev Move `amount` of pooled from `from` to `to`. Settles
     /// pending rewards on BOTH sides first so the moved principal
@@ -1253,13 +1286,9 @@ contract Vogue is
             autoManaged, levPooled, levBuf, venueBm, from, to, amount, feesPerShare, USD_FEES, venueFeesPerShare);
     }
 
-    // ─── share math (NOT a 4626 — see VEth.sol) ─────────────────────
-    // Vogue is the band manager for BOTH asset classes (its math is parameterised by `isBTC`
-    // throughout), so it cannot honestly implement ERC-4626, which is defined around ONE `asset()`.
-    // §J.2b moved that identity — `asset`, `totalAssets`, `name`, `symbol`, and the whole
-    // `max*`/`preview*` surface — to `VEth.sol`, which reads it all back THROUGH this contract.
-    // What stays here is the share MATH and the entrypoints, which are the protocol's native LP API
-    // (per-deposit `venue` selector, payable ETH path, `_depositImpl`/`_withdraw` machinery).
+    // ─── share math ──────────────────────────────────────────────────
+    // The conversions the 4626 face above is defined in terms of. One implementation, so the
+    // §A.16b same-clock pricing cannot diverge between the identity and the entrypoints.
 
     /// @dev Pricing backing: `vogueETH` with the levered book restated onto the SAME CLOCK as the
     ///      denominator. `vogueETH` adds `totalNetEquityEth()` read LIVE from the venues

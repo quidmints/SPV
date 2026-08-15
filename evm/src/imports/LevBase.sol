@@ -168,3 +168,41 @@ abstract contract LevBase {
         emit ReanchoredToBand(lp, s, base);
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Homed here from `src/LevOracles.sol` (2026-08-15) to cut a file. THE CONTRACT STAYS
+// STANDALONE, DELIBERATELY — do not fold it into `LevBase` above. Morpho's marketId is
+// `keccak256(abi.encode(MarketParams))` and `oracle` is one of those five fields, so the
+// oracle's ADDRESS IS PART OF THE MARKET'S IDENTITY. Pointing the market at a manager
+// would make a manager redeploy a *different market*, silently, orphaning the old one.
+// A tiny immutable is the most stable address we can give it.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// @notice No usable price. These are Morpho `IOracle` implementations, so MORPHO calls them — which
+///         makes the failure mode a security decision, not a style one (BUILD-QUEUE §A.13/§A.25):
+///           • RETURNING 0 would have Morpho value collateral at zero ⇒ EVERY position instantly
+///             liquidatable ⇒ irreversible value destruction.
+///           • PANICKING (division by zero) reverts Morpho's calls too, but with an undiagnosable
+///             `Panic(0x12)` and after burning all forwarded gas.
+///         REVERTING with a named error is the safe failure: Morpho cannot price, so new borrows and
+///         liquidations halt, and everything RESUMES once the feed recovers. A frozen market is
+///         recoverable; a mass liquidation at a false zero is not.
+error NoPrice();
+
+/// @notice REAL Morpho IOracle for the vBTC/USDC market (collateral→loan, 1e36-scaled), from the SAME live
+///   source the manager values vBTC through: `getTWAPforAsset(WBTC)` (USD18 per 1e18-raw, WBTC-lifted ×1e10).
+///   vBTC is 8-dec sats: `sats · twap / 1e18 = USD18`; Morpho wants `sats · price / 1e36 = USDC6 = USD18/1e12`
+///   ⇒ price = twap × 1e6. Fork-proven (incl. real Morpho seizure off this price) in test/VBtcLevFeeLane.t.sol.
+///
+///   ⚠️ It prices vBTC through `Aux.getTWAPforAsset`, and AUX is deployed inside the same broadcast, so
+///   `MORPHO_VBTC_ORACLE` can NEVER be a pre-supplied env address — DeployL1_s must deploy it inline.
+contract RealRateBtcMorphoOracle {
+    address public immutable AUX;
+    address public immutable WBTC;
+    constructor(address aux, address wbtc) { AUX = aux; WBTC = wbtc; }
+    function price() external view returns (uint256) {
+        uint256 twap = IAux(AUX).getTWAPforAsset(WBTC, 1800);
+        if (twap == 0) revert NoPrice();   // 0 would value all vBTC collateral at zero — see NoPrice
+        return twap * 1e6;
+    }
+}

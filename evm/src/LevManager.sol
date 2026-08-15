@@ -18,7 +18,8 @@ import {ILevVenueColl} from "./imports/Interfaces.sol";
 ///         never storing it on `Pos` (the public struct ABI stays a stable 6-tuple).
 
 
-/// @notice weETH↔WETH legs of the leverage swap (stable↔WETH is the basket SOR — `ISwapAux.sorSelfFunded`).
+/// @notice weETH↔WETH legs of the leverage swap (stable↔WETH is routed through CURVE —
+///         `LevMath._wethToStableCurve` / `_toUsdc`; it was the basket SOR until 084bc5c).
 ///         UP: MINT weETH via the ether.fi adapter at the fair rate (zero-slippage; never the thin pool).
 ///         DOWN: SELL weETH → WETH on the deep v3 pool (`LevMath._weethToWethDex`, two tiers cheapest-first,
 ///         floored at `getEETHByWeETH` − `SELL_SLIP_BPS`). ⚠️ THE LEGS ARE NOT SYMMETRIC: the up-leg mints at
@@ -391,7 +392,7 @@ contract LevManager is LevBase {
     // ════════════════════════════ OPEN ════════════════════════════
 
     /// @notice Open an isolated leveraged position. The LP supplies `collWeeth` weETH (approved here) as
-    ///         equity; the loop borrows the venue stable, buys weETH via the SOR+converter, and supplies it
+    ///         equity; the loop borrows the venue stable, buys weETH via Curve + the converter, and supplies it
     ///         back until LTV reaches `targetLtvBps`. `minWethOut[i]` bounds each loop's stable→WETH swap
     ///         (off-chain quoted). `targetLtvBps` must sit inside `[1, TARGET_LTV_CAP_BPS]` (7500 bps = 75% LTV → up to ~4×).
     function openLev(uint64 targetLtvBps, ILevVenue venue, uint256 collWeeth, uint256[] calldata minWethOut)

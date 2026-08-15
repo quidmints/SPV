@@ -323,7 +323,7 @@ interface ICore {
     function POOLED_BTC() external view returns (uint);
     function btcThetaBacking() external view returns (uint);
     function poolStats(int24 tickLower, int24 tickUpper, bool isBTC) external view returns (uint160 sqrtPriceX96, int24 currentTick, uint128 liquidity);
-    function observe(uint32[] calldata secondsAgos, bool isBTC) external view returns (int56[] memory);
+    function observe(uint32[] calldata secondsAgos, bool isBTC) external view returns (uint192[] memory);
     function POOLED_ETH() external view returns (uint);
     function premiumEwmaUsd(bool isBTC) external view returns (uint);
     function POOLED_USD_ETH() external view returns (uint);
@@ -451,17 +451,6 @@ interface ILevEthDeliver {
         external returns (uint usedUsd, uint wethDelivered);
     function swapOutDeliverUnlevered(address lp, uint wethWanted, address recipient, uint minWethOut)
         external returns (uint wethDelivered);
-}
-
-/// E21 (final) -- the last per-file declarations of OUR OWN contracts, homed here. `IAuxBacking`
-/// is gone entirely: `IAux.vogueETH()` already said the same thing.
-interface IVogueShares {
-    function lpShares() external view returns (uint);
-    function balanceOf(address user) external view returns (uint);
-    function convertToShares(uint assets) external view returns (uint);
-    function convertToAssets(uint shares) external view returns (uint);
-    /// (§J.2c) The ONLY external door to Vogue's `_transferShares`, gated to this contract.
-    function transferSharesFor(address from, address to, uint amount) external;
 }
 
 interface IBtcVaultBridge {
