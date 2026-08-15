@@ -340,12 +340,12 @@ library LevMath {
     struct SellCtx { address weth; address weeth; address aux; address keeper; uint256 reserveIn; }
 
     /// @notice Sell `pulled` collateral → `stable` at the anti-MEV oracle floor, peeling the keeper's gas (native ETH)
-    ///         from the over-collateralization headroom. `isWethVenue` ⇒ `pulled` is already WETH; else weETH.
+    ///         from the over-collateralization headroom. `pulled` is always weETH — all collateral is weETH.
     /// @return stableOut stable delivered (the flash pull-back + LP surplus come from this). @return reserveOut new gas-reserve.
-    function sellColl(SellCtx memory c, bool isWethVenue, address stable, uint256 pulled, uint256 minOut, uint256 assets)
+    function sellColl(SellCtx memory c, address stable, uint256 pulled, uint256 minOut, uint256 assets)
         public returns (uint256 stableOut, uint256 reserveOut)
     {
-        if (!isWethVenue) return sellWeeth(c, stable, pulled, minOut, assets);
+        return sellWeeth(c, stable, pulled, minOut, assets);
         reserveOut = c.reserveIn;
         // Peel the keeper-gas sliver (WETH) from headroom BEFORE selling — never the flash-repay amount.
         uint256 need = _wethForAssets(c, stable, assets);
@@ -397,15 +397,19 @@ library LevMath {
     }
 
     /// stable → collateral (lever-up BUY). weETH venue mints via ether.fi; WETH venue supplies WETH directly.
-    function stableToColl(SellCtx memory c, bool isWethVenue, address stable, uint256 stableAmt, uint256 minOut)
+    function stableToColl(SellCtx memory c, address stable, uint256 stableAmt, uint256 minOut)
         public returns (uint256)
     {
-        if (!isWethVenue) return _stableToWeeth(c, stable, stableAmt, minOut);
+        return _stableToWeeth(c, stable, stableAmt, minOut);
         uint256 wethGot = _stableToWethSor(c, stable, stableAmt);
         if (wethGot < minOut) revert Slippage();
         return wethGot;
     }
 
+    /// @dev stable → weETH. THE ONLY COLLATERAL PATH: raw-WETH collateral is strictly dominated — same
+    ///      delta and the same IL offset, but it forgoes the ether.fi ratchet (+2.46%/yr, measured) for
+    ///      as long as it sits as collateral. It is a worse way to buy the SAME hedge, not a different
+    ///      hedge, so there is no WETH-collateral branch to select.
     function _stableToWeeth(SellCtx memory c, address stable, uint256 stableAmt, uint256 minWeethOut) internal returns (uint256 weethOut) {
         weethOut = _wethToWeeth(c, _stableToWethSor(c, stable, stableAmt));
         if (weethOut < minWeethOut) revert Slippage();
@@ -470,8 +474,8 @@ library LevMath {
 
     /// The manager's runtime addresses + gas-reserve, threaded into `extractToVaultBody` (delegatecall) and
     /// returned updated. `maxSlippageBps` grosses the collateral withdraw so the sale covers the flash even at
-    /// worst execution; `isWethVenue` selects WETH-1:1 vs weETH-rate collateral units.
-    struct ExtractCfg { address weth; address weeth; address aux; address flashProvider; address keeper; uint256 gasReserve; uint16 maxSlippageBps; bool isWethVenue; }
+    /// worst execution. Collateral units are always weETH-rate: raw WETH collateral is dominated and gone.
+    struct ExtractCfg { address weth; address weeth; address aux; address flashProvider; address keeper; uint256 gasReserve; uint16 maxSlippageBps; }
 
     /// @dev Repay-first + withdraw the paired collateral, in its OWN frame so `extractToVaultBody`'s stack stays
     ///      shallow (no via_ir). Flashed `assets` → venue → repay; then withdraw collateral worth (repaid +
@@ -483,7 +487,7 @@ library LevMath {
         IERC20Min(stable).transfer(venueAddr, assets);
         uint256 repaid = ILevVenue(venueAddr).repay(lp, assets);
         uint256 ethAmt = ((_toUsd18(cfg.aux,stable, repaid) + extractUsd) * 1e18) / IAux(cfg.aux).getTWAPforAsset(cfg.weth, TWAP_WIN_M);
-        uint256 collUnits = cfg.isWethVenue ? ethAmt : (ethAmt * 1e18) / IWeETH(cfg.weeth).getEETHByWeETH(1e18);
+        uint256 collUnits = (ethAmt * 1e18) / IWeETH(cfg.weeth).getEETHByWeETH(1e18);
         collUnits = (collUnits * 10_000) / (10_000 - cfg.maxSlippageBps);
         pulled = ILevVenue(venueAddr).withdraw(lp, collUnits);
     }
@@ -513,7 +517,7 @@ library LevMath {
     {
         SellCtx memory sc = SellCtx({weth: cfg.weth, weeth: cfg.weeth, aux: cfg.aux, keeper: cfg.keeper, reserveIn: cfg.gasReserve});
         uint256 stableOut;
-        (stableOut, newGasReserve) = sellColl(sc, cfg.isWethVenue, stable, pulled, minOut, assets);
+        (stableOut, newGasReserve) = sellColl(sc, stable, pulled, minOut, assets);
         IERC20Min(stable).approve(cfg.flashProvider, assets);
         freed = stableOut > assets ? stableOut - assets : 0;
         if (freed > 0) IERC20Min(stable).transfer(vault, freed);
@@ -529,7 +533,7 @@ library LevMath {
         public returns (uint256 wethDelivered) {
         if (collAmt == 0) return 0;
         SellCtx memory sc = SellCtx({weth: cfg.weth, weeth: cfg.weeth, aux: cfg.aux, keeper: cfg.keeper, reserveIn: cfg.gasReserve});
-        wethDelivered = cfg.isWethVenue ? collAmt : _weethToWeth(sc, collAmt);
+        wethDelivered = _weethToWeth(sc, collAmt);
         require(wethDelivered >= minOut, "swapDelever:minOut");
         if (wethDelivered > 0) IERC20Min(cfg.weth).transfer(recipient, wethDelivered);
     }
@@ -548,7 +552,7 @@ library LevMath {
         if (pxWeth == 0) revert NoPrice();
         uint256 freeEth = (usedUsd * 1e18) / pxWeth;                              // WETH-equivalent to free
         uint256 coll = venue.collateralOf(lp);
-        uint256 collInEth = cfg.isWethVenue ? coll : IWeETH(cfg.weeth).getEETHByWeETH(coll);
+        uint256 collInEth = IWeETH(cfg.weeth).getEETHByWeETH(coll);
         uint256 pull = collInEth == 0 ? 0 : (freeEth >= collInEth ? coll : (coll * freeEth) / collInEth);
         if (pull == 0) return 0;
         uint256 got = venue.withdraw(lp, pull);                                   // collateral → the manager
@@ -725,7 +729,7 @@ library LevMath {
     function swapOutDeliverUnleveredBody(ILevVenue venue, address lp, uint256 wethWanted, address recipient, uint256 minWethOut, ExtractCfg memory cfg)
         public returns (uint256 wethDelivered) {
         uint256 coll = venue.collateralOf(lp);
-        uint256 collInEth = cfg.isWethVenue ? coll : IWeETH(cfg.weeth).getEETHByWeETH(coll); // net-equity == collateral (0 debt)
+        uint256 collInEth = IWeETH(cfg.weeth).getEETHByWeETH(coll); // net-equity == collateral (0 debt)
         if (collInEth == 0) return 0;
         uint256 pull = wethWanted >= collInEth ? coll : (coll * wethWanted) / collInEth;
         if (pull == 0) return 0;
@@ -759,10 +763,10 @@ library LevMath {
     /// @notice §G.3 size the debt-stable to flash-repay for extracting `extractUsd` of value: ΔD = X·debt/netEq,
     ///         clamped to live debt. `debtUsd18` = the LP's live debt (USD 1e18, decimal-normalized by the manager);
     ///         `pxWeth` = USD/WETH TWAP. VERBATIM of the manager's former inline `_netEqUsd`+`_sizeRepayStable`.
-    function sizeRepayStable(ILevVenue venue, address lp, uint256 extractUsd, uint256 debtUsd18, uint256 pxWeth, bool isWethVenue, address weeth, address aux)
+    function sizeRepayStable(ILevVenue venue, address lp, uint256 extractUsd, uint256 debtUsd18, uint256 pxWeth, address weeth, address aux)
         public view returns (uint256 repayStable) {
         uint256 rawColl = venue.collateralOf(lp);
-        uint256 collUsd = ((isWethVenue ? rawColl : IWeETH(weeth).getEETHByWeETH(rawColl)) * pxWeth) / 1e18;
+        uint256 collUsd = (IWeETH(weeth).getEETHByWeETH(rawColl) * pxWeth) / 1e18;
         uint256 netEq = collUsd > debtUsd18 ? collUsd - debtUsd18 : 0;
         if (netEq == 0) return 0;
         repayStable = _fromUsd(aux,venue.stable(), (extractUsd * debtUsd18) / netEq);
@@ -789,7 +793,7 @@ library LevMath {
         uint256 repaid = ILevVenue(venueAddr).repay(lp, assets);                 // == assets (capped ≤ debt upstream)
         if (pxWeth == 0) revert NoPrice();     // see the note above — never panic on a zero anchor
         uint256 ethAmt = (_toUsd18(cfg.aux,stable, repaid) * 1e18) / pxWeth;
-        uint256 collUnits = cfg.isWethVenue ? ethAmt : (ethAmt * 1e18) / IWeETH(cfg.weeth).getEETHByWeETH(1e18);
+        uint256 collUnits = (ethAmt * 1e18) / IWeETH(cfg.weeth).getEETHByWeETH(1e18);
         pulled = ILevVenue(venueAddr).withdraw(lp, (collUnits * 10_000) / (10_000 - cfg.maxSlippageBps));
     }
 
@@ -799,7 +803,7 @@ library LevMath {
         private returns (uint256 newGasReserve) {
         SellCtx memory sc = SellCtx({weth: cfg.weth, weeth: cfg.weeth, aux: cfg.aux, keeper: cfg.keeper, reserveIn: cfg.gasReserve});
         uint256 stableOut;
-        (stableOut, newGasReserve) = sellColl(sc, cfg.isWethVenue, stable, pulled, minOut, assets);
+        (stableOut, newGasReserve) = sellColl(sc, stable, pulled, minOut, assets);
         // Return `assets` to Morpho (approve the zero-fee pull-back) + surplus to the LP. stableOut < assets ⇒ short
         // approve ⇒ Morpho's pull reverts the whole op (underwater-safe).
         IERC20Min(stable).approve(cfg.flashProvider, assets);

@@ -203,21 +203,21 @@ contract LevManager is LevBase {
     // ether.fi weETH<->WETH mint/redeem legs; every OTHER venue is the existing weETH path, byte-identical (the
     // weETH branch reduces to exactly what it did before this option existed).
 
-    /// @notice True iff `venue`'s collateral token is WETH (⇒ 1:1 ETH valuation + no ether.fi mint/redeem).
-    ///         (The mint-close BOLD/Liquity detection — try/catch `usesMintClose()` — now lives in
-    ///         `LevMath.deleverFlashBody`, which owns the flash-WETH→mint-BOLD routing.)
-    function _isWethVenue(ILevVenue venue) internal view returns (bool) {
-        return ILevVenueColl(address(venue)).COLLATERAL() == WETH;
+    /// @notice ALL COLLATERAL IS weETH. `_isWethVenue` and the WETH-collateral branch it selected are
+    ///         gone: raw WETH is STRICTLY DOMINATED — identical delta and identical IL offset, minus the
+    ///         ether.fi ratchet (+2.46%/yr, measured) for every block it sits as collateral. It is a
+    ///         worse way to buy the SAME hedge, not a different hedge, so there was never a reason to
+    ///         select it. The last WETH-collateral market left the allowlist with the USDC venues.
+    ///         ⚠️ Anything bought as WETH is minted straight into weETH (`LevMath._stableToWeeth`);
+    ///         WETH is a TRANSIT asset here and never rests as collateral.
+    function _collToken(ILevVenue) internal view returns (address) {
+        return address(WEETH);
     }
-    /// @notice The venue's collateral ERC20 (WETH or weETH) — the token this manager custodies for that position.
-    function _collToken(ILevVenue venue) internal view returns (address) {
-        return _isWethVenue(venue) ? WETH : address(WEETH);
-    }
-    /// @notice Collateral units -> ETH (1e18): weETH via the ether.fi staking rate; WETH 1:1. VIEW-safe, so the
-    ///         Vault's `vogueETH()` (which sums grossCollateralEth/netEquityEth) still reads it as a pure view.
-    function _collToEth(ILevVenue venue, uint256 units) internal view returns (uint256) {
+    /// @notice Collateral units -> ETH (1e18) via the ether.fi staking rate. VIEW-safe, so the Vault's
+    ///         `vogueETH()` (which sums grossCollateralEth/netEquityEth) still reads it as a pure view.
+    function _collToEth(ILevVenue, uint256 units) internal view returns (uint256) {
         if (units == 0) return 0;
-        return _isWethVenue(venue) ? units : RATE.getEETHByWeETH(units);
+        return RATE.getEETHByWeETH(units);
     }
     /// @notice USD (1e18) value of `units` collateral on `venue` = coll->ETH x ETH->USD oracle.
     function _collValueUsd(ILevVenue venue, uint256 units) internal returns (uint256) {
@@ -666,17 +666,17 @@ contract LevManager is LevBase {
     function _deleverFlash(ILevVenue venue, address lp, address stable, uint256 repayUsd, uint256 minOut) internal {
         // repay-first flash (mode 0), or for a mint-close (BOLD) venue flash-WETH→mint-BOLD (mode 1): body in LevMath
         // (delegatecall — bytecode OUTSIDE this contract). The flash re-enters this manager's own onMorphoFlashLoan.
-        LevMath.deleverFlashBody(_extractCfg(_isWethVenue(venue)), venue, lp, stable, repayUsd, minOut, PROTOCOL_MINT_LTV_BPS);
+        LevMath.deleverFlashBody(_extractCfg(), venue, lp, stable, repayUsd, minOut, PROTOCOL_MINT_LTV_BPS);
     }
 
     /// Transient handoff for the mode-2 (`deleverToVault`) callback's freed-stable result. Auto-clears at tx end.
     uint256 private transient _lastFreed;
 
     /// The manager's runtime addresses + gas-reserve for the mode-2 extraction body (delegatecall → LevMath).
-    function _extractCfg(bool isWeth) internal view returns (LevMath.ExtractCfg memory) {
+    function _extractCfg() internal view returns (LevMath.ExtractCfg memory) {
         return LevMath.ExtractCfg({ weth: WETH, weeth: address(WEETH), aux: address(AUX),
             flashProvider: flashProvider, keeper: _activeKeeper, gasReserve: gasReserve,
-            maxSlippageBps: uint16(MAX_SLIPPAGE_BPS), isWethVenue: isWeth });
+            maxSlippageBps: uint16(MAX_SLIPPAGE_BPS) });
     }
 
     /// @notice §G.3 REDEEM/SWAP-OUT value-neutral extraction: free up to `extractUsd` (USD 1e18) of THIS LP's
@@ -697,7 +697,7 @@ contract LevManager is LevBase {
         if (extractUsd > cap) extractUsd = cap;
         if (extractUsd == 0) return 0;
         uint256 repayStable = LevMath.sizeRepayStable(                     // d/netEq/clamp — body in LevMath (EIP-170)
-            p.venue, lp, extractUsd, debtUsd(lp), AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW), _isWethVenue(p.venue), address(WEETH), address(AUX));
+            p.venue, lp, extractUsd, debtUsd(lp), AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW), address(WEETH), address(AUX));
         if (repayStable == 0) return 0;
         // mode 2 = flash the debt stable → repay-first → withdraw+sell paired collateral → surplus to `vault`.
         IMorphoFlash(flashProvider).flashLoan(p.venue.stable(), repayStable,
@@ -726,7 +726,7 @@ contract LevManager is LevBase {
         if (!p.open || wethWanted == 0) return 0;
         if (p.venue.debtOf(lp) != 0) return 0;                     // levered ⇒ use swapOutDelever (repay path)
         // withdraw net-equity collateral + MEV-floor + deliver-as-WETH: body in LevMath (delegatecall, EIP-170).
-        wethDelivered = LevMath.swapOutDeliverUnleveredBody(p.venue, lp, wethWanted, recipient, minWethOut, _extractCfg(_isWethVenue(p.venue)));
+        wethDelivered = LevMath.swapOutDeliverUnleveredBody(p.venue, lp, wethWanted, recipient, minWethOut, _extractCfg());
         if (vogueSyncHook != address(0)) { try ILevSyncHook(vogueSyncHook).syncLev(lp) {} catch {} }
     }
 
@@ -745,7 +745,7 @@ contract LevManager is LevBase {
         // repay-with-the-Vault-pre-transferred-stable → free EXACTLY the repaid value of collateral → deliver as
         // WETH (value-neutral): body in LevMath (delegatecall, bytecode OUTSIDE this contract).
         (usedUsd, wethDelivered) = LevMath.swapOutDeleverBody(
-            p.venue, lp, stableUsd, recipient, minWethOut, AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW), _extractCfg(_isWethVenue(p.venue)));
+            p.venue, lp, stableUsd, recipient, minWethOut, AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW), _extractCfg());
         // Reconcile the shrunk slice into the band (try/catch: never block the settle).
         if (vogueSyncHook != address(0)) { try ILevSyncHook(vogueSyncHook).syncLev(lp) {} catch {} }
     }
@@ -796,7 +796,7 @@ contract LevManager is LevBase {
             abi.decode(data, (uint8, address, address, address, uint256, address, uint256));
         (gasReserve, _lastFreed) = LevMath.extractToVaultBody(
             assets, lp, venueAddr, stable, extractUsd, vault, minOut2,
-            _extractCfg(_isWethVenue(ILevVenue(venueAddr))));
+            _extractCfg());
     }
 
     /// mode-0 (generic flash-stable) settle in its OWN frame (no via_ir): repay-first → withdraw → sell → return the
@@ -804,7 +804,7 @@ contract LevManager is LevBase {
     function _deleverSettle(uint256 assets, address lp, address venueAddr, address stable, uint256 last) internal {
         // repay-first → withdraw the freed collateral → sell → return the flash + surplus: body in LevMath (EIP-170).
         gasReserve = LevMath.deleverSettleBody(assets, lp, venueAddr, stable, last,
-            AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW), _extractCfg(_isWethVenue(ILevVenue(venueAddr))));
+            AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW), _extractCfg());
     }
 
     /// @notice mode-1 (BOLD) callback: flashed `wethFlashed` WETH in hand. Mint `repayBold` BOLD at face value via
@@ -838,7 +838,7 @@ contract LevManager is LevBase {
     /// it to the venue for `who`. Shared by openLev's ladder + rebalance's up-leg (dedup).
     function _leverUpBuy(ILevVenue venue, address who, address stable, uint256 usd, uint256 minOut) internal {
         uint256 coll = LevMath.stableToColl(
-            _sellCtx(address(0)), _isWethVenue(venue), stable, venue.borrow(who, LevMath._fromUsd(address(AUX),stable, usd)), minOut);
+            _sellCtx(address(0)), stable, venue.borrow(who, LevMath._fromUsd(address(AUX),stable, usd)), minOut);
         IERC20Min(_collToken(venue)).transfer(address(venue), coll);
         venue.supply(who, coll);
     }
