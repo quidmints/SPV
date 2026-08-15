@@ -108,7 +108,22 @@ tier set in Core's pool key"* — **and I quoted that function all day without r
 THE RESTORATION COST, not the fee charged.** Re-deriving the round trip for the bearing party:
     that party pays 2·C, and receives 2·fee ONLY IF the fee is credited to them
     non-abusable ⇔ fee_credited + C(w − 1) >= 0  ⇒  **w >= 1 − fee_credited / C**
-🔴 **THIS MATTERS RIGHT NOW because `spv-2d` has landed the CHARGE (`out -= out*420/1e6`) and explicitly NOT
+⛔ **CORRECTED SAME DAY — I ASSERTED `fee_credited = 0` AND IT IS FALSE. VERIFIED AGAINST `_pricingBacking`.**
+`Vogue.convertToAssets` prices off `_pricingBacking()`, which is **`AUX.vogueETH()` PLUS the LP-OWNED USD
+INCREMENT** — `POOLED_USD_ETH − basketUsdEth`, valued at the ORACLE (§#12: *"the USD leg beyond what the
+BASKET supplied is LP-owned and was invisible here, so a band that sold LP ETH for USD priced the LP down by
+the whole sale"*). **A fee RETAINED in the band's USD leg raises `POOLED_USD_ETH` without raising
+`basketUsdEth`, so it lands in the LP-owned increment and DOES reach LP claims.** ⇒ **`feePpm = 420` is the
+correct input; passing 0 would OVER-state the floor and over-charge the swapper.** My advice to `spv-2d` was
+wrong and has been retracted to them.
+✅ **THE PRINCIPLE SURVIVES IN A SHARPER FORM (theirs): THE FAILURE IS TEMPORAL, NOT A MISSING CREDIT.**
+`_handleCollect` fed `feesPerShare`/`USD_FEES`, which credit **PER SHARE AT ACCRUAL** — the holder at swap
+time earns it. Retaining into `POOLED_*` raises **NAV**, so it accrues to whoever holds **AT CLAIM TIME**.
+Same balance sheet, DIFFERENT HOLDERS: an LP who exits before claiming earns nothing they were owed; one who
+enters after earns something they bore no risk for. **If a grinder's round trip spans a holder change,
+`fee_credited`-to-the-BEARING-party is DILUTED rather than zero.** ▶️ **What that does to the bound is
+UNDERIVED and deliberately left open by both threads rather than guessed in either direction.**
+📌 **ORIGINAL CLAIM, KEPT FOR THE RECORD (it was wrong):** 🔴 **THIS MATTERS RIGHT NOW because `spv-2d` has landed the CHARGE (`out -= out*420/1e6`) and explicitly NOT
 the credit, flagging it as the §E107 shape (the fee sits in band inventory as backing — visible to LPs, never
 claimable). Under charge-without-credit `fee_credited = 0`, so the floor is `w >= 1` — THE SWAPPER MUST BEAR
 100% — even though the swapper is already being charged.** The charged fee offsets nothing for the party
