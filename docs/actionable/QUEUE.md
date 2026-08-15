@@ -13181,3 +13181,31 @@ all. But none of the five needs new code: they are deletions plus the accounting
 dissolutions together; (3) drop `SafeCallback` from `Core` and `Aux`, which frees the room for
 `BatchLedger` to fold into `Aux`; (4) the price-reference decision (`OracleLib.prepRefs`) — separable,
 see above.
+
+### ⛔ CORRECTION (same day): THE ORDER ABOVE IS WRONG — CUSTODY MOVES FIRST
+
+The step order I just committed said "(1) `Core.swap`'s unlock block → the fill; (2) the five
+dissolutions". **That is impossible, and one grep showed why.** `Core` uses
+`CurrencySettler.take(poolManager, address(this), …)` / `.settle(…)` (`:1179,1193,1266,1274`) and
+maintains the band through `_modifyLiquidity` (`:988,1070`).
+
+⇒ **THE POOLMANAGER HOLDS THE TOKENS. The band's inventory IS the v4 position; `POOLED_*` is an
+accounting MIRROR of it, not a balance we custody.**
+
+A fixed-rate fill settles against **our own balances** — and until custody moves we have none, so the
+fill would have nothing to fill from. `Core.swap` cannot be swapped out first; it is the LAST step,
+not the first.
+
+**CORRECTED ORDER:**
+  1. **`ModLP` dissolution = the custody move.** Withdraw the v4 position and hold the two balances
+     directly. This is the load-bearing step and everything else waits on it.
+  2. The other four dissolutions (`Repack`, `OutsideRange`, `Collect`, `Reseat`) — they describe a
+     tick range that no longer exists once (1) lands.
+  3. `Core.swap`'s unlock block → `FixedRateFill` + `BatchLedger`, now that there is inventory to
+     settle from.
+  4. Drop `SafeCallback` from `Core` and `Aux`; fold `BatchLedger` into `Aux` with the freed room.
+  5. The price-reference decision (`OracleLib.prepRefs`) — still separable, still deferrable.
+
+⚠️ **AND THIS IS WHY 1-3 MUST BE ONE COMMIT.** Between the custody move and the fill landing there is
+no working swap path at all. The "fresh deploy, nothing is live" premise is what makes that
+acceptable — **if that premise expires, this sequence needs a migration plan instead.**
