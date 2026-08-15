@@ -728,11 +728,50 @@ contract Core is SafeCallback {
     function swap(bool isBTC, uint160 sqrtPriceX96, address sender,
         bool forOne, address token, uint amount)
         onlyUs public returns (uint out) {
-        BalanceDelta delta = abi.decode(poolManager.unlock(
-            abi.encode(isBTC ? Action.SwapBTC : Action.SwapETH,
-                sqrtPriceX96, sender, forOne, token, amount)),
-            (BalanceDelta));
-        out = uint(int(forOne ? delta.amount1() : delta.amount0()));
+        // ═══════════════ §V4-CUT — SETTLE AT ORACLE, BOUNDED BY INVENTORY ═══════════════
+        // No unlock, no callback, no curve traversal, no price discovery. ONE price for the whole
+        // size. The skew is deliberately NOT folded into this rate: we restore 1:1 from the inside
+        // via Curve, so there is no arbitrageur to pay a spread to — the skew is the ATTRIBUTION KEY
+        // for the realised restoration cost (BatchLedger), never a charge applied here.
+        //
+        // UNITS — CHECKED, NOT ASSUMED, because a 1e12 slip here mis-scales every swap.
+        // `BasketLib.getPrice` output, the observation ring's stored `lastPrice`, and
+        // `AUX.getTWAPforAsset` are ALL the same basis: WAD USD per unit volatile. The ring stores
+        // `getPrice`'s output and `twapBody` reads the ring, so the TWAP substitutes directly where
+        // `getPrice(getSlot0())` used to sit. `BasketLib.convert` carries the 6↔18 bridge and is the
+        // SAME conversion `routeSwap` already uses — deriving a second one here is how the §A.50/C2
+        // asymmetry happened.
+        //
+        // SIGN CONVENTION — DERIVED from the two consumers so the legs cannot silently invert:
+        //   • the old `out` was `forOne ? amount1 : amount0` ⇒ THE LEG THE USER RECEIVES IS POSITIVE;
+        //   • `_settleUsdSide` reads `usdDelta = _t1 ? amt0 : amt1` ⇒ with `_t1`, USD is leg 0.
+        //   ⇒ POSITIVE = leaves the pool (we pay out) · NEGATIVE = enters the pool (we take in).
+        //   `forOne` is zeroForOne: pays leg 0, receives leg 1.
+        //
+        // ⚠️ `sqrtPriceX96` IS NOW UNUSED. It carried the packed band ticks for the price limit —
+        // a bound that existed because crossing the band edge cost ZERO and bricked the band
+        // (`PooledUsdRepackMatrix::testMatrix_S6`). The inventory bound below replaces it with a
+        // PHYSICAL limit, and an edge that does not exist cannot be crossed. The parameter stays
+        // only until `BasketLib.routeSwap`'s call site is updated in the same cut.
+        uint px = AUX.getTWAPforAsset(isBTC ? address(AUX.WBTC()) : address(AUX.WETH()), 1800);
+        bool usdIsLeg0 = _t1(isBTC);
+        // `forOne` receives leg 1. With `usdIsLeg0`, leg 1 is the VOLATILE side, so the user is
+        // paying USD and buying volatile ⇒ the INPUT is USD and `convert` runs toVol.
+        bool inputIsUsd = usdIsLeg0 ? forOne : !forOne;
+        out = BasketLib.convert(amount, px, inputIsUsd);
+        // BOUNDED BY WHAT WE ACTUALLY HOLD. At oracle price with no curve, nothing else stops a
+        // drain: the old traversal ran out of liquidity, this must run out of inventory. Partial
+        // fill, never a revert — `minOut` upstream is what expresses the caller's tolerance.
+        uint held = inputIsUsd
+            ? (isBTC ? POOLED_BTC : POOLED_ETH)              // paying out volatile
+            : (isBTC ? POOLED_USD_BTC : POOLED_USD_ETH);     // paying out USD
+        if (out > held) {
+            out = held;
+            amount = BasketLib.convert(out, px, !inputIsUsd);   // re-derive the input for a partial
+        }
+        Delta memory delta = forOne
+            ? Delta(-int256(amount), int256(out))
+            : Delta(int256(out), -int256(amount));
 
         // Per-pool shortfall arb. Threshold (1%) and trigger logic are
         // identical across pools; only the remediation differs. Both
