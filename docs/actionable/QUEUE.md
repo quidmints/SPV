@@ -13335,3 +13335,29 @@ BY POSITION, so the SPA changes in the same commit.
 `python3 tools/check-contract-sizes.py` FIRST (seconds; the suite structurally cannot see EIP-170),
 then `forge build && forge test` captured ONCE, then `tools/check-client-abis.py` GATING the commit.
 Baseline to beat: 4,256 passing, two known-deliberate failures.
+
+### 🔑 THE MOCK ERC20s DELETE THEMSELVES (owner: *"they don't need to be erc20 mock tokens"*)
+
+`_settleUsdSide` (`Core:1173-1195`) does `_mockUsd(isBTC).burn(usdAmount)` / `.mint(usdAmount)`
+around `usdCurrency.take/settle`. **Those mock ERC20s exist ONLY because v4 requires a pool to trade
+real ERC20 CURRENCIES.** The USD leg has no real token, so one is minted and burned purely to satisfy
+the AMM's type system.
+
+After the cut they vanish. `_settleUsdSide` keeps its accounting and loses its plumbing:
+
+```
+if (usdDelta > 0) { usdAmount = …;   DELETE usdCurrency.take(…);  DELETE _mockUsd.burn(…);
+                    if (inRange) _poolUsdInRange(…);   if (!keep && token != 0) AUX.take(…); }
+else if (…< 0)    { usdAmount = …;   DELETE _mockUsd.mint(…);     DELETE usdCurrency.settle(…);
+                    if (inRange) _poolUsdInRange(…); }
+```
+
+`_poolUsdInRange`, `AUX.take`, the 6-dec basis and the `BasketLib.from6` conversion all stay
+**verbatim** — including the §A.50/C2 asymmetry fix, which is about decimals and has nothing to do
+with v4. Surface: **13 refs in `Core`, 1 in `Vogue`, 1 in `Aux`**, plus `_mockTok` for the volatile
+side.
+
+⇒ This is the cut in miniature, and the clearest statement of it: **v4 supplied a COORDINATE SYSTEM
+(ticks/√P), a CUSTODIAN (PoolManager) and a TYPE SYSTEM (ERC20 currencies). All three leave. The
+accounting — `POOLED_*`, the 420 ppm accumulators, the flow EWMA, the observation ring, the backing
+invariant — was always ours and none of it moves.**
