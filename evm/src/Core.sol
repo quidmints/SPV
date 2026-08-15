@@ -258,20 +258,6 @@ contract Core is SafeCallback {
         _bumpEwma(isBTC ? _flowBTC : _flowETH, usd6);
     }
 
-    /// @dev The band's implied price, usd18 per 1e18 raw volatile units. `POOLED_USD_*` is 6-dec and
-    ///      `POOLED_*` is raw (1e18 ETH / 1e8 sats), so the ×1e12 lifts usd6→usd18 and the ratio
-
-    /// @dev Trapezoid mark-to-market on the inventory HELD across the interval since the last swap.
-    ///      Accrues into a DECAYING SUM, so it is path-independent by construction — unlike σ², which
-
-    /// @notice The realized adverse-selection register (6-dec USD, decayed). Phase-1 measurement
-    ///         surface: read it alongside `realizedVarianceWad` to compare the two inputs.
-    /// @notice NET realized adverse selection (6-dec USD, decayed): losses minus gains. Floors at 0
-    ///         — a band that is net AHEAD has suffered no adverse selection to charge for.
-    ///         ⚠️ STILL GROSS OF EARNINGS: the swapper's OWN price impact is not an uncompensated
-    ///         loss (they paid for it through the fee and the skew), so the consumer must net this
-    ///         against `_bandFeeYieldWad` before using it as a steepness input
-
 
     /// @notice This pool's decayed swap-flow EWMA (6-dec USD) — the adaptive
     ///         normal-flow buffer the skew target is built on. Pure decay of the stored
