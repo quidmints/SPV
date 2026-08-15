@@ -346,7 +346,7 @@ async fn lp_onboard(
     // the open should carry a cost of its own, or whether the token suffices because the app is
     // the only client.
     let f = LpFunding { lp_eth, btc_recipient, desired_sats: req.desired_sats, payout_mode };
-    let addr = register_lp(&ob.vault.registry, &ob.vault.node, f).map_err(|e| {
+    let addr = register_lp(&ob.vault.registry, &ob.vault.node, f).await.map_err(|e| {
         warn!(%lp_eth, error = %e, "lp onboard refused");
         (StatusCode::FORBIDDEN, format!("{e}"))
     })?;

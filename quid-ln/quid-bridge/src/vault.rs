@@ -124,6 +124,25 @@ pub struct LpConsent {
     pub exits: Vec<quid_hop::evm_codec::ExitArming>,
 }
 
+/// How many blocks an unfunded onboard stays POLLED. ~1 day: generous for a human who
+/// onboards and then goes to fund, and short enough that the poll set reflects recent
+/// activity rather than every onboard since boot.
+///
+/// ⚠️ This bounds WORK, never a user's ability to onboard. Nothing is refused at any count —
+/// a cap or a rate limit would refuse a real LP to punish a fake one, which is the shape this
+/// deliberately avoids. What it removes is the AMPLIFICATION: one request used to buy
+/// unbounded polling; it now buys at most `WATCH_WINDOW_BLOCKS` worth.
+pub const WATCH_WINDOW_BLOCKS: u32 = 144;
+
+/// One watched deposit address: the LP's funding intent, plus the height past which the
+/// orchestrator stops POLLING it. Expiry never removes the entry — see `by_deposit_addr`.
+#[derive(Clone, Debug)]
+struct Watch {
+    funding: LpFunding,
+    /// Poll while `tip <= armed_until`. Re-armed by a repeat `/lp/onboard` for the same lpEth.
+    armed_until: u32,
+}
+
 #[derive(Default)]
 pub struct VaultRegistry {
     /// `funding_txid_hex:vout` → lpEth (for drive_open).
@@ -141,8 +160,24 @@ pub struct VaultRegistry {
     /// ⚠️ Same lifecycle as `by_funding`: only IN-FLIGHT opens, dropped once mirrored
     /// on-chain, so it cannot grow without bound over the daemon's lifetime.
     consent: Mutex<HashMap<String, LpConsent>>,
-    /// vault deposit address string → (lpEth, btcRecipient x-only key, desired sats).
-    by_deposit_addr: Mutex<HashMap<String, LpFunding>>,
+    /// vault deposit address string → the LP's funding intent + how long to keep POLLING it.
+    ///
+    /// 🔑 **THE ENTRY IS PERMANENT; THE POLLING IS NOT — and that split is the whole fix.**
+    /// Every entry here costs ONE esplora `scripthash_txs` call per orchestrator tick
+    /// (`run_vault_open_orchestrator` PHASE A), and before [`Watch::armed_until`] existed an
+    /// entry was removed ONLY when its open actually started. So an onboard that was never
+    /// funded polled **forever**: one free `/lp/onboard` request bought unbounded work.
+    ///
+    /// ⚠️ **That was a leak with NO adversary involved** — every LP who abandons onboarding
+    /// left a permanent poll — which is why this is a root fix and not an anti-abuse clamp.
+    /// The field directly above already states the property this one was missing: *"only
+    /// IN-FLIGHT opens … so it cannot grow without bound over the daemon's lifetime."*
+    ///
+    /// Expiring the WATCH while KEEPING the entry is what makes it safe: `deposit_addr_of`
+    /// still returns the same address for an lpEth forever, so a re-onboard re-arms the SAME
+    /// address rather than allocating a new one, and a late deposit can never be orphaned on
+    /// an address the vault has forgotten.
+    by_deposit_addr: Mutex<HashMap<String, Watch>>,
     /// `user_channel_id → lpEth` for opens in flight (create_channel called, funding
     /// outpoint not yet generated) — bridged to `by_funding` once LDK reveals the txo.
     opening: Mutex<HashMap<u128, Address>>,
@@ -266,14 +301,33 @@ impl VaultRegistry {
     }
 
     /// Record an LP's funding intent against the vault deposit address it was given.
-    pub fn register_deposit(&self, deposit_addr: String, f: LpFunding) {
-        self.by_deposit_addr.lock().unwrap().insert(deposit_addr, f);
+    /// Register (or RE-ARM) a watched deposit address. `tip` is the current chain height;
+    /// polling runs until `tip + WATCH_WINDOW_BLOCKS`. Re-arming an existing address is how a
+    /// repeat `/lp/onboard` resumes a watch that lapsed, WITHOUT allocating a new address.
+    pub fn register_deposit(&self, deposit_addr: String, f: LpFunding, tip: u32) {
+        self.by_deposit_addr.lock().unwrap().insert(
+            deposit_addr,
+            Watch { funding: f, armed_until: tip.saturating_add(WATCH_WINDOW_BLOCKS) },
+        );
+    }
+
+    /// Re-arm an address the vault already knows, keeping its stored funding intent.
+    /// Returns false if the address is unknown (nothing to re-arm).
+    pub fn rearm_deposit(&self, deposit_addr: &str, tip: u32) -> bool {
+        let mut m = self.by_deposit_addr.lock().unwrap();
+        match m.get_mut(deposit_addr) {
+            Some(w) => {
+                w.armed_until = tip.saturating_add(WATCH_WINDOW_BLOCKS);
+                true
+            }
+            None => false,
+        }
     }
 
     /// Look up the funding intent for a deposit address (the orchestrator matches a
     /// confirmed UTXO's address to its LP).
     pub fn funding_for_addr(&self, deposit_addr: &str) -> Option<LpFunding> {
-        self.by_deposit_addr.lock().unwrap().get(deposit_addr).cloned()
+        self.by_deposit_addr.lock().unwrap().get(deposit_addr).map(|w| w.funding.clone())
     }
 
     /// The existing watched deposit address for `lp_eth`, if any (idempotency: one
@@ -283,7 +337,7 @@ impl VaultRegistry {
             .lock()
             .unwrap()
             .iter()
-            .find(|(_, f)| f.lp_eth == lp_eth)
+            .find(|(_, w)| w.funding.lp_eth == lp_eth)
             .map(|(a, _)| a.clone())
     }
 
@@ -352,12 +406,19 @@ impl VaultRegistry {
     }
 
     /// Snapshot the pending (not-yet-opened) deposit intents for the orchestrator scan.
-    fn pending(&self) -> Vec<(String, LpFunding)> {
+    /// The addresses the orchestrator should SCAN this tick: those still armed at `tip`.
+    ///
+    /// Expired entries stay in the map on purpose — `deposit_addr_of` must keep resolving an
+    /// lpEth to the SAME address forever, so a late deposit is never stranded on an address
+    /// the vault has forgotten. A repeat `/lp/onboard` re-arms it and the deposit is picked up
+    /// on the next tick.
+    fn pending(&self, tip: u32) -> Vec<(String, LpFunding)> {
         self.by_deposit_addr
             .lock()
             .unwrap()
             .iter()
-            .map(|(a, f)| (a.clone(), f.clone()))
+            .filter(|(_, w)| w.armed_until >= tip)
+            .map(|(a, w)| (a.clone(), w.funding.clone()))
             .collect()
     }
 
@@ -391,22 +452,37 @@ impl VaultRegistry {
 /// passes the on-chain `_authorizedHop` gate, so gas is still spent per identity and the
 /// watch set still cannot grow for free. That gate is the real one and always was; this was
 /// a pre-check that, once delegation moved into the open, had nothing left to discriminate.
-pub fn register_lp(
+pub async fn register_lp(
     registry: &VaultRegistry,
     vault: &HopNode,
     f: LpFunding,
 ) -> anyhow::Result<bitcoin::Address> {
-    // IDEMPOTENT PER lpEth: one watched deposit address per identity. If this lpEth is
-    // already being watched, return its existing address — so a single (gas-paid) LP
-    // cannot inflate the watch set by re-onboarding. Bounds the watch set to DISTINCT
-    // delegated lpEths (each of which cost gas), never per-request.
+    // The arming height. One esplora call per onboard, which is the same order as the work
+    // the request already does, and it is what bounds the watch this creates.
+    let tip = vault
+        .esplora
+        .client()
+        .get_height()
+        .await
+        .context("chain tip for deposit watch window")?;
+
+    // IDEMPOTENT PER lpEth: one deposit address per identity, FOREVER. If this lpEth is
+    // already known, return its existing address and RE-ARM it.
+    //
+    // 🔑 Re-arming rather than re-allocating is what makes watch expiry safe. An LP who
+    // onboards, wanders off past `WATCH_WINDOW_BLOCKS`, then funds anyway has sent coins to
+    // an address the vault still owns and still recognises — it merely stopped polling it.
+    // One repeat `/lp/onboard` resumes the watch on the SAME address and the next tick picks
+    // the deposit up. Handing out a NEW address here would be the bug that version could not
+    // recover from: the old address would hold real BTC that nothing was looking for.
     if let Some(existing) = registry.deposit_addr_of(f.lp_eth) {
+        registry.rearm_deposit(&existing, tip);
         return Ok(bitcoin::Address::<bitcoin::address::NetworkUnchecked>::from_str(&existing)
             .context("stored deposit address")?
             .assume_checked());
     }
     let addr = vault.wallet.get_address();
-    registry.register_deposit(addr.to_string(), f);
+    registry.register_deposit(addr.to_string(), f, tip);
     Ok(addr)
 }
 
@@ -755,7 +831,7 @@ pub async fn run_vault_open_orchestrator(
             }
         };
         // PHASE A — scan each watched deposit address; open on a confirmed, sized deposit.
-        for (addr_str, f) in vault.registry.pending() {
+        for (addr_str, f) in vault.registry.pending(tip) {
             let addr = match bitcoin::Address::<bitcoin::address::NetworkUnchecked>::from_str(&addr_str) {
                 Ok(a) => a.assume_checked(),
                 Err(_) => continue,
@@ -826,6 +902,84 @@ pub async fn run_vault_open_orchestrator(
             &capacity_active,
         )
         .await;
+    }
+}
+
+#[cfg(test)]
+mod watch_window_tests {
+    use super::{LpFunding, PayoutMode, VaultRegistry, WATCH_WINDOW_BLOCKS};
+    use alloy_primitives::Address;
+
+    fn funding(byte: u8) -> LpFunding {
+        LpFunding {
+            lp_eth: Address::repeat_byte(byte),
+            btc_recipient: [byte; 32],
+            desired_sats: 100_000,
+            payout_mode: PayoutMode::Invoice,
+        }
+    }
+
+    /// The bound itself: an onboard that is never funded stops costing an esplora call per
+    /// tick. Before the watch window, `pending` returned it forever, so ONE free request
+    /// bought unbounded polling.
+    #[test]
+    fn an_unfunded_watch_stops_being_polled_after_the_window() {
+        let r = VaultRegistry::new();
+        r.register_deposit("addr-1".into(), funding(1), 1_000);
+
+        assert_eq!(r.pending(1_000).len(), 1, "armed at the height it was registered");
+        assert_eq!(
+            r.pending(1_000 + WATCH_WINDOW_BLOCKS).len(),
+            1,
+            "still armed on the last block of the window (inclusive bound)"
+        );
+        assert_eq!(
+            r.pending(1_000 + WATCH_WINDOW_BLOCKS + 1).len(),
+            0,
+            "past the window it must no longer be polled — this is the whole point"
+        );
+    }
+
+    /// 🔑 THE SAFETY PROPERTY, and the reason expiry is not deletion.
+    ///
+    /// A lapsed watch must still resolve its lpEth to the SAME address. An LP who funds late
+    /// has sent real BTC to an address the vault owns; if expiry had removed the entry, the
+    /// next `/lp/onboard` would hand out a NEW address and those coins would sit where
+    /// nothing is looking. This test fails if anyone "simplifies" expiry into a remove.
+    #[test]
+    fn an_expired_watch_keeps_its_address_and_can_be_rearmed() {
+        let r = VaultRegistry::new();
+        let f = funding(2);
+        r.register_deposit("addr-2".into(), f.clone(), 1_000);
+        let expired_at = 1_000 + WATCH_WINDOW_BLOCKS + 1;
+        assert_eq!(r.pending(expired_at).len(), 0, "precondition: the watch has lapsed");
+
+        assert_eq!(
+            r.deposit_addr_of(f.lp_eth).as_deref(),
+            Some("addr-2"),
+            "a lapsed watch must STILL resolve to the same address — otherwise a late \
+             deposit is stranded on an address the vault no longer hands out"
+        );
+
+        assert!(r.rearm_deposit("addr-2", expired_at), "re-arming a known address succeeds");
+        assert_eq!(
+            r.pending(expired_at).len(),
+            1,
+            "re-onboarding resumes the watch on the SAME address, so the late deposit is seen"
+        );
+        assert!(!r.rearm_deposit("addr-unknown", expired_at), "unknown address cannot be re-armed");
+    }
+
+    /// Re-arming must not fork the identity: one lpEth keeps exactly one address.
+    #[test]
+    fn rearming_never_allocates_a_second_address_for_one_lp() {
+        let r = VaultRegistry::new();
+        let f = funding(3);
+        r.register_deposit("addr-3".into(), f.clone(), 1_000);
+        r.rearm_deposit("addr-3", 2_000);
+        r.rearm_deposit("addr-3", 3_000);
+        assert_eq!(r.pending(3_000).len(), 1, "still exactly one watched address");
+        assert_eq!(r.deposit_addr_of(f.lp_eth).as_deref(), Some("addr-3"));
     }
 }
 
