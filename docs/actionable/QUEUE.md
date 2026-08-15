@@ -13280,3 +13280,58 @@ Exactly the separation the cut rests on:
 ⇒ The accounting was never the hard part. **`POOLED_*`, the accumulators and the conservation
 obligation are all ours already** — v4 supplied the coordinate system and the custody, and those are
 the only two things being removed.
+
+## 📋 THE ATOMIC COMMIT — EXECUTABLE SPEC (everything below is measured, not assumed)
+
+**Why atomic:** `_handleSwap` takes/settles through the `PoolManager` (`CurrencySettler`), so the
+swap path cannot move before custody does; and the five other actions describe a tick range that
+stops existing the moment custody moves. There is no working intermediate. **"Fresh deploy, nothing
+is live" is what makes that acceptable — if that premise expires, this needs a migration plan.**
+
+**BUILT AND TESTED ALREADY (worktree `SPV-v4cut`):** `FixedRateFill.sol` (quote, three-way split with
+the OOR case forced, true-up, enforced estimate floor) and `BatchLedger.sol` (batch lifecycle,
+pull-based claims, permissionless anti-stranding refund). 16/16 green.
+
+### File by file
+
+**`Core.sol`** (1,361 lines; ~600 are the v4 surface — expect a large size REDUCTION, currently 551 margin)
+- DELETE: `enum Action` (12 members), `_unlockCallback` dispatch (`:860-881`), the six handler bodies,
+  the six `poolManager.unlock` wrappers (`:700,712,731,813,832,853`), `_modifyLiquidity` (`:1279`),
+  `_bandEdgeLimit`, `_key`, `poolTicks`, the `CurrencySettler`/`BalanceDelta`/`StateLibrary`/
+  `TransientStateLibrary`/`PoolKey`/`PoolId`/`IHooks`/`Currency` imports, and `SafeCallback`.
+- KEEP UNTOUCHED: `POOLED_*`, the shortfall-arb block after `out = …` in `swap`, the 420 ppm
+  accumulators, `_obs`/`_obsState`, `observe`, `ringVariance`.
+- REWRITE `swap()`: replace ONLY the leading `poolManager.unlock(...)`/`BalanceDelta` decode with a
+  `FixedRateFill` settlement producing `out`. **Everything after `out = …` is v4-independent and
+  stays verbatim.**
+- REWRITE `_writeObservation` (`:1341`): `poolManager.getSlot0(pool)` → the price the fill computes.
+  Drop the `BasketLib.getPrice` sqrt-conversion. **The code already anticipates this** (`:1337`:
+  *"stays until the PM is ours"*). `observe` and all ~54 `getTWAPforAsset` sites are untouched.
+- CUSTODY: `Core` (or `Aux`) now HOLDS the two balances. `POOLED_*` stops being a mirror of a v4
+  position and becomes the ledger of what we hold.
+
+**`Aux.sol`** (1,321 bytes margin) — drop `SafeCallback` + `_unlockCallback` + the `IPoolManager`
+import. **`FullMath` STAYS** (pure arithmetic, no AMM semantics). Fold `BatchLedger` in here
+afterwards, using the room `SafeCallback` frees.
+
+**`SOR.sol`** — DELETE (372 lines). It IS the v4 flash-accounting router; the lev legs already left
+for Curve in `084bc5c`, so every remaining caller is the band's AMM.
+
+**`OracleLib.sol`** — drop `IPoolManager`/`StateLibrary`/`PoolKey`/`PoolId`/`IHooks`/`Currency` and
+`prepRefs` (setup-time seeding only). Keep `FullMath`. `writeObservation`/`observe` unchanged.
+
+**`BasketLib` `SwapLib` `VogueLib` `LevMath` `Vogue`** — drop `TickMath`/`LiquidityAmounts` with the
+tick deletion. **Keep `FullMath`.** `BasketLib.routeSwap`'s `Core.swap` call is unchanged in SHAPE.
+
+**`ChannelLib` `FeeLib` `ShareMath` `VaultLib`** — **NO CHANGE.** They import `FullMath` only.
+`MuSig2Agg` — **NO CHANGE**, it imports nothing from v4 (file-level grep false positive).
+
+### Then, and only then
+`isBTC` (345 in `src`, 9 in `test`) collapses — the six actions became one primitive, so there is
+nothing left for it to select. `Types.Pos`'s sqrtP field goes; it is an ABI-visible 6-tuple decoded
+BY POSITION, so the SPA changes in the same commit.
+
+### Gate
+`python3 tools/check-contract-sizes.py` FIRST (seconds; the suite structurally cannot see EIP-170),
+then `forge build && forge test` captured ONCE, then `tools/check-client-abis.py` GATING the commit.
+Baseline to beat: 4,256 passing, two known-deliberate failures.
