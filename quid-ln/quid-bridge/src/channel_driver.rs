@@ -1223,18 +1223,25 @@ async fn maybe_flush_btc_fees<R: JsonRpc + Send + Sync + 'static>(
     let lp = state.lp_eth;
     let mut arg = [0u8; 32];
     arg[12..].copy_from_slice(lp.as_slice());
-    let owed = {
-        let rpc = rpc.clone();
-        match tokio::task::spawn_blocking(move || {
-            crate::client::eth_call_raw(&*rpc, vault, "btcFeesOwedSats(address)", Some(&arg))
-                .and_then(|b| crate::client::word_to_uint::<u64>(&b, "btcFeesOwedSats exceeds u64"))
-        })
-        .await
-        {
-            Ok(Ok(v)) => v,
-            _ => return, // read blip → try again next pass
-        }
-    };
+    // (E145/E191) THERE IS NO OWED LEDGER ANY MORE, so nothing is ever pending a flush.
+    // `974b6d8` made the BTC fee leg COMPOUND INTO THE POSITION in sats; `a67e2d8` deleted the
+    // owed ledger "and everything that existed to settle it"; `5e16492` deleted `feeSettleSats`.
+    // This function used to read `btcFeesOwedSats(address)` — a selector no contract implements
+    // since then, so the call ALWAYS failed and fell through `_ => return, // read blip → try
+    // again next pass`. ⚠️ THAT COMMENT WAS THE BUG: it dressed a PERMANENT failure as a
+    // TRANSIENT one, so a path that had not run since E191 looked healthy in every log.
+    //
+    // The path is DELIBERATELY KEPT rather than deleted. Routing fees do not reach it today —
+    // they are never observed upstream (no `PaymentForwarded` handling anywhere in the tree) —
+    // but if routing revenue is ever credited, THIS is its natural landing site: the
+    // economic-grow floor and the funding-cap bound below are exactly what such a path needs and
+    // are already written and reviewed. Deleting them would make "unobserved by design or by
+    // omission?" more expensive to answer, and that question is still open.
+    let owed: u64 = 0;
+    // `rpc` and `vault` are RETAINED, not stale: they are precisely what a repointed read of
+    // compounded sats would need, and dropping them from the signature is the edit that would
+    // make reinstating this path expensive.
+    let _ = (&rpc, &vault);
     // Batch small fees: only splice once the owed clears the economic-grow floor.
     if owed < MIN_ECONOMIC_GROW_SATS {
         return;
