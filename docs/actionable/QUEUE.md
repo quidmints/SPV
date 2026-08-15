@@ -98,6 +98,28 @@ passthrough is not mistaken for having closed it.**
 not less** — and `SwapLib.clampByBacking`'s physical `backing − pooled` headroom is what actually bounds it
 (audit #8). **That is the guard to re-verify once σ² leaves pricing, because it becomes the only one left.**
 
+## 📐 A RECURRING FAILURE CLASS, THIRD INSTANCE IN A WEEK ACROSS TWO THREADS — **BOTH ARMS OF A CONTROL MUST BRACKET THE SAME SCOPE (2026-08-16, raised jointly with `spv-a0`).**
+**A control does not make a comparison valid.** In every instance the NUMBERS were right; what differed
+was the SCOPE each arm measured, so the gap was an artifact of the instrument and read as a defect.
+| instance | the measurement | what it actually bracketed |
+|---|---|---|
+| §LP-LEAK (this thread) | `_lpValueUsd` values only what LEAVES a redeem | control redeemed FULLY (2 wei left), treatment PARTIALLY (**31.833 shares retained**) — a partial settlement read as lost value |
+| §UNIT-B (this thread) | a guard denominated in **notional** | could not structurally see a defect denominated in **skew** (§MATCH-THE-DENOMINATOR) |
+| signer policy (`spv-a0`) | a test asserting a selector was gated | would have PASSED FOR THE WRONG REASON once that selector stopped being allowlisted |
+✅ **THE CHECK THAT CATCHES ALL THREE: log what each arm CONSUMED and its END STATE, not only the delta
+under test.** In the LP case one line — `V4.balanceOf(lp)` after the redeem — settled what three
+mechanism hypotheses could not. **Anywhere an operation can settle PARTIALLY (burn-exact, capacity-gated,
+deferred), the arm that partially settled retains value the measurement does not see.**
+✅ **AND LEAVE THE TEST RED RATHER THAN ADJUST AN ASSERTION WHOSE PREMISE WAS JUST FALSIFIED** — a passing
+assertion under a refuted premise LOOKS SETTLED, which is worse than a red one. (`spv-a0` independently:
+they left an e2e harness failing at a consent check rather than delete the check.)
+🔴 **AND THE CROSS-THREAD HALF, WHICH IS THE PART MOST LIKELY TO BE LOST — `spv-a0`, against their own row:
+*"I moved it twice on your reports without running anything myself… my repeating a measurement is not a
+second confirmation of it."*** ⇒ **TWO THREADS AGREEING IS ONE MEASUREMENT WITH TWO OWNERS.** A row that
+travels between threads accumulates citations, not evidence. **If it will drive a decision, whoever decides
+re-runs it.** This row exists because a promotion from "possible drift" to "confirmed defect" happened on
+exactly that basis, and was wrong.
+
 ## ✅ THE 0.63% PASSIVE-LP LEAK IS A TEST ARTIFACT, NOT A DEFECT — **THE TEST COMPARES A FULL REDEMPTION AGAINST A PARTIAL ONE (owner asked "check which", 2026-08-16).**
 The fork below asked whether the 7.90% conversion haircut was a correct solvency mark-down (basket short)
 or a mint-path defect. **It is NEITHER. Both branches were wrong because the premise was.**
