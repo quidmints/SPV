@@ -39,7 +39,7 @@ use quid_hop::swap::swap_in_floor_usd;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
-use crate::client::{eth_call_bool, eth_call_raw};
+use crate::client::eth_call_raw;
 use crate::daemon::DaemonRpc;
 use crate::swap_in_onchain::{OnchainSwapIn, SwapInRegistry};
 use crate::vault::{register_lp, LpFunding, PayoutMode, VaultNode};
@@ -311,11 +311,19 @@ async fn lp_onboard(
     // register its delegation on-chain (`delegationVersion[lpEth] > 0`). One lying RPC
     // can't forge a false positive into a real open (the open still requires the LP's
     // funds + the on-chain `_authorizedHop` gate); a false negative just refuses a real
-    // LP, who retries. `eth_call_bool` = any nonzero byte in the uint64 word ⇒ true.
-    let mut arg = [0u8; 32];
-    arg[12..].copy_from_slice(lp_eth.as_slice());
-    let delegated = eth_call_bool(&ob.rpc, ob.btc_channels, "delegationVersion(address)", Some(&arg))
-        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("delegationVersion read: {e}")))?;
+    // LP, who retries.
+    // (E157) `delegationVersion(address)` NO LONGER EXISTS: `e0fed54` folded delegation INTO THE
+    // OPEN — "the registration tx goes" — so there is no separate registration to read a version
+    // from. This call was still being made against the deleted selector, which means the eth_call
+    // failed and this `?` returned BAD_GATEWAY: LP registration was BROKEN, not merely stale. The
+    // ORPHAN check on the Rust side is what surfaced it.
+    //
+    // `true` is the safe value here, and by the ARGUMENT THIS SITE ALREADY MADE (above): a false
+    // positive "can't forge a false positive into a real open (the open still requires the LP's
+    // funds + the on-chain `_authorizedHop` gate)", whereas a false negative "just refuses a real
+    // LP". Post-E157 an LP that has opened is delegated BY CONSTRUCTION, so the pre-check has
+    // nothing left to discriminate — the on-chain gate is the real one and always was.
+    let delegated = true;
 
     let f = LpFunding { lp_eth, btc_recipient, desired_sats: req.desired_sats, payout_mode };
     let addr = register_lp(&ob.vault.registry, &ob.vault.node, delegated, f).map_err(|e| {
