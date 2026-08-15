@@ -7,11 +7,28 @@ import {ILevVenue, IERC20Min} from "./ILevVenue.sol";
 
 /// Minimal ERC20 surface shared by both weETH lending-venue adapters.
 
-/// @title  LevVenueBase — shared scaffolding for the per-LP-isolated weETH lending adapters
-/// @notice `MorphoEscrowVenue` and `AaveV3Venue` differ ONLY in the venue's isolation mechanism (Morpho
-///         `onBehalf` vs a per-LP escrow) and their borrow/repay/withdraw calls. Everything else — the
-///         `MANAGER`-only auth, the reentrancy guard, the `stable()` accessor, the custody convention — is
-///         identical and lives here. (`SorExchange` is NOT unified in: it's the adapter for a SEPARATE,
+/// @title  LevVenueBase — shared scaffolding for the per-LP-isolated lending adapters
+/// @notice What is ACTUALLY shared lives here and is small: the `MANAGER`-only auth, the reentrancy
+///         guard, the `stable()` accessor and the custody convention.
+///
+/// ⚠️ THIS HEADER USED TO SAY THE TWO ADAPTERS "differ ONLY in the venue's isolation mechanism".
+///    TRUE, AND MISLEADING — measured 2026-08-15. The isolation mechanism IS THE BODY OF EVERY
+///    FUNCTION, so they share a six-function SHAPE and NO CODE:
+///      • `supply`  — Morpho: `approve` + `supplyCollateral(_params(), amt, lp, "")`, `onBehalf = lp`.
+///                    Aave:   lazily `new AaveV3Escrow(...)`, transfer to it, `e.supplyColl(amt)`.
+///      • `borrow`  — Morpho: `isAuthorized(lp, this)` then debit the LP directly.
+///                    Aave:   route through the per-LP escrow handle.
+///    ⇒ Hoisting them into an abstract with six abstract members SAVES ZERO BYTECODE. Do not read
+///    this file as evidence that a dedup is available; it was read that way once and the dedup was
+///    refused on measurement (task #48). Nor is `AaveV3Venue` deletable in favour of a Morpho WBTC
+///    market: `DeployL1_s.sol:93` keeps it on a DEPTH measurement (deepest WBTC/USDC book), which is
+///    a REAL asymmetry, not drift.
+///
+///         (`SorExchange` is NOT unified in either, for a DIFFERENT and stronger reason: it is the
+///         adapter for a SEPARATE, LIVE product — the optional Liquity-V2 ~10x directional long (BOLD
+///         into the Stability Pool, or WETH into the venues), still wired in the UI. Different
+///         protocol + BOLD/WETH collateral, so it cannot be a weETH `ILevVenue`. ⛔ A DISTINCT
+///         PRODUCT, NOT A DEPRECATED PATH — do not delete it as an unmerged straggler.) (`SorExchange` is NOT unified in: it's the adapter for a SEPARATE,
 ///         live product — the optional Liquity-V2 ~10x directional long (BOLD into the Stability Pool, or
 ///         WETH into the venues), still wired in the UI. Different protocol + BOLD/WETH collateral, so it
 ///         can't be a weETH `ILevVenue` — a distinct product, NOT a deprecated path.)
