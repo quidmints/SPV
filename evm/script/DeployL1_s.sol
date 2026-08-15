@@ -528,13 +528,36 @@ contract Deploy is Script {
         // to be configuration. Morpho is the BTC lev venue; Aave V3 remains for the WBTC fallback below.
         address pin = mvB;
         require(pin != address(0), "BTC lev venue not deployed");
-        // WBTC-FALLBACK venue (#106/#81/#74): a REAL Aave v3 {collateral: WBTC, debt: USDC} escrow — the deepest
-        // WBTC book, so the SPA routes sizeable positions here. The keeper's atomic `rebalanceWbtc` folds up /
-        // flash-repay-first de-levers it fully on-chain (no channel-vBTC, no acquirer). Allowlisted ALONGSIDE the
-        // native vBTC venue — `openBtcLev` branches on the venue's COLLATERAL() (WBTC ⇒ LP brings external WBTC).
+        // WBTC-FALLBACK venue (#106/#81/#74): a REAL Aave v3 {collateral: WBTC, debt: <stable>} escrow — the
+        // deepest WBTC book, so the SPA routes sizeable positions here. The keeper's atomic `rebalanceWbtc` folds
+        // up / flash-repay-first de-levers it fully on-chain (no channel-vBTC, no acquirer). Allowlisted ALONGSIDE
+        // the native vBTC venue — `openBtcLev` branches on the venue's COLLATERAL() (WBTC ⇒ LP brings external WBTC).
+        //
+        // 🔴 THE DEBT ASSET IS A DEPLOY-SITE CHOICE, NOT A CONTRACT LIMIT. It was hardcoded to USDC while the ETH
+        // leg was deliberately moved OFF USDC for depth ("dont even borrow usdc, too thin" — owner). Borrowable
+        // depth is IDLE liquidity (supply − borrow), not headline supply, and utilisation runs ~90% here.
+        // `AaveV3Venue` already takes `stable` as a constructor argument, so the pin was never structural.
+        //
+        // ⚠️ DIVERSITY ACROSS THE TWO LEGS IS A **LIVENESS** PROPERTY, NOT A COST OPTIMISATION. De-levers are
+        // CORRELATED — whatever forces the BTC leg to unwind forces the ETH leg too — so the legs contend
+        // precisely in the tail, the only time it matters. If both legs depend on the SAME stable's depth:
+        //   • routed through Curve, both sell into one pool and each worsens the other's fill until
+        //     MAX_SLIPPAGE_BPS (100) REVERTS the second — and a de-lever that reverts leaves LTV high, so the
+        //     anti-MEV guard becomes a liquidation trigger under stress;
+        //   • routed through basket inventory (task #47), the second arrival finds insufficient USDC and cannot
+        //     repay AT ALL — a hard stop, not slippage.
+        // ⇒ DO NOT "fix" this by selecting cheapest-or-least-utilised per leg: that is a SHARED SIGNAL, so both
+        // legs converge on the SAME stable, hardest exactly when spreads move. The pin must be replaced by a rule
+        // that HOLDS THE LEGS APART, not by an independent optimiser. Tasks #47/#48.
+        //
+        // Env-overridable so the choice is a deploy decision rather than a recompile. Default stays USDC because
+        // an Aave v3 RLUSD/PYUSD borrow market has NOT been verified to exist with real idle depth — changing the
+        // default without that measurement would trade a known-thin market for an unknown-or-absent one.
+        address wbtcDebt = vm.envOr("AAVE_V3_WBTC_DEBT", address(USDC));
+        require(wbtcDebt != address(0), "wbtc venue: debt asset unset");
         address wbtcV = address(new AaveV3Venue(
             aaveV3Pool, IAaveV3AddrProvider(aaveV3AddrProvider).getPoolDataProvider(),
-            address(WBTC), address(USDC), address(bm), vm.envOr("AAVE_V3_WBTC_LT_BPS", uint256(7800))));
+            address(WBTC), wbtcDebt, address(bm), vm.envOr("AAVE_V3_WBTC_LT_BPS", uint256(7800))));
         address[] memory vsB = new address[](2); vsB[0] = pin; vsB[1] = wbtcV;
         bm.init(address(ETH), morpho, vsB);                // atomic pin-once: hook + Morpho flash provider + venue allowlist, FROZEN
         ETH.setLevManagerBTC(address(bm));                 // BACKING: vogueBTC counts the BTC lev book
