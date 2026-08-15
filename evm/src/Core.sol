@@ -1363,6 +1363,20 @@ contract Core is SafeCallback {
         // buys volatile ⇒ the INPUT is USD and `convert` runs toVol.
         bool inputIsUsd = _t1(isBTC) ? forOne : !forOne;
         out = BasketLib.convert(amount, px, inputIsUsd);
+        // 🔴 FIRM QUOTE (owner) — THE IMBALANCE CHARGE IS IN THE PRICE, NOT TRUED UP AFTERWARDS.
+        // We feed 1inch / Khalani, so the counterparty is a SOLVER that has ALREADY committed a
+        // price to its end user. There is nobody to bill later and no relationship to bill through,
+        // so a quote adjustable after the fact is unusable in a route. That killed estimate-plus-
+        // true-up and `BatchLedger` with it — a contract DELETED, not added.
+        // ⚠️ THIS IS NOT THE SPREAD THAT WAS REMOVED. The skew was rejected as compensation paid to
+        // arbitrageurs we do not need, and that reasoning still holds — we restore 1:1 ourselves.
+        // What is charged here is OUR COST OF DOING THE TRADE, recovered on a price we commit to.
+        // Same formula, different economic role.
+        // DRAIN vs FILL: buying volatile drains the scarce side (`wellSkew`, A&S pole — you CAN run
+        // out); selling into us grows inventory (`sellSkew`, linear — you cannot run out of surplus).
+        out -= (out * (inputIsUsd
+            ? SwapLib.wellSkew(address(this), px, isBTC, amount)
+            : SwapLib.sellSkew(address(this), px, isBTC, amount))) / 1e18;
         // THE 420 PPM, CHARGED HERE BECAUSE v4 WAS CHARGING IT. `OracleLib:180` set `k.fee = 420` as
         // the POOL TIER; v4 collected it and `Collect` harvested it into `feesPerShare`/`USD_FEES`.
         // Deleting v4 deletes the collector, so without this the fill charges NOTHING: the LP fee
