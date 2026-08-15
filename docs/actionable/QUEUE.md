@@ -98,6 +98,30 @@ passthrough is not mistaken for having closed it.**
 not less** — and `SwapLib.clampByBacking`'s physical `backing − pooled` headroom is what actually bounds it
 (audit #8). **That is the guard to re-verify once σ² leaves pricing, because it becomes the only one left.**
 
+## ⛔ CORRECTION TO MY OWN GRIND BOUND — **IT IS THE *CREDITED* FEE, NOT THE CHARGED FEE (2026-08-16, prompted by `spv-2d`'s finding).**
+✅ **THEIR FINDING, VERIFIED: THE 420 ppm IS v4's POOL FEE TIER, NOT A FEE WE CHARGE.** `OracleLib:180` sets
+`k.fee = 420` on the PoolKey; v4 collects it; `_handleCollect` harvests `feesAccrued` into
+`feesPerShare`/`USD_FEES`. **`Aux.swapFeePpm()`'s own docblock says so** — *"(V4 pool tier…) Mirrors the pool
+tier set in Core's pool key"* — **and I quoted that function all day without registering it.**
+⇒ **DELETING v4 DELETES THE FEE MECHANISM, not its size — its existence.**
+⛔ **AND MY BOUND `w >= 1 − fee/C` IS WRONG AS WRITTEN. The fee term must be the fee CREDITED TO WHOEVER BEARS
+THE RESTORATION COST, not the fee charged.** Re-deriving the round trip for the bearing party:
+    that party pays 2·C, and receives 2·fee ONLY IF the fee is credited to them
+    non-abusable ⇔ fee_credited + C(w − 1) >= 0  ⇒  **w >= 1 − fee_credited / C**
+🔴 **THIS MATTERS RIGHT NOW because `spv-2d` has landed the CHARGE (`out -= out*420/1e6`) and explicitly NOT
+the credit, flagging it as the §E107 shape (the fee sits in band inventory as backing — visible to LPs, never
+claimable). Under charge-without-credit `fee_credited = 0`, so the floor is `w >= 1` — THE SWAPPER MUST BEAR
+100% — even though the swapper is already being charged.** The charged fee offsets nothing for the party
+actually being ground. **Charging and crediting are not two halves of one task here; the CREDIT is the half
+the bound depends on.**
+⚠️ **A SECOND, CLIENT-FACING HAZARD: `swapFeePpm()` IS `pure` AND RETURNS A HARDCODED 420.** After the cut it
+will keep reporting a fee nobody collects, to exactly the RFQ makers and solvers its docblock says
+reconstruct the fill from it. **Signature unchanged, units unchanged, value wrong — invisible to
+`check-client-abis.py`, and the same shape as the SPA tick/price break (§58cd041c).**
+📌 **AND THE GENERAL FORM, WHICH IS THE PART TO KEEP: a bound whose terms accrue to DIFFERENT PARTIES is not a
+bound. Mine silently assumed the fee and the restoration cost landed on the same balance sheet. They did,
+under v4. They do not, under a fill that charges without crediting.**
+
 ## 📋📋 FULL INVENTORY OF UNFINISHED SEAMS — **THIS THREAD, PRE- AND POST-COMPACTION (owner asked, 2026-08-16). MEASURED, NOT RECALLED.**
 ### ⛔ FIRST, THE HEADLINE: **§ARCH / §E48 ARE NOT BUILT — NOWHERE, IN NO FORM.**
 `main`: `isBTC` **359** · `IPoolManager` **20** · `getSqrtPriceAtTick` **20** · `sqrtPrice` **94** · `SOR.sol` **372 lines** · **no refill primitive of any kind.**
