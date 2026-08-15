@@ -196,7 +196,13 @@ library VogueLib {
     //  live band ticks arrive as params. Byte-identical to the in-Vogue bodies.
     // ════════════════════════════════════════════════════════════════════
     uint32  constant THETA_STEP = 300;         // 5-min sample window
-    uint    constant THETA_N    = 8;           // 8 windows -> 40-min realized-vol horizon
+    // THETA_N (8 windows → a 40-min horizon) DELETED 2026-08-15: zero references anywhere, code or
+    // comment. It described the OLD estimator's window count — `OracleLib:220` names that estimator in
+    // the past tense ("the previous estimator sampled `observe` every THETA_STEP seconds") — and E61
+    // deleted the round trip that consumed it. A constant nobody reads is a horizon nobody computes.
+    // ⚠️ `THETA_STEP` STAYS even though no CODE reads it either: `SwapLib:713` cites it by name to
+    //    explain the live variance conversion (tickVar·(SECS_PER_YEAR/THETA_STEP)·1e10). Deleting it
+    //    would orphan that explanation and leave 300 as a magic number.
     uint    constant SECS_PER_YEAR = 31536000;
 
     /// @notice The LVR coefficient K (WAD), derived LIVE from band geometry.
