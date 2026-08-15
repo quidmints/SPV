@@ -13209,3 +13209,36 @@ not the first.
 ⚠️ **AND THIS IS WHY 1-3 MUST BE ONE COMMIT.** Between the custody move and the fill landing there is
 no working swap path at all. The "fresh deploy, nothing is live" premise is what makes that
 acceptable — **if that premise expires, this sequence needs a migration plan instead.**
+
+### ⭐ BETTER (owner, same day): **THE FILL DOES ALL SIX.** One primitive, not one-plus-five.
+
+I framed the cut as "one replacement and five dissolutions". That undersells it. Once the band is
+INVENTORY rather than a tick position, **every one of the six actions is value crossing the band
+boundary at a price — which is precisely what a fill is:**
+
+| action | as a fill |
+|---|---|
+| `Swap` | a fill at the quoted rate |
+| `ModLP` | LP entry/exit is a fill — **and it SHOULD be skew-priced** (see below) |
+| `Repack` / `Reseat` | the keeper's rebalance-to-1:1 IS a fill, executed against Curve |
+| `OutsideRange` | a fill with a LIMIT rate — quoted now, executable at that price |
+| `Collect` | the one true dissolution: no v4 fees to harvest, the fee is the 420 ppm we charge |
+
+⇒ **ONE PRIMITIVE REPLACES SIX ACTIONS**, and `Core.Action`'s 12 members (6 × 2 assets) collapse
+along BOTH axes at once — the six fold into one, and `isBTC` stops selecting anything.
+
+🔑 **THE PROPERTY THIS BUYS, WHICH THE v4 MODEL COULD NOT EXPRESS: THE SKEW BECOMES UNIVERSAL.**
+Today only a SWAPPER pays for imbalance. But a one-sided LP deposit creates exactly the same
+inventory imbalance and pays NOTHING for it — the cost lands on existing LPs and the basket. Under
+one primitive, every crossing is priced for the imbalance it creates, whoever the counterparty is:
+swapper, LP, or keeper. **That is not a side effect of the refactor; it closes a real
+cross-subsidy.**
+
+⚠️ Consequences to work through before building it:
+  • LP entry/exit becomes skew-priced — a BEHAVIOUR CHANGE for LPs, not just a refactor. It is the
+    correct behaviour, but it must be stated, not slipped in.
+  • `OutsideRange`-as-limit-fill needs the staleness bound to be real: a resting limit quote is an
+    OPTION written to whoever holds it, and `Quote.deadline` stops being hygiene and becomes
+    load-bearing (the opposite of what I concluded when settlement was at-oracle).
+  • The keeper's rebalance being a fill means it, too, records into `BatchLedger` — check that a
+    batch cannot attribute the keeper's own rebalance cost back to the keeper as a participant.
