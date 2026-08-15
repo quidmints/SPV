@@ -96,9 +96,46 @@ def sig_from_artifact(entry) -> str:
 def ret_from_artifact(entry) -> str:
     return ",".join(norm(ty(o)) for o in entry.get("outputs", []))
 
+# ⛔ `forge build` NEVER PRUNES `evm/out`, SO GHOST ARTIFACTS ACCUMULATE AND SATISFY THIS GATE.
+# Measured 2026-08-15: `settleSwapIn` was deleted from BTCChannels, yet 381 artifacts under
+# `evm/out` still declared it — including `out/BTCChannels.sol/IAttestedHopRegistry.json`, whose
+# whole contract had been deleted. The client kept a call to it (`quid-bridge/src/signer.rs:181`)
+# and this checker reported `0 drifted, no ORPHAN`. That is the exact failure the ORPHAN rule was
+# added to catch (§E154-client-ghosts, `Vogue.exitInstant`) — reintroduced through the CACHE
+# rather than through the regex. An ORPHAN check that resolves against stale output cannot detect
+# ANY deletion, which is the class it exists for.
+# ⇒ Accept an artifact ONLY if its contract is STILL DECLARED in a source file that STILL EXISTS.
+# Audit by STRUCTURE (`^contract`/`^interface`/`^library`), never by a name appearing anywhere in
+# the file — a name matches its own obituary in a comment.
+SRC_DIRS = [ROOT / "evm" / d for d in ("src", "test", "script", "lib")]
+_src_paths: dict[str, list] = {}
+for d in SRC_DIRS:
+    if not d.is_dir():
+        continue
+    for sp in d.rglob("*.sol"):
+        _src_paths.setdefault(sp.name, []).append(sp)
+
+_declares_cache: dict[tuple, bool] = {}
+def still_declared(src_name: str, contract: str) -> bool:
+    """True if `contract` is declared in a live `src_name` source file."""
+    key = (src_name, contract)
+    if key in _declares_cache:
+        return _declares_cache[key]
+    pat = re.compile(
+        r"^\s*(?:abstract\s+)?(?:contract|interface|library)\s+" + re.escape(contract) + r"\b",
+        re.M)
+    hit = any(pat.search(p.read_text(errors="ignore"))
+              for p in _src_paths.get(src_name, []))
+    _declares_cache[key] = hit
+    return hit
+
 # index every compiled function: name(argtypes) -> returns
-compiled = {}
+compiled, ghosts = {}, 0
 for f in OUT.rglob("*.json"):
+    # `out/<Source>.sol/<Contract>.json` — both halves must still exist.
+    if f.parent.name.endswith(".sol") and not still_declared(f.parent.name, f.stem):
+        ghosts += 1
+        continue
     try:
         art = json.loads(f.read_text())
     except Exception:
@@ -111,6 +148,9 @@ for f in OUT.rglob("*.json"):
 if not compiled:
     print("no compiled ABIs found under evm/out — run `forge build` first", file=sys.stderr)
     sys.exit(2)
+# Print it: a filter whose effect is invisible is indistinguishable from one that never ran.
+print(f"indexed {len(compiled)} compiled signatures; skipped {ghosts} GHOST artifacts "
+      f"(contract no longer declared in a live source file)")
 
 # Functions the SPA calls on contracts this repo does NOT compile (external protocols).
 # Deliberately a dict, not a set: an entry must carry the REASON it is not ours, because an
