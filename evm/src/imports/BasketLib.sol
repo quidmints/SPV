@@ -387,20 +387,25 @@ library BasketLib {
         return currentAccum / (totalTime + 1);
     }
 
-    // sqrt(deficit) × avgYield / 4
+    /// @notice ONE MONTH of the deposit's own yield, clamped to what the tranche still needs.
+    /// @dev §E195 — the `sqrt(deficit) × avgYield / 4` term is GONE, and removing it is nearly
+    ///      behaviour-neutral by measurement, not by hope. `seedFee` took `min` of that term and
+    ///      `usd × avgYield / 12`, and the SECOND one binds whenever
+    ///        `sqrt(deficit)·y/4 > y/12  ⟺  sqrt(deficit) > 1/3  ⟺  deficit > 11.1%`
+    ///      — i.e. for the ENTIRE raise except its last 11%. The sqrt was inert almost everywhere it
+    ///      ran. Below that threshold the fee is now bounded by `target − trancheTotal` instead, which
+    ///      is itself small exactly there, so the deficit taper SURVIVES through the clamp rather than
+    ///      through a curve.
+    ///      What remains is one self-describing rule: charge at most one month of what this deposit
+    ///      will earn, never more than the tranche still needs. That unit is why §E195 needed no
+    ///      recalibration when `avgYield` was corrected from a cumulative LEVEL (mean 18.72%) to a true
+    ///      annualised RATE (mean 3.10%) — the fee moved 1.56% → 0.26% of deposit on its own.
     function seedFee(uint usd,
         uint trancheTotal, uint target,
         uint avgYield) internal pure returns (uint) {
-        if (target == 0 || trancheTotal >= target) return 0;
-        uint deficit = FullMath.mulDiv(
-        target - trancheTotal, WAD, target);
-        uint sqrtDef = Math.sqrt(deficit * WAD);
-        if (sqrtDef == 0 || avgYield == 0) return 0;
-        uint fee = Math.min(FullMath.mulDiv(FullMath.mulDiv(
-            usd, sqrtDef, WAD), avgYield, WAD * 4),
-            target - trancheTotal);
-        return Math.min(fee,
-            FullMath.mulDiv(usd, avgYield, WAD * 12));
+        if (target == 0 || trancheTotal >= target || avgYield == 0) return 0;
+        return Math.min(FullMath.mulDiv(usd, avgYield, WAD * 12),
+                        target - trancheTotal);
     }
 
     /// @param amount Amount being deposited
