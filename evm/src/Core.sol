@@ -933,7 +933,10 @@ contract Core is SafeCallback {
 
         (uint160 sqrtP,,,) = poolManager.getSlot0(_poolId(isBTC));
         _writeObservation(sqrtP, isBTC);
-        _handleDelta(delta, true, false, sender, token, isBTC);
+        // §V4-CUT step 1: the delta is DECOMPOSED at the v4 boundary. `_handleDelta` and both settle
+        // legs now take plain signed amounts, so nothing below this line knows what a `BalanceDelta`
+        // is — when `poolManager.swap` is replaced by the fill, only this call site changes.
+        _handleDelta(Delta(int256(delta.amount0()), int256(delta.amount1())), true, false, sender, token, isBTC);
         // fold this swap's USD notional into the pool's flow EWMA (the adaptive
         // skew target). Every band + well swap routes through here, so this is the ONE bump
         // point. USD leg = the non-volatile side of the delta (token0 when token1 is volatile).
@@ -994,7 +997,7 @@ contract Core is SafeCallback {
         // Assert the burn actually emptied the old position — the cheap, direct invariant.
         require(StateLibrary.getPositionLiquidity(poolManager, _poolId(isBTC),
             keccak256(abi.encodePacked(address(this), oldLo, oldHi, bytes32(0)))) == 0, "repack:stale");
-        (delta0, delta1) = _handleDelta(delta, false, true, address(0), address(0), isBTC);
+        (delta0, delta1) = _handleDelta(Delta(int256(delta.amount0()), int256(delta.amount1())), false, true, address(0), address(0), isBTC);
     }
 
     /// @dev Re-seat the repacked position with next-round liquidity pulled from
@@ -1006,13 +1009,13 @@ contract Core is SafeCallback {
             (delta0, delta1) = VOGUE.addLiq(delta1, price, isBTC);
             if (delta0 > 0 && delta1 > 0) {
                 addDelta = _modLP(delta0, delta1, rng.lower, rng.upper, rng.sqrtP, isBTC);
-                _handleDelta(addDelta, true, false, address(0), address(0), isBTC, true);
+                _handleDelta(Delta(int256(addDelta.amount0()), int256(addDelta.amount1())), true, false, address(0), address(0), isBTC, true);
             }
         } else {
             (delta1, delta0) = VOGUE.addLiq(delta0, price, isBTC);
             if (delta1 > 0 && delta0 > 0) {
                 addDelta = _modLP(delta1, delta0, rng.lower, rng.upper, rng.sqrtP, isBTC);
-                _handleDelta(addDelta, true, false, address(0), address(0), isBTC, true);
+                _handleDelta(Delta(int256(addDelta.amount0()), int256(addDelta.amount1())), true, false, address(0), address(0), isBTC, true);
             }
         }
     }
@@ -1068,14 +1071,14 @@ contract Core is SafeCallback {
         if (p.myLiquidity > 0) {
             BalanceDelta burnDelta;
             (burnDelta, fees) = _modifyLiquidity(-int(uint(p.myLiquidity)), p.oldLo, p.oldHi, isBTC);
-            (d0, d1) = _handleDelta(burnDelta, false, true, address(0), address(0), isBTC);
+            (d0, d1) = _handleDelta(Delta(int256(burnDelta.amount0()), int256(burnDelta.amount1())), false, true, address(0), address(0), isBTC);
         }
         if (p.targetSqrt != 0 && p.targetSqrt != p.currentSqrt) {
             BalanceDelta moveDelta = poolManager.swap(_key(isBTC),
                 IPoolManager.SwapParams({ zeroForOne: p.targetSqrt < p.currentSqrt,
                     amountSpecified: -int(uint(type(uint128).max)), sqrtPriceLimitX96: p.targetSqrt }),
                 ZERO_BYTES);
-            _handleDelta(moveDelta, false, true, address(0), address(0), isBTC);
+            _handleDelta(Delta(int256(moveDelta.amount0()), int256(moveDelta.amount1())), false, true, address(0), address(0), isBTC);
         }
     }
 
@@ -1087,7 +1090,7 @@ contract Core is SafeCallback {
 
         (BalanceDelta delta,) = _modifyLiquidity(liquidity,
                                 tickLower, tickUpper, isBTC);
-        _handleDelta(delta, false, false, sender, token, isBTC);
+        _handleDelta(Delta(int256(delta.amount0()), int256(delta.amount1())), false, false, sender, token, isBTC);
         return abi.encode(delta);
     }
 
@@ -1103,7 +1106,7 @@ contract Core is SafeCallback {
         BalanceDelta delta = _modLP(deltaUSD, deltaTokenOut,
             tickLower, tickUpper, sqrtPriceX96, isBTC);
 
-        _handleDelta(delta, true, deltaUSD == 0, sender, address(0), isBTC, true);
+        _handleDelta(Delta(int256(delta.amount0()), int256(delta.amount1())), true, deltaUSD == 0, sender, address(0), isBTC, true);
         return abi.encode(delta);
     }
 
@@ -1128,7 +1131,7 @@ contract Core is SafeCallback {
         // composes callerDelta = liquidityDelta - feesAccrued; when
         // the first term is zero, the second dominates as fees owed
         // to the caller — positive amounts in both currencies).
-        _handleDelta(totalDelta, false, false, address(0), address(0), isBTC);
+        _handleDelta(Delta(int256(totalDelta.amount0()), int256(totalDelta.amount1())), false, false, address(0), address(0), isBTC);
 
         bool token1isTok = _t1(isBTC);
         // Order the returned fees so caller can read them as
@@ -1144,20 +1147,28 @@ contract Core is SafeCallback {
     /// update POOLED_USD_{ETH|BTC} (only in-range positions count toward
     /// the pool's active slice). The two pools' USD slices are
     /// INDEPENDENT — a swap on the ETH side cannot move BTC-side USD.
-    function _handleDelta(BalanceDelta delta, bool inRange, bool keep,
+    /// §V4-CUT — the pair travels as ONE memory pointer, not two stack values.
+    /// `BalanceDelta` was a SINGLE PACKED int256 holding both amounts; replacing it with two
+    /// `int256` parameters added a stack slot at every call site and blew the limit at `:939`
+    /// (`via_ir = false`, deliberately). CLAUDE.md's documented remedy applies verbatim: move the
+    /// locals into struct fields, because one memory pointer costs less stack than two values.
+    /// ⚠️ Do NOT "simplify" this back to two parameters — it does not compile.
+    struct Delta { int256 amt0; int256 amt1; }
+
+    function _handleDelta(Delta memory d, bool inRange, bool keep,
         address who, address token, bool isBTC) internal returns (uint, uint) {
-        return _handleDelta(delta, inRange, keep, who, token, isBTC, false);
+        return _handleDelta(d, inRange, keep, who, token, isBTC, false);
     }
 
     /// §#12 `basketLeg`: TRUE only from `_handleMod` (the basket adding/removing depth via
     /// `addLiq`). Swap/collect/reseat legs pass FALSE, so a swap moves the curve mirror
     /// (`POOLED_USD_*`) without moving the basket's contribution (`basketUsd`).
-    function _handleDelta(BalanceDelta delta, bool inRange, bool keep,
+    function _handleDelta(Delta memory d, bool inRange, bool keep,
         address who, address token, bool isBTC, bool basketLeg) internal returns (uint, uint) {
         // Each leg settles in its own frame (legacy stack — no via_ir crutch); they
         // recompute the cheap token ordering rather than thread 4 locals through.
-        uint usdAmount = _settleUsdSide(delta, inRange, keep, who, token, isBTC, basketLeg);
-        uint tokAmount = _settleTokSide(delta, inRange, who, isBTC);
+        uint usdAmount = _settleUsdSide(d.amt0, d.amt1, inRange, keep, who, token, isBTC, basketLeg);
+        uint tokAmount = _settleTokSide(d.amt0, d.amt1, inRange, who, isBTC);
         return _t1(isBTC) ? (usdAmount, tokAmount) : (tokAmount, usdAmount);
     }
 
@@ -1169,15 +1180,18 @@ contract Core is SafeCallback {
     ///      (`committedUsd18() <= haircutTvl`), so either band may draw the whole free surplus if
     ///      the other is not using it. Neither side is limited to a share, still less to the
     ///      MINIMUM of the two.
-    function _settleUsdSide(BalanceDelta delta, bool inRange, bool keep,
+    /// §V4-CUT — the mock ERC20 and the PoolManager settle are GONE; the ACCOUNTING is not.
+    /// `_mockUsd.mint/burn` + `usdCurrency.take/settle` existed ONLY to satisfy v4's requirement that
+    /// a pool trade real ERC20 CURRENCIES. The USD leg has no real token, so one was minted and
+    /// burned purely for the type system — a shadow of a movement that happens elsewhere
+    /// (`AUX.take` below is where the payout actually lands). Removing it cannot move value.
+    /// `_poolUsdInRange`, `AUX.take`, the 6-dec basis and the §A.50/C2 conversion are UNCHANGED —
+    /// that fix is about DECIMALS and has nothing to do with v4.
+    function _settleUsdSide(int256 amt0, int256 amt1, bool inRange, bool keep,
         address who, address token, bool isBTC, bool basketLeg) private returns (uint usdAmount) {
-        bool token1isTok = _t1(isBTC);
-        Currency usdCurrency = token1isTok ? _key(isBTC).currency0 : _key(isBTC).currency1;
-        int128 usdDelta = token1isTok ? delta.amount0() : delta.amount1();
+        int256 usdDelta = _t1(isBTC) ? amt0 : amt1;
         if (usdDelta > 0) {
-            usdAmount = uint(int(usdDelta));
-            usdCurrency.take(poolManager, address(this), usdAmount, false);
-            _mockUsd(isBTC).burn(usdAmount);
+            usdAmount = uint(usdDelta);
             if (inRange) _poolUsdInRange(isBTC, usdAmount, false, basketLeg);
             if (!keep && token != address(0))
                 // §A.50/C2: `usdAmount` is the 6-dec mockUSD leg, but `AUX.take` wants the payout
@@ -1188,9 +1202,7 @@ contract Core is SafeCallback {
                 // returns the 6-dec delta, a different basis than delivery.
                 AUX.take(who, BasketLib.from6(usdAmount, token), token, 0);
         } else if (usdDelta < 0) {
-            usdAmount = uint(int(-usdDelta));
-            _mockUsd(isBTC).mint(usdAmount);
-            usdCurrency.settle(poolManager, address(this), usdAmount, false);
+            usdAmount = uint(-usdDelta);
             if (inRange) _poolUsdInRange(isBTC, usdAmount, true, basketLeg);
         }
     }
@@ -1256,22 +1268,21 @@ contract Core is SafeCallback {
 
     /// @dev Token-leg (ETH or BTC) of _handleDelta. delta>0 → take+burn (ETH pays
     ///      real ETH out); delta<0 → mint+settle and (in-range) pool it.
-    function _settleTokSide(BalanceDelta delta, bool inRange, address who, bool isBTC)
+    /// §V4-CUT — same removal as the USD leg, and the SAME reason it is safe: the comment below
+    /// already said the real ETH payout was SEPARATE from the mock burn ("the burned mockETH is
+    /// matched by real ETH paid out"). `VOGUE.takeETH` is where value moves; the mock was a shadow.
+    /// ⚠️ THE `!isBTC` GUARD STAYS AND IS **NOT** isBTC-DRIFT TO BE DELETED LATER: ETH pays out real
+    /// ether here, BTC does not (its settlement is a Lightning cooperative close, not an on-chain
+    /// transfer). That is one of the four known-REAL ETH/BTC asymmetries — see CLAUDE.md.
+    function _settleTokSide(int256 amt0, int256 amt1, bool inRange, address who, bool isBTC)
         private returns (uint tokAmount) {
-        bool token1isTok = _t1(isBTC);
-        Currency tokCurrency = token1isTok ? _key(isBTC).currency1 : _key(isBTC).currency0;
-        int128 tokDelta = token1isTok ? delta.amount1() : delta.amount0();
+        int256 tokDelta = _t1(isBTC) ? amt1 : amt0;
         if (tokDelta > 0) {
-            tokAmount = uint(int(tokDelta));
-            tokCurrency.take(poolManager, address(this), tokAmount, false);
-            _mockTok(isBTC).burn(tokAmount);
+            tokAmount = uint(tokDelta);
             if (inRange) _subPooledTok(isBTC, tokAmount);
-            // ETH-only: the burned mockETH is matched by real ETH paid out.
             if (!isBTC && who != address(0)) VOGUE.takeETH(tokAmount, who);
         } else if (tokDelta < 0) {
-            tokAmount = uint(int(-tokDelta));
-            _mockTok(isBTC).mint(tokAmount);
-            tokCurrency.settle(poolManager, address(this), tokAmount, false);
+            tokAmount = uint(-tokDelta);
             if (inRange) _addPooledTok(isBTC, tokAmount);
         }
     }
