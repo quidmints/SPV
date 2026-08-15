@@ -40,4 +40,33 @@ contract AaveLegDeposit is Alles {
         assertGt(QUID.balanceOf(User02), before,
             "USDT deposit minted nothing with the aave spoke in the vault set");
     }
+
+    /// §E199 residue — the USDC leg, and a WITHDRAWAL back out. A deposit that cannot be redeemed is
+    /// not coverage; the round trip is the property that matters, and nothing exercised it.
+    function test_aaveLegRoundTrip_usdc() public {
+        address spoke = AUX.AAVE_SPOKE();
+        vm.prank(AUX.owner());
+        AUX.setVault(address(USDC), spoke);
+
+        address[] memory vs = AUX.getVaults(address(USDC));
+        bool hasSpoke;
+        for (uint i; i < vs.length; i++) if (vs[i] == spoke) hasSpoke = true;
+        assertTrue(hasSpoke, "spoke not in the USDC set - assertion would be vacuous");
+
+        deal(address(USDC), User01, 50_000 * USDC_PRECISION);
+        vm.startPrank(User01);
+        USDC.approve(address(AUX), type(uint).max);
+        QUID.mint(User01, 50_000 * USDC_PRECISION, address(USDC), 0);
+        vm.stopPrank();
+        assertGt(QUID.balanceOf(User01), 0, "USDC deposit minted nothing with the aave leg wired");
+
+        // OUT. Mature the vintage first: burns gate on maturity, so an immediate redeem is a no-op and
+        // would pass while proving nothing.
+        vm.warp(block.timestamp + 35 days);
+        uint pre = USDC.balanceOf(User01);
+        vm.prank(User01);
+        AUX.redeem(1_000e18);
+        assertGt(USDC.balanceOf(User01), pre,
+            "redeem delivered nothing with the aave leg in the set - the round trip is broken");
+    }
 }

@@ -2601,9 +2601,15 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // 1-wei dust: refused, and -- the half that matters -- refused WITHOUT burning.
         // Measured on the QU!D balance itself, not on a value the redeem path reports about
         // its own success.
+        // §E191 — the selector tightened from `NothingDelivered` to `AmountTooSmall`. Both refuse and
+        // neither burns, so the property this test pins is unchanged; what changed is the DIAGNOSIS.
+        // `NothingDelivered` means EVERY VENUE FAILED, so a sub-unit request reporting it sends the
+        // reader hunting a venue outage that never happened. The draw is 18-dec and the withdraw is
+        // native, so anything below one native unit of a leg (1e12 wei for a 6-dec stable) rounds to
+        // zero on every leg -- too small to express, not a venue problem.
         uint qBefore = QUID.balanceOf(User01);
         vm.prank(User01);
-        vm.expectRevert(BasketLib.NothingDelivered.selector);
+        vm.expectRevert(BasketLib.AmountTooSmall.selector);
         AUX.redeem(1);
         assertEq(QUID.balanceOf(User01), qBefore, "a sub-deliverable redeem burns nothing");
         uint bal = QUID.balanceOf(User01);
