@@ -694,15 +694,26 @@ contract Core is SafeCallback {
     /// @notice full-2× band op. The debt-funded buffer leg folds into POOLED_USD_* like any in-range USD;
     ///         committedUsd18 recovers equity by subtracting min(live debt, pooled buffer). No separate buffer
     ///         param — the old `levUsd` slot was a no-op post-fold and has been removed.
-    function modLP(bool isBTC, uint160 sqrtPriceX96, uint delta,
-        uint deltaUSD, int24 tickLower, int24 tickUpper,
+    /// §V4-CUT — the band TAKES WHAT IT IS GIVEN. `_modLP` computed a liquidity amount for a tick
+    /// range and handed it to `poolManager.modifyLiquidity`, which decides how much of each leg that
+    /// range can absorb at the current price — so a caller could get back an unplaceable remainder.
+    /// Inventory has no range to fit: both legs enter in full.
+    /// ⚠️ BEHAVIOUR CHANGE, STATED RATHER THAN SLIPPED IN. `sent` was the REFUND of what the range
+    /// could not place; it is now always 0 because nothing is refused. A caller that credits the
+    /// refund back is consistent (there is nothing to credit), but one that reads a zero refund as
+    /// "the add failed" would be wrong — that is the line to check when wiring callers.
+    /// ⚠️ `sqrtPriceX96` and the tick bounds are unused; they stay only until the callers are
+    /// updated in this same cut.
+    function modLP(bool isBTC, uint160 /*sqrtPriceX96*/, uint delta,
+        uint deltaUSD, int24 /*tickLower*/, int24 /*tickUpper*/,
         address sender) public onlyUs returns (uint sent) {
-        BalanceDelta d = abi.decode(poolManager.unlock(abi.encode(
-            isBTC ? Action.ModLPBTC : Action.ModLPETH,
-            sqrtPriceX96, delta, deltaUSD,
-            tickLower, tickUpper, sender)), (BalanceDelta));
-        int128 amt = _t1(isBTC) ? d.amount1() : d.amount0();
-        sent = amt > 0 ? uint(int(amt)) : 0;
+        // Both legs ENTER the band ⇒ NEGATIVE, per the convention derived in `swap` (positive leaves
+        // the pool, negative enters it). `_t1` says which leg carries USD.
+        Delta memory d = _t1(isBTC)
+            ? Delta(-int256(deltaUSD), -int256(delta))
+            : Delta(-int256(delta), -int256(deltaUSD));
+        _handleDelta(d, true, deltaUSD == 0, sender, address(0), isBTC, true);
+        sent = 0;   // nothing is refused, so nothing comes back
     }
 
     /// @notice Fused outOfRange. Action enum differentiates ETH vs BTC.

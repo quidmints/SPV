@@ -207,6 +207,7 @@ library FixedRateFill {
 
     error WeightsMustSumToOne();
     error SplitIsGrindable();
+    error NoExternalCostToBound();
 
     /// @notice Reject a split the swapper can GRIND against. **NO FIXED WEIGHT IS SAFE**, which is
     ///         why this is a runtime check on live cost rather than a constant chosen once.
@@ -231,8 +232,21 @@ library FixedRateFill {
     ///      the cost reads CHEAP lowers this floor exactly when it needs to hold — the same hazard
     ///      `Interfaces.sol:74-77` records for `balances()`. FLOOR the cost conservatively; never
     ///      pass a naked `get_dy`.
+    ///      🔴 **EXTERNALLY-SOURCED RESTORATION ONLY — A SECOND PRECONDITION, ADDED AFTER THE FACT.**
+    ///      `C` is an EXTERNAL per-leg cost. The recorded refill spec (§UNIT-C-OWNER-SPEC / §E48)
+    ///      says restoration is INTERNAL — repositioning ETH already held, not buying more
+    ///      (*"uncommitted dollars shouldnt be sold for ETH out of band… that would be a misuse"*).
+    ///      With an internal restoration there is NO Curve leg, so `C == 0` and this bound has NO
+    ///      REFERENT. It therefore **REVERTS on a zero cost instead of passing**: an early `return`
+    ///      would make the guard a silent no-op that reads as protection while checking nothing —
+    ///      exactly the failure the paragraph above warns about. A caller whose restoration is
+    ///      internal must not call this at all; it needs a different rule, not a free pass.
+    ///      ⚠️ WHICH MODEL GOVERNS IS AN OPEN CONFLICT (spec dated 2026-08-06 vs this week's
+    ///      "restore inventories to 1:1"), and is the owner's to settle — not something to resolve
+    ///      by choosing the reading that makes this compile.
     function requireNonAbusable(uint16 swapperBps, uint feePpm, uint costPpm) internal pure {
-        if (costPpm == 0 || feePpm >= costPpm) return;   // fee alone already covers the round trip
+        if (costPpm == 0) revert NoExternalCostToBound();
+        if (feePpm >= costPpm) return;                   // fee alone already covers the round trip
         uint floorBps = 10_000 - (feePpm * 10_000) / costPpm;
         if (swapperBps < floorBps) revert SplitIsGrindable();
     }

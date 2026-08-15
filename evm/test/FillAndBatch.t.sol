@@ -82,7 +82,11 @@ contract FillAndBatchTest is Test {
 
     /// The four data points from the grinding derivation, asserted exactly. w >= 1 - fee/C with
     /// fee = 420 ppm. If this drifts, the floor has stopped matching the arithmetic it encodes.
-    function test_grindFloor_matchesTheDerivedBound() public view {
+    function test_grindFloor_matchesTheDerivedBound() public {
+        // C = 4.2bp: the fee alone covers the round trip, so ANY split is safe.
+        // C == 0 has NO REFERENT and must REVERT, not pass -- see the docblock.
+        vm.expectRevert(FixedRateFill.NoExternalCostToBound.selector);
+        this.callGrind(0, 420, 0);
         // C = 4.2bp: the fee alone covers the round trip, so ANY split is safe.
         FixedRateFill.requireNonAbusable(0, 420, 420);
         // C = 5bp -> 16%, C = 10bp -> 58%, C = 26bp -> 83.85%
