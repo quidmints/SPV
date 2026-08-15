@@ -323,10 +323,8 @@ async fn lp_onboard(
     // funds + the on-chain `_authorizedHop` gate)", whereas a false negative "just refuses a real
     // LP". Post-E157 an LP that has opened is delegated BY CONSTRUCTION, so the pre-check has
     // nothing left to discriminate — the on-chain gate is the real one and always was.
-    let delegated = true;
-
     let f = LpFunding { lp_eth, btc_recipient, desired_sats: req.desired_sats, payout_mode };
-    let addr = register_lp(&ob.vault.registry, &ob.vault.node, delegated, f).map_err(|e| {
+    let addr = register_lp(&ob.vault.registry, &ob.vault.node, f).map_err(|e| {
         warn!(%lp_eth, error = %e, "lp onboard refused");
         (StatusCode::FORBIDDEN, format!("{e}"))
     })?;

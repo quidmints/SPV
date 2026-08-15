@@ -375,24 +375,27 @@ impl VaultRegistry {
 }
 
 /// (B) Onboard an LP as a BTC liquidity provider: allocate a vault-wallet deposit
-/// address for it and start watching it. GATED on `delegated` — the caller MUST have
-/// verified on-chain that `delegationVersion[lpEth] > 0` (the LP paid gas to register
-/// its delegation). This is the anti-spam gate: the fleet only ever watches
-/// gas-committed LPs, so "infinite registration" costs gas per identity and can never
-/// grow the watch set for free — it's a gas problem for the attacker, NOT an
-/// enclave-horsepower problem for us.
+/// address for it and start watching it.
+///
+/// THE `delegated` PARAMETER IS GONE (2026-08-15). It gated on the caller having verified
+/// `delegationVersion[lpEth] > 0` on-chain, and that selector NO LONGER EXISTS: `e0fed54`
+/// folded delegation INTO THE OPEN, so there is no separate registration to read a version
+/// from. Its only caller had already been reduced to passing a literal `true`
+/// (`swap_in_api.rs`, with the reasoning written out at the site), which made this an
+/// `ensure!` that COULD NOT FIRE while still reading as an anti-spam gate — the same shape
+/// as the I-3 hot-key check deleted in this pass, and the reason a green suite over it
+/// proved nothing.
+///
+/// THE ANTI-SPAM PROPERTY IS NOT LOST, because it was never enforced here. Post-E157 an LP
+/// that has opened is delegated BY CONSTRUCTION: the open itself requires the LP's funds and
+/// passes the on-chain `_authorizedHop` gate, so gas is still spent per identity and the
+/// watch set still cannot grow for free. That gate is the real one and always was; this was
+/// a pre-check that, once delegation moved into the open, had nothing left to discriminate.
 pub fn register_lp(
     registry: &VaultRegistry,
     vault: &HopNode,
-    delegated: bool,
     f: LpFunding,
 ) -> anyhow::Result<bitcoin::Address> {
-    anyhow::ensure!(
-        delegated,
-        "register_lp refused: lpEth {} has no on-chain delegation (delegationVersion==0) — \
-         the LP must registerDelegation (gas-paid) first",
-        f.lp_eth
-    );
     // IDEMPOTENT PER lpEth: one watched deposit address per identity. If this lpEth is
     // already being watched, return its existing address — so a single (gas-paid) LP
     // cannot inflate the watch set by re-onboarding. Bounds the watch set to DISTINCT
