@@ -111,17 +111,42 @@ pub fn find_fork_point(
     Ok(found)
 }
 
-/// Read `BTCChannels.hopNode()` (the on-chain hop operator address) via
-/// `eth_call`. The daemon checks this against its hot-key address so a key that
-/// was rotated out on-chain can't keep signing settles that all revert `NotLP`
-/// (I-3).
+/// Read `BTCChannels.MAIN_HOP()` (the primary on-chain hop operator) via `eth_call`.
+/// The daemon checks this against its hot-key address so a key rotated out on-chain
+/// can't keep signing settles that all revert (I-3).
+///
+/// WAS `hopNode()`, WHICH NO LONGER EXISTS -- the attestation registry was deleted
+/// (`812e682`, "Attestation is fully phased out"). This is a rename, not a behaviour
+/// change, so the decode below and its tests are untouched.
+///
+/// FOR AN AUTHORISATION DECISION USE `is_authorised_hop`, NOT THIS. `_onlyHop()`
+/// (`BTCChannels.sol:664-665`) accepts EITHER `MAIN_HOP` or `FALLBACK_HOP`, and the
+/// pair exists precisely so a dead main can be taken over by the fallback. A daemon
+/// running as the fallback is fully authorised on-chain while comparing unequal to
+/// this value, so `== read_hop_node(..)` would refuse to sign in exactly the takeover
+/// case the fallback was built for.
 pub fn read_hop_node<R: JsonRpc>(rpc: &R, btc_channels: Address) -> anyhow::Result<Address> {
-    let bytes = crate::client::eth_call_raw(rpc, btc_channels, "hopNode()", None)?;
+    read_hop_address(rpc, btc_channels, "MAIN_HOP()")
+}
+
+/// Read `BTCChannels.FALLBACK_HOP()` -- the takeover operator.
+pub fn read_fallback_hop<R: JsonRpc>(rpc: &R, btc_channels: Address) -> anyhow::Result<Address> {
+    read_hop_address(rpc, btc_channels, "FALLBACK_HOP()")
+}
+
+fn read_hop_address<R: JsonRpc>(rpc: &R, btc_channels: Address, sig: &str) -> anyhow::Result<Address> {
+    let bytes = crate::client::eth_call_raw(rpc, btc_channels, sig, None)?;
     if bytes.len() < 32 {
-        anyhow::bail!("hopNode: short return");
+        anyhow::bail!("{sig}: short return");
     }
     // address right-aligned in the 32-byte word.
     Ok(Address::from_slice(&bytes[12..32]))
+}
+
+/// Is `who` authorised to act as the hop? Mirrors `BTCChannels._onlyHop()` exactly:
+/// MEMBERSHIP of {MAIN_HOP, FALLBACK_HOP}, not equality with either one.
+pub fn is_authorised_hop<R: JsonRpc>(rpc: &R, btc_channels: Address, who: Address) -> anyhow::Result<bool> {
+    Ok(who == read_hop_node(rpc, btc_channels)? || who == read_fallback_hop(rpc, btc_channels)?)
 }
 
 /// Read `SPVGateway.getMainchainHeight()` via `eth_call`.
