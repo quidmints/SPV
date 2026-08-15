@@ -172,6 +172,53 @@ library FixedRateFill {
     /// over-collection. Whatever holds `Batch` needs a path that settles or refunds unconditionally.
     /// NOT SOLVED HERE — named so it is not discovered later.
 
+    // ─────────────────────────────────────────────────────────────────────────────
+    // THE THREE-WAY SPLIT — weights are INPUTS, and the OOR case cannot be skipped
+    // ─────────────────────────────────────────────────────────────────────────────
+    /// Basis-point weights for apportioning a realised rebalance cost. MUST sum to 10_000.
+    struct Split { uint16 swapperBps; uint16 lpBps; uint16 basketBps; }
+
+    error WeightsMustSumToOne();
+
+    /// @notice Apportion a realised rebalance cost across the three parties with a stake in it.
+    ///
+    /// @dev  ⚠️ TAKES **BOTH** SPLITS AND SELECTS ON `inRange`, DELIBERATELY. The obvious signature
+    ///       takes ONE `Split` and lets the caller decide which to pass — and that is precisely how
+    ///       out-of-range silently inherits the in-range weights. When the band is OOR it holds a
+    ///       SINGLE asset: the two supplier legs have collapsed into one, so "who supplied what" has
+    ///       a different answer, and the operation is not *restore 1:1* but *RE-ENTER RANGE* — a
+    ///       different cost with a different beneficiary. An in-range split applied out of range
+    ///       still returns three plausible numbers against the wrong basis, and NOTHING ANNOUNCES IT.
+    ///       Requiring both makes the OOR decision a compile-time obligation rather than an omission.
+    ///
+    ///       WHY THREE PARTIES (owner, 2026-08-15, correcting a causer-pays-only reading): a band
+    ///       trade has TWO SUPPLIERS — the volatile leg is LP inventory, the USD leg is basket
+    ///       capital — so the cost lands on capital both provided, and causation is only one axis.
+    ///       Each pure answer is a corner solution: swapper-only ignores that LPs are paid via the
+    ///       fee lane *for* carrying inventory risk; LP-only socialises one swapper's imbalance onto
+    ///       LPs who did not cause it; basket-only makes the basket fund a rebalance of depth it
+    ///       already supplied, paying twice for one trade.
+    ///
+    /// @param realisedCost measured cost of the rebalance (a BALANCE DELTA over the Curve legs —
+    ///        never a number the swap path reports about itself).
+    /// @param inRange  whether the band was in range for this batch. Selects which weights apply.
+    function splitCost(uint realisedCost, Split memory inRangeSplit, Split memory oorSplit, bool inRange)
+        internal pure returns (uint swapperShare, uint lpShare, uint basketShare)
+    {
+        Split memory s = inRange ? inRangeSplit : oorSplit;
+        unchecked {
+            if (uint(s.swapperBps) + s.lpBps + s.basketBps != 10_000) revert WeightsMustSumToOne();
+        }
+        swapperShare = (realisedCost * s.swapperBps) / 10_000;
+        lpShare      = (realisedCost * s.lpBps)      / 10_000;
+        // REMAINDER, not a third multiply: integer division truncates each share, so three
+        // independent mulDivs lose up to 2 wei and the parts stop summing to the whole. The basket
+        // absorbs the dust because it is the residual claimant on the balance sheet — and a
+        // conservation check downstream would otherwise fail on rounding rather than on a real defect,
+        // which is exactly the false positive that teaches people to add tolerances.
+        basketShare  = realisedCost - swapperShare - lpShare;
+    }
+
     /// @param realisedCost total measured cost of the batch's rebalance (balance delta, 6-dec USD).
     /// @param mySkewWad    this participant's contributed skew.
     /// @param totalSkewWad sum of contributed skew across the batch. MUST be the same accumulator
