@@ -407,12 +407,15 @@ library BasketLib {
         }
     }
 
-    function ticksToPrice(int56 tickCum0,
-        int56 tickCum1, uint32 period, bool token0isUSD) external
-        pure returns (uint price) { int56 delta = tickCum1 - tickCum0;
-        int24 averageTick = int24(delta / int56(uint56(period)));
-        uint160 sqrtPriceX96 = TickMath.getSqrtPriceAtTick(averageTick);
-        price = getPrice(sqrtPriceX96, token0isUSD);
+    /// §TICK-REMOVAL — the ring stores PLAIN PRICE, so the TWAP is just the cumulative difference
+    /// over the period. This deletes the tick→sqrt→price round trip that was the single largest
+    /// `TickMath` consumer, AND the `token0isUSD` argument: orientation is resolved once at write
+    /// time rather than on every read, so it can no longer disagree between writer and reader.
+    /// ⚠️ The mean is now ARITHMETIC in price where it was geometric in log-price. Across the ±0.2%
+    /// `BAND_DELTA` the two differ by O(σ²/8) ≈ 1e-6 relative — inside the rounding already here.
+    function cumsToPrice(uint192 cum0, uint192 cum1, uint32 period)
+        external pure returns (uint price) {
+        price = uint256(cum1 - cum0) / period;
     }
 
     /// @notice Find index of last mature batch
@@ -878,6 +881,14 @@ library BasketLib {
                         } catch { avail = 0; }   // debt unreadable → conservative (defer all)
                     } catch { avail = 0; }       // supplied unreadable → conservative
                     if (supA > avail) shortfall += supA - avail;
+                    // §E198 — the aave leg can now be nominated, keyed PER RESERVE. Until this, the
+                    // `continue` below was the only thing stopping §E197's traffic flagging from
+                    // blocking every aave-routed stable at once off one reserve's dip — a safety
+                    // property held by accident, which is not a safe place to leave one.
+                    if (supA > 0) {
+                        uint abps = FullMath.mulDiv(avail > supA ? supA : avail, 10000, supA);
+                        if (abps < worstBps) { worstBps = abps; worst = aaveHealthKey(aaveSpoke, rid); }
+                    }
                     continue;
                 }
                 try IERC4626(v).balanceOf(aux) returns (uint sh) {
@@ -1192,6 +1203,18 @@ library BasketLib {
     ///      The release reuses the poke's OWN guard: only a vault THIS path flagged (`flaggedAt != 0`) is
     ///      auto-released, so an owner block via `setVaultHealth` (which leaves `flaggedAt == 0`) is never
     ///      overridden. Blocking stays idempotent, so repeated traffic cannot reset the dwell clock.
+    /// @notice §E198 — PER-RESERVE health key for an Aave member. The spoke is ONE address registered
+    ///         in MANY stables' vault sets (`ChannelLib.setVaultBody:441` pushes `cfg.aaveSpoke`, and
+    ///         `DeployL1_s:404-405` does it for USDC AND USDT), so keying health by the member address
+    ///         gives every aave-routed reserve a SHARED flag: blocking one blocks all, and a single
+    ///         impaired reserve cannot be expressed at all. A 4626 leg gets per-position granularity for
+    ///         free because each curator vault has its own address; this restores the same for Aave.
+    ///         Deterministic and collision-free against real addresses, and no storage-layout change —
+    ///         it is just a different key into the existing `vaultHealth` mapping.
+    function aaveHealthKey(address spoke, uint reserveId) internal pure returns (address) {
+        return address(uint160(uint256(keccak256(abi.encode(spoke, reserveId)))));
+    }
+
     function flagIlliquidBody(address vault, bool illiquid,
         mapping(address => VaultHealth) storage vaultHealth) external {
         if (illiquid) {
@@ -1232,13 +1255,20 @@ library BasketLib {
         mapping(address => address[]) storage vaultsOf
     ) internal {
         address[] memory vs = vaultsOf[stable];
+        address spoke = IAux(address(this)).AAVE_SPOKE();
         uint n;
-        for (uint j; j < vs.length; j++) if (!vaultHealth[vs[j]].blocked) n++;
+        // §E198 — the AAVE member is EXCLUDED from the spread, not merely health-checked. It is not a
+        // 4626, so the `deposit(assets, receiver)` below does not exist on it: with the spoke unblocked
+        // this loop would have called it and REVERTED THE WHOLE EVACUATION — the one path that exists to
+        // rescue a failing venue. Its health is keyed per-reserve elsewhere (`aaveHealthKey`); here it is
+        // simply not a destination.
+        for (uint j; j < vs.length; j++)
+            if (vs[j] != spoke && !vaultHealth[vs[j]].blocked) n++;
         if (n == 0) return;
         uint each = amount / n;
         uint rem = amount;
         for (uint j; j < vs.length; j++) {
-            if (vaultHealth[vs[j]].blocked) continue;
+            if (vs[j] == spoke || vaultHealth[vs[j]].blocked) continue;
             uint a = (--n == 0) ? rem : each; // last healthy vault takes remainder
             rem -= a;
             if (a > 0) IERC4626(vs[j]).deposit(a, address(this));

@@ -330,8 +330,13 @@ contract Core is SafeCallback {
     ///         charges the ceiling on it and theta fails open, and both readers agree on that.
     function realizedVarianceWad(bool isBTC) external view returns (uint) {
         // 9 ring points → 8 returns.
+        // §TICK-REMOVAL — THE 1e10 WENT WITH THE TICKS, AND THE UNITS ARE UNCHANGED. It was never
+        // a tuning constant: a tick is 1 bp, so tick²→relative² is 1e-8 and WAD is 1e18, giving
+        // exactly 1e-8 × 1e18 = 1e10. `ringVariance` now returns (WAD relative return)² per second,
+        // i.e. relative²·1e36, so ONE division by 1e18 lands on WAD relative variance — same
+        // magnitude, same meaning ⇒ Γ (`MAX_WELL_SKEW`) needs NO recalibration.
         uint v = Math.mulDiv(OracleLib.ringVariance(_obs(isBTC), _obsState(isBTC), 9),
-                            31536000 * 1e10, 1e18);   // per-sec → annualized
+                            31536000, 1e18);          // per-sec → annualized
         // §E88 — ZERO IS NOW RESERVED FOR "UNMEASURED", AND ONLY THAT.
         //
         // It used to mean TWO things at once: *"the ring is unpopulated, we have not measured"* AND
@@ -926,8 +931,8 @@ contract Core is SafeCallback {
                 sqrtPriceLimitX96: _bandEdgeLimit(bandTicks, forOne)}),
             ZERO_BYTES);
 
-        (, int24 currentTick,,) = poolManager.getSlot0(_poolId(isBTC));
-        _writeObservation(currentTick, isBTC);
+        (uint160 sqrtP,,,) = poolManager.getSlot0(_poolId(isBTC));
+        _writeObservation(sqrtP, isBTC);
         _handleDelta(delta, true, false, sender, token, isBTC);
         // fold this swap's USD notional into the pool's flow EWMA (the adaptive
         // skew target). Every band + well swap routes through here, so this is the ONE bump
@@ -958,8 +963,8 @@ contract Core is SafeCallback {
         // Pull next-round liquidity from Vogue (own frame, isBTC selects path).
         BalanceDelta addDelta = _repackAdd(delta0, delta1, price, rng, isBTC);
 
-        (, int24 currentTick,,) = poolManager.getSlot0(_poolId(isBTC));
-        _writeObservation(currentTick, isBTC);
+        (uint160 sqrtP,,,) = poolManager.getSlot0(_poolId(isBTC));
+        _writeObservation(sqrtP, isBTC);
 
         return abi.encode(price, uint(int(fees.amount0())),
             uint(int(fees.amount1())), uint(int(addDelta.amount0())),
@@ -1038,8 +1043,8 @@ contract Core is SafeCallback {
         Reseat memory rng = Reseat({ sqrtP: p.targetSqrt, lower: p.newLo, upper: p.newHi });
         BalanceDelta addDelta = _repackAdd(d0, d1, price, rng, isBTC);
 
-        (, int24 currentTick,,) = poolManager.getSlot0(_poolId(isBTC));
-        _writeObservation(currentTick, isBTC);
+        (uint160 sqrtP,,,) = poolManager.getSlot0(_poolId(isBTC));
+        _writeObservation(sqrtP, isBTC);
         return abi.encode(price, uint(int(fees.amount0())),
             uint(int(fees.amount1())), uint(int(addDelta.amount0())),
             uint(int(addDelta.amount1())));
@@ -1329,10 +1334,15 @@ contract Core is SafeCallback {
         return (pool, sqrtPriceX96, currentTick);
     }
 
-    function _writeObservation(int24 tick, 
+    /// §TICK-REMOVAL — the ring stores PLAIN PRICE. `getSlot0` still hands us a sqrt-price (that is
+    /// v4's API, and stays until the PM is ours), but it is converted ONCE HERE, at the write, so
+    /// neither ticks nor sqrt-prices survive in storage or on any read path. Writing costs one
+    /// conversion per swap and saves one on every valuation, and valuations are the frequent side.
+    function _writeObservation(uint160 sqrtPriceX96, 
                     bool isBTC) internal {
-        OracleLib.writeObservation(_obs(isBTC),
-                        _obsState(isBTC), tick);
+        OracleLib.writeObservation(_obs(isBTC), _obsState(isBTC),
+            uint160(BasketLib.getPrice(sqrtPriceX96,
+                isBTC ? token1isBTC : token1isETH)));   // `token1is` is external
     }
 
     /// @notice §E63 — ONE observe, dispatched. These were TWO externals with IDENTICAL bodies
@@ -1345,7 +1355,7 @@ contract Core is SafeCallback {
     ///         call overhead. Not client-facing — `tools/check-client-abis.py` has zero references
     ///         to either name; the only callers are `SwapLib:104-105`.
     function observe(uint32[] calldata secondsAgos, bool isBTC)
-        external view returns (int56[] memory) {
+        external view returns (uint192[] memory) {
         return OracleLib.observe(_obs(isBTC), _obsState(isBTC), secondsAgos);
     }
 }

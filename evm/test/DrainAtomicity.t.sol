@@ -729,12 +729,13 @@ contract DrainAtomicity is Alles {
         uint32[] memory ago = new uint32[](2); ago[0] = 0; ago[1] = 3600;
         bytes32 ep0 = keccak256(abi.encode(V4.LOWER_TICK(), V4.UPPER_TICK()));  // the FRAME, not a count
         int24 lo0 = V4.LOWER_TICK(); int24 hi0 = V4.UPPER_TICK();
-        int56[] memory c0 = CORE.observe(ago, false);
-        int24 twap0 = int24((c0[0] - c0[1]) / int56(uint56(3600)));
-        uint norm0 = hi0 > lo0 && twap0 >= lo0 ? uint(int(twap0 - lo0)) * 1e4 / uint(int(hi0 - lo0)) : 0;
+        // §TICK-REMOVAL — the ring yields a PRICE TWAP now, so the reading is in price space. The
+        // frame (LOWER/UPPER_TICK) is still v4's and still ticks, so the FRAME-MOVED signal below —
+        // which is what this diagnostic exists to surface — is unchanged.
+        uint192[] memory c0 = CORE.observe(ago, false);
+        uint twap0 = uint(c0[0] - c0[1]) / 3600;
         emit log_named_int("BEFORE: lower tick     ", V4.LOWER_TICK());
-        emit log_named_int ("BEFORE: 1h TWAP tick   ", twap0);
-        emit log_named_uint("BEFORE: normalized(1e-4)", norm0);
+        emit log_named_uint("BEFORE: 1h TWAP price  ", twap0);
 
         // Force frame motion the way E112 did -- sells push price to tickLower and trigger repacks.
         for (uint d = 0; d < 40; ++d) {
@@ -747,20 +748,19 @@ contract DrainAtomicity is Alles {
 
         bytes32 ep1 = keccak256(abi.encode(V4.LOWER_TICK(), V4.UPPER_TICK()));
         int24 lo1 = V4.LOWER_TICK(); int24 hi1 = V4.UPPER_TICK();
-        int56[] memory c1 = CORE.observe(ago, false);
-        int24 twap1 = int24((c1[0] - c1[1]) / int56(uint56(3600)));
-        uint norm1 = hi1 > lo1 && twap1 >= lo1 ? uint(int(twap1 - lo1)) * 1e4 / uint(int(hi1 - lo1)) : 0;
+        uint192[] memory c1 = CORE.observe(ago, false);
+        uint twap1 = uint(c1[0] - c1[1]) / 3600;
         emit log_named_int("AFTER : lower tick     ", V4.LOWER_TICK());
-        emit log_named_int ("AFTER : 1h TWAP tick   ", twap1);
+        emit log_named_uint("AFTER : 1h TWAP price  ", twap1);
         emit log_named_int ("AFTER : band LOWER     ", lo1);
         emit log_named_int ("AFTER : band UPPER     ", hi1);
-        emit log_named_uint("AFTER : normalized(1e-4)", norm1);
+
 
         if (ep1 == ep0) { emit log("VOID: no reseat occurred -- the frame never moved."); return; }
         emit log("FRAME MOVED. The TWAP above spans BOTH frames, so `normalized` mixes a pre-reseat");
         emit log("tick with a post-reseat range. The band BOUNDS moving is the signal of that --");
         emit log("without it the number looks perfectly ordinary. THAT is why it must be read.");
-        if (norm1 == 0) emit log("normalized CLAMPED to 0: the TWAP tick is BELOW the new tickLower.");
+        if (twap1 == twap0) emit log("TWAP price UNCHANGED across the reseat.");
     }
 
     function test_E116_TimeWeightedTickLagsTheSpot() public {
@@ -771,26 +771,28 @@ contract DrainAtomicity is Alles {
 
         uint32[] memory ago = new uint32[](2);
         ago[0] = 0; ago[1] = 3600;                            // 1-hour window
-        int56[] memory c0 = CORE.observe(ago, false);
+        // §TICK-REMOVAL — price space. The property under test is unchanged: a time-weighted mean
+        // must LAG a fresh move, or the ring is not accumulating and persistence is unmeasurable.
+        uint192[] memory c0 = CORE.observe(ago, false);
         (, int24 spot0,) = CORE.poolStats(V4.LOWER_TICK(), V4.UPPER_TICK(), false);
-        int24 twap0 = int24((c0[0] - c0[1]) / int56(uint56(3600)));
+        uint twap0 = uint(c0[0] - c0[1]) / 3600;
         emit log_named_int("BEFORE move: spot tick ", spot0);
-        emit log_named_int("BEFORE move: 1h TWAP   ", twap0);
+        emit log_named_uint("BEFORE move: 1h TWAP px", twap0);
 
         for (uint d = 0; d < 6; ++d) _drain(60_000 * 1e18);   // a FRESH, larger move
 
-        int56[] memory c1 = CORE.observe(ago, false);
+        uint192[] memory c1 = CORE.observe(ago, false);
         (, int24 spot1,) = CORE.poolStats(V4.LOWER_TICK(), V4.UPPER_TICK(), false);
-        int24 twap1 = int24((c1[0] - c1[1]) / int56(uint56(3600)));
+        uint twap1 = uint(c1[0] - c1[1]) / 3600;
         emit log_named_int("AFTER  move: spot tick ", spot1);
-        emit log_named_int("AFTER  move: 1h TWAP   ", twap1);
+        emit log_named_uint("AFTER  move: 1h TWAP px", twap1);
         emit log_named_int("frame lower tick       ", V4.LOWER_TICK());
 
         if (spot1 == spot0) { emit log("VOID: the move did not shift the spot tick."); return; }
-        if (twap1 == spot1) {
-            emit log("TWAP == SPOT: the ring is NOT accumulating over this window -- design is DEAD.");
+        if (twap1 == twap0) {
+            emit log("TWAP UNMOVED: the ring is NOT accumulating over this window -- design is DEAD.");
         } else {
-            emit log("TWAP LAGS SPOT: the ring accumulates, so persistence is measurable. Design LIVE.");
+            emit log("TWAP MOVED WITH LAG: the ring accumulates, so persistence is measurable. LIVE.");
         }
     }
 

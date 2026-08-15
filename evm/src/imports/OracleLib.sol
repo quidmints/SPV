@@ -12,6 +12,7 @@ import {Currency} from "v4-core/src/types/Currency.sol";
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 import {SwapLib} from "./SwapLib.sol";
+import {BasketLib} from "./BasketLib.sol";
 
 /// @title  OracleLib — the per-pool V4 TWAP observation ring, extracted from
 ///         Core to free its deployed bytecode under EIP-170.
@@ -23,30 +24,37 @@ import {SwapLib} from "./SwapLib.sol";
 /// functions run via DELEGATECALL in Core's storage context, so this
 /// engine is deployed once and shared — saving Core's bytecode.
 library OracleLib {
+    /// §TICK-REMOVAL (2026-08-15) — THE RING STORES PLAIN PRICE, NOT TICKS AND NOT SQRT-PRICES.
+    /// Both encodings are leaving the tree, and every consumer of this ring already wanted a price:
+    /// `twapBody` converted tick→sqrt→price on EVERY read (21 of the 28 live `TickMath` calls in
+    /// `src`), and the skew consumes `r.px`. Storing the price directly deletes the whole round trip,
+    /// the `int56` walks, and the per-read orientation flag — orientation is resolved ONCE at write.
+    /// `uint192` is ample: the BTC leg's usd18 price carries the ×1e10 WBTC lift (~6.3e32) and an
+    /// elapsed-seconds accumulator over a decade (~3e8) reaches ~2e41, against a 6.3e57 ceiling.
     struct Observation {
         uint32 blockTimestamp;
-        int56 tickCumulative;
+        uint192 priceCumulative;
         bool initialized;
     }
     /// Per-pool ring scalars (grouped so the helpers take one storage ref).
-    struct ObsState { int24 lastTick; uint16 cardinality; uint16 index; }
+    struct ObsState { uint160 lastPrice; uint16 cardinality; uint16 index; }
 
-    /// @dev Append the current tick to the ring (or just update lastTick if a
+    /// @dev Append the current price to the ring (or just update lastPrice if a
     ///      same-timestamp write already happened this block).
     function writeObservation(
-        Observation[65535] storage obs, ObsState storage st, int24 tick
+        Observation[65535] storage obs, ObsState storage st, uint160 price
     ) external {
         uint32 blockTimestamp = uint32(block.timestamp);
         uint16 idx = st.index;
         Observation memory last = obs[idx];
 
         if (last.blockTimestamp == blockTimestamp) {
-            st.lastTick = tick;
+            st.lastPrice = price;
             return;
         }
         uint32 dt = blockTimestamp - last.blockTimestamp;
-        int56 tickCumulative = last.tickCumulative
-            + int56(st.lastTick) * int56(uint56(dt));
+        uint192 priceCumulative = last.priceCumulative
+            + uint192(uint256(st.lastPrice) * dt);
 
         uint16 nextIdx = (idx + 1) % 65535;
         uint16 card = st.cardinality;
@@ -55,27 +63,27 @@ library OracleLib {
         }
         obs[nextIdx] = Observation({
             blockTimestamp: blockTimestamp,
-            tickCumulative: tickCumulative,
+            priceCumulative: priceCumulative,
             initialized: true});
-        st.index = nextIdx; st.lastTick = tick;
+        st.index = nextIdx; st.lastPrice = price;
     }
 
     function observe(
         Observation[65535] storage obs, ObsState storage st,
         uint32[] calldata secondsAgos
-    ) external view returns (int56[] memory tickCumulatives) {
-        tickCumulatives = new int56[](secondsAgos.length);
+    ) external view returns (uint192[] memory priceCumulatives) {
+        priceCumulatives = new uint192[](secondsAgos.length);
         uint32 time = uint32(block.timestamp);
         Observation memory latest = obs[st.index];
         Observation memory oldest = _getOldest(obs, st);
-        int24 lastTick = st.lastTick;
+        uint160 lastPrice = st.lastPrice;
 
         for (uint i = 0; i < secondsAgos.length; i++) {
             uint32 target = time - secondsAgos[i];
             if (secondsAgos[i] == 0) {
                 uint32 dt = time - latest.blockTimestamp;
-                tickCumulatives[i] = latest.tickCumulative
-                    + int56(lastTick) * int56(uint56(dt));
+                priceCumulatives[i] = latest.priceCumulative
+                    + uint192(uint256(lastPrice) * dt);
             } else if (target <= oldest.blockTimestamp) {
                 // Bootstrap-only edge: target predates the oldest observation.
                 // Revert — callers should wait until the ring covers their
@@ -83,10 +91,10 @@ library OracleLib {
                 revert("twap: pre-history");
             } else if (target >= latest.blockTimestamp) {
                 uint32 dt = target - latest.blockTimestamp;
-                tickCumulatives[i] = latest.tickCumulative
-                    + int56(lastTick) * int56(uint56(dt));
+                priceCumulatives[i] = latest.priceCumulative
+                    + uint192(uint256(lastPrice) * dt);
             } else {
-                tickCumulatives[i] = _interpolate(obs, st, target, oldest, latest);
+                priceCumulatives[i] = _interpolate(obs, st, target, oldest, latest);
             }
         }
     }
@@ -104,21 +112,21 @@ library OracleLib {
     function _interpolate(
         Observation[65535] storage obs, ObsState storage st,
         uint32 target, Observation memory oldest, Observation memory latest
-    ) internal view returns (int56) {
+    ) internal view returns (uint192) {
         uint16 card = st.cardinality;
 
         if (card <= 2) {
             uint32 totalDelta = latest.blockTimestamp - oldest.blockTimestamp;
             uint32 targetDelta = target - oldest.blockTimestamp;
-            if (totalDelta == 0) return oldest.tickCumulative;
-            int56 cumulativeDelta = latest.tickCumulative - oldest.tickCumulative;
+            if (totalDelta == 0) return oldest.priceCumulative;
+            uint192 cumulativeDelta = latest.priceCumulative - oldest.priceCumulative;
             // Widen to int256 for the multiply-before-divide: across a long
             // observation gap (e.g. a quiet market then a swap/reseat),
             // cumulativeDelta·targetDelta overflows int56 (~3.6e16) even though
             // the interpolated RESULT fits int56. Compute in 256-bit, cast back.
-            return oldest.tickCumulative + int56(
-                int256(cumulativeDelta) * int256(uint256(targetDelta))
-                    / int256(uint256(totalDelta)));
+            return oldest.priceCumulative + uint192(
+                uint256(cumulativeDelta) * uint256(targetDelta)
+                    / uint256(totalDelta));
         }
 
         uint16 oldestIdx = (st.index + 1) % card;
@@ -134,14 +142,14 @@ library OracleLib {
         Observation memory later_  = obs[(oldestIdx + lo + 1) % card];
 
         uint32 totalDelta = later_.blockTimestamp - before_.blockTimestamp;
-        if (totalDelta == 0) return before_.tickCumulative;
+        if (totalDelta == 0) return before_.priceCumulative;
         uint32 targetDelta = target - before_.blockTimestamp;
-        int56 cumulativeDelta = later_.tickCumulative - before_.tickCumulative;
+        uint192 cumulativeDelta = later_.priceCumulative - before_.priceCumulative;
         // 256-bit intermediate — see the card<=2 branch above (int56 overflow on
         // a long observation gap).
-        return before_.tickCumulative + int56(
-            int256(cumulativeDelta) * int256(uint256(targetDelta))
-                / int256(uint256(totalDelta)));
+        return before_.priceCumulative + uint192(
+            uint256(cumulativeDelta) * uint256(targetDelta)
+                / uint256(totalDelta));
     }
 
     /// @dev Deploy Core's four per-pool mocks here (not in Core) so the ~3.9 KB
@@ -183,10 +191,19 @@ library OracleLib {
         int24 tick = SwapLib.alignTick(
             (refVolIsC0 == !token1isVol) ? refTick : -refTick, 10);
 
-        pm.initialize(k, TickMath.getSqrtPriceAtTick(tick));
-        st.lastTick = tick; st.cardinality = 1;
+        // TickMath survives HERE ONLY: v4's `initialize` takes a sqrt-price and the seed is
+        // expressed as an aligned TICK. That conversion happens ONCE at deploy, at the v4 boundary.
+        // The READ path — twap and variance — no longer touches ticks or sqrt-prices at all.
+        uint160 seedSqrtP = TickMath.getSqrtPriceAtTick(tick);
+        pm.initialize(k, seedSqrtP);
+        // `token0isUSD == token1isVol`: token1 is the VOLATILE (`token1isVol = volMock > usdMock`),
+        // so token0 is the USD leg. `Core:653` assigns `token1isETH = token1isVol` and `twapBody`
+        // passes that same bool as `token0isUSD` — writer and reader must agree or the seed is a
+        // RECIPROCAL price. (They did not, first run: `PriceLimitAlreadyExceeded` at setUp.)
+        st.lastPrice = uint160(BasketLib.getPrice(seedSqrtP, token1isVol));
+        st.cardinality = 1;
         obs[0] = Observation({ blockTimestamp: uint32(block.timestamp),
-            tickCumulative: 0, initialized: true });
+            priceCumulative: 0, initialized: true });
     }
 
     /// `wbtc` is passed in rather than read here so OracleLib does not have to import
@@ -238,7 +255,7 @@ library OracleLib {
         if (n > card) n = card;
 
         // Walk back n stored points from the newest, newest-first.
-        int[] memory rate = new int[](n - 1);       // per-interval average tick
+        uint[] memory rate = new uint[](n - 1);     // per-interval average PRICE
         uint32 newest; uint32 oldest;
         {
             uint16 idx = st.index;
@@ -249,11 +266,11 @@ library OracleLib {
                 Observation memory lo = obs[lo_i];
                 if (!lo.initialized || lo.blockTimestamp >= hi.blockTimestamp) return 0;
                 uint32 dt = hi.blockTimestamp - lo.blockTimestamp;
-                // §E59 — FIXED-POINT, NOT INTEGER. Truncating to whole ticks was the second half
-                // of the zero-variance bug: the band is ~20 ticks wide, so consecutive average
-                // ticks round to the SAME INTEGER and every difference is 0. Scale by 1e9 first so
-                // sub-tick movement survives; `d*d` then stays far inside uint256.
-                rate[i] = (int(hi.tickCumulative - lo.tickCumulative) * 1e9) / int(uint(dt));
+                // §TICK-REMOVAL — THE 1e9 LIFT IS GONE WITH THE TICKS. §E59 added it because
+                // truncating to WHOLE TICKS zeroed every difference on a ~20-tick band. A usd18
+                // price carries 18 decimals natively, so sub-basis-point movement survives without
+                // any rescaling, and omitting the lift keeps `d*d` far inside uint256.
+                rate[i] = uint(hi.priceCumulative - lo.priceCumulative) / uint(dt);
                 hi = lo;
                 oldest = lo.blockTimestamp;
             }
@@ -261,15 +278,27 @@ library OracleLib {
         if (newest <= oldest) return 0;
         uint spanSecs = newest - oldest;
 
-        // Variance of consecutive rate CHANGES (the returns), sample-corrected.
+        // Variance of consecutive RELATIVE returns, sample-corrected.
+        // §TICK-REMOVAL — THE RETURN IS NOW RELATIVE *EXPLICITLY*, WHICH IS WHAT KEEPS σ²'s UNITS
+        // AND LEAVES Γ UNTOUCHED. A tick difference was ALREADY a relative return in disguise (1
+        // tick = 1 bp), which is precisely why `Core.realizedVarianceWad` multiplied by
+        // 1e10 = 1e-8 (tick²→relative²) × 1e18 (WAD). Taking the relative return of a plain price
+        // makes that conversion unnecessary rather than merely moving it, so the 1e10 goes with the
+        // ticks and the ANNUALIZED NUMBER KEEPS ITS MAGNITUDE AND MEANING.
         uint m = rate.length - 1;
         if (m < 2) return 0;
+        int[] memory ret = new int[](m);
+        for (uint i = 0; i < m; i++) {
+            uint prev = rate[i + 1];
+            if (prev == 0) return 0;
+            ret[i] = (int(rate[i]) - int(prev)) * 1e18 / int(prev);   // WAD relative return
+        }
         int mean;
-        for (uint i = 0; i < m; i++) mean += (rate[i] - rate[i + 1]);
+        for (uint i = 0; i < m; i++) mean += ret[i];
         mean /= int(m);
         uint acc;
         for (uint i = 0; i < m; i++) {
-            int d = (rate[i] - rate[i + 1]) - mean;
+            int d = ret[i] - mean;
             acc += uint(d * d);
         }
         acc /= (m - 1);
@@ -286,8 +315,9 @@ library OracleLib {
         // and no constant, and gives E[x²] = Var + E[x]² — the drift AND the wobble, which is what
         // an inventory-risk measure has to price.
         acc += uint(mean * mean);   //  is the drift term computed above
-        // Per-second, WAD. The caller annualises with the MEASURED span rather than a fixed step.
-        // `acc` is in (1e9-scaled tick)^2 = tick^2 * 1e18, so it is already WAD-scaled tick^2.
+        // Per-second. The caller annualises with the MEASURED span rather than a fixed step.
+        // `acc` is (WAD relative return)^2 = relative^2 * 1e36, so the caller divides by 1e18 ONCE
+        // to land on WAD relative variance — replacing the old `* 1e10 / 1e18`.
         varPerSecWad = acc / spanSecs;
     }
 }
