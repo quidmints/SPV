@@ -51,7 +51,13 @@ const HOP_SIGNED_FN_SIGS: &[&str] = &[
     "rebalance(address,uint256)",
     "syncLev(address)",
     "protectFromQuid(address,uint256)",
-    "repackNFT()",
+    // (2026-08-15) `repackNFT()` was here and is DELETED. It was the only entry in this
+    // section with no Rust builder — the other seven each have 2–3 — and no contract declares
+    // it: the successor is `repack(bool)`, which is `onlyUs`, so this hot key could never
+    // have called it successfully in any case. An allowlist entry that nothing sends and
+    // nothing would accept is not harmless; it widens the signable surface while looking
+    // deliberate. Do NOT re-add it as `repack(bool)` — `onlyUs` means the protocol calls it,
+    // not the keeper.
     "cascadeDelever(address[],uint256[])",
     // --- BTC leverage keeper (BtcLevManager) ---
     "syncLevBTC(address)",
@@ -193,9 +199,22 @@ mod tests {
     #[test]
     fn zero_address_is_not_allowlisted() {
         // An unset (zero) contract must not become a wildcard-allow.
+        //
+        // ⚠️ The selector here MUST be one that is genuinely allowlisted, or this test passes
+        // for the wrong reason — the policy would reject on the SELECTOR and never exercise
+        // the destination rule at all. It used `repackNFT()`, which was allowlisted at the
+        // time and is not any more, so deleting that entry would have quietly hollowed this
+        // out into a vacuous pass. `syncLev(address)` is live and stays live (it has Rust
+        // builders), so the rejection can only come from the zero destination.
         let p = EvmTxPolicy::new([Address::ZERO, BTC_CHANNELS]);
         assert!(
-            p.check(&fields(Address::ZERO, "repackNFT()", U256::ZERO))
+            p.check(&fields(BTC_CHANNELS, "syncLev(address)", U256::ZERO))
+                .is_ok(),
+            "precondition: this selector must be allowlisted to a real contract, else the \
+             zero-address assertion below proves nothing",
+        );
+        assert!(
+            p.check(&fields(Address::ZERO, "syncLev(address)", U256::ZERO))
                 .is_err(),
             "the zero address must never be an allowed destination",
         );
