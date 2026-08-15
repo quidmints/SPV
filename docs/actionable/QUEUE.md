@@ -13148,3 +13148,36 @@ the circuit breaker, not the price source*. **Decide this BEFORE the deletion, n
 
 ⚠️ Note the asymmetry that makes this safe to defer: keeping v4 as a read-only PRICE REFERENCE while
 deleting our AMM is a coherent intermediate state. The reverse is not.
+
+## 🔑 WHAT THE CUT ACTUALLY IS: ONE REPLACEMENT AND FIVE DISSOLUTIONS
+
+`Core.Action` has **12 members — six per asset**: `Swap`, `Repack`, `ModLP`, `OutsideRange`,
+`Collect`, `Reseat`. Seven `poolManager.unlock` sites reach them (`Core:700,712,731,813,832,853`
+and `SOR:178`).
+
+**`FixedRateFill` replaces exactly ONE of the six.** The other five are not operations that need a
+replacement — **they exist ONLY BECAUSE THE BAND IS A UNISWAP LP POSITION**:
+
+| action | what it is | after the cut |
+|---|---|---|
+| `Swap` | execute a trade against the curve | → `FixedRateFill` + `BatchLedger` (built, tested) |
+| `Repack` | move the tick range | **dissolves** — no ticks to move |
+| `ModLP` | add/remove concentrated liquidity | **dissolves** — becomes a balance change |
+| `OutsideRange` | place a boundary order | **dissolves** — with it goes `oorTicks` and its off-by-one (#46) |
+| `Collect` | harvest v4 fees | **dissolves** — fees are the 420 ppm WE charge, not v4's |
+| `Reseat` | recenter the position | **dissolves** — becomes the keeper's rebalance-to-1:1 |
+
+⇒ **THE CUT'S REAL CONTENT: STOP BEING A UNISWAP LP.** The band stops being a tick-bounded position
+and becomes INVENTORY — two balances we hold and rebalance. That is precisely the owner's framing
+(*"we just attribute properly and rebalance to 1:1"*): inventory management, not position management.
+
+⚠️ **THIS IS WHY THE CUT CANNOT BE INCREMENTAL, AND WHY IT IS SMALLER THAN IT LOOKS.** You cannot
+delete `Repack` while `ModLP` still maintains a tick range — the five dissolve TOGETHER or not at
+all. But none of the five needs new code: they are deletions plus the accounting they already write
+(`POOLED_*` lives in `Core`, never in v4, so it survives untouched).
+
+⇒ **ORDER:** (1) `Core.swap`'s unlock block → the fill [the seam is ONE statement: everything after
+`out = ...` is our own shortfall/`POOLED_*` accounting and is v4-independent]; (2) the five
+dissolutions together; (3) drop `SafeCallback` from `Core` and `Aux`, which frees the room for
+`BatchLedger` to fold into `Aux`; (4) the price-reference decision (`OracleLib.prepRefs`) — separable,
+see above.
