@@ -800,7 +800,9 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     }
 
     /// @notice (B) The digest an LP signs COLD (once) to delegate channel operation to an
-    ///         `authority` (a concrete hop, OR THE Safe-governed hopRegistry for fleet mode).
+    ///         `authority` — a concrete hop. ⚠️ This used to read "OR THE Safe-governed
+    ///         `hopRegistry` for fleet mode": §E185 DELETED the registry and every
+    ///         `_requireAttested` call, so no registry-shaped authority exists to name.
     ///         Binds chainId + this contract + authority + payout script + version, so it
     ///         can't be replayed to another deployment; a higher version supersedes.
     /// @notice (E157-b) What the LP signs so a hop may open its channel. ONE signature, made at
@@ -1254,8 +1256,11 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///         next heartbeat (a stale exit spends a spent UTXO ⇒ invalid) — ONE live
     ///         exit per current funding UTXO.
     ///
-    ///         AUTHORITY: identical (B) gate to `openChannel` — `_requireAttested` +
-    ///         `channel.hop`, so only the hop that opened this channel may emit (E157). The payout is pinned to
+    ///         AUTHORITY: identical (B) gate to `openChannel` — `_onlyHop()` (a two-address
+    ///         check against `MAIN_HOP`/`FALLBACK_HOP`) + `channel.hop`, so only the hop that
+    ///         opened this channel may emit (E157). ⚠️ This named `_requireAttested` until
+    ///         §E185 deleted it; the gate is the per-channel `channel.hop` binding, NOT an
+    ///         attestation. The payout is pinned to
     ///         `btcRecipientOf` INSIDE the signed bytes, so this can only publish a
     ///         backstop that pays the LP — it can never redirect funds. Emit-only (no
     ///         external call, no fund movement) ⇒ no reentrancy surface.
