@@ -21,7 +21,13 @@ export const CORE_ABI = [
   // §E63 — ONE dispatched observe. These were two entries differing only in which ring they
   // read, mirroring a duplication that also existed on-chain (two selectors, two dispatch
   // entries, one behaviour). Both sides now take the band as an argument.
-  'function observe(uint32[] secondsAgos, bool isBTC) view returns (int56[] tickCumulatives)',
+  // (2026-08-15) Was `int56[] tickCumulatives`, inherited from Uniswap v3's observe. The tick
+  // removal made the observation ring store PLAIN PRICES, so `Core.observe` now returns
+  // `uint192[]`. Both are 32-byte words, so the old declaration did not revert — it decoded
+  // each price as a signed 56-bit value, wrapping large prices into wrong and possibly
+  // NEGATIVE numbers in the UI. Silent, which is why the ABI gate is the only thing that
+  // catches it here: `spa/` has no node_modules, so `tsc` cannot run in this tree.
+  'function observe(uint32[] secondsAgos, bool isBTC) view returns (uint192[] prices)',
   // Internal pool state — the REAL committed-vs-backing + in-range fractions.
   'function committedUsd18() view returns (uint)',     // USD committed to the in-range pools
   'function POOLED_ETH() view returns (uint)',          // in-range ETH (short-gamma slice)
