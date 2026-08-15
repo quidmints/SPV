@@ -98,6 +98,36 @@ passthrough is not mistaken for having closed it.**
 not less** — and `SwapLib.clampByBacking`'s physical `backing − pooled` headroom is what actually bounds it
 (audit #8). **That is the guard to re-verify once σ² leaves pricing, because it becomes the only one left.**
 
+## 📋 BRIEF FOR WHOEVER HOLDS `FixedRateFill` — **THE NINE THINGS, INDEXED. Sent to `spv-2d`/`spv-a0` 2026-08-15; this is the copy that survives a session ending.**
+The file was drafted BEFORE the owner changed the charge model. Do not build further on it until 1–3 are settled.
+1. **`_applySkew` GOES. The fill settles AT ORACLE.** Moving the rate against the swapper IS "collecting the
+   skew", which the owner removed: *"we don't need external arbers to earn the skew so we don't need to
+   collect it either. we just attribute properly and rebalance to 1:1."*
+2. **The charge is the MEASURED restoration cost** (what Curve actually charges to put the band back to 1:1),
+   **not** `Γ·σ²·q`. Model vs receipt — see §SKEW-DESIGN-VERDICT for why every measured defect belongs to the model.
+3. **WHO PAYS: the swapper.** Both alternatives are CLOSED, not ranked — see §WHO-PAYS above (LPs refuted by
+   grinding arithmetic, −1.6 to −43.6 bp per round trip; the basket refuted as a pattern deleted twice as toxic).
+4. **Route it to LPs.** §E107: the premium currently accrues to QU!D holders, not to whoever bore the cost.
+5. **`get_dy` makes it quotable — but NEVER quote it naked.** Sizing a charge from live Curve state is a
+   TOLERANCE, not a capacity read, and `Interfaces.sol:74-77` warns manipulation *"WIDENS the guard exactly
+   when it needs to hold"*. **Settle at ACTUAL, or FLOOR the quote.**
+6. **The free-option problem dissolves** once there is no off-mid committed rate — `Quote.deadline` drops from
+   load-bearing to hygiene.
+7. **KEEP `qBar`.** It stops being a price and becomes the ATTRIBUTION KEY (imbalance created). It is the one
+   genuinely DERIVED piece; everything being deleted is the fitted part.
+8. **DO NOT delete σ² with it.** `VogueLib.derivedThetaWad:303` reads `realizedVarianceWad` to size BAND DEPTH —
+   an independent consumer that survives the pricing change. What deletes: `skewWad` (159), `_maxWellSkew` (43),
+   `_composePrice` (9), `CONF_FRAC_WAD`, `ETH_CONF_FRAC_WAD`.
+9. 🔴 **THE v4 GATE IS DEEPER THAN `_packBandTicks`.** It is not only `SwapLib:649` — **EVERY path returning
+   assets to the band goes through `Core._modifyLiquidity` → `poolManager.modifyLiquidity` with tick bounds.
+   Adding liquidity IS v4's API.** A Curve rebalance can BUY the volatile back but cannot RETURN it to the band
+   before the cut. That, not the swap path, is what gates the refill.
+⚠️ **TWO FACTS THE FILL AUTHOR MAY BE WORKING AGAINST:** the **isBTC refactor has NOT landed** — `main`,
+`origin/main` and every worktree are identical at **345 isBTC lines**, `SOR.sol` still **372**; and `main`
+carries **two reds** — `ProbeSwapIsEntryHistoryIndependent` (mine, tick removal, 2.34×→4×) and
+`LeveragePnLProbe::testLeverage_LvrControlVsTreatment` (**PRE-EXISTING**, 0.63% passive-LP leak at unchanged
+price, verified against a manufactured baseline — see the correction section below).
+
 ## ⛔ CORRECTION + A LIVE DEFECT NOBODY OWNS — **I MISATTRIBUTED ONE OF THE TWO TICK-REMOVAL FAILURES; THE CONTROL SPLITS THEM (2026-08-15).**
 `4b656eb5`'s message says *"both failures are real and attributable to this change by mechanism"*. **That is
 wrong for one of them, and the mechanism story was exactly the kind that feels like evidence and is not.**
