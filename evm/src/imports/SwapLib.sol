@@ -1145,8 +1145,15 @@ library SwapLib {
     ///         deposited (POOLED not yet bumped — the swap settles in _finishSwap), added so
     ///         the sell is judged on inv AFTER its own contribution (a pool sitting at target
     ///         would otherwise never charge any sell, however large).
+    /// @dev PUBLIC so the imbalance charge is QUOTABLE BEFORE settlement, matching `wellSkew`. Under the
+    ///      intent design (#28) the swapper is priced for the imbalance THEY create at quote time —
+    ///      pre-committed, not discovered by a curve — so both directions must be readable from
+    ///      outside. `wellSkew` (the drain side) already was; this is the fill side, and it being
+    ///      `internal` was the only reason a quote could price one direction and not the other.
+    ///      ⚠️ Still a VIEW over live `Core` state, so a quote is only as fresh as the block it was
+    ///      taken in. Whatever binds a quote to a settlement must carry its own staleness bound.
     function sellSkew(address core, uint base, bool isBTC, uint addedTok)
-        internal view returns (uint)
+        public view returns (uint)
     {
         // §E58: `target` is FLOW alone — the leverage DEBT is not a constraint on shedding (see
         // skewWad's note). One term, one meaning.
