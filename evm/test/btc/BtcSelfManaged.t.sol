@@ -144,7 +144,7 @@ contract BtcSelfManagedTest is Alles {
         // The USD->BTC swaps deliver BTC to the swapper -> it needs a BTC recipient.
         _setRecipient(address(ch), abi.encode(uint(0xB7C)), User03);
 
-        // Fund POOLED_USD_BTC headroom (a swap-in draws the swappers' dollars).
+        // Fund POOLED_USD headroom (a swap-in draws the swappers' dollars).
         // MULTI-HOP: a REAL open (not a registerBtcLp shortcut) so `hop` owns an OPEN
         // channel and may therefore attest the swap-in — settleSwapIn's
         // `openChannelsOf[hop] >= 1` gate is the authority binding that replaced the
@@ -160,7 +160,7 @@ contract BtcSelfManagedTest is Alles {
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
-        assertGt(CORE.POOLED_USD_BTC(), 0, "POOLED_USD_BTC funded");
+        assertGt(CORE.POOLED_USD(), 0, "POOLED_USD funded");
 
         // No-CRE fork: heal USDC severity to 0 for the realistic healthy case.
         vm.mockCall(address(AUX),
@@ -168,14 +168,14 @@ contract BtcSelfManagedTest is Alles {
             abi.encode(uint(0)));
         address seller = address(0x5EE7);
         uint usdcBefore   = USDC.balanceOf(seller);
-        uint pooledBefore = CORE.POOLED_USD_BTC();
+        uint pooledBefore = CORE.POOLED_USD();
         uint parkedBefore = ch.provenSatsAvailable(hop);
         vm.prank(hop);
         ch.settleSwapInBuffered(seller, sats, address(USDC), paymentHash, 0, false);
         // ETH-parity: the real LN swap-in settles ON-CURVE from existing pooled
         // dollars - the seller receives USDC, NOT minted QUI.
         assertGt(USDC.balanceOf(seller), usdcBefore, "seller received USDC for the real LN swap-in");
-        assertLt(CORE.POOLED_USD_BTC(), pooledBefore, "POOLED_USD_BTC drawn down by the curve");
+        assertLt(CORE.POOLED_USD(), pooledBefore, "POOLED_USD drawn down by the curve");
         assertLt(ch.provenSatsAvailable(hop), parkedBefore, "the credit drew the proven buffer down");
 
         // (M1#1) IDEMPOTENCY, which is what the hash is FOR now: re-submitting the same HTLC —
@@ -373,7 +373,7 @@ contract BtcSelfManagedTest is Alles {
         (uint pooledOpen,,,) = BTC.autoManagedBTC(lpEth);
         assertEq(pooledOpen, b.amountSats, "openChannel credits the BTC pool position");
 
-        // ── fund POOLED_USD_BTC headroom (a swap-in draws swapper dollars) ──
+        // ── fund POOLED_USD headroom (a swap-in draws swapper dollars) ──
         _setRecipient(address(ch), abi.encode(uint(0xB7C)), User03);
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
@@ -382,7 +382,7 @@ contract BtcSelfManagedTest is Alles {
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
-        assertGt(CORE.POOLED_USD_BTC(), 0, "POOLED_USD_BTC funded");
+        assertGt(CORE.POOLED_USD(), 0, "POOLED_USD funded");
 
         // No-CRE fork: heal USDC severity for the healthy case.
         vm.mockCall(address(AUX),

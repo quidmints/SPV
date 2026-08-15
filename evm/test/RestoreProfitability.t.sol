@@ -61,8 +61,8 @@ contract RestoreProfitability is Alles {
     /// The band's scarcity state, in the SAME terms the skew itself computes it.
     function _state() internal view returns (uint invUsd6, uint targetUsd6) {
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
-        invUsd6 = CORE.POOLED_ETH() * px / 1e30;
-        targetUsd6 = CORE.flowEwmaUsd(false);
+        invUsd6 = CORE.POOLED() * px / 1e30;
+        targetUsd6 = CORE.flowEwmaUsd();
     }
 
     /// TOTAL stable value held by `who`, in 18-dec USD, across EVERY basket stable plus QUID.

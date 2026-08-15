@@ -50,15 +50,15 @@ contract SkewCalibration is Alles {
 
         emit log_named_uint("ETH wellSkew (wad)   ", AUX.wellSkew(address(WETH)));
         emit log_named_uint("BTC wellSkew (wad)   ", AUX.wellSkew(address(WBTC)));
-        emit log_named_uint("flowEwmaUsd ETH      ", CORE.flowEwmaUsd(false));
-        emit log_named_uint("flowEwmaUsd BTC      ", CORE.flowEwmaUsd(true));
+        emit log_named_uint("flowEwmaUsd ETH      ", CORE.flowEwmaUsd());
+        emit log_named_uint("flowEwmaUsd BTC      ", CORE.flowEwmaUsd());
         emit log_named_uint("committedUsd18       ", CORE.committedUsd18());
-        emit log_named_uint("btcBandEquityUsd18   ", CORE.btcBandEquityUsd18());
-        emit log_named_uint("POOLED_ETH           ", CORE.POOLED_ETH());
-        emit log_named_uint("POOLED_USD_ETH       ", CORE.POOLED_USD_ETH());
+        emit log_named_uint("btcBandEquityUsd18   ", CORE.bandEquityUsd18());
+        emit log_named_uint("POOLED           ", CORE.POOLED());
+        emit log_named_uint("POOLED_USD       ", CORE.POOLED_USD());
         // No assertion on the VALUE — the value is the output. Only a premise, so a zeroed
         // fixture cannot masquerade as "the skew is small".
-        assertGt(CORE.POOLED_ETH(), 0, "PREMISE: the band must hold inventory, else 0 means nothing");
+        assertGt(CORE.POOLED(), 0, "PREMISE: the band must hold inventory, else 0 means nothing");
 
         // §E48/E58 — THE REGIME QUESTION IN ONE NUMBER. `wellSkew` is 0 above because
         // `target = flow + levClaimUsd6` is tiny against band inventory, so the scarcity curve never
@@ -67,10 +67,10 @@ contract SkewCalibration is Alles {
         // refill matter; if it cannot, they address a state the system rarely enters. Print the ratio
         // rather than assert it — the ratio IS the answer.
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
-        uint invUsd6 = px == 0 ? 0 : (CORE.POOLED_ETH() * px / 1e18) / 1e12;
-        uint target6 = CORE.flowEwmaUsd(false) + CORE.levClaimUsd6(false);
-        emit log_named_uint("realizedVarianceWad ETH", CORE.realizedVarianceWad(false));
-        emit log_named_uint("levClaimUsd6 ETH (debt)", CORE.levClaimUsd6(false));
+        uint invUsd6 = px == 0 ? 0 : (CORE.POOLED() * px / 1e18) / 1e12;
+        uint target6 = CORE.flowEwmaUsd() + CORE.levClaimUsd6();
+        emit log_named_uint("realizedVarianceWad ETH", CORE.realizedVarianceWad());
+        emit log_named_uint("levClaimUsd6 ETH (debt)", CORE.levClaimUsd6());
         emit log_named_uint("target = flow + debt   ", target6);
         emit log_named_uint("band inventory (6-dec) ", invUsd6);
         emit log_named_uint("inv / target  (x)      ", target6 == 0 ? 0 : invUsd6 / target6);

@@ -15,7 +15,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 ///         `ETH received + QUID received + re-credited pooled ≈ X`, with NO value destroyed.
 ///
 ///         If conservation HOLDS, the failing assertions are wrong in principle: they compare a
-///         POOLED_ETH delta against ETH-only payout and so implicitly assume the band is 100% ETH,
+///         POOLED delta against ETH-only payout and so implicitly assume the band is 100% ETH,
 ///         which stops being true the moment any swap moves price into the range.
 ///         If conservation FAILS, the gap is real and this prints exactly where it went.
 contract EthExitConservationProbe is Alles {
@@ -38,7 +38,7 @@ contract EthExitConservationProbe is Alles {
         // ETH/WETH split ratio as missing value, which is the very artifact it exists to rule out.
         uint ethBefore  = User01.balance + WETH.balanceOf(User01);
         uint quidBefore = QUID.balanceOf(User01);
-        uint poolEthBefore = CORE.POOLED_ETH();
+        uint poolEthBefore = CORE.POOLED();
 
         // FULL exit, deliberately. A PARTIAL exit cannot test conservation: the burn's USD leg stays
         // in the basket as backing, which raises the value of the shares the LP STILL holds — so the
@@ -52,7 +52,7 @@ contract EthExitConservationProbe is Alles {
         uint owedGained = owedAfter > owedBefore ? owedAfter - owedBefore : 0;
         uint ethGained  = (User01.balance + WETH.balanceOf(User01)) - ethBefore;
         uint quidGained = QUID.balanceOf(User01) - quidBefore;
-        uint poolEthDrop = poolEthBefore - CORE.POOLED_ETH();
+        uint poolEthDrop = poolEthBefore - CORE.POOLED();
         // Re-credited deferral: pooled should fall by LESS than 5 if part was re-credited.
         uint pooledDrop = pooledBefore - pooledAfter;
 
@@ -60,7 +60,7 @@ contract EthExitConservationProbe is Alles {
         emit log_named_decimal_uint("ETH received         ", ethGained, 18);
         emit log_named_decimal_uint("QUID received (18dec)", quidGained, 18);
         emit log_named_decimal_uint("pooled DROP          ", pooledDrop, 18);
-        emit log_named_decimal_uint("POOLED_ETH drop      ", poolEthDrop, 18);
+        emit log_named_decimal_uint("POOLED drop      ", poolEthDrop, 18);
         emit log_named_decimal_uint("re-credited deferral ", pooledBefore > pooledDrop ? pooledBefore - pooledDrop : 0, 18);
 
         // CONSERVATION: the LP's claim must not evaporate. Everything the LP gave up (pooledDrop)

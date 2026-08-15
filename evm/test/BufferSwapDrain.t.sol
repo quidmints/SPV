@@ -8,7 +8,7 @@ interface IErc20Bal { function balanceOf(address) external view returns (uint); 
 /// @notice BUFFER-SWAP INVARIANT PROBE (post-fold). The old audit worry — "a market swap consumes the debt-funded
 ///   BUFFER's mock-USD but pays REAL basket stables while a SEPARATE `POOLED_USD_ETH_LEV` counter goes stale, which
 ///   could be leveraged into an over-mint later" — is now STRUCTURALLY impossible: there is no `_LEV` counter. The
-///   full-2x buffer folds into the ONE `POOLED_USD_ETH` slice, and `committedUsd18` recovers the pure equity claim
+///   full-2x buffer folds into the ONE `POOLED_USD` slice, and `committedUsd18` recovers the pure equity claim
 ///   by subtracting the LP's LIVE leverage debt (`committed = in-range USD - totalDebtUsd`, buffer == debt exactly).
 ///   Nothing a swap touches can desync, because the debt is read live from the LevManager, not stored in Core.
 ///
@@ -22,7 +22,7 @@ contract BufferSwapDrain is LevCascadeProbe {
     ///      `addLiq`/burn moves). Asserting against the curve leg now would pin the very coupling
     ///      #12 removed: it would demand that an LP's sale proceeds still count as basket depth.
     function _assertCommittedIdentity(string memory tag) internal {
-        uint pooled18 = (CORE.basketUsdEth() + CORE.basketUsdBtc()) * 1e12;
+        uint pooled18 = (CORE.basketUsd() + CORE.basketUsd()) * 1e12;
         uint debt18   = lm.totalDebtUsd();
         uint expect   = pooled18 > debt18 ? pooled18 - debt18 : 0;
         assertEq(CORE.committedUsd18(), expect, tag);
@@ -35,18 +35,18 @@ contract BufferSwapDrain is LevCascadeProbe {
         vm.deal(address(this), 40 ether);
         V4.deposit{value: 20 ether}(0, address(this));
 
-        // Full-2x levered position ⇒ a real debt-funded buffer folded into POOLED_USD_ETH.
+        // Full-2x levered position ⇒ a real debt-funded buffer folded into POOLED_USD.
         _openAtEntry(lps[0], 5 ether);
         _rallyBand(_entrySqrt(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
         lm.rebalance(lps[0], 0);
         assertGt(venue.debtOf(lps[0]), 0, "precondition: levered debt > 0");
         _calmVol();
-        V4.syncLev(lps[0]);                                   // mints the GROSS (2x) depth ⇒ buffer USD → POOLED_USD_ETH
+        V4.syncLev(lps[0]);                                   // mints the GROSS (2x) depth ⇒ buffer USD → POOLED_USD
         assertGt(lm.totalDebtUsd(), 0, "precondition: live leverage debt > 0 (the folded buffer)");
         _assertCommittedIdentity("FOLD: committed == in-range USD - live debt (pre-swap)");
 
         // ── snapshot BEFORE the buffer-consuming swaps ──
-        uint pooledUsd0 = CORE.POOLED_USD_ETH();
+        uint pooledUsd0 = CORE.POOLED_USD();
         uint tvl0       = _tvl();
         (, uint liquid0) = AUX.checkBacking();
         uint px0        = AUX.getTWAPforAsset(address(WETH), 1800); // PRE-swap fair upper bound on the WETH input
@@ -68,7 +68,7 @@ contract BufferSwapDrain is LevCascadeProbe {
         uint usdcOut = IErc20Bal(address(USDC)).balanceOf(swapper) - usdcBefore;
         uint ethIn   = ethBefore - swapper.balance;
         assertGt(usdcOut, 0, "the swaps DID pay real basket stables out (drain vector exercised)");
-        assertLt(CORE.POOLED_USD_ETH(), pooledUsd0, "the swap drained the basket in-range USD slice");
+        assertLt(CORE.POOLED_USD(), pooledUsd0, "the swap drained the basket in-range USD slice");
 
         // ── the fold's identity STILL holds after the swap: no counter to desync ──
         _assertCommittedIdentity("FOLD: committed == in-range USD - live debt (POST-swap, drift-free)");

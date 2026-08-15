@@ -61,7 +61,7 @@ interface IVogue {
     function addLiq(uint deltaTok, uint price) external returns (uint usdOut, uint outDelta);
     function unwindForRedeem(uint usdWanted) external returns (uint usdFreed);  // E21: was BasketLib.IVogueUnwind
     function EV() external view returns (address);                              // E21: was BasketLib.IWiredVogue
-    function derivedThetaWad(bool isBTC) external view returns (uint);
+    function derivedThetaWad() external view returns (uint);
     function pendingRewards(address user) external view returns (uint ethReward, uint usdReward);
 }
 
@@ -324,13 +324,13 @@ interface ICore {
     function btcThetaBacking() external view returns (uint);
     function poolStats(int24 tickLower, int24 tickUpper) external view returns (uint160 sqrtPriceX96, int24 currentTick, uint128 liquidity);
     function observe(uint32[] calldata secondsAgos, bool isBTC) external view returns (uint192[] memory);
-    function premiumEwmaUsd(bool isBTC) external view returns (uint);
+    function premiumEwmaUsd() external view returns (uint);
     function POOLED_USD() external view returns (uint);
     function token1is(bool isBTC) external view returns (bool);
     function pendingSwapOutUsd() external view returns (uint);
-    function levClaimUsd6(bool isBTC) external view returns (uint);
+    function levClaimUsd6() external view returns (uint);
     function levGrossNative(bool isBTC) external view returns (uint);
-    function flowEwmaUsd(bool isBTC) external view returns (uint);
+    function flowEwmaUsd() external view returns (uint);
     function realizedVarianceWad() external view returns (uint);
     function recordSkewPremium(bool isBTC, uint256 premiumUsd) external;
     function refundUnfilled(address token, uint amount, address to) external;

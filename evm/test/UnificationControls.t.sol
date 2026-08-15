@@ -23,7 +23,7 @@ interface IProtoFeeCtrl { function protocolFeeForPool(PoolKey memory key) extern
 ///         than a regression guard bolted on afterwards: when the unification lands, anything
 ///         that moves here is attributable to it.
 ///
-/// The unification collapses `POOLED_USD_ETH`/`POOLED_USD_BTC` into one committed-dollars
+/// The unification collapses `POOLED_USD`/`POOLED_USD` into one committed-dollars
 /// variable with the two per-curve figures demoted to placements. Every vein below reads or
 /// writes those counters somewhere in its path, so each needs an assertion on a QUANTITY —
 /// "does not revert" would not catch a mis-attribution.
@@ -49,7 +49,7 @@ contract UnificationControls is Alles {
     /// it). Mock addresses come from Core's storage layout; 's logic, restated once.
     function _mockDust(bool isBTC) internal view returns (uint usdDust, uint tokDust) {
         address pm = address(CORE.poolManager());
-        (address mTok, address mUsd) = CORE.mocks(isBTC);
+        (address mTok, address mUsd) = CORE.mocks();
         assertGt(mUsd.code.length, 0, "STALE SLOT: Core's storage layout moved -- re-read slots from "
             "`forge inspect Core storageLayout` and update _mockDust (see UNIT-B-SLOTS-RECLAIM)");
         usdDust = IERC20(mUsd).totalSupply() - (IERC20(mUsd).balanceOf(pm) + IERC20(mUsd).balanceOf(address(CORE)));
@@ -85,21 +85,21 @@ contract UnificationControls is Alles {
     function test_V4_DepositGrowsCommittedByExactlyTheBandedUsd() public {
         _seedBasket();
         uint c0 = CORE.committedUsd18();
-        uint u0 = CORE.POOLED_USD_ETH();
-        uint b0 = CORE.POOLED_USD_BTC();
+        uint u0 = CORE.POOLED_USD();
+        uint b0 = CORE.POOLED_USD();
 
         vm.prank(lpA);
         V4.deposit{value: 100 ether}(0, lpA);
 
         uint c1 = CORE.committedUsd18();
-        uint u1 = CORE.POOLED_USD_ETH();
+        uint u1 = CORE.POOLED_USD();
         emit log_named_uint("committed delta", c1 - c0);
         emit log_named_uint("ETH USD leg delta", u1 - u0);
 
         assertGt(u1, u0, "PREMISE: the deposit banded USD, else nothing is being measured");
-        assertEq(CORE.POOLED_USD_BTC(), b0, "an ETH deposit must not touch the BTC band's USD leg");
+        assertEq(CORE.POOLED_USD(), b0, "an ETH deposit must not touch the BTC band's USD leg");
         // The identity the unification MUST preserve (or consciously redefine).
-        assertEq(c1, (u1 + CORE.POOLED_USD_BTC()) * 1e12,
+        assertEq(c1, (u1 + CORE.POOLED_USD()) * 1e12,
             "committedUsd18 == (both USD legs) x 1e12 with no leverage debt outstanding");
     }
 
@@ -325,8 +325,8 @@ contract UnificationControls is Alles {
     /// it does not assert neutrality, and it runs with NO BTC band.
     ///
     /// Both gaps are exactly what the `POOLED_USD` unification would break: the unwind is ETH-ONLY
-    /// (`Vogue.sol:964` reads `POOLED_USD_ETH`), and `BasketLib.redeemableBody:969` subtracts
-    /// `POOLED_USD_BTC` from the redeemable quote PRECISELY BECAUSE an ETH-side redemption cannot
+    /// (`Vogue.sol:964` reads `POOLED_USD`), and `BasketLib.redeemableBody:969` subtracts
+    /// `POOLED_USD` from the redeemable quote PRECISELY BECAUSE an ETH-side redemption cannot
     /// reach the BTC band. Merge the counters and both assumptions dissolve silently.
     function test_V6_UnwindIsLpEquityNeutralAndCannotReachTheBtcBand() public {
         // NOTE: deliberately NOT `_seedBasket()`. Seeding an extra \$1M leaves free stables
@@ -353,8 +353,8 @@ contract UnificationControls is Alles {
         uint vogueEth0   = AUX.vogueETH();
         uint lpShares0   = V4.lpShares();
         uint pooledA0    = V4.balanceOf(lpA);
-        uint btcUsd0     = CORE.POOLED_USD_BTC();
-        uint btcLeg0     = CORE.POOLED_BTC();
+        uint btcUsd0     = CORE.POOLED_USD();
+        uint btcLeg0     = CORE.POOLED();
         uint btcFps0     = BTC.feesPerShareBTC();
 
         emit log_named_uint("TVL before        ", tvl0);
@@ -368,7 +368,7 @@ contract UnificationControls is Alles {
         emit log_named_uint("TVL after         ", d1[14]);
         emit log_named_uint("committed after   ", CORE.committedUsd18());
         emit log_named_uint("vogueETH after    ", AUX.vogueETH());
-        emit log_named_uint("BTC USD leg after ", CORE.POOLED_USD_BTC());
+        emit log_named_uint("BTC USD leg after ", CORE.POOLED_USD());
 
         // PREMISE: the unwind must actually have fired, else nothing below is being tested.
         assertLt(CORE.committedUsd18(), committed0, "PREMISE: the band was unwound (committed dropped)");
@@ -382,10 +382,10 @@ contract UnificationControls is Alles {
             "unwind must be LP-EQUITY NEUTRAL: vogueETH unchanged (ETH moved in-band -> in-venue, not out)");
 
         // V6b — THE UNWIND IS ETH-ONLY AND MUST NOT REACH THE BTC BAND. This is the assumption
-        // `redeemableBody`'s `POOLED_USD_BTC` subtraction rests on.
+        // `redeemableBody`'s `POOLED_USD` subtraction rests on.
         assertGt(btcUsd0, 0, "PREMISE: the BTC band is seeded, else this assertion is 0 == 0");
-        assertEq(CORE.POOLED_USD_BTC(), btcUsd0, "an ETH-side redemption must NOT unwind the BTC band's USD leg");
-        assertEq(CORE.POOLED_BTC(), btcLeg0, "an ETH-side redemption must NOT touch the BTC band's BTC leg");
+        assertEq(CORE.POOLED_USD(), btcUsd0, "an ETH-side redemption must NOT unwind the BTC band's USD leg");
+        assertEq(CORE.POOLED(), btcLeg0, "an ETH-side redemption must NOT touch the BTC band's BTC leg");
         assertEq(BTC.feesPerShareBTC(), btcFps0, "an ETH-side redemption must NOT credit BTC-band LPs");
 
         // V8 — CROSS-BAND REPACK REACHABILITY. `BasketLib.backingCoreBody` only picks a band to
@@ -410,16 +410,16 @@ contract UnificationControls is Alles {
     /// (`SwapLib:937`: *"NO consumer beyond the counters + theta EWMA"*).
     ///
     /// This is the owner's invariant as a test: drive a real drain, and assert the LPs' own USD
-    /// accumulator MOVED. Without §E5 this fails while `skewPremiumETH` still rises — i.e. it
+    /// accumulator MOVED. Without §E5 this fails while `skewPremium` still rises — i.e. it
     /// distinguishes "recorded" from "received", which is the whole defect.
     function test_E16_RetainedPremiumReachesLpsNotOnlyTheCounter() public {
         _seedBasket();
         vm.prank(lpA); V4.deposit{value: 200 ether}(0, lpA);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 30 minutes);
 
-        uint prem0 = CORE.skewPremiumETH();
+        uint prem0 = CORE.skewPremium();
         uint usdFees0 = V4.USD_FEES();
-        emit log_named_uint("skewPremiumETH before", prem0);
+        emit log_named_uint("skewPremium before", prem0);
         emit log_named_uint("USD_FEES       before", usdFees0);
 
         // Drain the volatile side hard enough to make the pool scarce, which is what makes
@@ -431,9 +431,9 @@ contract UnificationControls is Alles {
             vm.roll(block.number + 1); vm.warp(block.timestamp + 20 minutes);
         }
 
-        uint prem1 = CORE.skewPremiumETH();
+        uint prem1 = CORE.skewPremium();
         uint usdFees1 = V4.USD_FEES();
-        emit log_named_uint("skewPremiumETH after ", prem1);
+        emit log_named_uint("skewPremium after ", prem1);
         emit log_named_uint("USD_FEES       after ", usdFees1);
         emit log_named_uint("premium retained     ", prem1 - prem0);
         emit log_named_uint("USD_FEES increment   ", usdFees1 - usdFees0);
@@ -468,8 +468,8 @@ contract UnificationControls is Alles {
         BTC.registerBtcLp(lpB, 2e7);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 30 minutes);
 
-        uint ethUsd0 = CORE.POOLED_USD_ETH();
-        uint btcUsd0 = CORE.POOLED_USD_BTC();
+        uint ethUsd0 = CORE.POOLED_USD();
+        uint btcUsd0 = CORE.POOLED_USD();
         emit log_named_uint("ETH curve USD at rest", ethUsd0);
         emit log_named_uint("BTC curve USD at rest", btcUsd0);
         assertGt(ethUsd0, 0, "PREMISE: ETH curve is live");
@@ -478,15 +478,15 @@ contract UnificationControls is Alles {
         // One-directional ETH flow: pay ETH in, take USD out, until the ETH curve's USD is starved.
         vm.deal(User01, 5_000 ether);
         uint steps;
-        for (uint i; i < 20 && CORE.POOLED_USD_ETH() > ethUsd0 / 100; i++) {
+        for (uint i; i < 20 && CORE.POOLED_USD() > ethUsd0 / 100; i++) {
             vm.prank(User01);
             try AUX.swap{value: 40 ether}(address(USDC), address(WETH), false, 0, 0) {} catch {}
             vm.roll(block.number + 1); vm.warp(block.timestamp + 10 minutes);
             steps++;
         }
 
-        uint ethUsd1 = CORE.POOLED_USD_ETH();
-        uint btcUsd1 = CORE.POOLED_USD_BTC();
+        uint ethUsd1 = CORE.POOLED_USD();
+        uint btcUsd1 = CORE.POOLED_USD();
         uint pending = CORE.pendingSwapOutUsd();
         uint btcFree = btcUsd1 > pending ? btcUsd1 - pending : 0;
 
@@ -529,14 +529,14 @@ contract UnificationControls is Alles {
         uint committed = CORE.committedUsd18();
         uint surplus   = d[14] > committed ? d[14] - committed : 0;
         uint backing   = AUX.vogueETH();
-        uint pooledEth = CORE.POOLED_ETH();
+        uint pooledEth = CORE.POOLED();
         uint headroom  = backing > pooledEth ? backing - pooledEth : 0;
         uint theta;
-        try V4.derivedThetaWad(false) returns (uint t) { theta = t; } catch { theta = 0; }
+        try V4.derivedThetaWad() returns (uint t) { theta = t; } catch { theta = 0; }
         emit log_string(tag);
         emit log_named_uint("   USD deployed (committed) ", committed);
         emit log_named_uint("   USD available (surplus)  ", surplus);
-        emit log_named_uint("   ETH deployed (POOLED_ETH)", pooledEth);
+        emit log_named_uint("   ETH deployed (POOLED)", pooledEth);
         emit log_named_uint("   ETH available (headroom) ", headroom);
         emit log_named_uint("   theta (WAD, 0=unmeasured)", theta);
         emit log_named_uint("   USD deployed / permitted bps",
@@ -555,17 +555,17 @@ contract UnificationControls is Alles {
         vm.roll(block.number + 1); vm.warp(block.timestamp + 30 minutes);
 
         _logDeployGap("AT REST");
-        uint ethUsd0 = CORE.POOLED_USD_ETH();
+        uint ethUsd0 = CORE.POOLED_USD();
 
         vm.deal(User01, 5_000 ether);
-        for (uint i; i < 20 && CORE.POOLED_USD_ETH() > ethUsd0 / 100; i++) {
+        for (uint i; i < 20 && CORE.POOLED_USD() > ethUsd0 / 100; i++) {
             vm.prank(User01);
             try AUX.swap{value: 40 ether}(address(USDC), address(WETH), false, 0, 0) {} catch {}
             vm.roll(block.number + 1); vm.warp(block.timestamp + 10 minutes);
         }
 
         _logDeployGap("AFTER DRAIN (pre-refill)");
-        assertLt(CORE.POOLED_USD_ETH(), ethUsd0 / 100, "PREMISE: the curve really is drained");
+        assertLt(CORE.POOLED_USD(), ethUsd0 / 100, "PREMISE: the curve really is drained");
 
         // A reseat poke is the natural refill trigger. Today it does NOT top up -- logged so the
         // E6 build has a before/after on the SAME scenario.
@@ -580,8 +580,8 @@ contract UnificationControls is Alles {
         vm.deal(lpB, 20 ether);
         vm.prank(lpB); V4.deposit{value: 10 ether}(0, lpB);
         _logDeployGap("AFTER a deposit (exercises addLiq re-add)");
-        emit log_named_uint("ETH band USD after re-add", CORE.POOLED_USD_ETH());
-        emit log_named_uint("ETH band ETH after re-add", CORE.POOLED_ETH());
+        emit log_named_uint("ETH band USD after re-add", CORE.POOLED_USD());
+        emit log_named_uint("ETH band ETH after re-add", CORE.POOLED());
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -700,9 +700,9 @@ contract UnificationControls is Alles {
         assertLt(V4.balanceOf(lpA), pooled1, "the deferred residual must be RECOVERABLE by a second exit");
     }
 
-    /// PROVE-BEFORE-REFACTOR: can `POOLED_USD_ETH`/`POOLED_ETH` be DERIVED from pool state instead
+    /// PROVE-BEFORE-REFACTOR: can `POOLED_USD`/`POOLED` be DERIVED from pool state instead
     /// of mirrored in storage? If yes, those two slots can hold the #12 base instead and
-    /// `basketUsdEth`/`basketUsdBtc` are deleted -- a net -4 slots. If the derived and stored
+    /// `basketUsd`/`basketUsd` are deleted -- a net -4 slots. If the derived and stored
     /// values diverge, the removal is DEAD and must not be attempted.
     ///
     /// E13 already cleared the objection that blocked this: band and boundary-order tick widths
@@ -714,26 +714,26 @@ contract UnificationControls is Alles {
         vm.roll(block.number + 1);
         for (uint i; i < 4; i++) _trade(3_000e18);
 
-        (uint160 sqrtP,, uint128 liq) = CORE.poolStats(V4.LOWER_TICK(), V4.UPPER_TICK(), false);
+        (uint160 sqrtP,, uint128 liq) = CORE.poolStats(V4.LOWER_TICK(), V4.UPPER_TICK());
         // In-range position: token0 side spans [spot, upper], token1 side spans [lower, spot].
         uint160 lo = TickMath.getSqrtPriceAtTick(V4.LOWER_TICK());
         uint160 hi = TickMath.getSqrtPriceAtTick(V4.UPPER_TICK());
         uint a0 = SqrtPriceMath.getAmount0Delta(sqrtP, hi, liq, false);
         uint a1 = SqrtPriceMath.getAmount1Delta(lo, sqrtP, liq, false);
         // token1isETH decides which amount is the ETH leg.
-        (uint derivedUsd, uint derivedEth) = V4.token1isETH() ? (a0, a1) : (a1, a0);
+        (uint derivedUsd, uint derivedEth) = V4.token1isVol() ? (a0, a1) : (a1, a0);
 
-        emit log_named_uint("stored  POOLED_USD_ETH", CORE.POOLED_USD_ETH());
+        emit log_named_uint("stored  POOLED_USD", CORE.POOLED_USD());
         emit log_named_uint("derived USD leg       ", derivedUsd);
-        emit log_named_uint("stored  POOLED_ETH    ", CORE.POOLED_ETH());
+        emit log_named_uint("stored  POOLED    ", CORE.POOLED());
         emit log_named_uint("derived ETH leg       ", derivedEth);
         emit log_named_uint("band liquidity        ", liq);
 
         assertGt(liq, 0, "PREMISE: the band holds liquidity, else the derivation is vacuous");
         // Within 1% -- the derivation is exact math on the same position; any real gap means the
         // mirror carries information the pool does not (which would kill the removal).
-        assertApproxEqRel(derivedUsd, CORE.POOLED_USD_ETH(), 0.01e18, "USD leg must be derivable from pool state");
-        assertApproxEqRel(derivedEth, CORE.POOLED_ETH(), 0.01e18, "ETH leg must be derivable from pool state");
+        assertApproxEqRel(derivedUsd, CORE.POOLED_USD(), 0.01e18, "USD leg must be derivable from pool state");
+        assertApproxEqRel(derivedEth, CORE.POOLED(), 0.01e18, "ETH leg must be derivable from pool state");
     }
 
     /// DUST SWEEP — mocks held outside the allowed set {PoolManager, Core} must be ZERO today, and
@@ -807,17 +807,17 @@ contract UnificationControls is Alles {
         uint claimEth = V4.convertToAssets(shares);
         uint claimUsd = claimEth * px / 1e18;
 
-        emit log_named_uint("POOLED_ETH   pre  ", CORE.POOLED_ETH());
+        emit log_named_uint("POOLED   pre  ", CORE.POOLED());
         emit log_named_uint("vogueETH     pre  ", AUX.vogueETH());
-        emit log_named_uint("POOLED_USD   pre  ", CORE.POOLED_USD_ETH());
-        emit log_named_uint("basketUsdEth pre  ", CORE.basketUsdEth());
+        emit log_named_uint("POOLED_USD   pre  ", CORE.POOLED_USD());
+        emit log_named_uint("basketUsd pre  ", CORE.basketUsd());
         emit log_named_uint("lpShares     pre  ", V4.lpShares());
 
         uint e0 = lpA.balance; uint w0 = WETH.balanceOf(lpA); uint q0 = QUID.balanceOf(lpA);
         vm.prank(lpA); V4.redeem(shares, lpA, lpA);
-        emit log_named_uint("POOLED_ETH   post ", CORE.POOLED_ETH());
-        emit log_named_uint("POOLED_USD   post ", CORE.POOLED_USD_ETH());
-        emit log_named_uint("basketUsdEth post ", CORE.basketUsdEth());
+        emit log_named_uint("POOLED   post ", CORE.POOLED());
+        emit log_named_uint("POOLED_USD   post ", CORE.POOLED_USD());
+        emit log_named_uint("basketUsd post ", CORE.basketUsd());
         uint gotEth = (lpA.balance - e0) + (WETH.balanceOf(lpA) - w0);
         uint gotQ   = QUID.balanceOf(lpA) - q0;
         uint gotUsd = gotEth * px / 1e18 + gotQ;
@@ -849,16 +849,16 @@ contract UnificationControls is Alles {
         vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
         vm.roll(block.number + 1);
 
-        uint oldBefore = CORE.POOLED_USD_ETH() + CORE.POOLED_USD_BTC();
-        uint newBefore = CORE.basketUsdEth() + CORE.basketUsdBtc();
+        uint oldBefore = CORE.POOLED_USD() + CORE.POOLED_USD();
+        uint newBefore = CORE.basketUsd() + CORE.basketUsd();
         // PREMISE: with no flow yet the two definitions must AGREE — every committed dollar so far
         // came from the basket. If they differ here the fixture is not measuring what it claims.
         assertEq(oldBefore, newBefore, "PREMISE: pre-flow, curve inventory == basket contribution");
 
         for (uint i; i < 20; i++) _trade(3_000e18);
 
-        uint oldAfter = CORE.POOLED_USD_ETH() + CORE.POOLED_USD_BTC();
-        uint newAfter = CORE.basketUsdEth() + CORE.basketUsdBtc();
+        uint oldAfter = CORE.POOLED_USD() + CORE.POOLED_USD();
+        uint newAfter = CORE.basketUsd() + CORE.basketUsd();
         (uint[15] memory d,,, ) = AUX.get_deposits();
         uint tvl = d[14];
 
@@ -883,10 +883,10 @@ contract UnificationControls is Alles {
         // other sits idle. A min- or share-capped design would show BTC's zero leg capping ETH.
         // (Written first as `btc + (committed - btc)`, which is true of any two numbers and
         //  therefore measures nothing. The real check computes the ETH leg INDEPENDENTLY.)
-        uint ethEquity = CORE.basketUsdEth() * 1e12;   // no ETH lev debt in this fixture
-        assertEq(CORE.committedUsd18(), ethEquity + CORE.btcBandEquityUsd18(),
+        uint ethEquity = CORE.basketUsd() * 1e12;   // no ETH lev debt in this fixture
+        assertEq(CORE.committedUsd18(), ethEquity + CORE.bandEquityUsd18(),
                  "committed is the SUM of the two bands, each derived on its own");
-        assertGt(CORE.basketUsdEth(), CORE.basketUsdBtc(),
+        assertGt(CORE.basketUsd(), CORE.basketUsd(),
             "ETH may hold MORE committed dollars than BTC -- neither is capped to the other");
     }
 
@@ -906,7 +906,7 @@ contract UnificationControls is Alles {
 
         (uint[15] memory d0,,, uint depeg0) = AUX.get_deposits();
         uint tvl0 = d0[14] > depeg0 ? d0[14] - depeg0 : 0;
-        uint oldCommitted0 = (CORE.POOLED_USD_ETH() + CORE.POOLED_USD_BTC()) * 1e12;
+        uint oldCommitted0 = (CORE.POOLED_USD() + CORE.POOLED_USD()) * 1e12;
         uint newCommitted0 = CORE.committedUsd18();
         assertEq(oldCommitted0, newCommitted0, "PREMISE: pre-flow the two definitions agree");
 
@@ -917,7 +917,7 @@ contract UnificationControls is Alles {
 
         (uint[15] memory d1,,, uint depeg1) = AUX.get_deposits();
         uint tvl1 = d1[14] > depeg1 ? d1[14] - depeg1 : 0;
-        uint oldCommitted1 = (CORE.POOLED_USD_ETH() + CORE.POOLED_USD_BTC()) * 1e12;
+        uint oldCommitted1 = (CORE.POOLED_USD() + CORE.POOLED_USD()) * 1e12;
         uint newCommitted1 = CORE.committedUsd18();
 
         uint freeOld = tvl1 > oldCommitted1 ? tvl1 - oldCommitted1 : 0;
@@ -945,11 +945,11 @@ contract UnificationControls is Alles {
 
         // ⓷ PROVE IT IS SPENDABLE, not just a number: a BTC LP registers AFTER the ETH flow and
         //    the BTC band commits real dollars. Under the old definition this capacity was reserved.
-        uint btcBefore = CORE.basketUsdBtc();
+        uint btcBefore = CORE.basketUsd();
         AUX.setBTCChannels(address(this));
         BTC.registerBtcLp(User01, 2e7);
-        emit log_named_uint("BTC band committed AFTER eth flow (6d)", CORE.basketUsdBtc() - btcBefore);
-        assertGt(CORE.basketUsdBtc(), btcBefore,
+        emit log_named_uint("BTC band committed AFTER eth flow (6d)", CORE.basketUsd() - btcBefore);
+        assertGt(CORE.basketUsd(), btcBefore,
             "the BTC band can still commit after heavy ETH trading -- no starvation, no min-of-two");
     }
 
@@ -986,7 +986,7 @@ contract UnificationControls is Alles {
         for (uint i; i < 20; i++) _trade(3_000e18);
 
         // ── AXIS: SWAP CAPACITY ────────────────────────────────────────────────────────────
-        uint oldCommitted = (CORE.POOLED_USD_ETH() + CORE.POOLED_USD_BTC()) * 1e12;
+        uint oldCommitted = (CORE.POOLED_USD() + CORE.POOLED_USD()) * 1e12;
         uint newCommitted = CORE.committedUsd18();
         uint oldRoom = tvl > oldCommitted ? tvl - oldCommitted : 0;
         emit log_named_uint("further FLOW the OLD gate allows (18d)", oldRoom);
@@ -1019,13 +1019,13 @@ contract UnificationControls is Alles {
     ///
     /// ⛔ I PREDICTED A SHORTFALL HERE AND THE MEASUREMENT REFUTED IT. The reasoning was: #12 moved
     /// the BACKING GATE off the curve mirror and onto the basket's real contribution, but
-    /// `BasketLib.redeemableBody` was NOT moved with it — it still subtracts `POOLED_USD_BTC`, the
+    /// `BasketLib.redeemableBody` was NOT moved with it — it still subtracts `POOLED_USD`, the
     /// CURVE figure, on a rationale (">= BTC-band equity, therefore conservative") written when the
     /// two were the same number. Post-#12 they diverge by the BTC band's trading increment, so I
     /// expected the quote to shrink with BTC VOLUME.
     ///
     /// ✅ IT DOES NOT, and the reason is structural rather than lucky: the dollars that inflate
-    /// `POOLED_USD_BTC` are dollars a SWAPPER PAID IN, so basket TVL rises by the same amount in
+    /// `POOLED_USD` are dollars a SWAPPER PAID IN, so basket TVL rises by the same amount in
     /// the same transaction. The subtraction and the total move in lockstep and CANCEL. The reverse
     /// direction cancels too (band buys BTC: both fall). MEASURED over 6 x 500-USDC curve buys —
     /// curve mirror +3,000.000, basket leg +0, redeemable moved by 6e-6 USD.
@@ -1040,8 +1040,8 @@ contract UnificationControls is Alles {
 
         { (uint _t,) = AUX.get_metrics(false); AUX.get_deposits(); _t; }   // refresh: reads are cache-sensitive
         uint redeem0 = AUX.redeemableAmount();
-        uint curve0 = CORE.POOLED_USD_BTC();
-        uint basket0 = CORE.basketUsdBtc();
+        uint curve0 = CORE.POOLED_USD();
+        uint basket0 = CORE.basketUsd();
         assertEq(curve0, basket0, "PREMISE: before BTC flow the curve mirror IS the basket's leg");
         assertGt(redeem0, 0, "PREMISE: something must be redeemable, else the delta is meaningless");
 
@@ -1056,8 +1056,8 @@ contract UnificationControls is Alles {
 
         { (uint _t,) = AUX.get_metrics(false); AUX.get_deposits(); _t; }   // refresh: reads are cache-sensitive
         uint redeem1 = AUX.redeemableAmount();
-        uint curve1 = CORE.POOLED_USD_BTC();
-        uint basket1 = CORE.basketUsdBtc();
+        uint curve1 = CORE.POOLED_USD();
+        uint basket1 = CORE.basketUsd();
 
         emit log_named_uint("BTC curve mirror  before", curve0);
         emit log_named_uint("BTC curve mirror  after ", curve1);
@@ -1077,11 +1077,11 @@ contract UnificationControls is Alles {
         // EITHER direction — a fall would mean holders lose redeemability to other people's trades,
         // a rise would mean the quote is being inflated by dollars that are spoken for.
         assertApproxEqAbs(redeem1, redeem0, 1e15,
-            "redeemable must be INVARIANT to pure trading: the POOLED_USD_BTC subtraction and the "
+            "redeemable must be INVARIANT to pure trading: the POOLED_USD subtraction and the "
             "basket TVL it is subtracted from move in lockstep and cancel");
     }
 
-    /// §E44 — ARE THE TWO NEW SLOTS (`basketUsdEth`/`basketUsdBtc`) REMOVABLE? PROVE IT, do not
+    /// §E44 — ARE THE TWO NEW SLOTS (`basketUsd`/`basketUsd`) REMOVABLE? PROVE IT, do not
     /// assert it. #12 added exactly two storage slots and removed none, so they owe their keep.
     ///
     /// A variable is removable iff it is a FUNCTION of state we already keep. This test shows
@@ -1098,31 +1098,31 @@ contract UnificationControls is Alles {
         vm.prank(lpA); V4.deposit{value: 200 ether}(0, lpA);
         vm.roll(block.number + 1);
 
-        uint pooled0 = CORE.POOLED_USD_ETH();
-        uint basket0 = CORE.basketUsdEth();
+        uint pooled0 = CORE.POOLED_USD();
+        uint basket0 = CORE.basketUsd();
         assertEq(pooled0, basket0, "PREMISE: a fresh band's mirror IS the basket's contribution");
 
         // (a) PURE TRADING — the curve mirror moves, the basket's leg does not.
         for (uint i; i < 10; i++) _trade(3_000e18);
-        uint pooled1 = CORE.POOLED_USD_ETH();
-        uint basket1 = CORE.basketUsdEth();
-        emit log_named_uint("after trading: POOLED_USD_ETH", pooled1);
-        emit log_named_uint("after trading: basketUsdEth  ", basket1);
+        uint pooled1 = CORE.POOLED_USD();
+        uint basket1 = CORE.basketUsd();
+        emit log_named_uint("after trading: POOLED_USD", pooled1);
+        emit log_named_uint("after trading: basketUsd  ", basket1);
         assertGt(pooled1, pooled0, "PREMISE: trading must move the curve mirror");
         assertEq(basket1, basket0, "(a) trading moves the mirror ALONE -- basket leg is untouched");
 
         // (b) A BASKET ADD — both move, together.
         vm.roll(block.number + 1); vm.warp(block.timestamp + 1 hours);
         vm.prank(lpB); V4.deposit{value: 200 ether}(0, lpB);
-        uint pooled2 = CORE.POOLED_USD_ETH();
-        uint basket2 = CORE.basketUsdEth();
-        emit log_named_uint("after basket add: POOLED_USD_ETH", pooled2);
-        emit log_named_uint("after basket add: basketUsdEth  ", basket2);
+        uint pooled2 = CORE.POOLED_USD();
+        uint basket2 = CORE.basketUsd();
+        emit log_named_uint("after basket add: POOLED_USD", pooled2);
+        emit log_named_uint("after basket add: basketUsd  ", basket2);
         assertGt(pooled2, pooled1, "PREMISE: the deposit must band more USD");
         assertGt(basket2, basket1, "(b) a basket ADD moves BOTH legs together");
 
         // THE PROOF: the mirror grew on BOTH events; the basket leg grew on only ONE of them. So
-        // the same delta in `POOLED_USD_ETH` maps to two different deltas in `basketUsdEth`, and no
+        // the same delta in `POOLED_USD` maps to two different deltas in `basketUsd`, and no
         // function of the mirror can distinguish them. The slot is irreducible.
         uint mirrorGrewOnTrade  = pooled1 - pooled0;
         uint basketGrewOnTrade  = basket1 - basket0;          // == 0
@@ -1242,7 +1242,7 @@ contract UnificationControls is Alles {
         // packed `slot0` directly instead — same end state the controller's call would produce.
         // v4 packs slot0 as: sqrtPriceX96 (160) | tick (24) | protocolFee (24) | lpFee (24), and
         // `StateLibrary.POOLS_SLOT` = 6, so the pool's state root is keccak(poolId, 6).
-        (PoolId pid,,) = CORE.poolTicks(false);
+        (PoolId pid,,) = CORE.poolTicks();
         bytes32 stateSlot = keccak256(abi.encode(PoolId.unwrap(pid), uint(6)));
         bytes32 slot0 = vm.load(address(CORE.poolManager()), stateSlot);
         // protocolFee occupies bits [184,208): 0x0F0F ≈ 0.15% each direction (v4 caps at 0.1%+).
@@ -1262,7 +1262,7 @@ contract UnificationControls is Alles {
         // dead slow-flow logic — so "not free" is confirmed, not assumed. `_mockDust` carries the
         // stale-slot guard; this site is covered by the same failure if the layout moves.
         {
-            (address mETH, address mUSD) = CORE.mocks(false);
+            (address mETH, address mUSD) = CORE.mocks();
             IProtoFeeAccrued pm = IProtoFeeAccrued(address(CORE.poolManager()));
             uint accETH = pm.protocolFeesAccrued(mETH);
             uint accUSD = pm.protocolFeesAccrued(mUSD);

@@ -38,7 +38,7 @@ import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 ///     measuring the fork's arb depth, not the LP's exposure. §E120 is the standing reason to
 ///     distrust any magnitude this fork produces through a trading path.
 ///
-///  2. PREMIUM IS READ FROM `CORE.skewPremiumETH()`, NOT `V4.USD_FEES()`. `Alles.t.sol:1066`
+///  2. PREMIUM IS READ FROM `CORE.skewPremium()`, NOT `V4.USD_FEES()`. `Alles.t.sol:1066`
 ///     states that USD_FEES is a PER-SHARE RATE and "cannot answer how much has been retained in
 ///     total", which is the exact question here. The cumulative counter is the one that can.
 ///     Reading the per-share accumulator as a total would have silently understated the premium
@@ -116,20 +116,20 @@ contract PremiumIsCarryNotIncome is Alles {
 
         // ---- ARM 1: NEVER DRAINED. The band keeps its full volatile inventory.
         // ONLY THE ETH COUNT IS NEEDED NOW. Two earlier drafts marked the whole band's VALUE here
-        // (`POOLED_ETH*px + POOLED_USD_ETH`) and both were wrong for it: the level form measured
-        // the drain itself because `POOLED_USD_ETH` never absorbed the drainer's stables, and the
+        // (`POOLED*px + POOLED_USD`) and both were wrong for it: the level form measured
+        // the drain itself because `POOLED_USD` never absorbed the drainer's stables, and the
         // sensitivity form needed a hand-picked move. The breakeven-vs-variance assertion below
         // needs neither, so the band-value helper is gone rather than left around to be misused.
-        uint ethQuiet = CORE.POOLED_ETH();
+        uint ethQuiet = CORE.POOLED();
 
         // ---- ARM 2: DRAINED until genuinely scarce, from the SAME starting state.
         vm.revertToState(snap);
-        uint premium0 = CORE.skewPremiumETH();
-        // §E134-skew — WHERE DOES THE DRAINER'S USD LAND? E125 measured POOLED_USD_ETH NOT growing
-        // while POOLED_ETH fell 400->103, which is why the level comparison was wrong. Reading the
+        uint premium0 = CORE.skewPremium();
+        // §E134-skew — WHERE DOES THE DRAINER'S USD LAND? E125 measured POOLED_USD NOT growing
+        // while POOLED fell 400->103, which is why the level comparison was wrong. Reading the
         // BAND's usd leg and the BASKET's total backing across the same drain settles it by
         // measurement rather than by tracing `inRange`-guarded delta accounting.
-        uint bandUsd0 = CORE.POOLED_USD_ETH();
+        uint bandUsd0 = CORE.POOLED_USD();
         (uint[15] memory d0,,,) = AUX.get_deposits();
         // DO NOT `break` THE INSTANT THE BAND TURNS SCARCE — that was this fixture's third
         // zero-premium reading and it was entirely self-inflicted. The premium accrues only on
@@ -142,14 +142,14 @@ contract PremiumIsCarryNotIncome is Alles {
         for (uint i = 0; i < 30 && scarceSwaps < 6; ++i) {
             _drainEth(30_000 * USDC_PRECISION, px);
             if (reachedScarce) ++scarceSwaps;
-            else if (CORE.POOLED_ETH() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30
-                < CORE.flowEwmaUsd(false)) reachedScarce = true;
+            else if (CORE.POOLED() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30
+                < CORE.flowEwmaUsd()) reachedScarce = true;
         }
         emit log_named_uint("swaps priced while SCARCE", scarceSwaps);
         // THE PRICER'S OWN VOLATILITY INPUT. If this sits at the E88-r sentinel (1 wei) the premium
         // was quoted for a market that will NOT move, and comparing it to a 10% move is arithmetic,
         // not a measurement. Logged so the regime is visible in the same run as the result.
-        emit log_named_uint("realizedVarianceWad at settle", CORE.realizedVarianceWad(false));
+        emit log_named_uint("realizedVarianceWad at settle", CORE.realizedVarianceWad());
         emit log_named_uint("wellSkew at settle           ", AUX.wellSkew(address(WETH)));
         // §E130-skew — θ IS LOGGED AS CONTEXT AND MUST NOT BE ASSERTED ON HERE. It is an
         // IL-PROTECTION CONTROL (band sizing), not a verdict on skew pricing, and using it as one
@@ -158,20 +158,20 @@ contract PremiumIsCarryNotIncome is Alles {
         // protocol shrinks exposure — that is IL protection WORKING, so reading θ back as "the
         // premium is inadequate" uses the system's own RESPONSE to the premium as evidence ABOUT
         // it. §E129 briefly claimed adequacy was "one call to derivedThetaWad"; that is withdrawn.
-        emit log_named_uint("derivedThetaWad (1e18 = fees COVER IL)", V4.derivedThetaWad(false));
-        emit log_named_uint("premiumEwmaUsd (rate, usd6)  ", CORE.premiumEwmaUsd(false));
-        uint premium = CORE.skewPremiumETH() - premium0;
-        uint ethDrained = CORE.POOLED_ETH();
+        emit log_named_uint("derivedThetaWad (1e18 = fees COVER IL)", V4.derivedThetaWad());
+        emit log_named_uint("premiumEwmaUsd (rate, usd6)  ", CORE.premiumEwmaUsd());
+        uint premium = CORE.skewPremium() - premium0;
+        uint ethDrained = CORE.POOLED();
 
         {
             (uint[15] memory d1,,,) = AUX.get_deposits();
-            emit log_named_uint("band USD leg BEFORE (POOLED_USD_ETH)", bandUsd0);
-            emit log_named_uint("band USD leg AFTER                  ", CORE.POOLED_USD_ETH());
+            emit log_named_uint("band USD leg BEFORE (POOLED_USD)", bandUsd0);
+            emit log_named_uint("band USD leg AFTER                  ", CORE.POOLED_USD());
             emit log_named_uint("basket backing BEFORE (d[14])       ", d0[14]);
             emit log_named_uint("basket backing AFTER                ", d1[14]);
         }
-        emit log_named_uint("POOLED_ETH quiet      ", ethQuiet);
-        emit log_named_uint("POOLED_ETH drained    ", ethDrained);
+        emit log_named_uint("POOLED quiet      ", ethQuiet);
+        emit log_named_uint("POOLED drained    ", ethDrained);
         emit log_named_uint("premium collected u18 ", premium);
 
         // §E69's discipline: a fixture that never reached the state it meant to measure must SAY
@@ -213,7 +213,7 @@ contract PremiumIsCarryNotIncome is Alles {
         // number outside the contracts enters this.
         uint v18  = FullMath.mulDiv(ethQuiet - ethDrained, px, 1e18);   // displaced inventory, usd18
         uint invWad = FullMath.mulDiv(8 * premium * 1e12, 1e18, v18);   // 8P/V, sigma^2-free
-        uint tStarWad = FullMath.mulDiv(invWad, 1e18, CORE.realizedVarianceWad(false));  // years, WAD
+        uint tStarWad = FullMath.mulDiv(invWad, 1e18, CORE.realizedVarianceWad());  // years, WAD
 
         emit log_named_uint("displaced inventory usd18  ", v18);
         emit log_named_uint("INVARIANT 8P/V (wad, sig^2-free)", invWad);
@@ -316,7 +316,7 @@ contract PremiumIsCarryNotIncome is Alles {
         // Drive into priced scarcity first: a flush-regime swap charges 0 and reconciles trivially.
         for (uint i; i < 14; ++i) _drainEth(30_000 * USDC_PRECISION, px);
 
-        uint prem0 = CORE.skewPremiumCum(false);
+        uint prem0 = CORE.skewPremiumCum();
         uint fees0 = V4.USD_FEES();
         uint usdc0 = USDC.balanceOf(drainer);
         uint eth0  = drainer.balance + WETH.balanceOf(drainer);
@@ -325,7 +325,7 @@ contract PremiumIsCarryNotIncome is Alles {
 
         uint usdcIn  = usdc0 - USDC.balanceOf(drainer);
         uint ethOut  = (drainer.balance + WETH.balanceOf(drainer)) - eth0;
-        uint premium = CORE.skewPremiumCum(false) - prem0;   // usd6
+        uint premium = CORE.skewPremiumCum() - prem0;   // usd6
         uint feesDlt = V4.USD_FEES() - fees0;
 
         // What the swapper ACTUALLY gave up vs an oracle fill of the same input, in usd6.
@@ -368,7 +368,7 @@ contract PremiumIsCarryNotIncome is Alles {
 
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
         AUX.setAssetFeed(address(WETH), ETH_FEED);
-        emit log_named_uint("sigma^2 BEFORE the walk", CORE.realizedVarianceWad(false));
+        emit log_named_uint("sigma^2 BEFORE the walk", CORE.realizedVarianceWad());
         emit log_named_int("frame lower BEFORE      ", V4.LOWER_TICK());
 
         // §UNIT-A-FIXTURE-CORR — DRIVE THE POOL'S TICK, NOT THE FEED, AND WITH SIZE.
@@ -430,7 +430,7 @@ contract PremiumIsCarryNotIncome is Alles {
         emit log_named_int("frame lower AFTER the walk", V4.LOWER_TICK());
         emit log_named_uint("swaps LANDED  ", landed);
         emit log_named_uint("swaps REVERTED", reverted);
-        uint varWad = CORE.realizedVarianceWad(false);
+        uint varWad = CORE.realizedVarianceWad();
         emit log_named_uint("sigma^2 AFTER the walk  ", varWad);
         emit log_named_uint("implied annualised vol, bps (sqrt of the above)", _sqrtBps(varWad));
         emit log_named_uint("wellSkew at this vol    ", AUX.wellSkew(address(WETH)));
@@ -499,7 +499,7 @@ contract PremiumIsCarryNotIncome is Alles {
         }
         emit log_named_uint("chainlink intervals used ", got);
         if (got >= 3) emit log_named_uint("CHAINLINK annualised sigma^2", _e63Variance(clRate, uint32(8 * 3600)));
-        emit log_named_uint("OUR BAND sigma^2 (for scale)", CORE.realizedVarianceWad(false));
+        emit log_named_uint("OUR BAND sigma^2 (for scale)", CORE.realizedVarianceWad());
     }
 
 
@@ -576,7 +576,7 @@ contract PremiumIsCarryNotIncome is Alles {
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
         AUX.setAssetFeed(address(WETH), ETH_FEED);
         emit log_named_uint("TWAP before      ", px);
-        emit log_named_uint("sigma^2 before   ", CORE.realizedVarianceWad(false));
+        emit log_named_uint("sigma^2 before   ", CORE.realizedVarianceWad());
 
         // Walk the feed WELL PAST the 500 bps gate -- 8 steps of +1.5% compounds to ~12.6%.
         uint p = px;
@@ -594,7 +594,7 @@ contract PremiumIsCarryNotIncome is Alles {
             }
         }
         emit log_named_uint("TWAP after       ", AUX.getTWAPforAsset(address(WETH), 1800));
-        emit log_named_uint("sigma^2 AFTER    ", CORE.realizedVarianceWad(false));
+        emit log_named_uint("sigma^2 AFTER    ", CORE.realizedVarianceWad());
         emit log_named_uint("wellSkew AFTER   ", AUX.wellSkew(address(WETH)));
     }
 

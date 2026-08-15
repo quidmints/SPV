@@ -886,13 +886,13 @@ contract Vogue is
     /// @notice The LIVE LVR coefficient K (WAD) for the pool's current band — read the real, dynamic
     ///         number (front-end / probe / monitoring). 0 ⇒ band unset/degenerate (caller fails open).
     ///         Body in VogueLib (EIP-170 headroom); band ticks passed in.
-    function kLvrWad(bool isBTC) external view returns (uint) {
-        return VogueLib.kLvrWad(address(V4), LOWER_TICK, UPPER_TICK, isBTC);
+    function kLvrWad() external view returns (uint) {
+        return VogueLib.kLvrWad(address(V4), LOWER_TICK, UPPER_TICK);
     }
 
     /// @notice (A) The band's LIVE realized concavity α (WAD). Body in VogueLib.
-    function realizedAlphaWad(bool isBTC) public view returns (uint) {
-        return VogueLib.realizedAlphaWad(address(V4), LOWER_TICK, UPPER_TICK, isBTC);
+    function realizedAlphaWad() public view returns (uint) {
+        return VogueLib.realizedAlphaWad(address(V4), LOWER_TICK, UPPER_TICK);
     }
 
     /// @notice (B) The band's ACTUAL sold-volatile fraction (WAD) since `entrySqrtP` — the ground-truth IL the
@@ -922,19 +922,19 @@ contract Vogue is
 
     /// @notice θ derived live: yield / (K·σ²), clamped to ≤1. Body in VogueLib
     ///         (EIP-170 headroom); band ticks + Core/Aux handles passed in.
-    function derivedThetaWad(bool isBTC) public view returns (uint) {
-        return VogueLib.derivedThetaWad(address(V4), LOWER_TICK, UPPER_TICK, isBTC);
+    function derivedThetaWad() public view returns (uint) {
+        return VogueLib.derivedThetaWad(address(V4), LOWER_TICK, UPPER_TICK);
     }
 
     /// @notice θ for an EXPLICIT band range. The BTC band ticks live in the Vault (LOWER_TICK_BTC/
     ///         UPPER_TICK_BTC), so it passes them in here -- Vogue stays the single home of the band-θ
     ///         math for BOTH pools, and the Vault needs no VogueLib link of its own.
     function derivedThetaWadAt(int24 lo, int24 up, bool isBTC) public view returns (uint) {
-        return VogueLib.derivedThetaWad(address(V4), lo, up, isBTC);
+        return VogueLib.derivedThetaWad(address(V4), lo, up);
     }
 
     /// @notice Annualized realized variance (WAD) from Core's oracle ring. Body in VogueLib.
-    function realizedVarianceWad(bool isBTC) public view returns (uint) {
+    function realizedVarianceWad() public view returns (uint) {
         return V4.realizedVarianceWad();   // §E59: ONE source — Core reads its own ring
     }
 

@@ -40,7 +40,7 @@ contract TwapAnchorDeadlockTest is Alles {
 
         uint pE = AUX.getTWAPforAsset(address(WETH), 1800);
         assertGt(pE, 0, "internal ETH TWAP must be seeded");
-        bool t0isUSD = V4.token1isETH(); // getPrice's token0isUSD == token1isVol
+        bool t0isUSD = V4.token1isVol(); // getPrice's token0isUSD == token1isVol
 
         // ── Baseline: a FAIR anchor keeps the internal (DEX-native) TWAP ──
         // WETH 18-dec; feed 8-dec; ext18 = ans*1e10. Fair => ans == pE/1e10.
@@ -82,7 +82,7 @@ contract TwapAnchorDeadlockTest is Alles {
             "swap auto-heals during the crash (executes at the Chainlink price)");
 
         // the curve spot is now on the oracle (the auto-reseat moved it).
-        (, uint160 sqrtAfter,) = CORE.poolTicks(false);
+        (, uint160 sqrtAfter,) = CORE.poolTicks();
         assertApproxEqRel(_getPrice(sqrtAfter, t0isUSD), (pE * 90) / 100, 3e16, // 3%
             "auto-reseat moved the curve spot onto the oracle price");
 

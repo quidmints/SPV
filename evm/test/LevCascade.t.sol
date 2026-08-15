@@ -232,7 +232,7 @@ contract LevCascadeProbe is Alles {
         _rallyBand(_entrySqrt(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
         lm.rebalance(lps[0], 0);
         assertGt(venue.debtOf(lps[0]), 0, "levered: real Morpho debt > 0");
-        assertGe(AUX.vogueETH(), CORE.POOLED_ETH(), "levered: deliverable ETH still covers the band");
+        assertGe(AUX.vogueETH(), CORE.POOLED(), "levered: deliverable ETH still covers the band");
 
         // SEIZE via a REAL Morpho liquidation (repay half the debt by shares — see `_seizeReal`).
         uint tvl0 = _tvl();
@@ -243,7 +243,7 @@ contract LevCascadeProbe is Alles {
         // Basket clean: the liquidation took NOTHING from the basket (TVL intact) and deliverable ETH still
         // covers the band — the loss is isolated to the LP's Morpho account, never socialized.
         assertGe(_tvl(), tvl0, "seized: basket real backing (TVL) intact - nothing socialized");
-        assertGe(AUX.vogueETH(), CORE.POOLED_ETH(), "seized: deliverable ETH still covers the band");
+        assertGe(AUX.vogueETH(), CORE.POOLED(), "seized: deliverable ETH still covers the band");
     }
 
     /// FEE-LANE PROOF: the levered weETH equity (a) EARNS band fees via the same machinery as a weETH deposit,
@@ -259,17 +259,17 @@ contract LevCascadeProbe is Alles {
         lm.rebalance(lps[0], 0);                                 // real levered position
         _calmVol();                                             // θ recovers ⇒ syncLev can add the depth
 
-        uint pu0 = CORE.POOLED_USD_ETH();
+        uint pu0 = CORE.POOLED_USD();
         V4.syncLev(lps[0]);                                     // mint the levered band slice (tokenless)
         uint lev = V4.levPooled(lps[0]);
         assertGt(lev, 0, "syncLev minted the levered slice into the band");
         // The levered slice is IN the band's depth. NOT "grew at this instant": `lm.rebalance` above
         // already minted it through the manager's syncLev HOOK, so the explicit `V4.syncLev` here is
         // IDEMPOTENT and `pe0` (captured after the rebalance) already contains the slice. MEASURED:
-        // levPooled 5.503 and levBuf 1.507 are both already live, while POOLED_ETH moves by -23 wei of
-        // modLP rounding — so the old `assertGt(POOLED_ETH, pe0)` was asserting a transition that had
+        // levPooled 5.503 and levBuf 1.507 are both already live, while POOLED moves by -23 wei of
+        // modLP rounding — so the old `assertGt(POOLED, pe0)` was asserting a transition that had
         // already happened, and could only ever pass or fail on rounding noise.
-        assertGe(CORE.POOLED_ETH(), lev, "the levered slice is part of the band's in-range depth");
+        assertGe(CORE.POOLED(), lev, "the levered slice is part of the band's in-range depth");
         assertGt(V4.levBuf(lps[0]), 0, "the debt-funded buffer is live and fee-earning");
         // SAME DEFECT AS THE `pe0` ASSERTION ABOVE, fixed the same way. `pu0` is captured AFTER
         // `lm.rebalance`, which already minted the slice via the manager's syncLev hook, so the explicit
@@ -278,7 +278,7 @@ contract LevCascadeProbe is Alles {
         // rounding — MEASURED at 3,596 of 6-dec USD ($0.0036), the same order as the -23 wei the ETH
         // side moves. Assert the STATE that matters (USD is paired against the levered slice, so the
         // depth is in-range and fee-earning) rather than a delta that is pure noise.
-        assertGt(CORE.POOLED_USD_ETH(), 0, "POOLED_USD paired against it (in-range, fee-earning)");
+        assertGt(CORE.POOLED_USD(), 0, "POOLED_USD paired against it (in-range, fee-earning)");
 
         // (a) small swaps generate band fees; the levered LP IS band depth.
         for (uint i; i < 10; i++) {
@@ -557,7 +557,7 @@ contract LevCascadeProbe is Alles {
         assertGe(_tvl(), tvlPre, "(3) levered sync took nothing from the basket (no cross-subsidy)");
 
         // (3b) FULL-2x PROOF: the synced band depth is the GROSS collateral (2x, net-equity + the debt-funded
-        //   buffer), NOT just net-equity. Post-fold the buffer folds into the ONE POOLED_USD_ETH slice and
+        //   buffer), NOT just net-equity. Post-fold the buffer folds into the ONE POOLED_USD slice and
         //   `committedUsd18` EXCLUDES it by subtracting the LP's LIVE leverage debt (buffer == debt), so
         //   committed + totalDebtUsd == the full in-range USD. Live ⇒ no stale segregation counter to desync.
         // Post net-equity rewrite (#52/#53) the levered depth is SPLIT: `levPooled` = the NET leg, `levBuf` =
@@ -574,7 +574,7 @@ contract LevCascadeProbe is Alles {
         // tracks what a swap put in the curve. The buffer folds into `basketUsd*` at `addLiq`
         // (mod path) exactly as it used to fold into `POOLED_USD_*`, so the identity still bites.
         assertEq(CORE.committedUsd18() + lm.totalDebtUsd(),
-                 (CORE.basketUsdEth() + CORE.basketUsdBtc()) * 1e12,
+                 (CORE.basketUsd() + CORE.basketUsd()) * 1e12,
             "(3b) full-2x: committed EXCLUDES the debt-funded buffer (committed == basket depth - live debt)");
 
         // (4) NO RACE: syncLev idempotent — a second call with no equity change is a no-op (no double-credit).
@@ -679,10 +679,10 @@ contract LevCascadeProbe is Alles {
         assertApproxEqAbs(lm.netEquity(lp), depositEth, 1e15, "(A): net-equity == the single deposit");
 
         // syncLev turns the single deposit into the LP's IL-free levered band slice — no principal band needed.
-        uint pe0 = CORE.POOLED_ETH();
+        uint pe0 = CORE.POOLED();
         V4.syncLev(lp);
         assertApproxEqAbs(V4.levPooled(lp), depositEth, 2e15, "(A): the single deposit IS the levered band slice");
-        assertGt(CORE.POOLED_ETH(), pe0, "(A): the one deposit deepened the band as levPooled (capital-efficient)");
+        assertGt(CORE.POOLED(), pe0, "(A): the one deposit deepened the band as levPooled (capital-efficient)");
     }
 
     // ─────────────────────────── #36 venue safety gates (REAL Morpho venue) ───────────────────────────
@@ -760,10 +760,10 @@ contract LevCascadeProbe is Alles {
         assertGt(debt, 0, "PREMISE: leverage debt must be outstanding, else the floor has nothing to floor");
 
         // §#12: the per-band floor now applies to the BASKET's contribution, not the curve leg.
-        uint ethPooled18 = CORE.basketUsdEth() * 1e12;
-        uint btcPooled18 = CORE.basketUsdBtc() * 1e12;
+        uint ethPooled18 = CORE.basketUsd() * 1e12;
+        uint btcPooled18 = CORE.basketUsd() * 1e12;
         uint committed   = CORE.committedUsd18();
-        uint btcEquity   = CORE.btcBandEquityUsd18();
+        uint btcEquity   = CORE.bandEquityUsd18();
         uint ethEquity   = committed - btcEquity;
         emit log_named_uint("ETH USD leg (18d)", ethPooled18);
         emit log_named_uint("BTC USD leg (18d)", btcPooled18);
@@ -836,11 +836,11 @@ contract LevCascadeProbe is Alles {
         vm.roll(block.number + 1); vm.warp(block.timestamp + 10 minutes);
 
         // §#12: the per-band floor now applies to the BASKET's contribution, not the curve leg.
-        uint ethPooled18 = CORE.basketUsdEth() * 1e12;
-        uint btcPooled18 = CORE.basketUsdBtc() * 1e12;
+        uint ethPooled18 = CORE.basketUsd() * 1e12;
+        uint btcPooled18 = CORE.basketUsd() * 1e12;
         debt = lm.totalDebtUsd();                             // re-read: the drain may have moved it
         uint committed = CORE.committedUsd18();
-        uint btcEquity = CORE.btcBandEquityUsd18();
+        uint btcEquity = CORE.bandEquityUsd18();
         emit log_named_uint("ETH USD leg (18d)", ethPooled18);
         emit log_named_uint("ETH debt    (18d)", debt);
         emit log_named_uint("BTC USD leg (18d)", btcPooled18);

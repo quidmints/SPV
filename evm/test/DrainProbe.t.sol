@@ -158,7 +158,7 @@ contract DrainProbe is Alles {
     /// LP — a close mints NO proceeds and there is NO shared proceeds pool. So the
     /// drain/race is now STRUCTURALLY closed: an entrant who delivered nothing and a
     /// late incumbent both close ALL-NATIVE, neither extracting the primed
-    /// POOLED_USD_BTC. (Real deliver-time proceeds are covered end-to-end in
+    /// POOLED_USD. (Real deliver-time proceeds are covered end-to-end in
     /// BtcLpMintStress.) Per-channel isolation must hold:
     ///   (a) NO RACE — closing order is irrelevant; neither close draws the pool.
     ///   (b) NO DRAIN — neither LP can extract the primed dollars at close (no
@@ -168,7 +168,7 @@ contract DrainProbe is Alles {
         uint funded = 2e7;                 // 0.2 BTC
         BTC.registerBtcLp(User01, funded); // incumbent LP-A
 
-        // Priming curve buys fund POOLED_USD_BTC (the dollars an attacker would hope
+        // Priming curve buys fund POOLED_USD (the dollars an attacker would hope
         // to "round-trip" back as LP principal). They record no obligation now.
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
@@ -177,14 +177,14 @@ contract DrainProbe is Alles {
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
-        uint poolUsd = CORE.POOLED_USD_BTC();   // primed dollars (no shared proceeds pool)
+        uint poolUsd = CORE.POOLED_USD();   // primed dollars (no shared proceeds pool)
         assertGt(poolUsd, 0);
         assertEq(CORE.pendingSwapOutUsd(), 0, "priming records no swap-out obligation");
 
         // LATE entrant LP-B becomes an LP AFTER the priming (the "redeposit" step).
         BTC.registerBtcLp(User02, funded);
 
-        // NO DRAIN is proved on each LP's QUID (NOT POOLED_USD_BTC, which close's
+        // NO DRAIN is proved on each LP's QUID (NOT POOLED_USD, which close's
         // _rebalance zeroes+rebuilds for reasons unrelated to proceeds): a close
         // that delivered nothing mints only its tiny USD-leg fees, ≪ the primed
         // headroom an old close-spot model would have leaked.

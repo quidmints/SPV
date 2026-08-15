@@ -41,8 +41,8 @@ contract VarPrecision is Alles {
 
         // BIG moves first — the control. If this reads 0 the estimator is broken outright.
         for (uint i; i < 12; i++) _swap(6_000e18, 20);
-        emit log_named_uint("variance after BIG moves   ", CORE.realizedVarianceWad(false));
-        (,, int24 tickBig) = CORE.poolTicks(false);
+        emit log_named_uint("variance after BIG moves   ", CORE.realizedVarianceWad());
+        (,, int24 tickBig) = CORE.poolTicks();
         emit log_named_int ("  tick after BIG           ", tickBig);
 
         // SIZE LADDER: find the smallest swap that moves a tick at all. That is the boundary
@@ -50,20 +50,20 @@ contract VarPrecision is Alles {
         // the lev fixture needs bigger trades or the band needs finer resolution.
         uint[4] memory sizes = [uint(30e18), 300e18, 1_500e18, 4_000e18];
         for (uint k; k < 4; k++) {
-            (,, int24 t0) = CORE.poolTicks(false);
+            (,, int24 t0) = CORE.poolTicks();
             for (uint i; i < 16; i++) _swap(sizes[k], 6);
-            (,, int24 t1) = CORE.poolTicks(false);
+            (,, int24 t1) = CORE.poolTicks();
             emit log_named_uint("swap size (1e18)         ", sizes[k] / 1e18);
             emit log_named_int ("  ticks moved over 16     ", int(t1) - int(t0));
-            emit log_named_uint("  variance now            ", CORE.realizedVarianceWad(false));
+            emit log_named_uint("  variance now            ", CORE.realizedVarianceWad());
         }
-        emit log_named_uint("variance after CALM trades ", CORE.realizedVarianceWad(false));
-        (,, int24 tickCalm) = CORE.poolTicks(false);
+        emit log_named_uint("variance after CALM trades ", CORE.realizedVarianceWad());
+        (,, int24 tickCalm) = CORE.poolTicks();
         emit log_named_int ("  tick after CALM          ", tickCalm);
         emit log_named_int ("  tick MOVED by            ", int(tickCalm) - int(tickBig));
 
         // PREMISE: the calm leg must actually trade, else "0" says nothing about precision.
-        assertGt(CORE.POOLED_USD_ETH(), 0, "PREMISE: the band is live");
+        assertGt(CORE.POOLED_USD(), 0, "PREMISE: the band is live");
         emit log_string("If tick MOVED but variance reads 0 => PRECISION. If tick did not move => the");
         emit log_string("swaps are too small to shift a tick at all, and 0 is the honest answer.");
     }

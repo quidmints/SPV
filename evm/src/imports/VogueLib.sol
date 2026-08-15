@@ -206,7 +206,7 @@ library VogueLib {
     uint    constant SECS_PER_YEAR = 31536000;
 
     /// @notice The LVR coefficient K (WAD), derived LIVE from band geometry.
-    function kLvrWad(address core, int24 lo, int24 up, bool isBTC) public view returns (uint) {
+    function kLvrWad(address core, int24 lo, int24 up) public view returns (uint) {
         (uint160 sqrtP,,) = ICore(core).poolStats(0, 0);
         if (lo >= up) return 0;
         uint sqrtPa = TickMath.getSqrtPriceAtTick(lo);
@@ -221,7 +221,7 @@ library VogueLib {
     }
 
     /// @notice The band's LIVE realized concavity α (WAD).
-    function realizedAlphaWad(address core, int24 lo, int24 up, bool isBTC) public view returns (uint) {
+    function realizedAlphaWad(address core, int24 lo, int24 up) public view returns (uint) {
         (uint160 sqrtP,,) = ICore(core).poolStats(0, 0);
         if (lo >= up) return 0;
         uint sqrtPa = TickMath.getSqrtPriceAtTick(lo);
@@ -264,8 +264,8 @@ library VogueLib {
     ///      not a tuning knob — if `FLOW_DECAY`'s half-life ever changes, this must change with it.
     uint internal constant PREMIUM_ANNUALIZE = 127;
 
-    function _bandFeeYieldWad(address core, bool isBTC) internal view returns (uint) {
-        uint prem6 = ICore(core).premiumEwmaUsd(isBTC);
+    function _bandFeeYieldWad(address core) internal view returns (uint) {
+        uint prem6 = ICore(core).premiumEwmaUsd();
         if (prem6 == 0) return 0;                       // unmeasured ⇒ caller fails OPEN
         uint pooled6 = ICore(core).POOLED_USD();
         if (pooled6 == 0) return 0;                     // no band capital at risk ⇒ nothing to size
@@ -300,10 +300,10 @@ library VogueLib {
     /// @dev `aux` was DROPPED (2026-07-27): the only thing that read it was the old `avgYield`
     ///      numerator, which #107/D3 replaced with the band-fee premium EWMA read off `core`. The
     ///      parameter has been dead since that change — the compiler flagged it as unused.
-    function derivedThetaWad(address core, int24 lo, int24 up, bool isBTC) public view returns (uint) {
+    function derivedThetaWad(address core, int24 lo, int24 up) public view returns (uint) {
         uint sigmaSq = ICore(core).realizedVarianceWad();   // §E59: ONE source, read from Core
         if (sigmaSq == 0) return 1e18;
-        uint kWad = kLvrWad(core, lo, up, isBTC);
+        uint kWad = kLvrWad(core, lo, up);
         if (kWad == 0) return 1e18;
         uint work = FullMath.mulDiv(kWad, sigmaSq, 1e18);
         if (work == 0) return 1e18;
@@ -325,7 +325,7 @@ library VogueLib {
         // A cold band could never bootstrap. Matches every other unmeasured path here
         // (`sigmaSq == 0`, `kWad == 0`, `work == 0`), and is safe for the same reason they are:
         // `SwapLib.clampByBacking` applies the PHYSICAL `backing − pooled` headroom independently.
-        uint bandFeeYield = _bandFeeYieldWad(core, isBTC);
+        uint bandFeeYield = _bandFeeYieldWad(core);
         if (bandFeeYield == 0) return 1e18;
         return FullMath.mulDiv(bandFeeYield, 1e18, work);
     }
@@ -376,7 +376,7 @@ library VogueLib {
     ///      is too thin to measure vol. Self-call to Vogue's forwarder (delegatecall
     ///      context: address(this) == Vogue).
     function _liveTheta(bool isBTC) private view returns (uint) {
-        try IVogue(address(this)).derivedThetaWad(isBTC) returns (uint t) { return t == 0 ? 1e18 : t; }
+        try IVogue(address(this)).derivedThetaWad() returns (uint t) { return t == 0 ? 1e18 : t; }
         catch { return 1e18; }
     }
 

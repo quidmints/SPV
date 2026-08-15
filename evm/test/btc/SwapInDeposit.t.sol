@@ -10,7 +10,7 @@ import {ExitLib} from "../../src/imports/ExitLib.sol";
 ///
 ///         🔴 WHY: `settleSwapIn` credits the SHARED pool on the hop's word — no proof any BTC
 ///         arrived. A compromised hop can attest swap-ins for sats that never existed and drain
-///         `POOLED_USD_BTC` to its liquidity limit. That harm reaches QU!D holders and other LPs
+///         `POOLED_USD` to its liquidity limit. That harm reaches QU!D holders and other LPs
 ///         who never opted into enclave trust, which is what makes it worse in KIND than a hop
 ///         stealing its own channels' BTC.
 ///

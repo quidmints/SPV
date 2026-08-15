@@ -1104,7 +1104,7 @@ library SwapLib {
 
         uint raw = skewWad(
             poolVolUsd,
-            ICore(core).flowEwmaUsd(isBTC),
+            ICore(core).flowEwmaUsd(),
             ICore(core).realizedVarianceWad(), isBTC, drainUsd6);
         // §E53: amplify by how much of the SHARED bound the other band already holds, then re-cap —
         // the amplifier must never lift the skew past the same ceiling the raw curve obeys.
@@ -1156,7 +1156,7 @@ library SwapLib {
     {
         // §E58: `target` is FLOW alone — the leverage DEBT is not a constraint on shedding (see
         // skewWad's note). One term, one meaning.
-        uint flow = ICore(core).flowEwmaUsd(isBTC);
+        uint flow = ICore(core).flowEwmaUsd();
         uint target = flow;
         if (target == 0) return 0;
         // inv = poolVolUsd − GROSS locked inventory (same base/1e30 scale as poolVol, #6/F3). Scope the two

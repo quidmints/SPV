@@ -22,7 +22,7 @@ contract RefillKeeperProbe is Alles {
     }
     function _seedPool(uint ethAmt) internal {
         vm.prank(lp); V4.deposit{value: ethAmt}(0, lp);
-        require(CORE.POOLED_ETH() > 0, "no in-range pool");
+        require(CORE.POOLED() > 0, "no in-range pool");
     }
     function _buyEth(uint usdc) internal {
         deal(address(USDC), adv, usdc);
@@ -89,7 +89,7 @@ contract RefillKeeperProbe is Alles {
 
     /// SILENT-NO-OP vector (audit D-3 + the one thing the removal INTRODUCED): btcShortfall with no
     /// recipient now returns silently. Assert the silent return corrupts NO state and strands NO
-    /// value — no WBTC, no surplus draw, no QUI mint, POOLED_USD_BTC unchanged, and it does NOT revert.
+    /// value — no WBTC, no surplus draw, no QUI mint, POOLED_USD unchanged, and it does NOT revert.
     /// (The old exploit was timing a withdrawal into arbETH's no-op window; arbETH's window is gone,
     ///  and this no-op touches nothing drainable.)
     function test_SilentNoOp_BtcShortfall_NoStateCorruption() public {
@@ -99,7 +99,7 @@ contract RefillKeeperProbe is Alles {
         (uint c0, uint l0) = AUX.checkBacking();
         uint free0 = l0 > c0 ? l0 - c0 : 0;
         uint qd0 = QUID.totalSupply();
-        uint pub0 = CORE.POOLED_USD_BTC();
+        uint pub0 = CORE.POOLED_USD();
         uint wbtc0 = WBTC.balanceOf(User02);
 
         vm.prank(address(V4));
@@ -107,7 +107,7 @@ contract RefillKeeperProbe is Alles {
 
         assertEq(WBTC.balanceOf(User02) - wbtc0, 0, "silent no-op delivers no WBTC");
         assertEq(QUID.totalSupply(), qd0, "silent no-op mints no QUI");
-        assertEq(CORE.POOLED_USD_BTC(), pub0, "silent no-op leaves POOLED_USD_BTC unchanged");
+        assertEq(CORE.POOLED_USD(), pub0, "silent no-op leaves POOLED_USD unchanged");
         (uint c1, uint l1) = AUX.checkBacking();
         uint free1 = l1 > c1 ? l1 - c1 : 0;
         assertEq(free1, free0, "silent no-op leaves free backing unchanged");

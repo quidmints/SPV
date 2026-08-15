@@ -402,12 +402,12 @@ contract BtcLpMintStress is Alles {
         });
     }
 
-    /// `creditSwapIn` draws POOLED_USD_BTC, so the pool needs dollars or the credit is
+    /// `creditSwapIn` draws POOLED_USD, so the pool needs dollars or the credit is
     /// bounded by an empty pool and the test asserts nothing.
     function _primePoolUsd(BTCChannels ch) internal {
         ch;
         // ⚠️ `vm.deal` gives ETH, not USDC — the setUp only funds ETH, so without this the
-        // priming swaps spend nothing, POOLED_USD_BTC stays empty, and the swap-in trips
+        // priming swaps spend nothing, POOLED_USD stays empty, and the swap-in trips
         // `SlippageMaxS` for a reason that has nothing to do with what is under test.
         deal(address(USDC), User03, 500_000 * USDC_PRECISION);
         vm.startPrank(User03);
@@ -423,7 +423,7 @@ contract BtcLpMintStress is Alles {
 
     /// 🔑 (M1#1) THE BOUND THAT REPLACED THE PHANTOM: a hop cannot credit beyond what it has
     /// SPV-proven into custody. `settleSwapIn` would have paid this out on the hop's word alone,
-    /// draining `POOLED_USD_BTC` for sats that never existed — a loss reaching QU!D holders who
+    /// draining `POOLED_USD` for sats that never existed — a loss reaching QU!D holders who
     /// opted into no enclave trust.
     ///
     /// ⚠️ NOTE WHAT THE BOUND IS ON: `consumed`, not the request. Asking for more than you proved
@@ -749,7 +749,7 @@ contract BtcLpMintStress is Alles {
         // bounds the ORDINARY fee; the premium becomes an explicit TERM read from what was actually
         // charged. §E81-r: re-express, never weaken — raising the bound would hide a future real
         // over-mint behind a premium-sized allowance.
-        uint premBefore = CORE.skewPremiumCum(true);   // the only new local; delta is taken inline
+        uint premBefore = CORE.skewPremiumCum();   // the only new local; delta is taken inline
         uint proceeds = _swapOuts(ch, cid, ftx, 1, lpPk, lpEth, 5, 500 * USDC_PRECISION);
         assertGt(proceeds, 0, "swap-outs delivered BTC so the LP earned proceeds");
         // Deliver-time minted the realized proceeds (+ tiny USD-leg fee dust) — never
@@ -760,7 +760,7 @@ contract BtcLpMintStress is Alles {
         // notional — measured at a constant 4.2bps across 500/1200/2500 notionals — so an ABSOLUTE
         // allowance can never fit it. Bound = 6bps of the expected value (4.2bps measured + margin)
         // plus the original 1e15 for rounding. DERIVED from the fee rate; do NOT raise until green.
-        assertApproxEqAbs(QUID.balanceOf(lpEth) - qdBeforeDeliver, (proceeds + CORE.skewPremiumCum(true) - premBefore) * 1e12, proceeds * 1e12 * 6 / 10000 + 1e15,
+        assertApproxEqAbs(QUID.balanceOf(lpEth) - qdBeforeDeliver, (proceeds + CORE.skewPremiumCum() - premBefore) * 1e12, proceeds * 1e12 * 6 / 10000 + 1e15,
             "deliveries mint ~EXACTLY the realized proceeds (+ fee dust, no over-mint)");
         assertGe(QUID.balanceOf(lpEth) - qdBeforeDeliver, proceeds * 1e12,
             "LP received AT LEAST its full proceeds");
@@ -792,7 +792,7 @@ contract BtcLpMintStress is Alles {
         // bounds the ORDINARY fee; the premium becomes an explicit TERM read from what was actually
         // charged. §E81-r: re-express, never weaken — raising the bound would hide a future real
         // over-mint behind a premium-sized allowance.
-        uint premBefore = CORE.skewPremiumCum(true);   // the only new local; delta is taken inline
+        uint premBefore = CORE.skewPremiumCum();   // the only new local; delta is taken inline
         uint proceeds = _swapOuts(ch, cid, ftx, 2, lpPk, lpEth, 3, 400 * USDC_PRECISION); // modest delivery
         assertGt(proceeds, 0, "some BTC delivered");
         // Deliver mints the obligation (+ tiny fee dust), NOT inflated by any
@@ -802,7 +802,7 @@ contract BtcLpMintStress is Alles {
         // notional — measured at a constant 4.2bps across 500/1200/2500 notionals — so an ABSOLUTE
         // allowance can never fit it. Bound = 6bps of the expected value (4.2bps measured + margin)
         // plus the original 1e15 for rounding. DERIVED from the fee rate; do NOT raise until green.
-        assertApproxEqAbs(QUID.balanceOf(lpEth) - qdBeforeDeliver, (proceeds + CORE.skewPremiumCum(true) - premBefore) * 1e12, proceeds * 1e12 * 6 / 10000 + 1e15,
+        assertApproxEqAbs(QUID.balanceOf(lpEth) - qdBeforeDeliver, (proceeds + CORE.skewPremiumCum() - premBefore) * 1e12, proceeds * 1e12 * 6 / 10000 + 1e15,
             "deliver mints ~EXACTLY the swapper's USD (no inflation, + fee dust)");
         assertGe(QUID.balanceOf(lpEth) - qdBeforeDeliver, proceeds * 1e12,
             "LP received AT LEAST its full proceeds");
@@ -860,7 +860,7 @@ contract BtcLpMintStress is Alles {
         emit log_named_uint("cumMinted            ", cumMinted);
         emit log_named_uint("cumProceeds*1e12     ", cumProceeds * 1e12);
         emit log_named_uint("gap (mint - proceeds)", cumMinted - cumProceeds * 1e12);
-        emit log_named_uint("skewPremiumCum(BTC)  ", CORE.skewPremiumCum(true));
+        emit log_named_uint("skewPremiumCum(BTC)  ", CORE.skewPremiumCum());
         assertGe(cumMinted, cumProceeds * 1e12, "LPs received their full realized proceeds");
         // §E89-a — THE PREMIUM IS BACKING THAT `cumProceeds` CANNOT SEE, SO IT IS NOW AN EXPLICIT
         // TERM RATHER THAN SLACK IN A DUST WINDOW. `creditSwapOutBody` scales the buy-driving USD
@@ -875,15 +875,15 @@ contract BtcLpMintStress is Alles {
         //   skew-dependent movement and none of the residual.
         // This makes the check STRICTER, not looser: unexplained dust drops from 6 QUID to 2.5.
         assertLe(cumMinted,
-            cumProceeds * 1e12 + CORE.skewPremiumCum(true) * 1e12 + 2.5e18,
+            cumProceeds * 1e12 + CORE.skewPremiumCum() * 1e12 + 2.5e18,
             "cumulative mint stays within proceeds + retained premium (+ constant fee dust)");
     }
 
-    /// COLLAPSE swap-in GATE: a swap-in is paid out of POOLED_USD_BTC, but it must
+    /// COLLAPSE swap-in GATE: a swap-in is paid out of POOLED_USD, but it must
     /// NOT eat into the USD owed to LPs for UNDELIVERED swap-out obligations
     /// (pendingSwapOutUsd) — else a delivered LP couldn't be paid its exact proceeds.
     /// Build up pendingSwapOutUsd (un-delivered requests) so it is ~all of
-    /// POOLED_USD_BTC (thin free reserve), then a real swap-in that would draw the
+    /// POOLED_USD (thin free reserve), then a real swap-in that would draw the
     /// pool below pendingSwapOutUsd reverts SwapInDrainsProceeds.
     function test_SwapInGate_RevertsIfDrainsPendingProceeds() public {
         BTCChannels ch = _deployChannels();
@@ -892,7 +892,7 @@ contract BtcLpMintStress is Alles {
         vm.startPrank(User03); USDC.approve(address(AUX), type(uint).max); vm.stopPrank();
 
         // (1) PRIME a small FREE reserve: a couple of direct curve buys grow
-        // POOLED_USD_BTC WITHOUT recording any obligation (pending stays 0). This is
+        // POOLED_USD WITHOUT recording any obligation (pending stays 0). This is
         // the genuinely-free headroom a swap-in is allowed to draw against.
         vm.startPrank(User03);
         for (uint i = 0; i < 2; i++) {
@@ -900,11 +900,11 @@ contract BtcLpMintStress is Alles {
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
-        uint freeReserve0 = CORE.POOLED_USD_BTC();
+        uint freeReserve0 = CORE.POOLED_USD();
         assertGt(freeReserve0, 0, "priming created a free reserve");
 
         // (2) Build pendingSwapOutUsd with UN-delivered on-chain swap-out requests.
-        // Each grows POOLED_USD_BTC AND pendingSwapOutUsd by the same USD, so the FREE
+        // Each grows POOLED_USD AND pendingSwapOutUsd by the same USD, so the FREE
         // reserve (POOLED − pending) STAYS ≈ freeReserve0 while pending climbs.
         for (uint i = 0; i < 6; i++) {
             bytes memory scr = _swapperScript(address(ch), User03);   // (E185) the REGISTERED destination
@@ -916,15 +916,15 @@ contract BtcLpMintStress is Alles {
         }
         uint pending = CORE.pendingSwapOutUsd();
         assertGt(pending, 0, "obligations recorded");
-        assertGe(CORE.POOLED_USD_BTC(), pending, "free reserve non-negative before the swap-ins");
+        assertGe(CORE.POOLED_USD(), pending, "free reserve non-negative before the swap-ins");
 
         // (3) LOOP small swap-ins (each well under the 50bps cap so the curve accepts
-        // it) that draw POOLED_USD_BTC down through the free reserve toward `pending`.
+        // it) that draw POOLED_USD down through the free reserve toward `pending`.
         // The proceeds gate (SwapInDrainsProceeds) must fire on the swap that would
         // CROSS the threshold — proving a swap-in can never drain the USD owed to LPs.
         // (If the curve's own slippage/reserve limit refuses first, the property
         // below still proves the guarantee — the gate is the backstop.) The INVARIANT
-        // holds after EVERY accepted swap-in: POOLED_USD_BTC >= pending.
+        // holds after EVERY accepted swap-in: POOLED_USD >= pending.
         uint price = AUX.getTWAPforAsset(address(WBTC), 1800);
         uint fixedSats = (freeReserve0 / 4 * 1e12 * 1e18) / price; // ~1/4 of the free reserve per swap
         if (fixedSats == 0) fixedSats = 1e3;
@@ -941,15 +941,15 @@ contract BtcLpMintStress is Alles {
             vm.prank(makeAddr("hop"));
             ch.parkProvenSats(cid9, sp9, stx9, new bytes32[](0));
         }
-        uint pooledStart = CORE.POOLED_USD_BTC();
+        uint pooledStart = CORE.POOLED_USD();
         bool gateFired; bool curveSelfLimited; uint accepted;
         for (uint i = 0; i < 500 && !gateFired && !curveSelfLimited; i++) {
-            if (CORE.POOLED_USD_BTC() <= pending) break;
+            if (CORE.POOLED_USD() <= pending) break;
             vm.prank(makeAddr("hop"));
             try ch.settleSwapInBuffered(address(0x5EE0), fixedSats, address(USDC),
                     keccak256(abi.encode("gate-swapin", i)), 0, false) {
-                assertGe(CORE.POOLED_USD_BTC(), pending,
-                    "swap-in left POOLED_USD_BTC >= pending (LP proceeds not drained)");
+                assertGe(CORE.POOLED_USD(), pending,
+                    "swap-in left POOLED_USD >= pending (LP proceeds not drained)");
                 accepted++;
                 vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
             } catch (bytes memory reason) {
@@ -962,11 +962,11 @@ contract BtcLpMintStress is Alles {
         // ended because a guard stopped it — the proceeds gate or the curve's own
         // slippage/reserve limit — never an unprotected drain below pending.
         assertGt(accepted, 0, "swap-in draining pressure was actually applied");
-        assertLt(CORE.POOLED_USD_BTC(), pooledStart, "swap-ins measurably drew the pool down");
+        assertLt(CORE.POOLED_USD(), pooledStart, "swap-ins measurably drew the pool down");
         assertTrue(gateFired || curveSelfLimited, "draining stopped by a guard (proceeds gate or curve), not unprotected");
-        // THE GUARANTEE: POOLED_USD_BTC stayed >= pending throughout — the USD owed
+        // THE GUARANTEE: POOLED_USD stayed >= pending throughout — the USD owed
         // to LPs for undelivered swap-outs is never drained by swap-ins.
-        assertGe(CORE.POOLED_USD_BTC(), pending,
+        assertGe(CORE.POOLED_USD(), pending,
             "LP-owed proceeds (pendingSwapOutUsd) never drained by swap-ins");
     }
 
@@ -1038,7 +1038,7 @@ contract BtcLpMintStress is Alles {
     //   (1) each LP's minted QUI <= its OWN channel's realized proceeds (+ dust):
     //       the cross-channel attribution check — a leak would credit one channel's
     //       proceeds to another's LP, blowing its own-proceeds bound;
-    //   (2) POOLED_USD_BTC >= pendingSwapOutUsd: the shared free reserve never funds
+    //   (2) POOLED_USD >= pendingSwapOutUsd: the shared free reserve never funds
     //       a swap-in out of ANOTHER channel's undelivered obligation;
     //   (3) solvency (D >= S + L) holds.
     // Plus the aggregate Σ minted <= Σ proceeds (+ dust) at the end.
@@ -1051,7 +1051,7 @@ contract BtcLpMintStress is Alles {
             assertLe(QUID.balanceOf(k[i].lp) - k[i].q0, k[i].proceeds * 1e12 + 4e18,
                 string.concat("per-channel mint<=own proceeds @ ", tag));
         }
-        assertGe(CORE.POOLED_USD_BTC(), CORE.pendingSwapOutUsd(), string.concat("POOLED_USD_BTC>=pending @ ", tag));
+        assertGe(CORE.POOLED_USD(), CORE.pendingSwapOutUsd(), string.concat("POOLED_USD>=pending @ ", tag));
         _assertSolvent(string.concat("solvent @ ", tag));
     }
 
@@ -1085,7 +1085,7 @@ contract BtcLpMintStress is Alles {
         _multiAssert(ch, "B swaps post-splice", k);
 
         // 5) a swap-IN draws the SHARED pool while obligations may be pending — must
-        //    not draw POOLED_USD_BTC below the cross-channel pending total.
+        //    not draw POOLED_USD below the cross-channel pending total.
         //    (M1#1) Park first, or the credit reverts on an empty buffer and this step stops
         //    exercising the shared pool at all — the `try` would swallow it silently.
         {
@@ -1133,8 +1133,8 @@ contract BtcLpMintStress is Alles {
     // ═══════════════ V7 — PRE-UNIFICATION CONTROL: THE BTC FREE RESERVE IS BAND-LOCAL ═══════════════
     //
     // `test_SwapInGate_RevertsIfDrainsPendingProceeds` above pins the GUARD: a swap-in may not draw
-    // `POOLED_USD_BTC` below `pendingSwapOutUsd`. What nothing pins is the assumption UNDERNEATH it —
-    // that the free reserve `POOLED_USD_BTC − pendingSwapOutUsd` is **BAND-LOCAL**, i.e. ETH-side
+    // `POOLED_USD` below `pendingSwapOutUsd`. What nothing pins is the assumption UNDERNEATH it —
+    // that the free reserve `POOLED_USD − pendingSwapOutUsd` is **BAND-LOCAL**, i.e. ETH-side
     // activity cannot consume the dollars owed to BTC swap-out obligations.
     //
     // That assumption is exactly what the `POOLED_USD` unification puts at risk. If the two counters
@@ -1165,7 +1165,7 @@ contract BtcLpMintStress is Alles {
                 returns (uint) { vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes); } catch { break; }
         }
 
-        uint btcUsd0   = CORE.POOLED_USD_BTC();
+        uint btcUsd0   = CORE.POOLED_USD();
         uint pending0  = CORE.pendingSwapOutUsd();
         uint free0     = btcUsd0 > pending0 ? btcUsd0 - pending0 : 0;
         emit log_named_uint("BTC USD leg        ", btcUsd0);
@@ -1187,25 +1187,25 @@ contract BtcLpMintStress is Alles {
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
 
-        emit log_named_uint("BTC USD leg  after ", CORE.POOLED_USD_BTC());
+        emit log_named_uint("BTC USD leg  after ", CORE.POOLED_USD());
         emit log_named_uint("pending      after ", CORE.pendingSwapOutUsd());
 
         // THE CONTROL. ETH-side flow must leave the BTC band's obligation accounting bit-identical.
         assertEq(CORE.pendingSwapOutUsd(), pending0,
             "ETH-side flow must not change the BTC band's undelivered swap-out obligations");
-        assertEq(CORE.POOLED_USD_BTC(), btcUsd0,
+        assertEq(CORE.POOLED_USD(), btcUsd0,
             "ETH-side flow must not draw the BTC band's USD leg -- the free reserve is BAND-LOCAL");
-        uint free1 = CORE.POOLED_USD_BTC() > CORE.pendingSwapOutUsd()
-            ? CORE.POOLED_USD_BTC() - CORE.pendingSwapOutUsd() : 0;
+        uint free1 = CORE.POOLED_USD() > CORE.pendingSwapOutUsd()
+            ? CORE.POOLED_USD() - CORE.pendingSwapOutUsd() : 0;
         assertEq(free1, free0,
-            "the BTC free reserve (POOLED_USD_BTC - pendingSwapOutUsd) must be untouched by ETH activity");
+            "the BTC free reserve (POOLED_USD - pendingSwapOutUsd) must be untouched by ETH activity");
     }
 
     // ═══════════════════════════ E31 — does the BTC band need #12's payment? ═══════════════════════
     //
-    // #12 pays the ETH LP the band's LP-OWNED USD leg (`POOLED_USD_ETH - basketUsdEth`) because
+    // #12 pays the ETH LP the band's LP-OWNED USD leg (`POOLED_USD - basketUsd`) because
     // `Vogue._pricingBacking` prices it into the share. The BTC side has NO such reader: `Vault`,
-    // `BtcVaultLib` and `VaultLib` never mention `basketUsdBtc` at all. Reading that as "the BTC band
+    // `BtcVaultLib` and `VaultLib` never mention `basketUsd` at all. Reading that as "the BTC band
     // is fine" is a DISMISSAL, and a dismissal needs the same evidence as a finding — so these two
     // tests try to BREAK it instead.
     //
@@ -1231,22 +1231,22 @@ contract BtcLpMintStress is Alles {
         }
         vm.stopPrank();
 
-        uint pooled = CORE.POOLED_USD_BTC();
-        uint base   = CORE.basketUsdBtc();
-        emit log_named_uint("POOLED_USD_BTC   ", pooled);
-        emit log_named_uint("basketUsdBtc     ", base);
+        uint pooled = CORE.POOLED_USD();
+        uint base   = CORE.basketUsd();
+        emit log_named_uint("POOLED_USD   ", pooled);
+        emit log_named_uint("basketUsd     ", base);
         emit log_named_uint("increment        ", pooled > base ? pooled - base : 0);
-        emit log_named_uint("btcBandEquityUsd18", CORE.btcBandEquityUsd18());
+        emit log_named_uint("btcBandEquityUsd18", CORE.bandEquityUsd18());
 
         // PREMISE: an increment must EXIST, else this measures nothing. The ETH band grew one from
         // exactly this shape of flow, so its absence here would itself be the finding.
         assertGt(pooled, base, "PREMISE: the curve buys must lift the BTC mirror above the basket's leg");
 
         // The band's equity is the BASKET's contribution net of live BTC leverage debt — the
-        // increment is NOT in it. `_bandEquityUsd18` reads `basketUsdBtc`, so this holds by
+        // increment is NOT in it. `_bandEquityUsd18` reads `basketUsd`, so this holds by
         // construction; asserting it is what will FAIL the day someone re-points that read at
-        // `POOLED_USD_BTC`, which is precisely the change that would create an ETH-shaped hole.
-        assertLe(CORE.btcBandEquityUsd18(), base * 1e12,
+        // `POOLED_USD`, which is precisely the change that would create an ETH-shaped hole.
+        assertLe(CORE.bandEquityUsd18(), base * 1e12,
             "the BTC increment must NOT be priced as band equity: nothing may promise it to an LP");
     }
 
@@ -1265,7 +1265,7 @@ contract BtcLpMintStress is Alles {
         }
         vm.stopPrank();
 
-        uint incr = CORE.POOLED_USD_BTC() - CORE.basketUsdBtc();
+        uint incr = CORE.POOLED_USD() - CORE.basketUsd();
         assertGt(incr, 0, "PREMISE: there must be an increment to (not) be paid");
 
         uint q0 = QUID.balanceOf(User01);

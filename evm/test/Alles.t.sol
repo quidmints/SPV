@@ -658,15 +658,15 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         vm.startPrank(User01);
         V4.deposit{value: 100 ether}(0, User01);
 
-        uint pooledETH = CORE.POOLED_ETH();
-        console.log("POOLED_ETH after deposit:", pooledETH);
+        uint pooledETH = CORE.POOLED();
+        console.log("POOLED after deposit:", pooledETH);
 
         assertGt(pooledETH, 0, "pool must be seeded");
 
         USDC.approve(address(AUX), type(uint).max);
 
-        (,uint160 sqrtPriceX96,) = CORE.poolTicks(false);
-        uint price = _getPrice(sqrtPriceX96, V4.token1isETH());
+        (,uint160 sqrtPriceX96,) = CORE.poolTicks();
+        uint price = _getPrice(sqrtPriceX96, V4.token1isVol());
         console.log("ETH price:", price);
 
         uint usdcBefore = USDC.balanceOf(User01);
@@ -802,12 +802,12 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
 
 
     /// @notice TODO #1 char test - Strand-3 (Batch-1 `b554c7d`). A swap-OUT to a
-    ///         volatile asset against a DRY pool (POOLED_ETH==0, no LP) delivers
+    ///         volatile asset against a DRY pool (POOLED==0, no LP) delivers
     ///         max==0; with minOut==0 the `max<minOut` guard wouldn't fire, so the
     ///         unconditional `max==0` revert is the only thing stopping the input
     ///         being consumed for nothing. Assert REVERT (SlippageMaxS) + input intact.
     function testStrand3_DryVolatilePool_RevertsInputNotConsumed() public {
-        assertEq(CORE.POOLED_ETH(), 0, "ETH pool dry at start (no LP deposited)");
+        assertEq(CORE.POOLED(), 0, "ETH pool dry at start (no LP deposited)");
         deal(address(USDC), User01, 1000 * 1e6);
 
         vm.startPrank(User01);
@@ -890,12 +890,12 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     //
     // WHAT THIS FIXTURE ACTUALLY REACHES (measured — see the premise assertions below, which
     // previously did not exist; the 0.06e18 / 0.15e18 tolerances hid all of it):
-    //   • The swap DOES maximally skew composition: POOLED_USD_ETH goes 50_692_000_843 → 46_595_116,
+    //   • The swap DOES maximally skew composition: POOLED_USD goes 50_692_000_843 → 46_595_116,
     //     i.e. the band's USD leg is 99.91% drained. That part of the premise is real.
     //   • The swap CANNOT push the tick out of the band. It saturates at the band edge: measured
     //     band [200660, 200700], post-swap tick 200699 — one tick inside. Verified by sweeping the
     //     swap size over 40 / 80 / 160 / 400 / 1000 ETH: ALL FIVE produce a bit-identical end
-    //     state (same tick, same POOLED_USD_ETH 46_595_116, same POOLED_ETH). A concentrated
+    //     state (same tick, same POOLED_USD 46_595_116, same POOLED). A concentrated
     //     position cannot trade itself past its own band edge — there is no liquidity beyond it.
     //   • Therefore NEITHER reseat branch in SwapLib.rebalanceCore fires. The repack branch needs
     //     `currentTick > tickUpper || currentTick < tickLower` (false, by 1 tick). The auto-heal
@@ -913,7 +913,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         vm.prank(User01); V4.deposit{value: 200 ether}(0, User01);
         vm.roll(vm.getBlockNumber() + 1);
 
-        uint pooledUsdAtSeed = CORE.POOLED_USD_ETH();
+        uint pooledUsdAtSeed = CORE.POOLED_USD();
         assertGt(pooledUsdAtSeed, 0, "PREMISE: deposit seeded a USD leg to skew");
 
         // Sizeable swap: pre-grind-removal this partial-filled at the 0.5% cap; now it walks the
@@ -924,13 +924,13 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // PREMISE: the swap really did skew the pool's composition — without this the whole test
         // is inert, and nothing downstream would have noticed (it passed for both reasons before).
         // Derived from live state, not a literal: the USD leg must be ≥99% consumed.
-        uint pooledBeforeReseat = CORE.POOLED_USD_ETH();
+        uint pooledBeforeReseat = CORE.POOLED_USD();
         assertLt(pooledBeforeReseat, pooledUsdAtSeed / 100,
             "PREMISE: swap drained >=99% of the band's USD leg (composition really is skewed)");
 
         // PREMISE: the swap saturated AT the band edge — it did not leave the band. This is what
         // makes the reseat a structural no-op below, so assert it rather than letting it hide.
-        (,, int24 tickBefore) = CORE.poolTicks(false);
+        (,, int24 tickBefore) = CORE.poolTicks();
         assertLe(tickBefore, V4.UPPER_TICK(), "PREMISE: swap saturates inside the band (upper)");
         assertGe(tickBefore, V4.LOWER_TICK(), "PREMISE: swap saturates inside the band (lower)");
         int24 loBefore = V4.LOWER_TICK(); int24 hiBefore = V4.UPPER_TICK();
@@ -945,8 +945,8 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // alignment — and it is bit-stable across fork blocks (the fork is unpinned, so the
         // absolute price moves run to run, but this RATIO does not). Old bound was 0.06e18 (6%),
         // i.e. 60x the measured value and 30x the structural maximum.
-        (, uint160 sp,) = CORE.poolTicks(false);
-        uint spot = _getPrice(sp, V4.token1isETH());
+        (, uint160 sp,) = CORE.poolTicks();
+        uint spot = _getPrice(sp, V4.token1isVol());
         uint twap = AUX.getTWAPforAsset(address(WETH), 1800);
         assertApproxEqRel(spot, twap, 0.002e18, "spot within one BAND_DELTA (20bps) of the anchor");
 
@@ -955,12 +955,12 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // writes no pool state at all. There is no burn → reprice → re-add to round, hence no
         // rounding residual to tolerate. The old 0.15e18 (15%) admitted a $7 swing on a $46.59
         // balance and would equally have admitted a real drain.
-        assertEq(CORE.POOLED_USD_ETH(), pooledBeforeReseat, "reseat moved no USD capital");
+        assertEq(CORE.POOLED_USD(), pooledBeforeReseat, "reseat moved no USD capital");
 
         // Pin the no-op explicitly so this test can never again pass while silently inert: if a
         // future change makes the reseat actually re-band here, these fail and force a re-read of
         // the block comment above (that would be the FIX for the suspected defect, not a break).
-        (,, int24 tickAfter) = CORE.poolTicks(false);
+        (,, int24 tickAfter) = CORE.poolTicks();
         assertEq(tickAfter, tickBefore, "reseat did not move the spot (no branch fired)");
         assertTrue(V4.LOWER_TICK() == loBefore && V4.UPPER_TICK() == hiBefore,
             "reseat did not re-center the band (no branch fired)");
@@ -976,7 +976,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         vm.prank(User01); V4.deposit{value: 200 ether}(0, User01);
         vm.roll(vm.getBlockNumber() + 1);
 
-        uint lpPooledBefore = CORE.POOLED_USD_ETH();
+        uint lpPooledBefore = CORE.POOLED_USD();
 
         // Leg 1: attacker gives 40 ETH, receives USDC — walks the curve down.
         vm.prank(User02);
@@ -1000,7 +1000,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
 
         // Mirror invariant — the LP is NOT charged for the mover's move. The round-trip loss stays in
         // the pool, so POOLED is neutral-or-up (0.1% fork-noise floor); it is not drained.
-        assertGe(CORE.POOLED_USD_ETH(), lpPooledBefore * 999 / 1000,
+        assertGe(CORE.POOLED_USD(), lpPooledBefore * 999 / 1000,
             "LP backing not drained by the sandwiched round trip");
     }
 
@@ -1111,8 +1111,8 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     // getTWAPforAsset read, and whether a Chainlink feed is wired at setup — to prove the genesis
     // tick is a REAL market price, not garbage masked by self-referential reads.
     function testDiag_GenesisPriceRegime() public {
-        (, uint160 sp,) = CORE.poolTicks(false);
-        uint slot0Price = _getPrice(sp, V4.token1isETH());
+        (, uint160 sp,) = CORE.poolTicks();
+        uint slot0Price = _getPrice(sp, V4.token1isVol());
         uint twap = AUX.getTWAPforAsset(address(WETH), 1800);
         address feed = AUX.assetPriceFeed(address(WETH));
         emit log_named_uint("slot0 price (pool's own)", slot0Price);
@@ -1171,7 +1171,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
 
     // GRIND-REMOVAL PROOF (deliverability): the grind implicitly slowed draining the reservoir. Its
     // real replacement is the WELL. This proves the LIVE path prices a drain: draining the volatile
-    // inventory pays a positive, RETAINED skew premium (Core.skewPremiumETH) that stays as backing —
+    // inventory pays a positive, RETAINED skew premium (Core.skewPremium) that stays as backing —
     // not leakage. (The skew's MAGNITUDE is Γ·σ²·qⁿ: scarcity q strictly raises it at any given
     // vol — proven deterministically in testSkewStablenessRamp_ConvexCapAndMonotone — while σ²→0 in
     // a settled, non-moving market correctly zeroes it, since no volatility ⇒ no inventory risk.)
@@ -1186,8 +1186,8 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         _setEthFeed(px0 / 1e10);
         AUX.setAssetFeed(address(WETH), ETH_FEED);
 
-        uint pooledBefore  = CORE.POOLED_ETH();
-        uint premiumBefore = CORE.skewPremiumETH();
+        uint pooledBefore  = CORE.POOLED();
+        uint premiumBefore = CORE.skewPremium();
         uint lpFeesBefore  = V4.USD_FEES();      // §E5: where the premium must actually LAND
 
         vm.startPrank(User02);
@@ -1202,9 +1202,9 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         vm.stopPrank();
 
         // The reservoir genuinely drained (uncapped, post-grind): inventory fell hard.
-        assertLt(CORE.POOLED_ETH(), pooledBefore / 2, "reservoir drained (uncapped large outflow)");
+        assertLt(CORE.POOLED(), pooledBefore / 2, "reservoir drained (uncapped large outflow)");
         // The drain was PRICED: a positive skew premium was recorded.
-        assertGt(CORE.skewPremiumETH(), premiumBefore, "draining paid a retained skew premium");
+        assertGt(CORE.skewPremium(), premiumBefore, "draining paid a retained skew premium");
         // §E5 — STRICTLY STRONGER: recorded is not received. Before E5 the premium accrued to
         // BASKET BACKING, which prices QU!D and never touches an LP's share value, so this second
         // assertion is what distinguishes "we wrote it down" from "the LPs got it". The counter
@@ -1231,7 +1231,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         uint available;
         {
             (uint total,) = AUX.get_metrics(true);
-            uint pooled = CORE.POOLED_USD_ETH();
+            uint pooled = CORE.POOLED_USD();
             available = total > pooled ? total - pooled : 0;
         }
 
@@ -1286,16 +1286,16 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // ETH+WETH: the ladder pays part of an exit as WETH (BUILD-QUEUE §A.9). Counting native ETH
         // alone read as a ~20% shortfall that does NOT exist -- measured, ETH+WETH is ~99.96%.
         uint balanceBefore = User01.balance + WETH.balanceOf(User01);
-        uint pooledBeforeWithdraw = CORE.POOLED_ETH();
+        uint pooledBeforeWithdraw = CORE.POOLED();
         V4.withdraw(5 ether, User01, User01);
         uint received = (User01.balance + WETH.balanceOf(User01)) - balanceBefore;
 
         assertGe(received, 4.5 ether, "withdraw returns ~the principal");
-        // RIGOR: V4 liquidity actually removed - POOLED_ETH falls by ~the
+        // RIGOR: V4 liquidity actually removed - POOLED falls by ~the
         // delivered ETH; shares fall too but NOT 1:1 (they appreciate with the
         // fees just accrued, so don't over-specify the share delta).
-        assertApproxEqAbs(pooledBeforeWithdraw - CORE.POOLED_ETH(), received, 0.05 ether,
-            "POOLED_ETH dropped by ~the delivered ETH (V4 liquidity removed)");
+        assertApproxEqAbs(pooledBeforeWithdraw - CORE.POOLED(), received, 0.05 ether,
+            "POOLED dropped by ~the delivered ETH (V4 liquidity removed)");
         assertLt(V4.lpShares(), sharesBefore, "lpShares decreased on withdraw");
 
         vm.stopPrank();
@@ -1639,7 +1639,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         vm.startPrank(User01);
         V4.deposit{value: 100 ether}(0, User01);
 
-        uint pooledBefore = CORE.POOLED_ETH();
+        uint pooledBefore = CORE.POOLED();
         assertGt(pooledBefore, 0, "deposit created the ETH pool position");
 
         USDC.approve(address(AUX), type(uint).max);
@@ -1656,7 +1656,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         assertGt(b1, 0, "block-1 swap cleared");
         assertGt(b2, 0, "block-2 swap cleared");
         assertGt(b3, 0, "block-3 swap cleared");
-        assertGt(CORE.POOLED_ETH(), pooledBefore, "swapped-in ETH grew the pool across blocks");
+        assertGt(CORE.POOLED(), pooledBefore, "swapped-in ETH grew the pool across blocks");
 
         vm.stopPrank();
     }
@@ -1795,7 +1795,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         assertLt(usd18, 1_000_000e18, "0.2 BTC must be < $1M (guards 1e10 over-scale)");
         AUX.setBTCChannels(address(this));
         BTC.registerBtcLp(User01, 2e7);
-        assertGt(CORE.POOLED_USD_BTC(), 1_000e6, "register 0.2 BTC must pair O($k), not dust");
+        assertGt(CORE.POOLED_USD(), 1_000e6, "register 0.2 BTC must pair O($k), not dust");
     }
 
     /// @notice RISK-1 regression: a fair-priced WBTC Chainlink anchor must NOT
@@ -1818,11 +1818,11 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     ///         BTC in the form they pick - QUID (minted) or a specific stable
     ///         (the STRICT, fee-bearing redemption path) - reusing the
     ///         redeem/takeBody machinery. Bounded by the inflow-capacity gate
-    ///         (can't draw more dollars than POOLED_USD_BTC holds).
+    ///         (can't draw more dollars than POOLED_USD holds).
     function testSwapIn_QuidOrStrictStable() public {
         AUX.setBTCChannels(address(this)); // impersonate BTCChannels -> drive creditSwapIn
 
-        // Fund POOLED_USD_BTC (the swappers' dollars a swap-in draws against).
+        // Fund POOLED_USD (the swappers' dollars a swap-in draws against).
         BTC.registerBtcLp(User01, 2e7);
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
@@ -1831,8 +1831,8 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
-        uint poolUsd = CORE.POOLED_USD_BTC();
-        assertGt(poolUsd, 0, "swaps funded POOLED_USD_BTC");
+        uint poolUsd = CORE.POOLED_USD();
+        assertGt(poolUsd, 0, "swaps funded POOLED_USD");
         uint price = AUX.getTWAPforAsset(address(WBTC), 1800); // WAD per BTC
         // Size a swap-in at ~a quarter of pool USD capacity (the 0.5% per-swap
         // price cap may partial-fill it - assertions below are directional).
@@ -1846,7 +1846,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         BTC.creditSwapIn(address(0x5E11), sats, address(QUID), 0);
 
         // (B) Seller sells BTC, receives a basket stable (USDC) at the V4 curve
-        // price. POOLED_USD_BTC drains; POOLED_BTC grows (the received sats are
+        // price. POOLED_USD drains; POOLED grows (the received sats are
         // now pool inventory) - exactly how an ETH->USD swap moves the ETH pool.
         // (No-CRE fork defaults an unconfigured stable to max depeg severity;
         // heal USDC to 0 for the healthy-stable case.)
@@ -1855,20 +1855,20 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
             abi.encode(uint(0)));
         address seller = address(0x5E12);
         uint usdcBefore       = USDC.balanceOf(seller);
-        uint pooledUsdBefore  = CORE.POOLED_USD_BTC();
-        uint pooledBtcBefore  = CORE.POOLED_BTC();
+        uint pooledUsdBefore  = CORE.POOLED_USD();
+        uint pooledBtcBefore  = CORE.POOLED();
         BTC.creditSwapIn(seller, sats, address(USDC), 0);
         assertGt(USDC.balanceOf(seller), usdcBefore, "swap-in delivered USDC to the seller");
-        assertLt(CORE.POOLED_USD_BTC(), pooledUsdBefore, "POOLED_USD_BTC drawn down by the curve");
-        assertGt(CORE.POOLED_BTC(),     pooledBtcBefore, "received sats became pool BTC inventory");
+        assertLt(CORE.POOLED_USD(), pooledUsdBefore, "POOLED_USD drawn down by the curve");
+        assertGt(CORE.POOLED(),     pooledBtcBefore, "received sats became pool BTC inventory");
 
         // (C) No BtcInflowCap any more: an oversized swap-in does NOT revert -
         // the curve (per-swap price cap + USD reserve) bounds the payout, so it
         // can never drain more dollars than the pool holds.
-        uint capBefore = CORE.POOLED_USD_BTC();
+        uint capBefore = CORE.POOLED_USD();
         uint hugeSats  = ((capBefore * 1e12 * 10) * 1e18) / price; // 10× capacity
         uint consumed  = BTC.creditSwapIn(address(0x5E13), hugeSats, address(USDC), 0);
-        assertLe(CORE.POOLED_USD_BTC(), capBefore,
+        assertLe(CORE.POOLED_USD(), capBefore,
             "oversized swap-in bounded by pool USD (no infinite drain)");
         // #105: the inventory-bounded partial REPORTS the sats actually converted so the hop refunds the
         // `hugeSats − consumed` remainder to the seller (its BTC is held off-chain over the deposit/HTLC).
@@ -1887,7 +1887,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
 
-        // Seed BTC inventory + POOLED_USD_BTC curve liquidity (the funding USD->BTC
+        // Seed BTC inventory + POOLED_USD curve liquidity (the funding USD->BTC
         // swaps deliver BTC to User03, so it needs a BTC recipient - the swap-out
         // request itself does NOT, since its proceeds go to the pool).
         _openHopChannel(ch, hop, 91, 2e7); // MULTI-HOP: real open so `hop` may attest swap-ins (was a registerBtcLp shortcut)
@@ -1909,7 +1909,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         address swapper = User02;
         vm.prank(swapper); USDC.approve(address(AUX), type(uint).max);
         // A recipient for the pool's shortfall-arb path (the large test buy can
-        // drain POOLED_BTC below shares -> arb refill, which routes to a recipient).
+        // drain POOLED below shares -> arb refill, which routes to a recipient).
         _setRecipient(address(ch), abi.encode(uint(0xB7C2)), swapper);
 
         bytes memory swapperScript = abi.encodePacked(hex"5120", _validXOnly(abi.encode(0x5A7C))); // key-path P2TR
@@ -1923,7 +1923,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         ch.requestSwapOutOnchain(address(USDC), 500 * USDC_PRECISION, type(uint).max, id2);
         assertFalse(ch.swapOutUsed(id2), "reverted swap-out did not burn the id");
 
-        uint pooledUsdBefore = CORE.POOLED_USD_BTC();
+        uint pooledUsdBefore = CORE.POOLED_USD();
         uint pendingBefore   = CORE.pendingSwapOutUsd();
         uint qdBefore        = QUID.balanceOf(swapper);
         uint usdcBefore      = USDC.balanceOf(swapper);
@@ -1932,7 +1932,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         uint sats = ch.requestSwapOutOnchain(address(USDC), 500 * USDC_PRECISION, 0, swapId);
 
         assertGt(sats, 0, "curve bought BTC for the swapper");
-        assertGt(CORE.POOLED_USD_BTC(), pooledUsdBefore, "swapper USD entered the pool");
+        assertGt(CORE.POOLED_USD(), pooledUsdBefore, "swapper USD entered the pool");
         assertLt(USDC.balanceOf(swapper), usdcBefore, "swapper's USDC was pulled");
         assertEq(QUID.balanceOf(swapper), qdBefore, "swap-OUT minted NO QUI to the swapper");
         // The obligation owed to whichever LP delivers is recorded in pendingSwapOutUsd.
@@ -2032,7 +2032,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     }
 
     /// @notice TODO #3 char test - Strand-4: the swap-IN delivered-USD floor. A
-    ///         thin POOLED_USD_BTC can't cover the hop's attested minDeliveredUsd,
+    ///         thin POOLED_USD can't cover the hop's attested minDeliveredUsd,
     ///         so settleSwapIn reverts SwapInShort and UNWINDS swapInUsed (the
     ///         seller's BTC is not burned for a short fill); re-settling the same
     ///         hash with a 0 floor then succeeds (the hash was never consumed).
@@ -2047,7 +2047,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
 
-        // Seed BTC inventory + POOLED_USD_BTC curve liquidity (mirror failure-reversal).
+        // Seed BTC inventory + POOLED_USD curve liquidity (mirror failure-reversal).
         // Park generously: step (3) below asks for 4x the pool's reserve to force an
         // inventory-bounded PARTIAL, and the buffer must not be what stops it — otherwise the
         // atomic-full-fill assertion would be testing the buffer bound instead of `requireFull`.
@@ -2066,7 +2066,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         vm.roll(block.number + 1); vm.warp(block.timestamp + 30 minutes); // settle TWAP
 
         uint price     = AUX.getTWAPforAsset(address(WBTC), 1800);
-        uint sats      = ((CORE.POOLED_USD_BTC() * 1e12) / 4 * 1e18) / price;
+        uint sats      = ((CORE.POOLED_USD() * 1e12) / 4 * 1e18) / price;
         address seller = address(0x5704);
         bytes32 hash   = keccak256("strand4-swapin");
 
@@ -2099,7 +2099,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         //     PARTIALLY fill reverts SwapInPartialRejected, the whole call rolls back, the hop
         //     delivers no USD and fails the HTLC, and the seller keeps 100% of their BTC.
         uint balBefore3 = ch.provenSatsAvailable(hopA);
-        uint bigSats = ((CORE.POOLED_USD_BTC() * 1e12 * 4) * 1e18) / price; // 4x the reserve
+        uint bigSats = ((CORE.POOLED_USD() * 1e12 * 4) * 1e18) / price; // 4x the reserve
         vm.prank(hopA);
         vm.expectRevert(abi.encodeWithSignature("SwapInPartialRejected()"));
         ch.settleSwapInBuffered(seller, bigSats, address(USDC), keccak256("s4-atomic"), 0, true);
@@ -2134,25 +2134,25 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
 
         uint depositAmount = 10 ether;
         V4.deposit{value: depositAmount}(0, User01);
-        uint pooledBefore = CORE.POOLED_ETH();
+        uint pooledBefore = CORE.POOLED();
         uint sharesBefore = V4.lpShares();
 
         vm.roll(vm.getBlockNumber() + 1); vm.warp(block.timestamp + 15 minutes);
         AUX.swap{value: 0.1 ether}(address(USDC), address(WETH), false, 0, 0);
 
         uint balanceBefore = User01.balance + WETH.balanceOf(User01);   // ETH+WETH, §A.9
-        uint pooledBeforeWithdraw = CORE.POOLED_ETH();
+        uint pooledBeforeWithdraw = CORE.POOLED();
         // Direct call - a revert here is a REAL failure, not something to skip.
         V4.withdraw(5 ether, User01, User01);
         uint received = (User01.balance + WETH.balanceOf(User01)) - balanceBefore;
 
         assertGt(received, 4 ether, "withdraw returns most of the principal");
         // RIGOR: the V4 liquidity was actually removed (modLP burned it) - not
-        // paid from idle ETH while leaving the position intact. POOLED_ETH must
+        // paid from idle ETH while leaving the position intact. POOLED must
         // fall by ~the delivered ETH; lpShares must fall (shares ≠ ETH 1:1 because
         // they appreciate with accrued fees, so don't over-specify the amount).
-        assertApproxEqAbs(pooledBeforeWithdraw - CORE.POOLED_ETH(), received, 0.05 ether,
-            "POOLED_ETH dropped by ~the delivered ETH (V4 liquidity removed)");
+        assertApproxEqAbs(pooledBeforeWithdraw - CORE.POOLED(), received, 0.05 ether,
+            "POOLED dropped by ~the delivered ETH (V4 liquidity removed)");
         assertLt(V4.lpShares(), sharesBefore, "lpShares decreased on withdraw");
         vm.stopPrank();
     }
@@ -2164,7 +2164,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         V4.deposit{value: 200 ether}(0, User01);
 
         // A broken deposit (zero pool) must FAIL the test, not silently pass.
-        uint pooledETH = CORE.POOLED_ETH();
+        uint pooledETH = CORE.POOLED();
         assertGt(pooledETH, 0, "deposit created the ETH pool position");
 
         uint usdcBefore = USDC.balanceOf(User01);
@@ -2172,11 +2172,11 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         vm.roll(block.number + 1);
 
         uint usdcReceived = USDC.balanceOf(User01) - usdcBefore;
-        // RIGOR: a WETH->USDC swap delivers USDC AND grows POOLED_ETH (the sold
+        // RIGOR: a WETH->USDC swap delivers USDC AND grows POOLED (the sold
         // WETH enters the pool). The 0.5% per-swap cap means a large `amount`
         // partial-fills, but it must always move both legs in the right direction.
         assertGt(usdcReceived, 0, "swap delivered USDC");
-        assertGt(CORE.POOLED_ETH(), pooledETH, "sold WETH entered the pool");
+        assertGt(CORE.POOLED(), pooledETH, "sold WETH entered the pool");
 
         vm.stopPrank();
     }
@@ -2269,7 +2269,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         vm.startPrank(User01);
         V4.deposit{value: 100 ether}(0, User01);
 
-        uint pooledETH = CORE.POOLED_ETH();
+        uint pooledETH = CORE.POOLED();
         assertGt(pooledETH, 0, "pool must be seeded");
 
         uint usdcBefore = USDC.balanceOf(User01);
@@ -2378,12 +2378,12 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         V4.deposit{value: 100 ether}(0, User01);
         vm.stopPrank();
 
-        uint initialPooledETH = CORE.POOLED_ETH();
+        uint initialPooledETH = CORE.POOLED();
         uint qdBefore = QUID.totalSupply();
 
         // A 50-ETH sell into a 100-ETH pool partial-fills (the per-swap 0.5% move
         // cap). The accounting INVARIANT this test guards: only the FILLED ETH may
-        // land in POOLED_ETH - the unfilled remainder must NOT inflate the V4
+        // land in POOLED - the unfilled remainder must NOT inflate the V4
         // pool's counted ETH (it settles to vault backing), and an ETH->USDC swap
         // mints NO QUID (it draws USDC; it never mints). NOTE on the swapper:
         // with minOut=0 they set no slippage floor, so the unfilled portion
@@ -2393,20 +2393,20 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // legitimately fills several ETH at <=0.5%.)
         vm.prank(User02);
         AUX.swap{value: 50 ether}(address(USDC), address(WETH), false, 0, 0);
-        uint pooledFill = CORE.POOLED_ETH() - initialPooledETH;
+        uint pooledFill = CORE.POOLED() - initialPooledETH;
 
         assertLt(pooledFill, 50 ether,
-            "unfilled swap ETH must NOT all land in POOLED_ETH (only the ~0.5% fill)");
+            "unfilled swap ETH must NOT all land in POOLED (only the ~0.5% fill)");
         assertEq(QUID.totalSupply(), qdBefore, "an ETH->USDC swap mints no QUID");
 
         // And a subsequent real deposit grows the pool - by its in-range PAIRED
         // portion, which is bounded by the free USD surplus (the big swap consumed
         // surplus), so it's <= the deposit, not exactly it. The invariant is that a
         // real deposit DOES add in-range liquidity (unlike the unfilled swap ETH).
-        uint beforeDep = CORE.POOLED_ETH();
+        uint beforeDep = CORE.POOLED();
         vm.prank(User01);
         V4.deposit{value: 25 ether}(0, User01);
-        assertGt(CORE.POOLED_ETH(), beforeDep, "a real deposit grows POOLED_ETH");
+        assertGt(CORE.POOLED(), beforeDep, "a real deposit grows POOLED");
     }
 
     function test_FeeAttributionWithMultipleLPs() public {
@@ -2549,7 +2549,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     function test_Redeem_WithBtcBand_NoOverBurn() public {
         for (uint i = 0; i < AUX.getStables().length; i++)
             vm.mockCall(address(AUX), abi.encodeWithSignature("getDepegSeverityBps(address)", AUX.getStables()[i]), abi.encode(uint(0)));
-        // Register a BTC LP + fund POOLED_USD_BTC (median-governed pairing) so a BTC band is committed.
+        // Register a BTC LP + fund POOLED_USD (median-governed pairing) so a BTC band is committed.
         AUX.setBTCChannels(address(this));
         BTC.registerBtcLp(User02, 2e7);
         deal(address(USDC), User03, 10_000 * USDC_PRECISION);
@@ -2558,7 +2558,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         for (uint i = 0; i < 4; i++) { AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0);
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes); }
         vm.stopPrank();
-        assertGt(CORE.POOLED_USD_BTC(), 0, "BTC band committed (precondition)");
+        assertGt(CORE.POOLED_USD(), 0, "BTC band committed (precondition)");
         // Mint + mature QD, then redeem a chunk.
         deal(address(USDC), User01, 100_000 * USDC_PRECISION);
         vm.startPrank(User01);
@@ -2932,7 +2932,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
             // the boundary of the realistic-depth regime, so STOP the drain here.
             try AUX.getTWAPforAsset(address(WETH), 1800) returns (uint p) { px = p; }
             catch { break; }
-            uint poolUsd6 = CORE.POOLED_USD_ETH();
+            uint poolUsd6 = CORE.POOLED_USD();
             if (px == 0 || poolUsd6 == 0) break;
             // ~10% of in-range USD per step, in ETH at the live price.
             uint ethStep = FullMath.mulDiv(poolUsd6 / 10 * 1e12, 1e18, px);
@@ -2955,7 +2955,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         internal returns (bool exhausted, bool twapAlive) {
         console.log("tranche", t);
         console.log("  ETH absorbed by pool (wei)", absorbed);
-        console.log("  POOLED_USD_ETH (6-dec)", CORE.POOLED_USD_ETH());
+        console.log("  POOLED_USD (6-dec)", CORE.POOLED_USD());
         try AUX.getTWAPforAsset(address(WETH), 1800) returns (uint px) {
             console.log("  TWAP bps of start", p0 == 0 ? 0 : px * 10000 / p0);
         } catch { console.log("  TWAP READ REVERTED (ring past raw-valid range)"); return (exhausted, false); }
@@ -3072,7 +3072,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         }
     }
 
-    /// Stage: heal depegs, fund the basket (QUI vs USDC → POOLED_USD_ETH surplus),
+    /// Stage: heal depegs, fund the basket (QUI vs USDC → POOLED_USD surplus),
     /// wire the WETH anchor feed, and place ONE measured ETH LP.
     function _stageIL(address lp, uint lpEth) internal {
         address[] memory st = AUX.getStables();
@@ -3600,14 +3600,14 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     /// return via the self-custodied close - recipient address(0)), so there
     /// is no on-chain-venue underdelivery bag; (2) the position fully clears
     /// (pooled -> 0) and the USD-leg claim is bounded; (3) one LP's exit never
-    /// over-burns the shared POOLED_BTC (virtual-accounting consistency).
+    /// over-burns the shared POOLED (virtual-accounting consistency).
     function test_RunSim_AllExit_BtcLp() public {
         AUX.setBTCChannels(address(this)); // impersonate BTCChannels -> drive register/unregister
         // §UNIT-A — the retained skew premium reaches a BTC LP through the USD FEE LEG (§E5 →
         // usdR → BtcVaultLib:69), so once the base is reachable "fee dust" is fee + premium.
-        uint premBefore = CORE.skewPremiumCum(true);
+        uint premBefore = CORE.skewPremiumCum();
 
-        // Two BTC LPs; fund POOLED_USD_BTC (median-governed) so SOME of their
+        // Two BTC LPs; fund POOLED_USD (median-governed) so SOME of their
         // sats pair into active virtual liquidity and the rest is retention.
         BTC.registerBtcLp(User01, 2e7); // 0.2 BTC
         BTC.registerBtcLp(User02, 2e7);
@@ -3619,7 +3619,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         }
         vm.stopPrank();
 
-        uint pooledBtc0 = CORE.POOLED_BTC();
+        uint pooledBtc0 = CORE.POOLED();
         (uint p1,,,) = BTC.autoManagedBTC(User01);
         (uint p2,,,) = BTC.autoManagedBTC(User02);
         assertEq(p1, 2e7, "LP1 BTC position credited in full");
@@ -3649,10 +3649,10 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // the premium reach the LP through the fee leg, so the proxy broke while the INVARIANT —
         // no proceeds were minted — still holds. Bound = the premium ACTUALLY CHARGED + the
         // original 1e18 dust allowance, so a real proceeds claim (orders larger) still fails.
-        assertLt(qdGain, (CORE.skewPremiumCum(true) - premBefore) * 1e12 + 1e18,
+        assertLt(qdGain, (CORE.skewPremiumCum() - premBefore) * 1e12 + 1e18,
             "only fee dust + retained premium minted (no proceeds claim when delivered==0)");
-        // Virtual consistency: the shared POOLED_BTC didn't go negative / wrap.
-        assertLe(CORE.POOLED_BTC(), pooledBtc0, "POOLED_BTC only shrank - no over-burn across LPs");
+        // Virtual consistency: the shared POOLED didn't go negative / wrap.
+        assertLe(CORE.POOLED(), pooledBtc0, "POOLED only shrank - no over-burn across LPs");
     }
 
 
@@ -3999,17 +3999,17 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // `if (inRange) _poolUsdInRange(...)` write never fires. **This asserts it instead of
         // trusting that**, because the deciding fact is an ARGUMENT at the call site, not
         // anything visible in the function being read.
-        uint pooledBtc0 = CORE.POOLED_BTC();
-        uint pooledUsdBtc0 = CORE.POOLED_USD_BTC();
+        uint pooledBtc0 = CORE.POOLED();
+        uint pooledUsdBtc0 = CORE.POOLED_USD();
         // ⚠️ THE CONTROL: an equality assertion on two zeros proves nothing. Both balances must
         //    be live before the comparison means anything.
-        assertGt(pooledBtc0, 0, "control: POOLED_BTC is live, so the equality below is not vacuous");
-        assertGt(pooledUsdBtc0, 0, "control: POOLED_USD_BTC is live, so the equality is not vacuous");
+        assertGt(pooledBtc0, 0, "control: POOLED is live, so the equality below is not vacuous");
+        assertGt(pooledUsdBtc0, 0, "control: POOLED_USD is live, so the equality is not vacuous");
         vm.prank(User01); BTC.collectBtcFees();
-        assertEq(CORE.POOLED_BTC(), pooledBtc0,
-            "fee collection must NOT move POOLED_BTC (else the fee-leg mint is unbacked)");
-        assertEq(CORE.POOLED_USD_BTC(), pooledUsdBtc0,
-            "fee collection must NOT move POOLED_USD_BTC (else the fee-leg mint is unbacked)");
+        assertEq(CORE.POOLED(), pooledBtc0,
+            "fee collection must NOT move POOLED (else the fee-leg mint is unbacked)");
+        assertEq(CORE.POOLED_USD(), pooledUsdBtc0,
+            "fee collection must NOT move POOLED_USD (else the fee-leg mint is unbacked)");
         uint claimed = QUID.balanceOf(User01) - qBefore;
         (uint pooledAfter,,,) = BTC.autoManagedBTC(User01);
         assertGt(claimed, 0, "USD-leg fees claimed as QUID without closing");
@@ -4027,7 +4027,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     /// @notice COLLAPSE: swap-out proceeds settle EXACTLY at delivery, never at
     ///         close. A close (`unregisterBtcLp`) is now ALL NATIVE — it mints NO
     ///         proceeds QUI (only USD-leg fees, which are ~0 here). The basket
-    ///         headroom that funded POOLED_USD_BTC stays behind and is NEVER paid
+    ///         headroom that funded POOLED_USD stays behind and is NEVER paid
     ///         to the closing LP, and `pendingSwapOutUsd` (only deliver-time
     ///         settles it) is untouched by a close. There is no shared proceeds
     ///         pool to claim at close and no oracle read.
@@ -4036,7 +4036,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         uint funded = 2e7; // 0.2 BTC funded
         BTC.registerBtcLp(User01, funded);
 
-        // USD->BTC curve buys PRIME POOLED_USD_BTC (a harmless donation in the new
+        // USD->BTC curve buys PRIME POOLED_USD (a harmless donation in the new
         // model — they no longer record any delivery obligation or proceeds).
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
@@ -4047,14 +4047,14 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         }
         vm.stopPrank();
 
-        uint poolUsd = CORE.POOLED_USD_BTC();
-        assertGt(poolUsd, 0, "curve buys primed POOLED_USD_BTC (headroom)");
+        uint poolUsd = CORE.POOLED_USD();
+        assertGt(poolUsd, 0, "curve buys primed POOLED_USD (headroom)");
         assertEq(CORE.pendingSwapOutUsd(), 0, "priming buys record NO swap-out obligation");
 
         // Close the channel. A close is all-native: it pays the LP its BTC payout
         // (finalBalance) plus only its accrued USD-leg trading fees (tiny) — it mints
         // NO swap-out proceeds (those settle at deliver-time, not close). The
-        // invariant is on the LP's QUID, NOT POOLED_USD_BTC (close's _rebalance
+        // invariant is on the LP's QUID, NOT POOLED_USD (close's _rebalance
         // zeroes+rebuilds POOLED, so its delta is unrelated to proceeds).
         uint finalBalance = funded; // no delivery happened -> LP keeps all funding
         uint qBefore = QUID.balanceOf(User01);
@@ -4076,7 +4076,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     ///         LPs that delivered NOTHING (only priming curve buys ran) both close
     ///         ALL-NATIVE: neither mints proceeds. A pool-fraction model would have
     ///         split the primed dollars ~50/50 across them at close — the new model
-    ///         pays neither. The invariant is on each LP's QUID (NOT POOLED_USD_BTC,
+    ///         pays neither. The invariant is on each LP's QUID (NOT POOLED_USD,
     ///         which close's _rebalance zeroes+rebuilds for reasons unrelated to
     ///         proceeds): each mints only its tiny USD-leg fees, ≪ the primed
     ///         headroom an old close-spot model would have leaked.
@@ -4086,7 +4086,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         BTC.registerBtcLp(User01, funded);
         BTC.registerBtcLp(User02, funded);
 
-        // Priming curve buys (donation into POOLED_USD_BTC; no obligation recorded).
+        // Priming curve buys (donation into POOLED_USD; no obligation recorded).
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
@@ -4094,8 +4094,8 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
-        uint poolUsd = CORE.POOLED_USD_BTC();
-        assertGt(poolUsd, 0, "priming funded POOLED_USD_BTC");
+        uint poolUsd = CORE.POOLED_USD();
+        assertGt(poolUsd, 0, "priming funded POOLED_USD");
         assertEq(CORE.pendingSwapOutUsd(), 0, "priming records no swap-out obligation");
 
         // Neither LP delivered, so neither close mints proceeds. (A pool-fraction
@@ -4123,7 +4123,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     ///         half-shrink then a close of the remainder both mint ~no proceeds and
     ///         leave pendingSwapOutUsd untouched — proceeds only ever settle at
     ///         deliverSwapOutOnchain, not here. The invariant is on the LP's QUID
-    ///         (NOT POOLED_USD_BTC, which the splice/close _rebalance rebuilds).
+    ///         (NOT POOLED_USD, which the splice/close _rebalance rebuilds).
     function testBtcLp_ResizeSplicePartialClose() public {
         AUX.setBTCChannels(address(this));
         uint funded = 2e7; // 0.2 BTC
@@ -4135,8 +4135,8 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
-        uint poolUsd = CORE.POOLED_USD_BTC();
-        assertGt(poolUsd, 0, "priming funded POOLED_USD_BTC");
+        uint poolUsd = CORE.POOLED_USD();
+        assertGt(poolUsd, 0, "priming funded POOLED_USD");
         assertEq(CORE.pendingSwapOutUsd(), 0, "priming records no obligation");
         uint feeBound = poolUsd / 100 * 1e12; // ≫ USD-leg fees, ≪ any proceeds leak
 
@@ -4180,8 +4180,8 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
-        uint poolUsd = CORE.POOLED_USD_BTC();
-        assertGt(poolUsd, 0, "priming funded POOLED_USD_BTC");
+        uint poolUsd = CORE.POOLED_USD();
+        assertGt(poolUsd, 0, "priming funded POOLED_USD");
 
         // Mock the WBTC TWAP 3× higher - a close-spot model would pay
         // delivered×3×price. The collapsed model ignores the oracle entirely.
@@ -4199,7 +4199,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         uint principalMinted = QUID.totalSupply() - supBefore; // + USD-leg fees only
         uint paid = QUID.balanceOf(User01) - qBefore;
 
-        // No-over-mint invariant is on minted QUI (NOT POOLED_USD_BTC, which close's
+        // No-over-mint invariant is on minted QUI (NOT POOLED_USD, which close's
         // _rebalance rebuilds): an adversarial finalBalance=0 + 3× oracle mints only
         // tiny USD-leg fees, ≪ the funded×3×price an old close-spot model would mint.
         assertLt(principalMinted, poolUsd / 100 * 1e12, "adversarial close + 3x oracle still mints ~no QUI (no over-mint)");
@@ -4298,7 +4298,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
 
         // COLLAPSE: a close is all-native and mints NO proceeds — proceeds settle
         // only at deliverSwapOutOnchain (covered end-to-end in BtcLpMintStress). The
-        // priming curve buys below just fund POOLED_USD_BTC (a donation; they record
+        // priming curve buys below just fund POOLED_USD (a donation; they record
         // no obligation). The buyer must register a BTC recipient.
         _setRecipient(address(ch), abi.encode(uint(0xBEEF)), User03);
         vm.startPrank(User03);
@@ -4308,7 +4308,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
-        uint poolUsd = CORE.POOLED_USD_BTC();
+        uint poolUsd = CORE.POOLED_USD();
 
         // Cooperative-close tx: spends the funding UTXO (vout 0), pays the LP's
         // full funding to their registered P2TR shutdown key (no delivery happened),
@@ -4330,7 +4330,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
 
         // Close reconciled through the REAL recordClose->unregisterBtcLp path:
         // position retired, all-native, no proceeds minted. The no-proceeds invariant
-        // is on minted QUI (NOT POOLED_USD_BTC, which close's _rebalance rebuilds): a
+        // is on minted QUI (NOT POOLED_USD, which close's _rebalance rebuilds): a
         // close mints only its tiny USD-leg fees, ≪ the primed headroom an old
         // close-spot model would have leaked.
         (uint pooledClose,,,) = BTC.autoManagedBTC(lpEth);
@@ -4634,15 +4634,15 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         (uint pooledPre,,,) = BTC.autoManagedBTC(User01);
         uint fpsBefore  = BTC.feesPerShareBTC();
 
-        // (E145) DOES THE SWAP ITSELF PUT THE FEE SATS INTO POOLED_BTC? This decides whether
+        // (E145) DOES THE SWAP ITSELF PUT THE FEE SATS INTO POOLED? This decides whether
         // compounding the fee into the LP's position needs TWO writes (pooled + shares) or
         // THREE (plus backing). If the sats are already banked here, there is no backing gap
         // and the owed ledger can be deleted without sacrificing sats compounding.
-        uint pooledBtcPre = CORE.POOLED_BTC();
+        uint pooledBtcPre = CORE.POOLED();
         // THE SELL: a swap-in routes BTC->USD through the same V4 path swap-out uses.
         BTC.creditSwapIn(address(0x5E15), 500_000, address(USDC), 0);
-        emit log_named_uint("POOLED_BTC before swap-in", pooledBtcPre);
-        emit log_named_uint("POOLED_BTC after  swap-in", CORE.POOLED_BTC());
+        emit log_named_uint("POOLED before swap-in", pooledBtcPre);
+        emit log_named_uint("POOLED after  swap-in", CORE.POOLED());
         emit log_named_uint("swap-in sats             ", 500_000);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
 

@@ -76,10 +76,10 @@ contract LeveragePnLProbe is Alles {
     ///      keeps no locals — this measurement is what decides #12's ownership question.
     function _snapshotBands(string memory when) internal {
         emit log_string(when);
-        emit log_named_uint("   POOLED_USD_ETH", CORE.POOLED_USD_ETH());
-        emit log_named_uint("   POOLED_ETH    ", CORE.POOLED_ETH());
+        emit log_named_uint("   POOLED_USD", CORE.POOLED_USD());
+        emit log_named_uint("   POOLED    ", CORE.POOLED());
         emit log_named_uint("   vogueETH      ", AUX.vogueETH());
-        emit log_named_uint("   basketUsdEth  ", CORE.basketUsdEth());
+        emit log_named_uint("   basketUsd  ", CORE.basketUsd());
         emit log_named_uint("   lpShares      ", V4.lpShares());
         emit log_named_uint("   totalLevPooled", V4.totalLevPooled());
         emit log_named_uint("   basket TVL    ", _tvl());
@@ -132,7 +132,7 @@ contract LeveragePnLProbe is Alles {
                 emit log_named_uint("round", r);
                 emit log_named_uint("   BOLD in SP (18d)",    spNow);
                 emit log_named_uint("   BOLD % of TVL (bps)", tvl > 0 ? (spNow * 10_000) / tvl : 0);
-                emit log_named_uint("   POOLED_ETH",          CORE.POOLED_ETH());
+                emit log_named_uint("   POOLED",          CORE.POOLED());
             }
         }
         uint spEnd = _spBold();

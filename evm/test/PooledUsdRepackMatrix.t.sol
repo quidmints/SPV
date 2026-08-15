@@ -58,14 +58,14 @@ contract PooledUsdRepackMatrix is Alles {
     }
 
     function _snap() internal view returns (Snap memory s) {
-        s.usdEth = CORE.POOLED_USD_ETH();  s.ethLeg = CORE.POOLED_ETH();
-        s.usdBtc = CORE.POOLED_USD_BTC();  s.btcLeg = CORE.POOLED_BTC();
+        s.usdEth = CORE.POOLED_USD();  s.ethLeg = CORE.POOLED();
+        s.usdBtc = CORE.POOLED_USD();  s.btcLeg = CORE.POOLED();
         s.committed = CORE.committedUsd18();
         s.feesPerShare = V4.feesPerShare(); s.usdFees = V4.USD_FEES();
         s.feesPerShareBtc = BTC.feesPerShareBTC(); s.usdFeesBtc = BTC.USD_FEES_BTC();
         s.lastRepack = V4.LAST_REPACK();
         s.epoch = keccak256(abi.encode(V4.LOWER_TICK(), V4.UPPER_TICK()));
-        (,, s.tick) = CORE.poolTicks(false);
+        (,, s.tick) = CORE.poolTicks();
     }
 
     function _log(string memory tag, Snap memory s) internal {
@@ -136,8 +136,8 @@ contract PooledUsdRepackMatrix is Alles {
     ///      measurement look the same if I were wrong? -- that is what the t0/t1 rows answer.
     function _oracleTrace(string memory tag) internal {
         (uint rTwap, bool rStale) = AUX.resolvedTwap(address(WETH), 1800);
-        (, uint160 sp,) = CORE.poolTicks(false);
-        uint spot = _getPrice(sp, V4.token1isETH());
+        (, uint160 sp,) = CORE.poolTicks();
+        uint spot = _getPrice(sp, V4.token1isVol());
         emit log_string(tag);
         emit log_named_uint("   getTWAPforAsset ", AUX.getTWAPforAsset(address(WETH), 1800));
         emit log_named_uint("   resolvedTwap    ", rTwap);
@@ -254,8 +254,8 @@ contract PooledUsdRepackMatrix is Alles {
         //      (b) twap == 0  : bootstrap / dead feed
         //      (c) manipulated: `dev * 10000 > twap * 300` (BasketLib.isManipulated:368)
         (uint rTwap, bool rStale) = AUX.resolvedTwap(address(WETH), 1800);
-        (, uint160 sp2,) = CORE.poolTicks(false);
-        uint spot2 = _getPrice(sp2, V4.token1isETH());
+        (, uint160 sp2,) = CORE.poolTicks();
+        uint spot2 = _getPrice(sp2, V4.token1isVol());
         emit log_named_uint("(a) resolvedTwap stale?", rStale ? 1 : 0);
         emit log_named_uint("(b) resolvedTwap price ", rTwap);
         emit log_named_uint("    curve spot         ", spot2);
@@ -273,7 +273,7 @@ contract PooledUsdRepackMatrix is Alles {
     // ═══════════════════════════════════════════════════════════════════════════
     // S4 — BOTH bands driven together. `AUX.checkBacking()` runs at the head of every
     // deposit and can repack EITHER band (`BasketLib.backingCoreBody:918` picks by
-    // `POOLED_USD_ETH >= POOLED_USD_BTC`), so this is the case where a per-band
+    // `POOLED_USD >= POOLED_USD`), so this is the case where a per-band
     // baseline is most exposed and where a unified POOLED_USD must not cross-credit.
     // ═══════════════════════════════════════════════════════════════════════════
     function testMatrix_S4_BothBandsDriven_NoCrossCredit() public {
@@ -298,7 +298,7 @@ contract PooledUsdRepackMatrix is Alles {
         // §#12 LANDED — this pin FIRED as designed and is now re-derived. committed tracks the
         // BASKET's contribution, so a swap moves the curve legs WITHOUT moving committed. That
         // separation IS #12; asserting the old equality would re-couple them.
-        assertEq(s1.committed, (CORE.basketUsdEth() + CORE.basketUsdBtc()) * 1e12,
+        assertEq(s1.committed, (CORE.basketUsd() + CORE.basketUsd()) * 1e12,
             "committedUsd18 == (both BASKET depths) x 1e12 -- the #12 split, pinned in its new form");
     }
 
@@ -405,7 +405,7 @@ contract PooledUsdRepackMatrix is Alles {
         uint wethBefore = WETH.balanceOf(User01);
         emit log_named_uint("pre-marginal  USD leg (6d)", a.usdEth);
         emit log_named_int ("pre-marginal  tick       ", a.tick);
-        emit log_named_uint("pre-marginal  POOLED_ETH ", a.ethLeg);
+        emit log_named_uint("pre-marginal  POOLED ", a.ethLeg);
 
         // THE MARGINAL SWAP.
         _sellEth(30 ether);
@@ -424,7 +424,7 @@ contract PooledUsdRepackMatrix is Alles {
         emit log_named_int ("value delta (USD18)      ", int(back) - int(paid));
         emit log_named_uint("post-marginal USD leg (6d)", b.usdEth);
         emit log_named_int ("post-marginal tick       ", b.tick);
-        emit log_named_uint("post-marginal POOLED_ETH ", b.ethLeg);
+        emit log_named_uint("post-marginal POOLED ", b.ethLeg);
         emit log_named_uint("marginal swap: ETH spent ", ethSpent);
         emit log_named_uint("marginal swap: USDC recvd", usdcGot);
         emit log_named_int ("tick moved by            ", b.tick - a.tick);
@@ -440,11 +440,11 @@ contract PooledUsdRepackMatrix is Alles {
     /// @dev One sell, fully instrumented. Returns false if the swap REVERTED — `_sellEth`'s
     ///      try/catch hides that, and "which swap reverted" turned out to matter.
     function _sellEthLogged(uint i, uint size) internal returns (bool ok) {
-        (, uint160 spA, int24 tA) = CORE.poolTicks(false);
-        uint uA = CORE.POOLED_USD_ETH(); uint eA = CORE.POOLED_ETH();
+        (, uint160 spA, int24 tA) = CORE.poolTicks();
+        uint uA = CORE.POOLED_USD(); uint eA = CORE.POOLED();
         vm.prank(User01);
         try AUX.swap{value: size}(address(USDC), address(WETH), false, 0, 0) { ok = true; } catch { ok = false; }
-        (, uint160 spB, int24 tB) = CORE.poolTicks(false);
+        (, uint160 spB, int24 tB) = CORE.poolTicks();
         emit log_named_uint("--- sell #", i);
         emit log_named_uint("    reverted?      ", ok ? 0 : 1);
         emit log_named_int ("    tick  before   ", tA);
@@ -452,9 +452,9 @@ contract PooledUsdRepackMatrix is Alles {
         emit log_named_uint("    sqrtP before   ", uint(spA));
         emit log_named_uint("    sqrtP after    ", uint(spB));
         emit log_named_uint("    USD leg before ", uA);
-        emit log_named_uint("    USD leg after  ", CORE.POOLED_USD_ETH());
+        emit log_named_uint("    USD leg after  ", CORE.POOLED_USD());
         emit log_named_uint("    ETH leg before ", eA);
-        emit log_named_uint("    ETH leg after  ", CORE.POOLED_ETH());
+        emit log_named_uint("    ETH leg after  ", CORE.POOLED());
         emit log_named_int ("    UPPER_TICK     ", V4.UPPER_TICK());
         emit log_named_int ("    LOWER_TICK     ", V4.LOWER_TICK());
         vm.roll(block.number + 1); vm.warp(block.timestamp + warpPerSwap);

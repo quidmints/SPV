@@ -444,7 +444,7 @@ contract LevYbRealProbe is Alles {
         V4.syncLev(LP);
         assertLt(V4.levPooled(LP), lev0, "post-liquidation: levered slice shrank to the liquidated net-equity");
         assertGe(_tvl(), tvl0, "REAL liquidation drained the basket real backing (TVL)");                          // nothing real taken
-        assertGe(AUX.vogueETH(), CORE.POOLED_ETH(), "deliverable ETH must still cover the band (honest LPs whole)"); // POOLED_USD legitimately un-pairs to the free reserve after the band IL event — not a loss
+        assertGe(AUX.vogueETH(), CORE.POOLED(), "deliverable ETH must still cover the band (honest LPs whole)"); // POOLED_USD legitimately un-pairs to the free reserve after the band IL event — not a loss
     }
 
     // EULER SECTION REMOVED 2026-08-13 — Euler v2 BORROWING is gone (owner), so `EulerEscrowVenue`,

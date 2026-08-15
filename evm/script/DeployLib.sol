@@ -109,24 +109,35 @@ library DeployLib {
         address ethVenue;
         address spvGateway;
         address btcChannels;
+        /// §ISBTC-SPLIT — the BTC band's Core instance, and the shared accountant both report to.
+        address btcCore;
+        address bandBacking;
     }
 
     /// @notice Deploy + wire the core QU!D stack in the exact production order.
     function deployQuidStack(StackConfig memory cfg) internal returns (StackAddrs memory a) {
         Vogue v4 = new Vogue();
         // §ISBTC-SPLIT — TWO INSTANCES, ONE ACCOUNTANT.
-        // `Core` is single-asset now, so the stack deploys one per band and a `BandBacking` that
-        // holds the ONE thing they still share: the joint committed equity that
+        // `Core` is single-asset now, so the stack deploys one per band plus a `BandBacking` holding
+        // the ONE thing they still share: the joint committed equity that
         // `require(committedUsd18() <= haircutTvl)` gates on, and the cross-band input
         // `SwapLib._sharedScarcityWad` needs. Neither instance knows the other exists.
-        // ⚠️ SEAL IS NOT OPTIONAL: `BandBacking.total()` REFUSES to answer before `seal()`, because a
-        // partial sum under-reports and would pass a bound it should fail.
-        BandBacking backing = new BandBacking();
-        Core core    = new Core(cfg.poolManager, false, address(backing));   // ETH band
-        Core btcCore = new Core(cfg.poolManager, true,  address(backing));   // BTC band
-        backing.register(address(core));
-        backing.register(address(btcCore));
-        backing.seal();
+        // ⚠️ SEAL IS NOT CEREMONY: `BandBacking.total()` REFUSES before it, because a partial sum
+        // under-reports and would pass a bound it should fail.
+        // ⚠️ SCOPED (`via_ir = false`): `backing` and `btcCore` are dead after registration, and
+        // freeing their slots is what keeps this already stack-tight frame compiling. The addresses
+        // survive on the returned struct, which is memory and costs no stack.
+        Core core;
+        {
+            BandBacking backing = new BandBacking();
+            core          = new Core(cfg.poolManager, false, address(backing));   // ETH band
+            Core btcCore  = new Core(cfg.poolManager, true,  address(backing));   // BTC band
+            backing.register(address(core));
+            backing.register(address(btcCore));
+            backing.seal();
+            a.btcCore = address(btcCore);
+            a.bandBacking = address(backing);
+        }
         Aux aux = new Aux(Aux.AuxInit({
             vogue: address(v4), core: address(core),
             poolManager: address(cfg.poolManager),

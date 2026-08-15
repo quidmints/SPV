@@ -89,8 +89,8 @@ contract DrainAtomicity is Alles {
         // state. Starting flush would put both at zero premium and measure nothing.
         for (uint i = 0; i < 20; ++i) {
             _drain(20_000 * 1e18);
-            if (CORE.POOLED_ETH() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30
-                < CORE.flowEwmaUsd(false)) break;
+            if (CORE.POOLED() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30
+                < CORE.flowEwmaUsd()) break;
         }
     }
 
@@ -229,9 +229,9 @@ contract DrainAtomicity is Alles {
             _settle();
         }
         uint pB     = AUX.getTWAPforAsset(address(WBTC), 1800);
-        uint invBtc = CORE.POOLED_BTC() * pB / 1e30;
-        uint tgtBtc = CORE.flowEwmaUsd(true);
-        uint sigBtc = CORE.realizedVarianceWad(true);
+        uint invBtc = CORE.POOLED() * pB / 1e30;
+        uint tgtBtc = CORE.flowEwmaUsd();
+        uint sigBtc = CORE.realizedVarianceWad();
         btcLive     = AUX.wellSkew(address(WBTC));
         uint raw    = SwapLib.skewWad(invBtc, tgtBtc, sigBtc, true, 0);   // UNAMPLIFIED kernel+base
         emit log_named_uint("BTC inv (usd6)        ", invBtc);
@@ -247,14 +247,14 @@ contract DrainAtomicity is Alles {
         // told apart; the previous run had ETH flush (`wellSkew == 0`) and the identity was unusable.
         for (uint i = 0; i < 20; ++i) {
             _drain(20_000 * 1e18);
-            uint iv = CORE.POOLED_ETH() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
-            if (iv < CORE.flowEwmaUsd(false)) break;
+            uint iv = CORE.POOLED() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
+            if (iv < CORE.flowEwmaUsd()) break;
         }
         {
             uint pE      = AUX.getTWAPforAsset(address(WETH), 1800);
-            uint invEth  = CORE.POOLED_ETH() * pE / 1e30;
-            uint rawEth  = SwapLib.skewWad(invEth, CORE.flowEwmaUsd(false),
-                                           CORE.realizedVarianceWad(false), false, 0);
+            uint invEth  = CORE.POOLED() * pE / 1e30;
+            uint rawEth  = SwapLib.skewWad(invEth, CORE.flowEwmaUsd(),
+                                           CORE.realizedVarianceWad(), false, 0);
             uint liveEth = AUX.wellSkew(address(WETH));
             emit log_named_uint("ETH raw  (unamplified)", rawEth);
             emit log_named_uint("ETH live (amplified)  ", liveEth);
@@ -328,8 +328,8 @@ contract DrainAtomicity is Alles {
         for (uint i = 0; i < 6; ++i) _drain(20_000 * 1e18);   // give flow a history
         vm.warp(block.timestamp + 1 days);                    // let it decay so a bump is visible
 
-        uint invBefore  = CORE.POOLED_ETH();
-        uint flowBefore = CORE.flowEwmaUsd(false);
+        uint invBefore  = CORE.POOLED();
+        uint flowBefore = CORE.flowEwmaUsd();
         uint shares     = V4.balanceOf(lpA);
         emit log_named_uint("LP shares held           ", shares);
 
@@ -338,10 +338,10 @@ contract DrainAtomicity is Alles {
         V4.withdraw(20 ether, lpA, lpA);   // §E102: no try/catch -- a revert must announce itself
         vm.roll(block.number + 1);
 
-        uint invAfter  = CORE.POOLED_ETH();
-        uint flowAfter = CORE.flowEwmaUsd(false);
-        emit log_named_uint("POOLED_ETH before        ", invBefore);
-        emit log_named_uint("POOLED_ETH after         ", invAfter);
+        uint invAfter  = CORE.POOLED();
+        uint flowAfter = CORE.flowEwmaUsd();
+        emit log_named_uint("POOLED before        ", invBefore);
+        emit log_named_uint("POOLED after         ", invAfter);
         emit log_named_uint("flow before              ", flowBefore);
         emit log_named_uint("flow after               ", flowAfter);
 
@@ -356,14 +356,14 @@ contract DrainAtomicity is Alles {
             emit log("DIRECT READ: a flow.ts DID move -- the min() inference was masking it. E100/E101 WRONG.");
         }
         if (invAfter == invBefore) {
-            emit log("VOID: the burn did not move POOLED_ETH -- nothing to conclude.");
+            emit log("VOID: the burn did not move POOLED -- nothing to conclude.");
         } else if (invAfter < invBefore && flowAfter <= flowBefore) {
             emit log("HOLE CONFIRMED: a burn REDUCES inventory and does NOT bump flow -- E101's");
             emit log("residual gap is real, and add-then-burn can break the continuity inference.");
         } else if (invAfter < invBefore) {
             emit log("BURN BUMPS FLOW: inventory fell AND flow rose -- then E101 has NO residual hole.");
         } else {
-            emit log("UNEXPECTED: the burn INCREASED POOLED_ETH -- re-read before concluding.");
+            emit log("UNEXPECTED: the burn INCREASED POOLED -- re-read before concluding.");
         }
     }
 
@@ -373,11 +373,11 @@ contract DrainAtomicity is Alles {
         _settle();
         for (uint i = 0; i < 6; ++i) _drain(20_000 * 1e18);   // give flow a non-zero history
 
-        uint invBefore   = CORE.POOLED_ETH();
+        uint invBefore   = CORE.POOLED();
         uint repackBefore = V4.LAST_REPACK();
-        uint flowBefore  = CORE.flowEwmaUsd(false);
+        uint flowBefore  = CORE.flowEwmaUsd();
         vm.warp(block.timestamp + 3 days);                    // let the clock move, no trading
-        uint flowMid = CORE.flowEwmaUsd(false);               // decayed, proving time passed
+        uint flowMid = CORE.flowEwmaUsd();               // decayed, proving time passed
 
         // §E102: read `flow.ts` DIRECTLY, not through `flowEwmaUsd`'s `min(fast, slow)`. The proxy
         // is only valid when the FAST leg binds, and this row's original conclusion rested on it.
@@ -386,12 +386,12 @@ contract DrainAtomicity is Alles {
         vm.prank(lpA); V4.deposit{value: 50 ether}(0, lpA);
         vm.roll(block.number + 1);
 
-        uint invAfter    = CORE.POOLED_ETH();
+        uint invAfter    = CORE.POOLED();
         uint repackAfter = V4.LAST_REPACK();
-        emit log_named_uint("POOLED_ETH before / after", invBefore);
+        emit log_named_uint("POOLED before / after", invBefore);
         emit log_named_uint("                         ", invAfter);
         emit log_named_uint("flow (decayed, pre-add)  ", flowMid);
-        emit log_named_uint("flow (post-add)          ", CORE.flowEwmaUsd(false));
+        emit log_named_uint("flow (post-add)          ", CORE.flowEwmaUsd());
         emit log_named_uint("LAST_REPACK before       ", repackBefore);
         emit log_named_uint("LAST_REPACK after        ", repackAfter);
 
@@ -400,7 +400,7 @@ contract DrainAtomicity is Alles {
         emit log_named_uint("                         ", tsFast1);
         emit log_named_uint("flow.ts SLOW before/after", tsSlow0);
         emit log_named_uint("                         ", tsSlow1);
-        assertGt(invAfter, invBefore, "PREMISE: the LP add must actually move POOLED_ETH");
+        assertGt(invAfter, invBefore, "PREMISE: the LP add must actually move POOLED");
         if (tsFast1 == tsFast0 && tsSlow1 == tsSlow0) {
             emit log("DIRECT READ: neither flow.ts moved on the LP ADD -- E100 CONFIRMED, not inferred.");
         } else {
@@ -411,7 +411,7 @@ contract DrainAtomicity is Alles {
         } else {
             emit log("LAST_REPACK did NOT bump -- the fix does NOT cover LP adds. HOLE STILL OPEN.");
         }
-        if (CORE.flowEwmaUsd(false) > flowMid) {
+        if (CORE.flowEwmaUsd() > flowMid) {
             emit log("flow ALSO moved on the LP add -- then the hole never existed and the fix is dead code.");
         } else {
             emit log("flow did NOT move on the LP add -- the hole was REAL, as claimed.");
@@ -424,19 +424,19 @@ contract DrainAtomicity is Alles {
         _settle();
         for (uint i = 0; i < 20; ++i) {
             _drain(20_000 * 1e18);
-            if (CORE.POOLED_ETH() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30
-                < CORE.flowEwmaUsd(false)) break;
+            if (CORE.POOLED() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30
+                < CORE.flowEwmaUsd()) break;
         }
-        uint invFresh  = CORE.POOLED_ETH() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
+        uint invFresh  = CORE.POOLED() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
         uint skewFresh = AUX.wellSkew(address(WETH));
-        uint flowFresh = CORE.flowEwmaUsd(false);
+        uint flowFresh = CORE.flowEwmaUsd();
 
         // 30 DAYS pass. No swap, no LP action -- inventory is UNCHANGED by construction.
         vm.warp(block.timestamp + 30 days);
         vm.roll(block.number + 1);
-        uint invAged  = CORE.POOLED_ETH() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
+        uint invAged  = CORE.POOLED() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
         uint skewAged = AUX.wellSkew(address(WETH));
-        uint flowAged = CORE.flowEwmaUsd(false);
+        uint flowAged = CORE.flowEwmaUsd();
 
         emit log_named_uint("inv  fresh / aged (usd6)", invFresh);
         emit log_named_uint("                        ", invAged);
@@ -519,9 +519,9 @@ contract DrainAtomicity is Alles {
 
         // Many TINY drains: enough to build a flow EWMA, each too small to be expected to move a tick.
         for (uint i = 0; i < 25; ++i) _drain(50 * 1e18);
-        uint flow = CORE.flowEwmaUsd(false);
-        uint sig  = CORE.realizedVarianceWad(false);
-        uint inv  = CORE.POOLED_ETH() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
+        uint flow = CORE.flowEwmaUsd();
+        uint sig  = CORE.realizedVarianceWad();
+        uint inv  = CORE.POOLED() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
         emit log_named_uint("flow EWMA (target)  ", flow);
         emit log_named_uint("realizedVariance    ", sig);
         emit log_named_uint("inv (usd6)          ", inv);
@@ -552,13 +552,13 @@ contract DrainAtomicity is Alles {
         // FRESH band: `OracleLib.initPool` sets `cardinality = 1`, so the ring is UNPOPULATED by the
         // `>= 2` test. Variance here must read 0 = "we have not measured", and the skew must charge
         // the conservative ceiling — that is E59's intent and it must survive E88-r.
-        uint vFresh = CORE.realizedVarianceWad(false);
+        uint vFresh = CORE.realizedVarianceWad();
         emit log_named_uint("variance, FRESH ring (expect 0 = unmeasured)", vFresh);
         emit log_named_uint("wellSkew, FRESH ring                        ", AUX.wellSkew(address(WETH)));
 
         // Now trade so the ring populates and real price movement enters it.
         for (uint i = 0; i < 8; ++i) _drain(20_000 * 1e18);
-        uint vTraded = CORE.realizedVarianceWad(false);
+        uint vTraded = CORE.realizedVarianceWad();
         emit log_named_uint("variance, TRADED ring                       ", vTraded);
         emit log_named_uint("wellSkew, TRADED ring                       ", AUX.wellSkew(address(WETH)));
 
@@ -603,20 +603,20 @@ contract DrainAtomicity is Alles {
         _settle();
 
         // (2) E59: a FRESH band has unmeasured variance. Does it charge the ceiling?
-        emit log_named_uint("E59: realizedVariance, fresh", CORE.realizedVarianceWad(false));
+        emit log_named_uint("E59: realizedVariance, fresh", CORE.realizedVarianceWad());
         emit log_named_uint("E59: wellSkew, fresh        ", AUX.wellSkew(address(WETH)));
         emit log_named_uint("E59: MAX_WELL_SKEW (claimed)", 3e16);
 
         for (uint i = 0; i < 6; ++i) _drain(20_000 * 1e18);
-        uint invBefore = CORE.POOLED_ETH();
+        uint invBefore = CORE.POOLED();
         uint64 tsF0 = _flowTs(false); uint64 tsS0 = _flowTs(true);
 
         // (1) RESEAT -- permissionless, no swap.
         V4.reseat();
         vm.roll(block.number + 1);
-        uint invAfter = CORE.POOLED_ETH();
-        emit log_named_uint("RESEAT: POOLED_ETH before   ", invBefore);
-        emit log_named_uint("RESEAT: POOLED_ETH after    ", invAfter);
+        uint invAfter = CORE.POOLED();
+        emit log_named_uint("RESEAT: POOLED before   ", invBefore);
+        emit log_named_uint("RESEAT: POOLED after    ", invAfter);
         emit log_named_uint("RESEAT: flow.ts fast b/a    ", tsF0);
         emit log_named_uint("                            ", _flowTs(false));
         if (invAfter < invBefore && _flowTs(false) == tsF0 && _flowTs(true) == tsS0) {
@@ -641,7 +641,7 @@ contract DrainAtomicity is Alles {
     /// (`Alles.t.sol:2952`, "LP USD exit vs HODL") rather than building a new harness.
     ///
     /// MECHANISM: there is no `refillETH` — it was built and removed as toxic (E106). The clean form
-    /// already exists: **an LP DEPOSIT of the scarce side raises `POOLED_ETH`** (measured in E100:
+    /// already exists: **an LP DEPOSIT of the scarce side raises `POOLED`** (measured in E100:
     /// 137.49e18 -> 187.49e18). It spends no shared surplus and is funded by the party that benefits.
     ///
     /// MEASUREMENT: **VALUE PER SHARE** (`convertToAssets(1e18)`), never protocol totals — a deposit
@@ -655,7 +655,7 @@ contract DrainAtomicity is Alles {
     /// IN THE RANGE, which predicts that a RESEAT — which moves the RANGE around the price, with NO
     /// deposit and NO swap — CHANGES THE RATIO. If the ratio does NOT move, the mechanism is wrong
     /// and the 0.758 "identity" needs another explanation.
-    /// ⚠️ E104 measured that `reseat()` does NOT move `POOLED_ETH`. That is CONSISTENT with the
+    /// ⚠️ E104 measured that `reseat()` does NOT move `POOLED`. That is CONSISTENT with the
     /// mechanism (the range moves, the inventory does not) but it means any ratio shift here is a
     /// change in the REFERENCE, not in assets held — which is a bookkeeping move, NOT a repair.
     /// §E115 — VALIDATES E93's INSTRUMENT: does NORMALIZED TICK POSITION track the composition
@@ -666,7 +666,7 @@ contract DrainAtomicity is Alles {
     /// across a frame move is not comparable -- that is the discriminator a naive TWAP would lack.
     /// §E116 — THE TIME-WEIGHTED FORM, the last open piece of E93. E115 validated the SPOT
     /// normalized position; the design needs the TWAP so that PERSISTENCE is measured rather than an
-    /// instant (E99: an idle imbalance must not read as free). `Core.observe(secondsAgos, isBTC)`
+    /// instant (E99: an idle imbalance must not read as free). `Core.observe(secondsAgos)`
     /// returns `tickCumulative`, so a time-averaged tick over a window is
     /// `(cum[0] - cum[1]) / window` — no new state, no new accumulator.
     /// The point of the test: a SPOT reading and a TWAP must DIVERGE after a fresh move, and the
@@ -684,7 +684,7 @@ contract DrainAtomicity is Alles {
         _seedBasket();
         vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
         _settle();
-        (, int24 t0,) = CORE.poolStats(V4.LOWER_TICK(), V4.UPPER_TICK(), false);
+        (, int24 t0,) = CORE.poolStats(V4.LOWER_TICK(), V4.UPPER_TICK());
         int24 origLo = V4.LOWER_TICK(); int24 origHi = V4.UPPER_TICK();
         emit log_named_int ("band width (ticks)      ", origHi - origLo);
         emit log_named_int ("start tick              ", t0);
@@ -696,7 +696,7 @@ contract DrainAtomicity is Alles {
             WETH.approve(address(AUX), 30 ether);
             try AUX.swap(bold, address(WETH), false, 30 ether, 0) {} catch { vm.stopPrank(); break; }
             vm.stopPrank(); _settle();
-            (, int24 t,) = CORE.poolStats(V4.LOWER_TICK(), V4.UPPER_TICK(), false);
+            (, int24 t,) = CORE.poolStats(V4.LOWER_TICK(), V4.UPPER_TICK());
             if (t < minT) minT = t; if (t > maxT) maxT = t;
         }
         emit log_named_int ("tick range visited      ", maxT - minT);
@@ -732,7 +732,7 @@ contract DrainAtomicity is Alles {
         // §TICK-REMOVAL — the ring yields a PRICE TWAP now, so the reading is in price space. The
         // frame (LOWER/UPPER_TICK) is still v4's and still ticks, so the FRAME-MOVED signal below —
         // which is what this diagnostic exists to surface — is unchanged.
-        uint192[] memory c0 = CORE.observe(ago, false);
+        uint192[] memory c0 = CORE.observe(ago);
         uint twap0 = uint(c0[0] - c0[1]) / 3600;
         emit log_named_int("BEFORE: lower tick     ", V4.LOWER_TICK());
         emit log_named_uint("BEFORE: 1h TWAP price  ", twap0);
@@ -748,7 +748,7 @@ contract DrainAtomicity is Alles {
 
         bytes32 ep1 = keccak256(abi.encode(V4.LOWER_TICK(), V4.UPPER_TICK()));
         int24 lo1 = V4.LOWER_TICK(); int24 hi1 = V4.UPPER_TICK();
-        uint192[] memory c1 = CORE.observe(ago, false);
+        uint192[] memory c1 = CORE.observe(ago);
         uint twap1 = uint(c1[0] - c1[1]) / 3600;
         emit log_named_int("AFTER : lower tick     ", V4.LOWER_TICK());
         emit log_named_uint("AFTER : 1h TWAP price  ", twap1);
@@ -773,16 +773,16 @@ contract DrainAtomicity is Alles {
         ago[0] = 0; ago[1] = 3600;                            // 1-hour window
         // §TICK-REMOVAL — price space. The property under test is unchanged: a time-weighted mean
         // must LAG a fresh move, or the ring is not accumulating and persistence is unmeasurable.
-        uint192[] memory c0 = CORE.observe(ago, false);
-        (, int24 spot0,) = CORE.poolStats(V4.LOWER_TICK(), V4.UPPER_TICK(), false);
+        uint192[] memory c0 = CORE.observe(ago);
+        (, int24 spot0,) = CORE.poolStats(V4.LOWER_TICK(), V4.UPPER_TICK());
         uint twap0 = uint(c0[0] - c0[1]) / 3600;
         emit log_named_int("BEFORE move: spot tick ", spot0);
         emit log_named_uint("BEFORE move: 1h TWAP px", twap0);
 
         for (uint d = 0; d < 6; ++d) _drain(60_000 * 1e18);   // a FRESH, larger move
 
-        uint192[] memory c1 = CORE.observe(ago, false);
-        (, int24 spot1,) = CORE.poolStats(V4.LOWER_TICK(), V4.UPPER_TICK(), false);
+        uint192[] memory c1 = CORE.observe(ago);
+        (, int24 spot1,) = CORE.poolStats(V4.LOWER_TICK(), V4.UPPER_TICK());
         uint twap1 = uint(c1[0] - c1[1]) / 3600;
         emit log_named_int("AFTER  move: spot tick ", spot1);
         emit log_named_uint("AFTER  move: 1h TWAP px", twap1);
@@ -802,11 +802,11 @@ contract DrainAtomicity is Alles {
         _settle();
         for (uint round = 0; round < 5; ++round) {
             for (uint d = 0; d < 4; ++d) _drain(20_000 * 1e18);
-            (, int24 ct, uint128 liq) = CORE.poolStats(V4.LOWER_TICK(), V4.UPPER_TICK(), false);
+            (, int24 ct, uint128 liq) = CORE.poolStats(V4.LOWER_TICK(), V4.UPPER_TICK());
             int24 lo = V4.LOWER_TICK(); int24 hi = V4.UPPER_TICK();
             uint px = AUX.getTWAPforAsset(address(WETH), 1800);
-            uint volLeg = CORE.POOLED_ETH() * px / 1e30;
-            uint usdLeg = CORE.POOLED_USD_ETH();
+            uint volLeg = CORE.POOLED() * px / 1e30;
+            uint usdLeg = CORE.POOLED_USD();
             uint norm = hi > lo && ct >= lo ? uint(int(ct - lo)) * 1e4 / uint(int(hi - lo)) : 0;
             emit log_named_uint("normalized tick (1e-4)  ", norm);
             emit log_named_uint("  vol:USD ratio (1e-4)  ", usdLeg == 0 ? 0 : volLeg * 1e4 / usdLeg);
@@ -850,7 +850,7 @@ contract DrainAtomicity is Alles {
         // the 0.758 asymptote, the 72:1 here, the whole E93 target discussion -- measures the ledger
         // rather than the band, which is the same class of error as `max`-vs-delivery.
         {
-            (uint160 sp, int24 ct, uint128 liq) = CORE.poolStats(V4.LOWER_TICK(), V4.UPPER_TICK(), false);
+            (uint160 sp, int24 ct, uint128 liq) = CORE.poolStats(V4.LOWER_TICK(), V4.UPPER_TICK());
             emit log_named_int ("currentTick               ", ct);
             emit log_named_uint("position liquidity        ", liq);
             (uint a0, uint a1) = LiquidityAmounts.getAmountsForLiquidity(
@@ -858,17 +858,17 @@ contract DrainAtomicity is Alles {
                     TickMath.getSqrtPriceAtTick(V4.UPPER_TICK()), liq);
             emit log_named_uint("v4 position amount0       ", a0);
             emit log_named_uint("v4 position amount1       ", a1);
-            emit log_named_uint("Core POOLED_ETH           ", CORE.POOLED_ETH());
-            emit log_named_uint("Core POOLED_USD_ETH       ", CORE.POOLED_USD_ETH());
+            emit log_named_uint("Core POOLED           ", CORE.POOLED());
+            emit log_named_uint("Core POOLED_USD       ", CORE.POOLED_USD());
             emit log("^ if the v4 amounts and Core's POOLED_* disagree, POOLED_* is a LEDGER, not the band.");
         }
 
         uint px0   = AUX.getTWAPforAsset(address(WETH), 1800);
-        uint vol0  = CORE.POOLED_ETH() * px0 / 1e30;
-        uint usd0  = CORE.POOLED_USD_ETH();
-        uint eth0  = CORE.POOLED_ETH();
+        uint vol0  = CORE.POOLED() * px0 / 1e30;
+        uint usd0  = CORE.POOLED_USD();
+        uint eth0  = CORE.POOLED();
         emit log_named_uint("BEFORE reseat: vol:USD (1e-4)", usd0 == 0 ? 0 : vol0 * 1e4 / usd0);
-        emit log_named_uint("BEFORE reseat: POOLED_ETH   ", eth0);
+        emit log_named_uint("BEFORE reseat: POOLED   ", eth0);
 
         // §E110 — THE CONTROL E109 LACKED: did the reseat ACTUALLY RE-RANGE? If `LOWER_TICK`/
         // `UPPER_TICK`/`reseatEpoch` are unchanged, the reseat was a NO-OP and E109 tested NOTHING —
@@ -889,16 +889,16 @@ contract DrainAtomicity is Alles {
         }
 
         uint px1  = AUX.getTWAPforAsset(address(WETH), 1800);
-        uint vol1 = CORE.POOLED_ETH() * px1 / 1e30;
-        uint usd1 = CORE.POOLED_USD_ETH();
-        uint eth1 = CORE.POOLED_ETH();
+        uint vol1 = CORE.POOLED() * px1 / 1e30;
+        uint usd1 = CORE.POOLED_USD();
+        uint eth1 = CORE.POOLED();
         emit log_named_uint("AFTER  reseat: vol:USD (1e-4)", usd1 == 0 ? 0 : vol1 * 1e4 / usd1);
-        emit log_named_uint("AFTER  reseat: POOLED_ETH   ", eth1);
+        emit log_named_uint("AFTER  reseat: POOLED   ", eth1);
 
         if (usd0 == 0 || usd1 == 0) { emit log("VOID: a USD leg is zero."); return; }
         uint r0 = vol0 * 1e4 / usd0; uint r1 = vol1 * 1e4 / usd1;
         if (r1 != r0 && eth1 == eth0) {
-            emit log("PREDICTION HOLDS: the ratio moved with NO change in POOLED_ETH -- the reference");
+            emit log("PREDICTION HOLDS: the ratio moved with NO change in POOLED -- the reference");
             emit log("moved, not the assets. Composition IS a function of price-in-range. NOT a repair.");
         } else if (r1 == r0) {
             emit log("PREDICTION FAILS: reseat did not move the ratio. My mechanism is WRONG and the");
@@ -937,8 +937,8 @@ contract DrainAtomicity is Alles {
             // amount and reaching volatile==USD. The optimum must be stated against a named target.
             {
                 uint px = AUX.getTWAPforAsset(address(WETH), 1800);
-                uint volLeg = CORE.POOLED_ETH() * px / 1e30;
-                uint usdLeg = CORE.POOLED_USD_ETH();
+                uint volLeg = CORE.POOLED() * px / 1e30;
+                uint usdLeg = CORE.POOLED_USD();
                 emit log_named_uint("    vol:USD ratio (1e-4)", usdLeg == 0 ? 0 : volLeg * 1e4 / usdLeg);
             }
             emit log_named_uint("--- repair size (wei)   ", sizes[i]);
@@ -959,9 +959,9 @@ contract DrainAtomicity is Alles {
         _settle();
         for (uint i = 0; i < 12; ++i) _drain(20_000 * 1e18);   // drive the imbalance
 
-        uint invDrained = CORE.POOLED_ETH();
+        uint invDrained = CORE.POOLED();
         uint perShare0  = V4.convertToAssets(1e18);
-        emit log_named_uint("after drain: POOLED_ETH  ", invDrained);
+        emit log_named_uint("after drain: POOLED  ", invDrained);
         emit log_named_uint("after drain: value/share ", perShare0);
 
         uint snap = vm.snapshotState();
@@ -969,17 +969,17 @@ contract DrainAtomicity is Alles {
         // LEG A -- NO REPAIR. Same subsequent flow.
         for (uint i = 0; i < 6; ++i) _drain(5_000 * 1e18);
         uint perShareA = V4.convertToAssets(1e18);
-        uint invA = CORE.POOLED_ETH();
+        uint invA = CORE.POOLED();
         vm.revertToState(snap);
 
         // LEG B -- LP REPAIRS by depositing the scarce side, then the SAME subsequent flow.
         vm.prank(lpA); V4.deposit{value: 40 ether}(0, lpA);
         vm.roll(block.number + 1);
-        uint invRepaired = CORE.POOLED_ETH();
+        uint invRepaired = CORE.POOLED();
         for (uint i = 0; i < 6; ++i) _drain(5_000 * 1e18);
         uint perShareB = V4.convertToAssets(1e18);
 
-        emit log_named_uint("REPAIR moved POOLED_ETH to", invRepaired);
+        emit log_named_uint("REPAIR moved POOLED to", invRepaired);
         emit log_named_uint("leg A (no repair) inv     ", invA);
         emit log_named_uint("value/share  NO REPAIR    ", perShareA);
         emit log_named_uint("value/share  REPAIRED     ", perShareB);
@@ -1111,7 +1111,7 @@ contract DrainAtomicity is Alles {
             vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
             _settle();
             for (uint i = 0; i < rounds[r]; ++i) _drain(20_000 * 1e18);
-            uint inv = CORE.POOLED_ETH() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
+            uint inv = CORE.POOLED() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
             uint got = _drain(SMALL);
             if (r == 0) { refEth = got; refInv = inv; }
             // §E93-b GATE: does the TICK (hence price) track COMPOSITION? If the band is
@@ -1140,13 +1140,13 @@ contract DrainAtomicity is Alles {
         _seedBasket();
         vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
         _settle();
-        uint invBal = CORE.POOLED_ETH() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
+        uint invBal = CORE.POOLED() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
         uint ethBalanced = _drain(SMALL);
         vm.revertToState(snap);
 
         // LEG B — the SAME small swap into a band someone ELSE has already drained.
         _setupBand();
-        uint invSkewed = CORE.POOLED_ETH() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
+        uint invSkewed = CORE.POOLED() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
         uint ethSkewed = _drain(SMALL);
 
         emit log_named_uint("inv BALANCED (usd6)  ", invBal);
@@ -1179,7 +1179,7 @@ contract DrainAtomicity is Alles {
         // receipt, and that ambiguity is exactly what retracted the previous "the discount is gone".
         // Post-§UNIT-A the base is reachable, so this asserts skew was ACTUALLY charged before the
         // gap is allowed to mean anything.
-        uint premStart = CORE.skewPremiumETH();
+        uint premStart = CORE.skewPremium();
 
         // §E71-r3 — MEASURES THE TRADER'S RECEIPT, NOT OUR BOOKKEEPING. The prior version compared
         // `skewPremiumCum`, i.e. the protocol's own record of what it retained. That is the trap that
@@ -1191,21 +1191,21 @@ contract DrainAtomicity is Alles {
         // this function stack-too-deep.
         uint snap = vm.snapshotState();
         _setupBand();
-        uint invA = CORE.POOLED_ETH() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
-        emit log_named_uint("flow target t0 (BIG)  ", CORE.flowEwmaUsd(false));
+        uint invA = CORE.POOLED() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
+        emit log_named_uint("flow target t0 (BIG)  ", CORE.flowEwmaUsd());
         uint ethA = _drain(TOTAL);
-        emit log_named_uint("flow target t1 (BIG)  ", CORE.flowEwmaUsd(false));
-        uint premA = CORE.skewPremiumETH() - premStart;   // ledger, BIG leg (pre-revert)
+        emit log_named_uint("flow target t1 (BIG)  ", CORE.flowEwmaUsd());
+        uint premA = CORE.skewPremium() - premStart;   // ledger, BIG leg (pre-revert)
         vm.revertToState(snap);
 
         _setupBand();
-        uint invB = CORE.POOLED_ETH() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
+        uint invB = CORE.POOLED() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
         uint ethB;
         for (uint i = 0; i < N; ++i) {
-            emit log_named_uint("flow target (SPLIT i) ", CORE.flowEwmaUsd(false));
+            emit log_named_uint("flow target (SPLIT i) ", CORE.flowEwmaUsd());
             ethB += _drain(TOTAL / N);
         }
-        uint premB = CORE.skewPremiumETH() - premStart;   // ledger, SPLIT leg
+        uint premB = CORE.skewPremium() - premStart;   // ledger, SPLIT leg
 
         emit log_named_uint("start inv A (usd6)    ", invA);
         emit log_named_uint("start inv B (usd6)    ", invB);
@@ -1266,29 +1266,29 @@ contract DrainAtomicity is Alles {
 
         // ARM A — decayed target (LOWER q ⇒ LESS skew ⇒ MORE volatile received)
         vm.warp(block.timestamp + 2 days); vm.roll(block.number + 1);
-        emit log_named_uint("A target      ", CORE.flowEwmaUsd(false));
-        emit log_named_uint("A POOLED_ETH  ", CORE.POOLED_ETH());
-        emit log_named_uint("A POOLED_USD  ", CORE.POOLED_USD_ETH());
-        uint pooledEthA = CORE.POOLED_ETH(); uint pooledUsdA = CORE.POOLED_USD_ETH();
-        uint premA = CORE.skewPremiumETH();
+        emit log_named_uint("A target      ", CORE.flowEwmaUsd());
+        emit log_named_uint("A POOLED  ", CORE.POOLED());
+        emit log_named_uint("A POOLED_USD  ", CORE.POOLED_USD());
+        uint pooledEthA = CORE.POOLED(); uint pooledUsdA = CORE.POOLED_USD();
+        uint premA = CORE.skewPremium();
         uint ethA = _drain(SIZE);
-        premA = CORE.skewPremiumETH() - premA;
+        premA = CORE.skewPremium() - premA;
 
         vm.revertToState(snap);
 
         // ARM B — undecayed target (HIGHER q ⇒ MORE skew ⇒ LESS volatile received)
-        emit log_named_uint("B target      ", CORE.flowEwmaUsd(false));
-        emit log_named_uint("B POOLED_ETH  ", CORE.POOLED_ETH());
-        emit log_named_uint("B POOLED_USD  ", CORE.POOLED_USD_ETH());
+        emit log_named_uint("B target      ", CORE.flowEwmaUsd());
+        emit log_named_uint("B POOLED  ", CORE.POOLED());
+        emit log_named_uint("B POOLED_USD  ", CORE.POOLED_USD());
         // CONTROL, and it must be taken PRE-DRAIN in BOTH arms: identical depth is what makes the
         // cushion and curve impact cancel. Comparing a pre-drain figure to a post-drain one is the
         // mistake that made this assertion fire the first time.
-        assertEq(CORE.POOLED_ETH(), pooledEthA, "CONTROL: identical volatile depth across arms, "
+        assertEq(CORE.POOLED(), pooledEthA, "CONTROL: identical volatile depth across arms, "
             "else the band cushion does not cancel and this measures the wrong thing");
-        assertEq(CORE.POOLED_USD_ETH(), pooledUsdA, "CONTROL: identical USD depth across arms");
-        uint premB = CORE.skewPremiumETH();
+        assertEq(CORE.POOLED_USD(), pooledUsdA, "CONTROL: identical USD depth across arms");
+        uint premB = CORE.skewPremium();
         uint ethB = _drain(SIZE);
-        premB = CORE.skewPremiumETH() - premB;
+        premB = CORE.skewPremium() - premB;
 
         emit log_named_uint("A eth received", ethA);
         emit log_named_uint("B eth received", ethB);
@@ -1301,7 +1301,7 @@ contract DrainAtomicity is Alles {
         emit log_named_uint("ETH received (B)", ethB);
         emit log_named_uint("TOTAL cost usd18", (SIZE * 1e18 / px - ethB) * px / 1e18);
         emit log_named_uint("skew  cost usd18", premB * 1e12);
-        emit log_named_uint("sigma^2 (wad)   ", CORE.realizedVarianceWad(false));
+        emit log_named_uint("sigma^2 (wad)   ", CORE.realizedVarianceWad());
         emit log_named_uint("dReceipt (usd18)", ethA > ethB
             ? (ethA - ethB) * px / 1e18 : 0);
         emit log_named_uint("dCounter (usd18)", premB > premA ? (premB - premA) * 1e12 : 0);
@@ -1353,13 +1353,13 @@ contract DrainAtomicity is Alles {
     /// moved the ring at all — the plausible-band assertion goes in once the level is known.
     function test_UNITA_FixtureDrivesRealVariance() public {
         _setupBand();
-        emit log_named_uint("sigma^2 BEFORE (wad)", CORE.realizedVarianceWad(false));
+        emit log_named_uint("sigma^2 BEFORE (wad)", CORE.realizedVarianceWad());
         _driveTick(20);
-        uint s2 = CORE.realizedVarianceWad(false);
+        uint s2 = CORE.realizedVarianceWad();
         emit log_named_uint("sigma^2 AFTER  (wad)", s2);
         // annualized vol = sqrt(sigma^2); report in bps so the level is readable at a glance.
         emit log_named_uint("annualized vol (bps)", Math.sqrt(s2 * 1e18) / 1e14);
-        assertGt(s2, CORE.realizedVarianceWad(true) * 0 + 1, "the tick driver must move the ring");
+        assertGt(s2, CORE.realizedVarianceWad() * 0 + 1, "the tick driver must move the ring");
     }
 
     /// §UNIT-B-E71-NOT-AN-INSTRUMENT — PIN THE ENTRY STATE so a target-mechanism change is
@@ -1393,21 +1393,21 @@ contract DrainAtomicity is Alles {
         uint snap = vm.snapshotState();
         _setupBand();
         _pinFlow(PINNED);
-        assertEq(CORE.flowEwmaUsd(false), PINNED,
+        assertEq(CORE.flowEwmaUsd(), PINNED,
             "CONTROL: the entry target must be exactly what was pinned -- if this fails the slots "
             "moved and every number below is unattributable (this is the defect it exists to catch)");
-        uint premBig = CORE.skewPremiumETH();
+        uint premBig = CORE.skewPremium();
         uint ethBig = _drain(TOTAL);
-        premBig = CORE.skewPremiumETH() - premBig;
+        premBig = CORE.skewPremium() - premBig;
 
         vm.revertToState(snap);
         _setupBand();
         _pinFlow(PINNED);
-        assertEq(CORE.flowEwmaUsd(false), PINNED, "CONTROL: identical pinned entry in BOTH arms");
-        uint premSplit = CORE.skewPremiumETH();
+        assertEq(CORE.flowEwmaUsd(), PINNED, "CONTROL: identical pinned entry in BOTH arms");
+        uint premSplit = CORE.skewPremium();
         uint ethSplit;
         for (uint i = 0; i < N; ++i) ethSplit += _drain(TOTAL / N);
-        premSplit = CORE.skewPremiumETH() - premSplit;
+        premSplit = CORE.skewPremium() - premSplit;
 
         emit log_named_uint("pinned entry target ", PINNED);
         emit log_named_uint("skew BIG   (usd6)   ", premBig);
@@ -1449,21 +1449,21 @@ contract DrainAtomicity is Alles {
         uint snap = vm.snapshotState();
         _setupBand();
         _pinFlow(PINNED);
-        uint premBig = CORE.skewPremiumETH();
+        uint premBig = CORE.skewPremium();
         _drain(TOTAL);
-        premBig = CORE.skewPremiumETH() - premBig;
+        premBig = CORE.skewPremium() - premBig;
         emit log_named_uint("whale, one drain    ", premBig);
 
         for (uint d; d < delays.length; d++) {
             vm.revertToState(snap);
             _setupBand();
             _pinFlow(PINNED);
-            uint prem = CORE.skewPremiumETH();
+            uint prem = CORE.skewPremium();
             for (uint i = 0; i < N; ++i) {
                 if (i > 0 && delays[d] > 0) vm.warp(block.timestamp + delays[d]);
                 _drain(TOTAL / N);
             }
-            prem = CORE.skewPremiumETH() - prem;
+            prem = CORE.skewPremium() - prem;
 
             emit log_named_uint("--- inter-slice delay(s)", delays[d]);
             emit log_named_uint("    chopper premium    ", prem);
@@ -1489,14 +1489,14 @@ contract DrainAtomicity is Alles {
 
         for (uint i = 0; i < N; ++i) {
             if (i > 0) vm.warp(block.timestamp + 4 hours);
-            uint premBefore = CORE.skewPremiumETH();
+            uint premBefore = CORE.skewPremium();
             emit log_named_uint("== slice             ", i);
-            emit log_named_uint("   sigma^2 (wad)     ", CORE.realizedVarianceWad(false));
-            emit log_named_uint("   flowEwmaUsd       ", CORE.flowEwmaUsd(false));
+            emit log_named_uint("   sigma^2 (wad)     ", CORE.realizedVarianceWad());
+            emit log_named_uint("   flowEwmaUsd       ", CORE.flowEwmaUsd());
             emit log_named_uint("   wellSkew (wad)    ", AUX.wellSkew(address(WETH)));
-            emit log_named_uint("   POOLED_ETH        ", CORE.POOLED_ETH());
+            emit log_named_uint("   POOLED        ", CORE.POOLED());
             _drain(TOTAL / N);
-            emit log_named_uint("   premium charged   ", CORE.skewPremiumETH() - premBefore);
+            emit log_named_uint("   premium charged   ", CORE.skewPremium() - premBefore);
         }
     }
 
@@ -1520,35 +1520,35 @@ contract DrainAtomicity is Alles {
         uint snap = vm.snapshotState();
         _setupBand();
         _pinFlow(380_432_109_336);
-        uint premQuiet = CORE.skewPremiumETH();
+        uint premQuiet = CORE.skewPremium();
         for (uint i = 0; i < N; ++i) {
             if (i > 0) vm.warp(block.timestamp + 4 hours);
             _drain(SLICE);
         }
-        premQuiet = CORE.skewPremiumETH() - premQuiet;
-        uint sigQuiet = CORE.realizedVarianceWad(false);
+        premQuiet = CORE.skewPremium() - premQuiet;
+        uint sigQuiet = CORE.realizedVarianceWad();
 
         // ARM B — busy pool: three small swaps inside each 4h gap, so the ring keeps advancing.
         vm.revertToState(snap);
         _setupBand();
         _pinFlow(380_432_109_336);
-        uint premBusy = CORE.skewPremiumETH();
+        uint premBusy = CORE.skewPremium();
         uint bgPaid;
         for (uint i = 0; i < N; ++i) {
             if (i > 0) {
                 for (uint k = 0; k < 3; ++k) {
                     vm.warp(block.timestamp + 1 hours);
-                    uint b4 = CORE.skewPremiumETH();
+                    uint b4 = CORE.skewPremium();
                     _drain(BG);
-                    bgPaid += CORE.skewPremiumETH() - b4;
+                    bgPaid += CORE.skewPremium() - b4;
                 }
                 vm.warp(block.timestamp + 1 hours);
             }
             _drain(SLICE);
         }
         // Charge the attacker ONLY for their own slices; background flow is somebody else's bill.
-        premBusy = CORE.skewPremiumETH() - premBusy - bgPaid;
-        uint sigBusy = CORE.realizedVarianceWad(false);
+        premBusy = CORE.skewPremium() - premBusy - bgPaid;
+        uint sigBusy = CORE.realizedVarianceWad();
 
         emit log_named_uint("QUIET: attacker pays  ", premQuiet);
         emit log_named_uint("QUIET: final sigma^2  ", sigQuiet);
@@ -1567,7 +1567,7 @@ contract DrainAtomicity is Alles {
     /// moved `q`, a troller would simply reseat between drags and pay nothing -- the brake would be
     /// defeated by its own frame. §E93-VERIFY found exactly that defect for a TICK-POSITION signal;
     /// the claim is that `q` does not inherit it, being built from ABSOLUTE quantities
-    /// (`inv = POOLED_ETH*px` against `target = flowEwmaUsd`) rather than from position within a range.
+    /// (`inv = POOLED*px` against `target = flowEwmaUsd`) rather than from position within a range.
     ///
     /// Asserts the INPUTS as well as the output: if only the composed skew were checked, two
     /// compensating moves could cancel and read as survival.
@@ -1576,8 +1576,8 @@ contract DrainAtomicity is Alles {
         _drain(60_000 * 1e18);                     // create real imbalance, so q > 0
 
         uint skewBefore   = AUX.wellSkew(address(WETH));
-        uint pooledBefore = CORE.POOLED_ETH();
-        uint flowBefore   = CORE.flowEwmaUsd(false);
+        uint pooledBefore = CORE.POOLED();
+        uint flowBefore   = CORE.flowEwmaUsd();
 
         // CONTROL: a band that is not skewed cannot demonstrate that skew survives anything.
         assertGt(skewBefore, 0, "CONTROL: the band must actually be skewed before the reseat");
@@ -1585,18 +1585,18 @@ contract DrainAtomicity is Alles {
         V4.reseat();
 
         uint skewAfter   = AUX.wellSkew(address(WETH));
-        uint pooledAfter = CORE.POOLED_ETH();
-        uint flowAfter   = CORE.flowEwmaUsd(false);
+        uint pooledAfter = CORE.POOLED();
+        uint flowAfter   = CORE.flowEwmaUsd();
 
         emit log_named_uint("skew before reseat  ", skewBefore);
         emit log_named_uint("skew after  reseat  ", skewAfter);
-        emit log_named_uint("POOLED_ETH before   ", pooledBefore);
-        emit log_named_uint("POOLED_ETH after    ", pooledAfter);
+        emit log_named_uint("POOLED before   ", pooledBefore);
+        emit log_named_uint("POOLED after    ", pooledAfter);
         emit log_named_uint("flow EWMA before    ", flowBefore);
         emit log_named_uint("flow EWMA after     ", flowAfter);
 
         // Both of q's operands must be untouched -- inventory and target.
-        assertEq(pooledAfter, pooledBefore, "reseat moved POOLED_ETH: q's numerator is frame-relative");
+        assertEq(pooledAfter, pooledBefore, "reseat moved POOLED: q's numerator is frame-relative");
         assertEq(flowAfter,   flowBefore,   "reseat moved the flow EWMA: q's denominator is resettable");
         assertEq(skewAfter,   skewBefore,   "reseat changed the skew: a troller can reset accrued path cost");
     }
@@ -1633,21 +1633,21 @@ contract DrainAtomicity is Alles {
         uint snap = vm.snapshotState();
         _setupBand();
         _pinFlow(PINNED);
-        assertEq(CORE.flowEwmaUsd(false), PINNED, "CONTROL: pinned entry target, big arm");
-        uint premBig = CORE.skewPremiumETH();
+        assertEq(CORE.flowEwmaUsd(), PINNED, "CONTROL: pinned entry target, big arm");
+        uint premBig = CORE.skewPremium();
         _drain(TOTAL);                      // one trade: already priced at the frozen target
-        premBig = CORE.skewPremiumETH() - premBig;
+        premBig = CORE.skewPremium() - premBig;
 
         vm.revertToState(snap);
         _setupBand();
         _pinFlow(PINNED);
-        assertEq(CORE.flowEwmaUsd(false), PINNED, "CONTROL: pinned entry target, split arm");
-        uint premSplit = CORE.skewPremiumETH();
+        assertEq(CORE.flowEwmaUsd(), PINNED, "CONTROL: pinned entry target, split arm");
+        uint premSplit = CORE.skewPremium();
         for (uint i = 0; i < N; ++i) {
             _pinFlow(PINNED);               // THE CHANGE: re-freeze before each slice is priced
             _drain(TOTAL / N);
         }
-        premSplit = CORE.skewPremiumETH() - premSplit;
+        premSplit = CORE.skewPremium() - premSplit;
 
         emit log_named_uint("frozen target       ", PINNED);
         emit log_named_uint("skew BIG   (usd6)   ", premBig);
@@ -1687,23 +1687,23 @@ contract DrainAtomicity is Alles {
 
         _setupBand(); _pinFlow(PINNED);
         _drain(TOTAL);                                   // ARM A: one whale walks 0 -> q0
-        uint invA = CORE.POOLED_ETH();
-        emit log_named_uint("sigma^2 after whale   ", CORE.realizedVarianceWad(false));
+        uint invA = CORE.POOLED();
+        emit log_named_uint("sigma^2 after whale   ", CORE.realizedVarianceWad());
         _pinFlow(PINNED);                                // same target for the probe
-        uint pA = CORE.skewPremiumETH();
+        uint pA = CORE.skewPremium();
         _drain(PROBE);
-        pA = CORE.skewPremiumETH() - pA;
+        pA = CORE.skewPremium() - pA;
 
         vm.revertToState(snap);
 
         _setupBand(); _pinFlow(PINNED);
         for (uint i = 0; i < N; ++i) _drain(TOTAL / N);   // ARM B: twelve walk to the SAME q0
-        uint invB = CORE.POOLED_ETH();
-        emit log_named_uint("sigma^2 after split   ", CORE.realizedVarianceWad(false));
+        uint invB = CORE.POOLED();
+        emit log_named_uint("sigma^2 after split   ", CORE.realizedVarianceWad());
         _pinFlow(PINNED);
-        uint pB = CORE.skewPremiumETH();
+        uint pB = CORE.skewPremium();
         _drain(PROBE);
-        pB = CORE.skewPremiumETH() - pB;
+        pB = CORE.skewPremium() - pB;
 
         emit log_named_uint("inventory after whale ", invA);
         emit log_named_uint("inventory after split ", invB);

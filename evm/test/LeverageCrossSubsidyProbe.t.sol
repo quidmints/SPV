@@ -168,7 +168,7 @@ contract LeverageCrossSubsidyProbe is Alles {
         // A passive REGULAR band LP (no leverage) — the party that must not be expensed.
         vm.deal(PASSIVE, 20 ether);
         vm.prank(PASSIVE); uint shares = V4.deposit{value: 10 ether}(0, PASSIVE);
-        require(shares > 0 && CORE.POOLED_ETH() > 0, "no in-range pool for the passive LP");
+        require(shares > 0 && CORE.POOLED() > 0, "no in-range pool for the passive LP");
         uint160 startSqrt = ILevBandView(address(V4)).bandSqrtP();   // shared rally reference for both arms
 
         uint snap = vm.snapshotState();
