@@ -261,6 +261,48 @@ async fn main() -> anyhow::Result<()> {
     .await
     .context("boot hop node")?;
 
+    // (§W1) THE AUTHORIZED TRIGGER FOR A FULL WALLET DRAIN — the thing `create_sweep_tx` was
+    // missing, and the reason it was mistaken for dead code and deleted twice. It was never
+    // missing a caller by accident; it was missing the CONTROL a caller has to pass through,
+    // because "send the entire balance to address X" is the same severity as a seed export.
+    //
+    // So it is deliberately the SAME SHAPE as the migration trigger above: the authorization is
+    // an operator-signed bundle in a FILE (host-unforgeable — the host can choose WHETHER to
+    // sweep, never WHERE), the env var's PRESENCE is the request, and the process does the one
+    // thing and exits. `execute_sweep` owns the ordering that matters (verify → network-check →
+    // consume the nonce ON-CHAIN → only then build and broadcast).
+    //
+    // It sits HERE rather than beside the migration block because a sweep needs the booted
+    // node's WALLET, which a seed export does not.
+    //
+    // ⚠️ EXIT, do not continue. A sweep is a DECOMMISSIONING action; going on to boot a vault
+    // and serve traffic on a wallet we just emptied would misrepresent the node's state, and
+    // every channel-funding path below assumes a fundable wallet.
+    if let Ok(auth_path) = std::env::var("QUID_SWEEP_AUTH") {
+        let bundle = std::fs::read(&auth_path).with_context(|| {
+            format!("read QUID_SWEEP_AUTH ({auth_path}) — the operator-signed sweep bundle")
+        })?;
+        let outcome = quid_bridge::sweep::execute_sweep(
+            &bundle,
+            &quid_hop::migration::OPERATOR_OWNERS,
+            quid_hop::seed::deploy_env_for_network(network),
+            network,
+            network.to_bitcoin(),
+            &*evm,
+            &node.wallet,
+            quid_common::ln::priority::ConfirmationPriority::Normal,
+            &*node.esplora,
+        )
+        .await
+        .context("execute authorized wallet sweep")?;
+        tracing::warn!(
+            txid = %outcome.tx.compute_txid(), fee = %outcome.fee,
+            destination = %outcome.destination,
+            "sweep complete — wallet drained; exiting rather than serving on an empty wallet"
+        );
+        return Ok(());
+    }
+
     // Swap-in: both must be set to enable it (token required).
     let swap_in_listen = std::env::var("QUID_SWAPIN_LISTEN").ok();
     let swap_in_token = std::env::var("QUID_SWAPIN_API_TOKEN").ok();
