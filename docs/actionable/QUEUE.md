@@ -67,6 +67,36 @@ The single-asset instance the fold needed already existed. This does NOT wait fo
   pool". Those legs call **Curve** now. Prose describing a router the code no longer reaches is the
   exact failure mode that has already cost this refactor several wrong conclusions.
 
+## 🔴 BLOCKER ON PHASE 3 STEP 1 — **"MAKE SKEW BE THE QUOTE" AND "WE DON'T COLLECT IT" SPECIFY DIFFERENT CHARGES. SETTLE BEFORE `FixedRateFill` LANDS (raised 2026-08-15).**
+Step 1 below says *"skew pricing the swapper for the imbalance they create… make skew BE the quote"*,
+and `FixedRateFill` (in `SPV-v4cut`, untracked) implements exactly that — it quotes `wellSkew`/`sellSkew`,
+i.e. the MODELLED charge `Γ·σ²·q/(1−q)^ρ`.
+**The owner then said (2026-08-15): *"we can always get curve to get us the leverage we need no matter
+what from inside and we dont need external arbers to earn the skew so we dont need to collect it
+either. we just attribute properly and rebalance to 1:1."***
+⇒ **THOSE ARE TWO DIFFERENT PRICES, AND THE FILL IS THE ARTIFACT THAT FIXES WHICH ONE IS CANONICAL:**
+| | **(A) MODELLED — what the fill writes today** | **(B) PASSTHROUGH — what "attribute + rebalance to 1:1" describes** |
+|---|---|---|
+| charge | `Γ·σ²·q/(1−q)^ρ` | the **MEASURED cost of restoring 1:1 via Curve**, attributed to the causer |
+| needs σ² | yes | **no** |
+| needs Γ, ρ, `SIGMA_REF`, the ring | yes | **no** |
+| patience vector | **open** — σ² collapses 24× at 4h spacing (§UNIT-B-PATIENCE) | **closed** — a realized fee cannot be diluted by waiting |
+| representation-sensitive | **yes — ±31% on an economically-NEUTRAL encoding change** (§SKEW-DESIGN-VERDICT ⓸) | **no** — it is a receipt |
+| oracle needed | yes (σ² feed) | **no** — settles §BAN-THE-ORACLE for this path |
+🔴 **EVERY DEFECT MEASURED AGAINST THE SKEW THIS SESSION IS A PROPERTY OF (A) AND ABSENT FROM (B):** Γ was never
+derived (it is `MAX_WELL_SKEW` renamed, implying a 10.95-day horizon nobody chose, §GAMMA-HORIZON-DERIVED);
+ρ = 1 with the ρ>1 branch dead; σ² is attacker-stretchable and **not patchable** (three normalizations refuted,
+§SIGMA-ESTIMATOR-NOT-PATCHABLE); and the charge moved 31% when only the ENCODING of price changed.
+⚠️ **AND (B) IS NOT "NO CHARGE".** The swapper still pays for the imbalance they create — they pay the REAL
+restoration cost rather than a modelled premium. §#41-INTERNAL-FILL-PRICE already constrains exactly this
+attribution (the fill must pay the band oracle + the band's own fee, never the mid), so (B) inherits a
+constraint that is already derived rather than needing a new one.
+▶️ **IF (B): `FixedRateFill` quotes the restoration cost, and `σ²`/`Γ`/`ρ`/`ringVariance`/`realizedVarianceWad`
+DELETE — which also dissolves the two suite failures left by the tick removal, with no Γ recalibration.**
+▶️ **IF (A): the fill is right as written, but it inherits an open, unpatchable attacker vector into the
+settlement price, and §BAN-THE-ORACLE cannot land on this path.**
+📌 **Do not resolve this by writing the fill — the fill IS the resolution. One line of owner intent decides it.**
+
 ## Phase 3 — 🔑 THE v4 CUT. One designed replacement, then one deletion.
 **Decided (owner):** replace the AMM with **intent-based refill (1inch Fusion + Khalani)**,
 **keeper-called settlement so gas is amortised**, and **skew pricing the swapper for the imbalance
