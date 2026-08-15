@@ -98,6 +98,42 @@ passthrough is not mistaken for having closed it.**
 not less** — and `SwapLib.clampByBacking`'s physical `backing − pooled` headroom is what actually bounds it
 (audit #8). **That is the guard to re-verify once σ² leaves pricing, because it becomes the only one left.**
 
+## 📋📋 FULL INVENTORY OF UNFINISHED SEAMS — **THIS THREAD, PRE- AND POST-COMPACTION (owner asked, 2026-08-16). MEASURED, NOT RECALLED.**
+### ⛔ FIRST, THE HEADLINE: **§ARCH / §E48 ARE NOT BUILT — NOWHERE, IN NO FORM.**
+`main`: `isBTC` **359** · `IPoolManager` **20** · `getSqrtPriceAtTick` **20** · `sqrtPrice` **94** · `SOR.sol` **372 lines** · **no refill primitive of any kind.**
+`SPV-v4cut` (the cut's own worktree, 6 commits): `isBTC` **362** · `IPoolManager` **20** · `sqrtPrice` **94** — **IDENTICAL to main on every removal marker.**
+⇒ **What exists there is ADDITION (`FixedRateFill`, `BatchLedger`, `BandBacking`) plus a Core strip that "will NOT run". No v4, tick or √P deletion has happened anywhere.** **E48 has NOT been built without sqrtPrice/tick/univ4; it has not been built at all.**
+### 🟢 SEAMS THIS SESSION *COMPLETED* (state verified today)
+| seam | outcome |
+|---|---|
+| Tick removal, ORACLE half | ✅ ring stores plain price; `tickCumulative` **23 → 0**; the `×1e10` deleted as a tick artifact; `ticksToPrice` → `cumsToPrice` |
+| Skew agnosticism | ✅ **8/8 skew fns, ZERO v4 coupling**; seam is 8 plain accessors; `tools/check-skew-agnostic.py` landed and control-validated |
+| §UNIT-ASYM | ✅ both named-but-unexecuted checks RUN; framing reversed; asymmetry classified REAL (2 constants) |
+| §GAMMA-HORIZON | ✅ Γ's horizon derived + measured: **946,080 s = 10.95 days** |
+| §UNIT-B | ✅ kernel exonerated; ratchet is PROTECTIVE; the headline defect no longer reproduces |
+| §UNIT-FORELLA-FRAMECHECK | ✅ `q` survives a reseat (byte-identical); §E93-VERIFY's objection does not transfer |
+| §#41 | ✅ verified PROSPECTIVE (no internal fill exists); one-line error shape pinned |
+| §E155 | ✅ behaviour was already fixed; the **docblock landmine** naming the defective argument is disarmed |
+| 0.63% LP "leak" | ✅ **not a defect** — burn-exact partial redeem; the two test arms bracket different scopes |
+### 🔴 SEAMS THIS SESSION *OPENED AND DID NOT CLOSE*
+1. **THE σ² VECTOR IS OPEN AND UNOWNED.** 93.3% collapse at 4h spacing; **three normalizations refuted**; unpatchable at the estimator. It **follows σ² into θ** (§SKEW-ADAPTS-NOT-DIES), so the passthrough does NOT close it. **θ fails open at σ²=0, so an attacker driving it DOWN buys MORE depth** — `clampByBacking`'s physical headroom becomes the only bound.
+2. **THE EXOGENOUS SAMPLING CLOCK IS STILL UNIDENTIFIED.** I named Chainlink and retracted it (circuit-breaker, opt-in, defers when stale, 5% gate).
+3. **`LeveragePnLProbe` LEFT RED ON PURPOSE** — its premise is falsified; fixing the comparison belongs to its owner. Adjusting the assertion would make a refuted premise look settled.
+4. **THE SKEW DELETION ITSELF** — 159+43+9 lines + 2 constants, correctly deferred INTO the single cut.
+### 🔴 PRE-COMPACTION UNFINISHED (§UNIT-UNFINISHED's eight) — **RE-CHECKED AGAINST CODE TODAY, NOT TRUSTED**
+| # | item | verified status |
+|---|---|---|
+| 1 | §UNIT-A | ✅ landed since (row now closed) |
+| 2 | reseat TRIGGER | 🟠 **partially** — `Vogue.reseat()` public + `_reseatIfStale` exist; the automatic trigger policy does not |
+| 3 | §UNIT-B acceptance criterion | ⛔ still tests CONSOLIDATION, never re-expressed as level-vs-marginal — **and now obsolete under the passthrough** |
+| 4 | §UNIT-FORELLA (the brake) | ⛔ **ZERO code**; its coincide-on-monotone premise also refuted |
+| 5 | convergent depletion term | ⛔ **ZERO code**, no work ever |
+| 6 | venue ceiling | ⛔ **ZERO code** |
+| 7 | §E83 censored duration | ⛔ **ZERO code** — and it gates THREE decisions |
+| 8 | **RE-RUN THE OPTIMISATIONS IN A NON-ZERO SKEW REGIME** | ⛔ **NEVER DONE — and it is THE OBJECTIVE.** Everything above is upstream of it |
+🔴 **(8) IS THE ONE THAT MATTERS AND IT IS STILL NOT DONE.** §UNIT-UNFINISHED said it in 2026-08-06: *"the only one that tells us whether the two days were WELL SPENT."* Ten days on, it remains unrun — and the passthrough decision may make it moot rather than answered, **which is not the same as doing it.**
+📌 **ALSO OPEN, NOT MINE: `UNIT-D`** (SPV checkpoint burial) — *"the only item here that BRICKS A PATH IRREVERSIBLY"*, wholly independent of the skew, untouched all session.
+
 ## 📐 A RECURRING FAILURE CLASS, THIRD INSTANCE IN A WEEK ACROSS TWO THREADS — **BOTH ARMS OF A CONTROL MUST BRACKET THE SAME SCOPE (2026-08-16, raised jointly with `spv-a0`).**
 **A control does not make a comparison valid.** In every instance the NUMBERS were right; what differed
 was the SCOPE each arm measured, so the gap was an artifact of the instrument and read as a defect.
