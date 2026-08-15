@@ -331,7 +331,11 @@ async fn main() -> anyhow::Result<()> {
 
     daemon::run(
         node, cfg, evm, store, start_block, swap_in_listen, swap_in_token,
-        vault,
+        // (M1#2 phase 1a) `Some` — THIS binary is the co-hosted fleet, which by definition
+        // holds both halves. `daemon::run` now also accepts `None`, and the LP-hosted
+        // daemon (phase 1b) is what will pass it: same `run`, no vault, LP-side keys on the
+        // LP's own host. Keeping this `Some` is what makes phase 1a a pure capability add.
+        Some(vault),
     )
     .await
 }
