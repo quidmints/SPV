@@ -98,6 +98,39 @@ passthrough is not mistaken for having closed it.**
 not less** — and `SwapLib.clampByBacking`'s physical `backing − pooled` headroom is what actually bounds it
 (audit #8). **That is the guard to re-verify once σ² leaves pricing, because it becomes the only one left.**
 
+## 📐 P&L ACCUMULATOR DE-ASSOCIATION — **SCOPED, RATCHETED, AND IT IS FOUR MIRRORS, NOT A SWEEP (2026-08-16).**
+Owner: *"complete the P&L accumulator deassociation from tick and sqrtprice and v4 or poolkey, but handle
+delta only for refill."* **Measured per-accumulator by reading the ENCLOSING FUNCTION of every write:**
+| accumulator | writes | v4 in write path |
+|---|---|---|
+| `POOLED_ETH` `POOLED_BTC` `POOLED_USD_ETH` `POOLED_USD_BTC` | 17 | 🔴 **`BalanceDelta`, `poolManager`, `getSlot0`** |
+| `skewPremiumETH` `skewPremiumBTC` | 2 | ✅ **already free** |
+| `_flowETH` `_flowBTC` `_premETH` `_premBTC` | 2 | ✅ **already free** |
+⇒ **THE WHOLE JOB IS THE FOUR `POOLED_*` MIRRORS. Six of the ten accumulators are already v4-free**, so the
+owner's constraint reduces to one question: *what writes `POOLED_*` once the settlement path is ours.*
+🧰 **LANDED: `tools/check-pnl-agnostic.py`, a RATCHET rather than a gate.** A check that simply failed on
+coupling would be red from day one, and a permanently-red gate is noise that hides real regressions. So it
+**protects the six that are clean** (a clean accumulator becoming coupled is a FAILURE — otherwise invisible,
+since nothing reverts when a v4 type enters a write path) and **reports the four still coupled as PROGRESS**,
+with the baseline to be tightened in the same commit that frees one.
+✅ **CONTROL-VALIDATED: injecting a `BalanceDelta` into `_bumpFlow` turns it RED naming `_flowETH`/`_flowBTC`
+and the exact line; reverting turns it GREEN.**
+⚠️ **ITS OWN LIMIT, STATED IN THE FILE: A CLEAN RESULT IS NOT THE WHOLE PROPERTY.** The flow/premium EWMAs
+WRITE cleanly but are FED from `_handleSwap`, which reads the leg off a v4 `BalanceDelta`. **Write-path purity
+and SOURCE purity are different claims** — the same distinction as the observation ring (write clean, source
+`getSlot0`). ⇒ **The owner's "handle delta ONLY for refill" is the SOURCE half, and it is not yet checkable:
+once the cut lands, `POOLED_*` must be written by the settlement path and `_handleDelta` must no longer be
+their source.**
+⛔ **NOT IMPLEMENTED HERE, DELIBERATELY — IT WOULD COLLIDE.** `spv-2d` has **177 lines changed in `Core.sol`**
+in `SPV-v4cut`, has ALREADY converted `_handleDelta` from `BalanceDelta` to a `Delta` struct, and has taken
+unlock sites **6 → 4**. That IS this work. Doing it in `main` would conflict on the same function in the same
+file and duplicate the conversion. **What is landed here is the specification and the ratchet that make their
+strip verifiable when it lands.**
+📌 **A CHECKER BUG WORTH RECORDING: the first version reported all four flow/premium registers as DELETED.**
+They are `Flow` STRUCTS mutated by reference inside `_bumpEwma(f, …)`, so an `acc =` regex never matches them.
+**Second checker-detection bug I shipped today** (the first truncated `committedUsd18` to `committedUsd`), both
+caught by running it. A checker that misreports is worse than no checker, and both reasons are now inline.
+
 ## ⛔ CORRECTION TO MY OWN GRIND BOUND — **IT IS THE *CREDITED* FEE, NOT THE CHARGED FEE (2026-08-16, prompted by `spv-2d`'s finding).**
 ✅ **THEIR FINDING, VERIFIED: THE 420 ppm IS v4's POOL FEE TIER, NOT A FEE WE CHARGE.** `OracleLib:180` sets
 `k.fee = 420` on the PoolKey; v4 collects it; `_handleCollect` harvests `feesAccrued` into
