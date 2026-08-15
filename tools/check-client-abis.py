@@ -231,7 +231,17 @@ for base in RUST_ROOTS:
                 name = key.split("(")[0]
                 same_name = sorted(k for k in compiled if k.startswith(name + "("))
                 if not same_name:
-                    continue            # not one of ours; the SPA rules do not apply here
+                    # 🔴 THE SAME HOLE AS THE SPA'S, CLOSED ON ONE SIDE ONLY (2026-08-15).
+                    # This `continue` was unconditional, under the comment "not one of ours; the
+                    # SPA rules do not apply here" — the EXACT assumption the E154 fix above
+                    # refuted for the SPA and never revisited here. Measured: `settleSwapIn` was
+                    # deleted from BTCChannels while `quid-bridge/src/signer.rs:181` still encoded
+                    # it, and this gate reported `0 drifted` on every run. Argument drift was
+                    # caught; a function being GONE was invisible — on the RUST side, which is the
+                    # side that signs money-path transactions.
+                    if name not in EXTERNAL_OK:
+                        rust_drift.append((key, f"{p.relative_to(ROOT)}:{i}", []))
+                    continue
                 if key in compiled:
                     rust_checked += 1
                 else:
