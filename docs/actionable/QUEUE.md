@@ -98,6 +98,37 @@ passthrough is not mistaken for having closed it.**
 not less** — and `SwapLib.clampByBacking`'s physical `backing − pooled` headroom is what actually bounds it
 (audit #8). **That is the guard to re-verify once σ² leaves pricing, because it becomes the only one left.**
 
+## 🔑 WHAT THE REFILL BECOMES UNDER THE CUT — **A RESEAT, NOT A PURCHASE. THIS IS WHY THE OWNER CALLED EXTERNAL BUYING A MISUSE (2026-08-16).**
+Read against `spv-2d`'s current state: **`Core.swap` settles at oracle AGAINST INVENTORY with zero v4
+references**, while `_modifyLiquidity` still has 7 and four unlock sites remain (Repack/Reseat/OutsideRange/
+Collect). ⇒ **Swaps have already stopped being v4 operations; LIQUIDITY has not.**
+🎯 **ONCE LIQUIDITY ALSO SETTLES AGAINST INVENTORY, THE BAND STOPS BEING A POSITION AND BECOMES INVENTORY WE
+OWN. At that point "putting ETH into the band" is CREDITING `POOLED_ETH` — a bookkeeping move, not a trade —
+and the RANGE becomes a PRICING PARAMETER rather than a custody boundary.**
+⇒ **A refill is then a RANGE-PLACEMENT COMPUTATION: choose the range so the inventory ALREADY HELD sits at the
+target composition at the current price. No counterparty, no external leg, no restoration cost.**
+✅ **THAT RECONCILES EVERY CLAUSE OF §E48 AT ONCE, WHICH IS WHY IT IS PROBABLY RIGHT:**
+| owner's words | why it follows |
+|---|---|
+| *"uncommitted dollars shouldnt be sold for ETH out of band… a misuse"* | there is nothing to buy — the ETH is already held |
+| *"maximise representation of the ETH already held"* | that is literally what range placement does |
+| *"external impact… should net the zero"* | no external leg exists to carry impact |
+| *"no premium paid to a restorer"* | no external party performs the restoration |
+| *"reseats should fire together with refill JIT"* | they are not two operations; they are ONE |
+⛔ **AND IT EXPLAINS WHY MY CURVE-RESTORATION FRAMING WAS WRONG** — I costed an external purchase the owner had
+already ruled out, then derived a grind floor from a `C` that does not exist in the atomic tier. **The floor
+survives only at §E48's THIRD tier (the premium-attracted hop), where an external cost is real.**
+🔴 **WHAT STAYS GENUINELY HARD, AND IS NOT DISSOLVED BY THIS:**
+1. **IF THE BAND IS SHORT ETH OUTRIGHT, NO RESEAT FIXES IT.** You can only represent what you hold. *"Restore
+   to 1:1"* and *"maximise representation of ETH already held"* diverge exactly there, and that is the
+   conflict already surfaced to the owner — unresolved.
+2. **§E48's THREE OPENS ARE UNTOUCHED:** who pays the gas · Rust-automatic vs on-chain trigger (asked to be
+   COMPARED) · nothing ties the skew collected to the external impact a flash refill pays.
+3. ⚠️ **A TRANSITIONAL HAZARD NOBODY OWNS: swaps now settle against `POOLED_*` while v4 STILL CUSTODIES THE
+   TOKENS** (`spv-2d`: *"the POOLMANAGER HOLDS THE TOKENS, and POOLED_* is an accounting mirror, not a balance
+   we custody"*). **For as long as that window is open, the authoritative balance for swaps and the actual
+   custodian disagree.** That is not a steady state and should not be left open across a merge.
+
 ## 📐 P&L ACCUMULATOR DE-ASSOCIATION — **SCOPED, RATCHETED, AND IT IS FOUR MIRRORS, NOT A SWEEP (2026-08-16).**
 Owner: *"complete the P&L accumulator deassociation from tick and sqrtprice and v4 or poolkey, but handle
 delta only for refill."* **Measured per-accumulator by reading the ENCLOSING FUNCTION of every write:**
