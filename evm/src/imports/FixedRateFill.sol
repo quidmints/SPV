@@ -25,10 +25,34 @@ import {ICore} from "./Interfaces.sol";
 ///
 ///         WHAT REMAINS IS A REAL COST, AND IT IS NOT FREE: curving back to target pays Curve's fee
 ///         plus slippage, and it is incurred BECAUSE someone pushed the band off target.
-///         ⇒ **THE SWAPPER WHO CAUSED IT PAYS** (owner's decision, 2026-08-15). Not the band LPs
-///         (socialising it charges LPs who did not cause the imbalance) and emphatically not the
-///         basket (whose dollars already supply band depth — making them fund the rebalance too
-///         would have one party pay twice for the same trade).
+///         ⇒ **THE COST SPLITS ACROSS ALL THREE** (owner, 2026-08-15, correcting an earlier
+///         causer-pays-only reading). A band trade has **TWO SUPPLIERS, NOT ONE**: the volatile leg
+///         is LP INVENTORY, the USD leg is BASKET CAPITAL (at rest ~246k of basket dollars against a
+///         739k ETH deposit). The rebalance cost is therefore incurred against capital supplied by
+///         both, and CAUSATION IS ONLY ONE AXIS. Each pure answer is a corner solution:
+///           • swapper-only — ignores that LPs earn the fee lane *precisely for* carrying inventory
+///             risk, so they are being paid for a cost they are not bearing;
+///           • LP-only — socialises a large swapper's imbalance onto LPs who did not create it;
+///           • basket-only — makes the basket fund a rebalance of depth it ALREADY supplied, paying
+///             twice for one trade.
+///         The split must be weighted by WHO TOOK THE RISK ON EACH LEG, which is the same test that
+///         resolves the corner solutions.
+///
+/// 🔴 THIS IS THE SAME QUESTION AS #12 (count-once) AND MUST BE SETTLED WITH IT.
+///         #12 cannot be evaluated without stating who owns the PROCEEDS of a band→basket sale —
+///         two suppliers, both corners wrong, the survivor being "credit the LP its inventory's
+///         proceeds MINUS a depth fee". That is this split seen from the other side: one asks who
+///         pays a cost, the other who receives a proceed, and both answer "apportion between the
+///         two suppliers". Settle them together or they WILL drift apart.
+///
+/// 🔴 OUT-OF-RANGE IS A FOURTH STATE AND IT BREAKS THE TWO-SUPPLIER SYMMETRY.
+///         When the band is OOR it holds a SINGLE asset — the two legs have collapsed into one, so
+///         "who supplied what" has a different answer entirely. The operation is also different: not
+///         *restore 1:1* but *RE-ENTER RANGE*, a different cost with a different beneficiary. **A
+///         split calibrated on an in-range band is simply WRONG when applied out of range**, and it
+///         will not announce itself — it produces a plausible apportionment against the wrong basis.
+///         ⚠️ NOT SOLVED HERE. Any split rule must state its OOR behaviour explicitly rather than
+///         inheriting the in-range weights by default.
 ///
 ///         SO THE SKEW SURVIVES, WITH A DIFFERENT JOB. `wellSkew` measures the SCARCE side
 ///         (volatile-OUT drain — A&S's reservation price with the `q/(1−q)` pole, because you CAN
@@ -163,9 +187,11 @@ library FixedRateFill {
         // exists to avoid — so refuse rather than paper over it.
         if (totalSkewWad == 0) revert NoQuote();
         uint myShare = (realisedCost * mySkewWad) / totalSkewWad;
-        return myShare > myEstimate
-            ? (myShare - myEstimate, 0)
-            : (0, myEstimate - myShare);
+        // if/else over a ternary DELIBERATELY: in `? (a - b, 0) : (0, b - a)` solc infers the bare
+        // `0` as uint8 in one arm and uint256 in the other, so the tuple types disagree and it does
+        // not compile. Named returns default to 0 and sidestep the literal typing entirely.
+        if (myShare > myEstimate) owed   = myShare - myEstimate;
+        else                      refund = myEstimate - myShare;
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
