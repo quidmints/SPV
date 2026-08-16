@@ -1094,19 +1094,43 @@ contract Core {
         } else {
             uint pooledPre = POOLED_USD;
             POOLED_USD -= Math.min(usdAmount, POOLED_USD);   // clamp: see the note at the deleted helpers
-            if (basketLeg) {
-                // §#12/E28-r — PROPORTIONAL, not first-out. A burn releases a MIX: the band's USD leg
-                // holds basket dollars AND the LP-owned increment, and modifyLiquidity returns them in
-                // the band's CURRENT ratio. The old `-= min(usdAmount, basket)` drained the basket leg
-                // FIRST, so on a partial exit `POOLED_USD - basketUsd` (the increment `_pricingBacking`
-                // now reads as LP backing) grew by the whole released basket slice — phantom backing
-                // paid to whoever withdrew next. Measured on a FULL exit: basket floored to 0 against a
-                // 25.200001 residue, leaving that entire residue mispriced as LP equity.
-                uint b = basketUsd;
-                uint out_ = pooledPre <= usdAmount ? b   // whole leg left: basket leaves with it
-                          : Math.mulDiv(b, usdAmount, pooledPre);
-                basketUsd = b - out_;               // §ISBTC-SPLIT: both arms were identical
-            }
+            // §#12/E28-r — PROPORTIONAL, not first-out. A burn releases a MIX: the band's USD leg
+            // holds basket dollars AND the LP-owned increment, and modifyLiquidity returns them in
+            // the band's CURRENT ratio. The old `-= min(usdAmount, basket)` drained the basket leg
+            // FIRST, so on a partial exit `POOLED_USD - basketUsd` (the increment `_pricingBacking`
+            // now reads as LP backing) grew by the whole released basket slice — phantom backing
+            // paid to whoever withdrew next. Measured on a FULL exit: basket floored to 0 against a
+            // 25.200001 residue, leaving that entire residue mispriced as LP equity.
+            //
+            // 🔴 §E230-PHANTOM — THE `if (basketLeg)` GUARD IS DELETED FROM THIS BRANCH, AND ITS
+            // ABSENCE IS THE WHOLE FIX. The guard is CORRECT on the mint arm above: dollars arriving
+            // from a swapper are not basket-owned, so they must not grow the basket's claim. It is
+            // WRONG here, because a burn does not get to choose which dollars leave. The USD leg is
+            // one undivided balance; when `usdAmount` leaves it, basket dollars and the LP increment
+            // leave in the band's CURRENT ratio no matter who took them. Gating the release on
+            // `basketLeg` meant a SWAP drained `POOLED_USD` while `basketUsd` stood still.
+            //
+            // MEASURED (BackingGateSplit, and reproduced independently): across eight 1-ETH swaps
+            // `committed` never moved -- 188,375.647057 every iteration -- while `POOLED_USD*1e12`
+            // fell 1,882.965293 per swap, so the gap grew linearly and the phantom equalled EXACTLY
+            // the swapper's USDC out. Headroom eroded at the same rate, making OverCommitted a
+            // matter of volume: 63,625.456 / 1,882.965 ≈ 34 swaps.
+            //
+            // ⇒ IT DROVE `basketUsd` ABOVE `POOLED_USD`, WHICH IS NOT A TOLERANCE QUESTION BUT AN
+            // IMPOSSIBLE STATE: the basket cannot own more of the USD leg than the leg contains, and
+            // `_pricingBacking` reads `POOLED_USD - basketUsd` as LP backing, so the surplus was
+            // phantom in the other direction from the one E28-r fixed. Same defect, same remedy,
+            // one arm further along -- which is why the fix is to DELETE a condition rather than add
+            // a clamp. A clamp here would have pinned the symptom (`basketUsd = min(basketUsd,
+            // POOLED_USD)`) and left the divergence generating it (standing rule 17).
+            //
+            // ⚠️ The gate only began refusing this because it was FIXED: `_reportEquity` had no
+            // callers, so `total()` was 0 and the require compared `0 <= haircutTvl` -- always true.
+            // The drift had been accumulating silently the whole time; arming the bound exposed it.
+            uint b = basketUsd;
+            uint out_ = pooledPre <= usdAmount ? b   // whole leg left: basket leaves with it
+                      : Math.mulDiv(b, usdAmount, pooledPre);
+            basketUsd = b - out_;               // §ISBTC-SPLIT: both arms were identical
             // The burn side moves equity DOWN. Reporting here keeps the accountant on the same
             // clock as the mint side -- a sum of per-band figures is only meaningful if every term
             // is current (§A.16b one level up), which is why this is a push at the moment of change.
