@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {FullMath} from "v4-core/src/libraries/FullMath.sol";
+import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {IAggregatorV3, IAux} from "./Interfaces.sol";
@@ -34,17 +34,17 @@ library FeeLib {
         uint n = mins;
         while (n > 1) {
             if (n % 2 == 0) { 
-                x = FullMath.mulDiv(
+                x = SoladyMath.fullMulDiv(
                          x, x, 1e18); 
                               n /= 2;
             } else { 
-                y = FullMath.mulDiv(
+                y = SoladyMath.fullMulDiv(
                          x, y, 1e18); 
-                x = FullMath.mulDiv(
+                x = SoladyMath.fullMulDiv(
                          x, x, 1e18); 
                 n = (n - 1) / 2; 
             }
-        } return FullMath.mulDiv(
+        } return SoladyMath.fullMulDiv(
                       x, y, 1e18);
     }
 
@@ -105,10 +105,10 @@ library FeeLib {
         if (total == 0) return BASE;
         uint myDep = deps[idx + 1];
         if (myDep == 0) return BASE;
-        uint baseline = FullMath.mulDiv(deps[0], WAD, total);
-        uint mine     = FullMath.mulDiv(yields[idx + 1], WAD, myDep);
+        uint baseline = SoladyMath.fullMulDiv(deps[0], WAD, total);
+        uint mine     = SoladyMath.fullMulDiv(yields[idx + 1], WAD, myDep);
         if (mine <= baseline) return BASE;
-        uint feeBps = FullMath.mulDiv(mine - baseline, 10000, WAD);
+        uint feeBps = SoladyMath.fullMulDiv(mine - baseline, 10000, WAD);
         if (feeBps < BASE) return BASE;
         return feeBps > MAX_FEE ? MAX_FEE : feeBps;
     }
@@ -133,7 +133,7 @@ library FeeLib {
     ///         USD value. `sev` = depeg severity bps (0 or ≥10000 ⇒ no-op). ONE definition shared by calcNeeded
     ///         / applyFeeAndHaircut / allocate.
     function grossUpForDepeg(uint amount, uint sev) internal pure returns (uint) {
-        return (sev > 0 && sev < 10000) ? FullMath.mulDiv(amount, 10000, 10000 - sev) : amount;
+        return (sev > 0 && sev < 10000) ? SoladyMath.fullMulDiv(amount, 10000, 10000 - sev) : amount;
     }
 
     function calcNeeded(address token, uint amount,
@@ -167,8 +167,8 @@ library FeeLib {
         uint totalDep, FeeCtx memory c) external view returns (uint amount)
     {
         if (totalDep == 0 || slotDep == 0) return 0;
-        amount = FullMath.mulDiv(totalAmount,
-            FullMath.mulDiv(WAD, slotDep, totalDep), WAD);
+        amount = SoladyMath.fullMulDiv(totalAmount,
+            SoladyMath.fullMulDiv(WAD, slotDep, totalDep), WAD);
         if (amount == 0) return 0;
         // Pro-rata draws the SAME fraction of every stable → the basket mix (and its weighted-avg yield) is
         // unchanged → ZERO cherry-pick externality, so NO fee here (the concentration/cherry-pick fee is priced
@@ -283,7 +283,7 @@ library FeeLib {
         uint remaining = amount;
         for (uint j; j < n && remaining > 0; j++) {
             if (bals[j] == 0) continue;
-            uint want = FullMath.mulDiv(amount, bals[j], total);
+            uint want = SoladyMath.fullMulDiv(amount, bals[j], total);
             if (want > remaining) want = remaining;
             if (want == 0) continue;
             uint got = _withdrawLeg(vs[j], aaveSpoke, stable, want, to);

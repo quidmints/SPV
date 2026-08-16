@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {FullMath} from "v4-core/src/libraries/FullMath.sol";
+import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 
 /// @title  ShareMath — the ONE valuation of QU!D as basket shares
 /// @notice QU!D is an ERC-4626-style share of the stablecoin basket, NOT a pegged $1 coin. `burned` QD is worth
@@ -23,7 +23,7 @@ library ShareMath {
         internal pure returns (uint256 dollars)
     {
         if (burned == 0 || supplyPreBurn == 0) return burned;
-        uint256 share = FullMath.mulDiv(total, burned, supplyPreBurn);
+        uint256 share = SoladyMath.fullMulDiv(total, burned, supplyPreBurn);
         return burned < share ? burned : share;   // min(par, pro-rata share)
     }
 }

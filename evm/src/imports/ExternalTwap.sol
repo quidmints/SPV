@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {FullMath} from "v4-core/src/libraries/FullMath.sol";
+import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 
 /// Curve's on-pool EMA oracle. Returns a PLAIN PRICE (WAD) of coin `k+1` in units of coin 0 —
 /// no ticks, no sqrt price, nothing to decode.
@@ -97,7 +97,7 @@ library ExternalTwap {
         internal view returns (uint priceWad) {
         uint rate = IOffchainOracle(oracle).getRate(src, dst, false);
         if (rate == 0) revert NoExternalPrice();
-        priceWad = FullMath.mulDiv(rate, 10 ** srcDec, 10 ** dstDec);
+        priceWad = SoladyMath.fullMulDiv(rate, 10 ** srcDec, 10 ** dstDec);
         if (priceWad == 0) revert NoExternalPrice();
     }
 
@@ -113,7 +113,7 @@ library ExternalTwap {
     function requireAgrees(uint ours, uint theirs, uint maxBps) internal pure {
         if (ours == 0 || theirs == 0) revert NoExternalPrice();
         (uint lo, uint hi) = ours < theirs ? (ours, theirs) : (theirs, ours);
-        uint bps = FullMath.mulDiv(hi - lo, 10_000, lo);
+        uint bps = SoladyMath.fullMulDiv(hi - lo, 10_000, lo);
         if (bps > maxBps) revert DeviationTooWide(ours, theirs, bps);
     }
 }

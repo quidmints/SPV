@@ -2,7 +2,7 @@
 pragma solidity ^0.8.26;
 
 import {Alles} from "./Alles.t.sol";
-import {FullMath} from "v4-core/src/libraries/FullMath.sol";
+import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 
 /// @title §E2-#1 — a mint must ENTER AT THE MARK a redeem will pay.
 ///
@@ -38,7 +38,7 @@ contract MintAtTheMark is Alles {
         (uint solvent,) = AUX.get_metrics(true);
         uint mature = QUID.matureSupply();
         if (mature == 0) return WAD;
-        uint m = FullMath.mulDiv(WAD, solvent, mature);
+        uint m = SoladyMath.fullMulDiv(WAD, solvent, mature);
         return m > WAD ? WAD : m;
     }
 
@@ -104,7 +104,7 @@ contract MintAtTheMark is Alles {
         uint minted = QUID.balanceOf(User03) - before;
 
         // Value the new holding at the mark that a redeem would actually pay.
-        uint claimUsd = FullMath.mulDiv(minted, _mark(), WAD);
+        uint claimUsd = SoladyMath.fullMulDiv(minted, _mark(), WAD);
         emit log_named_uint("paid  (usd18)", 50_000e18);
         emit log_named_uint("minted (QUID)", minted);
         emit log_named_uint("claim (usd18)", claimUsd);
@@ -185,7 +185,7 @@ contract MintAtTheMark is Alles {
         emit log_named_uint("QUID minted      ", mintedNow);
         // Back out `normalized` using the mark the CODE used, then compare to the $50,000 deposited.
         emit log_named_uint("implied normalized (minted*totalCode/mature)",
-            matPre == 0 ? mintedNow : FullMath.mulDiv(mintedNow, totalCode, matPre));
+            matPre == 0 ? mintedNow : SoladyMath.fullMulDiv(mintedNow, totalCode, matPre));
 
         // A fresh mint lands in a FUTURE vintage (day-one `matureSupply` is 0), so it cannot be
         // redeemed until it vests — measured in `test_E2_DayOne_ImmediateRedeemerGetsPar`.
@@ -199,12 +199,12 @@ contract MintAtTheMark is Alles {
         emit log_named_uint("mark at redeem m1", m1);
         emit log_named_uint("QUID burned      ", burned);
         emit log_named_uint("stables received ", received);
-        emit log_named_uint("expected paid*m1/m0", FullMath.mulDiv(50_000e18, m1, m0));
-        emit log_named_uint("old 1:1 would give ", FullMath.mulDiv(50_000e18, m1, WAD));
+        emit log_named_uint("expected paid*m1/m0", SoladyMath.fullMulDiv(50_000e18, m1, m0));
+        emit log_named_uint("old 1:1 would give ", SoladyMath.fullMulDiv(50_000e18, m1, WAD));
 
         assertGt(burned, 0, "CONTROL: the redeem must actually have burned QU!D");
         assertGt(received, 0, "CONTROL: stables must actually have moved to the redeemer");
-        assertApproxEqRel(received, FullMath.mulDiv(50_000e18, m1, m0), 0.02e18,
+        assertApproxEqRel(received, SoladyMath.fullMulDiv(50_000e18, m1, m0), 0.02e18,
             "entry at the mark: a depositor entering at m0 and redeeming at m1 must receive "
             "paid*m1/m0 -- their dollars scaled ONLY by mark movement AFTER entry, never a "
             "haircut for a shortfall that predates them");

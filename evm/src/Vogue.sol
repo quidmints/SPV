@@ -459,7 +459,7 @@ contract Vogue is
         SwapLib.refreshBookmarks(LP, LP.pooled + levBuf[user], tokAccum, usdAccum);
         // VENUE yield: PLAIN weight only (excludes the lev slice's net-equity + buffer).
         uint plainW = SwapLib.plainNet(LP.pooled, levPooled[user]);
-        venueBm[user] = SoladyMath.mulDiv(plainW, venueFeesPerShare, WAD);
+        venueBm[user] = SoladyMath.fullMulDiv(plainW, venueFeesPerShare, WAD);
     }
 
     /// @dev Settle pending rewards. `mintRecipient == address(0)` accumulates
@@ -497,7 +497,7 @@ contract Vogue is
         // VENUE yield: PLAIN weight only. The lev slice earns its own yield via the
         // LevManager, not this Morpho position, so crediting it here would skim plain LPs.
         uint plainW = SwapLib.plainNet(LP.pooled, levPooled[user]);
-        uint venueOwed = SoladyMath.mulDiv(plainW, venueFeesPerShare, WAD);
+        uint venueOwed = SoladyMath.fullMulDiv(plainW, venueFeesPerShare, WAD);
         if (venueOwed > venueBm[user]) tokReward += venueOwed - venueBm[user];
     }
 
@@ -556,7 +556,7 @@ contract Vogue is
     function _deliverVenueShortfall(uint amount, uint shortfall, uint plainDepth, address recipient)
         private returns (uint excess) {
         uint venueBal = _venueBalance();
-        uint vaultShare = plainDepth > 0 ? SoladyMath.mulDiv(venueBal, amount, plainDepth) : venueBal;
+        uint vaultShare = plainDepth > 0 ? SoladyMath.fullMulDiv(venueBal, amount, plainDepth) : venueBal;
         uint inPool = CORE.POOLED();
         excess = Math.min(shortfall, vaultShare > inPool ? vaultShare - inPool : 0);
         if (excess > 0) excess = _sendETH(excess, recipient);
@@ -623,7 +623,7 @@ contract Vogue is
     function _payUsdLeg(uint incrPre, uint denom, uint claimAmt, address recipient)
         private returns (uint ethEquiv) {
         if (incrPre == 0 || denom == 0 || claimAmt == 0) return 0;
-        uint owed6 = claimAmt >= denom ? incrPre : SoladyMath.mulDiv(incrPre, claimAmt, denom);
+        uint owed6 = claimAmt >= denom ? incrPre : SoladyMath.fullMulDiv(incrPre, claimAmt, denom);
         if (owed6 == 0) return 0;
         QUID.mint(recipient, owed6 * 1e12, address(QUID), 0);
         // Re-anchor the mirror: what the LP still owns is what it owned MINUS what was just paid,
@@ -633,7 +633,7 @@ contract Vogue is
         // ratio, which is not a price for a concentrated position (measured: it implied ~840
         // USD/ETH against an actual 1,854, over-pricing a 400-share claim by 73,116 USD).
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
-        if (px > 0) ethEquiv = SoladyMath.mulDiv(owed6 * 1e12, 1e18, px);
+        if (px > 0) ethEquiv = SoladyMath.fullMulDiv(owed6 * 1e12, 1e18, px);
     }
 
     function _withdraw(uint amount, address recipient) internal {
@@ -1155,7 +1155,7 @@ contract Vogue is
         // the paired ETH, which stays in-venue). ETH to pull = usdWanted·eth/(usd6·1e12); _burnInRange caps at
         // POOLED. This frees precisely what redemption asks (no over/under-free) with ZERO oracle dependency
         // — so a dead TWAP no longer zeroes the unwind, and the mixed USD/ETH release no longer under-delivers.
-        _burnInRange(spotPrice, SoladyMath.mulDiv(usdWanted, eth, usd6 * 1e12), loPrice, upPrice, address(0));
+        _burnInRange(spotPrice, SoladyMath.fullMulDiv(usdWanted, eth, usd6 * 1e12), loPrice, upPrice, address(0));
         uint after6 = CORE.POOLED_USD();
         usdFreed = usd6 > after6 ? (usd6 - after6) * 1e12 : 0;
     }
@@ -1494,9 +1494,9 @@ contract Vogue is
             // oracle-free justification across without checking the property held.
             uint px = AUX.getTWAPforAsset(address(WETH), 1800);
             if (px > 0 && usd6 != base6) {
-                if (usd6 > base6) total += SoladyMath.mulDiv((usd6 - base6) * 1e12, 1e18, px);
+                if (usd6 > base6) total += SoladyMath.fullMulDiv((usd6 - base6) * 1e12, 1e18, px);
                 else {
-                    uint down = SoladyMath.mulDiv((base6 - usd6) * 1e12, 1e18, px);
+                    uint down = SoladyMath.fullMulDiv((base6 - usd6) * 1e12, 1e18, px);
                     total = total > down ? total - down : 0;
                 }
             }
@@ -1514,13 +1514,13 @@ contract Vogue is
         public view returns (uint) {
         uint total = _pricingBacking();
         if (lpShares == 0 || total == 0) return assets;
-        return SoladyMath.mulDiv(assets, lpShares, total);
+        return SoladyMath.fullMulDiv(assets, lpShares, total);
     }
 
     function convertToAssets(uint shares) public view returns (uint) {
         uint total = _pricingBacking();
         if (lpShares == 0 || total == 0) return shares;
-        return SoladyMath.mulDiv(shares, total, lpShares);
+        return SoladyMath.fullMulDiv(shares, total, lpShares);
     }
 
     // ─── ERC-4626 deposit / redeem (thin wrappers) ──────────────────
@@ -1585,7 +1585,7 @@ contract Vogue is
         _requirePinnedRecipient(owner, receiver);
         // CAP FIRST, then convert (2026-07-26). `convertToShares` used to run on the RAW `assets`, so
         // the standard "exit everything" sentinel `withdraw(type(uint).max)` REVERTED with no message:
-        // it is `SoladyMath.mulDiv(assets, lpShares, vogueETH())`, whose overflow guard is a bare
+        // it is `SoladyMath.fullMulDiv(assets, lpShares, vogueETH())`, whose overflow guard is a bare
         // `require`, and `type(uint).max * lpShares` trips it unconditionally. 10+ call sites use the
         // sentinel, so this reverted in NORMAL operation.
         //

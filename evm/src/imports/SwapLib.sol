@@ -13,7 +13,6 @@ import {IBandManager} from "./Interfaces.sol";
 import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 // §A.52: the SHARED WETH view (was a file-local `IWethDeposit` declaring just `deposit()`).
 import {IWETH9} from "./ILevVenue.sol";
 // §A.52: canonical shared views — these were file-local `IWeEth_L`/`IRedeem_L`/`ILiq_L`.
@@ -543,7 +542,7 @@ library SwapLib {
             uint n = stables.length;
             for (uint i = 0; i < n; i++) {
                 address s = stables[i];
-                aux.tipSelf(FullMath.mulDiv(aux.tranche(s), seedBurned, burned), s, -1);
+                aux.tipSelf(SoladyMath.fullMulDiv(aux.tranche(s), seedBurned, burned), s, -1);
             }
         }
         return amount;
@@ -586,7 +585,7 @@ library SwapLib {
         if (weethFull == 0) return 0;
         uint weethIn = weethFull > idle ? idle : weethFull;
         if (weethIn == 0) return 0;
-        uint fairWeth = FullMath.mulDiv(want, weethIn, weethFull);
+        uint fairWeth = SoladyMath.fullMulDiv(want, weethIn, weethFull);
         uint minOut = (fairWeth * 995) / 1000;            // 0.5% slippage cap
         return curveSellWeeth(c, weethIn, minOut);   // proceeds land here; caller is the Vault
     }
@@ -817,7 +816,7 @@ library SwapLib {
         // it bound exactly in the high-vol regime where the skew is most needed. That clamp was
         // defensible while σ² was unreliable; it is not now that variance measures (§E59).
         // What remains of MAX_WELL_SKEW is the honest one: a ceiling for the case we CANNOT measure.
-        return FullMath.mulDiv(sigmaSqWad, confFrac, 8e18) + rk.spliceFloor;
+        return SoladyMath.fullMulDiv(sigmaSqWad, confFrac, 8e18) + rk.spliceFloor;
     }
 
     /// @notice The convex inventory-skew CURVE — returns a WAD skew FRACTION
@@ -983,12 +982,12 @@ library SwapLib {
             // Δ = 0. Either a zero-size READ (the Aux/MM signal, which wants the instantaneous
             // rate) or a drain too small to move q. The integral's limit as Δ→0 IS the point rate,
             // so this branch is the formula's own limit, not a special case bolted beside it.
-            qBar = FullMath.mulDiv(q0, 1e18, 1e18 - q0);
+            qBar = SoladyMath.fullMulDiv(q0, 1e18, 1e18 - q0);
         } else {
             uint d = q1 - q0;
             // ln(u0/u1) in WAD. u0 > u1 > 0 here, so the ratio exceeds 1e18 and the log is positive.
-            uint lnTerm = uint(SoladyMath.lnWad(int(FullMath.mulDiv(1e18 - q0, 1e18, oneMinusQ))));
-            qBar = lnTerm > d ? FullMath.mulDiv(lnTerm - d, 1e18, d) : 0;
+            uint lnTerm = uint(SoladyMath.lnWad(int(SoladyMath.fullMulDiv(1e18 - q0, 1e18, oneMinusQ))));
+            qBar = lnTerm > d ? SoladyMath.fullMulDiv(lnTerm - d, 1e18, d) : 0;
         }
         // §E104 — CLAMP THE KERNEL *BEFORE* THE BASE IS ADDED. E89 made the base additive and left
         // the pole sentinel as `type(uint).max`, so a drain that EMPTIES the band produced
@@ -1003,7 +1002,7 @@ library SwapLib {
         if (qBar == type(uint).max) {
             skew = MAX_WELL_SKEW;
         } else {
-            skew = FullMath.mulDiv(FullMath.mulDiv(MAX_WELL_SKEW, sigmaSqWad, 1e18), qBar, 1e18);
+            skew = SoladyMath.fullMulDiv(SoladyMath.fullMulDiv(MAX_WELL_SKEW, sigmaSqWad, 1e18), qBar, 1e18);
             if (skew > MAX_WELL_SKEW) skew = MAX_WELL_SKEW;
         }
         // §E79 — CAP-TO-BASE INVERSION. `_maxWellSkew` = σ²·confFrac/8 is an EXPECTED-LOSS RATE over
@@ -1091,7 +1090,7 @@ library SwapLib {
     function _skewBasis(address core, uint base, uint addedTok)
         private view returns (uint poolVolUsd)
     {
-        poolVolUsd = FullMath.mulDiv(
+        poolVolUsd = SoladyMath.fullMulDiv(
             (ICore(core).POOLED()) + addedTok,
             base, 1e30);
     }
@@ -1136,7 +1135,7 @@ library SwapLib {
         // §UNIT-B-PATIENCE: read the exposure clock here rather than threading it in — this frame
         // exists to RELIEVE stack pressure (no via_ir), so a fifth parameter would work against it.
         uint risk = _maxWellSkew(sigmaSqWad, rk) - splice;
-        uint out = FullMath.mulDiv(kernel + risk, _sharedScarcityWad(core), 1e18) + splice;
+        uint out = SoladyMath.fullMulDiv(kernel + risk, _sharedScarcityWad(core), 1e18) + splice;
         return out > MAX_WELL_SKEW ? MAX_WELL_SKEW : out;
     }
 
@@ -1151,7 +1150,7 @@ library SwapLib {
         // subtraction — computing it independently is how two views of one quantity drift apart.
         uint mine = ICore(core).bandEquityUsd18();
         uint other = both > mine ? both - mine : 0;
-        return 1e18 + FullMath.mulDiv(other, 1e18, both);
+        return 1e18 + SoladyMath.fullMulDiv(other, 1e18, both);
     }
 
     /// @param drainUsd6 The volatile-OUT this swap is about to take, in 6-dec USD — the SAME unit
@@ -1199,7 +1198,7 @@ library SwapLib {
         // otherwise underflowed on a BALANCED band — the common case — and cost 782 failures.
         uint splice = rk.spliceFloor;
         uint amp = raw > splice
-            ? FullMath.mulDiv(raw - splice, _sharedScarcityWad(core), 1e18) + splice
+            ? SoladyMath.fullMulDiv(raw - splice, _sharedScarcityWad(core), 1e18) + splice
             : raw;
         // §E79: the re-cap after the amplifier is now the ABSOLUTE ceiling. The expected-loss FLOOR
         // was already applied inside `skewWad`, and re-clamping to it here would undo the inversion
@@ -1309,13 +1308,13 @@ library SwapLib {
         // call). `via_ir` stays false, deliberately (CLAUDE.md): shed stack, do not switch pipeline.
         uint q;
         {
-            uint q1 = FullMath.mulDiv(over, 1e18, target);
+            uint q1 = SoladyMath.fullMulDiv(over, 1e18, target);
             if (q1 > 1e18) q1 = 1e18;                     // ≥2× target: linear term saturates
             // Pre-swap overshoot: strip this sell's own contribution back out of `inv`. A sell that
             // STARTED at/below target has q0 = 0 and pays only for the part that crossed above it.
-            uint addedUsd = FullMath.mulDiv(addedTok, base, 1e30);
+            uint addedUsd = SoladyMath.fullMulDiv(addedTok, base, 1e30);
             uint invBefore = inv > addedUsd ? inv - addedUsd : 0;
-            uint q0 = invBefore > target ? FullMath.mulDiv(invBefore - target, 1e18, target) : 0;
+            uint q0 = invBefore > target ? SoladyMath.fullMulDiv(invBefore - target, 1e18, target) : 0;
             if (q0 > 1e18) q0 = 1e18;
             q = (q0 + q1) / 2;                            // the integral's mean over THIS sell
         }
@@ -1335,8 +1334,8 @@ library SwapLib {
         // §E79: with the inversion, `_maxWellSkew(0)` is now a FLOOR of ~0 — returning it here would
         // re-open the free-drain hole E59 closed. UNMEASURED variance must price at the CEILING,
         // which is the conservative reading E59 intended and now says so in the right units.
-        uint skew = FullMath.mulDiv(
-            FullMath.mulDiv(MAX_WELL_SKEW, sigmaSqWad, 1e18), q, 1e18);
+        uint skew = SoladyMath.fullMulDiv(
+            SoladyMath.fullMulDiv(MAX_WELL_SKEW, sigmaSqWad, 1e18), q, 1e18);
         // §E53: the SAME shared-scarcity amplifier the drain leg carries — a sell that grows our
         // inventory is dearer to shed when the OTHER band has already spoken for the shared backing.
         // §E89b: and the SAME risk-vs-fee split — the settlement-window risk term rides the amplifier
@@ -1447,8 +1446,8 @@ library SwapLib {
     ///      levered LP weight == pooled + levBuf so the buffer keeps earning its
     ///      leverage yield even though it is not equity (net) share depth.
     function refreshBookmarks(Types.Deposit storage LP, uint weight, uint tokAccum, uint usdAccum) internal {
-        LP.fees_tok = FullMath.mulDiv(weight, tokAccum, WAD);
-        LP.fees_usd = FullMath.mulDiv(weight, usdAccum, WAD);
+        LP.fees_tok = SoladyMath.fullMulDiv(weight, tokAccum, WAD);
+        LP.fees_usd = SoladyMath.fullMulDiv(weight, usdAccum, WAD);
     }
 
     /// @dev Pending (tok, usd) rewards for an LP against the supplied
@@ -1457,8 +1456,8 @@ library SwapLib {
     function pendingFor(Types.Deposit storage LP, uint weight, uint feePerShareTok, uint feePerShareUsd)
         internal view returns (uint tokReward, uint usdReward) {
         if (weight == 0) return (0, 0);
-        uint tokOwed = FullMath.mulDiv(weight, feePerShareTok, WAD);
-        uint usdOwed = FullMath.mulDiv(weight, feePerShareUsd, WAD);
+        uint tokOwed = SoladyMath.fullMulDiv(weight, feePerShareTok, WAD);
+        uint usdOwed = SoladyMath.fullMulDiv(weight, feePerShareUsd, WAD);
         tokReward = tokOwed > LP.fees_tok ? tokOwed - LP.fees_tok : 0;
         usdReward = usdOwed > LP.fees_usd ? usdOwed - LP.fees_usd : 0;
     }
@@ -1470,8 +1469,8 @@ library SwapLib {
     function feeIncrements(uint fees, uint usd_fees, uint totalShares)
         internal pure returns (uint tokInc, uint usdInc) {
         if (totalShares == 0) return (0, 0);
-        if (fees > 0)     tokInc = FullMath.mulDiv(fees, WAD, totalShares);
-        if (usd_fees > 0) usdInc = FullMath.mulDiv(usd_fees, WAD, totalShares);
+        if (fees > 0)     tokInc = SoladyMath.fullMulDiv(fees, WAD, totalShares);
+        if (usd_fees > 0) usdInc = SoladyMath.fullMulDiv(usd_fees, WAD, totalShares);
     }
 
     // ── Delivery-side de-lever (partial-burn vBTC deliverability) ─────────────────────────────────
@@ -1582,7 +1581,7 @@ library SwapLib {
         uint n = ILevEthDeliver(mgr).openLevCount();
         for (uint i; i < n && deliveredEth < shortfallEth; i++) {
             address lp = ILevEthDeliver(mgr).openLpAt(i);
-            uint needUsd = FullMath.mulDiv(shortfallEth - deliveredEth, px, 1e18);   // remaining WETH → USD 1e18
+            uint needUsd = SoladyMath.fullMulDiv(shortfallEth - deliveredEth, px, 1e18);   // remaining WETH → USD 1e18
             (address venue, address stable, uint amtNative) = ILevEthDeliver(mgr).swapOutDeleverAmt(lp, needUsd);
             if (venue == address(0)) continue;
             if (amtNative == 0) {
@@ -1651,10 +1650,10 @@ library SwapLib {
         surplus = liquidTotal > committedBoth ? liquidTotal - committedBoth : 0;
         if (surplus == 0) return (0, 0, 0);
         deltaOut  = deltaTok;
-        targetUSD = FullMath.mulDiv(deltaTok, price, WAD);
+        targetUSD = SoladyMath.fullMulDiv(deltaTok, price, WAD);
         if (targetUSD > surplus) {
             targetUSD = surplus;
-            deltaOut  = FullMath.mulDiv(surplus, WAD, price);
+            deltaOut  = SoladyMath.fullMulDiv(surplus, WAD, price);
         }
     }
 
@@ -1667,7 +1666,7 @@ library SwapLib {
         internal pure returns (uint)
     {
         if (thetaEff >= 1e18) return available;
-        uint thetaCap   = FullMath.mulDiv(vogueAvail, thetaEff, 1e18);
+        uint thetaCap   = SoladyMath.fullMulDiv(vogueAvail, thetaEff, 1e18);
         uint thetaAvail = thetaCap > pooled ? thetaCap - pooled : 0;
         return available > thetaAvail ? thetaAvail : available;
     }
@@ -1712,12 +1711,12 @@ library SwapLib {
     function retainSkewPremium(address core, SwapReq memory r, uint skew, bool nativeAmount)   // §ISBTC-SPLIT: the `isBTC` param was never read
         internal {
         if (skew == 0) return;
-        uint premium = FullMath.mulDiv(r.amount, skew, 1e18);
+        uint premium = SoladyMath.fullMulDiv(r.amount, skew, 1e18);
         // ONLY the sell leg holds a NATIVE amount. The two drain legs hold the BUY-DRIVING USD, already
         // 6-dec — converting those (attempt 2) collapsed the recorded premium to 0. `r.px` cannot serve as
         // the discriminator: it is non-zero on BOTH swapToBody legs, so the caller states the unit.
         ICore(core).recordSkewPremium(
-            nativeAmount ? FullMath.mulDiv(premium, r.px, 1e30) : premium);
+            nativeAmount ? SoladyMath.fullMulDiv(premium, r.px, 1e30) : premium);
         r.amount -= premium;
     }
 
@@ -1763,7 +1762,7 @@ library SwapLib {
         internal pure returns (uint feeUsd6, uint created)
     {
         created = idleAfter > idleBefore ? idleAfter - idleBefore : 0;
-        feeUsd6 = FullMath.mulDiv(created, ratePpm, 1e6);
+        feeUsd6 = SoladyMath.fullMulDiv(created, ratePpm, 1e6);
     }
 
     /// @notice §E48 REFILL PLACEMENT — the refill's core arithmetic, and it is NOT A TRADE.
@@ -1834,7 +1833,7 @@ library SwapLib {
     {
         if (px == 0) return (0, 0, invTok, invUsd6);
         // Each leg expressed in the OTHER's unit, so the binding side is a plain comparison.
-        uint tokAsUsd6 = FullMath.mulDiv(invTok, px, 1e30);   // raw·USD18/1e30 -> 6-dec USD
+        uint tokAsUsd6 = SoladyMath.fullMulDiv(invTok, px, 1e30);   // raw·USD18/1e30 -> 6-dec USD
         if (tokAsUsd6 <= invUsd6) {
             // volatile is the scarce leg: place ALL of it, match its value in USD, idle the rest
             tokPlaced  = invTok;
@@ -1842,7 +1841,7 @@ library SwapLib {
         } else {
             // USD is the scarce leg: place ALL of it, match its value in volatile, idle the rest
             usd6Placed = invUsd6;
-            tokPlaced  = FullMath.mulDiv(invUsd6, 1e30, px);
+            tokPlaced  = SoladyMath.fullMulDiv(invUsd6, 1e30, px);
         }
         tokIdle  = invTok  - tokPlaced;
         usd6Idle = invUsd6 - usd6Placed;
@@ -1905,7 +1904,7 @@ library SwapLib {
         uint b = FixedPointMathLib.sqrt(p0c * 1e18);   // √P₀
         uint c = FixedPointMathLib.sqrt(upPrice * 1e18);
         if (c <= b || a == 0) return 1e18;             // degenerate: entry at/above the upper edge
-        return FullMath.mulDiv(FullMath.mulDiv(b, 1e18, a), c - a, c - b);
+        return SoladyMath.fullMulDiv(SoladyMath.fullMulDiv(b, 1e18, a), c - a, c - b);
     }
 
     /// @notice The band's ACTUAL sold-volatile fraction (WAD) since entry = `1 − holdingRatio` when the band

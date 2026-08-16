@@ -6,7 +6,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ICore} from "./Interfaces.sol";
 import {IBandManager} from "./Interfaces.sol";
 import {IBasketTurn, IWiredVault, IWiredBasket, ILevSweep, IVogue, ILevHost} from "./Interfaces.sol";
-import {FullMath} from "v4-core/src/libraries/FullMath.sol";
+import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {Types} from "./Types.sol";
@@ -77,7 +77,7 @@ library BasketLib {
         // defect into PERMANENT suppression rather than a visible wobble, because a basket dragged
         // under `raw` by one broken leg pinned `yield` at 0 forever. With per-leg rates a broken leg
         // can only zero ITS OWN contribution.
-        if (raw != 0) stats.yield = FullMath.mulDiv(WAD, rateWeighted, raw);
+        if (raw != 0) stats.yield = SoladyMath.fullMulDiv(WAD, rateWeighted, raw);
         stats.total = tvl; stats.last = block.timestamp;
 
         return stats;
@@ -152,7 +152,7 @@ library BasketLib {
                 // CLAIM (senior, non-redeemable), not of the VENUE. A seed reserve does not change
                 // what a vault earns per share, so excluding it from the MEASUREMENT is what
                 // introduced the error. It stays excluded from redeemable backing, as before.
-                uint ywCap = FullMath.mulDiv(yieldWeighted, cap, balance);
+                uint ywCap = SoladyMath.fullMulDiv(yieldWeighted, cap, balance);
                 balance -= cap;
                 yieldWeighted -= Math.min(yieldWeighted, ywCap);
             }
@@ -166,7 +166,7 @@ library BasketLib {
             uint sev = IAux(aux).getDepegSeverityBps(stable);
             if (sev > 0) {
                 uint lossFrac = sev > 10000 ? 10000 : sev;   // clamp to 100% (worthless)
-                uint loss = FullMath.mulDiv(balance, lossFrac, 10000);
+                uint loss = SoladyMath.fullMulDiv(balance, lossFrac, 10000);
                 yieldWeighted = yieldWeighted > loss ? yieldWeighted - loss : 0;
                 depegLoss += loss; // SAME per-stable loss redemption applies; returned
                                    // so _depegLoss needn't re-loop the feeds (2nd pass).
@@ -181,7 +181,7 @@ library BasketLib {
             // `balance` (post-tranche), the same quantity that lands in amounts[14], so the ratio is a
             // true weighted mean. `amounts[0]` is UNCHANGED — it is `calcFeeL1`'s baseline and moving
             // it would be a second money-path change in one run.
-            yieldW[0] += FullMath.mulDiv(balance, h.rate, WAD);
+            yieldW[0] += SoladyMath.fullMulDiv(balance, h.rate, WAD);
         }
     }
 
@@ -243,7 +243,7 @@ library BasketLib {
         Holding storage h = sh[stable];
         (uint lastLevel, uint rate, uint40 lastAt) = (h.lastLevel, h.rate, h.lastAt);
         if (b > 0) {
-            uint level = FullMath.mulDiv(WAD, yw, b);
+            uint level = SoladyMath.fullMulDiv(WAD, yw, b);
             if (lastAt == 0) {
                 // BOOTSTRAP: one observation cannot yield a rate. Anchor it and report 0 until the
                 // next sample — the conservative side (under-mints the bond, never over-mints).
@@ -252,7 +252,7 @@ library BasketLib {
                 // A FALLING level (venue loss) reports 0, not a negative rate, and still re-anchors —
                 // so the recovery back to the old level is not later paid out as if it were yield.
                 rate = level > lastLevel
-                    ? FullMath.mulDiv(FullMath.mulDiv(WAD, level - lastLevel, lastLevel),
+                    ? SoladyMath.fullMulDiv(SoladyMath.fullMulDiv(WAD, level - lastLevel, lastLevel),
                                       YEAR, block.timestamp - lastAt)
                     : 0;
                 if (rate > MAX_CREDIBLE_RATE) rate = MAX_CREDIBLE_RATE;   // §E196
@@ -288,7 +288,7 @@ library BasketLib {
         internal view returns (uint) {
         if (assets == 0) return 0;
         uint shares = IAux(aux).aaveShares(stable);
-        return shares > 0 ? FullMath.mulDiv(assets, assets, shares) : assets;
+        return shares > 0 ? SoladyMath.fullMulDiv(assets, assets, shares) : assets;
     }
 
     /// @dev The 4626 leg's yield weight = `b × sharePrice`, where sharePrice MUST be
@@ -309,7 +309,7 @@ library BasketLib {
     function _yieldWeight(address v, uint b, uint shares, uint assetDec)
         internal view returns (uint) {
         try IERC20(v).decimals() returns (uint8 sd) {
-            return FullMath.mulDiv(b,
+            return SoladyMath.fullMulDiv(b,
                 sd > assetDec ? b * (10 ** (uint(sd) - assetDec)) : b, shares);
         } catch { return b; }
     }
@@ -402,7 +402,7 @@ library BasketLib {
         uint trancheTotal, uint target,
         uint avgYield) internal pure returns (uint) {
         if (target == 0 || trancheTotal >= target || avgYield == 0) return 0;
-        return Math.min(FullMath.mulDiv(usd, avgYield, WAD * 12),
+        return Math.min(SoladyMath.fullMulDiv(usd, avgYield, WAD * 12),
                         target - trancheTotal);
     }
 
@@ -420,14 +420,14 @@ library BasketLib {
     function getPrice(uint spotPrice, bool token0isUSD)
         public pure returns (uint price) {
         uint casted = uint(spotPrice);
-        uint ratioX128 = FullMath.mulDiv(
+        uint ratioX128 = SoladyMath.fullMulDiv(
                casted, casted, 1 << 64);
 
         if (token0isUSD) {
-          price = FullMath.mulDiv(1 << 128,
+          price = SoladyMath.fullMulDiv(1 << 128,
               WAD * 1e12, ratioX128);
         } else {
-          price = FullMath.mulDiv(ratioX128,
+          price = SoladyMath.fullMulDiv(ratioX128,
               WAD * 1e12, 1 << 128);
         }
     }
@@ -508,8 +508,8 @@ library BasketLib {
     function convert(uint amount, uint price, bool toVol)
         public pure returns (uint) {
         return toVol
-            ? FullMath.mulDiv(amount * 1e12, 1e18, price)   // USDC → vol
-            : FullMath.mulDiv(amount, price, 1e18) / 1e12;  // vol → USDC
+            ? SoladyMath.fullMulDiv(amount * 1e12, 1e18, price)   // USDC → vol
+            : SoladyMath.fullMulDiv(amount, price, 1e18) / 1e12;  // vol → USDC
     }
 
     function routeSwap(Types.AuxContext memory ctx,
@@ -599,7 +599,7 @@ library BasketLib {
         // flow takes over (yield = avgYield, a function of the
         // constituent vault yields).
         uint yield = isSeed ? WAD : avgYield;
-        normalized += FullMath.mulDiv(normalized * yield,
+        normalized += SoladyMath.fullMulDiv(normalized * yield,
                         month - (nextMonth - 1), WAD * 12);
     }
 
@@ -808,7 +808,7 @@ library BasketLib {
                 amounts[i] = FeeLib.allocate(token, amount, amounts[i], amounts[14], fc);
                 if (amounts[i] == 0) subUnit = true;
             }
-            if (seed > 0) aux.tipSelf(FullMath.mulDiv(amounts[i], seed, amount), token, -1);
+            if (seed > 0) aux.tipSelf(SoladyMath.fullMulDiv(amounts[i], seed, amount), token, -1);
             if (amounts[i] > 0) {
                 // A bad/reverting-decimals stable (e.g. one bound via the permissionless
                 // registry hook) must contribute 0, NOT brick the whole pro-rata redeem — the
@@ -954,7 +954,7 @@ library BasketLib {
                     // blocking every aave-routed stable at once off one reserve's dip — a safety
                     // property held by accident, which is not a safe place to leave one.
                     if (supA > 0) {
-                        uint abps = FullMath.mulDiv(avail > supA ? supA : avail, 10000, supA);
+                        uint abps = SoladyMath.fullMulDiv(avail > supA ? supA : avail, 10000, supA);
                         if (abps < worstBps) { worstBps = abps; worst = aaveHealthKey(aaveSpoke, rid); }
                     }
                     continue;
@@ -974,7 +974,7 @@ library BasketLib {
                     uint deliv = VaultLib._withdrawableOf(v, aux);
                     if (solv > deliv) shortfall += solv - deliv;
                     // Free: `solv` and `deliv` are already in hand. Same ratio the poke computes.
-                    uint bps = FullMath.mulDiv(deliv, 10000, solv);
+                    uint bps = SoladyMath.fullMulDiv(deliv, 10000, solv);
                     if (bps < worstBps) { worstBps = bps; worst = v; }
                 } catch { continue; }
             }
@@ -1054,7 +1054,7 @@ library BasketLib {
         if (perShare == 0) return (0, 0, false);                        // fully depegged → nothing deliverable
         uint mature = IERC20(r.quid).balanceOf(r.source);
         { uint imm = IBasketTurn(r.quid).immatureBalanceOf(r.source); mature = mature > imm ? mature - imm : 0; }
-        uint wantUsd = FullMath.mulDiv(Math.min(r.amount, mature), perShare, WAD);   // value the holder wants out
+        uint wantUsd = SoladyMath.fullMulDiv(Math.min(r.amount, mature), perShare, WAD);   // value the holder wants out
         uint delivered = wantUsd < freeUsd ? wantUsd : freeUsd;         // pay from free vault stables first
         if (wantUsd > freeUsd) {
             uint need = wantUsd - freeUsd;
@@ -1067,8 +1067,8 @@ library BasketLib {
             unwound = true;
         }
         uint burned;
-        (burned, seedBurned) = IBasketTurn(r.quid).turn(r.source, FullMath.mulDiv(delivered, WAD, perShare));
-        usdPart = FullMath.mulDiv(burned, perShare, WAD);              // == delivered (turn burns mature-only, <= ask)
+        (burned, seedBurned) = IBasketTurn(r.quid).turn(r.source, SoladyMath.fullMulDiv(delivered, WAD, perShare));
+        usdPart = SoladyMath.fullMulDiv(burned, perShare, WAD);              // == delivered (turn burns mature-only, <= ask)
     }
 
     /// @dev §G.6 redeem shortfall sweep — the REACTIVE half of the ONE de-lever mechanism (shared with swap-out;
@@ -1245,7 +1245,7 @@ library BasketLib {
         // could block-then-evacuate a perfectly healthy vault holding real TVL.
         uint liquid = VaultLib._withdrawableOf(vault, address(this));
         if (reported == 0) return;                       // empty position → no-op
-        uint liqBps = FullMath.mulDiv(liquid, 10000, reported);
+        uint liqBps = SoladyMath.fullMulDiv(liquid, 10000, reported);
         if (liqBps >= LIQ_TOL_BPS) {
             // NON-BLOCKING recovery: auto-unblock a vault THIS path blocked once it
             // is liquid again — so a transient dip doesn't strand the vault waiting

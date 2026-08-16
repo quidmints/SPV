@@ -15,7 +15,7 @@ import {SwapLib} from "./imports/SwapLib.sol";
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
-import {FullMath} from "v4-core/src/libraries/FullMath.sol";
+import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
@@ -1029,7 +1029,7 @@ contract Aux is // Auxiliary
                 // haircut (riskFactor == 10000 − severity), one accessor, no double-negation.
                 uint sev = getDepegSeverityBps(stable);
                 if (sev > 0) {
-                    uint loss = FullMath.mulDiv(spTotal, sev > 10000 ? 10000 : sev, 10000);
+                    uint loss = SoladyMath.fullMulDiv(spTotal, sev > 10000 ? 10000 : sev, 10000);
                     spYieldWeighted = spYieldWeighted > loss ? spYieldWeighted - loss : 0;
                     depegLoss += loss; // include BOLD/SP's depeg slice in the returned total
                 }

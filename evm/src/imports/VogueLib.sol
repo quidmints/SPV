@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {FixedPointMathLib} from "solmate/src/utils/FixedPointMathLib.sol";
-import {FullMath} from "v4-core/src/libraries/FullMath.sol";
+import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 import {SwapLib} from "./SwapLib.sol";
 // §A.52: the SHARED WETH view (was a file-local `IWETH_VG` restating the same members).
 import {IWETH9} from "./ILevVenue.sol";
@@ -160,12 +160,12 @@ library VogueLib {
         (uint priceWad,) = ICore(core).poolStats();
         if (loPrice >= upPrice) return 0;
         uint p = priceWad < loPrice ? loPrice : (priceWad > upPrice ? upPrice : priceWad);
-        uint r1 = FixedPointMathLib.sqrt(FullMath.mulDiv(p, 1e36, upPrice));   // √(P/Pb) · 1e18
-        uint r2 = FixedPointMathLib.sqrt(FullMath.mulDiv(loPrice, 1e36, p));   // √(Pa/P) · 1e18
+        uint r1 = FixedPointMathLib.sqrt(SoladyMath.fullMulDiv(p, 1e36, upPrice));   // √(P/Pb) · 1e18
+        uint r2 = FixedPointMathLib.sqrt(SoladyMath.fullMulDiv(loPrice, 1e36, p));   // √(Pa/P) · 1e18
         uint denom = 2e18;
         if (r1 + r2 >= denom) return 0;
         denom -= (r1 + r2);
-        return FullMath.mulDiv(1e18, 1e18, 4 * denom);
+        return SoladyMath.fullMulDiv(1e18, 1e18, 4 * denom);
     }
 
     /// @notice The band's LIVE realized concavity α (WAD).
@@ -174,10 +174,10 @@ library VogueLib {
         (uint priceWad,) = ICore(core).poolStats();
         if (loPrice >= upPrice) return 0;
         uint p = priceWad < loPrice ? loPrice : (priceWad > upPrice ? upPrice : priceWad);
-        uint r1 = FixedPointMathLib.sqrt(FullMath.mulDiv(p, 1e36, upPrice));   // √(P/Pb) · 1e18
-        uint r2 = FixedPointMathLib.sqrt(FullMath.mulDiv(loPrice, 1e36, p));   // √(Pa/P) · 1e18
+        uint r1 = FixedPointMathLib.sqrt(SoladyMath.fullMulDiv(p, 1e36, upPrice));   // √(P/Pb) · 1e18
+        uint r2 = FixedPointMathLib.sqrt(SoladyMath.fullMulDiv(loPrice, 1e36, p));   // √(Pa/P) · 1e18
         if (r1 >= 1e18 || r1 + r2 >= 2e18) return 0;
-        return FullMath.mulDiv(1e18 - r1, 1e18, 2e18 - r1 - r2);
+        return SoladyMath.fullMulDiv(1e18 - r1, 1e18, 2e18 - r1 - r2);
     }
 
     /// @dev Annualized WAD yield the BAND itself earned on the capital it put at risk — θ's
@@ -216,7 +216,7 @@ library VogueLib {
         if (prem6 == 0) return 0;                       // unmeasured ⇒ caller fails OPEN
         uint pooled6 = ICore(core).POOLED_USD();
         if (pooled6 == 0) return 0;                     // no band capital at risk ⇒ nothing to size
-        return FullMath.mulDiv(prem6 * PREMIUM_ANNUALIZE, 1e18, pooled6);
+        return SoladyMath.fullMulDiv(prem6 * PREMIUM_ANNUALIZE, 1e18, pooled6);
     }
 
     /// @notice θ derived live: **band fee yield** / (K·σ²), clamped to <=1.
@@ -252,7 +252,7 @@ library VogueLib {
         if (sigmaSq == 0) return 1e18;
         uint kWad = kLvrWad(core, loPrice, upPrice);
         if (kWad == 0) return 1e18;
-        uint work = FullMath.mulDiv(kWad, sigmaSq, 1e18);
+        uint work = SoladyMath.fullMulDiv(kWad, sigmaSq, 1e18);
         if (work == 0) return 1e18;
         // The `theta > 1e18 ? 1e18 : theta` clamp that used to close this function is DELETED — it
         // adds no safety. EVERY consumer already short-circuits at the same threshold:
@@ -274,7 +274,7 @@ library VogueLib {
         // `SwapLib.clampByBacking` applies the PHYSICAL `backing − pooled` headroom independently.
         uint bandFeeYield = _bandFeeYieldWad(core);
         if (bandFeeYield == 0) return 1e18;
-        return FullMath.mulDiv(bandFeeYield, 1e18, work);
+        return SoladyMath.fullMulDiv(bandFeeYield, 1e18, work);
     }
 
     /// @notice Annualized realized variance (WAD) from Core's oracle ring.
@@ -312,7 +312,7 @@ library VogueLib {
             deltaTok);
         if (capped < deltaTok) {
             deltaTok = capped;
-            targetUSD = FullMath.mulDiv(deltaTok, price, WAD);
+            targetUSD = SoladyMath.fullMulDiv(deltaTok, price, WAD);
         }
         usdOut = targetUSD / 1e12;
         if (usdOut == 0) return (0, 0);
@@ -365,7 +365,7 @@ library VogueLib {
                 o.newBookmark = current;                         // no plain LP depth; just refresh the bookmark
             } else {
                 if (c.bookmark > 0 && current > c.bookmark)
-                    o.venueFeesPerShareInc = FullMath.mulDiv(current - c.bookmark, WAD, plainDepth);
+                    o.venueFeesPerShareInc = SoladyMath.fullMulDiv(current - c.bookmark, WAD, plainDepth);
                 o.newBookmark = current;
             }
         }
@@ -404,7 +404,7 @@ library VogueLib {
         Types.Deposit storage LP = autoManaged[user];
         SwapLib.refreshBookmarks(LP, LP.pooled + levBuf[user], feesPerShare, usdFees);
         uint plainW = SwapLib.plainNet(LP.pooled, levPooled[user]);
-        venueBm[user] = FullMath.mulDiv(plainW, venueFeesPerShare, WAD);
+        venueBm[user] = SoladyMath.fullMulDiv(plainW, venueFeesPerShare, WAD);
     }
 
     // ════════════════════════════════════════════════════════════════════

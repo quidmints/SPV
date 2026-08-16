@@ -18,7 +18,7 @@ import {SignatureChecker} from "@openzeppelin-submodule/utils/cryptography/Signa
 import {EndianConverter} from "@solarity/solidity-lib/libs/utils/EndianConverter.sol";
 import {ISPVGateway} from "../spv/interfaces/ISPVGateway.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {FullMath} from "v4-core/src/libraries/FullMath.sol";
+import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
@@ -113,10 +113,10 @@ library ChannelLib {
         uint currentPrincipalTime = state.spPrincipalTime +
         state.spValue * (block.timestamp - state.spLastUpdate);
         if (currentPrincipalTime > 0 && state.spTotalYield > 0) {
-            uint rate = FullMath.mulDiv(state.spTotalYield,
+            uint rate = SoladyMath.fullMulDiv(state.spTotalYield,
                     WAD * 365 days, currentPrincipalTime);
 
-            yieldContrib = FullMath.mulDiv(
+            yieldContrib = SoladyMath.fullMulDiv(
                totalValue, WAD + rate, WAD);
         } else
             yieldContrib = totalValue;
@@ -171,7 +171,7 @@ library ChannelLib {
         r.newSpLastUpdate = block.timestamp;
 
         // Only ETH gains count as harvested (BOLD yield compounds)
-        uint wethValueUSD = FullMath.mulDiv(r.wethGain, ethPrice, WAD);
+        uint wethValueUSD = SoladyMath.fullMulDiv(r.wethGain, ethPrice, WAD);
         r.newSpTotalYield = state.spTotalYield + wethValueUSD;
 
         // Sent is all principal
@@ -423,7 +423,7 @@ library ChannelLib {
         // (B) Accept a depegged stable at FAIR value (riskFactor-adjusted credit),
         // never minting unbacked QU!D; the haircut accrues to backing.
         uint rf = aux.riskFactor(token);
-        if (rf < 10000) usd = FullMath.mulDiv(usd, rf, 10000);
+        if (rf < 10000) usd = SoladyMath.fullMulDiv(usd, rf, 10000);
 
         uint _target = IQuidTarget(quid).target();
         if (aux.trancheTotal() < _target && msg.sender == quid) {

@@ -18,7 +18,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 
-import {FullMath} from "v4-core/src/libraries/FullMath.sol";
+import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
@@ -1084,7 +1084,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
 
         uint base = AUX.getTWAPforAsset(address(WETH), 1800);       // USD18 per 1e18 raw ETH
         uint amtUsdc = 2000 * USDC_PRECISION;                        // ~0.2% of a ~$1M+ band ⇒ tiny slippage
-        uint expectedWeth = FullMath.mulDiv(amtUsdc * 1e12, 1e18, base); // USD18/oracle ⇒ ETH18, pre-fee
+        uint expectedWeth = SoladyMath.fullMulDiv(amtUsdc * 1e12, 1e18, base); // USD18/oracle ⇒ ETH18, pre-fee
 
         vm.startPrank(User02);
         USDC.approve(address(AUX), amtUsdc);
@@ -2525,7 +2525,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         vm.prank(User01); AUX.swap(address(QUID), address(WETH), true, 1_000e18, 0);
         uint burned = qd0 - QUID.balanceOf(User01);
         uint got = (WETH.balanceOf(User01) - weth0) + (User01.balance - eth0);
-        uint gotUsd = FullMath.mulDiv(got, px, 1e18);                // 18-dec USD value of ETH received
+        uint gotUsd = SoladyMath.fullMulDiv(got, px, 1e18);                // 18-dec USD value of ETH received
         assertGt(burned, 0, "mature QD was consumed by the swap");
         assertGt(gotUsd, 0, "swap delivered ETH");
         // NO DRAIN: value out <= QD-in value (QD worth <= $1 each; +1% fee/slippage headroom). Pre-fix this
@@ -2558,11 +2558,11 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         vm.warp(block.timestamp + 35 days);
         uint perUnit;
         { (uint solv,) = AUX.get_metrics(true); uint ms = QUID.matureSupply();
-          perUnit = FullMath.mulDiv(1e18, solv, ms); if (perUnit > 1e18) perUnit = 1e18; }
+          perUnit = SoladyMath.fullMulDiv(1e18, solv, ms); if (perUnit > 1e18) perUnit = 1e18; }
         (uint red, uint burned) = _redeemValue(User01, 50_000e18);
         assertGt(burned, 0, "redeem burned mature QD");
         // NO OVER-BURN: delivered ~= burned*perShare (burn follows delivery even with a live BTC band).
-        assertApproxEqRel(red, FullMath.mulDiv(burned, perUnit, 1e18), 0.03e18,
+        assertApproxEqRel(red, SoladyMath.fullMulDiv(burned, perUnit, 1e18), 0.03e18,
             "delivered == burned*perShare (no over-burn with a committed BTC band)");
     }
 
@@ -2785,7 +2785,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         (uint pooled1,,uint debt1,) = V4.autoManaged(User01);
         uint acc1 = V4.feesPerShare();
 
-        uint expectedDebt1 = FullMath.mulDiv(pooled1, acc1, WAD);
+        uint expectedDebt1 = SoladyMath.fullMulDiv(pooled1, acc1, WAD);
         assertEq(debt1, expectedDebt1, "Debt should match formula");
 
         vm.prank(User02);
@@ -2794,7 +2794,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         (uint pooled2,,uint debt2,) = V4.autoManaged(User02);
         uint acc2 = V4.feesPerShare();
 
-        uint expectedDebt2 = FullMath.mulDiv(pooled2, acc2, WAD);
+        uint expectedDebt2 = SoladyMath.fullMulDiv(pooled2, acc2, WAD);
         assertEq(debt2, expectedDebt2, "Debt should match formula");
     }
 
@@ -2805,7 +2805,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         (uint pooled,,uint debtBefore,) = V4.autoManaged(User01);
         uint accBefore = V4.feesPerShare();
 
-        uint expectedPending = FullMath.mulDiv(pooled, accBefore, WAD) - debtBefore;
+        uint expectedPending = SoladyMath.fullMulDiv(pooled, accBefore, WAD) - debtBefore;
         (uint actualPending,) = V4.pendingRewards(User01);
 
         assertEq(actualPending, expectedPending, "Pending should match formula");
@@ -2931,7 +2931,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
             uint poolUsd6 = CORE.POOLED_USD();
             if (px == 0 || poolUsd6 == 0) break;
             // ~10% of in-range USD per step, in ETH at the live price.
-            uint ethStep = FullMath.mulDiv(poolUsd6 / 10 * 1e12, 1e18, px);
+            uint ethStep = SoladyMath.fullMulDiv(poolUsd6 / 10 * 1e12, 1e18, px);
             if (ethStep == 0) ethStep = 0.01 ether;
             vm.prank(seller);
             try AUX.swap{value: ethStep}(address(USDC), address(WETH), false, 0, 0) {
@@ -3185,9 +3185,9 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         console.log("trend LP out (ETH-numeraire, NOT IL)", got);
         if (p0 > 0 && p1 > 0) {
             // QUID is USD18 (1 QUI ~ $1), so its delta is already a USD amount.
-            uint exitUsd = FullMath.mulDiv((lp.balance - e) + (WETH.balanceOf(lp) - w), p1, 1e18)
+            uint exitUsd = SoladyMath.fullMulDiv((lp.balance - e) + (WETH.balanceOf(lp) - w), p1, 1e18)
                          + (QUID.balanceOf(lp) - q);
-            uint hodlUsd = FullMath.mulDiv(50 ether, p0, 1e18);
+            uint hodlUsd = SoladyMath.fullMulDiv(50 ether, p0, 1e18);
             console.log("trend LP USD exit vs HODL USD (IL = the gap)", exitUsd, hodlUsd);
         } else {
             console.log("trend: valuation TWAP at boundary - USD IL deferred to pure sims");
@@ -3483,13 +3483,13 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // that is slightly below $1 — so the floor is the pro-rata value less <1% fee, NOT a hard $1.
         uint perUnit;  // value of 1 QU!D (min par)
         { (uint solv,) = AUX.get_metrics(true); uint ms = QUID.matureSupply();
-          perUnit = FullMath.mulDiv(1e18, solv, ms); if (perUnit > 1e18) perUnit = 1e18; }
+          perUnit = SoladyMath.fullMulDiv(1e18, solv, ms); if (perUnit > 1e18) perUnit = 1e18; }
         (uint got,) = _redeemValue(User01, 10_000e18);
         console.log("normal redeem 10k -> value out (18-dec, all legs)", got);
-        assertGe(got, FullMath.mulDiv(10_000e18, perUnit, 1e18) * 99 / 100, "normal: redeem nets pro-rata (fee < 1%)");
+        assertGe(got, SoladyMath.fullMulDiv(10_000e18, perUnit, 1e18) * 99 / 100, "normal: redeem nets pro-rata (fee < 1%)");
         // Upper bound is the PRO-RATA value (perUnit), NOT par: a money path that ignored below-par drift and
         // paid a hard $1 would over-deliver to the early redeemer at the remaining holders' expense — caught here.
-        assertLe(got, FullMath.mulDiv(10_000e18, perUnit, 1e18) * 101 / 100, "normal: never over pro-rata (no free redemption)");
+        assertLe(got, SoladyMath.fullMulDiv(10_000e18, perUnit, 1e18) * 101 / 100, "normal: never over pro-rata (no free redemption)");
 
         // --- PRO 2: write-down is MONOTONIC in severity (loss recognized). ---
         // USDC is the backing; depeg it and watch the deliverable total fall.
@@ -3529,7 +3529,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         console.log("late  redeemer: value/burn", vB, burnB);
         if (burnA > 0 && burnB > 0) {
             assertApproxEqRel(
-                FullMath.mulDiv(vA, 1e18, burnA), FullMath.mulDiv(vB, 1e18, burnB), 0.01e18,
+                SoladyMath.fullMulDiv(vA, 1e18, burnA), SoladyMath.fullMulDiv(vB, 1e18, burnB), 0.01e18,
                 "no first-out advantage: equal value-per-QUI at a fixed depeg");
         }
     }
@@ -3556,7 +3556,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // and burns the full requested face (capacity is ample here — nothing frozen).
         uint perFace;
         { (uint solv,) = AUX.get_metrics(true); uint ms = QUID.matureSupply();
-          perFace = FullMath.mulDiv(RUNSIM_FACE, solv, ms);
+          perFace = SoladyMath.fullMulDiv(RUNSIM_FACE, solv, ms);
           if (perFace > RUNSIM_FACE) perFace = RUNSIM_FACE; }
         (uint red1, uint burn1) = _redeemTurn(User01);
         (uint red2, uint burn2) = _redeemTurn(User02);
@@ -3803,7 +3803,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     /// USD-18 value -> ETH-wei at the live TWAP (for unit-consistent coverage).
     function _ethEquiv(uint usd18) internal returns (uint) {
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
-        return px == 0 ? 0 : FullMath.mulDiv(usd18, 1e18, px);
+        return px == 0 ? 0 : SoladyMath.fullMulDiv(usd18, 1e18, px);
     }
 
     function _lpRemainders(address a, address b) internal view returns (uint, uint) {
@@ -3942,7 +3942,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         assertGt(lp2Fees, 0, "LP2 paid fee revenue on withdraw");
         // Equal stake -> EXACTLY equal fees. Measured residual is 0 wei, and it is zero by
         // construction rather than by luck: settleBtcLp pays via SwapLib.pendingFor, which is
-        // FullMath.mulDiv(weight, feesPerShareUsd, WAD) against a per-share accumulator that is
+        // SoladyMath.fullMulDiv(weight, feesPerShareUsd, WAD) against a per-share accumulator that is
         // identical for both LPs. Equal `weight` (both locked 2e7 sats) => the SAME mulDiv on the
         // SAME inputs => bit-identical output; there is no per-LP rounding step that could differ,
         // and no fee accrues between the two closes (no swap runs in between). Both legs measured

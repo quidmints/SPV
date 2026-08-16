@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {SwapLib} from "./SwapLib.sol";
-import {FullMath} from "v4-core/src/libraries/FullMath.sol";
+import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 // §E57: ether.fi's native-ETH sentinel, moved here with the offramp body that is its only user.
 import {IEtherFiLiquidityPool} from "./Interfaces.sol";   // §E57: the shared OfframpCfg shape (declared there;  still uses it)
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
@@ -313,14 +313,14 @@ library VaultLib {
         // fill still serves most of a large exit instead of deferring all of it for ~7 days.
         if (c.curvePool != address(0) && weethIn > 0) {
             uint wantOut = (weethFull == 0 || weethIn == weethFull)
-                ? amount : FullMath.mulDiv(amount, weethIn, weethFull);
+                ? amount : SoladyMath.fullMulDiv(amount, weethIn, weethFull);
             // 90% of the pool's WETH: slippage steepens toward the edge, so leave headroom rather than
             // sizing to the exact boundary the quadratic stops describing.
             uint cap = (ICurvePool(c.curvePool).balances(0) * 9) / 10;
-            if (wantOut > cap) weethIn = FullMath.mulDiv(weethIn, cap, wantOut);
+            if (wantOut > cap) weethIn = SoladyMath.fullMulDiv(weethIn, cap, wantOut);
         }
         uint covered = (weethFull == 0 || weethIn == weethFull)
-            ? amount : FullMath.mulDiv(amount, weethIn, weethFull);
+            ? amount : SoladyMath.fullMulDiv(amount, weethIn, weethFull);
         // RUNG 1 — CURVE `weETH/WETH-ng` (only if this contract holds weETH). Replaced a two-tier
         // Uniswap v3 loop 2026-08-09. Measured live against the weETH/WETH oracle, Curve vs the 0.01%
         // v3 tier: −1.39 vs −17.55 bps @1, −1.51 vs −18.79 @100, −3.47 vs −28.16 @1000. ~17–25 bps
@@ -399,7 +399,7 @@ library VaultLib {
                 // claim-and-repay step landed together.
                 try IEtherFiLiquidityPool(c.lp).requestWithdraw(recipient, eeth) returns (uint) {
                     return weethIn == weethFull
-                        ? amount : FullMath.mulDiv(amount, weethIn, weethFull);
+                        ? amount : SoladyMath.fullMulDiv(amount, weethIn, weethFull);
                 } catch {}
             }
         } catch {}

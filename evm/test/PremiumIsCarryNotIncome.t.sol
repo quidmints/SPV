@@ -4,7 +4,6 @@ pragma solidity ^0.8.28;
 import {Alles} from "./Alles.t.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
-import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 
 /// §E125 — IS THE SKEW PREMIUM FAIR CARRY, OR IS IT FARMABLE INCOME?
 ///
@@ -211,9 +210,9 @@ contract PremiumIsCarryNotIncome is Alles {
         // `sigma^2 * confFrac / 8` with `ETH_CONF_FRAC_WAD` = 380e9 ~ 12 SECONDS (one block). If
         // the premium cannot fund even that, the skew formula contradicts its own derivation. No
         // number outside the contracts enters this.
-        uint v18  = FullMath.mulDiv(ethQuiet - ethDrained, px, 1e18);   // displaced inventory, usd18
-        uint invWad = FullMath.mulDiv(8 * premium * 1e12, 1e18, v18);   // 8P/V, sigma^2-free
-        uint tStarWad = FullMath.mulDiv(invWad, 1e18, CORE.realizedVarianceWad());  // years, WAD
+        uint v18  = SoladyMath.fullMulDiv(ethQuiet - ethDrained, px, 1e18);   // displaced inventory, usd18
+        uint invWad = SoladyMath.fullMulDiv(8 * premium * 1e12, 1e18, v18);   // 8P/V, sigma^2-free
+        uint tStarWad = SoladyMath.fullMulDiv(invWad, 1e18, CORE.realizedVarianceWad());  // years, WAD
 
         emit log_named_uint("displaced inventory usd18  ", v18);
         emit log_named_uint("INVARIANT 8P/V (wad, sig^2-free)", invWad);
@@ -225,7 +224,7 @@ contract PremiumIsCarryNotIncome is Alles {
         // a REFERENCE annual vol as a SCENARIO, never as a measurement -- 0.36 = 60% annual vol, a
         // plausible ETH figure this thin fork (1.553e-4 => ~1.25%/yr) cannot produce.
         emit log_named_uint("T* SECONDS at 60%/yr reference vol (SCENARIO, not measured)",
-            FullMath.mulDiv(invWad, 1e18, 0.36e18) * 31_536_000 / 1e18);
+            SoladyMath.fullMulDiv(invWad, 1e18, 0.36e18) * 31_536_000 / 1e18);
 
         assertGe(tStarWad, 380_000_000_000,
             "E131: the premium must fund LVR over at least the settlement window it priced for");
@@ -270,8 +269,8 @@ contract PremiumIsCarryNotIncome is Alles {
         uint ethOut = (lp.balance + WETH.balanceOf(lp)) - ethBefore;
         uint usdOut = _stableValue18(lp) - usdBefore;
 
-        uint valueIn18  = FullMath.mulDiv(ethIn,  px, 1e18);
-        uint valueOut18 = FullMath.mulDiv(ethOut, px, 1e18) + usdOut;
+        uint valueIn18  = SoladyMath.fullMulDiv(ethIn,  px, 1e18);
+        uint valueOut18 = SoladyMath.fullMulDiv(ethOut, px, 1e18) + usdOut;
 
         emit log_named_uint("LP ETH in                 ", ethIn);
         emit log_named_uint("LP ETH out                ", ethOut);
@@ -329,8 +328,8 @@ contract PremiumIsCarryNotIncome is Alles {
         uint feesDlt = V4.USD_FEES() - fees0;
 
         // What the swapper ACTUALLY gave up vs an oracle fill of the same input, in usd6.
-        uint fairEth = FullMath.mulDiv(usdcIn * 1e12, 1e18, px);   // usd18 input / px -> ETH wei
-        uint paidUsd6 = fairEth > ethOut ? FullMath.mulDiv(fairEth - ethOut, px, 1e30) : 0;
+        uint fairEth = SoladyMath.fullMulDiv(usdcIn * 1e12, 1e18, px);   // usd18 input / px -> ETH wei
+        uint paidUsd6 = fairEth > ethOut ? SoladyMath.fullMulDiv(fairEth - ethOut, px, 1e30) : 0;
 
         emit log_named_uint("swapper USDC in (6d)        ", usdcIn);
         emit log_named_uint("swapper ETH out (wei)       ", ethOut);
