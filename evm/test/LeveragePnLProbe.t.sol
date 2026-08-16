@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Alles} from "./Alles.t.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
+import {IBasketTurn} from "../src/imports/Interfaces.sol";
 
 interface ISPq { function getCompoundedBoldDeposit(address) external view returns (uint); }
 
@@ -84,6 +85,14 @@ contract LeveragePnLProbe is Alles {
         emit log_named_uint("   totalLevPooled", V4.totalLevPooled());
         emit log_named_uint("   basket TVL    ", _tvl());
         emit log_named_uint("   committedUsd18", CORE.committedUsd18());
+        // §WHY-ANY-HAIRCUT — the redeem has exactly TWO haircut paths and both can be inert:
+        //   1. `depegLoss` subtracted from `solvent` in `_redeemQuote` (BasketLib:1019)
+        //   2. `perShare = ShareMath.qdShareValue(WAD, solvent, mature)` ≡ min(par, pro-rata)
+        // and `qdShareValue` returns PAR when `supplyPreBurn == 0` (ShareMath:25). So with
+        // matureSupply == 0 there is NO valuation haircut, and the shortfall must be the OTHER term:
+        // `freeUsd = solvent − max(il, committedUsd18)`, which is a COMMITMENT/LIQUIDITY bound, not a
+        // price. Those are different defects with different fixes, so measure which one is live.
+        emit log_named_uint("   matureSupply  ", IBasketTurn(address(QUID)).matureSupply());
     }
 
     /// TOTAL LP value in USD18 at a given ETH price (USD18 per 1e18 ETH): redeem the
