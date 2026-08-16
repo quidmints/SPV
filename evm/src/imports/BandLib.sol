@@ -50,7 +50,7 @@ library BandLib {
         bufBurned = levBuf[lp];
         uint grossRem = netRem + bufBurned;
         if (grossRem == 0) { levBufferUsd[lp] = 0; return (0, 0); }
-        ICore(c.core).modLP(grossRem, 0, address(0));      // tokenless burn of GROSS depth
+        ICore(c.core).modLP(int256(grossRem), 0, address(0));   // LEAVES ⇒ positive: tokenless burn of GROSS depth
         LP.pooled -= netRem; levPooled[lp] -= netRem;      // net leg leaves pooled / the share count
         levBuf[lp] = 0; levBufferUsd[lp] = 0;              // buffer leg leaves the fee weight
         // `levBuf[lp]` is now 0, so the GROSS fee weight is simply `LP.pooled`. Safe on both sides:
@@ -78,7 +78,7 @@ library BandLib {
         if (netTok == 0) return 0;
         LP.pooled += netTok; levPooled[lp] += netTok;
         SwapLib.refreshBookmarks(LP, LP.pooled + levBuf[lp], p.feesPerShare, p.usdFees);
-        ICore(c.core).modLP(netTok, netUsd, lp);
+        ICore(c.core).modLP(-int256(netTok), -int256(netUsd), lp);   // ENTERS ⇒ negative
         return netTok;
     }
 
@@ -97,7 +97,7 @@ library BandLib {
         if (bufUsd == 0) return 0;
         levBuf[lp] += bufTok; levBufferUsd[lp] += bufUsd;
         SwapLib.refreshBookmarks(LP, LP.pooled + levBuf[lp], p.feesPerShare, p.usdFees);
-        ICore(c.core).modLP(bufTok, bufUsd, lp);
+        ICore(c.core).modLP(-int256(bufTok), -int256(bufUsd), lp);   // ENTERS ⇒ negative
         return bufTok;
     }
 

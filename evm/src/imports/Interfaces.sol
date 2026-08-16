@@ -107,7 +107,12 @@ uint256 constant TRICRYPTO_WETH_IDX = 2;
 // A SHARED index constant would therefore be silently wrong for one of them — wrong-pair swap at
 // size, no revert, no id to assert against. Each pool carries its own pair of indices for that reason.
 // Token handles for the routing branch (the basket's own stables; USDC is TriCrypto's coin 0).
-address constant CURVE_TRICRYPTO_USDC_TOKEN = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
+/// USDC — the stable ROUTING HUB. §SCRUB (2026-08-16): was `CURVE_TRICRYPTO_USDC_TOKEN`, which named
+/// it after a pool it has nothing to do with — it is used as the hub in `_toUsdc`/`_fromUsdc`/
+/// `_routableStable`, where no TriCrypto is involved. The genuine TriCrypto names below are the POOL
+/// and its coin indices, and those stay. Also the ONE declaration (rule 2): `SOR.USDC_HUB` was a
+/// second private copy of this same address.
+address constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
 address constant RLUSD_TOKEN                = 0x8292Bb45bf1Ee4d140127049757C2E0fF06317eD;
 address constant PYUSD_TOKEN                = 0x6c3ea9036406852006290770BEdFcAbA0e23A0e8;
 address constant CURVE_USDC_RLUSD      = 0xD001aE433f254283FeCE51d4ACcE8c53263aa186;
@@ -332,7 +337,7 @@ interface ICore {
     function drawPooledUsdBtc(uint usd6) external;
     function subPendingSwapOut(uint usd6) external;
     function committedUsd18() external view returns (uint);
-    function modLP(uint delta, uint deltaUSD, address sender) external returns (uint);
+    function modLP(int256 delta, int256 deltaUSD, address sender) external returns (uint);
     function outOfRange(address sender, int amount, uint loPrice, uint upPrice, address token) external returns (uint);
     function POOLED() external view returns (uint);
     function btcThetaBacking() external view returns (uint);
@@ -396,6 +401,9 @@ interface IBandManager {
     function repack() external returns (uint price, uint lower, uint upper, uint liquidity, uint);
     function feesPerShare() external view returns (uint);
     function USD_FEES() external view returns (uint);
+    /// This band's engine. Without it a caller holding two band managers cannot reach the second
+    /// band's `POOLED`/`POOLED_USD`, which is what silently made cross-band isolation untestable.
+    function CORE() external view returns (address);
     function derivedThetaWad() external view returns (uint);
     function setBTCChannels(address b) external;
 }

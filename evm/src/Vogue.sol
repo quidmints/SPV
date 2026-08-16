@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
+import {ReentrancyGuard} from "solmate/utils/ReentrancyGuard.sol";
 import {BandLib} from "./imports/BandLib.sol";
 // §A.52: the canonical view (was a file-local `IEthVenueV`).
 import {IEthVenue} from "./imports/Interfaces.sol";
@@ -12,7 +12,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 // the LAST v4 import in this file; solady already ships the same full-precision operation and
 // is already a dependency (SwapLib imports it), so the v4 edge disappears at no cost.
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
-import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
+import {WETH as WETH9} from "solmate/tokens/WETH.sol";
 import {SwapLib} from "./imports/SwapLib.sol";
 import {VogueLib} from "./imports/VogueLib.sol";
 
@@ -46,7 +46,9 @@ contract Vogue is
 
     uint constant WAD = 1e18;
     // §NAMING — was `V4`, which read as Uniswap v4. It is the Core band engine and always was.
-    Core CORE; WETH9 WETH;
+    /// @dev `CORE` is PUBLIC for the reason spelled out on `Vault.CORE`: each band must be able to
+    ///      name its own engine, or "these two bands are isolated" cannot be checked from outside.
+    Core public CORE; WETH9 WETH;
 
     // There is NO venue choice: `deposit(assets, receiver)` takes no venue argument and every ETH
     // deposit becomes weETH. `VogueLib._supplyEtherFi` is the single destination, and a placement of
@@ -741,7 +743,7 @@ contract Vogue is
     ///      the legacy stack (no via_ir crutch). Mirrors Vault._modLpBtc.
     function _modLpEth(uint spotPrice, uint deltaETH, uint deltaUSD,
         uint loPrice, uint upPrice, address pledge) private {
-        CORE.modLP(deltaETH, deltaUSD, pledge);
+        CORE.modLP(-int256(deltaETH), -int256(deltaUSD), pledge);   // ENTERS ⇒ negative
     }
     /// @notice Reconcile `lp`'s LEVERED band position to its LIVE net-equity — the IL-protect fee lane.
     ///         PERMISSIONLESS (keeper/monitor/anyone): when the leverage's net-equity GROWS, mint band depth
