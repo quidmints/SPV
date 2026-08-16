@@ -313,13 +313,17 @@ library BtcVaultLib {
         // Deposit the stable backing via AUX (pool-agnostic), normalize to 6-dec USD.
         uint amt = SwapLib.scaleTo6(IAux(c.aux).deposit(a.owner, a.token, a.amount), a.token);
         uint128 liquidity = SwapLib.sizeOorUsd(amt, t, t1);
+        // `liquidity` is still the sizer's own VALIDITY CHECK -- a range that can hold nothing
+        // yields zero -- even though the POSITION is now stored as an amount.
         if (liquidity == 0) revert Dust();
         next = a.idBtc + 1;
         selfManagedBtc[next] = Types.SelfManaged({
             created: block.number, owner: a.owner,
-            lower: t.newLo, upper: t.newUp, liq: int(uint(liquidity)) });
+            lower: t.newLo, upper: t.newUp, amt: amt });   // §V4-CUT: the AMOUNT, not liquidity
         positionsBtc[a.owner].push(next);
-        ICore(c.core).outOfRange(a.owner, int(uint(liquidity)), t.newLo, t.newUp, address(0));
+        // `liquidity` is still computed and still gates on Dust -- it is the sizer's own validity
+        // check (a range that can hold nothing yields zero) -- but the POSITION is the amount.
+        ICore(c.core).outOfRange(a.owner, amt, false, t.newLo, t.newUp, address(0));
     }
 
     /// @notice Body of Vault.pullBtc — close/partially-reduce a self-managed BTC
@@ -335,8 +339,8 @@ library BtcVaultLib {
         if (position.owner != owner) revert NotOwner();
         require(block.number >= position.created + 47, "too soon");
         if (percent == 0 || percent > 100) revert BadPercent();
-        int liquidity = position.liq * percent / 100;
-        if (liquidity == 0) revert Dust();
+        uint closed = position.amt * uint(int(percent)) / 100;   // §V4-CUT: an AMOUNT, unsigned -- direction is the `closing` flag, not the sign
+        if (closed == 0) revert Dust();
         int24 lower = position.lower;
         int24 upper = position.upper;
         uint[] storage myIds = positionsBtc[owner];
@@ -350,10 +354,10 @@ library BtcVaultLib {
                 }
             }
         } else {
-            position.liq -= liquidity;
-            if (position.liq == 0) revert Dust();
+            position.amt -= closed;
+            if (position.amt == 0) revert Dust();
         }
-        ICore(core).outOfRange(owner, -liquidity, lower, upper, token);
+        ICore(core).outOfRange(owner, closed, true, lower, upper, token);
     }
 
     /// @notice Full body of Vault.registerBtcLp (prologue + rebalance moved here):

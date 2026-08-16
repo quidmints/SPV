@@ -760,19 +760,33 @@ contract Core is SafeCallback {
     }
 
     /// @notice Fused outOfRange. Action enum differentiates ETH vs BTC.
-    function outOfRange(address sender, int liquidity,
-        int24 tickLower, int24 tickUpper, address token)
+    /// §V4-CUT — NO UNLOCK, NO CUSTODIAN. The caller now passes the token AMOUNT it placed rather
+    /// than v4's liquidity encoding, so there is nothing to decode and nothing to ask the
+    /// PoolManager for: the amount settles against our own inventory through `_handleDelta`,
+    /// exactly like a swap.
+    /// ⚠️ `inRange = false` IS PRESERVED AND IS LOAD-BEARING: an out-of-range order must not move
+    /// `POOLED_*`, which tracks the ACTIVE band. Dropping it would let a resting boundary order
+    /// inflate the in-range inventory every LP claim is priced against.
+    /// ⚠️ `amount` IS UNSIGNED AND DIRECTION IS EXPLICIT. The old parameter was `int liquidity`
+    /// ONLY because v4's `liquidityDelta` is signed — the sign was doing double duty as direction.
+    /// A position SIZE is never negative, so carrying it as `int` meant casting at every call site
+    /// and every store. `closing` says what the sign used to say, and says it legibly.
+    /// ⇒ THIS WAS THE LAST `poolManager.unlock` AND THE LAST `_modifyLiquidity`. With it gone the
+    /// band's tokens are ours, custody and accounting are one thing again, and the transitional
+    /// divergence marked in `swap` is CLOSED.
+    function outOfRange(address sender, uint amount, bool closing,
+        int24 /*tickLower*/, int24 /*tickUpper*/, address token)
         public onlyUs returns (uint tokOut) {
-        BalanceDelta d = abi.decode(poolManager.unlock(abi.encode(
-            IS_BTC ? Action.OutsideRangeBTC : Action.OutsideRangeETH,
-            sender, liquidity, tickLower, tickUpper, token)),
-            (BalanceDelta));
-        // On a burn (liquidity<0) the token (BTC/ETH) leg is positive — the mock
-        // amount the order held. Returned so a closing BTC LP can net the boundary
-        // orders' unfilled (native) sats out of its in-range native burn (callers
-        // that don't need it, e.g. Vogue.pull, simply ignore the return).
-        int128 t = token1isVol ? d.amount1() : d.amount0();
-        tokOut = t > 0 ? uint(int(t)) : 0;
+        // Single-sided by construction: a boundary order rests entirely on one side of spot, so the
+        // amount belongs to the volatile leg when `token == 0` and to the USD leg otherwise.
+        // OPENING: tokens ENTER ⇒ negative, per `_handleDelta`'s rule that positive LEAVES.
+        int256 signed = closing ? int256(amount) : -int256(amount);
+        Delta memory d = ((token == address(0)) == token1isVol)
+            ? Delta(0, signed)
+            : Delta(signed, 0);
+        _handleDelta(d, false, false, sender, token);
+        int256 t = token1isVol ? d.amt1 : d.amt0;
+        tokOut = t > 0 ? uint(t) : 0;
     }
 
     /// @notice Fused swap — IS_BTC selects which V4 pool. The shortfall signal is
@@ -1005,8 +1019,9 @@ contract Core is SafeCallback {
         // ModLP is a balance change; Collect has nothing to harvest. Only the self-managed
         // boundary order still round-trips through v4, and only because it is still expressed
         // in TICKS. Its handler is the last thing holding `_modifyLiquidity` alive.
-        if (a == Action.OutsideRangeETH || a == Action.OutsideRangeBTC)
-            return _handleOutsideRange(payload);
+        // §V4-CUT — NOTHING UNLOCKS. Every operation settles against inventory directly, so this
+        // callback is unreachable. It survives only because `SafeCallback` requires the override,
+        // and it goes when the base class does.
         return "";
     }
 
@@ -1014,17 +1029,6 @@ contract Core is SafeCallback {
         return IS_BTC ? VANILLA_BTC : VANILLA_ETH;
     }
 
-    function _handleOutsideRange(bytes calldata data)
-        internal returns (bytes memory) {
-        (address sender, int liquidity, int24 tickLower,
-            int24 tickUpper, address token) = abi.decode(data,
-            (address, int, int24, int24, address));
-
-        (BalanceDelta delta,) = _modifyLiquidity(liquidity,
-                                tickLower, tickUpper);
-        _handleDelta(Delta(int256(delta.amount0()), int256(delta.amount1())), false, false, sender, token);
-        return abi.encode(delta);
-    }
 
     /// §V4-CUT — the pair travels as ONE memory pointer, not two stack values. `BalanceDelta` was a
     /// SINGLE PACKED int256; two `int256` parameters added a stack slot per call site and blew the
@@ -1164,26 +1168,29 @@ contract Core is SafeCallback {
         }
     }
 
-    function _modifyLiquidity(int delta, int24 lowerTick, int24 upperTick) internal returns (BalanceDelta totalDelta, BalanceDelta feesAccrued) {
-        (totalDelta, feesAccrued) = poolManager.modifyLiquidity(
-            _key(), IPoolManager.ModifyLiquidityParams({
-                tickLower: lowerTick, tickUpper: upperTick,
-                liquidityDelta: delta, salt: bytes32(0)}), ZERO_BYTES);
-    }
 
-    function poolStats(int24 tickLower, int24 tickUpper)
+    /// §V4-CUT — THE LAST TWO v4 READS, NOW ANSWERED FROM OUR OWN STATE.
+    /// These asked Uniswap's singleton for the spot price and the position's size. We hold both now:
+    /// the price is the oracle the fill settles at, and the "position" is the band's own inventory.
+    /// `liquidity` reports `POOLED` — the band's volatile holding — because that is what the callers
+    /// actually want (how much depth is there), and it was only ever v4 liquidity units because v4
+    /// was the custodian.
+    /// ⚠️ The tick bounds are ignored: with inventory held directly there is no per-range position to
+    /// look up. Callers passing (0,0) already relied on that.
+    function poolStats(int24, int24)
         public view returns (uint160 sqrtPriceX96, int24 currentTick,
-        uint128 liquidity) { PoolId pool;
-        (pool, sqrtPriceX96, currentTick) = poolTicks();
-        (liquidity,,) = poolManager.getPositionInfo(pool,
-        address(this), tickLower, tickUpper, bytes32(0));
+        uint128 liquidity) {
+        (, sqrtPriceX96, currentTick) = poolTicks();
+        liquidity = uint128(POOLED);
     }
 
+    /// @dev `currentTick` is retained as 0 — nothing reads it for pricing any more (the ring stores
+    ///      plain price and the fill quotes the oracle), and returning a FABRICATED tick would be
+    ///      worse than returning none: it would look like a live curve position.
     function poolTicks() public view
         returns (PoolId, uint160, int24) {
-        PoolId pool = _poolId();
-        (uint160 sqrtPriceX96, int24 currentTick,,) = poolManager.getSlot0(pool);
-        return (pool, sqrtPriceX96, currentTick);
+        return (_poolId(), uint160(AUX.getTWAPforAsset(
+            IS_BTC ? address(AUX.WBTC()) : address(AUX.WETH()), 1800)), int24(0));
     }
 
     /// §TICK-REMOVAL — the ring stores PLAIN PRICE. `getSlot0` still hands us a sqrt-price (that is

@@ -294,7 +294,17 @@ contract Vogue is
         }
         // Backing deposit + single-sided sizing lives in VogueLib (EIP-170
         // headroom); self-managed positions take no wall attribution (pledge==0).
-        uint128 liquidity = VogueLib.sizeOutOfRange(
+        // §V4-CUT — THE POSITION NOW STORES THE AMOUNT, NOT THE LIQUIDITY.
+        // `liquidity` was v4's encoding of the position; settling against our own inventory needs
+        // the token AMOUNT, and converting back would mean reimplementing the inverse AMM math
+        // (absent from every importable library here). The sizer already computes `placed` on the
+        // way to `liquidity` -- it was discarding it.
+        // ⚠️ THE PRO-RATA ARITHMETIC IS UNCHANGED. Every consumer does `pos.amt * percent / 100` and
+        // `pos.amt -= x`; both liquidity and amount scale LINEARLY with position size, so partial
+        // closes behave identically. That is why this is a representation change, not a maths change.
+        // `liquidity` is still computed and still gates on Dust, because it is the sizing function's
+        // own validity check -- a range that can hold nothing yields zero liquidity.
+        (uint128 liquidity, uint placed) = VogueLib.sizeOutOfRange(
             address(WETH), address(AUX), address(EV),
             amount, token, token1isVol, t);
         if (liquidity == 0) revert Dust();
@@ -303,12 +313,9 @@ contract Vogue is
         selfManaged[next] = Types.SelfManaged({
             created: block.number, owner: msg.sender,
             lower: t.newLo, upper: t.newUp,
-            liq: int(uint(liquidity)) });
+            amt: placed });
         positions[msg.sender].push(next);
-        V4.outOfRange(msg.sender,
-            int(uint(liquidity)),
-            t.newLo, t.newUp,
-            address(0));
+        V4.outOfRange(msg.sender, placed, false, t.newLo, t.newUp, address(0));
     } // Re-audited 2026-07-24 (self-managed OOR position create): internally consistent.
     // tick ordering — newUpper-newLower == range, aligned to width=10 and range a multiple
     // of 50 ≥ 100, so lower<upper always (no degenerate/inverted band); liquidity cast

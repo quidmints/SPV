@@ -519,8 +519,8 @@ library VogueLib {
         if (position.owner != owner) revert NotOwner();
         require(block.number >= position.created + 47, "too soon");
         if (percent == 0 || percent > 100) revert BadPercent();
-        int liquidity = position.liq * percent / 100;
-        if (liquidity == 0) revert Dust();
+        uint closed = position.amt * uint(int(percent)) / 100;   // §V4-CUT: an AMOUNT, unsigned -- direction is the `closing` flag, not the sign
+        if (closed == 0) revert Dust();
         int24 lower = position.lower;
         int24 upper = position.upper;
         uint[] storage myIds = positions[owner];
@@ -534,10 +534,10 @@ library VogueLib {
                 }
             }
         } else {
-            position.liq -= liquidity;
-            if (position.liq == 0) revert Dust();
+            position.amt -= closed;
+            if (position.amt == 0) revert Dust();
         }
-        ICore(core).outOfRange(owner, -liquidity, lower, upper, token);
+        ICore(core).outOfRange(owner, closed, true, lower, upper, token);
     }
 
     // ════════════════════════════════════════════════════════════════════
@@ -554,7 +554,7 @@ library VogueLib {
     function sizeOutOfRange(
         address weth, address aux, address ev,
         uint amount, address token, bool token1isVol, SwapLib.Oor memory t
-    ) public returns (uint128 liquidity) {
+    ) public returns (uint128 liquidity, uint placed) {
         // §A.56: both branches were an INLINE COPY of `SwapLib.sizeOorUsd` — the same helper the BTC
         // path (`BtcVaultLib.outOfRangeBtc`) already calls. Verified byte-identical: the USD side maps
         // to `sizeOorUsd(.., token1isVol)` and the ETH side is its MIRROR (`!token1isVol`), because
@@ -568,6 +568,13 @@ library VogueLib {
             amount = SwapLib.scaleTo6(IAux(aux).deposit(msg.sender, token, amount), token);
             liquidity = SwapLib.sizeOorUsd(amount, t, token1isVol);
         }
+        // §V4-CUT — ALSO RETURN THE AMOUNT ACTUALLY PLACED. `liquidity` is v4's encoding of this
+        // position; `placed` is the token amount it was sized FROM, after the deposit leg. Settling
+        // against our own inventory needs the AMOUNT, and converting back from liquidity would mean
+        // reimplementing the inverse AMM math -- which is not in any importable library here (it
+        // exists only in v4-periphery's TEST files) and is not arithmetic to write casually on a
+        // custody path. The sizing function already HAS the number; it was simply discarding it.
+        placed = amount;
     }
 
     /// @dev DEPLOY-TIME ONLY — the body of `Vogue.setup`, moved here for the same

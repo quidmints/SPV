@@ -318,7 +318,7 @@ interface ICore {
     function subPendingSwapOut(uint usd6) external;
     function committedUsd18() external view returns (uint);
     function modLP(uint160 sqrtPriceX96, uint delta, uint deltaUSD, int24 tickLower, int24 tickUpper, address sender) external returns (uint);
-    function outOfRange(address sender, int liquidity, int24 tickLower, int24 tickUpper, address token) external returns (uint);
+    function outOfRange(address sender, uint amount, bool closing, int24 tickLower, int24 tickUpper, address token) external returns (uint);
     function token1isVol() external view returns (bool);
     function POOLED() external view returns (uint);
     function btcThetaBacking() external view returns (uint);

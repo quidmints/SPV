@@ -20,7 +20,9 @@ library Types {
         address owner;
         int24 lower;
         int24 upper;
-        int liq;
+        // §V4-CUT — the token AMOUNT placed, not v4 liquidity units. Pro-rata maths is unchanged
+        // (both scale linearly with position size); what changes is that this needs no AMM decode.
+        uint amt;
     }
 
     /// @notice Vogue LP deposit...
