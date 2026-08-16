@@ -542,7 +542,12 @@ library LevMath {
     ///      `_stableToWethSor`. `minOut` is unused on that branch because no trade occurs.
     function _wethToStableDex(SellCtx memory c, address stable, uint256 wethIn, uint256 minOut) internal returns (uint256) {
         if (stable == c.weth) return wethIn;              // loan token IS WETH — nothing to convert
-        IERC20Min(c.weth).approve(c.aux, wethIn);
+        // (2026-08-16) The `approve(c.aux, wethIn)` that stood here is DELETED. It was vestigial from
+        // the pre-`084bc5c` SOR version, where the swap really did go through Aux
+        // (`sorSelfFundedReverse`). `_wethToStableCurve` approves CURVE_TRICRYPTO_USDC itself and
+        // never touches Aux, so the allowance was granted on EVERY de-lever and never consumed —
+        // a standing WETH approval accruing as a side effect of a line that read as necessary.
+        // The buy-side twin `_stableToWethSor` never had it: it approves the pool directly.
         return _wethToStableCurve(c.weth, stable, wethIn, minOut);   // Curve: WETH → USDC → stable
     }
 

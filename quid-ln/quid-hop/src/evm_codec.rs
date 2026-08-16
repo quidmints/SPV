@@ -714,8 +714,19 @@ pub fn encode_open_channel(
     )
 }
 
-/// `splice(bytes32,OpenParams,bytes,bytes32[],bytes,uint256)` calldata. `lp_auth`
-/// is the LP's 65-byte `r‖s‖v` ECDSA over [`splice_digest`]. `channel_id`
+/// `splice(bytes32,OpenParams,bytes,bytes32[])` calldata — FOUR parameters, matching
+/// [`SIG_SPLICE`] and the tokens encoded below.
+///
+/// ⚠️ CORRECTED 2026-08-16. This header declared a SIX-parameter ABI,
+/// `splice(bytes32,OpenParams,bytes,bytes32[],bytes,uint256)`, and documented both extra
+/// arguments as live. **Neither exists.** The trailing `uint256` was `fee_settle_sats`,
+/// DELETED in §E191; the `bytes` was a per-splice `lpAuth`, retired in §E157. The selector
+/// constant and the encoder were always right — only this prose was wrong, which is exactly
+/// why `check-client-abis.py` reports 0 drifted: it compares [`SIG_SPLICE`] against the
+/// compiled ABI and never reads a comment. **A doc block is not covered by the ABI gate, so
+/// it rots silently on the one surface a reader trusts to explain the call.**
+///
+/// `channel_id`
 /// is the STABLE original channelId (keyed on the original funding outpoint), NOT
 /// recomputed from the splice tx — a splice rotates only the live funding UTXO.
 /// `params.amount_sats` is the new TOTAL: > current GROWS (adds liquidity),
@@ -724,13 +735,26 @@ pub fn encode_open_channel(
 /// key) to drive the delivered/native split — no attested balance needed. The
 /// contract reverts if unchanged.
 ///
-/// `fee_settle_sats`: on a GROW, the portion of the added liquidity the hop is
-/// FUNDING in as this LP's accrued BTC-leg fees (`btcFeesOwedSats`). The contract
-/// requires `fee_settle_sats <= grewBy` (can only clear fees actually spliced in) and
-/// clamped-subtracts it from the LP's owed — the fees COMPOUND into `LP.pooled` (a bigger
-/// POOLED share grows the LP's close payout, so `delivered` stays invariant). `0` for a
-/// pure capacity splice. (B) NO `lpAuth`: `splice` is authorized on-chain by the channel
-/// hop gate (channel.hop, fixed at open to a delegated hop) — the LP runs nothing.
+/// ⛔ The `fee_settle_sats` paragraph that stood here is DELETED with the parameter (§E191).
+/// It described the hop marking part of a GROW as this LP's accrued BTC-leg fees against
+/// `btcFeesOwedSats` — a function §E145 had already removed, so the driver was RPC-reading a
+/// nonexistent selector every splice and swallowing the revert with `.unwrap_or(0)`. Fees
+/// still compound into the LP's position; they simply do not travel on this call.
+///
+/// **AUTHORIZATION.** `splice` carries no LP signature: it is gated on-chain by `_onlyHop()`.
+/// ⚠️ CORRECTED 2026-08-16 — this used to say the gate is *"channel.hop, fixed at open to a
+/// delegated hop"*. **`channel.hop` is DELETED (§E164)**; the gate is `msg.sender == MAIN_HOP
+/// || msg.sender == FALLBACK_HOP`, two immutable addresses, so EITHER hop may splice ANY
+/// channel and there is no per-channel authority partition (§HOP-PARTITION-IS-GONE).
+/// What bounds a splice is not who calls it: `_verifySplice` SPV-proves the tx spends this
+/// channel's funding UTXO, every withdrawal output pins to `btcRecipientOf`, and the §E129-c
+/// KeyAgg gate proves `p.lpPubkey` is inside the NEW `Q` — so a grow cannot migrate custody.
+///
+/// ⚠️ [`splice_digest`] IS NOT ON THIS PATH. It documents itself as *"the message the LP signs
+/// to authorize a splice"*, but the contract verifies no such signature and this encoder sends
+/// none — its only callers are tests. It is kept because the digest is the natural message for
+/// an LP-consent gate that does not exist yet (§E182 rekey needs exactly one); **do not read
+/// its presence as evidence that splices are LP-authorized today, because they are not.**
 pub fn encode_splice(
     channel_id: [u8; 32],
     params: &OpenParams,

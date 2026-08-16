@@ -172,6 +172,24 @@ library MuSig2Agg {
             "TapLeaf", abi.encodePacked(bytes1(0xc0), bytes1(uint8(script.length)), script));
     }
 
+    /// @notice (T2) BIP-341 TapBranch: combine two child hashes into their parent —
+    ///         `tagged_hash("TapBranch", min(a,b) || max(a,b))`.
+    /// @dev THE SORT IS CONSENSUS, NOT TIDINESS. BIP-341 orders the two children
+    ///      lexicographically so a merkle path need not record which side each sibling was on;
+    ///      concatenating them in call order instead would compute a root Bitcoin does not agree
+    ///      with, and the deposit address derived from it would simply never be paid.
+    /// @dev Exists so a deposit address can commit to MORE than the refund leaf. Today
+    ///      `swapInDepositKey` tweaks by a single leaf hash, so the address proves who may
+    ///      reclaim the deposit and nothing else; §T2 adds a second, unspendable leaf carrying
+    ///      `sha256(seller, token, minDeliveredUsd)` so the address commits to the whole quote
+    ///      and the hop cannot restate any of it. `taprootOutputKeyWithLeaf` already accepts a
+    ///      merkle ROOT rather than a leaf (see its docblock), so this is the only piece missing.
+    function tapBranch(bytes32 a, bytes32 b) public pure returns (bytes32) {
+        return a < b
+            ? taggedHash("TapBranch", abi.encodePacked(a, b))
+            : taggedHash("TapBranch", abi.encodePacked(b, a));
+    }
+
     /// @notice (E159) BIP-341 output key for an internal key committing to a SINGLE leaf:
     ///         `Q = lift_x_even(P) + H_TapTweak(x(P) || leafHash)·G`.
     /// @dev Differs from `computeOutputKey` in exactly two ways, both load-bearing: the

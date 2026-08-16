@@ -1,10 +1,12 @@
-# `VBtc.asset()` and EIP-7540: the BTC band is asynchronous, and today's face denies it
+# `VBtc.asset()` and EIP-7540: BOTH bands are asynchronous, and both faces deny it
 
 Owner-directed 2026-08-16 (pointer: <https://eips.ethereum.org/EIPS/eip-7540>). **Nothing below is
 implemented.** This settles the follow-on CLAUDE.md already books — *"today `VBtc.asset()` returns
 WBTC as a pricing handle … that accessor's meaning has to be revisited; do not carry it across
 unexamined"* — and it is a prerequisite for the band-manager merge, because the merge has to decide
-what a single band manager's 4626 face means on the BTC side.
+what a single band manager's face means. ⚠️ The answer changed once the owner pointed out the
+de-lever: it is 7540 for BOTH instances, not 4626-for-ETH plus 7540-for-BTC. See the corrected
+section at the end -- the earlier reading of this document is wrong on that point.
 
 ## The defect, stated precisely
 
@@ -62,13 +64,29 @@ downstream of a real user, not of interface aesthetics.
 
 ## Consequences for the band-manager merge
 
-- The ETH band is genuinely synchronous (WETH exists, is held, is redeemable). The BTC band is not.
-  **A single band manager therefore cannot expose one synchronous 4626 face for both instances** —
-  this is a REAL asymmetry in CLAUDE.md's sense, not drift to be deduped away.
-- The merge should put the *accounting* in one implementation and let the **face** differ: 4626 for
-  ETH, 7540 for BTC. That keeps one band manager without forcing the BTC side to lie.
-- ⚠️ Do not "fix" this by making the ETH side asynchronous for symmetry. Symmetry is not the goal;
-  not lying is.
+🔴 **CORRECTED 2026-08-16 (owner). BOTH BANDS ARE ASYNCHRONOUS, and the earlier version of this
+section was wrong.** It claimed "the ETH band is genuinely synchronous (WETH exists, is held, is
+redeemable)" and warned against making ETH async "for symmetry". The counter-example is not
+Lightning at all — it is the **de-lever**:
+
+- A redemption can require unwinding a levered position, and that unwind depends on **venue
+  UTILISATION**. When the venue is drawn down, the withdraw leg cannot complete in the same
+  transaction.
+- The flash-repay-first path (`extractLev`) is bounded by `deliverableDollars` and by the liquidation
+  threshold, so a single flash loan **is not guaranteed to execute the whole way**. What remains is
+  a claim to be settled later.
+
+⇒ ETH inherits the same request → pending → claimable shape as BTC, for a completely different
+reason: BTC because settlement is a Lightning cooperative close, ETH because de-levering is
+utilisation-bounded. **The asynchronicity is a property of the PROTOCOL, not of the BTC leg.**
+
+- So a single band manager CAN expose one face for both instances, and that face is **7540, not
+  4626** — which makes the merge simpler than the earlier note claimed, not harder.
+- The `preview*`-must-revert rule then applies on BOTH sides. Today the ETH side is the more
+  misleading of the two: it advertises a synchronous redemption that a drawn-down venue cannot
+  honour, and unlike vBTC nobody reads a warning header before integrating against it.
+- ⚠️ The earlier warning is INVERTED: the risk is not "making ETH async for symmetry", it is leaving
+  ETH synchronous because it superficially looks like it can be.
 
 ## Ordered next steps
 

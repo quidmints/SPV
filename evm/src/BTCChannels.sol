@@ -140,22 +140,27 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     // BtcVault — the regrouped BTC side (LP register/close + swap credit), bound in the
     // constructor. (E150: the legacy `(_aux, _vogue)` pair and `_hopNode` are gone.)
     IBtcVaultBridge public immutable btcVault;
-    // MULTI-HOP: there is NO single global `hopNode`. Each channel records the hop
-    // (EVM address) that opened it (`channel.hop`). ⚠️ UPDATED 2026-08-07 (E122): that hop is
-    // ⚠️ UPDATED AGAIN 2026-08-10 (E157): it IS the sole authority once more — splice and
-    // swap-out delivery gate on `channel.hop` directly, now that delegation is folded into the
-    // open. ⚠️ PREVIOUSLY 2026-08-10
-    // (E156): the "and, after staleness, its named fallback" clause is GONE with the fallback
-    // itself. The partition still holds (one delegation per LP). Historically this said SOLE authority
-    // for that channel's splice / swap-out delivery / swap-in attestation / cooperative
-    // close. This lets independent SGX instances — the hosted fleet, a person self-
-    // hosting for themselves, or a family-plan group — run against the SAME contracts
-    // without one being able to touch another's channels. Open is PERMISSIONLESS
-    // across hops: the LP's ECDSA `lpAuth` signs the SUBMITTER (msg.sender) into the
-    // open digest, so only the hop the LP designated can open the LP's channel — the
-    // hop-relay model (fleet/family) works, and a genuine LP's authorization cannot be
-    // REPLAYED through a different submitter (the original front-run). Whoever
-    // opens becomes this channel's hop. The residual "self-deal" — a party citing a
+    // 🔴 OBITUARY, NOT A DESCRIPTION — REWRITTEN 2026-08-16. This block used to read "MULTI-HOP:
+    // there is NO single global `hopNode`. Each channel records the hop (EVM address) that opened
+    // it (`channel.hop`) … splice and swap-out delivery gate on `channel.hop` directly … this lets
+    // independent SGX instances run against the SAME contracts WITHOUT ONE BEING ABLE TO TOUCH
+    // ANOTHER'S CHANNELS. Open is PERMISSIONLESS across hops."
+    // ⚠️ **EVERY ONE OF THOSE SENTENCES IS NOW FALSE, AND THEY ARE THE LOAD-BEARING KIND.**
+    //   • `channel.hop` IS DELETED (§E164 — see the `BTCChannel` struct, which says so outright).
+    //   • The gate is `_onlyHop()`: `msg.sender` must equal `MAIN_HOP` or `FALLBACK_HOP`, two
+    //     IMMUTABLE addresses, at every hop entrypoint.
+    //   • Open is NOT permissionless — `openChannel` calls `_onlyHop()` too (§E185).
+    // 🔴 **THE CONSEQUENCE THAT MUST NOT BE MISREAD: THERE IS NO LONGER A PER-CHANNEL AUTHORITY
+    // PARTITION.** Either hop address may act on ANY channel. §E163 did that DELIBERATELY — pinning
+    // authority to the opener meant the fallback could open channels and operate none — so the
+    // capability is the point, not an oversight. But it means **"two daemons owning disjoint
+    // channels cannot collide on-chain by construction" IS NO LONGER TRUE**; that separation is now
+    // an OFF-CHAIN discipline (each daemon managing only its own channels), enforced by nothing in
+    // this contract. Anyone reasoning about multi-daemon or family-plan partitioning from the old
+    // text will reach the wrong conclusion — which is exactly what happened before this rewrite.
+    // ✅ WHAT SURVIVES AND IS STILL TRUE: the LP's ECDSA `lpAuth` signs the SUBMITTER (msg.sender)
+    // into the open digest, so a genuine LP's authorization cannot be REPLAYED through a different
+    // submitter (the original front-run). That binding is independent of who the hop is. The residual "self-deal" — a party citing a
     // funding UTXO it doesn't truly control — is the SAME unproven-Bitcoin-key-control
     // residual the design accepts everywhere (bounded by the no-over-mint clamp
     // + the outpoint-uniqueness guard below).
@@ -261,8 +266,12 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     // the LP revokes/rotates by signing a higher one (guards replay of an old
     // delegation over a newer). delegatedHop==0 ⇒ no delegation ⇒ no open.
     // (E157) `delegationVersion` / `delegatedAuthority` ARE DELETED with the standing grant they
-    // described. Authorization is now per-channel: the LP signs for THIS funding outpoint
-    // (`openAuthDigest`), and afterwards only `channel.hop` — the hop that opened it — may act.
+    // described. The LP signs for THIS funding outpoint (`openAuthDigest`), which is what makes the
+    // grant single-use. ⚠️ CORRECTED 2026-08-16: this used to continue "and afterwards only
+    // `channel.hop` — the hop that opened it — may act." `channel.hop` IS DELETED (§E164);
+    // afterwards `_onlyHop()` lets EITHER immutable hop address act, on any channel. The
+    // authorization is per-OUTPOINT, not per-hop — see the `_onlyHop` note for why that is
+    // deliberate and what it costs.
     // The monotonic counter had nothing left to guard: a signature bound to a single-use outpoint
     // cannot be replayed, and `_useOutpoint` is what enforces that.
     // (E156) THE E122 LP-NAMED FALLBACK IS DELETED — `fallbackAuthority`, `registerFallback[For]`,
@@ -684,10 +693,14 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         if (msg.sender != MAIN_HOP && msg.sender != FALLBACK_HOP) revert NotChannelHop();
     }
 
-    // ─── Attested-hop gate ──────────────────────────────────────
-    // The whitelist that decides who may become a shared-pool hop. UNSET (0) ⇒ the gate is OFF (the permissionless
-    // open behaviour, for testnet / pre-attestation bootstrap). Governance PINS it ONCE to the live registry to turn
-    // the gate on; PIN-ONCE (can never be un-set or repointed) so a later compromised owner cannot disable it.
+    // ─── Attested-hop gate — DELETED. The next three lines are QUOTED HISTORY, not behaviour. ───
+    // (Marked 2026-08-16: unmarked, they read as a live description for three lines before the
+    //  reader reaches the deletion notice — and what they describe is an INSECURE-BY-DEFAULT gate,
+    //  which is the worst thing to leave looking current. There is no such mode; see below.)
+    //   > "The whitelist that decides who may become a shared-pool hop. UNSET (0) ⇒ the gate is OFF
+    //   >  (the permissionless open behaviour, for testnet / pre-attestation bootstrap). Governance
+    //   >  PINS it ONCE to the live registry to turn the gate on; PIN-ONCE (can never be un-set or
+    //   >  repointed) so a later compromised owner cannot disable it."
     // ⛔ (E185) THE ATTESTED-HOP REGISTRY IS DELETED — the decision was taken during §E164 and
     // never executed, so a no-op guard sat on a size-constrained contract pretending to gate.
     //

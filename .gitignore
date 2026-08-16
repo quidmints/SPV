@@ -108,3 +108,9 @@ evm/test/btc/swapin_fixture.local.json
 # vendored libs). These hold placeholders, never secrets.
 !.env.example
 !**/.env.example
+
+# Echidna's crytic-compile output. Regenerated on every fuzz run and never edited by hand.
+# Ignored because an untracked build directory in a SHARED tree is a staging hazard: the repo's
+# rule is to stage files by name, but anything left untracked is one `git add -A` away from
+# landing in an unrelated thread's commit.
+evm/crytic-export/

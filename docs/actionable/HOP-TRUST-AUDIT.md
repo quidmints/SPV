@@ -137,10 +137,39 @@ that leaf is the spendable CLTV refund path. Taproot permits a TREE, so add a se
 unspendable leaf that commits to the terms:
 
 ```
-termsLeaf   = OP_RETURN <sha256(abi.encode(token, minDeliveredUsd))>   // never spent; a commitment
+termsLeaf   = OP_RETURN <sha256(abi.encode(seller, token, minDeliveredUsd))>  // never spent
 merkleRoot  = TapBranch(sort(tapLeafHash(refundLeaf), tapLeafHash(termsLeaf)))
 q           = internalKey + taggedHash("TapTweak", internalX ‖ merkleRoot)·G
 ```
+
+### 🔴 `seller` GOES IN THE LEAF TOO — AND THAT MAKES THE PARITY RULE OPTIONAL, NOT A PREREQUISITE
+
+Raised by the owner asking whether an LP might link a **Ledger** rather than hold a key in the
+app. That question breaks the derivation approach, and in breaking it produces a better design.
+
+⚠️ **A HARDWARE WALLET SEPARATES THE TWO KEYS BY CONSTRUCTION.** Ledger signs Bitcoin and Ethereum
+through *different device apps on different BIP-32 paths* (`m/86'/…` taproot vs `m/44'/60'/…`), and
+will not sign an EVM payload with a Bitcoin-path key or vice versa. ⚠️ **UNVERIFIED — the linked
+DMK page 404s; check against the live docs before relying on it.** But the shape is the same for
+Phantom, which holds the EVM key and will not surrender it. ⇒ **For any external signer, "one key,
+two identities" is unavailable, and `seller = addressFromXOnly(userRefund)` cannot be computed.**
+
+✅ **PUTTING `seller` IN THE TERMS LEAF COVERS EVERY CUSTODY MODEL AT ONCE.** The payer's own wallet
+computes the expected deposit address from the terms it agreed and **refuses to pay if the hop's
+quoted address differs** — so the hop cannot substitute a `seller` without the money never
+arriving. That binds under in-app keys, Phantom, Ledger, or anything else, and needs no
+relationship between the BTC and EVM keys.
+
+⇒ **REVISION TO THE PUBLISHED ORDER: the BIP-340 parity rule is NOT a prerequisite for §T2.** It
+already landed (ibiza `bad8176`, 7 tests) and remains correct and useful — one key, two identities,
+with the negation trap closed — but §T2 no longer waits on it, and **the batch is now custody-
+agnostic**, which is a much better property than a batch that only works for one wallet type.
+
+⚠️ **THE ONE THING THE TWO APPROACHES DO NOT SHARE, and it must be stated:** derivation is enforced
+**on-chain**; the leaf commitment is enforced by **the payer checking the address before sending**.
+Both bind the hop, but the second assumes the client computes the address independently rather than
+displaying whatever the hop returns. **That check is now load-bearing and belongs in the QR
+screen** — `requestOnchainSwapIn`'s response must be VERIFIED, never merely rendered.
 
 The contract then recomputes `q` from the terms the hop CLAIMS. **Lie about either field and the
 recomputed address is not the one the sats went to — `DepositNotPaid`, on the existing check.** No
