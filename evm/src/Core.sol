@@ -30,7 +30,7 @@ import {BalanceDelta, BalanceDeltaLibrary} from "v4-core/src/types/BalanceDelta.
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 
 // §E5 — the shared per-band premium sink (rule 2: ONE declaration, in the canonical file).
-import {ISkewSink, ILevEquity, ILevEquityBtc} from "./imports/Interfaces.sol";
+import {ISkewSink, ILevEquity, ILevEquityBtc, IBand} from "./imports/Interfaces.sol";
 // §E21: IERC20Min had TWO declarations (here and imports/ILevVenue.sol). One home now.
 import {IERC20Min} from "./imports/ILevVenue.sol";
 
@@ -154,7 +154,7 @@ contract Core is SafeCallback {
     ///      Mirrors `vogueETH`'s try/catch over the same LevManager reads.
     function _levDebtUsd18() internal view returns (uint) {
         if (address(BTCVAULT) == address(0)) return 0;
-        address mgr = IS_BTC ? BTCVAULT.LEV_MANAGER_BTC() : ILevHost(address(VOGUE.EV())).LEV_MANAGER();
+        address mgr = BAND.levManager();
         if (mgr == address(0)) return 0;
         try ILevEquity(mgr).totalDebtUsd() returns (uint d) { return d; } catch { return 0; }
     }
@@ -309,14 +309,7 @@ contract Core is SafeCallback {
     ///         skew merely relaxes toward the base oracle curve — the pricing signal, not a hard backing gate).
     function levGrossNative() public view returns (uint) {
         if (address(BTCVAULT) == address(0)) return 0;
-        if (IS_BTC) {
-            address mgr = BTCVAULT.LEV_MANAGER_BTC();
-            if (mgr == address(0)) return 0;
-            try ILevEquityBtc(mgr).totalGrossCollateralBtc() returns (uint256 g) { return g; } catch { return 0; }
-        }
-        address m = ILevHost(address(VOGUE.EV())).LEV_MANAGER();
-        if (m == address(0)) return 0;
-        try ILevEquity(m).totalGrossCollateralEth() returns (uint256 g) { return g; } catch { return 0; }
+        return BAND.levGrossNative();
     }
 
     /// @notice Annualized realized variance (WAD) of this pool's oracle — the well
@@ -383,11 +376,10 @@ contract Core is SafeCallback {
         // §E5 — the counters below are an AUDIT RECORD (asserted by
         // testGrindRemoval_DrainPaysRetainedSkewPremium); the CREDIT is what actually reaches LPs.
         // Without it the premium accrues to basket backing, which prices QU!D and not LP shares.
-        if (IS_BTC) { skewPremium += premiumUsd; cum = skewPremium; }
-        else       { skewPremium += premiumUsd; cum = skewPremium; }
+        skewPremium += premiumUsd; cum = skewPremium;   // §ISBTC-SPLIT: both arms were identical
         // ONE call site, dispatched by address: `Vogue` and `Vault` expose the same
         // `creditSkewPremium` signature, so this is a single encode instead of one per branch.
-        ISkewSink(IS_BTC ? address(BTCVAULT) : address(VOGUE)).creditSkewPremium(premiumUsd);
+        BAND.creditSkewPremium(premiumUsd);
         // §E42-netting — PUT THE BACKING WHERE THE CLAIM IS. The credit above creates an LP claim;
         // these are the dollars that back it, and until now they were the ONLY fee whose backing
         // stayed in general basket assets. Every other fee leaves its backing in the POOLED mirror
@@ -442,6 +434,12 @@ contract Core is SafeCallback {
     /// EXTERNAL CALL into Aux to look up a constant, then chose between two constants with a
     /// branch. Not immutable only because `AUX` is wired in `setup`, not in the constructor.
     address public ASSET;
+    /// §ISBTC-SPLIT — THIS INSTANCE'S BAND MANAGER, through `IBand`. Every money-path `IS_BTC`
+    /// branch below was `Core` reaching into one of two managers for the same fact and having to
+    /// know which; the facts differ per band, so they live in the band. ETH is pinned at `setup`
+    /// (Vogue exists by then); BTC at `setBtcVault`, because `Vault` is deployed AFTER `Core` and
+    /// takes its address at construction -- which is exactly why that setter already exists.
+    IBand public BAND;
 
     /// §V4-CUT — THE BAND'S RANGE, now OURS to store. It used to live inside the v4 position, which
     /// is why re-ranging required burning and re-adding liquidity. With inventory held directly the
@@ -545,6 +543,9 @@ contract Core is SafeCallback {
         if (address(BTCVAULT) != address(0)) 
             revert BtcVaultPinned();
         BTCVAULT = Vault(payable(b));
+        // §ISBTC-SPLIT: the BTC instance's band manager IS the Vault, and this is the first moment
+        // it exists (Vault takes Core's address at construction, so it cannot be pinned in setup).
+        if (IS_BTC) BAND = IBand(b);
     }
     /// @notice Public linkage getter — the deploy-finalize assert cross-checks
     ///         Core's BTC-vault pin against Aux's owner-set view.
@@ -634,6 +635,7 @@ contract Core is SafeCallback {
         VOGUE = Vogue(payable(_vogue));
         AUX = Aux(payable(_aux));
         ASSET = IS_BTC ? address(Aux(payable(_aux)).WBTC()) : address(Aux(payable(_aux)).WETH());
+        if (!IS_BTC) BAND = IBand(_vogue);   // §ISBTC-SPLIT: the BTC band pins in setBtcVault (Vault is deployed later)
         BASKET = Basket(_basket);
 
         // Both reference pools' live ticks are read in ONE library call so they
@@ -837,9 +839,7 @@ contract Core is SafeCallback {
         // GROSS fee depth on both sides: for BTC, totalSharesBTC is NET, so add the levered buffer
         // (totalBufferBTC) to match POOLED (gross, includes the buffer) — keeps the shortfall
         // comparison gross-to-gross (unchanged behavior). ETH: vogueETH(net) vs totalShares(net) already balanced.
-        uint totalSharesPool = IS_BTC
-            ? BTCVAULT.totalSharesBTC() + BTCVAULT.totalBufferBTC()
-            : VOGUE.totalShares();
+        uint totalSharesPool = BAND.sharesForShortfall();
         // BOTH sides compare REAL inventory, never just the in-pool token.
         // ETH = vogueETH() (in-range POOLED + AAVE/ether.fi venue
         // retention + idle). BTC has no yield-venue, but the protocol still HOLDS
@@ -857,9 +857,7 @@ contract Core is SafeCallback {
         // debt-funded buffer half offset by the LP's borrow) and totalShares() is NET, so no gross term is added
         // here — POOLED, by contrast, DOES include the lev slice gross (levAddBtc pairs the gross buffer in),
         // so BTC alone needs the +totalBufferBTC above to keep totalSharesBTC's comparison gross-to-gross.)
-        uint pooledTok = IS_BTC
-            ? POOLED + AUX.vogueBTC()
-            : AUX.vogueETH();
+        uint pooledTok = BAND.realInventory();
         // The load-balance (the shortfall arb/refill this swap would trigger) is the
         // SWAPPER's to consent to — it routes through the SOR / hop and can add MEV/slippage
         // to their own fill, and the LP-side analysis says firing it on every wiggle realizes
@@ -876,7 +874,7 @@ contract Core is SafeCallback {
                 // demand is met fairly at withdrawal: convertToAssets pays each LP
                 // pro-rata of vogueETH, so the IL is socialized via the share price,
                 // never patched from surplus.
-                if (IS_BTC) AUX.btcShortfall(sender, shortfall);
+                BAND.onShortfall(sender, shortfall);   // ETH: a deliberate no-op -- see IBand
             }
         }
     }
@@ -1013,7 +1011,7 @@ contract Core is SafeCallback {
             if (inRange) _subPooledTok(tokAmount);
             // ⚠️ THE `!IS_BTC` GUARD STAYS: ETH pays out real ether here, BTC settles by Lightning
             // cooperative close, not an on-chain transfer. One of the four known-REAL asymmetries.
-            if (!IS_BTC && who != address(0)) VOGUE.takeETH(tokAmount, who);
+            if (who != address(0)) BAND.deliverVolatile(tokAmount, who);   // BTC: no-op (LN close)
         } else if (tokDelta < 0) {
             uint tokAmount = uint(-tokDelta);
             if (inRange) _addPooledTok(tokAmount);

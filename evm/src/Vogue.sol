@@ -1063,6 +1063,48 @@ contract Vogue is
         USD_FEES += usdInc;
     }
 
+    // ─── IBand — the ETH band's face (see docs/actionable/IBAND-THE-BAND-MANAGER-FACE.md) ───
+    // `Core` used to branch on `IS_BTC` to reach one of two managers for each of these. The facts
+    // differ per band, so they live in the band, and `Core` asks one interface.
+
+    /// @notice This band's leverage manager. `totalDebtUsd` is shared; only the LOOKUP differed.
+    function levManager() external view returns (address) {
+        return address(EV) == address(0) ? address(0) : ILevHost(address(EV)).LEV_MANAGER();
+    }
+
+    /// @notice Gross levered collateral in the band's NATIVE unit (wei here, sats on the BTC side).
+    function levGrossNative() external view returns (uint) {
+        if (address(EV) == address(0)) return 0;
+        address m = ILevHost(address(EV)).LEV_MANAGER();
+        if (m == address(0)) return 0;
+        try ILevEquity(m).totalGrossCollateralEth() returns (uint g) { return g; } catch { return 0; }
+    }
+
+    /// @notice Share base the shortfall trigger compares against. NET here: `vogueETH()` (the
+    ///         inventory side) already adds the lev book's NET equity, so both sides are net and no
+    ///         gross buffer term belongs. The BTC side adds one, for the mirror-image reason.
+    function sharesForShortfall() external view returns (uint) { return totalShares(); }
+
+    /// @notice REAL inventory, never just the in-pool token: in-range POOLED plus AAVE/ether.fi
+    ///         venue retention plus idle. Comparing raw POOLED over-fired the shortfall arb on
+    ///         off-range retention.
+    function realInventory() external view returns (uint) { return AUX.vogueETH(); }
+
+    /// @notice 🔴 A DELIBERATE NO-OP, AND NOT AN OMISSION. BTC routes a shortfall to the hop, which
+    ///         delivers real BTC and consumes no basket stables. ETH must NOT: a surplus-funded
+    ///         refill buys ETH to cover a shortfall that is usually IMPERMANENT, realising that IL
+    ///         onto the SHARED backing and compensating the flow at every LP's expense. Real ETH
+    ///         demand is met fairly at withdrawal instead -- `convertToAssets` pays each LP
+    ///         pro-rata of `vogueETH`, so the IL is socialised through the share price.
+    ///         Do not "implement" this.
+    function onShortfall(address, uint) external {}
+
+    /// @notice Pay the volatile leg out. ETH sends real ether; the BTC band's counterpart is a
+    ///         no-op because settlement there is a Lightning cooperative close.
+    function deliverVolatile(uint amount, address who) external onlyUs returns (uint) {
+        return _sendETH(amount, who);
+    }
+
     /// @notice Sync Morpho wethVault appreciation into the per-LP fees
     /// accumulator. NOT an aToken-era artifact — the bookmark/feesPerShare
     /// pattern is what attributes 4626 share appreciation to LPs (since

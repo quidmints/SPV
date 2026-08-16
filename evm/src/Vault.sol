@@ -327,6 +327,46 @@ contract Vault is Ownable, ReentrancyGuard {
         USD_FEES_BTC += usdInc;
     }
 
+    // ─── IBand — the BTC band's face (see docs/actionable/IBAND-THE-BAND-MANAGER-FACE.md) ───
+    // The mirror of Vogue's block. `Core` asks ONE interface; the per-asset facts live here.
+
+    /// @notice This band's leverage manager. Distinct from the ETH one by design.
+    function levManager() external view returns (address) { return LEV_MANAGER_BTC; }
+
+    /// @notice Gross levered collateral in the band's NATIVE unit -- SATS here.
+    function levGrossNative() external view returns (uint) {
+        if (LEV_MANAGER_BTC == address(0)) return 0;
+        try ILevEquityBtc(LEV_MANAGER_BTC).totalGrossCollateralBtc() returns (uint g) { return g; }
+        catch { return 0; }
+    }
+
+    /// @notice Share base for the shortfall trigger. `totalSharesBTC` is NET, so the levered buffer
+    ///         is added to match `POOLED` (which is GROSS -- `levAddBtc` pairs the gross buffer in),
+    ///         keeping the comparison gross-to-gross. The ETH side is net-vs-net and correctly adds
+    ///         nothing; that asymmetry is real, not drift.
+    function sharesForShortfall() external view returns (uint) {
+        return totalSharesBTC() + totalBufferBTC;
+    }
+
+    /// @notice REAL inventory: pooled sats PLUS the off-pool WBTC the protocol holds (swept
+    ///         donations and swap deltas, accrued in `vogueBTC`). BTC has no yield venue, so this
+    ///         is the analogue of the ETH side's venue retention.
+    function realInventory() external view returns (uint) {
+        return CORE.POOLED() + AUX.vogueBTC();
+    }
+
+    /// @notice Route the shortfall to the hop -- real-BTC delivery on L1, consuming NO basket
+    ///         stables. That is the legitimate delivery rail, which is why BTC acts here and ETH
+    ///         deliberately does not (see Vogue's counterpart).
+    function onShortfall(address sender, uint shortfall) external onlyUsBtc {
+        AUX.btcShortfall(sender, shortfall);
+    }
+
+    /// @notice 🔴 A DELIBERATE NO-OP. The BTC band settles by LIGHTNING COOPERATIVE CLOSE, not an
+    ///         on-chain transfer, so there is nothing for the contract to send here. One of the four
+    ///         known-REAL ETH/BTC asymmetries (CLAUDE.md). Do not "implement" this.
+    function deliverVolatile(uint, address) external pure returns (uint) { return 0; }
+
     function totalSharesBTC() public view returns (uint) {
         return lpSharesBTC;
     }

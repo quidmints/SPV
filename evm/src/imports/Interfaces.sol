@@ -526,5 +526,5 @@ interface IBand {
     /// Remediation when inventory falls short of shares. See the no-op note above.
     function onShortfall(address sender, uint shortfall) external;
     /// Pay the volatile leg out to `who`. See the no-op note above.
-    function deliverVolatile(uint amount, address who) external;
+    function deliverVolatile(uint amount, address who) external returns (uint sent);
 }
