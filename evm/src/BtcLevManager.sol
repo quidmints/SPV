@@ -52,9 +52,6 @@ contract BtcLevManager is LevBase {
     /// @notice (B) Sold-fraction target activation. Default OFF ⇒ the PROVEN 1−√(entry/now) target stays active.
     ///         GOV flips it ON only AFTER the band-driven fork proof lands — parity with `LevManager`.
 
-    // Enumerable open-LP set so `vogueBTC` can sum live net-equity on-chain (bounded via MIN_OPEN_VBTC).
-    function openLevCount() external view returns (uint) { return _openLps.length; }
-    function openLpAt(uint i) external view returns (address) { return _openLps[i]; }
 
     /// @notice PIN-ONCE venue ALLOWLIST (not a rotatable governance setter — a rotatable one is the same
     ///         phantom-backing surface). Set ONCE by GOV then frozen (handles the manager↔venue circular
@@ -124,13 +121,6 @@ contract BtcLevManager is LevBase {
         return LevMath._toUsd18(address(AUX),v.stable(), v.debtOf(lp));          // canonical decimal-normalize (dedup)
     }
 
-    /// @notice `lp`'s LIVE net-equity in BTC-units (1e18) = collateral(vBTC) − debt(USD→BTC), floored at 0.
-    ///         The single SOLVENCY term `Vault.vogueBTC()` adds — never deliverable (cross-chain custody).
-    ///         All-view (collateralOf/debtOf/getTWAPforAsset are views), safe from `vogueBTC()`.
-    function netEquity(address lp) public view override returns (uint256) {
-        uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        return _netEquityAt(lp, px);
-    }
     /// @notice LIVE sum of every open position's net-equity (BTC-units, 1e18); reads the oracle ONCE.
     function totalNetEquityBtc() external view returns (uint total) {
         uint n = _openLps.length;
@@ -152,22 +142,7 @@ contract BtcLevManager is LevBase {
         uint n = _openLps.length;
         for (uint i; i < n; i++) if (pos[_openLps[i]].open) total += pos[_openLps[i]].venue.collateralOf(_openLps[i]);
     }
-    /// @notice LIVE sum of every open position's debt (USD 1e18) — the invariant ceiling for the in-pool BTC
-    ///         buffer USD — each LP's `levBufferUsd ≤ debtUsd` (the per-LP debt cap), the debt-backed analog
-    ///         of `committedUsd ≤ TVL`.
-    function totalDebtUsd() external view returns (uint total) {
-        uint n = _openLps.length;
-        for (uint i; i < n; i++) if (pos[_openLps[i]].open) total += debtUsd(_openLps[i]);
-    }
 
-    /// @notice #67 deliverability — USD this BTC-levered position can produce via a bounded, value-neutral
-    ///         de-lever (LevMath.deliverableDollars). This is the REAL USD backing the band's pairing may count
-    ///         (LEVERED-DELIVERABILITY-SPEC.md) so levered volatile pairs + earns fees even at basket surplus==0;
-    ///         margin-bounded (never phantom). All-view.
-    function deliverableDollars(address lp) public view returns (uint) {
-        uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        return _deliverableDollarsAt(lp, px);
-    }
     /// @notice LIVE sum of every open position's deliverableDollars — the aggregate #67 counts as available USD
     ///         backing in the band-pairing sizer (sizeBySurplus addend). Reads the oracle ONCE (price-consistent).
 
@@ -203,12 +178,6 @@ contract BtcLevManager is LevBase {
         return _ilTargetLive(p, px);
     }
 
-    /// @notice (B) LIVE IL target (bps): the BTC band's ACTUAL sold fraction (`Vault.soldFractionWad`), capped
-    ///         at the LP's cap; falls back to the proven 1−√(entry/now) when the sold-fraction path is inactive
-    ///         or unmeasurable. Mirror of `LevManager._ilTargetLive`.
-    function _ilTargetLive(Types.Pos memory p, uint px) internal returns (uint) {
-        return LevMath.ilTargetLive(BAND, p.entryPrice, p.entryPriceWad, px, p.targetLtvCapBps);
-    }
 
     /// @notice Stable delta (USD 1e18) + direction to re-hit the IL target; oracle read ONCE.
     function debtDeltaToTarget(address lp) public returns (bool levUp, uint amountUsd) {

@@ -14,11 +14,11 @@ import {SOR} from "./imports/SOR.sol";
 import {SwapLib} from "./imports/SwapLib.sol";
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
-import {WETH as WETH9} from "solmate/tokens/WETH.sol";
+import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
 import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {ReentrancyGuard} from "solmate/utils/ReentrancyGuard.sol";
+import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 import {SafeCallback} from "v4-periphery/src/base/SafeCallback.sol";

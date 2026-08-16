@@ -85,12 +85,6 @@ contract LevManager is LevBase {
     ///      target is `1 − √(entryPrice/pxNow)` = the ETH the band has sold since entry (capped). Opens at
     ///      ZERO leverage and grows only with the realized move — proven in test/LevYbPnl.t.sol.
 
-    /// @dev Enumerable set of LPs with an open position, so the Vault can sum the LIVE net-equity of the
-    ///      whole book on-chain (`totalNetEquityEth`). `_lpIdx` is 1-based (0 = absent). Swap-pop on close.
-    /// @notice Number of LPs with an open levered position (the cardinality the Vault iterates).
-    function openLevCount() external view returns (uint256) { return _openLps.length; }
-    /// @notice The `i`-th open LP — lets the off-chain keeper enumerate the book (`openLevCount` + `openLpAt`).
-    function openLpAt(uint256 i) external view returns (address) { return _openLps[i]; }
 
     event Opened(address indexed lp, address venue, uint256 targetLtvBps);
     event Rebalanced(address indexed lp, bool levUp, uint256 amount, uint256 ltvBps);
@@ -233,17 +227,6 @@ contract LevManager is LevBase {
         return (ethAmt * pxUsd) / 1e18;
     }
 
-    /// @notice `lp`'s LIVE net-equity in ETH (1e18) = collateral(weETH→ETH) − debt(USD→ETH), floored at 0.
-    ///         This — NOT the gross collateral — is what the Vault counts as band backing (`vogueETH`): only
-    ///         the LP's un-encumbered slice can ever be paired into `POOLED`, so a venue liquidation
-    ///         (collateral seized, the equity term →0) can never strand the basket's `POOLED_USD`. The debt
-    ///         leg is valued at the SAME oracle px the band pairs at; `px==0` (dead oracle) ⇒ 0 (no credit,
-    ///         the conservative side). All-`view`: `collateralOf`/`debtOf`/`getEETHByWeETH`/the TWAP read are
-    ///         every one a `view`, so this is safe to call from `Vault.vogueETH()`.
-    function netEquity(address lp) public view override returns (uint256) {
-        uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        return _netEquityAt(lp, px);
-    }
     /// @notice LIVE sum of every open position's net-equity (ETH, 1e18). Reads the oracle ONCE for the whole
     ///         book (price-consistent + cheaper). This is the single term `Vault.vogueETH()` adds.
     function totalNetEquityEth() external view returns (uint256 total) {
@@ -253,14 +236,6 @@ contract LevManager is LevBase {
         for (uint256 i; i < n; i++) total += _netEquityAt(_openLps[i], px);
     }
 
-    /// @notice #67 deliverability — USD this ETH-levered position can produce via a bounded, value-neutral
-    ///         de-lever (LevMath.deliverableDollars). The REAL USD backing the band's pairing may count
-    ///         (LEVERED-DELIVERABILITY-SPEC.md) so levered volatile pairs + earns fees even at basket surplus==0;
-    ///         margin-bounded (never phantom). All-view (mirrors netEquityEth's view path — safe mid-swap).
-    function deliverableDollars(address lp) public view returns (uint256) {
-        uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        return _deliverableDollarsAt(lp, px);
-    }
     /// @notice LIVE sum of every open position's deliverableDollars — the aggregate #67 counts as available USD
     ///         backing in the band-pairing sizer (sizeBySurplus addend). Reads the oracle ONCE (price-consistent).
 
@@ -285,13 +260,6 @@ contract LevManager is LevBase {
         for (uint256 i; i < n; i++) total += grossCollateralEth(_openLps[i]);
     }
 
-    /// @notice LIVE sum of every open position's debt (USD 1e18) — the invariant ceiling for the in-pool
-    ///         buffer USD — each LP's `levBufferUsd ≤ debtUsd` (the per-LP debt cap), the debt-backed analog of
-    ///         `committedUsd ≤ TVL`.
-    function totalDebtUsd() external view returns (uint256 total) {
-        uint256 n = _openLps.length;
-        for (uint256 i; i < n; i++) if (pos[_openLps[i]].open) total += debtUsd(_openLps[i]);
-    }
 
     /// @notice `lp`'s net equity in USD (1e18) = collateral − debt, floored at 0. The single clean read the
     ///         off-chain keeper uses to size the economic (gas-vs-benefit) floor.
@@ -373,17 +341,6 @@ contract LevManager is LevBase {
         if (!p.open) return 0;
         uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         return _ilTargetLive(p, px);
-    }
-    /// @notice (B) LIVE IL target (bps): the band's ACTUAL sold fraction (`Vogue.soldFractionWad`) capped at
-    ///         the LP's cap — the ground-truth IL, reflecting the band's real (drifting) α (subsumes A). Falls
-    ///         back to the 1−√(entry/now) estimate when the band host is unwired or the sold fraction is
-    ///         unmeasurable (band unset / `entryPrice` 0). A band reseat recenters the ticks + realizes IL, so
-    ///         `entryPrice` (and E0/entryPrice) MUST be re-anchored to the new center to avoid over-measuring the
-    ///         sold fraction across the reseat — `_reanchorIfReseated` (below, called from `rebalance`) does this
-    ///         on every keeper cycle, and the sold-fraction IL-cancellation is fork-proven (LevYbReal/LevCascade
-    ///         with `setSoldFractionActive(true)`).
-    function _ilTargetLive(Types.Pos memory p, uint256 px) internal returns (uint256) {
-        return LevMath.ilTargetLive(BAND, p.entryPrice, p.entryPriceWad, px, p.targetLtvCapBps);
     }
 
 

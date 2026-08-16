@@ -229,7 +229,7 @@ contract LevYbRealProbe is Alles {
         IERC20R(address(USDC)).approve(MORPHO, 2_000_000 * USDC_PRECISION);
         morpho.supply(mp, 2_000_000 * USDC_PRECISION, 0, address(this), "");
         // Wire the YB stack against the real venue + real swap route + the REAL Vogue band (V4) as the
-        // BAND-ONLY E0 / sold-fraction source — NO MockBandHost: bandEthOf/bandSqrtP/soldFractionWad/reseatEpoch
+        // BAND-ONLY E0 / sold-fraction source — NO MockBandHost: bandOf/bandSqrtP/soldFractionWad/reseatEpoch
         // all read the live V4 pool on the mainnet fork.
         rlm = new LevManager(WEETH, address(AUX), address(WETH), address(this), address(QUID));
         rvenue = new MorphoEscrowVenue(MORPHO, mp, address(rlm));
@@ -310,7 +310,7 @@ contract LevYbRealProbe is Alles {
     function _entryPrice(LevManager m, address lp) internal view returns (uint s) { ( , , , , s, ) = m.pos(lp); }
 
     function _openLp() internal {
-        // REAL band position (the E0 IL base) — bandEthOf(LP) == 5 ETH deposit, read live from V4.
+        // REAL band position (the E0 IL base) — bandOf(LP) == 5 ETH deposit, read live from V4.
         vm.deal(LP, 6 ether);
         vm.prank(LP); V4.deposit{value: 5 ether}(0, LP);   // venue 3 = all-Galaxy (no ether.fi offramp noise)
         deal(WEETH, LP, 5 ether);

@@ -149,7 +149,53 @@ abstract contract LevBase {
     ///         8-dec sats on the BTC side. The unit differs; the MEANING does not, which is why one
     ///         name serves both. (Was `netEquityEth`/`netEquityBtc`; those two names were the last
     ///         per-asset difference in `_reanchorIfReseated`.)
-    function netEquity(address lp) public view virtual returns (uint256);
+    function netEquity(address lp) public view returns (uint256) {
+        return _netEquityAt(lp, AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW));
+    }
+
+    // ─── §LEV-FOLD — five bodies that were written TWICE, identically ─────────────────────────
+    //
+    // These lived once in `LevManager` and once in `BtcLevManager` and differed only in the
+    // spelling `uint` vs `uint256`. Every symbol they touch already lives HERE -- `AUX`,
+    // `ORACLE_KEY`, `TWAP_WINDOW`, `_openLps`, `pos`, `_netEquityAt`, `_deliverableDollarsAt`,
+    // `debtUsd` -- so neither copy was ever expressing a per-asset difference; the base simply had
+    // not been given them. `netEquity` above was the same case one step further along: declared
+    // `virtual` here and overridden with the identical body on both sides.
+    //
+    // ⚠️ WHAT IS DELIBERATELY *NOT* FOLDED, and the discriminator is a real one. The suffixed
+    // accessors -- `totalNetEquityEth`/`totalNetEquityBtc`, `grossCollateralEth`/`grossCollateralBtc`,
+    // `totalGrossCollateralEth`/`totalGrossCollateralBtc` -- stay as they are, because
+    // `ILevEquity` and `ILevEquityBtc` are two interfaces over two DIFFERENT manager contracts.
+    // Distinct selectors mean `ILevEquity(btcManager).totalNetEquityEth()` REVERTS rather than
+    // silently returning the wrong band's book, and this repo has already shipped three
+    // address-confusion bugs of exactly that shape in one session (an `ethVenue` passed into a
+    // parameter named `btcVault`, among them). Note the discriminator: the members below all take
+    // an LP ADDRESS or none and read THIS instance's own book, so a wrong-manager call yields 0 or
+    // this manager's own total -- whereas a no-arg `totalNetEquity()` on the wrong handle would
+    // hand back a different band's number that looks perfectly valid. Standing rule 3: a guard
+    // earns its place when the failure it prevents would otherwise be silent.
+
+    /// @notice Deliverable dollars for `lp` — oracle read ONCE.
+    function deliverableDollars(address lp) public view returns (uint256) {
+        return _deliverableDollarsAt(lp, AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW));
+    }
+
+    /// @notice How many LPs have an open levered position.
+    function openLevCount() external view returns (uint256) { return _openLps.length; }
+
+    /// @notice The `i`-th open LP — lets an off-chain keeper enumerate the book.
+    function openLpAt(uint256 i) external view returns (address) { return _openLps[i]; }
+
+    /// @notice Live sum of every open position's debt (USD 1e18).
+    function totalDebtUsd() external view returns (uint256 total) {
+        uint256 n = _openLps.length;
+        for (uint256 i; i < n; i++) if (pos[_openLps[i]].open) total += debtUsd(_openLps[i]);
+    }
+
+    /// @dev The IL target at the live price, for a position already in memory.
+    function _ilTargetLive(Types.Pos memory p, uint256 px) internal returns (uint256) {
+        return LevMath.ilTargetLive(BAND, p.entryPrice, p.entryPriceWad, px, p.targetLtvCapBps);
+    }
 
     /// @notice A band reseat REALIZES accrued IL, so re-anchor `E0` to the position's CURRENT
     ///         net-equity — the new fixed base — NOT the band position (which is 0 in the (A) model,

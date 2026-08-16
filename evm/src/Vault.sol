@@ -14,10 +14,10 @@ import {BtcVaultLib} from "./imports/BtcVaultLib.sol";
 import {VBtc} from "./VBtc.sol";
 import {Types} from "./imports/Types.sol";
 
-import {WETH as WETH9} from "solmate/tokens/WETH.sol";
+import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {ReentrancyGuard} from "solmate/utils/ReentrancyGuard.sol";
+import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 import {ILevEquityBtc} from "./imports/Interfaces.sol";
 
 // ════════════════════════════════════════════════════════════════════════
@@ -344,12 +344,12 @@ contract Vault is Ownable, ReentrancyGuard {
         catch { return 0; }
     }
 
-    /// @notice Share base for the shortfall trigger. `totalSharesBTC` is NET, so the levered buffer
+    /// @notice Share base for the shortfall trigger. `totalShares` is NET, so the levered buffer
     ///         is added to match `POOLED` (which is GROSS -- `levAddBtc` pairs the gross buffer in),
     ///         keeping the comparison gross-to-gross. The ETH side is net-vs-net and correctly adds
     ///         nothing; that asymmetry is real, not drift.
     function sharesForShortfall() external view returns (uint) {
-        return totalSharesBTC() + totalBuffer;
+        return totalShares() + totalBuffer;
     }
 
     /// @notice REAL inventory: pooled sats PLUS the off-pool WBTC the protocol holds (swept
@@ -371,15 +371,15 @@ contract Vault is Ownable, ReentrancyGuard {
     ///         known-REAL ETH/BTC asymmetries (CLAUDE.md). Do not "implement" this.
     function deliverVolatile(uint, address) external pure returns (uint) { return 0; }
 
-    function totalSharesBTC() public view returns (uint) {
+    function totalShares() public view returns (uint) {
         return lpShares;
     }
 
     /// @notice The LP's UNLEVERED band-BTC depth (`pooled` minus the leverage slice), in 8-dec sats — the E0
     ///         the BTC IL-protect sizes its debt against (`BtcLevManager` reads it at `openBtcLev`). Mirror of
-    ///         `Vogue.bandEthOf`; sizing to this FIXED base (not the buffer's growing collateral) is the
+    ///         `Vogue.bandOf`; sizing to this FIXED base (not the buffer's growing collateral) is the
     ///         1/(1−t) over-hedge fix.
-    function bandBtcOf(address lp) external view returns (uint) {
+    function bandOf(address lp) external view returns (uint) {
         uint p = autoManaged[lp].pooled;
         uint lev = levPooled[lp];
         return SwapLib.plainNet(p, lev);

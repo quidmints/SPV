@@ -40,7 +40,6 @@ import {Core} from "../src/Core.sol";
 /// lands on 1e18 exactly as wei×1e18/1e18 does. Do NOT add a second ×1e10 "to fix BTC".
 contract PooledUsdRepackMatrix is Alles {
     address bold; address lp = User02; address trader = User03;
-    uint lpShares;
     /// Per-swap warp. 20 min is the default the sibling probes use (lets the observation ring
     /// absorb the move). Scenarios that must keep the Chainlink anchor FRESH lower it: 18 swaps
     /// x 20 min = 6h, past `ASSET_FEED_MAX_AGE = 4 hours`, which makes `twapResolve` fall through
@@ -131,8 +130,11 @@ contract PooledUsdRepackMatrix is Alles {
         vm.stopPrank();
 
         vm.prank(lp);
-        lpShares = V4.deposit{value: ethDeposit}(0, lp);
-        require(lpShares > 0, "lp deposit failed");
+        // §NO-SHADOW-STATE — was a CONTRACT-level `uint lpShares`, written here and read only on
+        // the next line. A local doing a state variable's job, wearing the name of the band state it
+        // is not: `V4.lpShares()` is the real one, and a reader had two things called lpShares to
+        // tell apart for no gain. The deposit's return is what this line actually wants.
+        require(V4.deposit{value: ethDeposit}(0, lp) > 0, "lp deposit failed");
 
         // registerBtcLp is gated to BTCChannels; impersonate it exactly as BtcBandTheta does.
         AUX.setBTCChannels(address(this));
