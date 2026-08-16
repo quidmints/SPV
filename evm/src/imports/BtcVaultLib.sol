@@ -308,11 +308,10 @@ library BtcVaultLib {
     ) public returns (uint next) {
         if (a.token == address(0)) revert NotAStable();
         SwapLib.validateOorParams(a.range, a.distance);
-        bool t1 = ICore(c.core).token1isVol();
-        SwapLib.Oor memory t = SwapLib.oorBounds(a.sqrtP, a.range, a.distance, t1, a.curLo, a.curUp);
+        SwapLib.Oor memory t = SwapLib.oorBounds(a.sqrtP, a.range, a.distance, a.curLo, a.curUp);
         // Deposit the stable backing via AUX (pool-agnostic), normalize to 6-dec USD.
         uint amt = SwapLib.scaleTo6(IAux(c.aux).deposit(a.owner, a.token, a.amount), a.token);
-        uint liquidity = SwapLib.sizeOorUsd(amt, t, t1);
+        uint liquidity = SwapLib.sizeOorUsd(amt, t);
         // `liquidity` is still the sizer's own VALIDITY CHECK -- a range that can hold nothing
         // yields zero -- even though the POSITION is now stored as an amount.
         if (liquidity == 0) revert Dust();
@@ -573,9 +572,10 @@ library BtcVaultLib {
             c.core, c.aux, IAux(c.aux).WBTC(), isBTC, upperTick, lowerTick);
         o.feesPerShareBTC = feesPerShareBTC; o.usdFeesBtc = usdFeesBtc;
         if (r.didRepack) {
-            bool t1 = ICore(c.core).token1isVol();
-            uint feesTok = t1 ? r.fees1 : r.fees0;
-            uint feesUsd = t1 ? r.fees0 : r.fees1;
+            // §DE-TICK: `repack`/`reseat` return zero fee legs (v4 collects nothing), so this
+            // reordered two zeros. Canonical (USD, tok) taken directly -- see VogueLib's note.
+            uint feesTok = r.fees1;
+            uint feesUsd = r.fees0;
             (uint tokInc, uint usdInc) = SwapLib.feeIncrements(feesTok, feesUsd, feeDenom);
             o.feesPerShareBTC += tokInc; o.usdFeesBtc += usdInc;
         } else if (r.jitFees) {

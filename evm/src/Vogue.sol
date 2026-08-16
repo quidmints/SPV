@@ -47,7 +47,8 @@ contract Vogue is
     // deposit becomes weETH. `VogueLib._supplyEtherFi` is the single destination, and a placement of
     // 0 reverts `VenueUnavailable` rather than redirecting.
 
-    bool public token1isVol;
+    // §DE-TICK — `token1isVol` DELETED. It mirrored Core's v4 leg ordering, itself derived from
+    // the lex order of freshly-deployed MOCK addresses. Nothing orders legs by token identity now.
     // range = between ticks
     uint public UPPER_PRICE;
     uint public LOWER_PRICE;
@@ -249,9 +250,9 @@ contract Vogue is
         // under a hard EIP-170 deficit (E32) -- the WETH read + approval, the band
         // seed read, and the initial tick derivation. Only the value-type state
         // writes stay here; they have no storage pointer to hand the library.
-        address weth; bool t1;
-        (weth, t1, LOWER_PRICE, UPPER_PRICE) = VogueLib.setupBody(_aux, _core);
-        WETH = WETH9(payable(weth)); token1isVol = t1;
+        address weth;
+        (weth, LOWER_PRICE, UPPER_PRICE) = VogueLib.setupBody(_aux, _core);
+        WETH = WETH9(payable(weth));
     }
 
 
@@ -285,11 +286,10 @@ contract Vogue is
             // alignment, same width 10) plus a local `_outOfRangeTicks`. The BTC path
             // (`BtcVaultLib.outOfRangeBtc`) already called the shared helper, so ONE definition now
             // computes the out-of-range geometry for both assets — the same consolidation §A.56 did
-            // for the SIZING half. NOTE: `oorBounds` negates `distance` internally from `token1is`,
-            // so the caller must NOT pre-negate it (doing both would place the order on the wrong
-            // side of spot).
+            // §DE-TICK: `oorBounds` no longer negates `distance` from an ordering flag -- the
+            // sign IS the side. The old warning about not pre-negating therefore no longer applies.
             (uint currentPrice, uint curLo, uint curUp,,) = _rebalance();
-            t = SwapLib.oorBounds(currentPrice, range, distance, token1isVol, curLo, curUp);
+            t = SwapLib.oorBounds(currentPrice, range, distance, curLo, curUp);
         }
         // Backing deposit + single-sided sizing lives in VogueLib (EIP-170
         // headroom); self-managed positions take no wall attribution (pledge==0).
@@ -305,7 +305,7 @@ contract Vogue is
         // own validity check -- a range that can hold nothing yields zero liquidity.
         (uint liquidity, uint placed) = VogueLib.sizeOutOfRange(
             address(WETH), address(AUX), address(EV),
-            amount, token, token1isVol, t);
+            amount, token, t);
         if (liquidity == 0) revert Dust();
 
         next = ++ID;
@@ -1111,7 +1111,7 @@ contract Vogue is
         uint tickLower, uint tickUpper, uint myLiquidity, uint resolvedTwap) {
         VogueLib.RebalOut memory o = VogueLib.rebalanceBody(VogueLib.RebalIn({
             core: address(V4), aux: address(AUX), ev: address(EV), weth: address(WETH),
-            token1isVol: token1isVol, lpShares: lpShares, totalLevPooled: totalLevPooled,
+            lpShares: lpShares, totalLevPooled: totalLevPooled,
             totalBuffer: totalBuffer, lowerTick: LOWER_PRICE, upperTick: UPPER_PRICE, bookmark: bookmark}));
         venueFeesPerShare += o.venueFeesPerShareInc;             // _syncYield accrual
         bookmark = o.newBookmark;

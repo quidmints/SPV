@@ -380,11 +380,14 @@ library SwapLib {
         // token1is inlined per-branch (not a local) — frees a stack slot so
         // swapToBody stays within the legacy pipeline (no via_ir) after threading
         // the reused v4 price `v4p`. One executed branch ⇒ still one token1is call.
-        bool zeroForOne;
+        // §DE-TICK — NO `zeroForOne` LOCAL. It was assigned `token1isVol` in one branch and
+        // `!token1isVol` in the other, and `Core` then re-derived the direction with a flip that
+        // cancelled both. The quantity actually being transported is `r.forVolatile`: the user
+        // wants volatile OUT, so the user is paying USD IN. Passed directly, and the stack slot
+        // this local was costing (the note above worried about exactly that) comes back.
         if (!r.forVolatile) {
             if (r.token != c.quid && !stable) revert StableMissingS();
             r.amount = aux._depositVol{value: msg.value}(isBTC, msg.sender, r.amount);
-            zeroForOne = !ICore(c.core).token1isVol();
             max = ICore(c.core).POOLED_USD();
             // JIT-DEPTH-GUARANTEE.md §2 hook site (DEFERRED — design gap, NOT built): this is the
             // volatile→USD leg whose fill is bounded by the band's in-range USD depth (`max`), so a
@@ -413,7 +416,6 @@ library SwapLib {
                 retainSkewPremium(c.core, isBTC, r, skew, true);   // NATIVE volatile input ⇒ convert   // mutates r.amount; r.px declares NATIVE
             }
         } else { max = ICore(c.core).POOLED();
-            zeroForOne = ICore(c.core).token1isVol();
             // QD-in valued at the SAME perShare a redeem uses (no-drain: never worth more swapped than redeemed).
             // DESIGN NOTE: unlike redeem, swap-out is NOT capacity-gated / deferred during stable
             // illiquidity — it pays volatile from the pool's OWN inventory (bounded by `max` = POOLED depth +
@@ -436,7 +438,7 @@ library SwapLib {
                 retainSkewPremium(c.core, isBTC, r, skew, false);  // buy-driving USD ⇒ already 6-dec   // mutates r.amount; r.px declares NATIVE
             }
         }
-        max = _finishSwap(ctx, aux, r, zeroForOne, max, isBTC, v4p);
+        max = _finishSwap(ctx, aux, r, r.forVolatile, max, isBTC, v4p);
     }
 
     /// @dev routeSwap (8-field RouteParams build) + bumpVogueBTC + slippage guard
@@ -447,7 +449,7 @@ library SwapLib {
     ///      bit-preserving, so negative ticks round-trip exactly.
 
     function _finishSwap(Types.AuxContext memory ctx, IAux aux, SwapReq memory r,
-        bool zeroForOne, uint pooled, bool isBTC, uint v4p) private returns (uint max) {
+        bool inputIsUsd, uint pooled, bool isBTC, uint v4p) private returns (uint max) {
         uint poolSupplied;
         // Reuse the resolved oracle price from the repack-first (v4p) instead of
         // re-reading the internal `observe` ring + Chainlink a 2nd time per swap;
@@ -456,7 +458,7 @@ library SwapLib {
         uint v4Price = _priceOr(v4p, address(aux), r.asset);
         uint consumed;
         (max, poolSupplied, consumed) = BasketLib.routeSwap(ctx, Types.RouteParams({
-            zeroForOne: zeroForOne, token: r.token,
+            inputIsUsd: inputIsUsd, token: r.token,
             amount: r.amount, pooled: pooled,
             v4Price: v4Price,
             recipient: r.recipient, isBTC: isBTC
@@ -645,7 +647,7 @@ library SwapLib {
             (, uint lo, uint hi,, uint p_) = IBandManager(bandVault).repack(true);
             v4p = p_;
         }
-        rp.zeroForOne   = !ICore(core).token1isVol();   // BTC→USD (mirror of the buy)
+        rp.inputIsUsd   = false;   // BTC→USD: the volatile side is the INPUT (mirror of the buy)
         rp.token        = token;                            // USD-side output stable → seller
         rp.amount       = sats;                             // exact BTC input
         rp.pooled       = ICore(core).POOLED_USD();
@@ -1321,7 +1323,7 @@ library SwapLib {
             (, uint lo, uint hi,, uint p_) = IBandManager(address(this)).repack(true);
             v4p = p_;
         }
-        rp.zeroForOne   = ICore(core).token1isVol();    // USD→BTC buy (mirror of the sell)
+        rp.inputIsUsd   = true;    // USD→BTC buy: USD is the INPUT (mirror of the sell)
         rp.token        = address(0);                       // volatile (BTC) output
         rp.pooled       = ICore(core).POOLED();      // BTC inventory bounds the fill
         uint basePrice  = _priceOr(v4p, aux, wbtc);
@@ -1771,10 +1773,15 @@ library SwapLib {
     /// ⇒ THIS DELETES THE #46 OFF-BY-ONE OUTRIGHT. That defect existed because a tick was derived
     /// from a sqrt price and `getTickAtSqrtRatio(sqrtPriceX96) == currentTick` does not always hold;
     /// with no tick derived, there is nothing to be off by one about — the root is gone, not guarded.
-    function oorBounds(uint price, uint range, int distance, bool token1is,
+    /// §DE-TICK — NO ORDERING FLAG. `if (!token1is) distance = -distance` flipped which side of
+    /// spot a POSITIVE `distance` meant. That flip belongs to TICK space, where direction inverts
+    /// with token ordering; in price space (USD per volatile) it does not, so the flip was applying
+    /// an inversion to a quantity that has none. The sign of `distance` now says the side directly:
+    /// NEGATIVE = above spot, POSITIVE = below spot, the same convention the arithmetic below
+    /// already encodes.
+    function oorBounds(uint price, uint range, int distance,
         uint curLo, uint curUp) internal pure returns (Oor memory t) {
         t.curLo = curLo; t.curUp = curUp;
-        if (!token1is) distance = -distance;
         // `distance` bps away from spot, `range` bps wide.
         uint target = distance < 0
             ? price * (10000 + uint(-distance)) / 10000
@@ -1786,7 +1793,7 @@ library SwapLib {
     /// Size a USD-funded single-sided boundary order (`amount6` in 6-dec USD).
     /// Asserts the new range sits fully outside the current one and provides the
     /// USD on the side the ordering dictates.
-    function sizeOorUsd(uint amount6, Oor memory t, bool token1is)
+    function sizeOorUsd(uint amount6, Oor memory t)
         internal pure returns (uint placeable) {
         // §DE-TICK — WHAT SURVIVES IS THE OUTSIDE-NESS GUARD; the liquidity encoding does not.
         // This used to convert both bounds to sqrt prices and ask `LiquidityAmounts` for a v4
@@ -1796,11 +1803,16 @@ library SwapLib {
         // ⚠️ THE STRICT COMPARISONS ARE UNCHANGED, INCLUDING THEIR DIRECTION. A boundary order must
         // sit FULLY outside the active band; `>=` / `<=` (not `>` / `<`) is what makes a range that
         // merely touches the band edge invalid.
-        if (token1is) {
-            if (t.newUp >= t.curLo) revert TickOutOfRange();   // above current: buy the asset with USD
-        } else {
-            if (t.newLo <= t.curUp) revert TickOutOfRange();
-        }
+        // 🔴 SYMMETRIC, AND DELIBERATELY SO. This was two branches picked by the ordering flag,
+        // and that flag derives from the lex order of freshly-deployed MOCK addresses -- so WHICH
+        // SIDE a boundary order was allowed to sit on varied with deployment nonce. The comment on
+        // the first branch ("above current") also contradicted its own guard, which requires the
+        // range to be BELOW. There was no stable behaviour to preserve, so this enforces the
+        // requirement the docblock states and both branches were separately approximating: the new
+        // range must lie WHOLLY outside the active band, on either side. The side itself is the
+        // caller's choice, carried by the sign of `distance`.
+        // The strict comparisons are unchanged: a range that merely TOUCHES an edge is invalid.
+        if (!(t.newUp < t.curLo || t.newLo > t.curUp)) revert TickOutOfRange();
         if (t.newLo >= t.newUp) revert TickOutOfRange();       // degenerate range holds nothing
         placeable = amount6;
     }

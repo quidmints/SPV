@@ -341,10 +341,8 @@ contract Vault is Ownable, ReentrancyGuard {
         return SwapLib.plainNet(p, lev);
     }
 
-    /// @dev Read Core's BTC pool ordering. Cached on the Core side.
-    function token1isVol() internal view returns (bool) {
-        return CORE.token1isVol();   // §ISBTC-SPLIT: the instance IS the BTC one
-    }
+    // §DE-TICK — `token1isVol()` DELETED. It forwarded Core's v4 leg ordering, which no longer
+    // exists: `Delta`'s fields are named for what they hold and the OOR guard is symmetric.
 
     /// @notice (B) The BTC band's current spot √P (Q96) — recorded as `entryPrice` at `openBtcLev`. `isBTC` is
     ///         accepted for interface-parity with `Vogue.bandPrice`; the Vault is BTC-only, so it always reads

@@ -330,7 +330,6 @@ interface ICore {
     function committedUsd18() external view returns (uint);
     function modLP(uint delta, uint deltaUSD, address sender) external returns (uint);
     function outOfRange(address sender, int amount, uint tickLower, uint tickUpper, address token) external returns (uint);
-    function token1isVol() external view returns (bool);
     function POOLED() external view returns (uint);
     function btcThetaBacking() external view returns (uint);
     function poolStats() external view returns (uint priceWad, uint liquidity);
@@ -366,7 +365,7 @@ interface ICore {
     /// band's share of the one bound both compete for, which is what the shared-scarcity amplifier
     /// needs and what no isBTC-scoped input could ever supply.
     function bandEquityUsd18() external view returns (uint);
-    function swap(address sender, bool forOne, address token, uint amount) external returns (uint);   // §DE-TICK: no price limit, no isBTC -- the instance IS the asset
+    function swap(address sender, bool inputIsUsd, address token, uint amount) external returns (uint);   // §DE-TICK: no price limit, no isBTC -- the instance IS the asset
 }
 
 /// Canonical IEthVenue — the WHOLE external surface of `Vault`, not just its ETH-venue half.

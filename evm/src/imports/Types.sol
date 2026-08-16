@@ -206,7 +206,10 @@ library Types {
     struct RouteParams {
         // §DE-TICK — `sqrtPriceX96` removed. It carried a packed band-edge PRICE LIMIT for v4's
         // swap; settlement is at oracle bounded by inventory, so there is no limit to carry.
-        bool    zeroForOne;
+        // §DE-TICK — `zeroForOne` renamed to what it MEANS. It was v4's leg-ordering convention,
+        // built from `token1isVol` by the caller and un-built by `Core._fillDelta` with a second
+        // flip that cancelled the first. It only ever transported "which side is the user paying".
+        bool    inputIsUsd;
         address token;
         uint    amount;
         uint    pooled;

@@ -391,7 +391,7 @@ library VogueLib {
     // ════════════════════════════════════════════════════════════════════
     struct RebalIn {
         address core; address aux; address ev; address weth;
-        bool token1isVol; uint lpShares; uint totalLevPooled; uint totalBuffer;
+        uint lpShares; uint totalLevPooled; uint totalBuffer;
         uint lowerTick; uint upperTick; uint bookmark;   // §DE-TICK: band bounds as PRICES
     }
     struct RebalOut {
@@ -428,7 +428,12 @@ library VogueLib {
         if (r.didRepack) {
             // _calcYield's live effect: reorder to token-canonical + _distributeV4Fees; the APY `yield` it also
             // computed was discarded by _rebalance, so it is dropped. LAST_REPACK := block.timestamp (forwarder).
-            (uint fees, uint usd_fees) = c.token1isVol ? (r.fees1, r.fees0) : (r.fees0, r.fees1);
+            // §DE-TICK: the ordering ternary reordered TWO ZEROS -- `repack`/`reseat` both return
+            // `(price, 0, 0, 0, 0)` now that v4 collects nothing, so the fee legs are identically 0
+            // and the canonical (USD, tok) order the comment below names is taken directly. The fee
+            // LANE is untouched: whether per-share accrual returns is the deferred decision recorded
+            // at `Core._fillDelta` (fees currently compound into POOLED_* instead).
+            (uint fees, uint usd_fees) = (r.fees1, r.fees0);
             (o.feesPerShareInc, o.usdFeesInc) = SwapLib.feeIncrements(fees, usd_fees, c.lpShares + c.totalBuffer);
             o.setLastRepack = true;
         } else if (r.jitFees) {
@@ -554,7 +559,7 @@ library VogueLib {
 
     function sizeOutOfRange(
         address weth, address aux, address ev,
-        uint amount, address token, bool token1isVol, SwapLib.Oor memory t
+        uint amount, address token, SwapLib.Oor memory t
     ) public returns (uint liquidity, uint placed) {
         // §A.56: both branches were an INLINE COPY of `SwapLib.sizeOorUsd` — the same helper the BTC
         // path (`BtcVaultLib.outOfRangeBtc`) already calls. Verified byte-identical: the USD side maps
@@ -564,10 +569,10 @@ library VogueLib {
         // became `TickOutOfRange()` (the helper's named error) — same guard, better diagnostics.
         if (token == address(0)) {
             amount = depositETH(weth, aux, ev, msg.sender, address(0), amount);
-            liquidity = SwapLib.sizeOorUsd(amount, t, !token1isVol);
+            liquidity = SwapLib.sizeOorUsd(amount, t);
         } else {
             amount = SwapLib.scaleTo6(IAux(aux).deposit(msg.sender, token, amount), token);
-            liquidity = SwapLib.sizeOorUsd(amount, t, token1isVol);
+            liquidity = SwapLib.sizeOorUsd(amount, t);
         }
         // §V4-CUT — ALSO RETURN THE AMOUNT ACTUALLY PLACED. `liquidity` is v4's encoding of this
         // position; `placed` is the token amount it was sized FROM, after the deposit leg. Settling
@@ -585,11 +590,10 @@ library VogueLib {
     ///      `renounceOwnership()` (Ownable's slot is Vogue's), the QUID back-pin check,
     ///      and the assignments of the value-type state this returns.
     function setupBody(address _aux, address _core)
-        external returns (address weth, bool token1isVol, uint lower, uint upper) {
+        external returns (address weth, uint lower, uint upper) {
         weth = IAux(_aux).WETH();
         IWETH9(weth).approve(_aux, type(uint).max);
         (uint sqrtPriceX96,) = ICore(_core).poolStats();
-        token1isVol = ICore(_core).token1isVol();
         (lower, upper) = SwapLib.updateBounds(sqrtPriceX96, SwapLib.BAND_DELTA);
     }
 

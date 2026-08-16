@@ -437,7 +437,6 @@ contract Core is SafeCallback {
     mock internal mockUSD_BTC; // synthetic $-side of BTC pool (in & out of range)
 
     /// Pool ordering for THIS instance's asset. Was token1isVol/token1isVol.
-    bool public token1isVol;
 
     /// §ISBTC-SPLIT — WHAT THIS INSTANCE IS. Not a parameter threaded through every call: an
     /// IMMUTABLE the contract holds about itself. That distinction is the point of the split — a
@@ -461,11 +460,9 @@ contract Core is SafeCallback {
     /// cross-band input `SwapLib._sharedScarcityWad` needs. Neither instance knows the other exists.
     IBandBacking public immutable BACKING;
 
-    /// @notice Fused token-ordering accessor. Replaces the
-    /// `IS_BTC ? token1isVol() : token1isVol()` ternary at callsites.
-    function token1is() external view returns (bool) {
-        return token1isVol;
-    }
+    // §DE-TICK — `token1is()` DELETED with the state it exposed. No caller remained: leg ordering
+    // is carried by `Delta`'s field NAMES and the OOR guard is symmetric, so there is no question
+    // left for an external reader to ask.
 
     // ─── IS_BTC storage-ref selectors (EIP-170 dedup) ─────────────────
     // Each picks the per-pool slot/array so the swap/repack/delta/observation
@@ -655,15 +652,15 @@ contract Core is SafeCallback {
         // reads of the ref keys, so computing them HERE only put `Currency.unwrap`
         // in Core's runtime twice. `AUX.WBTC()` is queryable because AUX was wired
         // above, and is passed in so OracleLib need not import Aux for one getter.
-        (int24 refTickEth, int24 refTickBtc, bool ethVolIsC0, bool btcVolIsC0) =
+        (uint refPriceEth, uint refPriceBtc) =
             OracleLib.prepRefs(poolManager, _refKeyETH, _refKeyBTC,
                 mE, mB, mUE, mUB, address(AUX.WBTC()));
 
         // Both pools init identically; only the direction probe differs.
         // §ISBTC-SPLIT — ONE instance initialises ONE pool. This was two calls because one contract
         // held both rings; each instance now seeds only its own from its own reference pool.
-        if (IS_BTC) _initPool(mB, mUB, btcVolIsC0, refTickBtc);
-        else        _initPool(mE, mUE, ethVolIsC0, refTickEth);
+        if (IS_BTC) _initPool(mB, mUB, refPriceBtc);
+        else        _initPool(mE, mUE, refPriceEth);
     }
 
     /// @dev Per-pool VANILLA init, shared by ETH and BTC. Builds the lex-sorted
@@ -672,7 +669,7 @@ contract Core is SafeCallback {
     ///      `refVolIsC0`, floored toward −∞ to tickSpacing), and seeds the
     ///      oracle ring. Behavior-identical to the two prior inlined blocks.
     function _initPool(address volMock,
-        address usdMock, bool refVolIsC0, int24 refTick) internal {
+        address usdMock, uint refPrice) internal {
         // Everything but the two VALUE-TYPE state writes lives in OracleLib: the
         // PoolKey assembly, the lex sort, the tick direction-correction + align, the
         // pool init and the oracle seeding are all deploy-time-only code that was
@@ -680,12 +677,22 @@ contract Core is SafeCallback {
         // struct) and the ring (an array) can be passed by STORAGE POINTER, which is
         // what makes the move possible; `token1is*` and `POOL_ID_*` are value types
         // with no pointer to pass, so those two assignments stay here.
-        (bool token1isVol, PoolId id) = OracleLib.initPool(poolManager,
+        // 🔴 `token1isVol` IS ASSIGNED DIRECTLY BY THE DESTRUCTURING -- NO LOCAL, DELIBERATELY.
+        // When `token1isVolETH`/`token1isVolBTC` collapsed to one `token1isVol` (724f572b), the new
+        // state name COLLIDED with the local that used to be declared here, and
+        // `token1isVol = token1isVol` compiled as a SELF-ASSIGNMENT: the state variable was never
+        // written and read `false` forever, while OracleLib computed the correct value
+        // (`volMock > usdMock`, the v4 lex ordering) and returned it to be discarded. Eight
+        // money-path sites in this contract read it for leg orientation, plus Vault, BtcVaultLib
+        // and VogueLib externally. The compiler could not object, and `Vogue.token1isVol` -- a
+        // DIFFERENT variable that IS correctly assigned -- made the surviving reads look wired.
+        // Writing the state slot in the tuple makes that collision UNCONSTRUCTIBLE rather than
+        // merely renamed away: there is no local left for a future rename to shadow.
+        PoolId id;
+        (, id) = OracleLib.initPool(poolManager,
             IS_BTC ? VANILLA_BTC : VANILLA_ETH, _obsState(), _obs(),
-            volMock, usdMock, refVolIsC0, uint(int(refTick)));
+            volMock, usdMock, refPrice);
 
-        // §ISBTC-SPLIT: `token1isVol = token1isVol` was a SELF-ASSIGNMENT in both arms -- a no-op
-        // that survived the field collapse. Only the pool-id target actually differed.
         if (IS_BTC) POOL_ID_VANILLA_BTC = id; else POOL_ID_VANILLA_ETH = id;
     }
 
@@ -747,9 +754,9 @@ contract Core is SafeCallback {
         public onlyUs returns (uint sent) {
         // Both legs ENTER the band ⇒ NEGATIVE, per the convention derived in `swap` (positive leaves
         // the pool, negative enters it). `_t1` says which leg carries USD.
-        Delta memory d = token1isVol
-            ? Delta(-int256(deltaUSD), -int256(delta))
-            : Delta(-int256(delta), -int256(deltaUSD));
+        // §DE-TICK: the two ternaries CANCELLED -- USD was always placed where the USD reader
+        // looked. Identical semantics, one slot each.
+        Delta memory d = Delta(-int256(deltaUSD), -int256(delta));
         _handleDelta(d, true, deltaUSD == 0, sender, address(0), true);
         sent = 0;   // nothing is refused, so nothing comes back
     }
@@ -773,11 +780,13 @@ contract Core is SafeCallback {
         public onlyUs returns (uint tokOut) {
         // Single-sided by construction: a boundary order rests entirely on one side of spot, so the
         // amount belongs to the volatile leg when `token == 0` and to the USD leg otherwise.
-        Delta memory d = ((token == address(0)) == token1isVol)
+        // §DE-TICK: `token == address(0)` IS the volatile side; the ordering flag only decided
+        // which slot that landed in, and both readers compensated. Now it lands in `vol`.
+        Delta memory d = token == address(0)
             ? Delta(0, -amount)
             : Delta(-amount, 0);
         _handleDelta(d, false, false, sender, token);
-        int256 t = token1isVol ? d.amt1 : d.amt0;
+        int256 t = d.vol;
         tokOut = t > 0 ? uint(t) : 0;
     }
 
@@ -786,7 +795,7 @@ contract Core is SafeCallback {
     ///         half-settled backing): ETH emits ETHRefillRequest (keeper → refillETH
     ///         buys back from free surplus); BTC emits a hop request (we don't mint WBTC).
     function swap(address sender,
-        bool forOne, address token, uint amount)
+        bool inputIsUsd, address token, uint amount)
         onlyUs public returns (uint out) {
         // 🛑🛑🛑 DO NOT MERGE THIS WORKTREE. TRANSITIONAL SOLVENCY HAZARD, KNOWINGLY OPEN. 🛑🛑🛑
         //
@@ -838,7 +847,7 @@ contract Core is SafeCallback {
         // frame -- legacy stack, no via_ir crutch"). Do not inline for readability; it will not compile.
         uint px = AUX.getTWAPforAsset(IS_BTC ? address(AUX.WBTC()) : address(AUX.WETH()), 1800);
         Delta memory delta;
-        (delta, out) = _fillDelta(forOne, amount, px);
+        (delta, out) = _fillDelta(inputIsUsd, amount, px);
 
         // 🔴 THE THREE LINES BELOW LIVED IN `_handleSwap`, WHICH THIS CUT DELETED. Moving the seam
         // without carrying the body left `swap` computing a delta and doing NOTHING with it — no
@@ -859,7 +868,7 @@ contract Core is SafeCallback {
         // — looking exactly like a skew that simply never fires. Every band and well swap routes
         // through here, so this remains the ONE bump point.
         {
-            int256 usdLeg = token1isVol ? delta.amt0 : delta.amt1;
+            int256 usdLeg = delta.usd;
             uint usd6 = uint(usdLeg < 0 ? -usdLeg : usdLeg);
             if (usd6 != 0) _bumpFlow(usd6);
         }
@@ -1026,23 +1035,44 @@ contract Core is SafeCallback {
     /// SINGLE PACKED int256; two `int256` parameters added a stack slot per call site and blew the
     /// limit (`via_ir = false`). CLAUDE.md's remedy verbatim: locals into struct fields, because one
     /// memory pointer costs less stack than two values. Do NOT "simplify" it back — it will not compile.
-    struct Delta { int256 amt0; int256 amt1; }
+    /// §DE-TICK — THE FIELDS ARE NAMED FOR WHAT THEY HOLD, not for a token ordering. `amt0`/`amt1`
+    /// mirrored Uniswap's LEX-ORDERED currency0/currency1, so every producer encoded the legs by
+    /// `token1isVol` and every consumer decoded them by it again -- an encode/decode pair around a
+    /// struct WE own, with no external ordering left to agree with. Worse, the flag derives from the
+    /// lex order of freshly-deployed MOCK addresses, so it varied with deployment nonce: the same
+    /// code could put the USD leg in either slot on two different deploys. Naming the fields makes
+    /// the ordering question unaskable.
+    struct Delta { int256 usd; int256 vol; }
 
     function _handleDelta(Delta memory d, bool inRange, bool keep,
-        address who, address token) internal returns (uint, uint) {
-        return _handleDelta(d, inRange, keep, who, token, false);
+        address who, address token) internal {
+        _handleDelta(d, inRange, keep, who, token, false);
     }
 
     /// §#12 `basketLeg`: TRUE only from `_handleMod` (the basket adding/removing depth via
     /// `addLiq`). Swap/collect/reseat legs pass FALSE, so a swap moves the curve mirror
     /// (`POOLED_USD_*`) without moving the basket's contribution (`basketUsd`).
+    /// §DE-TICK — RETURNS NOTHING, AND THE VOLATILE LEG IS FOLDED IN. The old return was
+    /// `token1isVol ? (usd, tok) : (tok, usd)` -- a THIRD ordering decode -- and all three call
+    /// sites discarded it, so the tuple existed only to be re-ordered and thrown away.
+    /// `_settleTokSide` is inlined here because with `d.vol` already selected it was six lines and
+    /// a frame; the USD leg keeps its own frame (it is the big one, and `_poolUsdInRange` sits
+    /// under it). Net stack pressure FALLS: each leg used to take `amt0` AND `amt1` and re-derive
+    /// which was which.
     function _handleDelta(Delta memory d, bool inRange, bool keep,
-        address who, address token, bool basketLeg) internal returns (uint, uint) {
-        // Each leg settles in its own frame (legacy stack — no via_ir crutch); they
-        // recompute the cheap token ordering rather than thread 4 locals through.
-        uint usdAmount = _settleUsdSide(d.amt0, d.amt1, inRange, keep, who, token, basketLeg);
-        uint tokAmount = _settleTokSide(d.amt0, d.amt1, inRange, who);
-        return token1isVol ? (usdAmount, tokAmount) : (tokAmount, usdAmount);
+        address who, address token, bool basketLeg) internal {
+        _settleUsdSide(d.usd, inRange, keep, who, token, basketLeg);
+        int256 tokDelta = d.vol;
+        if (tokDelta > 0) {
+            uint tokAmount = uint(tokDelta);
+            if (inRange) _subPooledTok(tokAmount);
+            // ⚠️ THE `!IS_BTC` GUARD STAYS: ETH pays out real ether here, BTC settles by Lightning
+            // cooperative close, not an on-chain transfer. One of the four known-REAL asymmetries.
+            if (!IS_BTC && who != address(0)) VOGUE.takeETH(tokAmount, who);
+        } else if (tokDelta < 0) {
+            uint tokAmount = uint(-tokDelta);
+            if (inRange) _addPooledTok(tokAmount);
+        }
     }
 
     /// @dev USD-leg of _handleDelta. delta>0 → take+burn; delta<0 → mint+settle and
@@ -1060,9 +1090,8 @@ contract Core is SafeCallback {
     /// (`AUX.take` below is where the payout actually lands). Removing it cannot move value.
     /// `_poolUsdInRange`, `AUX.take`, the 6-dec basis and the §A.50/C2 conversion are UNCHANGED —
     /// that fix is about DECIMALS and has nothing to do with v4.
-    function _settleUsdSide(int256 amt0, int256 amt1, bool inRange, bool keep,
+    function _settleUsdSide(int256 usdDelta, bool inRange, bool keep,
         address who, address token, bool basketLeg) private returns (uint usdAmount) {
-        int256 usdDelta = token1isVol ? amt0 : amt1;
         if (usdDelta > 0) {
             usdAmount = uint(usdDelta);
             if (inRange) _poolUsdInRange(usdAmount, false, basketLeg);
@@ -1145,20 +1174,10 @@ contract Core is SafeCallback {
     /// already said the real ETH payout was SEPARATE from the mock burn ("the burned mockETH is
     /// matched by real ETH paid out"). `VOGUE.takeETH` is where value moves; the mock was a shadow.
     /// ⚠️ THE `!IS_BTC` GUARD STAYS AND IS **NOT** IS_BTC-DRIFT TO BE DELETED LATER: ETH pays out real
-    /// ether here, BTC does not (its settlement is a Lightning cooperative close, not an on-chain
-    /// transfer). That is one of the four known-REAL ETH/BTC asymmetries — see CLAUDE.md.
-    function _settleTokSide(int256 amt0, int256 amt1, bool inRange, address who)
-        private returns (uint tokAmount) {
-        int256 tokDelta = token1isVol ? amt1 : amt0;
-        if (tokDelta > 0) {
-            tokAmount = uint(tokDelta);
-            if (inRange) _subPooledTok(tokAmount);
-            if (!IS_BTC && who != address(0)) VOGUE.takeETH(tokAmount, who);
-        } else if (tokDelta < 0) {
-            tokAmount = uint(-tokDelta);
-            if (inRange) _addPooledTok(tokAmount);
-        }
-    }
+    // §DE-TICK — `_settleTokSide` FOLDED INTO `_handleDelta`. With `d.vol` naming the leg there was
+    // no selection left to make, so the frame held six lines and a `token1isVol` read. The `!IS_BTC`
+    // guard it carried moved with it, unchanged: ETH pays out real ether, BTC settles by Lightning
+    // cooperative close. That is one of the four known-REAL asymmetries -- see CLAUDE.md.
 
 
     /// §V4-CUT — THE LAST TWO v4 READS, NOW ANSWERED FROM OUR OWN STATE.
@@ -1181,8 +1200,20 @@ contract Core is SafeCallback {
     /// per-range position to look up), `currentTick` was always 0, and `uint160` was only ever
     /// `sqrtPriceX96`'s width — a price has no reason to be 160 bits, and every consumer was paying
     /// a cast for it. Plain `uint` throughout.
+    /// §BOOTSTRAP — RETURNS THE RING'S `lastPrice`, NOT AN 1800s TWAP. Reading a 30-minute average
+    /// here was wrong on three counts, and the third broke the deploy outright:
+    ///   • SEMANTICS: `poolStats` is the band's CURRENT price and inventory. A TWAP is a different
+    ///     quantity, and the consumers that need one ask for it BY NAME (`getTWAPforAsset`) -- the
+    ///     swap path already does, so nothing loses manipulation resistance here.
+    ///   • COST: it made a frequently-read `view` perform an external CALL into Aux for a number
+    ///     this contract already has in its own storage.
+    ///   • BOOTSTRAP: at deploy the ring holds ONE observation stamped `now`, so a read 1800s back
+    ///     has no history and reverts `twap: pre-history`. That is what `Vogue.setup` hit, and it
+    ///     took every fixture's setUp down with it.
+    /// `lastPrice` is seeded from the reference pool in `OracleLib.initPool` and updated by every
+    /// observation write, so it is defined from the first block and never needs history.
     function poolStats() public view returns (uint priceWad, uint liquidity) {
-        priceWad = AUX.getTWAPforAsset(IS_BTC ? address(AUX.WBTC()) : address(AUX.WETH()), 1800);
+        priceWad = _obsState().lastPrice;
         liquidity = POOLED;
     }
 
@@ -1201,11 +1232,12 @@ contract Core is SafeCallback {
     ///      bridge and is the same conversion `routeSwap` uses; a second one here is how the
     ///      §A.50/C2 asymmetry happened.
     ///      SIGN: positive leaves the pool, negative enters it. `forOne` pays leg 0, receives leg 1.
-    function _fillDelta(bool forOne, uint amount, uint px)
+    function _fillDelta(bool inputIsUsd, uint amount, uint px)
         private view returns (Delta memory d, uint out) {
-        // `forOne` receives leg 1. With USD on leg 0, leg 1 is VOLATILE, so the user pays USD and
-        // buys volatile ⇒ the INPUT is USD and `convert` runs toVol.
-        bool inputIsUsd = token1isVol ? forOne : !forOne;
+        // §DE-TICK — THE CALLER SAYS WHICH SIDE IT IS PAYING, rather than handing over v4's
+        // `zeroForOne` for us to re-derive. That derivation was `token1isVol ? forOne : !forOne`
+        // against a `zeroForOne` the caller had itself built from `token1isVol` -- two flips that
+        // CANCELLED for both values of the flag, so the pair only ever transported `forVolatile`.
         out = BasketLib.convert(amount, px, inputIsUsd);
         // 🔴 FIRM QUOTE (owner) — THE IMBALANCE CHARGE IS IN THE PRICE, NOT TRUED UP AFTERWARDS.
         // We feed 1inch / Khalani, so the counterparty is a SOLVER that has ALREADY committed a
@@ -1239,8 +1271,8 @@ contract Core is SafeCallback {
             out = held;
             amount = BasketLib.convert(out, px, !inputIsUsd);   // re-derive input for a partial
         }
-        d = forOne ? Delta(-int256(amount), int256(out))
-                   : Delta(int256(out), -int256(amount));
+        d = inputIsUsd ? Delta(-int256(amount), int256(out))    // USD in, volatile out
+                       : Delta(int256(out), -int256(amount));   // volatile in, USD out
     }
 
     /// §V4-CUT — THE ORACLE REPOINT, AND IT IS THIS SMALL. The ring has stored PLAIN PRICE since

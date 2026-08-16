@@ -172,7 +172,7 @@ library OracleLib {
     ///      So `token0`/`token1` arrive ALREADY SORTED and `tick` ALREADY ALIGNED.
     function initPool(IPoolManager pm, PoolKey storage k, ObsState storage st,
         Observation[65535] storage obs, address volMock, address usdMock,
-        bool refVolIsC0, uint refPrice) external returns (bool token1isVol, PoolId id) {
+        uint refPrice) external returns (bool token1isVol, PoolId id) {   // §DE-TICK: the direction probe is consumed in prepRefs now
         token1isVol = volMock > usdMock;                       // V4 lex-ordering
         k.currency0 = Currency.wrap(token1isVol ? usdMock : volMock);
         k.currency1 = Currency.wrap(token1isVol ? volMock : usdMock);
@@ -206,16 +206,29 @@ library OracleLib {
     }
 
     /// `wbtc` is passed in rather than read here so OracleLib does not have to import
-    /// `Aux` for one getter; Core already holds the pin. The two returned bools are the
-    /// DIRECTION PROBES `initPool` needs — whether the volatile asset is currency0 in
-    /// each REFERENCE pool (ETH ref: native 0x0; BTC ref: WBTC).
+    /// `Aux` for one getter; Core already holds the pin.
+    ///
+    /// 🔴 §DE-TICK — RETURNS PRICES, NOT TICKS. THIS WAS A LIVE UNIT BUG. These reads used to hand
+    /// back the reference pools' `slot0` TICKS, and `initPool` converted them to a sqrt price to
+    /// initialise our own v4 pool at the same ratio. That pool is gone, so the tick travelled
+    /// straight into `st.lastPrice` through a `uint(int(refTick))` cast -- seeding the observation
+    /// ring with a TICK reinterpreted as a WAD price, which for a NEGATIVE tick is ~2^256.
+    /// MEASURED: `poolStats()` returned 1.157e77 and every fixture's setUp died one step later on
+    /// an arithmetic underflow. A tick and a price are both `uint` after the cast, so nothing
+    /// objected.
+    /// The orientation probes are CONSUMED HERE now (`token0isUSD == !volIsC0`) instead of
+    /// travelling onward, so writer and reader cannot disagree about which way up the price is --
+    /// the same argument `cumsToPrice` already makes for the ring.
+    /// ⚠️ The reference pools are still READ, deliberately: they are the independent v3/v4
+    /// observation the Chainlink cross-check is measured against.
     function prepRefs(IPoolManager pm, PoolKey calldata refETH, PoolKey calldata refBTC,
         address mETH, address mBTC, address mUSD_ETH, address mUSD_BTC, address wbtc)
-        external returns (int24 tickETH, int24 tickBTC, bool ethVolIsC0, bool btcVolIsC0) {
-        (, tickETH, , ) = StateLibrary.getSlot0(pm, PoolIdLibrary.toId(refETH));
-        (, tickBTC, , ) = StateLibrary.getSlot0(pm, PoolIdLibrary.toId(refBTC));
-        ethVolIsC0 = Currency.unwrap(refETH.currency0) == address(0);
-        btcVolIsC0 = Currency.unwrap(refBTC.currency0) == wbtc;
+        external returns (uint priceETH, uint priceBTC) {
+        (uint160 spETH, , , ) = StateLibrary.getSlot0(pm, PoolIdLibrary.toId(refETH));
+        (uint160 spBTC, , , ) = StateLibrary.getSlot0(pm, PoolIdLibrary.toId(refBTC));
+        // `volIsC0` says the VOLATILE asset is currency0, so token0 is NOT the USD side.
+        priceETH = BasketLib.getPrice(spETH, !(Currency.unwrap(refETH.currency0) == address(0)));
+        priceBTC = BasketLib.getPrice(spBTC, !(Currency.unwrap(refBTC.currency0) == wbtc));
         mock(mETH).approve(address(pm), type(uint).max);
         mock(mBTC).approve(address(pm), type(uint).max);
         mock(mUSD_ETH).approve(address(pm), type(uint).max);
