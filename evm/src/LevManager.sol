@@ -174,7 +174,7 @@ contract LevManager is LevBase {
     function init(address hook, address flash, address[] calldata venues) external {
         if (msg.sender != GOV || venuesFrozen) revert VenueNotAllowed();
         venuesFrozen = true;
-        vogueSyncHook = hook;
+        BAND = hook;
         flashProvider = flash;
         emit FlashProviderSet(flash);
         for (uint i; i < venues.length; i++) {
@@ -385,7 +385,7 @@ contract LevManager is LevBase {
     ///         on every keeper cycle, and the sold-fraction IL-cancellation is fork-proven (LevYbReal/LevCascade
     ///         with `setSoldFractionActive(true)`).
     function _ilTargetLive(Types.Pos memory p, uint256 px) internal returns (uint256) {
-        return LevMath.ilTargetLive(vogueSyncHook, p.entryPrice, p.entryPriceWad, px, p.targetLtvCapBps);
+        return LevMath.ilTargetLive(BAND, p.entryPrice, p.entryPriceWad, px, p.targetLtvCapBps);
     }
 
 
@@ -419,8 +419,8 @@ contract LevManager is LevBase {
         // a crash. `entryPrice` still tracks the band for the sold-fraction reference.
         uint256 e0 = _collToEth(venue, collWeeth);   // (A): the deposit (weETH→ETH rate, or WETH 1:1) is the IL base
         uint entryPrice;
-        if (vogueSyncHook != address(0)) {
-            try ILevSyncHook(vogueSyncHook).bandPrice() returns (uint s) { entryPrice = s; } catch {}
+        if (BAND != address(0)) {
+            try ILevSyncHook(BAND).bandPrice() returns (uint s) { entryPrice = s; } catch {}
         }
         pos[msg.sender] = Types.Pos({venue: venue, targetLtvCapBps: targetLtvBps, entryPriceWad: uint128(entryPx),
                                e0: uint128(e0), entryPrice: entryPrice, open: true});
@@ -508,7 +508,7 @@ contract LevManager is LevBase {
         // Up-side-only is the correct design, not just the default. See docs §J.4 (settled verdict).
         // full-2×: reconcile the band to the NEW gross/debt atomically so each levBufferUsd ≤ its debt and the
         // band depth stay exact after a lever-up/de-lever — correct-by-construction, not reliant on a poke.
-        if (vogueSyncHook != address(0)) { try ILevSyncHook(vogueSyncHook).syncLev(lp) {} catch {} }
+        if (BAND != address(0)) { try ILevSyncHook(BAND).syncLev(lp) {} catch {} }
     }
 
     // ════════════════════════════ CASCADE DE-LEVER (the correlated-crash path) ════════════════════════════
@@ -536,7 +536,7 @@ contract LevManager is LevBase {
         emit Rebalanced(lp, false, 0, getCurrentLtvBps(lp));
         // full-2×: reconcile the band to the reduced gross/debt (levBufferUsd must not exceed the now-smaller
         // debt) — atomic, so the ≤Σdebt invariant holds continuously even mid-cascade. try/catch: never break it.
-        if (vogueSyncHook != address(0)) { try ILevSyncHook(vogueSyncHook).syncLev(lp) {} catch {} }
+        if (BAND != address(0)) { try ILevSyncHook(BAND).syncLev(lp) {} catch {} }
     }
 
     /// @notice SYSTEMIC cascade de-lever — the correlated-crash path. De-levers a batch in ONE tx,
@@ -563,7 +563,7 @@ contract LevManager is LevBase {
     }
 
     /// @notice Permissioned force-close of `lp`'s lever ON THEIR BEHALF — the §4.2 cover-lever entry
-    ///         (docs/actionable/JIT-DEPTH-GUARANTEE.md). Callable ONLY by the GOV-pinned `vogueSyncHook`
+    ///         (docs/actionable/JIT-DEPTH-GUARANTEE.md). Callable ONLY by the GOV-pinned `BAND`
     ///         (the ETH band — so a `Vogue._withdraw` can cover an open lever before the free-ladder burn) — NO
     ///         GOV force-close (no live governance authority). SEPARATE trusted-caller path, so the LP-only
     ///         `closeLev` msg.sender gate is left intact (NOT
@@ -574,7 +574,7 @@ contract LevManager is LevBase {
     ///         `nonReentrant`: the tail `syncLev` hook call-back is already try/catch-wrapped, so a re-entrant
     ///         band context degrades to the permissionless slice reconcile.
     function closeLevFor(address lp, uint256 minOut) external nonReentrant {
-        if (msg.sender != vogueSyncHook) revert NotGov();
+        if (msg.sender != BAND) revert NotGov();
         _closeLev(lp, minOut, true);            // INVOLUNTARY -- retain state so the LP can be restored
     }
 
@@ -606,7 +606,7 @@ contract LevManager is LevBase {
         _untrackOpen(lp);          // leave the book — net-equity contribution drops to 0
         // Burn the LP's levered band slice NOW (net-equity is 0 post-delete) so it can't keep earning band
         // fees on vanished backing. Non-fatal: the slice is also reconcilable permissionlessly via syncLev.
-        if (vogueSyncHook != address(0)) { try ILevSyncHook(vogueSyncHook).syncLev(lp) {} catch {} }
+        if (BAND != address(0)) { try ILevSyncHook(BAND).syncLev(lp) {} catch {} }
         emit Closed(lp, back);
     }
 
@@ -651,7 +651,7 @@ contract LevManager is LevBase {
     /// @notice §G.3 REDEEM/SWAP-OUT value-neutral extraction: free up to `extractUsd` (USD 1e18) of THIS LP's
     ///         in-band levered net-equity to `vault` (the redeem sink) via a flash-repay-FIRST partial de-lever
     ///         that PRESERVES LTV — repay ΔD=`extractUsd`·debt/netEq, withdraw+sell the paired collateral, surplus
-    ///         → `vault`. Gated to the band (`vogueSyncHook`, the redeem/swap-out settle path) — NEVER
+    ///         → `vault`. Gated to the band (`BAND`, the redeem/swap-out settle path) — NEVER
     ///         permissionless (it routes value OUT). Bounded by the #67 `deliverableDollars` (never past the liq
     ///         threshold). The LP's residual position stays OPEN (unlike `closeLev`); `syncLev` reconciles the
     ///         shrunk net-equity band slice. Uniform over YB + directional (both in-band); the YB-vs-directional
@@ -659,7 +659,7 @@ contract LevManager is LevBase {
     function deleverToVault(address lp, uint256 extractUsd, address vault, uint256 minOut)
         external returns (uint256 freed)     // NOT nonReentrant: the outer deleverBook (or the band's redeem lock) holds it — mirrors deleverOne
     {
-        if (msg.sender != vogueSyncHook && msg.sender != address(this)) revert NotGov(); // band settle OR deleverBook self-call
+        if (msg.sender != BAND && msg.sender != address(this)) revert NotGov(); // band settle OR deleverBook self-call
         Types.Pos memory p = pos[lp];
         if (!p.open || extractUsd == 0 || flashProvider == address(0)) return 0;
         uint256 cap = deliverableDollars(lp);                     // value-neutral bound (≤ liq threshold, #67)
@@ -673,7 +673,7 @@ contract LevManager is LevBase {
             abi.encode(uint8(2), lp, address(p.venue), p.venue.stable(), extractUsd, vault, minOut));
         freed = _lastFreed; _lastFreed = 0;
         // Reconcile the shrunk net-equity into the band slice (try/catch: never block the settle).
-        if (vogueSyncHook != address(0)) { try ILevSyncHook(vogueSyncHook).syncLev(lp) {} catch {} }
+        if (BAND != address(0)) { try ILevSyncHook(BAND).syncLev(lp) {} catch {} }
     }
 
     /// @notice §M.1 #54-ETH funding quote: for `lp`, the venue stable + the EXACT native amount the Vault must
@@ -690,13 +690,13 @@ contract LevManager is LevBase {
     ///         reconciles the shrunk net-equity; the keeper re-levers next tick. Gated to the band.
     function swapOutDeliverUnlevered(address lp, uint256 wethWanted, address recipient, uint256 minWethOut)
         external nonReentrant returns (uint256 wethDelivered) {
-        if (msg.sender != vogueSyncHook) revert NotGov();          // band settle path only
+        if (msg.sender != BAND) revert NotGov();          // band settle path only
         Types.Pos memory p = pos[lp];
         if (!p.open || wethWanted == 0) return 0;
         if (p.venue.debtOf(lp) != 0) return 0;                     // levered ⇒ use swapOutDelever (repay path)
         // withdraw net-equity collateral + MEV-floor + deliver-as-WETH: body in LevMath (delegatecall, EIP-170).
         wethDelivered = LevMath.swapOutDeliverUnleveredBody(p.venue, lp, wethWanted, recipient, minWethOut, _extractCfg());
-        if (vogueSyncHook != address(0)) { try ILevSyncHook(vogueSyncHook).syncLev(lp) {} catch {} }
+        if (BAND != address(0)) { try ILevSyncHook(BAND).syncLev(lp) {} catch {} }
     }
 
     /// @notice §M.1 ETH SWAP-OUT delivery-side de-lever (equity-preserving; mirrors `BtcLevManager.swapOutDelever`
@@ -708,7 +708,7 @@ contract LevManager is LevBase {
     ///         into REAL deliverable ETH. Gated to the Vault settle path. Returns (USD 1e18 repaid, WETH delivered).
     function swapOutDelever(address lp, uint256 stableUsd, address recipient, uint256 minWethOut)
         external nonReentrant returns (uint256 usedUsd, uint256 wethDelivered) {
-        if (msg.sender != vogueSyncHook) revert NotGov();          // Vault/band settle path only
+        if (msg.sender != BAND) revert NotGov();          // Vault/band settle path only
         Types.Pos memory p = pos[lp];
         if (!p.open) return (0, 0);
         // repay-with-the-Vault-pre-transferred-stable → free EXACTLY the repaid value of collateral → deliver as
@@ -716,7 +716,7 @@ contract LevManager is LevBase {
         (usedUsd, wethDelivered) = LevMath.swapOutDeleverBody(
             p.venue, lp, stableUsd, recipient, minWethOut, AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW), _extractCfg());
         // Reconcile the shrunk slice into the band (try/catch: never block the settle).
-        if (vogueSyncHook != address(0)) { try ILevSyncHook(vogueSyncHook).syncLev(lp) {} catch {} }
+        if (BAND != address(0)) { try ILevSyncHook(BAND).syncLev(lp) {} catch {} }
     }
 
     /// @notice §G.3/§G.6 REACTIVE de-lever sweep — the ONE mechanism the redeem AND swap-out settle paths share
@@ -725,7 +725,7 @@ contract LevManager is LevBase {
     ///         the walk lives here, not reached into from the basket) and value-neutrally extracts up to `usdWanted`
     ///         (USD 1e18) into `sink`, stopping as soon as it's met. FAULT-TOLERANT via the same `this.`-self-call
     ///         pattern as `cascadeDelever`: a stuck/illiquid position reverts its own `deleverToVault` and is
-    ///         SKIPPED, never blocking the sweep. Gated to the band (`vogueSyncHook`). Partial de-lever keeps
+    ///         SKIPPED, never blocking the sweep. Gated to the band (`BAND`). Partial de-lever keeps
     ///         positions OPEN, so the book is stable across the walk (no swap-pop mid-loop). Returns stable routed
     ///         to `sink`. Book-order (not strict LTV rank): each tap is value-neutral + capped at its own #67
     ///         deliverable, so order only picks WHICH lightly-levered LPs are tapped — strict LTV-ranking is the
@@ -733,7 +733,7 @@ contract LevManager is LevBase {
     function deleverBook(uint256 usdWanted, address sink, uint256 minOut)
         external nonReentrant returns (uint256 freed)
     {
-        if (msg.sender != vogueSyncHook) revert NotGov();
+        if (msg.sender != BAND) revert NotGov();
         uint256 n = _openLps.length;
         for (uint256 i; i < n && freed < usdWanted; i++) {
             try this.deleverToVault(_openLps[i], usdWanted - freed, sink, minOut) returns (uint256 f) { freed += f; }

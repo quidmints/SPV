@@ -71,7 +71,7 @@ contract BtcLevManager is LevBase {
     ///         sourcing). Matches LevManager.init (allowlist so a WBTC venue can sit beside the vBTC one).
     function init(address hook, address flash, address[] calldata venues) external {
         if (msg.sender != GOV || venuesFrozen) revert BadAuth();
-        venuesFrozen = true; vogueSyncHook = hook; flashProvider = flash;
+        venuesFrozen = true; BAND = hook; flashProvider = flash;
         for (uint i; i < venues.length; i++) {
             address v = venues[i];
             if (v == address(0)) revert BadAuth();
@@ -208,7 +208,7 @@ contract BtcLevManager is LevBase {
     ///         at the LP's cap; falls back to the proven 1−√(entry/now) when the sold-fraction path is inactive
     ///         or unmeasurable. Mirror of `LevManager._ilTargetLive`.
     function _ilTargetLive(Types.Pos memory p, uint px) internal returns (uint) {
-        return LevMath.ilTargetLive(vogueSyncHook, p.entryPrice, p.entryPriceWad, px, p.targetLtvCapBps);
+        return LevMath.ilTargetLive(BAND, p.entryPrice, p.entryPriceWad, px, p.targetLtvCapBps);
     }
 
     /// @notice Stable delta (USD 1e18) + direction to re-hit the IL target; oracle read ONCE.
@@ -245,8 +245,8 @@ contract BtcLevManager is LevBase {
         // keeper levers, but E0 stays = the deposit. SAFETY: the up-side clamp de-levers toward 0 debt below entry.
         uint e0 = initialVbtc;                                         // (A): the deposit (vBTC sats) is the IL base
         uint entryPrice;
-        if (vogueSyncHook != address(0)) {
-            try ILevSyncHook(vogueSyncHook).bandPrice() returns (uint s) { entryPrice = s; } catch {}
+        if (BAND != address(0)) {
+            try ILevSyncHook(BAND).bandPrice() returns (uint s) { entryPrice = s; } catch {}
         }
         pos[msg.sender] = Types.Pos({venue: venue, targetLtvCapBps: cap, entryPriceWad: uint128(entryPx),
                                e0: uint128(e0), entryPrice: entryPrice, open: true});
@@ -292,7 +292,7 @@ contract BtcLevManager is LevBase {
         got = p.venue.borrow(lp, LevMath._fromUsd(address(AUX),p.venue.stable(), want));    // stable → this
         if (got > 0) IERC20Min(p.venue.stable()).transfer(lp, got);      // → LP/keeper for external BTC sourcing
         emit Borrowed(lp, got);
-        if (vogueSyncHook != address(0)) { try ILevSyncHook(vogueSyncHook).syncLev(lp) {} catch {} } // full-2× reconcile
+        if (BAND != address(0)) { try ILevSyncHook(BAND).syncLev(lp) {} catch {} } // full-2× reconcile
     }
 
     /// @notice Supply `vbtc` (minted against the LP's dedicated UTXO, approved here) as additional collateral —
@@ -305,7 +305,7 @@ contract BtcLevManager is LevBase {
         VBTC.transfer(address(p.venue), vbtc);
         p.venue.supply(lp, vbtc);
         emit Supplied(lp, vbtc);
-        if (vogueSyncHook != address(0)) { try ILevSyncHook(vogueSyncHook).syncLev(lp) {} catch {} } // full-2× reconcile
+        if (BAND != address(0)) { try ILevSyncHook(BAND).syncLev(lp) {} catch {} } // full-2× reconcile
     }
 
     /// @notice Withdraw `vbtc` collateral to the LP/keeper (for delever/close: burn + enclave-spend the UTXO →
@@ -317,7 +317,7 @@ contract BtcLevManager is LevBase {
         out = pos[lp].venue.withdraw(lp, vbtc);                        // vBTC → this
         if (out > 0) VBTC.transfer(lp, out);                           // → LP/keeper
         emit Withdrawn(lp, out);
-        if (vogueSyncHook != address(0)) { try ILevSyncHook(vogueSyncHook).syncLev(lp) {} catch {} } // full-2× reconcile
+        if (BAND != address(0)) { try ILevSyncHook(BAND).syncLev(lp) {} catch {} } // full-2× reconcile
     }
 
     /// @notice Repay `stableUsd`-worth of the position's debt (stable already transferred in / approved).
@@ -339,7 +339,7 @@ contract BtcLevManager is LevBase {
         emit Repaid(lp, repaid);
         // full-2×: repay REDUCES debt → levBufferUsd must be re-capped at the smaller debt (else the ≤Σdebt
         // invariant transiently breaks). Reconcile atomically. try/catch: never block a repay.
-        if (vogueSyncHook != address(0)) { try ILevSyncHook(vogueSyncHook).syncLev(lp) {} catch {} }
+        if (BAND != address(0)) { try ILevSyncHook(BAND).syncLev(lp) {} catch {} }
     }
 
     // ═══════════════════════ ATOMIC WBTC-MODE (on-chain swap, no external BTC sourcing) ═══════════════════════
@@ -366,7 +366,7 @@ contract BtcLevManager is LevBase {
             else if (flashProvider != address(0)) _flashDeleverWbtc(p.venue, lp, stable, deltaUsd, minOut); // repay-FIRST: always health-safe
             else       _deleverWbtc(p.venue, lp, stable, deltaUsd, minOut);                                 // graceful fallback (no flash provider)
         }
-        if (vogueSyncHook != address(0)) { try ILevSyncHook(vogueSyncHook).syncLev(lp) {} catch {} }
+        if (BAND != address(0)) { try ILevSyncHook(BAND).syncLev(lp) {} catch {} }
     }
 
     /// @notice #10 SYSTEMIC batch de-lever for WBTC-mode positions — the BTC analog of ETH `LevManager.cascadeDelever`.
@@ -421,7 +421,7 @@ contract BtcLevManager is LevBase {
         LevMath.flashDeleverWbtcSettle(assets, lp, venueAddr, stable, minOut, flashProvider,
             LevMath.WbtcCfg(address(AUX), WBTC, uint32(TWAP_WINDOW), uint16(MAX_SLIPPAGE_BPS)));
         emit Repaid(lp, assets);
-        if (vogueSyncHook != address(0)) { try ILevSyncHook(vogueSyncHook).syncLev(lp) {} catch {} }
+        if (BAND != address(0)) { try ILevSyncHook(BAND).syncLev(lp) {} catch {} }
     }
 
     /// @notice #54 DELIVERY-SIDE de-lever (partial-burn vBTC deliverability). When a native-BTC swap-out is
@@ -433,7 +433,7 @@ contract BtcLevManager is LevBase {
     ///         debt-reduction instead of the QUI mint (single-pay). Mechanics here mirror closeBtcLev: repay →
     ///         withdraw the freed vBTC to this manager → burn it + un-encumber the LP's channel BTC via
     ///         `unexposeBtcFromLev` (lev→funded), so the Vault's funded/lev clamp no longer bites the settled
-    ///         shrink. Gated to the Vault settle path (`vogueSyncHook`). `freeSats` = the delivered levered slice
+    ///         shrink. Gated to the Vault settle path (`BAND`). `freeSats` = the delivered levered slice
     ///         to un-encumber (decoupled from the debt repaid: the levered net slice can exceed its debt backing,
     ///         so we free the sats the channel actually delivered and repay only what debt there is — the pure-
     ///         equity remainder is compensated by the caller minting QUI for it). Equal-value removal (repaid debt
@@ -442,7 +442,7 @@ contract BtcLevManager is LevBase {
     ///         freedSats) — usedUsd is the debt actually retired (the caller withholds only THIS from the QUI mint).
     function swapOutDelever(address lp, uint stableUsd, uint freeSats)
         external nonReentrant returns (uint usedUsd, uint freedSats) {
-        if (msg.sender != vogueSyncHook) revert BadAuth();          // Vault settle path only
+        if (msg.sender != BAND) revert BadAuth();          // Vault settle path only
         Types.Pos memory p = pos[lp];
         if (!p.open) return (0, 0);
         uint amt = LevMath._fromUsd(address(AUX),p.venue.stable(), stableUsd);   // usd → native stable units
@@ -477,7 +477,7 @@ contract BtcLevManager is LevBase {
         if (!p.open) revert NotOpen();
         if (p.venue.debtOf(lp) != 0) revert BadTarget();               // repay first (keeper unwinds async)
         // Mark the levered slice to the live (now zero-debt) net-equity BEFORE unwinding, so it == `back`.
-        if (vogueSyncHook != address(0)) { try ILevSyncHook(vogueSyncHook).syncLev(lp) {} catch {} }
+        if (BAND != address(0)) { try ILevSyncHook(BAND).syncLev(lp) {} catch {} }
         uint rem = p.venue.collateralOf(lp);
         uint back = rem > 0 ? p.venue.withdraw(lp, rem) : 0;           // vBTC → this manager
         delete pos[lp];

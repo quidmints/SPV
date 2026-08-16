@@ -28,7 +28,7 @@ import {ILevHost, ILevEquity, ILevClose} from "./imports/Interfaces.sol";
 /// IL-protect fee lane: Vogue reads the LevManager through the Vault's already-secure one-shot pin
 /// (`ethVenue.LEV_MANAGER()`), so `syncLev` needs NO new trust surface of its own (Vogue renounces ownership
 /// at setup). `netEquityEth(lp)` is the LIVE net-of-debt equity the levered slice is sized to.
-// §4.2 / #109: force-close an LP's OWN in-band levered slice on band-exit (gated to the vogueSyncHook == this
+// §4.2 / #109: force-close an LP's OWN in-band levered slice on band-exit (gated to the BAND == this
 // Vogue). Repays debt + hands the freed collateral (LP's full residual) back to the LP. See §G.7.
 
 contract Vogue is
@@ -421,7 +421,7 @@ contract Vogue is
     ///     when the ask exceeds the LP's FREE (non-levered) balance it calls
     ///     `ILevClose(levManager).closeLevFor(msg.sender, 0)` then `_reconcileLev(msg.sender)`, i.e. a
     ///     past-free withdraw crystallizes the whole in-band lever (full-close, not partial — that IS the
-    ///     opt-in). `closeLevFor` stays gated to the GOV-pinned vogueSyncHook OR GOV, and `closeLev`'s
+    ///     opt-in). `closeLevFor` stays gated to the GOV-pinned BAND OR GOV, and `closeLev`'s
     ///     LP-only msg.sender gate is untouched.
     ///     **CORRECTED 2026-07-26 — this comment previously read "PRIMITIVE BUILT, INLINE WIRING DEFERRED"
     ///     and listed two blocking forks. That text outlived the code and is what caused #109 to be tracked as

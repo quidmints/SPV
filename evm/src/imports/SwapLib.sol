@@ -1481,7 +1481,7 @@ library SwapLib {
     ///   levered slice's V4 depth was already consumed by the curve at REQUEST (it sold against the full
     ///   POOLED), so this only reconciles the per-LP accounting — no second burnInRange. DELEGATECALL'd by the
     ///   Vault (address(this)==Vault): AUX/CORE see msg.sender==Vault (onlyUs), the manager sees Vault (==its
-    ///   vogueSyncHook gate), and the manager's unexpose callback arrives as msg.sender==manager (==LEV_MANAGER_BTC).
+    ///   BAND gate), and the manager's unexpose callback arrives as msg.sender==manager (==LEV_MANAGER_BTC).
     ///   Returns the 6-dec debt-share withheld from the QUI mint.
     function deleverOnDelivery(
         address core, address aux, address mgr,
@@ -1559,7 +1559,7 @@ library SwapLib {
     }
 
     /// @notice §M.1 ETH swap-out DELIVERY-SIDE de-lever ORCHESTRATOR (aggregate; the ETH mirror of BTC
-    ///   `deleverOnDelivery`). DELEGATECALL'd by Vogue (address(this)==Vogue==the LevManager's `vogueSyncHook`) from
+    ///   `deleverOnDelivery`). DELEGATECALL'd by Vogue (address(this)==Vogue==the LevManager's `BAND`) from
     ///   `_sendETH` when the venue base (deliverableETH) can't cover a swap-out delivery. Walks the open lev book;
     ///   per LP: sources the swap's OWN proceeds into the venue via `Aux.takeToSettle` DIRECTLY (Vogue==address(this)
     ///   IS authorized — `V4==Vogue` in `Aux._requireUs`) and repays that LP's debt, delivering the freed collateral

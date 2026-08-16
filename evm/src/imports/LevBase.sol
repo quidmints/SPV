@@ -58,7 +58,10 @@ abstract contract LevBase {
 
     /// The band's sync hook (Vogue's `syncLev` / Vault's `syncLevBTC`). GOV pin-once, then frozen —
     ///  the SETTER stays per-manager (BtcLevManager fuses it into `init` alongside `venuesFrozen`).
-    address public vogueSyncHook;
+    /// §SLOP — was `vogueSyncHook`, the FOURTH name for one concept (after `V4`, `CORE` and
+    /// `BAND` in Core). It is the band manager: set to Vogue for the ETH lev book and to the
+    /// Vault for the BTC one, used for `bandPrice`, `syncLev` and as the settle-path auth gate.
+    address public BAND;
 
     event TargetSet(address indexed lp, uint256 targetLtvBps);
     event ReanchoredToBand(address indexed lp, uint entryPrice, uint256 e0);
@@ -158,7 +161,7 @@ abstract contract LevBase {
     function _reanchorIfReseated(address lp) internal {
         Types.Pos storage p = pos[lp];
         if (!p.open) return;
-        (bool go, uint s) = LevMath.reanchorCompute(vogueSyncHook, p.entryPrice);
+        (bool go, uint s) = LevMath.reanchorCompute(BAND, p.entryPrice);
         if (!go) return;
         uint256 px   = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         uint256 base = netEquity(lp);
