@@ -46,7 +46,9 @@ contract Vogue is
 
     uint constant WAD = 1e18;
     // §NAMING — was `V4`, which read as Uniswap v4. It is the Core band engine and always was.
-    Core CORE; WETH9 WETH;
+    /// @dev `CORE` is PUBLIC for the reason spelled out on `Vault.CORE`: each band must be able to
+    ///      name its own engine, or "these two bands are isolated" cannot be checked from outside.
+    Core public CORE; WETH9 WETH;
 
     // There is NO venue choice: `deposit(assets, receiver)` takes no venue argument and every ETH
     // deposit becomes weETH. `VogueLib._supplyEtherFi` is the single destination, and a placement of

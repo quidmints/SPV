@@ -396,6 +396,9 @@ interface IBandManager {
     function repack() external returns (uint price, uint lower, uint upper, uint liquidity, uint);
     function feesPerShare() external view returns (uint);
     function USD_FEES() external view returns (uint);
+    /// This band's engine. Without it a caller holding two band managers cannot reach the second
+    /// band's `POOLED`/`POOLED_USD`, which is what silently made cross-band isolation untestable.
+    function CORE() external view returns (address);
     function derivedThetaWad() external view returns (uint);
     function setBTCChannels(address b) external;
 }

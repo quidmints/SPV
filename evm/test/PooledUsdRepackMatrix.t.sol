@@ -3,6 +3,8 @@ pragma solidity ^0.8.28;
 
 import {Alles} from "./Alles.t.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
+import {IBandManager} from "../src/imports/Interfaces.sol";
+import {Core} from "../src/Core.sol";
 
 /// @notice #12 PREREQUISITE MATRIX — BOTH BANDS. Is the LP-owned claim well defined?
 ///
@@ -46,45 +48,66 @@ contract PooledUsdRepackMatrix is Alles {
     /// production question.
     uint warpPerSwap = 20 minutes;
 
+    /// §ONE-PER-INSTANCE — ONE field per concept, and a Snap is of ONE BAND. The previous version
+    /// carried `usdEth`/`usdBtc`, `feesPerShareEth`/`feesPerShareBtc` and so on: four names for two
+    /// concepts, mirroring in the fixture exactly the duplication the contracts just deleted. A band
+    /// manager owns one `feesPerShare` and one `USD_FEES`; two bands means two SNAPSHOTS, not two
+    /// fields. `_snap(band)` takes the instance, so the band-qualified spelling cannot be written.
+    ///
+    /// 🔴 AND THE OLD SHAPE HID A LIVE DEFECT. `usdBtc`/`btcLeg` were assigned from `CORE` -- the
+    /// ETH engine -- because `Vault.CORE` was `internal` and `IBandManager` had no `core()`, so the
+    /// BTC engine was UNREACHABLE from a test. Every "ETH flow must not move the BTC band's USD
+    /// leg" assertion therefore compared a value to ITSELF. Both are now read through
+    /// `IBandManager(band).CORE()`, which is why that accessor was made public.
+    ///
+    /// `epoch` is DELETED: a keccak of (LOWER_PRICE, UPPER_PRICE) that nothing asserted on. The
+    /// bounds it hashed are read directly where they are wanted, and a hash of two values you can
+    /// print is a worse instrument than the two values.
     struct Snap {
-        uint usdEth;  uint ethLeg;
-        uint usdBtc;  uint btcLeg;
+        uint usd;  uint leg;
         uint committed;
-        // §SUFFIX-DELETE — these two stay band-qualified ON PURPOSE, and it is not the duplication
-        // the rename removed. That one was two DECLARATIONS of one concept in two contracts, which
-        // instances make unwritable. This is one struct snapshotting TWO INSTANCES, so it needs a
-        // field per instance — the same reason `usdEth`/`usdBtc` above are spelled out.
-        uint feesPerShareEth; uint usdFeesEth;
-        uint feesPerShareBtc; uint usdFeesBtc;
+        uint feesPerShare; uint usdFees;
         uint lastRepack;
-        bytes32 epoch;   // FRAME id (band bounds); reseatEpoch counter removed 2026-08-09
         uint price;   // §DETICK: was `tick`; it holds a PRICE now and the name said otherwise
     }
 
-    function _snap() internal view returns (Snap memory s) {
-        s.usdEth = CORE.POOLED_USD();  s.ethLeg = CORE.POOLED();
-        s.usdBtc = CORE.POOLED_USD();  s.btcLeg = CORE.POOLED();
-        s.committed = CORE.committedUsd18();
-        s.feesPerShareEth = V4.feesPerShare(); s.usdFeesEth = V4.USD_FEES();
-        s.feesPerShareBtc = BTC.feesPerShare(); s.usdFeesBtc = BTC.USD_FEES();
-        s.lastRepack = V4.LAST_REPACK();
-        s.epoch = keccak256(abi.encode(V4.LOWER_PRICE(), V4.UPPER_PRICE()));
-        CORE.poolStats();
+    /// @param band the band manager to snapshot. ONE instance in, one Snap out.
+    function _snap(IBandManager band) internal view returns (Snap memory s) {
+        Core c = Core(payable(band.CORE()));
+        s.usd = c.POOLED_USD();  s.leg = c.POOLED();
+        s.committed = c.committedUsd18();          // joint by construction; same on both bands
+        s.feesPerShare = band.feesPerShare(); s.usdFees = band.USD_FEES();
+        (s.price,) = c.poolStats();                // was CALLED AND DISCARDED, leaving `price` at 0
+    }
+    /// Both bands, each read through ITS OWN engine. `Snap` stays one-per-instance; this is two
+    /// INSTANCES of it, which is the distinction the whole refactor turns on.
+    struct Pair { Snap eth; Snap btc; }
+    function _snap() internal view returns (Pair memory p) {
+        p.eth = _snap(IBandManager(address(V4)));
+        p.btc = _snap(IBandManager(address(BTC)));
+        // §ONE-REPACK-STAMP — ETH ONLY, and deliberately not mirrored. `LAST_REPACK` exists on
+        // Vogue and not on Vault, which looks like an asymmetry to close until you check who reads
+        // it: NO CONTRACT DOES. It is stamped by the rebalance forwarder and consumed only by
+        // tests. Giving Vault one would add money-path state to make a test observable symmetric,
+        // which is backwards -- the direction here is fewer variables, not matching sets of them.
+        // If a BTC repack ever needs to be observable, that is when the second stamp earns its slot.
+        p.eth.lastRepack = V4.LAST_REPACK();
     }
 
-    function _log(string memory tag, Snap memory s) internal {
+    function _log(string memory tag, Pair memory s) internal {
         emit log_string(tag);
-        emit log_named_uint("   ETH band USD (6d) ", s.usdEth);
-        emit log_named_uint("   ETH band ETH (18d)", s.ethLeg);
-        emit log_named_uint("   BTC band USD (6d) ", s.usdBtc);
-        emit log_named_uint("   BTC band BTC (8d) ", s.btcLeg);
-        emit log_named_uint("   committedUsd18    ", s.committed);
-        emit log_named_uint("   feesPerShare  ETH ", s.feesPerShareEth);
-        emit log_named_uint("   USD_FEES      ETH ", s.usdFeesEth);
-        emit log_named_uint("   feesPerShare  BTC ", s.feesPerShareBtc);
-        emit log_named_uint("   USD_FEES      BTC ", s.usdFeesBtc);
-        emit log_named_uint("   LAST_REPACK       ", s.lastRepack);
-        emit log_named_uint("   price              ", s.price);
+        emit log_named_uint("   ETH band USD (6d) ", s.eth.usd);
+        emit log_named_uint("   ETH band ETH (18d)", s.eth.leg);
+        emit log_named_uint("   BTC band USD (6d) ", s.btc.usd);
+        emit log_named_uint("   BTC band BTC (8d) ", s.btc.leg);
+        emit log_named_uint("   committedUsd18    ", s.eth.committed);
+        emit log_named_uint("   feesPerShare  ETH ", s.eth.feesPerShare);
+        emit log_named_uint("   USD_FEES      ETH ", s.eth.usdFees);
+        emit log_named_uint("   feesPerShare  BTC ", s.btc.feesPerShare);
+        emit log_named_uint("   USD_FEES      BTC ", s.btc.usdFees);
+        emit log_named_uint("   LAST_REPACK   ETH ", s.eth.lastRepack);
+        emit log_named_uint("   price         ETH ", s.eth.price);
+        emit log_named_uint("   price         BTC ", s.btc.price);
     }
 
     /// @dev Two-leg value of one band in USD18. Flat `/1e18` on the volatile leg is correct for
@@ -92,8 +115,8 @@ contract PooledUsdRepackMatrix is Alles {
     function _value(uint volLeg, uint px, uint usdLeg) internal pure returns (uint) {
         return volLeg * px / 1e18 + usdLeg * 1e12;
     }
-    function _ethValue(Snap memory s, uint px) internal pure returns (uint) { return _value(s.ethLeg, px, s.usdEth); }
-    function _btcValue(Snap memory s, uint px) internal pure returns (uint) { return _value(s.btcLeg, px, s.usdBtc); }
+    function _ethValue(Pair memory s, uint px) internal pure returns (uint) { return _value(s.eth.leg, px, s.eth.usd); }
+    function _btcValue(Pair memory s, uint px) internal pure returns (uint) { return _value(s.btc.leg, px, s.btc.usd); }
 
     function _pxEth() internal view returns (uint) { return AUX.getTWAPforAsset(address(WETH), 1800); }
     function _pxBtc() internal view returns (uint) { return AUX.getTWAPforAsset(address(WBTC), 1800); }
@@ -153,7 +176,7 @@ contract PooledUsdRepackMatrix is Alles {
 
     /// @dev The invariant every scenario must satisfy, asserted identically everywhere so a
     ///      scenario cannot quietly opt out of it.
-    function _assertClaimsSane(Snap memory s0, Snap memory s1, uint pxE, uint pxB) internal {
+    function _assertClaimsSane(Pair memory s0, Pair memory s1, uint pxE, uint pxB) internal {
         uint baseEth = _ethValue(s0, pxE);
         uint baseBtc = _btcValue(s0, pxB);
         uint nowEth  = _ethValue(s1, pxE);
@@ -174,27 +197,27 @@ contract PooledUsdRepackMatrix is Alles {
     function testMatrix_S1_EthIncrementalFlow_BothBands() public {
         _seedBoth(400 ether, 2e7);
         uint pxE = _pxEth(); uint pxB = _pxBtc();
-        Snap memory s0 = _snap();
+        Pair memory s0 = _snap();
         _log("S1 t0", s0);
-        assertGt(s0.usdEth, 0, "PREMISE: ETH band is live");
-        assertGt(s0.btcLeg, 0, "PREMISE: BTC band is SEEDED (else every cross-band assertion is vacuous)");
+        assertGt(s0.eth.usd, 0, "PREMISE: ETH band is live");
+        assertGt(s0.btc.leg, 0, "PREMISE: BTC band is SEEDED (else every cross-band assertion is vacuous)");
 
         uint landed;
         for (uint r = 0; r < 12; r++) { if (_open(3_000e18) == 0) break; landed++; }
         for (uint r = 0; r < 6; r++) _sellEth(4 ether);
         assertGt(landed, 0, "PREMISE: ETH-band flow landed");
 
-        Snap memory s1 = _snap();
+        Pair memory s1 = _snap();
         _log("S1 t1", s1);
         _assertClaimsSane(s0, s1, pxE, pxB);
 
         // CROSS-BAND ISOLATION — now non-vacuous, the BTC band holds real sats.
-        assertEq(s1.feesPerShareBtc, s0.feesPerShareBtc, "ETH flow must not move the BTC token-fee accumulator");
-        assertEq(s1.usdFeesBtc,   s0.usdFeesBtc,   "ETH flow must not move the BTC USD-fee accumulator");
-        assertEq(s1.btcLeg,          s0.btcLeg,          "ETH flow must not move the BTC band's BTC leg");
-        assertEq(s1.usdBtc,          s0.usdBtc,          "ETH flow must not move the BTC band's USD leg");
+        assertEq(s1.btc.feesPerShare, s0.btc.feesPerShare, "ETH flow must not move the BTC token-fee accumulator");
+        assertEq(s1.btc.usdFees,   s0.btc.usdFees,   "ETH flow must not move the BTC USD-fee accumulator");
+        assertEq(s1.btc.leg,          s0.btc.leg,          "ETH flow must not move the BTC band's BTC leg");
+        assertEq(s1.btc.usd,          s0.btc.usd,          "ETH flow must not move the BTC band's USD leg");
         // The ETH band's own accumulators MUST have moved, else the isolation claim is untested.
-        assertTrue(s1.feesPerShareEth != s0.feesPerShareEth || s1.usdFeesEth != s0.usdFeesEth,
+        assertTrue(s1.eth.feesPerShare != s0.eth.feesPerShare || s1.eth.usdFees != s0.eth.usdFees,
             "PREMISE: ETH-band accumulators moved");
     }
 
@@ -205,21 +228,21 @@ contract PooledUsdRepackMatrix is Alles {
     function testMatrix_S2_BtcGrowth_LeavesEthBandUntouched() public {
         _seedBoth(400 ether, 2e7);
         uint pxE = _pxEth(); uint pxB = _pxBtc();
-        Snap memory s0 = _snap();
+        Pair memory s0 = _snap();
         _log("S2 t0", s0);
-        assertGt(s0.btcLeg, 0, "PREMISE: BTC band is seeded");
+        assertGt(s0.btc.leg, 0, "PREMISE: BTC band is seeded");
 
         BTC.registerBtcLp(User01, 2e7);
         BTC.registerBtcLp(User03, 1e7);
 
-        Snap memory s1 = _snap();
+        Pair memory s1 = _snap();
         _log("S2 t1", s1);
-        assertGt(s1.btcLeg, s0.btcLeg, "PREMISE: the BTC band actually grew");
+        assertGt(s1.btc.leg, s0.btc.leg, "PREMISE: the BTC band actually grew");
         _assertClaimsSane(s0, s1, pxE, pxB);
 
-        assertEq(s1.feesPerShareEth, s0.feesPerShareEth, "BTC growth must not move the ETH token-fee accumulator");
-        assertEq(s1.usdFeesEth,   s0.usdFeesEth,   "BTC growth must not move the ETH USD-fee accumulator");
-        assertEq(s1.ethLeg,       s0.ethLeg,       "BTC growth must not move the ETH band's ETH leg");
+        assertEq(s1.eth.feesPerShare, s0.eth.feesPerShare, "BTC growth must not move the ETH token-fee accumulator");
+        assertEq(s1.eth.usdFees,   s0.eth.usdFees,   "BTC growth must not move the ETH USD-fee accumulator");
+        assertEq(s1.eth.leg,       s0.eth.leg,       "BTC growth must not move the ETH band's ETH leg");
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -230,25 +253,25 @@ contract PooledUsdRepackMatrix is Alles {
     // ═══════════════════════════════════════════════════════════════════════════
     function testMatrix_S3_CompoundPath_StrandingRegime() public {
         _seedBoth(400 ether, 2e7);
-        Snap memory s0 = _snap();
+        Pair memory s0 = _snap();
         _log("S3 t0", s0);
         _oracleTrace("S3 t0 oracle");
 
         for (uint r = 0; r < 12; r++) { if (_open(3_000e18) == 0) break; }
-        Snap memory s1 = _snap();
+        Pair memory s1 = _snap();
         _log("S3 t1 (increment built)", s1);
         _oracleTrace("S3 t1 oracle");
 
         for (uint i = 0; i < 6; i++) _sellEth(30 ether);
         V4.reseat();
 
-        Snap memory s2 = _snap();
+        Pair memory s2 = _snap();
         _log("S3 t2 (one-shot on top)", s2);
         _oracleTrace("S3 t2 oracle");
 
-        bool outOfRange = s2.price >= V4.UPPER_PRICE() || s2.price < V4.LOWER_PRICE();
+        bool outOfRange = s2.eth.price >= V4.UPPER_PRICE() || s2.eth.price < V4.LOWER_PRICE();
         emit log_named_uint("out of range?", outOfRange ? 1 : 0);
-        emit log_named_uint("LAST_REPACK moved?", s2.lastRepack != s0.lastRepack ? 1 : 0);
+        emit log_named_uint("LAST_REPACK moved?", s2.eth.lastRepack != s0.eth.lastRepack ? 1 : 0);
         emit log_named_uint("UPPER_PRICE", V4.UPPER_PRICE());
         emit log_named_uint("LOWER_PRICE", V4.LOWER_PRICE());
 
@@ -270,7 +293,7 @@ contract PooledUsdRepackMatrix is Alles {
 
         // A band left OUT of range MUST have re-centred. If this fails, the stranding is real
         // and `reseat()` cannot recover it — which is the defect E6 needs to fix, not a bad test.
-        assertTrue(!outOfRange || s2.lastRepack != s0.lastRepack,
+        assertTrue(!outOfRange || s2.eth.lastRepack != s0.eth.lastRepack,
             "a band left OUT OF RANGE must re-centre; stranded-out-of-range is the defect");
     }
 
@@ -283,7 +306,7 @@ contract PooledUsdRepackMatrix is Alles {
     function testMatrix_S4_BothBandsDriven_NoCrossCredit() public {
         _seedBoth(400 ether, 2e7);
         uint pxE = _pxEth(); uint pxB = _pxBtc();
-        Snap memory s0 = _snap();
+        Pair memory s0 = _snap();
         _log("S4 t0", s0);
 
         for (uint r = 0; r < 6; r++) { if (_open(3_000e18) == 0) break; }
@@ -291,7 +314,7 @@ contract PooledUsdRepackMatrix is Alles {
         for (uint r = 0; r < 3; r++) _sellEth(4 ether);
         BTC.registerBtcLp(User03, 1e7);
 
-        Snap memory s1 = _snap();
+        Pair memory s1 = _snap();
         _log("S4 t1", s1);
         _assertClaimsSane(s0, s1, pxE, pxB);
 
@@ -302,7 +325,7 @@ contract PooledUsdRepackMatrix is Alles {
         // §#12 LANDED — this pin FIRED as designed and is now re-derived. committed tracks the
         // BASKET's contribution, so a swap moves the curve legs WITHOUT moving committed. That
         // separation IS #12; asserting the old equality would re-couple them.
-        assertEq(s1.committed, (CORE.basketUsd() + CORE.basketUsd()) * 1e12,
+        assertEq(s1.eth.committed, (CORE.basketUsd() + CORE.basketUsd()) * 1e12,
             "committedUsd18 == (both BASKET depths) x 1e12 -- the #12 split, pinned in its new form");
     }
 
@@ -330,22 +353,22 @@ contract PooledUsdRepackMatrix is Alles {
         assertEq(AUX.assetPriceFeed(address(WETH)), CL_ETH_USD_REAL,
             "PREMISE: the production Chainlink anchor is pinned, else this is not a control");
 
-        Snap memory s0 = _snap();
+        Pair memory s0 = _snap();
         _oracleTrace("S3b t0 oracle (anchored)");
 
         for (uint r = 0; r < 12; r++) { if (_open(3_000e18) == 0) break; }
         for (uint i = 0; i < 6; i++) _sellEth(30 ether);
         V4.reseat();
 
-        Snap memory s2 = _snap();
+        Pair memory s2 = _snap();
         _log("S3b t2 (one-shot on top, ANCHORED)", s2);
         _oracleTrace("S3b t2 oracle (anchored)");
 
-        bool outOfRange = s2.price >= V4.UPPER_PRICE() || s2.price < V4.LOWER_PRICE();
+        bool outOfRange = s2.eth.price >= V4.UPPER_PRICE() || s2.eth.price < V4.LOWER_PRICE();
         emit log_named_uint("out of range?", outOfRange ? 1 : 0);
-        emit log_named_uint("LAST_REPACK moved?", s2.lastRepack != s0.lastRepack ? 1 : 0);
+        emit log_named_uint("LAST_REPACK moved?", s2.eth.lastRepack != s0.eth.lastRepack ? 1 : 0);
 
-        assertTrue(!outOfRange || s2.lastRepack != s0.lastRepack,
+        assertTrue(!outOfRange || s2.eth.lastRepack != s0.eth.lastRepack,
             "ANCHORED: a band left OUT OF RANGE must re-centre -- if this fails, production is exposed too");
     }
 
@@ -360,7 +383,7 @@ contract PooledUsdRepackMatrix is Alles {
         _seedBoth(400 ether, 2e7);
         AUX.setAssetFeed(address(WETH), CL_ETH_USD_REAL);
 
-        Snap memory s0 = _snap();
+        Pair memory s0 = _snap();
         _oracleTrace("S3c t0 (anchored + fresh)");
 
         uint opens;
@@ -368,17 +391,17 @@ contract PooledUsdRepackMatrix is Alles {
         for (uint i = 0; i < 6; i++) _sellEth(30 ether);
         V4.reseat();
 
-        Snap memory s2 = _snap();
+        Pair memory s2 = _snap();
         _log("S3c t2", s2);
         _oracleTrace("S3c t2 (anchored + fresh)");
         emit log_named_uint("opens landed", opens);
-        emit log_named_uint("hours warped", (block.timestamp - s0.lastRepack) / 3600);
+        emit log_named_uint("hours warped", (block.timestamp - s0.eth.lastRepack) / 3600);
 
-        bool outOfRange = s2.price >= V4.UPPER_PRICE() || s2.price < V4.LOWER_PRICE();
+        bool outOfRange = s2.eth.price >= V4.UPPER_PRICE() || s2.eth.price < V4.LOWER_PRICE();
         emit log_named_uint("out of range?", outOfRange ? 1 : 0);
-        emit log_named_uint("LAST_REPACK moved?", s2.lastRepack != s0.lastRepack ? 1 : 0);
+        emit log_named_uint("LAST_REPACK moved?", s2.eth.lastRepack != s0.eth.lastRepack ? 1 : 0);
 
-        assertTrue(!outOfRange || s2.lastRepack != s0.lastRepack,
+        assertTrue(!outOfRange || s2.eth.lastRepack != s0.eth.lastRepack,
             "ANCHORED+FRESH: out-of-range band must re-centre -- failing here means PRODUCTION is exposed");
     }
 
@@ -399,7 +422,7 @@ contract PooledUsdRepackMatrix is Alles {
         // the swap AFTER exhaustion -- that is the one this isolates.
         for (uint i = 0; i < 5; i++) _sellEth(30 ether);
 
-        Snap memory a = _snap();
+        Pair memory a = _snap();
         uint ethBefore  = User01.balance;
         uint usdcBefore = USDC.balanceOf(User01);
         // E10: `_refundExcess` pays the unfilled remainder via `aux.withdrawSelf(r.inToken, ...)`,
@@ -407,14 +430,14 @@ contract PooledUsdRepackMatrix is Alles {
         // Measuring only `.balance` + USDC (as the first version of this test did) MISSES it and
         // makes an ordinary partial fill look like a 70% overpay.
         uint wethBefore = WETH.balanceOf(User01);
-        emit log_named_uint("pre-marginal  USD leg (6d)", a.usdEth);
-        emit log_named_uint("pre-marginal  price       ", a.price);
-        emit log_named_uint("pre-marginal  POOLED ", a.ethLeg);
+        emit log_named_uint("pre-marginal  USD leg (6d)", a.eth.usd);
+        emit log_named_uint("pre-marginal  price       ", a.eth.price);
+        emit log_named_uint("pre-marginal  POOLED ", a.eth.leg);
 
         // THE MARGINAL SWAP.
         _sellEth(30 ether);
 
-        Snap memory b = _snap();
+        Pair memory b = _snap();
         uint ethSpent = ethBefore - User01.balance;
         uint usdcGot  = USDC.balanceOf(User01) - usdcBefore;
         uint wethGot  = WETH.balanceOf(User01) - wethBefore;
@@ -426,14 +449,14 @@ contract PooledUsdRepackMatrix is Alles {
         emit log_named_uint("value paid  (USD18)      ", paid);
         emit log_named_uint("value back  (USD18)      ", back);
         emit log_named_int ("value delta (USD18)      ", int(back) - int(paid));
-        emit log_named_uint("post-marginal USD leg (6d)", b.usdEth);
-        emit log_named_uint("post-marginal price       ", b.price);
-        emit log_named_uint("post-marginal POOLED ", b.ethLeg);
+        emit log_named_uint("post-marginal USD leg (6d)", b.eth.usd);
+        emit log_named_uint("post-marginal price       ", b.eth.price);
+        emit log_named_uint("post-marginal POOLED ", b.eth.leg);
         emit log_named_uint("marginal swap: ETH spent ", ethSpent);
         emit log_named_uint("marginal swap: USDC recvd", usdcGot);
-        emit log_named_uint("price moved by            ", b.price - a.price);
-        emit log_named_uint("band ETH leg moved by    ", b.ethLeg > a.ethLeg ? b.ethLeg - a.ethLeg : 0);
-        emit log_named_uint("band USD leg moved by    ", a.usdEth > b.usdEth ? a.usdEth - b.usdEth : 0);
+        emit log_named_uint("price moved by            ", b.eth.price - a.eth.price);
+        emit log_named_uint("band ETH leg moved by    ", b.eth.leg > a.eth.leg ? b.eth.leg - a.eth.leg : 0);
+        emit log_named_uint("band USD leg moved by    ", a.eth.usd > b.eth.usd ? a.eth.usd - b.eth.usd : 0);
 
         // NOT an assertion about the fix -- a MEASUREMENT of whether price moved without trade.
         // Reported so the neutrality claim rests on numbers, not on reading Uniswap semantics.
@@ -472,17 +495,17 @@ contract PooledUsdRepackMatrix is Alles {
     // ═══════════════════════════════════════════════════════════════════════════
     function testMatrix_S6_WhichSwapTeleports() public {
         _seedBoth(400 ether, 2e7);
-        Snap memory s0 = _snap();
-        emit log_named_uint("price after seed", s0.price);
-        emit log_named_uint("USD leg after seed", s0.usdEth);
+        Pair memory s0 = _snap();
+        emit log_named_uint("price after seed", s0.eth.price);
+        emit log_named_uint("USD leg after seed", s0.eth.usd);
 
         uint opens;
         for (uint r = 0; r < 12; r++) { if (_open(3_000e18) == 0) break; opens++; }
-        Snap memory s1 = _snap();
+        Pair memory s1 = _snap();
         emit log_named_uint("opens landed", opens);
-        emit log_named_uint("price after opens", s1.price);
-        emit log_named_uint("USD leg after opens", s1.usdEth);
-        emit log_named_uint("ETH leg after opens", s1.ethLeg);
+        emit log_named_uint("price after opens", s1.eth.price);
+        emit log_named_uint("USD leg after opens", s1.eth.usd);
+        emit log_named_uint("ETH leg after opens", s1.eth.leg);
         emit log_named_uint("UPPER_PRICE after opens", V4.UPPER_PRICE());
         emit log_named_uint("LOWER_PRICE after opens", V4.LOWER_PRICE());
 

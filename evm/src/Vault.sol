@@ -74,7 +74,15 @@ contract Vault is Ownable, ReentrancyGuard {
 
     // ─── ETH-venue immutables (formerly EthVenue) ───────────────────────
     Vogue     internal immutable VOGUE;    // the ETH LP contract
-    Core internal immutable CORE;  // the PM (was BtcVault's "VOGUE")
+    /// @dev PUBLIC, and the getter earns its ~50 bytes. While this was `internal` NOTHING outside
+    ///      could reach THIS band's engine -- `IBandManager` had no `core()` either -- so a test
+    ///      wanting to compare the two bands had no handle for the second one and read the ETH core
+    ///      TWICE. That is how `PooledUsdRepackMatrix`'s cross-band isolation assertions became
+    ///      comparisons of a value to itself: vacuously true, in the very file whose docblock warns
+    ///      that an unseeded band makes isolation assertions vacuous. The seeding was fixed; the
+    ///      READS still both pointed here. An instance you cannot address is an instance you cannot
+    ///      check is separate.
+    Core public immutable CORE;  // the PM (was BtcVault's "VOGUE")
     Aux       internal immutable AUX;
     WETH9     public    immutable WETH;
 
