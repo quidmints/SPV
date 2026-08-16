@@ -660,15 +660,21 @@ contract LevManager is LevBase {
         if (msg.sender != BAND && msg.sender != address(this)) revert NotGov(); // band settle OR deleverBook self-call
         Types.Pos memory p = pos[lp];
         if (!p.open || extractUsd == 0 || flashProvider == address(0)) return 0;
-        uint256 cap = deliverableDollars(lp);                     // value-neutral bound (≤ liq threshold, #67)
+        uint256 cap = deliverableDollars(lp);  // value-neutral bound (≤ liq threshold)
+        
         if (extractUsd > cap) extractUsd = cap;
         if (extractUsd == 0) return 0;
-        uint256 repayStable = LevMath.sizeRepayStable(                     // d/netEq/clamp — body in LevMath (EIP-170)
-            p.venue, lp, extractUsd, debtUsd(lp), AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW), address(WEETH), address(AUX));
+        
+        uint256 repayStable = LevMath.sizeRepayStable(// d/netEq/clamp in LevMath 
+            p.venue, lp, extractUsd, debtUsd(lp), AUX.getTWAPforAsset(ORACLE_KEY, 
+                                    TWAP_WINDOW), address(WEETH), address(AUX));
         if (repayStable == 0) return 0;
+
         // mode 2 = flash the debt stable → repay-first → withdraw+sell paired collateral → surplus to `vault`.
         IMorphoFlash(flashProvider).flashLoan(p.venue.stable(), repayStable,
-            abi.encode(uint8(2), lp, address(p.venue), p.venue.stable(), extractUsd, vault, minOut));
+            abi.encode(uint8(2), lp, address(p.venue), 
+            p.venue.stable(), extractUsd, vault, minOut));
+
         freed = _lastFreed; _lastFreed = 0;
         // Reconcile the shrunk net-equity into the band slice (try/catch: never block the settle).
         if (BAND != address(0)) { try ILevSyncHook(BAND).syncLev(lp) {} catch {} }
