@@ -5,6 +5,39 @@ tools against the anvil mainnet-fork. Goal: no permutation left unexercised befo
 
 **Do NOT run until the other thread's contracts land.** This is the pre-scoped plan; execution waits.
 
+---
+
+## 🔴 STALE AS A PLAN — IT TARGETS A SURFACE THAT IS BEING DELETED (2026-08-16)
+
+Asked directly whether this is ready to drive the React Native app. **It is not, and it is not a
+readiness gap — it is a category error.** Recorded here rather than discovered by someone running it.
+
+* **Puppeteer drives Chromium over the DevTools protocol. React Native has no DOM.** Every
+  assertion below — *button disabled/enabled*, *toast/error text*, *deep-link `?tab=`* — is a DOM
+  assertion with no counterpart in RN.
+* **It navigates `/app`, which is the route being removed.** Owner, 2026-08-16: identity-wallet
+  becomes the entire swap and LP app; the SPA keeps only a download link and the video. So this
+  matrix exhaustively covers the one surface that will not exist.
+* **"Puppeteer cancels the wallet shim"** assumes an injected browser wallet. The app has an
+  in-app key, Phantom, or (proposed) a Ledger — none of them a browser shim.
+* **It forks MAINNET and has no Bitcoin side at all.** The cross-chain interaction that actually
+  needs exercising (deposit on regtest → credit on the EVM) is not in scope anywhere here.
+
+⇒ **WHAT SURVIVES IS THE MATRIX ITSELF, WHICH IS THE VALUABLE PART.** The permutation list —
+every tab × happy/sad, the amount edges (`0`, empty, negative, `>` balance, 1 wei, max, scientific
+notation), the cross-cutting no-wallet / wrong-network / rejected-tx cases — is driver-agnostic and
+was expensive to enumerate. **Keep it; replace the driver.**
+
+⇒ **REPLACEMENT DRIVER: Maestro or Detox** (Expo supports both; Maestro is the lighter fit for a
+device on a desk). ⚠️ Not evaluated yet — the choice is unmade, and neither is in the tree.
+
+⇒ **AND THE HARNESS THE OWNER ASKED FOR IS A DIFFERENT ONE:** a phone driving anvil **and** a
+Bitcoin regtest together, so a deposit on one chain is seen to credit on the other. Pieces that
+already exist: `deploy/deploy-l1.sh`, `spa/e2e-faucet.sh`, `evm/script/DriverE2E.s.sol`,
+`quid-ln/ops/bitcoin.conf`, and Bitcoin Core 30.2 baked into `quid-ln/Dockerfile` (same version
+`regtest/env.sh` uses, deliberately). **Missing: the RN driver, and anything that runs the two
+chains in one scenario.** No test in the tree today spans both.
+
 ## Harness (once, per run)
 1. `anvil --fork-url $MAINNET --auto-impersonate` (mainnet fork).
 2. `BROADCAST=1 RPC_URL=http://127.0.0.1:8545 PRIVATE_KEY=<anvil[0]> deploy/deploy-l1.sh` — now self-grants ANGEL
