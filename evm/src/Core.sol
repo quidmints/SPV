@@ -146,7 +146,7 @@ contract Core {
     function bandEquityUsd18() external view returns (uint) { return _bandEquityUsd18(); }
 
     /// @dev That pool's total leverage debt (18-dec), read live from the pinned LevManager (0 if unset). The
-    ///      The BTC manager (`LEV_MANAGER_BTC`) lives on the Vault; the ETH one lives on the ETH-VENUE
+    ///      The BTC manager (`LEV_MANAGER`) lives on the Vault; the ETH one lives on the ETH-VENUE
     ///      contract, reached via `VOGUE.EV()` — the same indirection `VogueLib` uses.
     ///      FAIL-SAFE: `totalDebtUsd` iterates the open-LP book (external venue reads); a revert there must NOT
     ///      brick `committedUsd18` (the backing gate on every swap/mint/redeem). On failure we subtract 0 debt,
@@ -585,14 +585,14 @@ contract Core {
         return skewPremium;
     }
 
-    /// @notice BTC band theta-numerator: the native IL-bearing backing = aggregate locked sats (lpSharesBTC,
-    ///         net) + gross debt-funded buffer (totalBufferBTC). The BTC analogue of (vogueETH + totalBuffer)
+    /// @notice BTC band theta-numerator: the native IL-bearing backing = aggregate locked sats (lpShares,
+    ///         net) + gross debt-funded buffer (totalBuffer). The BTC analogue of (vogueETH + totalBuffer)
     ///         on ETH. ONE source of truth for BOTH the LP-add clamp (BtcVaultLib._thetaClampBtc) and the
     ///         reseat clamp (VogueLib.addLiq IS_BTC) so they throttle on the SAME real capital -- NEVER the
     ///         disjoint WBTC-donation `vogueBTC` pool (that mis-base collapsed the band whenever donations were
     ///         thin, the opposite of what scarcity should do). 0 if no BTC vault wired.
     function btcThetaBacking() external view returns (uint) {
-        return address(BTCVAULT) == address(0) ? 0 : BTCVAULT.totalSharesBTC() + BTCVAULT.totalBufferBTC();
+        return address(BTCVAULT) == address(0) ? 0 : BTCVAULT.totalSharesBTC() + BTCVAULT.totalBuffer();
     }
 
     // §V4-CUT — `enum Action` DELETED. It tagged the twelve operations that used to travel
@@ -876,7 +876,7 @@ contract Core {
         // totalSharesX = 0, so the trigger naturally doesn't fire until
         // LPs join via modLP (which grows both in lockstep).
         // GROSS fee depth on both sides: for BTC, totalSharesBTC is NET, so add the levered buffer
-        // (totalBufferBTC) to match POOLED (gross, includes the buffer) — keeps the shortfall
+        // (totalBuffer) to match POOLED (gross, includes the buffer) — keeps the shortfall
         // comparison gross-to-gross (unchanged behavior). ETH: vogueETH(net) vs totalShares(net) already balanced.
         uint totalSharesPool = BAND.sharesForShortfall();
         // BOTH sides compare REAL inventory, never just the in-pool token.
@@ -889,13 +889,13 @@ contract Core {
         // holds. Adding vogueBTC is monotone-safe: it can only SHRINK the measured
         // shortfall, never grow it, and suppressing a "shortfall" we can cover from
         // our own WBTC is correct (no need to source what we already hold).
-        // BTC IL-protect: totalSharesBTC includes each LP's LEVERED slice (levPooledBTC), and its backing is
+        // BTC IL-protect: totalSharesBTC includes each LP's LEVERED slice (levPooled), and its backing is
         // ALREADY inside POOLED — `syncLev` pairs the net-equity as deltaBTC into POOLED in lockstep
-        // with levPooledBTC (VaultLib.levAddNetBtc/levAddBufBtc), so the lev slice is monotone-neutral here.
+        // with levPooled (VaultLib.levAddNetBtc/levAddBufBtc), so the lev slice is monotone-neutral here.
         // (The ETH branch is NET-vs-NET: vogueETH() adds the lev book's NET equity (totalNetEquityEth, the
         // debt-funded buffer half offset by the LP's borrow) and totalShares() is NET, so no gross term is added
         // here — POOLED, by contrast, DOES include the lev slice gross (levAddBtc pairs the gross buffer in),
-        // so BTC alone needs the +totalBufferBTC above to keep totalSharesBTC's comparison gross-to-gross.)
+        // so BTC alone needs the +totalBuffer above to keep totalSharesBTC's comparison gross-to-gross.)
         uint pooledTok = BAND.realInventory();
         // The load-balance (the shortfall arb/refill this swap would trigger) is the
         // SWAPPER's to consent to — it routes through the SOR / hop and can add MEV/slippage

@@ -492,7 +492,7 @@ contract BtcLpMintStress is Alles {
         (bytes32 channelId, bytes32 fundingTxId, address lpEth, bytes memory lpPubkey) =
             _open(ch, 1, 1_000_000); // open 0.01 BTC
         uint pooled0; uint locked0 = ch.totalSatsLocked();
-        { (uint p0,,,) = ETH.autoManagedBTC(lpEth); pooled0 = p0;
+        { (uint p0,,,) = ETH.autoManaged(lpEth); pooled0 = p0;
           (uint a0, , , , , ) = ch.channels(channelId); assertEq(a0, 1_000_000, "opened 1.0mm"); }
 
         bytes32 newTxId = _splice(ch, channelId, fundingTxId, 1, lpPubkey, 1_600_000); // grow → 1.6mm
@@ -502,7 +502,7 @@ contract BtcLpMintStress is Alles {
         assertEq(ftx1, newTxId, "live funding outpoint rotated to the splice tx");
         assertEq(st1, 0, "channel still OPEN");
         assertEq(ch.totalSatsLocked(), locked0 + 600_000, "totalSatsLocked grew by the delta");
-        (uint pooled1,,,) = ETH.autoManagedBTC(lpEth);
+        (uint pooled1,,,) = ETH.autoManaged(lpEth);
         assertGt(pooled1, pooled0, "LP BTC pool position grew");
         _assertSolvent("splice keeps backing solvent");
     }
@@ -564,7 +564,7 @@ contract BtcLpMintStress is Alles {
         (bytes32 channelId, bytes32 fundingTxId, address lpEth, bytes memory lpPubkey) =
             _open(ch, 7, 1_600_000); // open 0.016 BTC
         uint locked0 = ch.totalSatsLocked();
-        (uint pooled0,,,) = ETH.autoManagedBTC(lpEth);
+        (uint pooled0,,,) = ETH.autoManaged(lpEth);
 
         bytes32 newTxId = _spliceOut(ch, channelId, fundingTxId, 7, lpPubkey, 1_000_000); // shrink → 1.0mm
 
@@ -573,7 +573,7 @@ contract BtcLpMintStress is Alles {
         assertEq(ftx1, newTxId, "live funding outpoint rotated to the splice-out tx");
         assertEq(st1, 0, "channel still OPEN after partial withdrawal");
         assertEq(ch.totalSatsLocked(), locked0 - 600_000, "totalSatsLocked shrank by the withdrawn slice");
-        (uint pooled1,,,) = ETH.autoManagedBTC(lpEth);
+        (uint pooled1,,,) = ETH.autoManaged(lpEth);
         assertLt(pooled1, pooled0, "LP BTC pool position shrank");
         _assertSolvent("splice-out keeps backing solvent");
     }
@@ -1274,10 +1274,10 @@ contract BtcLpMintStress is Alles {
 
         emit log_named_uint("increment (6d)   ", incr);
         emit log_named_uint("QU!D paid at close", paid);
-        emit log_named_uint("lpSharesBTC after ", BTC.lpSharesBTC());
+        emit log_named_uint("lpShares after ", BTC.lpShares());
 
         // PREMISE: the close must have actually retired the position, else "not paid" is trivial.
-        assertEq(BTC.lpSharesBTC(), 0, "PREMISE: the close must retire the LP's BTC depth");
+        assertEq(BTC.lpShares(), 0, "PREMISE: the close must retire the LP's BTC depth");
 
         // A close mints only the LP's own accrued USD-leg FEES. If it ever minted the increment the
         // number would be ~incr*1e12; a 1% ceiling separates fees from proceeds without hiding either.

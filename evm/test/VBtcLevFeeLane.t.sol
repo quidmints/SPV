@@ -510,7 +510,7 @@ contract VBtcLevFeeLane is Alles {
         venue = new MorphoEscrowVenue(MORPHO, mp, address(lm));
         address[] memory vs = new address[](1); vs[0] = address(venue);
         lm.init(address(ETH), MORPHO, vs);   // atomic pin-once: hook + Morpho flash provider + venue allowlist, FROZEN
-        ETH.setLevManagerBTC(address(lm));        // pin the BTC leveraged book into vogueBTC + syncLev
+        ETH.setLevManager(address(lm));        // pin the BTC leveraged book into vogueBTC + syncLev
     }
 
     /// Give `lp`'s position REAL Morpho debt of `usdc6` USDC. Borrowed DIRECTLY on `lp`'s own isolated Morpho
@@ -544,7 +544,7 @@ contract VBtcLevFeeLane is Alles {
     /// (SAME-BTC model: `lp` must already hold ≥ `vbtcSats` free band via a prior `_open`). openBtcLev reclassifies
     /// funded→lev and mints the vBTC face straight to the manager — no separate mint/approve roundtrip.
     /// net-equity == collateral (no debt).
-    /// Every LP that has ever opened a lev position here — `levPooledBTC` is a mapping with no running
+    /// Every LP that has ever opened a lev position here — `levPooled` is a mapping with no running
     /// total, so the invariant below sums the set the test actually created.
     address[] internal _levLps;
     mapping(address => bool) internal _levLpSeen;
@@ -560,7 +560,7 @@ contract VBtcLevFeeLane is Alles {
     ///         leverage without checking it.
     ///
     ///         `exposeBtcToLev` writes the SAME sats into THREE places: `LP.pooled` (UNCHANGED —
-    ///         single-count), `levPooledBTC[lp]` (a SUBSET MARKER, so free depth = `pooled - levPooled`),
+    ///         single-count), `levPooled[lp]` (a SUBSET MARKER, so free depth = `pooled - levPooled`),
     ///         and `VBtc.balanceOf[manager]` (the token). Three VIEWS of ONE economic claim — correct by
     ///         design, but three INDEPENDENTLY-MUTATED storage locations that nothing keeps in lockstep.
     ///
@@ -568,15 +568,15 @@ contract VBtcLevFeeLane is Alles {
     ///         depth counted as FREE while its token is still outstanding, i.e. the same sats claimable
     ///         twice. Nothing asserted this anywhere until now.
     ///
-    ///         `levPooledBTC` is a mapping with no running total, so this sums the LPs a test can create.
+    ///         `levPooled` is a mapping with no running total, so this sums the LPs a test can create.
     ///         It is also the PRECONDITION for §A.19b's aggregate rule
     ///         (`Σ outstanding vBTC <= Σ free channel capacity`) — that rule is meaningless unless supply
     ///         and marker agree first.
     function _assertVBtcSupplyMatchesLevMarker() internal {
         uint markerSum;
-        for (uint i; i < _levLps.length; ++i) markerSum += ETH.levPooledBTC(_levLps[i]);
+        for (uint i; i < _levLps.length; ++i) markerSum += ETH.levPooled(_levLps[i]);
         assertEq(markerSum, ETH.VBTC().totalSupply(),
-            "INVARIANT: sum(levPooledBTC) must equal VBtc.totalSupply() -- divergence is a double-spend");
+            "INVARIANT: sum(levPooled) must equal VBtc.totalSupply() -- divergence is a double-spend");
     }
 
     // ─────────────────────── #106/#81/#74 WBTC-fallback route setup ───────────────────────
@@ -757,13 +757,13 @@ contract VBtcLevFeeLane is Alles {
 
         // The fee-lane LP holds a channel (its band depth AND the splice-out surface for (b)).
         (bytes32 cid, bytes32 ftx, address lpEth, bytes memory lpPk) = _open(ch, 1, 2e7); // 0.2 BTC
-        { (uint pooledChannel,,,) = ETH.autoManagedBTC(lpEth);
+        { (uint pooledChannel,,,) = ETH.autoManaged(lpEth);
           assertGt(pooledChannel, 0, "channel registered the LP into the BTC band"); }
 
         // Seed a zero-leverage lev position by EXPOSING part of the LP's own channel band BTC (funded→lev).
         _openLev(lpEth, 2_000_000); // expose 0.02 BTC of the 0.2 BTC channel as vBTC collateral
         assertEq(lm.netEquity(lpEth), 2_000_000, "net-equity == collateral (zero leverage)");
-        assertGt(ETH.levPooledBTC(lpEth), 0, "open reclassified channel BTC funded-to-lev (levered slice)");
+        assertGt(ETH.levPooled(lpEth), 0, "open reclassified channel BTC funded-to-lev (levered slice)");
 
         { uint puPreSlice = CORE.POOLED_USD();
           uint pbPreSlice = CORE.POOLED();
@@ -771,7 +771,7 @@ contract VBtcLevFeeLane is Alles {
           // SAME-BTC: the slice is the LP's OWN channel BTC (already banded), so a zero-leverage sync neither
           // grows POOLED nor re-pairs new USD — it stays FLAT (no double-count). It only SHRINKS later,
           // when a leverage loss/seizure reduces net-equity below the exposed base (asserted in (c)).
-          assertGt(ETH.levPooledBTC(lpEth), 0, "the levered slice is tracked in the band");
+          assertGt(ETH.levPooled(lpEth), 0, "the levered slice is tracked in the band");
           assertEq(CORE.POOLED(), pbPreSlice, "POOLED FLAT: base already banded, no separate lev depth");
           assertApproxEqAbs(CORE.POOLED_USD(), puPreSlice, 1, "POOLED_USD FLAT: reclassify, not new pairing"); }
 
@@ -797,7 +797,7 @@ contract VBtcLevFeeLane is Alles {
             // (E145-n) ⚠️ THIS USED TO BE `assertGt(usdLeg + btcLeg, 0)` — A SUM THE USD LEG
             //    ALONE SATISFIES, so it passed identically whether the BTC leg was live or
             //    permanently zero. MEASURED 2026-08-09: `usdLeg` ≈ 7.6e17, **`btcLeg == 0` and
-            //    `feesPerShareBTC == 0`** — the BTC leg does NOT accrue here, and the sum hid it.
+            //    `feesPerShare == 0`** — the BTC leg does NOT accrue here, and the sum hid it.
             //    Asserting the legs SEPARATELY so the test states what is actually true and a
             //    future change that makes the BTC leg live shows up as a failure, not silence.
             assertGt(usdLeg, 0, "(a) levered LP accrues the USD-leg band fee on its equity");
@@ -805,7 +805,7 @@ contract VBtcLevFeeLane is Alles {
             //    BTC inflows are channels-only. **That was wrong.** `creditSwapIn` sells BTC
             //    into the pool as the PROTOCOL (`onlyBTCChannels`, BTC→USD), bypassing the
             //    user-path guard — and `testBtcLp_swapInAccruesTheBtcLegFee` MEASURES it:
-            //    `feesPerShareBTC` 0 → 1.045e13, `btcFeesOwedSats` 0 → 209 sats.
+            //    `feesPerShare` 0 → 1.045e13, `btcFeesOwedSats` 0 → 209 sats.
             //    The leg is zero HERE only because THIS lane drives no swap-in. That is a
             //    property of the scenario, not of the protocol — do not read it as either.
             assertEq(btcLeg, 0, "(a) no swap-in in this lane, so no BTC-leg fee is earned here");
@@ -813,13 +813,13 @@ contract VBtcLevFeeLane is Alles {
 
         // (b) UNWIND-ONLY: a normal channel splice-out (LP withdrawal, exactUsd==0) can only shrink
         //     the true channel funding; the `funded = inrange - lev` cap leaves the levered slice.
-        {   uint levBeforeWithdraw = ETH.levPooledBTC(lpEth);
-            (uint pooledBeforeWithdraw,,,) = ETH.autoManagedBTC(lpEth);
+        {   uint levBeforeWithdraw = ETH.levPooled(lpEth);
+            (uint pooledBeforeWithdraw,,,) = ETH.autoManaged(lpEth);
             _spliceOut(ch, cid, ftx, 1, lpPk, 15e6);           // shrink channel 0.2 -> 0.15 BTC (withdraw 0.05)
-            assertEq(ETH.levPooledBTC(lpEth), levBeforeWithdraw, "(b) LP withdraw (splice-out) leaves the levered slice untouched");
-            (uint pooledAfterWithdraw,,,) = ETH.autoManagedBTC(lpEth);
+            assertEq(ETH.levPooled(lpEth), levBeforeWithdraw, "(b) LP withdraw (splice-out) leaves the levered slice untouched");
+            (uint pooledAfterWithdraw,,,) = ETH.autoManaged(lpEth);
             assertLt(pooledAfterWithdraw, pooledBeforeWithdraw, "(b) the withdrawal DID shrink the channel funding (not a no-op)");
-            assertGe(pooledAfterWithdraw, ETH.levPooledBTC(lpEth), "(b) LP.pooled never shrank into the lev depth");
+            assertGe(pooledAfterWithdraw, ETH.levPooled(lpEth), "(b) LP.pooled never shrank into the lev depth");
         }
 
         // (c) SEIZE -> net-equity 0 -> syncLev burns the slice clean. Isolate the burn around the
@@ -834,12 +834,12 @@ contract VBtcLevFeeLane is Alles {
         uint collUsdC = 2_000_000 * AUX.getTWAPforAsset(address(WBTC), 1800) / 1e18;
         _borrowMorpho(lpEth, (collUsdC / 2) / 1e12);          // ~50% LTV of real Morpho debt
         ETH.syncLev(lpEth);                                // reflect the debt: slice tracks the levered net-equity
-        uint levBeforeSeize = ETH.levPooledBTC(lpEth);
+        uint levBeforeSeize = ETH.levPooled(lpEth);
         assertGt(levBeforeSeize, 0, "(c) precondition: a levered slice exists to shrink");
         _seizeRealBtc(lpEth, 1, 2);                           // REAL Morpho liquidation (repay half the debt)
         uint puBeforeBurn = CORE.POOLED_USD();
         ETH.syncLev(lpEth);
-        assertLt(ETH.levPooledBTC(lpEth), levBeforeSeize, "(c) seizure: levered slice SHRANK toward the liquidated net-equity");
+        assertLt(ETH.levPooled(lpEth), levBeforeSeize, "(c) seizure: levered slice SHRANK toward the liquidated net-equity");
         assertLt(CORE.POOLED_USD(), puBeforeBurn, "(c) the burn un-paired lev-slice USD from POOLED_USD");
         _assertSolvent("(c) solvent after seizure burn (not over-committed)");
     }
@@ -965,13 +965,13 @@ contract VBtcLevFeeLane is Alles {
 
     /// Pre-delivery snapshot: funded band, venue debt/collateral, net-equity, LTV, levered slice, LP QUID.
     function _snapLevPosition(LevDelivery memory d) internal {
-        (uint pooled,,,) = ETH.autoManagedBTC(d.lp);
-        d.funded = pooled - ETH.levPooledBTC(d.lp);
+        (uint pooled,,,) = ETH.autoManaged(d.lp);
+        d.funded = pooled - ETH.levPooled(d.lp);
         d.debt   = venue.debtOf(d.lp);
         d.coll   = venue.collateralOf(d.lp);
         d.netEq  = lm.netEquity(d.lp);
         d.ltv    = lm.getCurrentLtvBps(d.lp);
-        d.lev    = ETH.levPooledBTC(d.lp);
+        d.lev    = ETH.levPooled(d.lp);
         d.qd     = QUID.balanceOf(d.lp);
     }
 
@@ -1040,7 +1040,7 @@ contract VBtcLevFeeLane is Alles {
         //     exceeds the LP's live net-equity (levPooled pairs net-equity only up to basket surplus — it may be
         //     LESS at surplus==0, the "stranded volatile" state, but never MORE, which would double-count the
         //     BTC just delivered to the swapper). The freed sats show up as the collateral drop asserted in (a).
-        assertLe(ETH.levPooledBTC(d.lp), lm.netEquity(d.lp) + 1e3, "levered band depth <= net-equity (no phantom)");
+        assertLe(ETH.levPooled(d.lp), lm.netEquity(d.lp) + 1e3, "levered band depth <= net-equity (no phantom)");
         // (e) SINGLE-PAY: QUI minted only for the FUNDED proceeds share - the de-levered slice was paid via
         //     debt-reduction, NOT a second QUI mint.
         uint qdMinted = QUID.balanceOf(d.lp) - d.qd;
@@ -1058,7 +1058,7 @@ contract VBtcLevFeeLane is Alles {
     /// @notice (#64 gap 1, CRITICAL) `closeBtcLev` had ZERO test callers. Open a BTC-lev position with REAL Morpho
     ///   debt, repay it through the manager, then fully retire via `closeBtcLev`. Asserts the whole retirement
     ///   money-path: long-venue debt is 0, the vBTC collateral is withdrawn from Morpho, the levered band slice is
-    ///   UN-FOLDED (`unexposeBtcFromLev` ⇒ levPooledBTC→0, funded restored), the position is deleted + de-tracked,
+    ///   UN-FOLDED (`unexposeBtcFromLev` ⇒ levPooled→0, funded restored), the position is deleted + de-tracked,
     ///   and the basket stays solvent. Reuses the real vBTC/USDC Morpho harness.
     function testReal_BtcCloseLev_RepaysUnfoldsDeletes() public {
         BTCChannels ch = _deployChannels();
@@ -1066,8 +1066,8 @@ contract VBtcLevFeeLane is Alles {
         (,, address lp,) = _open(ch, 64, 3e8);                       // 3 BTC channel = free band to expose
         _openLev(lp, 2e8);                                           // expose 2 BTC as vBTC collateral (zero debt)
         assertEq(lm.openLevCount(), 1, "position tracked in the open-LP book");
-        assertGt(ETH.levPooledBTC(lp), 0, "open reclassified channel BTC funded-to-lev");
-        (uint pooledOpen,,,) = ETH.autoManagedBTC(lp);
+        assertGt(ETH.levPooled(lp), 0, "open reclassified channel BTC funded-to-lev");
+        (uint pooledOpen,,,) = ETH.autoManaged(lp);
 
         // Give the position REAL Morpho debt (~50% LTV), directly on the LP's isolated Morpho account.
         uint px = AUX.getTWAPforAsset(address(WBTC), 1800);
@@ -1086,19 +1086,19 @@ contract VBtcLevFeeLane is Alles {
 
         // The vBTC withdraw inside closeBtcLev needs the LP to authorize the venue as its Morpho manager.
         vm.prank(lp); IMorphoTest(MORPHO).setAuthorization(address(venue), true);
-        uint levBefore = ETH.levPooledBTC(lp);
+        uint levBefore = ETH.levPooled(lp);
         assertEq(levBefore, 2e8, "levered slice == the exposed 2 BTC before close");
 
         // CLOSE: withdraw all vBTC, delete the position, un-fold the levered slice back to free band depth.
         vm.prank(lp); lm.closeBtcLev();
 
         assertEq(venue.collateralOf(lp), 0, "close: all vBTC withdrawn from Morpho");
-        assertEq(ETH.levPooledBTC(lp), 0, "close: unexposeBtcFromLev un-folded the levered slice (lev to funded)");
+        assertEq(ETH.levPooled(lp), 0, "close: unexposeBtcFromLev un-folded the levered slice (lev to funded)");
         assertEq(lm.netEquity(lp), 0, "close: no live net-equity for a deleted position");
         (,,,,, bool open) = lm.pos(lp);
         assertTrue(!open, "close: position deleted");
         assertEq(lm.openLevCount(), 0, "close: LP de-tracked from the open book");
-        (uint pooledClose,,,) = ETH.autoManagedBTC(lp);
+        (uint pooledClose,,,) = ETH.autoManaged(lp);
         assertEq(pooledClose, pooledOpen, "close: LP.pooled untouched (band position un-freezes, LP made whole)");
         _assertSolvent("close: basket solvent after retirement");
     }

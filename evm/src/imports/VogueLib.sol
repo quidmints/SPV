@@ -296,14 +296,14 @@ library VogueLib {
         if (surplus == 0) return (0, 0);
 
         // ETH: vogueETH (NET venue principal) + grossBuffer (totalBuffer) = gross-consistent with POOLED.
-        // BTC: native backing = Core.btcThetaBacking() (lpSharesBTC net + totalBufferBTC gross) -- the SAME
+        // BTC: native backing = Core.btcThetaBacking() (lpShares net + totalBuffer gross) -- the SAME
         // source the LP-add clamp (BtcVaultLib._thetaClampBtc) uses, so this reseat throttles on the real
         // risk capital and can't collapse the band to ~0. NOT the disjoint WBTC-donation vogueBTC, and NOT
         // Vogue's ETH `grossBuffer` (wrong asset for a BTC band; btcThetaBacking carries the BTC buffer).
         // ONE principle (SwapLib.clampByBacking): physical backing HEADROOM (backing − pooled) AND the theta
         // risk-budget (θ·backing − pooled) — shared verbatim with the BTC LP-add clamp
         // (BtcVaultLib._thetaClampBtc). `backing` = the IL-bearing capital (ETH: vogueETH venue principal +
-        // gross buffer; BTC: Core.btcThetaBacking = lpSharesBTC + gross buffer). vogueAvail/pooled inlined into
+        // gross buffer; BTC: Core.btcThetaBacking = lpShares + gross buffer). vogueAvail/pooled inlined into
         // the call to keep this frame off the legacy-pipeline stack (no via-IR).
         uint capped = SwapLib.clampByBacking(
             _liveTheta(),

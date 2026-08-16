@@ -354,7 +354,7 @@ contract UnificationControls is Alles {
         uint pooledA0    = V4.balanceOf(lpA);
         uint btcUsd0     = CORE.POOLED_USD();
         uint btcLeg0     = CORE.POOLED();
-        uint btcFps0     = BTC.feesPerShareBTC();
+        uint btcFps0     = BTC.feesPerShare();
 
         emit log_named_uint("TVL before        ", tvl0);
         emit log_named_uint("committed before  ", committed0);
@@ -385,7 +385,7 @@ contract UnificationControls is Alles {
         assertGt(btcUsd0, 0, "PREMISE: the BTC band is seeded, else this assertion is 0 == 0");
         assertEq(CORE.POOLED_USD(), btcUsd0, "an ETH-side redemption must NOT unwind the BTC band's USD leg");
         assertEq(CORE.POOLED(), btcLeg0, "an ETH-side redemption must NOT touch the BTC band's BTC leg");
-        assertEq(BTC.feesPerShareBTC(), btcFps0, "an ETH-side redemption must NOT credit BTC-band LPs");
+        assertEq(BTC.feesPerShare(), btcFps0, "an ETH-side redemption must NOT credit BTC-band LPs");
 
         // V8 — CROSS-BAND REPACK REACHABILITY. `BasketLib.backingCoreBody` only picks a band to
         // repack when `committedSum > totalLiquid`; the mint gate keeps committed <= haircutTvl
@@ -919,9 +919,9 @@ contract UnificationControls is Alles {
         // A BTC LP exists BEFORE the ETH flow, so its P&L has a baseline to be measured against.
         AUX.setBTCChannels(address(this));
         BTC.registerBtcLp(User01, 2e7);
-        uint btcFps0 = BTC.feesPerShareBTC();
-        uint btcUsdF0 = BTC.USD_FEES_BTC();
-        uint btcShares0 = BTC.lpSharesBTC();
+        uint btcFps0 = BTC.feesPerShare();
+        uint btcUsdF0 = BTC.USD_FEES();
+        uint btcShares0 = BTC.lpShares();
         uint ethFps0 = V4.feesPerShare();
         uint ethUsdF0 = V4.USD_FEES();
         assertGt(btcShares0, 0, "PREMISE: a BTC LP must exist, else attribution is vacuous");
@@ -948,17 +948,17 @@ contract UnificationControls is Alles {
         // ── AXIS: PER-BAND P&L ATTRIBUTION ─────────────────────────────────────────────────
         emit log_named_uint("ETH feesPerShare delta", V4.feesPerShare() - ethFps0);
         emit log_named_uint("ETH USD_FEES    delta", V4.USD_FEES() - ethUsdF0);
-        emit log_named_uint("BTC feesPerShareBTC   ", BTC.feesPerShareBTC());
-        emit log_named_uint("BTC USD_FEES_BTC      ", BTC.USD_FEES_BTC());
+        emit log_named_uint("BTC feesPerShare   ", BTC.feesPerShare());
+        emit log_named_uint("BTC USD_FEES      ", BTC.USD_FEES());
 
         // PREMISE: the ETH band must actually have earned, else "BTC unchanged" proves nothing.
         assertTrue(V4.feesPerShare() > ethFps0 || V4.USD_FEES() > ethUsdF0,
             "PREMISE: ETH-side trading must credit the ETH accumulators");
 
         // THE RESULT: not one wei of ETH-side trading reaches the BTC accumulators.
-        assertEq(BTC.feesPerShareBTC(), btcFps0, "ETH trading must NOT credit the BTC fee-per-share");
-        assertEq(BTC.USD_FEES_BTC(), btcUsdF0, "ETH trading must NOT credit the BTC USD fee leg");
-        assertEq(BTC.lpSharesBTC(), btcShares0, "ETH trading must NOT change BTC LP depth");
+        assertEq(BTC.feesPerShare(), btcFps0, "ETH trading must NOT credit the BTC fee-per-share");
+        assertEq(BTC.USD_FEES(), btcUsdF0, "ETH trading must NOT credit the BTC USD fee leg");
+        assertEq(BTC.lpShares(), btcShares0, "ETH trading must NOT change BTC LP depth");
     }
 
     /// §E42 — AXIS 7 (REDEMPTION CAPACITY) and AXIS 9 (THE BTC MIRROR).

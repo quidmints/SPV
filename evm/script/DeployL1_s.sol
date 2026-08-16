@@ -484,7 +484,7 @@ contract Deploy is Script {
     ///       venues → `pinVenues` (frozen) → `setFlashProvider` (Morpho, zero-fee de-lever) →
     ///       `setVogueSyncHook` (Vogue) → `Vault.setLevManager` (backing: vogueETH counts the book).
     ///     BTC (vBTC collateral == the Vault): BtcLevManager → Morpho (and optional Euler) escrow venue →
-    ///       `pinVenue` (singular, frozen) → `setSyncHook`(Vault.syncLevBTC) → `Vault.setLevManagerBTC`
+    ///       `pinVenue` (singular, frozen) → `setSyncHook`(Vault.syncLevBTC) → `Vault.setLevManager`
     ///       (backing: vogueBTC counts the book). No swapper / no flash — BTC acquisition is external+async.
     ///   Skipped when `DEPLOY_LEV` is unset, so a core / fork-e2e deploy needs no lev-infra env. External-infra
     ///   addresses come from env; the in-script tokens (weETH via the ETH venue, WBTC/USDC/AUX/V4) are reused.
@@ -587,7 +587,7 @@ contract Deploy is Script {
             address(WBTC), wbtcDebt, address(bm), vm.envOr("AAVE_V3_WBTC_LT_BPS", uint256(7800))));
         address[] memory vsB = new address[](2); vsB[0] = pin; vsB[1] = wbtcV;
         bm.init(address(ETH), morpho, vsB);                // atomic pin-once: hook + Morpho flash provider + venue allowlist, FROZEN
-        ETH.setLevManagerBTC(address(bm));                 // BACKING: vogueBTC counts the BTC lev book
+        ETH.setLevManager(address(bm));                 // BACKING: vogueBTC counts the BTC lev book
         // Both lev-manager slots are one-shot pins (`LevManagerPinned`) and are the Vault's ONLY
         // owner-gated functions, so with both set the owner has nothing left to call. Renounce.
         Ownable(address(ETH)).renounceOwnership();

@@ -18,7 +18,7 @@ import {IDepositAdapter} from "./imports/Interfaces.sol";
 ///         venues, and that asymmetry is real.
 ///
 ///         WHY IT IS SEPARATE. `Vault` was two unrelated things fused: ETH-VENUE CUSTODY (this) and
-///         BTC BAND ACCOUNTING (`registerBtcLp`, `autoManagedBTC`, `levPooledBTC`, …). `Vogue`'s true
+///         BTC BAND ACCOUNTING (`registerBtcLp`, `autoManaged`, `levPooled`, …). `Vogue`'s true
 ///         counterpart is the BTC-band slice, not the whole of `Vault`, so the band managers cannot be
 ///         compared — let alone unified — while a third concern rides along. Measured before the split:
 ///         0 of the 15 functions here referenced any BTC band state.

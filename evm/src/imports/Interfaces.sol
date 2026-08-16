@@ -387,15 +387,15 @@ interface ICore {
 ///         `IBandManager(btcVault).repack(true)`. Callers therefore do NOT block the one-band-manager
 ///         merge; they already treat the two as a single type.
 /// @dev    Split out of `IEthVenue` (2026-08-14), which had fused these with ETH-VENUE CUSTODY under a
-///         name that asserted ETH while declaring `feesPerShareBTC`/`USD_FEES_BTC`/`derivedThetaWadBtc`.
+///         name that asserted ETH while declaring `feesPerShare`/`USD_FEES`/`derivedThetaWadBtc`.
 ///         `Aux.sol` called it "the merged Vault (ETH+BTC)" in a comment. The split follows the same
 ///         fault line the `Vault` contract splits on, so extracting ETH-venue custody becomes a matter
 ///         of repointing `ethVenue` rather than re-typing call sites.
 interface IBandManager {
     /// §DE-TICK — uniform 256-bit: price, bounds, liquidity. The narrow widths were v4 packing.
     function repack() external returns (uint price, uint lower, uint upper, uint liquidity, uint);
-    function feesPerShareBTC() external view returns (uint);
-    function USD_FEES_BTC() external view returns (uint);
+    function feesPerShare() external view returns (uint);
+    function USD_FEES() external view returns (uint);
     function derivedThetaWad() external view returns (uint);
     function setBTCChannels(address b) external;
 }

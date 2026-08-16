@@ -50,7 +50,11 @@ contract PooledUsdRepackMatrix is Alles {
         uint usdEth;  uint ethLeg;
         uint usdBtc;  uint btcLeg;
         uint committed;
-        uint feesPerShare; uint usdFees;
+        // §SUFFIX-DELETE — these two stay band-qualified ON PURPOSE, and it is not the duplication
+        // the rename removed. That one was two DECLARATIONS of one concept in two contracts, which
+        // instances make unwritable. This is one struct snapshotting TWO INSTANCES, so it needs a
+        // field per instance — the same reason `usdEth`/`usdBtc` above are spelled out.
+        uint feesPerShareEth; uint usdFeesEth;
         uint feesPerShareBtc; uint usdFeesBtc;
         uint lastRepack;
         bytes32 epoch;   // FRAME id (band bounds); reseatEpoch counter removed 2026-08-09
@@ -61,8 +65,8 @@ contract PooledUsdRepackMatrix is Alles {
         s.usdEth = CORE.POOLED_USD();  s.ethLeg = CORE.POOLED();
         s.usdBtc = CORE.POOLED_USD();  s.btcLeg = CORE.POOLED();
         s.committed = CORE.committedUsd18();
-        s.feesPerShare = V4.feesPerShare(); s.usdFees = V4.USD_FEES();
-        s.feesPerShareBtc = BTC.feesPerShareBTC(); s.usdFeesBtc = BTC.USD_FEES_BTC();
+        s.feesPerShareEth = V4.feesPerShare(); s.usdFeesEth = V4.USD_FEES();
+        s.feesPerShareBtc = BTC.feesPerShare(); s.usdFeesBtc = BTC.USD_FEES();
         s.lastRepack = V4.LAST_REPACK();
         s.epoch = keccak256(abi.encode(V4.LOWER_PRICE(), V4.UPPER_PRICE()));
         CORE.poolStats();
@@ -75,8 +79,8 @@ contract PooledUsdRepackMatrix is Alles {
         emit log_named_uint("   BTC band USD (6d) ", s.usdBtc);
         emit log_named_uint("   BTC band BTC (8d) ", s.btcLeg);
         emit log_named_uint("   committedUsd18    ", s.committed);
-        emit log_named_uint("   feesPerShare  ETH ", s.feesPerShare);
-        emit log_named_uint("   USD_FEES      ETH ", s.usdFees);
+        emit log_named_uint("   feesPerShare  ETH ", s.feesPerShareEth);
+        emit log_named_uint("   USD_FEES      ETH ", s.usdFeesEth);
         emit log_named_uint("   feesPerShare  BTC ", s.feesPerShareBtc);
         emit log_named_uint("   USD_FEES      BTC ", s.usdFeesBtc);
         emit log_named_uint("   LAST_REPACK       ", s.lastRepack);
@@ -186,11 +190,11 @@ contract PooledUsdRepackMatrix is Alles {
 
         // CROSS-BAND ISOLATION — now non-vacuous, the BTC band holds real sats.
         assertEq(s1.feesPerShareBtc, s0.feesPerShareBtc, "ETH flow must not move the BTC token-fee accumulator");
-        assertEq(s1.usdFeesBtc,      s0.usdFeesBtc,      "ETH flow must not move the BTC USD-fee accumulator");
+        assertEq(s1.usdFeesBtc,   s0.usdFeesBtc,   "ETH flow must not move the BTC USD-fee accumulator");
         assertEq(s1.btcLeg,          s0.btcLeg,          "ETH flow must not move the BTC band's BTC leg");
         assertEq(s1.usdBtc,          s0.usdBtc,          "ETH flow must not move the BTC band's USD leg");
         // The ETH band's own accumulators MUST have moved, else the isolation claim is untested.
-        assertTrue(s1.feesPerShare != s0.feesPerShare || s1.usdFees != s0.usdFees,
+        assertTrue(s1.feesPerShareEth != s0.feesPerShareEth || s1.usdFeesEth != s0.usdFeesEth,
             "PREMISE: ETH-band accumulators moved");
     }
 
@@ -213,8 +217,8 @@ contract PooledUsdRepackMatrix is Alles {
         assertGt(s1.btcLeg, s0.btcLeg, "PREMISE: the BTC band actually grew");
         _assertClaimsSane(s0, s1, pxE, pxB);
 
-        assertEq(s1.feesPerShare, s0.feesPerShare, "BTC growth must not move the ETH token-fee accumulator");
-        assertEq(s1.usdFees,      s0.usdFees,      "BTC growth must not move the ETH USD-fee accumulator");
+        assertEq(s1.feesPerShareEth, s0.feesPerShareEth, "BTC growth must not move the ETH token-fee accumulator");
+        assertEq(s1.usdFeesEth,   s0.usdFeesEth,   "BTC growth must not move the ETH USD-fee accumulator");
         assertEq(s1.ethLeg,       s0.ethLeg,       "BTC growth must not move the ETH band's ETH leg");
     }
 

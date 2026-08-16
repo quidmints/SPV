@@ -8,7 +8,7 @@ pragma solidity ^0.8.28;
 ///         a deliberate optimisation — `exposeBtcToLev` reclassifies the LP's ALREADY-BANKED channel
 ///         BTC in one frame with no mint/transferFrom roundtrip — but it also fused two unrelated
 ///         responsibilities: the TOKEN (supply, balances, transferability) and the BAND ACCOUNTING
-///         (`autoManagedBTC`, `levPooledBTC`). This contract owns the first; `Vault` keeps the second.
+///         (`autoManaged`, `levPooled`). This contract owns the first; `Vault` keeps the second.
 ///
 ///         THE SPLIT IS EXACT, not a re-design. `Vault.exposeBtcToLev` still performs the whole
 ///         funded→lev reclassification and its `InsufficientChannelBtc` check — the ONLY thing it

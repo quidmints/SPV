@@ -284,7 +284,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     // the nomination protected nothing and its two clocks (`lastHeartbeatBlock` here, the CLTV
     // deadline on Bitcoin) measured the same fact — one of them enforced by consensus.
 
-    // ONE OPEN CHANNEL PER lpEth. The BTC-LP position (autoManagedBTC[lpEth]) is
+    // ONE OPEN CHANNEL PER lpEth. The BTC-LP position (autoManaged[lpEth]) is
     // keyed per-address; a SECOND open for an lpEth that already has one would let
     // the aggregate `pooled` span channels while close attributes per-channel —
     // mis-attributing the others' notional as delivered (over-mint) and wiping

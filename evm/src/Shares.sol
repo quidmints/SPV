@@ -9,11 +9,11 @@ import {Types} from "./imports/Types.sol";
 ///         pre-fold tree, the same per-LP state was declared twice, once in `Vogue` (ETH) and once
 ///         in `Vault` (BTC), distinguished only by a `BTC` suffix:
 ///
-///           autoManaged ∥ autoManagedBTC · lpShares ∥ lpSharesBTC · selfManaged ∥ selfManagedBtc
-///           positions ∥ positionsBtc · ID ∥ ID_BTC · feesPerShare ∥ feesPerShareBTC
-///           USD_FEES ∥ USD_FEES_BTC · levPooled ∥ levPooledBTC · levBuf ∥ levBufBTC
-///           levBufferUsd ∥ levBufferUsdBTC · totalBuffer ∥ totalBufferBTC
-///           LEV_MANAGER ∥ LEV_MANAGER_BTC
+///           autoManaged ∥ autoManaged · lpShares ∥ lpShares · selfManaged ∥ selfManaged
+///           positions ∥ positions · ID ∥ ID · feesPerShare ∥ feesPerShare
+///           USD_FEES ∥ USD_FEES · levPooled ∥ levPooled · levBuf ∥ levBuf
+///           levBufferUsd ∥ levBufferUsd · totalBuffer ∥ totalBuffer
+///           LEV_MANAGER ∥ LEV_MANAGER
 ///
 ///         The suffix existed ONLY because both copies sat in contracts that each hardcoded their
 ///         asset. That is the `isBTC` argument one level down: a source-level selector
@@ -42,7 +42,7 @@ contract Shares {
     address public immutable ASSET;
     /// The engine that owns this band's `POOLED`/ring/settlement.
     address public immutable ENGINE;
-    /// The band's leverage manager. Was `LEV_MANAGER` ∥ `LEV_MANAGER_BTC`.
+    /// The band's leverage manager. Was `LEV_MANAGER` ∥ `LEV_MANAGER`.
     address public LEV_MANAGER;
 
     string  public name;

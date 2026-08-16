@@ -1488,18 +1488,18 @@ library SwapLib {
     ///   levered slice's V4 depth was already consumed by the curve at REQUEST (it sold against the full
     ///   POOLED), so this only reconciles the per-LP accounting — no second burnInRange. DELEGATECALL'd by the
     ///   Vault (address(this)==Vault): AUX/CORE see msg.sender==Vault (onlyUs), the manager sees Vault (==its
-    ///   BAND gate), and the manager's unexpose callback arrives as msg.sender==manager (==LEV_MANAGER_BTC).
+    ///   BAND gate), and the manager's unexpose callback arrives as msg.sender==manager (==LEV_MANAGER).
     ///   Returns the 6-dec debt-share withheld from the QUI mint.
     function deleverOnDelivery(
         address core, address aux, address mgr,
-        mapping(address => Types.Deposit) storage autoManagedBTC,
-        mapping(address => uint) storage levPooledBTC,
+        mapping(address => Types.Deposit) storage autoManaged,
+        mapping(address => uint) storage levPooled,
         address lp, uint shrinkSats, uint lpPayoutSats, uint exactUsd6
     ) public returns (uint deLeverUsd6) {
-        uint lev = levPooledBTC[lp];
+        uint lev = levPooled[lp];
         if (lev == 0) return 0;                                    // not levered — nothing to de-lever
         uint funded;
-        { uint pooled = autoManagedBTC[lp].pooled; funded = pooled > lev ? pooled - lev : 0; }
+        { uint pooled = autoManaged[lp].pooled; funded = pooled > lev ? pooled - lev : 0; }
         if (shrinkSats <= funded) return 0;                       // free channel band covers the shrink
         uint deliveredRaw = shrinkSats > lpPayoutSats ? shrinkSats - lpPayoutSats : 0;
         if (deliveredRaw == 0) return 0;
@@ -1676,7 +1676,7 @@ library SwapLib {
     ///         reseat). Permit `want` new in-range depth, but never past two bounds:
     ///           • HEADROOM = `backing − pooled` — the physical room the IL-bearing capital leaves ABOVE the
     ///             current in-range depth. `backing` = that capital (ETH: vogueETH venue principal + gross
-    ///             buffer; BTC: lpSharesBTC + gross buffer, +this add's sats); `pooled` = current in-range band
+    ///             buffer; BTC: lpShares + gross buffer, +this add's sats); `pooled` = current in-range band
     ///             depth (POOLED/BTC). The band can never exceed what backs it.
     ///           • THETA budget = `θ·backing − pooled` (via applyTheta) — θ = avgYield/(K·σ²) (Merton), the
     ///             fraction of backing it is optimal to RISK in-range given yield vs realized variance; θ≥1

@@ -147,13 +147,13 @@ contract BtcLevManager is LevBase {
         return p.open ? p.venue.collateralOf(lp) : 0;
     }
     /// @notice LIVE sum of every open position's GROSS collateral (sats) — the single term the BTC band CAPACITY
-    ///         (levPooledBTC) is synced to under the full-2× model (replaces the net-equity target).
+    ///         (levPooled) is synced to under the full-2× model (replaces the net-equity target).
     function totalGrossCollateralBtc() external view returns (uint total) {
         uint n = _openLps.length;
         for (uint i; i < n; i++) if (pos[_openLps[i]].open) total += pos[_openLps[i]].venue.collateralOf(_openLps[i]);
     }
     /// @notice LIVE sum of every open position's debt (USD 1e18) — the invariant ceiling for the in-pool BTC
-    ///         buffer USD — each LP's `levBufferUsdBTC ≤ debtUsd` (the per-LP debt cap), the debt-backed analog
+    ///         buffer USD — each LP's `levBufferUsd ≤ debtUsd` (the per-LP debt cap), the debt-backed analog
     ///         of `committedUsd ≤ TVL`.
     function totalDebtUsd() external view returns (uint total) {
         uint n = _openLps.length;
@@ -238,7 +238,7 @@ contract BtcLevManager is LevBase {
         if (cap == 0 || cap > TARGET_LTV_CAP_BPS) revert BadTarget();
         uint entryPx = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         // (A) INTRINSIC deposit model (2026-07-03, mirror of LevManager): the LP's ONE deposit (`initialVbtc`)
-        // IS the levered position — its net-equity is synced into the BTC band (levPooledBTC) as delta-1 depth by
+        // IS the levered position — its net-equity is synced into the BTC band (levPooled) as delta-1 depth by
         // the 2× leverage, so E0 (the FIXED IL base) = the DEPOSIT ITSELF (in sats — vBTC IS sats, no conversion),
         // NOT a separate unlevered band-BTC position. FIXED at open (over-hedge fix): collateral grows as the
         // keeper levers, but E0 stays = the deposit. SAFETY: the up-side clamp de-levers toward 0 debt below entry.
@@ -252,7 +252,7 @@ contract BtcLevManager is LevBase {
         _trackOpen(msg.sender);
         // SAME-BTC: expose `initialVbtc` of the LP's OWN free channel band BTC as the levered slice — the Vault
         // mints the vBTC face straight to this manager (no LP pre-mint / transferFrom roundtrip). Opens at zero
-        // debt; the band isn't re-paired here (levPooledBTC marks it withdrawal-excluded, LP.pooled unchanged),
+        // debt; the band isn't re-paired here (levPooled marks it withdrawal-excluded, LP.pooled unchanged),
         // matching the "open doesn't touch the band" invariant — the keeper's first syncLev tracks net-equity.
         // COLLATERAL SOURCING — venue-agnostic, branched on the venue's collateral token (opens at ZERO debt either
         // way; the band isn't re-paired here so "open doesn't touch the band" holds; the keeper's first syncLev
@@ -459,7 +459,7 @@ contract BtcLevManager is LevBase {
             if (got != freedSats) freedSats = got;
             // Burn the withdrawn vBTC + convert the LP's levered slice back to FREE channel band depth
             // (lev→funded), so the Vault settle path's funded/lev clamp delivers the settled shrink. Same
-            // primitive closeBtcLev uses; msg.sender==this==LEV_MANAGER_BTC satisfies the Vault gate.
+            // primitive closeBtcLev uses; msg.sender==this==LEV_MANAGER satisfies the Vault gate.
             if (freedSats > 0) IVaultExposeB(VAULT).unexposeBtcFromLev(lp, freedSats);
         }
     }

@@ -123,7 +123,7 @@ library BandLib {
     /// @notice Close all or part of an out-of-range boundary order.
     /// @dev    MERGED PAIR, and this one was a PURE DUPLICATE: `VogueLib.pullBody` and
     ///         `BtcVaultLib.pullBtc` were BYTE-IDENTICAL after normalising the storage PARAMETER
-    ///         names (`selfManaged`/`selfManagedBtc`, `positions`/`positionsBtc`) -- and those are
+    ///         names (`selfManaged`/`selfManaged`, `positions`/`positions`) -- and those are
     ///         parameters, so the bodies never differed at all. Two deployed copies of one function
     ///         because the mappings they were handed had different names at the call site.
 

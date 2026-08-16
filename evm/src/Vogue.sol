@@ -155,7 +155,7 @@ contract Vogue is
         return SwapLib.plainNet(p, lev);
     }
 
-    // BTC LP accounting (autoManagedBTC/lpSharesBTC/feesPerShareBTC/USD_FEES_BTC/
+    // BTC LP accounting (autoManaged/lpShares/feesPerShare/USD_FEES/
     // btcFeesOwedSats + UPPER_TICK_BTC/LOWER_TICK_BTC) lives entirely in
     // BtcVault.sol — Vogue is the ETH vault; its helpers are ETH-only now.
 
@@ -338,7 +338,7 @@ contract Vogue is
     /// @dev Shared body for ETH/BTC pending rewards. Picks the right
     ///      LP mapping + fee accumulators based on isBTC. ETH yield is
     ///      from the ETH venue; BTC LPs earn USD fees only (no native
-    ///      BTC yield source — feesPerShareBTC holds V4 trading fees in
+    ///      BTC yield source — feesPerShare holds V4 trading fees in
     ///      WBTC raw).
     /// @dev Refresh LP's fee bookmarks against current per-share accumulators.
     ///      Called whenever LP.pooled changes (deposit, withdraw, reward

@@ -53,7 +53,7 @@ contract Basket is ERC20, ERC6909,
         // BTC_VAULT (the regrouped BTC-LP fee/close mints, previously V4's).
         return (who == address(AUX) || who == VOGUE || who == BTC_VAULT);
     } // BTC_VAULT is Vault.sol — the BTC-side vault (band + channels). It also HOSTS both
-      // LevManagers (ETH LEV_MANAGER + BTC LEV_MANAGER_BTC) as a deploy consolidation, but the
+      // LevManagers (ETH LEV_MANAGER + BTC LEV_MANAGER) as a deploy consolidation, but the
       // ETH band liquidity itself lives in Vogue (V4). The name reflects its primary BTC role.
 
     /// @notice BtcVault — the regrouped BTC side. Its BTC-LP fee + close-time

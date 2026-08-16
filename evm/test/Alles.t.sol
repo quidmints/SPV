@@ -3613,8 +3613,8 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         vm.stopPrank();
 
         uint pooledBtc0 = CORE.POOLED();
-        (uint p1,,,) = BTC.autoManagedBTC(User01);
-        (uint p2,,,) = BTC.autoManagedBTC(User02);
+        (uint p1,,,) = BTC.autoManaged(User01);
+        (uint p2,,,) = BTC.autoManaged(User02);
         assertEq(p1, 2e7, "LP1 BTC position credited in full");
         assertEq(p2, 2e7, "LP2 BTC position credited in full");
 
@@ -3625,11 +3625,11 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         BTC.unregisterBtcLp(User01, 2e7);
         BTC.unregisterBtcLp(User02, 2e7);
 
-        (uint after1,,,) = BTC.autoManagedBTC(User01);
-        (uint after2,,,) = BTC.autoManagedBTC(User02);
+        (uint after1,,,) = BTC.autoManaged(User01);
+        (uint after2,,,) = BTC.autoManaged(User02);
         assertEq(after1, 0, "BTC LP1 fully exited (pooled cleared)");
         assertEq(after2, 0, "BTC LP2 fully exited (pooled cleared)");
-        assertEq(BTC.lpSharesBTC(), 0, "all BTC LP shares cleared - everyone left");
+        assertEq(BTC.lpShares(), 0, "all BTC LP shares cleared - everyone left");
         // No on-chain BTC paid out here (native leg is the close tx, off-chain).
         assertEq(IERC20(address(WBTC)).balanceOf(User01), wbtc1, "no on-chain WBTC delivery (close tx leg)");
         // USD-leg: with delivered==0 NO proceeds claim is minted; the only QUI an
@@ -3888,8 +3888,8 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     //  BTC scope - forkable parts (no Lightning required)
     // ════════════════════════════════════════════════════════════════════
 
-    /// @notice BTC LP deposit: pulls WBTC, grows lpSharesBTC + the LP's
-    ///         per-user autoManagedBTC.pooled bucket.
+    /// @notice BTC LP deposit: pulls WBTC, grows lpShares + the LP's
+    ///         per-user autoManaged.pooled bucket.
     // testBTC_LPDeposit / testBTC_LPWithdraw REMOVED - they exercised the
     // deleted WBTC-as-internal-liquidity LP path (depositBTC/withdrawBTC).
     // Replaced by the channel-lock-LP flow below.
@@ -3911,7 +3911,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         BTC.registerBtcLp(User02, 2e7); // 0.2 BTC
 
         // BTC swaps through the virtual liquidity (V4 BTC pool) generate fees.
-        // (Fees collect into feesPerShareBTC on the next _rebalance - i.e. at
+        // (Fees collect into feesPerShare on the next _rebalance - i.e. at
         // withdraw - via the JIT-defense collect, so we assert at withdraw.)
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
@@ -3962,8 +3962,8 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // Basket.mint call and comments it "6-dec -> 18-dec QUI". Vogue._settlePending has the
         // same shape. If confirmed, LPs are paid 1e12x less trading-fee revenue than they earn.
         assertGt(lp1Fees + lp2Fees, 0, "a USD-leg fee pot exists to split");
-        (uint pooled1,,,) = BTC.autoManagedBTC(User01);
-        (uint pooled2,,,) = BTC.autoManagedBTC(User02);
+        (uint pooled1,,,) = BTC.autoManaged(User01);
+        (uint pooled2,,,) = BTC.autoManaged(User02);
         assertEq(pooled1 + pooled2, 0, "both positions fully exited on close");
     }
 
@@ -3981,7 +3981,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
-        (uint pooledBefore,,,) = BTC.autoManagedBTC(User01);
+        (uint pooledBefore,,,) = BTC.autoManaged(User01);
         uint qBefore = QUID.balanceOf(User01);
         // (E145-i) THE BACKING INVARIANT, MEASURED RATHER THAN READ. The fee leg mints QU!D
         // WITHOUT a matching `drawPooled*`, while `settleDelivered` draws before it mints and
@@ -4004,7 +4004,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         assertEq(CORE.POOLED_USD(), pooledUsdBtc0,
             "fee collection must NOT move POOLED_USD (else the fee-leg mint is unbacked)");
         uint claimed = QUID.balanceOf(User01) - qBefore;
-        (uint pooledAfter,,,) = BTC.autoManagedBTC(User01);
+        (uint pooledAfter,,,) = BTC.autoManaged(User01);
         assertGt(claimed, 0, "USD-leg fees claimed as QUID without closing");
         assertEq(pooledAfter, pooledBefore, "BTC position unchanged (no close)");
         // Second collect → ~nothing (self-rebaselined; no double-pay).
@@ -4013,7 +4013,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         assertApproxEqAbs(QUID.balanceOf(User01), qb, 1e12, "second collect pays ~nothing (no double-pay)");
         // The channel still closes cleanly after a fee claim.
         BTC.unregisterBtcLp(User01, 2e7);
-        (uint pooledEnd,,,) = BTC.autoManagedBTC(User01);
+        (uint pooledEnd,,,) = BTC.autoManaged(User01);
         assertEq(pooledEnd, 0, "channel still closes cleanly after a fee claim");
     }
 
@@ -4059,7 +4059,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // basket headroom that a pool-fraction close would have leaked. (poolUsd is
         // 6-dec; the proceeds an old close-spot model could leak is ~poolUsd*1e12.)
         assertLt(paid, poolUsd * 1e12 / 100, "close minted ~no QUI (fees only, no proceeds)");
-        (uint pooled,,,) = BTC.autoManagedBTC(User01);
+        (uint pooled,,,) = BTC.autoManaged(User01);
         assertEq(pooled, 0, "position fully retired at close");
     }
 
@@ -4104,8 +4104,8 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         BTC.unregisterBtcLp(User02, funded); // delivered_B = 0
         uint paidB = QUID.balanceOf(User02) - qB;
         assertLt(paidB, feeBound, "PER-CHANNEL: B delivered nothing -> mints ~no proceeds (fees only)");
-        (uint pA,,,) = BTC.autoManagedBTC(User01);
-        (uint pB,,,) = BTC.autoManagedBTC(User02);
+        (uint pA,,,) = BTC.autoManaged(User01);
+        (uint pB,,,) = BTC.autoManaged(User02);
         assertEq(pA + pB, 0, "both positions retired");
     }
 
@@ -4138,7 +4138,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         uint qBefore = QUID.balanceOf(User01);
         uint shrink = funded / 2;
         BTC.resizeBtcLp(User01, shrink, shrink, 0);
-        (uint pooledAfter,,,) = BTC.autoManagedBTC(User01);
+        (uint pooledAfter,,,) = BTC.autoManaged(User01);
         assertEq(pooledAfter, funded - shrink, "position shrank by exactly shrinkSats");
         assertLt(QUID.balanceOf(User01) - qBefore, feeBound,
             "withdrawal splice minted ~no proceeds (all native; fees only)");
@@ -4147,7 +4147,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // Close the remainder, also all-native.
         uint qMid = QUID.balanceOf(User01);
         BTC.unregisterBtcLp(User01, funded - shrink);
-        (uint pooledEnd,,,) = BTC.autoManagedBTC(User01);
+        (uint pooledEnd,,,) = BTC.autoManaged(User01);
         assertEq(pooledEnd, 0, "remainder retired");
         assertLt(QUID.balanceOf(User01) - qMid, feeBound,
             "close of remainder also minted ~no proceeds (all native)");
@@ -4201,27 +4201,27 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     }
 
     /// @notice BTC-LP via channel lock: register (open) -> unregister (close),
-    ///         close-time reconciled. lpSharesBTC == funding for the channel's
+    ///         close-time reconciled. lpShares == funding for the channel's
     ///         life (no per-swap decrement - Lightning deliveries are off-chain);
-    ///         close zeroes the position and returns lpSharesBTC to baseline.
+    ///         close zeroes the position and returns lpShares to baseline.
     function testChannelLockBtcLp_RegisterClose() public {
         AUX.setBTCChannels(address(this));
 
         uint sats = 1e8; // 1 BTC funded
-        uint sharesBefore = BTC.lpSharesBTC();
+        uint sharesBefore = BTC.lpShares();
 
         BTC.registerBtcLp(User01, sats);
-        assertGt(BTC.lpSharesBTC(), sharesBefore, "lpSharesBTC grows on channel lock");
-        (uint pooled1,,,) = BTC.autoManagedBTC(User01);
+        assertGt(BTC.lpShares(), sharesBefore, "lpShares grows on channel lock");
+        (uint pooled1,,,) = BTC.autoManaged(User01);
         assertEq(pooled1, sats, "position == funded sats");
 
         // Close with finalBalance == full funding (no net delivery) -> delivered
-        // == 0, no USD claim; the position retires and lpSharesBTC returns to
+        // == 0, no USD claim; the position retires and lpShares returns to
         // baseline.
         BTC.unregisterBtcLp(User01, sats);
-        (uint pooled2,,,) = BTC.autoManagedBTC(User01);
+        (uint pooled2,,,) = BTC.autoManaged(User01);
         assertEq(pooled2, 0, "channel close zeroes the BTC-LP position");
-        assertEq(BTC.lpSharesBTC(), sharesBefore, "lpSharesBTC returns to baseline on close");
+        assertEq(BTC.lpShares(), sharesBefore, "lpShares returns to baseline on close");
     }
 
     /// @dev Little-endian encode `v` into `n` bytes (Bitcoin tx field order).
@@ -4286,7 +4286,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         }
 
         // Funding SPV-proven -> the LP's BTC pool position is credited.
-        (uint pooledOpen,,,) = BTC.autoManagedBTC(lpEth);
+        (uint pooledOpen,,,) = BTC.autoManaged(lpEth);
         assertEq(pooledOpen, amountSats, "openChannel credits the BTC pool position");
 
         // COLLAPSE: a close is all-native and mints NO proceeds — proceeds settle
@@ -4326,7 +4326,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // is on minted QUI (NOT POOLED_USD, which close's _rebalance rebuilds): a
         // close mints only its tiny USD-leg fees, ≪ the primed headroom an old
         // close-spot model would have leaked.
-        (uint pooledClose,,,) = BTC.autoManagedBTC(lpEth);
+        (uint pooledClose,,,) = BTC.autoManaged(lpEth);
         assertEq(pooledClose, 0, "recordClose retires the BTC pool position");
         assertLt(QUID.totalSupply() - supBefore, poolUsd / 100 * 1e12,
             "close minted ~no QUI (all-native, no proceeds)");
@@ -4373,7 +4373,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
             bytes32 payout = payoutKeyOnly(abi.encode(p.lpPubkey));
             channelId = _openWithConsent(ch, makeAddr("hop"), lpPk, lpEth, payout, p, fundingTx, "alles-chan");
         }
-        (uint pooledOpen,,,) = BTC.autoManagedBTC(lpEth);
+        (uint pooledOpen,,,) = BTC.autoManaged(lpEth);
         assertEq(pooledOpen, amountSats, "channel opened");
         uint qBefore = QUID.balanceOf(lpEth);
 
@@ -4392,7 +4392,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         Types.OpenParams memory cp_ = _closeParams(lpPubkey, hopPubkey);
         ch.recordClose(channelId, cp_, commitTx, bytes32(uint(3)), new bytes32[](0), 0);
 
-        (uint pooledClose,,,) = BTC.autoManagedBTC(lpEth);
+        (uint pooledClose,,,) = BTC.autoManaged(lpEth);
         assertEq(pooledClose, 0, "non-coop close retires the BTC position");
         assertEq(QUID.balanceOf(lpEth), qBefore, "non-coop close mints NO proceeds (delivered=0)");
     }
@@ -4440,7 +4440,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
             bytes32 payout = payoutKeyOnly(abi.encode(p.lpPubkey));
             channelId = _openWithConsent(ch, makeAddr("hop"), lpPk, lpEth, payout, p, fundingTx, "alles-chan");
         }
-        (uint pooledOpen,,,) = BTC.autoManagedBTC(lpEth);
+        (uint pooledOpen,,,) = BTC.autoManaged(lpEth);
         assertEq(pooledOpen, amountSats, "channel opened");
         uint qBefore = QUID.balanceOf(lpEth);
 
@@ -4466,7 +4466,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
             ch.recordClose(channelId, cp_, commitTx, bytes32(uint(7)), new bytes32[](0), 0);
         }
 
-        (uint pooledClose,,,) = BTC.autoManagedBTC(lpEth);
+        (uint pooledClose,,,) = BTC.autoManaged(lpEth);
         assertEq(pooledClose, 0, "force-close with HTLC outputs retires the position");
         assertEq(QUID.balanceOf(lpEth), qBefore,
             "HTLC outputs do NOT inflate delivered: force-close mints NO proceeds");
@@ -4606,7 +4606,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
 
     /// (E145-p) DOES A SWAP-IN ACCRUE A BTC-LEG FEE? The question that reopened E145.
     ///
-    /// I concluded `feesPerShareBTC` can never accrue, from three strands: the
+    /// I concluded `feesPerShare` can never accrue, from three strands: the
     /// `BtcInflowsViaChannels` guard, `mockBTC` being `onlyVogue`-gated, and a measured zero.
     /// All three were about the USER path. `creditSwapIn` sells into the pool as the PROTOCOL
     /// (`onlyBTCChannels`, `rp.zeroForOne = !token1is(true)` — BTC→USD), bypassing the guard.
@@ -4624,8 +4624,8 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         vm.stopPrank();
 
         vm.prank(User01); BTC.collectBtcFees();      // crystallise whatever exists BEFORE
-        (uint pooledPre,,,) = BTC.autoManagedBTC(User01);
-        uint fpsBefore  = BTC.feesPerShareBTC();
+        (uint pooledPre,,,) = BTC.autoManaged(User01);
+        uint fpsBefore  = BTC.feesPerShare();
 
         // (E145) DOES THE SWAP ITSELF PUT THE FEE SATS INTO POOLED? This decides whether
         // compounding the fee into the LP's position needs TWO writes (pooled + shares) or
@@ -4640,17 +4640,17 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
 
         vm.prank(User01); BTC.collectBtcFees();      // crystallise AFTER
-        uint fpsAfter  = BTC.feesPerShareBTC();
-        emit log_named_uint("feesPerShareBTC before", fpsBefore);
-        emit log_named_uint("feesPerShareBTC after ", fpsAfter);
+        uint fpsAfter  = BTC.feesPerShare();
+        emit log_named_uint("feesPerShare before", fpsBefore);
+        emit log_named_uint("feesPerShare after ", fpsAfter);
 
         // (E145) THE FEE NOW COMPOUNDS INTO THE POSITION, IN SATS.
-        // The leg is still earned — `feesPerShareBTC` must rise, or the protocol stopped
+        // The leg is still earned — `feesPerShare` must rise, or the protocol stopped
         // charging. What changed is where it LANDS: `LP.pooled` grows instead of an owed ledger
         // only a hop-funded grow-splice could settle. Asserting all three so a regression that
         // silently drops the fee, or re-introduces the ledger, fails here.
         assertGt(fpsAfter, fpsBefore, "the BTC-leg fee is still earned on a swap-in");
-        (uint pooledAfter,,,) = BTC.autoManagedBTC(User01);
+        (uint pooledAfter,,,) = BTC.autoManaged(User01);
         assertGt(pooledAfter, pooledPre, "it compounds into the LP's position, denominated in SATS");
     }
 
@@ -4685,13 +4685,13 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // gaining anything. The fee now compounds into `pooled` as it is earned, so there is
         // never an unsettled claim to lose — which is the fix, not a gap in the test.
 
-        uint fpsBefore = BTC.feesPerShareBTC();
+        uint fpsBefore = BTC.feesPerShare();
         BTC.unregisterBtcLp(User01, 2e7);                 // LP1 exits fully
 
         // THE MEASUREMENT: does LP2 receive any of it?
         vm.prank(User02); BTC.collectBtcFees();
-        emit log_named_uint("feesPerShareBTC before", fpsBefore);
-        emit log_named_uint("feesPerShareBTC after ", BTC.feesPerShareBTC());
+        emit log_named_uint("feesPerShare before", fpsBefore);
+        emit log_named_uint("feesPerShare after ", BTC.feesPerShare());
         // Recorded, not asserted in a direction: this test exists to ESTABLISH the number.
         // Whichever way it lands, it decides whether the fold is a fix or a redistribution.
     }
@@ -4707,7 +4707,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         BTC.registerBtcLp(User01, 2e7);
         vm.prank(User01); BTC.collectBtcFees();          // zero the LP's bookmark first
 
-        uint usdFees0 = BTC.USD_FEES_BTC();
+        uint usdFees0 = BTC.USD_FEES();
         uint qd0 = QUID.balanceOf(User01);
 
         uint volume6 = 1_000 * USDC_PRECISION;           // ONE swap, known size
@@ -4720,7 +4720,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         vm.prank(User01); BTC.collectBtcFees();          // crystallise -> QUID (18-dec)
         uint paid18 = QUID.balanceOf(User01) - qd0;
         emit log_named_uint("swap volume (6-dec)      ", volume6);
-        emit log_named_uint("USD_FEES_BTC delta       ", BTC.USD_FEES_BTC() - usdFees0);
+        emit log_named_uint("USD_FEES delta       ", BTC.USD_FEES() - usdFees0);
         emit log_named_uint("QUID paid to the LP (18) ", paid18);
         // bps of volume: paid is 18-dec, volume is 6-dec ⇒ normalise volume to 18-dec.
         uint volume18 = volume6 * 1e12;
