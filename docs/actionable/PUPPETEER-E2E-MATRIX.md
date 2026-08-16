@@ -80,8 +80,24 @@ already deterministic, and already testable with `node --test` and no device:
   milliseconds instead of seven app launches.
 * **No wallet / wrong network / rejected tx** — now `signerKind()`, `protectionEnabled()` and
   `sendTx`'s error paths in `chain/protect.ts`. Testable with a stub `ExternalWallet`.
-* **The QR address recompute** — a pure function over the quote; the highest-value assertion in
-  the whole matrix and it needs no phone at all.
+* **The QR address recompute** — the highest-value assertion in the whole matrix, and it needs no
+  phone at all. ⚠️ **NOT "a pure function over the quote" — I wrote that and it is wrong in a way
+  that would make the check VACUOUS.** Recomputing a hop-supplied address from hop-supplied inputs
+  proves nothing; it would confirm the hop is self-consistent, which was never in doubt.
+  🔑 **THE ADDRESS IS THE OUTPUT, NEVER AN INPUT.** The verifier takes:
+    - the wallet's **own** `userRefund` x-only key (it generated it and sent it in the request);
+    - `BTC_DEPOSIT_KEY`, a protocol constant compiled in, not quoted;
+    - `seller` — the wallet's **own** address;
+    - `token` — what the **user chose**;
+    - `cltvHeight` and `minDeliveredUsd` — hop-priced, but **the exact values the user was SHOWN
+      AND ACCEPTED**, which is what makes including them meaningful: it binds the hop to the terms
+      it displayed rather than to terms it can restate afterwards.
+  …builds `refundLeaf` and `termsLeaf`, combines them with `tapBranch`, tweaks `BTC_DEPOSIT_KEY`,
+  encodes bech32m — and compares the result to `quote.depositAddress`. **The only thing taken from
+  the quote is the value under test.**
+  📌 So the taproot machinery (leaf → branch → TapTweak → P2TR/bech32m) is the MECHANICS; the
+  security content is entirely in *which inputs are the wallet's own and which the user consciously
+  accepted*. Get that boundary wrong and the whole screen is decoration.
 * **What genuinely needs the phone**: Ledger/Phantom transport, camera/QR scan, secure-store
   custody, and the real cross-chain round trip. **That is a short list**, which is the point.
 
