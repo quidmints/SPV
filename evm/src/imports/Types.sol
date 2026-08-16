@@ -215,7 +215,8 @@ library Types {
         uint    pooled;
         uint    v4Price;
         address recipient;
-        bool    isBTC;
+        // §ISBTC-SPLIT — `isBTC` REMOVED: it was WRITE-ONLY. Three sites set it and `routeSwap`
+        // never read it, so it travelled the whole swap path to be ignored.
     }
 
 }

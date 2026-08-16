@@ -387,7 +387,7 @@ library SwapLib {
         // this local was costing (the note above worried about exactly that) comes back.
         if (!r.forVolatile) {
             if (r.token != c.quid && !stable) revert StableMissingS();
-            r.amount = aux._depositVol{value: msg.value}(isBTC, msg.sender, r.amount);
+            r.amount = aux._depositVol{value: msg.value}(r.asset, msg.sender, r.amount);
             max = ICore(c.core).POOLED_USD();
             // JIT-DEPTH-GUARANTEE.md §2 hook site (DEFERRED — design gap, NOT built): this is the
             // volatile→USD leg whose fill is bounded by the band's in-range USD depth (`max`), so a
@@ -461,7 +461,7 @@ library SwapLib {
             inputIsUsd: inputIsUsd, token: r.token,
             amount: r.amount, pooled: pooled,
             v4Price: v4Price,
-            recipient: r.recipient, isBTC: isBTC
+            recipient: r.recipient
         }));
         if (poolSupplied > 0 && isBTC) aux.bumpVogueBTC(poolSupplied);
         // a dry volatile pool delivers max==0; with minOut==0 the
@@ -664,7 +664,6 @@ library SwapLib {
         // stays with LPs. A flash-and-repay, never a subsidy to whoever swaps in first.
         rp.v4Price = _priceOr(v4p, aux, wbtc);
         rp.recipient    = seller;
-        rp.isBTC        = true;
         // routeSwap + both gates + the refill bonus run in their OWN frame (_swapInSettle) so
         // creditSwapInBody stays within the legacy stack (no via_ir). Returns the sats actually converted so
         // the hop can refund any inventory-bounded remainder.
@@ -1371,7 +1370,6 @@ library SwapLib {
         amount = sr.amount;
         rp.amount    = amount;                               // reduced buy drives the fill
         rp.recipient = address(this);                       // obligation → pool; LN delivers
-        rp.isBTC     = true;
     }
 
     /// @dev creditSwapOutBody PHASE 2 (own frame): execute the buy, CAP the LP's owed proceeds to the USD

@@ -772,10 +772,10 @@ contract Aux is // Auxiliary
 
     /// @notice Self-gated trampolines for swapToBody (delegatecall self-calls).
     ///         (tipSelf already exists below; swapToBody reuses it.)
-    function _depositVol(bool isBTC, address sender, uint amount)
+    function _depositVol(address asset, address sender, uint amount)
         external payable returns (uint) {
         if (msg.sender != address(this)) revert NotSelf();
-        return _deposit(isBTC, sender, amount);
+        return _deposit(asset, sender, amount);
     }
     function bumpVogueBTC(uint amount) external {
         if (msg.sender != address(this)) revert NotSelf();
@@ -1329,12 +1329,14 @@ contract Aux is // Auxiliary
     ///         `amount` is the TOTAL deposit (msg.value counts toward it,
     ///         matching Vogue._depositETH convention). Caller passes
     ///         amount=total; msg.value covers some/all of it.
-    function _deposit(bool isBTC, address sender, uint amount)
+    function _deposit(address asset, address sender, uint amount)
         internal returns (uint sent) {
         // Body reused from SwapLib.depositBody (delegatecall) for EIP-170 relief. `msg.value` is preserved
         // through the delegatecall (same call context) so the ETH-wrap path stays correct; address(this)==Aux
         // holds the value + the pulled tokens. ZeroSent revert kept here (selector preserved).
-        sent = SwapLib.depositBody(isBTC ? address(WBTC) : address(WETH), address(WETH), sender, amount);
+        // §ISBTC-SPLIT: the caller HAS the asset -- passing a boolean so this could look the same
+        // address back up was the hand-rolled dispatch one layer down.
+        sent = SwapLib.depositBody(asset, address(WETH), sender, amount);
         if (sent == 0) revert ZeroSent();
     }
 

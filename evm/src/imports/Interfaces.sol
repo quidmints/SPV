@@ -297,7 +297,7 @@ interface IAux {
     function illiquidLoss() external view returns (uint);
     function illiquidLossFlagging() external returns (uint);
     function flagIlliquidSelf(address vault, bool illiquid) external;
-    function _depositVol(bool isBTC, address sender, uint amount) external payable returns (uint sent);
+    function _depositVol(address asset, address sender, uint amount) external payable returns (uint sent);
     function tipSelf(uint cut, address token, int sign) external;
     function bumpVogueBTC(uint amount) external;
     function resolvedTwap(address asset, uint32 period) external view returns (uint price, bool stale);
