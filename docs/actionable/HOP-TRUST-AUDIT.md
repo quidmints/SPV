@@ -125,10 +125,48 @@ address is perfectly well-formed either way.
 matching derivation on the TS side, and both must agree on the parity rule or the same seed
 yields two different addresses on the two sides.
 
-⛔ **REMAINING SCOPE OF §T2, now much smaller:** `token` and `minDeliveredUsd` are still the hop's
-word and are NOT addressed by this — the deposit address commits to the PAYER, not to what they
-were promised. Decide separately whether those need binding; a wrong `token` or a low
-`minDeliveredUsd` short-changes the seller without misrouting the credit.
+### ✅ AND THE REST OF IT TOO (owner, 2026-08-16): NOT TAKING THE HOP'S WORD FOR *ANYTHING*.
+
+`token` and `minDeliveredUsd` close by the SAME mechanism, with no signature and no extra
+transaction: **put them in the deposit address.** The address is already a commitment — it just
+commits to too little.
+
+🔑 **THE DEPOSIT ADDRESS BECOMES THE CONTRACT.** Today `swapInDepositKey` tweaks the internal key
+by a SINGLE leaf hash (`MuSig2Agg.sol:191` — `taggedHash("TapTweak", internalX ‖ leafHash)`), and
+that leaf is the spendable CLTV refund path. Taproot permits a TREE, so add a second, deliberately
+unspendable leaf that commits to the terms:
+
+```
+termsLeaf   = OP_RETURN <sha256(abi.encode(token, minDeliveredUsd))>   // never spent; a commitment
+merkleRoot  = TapBranch(sort(tapLeafHash(refundLeaf), tapLeafHash(termsLeaf)))
+q           = internalKey + taggedHash("TapTweak", internalX ‖ merkleRoot)·G
+```
+
+The contract then recomputes `q` from the terms the hop CLAIMS. **Lie about either field and the
+recomputed address is not the one the sats went to — `DepositNotPaid`, on the existing check.** No
+new trust, no new round trip, and no new failure mode: the hop's assertion is verified against a
+fact the payer fixed when they chose where to send money.
+
+⇒ **With this plus the `seller` derivation above, `settleSwapInProven` takes NOTHING on the hop's
+word.** Every value-routing input is either proven by the deposit or derived from it.
+
+📌 **What is actually missing is ~5 lines.** `tapLeafHash` exists (`:169`) and the single-leaf
+tweak exists (`:191`); there is **no `tapBranch`**. BIP-341's is a tagged hash over the two child
+hashes in lexicographic order — that is the entire addition on the Solidity side.
+
+⚠️ **THREE CONSEQUENCES, none of them optional:**
+1. **The refund spend needs a bigger control block.** A 2-leaf tree means the refund path must
+   carry the sibling (`tapLeafHash(termsLeaf)`, 32 bytes) to prove membership. Cheap, but it
+   changes the witness, and `user_refund_script_path_verifies_and_control_block_belongs_to_the_leaf`
+   pins the current shape.
+2. **EVERY DEPOSIT ADDRESS CHANGES.** This is a breaking change to the rail: the Rust side
+   (`swap_in_onchain.rs:deposit_spend_info`) must build the identical tree, or the address the hop
+   quotes and the address the contract recomputes diverge and **every swap-in fails**. Land both
+   sides together and test against a real regtest deposit, not a unit fixture.
+3. **`minDeliveredUsd` is a QUOTE, so committing to it fixes the price at quote time.** That is
+   probably correct — it is what the seller agreed to — but it removes any ability to re-quote a
+   stale deposit, and the existing `expiresAt` becomes the only escape. Confirm that is intended
+   before building; it is a product decision wearing a cryptographic hat.
 
 📌 `token` and `minDeliveredUsd` are NOT covered by this and remain the hop's word regardless —
 the deposit address commits to the PAYER, not to what they were promised. A signed intent may
