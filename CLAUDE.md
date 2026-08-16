@@ -348,6 +348,23 @@ One session lost roughly an hour to these, and **not one was the compiler report
 The common shape: a tool that reports success while doing nothing, or a check whose own exit code
 lies. ⇒ **VERIFY THE EFFECT WITH AN INDEPENDENT GREP, NEVER THE TOOL'S EXIT CODE.**
 
+- 🔴 **A LIBRARY FUNCTION THAT REVERTS AT ~195 GAS IS A STALE DEPLOYMENT, NOT A BUG IN YOUR CODE**
+  (measured 2026-08-16). After renaming `OracleLib.initPool` → `seedRing`, every fixture's `setUp`
+  died with a bare `EvmError: Revert` on `OracleLib::seedRing() [delegatecall]` at **195 gas** —
+  while `deployMocks` and `prepRefs` succeeded **at the same library address in the same trace**,
+  and `out/OracleLib.sol/OracleLib.json` listed `seedRing` in `methodIdentifiers`. So: linking fine,
+  artifact fine, deployed dispatcher missing the selector. **`forge test` printed `No files changed,
+  compilation skipped` and it was WRONG** — a preceding `forge build` had reported 0 errors.
+  ⇒ **`forge test --force` fixed it instantly** (`seedRing` then ran at 66,773 gas and `setUp`
+  passed, reaching real assertions 182,000 trace-lines later).
+  ⚠️ **THE TELL IS THE GAS NUMBER.** ~195 gas is the dispatcher falling through to its revert
+  because no selector matched; a real revert inside the body costs far more. A no-code address
+  would *also* trip solc's `extcodesize` guard at a similar cost — same remedy either way.
+  ⇒ **After renaming or changing the signature of any `external` library function, run the suite
+  with `--force` once before believing ANY result.** This is the EVM twin of "a green suite is what
+  an uncompiled crate produces": here the suite is RED, and red for a reason that is not your code,
+  which wastes the same time in the opposite direction.
+
 - 🔴 **`Error: Error writing output JSON.` IS A CROSS-FILE ARITY MISMATCH. IT IS NOT ABOUT JSON**
   (measured 2026-08-16; it cost this session hours, twice, and it has now been diagnosed wrongly on
   two separate days). solc emits **no file, no line, no symbol, no cause** — just those two lines.
