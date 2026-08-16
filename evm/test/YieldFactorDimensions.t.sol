@@ -160,4 +160,42 @@ contract YieldFactorDimensions is Alles {
         assertApproxEqAbs(reportedWad, preTrancheWad, 2,
             "the seed carve-out moved the yield factor - nominal subtraction from both sides");
     }
+
+    /// §E155 LEFT THIS AUDIT UNEXECUTED AND I ALMOST CLOSED THE THREAD WITHOUT IT.
+    /// `_aaveYieldWeighted` is `mulDiv(assets, assets, shares)` — the SAME raw ratio that collapsed the
+    /// 4626 leg to 1e-12 — and it is correct ONLY if `getUserSuppliedAssets` and `getUserSuppliedShares`
+    /// carry the same decimals. I booked "unstated and unverified; audit it in the same pass" and did
+    /// not. MEASURED against the live v4 spoke: factor 1.009911, i.e. the liquidity index. No bug.
+    ///
+    /// ⚠️ TWO deposits, not one, and that is itself the finding: routing picks the LEAST-FULL member and
+    /// ties go to the FIRST in the set, so with both legs at zero the 4626 wins and the aave leg sees
+    /// NOTHING. A single-mint version of this test measured 0/0 and would have proved nothing.
+    function test_aaveLegYieldFactorIsDimensionless() public {
+        address spoke = AUX.AAVE_SPOKE();
+        require(spoke != address(0), "no spoke wired - assertion would be vacuous");
+        vm.prank(AUX.owner());
+        AUX.setVault(address(USDT), spoke);
+
+        deal(address(USDT), User02, 100_000 * USDC_PRECISION);
+        vm.startPrank(User02);
+        (bool ok,) = address(USDT).call(
+            abi.encodeWithSignature("approve(address,uint256)", address(AUX), type(uint).max));
+        require(ok, "usdt approve");
+        QUID.mint(User02, 50_000 * USDC_PRECISION, address(USDT), 0);   // fills the 4626 leg
+        QUID.mint(User02, 50_000 * USDC_PRECISION, address(USDT), 0);   // now the spoke is least-full
+        vm.stopPrank();
+
+        uint a = AUX.aaveBalance(address(USDT));
+        uint sh = AUX.aaveShares(address(USDT));
+        emit log_named_uint("aave assets", a);
+        emit log_named_uint("aave shares", sh);
+        assertGt(a, 0, "aave leg unfunded - the assertion would be vacuous");
+        assertGt(sh, 0, "aave shares zero - the assertion would be vacuous");
+
+        uint factorWad = (a * 1e18) / sh;
+        emit log_named_uint("aave factor x1e18", factorWad);
+        assertGe(factorWad, FACTOR_MIN_WAD,
+            "aave yield factor collapsed - assets and shares do not share decimals");
+        assertLe(factorWad, FACTOR_MAX_WAD, "aave yield factor exploded");
+    }
 }
