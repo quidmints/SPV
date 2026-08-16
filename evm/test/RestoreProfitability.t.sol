@@ -91,7 +91,7 @@ contract RestoreProfitability is Alles {
         (uint inv0, uint tgt0) = _state();
         emit log_named_uint("START inv (usd6)   ", inv0);
         emit log_named_uint("START target (usd6)", tgt0);
-        emit log_named_uint("START wellSkew     ", AUX.wellSkew(address(WETH)));
+        emit log_named_uint("START wellSkew     ", AUX.wellSkew(address(WETH), 0));
 
         // ---- 1. DRAIN until the band is genuinely SCARCE (inv < target), or give up and SAY SO
         //         rather than reporting a number from a state we never reached.
@@ -103,7 +103,7 @@ contract RestoreProfitability is Alles {
         (uint inv1, uint tgt1) = _state();
         emit log_named_uint("AFTER inv (usd6)   ", inv1);
         emit log_named_uint("AFTER target (usd6)", tgt1);
-        emit log_named_uint("AFTER wellSkew     ", AUX.wellSkew(address(WETH)));
+        emit log_named_uint("AFTER wellSkew     ", AUX.wellSkew(address(WETH), 0));
 
         if (inv1 >= tgt1) {
             emit log("INCONCLUSIVE: never reached inv < target -- the scarce leg was never live.");
