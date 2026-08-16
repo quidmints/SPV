@@ -29,13 +29,11 @@ import {ILevEquity, IBand} from "./imports/Interfaces.sol";
 // §E21: IERC20Min had TWO declarations (here and imports/ILevVenue.sol). One home now.
 import {IERC20Min} from "./imports/ILevVenue.sol";
 
-/// §ISBTC-SPLIT — see `BandBacking.sol`. Declared here rather than in Interfaces.sol only until the
-/// split lands tree-wide; it is OUR OWN contract and belongs in the canonical file (standing rule 2).
-interface IBandBacking {
-    function report(uint256 equityUsd18) external;
-    function total() external view returns (uint256);
-    function otherThan(address band) external view returns (uint256);
-}
+// §BANDBACKING-FOLD — `interface IBandBacking` DELETED FROM HERE, and it was declared TWICE: once
+// above and once in Interfaces.sol, which standing rule 2 forbids and which the note above that
+// second copy warns about explicitly ("a duplicate interface surfaces as forge's `Error writing
+// output JSON`, NOT as a redeclaration error"). Both copies go with the contract: the band now
+// calls `AUX` directly, which Core already holds as a concrete type.
 
 /// @dev Live total leverage debt (USD 1e18) of a pinned LevManager — the debt-funded buffer that
 ///      `committedUsd18` subtracts from in-range USD to recover the pure equity claim (buffer == debt).
@@ -112,16 +110,18 @@ contract Core {
     /// This was `_bandEquityUsd18(false) + _bandEquityUsd18(true)` — one contract adding up both
     /// bands because one contract WAS both bands. With two instances neither can see the other, and
     /// two instances each gating against the FULL TVL would DOUBLE-COMMIT the same backing without
-    /// reverting. `BandBacking` holds the joint figure; each instance pushes only its own.
+    /// reverting. `Aux` holds the joint figure; each instance pushes only its own.
     function committedUsd18() public view returns (uint) {
-        return BACKING.total();
+        return AUX.committedTotal();
     }
 
     /// @notice Push THIS instance's equity to the shared accountant. PUSH, not pull, and at the
     ///         moment the equity changes — a sum of per-band figures is only meaningful if every
     ///         term is on the same clock, which is §A.16b one level up. A lazy pull would let the
     ///         bound pass against a total that was never simultaneously true.
-    function _reportEquity() internal { BACKING.report(_bandEquityUsd18()); }
+    /// @dev    §BANDBACKING-FOLD — reports to `AUX` DIRECTLY. The band talks to Aux; there is no
+    ///         intermediary contract holding two numbers on their behalf.
+    function _reportEquity() internal { AUX.report(_bandEquityUsd18()); }
 
     /// @dev One pool's equity USD (18-dec): its in-range USD less that pool's live leverage debt, floored at 0.
     function _bandEquityUsd18() internal view returns (uint) {
@@ -393,7 +393,7 @@ contract Core {
         // redeemability while owed to LPs. Folding it in closes the gap AT SOURCE, so redeemable
         // needs no premium-specific subtraction and no claimed/unclaimed counter to keep in sync:
         // the mirror already falls as LPs draw. Symmetric across both bands via IS_BTC.
-        _addPooledUsd(premiumUsd);
+        POOLED_USD += premiumUsd;
         // Also fold it into the decaying RATE register (#107/D3). The cumulative counters above
         // are monotonic totals — useless as a yield; θ needs a rate, which is what this provides.
         _bumpEwma(_prem, premiumUsd);
@@ -456,10 +456,11 @@ contract Core {
     uint public LOWER_PRICE;
     uint public UPPER_PRICE;
 
-    /// §ISBTC-SPLIT — the shared accountant. Holds the ONE thing two instances still share: the
-    /// joint committed equity that `require(committedUsd18() <= haircutTvl)` gates on, and the
-    /// cross-band input `SwapLib._sharedScarcityWad` needs. Neither instance knows the other exists.
-    IBandBacking public immutable BACKING;
+    // §BANDBACKING-FOLD — `BACKING` DELETED. The shared accountant held the ONE thing two instances
+    // still share (the joint committed equity the backing gate reads, and the cross-band input
+    // `SwapLib._sharedScarcityWad` needs) — but that state now lives in `AUX`, which this contract
+    // already holds and which owns the gate that consumes it. One fewer address to wire, one fewer
+    // immutable, and one fewer constructor argument a deployer can get wrong.
 
     // §DE-TICK — `token1is()` DELETED with the state it exposed. No caller remained: leg ordering
     // is carried by `Delta`'s field NAMES and the OOR guard is symmetric, so there is no question
@@ -527,10 +528,22 @@ contract Core {
     // collapsed POOLED/POOLED_USD to one field per instance but left the selector standing over
     // arms that no longer differed, so the branch cost bytecode and gas to decide nothing. The
     // Math.min floors are the real content and are unchanged.
-    function _addPooledUsd(uint a) internal { POOLED_USD += a; }
-    function _subPooledUsd(uint a) internal { POOLED_USD -= Math.min(a, POOLED_USD); }
-    function _addPooledTok(uint a) internal { POOLED     += a; }
-    function _subPooledTok(uint a) internal { POOLED     -= Math.min(a, POOLED); }
+    // ⛔ `_addPooledUsd` / `_subPooledUsd` / `_addPooledTok` / `_subPooledTok` ARE DELETED — four
+    // one-line wrappers over two plain state variables, with FIVE call sites between them.
+    //
+    // They earned their keep while the pooled state was PER-ASSET: `POOLED_ETH`/`POOLED_BTC` and
+    // `POOLED_USD_ETH`/`POOLED_USD_BTC` meant every touch had to select an arm, and a helper was
+    // the place that selection lived. The v4 cut collapsed each pair to ONE variable, so the
+    // wrappers now select between nothing — they are a name in front of `+=`. Inlined, each site
+    // reads as what it is and there is one less layer between the assertion and the assignment.
+    //
+    // ⚠️ THE CLAMPS MOVED WITH THEM, DELIBERATELY, AND THEY ARE NO LONGER DECORATIVE. `-= Math.min(a, X)`
+    // now sits at the two subtraction sites. While the v4 pool leg existed it was redundant: flash
+    // accounting required deltas to net at unlock, so an inconsistent subtraction REVERTED and the
+    // clamp never bound. That cross-check is gone with the pool, which makes the clamp the only
+    // thing between an accounting error and a silently wrong `POOLED` — and a clamp does not
+    // announce itself. Keeping it is correct for now; it is ALSO the thing to revisit first if
+    // pooled state ever disagrees with the basket (see §V4-REMOVAL-POOLED-STATE).
 
     Aux AUX; Vogue VOGUE; Basket BASKET; Vault BTCVAULT;
 
@@ -617,13 +630,23 @@ contract Core {
     /// DIRECTLY, so there is nothing left to select at runtime and nothing to get wrong at a call
     /// site. `VOL_DECIMALS` is READ FROM THE ASSET rather than passed, because the token already
     /// knows (WETH 18, WBTC 8) -- one fewer number a deployer can mistype.
-    constructor(address asset_, uint confFrac_, uint splice_, address backing) {
+    /// @dev §RISK-IS-ONE-PROFILE — `confFrac_` and `splice_` were TWO loose numbers and are now one
+    ///      `SwapLib.Risk`. They are not independent: every deploy passes either
+    ///      `(ETH_CONF_FRAC_WAD, 0)` or `(CONF_FRAC_WAD, SPLICE_FLOOR)`, and `SwapLib` already
+    ///      declares exactly those two pairings as `ethRisk()` / `btcRisk()`. Two parameters that
+    ///      always co-vary are one parameter wearing a disguise, and the disguise is what lets a
+    ///      deployer pair ETH's one-block settlement window with BTC's 0.2% splice floor — a
+    ///      mispricing no compiler could object to. As a profile that combination cannot be spelled.
+    ///      ⚠️ NOT derived from the asset here, deliberately: Core would have to ask which asset it
+    ///      is, and inferring it from `VOL_DECIMALS` (8 vs 18) is the same class of mistake as
+    ///      reading a stable's decimals off its slot index. The profile is deploy-time
+    ///      CONFIGURATION, which is the one place a per-instance constant honestly belongs.
+    constructor(address asset_, SwapLib.Risk memory risk) {
         DEPLOYER = msg.sender;
         ASSET        = asset_;
         VOL_DECIMALS = IERC20Min(asset_).decimals();
-        CONF_FRAC    = confFrac_;
-        SPLICE       = splice_;
-        BACKING      = IBandBacking(backing);
+        CONF_FRAC    = risk.confFracWad;
+        SPLICE       = risk.spliceFloor;
     }
 
     /// @param _vogue            Vogue contract (LP wrapper)
@@ -997,13 +1020,13 @@ contract Core {
         int256 tokDelta = d.vol;
         if (tokDelta > 0) {
             uint tokAmount = uint(tokDelta);
-            if (inRange) _subPooledTok(tokAmount);
+            if (inRange) POOLED -= Math.min(tokAmount, POOLED);   // clamp: see the note at the deleted helpers
             // ⚠️ THE `!IS_BTC` GUARD STAYS: ETH pays out real ether here, BTC settles by Lightning
             // cooperative close, not an on-chain transfer. One of the four known-REAL asymmetries.
             if (who != address(0)) BAND.deliverVolatile(tokAmount, who);   // BTC: no-op (LN close)
         } else if (tokDelta < 0) {
             uint tokAmount = uint(-tokDelta);
-            if (inRange) _addPooledTok(tokAmount);
+            if (inRange) POOLED += tokAmount;
         }
     }
 
@@ -1058,7 +1081,7 @@ contract Core {
             //   DEFER a single withdrawal; the standing solvency gate must not. depegLoss == 0 in normal
             //   operation ⇒ byte-identical to the old par gate; it only tightens under an ACTUAL depeg.
             uint haircutTvl = _d[14] > depegLoss ? _d[14] - depegLoss : 0;
-            _addPooledUsd(usdAmount);
+            POOLED_USD += usdAmount;
             if (basketLeg) basketUsd += usdAmount;   // §ISBTC-SPLIT: both arms were identical
             // 🔴 §BACKING-DEAD — THE PUSH THAT MAKES THE GATE BELOW MEAN ANYTHING. `_reportEquity`
             // existed, was documented as PUSH-not-pull, and HAD NO CALLERS -- so
@@ -1070,7 +1093,7 @@ contract Core {
             require(committedUsd18() <= haircutTvl, "backing");
         } else {
             uint pooledPre = POOLED_USD;
-            _subPooledUsd(usdAmount);
+            POOLED_USD -= Math.min(usdAmount, POOLED_USD);   // clamp: see the note at the deleted helpers
             if (basketLeg) {
                 // §#12/E28-r — PROPORTIONAL, not first-out. A burn releases a MIX: the band's USD leg
                 // holds basket dollars AND the LP-owned increment, and modifyLiquidity returns them in
