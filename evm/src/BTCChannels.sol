@@ -8,7 +8,7 @@ import {BitcoinTx} from "./imports/BitcoinTx.sol";
 import {ChannelLib} from "./imports/ChannelLib.sol";
 import {ExitLib} from "./imports/ExitLib.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
+import {ReentrancyGuard} from "solmate/utils/ReentrancyGuard.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MuSig2Agg} from "./imports/MuSig2Agg.sol";
 // (E125-d) ERC-1271 + ECDSA in one call, so a SMART-WALLET LP can register. Tries ECDSA

@@ -14,10 +14,10 @@ import {BtcVaultLib} from "./imports/BtcVaultLib.sol";
 import {VBtc} from "./VBtc.sol";
 import {Types} from "./imports/Types.sol";
 
-import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
+import {WETH as WETH9} from "solmate/tokens/WETH.sol";
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
+import {ReentrancyGuard} from "solmate/utils/ReentrancyGuard.sol";
 import {ILevEquityBtc} from "./imports/Interfaces.sol";
 
 // ════════════════════════════════════════════════════════════════════════

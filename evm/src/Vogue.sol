@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
+import {ReentrancyGuard} from "solmate/utils/ReentrancyGuard.sol";
 import {BandLib} from "./imports/BandLib.sol";
 // §A.52: the canonical view (was a file-local `IEthVenueV`).
 import {IEthVenue} from "./imports/Interfaces.sol";
@@ -12,7 +12,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 // the LAST v4 import in this file; solady already ships the same full-precision operation and
 // is already a dependency (SwapLib imports it), so the v4 edge disappears at no cost.
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
-import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
+import {WETH as WETH9} from "solmate/tokens/WETH.sol";
 import {SwapLib} from "./imports/SwapLib.sol";
 import {VogueLib} from "./imports/VogueLib.sol";
 

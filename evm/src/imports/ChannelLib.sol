@@ -19,7 +19,7 @@ import {EndianConverter} from "@solarity/solidity-lib/libs/utils/EndianConverter
 import {ISPVGateway} from "../spv/interfaces/ISPVGateway.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {FullMath} from "v4-core/src/libraries/FullMath.sol";
-import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
+import {WETH as WETH9} from "solmate/tokens/WETH.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";

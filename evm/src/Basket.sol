@@ -6,13 +6,13 @@ import {Aux} from "./Aux.sol";
 import {BasketLib} from "./imports/BasketLib.sol";
 import {SortedSetLib} from "./imports/SortedSet.sol";
 
-import {ERC6909} from "solmate/src/tokens/ERC6909.sol";
+import {ERC6909} from "solmate/tokens/ERC6909.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
+import {ReentrancyGuard} from "solmate/utils/ReentrancyGuard.sol";
 import {ICollection} from "./imports/Interfaces.sol";
 
 contract Basket is ERC20, ERC6909, 

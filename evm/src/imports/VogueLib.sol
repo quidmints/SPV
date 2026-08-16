@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {FixedPointMathLib} from "solmate/src/utils/FixedPointMathLib.sol";
+import {FixedPointMathLib} from "solmate/utils/FixedPointMathLib.sol";
 import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 import {SwapLib} from "./SwapLib.sol";
 // §A.52: the SHARED WETH view (was a file-local `IWETH_VG` restating the same members).
