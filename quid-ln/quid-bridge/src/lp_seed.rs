@@ -261,7 +261,11 @@ pub fn write_seed_shares<R: Crng>(
 
 #[cfg(test)]
 mod test {
-    use quid_crypto::rng::FastRng;
+    // ChaCha20 rather than `FastRng`: same determinism from a hardcoded seed, but a REAL
+    // CSPRNG, so it satisfies `RootSeed::from_rng`'s `Crng` bound without enabling
+    // quid-crypto's `test-utils` in the shipping graph. See the dev-dependency note.
+    use rand_chacha::rand_core::SeedableRng;
+    use rand_chacha::ChaCha20Rng;
     use secrecy::ExposeSecret;
 
     use super::*;
@@ -325,7 +329,7 @@ mod test {
     #[test]
     fn the_written_file_restores_the_same_seed() {
         let dir = tempfile::tempdir().unwrap();
-        let mut rng = FastRng::from_u64(0xB17C0);
+        let mut rng = ChaCha20Rng::seed_from_u64(0xB17C0);
         let seed = RootSeed::from_rng(&mut rng);
 
         let path = write_mnemonic_backup(dir.path(), &seed).unwrap();
@@ -344,7 +348,7 @@ mod test {
     #[test]
     fn a_second_write_refuses_rather_than_clobbering() {
         let dir = tempfile::tempdir().unwrap();
-        let mut rng = FastRng::from_u64(1);
+        let mut rng = ChaCha20Rng::seed_from_u64(1);
         let first = RootSeed::from_rng(&mut rng);
         let second = RootSeed::from_rng(&mut rng);
 
@@ -388,7 +392,7 @@ mod test {
     #[test]
     fn any_threshold_of_the_written_shares_restores_the_seed() {
         let dir = tempfile::tempdir().unwrap();
-        let mut rng = FastRng::from_u64(0xFA1);
+        let mut rng = ChaCha20Rng::seed_from_u64(0xFA1);
         let seed = RootSeed::from_rng(&mut rng);
 
         let paths = write_seed_shares(dir.path(), &seed, 2, 3, &mut rng).unwrap();
@@ -420,7 +424,7 @@ mod test {
     #[test]
     fn a_share_filename_names_the_threshold_and_not_the_set_size() {
         let dir = tempfile::tempdir().unwrap();
-        let mut rng = FastRng::from_u64(5);
+        let mut rng = ChaCha20Rng::seed_from_u64(5);
         let seed = RootSeed::from_rng(&mut rng);
 
         let small = tempfile::tempdir().unwrap();
@@ -442,7 +446,7 @@ mod test {
         use std::os::unix::fs::PermissionsExt;
 
         let dir = tempfile::tempdir().unwrap();
-        let mut rng = FastRng::from_u64(2);
+        let mut rng = ChaCha20Rng::seed_from_u64(2);
         let path =
             write_mnemonic_backup(dir.path(), &RootSeed::from_rng(&mut rng)).unwrap();
 
