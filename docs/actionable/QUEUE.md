@@ -13450,3 +13450,33 @@ on `costPpm == 0` rather than passing.
 `clampByBacking` computes physical backing − pooled FIRST, and `applyTheta`'s fail-open branch returns
 it unchanged ⇒ θ can only TIGHTEN an already-physical bound. **Driving σ² to zero cannot inflate depth
 past backing.** Closes the obvious attack on the variance input.
+
+## 🔴 THE CUT DELETED THE INDEPENDENT PRICE OBSERVATION — the ring is now CIRCULAR
+
+**Introduced by the v4 cut, found by the owner.** `Core.swap` writes the observation ring with
+`AUX.getTWAPforAsset(...)`, and `getTWAPforAsset` → `SwapLib.twapBody` → `ICore(core).observe(...)`
+**reads that same ring**, then anchors it via `twapResolve` to Chainlink.
+
+⇒ **THE RING RECORDS A VALUE DERIVED FROM ITSELF PLUS CHAINLINK. It has no independent input.**
+
+**What was lost.** Before the cut the ring recorded the POOL'S SPOT PRICE — an actual observation of
+executed trades — and Chainlink was the ANCHOR checking it. Two genuinely different sources. That is
+what made `twapResolve`'s 5% deviation test and `BasketLib.isManipulated` meaningful. Removing the AMM
+removed the observation and left the anchor checking a smoothed copy of itself.
+
+⚠️ This is not a compile error and nothing reverts. Every guard still runs, still computes, and now
+answers a question about one source rather than two.
+
+### The fix (owner): read a deep Uniswap **v3** pool's TWAP as the independent observer
+- ⚠️ **v3 AS A READ-ONLY ORACLE IS NOT A REVERSAL OF THE CUT.** v4 was CUSTODIAN + AMM + coordinate
+  system, and all three are gone. A v3 TWAP is an outside observer holding nothing of ours.
+- **Prefer WBTC/WETH over two USD legs.** The standing posture is that the two volatile legs relate
+  through ONE BTC↔ETH relation — never through two USD legs, which compounds two independent oracle
+  errors into the one ratio that matters. `0x88e6A0c2…` (USDC/WETH 0.05%) gives ETH/USD and is the
+  canonical deep pool; the BTC analogue should give the RATIO directly.
+- **The guard machinery already exists** — `twapResolve` (Chainlink anchor, `TWAP_MAX_DEVIATION_BPS`)
+  and `BasketLib.isManipulated(spot, twap, bps)`. This is a third source slotting into an existing
+  shape, not new plumbing.
+- **Why a deep pool specifically:** a v3 TWAP's manipulation cost scales with pool depth × window
+  length. That is what makes it an INDEPENDENT check on Chainlink rather than a correlated one, and
+  it is the whole reason to prefer the canonical pools over a convenient one.
