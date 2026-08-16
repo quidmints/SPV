@@ -872,6 +872,39 @@ library SwapLib {
         // settlement-window loss accrues whether or not inventory is scarce, so only the DEPLETION
         // (kernel) term flushes away, never the adverse-selection floor.
         if (inv1 >= target) return _maxWellSkew(sigmaSqWad, isBTC);
+        // §E59/§E79 — THE SENTINEL IS RESOLVED HERE, BEFORE IT REACHES THE ARITHMETIC.
+        // Past this line scarcity is REAL (inv1 < target ⇒ q1 > 0). §E59 part 2 states the rule:
+        // "real scarcity (q > 0) plus UNMEASURED variance ⇒ charge the ceiling", and §E79 restates
+        // it after the cap→base inversion: "UNMEASURED variance must price at the CEILING… returning
+        // [the base] here would re-open the free-drain hole E59 closed."
+        // 🔴 IT HAD RE-OPENED. MEASURED 2026-08-16 on a $1m band with a $2m shed target: at σ²=0 the
+        // ETH charge was 0 at 10%, 50% AND 90% drains, and only a 100% drain reached the ceiling
+        // (via the separate `qBar == type(uint).max` pole at `:941`). BTC returned SPLICE_FLOOR
+        // alone. The kernel is `Γ·σ²·qBar`, which is identically 0 when σ² is 0 NO MATTER HOW SCARCE
+        // the band is — so the guard §E59 added had to live outside the product, and after the §E79
+        // inversion moved `_maxWellSkew` from ceiling to base there was nothing left holding it.
+        // ⚠️ WHY THIS IS NOT A CLAMP (standing rule 3 / rule 17). It does not bound a computed
+        // number; it declines to run a formula on an input that carries NO INFORMATION. σ² == 0 is
+        // "we could not measure it", and post-tick-removal that is UNAMBIGUOUS: `realizedVarianceWad`
+        // calls `OracleLib.ringVariance` DIRECTLY, and `ringVariance` returns 0 only where the ring
+        // cannot support an estimate at all — `card < 3 || n < 3` (too few slots), `m < 2` (too few
+        // DISTINCT samples), and an uninitialised / non-advancing timestamp pair. Every one of those
+        // means TOO FEW DISTINCT SAMPLES. None of them means "measured, and calm".
+        // ⛔ CORRECTED 2026-08-16 (§E213, caught by a parallel thread). This comment first cited the
+        // old story — wall-clock sampling plus `observe`'s linear interpolation manufacturing zeros.
+        // That mechanism is RETIRED: `observe` has exactly ONE consumer left in the tree, the TWAP
+        // price at `:80`, and it never touches the variance path. The correction STRENGTHENS this
+        // guard rather than weakening it: under the interpolation story a zero could come from a
+        // quiet but well-sampled ring, which is the one reading that would make charging the ceiling
+        // look punitive. Under the real mechanism that reading does not exist.
+        // So feeding it through a multiplicative kernel prices "unknown" as "none" — the sentinel
+        // error §E59 named: a value meaning "no data" must never be consumed as if it meant "none of
+        // the thing". Resolving it BEFORE the multiply is the root fix; bounding the product after
+        // would be the clamp.
+        // ⚠️ AND IT IS REACHABLE, NOT THEORETICAL: §UNIT-B-PATIENCE MEASURED σ² AS ATTACKER-
+        // STRETCHABLE — 4h spacing drove σ² 24× down and the charge 93.3% down. Suppress σ² to the
+        // sentinel, then drain up to 90% of the band for free. That is the vector this closes.
+        if (sigmaSqWad == 0) return MAX_WELL_SKEW;
         uint q1 = (target - inv1) * 1e18 / target;        // post-swap scarcity ∈ (0, 1e18]
         uint q0 = inv0 >= target ? 0 : (target - inv0) * 1e18 / target;  // pre-swap, 0 if flush
         uint oneMinusQ = 1e18 - q1;                       // pole is on the ENDING inventory
@@ -1704,12 +1737,20 @@ library SwapLib {
     ///         out-of-band a misuse: *"it's not repairing of assets we already hold because that just
     ///         makes the pool smaller"*, and *"maximise representation of the ETH already held"*.
     ///
-    ///         1:1 BY CONSTRUCTION, WITH NO SQUARE ROOT. A concentrated position is 1:1 by value
-    ///         exactly when the price is the GEOMETRIC MEAN of its bounds: equating x·P = y through
-    ///         x = L(1/√P − 1/√Pb) and y = L(√P − √Pa) collapses to P = √(Pa·Pb). Placing the bounds
-    ///         SYMMETRICALLY IN RATIO around `px` (Pa = px/(1+δ), Pb = px·(1+δ)) satisfies that
-    ///         identically, so the target composition needs no root, no tick and no sqrt-price — the
-    ///         roots cancel before any arithmetic happens.
+    ///         1:1 BY CONSTRUCTION, WITH NO SQUARE ROOT — AND, IT TURNS OUT, WITH NO WIDTH EITHER.
+    ///         A concentrated position is 1:1 by value exactly when the price is the GEOMETRIC MEAN
+    ///         of its bounds: equating x·P = y through x = L(1/√P − 1/√Pb) and y = L(√P − √Pa)
+    ///         collapses to P = √(Pa·Pb). Placing the bounds SYMMETRICALLY IN RATIO around `px`
+    ///         (Pa = px/(1+δ), Pb = px·(1+δ)) satisfies that identically **for EVERY δ** — the δ
+    ///         cancels along with the roots. So the target composition is a function of inventory and
+    ///         price ALONE, and the half-width is not an input to it.
+    ///         ⇒ **THE BOUNDS AND `deltaBps` WERE DELETED (owner, 2026-08-16): *"why is there a bound
+    ///         at all, we dont care to store upper and lower — we just know that the width is within
+    ///         twap average of eth/usdt on v4 and eth/usdc on v3, twap weighted."*** That is right and
+    ///         it is stronger than a storage saving: the width is set by an EXTERNAL, TWAP-weighted
+    ///         reference, and this computation never needed it. `deltaBps` fed nothing but `pLower`
+    ///         and `pUpper`; those two fed nothing at all. One parameter and two return values,
+    ///         carrying a constant (`BAND_DELTA`) that the arithmetic provably does not consume.
     ///
     ///         MAXIMISING REPRESENTATION IS A MIN, AND THE SURPLUS IS THE ANSWER TO "SHORT ETH".
     ///         A 1:1 band consumes the two legs in equal VALUE, so the placeable amount is set by the
@@ -1740,12 +1781,11 @@ library SwapLib {
     /// @param invUsd6  DELIVERABLE inventory of the USD leg, 6-dec
     /// @param px       USD18 per 1e18 raw volatile — the SAME base the skew takes (the WBTC ×1e10
     ///                 lift already closes the 8↔18 gap, so one flat scale serves both legs)
-    /// @param deltaBps half-width in bps of price (`BAND_DELTA` = 20 ⇒ ±0.2%)
-    function refillPlacement(uint invTok, uint invUsd6, uint px, uint deltaBps)
+    function refillPlacement(uint invTok, uint invUsd6, uint px)
         internal pure returns (uint tokPlaced, uint usd6Placed,
-                               uint tokIdle, uint usd6Idle, uint pLower, uint pUpper)
+                               uint tokIdle, uint usd6Idle)
     {
-        if (px == 0) return (0, 0, invTok, invUsd6, 0, 0);
+        if (px == 0) return (0, 0, invTok, invUsd6);
         // Each leg expressed in the OTHER's unit, so the binding side is a plain comparison.
         uint tokAsUsd6 = FullMath.mulDiv(invTok, px, 1e30);   // raw·USD18/1e30 -> 6-dec USD
         if (tokAsUsd6 <= invUsd6) {
@@ -1759,9 +1799,9 @@ library SwapLib {
         }
         tokIdle  = invTok  - tokPlaced;
         usd6Idle = invUsd6 - usd6Placed;
-        // Ratio-symmetric bounds ⇒ px is their geometric mean ⇒ the placement above IS 1:1 at px.
-        pLower = FullMath.mulDiv(px, 10_000, 10_000 + deltaBps);
-        pUpper = FullMath.mulDiv(px, 10_000 + deltaBps, 10_000);
+        // No bounds are computed. Ratio-symmetry makes px the geometric mean for ANY half-width, so
+        // the split above is already 1:1 at px whatever width the external TWAP-weighted reference
+        // implies. Re-deriving Pa/Pb here would emit two numbers nothing reads.
     }
 
     function paddedSqrtPrice(uint160 sqrtPriceX96, bool up, uint delta)
