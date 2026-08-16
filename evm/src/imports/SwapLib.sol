@@ -69,13 +69,16 @@ library SwapLib {
 
     /// @notice Body of Aux.getTWAPforAsset — moved here to free Aux
     /// bytecode. `core` is Core; reads its observation ring.
-    function twapBody(address core, address weth, address asset, uint32 period)
+    /// §ISBTC-SPLIT — `weth` and `asset` ARE GONE. They existed only to compute `!isETH` and pick
+    /// which of one Core's two rings to read. The CALLER now picks the instance, and the instance
+    /// owns exactly one ring, so the asset is decided before this frame is entered rather than
+    /// re-derived inside it from a token address it had to be handed for the purpose.
+    function twapBody(address core, uint32 period)
         external view returns (uint price) {
-        bool isETH = asset == weth;
         uint32[] memory secondsAgos = new uint32[](2);
         secondsAgos[0] = period == 0 ? 1800 : period;
         secondsAgos[1] = 0;
-        uint192[] memory pc = ICore(core).observe(secondsAgos, !isETH);  // §E63: one dispatched observe
+        uint192[] memory pc = ICore(core).observe(secondsAgos);
         price = BasketLib.cumsToPrice(pc[0], pc[1], secondsAgos[0]);
     }
 

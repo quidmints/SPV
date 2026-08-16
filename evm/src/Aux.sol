@@ -52,6 +52,13 @@ contract Aux is // Auxiliary
     /// address: without it, a WBTC quote would silently be priced by the ETH band's inventory —
     /// a plausible number for the wrong band, which is the failure mode that announces nothing.
     Core internal immutable BTC_CORE;
+    /// §ISBTC-SPLIT — ASSET → BAND INSTANCE. Every read path needs to reach the band that owns the
+    /// inventory and the oracle ring for `asset`. Doing that with `asset == address(WBTC) ? … : …`
+    /// is the hand-rolled dispatch this refactor removes, moved one level up: a literal comparison
+    /// re-decided on every quote. The pairing is a WIRING fact, so it is stated ONCE here, at
+    /// construction, and every call site is a lookup. Adding a third band is then a wiring change,
+    /// not an edit to every read.
+    mapping(address => Core) internal bandOf;
     WETH9 public immutable WETH;
     IERC20 public immutable WBTC;
     // The pool manager lives in SafeCallback's base (ImmutableState) as the
@@ -289,6 +296,12 @@ contract Aux is // Auxiliary
         V4 = Vogue(payable(a.vogue));
         CORE = Core(a.core);
         BTC_CORE = Core(a.btcCore);
+        // §ISBTC-SPLIT: state the asset→band pairing ONCE, here, where the wiring is already known.
+        // `a.wbtc` is optional (guarded above), so the BTC row is only written when there IS a BTC
+        // asset — an unwired asset then resolves to address(0) and the read reverts LOUDLY rather
+        // than silently answering from the wrong band, which is the failure this replaces.
+        bandOf[a.weth] = CORE;
+        if (a.wbtc != address(0)) bandOf[a.wbtc] = BTC_CORE;
 
         // GHO + USDG + WETH AAVE wiring. All are first-class assets on the
         // AAVE v4 spoke; reserve ids are deterministic per (hub, asset),
@@ -611,8 +624,7 @@ contract Aux is // Auxiliary
     address constant DEAD = 0x000000000000000000000000000000000000dEaD; // ANGEL burn sink (ERC-721 reverts on address(0))
     function getTWAPforAsset(address asset, uint32 period)
         public view returns (uint price) {
-        price = SwapLib.twapBody(address(CORE), 
-                address(WETH), asset, period);
+        price = SwapLib.twapBody(address(bandOf[asset]), period);   // §ISBTC-SPLIT: the asset picks the band
 
         (price,) = SwapLib.twapResolve(assetPriceFeed[asset], price, 
                     asset == address(WBTC), TWAP_MAX_DEVIATION_BPS, 
@@ -625,9 +637,8 @@ contract Aux is // Auxiliary
     ///         move the pool spot onto `price` only in this dislocation regime.
     function resolvedTwap(address asset, uint32 period)
         public view returns (uint price, bool stale) {
-        price = SwapLib.twapBody(address(CORE), 
-                address(WETH), asset, period);
-                
+        price = SwapLib.twapBody(address(bandOf[asset]), period);   // §ISBTC-SPLIT: the asset picks the band
+
         (price, stale) = SwapLib.twapResolve(assetPriceFeed[asset], price,
             asset == address(WBTC), TWAP_MAX_DEVIATION_BPS, ASSET_FEED_MAX_AGE);
     }
@@ -639,10 +650,10 @@ contract Aux is // Auxiliary
     ///         instead of re-deriving it and drifting from settlement. 0 = flush (band price
     ///         stands); rises to the cap when the deliverable inventory is scarce. Read-only.
     function wellSkew(address asset) public view returns (uint) {
-        // §ISBTC-SPLIT — the asset now picks the INSTANCE, not a boolean argument. Identical
-        // dispatch, one indirection earlier: the band that owns the inventory is the band that
-        // prices its scarcity, and there is no longer a way to ask one band about the other's.
-        return SwapLib.wellSkew(asset == address(WBTC) ? address(BTC_CORE) : address(CORE),
+        // §ISBTC-SPLIT — the asset picks the INSTANCE, through the same wiring-time lookup every
+        // other read uses. The band that owns the inventory is the band that prices its scarcity,
+        // and there is no longer a way to ask one band about the other's.
+        return SwapLib.wellSkew(address(bandOf[asset]),
             getTWAPforAsset(asset, 1800), 0);  // §E68: 0 = read-only quote ⇒ instantaneous rate
     }
 

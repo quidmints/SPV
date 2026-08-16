@@ -582,45 +582,14 @@ contract UnificationControls is Alles {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // UNISWAP v4 PROTOCOL FEE — the DEFENSIVE assert-0 + monitor
-    // ─────────────────────────────────────────────────────────────────────────
+    // DELETED 2026-08-16 — test_ProtocolFee_IsZeroOnBothOurPools (owner). It read slot0 on both
+    // VANILLA pools and asserted Uniswap's protocolFee was 0, because a non-zero value is taken off
+    // the top of the LP fee and would silently shave LP fee ACCRUAL. Nothing accrues there any
+    // more: swaps settle against the oracle bounded by inventory and none of our flow reaches the
+    // PoolManager, so the quantity it monitored cannot move. Retired for the same reason as
+    // test_E60 above, and it was the LAST consumer of POOL_ID_VANILLA_ETH/BTC -- which is what
+    // lets those two slots, `_poolId()` and Core's PoolId import go with it.
 
-    /// QUEUE researched the v4 protocol fee and left ONE thing unchecked: *"the actual `protocolFee`
-    /// value currently stored for our PoolKeys"*. This closes that, and is the MONITOR the same entry
-    /// asks for — the controller CAN set a fee on our key later WITHOUT our consent (up to 0.1%),
-    /// so this must fail loudly the day that happens rather than silently shaving LP fee accrual.
-    ///
-    /// ⚠️ SCOPE — deliberately NOT the compensation. QUEUE is explicit that mock-inflation
-    /// compensation is *"NOT YET NEEDED … Do not build against a hypothetical"*, and that it would
-    /// have to apply to the FEE-ACCRUAL path, never to reserve balances (inflating balances would
-    /// mis-price the curve, because the tick math reads reserves). This is the assert + monitor only.
-    ///
-    /// PREMISE-GUARDED: reads BOTH pools, so it cannot pass by looking at an uninitialised one.
-    function test_ProtocolFee_IsZeroOnBothOurPools() public {
-        _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 50 ether}(0, lpA);
-
-        (, , uint24 pFeeEth, uint24 lpFeeEth) =
-            StateLibrary.getSlot0(CORE.poolManager(), CORE.POOL_ID_VANILLA_ETH());
-        (, , uint24 pFeeBtc, uint24 lpFeeBtc) =
-            StateLibrary.getSlot0(CORE.poolManager(), CORE.POOL_ID_VANILLA_BTC());
-
-        emit log_named_uint("ETH pool protocolFee", pFeeEth);
-        emit log_named_uint("ETH pool lpFee      ", lpFeeEth);
-        emit log_named_uint("BTC pool protocolFee", pFeeBtc);
-        emit log_named_uint("BTC pool lpFee      ", lpFeeBtc);
-
-        // PREMISE: the pools must be INITIALISED, else reading 0 proves nothing about a live fee.
-        assertGt(lpFeeEth, 0, "PREMISE: ETH pool initialised (lpFee set), else protocolFee==0 is vacuous");
-        assertGt(lpFeeBtc, 0, "PREMISE: BTC pool initialised (lpFee set), else protocolFee==0 is vacuous");
-
-        // THE MONITOR. `ProtocolFeeLibrary:44` takes the protocol fee OFF THE TOP OF THE LP FEE
-        // (`swapFee = self + lpFee - self*lpFee/PIPS`), so a non-zero value here silently reduces LP
-        // fee ACCRUAL -- it does not touch reserves. If this ever fires, read the QUEUE entry before
-        // reaching for compensation: it must be applied to the fee-accrual path, not to balances.
-        assertEq(pFeeEth, 0, "a protocol fee is live on OUR ETH pool -- LP fee accrual is being shaved");
-        assertEq(pFeeBtc, 0, "a protocol fee is live on OUR BTC pool -- LP fee accrual is being shaved");
-    }
 
 
     /// EMPIRICAL — is a v4 protocol-fee CONTROLLER set on the live mainnet PoolManager at all?

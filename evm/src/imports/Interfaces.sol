@@ -334,7 +334,12 @@ interface ICore {
     function POOLED() external view returns (uint);
     function btcThetaBacking() external view returns (uint);
     function poolStats() external view returns (uint priceWad, uint liquidity);
-    function observe(uint32[] calldata secondsAgos, bool isBTC) external view returns (uint192[] memory);
+    // §ISBTC-SPLIT — ONE ARGUMENT. The `bool` selected which of two rings a single Core owned;
+    // each instance owns exactly one, so there is nothing left to select. This declaration had
+    // drifted from `Core.observe(uint32[])` and the mismatch was INVISIBLE to the compiler: an
+    // external call through an interface is encoded from the DECLARATION, so it reverted at
+    // RUNTIME with "unrecognized function selector" inside every fixture's setUp.
+    function observe(uint32[] calldata secondsAgos) external view returns (uint192[] memory);
     function premiumEwmaUsd() external view returns (uint);
     function POOLED_USD() external view returns (uint);
     function pendingSwapOutUsd() external view returns (uint);
