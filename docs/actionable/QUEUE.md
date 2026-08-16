@@ -245,6 +245,38 @@ must not be over-charged), and a flush band ⇒ base only.
 reached the kernel and **every drain size returned an IDENTICAL value.** That constancy was the
 tell. `test_PREMISE_TheKernelIsReachedAtAll` now fails loudly if the kernel is unreached.
 
+## ✅ §E215-QUOTE-SIZE — **THE PUBLISHED QUOTE WAS SIZE-BLIND WHILE SETTLEMENT WAS NOT: A 90% DRAIN FILLED 4.12× WORSE THAN QUOTED (found + fixed 2026-08-16).**
+**MEASURED**, $1m band / $2m shed target / σ² = 1e16 — actual ÷ quoted:
+
+| drain | actual ÷ quoted |
+|---|---|
+| 10% of band | **1.11×** |
+| 90% of band | **4.12×** |
+
+**MECHANISM.** `Aux.wellSkew(asset)` passed `drainUsd6 = 0`, i.e. the **instantaneous** rate. Since
+§E68 settlement charges the **INTEGRAL** of the pole over the path the swap itself walks (q0→q1), and
+the starting rate is the **cheapest point on that path** — so the published quote understated every
+non-trivial size, and the error **widened toward the pole**, exactly where being wrong costs most.
+⛔ **AND THE DOCBLOCK ASSERTED THE OPPOSITE**: *"Bebop's RFQ engine AND Khalani's Arcadia solver quote
+against the EXACT number a swap executes at."* True **before** §E68, false **after** — the class of
+stale sentence that fails precisely when someone checks it (cf. §E213 the same day).
+✅ **FIXED, NON-BREAKING (`845a2143`):** added `wellSkew(address asset, uint drainUsd6)` alongside the
+original and declared it on `ISwap` so the two consumers can reach it. The one-arg form stays for the
+flush/indicative case and for anyone pinned to that signature, and `test_TheyAgreeAsSizeGoesToZero`
+pins that the size-aware form **converges to it as size → 0** — a strict generalisation, not a
+different curve. Pinned by `test/SkewQuoteIsSizeBlind.t.sol` (3 tests).
+⭐ **THIS IS THE SAME POINT AS THE TICK REMOVAL, NOT A SEPARATE BUG (owner, 2026-08-16: *"L cannot
+distinguish a full band from a drained one at the same price without also knowing the bounds"*).**
+Having moved the representation to INVENTORY, the quote surface still discarded that information by
+ignoring the size being drawn — so the price was neither granular nor warranted by the state it
+claimed to describe. **The representation change is only complete when the quote consumes it too.**
+📌 **`ISwap` IS NOW FIVE VIEWS, AND THAT IS THE CEILING.** It is a TAKER-FACING PRICING CONTRACT;
+internal operations (e.g. a refill plan) must NOT join it — a solver reading those would depend on
+our operations rather than on a price. Today's posture is strictly PULL and there is **no 1inch
+dependency in the tree at all** (measured: zero references); becoming a PUBLISHER pushing signed
+quotes into an RFQ pubsub would be an OBLIGATION (liveness, signing, honour-or-penalty) rather than a
+disclosure, and the way to acquire it by accident is to let this seam grow.
+
 ## 📐 P&L ACCUMULATOR DE-ASSOCIATION — **SCOPED, RATCHETED, AND IT IS FOUR MIRRORS, NOT A SWEEP (2026-08-16).**
 Owner: *"complete the P&L accumulator deassociation from tick and sqrtprice and v4 or poolkey, but handle
 delta only for refill."* **Measured per-accumulator by reading the ENCLOSING FUNCTION of every write:**
