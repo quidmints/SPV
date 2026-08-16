@@ -61,11 +61,34 @@ outcome, and the seam closes** — reusing `deploy/deploy-l1.sh` and the existin
 rather than building either again. ▶️ That is the single highest-value test in the plan, and it is
 the gate on verifying §T2, the QR address-recompute, and the Ledger path.
 
-### Driver: Expo ⇒ **Maestro** (owner, 2026-08-16: *"expo is the way"*)
+### Driver: **NO UI-AUTOMATION FRAMEWORK AT ALL** — Expo only (owner, 2026-08-16: *"no maestro,
+only expo"*, after *"expo is the way"*)
 
-Maestro over Detox: it drives an Expo **dev client** directly, where Detox wants a prebuilt bare
-workflow — a real cost when the point is putting a physical phone against a local anvil+regtest.
-⚠️ Not yet in the tree; adding it is step one of re-driving the matrix above.
+⛔ **Not Maestro, not Detox, not Appium.** I proposed Maestro and it was rejected; recording the
+rejection so it is not re-proposed. The device side is the **Expo dev client on a real phone**
+(*"i can connect a phone"*), driven by hand.
+
+⇒ **THE CONSEQUENCE, AND IT IS THE USEFUL PART: the matrix's assertions have to move DOWN, not
+away.** Without a UI robot, an assertion phrased as *"the button is disabled"* is unautomatable —
+so it must be re-expressed against the layer that decides it. That layer is already pure,
+already deterministic, and already testable with `node --test` and no device:
+`identity-wallet/src/chain/*` (see `keys.test.ts`, `profile.test.ts`).
+
+* **Amount edges** (`0`, empty, negative, `>` balance, 1 wei, max, scientific notation) — these
+  were never really UI properties. They are input-parsing and `enc.*` calldata properties, and
+  they belong in unit tests over `chain/encode.ts` where all seven can be asserted in
+  milliseconds instead of seven app launches.
+* **No wallet / wrong network / rejected tx** — now `signerKind()`, `protectionEnabled()` and
+  `sendTx`'s error paths in `chain/protect.ts`. Testable with a stub `ExternalWallet`.
+* **The QR address recompute** — a pure function over the quote; the highest-value assertion in
+  the whole matrix and it needs no phone at all.
+* **What genuinely needs the phone**: Ledger/Phantom transport, camera/QR scan, secure-store
+  custody, and the real cross-chain round trip. **That is a short list**, which is the point.
+
+⚠️ **SO THE MATRIX BELOW IS NOT DISCARDED — IT IS RE-HOMED.** Each row keeps its precondition →
+action → assert, and moves to the lowest layer that can decide it. A row that cannot move down is
+the row that actually needs a human with a phone, and there should be few of them. ▶️ Do that
+triage BEFORE writing screens, or the assertions get rebuilt as ad-hoc manual checklists.
 
 ## Harness (once, per run)
 1. `anvil --fork-url $MAINNET --auto-impersonate` (mainnet fork).
