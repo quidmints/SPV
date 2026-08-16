@@ -35,8 +35,60 @@ device on a desk). ⚠️ Not evaluated yet — the choice is unmade, and neithe
 Bitcoin regtest together, so a deposit on one chain is seen to credit on the other. Pieces that
 already exist: `deploy/deploy-l1.sh`, `spa/e2e-faucet.sh`, `evm/script/DriverE2E.s.sol`,
 `quid-ln/ops/bitcoin.conf`, and Bitcoin Core 30.2 baked into `quid-ln/Dockerfile` (same version
-`regtest/env.sh` uses, deliberately). **Missing: the RN driver, and anything that runs the two
-chains in one scenario.** No test in the tree today spans both.
+`regtest/env.sh` uses, deliberately).
+
+### 🔴 CORRECTION — "no test spans both chains" was WRONG, and the truth locates the gap exactly
+
+I wrote that from a partial look and then committed it. Checking `quid-ln/quid-bridge/tests/`
+refutes it: there are six integration tests there plus two in `quid-hop/tests/`, and
+`hop_bridge_e2e.rs` runs **real bitcoind + electrs + two LDK nodes + a funded channel + a genuine
+Lightning swap-in**. It is a serious cross-chain harness and it already exists.
+
+**What it stubs is the one thing that matters here, and its own header says so:** *"Stubbed: ONLY
+the `EvmClient::settle_swap_in` outcome — there is no EVM node in a Lightning-regtest, and the
+real on-chain leg (settleSwapIn) is covered by the forge `CrossChainSwapOut` test."*
+
+⇒ **THE TREE HAS BOTH HALVES AND EACH STUBS THE OTHER AT THE SAME SEAM.** Rust regtest: real
+Bitcoin, stubbed EVM. Forge `CrossChainSwapOut`: real EVM, mocked LN. **Nobody has ever run the
+two against each other**, and that seam is precisely where §T2's deposit-address change lives — a
+divergence between the address the hop quotes and the one the contract recomputes is invisible to
+both suites as they stand, and fatal in production.
+
+⇒ **AND THE FIX IS SMALLER THAN A NEW HARNESS.** *"There is no EVM node in a Lightning-regtest"*
+describes the current setup, not a constraint: anvil runs happily beside bitcoind. **Point
+`hop_bridge_e2e`'s `EvmClient` at an anvil with the deployed stack instead of stubbing its
+outcome, and the seam closes** — reusing `deploy/deploy-l1.sh` and the existing regtest harness
+rather than building either again. ▶️ That is the single highest-value test in the plan, and it is
+the gate on verifying §T2, the QR address-recompute, and the Ledger path.
+
+### Driver: **NO UI-AUTOMATION FRAMEWORK AT ALL** — Expo only (owner, 2026-08-16: *"no maestro,
+only expo"*, after *"expo is the way"*)
+
+⛔ **Not Maestro, not Detox, not Appium.** I proposed Maestro and it was rejected; recording the
+rejection so it is not re-proposed. The device side is the **Expo dev client on a real phone**
+(*"i can connect a phone"*), driven by hand.
+
+⇒ **THE CONSEQUENCE, AND IT IS THE USEFUL PART: the matrix's assertions have to move DOWN, not
+away.** Without a UI robot, an assertion phrased as *"the button is disabled"* is unautomatable —
+so it must be re-expressed against the layer that decides it. That layer is already pure,
+already deterministic, and already testable with `node --test` and no device:
+`identity-wallet/src/chain/*` (see `keys.test.ts`, `profile.test.ts`).
+
+* **Amount edges** (`0`, empty, negative, `>` balance, 1 wei, max, scientific notation) — these
+  were never really UI properties. They are input-parsing and `enc.*` calldata properties, and
+  they belong in unit tests over `chain/encode.ts` where all seven can be asserted in
+  milliseconds instead of seven app launches.
+* **No wallet / wrong network / rejected tx** — now `signerKind()`, `protectionEnabled()` and
+  `sendTx`'s error paths in `chain/protect.ts`. Testable with a stub `ExternalWallet`.
+* **The QR address recompute** — a pure function over the quote; the highest-value assertion in
+  the whole matrix and it needs no phone at all.
+* **What genuinely needs the phone**: Ledger/Phantom transport, camera/QR scan, secure-store
+  custody, and the real cross-chain round trip. **That is a short list**, which is the point.
+
+⚠️ **SO THE MATRIX BELOW IS NOT DISCARDED — IT IS RE-HOMED.** Each row keeps its precondition →
+action → assert, and moves to the lowest layer that can decide it. A row that cannot move down is
+the row that actually needs a human with a phone, and there should be few of them. ▶️ Do that
+triage BEFORE writing screens, or the assertions get rebuilt as ad-hoc manual checklists.
 
 ## Harness (once, per run)
 1. `anvil --fork-url $MAINNET --auto-impersonate` (mainnet fork).
