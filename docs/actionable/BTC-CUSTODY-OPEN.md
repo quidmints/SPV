@@ -1,7 +1,7 @@
-# §M1 BTC CUSTODY — WHAT IS STILL OPEN, AND WHY
+# BTC CUSTODY — WHAT IS STILL OPEN, AND WHY
 
 Companion to `QUEUE.md`, not a replacement. `QUEUE.md` holds the row-level evidence; **this file
-holds the state of the §M1 custody work as one picture**, including items that never got a queue
+holds the state of the BTC custody work as one picture**, including items that never got a queue
 row. Written 2026-08-16 at the end of a long BTC thread, because several open items are *design
 forks owned by the repo owner* rather than tasks, and a fork recorded only as a row reads like
 something someone forgot to do.
@@ -11,10 +11,25 @@ it rests on so it can be re-checked rather than believed — see `[[your-own-led
 
 ---
 
-## 0. THE ONE-LINE STATE
+## 0. THE ONE-LINE STATE — AS CODE, NOT AS A LABEL
 
-**§M1#1 (phantom credit entrypoint) is closed on both sides.** **§M1#2 (LP key custody) is the
-keystone and is now half-built: the mechanism exists, the topology decision does not.**
+⚠️ **This file used to be titled §M1 and that labelling was probably mine and probably wrong**
+(owner, 2026-08-16: *"M1 was finished a long time ago"*). `QUEUE.md` contains **no definition of
+§M1 at all** — every `M1#1` mention in it is about the phantom-entrypoint work. So the state below
+is stated as **facts about the code**, which are checkable and do not depend on whose milestone
+numbering is right.
+
+**1. The phantom credit entrypoint is gone, on both sides.** `settleSwapIn` is absent from
+`evm/src` and from all six Rust client sites that outlived it.
+
+**2. In the CO-HOSTED fleet deployment, one custodian holds both halves of every 2-of-2.**
+`bin/quid-bridge-daemon.rs:339` still calls `derive_vault_seed(&root_seed)`, and `vault.rs` states
+the consequence itself: *"one custodian, one secret"* (`:59`) and **"SO THE 2-of-2 IS NOMINAL IN
+THIS DEPLOYMENT, AND NOTHING SHOULD CLAIM OTHERWISE"** (`:65`).
+
+**3. The split is now POSSIBLE but is a deployment choice, not a code gap.** `quid-lp-daemon`
+(landed 2026-08-16) boots the same vault with a seed the fleet cannot derive, against a remote
+hop. Whether it is *used* is a topology decision — see §2.1.
 
 ---
 
@@ -22,9 +37,9 @@ keystone and is now half-built: the mechanism exists, the topology decision does
 
 | area | what landed |
 |---|---|
-| §M1#1 | `settleSwapIn` gone from contracts **and** from all six Rust client sites |
-| §M1#2 phase 1a | `daemon::run` takes `Option<VaultNode>`; fleet can run vault-less |
-| §M1#2 phase 1b | `bin/quid-lp-daemon.rs` — LP-hosted vault against a remote hop |
+| the phantom entrypoint | `settleSwapIn` gone from contracts **and** from all six Rust client sites |
+| vault-less fleet (phase 1a) | `daemon::run` takes `Option<VaultNode>`; fleet can run vault-less |
+| LP-hosted vault (phase 1b) | `bin/quid-lp-daemon.rs` — LP-hosted vault against a remote hop |
 | defect | `boot_vault` accepted `hop_addr` then dialled hardcoded `LOCALHOST` — the actual 1b blocker |
 | §W1 | sweep authorization folded into `quid-migrate-auth` + the authorized trigger (`QUID_SWEEP_AUTH`) |
 | §E172 follow-up | orderly quiesce (`await_quiescent`) so an LP departs with nothing in flight |
@@ -89,7 +104,7 @@ documented, and the mnemonic kept as the system of record.
   and the map is never cleared. **Not exploitable** — `recordDeadManExit` needs a *confirmed* tx —
   but it is a security-relevant flag that is silently false. Fixing it is correct under every
   branch of §2.1.
-* **§M1#4 per-channel freshness (phase 3)** — not started. It changes *what an exit commits to*
+* **per-channel freshness per-channel freshness (phase 3)** — not started. It changes *what an exit commits to*
   (`Prevouts::All` binds the freshness UTXO), so it must not be designed against a rung model that
   §2.1 may invalidate.
 * **Phase 4 lazy `openChannel`** — not started; reuses §T1-f's custody/claim seam.
