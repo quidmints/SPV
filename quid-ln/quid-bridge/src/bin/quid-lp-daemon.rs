@@ -283,9 +283,73 @@ async fn main() -> anyhow::Result<()> {
     let mut tick = tokio::time::interval(std::time::Duration::from_secs(30));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
-        tick.tick().await;
-        if let Err(e) = vault.ensure_hop_connected().await {
-            tracing::warn!("hop reconnector: re-dial failed ({e:#}); retrying next tick");
+        tokio::select! {
+            _ = tick.tick() => {
+                if let Err(e) = vault.ensure_hop_connected().await {
+                    tracing::warn!("hop reconnector: re-dial failed ({e:#}); retrying next tick");
+                }
+            }
+            _ = shutdown_signal() => break,
         }
+    }
+
+    // (§E172, option c) ORDERLY QUIESCE — the whole reason this daemon may come and go.
+    //
+    // An LP that is offline is not at risk: no HTLC can be added, so a swap-in simply does not
+    // route through them. Their capital is idle, not endangered. THE ONE EXCEPTION is an HTLC
+    // that is already committed when they leave: if its CLTV expires while the peer is away it
+    // must be resolved on-chain, turning a clean departure into a FORCE-CLOSE.
+    //
+    // So departure is safe in a window with nothing in flight, and this waits for one. There is
+    // nothing to "switch off" first — the vault never initiates payments and makes no forwarding
+    // decision, and once it disconnects LDK cannot route to it at all.
+    let waited = quid_bridge::vault::await_quiescent(
+        || quid_bridge::vault::inflight_htlcs(&vault.node),
+        std::time::Duration::from_secs(env_parse("QUID_QUIESCE_MAX_SECS", 300u64)?),
+        std::time::Duration::from_secs(2),
+    )
+    .await;
+
+    if waited {
+        tracing::info!("quiesce: no HTLCs in flight — safe to disconnect; exiting");
+        Ok(())
+    } else {
+        // Exit NON-ZERO and say why. Leaving under load is a real risk to this LP's channels,
+        // and a supervisor that restarts on failure is the correct response: coming back up
+        // resolves the in-flight HTLCs off-chain instead of at their CLTV deadline.
+        let n = quid_bridge::vault::inflight_htlcs(&vault.node);
+        tracing::error!(
+            inflight = n,
+            "quiesce: TIMED OUT with HTLCs still in flight. Exiting anyway, but this channel may \
+             force-close if they expire while this node is away — restart it to settle them \
+             off-chain, or raise QUID_QUIESCE_MAX_SECS."
+        );
+        anyhow::bail!("shutdown under load: {n} HTLC(s) still in flight")
+    }
+}
+
+/// SIGTERM (supervisors, containers) or Ctrl-C (an operator at a terminal). Both mean the same
+/// thing here: begin the quiesce. A failure to register the handler is reported rather than
+/// panicked on — losing the graceful path is worth a log line, not a crash.
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        match signal(SignalKind::terminate()) {
+            Ok(mut term) => {
+                tokio::select! {
+                    _ = tokio::signal::ctrl_c() => {}
+                    _ = term.recv() => {}
+                }
+            }
+            Err(e) => {
+                tracing::warn!("could not register SIGTERM handler ({e}); Ctrl-C only");
+                let _ = tokio::signal::ctrl_c().await;
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
     }
 }

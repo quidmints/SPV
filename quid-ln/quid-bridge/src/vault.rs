@@ -86,6 +86,93 @@ pub fn derive_vault_seed(hop_seed: &RootSeed) -> RootSeed {
     RootSeed::new(hop_seed.derive(&[VAULT_SEED_LABEL]))
 }
 
+/// (§E172, option c) How many HTLCs are MID-FLIGHT across every channel this node holds.
+///
+/// 🔑 **WHY THIS IS THE SHUTDOWN GATE, AND WHY IT IS THE ONLY ONE AVAILABLE HERE.** The vault is a
+/// PASSIVE counterparty: it never initiates a payment and holds N channels to one hop, so it has
+/// no forward/do-not-forward decision to gate. It signs whatever the channel protocol asks of it.
+/// The moment it DISCONNECTS, no new HTLC can reach it — LDK cannot route to an offline peer — so
+/// "stop taking new work" needs no mechanism at all.
+///
+/// What disconnecting does NOT solve is the HTLCs already committed at that instant. Those must be
+/// resolved on-chain if their CLTV expires while the peer is away, which turns a clean departure
+/// into a FORCE-CLOSE. So an orderly shutdown is: wait for a window where this count is ZERO, and
+/// leave inside it.
+pub fn inflight_htlcs(node: &HopNode) -> usize {
+    node.channel_manager
+        .list_channels()
+        .iter()
+        .map(|c| c.pending_inbound_htlcs.len() + c.pending_outbound_htlcs.len())
+        .sum()
+}
+
+/// Poll `inflight` until it reports zero, or `max_wait` elapses. `true` ⇒ safe to disconnect.
+///
+/// Generic over the counter so the ORDERING — which is the part that can be wrong — is testable
+/// without a live LDK node. A version that returned `true` on timeout would be worse than none:
+/// it would report a safe departure precisely when the departure is unsafe.
+pub async fn await_quiescent<F: Fn() -> usize>(
+    inflight: F,
+    max_wait: Duration,
+    poll: Duration,
+) -> bool {
+    let deadline = tokio::time::Instant::now() + max_wait;
+    loop {
+        let n = inflight();
+        if n == 0 {
+            return true;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            warn!(inflight = n, "quiesce: timed out with HTLCs still in flight");
+            return false;
+        }
+        tokio::time::sleep(poll).await;
+    }
+}
+
+#[cfg(test)]
+mod quiesce_tests {
+    use super::await_quiescent;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    /// The success case: it returns as soon as the count reaches zero, not after `max_wait`.
+    #[tokio::test]
+    async fn returns_true_once_the_last_htlc_clears() {
+        let n = AtomicUsize::new(3);
+        let started = tokio::time::Instant::now();
+        let ok = await_quiescent(
+            || {
+                // Drain one per observation.
+                let cur = n.load(Ordering::SeqCst);
+                if cur > 0 {
+                    n.store(cur - 1, Ordering::SeqCst);
+                }
+                cur
+            },
+            Duration::from_secs(30),
+            Duration::from_millis(1),
+        )
+        .await;
+        assert!(ok, "must report quiescent once nothing is in flight");
+        assert!(started.elapsed() < Duration::from_secs(5), "must not wait out max_wait on success");
+    }
+
+    /// The failure case, and the one that matters: a departure under load must report UNSAFE.
+    /// Returning `true` here would tell the operator to leave with HTLCs live, whose resolution
+    /// is then a force-close.
+    #[tokio::test]
+    async fn returns_false_when_traffic_never_stops() {
+        let ok = await_quiescent(
+            || 1, // never drains
+            Duration::from_millis(20),
+            Duration::from_millis(1),
+        )
+        .await;
+        assert!(!ok, "a timeout must NOT be reported as safe to disconnect");
+    }
+}
+
 /// Spawn a localhost TCP p2p listener for `node` on `port`, feeding inbound
 /// connections to its peer manager (production twin of `harness::spawn_listener`,
 /// reusing `quid_ln::p2p::spawn_inbound`). The vault dials the hop, so the HOP runs
