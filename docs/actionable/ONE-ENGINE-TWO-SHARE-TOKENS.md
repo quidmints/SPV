@@ -110,13 +110,27 @@ Diffing `levAddNet`∥`levAddNetBtc`, `levAddBuf`∥`levAddBufBtc`, `levAddGross
 | lev interface | `ILevEquity.netEquity` | `ILevEquityBtc.netEquity` | **DRIFT** — same member, two interfaces |
 | **bookmark refresh** | done ELSEWHERE (`_refreshBookmarksLib`) | done INLINE in the lev legs | 🔴 **REAL — and the merge's whole risk** |
 
-🔴 **THE BOOKMARK PLACEMENT IS THE MERGE'S ONLY HARD PROBLEM.** `SwapLib.refreshBookmarks(LP, weight,
-feesPerShare, usdFees)` is called inside the BTC lev legs and NOT inside the ETH ones, which refresh
-at a different point. Merging naively either **double-refreshes ETH** (crediting fees twice against a
-moved weight) or **drops BTC's refresh** (crediting against a stale weight). Both are SILENT
-fee-accounting errors — no revert, just wrong per-LP fee attribution — so this cannot be settled by
-reading the diff. It needs the suite, with a test that moves `pooled` and `levBuf` in the same
-transaction and asserts the pending-fee figure before and after.
+**THE BOOKMARK DIFFERENCE IS PLACEMENT, NOT A DEFECT — CHECKED, AND MY FIRST READING WAS WRONG.**
+I initially recorded this as the merge's hard problem, on the reasoning that ETH moves the legs
+without refreshing and would therefore credit fees on weight it never had. That is false:
 
-⇒ **Do not merge the four `levAdd*`/`levBurnAll*` pairs until that behaviour is pinned by a test.**
-The other three differences can be collapsed first and independently; they are mechanical.
+| | ordering |
+|---|---|
+| **ETH** (`_doReconcile`) | `_settlePending` → move legs → **`_onExit`** ("refresh bookmarks, or clear the slot if fully exited") |
+| **BTC** (`levAddNetBtc` / `levAddBufBtc`) | refresh **inline**, inside each leg |
+
+Both end with the bookmark at the POST-MOVE weight, which is the invariant that matters:
+`refreshBookmarks` sets `fees_tok = weight · accum`, and `pendingFor` credits `weight · fps − fees_tok`,
+so a bookmark left at a stale weight would over-credit by `Δweight · fps`. ETH avoids that with ONE
+refresh at the end; BTC with one per leg. Same result.
+
+⇒ The merge picks ONE placement, and **the ETH form is strictly cheaper** — a single refresh per
+reconcile instead of one per leg, on a path that can touch both legs. Keep `_onExit`-style
+end-of-operation refresh and DELETE the inline BTC calls, which are then redundant rather than
+load-bearing.
+
+⚠️ Worth a test anyway, because "redundant" is the claim that would hurt if wrong: move `pooled`
+AND `levBuf` in one transaction and assert `pendingFor` is 0 immediately after. That pins the
+invariant for whichever placement survives.
+
+⇒ **All four differences are therefore mechanical**, and the merge is unblocked.
