@@ -383,7 +383,7 @@ library SwapLib {
         if (!r.forVolatile) {
             if (r.token != c.quid && !stable) revert StableMissingS();
             r.amount = aux._depositVol{value: msg.value}(isBTC, msg.sender, r.amount);
-            zeroForOne = !ICore(c.core).token1is(isBTC);
+            zeroForOne = !ICore(c.core).token1isVol();
             max = ICore(c.core).POOLED_USD();
             // JIT-DEPTH-GUARANTEE.md §2 hook site (DEFERRED — design gap, NOT built): this is the
             // volatile→USD leg whose fill is bounded by the band's in-range USD depth (`max`), so a
@@ -412,7 +412,7 @@ library SwapLib {
                 retainSkewPremium(c.core, isBTC, r, skew, true);   // NATIVE volatile input ⇒ convert   // mutates r.amount; r.px declares NATIVE
             }
         } else { max = ICore(c.core).POOLED();
-            zeroForOne = ICore(c.core).token1is(isBTC);
+            zeroForOne = ICore(c.core).token1isVol();
             // QD-in valued at the SAME perShare a redeem uses (no-drain: never worth more swapped than redeemed).
             // DESIGN NOTE: unlike redeem, swap-out is NOT capacity-gated / deferred during stable
             // illiquidity — it pays volatile from the pool's OWN inventory (bounded by `max` = POOLED depth +
@@ -644,7 +644,7 @@ library SwapLib {
             (, uint lo, uint hi,, uint p_) = IBandManager(bandVault).repack(true);
             v4p = p_;
         }
-        rp.zeroForOne   = !ICore(core).token1is(true);   // BTC→USD (mirror of the buy)
+        rp.zeroForOne   = !ICore(core).token1isVol();   // BTC→USD (mirror of the buy)
         rp.token        = token;                            // USD-side output stable → seller
         rp.amount       = sats;                             // exact BTC input
         rp.pooled       = ICore(core).POOLED_USD();
@@ -1203,7 +1203,7 @@ library SwapLib {
         // premium and so still reads NEW. That is the safe direction — a mis-priced trade beats a
         // bricked pool.
         if (flow == 0) {
-            if (ICore(core).skewPremiumCum(isBTC) > 0) revert NoShedPath();
+            if (ICore(core).skewPremiumCum() > 0) revert NoShedPath();
         }
         // §E68b — THE SELL LEG NOW INTEGRATES TOO. E68 fixed only the DRAIN leg and left this one
         // pricing at the ENDPOINT, which is the OTHER HALF of the same defect the owner originally
@@ -1306,7 +1306,7 @@ library SwapLib {
             (, uint lo, uint hi,, uint p_) = IBandManager(address(this)).repack(true);
             v4p = p_;
         }
-        rp.zeroForOne   = ICore(core).token1is(true);    // USD→BTC buy (mirror of the sell)
+        rp.zeroForOne   = ICore(core).token1isVol();    // USD→BTC buy (mirror of the sell)
         rp.token        = address(0);                       // volatile (BTC) output
         rp.pooled       = ICore(core).POOLED();      // BTC inventory bounds the fill
         uint basePrice  = _priceOr(v4p, aux, wbtc);
@@ -1637,7 +1637,7 @@ library SwapLib {
         // ONLY the sell leg holds a NATIVE amount. The two drain legs hold the BUY-DRIVING USD, already
         // 6-dec — converting those (attempt 2) collapsed the recorded premium to 0. `r.px` cannot serve as
         // the discriminator: it is non-zero on BOTH swapToBody legs, so the caller states the unit.
-        ICore(core).recordSkewPremium(isBTC,
+        ICore(core).recordSkewPremium(
             nativeAmount ? FullMath.mulDiv(premium, r.px, 1e30) : premium);
         r.amount -= premium;
     }

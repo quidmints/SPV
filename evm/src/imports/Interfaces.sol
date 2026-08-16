@@ -16,6 +16,15 @@ pragma solidity ^0.8.26;
 ///         `LevManager` has 70 bytes of headroom and `SwapLib` 295, and both are unchanged by this.)
 ///         Every merge here is a strict UNION of previously-declared members with byte-identical
 ///         signatures, so no call encoding changes.
+/// §ISBTC-SPLIT — the shared accountant both band instances report to. ONE declaration site
+/// (standing rule 2). ⚠️ A duplicate interface surfaces as forge's `Error writing output JSON`,
+/// NOT as a redeclaration error — the message points at the wrong layer entirely.
+interface IBandBacking {
+    function report(uint256 equityUsd18) external;
+    function total() external view returns (uint256);
+    function otherThan(address band) external view returns (uint256);
+}
+
 library Interfaces {}   // no code — this file exists purely to host the declarations below
 
 /// Aave v4 spoke. Union of the five former variants: `IAaveV4Spoke` (Aux, Vault, BasketLib),
@@ -314,6 +323,8 @@ interface IAux {
 /// `SwapLib::ICore`, `BasketLib::ICore`). FOUR declarations described ONE contract, so a
 /// signature change had to be made up to four times and any missed one still compiled.
 interface ICore {
+    function IS_BTC() external view returns (bool);
+    function BACKING() external view returns (address);
     function drawPooledUsdBtc(uint usd6) external;
     function subPendingSwapOut(uint usd6) external;
     function committedUsd18() external view returns (uint);
@@ -326,13 +337,12 @@ interface ICore {
     function observe(uint32[] calldata secondsAgos, bool isBTC) external view returns (uint192[] memory);
     function premiumEwmaUsd() external view returns (uint);
     function POOLED_USD() external view returns (uint);
-    function token1is(bool isBTC) external view returns (bool);
     function pendingSwapOutUsd() external view returns (uint);
     function levClaimUsd6() external view returns (uint);
     function levGrossNative(bool isBTC) external view returns (uint);
     function flowEwmaUsd() external view returns (uint);
     function realizedVarianceWad() external view returns (uint);
-    function recordSkewPremium(bool isBTC, uint256 premiumUsd) external;
+    function recordSkewPremium(uint256 premiumUsd) external;
     function refundUnfilled(address token, uint amount, address to) external;
     function repack(uint newLower, uint newUpper) external returns (uint price, uint fees0, uint fees1, uint delta0, uint delta1);
     function reseat(uint newLower, uint newUpper) external returns (uint price, uint fees0, uint fees1, uint delta0, uint delta1);
@@ -343,7 +353,7 @@ interface ICore {
     /// amount: it is that they are CUMULATIVE, which makes them the liveness signal a decayed EWMA
     /// cannot be. `flow == 0` is ambiguous between a DEAD pool and a NEW one; `skewPremium > 0`
     /// resolves it, because a pool that has never traded cannot have accrued any.
-    function skewPremiumCum(bool isBTC) external view returns (uint);
+    function skewPremiumCum() external view returns (uint);
     /// §E59 — realized tick variance from the STORED observations (per-second, WAD) + the measured
     /// span. Reads the RING, so it never sees observe()'s interpolation, which used to manufacture
     /// zeros in any stretch quieter than the old wall-clock sample grid. span 0 = UNKNOWN, not calm.
