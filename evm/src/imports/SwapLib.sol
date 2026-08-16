@@ -365,8 +365,8 @@ library SwapLib {
                     // swap, and settlement is at oracle bounded by inventory, so there is no limit to pack.
         {
             (, uint lo, uint hi,, uint p) = isBTC
-                ? IBandManager(c.btcVault).repack(true)
-                : IBandManager(c.v4).repack(false);
+                ? IBandManager(c.btcVault).repack()
+                : IBandManager(c.v4).repack();
             v4p = p;
         }
         {
@@ -644,7 +644,7 @@ library SwapLib {
         uint v4p;
         Types.RouteParams memory rp;
         {
-            (, uint lo, uint hi,, uint p_) = IBandManager(bandVault).repack(true);
+            (, uint lo, uint hi,, uint p_) = IBandManager(bandVault).repack();
             v4p = p_;
         }
         rp.inputIsUsd   = false;   // BTC→USD: the volatile side is the INPUT (mirror of the buy)
@@ -1353,7 +1353,7 @@ library SwapLib {
         // §E9 — packed band ticks, not a price (see creditSwapInBody). Block-scoped for stack.
         uint v4p;
         {
-            (, uint lo, uint hi,, uint p_) = IBandManager(address(this)).repack(true);
+            (, uint lo, uint hi,, uint p_) = IBandManager(address(this)).repack();
             v4p = p_;
         }
         rp.inputIsUsd   = true;    // USD→BTC buy: USD is the INPUT (mirror of the sell)
@@ -2027,8 +2027,13 @@ library SwapLib {
     ///      caller's tick slots is NOT done here (value-type storage) — the
     ///      caller writes them from the returned struct. `aux`/`asset` give the
     ///      TWAP feed for the manipulation guard.
+    /// §ISBTC-SPLIT — THE `isBTC` PARAMETER IS GONE, AND IT WAS USED NOWHERE. It threaded from
+    /// `repack(bool)` through `_rebalance` -> `rebalanceBody` -> here -> `_reseatIfStale` ->
+    /// `_doReseat`, whose signature already read `bool /*isBTC*/`. Six frames carrying a value the
+    /// bottom one had stopped reading; each call site picks the CONTRACT, which is what actually
+    /// identifies the band.
     function rebalanceCore(
-        address v4, address aux, address asset, bool isBTC,
+        address v4, address aux, address asset,
         uint tickUpper, uint tickLower
     ) internal returns (Rebalanced memory r) {
         r.tickUpper = tickUpper;
@@ -2054,7 +2059,7 @@ library SwapLib {
         // (never on normal drift, and never when no feed is wired ⇒ stale=false,
         // so it can't churn or perturb existing behavior); no-op if already
         // aligned. Both pools route here (Vogue + BtcVault).
-        if (stale && _reseatIfStale(v4, isBTC, r, twap)) return r;
+        if (stale && _reseatIfStale(v4, r, twap)) return r;
 
         // HALF-OPEN RANGE (T1), NOW IN PRICE SPACE. The band is ACTIVE iff `lower <= P < upper`, so
         // it is OUT of range at `P >= upper` — NOT `>`. With `>`, at exactly `P == upper` the band
@@ -2095,7 +2100,7 @@ library SwapLib {
     /// @dev Move the curve spot onto the (Chainlink) target `twap` + re-range.
     ///      Own frame so rebalanceCore stays within the legacy stack (no via_ir).
     ///      Returns true if it moved the spot. No-op (false) when already aligned.
-    function _reseatIfStale(address v4, bool isBTC, Rebalanced memory r, uint twap)
+    function _reseatIfStale(address v4, Rebalanced memory r, uint twap)
         private returns (bool) {
         // §DE-TICK — `spot` IS `r.sqrtPriceX96` now; there is no sqrt to decode and no token
         // ordering to resolve, because a USD-per-volatile price does not flip with ordering.
@@ -2110,13 +2115,13 @@ library SwapLib {
         // back into a sqrt price without an absolute price→sqrt conversion. In price space the
         // target simply IS the price, so the whole encoding step disappears.
         if (twap == r.sqrtPriceX96) return false;   // already aligned
-        _doReseat(v4, isBTC, r, twap);
+        _doReseat(v4, r, twap);
         return true;
     }
 
     /// @dev Burn+move+re-range to `targetSqrt` — own frame so the reseat's 5-tuple
     ///      return doesn't pin _reseatIfStale's stack (legacy pipeline, no via_ir).
-    function _doReseat(address v4, bool /*isBTC*/, Rebalanced memory r, uint targetPrice)
+    function _doReseat(address v4, Rebalanced memory r, uint targetPrice)
         private {
         (uint nlo, uint nhi) = updateBounds(targetPrice, BAND_DELTA);
         if (r.myLiquidity > 0) {

@@ -243,7 +243,7 @@ library BtcVaultLib {
                 a.shrinkSats = shrinkSats > funded ? funded : shrinkSats;
             }
         }
-        (a.sqrtP, a.tickLower, a.tickUpper,,) = IBandManager(address(this)).repack(true);
+        (a.sqrtP, a.tickLower, a.tickUpper,,) = IBandManager(address(this)).repack();
         a.feesPerShareBTC = IBandManager(address(this)).feesPerShareBTC();
         a.usdFeesBtc = IBandManager(address(this)).USD_FEES_BTC();
         return resizeBtcLpTail(core, quid, autoManagedBTC, levPooledBTC, levBufBTC, a);
@@ -377,7 +377,7 @@ library BtcVaultLib {
         // frame stays off the legacy stack (no via_ir). _rebalance (via repack) already
         // accrued any V4 fees into the accumulators; read them fresh.
         LevParams memory p;
-        (p.sqrtP, p.tickLower, p.tickUpper,,) = IBandManager(address(this)).repack(true);
+        (p.sqrtP, p.tickLower, p.tickUpper,,) = IBandManager(address(this)).repack();
         p.feesPerShareBTC = IBandManager(address(this)).feesPerShareBTC();
         p.usdFeesBtc = IBandManager(address(this)).USD_FEES_BTC();
         sharesAdded += settleBtcLp(LP, lpEth, address(0), quid, p.feesPerShareBTC, p.usdFeesBtc, weight); // (E145) fee compounds into pooled
@@ -436,7 +436,7 @@ library BtcVaultLib {
         // literal) so external-call temporaries free between assignments — both keep this off the legacy stack.
         uint w = LP.pooled + levBufBTC[lp];
         LevParams memory p;
-        (p.sqrtP, p.tickLower, p.tickUpper,,) = IBandManager(address(this)).repack(true);
+        (p.sqrtP, p.tickLower, p.tickUpper,,) = IBandManager(address(this)).repack();
         p.feesPerShareBTC = IBandManager(address(this)).feesPerShareBTC();
         p.usdFeesBtc = IBandManager(address(this)).USD_FEES_BTC();
         p.mgr = mgr; p.gross = gross;
@@ -564,12 +564,12 @@ library BtcVaultLib {
     ///         `SwapLib.feeIncrements(fees, usd, feeDenom)` to the accumulators (the dead `bool` arg dropped). The
     ///         forwarder writes back feesPerShareBTC/USD_FEES_BTC/reseatEpochBTC/LOWER_TICK_BTC/UPPER_TICK_BTC.
     function rebalanceBody(
-        BtcCfg memory c, bool isBTC, uint lowerTick, uint upperTick,
+        BtcCfg memory c, uint lowerTick, uint upperTick,
         uint feesPerShareBTC, uint usdFeesBtc, uint feeDenom
     ) public returns (RebalOut memory o) {
         // BTC has no vault yield to sync (no WBTC supply); skip _syncYield.
         SwapLib.Rebalanced memory r = SwapLib.rebalanceCore(
-            c.core, c.aux, IAux(c.aux).WBTC(), isBTC, upperTick, lowerTick);
+            c.core, c.aux, IAux(c.aux).WBTC(), upperTick, lowerTick);
         o.feesPerShareBTC = feesPerShareBTC; o.usdFeesBtc = usdFeesBtc;
         if (r.didRepack) {
             // §DE-TICK: `repack`/`reseat` return zero fee legs (v4 collects nothing), so this

@@ -424,10 +424,10 @@ contract Vault is Ownable, ReentrancyGuard {
     /// @dev Thin forwarder: the fat body (rebalanceCore + fee distribution + reseat/tick writeback) moved to
     ///      BtcVaultLib.rebalanceBody (delegatecall — EIP-170). `feeDenom` = lpSharesBTC + totalBufferBTC (GROSS
     ///      fee weight); the value-type accumulators + ticks + reseat epoch are written back here. Logic unchanged.
-    function _rebalance(bool isBTC) internal returns (uint sqrtPriceX96,
+    function _rebalance() internal returns (uint sqrtPriceX96,
         uint tickLower, uint tickUpper, uint myLiquidity, uint resolvedTwap) {
         BtcVaultLib.RebalOut memory o = BtcVaultLib.rebalanceBody(
-            _btcCfg(), isBTC, LOWER_PRICE, UPPER_PRICE,
+            _btcCfg(), LOWER_PRICE, UPPER_PRICE,
             feesPerShareBTC, USD_FEES_BTC, lpSharesBTC + totalBufferBTC);
         feesPerShareBTC = o.feesPerShareBTC; USD_FEES_BTC = o.usdFeesBtc;
         LOWER_PRICE = o.tickLower; UPPER_PRICE = o.tickUpper;
@@ -594,7 +594,7 @@ contract Vault is Ownable, ReentrancyGuard {
     ///         the ETH-side collectFees; the LP claims their own (msg.sender) fees.
     function collectBtcFees() external nonReentrant {
         if (autoManagedBTC[msg.sender].pooled == 0) revert NoBtcPosition();
-        _rebalance(true);                     // harvest BTC pool fees into the accumulators
+        _rebalance();                     // harvest BTC pool fees into the accumulators
         _settleBtcLp(msg.sender, msg.sender); // USD-leg → QUID; BTC-leg → compounds into pooled; rebaselines
     }
 
@@ -619,7 +619,7 @@ contract Vault is Ownable, ReentrancyGuard {
         // (delegatecall) which writes selfManagedBtc/positionsBtc via the passed
         // refs and returns the new id (ID_BTC is value-type). A revert rolls back
         // the _rebalance, so validating inside the lib is behavior-identical.
-        (uint sqrtP, uint curLo, uint curUp,,) = _rebalance(true);
+        (uint sqrtP, uint curLo, uint curUp,,) = _rebalance();
         next = BtcVaultLib.outOfRangeBtc(_btcCfg(), selfManagedBtc, positionsBtc,
             BtcVaultLib.OorArgs({ amount: amount, token: token, distance: distance,
                 range: range, owner: msg.sender, sqrtP: sqrtP, curLo: curLo,
@@ -645,9 +645,9 @@ contract Vault is Ownable, ReentrancyGuard {
 
 
     /// @notice Repack the BTC pool's in-range LP position.
-    function repack(bool isBTC) public onlyUsBtc returns (uint sqrtPriceX96,
+    function repack() public onlyUsBtc returns (uint sqrtPriceX96,
         uint tickLower, uint tickUpper, uint myLiquidity, uint resolvedTwap) {
-        return _rebalance(isBTC);
+        return _rebalance();
     }
 
     // ──── BTC swap-IN / swap-OUT credit ────

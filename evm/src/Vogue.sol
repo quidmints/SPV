@@ -1168,7 +1168,7 @@ contract Vogue is
     ///         outside the LP range. The `bool` arg is retained only for the
     ///         Core IVogueRepack interface (BtcVault repacks the BTC
     ///         pool); Vogue is ETH-only. Returns the post-repack pool state.
-    function repack(bool /*isBTC*/) public onlyUs returns (uint sqrtPriceX96,
+    function repack() public onlyUs returns (uint sqrtPriceX96,
         uint tickLower, uint tickUpper, uint myLiquidity, uint resolvedTwap) {
         return _rebalance();
     }

@@ -344,7 +344,6 @@ interface ICore {
     function POOLED_USD() external view returns (uint);
     function pendingSwapOutUsd() external view returns (uint);
     function levClaimUsd6() external view returns (uint);
-    function levGrossNative(bool isBTC) external view returns (uint);
     function flowEwmaUsd() external view returns (uint);
     function realizedVarianceWad() external view returns (uint);
     function recordSkewPremium(uint256 premiumUsd) external;
@@ -391,7 +390,7 @@ interface ICore {
 ///         of repointing `ethVenue` rather than re-typing call sites.
 interface IBandManager {
     /// §DE-TICK — uniform 256-bit: price, bounds, liquidity. The narrow widths were v4 packing.
-    function repack(bool isBTC) external returns (uint price, uint lower, uint upper, uint liquidity, uint);
+    function repack() external returns (uint price, uint lower, uint upper, uint liquidity, uint);
     function feesPerShareBTC() external view returns (uint);
     function USD_FEES_BTC() external view returns (uint);
     function derivedThetaWadBtc() external view returns (uint);

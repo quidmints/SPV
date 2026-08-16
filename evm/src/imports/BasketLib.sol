@@ -1135,8 +1135,8 @@ library BasketLib {
     /// @dev Route a pool repack to its owning contract: BTC → BtcVault,
     ///      ETH → Vogue. (The BTC LP side was regrouped out of Vogue.)
     function _repackPool(bool isBTC, address v4, address btcVault) private {
-        if (isBTC) IBandManager(btcVault).repack(true);
-        else       IBandManager(v4).repack(false);
+        if (isBTC) IBandManager(btcVault).repack();
+        else       IBandManager(v4).repack();
     }
 
     /// @notice All-or-nothing deploy-finalize linkage assert (delegatecall from

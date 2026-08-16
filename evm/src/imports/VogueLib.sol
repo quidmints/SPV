@@ -424,7 +424,7 @@ library VogueLib {
             }
         }
         SwapLib.Rebalanced memory r = SwapLib.rebalanceCore(
-            c.core, c.aux, c.weth, false, c.upperTick, c.lowerTick);
+            c.core, c.aux, c.weth, c.upperTick, c.lowerTick);
         if (r.didRepack) {
             // _calcYield's live effect: reorder to token-canonical + _distributeV4Fees; the APY `yield` it also
             // computed was discarded by _rebalance, so it is dropped. LAST_REPACK := block.timestamp (forwarder).
