@@ -69,6 +69,38 @@ contract RefillPlacementTest is Test {
         assertApproxEqRel(hi, PX * (10_000 + D) / 10_000, 1e12, "upper bound is not px*(1+delta)");
     }
 
+    /// @notice THE PLACEMENT FUNCTION IS ALSO THE ATTRIBUTION KEY — idle inventory IS the imbalance.
+    ///         The owner's frame is *"charging for the imbalance created"*. Un-representable inventory
+    ///         is precisely that: value the band holds but cannot put to work at the current price.
+    ///         So the imbalance a trade creates = the INCREASE in idle value it leaves behind, computed
+    ///         from inventory alone — no pool, no tick, no oracle beyond the price already in hand.
+    ///
+    ///         ANALYTIC PREDICTION, STATED BEFORE THE RUN. From a balanced band (x·px == y, idle 0), a
+    ///         drain of D ETH leaves (x−D) ETH and (y + D·px) USD. ETH becomes the binding leg, so
+    ///         placeable USD is (x−D)·px and
+    ///             idle = (y + D·px) − (x−D)·px = 2·D·px
+    ///         The imbalance created is TWICE the value of the ETH removed — the swapper's own
+    ///         withdrawal, plus the USD they paid in that now has no ETH to pair with.
+    function test_IdleIsTheImbalanceCreated_AndItIsTwiceTheDrain() public pure {
+        uint x = 400e18;
+        uint y = x * PX / 1e30;                       // exactly balanced: x*px == y
+        (,, uint tokI0, uint usdI0,,) = SwapLib.refillPlacement(x, y, PX, D);
+        assertEq(tokI0 + usdI0, 0, "PREMISE: the starting band must be balanced, else the delta is not the trade's");
+
+        uint drain = 32e18;                            // D
+        uint paid  = drain * PX / 1e30;                // USD the swapper pays in
+        (,, uint tokI1, uint usdI1,,) = SwapLib.refillPlacement(x - drain, y + paid, PX, D);
+
+        assertEq(tokI1, 0, "ETH is now the binding leg, so no ETH should idle");
+        uint predicted = 2 * paid;                     // 2*D*px
+        assertApproxEqAbs(usdI1, predicted, 2, "idle USD is not 2x the drained value");
+
+        // And it is a DELTA, so a second identical drain adds the same again -- the measure is
+        // additive in the imbalance created rather than in the level arrived into.
+        (,,, uint usdI2,,) = SwapLib.refillPlacement(x - 2 * drain, y + 2 * paid, PX, D);
+        assertApproxEqAbs(usdI2 - usdI1, predicted, 2, "the second drain must create the same imbalance as the first");
+    }
+
     /// @notice DEGENERATE INPUT MUST NOT SILENTLY PLACE. A zero price cannot value either leg, so
     ///         everything idles and the bounds are zero — a caller that ignores that and places
     ///         anyway is the failure this guards.
