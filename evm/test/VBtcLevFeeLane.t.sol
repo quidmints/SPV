@@ -317,6 +317,163 @@ contract VBtcLevFeeLane is Alles {
         _spliceOut(ch, cid, ftx, 92, lpPubkey, 1e6);   // reverts if the keys check is too broad
     }
 
+    // ─────────────────────────────────────────────────────────────────────────────
+    //  (§E182) REKEY — what `splice` is forbidden to do, done deliberately and gated.
+    //
+    //  The two tests above pin that a splice may NOT rotate keys. These pin the entrypoint that
+    //  MAY, and the gate it has to pass. `_requireChannelKeys` states the danger in its own words:
+    //  *"a compromised hop splices to keys it solely controls and CUTS THE LP OUT of its own
+    //  2-of-2."* The rotation is safe because the LP HALF IS IMMUTABLE and the LP CO-SIGNS.
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    /// Build the rotation splice: same size, same LP key, a DIFFERENT hop key, paying to the new
+    /// aggregate `Q`. Same shape as `_spliceOut`, except the hop half deliberately moves.
+    function _buildRekey(bytes32 ftx, bytes memory lpPubkey, bytes memory newHopKey, uint sats)
+        internal view returns (bytes memory spliceTx)
+    {
+        bytes memory spk = buildTaprootFundingSpk(lpPubkey, newHopKey);
+        spliceTx = abi.encodePacked(
+            hex"02000000", hex"01", ftx, hex"00000000", hex"00", hex"ffffffff",
+            hex"01", _le(sats, 8), bytes1(uint8(spk.length)), spk, hex"00000000");
+    }
+
+    function _rekeyParams(bytes memory lpPubkey, bytes memory newHopKey, uint sats)
+        internal view returns (Types.OpenParams memory)
+    {
+        return Types.OpenParams({
+            fundingBlockHash: bytes32(uint(0x5217CE)), fundingBlockHeight: 800001,
+            fundingTxIndex: 0, lpPubkey: lpPubkey, hopPubkey: newHopKey,
+            amountSats: sats, fundingTaproot: _taprootQ(lpPubkey, newHopKey) });
+    }
+
+    /// The LP's consent to THIS rotation. Domain tag `rekey.v1`, so a `splice.v1` signature over
+    /// the same arguments is not accepted here — that separation is the point of the tag.
+    function _signRekey(uint pk, address ch, bytes32 cid, Types.OpenParams memory p, bytes memory tx_)
+        internal view returns (bytes memory)
+    {
+        return _signOpen(pk, keccak256(abi.encode(
+            keccak256("BTCChannels.rekey.v1"), block.chainid, ch, cid,
+            keccak256(tx_), keccak256(abi.encode(p)))));
+    }
+
+    /// ⚠️ ONE STRUCT, BECAUSE THESE TESTS OVERFLOW THE LEGACY STACK OTHERWISE. A rotation case
+    /// carries a channel id, a funding txid, THREE pubkeys, an amount and a signing key; held as
+    /// separate locals that is past the limit and the first version failed to compile with *"Stack
+    /// too deep"*. One memory pointer costs less stack than the fields it carries — the same fix
+    /// the contract itself uses instead of turning on `via_ir`.
+    struct RekeyCase {
+        bytes32 cid;
+        bytes32 ftx;
+        bytes   lpPubkey;   // the LP half — moved ONLY by the test that must be rejected for it
+        bytes   oldHop;     // the hop key pinned at open
+        bytes   newHop;     // the hop key being rotated in
+        uint    sats;
+        uint    signerPk;   // whoever signs the consent — deliberately not always the LP
+    }
+
+    /// Build + sign + submit a rotation, in its own frame.
+    ///
+    /// ⚠️ `expectRevert_` is set HERE rather than by the caller, and that is deliberate: the tx and
+    /// the signature are built FIRST, so `vm.expectRevert` lands immediately before the `rekey`
+    /// call and cannot be swallowed by an FFI or cheatcode round-trip on the way. This fixture
+    /// already records that failure mode a few tests above — *"else expectRevert is consumed by
+    /// the `spliceDigest` view"* — so the shape is copied rather than rediscovered.
+    function _submitRekey(BTCChannels ch, RekeyCase memory c, bool expectRevert_) internal {
+        bytes memory tx_ = _buildRekey(c.ftx, c.lpPubkey, c.newHop, c.sats);
+        Types.OpenParams memory p = _rekeyParams(c.lpPubkey, c.newHop, c.sats);
+        bytes memory sig = _signRekey(c.signerPk, address(ch), c.cid, p, tx_);
+        if (expectRevert_) vm.expectRevert();
+        vm.prank(makeAddr("hop"));
+        ch.rekey(c.cid, p, c.oldHop, tx_, new bytes32[](0), sig);
+    }
+
+    function _lpPkFor(uint seed) internal returns (uint pk) {
+        ( , pk) = makeAddrAndKey(string(abi.encodePacked("btc-lp-", seed)));
+    }
+
+    /// ✅ THE POSITIVE CASE, and it asserts the thing §E153 got wrong rather than just "no revert".
+    /// A rotation that forgets to re-pin `keysHash` leaves the channel UNRETIRABLE FOREVER: both
+    /// retirement paths run `_requireChannelKeys`, so they would reject the very pair the funds now
+    /// sit under. So the assertion is not that `rekey` returned — it is that the channel is still
+    /// OPERABLE UNDER THE NEW PAIR afterwards, and no longer operable under the old one.
+    function test_rekeyRotatesTheHopHalfAndRepinsKeysHash() public {
+        BTCChannels ch = _deployChannels();
+        RekeyCase memory c;
+        (c.cid, c.ftx,, c.lpPubkey) = _open(ch, 93, 2e6);
+        ( , c.oldHop, ) = ownedChannelKeys(_label(93));
+        ( , c.newHop, ) = ownedChannelKeys(_label(94));
+        c.sats = 2e6;
+        c.signerPk = _lpPkFor(93);
+        assertTrue(keccak256(c.newHop) != keccak256(c.oldHop), "hop half must actually move");
+
+        _submitRekey(ch, c, false);
+
+        // The pin MOVED: the pair the channel was opened with is now rejected. If `keysHash` had
+        // not been rewritten this call would succeed and the new custody would be the unretirable
+        // one instead.
+        //
+        // ⚠️ THE STALE PARAMS ARE BUILT BEFORE `expectRevert`, NOT INLINE IN THE CALL. Passing
+        // `_rekeyParams(...)` as an argument put an FFI round-trip (`_taprootQ`) between the
+        // cheatcode and the call, which CONSUMED the expectation — the test then failed with
+        // "next call did not revert as expected" and looked exactly like a contract that had not
+        // re-pinned `keysHash`. Same trap this fixture already names a few tests above.
+        Types.OpenParams memory stalePair = _rekeyParams(c.lpPubkey, c.oldHop, 1e6);
+        vm.prank(makeAddr("hop"));
+        vm.expectRevert(BTCChannels.ChannelKeysMismatch.selector);
+        ch.splice(c.cid, stalePair, hex"00", new bytes32[](0));
+    }
+
+    /// TO WHAT, enforced: the LP half may not move. This is the exact attack the
+    /// `_requireChannelKeys` comment names — a hop rotating to keys it solely controls.
+    function test_rekeyRefusesToMoveTheLpHalf() public {
+        BTCChannels ch = _deployChannels();
+        RekeyCase memory c;
+        bytes memory realLp;
+        (c.cid, c.ftx,, realLp) = _open(ch, 95, 2e6);
+        ( , c.oldHop, ) = ownedChannelKeys(_label(95));
+        ( , c.newHop, ) = ownedChannelKeys(_label(96));
+        c.lpPubkey = _validCompressedPubkey("a-different-lp-key");   // the LP half, MOVED
+        c.sats = 2e6;
+        // Signed by the REAL LP, so this cannot pass merely because the signature is bad: the
+        // rejection has to come from the pair check.
+        c.signerPk = _lpPkFor(95);
+        assertTrue(keccak256(c.lpPubkey) != keccak256(realLp), "must actually differ");
+
+        _submitRekey(ch, c, true);   // ChannelLib.ChannelKeysMismatch
+    }
+
+    /// A no-op rotation is refused rather than quietly performed. It is not harmless: rotating the
+    /// funding outpoint invalidates EVERY pre-signed exit rung (BIP-341 `Prevouts::All`), so a
+    /// rotation that changes no key would burn the LP's whole ladder for nothing.
+    function test_rekeyRefusesANoOpRotation() public {
+        BTCChannels ch = _deployChannels();
+        RekeyCase memory c;
+        (c.cid, c.ftx,, c.lpPubkey) = _open(ch, 97, 2e6);
+        ( , c.oldHop, ) = ownedChannelKeys(_label(97));
+        c.newHop = c.oldHop;                 // the "rotation" that rotates nothing
+        c.sats = 2e6;
+        c.signerPk = _lpPkFor(97);
+
+        _submitRekey(ch, c, true);   // ChannelLib.RekeyUnchanged
+    }
+
+    /// WHO, enforced: the hop cannot rotate alone. Without this the LP could be moved into a 2-of-2
+    /// with a party it never agreed to — survivable via the exit ladder, but the ladder is exactly
+    /// what the rotation just invalidated.
+    function test_rekeyRequiresTheLpsOwnSignature() public {
+        BTCChannels ch = _deployChannels();
+        RekeyCase memory c;
+        (c.cid, c.ftx,, c.lpPubkey) = _open(ch, 98, 2e6);
+        ( , c.oldHop, ) = ownedChannelKeys(_label(98));
+        ( , c.newHop, ) = ownedChannelKeys(_label(99));
+        c.sats = 2e6;
+        // A WELL-FORMED signature from the wrong key — the hop signing for itself. The rejection
+        // must come from WHOSE key it is, not from the signature being malformed.
+        ( , c.signerPk) = makeAddrAndKey("not-the-lp");
+
+        _submitRekey(ch, c, true);   // ChannelLib.InvalidParam
+    }
+
     function test_Seam_WithdrawalPayout_MustMatchShutdownKey_NotFundingKey() public {
         BTCChannels ch = _deployChannels();
         bytes32 shutdownKey = payoutKeyOnly(abi.encode(uint(77))); // = btcRecipientOf

@@ -786,50 +786,30 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         ));
     }
 
-    /// @notice Digest the LP signs to authorize a SPLICE (grow). Binds the
-    ///         channelId + the new params (incl. the new total amountSats) + the
-    ///         splice tx, so consent is specific to this resize of this channel
-    ///         and can't be replayed onto another channel or amount.
-    /// @notice LP-consent digest for a splice (resize, either direction). Binds the
-    ///         channelId + new params + splice tx — no separate balance field: a SHRINK
-    ///         reads the LP's BTC payout straight from the splice tx (trustless), so
-    ///         there's nothing for the hop to attest.
-    function spliceDigest(
-        bytes32 channelId,
-        Types.OpenParams calldata p,
-        bytes calldata rawSpliceTx
-    ) public view returns (bytes32) {
-        return keccak256(abi.encode(
-            keccak256("BTCChannels.splice.v1"),
-            block.chainid,
-            address(this),
-            channelId,
-            keccak256(rawSpliceTx),
-            keccak256(abi.encode(p))
-        ));
-    }
-
-    /// @notice LP-consent digest for an ON-CHAIN swap-out DELIVERY splice. Distinct
-    ///         domain tag from `spliceDigest` + binds `swapId`, so a delivery lpAuth
-    ///         can ONLY be used through `deliverSwapOutOnchain` (never replayed as a
-    ///         plain `splice`, which would leave the swapId unfulfilled → a possible
-    ///         later double-refund). The LP thus consents to delivering THIS swap-out.
-    function swapOutDeliverDigest(
-        bytes32 swapId,
-        bytes32 channelId,
-        Types.OpenParams calldata p,
-        bytes calldata rawSpliceTx
-    ) public view returns (bytes32) {
-        return keccak256(abi.encode(
-            keccak256("BTCChannels.swapOutDeliver.v1"),
-            block.chainid,
-            address(this),
-            swapId,
-            channelId,
-            keccak256(rawSpliceTx),
-            keccak256(abi.encode(p))
-        ));
-    }
+    // ⛔ (E182) `spliceDigest` AND `swapOutDeliverDigest` ARE DELETED — they computed the message
+    // for TWO LP CONSENTS THAT NO LONGER EXIST, and they paid for it in deploy bytes on the one
+    // contract that could not afford them.
+    //
+    // Both described themselves as "the digest the LP signs to authorize …". Neither consent is
+    // verified anywhere: `splice` and `deliverSwapOutOnchain` are both gated by `_onlyHop()`, and
+    // each records that its per-call `lpAuth` was "retired as redundant" (§E157). Measured before
+    // removing rather than assumed: ZERO callers in `evm/src`, ZERO in `evm/test`, and the only
+    // client mentions are Rust DOC COMMENTS on `evm_codec.rs`'s own local reimplementations
+    // (`splice_digest`, `swap_out_deliver_digest`), which recompute the preimage off-chain and
+    // never call these accessors. `openChannelDigest` is KEPT — six tests call it — and
+    // `openAuthDigest` is KEPT because the open path genuinely verifies against it (`:911`).
+    //
+    // ⚠️ THIS IS THE `create_sweep_tx` TEST APPLIED IN THE OTHER DIRECTION, so the reasoning is
+    // written down: that symbol was restored twice because its "dead" warning MARKED A REAL GAP —
+    // a missing caller that was a security feature. These two are the opposite case. The consent
+    // they encode was not deferred, it was DELIBERATELY RETIRED, by commits that say so at the
+    // call sites. A digest for a signature nobody will ever check is not a gap marker.
+    //
+    // 🔴 AND THEY WERE ACTIVELY MISLEADING. A reader auditing whether splices are LP-authorized
+    // finds a public `spliceDigest` on the contract and reasonably concludes they are. THEY ARE
+    // NOT — the hop gate is the only authorization on that path. §E182's `rekey` is the first
+    // caller of an LP-consent digest that the contract actually VERIFIES, and it keeps its own
+    // preimage inline (domain tag `rekey.v1`) rather than reviving a public accessor.
 
     /// @notice (B) The digest an LP signs COLD (once) to delegate channel operation to an
     ///         `authority` — a concrete hop. ⚠️ This used to read "OR THE Safe-governed
@@ -1053,6 +1033,96 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // halves failed quietly.
     }
 
+    /// (§E182) ROTATE THE HOP HALF OF THE 2-of-2 WITHOUT CLOSING THE CHANNEL.
+    ///
+    /// `_requireChannelKeys` forbids rekeying on the `splice` path and says why: rotating custody
+    /// to a new image's keys is *"a REAL and wanted capability, but it must UPDATE `keysHash` and
+    /// must be gated on WHO MAY ROTATE AND TO WHAT — otherwise a compromised hop splices to keys
+    /// it solely controls and CUTS THE LP OUT of its own 2-of-2."* Both halves of that gate:
+    ///
+    /// **TO WHAT — the LP half is immutable.** The pinned pair is `(p.lpPubkey, oldHopPubkey)`, so
+    /// the single `keysHash` comparison below proves BOTH that the LP key is unchanged AND that
+    /// `oldHopPubkey` is the key being rotated out. Only `hopPubkey` may move. This is what makes
+    /// a compromised hop harmless HERE rather than merely detected: the rotated output is still a
+    /// 2-of-2 REQUIRING the LP, so no unilateral spend exists to gain. `_verifySplice`'s §E129-c
+    /// KeyAgg gate independently proves `p.lpPubkey` really is inside the new `Q` — this function
+    /// adds no new cryptography, it decides WHICH rotations are allowed to reach that proof.
+    ///
+    /// **WHO — the LP co-signs.** ⚠️ This is NOT redundant with the immutable LP half. A rotation
+    /// the LP did not authorize can still place it in a 2-of-2 with an attacker: cooperative close
+    /// then requires the attacker's cooperation, and the LP is pushed onto its exit ladder. That is
+    /// SURVIVABLE, not harmless — and standing rule 17 prefers making the bad state unconstructible
+    /// over making it escapable. The signature costs the phone nothing new: under LP-SIGNING-
+    /// READINESS the LP already signs per-splice, so this folds into a loop it is already in.
+    ///
+    /// ⚠️ THE DIGEST IS DELIBERATELY NOT A PUBLIC VIEW, unlike `openChannelDigest`/`spliceDigest`.
+    /// `BTCChannels` is size-constrained and the signer computes this preimage locally anyway (see
+    /// `evm_codec.rs`), so an external accessor would spend deploy bytes on convenience. Domain tag
+    /// `rekey.v1` keeps it unforgeable against a `splice.v1` signature over the same arguments.
+    function rekey(
+        bytes32 channelId,
+        Types.OpenParams calldata p,        // the NEW pair + the NEW taproot Q
+        bytes calldata oldHopPubkey,        // the hop key being rotated OUT
+        bytes calldata rawSpliceTx,
+        bytes32[] calldata spliceMerkleProof,
+        bytes calldata lpSig                // the LP's consent to THIS rotation
+    ) external nonReentrant whenOpen(channelId) {
+        // ⚠️ THREE FRAMES, NOT ONE — and this is a legacy-stack requirement, not a style choice.
+        // Six parameters of which four are dynamic (`bytes`/`bytes32[]` each occupy TWO stack
+        // slots as offset+length) put this body at ten slots before a single local, and the first
+        // version — inline auth, inline digest, inline tail — failed with *"Stack too deep"*.
+        // `via_ir` stays off deliberately here, so the fix is the one the rest of this contract
+        // already uses (`_applySplice`, `_shrinkSplice`, `_emitOpened`): give each phase its own
+        // frame and pass calldata pointers, never re-materialised values.
+        _onlyHop();
+        _authorizeRekey(channelId, p, oldHopPubkey, rawSpliceTx, lpSig);
+        // Custody: SPV-prove, rotate the outpoint, resize. A rekey MAY also resize — the LP signs
+        // the whole of `p`, so it consents to the amount as well as to the key.
+        _finishRekey(channelId, p, _applySplice(channelId, p, rawSpliceTx, spliceMerkleProof));
+    }
+
+    /// (§E182) The gate, in its own frame — a forwarder, deliberately.
+    ///
+    /// ⚠️ THE DECISION LOGIC IS IN `ChannelLib.rekeyAuthBody`, NOT HERE, AND THE REASON IS
+    /// MEASURED: written inline in this contract the feature came to **25,295 bytes, 719 OVER
+    /// EIP-170** — undeployable — against 637 spare. Library functions are `external` and so are
+    /// DELEGATECALLED, putting their code in the library's own deployment. Two values are read
+    /// here and passed BY VALUE so the library never depends on this contract's storage layout.
+    function _authorizeRekey(
+        bytes32 channelId,
+        Types.OpenParams calldata p,
+        bytes calldata oldHopPubkey,
+        bytes calldata rawSpliceTx,
+        bytes calldata lpSig
+    ) private view {
+        Types.BTCChannel storage ch = channels[channelId];
+        ChannelLib.rekeyAuthBody(
+            channelId, p, oldHopPubkey, rawSpliceTx, lpSig, ch.keysHash, ch.lpEth
+        );
+    }
+
+    /// (§E182) The claim + the re-pin, in their own frame.
+    function _finishRekey(bytes32 channelId, Types.OpenParams calldata p, uint grewBy) private {
+        Types.BTCChannel storage ch = channels[channelId];
+        // Same claim rule as `splice`: an ordinary grow is LP-funded, so it earns the LP its shares.
+        if (grewBy != 0) btcVault.registerBtcLp(ch.lpEth, grewBy);
+
+        // 🔴 THE STEP WHOSE ABSENCE CAUSED §E153's *unretirable forever* REGRESSION. A rotated
+        // outpoint with a stale `keysHash` fails `_requireChannelKeys` on BOTH retirement paths,
+        // so the position could never be closed. Rotating and re-pinning must be one transaction.
+        ch.keysHash = keccak256(abi.encode(p.lpPubkey, p.hopPubkey));
+        emit ChannelRekeyed(channelId, ch.lpEth, ch.keysHash, p.fundingTaproot);
+    }
+
+    /// The hop half of a channel's 2-of-2 rotated; `newKeysHash` re-pins the pair and `newTaproot`
+    /// is the aggregate the funds now sit under. The LP half is unchanged by construction.
+    event ChannelRekeyed(
+        bytes32 indexed channelId,
+        address indexed lpEth,
+        bytes32 newKeysHash,
+        bytes32 newTaproot
+    );
+
     // ⛔ (T1-f-root) `settleSwapInSpliced` IS DELETED — M1#1 superseded it and it was one of the
     // two ways POOL-OWNED SATS ENTERED AN LP'S CHANNEL.
     //
@@ -1221,8 +1291,16 @@ contract BTCChannels is Ownable, ReentrancyGuard {
             totalSatsLocked += delta;
             grewBy = delta;                          // caller settles ≤ this as funded BTC-leg fees
             emit ChannelSpliced(channelId, ch.lpEth, true, delta, p.amountSats, newTxId, newVout);
-        } else {
+        } else if (p.amountSats < old) {
             _shrinkSplice(channelId, p, rawSpliceTx, newTxId, newVout, old); // own frame (legacy stack)
+        } else {
+            // (§E182) SAME SIZE — a PURE REKEY: the outpoint rotated but no value moved.
+            // ⚠️ This branch is unreachable from `splice`, which rejects an unchanged amount with
+            // `SpliceUnchanged` before it gets here; `rekey` is what reaches it. Without it, a
+            // rekey that keeps its size would fall into `_shrinkSplice` and be asked to find a
+            // ZERO-value withdrawal output in the tx — a payout that does not exist, so the
+            // rotation would revert for a reason that has nothing to do with what it is doing.
+            emit ChannelSpliced(channelId, ch.lpEth, false, 0, p.amountSats, newTxId, newVout);
         }
     }
 

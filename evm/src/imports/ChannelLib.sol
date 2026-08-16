@@ -13,6 +13,8 @@ import {BitcoinTx} from "./BitcoinTx.sol";
 // and to our `BitcoinTx`, so it is not a drop-in for outpoint logic.
 import {TxParser} from "@solarity/solidity-lib/libs/bitcoin/TxParser.sol";
 import {MuSig2Agg} from "./MuSig2Agg.sol";
+// (E182) Same checker the open path uses, so an EOA and a smart-wallet LP authorize alike.
+import {SignatureChecker} from "@openzeppelin-submodule/utils/cryptography/SignatureChecker.sol";
 import {EndianConverter} from "@solarity/solidity-lib/libs/utils/EndianConverter.sol";
 import {ISPVGateway} from "../spv/interfaces/ISPVGateway.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -508,6 +510,59 @@ library ChannelLib {
         for (uint i; i < paths_.length; i++) {
             pathEncodings.push(paths_[i]);
         }
+    }
+
+    error ChannelKeysMismatch();   // the supplied pair is not the one pinned at open
+    error RekeyUnchanged();        // the "new" hop key is the one already pinned
+
+    /// (§E182) THE REKEY GATE — decides WHO may rotate a channel's hop key and TO WHAT.
+    ///
+    /// ⚠️ **IT LIVES HERE FOR A MEASURED REASON, NOT FOR TIDINESS.** Implemented inline in
+    /// `BTCChannels`, the rekey feature measured **25,295 bytes — 719 OVER EIP-170**, i.e. an
+    /// undeployable contract, against the 637 bytes that were spare. `ChannelLib`'s functions are
+    /// `external`, so they are DELEGATECALLED and their bytecode is deployed with the library
+    /// rather than with the caller — which is exactly why `openChannelBody` already sits here.
+    /// Moving the gate keeps the decision logic out of the caller's 24,576-byte budget.
+    ///
+    /// `address(this)` is preserved under DELEGATECALL, so the digest still binds the BTCChannels
+    /// address and a signature cannot be replayed against another deployment.
+    ///
+    /// `keysHash` and `lpEth` are passed BY VALUE rather than read through a storage pointer: the
+    /// library then has no dependency on `BTCChannels`' storage LAYOUT, which is the coupling that
+    /// made the dust monitor fragile (`Core` slot-order note in CLAUDE.md).
+    function rekeyAuthBody(
+        bytes32 channelId,
+        Types.OpenParams calldata p,      // the NEW pair
+        bytes calldata oldHopPubkey,      // the hop key being rotated OUT
+        bytes calldata rawSpliceTx,
+        bytes calldata lpSig,
+        bytes32 keysHash,                 // the pair pinned at open
+        address lpEth
+    ) external view {
+        // TO WHAT — one comparison, two facts: the LP half is UNCHANGED, and `oldHopPubkey` is
+        // genuinely the key this channel pinned. Only `hopPubkey` is free to move, so the rotated
+        // output remains a 2-of-2 REQUIRING the LP and a compromised hop gains no unilateral spend.
+        if (keccak256(abi.encode(p.lpPubkey, oldHopPubkey)) != keysHash)
+            revert ChannelKeysMismatch();
+        if (p.hopPubkey.length != 33) revert InvalidParam();
+        // A no-op rotation would burn the LP's entire exit ladder for nothing: rotating the funding
+        // outpoint makes every pre-signed rung unbroadcastable under BIP-341 `Prevouts::All`.
+        if (keccak256(p.hopPubkey) == keccak256(oldHopPubkey)) revert RekeyUnchanged();
+
+        // WHO — the LP co-signs THIS rotation. Domain tag `rekey.v1` keeps the message unforgeable
+        // against a `splice.v1` signature over the same arguments.
+        if (!SignatureChecker.isValidSignatureNow(
+                lpEth,
+                keccak256(abi.encode(
+                    keccak256("BTCChannels.rekey.v1"),
+                    block.chainid,
+                    address(this),
+                    channelId,
+                    keccak256(rawSpliceTx),
+                    keccak256(abi.encode(p))
+                )),
+                lpSig))
+            revert InvalidParam();
     }
 
     /// @notice Body of BTCChannels.openChannel. Wrapper handles the
