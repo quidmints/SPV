@@ -35,8 +35,37 @@ device on a desk). ⚠️ Not evaluated yet — the choice is unmade, and neithe
 Bitcoin regtest together, so a deposit on one chain is seen to credit on the other. Pieces that
 already exist: `deploy/deploy-l1.sh`, `spa/e2e-faucet.sh`, `evm/script/DriverE2E.s.sol`,
 `quid-ln/ops/bitcoin.conf`, and Bitcoin Core 30.2 baked into `quid-ln/Dockerfile` (same version
-`regtest/env.sh` uses, deliberately). **Missing: the RN driver, and anything that runs the two
-chains in one scenario.** No test in the tree today spans both.
+`regtest/env.sh` uses, deliberately).
+
+### 🔴 CORRECTION — "no test spans both chains" was WRONG, and the truth locates the gap exactly
+
+I wrote that from a partial look and then committed it. Checking `quid-ln/quid-bridge/tests/`
+refutes it: there are six integration tests there plus two in `quid-hop/tests/`, and
+`hop_bridge_e2e.rs` runs **real bitcoind + electrs + two LDK nodes + a funded channel + a genuine
+Lightning swap-in**. It is a serious cross-chain harness and it already exists.
+
+**What it stubs is the one thing that matters here, and its own header says so:** *"Stubbed: ONLY
+the `EvmClient::settle_swap_in` outcome — there is no EVM node in a Lightning-regtest, and the
+real on-chain leg (settleSwapIn) is covered by the forge `CrossChainSwapOut` test."*
+
+⇒ **THE TREE HAS BOTH HALVES AND EACH STUBS THE OTHER AT THE SAME SEAM.** Rust regtest: real
+Bitcoin, stubbed EVM. Forge `CrossChainSwapOut`: real EVM, mocked LN. **Nobody has ever run the
+two against each other**, and that seam is precisely where §T2's deposit-address change lives — a
+divergence between the address the hop quotes and the one the contract recomputes is invisible to
+both suites as they stand, and fatal in production.
+
+⇒ **AND THE FIX IS SMALLER THAN A NEW HARNESS.** *"There is no EVM node in a Lightning-regtest"*
+describes the current setup, not a constraint: anvil runs happily beside bitcoind. **Point
+`hop_bridge_e2e`'s `EvmClient` at an anvil with the deployed stack instead of stubbing its
+outcome, and the seam closes** — reusing `deploy/deploy-l1.sh` and the existing regtest harness
+rather than building either again. ▶️ That is the single highest-value test in the plan, and it is
+the gate on verifying §T2, the QR address-recompute, and the Ledger path.
+
+### Driver: Expo ⇒ **Maestro** (owner, 2026-08-16: *"expo is the way"*)
+
+Maestro over Detox: it drives an Expo **dev client** directly, where Detox wants a prebuilt bare
+workflow — a real cost when the point is putting a physical phone against a local anvil+regtest.
+⚠️ Not yet in the tree; adding it is step one of re-driving the matrix above.
 
 ## Harness (once, per run)
 1. `anvil --fork-url $MAINNET --auto-impersonate` (mainnet fork).
