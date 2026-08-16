@@ -7,7 +7,6 @@ import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 import {IEthVenue} from "./imports/Interfaces.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
 import {SwapLib} from "./imports/SwapLib.sol";

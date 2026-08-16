@@ -5,9 +5,6 @@ import {Alles} from "./Alles.t.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
-import {PoolId} from "v4-core/src/types/PoolId.sol";
-import {SqrtPriceMath} from "v4-core/src/libraries/SqrtPriceMath.sol";
-import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {Currency} from "v4-core/src/types/Currency.sol";
 import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 
@@ -714,26 +711,36 @@ contract UnificationControls is Alles {
         vm.roll(block.number + 1);
         for (uint i; i < 4; i++) _trade(3_000e18);
 
-        (uint sqrtP, uint liq) = CORE.poolStats();
-        // In-range position: token0 side spans [spot, upper], token1 side spans [lower, spot].
-        uint160 lo = TickMath.getSqrtPriceAtTick(V4.LOWER_PRICE());
-        uint160 hi = TickMath.getSqrtPriceAtTick(V4.UPPER_PRICE());
-        uint a0 = SqrtPriceMath.getAmount0Delta(sqrtP, hi, liq, false);
-        uint a1 = SqrtPriceMath.getAmount1Delta(lo, sqrtP, liq, false);
-        // token1isETH decides which amount is the ETH leg.
-        (uint derivedUsd, uint derivedEth) = V4.token1isVol() ? (a0, a1) : (a1, a0);
+        // §V4-CUT — THE ORIGINAL QUESTION IS DISSOLVED, AND HALF THE OLD CHECK WOULD NOW BE VACUOUS.
+        // This derived both legs from a concentrated-liquidity position via
+        // (sqrtPrice, tickLower, tickUpper, liquidity) and diffed them against the mirror. There is
+        // no v4 position left: `poolStats()` returns the TWAP and `POOLED` ITSELF, so "derive the
+        // volatile leg and compare it to POOLED" reads `POOLED == POOLED` -- a control that cannot
+        // fail, which is worse than none because it still prints as a passing assertion.
+        //
+        // The USD half survives as something real, and it is the invariant the band is built on:
+        // the two sides are meant to be EQUAL IN VALUE, so the stored USD mirror must equal the
+        // volatile inventory priced at the band price. Those are independent -- `POOLED_USD` is
+        // accumulated by the settlement legs, `POOLED * price` comes from inventory and the oracle
+        // -- so a divergence is a real defect rather than a rounding artefact.
+        (uint price, uint liq) = CORE.poolStats();
+        // UNITS: POOLED is 18-dec volatile, `price` is WAD USD per unit, POOLED_USD is 6-dec.
+        // 18 + 18 - 30 = 6 -- the same /1e30 the settlement path uses. A second scale here is
+        // exactly how the §A.50/C2 asymmetry happened.
+        uint derivedUsd6 = CORE.POOLED() * price / 1e30;
 
-        emit log_named_uint("stored  POOLED_USD", CORE.POOLED_USD());
-        emit log_named_uint("derived USD leg       ", derivedUsd);
-        emit log_named_uint("stored  POOLED    ", CORE.POOLED());
-        emit log_named_uint("derived ETH leg       ", derivedEth);
+        emit log_named_uint("stored  POOLED_USD    ", CORE.POOLED_USD());
+        emit log_named_uint("derived USD leg       ", derivedUsd6);
+        emit log_named_uint("stored  POOLED        ", CORE.POOLED());
+        emit log_named_uint("band price            ", price);
         emit log_named_uint("band liquidity        ", liq);
 
-        assertGt(liq, 0, "PREMISE: the band holds liquidity, else the derivation is vacuous");
-        // Within 1% -- the derivation is exact math on the same position; any real gap means the
-        // mirror carries information the pool does not (which would kill the removal).
-        assertApproxEqRel(derivedUsd, CORE.POOLED_USD(), 0.01e18, "USD leg must be derivable from pool state");
-        assertApproxEqRel(derivedEth, CORE.POOLED(), 0.01e18, "ETH leg must be derivable from pool state");
+        assertGt(liq, 0, "PREMISE: the band holds inventory, else the comparison is vacuous");
+        assertGt(CORE.POOLED_USD(), 0, "PREMISE: the USD mirror is non-zero, else equality is trivial");
+        // Within 1%: the legs drift with flow between rebalances and are restored afterwards, so a
+        // gap beyond that means the mirror and the inventory disagree about the same band.
+        assertApproxEqRel(derivedUsd6, CORE.POOLED_USD(), 0.01e18,
+            "the USD mirror must equal the volatile inventory priced at the band price");
     }
 
     /// DUST SWEEP — mocks held outside the allowed set {PoolManager, Core} must be ZERO today, and
@@ -1199,8 +1206,8 @@ contract UnificationControls is Alles {
         V4.compound(lpA);
         uint usedHeavy = g1 - gasleft();
         emit log_named_uint("compound() gas, HEAVY crank   ", usedHeavy);
-        emit log_named_int("frame lower before/after      ", lo0);
-        emit log_named_int("                              ", V4.LOWER_PRICE());
+        emit log_named_uint("frame lower price before/after", lo0);
+        emit log_named_uint("                              ", V4.LOWER_PRICE());
         assertTrue(V4.LOWER_PRICE() == lo0 && V4.UPPER_PRICE() == hi0,
             "no reseat fired: the SWAP path recentres first, so the cranker never pays for one");
         emit log_named_uint("WORST observed crank (gas)    ", usedHeavy > used ? usedHeavy : used);
@@ -1211,85 +1218,13 @@ contract UnificationControls is Alles {
     // Rover was deleted, so that branch is the ONLY one reachable: the test PASSED while asserting
     // nothing. A vacuous pass is worse than a failure — it reports coverage that does not exist.
 
-    /// §E60 — THE DUST CONTAINMENT TEST UNDER AN **ACTIVATED** PROTOCOL FEE.
-    ///
-    /// The existing dust assertion (`externalMockDust == 0`) is true TODAY, and the owner's
-    /// objection is that it may be true only until governance targets our PoolKey: once the v4
-    /// protocol fee is switched on for our pool, the PoolManager ACCRUES a cut — and for our pools
-    /// that cut is denominated in MOCK tokens. Those leave our allowed holder set (poolManager +
-    /// Core) and become a claim on real backing held by someone we do not control. That dilutes LPs
-    /// through the POOL, not through the share formula, so "shares are not computed against mock
-    /// supply" was a true but irrelevant answer.
-    ///
-    /// This drives the real switch — `ProtocolFees.setProtocolFee`, whose ONLY caller is the live
-    /// `protocolFeeController` — and then measures the dust rather than reasoning about it.
-    function test_E60_MockDustUnderAnActivatedProtocolFee() public {
-        _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 200 ether}(0, lpA);
-        vm.roll(block.number + 1);
+    // DELETED 2026-08-16 — test_E60_MockDustUnderAnActivatedProtocolFee. It flipped Uniswap v4's
+    // packed slot0 protocolFee for our PoolKey and measured whether the PoolManager retained a
+    // mock-denominated cut. THE PATH IT PROBED NO LONGER EXISTS: swaps settle against the oracle
+    // bounded by inventory, so nothing routes through the PoolManager and no v4 protocol fee can
+    // accrue on our flow. It also asserted nothing — it emitted a number and branched on it — so
+    // keeping it would have carried a vacuous pass plus a raw-storage write into v4's layout, for
+    // a mechanism we no longer touch. The dust sweep that DOES still bite (`_mockDust` at the
+    // allowed-holder assertions above) is untouched and keeps its coverage.
 
-        (uint usd0, uint tok0) = _mockDust(false);
-        assertEq(usd0, 0, "PREMISE: dust is zero BEFORE the fee is activated");
-        assertEq(tok0, 0, "PREMISE: dust is zero BEFORE the fee is activated");
-
-        // Turn the switch on for OUR key, as governance would. 1000 = 0.10% on each direction
-        // (v4 packs two 12-bit halves; the value is well under the 0.1% per-direction max).
-        address ctrl = IProtoFees(address(CORE.poolManager())).protocolFeeController();
-        emit log_named_address("protocolFeeController", ctrl);
-
-        // FLIP THE SWITCH. `setProtocolFee` needs the full PoolKey and no getter exposes ours
-        // (`VANILLA_ETH` is internal, and Core has +12 bytes so adding one is not free). Write the
-        // packed `slot0` directly instead — same end state the controller's call would produce.
-        // v4 packs slot0 as: sqrtPriceX96 (160) | tick (24) | protocolFee (24) | lpFee (24), and
-        // `StateLibrary.POOLS_SLOT` = 6, so the pool's state root is keccak(poolId, 6).
-        (PoolId pid, ) = CORE.poolStats();
-        bytes32 stateSlot = keccak256(abi.encode(PoolId.unwrap(pid), uint(6)));
-        bytes32 slot0 = vm.load(address(CORE.poolManager()), stateSlot);
-        // protocolFee occupies bits [184,208): 0x0F0F ≈ 0.15% each direction (v4 caps at 0.1%+).
-        uint24 protoFee = 1000 | (uint24(1000) << 12);
-        bytes32 flipped = bytes32((uint(slot0) & ~(uint(0xFFFFFF) << 184)) | (uint(protoFee) << 184));
-        vm.store(address(CORE.poolManager()), stateSlot, flipped);
-        emit log_named_uint("protocolFee AFTER flip ", (uint(vm.load(address(CORE.poolManager()), stateSlot)) >> 184) & 0xFFFFFF);
-
-        // Real volume AFTER the flip — the cut only accrues on swaps that actually execute.
-        for (uint i; i < 20; i++) _trade(6_000e18);
-
-        // COLLECT: the step that moves mock OUT of the allowed holder set. Accrual alone leaves it
-        // with the PoolManager, which `_dustOf` already counts, so nothing shows until this runs.
-        // Mock addresses come from Core's storage (slots per `forge inspect Core storageLayout`) —
-        // no getter exposes them and Core has +12 bytes, so adding one is not free.
-        // MEASURED 2026-08-10: a getter costs 91-98 bytes, MORE than the 76 freed by dropping the
-        // dead slow-flow logic — so "not free" is confirmed, not assumed. `_mockDust` carries the
-        // stale-slot guard; this site is covered by the same failure if the layout moves.
-        {
-            (address mETH, address mUSD) = CORE.mocks();
-            IProtoFeeAccrued pm = IProtoFeeAccrued(address(CORE.poolManager()));
-            uint accETH = pm.protocolFeesAccrued(mETH);
-            uint accUSD = pm.protocolFeesAccrued(mUSD);
-            emit log_named_uint("accrued mockETH", accETH);
-            emit log_named_uint("accrued mockUSD", accUSD);
-            address sink = makeAddr("feeSink");
-            vm.startPrank(ctrl);
-            if (accETH > 0) pm.collectProtocolFees(sink, mETH, accETH);
-            if (accUSD > 0) pm.collectProtocolFees(sink, mUSD, accUSD);
-            vm.stopPrank();
-            emit log_named_uint("sink mockETH", IERC20(mETH).balanceOf(sink));
-            emit log_named_uint("sink mockUSD", IERC20(mUSD).balanceOf(sink));
-        }
-
-        (uint usd1, uint tok1) = _mockDust(false);
-        emit log_named_uint("mockUSD dust AFTER flow", usd1);
-        emit log_named_uint("mockETH dust AFTER flow", tok1);
-        // With the fee NOT yet targeted at our key this must still be 0 — the E29 finding
-        // (nothing is automatically enforced) restated as a live measurement rather than an
-        // argument about selectors.
-        // THE MEASUREMENT. If the PoolManager retained a mock-denominated cut, it left our allowed
-        // holder set and `_dustOf` sees it. Non-zero here is NOT a test failure — it is the exposure
-        // the owner named, made visible, and the number is what sizes the response.
-        if (usd1 > 0 || tok1 > 0) {
-            emit log_string("DUST APPEARED once the fee was targeted: LPs are diluted through the POOL.");
-        } else {
-            emit log_string("No dust even with the fee targeted: the cut is not mock-denominated here.");
-        }
-    }
 }

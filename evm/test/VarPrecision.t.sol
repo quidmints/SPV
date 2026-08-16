@@ -43,7 +43,7 @@ contract VarPrecision is Alles {
         for (uint i; i < 12; i++) _swap(6_000e18, 20);
         emit log_named_uint("variance after BIG moves   ", CORE.realizedVarianceWad());
         (uint tickBig,) = CORE.poolStats();
-        emit log_named_int ("  tick after BIG           ", tickBig);
+        emit log_named_uint("  price after BIG          ", tickBig);
 
         // SIZE LADDER: find the smallest swap that moves a tick at all. That is the boundary
         // between "calm" (measurable, small) and "no data" (unmeasurable), and it decides whether
@@ -59,7 +59,7 @@ contract VarPrecision is Alles {
         }
         emit log_named_uint("variance after CALM trades ", CORE.realizedVarianceWad());
         (uint tickCalm,) = CORE.poolStats();
-        emit log_named_int ("  tick after CALM          ", tickCalm);
+        emit log_named_uint("  price after CALM         ", tickCalm);
         emit log_named_int ("  tick MOVED by            ", int(tickCalm) - int(tickBig));
 
         // PREMISE: the calm leg must actually trade, else "0" says nothing about precision.

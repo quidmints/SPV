@@ -522,22 +522,14 @@ contract Core is SafeCallback {
     function mocks() external view returns (address tok, address usd) {
         return (address(_mockTok()), address(_mockUsd()));
     }
-    // Value types can't be storage-ref'd, so POOLED_* moves go through these
-    // IS_BTC-dispatched mutators (Math.min floors mirror the originals).
-    function _addPooledUsd(uint a) internal {
-        if (IS_BTC) POOLED_USD += a; else POOLED_USD += a;
-    }
-    function _subPooledUsd(uint a) internal {
-        if (IS_BTC) POOLED_USD -= Math.min(a, POOLED_USD);
-        else       POOLED_USD -= Math.min(a, POOLED_USD);
-    }
-    function _addPooledTok(uint a) internal {
-        if (IS_BTC) POOLED += a; else POOLED += a;
-    }
-    function _subPooledTok(uint a) internal {
-        if (IS_BTC) POOLED -= Math.min(a, POOLED);
-        else       POOLED -= Math.min(a, POOLED);
-    }
+    // §ISBTC-SPLIT — THESE WERE `if (IS_BTC) x; else x;`: BOTH ARMS IDENTICAL. An earlier pass
+    // collapsed POOLED/POOLED_USD to one field per instance but left the selector standing over
+    // arms that no longer differed, so the branch cost bytecode and gas to decide nothing. The
+    // Math.min floors are the real content and are unchanged.
+    function _addPooledUsd(uint a) internal { POOLED_USD += a; }
+    function _subPooledUsd(uint a) internal { POOLED_USD -= Math.min(a, POOLED_USD); }
+    function _addPooledTok(uint a) internal { POOLED     += a; }
+    function _subPooledTok(uint a) internal { POOLED     -= Math.min(a, POOLED); }
 
     Aux AUX; Vogue VOGUE; Basket BASKET; Vault BTCVAULT;
 
@@ -692,8 +684,9 @@ contract Core is SafeCallback {
             IS_BTC ? VANILLA_BTC : VANILLA_ETH, _obsState(), _obs(),
             volMock, usdMock, refVolIsC0, uint(int(refTick)));
 
-        if (IS_BTC) { token1isVol = token1isVol; POOL_ID_VANILLA_BTC = id; }
-        else       { token1isVol = token1isVol; POOL_ID_VANILLA_ETH = id; }
+        // §ISBTC-SPLIT: `token1isVol = token1isVol` was a SELF-ASSIGNMENT in both arms -- a no-op
+        // that survived the field collapse. Only the pool-id target actually differed.
+        if (IS_BTC) POOL_ID_VANILLA_BTC = id; else POOL_ID_VANILLA_ETH = id;
     }
 
     /// @notice Draw down the BTC pool's committed USD side when an on-chain
@@ -855,7 +848,7 @@ contract Core is SafeCallback {
         // (1) OBSERVATION. `_writeObservation` took a sqrt-price only because v4's API handed one
         // over; the ring has stored PLAIN PRICE since §TICK-REMOVAL, and we now HAVE the price, so
         // it goes in directly with no conversion. This is the whole of the oracle repoint.
-        _writeObservationPrice(uint160(px));
+        _writeObservationPrice(px);       // §DETICK: no narrowing -- the ring stores a 256-bit WAD price
 
         // (2) SETTLEMENT. Without this `POOLED_*` never moves and nobody is paid.
         _handleDelta(delta, true, false, sender, token);
@@ -960,7 +953,7 @@ contract Core is SafeCallback {
         LOWER_PRICE = newLower;
         UPPER_PRICE = newUpper;
         price = AUX.getTWAPforAsset(IS_BTC ? address(AUX.WBTC()) : address(AUX.WETH()), 1800);
-        _writeObservationPrice(uint160(price));
+        _writeObservationPrice(price);    // §DETICK: no narrowing
         return (price, 0, 0, 0, 0);
     }
 
@@ -986,7 +979,7 @@ contract Core is SafeCallback {
         LOWER_PRICE = newLower;
         UPPER_PRICE = newUpper;
         price = AUX.getTWAPforAsset(IS_BTC ? address(AUX.WBTC()) : address(AUX.WETH()), 1800);
-        _writeObservationPrice(uint160(price));
+        _writeObservationPrice(price);    // §DETICK: no narrowing
         return (price, 0, 0, 0, 0);
     }
 
@@ -1105,7 +1098,7 @@ contract Core is SafeCallback {
             //   operation ⇒ byte-identical to the old par gate; it only tightens under an ACTUAL depeg.
             uint haircutTvl = _d[14] > depegLoss ? _d[14] - depegLoss : 0;
             _addPooledUsd(usdAmount);
-            if (basketLeg) { if (IS_BTC) basketUsd += usdAmount; else basketUsd += usdAmount; }
+            if (basketLeg) basketUsd += usdAmount;   // §ISBTC-SPLIT: both arms were identical
             require(committedUsd18() <= haircutTvl, "backing");
         } else {
             uint pooledPre = POOLED_USD;
@@ -1121,7 +1114,7 @@ contract Core is SafeCallback {
                 uint b = basketUsd;
                 uint out_ = pooledPre <= usdAmount ? b   // whole leg left: basket leaves with it
                           : Math.mulDiv(b, usdAmount, pooledPre);
-                if (IS_BTC) basketUsd = b - out_; else basketUsd = b - out_;
+                basketUsd = b - out_;               // §ISBTC-SPLIT: both arms were identical
             }
         }
     }
@@ -1143,7 +1136,7 @@ contract Core is SafeCallback {
     function absorbPaidUsd(uint lpOwned6) external onlyUs {
         uint pooled = POOLED_USD;
         uint base = pooled > lpOwned6 ? pooled - lpOwned6 : 0;
-        if (IS_BTC) basketUsd = base; else basketUsd = base;
+        basketUsd = base;                           // §ISBTC-SPLIT: both arms were identical
     }
 
     /// @dev Token-leg (ETH or BTC) of _handleDelta. delta>0 → take+burn (ETH pays
@@ -1194,15 +1187,12 @@ contract Core is SafeCallback {
     }
 
 
-    /// §TICK-REMOVAL — the ring stores PLAIN PRICE. `getSlot0` still hands us a sqrt-price (that is
-    /// v4's API, and stays until the PM is ours), but it is converted ONCE HERE, at the write, so
-    /// neither ticks nor sqrt-prices survive in storage or on any read path. Writing costs one
-    /// conversion per swap and saves one on every valuation, and valuations are the frequent side.
-    function _writeObservation(uint sqrtPriceX96) internal {
-        OracleLib.writeObservation(_obs(), _obsState(),
-            uint160(BasketLib.getPrice(sqrtPriceX96,
-                token1isVol)));   // `token1is` is external
-    }
+    // §V4-CUT — `_writeObservation(sqrtPriceX96)` DELETED HERE: it had no callers left. It existed
+    // to convert v4's sqrt-price once, at the write, so the ring stored plain price. Nothing hands
+    // us a sqrt-price any more -- every live write goes through `_writeObservationPrice` with a
+    // price the band already has -- so the conversion had nothing to convert. It was the last
+    // `BasketLib.getPrice` consumer on the write path, and the last place a sqrt-price could enter
+    // storage.
 
     /// @dev §V4-CUT — the fill, in its OWN FRAME so `swap` stays under the stack limit.
     ///      Settles AT ORACLE against inventory: one price, no traversal, no discovery.

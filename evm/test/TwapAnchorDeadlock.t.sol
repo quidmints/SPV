@@ -82,8 +82,8 @@ contract TwapAnchorDeadlockTest is Alles {
             "swap auto-heals during the crash (executes at the Chainlink price)");
 
         // the curve spot is now on the oracle (the auto-reseat moved it).
-        (uint sqrtAfter,) = CORE.poolStats();
-        assertApproxEqRel(_getPrice(sqrtAfter, t0isUSD), (pE * 90) / 100, 3e16, // 3%
+        (uint priceAfter,) = CORE.poolStats();   // §DETICK: a price, not a sqrt -- the name said otherwise
+        assertApproxEqRel(priceAfter, (pE * 90) / 100, 3e16, // 3%
             "auto-reseat moved the curve spot onto the oracle price");
 
         // the permissionless reseat poke is a safe no-op once aligned.

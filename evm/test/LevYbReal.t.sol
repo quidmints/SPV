@@ -243,11 +243,11 @@ contract LevYbRealProbe is Alles {
     /// warping between so each step measures from spot≈TWAP and the guard resets. Real swaps only — the band
     /// sells ETH → real IL accrues; kept under the 5% Chainlink anchor so no reseat/no oracle override needed.
     /// Self-calibrating: stops once the live sold fraction (from V4.poolStats) reaches `targetWad`.
-    function _rallyBand(uint160 entrySqrt, uint targetWad, uint maxSteps, uint usdcPerStep) internal {
+    function _rallyBand(uint entryPrice, uint targetWad, uint maxSteps, uint usdcPerStep) internal {
         deal(address(USDC), address(this), maxSteps * usdcPerStep);
         IERC20R(address(USDC)).approve(address(AUX), maxSteps * usdcPerStep);
         for (uint i; i < maxSteps; i++) {
-            if (V4.soldFractionWad(entrySqrt) >= targetWad) break;
+            if (V4.soldFractionWad(entryPrice) >= targetWad) break;
             uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px == 0) break;
             _setEthFeed(px / 1e10);                 // feed tracks pool pre-swap ⇒ getTWAPforAsset follows, no 5% anchor trip
             try AUX.swap(address(USDC), address(WETH), true, usdcPerStep, 0) {} catch { break; }
@@ -307,7 +307,7 @@ contract LevYbRealProbe is Alles {
 
     function _tvl() internal returns (uint t) { (uint[15] memory d,,,) = AUX.get_deposits(); t = d[14]; }
 
-    function _entrySqrt(LevManager m, address lp) internal view returns (uint160 s) { ( , , , , s, ) = m.pos(lp); }
+    function _entryPrice(LevManager m, address lp) internal view returns (uint s) { ( , , , , s, ) = m.pos(lp); }
 
     function _openLp() internal {
         // REAL band position (the E0 IL base) — bandEthOf(LP) == 5 ETH deposit, read live from V4.
@@ -321,7 +321,7 @@ contract LevYbRealProbe is Alles {
         rlm.openLev(5000, ILevVenue(address(rvenue)), 5 ether, mins); // cap = 2×
         vm.stopPrank();
         // Real rally: buy ETH out of the band so it sells ETH ⇒ real IL accrues since the pinned entry.
-        _rallyBand(_entrySqrt(rlm, LP), 0.2e18, 20, 8_000 * USDC_PRECISION);
+        _rallyBand(_entryPrice(rlm, LP), 0.2e18, 20, 8_000 * USDC_PRECISION);
         rlm.rebalance(LP, 0);         // lever up to the IL target (real Morpho borrow + real Uniswap buy)
     }
 

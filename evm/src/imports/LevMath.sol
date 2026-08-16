@@ -2,7 +2,6 @@
 pragma solidity ^0.8.28;
 
 import {FixedPointMathLib} from "solady/src/utils/FixedPointMathLib.sol";
-import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 // §A.52: the canonical view (was a file-local `ILevSyncHookM`).
 import {ILevSyncHook, IAux, IWeETH, IWiredVault,
         IDepositAdapter, ILevVenueColl, ILevMintVenue} from "./Interfaces.sol";

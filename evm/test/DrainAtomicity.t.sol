@@ -9,8 +9,6 @@ import {console} from "forge-std/console.sol";
 import {SwapLib} from "../src/imports/SwapLib.sol";
 // §E113: the v4-PERIPHERY LiquidityAmounts has only getLiquidityFor* (forward). The reverse
 // (amounts FROM liquidity) lives in v4-core/test/utils -- the one that can price a position.
-import {LiquidityAmounts} from "v4-core/test/utils/LiquidityAmounts.sol";
-import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 
 /// §E71 — DID E68 ACTUALLY KILL THE ATOMICITY ARBITRAGE? A FALSIFIABLE TEST OF MY OWN CHANGE.
 ///
@@ -686,8 +684,8 @@ contract DrainAtomicity is Alles {
         _settle();
         (uint t0,) = CORE.poolStats();
         uint origLo = V4.LOWER_PRICE(); uint origHi = V4.UPPER_PRICE();
-        emit log_named_int ("band width (ticks)      ", origHi - origLo);
-        emit log_named_int ("start tick              ", t0);
+        emit log_named_uint("band width (price)        ", origHi - origLo);
+        emit log_named_uint("start price              ", t0);
 
         uint minT = t0; uint maxT = t0;
         for (uint d = 0; d < 30; ++d) {
@@ -699,15 +697,15 @@ contract DrainAtomicity is Alles {
             (uint t,) = CORE.poolStats();
             if (t < minT) minT = t; if (t > maxT) maxT = t;
         }
-        emit log_named_int ("tick range visited      ", maxT - minT);
-        emit log_named_int ("  min tick              ", minT);
-        emit log_named_int ("  max tick              ", maxT);
-        emit log_named_int("frame lower tick        ", V4.LOWER_PRICE());
-        emit log_named_int("frame upper tick        ", V4.UPPER_PRICE());
-        emit log_named_int ("band NOW  LOWER         ", V4.LOWER_PRICE());
-        emit log_named_int ("band NOW  UPPER         ", V4.UPPER_PRICE());
-        emit log_named_int ("ORIGINAL  LOWER         ", origLo);
-        emit log_named_int ("ORIGINAL  UPPER         ", origHi);
+        emit log_named_uint("price range visited      ", maxT - minT);
+        emit log_named_uint("  min price              ", minT);
+        emit log_named_uint("  max price              ", maxT);
+        emit log_named_uint("frame lower price        ", V4.LOWER_PRICE());
+        emit log_named_uint("frame upper price        ", V4.UPPER_PRICE());
+        emit log_named_uint("band NOW  LOWER         ", V4.LOWER_PRICE());
+        emit log_named_uint("band NOW  UPPER         ", V4.UPPER_PRICE());
+        emit log_named_uint("ORIGINAL  LOWER         ", origLo);
+        emit log_named_uint("ORIGINAL  UPPER         ", origHi);
 
         uint travel = maxT - minT; uint width = origHi - origLo;
         if (travel > width) {
@@ -734,7 +732,7 @@ contract DrainAtomicity is Alles {
         // which is what this diagnostic exists to surface — is unchanged.
         uint192[] memory c0 = CORE.observe(ago);
         uint twap0 = uint(c0[0] - c0[1]) / 3600;
-        emit log_named_int("BEFORE: lower tick     ", V4.LOWER_PRICE());
+        emit log_named_uint("BEFORE: lower price     ", V4.LOWER_PRICE());
         emit log_named_uint("BEFORE: 1h TWAP price  ", twap0);
 
         // Force frame motion the way E112 did -- sells push price to tickLower and trigger repacks.
@@ -750,10 +748,10 @@ contract DrainAtomicity is Alles {
         uint lo1 = V4.LOWER_PRICE(); uint hi1 = V4.UPPER_PRICE();
         uint192[] memory c1 = CORE.observe(ago);
         uint twap1 = uint(c1[0] - c1[1]) / 3600;
-        emit log_named_int("AFTER : lower tick     ", V4.LOWER_PRICE());
+        emit log_named_uint("AFTER : lower price     ", V4.LOWER_PRICE());
         emit log_named_uint("AFTER : 1h TWAP price  ", twap1);
-        emit log_named_int ("AFTER : band LOWER     ", lo1);
-        emit log_named_int ("AFTER : band UPPER     ", hi1);
+        emit log_named_uint("AFTER : band LOWER     ", lo1);
+        emit log_named_uint("AFTER : band UPPER     ", hi1);
 
 
         if (ep1 == ep0) { emit log("VOID: no reseat occurred -- the frame never moved."); return; }
@@ -776,7 +774,7 @@ contract DrainAtomicity is Alles {
         uint192[] memory c0 = CORE.observe(ago);
         (uint spot0,) = CORE.poolStats();
         uint twap0 = uint(c0[0] - c0[1]) / 3600;
-        emit log_named_int("BEFORE move: spot tick ", spot0);
+        emit log_named_uint("BEFORE move: spot price ", spot0);
         emit log_named_uint("BEFORE move: 1h TWAP px", twap0);
 
         for (uint d = 0; d < 6; ++d) _drain(60_000 * 1e18);   // a FRESH, larger move
@@ -784,9 +782,9 @@ contract DrainAtomicity is Alles {
         uint192[] memory c1 = CORE.observe(ago);
         (uint spot1,) = CORE.poolStats();
         uint twap1 = uint(c1[0] - c1[1]) / 3600;
-        emit log_named_int("AFTER  move: spot tick ", spot1);
+        emit log_named_uint("AFTER  move: spot price ", spot1);
         emit log_named_uint("AFTER  move: 1h TWAP px", twap1);
-        emit log_named_int("frame lower tick       ", V4.LOWER_PRICE());
+        emit log_named_uint("frame lower price       ", V4.LOWER_PRICE());
 
         if (spot1 == spot0) { emit log("VOID: the move did not shift the spot tick."); return; }
         if (twap1 == twap0) {
@@ -810,7 +808,7 @@ contract DrainAtomicity is Alles {
             uint norm = hi > lo && ct >= lo ? uint((ct - lo)) * 1e4 / uint((hi - lo)) : 0;
             emit log_named_uint("normalized tick (1e-4)  ", norm);
             emit log_named_uint("  vol:USD ratio (1e-4)  ", usdLeg == 0 ? 0 : volLeg * 1e4 / usdLeg);
-            emit log_named_int("  frame lower tick      ", V4.LOWER_PRICE());
+            emit log_named_uint("  frame lower price      ", V4.LOWER_PRICE());
             emit log_named_uint("  liquidity             ", liq);
         }
         emit log("Monotone normalized-vs-ratio WITHIN one frame => the instrument works.");
@@ -844,22 +842,20 @@ contract DrainAtomicity is Alles {
         }
         emit log_named_uint("sells completed           ", sells);
 
-        // §E112 -> §E113 THE DECISIVE READ: is `POOLED_*` the v4 POSITION's asset split, or CORE'S
-        // LEDGER? Compute the position's TRUE amounts from (sqrtPrice, tickLower, tickUpper,
-        // liquidity) and compare. If they diverge, every "composition" number in this thread --
-        // the 0.758 asymptote, the 72:1 here, the whole E93 target discussion -- measures the ledger
-        // rather than the band, which is the same class of error as `max`-vs-delivery.
+        // §E112 -> §E113 ANSWERED BY CONSTRUCTION, SO THE COMPARISON IS GONE. This used to recompute
+        // the v4 POSITION's true split from (sqrtPrice, tickLower, tickUpper, liquidity) and diff it
+        // against `POOLED_*` to decide which of the two the ledger measured. There is no v4 position
+        // left to disagree with: the band settles against the oracle bounded by inventory, and
+        // `poolStats()` reports OUR OWN accounting. `POOLED_*` is the ledger -- not because the diff
+        // came out that way, but because there is nothing else for it to be. Recomputing a number
+        // from the same source it is being checked against is a control that CANNOT fail, which is
+        // worse than no control: it reads as coverage.
         {
-            (uint sp, uint liq) = CORE.poolStats();
-            emit log_named_uint("position liquidity        ", liq);
-            (uint a0, uint a1) = LiquidityAmounts.getAmountsForLiquidity(
-                sp, TickMath.getSqrtPriceAtTick(V4.LOWER_PRICE()),
-                    TickMath.getSqrtPriceAtTick(V4.UPPER_PRICE()), liq);
-            emit log_named_uint("v4 position amount0       ", a0);
-            emit log_named_uint("v4 position amount1       ", a1);
+            (uint px, uint liq) = CORE.poolStats();
+            emit log_named_uint("band price                ", px);
+            emit log_named_uint("band liquidity            ", liq);
             emit log_named_uint("Core POOLED           ", CORE.POOLED());
             emit log_named_uint("Core POOLED_USD       ", CORE.POOLED_USD());
-            emit log("^ if the v4 amounts and Core's POOLED_* disagree, POOLED_* is a LEDGER, not the band.");
         }
 
         uint px0   = AUX.getTWAPforAsset(address(WETH), 1800);
@@ -877,10 +873,10 @@ contract DrainAtomicity is Alles {
         V4.reseat();
         vm.roll(block.number + 1);
         uint lo1 = V4.LOWER_PRICE(); uint hi1 = V4.UPPER_PRICE();
-        emit log_named_int ("LOWER_TICK before/after   ", lo0);
-        emit log_named_int ("                          ", lo1);
-        emit log_named_int ("UPPER_TICK before/after   ", hi0);
-        emit log_named_int ("                          ", hi1);
+        emit log_named_uint("LOWER_PRICE before/after   ", lo0);
+        emit log_named_uint("                          ", lo1);
+        emit log_named_uint("UPPER_PRICE before/after   ", hi0);
+        emit log_named_uint("                          ", hi1);
         if (lo0 == lo1 && hi0 == hi1) {
             emit log("RESEAT WAS A NO-OP -- E109 tested nothing and its refutation is VOID.");
         } else {

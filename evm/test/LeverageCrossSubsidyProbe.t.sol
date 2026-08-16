@@ -94,11 +94,11 @@ contract LeverageCrossSubsidyProbe is Alles {
         vm.stopPrank();
     }
 
-    function _rallyBand(uint160 entrySqrt, uint targetWad, uint maxSteps, uint usdcPerStep) internal {
+    function _rallyBand(uint entryPrice, uint targetWad, uint maxSteps, uint usdcPerStep) internal {
         deal(address(USDC), address(this), maxSteps * usdcPerStep);
         IERC20R(address(USDC)).approve(address(AUX), maxSteps * usdcPerStep);
         for (uint i; i < maxSteps; i++) {
-            if (V4.soldFractionWad(entrySqrt) >= targetWad) break;
+            if (V4.soldFractionWad(entryPrice) >= targetWad) break;
             uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px == 0) break;
             _setEthFeed(px / 1e10);
             try AUX.swap(address(USDC), address(WETH), true, usdcPerStep, 0) {} catch { break; }
@@ -112,7 +112,7 @@ contract LeverageCrossSubsidyProbe is Alles {
     }
 
     function _tvl() internal returns (uint t) { (uint[15] memory d,,,) = AUX.get_deposits(); t = d[14]; }
-    function _entrySqrt(address lp) internal view returns (uint160 s) { ( , , , , s, ) = lm.pos(lp); }
+    function _entryPrice(address lp) internal view returns (uint s) { ( , , , , s, ) = lm.pos(lp); }
 
     function _bandE0(address lp, uint sizeEth) internal {
         vm.deal(lp, sizeEth + 1 ether);

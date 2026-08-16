@@ -5,7 +5,6 @@ pragma solidity ^0.8.28;
 import {mock} from "../mock.sol";
 import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
-import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
 import {Currency} from "v4-core/src/types/Currency.sol";

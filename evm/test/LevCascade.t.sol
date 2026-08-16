@@ -114,11 +114,11 @@ contract LevCascadeProbe is Alles {
     /// Move the REAL V4 band UP by buying WETH out of it in bounded steps (each under the 50bps/swap manip cap),
     /// warping between so each step measures from spot≈TWAP and the guard resets. Real swaps only — the band sells
     /// ETH → real IL accrues; kept under the 5% Chainlink anchor so no reseat/no oracle override. Self-calibrating.
-    function _rallyBand(uint160 entrySqrt, uint targetWad, uint maxSteps, uint usdcPerStep) internal {
+    function _rallyBand(uint entryPrice, uint targetWad, uint maxSteps, uint usdcPerStep) internal {
         deal(address(USDC), address(this), maxSteps * usdcPerStep);
         IERC20R(address(USDC)).approve(address(AUX), maxSteps * usdcPerStep);
         for (uint i; i < maxSteps; i++) {
-            if (V4.soldFractionWad(entrySqrt) >= targetWad) break;
+            if (V4.soldFractionWad(entryPrice) >= targetWad) break;
             uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px == 0) break;
             _setEthFeed(px / 1e10);
             try AUX.swap(address(USDC), address(WETH), true, usdcPerStep, 0) {} catch { break; }
@@ -162,7 +162,7 @@ contract LevCascadeProbe is Alles {
     }
 
     function _tvl() internal returns (uint t) { (uint[15] memory d,,,) = AUX.get_deposits(); t = d[14]; }
-    function _entrySqrt(address lp) internal view returns (uint160 s) { ( , , , , s, ) = lm.pos(lp); }
+    function _entryPrice(address lp) internal view returns (uint s) { ( , , , , s, ) = lm.pos(lp); }
 
     /// REAL Morpho seizure of `lp`: realign the band oracle to the market, crash the SHARED Chainlink feed so the
     /// position lands ~92% LTV (liquidatable per lltv 0.86, not deep bad debt), then liquidate by REPAID SHARES
@@ -229,7 +229,7 @@ contract LevCascadeProbe is Alles {
         // Lever up on a REAL band rally (real IL): debt > 0, but the borrow is self-financing ⇒ equity ~principal.
         // (A real rally executes real swaps, which legitimately move POOLED_USD — so the mock's "POOLED_USD frozen
         // across the lever" assertion is unmeasurable here; the real invariant is deliverable-covers-band, below.)
-        _rallyBand(_entrySqrt(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
+        _rallyBand(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
         lm.rebalance(lps[0], 0);
         assertGt(venue.debtOf(lps[0]), 0, "levered: real Morpho debt > 0");
         assertGe(AUX.vogueETH(), CORE.POOLED(), "levered: deliverable ETH still covers the band");
@@ -255,7 +255,7 @@ contract LevCascadeProbe is Alles {
         vm.deal(address(this), 20 ether);
         V4.deposit{value: 10 ether}(0, address(this));
         _openAtEntry(lps[0], 5 ether);
-        _rallyBand(_entrySqrt(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
+        _rallyBand(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
         lm.rebalance(lps[0], 0);                                 // real levered position
         _calmVol();                                             // θ recovers ⇒ syncLev can add the depth
 
@@ -338,7 +338,7 @@ contract LevCascadeProbe is Alles {
         QUID.mint(lp, 300_000 * USDC_PRECISION, address(USDC), 0);
         vm.stopPrank();
         // ONE shared real rally ⇒ correlated IL ⇒ lever both to the IL target (debt > 0).
-        _rallyBand(_entrySqrt(lp), 0.2e18, 24, 8_000 * USDC_PRECISION);
+        _rallyBand(_entryPrice(lp), 0.2e18, 24, 8_000 * USDC_PRECISION);
         lm.rebalance(lp, 0); lm.rebalance(lp2, 0);
         assertGt(venue.debtOf(lp), 0, "rally must lever the position (debt > 0)");
 
@@ -396,7 +396,7 @@ contract LevCascadeProbe is Alles {
         _openAtEntry(lps[1], 4 ether);
         _openAtEntry(lps[2], 3 ether);
         // ONE shared REAL rally ⇒ correlated IL for all three ⇒ lever each up to the IL target.
-        _rallyBand(_entrySqrt(lps[0]), 0.2e18, 24, 8_000 * USDC_PRECISION);
+        _rallyBand(_entryPrice(lps[0]), 0.2e18, 24, 8_000 * USDC_PRECISION);
         for (uint i; i < 3; i++) {
             lm.rebalance(lps[i], 0);
             assertGt(venue.debtOf(lps[i]), 0, "rally must lever each position to the IL target (debt > 0)");
@@ -450,7 +450,7 @@ contract LevCascadeProbe is Alles {
         _setupLev();
         _openAtEntry(lps[0], 5 ether);
         _openAtEntry(lps[1], 4 ether);
-        _rallyBand(_entrySqrt(lps[0]), 0.2e18, 24, 8_000 * USDC_PRECISION);
+        _rallyBand(_entryPrice(lps[0]), 0.2e18, 24, 8_000 * USDC_PRECISION);
         lm.rebalance(lps[0], 0); vm.roll(block.number + 1); vm.warp(block.timestamp + 31 minutes);
         lm.rebalance(lps[1], 0); vm.roll(block.number + 1); vm.warp(block.timestamp + 31 minutes);
         _crashBand(3000, 24, 40 ether);   // ~30%: full de-lever; hybrid down-leg services the redeem
@@ -490,7 +490,7 @@ contract LevCascadeProbe is Alles {
     function test_MEV_OracleFloorRejectsSandwich() public {
         _setupLev();
         _openAtEntry(lps[0], 5 ether);
-        _rallyBand(_entrySqrt(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION); // IL accrues ⇒ a rebalance wants to lever
+        _rallyBand(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION); // IL accrues ⇒ a rebalance wants to lever
         // An impossibly high min-weETH-out (1e30) can never be met by the real mint ⇒ the floor reverts the trade.
         vm.expectRevert(LevManager.Slippage.selector);
         lm.rebalance(lps[0], 1e30);
@@ -539,7 +539,7 @@ contract LevCascadeProbe is Alles {
         (uint unlevPooled0,,,) = V4.autoManaged(lps[1]);
 
         // ONE shared REAL rally ⇒ identical price-path IL on BOTH band positions.
-        _rallyBand(_entrySqrt(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
+        _rallyBand(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
         lm.rebalance(lps[0], 0);
         assertGt(venue.debtOf(lps[0]), 0, "levered LP hedged: debt = IL target > 0");
 
@@ -586,7 +586,7 @@ contract LevCascadeProbe is Alles {
         //     on the fork: the mock band moves but takeETH delivers from real venues at the real price, so the
         //     price would have to be reseated to deliver — which round-trips the move and erases the IL. The
         //     deterministic proof is the sold fraction + the hedge differential.)
-        uint sold = V4.soldFractionWad(_entrySqrt(lps[0]));
+        uint sold = V4.soldFractionWad(_entryPrice(lps[0]));
         assertGt(sold, 0, "(2) the band SOLD ETH on the rally => IL accrued to every band LP");
         // The UNLEVERED LP has NO leverage position => zero hedge => it bears the full sold fraction as IL.
         ( , , , , , bool unlevOpen) = lm.pos(lps[1]);
@@ -635,7 +635,7 @@ contract LevCascadeProbe is Alles {
         _openLevOnly(lps[0], 5 ether);
         assertEq(QUID.totalSupply(), s0, "open: leverage must not mint/burn QUID");
 
-        _rallyBand(_entrySqrt(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
+        _rallyBand(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
         uint s1 = QUID.totalSupply();
         lm.rebalance(lps[0], 0);
         assertEq(QUID.totalSupply(), s1, "rebalance/lever-up: leverage must not mint/burn QUID");
@@ -744,7 +744,7 @@ contract LevCascadeProbe is Alles {
         // Debt is entry-price-driven: `openLev` opens at ZERO leverage, so a rally is what creates
         // the IL hedge. Without it `totalDebtUsd() == 0` and the whole test is vacuous — the
         // PREMISE below caught exactly that on the first run.
-        _rallyBand(_entrySqrt(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
+        _rallyBand(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
         lm.rebalance(lps[0], 0);
         _calmVol();
         V4.syncLev(lps[0]);
@@ -810,7 +810,7 @@ contract LevCascadeProbe is Alles {
         V4.deposit{value: 2 ether}(0, address(this));
         _openAtEntry(lps[0], 5 ether);
 
-        _rallyBand(_entrySqrt(lps[0]), 0.2e18, 40, 16_000 * USDC_PRECISION);
+        _rallyBand(_entryPrice(lps[0]), 0.2e18, 40, 16_000 * USDC_PRECISION);
         lm.rebalance(lps[0], 0);
         _calmVol();
         V4.syncLev(lps[0]);

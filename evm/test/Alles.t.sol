@@ -17,14 +17,12 @@ import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 
 import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
-import {LiquidityAmounts} from "v4-core/test/utils/LiquidityAmounts.sol";
 import {CurrencyLibrary, Currency} from "v4-core/src/types/Currency.sol";
 import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 
@@ -636,21 +634,10 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         vm.warp(block.timestamp + 1801);
     }
 
-    function _getPrice(uint160 sqrtPriceX96,
-        bool token0isUSD) internal pure
-        returns (uint price) {
-        uint casted = uint(sqrtPriceX96);
-        uint ratioX128 = FullMath.mulDiv(
-               casted, casted, 1 << 64);
-
-        if (token0isUSD) {
-          price = FullMath.mulDiv(1 << 128,
-              WAD * 1e12, ratioX128);
-        } else {
-          price = FullMath.mulDiv(ratioX128,
-              WAD * 1e12, 1 << 128);
-        }
-    }
+    // §DETICK — `_getPrice` IS GONE. It squared a sqrtPriceX96 back into a price and inverted it
+    // for token ordering. `poolStats()` now returns the price directly, in WAD, orientation already
+    // resolved, so every call site was converting a price a SECOND time -- a wrong number that still
+    // looked like a price. Deleted rather than adapted: there is no sqrt left for it to consume.
 
     function testRegularSwaps() public {
         console.log("=== testRegularSwaps ===");
@@ -829,7 +816,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         USDC.approve(address(AUX), rack);
         uint balanceBefore = USDC.balanceOf(User01);
 
-        uint id = V4.outOfRange(rack / 10, int(address(USDC)), 1000, 100);
+        uint id = V4.outOfRange(rack / 10, address(USDC), 1000, 100);   // §DETICK: (amount, token, distance, range)
 
         assertGt(id, 0, "Position ID should be > 0");
         assertApproxEqAbs(USDC.balanceOf(User01), balanceBefore - rack / 10,
@@ -1112,7 +1099,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     // tick is a REAL market price, not garbage masked by self-referential reads.
     function testDiag_GenesisPriceRegime() public {
         (uint sp,) = CORE.poolStats();
-        uint slot0Price = _getPrice(sp, V4.token1isVol());
+        uint slot0Price = sp;   // §DETICK: poolStats() already returns the price
         uint twap = AUX.getTWAPforAsset(address(WETH), 1800);
         address feed = AUX.assetPriceFeed(address(WETH));
         emit log_named_uint("slot0 price (pool's own)", slot0Price);

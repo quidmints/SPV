@@ -37,7 +37,7 @@ contract BufferSwapDrain is LevCascadeProbe {
 
         // Full-2x levered position ⇒ a real debt-funded buffer folded into POOLED_USD.
         _openAtEntry(lps[0], 5 ether);
-        _rallyBand(_entrySqrt(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
+        _rallyBand(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
         lm.rebalance(lps[0], 0);
         assertGt(venue.debtOf(lps[0]), 0, "precondition: levered debt > 0");
         _calmVol();
@@ -96,7 +96,7 @@ contract BufferSwapDrain is LevCascadeProbe {
         vm.deal(address(this), 40 ether);
         V4.deposit{value: 20 ether}(0, address(this));
         _openAtEntry(lps[0], 5 ether);
-        _rallyBand(_entrySqrt(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
+        _rallyBand(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
         lm.rebalance(lps[0], 0);
         _calmVol();
         V4.syncLev(lps[0]);
