@@ -752,24 +752,22 @@ contract Core is SafeCallback {
     function swap(address sender,
         bool inputIsUsd, address token, uint amount)
         onlyUs public returns (uint out) {
-        // 🛑🛑🛑 DO NOT MERGE THIS WORKTREE. TRANSITIONAL SOLVENCY HAZARD, KNOWINGLY OPEN. 🛑🛑🛑
-        //
-        // SWAPS HAVE STOPPED BEING v4 OPERATIONS; LIQUIDITY HAS NOT. This settles against `POOLED_*`
-        // and pays out REAL tokens via `AUX.take` / `VOGUE.takeETH` — but the band's tokens are
-        // still custodied by the PoolManager, because `_modifyLiquidity` (6 sites) and four `unlock`
-        // sites still put liquidity there. THE AUTHORITATIVE BALANCE AND THE ACTUAL CUSTODIAN
-        // DISAGREE for as long as this window is open.
-        //
-        // The failure is not a revert. `POOLED_ETH` claims inventory sitting inside a v4 position;
-        // each swap decrements that claim and pays out from a DIFFERENT pot. Run it enough and
-        // either the payout pot drains while `POOLED_*` still reports backing, or `POOLED_*` reaches
-        // zero with the v4 position untouched. Both price every LP claim off a number that is no
-        // longer physical.
-        //
-        // ⇒ CLOSING IT = FINISHING THE CUT: dissolve Repack/Reseat/ModLP/Collect and delete
-        // `_modifyLiquidity`, so custody and accounting are one thing again. Until then this branch
-        // is work-in-progress, not a candidate. (Found by the skew thread; verified here.)
-        //
+        // §V4-CUT — THE CUSTODY HAZARD THIS BANNER WARNED ABOUT IS CLOSED (verified 2026-08-16).
+        // It read "DO NOT MERGE THIS WORKTREE -- TRANSITIONAL SOLVENCY HAZARD": swaps had stopped
+        // being v4 operations while LIQUIDITY had not, so `POOLED_*` claimed inventory sitting in a
+        // PoolManager position while payouts came from a different pot. Its own closing condition
+        // was "delete `_modifyLiquidity`, so custody and accounting are one thing again".
+        // THAT IS DONE, AND CHECKED BY CALL SITE RATHER THAN BY TRUSTING A COMMENT:
+        //   • `modifyLiquidity` — SEVEN occurrences in `src`, ALL of them comments. Zero calls.
+        //   • `poolManager.unlock` — one, in `SOR.sol`, whose callback lands on `Aux`; it routes
+        //     through EXTERNAL pools and never held band liquidity.
+        //   • `OracleLib.initPool` stopped calling `pm.initialize` entirely, so no pool of ours is
+        //     ever created — nothing can be deposited into one.
+        // `Core.sol:779` in this same file already recorded "THIS WAS THE LAST `poolManager.unlock`
+        // AND THE LAST `_modifyLiquidity`", so two comments here disagreed and the newer was right.
+        // ⚠️ This closes the CUSTODY axis only. It is not a blanket merge approval: the suite result
+        // and the remaining `isBTC` work are separate questions, tracked separately.
+
         // ═══════════════ §V4-CUT — SETTLE AT ORACLE, BOUNDED BY INVENTORY ═══════════════
         // No unlock, no callback, no curve traversal, no price discovery. ONE price for the whole
         // size. The skew is deliberately NOT folded into this rate: we restore 1:1 from the inside

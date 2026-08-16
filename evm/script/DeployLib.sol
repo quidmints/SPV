@@ -157,6 +157,15 @@ library DeployLib {
         // VANILLA_ETH / VANILLA_BTC at live market prices (built in its own frame).
         (PoolKey memory refKeyETH, PoolKey memory refKeyBTC) = _refKeys(cfg);
         core.setup(address(v4), address(aux), address(quid), refKeyETH, refKeyBTC);
+        // 🔴 THE BTC INSTANCE WAS NEVER SET UP, AND IT COST 1,828 TEST FAILURES. The isBTC split
+        // built both bands (above) and registered both with `BandBacking`, but only the ETH one was
+        // ever configured -- so the BTC Core had no AUX, no BASKET and, decisively, an UNSEEDED
+        // observation ring. `OracleLib.observe` then computed `(st.index + 1) % st.cardinality`
+        // with `cardinality == 0`, i.e. a modulo by zero, which is what every `repack(true)` path
+        // hit. `setup` is instance-aware (it seeds only ITS OWN ring), so this is the missing call,
+        // not a workaround. Nothing else routed to the BTC instance until `Aux.bandOf` started
+        // dispatching WBTC to it, which is why the gap stayed invisible.
+        Core(a.btcCore).setup(address(v4), address(aux), address(quid), refKeyETH, refKeyBTC);
         v4.setup(address(quid), address(aux), address(core));
         aux.setQuid(address(quid));
 
@@ -169,6 +178,7 @@ library DeployLib {
         v4.setEthVenueContract(address(ev));
         eth.setup(address(quid));                // reads BTC pool slot0 (needs CORE.setup)
         core.setBtcVault(address(eth));
+        Core(a.btcCore).setBtcVault(address(eth));   // the BTC instance needs the same pin
         quid.setBtcVault(address(eth));
 
         a.v4 = address(v4);
