@@ -226,6 +226,15 @@ contract Aux is // Auxiliary
     function _requireUs() private view {
         if (msg.sender != address(V4)
          && msg.sender != address(CORE)
+         && msg.sender != address(BTC_CORE)  // §ISBTC-SPLIT — THE BTC BAND IS A SECOND ADDRESS NOW.
+                                             // `Core._settleUsdSide` calls `AUX.take` (onlyUs) to pay
+                                             // the USD leg, and `Core.swap` calls `btcShortfall`
+                                             // (onlyUs); with only the ETH instance listed, BOTH
+                                             // reverted for the BTC band -- it could not pay out or
+                                             // signal. Note the warning already written below about
+                                             // the venue carve: "true only while they WERE one
+                                             // address". The same thing happened again one level up
+                                             // when Core itself became two instances.
          && msg.sender != address(QUID)
          && msg.sender != ethVenue          // ETH-venue custody: it delegatecalls into
                                              // SwapLib/VaultLib with address(this)==EthVenue,
@@ -709,7 +718,15 @@ contract Aux is // Auxiliary
             SwapLib.SwapReq(token, asset, forVolatile, amount, minOut, recipient, address(0), 0),
             SwapLib.SwapToCfg({
                 weth: address(WETH), wbtc: address(WBTC), quid: address(QUID),
-                core: address(CORE), v4: address(V4), btcVault: CORE.btcVault(),
+                // §ISBTC-SPLIT — THE SWAP SETTLES AGAINST THE BAND THAT OWNS THE ASSET. This read
+                // `address(CORE)` for every asset, so a WBTC swap priced and settled against the ETH
+                // band's inventory: `POOLED`, `POOLED_USD`, the skew and the backing gate all came
+                // from the wrong instance. MEASURED: with the BTC band's own POOLED at 0, every BTC
+                // swap returned out == 0 and reverted `SlippageMaxS()` -- ~593 failures, all BTC.
+                // The read paths (`getTWAPforAsset`, `resolvedTwap`, `wellSkew`) were dispatched by
+                // `bandOf` already; this is the WRITE half of the same dispatch, and splitting them
+                // is what let reads and settlement disagree about which band they were talking to.
+                core: address(bandOf[asset]), v4: address(V4), btcVault: CORE.btcVault(),
                 btcChannels: _btcChannels
             }),
             stables
@@ -1115,7 +1132,7 @@ contract Aux is // Auxiliary
     function _backingCore()
         internal returns (uint committedSum, uint totalLiquid) {
         // Body extracted to BasketLib.backingCoreBody to free Aux bytecode.
-        return BasketLib.backingCoreBody(address(CORE), address(V4), CORE.btcVault());
+        return BasketLib.backingCoreBody(address(CORE), address(BTC_CORE), address(V4), CORE.btcVault());
     }
 
     /// @notice Asset-withdraw dispatcher (mirror of _supply). WETH idle-

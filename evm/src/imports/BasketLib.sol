@@ -1036,7 +1036,7 @@ library BasketLib {
     /// @notice Body of Aux._backingCore (delegatecall, address(this)==Aux).
     /// Reads backing vs commitment; up to two V4 repacks to heal an
     /// over-commit. Returns current values regardless.
-    function backingCoreBody(address core, address v4, address btcVault)
+    function backingCoreBody(address core, address btcCore, address v4, address btcVault)
         external returns (uint committedSum, uint totalLiquid) {
         // Terminal solvency gate counts standing holdings at PAR (drain side — intentional mint/drain asymmetry;
         // the issuance side haircuts depeg to block over-mint). See DepegBackingProbe / SwapLib.swapToBody.
@@ -1044,7 +1044,14 @@ library BasketLib {
         totalLiquid = deposits[14];
         committedSum = ICore(core).committedUsd18();
         if (committedSum <= totalLiquid) return (committedSum, totalLiquid);
-        bool ethFirst = ICore(core).POOLED_USD() >= ICore(core).POOLED_USD();
+        // §ISBTC-SPLIT — THIS COMPARED A VALUE TO ITSELF. It was `POOLED_USD_ETH >= POOLED_USD_BTC`
+        // before the fields collapsed to one per instance, and the collapse rewrote both sides to the
+        // same expression -- so `ethFirst` was unconditionally true and the "repack the LARGER pool
+        // first" intent was dead. Not a solvency break (both pools repack if the first is not enough,
+        // and `committedUsd18` is the shared sum either way), but the ordering it chose was never the
+        // one it claimed. Same shape as `token1isVol = token1isVol`: a rename/collapse producing an
+        // expression the compiler cannot object to. Now it reads the two INSTANCES.
+        bool ethFirst = ICore(core).POOLED_USD() >= ICore(btcCore).POOLED_USD();
         // ETH pool repack → Vogue (v4); BTC pool repack → BtcVault (regrouped).
         _repackPool(!ethFirst, v4, btcVault);
         committedSum = ICore(core).committedUsd18();
