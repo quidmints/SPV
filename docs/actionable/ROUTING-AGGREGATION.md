@@ -326,3 +326,33 @@ than becoming its own errand.
 ⚠️ NOTE FOR THE ROUTING WORK: this is evidence that the SOR→Curve migration left residue in the
 approval layer. When the legs move to the aggregator, the SAME review is needed — approve
 exact-amount to the ROUTER and zero after, and remove whatever the previous venue's approval was.
+
+---
+
+## TRUSTWORTHY SUITE BASELINE — 2026-08-16 (use this, not any earlier figure in this thread)
+
+`forge test` on publicnode, artifacts freshly built, tree at `01539a3c`:
+
+    4,316 passed / 3 failed  — ZERO endpoint noise
+    the 3 are ONE distinct test inherited by three suites:
+    testLeverage_LvrControlVsTreatment — "at UNCHANGED ETH price, leverage flow must not leave the
+    passive LP worse off than no flow"
+
+**Why this is stated so emphatically: every earlier number in this thread was wrong**, and in both
+directions:
+
+| run | passed | failed | what was actually happening |
+|---|---|---|---|
+| publicnode, ~40 commits back | 2,611 | 43 | endpoint killed whole suites inside `setUp`, so most tests never ran |
+| ankr, same tree | 4,226 | 46 | `-32002` timeouts mid-run |
+| **this one** | **4,316** | **3** | clean |
+
+⇒ A suite that dies in `setUp` DROPS ITS WHOLE SUITE FROM THE COUNT, so the pass total swings wildly
+and a smaller failure count can mean LESS was tested, not that more passed. **Never compare two runs
+on different endpoints, and never quote a count without checking for `database error` /
+`error sending request` / `Rate limit` lines first.**
+
+⇒ Also: `testLeverage_LvrControlVsTreatment` is now the ONLY failing test in the repo. A
+self-dealing explanation for it (lev flow trading against our own band) was proposed and REFUTED —
+`DeployLib._pk` sets `hooks: IHooks(address(0))`, so our band is never in the SOR route. It fails at
+UNCHANGED price, where there is no IL and no directional PnL, and it has no explanation.
