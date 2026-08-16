@@ -39,6 +39,43 @@ because it was never the question the proof answers.
 | `parkProvenSats` :1130 | sats | ✅ proven |
 | `splice` :988, `markMigrationNonceUsed` :1457 | — | ⚪ not a credit path; re-check under §T3 |
 
+## 🔴 STOP — READ THIS BEFORE BUILDING §T2's EIP-712 INTENT. THE ATTRIBUTION MAY ALREADY BE PROVEN.
+
+Found while opening `settleSwapInProven` to implement the intent (2026-08-16). **The deposit
+address already commits to the payer's key, and the contract already verifies that binding — the
+proof is being computed and then thrown away.**
+
+* `ExitLib.swapInDepositKey(internalKey, userRefund, cltvHeight)` builds the taproot output key by
+  tweaking `internalKey` with the tapleaf hash of `<cltvHeight> OP_CLTV OP_DROP <userRefund>
+  OP_CHECKSIG` (`:163-182`).
+* `verifySwapInDeposit` **RECOMPUTES `q` from `userRefund`** and requires the deposit to have paid
+  that exact script (`:149-158`) — otherwise `DepositNotPaid`.
+* The Rust side agrees and is tested for it: *"deposit_key_is_deterministic_and_index_scoped"*,
+  *"distinct_cltv_or_user_yields_a_distinct_deposit_address"*, *"refund_leaf_encodes_cltv_and_user_key"*.
+
+⇒ **WHO PAID IS ALREADY A PROVEN FACT**, bound into the address the sats landed at. What is
+missing is only the mapping from `proof.userRefund` (a BIP-340 x-only secp256k1 key) to `seller`
+(an EVM address). **Both are secp256k1** — x-only fixes y as even, so the full point is
+determined and the address is `keccak(pubkey)[12:]`, computable on-chain in a repo that already
+pays for on-chain EC (`MuSig2Agg`, §E129/§E142).
+
+⇒ **IF THAT HOLDS, §T2 IS NOT AN ADDITION — IT IS A DELETION.** `seller` stops being a parameter
+and becomes `addressFromXOnly(proof.userRefund)`. No EIP-712 domain, no seller signature, no extra
+round trip, and one fewer hop-supplied field instead of several more. **That is standing rule 17:
+a root fix makes the previous fix deletable, and the EIP-712 intent would be the clamp.**
+
+⚠️ **THE ONE THING THAT DECIDES IT, AND IT IS NOT VERIFIED: is the user's BTC refund key the same
+key as their EVM address, or can it be made so?** If `userRefund` is a separate Bitcoin-only key,
+the derivation yields an address the payer does not control and the whole idea fails — credits
+would route to an unspendable address, which is worse than the hole. **Check where `userRefund`
+is produced (`requestOnchainSwapIn`'s caller and the Rust deposit-key derivation) BEFORE writing
+any code either way.** ⛔ Do NOT implement the EIP-712 intent until this is settled: building it
+first means building the thing this finding may delete.
+
+📌 `token` and `minDeliveredUsd` are NOT covered by this and remain the hop's word regardless —
+the deposit address commits to the PAYER, not to what they were promised. A signed intent may
+still be needed for those two, which would make it a much smaller change than the queue describes.
+
 ## The three that remain, and they are ONE change
 
 1. **§T2 — seller-signed EIP-712 intent.** The seller signs `(seller, token, minUsd,
