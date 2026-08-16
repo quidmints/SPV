@@ -63,7 +63,7 @@ import {ILevEquityBtc} from "./imports/Interfaces.sol";
 /// so a venue liquidation un-pairs the buffer (`levBurnAll`) without stranding basket `POOLED_USD`.
 
 /// BTC IL-protect: the BtcLevManager's per-LP net-of-debt equity IS protocol BTC backing (8-dec
-/// sats), so `syncLevBTC` pairs it as tokenless band depth INTO `POOLED` (LP.pooled) — that is where
+/// sats), so `syncLev` pairs it as tokenless band depth INTO `POOLED` (LP.pooled) — that is where
 /// the net-equity is counted for solvency. `vogueBTC` is WBTC-only (swept donations + swap deltas) and is
 /// NEVER credited the net-equity, so `POOLED + vogueBTC` (Core shortfall read) is single-counted. Net
 /// (not gross): a venue liquidation can't strand POOLED_USD. Mirrors the ETH `ILevEquity` over the BTC band.
@@ -111,7 +111,7 @@ contract Vault is Ownable, ReentrancyGuard {
     /// BTC IL-protect: per-LP LEVERED band slice (8-dec sats) — the mirror of Vogue's `levPooled`.
     /// Backed by the BtcLevManager net-equity (not real channel sats), it earns V4 fees but is
     /// UNWIND-ONLY: it never leaves via a channel splice/close (there's no channel BTC behind it), only
-    /// via `syncLevBTC` shrinking to match the manager. Excluded from the LP's withdrawable balance.
+    /// via `syncLev` shrinking to match the manager. Excluded from the LP's withdrawable balance.
     mapping(address => uint) public levPooledBTC;
     /// @notice full-2×: 6-dec USD counterpart of an LP's DEBT-funded BTC buffer leg. Post-fold it folds
     ///         into POOLED_USD (no separate LEV bucket) and is excluded from committed via the live-debt
@@ -239,7 +239,7 @@ contract Vault is Ownable, ReentrancyGuard {
     // ════════════════════════════════════════════════════════════════
 
     /// @notice Pin the BtcLevManager (one-shot) so `vogueBTC` counts the BTC leveraged book's
-    ///         net-equity and `syncLevBTC` can read the per-LP target. Distinct from the ETH LEV_MANAGER.
+    ///         net-equity and `syncLev` can read the per-LP target. Distinct from the ETH LEV_MANAGER.
     function setLevManagerBTC(address m) external onlyOwner {
         if (LEV_MANAGER_BTC != address(0)) revert LevManagerPinned();
         LEV_MANAGER_BTC = m;
@@ -299,7 +299,7 @@ contract Vault is Ownable, ReentrancyGuard {
     /// @notice Close-side inverse: burn the `sats` vBTC the manager withdrew from the venue and convert the
     ///   LP's levered slice back to FREE channel band depth (lev→funded). `LP.pooled` is UNCHANGED, so the
     ///   LP's band position simply un-freezes — grown by leverage gain / shrunk by loss (the LP bears its
-    ///   own leverage P&L), since a preceding `syncLevBTC` marked `levPooledBTC` to the live net-equity == `sats`.
+    ///   own leverage P&L), since a preceding `syncLev` marked `levPooledBTC` to the live net-equity == `sats`.
     ///   The LP never receives loose vBTC (that would double-claim the same channel BTC).
     function unexposeBtcFromLev(address lp, uint sats) external returns (bool) {
         if (msg.sender != LEV_MANAGER_BTC) revert NotLevManagerBtc();
@@ -488,10 +488,10 @@ contract Vault is Ownable, ReentrancyGuard {
     ///         as depth; SHRINK/liquidation burns it. No new channel sats — backed by vogueBTC.
     function syncLev(address lp) external nonReentrant {   // §SLOP: one name across both bands
         // Whole body (skip-check + _rebalance-via-repack + fee-settle + FULL-RESYNC:
-        // burn all, re-add gross as two legs) in BtcVaultLib.syncLevBTC (delegatecall)
+        // burn all, re-add gross as two legs) in BtcVaultLib.syncLev (delegatecall)
         // over the Vault's storage via the passed refs (incl. levBufferUsdBTC).
         // Returns (added, burned); the forwarder applies the value-type delta.
-        BtcVaultLib.LevDelta memory d = BtcVaultLib.syncLevBTC(
+        BtcVaultLib.LevDelta memory d = BtcVaultLib.syncLev(
             _btcCfg(), autoManagedBTC[lp], levPooledBTC, levBufferUsdBTC, levBufBTC,
             lp, LEV_MANAGER_BTC, address(QUID));
         lpSharesBTC = lpSharesBTC + d.addedNet - d.burnedNet;         // NET equity leg

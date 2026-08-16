@@ -1530,7 +1530,7 @@ library SwapLib {
         if (deLeverUsd6 > exactUsd6) deLeverUsd6 = exactUsd6;
         // Draw the retired-debt share out of POOLED_USD BEFORE the drain: takeToSettle uses the SOFT backing
         // check (its mid-drain instant is offset by the repay below), and drawing first keeps committed and liquid
-        // moving together. The debt-buffer's stale POOLED_USD is reconciled by the keeper's async syncLevBTC.
+        // moving together. The debt-buffer's stale POOLED_USD is reconciled by the keeper's async syncLev.
         ICore(core).drawPooledUsdBtc(deLeverUsd6);          // retired-debt share leaves POOLED_USD
         ICore(core).subPendingSwapOut(deLeverUsd6);        // obligation share cleared (matched at request)
         uint got;

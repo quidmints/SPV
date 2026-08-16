@@ -44,7 +44,7 @@ interface IMorphoOraclePrice { function price() external view returns (uint256);
 ///         LevCascade's `test_LevFeeLane_EarnsFees_UnwindOnly_SeizureBurnsClean` +
 ///         `test_NetEquity_BackingRecognized_SeizureLeavesPooledUsdIntact`, over the BTC band.
 ///
-///         The exercised path is `Vault.syncLevBTC` → `VaultLib.syncLevBtc` → `levAddBtc`/`levBurnBtc`
+///         The exercised path is `Vault.syncLev` → `VaultLib.syncLevBtc` → `levAddBtc`/`levBurnBtc`
 ///         (the BTC counterpart of `Vogue.syncLev`/`_levAdd`/`_levBurn`), driven by
 ///         `BtcLevManager.netEquity(lp)`, plus the `totalNetEquityBtc()` backing read.
 ///
@@ -353,7 +353,7 @@ contract VBtcLevFeeLane is Alles {
         venue = new MorphoEscrowVenue(MORPHO, mp, address(lm));
         address[] memory vs = new address[](1); vs[0] = address(venue);
         lm.init(address(ETH), MORPHO, vs);   // atomic pin-once: hook + Morpho flash provider + venue allowlist, FROZEN
-        ETH.setLevManagerBTC(address(lm));        // pin the BTC leveraged book into vogueBTC + syncLevBTC
+        ETH.setLevManagerBTC(address(lm));        // pin the BTC leveraged book into vogueBTC + syncLev
     }
 
     /// Give `lp`'s position REAL Morpho debt of `usdc6` USDC. Borrowed DIRECTLY on `lp`'s own isolated Morpho
@@ -610,7 +610,7 @@ contract VBtcLevFeeLane is Alles {
 
         { uint puPreSlice = CORE.POOLED_USD();
           uint pbPreSlice = CORE.POOLED();
-          ETH.syncLevBTC(lpEth);                               // mark the levered slice to net-equity
+          ETH.syncLev(lpEth);                               // mark the levered slice to net-equity
           // SAME-BTC: the slice is the LP's OWN channel BTC (already banded), so a zero-leverage sync neither
           // grows POOLED nor re-pairs new USD — it stays FLAT (no double-count). It only SHRINKS later,
           // when a leverage loss/seizure reduces net-equity below the exposed base (asserted in (c)).
@@ -665,23 +665,23 @@ contract VBtcLevFeeLane is Alles {
             assertGe(pooledAfterWithdraw, ETH.levPooledBTC(lpEth), "(b) LP.pooled never shrank into the lev depth");
         }
 
-        // (c) SEIZE -> net-equity 0 -> syncLevBTC burns the slice clean. Isolate the burn around the
-        //     seizure syncLevBTC: comparing to the pre-slice baseline would conflate it with the (a)
+        // (c) SEIZE -> net-equity 0 -> syncLev burns the slice clean. Isolate the burn around the
+        //     seizure syncLev: comparing to the pre-slice baseline would conflate it with the (a)
         //     swaps' legitimate, backed USD inflow into POOLED_USD. So assert the burn STRICTLY
         //     un-pairs POOLED_USD, and that the basket stays solvent (D >= S + L — the real
         //     "not over-committed" invariant).
         // Give the position REAL Morpho debt, reflect it in the slice, then a REAL Morpho liquidation → net-equity
-        // drops further → syncLevBTC SHRINKS the levered slice toward the liquidated net-equity (un-pairing its USD
+        // drops further → syncLev SHRINKS the levered slice toward the liquidated net-equity (un-pairing its USD
         // from POOLED_USD). (Partial Morpho liquidation de-risks toward health, so the slice shrinks vs the
         // mock's clean full-clear.)
         uint collUsdC = 2_000_000 * AUX.getTWAPforAsset(address(WBTC), 1800) / 1e18;
         _borrowMorpho(lpEth, (collUsdC / 2) / 1e12);          // ~50% LTV of real Morpho debt
-        ETH.syncLevBTC(lpEth);                                // reflect the debt: slice tracks the levered net-equity
+        ETH.syncLev(lpEth);                                // reflect the debt: slice tracks the levered net-equity
         uint levBeforeSeize = ETH.levPooledBTC(lpEth);
         assertGt(levBeforeSeize, 0, "(c) precondition: a levered slice exists to shrink");
         _seizeRealBtc(lpEth, 1, 2);                           // REAL Morpho liquidation (repay half the debt)
         uint puBeforeBurn = CORE.POOLED_USD();
-        ETH.syncLevBTC(lpEth);
+        ETH.syncLev(lpEth);
         assertLt(ETH.levPooledBTC(lpEth), levBeforeSeize, "(c) seizure: levered slice SHRANK toward the liquidated net-equity");
         assertLt(CORE.POOLED_USD(), puBeforeBurn, "(c) the burn un-paired lev-slice USD from POOLED_USD");
         _assertSolvent("(c) solvent after seizure burn (not over-committed)");
@@ -701,7 +701,7 @@ contract VBtcLevFeeLane is Alles {
         assertEq(ETH.totalNetEquityBtc(), 0, "no lev book yet => zero net-equity backing");
 
         // Open at zero leverage => net-equity == collateral (8-dec sats). Opening does NOT touch the
-        // band (no syncLevBTC), so POOLED_USD is untouched — but the backing term is recognized.
+        // band (no syncLev), so POOLED_USD is untouched — but the backing term is recognized.
         _openLev(lpEth, 5_000_000); // expose 0.05 BTC of the 0.3 BTC channel
         assertEq(lm.netEquity(lpEth), 5_000_000, "net-equity == principal (zero leverage)");
         assertEq(lm.totalNetEquityBtc(), 5_000_000, "book total == principal");
@@ -745,7 +745,7 @@ contract VBtcLevFeeLane is Alles {
         assertLe(deliv, lm.vBtcValueUsd(venue.collateralOf(lpEth)), "deliverable <= collateral (conservative)");
         assertLe(deliv, lm.totalDeliverableDollars(), "per-LP deliverable is within the book aggregate");
 
-        ETH.syncLevBTC(lpEth);
+        ETH.syncLev(lpEth);
         _assertSolvent("solvent with lev backing (net-equity is redemption backing, not surplus-paired)");
 
         // BTC price UP 20% ⇒ net-equity GROWS ⇒ de-lever capacity grows; sync stays solvent (never fabricates backing).
@@ -753,7 +753,7 @@ contract VBtcLevFeeLane is Alles {
         vm.mockCall(address(AUX), abi.encodeWithSelector(IAuxTwapV.getTWAPforAsset.selector, address(WBTC), uint32(1800)),
             abi.encode(px * 120 / 100));
         assertGt(lm.deliverableDollars(lpEth), deliv, "de-lever capacity grows with net-equity (price up)");
-        ETH.syncLevBTC(lpEth);
+        ETH.syncLev(lpEth);
         _assertSolvent("price-up: solvent");
         vm.clearMockedCalls();
     }
@@ -850,7 +850,7 @@ contract VBtcLevFeeLane is Alles {
         (d.channelId, d.fundingTxId, d.lp, d.lpPubkey) = _open(d.ch, 54, 3e8);       // 3 BTC channel
         _openLev(d.lp, 299_000_000);                                                 // expose 2.99 BTC ⇒ funded ~= 1e6
         _borrowMorpho(d.lp, (lm.vBtcValueUsd(venue.collateralOf(d.lp)) / 2) / 1e12); // ~50% LTV real Morpho debt
-        ETH.syncLevBTC(d.lp);
+        ETH.syncLev(d.lp);
         _snapLevPosition(d);
         assertGt(d.debt, 0, "position carries real Morpho debt");
         assertLt(d.funded, 2e6, "free channel band is (near-)exhausted below the levered slice");
@@ -862,10 +862,10 @@ contract VBtcLevFeeLane is Alles {
         // The vBTC withdraw inside swapOutDelever needs the LP to authorize the venue as its Morpho manager.
         vm.prank(d.lp); IMorphoTest(MORPHO).setAuthorization(address(venue), true);
         _deliverLevSwapOut(d.ch, d.channelId, d.fundingTxId, 54, d.lpPubkey, _levDelivSwapId(), d.sats, _levDelivScript(address(d.ch)));
-        // Keeper reconcile: the delivery repaid debt in-tx but syncLevBTC is nonReentrant (can't run inside the
+        // Keeper reconcile: the delivery repaid debt in-tx but syncLev is nonReentrant (can't run inside the
         // delivery lock), so the debt-buffer's POOLED_USD is resized to the smaller debt here — exactly the async
         // reconcile the lev keeper performs. Until it runs, committed is only OVERSTATED (a stricter gate).
-        ETH.syncLevBTC(d.lp);
+        ETH.syncLev(d.lp);
         _assertDeleverOnDelivery(d);
     }
 

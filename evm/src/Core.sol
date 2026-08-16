@@ -869,7 +869,7 @@ contract Core {
         // shortfall, never grow it, and suppressing a "shortfall" we can cover from
         // our own WBTC is correct (no need to source what we already hold).
         // BTC IL-protect: totalSharesBTC includes each LP's LEVERED slice (levPooledBTC), and its backing is
-        // ALREADY inside POOLED — `syncLevBTC` pairs the net-equity as deltaBTC into POOLED in lockstep
+        // ALREADY inside POOLED — `syncLev` pairs the net-equity as deltaBTC into POOLED in lockstep
         // with levPooledBTC (VaultLib.levAddNetBtc/levAddBufBtc), so the lev slice is monotone-neutral here.
         // (The ETH branch is NET-vs-NET: vogueETH() adds the lev book's NET equity (totalNetEquityEth, the
         // debt-funded buffer half offset by the LP's borrow) and totalShares() is NET, so no gross term is added

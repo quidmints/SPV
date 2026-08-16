@@ -266,8 +266,8 @@ library BtcVaultLib {
     ///      stack-too-deep without via_ir; mirrors the "own frame" discipline).
     // §BAND-MERGE — `Types.BandP` moved to `Types.BandP` (shared with the ETH side).
 
-    /// @dev syncLevBTC's four signed deltas, returned as ONE struct (a single memory pointer) rather than
-    ///      four stack-slot returns — keeps syncLevBTC off the legacy-pipeline stack (no via_ir). The Vault
+    /// @dev syncLev's four signed deltas, returned as ONE struct (a single memory pointer) rather than
+    ///      four stack-slot returns — keeps syncLev off the legacy-pipeline stack (no via_ir). The Vault
     ///      forwarder applies lpSharesBTC += addedNet - burnedNet and totalBufferBTC += bufAdded - bufBurned.
     struct LevDelta { uint addedNet; uint burnedNet; uint bufAdded; uint bufBurned; }
 
@@ -399,7 +399,7 @@ library BtcVaultLib {
         return deltaBTC;
     }
 
-    /// @notice Full body of Vault.syncLevBTC (skip-check + rebalance moved here):
+    /// @notice Full body of Vault.syncLev (skip-check + rebalance moved here):
     ///         reconcile band CAPACITY to the manager's GROSS target; skip when both
     ///         the gross depth AND the buffer-USD target are already in sync. On work,
     ///         repack (self-call), then settle fees + FULL-RESYNC the slice to GROSS
@@ -407,7 +407,7 @@ library BtcVaultLib {
     ///         USD, the buffer leg pairs its OWN debt (folded into POOLED_USD, excluded from committed via
     ///         committedUsd18's live-debt subtraction). Mirrors ETH.
     ///         Returns the signed lpSharesBTC change split as (added, burned).
-    function syncLevBTC(
+    function syncLev(
         Types.BandCfg memory c,
         Types.Deposit storage LP,
         mapping(address => uint) storage levPooledBTC,

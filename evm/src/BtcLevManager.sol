@@ -27,7 +27,7 @@ import {ILevVenueColl} from "./imports/Interfaces.sol";
 ///         confirmation, there is **no synchronous swap loop** like `openLev`'s — the fleet keeper drives the
 ///         fill/unwind over async steps (borrow → source BTC externally → mint vBTC → supply), so this manager
 ///         only exposes the **venue legs** (`leverBorrow`/`leverSupply`/`deleverWithdraw`/`repay`) that the
-///         keeper sequences, plus the read side (`netEquityBtc`, paired into `POOLED` by `syncLevBTC` —
+///         keeper sequences, plus the read side (`netEquityBtc`, paired into `POOLED` by `syncLev` —
 ///         that is the solvency count; `vogueBTC` is WBTC-only and is never credited the net-equity).
 ///
 ///         Reuses verbatim: `LevMath` (target `1−√(entry/now)`, net-equity, debt-delta), `ILevVenue` (the
@@ -64,7 +64,7 @@ contract BtcLevManager is LevBase {
     address public flashProvider;   // Morpho zero-fee flash (set in init) — powers the WBTC flash-repay-first de-lever
     event VenueAllowed(address venue);
     /// @notice ONE-SHOT GOV config — pin-once, then FROZEN, atomic. Wires the audited venue ALLOWLIST
-    ///         (`venues`, then frozen) and the band sync-hook (`hook` = Vault.syncLevBTC, poked by
+    ///         (`venues`, then frozen) and the band sync-hook (`hook` = Vault.syncLev, poked by
     ///         closeBtcLev) together. NOT rotatable (a new venue/hook ⇒ deploy a new BtcLevManager). No flash
     ///         provider on the native vBTC path — BTC de-lever is keeper-sequenced (async external BTC
     ///         sourcing). Matches LevManager.init (allowlist so a WBTC venue can sit beside the vBTC one).
@@ -253,9 +253,9 @@ contract BtcLevManager is LevBase {
         // SAME-BTC: expose `initialVbtc` of the LP's OWN free channel band BTC as the levered slice — the Vault
         // mints the vBTC face straight to this manager (no LP pre-mint / transferFrom roundtrip). Opens at zero
         // debt; the band isn't re-paired here (levPooledBTC marks it withdrawal-excluded, LP.pooled unchanged),
-        // matching the "open doesn't touch the band" invariant — the keeper's first syncLevBTC tracks net-equity.
+        // matching the "open doesn't touch the band" invariant — the keeper's first syncLev tracks net-equity.
         // COLLATERAL SOURCING — venue-agnostic, branched on the venue's collateral token (opens at ZERO debt either
-        // way; the band isn't re-paired here so "open doesn't touch the band" holds; the keeper's first syncLevBTC
+        // way; the band isn't re-paired here so "open doesn't touch the band" holds; the keeper's first syncLev
         // tracks net-equity). vBTC (native #74): expose the LP's OWN free channel BTC (Vault mints the vBTC face to
         // this manager — no pre-mint/transferFrom roundtrip). WBTC (fallback): the caller/SPA already SOR'd its USD
         // equity → WBTC; pull it in. `initialVbtc` is the collateral amount (8-dec) in either token.

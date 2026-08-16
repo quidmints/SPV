@@ -143,7 +143,7 @@ contract PooledUsdRepackMatrix is Alles {
         emit log_named_uint("   resolvedTwap    ", rTwap);
         emit log_named_uint("   stale?          ", rStale ? 1 : 0);
         emit log_named_uint("   curve spot      ", spot);
-        emit log_named_uint("   sqrtPriceX96    ", uint(sp));
+        emit log_named_uint("   spotPrice    ", uint(sp));
         emit log_named_address("   assetPriceFeed  ", AUX.assetPriceFeed(address(WETH)));
     }
 
@@ -447,8 +447,8 @@ contract PooledUsdRepackMatrix is Alles {
         (uint spB,) = CORE.poolStats();   // §DETICK: price is now the FIRST element, and it is a uint
         emit log_named_uint("--- sell #", i);
         emit log_named_uint("    reverted?      ", ok ? 0 : 1);
-        emit log_named_uint("    sqrtP before   ", uint(spA));
-        emit log_named_uint("    sqrtP after    ", uint(spB));
+        emit log_named_uint("    spotPrice before   ", uint(spA));
+        emit log_named_uint("    spotPrice after    ", uint(spB));
         emit log_named_uint("    USD leg before ", uA);
         emit log_named_uint("    USD leg after  ", CORE.POOLED_USD());
         emit log_named_uint("    ETH leg before ", eA);

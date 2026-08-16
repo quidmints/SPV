@@ -665,7 +665,7 @@ contract DrainAtomicity is Alles {
     /// §E115 — VALIDATES E93's INSTRUMENT: does NORMALIZED TICK POSITION track the composition
     /// ratio monotonically? E113 confirmed composition is a function of price-in-range and that
     /// `POOLED_*` IS the position. E114 restored the tick design. This checks the actual mapping the
-    /// design would consume: `(tick - tickLower) / (tickUpper - tickLower)` against `vol:USD`.
+    /// design would consume: `(tick - loPrice) / (upPrice - loPrice)` against `vol:USD`.
     /// `reseatEpoch` is logged because a repack MOVES THE FRAME, and a normalized position read
     /// across a frame move is not comparable -- that is the discriminator a naive TWAP would lack.
     /// §E116 — THE TIME-WEIGHTED FORM, the last open piece of E93. E115 validated the SPOT
@@ -676,7 +676,7 @@ contract DrainAtomicity is Alles {
     /// The point of the test: a SPOT reading and a TWAP must DIVERGE after a fresh move, and the
     /// TWAP must lag. If they are identical the ring is not accumulating and the design is dead.
     /// §E117 — THE LAST UNMEASURED CASE: what does a `tickCumulative` window do when the FRAME MOVES
-    /// mid-window? A reseat changes `tickLower`/`tickUpper`, so a normalized position computed from a
+    /// mid-window? A reseat changes `loPrice`/`upPrice`, so a normalized position computed from a
     /// TWAP that spans the change mixes TWO frames. E114/E115 identified `reseatEpoch` as the public,
     /// monotonic discriminator; this measures what actually goes wrong without it.
     /// §E118 — CONSEQUENCES OF ELIMINATING THE MOVING FRAME, measured BEFORE proposing it. If the
@@ -741,7 +741,7 @@ contract DrainAtomicity is Alles {
         emit log_named_uint("BEFORE: lower price     ", V4.LOWER_PRICE());
         emit log_named_uint("BEFORE: 1h TWAP price  ", twap0);
 
-        // Force frame motion the way E112 did -- sells push price to tickLower and trigger repacks.
+        // Force frame motion the way E112 did -- sells push price to loPrice and trigger repacks.
         for (uint d = 0; d < 40; ++d) {
             deal(address(WETH), drainer, 30 ether);
             vm.startPrank(drainer);
@@ -825,14 +825,14 @@ contract DrainAtomicity is Alles {
         _seedBasket();
         vm.prank(lpA); V4.deposit{value: 300 ether}(0, lpA);
         _settle();
-        // §E110-r: the repack gate is `currentTick >= tickUpper || currentTick < tickLower`, so the
+        // §E110-r: the repack gate is `currentTick >= upPrice || currentTick < loPrice`, so the
         // band must be driven OUT OF RANGE before a reseat does anything. 12 rounds of 20k moved
         // price ~0.15% against a +/-0.2% band and never exited -- which is why E109 tested nothing.
         // `reseatEpoch` incrementing IS the proof the band exited and re-centred, so no tick getter
         // is needed: drain hard, then assert the epoch moved before reading any result.
         // §E111 -> §E112: DRAINING cannot arm this test -- it empties the band, and the repack needs
         // `myLiquidity > 0`, so the liquidity is destroyed in the act of moving the price. The MIRROR
-        // construction avoids that: SELLING ETH IN pushes price DOWN toward `tickLower`, where a
+        // construction avoids that: SELLING ETH IN pushes price DOWN toward `loPrice`, where a
         // concentrated position converts to 100% VOLATILE -- so the band exits the range while still
         // HOLDING assets rather than being emptied. That is a band that is out-of-range AND liquid,
         // which is exactly the state E108-EXPLAINED's mechanism needs to be testable.
@@ -849,7 +849,7 @@ contract DrainAtomicity is Alles {
         emit log_named_uint("sells completed           ", sells);
 
         // §E112 -> §E113 ANSWERED BY CONSTRUCTION, SO THE COMPARISON IS GONE. This used to recompute
-        // the v4 POSITION's true split from (sqrtPrice, tickLower, tickUpper, liquidity) and diff it
+        // the v4 POSITION's true split from (sqrtPrice, loPrice, upPrice, liquidity) and diff it
         // against `POOLED_*` to decide which of the two the ledger measured. There is no v4 position
         // left to disagree with: the band settles against the oracle bounded by inventory, and
         // `poolStats()` reports OUR OWN accounting. `POOLED_*` is the ledger -- not because the diff

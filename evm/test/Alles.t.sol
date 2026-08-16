@@ -634,7 +634,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         vm.warp(block.timestamp + 1801);
     }
 
-    // §DETICK — `_getPrice` IS GONE. It squared a sqrtPriceX96 back into a price and inverted it
+    // §DETICK — `_getPrice` IS GONE. It squared a spotPrice back into a price and inverted it
     // for token ordering. `poolStats()` now returns the price directly, in WAD, orientation already
     // resolved, so every call site was converting a price a SECOND time -- a wrong number that still
     // looked like a price. Deleted rather than adapted: there is no sqrt left for it to consume.
@@ -652,8 +652,8 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
 
         USDC.approve(address(AUX), type(uint).max);
 
-        (uint sqrtPriceX96,) = CORE.poolStats();
-        uint price = sqrtPriceX96;   // §DE-TICK: poolStats returns the PRICE; no sqrt to decode
+        (uint spotPrice,) = CORE.poolStats();
+        uint price = spotPrice;   // §DE-TICK: poolStats returns the PRICE; no sqrt to decode
         console.log("ETH price:", price);
 
         uint usdcBefore = USDC.balanceOf(User01);
@@ -885,7 +885,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     //     state (same tick, same POOLED_USD 46_595_116, same POOLED). A concentrated
     //     position cannot trade itself past its own band edge — there is no liquidity beyond it.
     //   • Therefore NEITHER reseat branch in SwapLib.rebalanceCore fires. The repack branch needs
-    //     `currentTick > tickUpper || currentTick < tickLower` (false, by 1 tick). The auto-heal
+    //     `currentTick > upPrice || currentTick < loPrice` (false, by 1 tick). The auto-heal
     //     branch needs `stale` — internal TWAP >5% off Chainlink — and the gap here is 0.0999%.
     //     `reseatEpoch` is 0 both before AND after the reseat: nothing was re-centered.
     //

@@ -652,7 +652,7 @@ contract UnificationControls is Alles {
 
         // §V4-CUT — THE ORIGINAL QUESTION IS DISSOLVED, AND HALF THE OLD CHECK WOULD NOW BE VACUOUS.
         // This derived both legs from a concentrated-liquidity position via
-        // (sqrtPrice, tickLower, tickUpper, liquidity) and diffed them against the mirror. There is
+        // (sqrtPrice, loPrice, upPrice, liquidity) and diffed them against the mirror. There is
         // no v4 position left: `poolStats()` returns the TWAP and `POOLED` ITSELF, so "derive the
         // volatile leg and compare it to POOLED" reads `POOLED == POOLED` -- a control that cannot
         // fail, which is worse than none because it still prints as a passing assertion.

@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Types} from "./imports/Types.sol";
 
-/// @title  BandShares — the band's share token. ONE declaration of the per-LP state, TWO instances.
+/// @title  Shares — the band's share token. ONE declaration of the per-LP state, TWO instances.
 ///
 /// @notice §SLOP — THIS CONTRACT EXISTS TO DELETE TWELVE DUPLICATED STATE CONCEPTS. Measured on the
 ///         pre-fold tree, the same per-LP state was declared twice, once in `Vogue` (ETH) and once
@@ -36,7 +36,7 @@ import {Types} from "./imports/Types.sol";
 /// ⚠️ NOT YET WIRED. The state and the share face live here; the engine still owns the band
 ///    (`POOLED`, the ring, skew, settlement). Migration order is in
 ///    `docs/actionable/ONE-ENGINE-TWO-SHARE-TOKENS.md`.
-contract BandShares {
+contract Shares {
     // ─── identity: what makes the BTC suffix unwritable ───────────────────
     /// The band's volatile asset (WETH or WBTC). The instance IS the asset.
     address public immutable ASSET;

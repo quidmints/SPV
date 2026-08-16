@@ -611,7 +611,7 @@ contract PremiumIsCarryNotIncome is Alles {
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
         AUX.setAssetFeed(address(WETH), ETH_FEED);
 
-        // (a) ALIGNED — the common case. Should be a cheap no-op (`targetSqrt == sqrtPriceX96`).
+        // (a) ALIGNED — the common case. Should be a cheap no-op (`targetSqrt == spotPrice`).
         uint g = gasleft(); V4.reseat(); uint gNoop = g - gasleft();
         emit log_named_uint("reseat gas: ALIGNED (no-op)   ", gNoop);
 

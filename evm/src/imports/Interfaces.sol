@@ -187,7 +187,7 @@ interface ILevHost {
 /// Canonical view — union of the former per-file variants (`ILevSyncHookM`). Two declarations
 /// described ONE contract, so a signature change had to be made twice and a missed one still compiled.
 interface ILevSyncHook {
-    /// §SLOP — ONE NAME. This interface declared BOTH `syncLev` and `syncLevBTC` for the same
+    /// §SLOP — ONE NAME. This interface declared BOTH `syncLev` and `syncLev` for the same
     /// operation, so the two bands could not be called through one method even though the
     /// interface existed precisely to make that possible. The interface IS the polymorphism;
     /// a second name for the same call defeats it.
