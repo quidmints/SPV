@@ -64,13 +64,42 @@ and becomes `addressFromXOnly(proof.userRefund)`. No EIP-712 domain, no seller s
 round trip, and one fewer hop-supplied field instead of several more. **That is standing rule 17:
 a root fix makes the previous fix deletable, and the EIP-712 intent would be the clamp.**
 
-⚠️ **THE ONE THING THAT DECIDES IT, AND IT IS NOT VERIFIED: is the user's BTC refund key the same
-key as their EVM address, or can it be made so?** If `userRefund` is a separate Bitcoin-only key,
-the derivation yields an address the payer does not control and the whole idea fails — credits
-would route to an unspendable address, which is worse than the hole. **Check where `userRefund`
-is produced (`requestOnchainSwapIn`'s caller and the Rust deposit-key derivation) BEFORE writing
-any code either way.** ⛔ Do NOT implement the EIP-712 intent until this is settled: building it
-first means building the thing this finding may delete.
+### 🔴 CHECKED, AND IT REFUTES THE STRONG FORM ABOVE. Read this before acting on it.
+
+I named the falsifying check and ran it before building on the conclusion. **`user_refund` is
+supplied by the CLIENT, in the same request as `seller`, and nothing binds the two.**
+
+`quid-bridge/src/swap_in_api.rs:13` documents the `/swap-in-onchain` body as
+`{ …, "user_refund_pubkey": "<32-byte x-only hex>" }`; `:129` is the field, `:243-246` parses it,
+`:263` passes it straight into `deposit_for(&secp, &oc.master, user_refund, cltv, network)`. The
+Rust helper takes it as a parameter (`swap_in_onchain.rs:314-323`) — it derives nothing.
+
+⇒ **SO "THE ATTRIBUTION IS ALREADY PROVEN" IS TOO STRONG AND IS RETRACTED.** What the deposit
+address proves is that the sats paid a script committing to *a user-supplied refund key*. It does
+NOT tie that key to the `seller` EVM address the hop names — they are two independent fields of
+one request, and `seller = addressFromXOnly(userRefund)` today would credit the EVM address of a
+Bitcoin key nobody claims to control.
+
+✅ **THE LEVER SURVIVES, BUT IT IS A CLIENT CHANGE, NOT A CONTRACT-ONLY ONE.** The two keys are
+independent *by convention*, not by construction. If the wallet derives BOTH from ONE secp256k1
+private key — x-only for the refund leaf, `keccak(pubkey)[12:]` for the EVM address — then the
+deposit address commits to the seller by construction, and `seller` deletes from the signature
+exactly as described. That is the secp256k1 coincidence this repo already pays for, used at the
+place where it actually removes a trust assumption.
+
+🔴 **AND THE CUSTODY DECISION DECIDES WHETHER IT IS AVAILABLE AT ALL** — which is why this
+connects to ibiza's wallet work rather than being purely an SPV question:
+* **In-app key** (identity-wallet holds its own secp256k1): one key can serve both. **§T2 becomes
+  a deletion.**
+* **External wallet** (Phantom holds the EVM key): the app cannot extract that private key to
+  build a BIP-340 refund leaf from it, so the BTC refund key MUST be separate — and for those
+  sessions there is nothing to derive. **§T2 stays a signed intent.**
+⇒ **Both are needed unless external wallets are ruled out of the swap-in path.** Decide that
+first; it is the difference between deleting a parameter and adding an EIP-712 domain.
+
+⛔ Still do NOT write the intent before that decision — but the reason has changed: not "the code
+already does it" (it does not), but "who holds the key decides which of two different fixes is
+correct, and building one commits the signature".
 
 📌 `token` and `minDeliveredUsd` are NOT covered by this and remain the hop's word regardless —
 the deposit address commits to the PAYER, not to what they were promised. A signed intent may
