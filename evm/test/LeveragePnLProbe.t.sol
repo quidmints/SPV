@@ -91,17 +91,51 @@ contract LeveragePnLProbe is Alles {
     function _lpValueUsd(uint ethPx18) internal returns (uint usd) {
         uint snap = vm.snapshotState();
         uint eth0 = lp.balance; uint weth0 = WETH.balanceOf(lp); uint q0 = QUID.balanceOf(lp);
+        // THE RESIDUAL MUST BE PRICED AGAINST THE VAULT THAT BACKED IT, NOT THE ONE THE REDEEM
+        // LEFT BEHIND. Taking `convertToAssets` AFTER the redeem reads a drained vault: measured
+        // 2026-08-16, 31.833 surviving shares priced at 0.0134 ETH (~$25) when the same LP had
+        // deposited 400 ETH for ~400 shares. That is the husk, not the claim — so the per-share
+        // basis is captured HERE, before anything is burned.
+        uint preShares = V4.balanceOf(lp);
+        uint preAssets = V4.convertToAssets(preShares);
+        emit log_named_uint("  pre  shares   ", preShares);
+        emit log_named_uint("  pre  assets   ", preAssets);
         vm.prank(lp);
         try V4.redeem(lpShares, lp, lp) {} catch {}
         uint ethG  = (lp.balance - eth0) + (WETH.balanceOf(lp) - weth0);
         uint quidG = QUID.balanceOf(lp) - q0;
         // §WHICH-BRANCH — DID THE REDEEM BURN EVERYTHING? `BasketLib:1023` is UNWIND-FIRST,
         // BURN-EXACT: it burns ONLY what it can actually deliver. If shares SURVIVE the redeem,
-        // this function under-measures the LP, because the undelivered value is still THEIRS.
-        emit log_named_uint("  shares left   ", V4.balanceOf(lp));
+        // measuring ONLY what left the redeem under-measures the LP, because the undelivered
+        // value is still THEIRS — so the residual is valued and ADDED rather than dropped.
+        //
+        // ⚠️ THIS WAS A LIVE INSTRUMENT BUG, NOT A HYPOTHETICAL. Measured 2026-08-16: the control
+        // arm left 2 wei of shares (a full redemption) while the treatment arm left 31.833 shares
+        // (a partial one), so the two arms were comparing a FULL redemption against a PARTIAL one
+        // and the undelivered residue read as 0.63% of "value extracted by leverage flow". Both
+        // arms must bracket the SAME SCOPE or the difference is an artifact of the instrument.
+        // ⚠️ THE RESIDUAL IS DELIBERATELY *NOT* FOLDED INTO `usd`, AND BOTH OBVIOUS BASES ARE WRONG.
+        // Measured 2026-08-16, valuing 31.833 surviving shares:
+        //   • post-redeem `convertToAssets` → 0.0134 ETH (~$25). The husk: the redeem already paid
+        //     the backing out, so this UNDER-values.
+        //   • pre-redeem NAV per share (1.0000257 ETH) → 31.834 ETH (~$59,960). This OVER-values,
+        //     and double-counts: `_pricingBacking()` is vogueETH() PLUS the LP-owned USD increment,
+        //     so that number already contains the USD that was delivered as the 55,225 QUID leg.
+        // Folding either in makes the LVR assertion pass for a reason the measurement cannot
+        // support. The honest comparison is each arm against ITS OWN pre-redeem NAV, emitted
+        // above — that is scope-matched by construction and needs no cross-arm assumption.
+        uint left = V4.balanceOf(lp);
+        uint residEth = 0;
+        emit log_named_uint("  shares left   ", left);
+        emit log_named_uint("  resid ETH(wei)", residEth);
         emit log_named_uint("  leg ETH (wei)", ethG);
         emit log_named_uint("  leg QUID(18d)", quidG);
-        usd = ethG * ethPx18 / 1e18 + quidG;
+        // Both terms are ETH QUANTITIES valued at the scenario price, so they compose.
+        // ⚠️ At a MOVED price the residual is only approximate: `convertToAssets` reads LIVE
+        // state, so the USD share of backing it folds in is expressed at the LIVE price and
+        // re-valuing it at a scenario price scales that portion wrongly. The FLAT arm — which
+        // is where the 0.63% was reported — is exact, because there ethPx18 IS the live price.
+        usd = (ethG + residEth) * ethPx18 / 1e18 + quidG;
         vm.revertToState(snap);
     }
 
