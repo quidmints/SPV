@@ -150,77 +150,37 @@ contract RefillPlacementTest is Test {
         assertEq(lo + hi, 0,     "bounds must be zero, not a range around zero");
     }
 
-    // ── §E48 REALISABILITY ─────────────────────────────────────────────────────────────────────
-    // Holding is not delivering. These pin the bound that stops the band quoting depth it cannot
-    // source, and the failure it prevents is SILENT — nothing reverts, the fill is just short.
-
-    /// @notice CONSERVATION IS EXACT, AND IT IS THE INVARIANT EVERYTHING ELSE RESTS ON.
-    ///         Nothing may be created or lost by classifying inventory into placed / idle / deferred.
-    function test_RealisableConservesInventory() public pure {
-        uint[4] memory tok  = [uint(400e18), 400e18,  10e18, 0];
-        uint[4] memory usd  = [uint(753_600e6), 100_000e6, 900_000e6, 500_000e6];
-        uint[4] memory rTok = [uint(400e18), 120e18,   3e18, 0];
-        uint[4] memory rUsd = [uint(753_600e6),  90_000e6, 900_000e6, 250_000e6];
-        for (uint i; i < 4; i++) {
-            (uint tP, uint uP, uint tI, uint uI, uint dT, uint dU) =
-                SwapLib.refillRealisable(tok[i], usd[i], rTok[i], rUsd[i], PX, D);
-            assertEq(tP + tI + dT, tok[i], "volatile leg not conserved across placed/idle/deferred");
-            assertEq(uP + uI + dU, usd[i], "USD leg not conserved across placed/idle/deferred");
-        }
-    }
-
-    /// @notice WHEN NOTHING BINDS, THE LAYER IS A NO-OP. A realisability bound that quietly changed
-    ///         the unconstrained answer would be a regression in `refillPlacement` wearing a new name,
-    ///         so this brackets the two against each other directly.
-    function test_GenerousCapsAreIdenticalToPlainPlacement() public pure {
-        (uint aT, uint aU, uint aTI, uint aUI,,) = SwapLib.refillPlacement(400e18, 100_000e6, PX, D);
-        (uint bT, uint bU, uint bTI, uint bUI, uint dT, uint dU) =
-            SwapLib.refillRealisable(400e18, 100_000e6, type(uint128).max, type(uint128).max, PX, D);
-        assertEq(bT, aT, "placed volatile diverged when nothing bound");
-        assertEq(bU, aU, "placed USD diverged when nothing bound");
-        assertEq(bTI, aTI, "idle volatile diverged when nothing bound");
-        assertEq(bUI, aUI, "idle USD diverged when nothing bound");
-        assertEq(dT + dU, 0, "nothing may defer when the caps are above inventory");
-    }
-
-    /// @notice THE CAP BINDS DOWNWARD ONLY. A realisable figure ABOVE nominal is a stale or wrong
-    ///         read, and it must not become a phantom credit the band then quotes against.
-    function test_CapAboveInventoryCannotInflate() public pure {
-        (uint tP,,,, uint dT,) =
-            SwapLib.refillRealisable(10e18, 900_000e6, 999_999e18, 999_999_999e6, PX, D);
-        assertEq(tP, 10e18, "placed more volatile than the band actually holds");
-        assertEq(dT, 0,     "nothing may defer when the cap exceeds inventory");
-    }
-
-    /// @notice THE CASE THIS EXISTS FOR — nominal says balanced, realisable says short.
-    ///         PREDICTION BEFORE RUNNING: with a balanced book but only half the ETH sourceable,
-    ///         placement must halve and the unsourceable half must appear as DEFERRED, not idle.
-    ///         Placing on nominal here would quote ~2x the depth the band can actually honour.
-    function test_UnsourceableInventoryDefersRatherThanQuoting() public pure {
+    /// @notice §E48 THE DELIVERABILITY PRECONDITION HAS TEETH — feeding NOMINAL inventory where a
+    ///         DELIVERABLE figure belongs overstates the band's depth, silently.
+    ///
+    ///         THIS REPLACED A WRAPPER, AND THE DELETION IS THE POINT (standing rule 17). An earlier
+    ///         revision added `refillRealisable`, which took `min(nominal, realisable)` and reported a
+    ///         deferred slice. That was a SECOND bound over the same class of thing
+    ///         `VaultLib.deliverableETH` already bounds — it subtracts the weETH beyond what Curve can
+    ///         pay for and the unwind-only leverage net-equity. Passing the deliverable figure at the
+    ///         SOURCE makes the discrepancy unconstructible instead of merely detectable, and the
+    ///         deferred slice is already known where it is computed, so a second copy had no owner.
+    ///
+    ///         What cannot be deleted is the CONSEQUENCE of getting the input wrong, so that is what
+    ///         this pins: same price, same USD, two inventory figures, strictly different depth.
+    function test_NominalInventoryOverstatesDepthVersusDeliverable() public pure {
         uint x = 400e18;
-        uint y = x * PX / 1e30;                                  // nominally balanced
-        (uint nP,,,,,) = SwapLib.refillPlacement(x, y, PX, D);
-        assertEq(nP, x, "PREMISE: on nominal inventory the whole volatile leg places");
+        uint y = x * PX / 1e30;                       // balanced against the NOMINAL volatile leg
+        uint deliverable = x / 2;                     // half is stuck in venues that cannot source it
 
-        (uint tP,, uint tI,, uint dT,) = SwapLib.refillRealisable(x, y, x / 2, y, PX, D);
-        assertEq(dT, x / 2, "the unsourceable half must be reported as deferred");
-        assertEq(tP, x / 2, "placement must fall to what can actually be sourced");
-        assertEq(tI, 0,     "the sourceable half is fully representable, so none of it idles");
-        assertLt(tP, nP,    "realisable placement must be strictly below the nominal one");
-    }
+        (uint nomPlaced,,,,,)  = SwapLib.refillPlacement(x,           y, PX, D);
+        (uint delPlaced,, uint delIdleTok, uint delIdleUsd,,) =
+                                 SwapLib.refillPlacement(deliverable, y, PX, D);
 
-    /// @notice DEFERRED AND IDLE ARE DIFFERENT THINGS AND MUST NOT BE CONFLATED. Idle is realisable
-    ///         but unrepresentable AT THIS PRICE; deferred cannot be sourced at all. They are priced
-    ///         differently — the imbalance fee is about representation, not deliverability — so a
-    ///         caller that added them together would tax a venue outage as if it were a trade.
-    function test_IdleAndDeferredAreDistinct() public pure {
-        // USD-rich and ETH-capped at once: some USD cannot be represented (idle), some ETH cannot
-        // be sourced (deferred). Both must be non-zero and separately reported.
-        (,, uint tI, uint uI, uint dT, uint dU) =
-            SwapLib.refillRealisable(400e18, 900_000e6, 100e18, 900_000e6, PX, D);
-        assertGt(dT, 0, "PREMISE: some volatile must be unsourceable for this to test anything");
-        assertGt(uI, 0, "PREMISE: some USD must be unrepresentable for this to test anything");
-        assertEq(tI, 0, "all sourceable volatile is representable here, so none idles");
-        assertEq(dU, 0, "the USD cap did not bind, so no USD may defer");
+        assertEq(nomPlaced, x, "PREMISE: on nominal inventory the whole volatile leg places");
+        assertEq(delPlaced, deliverable, "deliverable placement must place exactly what can be sourced");
+        assertLt(delPlaced, nomPlaced,   "deliverable placement must be strictly shallower than nominal");
+        // The half that cannot be sourced does NOT reappear as idle volatile — it was never inventory
+        // for this purpose. What DOES idle is the USD that now has no ETH to pair with.
+        assertEq(delIdleTok, 0,  "no volatile may idle when the volatile leg is the binding one");
+        assertGt(delIdleUsd, 0,  "the USD left unpaired must be reported idle, not silently placed");
+        // And the overstatement is exactly the undeliverable slice — no rounding slop hiding in it.
+        assertEq(nomPlaced - delPlaced, x - deliverable,
+                 "the depth overstatement must equal the undeliverable inventory exactly");
     }
 }

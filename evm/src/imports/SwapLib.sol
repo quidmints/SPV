@@ -1717,8 +1717,27 @@ library SwapLib {
     ///         placement fixes it — `tokIdle` will be 0 and `usd6Idle` positive, and that is the
     ///         honest report rather than a failure. **This is where "restore to 1:1" and "maximise
     ///         representation of what we hold" diverge, and the caller must not confuse them.**
-    /// @param invTok   inventory of the volatile leg, raw (1e18 ETH / 1e8 sats)
-    /// @param invUsd6  inventory of the USD leg, 6-dec
+    ///         🔴 PRECONDITION — `invTok`/`invUsd6` MUST BE DELIVERABLE FIGURES, NOT NOMINAL ONES.
+    ///         Holding is not the same as being able to source: `VaultLib.deliverableETH` already
+    ///         subtracts the weETH slice beyond what Curve can pay for (`balances(0)·9/10`) and the
+    ///         leverage net-equity, which is unwind-only and never drawn by redemption. Feed this
+    ///         `vogueETH()` and the band quotes depth it cannot honour — which does NOT revert and
+    ///         fails no test; it surfaces as a partial fill wearing the costume of a normal one.
+    ///         There is a measured precedent: deleting the three `_deliverableCap` venue caps left
+    ///         `_vogueETH` counting weETH at full oracle value while the exit could realise at most
+    ///         the pool's WETH, and delivery was overstated until they were re-derived.
+    ///         ⚠️ THIS IS A PRECONDITION, NOT A CLAMP, AND THAT IS DELIBERATE (standing rule 17).
+    ///         An earlier revision took `min(nominal, realisable)` here. That is a second bound over
+    ///         the same class of thing `deliverableETH` already bounds, and rule 17's test applies:
+    ///         a root fix makes the previous fix DELETABLE. Passing the deliverable figure at the
+    ///         SOURCE makes the min unconstructible rather than merely detectable, and the deferred
+    ///         slice (`nominal − deliverable`) is already known where it is computed, so reporting
+    ///         it here would be a second copy of a number that already has an owner.
+    ///         ⚠️ The BTC leg is NOT the ETH leg's mirror: BTC custody is Lightning channels, so a
+    ///         sats figure depends on free channel capacity and, for an LP withdrawal, on the LP's
+    ///         own secp256k1 signature. Do not synthesise one to make this call site symmetric.
+    /// @param invTok   DELIVERABLE inventory of the volatile leg, raw (1e18 ETH / 1e8 sats)
+    /// @param invUsd6  DELIVERABLE inventory of the USD leg, 6-dec
     /// @param px       USD18 per 1e18 raw volatile — the SAME base the skew takes (the WBTC ×1e10
     ///                 lift already closes the 8↔18 gap, so one flat scale serves both legs)
     /// @param deltaBps half-width in bps of price (`BAND_DELTA` = 20 ⇒ ±0.2%)
@@ -1743,59 +1762,6 @@ library SwapLib {
         // Ratio-symmetric bounds ⇒ px is their geometric mean ⇒ the placement above IS 1:1 at px.
         pLower = FullMath.mulDiv(px, 10_000, 10_000 + deltaBps);
         pUpper = FullMath.mulDiv(px, 10_000 + deltaBps, 10_000);
-    }
-
-    /// @notice §E48 REFILL REALISABILITY — the bound that stops the band offering what it cannot source.
-    ///         `refillPlacement` maximises representation of inventory the band HOLDS. Holding is not
-    ///         the same as being able to DELIVER, and the gap is already measured elsewhere in this
-    ///         codebase: `VaultLib.deliverableETH` subtracts the weETH slice beyond what Curve can pay
-    ///         for (`balances(0)·9/10`) and the leverage net-equity, which is unwind-only and never
-    ///         drawn by redemption. So nominal inventory OVERSTATES what a simultaneous pull-out from
-    ///         every venue can actually realise.
-    ///
-    ///         WHY THIS EARNS ITS PLACE RATHER THAN BEING A CLAMP (standing rule 3's inverse). Placing
-    ///         against nominal inventory does not revert and does not fail a test: the band simply
-    ///         quotes depth it cannot honour, and the shortfall only surfaces when someone tries to
-    ///         take it — at which point the failure is a partial fill wearing the costume of a normal
-    ///         one. That is precisely the SILENT, plausible-but-wrong failure a check is for. The same
-    ///         mistake has a measured precedent here: deleting the three `_deliverableCap` venue caps
-    ///         left `_vogueETH` counting weETH at full oracle value while the exit could realise at
-    ///         most the pool's WETH, and delivery was overstated until the caps were re-derived.
-    ///
-    ///         THE DEFERRED SLICE IS REPORTED, NOT SWALLOWED. What the band holds but cannot realise
-    ///         is returned as `deferredTok`/`deferredUsd6` rather than being quietly dropped from the
-    ///         inventory — the same DEFERRAL shape the ETH redemption leg already uses. Conservation
-    ///         is exact and is the invariant to test against:
-    ///             invTok  == tokPlaced  + tokIdle  + deferredTok
-    ///             invUsd6 == usd6Placed + usd6Idle + deferredUsd6
-    ///
-    ///         ⚠️ THIS FUNCTION TAKES THE REALISABLE CAPS, IT DOES NOT COMPUTE THEM. Sourcing them is
-    ///         the caller's job and is deliberately NOT hidden here: the ETH cap comes from
-    ///         `deliverableETH()`, and the BTC cap is NOT its mirror — BTC custody is Lightning
-    ///         channels, so a sats cap additionally depends on free channel capacity and, for an LP
-    ///         withdrawal, on the LP's own secp256k1 signature. Folding a guessed BTC cap in here
-    ///         would be inventing a number, which is the failure that produced E155's over-issuance.
-    /// @param invTok          nominal inventory of the volatile leg, raw (1e18 ETH / 1e8 sats)
-    /// @param invUsd6         nominal inventory of the USD leg, 6-dec
-    /// @param realisableTok   what a simultaneous pull-out could actually source, same base as invTok
-    /// @param realisableUsd6  ditto for the USD leg, 6-dec
-    /// @param px              USD18 per 1e18 raw volatile — the same base `refillPlacement` takes
-    /// @param deltaBps        half-width in bps (`BAND_DELTA` = 20 ⇒ ±0.2%)
-    function refillRealisable(uint invTok, uint invUsd6, uint realisableTok, uint realisableUsd6,
-                              uint px, uint deltaBps)
-        internal pure returns (uint tokPlaced, uint usd6Placed, uint tokIdle, uint usd6Idle,
-                               uint deferredTok, uint deferredUsd6)
-    {
-        // The cap BINDS; it never inflates. A realisable figure above nominal means the caller read a
-        // stale or wrong source, and taking the min makes that harmless rather than a phantom credit.
-        uint effTok = realisableTok < invTok  ? realisableTok  : invTok;
-        uint effUsd = realisableUsd6 < invUsd6 ? realisableUsd6 : invUsd6;
-        deferredTok  = invTok  - effTok;
-        deferredUsd6 = invUsd6 - effUsd;
-        // Placement runs against what can actually be sourced, so idle here means "realisable but
-        // unrepresentable at this price" — a different thing from deferred, and priced differently.
-        (tokPlaced, usd6Placed, tokIdle, usd6Idle, , ) =
-            refillPlacement(effTok, effUsd, px, deltaBps);
     }
 
     function paddedSqrtPrice(uint160 sqrtPriceX96, bool up, uint delta)
