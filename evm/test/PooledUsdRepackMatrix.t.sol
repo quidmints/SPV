@@ -136,9 +136,9 @@ contract PooledUsdRepackMatrix is Alles {
         // tell apart for no gain. The deposit's return is what this line actually wants.
         require(V4.deposit{value: ethDeposit}(0, lp) > 0, "lp deposit failed");
 
-        // registerBtcLp is gated to BTCChannels; impersonate it exactly as BtcBandTheta does.
+        // requestDeposit is gated to BTCChannels; impersonate it exactly as BtcBandTheta does.
         AUX.setBTCChannels(address(this));
-        BTC.registerBtcLp(LP_Alice, sats);
+        BTC.requestDeposit(LP_Alice, sats);
     }
 
     /// BOLD → WETH: the band SELLS the LP's ETH and takes USD in (grows the ETH-band claim).
@@ -234,8 +234,8 @@ contract PooledUsdRepackMatrix is Alles {
         _log("S2 t0", s0);
         assertGt(s0.btc.leg, 0, "PREMISE: BTC band is seeded");
 
-        BTC.registerBtcLp(User01, 2e7);
-        BTC.registerBtcLp(User03, 1e7);
+        BTC.requestDeposit(User01, 2e7);
+        BTC.requestDeposit(User03, 1e7);
 
         Pair memory s1 = _snap();
         _log("S2 t1", s1);
@@ -312,9 +312,9 @@ contract PooledUsdRepackMatrix is Alles {
         _log("S4 t0", s0);
 
         for (uint r = 0; r < 6; r++) { if (_open(3_000e18) == 0) break; }
-        BTC.registerBtcLp(User01, 2e7);
+        BTC.requestDeposit(User01, 2e7);
         for (uint r = 0; r < 3; r++) _sellEth(4 ether);
-        BTC.registerBtcLp(User03, 1e7);
+        BTC.requestDeposit(User03, 1e7);
 
         Pair memory s1 = _snap();
         _log("S4 t1", s1);

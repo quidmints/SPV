@@ -508,7 +508,7 @@ contract Vogue is
     ///      LP's recipient (WETH paid out on-chain); BTC passes address(0) — the
     ///      native sats return via the cooperative-close tx, so nothing is
     ///      delivered here, only the mockBTC is burned. Shared by _withdraw (ETH)
-    ///      and unregisterBtcLp (BTC); the orchestration around it diverges
+    ///      and requestRedeem (BTC); the orchestration around it diverges
     ///      (fee model, native-vs-on-chain delivery, the BTC-only per-channel
     ///      claim), which is why the two callers stay distinct.
     function _burnInRange(uint spotPrice, uint amount,
@@ -946,7 +946,7 @@ contract Vogue is
         // _rebalance (above) already accrued CORE fees + venue yield into
         // feesPerShare/USD_FEES, and neither _settlePending nor addLiq writes them
         // — so read the accumulators directly (the old pre-settle snapshot was
-        // redundant; its two locals only pinned the stack). Mirrors registerBtcLp.
+        // redundant; its two locals only pinned the stack). Mirrors requestDeposit.
         _settlePending(LP, pledge, address(0));
         (deltaUSD, deltaETH) = this.addLiq(                      amount, price);
         if (deltaETH > 0) {
@@ -1252,8 +1252,8 @@ contract Vogue is
 
 
     // ════════════════════════════════════════════════════════════════
-    //  BTC LP path REGROUPED into BtcVault.sol (registerBtcLp /
-    //  unregisterBtcLp / resizeBtcLp / _resizeBtcLp). The shared isBTC-
+    //  BTC LP path REGROUPED into BtcVault.sol (requestDeposit /
+    //  requestRedeem / resizeBtcLp / _resizeRequest). The shared isBTC-
     //  parameterized helpers above stay here for the ETH side; the BTC
     //  repack is now driven by BtcVault.repack(true).
     // ════════════════════════════════════════════════════════════════

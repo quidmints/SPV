@@ -63,9 +63,9 @@ library Types {
     /// justice txs + watchtowers), NOT on the EVM. The EVM keeps only what it
     /// needs to bridge the channel to the BTC pool position:
     ///   • open  — SPV-prove the 2-of-2 funding UTXO exists → credit the LP's
-    ///             BTC pool position (Vogue.registerBtcLp).
+    ///             BTC pool position (Vogue.requestDeposit).
     ///   • close — SPV-prove the funding UTXO was spent (cooperative close or
-    ///             LP-refund) → retire the position (Vogue.unregisterBtcLp).
+    ///             LP-refund) → retire the position (Vogue.requestRedeem).
     ///
     /// There is deliberately NO commitRoot / latestCommitNum / revocationPoint
     /// / htlcListHash / redeemScriptHash / penalty machinery here — that was

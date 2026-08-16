@@ -485,8 +485,8 @@ interface ILevEthDeliver {
 
 interface IBtcVaultBridge {
     // BTC LP position: open/close/splice (driven on channel open/close).
-    function registerBtcLp(address lpEth, uint sats) external;
-    function unregisterBtcLp(address lpEth, uint lpPayoutSats) external;
+    function requestDeposit(address lpEth, uint sats) external;
+    function requestRedeem(address lpEth, uint lpPayoutSats) external;
     // (E145) `settleBtcFeesOwed` REMOVED — the BTC fee leg compounds into `pooled` in sats,
     // so there is no owed ledger to clear. Leaving the DECLARATION here is what let a deleted
     // implementation still compile at the call site; the two must be removed together.

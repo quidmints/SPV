@@ -154,7 +154,7 @@ contract Vault is Ownable, ReentrancyGuard {
     /// @dev TWO SETTLEMENT PATHS, and the first is the LIVE PRIMARY ONE:
     ///      1. COMPOUND (default). On a GROW splice the hop funds real sats in and marks up to
     ///         (E145) HISTORICAL: the hop used to fund `feeSettleSats` into a grow-splice and
-    ///         clears the counter, and the sats DO compound into `LP.pooled` — `registerBtcLp`
+    ///         clears the counter, and the sats DO compound into `LP.pooled` — `requestDeposit`
     ///         already grew pooled by the full delta, so `delivered` stays invariant. Driven from
     ///         `quid-bridge/channel_driver.rs`, which reads this counter and settles
     ///         `min(owed, grewBy)` opportunistically whenever a grow is happening anyway.
@@ -302,7 +302,7 @@ contract Vault is Ownable, ReentrancyGuard {
     error InsufficientChannelBtc();
 
     /// @notice SAME-BTC leverage (replaces the "LP pre-holds vBTC + transferFrom" roundtrip): reclassify
-    ///   `sats` of the LP's FREE channel band BTC — already POOLED depth via `registerBtcLp` — as the
+    ///   `sats` of the LP's FREE channel band BTC — already POOLED depth via `requestDeposit` — as the
     ///   levered slice, and mint the matching vBTC face to the LevManager for venue collateral. NO new BTC
     ///   enters the pool: the channel BTC was already banked, so `LP.pooled` is UNCHANGED (no double-count) —
     ///   only `levPooled` grows (funded→lev, withdrawal-excluded). vBTC is thus only ever "minted" against
@@ -466,7 +466,7 @@ contract Vault is Ownable, ReentrancyGuard {
     // real WBTC moves), so the locked sats stay self-custodied in the channel.
 
     // Renamed from BtcLpFeesOwed: the BTC-leg fee residual at a full exit is no longer
-    // OWED to an external settler — it is FORGONE to the pool (dust; see _resizeBtcLp). Kept as
+    // OWED to an external settler — it is FORGONE to the pool (dust; see _resizeRequest). Kept as
     // an observability signal so a NON-dust forgone amount (⇒ the fleet missed a pre-exit flush)
     // is alertable. The lp_fees.rs settler + the on-chain lpFeePaid dedup are retired.
 
@@ -486,13 +486,25 @@ contract Vault is Ownable, ReentrancyGuard {
     ///         (`retainSkewPremium` -> `Core.skewPremium*`), so there is no swapper-facing bonus to
     ///         top up with. THIS path (LP entry) is the refill; the remaining unbuilt piece is the
     ///         ACTIVE flash-serve (#100 / J.3), which is a flash-and-repay, NOT a bonus.
-    function registerBtcLp(address lpEth, uint sats) external nonReentrant onlyBtcChannels {
+    /// @notice §EIP-7540 — THE BTC BAND'S ASYNCHRONOUS DEPOSIT. Was `registerBtcLp`, which named the
+    ///         MECHANISM (an LP registering with the channel set) rather than what it IS: a deposit
+    ///         whose settlement is not available on call. The BTC band has always been async --
+    ///         entry is a channel funding transaction, exit a cooperative close -- and 7540 exists
+    ///         for exactly that shape. The old name hid the lifecycle from anyone reading the
+    ///         interface; this one states it.
+    /// @dev    ⚠️ THE SIGNATURE IS DELIBERATELY NOT 7540's `(uint256 assets, address controller,
+    ///         address owner)`. This entrypoint is `onlyBtcChannels`, not integrator-facing: the
+    ///         REQUEST is the on-chain funding transaction and `BTCChannels` is what observes it.
+    ///         Taking the standard argument list would advertise a public request path that does
+    ///         not exist. The NAME is adopted because it tells the truth about the lifecycle; the
+    ///         signature is not, because it would tell a lie about the caller.
+    function requestDeposit(address lpEth, uint sats) external nonReentrant onlyBtcChannels {
         // Whole body (checkBacking/TWAP/_rebalance-via-repack + settle + in-range
-        // pairing + out-of-range remainder) in BtcVaultLib.registerBtcLp (delegatecall):
+        // pairing + out-of-range remainder) in BtcVaultLib.requestDeposit (delegatecall):
         // it operates on the Vault's storage via the passed refs and drives the tick
         // rebalance through the public repack self-call; the value-type lpShares
         // delta returns for the forwarder.
-        lpShares += BtcVaultLib.registerBtcLp(
+        lpShares += BtcVaultLib.requestDeposit(
             _btcCfg(), autoManaged[lpEth],
             lpEth, sats, address(QUID), autoManaged[lpEth].pooled + levBuf[lpEth]); // GROSS fee weight
     }
@@ -549,9 +561,13 @@ contract Vault is Ownable, ReentrancyGuard {
     ///         BTC paid to the LP in the close tx (read on-chain via _lpFinalBalance):
     ///         the rest of the funding (funded − lpPayout) was delivered to swappers
     ///         and settles as the LP's QUI proceeds.
-    function unregisterBtcLp(address lpEth, uint lpPayoutSats)
+    /// @notice §EIP-7540 — THE BTC BAND'S ASYNCHRONOUS REDEEM. Was `unregisterBtcLp`. Full close:
+    ///         the position is retired and the sats are paid out by a Lightning cooperative close,
+    ///         which is why this cannot be the synchronous 4626 `redeem` -- the assets are claimable
+    ///         only after L1 confirmations. Same signature note as `requestDeposit`.
+    function requestRedeem(address lpEth, uint lpPayoutSats)
         external nonReentrant onlyBtcChannels {
-        _resizeBtcLp(lpEth, 0, lpPayoutSats, true, 0);   // full close — all native
+        _resizeRequest(lpEth, 0, lpPayoutSats, true, 0);   // full close — all native
     }
 
     /// @notice Splice-OUT (partial close) → shrink the LP's position by `shrinkSats`
@@ -563,7 +579,7 @@ contract Vault is Ownable, ReentrancyGuard {
     /// proceeds. `exactUsd` == 0 ⇒ LP-withdrawal splice-out: all native, no proceeds.
     function resizeBtcLp(address lpEth, uint shrinkSats, uint lpPayoutSats, uint exactUsd)
         external nonReentrant onlyBtcChannels {
-        _resizeBtcLp(lpEth, shrinkSats, lpPayoutSats, false, exactUsd);
+        _resizeRequest(lpEth, shrinkSats, lpPayoutSats, false, exactUsd);
     }
 
     /// @dev Shared per-channel exit body. `full` = whole-channel close (shrinkSats :=
@@ -571,7 +587,7 @@ contract Vault is Ownable, ReentrancyGuard {
     ///      = BTC the LP took in the close/splice tx; `shrinkSats − lpPayout` is the
     ///      DOLLAR (delivered) slice. ONE settlement model for close and splice-out:
     ///      read the LP's BTC payout from the tx, the remainder is delivered.
-    function _resizeBtcLp(address lpEth, uint shrinkSats, uint lpPayoutSats, bool full, uint exactUsd)
+    function _resizeRequest(address lpEth, uint shrinkSats, uint lpPayoutSats, bool full, uint exactUsd)
         internal {
         // MULTI-HOP: LP.pooled includes the LEVERED slice (levPooled), which has NO channel BTC
         // behind it. Channel funding is only the FREE part — the funded/lev prologue, clamp, the

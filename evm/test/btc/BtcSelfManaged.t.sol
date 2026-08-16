@@ -145,11 +145,11 @@ contract BtcSelfManagedTest is Alles {
         _setRecipient(address(ch), abi.encode(uint(0xB7C)), User03);
 
         // Fund POOLED_USD headroom (a swap-in draws the swappers' dollars).
-        // MULTI-HOP: a REAL open (not a registerBtcLp shortcut) so `hop` owns an OPEN
+        // MULTI-HOP: a REAL open (not a requestDeposit shortcut) so `hop` owns an OPEN
         // channel and may therefore attest the swap-in — settleSwapIn's
         // `openChannelsOf[hop] >= 1` gate is the authority binding that replaced the
         // old single trusted hopNode. (This test previously kept the direct
-        // registerBtcLp shortcut and only stayed green because the live-harness ffi
+        // requestDeposit shortcut and only stayed green because the live-harness ffi
         // was SKIPping; with the harness fixed it runs and requires the real open.)
         // (M1#1) open AND park: a buffered credit spends SPV-proven sats.
         _parkSats(ch, hop, 91, 2e7, 2e7);
@@ -203,8 +203,8 @@ contract BtcSelfManagedTest is Alles {
     // merkle proofs, the recovered funding pubkeys, the seller/sats/token/hash of
     // the real HTLC, and the LP's lpAuth over the EXACT openChannelDigest). Here
     // that real data flows through the ACTUAL SPVGateway header chain +
-    // BTCChannels.openChannel -> registerBtcLp -> settleSwapIn -> recordClose ->
-    // unregisterBtcLp.
+    // BTCChannels.openChannel -> requestDeposit -> settleSwapIn -> recordClose ->
+    // requestRedeem.
     //
     // The bin needs a bitcoind/esplora; without them it CANNOT run, so this test
     // SKIPS cleanly (suite stays green) when the FFI bin or its binaries are

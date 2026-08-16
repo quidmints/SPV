@@ -36,9 +36,9 @@ import {SignatureChecker} from "@openzeppelin-submodule/utils/cryptography/Signa
 //  The EVM's only role is to BRIDGE the channel to the BTC AMM position:
 //    • openChannel  — SPV-prove the key-path P2TR funding UTXO `0x5120||Q`
 //                     exists at value `amountSats`, then credit the LP's BTC pool
-//                     position (BtcVault.registerBtcLp — NOT Vogue; the BTC side
+//                     position (BtcVault.requestDeposit — NOT Vogue; the BTC side
 //                     was regrouped out of Vogue + Aux, see the bridge interface
-//                     below. Also note `registerBtcLp` is NOT open-only: a GROW
+//                     below. Also note `requestDeposit` is NOT open-only: a GROW
 //                     splice calls it again to add liquidity). The funding output is
 //                     byte-matched against the lpAuth-committed Q + value against
 //                     the proven tx, so an LP cannot fabricate a position. (Q's
@@ -49,7 +49,7 @@ import {SignatureChecker} from "@openzeppelin-submodule/utils/cryptography/Signa
 //                     straight from the splice tx; the removed remainder
 //                     settles as QUID proceeds.
 //    • recordClose  — SPV-prove the funding UTXO was spent, then retire the
-//                     position (unregisterBtcLp), paying the LP's accrued
+//                     position (requestRedeem), paying the LP's accrued
 //                     USD-leg claims + delivered proceeds as QUID. ONE
 //                     entrypoint, branching on Bitcoin locktime (below). The
 //                     remaining channel BTC is recovered natively by the
@@ -105,7 +105,7 @@ import {SignatureChecker} from "@openzeppelin-submodule/utils/cryptography/Signa
 // ═══════════════════════════════════════════════════════════════════════
 
 /// @notice The bridge into the BTC pool position — now BtcVault (the BTC side
-///         was regrouped out of Vogue + Aux). registerBtcLp / unregisterBtcLp /
+///         was regrouped out of Vogue + Aux). requestDeposit / requestRedeem /
 ///         resizeBtcLp are gated `onlyBtcChannels` and creditSwapIn /
 ///         creditSwapOut `onlyBTCChannels` on BtcVault (msg.sender == its pinned
 ///         btcChannels), so only this contract can drive them.
@@ -566,14 +566,14 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         uint lpEntitled = totalSats - pool;
         if (lpPayoutSats > lpEntitled) {
             // The BTC has already moved — this cannot claw it back. It makes the divergence
-            // VISIBLE, which is the whole point: `unregisterBtcLp` clamps in silence.
+            // VISIBLE, which is the whole point: `requestRedeem` clamps in silence.
             emit PoolSatsLeftWithLp(channelId, ch.lpEth, lpPayoutSats - lpEntitled);
             lpPayoutSats = lpEntitled;
         }
         _releasePoolSats(channelId, 0);   // the channel is gone: ALL its pool inventory left
         delete poolOwnedSats[channelId];
         delete poolSatsParker[channelId];
-        btcVault.unregisterBtcLp(ch.lpEth, lpPayoutSats);
+        btcVault.requestRedeem(ch.lpEth, lpPayoutSats);
     }
 
     /// @notice The LP's remaining channel balance read from a cooperative-close
@@ -934,7 +934,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // Channel locks back the pool: credit the LP's BTC pool position with
         // the locked sats. One channel per lpEth (the position aggregates per
         // address; close retires it in full).
-        btcVault.registerBtcLp(channel.lpEth, channel.amountSats);
+        btcVault.requestDeposit(channel.lpEth, channel.amountSats);
 
         _emitOpened(channelId, channel, p);
     }
@@ -961,7 +961,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     //  (keyed on the original outpoint) so close/attribution are unaffected — only
     //  the live funding outpoint + funded total rotate.
     //    • GROW  (p.amountSats > current): adds liquidity to the LP's BTC pool
-    //      position (registerBtcLp). A deposit — nothing to settle.
+    //      position (requestDeposit). A deposit — nothing to settle.
     //    • SHRINK (p.amountSats < current): partial withdrawal — removes liquidity
     //      AND settles the shrunk slice through the SAME path as a cooperative close
     //      (resizeBtcLp): the proportional delivered portion mints to the LP as QUI,
@@ -1014,9 +1014,9 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // (T1-f) THE CLAIM, decided here rather than inside the splice: an ordinary grow is
         // funded BY this LP, so it is a deposit and earns the LP its shares. The swap-in path
         // deliberately does NOT do this — see `settleSwapInSpliced`.
-        if (grewBy != 0) btcVault.registerBtcLp(channels[channelId].lpEth, grewBy);
+        if (grewBy != 0) btcVault.requestDeposit(channels[channelId].lpEth, grewBy);
         // FEE-INTO-CHANNEL: the hop may mark up to `grewBy` of this grow as BTC-leg fees it is FUNDING in —
-        // they compound into the LP's position (registerBtcLp already grew pooled by the full delta, so `delivered`
+        // they compound into the LP's position (requestDeposit already grew pooled by the full delta, so `delivered`
         // stays invariant); the bigger pooled share grows the LP's coop-close payout. (An earlier version of this
         // line added "and the hop keysends the same sats onto the LP's LN balance off-chain" — that leg is
         // OBSOLETE under delegation, where the LP runs no LN node.) `<= grewBy` ⇒ it
@@ -1105,7 +1105,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     function _finishRekey(bytes32 channelId, Types.OpenParams calldata p, uint grewBy) private {
         Types.BTCChannel storage ch = channels[channelId];
         // Same claim rule as `splice`: an ordinary grow is LP-funded, so it earns the LP its shares.
-        if (grewBy != 0) btcVault.registerBtcLp(ch.lpEth, grewBy);
+        if (grewBy != 0) btcVault.requestDeposit(ch.lpEth, grewBy);
 
         // 🔴 THE STEP WHOSE ABSENCE CAUSED §E153's *unretirable forever* REGRESSION. A rotated
         // outpoint with a stale `keysHash` fails `_requireChannelKeys` on BOTH retirement paths,
@@ -1145,7 +1145,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     /// 🔴 **THIS EXISTS BECAUSE THE CONDITION IT MEASURES IS OTHERWISE INVISIBLE.** §T1-f stopped
     /// a swap-in grow from minting the LP shares (right: the pool bought those sats) and M1#1's
     /// park does the same — so a channel's `amountSats` can exceed its LP's registered position.
-    /// A close then pays the LP the WHOLE channel, and `unregisterBtcLp` **clamps** the oversized
+    /// A close then pays the LP the WHOLE channel, and `requestRedeem` **clamps** the oversized
     /// settle rather than reverting, so the pool absorbs the difference in silence: no revert, no
     /// unusual event, nothing to notice. A leak, not a brick.
     ///
@@ -1270,7 +1270,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///      which also pays the seller USD — registering shares there paid twice for one set of
     ///      sats, once as a position and once in dollars, to a party that funded neither.
     ///      Custody grows either way, because the sats really did arrive.
-    ///      (Lifting `registerBtcLp` out to the caller also relieved this frame's stack — a
+    ///      (Lifting `requestDeposit` out to the caller also relieved this frame's stack — a
     ///      `bool` parameter here compiled to Stack-too-deep, and `via_ir` is off deliberately.)
     function _applySplice(
         bytes32 channelId,
@@ -1564,7 +1564,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///         Bitcoin, so anyone may submit the SPV proof of a confirmed close.
     ///
     ///         • COOPERATIVE (locktime == 0): co-signed by LP + hop. Read the LP's
-    ///           payout output → the BtcVault (via unregisterBtcLp) reconciles delivered =
+    ///           payout output → the BtcVault (via requestRedeem) reconciles delivered =
     ///           funded − final and mints the LP's swap-out USD proceeds as QUI (the regrouped
     ///           BTC-LP close mints, previously V4's — Basket auth note). The LP's payout output script is
     ///           NOT LP-choosable: `commit_upfront_shutdown_pubkey` pins it at open and

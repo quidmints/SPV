@@ -8,7 +8,7 @@ import {BTCChannels} from "../src/BTCChannels.sol";
 import {Types} from "../src/imports/Types.sol";
 import {BitcoinTx} from "../src/imports/BitcoinTx.sol";
 
-/// @notice STRESS the close-path QUID mint in `Vault._resizeBtcLp` (the deferred
+/// @notice STRESS the close-path QUID mint in `Vault._resizeRequest` (the deferred
 ///         payout of swap-out proceeds to the BTC LP whose channel delivered the
 ///         BTC). The design KEEPS this mint (per the maintainer) but it must stay
 ///         BACKED under stress: the §10#2 solvency clamp (`deliveredSlice ≤ netDel`)
@@ -1221,7 +1221,7 @@ contract BtcLpMintStress is Alles {
     /// already promised it to somebody.
     function test_E31a_BtcIncrementIsNeverCountedAsBandEquity() public {
         AUX.setBTCChannels(address(this));
-        BTC.registerBtcLp(User01, 2e7);                       // 0.2 BTC
+        BTC.requestDeposit(User01, 2e7);                       // 0.2 BTC
 
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
@@ -1255,7 +1255,7 @@ contract BtcLpMintStress is Alles {
     function test_E31b_ClosingBtcLpIsNotPaidTheBandsUsdIncrement() public {
         AUX.setBTCChannels(address(this));
         uint funded = 2e7;
-        BTC.registerBtcLp(User01, funded);
+        BTC.requestDeposit(User01, funded);
 
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
@@ -1269,7 +1269,7 @@ contract BtcLpMintStress is Alles {
         assertGt(incr, 0, "PREMISE: there must be an increment to (not) be paid");
 
         uint q0 = QUID.balanceOf(User01);
-        BTC.unregisterBtcLp(User01, funded);                  // no delivery happened -> keeps all funding
+        BTC.requestRedeem(User01, funded);                  // no delivery happened -> keeps all funding
         uint paid = QUID.balanceOf(User01) - q0;
 
         emit log_named_uint("increment (6d)   ", incr);

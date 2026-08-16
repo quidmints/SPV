@@ -344,7 +344,7 @@ contract UnificationControls is Alles {
 
         // Seed the BTC band so "the unwind cannot reach it" is a real claim, not 0 == 0.
         AUX.setBTCChannels(address(this));
-        BTC.registerBtcLp(lpB, 2e7);
+        BTC.requestDeposit(lpB, 2e7);
 
         (uint[15] memory d0,,,) = AUX.get_deposits();
         uint tvl0        = d0[14];
@@ -464,7 +464,7 @@ contract UnificationControls is Alles {
         _seedBasket();
         vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
         AUX.setBTCChannels(address(this));
-        BTC.registerBtcLp(lpB, 2e7);
+        BTC.requestDeposit(lpB, 2e7);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 30 minutes);
 
         uint ethUsd0 = CORE.POOLED_USD();
@@ -550,7 +550,7 @@ contract UnificationControls is Alles {
         _seedBasket();
         vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
         AUX.setBTCChannels(address(this));
-        BTC.registerBtcLp(lpB, 2e7);
+        BTC.requestDeposit(lpB, 2e7);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 30 minutes);
 
         _logDeployGap("AT REST");
@@ -893,7 +893,7 @@ contract UnificationControls is Alles {
         //    the BTC band commits real dollars. Under the old definition this capacity was reserved.
         uint btcBefore = CORE.basketUsd();
         AUX.setBTCChannels(address(this));
-        BTC.registerBtcLp(User01, 2e7);
+        BTC.requestDeposit(User01, 2e7);
         emit log_named_uint("BTC band committed AFTER eth flow (6d)", CORE.basketUsd() - btcBefore);
         assertGt(CORE.basketUsd(), btcBefore,
             "the BTC band can still commit after heavy ETH trading -- no starvation, no min-of-two");
@@ -918,7 +918,7 @@ contract UnificationControls is Alles {
 
         // A BTC LP exists BEFORE the ETH flow, so its P&L has a baseline to be measured against.
         AUX.setBTCChannels(address(this));
-        BTC.registerBtcLp(User01, 2e7);
+        BTC.requestDeposit(User01, 2e7);
         uint btcFps0 = BTC.feesPerShare();
         uint btcUsdF0 = BTC.USD_FEES();
         uint btcShares0 = BTC.lpShares();
@@ -982,7 +982,7 @@ contract UnificationControls is Alles {
     function test_E42_RedeemableIsInvariantToPureBtcTradingFlow() public {
         _seedBasket();
         AUX.setBTCChannels(address(this));
-        BTC.registerBtcLp(User01, 2e7);
+        BTC.requestDeposit(User01, 2e7);
 
         { (uint _t,) = AUX.get_metrics(false); AUX.get_deposits(); _t; }   // refresh: reads are cache-sensitive
         uint redeem0 = AUX.redeemableAmount();

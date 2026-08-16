@@ -152,7 +152,7 @@ contract DrainProbe is Alles {
     /// BTC ANALOG of the round-trip. The atomic on-chain round-trip is STRUCTURALLY
     /// IMPOSSIBLE on BTC: buying BTC sends sats out over Lightning (no WBTC lands in an
     /// EVM wallet to redeposit), and becoming a BTC LP requires opening a real channel
-    /// (registerBtcLp is onlyBtcChannels, gated on an SPV-proven funding tx).
+    /// (requestDeposit is onlyBtcChannels, gated on an SPV-proven funding tx).
     ///
     /// COLLAPSE: proceeds now settle EXACTLY at delivery to the delivering channel's
     /// LP — a close mints NO proceeds and there is NO shared proceeds pool. So the
@@ -166,7 +166,7 @@ contract DrainProbe is Alles {
     function testRoundTripNoRaceNoDrain_BTC() public {
         AUX.setBTCChannels(address(this)); // impersonate the channel manager (BTC-test pattern)
         uint funded = 2e7;                 // 0.2 BTC
-        BTC.registerBtcLp(User01, funded); // incumbent LP-A
+        BTC.requestDeposit(User01, funded); // incumbent LP-A
 
         // Priming curve buys fund POOLED_USD (the dollars an attacker would hope
         // to "round-trip" back as LP principal). They record no obligation now.
@@ -182,7 +182,7 @@ contract DrainProbe is Alles {
         assertEq(CORE.pendingSwapOutUsd(), 0, "priming records no swap-out obligation");
 
         // LATE entrant LP-B becomes an LP AFTER the priming (the "redeposit" step).
-        BTC.registerBtcLp(User02, funded);
+        BTC.requestDeposit(User02, funded);
 
         // NO DRAIN is proved on each LP's QUID (NOT POOLED_USD, which close's
         // _rebalance zeroes+rebuilds for reasons unrelated to proceeds): a close
@@ -192,12 +192,12 @@ contract DrainProbe is Alles {
 
         // Adversarial: entrant B closes FIRST, having delivered NOTHING.
         uint qB = QUID.balanceOf(User02);
-        BTC.unregisterBtcLp(User02, funded); // delivered_B = 0
+        BTC.requestRedeem(User02, funded); // delivered_B = 0
         uint paidB = QUID.balanceOf(User02) - qB;
 
         // Incumbent A closes second; closing order is irrelevant under the collapse.
         uint qA = QUID.balanceOf(User01);
-        BTC.unregisterBtcLp(User01, funded); // delivered_A = 0
+        BTC.requestRedeem(User01, funded); // delivered_A = 0
         uint paidA = QUID.balanceOf(User01) - qA;
 
         // (b) NO DRAIN: neither LP extracted the primed dollars (close mints 0 proceeds).

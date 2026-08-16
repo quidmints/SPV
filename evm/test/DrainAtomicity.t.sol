@@ -200,8 +200,8 @@ contract DrainAtomicity is Alles {
         uint ethAlone = AUX.wellSkew(address(WETH), 0);
 
         // Populate the BTC band so the SHARED-scarcity amplifier can exceed 1 for BOTH assets.
-        AUX.setBTCChannels(address(this));   // auth: registerBtcLp is gated (403 without this)
-        BTC.registerBtcLp(User01, 2e7);
+        AUX.setBTCChannels(address(this));   // auth: requestDeposit is gated (403 without this)
+        BTC.requestDeposit(User01, 2e7);
         _settle();
 
         uint ethBoth = AUX.wellSkew(address(WETH), 0);

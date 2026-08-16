@@ -13,7 +13,7 @@ contract EvilToken {
 }
 
 /// Empirically prove the swap-in / BTC-path re-entry SURFACE is closed. The
-/// nonReentrant guards on settleSwapIn/redeem/swapTo/registerBtcLp are
+/// nonReentrant guards on settleSwapIn/redeem/swapTo/requestDeposit are
 /// belt-and-suspenders; the actual proof is that an attacker can never obtain a
 /// callback in these paths:
 ///   (1) creditSwapIn/creditSwapOut are unreachable except via BTCChannels

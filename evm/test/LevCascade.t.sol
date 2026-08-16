@@ -751,9 +751,9 @@ contract LevCascadeProbe is Alles {
 
         // SEED THE BTC BAND. Without it `btcPooled18 == 0` and the cross-band assertion below is
         // `0 == 0` — it would "prove" that ETH debt cannot reach BTC equity while there is no BTC
-        // equity to reach. `registerBtcLp` is gated to BTCChannels, impersonated as in BtcBandTheta.
+        // equity to reach. `requestDeposit` is gated to BTCChannels, impersonated as in BtcBandTheta.
         AUX.setBTCChannels(address(this));
-        BTC.registerBtcLp(User01, 2e7);          // 0.2 BTC
+        BTC.requestDeposit(User01, 2e7);          // 0.2 BTC
 
         uint debt = lm.totalDebtUsd();
         emit log_named_uint("live ETH leverage debt (18d)", debt);
@@ -816,7 +816,7 @@ contract LevCascadeProbe is Alles {
         V4.syncLev(lps[0]);
 
         AUX.setBTCChannels(address(this));
-        BTC.registerBtcLp(User01, 2e7);                       // 0.2 BTC — the band that must stay whole
+        BTC.requestDeposit(User01, 2e7);                       // 0.2 BTC — the band that must stay whole
 
         uint debt = lm.totalDebtUsd();
         assertGt(debt, 0, "PREMISE: leverage debt must exist before we try to exceed a leg with it");

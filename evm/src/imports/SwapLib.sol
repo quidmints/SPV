@@ -668,7 +668,7 @@ library SwapLib {
         // exactly what the removal was meant to stop, so that the retained drain premium STAYS with
         // LPs as backing (`retainSkewPremium` -> `Core.skewPremium*`, refilling direction exempt at
         // `:452`/`:962`). Do NOT rebuild it. The refill mechanism is: LP entry
-        // (`Vault.registerBtcLp`) as the PRIMARY, self-funding path, plus the still-unbuilt ACTIVE
+        // (`Vault.requestDeposit`) as the PRIMARY, self-funding path, plus the still-unbuilt ACTIVE
         // flash-serve (#100 / J.3) — flash the scarce asset, serve the opposite flow, repay, premium
         // stays with LPs. A flash-and-repay, never a subsidy to whoever swaps in first.
         rp.v4Price = _priceOr(v4p, aux, wbtc);
@@ -684,7 +684,7 @@ library SwapLib {
     ///      creditSwapIn → repay, gas via #87), so the drainer's retained skew premium accrues to LPs as
     ///      backing (recordSkewPremium) rather than being paid out to the refiller — the refill settles at the
     ///      honest v4Price. Serves the creditSwapIn rail
-    ///      (JIT sell-to-pool reward); registerBtcLp (become-LP, pooled fees) never reaches here.
+    ///      (JIT sell-to-pool reward); requestDeposit (become-LP, pooled fees) never reaches here.
     function _swapInSettle(Types.AuxContext memory ctx, Types.RouteParams memory rp, uint minDeliveredUsd)
         private returns (uint consumedSats) {
         // core / seller / token are already carried by the structs (ctx.core, rp.recipient, rp.token) — read
@@ -1052,7 +1052,7 @@ library SwapLib {
     ///         ×1e10 — reference-gettwapforasset-scale + BtcLevManager:161).
     /// @dev    RESERVOIR REFILL DESIGN (the "pump") -- how the native-BTC reservoir
     ///         refills, and why the skew is all that is needed:
-    ///         1. PRIMARY REFILL -- LPs stake BTC ({Vault-registerBtcLp}), pulled in when the
+    ///         1. PRIMARY REFILL -- LPs stake BTC ({Vault-requestDeposit}), pulled in when the
     ///            pool is scarce because scarcity => more fee capture. This mechanism already
     ///            exists; the reservoir self-refills through ordinary LP entry -- no bespoke
     ///            machinery, no keeper, no RFQ, no external-MM solicitation.
@@ -1476,7 +1476,7 @@ library SwapLib {
 
     // ── Delivery-side de-lever (partial-burn vBTC deliverability) ─────────────────────────────────
 
-    /// @notice Runs at the head of a native swap-out settlement (Vault._resizeBtcLp) when the delivering LP's
+    /// @notice Runs at the head of a native swap-out settlement (Vault._resizeRequest) when the delivering LP's
     ///   slice draws PAST its FREE channel band into the LEVERED slice — the "stranded volatile" state
     ///   (`shrinkSats > funded = pooled − levPooled`). The delivery's OWN proceeds de-lever the shortfall
     ///   `want = min(shrinkSats−funded, levPooled)`: source the venue's debt stable from the basket, repay the

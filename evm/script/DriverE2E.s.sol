@@ -26,7 +26,7 @@ import {Aux} from "../src/Aux.sol";
 //     0). The test's relayer feeds the live regtest header chain (blocks 1..tip)
 //     via addBlockHeaderBatch, so checkTxInclusion validates the funding / close /
 //     splice SPV proofs for real.
-//   * Vault (merged ETH+BTC) — the REAL contract. registerBtcLp (fired by the
+//   * Vault (merged ETH+BTC) — the REAL contract. requestDeposit (fired by the
 //     driver's openChannel) pairs POOLED_USD_BTC against the basket TVL seeded
 //     below; requestSwapOutOnchain → creditSwapOut fills the swapper on the REAL
 //     BTC curve; deliverSwapOutOnchain settles the LP's proceeds.
@@ -35,7 +35,7 @@ import {Aux} from "../src/Aux.sol";
 //
 // Seeding: the deployer (anvil acct #0) is pre-funded with USDC by driver-e2e.sh
 // (impersonate a mainnet whale). This script votes the BTC share, mints QU!D to
-// give the basket TVL (so the driver's registerBtcLp pairs a real POOLED_USD_BTC),
+// give the basket TVL (so the driver's requestDeposit pairs a real POOLED_USD_BTC),
 // and leaves the deployer with residual USDC + a standing AUX approval so the Rust
 // swap-out (sent from the same acct #0) can pull its committed USD on the real
 // vault.
@@ -117,7 +117,7 @@ contract Deploy is Script {
             deployChannels: true
         }));
 
-        // ── Seed the basket so the driver's registerBtcLp pairs POOLED_USD_BTC and
+        // ── Seed the basket so the driver's requestDeposit pairs POOLED_USD_BTC and
         //    the swap-out fills > 0 on the REAL curve. ──
         Basket quid = Basket(A.quid);
         IERC20(USDC).approve(A.aux, type(uint).max); // standing approval (reused by the Rust swap-out from this acct)

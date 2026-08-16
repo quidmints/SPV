@@ -118,7 +118,7 @@ library BtcVaultLib {
     ///      base is the full `deltaTok` (locked backing skips the physical clamp); only theta bites here.
     ///      BACKING = `Core.btcThetaBacking()` (aggregate locked sats lpShares + gross buffer -- the ONE
     ///      source of truth shared with the reseat clamp in VogueLib.addLiq, so a repack can't re-throttle
-    ///      the band this add just built) + THIS add's `sats` (registerBtcLp/levAddBtc credit lpShares
+    ///      the band this add just built) + THIS add's `sats` (requestDeposit/levAddBtc credit lpShares
     ///      only AFTER this clamp -- unlike ETH, where _depositETH bumps vogueETH BEFORE addLiq; add it here
     ///      for parity + first-deposit bootstrap). NOT vogueBTC: that is a disjoint WBTC-donation pool,
     ///      structurally unrelated to the band's risk capital -- basing theta on it throttled the band to ~0
@@ -159,7 +159,7 @@ library BtcVaultLib {
     ///      `sharesRemoved`, or the sum drifts from the positions it totals.
     struct ResizeOut { uint sharesRemoved; bool cleared; uint owed; uint bufRemoved; uint feeCompounded; }
 
-    /// @notice Body of Vault._resizeBtcLp AFTER the funded/lev prologue + _rebalance
+    /// @notice Body of Vault._resizeRequest AFTER the funded/lev prologue + _rebalance
     ///         (both stay in the Vault). Settles fees, pays the swap-out proceeds,
     ///         burns the native (+ full-close lev) band depth, decrements the
     ///         position and finalizes. Returns (sharesRemoved, cleared, owed): the
@@ -211,7 +211,7 @@ library BtcVaultLib {
         }
     }
 
-    /// @notice Full body of Vault._resizeBtcLp: the funded/lev prologue + clamp +
+    /// @notice Full body of Vault._resizeRequest: the funded/lev prologue + clamp +
     ///         early-returns + repack (self-call) + tail. `full` = whole-channel close
     ///         (shrinkSats := funded); else a partial splice-out. Returns
     ///         (sharesRemoved, cleared, owed) — the forwarder applies
@@ -319,11 +319,11 @@ library BtcVaultLib {
     ///         boundary order. `owner` = msg.sender (preserved across delegatecall).
     ///         Byte-identical (same reverts, same swap-and-pop, same CORE call).
 
-    /// @notice Full body of Vault.registerBtcLp (prologue + rebalance moved here):
+    /// @notice Full body of Vault.requestDeposit (prologue + rebalance moved here):
     ///         checkBacking + TWAP + repack self-call, then settle existing fees,
     ///         pair the in-range slice + track the out-of-range remainder as shares.
     ///         Returns the lpShares increase (deltaBTC + unpaired). Byte-identical.
-    function registerBtcLp(
+    function requestDeposit(
         Types.BandCfg memory c,
         Types.Deposit storage LP,
         address lpEth, uint sats, address quid, uint weight
@@ -347,7 +347,7 @@ library BtcVaultLib {
         if (price == 0) revert ZeroTwap();
         (uint deltaUSD, uint deltaBTC) = addLiqChannel(c.core, c.aux, sats, price);
         // In-range pairing extracted to its own frame (legacy-pipeline stack: the modLP call otherwise
-        // overflows registerBtcLp). Grows pooled + refreshes the bookmark at the post-pair GROSS weight.
+        // overflows requestDeposit). Grows pooled + refreshes the bookmark at the post-pair GROSS weight.
         if (deltaBTC > 0) sharesAdded += _pairRegLeg(c.core, LP, p, weight, deltaBTC, deltaUSD, lpEth);
         uint unpaired = sats - deltaBTC;
         if (unpaired > 0) {

@@ -177,7 +177,7 @@ contract OpenChannelE2ETest is Test, ExitFixture {
         assertEq(status, 0, "status OPEN");
         assertEq(ch.totalSatsLocked(), amount, "sats locked tracked");
         // BTC pool position credited to the LP for the locked sats.
-        assertEq(vogue.registered(lpEth), amount, "registerBtcLp credited the LP");
+        assertEq(vogue.registered(lpEth), amount, "requestDeposit credited the LP");
     }
 
     /// (E147-g) THE ASSERTION WHOSE ABSENCE COST A WHOLE INVESTIGATION.
@@ -291,8 +291,8 @@ contract OpenChannelE2ETest is Test, ExitFixture {
 
 contract MockVogue {
     mapping(address => uint) public registered;
-    function registerBtcLp(address lpEth, uint sats) external { registered[lpEth] += sats; }
-    function unregisterBtcLp(address, uint) external {}
+    function requestDeposit(address lpEth, uint sats) external { registered[lpEth] += sats; }
+    function requestRedeem(address, uint) external {}
     // (E147-i) The SHRINK leg of a splice calls this. Its absence made
     // `test_splice_realRegtestShrink` revert with a bare `EvmError: Revert` — a missing mock
     // method is indistinguishable from a contract bug at the call site, which is why the

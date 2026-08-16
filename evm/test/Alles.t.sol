@@ -1784,7 +1784,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         assertGt(usd18, 1_000e18,     "0.2 BTC must be > $1k (guards 1e10 under-scale)");
         assertLt(usd18, 1_000_000e18, "0.2 BTC must be < $1M (guards 1e10 over-scale)");
         AUX.setBTCChannels(address(this));
-        BTC.registerBtcLp(User01, 2e7);
+        BTC.requestDeposit(User01, 2e7);
         assertGt(CORE.POOLED_USD(), 1_000e6, "register 0.2 BTC must pair O($k), not dust");
     }
 
@@ -1813,7 +1813,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         AUX.setBTCChannels(address(this)); // impersonate BTCChannels -> drive creditSwapIn
 
         // Fund POOLED_USD (the swappers' dollars a swap-in draws against).
-        BTC.registerBtcLp(User01, 2e7);
+        BTC.requestDeposit(User01, 2e7);
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
@@ -1880,7 +1880,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // Seed BTC inventory + POOLED_USD curve liquidity (the funding USD->BTC
         // swaps deliver BTC to User03, so it needs a BTC recipient - the swap-out
         // request itself does NOT, since its proceeds go to the pool).
-        _openHopChannel(ch, hop, 91, 2e7); // MULTI-HOP: real open so `hop` may attest swap-ins (was a registerBtcLp shortcut)
+        _openHopChannel(ch, hop, 91, 2e7); // MULTI-HOP: real open so `hop` may attest swap-ins (was a requestDeposit shortcut)
         _setRecipient(address(ch), abi.encode(uint(0xB7C)), User03);
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
@@ -1968,7 +1968,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
 
-        _openHopChannel(ch, hop, 91, 2e7); // MULTI-HOP: real open so `hop` may attest swap-ins (was a registerBtcLp shortcut)
+        _openHopChannel(ch, hop, 91, 2e7); // MULTI-HOP: real open so `hop` may attest swap-ins (was a requestDeposit shortcut)
         _setRecipient(address(ch), abi.encode(uint(0xB7C)), User03);
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
@@ -2041,7 +2041,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // Park generously: step (3) below asks for 4x the pool's reserve to force an
         // inventory-bounded PARTIAL, and the buffer must not be what stops it — otherwise the
         // atomic-full-fill assertion would be testing the buffer bound instead of `requireFull`.
-        _parkSats(ch, hop, 91, 2e7, 5e9); // MULTI-HOP: real open so `hop` may attest swap-ins (was a registerBtcLp shortcut)
+        _parkSats(ch, hop, 91, 2e7, 5e9); // MULTI-HOP: real open so `hop` may attest swap-ins (was a requestDeposit shortcut)
         _setRecipient(address(ch), abi.encode(uint(0xB7C)), User03);
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
@@ -2541,7 +2541,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
             vm.mockCall(address(AUX), abi.encodeWithSignature("getDepegSeverityBps(address)", AUX.getStables()[i]), abi.encode(uint(0)));
         // Register a BTC LP + fund POOLED_USD (median-governed pairing) so a BTC band is committed.
         AUX.setBTCChannels(address(this));
-        BTC.registerBtcLp(User02, 2e7);
+        BTC.requestDeposit(User02, 2e7);
         deal(address(USDC), User03, 10_000 * USDC_PRECISION);
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
@@ -3605,8 +3605,8 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
 
         // Two BTC LPs; fund POOLED_USD (median-governed) so SOME of their
         // sats pair into active virtual liquidity and the rest is retention.
-        BTC.registerBtcLp(User01, 2e7); // 0.2 BTC
-        BTC.registerBtcLp(User02, 2e7);
+        BTC.requestDeposit(User01, 2e7); // 0.2 BTC
+        BTC.requestDeposit(User02, 2e7);
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 4; i++) {
@@ -3625,8 +3625,8 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // delivered against THESE channels), so deliveredSlice 0, nativeSlice
         // == funded, on-chain delivery is NONE (sats via the close tx).
         uint qd1 = QUID.balanceOf(User01); uint wbtc1 = IERC20(address(WBTC)).balanceOf(User01);
-        BTC.unregisterBtcLp(User01, 2e7);
-        BTC.unregisterBtcLp(User02, 2e7);
+        BTC.requestRedeem(User01, 2e7);
+        BTC.requestRedeem(User02, 2e7);
 
         (uint after1,,,) = BTC.autoManaged(User01);
         (uint after2,,,) = BTC.autoManaged(User02);
@@ -3910,8 +3910,8 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         AUX.setBTCChannels(address(this)); // test impersonates BTCChannels
 
         // Two LP deposits = equal channel locks -> per-LP BTC pool positions.
-        BTC.registerBtcLp(User01, 2e7); // 0.2 BTC
-        BTC.registerBtcLp(User02, 2e7); // 0.2 BTC
+        BTC.requestDeposit(User01, 2e7); // 0.2 BTC
+        BTC.requestDeposit(User02, 2e7); // 0.2 BTC
 
         // BTC swaps through the virtual liquidity (V4 BTC pool) generate fees.
         // (Fees collect into feesPerShare on the next _rebalance - i.e. at
@@ -3931,11 +3931,11 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // Close with finalBalance == funded (these LPs delivered no BTC; the
         // swaps were pool swaps) -> delivered=0 -> payout is pure USD-leg fees.
         uint q1 = QUID.balanceOf(User01);
-        BTC.unregisterBtcLp(User01, 2e7);
+        BTC.requestRedeem(User01, 2e7);
         uint lp1Fees = QUID.balanceOf(User01) - q1;
 
         uint q2 = QUID.balanceOf(User02);
-        BTC.unregisterBtcLp(User02, 2e7);
+        BTC.requestRedeem(User02, 2e7);
         uint lp2Fees = QUID.balanceOf(User02) - q2;
 
         assertGt(lp1Fees, 0, "LP1 paid fee revenue on withdraw");
@@ -3976,7 +3976,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     ///         cleanly afterward.
     function testBtcLp_collectBtcFees_NoClose() public {
         AUX.setBTCChannels(address(this));
-        BTC.registerBtcLp(User01, 2e7);
+        BTC.requestDeposit(User01, 2e7);
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
@@ -4015,13 +4015,13 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         vm.prank(User01); BTC.collectBtcFees();
         assertApproxEqAbs(QUID.balanceOf(User01), qb, 1e12, "second collect pays ~nothing (no double-pay)");
         // The channel still closes cleanly after a fee claim.
-        BTC.unregisterBtcLp(User01, 2e7);
+        BTC.requestRedeem(User01, 2e7);
         (uint pooledEnd,,,) = BTC.autoManaged(User01);
         assertEq(pooledEnd, 0, "channel still closes cleanly after a fee claim");
     }
 
     /// @notice COLLAPSE: swap-out proceeds settle EXACTLY at delivery, never at
-    ///         close. A close (`unregisterBtcLp`) is now ALL NATIVE — it mints NO
+    ///         close. A close (`requestRedeem`) is now ALL NATIVE — it mints NO
     ///         proceeds QUI (only USD-leg fees, which are ~0 here). The basket
     ///         headroom that funded POOLED_USD stays behind and is NEVER paid
     ///         to the closing LP, and `pendingSwapOutUsd` (only deliver-time
@@ -4030,7 +4030,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     function testBtcLp_SwapOutPrincipalCloseTime() public {
         AUX.setBTCChannels(address(this));
         uint funded = 2e7; // 0.2 BTC funded
-        BTC.registerBtcLp(User01, funded);
+        BTC.requestDeposit(User01, funded);
 
         // USD->BTC curve buys PRIME POOLED_USD (a harmless donation in the new
         // model — they no longer record any delivery obligation or proceeds).
@@ -4054,7 +4054,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // zeroes+rebuilds POOLED, so its delta is unrelated to proceeds).
         uint finalBalance = funded; // no delivery happened -> LP keeps all funding
         uint qBefore = QUID.balanceOf(User01);
-        BTC.unregisterBtcLp(User01, finalBalance);
+        BTC.requestRedeem(User01, finalBalance);
         uint paid = QUID.balanceOf(User01) - qBefore;
 
         assertEq(CORE.pendingSwapOutUsd(), 0, "close leaves pendingSwapOutUsd untouched");
@@ -4079,8 +4079,8 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     function testBtcLp_NonProRataDrain_PerChannel() public {
         AUX.setBTCChannels(address(this));
         uint funded = 2e7; // 0.2 BTC each
-        BTC.registerBtcLp(User01, funded);
-        BTC.registerBtcLp(User02, funded);
+        BTC.requestDeposit(User01, funded);
+        BTC.requestDeposit(User02, funded);
 
         // Priming curve buys (donation into POOLED_USD; no obligation recorded).
         vm.startPrank(User03);
@@ -4098,13 +4098,13 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // model would split ~poolUsd between A and B at close.)
         uint feeBound = poolUsd / 100 * 1e12; // ≫ USD-leg fees, ≪ any proceeds leak
         uint qA = QUID.balanceOf(User01);
-        BTC.unregisterBtcLp(User01, funded); // delivered_A = 0
+        BTC.requestRedeem(User01, funded); // delivered_A = 0
         uint paidA = QUID.balanceOf(User01) - qA;
         assertLt(paidA, feeBound, "PER-CHANNEL: A delivered nothing -> mints ~no proceeds (fees only)");
         assertEq(CORE.pendingSwapOutUsd(), 0, "A's close leaves pendingSwapOutUsd untouched");
 
         uint qB = QUID.balanceOf(User02);
-        BTC.unregisterBtcLp(User02, funded); // delivered_B = 0
+        BTC.requestRedeem(User02, funded); // delivered_B = 0
         uint paidB = QUID.balanceOf(User02) - qB;
         assertLt(paidB, feeBound, "PER-CHANNEL: B delivered nothing -> mints ~no proceeds (fees only)");
         (uint pA,,,) = BTC.autoManaged(User01);
@@ -4123,7 +4123,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     function testBtcLp_ResizeSplicePartialClose() public {
         AUX.setBTCChannels(address(this));
         uint funded = 2e7; // 0.2 BTC
-        BTC.registerBtcLp(User01, funded);
+        BTC.requestDeposit(User01, funded);
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
@@ -4149,7 +4149,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
 
         // Close the remainder, also all-native.
         uint qMid = QUID.balanceOf(User01);
-        BTC.unregisterBtcLp(User01, funded - shrink);
+        BTC.requestRedeem(User01, funded - shrink);
         (uint pooledEnd,,,) = BTC.autoManaged(User01);
         assertEq(pooledEnd, 0, "remainder retired");
         assertLt(QUID.balanceOf(User01) - qMid, feeBound,
@@ -4168,7 +4168,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     function testBtcLp_CloseIsRealizedPrice_NoOverMint() public {
         AUX.setBTCChannels(address(this));
         uint funded = 2e7;
-        BTC.registerBtcLp(User01, funded);
+        BTC.requestDeposit(User01, funded);
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
@@ -4191,7 +4191,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // ADVERSARIAL: finalBalance=0 claims the WHOLE funding as delivered. Under
         // a close-spot model this would mint funded×3×price of QUI; the collapsed
         // model mints 0 proceeds.
-        BTC.unregisterBtcLp(User01, 0);
+        BTC.requestRedeem(User01, 0);
         uint principalMinted = QUID.totalSupply() - supBefore; // + USD-leg fees only
         uint paid = QUID.balanceOf(User01) - qBefore;
 
@@ -4213,7 +4213,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         uint sats = 1e8; // 1 BTC funded
         uint sharesBefore = BTC.lpShares();
 
-        BTC.registerBtcLp(User01, sats);
+        BTC.requestDeposit(User01, sats);
         assertGt(BTC.lpShares(), sharesBefore, "lpShares grows on channel lock");
         (uint pooled1,,,) = BTC.autoManaged(User01);
         assertEq(pooled1, sats, "position == funded sats");
@@ -4221,7 +4221,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // Close with finalBalance == full funding (no net delivery) -> delivered
         // == 0, no USD claim; the position retires and lpShares returns to
         // baseline.
-        BTC.unregisterBtcLp(User01, sats);
+        BTC.requestRedeem(User01, sats);
         (uint pooled2,,,) = BTC.autoManaged(User01);
         assertEq(pooled2, 0, "channel close zeroes the BTC-LP position");
         assertEq(BTC.lpShares(), sharesBefore, "lpShares returns to baseline on close");
@@ -4235,7 +4235,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
 
     /// @notice END-TO-END through the REAL BTCChannels boundary (mock SPV only -
     ///         the SPV cryptography is covered by SPVGateway.t.sol). Exercises
-    ///         openChannel -> registerBtcLp and recordClose -> unregisterBtcLp
+    ///         openChannel -> requestDeposit and recordClose -> requestRedeem
     ///         with REAL Bitcoin-tx parsing (funding P2WSH output value, close-tx
     ///         LP P2WPKH final balance), instead of impersonating BTCChannels -
     ///         retiring the long-standing untested-wiring gap.
@@ -4324,7 +4324,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
             ch.recordClose(channelId, cp_, closeTx, bytes32(uint(2)), new bytes32[](0), 0);
         }
 
-        // Close reconciled through the REAL recordClose->unregisterBtcLp path:
+        // Close reconciled through the REAL recordClose->requestRedeem path:
         // position retired, all-native, no proceeds minted. The no-proceeds invariant
         // is on minted QUI (NOT POOLED_USD, which close's _rebalance rebuilds): a
         // close mints only its tiny USD-leg fees, ≪ the primed headroom an old
@@ -4616,7 +4616,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     /// This measures it instead of arguing about it.
     function testBtcLp_swapInAccruesTheBtcLegFee() public {
         AUX.setBTCChannels(address(this));           // impersonate BTCChannels -> drive creditSwapIn
-        BTC.registerBtcLp(User01, 2e7);
+        BTC.requestDeposit(User01, 2e7);
         // Buy-side flow first, so the pool holds USD depth for the swap-in to sell into.
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
@@ -4666,8 +4666,8 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     /// fold changes who gets paid.
     function testBtcLp_forgoneClaim_whatDoRemainingLpsActuallyGet() public {
         AUX.setBTCChannels(address(this));
-        BTC.registerBtcLp(User01, 2e7);
-        BTC.registerBtcLp(User02, 2e7);
+        BTC.requestDeposit(User01, 2e7);
+        BTC.requestDeposit(User02, 2e7);
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 4; i++) {
@@ -4689,7 +4689,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // never an unsettled claim to lose — which is the fix, not a gap in the test.
 
         uint fpsBefore = BTC.feesPerShare();
-        BTC.unregisterBtcLp(User01, 2e7);                 // LP1 exits fully
+        BTC.requestRedeem(User01, 2e7);                 // LP1 exits fully
 
         // THE MEASUREMENT: does LP2 receive any of it?
         vm.prank(User02); BTC.collectBtcFees();
@@ -4707,7 +4707,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     /// accrued USD-leg fee IS the pool's rate on that volume.
     function testBtcPool_measureUsdLegFeeRateOnASingleSwap() public {
         AUX.setBTCChannels(address(this));
-        BTC.registerBtcLp(User01, 2e7);
+        BTC.requestDeposit(User01, 2e7);
         vm.prank(User01); BTC.collectBtcFees();          // zero the LP's bookmark first
 
         uint usdFees0 = BTC.USD_FEES();

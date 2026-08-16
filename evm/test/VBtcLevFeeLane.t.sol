@@ -56,7 +56,7 @@ interface IMorphoOraclePrice { function price() external view returns (uint256);
 ///             slice, and fees accrue pro-rata to `LP.pooled` — so the lev equity IS fee-earning band
 ///             depth, the same mechanism as a channel deposit.
 ///           • The "unwind-only" guard on the BTC side is the `funded = inrange - lev` cap inside
-///             `Vault._resizeBtcLp` (a channel close/splice-out can only shrink the true channel
+///             `Vault._resizeRequest` (a channel close/splice-out can only shrink the true channel
 ///             funding, never the virtual lev depth). This is the exact BTC analogue of the ETH
 ///             `levPooled` cap on `_withdraw`; part (b) exercises it with a real splice-out.
 ///           • BTC leverage is KEEPER-DRIVEN ASYNC (no synchronous `openLev`/`rebalance` loop — BTC

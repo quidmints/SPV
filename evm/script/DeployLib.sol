@@ -263,10 +263,10 @@ library DeployLib {
             spv.addBlockHeaderBatch(cfg.spvCheckpointFollowers);
         }
         // BTCChannels binds `btcVault = _vogue` (the 3rd arg). The BTC side was regrouped
-        // into the merged Vault (`eth`) — creditSwapOut / registerBtcLp / resizeBtcLp all
+        // into the merged Vault (`eth`) — creditSwapOut / requestDeposit / resizeBtcLp all
         // live there (Vogue/`v4` has none). So the BtcVault is `eth`, NOT `v4`: passing v4
         // pointed btcVault at Vogue, whose fallback returns empty ⇒ creditSwapOut decode-
-        // reverts (swap-out) and registerBtcLp silently no-ops (open). Mirrors the canonical
+        // reverts (swap-out) and requestDeposit silently no-ops (open). Mirrors the canonical
         // BtcLpMintStress._deployChannels wiring (`new BTCChannels(spv, ETH)`).
         // (E164) MAIN_HOP + FALLBACK_HOP are pinned at construction and can never be added to:
         // a governed hop set is a Safe that can grant itself channels, which is the lever a
@@ -275,9 +275,9 @@ library DeployLib {
         BTCChannels c = new BTCChannels(address(spv), eth, cfg.mainHop, cfg.fallbackHop,
                                         cfg.btcDepositKey);
         // WIRING INVARIANT (regression guard): btcVault MUST be the merged Vault `eth` —
-        // where creditSwapOut / registerBtcLp / resizeBtcLp live. A prior version passed
+        // where creditSwapOut / requestDeposit / resizeBtcLp live. A prior version passed
         // `v4` (Vogue, which has none), silently breaking ALL BTC swap-out (creditSwapOut
-        // decode-reverts) and no-op'ing registerBtcLp on open. Assert at deploy so any
+        // decode-reverts) and no-op'ing requestDeposit on open. Assert at deploy so any
         // future miswire fails LOUDLY here (incl. production DeployL1_s) instead of on the
         // first live swap-out. Covers the gap that shipped it: forge tests deploy channels
         // by hand, so nothing exercised deployQuidStack(deployChannels:true) until now.
