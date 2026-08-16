@@ -129,8 +129,21 @@ reconcile instead of one per leg, on a path that can touch both legs. Keep `_onE
 end-of-operation refresh and DELETE the inline BTC calls, which are then redundant rather than
 load-bearing.
 
-⚠️ Worth a test anyway, because "redundant" is the claim that would hurt if wrong: move `pooled`
-AND `levBuf` in one transaction and assert `pendingFor` is 0 immediately after. That pins the
-invariant for whichever placement survives.
+⚠️ **AND THE "REDUNDANT" CLAIM WAS ALSO WRONG — CHECKED.** `syncLevBTC` has NO end-of-operation
+refresh: it settles, calls `levBurnAllBtc`, then `levAddGrossBtc`, and returns. **BTC genuinely
+relies on the inline refreshes**, so deleting them without compensation would leave the bookmark at
+a pre-move weight and over-credit by `Δweight · fps`.
 
-⇒ **All four differences are therefore mechanical**, and the merge is unblocked.
+⇒ **THE MERGE IS STILL SAFE, and here is the actual argument:** within ONE transaction
+`feesPerShare` cannot move (it only advances on a swap/repack), so N intermediate refreshes and ONE
+final refresh land on the SAME bookmark. The invariant is only ever "the bookmark ends at the
+post-move weight". So the merge:
+
+1. keeps the ETH placement (one refresh at end-of-operation),
+2. **adds that refresh to `syncLevBTC`** — a one-line addition, not an assumption,
+3. then deletes the inline BTC calls, which are at that point genuinely redundant.
+
+⚠️ Pin it with a test regardless: move `pooled` AND `levBuf` in one transaction, assert
+`pendingFor` is 0 immediately after. That is the invariant, and it holds for either placement.
+
+⇒ **All four differences are mechanical**, and the merge is unblocked — but step 2 is NOT optional.
