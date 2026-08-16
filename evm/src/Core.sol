@@ -68,16 +68,13 @@ contract Core is SafeCallback {
     /// the helpers take one `ObsState storage` ref (IS_BTC-dispatched via
     /// `_obsState`). These were never read externally; only POOLED_* getters
     /// (kept) are.
-    OracleLib.ObsState internal obsETH;
-    OracleLib.ObsState internal obsBTC;
-    OracleLib.Observation[65535] internal observationsETH;
-    OracleLib.Observation[65535] internal observationsBTC;
-    function _obsState() internal view returns (OracleLib.ObsState storage) {
-        return IS_BTC ? obsBTC : obsETH;
-    }
-    function _obs() internal view returns (OracleLib.Observation[65535] storage) {
-        return IS_BTC ? observationsBTC : observationsETH;
-    }
+    /// §ISBTC-SPLIT — ONE RING PER INSTANCE, AND THE SELECTORS ARE GONE WITH THE SECOND COPY.
+    /// This held BOTH bands' rings and picked between them on every access, so each deployed
+    /// instance reserved TWO `Observation[65535]` arrays and used exactly one. The `obsState` /
+    /// `observations` helpers existed only to make that choice; with one of each there is nothing to
+    /// choose, so the fields are read directly.
+    OracleLib.ObsState internal obsState;
+    OracleLib.Observation[65535] internal observations;
 
     // §V4-CUT — `VANILLA_ETH`/`VANILLA_BTC` DELETED. Write-only: assembled at setup for a pool
     // that `initPool` stopped creating, then read by `_key()`, which had no callers.
@@ -193,8 +190,7 @@ contract Core is SafeCallback {
     // it. Bumped by every swap's USD notional in _handleSwap (band + well both route
     // through it). Read DECAYED via flowEwmaUsd(). One register per pool.
     struct Flow { uint128 vol; uint64 ts; }   // vol: 6-dec USD EWMA · ts: last touch
-    Flow internal _flowBTC;
-    Flow internal _flowETH;
+    Flow internal _flow;   // §ISBTC-SPLIT: one per instance
     /// @notice §E55 — the SLOW half of the adaptive flow estimate. Same `Flow` shape, same
     ///         `FLOW_DECAY`, decayed at 1/`FLOW_SLOW_N` the rate ⇒ an N× longer half-life with
     ///         **NO THIRD DECAY CONSTANT** (this file already warns that one would be "an
@@ -238,8 +234,7 @@ contract Core is SafeCallback {
     ///         so a THIRD decay constant would be an unjustified magic number. (This does NOT
     ///         re-tie the 48h flow window to the 12h `BR_DECAY` — those stay un-tied by design;
     ///         this is a SECOND consumer of the 48h window, not a merge of two windows.)
-    Flow internal _premETH;
-    Flow internal _premBTC;
+    Flow internal _prem;   // §ISBTC-SPLIT: one per instance
 
     /// @dev ONE decay implementation, shared by both EWMA registers (was duplicated between
     ///      `_bumpFlow` and `flowEwmaUsd`). Decay the stored value over elapsed whole minutes.
@@ -264,7 +259,7 @@ contract Core is SafeCallback {
 
     /// @notice Fold a swap's USD notional into this pool's flow EWMA. Called only from _handleSwap.
     function _bumpFlow(uint usd6) internal {
-        _bumpEwma(IS_BTC ? _flowBTC : _flowETH, usd6);
+        _bumpEwma(_flow, usd6);
     }
 
 
@@ -280,7 +275,7 @@ contract Core is SafeCallback {
     /// It is also manipulation-resistant by construction: lifting this number requires sustaining
     /// fake flow across the SLOW window, not one block. (Same shape as `min-of-two-prices`.)
     function flowEwmaUsd() public view returns (uint) {
-        return _decayed(IS_BTC ? _flowBTC : _flowETH);
+        return _decayed(_flow);
     }
 
     /// @notice This pool's decayed RETAINED-PREMIUM EWMA (6-dec USD) — the band's realized
@@ -291,7 +286,7 @@ contract Core is SafeCallback {
     ///         earns the reserve baseline whether it is banded or idle (`spec.md`), so reserve yield
     ///         is not marginal compensation for IL risk and must not inflate the risk budget.
     function premiumEwmaUsd() public view returns (uint) {
-        return _decayed(IS_BTC ? _premBTC : _premETH);
+        return _decayed(_prem);
     }
 
     /// @notice Aggregate leverage claim on this pool (6-dec USD) — the well's
@@ -344,7 +339,7 @@ contract Core is SafeCallback {
         // exactly 1e-8 × 1e18 = 1e10. `ringVariance` now returns (WAD relative return)² per second,
         // i.e. relative²·1e36, so ONE division by 1e18 lands on WAD relative variance — same
         // magnitude, same meaning ⇒ Γ (`MAX_WELL_SKEW`) needs NO recalibration.
-        uint v = Math.mulDiv(OracleLib.ringVariance(_obs(), _obsState(), 9),
+        uint v = Math.mulDiv(OracleLib.ringVariance(observations, obsState, 9),
                             31536000, 1e18);          // per-sec → annualized
         // §E88 — ZERO IS NOW RESERVED FOR "UNMEASURED", AND ONLY THAT.
         //
@@ -360,7 +355,7 @@ contract Core is SafeCallback {
         //   variance itself can. A populated ring that computes a true zero returns 1 wei, so the
         //   two states are distinguishable downstream at ZERO extra storage, calls, or gas on the
         //   money path, and the E59 sentinel keeps its exact meaning for the case it was written for.
-        if (v == 0 && _obsState().cardinality >= 2) return 1;
+        if (v == 0 && obsState.cardinality >= 2) return 1;
         return v;
     }
 
@@ -406,7 +401,7 @@ contract Core is SafeCallback {
         _addPooledUsd(premiumUsd);
         // Also fold it into the decaying RATE register (#107/D3). The cumulative counters above
         // are monotonic totals — useless as a yield; θ needs a rate, which is what this provides.
-        _bumpEwma(IS_BTC ? _premBTC : _premETH, premiumUsd);
+        _bumpEwma(_prem, premiumUsd);
         emit SkewPremiumRetained(premiumUsd, cum);
     }
 
@@ -424,10 +419,10 @@ contract Core is SafeCallback {
         if (amount != 0 && to != address(0)) AUX.take(to, amount, token, 0);
     }
 
-    mock internal mockETH;
-    mock internal mockBTC;
-    mock internal mockUSD_ETH; // synthetic $-side of ETH pool (in & out of range)
-    mock internal mockUSD_BTC; // synthetic $-side of BTC pool (in & out of range)
+    // §ISBTC-SPLIT — ONE PAIR PER INSTANCE. Four mocks existed because one contract hosted two
+    // pools; an instance hosts one band, so it needs one volatile mock and one USD mock.
+    mock internal mockVol;
+    mock internal mockUsd;
 
     /// Pool ordering for THIS instance's asset. Was token1isVol/token1isVol.
 
@@ -438,6 +433,15 @@ contract Core is SafeCallback {
     /// Use it ONLY where the asymmetry is REAL (ETH pays out ether; BTC settles via a Lightning
     /// cooperative close), never to pick between two paths that should have been one.
     bool public immutable IS_BTC;
+    /// §ISBTC-SPLIT — the volatile side's decimals (18 ether / 8 sats), fixed per instance. Held as
+    /// a NUMBER because that is what actually differs; the mock deployer takes it directly instead
+    /// of re-deciding from a flag.
+    uint8 public immutable VOL_DECIMALS;
+    /// §ISBTC-SPLIT — THIS INSTANCE'S VOLATILE ASSET, resolved ONCE at setup. Three money-path
+    /// sites read `IS_BTC ? address(AUX.WBTC()) : address(AUX.WETH())`, so each priced swap made an
+    /// EXTERNAL CALL into Aux to look up a constant, then chose between two constants with a
+    /// branch. Not immutable only because `AUX` is wired in `setup`, not in the constructor.
+    address public ASSET;
 
     /// §V4-CUT — THE BAND'S RANGE, now OURS to store. It used to live inside the v4 position, which
     /// is why re-ranging required burning and re-adding liquidity. With inventory held directly the
@@ -496,10 +500,10 @@ contract Core is SafeCallback {
     }
 
     function _mockUsd() internal view returns (mock) {
-        return IS_BTC ? mockUSD_BTC : mockUSD_ETH;
+        return mockUsd;
     }
     function _mockTok() internal view returns (mock) {
-        return IS_BTC ? mockBTC : mockETH;
+        return mockVol;
     }
 
     /// @notice The pool's two synthetic mocks. EXISTS SO THE HARNESS STOPS READING RAW SLOTS: §E60's
@@ -600,6 +604,7 @@ contract Core is SafeCallback {
     constructor(IPoolManager _manager, bool isBtc, address backing) SafeCallback(_manager) {
         DEPLOYER = msg.sender;
         IS_BTC = isBtc;
+        VOL_DECIMALS = isBtc ? 8 : 18;
         BACKING = IBandBacking(backing);
     }
 
@@ -623,13 +628,12 @@ contract Core is SafeCallback {
         // Mocks are deployed through OracleLib (delegatecall) so the ~3.9 KB of
         // `mock` creation-code lives in the library, not Core's bytecode (EIP-170).
         // address(this) under delegatecall is Core, so ownership is identical.
-        (address mE, address mB, 
-        address mUE, address mUB) = OracleLib.deployMocks();
-        mockUSD_ETH = mock(mUE); mockUSD_BTC = mock(mUB);
-        mockETH = mock(mE); mockBTC = mock(mB);
+        (address mV, address mU) = OracleLib.deployMocks(VOL_DECIMALS);
+        mockVol = mock(mV); mockUsd = mock(mU);
         
         VOGUE = Vogue(payable(_vogue));
         AUX = Aux(payable(_aux));
+        ASSET = IS_BTC ? address(Aux(payable(_aux)).WBTC()) : address(Aux(payable(_aux)).WETH());
         BASKET = Basket(_basket);
 
         // Both reference pools' live ticks are read in ONE library call so they
@@ -641,14 +645,13 @@ contract Core is SafeCallback {
         // in Core's runtime twice. `AUX.WBTC()` is queryable because AUX was wired
         // above, and is passed in so OracleLib need not import Aux for one getter.
         (uint refPriceEth, uint refPriceBtc) =
-            OracleLib.prepRefs(poolManager, _refKeyETH, _refKeyBTC,
-                mE, mB, mUE, mUB, address(AUX.WBTC()));
+            OracleLib.prepRefs(poolManager, _refKeyETH, _refKeyBTC, address(AUX.WBTC()));
 
         // §V4-CUT — ONE INSTANCE, ONE RING, ONE LINE. `_initPool` is gone: it existed to assemble a
         // lex-sorted PoolKey, initialise a v4 pool and record its id, and none of that happens any
         // more. `VANILLA_*`, `POOL_ID_VANILLA_*` and the ordering flag were write-only vestigia of a
         // pool that is never created. Seeding the ring from the reference price is the whole job.
-        OracleLib.seedRing(_obsState(), _obs(), IS_BTC ? refPriceBtc : refPriceEth);
+        OracleLib.seedRing(obsState, observations, IS_BTC ? refPriceBtc : refPriceEth);
     }
 
     /// @notice Draw down the BTC pool's committed USD side when an on-chain
@@ -798,7 +801,7 @@ contract Core is SafeCallback {
         // `out` come back. Inlining them here blows the stack at `_handleDelta`, twice measured.
         // This is the same idiom `_handleDelta`'s own settle legs use ("each leg settles in its own
         // frame -- legacy stack, no via_ir crutch"). Do not inline for readability; it will not compile.
-        uint px = AUX.getTWAPforAsset(IS_BTC ? address(AUX.WBTC()) : address(AUX.WETH()), 1800);
+        uint px = AUX.getTWAPforAsset(ASSET, 1800);
         Delta memory delta;
         (delta, out) = _fillDelta(inputIsUsd, amount, px);
 
@@ -914,7 +917,7 @@ contract Core is SafeCallback {
         returns (uint price, uint fees0, uint fees1, uint delta0, uint delta1) {
         LOWER_PRICE = newLower;
         UPPER_PRICE = newUpper;
-        price = AUX.getTWAPforAsset(IS_BTC ? address(AUX.WBTC()) : address(AUX.WETH()), 1800);
+        price = AUX.getTWAPforAsset(ASSET, 1800);
         _writeObservationPrice(price);    // §DETICK: no narrowing
         return (price, 0, 0, 0, 0);
     }
@@ -940,7 +943,7 @@ contract Core is SafeCallback {
         returns (uint price, uint fees0, uint fees1, uint delta0, uint delta1) {
         LOWER_PRICE = newLower;
         UPPER_PRICE = newUpper;
-        price = AUX.getTWAPforAsset(IS_BTC ? address(AUX.WBTC()) : address(AUX.WETH()), 1800);
+        price = AUX.getTWAPforAsset(ASSET, 1800);
         _writeObservationPrice(price);    // §DETICK: no narrowing
         return (price, 0, 0, 0, 0);
     }
@@ -1155,7 +1158,7 @@ contract Core is SafeCallback {
     /// `lastPrice` is seeded from the reference pool in `OracleLib.initPool` and updated by every
     /// observation write, so it is defined from the first block and never needs history.
     function poolStats() public view returns (uint priceWad, uint liquidity) {
-        priceWad = _obsState().lastPrice;
+        priceWad = obsState.lastPrice;
         liquidity = POOLED;
     }
 
@@ -1226,7 +1229,7 @@ contract Core is SafeCallback {
     /// The sqrt-taking variant above survives only while Repack/Reseat/Collect still read `getSlot0`,
     /// and deletes with them.
     function _writeObservationPrice(uint price) internal {
-        OracleLib.writeObservation(_obs(), _obsState(), price);
+        OracleLib.writeObservation(observations, obsState, price);
     }
 
     /// @notice §E63 — ONE observe, dispatched. These were TWO externals with IDENTICAL bodies
@@ -1240,6 +1243,6 @@ contract Core is SafeCallback {
     ///         to either name; the only callers are `SwapLib:104-105`.
     function observe(uint32[] calldata secondsAgos)
         external view returns (uint192[] memory) {
-        return OracleLib.observe(_obs(), _obsState(), secondsAgos);
+        return OracleLib.observe(observations, obsState, secondsAgos);
     }
 }

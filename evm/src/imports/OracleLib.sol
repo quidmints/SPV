@@ -201,27 +201,28 @@ library OracleLib {
     /// the same argument `cumsToPrice` already makes for the ring.
     /// ⚠️ The reference pools are still READ, deliberately: they are the independent v3/v4
     /// observation the Chainlink cross-check is measured against.
+    /// §V4-CUT — THE FOUR MOCK APPROVALS ARE GONE. They approved the PoolManager to move our mock
+    /// tokens, which mattered while v4 hosted the band. No pool of ours is ever created now, so the
+    /// allowances had no spender that could use them -- and granting `type(uint).max` to a contract
+    /// that will never call `transferFrom` is a standing approval for no reason.
     function prepRefs(IPoolManager pm, PoolKey calldata refETH, PoolKey calldata refBTC,
-        address mETH, address mBTC, address mUSD_ETH, address mUSD_BTC, address wbtc)
-        external returns (uint priceETH, uint priceBTC) {
+        address wbtc)
+        external view returns (uint priceETH, uint priceBTC) {
         (uint160 spETH, , , ) = StateLibrary.getSlot0(pm, PoolIdLibrary.toId(refETH));
         (uint160 spBTC, , , ) = StateLibrary.getSlot0(pm, PoolIdLibrary.toId(refBTC));
         // `volIsC0` says the VOLATILE asset is currency0, so token0 is NOT the USD side.
         priceETH = BasketLib.getPrice(spETH, !(Currency.unwrap(refETH.currency0) == address(0)));
         priceBTC = BasketLib.getPrice(spBTC, !(Currency.unwrap(refBTC.currency0) == wbtc));
-        mock(mETH).approve(address(pm), type(uint).max);
-        mock(mBTC).approve(address(pm), type(uint).max);
-        mock(mUSD_ETH).approve(address(pm), type(uint).max);
-        mock(mUSD_BTC).approve(address(pm), type(uint).max);
     }
 
-    function deployMocks() external returns (
-        address mETH, address mBTC, address mUSD_ETH, address mUSD_BTC
-    ) {
-        mETH     = address(new mock(address(this), 18));
-        mBTC     = address(new mock(address(this),  8));
-        mUSD_ETH = address(new mock(address(this),  6));
-        mUSD_BTC = address(new mock(address(this),  6));
+    /// §ISBTC-SPLIT — ONE PAIR, AND THE CALLER PASSES THE NUMBER RATHER THAN A FLAG. This built
+    /// FOUR mocks because one contract hosted two pools; an instance hosts one band and used half
+    /// of them. `volDecimals` is the only thing that differed between the two volatile mocks (18
+    /// for ether, 8 for sats), so it is passed as a NUMBER -- a boolean here would be the same
+    /// hand-rolled dispatch this refactor removes, one layer down.
+    function deployMocks(uint8 volDecimals) external returns (address volMock, address usdMock) {
+        volMock = address(new mock(address(this), volDecimals));
+        usdMock = address(new mock(address(this), 6));
     }
 
     /// @notice §E59 — REALIZED TICK VARIANCE FROM THE **STORED OBSERVATIONS**, not a wall-clock grid.

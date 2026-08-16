@@ -307,14 +307,20 @@ contract DrainAtomicity is Alles {
     /// no LP timestamp is needed, because adds can only move inventory TOWARD repair — leaving BURNS
     /// as the one residual hole. I INFERRED the burn behaves like the add. **Inferring from the add
     /// case is exactly what produced a no-op fix in E93-HOLE-CLOSED**, so this measures it instead.
-    /// §E102 — READ `flow.ts` DIRECTLY. `Flow internal _flowETH` (slot 131088) is not publicly
+    /// §E102 — READ `flow.ts` DIRECTLY. `Flow internal _flow` (slot 65541) is not publicly
     /// readable, and E100/E101 inferred "ts did not bump" from `flowEwmaUsd` NOT CHANGING. That
     /// inference is only valid when the FAST leg is binding, because `flowEwmaUsd` returns
     /// `min(fast, slow)` (E55) — if the slow leg pins the minimum, a fast-leg bump moves NOTHING and
     /// the inference is SILENTLY WRONG. `Flow{uint128 vol; uint64 ts}` packs into one slot: `vol` in
     /// the low 128 bits, `ts` in the next 64. Reading the slot removes the inference entirely.
     function _flowTs(bool slow) internal view returns (uint64) {
-        uint slot = slow ? 131090 : 131088;                    // _flowSlowETH / _flowETH
+        // §ISBTC-SPLIT — RE-DERIVED FROM `forge inspect Core storageLayout`, NOT ADJUSTED BY HAND.
+        // Core held BOTH bands' state and each instance now holds one, which removed an entire
+        // `Observation[65535]` array and moved everything after it DOWN BY 65,535 SLOTS:
+        // `_flowETH` 131088 -> `_flow` 65541. `slow` reads the first RETAINED DEAD slot (65542,
+        // formerly `_flowSlow*`), which is what it was already reading -- the slow leg is dead by
+        // §UNIT-B-MIN-STRUCTURAL and the test asserts it does not move.
+        uint slot = slow ? 65542 : 65541;
         uint raw = uint(vm.load(address(CORE), bytes32(slot)));
         return uint64(raw >> 128);
     }
@@ -1364,16 +1370,16 @@ contract DrainAtomicity is Alles {
     /// discounts were never comparable. Two experiments were void on that broken control.
     ///
     /// `Flow` is `{uint128 vol; uint64 ts}` in ONE slot ⇒ `(ts << 128) | vol`. Slots from
-    /// `forge inspect Core storageLayout`: 131087 `_flowBTC` · 131088 `_flowETH` · 131089/131090 the
-    /// retained dead slow-flow slots (§UNIT-B-SLOWDEL-PADDING), which any lagged/snapshot mechanism
-    /// would reuse. **ALL FOUR are pinned so the entry target is the same whatever the mechanism
-    /// reads.** `ts = now` ⇒ zero decay ⇒ the value is exactly what was written.
+    /// `forge inspect Core storageLayout`: 65541 `_flow` (ONE register per instance since the isBTC
+    /// split; the sibling band is a separate contract), followed by the retained dead slow-flow
+    /// slots (§UNIT-B-SLOWDEL-PADDING). `ts = now` ⇒ zero decay ⇒ the value is exactly what was
+    /// written.
     function _pinFlow(uint128 vol) internal {
         bytes32 packed = bytes32((uint(block.timestamp) << 128) | uint(vol));
-        // only the two FLOW registers — 131089/131090 held the deleted LVR register
-        for (uint slot = 131087; slot <= 131088; ++slot) {
-            vm.store(address(CORE), bytes32(slot), packed);
-        }
+        // §ISBTC-SPLIT — ONE flow register per instance now (was `_flowBTC` + `_flowETH`), and it
+        // moved to 65541 with the second observation ring's removal. Pinning the single live
+        // register is the whole job; there is no sibling band's copy to keep in step.
+        vm.store(address(CORE), bytes32(uint(65541)), packed);
     }
 
     /// The instrument §UNIT-B needs. Same shape as §E71 (one big drain vs the same volume split),

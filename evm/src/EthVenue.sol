@@ -33,7 +33,9 @@ import {IDepositAdapter} from "./imports/Interfaces.sol";
 ///         `_etherfiCfg`, which gather them into memory structs for every forward.
 contract EthVenue is Ownable {
     /// The ETH LP contract. Gates the depositor-facing entries.
-    Vogue   internal immutable V4;
+    // §NAMING — was `V4`, which read as Uniswap v4. It is the Vogue band manager and always
+    // was; there is no Uniswap anywhere in this contract. ("AAVE-v4" below is Aave's v4, unrelated.)
+    Vogue   internal immutable VOGUE;
     /// The basket. Gates the basket-side supply/withdraw legs.
     address public   immutable AUX;
     WETH9   public   immutable WETH;
@@ -58,7 +60,7 @@ contract EthVenue is Ownable {
     error LevManagerPinned();
 
     constructor(address _vogue, address _aux, address _weth) Ownable(msg.sender) {
-        V4   = Vogue(payable(_vogue));
+        VOGUE   = Vogue(payable(_vogue));
         AUX  = _aux;
         WETH = WETH9(payable(_weth));
 
@@ -95,14 +97,14 @@ contract EthVenue is Ownable {
     /// @notice Pull the Vogue-approved WETH and stake it into weETH (restaking yield), held here and
     ///         valued in `vogueETH()` via `getEETHByWeETH`.
     function supplyEtherFi(uint amount) external returns (uint) {
-        if (msg.sender != address(V4)) revert NotVogueCore();
-        return VaultLib.supplyVenueBody(_ethCfg(), amount, address(V4));
+        if (msg.sender != address(VOGUE)) revert NotVogueCore();
+        return VaultLib.supplyVenueBody(_ethCfg(), amount, address(VOGUE));
     }
 
     /// @notice OFFRAMP the ether.fi slice of a withdrawal: weETH → WETH for `amount` ETH-worth,
     ///         delivered to `recipient`. Every call try/catch'd.
     function offrampEtherFi(uint amount, address recipient) external returns (uint served) {
-        if (msg.sender != address(V4)) revert NotVogueCore();
+        if (msg.sender != address(VOGUE)) revert NotVogueCore();
         return VaultLib.offrampBody(amount, recipient, _etherfiCfg());
     }
 
@@ -115,7 +117,7 @@ contract EthVenue is Ownable {
     /// @notice Vogue↔venue op selector. @param op 1 = take ETH, 2 = read the current claim.
     ///         (op 0 was the deposit route into a curated WETH vault; that venue is gone.)
     function vogueOp(uint amount, uint8 op) external returns (uint sent) {
-        if (msg.sender != address(V4)) revert NotVogueCore();
+        if (msg.sender != address(VOGUE)) revert NotVogueCore();
         // The live ETH claim is read via vogueETH() (real 4626 shares), not a stored principal.
         sent = SwapLib.vogueOpBody(amount, op, WETH, vogueETH());
     }
