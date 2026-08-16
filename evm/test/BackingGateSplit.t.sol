@@ -3,7 +3,6 @@ pragma solidity 0.8.30;
 
 import {Alles} from "./Alles.t.sol";
 import {console} from "forge-std/console.sol";
-import {BandBacking} from "../src/BandBacking.sol";
 import {Core} from "../src/Core.sol";
 
 /// @title  BackingGateSplit — WHICH band is over-committing, measured per band.
@@ -23,7 +22,7 @@ import {Core} from "../src/Core.sol";
 ///         two bands report OVERLAPPING claims on the same dollars, (b) holds.
 ///
 /// @dev    ⚠️ This asserts NOTHING about which is true. It is an instrument, and it reads the
-///         EXACT public quantities the deployed gate uses (`BandBacking.committedOf`,
+///         EXACT public quantities the deployed gate uses (`Aux.committedOf`,
 ///         `Core.bandEquityUsd18`, `AUX.get_deposits()[14]`) so its numbers ARE the gate's.
 ///         Asserting a conclusion here is how a probe stops being able to disprove it.
 contract BackingGateSplit is Alles {
@@ -31,7 +30,9 @@ contract BackingGateSplit is Alles {
     function test_backingGate_perBandSplit() public {
         _stageDepeg();  // heal the fork's default depeg; build real basket backing
 
-        BandBacking backing = BandBacking(address(CORE.BACKING()));
+        // §BANDBACKING-FOLD — the accountant IS `AUX` now. `committedOf` and `committedTotal` are
+        // public there, so the per-band split is still readable without a registry to enumerate:
+        // the ETH band by address, the BTC band as the remainder of the same total the bound uses.
 
         // TVL is the gate's ceiling, read from the same accessor `backingCoreBody` uses.
         (uint[15] memory d,,, uint depegLoss) = AUX.get_deposits();
@@ -46,23 +47,16 @@ contract BackingGateSplit is Alles {
         // Enumerate every registered band. `total()` reverts unless sealed, so a revert here is
         // itself a finding: it would mean the deploy never sealed and the gate cannot be trusted.
         console.log("--- per band ---");
-        uint sum;
-        for (uint i; ; ++i) {
-            address band;
-            try backing.bands(i) returns (address b) { band = b; } catch { break; }
-            uint reported = backing.committedOf(band);
-            uint live     = Core(payable(band)).bandEquityUsd18();
-            sum += reported;
-            console.log("band            :", band);
-            console.log("  committedOf   :", reported);
-            console.log("  live equity   :", live);   // divergence here == a STALE push (§A.16b clock)
-            console.log("  POOLED_USD    :", Core(payable(band)).POOLED_USD());
-        }
-
-        uint reportedTotal = backing.total();
+        uint ethCommitted = AUX.committedOf(address(CORE));
+        uint reportedTotal = AUX.committedTotal();
+        console.log("ETH band committedOf:", ethCommitted);
+        console.log("ETH band live equity:", CORE.bandEquityUsd18());  // divergence == a STALE push
+        console.log("ETH band POOLED_USD :", CORE.POOLED_USD());
+        console.log("BTC band (remainder):", reportedTotal - ethCommitted);
+        uint sum = reportedTotal;
         console.log("--- sum ---");
         console.log("sum(committedOf)  :", sum);
-        console.log("BandBacking.total :", reportedTotal);
+        console.log("AUX.committedTotal:", reportedTotal);
         console.log("committedUsd18    :", CORE.committedUsd18());
 
         // §THE-ACTUAL-TRIP. `testRegularSwaps` and the other OverCommitted failures do exactly this
@@ -85,26 +79,24 @@ contract BackingGateSplit is Alles {
         }
 
         console.log("--- after the deposit ---");
-        for (uint i; ; ++i) {
-            address band;
-            try backing.bands(i) returns (address b) { band = b; } catch { break; }
-            console.log("band            :", band);
-            console.log("  committedOf   :", backing.committedOf(band));
-            console.log("  POOLED_USD    :", Core(payable(band)).POOLED_USD());
-        }
+        uint ethAfter = AUX.committedOf(address(CORE));
+        uint totAfter = AUX.committedTotal();
+        console.log("ETH band committedOf:", ethAfter);
+        console.log("ETH band POOLED_USD :", CORE.POOLED_USD());
+        console.log("BTC band (remainder):", totAfter - ethAfter);
         (uint[15] memory d2,,, uint loss2) = AUX.get_deposits();
         uint ceil2 = d2[14] > loss2 ? d2[14] - loss2 : 0;
         console.log("TVL after         :", d2[14]);
-        console.log("committed after   :", backing.total());
-        if (backing.total() > ceil2) console.log("OVER BY           :", backing.total() - ceil2);
-        else console.log("headroom left     :", ceil2 - backing.total());
+        console.log("committed after   :", totAfter);
+        if (totAfter > ceil2) console.log("OVER BY           :", totAfter - ceil2);
+        else console.log("headroom left     :", ceil2 - totAfter);
 
-        _swapLeg(backing);
+        _swapLeg();
     }
 
     /// @dev Own frame — `via_ir` is false in this repo ON PURPOSE, so stack-too-deep is solved by
     ///      giving the work its own frame, never by turning on the IR pipeline.
-    function _swapLeg(BandBacking backing) private {
+    function _swapLeg() private {
         // §THE-SWAP-LEG. The deposit alone passes, so the trip is downstream. `basketLeg` is
         // documented TRUE only from `_handleMod` (Core.sol:984), which would mean a USER swap
         // cannot move `basketUsd` and therefore cannot move committed at all. Test that claim
@@ -123,32 +115,34 @@ contract BackingGateSplit is Alles {
 
         (uint[15] memory d3,,, uint loss3) = AUX.get_deposits();
         uint ceil3 = d3[14] > loss3 ? d3[14] - loss3 : 0;
-        uint tot3  = backing.total();
+        uint tot3  = AUX.committedTotal();
         console.log("TVL after swap    :", d3[14]);
         console.log("committed after   :", tot3);
         console.log("ETH band POOLED_USD:", CORE.POOLED_USD());
         if (tot3 > ceil3) console.log("OVER BY           :", tot3 - ceil3);
         else console.log("headroom left     :", ceil3 - tot3);
 
-        // The one thing that IS an invariant regardless of which explanation holds: the accountant's
-        // total must equal the sum of its parts. If these disagree the bug is in BandBacking itself,
-        // not in either band's attribution -- and that would make every other reading here moot.
-        uint parts;
-        for (uint i; ; ++i) {
-            address band;
-            try backing.bands(i) returns (address b) { band = b; } catch { break; }
-            parts += backing.committedOf(band);
-        }
-        assertEq(tot3, parts, "BandBacking.total must equal the sum of committedOf");
+        // §BANDBACKING-FOLD — THE OLD "total == sum of parts" ASSERTION IS DELETED, NOT REWRITTEN.
+        // Under the registry it was a real check: `bands` could be partial, `seal()` could be
+        // missed, and a partial sum under-reports and passes a bound it should fail. Aux adds two
+        // IMMUTABLE addresses, so the property now holds by construction and any assertion of it
+        // reduces to `x + (t - x) == t` -- true for every t, testing nothing. A vacuous assertion is
+        // worse than none: it reads as coverage.
+        //
+        // What IS still worth pinning is the relation the gate actually depends on.
+        assertLe(AUX.committedOf(address(CORE)), tot3,
+                 "a band's own committed figure can never exceed the joint total");
+        assertEq(tot3, CORE.committedUsd18(),
+                 "committedUsd18 must be the accountant's total, not a per-band figure");
 
-        _drift(backing);
+        _drift();
     }
 
     /// @dev §THE-DRIFT. One swap already shows `POOLED_USD` falling while `committedOf` holds. If
     ///      that is the root, repeating the swap must erode headroom MONOTONICALLY with committed
     ///      pinned -- and the gap `basketUsd - POOLED_USD` is the phantom basket claim, growing by
     ///      the USD each swap removed. Own frame for the same no-via_ir reason as `_swapLeg`.
-    function _drift(BandBacking backing) private {
+    function _drift() private {
         console.log("--- repeated swaps: does the gap widen? ---");
         for (uint n; n < 8; ++n) {
             vm.deal(User01, 5 ether);
@@ -158,7 +152,7 @@ contract BackingGateSplit is Alles {
 
             (uint[15] memory dn,,, uint lossN) = AUX.get_deposits();
             uint ceilN = dn[14] > lossN ? dn[14] - lossN : 0;
-            uint totN  = backing.total();
+            uint totN  = AUX.committedTotal();
             uint pooled18 = CORE.POOLED_USD() * 1e12;
             console.log("iter", n);
             console.log("   committed :", totN);

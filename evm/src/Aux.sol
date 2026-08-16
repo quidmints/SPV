@@ -1126,6 +1126,52 @@ contract Aux is // Auxiliary
     // loop to defend (unlike Liquity), so the toll had no peg to protect; peg-defense redemptions are scheduled
     // by 6909. Outflow control is now the depeg haircut only.
 
+    // ─── The band accountant. Was a separate `BandBacking` contract; folded in here ───────────
+    //
+    /// §BANDBACKING-FOLD — THE JOINT COMMITTED FIGURE LIVES WHERE THE GATE LIVES. Two band
+    /// instances each own their own `POOLED_*` and accumulators, but the solvency bound is a SUM:
+    /// there is deliberately NO per-band cap, so either band may draw the whole free surplus while
+    /// the other is idle. Two instances each gating against the FULL TVL would double-commit the
+    /// same backing WITHOUT reverting.
+    ///
+    /// That coupling used to be a whole contract (`BandBacking`: a registry, a `seal()`, a
+    /// `bands` array, an `isBand` map, a `DEPLOYER` pin and five errors) whose entire job was to
+    /// hold two numbers and add them. It is deleted, because **Aux already IS this contract**: the
+    /// gate that consumes the sum is `_checkBacking` twelve lines below, and Aux already holds
+    /// `CORE` and `BTC_CORE` as immutables.
+    ///
+    /// ⇒ The band set is fixed at Aux's CONSTRUCTION rather than registered-then-sealed, which is
+    /// strictly stronger: there is no window in which the denominator is partial. `BandBacking`
+    /// needed `total()` to revert unless sealed for exactly that reason — a partial sum
+    /// UNDER-reports and passes a bound it should fail. Here the sum cannot be partial.
+    mapping(address => uint256) public committedOf;
+    event Reported(address indexed band, uint256 equityUsd18);
+
+    /// @notice A band pushes its OWN committed equity. PUSH, not pull.
+    /// @dev    ⚠️ THE STALENESS RULE (§A.16b one level up): a sum of per-band figures is only
+    ///         meaningful if every term is on the same clock. If one band reports live while the
+    ///         other's figure is stale, the total is a number that was never simultaneously true,
+    ///         and the bound would pass against backing that does not exist. So this is pushed at
+    ///         the moment the band's equity changes, never lazily pulled.
+    function report(uint256 equityUsd18) external {
+        if (msg.sender != address(CORE) && msg.sender != address(BTC_CORE)) revert Unauthorized();
+        committedOf[msg.sender] = equityUsd18;
+        emit Reported(msg.sender, equityUsd18);
+    }
+
+    /// @notice Total committed equity across both bands — the old `committedUsd18()`.
+    function committedTotal() public view returns (uint256) {
+        return committedOf[address(CORE)] + committedOf[address(BTC_CORE)];
+    }
+
+    // §BANDBACKING-FOLD — `otherThan` IS NOT PORTED, because it had ZERO callers. It was written as
+    // the §E53 shared-scarcity input, but `SwapLib._sharedScarcityWad` never used it: that function
+    // derives the sibling itself, as `ICore.committedUsd18() - ICore.bandEquityUsd18()`. The two
+    // agree on the denominator (which was `otherThan`'s whole justification) because the subtraction
+    // is against the same total the bound reads — so the accessor was a second way to compute a
+    // number nobody asked it for. Carrying it across would have moved dead code into a contract with
+    // a hard EIP-170 budget (standing rule 1).
+
     /// @notice Structural invariant enforcer. Permissionless. Auto-triggers
     ///         Vogue.repack when POOLED_USD is over-committed vs total
     ///         backing; reverts OverCommitted if the invariant remains

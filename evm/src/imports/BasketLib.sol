@@ -1123,19 +1123,20 @@ library BasketLib {
         // expression the compiler cannot object to. Now it reads the two INSTANCES.
         bool ethFirst = ICore(core).POOLED_USD() >= ICore(btcCore).POOLED_USD();
         // ETH pool repack → Vogue (v4); BTC pool repack → BtcVault (regrouped).
-        _repackPool(ethFirst ? v4 : btcVault);        // repack the LARGER pool first
+        IBandManager(ethFirst ? v4 : btcVault).repack();   // repack the LARGER pool first
         committedSum = ICore(core).committedUsd18();
         if (committedSum > totalLiquid) {
-            _repackPool(ethFirst ? btcVault : v4);    // then the other one
+            IBandManager(ethFirst ? btcVault : v4).repack();   // then the other one
             committedSum = ICore(core).committedUsd18();
         }
     }
 
-    /// @dev Route a pool repack to its owning contract: BTC → BtcVault,
-    ///      ETH → Vogue. (The BTC LP side was regrouped out of Vogue.)
-    /// §ISBTC-SPLIT: the TARGET is the band. A boolean plus both addresses was a dispatch the
-    /// caller had already made -- it knows which one it wants.
-    function _repackPool(address band) private { IBandManager(band).repack(); }
+    // ⛔ `_repackPool` IS DELETED — it wrapped ONE external call and added nothing.
+    // Its own docstring recorded why it had stopped doing work: it used to ROUTE by boolean, and
+    // "a boolean plus both addresses was a dispatch the caller had already made". Once the target
+    // became the band address itself, the body was `IBandManager(band).repack()` and the wrapper
+    // was a second name for `.repack()`. Both call sites now say that directly, and the choice of
+    // WHICH band stays where it was always made — in the `ethFirst` ternary at the call site.
 
     /// @notice All-or-nothing deploy-finalize linkage assert (delegatecall from
     ///         Aux.finalize, so address(this)==Aux). Reverts unless every

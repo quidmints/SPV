@@ -16,14 +16,15 @@ pragma solidity ^0.8.26;
 ///         `LevManager` has 70 bytes of headroom and `SwapLib` 295, and both are unchanged by this.)
 ///         Every merge here is a strict UNION of previously-declared members with byte-identical
 ///         signatures, so no call encoding changes.
-/// §ISBTC-SPLIT — the shared accountant both band instances report to. ONE declaration site
-/// (standing rule 2). ⚠️ A duplicate interface surfaces as forge's `Error writing output JSON`,
-/// NOT as a redeclaration error — the message points at the wrong layer entirely.
-interface IBandBacking {
-    function report(uint256 equityUsd18) external;
-    function total() external view returns (uint256);
-    function otherThan(address band) external view returns (uint256);
-}
+// §BANDBACKING-FOLD — `IBandBacking` DELETED, along with the contract it described. Its members
+// moved onto `Aux` (`report`, `committedTotal`), which is where the gate that consumes them already
+// lives; `otherThan` was dropped rather than moved, having had no callers. Note this interface was
+// declared in TWO places — here and again in Core.sol — which is exactly what the warning below was
+// written about, and which standing rule 2 exists to prevent.
+//
+// ⚠️ KEEP THE WARNING, it outlives the interface: a duplicate interface surfaces as forge's
+// `Error writing output JSON`, NOT as a redeclaration error — the message points at the wrong layer
+// entirely, and it has cost this repo hours on two separate days.
 
 library Interfaces {}   // no code — this file exists purely to host the declarations below
 

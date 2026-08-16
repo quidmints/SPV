@@ -9,7 +9,6 @@ import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 import {Vogue} from "../src/Vogue.sol";
 import {OracleLib} from "../src/imports/OracleLib.sol";
 import {SwapLib} from "../src/imports/SwapLib.sol";
-import {BandBacking} from "../src/BandBacking.sol";
 import {Core} from "../src/Core.sol";
 import {Aux} from "../src/Aux.sol";
 import {Basket} from "../src/Basket.sol";
@@ -111,38 +110,34 @@ library DeployLib {
         address ethVenue;
         address spvGateway;
         address btcChannels;
-        /// §ISBTC-SPLIT — the BTC band's Core instance, and the shared accountant both report to.
+        /// §BANDBACKING-FOLD — the BTC band's Core instance. The `bandBacking` address is gone with
+        /// the contract: the joint committed figure lives on `Aux`, which is already in this struct.
         address btcCore;
-        address bandBacking;
     }
 
     /// @notice Deploy + wire the core QU!D stack in the exact production order.
     function deployQuidStack(StackConfig memory cfg) internal returns (StackAddrs memory a) {
         Vogue v4 = new Vogue();
-        // §ISBTC-SPLIT — TWO INSTANCES, ONE ACCOUNTANT.
-        // `Core` is single-asset now, so the stack deploys one per band plus a `BandBacking` holding
-        // the ONE thing they still share: the joint committed equity that
-        // `require(committedUsd18() <= haircutTvl)` gates on, and the cross-band input
-        // `SwapLib._sharedScarcityWad` needs. Neither instance knows the other exists.
-        // ⚠️ SEAL IS NOT CEREMONY: `BandBacking.total()` REFUSES before it, because a partial sum
-        // under-reports and would pass a bound it should fail.
-        // ⚠️ SCOPED (`via_ir = false`): `backing` and `btcCore` are dead after registration, and
-        // freeing their slots is what keeps this already stack-tight frame compiling. The addresses
-        // survive on the returned struct, which is memory and costs no stack.
+        // §BANDBACKING-FOLD — TWO INSTANCES, AND THE ACCOUNTANT IS `Aux`.
+        // `Core` is single-asset, so the stack deploys one per band. The ONE thing they still share
+        // — the joint committed equity that `require(committedUsd18() <= haircutTvl)` gates on —
+        // is held by `Aux`, which is where the gate that reads it already lives.
+        // ⚠️ THE REGISTER/SEAL CEREMONY IS GONE, AND THE INVARIANT IT PROTECTED IS STRONGER FOR IT.
+        // `BandBacking.total()` had to REFUSE before `seal()` because a partial sum under-reports
+        // and would pass a bound it should fail. Aux takes both band addresses in its CONSTRUCTOR,
+        // so the denominator is complete from birth and there is no window to seal shut.
+        // ⚠️ SCOPED (`via_ir = false`): `btcCore` is dead after this block, and freeing its slot is
+        // what keeps this already stack-tight frame compiling. The address survives on the returned
+        // struct, which is memory and costs no stack.
         Core core;
         {
-            BandBacking backing = new BandBacking();
             // §ISBTC-ZERO — no flag. Each instance is told its ASSET and its RISK PROFILE
             // directly: BTC locks capital through ~1hr of confirmations and pays an on-chain
             // splice fee; ETH settles in ~one block with neither. VOL_DECIMALS is read from the
             // asset token itself, so it cannot be mistyped here.
-            core          = new Core(cfg.weth, SwapLib.ETH_CONF_FRAC_WAD, 0, address(backing));
-            Core btcCore  = new Core(cfg.wbtc, SwapLib.CONF_FRAC_WAD, SwapLib.SPLICE_FLOOR, address(backing));
-            backing.register(address(core));
-            backing.register(address(btcCore));
-            backing.seal();
+            core          = new Core(cfg.weth, SwapLib.ethRisk());
+            Core btcCore  = new Core(cfg.wbtc, SwapLib.btcRisk());
             a.btcCore = address(btcCore);
-            a.bandBacking = address(backing);
         }
         Aux aux = new Aux(Aux.AuxInit({
             vogue: address(v4), core: address(core), btcCore: a.btcCore,
@@ -174,7 +169,7 @@ library DeployLib {
             cfg.poolManager, refKeyETH, refKeyBTC, cfg.wbtc);
         core.setup(address(v4), address(v4), address(aux), address(quid), seedEth);   // ETH band manager IS Vogue
         // 🔴 THE BTC INSTANCE WAS NEVER SET UP, AND IT COST 1,828 TEST FAILURES. The isBTC split
-        // built both bands (above) and registered both with `BandBacking`, but only the ETH one was
+        // built both bands (above) but only the ETH one was
         // ever configured -- so the BTC Core had no AUX, no BASKET and, decisively, an UNSEEDED
         // observation ring. `OracleLib.observe` then computed `(st.index + 1) % st.cardinality`
         // with `cardinality == 0`, i.e. a modulo by zero, which is what every `repack(true)` path
