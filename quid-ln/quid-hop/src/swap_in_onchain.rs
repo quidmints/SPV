@@ -633,4 +633,61 @@ mod tests {
             0x7c, 0x59, 0x30, 0x69,
         ]
     }
+
+    /// (§T2) THE REFUND LEAF IS PINNED ACROSS ALL THREE IMPLEMENTATIONS.
+    ///
+    /// 🔑 This is the builder the hop uses to QUOTE a deposit address. Solidity
+    /// (`ExitLib._cltvRefundLeaf`) recomputes it to VERIFY the deposit, and the wallet
+    /// (`identity-wallet/src/chain/taproot.ts`) recomputes it to CHECK the quote before the user
+    /// pays. **Three implementations, one script — and until now nothing asserted they agree.**
+    /// A divergence does not revert anywhere: it yields a valid script, a valid leaf hash, a valid
+    /// address, and a deposit that is simply never credited.
+    ///
+    /// The fixture is shared verbatim with `taproot.test.ts`
+    /// ("the refund leaf is the exact opcode sequence ExitLib builds").
+    #[test]
+    fn refund_leaf_matches_the_solidity_and_wallet_builders() {
+        use bitcoin::absolute::LockTime;
+
+        let key = XOnlyPublicKey::from_slice(&[0xab; 32]).expect("valid x-only");
+        let script = refund_leaf(key, LockTime::from_height(500_000).unwrap());
+
+        // PUSH3 20a107 | b1 OP_CLTV | 75 OP_DROP | 20 PUSH32 <key> | ac OP_CHECKSIG
+        // 500000 = 0x07A120 -> little-endian 20 a1 07, top byte 0x07 so no sign pad.
+        let expected = format!("0320a107b17520{}ac", "ab".repeat(32));
+        assert_eq!(script.to_hex_string(), expected, "refund leaf diverges from ExitLib/wallet");
+    }
+
+    /// ⚠️ **A KNOWN, BOUNDED DIVERGENCE — recorded so it is not discovered as a bug.**
+    ///
+    /// `rust-bitcoin`'s `push_int` uses CANONICAL script encoding: 1..=16 become the single
+    /// opcodes `OP_1`..`OP_16`, and 0 becomes `OP_0`. `ExitLib._scriptNum` always emits a DATA
+    /// PUSH (`0x01 0x01` for 1). **So the three builders agree only for values above 16.**
+    ///
+    /// That is safe here because `cltvHeight` is a real Bitcoin block height — currently ~900k,
+    /// and never below 17 for any deposit that could exist. **It is asserted rather than assumed**
+    /// so that if a future caller ever passes a small height (a test fixture, a regtest chain
+    /// started from genesis), the disagreement is already documented instead of presenting as an
+    /// uncreditable deposit.
+    #[test]
+    fn small_heights_diverge_from_the_solidity_encoding_and_that_is_bounded() {
+        use bitcoin::absolute::LockTime;
+
+        let key = XOnlyPublicKey::from_slice(&[0xab; 32]).expect("valid x-only");
+        let one = refund_leaf(key, LockTime::from_height(1).unwrap());
+
+        // rust-bitcoin: OP_1 (0x51). ExitLib/wallet would emit PUSH1 0x01 (0x0101).
+        assert!(one.to_hex_string().starts_with("51"), "expected OP_1, got {}", one.to_hex_string());
+        assert!(
+            !one.to_hex_string().starts_with("0101"),
+            "if this now matches ExitLib, push_int changed and the note above is stale",
+        );
+
+        // ⚠️ REGTEST STARTS AT GENESIS. A regtest deposit with a low CLTV would hit exactly this.
+        // The e2e harness must mine past height 16 before quoting, or use a realistic height.
+        for h in [17u32, 128, 500_000] {
+            let s = refund_leaf(key, LockTime::from_height(h).unwrap());
+            assert!(!s.to_hex_string().starts_with("5"), "height {h} used an OP_N shortcut");
+        }
+    }
 }
