@@ -306,7 +306,10 @@ library SwapLib {
     /// @notice Config for swapToBody (the immutables/handles Aux holds).
     struct SwapToCfg {
         address weth; address wbtc; address quid; address core;
-        address v4; address btcVault; address btcChannels;
+        // §SLOP — ONE `band`, not `v4` + `btcVault`. Carrying BOTH and picking between them by
+        // `isBTC` re-made a dispatch the CALLER had already made: `Aux` knows the asset, so it
+        // knows the band. Same collapse as `bandOf` for cores, one level along.
+        address band; address btcChannels;
     }
 
     /// @notice Body of Aux.swapTo — delegatecall'd (address(this)==Aux), so the
@@ -363,9 +366,7 @@ library SwapLib {
         uint v4p;   // §DE-TICK: `bandTicks` deleted — it packed a band-edge PRICE LIMIT for v4's
                     // swap, and settlement is at oracle bounded by inventory, so there is no limit to pack.
         {
-            (, uint lo, uint hi,, uint p) = isBTC
-                ? IBandManager(c.btcVault).repack()
-                : IBandManager(c.v4).repack();
+            (, uint lo, uint hi,, uint p) = IBandManager(c.band).repack();
             v4p = p;
         }
         {

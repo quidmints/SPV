@@ -756,7 +756,9 @@ contract Aux is // Auxiliary
                 // The read paths (`getTWAPforAsset`, `resolvedTwap`, `wellSkew`) were dispatched by
                 // `bandOf` already; this is the WRITE half of the same dispatch, and splitting them
                 // is what let reads and settlement disagree about which band they were talking to.
-                core: address(bandOf[asset]), v4: address(VOGUE), btcVault: CORE.btcVault(),
+                core: address(bandOf[asset]),
+                // §SLOP: the asset picks the BAND MANAGER too, through the same wiring-time knowledge.
+                band: asset == address(WBTC) ? CORE.btcVault() : address(VOGUE),
                 btcChannels: _btcChannels
             }),
             stables
