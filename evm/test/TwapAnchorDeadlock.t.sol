@@ -82,7 +82,7 @@ contract TwapAnchorDeadlockTest is Alles {
             "swap auto-heals during the crash (executes at the Chainlink price)");
 
         // the curve spot is now on the oracle (the auto-reseat moved it).
-        (, uint160 sqrtAfter,) = CORE.poolTicks();
+        (uint sqrtAfter,) = CORE.poolStats();
         assertApproxEqRel(_getPrice(sqrtAfter, t0isUSD), (pE * 90) / 100, 3e16, // 3%
             "auto-reseat moved the curve spot onto the oracle price");
 

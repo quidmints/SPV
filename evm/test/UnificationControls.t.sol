@@ -714,10 +714,10 @@ contract UnificationControls is Alles {
         vm.roll(block.number + 1);
         for (uint i; i < 4; i++) _trade(3_000e18);
 
-        (uint160 sqrtP,, uint128 liq) = CORE.poolStats(V4.LOWER_TICK(), V4.UPPER_TICK());
+        (uint sqrtP, uint liq) = CORE.poolStats();
         // In-range position: token0 side spans [spot, upper], token1 side spans [lower, spot].
-        uint160 lo = TickMath.getSqrtPriceAtTick(V4.LOWER_TICK());
-        uint160 hi = TickMath.getSqrtPriceAtTick(V4.UPPER_TICK());
+        uint160 lo = TickMath.getSqrtPriceAtTick(V4.LOWER_PRICE());
+        uint160 hi = TickMath.getSqrtPriceAtTick(V4.UPPER_PRICE());
         uint a0 = SqrtPriceMath.getAmount0Delta(sqrtP, hi, liq, false);
         uint a1 = SqrtPriceMath.getAmount1Delta(lo, sqrtP, liq, false);
         // token1isETH decides which amount is the ETH leg.
@@ -1191,7 +1191,7 @@ contract UnificationControls is Alles {
         // cranker — which is the right party, and it means COMPOUND_GAS does NOT have to carry a
         // reseat. Kept in the test because "I could not make it happen, and here is why" is the
         // evidence for that claim; delete it and the sizing becomes an assertion again.
-        int24 lo0 = V4.LOWER_TICK(); int24 hi0 = V4.UPPER_TICK();  // the FRAME (reseatEpoch removed 2026-08-09)
+        uint lo0 = V4.LOWER_PRICE(); uint hi0 = V4.UPPER_PRICE();  // the FRAME (reseatEpoch removed 2026-08-09)
         for (uint i; i < 30; i++) _trade(12_000e18);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 1 hours);
         vm.txGasPrice(10 gwei);
@@ -1200,8 +1200,8 @@ contract UnificationControls is Alles {
         uint usedHeavy = g1 - gasleft();
         emit log_named_uint("compound() gas, HEAVY crank   ", usedHeavy);
         emit log_named_int("frame lower before/after      ", lo0);
-        emit log_named_int("                              ", V4.LOWER_TICK());
-        assertTrue(V4.LOWER_TICK() == lo0 && V4.UPPER_TICK() == hi0,
+        emit log_named_int("                              ", V4.LOWER_PRICE());
+        assertTrue(V4.LOWER_PRICE() == lo0 && V4.UPPER_PRICE() == hi0,
             "no reseat fired: the SWAP path recentres first, so the cranker never pays for one");
         emit log_named_uint("WORST observed crank (gas)    ", usedHeavy > used ? usedHeavy : used);
     }
@@ -1242,7 +1242,7 @@ contract UnificationControls is Alles {
         // packed `slot0` directly instead — same end state the controller's call would produce.
         // v4 packs slot0 as: sqrtPriceX96 (160) | tick (24) | protocolFee (24) | lpFee (24), and
         // `StateLibrary.POOLS_SLOT` = 6, so the pool's state root is keccak(poolId, 6).
-        (PoolId pid,,) = CORE.poolTicks();
+        (PoolId pid, ) = CORE.poolStats();
         bytes32 stateSlot = keccak256(abi.encode(PoolId.unwrap(pid), uint(6)));
         bytes32 slot0 = vm.load(address(CORE.poolManager()), stateSlot);
         // protocolFee occupies bits [184,208): 0x0F0F ≈ 0.15% each direction (v4 caps at 0.1%+).

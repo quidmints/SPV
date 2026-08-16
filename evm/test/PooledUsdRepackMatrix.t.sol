@@ -54,7 +54,7 @@ contract PooledUsdRepackMatrix is Alles {
         uint feesPerShareBtc; uint usdFeesBtc;
         uint lastRepack;
         bytes32 epoch;   // FRAME id (band bounds); reseatEpoch counter removed 2026-08-09
-        int24 tick;
+        uint tick;
     }
 
     function _snap() internal view returns (Snap memory s) {
@@ -64,8 +64,8 @@ contract PooledUsdRepackMatrix is Alles {
         s.feesPerShare = V4.feesPerShare(); s.usdFees = V4.USD_FEES();
         s.feesPerShareBtc = BTC.feesPerShareBTC(); s.usdFeesBtc = BTC.USD_FEES_BTC();
         s.lastRepack = V4.LAST_REPACK();
-        s.epoch = keccak256(abi.encode(V4.LOWER_TICK(), V4.UPPER_TICK()));
-        (,, s.tick) = CORE.poolTicks();
+        s.epoch = keccak256(abi.encode(V4.LOWER_PRICE(), V4.UPPER_PRICE()));
+        CORE.poolStats();
     }
 
     function _log(string memory tag, Snap memory s) internal {
@@ -136,7 +136,7 @@ contract PooledUsdRepackMatrix is Alles {
     ///      measurement look the same if I were wrong? -- that is what the t0/t1 rows answer.
     function _oracleTrace(string memory tag) internal {
         (uint rTwap, bool rStale) = AUX.resolvedTwap(address(WETH), 1800);
-        (, uint160 sp,) = CORE.poolTicks();
+        (uint sp,) = CORE.poolStats();
         uint spot = _getPrice(sp, V4.token1isVol());
         emit log_string(tag);
         emit log_named_uint("   getTWAPforAsset ", AUX.getTWAPforAsset(address(WETH), 1800));
@@ -242,11 +242,11 @@ contract PooledUsdRepackMatrix is Alles {
         _log("S3 t2 (one-shot on top)", s2);
         _oracleTrace("S3 t2 oracle");
 
-        bool outOfRange = s2.tick >= V4.UPPER_TICK() || s2.tick < V4.LOWER_TICK();
+        bool outOfRange = s2.tick >= V4.UPPER_PRICE() || s2.tick < V4.LOWER_PRICE();
         emit log_named_uint("out of range?", outOfRange ? 1 : 0);
         emit log_named_uint("LAST_REPACK moved?", s2.lastRepack != s0.lastRepack ? 1 : 0);
-        emit log_named_int ("UPPER_TICK", V4.UPPER_TICK());
-        emit log_named_int ("LOWER_TICK", V4.LOWER_TICK());
+        emit log_named_int ("UPPER_TICK", V4.UPPER_PRICE());
+        emit log_named_int ("LOWER_TICK", V4.LOWER_PRICE());
 
         // ── ROOT-CAUSE TRACE. `rebalanceCore` has exactly three ways to decline a re-centre;
         //    read the inputs to each so the blocking branch is IDENTIFIED, not guessed at.
@@ -254,7 +254,7 @@ contract PooledUsdRepackMatrix is Alles {
         //      (b) twap == 0  : bootstrap / dead feed
         //      (c) manipulated: `dev * 10000 > twap * 300` (BasketLib.isManipulated:368)
         (uint rTwap, bool rStale) = AUX.resolvedTwap(address(WETH), 1800);
-        (, uint160 sp2,) = CORE.poolTicks();
+        (uint sp2,) = CORE.poolStats();
         uint spot2 = _getPrice(sp2, V4.token1isVol());
         emit log_named_uint("(a) resolvedTwap stale?", rStale ? 1 : 0);
         emit log_named_uint("(b) resolvedTwap price ", rTwap);
@@ -337,7 +337,7 @@ contract PooledUsdRepackMatrix is Alles {
         _log("S3b t2 (one-shot on top, ANCHORED)", s2);
         _oracleTrace("S3b t2 oracle (anchored)");
 
-        bool outOfRange = s2.tick >= V4.UPPER_TICK() || s2.tick < V4.LOWER_TICK();
+        bool outOfRange = s2.tick >= V4.UPPER_PRICE() || s2.tick < V4.LOWER_PRICE();
         emit log_named_uint("out of range?", outOfRange ? 1 : 0);
         emit log_named_uint("LAST_REPACK moved?", s2.lastRepack != s0.lastRepack ? 1 : 0);
 
@@ -370,7 +370,7 @@ contract PooledUsdRepackMatrix is Alles {
         emit log_named_uint("opens landed", opens);
         emit log_named_uint("hours warped", (block.timestamp - s0.lastRepack) / 3600);
 
-        bool outOfRange = s2.tick >= V4.UPPER_TICK() || s2.tick < V4.LOWER_TICK();
+        bool outOfRange = s2.tick >= V4.UPPER_PRICE() || s2.tick < V4.LOWER_PRICE();
         emit log_named_uint("out of range?", outOfRange ? 1 : 0);
         emit log_named_uint("LAST_REPACK moved?", s2.lastRepack != s0.lastRepack ? 1 : 0);
 
@@ -440,23 +440,21 @@ contract PooledUsdRepackMatrix is Alles {
     /// @dev One sell, fully instrumented. Returns false if the swap REVERTED — `_sellEth`'s
     ///      try/catch hides that, and "which swap reverted" turned out to matter.
     function _sellEthLogged(uint i, uint size) internal returns (bool ok) {
-        (, uint160 spA, int24 tA) = CORE.poolTicks();
+        (, uint160 spA) = CORE.poolStats();
         uint uA = CORE.POOLED_USD(); uint eA = CORE.POOLED();
         vm.prank(User01);
         try AUX.swap{value: size}(address(USDC), address(WETH), false, 0, 0) { ok = true; } catch { ok = false; }
-        (, uint160 spB, int24 tB) = CORE.poolTicks();
+        (, uint160 spB) = CORE.poolStats();
         emit log_named_uint("--- sell #", i);
         emit log_named_uint("    reverted?      ", ok ? 0 : 1);
-        emit log_named_int ("    tick  before   ", tA);
-        emit log_named_int ("    tick  after    ", tB);
         emit log_named_uint("    sqrtP before   ", uint(spA));
         emit log_named_uint("    sqrtP after    ", uint(spB));
         emit log_named_uint("    USD leg before ", uA);
         emit log_named_uint("    USD leg after  ", CORE.POOLED_USD());
         emit log_named_uint("    ETH leg before ", eA);
         emit log_named_uint("    ETH leg after  ", CORE.POOLED());
-        emit log_named_int ("    UPPER_TICK     ", V4.UPPER_TICK());
-        emit log_named_int ("    LOWER_TICK     ", V4.LOWER_TICK());
+        emit log_named_int ("    UPPER_TICK     ", V4.UPPER_PRICE());
+        emit log_named_int ("    LOWER_TICK     ", V4.LOWER_PRICE());
         vm.roll(block.number + 1); vm.warp(block.timestamp + warpPerSwap);
     }
 
@@ -481,8 +479,8 @@ contract PooledUsdRepackMatrix is Alles {
         emit log_named_int ("tick after opens", s1.tick);
         emit log_named_uint("USD leg after opens", s1.usdEth);
         emit log_named_uint("ETH leg after opens", s1.ethLeg);
-        emit log_named_int ("UPPER_TICK after opens", V4.UPPER_TICK());
-        emit log_named_int ("LOWER_TICK after opens", V4.LOWER_TICK());
+        emit log_named_int ("UPPER_TICK after opens", V4.UPPER_PRICE());
+        emit log_named_int ("LOWER_TICK after opens", V4.LOWER_PRICE());
 
         for (uint i = 1; i <= 6; i++) _sellEthLogged(i, 30 ether);
     }

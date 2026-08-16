@@ -665,8 +665,8 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
 
         USDC.approve(address(AUX), type(uint).max);
 
-        (,uint160 sqrtPriceX96,) = CORE.poolTicks();
-        uint price = _getPrice(sqrtPriceX96, V4.token1isVol());
+        (uint sqrtPriceX96,) = CORE.poolStats();
+        uint price = sqrtPriceX96;   // §DE-TICK: poolStats returns the PRICE; no sqrt to decode
         console.log("ETH price:", price);
 
         uint usdcBefore = USDC.balanceOf(User01);
@@ -829,7 +829,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         USDC.approve(address(AUX), rack);
         uint balanceBefore = USDC.balanceOf(User01);
 
-        uint id = V4.outOfRange(rack / 10, address(USDC), 1000, 100);
+        uint id = V4.outOfRange(rack / 10, int(address(USDC)), 1000, 100);
 
         assertGt(id, 0, "Position ID should be > 0");
         assertApproxEqAbs(USDC.balanceOf(User01), balanceBefore - rack / 10,
@@ -930,10 +930,10 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
 
         // PREMISE: the swap saturated AT the band edge — it did not leave the band. This is what
         // makes the reseat a structural no-op below, so assert it rather than letting it hide.
-        (,, int24 tickBefore) = CORE.poolTicks();
-        assertLe(tickBefore, V4.UPPER_TICK(), "PREMISE: swap saturates inside the band (upper)");
-        assertGe(tickBefore, V4.LOWER_TICK(), "PREMISE: swap saturates inside the band (lower)");
-        int24 loBefore = V4.LOWER_TICK(); int24 hiBefore = V4.UPPER_TICK();
+        (uint priceBefore,) = CORE.poolStats();   // §DE-TICK: was a tick
+        assertLe(priceBefore, V4.UPPER_PRICE(), "PREMISE: swap saturates inside the band (upper)");
+        assertGe(priceBefore, V4.LOWER_PRICE(), "PREMISE: swap saturates inside the band (lower)");
+        uint loBefore = V4.LOWER_PRICE(); uint hiBefore = V4.UPPER_PRICE();
 
         // The permissionless reseat must handle the skewed pool without reverting.
         V4.reseat();
@@ -945,8 +945,8 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // alignment — and it is bit-stable across fork blocks (the fork is unpinned, so the
         // absolute price moves run to run, but this RATIO does not). Old bound was 0.06e18 (6%),
         // i.e. 60x the measured value and 30x the structural maximum.
-        (, uint160 sp,) = CORE.poolTicks();
-        uint spot = _getPrice(sp, V4.token1isVol());
+        (uint sp,) = CORE.poolStats();
+        uint spot = sp;   // §DE-TICK: already a price
         uint twap = AUX.getTWAPforAsset(address(WETH), 1800);
         assertApproxEqRel(spot, twap, 0.002e18, "spot within one BAND_DELTA (20bps) of the anchor");
 
@@ -960,9 +960,9 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // Pin the no-op explicitly so this test can never again pass while silently inert: if a
         // future change makes the reseat actually re-band here, these fail and force a re-read of
         // the block comment above (that would be the FIX for the suspected defect, not a break).
-        (,, int24 tickAfter) = CORE.poolTicks();
-        assertEq(tickAfter, tickBefore, "reseat did not move the spot (no branch fired)");
-        assertTrue(V4.LOWER_TICK() == loBefore && V4.UPPER_TICK() == hiBefore,
+        (uint priceAfter,) = CORE.poolStats();
+        assertEq(priceAfter, priceBefore, "reseat did not move the spot (no branch fired)");
+        assertTrue(V4.LOWER_PRICE() == loBefore && V4.UPPER_PRICE() == hiBefore,
             "reseat did not re-center the band (no branch fired)");
     }
 
@@ -1111,7 +1111,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     // getTWAPforAsset read, and whether a Chainlink feed is wired at setup — to prove the genesis
     // tick is a REAL market price, not garbage masked by self-referential reads.
     function testDiag_GenesisPriceRegime() public {
-        (, uint160 sp,) = CORE.poolTicks();
+        (uint sp,) = CORE.poolStats();
         uint slot0Price = _getPrice(sp, V4.token1isVol());
         uint twap = AUX.getTWAPforAsset(address(WETH), 1800);
         address feed = AUX.assetPriceFeed(address(WETH));

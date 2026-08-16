@@ -42,7 +42,7 @@ contract VarPrecision is Alles {
         // BIG moves first — the control. If this reads 0 the estimator is broken outright.
         for (uint i; i < 12; i++) _swap(6_000e18, 20);
         emit log_named_uint("variance after BIG moves   ", CORE.realizedVarianceWad());
-        (,, int24 tickBig) = CORE.poolTicks();
+        (uint tickBig,) = CORE.poolStats();
         emit log_named_int ("  tick after BIG           ", tickBig);
 
         // SIZE LADDER: find the smallest swap that moves a tick at all. That is the boundary
@@ -50,15 +50,15 @@ contract VarPrecision is Alles {
         // the lev fixture needs bigger trades or the band needs finer resolution.
         uint[4] memory sizes = [uint(30e18), 300e18, 1_500e18, 4_000e18];
         for (uint k; k < 4; k++) {
-            (,, int24 t0) = CORE.poolTicks();
+            (uint t0,) = CORE.poolStats();
             for (uint i; i < 16; i++) _swap(sizes[k], 6);
-            (,, int24 t1) = CORE.poolTicks();
+            (uint t1,) = CORE.poolStats();
             emit log_named_uint("swap size (1e18)         ", sizes[k] / 1e18);
             emit log_named_int ("  ticks moved over 16     ", int(t1) - int(t0));
             emit log_named_uint("  variance now            ", CORE.realizedVarianceWad());
         }
         emit log_named_uint("variance after CALM trades ", CORE.realizedVarianceWad());
-        (,, int24 tickCalm) = CORE.poolTicks();
+        (uint tickCalm,) = CORE.poolStats();
         emit log_named_int ("  tick after CALM          ", tickCalm);
         emit log_named_int ("  tick MOVED by            ", int(tickCalm) - int(tickBig));
 
