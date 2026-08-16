@@ -306,3 +306,23 @@ realise — and the second is socialised across every holder.
 
 (The excess-stable rebalance above is still the safe place to PROVE the router integration, since a
 failure there is a deferral. Prove it there, then land the sell legs.)
+
+### LEFTOVER FROM THE SOR→CURVE MIGRATION: a dangling approval on the sell leg
+
+`LevMath._wethToStableDex:545` still does `IERC20Min(c.weth).approve(c.aux, wethIn)` before calling
+`_wethToStableCurve` — which approves `CURVE_TRICRYPTO_USDC` ITSELF at `:533` and never touches Aux.
+So that allowance is granted on every de-lever and NEVER CONSUMED; it accumulates as a standing
+WETH approval to Aux.
+
+Vestigial from the pre-`084bc5c` SOR version, where the swap did go through Aux
+(`sorSelfFundedReverse`). Not exploitable — Aux is ours — but it is the same shape as the three dead
+guards deleted 2026-08-15/16: a line that READS as necessary, is not, and has a durable side effect.
+
+⇒ Delete it, and **check `_stableToWethSor` for the mirror-image leftover** (it approves `c.aux` at
+`:473` on the pre-migration path — confirm whether its current body still routes through Aux or
+whether that approval is dangling too). Cheap, and it should ride along with the routing work rather
+than becoming its own errand.
+
+⚠️ NOTE FOR THE ROUTING WORK: this is evidence that the SOR→Curve migration left residue in the
+approval layer. When the legs move to the aggregator, the SAME review is needed — approve
+exact-amount to the ROUTER and zero after, and remove whatever the previous venue's approval was.
