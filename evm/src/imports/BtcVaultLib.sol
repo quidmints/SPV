@@ -318,36 +318,6 @@ library BtcVaultLib {
     /// @notice Body of Vault.pullBtc — close/partially-reduce a self-managed BTC
     ///         boundary order. `owner` = msg.sender (preserved across delegatecall).
     ///         Byte-identical (same reverts, same swap-and-pop, same CORE call).
-    function pullBtc(
-        address core,
-        mapping(uint => Types.SelfManaged) storage selfManagedBtc,
-        mapping(address => uint[]) storage positionsBtc,
-        uint id, int percent, address token, address owner
-    ) public {
-        Types.SelfManaged storage position = selfManagedBtc[id];
-        if (position.owner != owner) revert NotOwner();
-        require(block.number >= position.created + 47, "too soon");
-        if (percent == 0 || percent > 100) revert BadPercent();
-        int closed = position.amt * percent / 100;
-        if (closed == 0) revert Dust();
-        uint lower = position.lower;
-        uint upper = position.upper;
-        uint[] storage myIds = positionsBtc[owner];
-        uint lastIndex = myIds.length > 0 ? myIds.length - 1 : 0;
-        if (percent == 100) {
-            delete selfManagedBtc[id];
-            for (uint i = 0; i <= lastIndex; i++) {
-                if (myIds[i] == id) {
-                    if (i < lastIndex) myIds[i] = myIds[lastIndex];
-                    myIds.pop(); break;
-                }
-            }
-        } else {
-            position.amt -= closed;
-            if (position.amt == 0) revert Dust();
-        }
-        ICore(core).outOfRange(owner, -closed, lower, upper, token);
-    }
 
     /// @notice Full body of Vault.registerBtcLp (prologue + rebalance moved here):
     ///         checkBacking + TWAP + repack self-call, then settle existing fees,

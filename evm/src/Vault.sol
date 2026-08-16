@@ -3,6 +3,7 @@
 pragma solidity ^0.8.28;
 
 import {Vogue} from "./Vogue.sol";
+import {BandLib} from "./imports/BandLib.sol";
 // §A.52: the canonical Aux view (was a file-local variant).
 import {Core} from "./Core.sol";
 import {Aux} from "./Aux.sol";
@@ -643,7 +644,7 @@ contract Vault is Ownable, ReentrancyGuard {
     ///      it's hop-trusted, not part of the provable proceeds collapse.
     function pullBtc(uint id, int percent, address token) external nonReentrant {
         // Body in BtcVaultLib.pullBtc (delegatecall); storage refs mutate in place.
-        BtcVaultLib.pullBtc(address(CORE), selfManagedBtc, positionsBtc,
+        BandLib.pull(address(CORE), selfManagedBtc, positionsBtc,
             id, percent, token, msg.sender);
     }
 

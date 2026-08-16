@@ -119,4 +119,46 @@ library BandLib {
         if (p.gross > netEq)
             bufAdded = levAddBuf(c, LP, levBufferUsd, levBuf, lp, p.gross - netEq, price, p);
     }
+
+    /// @notice Close all or part of an out-of-range boundary order.
+    /// @dev    MERGED PAIR, and this one was a PURE DUPLICATE: `VogueLib.pullBody` and
+    ///         `BtcVaultLib.pullBtc` were BYTE-IDENTICAL after normalising the storage PARAMETER
+    ///         names (`selfManaged`/`selfManagedBtc`, `positions`/`positionsBtc`) -- and those are
+    ///         parameters, so the bodies never differed at all. Two deployed copies of one function
+    ///         because the mappings they were handed had different names at the call site.
+
+    function pull(
+        address core,
+        mapping(uint => Types.SelfManaged) storage selfManaged,
+        mapping(address => uint[]) storage positions,
+        uint id, int percent, address token, address owner
+    ) public {
+        Types.SelfManaged storage position = selfManaged[id];
+        if (position.owner != owner) revert NotOwner();
+        require(block.number >= position.created + 47, "too soon");
+        if (percent == 0 || percent > 100) revert BadPercent();
+        int closed = position.amt * percent / 100;
+        if (closed == 0) revert Dust();
+        uint lower = position.lower;
+        uint upper = position.upper;
+        uint[] storage myIds = positions[owner];
+        uint lastIndex = myIds.length > 0 ? myIds.length - 1 : 0;
+        if (percent == 100) {
+            delete selfManaged[id];
+            for (uint i = 0; i <= lastIndex; i++) {
+                if (myIds[i] == id) {
+                    if (i < lastIndex) myIds[i] = myIds[lastIndex];
+                    myIds.pop(); break;
+                }
+            }
+        } else {
+            position.amt -= closed;
+            if (position.amt == 0) revert Dust();
+        }
+        ICore(core).outOfRange(owner, -closed, lower, upper, token);
+    }
+
+    error NotOwner();
+    error BadPercent();
+    error Dust();
 }
