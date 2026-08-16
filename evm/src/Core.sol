@@ -419,8 +419,6 @@ contract Core {
     mock internal mockVol;
     mock internal mockUsd;
 
-    /// Pool ordering for THIS instance's asset. Was token1isVol/token1isVol.
-
     /// §ISBTC-SPLIT — WHAT THIS INSTANCE IS. Not a parameter threaded through every call: an
     /// IMMUTABLE the contract holds about itself. That distinction is the point of the split — a
     /// runtime boolean selecting between two behaviours IS the hand-rolled polymorphism being
@@ -941,23 +939,6 @@ contract Core {
         _writeObservationPrice(price);    // §DETICK: no narrowing
     }
 
-    /// @notice Re-seat the pool: move slot0 onto `targetSqrt` (the oracle-resolved
-    ///         price) and re-range around it. Unlike `repack` (which re-centers the
-    ///         RANGE on wherever the curve spot already sits), `reseat` MOVES the
-    ///         spot — needed when a fast real-market move leaves the mock curve
-    ///         stale (the spot only moves via swaps, which the price guards block
-    ///         once it's stale → deadlock). Driven by Vogue/BtcVault, which compute
-    ///         `targetSqrt` from `getTWAPforAsset` (Chainlink-resolved) + the new
-    ///         range. Mock-only: real assets in the basket/venue are untouched.
-    /// §V4-CUT — RESEAT IS NOW THE SAME OPERATION AS REPACK, and that is the point.
-    /// The two differed ONLY because `reseat` had to MOVE THE CURVE SPOT: the mock pool's price
-    /// moved only via swaps, and the price guards blocked swaps once it was stale — a deadlock the
-    /// reseat existed to break. With settlement at oracle there is no curve spot to move and no
-    /// deadlock to break: the price IS the oracle, every block, and the range is a parameter.
-    /// ⚠️ KEPT AS A DISTINCT ENTRYPOINT ONLY because its callers pass a different argument list.
-    /// It should collapse into `repack` when those callers are updated — flagged rather than done,
-    /// because merging two entrypoints is an ABI change and belongs with the caller pass.
-    /// §DE-TICK — same removal as `repack`, and for the same reason.
     // §V4-CUT — `reseat` DELETED: it had become BYTE-IDENTICAL to `repack` above. Both stored the
     // new bounds, read the TWAP and wrote an observation. They were distinct while v4 hosted the
     // band -- `repack` adjusted an existing position, `reseat` tore one down and rebuilt it at a new

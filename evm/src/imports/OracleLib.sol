@@ -177,19 +177,6 @@ library OracleLib {
     ///      owner (rover) == address(this) == Core. Decimals mirror the originals:
     ///      ETH 18, BTC 8, USD_ETH/USD_BTC 6. (Homed here only because OracleLib
     ///      is the one existing Core-lib with bytecode headroom — no new file.)
-    /// @dev Assemble one VANILLA PoolKey, initialize its V4 pool, and seed its
-    ///      oracle ring — the deploy-time half of `Core._initPool`, homed here for
-    ///      the same reason `deployMocks` is: it runs ONCE, via DELEGATECALL in
-    ///      Core's storage context, and every byte of it was sitting in Core's
-    ///      RUNTIME code against a hard EIP-170 deficit.
-    ///
-    ///      Core keeps the parts that are cheap there and dear here: the lex-order
-    ///      comparison (it must assign `token1isVol`/`token1isVol`, which are
-    ///      value-type state with no storage pointer to pass) and the tick
-    ///      direction-correction + `SwapLib.alignTick` (Core already links SwapLib;
-    ///      importing it here would add a lib->lib delegatecall to re-derive three
-    ///      lines of arithmetic across the boundary — the exact thing E14 tracks).
-    ///      So `token0`/`token1` arrive ALREADY SORTED and `tick` ALREADY ALIGNED.
     /// §V4-CUT — THIS IS A RING SEEDER NOW, AND THE NAME SAYS SO. It used to assemble a lex-sorted
     /// PoolKey, derive its PoolId, align a reference tick to the grid and call `pm.initialize` so v4
     /// would host the band. Nothing calls the PoolManager any more, so the pool was never created --
