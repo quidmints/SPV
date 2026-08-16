@@ -216,11 +216,24 @@ up to 90% of the band paying nothing. That is the vector.
 ✅ **FIXED — `if (sigmaSqWad == 0) return MAX_WELL_SKEW;`, placed AFTER the flush/target exits so it
 fires only when scarcity is REAL (`inv1 < target ⇒ q1 > 0`), which is §E59 part 2 verbatim.**
 ⚠️ **NOT A CLAMP (rule 3 / rule 17): it does not bound a computed number, it declines to run a
-multiplicative formula on an input carrying NO INFORMATION.** σ² == 0 is overwhelmingly "could not
-measure" — `realizedVarianceWad` samples on a wall-clock grid while the ring advances only ON A
-SWAP and `observe` interpolates linearly, so any stretch quieter than the sample interval yields
-EXACTLY 0. Resolving the sentinel BEFORE the multiply is the root fix; bounding the product after
-would be the clamp.
+multiplicative formula on an input carrying NO INFORMATION.** Resolving the sentinel BEFORE the
+multiply is the root fix; bounding the product after would be the clamp.
+⛔ **THE MECHANISM SENTENCE THAT WAS HERE WAS STALE — CORRECTED (§E213, caught by a parallel thread,
+re-verified here before accepting).** It claimed `realizedVarianceWad` samples on a wall-clock grid
+and `observe` interpolates linearly. **That is retired:** `realizedVarianceWad` calls
+`OracleLib.ringVariance` DIRECTLY, and `observe` has exactly ONE consumer left in the tree — the TWAP
+price at `SwapLib:80` — never the variance path. **The real mechanism:** `ringVariance` returns 0
+only at `card < 3 || n < 3`, `m < 2`, or a non-advancing/uninitialised timestamp pair — **every one
+means TOO FEW DISTINCT SAMPLES.** That STRENGTHENS the guard: under the retired story a zero could
+come from a quiet-but-well-sampled ring, the one reading that would make charging the ceiling look
+punitive; under the real mechanism that reading **cannot occur**.
+🔴 **THE LIMIT OF THIS FIX, STATED SO IT IS NOT READ AS MORE THAN IT IS: IT CLOSES σ² == 0, NOT
+σ² MERELY SUPPRESSED.** §UNIT-B-PATIENCE's measured vector is **24× down, not to zero** — and with a
+full ring, 4h spacing yields a SMALL NON-ZERO variance, which this guard does not catch and which
+still buys a ~93.3% discount. ⇒ **THE PATIENCE VECTOR IS NARROWED, NOT CLOSED.** The extreme case
+(unmeasurable ⇒ free drain) is gone; the graded case lives in the kernel's σ² LINEARITY, exactly
+where §UNIT-B-PATIENCE said it sits. **Do not mark §UNIT-B-PATIENCE closed on the strength of this
+commit.**
 ⛔ **THE PART THAT SHOULD WORRY US MOST: changing a whole class of swaps from CHARGING ZERO to
 CHARGING 3% BROKE ZERO TESTS.** Suite 4,523 passed / 1 failed — the one failure pre-existing and
 byte-identical. **No test covered σ²=0 with PARTIAL scarcity**, which is precisely why the hole
