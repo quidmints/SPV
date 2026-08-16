@@ -286,6 +286,7 @@ interface IAux {
     function WETH() external view returns (address);
     function tokens(address vault) external view returns (address);
     function illiquidLoss() external view returns (uint);
+    function illiquidLossFlagging() external returns (uint);
     function flagIlliquidSelf(address vault, bool illiquid) external;
     function _depositVol(bool isBTC, address sender, uint amount) external payable returns (uint sent);
     function tipSelf(uint cut, address token, int sign) external;

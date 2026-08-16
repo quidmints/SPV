@@ -561,6 +561,8 @@ contract Aux is // Auxiliary
     ///         value of a depegged holding). Non-view (get_deposits refreshes).
     function depegLoss() external returns (uint) { return BasketLib.depegLoss(); }
     function illiquidLoss() external view returns (uint) { return BasketLib.illiquidLoss(); }
+    /// @notice §E203 — flagging variant for the NON-VIEW mint path; see BasketLib.illiquidLossFlagging.
+    function illiquidLossFlagging() external returns (uint) { return BasketLib.illiquidLossFlagging(); }
 
     function getStables() external view
         returns (address[] memory) { return stables;

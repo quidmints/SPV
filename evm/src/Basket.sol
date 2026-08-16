@@ -212,7 +212,11 @@ contract Basket is ERC20, ERC6909,
                 // NEVER self-heals, so the over-issuance is permanent. The excess still DEFERS to a forward
                 // maturity below (matures if/when the venue recovers; never, if truly impaired) — symmetric
                 // with redeem's `_illiquidLoss` haircut, so mint and redeem value backing identically.
-                total -= Math.min(total, AUX.illiquidLoss());
+                // §E203 — the FLAGGING variant. This gate is non-view and already runs the whole
+                // per-vault deliverability loop, so starting the health clock here costs nothing.
+                // Scope is narrow by construction: protocol-internal mints only (the `auth` branch),
+                // and only after month 12 (the enclosing guard). Redeem remains the primary driver.
+                total -= Math.min(total, AUX.illiquidLossFlagging());
                 
                 uint headroom = total > totalSupply()
                               ? total - totalSupply() : 0;

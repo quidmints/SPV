@@ -873,6 +873,25 @@ library BasketLib {
     ///         convertToAssets it can never actually deliver).
     function illiquidLoss() external view returns (uint) { (uint l,,) = _illiquidLoss(); return l; }
 
+    /// @notice §E203 — the same deliverability haircut, but it also STARTS/CLEARS the vault-health clock.
+    ///         `Basket._finishMint`'s protocol-mint headroom gate already ran this loop and discarded the
+    ///         per-vault verdict, exactly as the redeem path did before §E197 — and that gate is NOT a
+    ///         view, so the flag costs NOTHING EXTRA: no additional external call, no additional read.
+    ///         ⚠️ NARROW, AND DELIBERATELY SO — do not read this as "mint drives detection". Its one
+    ///         call site sits behind TWO gates: `if (auth(msg.sender))`, i.e. the PROTOCOL-INTERNAL mint
+    ///         path only (fee mints, `creditLPForSwap` swap-out reissuance, Vogue fee distribution) and
+    ///         NOT user deposits; and `if (currentMonth() >= 12)`, so it is DORMANT FOR THE FIRST YEAR.
+    ///         The USER deposit path (`_finishMint`) intentionally does not compute `illiquidLoss` at
+    ///         all, and hooking it would be a NEW read plus a change to the documented mint↔redeem
+    ///         valuation asymmetry — not free, so not done.
+    ///         ⇒ REDEEM REMAINS THE PRIMARY DRIVER. This is a free second one after month 12, no more.
+    ///         DETECTION ONLY — evacuation still requires the deliberate `pokeVaultHealth`.
+    function illiquidLossFlagging() external returns (uint loss) {
+        address worst; uint worstBps;
+        (loss, worst, worstBps) = _illiquidLoss();
+        if (worst != address(0)) IAux(address(this)).flagIlliquidSelf(worst, worstBps < LIQ_TOL_BPS);
+    }
+
     /// @notice Redemption-only DELIVERABILITY haircut. get_deposits values
     /// each 4626 leg at convertToAssets (PAR/solvency), which can exceed what the
     /// vault can actually pay out NOW (maxWithdraw) — e.g. a solvent-but-frozen
