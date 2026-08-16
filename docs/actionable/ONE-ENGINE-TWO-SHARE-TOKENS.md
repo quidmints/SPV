@@ -95,3 +95,28 @@ exactly this. It is one source of truth for cooperative-close attribution AND th
 
 ⚠️ Any plan computed from `main`'s old numbers (`24,386 + 24,025`, over by 23,835) is STALE by
 ~16KB. The gap is now roughly what the share-face extraction plus the library merge should free.
+
+
+## The eight pairs, classified (measured 2026-08-16)
+
+`Types.BandCfg`/`Types.BandP` now serve both libraries, so the pairs differ ONLY in their bodies.
+Diffing `levAddNet`∥`levAddNetBtc`, `levAddBuf`∥`levAddBufBtc`, `levAddGross`∥`levAddGrossBtc` and
+`levBurnAll`∥`levBurnAllBtc` gives FOUR kinds of difference, and three are drift:
+
+| difference | ETH | BTC | verdict |
+|---|---|---|---|
+| price sourcing | passed as a parameter | read internally from `c.asset` | **DRIFT** — unify on reading it |
+| `modLP` call | direct `ICore.modLP` | extracted (`_modLpBufBtc`, `_burnLpBtc`) | **DRIFT** — legacy-stack management only |
+| lev interface | `ILevEquity.netEquity` | `ILevEquityBtc.netEquity` | **DRIFT** — same member, two interfaces |
+| **bookmark refresh** | done ELSEWHERE (`_refreshBookmarksLib`) | done INLINE in the lev legs | 🔴 **REAL — and the merge's whole risk** |
+
+🔴 **THE BOOKMARK PLACEMENT IS THE MERGE'S ONLY HARD PROBLEM.** `SwapLib.refreshBookmarks(LP, weight,
+feesPerShare, usdFees)` is called inside the BTC lev legs and NOT inside the ETH ones, which refresh
+at a different point. Merging naively either **double-refreshes ETH** (crediting fees twice against a
+moved weight) or **drops BTC's refresh** (crediting against a stale weight). Both are SILENT
+fee-accounting errors — no revert, just wrong per-LP fee attribution — so this cannot be settled by
+reading the diff. It needs the suite, with a test that moves `pooled` and `levBuf` in the same
+transaction and asserts the pending-fee figure before and after.
+
+⇒ **Do not merge the four `levAdd*`/`levBurnAll*` pairs until that behaviour is pinned by a test.**
+The other three differences can be collapsed first and independently; they are mechanical.
