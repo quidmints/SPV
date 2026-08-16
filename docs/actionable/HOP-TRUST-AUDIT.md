@@ -97,9 +97,38 @@ connects to ibiza's wallet work rather than being purely an SPV question:
 ⇒ **Both are needed unless external wallets are ruled out of the swap-in path.** Decide that
 first; it is the difference between deleting a parameter and adding an EIP-712 domain.
 
-⛔ Still do NOT write the intent before that decision — but the reason has changed: not "the code
-already does it" (it does not), but "who holds the key decides which of two different fixes is
-correct, and building one commits the signature".
+### ✅ DECIDED (owner, 2026-08-16): EXTERNAL WALLETS ARE RULED OUT OF THE SWAP-IN PATH.
+
+⇒ **§T2 IS A DELETION.** `seller` comes off `settleSwapInProven` / `settleSwapInBuffered` and is
+derived on-chain from `proof.userRefund`. No EIP-712 domain, no seller signature, no extra round
+trip, one fewer hop-asserted field. The signed intent is **not** built.
+
+⚠️ **This costs less than it sounds, and the QR work is why.** A BTC-funded entry needs no EVM
+transaction from the user at all, so a Phantom user is not shut out of the product — they are
+shut out of *this rail's* attribution, and the rail they use instead is the one that already
+required no signature from them. Phantom remains supported for redeem / withdraw / leverage,
+where `signerKind()` and the honest badge still apply.
+
+🔴 **THE ONE DETAIL THAT WILL BREAK THIS SILENTLY: BIP-340 Y-PARITY.** An x-only key is the
+x-coordinate ONLY; BIP-340 resolves the ambiguity by defining the key as the point with **even
+y**. An EVM address is `keccak(x ‖ y)[12:]` over the *full* point. **Half of all private keys
+produce an odd-y pubkey**, and for those the even-y point is the NEGATION — a different `y`, a
+different keccak, and therefore **a different EVM address**.
+
+⇒ **The wallet must define its EVM address as the address of the NORMALISED (even-y) point**, and
+sign EVM transactions with `d' = n − d` whenever the raw key is odd-y — the same normalisation
+BIP-340 already requires for signing the refund leaf. Get this wrong and it fails for
+**exactly half of users**, as credits routed to an address they do not control, with the contract,
+the proof and the deposit all correct. There is no on-chain check that can catch it: the derived
+address is perfectly well-formed either way.
+📌 Rust already has the EVM half (`RootSeed::derive_eth_wallet_key`); the wallet needs the
+matching derivation on the TS side, and both must agree on the parity rule or the same seed
+yields two different addresses on the two sides.
+
+⛔ **REMAINING SCOPE OF §T2, now much smaller:** `token` and `minDeliveredUsd` are still the hop's
+word and are NOT addressed by this — the deposit address commits to the PAYER, not to what they
+were promised. Decide separately whether those need binding; a wrong `token` or a low
+`minDeliveredUsd` short-changes the seller without misrouting the credit.
 
 📌 `token` and `minDeliveredUsd` are NOT covered by this and remain the hop's word regardless —
 the deposit address commits to the PAYER, not to what they were promised. A signed intent may
