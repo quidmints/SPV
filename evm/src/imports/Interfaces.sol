@@ -106,11 +106,12 @@ uint256 constant TRICRYPTO_WETH_IDX = 2;
 // A SHARED index constant would therefore be silently wrong for one of them — wrong-pair swap at
 // size, no revert, no id to assert against. Each pool carries its own pair of indices for that reason.
 // Token handles for the routing branch (the basket's own stables; USDC is TriCrypto's coin 0).
-/// USDC — the stable ROUTING HUB. §SCRUB (2026-08-16): was `CURVE_TRICRYPTO_USDC_TOKEN`, which named
-/// it after a pool it has nothing to do with — it is used as the hub in `_toUsdc`/`_fromUsdc`/
-/// `_routableStable`, where no TriCrypto is involved. The genuine TriCrypto names below are the POOL
-/// and its coin indices, and those stay. Also the ONE declaration (rule 2): `SOR.USDC_HUB` was a
-/// second private copy of this same address.
+// USDC — the stable ROUTING HUB. §SCRUB (2026-08-16): was `CURVE_TRICRYPTO_USDC_TOKEN`, which named
+// it after a pool it has nothing to do with — it is used as the hub in `_toUsdc`/`_fromUsdc`/
+// `_routableStable`, where no TriCrypto is involved. The genuine TriCrypto names below are the POOL
+// and its coin indices, and those stay. Also the ONE declaration (rule 2): `SOR.USDC_HUB` was a
+// second private copy of this same address.
+// (`///` is a DOC tag; solc rejects it on a file-level variable, so these are plain `//`.)
 address constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
 address constant RLUSD_TOKEN                = 0x8292Bb45bf1Ee4d140127049757C2E0fF06317eD;
 address constant PYUSD_TOKEN                = 0x6c3ea9036406852006290770BEdFcAbA0e23A0e8;

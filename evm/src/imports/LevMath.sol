@@ -9,7 +9,7 @@ import {ILevVenue, IERC20Min, IWETH9} from "../imports/ILevVenue.sol";
 import {ICurvePool, ICurveTriCrypto, CURVE_TRICRYPTO_USDC, TRICRYPTO_USDC_IDX, TRICRYPTO_WETH_IDX,
         TRICRYPTO_WBTC_IDX,
         CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX,
-        CRV_PYUSD_USDC_IDX, CURVE_TRICRYPTO_USDC_TOKEN, RLUSD_TOKEN, PYUSD_TOKEN} from "./Interfaces.sol";
+        CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN} from "./Interfaces.sol";
 
 // ether.fi weETH/WETH Curve pool (weETH is coin1, WETH coin0). Same address as Vault.ETHERFI_CURVE_POOL.
 address constant ETHERFI_CURVE_POOL = 0xDB74dfDD3BB46bE8Ce6C33dC9D82777BCFc3dEd5;
@@ -456,7 +456,7 @@ library LevMath {
 
         // Hop 2's floor guards the COMBINED route, so hop 1 passes 0.
         uint256 usdc = _toUsdc(stable, stableAmt);
-        IERC20Min(CURVE_TRICRYPTO_USDC_TOKEN).approve(CURVE_TRICRYPTO_USDC, usdc);
+        IERC20Min(USDC).approve(CURVE_TRICRYPTO_USDC, usdc);
         return ICurveTriCrypto(CURVE_TRICRYPTO_USDC)
             .exchange(TRICRYPTO_USDC_IDX, TRICRYPTO_WETH_IDX, usdc, wethFloor);
     }
@@ -485,7 +485,7 @@ library LevMath {
     /// @dev stable → USDC on Curve stableswap.
     function _toUsdc(address stable, uint256 amt) internal returns (uint256) {
         if (amt == 0) return 0;
-        if (stable == CURVE_TRICRYPTO_USDC_TOKEN) return amt;            // already USDC
+        if (stable == USDC) return amt;            // already USDC
         (address pool, int128 iStable, int128 iUsdc) = _routeOf(stable);
         if (pool == address(0)) revert NoStableRoute();  // fail closed — a silent 0 would leave the position unhedged
         IERC20Min(stable).approve(pool, amt);
@@ -495,7 +495,7 @@ library LevMath {
     /// @dev Is this stable on the Curve routing table? Checked rather than caught: an unroutable
     ///      slice must be SKIPPED and refunded, not swapped at whatever a fallback would give.
     function _routableStable(address t) internal pure returns (bool) {
-        if (t == CURVE_TRICRYPTO_USDC_TOKEN) return true;                // the hub itself
+        if (t == USDC) return true;                // the hub itself
         (address pool,,) = _routeOf(t);
         return pool != address(0);
     }
@@ -503,10 +503,10 @@ library LevMath {
     /// @dev USDC → stable, the inverse leg. Same table, indices swapped.
     function _fromUsdc(address stable, uint256 usdcAmt) internal returns (uint256) {
         if (usdcAmt == 0) return 0;
-        if (stable == CURVE_TRICRYPTO_USDC_TOKEN) return usdcAmt;
+        if (stable == USDC) return usdcAmt;
         (address pool, int128 iStable, int128 iUsdc) = _routeOf(stable);
         if (pool == address(0)) revert NoStableRoute();
-        IERC20Min(CURVE_TRICRYPTO_USDC_TOKEN).approve(pool, usdcAmt);
+        IERC20Min(USDC).approve(pool, usdcAmt);
         return ICurvePool(pool).exchange(iUsdc, iStable, usdcAmt, 0);
     }
 
@@ -514,7 +514,7 @@ library LevMath {
     ///      `minOut` is applied on the LAST hop so it bounds the whole route.
     function _stableToWbtc(address stable, uint256 amt, uint256 minOut) internal returns (uint256) {
         uint256 usdc = _toUsdc(stable, amt);
-        IERC20Min(CURVE_TRICRYPTO_USDC_TOKEN).approve(CURVE_TRICRYPTO_USDC, usdc);
+        IERC20Min(USDC).approve(CURVE_TRICRYPTO_USDC, usdc);
         return ICurveTriCrypto(CURVE_TRICRYPTO_USDC)
             .exchange(TRICRYPTO_USDC_IDX, TRICRYPTO_WBTC_IDX, usdc, minOut);
     }
