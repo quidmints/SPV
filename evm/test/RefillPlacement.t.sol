@@ -101,6 +101,43 @@ contract RefillPlacementTest is Test {
         assertApproxEqAbs(usdI2 - usdI1, predicted, 2, "the second drain must create the same imbalance as the first");
     }
 
+    /// @notice THE RESHAPED FEE IS REVENUE-NEUTRAL ON THE CANONICAL CASE, WITH NO NEW CONSTANT.
+    ///         210 ppm on the imbalance must equal 420 ppm on the notional for a drain from balance,
+    ///         because that drain creates exactly 2x its own value in idle inventory.
+    function test_ReshapedFeeMatchesTheFlatFeeOnADrainFromBalance() public pure {
+        uint x = 400e18;
+        uint y = x * PX / 1e30;
+        (,, , uint idle0,,) = SwapLib.refillPlacement(x, y, PX, D);
+        assertEq(idle0, 0, "PREMISE: band must start balanced");
+
+        uint drain = 32e18;
+        uint paid  = drain * PX / 1e30;                 // the trade's notional, 6-dec
+        (,, , uint idle1,,) = SwapLib.refillPlacement(x - drain, y + paid, PX, D);
+
+        (uint fee, uint created) = SwapLib.imbalanceFeeUsd6(idle0, idle1, 210);
+        assertGt(created, 0, "PREMISE: no imbalance created, so the fee comparison is vacuous");
+        uint flatFee = paid * 420 / 1e6;                 // what the pool tier charges today
+        assertApproxEqAbs(fee, flatFee, 2, "reshaped fee is not revenue-neutral on the canonical case");
+    }
+
+    /// @notice THE REFILL DIRECTION EXEMPTS ITSELF — and it is not a special case, it is the floor.
+    ///         A trade that REDUCES idle inventory creates no imbalance and must pay nothing.
+    function test_RefillDirectionPaysNothing() public pure {
+        uint x = 400e18;
+        uint y = x * PX / 1e30;
+        // start IMBALANCED: short ETH, so USD idles
+        (,, , uint idleBefore,,) = SwapLib.refillPlacement(x - 32e18, y + (32e18 * PX / 1e30), PX, D);
+        assertGt(idleBefore, 0, "PREMISE: the band must start imbalanced, else there is nothing to reduce");
+
+        // someone sells ETH back in: idle falls
+        (,, , uint idleAfter,,) = SwapLib.refillPlacement(x - 16e18, y + (32e18 * PX / 1e30) - (16e18 * PX / 1e30), PX, D);
+        assertLt(idleAfter, idleBefore, "PREMISE: the refill-direction trade must actually reduce idle");
+
+        (uint fee, uint created) = SwapLib.imbalanceFeeUsd6(idleBefore, idleAfter, 210);
+        assertEq(created, 0, "a trade that reduces imbalance created none");
+        assertEq(fee, 0, "a trade that helps must not be taxed for helping");
+    }
+
     /// @notice DEGENERATE INPUT MUST NOT SILENTLY PLACE. A zero price cannot value either leg, so
     ///         everything idles and the bounds are zero — a caller that ignores that and places
     ///         anyway is the failure this guards.

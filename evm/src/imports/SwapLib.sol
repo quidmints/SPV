@@ -1658,6 +1658,41 @@ library SwapLib {
 
     // ── Tick math (pure/view) ─────────────────────────────────────────
 
+    /// @notice §E48 — THE FEE, RESHAPED ONTO THE IMBALANCE CREATED. Not a new charge on top.
+    ///
+    ///         WHY RESHAPE RATHER THAN ADD. Three things rule out a separate imbalance charge:
+    ///         (1) if the refill is a RESEAT there is no restoration cost to recover — no external
+    ///         leg, no impact, so a charge sized to "cover" it would cover nothing; (2) both abuse
+    ///         vectors are closed by CONSTRUCTION in this measure (chopping and waiting each buy
+    ///         exactly nothing — see `RefillPlacement.t.sol`), so the charge is not a guard either;
+    ///         and (3) the one REAL cost — band fees forgone while capital sits idle — needs a
+    ///         DURATION, which is §E83 and has never been measured. Any rate picked for it today
+    ///         would be invented, and an invented rate on a money path is the thing that produced
+    ///         §E155's 6.04x over-issuance.
+    ///
+    ///         WHAT IS DERIVABLE, AND IS THE WHOLE CALIBRATION. From a balanced band a drain of D
+    ///         creates 2·D·px of idle inventory (measured, exact to rounding). So HALF the flat fee
+    ///         rate applied to the IMBALANCE reproduces the flat fee applied to NOTIONAL, on that
+    ///         canonical case, with NO new constant: 210 ppm x 2·D·px == 420 ppm x D·px.
+    ///         ⇒ Revenue-neutral where the band starts balanced, and it diverges deliberately
+    ///         everywhere else — which is the point. A trade that creates MORE imbalance than its
+    ///         notional pays more; one that creates LESS pays less.
+    ///
+    ///         AND THE REFILL DIRECTION EXEMPTS ITSELF. A trade that REDUCES idle inventory creates
+    ///         no imbalance and pays ZERO — not by a special case, but because `created` is floored
+    ///         at zero. `sellSkew` needed an explicit mirror-and-flush guard to achieve that; here it
+    ///         falls out of the measure. **A trade that helps is not taxed for helping.**
+    /// @param idleBefore un-representable inventory before the trade, 6-dec USD
+    /// @param idleAfter  un-representable inventory after, 6-dec USD
+    /// @param ratePpm    charge per part-per-million of imbalance created. Calibrated as HALF the
+    ///                   pool fee tier (`Aux.swapFeePpm()`/2 = 210) for revenue neutrality above.
+    function imbalanceFeeUsd6(uint idleBefore, uint idleAfter, uint ratePpm)
+        internal pure returns (uint feeUsd6, uint created)
+    {
+        created = idleAfter > idleBefore ? idleAfter - idleBefore : 0;
+        feeUsd6 = FullMath.mulDiv(created, ratePpm, 1e6);
+    }
+
     /// @notice §E48 REFILL PLACEMENT — the refill's core arithmetic, and it is NOT A TRADE.
     ///         Given what the band ALREADY HOLDS and the current price, decide how much of it can be
     ///         REPRESENTED in a band centred on that price, and where the bounds go.
