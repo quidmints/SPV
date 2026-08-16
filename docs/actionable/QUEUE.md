@@ -145,7 +145,36 @@ fill wearing a normal one's costume).
    ✅ **skew ↔ external impact — DISSOLVED AT THE ATOMIC TIER** by this section's own table: no external leg
       exists to carry impact, so there is nothing to tie it to. **It survives ONLY at the third tier (the
       premium-attracted hop), where an external cost is real** — do not re-open it for tiers 1–2.
-   🔴 **Rust-automatic vs on-chain trigger — UNTOUCHED, and it was asked to be COMPARED, not chosen.**
+   ✅ **Rust-automatic vs on-chain trigger — ANSWERED BY EVIDENCE, NOT BY PREFERENCE (2026-08-16, owner:
+      *"can we workaround needing this in the structure at all and still guarantee that some other component
+      does the job"*). YES — and BOTH halves already exist and are tested:**
+      • **PRIMARY — repack-first.** `SwapLib.rebalanceCore` is folded into the repack-first of **every**
+        swap/deposit/withdraw (`Vogue:1130`). Ordinary traffic reseats the band, and **the swapper who created
+        the imbalance pays the gas** — which also answers "who pays" without a budget: `SwapLib:730` —
+        *"repack-first (swapper-paid) + the self-funded reseat keeper — no separate gas budget needed."*
+      • **BACKSTOP — `Vogue.reseat()` is `public` and PERMISSIONLESS**: *"anyone can unstick the pool even if
+        no one is trading."* No trusted party, no daemon, **no liveness dependency**.
+      🔴 **AND THERE IS NO BAND-REFILL KEEPER IN RUST — I INVOKED A COMPONENT THAT DOES NOT EXIST.**
+      `quid-bridge/src/lev_keeper.rs` manages **leverage positions** (LTV targets, `repay_to_target_usd`,
+      per-LP `rebalance(lp)`), not the band.
+      ⛔ **THE KEYED ALTERNATIVE WAS ALREADY REJECTED ON PURPOSE.** `evm_validating_signer.rs:54-59`:
+      `repackNFT()` was the only band entry in the signer allowlist and was **DELETED** — *"the successor is
+      `repack(bool)`, which is `onlyUs`… Do NOT re-add it — `onlyUs` means the protocol calls it."* Building a
+      keyed keeper walks straight back into a hole this repo closed deliberately.
+      ⇒ **CONSEQUENCE: `Aux.refillQuote` WAS BUILT AND THEN DELETED IN THE SAME SESSION.** A `view` quoting the
+      refill plan only has a consumer in the FALLBACK tier — and there is no fallback tier, because the
+      primary is unconditional and the backstop is permissionless. **Third deletion in one session on one
+      principle (rule 17): `refillRealisable` duplicated `deliverableETH`'s bound; `pLower`/`pUpper`
+      duplicated a width the arithmetic never read; the quote duplicated repack-first.**
+      ⚠️ **IT ALSO CLOSES THE PUBLISHER QUESTION.** Today's posture is strictly **PULL** — Bebop's RFQ engine
+      and Khalani's Arcadia solver READ `ISwap`'s four views (`getTWAPforAsset`/`resolvedTwap`/`wellSkew`/
+      `swapFeePpm`) and we owe nothing; **there is no 1inch dependency in the tree at all** (measured: zero
+      references). Becoming a **PUBLISHER** — pushing signed quotes into an RFQ pubsub as a maker — would be an
+      OBLIGATION rather than a disclosure (quote liveness, signing infra, honour-or-penalty). With no keeper
+      there is no liveness dependency and no accidental route into it. **Keep the refill off `ISwap`: that
+      contract stays exactly four taker-facing views.**
+      ▶️ **WHAT REMAINS IS THE WRITE, NOT THE TRIGGER:** the placement must be computed and applied INSIDE
+      repack-first, which needs liquidity settling against inventory — i.e. it lands with the v4 cut.
 3. ⚠️ **A TRANSITIONAL HAZARD NOBODY OWNS: swaps now settle against `POOLED_*` while v4 STILL CUSTODIES THE
    TOKENS** (`spv-2d`: *"the POOLMANAGER HOLDS THE TOKENS, and POOLED_* is an accounting mirror, not a balance
    we custody"*). **For as long as that window is open, the authoritative balance for swaps and the actual
