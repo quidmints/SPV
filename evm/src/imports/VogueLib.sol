@@ -340,7 +340,7 @@ library VogueLib {
     //  Extracted for EIP-170 headroom; the onlyUs guard stays in the Vogue
     //  forwarder. Byte-identical to the in-Vogue body.
     // ════════════════════════════════════════════════════════════════════
-    function addLiq(address core, address aux, uint deltaTok, uint price, bool isBTC, uint grossBuffer)
+    function addLiq(address core, address aux, uint deltaTok, uint price, uint grossBuffer)
         public returns (uint usdOut, uint outDelta) {
         (uint[15] memory deposits,,,) = IAux(aux).get_deposits();
         uint committedBoth = ICore(core).committedUsd18();
@@ -360,8 +360,8 @@ library VogueLib {
         // gross buffer; BTC: Core.btcThetaBacking = lpSharesBTC + gross buffer). vogueAvail/pooled inlined into
         // the call to keep this frame off the legacy-pipeline stack (no via-IR).
         uint capped = SwapLib.clampByBacking(
-            _liveTheta(isBTC),
-            isBTC ? ICore(core).btcThetaBacking() : IAux(aux).vogueETH() + grossBuffer,
+            _liveTheta(),
+            IAux(aux).vogueETH() + grossBuffer,   // §ISBTC-SPLIT: only caller passed isBTC=false, so the BTC arm was unreachable
             ICore(core).POOLED(),
             deltaTok);
         if (capped < deltaTok) {
@@ -376,7 +376,7 @@ library VogueLib {
     /// @dev addLiq's live θ: derivedThetaWad, fail-OPEN (θ=1) when the oracle ring
     ///      is too thin to measure vol. Self-call to Vogue's forwarder (delegatecall
     ///      context: address(this) == Vogue).
-    function _liveTheta(bool isBTC) private view returns (uint) {
+    function _liveTheta() private view returns (uint) {   // §ISBTC-SPLIT: the parameter was never read
         try IVogue(address(this)).derivedThetaWad() returns (uint t) { return t == 0 ? 1e18 : t; }
         catch { return 1e18; }
     }

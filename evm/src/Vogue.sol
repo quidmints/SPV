@@ -935,8 +935,17 @@ contract Vogue is
     /// @notice θ for an EXPLICIT band range. The BTC band ticks live in the Vault (LOWER_TICK_BTC/
     ///         UPPER_TICK_BTC), so it passes them in here -- Vogue stays the single home of the band-θ
     ///         math for BOTH pools, and the Vault needs no VogueLib link of its own.
-    function derivedThetaWadAt(uint loPrice, uint upPrice, bool isBTC) public view returns (uint) {
-        return VogueLib.derivedThetaWad(address(V4), loPrice, upPrice);
+    /// 🔴 §ISBTC-SPLIT — THE CORE IS A PARAMETER NOW, AND THAT IS A BUG FIX, not tidying. This
+    ///         took a `bool isBTC` it NEVER READ and always used `address(V4)` -- Vogue's own core,
+    ///         the ETH instance. `derivedThetaWad` reads `ICore(core).realizedVarianceWad()`, so the
+    ///         BTC band was getting theta from the ETH ORACLE'S VARIANCE applied to BTC's price
+    ///         bounds. Theta throttles band depth by the band's OWN volatility; mixing the two is
+    ///         wrong in both directions and silent -- it returns a plausible number either way.
+    ///         Harmless while one Core held both rings; wrong the moment they became two instances.
+    ///         Vogue stays the single home of the band-theta math (the Vault still needs no VogueLib
+    ///         link); it just has to be told WHOSE ring to measure.
+    function derivedThetaWadAt(address core, uint loPrice, uint upPrice) public view returns (uint) {
+        return VogueLib.derivedThetaWad(core, loPrice, upPrice);
     }
 
     /// @notice Annualized realized variance (WAD) from Core's oracle ring. Body in VogueLib.
@@ -977,7 +986,7 @@ contract Vogue is
         // Body in VogueLib (EIP-170 headroom). The onlyUs guard stays here; the
         // delegatecalled body preserves address(this) == Vogue for the θ self-call.
         // Pass totalBuffer so addLiq sizes headroom on GROSS band backing (Vogue is ETH-only).
-        return VogueLib.addLiq(address(V4), address(AUX), deltaTok, price, false, totalBuffer);   // §ISBTC-SPLIT: Vogue IS the ETH band -- the flag was always false here, as the line above says
+        return VogueLib.addLiq(address(V4), address(AUX), deltaTok, price, totalBuffer);   // §ISBTC-SPLIT: Vogue IS the ETH band, so the flag was always false
     }
 
     // _addLiqChannel (channel-lock liquidity sizer) regrouped into BtcVault.sol.

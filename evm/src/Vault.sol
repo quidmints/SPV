@@ -507,7 +507,7 @@ contract Vault is Ownable, ReentrancyGuard {
     ///         (the band-θ math home) with the BTC ticks so BtcVaultLib.addLiqChannel can risk-budget the
     ///         BTC band exactly like the ETH band -- without VaultLib linking VogueLib.
     function derivedThetaWadBtc() external view returns (uint) {
-        return V4.derivedThetaWadAt(LOWER_PRICE, UPPER_PRICE, true);
+        return V4.derivedThetaWadAt(address(CORE), LOWER_PRICE, UPPER_PRICE);   // §ISBTC-SPLIT: OUR ring's variance, not the ETH band's
     }
 
     /// @dev Vault's BTC-side immutables gathered for the delegatecalled VaultLib
