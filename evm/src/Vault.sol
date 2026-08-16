@@ -18,7 +18,7 @@ import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
-import {ILevEquityBtc} from "./imports/Interfaces.sol";
+import {ILevEquity} from "./imports/Interfaces.sol";
 
 // ════════════════════════════════════════════════════════════════════════
 //  Vault — the unified ETH-venue custody + BTC LP/hop side, merged from the
@@ -101,6 +101,7 @@ contract Vault is Ownable, ReentrancyGuard {
     error NotSelf();
     error Unauthorized();
     error LevManagerPinned();
+    error WrongBandManager();
     error NotAux();
     error NoBtcPosition();
 
@@ -249,16 +250,26 @@ contract Vault is Ownable, ReentrancyGuard {
 
     /// @notice Pin the BtcLevManager (one-shot) so `vogueBTC` counts the BTC leveraged book's
     ///         net-equity and `syncLev` can read the per-LP target. Distinct from the ETH LEV_MANAGER.
+    /// @dev §LEV-FOLD-2 — THE IDENTITY CHECK THAT REPLACES THE SUFFIXED SELECTORS. Until this
+    ///      commit the only thing stopping a BTC lev manager being pinned to the ETH band (or the
+    ///      reverse) was that the two managers exposed DIFFERENT selectors, so a wrong-band read
+    ///      reverted. That is a clamp: it fires per call, forever, and only when the caller reaches
+    ///      for the suffixed name. Folding the two interfaces into one removes it -- so the bad
+    ///      state is made UNCONSTRUCTIBLE here instead, once, at the pin. A manager carries its own
+    ///      band asset in `ORACLE_KEY` (immutable, set at construction: WETH for the ETH book,
+    ///      WBTC for the BTC one), so the wrong one simply cannot be installed.
+    ///      Standing rule 17: the root fix is the one that makes the previous guard DELETABLE.
     function setLevManager(address m) external onlyOwner {
         if (LEV_MANAGER != address(0)) revert LevManagerPinned();
+        if (ILevEquity(m).ORACLE_KEY() != address(AUX.WBTC())) revert WrongBandManager();
         LEV_MANAGER = m;
     }
 
     /// @notice LIVE sum of the BTC leveraged book's net-equity (8-dec sats) — the BACKING term added to
     ///         `vogueBTC` (Core solvency). try/catch so a venue hiccup can't brick the backing read.
-    function totalNetEquityBtc() external view returns (uint) {
+    function totalNetEquity() external view returns (uint) {
         if (LEV_MANAGER == address(0)) return 0;
-        try ILevEquityBtc(LEV_MANAGER).totalNetEquityBtc() returns (uint ne) { return ne; } catch { return 0; }
+        try ILevEquity(LEV_MANAGER).totalNetEquity() returns (uint ne) { return ne; } catch { return 0; }
     }
 
 
@@ -340,7 +351,7 @@ contract Vault is Ownable, ReentrancyGuard {
     /// @notice Gross levered collateral in the band's NATIVE unit -- SATS here.
     function levGrossNative() external view returns (uint) {
         if (LEV_MANAGER == address(0)) return 0;
-        try ILevEquityBtc(LEV_MANAGER).totalGrossCollateralBtc() returns (uint g) { return g; }
+        try ILevEquity(LEV_MANAGER).totalGrossCollateral() returns (uint g) { return g; }
         catch { return 0; }
     }
 

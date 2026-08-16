@@ -892,7 +892,7 @@ contract Core {
         // BTC IL-protect: totalShares includes each LP's LEVERED slice (levPooled), and its backing is
         // ALREADY inside POOLED — `syncLev` pairs the net-equity as deltaBTC into POOLED in lockstep
         // with levPooled (VaultLib.levAddNetBtc/levAddBufBtc), so the lev slice is monotone-neutral here.
-        // (The ETH branch is NET-vs-NET: vogueETH() adds the lev book's NET equity (totalNetEquityEth, the
+        // (The ETH branch is NET-vs-NET: vogueETH() adds the lev book's NET equity (totalNetEquity, the
         // debt-funded buffer half offset by the LP's borrow) and totalShares() is NET, so no gross term is added
         // here — POOLED, by contrast, DOES include the lev slice gross (levAddBtc pairs the gross buffer in),
         // so BTC alone needs the +totalBuffer above to keep totalShares's comparison gross-to-gross.)

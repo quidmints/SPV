@@ -8,7 +8,7 @@ import {LevMath} from "./LevMath.sol";
 import {ICore} from "./Interfaces.sol";
 import {IBandManager} from "./Interfaces.sol";
 import {IBasketMint} from "./Interfaces.sol";
-import {ILevEquityBtc} from "./Interfaces.sol";
+import {ILevEquity} from "./Interfaces.sol";
 import {IAux} from "./Interfaces.sol";
 
 // External surfaces used below all come from Interfaces.sol now (§A.52):
@@ -388,9 +388,9 @@ library BtcVaultLib {
     ) public returns (LevDelta memory d) {
         // NET model (mirror of Vogue): levPooled is the NET leg (in pooled/lpShares); levBuf is the
         // debt-funded buffer (fee weight only). Live gross depth = their sum.
-        uint gross = mgr == address(0) ? 0 : ILevEquityBtc(mgr).grossCollateralBtc(lp);
+        uint gross = mgr == address(0) ? 0 : ILevEquity(mgr).grossCollateral(lp);
         if (gross == levPooled[lp] + levBuf[lp] &&
-            levBufferUsd[lp] == (mgr == address(0) ? 0 : ILevEquityBtc(mgr).debtUsd(lp) / 1e12)) return d;
+            levBufferUsd[lp] == (mgr == address(0) ? 0 : ILevEquity(mgr).debtUsd(lp) / 1e12)) return d;
         // Precompute the GROSS fee weight while the stack is still empty (before p) so the 8-arg settle call
         // below doesn't compute pooled+levBuf inline at its peak. Build p field-by-field (NOT a struct
         // literal) so external-call temporaries free between assignments — both keep this off the legacy stack.

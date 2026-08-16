@@ -121,27 +121,7 @@ contract BtcLevManager is LevBase {
         return LevMath._toUsd18(address(AUX),v.stable(), v.debtOf(lp));          // canonical decimal-normalize (dedup)
     }
 
-    /// @notice LIVE sum of every open position's net-equity (BTC-units, 1e18); reads the oracle ONCE.
-    function totalNetEquityBtc() external view returns (uint total) {
-        uint n = _openLps.length;
-        if (n == 0) return 0;
-        uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        for (uint i; i < n; i++) total += _netEquityAt(_openLps[i], px);
-    }
 
-    /// @notice `lp`'s GROSS collateral in sats (8-dec, price-independent) — the full-2× band CAPACITY (net-equity
-    ///         + the debt-funded buffer). vBTC IS sats, so no conversion. Buffer USD folds into POOLED_USD
-    ///         (excluded from committed via committedUsd18's live-debt subtraction).
-    function grossCollateralBtc(address lp) public view returns (uint) {
-        Types.Pos memory p = pos[lp];
-        return p.open ? p.venue.collateralOf(lp) : 0;
-    }
-    /// @notice LIVE sum of every open position's GROSS collateral (sats) — the single term the BTC band CAPACITY
-    ///         (levPooled) is synced to under the full-2× model (replaces the net-equity target).
-    function totalGrossCollateralBtc() external view returns (uint total) {
-        uint n = _openLps.length;
-        for (uint i; i < n; i++) if (pos[_openLps[i]].open) total += pos[_openLps[i]].venue.collateralOf(_openLps[i]);
-    }
 
     /// @notice LIVE sum of every open position's deliverableDollars — the aggregate #67 counts as available USD
     ///         backing in the band-pairing sizer (sizeBySurplus addend). Reads the oracle ONCE (price-consistent).

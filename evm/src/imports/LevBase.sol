@@ -163,10 +163,10 @@ abstract contract LevBase {
     // `virtual` here and overridden with the identical body on both sides.
     //
     // ⚠️ WHAT IS DELIBERATELY *NOT* FOLDED, and the discriminator is a real one. The suffixed
-    // accessors -- `totalNetEquityEth`/`totalNetEquityBtc`, `grossCollateralEth`/`grossCollateralBtc`,
-    // `totalGrossCollateralEth`/`totalGrossCollateralBtc` -- stay as they are, because
+    // accessors -- `totalNetEquity`/`totalNetEquity`, `grossCollateral`/`grossCollateral`,
+    // `totalGrossCollateral`/`totalGrossCollateral` -- stay as they are, because
     // `ILevEquity` and `ILevEquityBtc` are two interfaces over two DIFFERENT manager contracts.
-    // Distinct selectors mean `ILevEquity(btcManager).totalNetEquityEth()` REVERTS rather than
+    // Distinct selectors mean `ILevEquity(btcManager).totalNetEquity()` REVERTS rather than
     // silently returning the wrong band's book, and this repo has already shipped three
     // address-confusion bugs of exactly that shape in one session (an `ethVenue` passed into a
     // parameter named `btcVault`, among them). Note the discriminator: the members below all take
@@ -195,6 +195,44 @@ abstract contract LevBase {
     /// @dev The IL target at the live price, for a position already in memory.
     function _ilTargetLive(Types.Pos memory p, uint256 px) internal returns (uint256) {
         return LevMath.ilTargetLive(BAND, p.entryPrice, p.entryPriceWad, px, p.targetLtvCapBps);
+    }
+
+    // ─── §LEV-FOLD-2 — the last three per-asset accessors, folded through `_collNative` ────────
+    //
+    // `grossCollateral`/`grossCollateral` looked like a REAL per-asset difference and were
+    // not: ETH ran `_collToEth(v, v.collateralOf(lp))` (weETH -> ETH via the ether.fi rate) while
+    // BTC ran `v.collateralOf(lp)` raw, because vBTC IS sats. That difference is ALREADY isolated
+    // in `_collNative`, the hook each manager overrides -- the note on `_deliverableDollarsAt`
+    // above records the same discovery ("identical once `_collNative` absorbed the collateral
+    // conversion"). So the conversion was never in these bodies; it was one call down.
+    //
+    // ⚠️ AND THE SUFFIX WAS LOAD-BEARING UNTIL THIS COMMIT, so it is not simply deleted. Distinct
+    // selectors were what made `ILevEquity(btcManager).totalNetEquity()` REVERT instead of
+    // silently returning the wrong band's book -- a real guard against a bug class this tree has
+    // shipped three times. Removing it without replacement would trade a loud failure for a quiet
+    // one. It is replaced at the ROOT: `setLevManager` now refuses a manager whose `ORACLE_KEY` is
+    // not this band's own asset, so a lev manager CANNOT be pinned to the wrong band at all.
+    // Standing rule 17 -- a clamp detects the bad state per call, the root fix makes it
+    // unconstructible, and the clamp is then deletable rather than merely redundant.
+
+    /// @notice This LP's GROSS collateral in the band's native unit (1e18 ETH / 8-dec sats).
+    function grossCollateral(address lp) public view returns (uint256) {
+        Types.Pos memory p = pos[lp];
+        return p.open ? _collNative(p.venue, lp) : 0;
+    }
+
+    /// @notice LIVE sum of every open position's GROSS collateral, native unit.
+    function totalGrossCollateral() external view returns (uint256 total) {
+        uint256 n = _openLps.length;
+        for (uint256 i; i < n; i++) total += grossCollateral(_openLps[i]);
+    }
+
+    /// @notice LIVE sum of every open position's NET equity, native unit. Oracle read ONCE.
+    function totalNetEquity() external view returns (uint256 total) {
+        uint256 n = _openLps.length;
+        if (n == 0) return 0;
+        uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
+        for (uint256 i; i < n; i++) total += _netEquityAt(_openLps[i], px);
     }
 
     /// @notice A band reseat REALIZES accrued IL, so re-anchor `E0` to the position's CURRENT

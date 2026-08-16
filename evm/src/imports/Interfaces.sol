@@ -151,12 +151,33 @@ interface IMorphoFlash {
     function flashLoan(address token, uint256 assets, bytes calldata data) external;
 }
 
-/// Canonical ILevEquity — union of ILevEquity, ILevEquity_V, ILevEquity_VG.
+/// Canonical ILevEquity — ONE interface over BOTH lev managers. Union of ILevEquity, ILevEquity_V,
+/// ILevEquity_VG and the former `ILevEquityBtc`/`ILevBtc_V`.
+///
+/// §LEV-FOLD-2 — THE BTC MIRROR IS GONE, AND THE GUARD IT PROVIDED IS NOT. The old note here said
+/// these were "NOT mergeable ... a single interface would let a caller reach a BTC read on the ETH
+/// manager (and vice versa)", and that was TRUE: distinct selectors made a wrong-manager call
+/// REVERT rather than quietly return the other band's book, which matters in a tree that has
+/// shipped three address-confusion bugs of that shape in one session.
+///
+/// But that is a CLAMP -- it catches the mis-assignment once per call, forever, and only if the
+/// caller happens to use the suffixed accessor. The state it was detecting is now
+/// UNCONSTRUCTIBLE instead: `setLevManager` refuses any manager whose `ORACLE_KEY` is not the
+/// pinning band's own asset, so a BTC manager cannot be pinned to the ETH band at all and there is
+/// no wrong-manager handle for a caller to hold. Standing rule 17 — a root fix makes the previous
+/// guard DELETABLE, which is exactly the test for whether it was a fix or a clamp.
+///
+/// UNITS ARE PER INSTANCE, not per interface: `netEquity`/`grossCollateral` are 1e18 ETH on the
+/// ETH manager and 8-dec sats on the BTC one. The MEANING is identical, which is why one name
+/// serves both — the same argument `LevBase.netEquity` already records.
 interface ILevEquity {
-    function totalGrossCollateralEth() external view returns (uint256);
-    function totalNetEquityEth() external view returns (uint256);
+    /// The band asset this manager prices against — WETH or WBTC. The identity `setLevManager`
+    /// checks, and the reason a wrong-band pin cannot be built.
+    function ORACLE_KEY() external view returns (address);
+    function totalGrossCollateral() external view returns (uint256);
+    function totalNetEquity() external view returns (uint256);
     function netEquity(address lp) external view returns (uint);
-    function grossCollateralEth(address lp) external view returns (uint);
+    function grossCollateral(address lp) external view returns (uint);
     function debtUsd(address lp) external view returns (uint);
     function totalDebtUsd() external view returns (uint256);          // §E21: was Core.ILevDebtTotal
 }
@@ -165,19 +186,6 @@ interface ILevEquity {
 /// `ILevEquity` -- that one is a VIEW surface and this is a mutator.
 interface ILevClose { function closeLevFor(address lp, uint256 minOut) external; }
 
-/// Canonical ILevEquityBtc — the BTC mirror of ILevEquity (BtcLevManager's per-LP book).
-/// Union of the former `ILevEquityBtc` (Vault, all four) and `ILevBtc_V` (BtcVaultLib, the same set
-/// minus `totalNetEquityBtc`) — a strict subset, so no signature moved. NOT mergeable into
-/// `ILevEquity` despite the mirrored shape: every member is a distinct
-/// selector on a distinct manager contract (BtcLevManager, sats/8-dec) — only `debtUsd` is shared,
-/// and a single interface would let a caller reach a BTC read on the ETH manager (and vice versa).
-interface ILevEquityBtc {
-    function netEquity(address lp) external view returns (uint256);   // 8-dec sats
-    function totalNetEquityBtc() external view returns (uint256);        // 8-dec sats
-    function grossCollateralBtc(address lp) external view returns (uint256); // full-2× band CAPACITY (sats)
-    function debtUsd(address lp) external view returns (uint256);        // 1e18 USD (short-stable leg)
-    function totalGrossCollateralBtc() external view returns (uint256); // §E21: was Core.ILevGrossBtc
-}
 
 /// Canonical ILevHost — union of ILevHost, ILevHost_VG.
 interface ILevHost {

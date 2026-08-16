@@ -762,7 +762,7 @@ contract Vogue is
 
     function _reconcileLev(address lp) internal {
         address lm = VogueLib.levManager(address(AUX));
-        uint gross = lm == address(0) ? 0 : ILevEquity(lm).grossCollateralEth(lp);
+        uint gross = lm == address(0) ? 0 : ILevEquity(lm).grossCollateral(lp);
         // full-2×: reconcile band CAPACITY to the GROSS collateral. `levPooled` is the NET leg and `levBuf`
         // the debt-funded buffer, so the live gross depth is their sum. Skip only when the gross depth AND
         // the buffer-USD target are already in sync (nothing to do).
@@ -875,12 +875,12 @@ contract Vogue is
     ///      op=2 returns vogueETH -- ALL plain venues (weETH/AAVE/idle) PLUS the lev net-equity. SUBTRACT the lev net-equity so this is the
     ///      pure plain-venue value: the lev collateral earns its own yield via the LevManager, so
     ///      including it would (a) skim plain LPs' venue yield and (b) make a lev open/close appear
-    ///      as fake venue yield in _syncYield. No-op when no leverage (totalNetEquityEth == 0).
+    ///      as fake venue yield in _syncYield. No-op when no leverage (totalNetEquity == 0).
     function _venueBalance() internal returns (uint) {
         uint total = EV.vogueOp(0, 2);   // vogueETH (all plain venues + lev net-equity)
         address lm = VogueLib.levManager(address(AUX));
         if (lm != address(0)) {
-            try ILevEquity(lm).totalNetEquityEth() returns (uint n) { total = total > n ? total - n : 0; } catch {}
+            try ILevEquity(lm).totalNetEquity() returns (uint n) { total = total > n ? total - n : 0; } catch {}
         }
         return total;
     }
@@ -1093,7 +1093,7 @@ contract Vogue is
         if (address(EV) == address(0)) return 0;
         address m = ILevHost(address(EV)).LEV_MANAGER();
         if (m == address(0)) return 0;
-        try ILevEquity(m).totalGrossCollateralEth() returns (uint g) { return g; } catch { return 0; }
+        try ILevEquity(m).totalGrossCollateral() returns (uint g) { return g; } catch { return 0; }
     }
 
     /// @notice Share base the shortfall trigger compares against. NET here: `vogueETH()` (the
@@ -1354,7 +1354,7 @@ contract Vogue is
     // §A.16b same-clock pricing cannot diverge between the identity and the entrypoints.
 
     /// @dev Pricing backing: `vogueETH` with the levered book restated onto the SAME CLOCK as the
-    ///      denominator. `vogueETH` adds `totalNetEquityEth()` read LIVE from the venues
+    ///      denominator. `vogueETH` adds `totalNetEquity()` read LIVE from the venues
     ///      (`VaultLib:150`), but the matching term inside `lpShares` is `totalLevPooled`, which is
     ///      STORED and only refreshed by `_reconcileLev`/`syncLev` — i.e. on the levered LP's own next
     ///      action. Live numerator over lazy denominator is the whole defect (§A.16b): an external
@@ -1367,7 +1367,7 @@ contract Vogue is
     ///      shares burn alongside the backing. NOT the same as netting the levered book OUT — that was
     ///      tried and REVERTED (§A.16d): the levered capital is commingled in the band, so removing it
     ///      strips backing that genuinely supports plain claims (measured: 69% under-pricing).
-    ///      In steady state (`totalNetEquityEth == totalLevPooled`) this is EXACTLY `vogueETH`, so
+    ///      In steady state (`totalNetEquity == totalLevPooled`) this is EXACTLY `vogueETH`, so
     ///      normal-case pricing is byte-identical to before.
     function _pricingBacking() internal view returns (uint total) {
         total = AUX.vogueETH();
@@ -1398,7 +1398,7 @@ contract Vogue is
         address lm = VogueLib.levManager(address(AUX));
         if (lm == address(0)) return total;
         // GUARDED like every other lev read: a broken manager must not brick share pricing.
-        try ILevEquity(lm).totalNetEquityEth() returns (uint live) {
+        try ILevEquity(lm).totalNetEquity() returns (uint live) {
             total = total > live ? total - live : 0;   // drop the LIVE term
             total += totalLevPooled;                   // restore the RECORDED one (denominator's clock)
         } catch {}

@@ -352,7 +352,7 @@ library VogueLib {
         total = IEthVenue(ev).vogueOp(0, 2);
         address lm = levManager(aux);
         if (lm != address(0)) {
-            try ILevEquity(lm).totalNetEquityEth() returns (uint n) { total = total > n ? total - n : 0; } catch {}
+            try ILevEquity(lm).totalNetEquity() returns (uint n) { total = total > n ? total - n : 0; } catch {}
         }
     }
 

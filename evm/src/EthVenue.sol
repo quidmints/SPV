@@ -8,7 +8,7 @@ import {VaultLib} from "./imports/VaultLib.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {IDepositAdapter} from "./imports/Interfaces.sol";
+import {IDepositAdapter, ILevEquity} from "./imports/Interfaces.sol";
 
 /// @title  EthVenue — custody of the ETH yield position (ether.fi weETH + AAVE-v4 WETH + idle).
 ///
@@ -57,6 +57,7 @@ contract EthVenue is Ownable {
     error NotSelf();
     error NotAux();
     error LevManagerPinned();
+    error WrongBandManager();
 
     constructor(address _vogue, address _aux, address _weth) Ownable(msg.sender) {
         VOGUE   = Vogue(payable(_vogue));
@@ -73,8 +74,18 @@ contract EthVenue is Ownable {
 
     /// @notice Pin the LevManager (one-shot, no repoint) so `vogueETH` counts the leveraged book's
     ///         net-equity. The only owner-gated function here, so the deploy renounces after it.
+    /// @dev §LEV-FOLD-2 — THE IDENTITY CHECK THAT REPLACES THE SUFFIXED SELECTORS. Until this
+    ///      commit the only thing stopping a BTC lev manager being pinned to the ETH band (or the
+    ///      reverse) was that the two managers exposed DIFFERENT selectors, so a wrong-band read
+    ///      reverted. That is a clamp: it fires per call, forever, and only when the caller reaches
+    ///      for the suffixed name. Folding the two interfaces into one removes it -- so the bad
+    ///      state is made UNCONSTRUCTIBLE here instead, once, at the pin. A manager carries its own
+    ///      band asset in `ORACLE_KEY` (immutable, set at construction: WETH for the ETH book,
+    ///      WBTC for the BTC one), so the wrong one simply cannot be installed.
+    ///      Standing rule 17: the root fix is the one that makes the previous guard DELETABLE.
     function setLevManager(address m) external onlyOwner {
         if (LEV_MANAGER != address(0)) revert LevManagerPinned();
+        if (ILevEquity(m).ORACLE_KEY() != address(WETH)) revert WrongBandManager();
         LEV_MANAGER = m;
     }
 

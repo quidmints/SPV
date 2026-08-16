@@ -85,7 +85,7 @@ library VaultLib {
         // `closeLev` returns after auto-repaying the debt). The 2x band depth is untouched -- it lives in
         // `levPooled = gross`, not here. try/catch degrades to "no lev credit". Unified with the BTC model.
         if (c.levManager != address(0)) {
-            try ILevEquity(c.levManager).totalNetEquityEth() returns (uint n) { total += n; } catch {}
+            try ILevEquity(c.levManager).totalNetEquity() returns (uint n) { total += n; } catch {}
         }
     }
 
@@ -207,7 +207,7 @@ library VaultLib {
         // not from redemption). Exclude the same net-equity term vogueETH added, so deliverableETH == base
         // (non-levered venue ETH), byte-identical to the prior gross-in/gross-out result. Redemptions never draw it.
         if (c.levManager != address(0)) {
-            try ILevEquity(c.levManager).totalNetEquityEth() returns (uint n) {
+            try ILevEquity(c.levManager).totalNetEquity() returns (uint n) {
                 total = total > n ? total - n : 0;
             } catch {}
         }

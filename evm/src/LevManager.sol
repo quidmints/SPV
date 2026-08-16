@@ -106,7 +106,7 @@ contract LevManager is LevBase {
     modifier nonReentrant() { if (_lock != 1) revert Reentrancy(); _lock = 2; _; _lock = 1; }
 
     /// @notice Governance — the ONLY party that can allow a venue. CRITICAL: a caller-supplied venue feeds
-    ///         collateralOf/debtOf into `totalNetEquityEth → vogueETH`, so an UNVETTED (fake) venue could
+    ///         collateralOf/debtOf into `totalNetEquity → vogueETH`, so an UNVETTED (fake) venue could
     ///         inject arbitrary phantom ETH backing and drain real ETH-LP principal on redemption. Only the
     ///         deployed Euler/Morpho adapters may ever be allowed. Pinned at construction.
     address internal immutable GOV;
@@ -198,7 +198,7 @@ contract LevManager is LevBase {
         return address(WEETH);
     }
     /// @notice Collateral units -> ETH (1e18) via the ether.fi staking rate. VIEW-safe, so the Vault's
-    ///         `vogueETH()` (which sums grossCollateralEth/netEquityEth) still reads it as a pure view.
+    ///         `vogueETH()` (which sums grossCollateral/netEquityEth) still reads it as a pure view.
     function _collToEth(ILevVenue, uint256 units) internal view returns (uint256) {
         if (units == 0) return 0;
         return RATE.getEETHByWeETH(units);
@@ -227,38 +227,11 @@ contract LevManager is LevBase {
         return (ethAmt * pxUsd) / 1e18;
     }
 
-    /// @notice LIVE sum of every open position's net-equity (ETH, 1e18). Reads the oracle ONCE for the whole
-    ///         book (price-consistent + cheaper). This is the single term `Vault.vogueETH()` adds.
-    function totalNetEquityEth() external view returns (uint256 total) {
-        uint256 n = _openLps.length;
-        if (n == 0) return 0;
-        uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        for (uint256 i; i < n; i++) total += _netEquityAt(_openLps[i], px);
-    }
 
     /// @notice LIVE sum of every open position's deliverableDollars — the aggregate #67 counts as available USD
     ///         backing in the band-pairing sizer (sizeBySurplus addend). Reads the oracle ONCE (price-consistent).
 
-    /// @notice `lp`'s GROSS collateral in ETH (1e18) = weETH→ETH, NO debt subtraction. This is the full-2× band
-    ///         CAPACITY (net-equity + the debt-funded buffer). Price-independent (the ether.fi staking rate).
-    ///         The buffer half's USD counterpart is the LP's own debt (folded into POOLED_USD and
-    ///         excluded from committed via committedUsd18's live-debt subtraction, NOT basket surplus), so it
-    ///         never strands basket USD; delivery of the buffer is unwind-only (`closeLev`).
-    function grossCollateralEth(address lp) public view returns (uint256) {
-        Types.Pos memory p = pos[lp];
-        if (!p.open) return 0;
-        return _collToEth(p.venue, p.venue.collateralOf(lp)); // weETH → ETH (rate) OR WETH 1:1
-    }
 
-    /// @notice LIVE sum of every open position's GROSS collateral (ETH, 1e18). Consumed as the well skew's
-    ///         LOCKED-INVENTORY basis (Core.levGrossNative → SwapLib.skewWad `inv`): POOLED already pairs the
-    ///         full 2× gross buffer in as tokenless depth, so the deliverable reservoir is `poolVol − gross`.
-    ///         (Solvency accounting uses NET, not this: `vogueETH()` adds `totalNetEquityEth` and the shortfall
-    ///         compares net-vs-net — the debt-funded buffer half is offset by the LP's borrow, see VaultLib.)
-    function totalGrossCollateralEth() external view returns (uint256 total) {
-        uint256 n = _openLps.length;
-        for (uint256 i; i < n; i++) total += grossCollateralEth(_openLps[i]);
-    }
 
 
     /// @notice `lp`'s net equity in USD (1e18) = collateral − debt, floored at 0. The single clean read the
