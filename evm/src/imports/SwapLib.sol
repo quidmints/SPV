@@ -337,21 +337,28 @@ library SwapLib {
     function swapToBody(SwapReq memory r, SwapToCfg memory c, address[] memory stables)
         external returns (uint max) {
         if (r.asset != c.weth && r.asset != c.wbtc) revert BadAsset();
-        bool isBTC = r.asset == c.wbtc;
-        if (!r.forVolatile && isBTC) revert BtcInflowsViaChannels();
+        // §ISBTC-ZERO — THE LAST FOUR, AND THE NAME WAS THE PROBLEM. `isBTC` asserted an IDENTITY;
+        // what all three guards below actually test is the SETTLEMENT RAIL: this band pays out
+        // native ether on delivery, or it does not because it settles by Lightning cooperative
+        // close. `nativeWETH` is that fact, the codebase already used it two lines down as
+        // `!isBTC`, and it is the discriminator the guards were reaching for through the identity.
+        // The predicate stays -- it is a REAL asymmetry -- but it no longer claims to be about
+        // which coin this is.
+        bool nativeWETH = r.asset != c.wbtc;
+        if (!r.forVolatile && !nativeWETH) revert BtcInflowsViaChannels();
         IAux aux = IAux(address(this));
         bool stable = aux.toIndex(r.token) > 0;
         // #105: capture the actual INPUT token for the partial-fill refund BEFORE the forVolatile branch
         // zeros r.token — volatile-in = the asset, stable-in = the token, QD-in = 0 (burned => unrefundable).
         r.inToken = r.forVolatile ? (r.token == c.quid ? address(0) : r.token) : r.asset;
-        if (r.forVolatile && isBTC && r.recipient != address(this)) {
+        if (r.forVolatile && !nativeWETH && r.recipient != address(this)) {
             if (IBTCChannels(c.btcChannels).btcRecipientOf(r.recipient) == bytes32(0)) revert NoBtcRecipient();
         }
         // _buildContext(asset): ETH-side vault always address(0) (dispatched to
         // GALAXY via the venue); nativeWETH on ETH.
         Types.AuxContext memory ctx = Types.AuxContext({
             asset: r.asset, vault: address(0), core: c.core,
-            nativeWETH: !isBTC
+            nativeWETH: nativeWETH
         });
         // E9: capture the band's OWN tick range from the repack we already run. These were
         // discarded before, and `spotPrice` was then handed to `Core.swap` only to be thrown
