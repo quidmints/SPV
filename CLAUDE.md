@@ -397,6 +397,19 @@ lies. ⇒ **VERIFY THE EFFECT WITH AN INDEPENDENT GREP, NEVER THE TOOL'S EXIT CO
 - **BSD `sed` ON macOS IS NOT GNU `sed`, AND FAILS SILENTLY:** `\(a\|b\)` alternation needs `-E`;
   **`\b` IS A LITERAL BACKSPACE, NOT A WORD BOUNDARY** (use `[[:<:]]`/`[[:>:]]`, or don't use sed).
   Both reported success and changed zero lines.
+- 🔴 **IN zsh, `"$var:refs/…"` SILENTLY EATS CHARACTERS — `:r` IS A PARAMETER MODIFIER, AND A GIT
+  REFSPEC IS THE PERFECT TRAP FOR IT** (measured 2026-08-16, it broke 9 of 10 backup pushes).
+  `git push origin "$r:refs/heads/$r"` does NOT expand to `wt3:refs/heads/wt3`. zsh reads `${r:r}`
+  — the *remove-extension* modifier — consumes the `r` of `refs`, and git receives
+  `wt3efs/heads/wt3`. Other modifiers (`:h` head, `:t` tail, `:e` extension, `:a` absolute, `:l`/`:u`
+  case) are the same hazard, so `:head`, `:tag`, `:extra` are all live minefields after a bare `$var`.
+  ⚠️ **THE REASON IT COST AN HOUR IS THE FAILURE SHAPE, NOT THE BUG.** With stderr suppressed the
+  loop printed ten clean `FAILED` lines and a `pushed=0 failed=10` tally — which reads as a
+  credentials or network problem, i.e. one cause for all ten, so you go looking at the remote. The
+  two that "worked" were the ones typed as full literals with no `$var:`. ⇒ **ALWAYS `${var}:` WITH
+  BRACES IN A REFSPEC**, and never suppress stderr on a push. Verify with `git ls-remote`, never
+  with the loop's own tally — the same "read the effect, not the exit code" rule as everything else
+  in this section.
 - **`grep -A5 "^Error (" file` EXITS NON-ZERO ON A CLEAN BUILD LOG** — no matches is failure to grep.
   Twice read as "the build was killed". Check the build's OWN exit code, captured separately.
 - **`forge build 2>&1 | grep …; echo $(forge build …)` RUNS THE COMPILER TWICE.** Every "one build"
