@@ -243,3 +243,32 @@ MEASURED.** Do not adopt on the capital-efficiency argument until it is: the com
 
 Depends on the same unverified Fusion semantics flagged above (auction/partial-fill behaviour, and
 the ERC-1271 path for a contract-held intent).
+
+### EXCESS-STABLE REBALANCE VIA THE AGGREGATOR — the safe first integration (owner, 2026-08-16)
+
+Route the stables the basket holds ABOVE what total redeemable QU!D supply claims, through the
+aggregator, to fix the basket's own weight imbalances.
+
+**WHY THIS IS THE SAFE PLACE TO INTRODUCE AGGREGATOR ROUTING FIRST — do this before §V-R1:**
+- **The excess is the only capital whose reallocation cannot impair a redeemer.** Everything backing
+  outstanding QU!D is spoken for; the surplus above that claim is unencumbered. Swapping WITHIN it
+  changes composition without changing coverage.
+  ⇒ INVARIANT, enforce per call: `rebalance volume ≤ (basket value − redeemable claim)`.
+- **Stable→stable: no directional exposure, and no urgency.** Nothing breaks if it does not execute
+  this block, so an aggregator outage is a deferral, not an unhedged position. Contrast the lev legs
+  (§V-R1), where a failed call means the hedge stops tracking.
+- The deep stableswaps are already measured and already in `_toUsdc`: USDC/RLUSD $71.9M,
+  PYUSD/USDC $42.4M.
+
+⚠️ **BEFORE RELYING ON SKEW AS THE FEEDBACK SIGNAL, CHECK WHAT IT MEASURES.** The proposal is to
+observe the skew price change to see whether the rebalance helped — double duty on measurements that
+already exist. But skew here is a BAND-SIDE quantity (`sellSkew` quotes the imbalance charge in both
+directions, `6b41bc3`). **Whether it responds to STABLE-BASKET COMPOSITION or only to band inventory
+is the discriminator.** If it is purely band-side its change will not measure a stable rebalance and
+the loop would be reading a signal about something else — a number that moves for a different reason
+than assumed, which is the failure mode that cost two wrong conclusions in this thread alone. Trace
+`sellSkew`'s inputs before wiring it as the objective.
+
+⚠️ **`redeemableAmount()` IS CACHE-SENSITIVE** — `get_metrics`/`get_deposits` are NOT `view`. Without
+refreshing first it reports **0**, which is indistinguishable from "no excess" and would SILENTLY
+DISABLE the rebalance rather than fail loudly. Refresh, then read.
