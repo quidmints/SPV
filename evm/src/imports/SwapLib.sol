@@ -1737,20 +1737,27 @@ library SwapLib {
     ///         out-of-band a misuse: *"it's not repairing of assets we already hold because that just
     ///         makes the pool smaller"*, and *"maximise representation of the ETH already held"*.
     ///
-    ///         1:1 BY CONSTRUCTION, WITH NO SQUARE ROOT — AND, IT TURNS OUT, WITH NO WIDTH EITHER.
-    ///         A concentrated position is 1:1 by value exactly when the price is the GEOMETRIC MEAN
-    ///         of its bounds: equating x·P = y through x = L(1/√P − 1/√Pb) and y = L(√P − √Pa)
-    ///         collapses to P = √(Pa·Pb). Placing the bounds SYMMETRICALLY IN RATIO around `px`
-    ///         (Pa = px/(1+δ), Pb = px·(1+δ)) satisfies that identically **for EVERY δ** — the δ
-    ///         cancels along with the roots. So the target composition is a function of inventory and
-    ///         price ALONE, and the half-width is not an input to it.
+    ///         1:1 IS STATED DIRECTLY IN INVENTORY TERMS. The whole rule is `tokPlaced·px == usd6Placed`
+    ///         — equal VALUE on both legs — and the scarcer leg caps how much of that can be reached.
+    ///         No square root, no width, no curve.
     ///         ⇒ **THE BOUNDS AND `deltaBps` WERE DELETED (owner, 2026-08-16): *"why is there a bound
     ///         at all, we dont care to store upper and lower — we just know that the width is within
-    ///         twap average of eth/usdt on v4 and eth/usdc on v3, twap weighted."*** That is right and
-    ///         it is stronger than a storage saving: the width is set by an EXTERNAL, TWAP-weighted
-    ///         reference, and this computation never needed it. `deltaBps` fed nothing but `pLower`
-    ///         and `pUpper`; those two fed nothing at all. One parameter and two return values,
-    ///         carrying a constant (`BAND_DELTA`) that the arithmetic provably does not consume.
+    ///         twap average of eth/usdt on v4 and eth/usdc on v3, twap weighted."*** `deltaBps` fed
+    ///         nothing but `pLower`/`pUpper`, and those fed nothing at all.
+    ///         ⛔ **THE GEOMETRIC-MEAN DERIVATION WAS ALSO DELETED, AND NOT ONLY FOR BREVITY.** It ran:
+    ///         a concentrated position is 1:1 exactly when `P = √(Pa·Pb)`, which ratio-symmetric bounds
+    ///         satisfy for every δ. True — but it is UNISWAP'S geometry: it presumes an `L` and a curve,
+    ///         via `x = L(1/√P − 1/√Pb)`, `y = L(√P − √Pa)`. Once liquidity settles against INVENTORY
+    ///         there is no `L`, no `Pa` and no `Pb` to take a mean of, so the derivation describes a
+    ///         representation we are removing.
+    ///         🔴 **AND IT CARRIED AN ASSUMPTION THE NEW DESIGN NEED NOT SATISFY: RATIO SYMMETRY.**
+    ///         If the half-width comes from an EXTERNAL blended reference (ETH/USDT on v4 with
+    ///         ETH/USDC on v3, TWAP-weighted), those bounds are not necessarily symmetric in ratio
+    ///         about our `px` — at which point `px ≠ √(Pa·Pb)` and the justification is FALSE while
+    ///         this code stays CORRECT, because the code never used it. A comment that fails exactly
+    ///         when someone checks it is worse than no comment (cf. the stale-mechanism correction in
+    ///         `skewWad`, §E213, the same day). The invariant above needs no symmetry assumption: it
+    ///         is value equality, and it holds whatever the external reference does with the width.
     ///
     ///         MAXIMISING REPRESENTATION IS A MIN, AND THE SURPLUS IS THE ANSWER TO "SHORT ETH".
     ///         A 1:1 band consumes the two legs in equal VALUE, so the placeable amount is set by the

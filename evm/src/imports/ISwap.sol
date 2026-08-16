@@ -18,5 +18,12 @@ interface ISwap {
     function getTWAPforAsset(address asset, uint32 period) external view returns (uint256 price);
     function resolvedTwap(address asset, uint32 period) external view returns (uint256 price, bool stale);
     function wellSkew(address asset) external view returns (uint256 skewWad);
+    // SIZE-AWARE form — quote a real fill with this one. The single-argument version above is the
+    // INSTANTANEOUS rate (drain = 0) and understates any non-trivial size: since §E68 settlement
+    // charges the INTEGRAL of the pole over the path the swap itself walks, so the starting rate is
+    // the cheapest point on that path and the gap widens toward the pole. Inventory, not `L`, is
+    // what separates a full band from a drained one at the same price, and a size-blind quote
+    // cannot express that.
+    function wellSkew(address asset, uint256 drainUsd6) external view returns (uint256 skewWad);
     function swapFeePpm() external pure returns (uint24 feePpm);   // flat V4 pool tier (420 = 0.042%)
 }

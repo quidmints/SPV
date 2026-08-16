@@ -10,11 +10,13 @@ import {SwapLib} from "../src/imports/SwapLib.sol";
 ///         BAND WIDTH either. A test that needed a fixture would be evidence the form is wrong.
 ///
 /// ⛔ `test_BoundsAreRatioSymmetricAroundPx` WAS DELETED, NOT WEAKENED (owner: *"why is there a
-///    bound at all, we dont care to store upper and lower"*). It asserted `pLower·pUpper == px²`,
-///    which is true — and the reason it is true is exactly why the bounds are unnecessary: ratio
-///    symmetry makes `px` the geometric mean for EVERY half-width, so δ cancels out of the
-///    composition. The identity is now load-bearing as a DERIVATION rather than as two return
-///    values, and `test_CompositionIsIndependentOfAnyWidth` pins the consequence directly.
+///    bound at all, we dont care to store upper and lower"*). It asserted `pLower·pUpper == px²`.
+///    That identity is Uniswap's — it presumes an `L` and a curve — and it silently assumed the band
+///    is RATIO-SYMMETRIC about `px`. If the half-width comes from an external blended reference
+///    (ETH/USDT on v4 with ETH/USDC on v3, TWAP-weighted) the bounds need not be symmetric, so the
+///    identity can go false while the placement stays right, because the placement never used it.
+///    What replaces it is the invariant stated directly: **equal VALUE on both placed legs**,
+///    `tokPlaced·px == usd6Placed`, which assumes nothing about width or symmetry.
 contract RefillPlacementTest is Test {
     uint constant PX = 1_884e18;        // USD18 per 1e18 ETH, near the fork's live price
 
