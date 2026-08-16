@@ -461,43 +461,53 @@ library LevMath {
             .exchange(TRICRYPTO_USDC_IDX, TRICRYPTO_WETH_IDX, usdc, wethFloor);
     }
 
-    /// @dev stable → USDC on Curve stableswap. ONE routing table, shared by every leg, so a pool or an
-    ///      index is written down exactly once. Each pool carries its OWN index pair — the two live
-    ///      pools are ordered OPPOSITELY (verified on-chain), so a shared constant would be wrong for
-    ///      one of them with no revert to catch it.
+    /// @dev THE routing table — the single place a Curve stable route is written down. Maps a stable
+    ///      to `(pool, its own index, USDC's index)`; `pool == address(0)` means "not on the table",
+    ///      which is the one condition `_routableStable` asks and both swap legs reject.
+    ///      Each pool carries its OWN index pair — the two live pools are ordered OPPOSITELY (verified
+    ///      on-chain), so a shared constant would be wrong for one of them with no revert to catch it.
+    ///
+    ///      §E210 — WHY A TABLE AND NOT A BRANCH PER STABLE. The roster used to be written THREE
+    ///      times (once in each swap leg's body, once in `_routableStable`), and each new stable cost
+    ///      TWO inlined `approve`+`exchange` bodies. `LevMath` is the tightest contract in the repo,
+    ///      so that shape had made the roster UNGROWABLE — not merely verbose. This is standing rule
+    ///      8c applied to branches instead of modifiers: one routine, N jumps. Adding a stable is now
+    ///      ONE line here, and the swap bodies below never change again.
+    function _routeOf(address stable)
+        private pure returns (address pool, int128 iStable, int128 iUsdc)
+    {
+        if (stable == RLUSD_TOKEN) return (CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX);
+        if (stable == PYUSD_TOKEN) return (CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX);
+        // Absent ⇒ (0,0,0). Deliberately does NOT revert: this predicate serves `_routableStable`,
+        // which must be able to ASK without failing (an unroutable slice is skipped and refunded).
+    }
+
+    /// @dev stable → USDC on Curve stableswap.
     function _toUsdc(address stable, uint256 amt) internal returns (uint256) {
         if (amt == 0) return 0;
         if (stable == CURVE_TRICRYPTO_USDC_TOKEN) return amt;            // already USDC
-        if (stable == RLUSD_TOKEN) {
-            IERC20Min(stable).approve(CURVE_USDC_RLUSD, amt);
-            return ICurvePool(CURVE_USDC_RLUSD).exchange(CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, amt, 0);
-        }
-        if (stable == PYUSD_TOKEN) {
-            IERC20Min(stable).approve(CURVE_PYUSD_USDC, amt);
-            return ICurvePool(CURVE_PYUSD_USDC).exchange(CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, amt, 0);
-        }
-        revert NoStableRoute();   // fail closed — a silent 0 would leave the position unhedged
+        (address pool, int128 iStable, int128 iUsdc) = _routeOf(stable);
+        if (pool == address(0)) revert NoStableRoute();  // fail closed — a silent 0 would leave the position unhedged
+        IERC20Min(stable).approve(pool, amt);
+        return ICurvePool(pool).exchange(iStable, iUsdc, amt, 0);
     }
 
     /// @dev Is this stable on the Curve routing table? Checked rather than caught: an unroutable
     ///      slice must be SKIPPED and refunded, not swapped at whatever a fallback would give.
     function _routableStable(address t) internal pure returns (bool) {
-        return t == CURVE_TRICRYPTO_USDC_TOKEN || t == RLUSD_TOKEN || t == PYUSD_TOKEN;
+        if (t == CURVE_TRICRYPTO_USDC_TOKEN) return true;                // the hub itself
+        (address pool,,) = _routeOf(t);
+        return pool != address(0);
     }
 
     /// @dev USDC → stable, the inverse leg. Same table, indices swapped.
     function _fromUsdc(address stable, uint256 usdcAmt) internal returns (uint256) {
         if (usdcAmt == 0) return 0;
         if (stable == CURVE_TRICRYPTO_USDC_TOKEN) return usdcAmt;
-        if (stable == RLUSD_TOKEN) {
-            IERC20Min(CURVE_TRICRYPTO_USDC_TOKEN).approve(CURVE_USDC_RLUSD, usdcAmt);
-            return ICurvePool(CURVE_USDC_RLUSD).exchange(CRV_RLUSD_USDC_IDX, CRV_RLUSD_IDX, usdcAmt, 0);
-        }
-        if (stable == PYUSD_TOKEN) {
-            IERC20Min(CURVE_TRICRYPTO_USDC_TOKEN).approve(CURVE_PYUSD_USDC, usdcAmt);
-            return ICurvePool(CURVE_PYUSD_USDC).exchange(CRV_PYUSD_USDC_IDX, CRV_PYUSD_IDX, usdcAmt, 0);
-        }
-        revert NoStableRoute();
+        (address pool, int128 iStable, int128 iUsdc) = _routeOf(stable);
+        if (pool == address(0)) revert NoStableRoute();
+        IERC20Min(CURVE_TRICRYPTO_USDC_TOKEN).approve(pool, usdcAmt);
+        return ICurvePool(pool).exchange(iUsdc, iStable, usdcAmt, 0);
     }
 
     /// @dev stable → WBTC (BTC lev open) and WBTC → stable (close), both via USDC on Curve.
