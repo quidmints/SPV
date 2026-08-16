@@ -118,16 +118,53 @@ target composition at the current price. No counterparty, no external leg, no re
 ⛔ **AND IT EXPLAINS WHY MY CURVE-RESTORATION FRAMING WAS WRONG** — I costed an external purchase the owner had
 already ruled out, then derived a grind floor from a `C` that does not exist in the atomic tier. **The floor
 survives only at §E48's THIRD tier (the premium-attracted hop), where an external cost is real.**
+✅ **THE ARITHMETIC IS BUILT AND TESTED (2026-08-16).** `SwapLib.refillPlacement` — the range-placement
+computation this section predicted, `pure`, no pool / tick / sqrt-price / counterparty. 1:1 falls out with **no
+square root**: a concentrated position is 1:1 by value exactly when price is the GEOMETRIC MEAN of its bounds,
+so placing bounds ratio-symmetrically (`px/(1+δ)`, `px·(1+δ)`) satisfies it identically and the roots cancel
+before any arithmetic. Scarcer leg binds; surplus is REPORTED as idle, not absorbed. 9/9 green.
+✅ **THE CHARGE IS DECIDED AND BUILT** — `imbalanceFeeUsd6`, reshaping the EXISTING fee onto imbalance created
+rather than adding a levy. **Calibration is derived, not chosen:** a drain from balance creates exactly 2× its
+value in idle inventory, so **210 ppm on imbalance ≡ 420 ppm on notional** (matched to the cent, $25.32 both
+ways on a $60,288 trade) with **no new constant**. The refill direction exempts itself — `created` floors at 0.
+✅ **DELIVERABILITY IS A PRECONDITION, NOT A CLAMP (rule 17 applied to my own work, `649a3b6f`).** I first added
+`refillRealisable` taking `min(nominal, realisable)`; `VaultLib.deliverableETH` ALREADY bounds that class, so
+the min guarded an unconstructible state. **Deleted — one function and four tests gone, no capability lost.**
+What survives is the precondition on `refillPlacement`: its inputs MUST be deliverable figures, because feeding
+nominal overstates depth by exactly the undeliverable slice and does so SILENTLY (no revert, just a partial
+fill wearing a normal one's costume).
 🔴 **WHAT STAYS GENUINELY HARD, AND IS NOT DISSOLVED BY THIS:**
 1. **IF THE BAND IS SHORT ETH OUTRIGHT, NO RESEAT FIXES IT.** You can only represent what you hold. *"Restore
-   to 1:1"* and *"maximise representation of ETH already held"* diverge exactly there, and that is the
-   conflict already surfaced to the owner — unresolved.
-2. **§E48's THREE OPENS ARE UNTOUCHED:** who pays the gas · Rust-automatic vs on-chain trigger (asked to be
-   COMPARED) · nothing ties the skew collected to the external impact a flash refill pays.
+   to 1:1"* and *"maximise representation of ETH already held"* diverge exactly there.
+   ✅ **THE CODE SIDE IS CLOSED:** `test_ShortEthCannotBeFixedByPlacement` pins the honest report — all held ETH
+   places, the rest of the USD idles, and the band ends 1:1 on a SMALLER position. 🔴 **The owner's conflict is
+   NOT closed and is a decision, not code**: which of the two objectives wins when they diverge.
+2. **§E48's THREE OPENS — TWO MOVED, ONE STILL OPEN:**
+   ✅ **who pays the gas — ANSWERED IN CODE, not by me**: `SwapLib:676-679` records the refill as a self-funding
+      fleet op (JIT Morpho-flash → `creditSwapIn` → repay) with *"gas already refunded via #87"*.
+   ✅ **skew ↔ external impact — DISSOLVED AT THE ATOMIC TIER** by this section's own table: no external leg
+      exists to carry impact, so there is nothing to tie it to. **It survives ONLY at the third tier (the
+      premium-attracted hop), where an external cost is real** — do not re-open it for tiers 1–2.
+   🔴 **Rust-automatic vs on-chain trigger — UNTOUCHED, and it was asked to be COMPARED, not chosen.**
 3. ⚠️ **A TRANSITIONAL HAZARD NOBODY OWNS: swaps now settle against `POOLED_*` while v4 STILL CUSTODIES THE
    TOKENS** (`spv-2d`: *"the POOLMANAGER HOLDS THE TOKENS, and POOLED_* is an accounting mirror, not a balance
    we custody"*). **For as long as that window is open, the authoritative balance for swaps and the actual
    custodian disagree.** That is not a steady state and should not be left open across a merge.
+4. 🔴 **THE REFILL WORK IS ON `main` AND ABSENT FROM `SPV-v4cut` — MEASURED 2026-08-16, AND NOBODY OWNS IT.**
+   `grep -c "refillPlacement\|imbalanceFeeUsd6" SPV-v4cut/evm/src/imports/SwapLib.sol` → **0**. The branch
+   forked before any of it landed and is rewriting the SAME files (`SwapLib`, `Core`, `Vogue`), so this is the
+   `isbtc-fold` pattern again: **whichever side merges naively deletes the other's work.** Divergence is
+   **73 main-only vs 31 v4cut-only** — not a fast-forward. v4cut also carries its own declared blockers
+   (`100f5783` transitional solvency divergence, `e02c2d18` a circular oracle the cut introduced).
+   ⚠️ **AND THE REFERENCE COUNT IS THE WRONG TEST — I used it and was wrong.** I reported "111 v4 refs in main,
+   so the cut has not landed". §E200-UNBLOCKED already states the right invariant, quoting `Core:1337-1340`:
+   *"the ring stores PLAIN PRICE… converted ONCE HERE, at the write, so neither ticks nor sqrt-prices survive
+   in storage or on any read path."* **Test THAT invariant, not a grep count** — v4's `getSlot0` return shape
+   and `Vogue.UPPER_TICK`/`LOWER_TICK` are the v4 BOUNDARY and legitimately remain until the PM is ours.
+   ✅ **Independently re-verified for the paths that matter here:** the skew checker parses function bodies and
+   reports all 8 skew functions v4-free with the seam unchanged at 8 accessors, and `refillPlacement` /
+   `imbalanceFeeUsd6` contain no v4 concept at all. **The refill arithmetic is representation-agnostic ALREADY,
+   so it does not need the cut to land — but it does need to survive the merge.**
 
 ## 📐 P&L ACCUMULATOR DE-ASSOCIATION — **SCOPED, RATCHETED, AND IT IS FOUR MIRRORS, NOT A SWEEP (2026-08-16).**
 Owner: *"complete the P&L accumulator deassociation from tick and sqrtprice and v4 or poolkey, but handle
@@ -202,10 +239,11 @@ bound. Mine silently assumed the fee and the restoration cost landed on the same
 under v4. They do not, under a fill that charges without crediting.**
 
 ## 📋📋 FULL INVENTORY OF UNFINISHED SEAMS — **THIS THREAD, PRE- AND POST-COMPACTION (owner asked, 2026-08-16). MEASURED, NOT RECALLED.**
-### ⛔ FIRST, THE HEADLINE: **§ARCH / §E48 ARE NOT BUILT — NOWHERE, IN NO FORM.**
-`main`: `isBTC` **359** · `IPoolManager` **20** · `getSqrtPriceAtTick` **20** · `sqrtPrice` **94** · `SOR.sol` **372 lines** · **no refill primitive of any kind.**
-`SPV-v4cut` (the cut's own worktree, 6 commits): `isBTC` **362** · `IPoolManager` **20** · `sqrtPrice` **94** — **IDENTICAL to main on every removal marker.**
-⇒ **What exists there is ADDITION (`FixedRateFill`, `BatchLedger`, `BandBacking`) plus a Core strip that "will NOT run". No v4, tick or √P deletion has happened anywhere.** **E48 has NOT been built without sqrtPrice/tick/univ4; it has not been built at all.**
+### ⛔ THE HEADLINE — **SUPERSEDED 2026-08-16; BOTH HALVES OF IT HAVE MOVED. Kept because its measurement method is the lesson.**
+*(Original claim: "§ARCH / §E48 ARE NOT BUILT — NOWHERE, IN NO FORM", with main at `isBTC` 359 · `IPoolManager` 20 · `sqrtPrice` 94 · `SOR.sol` 372, and `SPV-v4cut` "IDENTICAL to main on every removal marker".)*
+✅ **§E48's PRIMITIVE NOW EXISTS ON `main`:** `SwapLib.refillPlacement` + `imbalanceFeeUsd6`, `pure`, 9/9 tested, no pool/tick/sqrt-price/counterparty. The clause *"no refill primitive of any kind"* is false as of today.
+✅ **`SPV-v4cut` IS NO LONGER IDENTICAL — IT IS DE-TICKING FAST.** Re-measured (non-comment, `evm/src`): `TickMath` **30 → 6**, `LiquidityAmounts` **9 → 2**, `sqrtPriceX96` **75 → 37**, `BalanceDelta` **31 → 3**, `CurrencySettler` **2 → 0** against main's unchanged figures. Its HEAD is `02772290` *"De-tick src: the band is a PRICE range, not a tick range"*.
+⛔ **AND THE MEASUREMENT ITSELF WAS THE WRONG TEST — THAT IS WHY THIS ROW IS KEPT.** Counting references cannot distinguish *"coupled"* from *"at the v4 API boundary"*. §E200-UNBLOCKED already names the right invariant (`Core:1337-1340`): **neither ticks nor sqrt-prices survive in STORAGE or on any READ path** — `getSlot0`'s return shape and `Vogue.UPPER_TICK`/`LOWER_TICK` legitimately remain until the PM is ours. **A reference count reads a boundary as a backlog**, which is exactly how this row concluded "nowhere, in no form" about a tree whose oracle half was already done.
 ### 🟢 SEAMS THIS SESSION *COMPLETED* (state verified today)
 | seam | outcome |
 |---|---|
