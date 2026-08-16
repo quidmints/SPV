@@ -348,6 +348,27 @@ One session lost roughly an hour to these, and **not one was the compiler report
 The common shape: a tool that reports success while doing nothing, or a check whose own exit code
 lies. ⇒ **VERIFY THE EFFECT WITH AN INDEPENDENT GREP, NEVER THE TOOL'S EXIT CODE.**
 
+- 🔴 **`Error: Error writing output JSON.` IS A CROSS-FILE ARITY MISMATCH. IT IS NOT ABOUT JSON**
+  (measured 2026-08-16; it cost this session hours, twice, and it has now been diagnosed wrongly on
+  two separate days). solc emits **no file, no line, no symbol, no cause** — just those two lines.
+  The actual defect: `SwapLib.wellSkew` dropped a parameter and `Aux.sol` still called the old
+  4-argument form. **Within ONE file the identical mistake reports normally as `Error (6160): Wrong
+  argument count`**; only across a file boundary does it degrade into the JSON message.
+  ⚠️ **RULED OUT, so do not spend time there again:** disk space (427 GB free), invalid UTF-8 or
+  control bytes in the source (verified byte-wise), duplicate contract names, brace balance,
+  `deny_warnings`, and stack-too-deep. The previous session's diagnosis — "a duplicate function
+  declaration inside an interface" — is the SAME UNDERLYING CLASS (a declaration solc cannot
+  reconcile), not a second unrelated cause.
+  ⇒ **THE BISECT THAT WORKS, and it is cheap because the failing compile aborts in ~2s:**
+  `git stash push <file>` to a known-green HEAD and build to confirm the control; reapply the diff
+  ONE hunk group at a time; and when a hunk fails, **rename the changed symbol** — if the error
+  turns into ordinary diagnostics, the fault is a caller you have not updated, and the ordinary
+  diagnostics will now name it. **Grep every call site across `src/`, `test/` AND `script/` when you
+  change any signature** — that is the whole fix, and it is faster than any of the above.
+  ⚠️ **AN ANALYSIS ERROR MASKS IT.** While ANY undeclared-identifier error remains, solc never
+  reaches codegen and you see normal diagnostics — so "the JSON error went away" after an edit can
+  simply mean you introduced an earlier error. It reappears the moment analysis passes.
+
 - **USE THE `Edit` TOOL FOR EDITS, NOT `python3 - <<EOF` OR `sed`.** `Edit` does exact string
   replacement and **ERRORS IF THE STRING IS NOT FOUND** — which is exactly the verification that
   python `assert`s were hand-rolling and that `sed` cannot do at all. One call, no interpreter spawn,
