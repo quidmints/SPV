@@ -10,7 +10,6 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
 import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {FeeLib} from "./FeeLib.sol";
 import {IV3Router, V3_SWAP_ROUTER} from "./Interfaces.sol";
 import {IAux} from "./Interfaces.sol";
 
@@ -52,9 +51,11 @@ struct UnlockData {
 /// source vault. Routes through PoolManager.unlock; Aux's
 /// `unlockCallback` walks the chain. The deploy array order is
 /// most-blacklistable-source-first by convention — but that is only the
-/// FALLBACK order: at runtime SwapLib._pickBestPath selects the source with
-/// the highest live basket concentration fee (FeeLib.calcFeeL1) FIRST, and the
-/// deploy order is iterated only if that pick fails. If a path reverts
+/// FALLBACK order: at runtime `_pickBestPath` selects the FEWEST-HOPS eligible
+/// path (best execution), and the deploy order is iterated only if that pick
+/// fails. §E228 removed the `calcFeeL1` shed-rank that used to lead here — it
+/// was inverted, saturating, and until §E155 it sorted by token decimals; see
+/// the note on `_pickBestPath`. If a path reverts
 /// (slippage / pool issue / vault paused), Aux's auxSwap try/catch advances to
 /// the next path.
 library SOR {
@@ -323,50 +324,50 @@ library SOR {
             sourceAsset: weth, sourceVault: SELF_FUNDED, tokens: toks, keys: ks, output: targetStable }));
     }
 
-    /// @dev Fee-rank pre-pass in its own frame (deps/depsY arrays + the loop would
-    ///      overflow sorAuxSwapBody's legacy stack). Returns the chosen path index
-    ///      (type(uint).max if none match `output`).
-    /// @dev CONTEXT-SWITCHED objective: the calcFeeL1 ranking is the COMPOSITION/drainage objective
-    ///      (shed the stable whose draw most degrades the basket). That is only worth paying a possibly
-    ///      worse route for when the basket is ACTUALLY over-concentrated (bestFee meaningfully above the
-    ///      BASE floor). When flat (no rebalance/drainage benefit), chasing it can route the protocol's
-    ///      own swap through avoidable slippage for nothing — so fall back to the FIRST eligible path
-    ///      (the canonical/best-execution route). Cuts the sourcing-slippage leak. `CONC_GATE_BPS`
-    ///      above BASE is the "actually over-concentrated" threshold.
-    uint private constant CONC_GATE_BPS = 2; // shed-objective engages only when calcFeeL1 > BASE+2bps
+    /// @dev Path pick in its own frame (the loop would overflow sorAuxSwapBody's legacy stack).
+    ///      Returns the chosen path index (`type(uint).max` if none match `output`).
+    ///
+    /// §E228 — THE `calcFeeL1` SHED-RANK IS GONE, AND IT WAS WRONG IN SIX WAYS, NOT ONE.
+    /// It used to pick the source whose yield most EXCEEDED the basket average. Removed because:
+    ///   1. **Direction inverted.** `SOR-SIGNIFICANCE-DESIGN.md:14-16` wants the opposite — *"keep the
+    ///      good-yield stables and shed low-yield ones (protects `avgYield`)"*. Maximising drained the
+    ///      BEST earner first, ratcheting `avgYield` down over time.
+    ///   2. **The comparator was never flipped.** Maximising is correct for a FEE the redeemer pays
+    ///      (cherry-pick pricing). `FeeLib.applyFeeAndHaircut` stopped charging it and the value
+    ///      "survives as a SOR routing signal only" — repurposed from fee to routing, sign intact.
+    ///   3. **Wrong quantity.** The gate says "concentration"; the formula is yield-vs-average. The
+    ///      design doc says so outright: *"the two are conflated."*
+    ///   4. **No referent.** `CONC_GATE_BPS` tested "over-concentrated", but the basket has NO TARGET
+    ///      RATIO (§E218), so there was nothing for concentration to be measured against.
+    ///   5. **Saturating.** Capped at `MAX_FEE`, reached at a 0.30pp spread, so most real inputs TIED
+    ///      at the cap and fell through to least-hops anyway (§E227).
+    ///   6. **It sorted by TOKEN DECIMALS.** Pre-§E155 the 6-dec legs computed a 1e-12 yield factor
+    ///      and returned `BASE` unconditionally, so maximising ALWAYS picked an 18-dec stable —
+    ///      9 of 14 eligible, 5 (USDC, USDT, PYUSD, USDG, AUSD) structurally excluded, USDC included
+    ///      despite being `stables[0]` and the swap-source by convention.
+    ///
+    /// ⇒ **NEUTRALISED RATHER THAN INVERTED (owner, 2026-08-16).** Inverting a saturating,
+    ///   weight-blind comparator on yield history that only became trustworthy today (§E155/§E190)
+    ///   would be guessing in the other direction. There is now ONE objective — EXECUTION — and the
+    ///   three-axis significance design is built when real weight-vs-target and yield-history inputs
+    ///   exist. Standing rule 3/17: remove the bad state, do not stack a second heuristic over it.
+    ///
+    /// ⚠️ `aux` is still taken: `toIndex` is what proves a path's source IS a basket stable. Dropping
+    ///    that check would let a non-basket source route, which is a different guard entirely.
     function _pickBestPath(IAux aux, address output, bytes[] memory pathEncodings)
         private returns (uint bestIdx) {
         bestIdx = type(uint).max;
-        // Best-execution proxy = FEWEST hops (SorPath.keys.length): each extra V4 hop adds slippage,
-        // so when there is no rebalance benefit the least-hops eligible path is the cheapest fill.
-        uint leastHopsIdx = type(uint).max; uint leastHops = type(uint).max;
+        // Best-execution proxy = FEWEST hops (`SorPath.keys.length`): each extra hop adds slippage, so
+        // the least-hops eligible path is the cheapest fill. (Truer least-slippage = an off-chain
+        // quote + minOut; this hop count is the on-chain refinement over "first eligible".)
+        uint leastHops = type(uint).max;
         uint nPaths = pathEncodings.length;
-        (uint[15] memory deps, uint[15] memory depsY,,) = aux.get_deposits();
-        uint bestFee;
         for (uint i; i < nPaths; i++) {
             SorPath memory p = abi.decode(pathEncodings[i], (SorPath));
             if (p.output != output) continue;
-            uint srcIdx = aux.toIndex(p.sourceAsset); // 1-based; 0 ⇒ not a basket stable
-            if (srcIdx == 0) continue;
+            if (aux.toIndex(p.sourceAsset) == 0) continue;   // 0 ⇒ not a basket stable
             uint hops = p.keys.length;
-            if (hops < leastHops) { leastHops = hops; leastHopsIdx = i; }
-            // calcFeeL1(srcIdx-1) == calcFeeL1WithLookup(sourceAsset) but without the
-            // per-path O(stables) linear rescan — toIndex already resolved the slot.
-            uint fee = FeeLib.calcFeeL1(srcIdx - 1, deps, depsY);
-            if (bestIdx == type(uint).max || fee > bestFee) {
-                bestFee = fee;
-                bestIdx = i;
-            }
+            if (hops < leastHops) { leastHops = hops; bestIdx = i; }
         }
-        // ⚠️ PARTIAL — see docs/actionable/SOR-SIGNIFICANCE-DESIGN.md. This binary gate (shed when
-        //    over-concentrated, else least-hops) is ONE corner of the intended objective: a per-reweigh
-        //    SIGNIFICANCE comparison of {yield-preservation, concentration-reduction, execution}, where
-        //    the most-significant goal sets the policy for THAT reweigh — NOT an either/or, NOT a single
-        //    hardcoded priority. This is a down-payment on that design, not the design itself.
-        // CONTEXT-SWITCH: basket flat (no shed/drainage benefit) ⇒ optimize EXECUTION = fewest-hops
-        // path (don't pay extra slippage for an unneeded rebalance). Over-concentrated ⇒ the
-        // highest-calcFeeL1 shed stands. (Truer least-slippage = an off-chain quote + minOut; this
-        // hop-count proxy is the on-chain refinement over "first eligible".)
-        if (bestIdx != type(uint).max && bestFee <= FeeLib.BASE + CONC_GATE_BPS) bestIdx = leastHopsIdx;
     }
 }
