@@ -720,7 +720,7 @@ contract Core {
     ///         Every clearing path subtracts EXACTLY what its request added:
     ///         delivery is one-LP-per-slice with the swapId consumed
     ///         (`BTCChannels._settleSwapOutSlice`), and the de-lever split is a
-    ///         partition — `Vault.sol:539` hands `resizeBtcLp` the remainder
+    ///         partition — `Vault.sol:539` hands `resize` the remainder
     ///         `exactUsd - delevUsd` with `delevUsd` clamped to `[0, exactUsd]`,
     ///         so the round-UP at `SwapLib.sol:1456` moves the SPLIT POINT and
     ///         never the total. A clamp here could only hide a reserve that was

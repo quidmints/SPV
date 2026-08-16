@@ -106,7 +106,7 @@ import {SignatureChecker} from "@openzeppelin-submodule/utils/cryptography/Signa
 
 /// @notice The bridge into the BTC pool position — now BtcVault (the BTC side
 ///         was regrouped out of Vogue + Aux). requestDeposit / requestRedeem /
-///         resizeBtcLp are gated `onlyBtcChannels` and creditSwapIn /
+///         resize are gated `onlyBtcChannels` and creditSwapIn /
 ///         creditSwapOut `onlyBTCChannels` on BtcVault (msg.sender == its pinned
 ///         btcChannels), so only this contract can drive them.
 /// ⛔ (M1) THE MRENCLAVE WHITELIST GATES NOTHING HERE — this doc described `isAttested(hop)` as
@@ -964,7 +964,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     //      position (requestDeposit). A deposit — nothing to settle.
     //    • SHRINK (p.amountSats < current): partial withdrawal — removes liquidity
     //      AND settles the shrunk slice through the SAME path as a cooperative close
-    //      (resizeBtcLp): the proportional delivered portion mints to the LP as QUI,
+    //      (resize): the proportional delivered portion mints to the LP as QUI,
     //      the native portion leaves with the LP in the splice tx's payout output.
     // ═════════════════════════════════════════════════════════════════
     /// @param p           Updated params: `amountSats` is the NEW funded total;
@@ -1306,7 +1306,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
 
     /// @dev Shrink (withdrawal) branch of a splice, in its own frame: settle the removed
     ///      slice like a close. The LP's native payout is read from the splice tx (output
-    ///      to btcRecipientOf), the remainder delivered as clamped QUI. resizeBtcLp
+    ///      to btcRecipientOf), the remainder delivered as clamped QUI. resize
     ///      reads LP.pooled (still the OLD funded) and decrements it, so LP.pooled ==
     ///      ch.amountSats after. `_withdrawalPayout` ENFORCES the payout lands on
     ///      btcRecipientOf (rejects any foreign output), so the LP cannot route its
@@ -1347,7 +1347,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
             _releasePoolSats(channelId, p.amountSats);
         }
         paidOutSinceCheckpoint[channelId] += lpPayoutSats;   // legitimate balance fall
-        btcVault.resizeBtcLp(lpEth, shrinkSats, lpPayoutSats, 0);
+        btcVault.resize(lpEth, shrinkSats, lpPayoutSats, 0);
         emit ChannelSpliced(channelId, lpEth, false, shrinkSats, p.amountSats, newTxId, newVout);
     }
 
@@ -2153,7 +2153,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // proceeds: lpPayout = shrink − sats is the LP's native change; exactUsd =
         // so.usd is its dollar leg. _settleDelivered draws POOLED_USD + clears
         // pendingSwapOutUsd by so.usd (the matched -= for the request's +=).
-        btcVault.resizeBtcLp(lpEth, shrinkSats, shrinkSats > sats ? shrinkSats - sats : 0, so.usd);
+        btcVault.resize(lpEth, shrinkSats, shrinkSats > sats ? shrinkSats - sats : 0, so.usd);
         // Mark the swapId consumed on the swap-IN side too: delivery and reversal are now
         // MUTUALLY EXCLUSIVE in BOTH directions. The deliver entry already blocks
         // reverse→deliver (swapInUsed check at the top); this blocks deliver→reverse, so a

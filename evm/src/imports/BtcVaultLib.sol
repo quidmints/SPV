@@ -151,7 +151,7 @@ library BtcVaultLib {
         uint    usdFees;      // §BAND-MERGE: the BTC suffix is redundant inside a BTC library
     }
 
-    /// @dev resizeBtcLp/resizeBtcLpTail output as ONE struct (single memory pointer) rather than four
+    /// @dev resize/resizeBtcLpTail output as ONE struct (single memory pointer) rather than four
     ///      stack-slot returns — keeps both off the legacy-pipeline stack (no via_ir). The Vault forwarder
     ///      applies lpShares -= sharesRemoved, totalBuffer -= bufRemoved, and on `cleared` emits owed.
     /// @dev `feeCompounded` (E145): sats the BTC fee leg compounded into `LP.pooled` during
@@ -159,7 +159,7 @@ library BtcVaultLib {
     ///      `sharesRemoved`, or the sum drifts from the positions it totals.
     struct ResizeOut { uint sharesRemoved; bool cleared; uint owed; uint bufRemoved; uint feeCompounded; }
 
-    /// @notice Body of Vault._resizeRequest AFTER the funded/lev prologue + _rebalance
+    /// @notice Body of Vault._resize AFTER the funded/lev prologue + _rebalance
     ///         (both stay in the Vault). Settles fees, pays the swap-out proceeds,
     ///         burns the native (+ full-close lev) band depth, decrements the
     ///         position and finalizes. Returns (sharesRemoved, cleared, owed): the
@@ -211,14 +211,14 @@ library BtcVaultLib {
         }
     }
 
-    /// @notice Full body of Vault._resizeRequest: the funded/lev prologue + clamp +
+    /// @notice Full body of Vault._resize: the funded/lev prologue + clamp +
     ///         early-returns + repack (self-call) + tail. `full` = whole-channel close
     ///         (shrinkSats := funded); else a partial splice-out. Returns
     ///         (sharesRemoved, cleared, owed) — the forwarder applies
     ///         `lpShares -= sharesRemoved` and on `cleared` emits + resets. The
     ///         guards run BEFORE repack (no rebalance when there's nothing to do),
     ///         preserving the former in-Vault ordering exactly.
-    function resizeBtcLp(
+    function resize(
         address core, address quid,
         mapping(address => Types.Deposit) storage autoManaged,
         mapping(address => uint) storage levPooled,

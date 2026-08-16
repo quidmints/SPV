@@ -299,7 +299,7 @@ contract MockVogue {
     // shrink amounts are RECORDED here and asserted in the test rather than merely swallowed.
     mapping(address => uint) public resizedShrinkSats;
     mapping(address => uint) public resizedPayoutSats;
-    function resizeBtcLp(address lpEth, uint shrinkSats, uint lpPayoutSats, uint) external {
+    function resize(address lpEth, uint shrinkSats, uint lpPayoutSats, uint) external {
         resizedShrinkSats[lpEth] += shrinkSats;
         resizedPayoutSats[lpEth] += lpPayoutSats;
         registered[lpEth] -= shrinkSats;

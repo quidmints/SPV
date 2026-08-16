@@ -4113,7 +4113,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     }
 
     /// @notice COLLAPSE: an LP-WITHDRAWAL splice-out (`exactUsd == 0`) is ALL
-    ///         NATIVE — it mints NO proceeds. The new resizeBtcLp signature is
+    ///         NATIVE — it mints NO proceeds. The new resize signature is
     ///         (lpEth, shrinkSats, lpPayoutSats, exactUsd); a withdrawal passes
     ///         exactUsd=0 so the whole shrunk slice leaves as native BTC. A
     ///         half-shrink then a close of the remainder both mint ~no proceeds and
@@ -4140,7 +4140,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         // physically takes the whole shrunk slice as native BTC (lpPayout=shrink).
         uint qBefore = QUID.balanceOf(User01);
         uint shrink = funded / 2;
-        BTC.resizeBtcLp(User01, shrink, shrink, 0);
+        BTC.resize(User01, shrink, shrink, 0);
         (uint pooledAfter,,,) = BTC.autoManaged(User01);
         assertEq(pooledAfter, funded - shrink, "position shrank by exactly shrinkSats");
         assertLt(QUID.balanceOf(User01) - qBefore, feeBound,

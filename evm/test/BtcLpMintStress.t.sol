@@ -8,7 +8,7 @@ import {BTCChannels} from "../src/BTCChannels.sol";
 import {Types} from "../src/imports/Types.sol";
 import {BitcoinTx} from "../src/imports/BitcoinTx.sol";
 
-/// @notice STRESS the close-path QUID mint in `Vault._resizeRequest` (the deferred
+/// @notice STRESS the close-path QUID mint in `Vault._resize` (the deferred
 ///         payout of swap-out proceeds to the BTC LP whose channel delivered the
 ///         BTC). The design KEEPS this mint (per the maintainer) but it must stay
 ///         BACKED under stress: the §10#2 solvency clamp (`deliveredSlice ≤ netDel`)

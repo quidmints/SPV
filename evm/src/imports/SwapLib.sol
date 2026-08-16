@@ -1476,13 +1476,13 @@ library SwapLib {
 
     // ── Delivery-side de-lever (partial-burn vBTC deliverability) ─────────────────────────────────
 
-    /// @notice Runs at the head of a native swap-out settlement (Vault._resizeRequest) when the delivering LP's
+    /// @notice Runs at the head of a native swap-out settlement (Vault._resize) when the delivering LP's
     ///   slice draws PAST its FREE channel band into the LEVERED slice — the "stranded volatile" state
     ///   (`shrinkSats > funded = pooled − levPooled`). The delivery's OWN proceeds de-lever the shortfall
     ///   `want = min(shrinkSats−funded, levPooled)`: source the venue's debt stable from the basket, repay the
     ///   LP's debt (the manager burns the freed vBTC + un-encumbers the channel BTC, lev→funded, so the clamp in
-    ///   resizeBtcLp then delivers the full shrink), and DRAW the retired-debt share out of POOLED_USD + clear
-    ///   its obligation. The Vault hands resizeBtcLp `exactUsd − deLeverUsd6`, so `settleDelivered` mints QUI for
+    ///   resize then delivers the full shrink), and DRAW the retired-debt share out of POOLED_USD + clear
+    ///   its obligation. The Vault hands resize `exactUsd − deLeverUsd6`, so `settleDelivered` mints QUI for
     ///   the FUNDED (+ any pure-equity) remainder only — the de-levered slice is paid ONCE (debt-reduction, not a
     ///   QUI mint). VALUE-NEUTRAL: −BTC −debt of equal oracle value ⇒ net-equity preserved, LTV IMPROVES. The
     ///   levered slice's V4 depth was already consumed by the curve at REQUEST (it sold against the full

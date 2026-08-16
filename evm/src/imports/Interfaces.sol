@@ -493,7 +493,12 @@ interface IBtcVaultBridge {
     // implementation still compile at the call site; the two must be removed together.
     // `exactUsd` > 0 ⇒ on-chain swap-out delivery (pay the LP that exact proceeds);
     // 0 ⇒ LP-withdrawal splice-out (all native).
-    function resizeBtcLp(address lpEth, uint shrinkSats, uint lpPayoutSats, uint exactUsd) external;
+    // §EIP-7540 — NOT given a `request*` name, deliberately. 7540 has requestDeposit and
+    // requestRedeem and NOTHING for a PARTIAL close: this shrinks a position by `shrinkSats`
+    // without retiring the channel, which the standard does not model. Inventing `requestResize`
+    // would dress a non-standard operation in standard vocabulary, which is worse than a plain
+    // name. The `Btc` suffix goes because that is the band-instance cleanup, not the 7540 one.
+    function resize(address lpEth, uint shrinkSats, uint lpPayoutSats, uint exactUsd) external;
     // BTC↔USD swap settlement (the swap-IN credit + on-curve swap-OUT buy).
     function creditSwapIn(address seller, uint sats, address token, uint minDeliveredUsd) external returns (uint consumedSats);
     function creditSwapOut(address swapper, address token, uint usdAmount, uint minSats)

@@ -466,7 +466,7 @@ contract Vault is Ownable, ReentrancyGuard {
     // real WBTC moves), so the locked sats stay self-custodied in the channel.
 
     // Renamed from BtcLpFeesOwed: the BTC-leg fee residual at a full exit is no longer
-    // OWED to an external settler — it is FORGONE to the pool (dust; see _resizeRequest). Kept as
+    // OWED to an external settler — it is FORGONE to the pool (dust; see _resize). Kept as
     // an observability signal so a NON-dust forgone amount (⇒ the fleet missed a pre-exit flush)
     // is alertable. The lp_fees.rs settler + the on-chain lpFeePaid dedup are retired.
 
@@ -567,7 +567,7 @@ contract Vault is Ownable, ReentrancyGuard {
     ///         only after L1 confirmations. Same signature note as `requestDeposit`.
     function requestRedeem(address lpEth, uint lpPayoutSats)
         external nonReentrant onlyBtcChannels {
-        _resizeRequest(lpEth, 0, lpPayoutSats, true, 0);   // full close — all native
+        _resize(lpEth, 0, lpPayoutSats, true, 0);   // full close — all native
     }
 
     /// @notice Splice-OUT (partial close) → shrink the LP's position by `shrinkSats`
@@ -577,9 +577,9 @@ contract Vault is Ownable, ReentrancyGuard {
     ///         shape as a full close — just a slice.
     /// `exactUsd` > 0 ⇒ on-chain swap-out delivery: pay the LP exactly that USD as
     /// proceeds. `exactUsd` == 0 ⇒ LP-withdrawal splice-out: all native, no proceeds.
-    function resizeBtcLp(address lpEth, uint shrinkSats, uint lpPayoutSats, uint exactUsd)
+    function resize(address lpEth, uint shrinkSats, uint lpPayoutSats, uint exactUsd)
         external nonReentrant onlyBtcChannels {
-        _resizeRequest(lpEth, shrinkSats, lpPayoutSats, false, exactUsd);
+        _resize(lpEth, shrinkSats, lpPayoutSats, false, exactUsd);
     }
 
     /// @dev Shared per-channel exit body. `full` = whole-channel close (shrinkSats :=
@@ -587,18 +587,18 @@ contract Vault is Ownable, ReentrancyGuard {
     ///      = BTC the LP took in the close/splice tx; `shrinkSats − lpPayout` is the
     ///      DOLLAR (delivered) slice. ONE settlement model for close and splice-out:
     ///      read the LP's BTC payout from the tx, the remainder is delivered.
-    function _resizeRequest(address lpEth, uint shrinkSats, uint lpPayoutSats, bool full, uint exactUsd)
+    function _resize(address lpEth, uint shrinkSats, uint lpPayoutSats, bool full, uint exactUsd)
         internal {
         // MULTI-HOP: LP.pooled includes the LEVERED slice (levPooled), which has NO channel BTC
         // behind it. Channel funding is only the FREE part — the funded/lev prologue, clamp, the
         // _rebalance (via repack self-call) and the settlement/native-lev-burn/finalize tail all live
-        // in BtcVaultLib.resizeBtcLp (delegatecall over the Vault's slots). The guards run BEFORE repack
+        // in BtcVaultLib.resize (delegatecall over the Vault's slots). The guards run BEFORE repack
         // (no rebalance when there's nothing to do); the value-type lpShares + accumulators apply here.
         // DELIVERY-SIDE de-lever: when this native swap-out delivery (exactUsd>0, partial) draws on the LP's
         // LEVERED slice past the free channel band (shrinkSats > funded = pooled − levPooled), de-lever the
         // shortfall with the delivery's OWN proceeds — repay the LP's debt, free + un-encumber the matching vBTC
         // (lev→funded) so the clamp below delivers the full shrink. Those proceeds became debt-reduction, so we
-        // hand resizeBtcLp the FUNDED remainder and settleDelivered mints QUI for that only (single-pay).
+        // hand resize the FUNDED remainder and settleDelivered mints QUI for that only (single-pay).
         //
         // THIS SPLIT *IS* #104 "internalize-A" — do NOT add a separate internalizeTap path. Single-pay is
         // structural: `delevUsd + (exactUsd - delevUsd) == exactUsd` with delevUsd clamped to [0, exactUsd]
@@ -613,7 +613,7 @@ contract Vault is Ownable, ReentrancyGuard {
         if (!full && exactUsd > 0 && LEV_MANAGER != address(0))
             delevUsd = SwapLib.deleverOnDelivery(address(CORE), address(AUX), LEV_MANAGER,
                 autoManaged, levPooled, lpEth, shrinkSats, lpPayoutSats, exactUsd);
-        BtcVaultLib.ResizeOut memory o = BtcVaultLib.resizeBtcLp(
+        BtcVaultLib.ResizeOut memory o = BtcVaultLib.resize(
             address(CORE), address(QUID), autoManaged, levPooled, levBuf,
             lpEth, shrinkSats, lpPayoutSats, full, exactUsd - delevUsd);
         // (E145) fees compounded into `pooled` during this resize must be added, or `lpShares`

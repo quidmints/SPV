@@ -1253,7 +1253,7 @@ contract Vogue is
 
     // ════════════════════════════════════════════════════════════════
     //  BTC LP path REGROUPED into BtcVault.sol (requestDeposit /
-    //  requestRedeem / resizeBtcLp / _resizeRequest). The shared isBTC-
+    //  requestRedeem / resize / _resize). The shared isBTC-
     //  parameterized helpers above stay here for the ETH side; the BTC
     //  repack is now driven by BtcVault.repack(true).
     // ════════════════════════════════════════════════════════════════
