@@ -640,31 +640,30 @@ contract Aux is // Auxiliary
     /// @notice The live inventory-skew (WAD) the well applies to `asset`'s swap-OUT — the
     ///         pool's reservation-price / RFQ taker-limit offset. Exposed on the SAME unified
     ///         seam as getTWAPforAsset/resolvedTwap so Bebop's RFQ engine AND Khalani's
-    ///         Arcadia solver read the same curve settlement uses. 0 = flush (band price stands);
-    ///         rises to the cap when the deliverable inventory is scarce. Read-only.
-    ///         🔴 THIS IS THE INSTANTANEOUS RATE (drain = 0) AND IT IS **NOT** WHAT A SIZED SWAP
-    ///         EXECUTES AT. This docblock used to claim solvers "quote against the EXACT number a
-    ///         swap executes at", which was true before §E68 and false after: execution now charges
-    ///         the INTEGRAL of the pole over the drain's own path (q0→q1), because charging the
-    ///         starting rate on every unit "billed the last units of a big drain at the cheap
-    ///         starting rate ⇒ THE LARGEST IMBALANCER WAS UNDERCHARGED". So this view UNDERSTATES
-    ///         the cost of any non-trivial size, and the gap widens toward the pole — exactly where
-    ///         being wrong is most expensive. Use `wellSkew(asset, drainUsd6)` to quote a real fill;
-    ///         this one-argument form remains for the flush/indicative case and for consumers pinned
-    ///         to the original signature.
-    function wellSkew(address asset) public view returns (uint) {
-        return SwapLib.wellSkew(address(CORE), getTWAPforAsset(asset, 1800), asset == address(WBTC), 0);  // §E68: 0 = read-only quote ⇒ instantaneous rate
-    }
-
-    /// @notice SIZE-AWARE skew — the rate a swap of `drainUsd6` ACTUALLY pays, i.e. the §E68
-    ///         integral over the path that swap itself walks, not a point sample at the start.
-    ///         WHY THIS EXISTS: inventory, not `L`, is what distinguishes a full band from a drained
-    ///         one at the same price — and a quote that ignores the size being taken cannot express
-    ///         that. `base·(1 − wellSkew(asset, size))` is the fill; the one-argument form is the
-    ///         `size → 0` limit of it, which is why the two agree on small tickets and diverge on
-    ///         large ones. An RFQ maker or solver quoting size should read THIS.
+    ///         Arcadia solver read the same curve settlement uses. `base·(1 − wellSkew(asset, size))`
+    ///         is the fill. 0 = flush (band price stands); rises to the cap as deliverable inventory
+    ///         becomes scarce. Read-only.
+    ///
+    ///         🔴 THE SIZE ARGUMENT IS MANDATORY BY DESIGN — THE ZERO-SIZE FORM WAS RETIRED, NOT KEPT
+    ///         ALONGSIDE. There used to be a `wellSkew(address)` that passed `drainUsd6 = 0` and
+    ///         returned the INSTANTANEOUS rate, and its docblock claimed solvers "quote against the
+    ///         EXACT number a swap executes at". True before §E68, false after: settlement charges
+    ///         the INTEGRAL of the pole over the path the swap itself walks (q0→q1), and the starting
+    ///         rate is the CHEAPEST point on that path. MEASURED on a $1m band: a 10% drain filled
+    ///         **1.11×** worse than that quote and a 90% drain **4.12×** worse, the error widening
+    ///         toward the pole — exactly where being wrong costs most.
+    ///         ⚠️ It was first fixed by ADDING this overload and documenting the old one as narrow.
+    ///         That left the footgun loaded: the defect was consumers reading the size-blind form, so
+    ///         leaving it callable preserved the exact mistake. Deleting it makes the wrong quote
+    ///         UNCONSTRUCTIBLE rather than merely discouraged (standing rule 17). The indicative case
+    ///         is now spelled `wellSkew(asset, 0)` — same number, but the caller has to say that a
+    ///         zero-size quote is what they meant.
+    ///         📌 The justification for keeping it — "consumers pinned to the original signature" —
+    ///         was never checked and was false: zero references in `quid-ln` and `spa`, and every
+    ///         call site was a test.
     /// @param asset      volatile side (WETH/WBTC)
-    /// @param drainUsd6  the swap's volatile-side draw, 6-dec USD — the same base settlement uses
+    /// @param drainUsd6  the swap's volatile-side draw, 6-dec USD — the same base settlement uses;
+    ///                   pass 0 for the flush/indicative rate, which is the `size → 0` limit
     function wellSkew(address asset, uint drainUsd6) public view returns (uint) {
         return SwapLib.wellSkew(address(CORE), getTWAPforAsset(asset, 1800),
                                 asset == address(WBTC), drainUsd6);

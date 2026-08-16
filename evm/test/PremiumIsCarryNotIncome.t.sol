@@ -150,7 +150,7 @@ contract PremiumIsCarryNotIncome is Alles {
         // was quoted for a market that will NOT move, and comparing it to a 10% move is arithmetic,
         // not a measurement. Logged so the regime is visible in the same run as the result.
         emit log_named_uint("realizedVarianceWad at settle", CORE.realizedVarianceWad(false));
-        emit log_named_uint("wellSkew at settle           ", AUX.wellSkew(address(WETH)));
+        emit log_named_uint("wellSkew at settle           ", AUX.wellSkew(address(WETH), 0));
         // §E130-skew — θ IS LOGGED AS CONTEXT AND MUST NOT BE ASSERTED ON HERE. It is an
         // IL-PROTECTION CONTROL (band sizing), not a verdict on skew pricing, and using it as one
         // is CIRCULAR: θ is DERIVED FROM the retained premium (`premiumEwmaUsd` is its numerator)
@@ -433,7 +433,7 @@ contract PremiumIsCarryNotIncome is Alles {
         uint varWad = CORE.realizedVarianceWad(false);
         emit log_named_uint("sigma^2 AFTER the walk  ", varWad);
         emit log_named_uint("implied annualised vol, bps (sqrt of the above)", _sqrtBps(varWad));
-        emit log_named_uint("wellSkew at this vol    ", AUX.wellSkew(address(WETH)));
+        emit log_named_uint("wellSkew at this vol    ", AUX.wellSkew(address(WETH), 0));
 
         // ~0.2-1.2 annualised variance brackets a plausible ETH tape (45%-110% vol). Outside that,
         // the tape is the finding, not the pricing -- say so rather than quoting a number from it.
@@ -595,7 +595,7 @@ contract PremiumIsCarryNotIncome is Alles {
         }
         emit log_named_uint("TWAP after       ", AUX.getTWAPforAsset(address(WETH), 1800));
         emit log_named_uint("sigma^2 AFTER    ", CORE.realizedVarianceWad(false));
-        emit log_named_uint("wellSkew AFTER   ", AUX.wellSkew(address(WETH)));
+        emit log_named_uint("wellSkew AFTER   ", AUX.wellSkew(address(WETH), 0));
     }
 
     /// §UNIT-REPEG-CADENCE's missing input, outstanding since it was listed six entries ago:

@@ -48,8 +48,8 @@ contract SkewCalibration is Alles {
         // whether the curve EVER engages, so a fixture that stops short answers nothing.
         for (uint i; i < 120; i++) _trade(20_000e18);   // drain into SCARCITY, where the curve engages
 
-        emit log_named_uint("ETH wellSkew (wad)   ", AUX.wellSkew(address(WETH)));
-        emit log_named_uint("BTC wellSkew (wad)   ", AUX.wellSkew(address(WBTC)));
+        emit log_named_uint("ETH wellSkew (wad)   ", AUX.wellSkew(address(WETH), 0));
+        emit log_named_uint("BTC wellSkew (wad)   ", AUX.wellSkew(address(WBTC), 0));
         emit log_named_uint("flowEwmaUsd ETH      ", CORE.flowEwmaUsd(false));
         emit log_named_uint("flowEwmaUsd BTC      ", CORE.flowEwmaUsd(true));
         emit log_named_uint("committedUsd18       ", CORE.committedUsd18());

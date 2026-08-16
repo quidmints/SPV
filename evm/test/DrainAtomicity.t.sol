@@ -199,15 +199,15 @@ contract DrainAtomicity is Alles {
         _seedBasket();
         vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
         _settle();
-        uint ethAlone = AUX.wellSkew(address(WETH));
+        uint ethAlone = AUX.wellSkew(address(WETH), 0);
 
         // Populate the BTC band so the SHARED-scarcity amplifier can exceed 1 for BOTH assets.
         AUX.setBTCChannels(address(this));   // auth: registerBtcLp is gated (403 without this)
         BTC.registerBtcLp(User01, 2e7);
         _settle();
 
-        uint ethBoth = AUX.wellSkew(address(WETH));
-        uint btcLive = AUX.wellSkew(address(WBTC));
+        uint ethBoth = AUX.wellSkew(address(WETH), 0);
+        uint btcLive = AUX.wellSkew(address(WBTC), 0);
         emit log_named_uint("ETH wellSkew, ETH band only ", ethAlone);
         emit log_named_uint("ETH wellSkew, BOTH bands    ", ethBoth);
         emit log_named_uint("BTC wellSkew, BOTH bands    ", btcLive);
@@ -232,7 +232,7 @@ contract DrainAtomicity is Alles {
         uint invBtc = CORE.POOLED_BTC() * pB / 1e30;
         uint tgtBtc = CORE.flowEwmaUsd(true);
         uint sigBtc = CORE.realizedVarianceWad(true);
-        btcLive     = AUX.wellSkew(address(WBTC));
+        btcLive     = AUX.wellSkew(address(WBTC), 0);
         uint raw    = SwapLib.skewWad(invBtc, tgtBtc, sigBtc, true, 0);   // UNAMPLIFIED kernel+base
         emit log_named_uint("BTC inv (usd6)        ", invBtc);
         emit log_named_uint("BTC target/flow (usd6)", tgtBtc);
@@ -255,7 +255,7 @@ contract DrainAtomicity is Alles {
             uint invEth  = CORE.POOLED_ETH() * pE / 1e30;
             uint rawEth  = SwapLib.skewWad(invEth, CORE.flowEwmaUsd(false),
                                            CORE.realizedVarianceWad(false), false, 0);
-            uint liveEth = AUX.wellSkew(address(WETH));
+            uint liveEth = AUX.wellSkew(address(WETH), 0);
             emit log_named_uint("ETH raw  (unamplified)", rawEth);
             emit log_named_uint("ETH live (amplified)  ", liveEth);
             if (rawEth > 0 && liveEth > 0 && liveEth < 3e16) {
@@ -428,14 +428,14 @@ contract DrainAtomicity is Alles {
                 < CORE.flowEwmaUsd(false)) break;
         }
         uint invFresh  = CORE.POOLED_ETH() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
-        uint skewFresh = AUX.wellSkew(address(WETH));
+        uint skewFresh = AUX.wellSkew(address(WETH), 0);
         uint flowFresh = CORE.flowEwmaUsd(false);
 
         // 30 DAYS pass. No swap, no LP action -- inventory is UNCHANGED by construction.
         vm.warp(block.timestamp + 30 days);
         vm.roll(block.number + 1);
         uint invAged  = CORE.POOLED_ETH() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
-        uint skewAged = AUX.wellSkew(address(WETH));
+        uint skewAged = AUX.wellSkew(address(WETH), 0);
         uint flowAged = CORE.flowEwmaUsd(false);
 
         emit log_named_uint("inv  fresh / aged (usd6)", invFresh);
@@ -554,13 +554,13 @@ contract DrainAtomicity is Alles {
         // the conservative ceiling — that is E59's intent and it must survive E88-r.
         uint vFresh = CORE.realizedVarianceWad(false);
         emit log_named_uint("variance, FRESH ring (expect 0 = unmeasured)", vFresh);
-        emit log_named_uint("wellSkew, FRESH ring                        ", AUX.wellSkew(address(WETH)));
+        emit log_named_uint("wellSkew, FRESH ring                        ", AUX.wellSkew(address(WETH), 0));
 
         // Now trade so the ring populates and real price movement enters it.
         for (uint i = 0; i < 8; ++i) _drain(20_000 * 1e18);
         uint vTraded = CORE.realizedVarianceWad(false);
         emit log_named_uint("variance, TRADED ring                       ", vTraded);
-        emit log_named_uint("wellSkew, TRADED ring                       ", AUX.wellSkew(address(WETH)));
+        emit log_named_uint("wellSkew, TRADED ring                       ", AUX.wellSkew(address(WETH), 0));
 
         if (vFresh == 0 && vTraded > 0) {
             emit log("SENTINEL INTACT: 0 means UNMEASURED; a traded ring reports real variance.");
@@ -604,7 +604,7 @@ contract DrainAtomicity is Alles {
 
         // (2) E59: a FRESH band has unmeasured variance. Does it charge the ceiling?
         emit log_named_uint("E59: realizedVariance, fresh", CORE.realizedVarianceWad(false));
-        emit log_named_uint("E59: wellSkew, fresh        ", AUX.wellSkew(address(WETH)));
+        emit log_named_uint("E59: wellSkew, fresh        ", AUX.wellSkew(address(WETH), 0));
         emit log_named_uint("E59: MAX_WELL_SKEW (claimed)", 3e16);
 
         for (uint i = 0; i < 6; ++i) _drain(20_000 * 1e18);
@@ -1493,7 +1493,7 @@ contract DrainAtomicity is Alles {
             emit log_named_uint("== slice             ", i);
             emit log_named_uint("   sigma^2 (wad)     ", CORE.realizedVarianceWad(false));
             emit log_named_uint("   flowEwmaUsd       ", CORE.flowEwmaUsd(false));
-            emit log_named_uint("   wellSkew (wad)    ", AUX.wellSkew(address(WETH)));
+            emit log_named_uint("   wellSkew (wad)    ", AUX.wellSkew(address(WETH), 0));
             emit log_named_uint("   POOLED_ETH        ", CORE.POOLED_ETH());
             _drain(TOTAL / N);
             emit log_named_uint("   premium charged   ", CORE.skewPremiumETH() - premBefore);
@@ -1575,7 +1575,7 @@ contract DrainAtomicity is Alles {
         _setupBand();
         _drain(60_000 * 1e18);                     // create real imbalance, so q > 0
 
-        uint skewBefore   = AUX.wellSkew(address(WETH));
+        uint skewBefore   = AUX.wellSkew(address(WETH), 0);
         uint pooledBefore = CORE.POOLED_ETH();
         uint flowBefore   = CORE.flowEwmaUsd(false);
 
@@ -1584,7 +1584,7 @@ contract DrainAtomicity is Alles {
 
         V4.reseat();
 
-        uint skewAfter   = AUX.wellSkew(address(WETH));
+        uint skewAfter   = AUX.wellSkew(address(WETH), 0);
         uint pooledAfter = CORE.POOLED_ETH();
         uint flowAfter   = CORE.flowEwmaUsd(false);
 
