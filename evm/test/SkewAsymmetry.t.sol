@@ -21,7 +21,8 @@ contract SkewAsymmetry is Test {
 
     /// Reads the per-asset BASE alone, via UNIT-A's target==0 early return.
     function _base(uint sigmaSqWad, bool isBTC) internal pure returns (uint) {
-        return SwapLib.skewWad(1_000_000e6, 0, sigmaSqWad, isBTC, 0);
+        return SwapLib.skewWad(1_000_000e6, 0, sigmaSqWad,
+            isBTC ? SwapLib.btcRisk() : SwapLib.ethRisk(), 0);
     }
 
     /// @notice THE WINDOW RATIO IS EXACTLY 300x — and that is the LEAST important thing about the

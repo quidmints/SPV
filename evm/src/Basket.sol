@@ -31,7 +31,7 @@ contract Basket is ERC20, ERC6909,
     ///         working with zero redundant SSTOREs. #18.
     function target() external view returns (uint) { return seeded; }
     Aux public AUX;
-    address payable public V4;
+    address payable public VOGUE;
     // ─── Safe/deployer seed commitment: the Foundation (F8N) ANGEL NFT ───
     // The Safe approves the already-deployed Aux for ANGEL (DeployLib, mid-deploy), and Basket's constructor
     // REQUIRES that approval — so Basket can't be born unless the seed is committed (this IS the deployer gate).
@@ -51,7 +51,7 @@ contract Basket is ERC20, ERC6909,
         // rotatable forwarder address an (unused) mint capability was an
         // over-privilege; minting is AUX (creditLPForSwap) + V4 (fees) +
         // BTC_VAULT (the regrouped BTC-LP fee/close mints, previously V4's).
-        return (who == address(AUX) || who == V4 || who == BTC_VAULT);
+        return (who == address(AUX) || who == VOGUE || who == BTC_VAULT);
     } // BTC_VAULT is Vault.sol — the BTC-side vault (band + channels). It also HOSTS both
       // LevManagers (ETH LEV_MANAGER + BTC LEV_MANAGER_BTC) as a deploy consolidation, but the
       // ETH band liquidity itself lives in Vogue (V4). The name reflects its primary BTC role.
@@ -117,7 +117,7 @@ contract Basket is ERC20, ERC6909,
     constructor(address _vogue, address _aux)
         ERC20("QU!D", "QUI")
         Ownable(msg.sender) {
-        V4 = payable(_vogue);
+        VOGUE = payable(_vogue);
         AUX = Aux(payable(_aux));
         _deployed = block.timestamp;
         // The ANGEL commitment: the Safe must have approved Aux for the F8N ANGEL NFT BEFORE Basket is born —

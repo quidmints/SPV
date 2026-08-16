@@ -204,7 +204,7 @@ contract Deploy is Script {
 
     Basket public QUID;
     Core public CORE;
-    Vogue public V4;
+    Vogue public VOGUE;
     Aux public AUX;
     LevManager public LEVM;           // lev overlay (0x0 when DEPLOY_LEV unset)
     BtcLevManager public BTCLEVM;
@@ -320,7 +320,7 @@ contract Deploy is Script {
             allowUnburiedCheckpoint: false,   // (E135-b) PRODUCTION: the checkpoint MUST be buried; followers above prove it
             deployChannels: true
         }));
-        V4 = Vogue(payable(A.v4));
+        VOGUE = Vogue(payable(A.v4));
         CORE = Core(A.core);
         AUX = Aux(payable(A.aux));
         QUID = Basket(A.quid);
@@ -422,7 +422,7 @@ contract Deploy is Script {
         Ownable(address(QUID)).renounceOwnership();  // Safe renounces Basket (owner == deployer, no _transferOwnership)
 
         console.log("=== Deployed Addresses ===");
-        console.log("V4 (Vogue):", address(V4));
+        console.log("VOGUE (Vogue):", address(VOGUE));
         console.log("CORE (Core):", address(CORE));
         console.log("AUX:", address(AUX));
         console.log("QUID (Basket):", address(QUID));
@@ -440,7 +440,7 @@ contract Deploy is Script {
         vm.serializeAddress(j, "deployer", deployer);
         vm.serializeAddress(j, "basket", address(QUID));
         vm.serializeAddress(j, "aux", address(AUX));
-        vm.serializeAddress(j, "vogue", address(V4));
+        vm.serializeAddress(j, "vogue", address(VOGUE));
         vm.serializeAddress(j, "core", address(CORE));
         vm.serializeAddress(j, "vault", address(ETH));
         vm.serializeAddress(j, "spvGateway", address(spvGateway));
@@ -495,7 +495,7 @@ contract Deploy is Script {
         // ONE atomic pin-once: hook (Vogue) + flash (Morpho, zero-fee de-lever) + the audited venues (weETH
         // Morpho, weETH Euler, WETH Morpho, + optional WETH-debt short), then FROZEN. The venue array is built in
         // its own frame (_ethLevVenues) so this method stays within the legacy stack (no via_ir).
-        lm.init(address(V4), morpho, _ethLevVenues(morpho, address(lm), weeth));
+        lm.init(address(VOGUE), morpho, _ethLevVenues(morpho, address(lm), weeth));
         // BACKING: vogueETH counts the ETH lev book. PINNED ON EthVenue, not the Vault — `_ethCfg`
         // lives there now, and `Core`/`VogueLib`/`BasketLib` all read `LEV_MANAGER()` THROUGH the
         // `ethVenue` pointer. Pinning the wrong one compiles and silently reads leverage as disabled.

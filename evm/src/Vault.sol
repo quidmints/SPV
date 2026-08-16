@@ -77,8 +77,8 @@ import {ILevEquityBtc} from "./imports/Interfaces.sol";
 contract Vault is Ownable, ReentrancyGuard {
 
     // ─── ETH-venue immutables (formerly EthVenue) ───────────────────────
-    Vogue     internal immutable V4;    // the ETH LP contract
-    Core internal immutable CORE;  // the PM (was BtcVault's "V4")
+    Vogue     internal immutable VOGUE;    // the ETH LP contract
+    Core internal immutable CORE;  // the PM (was BtcVault's "VOGUE")
     Aux       internal immutable AUX;
     WETH9     public    immutable WETH;
 
@@ -188,7 +188,7 @@ contract Vault is Ownable, ReentrancyGuard {
 
     /// ETH-side trusted callers: Vogue (V4), Aux, self.
     modifier onlyUs {
-        if (msg.sender != address(V4)
+        if (msg.sender != address(VOGUE)
          && msg.sender != address(AUX)
          && msg.sender != address(this))
             revert Unauthorized(); _;
@@ -218,7 +218,7 @@ contract Vault is Ownable, ReentrancyGuard {
     /// standing approvals set once.
     constructor(address _vogue, address _core, address _aux, address _weth)
         Ownable(msg.sender) {
-        V4 = Vogue(payable(_vogue));
+        VOGUE = Vogue(payable(_vogue));
         CORE = Core(_core);
         AUX = Aux(payable(_aux));
         VBTC = new VBtc(address(this), address(Aux(payable(_aux)).WBTC()));
@@ -507,7 +507,7 @@ contract Vault is Ownable, ReentrancyGuard {
     ///         (the band-θ math home) with the BTC ticks so BtcVaultLib.addLiqChannel can risk-budget the
     ///         BTC band exactly like the ETH band -- without VaultLib linking VogueLib.
     function derivedThetaWadBtc() external view returns (uint) {
-        return V4.derivedThetaWadAt(address(CORE), LOWER_PRICE, UPPER_PRICE);   // §ISBTC-SPLIT: OUR ring's variance, not the ETH band's
+        return VOGUE.derivedThetaWadAt(address(CORE), LOWER_PRICE, UPPER_PRICE);   // §ISBTC-SPLIT: OUR ring's variance, not the ETH band's
     }
 
     /// @dev Vault's BTC-side immutables gathered for the delegatecalled VaultLib

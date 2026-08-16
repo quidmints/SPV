@@ -44,7 +44,7 @@ contract Aux is // Auxiliary
     // Immutable handles. USDC is stables[0] by convention; anywhere
     // code needs the USDC address (ERC-3009, _ensureUSDC) it reads
     // stables[0].
-    Vogue internal immutable V4;
+    Vogue internal immutable VOGUE;
     Core internal immutable CORE;
     /// §ISBTC-SPLIT — the BTC band INSTANCE. `CORE` is the ETH band; both are constructed in
     /// `DeployLib` and registered with the same `BandBacking`. Aux needs the handle because the
@@ -224,7 +224,7 @@ contract Aux is // Auxiliary
     // Body extracted to a private function (deployed ONCE) so the 13 onlyUs sites carry a cheap CALL
     // instead of inlining the 5-address comparison chain each — reclaims ~1 KB of Aux EIP-170 headroom.
     function _requireUs() private view {
-        if (msg.sender != address(V4)
+        if (msg.sender != address(VOGUE)
          && msg.sender != address(CORE)
          && msg.sender != address(BTC_CORE)  // §ISBTC-SPLIT — THE BTC BAND IS A SECOND ADDRESS NOW.
                                              // `Core._settleUsdSide` calls `AUX.take` (onlyUs) to pay
@@ -302,7 +302,7 @@ contract Aux is // Auxiliary
         WETH = WETH9(payable(a.weth));
         if (a.wbtc != address(0)) WBTC = IERC20(a.wbtc);
 
-        V4 = Vogue(payable(a.vogue));
+        VOGUE = Vogue(payable(a.vogue));
         CORE = Core(a.core);
         BTC_CORE = Core(a.btcCore);
         // §ISBTC-SPLIT: state the asset→band pairing ONCE, here, where the wiring is already known.
@@ -618,7 +618,7 @@ contract Aux is // Auxiliary
     ///         a re-call reverts. The ANGEL was approved to THIS Aux mid-deploy (DeployLib) and required by
     ///         Basket's constructor, so a Safe that didn't own it could never have produced a live Basket.
     function finalize() external onlyOwner {
-        BasketLib.assertFullyWired(address(QUID), ethVenue, _btcChannels, address(CORE), address(V4));
+        BasketLib.assertFullyWired(address(QUID), ethVenue, _btcChannels, address(CORE), address(VOGUE));
         // Burn the committed ANGEL seed NFT: the deploy approved THIS Aux for it (and the Safe/owner() still
         // holds it — only approved, never moved), so we transfer the Safe's ANGEL straight to DEAD via that
         // approval. Runs BEFORE renounce (uses owner()); one-shot (ANGEL gone ⇒ a re-call reverts on transfer).
@@ -629,7 +629,7 @@ contract Aux is // Auxiliary
     function _pinQuid(address _quid) private {
         if (address(QUID) != address(0)) revert QuidPinned();
         QUID = Basket(_quid);
-        WETH.approve(address(V4), type(uint).max);
+        WETH.approve(address(VOGUE), type(uint).max);
         // Stable→vault approvals are wired in the constructor loop; this only
         // pins QUID and adds the V4-side WETH approval (V4 wasn't known at
         // construction time).
@@ -763,7 +763,7 @@ contract Aux is // Auxiliary
                 // The read paths (`getTWAPforAsset`, `resolvedTwap`, `wellSkew`) were dispatched by
                 // `bandOf` already; this is the WRITE half of the same dispatch, and splitting them
                 // is what let reads and settlement disagree about which band they were talking to.
-                core: address(bandOf[asset]), v4: address(V4), btcVault: CORE.btcVault(),
+                core: address(bandOf[asset]), v4: address(VOGUE), btcVault: CORE.btcVault(),
                 btcChannels: _btcChannels
             }),
             stables
@@ -998,7 +998,7 @@ contract Aux is // Auxiliary
         _requireFreshHoldings();
         BasketLib.redeemAsBody(BasketLib.RedeemArgs(
             amount, source, recipient,
-            address(CORE), address(QUID), address(V4), address(WETH), preferred));
+            address(CORE), address(QUID), address(VOGUE), address(WETH), preferred));
         // cache: redeem does a FULL refresh to recapture yield drift across
         // ALL stables (the pro-rata draw touched some; this covers the rest).
         _refreshAllHoldings();
@@ -1169,7 +1169,7 @@ contract Aux is // Auxiliary
     function _backingCore()
         internal returns (uint committedSum, uint totalLiquid) {
         // Body extracted to BasketLib.backingCoreBody to free Aux bytecode.
-        return BasketLib.backingCoreBody(address(CORE), address(BTC_CORE), address(V4), CORE.btcVault());
+        return BasketLib.backingCoreBody(address(CORE), address(BTC_CORE), address(VOGUE), CORE.btcVault());
     }
 
     /// @notice Asset-withdraw dispatcher (mirror of _supply). WETH idle-

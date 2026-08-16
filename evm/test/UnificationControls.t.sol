@@ -45,12 +45,14 @@ contract UnificationControls is Alles {
     /// §E60 — the dust monitor lives here now, not on Core (which is 37 bytes short of affording
     /// it). Mock addresses come from Core's storage layout; 's logic, restated once.
     function _mockDust(bool isBTC) internal view returns (uint usdDust, uint tokDust) {
-        address pm = address(CORE.poolManager());
+        // §V4-CUT — Core no longer holds a PoolManager, so the dust term that counted mocks
+        // custodied BY the PM is gone with it: no pool of ours exists, the approvals to the PM were
+        // deleted, and nothing can transfer a mock there. Dust is now what is NOT held by Core.
         (address mTok, address mUsd) = CORE.mocks();
         assertGt(mUsd.code.length, 0, "STALE SLOT: Core's storage layout moved -- re-read slots from "
             "`forge inspect Core storageLayout` and update _mockDust (see UNIT-B-SLOTS-RECLAIM)");
-        usdDust = IERC20(mUsd).totalSupply() - (IERC20(mUsd).balanceOf(pm) + IERC20(mUsd).balanceOf(address(CORE)));
-        tokDust = IERC20(mTok).totalSupply() - (IERC20(mTok).balanceOf(pm) + IERC20(mTok).balanceOf(address(CORE)));
+        usdDust = IERC20(mUsd).totalSupply() - IERC20(mUsd).balanceOf(address(CORE));
+        tokDust = IERC20(mTok).totalSupply() - IERC20(mTok).balanceOf(address(CORE));
     }
 
     function _seedBasket() internal {
@@ -592,45 +594,13 @@ contract UnificationControls is Alles {
 
 
 
-    /// EMPIRICAL — is a v4 protocol-fee CONTROLLER set on the live mainnet PoolManager at all?
-    /// This is the question my earlier assert-0 could not answer. If the controller is address(0),
-    /// NO pool can carry a protocol fee and our 0 is structural. If it is set, a fee switch is live
-    /// and the only remaining question is what it returns for OUR key.
-    function test_EMPIRICAL_ProtocolFeeControllerIsSet() public {
-        address ctrl = IProtoFees(address(CORE.poolManager())).protocolFeeController();
-        emit log_named_address("live protocolFeeController", ctrl);
-        emit log_named_uint("fork block", block.number);
-        emit log_named_uint("controller set? (0=no)", ctrl == address(0) ? 0 : 1);
-    }
+    // DELETED 2026-08-16 — test_EMPIRICAL_ProtocolFeeControllerIsSet and
+    // test_EMPIRICAL_ControllerFeeForRealWethUsdc (owner: "we never touch that fee switch any
+    // more"). Both probed UNISWAP'S live protocol-fee controller to learn whether a fee could ever
+    // be charged on our key. No flow of ours reaches the PoolManager, no pool of ours is created,
+    // and `Core` no longer holds a PoolManager handle at all -- they read `CORE.poolManager()`
+    // purely to reach the mainnet singleton. Retired with the fee monitor they supported.
 
-    /// DECISIVE: does the live controller return a NON-ZERO fee for a REAL currency pair? If yes,
-    /// the switch is CHARGING and our mock key is the only reason we read 0 — i.e. the exemption is
-    /// an artefact of the mock design, not a protocol-wide "fee is off".
-    function test_EMPIRICAL_ControllerFeeForRealWethUsdc() public {
-        IProtoFeeCtrl ctrl = IProtoFeeCtrl(IProtoFees(address(CORE.poolManager())).protocolFeeController());
-        address usdc = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;   // currency0 (lower)
-        address weth = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;   // currency1
-        uint24[4] memory tiers = [uint24(100), uint24(500), uint24(3000), uint24(10000)];
-        int24[4]  memory spac  = [int24(1),    int24(10),   int24(60),    int24(200)];
-        for (uint i; i < 4; i++) {
-            PoolKey memory k = PoolKey({
-                currency0: Currency.wrap(usdc), currency1: Currency.wrap(weth),
-                fee: tiers[i], tickSpacing: spac[i], hooks: IHooks(address(0))
-            });
-            try ctrl.protocolFeeForPool(k) returns (uint24 f) {
-                emit log_named_uint("USDC/WETH tier", tiers[i]);
-                emit log_named_uint("   protocolFee", f);
-            } catch { emit log_named_uint("reverted for tier", tiers[i]); }
-        }
-        // Also our own shape: 420 fee, and a mock-ish pair, for contrast.
-        PoolKey memory ours = PoolKey({
-            currency0: Currency.wrap(usdc), currency1: Currency.wrap(weth),
-            fee: 420, tickSpacing: 10, hooks: IHooks(address(0))
-        });
-        try ctrl.protocolFeeForPool(ours) returns (uint24 f) {
-            emit log_named_uint("USDC/WETH @ our 420 tier -> fee", f);
-        } catch { emit log_string("reverted at 420 tier"); }
-    }
 
     /// CHECK: does a FULL exit actually fully exit after #12? The target probe leaves a -56.40
     /// residual, which I attributed to an un-burnable sliver deferring as `pooled`. If that is

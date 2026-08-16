@@ -34,7 +34,7 @@ import {ILevHost, ILevEquity, ILevClose} from "./imports/Interfaces.sol";
 contract Vogue is
     Ownable, ReentrancyGuard {
     error AlreadyInitialized();
-    error WrongV4();
+    error WrongVogue();
     error Dust();
     error NoPosition();
     error InsufficientBalance();
@@ -249,7 +249,7 @@ contract Vogue is
         AUX = Aux(payable(_aux)); CORE = Core(_core);
         QUID = Basket(_quid);
         renounceOwnership();
-        if (QUID.V4() != address(this)) revert WrongV4();
+        if (QUID.VOGUE() != address(this)) revert WrongVogue();
         // The rest is deploy-time-only work that was costing Vogue RUNTIME bytes
         // under a hard EIP-170 deficit (E32) -- the WETH read + approval, the band
         // seed read, and the initial tick derivation. Only the value-type state

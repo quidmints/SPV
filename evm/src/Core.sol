@@ -9,7 +9,7 @@ import {Vault} from "./Vault.sol";
 import {Basket} from "./Basket.sol";
 import {BasketLib} from "./imports/BasketLib.sol";
 import {ILevHost} from "./imports/Interfaces.sol";
-import {OracleLib} from "./imports/OracleLib.sol";
+import {OracleLib, RING} from "./imports/OracleLib.sol";
 import {FeeLib} from "./imports/FeeLib.sol";
 import {VogueLib} from "./imports/VogueLib.sol";
 import {SwapLib} from "./imports/SwapLib.sol";
@@ -76,7 +76,7 @@ contract Core {
     /// `observations` helpers existed only to make that choice; with one of each there is nothing to
     /// choose, so the fields are read directly.
     OracleLib.ObsState internal obsState;
-    OracleLib.Observation[65535] internal observations;
+    OracleLib.Observation[RING] internal observations;
 
     // §V4-CUT — `VANILLA_ETH`/`VANILLA_BTC` DELETED. Write-only: assembled at setup for a pool
     // that `initPool` stopped creating, then read by `_key()`, which had no callers.

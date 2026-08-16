@@ -12,6 +12,20 @@ import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 import {SwapLib} from "./SwapLib.sol";
 import {BasketLib} from "./BasketLib.sol";
 
+// §RING-SIZE — 1024, NOT 65,535. The old size was Uniswap v3's MAXIMUM CARDINALITY, inherited
+// wholesale; nothing here ever needed it. The ring advances AT MOST once per block (a
+// same-timestamp write only updates `lastPrice`), so the requirement is
+//     window / blockTime = 1800s / 12s = 150 observations
+// for the default TWAP window. 1024 is ~3.4 HOURS of one-per-block history -- 6.8x the default --
+// and keeps `cardinality`/`index` inside `uint16`.
+// ⚠️ THE WIN IS LAYOUT, NOT GAS: unwritten storage slots cost nothing, so 65,535 was never paying
+// rent. What it DID do was reserve 65,535 slots, pushing every later variable past slot 65,541 and
+// making the harness's raw-slot arithmetic absurd.
+// FILE-LEVEL because an array length must be a compile-time constant visible at the declaration
+// site, and `Core` declares the ring too.
+uint256 constant RING = 1024;
+
+
 /// @title  OracleLib — the per-pool V4 TWAP observation ring, extracted from
 ///         Core to free its deployed bytecode under EIP-170.
 ///
@@ -29,6 +43,15 @@ library OracleLib {
     /// the `int56` walks, and the per-read orientation flag — orientation is resolved ONCE at write.
     /// `uint192` is ample: the BTC leg's usd18 price carries the ×1e10 WBTC lift (~6.3e32) and an
     /// elapsed-seconds accumulator over a decade (~3e8) reaches ~2e41, against a 6.3e57 ceiling.
+    // §RING-SIZE — 1024, NOT 65,535. The old size was Uniswap v3's MAXIMUM CARDINALITY, inherited
+    /// wholesale; nothing here ever needed it. The ring advances AT MOST once per block (a
+    /// same-timestamp write only updates `lastPrice`), so the requirement is
+    ///     window / blockTime = 1800s / 12s = 150 observations
+    /// for the default TWAP window. 1024 is ~3.4 HOURS of one-per-block history -- 6.8x the default
+    /// window -- and still leaves `cardinality`/`index` inside `uint16`.
+    /// ⚠️ THE WIN IS LAYOUT, NOT GAS: unwritten storage slots cost nothing, so 65,535 was never
+    /// paying rent. What it DID do was reserve 65,535 slots in the layout, pushing every later
+    /// variable past slot 65,541 and making the harness's raw-slot arithmetic absurd.
     struct Observation {
         uint32 blockTimestamp;
         uint192 priceCumulative;
@@ -40,7 +63,7 @@ library OracleLib {
     /// @dev Append the current price to the ring (or just update lastPrice if a
     ///      same-timestamp write already happened this block).
     function writeObservation(
-        Observation[65535] storage obs, ObsState storage st, uint price
+        Observation[RING] storage obs, ObsState storage st, uint price
     ) external {
         uint32 blockTimestamp = uint32(block.timestamp);
         uint16 idx = st.index;
@@ -54,9 +77,9 @@ library OracleLib {
         uint192 priceCumulative = last.priceCumulative
             + uint192(uint256(st.lastPrice) * dt);
 
-        uint16 nextIdx = (idx + 1) % 65535;
+        uint16 nextIdx = uint16((idx + 1) % RING);
         uint16 card = st.cardinality;
-        if (nextIdx >= card && card < 65535) {
+        if (nextIdx >= card && card < uint16(RING)) {
             st.cardinality = nextIdx + 1;
         }
         obs[nextIdx] = Observation({
@@ -67,7 +90,7 @@ library OracleLib {
     }
 
     function observe(
-        Observation[65535] storage obs, ObsState storage st,
+        Observation[RING] storage obs, ObsState storage st,
         uint32[] calldata secondsAgos
     ) external view returns (uint192[] memory priceCumulatives) {
         priceCumulatives = new uint192[](secondsAgos.length);
@@ -97,7 +120,7 @@ library OracleLib {
         }
     }
 
-    function _getOldest(Observation[65535] storage obs, ObsState storage st)
+    function _getOldest(Observation[RING] storage obs, ObsState storage st)
         internal view returns (Observation memory) {
         uint16 card = st.cardinality;
         if (card == 1) return obs[0];
@@ -108,7 +131,7 @@ library OracleLib {
     }
 
     function _interpolate(
-        Observation[65535] storage obs, ObsState storage st,
+        Observation[RING] storage obs, ObsState storage st,
         uint32 target, Observation memory oldest, Observation memory latest
     ) internal view returns (uint192) {
         uint16 card = st.cardinality;
@@ -176,7 +199,7 @@ library OracleLib {
     /// vestigia of a pool that does not exist. `VANILLA_*` and `POOL_ID_VANILLA_*` went with them.
     /// What actually mattered was always these three lines: seed `lastPrice` from the reference
     /// price and open the ring.
-    function seedRing(ObsState storage st, Observation[65535] storage obs, uint refPrice)
+    function seedRing(ObsState storage st, Observation[RING] storage obs, uint refPrice)
         external {
         st.lastPrice = refPrice;
         st.cardinality = 1;
@@ -239,7 +262,7 @@ library OracleLib {
     ///
     /// Returns tick-variance per second (WAD). **0 means UNKNOWN — too few real updates — NOT calm**;
     /// the span is not returned because it is redundant (it is 0 exactly when this is).
-    function ringVariance(Observation[65535] storage obs, ObsState storage st, uint n)
+    function ringVariance(Observation[RING] storage obs, ObsState storage st, uint n)
         external view returns (uint varPerSecWad)
     {
         uint card = st.cardinality;
