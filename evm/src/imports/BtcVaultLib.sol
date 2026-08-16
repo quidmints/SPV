@@ -366,7 +366,7 @@ library BtcVaultLib {
     ) private returns (uint) {
         LP.pooled += deltaBTC;
         SwapLib.refreshBookmarks(LP, weight + deltaBTC, p.feesPerShare, p.usdFees);
-        ICore(core).modLP(deltaBTC, deltaUSD, lpEth);
+        ICore(core).modLP(-int256(deltaBTC), -int256(deltaUSD), lpEth);   // ENTERS ⇒ negative
         return deltaBTC;
     }
 

@@ -18,8 +18,8 @@ import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 import {IWETH9} from "./ILevVenue.sol";
 // §A.52: canonical shared views — these were file-local `IWeEth_L`/`IRedeem_L`/`ILiq_L`.
 import {IWeETH, ICurvePool} from "./Interfaces.sol";
-import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
-import {FixedPointMathLib} from "solmate/src/utils/FixedPointMathLib.sol";
+import {WETH as WETH9} from "solmate/tokens/WETH.sol";
+import {FixedPointMathLib} from "solmate/utils/FixedPointMathLib.sol";
 // §E68 — `lnWad` for the drain kernel's INTEGRAL (solmate has no lnWad; solady does, and is
 // already remapped). Aliased so it cannot be confused with solmate's same-named library above.
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
@@ -1621,7 +1621,7 @@ library SwapLib {
         if (pulled == 0) return 0;
         (, uint posLiquidity) = ICore(v4).poolStats();
         if (posLiquidity > 0) {
-            sent = ICore(v4).modLP(pulled, 0, recipient);
+            sent = ICore(v4).modLP(int256(pulled), 0, recipient);   // LEAVES ⇒ positive: delivers to `recipient`
         }
     }
 

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
+import {ReentrancyGuard} from "solmate/utils/ReentrancyGuard.sol";
 import {BandLib} from "./imports/BandLib.sol";
 // §A.52: the canonical view (was a file-local `IEthVenueV`).
 import {IDepositAdapter, ILevEquity} from "./imports/Interfaces.sol";
@@ -850,7 +850,7 @@ contract Vogue is
     ///      the legacy stack (no via_ir crutch). Mirrors Vault._modLpBtc.
     function _modLpEth(uint spotPrice, uint deltaETH, uint deltaUSD,
         uint loPrice, uint upPrice, address pledge) private {
-        CORE.modLP(deltaETH, deltaUSD, pledge);
+        CORE.modLP(-int256(deltaETH), -int256(deltaUSD), pledge);   // ENTERS ⇒ negative
     }
     /// @notice Reconcile `lp`'s LEVERED band position to its LIVE net-equity — the IL-protect fee lane.
     ///         PERMISSIONLESS (keeper/monitor/anyone): when the leverage's net-equity GROWS, mint band depth

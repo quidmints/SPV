@@ -749,13 +749,28 @@ contract Core {
     /// §DE-TICK — the price and tick arguments are GONE, not ignored. They described where in a v4
     /// range the liquidity had to land; inventory has no range to fit, so carrying them would cost
     /// calldata on every call to describe a placement that no longer happens.
-    function modLP(uint delta, uint deltaUSD, address sender)
+    /// 🔴 §E231-MODLP-DIRECTION — THE ARGUMENTS ARE SIGNED, AND THAT IS THE FIX.
+    ///
+    /// This took `uint delta, uint deltaUSD` and built `Delta(-int256(deltaUSD), -int256(delta))`:
+    /// **both legs ALWAYS negative, i.e. always ENTERING.** A removal had no way to say so, so every
+    /// caller that BURNS depth was accounted as if it were ADDING it — `POOLED` grew on a withdraw.
+    /// Measured: `testDepositImmediateWithdraw` deposits 10 ETH, withdraws 5, and asserts
+    /// `pooledBeforeWithdraw - POOLED()`; POOLED came back at 1.509e19, HIGHER than before, so the
+    /// subtraction underflowed. The test is right and the accounting was wrong.
+    ///
+    /// ⚠️ THE DIRECTION WAS LOST IN THE V4 CUT, and the header it left behind says so without
+    /// noticing: *"the band TAKES WHAT IT IS GIVEN"*. While v4 existed, `modifyLiquidity` RETURNED
+    /// signed deltas — the pool told us which way value moved. The cut replaced that return with a
+    /// hand-built `Delta` and hardcoded the sign to "enters", which is correct for the deposit path
+    /// the author was looking at and silently wrong for the two burn paths.
+    ///
+    /// ⇒ Callers now pass the sign, under the SAME convention `Delta` and `swap` already use —
+    /// **positive LEAVES the pool, negative ENTERS it**. That is this file's own stated rule
+    /// ("SIGN CARRIES DIRECTION … one value, one meaning — no companion flag that can disagree with
+    /// it"), and following it deletes the negation here rather than adding a boolean beside it.
+    function modLP(int256 delta, int256 deltaUSD, address sender)
         public onlyUs returns (uint sent) {
-        // Both legs ENTER the band ⇒ NEGATIVE, per the convention derived in `swap` (positive leaves
-        // the pool, negative enters it). `_t1` says which leg carries USD.
-        // §DE-TICK: the two ternaries CANCELLED -- USD was always placed where the USD reader
-        // looked. Identical semantics, one slot each.
-        Delta memory d = Delta(-int256(deltaUSD), -int256(delta));
+        Delta memory d = Delta(deltaUSD, delta);
         _handleDelta(d, true, deltaUSD == 0, sender, address(0), true);
         sent = 0;   // nothing is refused, so nothing comes back
     }
