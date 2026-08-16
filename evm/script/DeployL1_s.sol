@@ -199,6 +199,21 @@ contract Deploy is Script {
     IERC20 public CUSD = IERC20(0xcCcc62962d17b8914c62D74FfB843d73B2a3cccC);
     IERC4626 public STCUSD = IERC4626(0x88887bE419578051FF9F4eb6C858A951921D8888);
 
+    /// @notice crvUSD and frxUSD — added 2026-08-16, taking the basket to its LAYOUT MAXIMUM of 14.
+    /// Both wire on the SAME native-4626 rails as USDe→sUSDe and cUSD→stcUSD: the vault's `asset()`
+    /// IS the stable, so `convertToAssets` needs no adapter.
+    /// ⚠️ ADDRESSES AND VAULT LINKAGE VERIFIED ON-CHAIN 2026-08-16, not copied from the legacy repo:
+    ///   crvUSD `symbol()=="crvUSD"`, scrvUSD `asset()==crvUSD`;  frxUSD `symbol()=="frxUSD"`,
+    ///   sfrxUSD `asset()==frxUSD`.
+    /// ⚠️ The legacy repo names these FRAX/SFRAX. Frax RENAMED the token to frxUSD at the SAME
+    /// address, so symbol and legacy constant disagree by design — and its Chainlink feed is still
+    /// described "FRAX / USD". Same asset, not a stale wiring. (A guessed sfrxUSD address cost a
+    /// wrong conclusion earlier this session: it had `codesize == 0`.)
+    IERC20   public CRVUSD  = IERC20(0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E);
+    IERC4626 public SCRVUSD = IERC4626(0x0655977FEb2f289A4aB78af67BAB0d17aAb84367);
+    IERC20   public FRXUSD  = IERC20(0xCAcd6fd266aF91b8AeD52aCCc382b4e165586E29);
+    IERC4626 public SFRXUSD = IERC4626(0xcf62F905562626CfcDD2261162a51fd02Fc9c5b6);
+
     address[] public STABLECOINS;
     address[] public VAULTS;
 
@@ -239,9 +254,17 @@ contract Deploy is Script {
             address(RLUSD), address(USDG),
             address(DAI), address(USDS),
             address(USDE), address(AUSD),
-            address(CUSD),               // 10  cUSD — Cap USD (native stcUSD 4626 vault)
-            address(BOLD)                // 11  BOLD — MUST stay last (SP-routed)
+            address(CUSD),               // 10  cUSD   — Cap USD (native stcUSD 4626 vault)
+            address(CRVUSD),             // 11  crvUSD — native scrvUSD 4626 vault
+            address(FRXUSD),             // 12  frxUSD — native sfrxUSD 4626 vault
+            address(BOLD)                // 13  BOLD — MUST stay last (SP-routed)
         ];
+        // §14-STABLES — THIS IS THE LAYOUT MAXIMUM, NOT A ROUND NUMBER. `BasketLib:98-107` fixes the
+        // `uint[15]` contract: slot 0 is the yield-weighted sum across all sources (the basket-share
+        // "meta"), slots 1..N are the per-token deposits where `N = stables.length - 1` because BOLD
+        // is filled in Aux, and slot 14 is the raw TVL total. At 14 stables that is 1..13 — EXACTLY
+        // full. A 15th would write slot 14 and silently overwrite the total `FeeLib.calcFeeL1`
+        // divides by. Do not add one without widening the arrays first.
 
         vm.startBroadcast(deployerPrivateKey);
 
@@ -256,8 +279,10 @@ contract Deploy is Script {
             morphoUsdsVault,            // 7  USDS  -> Morpho USDS 4626 vault
             address(SUSDE),             // 8  USDE  -> sUSDE (native 4626)
             morphoAusdVault,            // 9  aUSD  -> Morpho aUSD 4626 vault
-            address(STCUSD),            // 10 cUSD  -> stcUSD (native 4626, asset()==cUSD)
-            stabilityPool               // 11 BOLD  -> Liquity SP (LAST = SP-routed, per Aux convention)
+            address(STCUSD),            // 10 cUSD   -> stcUSD  (native 4626, asset()==cUSD)
+            address(SCRVUSD),           // 11 crvUSD -> scrvUSD (native 4626, asset()==crvUSD)
+            address(SFRXUSD),           // 12 frxUSD -> sfrxUSD (native 4626, asset()==frxUSD)
+            stabilityPool               // 13 BOLD   -> Liquity SP (LAST = SP-routed, per Aux convention)
         ];
         // GHO and USDG route through AAVE v4 (their native venue), not
         // Morpho 4626 vaults — their slots above are address(0)
@@ -370,6 +395,8 @@ contract Deploy is Script {
         AUX.setStableFeed(address(USDG),  0x14f0737d6b705259e521EA6E9E3506AC78dBd311); // USDG/USD  (proxy-only, via ENS)
         AUX.setStableFeed(address(AUSD),  0xB00341502DfEA6Ced8A5786b4059d29dA5E4D1FD); // AUSD/USD  (proxy-only, 18-dec, via ENS)
         AUX.setStableFeed(address(CUSD),  0x9A5a3c3Ed0361505cC1D4e824B3854De5724434A); // cUSD/USD (Redstone AggregatorV3, 8-dec, ~$1.00)
+        AUX.setStableFeed(address(CRVUSD), 0xEEf0C605546958c1f899b6fB336C20671f9cD49F); // crvUSD/USD — Chainlink, description() == "CRVUSD / USD", 8-dec (verified on-chain 2026-08-16)
+        AUX.setStableFeed(address(FRXUSD), 0xB9E1E3A9feFf48998E45Fa90847ed4D467E8BcfD); // frxUSD/USD — Chainlink, description() == "FRAX / USD", 8-dec. NAME MISMATCH IS EXPECTED, see the frxUSD note above.
         // BOLD: no Chainlink feed exists → CRE-only (+ owner severityOverride). It does not
         // market-depeg (Liquity redemption floor), so the absence is fine. The basket set is
         // frozen at finalize, so no other stable can ever appear needing a feed — hence no
