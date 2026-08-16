@@ -16,9 +16,10 @@ export const ERC20_ABI = [
 
 // Core = the V4 pool engine (vogueCore). Only the oracle ring is consumed here —
 // observe() returns cumulative usd18 PRICE·seconds (it returned Uniswap-style
-// tickCumulatives before the tick removal). `regime.decodeTwapTicks` differences them into
-// TWAP prices and converts back to the tick (log-price) series the regime brain is
-// calibrated on, from which it derives realized vol + trend (sub-spread chop /
+// tickCumulatives before the tick removal). `regime.decodeTwapLogPrices` differences them into
+// TWAP prices and takes their natural log, which is the series the regime brain is
+// calibrated on (tick units were dropped with the tick removal), from which it derives
+// realized vol + trend (sub-spread chop /
 // supra-spread oscillation / one-way trend).
 export const CORE_ABI = [
   // §E63 — ONE dispatched observe. These were two entries differing only in which ring they

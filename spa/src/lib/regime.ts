@@ -20,18 +20,27 @@
 
 import { readOne, ZERO_ADDR } from './eth'
 
-const LN_1_0001 = Math.log(1.0001)           // tick → ln(price)
 const SECONDS_PER_YEAR = 365 * 24 * 3600
-const CHOP_TICKS = 200                        // ≈ ±2% peak-to-trough → "chop"
-const TREND_RATIO = 0.6                       // |net| / range above this → trend
+// (2026-08-16) TICK UNITS ARE GONE. This brain used to work in Uniswap ticks: the series was
+// `ln(p)/ln(1.0001)`, vol multiplied differences back by `ln(1.0001)`, and the chop threshold was
+// `CHOP_TICKS = 200` ("≈ ±2%"). With the tick vocabulary removed from the protocol, expressing a
+// price series in ticks meant carrying a Uniswap constant for no reason — a unit borrowed from a
+// dependency that no longer exists.
+//
+// Everything is now NATURAL LOG PRICE, which is what the tick series was a rescaling OF, so the
+// calibration is preserved exactly rather than re-tuned: 200 ticks = 200·ln(1.0001) = 0.0199997,
+// i.e. the same ±2% peak-to-trough. A log range is also directly readable — 0.02 IS 2% — where a
+// tick count needed the constant to interpret.
+const CHOP_LOG = 0.02                         // ±2% peak-to-trough (was CHOP_TICKS = 200)
+const TREND_RATIO = 0.6                       // |net| / range above this → trend (dimensionless)
 
 export type Regime = 'chop' | 'oscillation' | 'trend'
 
 export interface RegimeRead {
   regime: Regime
   volAnnual: number     // realized volatility, annualized (0.62 = 62%)
-  rangeTicks: number    // peak-to-trough tick span over the window
-  netTicks: number      // signed net move (last − first)
+  rangeLog: number    // peak-to-trough LOG-price span over the window (0.02 = 2%)
+  netLog: number      // signed net move (last − first)
   trendRatio: number    // |net| / range ∈ [0,1]; →1 trend, →0 oscillation
   samples: number
   source: 'pool' | 'market' | 'blend'
@@ -71,7 +80,7 @@ export const regimePosture: Record<Regime, string> = {
 //
 // The `/1e18` is for interpretability only — every downstream use is a DIFFERENCE, and a
 // constant log offset cancels in all of them.
-export function decodeTwapTicks(cumulatives: bigint[], stepSec: number): number[] {
+export function decodeTwapLogPrices(cumulatives: bigint[], stepSec: number): number[] {
   const out: number[] = []
   for (let i = 0; i < cumulatives.length - 1; i++) {
     const twapUsd18 = Number(cumulatives[i + 1] - cumulatives[i]) / stepSec
@@ -80,35 +89,37 @@ export function decodeTwapTicks(cumulatives: bigint[], stepSec: number): number[
     // vol alike, so bail on the WHOLE series rather than emit a shorter one — dropping a
     // sample would silently misalign the remaining points from `stepSec`.
     if (!(twapUsd18 > 0)) return []
-    out.push(Math.log(twapUsd18 / 1e18) / LN_1_0001)
+    out.push(Math.log(twapUsd18 / 1e18))
   }
   return out
 }
 
-export function realizedVol(ticks: number[], stepSec: number): number {
-  if (ticks.length < 3) return 0
+export function realizedVol(logPrices: number[], stepSec: number): number {
+  if (logPrices.length < 3) return 0
   const rets: number[] = []
-  for (let i = 1; i < ticks.length; i++) rets.push((ticks[i] - ticks[i - 1]) * LN_1_0001)
+  // A difference of natural logs IS the log return. In tick units this needed a
+  // `* ln(1.0001)` to undo the tick scaling; there is nothing to undo now.
+  for (let i = 1; i < logPrices.length; i++) rets.push(logPrices[i] - logPrices[i - 1])
   const mean = rets.reduce((a, b) => a + b, 0) / rets.length
   const variance = rets.reduce((a, r) => a + (r - mean) ** 2, 0) / Math.max(rets.length - 1, 1)
   return Math.sqrt(variance) * Math.sqrt(SECONDS_PER_YEAR / stepSec)
 }
 
-// Classify a tick/log-price series (source-agnostic). stepSec only annualizes vol.
-export function classifyRegime(ticks: number[], stepSec = 1, source: RegimeRead['source'] = 'pool'): RegimeRead {
-  const samples = ticks.length
-  if (samples < 3) return { regime: 'chop', volAnnual: 0, rangeTicks: 0, netTicks: 0, trendRatio: 0, samples, source }
-  const max = Math.max(...ticks), min = Math.min(...ticks)
-  const rangeTicks = max - min
-  const netTicks = ticks[ticks.length - 1] - ticks[0]
-  const trendRatio = rangeTicks > 0 ? Math.abs(netTicks) / rangeTicks : 0
+// Classify a NATURAL-LOG-PRICE series (source-agnostic). stepSec only annualizes vol.
+export function classifyRegime(logPrices: number[], stepSec = 1, source: RegimeRead['source'] = 'pool'): RegimeRead {
+  const samples = logPrices.length
+  if (samples < 3) return { regime: 'chop', volAnnual: 0, rangeLog: 0, netLog: 0, trendRatio: 0, samples, source }
+  const max = Math.max(...logPrices), min = Math.min(...logPrices)
+  const rangeLog = max - min
+  const netLog = logPrices[logPrices.length - 1] - logPrices[0]
+  const trendRatio = rangeLog > 0 ? Math.abs(netLog) / rangeLog : 0
 
   let regime: Regime
-  if (rangeTicks < CHOP_TICKS) regime = 'chop'
+  if (rangeLog < CHOP_LOG) regime = 'chop'
   else if (trendRatio > TREND_RATIO) regime = 'trend'
   else regime = 'oscillation'
 
-  return { regime, volAnnual: realizedVol(ticks, stepSec), rangeTicks, netTicks, trendRatio, samples, source }
+  return { regime, volAnnual: realizedVol(logPrices, stepSec), rangeLog, netLog, trendRatio, samples, source }
 }
 
 // ── Internal pool source. NOTE: pool-only is a partial view (it is the thing we
@@ -123,5 +134,5 @@ export async function fetchRegime(
   const res = await readOne(coreAddr, 'observe', [agos, isBTC])   // §E63: one entry, band as an arg
   if (!res) return null
   const cumulatives: bigint[] = (res as any[]).map((x) => BigInt(x))
-  return classifyRegime(decodeTwapTicks(cumulatives, stepSec), stepSec, 'pool')
+  return classifyRegime(decodeTwapLogPrices(cumulatives, stepSec), stepSec, 'pool')
 }
