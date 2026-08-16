@@ -147,3 +147,40 @@ post-move weight". So the merge:
 `pendingFor` is 0 immediately after. That is the invariant, and it holds for either placement.
 
 ⇒ **All four differences are mechanical**, and the merge is unblocked — but step 2 is NOT optional.
+
+
+## 🔴 BOTH FOLDS ARE GATED BY EIP-170, AND THE GATE IS NOW MEASURED (2026-08-16)
+
+Neither fold fits by concatenation. Merging as-is produces an UNDEPLOYABLE contract, and this
+repo has already shipped a `Core` at −126 bytes with a fully green suite — the suite does not
+catch it. `python3 tools/check-contract-sizes.py` is the gate.
+
+| fold | sum | limit | over by |
+|---|---|---|---|
+| `Core` + `Vogue` | 32,000 | 24,576 | **7,424** |
+| `LevManager` + `BtcLevManager` | 44,372 | 24,576 | **19,796** |
+
+### The Core+Vogue fold is unblocked by ONE step, and it is sufficient
+
+`Vogue` splits cleanly, measured by walking its function bodies:
+
+| cluster | lines | functions |
+|---|---|---|
+| share / position — `_withdraw` 182, `_depositImpl` 82, `_outOfRange` 41, `compound`, `_settlePending`, `_onExit`, the 4626 + ERC-20 face | **539** | 34 |
+| band — bounds, repack, theta, fee accumulators | **280** | 44 |
+
+⇒ `Vogue` is **66% position machinery**. Moving that cluster into `Shares` frees proportionally
+~14KB — comfortably more than the 7,424 needed — leaving a band-only `Vogue` of ~8KB. Then
+`Core` 10,074 + band ~8,000 ≈ **18,000 < 24,576** and the fold fits with headroom.
+
+**So the order is forced, and it is not a preference:** extract the share face FIRST, fold
+second. Attempting the fold first cannot work at any level of care.
+
+### The lev-manager fold needs ~19,800 bytes moved before it is expressible
+
+`LevBase` (208 lines) and `LevVenueBase` (375) already exist as the shared bases, and the two
+managers share SEVENTEEN function names (`debtUsd`, `netEquity`, `onMorphoFlashLoan`,
+`ilTargetLtvBps`, `deliverableDollars`, `cascadeDelever*`, `openLpAt`, `protectFromQuid`, …).
+But `LevManager` alone is 23,754 with 822 bytes of margin, so the merge needs the bodies in a
+library before one contract can hold both. That is a larger extraction than the share face and
+should follow it, not precede it.
