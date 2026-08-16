@@ -272,3 +272,37 @@ than assumed, which is the failure mode that cost two wrong conclusions in this 
 ⚠️ **`redeemableAmount()` IS CACHE-SENSITIVE** — `get_metrics`/`get_deposits` are NOT `view`. Without
 refreshing first it reports **0**, which is indistinguishable from "no excess" and would SILENTLY
 DISABLE the rebalance rather than fail loudly. Refresh, then read.
+
+### ORDERING: THE DE-LEVER SELL LEGS COME FIRST — and why this is conservation, not conservatism
+
+Owner, 2026-08-16: *"never a question of conservative but conservation principle"*, and *"if you
+guarantee its execution thereby then it's needed"*.
+
+**`deliverableDollars` does not merely HAIRCUT the levered position — it ASSERTS that a bounded,
+value-neutral de-lever EXISTS.** Read its own docblock (`LevMath.sol:60-68`): *"the USD a levered
+position can produce via a bounded, VALUE-NEUTRAL de-lever, = the real USD backing the band's
+pairing may count … bounded by the liquidation edge, never phantom."* It returns
+`min(netEquityUsd, C·(1 − curLtv/safeLtv))` where `safeLtv = LLTV − PROTECT_MARGIN_BPS`.
+
+⇒ **If the sale cannot execute, that term is not conservative — it is FALSE**, and `D ≥ S + L` is
+computed off value nobody can realise. A haircut you cannot perform is a fiction, not a margin of
+safety. Routing that guarantees execution is therefore the PRECONDITION FOR THE ACCOUNTING BEING
+TRUE, not a liveness improvement.
+
+**So build in this order:**
+
+1. **`_wethToStableDex` and `_wbtcToStable` — the DE-LEVER SELL legs. FIRST.** These are what
+   `deliverableDollars` presupposes and what a liquidation cascade runs through, so they gate
+   SOLVENCY. `_deleverFlash` already flash-borrows the debt token and repays from collateral
+   proceeds — the flash is not the constraint, the SALE is.
+2. `_stableToWethSor` / `_stableToWbtc` — the lever-up BUY legs. These gate only NEW positions and
+   the hedge's ability to track. Serious (§V-R11) but strictly less than solvency.
+
+⚠️ This ordering is the REVERSE of how §V-ROUTE was originally framed, which led with the buy leg
+because that is where the reverts were first measured. The measurement started there; the risk does
+not. **The exit path matters more than the entry path**, because an entry that cannot execute leaves
+an LP unhedged, while an exit that cannot execute leaves the PROTOCOL counting backing it cannot
+realise — and the second is socialised across every holder.
+
+(The excess-stable rebalance above is still the safe place to PROVE the router integration, since a
+failure there is a deferral. Prove it there, then land the sell legs.)
