@@ -36,6 +36,19 @@ pragma solidity ^0.8.28;
 /// `SwapLibClampEchidna`. Inputs are bounded only where `* 1e12` would overflow arithmetically;
 /// that bound is stated, not silent, because a bound chosen to make a fuzzer quiet is the tell that
 /// the property is wrong.
+/// ⚠️ **RUN IT ON THE FILE, NOT ON `.` — the config's documented invocation FAILS for this harness.**
+///
+///     cd evm && echidna test/echidna/BandEquityCollapseEchidna.sol \
+///       --contract BandEquityCollapseEchidna --test-mode assertion --test-limit 50000
+///
+/// `echidna . --config echidna.yaml` compiles the WHOLE project and dies with
+/// *"Error: Unlinked libraries detected in bytecode"* — the delegatecalled libraries (`SwapLib`,
+/// `Aux`, …) need linking, and Echidna refuses before reaching any harness. This one imports
+/// NOTHING, so pointing at the file sidesteps the project graph entirely. That self-containment
+/// is not stylistic: it is what makes the harness runnable at all.
+///
+/// **RESULT (2026-08-16, 50,000 tests): all three properties `passing`.** Read the body, never the
+/// exit code — `echidna .` above exited 0 while failing to compile, exactly as `echidna.yaml` warns.
 contract BandEquityCollapseEchidna {
     /// Largest `base6` whose 18-dec lift cannot overflow. 6-dec USD, so this is ~1.15e65 dollars —
     /// astronomically above any real basket, and it exists so the fuzzer explores the real domain
