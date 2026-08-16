@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Aux} from  "./Aux.sol";
+import {Aux} from "./Aux.sol";
 import {BasketLib} from "./imports/BasketLib.sol";
 import {SortedSetLib} from "./imports/SortedSet.sol";
 

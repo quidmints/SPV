@@ -10,15 +10,13 @@ import {FeeLib} from "./imports/FeeLib.sol";
 import {BasketLib} from "./imports/BasketLib.sol";
 import {ChannelLib} from "./imports/ChannelLib.sol";
 import {ISwap} from "./imports/ISwap.sol";
-import {SOR, SorPath} from "./imports/SOR.sol";
+import {SOR} from "./imports/SOR.sol";
 import {SwapLib} from "./imports/SwapLib.sol";
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
-import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 

@@ -12,7 +12,6 @@ import {IWeETH} from "./Interfaces.sol";
 import {ICurvePool} from "./Interfaces.sol";
 import {IDepositAdapter} from "./Interfaces.sol";
 import {ILevEquity} from "./Interfaces.sol";
-import {IAux} from "./Interfaces.sol";
 
 // The ETH-venue ladder's external surface is the canonical `IAux` in Interfaces.sol (`vaultBlocked`
 // — vault-health state stays Aux-owned).

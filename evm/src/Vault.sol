@@ -4,7 +4,6 @@ pragma solidity ^0.8.28;
 
 import {Vogue} from "./Vogue.sol";
 // §A.52: the canonical Aux view (was a file-local variant).
-import {IAux} from "./imports/Interfaces.sol";
 import {Core} from "./Core.sol";
 import {Aux} from "./Aux.sol";
 import {Basket} from "./Basket.sol";
@@ -14,14 +13,10 @@ import {BtcVaultLib} from "./imports/BtcVaultLib.sol";
 import {VBtc} from "./VBtc.sol";
 import {Types} from "./imports/Types.sol";
 
-import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
-import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
-import {IWeETH} from "./imports/Interfaces.sol";
-import {ILevEquity} from "./imports/Interfaces.sol";
 import {ILevEquityBtc} from "./imports/Interfaces.sol";
 
 // ════════════════════════════════════════════════════════════════════════

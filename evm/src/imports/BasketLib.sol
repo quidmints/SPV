@@ -14,7 +14,6 @@ import {FeeLib} from "./FeeLib.sol";
 import {ShareMath} from "./ShareMath.sol";
 import {IAaveV4Spoke} from "./Interfaces.sol";
 import {IAux} from "./Interfaces.sol";
-import {IEthVenue} from "./Interfaces.sol";
 import {VaultLib} from "./VaultLib.sol";
 
 

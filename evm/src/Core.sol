@@ -8,10 +8,8 @@ import {Vogue} from "./Vogue.sol";
 import {Vault} from "./Vault.sol";
 import {Basket} from "./Basket.sol";
 import {BasketLib} from "./imports/BasketLib.sol";
-import {ILevHost} from "./imports/Interfaces.sol";
 import {OracleLib, RING} from "./imports/OracleLib.sol";
 import {FeeLib} from "./imports/FeeLib.sol";
-import {VogueLib} from "./imports/VogueLib.sol";
 import {SwapLib} from "./imports/SwapLib.sol";
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -27,7 +25,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 
 // §E5 — the shared per-band premium sink (rule 2: ONE declaration, in the canonical file).
-import {ISkewSink, ILevEquity, ILevEquityBtc, IBand} from "./imports/Interfaces.sol";
+import {ILevEquity, IBand} from "./imports/Interfaces.sol";
 // §E21: IERC20Min had TWO declarations (here and imports/ILevVenue.sol). One home now.
 import {IERC20Min} from "./imports/ILevVenue.sol";
 

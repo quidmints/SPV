@@ -2,7 +2,6 @@
 pragma solidity ^0.8.28;
 
 import {SwapLib} from "./SwapLib.sol";
-import {ICore} from "./Interfaces.sol";
 
 /// @title  FixedRateFill — the settlement primitive that replaces the v4 AMM (§28, Phase 3 step 1)
 ///

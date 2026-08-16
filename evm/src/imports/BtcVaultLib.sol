@@ -8,7 +8,6 @@ import {ICore} from "./Interfaces.sol";
 import {IBandManager} from "./Interfaces.sol";
 import {IBasketMint} from "./Interfaces.sol";
 import {ILevEquityBtc} from "./Interfaces.sol";
-import {IEthVenue} from "./Interfaces.sol";
 import {IAux} from "./Interfaces.sol";
 
 // External surfaces used below all come from Interfaces.sol now (§A.52):

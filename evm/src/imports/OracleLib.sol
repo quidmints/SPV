@@ -3,13 +3,11 @@
 pragma solidity ^0.8.28;
 
 import {mock} from "../mock.sol";
-import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
-import {PoolId, PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
+import {PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
 import {Currency} from "v4-core/src/types/Currency.sol";
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
-import {SwapLib} from "./SwapLib.sol";
 import {BasketLib} from "./BasketLib.sol";
 
 // §RING-SIZE — 1024, NOT 65,535. The old size was Uniswap v3's MAXIMUM CARDINALITY, inherited

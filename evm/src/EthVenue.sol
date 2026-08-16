@@ -7,7 +7,6 @@ import {VaultLib} from "./imports/VaultLib.sol";
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
-import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IDepositAdapter} from "./imports/Interfaces.sol";
 
