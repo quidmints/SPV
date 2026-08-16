@@ -8,6 +8,7 @@ import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 
 import {Vogue} from "../src/Vogue.sol";
 import {OracleLib} from "../src/imports/OracleLib.sol";
+import {SwapLib} from "../src/imports/SwapLib.sol";
 import {BandBacking} from "../src/BandBacking.sol";
 import {Core} from "../src/Core.sol";
 import {Aux} from "../src/Aux.sol";
@@ -131,8 +132,12 @@ library DeployLib {
         Core core;
         {
             BandBacking backing = new BandBacking();
-            core          = new Core(false, address(backing));   // ETH band
-            Core btcCore  = new Core(true,  address(backing));   // BTC band
+            // §ISBTC-ZERO — no flag. Each instance is told its ASSET and its RISK PROFILE
+            // directly: BTC locks capital through ~1hr of confirmations and pays an on-chain
+            // splice fee; ETH settles in ~one block with neither. VOL_DECIMALS is read from the
+            // asset token itself, so it cannot be mistyped here.
+            core          = new Core(cfg.weth, SwapLib.ETH_CONF_FRAC_WAD, 0, address(backing));
+            Core btcCore  = new Core(cfg.wbtc, SwapLib.CONF_FRAC_WAD, SwapLib.SPLICE_FLOOR, address(backing));
             backing.register(address(core));
             backing.register(address(btcCore));
             backing.seal();
@@ -167,7 +172,7 @@ library DeployLib {
         (PoolKey memory refKeyETH, PoolKey memory refKeyBTC) = _refKeys(cfg);
         (uint seedEth, uint seedBtc) = OracleLib.prepRefs(
             cfg.poolManager, refKeyETH, refKeyBTC, cfg.wbtc);
-        core.setup(address(v4), address(aux), address(quid), seedEth);
+        core.setup(address(v4), address(v4), address(aux), address(quid), seedEth);   // ETH band manager IS Vogue
         // 🔴 THE BTC INSTANCE WAS NEVER SET UP, AND IT COST 1,828 TEST FAILURES. The isBTC split
         // built both bands (above) and registered both with `BandBacking`, but only the ETH one was
         // ever configured -- so the BTC Core had no AUX, no BASKET and, decisively, an UNSEEDED
@@ -176,7 +181,7 @@ library DeployLib {
         // hit. `setup` is instance-aware (it seeds only ITS OWN ring), so this is the missing call,
         // not a workaround. Nothing else routed to the BTC instance until `Aux.bandOf` started
         // dispatching WBTC to it, which is why the gap stayed invisible.
-        Core(a.btcCore).setup(address(v4), address(aux), address(quid), seedBtc);
+        Core(a.btcCore).setup(address(v4), address(0), address(aux), address(quid), seedBtc);   // BTC band pins in setBtcVault (Vault deployed later)
         }
         v4.setup(address(quid), address(aux), address(core));
         aux.setQuid(address(quid));

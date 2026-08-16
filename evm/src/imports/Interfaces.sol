@@ -324,13 +324,12 @@ interface IAux {
 /// `SwapLib::ICore`, `BasketLib::ICore`). FOUR declarations described ONE contract, so a
 /// signature change had to be made up to four times and any missed one still compiled.
 interface ICore {
-    function IS_BTC() external view returns (bool);
     function BACKING() external view returns (address);
     function drawPooledUsdBtc(uint usd6) external;
     function subPendingSwapOut(uint usd6) external;
     function committedUsd18() external view returns (uint);
     function modLP(uint delta, uint deltaUSD, address sender) external returns (uint);
-    function outOfRange(address sender, int amount, uint tickLower, uint tickUpper, address token) external returns (uint);
+    function outOfRange(address sender, int amount, uint loPrice, uint upPrice, address token) external returns (uint);
     function POOLED() external view returns (uint);
     function btcThetaBacking() external view returns (uint);
     function poolStats() external view returns (uint priceWad, uint liquidity);

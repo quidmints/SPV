@@ -15,6 +15,29 @@ library Types {
 
     /// @notice Vogue
     /// self-managed LP
+    /// §BAND-MERGE — ONE CONFIG FOR BOTH BANDS. `VogueLib.LevCfg{core,aux,weth}` and
+    /// `BtcVaultLib.BtcCfg{core,aux}` were the same struct with the ETH one carrying its asset and
+    /// the BTC one re-reading WBTC from Aux on every use. One struct, and the asset is named
+    /// because a band HAS one -- which is what let the two libraries' bodies stay identical
+    /// underneath while their signatures diverged.
+    struct BandCfg { address core; address aux; address asset; }
+
+    /// §BAND-MERGE — the union of `VogueLib.LevP` and `BtcVaultLib.LevParams`. Both already began
+    /// with the SAME three price fields; the ETH one then carried `lm`+`gross` and the BTC one
+    /// `mgr`+`gross` plus the two fee accumulators. `lm` and `mgr` were the same thing under two
+    /// names (the band's lev manager), which is exactly the drift a shared type removes.
+    /// Bundled as ONE memory pointer for the documented reason: these bodies run on the legacy
+    /// stack (`via_ir = false`) and a pointer costs less than the fields would.
+    struct BandP {
+        uint    spotPrice;
+        uint    loPrice;
+        uint    upPrice;
+        address mgr;          // the band's lev manager (was `lm` on the ETH side)
+        uint    gross;        // GROSS collateral target = net equity + debt-funded buffer
+        uint    feesPerShare; // BTC side populated these; ETH refreshes bookmarks elsewhere
+        uint    usdFees;
+    }
+
     struct SelfManaged {
         uint created;
         address owner;
@@ -204,7 +227,7 @@ library Types {
     }
 
     struct RouteParams {
-        // §DE-TICK — `sqrtPriceX96` removed. It carried a packed band-edge PRICE LIMIT for v4's
+        // §DE-TICK — `spotPrice` removed. It carried a packed band-edge PRICE LIMIT for v4's
         // swap; settlement is at oracle bounded by inventory, so there is no limit to carry.
         // §DE-TICK — `zeroForOne` renamed to what it MEANS. It was v4's leg-ordering convention,
         // built from `token1isVol` by the caller and un-built by `Core._fillDelta` with a second

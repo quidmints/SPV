@@ -414,13 +414,13 @@ library BasketLib {
     ///         → higher fee → reserves build faster.
     ///         K=0 → 900bps (9%), K=32 → 100bps (1%)
 
-    /// @notice ETH price from sqrtPriceX96
-    /// @param sqrtPriceX96 Square root price
+    /// @notice ETH price from spotPrice
+    /// @param spotPrice Square root price
     /// @param token0isUSD Whether token0 is USD
     /// @return price ETH price in USD 1e18
-    function getPrice(uint sqrtPriceX96, bool token0isUSD)
+    function getPrice(uint spotPrice, bool token0isUSD)
         public pure returns (uint price) {
-        uint casted = uint(sqrtPriceX96);
+        uint casted = uint(spotPrice);
         uint ratioX128 = FullMath.mulDiv(
                casted, casted, 1 << 64);
 

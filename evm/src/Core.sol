@@ -429,7 +429,6 @@ contract Core {
     /// removed, whereas an instance knowing its own asset is what having instances MEANS.
     /// Use it ONLY where the asymmetry is REAL (ETH pays out ether; BTC settles via a Lightning
     /// cooperative close), never to pick between two paths that should have been one.
-    bool public immutable IS_BTC;
     /// §ISBTC-SPLIT — the volatile side's decimals (18 ether / 8 sats), fixed per instance. Held as
     /// a NUMBER because that is what actually differs; the mock deployer takes it directly instead
     /// of re-deciding from a flag.
@@ -560,7 +559,7 @@ contract Core {
         BTCVAULT = Vault(payable(b));
         // §ISBTC-SPLIT: the BTC instance's band manager IS the Vault, and this is the first moment
         // it exists (Vault takes Core's address at construction, so it cannot be pinned in setup).
-        if (IS_BTC) BAND = IBand(b);
+        if (address(BAND) == address(0)) BAND = IBand(b);   // §ISBTC-ZERO: the second pin, no flag needed
     }
     /// @notice Public linkage getter — the deploy-finalize assert cross-checks
     ///         Core's BTC-vault pin against Aux's owner-set view.
@@ -617,13 +616,18 @@ contract Core {
     /// §ISBTC-SPLIT — `isBtc` is instance identity and is set ONCE, here. Two instances are
     /// deployed: one ETH, one BTC. Nothing downstream may change it, which is why it is immutable
     /// rather than a settable flag — a settable one would reintroduce the runtime selector.
-    constructor(bool isBtc, address backing) {
+    /// §ISBTC-ZERO — THE FLAG IS GONE. `bool isBtc` was never the thing this contract needed; it
+    /// was a proxy the constructor immediately expanded into four facts. Those facts are now passed
+    /// DIRECTLY, so there is nothing left to select at runtime and nothing to get wrong at a call
+    /// site. `VOL_DECIMALS` is READ FROM THE ASSET rather than passed, because the token already
+    /// knows (WETH 18, WBTC 8) -- one fewer number a deployer can mistype.
+    constructor(address asset_, uint confFrac_, uint splice_, address backing) {
         DEPLOYER = msg.sender;
-        IS_BTC = isBtc;
-        VOL_DECIMALS = isBtc ? 8 : 18;
-        CONF_FRAC = isBtc ? SwapLib.CONF_FRAC_WAD     : SwapLib.ETH_CONF_FRAC_WAD;
-        SPLICE    = isBtc ? SwapLib.SPLICE_FLOOR      : 0;
-        BACKING = IBandBacking(backing);
+        ASSET        = asset_;
+        VOL_DECIMALS = IERC20Min(asset_).decimals();
+        CONF_FRAC    = confFrac_;
+        SPLICE       = splice_;
+        BACKING      = IBandBacking(backing);
     }
 
     /// @param _vogue            Vogue contract (LP wrapper)
@@ -631,7 +635,7 @@ contract Core {
     /// @param _basket           Basket (settlement target)
     /// @param seedPrice         This band's reference price at deploy (WAD USD per unit volatile),
     ///                          read from the REAL on-chain pool by the DEPLOYER and passed in.
-    function setup(address _vogue, address _aux, address _basket, uint seedPrice)
+    function setup(address _vogue, address _band, address _aux, address _basket, uint seedPrice)
         external { require(msg.sender == DEPLOYER, "403");   
         // auth-wiring pin (deployer only) anti-frontrun
         require(address(VOGUE) == address(0), "!");
@@ -644,8 +648,10 @@ contract Core {
         
         VOGUE = Vogue(payable(_vogue));
         AUX = Aux(payable(_aux));
-        ASSET = IS_BTC ? address(Aux(payable(_aux)).WBTC()) : address(Aux(payable(_aux)).WETH());
-        if (!IS_BTC) BAND = IBand(_vogue);   // §ISBTC-SPLIT: the BTC band pins in setBtcVault (Vault is deployed later)
+        // §ISBTC-ZERO: the BAND is whatever the deployer pins here. The ETH band (Vogue) exists by
+        // now; the BTC band (Vault) is deployed AFTER Core and pins later via `setBtcVault`, so a
+        // zero here is not an error -- it is the second-pin case, and no flag distinguishes them.
+        if (_band != address(0)) BAND = IBand(_band);
         BASKET = Basket(_basket);
 
         // Both reference pools' live ticks are read in ONE library call so they
@@ -719,7 +725,7 @@ contract Core {
     /// could not place; it is now always 0 because nothing is refused. A caller that credits the
     /// refund back is consistent (there is nothing to credit), but one that reads a zero refund as
     /// "the add failed" would be wrong — that is the line to check when wiring callers.
-    /// ⚠️ `sqrtPriceX96` and the tick bounds are unused; they stay only until the callers are
+    /// ⚠️ `spotPrice` and the tick bounds are unused; they stay only until the callers are
     /// updated in this same cut.
     /// §DE-TICK — the price and tick arguments are GONE, not ignored. They described where in a v4
     /// range the liquidity had to land; inventory has no range to fit, so carrying them would cost
@@ -807,7 +813,7 @@ contract Core {
         //   ⇒ POSITIVE = leaves the pool (we pay out) · NEGATIVE = enters the pool (we take in).
         //   `forOne` is zeroForOne: pays leg 0, receives leg 1.
         //
-        // ⚠️ `sqrtPriceX96` IS NOW UNUSED. It carried the packed band ticks for the price limit —
+        // ⚠️ `spotPrice` IS NOW UNUSED. It carried the packed band ticks for the price limit —
         // a bound that existed because crossing the band edge cost ZERO and bricked the band
         // (`PooledUsdRepackMatrix::testMatrix_S6`). The inventory bound below replaces it with a
         // PHYSICAL limit, and an edge that does not exist cannot be crossed. The parameter stays
@@ -1136,7 +1142,7 @@ contract Core {
     /// ⚠️ The tick bounds are ignored: with inventory held directly there is no per-range position to
     /// look up. Callers passing (0,0) already relied on that.
     /// 🔴 §V4-CUT — THE RETURN IS A PLAIN PRICE NOW, NOT A SQRT PRICE, AND THE NAME SAYS SO.
-    /// It used to be `slot0.sqrtPriceX96`. It is now the oracle price the fill settles at. I first
+    /// It used to be `slot0.spotPrice`. It is now the oracle price the fill settles at. I first
     /// changed the VALUE while keeping the NAME and TYPE, which left every sqrt-space consumer
     /// (`SwapLib.updateTicks` → `TickMath.getTickAtSqrtPrice`, `SwapLib.soldFractionWad`) computing
     /// garbage with nothing reverting. Renaming turns that silent wrong answer into a COMPILE ERROR
@@ -1145,7 +1151,7 @@ contract Core {
     /// gone, so reconstructing one would be inventing a number to feed math that should not need it.
     /// §DE-TICK — NO PARAMETERS, NO int24, NO uint160. The tick bounds were ignored (there is no
     /// per-range position to look up), `currentTick` was always 0, and `uint160` was only ever
-    /// `sqrtPriceX96`'s width — a price has no reason to be 160 bits, and every consumer was paying
+    /// `spotPrice`'s width — a price has no reason to be 160 bits, and every consumer was paying
     /// a cast for it. Plain `uint` throughout.
     /// §BOOTSTRAP — RETURNS THE RING'S `lastPrice`, NOT AN 1800s TWAP. Reading a 30-minute average
     /// here was wrong on three counts, and the third broke the deploy outright:
@@ -1165,7 +1171,7 @@ contract Core {
     }
 
 
-    // §V4-CUT — `_writeObservation(sqrtPriceX96)` DELETED HERE: it had no callers left. It existed
+    // §V4-CUT — `_writeObservation(spotPrice)` DELETED HERE: it had no callers left. It existed
     // to convert v4's sqrt-price once, at the write, so the ring stored plain price. Nothing hands
     // us a sqrt-price any more -- every live write goes through `_writeObservationPrice` with a
     // price the band already has -- so the conversion had nothing to convert. It was the last

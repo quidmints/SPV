@@ -55,9 +55,8 @@ library VogueLib {
     // ════════════════════════════════════════════════════════════════════
 
     /// @dev Vogue immutables the levered-band bodies touch.
-    struct LevCfg { address core; address aux; address weth; }
-    /// @dev Live pool range + reconcile targets, bundled to stay off the stack.
-    struct LevP { uint sqrtP; uint    tickLower; uint    tickUpper; address lm; uint gross; }
+    // §BAND-MERGE — the local `LevCfg`/`LevP` moved to `Types.BandCfg`/`Types.BandP`, shared with the BTC
+    // side. They were the same structs; only the asset field's name and `lm` vs `mgr` differed.
 
     function levManager(address aux) public view returns (address) {
         address host = aux == address(0) ? address(0) : IAux(aux).ethVenue();
@@ -73,11 +72,11 @@ library VogueLib {
     ///         NET lpShares deltas (addedNet, burnedNet) AND the buffer deltas (bufAdded, bufBurned)
     ///         for the Vogue forwarder to apply (lpShares += addedNet - burnedNet; totalBuffer += ...).
     function reconcileLegs(
-        LevCfg memory c, Types.Deposit storage LP,
+        Types.BandCfg memory c, Types.Deposit storage LP,
         mapping(address => uint) storage levPooled,
         mapping(address => uint) storage levBufferUsd,
         mapping(address => uint) storage levBuf,
-        address lp, LevP memory p
+        address lp, Types.BandP memory p
     ) public returns (uint addedNet, uint burnedNet, uint bufAdded, uint bufBurned) {
         if (levPooled[lp] > 0 || levBuf[lp] > 0)
             (burnedNet, bufBurned) = levBurnAll(c, LP, levPooled, levBufferUsd, levBuf, lp, p);
@@ -90,11 +89,11 @@ library VogueLib {
     ///      the buffer leaves `totalBuffer` (via the bufBurned return) — a liquidation leaves the
     ///      basket intact.
     function levBurnAll(
-        LevCfg memory c, Types.Deposit storage LP,
+        Types.BandCfg memory c, Types.Deposit storage LP,
         mapping(address => uint) storage levPooled,
         mapping(address => uint) storage levBufferUsd,
         mapping(address => uint) storage levBuf,
-        address lp, LevP memory p
+        address lp, Types.BandP memory p
     ) public returns (uint netBurned, uint bufBurned) {
         uint netRem = levPooled[lp];
         if (netRem > LP.pooled) netRem = LP.pooled;   // net leg is in pooled
@@ -110,15 +109,15 @@ library VogueLib {
     /// @dev Add `lp`'s full-2x slice as TWO legs: net-equity (goes into pooled/lpShares) + the
     ///      debt-funded buffer (goes into levBuf/totalBuffer, NOT equity). Returns (addedNet, bufAdded).
     function levAddGross(
-        LevCfg memory c, Types.Deposit storage LP,
+        Types.BandCfg memory c, Types.Deposit storage LP,
         mapping(address => uint) storage levPooled,
         mapping(address => uint) storage levBufferUsd,
         mapping(address => uint) storage levBuf,
-        address lp, LevP memory p
+        address lp, Types.BandP memory p
     ) public returns (uint addedNet, uint bufAdded) {
-        uint price = IAux(c.aux).getTWAPforAsset(c.weth, 1800);
+        uint price = IAux(c.aux).getTWAPforAsset(c.asset, 1800);
         if (price == 0) return (0, 0);
-        uint netEq = ILevEquity(p.lm).netEquity(lp);
+        uint netEq = ILevEquity(p.mgr).netEquity(lp);
         addedNet = levAddNet(c, LP, levPooled, lp, netEq, price, p);
         if (p.gross > netEq)
             bufAdded = levAddBuf(c, LP, levBufferUsd, levBuf, lp, p.gross - netEq, price, p);
@@ -127,9 +126,9 @@ library VogueLib {
     /// @dev NET-equity leg — basket-surplus USD. Grows pooled/lpShares (equity) + levPooled (the
     ///      unwind-only net slice) + V4 depth.
     function levAddNet(
-        LevCfg memory c, Types.Deposit storage LP,
+        Types.BandCfg memory c, Types.Deposit storage LP,
         mapping(address => uint) storage levPooled,
-        address lp, uint netEq, uint price, LevP memory p
+        address lp, uint netEq, uint price, Types.BandP memory p
     ) public returns (uint added) {
         (uint netUsd, uint netEth) = IVogue(address(this)).addLiq(netEq, price);
         if (netEth == 0) return 0;
@@ -142,12 +141,12 @@ library VogueLib {
     ///      levBuf (fee weight + totalBuffer via the return) and the V4 position, but NOT pooled/lpShares.
     ///      USD = buffer collateral at band price, CAPPED at the LP's OWN debt (debt-backed; folds into POOLED_USD).
     function levAddBuf(
-        LevCfg memory c, Types.Deposit storage /*unused*/,
+        Types.BandCfg memory c, Types.Deposit storage /*unused*/,
         mapping(address => uint) storage levBufferUsd,
         mapping(address => uint) storage levBuf,
-        address lp, uint bufEth, uint price, LevP memory p
+        address lp, uint bufEth, uint price, Types.BandP memory p
     ) public returns (uint added) {
-        uint bufUsd = LevMath.capBufferUsd(bufEth, price, ILevEquity(p.lm).debtUsd(lp));
+        uint bufUsd = LevMath.capBufferUsd(bufEth, price, ILevEquity(p.mgr).debtUsd(lp));
         if (bufUsd == 0) return 0;
         levBuf[lp] += bufEth; levBufferUsd[lp] += bufUsd;   // depth + fee weight, NOT equity
         ICore(c.core).modLP(bufEth, bufUsd, lp);
@@ -392,10 +391,10 @@ library VogueLib {
     struct RebalIn {
         address core; address aux; address ev; address weth;
         uint lpShares; uint totalLevPooled; uint totalBuffer;
-        uint lowerTick; uint upperTick; uint bookmark;   // §DE-TICK: band bounds as PRICES
+        uint loPrice; uint upPrice; uint bookmark;   // §DE-TICK: band bounds as PRICES
     }
     struct RebalOut {
-        uint    sqrtPriceX96; uint    tickLower; uint    tickUpper; uint    myLiquidity; uint resolvedTwap;   // §DE-TICK: uniform 256-bit
+        uint    spotPrice; uint    loPrice; uint    upPrice; uint    myLiquidity; uint resolvedTwap;   // §DE-TICK: uniform 256-bit
         uint feesPerShareInc; uint usdFeesInc; uint venueFeesPerShareInc; uint newBookmark;
         bool setLastRepack; bool reseatBump;
     }
@@ -424,7 +423,7 @@ library VogueLib {
             }
         }
         SwapLib.Rebalanced memory r = SwapLib.rebalanceCore(
-            c.core, c.aux, c.weth, c.upperTick, c.lowerTick);
+            c.core, c.aux, c.weth, c.upPrice, c.loPrice);   // `c` is RebalIn here, which keeps `weth`
         if (r.didRepack) {
             // _calcYield's live effect: reorder to token-canonical + _distributeV4Fees; the APY `yield` it also
             // computed was discarded by _rebalance, so it is dropped. LAST_REPACK := block.timestamp (forwarder).
@@ -440,8 +439,8 @@ library VogueLib {
             // JIT-snipe defense: fees already canonical (USD,tok) by rebalanceCore; distribute without re-reorder.
             (o.feesPerShareInc, o.usdFeesInc) = SwapLib.feeIncrements(r.jitFeesTok, r.jitFeesUsd, c.lpShares + c.totalBuffer);
         }
-        if (r.tickLower != c.lowerTick || r.tickUpper != c.upperTick) o.reseatBump = true; // ticks recentered → re-anchor
-        o.sqrtPriceX96 = r.sqrtPriceX96; o.tickLower = r.tickLower; o.tickUpper = r.tickUpper;
+        if (r.loPrice != c.loPrice || r.upPrice != c.upPrice) o.reseatBump = true; // ticks recentered → re-anchor
+        o.spotPrice = r.spotPrice; o.loPrice = r.loPrice; o.upPrice = r.upPrice;
         o.myLiquidity = r.myLiquidity; o.resolvedTwap = r.resolvedTwap;
     }
 
@@ -593,8 +592,8 @@ library VogueLib {
         external returns (address weth, uint lower, uint upper) {
         weth = IAux(_aux).WETH();
         IWETH9(weth).approve(_aux, type(uint).max);
-        (uint sqrtPriceX96,) = ICore(_core).poolStats();
-        (lower, upper) = SwapLib.updateBounds(sqrtPriceX96, SwapLib.BAND_DELTA);
+        (uint spotPrice,) = ICore(_core).poolStats();
+        (lower, upper) = SwapLib.updateBounds(spotPrice, SwapLib.BAND_DELTA);
     }
 
     /// @dev Vogue's ETH delivery ladder, moved here for EIP-170 (E32). Native balance

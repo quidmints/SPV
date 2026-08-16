@@ -424,14 +424,14 @@ contract Vault is Ownable, ReentrancyGuard {
     /// @dev Thin forwarder: the fat body (rebalanceCore + fee distribution + reseat/tick writeback) moved to
     ///      BtcVaultLib.rebalanceBody (delegatecall — EIP-170). `feeDenom` = lpSharesBTC + totalBufferBTC (GROSS
     ///      fee weight); the value-type accumulators + ticks + reseat epoch are written back here. Logic unchanged.
-    function _rebalance() internal returns (uint sqrtPriceX96,
-        uint tickLower, uint tickUpper, uint myLiquidity, uint resolvedTwap) {
+    function _rebalance() internal returns (uint spotPrice,
+        uint loPrice, uint upPrice, uint myLiquidity, uint resolvedTwap) {
         BtcVaultLib.RebalOut memory o = BtcVaultLib.rebalanceBody(
             _btcCfg(), LOWER_PRICE, UPPER_PRICE,
             feesPerShareBTC, USD_FEES_BTC, lpSharesBTC + totalBufferBTC);
-        feesPerShareBTC = o.feesPerShareBTC; USD_FEES_BTC = o.usdFeesBtc;
-        LOWER_PRICE = o.tickLower; UPPER_PRICE = o.tickUpper;
-        return (o.sqrtPriceX96, o.tickLower, o.tickUpper, o.myLiquidity, o.resolvedTwap);
+        feesPerShareBTC = o.feesPerShare; USD_FEES_BTC = o.usdFees;   // §BAND-MERGE: RebalOut's fields lost the redundant BTC suffix
+        LOWER_PRICE = o.loPrice; UPPER_PRICE = o.upPrice;
+        return (o.spotPrice, o.loPrice, o.upPrice, o.myLiquidity, o.resolvedTwap);
     }
 
     // (S4) public paddedSqrtPrice removed — dead (Core uses VOGUE.paddedSqrtPrice;
@@ -512,8 +512,8 @@ contract Vault is Ownable, ReentrancyGuard {
 
     /// @dev Vault's BTC-side immutables gathered for the delegatecalled VaultLib
     ///      levered-band bodies (mirror of _ethCfg for the BTC cluster).
-    function _btcCfg() internal view returns (BtcVaultLib.BtcCfg memory) {
-        return BtcVaultLib.BtcCfg({ core: address(CORE), aux: address(AUX) });
+    function _btcCfg() internal view returns (Types.BandCfg memory) {
+        return Types.BandCfg({ core: address(CORE), aux: address(AUX), asset: address(AUX.WBTC()) });
     }
 
     // Per-channel swap-out PROCEEDS settlement moved into BtcVaultLib.settleDelivered
@@ -619,10 +619,10 @@ contract Vault is Ownable, ReentrancyGuard {
         // (delegatecall) which writes selfManagedBtc/positionsBtc via the passed
         // refs and returns the new id (ID_BTC is value-type). A revert rolls back
         // the _rebalance, so validating inside the lib is behavior-identical.
-        (uint sqrtP, uint curLo, uint curUp,,) = _rebalance();
+        (uint spotPrice, uint curLo, uint curUp,,) = _rebalance();
         next = BtcVaultLib.outOfRangeBtc(_btcCfg(), selfManagedBtc, positionsBtc,
             BtcVaultLib.OorArgs({ amount: amount, token: token, distance: distance,
-                range: range, owner: msg.sender, sqrtP: sqrtP, curLo: curLo,
+                range: range, owner: msg.sender, spotPrice: spotPrice, curLo: curLo,
                 curUp: curUp, idBtc: ID_BTC }));
         ID_BTC = next;
     }
@@ -645,8 +645,8 @@ contract Vault is Ownable, ReentrancyGuard {
 
 
     /// @notice Repack the BTC pool's in-range LP position.
-    function repack() public onlyUsBtc returns (uint sqrtPriceX96,
-        uint tickLower, uint tickUpper, uint myLiquidity, uint resolvedTwap) {
+    function repack() public onlyUsBtc returns (uint spotPrice,
+        uint loPrice, uint upPrice, uint myLiquidity, uint resolvedTwap) {
         return _rebalance();
     }
 

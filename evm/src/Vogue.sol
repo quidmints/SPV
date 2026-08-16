@@ -401,11 +401,11 @@ contract Vogue is
     ///      and unregisterBtcLp (BTC); the orchestration around it diverges
     ///      (fee model, native-vs-on-chain delivery, the BTC-only per-channel
     ///      claim), which is why the two callers stay distinct.
-    function _burnInRange(uint sqrtPriceX96, uint amount,
-        uint tickLower, uint tickUpper, address recipient)
+    function _burnInRange(uint spotPrice, uint amount,
+        uint loPrice, uint upPrice, address recipient)
         internal returns (uint sent) {
-        return SwapLib.burnInRange(address(CORE), sqrtPriceX96, amount,
-                                    tickLower, tickUpper, recipient);
+        return SwapLib.burnInRange(address(CORE), spotPrice, amount,
+                                    loPrice, upPrice, recipient);
     }
 
     /// @dev Shared body. `recipient` receives the ETH; the accrued-fee QD is
@@ -483,10 +483,10 @@ contract Vogue is
     /// anything. Pay the LP's PRO-RATA share of the increment directly and let the burn govern only
     /// the ETH leg. `lpShares` is already debited by `claimAmt` at this point, so the pre-debit
     /// total is `lpShares + claimAmt` — using it un-restored would over-pay a partial exit.
-    function _burnAndDeliverUsdLeg(uint sqrtP, uint burnAmt, uint claimAmt, uint lo, uint hi, address recipient)
+    function _burnAndDeliverUsdLeg(uint spotPrice, uint burnAmt, uint claimAmt, uint lo, uint hi, address recipient)
         private returns (uint sent) {
         uint incrPre = _bandIncrement6();
-        sent = _burnInRange(sqrtP, burnAmt, lo, hi, recipient);
+        sent = _burnInRange(spotPrice, burnAmt, lo, hi, recipient);
         sent += _payUsdLeg(incrPre, lpShares + claimAmt, claimAmt, recipient);
     }
 
@@ -566,7 +566,7 @@ contract Vogue is
         //    of price risk is a measurement nobody has taken (E146); do not raise 1→47 as a
         //    reflex, it changes LP UX and the 4626 redeem semantics.
         require(block.number > lastDepositBlock[msg.sender], "too soon");
-        (uint sqrtPriceX96, uint tickLower, uint tickUpper,,) = _rebalance();
+        (uint spotPrice, uint loPrice, uint upPrice,,) = _rebalance();
         // §4.1 COMPOUND-not-transfer: settle with mintRecipient==0 so the USD fee leg
         // ACCRUES to `usd_owed` (a deferred, unrealized claim — strictly conservative, no
         // mint) rather than being minted out. The token (ETH) leg still compounds into
@@ -605,8 +605,8 @@ contract Vogue is
                 uint incrPre = _bandIncrement6();          // BEFORE the burn shrinks it
                 uint served = EV.offrampEtherFi(ethfiPart, recipient);
                 if (served > 0) {
-                    _burnInRange(sqrtPriceX96, served,
-                    tickLower, tickUpper, address(0));
+                    _burnInRange(spotPrice, served,
+                    loPrice, upPrice, address(0));
                     // §E28-r(2): the ETH came from ether.fi, so the band burn delivers to nobody —
                     // but the USD leg it burned away is LP-OWNED and must still be paid. Skipping it
                     // was the leak the LVR probe measured (7,809.44 USD of a 60,000 increment).
@@ -629,7 +629,7 @@ contract Vogue is
                     // independent settlements of the same position.
                     uint usdEq = _payUsdLeg(incrPre, lpShares, ethfiPart, recipient);
                     if (usdEq > 0) {
-                        _burnInRange(sqrtPriceX96, usdEq, tickLower, tickUpper, address(0));
+                        _burnInRange(spotPrice, usdEq, loPrice, upPrice, address(0));
                         LP.pooled -= usdEq;
                         lpShares  -= usdEq;
                         amount    -= usdEq;
@@ -667,8 +667,8 @@ contract Vogue is
             uint firstBurn = amount > deliverable ? deliverable : amount;
             // §#12: `sent` is VALUE DELIVERED in ETH-equivalent — the ETH burn PLUS the
             // QU!D-settled USD slice — so the shortfall re-credit below nets it off automatically.
-            uint sent = firstBurn > 0 ? _burnAndDeliverUsdLeg(sqrtPriceX96, firstBurn, amount,
-                                        tickLower, tickUpper, recipient) : 0;
+            uint sent = firstBurn > 0 ? _burnAndDeliverUsdLeg(spotPrice, firstBurn, amount,
+                                        loPrice, upPrice, recipient) : 0;
 
             if (amount > sent) { uint shortfall = amount - sent;
             { // Venue-share delivery — extracted to _deliverVenueShortfall (own frame, no via_ir).
@@ -738,8 +738,8 @@ contract Vogue is
 
     /// @dev The 7-arg in-range modLP in its own frame so _depositImpl stays within
     ///      the legacy stack (no via_ir crutch). Mirrors Vault._modLpBtc.
-    function _modLpEth(uint sqrtP, uint deltaETH, uint deltaUSD,
-        uint tickLower, uint tickUpper, address pledge) private {
+    function _modLpEth(uint spotPrice, uint deltaETH, uint deltaUSD,
+        uint loPrice, uint upPrice, address pledge) private {
         CORE.modLP(deltaETH, deltaUSD, pledge);
     }
     /// @notice Reconcile `lp`'s LEVERED band position to its LIVE net-equity — the IL-protect fee lane.
@@ -772,12 +772,12 @@ contract Vogue is
     ///      from the returned (added, burned) deltas.
     function _doReconcile(address lp, address lm, uint gross) private {
         Types.Deposit storage LP = autoManaged[lp];
-        VogueLib.LevP memory p;
-        (p.sqrtP, p.tickLower, p.tickUpper,,) = _rebalance();
-        p.lm = lm; p.gross = gross;
+        Types.BandP memory p;
+        (p.spotPrice, p.loPrice, p.upPrice,,) = _rebalance();
+        p.mgr = lm; p.gross = gross;   // §BAND-MERGE: `lm` and the BTC side's `mgr` were one field
         _settlePending(LP, lp, address(0));          // settle fees up to now (→ usd_owed) before pooled moves
         (uint addedNet, uint burnedNet, uint bufAdded, uint bufBurned) = VogueLib.reconcileLegs(
-            VogueLib.LevCfg(address(CORE), address(AUX), address(WETH)),
+            Types.BandCfg(address(CORE), address(AUX), address(WETH)),
             LP, levPooled, levBufferUsd, levBuf, lp, p);
         lpShares = lpShares + addedNet - burnedNet;       // NET equity leg
         totalLevPooled = totalLevPooled + addedNet - burnedNet; // the levered share of lpShares
@@ -814,8 +814,8 @@ contract Vogue is
         // the pre-deposit balance. Otherwise the deposit is
         // misattributed as yield, inflating ETH_FEES.
         Types.Deposit storage LP = autoManaged[pledge];
-        (uint sqrtPriceX96, uint tickLower,
-         uint tickUpper,,) = _rebalance();
+        (uint spotPrice, uint loPrice,
+         uint upPrice,,) = _rebalance();
 
         // _depositETH pulls WETH from msg.sender (payer), routes it to the
         // per-deposit chosen venue, and attributes the slice (hard-wall)...
@@ -845,8 +845,8 @@ contract Vogue is
             _refreshBookmarks(pledge, 
             feesPerShare, USD_FEES);
 
-            _modLpEth(sqrtPriceX96, deltaETH, deltaUSD, 
-                        tickLower, tickUpper, pledge);
+            _modLpEth(spotPrice, deltaETH, deltaUSD, 
+                        loPrice, upPrice, pledge);
         }
         uint unpaired = amount - deltaETH;
         if (unpaired > 0) {
@@ -1039,13 +1039,13 @@ contract Vogue is
         uint usd6 = CORE.POOLED_USD();     // band's in-range USD leg (6-dec)
         uint eth  = CORE.POOLED();         // band's in-range ETH leg (18-dec)
         if (usd6 == 0 || eth == 0) return 0; // empty band -> free stables only
-        (uint sqrtP, uint tickLower, uint tickUpper,,) = _rebalance();
+        (uint spotPrice, uint loPrice, uint upPrice,,) = _rebalance();
         // ROOT-PRECISE: size the ETH removal by the band's OWN in-range USD/ETH ratio, NOT an external TWAP.
         // Removing the fraction `usdWanted/(usd6·1e12)` of the position releases EXACTLY `usdWanted` USD (plus
         // the paired ETH, which stays in-venue). ETH to pull = usdWanted·eth/(usd6·1e12); _burnInRange caps at
         // POOLED. This frees precisely what redemption asks (no over/under-free) with ZERO oracle dependency
         // — so a dead TWAP no longer zeroes the unwind, and the mixed USD/ETH release no longer under-delivers.
-        _burnInRange(sqrtP, SoladyMath.mulDiv(usdWanted, eth, usd6 * 1e12), tickLower, tickUpper, address(0));
+        _burnInRange(spotPrice, SoladyMath.mulDiv(usdWanted, eth, usd6 * 1e12), loPrice, upPrice, address(0));
         uint after6 = CORE.POOLED_USD();
         usdFreed = usd6 > after6 ? (usd6 - after6) * 1e12 : 0;
     }
@@ -1162,27 +1162,27 @@ contract Vogue is
     ///      rebalanceCore). It mutates only value-type accumulators, returned as increments/flags applied here.
     ///      Byte-identical: same ordering (_syncYield reads venue balance BEFORE rebalanceCore), same arithmetic;
     ///      the discarded `_calcYield` APY return is dropped. `_venueBalance` STAYS (its other callers use it).
-    function _rebalance() internal returns (uint sqrtPriceX96,
-        uint tickLower, uint tickUpper, uint myLiquidity, uint resolvedTwap) {
+    function _rebalance() internal returns (uint spotPrice,
+        uint loPrice, uint upPrice, uint myLiquidity, uint resolvedTwap) {
         VogueLib.RebalOut memory o = VogueLib.rebalanceBody(VogueLib.RebalIn({
             core: address(CORE), aux: address(AUX), ev: address(EV), weth: address(WETH),
             lpShares: lpShares, totalLevPooled: totalLevPooled,
-            totalBuffer: totalBuffer, lowerTick: LOWER_PRICE, upperTick: UPPER_PRICE, bookmark: bookmark}));
+            totalBuffer: totalBuffer, loPrice: LOWER_PRICE, upPrice: UPPER_PRICE, bookmark: bookmark}));
         venueFeesPerShare += o.venueFeesPerShareInc;             // _syncYield accrual
         bookmark = o.newBookmark;
         feesPerShare += o.feesPerShareInc; USD_FEES += o.usdFeesInc; // _distributeV4Fees
         
         if (o.setLastRepack) LAST_REPACK = block.timestamp;      // _calcYield's live effect
-        LOWER_PRICE = o.tickLower; UPPER_PRICE = o.tickUpper;      // write the (possibly new) range back
-        return (o.sqrtPriceX96, o.tickLower, o.tickUpper, o.myLiquidity, o.resolvedTwap);
+        LOWER_PRICE = o.loPrice; UPPER_PRICE = o.upPrice;      // write the (possibly new) range back
+        return (o.spotPrice, o.loPrice, o.upPrice, o.myLiquidity, o.resolvedTwap);
     }
 
     /// @notice Repack the ETH pool's in-range LP position when it drifts
     ///         outside the LP range. The `bool` arg is retained only for the
     ///         Core IVogueRepack interface (BtcVault repacks the BTC
     ///         pool); Vogue is ETH-only. Returns the post-repack pool state.
-    function repack() public onlyUs returns (uint sqrtPriceX96,
-        uint tickLower, uint tickUpper, uint myLiquidity, uint resolvedTwap) {
+    function repack() public onlyUs returns (uint spotPrice,
+        uint loPrice, uint upPrice, uint myLiquidity, uint resolvedTwap) {
         return _rebalance();
     }
 
@@ -1196,9 +1196,9 @@ contract Vogue is
         _rebalance();
     }
 
-    function paddedSqrtPrice(uint sqrtPriceX96,
+    function paddedSqrtPrice(uint spotPrice,
         bool up, uint delta) public pure returns (uint160) {
-        return SwapLib.paddedSqrtPrice(sqrtPriceX96, up, delta);
+        return SwapLib.paddedSqrtPrice(spotPrice, up, delta);
     }
 
 
@@ -1568,7 +1568,7 @@ contract Vogue is
     function compound(address lp) external nonReentrant {
         Types.Deposit storage LP = autoManaged[lp];
         if (LP.pooled == 0) return;                  // nothing to compound — keeper-safe no-op
-        (uint sqrtP, uint tickLower, uint tickUpper,,) = _rebalance(); // repack-first: roll pool fees into feesPerShare
+        (uint spotPrice, uint loPrice, uint upPrice,,) = _rebalance(); // repack-first: roll pool fees into feesPerShare
         uint eth_fees = feesPerShare;
         uint usd_fees = USD_FEES;
         (uint tokR, uint usdR) = _pendingFor(lp);    // token-leg (WETH-units) + USD-leg owed
@@ -1586,7 +1586,7 @@ contract Vogue is
 
         // Burn-to-cranker FIRST so `sent` (capped at the band's active slice) is the truth for the
         // accounting below; the whole fn is nonReentrant so the native-ETH send can't re-enter.
-        uint sent = tip > 0 ? _burnInRange(sqrtP, tip, tickLower, tickUpper, msg.sender) : 0;
+        uint sent = tip > 0 ? _burnInRange(spotPrice, tip, loPrice, upPrice, msg.sender) : 0;
 
         // EFFECTS: compound only what was NOT paid to the cranker; carry the USD leg (nothing leaves).
         uint net = tokR > sent ? tokR - sent : 0;
