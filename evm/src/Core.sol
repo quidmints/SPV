@@ -1081,6 +1081,13 @@ contract Core {
             uint haircutTvl = _d[14] > depegLoss ? _d[14] - depegLoss : 0;
             _addPooledUsd(usdAmount);
             if (basketLeg) basketUsd += usdAmount;   // §ISBTC-SPLIT: both arms were identical
+            // 🔴 §BACKING-DEAD — THE PUSH THAT MAKES THE GATE BELOW MEAN ANYTHING. `_reportEquity`
+            // existed, was documented as PUSH-not-pull, and HAD NO CALLERS -- so
+            // `BandBacking.committedOf` was never written, `total()` was permanently 0, and this
+            // `require` compared `0 <= haircutTvl`: ALWAYS TRUE. The bound that stops both bands
+            // over-committing the same basket could not bind. It must run BEFORE the require, so
+            // the gate sees THIS band's new equity, and the sibling's last pushed figure.
+            _reportEquity();
             require(committedUsd18() <= haircutTvl, "backing");
         } else {
             uint pooledPre = POOLED_USD;
@@ -1098,6 +1105,10 @@ contract Core {
                           : Math.mulDiv(b, usdAmount, pooledPre);
                 basketUsd = b - out_;               // §ISBTC-SPLIT: both arms were identical
             }
+            // The burn side moves equity DOWN. Reporting here keeps the accountant on the same
+            // clock as the mint side -- a sum of per-band figures is only meaningful if every term
+            // is current (§A.16b one level up), which is why this is a push at the moment of change.
+            _reportEquity();
         }
     }
 
