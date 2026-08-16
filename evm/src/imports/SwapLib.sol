@@ -413,7 +413,7 @@ library SwapLib {
             {
                 r.px = _priceOr(v4p, address(aux), r.asset);
                 uint skew = sellSkew(c.core, r.px, r.amount); // inline (swapToBody stack-tight)
-                retainSkewPremium(c.core, isBTC, r, skew, true);   // NATIVE volatile input ⇒ convert   // mutates r.amount; r.px declares NATIVE
+                retainSkewPremium(c.core, r, skew, true);   // NATIVE volatile input ⇒ convert   // mutates r.amount; r.px declares NATIVE
             }
         } else { max = ICore(c.core).POOLED();
             // QD-in valued at the SAME perShare a redeem uses (no-drain: never worth more swapped than redeemed).
@@ -435,7 +435,7 @@ library SwapLib {
             {
                 r.px = _priceOr(v4p, address(aux), r.asset);
                 uint skew = wellSkew(c.core, r.px, r.amount); // §E68: r.amount IS the 6-dec drain size
-                retainSkewPremium(c.core, isBTC, r, skew, false);  // buy-driving USD ⇒ already 6-dec   // mutates r.amount; r.px declares NATIVE
+                retainSkewPremium(c.core, r, skew, false);  // buy-driving USD ⇒ already 6-dec   // mutates r.amount; r.px declares NATIVE
             }
         }
         max = _finishSwap(ctx, aux, r, r.forVolatile, max, isBTC, v4p);
@@ -739,16 +739,38 @@ library SwapLib {
     // one-block settlement window and a zero splice floor. Charging ETH the BTC 1hr window over-priced its cap.
     uint internal constant ETH_CONF_FRAC_WAD = 380_000_000_000; // ≈ 12s / 1yr (WAD) — one-block settlement window
 
+    /// §ISBTC-SPLIT — THE PER-ASSET RISK PROFILE, PASSED AS NUMBERS. The skew math used to take a
+    /// `bool isBTC` purely so it could look up WHICH of the constants above to use. That is the
+    /// hand-rolled dispatch this refactor removes, one layer down: the instance knows its own risk
+    /// parameters, so it hands them over and the math stops knowing what an asset is. A THIRD band
+    /// then needs no edit here at all -- it brings its own numbers.
+    /// ⚠️ A STRUCT, NOT TWO PARAMETERS, DELIBERATELY. `sellSkew` sits EXACTLY at the stack limit
+    /// (`via_ir = false`; its own comments record two measured stack-too-deep incidents), and one
+    /// memory pointer costs less stack than two values -- CLAUDE.md's stated remedy.
+    struct Risk { uint confFracWad; uint spliceFloor; }
+
+    /// The two canonical profiles, named. Callers that are not an instance (tests exercising the
+    /// pure math, chiefly) state WHICH profile they mean instead of passing a boolean the function
+    /// would have to resolve -- the numbers are the subject, so they are what appears.
+    function btcRisk() internal pure returns (Risk memory) { return Risk(CONF_FRAC_WAD, SPLICE_FLOOR); }
+    function ethRisk() internal pure returns (Risk memory) { return Risk(ETH_CONF_FRAC_WAD, 0); }
+
+    /// Read this instance's risk profile. One external call, exactly where `IS_BTC()` used to be
+    /// read -- so this costs no more than the flag it replaces.
+    function _risk(address core) private view returns (Risk memory rk) {
+        (rk.confFracWad, rk.spliceFloor) = ICore(core).riskParams();
+    }
+
     /// @notice DYNAMIC skew cap — the MM's real refill cost DERIVED from live volatility, not a
     ///         fixed 3%: √(σ²_annual · T_confs/yr) (the price σ over the window the MM's capital
     ///         is at risk) · CAP_SAFETY + SPLICE_FLOOR, hard-capped at MAX_WELL_SKEW (the
     ///         TWAP-anchor safety ceiling). Low vol ⇒ low cap (don't overpay refill); high vol ⇒
     ///         higher cap (real cost is higher); never above 3%. `pure`; reuses
     ///         FixedPointMathLib.sqrt (a WAD variance → WAD std needs the ×1e18 inside the root).
-    function _maxWellSkew(uint sigmaSqWad, bool isBTC) internal pure returns (uint) {
+    function _maxWellSkew(uint sigmaSqWad, Risk memory rk) internal pure returns (uint) {
         // PER-ASSET settlement window: BTC locks capital through ~1hr of confirmations (CONF_FRAC_WAD) + an
         // on-chain splice-fee floor; ETH settles in ~one block with no confirmation lock and no splice.
-        uint confFrac = isBTC ? CONF_FRAC_WAD : ETH_CONF_FRAC_WAD;
+        uint confFrac = rk.confFracWad;
         // §UNIT-B-PATIENCE — σ² IS ATTACKER-STRETCHABLE AND THIS WINDOW DOES NOT DEFEND IT.
         // σ² is a per-unit-time rate whose ring advances only on swaps, so spacing slices collapses it
         // (MEASURED: 4h gaps → σ² 24× down, charge 93.3% down). Pricing this base over the ACTUAL idle
@@ -786,7 +808,7 @@ library SwapLib {
         // it bound exactly in the high-vol regime where the skew is most needed. That clamp was
         // defensible while σ² was unreliable; it is not now that variance measures (§E59).
         // What remains of MAX_WELL_SKEW is the honest one: a ceiling for the case we CANNOT measure.
-        return FullMath.mulDiv(sigmaSqWad, confFrac, 8e18) + (isBTC ? SPLICE_FLOOR : 0);
+        return FullMath.mulDiv(sigmaSqWad, confFrac, 8e18) + rk.spliceFloor;
     }
 
     /// @notice The convex inventory-skew CURVE — returns a WAD skew FRACTION
@@ -820,7 +842,7 @@ library SwapLib {
     ///         skew = Γ·σ²·q — both σ² and q enter LINEARLY (no scarcity², no separate vol
     ///         steepening term). The flush guard (inv≥target ⇒ 0, band owns the common case)
     ///         and the MAX_WELL_SKEW hard cap are preserved.
-    function skewWad(uint poolVolUsd, uint flowUsd, uint sigmaSqWad, bool isBTC, uint drainUsd6)
+    function skewWad(uint poolVolUsd, uint flowUsd, uint sigmaSqWad, Risk memory rk, uint drainUsd6)
         public pure returns (uint skew)
     {
         // §E68 — `lockedUsd` and `committedUsd` DELETED FROM THE SIGNATURE, not merely unused. E58
@@ -846,7 +868,7 @@ library SwapLib {
         // measured BTC's floor never applying on a fresh band; §E99 measured a 30-day-old imbalance
         // pricing at 0; and `wellSkew` read 0 at σ² = 4.09 on a violent tape, proving the base is
         // unreachable INDEPENDENT of variance.
-        if (target == 0) return _maxWellSkew(sigmaSqWad, isBTC);
+        if (target == 0) return _maxWellSkew(sigmaSqWad, rk);
         // §E68 — THE DRAIN IS NOW SIZE-AWARE, AND THIS IS WHERE THE LEAK WAS.
         //
         // `inv` used to be read PRE-swap and the flush test used to be `inv >= target ⇒ 0`. Two
@@ -869,7 +891,7 @@ library SwapLib {
         // §UNIT-A — THE FLUSH OWES THE BASE TOO. A well-stocked band is not an UNEXPOSED one: the
         // settlement-window loss accrues whether or not inventory is scarce, so only the DEPLETION
         // (kernel) term flushes away, never the adverse-selection floor.
-        if (inv1 >= target) return _maxWellSkew(sigmaSqWad, isBTC);
+        if (inv1 >= target) return _maxWellSkew(sigmaSqWad, rk);
         // §E59/§E79 — THE SENTINEL IS RESOLVED HERE, BEFORE IT REACHES THE ARITHMETIC.
         // Past this line scarcity is REAL (inv1 < target ⇒ q1 > 0). §E59 part 2 states the rule:
         // "real scarcity (q > 0) plus UNMEASURED variance ⇒ charge the ceiling", and §E79 restates
@@ -1009,7 +1031,7 @@ library SwapLib {
         // window; it is not the inventory-holding horizon Γ folded in, and any real gap dwarfs it.
         // The principle is right and the constant is unknown, which makes this a calibration
         // question (§UNIT-B-PATIENCE-STEP2), not a patch.
-        skew += _maxWellSkew(sigmaSqWad, isBTC);
+        skew += _maxWellSkew(sigmaSqWad, rk);
         if (skew > MAX_WELL_SKEW) skew = MAX_WELL_SKEW;
     }
 
@@ -1100,11 +1122,11 @@ library SwapLib {
         // §ISBTC-SPLIT: derived HERE, not threaded in — the same argument the note below already
         // makes about the exposure clock. Dropping the parameter CUTS a live value from two
         // stack-tight call sites rather than adding one; `sellSkew` does not compile otherwise.
-        bool isBTC = ICore(core).IS_BTC();
-        uint splice = isBTC ? SPLICE_FLOOR : 0;
+        Risk memory rk = _risk(core);
+        uint splice = rk.spliceFloor;
         // §UNIT-B-PATIENCE: read the exposure clock here rather than threading it in — this frame
         // exists to RELIEVE stack pressure (no via_ir), so a fifth parameter would work against it.
-        uint risk = _maxWellSkew(sigmaSqWad, isBTC) - splice;
+        uint risk = _maxWellSkew(sigmaSqWad, rk) - splice;
         uint out = FullMath.mulDiv(kernel + risk, _sharedScarcityWad(core), 1e18) + splice;
         return out > MAX_WELL_SKEW ? MAX_WELL_SKEW : out;
     }
@@ -1136,7 +1158,7 @@ library SwapLib {
         // §ISBTC-SPLIT — identity comes FROM THE INSTANCE, not from a caller's flag. The remaining
         // uses below are REAL per-asset facts (BTC's confirmation window and on-chain splice fee),
         // which is an argument for the instance knowing what it is, not for threading a boolean.
-        bool isBTC = ICore(core).IS_BTC();
+        Risk memory rk = _risk(core);
         uint poolVolUsd = _skewBasis(core, base, 0);
         // UNIFORM sats/wei → 6-dec USD: `poolVol · base / 1e30`. Authoritative (NOT
         // BasketLib.convert, which now uses the SAME flat scale (the /1e8 variant over-valued
@@ -1150,7 +1172,7 @@ library SwapLib {
         uint raw = skewWad(
             poolVolUsd,
             ICore(core).flowEwmaUsd(),
-            ICore(core).realizedVarianceWad(), isBTC, drainUsd6);
+            ICore(core).realizedVarianceWad(), rk, drainUsd6);
         // §E53: amplify by how much of the SHARED bound the other band already holds, then re-cap —
         // the amplifier must never lift the skew past the same ceiling the raw curve obeys.
         // §E89b — THE AMPLIFIER SCALES RISK, NOT FEES. E89 made the base additive, which silently put
@@ -1166,7 +1188,7 @@ library SwapLib {
         //   ⚠️ `raw >= splice` is NOT guaranteed: `skewWad` has EARLY RETURNS (`target == 0`, and the
         // FLUSH branch `inv1 >= target`) that never add the base, leaving `raw == 0`. Assuming
         // otherwise underflowed on a BALANCED band — the common case — and cost 782 failures.
-        uint splice = isBTC ? SPLICE_FLOOR : 0;
+        uint splice = rk.spliceFloor;
         uint amp = raw > splice
             ? FullMath.mulDiv(raw - splice, _sharedScarcityWad(core), 1e18) + splice
             : raw;
@@ -1366,7 +1388,7 @@ library SwapLib {
         // `amount` here is ALREADY 6-dec USD (scaleTo6 in _swapOutPrep), so px=0 declares "no conversion":
         // this leg's recorded premium was always in the right unit and stays that way.
         SwapReq memory sr; sr.amount = amount; sr.px = 0;
-        retainSkewPremium(core, true, sr, wellSkew(core, basePrice, amount), false);  // audit + RFQ-drawable
+        retainSkewPremium(core, sr, wellSkew(core, basePrice, amount), false);  // audit + RFQ-drawable
         amount = sr.amount;
         rp.amount    = amount;                               // reduced buy drives the fill
         rp.recipient = address(this);                       // obligation → pool; LN delivers
@@ -1582,7 +1604,7 @@ library SwapLib {
     ///      active slice) and return what was actually delivered. ETH passes
     ///      the LP's recipient; BTC passes address(0) (native sats return via
     ///      the cooperative-close tx — only the mockBTC is burned).
-    function burnInRange(address v4, bool isBTC, uint sqrtPriceX96, uint amount,
+    function burnInRange(address v4, uint sqrtPriceX96, uint amount,   // §ISBTC-SPLIT: the `isBTC` param was never read
         uint tickLower, uint tickUpper, address recipient)
         internal returns (uint sent) {
         uint pooled = ICore(v4).POOLED();
@@ -1678,7 +1700,7 @@ library SwapLib {
     ///      The premium SUBTRACTED from `r.amount` stays in the caller's own unit; only the RECORDED
     ///      value converts. Before this fix the native legs recorded wei/sats into a USD register: ETH
     ///      over-reported (theta throttle never bound) and BTC under-reported ~1e3 (over-throttled).
-    function retainSkewPremium(address core, bool isBTC, SwapReq memory r, uint skew, bool nativeAmount)
+    function retainSkewPremium(address core, SwapReq memory r, uint skew, bool nativeAmount)   // §ISBTC-SPLIT: the `isBTC` param was never read
         internal {
         if (skew == 0) return;
         uint premium = FullMath.mulDiv(r.amount, skew, 1e18);
@@ -2079,8 +2101,7 @@ library SwapLib {
             }
             (uint newLower, uint newUpper) = updateBounds(r.sqrtPriceX96, BAND_DELTA);   // §DE-TICK: r.sqrtPriceX96 now carries the PRICE
             if (r.myLiquidity > 0) {
-                (r.price, r.fees0, r.fees1, r.delta0, r.delta1) =
-                    ICore(v4).repack(newLower, newUpper);
+                r.price = ICore(v4).repack(newLower, newUpper);   // §V4-CUT: price only
                 r.didRepack = true;
             }
             r.tickLower = newLower;
@@ -2123,7 +2144,7 @@ library SwapLib {
         private {
         (uint nlo, uint nhi) = updateBounds(targetPrice, BAND_DELTA);
         if (r.myLiquidity > 0) {
-            (r.price, r.fees0, r.fees1, r.delta0, r.delta1) = ICore(v4).reseat(nlo, nhi);
+            r.price = ICore(v4).repack(nlo, nhi);   // §V4-CUT: `reseat` folded into `repack` (identical bodies)
             r.didRepack = true;
         }
         r.tickLower = nlo; r.tickUpper = nhi; r.sqrtPriceX96 = targetPrice;

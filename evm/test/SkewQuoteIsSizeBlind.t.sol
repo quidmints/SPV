@@ -24,11 +24,11 @@ contract SkewQuoteIsSizeBlindTest is Test {
 
     /// @notice THE DIVERGENCE IS REAL AND MONOTONE IN SIZE. The quote must be the cheap end.
     function test_InstantaneousQuoteUnderstatesEverySize() public pure {
-        uint quoted = SwapLib.skewWad(POOL, FLOW, SIG, false, 0);          // what Aux publishes
+        uint quoted = SwapLib.skewWad(POOL, FLOW, SIG, SwapLib.ethRisk(), 0);          // what Aux publishes
         uint[3] memory sizes = [POOL / 10, POOL / 2, (POOL * 9) / 10];
         uint prev = quoted;
         for (uint i; i < sizes.length; i++) {
-            uint actual = SwapLib.skewWad(POOL, FLOW, SIG, false, sizes[i]);
+            uint actual = SwapLib.skewWad(POOL, FLOW, SIG, SwapLib.ethRisk(), sizes[i]);
             assertGt(actual, quoted, "settlement must cost MORE than the size-blind quote");
             assertGt(actual, prev,   "the charge must rise monotonically with size");
             prev = actual;
@@ -39,8 +39,8 @@ contract SkewQuoteIsSizeBlindTest is Test {
     ///         A dust-sized drain must price within rounding of the instantaneous rate — that is
     ///         what makes the size-aware form a strict generalisation rather than a different curve.
     function test_TheyAgreeAsSizeGoesToZero() public pure {
-        uint quoted = SwapLib.skewWad(POOL, FLOW, SIG, false, 0);
-        uint dust   = SwapLib.skewWad(POOL, FLOW, SIG, false, 1e6);        // $1 of a $1m band
+        uint quoted = SwapLib.skewWad(POOL, FLOW, SIG, SwapLib.ethRisk(), 0);
+        uint dust   = SwapLib.skewWad(POOL, FLOW, SIG, SwapLib.ethRisk(), 1e6);        // $1 of a $1m band
         assertGt(quoted, 0, "PREMISE: a zero quote would make the comparison vacuous");
         assertApproxEqRel(dust, quoted, 1e15, "size-aware must converge to the instantaneous rate");
     }
@@ -49,9 +49,9 @@ contract SkewQuoteIsSizeBlindTest is Test {
     ///         PREDICTION BEFORE RUNNING: the quote's relative understatement on a 90% drain must
     ///         exceed its understatement on a 10% drain, because the pole is convex.
     function test_TheUnderstatementGrowsTowardThePole() public {
-        uint quoted = SwapLib.skewWad(POOL, FLOW, SIG, false, 0);
-        uint small  = SwapLib.skewWad(POOL, FLOW, SIG, false, POOL / 10);
-        uint large  = SwapLib.skewWad(POOL, FLOW, SIG, false, (POOL * 9) / 10);
+        uint quoted = SwapLib.skewWad(POOL, FLOW, SIG, SwapLib.ethRisk(), 0);
+        uint small  = SwapLib.skewWad(POOL, FLOW, SIG, SwapLib.ethRisk(), POOL / 10);
+        uint large  = SwapLib.skewWad(POOL, FLOW, SIG, SwapLib.ethRisk(), (POOL * 9) / 10);
         // ratio of actual to quoted, in WAD, so the two are comparable
         uint errSmall = (small * 1e18) / quoted;
         uint errLarge = (large * 1e18) / quoted;

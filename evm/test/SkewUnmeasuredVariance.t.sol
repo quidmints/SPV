@@ -29,8 +29,8 @@ contract SkewUnmeasuredVarianceTest is Test {
     ///         If drain size does not move the charge, `skewWad` short-circuited and any zero below
     ///         would be an artifact of the call, not a property of the skew.
     function test_PREMISE_TheKernelIsReachedAtAll() public pure {
-        uint small = SwapLib.skewWad(POOL, FLOW, 1e16, false, POOL / 10);
-        uint large = SwapLib.skewWad(POOL, FLOW, 1e16, false, (POOL * 9) / 10);
+        uint small = SwapLib.skewWad(POOL, FLOW, 1e16, SwapLib.ethRisk(), POOL / 10);
+        uint large = SwapLib.skewWad(POOL, FLOW, 1e16, SwapLib.ethRisk(), (POOL * 9) / 10);
         assertGt(small, 0, "PREMISE: a measured-variance drain charges nothing, kernel unreached");
         assertGt(large, small, "PREMISE: drain size does not move the charge, kernel unreached");
     }
@@ -44,9 +44,9 @@ contract SkewUnmeasuredVarianceTest is Test {
             // PREMISE: the drain must leave the band genuinely scarce (inv1 < target), else the
             // flush branch returns the base and the assertion below tests nothing.
             assertLt(POOL - drains[i], FLOW, "PREMISE: this drain does not create scarcity");
-            assertEq(SwapLib.skewWad(POOL, FLOW, 0, false, drains[i]), CEIL,
+            assertEq(SwapLib.skewWad(POOL, FLOW, 0, SwapLib.ethRisk(), drains[i]), CEIL,
                      "ETH: unmeasured variance with real scarcity must price at the ceiling");
-            assertEq(SwapLib.skewWad(POOL, FLOW, 0, true, drains[i]), CEIL,
+            assertEq(SwapLib.skewWad(POOL, FLOW, 0, SwapLib.btcRisk(), drains[i]), CEIL,
                      "BTC: unmeasured variance with real scarcity must price at the ceiling");
         }
     }
@@ -56,7 +56,7 @@ contract SkewUnmeasuredVarianceTest is Test {
     ///         NON-ZERO variance and still caps low." A fix that charged the ceiling for tiny-but-real
     ///         variance would be over-charging every quiet tape, so this brackets the other side.
     function test_SmallButMeasuredVarianceStillPricesFarBelowTheCeiling() public pure {
-        uint charge = SwapLib.skewWad(POOL, FLOW, 1e12, false, POOL / 2);   // σ² tiny but REAL
+        uint charge = SwapLib.skewWad(POOL, FLOW, 1e12, SwapLib.ethRisk(), POOL / 2);   // σ² tiny but REAL
         assertGt(charge, 0, "a measured variance must still charge something");
         assertLt(charge, CEIL / 100, "a calm-but-measured tape must not be priced near the ceiling");
     }
@@ -66,7 +66,7 @@ contract SkewUnmeasuredVarianceTest is Test {
     ///         silently started charging 3% on every non-scarce swap and no test would have said so.
     function test_FlushBandStillOwesOnlyTheBase() public pure {
         // inv1 >= target ⇒ the §UNIT-A flush path, which returns `_maxWellSkew` and never the kernel.
-        uint flush = SwapLib.skewWad(POOL, POOL / 10, 0, false, 0);
+        uint flush = SwapLib.skewWad(POOL, POOL / 10, 0, SwapLib.ethRisk(), 0);
         assertLt(flush, CEIL, "a flush band must not be charged the unknown-variance ceiling");
     }
 }

@@ -23,11 +23,8 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 //   PoolKey/PoolId/Currency/BalanceDelta — vestigial identity for VANILLA_ETH/VANILLA_BTC.
 // Deleted here as unused: LiquidityAmounts, TickMath, IHooks, TransientStateLibrary,
 // CurrencySettler, StateLibrary, and the five `using` directives that bound them.
-import {SafeCallback} from "v4-periphery/src/base/SafeCallback.sol";
 
-import {BalanceDelta, BalanceDeltaLibrary} from "v4-core/src/types/BalanceDelta.sol";
 
-import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 
 // §E5 — the shared per-band premium sink (rule 2: ONE declaration, in the canonical file).
 import {ISkewSink, ILevEquity, ILevEquityBtc, IBand} from "./imports/Interfaces.sol";
@@ -41,7 +38,6 @@ interface IBandBacking {
     function total() external view returns (uint256);
     function otherThan(address band) external view returns (uint256);
 }
-import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 
 /// @dev Live total leverage debt (USD 1e18) of a pinned LevManager — the debt-funded buffer that
 ///      `committedUsd18` subtracts from in-range USD to recover the pure equity claim (buffer == debt).
@@ -61,7 +57,13 @@ import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 /// mockUSD_ETH and mockUSD_BTC stay as separate mocks because each pool
 /// can have its own out-of-range positions (limit orders) — those are
 /// not in POOLED_USD_{ETH,BTC} (which is the active in-range slice).
-contract Core is SafeCallback {
+/// §V4-CUT — NO LONGER A `SafeCallback`. The base class existed to receive `unlock` callbacks from
+/// the PoolManager; nothing in this tree unlocks, so its required `_unlockCallback` override was
+/// unreachable and its constructor argument was taken "purely to satisfy SafeCallback" (this file's
+/// own header said so). The PoolManager handle SURVIVES as a plain immutable because `prepRefs`
+/// still reads the REFERENCE pools' slot0 -- that is the independent v3/v4 observation the Chainlink
+/// cross-check is measured against, and it is a read of pools we do not own.
+contract Core {
 
     /// Per-pool oracle rings — the engine now lives in OracleLib (delegatecall),
     /// so the structs come from there. The scalar trio is grouped per pool so
@@ -210,16 +212,13 @@ contract Core is SafeCallback {
     ///    §ARCH-VARIANCE-VARIABLE, which uses the REALIZED EXECUTION PRICE (bounded by construction)
     ///    instead of `POOLED_USD/inv` (which diverges as inventory drains). It was never wired to
     ///    pricing, so it was per-swap gas buying nothing.
-    ///    ⚠️ THE SLOTS STAY: `Core`'s state ORDER is harness-load-bearing (`_pinFlow` reads
-    ///    131087-131090, the dust monitor 131095-131098). Deleting them shifted every later slot and
-    ///    made a getter return a non-token (§UNIT-B-SLOWDEL-CAUSE). Do NOT reclaim without proving
-    ///    nothing addresses `Core`'s storage absolutely.
-    uint256 private __deadSlotLossBTC;
-    uint256 private __deadSlotLossETH;
-    uint256 private __deadSlotGainBTC;
-    uint256 private __deadSlotGainETH;
-    uint256 private __deadSlotPendBTC;
-    uint256 private __deadSlotPendETH;
+    ///    ✅ RECLAIMED 2026-08-16. The retention condition was "do NOT reclaim without proving
+    ///    nothing addresses `Core`'s storage absolutely", and both absolute readers it named are
+    ///    gone or already moved: the dust monitor reads the `mocks()` GETTER now (no raw slots), and
+    ///    the only remaining raw-slot reads (`_pinFlow`/`_flowTs`) were re-derived from
+    ///    `forge inspect` when the isBTC split removed a whole `Observation[65535]` and shifted the
+    ///    layout by 65,535 slots anyway. Six words of padding held for a compatibility that a fresh
+    ///    deploy does not need, guarding an order that had already changed.
     /// @dev The slow register's half-life as a MULTIPLE of the fast one (48h × 7 ≈ 14 days). Its
     ///      exact value is deliberately NOT load-bearing: `flowEwmaUsd` takes the MIN of the two,
     ///      so the slow leg acts only as a CEILING. Being roughly right is enough, and erring LONG
@@ -307,6 +306,12 @@ contract Core is SafeCallback {
     ///         self-heals via bounded de-lever, so only the debt leg is an uncovered forward claim on the reservoir).
     ///         FAIL-SAFE: a revert in the venue-iterating read must not brick the swap; on failure returns 0 (the
     ///         skew merely relaxes toward the base oracle curve — the pricing signal, not a hard backing gate).
+    /// @notice This band's risk profile for the skew cap: the settlement-window fraction of a year
+    ///         and the on-chain splice floor. Returned as a PAIR so `SwapLib` needs no asset flag.
+    function riskParams() external view returns (uint confFracWad, uint spliceFloor) {
+        return (CONF_FRAC, SPLICE);
+    }
+
     function levGrossNative() public view returns (uint) {
         if (address(BTCVAULT) == address(0)) return 0;
         return BAND.levGrossNative();
@@ -429,6 +434,12 @@ contract Core is SafeCallback {
     /// a NUMBER because that is what actually differs; the mock deployer takes it directly instead
     /// of re-deciding from a flag.
     uint8 public immutable VOL_DECIMALS;
+    /// §ISBTC-SPLIT — THIS BAND'S RISK PROFILE, resolved once at construction. `SwapLib` used to
+    /// take a `bool isBTC` solely to choose between two constants; the instance owns which pair
+    /// applies, so it hands over the NUMBERS. BTC locks capital through ~1hr of confirmations and
+    /// pays an on-chain splice fee; ETH settles in ~one block with neither.
+    uint public immutable CONF_FRAC;
+    uint public immutable SPLICE;
     /// §ISBTC-SPLIT — THIS INSTANCE'S VOLATILE ASSET, resolved ONCE at setup. Three money-path
     /// sites read `IS_BTC ? address(AUX.WBTC()) : address(AUX.WETH())`, so each priced swap made an
     /// EXTERNAL CALL into Aux to look up a constant, then chose between two constants with a
@@ -492,7 +503,11 @@ contract Core is SafeCallback {
     // mock addresses straight from storage (they already do for the fee flip) and compute it there.
 
     function _dustOf(address m) internal view returns (uint) {
-        uint held = IERC20Min(m).balanceOf(address(poolManager)) + IERC20Min(m).balanceOf(address(this));
+        // §V4-CUT — THE PoolManager TERM IS GONE BECAUSE IT CAN ONLY BE ZERO. It counted mocks
+        // custodied by the PoolManager, which mattered while v4 hosted the band. No pool of ours is
+        // ever created, the four `type(uint).max` approvals to the PM were deleted, and nothing
+        // transfers a mock there -- so the term was a guaranteed 0 and an external call to fetch it.
+        uint held = IERC20Min(m).balanceOf(address(this));
         uint supply = IERC20Min(m).totalSupply();
         return supply > held ? supply - held : 0;   // never counted toward shares or P&L
     }
@@ -602,26 +617,21 @@ contract Core is SafeCallback {
     /// §ISBTC-SPLIT — `isBtc` is instance identity and is set ONCE, here. Two instances are
     /// deployed: one ETH, one BTC. Nothing downstream may change it, which is why it is immutable
     /// rather than a settable flag — a settable one would reintroduce the runtime selector.
-    constructor(IPoolManager _manager, bool isBtc, address backing) SafeCallback(_manager) {
+    constructor(bool isBtc, address backing) {
         DEPLOYER = msg.sender;
         IS_BTC = isBtc;
         VOL_DECIMALS = isBtc ? 8 : 18;
+        CONF_FRAC = isBtc ? SwapLib.CONF_FRAC_WAD     : SwapLib.ETH_CONF_FRAC_WAD;
+        SPLICE    = isBtc ? SwapLib.SPLICE_FLOOR      : 0;
         BACKING = IBandBacking(backing);
     }
 
     /// @param _vogue            Vogue contract (LP wrapper)
     /// @param _aux              Aux (settlement adapter)
     /// @param _basket           Basket (settlement target)
-    /// @param _refKeyETH        Hardcoded V4 PoolKey for the REAL on-chain
-    ///                          ETH/stable pool (e.g. ETH/USDT). Its current
-    ///                          tick is read at setup time and used to
-    ///                          seed VANILLA_ETH at the live market price.
-    /// @param _refKeyBTC        Hardcoded V4 PoolKey for the REAL on-chain
-    ///                          BTC/stable pool (e.g. USDC/WBTC). Read
-    ///                          directly — no composition. WBTC = c0 by
-    ///                          V4 lex-ordering (WBTC 0x2260 < USDC 0xA0B8).
-    function setup(address _vogue, address _aux, address _basket,
-        PoolKey calldata _refKeyETH, PoolKey calldata _refKeyBTC) 
+    /// @param seedPrice         This band's reference price at deploy (WAD USD per unit volatile),
+    ///                          read from the REAL on-chain pool by the DEPLOYER and passed in.
+    function setup(address _vogue, address _aux, address _basket, uint seedPrice)
         external { require(msg.sender == DEPLOYER, "403");   
         // auth-wiring pin (deployer only) anti-frontrun
         require(address(VOGUE) == address(0), "!");
@@ -646,14 +656,18 @@ contract Core is SafeCallback {
         // reads of the ref keys, so computing them HERE only put `Currency.unwrap`
         // in Core's runtime twice. `AUX.WBTC()` is queryable because AUX was wired
         // above, and is passed in so OracleLib need not import Aux for one getter.
-        (uint refPriceEth, uint refPriceBtc) =
-            OracleLib.prepRefs(poolManager, _refKeyETH, _refKeyBTC, address(AUX.WBTC()));
+        // §V4-CUT — THE REFERENCE READ MOVED OUT OF CORE. `prepRefs` is a read of pools we do NOT
+        // own, and its result is needed exactly ONCE, to seed the ring. Keeping it here forced Core
+        // to hold an `IPoolManager` and two `PoolKey`s for a deploy-time lookup -- which is why this
+        // contract still looked "responsive to the PoolManager" long after it stopped trading on it.
+        // The DEPLOYER does the lookup (`OracleLib.prepRefs`) and passes the price. The ONGOING
+        // v3/v4-vs-Chainlink cross-check lives where the GUARD lives, not in the band engine.
 
         // §V4-CUT — ONE INSTANCE, ONE RING, ONE LINE. `_initPool` is gone: it existed to assemble a
         // lex-sorted PoolKey, initialise a v4 pool and record its id, and none of that happens any
         // more. `VANILLA_*`, `POOL_ID_VANILLA_*` and the ordering flag were write-only vestigia of a
         // pool that is never created. Seeding the ring from the reference price is the whole job.
-        OracleLib.seedRing(obsState, observations, IS_BTC ? refPriceBtc : refPriceEth);
+        OracleLib.seedRing(obsState, observations, seedPrice);
     }
 
     /// @notice Draw down the BTC pool's committed USD side when an on-chain
@@ -911,13 +925,16 @@ contract Core is SafeCallback {
     /// §DE-TICK — the four dead parameters are GONE, not widened. `myLiquidity` and the old bounds
     /// described a v4 position being burned and re-added; there is no burn. Keeping them as ignored
     /// arguments would cost calldata on every repack to describe an operation that no longer happens.
-    function repack(uint newLower, uint newUpper) public onlyUs
-        returns (uint price, uint fees0, uint fees1, uint delta0, uint delta1) {
+    /// §V4-CUT — RETURNS THE PRICE ALONE. The old tuple was
+    /// `(price, fees0, fees1, delta0, delta1)`; v4 collected the fees and reported the deltas, and
+    /// with the collector gone all four were hard-coded ZERO. Callers destructured them, reordered
+    /// them by token identity, and fed them to `feeIncrements` -- arithmetic on constants. Also
+    /// absorbs `reseat`, whose body was identical.
+    function repack(uint newLower, uint newUpper) public onlyUs returns (uint price) {
         LOWER_PRICE = newLower;
         UPPER_PRICE = newUpper;
         price = AUX.getTWAPforAsset(ASSET, 1800);
         _writeObservationPrice(price);    // §DETICK: no narrowing
-        return (price, 0, 0, 0, 0);
     }
 
     /// @notice Re-seat the pool: move slot0 onto `targetSqrt` (the oracle-resolved
@@ -937,14 +954,11 @@ contract Core is SafeCallback {
     /// It should collapse into `repack` when those callers are updated — flagged rather than done,
     /// because merging two entrypoints is an ABI change and belongs with the caller pass.
     /// §DE-TICK — same removal as `repack`, and for the same reason.
-    function reseat(uint newLower, uint newUpper) public onlyUs
-        returns (uint price, uint fees0, uint fees1, uint delta0, uint delta1) {
-        LOWER_PRICE = newLower;
-        UPPER_PRICE = newUpper;
-        price = AUX.getTWAPforAsset(ASSET, 1800);
-        _writeObservationPrice(price);    // §DETICK: no narrowing
-        return (price, 0, 0, 0, 0);
-    }
+    // §V4-CUT — `reseat` DELETED: it had become BYTE-IDENTICAL to `repack` above. Both stored the
+    // new bounds, read the TWAP and wrote an observation. They were distinct while v4 hosted the
+    // band -- `repack` adjusted an existing position, `reseat` tore one down and rebuilt it at a new
+    // range -- and that difference lived entirely in the `modifyLiquidity` calls both have lost.
+    // Two names for one behaviour is drift waiting to happen; one behaviour gets one name.
 
     /// §V4-CUT — NOTHING TO COLLECT. This drained v4's fee accrual into `feesPerShare` before every
     /// bookmark update, as anti-dilution: v4 fees sat OUTSIDE `POOLED_*`, so NAV did not reflect them
@@ -959,17 +973,7 @@ contract Core is SafeCallback {
         return (0, 0);
     }
 
-    // ─── Unlock dispatcher ───────────────────────────────────────────
-    function _unlockCallback(bytes calldata data)
-        internal override returns (bytes memory) {
-        // §V4-CUT — UNREACHABLE, AND NOW EMPTY. Every operation settles against inventory
-        // directly and nothing in this tree calls `poolManager.unlock` (the only `unlock` left is
-        // SOR's, whose callback lands on Aux). The body still DECODED a selector, an `Action` and a
-        // payload and then discarded all three -- dead computation inside a dead function. It
-        // survives only because `SafeCallback` requires the override, and it goes when the base
-        // class does.
-        return "";
-    }
+    // §V4-CUT — `_unlockCallback` DELETED with the SafeCallback base. Nothing unlocks.
 
     // §V4-CUT — `_key()` DELETED: no callers. It returned the PoolKey of a pool never created.
 

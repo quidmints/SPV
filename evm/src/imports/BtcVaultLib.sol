@@ -181,13 +181,13 @@ library BtcVaultLib {
             uint deliveredRaw = a.shrinkSats > a.lpPayoutSats ? a.shrinkSats - a.lpPayoutSats : 0;
             uint deliveredSlice = settleDelivered(a.lpEth, deliveredRaw, a.exactUsd, core, quid);
             uint nativeSlice = a.shrinkSats - deliveredSlice;
-            SwapLib.burnInRange(core, true, a.sqrtP, nativeSlice, a.tickLower, a.tickUpper, address(0));
+            SwapLib.burnInRange(core, a.sqrtP, nativeSlice, a.tickLower, a.tickUpper, address(0));
             // Full channel close burns BOTH levered legs' V4 depth: the net slice (a.lev) and the
             // debt-funded buffer (a.buf). The buffer leaves totalBufferBTC via the bufRemoved return.
             if (a.full && a.lev > 0)
-                SwapLib.burnInRange(core, true, a.sqrtP, a.lev, a.tickLower, a.tickUpper, address(0));
+                SwapLib.burnInRange(core, a.sqrtP, a.lev, a.tickLower, a.tickUpper, address(0));
             if (a.full && a.buf > 0) {
-                SwapLib.burnInRange(core, true, a.sqrtP, a.buf, a.tickLower, a.tickUpper, address(0));
+                SwapLib.burnInRange(core, a.sqrtP, a.buf, a.tickLower, a.tickUpper, address(0));
                 o.bufRemoved = a.buf;
             }
         }

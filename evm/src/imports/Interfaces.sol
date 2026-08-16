@@ -346,10 +346,10 @@ interface ICore {
     function levClaimUsd6() external view returns (uint);
     function flowEwmaUsd() external view returns (uint);
     function realizedVarianceWad() external view returns (uint);
+    function riskParams() external view returns (uint confFracWad, uint spliceFloor);
     function recordSkewPremium(uint256 premiumUsd) external;
     function refundUnfilled(address token, uint amount, address to) external;
-    function repack(uint newLower, uint newUpper) external returns (uint price, uint fees0, uint fees1, uint delta0, uint delta1);
-    function reseat(uint newLower, uint newUpper) external returns (uint price, uint fees0, uint fees1, uint delta0, uint delta1);
+    function repack(uint newLower, uint newUpper) external returns (uint price);   // §V4-CUT: the four zero legs are gone, and `reseat` folded in here
     function collectFees() external returns (uint, uint);
     
     function btcVault() external view returns (address);   // E21: was BasketLib.IWiredCore

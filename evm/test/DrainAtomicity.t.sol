@@ -106,10 +106,10 @@ contract DrainAtomicity is Alles {
         uint inv = T / 2;              // genuinely scarce: q0 = 0.5
         uint drain = T / 4;            // a real, size-significant drain
 
-        uint atZero = SwapLib.skewWad(inv, T, 0, false, drain);
-        uint atOne  = SwapLib.skewWad(inv, T, 1, false, drain);
-        uint atTiny = SwapLib.skewWad(inv, T, 1e13, false, drain);   // ≈ the live fixture's σ²
-        uint atReal = SwapLib.skewWad(inv, T, 1e16, false, drain);   // a plausible real variance
+        uint atZero = SwapLib.skewWad(inv, T, 0, SwapLib.ethRisk(), drain);
+        uint atOne  = SwapLib.skewWad(inv, T, 1, SwapLib.ethRisk(), drain);
+        uint atTiny = SwapLib.skewWad(inv, T, 1e13, SwapLib.ethRisk(), drain);   // ≈ the live fixture's σ²
+        uint atReal = SwapLib.skewWad(inv, T, 1e16, SwapLib.ethRisk(), drain);   // a plausible real variance
 
         console.log("skew at sigma^2 = 0     :", atZero);
         console.log("skew at sigma^2 = 1     :", atOne);
@@ -133,11 +133,11 @@ contract DrainAtomicity is Alles {
         uint T = 1_000_000e6;
         uint[4] memory sigs = [uint(1e15), 1e16, 1e17, 1e18];
         for (uint s = 0; s < 4; ++s) {
-            uint base = SwapLib.skewWad(T - T / 1000, T, sigs[s], true, 0);  // q->0: the floor
+            uint base = SwapLib.skewWad(T - T / 1000, T, sigs[s], SwapLib.btcRisk(), 0);  // q->0: the floor
             uint lo = 1; uint hi = 999;
             while (lo < hi) {                       // first q (thousandths) where kernel clears the floor
                 uint mid = (lo + hi) / 2;
-                if (SwapLib.skewWad(T - (T * mid) / 1000, T, sigs[s], true, 0) > base + base / 50) hi = mid;
+                if (SwapLib.skewWad(T - (T * mid) / 1000, T, sigs[s], SwapLib.btcRisk(), 0) > base + base / 50) hi = mid;
                 else lo = mid + 1;
             }
             console.log("sigma^2 / floor / crossover q (thousandths):", sigs[s], base, lo);
@@ -231,7 +231,7 @@ contract DrainAtomicity is Alles {
         uint tgtBtc = CORE.flowEwmaUsd();
         uint sigBtc = CORE.realizedVarianceWad();
         btcLive     = AUX.wellSkew(address(WBTC));
-        uint raw    = SwapLib.skewWad(invBtc, tgtBtc, sigBtc, true, 0);   // UNAMPLIFIED kernel+base
+        uint raw    = SwapLib.skewWad(invBtc, tgtBtc, sigBtc, SwapLib.btcRisk(), 0);   // UNAMPLIFIED kernel+base
         emit log_named_uint("BTC inv (usd6)        ", invBtc);
         emit log_named_uint("BTC target/flow (usd6)", tgtBtc);
         emit log_named_uint("BTC sigma^2           ", sigBtc);
@@ -1006,23 +1006,23 @@ contract DrainAtomicity is Alles {
         uint T = 1_000_000e6;
         // Each row is a corner that a real band can actually occupy.
         console.log("--- target == 0 (genesis, no flow history)");
-        console.log("  eth:", SwapLib.skewWad(T, 0, 1e16, false, T / 4));
-        console.log("  btc:", SwapLib.skewWad(T, 0, 1e16, true,  T / 4));
+        console.log("  eth:", SwapLib.skewWad(T, 0, 1e16, SwapLib.ethRisk(), T / 4));
+        console.log("  btc:", SwapLib.skewWad(T, 0, 1e16, SwapLib.btcRisk(),  T / 4));
         console.log("--- inv == 0 (band already empty)");
-        console.log("  eth:", SwapLib.skewWad(0, T, 1e16, false, T / 4));
-        console.log("  btc:", SwapLib.skewWad(0, T, 1e16, true,  T / 4));
+        console.log("  eth:", SwapLib.skewWad(0, T, 1e16, SwapLib.ethRisk(), T / 4));
+        console.log("  btc:", SwapLib.skewWad(0, T, 1e16, SwapLib.btcRisk(),  T / 4));
         console.log("--- drain == 0 (read-only quote)");
-        console.log("  eth:", SwapLib.skewWad(T / 2, T, 1e16, false, 0));
+        console.log("  eth:", SwapLib.skewWad(T / 2, T, 1e16, SwapLib.ethRisk(), 0));
         console.log("--- drain >> inv (asks for more than exists)");
-        console.log("  eth:", SwapLib.skewWad(T / 100, T, 1e16, false, T * 10));
+        console.log("  eth:", SwapLib.skewWad(T / 100, T, 1e16, SwapLib.ethRisk(), T * 10));
         console.log("--- sigma^2 == 0 (unmeasured) at real scarcity");
-        console.log("  eth:", SwapLib.skewWad(T / 2, T, 0, false, T / 4));
+        console.log("  eth:", SwapLib.skewWad(T / 2, T, 0, SwapLib.ethRisk(), T / 4));
         console.log("--- sigma^2 enormous");
-        console.log("  eth:", SwapLib.skewWad(T / 2, T, 1e20, false, T / 4));
+        console.log("  eth:", SwapLib.skewWad(T / 2, T, 1e20, SwapLib.ethRisk(), T / 4));
         console.log("--- inv >> target (deeply flush)");
-        console.log("  eth:", SwapLib.skewWad(T * 100, T, 1e16, false, T / 4));
+        console.log("  eth:", SwapLib.skewWad(T * 100, T, 1e16, SwapLib.ethRisk(), T / 4));
         console.log("--- all-min: everything zero");
-        console.log("  eth:", SwapLib.skewWad(0, 0, 0, false, 0));
+        console.log("  eth:", SwapLib.skewWad(0, 0, 0, SwapLib.ethRisk(), 0));
         console.log("If any line reverted, the sweep would have failed rather than printed.");
     }
 
@@ -1030,14 +1030,14 @@ contract DrainAtomicity is Alles {
         uint T = 1_000_000e6; uint inv = T / 2; uint drain = T / 4;
         // CONF_FRAC (BTC, ~1hr) vs ETH_CONF_FRAC (~12s) enter only via the base; SPLICE_FLOOR is
         // BTC-only. Comparing BTC vs ETH at identical q and sigma isolates their combined effect.
-        uint btc = SwapLib.skewWad(inv, T, 1e16, true,  drain);
-        uint eth = SwapLib.skewWad(inv, T, 1e16, false, drain);
+        uint btc = SwapLib.skewWad(inv, T, 1e16, SwapLib.btcRisk(),  drain);
+        uint eth = SwapLib.skewWad(inv, T, 1e16, SwapLib.ethRisk(), drain);
         console.log("skew BTC (base = splice + conf) :", btc);
         console.log("skew ETH (base = eth conf only) :", eth);
         console.log("difference attributable to SPLICE_FLOOR + conf gap:", btc - eth);
         // MAX_WELL_SKEW appears TWICE (kernel coefficient AND ceiling). Drive q to the pole to see
         // whether the ceiling binds -- if it does, the coefficient role is invisible there.
-        uint hot = SwapLib.skewWad(T / 100, T, 5e18, false, drain);
+        uint hot = SwapLib.skewWad(T / 100, T, 5e18, SwapLib.ethRisk(), drain);
         console.log("skew ETH at q=0.99, sigma^2=5e18 :", hot);
         console.log("MAX_WELL_SKEW                    :", uint(3e16));
     }

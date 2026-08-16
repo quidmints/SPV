@@ -153,14 +153,14 @@ contract SkewAsymmetry is Test {
         uint total  = 120_000e6;
 
         // PATH A -- one drain of the whole notional, priced once on the entry band.
-        uint premA = (SwapLib.skewWad(pool0, flow, s, false, total) * total) / WAD;
+        uint premA = (SwapLib.skewWad(pool0, flow, s, SwapLib.ethRisk(), total) * total) / WAD;
 
         // PATH B -- twelve slices. Inventory falls as it would in reality; flow does NOT move.
         uint slice = total / 12;
         uint premB;
         uint pool = pool0;
         for (uint i; i < 12; i++) {
-            premB += (SwapLib.skewWad(pool, flow, s, false, slice) * slice) / WAD;
+            premB += (SwapLib.skewWad(pool, flow, s, SwapLib.ethRisk(), slice) * slice) / WAD;
             pool = pool > slice ? pool - slice : 0;
         }
 
@@ -197,7 +197,7 @@ contract SkewAsymmetry is Test {
         // reading is the CURVE and not the clamp -- the saturation trap that has bitten twice here.
         uint s = 1e17;
 
-        uint total = SwapLib.skewWad(poolVol, flow, s, false, 0);
+        uint total = SwapLib.skewWad(poolVol, flow, s, SwapLib.ethRisk(), 0);
         uint base  = _base(s, false);
         uint kernel = total - base;
 
@@ -238,8 +238,8 @@ contract SkewAsymmetry is Test {
         // inv/target = 0.75 => qBar = 1/3 => kernel ~1e16, comfortably under the 3% ceiling.
         uint poolVol = 300_000e6;
         uint flow    = 400_000e6;
-        uint tBtc = SwapLib.skewWad(poolVol, flow, s, true,  0);
-        uint tEth = SwapLib.skewWad(poolVol, flow, s, false, 0);
+        uint tBtc = SwapLib.skewWad(poolVol, flow, s, SwapLib.btcRisk(),  0);
+        uint tEth = SwapLib.skewWad(poolVol, flow, s, SwapLib.ethRisk(), 0);
 
         // ANTI-SATURATION CONTROL: at the cap every input maps to the same output, so a clamped
         // run would "prove" asset-independence by erasing the difference rather than by absence of one.
