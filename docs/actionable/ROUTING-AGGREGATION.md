@@ -356,3 +356,24 @@ on different endpoints, and never quote a count without checking for `database e
 self-dealing explanation for it (lev flow trading against our own band) was proposed and REFUTED —
 `DeployLib._pk` sets `hooks: IHooks(address(0))`, so our band is never in the SOR route. It fails at
 UNCHANGED price, where there is no IL and no directional PnL, and it has no explanation.
+
+### BTC LEG MEASURED 2026-08-16 — previously ASSERTED from inventory, now confirmed
+
+I had been stating the BTC legs inherit the same floor problem on the strength of the pool holding
+only 20.72 WBTC. That was an inference, not a measurement, and it was repeated in several commit
+messages. Now measured — `get_dy(0 → 1)`, USDC → WBTC, on `CURVE_TRICRYPTO_USDC`:
+
+| hop | WBTC out | effective px | slip | vs 1% floor |
+|---|---|---|---|---|
+| $10k | 0.1583 | $63,184 | 0bp | fills |
+| **$25k** | 0.3912 | $63,909 | **115bp** | **reverts** |
+| $50k | 0.7669 | $65,202 | 319bp | reverts |
+| $100k | 1.4772 | $67,696 | 714bp | reverts |
+| $400k | 4.8608 | $82,291 | 3,024bp | reverts |
+
+**The inference was right and the thresholds are near-identical**: 128bp at $25k on the ETH leg,
+115bp here. Both bind between $10k and $25k.
+
+⇒ `_stableToWbtc` / `_wbtcToStable` are constrained EXACTLY as tightly as their ETH twins. The BTC
+IL-protect hedge and the WBTC de-lever share the same ceiling, so the BTC pair is not a follow-up to
+the ETH work — it is the same defect in a second place and belongs in the same change.

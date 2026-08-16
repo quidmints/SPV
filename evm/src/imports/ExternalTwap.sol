@@ -42,6 +42,14 @@ interface ICurveOracle {
 ///      when the stable moves, both move together, in exactly the regime the guard exists for.
 ///      Relating the volatile legs through ONE BTC↔ETH ratio avoids compounding two USD oracle
 ///      errors into the number that actually matters. Count correlated readings as one observer.
+/// @dev 1inch OffchainOracle — the AGGREGATED spot-rate reader. `useWrappers=false` keeps the lookup
+///      on the token as given rather than letting the oracle substitute a wrapper: a substitution
+///      would quietly reintroduce the wrapped-asset basis this protocol is removing (§E221).
+interface IOffchainOracle {
+    function getRate(address srcToken, address dstToken, bool useWrappers)
+        external view returns (uint256 weightedRate);
+}
+
 library ExternalTwap {
     error DeviationTooWide(uint ours, uint theirs, uint bps);
     error NoExternalPrice();
@@ -56,6 +64,40 @@ library ExternalTwap {
     /// @notice Curve's EMA price for a two-coin pool (no index argument).
     function curvePriceWad(address pool) internal view returns (uint priceWad) {
         priceWad = ICurveOracle(pool).price_oracle();
+        if (priceWad == 0) revert NoExternalPrice();
+    }
+
+    /// @notice 1inch OffchainOracle (`0x0AdDd25a…F9B8`) — the AGGREGATED spot rate, in WAD.
+    ///
+    /// @dev **IT ANSWERS THIS FILE'S OWN OBJECTION.** The header warns *"CORRELATED SOURCES ARE ONE
+    ///      SOURCE… Count correlated readings as one observer."* A single Curve pool IS one venue
+    ///      with one depeg mode, so it fails that test on its own terms; the OffchainOracle
+    ///      aggregates across many. **VERIFIED INDEPENDENT, NOT ASSUMED (2026-08-16):** `oracles()`
+    ///      returns 14 registered oracles with WETH/ETH connector types — the DEX-wrapper pattern,
+    ///      not a feed reader — and decisively, **it DISAGREES with Chainlink**; were it reading
+    ///      Chainlink the two would be identical. It also keeps the property that ruled out a v3
+    ///      TWAP: `getRate` is a PLAIN RATE, so no `TickMath` returns.
+    ///
+    /// @dev **SCALING DERIVED, NOT GUESSED.** `getRate` is defined on RAW units:
+    ///      `dstRaw = srcRaw · rate / 1e18`, so
+    ///      `price = rate · 10^srcDec / (1e18 · 10^dstDec)` and `priceWad = rate · 10^srcDec / 10^dstDec`.
+    ///      **PINNED vs CHAINLINK, SAME BLOCK:** WETH→USDC `rate = 1,877,080,514` ⇒ `$1,877.08` vs
+    ///      ETH/USD `$1,878.54` (0.08%).
+    ///
+    /// 🔴 **DO NOT USE THIS FOR THE BTC CROSS.** There is no wrapper-free BTC spot on-chain at all —
+    ///    native BTC has no EVM presence — so `getRate(WETH, WBTC)` prices WRAPPED BTC and would
+    ///    reimport the basis §E221 exists to delete. **Measured: 1inch ETH/WBTC vs Chainlink ETH/BTC
+    ///    differ by 4.29 bps, and WBTC/BTC is 3.91 bps — the gap IS the wrapper.** Price BTC from the
+    ///    Chainlink ETH/BTC cross; the wrapped reading is a CROSS-CHECK ONLY, where its disagreement
+    ///    is a direct measurement of the WBTC basis and therefore a depeg DETECTOR.
+    ///
+    /// ⚠️ SPOT, NOT A TWAP — no window, so manipulable within a block. Use it as the independent
+    ///    observation `requireAgrees` cross-checks; never to SIZE anything (see that function).
+    function oneInchRateWad(address oracle, address src, address dst, uint8 srcDec, uint8 dstDec)
+        internal view returns (uint priceWad) {
+        uint rate = IOffchainOracle(oracle).getRate(src, dst, false);
+        if (rate == 0) revert NoExternalPrice();
+        priceWad = FullMath.mulDiv(rate, 10 ** srcDec, 10 ** dstDec);
         if (priceWad == 0) revert NoExternalPrice();
     }
 

@@ -136,11 +136,28 @@ by a SINGLE leaf hash (`MuSig2Agg.sol:191` — `taggedHash("TapTweak", internalX
 that leaf is the spendable CLTV refund path. Taproot permits a TREE, so add a second, deliberately
 unspendable leaf that commits to the terms:
 
+🔴 **SUPERSEDED — ONE LEAF, NOT TWO (2026-08-16). The owner asked "why is there a tapBranch?" and
+the answer is that there should not be.** The original text specified a second, unspendable
+`OP_RETURN` leaf combined by a merkle branch. It works and it is more machinery than the job
+needs. **The terms go INSIDE the refund leaf that already exists**, as a push that is executed and
+immediately dropped:
+
 ```
-termsLeaf   = OP_RETURN <sha256(abi.encode(seller, token, minDeliveredUsd))>  // never spent
-merkleRoot  = TapBranch(sort(tapLeafHash(refundLeaf), tapLeafHash(termsLeaf)))
-q           = internalKey + taggedHash("TapTweak", internalX ‖ merkleRoot)·G
+depositLeaf = <sha256(abi.encode(seller, token, minDeliveredUsd))> OP_DROP
+              <cltvHeight> OP_CLTV OP_DROP <userRefund> OP_CHECKSIG
+q           = internalKey + taggedHash("TapTweak", internalX ‖ tapLeafHash(depositLeaf))·G
 ```
+
+⇒ **WHAT THIS DELETES FROM THE BATCH:** no `tapBranch` on the derivation path, **no 32-byte
+sibling in the control block of every refund spend**, and no new primitive to keep in step across
+Solidity, Rust and TypeScript. `taprootOutputKeyWithLeaf` is called EXACTLY as it is today — the
+Solidity change becomes a leaf BUILDER, not a tree. Cost: 34 bytes of witness on the refund path
+only, which is the rare path.
+⇒ Spendability is untouched: the leaf still ends with the existing refund script byte for byte
+(pinned by a test in `identity-wallet/src/chain/taproot.test.ts`).
+📌 `MuSig2Agg.tapBranch` stays — it is correct and cross-checked against `rust-bitcoin` — but
+**nothing in the deposit path calls it**, so a second leaf later must be a deliberate decision
+rather than a drift. ✅ Reference implementation and 11 tests: ibiza `53d03b4`.
 
 ### 🔴 `seller` GOES IN THE LEAF TOO — AND THAT MAKES THE PARITY RULE OPTIONAL, NOT A PREREQUISITE
 
@@ -183,49 +200,42 @@ word.** Every value-routing input is either proven by the deposit or derived fro
 tweak exists (`:191`); there is **no `tapBranch`**. BIP-341's is a tagged hash over the two child
 hashes in lexicographic order — that is the entire addition on the Solidity side.
 
-⚠️ **THREE CONSEQUENCES, none of them optional:**
-1. **The refund spend needs a bigger control block.** A 2-leaf tree means the refund path must
-   carry the sibling (`tapLeafHash(termsLeaf)`, 32 bytes) to prove membership. Cheap, but it
-   changes the witness, and `user_refund_script_path_verifies_and_control_block_belongs_to_the_leaf`
-   pins the current shape.
-2. **EVERY DEPOSIT ADDRESS CHANGES.** This is a breaking change to the rail: the Rust side
-   (`swap_in_onchain.rs:deposit_spend_info`) must build the identical tree, or the address the hop
-   quotes and the address the contract recomputes diverge and **every swap-in fails**. Land both
-   sides together and test against a real regtest deposit, not a unit fixture.
-3. **`minDeliveredUsd` is a QUOTE, so committing to it fixes the price at quote time.** That is
-   probably correct — it is what the seller agreed to — but it removes any ability to re-quote a
-   stale deposit, and the existing `expiresAt` becomes the only escape. Confirm that is intended
-   before building; it is a product decision wearing a cryptographic hat.
+⚠️ **CONSEQUENCES UNDER THE ONE-LEAF DESIGN — the first of the original three is GONE:**
+1. ~~The refund spend needs a bigger control block.~~ **No longer true.** One leaf means the
+   control block is unchanged, and `user_refund_script_path_verifies_and_control_block_belongs_to_the_leaf`
+   keeps its shape. This was the main cost of the two-leaf version and it is simply removed.
+2. **EVERY DEPOSIT ADDRESS STILL CHANGES.** The leaf script grows a 34-byte prefix, so the leaf
+   hash — and therefore the address — moves. The Rust side (`swap_in_onchain.rs:deposit_spend_info`,
+   `refund_leaf`) must build the identical script or the address the hop quotes and the address the
+   contract recomputes diverge and **every swap-in fails.** Land both sides together and test
+   against a real regtest deposit, not a unit fixture. ▶️ The seam to use is
+   `quid-bridge/tests/hop_bridge_e2e.rs` with its `EvmClient` pointed at anvil instead of stubbed.
+3. **`minDeliveredUsd` is a QUOTE, so committing to it fixes the price at quote time.** Probably
+   correct — it is what the seller agreed — but it removes any re-quote of a stale deposit, leaving
+   `expiresAt` as the only escape. A product decision wearing a cryptographic hat; confirm before
+   building.
+4. **THE ENFORCEMENT POINT IS THE CLIENT, NOT THE CHAIN.** Because `seller` is committed rather
+   than derived, nothing on-chain rejects a substituted one — **the payer's wallet refusing to pay
+   an address it did not compute is what binds the hop.** That check is booked as constraint 4 on
+   ibiza's QR item. ⚠️ A screen that renders the hop's address provides NO protection while looking
+   exactly like one that does.
 
-📌 `token` and `minDeliveredUsd` are NOT covered by this and remain the hop's word regardless —
-the deposit address commits to the PAYER, not to what they were promised. A signed intent may
-still be needed for those two, which would make it a much smaller change than the queue describes.
+## ▶️ Still owed, and not booked anywhere else
 
-## The three that remain, and they are ONE change
-
-1. **§T2 — seller-signed EIP-712 intent.** The seller signs `(seller, token, minUsd,
-   paymentHash)` off-chain; the contract `ecrecover`s and reads all three from there, so the hop
-   supplies only the hash. **Costs no extra transaction** — consent rides WITH the action, the
-   same pattern as `OpenAuth.lpSig`.
-2. **§T3 — freshness outpoint becomes a 2-of-2 (hop + LP).** Invalidation then needs the LP's
-   signature, which is free: invalidation only ever happens when a fresher exit is agreed and the
-   LP is signing that anyway.
-3. **§E166-2 — the BOLT11 rail anchored to an on-chain splice proof**, so every credit path ends
-   in a Bitcoin proof. ⚠️ **Only then does `settleSwapIn` delete** (§T1-BLOCKED) — and its OTHER
-   role, the swap-out failure reversal at `:1814` where nothing arrives and nothing is provable,
-   is legitimate and **must survive under its own name.**
-
-🔴 **ALL THREE CHANGE `BTCChannels` SIGNATURES, SO PER §ORDER-M1 THEY MUST LAND TOGETHER.** Each
-signature change costs Rust encoders + the ABI checker + every test call site (M1#1 cost 13 sites,
-§T1-d 8 positional destructurings, §T9 would have cost 17). Landing them one at a time pays that
-three times and leaves two half-states in between.
-
-⚠️ **AND THE ORDER IS NOT FREE: §T3 is Phase 3 in `§PHASE-ORDER` because it changes WHAT AN EXIT
-COMMITS TO** (`Prevouts::All` binds the freshness UTXO). Batching the signatures does not let it
-jump the queue — the batch lands at §T3's slot, not §T2's.
-
-## What is NOT in scope, said plainly
-
-**Service.** A hop can always stop settling, stop emitting, stop routing. That is bounded, never
-prevented, and the bound is ladder depth. Removing the hop's WORD does not remove its ability to
-do NOTHING, and no signature change will.
+* **A shared leaf fixture across all three implementations.** `tapBranch` is agreed by four
+  (Solidity, python, rust-bitcoin, TS); a full `depositLeaf` is agreed by **one**. Pin one script
+  in all three suites before an address is trusted end to end.
+* **`@scure/btc-signer` in the wallet** for TapTweak + bech32m — the QR verifier stops at the leaf
+  hash without it.
+* **Rust-side BIP-340 parity** (`RootSeed::derive_eth_wallet_key`). ⏬ **Downgraded from blocking
+  to optional**: it mattered only while `seller` was DERIVED from the refund key. Under the
+  committed-terms design the two keys need no relationship, which is what makes the batch work for
+  Ledger and Phantom. Keep the rule for wallets that DO use one key; it is no longer a prerequisite.
+* 🔴 **THE CRE / ASP-versus-DON QUESTION IS UNFINISHED AND IS BOOKED NOWHERE ELSE.** Discussed
+  twice this session and never concluded. What IS settled: the mechanism's POLARITY fixes the
+  failure direction independent of how the set is populated (exclusion fails open, inclusion fails
+  closed), **one inclusion term poisons a whole conjunction**, and fuzzy multi-document identity
+  cannot be an exclusion predicate because exclusion proofs need a canonical key. What is NOT
+  settled: **whether a DON can carry seed-set publication without becoming the authority the
+  exclusion design removed, and how anyone verifies a DON is actually decentralised.** ⚠️ This is a
+  design conversation, not a build, and it gates ibiza's `2.18gz-unify` and `court.sol`.
