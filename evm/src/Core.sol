@@ -27,9 +27,7 @@ import {SafeCallback} from "v4-periphery/src/base/SafeCallback.sol";
 
 import {BalanceDelta, BalanceDeltaLibrary} from "v4-core/src/types/BalanceDelta.sol";
 
-import {Currency, CurrencyLibrary} from "v4-core/src/types/Currency.sol";
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
-import {PoolId, PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
 
 // §E5 — the shared per-band premium sink (rule 2: ONE declaration, in the canonical file).
 import {ISkewSink, ILevEquity, ILevEquityBtc} from "./imports/Interfaces.sol";
@@ -64,7 +62,6 @@ import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 /// can have its own out-of-range positions (limit orders) — those are
 /// not in POOLED_USD_{ETH,BTC} (which is the active in-range slice).
 contract Core is SafeCallback {
-    using PoolIdLibrary for PoolKey;
 
     /// Per-pool oracle rings — the engine now lives in OracleLib (delegatecall),
     /// so the structs come from there. The scalar trio is grouped per pool so
@@ -82,15 +79,11 @@ contract Core is SafeCallback {
         return IS_BTC ? observationsBTC : observationsETH;
     }
 
-    PoolKey VANILLA_ETH;
-    PoolKey VANILLA_BTC;
+    // §V4-CUT — `VANILLA_ETH`/`VANILLA_BTC` DELETED. Write-only: assembled at setup for a pool
+    // that `initPool` stopped creating, then read by `_key()`, which had no callers.
 
-    /// @notice PoolIds for the two VANILLA pools, computed once in the
-    ///         constructor from the assembled PoolKeys. Used everywhere
-    ///         a PoolId is needed (getSlot0, donate, etc.) — no runtime
-    ///         .toId() recomputation.
-    PoolId public POOL_ID_VANILLA_ETH;
-    PoolId public POOL_ID_VANILLA_BTC;
+    // §V4-CUT — `POOL_ID_VANILLA_*` DELETED. Their last external reader was the protocol-fee
+    // monitor, retired with the fee switch we no longer touch; `_poolId()` is gone too.
 
     /// @notice In-range USD slice held against the ETH/USD pool. Sum of
     /// this plus POOLED_USD is the total in-range USD; out-of-range
@@ -471,9 +464,8 @@ contract Core is SafeCallback {
     // observation state is grouped in `_obsState` (ABI-preserving: the old
     // public obs getters were unread externally; only the array getters and
     // POOLED_* getters, which stay, are read by tests).
-        function _poolId() internal view returns (PoolId) {
-        return IS_BTC ? POOL_ID_VANILLA_BTC : POOL_ID_VANILLA_ETH;
-    }
+    // §V4-CUT — `_poolId()` DELETED: no callers. It selected between two ids of pools that are
+    // never created.
     /// @notice DUST SWEEP — mock tokens held OUTSIDE the allowed set, which must never count
     ///         toward shares or P&L attribution.
     ///
@@ -575,13 +567,9 @@ contract Core is SafeCallback {
         return address(BTCVAULT) == address(0) ? 0 : BTCVAULT.totalSharesBTC() + BTCVAULT.totalBufferBTC();
     }
 
-    // NOTE: ReseatETH is the LAST ETH action and ReseatBTC the LAST BTC action so
-    // the `IS_BTC = uint8(a) >= uint8(Action.SwapBTC)` split in _unlockCallback
-    // stays correct (all ETH actions < SwapBTC, all BTC actions >= SwapBTC).
-    enum Action {
-        SwapETH, RepackETH, ModLPETH, OutsideRangeETH, CollectETH, ReseatETH,
-        SwapBTC, RepackBTC, ModLPBTC, OutsideRangeBTC, CollectBTC, ReseatBTC
-    }
+    // §V4-CUT — `enum Action` DELETED. It tagged the twelve operations that used to travel
+    // through `unlock`, and its only remaining reader was the dead decode in `_unlockCallback`.
+    // Nothing unlocks, so nothing is dispatched.
 
     /// @dev §CORE-ONLYUS — THE CHECK IS A `private view`; THE MODIFIER STAYS THE GATE. A modifier
     ///      body is INLINED AT EVERY USE SITE (18 here), so three SLOADs + a revert string inline
@@ -656,44 +644,11 @@ contract Core is SafeCallback {
             OracleLib.prepRefs(poolManager, _refKeyETH, _refKeyBTC,
                 mE, mB, mUE, mUB, address(AUX.WBTC()));
 
-        // Both pools init identically; only the direction probe differs.
-        // §ISBTC-SPLIT — ONE instance initialises ONE pool. This was two calls because one contract
-        // held both rings; each instance now seeds only its own from its own reference pool.
-        if (IS_BTC) _initPool(mB, mUB, refPriceBtc);
-        else        _initPool(mE, mUE, refPriceEth);
-    }
-
-    /// @dev Per-pool VANILLA init, shared by ETH and BTC. Builds the lex-sorted
-    ///      PoolKey, records the ordering (token1isVol/BTC), initializes the V4
-    ///      pool at the reference pool's live tick (direction-corrected via
-    ///      `refVolIsC0`, floored toward −∞ to tickSpacing), and seeds the
-    ///      oracle ring. Behavior-identical to the two prior inlined blocks.
-    function _initPool(address volMock,
-        address usdMock, uint refPrice) internal {
-        // Everything but the two VALUE-TYPE state writes lives in OracleLib: the
-        // PoolKey assembly, the lex sort, the tick direction-correction + align, the
-        // pool init and the oracle seeding are all deploy-time-only code that was
-        // costing Core RUNTIME bytes under a hard EIP-170 deficit. `VANILLA_*` (a
-        // struct) and the ring (an array) can be passed by STORAGE POINTER, which is
-        // what makes the move possible; `token1is*` and `POOL_ID_*` are value types
-        // with no pointer to pass, so those two assignments stay here.
-        // 🔴 `token1isVol` IS ASSIGNED DIRECTLY BY THE DESTRUCTURING -- NO LOCAL, DELIBERATELY.
-        // When `token1isVolETH`/`token1isVolBTC` collapsed to one `token1isVol` (724f572b), the new
-        // state name COLLIDED with the local that used to be declared here, and
-        // `token1isVol = token1isVol` compiled as a SELF-ASSIGNMENT: the state variable was never
-        // written and read `false` forever, while OracleLib computed the correct value
-        // (`volMock > usdMock`, the v4 lex ordering) and returned it to be discarded. Eight
-        // money-path sites in this contract read it for leg orientation, plus Vault, BtcVaultLib
-        // and VogueLib externally. The compiler could not object, and `Vogue.token1isVol` -- a
-        // DIFFERENT variable that IS correctly assigned -- made the surviving reads look wired.
-        // Writing the state slot in the tuple makes that collision UNCONSTRUCTIBLE rather than
-        // merely renamed away: there is no local left for a future rename to shadow.
-        PoolId id;
-        (, id) = OracleLib.initPool(poolManager,
-            IS_BTC ? VANILLA_BTC : VANILLA_ETH, _obsState(), _obs(),
-            volMock, usdMock, refPrice);
-
-        if (IS_BTC) POOL_ID_VANILLA_BTC = id; else POOL_ID_VANILLA_ETH = id;
+        // §V4-CUT — ONE INSTANCE, ONE RING, ONE LINE. `_initPool` is gone: it existed to assemble a
+        // lex-sorted PoolKey, initialise a v4 pool and record its id, and none of that happens any
+        // more. `VANILLA_*`, `POOL_ID_VANILLA_*` and the ordering flag were write-only vestigia of a
+        // pool that is never created. Seeding the ring from the reference price is the whole job.
+        OracleLib.seedRing(_obsState(), _obs(), IS_BTC ? refPriceBtc : refPriceEth);
     }
 
     /// @notice Draw down the BTC pool's committed USD side when an on-chain
@@ -1008,27 +963,16 @@ contract Core is SafeCallback {
     // ─── Unlock dispatcher ───────────────────────────────────────────
     function _unlockCallback(bytes calldata data)
         internal override returns (bytes memory) {
-        uint8 firstByte;
-        assembly {
-            let word := calldataload(data.offset)
-            firstByte := and(word, 0xFF)
-        }
-        Action a = Action(firstByte);
-        bytes calldata payload = data[32:];
-
-        // §V4-CUT — ONE ACTION LEFT. Swap settles at oracle; Repack/Reseat store a range;
-        // ModLP is a balance change; Collect has nothing to harvest. Only the self-managed
-        // boundary order still round-trips through v4, and only because it is still expressed
-        // in TICKS. Its handler is the last thing holding `_modifyLiquidity` alive.
-        // §V4-CUT — NOTHING UNLOCKS. Every operation settles against inventory directly, so this
-        // callback is unreachable. It survives only because `SafeCallback` requires the override,
-        // and it goes when the base class does.
+        // §V4-CUT — UNREACHABLE, AND NOW EMPTY. Every operation settles against inventory
+        // directly and nothing in this tree calls `poolManager.unlock` (the only `unlock` left is
+        // SOR's, whose callback lands on Aux). The body still DECODED a selector, an `Action` and a
+        // payload and then discarded all three -- dead computation inside a dead function. It
+        // survives only because `SafeCallback` requires the override, and it goes when the base
+        // class does.
         return "";
     }
 
-    function _key() internal view returns (PoolKey memory) {
-        return IS_BTC ? VANILLA_BTC : VANILLA_ETH;
-    }
+    // §V4-CUT — `_key()` DELETED: no callers. It returned the PoolKey of a pool never created.
 
 
     /// §V4-CUT — the pair travels as ONE memory pointer, not two stack values. `BalanceDelta` was a

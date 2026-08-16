@@ -170,36 +170,16 @@ library OracleLib {
     ///      importing it here would add a lib->lib delegatecall to re-derive three
     ///      lines of arithmetic across the boundary — the exact thing E14 tracks).
     ///      So `token0`/`token1` arrive ALREADY SORTED and `tick` ALREADY ALIGNED.
-    function initPool(IPoolManager pm, PoolKey storage k, ObsState storage st,
-        Observation[65535] storage obs, address volMock, address usdMock,
-        uint refPrice) external returns (bool token1isVol, PoolId id) {   // §DE-TICK: the direction probe is consumed in prepRefs now
-        token1isVol = volMock > usdMock;                       // V4 lex-ordering
-        k.currency0 = Currency.wrap(token1isVol ? usdMock : volMock);
-        k.currency1 = Currency.wrap(token1isVol ? volMock : usdMock);
-        k.fee = 420; k.tickSpacing = 10; k.hooks = IHooks(address(0));
-        id = PoolIdLibrary.toId(k);
-
-        // tick = log_1.0001(c1/c0). If the volatile asset sits on the same side (c0)
-        // in both ref and vanilla, the tick transfers directly; otherwise negate.
-        // (`volIsC0InVanilla == !token1isVol`.) Then floor toward -inf to tickSpacing:
-        // Solidity divides toward zero, which rounds negatives the wrong way.
-        // `SwapLib.alignTick` is CALLED, not re-derived here -- three lines of
-        // arithmetic duplicated across a library boundary is exactly the drift E14
-        // tracks, and OracleLib does not import SwapLib anywhere else, so there is
-        // no cycle (checked).
-        // §DE-TICK — THE v4 SEED IS GONE. This aligned a reference tick to the grid, converted it to
-        // a sqrt price and called `pm.initialize` so v4 would host the band. Nothing calls the
-        // PoolManager any more, so there is no pool to initialize — the ring is seeded with the
-        // reference PRICE directly, which is what `lastPrice` always held. This was the last
-        // `TickMath` call in the tree, and the comment beside it already anticipated the removal:
-        // "TickMath survives HERE ONLY ... at the v4 boundary."
+    /// §V4-CUT — THIS IS A RING SEEDER NOW, AND THE NAME SAYS SO. It used to assemble a lex-sorted
+    /// PoolKey, derive its PoolId, align a reference tick to the grid and call `pm.initialize` so v4
+    /// would host the band. Nothing calls the PoolManager any more, so the pool was never created --
+    /// which made the PoolKey, the PoolId and the `volMock > usdMock` ordering all write-only
+    /// vestigia of a pool that does not exist. `VANILLA_*` and `POOL_ID_VANILLA_*` went with them.
+    /// What actually mattered was always these three lines: seed `lastPrice` from the reference
+    /// price and open the ring.
+    function seedRing(ObsState storage st, Observation[65535] storage obs, uint refPrice)
+        external {
         st.lastPrice = refPrice;
-        // §DE-TICK — SEEDED DIRECTLY FROM THE REFERENCE PRICE. The `getPrice(seedSqrtP, ...)` decode
-        // is gone with the sqrt price it decoded, and so is the reciprocal-orientation hazard the
-        // comment here recorded: a USD-per-volatile price does not flip with token ordering, so
-        // writer and reader cannot disagree about which way up it is. That defect class is deleted,
-        // not guarded — it existed only because sqrtPriceX96's meaning depended on which token got
-        // the lower address.
         st.cardinality = 1;
         obs[0] = Observation({ blockTimestamp: uint32(block.timestamp),
             priceCumulative: 0, initialized: true });
