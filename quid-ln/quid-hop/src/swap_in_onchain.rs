@@ -690,4 +690,34 @@ mod tests {
             assert!(!s.to_hex_string().starts_with("5"), "height {h} used an OP_N shortcut");
         }
     }
+
+    /// (§T2) THE TAPROOT TWEAK IS PINNED ACROSS RUST AND THE WALLET.
+    ///
+    /// 🔑 This is the last cryptographic step of the QR verifier: the wallet recomputes the
+    /// deposit's output key from terms it agreed and compares it to the address the hop quoted.
+    /// **That check is worth nothing unless the wallet's tweak agrees with the one that produced
+    /// the address.** `rust-bitcoin`'s `TaprootBuilder` is the reference here; the wallet uses
+    /// `@noble/curves` point arithmetic over the same BIP-341 formula.
+    ///
+    /// Fixture shared verbatim with `identity-wallet/src/chain/taproot.test.ts`: internal key
+    /// 0x02*32, refund key 0xab*32, height 500000.
+    #[test]
+    fn taproot_output_key_matches_the_wallet() {
+        use bitcoin::absolute::LockTime;
+        use bitcoin::secp256k1::Secp256k1;
+
+        let secp = Secp256k1::verification_only();
+        let internal = XOnlyPublicKey::from_slice(&[0x02; 32]).expect("valid x-only");
+        let key = XOnlyPublicKey::from_slice(&[0xab; 32]).expect("valid x-only");
+
+        let (si, _leaf) =
+            deposit_spend_info(&secp, internal, key, LockTime::from_height(500_000).unwrap())
+                .expect("spend info");
+
+        assert_eq!(
+            si.output_key().to_x_only_public_key().to_string(),
+            "b6df894fd855150b3df4e36b4ea2deb66b07976431164d501698691f4fa16c65",
+            "the wallet would compute a different deposit address than the hop quotes",
+        );
+    }
 }
