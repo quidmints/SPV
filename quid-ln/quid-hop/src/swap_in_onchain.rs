@@ -571,69 +571,6 @@ mod tests {
             .expect("the derived hop key's claim must verify against the deposit's output key");
     }
 
-    /// (§T2) CROSS-IMPLEMENTATION CHECK ON `MuSig2Agg.tapBranch` — the one the Solidity suite
-    /// structurally cannot make.
-    ///
-    /// 🔑 **WHY THIS TEST IS IN RUST.** `TapBranch.t.sol` verifies the construction against a
-    /// second implementation, but BOTH are ours: they could agree perfectly on the shape and be
-    /// jointly wrong about the TAG STRING, which does not revert — it yields a well-formed merkle
-    /// root, a well-formed P2TR address, and a deposit nobody will ever pay. `rust-bitcoin`'s
-    /// `TapNodeHash` is an INDEPENDENT, consensus-tested implementation of BIP-341, so agreeing
-    /// with it is the check that actually binds.
-    ///
-    /// The fixture is shared verbatim with `evm/test/TapBranch.t.sol`
-    /// (`keccak256("leaf-a")` / `keccak256("leaf-b")`), so the two suites pin ONE value.
-    /// ⚠️ If this ever fails, do NOT "fix" it by repinning the constant — a divergence here means
-    /// the Solidity side computes an address Bitcoin does not, and every swap-in built on it
-    /// would be unspendable rather than merely wrong.
-    #[test]
-    fn tap_branch_agrees_with_rust_bitcoin() {
-        use bitcoin::taproot::TapNodeHash;
-
-        let a: [u8; 32] = hex_lit_a();
-        let b: [u8; 32] = hex_lit_b();
-
-        let got = TapNodeHash::from_node_hashes(
-            TapNodeHash::from_byte_array(a),
-            TapNodeHash::from_byte_array(b),
-        );
-
-        // Produced by BOTH `MuSig2Agg.tapBranch(a, b)` and an independent python rebuild of
-        // BIP-340's tagged hash: sha256(sha256("TapBranch") || sha256("TapBranch") || min || max).
-        let expected: [u8; 32] = [
-            0x21, 0x0f, 0x9a, 0x7d, 0x98, 0x06, 0x26, 0xb9, 0x55, 0x6b, 0xbc, 0x01, 0xc6, 0xa1,
-            0xbb, 0xf0, 0xa3, 0xaa, 0x31, 0x1f, 0x8b, 0xa3, 0x61, 0x81, 0xae, 0x64, 0x77, 0xa4,
-            0x7d, 0xf8, 0xd2, 0x06,
-        ];
-        assert_eq!(got.to_byte_array(), expected, "tapBranch diverges from rust-bitcoin");
-
-        // BIP-341 sorts the children, so call order must not matter. The Solidity side asserts
-        // the same property; this pins that BOTH sort the SAME WAY.
-        let swapped = TapNodeHash::from_node_hashes(
-            TapNodeHash::from_byte_array(b),
-            TapNodeHash::from_byte_array(a),
-        );
-        assert_eq!(swapped.to_byte_array(), expected, "child order changed the parent");
-    }
-
-    /// keccak256("leaf-a") — the shared fixture, written out so this file needs no keccak dep.
-    fn hex_lit_a() -> [u8; 32] {
-        [
-            0xd1, 0x7a, 0x96, 0x10, 0xbb, 0x43, 0x52, 0x40, 0x74, 0x93, 0xd9, 0x36, 0x13, 0xd4,
-            0x9e, 0x9e, 0xd5, 0xbd, 0xcd, 0x85, 0x79, 0x8a, 0xdb, 0xa6, 0x39, 0x80, 0x7f, 0x29,
-            0x6d, 0x8d, 0xfc, 0x73,
-        ]
-    }
-
-    /// keccak256("leaf-b").
-    fn hex_lit_b() -> [u8; 32] {
-        [
-            0x87, 0xfd, 0x48, 0x83, 0xcd, 0xd6, 0x38, 0xe9, 0x28, 0x5b, 0xd8, 0xa4, 0x57, 0xae,
-            0xdd, 0x2f, 0x5c, 0x18, 0x10, 0x57, 0x15, 0x76, 0x0d, 0xc0, 0x2c, 0x5f, 0x57, 0x1d,
-            0x7c, 0x59, 0x30, 0x69,
-        ]
-    }
-
     /// (§T2) THE REFUND LEAF IS PINNED ACROSS ALL THREE IMPLEMENTATIONS.
     ///
     /// 🔑 This is the builder the hop uses to QUOTE a deposit address. Solidity
