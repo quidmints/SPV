@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {SwapLib} from "./SwapLib.sol";
 import {Types} from "./Types.sol";
+import {BandLib} from "./BandLib.sol";
 import {LevMath} from "./LevMath.sol";
 import {ICore} from "./Interfaces.sol";
 import {IBandManager} from "./Interfaces.sol";
@@ -430,76 +431,24 @@ library BtcVaultLib {
         p.usdFees = IBandManager(address(this)).USD_FEES_BTC();
         p.mgr = mgr; p.gross = gross;
         d.addedNet += settleBtcLp(LP, lp, address(0), quid, p.feesPerShare, p.usdFees, w); // (E145) fee compounds into pooled
-        (d.burnedNet, d.bufBurned) = levBurnAllBtc(c, LP, levPooledBTC, levBufferUsdBTC, levBufBTC, lp, p);
-        (d.addedNet, d.bufAdded)   = levAddGrossBtc(c, LP, levPooledBTC, levBufferUsdBTC, levBufBTC, lp, p);
+        (d.burnedNet, d.bufBurned) = BandLib.levBurnAll(c, LP, levPooledBTC, levBufferUsdBTC, levBufBTC, lp, p);
+        (d.addedNet, d.bufAdded)   = BandLib.levAddGross(c, LP, levPooledBTC, levBufferUsdBTC, levBufBTC, lp, p);
     }
 
     /// @dev Grow the full-2× BTC slice as two legs: net-equity (into pooled/lpSharesBTC) + the debt-funded
     ///      buffer (into levBufBTC/totalBufferBTC, NOT equity). Returns (addedNet, bufAdded). Per-leg frames.
-    function levAddGrossBtc(
-        Types.BandCfg memory c, Types.Deposit storage LP,
-        mapping(address => uint) storage levPooledBTC,
-        mapping(address => uint) storage levBufferUsdBTC,
-        mapping(address => uint) storage levBufBTC,
-        address lp, Types.BandP memory p
-    ) public returns (uint addedNet, uint bufAdded) {
-        if (p.gross == 0) return (0, 0);
-        uint netEq = ILevEquityBtc(p.mgr).netEquity(lp);
-        addedNet = levAddNetBtc(c, LP, levPooledBTC, levBufBTC, lp, netEq, p);
-        if (p.gross > netEq) bufAdded = levAddBufBtc(c, LP, levBufferUsdBTC, levBufBTC, lp, p.gross - netEq, p);
-    }
 
     /// @dev NET-equity BTC leg — basket-surplus USD. Grows pooled/lpSharesBTC (equity) + levPooledBTC (the
     ///      unwind-only net slice) + V4 depth.
-    function levAddNetBtc(
-        Types.BandCfg memory c, Types.Deposit storage LP,
-        mapping(address => uint) storage levPooledBTC,
-        mapping(address => uint) storage levBufBTC,
-        address lp, uint netEq, Types.BandP memory p
-    ) public returns (uint added) {
-        if (netEq == 0) return 0;
-        uint price = IAux(c.aux).getTWAPforAsset(IAux(c.aux).WBTC(), 1800);
-        if (price == 0) return 0;
-        (uint deltaUSD, uint deltaBTC) = addLiqChannel(c.core, c.aux, netEq, price);
-        if (deltaBTC == 0) return 0;
-        LP.pooled += deltaBTC; levPooledBTC[lp] += deltaBTC;
-        SwapLib.refreshBookmarks(LP, LP.pooled + levBufBTC[lp], p.feesPerShare, p.usdFees);
-        _modLpNetBtc(c.core, p, deltaBTC, deltaUSD, lp);   // extracted (legacy stack)
-        return deltaBTC;
-    }
 
     /// @dev modLP for the NET BTC leg in its own frame (legacy-pipeline stack: the 7-arg call otherwise
     ///      overflows levAddNetBtc). Net leg pairs basket surplus (no debt-funded buffer USD).
-    function _modLpNetBtc(address core, Types.BandP memory p, uint deltaBTC, uint deltaUSD, address lp) private {
-        ICore(core).modLP(deltaBTC, deltaUSD, lp);
-    }
 
     /// @dev BUFFER BTC leg — the debt-funded half. Fee-earning V4 DEPTH but NOT equity: grows levBufBTC (fee
     ///      weight + totalBufferBTC via the return) and the V4 position, but NOT pooled/levPooledBTC. USD =
     ///      buffer sats at price, CAPPED at the LP's debt (debt-backed; buffer USD folds into POOLED_USD).
-    function levAddBufBtc(
-        Types.BandCfg memory c, Types.Deposit storage LP,
-        mapping(address => uint) storage levBufferUsdBTC,
-        mapping(address => uint) storage levBufBTC,
-        address lp, uint bufSats, Types.BandP memory p
-    ) public returns (uint added) {
-        uint bufUsd = _bufUsdBtc(c.aux, bufSats, p.mgr, lp);
-        if (bufUsd == 0) return 0;
-        levBufBTC[lp] += bufSats; levBufferUsdBTC[lp] += bufUsd;   // depth + fee weight, NOT equity
-        SwapLib.refreshBookmarks(LP, LP.pooled + levBufBTC[lp], p.feesPerShare, p.usdFees);
-        _modLpBufBtc(c.core, p, bufSats, bufUsd, lp);   // extracted (legacy stack); buffer USD folds into POOLED_USD
-        return bufSats;
-    }
 
     /// @dev modLP for the BUFFER BTC leg in its own frame (legacy stack). Buffer USD folds into POOLED_USD.
-    function _modLpBufBtc(address core, Types.BandP memory p, uint bufSats, uint bufUsd, address lp) private {
-        ICore(core).modLP(bufSats, bufUsd, lp);
-    }
-    function _bufUsdBtc(address aux, uint bufSats, address mgr, address lp) private view returns (uint bufUsd) {
-        uint price = IAux(aux).getTWAPforAsset(IAux(aux).WBTC(), 1800);
-        if (price == 0) return 0;
-        bufUsd = LevMath.capBufferUsd(bufSats, price, ILevEquityBtc(mgr).debtUsd(lp));
-    }
 
     // ════════════════════════════════════════════════════════════════════
     //  vBTC BAND BODIES (BTC-lev collateral). The ERC-20 face that used to
@@ -583,30 +532,7 @@ library BtcVaultLib {
     ///      USD (`levBufferUsdBTC`) un-pairs from POOLED_USD as part of the gross burn,
     ///      the net-leg USD from the
     ///      basket bucket — so a venue liquidation leaves the basket intact. Full-resync burn.
-    function levBurnAllBtc(
-        Types.BandCfg memory c,
-        Types.Deposit storage LP,
-        mapping(address => uint) storage levPooledBTC,
-        mapping(address => uint) storage levBufferUsdBTC,
-        mapping(address => uint) storage levBufBTC,
-        address lp, Types.BandP memory p
-    ) public returns (uint netBurned, uint bufBurned) {
-        uint netRem = levPooledBTC[lp];
-        if (netRem > LP.pooled) netRem = LP.pooled;   // net leg is in pooled; never burn beyond the position
-        bufBurned = levBufBTC[lp];
-        uint grossRem = netRem + bufBurned;
-        if (grossRem == 0) { levBufferUsdBTC[lp] = 0; return (0, 0); }
-        _burnLpBtc(c.core, p, grossRem);   // extracted (legacy stack); burn gross depth
-        LP.pooled -= netRem; levPooledBTC[lp] -= netRem;  // net leg leaves pooled/lpSharesBTC
-        levBufBTC[lp] = 0; levBufferUsdBTC[lp] = 0;        // buffer leaves totalBufferBTC (bufBurned)
-        // levBufBTC[lp] is now 0, so the GROSS fee weight is simply LP.pooled.
-        SwapLib.refreshBookmarks(LP, LP.pooled, p.feesPerShare, p.usdFees);
-        return (netRem, bufBurned);
-    }
 
     /// @dev modLP burn (no delivery) for a levered BTC slice in its own frame (legacy stack). Recipient is
     ///      address(0) (tokenless burn); buffer USD un-pairs from POOLED_USD as part of the gross burn.
-    function _burnLpBtc(address core, Types.BandP memory p, uint grossRem) private {
-        ICore(core).modLP(grossRem, 0, address(0));
-    }
 }

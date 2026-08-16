@@ -10,6 +10,7 @@ import {IWETH9} from "./ILevVenue.sol";
 // §A.52: ONE canonical Vogue view (was two file-local variants, `IVogue_VG` + `IVogueView_VG`).
 import {IVogue} from "./Interfaces.sol";
 import {Types} from "./Types.sol";
+import {BandLib} from "./BandLib.sol";
 import {LevMath} from "./LevMath.sol";
 import {ILevEquity} from "./Interfaces.sol";
 import {ILevHost} from "./Interfaces.sol";
@@ -79,79 +80,25 @@ library VogueLib {
         address lp, Types.BandP memory p
     ) public returns (uint addedNet, uint burnedNet, uint bufAdded, uint bufBurned) {
         if (levPooled[lp] > 0 || levBuf[lp] > 0)
-            (burnedNet, bufBurned) = levBurnAll(c, LP, levPooled, levBufferUsd, levBuf, lp, p);
+            (burnedNet, bufBurned) = BandLib.levBurnAll(c, LP, levPooled, levBufferUsd, levBuf, lp, p);
         if (p.gross > 0)
-            (addedNet, bufAdded) = levAddGross(c, LP, levPooled, levBufferUsd, levBuf, lp, p);
+            (addedNet, bufAdded) = BandLib.levAddGross(c, LP, levPooled, levBufferUsd, levBuf, lp, p);
     }
 
     /// @dev Burn `lp`'s ENTIRE levered slice tokenlessly (no delivery). Burns the GROSS depth
     ///      (net leg `levPooled` + buffer `levBuf`) from V4; the net leg leaves `pooled`/`lpShares`,
     ///      the buffer leaves `totalBuffer` (via the bufBurned return) — a liquidation leaves the
     ///      basket intact.
-    function levBurnAll(
-        Types.BandCfg memory c, Types.Deposit storage LP,
-        mapping(address => uint) storage levPooled,
-        mapping(address => uint) storage levBufferUsd,
-        mapping(address => uint) storage levBuf,
-        address lp, Types.BandP memory p
-    ) public returns (uint netBurned, uint bufBurned) {
-        uint netRem = levPooled[lp];
-        if (netRem > LP.pooled) netRem = LP.pooled;   // net leg is in pooled
-        bufBurned = levBuf[lp];
-        uint grossRem = netRem + bufBurned;
-        if (grossRem == 0) { levBufferUsd[lp] = 0; return (0, 0); }
-        ICore(c.core).modLP(grossRem, 0, address(0));
-        LP.pooled -= netRem; levPooled[lp] -= netRem;  // net leg leaves pooled/lpShares
-        levBuf[lp] = 0; levBufferUsd[lp] = 0;          // buffer leg leaves totalBuffer (bufBurned)
-        return (netRem, bufBurned);
-    }
 
     /// @dev Add `lp`'s full-2x slice as TWO legs: net-equity (goes into pooled/lpShares) + the
     ///      debt-funded buffer (goes into levBuf/totalBuffer, NOT equity). Returns (addedNet, bufAdded).
-    function levAddGross(
-        Types.BandCfg memory c, Types.Deposit storage LP,
-        mapping(address => uint) storage levPooled,
-        mapping(address => uint) storage levBufferUsd,
-        mapping(address => uint) storage levBuf,
-        address lp, Types.BandP memory p
-    ) public returns (uint addedNet, uint bufAdded) {
-        uint price = IAux(c.aux).getTWAPforAsset(c.asset, 1800);
-        if (price == 0) return (0, 0);
-        uint netEq = ILevEquity(p.mgr).netEquity(lp);
-        addedNet = levAddNet(c, LP, levPooled, lp, netEq, price, p);
-        if (p.gross > netEq)
-            bufAdded = levAddBuf(c, LP, levBufferUsd, levBuf, lp, p.gross - netEq, price, p);
-    }
 
     /// @dev NET-equity leg — basket-surplus USD. Grows pooled/lpShares (equity) + levPooled (the
     ///      unwind-only net slice) + V4 depth.
-    function levAddNet(
-        Types.BandCfg memory c, Types.Deposit storage LP,
-        mapping(address => uint) storage levPooled,
-        address lp, uint netEq, uint price, Types.BandP memory p
-    ) public returns (uint added) {
-        (uint netUsd, uint netEth) = IVogue(address(this)).addLiq(netEq, price);
-        if (netEth == 0) return 0;
-        LP.pooled += netEth; levPooled[lp] += netEth;
-        ICore(c.core).modLP(netEth, netUsd, lp);
-        return netEth;
-    }
 
     /// @dev BUFFER leg — the debt-funded half. It is fee-earning V4 DEPTH but NOT equity, so it grows
     ///      levBuf (fee weight + totalBuffer via the return) and the V4 position, but NOT pooled/lpShares.
     ///      USD = buffer collateral at band price, CAPPED at the LP's OWN debt (debt-backed; folds into POOLED_USD).
-    function levAddBuf(
-        Types.BandCfg memory c, Types.Deposit storage /*unused*/,
-        mapping(address => uint) storage levBufferUsd,
-        mapping(address => uint) storage levBuf,
-        address lp, uint bufEth, uint price, Types.BandP memory p
-    ) public returns (uint added) {
-        uint bufUsd = LevMath.capBufferUsd(bufEth, price, ILevEquity(p.mgr).debtUsd(lp));
-        if (bufUsd == 0) return 0;
-        levBuf[lp] += bufEth; levBufferUsd[lp] += bufUsd;   // depth + fee weight, NOT equity
-        ICore(c.core).modLP(bufEth, bufUsd, lp);
-        return bufEth;
-    }
 
     // ════════════════════════════════════════════════════════════════════
     //  ETH-venue deposit routing (body of Vogue._depositETH). DELEGATECALL'd:
