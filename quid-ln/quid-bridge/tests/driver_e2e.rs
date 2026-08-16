@@ -256,19 +256,20 @@ async fn channel_lifecycle_open_then_close_on_real_evm() {
     //    vault orchestrator does), then drive openChannel(lpEth) — no lpAuth round-trip. ──
     relay_until(&env.cfg, rpc.clone(), o.node_b.esplora.clone(), mk_evm(), env.spv_gateway, funding_height).await;
     let hop_addr = mk_evm().address();
-    let dig = quid_hop::evm_codec::delegation_digest(
-        env.cfg.chain_id, env.cfg.btc_channels, hop_addr, btc_recipient, 1,
-    );
-    let (recid, compact) = secp
-        .sign_ecdsa_recoverable(&bitcoin::secp256k1::Message::from_digest(dig), &lp_evm_key)
-        .serialize_compact();
-    let mut sig = compact.to_vec();
-    sig.push(recid.to_i32() as u8 + 27);
-    let reg_cd = quid_hop::evm_codec::encode_register_delegation(hop_addr, btc_recipient, 1, &sig);
-    assert!(
-        mk_evm().send_tx(env.cfg.btc_channels, reg_cd, env.cfg.gas_limit).expect("registerDelegation send"),
-        "registerDelegation landed on-chain"
-    );
+    // (E157) THE REGISTRATION TX IS GONE — `e0fed54` folded delegation INTO the open ("the
+    // registration tx goes"), and `registerDelegation` no longer exists on `BTCChannels`, so
+    // signing a delegation digest and sending it here could only revert on a deleted selector.
+    // Consent now RIDES WITH the open as an `OpenAuth` + a pre-signed `ExitArming` ladder that
+    // the fleet RELAYS and cannot synthesise, because it holds no LP funding half.
+    //
+    // 🔴 SO THIS TEST IS STILL INCOMPLETE, AND IS LEFT VISIBLY SO RATHER THAN LOOKING FIXED.
+    // `drive_open` (`channel_driver.rs:741`) requires `registry.consent_for_funding(..)` and
+    // refuses the open without it; this harness only calls `bind_funding` below. Completing it
+    // needs REAL fixtures — an LP signature over `openAuthDigest` plus ladder rungs spending
+    // the 2-of-2 — which cannot be stubbed without defeating what the test proves.
+    // ⚠️ Whoever runs `regtest/driver-e2e.sh` will now fail at the CONSENT check, which is the
+    // honest next problem. Before this change they would have failed on a deleted selector
+    // first and spent the time debugging the wrong layer.
     let registry = quid_bridge::vault::VaultRegistry::new();
     registry.bind_funding(&o.funding_txid.to_string(), o.funding_vout, lp_eth);
     warm_twap_window(&*rpc); // else openChannel→registerBtcLp reverts "twap: pre-history"
@@ -439,19 +440,20 @@ async fn swap_out_onchain_delivery_on_real_evm() {
     // ── 1. OPEN (B): register the LP's cold delegation + drive openChannel(lpEth). ──
     relay_until(&env.cfg, rpc.clone(), o.node_b.esplora.clone(), mk_evm(), env.spv_gateway, funding_height).await;
     let hop_addr = mk_evm().address();
-    let dig = quid_hop::evm_codec::delegation_digest(
-        env.cfg.chain_id, env.cfg.btc_channels, hop_addr, btc_recipient, 1,
-    );
-    let (recid, compact) = secp
-        .sign_ecdsa_recoverable(&bitcoin::secp256k1::Message::from_digest(dig), &lp_evm_key)
-        .serialize_compact();
-    let mut sig = compact.to_vec();
-    sig.push(recid.to_i32() as u8 + 27);
-    let reg_cd = quid_hop::evm_codec::encode_register_delegation(hop_addr, btc_recipient, 1, &sig);
-    assert!(
-        mk_evm().send_tx(env.cfg.btc_channels, reg_cd, env.cfg.gas_limit).expect("registerDelegation send"),
-        "registerDelegation landed on-chain"
-    );
+    // (E157) THE REGISTRATION TX IS GONE — `e0fed54` folded delegation INTO the open ("the
+    // registration tx goes"), and `registerDelegation` no longer exists on `BTCChannels`, so
+    // signing a delegation digest and sending it here could only revert on a deleted selector.
+    // Consent now RIDES WITH the open as an `OpenAuth` + a pre-signed `ExitArming` ladder that
+    // the fleet RELAYS and cannot synthesise, because it holds no LP funding half.
+    //
+    // 🔴 SO THIS TEST IS STILL INCOMPLETE, AND IS LEFT VISIBLY SO RATHER THAN LOOKING FIXED.
+    // `drive_open` (`channel_driver.rs:741`) requires `registry.consent_for_funding(..)` and
+    // refuses the open without it; this harness only calls `bind_funding` below. Completing it
+    // needs REAL fixtures — an LP signature over `openAuthDigest` plus ladder rungs spending
+    // the 2-of-2 — which cannot be stubbed without defeating what the test proves.
+    // ⚠️ Whoever runs `regtest/driver-e2e.sh` will now fail at the CONSENT check, which is the
+    // honest next problem. Before this change they would have failed on a deleted selector
+    // first and spent the time debugging the wrong layer.
     let registry = quid_bridge::vault::VaultRegistry::new();
     registry.bind_funding(&o.funding_txid.to_string(), o.funding_vout, lp_eth);
     warm_twap_window(&*rpc); // else openChannel→registerBtcLp reverts "twap: pre-history"
@@ -598,19 +600,20 @@ async fn lp_raw_btc_withdrawal_on_real_evm() {
     // ── 1. OPEN (B): register the LP's cold delegation (pins btcRecipient) + openChannel. ──
     relay_until(&env.cfg, rpc.clone(), o.node_b.esplora.clone(), mk_evm(), env.spv_gateway, funding_height).await;
     let hop_addr = mk_evm().address();
-    let dig = quid_hop::evm_codec::delegation_digest(
-        env.cfg.chain_id, env.cfg.btc_channels, hop_addr, btc_recipient, 1,
-    );
-    let (recid, compact) = secp
-        .sign_ecdsa_recoverable(&bitcoin::secp256k1::Message::from_digest(dig), &lp_evm_key)
-        .serialize_compact();
-    let mut sig = compact.to_vec();
-    sig.push(recid.to_i32() as u8 + 27);
-    let reg_cd = quid_hop::evm_codec::encode_register_delegation(hop_addr, btc_recipient, 1, &sig);
-    assert!(
-        mk_evm().send_tx(env.cfg.btc_channels, reg_cd, env.cfg.gas_limit).expect("registerDelegation send"),
-        "registerDelegation landed"
-    );
+    // (E157) THE REGISTRATION TX IS GONE — `e0fed54` folded delegation INTO the open ("the
+    // registration tx goes"), and `registerDelegation` no longer exists on `BTCChannels`, so
+    // signing a delegation digest and sending it here could only revert on a deleted selector.
+    // Consent now RIDES WITH the open as an `OpenAuth` + a pre-signed `ExitArming` ladder that
+    // the fleet RELAYS and cannot synthesise, because it holds no LP funding half.
+    //
+    // 🔴 SO THIS TEST IS STILL INCOMPLETE, AND IS LEFT VISIBLY SO RATHER THAN LOOKING FIXED.
+    // `drive_open` (`channel_driver.rs:741`) requires `registry.consent_for_funding(..)` and
+    // refuses the open without it; this harness only calls `bind_funding` below. Completing it
+    // needs REAL fixtures — an LP signature over `openAuthDigest` plus ladder rungs spending
+    // the 2-of-2 — which cannot be stubbed without defeating what the test proves.
+    // ⚠️ Whoever runs `regtest/driver-e2e.sh` will now fail at the CONSENT check, which is the
+    // honest next problem. Before this change they would have failed on a deleted selector
+    // first and spent the time debugging the wrong layer.
     let registry = quid_bridge::vault::VaultRegistry::new();
     registry.bind_funding(&o.funding_txid.to_string(), o.funding_vout, lp_eth);
     warm_twap_window(&*rpc); // else openChannel→registerBtcLp reverts "twap: pre-history"

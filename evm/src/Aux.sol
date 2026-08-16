@@ -560,17 +560,28 @@ contract Aux is // Auxiliary
 
     /// @notice get_metrics(force=true) with PRE-FETCHED deposit totals. The redeem path
     ///         already ran a fresh get_deposits() this call (freshness); it threads
-    ///         that pass's `raw`(=amounts[14]) and `yieldWeighted`(=amounts[0]) here so
+    ///         that pass's `raw`(=amounts[14]) and `rateWeighted`(=**yieldW[0]**) here so
     ///         the par-backing metric is recomputed WITHOUT a second get_deposits scan.
+    /// 🔴 **THE SECOND ARGUMENT IS `yieldW[0]` (Σ balance×rate), *NEVER* `amounts[0]` (Σ yieldWeighted).**
+    ///         This docblock and the parameter name both said `amounts[0]` until 2026-08-16 — they were
+    ///         left behind by §E155-overreport's fix, which corrected `computeMetrics` and both call
+    ///         sites but not the surface that DOCUMENTS what to pass. `amounts[0]` is a cumulative
+    ///         SHARE-PRICE LEVEL; `computeMetrics` consumes this slot as an ANNUAL RATE. Passing the
+    ///         level measured **18.72% against a 3.10% true APR — 6.04× over-issuance**, with PYUSD
+    ///         alone contributing 101.49% of which 99.80pp was a base offset no annualisation removes.
+    ///         **Nothing reverts if you get this wrong: the mint simply issues ~6× the intended bond
+    ///         premium as a permanent liability against the basket.** Both live callers are correct
+    ///         (`SwapLib:530` and `BasketLib:1022`); this comment was the only thing still pointing
+    ///         at the defect, which is the exact "a comment describes past state" trap — here armed.
     ///         Identical to get_metrics(true): the values are exactly what the forced
     ///         refresh would have fetched (no state change between), and the same
     ///         `metrics` write + yield-accumulator advance happen. onlyUs — an untrusted
     ///         caller passing fabricated totals would poison the metrics cache.
-    function get_metricsWith(uint raw, uint yieldWeighted)
+    function get_metricsWith(uint raw, uint rateWeighted)
         external onlyUs returns (uint, uint) {
         BasketLib.Metrics memory stats = metrics;
         uint elapsed = block.timestamp - stats.last;
-        metrics = BasketLib.computeMetrics(stats, elapsed, raw, yieldWeighted, raw);
+        metrics = BasketLib.computeMetrics(stats, elapsed, raw, rateWeighted, raw);
         return (metrics.total, metrics.yield);
     }
 
@@ -580,6 +591,8 @@ contract Aux is // Auxiliary
     ///         value of a depegged holding). Non-view (get_deposits refreshes).
     function depegLoss() external returns (uint) { return BasketLib.depegLoss(); }
     function illiquidLoss() external view returns (uint) { return BasketLib.illiquidLoss(); }
+    /// @notice §E203 — flagging variant for the NON-VIEW mint path; see BasketLib.illiquidLossFlagging.
+    function illiquidLossFlagging() external returns (uint) { return BasketLib.illiquidLossFlagging(); }
 
     function getStables() external view
         returns (address[] memory) { return stables;
@@ -655,15 +668,39 @@ contract Aux is // Auxiliary
     /// @notice The live inventory-skew (WAD) the well applies to `asset`'s swap-OUT — the
     ///         pool's reservation-price / RFQ taker-limit offset. Exposed on the SAME unified
     ///         seam as getTWAPforAsset/resolvedTwap so Bebop's RFQ engine AND Khalani's
-    ///         Arcadia solver quote against the EXACT number a swap executes at (base × (1−skew)),
-    ///         instead of re-deriving it and drifting from settlement. 0 = flush (band price
-    ///         stands); rises to the cap when the deliverable inventory is scarce. Read-only.
+    ///         Arcadia solver read the same curve settlement uses. 0 = flush (band price stands);
+    ///         rises to the cap when the deliverable inventory is scarce. Read-only.
+    ///         🔴 THIS IS THE INSTANTANEOUS RATE (drain = 0) AND IT IS **NOT** WHAT A SIZED SWAP
+    ///         EXECUTES AT. This docblock used to claim solvers "quote against the EXACT number a
+    ///         swap executes at", which was true before §E68 and false after: execution now charges
+    ///         the INTEGRAL of the pole over the drain's own path (q0→q1), because charging the
+    ///         starting rate on every unit "billed the last units of a big drain at the cheap
+    ///         starting rate ⇒ THE LARGEST IMBALANCER WAS UNDERCHARGED". So this view UNDERSTATES
+    ///         the cost of any non-trivial size, and the gap widens toward the pole — exactly where
+    ///         being wrong is most expensive. Use `wellSkew(asset, drainUsd6)` to quote a real fill;
+    ///         this one-argument form remains for the flush/indicative case and for consumers pinned
+    ///         to the original signature.
     function wellSkew(address asset) public view returns (uint) {
         // §ISBTC-SPLIT — the asset picks the INSTANCE, through the same wiring-time lookup every
         // other read uses. The band that owns the inventory is the band that prices its scarcity,
         // and there is no longer a way to ask one band about the other's.
         return SwapLib.wellSkew(address(bandOf[asset]),
             getTWAPforAsset(asset, 1800), 0);  // §E68: 0 = read-only quote ⇒ instantaneous rate
+    }
+
+    /// @notice SIZE-AWARE skew — the rate a swap of `drainUsd6` ACTUALLY pays, i.e. the §E68
+    ///         integral over the path that swap itself walks, not a point sample at the start.
+    ///         WHY THIS EXISTS: inventory, not `L`, is what distinguishes a full band from a drained
+    ///         one at the same price — and a quote that ignores the size being taken cannot express
+    ///         that. `base·(1 − wellSkew(asset, size))` is the fill; the one-argument form is the
+    ///         `size → 0` limit of it, which is why the two agree on small tickets and diverge on
+    ///         large ones. An RFQ maker or solver quoting size should read THIS.
+    /// @param asset      volatile side (WETH/WBTC)
+    /// @param drainUsd6  the swap's volatile-side draw, 6-dec USD — the same base settlement uses
+    function wellSkew(address asset, uint drainUsd6) public view returns (uint) {
+        // §ISBTC-SPLIT: the asset picks the BAND INSTANCE via the wiring-time lookup, and the
+        // `isBTC` argument is gone -- the instance knows what it is.
+        return SwapLib.wellSkew(address(bandOf[asset]), getTWAPforAsset(asset, 1800), drainUsd6);
     }
 
     /// @notice The flat swap fee (parts-per-million — 420 = 0.042%) every stable↔volatile swap pays,

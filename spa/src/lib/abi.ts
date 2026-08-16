@@ -15,13 +15,23 @@ export const ERC20_ABI = [
 ] as const
 
 // Core = the V4 pool engine (vogueCore). Only the oracle ring is consumed here —
-// observe() returns tickCumulatives, from which the regime brain derives realized
-// vol + trend (sub-spread chop / supra-spread oscillation / one-way trend).
+// observe() returns cumulative usd18 PRICE·seconds (it returned Uniswap-style
+// tickCumulatives before the tick removal). `regime.decodeTwapLogPrices` differences them into
+// TWAP prices and takes their natural log, which is the series the regime brain is
+// calibrated on (tick units were dropped with the tick removal), from which it derives
+// realized vol + trend (sub-spread chop /
+// supra-spread oscillation / one-way trend).
 export const CORE_ABI = [
   // §E63 — ONE dispatched observe. These were two entries differing only in which ring they
   // read, mirroring a duplication that also existed on-chain (two selectors, two dispatch
   // entries, one behaviour). Both sides now take the band as an argument.
-  'function observe(uint32[] secondsAgos, bool isBTC) view returns (int56[] tickCumulatives)',
+  // (2026-08-15) Was `int56[] tickCumulatives`, inherited from Uniswap v3's observe. The tick
+  // removal made the observation ring store PLAIN PRICES, so `Core.observe` now returns
+  // `uint192[]`. Both are 32-byte words, so the old declaration did not revert — it decoded
+  // each price as a signed 56-bit value, wrapping large prices into wrong and possibly
+  // NEGATIVE numbers in the UI. Silent, which is why the ABI gate is the only thing that
+  // catches it here: `spa/` has no node_modules, so `tsc` cannot run in this tree.
+  'function observe(uint32[] secondsAgos, bool isBTC) view returns (uint192[] prices)',
   // Internal pool state — the REAL committed-vs-backing + in-range fractions.
   'function committedUsd18() view returns (uint)',     // USD committed to the in-range pools
   'function POOLED_ETH() view returns (uint)',          // in-range ETH (short-gamma slice)

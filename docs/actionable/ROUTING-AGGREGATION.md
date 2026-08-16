@@ -136,3 +136,193 @@ vs yield), which is a simpler problem than the three-way tradeoff the doc was wr
 ⚠️ **Do NOT read "1inch handles routing" as "the SOR objective is solved."** The router picks HOW to
 execute; `_pickBestPath` picks WHICH STABLE to source from. Deleting the second along with the
 first would hand basket composition to an external party that cannot see the basket.
+
+---
+
+## Venue priority: our own rails first, aggregator for the residual (owner, 2026-08-16)
+
+⚠️ **PREMISE CORRECTION FIRST, because it sets the architecture: THERE IS NO ON-CHAIN PATHFINDER.**
+1inch's route search runs on their servers and returns calldata. Nothing on-chain computes a split.
+So the settlement guarantee CANNOT come from Pathfinder — it comes from our side of the call, and we
+already have the piece that provides it: **the oracle floor**. Pathfinder proposes, our contract
+disposes: output clears `TWAP × (10_000 − SELL_SLIP_BPS)/10_000` or the call reverts. That holds no
+matter what route came back or how stale the quote is.
+
+**Ordering — the band-first principle extended to every rail we own:**
+
+1. **Our own pools first.**
+   - ETH leg: weETH↔WETH on the ether.fi Curve pool. We have a fair-value anchor here (the ratchet,
+     +0.674 bps/day, monotonic, unmanipulable), so routing it out pays a spread to reach liquidity we
+     already have privileged access to.
+   - BTC leg: our BTC Curve rail plus **Aave V3** for the WBTC side of IL-protect.
+2. **Aggregator for the RESIDUAL only** — whatever our rails cannot absorb.
+
+**Why this ordering and not "quote everything":** it degrades correctly. If the aggregator API is
+down, the owned rails still fill what they can, and with partial fill (§V-R11) that is a REDUCED
+hedge rather than NO hedge. Quoting everything and taking the best makes the aggregator a hard
+dependency; checking our rails first makes it an enhancement.
+
+### vBTC: CHECK THE MARKET'S LIQUIDITY, DO NOT ASSUME IT FROM THE DEPLOY CONFIG
+
+The deploy script **CREATES** the vBTC Morpho market via `_mkMorphoVenue`. A market we create
+ourselves **starts empty by construction** — there are no lenders until someone supplies it. Being
+present in the deploy config is therefore NOT evidence that it can be borrowed from.
+
+This is the same family as the on-chain fact measured 2026-08-16: **six** weETH/USDC 86% markets
+exist on Morpho and **five hold $0.00M**. `fd1fd78` fixed the adjacent hazard (a wrong param now
+REVERTS instead of silently creating an empty twin), but a CORRECTLY-specified market we
+deliberately create is still empty until supplied — `fd1fd78` does not and cannot cover that.
+
+⇒ **The router must read the vBTC market's actual liquidity before treating it as a venue.** Routing
+into a market with no lenders is a revert at best and a stuck position at worst. Precondition, not
+configuration.
+
+### Limit Order Protocol IS relevant — do not dismiss it as "resting orders"
+
+`outOfRange(...)` parks liquidity outside the current range so it fills when price arrives. That IS
+a resting order, expressed as concentrated liquidity. The economics differ — ours earns fees while
+waiting and is our own inventory, an LOP order rests off-book and costs nothing until filled — but
+OOR depth the band cannot or should not carry is exactly what a limit order could carry instead.
+
+### Fusion could invert the keeper dependency — worth evaluating, not yet verified
+
+Fusion is a Dutch auction over an intent; resolvers compete to fill and pay the gas. Three
+consequences if it holds up:
+- **`lev_keeper.rs` stops being load-bearing.** Today it must be alive to rebalance. With an intent
+  posted, whoever wants the fill executes it; the keeper becomes the backstop for "no resolver
+  showed up" — a far better failure posture than "our daemon is down, so the hedge stops tracking".
+- **The decay curve IS the floor.** Start the auction at TWAP and decay toward `TWAP × 0.99`.
+  Anything fillable within our tolerance fills, and we never pick a venue or a size.
+- **Fusion supports partial fills** — §V-R11 served by the protocol rather than by shortfall
+  accounting we would have to write and reason about.
+⚠️ UNVERIFIED: written from general knowledge, not from the live API (v6 needs a key not in this
+tree). Confirm the auction/partial-fill semantics and the ERC-1271 signing path for a contract-held
+intent before designing on it.
+
+### Combine concentration and yield into ONE score — the quote is what makes it possible
+
+Owner: shedding the over-weight stable is bad if it is the high-yield one. The doc's mode-switch
+("most significant objective sets policy") is fragile exactly there — a slightly-over-weight,
+strongly-high-yield stable flips behaviour on a threshold. Replace it with a single score:
+
+    for each candidate source stable:
+        score = expected_out_net_of_gas  +  λ·concentration_benefit  −  μ·yield_loss
+    take the max
+
+This is newly practical BECAUSE of the aggregator: today `_pickBestPath` proxies execution with
+`keys.length` since it has no price, so execution can only ever be a tie-break. A real quote makes
+all three terms DOLLARS, so they add. The threshold problem dissolves — a high-yield over-weight
+stable simply scores worse than a low-yield over-weight one.
+
+Pathfinder optimises NET OF GAS and returns an estimated gas figure, so the split/gas tradeoff is
+internal to the router — the thing `keys.length` was approximating badly.
+
+⚠️ COST TO WEIGH: scoring N candidates means N quotes per rebalance. Off-chain keeper work, cheap in
+gas, real in latency and API rate limits ⇒ score only the plausible candidates (the two or three
+most over-weight), not all eleven stables.
+
+### OOR AS A FUSION INTENT — the capital-efficiency case (owner, 2026-08-16)
+
+`outOfRange` is already a resting order. Expressed as a Fusion intent instead of as parked
+concentrated liquidity, the order rests as a SIGNED COMMITMENT rather than as DEPLOYED CAPITAL.
+
+⇒ **The backing can stay in weETH earning the ether.fi ratchet (+0.674 bps/day, 2.46%/yr) until a
+resolver fills it.** Today that inventory is committed to a price range and is NOT earning the
+ratchet. This is the same "all ETH into weETH, always" principle applied to resting orders, and it
+is a stronger argument for the mapping than execution quality is.
+
+Second gain: the fill goes through Pathfinder at fill time, so it clears against every venue rather
+than only against our own pool at our own range.
+
+⚠️ **THE TRADEOFF, STATED SO IT IS PRICED AND NOT ASSUMED AWAY:** an in-range OOR position EARNS SWAP
+FEES when price oscillates through it. A Fusion intent earns nothing while resting — it earns the
+ratchet on the backing instead. Which dominates depends on how often OOR orders SIT versus FILL, and
+on realised oscillation through the range. **That is measurable from history and HAS NOT BEEN
+MEASURED.** Do not adopt on the capital-efficiency argument until it is: the comparison is
+`ratchet on idle backing` vs `swap fees on oscillation`, and the second is not obviously smaller.
+
+Depends on the same unverified Fusion semantics flagged above (auction/partial-fill behaviour, and
+the ERC-1271 path for a contract-held intent).
+
+### EXCESS-STABLE REBALANCE VIA THE AGGREGATOR — the safe first integration (owner, 2026-08-16)
+
+Route the stables the basket holds ABOVE what total redeemable QU!D supply claims, through the
+aggregator, to fix the basket's own weight imbalances.
+
+**WHY THIS IS THE SAFE PLACE TO INTRODUCE AGGREGATOR ROUTING FIRST — do this before §V-R1:**
+- **The excess is the only capital whose reallocation cannot impair a redeemer.** Everything backing
+  outstanding QU!D is spoken for; the surplus above that claim is unencumbered. Swapping WITHIN it
+  changes composition without changing coverage.
+  ⇒ INVARIANT, enforce per call: `rebalance volume ≤ (basket value − redeemable claim)`.
+- **Stable→stable: no directional exposure, and no urgency.** Nothing breaks if it does not execute
+  this block, so an aggregator outage is a deferral, not an unhedged position. Contrast the lev legs
+  (§V-R1), where a failed call means the hedge stops tracking.
+- The deep stableswaps are already measured and already in `_toUsdc`: USDC/RLUSD $71.9M,
+  PYUSD/USDC $42.4M.
+
+⚠️ **BEFORE RELYING ON SKEW AS THE FEEDBACK SIGNAL, CHECK WHAT IT MEASURES.** The proposal is to
+observe the skew price change to see whether the rebalance helped — double duty on measurements that
+already exist. But skew here is a BAND-SIDE quantity (`sellSkew` quotes the imbalance charge in both
+directions, `6b41bc3`). **Whether it responds to STABLE-BASKET COMPOSITION or only to band inventory
+is the discriminator.** If it is purely band-side its change will not measure a stable rebalance and
+the loop would be reading a signal about something else — a number that moves for a different reason
+than assumed, which is the failure mode that cost two wrong conclusions in this thread alone. Trace
+`sellSkew`'s inputs before wiring it as the objective.
+
+⚠️ **`redeemableAmount()` IS CACHE-SENSITIVE** — `get_metrics`/`get_deposits` are NOT `view`. Without
+refreshing first it reports **0**, which is indistinguishable from "no excess" and would SILENTLY
+DISABLE the rebalance rather than fail loudly. Refresh, then read.
+
+### ORDERING: THE DE-LEVER SELL LEGS COME FIRST — and why this is conservation, not conservatism
+
+Owner, 2026-08-16: *"never a question of conservative but conservation principle"*, and *"if you
+guarantee its execution thereby then it's needed"*.
+
+**`deliverableDollars` does not merely HAIRCUT the levered position — it ASSERTS that a bounded,
+value-neutral de-lever EXISTS.** Read its own docblock (`LevMath.sol:60-68`): *"the USD a levered
+position can produce via a bounded, VALUE-NEUTRAL de-lever, = the real USD backing the band's
+pairing may count … bounded by the liquidation edge, never phantom."* It returns
+`min(netEquityUsd, C·(1 − curLtv/safeLtv))` where `safeLtv = LLTV − PROTECT_MARGIN_BPS`.
+
+⇒ **If the sale cannot execute, that term is not conservative — it is FALSE**, and `D ≥ S + L` is
+computed off value nobody can realise. A haircut you cannot perform is a fiction, not a margin of
+safety. Routing that guarantees execution is therefore the PRECONDITION FOR THE ACCOUNTING BEING
+TRUE, not a liveness improvement.
+
+**So build in this order:**
+
+1. **`_wethToStableDex` and `_wbtcToStable` — the DE-LEVER SELL legs. FIRST.** These are what
+   `deliverableDollars` presupposes and what a liquidation cascade runs through, so they gate
+   SOLVENCY. `_deleverFlash` already flash-borrows the debt token and repays from collateral
+   proceeds — the flash is not the constraint, the SALE is.
+2. `_stableToWethSor` / `_stableToWbtc` — the lever-up BUY legs. These gate only NEW positions and
+   the hedge's ability to track. Serious (§V-R11) but strictly less than solvency.
+
+⚠️ This ordering is the REVERSE of how §V-ROUTE was originally framed, which led with the buy leg
+because that is where the reverts were first measured. The measurement started there; the risk does
+not. **The exit path matters more than the entry path**, because an entry that cannot execute leaves
+an LP unhedged, while an exit that cannot execute leaves the PROTOCOL counting backing it cannot
+realise — and the second is socialised across every holder.
+
+(The excess-stable rebalance above is still the safe place to PROVE the router integration, since a
+failure there is a deferral. Prove it there, then land the sell legs.)
+
+### LEFTOVER FROM THE SOR→CURVE MIGRATION: a dangling approval on the sell leg
+
+`LevMath._wethToStableDex:545` still does `IERC20Min(c.weth).approve(c.aux, wethIn)` before calling
+`_wethToStableCurve` — which approves `CURVE_TRICRYPTO_USDC` ITSELF at `:533` and never touches Aux.
+So that allowance is granted on every de-lever and NEVER CONSUMED; it accumulates as a standing
+WETH approval to Aux.
+
+Vestigial from the pre-`084bc5c` SOR version, where the swap did go through Aux
+(`sorSelfFundedReverse`). Not exploitable — Aux is ours — but it is the same shape as the three dead
+guards deleted 2026-08-15/16: a line that READS as necessary, is not, and has a durable side effect.
+
+⇒ Delete it, and **check `_stableToWethSor` for the mirror-image leftover** (it approves `c.aux` at
+`:473` on the pre-migration path — confirm whether its current body still routes through Aux or
+whether that approval is dangling too). Cheap, and it should ride along with the routing work rather
+than becoming its own errand.
+
+⚠️ NOTE FOR THE ROUTING WORK: this is evidence that the SOR→Curve migration left residue in the
+approval layer. When the legs move to the aggregator, the SAME review is needed — approve
+exact-amount to the ROUTER and zero after, and remove whatever the previous venue's approval was.

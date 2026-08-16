@@ -125,6 +125,17 @@ bdk_esplora = { version = "0.22", default-features = false, features = ["std", "
 bech32 = "0.11"
 # BIP39 mnemonic codes
 bip39 = { version = "2", default-features = false, features = ["zeroize"] }
+# Shamir K-of-N over GF(256), for the family-plan seed shares (quid-common::seed_shares).
+# CHOSEN OVER THE ALTERNATIVES DELIBERATELY, and the reasons are licence and surface area:
+#   * `slip39` (the only SLIP-0039 crate) is GPL-3.0-or-later — linking it would relicense
+#     the daemons. Ruled out on that alone, before any technical comparison.
+#   * `vsss-rs` is Apache/MIT and well maintained, but it exists to share CURVE ELEMENTS for
+#     DKG: it pulls crypto-bigint, num-bigint, elliptic-curve, sha3 and shake to do it. That
+#     is a large audit surface for splitting 32 bytes.
+# `sharks` is ~200 lines of GF(256) Shamir, MIT/Apache, and zeroizes its interpolation state
+# (`zeroize_memory`). `std` is off so it pulls neither `rand/std_rng` nor `getrandom` — we
+# always supply the RNG via `dealer_rng`, which keeps the SGX target's entropy story ours.
+sharks = { version = "0.5", default-features = false, features = ["zeroize_memory"] }
 # rust-bitcoin suite of libraries
 bitcoin = { version = "0.32.7", features = ["serde"] }
 # For casting byte buffers to/from the AESM client from/to structured data.

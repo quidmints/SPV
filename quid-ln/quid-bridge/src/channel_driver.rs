@@ -1182,9 +1182,24 @@ pub async fn run_channel_driver<R: JsonRpc + Send + Sync + 'static>(
 /// mirror) and has accrued `Vault.btcFeesOwedSats` worth splicing, initiate a
 /// HOP-FUNDED splice-in of exactly the owed sats. `registerBtcLp` (in the splice
 /// mirror) then grows the LP's `POOLED` by that delta — the fees COMPOUND into the
-/// position — and [`drive_splice`] keysends the same sats hop→LP and clears the
-/// owed ledger, keeping `delivered` invariant. This is the fleet doing the keeping
-/// for every channel it serves; nothing runs LP-side.
+/// position. This is the fleet doing the keeping for every channel it serves;
+/// nothing runs LP-side.
+///
+/// ⛔ **THERE IS NO KEYSEND, AND THIS DOCBLOCK USED TO SAY THERE WAS.** It read
+/// "[`drive_splice`] keysends the same sats hop→LP and clears the owed ledger", which
+/// contradicted line ~893 of this same file — *"under B the LP has no LN node — the old
+/// keysend is obsolete"* — and that line is the correct one. **No
+/// `send_spontaneous_payment` call exists anywhere in `quid-bridge`, `quid-hop` or
+/// `quid-ln`;** the only `Spontaneous` symbols in the tree are LDK's INBOUND types for
+/// RECEIVING one. The keysend belonged to the pre-§E145 settlement design, and §E145
+/// deleted "the owed ledger and everything that existed to settle it" — the prose simply
+/// outlived the code, as `fee_settle_sats` did until §E191 struck it out below.
+///
+/// 🔑 **SO NOTHING IS PAID OUT: the LP's SHARE COUNT grows and the value is realised at
+/// resize or close** (`BtcVaultLib.feeCompounded` → `Vault.sol:543`,
+/// `lpSharesBTC += feeCompounded`). An LP needs no node, no action and no notification to
+/// receive fees, which is the whole point under B — and it is why a keysend, which would
+/// require the LP to be online to receive, could never have been the mechanism here.
 ///
 /// Rate limit is structural, not a timer: at most ONE splice per channel is
 /// outstanding (`no_pending_splice`), and once it locks the mirror settles the
@@ -1453,8 +1468,10 @@ pub async fn run_channel_reconciler<R: JsonRpc + Send + Sync + 'static>(
                 // the keeping), channel OPEN + live + no splice already pending (the
                 // natural rate limit — reuses the monitor's pending set, no cooldown
                 // timer), and the owed amount clearing the economic-grow floor so the
-                // funding fee can't dominate. drive_splice (the mirror of THIS splice)
-                // then reads the owed, keysends it hop→LP, and clears the ledger.
+                // funding fee can't dominate. The splice mirror then grows the LP's POOLED
+                // by the delta, so the fees COMPOUND into the position and settle at
+                // resize/close. (This said drive_splice "keysends it hop→LP and clears the
+                // ledger" — no keysend exists; see the docblock on maybe_flush_btc_fees.)
                 None => {
                     maybe_flush_btc_fees(
                         &cfg, &rpc, &esplora, &channel_manager, &hop_wallet, &rebalance,

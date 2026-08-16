@@ -35,6 +35,12 @@ library BasketLib {
     /// @notice A take asked for a non-zero amount and delivered nothing — every venue failed.
     ///         §E91-r5: distinct from a partial fill, which is legitimate under fail-soft.
     error NothingDelivered();
+    /// @notice §E191 — the draw was too small to express, NOT a venue outage. The pro-rata allocation
+    ///         is 18-dec and the withdraw is native, so a request below one native unit of a leg
+    ///         (1e12 wei for a 6-dec stable) rounds to zero on every leg. Distinguishing this from
+    ///         `NothingDelivered` matters: that error means EVERY VENUE FAILED, and a dust redeem
+    ///         reporting it sends the reader hunting a venue outage that never happened.
+    error AmountTooSmall();
 
     uint public constant WAD = 1e18;
     uint public constant MONTH = 2420000;
@@ -204,6 +210,21 @@ library BasketLib {
     /// Minimum spacing between rate samples. `_refreshOne` runs on EVERY mutation, so without this the
     /// estimator would difference two observations seconds apart, where integer truncation makes the
     /// numerator 0 and the reported rate flaps to zero on ordinary traffic.
+    /// §E196 — CEILING ON A PER-LEG RATE. A venue whose share price is SELF-REPORTED (an RWA "NAV
+    ///  oracle" is structurally identical to a 4626 share price: both are asserted, both accrue
+    ///  mechanically) can print any rate it likes, and a FABRICATED one has near-ZERO variance — so it
+    ///  reports high AND smooth, dominates the balance-weighted mean, and looks like the SAFEST leg we
+    ///  own. sDAI's honest 1.25% ranks below a fabricated 7%.
+    ///  ⚠️ THIS IS A BOUND, NOT A DETECTOR, and the distinction matters: it stops a fabricated 50% from
+    ///  dominating the projection; it does NOTHING about a fabricated 7%, which is the actual USDX
+    ///  shape. Catching that needs a CROSS-SECTIONAL comparison against the cohort — a second pass in
+    ///  `get_deposits` — and is deliberately not attempted here.
+    ///  The number is MEASURED, not asserted: the live cohort spans 0.62%-7.17% (USDS, USDC, USDT,
+    ///  RLUSD, PYUSD, sDAI, sUSDe, AUSD, 30-day annualised), so 20% is ~3x the top of the real range
+    ///  and far below what a cumulative LEVEL reports. It earns its place under the inverse of the
+    ///  minimise-clamps rule: a fabricated yield is silent and plausible, which is exactly when a
+    ///  bound is warranted rather than cosmetic.
+    uint internal constant MAX_CREDIBLE_RATE = 0.20e18;
     uint internal constant RATE_SAMPLE_MIN = 1 days;
     uint internal constant YEAR = 365 days;
 
@@ -235,6 +256,7 @@ library BasketLib {
                     ? FullMath.mulDiv(FullMath.mulDiv(WAD, level - lastLevel, lastLevel),
                                       YEAR, block.timestamp - lastAt)
                     : 0;
+                if (rate > MAX_CREDIBLE_RATE) rate = MAX_CREDIBLE_RATE;   // §E196
                 lastLevel = level; lastAt = uint40(block.timestamp);
             }
         }
@@ -364,20 +386,25 @@ library BasketLib {
         return currentAccum / (totalTime + 1);
     }
 
-    // sqrt(deficit) × avgYield / 4
+    /// @notice ONE MONTH of the deposit's own yield, clamped to what the tranche still needs.
+    /// @dev §E195 — the `sqrt(deficit) × avgYield / 4` term is GONE, and removing it is nearly
+    ///      behaviour-neutral by measurement, not by hope. `seedFee` took `min` of that term and
+    ///      `usd × avgYield / 12`, and the SECOND one binds whenever
+    ///        `sqrt(deficit)·y/4 > y/12  ⟺  sqrt(deficit) > 1/3  ⟺  deficit > 11.1%`
+    ///      — i.e. for the ENTIRE raise except its last 11%. The sqrt was inert almost everywhere it
+    ///      ran. Below that threshold the fee is now bounded by `target − trancheTotal` instead, which
+    ///      is itself small exactly there, so the deficit taper SURVIVES through the clamp rather than
+    ///      through a curve.
+    ///      What remains is one self-describing rule: charge at most one month of what this deposit
+    ///      will earn, never more than the tranche still needs. That unit is why §E195 needed no
+    ///      recalibration when `avgYield` was corrected from a cumulative LEVEL (mean 18.72%) to a true
+    ///      annualised RATE (mean 3.10%) — the fee moved 1.56% → 0.26% of deposit on its own.
     function seedFee(uint usd,
         uint trancheTotal, uint target,
         uint avgYield) internal pure returns (uint) {
-        if (target == 0 || trancheTotal >= target) return 0;
-        uint deficit = FullMath.mulDiv(
-        target - trancheTotal, WAD, target);
-        uint sqrtDef = Math.sqrt(deficit * WAD);
-        if (sqrtDef == 0 || avgYield == 0) return 0;
-        uint fee = Math.min(FullMath.mulDiv(FullMath.mulDiv(
-            usd, sqrtDef, WAD), avgYield, WAD * 4),
-            target - trancheTotal);
-        return Math.min(fee,
-            FullMath.mulDiv(usd, avgYield, WAD * 12));
+        if (target == 0 || trancheTotal >= target || avgYield == 0) return 0;
+        return Math.min(FullMath.mulDiv(usd, avgYield, WAD * 12),
+                        target - trancheTotal);
     }
 
     /// @param amount Amount being deposited
@@ -701,7 +728,12 @@ library BasketLib {
         }
         if (amounts[14] == 0 || a.amount == 0) { _finalBacking(aux, a.softBacking); return sent; }
         if (a.seed == 0) a.amount = Math.min(amounts[14], a.amount);
-        sent += _takeProRata(aux, a.who, a.amount, a.seed, skip, amounts, fc);
+        {   (uint pr, bool subUnit) = _takeProRata(aux, a.who, a.amount, a.seed, skip, amounts, fc);
+            sent += pr;
+            // Own scope so the two locals leave the frame before `_finalBacking` — this function is at
+            // the legacy stack limit and `via_ir` stays off by design.
+            if (sent == 0 && subUnit) revert AmountTooSmall();
+        }
         _finalBacking(aux, a.softBacking);
     }
 
@@ -750,14 +782,33 @@ library BasketLib {
     ///      Per-slot try/catch: a single halted venue doesn't revert the whole
     ///      redemption — the user gets the sum of slots that worked (failed slot
     ///      contributes 0).
+    /// @return sent delivered, 18-dec.
+    /// @return subUnit TRUE when at least one leg was ALLOCATED a non-zero 18-dec share that then
+    ///         truncated to ZERO native units. §E191 — the allocation is 18-dec and the withdraw is
+    ///         native, so a draw below one native unit of a leg (1e12 wei for a 6-dec stable) rounds
+    ///         away on EVERY leg and `sent` comes back 0. That is not "every venue failed", which is
+    ///         what `NothingDelivered` means; it is a request too small to express. Reporting them as
+    ///         the same thing is what let a dust redeem masquerade as a venue outage.
     function _takeProRata(
         IAux aux, address who, uint amount, uint seed, address skip,
         uint[15] memory amounts, FeeLib.FeeCtx memory fc
-    ) private returns (uint sent) {
+    ) private returns (uint sent, bool subUnit) {
         for (uint i = 1; i <= fc.stables.length; i++) {
             address token = fc.stables[i - 1]; if (token == skip) continue;
-            amounts[i] = FeeLib.allocate(token,
-                             amount, amounts[i], amounts[14], fc);
+            // §E191 — capture the leg's DEPOSIT before overwriting it with the allocation. A funded leg
+            // whose pro-rata share comes back 0 means the draw is too small to express THERE; if that
+            // holds everywhere and nothing is delivered, the request was sub-unit, not a venue outage.
+            // The truncation happens INSIDE `allocate` (its own `if (amount == 0) return 0`), which is
+            // why testing after the divisor below was too late — the first version of this fix put the
+            // flag there and never fired.
+            // No local: `amounts[i]` IS the leg's deposit until it is overwritten, so the funded test
+            // happens in place. A funded leg whose share comes back 0 means the draw is too small to
+            // express there. (`uint dep = amounts[i]` was the obvious spelling and went stack-too-deep;
+            // `via_ir` stays off by design.)
+            if (amounts[i] != 0) {
+                amounts[i] = FeeLib.allocate(token, amount, amounts[i], amounts[14], fc);
+                if (amounts[i] == 0) subUnit = true;
+            }
             if (seed > 0) aux.tipSelf(FullMath.mulDiv(amounts[i], seed, amount), token, -1);
             if (amounts[i] > 0) {
                 // A bad/reverting-decimals stable (e.g. one bound via the permissionless
@@ -769,6 +820,7 @@ library BasketLib {
                 try IERC20(token).decimals() returns (uint8 dd) { d = dd; } catch { d = 0; }
                 if (d == 0 || d > 18) { amounts[i] = 0; continue; }
                 uint divisor = d < 18 ? 10 ** (18 - d) : 1;
+                if (amounts[i] / divisor == 0) { subUnit = true; amounts[i] = 0; continue; }
                 try aux.withdrawSelf(token, amounts[i] / divisor, who) returns (uint w) {
                     amounts[i] = w;
                     sent += amounts[i] * divisor;
@@ -818,6 +870,25 @@ library BasketLib {
     ///         over-issuance that does NOT self-heal when a frozen venue is IMPAIRED (stale-high
     ///         convertToAssets it can never actually deliver).
     function illiquidLoss() external view returns (uint) { (uint l,,) = _illiquidLoss(); return l; }
+
+    /// @notice §E203 — the same deliverability haircut, but it also STARTS/CLEARS the vault-health clock.
+    ///         `Basket._finishMint`'s protocol-mint headroom gate already ran this loop and discarded the
+    ///         per-vault verdict, exactly as the redeem path did before §E197 — and that gate is NOT a
+    ///         view, so the flag costs NOTHING EXTRA: no additional external call, no additional read.
+    ///         ⚠️ NARROW, AND DELIBERATELY SO — do not read this as "mint drives detection". Its one
+    ///         call site sits behind TWO gates: `if (auth(msg.sender))`, i.e. the PROTOCOL-INTERNAL mint
+    ///         path only (fee mints, `creditLPForSwap` swap-out reissuance, Vogue fee distribution) and
+    ///         NOT user deposits; and `if (currentMonth() >= 12)`, so it is DORMANT FOR THE FIRST YEAR.
+    ///         The USER deposit path (`_finishMint`) intentionally does not compute `illiquidLoss` at
+    ///         all, and hooking it would be a NEW read plus a change to the documented mint↔redeem
+    ///         valuation asymmetry — not free, so not done.
+    ///         ⇒ REDEEM REMAINS THE PRIMARY DRIVER. This is a free second one after month 12, no more.
+    ///         DETECTION ONLY — evacuation still requires the deliberate `pokeVaultHealth`.
+    function illiquidLossFlagging() external returns (uint loss) {
+        address worst; uint worstBps;
+        (loss, worst, worstBps) = _illiquidLoss();
+        if (worst != address(0)) IAux(address(this)).flagIlliquidSelf(worst, worstBps < LIQ_TOL_BPS);
+    }
 
     /// @notice Redemption-only DELIVERABILITY haircut. get_deposits values
     /// each 4626 leg at convertToAssets (PAR/solvency), which can exceed what the

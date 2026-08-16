@@ -51,6 +51,9 @@ pub mod freshness_ledger;
 pub mod lev_keeper;
 pub mod lev_keeper_btc;
 pub mod header_source;
+/// The LP's one-time seed backup (§M1#2 phase 1c). Phase 1b made the LP the sole holder of its
+/// half of every 2-of-2; this is the only moment at which it can be handed a copy to keep.
+pub mod lp_seed;
 pub(crate) mod hexutil;
 pub mod provision_api;
 pub mod relayer;

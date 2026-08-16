@@ -44,6 +44,9 @@ pub mod releases;
 pub mod rng;
 /// `RootSeed`.
 pub mod root_seed;
+/// K-of-N Shamir shares of a [`root_seed::RootSeed`], for a family plan that wants recovery
+/// without a custodian and without publishing who its members are.
+pub mod seed_shares;
 /// Global `Secp256k1` context
 pub mod secp256k1_ctx;
 /// `TimestampMs` and `DisplayMs`.

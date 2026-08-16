@@ -308,6 +308,25 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     /// forever, and the fleet can execute any armed shape and **nothing else**, because it cannot
     /// produce a signature for a shape that was never signed.
     ///
+    /// 🔴 **THE "SIGNS ONCE, GOES OFFLINE FOREVER" PREMISE ABOVE IS REFUTED — see §E172, which RAN
+    /// the check rather than reasoning about it.** The vault↔hop channel is a LIVE ROUTING channel:
+    /// `quid-hop/src/rebalancer.rs:32-35` — "the LP can forward a swap-in only up to
+    /// `next_outbound_htlc_limit_msat`" — so **every swap-in is a commitment update needing the
+    /// LP-side funding signature**, not merely every splice. §E172's verdict: "an LP that signs an
+    /// enumerable ladder once at open and goes offline is incompatible with this channel. Not a
+    /// tuning problem — the channel's job is forwarding."
+    ///
+    /// ⚠️ Note what is NOT affected, because the two are easy to conflate. The splice behaviour
+    /// three lines above (a splice spends the funding UTXO ⇒ prior exits are invalid ⇒ ONE live
+    /// exit per current UTXO) is CORRECT and was always documented; re-arming after a splice is
+    /// the accepted cost, which is why `emitDeadManExit` exists and why its own comment says using
+    /// it "should be the exception, not the heartbeat". §E172 is the stronger statement: on a
+    /// FORWARDING channel the LP signature is needed per HTLC, so "the exception" is unreachable.
+    ///
+    /// ⇒ The set/ladder mechanism is sound; the OFFLINE-LP premise it is justified by is not.
+    /// Anything relying on "the LP signs once and never again" must resolve §E172 first — either
+    /// the LP runs something that signs continuously, or this channel stops forwarding.
+    ///
     /// 🔑 THAT IS WHAT BOUNDS A COMPROMISED FLEET. "Spend anywhere" needs a signature; the LP's
     /// half only ever signed these. So the failure mode inverts: an operation outside the set
     /// cannot happen, which is DEGRADED SERVICE (the channel cannot splice) rather than LOSS OF

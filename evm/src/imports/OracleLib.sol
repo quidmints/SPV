@@ -3,7 +3,6 @@
 pragma solidity ^0.8.28;
 
 import {mock} from "../mock.sol";
-import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
@@ -247,30 +246,13 @@ library OracleLib {
         if (card < 3 || n < 3) return 0;
         if (n > card) n = card;
 
-        // Walk back n stored points from the newest, newest-first.
-        uint[] memory rate = new uint[](n - 1);     // per-interval average PRICE
-        uint32 newest; uint32 oldest;
-        {
-            uint16 idx = st.index;
-            Observation memory hi = obs[idx];
-            newest = hi.blockTimestamp;
-            for (uint i = 0; i < n - 1; i++) {
-                uint16 lo_i = uint16((uint(idx) + card - 1 - i) % card);
-                Observation memory lo = obs[lo_i];
-                if (!lo.initialized || lo.blockTimestamp >= hi.blockTimestamp) return 0;
-                uint32 dt = hi.blockTimestamp - lo.blockTimestamp;
-                // §TICK-REMOVAL — THE 1e9 LIFT IS GONE WITH THE TICKS. §E59 added it because
-                // truncating to WHOLE TICKS zeroed every difference on a ~20-tick band. A usd18
-                // price carries 18 decimals natively, so sub-basis-point movement survives without
-                // any rescaling, and omitting the lift keeps `d*d` far inside uint256.
-                rate[i] = uint(hi.priceCumulative - lo.priceCumulative) / uint(dt);
-                hi = lo;
-                oldest = lo.blockTimestamp;
-            }
-        }
-        if (newest <= oldest) return 0;
-        uint spanSecs = newest - oldest;
-
+        // Walk back n stored points from the newest, newest-first, differencing as we go.
+        //
+        // §TICK-REMOVAL — THE 1e9 LIFT IS GONE WITH THE TICKS. §E59 added it because truncating to
+        // WHOLE TICKS zeroed every difference on a ~20-tick band. A usd18 price carries 18 decimals
+        // natively, so sub-basis-point movement survives without any rescaling, and omitting the
+        // lift keeps `d*d` far inside uint256.
+        //
         // Variance of consecutive RELATIVE returns, sample-corrected.
         // §TICK-REMOVAL — THE RETURN IS NOW RELATIVE *EXPLICITLY*, WHICH IS WHAT KEEPS σ²'s UNITS
         // AND LEAVES Γ UNTOUCHED. A tick difference was ALREADY a relative return in disguise (1
@@ -278,17 +260,43 @@ library OracleLib {
         // 1e10 = 1e-8 (tick²→relative²) × 1e18 (WAD). Taking the relative return of a plain price
         // makes that conversion unnecessary rather than merely moving it, so the 1e10 goes with the
         // ticks and the ANNUALIZED NUMBER KEEPS ITS MAGNITUDE AND MEANING.
-        uint m = rate.length - 1;
+        //
+        // §E213 — ONE ARRAY, NOT TWO, AND THE ARITHMETIC IS UNCHANGED. The per-interval average
+        // PRICE used to be materialised in full and differenced in a second loop, but a return
+        // needs only its own interval and the one before it, so a single scalar carries the whole
+        // dependency. The prices are an INTERMEDIATE, never a result — nothing downstream reads
+        // them. Folding the difference into the walk also retires `dt`, `spanSecs`, `prev` and the
+        // separate mean-summing loop, and yields `Σ ret` for free. Same operations in the same
+        // order on the same values ⇒ BIT-IDENTICAL output; this is a locals change, not a maths one.
+        uint m = n - 2;                             // returns = intervals − 1
         if (m < 2) return 0;
         int[] memory ret = new int[](m);
-        for (uint i = 0; i < m; i++) {
-            uint prev = rate[i + 1];
-            if (prev == 0) return 0;
-            ret[i] = (int(rate[i]) - int(prev)) * 1e18 / int(prev);   // WAD relative return
+        int sum;                                    // Σ ret, accumulated in the same pass
+        uint32 newest; uint32 oldest;
+        {
+            uint16 idx = st.index;
+            Observation memory hi = obs[idx];
+            newest = hi.blockTimestamp;
+            uint prevRate;                          // the previous interval — the only one still live
+            for (uint i = 0; i < n - 1; i++) {
+                uint16 lo_i = uint16((uint(idx) + card - 1 - i) % card);
+                Observation memory lo = obs[lo_i];
+                if (!lo.initialized || lo.blockTimestamp >= hi.blockTimestamp) return 0;
+                uint rate = uint(hi.priceCumulative - lo.priceCumulative)
+                          / uint(hi.blockTimestamp - lo.blockTimestamp);
+                if (i != 0) {
+                    if (rate == 0) return 0;        // the OLDER interval is the divisor
+                    int r = (int(prevRate) - int(rate)) * 1e18 / int(rate);   // WAD relative return
+                    ret[i - 1] = r;
+                    sum += r;
+                }
+                prevRate = rate;
+                hi = lo;
+                oldest = lo.blockTimestamp;
+            }
         }
-        int mean;
-        for (uint i = 0; i < m; i++) mean += ret[i];
-        mean /= int(m);
+        if (newest <= oldest) return 0;
+        int mean = sum / int(m);
         uint acc;
         for (uint i = 0; i < m; i++) {
             int d = ret[i] - mean;
@@ -311,6 +319,6 @@ library OracleLib {
         // Per-second. The caller annualises with the MEASURED span rather than a fixed step.
         // `acc` is (WAD relative return)^2 = relative^2 * 1e36, so the caller divides by 1e18 ONCE
         // to land on WAD relative variance — replacing the old `* 1e10 / 1e18`.
-        varPerSecWad = acc / spanSecs;
+        varPerSecWad = acc / uint(newest - oldest);   // the measured span; `newest > oldest` above
     }
 }

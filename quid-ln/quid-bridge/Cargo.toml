@@ -103,6 +103,21 @@ ureq = { version = "2", features = ["json"] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync", "time", "signal"] }
 
 [dev-dependencies]
+# `ExposeSecret`, to compare recovered seeds in the lp_seed tests. Deliberately this
+# rather than quid-common's `test-utils` feature (which would also give `as_bytes`):
+# a dev-dep feature on a normal dependency is a feature-unification question, and this
+# is one import with none.
+secrecy = { workspace = true }
+# Deterministic CSPRNG for the lp_seed tests. `FastRng` cannot be used here: its `CryptoRng`
+# impl is behind quid-crypto's `test-utils`, and enabling that as a dev-dep feature would
+# unify it into the SHIPPING graph — putting a fast, non-cryptographic RNG that ASSERTS
+# `CryptoRng` next to the real one. That is the same feature-unification objection the
+# comment above makes about quid-common's `test-utils`, and it bites harder here because the
+# leaked type is a fake CSPRNG. ChaCha20 is a REAL CSPRNG and still seeds deterministically,
+# so `RootSeed::from_rng`'s `Crng` bound is met (blanket `impl<R: RngCore + CryptoRng> Crng`)
+# WITHOUT the reproducibility those hardcoded seeds exist for being lost.
+# 0.3 is the line built on rand_core 0.6 — the workspace pin. 0.9 would not satisfy the bound.
+rand_chacha = "0.3"
 # For the hop↔bridge integration test only (paying a swap-in invoice via the
 # hop's channel manager). The workspace [patch] unifies this with quid-hop's fork.
 lightning = { version = "0.2" }

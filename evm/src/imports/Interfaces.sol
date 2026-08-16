@@ -267,7 +267,7 @@ interface IAux {
     function aaveShares(address token) external view returns (uint);
     function withdrawAaveLeg(address stable, uint amount, address to) external returns (uint);
     function get_metrics(bool force) external returns (uint total, uint avgYield);
-    function get_metricsWith(uint raw, uint yieldWeighted) external returns (uint total, uint avgYield);
+    function get_metricsWith(uint raw, uint rateWeighted) external returns (uint total, uint avgYield);
     function getTWAPforAsset(address asset, uint32 period) external view returns (uint);
     function vogueETH() external view returns (uint);
     function deliverableETH() external view returns (uint);
@@ -295,6 +295,7 @@ interface IAux {
     function WETH() external view returns (address);
     function tokens(address vault) external view returns (address);
     function illiquidLoss() external view returns (uint);
+    function illiquidLossFlagging() external returns (uint);
     function flagIlliquidSelf(address vault, bool illiquid) external;
     function _depositVol(bool isBTC, address sender, uint amount) external payable returns (uint sent);
     function tipSelf(uint cut, address token, int sign) external;
