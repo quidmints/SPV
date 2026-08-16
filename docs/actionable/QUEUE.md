@@ -453,7 +453,41 @@ its comparison fixed (value the RETAINED SHARES, or force both arms to redeem fu
 haircut (refuted: perShare is par), and the mint path (never reached). Each was checked by running one
 measurement. The one that survived was the one about the INSTRUMENT, not the system.**
 
-## 🔴 THE 0.63% PASSIVE-LP LEAK IS DIAGNOSED — **IT IS NOT THE SWAP. THE BAND SELLS FAIRLY; THE *REDEMPTION* PAYS 92.1 CENTS ON THE DOLLAR (2026-08-16).**
+## ⛔ THE "92.1 CENTS" HEADLINE BELOW IS **WRONG AND SUPERSEDED — NO HAIRCUT EVER RAN (measured 2026-08-16, owner asked *"first check, why is there any haircut"*).**
+🔴 **MEASURED: `matureSupply == 0` in this fixture.** `_redeemQuote` has exactly TWO haircut paths and
+ONE liquidity bound — and **both haircuts are INERT here**:
+| term | `BasketLib` | state in this fixture |
+|---|---|---|
+| depeg severity `solvent − depegLoss` | `:1019` | **inert** — no depeg |
+| solvency `qdShareValue(WAD, solvent, mature)` | `:1023` | **inert** — `ShareMath:25` returns **PAR** when `supplyPreBurn == 0` |
+| `freeUsd = solvent − max(il, committedUsd18)` | `:1030-1032` | **LIVE** — `committedUsd18` ≈ **$251k** |
+⇒ **NOTHING IS MARKED DOWN. The shortfall is the third term, which is a CAPACITY/COMMITMENT bound and
+not a price** — the USD is committed to backing the band's position and therefore not free to pay.
+That reconciles with burn-exact leaving **31.833 shares**: the unpaid remainder, **not a loss**.
+⇒ **THE OWNER'S FORK BELOW (a: basket genuinely short ⇒ haircut correct / b: unjustified loss in the
+QUID mint path) IS VOID — IT PRESUPPOSES A HAIRCUT THAT DOES NOT FIRE.** Do not plan from it, and do
+not "fix" `Basket._finishMint` on its strength.
+⚠️ **HOW THIS SURVIVED: I reached the partial-settlement explanation FIRST and then refuted it**,
+because post-redeem `convertToAssets` valued the residue at **$25** against a **$4,735** gap. That $25
+came from the accessor later shown unreliable on a DRAINED vault (§the 0.63% row above) — **a broken
+instrument killed the correct hypothesis**, and the wrong mechanism then propagated into three
+documents. **Re-derive from `matureSupply`, not from any of the prose.**
+▶️ **WHAT IS NOW ACTUALLY OPEN — and it is a MEASUREMENT question, not a money-path fix:**
+① is `committedUsd18` locking that USD *correctly*, or OVER-locking it? ② is a capacity-bounded redeem
+that leaves live shares the intended behaviour — in which case `_lpValueUsd` is measuring the wrong
+thing, since it values only what LEAVES the redeem and structurally cannot see the residual?
+✅ **PINNED SO THE FIXTURE'S SINGLE REGIME STOPS MISLEADING READERS:** `evm/test/echidna/RedeemQuoteEchidna.sol`
+takes the starting conditions as **fuzzed arguments** rather than inheriting them, so the `mature > 0`
+branches the fixture never reaches are covered. Ten properties, incl. the one encoding this exact
+confusion: **par and liquidity are INDEPENDENT — a full-par share can still be payout-bounded.**
+⚠️ **COMPILE-VERIFIED ONLY, NOT FUZZ-VERIFIED. Echidna cannot run in this tree** — *"Unlinked libraries
+… `script/DeployL1_s.sol:Deploy`"*. **CONTROL RUN: the EXISTING `BandEquityCollapseEchidna` (green at
+50k for another thread) fails IDENTICALLY**, so the blocker is the project-level echidna config, not
+this harness.
+
+*(Original row kept below as evidence — its BAND-SIDE measurements stand; only its redemption
+mechanism is wrong.)*
+## 🔴 THE 0.63% PASSIVE-LP LEAK IS DIAGNOSED — **IT IS NOT THE SWAP. THE BAND SELLS FAIRLY; ~~THE *REDEMPTION* PAYS 92.1 CENTS ON THE DOLLAR~~ (2026-08-16).**
 `LeveragePnLProbe::testLeverage_LvrControlVsTreatment` — pre-existing, not the tick removal (§CORRECTION above).
 ✅ **THE BAND SWAP IS FAIR, SO THE LEAK IS NOT WHERE IT LOOKS.** 20 opens moved the band by **+$60,000.00 exactly**
 and **−31.8340 ETH** ⇒ implied sale **$1,884.78/ETH** against `px0` = **$1,883.76** — the band sold **0.05% ABOVE
