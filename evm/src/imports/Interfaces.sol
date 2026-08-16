@@ -514,6 +514,9 @@ interface ISkewSink { function creditSkewPremium(uint premium6) external; }
 /// identity it should not need to carry -- and it is the precondition for the two managers becoming
 /// one implementation with two instances.
 interface IBand {
+    /// Size and commit `deltaTok` of the band's volatile at `price`. ETH routes through the venue,
+    /// BTC through channels -- the ONE genuine difference in the merged `levAddNet`.
+    function addLiq(uint deltaTok, uint price) external returns (uint usdOut, uint outDelta);
     function creditSkewPremium(uint premium6) external;
     /// The band's leverage manager (`totalDebtUsd` is shared; only the lookup differed).
     function levManager() external view returns (address);

@@ -147,3 +147,90 @@ post-move weight". So the merge:
 `pendingFor` is 0 immediately after. That is the invariant, and it holds for either placement.
 
 ⇒ **All four differences are mechanical**, and the merge is unblocked — but step 2 is NOT optional.
+
+
+## 🔴 BOTH FOLDS ARE GATED BY EIP-170, AND THE GATE IS NOW MEASURED (2026-08-16)
+
+Neither fold fits by concatenation. Merging as-is produces an UNDEPLOYABLE contract, and this
+repo has already shipped a `Core` at −126 bytes with a fully green suite — the suite does not
+catch it. `python3 tools/check-contract-sizes.py` is the gate.
+
+| fold | sum | limit | over by |
+|---|---|---|---|
+| `Core` + `Vogue` | 32,000 | 24,576 | **7,424** |
+| `LevManager` + `BtcLevManager` | 44,372 | 24,576 | **19,796** |
+
+### The Core+Vogue fold is unblocked by ONE step, and it is sufficient
+
+`Vogue` splits cleanly, measured by walking its function bodies:
+
+| cluster | lines | functions |
+|---|---|---|
+| share / position — `_withdraw` 182, `_depositImpl` 82, `_outOfRange` 41, `compound`, `_settlePending`, `_onExit`, the 4626 + ERC-20 face | **539** | 34 |
+| band — bounds, repack, theta, fee accumulators | **280** | 44 |
+
+⇒ `Vogue` is **66% position machinery**. Moving that cluster into `Shares` frees proportionally
+~14KB — comfortably more than the 7,424 needed — leaving a band-only `Vogue` of ~8KB. Then
+`Core` 10,074 + band ~8,000 ≈ **18,000 < 24,576** and the fold fits with headroom.
+
+**So the order is forced, and it is not a preference:** extract the share face FIRST, fold
+second. Attempting the fold first cannot work at any level of care.
+
+### The lev-manager fold needs ~19,800 bytes moved before it is expressible
+
+`LevBase` (208 lines) and `LevVenueBase` (375) already exist as the shared bases, and the two
+managers share SEVENTEEN function names (`debtUsd`, `netEquity`, `onMorphoFlashLoan`,
+`ilTargetLtvBps`, `deliverableDollars`, `cascadeDelever*`, `openLpAt`, `protectFromQuid`, …).
+But `LevManager` alone is 23,754 with 822 bytes of margin, so the merge needs the bodies in a
+library before one contract can hold both. That is a larger extraction than the share face and
+should follow it, not precede it.
+
+
+## `outOfRange` IS ONE FUNCTION — and my "12% similar, not duplicates" retraction was an artifact
+
+Owner, 2026-08-16: *"outOfRangeBtc and outOfRange are just one function on the shares contract
+right?"* — **Yes, and the similarity measurement that said otherwise was comparing a HALF against
+a WHOLE.**
+
+| | what it does |
+|---|---|
+| `BtcVaultLib.outOfRangeBtc` | validate → size → store `SelfManaged` → push `positions` → `ICore.outOfRange` — **the whole pipeline** |
+| `VogueLib.sizeOutOfRange` | deposit → `sizeOorUsd` → return `(liquidity, placed)` — **the sizing half only** |
+| `Vogue.outOfRange:277` | the storing half, kept in the contract |
+
+⇒ Same pipeline, **split at a different point**. The 12% textual similarity measures where the
+seam was cut, not whether the logic differs. ⚠️ **This is the "confirm what the value refers to"
+trap in its purest form:** the diff ran, the number printed, and it was about something else.
+A similarity score can only be read as evidence of difference once BOTH sides are the same scope.
+
+**`Core.outOfRange` is ALREADY one function serving both bands** (`onlyUs`, ETH and BTC alike).
+So the engine end is done; the duplication is entirely in the two band managers' entries plus the
+two library halves — i.e. **exactly the per-LP position cluster destined for `Shares`.**
+
+### The one genuine fork, classified
+
+| difference | verdict |
+|---|---|
+| ETH accepts `token == address(0)` (native, via `depositETH`); BTC reverts `NotAStable()` | **REAL** — but it is a per-INSTANCE property ("does this asset have a wrapped-native deposit leg"), not per-function logic. ETH has WETH; BTC has no EVM-native form. |
+| BTC calls `validateOorParams`/`oorBounds` inside; ETH does it in the caller | **DRIFT** — seam placement only |
+| BTC stores `SelfManaged` in the library; ETH stores it in the contract | **DRIFT** — same struct, same fields |
+
+⇒ On a `Shares` contract instantiated twice this is **ONE `outOfRange`**, with the native-deposit
+branch selected by the instance's own asset. That removes two entries and two library halves.
+
+## Oracle shape (owner, 2026-08-16): ring 256 → 2h snapshot → 360 per vintage
+
+> *"256 but they give 2 hr snapshots, 12 of those per day, so 30*12 observations per batch
+> (6909 vintage)"*
+
+| layer | size | period |
+|---|---|---|
+| raw ring | **256** observations | one per block at peak |
+| 2h snapshot | derived from the ring | 12 per day |
+| **vintage batch** | **360** snapshots (30 days × 12) | ONE ERC-6909 token id |
+
+⚠️ **360 > 256, and that is not a contradiction — they are different arrays.** The ring holds RAW
+observations and stays 256; the snapshot series is its own storage, one entry per 2h, and a
+vintage is 30 days of them. Reading "256" as the snapshot capacity is the error to avoid.
+A 6909 token id IS the monthly cohort, which is what ties this to the dated-liability curve.
+⚠️ `OracleLib.RING` is **1024 today**, not 256 — the reduction is still open.

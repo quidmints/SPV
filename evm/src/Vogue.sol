@@ -3,6 +3,7 @@
 pragma solidity ^0.8.28;
 
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
+import {BandLib} from "./imports/BandLib.sol";
 // §A.52: the canonical view (was a file-local `IEthVenueV`).
 import {IEthVenue} from "./imports/Interfaces.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
@@ -1000,7 +1001,7 @@ contract Vogue is
     ///      storage refs (selfManaged/positions) mutate in place. Logic unchanged.
     function pull(uint id, // existing self-managed position
         int percent, address token) external nonReentrant {
-        VogueLib.pullBody(address(CORE), selfManaged, positions, id, percent, token, msg.sender);
+        BandLib.pull(address(CORE), selfManaged, positions, id, percent, token, msg.sender);
     }
 
     // _distributeV4Fees + _calcYield folded into VogueLib.rebalanceBody (their ONLY caller was _rebalance; the

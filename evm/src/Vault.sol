@@ -3,6 +3,7 @@
 pragma solidity ^0.8.28;
 
 import {Vogue} from "./Vogue.sol";
+import {BandLib} from "./imports/BandLib.sol";
 // §A.52: the canonical Aux view (was a file-local variant).
 import {Core} from "./Core.sol";
 import {Aux} from "./Aux.sol";
@@ -486,6 +487,15 @@ contract Vault is Ownable, ReentrancyGuard {
     ///         Permissionless (like Vogue.syncLev): it only moves the tokenless levered slice to match
     ///         the manager (the keeper pokes it via the manager's hook). GROW pairs net-equity in-range
     ///         as depth; SHRINK/liquidation burns it. No new channel sats — backed by vogueBTC.
+    /// §BAND-MERGE — THE SAME `addLiq` FACE VOGUE ALREADY HAS. The merged lev bodies size the
+    ///         net-equity leg through `IBand(address(this)).addLiq(tok, price)`; ETH answered that
+    ///         with `Vogue.addLiq` and BTC with the LIBRARY function `addLiqChannel`, which is why
+    ///         the two `levAddNet` bodies could not be one. Same signature, same return shape --
+    ///         only the routing differs, and routing is exactly what belongs in the band.
+    function addLiq(uint deltaTok, uint price) public onlyUsBtc returns (uint usdOut, uint outDelta) {
+        return BtcVaultLib.addLiqChannel(address(CORE), address(AUX), deltaTok, price);
+    }
+
     function syncLev(address lp) external nonReentrant {   // §SLOP: one name across both bands
         // Whole body (skip-check + _rebalance-via-repack + fee-settle + FULL-RESYNC:
         // burn all, re-add gross as two legs) in BtcVaultLib.syncLev (delegatecall)
@@ -634,7 +644,7 @@ contract Vault is Ownable, ReentrancyGuard {
     ///      it's hop-trusted, not part of the provable proceeds collapse.
     function pullBtc(uint id, int percent, address token) external nonReentrant {
         // Body in BtcVaultLib.pullBtc (delegatecall); storage refs mutate in place.
-        BtcVaultLib.pullBtc(address(CORE), selfManagedBtc, positionsBtc,
+        BandLib.pull(address(CORE), selfManagedBtc, positionsBtc,
             id, percent, token, msg.sender);
     }
 
