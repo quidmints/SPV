@@ -8592,6 +8592,37 @@ weakens a guard that is currently doing real work — it caught this three times
 ⇒ **SO "FINISH THE REMOVALS" IS ONE DEX RE-ROUTE PLUS ONE DEPLOY-TIME PRICE SOURCE.** Nothing vestigial is left to sweep — a grep-count plan would badly misjudge this, which is the same error §E200-UNBLOCKED warns about (*"test the INVARIANT, not a reference count"*).
 ⛔ **AND IT CANNOT BE VERIFIED TODAY: `main` MEASURES 3,597 passed / 954 FAILED** on a clean checkout with nothing uncommitted (was 4,528/1 this morning). Failures are *"swaps funded POOLED_USD: 0 <= 0"* and *"unfilled swap ETH must NOT all land in POOLED"* — i.e. **the booked transitional hazard**, swaps settling against `POOLED_*` while custody moves. **There is no green baseline to land a DEX re-route against.**
 
+## 📕 SKEW/REFILL THREAD — CLOSE-OUT RECORD (2026-08-16). **Everything this thread started, landed or open, so it can be closed.**
+
+### ✅ LANDED AND VERIFIED
+| what | commit | verification |
+|---|---|---|
+| The charge reshaped onto **imbalance created** (210 ppm ≡ 420 ppm on notional, no new constant) | `8404f836` | control-validated (2 injected bugs caught) |
+| `refillPlacement` — composition from inventory+price, **no width, no ticks, no sqrt-price** | `8404f836`,`845a2143` | 9/9 pure |
+| **σ²==0 free-drain fix** (partial drains charged ZERO at unmeasured variance) | `d892f3f1` | suite 4,523/1 at the time |
+| **Size-aware quote** — a 90% drain filled **4.12×** worse than published | `845a2143` | 3/3 + control |
+| `wellSkew(address)` **retired** (folded into the 2-arg form; the size-blind footgun deleted) | `d7335750` | 463/0 across 5 suites |
+| **Depletion σ²-free, keyed on `inv0`** (drained) not `q` (scarce) | `b4e39798` | 8/8 pure; full-suite delta NOT obtainable (see blocker) |
+| `docs/informational/POSITIONING.md` + 4 corrections against code | `c6cd2a6e` | every `file:line` checked |
+
+### 🔴 OPEN — WITH OWNER AND NEXT ACTION
+| item | state | next action |
+|---|---|---|
+| **THE BLOCKER** | `main` = **3,597 passed / 954 failed**; `POOLED_USD` never funded after the v4 cut | **§06773fa9 owns it** (was 848, now 954 — trending worse). *Nothing on the money path can be verified until it clears.* |
+| **`UNIT-C` trigger** | threshold DECIDED (owner): the skew's own predicate `inv1 < target`, no new constant | plumbing only — a daemon task over the existing `creditSwapIn` rail; `daemon.rs`'s 10 tasks read no band inventory. Docker/`quid-ln` builds |
+| **`UNIT-ROUNDTRIP-LIVE`** | DECIDED: **pro-rata exit**, not the forella brake (its coincide-on-monotone premise is refuted). Owner adds: **convert to destination token via 1inch** — a NEW dependency, zero references today | reprices every LP exit; `testRoundTripNoRaceNoDrain` is the acceptance test and already fails at baseline |
+| **`UNIT-B-PATIENCE`** | GRADED case open. Root found and fixed *in shape* by `b4e39798`; the windowing the row specifies rests on a conservation premise that **does not reproduce from its own numbers** | do NOT implement windowing on that premise |
+| **refill → repack fold** | `VogueLib.addLiq` already computes `tok·px == usd`, so composition IS repack's | applying the placement needs liquidity settling against inventory — lands with the cut |
+| **v4 removal** | `TickMath`/`sqrtPriceX96`/`LiquidityAmounts`/`isBTC` **0**. Left: `IPoolManager` 8, `PoolKey` 7, `unlockCallback` 1, `SafeCallback` 3, `BalanceDelta` 2, `SOR.sol` present | **two replacements, not sixteen deletions**: re-route Aux's execution to `ICurvePool.exchange` (proven in-tree at `LevMath:398`/`:461`) + a non-v4 deploy-time price read for `prepRefs` |
+
+### ⛔ WHAT I GOT WRONG, so the next thread does not repeat it
+1. **Attributed 982 failures to my own change without a baseline.** Baseline was 954. My delta was 28. I reverted a sound design on a misattribution.
+2. **Said the fill failures came from the v4 cut** — my control point (`363a4e48`) was *inside* the cut.
+3. **Called the 0.63% LP leak an instrument artifact** — $25 cannot explain $4,735; I killed the right hypothesis with a broken accessor.
+4. **Asserted three times that a component/consumer existed without opening the file** (`refillRealisable`, `refillQuote`, "consumers pinned to that signature") — each was load-bearing and each was wrong.
+5. **Counted `isBTC` at 12 when the real count is 0** — 3 were `§ISBTC-SPLIT` obituaries and 8 were same-named locals. *A name matches its own obituary.*
+⇒ **Every finding that held, I got by RUNNING something. Every one I withdrew, I reasoned to.**
+
 ## 🧭 UNIT STATUS INDEX — **READ THIS BEFORE PLANNING FROM ANY `UNIT-*` MARKER BELOW (2026-08-16, owner: *"make sure every UNIT is no longer misleading"*).**
 **MEASURED: 241 distinct `UNIT-*` identifiers, but only 105 are TABLE ROWS.** The other **136 are inline
 evidence tags** inside other rows' prose — they are citations, not tasks, and were never work items.
