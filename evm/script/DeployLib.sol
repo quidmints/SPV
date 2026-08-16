@@ -170,7 +170,11 @@ library DeployLib {
         aux.setQuid(address(quid));
 
         // ── Vault (BTC LP/hop side) + EthVenue (ETH yield-venue custody) ──
-        Vault eth = _newVault(cfg, address(v4), address(core), address(aux));  // own frame (no via_ir)
+        // §ISBTC-SPLIT — THE BTC BAND MANAGER TAKES THE BTC CORE. This passed `core` (the ETH
+        // instance) while `Vault.sol` states outright "the instance IS the BTC one", so the code
+        // assumed one wiring and the deploy supplied another -- the comment was right and the
+        // assignment was wrong, which is the exact shape CLAUDE.md records for this split.
+        Vault eth = _newVault(cfg, address(v4), a.btcCore, address(aux));  // own frame (no via_ir)
         // The ETH-venue pointers now target the CUSTODY contract, not the Vault. Every
         // `IEthVenue(...)` call site follows the pin, so nothing else moves.
         EthVenue ev = new EthVenue(address(v4), address(aux), cfg.weth);

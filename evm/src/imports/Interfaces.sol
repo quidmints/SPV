@@ -492,3 +492,39 @@ interface IVaultExposeB {
 interface IVBtcToken { function VAULT() external view returns (address); }
 
 interface ISkewSink { function creditSkewPremium(uint premium6) external; }
+
+/// §ISBTC-SPLIT — THE BAND MANAGER'S FACE, SO `Core` STOPS ASKING WHICH ASSET IT IS.
+///
+/// Every remaining `IS_BTC` branch on Core's money path was Core reaching into ONE OF TWO band
+/// managers for the same fact and having to know which. `ISkewSink` above already proved the shape
+/// works -- both managers expose `creditSkewPremium`, so that one call site needed no branch. This
+/// extends that to the rest, and the two contracts implement it differently BECAUSE THE BANDS
+/// DIFFER, which is the honest place for the difference to live.
+///
+/// ⚠️ THE TWO NO-OPS ARE THE POINT, not laziness:
+///   • `deliverVolatile` — ETH pays out real ether; BTC settles by Lightning cooperative close, so
+///     there is nothing on-chain to send. One of the four known-REAL asymmetries (CLAUDE.md).
+///   • `onShortfall` — BTC routes to the hop (real-BTC delivery, no basket stables). ETH does
+///     NOTHING **deliberately**: a surplus-funded refill would buy ETH for a usually-impermanent
+///     shortfall and realise that IL onto shared backing, compensating the flow at every LP's
+///     expense. Real ETH demand is met at withdrawal via the share price instead.
+/// Encoding those as members means the BAND owns its settlement, instead of `Core` branching on an
+/// identity it should not need to carry -- and it is the precondition for the two managers becoming
+/// one implementation with two instances.
+interface IBand {
+    function creditSkewPremium(uint premium6) external;
+    /// The band's leverage manager (`totalDebtUsd` is shared; only the lookup differed).
+    function levManager() external view returns (address);
+    /// Gross levered collateral in the band's NATIVE unit (wei / sats).
+    function levGrossNative() external view returns (uint);
+    /// Share base the shortfall trigger compares against -- NET for ETH, net + levered buffer for
+    /// BTC, so the comparison stays gross-to-gross on both sides.
+    function sharesForShortfall() external view returns (uint);
+    /// REAL inventory, never just the in-pool token: ETH counts venue retention and idle, BTC
+    /// counts pooled sats plus swept off-pool WBTC.
+    function realInventory() external view returns (uint);
+    /// Remediation when inventory falls short of shares. See the no-op note above.
+    function onShortfall(address sender, uint shortfall) external;
+    /// Pay the volatile leg out to `who`. See the no-op note above.
+    function deliverVolatile(uint amount, address who) external;
+}
