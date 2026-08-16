@@ -139,7 +139,7 @@ library DeployLib {
             a.bandBacking = address(backing);
         }
         Aux aux = new Aux(Aux.AuxInit({
-            vogue: address(v4), core: address(core),
+            vogue: address(v4), core: address(core), btcCore: a.btcCore,
             poolManager: address(cfg.poolManager),
             weth: cfg.weth, wbtc: cfg.wbtc,
             gho: cfg.gho, usdg: cfg.usdg,

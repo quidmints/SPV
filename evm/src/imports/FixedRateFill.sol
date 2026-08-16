@@ -107,11 +107,11 @@ library FixedRateFill {
     ///                  passing 0 gives the Δ→0 instantaneous rate, which is a DASHBOARD signal and
     ///                  NOT a settlement quote. A settlement quote must pass its real size, or the
     ///                  swapper is charged for an imbalance smaller than the one they create.
-    function quoteDrain(address core, uint base, bool isBTC, uint wantUsd6, uint64 ttl)
+    function quoteDrain(address core, uint base, uint wantUsd6, uint64 ttl)
         internal view returns (Quote memory q)
     {
         if (wantUsd6 == 0) revert NoQuote();          // a zero-size settlement quote is a category error
-        q.skewWad   = SwapLib.wellSkew(core, base, isBTC, wantUsd6);
+        q.skewWad   = SwapLib.wellSkew(core, base, wantUsd6);
         q.rateWad   = _applySkew(base, q.skewWad, true);
         q.maxSizeIn = wantUsd6;                        // the quote is valid for THIS size, not more
         q.deadline  = uint64(block.timestamp) + ttl;
@@ -121,11 +121,11 @@ library FixedRateFill {
     /// @param  addedTok the volatile being deposited. Passed so the sell is judged on inventory AFTER
     ///         its own contribution — a pool sitting exactly at target would otherwise never charge
     ///         any sell, however large (the §E54 note on `sellSkew`).
-    function quoteFill(address core, uint base, bool isBTC, uint addedTok, uint64 ttl)
+    function quoteFill(address core, uint base, uint addedTok, uint64 ttl)
         internal view returns (Quote memory q)
     {
         if (addedTok == 0) revert NoQuote();
-        q.skewWad   = SwapLib.sellSkew(core, base, isBTC, addedTok);
+        q.skewWad   = SwapLib.sellSkew(core, base, addedTok);
         q.rateWad   = _applySkew(base, q.skewWad, false);
         q.maxSizeIn = addedTok;
         q.deadline  = uint64(block.timestamp) + ttl;

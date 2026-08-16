@@ -46,6 +46,12 @@ contract Aux is // Auxiliary
     // stables[0].
     Vogue internal immutable V4;
     Core internal immutable CORE;
+    /// §ISBTC-SPLIT — the BTC band INSTANCE. `CORE` is the ETH band; both are constructed in
+    /// `DeployLib` and registered with the same `BandBacking`. Aux needs the handle because the
+    /// skew is now read FROM the instance rather than selected by a flag passed alongside one
+    /// address: without it, a WBTC quote would silently be priced by the ETH band's inventory —
+    /// a plausible number for the wrong band, which is the failure mode that announces nothing.
+    Core internal immutable BTC_CORE;
     WETH9 public immutable WETH;
     IERC20 public immutable WBTC;
     // The pool manager lives in SafeCallback's base (ImmutableState) as the
@@ -261,6 +267,7 @@ contract Aux is // Auxiliary
     struct AuxInit {
         address vogue;
         address core;
+        address btcCore;
         address poolManager;
         address weth;
         address wbtc;
@@ -281,6 +288,7 @@ contract Aux is // Auxiliary
 
         V4 = Vogue(payable(a.vogue));
         CORE = Core(a.core);
+        BTC_CORE = Core(a.btcCore);
 
         // GHO + USDG + WETH AAVE wiring. All are first-class assets on the
         // AAVE v4 spoke; reserve ids are deterministic per (hub, asset),
@@ -631,7 +639,11 @@ contract Aux is // Auxiliary
     ///         instead of re-deriving it and drifting from settlement. 0 = flush (band price
     ///         stands); rises to the cap when the deliverable inventory is scarce. Read-only.
     function wellSkew(address asset) public view returns (uint) {
-        return SwapLib.wellSkew(address(CORE), getTWAPforAsset(asset, 1800), asset == address(WBTC), 0);  // §E68: 0 = read-only quote ⇒ instantaneous rate
+        // §ISBTC-SPLIT — the asset now picks the INSTANCE, not a boolean argument. Identical
+        // dispatch, one indirection earlier: the band that owns the inventory is the band that
+        // prices its scarcity, and there is no longer a way to ask one band about the other's.
+        return SwapLib.wellSkew(asset == address(WBTC) ? address(BTC_CORE) : address(CORE),
+            getTWAPforAsset(asset, 1800), 0);  // §E68: 0 = read-only quote ⇒ instantaneous rate
     }
 
     /// @notice The flat swap fee (parts-per-million — 420 = 0.042%) every stable↔volatile swap pays,

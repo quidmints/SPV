@@ -1229,8 +1229,8 @@ contract Core is SafeCallback {
         // DRAIN vs FILL: buying volatile drains the scarce side (`wellSkew`, A&S pole — you CAN run
         // out); selling into us grows inventory (`sellSkew`, linear — you cannot run out of surplus).
         out -= (out * (inputIsUsd
-            ? SwapLib.wellSkew(address(this), px, IS_BTC, amount)
-            : SwapLib.sellSkew(address(this), px, IS_BTC, amount))) / 1e18;
+            ? SwapLib.wellSkew(address(this), px, amount)
+            : SwapLib.sellSkew(address(this), px, amount))) / 1e18;
         // THE 420 PPM, CHARGED HERE BECAUSE v4 WAS CHARGING IT. `OracleLib:180` set `k.fee = 420` as
         // the POOL TIER; v4 collected it and `Collect` harvested it into `feesPerShare`/`USD_FEES`.
         // Deleting v4 deletes the collector, so without this the fill charges NOTHING: the LP fee

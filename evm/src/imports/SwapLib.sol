@@ -408,7 +408,7 @@ library SwapLib {
             // withheld input stays as basket backing (same mechanism as the drain leg).
             {
                 r.px = _priceOr(v4p, address(aux), r.asset);
-                uint skew = sellSkew(c.core, r.px, isBTC, r.amount); // inline (swapToBody stack-tight)
+                uint skew = sellSkew(c.core, r.px, r.amount); // inline (swapToBody stack-tight)
                 retainSkewPremium(c.core, isBTC, r, skew, true);   // NATIVE volatile input ⇒ convert   // mutates r.amount; r.px declares NATIVE
             }
         } else { max = ICore(c.core).POOLED();
@@ -431,7 +431,7 @@ library SwapLib {
             // the honest oracle (v4p) through routeSwap ⇒ no manip-guard exemption.
             {
                 r.px = _priceOr(v4p, address(aux), r.asset);
-                uint skew = wellSkew(c.core, r.px, isBTC, r.amount); // §E68: r.amount IS the 6-dec drain size
+                uint skew = wellSkew(c.core, r.px, r.amount); // §E68: r.amount IS the 6-dec drain size
                 retainSkewPremium(c.core, isBTC, r, skew, false);  // buy-driving USD ⇒ already 6-dec   // mutates r.amount; r.px declares NATIVE
             }
         }
@@ -1022,7 +1022,7 @@ library SwapLib {
     /// function with two leverage parameters, reads as though leverage MATTERS here — the exact
     /// belief E58 exists to kill. Leaving the plumbing in place contradicted the fix at the one spot
     /// a reader would look to confirm it.
-    function _skewBasis(address core, uint base, bool isBTC, uint addedTok)
+    function _skewBasis(address core, uint base, uint addedTok)
         private view returns (uint poolVolUsd)
     {
         poolVolUsd = FullMath.mulDiv(
@@ -1060,21 +1060,31 @@ library SwapLib {
     ///      having ONE composer means the two legs cannot drift apart again — they already did once
     ///      (E68b: the sell leg priced at the endpoint for a whole session after the drain leg was
     ///      fixed). Callers pass the bare kernel; everything else is decided here.
-    function _composePrice(address core, uint kernel, uint sigmaSqWad, bool isBTC)
+    function _composePrice(address core, uint kernel, uint sigmaSqWad)
         private view returns (uint) {
+        // §ISBTC-SPLIT: derived HERE, not threaded in — the same argument the note below already
+        // makes about the exposure clock. Dropping the parameter CUTS a live value from two
+        // stack-tight call sites rather than adding one; `sellSkew` does not compile otherwise.
+        bool isBTC = ICore(core).IS_BTC();
         uint splice = isBTC ? SPLICE_FLOOR : 0;
         // §UNIT-B-PATIENCE: read the exposure clock here rather than threading it in — this frame
         // exists to RELIEVE stack pressure (no via_ir), so a fifth parameter would work against it.
         uint risk = _maxWellSkew(sigmaSqWad, isBTC) - splice;
-        uint out = FullMath.mulDiv(kernel + risk, _sharedScarcityWad(core, isBTC), 1e18) + splice;
+        uint out = FullMath.mulDiv(kernel + risk, _sharedScarcityWad(core), 1e18) + splice;
         return out > MAX_WELL_SKEW ? MAX_WELL_SKEW : out;
     }
 
-    function _sharedScarcityWad(address core, bool isBTC) private view returns (uint) {
+    function _sharedScarcityWad(address core) private view returns (uint) {
         uint both = ICore(core).committedUsd18();
         if (both == 0) return 1e18;
-        uint btc = ICore(core).bandEquityUsd18();
-        uint other = isBTC ? (both > btc ? both - btc : 0) : btc;
+        // §ISBTC-SPLIT — THE TERNARY WAS THE FUSED `Core` DECIDING WHICH HALF WAS "MINE". It read
+        // `isBTC ? both - btc : btc` because ONE contract held BOTH bands and `bandEquityUsd18()`
+        // named the BTC one either way. Under instances that question does not arise:
+        // `bandEquityUsd18()` IS this instance's own equity, so the other side is the remainder,
+        // unconditionally. Same denominator (`committedUsd18`) as the solvency bound, by
+        // subtraction — computing it independently is how two views of one quantity drift apart.
+        uint mine = ICore(core).bandEquityUsd18();
+        uint other = both > mine ? both - mine : 0;
         return 1e18 + FullMath.mulDiv(other, 1e18, both);
     }
 
@@ -1085,10 +1095,14 @@ library SwapLib {
     ///        §E68: before this parameter existed the drain leg was size-BLIND while the sell leg
     ///        already took `addedTok` — backwards, since the drain is the side bounded by physical
     ///        deliverability. The two legs are now symmetric in size-awareness.
-    function wellSkew(address core, uint base, bool isBTC, uint drainUsd6)
+    function wellSkew(address core, uint base, uint drainUsd6)
         public view returns (uint)
     {
-        uint poolVolUsd = _skewBasis(core, base, isBTC, 0);
+        // §ISBTC-SPLIT — identity comes FROM THE INSTANCE, not from a caller's flag. The remaining
+        // uses below are REAL per-asset facts (BTC's confirmation window and on-chain splice fee),
+        // which is an argument for the instance knowing what it is, not for threading a boolean.
+        bool isBTC = ICore(core).IS_BTC();
+        uint poolVolUsd = _skewBasis(core, base, 0);
         // UNIFORM sats/wei → 6-dec USD: `poolVol · base / 1e30`. Authoritative (NOT
         // BasketLib.convert, which now uses the SAME flat scale (the /1e8 variant over-valued
         // 8-dec BTC by 1e10 and was removed) —
@@ -1119,7 +1133,7 @@ library SwapLib {
         // otherwise underflowed on a BALANCED band — the common case — and cost 782 failures.
         uint splice = isBTC ? SPLICE_FLOOR : 0;
         uint amp = raw > splice
-            ? FullMath.mulDiv(raw - splice, _sharedScarcityWad(core, isBTC), 1e18) + splice
+            ? FullMath.mulDiv(raw - splice, _sharedScarcityWad(core), 1e18) + splice
             : raw;
         // §E79: the re-cap after the amplifier is now the ABSOLUTE ceiling. The expected-loss FLOOR
         // was already applied inside `skewWad`, and re-clamping to it here would undo the inversion
@@ -1147,7 +1161,7 @@ library SwapLib {
     ///      `internal` was the only reason a quote could price one direction and not the other.
     ///      ⚠️ Still a VIEW over live `Core` state, so a quote is only as fresh as the block it was
     ///      taken in. Whatever binds a quote to a settlement must carry its own staleness bound.
-    function sellSkew(address core, uint base, bool isBTC, uint addedTok)
+    function sellSkew(address core, uint base, uint addedTok)
         public view returns (uint)
     {
         // §E58: `target` is FLOW alone — the leverage DEBT is not a constraint on shedding (see
@@ -1159,7 +1173,7 @@ library SwapLib {
         // transient conversion locals so they free their stack slots before the skewWad call (no via_ir).
         uint inv;
         {
-            uint poolVolUsd = _skewBasis(core, base, isBTC, addedTok);
+            uint poolVolUsd = _skewBasis(core, base, addedTok);
             inv = poolVolUsd;                                 // §E58: levered depth IS band depth
         }
         // A-S inventory-sign flip: reflect inv about target. inv≤target (refill) ⇒
@@ -1262,7 +1276,7 @@ library SwapLib {
         // §E89b: and the SAME risk-vs-fee split — the settlement-window risk term rides the amplifier
         // with the kernel; only `SPLICE_FLOOR` stays outside it. Written here so both legs compose
         // their price identically; they had already drifted apart once (E68b).
-        return _composePrice(core, skew, sigmaSqWad, isBTC);
+        return _composePrice(core, skew, sigmaSqWad);
         // SAME dynamic cap as the drain leg — one ceiling, both legs (`_maxWellSkew`).
         // §E79 — SAME CAP-TO-BASE INVERSION AS THE DRAIN LEG. One rule, both legs.
 
@@ -1317,7 +1331,7 @@ library SwapLib {
         // `amount` here is ALREADY 6-dec USD (scaleTo6 in _swapOutPrep), so px=0 declares "no conversion":
         // this leg's recorded premium was always in the right unit and stays that way.
         SwapReq memory sr; sr.amount = amount; sr.px = 0;
-        retainSkewPremium(core, true, sr, wellSkew(core, basePrice, true, amount), false);  // audit + RFQ-drawable
+        retainSkewPremium(core, true, sr, wellSkew(core, basePrice, amount), false);  // audit + RFQ-drawable
         amount = sr.amount;
         rp.amount    = amount;                               // reduced buy drives the fill
         rp.recipient = address(this);                       // obligation → pool; LN delivers
