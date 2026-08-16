@@ -27,7 +27,7 @@ import {IMorphoFlash} from "../imports/Interfaces.sol";
 /// moved de-lever bodies (`deleverFlashBody`) can invoke it from the manager's delegatecall context.
 /// The band sync-hook surface the sold-fraction target + reseat reads. Mirrors the managers'
 /// ILevSyncHook/ILevSyncHookB — a delegatecall'd library can't read their immutables, so the manager passes the
-/// hook address in. All view: the Vogue impls are all view (soldFractionWad/bandSqrtP are
+/// hook address in. All view: the Vogue impls are all view (soldFractionWad/bandPrice are
 /// `view` fns, reseatEpoch is a `public` state var), and `view` external calls are STATICCALL-safe inside the
 /// try/catch below (Solidity allows try/catch on view calls) and callable from both view and non-view callers.
 
@@ -101,7 +101,7 @@ library LevMath {
     }
 
     /// @notice The reseat DECISION folded out of both managers' `_reanchorIfReseated`.
-    /// @dev  Re-anchor iff the position's `entrySqrtP` now sits OUTSIDE the band's current `[lower, upper]`.
+    /// @dev  Re-anchor iff the position's `entryPrice` now sits OUTSIDE the band's current `[lower, upper]`.
     ///       This REPLACED a `reseatEpoch` counter (removed 2026-08-09) and is strictly MORE PRECISE, not
     ///       merely smaller: the counter fired on EVERY reseat, including ones that left this anchor still
     ///       inside the new range and therefore needed no re-anchor. The bounds fire only when the frame moved
@@ -112,23 +112,24 @@ library LevMath {
     ///       because BOTH live consumers ask the point-in-time question; the windowed consumer (§E93) is
     ///       refuted and blocked. **If anyone builds a WINDOWED reading over the tick series, the epoch must
     ///       come back, and §E117 is the evidence for why.**
-    /// @dev  Compared in SQRT space, never by converting `entrySqrtP` to a tick: tick conversion truncates, so
+    /// @dev  Compared in SQRT space, never by converting `entryPrice` to a tick: tick conversion truncates, so
     ///       a position anchored exactly at a boundary would flip on rounding.
     /// @dev Same `active` deletion as `ilTargetLive` — this gate is why re-anchoring NEVER FIRED in
     ///      production, including after the 2026-08-09 bounds-check rewrite.
-    function reanchorCompute(address hook, uint160 entrySqrtP)
-        public returns (bool go, uint160 newSqrtP) {
-        if (hook == address(0) || entrySqrtP == 0) return (false, 0);
-        try ILevSyncHook(hook).bandSqrtP() returns (uint160 v) { newSqrtP = v; } catch { return (false, 0); }
+    function reanchorCompute(address hook, uint entryPrice)
+        public returns (bool go, uint newSqrtP) {
+        if (hook == address(0) || entryPrice == 0) return (false, 0);
+        try ILevSyncHook(hook).bandPrice() returns (uint v) { newSqrtP = v; } catch { return (false, 0); }
         if (newSqrtP == 0) return (false, 0);
         // ONE accessor pair. The hook is per-asset and answers for its own band, so there is no name
         // to select — which is all the removed `isBTC` did here.
-        int24 lo; int24 hi;
-        try ILevSyncHook(hook).LOWER_TICK() returns (int24 l) { lo = l; } catch { return (false, 0); }
-        try ILevSyncHook(hook).UPPER_TICK() returns (int24 u) { hi = u; } catch { return (false, 0); }
+        uint lo; uint hi;
+        try ILevSyncHook(hook).LOWER_PRICE() returns (uint l) { lo = l; } catch { return (false, 0); }
+        try ILevSyncHook(hook).UPPER_PRICE() returns (uint u) { hi = u; } catch { return (false, 0); }
         if (lo >= hi) return (false, 0);                       // band unset/degenerate → nothing to compare against
-        if (entrySqrtP >= TickMath.getSqrtPriceAtTick(lo) &&
-            entrySqrtP <= TickMath.getSqrtPriceAtTick(hi)) return (false, 0);   // still inside its own frame
+        // §DE-TICK — a DIRECT price comparison. The bounds are prices; converting them through the
+        // tick grid was the only reason this needed TickMath.
+        if (entryPrice >= lo && entryPrice <= hi) return (false, 0);   // still inside its own frame
         go = true;
     }
 
@@ -140,12 +141,12 @@ library LevMath {
     ///      flag defaulting FALSE that the deploy script never set — so in production this ALWAYS fell through
     ///      to the estimate and the band's measured sold fraction was never read, while three test suites
     ///      flipped it true in setUp and verified the path production did not run. The remaining conditions
-    ///      (`entrySqrtP != 0 && hook != address(0)`) already ARE the availability test the flag stood in for:
+    ///      (`entryPrice != 0 && hook != address(0)`) already ARE the availability test the flag stood in for:
     ///      use ground truth whenever it can be obtained, else the estimate. Adaptive by construction, no latch.
-    function ilTargetLive(address hook, uint160 entrySqrtP, uint128 entryPriceWad, uint256 px, uint64 capBps)
+    function ilTargetLive(address hook, uint entryPrice, uint128 entryPriceWad, uint256 px, uint64 capBps)
         public returns (uint256) {
-        if (entrySqrtP != 0 && hook != address(0)) {
-            try ILevSyncHook(hook).soldFractionWad(entrySqrtP) returns (uint256 sf) {
+        if (entryPrice != 0 && hook != address(0)) {
+            try ILevSyncHook(hook).soldFractionWad(entryPrice) returns (uint256 sf) {
                 if (sf != 0) { uint256 bps = sf / 1e14; return bps > capBps ? capBps : bps; }
             } catch {}
         }

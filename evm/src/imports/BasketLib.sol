@@ -392,7 +392,7 @@ library BasketLib {
     /// @param sqrtPriceX96 Square root price
     /// @param token0isUSD Whether token0 is USD
     /// @return price ETH price in USD 1e18
-    function getPrice(uint160 sqrtPriceX96, bool token0isUSD)
+    function getPrice(uint sqrtPriceX96, bool token0isUSD)
         public pure returns (uint price) {
         uint casted = uint(sqrtPriceX96);
         uint ratioX128 = FullMath.mulDiv(
@@ -524,8 +524,7 @@ library BasketLib {
 
                 poolSupplied = pooled;
             }
-            out = ICore(ctx.core).swap(p.isBTC, p.sqrtPriceX96,
-                      p.recipient, p.zeroForOne, p.token, pooled);
+            out = ICore(ctx.core).swap(p.recipient, p.zeroForOne, p.token, pooled);
         }
         // If p.amount > V4 capacity, `out` is less than amount. minOut at
         // outer layer enforces slippage / partial-fill tolerance.

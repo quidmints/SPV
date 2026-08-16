@@ -37,12 +37,12 @@ library OracleLib {
         bool initialized;
     }
     /// Per-pool ring scalars (grouped so the helpers take one storage ref).
-    struct ObsState { uint160 lastPrice; uint16 cardinality; uint16 index; }
+    struct ObsState { uint lastPrice; uint16 cardinality; uint16 index; }   // §DE-TICK: uniform width
 
     /// @dev Append the current price to the ring (or just update lastPrice if a
     ///      same-timestamp write already happened this block).
     function writeObservation(
-        Observation[65535] storage obs, ObsState storage st, uint160 price
+        Observation[65535] storage obs, ObsState storage st, uint price
     ) external {
         uint32 blockTimestamp = uint32(block.timestamp);
         uint16 idx = st.index;
@@ -76,7 +76,7 @@ library OracleLib {
         uint32 time = uint32(block.timestamp);
         Observation memory latest = obs[st.index];
         Observation memory oldest = _getOldest(obs, st);
-        uint160 lastPrice = st.lastPrice;
+        uint lastPrice = st.lastPrice;
 
         for (uint i = 0; i < secondsAgos.length; i++) {
             uint32 target = time - secondsAgos[i];
@@ -173,7 +173,7 @@ library OracleLib {
     ///      So `token0`/`token1` arrive ALREADY SORTED and `tick` ALREADY ALIGNED.
     function initPool(IPoolManager pm, PoolKey storage k, ObsState storage st,
         Observation[65535] storage obs, address volMock, address usdMock,
-        bool refVolIsC0, int24 refTick) external returns (bool token1isVol, PoolId id) {
+        bool refVolIsC0, uint refPrice) external returns (bool token1isVol, PoolId id) {
         token1isVol = volMock > usdMock;                       // V4 lex-ordering
         k.currency0 = Currency.wrap(token1isVol ? usdMock : volMock);
         k.currency1 = Currency.wrap(token1isVol ? volMock : usdMock);
@@ -188,19 +188,19 @@ library OracleLib {
         // arithmetic duplicated across a library boundary is exactly the drift E14
         // tracks, and OracleLib does not import SwapLib anywhere else, so there is
         // no cycle (checked).
-        int24 tick = SwapLib.alignTick(
-            (refVolIsC0 == !token1isVol) ? refTick : -refTick, 10);
-
-        // TickMath survives HERE ONLY: v4's `initialize` takes a sqrt-price and the seed is
-        // expressed as an aligned TICK. That conversion happens ONCE at deploy, at the v4 boundary.
-        // The READ path — twap and variance — no longer touches ticks or sqrt-prices at all.
-        uint160 seedSqrtP = TickMath.getSqrtPriceAtTick(tick);
-        pm.initialize(k, seedSqrtP);
-        // `token0isUSD == token1isVol`: token1 is the VOLATILE (`token1isVol = volMock > usdMock`),
-        // so token0 is the USD leg. `Core:653` assigns `token1isVol = token1isVol` and `twapBody`
-        // passes that same bool as `token0isUSD` — writer and reader must agree or the seed is a
-        // RECIPROCAL price. (They did not, first run: `PriceLimitAlreadyExceeded` at setUp.)
-        st.lastPrice = uint160(BasketLib.getPrice(seedSqrtP, token1isVol));
+        // §DE-TICK — THE v4 SEED IS GONE. This aligned a reference tick to the grid, converted it to
+        // a sqrt price and called `pm.initialize` so v4 would host the band. Nothing calls the
+        // PoolManager any more, so there is no pool to initialize — the ring is seeded with the
+        // reference PRICE directly, which is what `lastPrice` always held. This was the last
+        // `TickMath` call in the tree, and the comment beside it already anticipated the removal:
+        // "TickMath survives HERE ONLY ... at the v4 boundary."
+        st.lastPrice = refPrice;
+        // §DE-TICK — SEEDED DIRECTLY FROM THE REFERENCE PRICE. The `getPrice(seedSqrtP, ...)` decode
+        // is gone with the sqrt price it decoded, and so is the reciprocal-orientation hazard the
+        // comment here recorded: a USD-per-volatile price does not flip with token ordering, so
+        // writer and reader cannot disagree about which way up it is. That defect class is deleted,
+        // not guarded — it existed only because sqrtPriceX96's meaning depended on which token got
+        // the lower address.
         st.cardinality = 1;
         obs[0] = Observation({ blockTimestamp: uint32(block.timestamp),
             priceCumulative: 0, initialized: true });

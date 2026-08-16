@@ -15,19 +15,22 @@ import {VogueLib} from "./imports/VogueLib.sol";
 import {SwapLib} from "./imports/SwapLib.sol";
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+// §V4-CUT — WHAT IS LEFT OF v4 IN THIS FILE, AND WHY.
+// `Core` makes ZERO calls to the PoolManager now. These survive as TYPES only:
+//   SafeCallback  — the base class still requires the `_unlockCallback` override. Unreachable in
+//                   practice (nothing unlocks); it goes when the base class does.
+//   IPoolManager  — the constructor still takes one, purely to satisfy SafeCallback.
+//   PoolKey/PoolId/Currency/BalanceDelta — vestigial identity for VANILLA_ETH/VANILLA_BTC.
+// Deleted here as unused: LiquidityAmounts, TickMath, IHooks, TransientStateLibrary,
+// CurrencySettler, StateLibrary, and the five `using` directives that bound them.
 import {SafeCallback} from "v4-periphery/src/base/SafeCallback.sol";
 
-import {LiquidityAmounts} from "v4-periphery/src/libraries/LiquidityAmounts.sol";
 import {BalanceDelta, BalanceDeltaLibrary} from "v4-core/src/types/BalanceDelta.sol";
-import {TransientStateLibrary} from "v4-core/src/libraries/TransientStateLibrary.sol";
 
 import {Currency, CurrencyLibrary} from "v4-core/src/types/Currency.sol";
-import {CurrencySettler} from "v4-core/test/utils/CurrencySettler.sol";
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
-import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 
-import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 // §E5 — the shared per-band premium sink (rule 2: ONE declaration, in the canonical file).
 import {ISkewSink, ILevEquity, ILevEquityBtc} from "./imports/Interfaces.sol";
 // §E21: IERC20Min had TWO declarations (here and imports/ILevVenue.sol). One home now.
@@ -40,7 +43,6 @@ interface IBandBacking {
     function total() external view returns (uint256);
     function otherThan(address band) external view returns (uint256);
 }
-import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 
 /// @dev Live total leverage debt (USD 1e18) of a pinned LevManager — the debt-funded buffer that
@@ -62,11 +64,6 @@ import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 /// can have its own out-of-range positions (limit orders) — those are
 /// not in POOLED_USD_{ETH,BTC} (which is the active in-range slice).
 contract Core is SafeCallback {
-    using TransientStateLibrary for IPoolManager;
-    using BalanceDeltaLibrary for BalanceDelta;
-    using StateLibrary for IPoolManager;
-    using CurrencyLibrary for Currency;
-    using CurrencySettler for Currency;
     using PoolIdLibrary for PoolKey;
 
     /// Per-pool oracle rings — the engine now lives in OracleLib (delegatecall),
@@ -453,8 +450,11 @@ contract Core is SafeCallback {
     /// §V4-CUT — THE BAND'S RANGE, now OURS to store. It used to live inside the v4 position, which
     /// is why re-ranging required burning and re-adding liquidity. With inventory held directly the
     /// range is a PRICING PARAMETER: moving it changes what we quote against, not what we hold.
-    int24 public LOWER_TICK;
-    int24 public UPPER_TICK;
+    /// §DE-TICK — the band's bounds are PRICES (USD per volatile, WAD), not ticks. Under inventory
+    /// the range is a pricing parameter, and a price bound is what every consumer actually wanted:
+    /// the tick grid only ever existed so v4 could index many positions on a shared curve.
+    uint public LOWER_PRICE;
+    uint public UPPER_PRICE;
 
     /// §ISBTC-SPLIT — the shared accountant. Holds the ONE thing two instances still share: the
     /// joint committed equity that `require(committedUsd18() <= haircutTvl)` gates on, and the
@@ -690,7 +690,7 @@ contract Core is SafeCallback {
         // with no pointer to pass, so those two assignments stay here.
         (bool token1isVol, PoolId id) = OracleLib.initPool(poolManager,
             IS_BTC ? VANILLA_BTC : VANILLA_ETH, _obsState(), _obs(),
-            volMock, usdMock, refVolIsC0, refTick);
+            volMock, usdMock, refVolIsC0, uint(int(refTick)));
 
         if (IS_BTC) { token1isVol = token1isVol; POOL_ID_VANILLA_BTC = id; }
         else       { token1isVol = token1isVol; POOL_ID_VANILLA_ETH = id; }
@@ -747,9 +747,11 @@ contract Core is SafeCallback {
     /// "the add failed" would be wrong — that is the line to check when wiring callers.
     /// ⚠️ `sqrtPriceX96` and the tick bounds are unused; they stay only until the callers are
     /// updated in this same cut.
-    function modLP(uint160 /*sqrtPriceX96*/, uint delta,
-        uint deltaUSD, int24 /*tickLower*/, int24 /*tickUpper*/,
-        address sender) public onlyUs returns (uint sent) {
+    /// §DE-TICK — the price and tick arguments are GONE, not ignored. They described where in a v4
+    /// range the liquidity had to land; inventory has no range to fit, so carrying them would cost
+    /// calldata on every call to describe a placement that no longer happens.
+    function modLP(uint delta, uint deltaUSD, address sender)
+        public onlyUs returns (uint sent) {
         // Both legs ENTER the band ⇒ NEGATIVE, per the convention derived in `swap` (positive leaves
         // the pool, negative enters it). `_t1` says which leg carries USD.
         Delta memory d = token1isVol
@@ -767,23 +769,20 @@ contract Core is SafeCallback {
     /// ⚠️ `inRange = false` IS PRESERVED AND IS LOAD-BEARING: an out-of-range order must not move
     /// `POOLED_*`, which tracks the ACTIVE band. Dropping it would let a resting boundary order
     /// inflate the in-range inventory every LP claim is priced against.
-    /// ⚠️ `amount` IS UNSIGNED AND DIRECTION IS EXPLICIT. The old parameter was `int liquidity`
-    /// ONLY because v4's `liquidityDelta` is signed — the sign was doing double duty as direction.
-    /// A position SIZE is never negative, so carrying it as `int` meant casting at every call site
-    /// and every store. `closing` says what the sign used to say, and says it legibly.
+    /// SIGN CARRIES DIRECTION: `amount > 0` OPENS the order (tokens ENTER the band ⇒ negative delta,
+    /// per `_handleDelta`'s rule that positive LEAVES); `amount < 0` CLOSES it. One value, one
+    /// meaning — no companion flag that can disagree with it, and no call site where the size says
+    /// one thing and the direction another.
     /// ⇒ THIS WAS THE LAST `poolManager.unlock` AND THE LAST `_modifyLiquidity`. With it gone the
     /// band's tokens are ours, custody and accounting are one thing again, and the transitional
     /// divergence marked in `swap` is CLOSED.
-    function outOfRange(address sender, uint amount, bool closing,
-        int24 /*tickLower*/, int24 /*tickUpper*/, address token)
+    function outOfRange(address sender, int amount, uint /*lower*/, uint /*upper*/, address token)
         public onlyUs returns (uint tokOut) {
         // Single-sided by construction: a boundary order rests entirely on one side of spot, so the
         // amount belongs to the volatile leg when `token == 0` and to the USD leg otherwise.
-        // OPENING: tokens ENTER ⇒ negative, per `_handleDelta`'s rule that positive LEAVES.
-        int256 signed = closing ? int256(amount) : -int256(amount);
         Delta memory d = ((token == address(0)) == token1isVol)
-            ? Delta(0, signed)
-            : Delta(signed, 0);
+            ? Delta(0, -amount)
+            : Delta(-amount, 0);
         _handleDelta(d, false, false, sender, token);
         int256 t = token1isVol ? d.amt1 : d.amt0;
         tokOut = t > 0 ? uint(t) : 0;
@@ -793,7 +792,7 @@ contract Core is SafeCallback {
     ///         ASYNC per-pool (in-frame refill is unsafe — re-enters Aux on
     ///         half-settled backing): ETH emits ETHRefillRequest (keeper → refillETH
     ///         buys back from free surplus); BTC emits a hop request (we don't mint WBTC).
-    function swap(uint160 sqrtPriceX96, address sender,
+    function swap(address sender,
         bool forOne, address token, uint amount)
         onlyUs public returns (uint out) {
         // 🛑🛑🛑 DO NOT MERGE THIS WORKTREE. TRANSITIONAL SOLVENCY HAZARD, KNOWINGLY OPEN. 🛑🛑🛑
@@ -953,12 +952,13 @@ contract Core is SafeCallback {
     /// would delete the band's holdings on a bookkeeping operation.
     /// Fees return 0 because there is no v4 accrual to harvest: the 420 ppm is charged in the fill
     /// and compounds into `POOLED_*` at swap time.
-    function repack(uint128 /*myLiquidity*/, uint160 /*sqrtPriceX96*/,
-        int24 /*oldTickLower*/, int24 /*oldTickUpper*/,
-        int24 newTickLower, int24 newTickUpper) public onlyUs
+    /// §DE-TICK — the four dead parameters are GONE, not widened. `myLiquidity` and the old bounds
+    /// described a v4 position being burned and re-added; there is no burn. Keeping them as ignored
+    /// arguments would cost calldata on every repack to describe an operation that no longer happens.
+    function repack(uint newLower, uint newUpper) public onlyUs
         returns (uint price, uint fees0, uint fees1, uint delta0, uint delta1) {
-        LOWER_TICK = newTickLower;
-        UPPER_TICK = newTickUpper;
+        LOWER_PRICE = newLower;
+        UPPER_PRICE = newUpper;
         price = AUX.getTWAPforAsset(IS_BTC ? address(AUX.WBTC()) : address(AUX.WETH()), 1800);
         _writeObservationPrice(uint160(price));
         return (price, 0, 0, 0, 0);
@@ -980,12 +980,11 @@ contract Core is SafeCallback {
     /// ⚠️ KEPT AS A DISTINCT ENTRYPOINT ONLY because its callers pass a different argument list.
     /// It should collapse into `repack` when those callers are updated — flagged rather than done,
     /// because merging two entrypoints is an ABI change and belongs with the caller pass.
-    function reseat(uint128 /*myLiquidity*/, uint160 /*currentSqrt*/,
-        uint160 /*targetSqrt*/, int24 /*oldTickLower*/, int24 /*oldTickUpper*/,
-        int24 newTickLower, int24 newTickUpper) public onlyUs
+    /// §DE-TICK — same removal as `repack`, and for the same reason.
+    function reseat(uint newLower, uint newUpper) public onlyUs
         returns (uint price, uint fees0, uint fees1, uint delta0, uint delta1) {
-        LOWER_TICK = newTickLower;
-        UPPER_TICK = newTickUpper;
+        LOWER_PRICE = newLower;
+        UPPER_PRICE = newUpper;
         price = AUX.getTWAPforAsset(IS_BTC ? address(AUX.WBTC()) : address(AUX.WETH()), 1800);
         _writeObservationPrice(uint160(price));
         return (price, 0, 0, 0, 0);
@@ -1000,7 +999,7 @@ contract Core is SafeCallback {
     /// drain**, and the window this guarded closes on its own.
     /// ⚠️ Returns (0,0) rather than being deleted only while its callers still destructure the pair;
     /// the JIT branches in `VogueLib`/`BtcVaultLib` go with it in the caller pass.
-    function collectFees(int24, int24) public view onlyUs returns (uint, uint) {
+    function collectFees() public view onlyUs returns (uint, uint) {
         return (0, 0);
     }
 
@@ -1177,27 +1176,29 @@ contract Core is SafeCallback {
     /// was the custodian.
     /// ⚠️ The tick bounds are ignored: with inventory held directly there is no per-range position to
     /// look up. Callers passing (0,0) already relied on that.
-    function poolStats(int24, int24)
-        public view returns (uint160 sqrtPriceX96, int24 currentTick,
-        uint128 liquidity) {
-        (, sqrtPriceX96, currentTick) = poolTicks();
-        liquidity = uint128(POOLED);
+    /// 🔴 §V4-CUT — THE RETURN IS A PLAIN PRICE NOW, NOT A SQRT PRICE, AND THE NAME SAYS SO.
+    /// It used to be `slot0.sqrtPriceX96`. It is now the oracle price the fill settles at. I first
+    /// changed the VALUE while keeping the NAME and TYPE, which left every sqrt-space consumer
+    /// (`SwapLib.updateTicks` → `TickMath.getTickAtSqrtPrice`, `SwapLib.soldFractionWad`) computing
+    /// garbage with nothing reverting. Renaming turns that silent wrong answer into a COMPILE ERROR
+    /// at every call site — which is the only honest way to hand this over.
+    /// ⚠️ Consumers must be moved to PRICE SPACE, not handed a reconstructed sqrt: the sqrt source is
+    /// gone, so reconstructing one would be inventing a number to feed math that should not need it.
+    /// §DE-TICK — NO PARAMETERS, NO int24, NO uint160. The tick bounds were ignored (there is no
+    /// per-range position to look up), `currentTick` was always 0, and `uint160` was only ever
+    /// `sqrtPriceX96`'s width — a price has no reason to be 160 bits, and every consumer was paying
+    /// a cast for it. Plain `uint` throughout.
+    function poolStats() public view returns (uint priceWad, uint liquidity) {
+        priceWad = AUX.getTWAPforAsset(IS_BTC ? address(AUX.WBTC()) : address(AUX.WETH()), 1800);
+        liquidity = POOLED;
     }
 
-    /// @dev `currentTick` is retained as 0 — nothing reads it for pricing any more (the ring stores
-    ///      plain price and the fill quotes the oracle), and returning a FABRICATED tick would be
-    ///      worse than returning none: it would look like a live curve position.
-    function poolTicks() public view
-        returns (PoolId, uint160, int24) {
-        return (_poolId(), uint160(AUX.getTWAPforAsset(
-            IS_BTC ? address(AUX.WBTC()) : address(AUX.WETH()), 1800)), int24(0));
-    }
 
     /// §TICK-REMOVAL — the ring stores PLAIN PRICE. `getSlot0` still hands us a sqrt-price (that is
     /// v4's API, and stays until the PM is ours), but it is converted ONCE HERE, at the write, so
     /// neither ticks nor sqrt-prices survive in storage or on any read path. Writing costs one
     /// conversion per swap and saves one on every valuation, and valuations are the frequent side.
-    function _writeObservation(uint160 sqrtPriceX96) internal {
+    function _writeObservation(uint sqrtPriceX96) internal {
         OracleLib.writeObservation(_obs(), _obsState(),
             uint160(BasketLib.getPrice(sqrtPriceX96,
                 token1isVol)));   // `token1is` is external
@@ -1260,7 +1261,7 @@ contract Core is SafeCallback {
     /// variance estimator was already price-based, so nothing downstream needs re-deriving.
     /// The sqrt-taking variant above survives only while Repack/Reseat/Collect still read `getSlot0`,
     /// and deletes with them.
-    function _writeObservationPrice(uint160 price) internal {
+    function _writeObservationPrice(uint price) internal {
         OracleLib.writeObservation(_obs(), _obsState(), price);
     }
 

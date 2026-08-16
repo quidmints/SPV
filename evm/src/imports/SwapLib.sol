@@ -360,13 +360,13 @@ library SwapLib {
         // design (`via_ir = false`), and carrying the two ticks as function-scope locals is
         // stack-too-deep. Net locals are UNCHANGED from before — `bandTicks` simply replaces the
         // old `sqrtPriceX96` carrier, which was assigned, reassigned and passed, never read.
-        uint160 bandTicks; uint v4p;
+        uint v4p;   // §DE-TICK: `bandTicks` deleted — it packed a band-edge PRICE LIMIT for v4's
+                    // swap, and settlement is at oracle bounded by inventory, so there is no limit to pack.
         {
-            (, int24 lo, int24 hi,, uint p) = isBTC
+            (, uint lo, uint hi,, uint p) = isBTC
                 ? IBandManager(c.btcVault).repack(true)
                 : IBandManager(c.v4).repack(false);
             v4p = p;
-            bandTicks = _packBandTicks(lo, hi);
         }
         {
             // Drain-side backing gate counts standing holdings at PAR (NOT the depeg haircut): the mint/issuance
@@ -435,7 +435,7 @@ library SwapLib {
                 retainSkewPremium(c.core, isBTC, r, skew, false);  // buy-driving USD ⇒ already 6-dec   // mutates r.amount; r.px declares NATIVE
             }
         }
-        max = _finishSwap(ctx, aux, r, bandTicks, zeroForOne, max, isBTC, v4p);
+        max = _finishSwap(ctx, aux, r, zeroForOne, max, isBTC, v4p);
     }
 
     /// @dev routeSwap (8-field RouteParams build) + bumpVogueBTC + slippage guard
@@ -444,12 +444,9 @@ library SwapLib {
     /// @dev Pack the band's tick range into one word. Two int24 function-scope locals are
     ///      stack-too-deep in `swapToBody`; one packed carrier is not. int24→uint24→int24 is
     ///      bit-preserving, so negative ticks round-trip exactly.
-    function _packBandTicks(int24 lo, int24 hi) private pure returns (uint160) {
-        return uint160((uint(uint24(lo)) << 24) | uint(uint24(hi)));
-    }
 
     function _finishSwap(Types.AuxContext memory ctx, IAux aux, SwapReq memory r,
-        uint160 bandTicks, bool zeroForOne, uint pooled, bool isBTC, uint v4p) private returns (uint max) {
+        bool zeroForOne, uint pooled, bool isBTC, uint v4p) private returns (uint max) {
         uint poolSupplied;
         // Reuse the resolved oracle price from the repack-first (v4p) instead of
         // re-reading the internal `observe` ring + Chainlink a 2nd time per swap;
@@ -458,7 +455,7 @@ library SwapLib {
         uint v4Price = _priceOr(v4p, address(aux), r.asset);
         uint consumed;
         (max, poolSupplied, consumed) = BasketLib.routeSwap(ctx, Types.RouteParams({
-            sqrtPriceX96: bandTicks, zeroForOne: zeroForOne, token: r.token,
+            zeroForOne: zeroForOne, token: r.token,
             amount: r.amount, pooled: pooled,
             v4Price: v4Price,
             recipient: r.recipient, isBTC: isBTC
@@ -644,9 +641,8 @@ library SwapLib {
         uint v4p;
         Types.RouteParams memory rp;
         {
-            (, int24 lo, int24 hi,, uint p_) = IBandManager(bandVault).repack(true);
+            (, uint lo, uint hi,, uint p_) = IBandManager(bandVault).repack(true);
             v4p = p_;
-            rp.sqrtPriceX96 = _packBandTicks(lo, hi);
         }
         rp.zeroForOne   = !ICore(core).token1is(true);   // BTC→USD (mirror of the buy)
         rp.token        = token;                            // USD-side output stable → seller
@@ -1307,9 +1303,8 @@ library SwapLib {
         // §E9 — packed band ticks, not a price (see creditSwapInBody). Block-scoped for stack.
         uint v4p;
         {
-            (, int24 lo, int24 hi,, uint p_) = IBandManager(address(this)).repack(true);
+            (, uint lo, uint hi,, uint p_) = IBandManager(address(this)).repack(true);
             v4p = p_;
-            rp.sqrtPriceX96 = _packBandTicks(lo, hi);
         }
         rp.zeroForOne   = ICore(core).token1is(true);    // USD→BTC buy (mirror of the sell)
         rp.token        = address(0);                       // volatile (BTC) output
@@ -1539,16 +1534,15 @@ library SwapLib {
     ///      active slice) and return what was actually delivered. ETH passes
     ///      the LP's recipient; BTC passes address(0) (native sats return via
     ///      the cooperative-close tx — only the mockBTC is burned).
-    function burnInRange(address v4, bool isBTC, uint160 sqrtPriceX96, uint amount,
-        int24 tickLower, int24 tickUpper, address recipient)
+    function burnInRange(address v4, bool isBTC, uint sqrtPriceX96, uint amount,
+        uint tickLower, uint tickUpper, address recipient)
         internal returns (uint sent) {
         uint pooled = ICore(v4).POOLED();
         uint pulled = Math.min(amount, pooled);
         if (pulled == 0) return 0;
-        (,, uint128 posLiquidity) = ICore(v4).poolStats(tickLower, tickUpper);
+        (, uint posLiquidity) = ICore(v4).poolStats();
         if (posLiquidity > 0) {
-            sent = ICore(v4).modLP(sqrtPriceX96, pulled, 0,
-                            tickLower, tickUpper, recipient);
+            sent = ICore(v4).modLP(pulled, 0, recipient);
         }
     }
 
@@ -1658,80 +1652,75 @@ library SwapLib {
 
     // ── Tick math (pure/view) ─────────────────────────────────────────
 
-    function paddedSqrtPrice(uint160 sqrtPriceX96, bool up, uint delta)
+    function paddedSqrtPrice(uint sqrtPriceX96, bool up, uint delta)
         internal pure returns (uint160) {
         uint factor = up ? FixedPointMathLib.sqrt((10000 + delta) * 1e18 / 10000)
                          : FixedPointMathLib.sqrt((10000 - delta) * 1e18 / 10000);
         return uint160(FixedPointMathLib.mulDivDown(sqrtPriceX96, factor, 1e9));
     }
 
-    /// @notice (B — IL-protect) The band's ACTUAL sold-volatile fraction (WAD) between `entrySqrtP` and the
+    /// @notice (B — IL-protect) The band's ACTUAL sold-volatile fraction (WAD) between `entryPrice` and the
     ///         current `sqrtP`, straight from the concentrated-position geometry — the ground-truth IL the
     ///         hedge must cancel, reflecting the real (drifting) α with NO sqrt/pow and NO α parameter. Held
     ///         volatile amount is ∝ (√P − √Pa) when the volatile is token1 (sold as √P FALLS — volatile
     ///         appreciates ⇒ pool price down) or ∝ (√Pb − √P)/(√P·√Pb) when it's token0 (sold as √P RISES);
     ///         soldFrac = 1 − amount_now/amount_entry. Returns 0 on the non-IL side (up-side-only, matching the
     ///         current target) or a degenerate band. VALID WITHIN ONE TICK-CONFIG ONLY — a reseat recenters the
-    ///         ticks and realizes IL, so the CALLER must re-anchor `entrySqrtP` on a reseat. Shared verbatim by
+    ///         ticks and realizes IL, so the CALLER must re-anchor `entryPrice` on a reseat. Shared verbatim by
     ///         the ETH band (Vogue, `token1isVol`) and the BTC band (Vault, `token1isVol`).
     /// @notice held-volatile amount NOW / held-volatile amount AT ENTRY (WAD), straight from the
     ///         concentrated-band geometry, clamped to the live band. `1e18` = at entry. `>1e18` ⇒ the band
     ///         BOUGHT the volatile (price fell — the OVER-hold the short cancels); `<1e18` ⇒ it SOLD (price
     ///         rose — the UNDER-hold the long cancels). Reflects the real (drifting) α with NO α parameter and
     ///         NO sqrt/pow — the single ground-truth primitive both hedge legs size from. VALID WITHIN ONE
-    ///         TICK-CONFIG ONLY: a reseat recenters + realizes IL, so the caller MUST re-anchor `entrySqrtP`.
-    function holdingRatioWad(uint160 entrySqrtP, uint160 sqrtP, int24 lo, int24 up, bool token1Volatile)
+    ///         TICK-CONFIG ONLY: a reseat recenters + realizes IL, so the caller MUST re-anchor `entryPrice`.
+    /// @notice Fraction of the band's ORIGINAL volatile still held, WAD. Same quantity as before,
+    ///         computed in USD-PER-VOLATILE space instead of sqrtPriceX96 space.
+    ///
+    /// @dev DERIVATION, because this is hedge-sizing math and the equivalence must be checkable.
+    ///      Volatile held over a range is `V(P) ∝ 1/√P − 1/√P_up`. So
+    ///          ratio = (1/√P − 1/√P_up) / (1/√P₀ − 1/√P_up)
+    ///                = √P₀·(√P_up − √P) / ( √P·(√P_up − √P₀) )
+    ///      which is EXACTLY the old `(s0/s)·(sb−s)/(sb−s0)` branch with `s = √P`.
+    ///
+    /// 🔑 AND THE `token1Volatile` BRANCH DISAPPEARS, which is a real simplification rather than a
+    ///      translation. Two branches existed because `sqrtPriceX96` INVERTS meaning with token
+    ///      ordering: when USD is token0, price ∝ 1/sqrtP², so the same holding needed the mirrored
+    ///      formula. USD-PER-VOLATILE DOES NOT INVERT — it is the same number whichever token got
+    ///      the lower address — so one expression now serves both bands. The ordering flag was
+    ///      never about economics; it was about v4's encoding.
+    ///
+    ///      √ SURVIVES AS AN OPERATION, NOT A REPRESENTATION. The root is mathematically required
+    ///      (holdings are √-shaped in price), but nothing is STORED or PASSED as a sqrt price any
+    ///      more — which was the actual coupling to v4.
+    ///      Roots are taken on WAD prices via `sqrt(P·1e18)`, so every term carries the same 1e18
+    ///      scale and the ratios cancel it exactly.
+    function holdingRatioWad(uint entryPrice, uint price, uint loPrice, uint upPrice)
         internal pure returns (uint) {
-        if (entrySqrtP == 0 || lo >= up) return 1e18;
-        uint sa = TickMath.getSqrtPriceAtTick(lo);
-        uint sb = TickMath.getSqrtPriceAtTick(up);
-        uint s  = sqrtP      < sa ? sa : (sqrtP      > sb ? sb : uint(sqrtP));
-        uint s0 = entrySqrtP < sa ? sa : (entrySqrtP > sb ? sb : uint(entrySqrtP));
-        if (token1Volatile) {
-            if (s0 <= sa) return 1e18;                       // degenerate: entry at/below the lower tick
-            return FullMath.mulDiv(s - sa, 1e18, s0 - sa);   // (s−sa)/(s0−sa)
-        }
-        if (sb <= s0 || s == 0) return 1e18;                 // degenerate
-        uint ratio = FullMath.mulDiv(s0, 1e18, s);
-        return FullMath.mulDiv(ratio, sb - s, sb - s0);      // (s0/s)·(sb−s)/(sb−s0)
+        if (entryPrice == 0 || loPrice >= upPrice) return 1e18;
+        // Clamp in PRICE space; `sqrt` is monotonic so clamping before or after the root is
+        // identical, and price-space clamping is the one a reader can check against the band edges.
+        uint pc  = price      < loPrice ? loPrice : (price      > upPrice ? upPrice : price);
+        uint p0c = entryPrice < loPrice ? loPrice : (entryPrice > upPrice ? upPrice : entryPrice);
+        uint a = FixedPointMathLib.sqrt(pc  * 1e18);   // √P
+        uint b = FixedPointMathLib.sqrt(p0c * 1e18);   // √P₀
+        uint c = FixedPointMathLib.sqrt(upPrice * 1e18);
+        if (c <= b || a == 0) return 1e18;             // degenerate: entry at/above the upper edge
+        return FullMath.mulDiv(FullMath.mulDiv(b, 1e18, a), c - a, c - b);
     }
 
     /// @notice The band's ACTUAL sold-volatile fraction (WAD) since entry = `1 − holdingRatio` when the band
     ///         under-holds (price rose). The LONG hedge re-adds exactly this. Ground truth; 0 on the non-sold side.
-    function soldFractionWad(uint160 entrySqrtP, uint160 sqrtP, int24 lo, int24 up, bool token1Volatile)
+    function soldFractionWad(uint entryPrice, uint price, uint loPrice, uint upPrice)
         internal pure returns (uint) {
-        uint r = holdingRatioWad(entrySqrtP, sqrtP, lo, up, token1Volatile);
+        uint r = holdingRatioWad(entryPrice, price, loPrice, upPrice);
         return r < 1e18 ? 1e18 - r : 0;
     }
 
     // boughtFractionWad REMOVED (2026-07-24): it fed the below-entry SHORT hedge (its sole consumer), which was
     // removed as an LVR leak (see docs §J.4). `soldFractionWad`/`holdingRatioWad` stay — the UP-SIDE overlay reads them.
 
-    /// @dev Target sqrtPriceX96 for a desired `targetPrice` (USD18 per 1e18 raw
-    ///      asset), given the current sqrtPrice and its implied `currentPrice`.
-    ///      RELATIVE scaling — reuses the paddedSqrtPrice pattern (sqrtP × √ratio,
-    ///      √ scaled by 1e9 == √1e18) so there is NO absolute price→sqrt encoding
-    ///      to get wrong. getPrice: when USD is token0, price ∝ 1/sqrtP² ⇒
-    ///      sqrtP ∝ 1/√price (ratio = current/target); else price ∝ sqrtP² ⇒
-    ///      sqrtP ∝ √price (ratio = target/current). Used by the curve-reseat to
-    ///      move the mock pool's spot onto the Chainlink-resolved price.
-    function targetSqrtForPrice(uint160 currentSqrt, uint currentPrice,
-        uint targetPrice, bool token0isUSD) internal pure returns (uint160) {
-        if (currentPrice == 0 || targetPrice == 0) return currentSqrt;
-        (uint num, uint den) = token0isUSD ? (currentPrice, targetPrice)
-                                           : (targetPrice, currentPrice);
-        uint factor = FixedPointMathLib.sqrt(FullMath.mulDiv(num, 1e18, den));
-        uint160 t = uint160(FixedPointMathLib.mulDivDown(currentSqrt, factor, 1e9));
-        if (t < TickMath.MIN_SQRT_PRICE + 1 || t > TickMath.MAX_SQRT_PRICE - 1)
-            return currentSqrt; // out of representable range → leave spot put
-        return t;
-    }
 
-    function alignTick(int24 tick, int24 width) internal pure returns (int24) {
-        if (tick < 0 && tick % width != 0) {
-            return ((tick - width + 1) / width) * width;
-        }   return (tick / width) * width;
-    }
 
     /// Rescale a just-deposited stable amount to 6-dec USD by its own decimals.
     /// Shared verbatim by the ETH (VogueLib) and BTC (BtcVaultLib) OOR paths.
@@ -1745,7 +1734,7 @@ library SwapLib {
     /// range 100–1000 step 50, distance ±5000 step 100 (non-zero). Custom error (no
     /// string-revert bytecode — the two long strings were the fattest revert sites in the OOR path).
     error BadOorParam();
-    function validateOorParams(int24 range, int24 distance) internal pure {
+    function validateOorParams(uint range, int distance) internal pure {
         if (!(range >= 100 && range <= 1000 && range % 50 == 0)) revert BadOorParam();
         if (!(distance % 100 == 0 && distance != 0 && distance >= -5000 && distance <= 5000)) revert BadOorParam();
     }
@@ -1755,40 +1744,50 @@ library SwapLib {
     // BOTH compute ticks + single-sided liquidity by the SAME rules — only the
     // pool + token ordering differ (token1is). Ported verbatim from the original
     // Vogue `_outOfRangeTicks` / `_sizeOutOfRange` USD branch.
-    struct Oor { int24 newLo; int24 newUp; int24 curLo; int24 curUp; }
+    struct Oor { uint newLo; uint newUp; uint curLo; uint curUp; }
 
     /// The boundary order's tick range, fully outside the current [curLo,curUp].
     /// `distance` is caller-signed (positive = below the price); `token1is` flips
     /// it for the pool's token ordering. `width` is the tick-alignment (10).
-    function oorTicks(uint160 sqrtPrice, int24 range, int24 distance, bool token1is,
-        int24 curLo, int24 curUp) internal pure returns (Oor memory t) {
+    /// §DE-TICK — THE BOUNDARY ORDER'S RANGE IS A PRICE OFFSET. A tick is 1 bp by construction
+    /// (1.0001^i), so a `distance`/`range` expressed in ticks IS an offset in basis points — the grid
+    /// was only ever a way to index them. `alignTick` goes with it: alignment existed because v4 can
+    /// place liquidity only on grid boundaries, and we hold inventory at a price bound.
+    /// ⇒ THIS DELETES THE #46 OFF-BY-ONE OUTRIGHT. That defect existed because a tick was derived
+    /// from a sqrt price and `getTickAtSqrtRatio(sqrtPriceX96) == currentTick` does not always hold;
+    /// with no tick derived, there is nothing to be off by one about — the root is gone, not guarded.
+    function oorBounds(uint price, uint range, int distance, bool token1is,
+        uint curLo, uint curUp) internal pure returns (Oor memory t) {
         t.curLo = curLo; t.curUp = curUp;
         if (!token1is) distance = -distance;
-        int24 targetTick = TickMath.getTickAtSqrtPrice(sqrtPrice) - distance;
-        if (distance < 0) { // above the current price
-            t.newLo = alignTick(targetTick, int24(10));
-            t.newUp = alignTick(targetTick + range, int24(10));
-        } else {
-            t.newUp = alignTick(targetTick, int24(10));
-            t.newLo = alignTick(targetTick - range, int24(10));
-        }
+        // `distance` bps away from spot, `range` bps wide.
+        uint target = distance < 0
+            ? price * (10000 + uint(-distance)) / 10000
+            : price * (10000 - uint(distance))  / 10000;
+        if (distance < 0) { t.newLo = target; t.newUp = target * (10000 + range) / 10000; }
+        else              { t.newUp = target; t.newLo = target * (10000 - range) / 10000; }
     }
 
     /// Size a USD-funded single-sided boundary order (`amount6` in 6-dec USD).
     /// Asserts the new range sits fully outside the current one and provides the
     /// USD on the side the ordering dictates.
     function sizeOorUsd(uint amount6, Oor memory t, bool token1is)
-        internal pure returns (uint128 liquidity) {
+        internal pure returns (uint placeable) {
+        // §DE-TICK — WHAT SURVIVES IS THE OUTSIDE-NESS GUARD; the liquidity encoding does not.
+        // This used to convert both bounds to sqrt prices and ask `LiquidityAmounts` for a v4
+        // liquidity figure. Callers now STORE AND PASS THE AMOUNT (see `Types.SelfManaged.amt`), so
+        // the only thing the return was still doing was answering "can this range hold anything" —
+        // a validity check, which the guards below already are.
+        // ⚠️ THE STRICT COMPARISONS ARE UNCHANGED, INCLUDING THEIR DIRECTION. A boundary order must
+        // sit FULLY outside the active band; `>=` / `<=` (not `>` / `<`) is what makes a range that
+        // merely touches the band edge invalid.
         if (token1is) {
-            // Above current = buy the asset with USD (provide $). Reuses the lib's TickOutOfRange error (no string).
-            if (t.newUp >= t.curLo) revert TickOutOfRange();
-            liquidity = LiquidityAmounts.getLiquidityForAmount0(
-                TickMath.getSqrtPriceAtTick(t.newLo), TickMath.getSqrtPriceAtTick(t.newUp), amount6);
+            if (t.newUp >= t.curLo) revert TickOutOfRange();   // above current: buy the asset with USD
         } else {
             if (t.newLo <= t.curUp) revert TickOutOfRange();
-            liquidity = LiquidityAmounts.getLiquidityForAmount1(
-                TickMath.getSqrtPriceAtTick(t.newLo), TickMath.getSqrtPriceAtTick(t.newUp), amount6);
         }
+        if (t.newLo >= t.newUp) revert TickOutOfRange();       // degenerate range holds nothing
+        placeable = amount6;
     }
 
     // (event InstantRedeemSkipped removed 2026-08-09 — it announced a degradation from the instant-redeem
@@ -1799,15 +1798,19 @@ library SwapLib {
     //  `VaultLib.offrampBody`, not here — see QUEUE §E152-nerve.)
 
     error TickOutOfRange();
-    function updateTicks(uint160 sqrtPriceX96, uint delta)
-        internal pure returns (int24 tickLower, uint160 lower,
-                             int24 tickUpper, uint160 upper) {
-        lower = paddedSqrtPrice(sqrtPriceX96, false, delta);
-        upper = paddedSqrtPrice(sqrtPriceX96, true, delta);
-        if (lower < TickMath.MIN_SQRT_PRICE + 1) revert TickOutOfRange();
-        if (upper > TickMath.MAX_SQRT_PRICE - 1) revert TickOutOfRange();
-        tickLower = alignTick(TickMath.getTickAtSqrtPrice(lower), int24(10));
-        tickUpper = alignTick(TickMath.getTickAtSqrtPrice(upper), int24(10));
+    /// §DE-TICK — THE BAND IS ±δ AROUND THE PRICE, AND THAT IS THE WHOLE COMPUTATION.
+    /// This used to pad in SQRT space (`sqrtP · √((10000±δ)/10000)`), then look the result up in the
+    /// tick grid and align to a spacing of 10. In price space the root cancels — padding a price by
+    /// a ratio is a multiplication — so TWO square roots and TWO tick lookups become two multiplies.
+    /// ⚠️ THE ALIGNMENT AND THE RANGE GUARDS GO WITH THEM, and nothing is lost: `alignTick` existed
+    /// because v4 can only place liquidity on grid boundaries, and MIN/MAX_SQRT_PRICE bounded the
+    /// tick representation. We hold inventory at a price bound — there is no grid to land on and no
+    /// representable range to fall out of. This also deletes the off-by-one class described in #46,
+    /// which existed ONLY because a tick was being derived from a sqrt price.
+    function updateBounds(uint price, uint delta)
+        internal pure returns (uint lower, uint upper) {
+        lower = price * (10000 - delta) / 10000;
+        upper = price * (10000 + delta) / 10000;
     }
 
     // ── Shared repack skeleton ────────────────────────────────────────
@@ -1815,10 +1818,10 @@ library SwapLib {
     /// Raw output of `rebalanceCore` so callers can run a pool-specific
     /// fee-distribution / yield-metric after the shared work.
     struct Rebalanced {
-        uint160 sqrtPriceX96;
-        int24   tickLower;     // post-repack range (== input range if no repack)
-        int24   tickUpper;
-        uint128 myLiquidity;
+        uint sqrtPriceX96;   // §DE-TICK: carries the PRICE now, not a sqrt price
+        uint    tickLower;     // §DE-TICK: post-repack band bounds, as PRICES
+        uint    tickUpper;
+        uint    myLiquidity;
         bool    didRepack;     // true → a range move happened; fees0/1/delta0/1/price valid
         uint    price;
         uint    fees0;
@@ -1846,13 +1849,14 @@ library SwapLib {
     ///      TWAP feed for the manipulation guard.
     function rebalanceCore(
         address v4, address aux, address asset, bool isBTC,
-        int24 tickUpper, int24 tickLower
+        uint tickUpper, uint tickLower
     ) internal returns (Rebalanced memory r) {
         r.tickUpper = tickUpper;
         r.tickLower = tickLower;
-        int24 currentTick;
-        (r.sqrtPriceX96, currentTick, r.myLiquidity) =
-            ICore(v4).poolStats(tickLower, tickUpper);
+        // §DE-TICK — `currentTick` is gone. It was v4's index of where spot sat on the grid; the
+        // price it encoded is now read directly, so keeping a tick would mean deriving an index into
+        // a grid nothing consults.
+        (r.sqrtPriceX96, r.myLiquidity) = ICore(v4).poolStats();
 
         // Resolved oracle price + staleness. try/catch so a bootstrap pre-history
         // / dead-feed read NEVER bricks the op (falls through to legacy handling).
@@ -1872,38 +1876,38 @@ library SwapLib {
         // aligned. Both pools route here (Vogue + BtcVault).
         if (stale && _reseatIfStale(v4, isBTC, r, twap)) return r;
 
-        // HALF-OPEN RANGE (T1). A Uniswap position over [tickLower, tickUpper) is ACTIVE iff
-        // `tickLower <= tick < tickUpper`, so it is OUT of range at `tick >= tickUpper` — NOT `>`.
-        // With `>`, at exactly `tick == tickUpper` the band is inactive (earning no fees, fully in
-        // one token) yet this returned "still in range" and did NOT re-centre, leaving the band
-        // stranded until the tick moved one more step. The lower bound was already correct (`<`,
-        // strictly below), and that asymmetry is the tell: a half-open range needs `>=` upper and
-        // `<` lower; `>` here treated it as CLOSED. Sole in-range comparison in `src/`.
-        if (currentTick >= tickUpper || currentTick < tickLower) {
+        // HALF-OPEN RANGE (T1), NOW IN PRICE SPACE. The band is ACTIVE iff `lower <= P < upper`, so
+        // it is OUT of range at `P >= upper` — NOT `>`. With `>`, at exactly `P == upper` the band
+        // is inactive (fully in one token, earning nothing) yet this returned "still in range" and
+        // did not re-centre, leaving it stranded. The asymmetry is the tell: a half-open range needs
+        // `>=` upper and `<` lower.
+        // ⚠️ THE COMPARISON IS PRESERVED EXACTLY — only its units changed. Ticks were monotonic in
+        // price, so `tick >= tickUpper` and `P >= upper` are the same predicate; and the off-by-one
+        // that made this delicate (#46) is gone with the tick derivation, not papered over.
+        if (r.sqrtPriceX96 >= tickUpper || r.sqrtPriceX96 < tickLower) {
             // Don't repack to a manipulated spot — need the oracle. If unavailable
             // (twap==0, e.g. bootstrap) or spot deviates >300bps, keep the range.
             if (twap == 0) return r; // didRepack stays false → keep current range
-            uint spot = BasketLib.getPrice(r.sqrtPriceX96, ICore(v4).token1is(isBTC));
+            uint spot = r.sqrtPriceX96;   // §DE-TICK: already a PRICE; no sqrt to decode
             // Repack TOLERANCE (300 bps = 3%) — looser than the 50-bps swap
             // guard so normal volatility doesn't block re-centering.
             if (BasketLib.isManipulated(spot, twap, 300)) {
                 return r;
             }
-            (int24 newTickLower,, int24 newTickUpper,) = updateTicks(r.sqrtPriceX96, BAND_DELTA);
+            (uint newLower, uint newUpper) = updateBounds(r.sqrtPriceX96, BAND_DELTA);   // §DE-TICK: r.sqrtPriceX96 now carries the PRICE
             if (r.myLiquidity > 0) {
                 (r.price, r.fees0, r.fees1, r.delta0, r.delta1) =
-                    ICore(v4).repack(r.myLiquidity, r.sqrtPriceX96,
-                        tickLower, tickUpper, newTickLower, newTickUpper);
+                    ICore(v4).repack(newLower, newUpper);
                 r.didRepack = true;
             }
-            r.tickLower = newTickLower;
-            r.tickUpper = newTickUpper;
+            r.tickLower = newLower;
+            r.tickUpper = newUpper;
         } else if (r.myLiquidity > 0) {
             // JIT-snipe defense: force a fee-only collect so accrued fees land
             // in the accumulators BEFORE the caller's bookmark advances.
             // collectFees ALREADY reorders internally and returns canonical
             // (feesUSD, feesTok) — USD first.
-            (r.jitFeesUsd, r.jitFeesTok) = ICore(v4).collectFees(tickLower, tickUpper, isBTC);
+            (r.jitFeesUsd, r.jitFeesTok) = ICore(v4).collectFees();
             r.jitFees = true;
         }
     }
@@ -1913,32 +1917,33 @@ library SwapLib {
     ///      Returns true if it moved the spot. No-op (false) when already aligned.
     function _reseatIfStale(address v4, bool isBTC, Rebalanced memory r, uint twap)
         private returns (bool) {
-        bool t1isVol = ICore(v4).token1is(isBTC);
-        uint spot = BasketLib.getPrice(r.sqrtPriceX96, t1isVol);
+        // §DE-TICK — `spot` IS `r.sqrtPriceX96` now; there is no sqrt to decode and no token
+        // ordering to resolve, because a USD-per-volatile price does not flip with ordering.
+        uint spot = r.sqrtPriceX96;
         if (spot == 0 || twap == 0) return false;
         // Only move the spot when it's off the oracle by more than the 50-bps
         // routeSwap guard — i.e. enough to actually BLOCK swaps. Within 50bps swaps
         // execute fine, so reseating would just churn (and a sub-tick move is
         // degenerate). This keeps reseat firing once per dislocation, not per op.
         if (!BasketLib.isManipulated(spot, twap, RESEAT_MIN_BPS)) return false;
-        uint160 targetSqrt = targetSqrtForPrice(r.sqrtPriceX96, spot, twap, t1isVol);
-        if (targetSqrt == r.sqrtPriceX96) return false; // already aligned
-        _doReseat(v4, isBTC, r, targetSqrt);
+        // §DE-TICK — THE TARGET IS THE TWAP. `targetSqrtForPrice` existed to encode a desired price
+        // back into a sqrt price without an absolute price→sqrt conversion. In price space the
+        // target simply IS the price, so the whole encoding step disappears.
+        if (twap == r.sqrtPriceX96) return false;   // already aligned
+        _doReseat(v4, isBTC, r, twap);
         return true;
     }
 
     /// @dev Burn+move+re-range to `targetSqrt` — own frame so the reseat's 5-tuple
     ///      return doesn't pin _reseatIfStale's stack (legacy pipeline, no via_ir).
-    function _doReseat(address v4, bool isBTC, Rebalanced memory r, uint160 targetSqrt)
+    function _doReseat(address v4, bool /*isBTC*/, Rebalanced memory r, uint targetPrice)
         private {
-        (int24 nlo,, int24 nhi,) = updateTicks(targetSqrt, BAND_DELTA);
+        (uint nlo, uint nhi) = updateBounds(targetPrice, BAND_DELTA);
         if (r.myLiquidity > 0) {
-            (r.price, r.fees0, r.fees1, r.delta0, r.delta1) = ICore(v4).reseat(
-                isBTC, r.myLiquidity, r.sqrtPriceX96, targetSqrt,
-                r.tickLower, r.tickUpper, nlo, nhi);
+            (r.price, r.fees0, r.fees1, r.delta0, r.delta1) = ICore(v4).reseat(nlo, nhi);
             r.didRepack = true;
         }
-        r.tickLower = nlo; r.tickUpper = nhi; r.sqrtPriceX96 = targetSqrt;
+        r.tickLower = nlo; r.tickUpper = nhi; r.sqrtPriceX96 = targetPrice;
     }
 
 }

@@ -379,13 +379,13 @@ contract LevManager is LevBase {
     /// @notice (B) LIVE IL target (bps): the band's ACTUAL sold fraction (`Vogue.soldFractionWad`) capped at
     ///         the LP's cap — the ground-truth IL, reflecting the band's real (drifting) α (subsumes A). Falls
     ///         back to the 1−√(entry/now) estimate when the band host is unwired or the sold fraction is
-    ///         unmeasurable (band unset / `entrySqrtP` 0). A band reseat recenters the ticks + realizes IL, so
-    ///         `entrySqrtP` (and E0/entryPrice) MUST be re-anchored to the new center to avoid over-measuring the
+    ///         unmeasurable (band unset / `entryPrice` 0). A band reseat recenters the ticks + realizes IL, so
+    ///         `entryPrice` (and E0/entryPrice) MUST be re-anchored to the new center to avoid over-measuring the
     ///         sold fraction across the reseat — `_reanchorIfReseated` (below, called from `rebalance`) does this
     ///         on every keeper cycle, and the sold-fraction IL-cancellation is fork-proven (LevYbReal/LevCascade
     ///         with `setSoldFractionActive(true)`).
     function _ilTargetLive(Types.Pos memory p, uint256 px) internal returns (uint256) {
-        return LevMath.ilTargetLive(vogueSyncHook, p.entrySqrtP, p.entryPriceWad, px, p.targetLtvCapBps);
+        return LevMath.ilTargetLive(vogueSyncHook, p.entryPrice, p.entryPriceWad, px, p.targetLtvCapBps);
     }
 
 
@@ -416,14 +416,14 @@ contract LevManager is LevBase {
         // the old (B) two-pool model, there is no separate deliverable principal band — that isolation is traded
         // for capital efficiency; the whole deposit is levered.) SAFETY:
         // the up-side-only clamp de-levers this toward 0 debt below entry, so the deposit is never held at 2× into
-        // a crash. `entrySqrtP` still tracks the band for the sold-fraction reference.
+        // a crash. `entryPrice` still tracks the band for the sold-fraction reference.
         uint256 e0 = _collToEth(venue, collWeeth);   // (A): the deposit (weETH→ETH rate, or WETH 1:1) is the IL base
-        uint160 entrySqrtP;
+        uint entryPrice;
         if (vogueSyncHook != address(0)) {
-            try ILevSyncHook(vogueSyncHook).bandSqrtP() returns (uint160 s) { entrySqrtP = s; } catch {}
+            try ILevSyncHook(vogueSyncHook).bandPrice() returns (uint s) { entryPrice = s; } catch {}
         }
         pos[msg.sender] = Types.Pos({venue: venue, targetLtvCapBps: targetLtvBps, entryPriceWad: uint128(entryPx),
-                               e0: uint128(e0), entrySqrtP: entrySqrtP, open: true});
+                               e0: uint128(e0), entryPrice: entryPrice, open: true});
         _trackOpen(msg.sender);   // join the book the Vault sums net-equity over
 
         // 1. Pull equity collateral (weETH OR WETH, per the venue) and supply as isolated collateral.
@@ -481,7 +481,7 @@ contract LevManager is LevBase {
 
     function _rebalanceBody(address lp, uint256 minOut) internal {
         if (!pos[lp].open) revert NotOpen();
-        _reanchorIfReseated(lp);                 // (B) realize + re-anchor E0/entrySqrtP if the band recentered
+        _reanchorIfReseated(lp);                 // (B) realize + re-anchor E0/entryPrice if the band recentered
         ILevVenue venue = pos[lp].venue;
         address stable = venue.stable();
         (bool levUp, uint256 deltaUsd) = debtDeltaToTarget(lp);

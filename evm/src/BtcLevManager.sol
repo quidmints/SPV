@@ -208,7 +208,7 @@ contract BtcLevManager is LevBase {
     ///         at the LP's cap; falls back to the proven 1−√(entry/now) when the sold-fraction path is inactive
     ///         or unmeasurable. Mirror of `LevManager._ilTargetLive`.
     function _ilTargetLive(Types.Pos memory p, uint px) internal returns (uint) {
-        return LevMath.ilTargetLive(vogueSyncHook, p.entrySqrtP, p.entryPriceWad, px, p.targetLtvCapBps);
+        return LevMath.ilTargetLive(vogueSyncHook, p.entryPrice, p.entryPriceWad, px, p.targetLtvCapBps);
     }
 
     /// @notice Stable delta (USD 1e18) + direction to re-hit the IL target; oracle read ONCE.
@@ -244,12 +244,12 @@ contract BtcLevManager is LevBase {
         // NOT a separate unlevered band-BTC position. FIXED at open (over-hedge fix): collateral grows as the
         // keeper levers, but E0 stays = the deposit. SAFETY: the up-side clamp de-levers toward 0 debt below entry.
         uint e0 = initialVbtc;                                         // (A): the deposit (vBTC sats) is the IL base
-        uint160 entrySqrtP;
+        uint entryPrice;
         if (vogueSyncHook != address(0)) {
-            try ILevSyncHook(vogueSyncHook).bandSqrtP() returns (uint160 s) { entrySqrtP = s; } catch {}
+            try ILevSyncHook(vogueSyncHook).bandPrice() returns (uint s) { entryPrice = s; } catch {}
         }
         pos[msg.sender] = Types.Pos({venue: venue, targetLtvCapBps: cap, entryPriceWad: uint128(entryPx),
-                               e0: uint128(e0), entrySqrtP: entrySqrtP, open: true});
+                               e0: uint128(e0), entryPrice: entryPrice, open: true});
         _trackOpen(msg.sender);
         // SAME-BTC: expose `initialVbtc` of the LP's OWN free channel band BTC as the levered slice — the Vault
         // mints the vBTC face straight to this manager (no LP pre-mint / transferFrom roundtrip). Opens at zero

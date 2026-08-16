@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {FixedPointMathLib} from "solmate/src/utils/FixedPointMathLib.sol";
 import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {LiquidityAmounts} from "v4-periphery/src/libraries/LiquidityAmounts.sol";
@@ -58,7 +59,7 @@ library VogueLib {
     /// @dev Vogue immutables the levered-band bodies touch.
     struct LevCfg { address core; address aux; address weth; }
     /// @dev Live pool range + reconcile targets, bundled to stay off the stack.
-    struct LevP { uint160 sqrtP; int24 tickLower; int24 tickUpper; address lm; uint gross; }
+    struct LevP { uint sqrtP; uint    tickLower; uint    tickUpper; address lm; uint gross; }
 
     function levManager(address aux) public view returns (address) {
         address host = aux == address(0) ? address(0) : IAux(aux).ethVenue();
@@ -102,7 +103,7 @@ library VogueLib {
         bufBurned = levBuf[lp];
         uint grossRem = netRem + bufBurned;
         if (grossRem == 0) { levBufferUsd[lp] = 0; return (0, 0); }
-        ICore(c.core).modLP(p.sqrtP, grossRem, 0, p.tickLower, p.tickUpper, address(0));
+        ICore(c.core).modLP(grossRem, 0, address(0));
         LP.pooled -= netRem; levPooled[lp] -= netRem;  // net leg leaves pooled/lpShares
         levBuf[lp] = 0; levBufferUsd[lp] = 0;          // buffer leg leaves totalBuffer (bufBurned)
         return (netRem, bufBurned);
@@ -135,7 +136,7 @@ library VogueLib {
         (uint netUsd, uint netEth) = IVogue(address(this)).addLiq(netEq, price);
         if (netEth == 0) return 0;
         LP.pooled += netEth; levPooled[lp] += netEth;
-        ICore(c.core).modLP(p.sqrtP, netEth, netUsd, p.tickLower, p.tickUpper, lp);
+        ICore(c.core).modLP(netEth, netUsd, lp);
         return netEth;
     }
 
@@ -151,7 +152,7 @@ library VogueLib {
         uint bufUsd = LevMath.capBufferUsd(bufEth, price, ILevEquity(p.lm).debtUsd(lp));
         if (bufUsd == 0) return 0;
         levBuf[lp] += bufEth; levBufferUsd[lp] += bufUsd;   // depth + fee weight, NOT equity
-        ICore(c.core).modLP(p.sqrtP, bufEth, bufUsd, p.tickLower, p.tickUpper, lp);
+        ICore(c.core).modLP(bufEth, bufUsd, lp);
         return bufEth;
     }
 
@@ -206,14 +207,17 @@ library VogueLib {
     uint    constant SECS_PER_YEAR = 31536000;
 
     /// @notice The LVR coefficient K (WAD), derived LIVE from band geometry.
-    function kLvrWad(address core, int24 lo, int24 up) public view returns (uint) {
-        (uint160 sqrtP,,) = ICore(core).poolStats(0, 0);
-        if (lo >= up) return 0;
-        uint sqrtPa = TickMath.getSqrtPriceAtTick(lo);
-        uint sqrtPb = TickMath.getSqrtPriceAtTick(up);
-        uint s = sqrtP < sqrtPa ? sqrtPa : (sqrtP > sqrtPb ? sqrtPb : sqrtP);
-        uint r1 = FullMath.mulDiv(s, 1e18, sqrtPb);
-        uint r2 = FullMath.mulDiv(sqrtPa, 1e18, s);
+    /// §DE-TICK — same quantity, computed from PRICE bounds. The body only ever used RATIOS of the
+    /// roots (`s/√Pb` and `√Pa/s`), and a ratio of roots is the root of the ratio:
+    ///     s/√Pb = √(P/Pb)   ·   √Pa/s = √(Pa/P)
+    /// so the tick→sqrt lookup disappears and the arithmetic is unchanged. √ survives as an
+    /// OPERATION (band width is genuinely √-shaped) but nothing is stored or passed as a sqrt price.
+    function kLvrWad(address core, uint loPrice, uint upPrice) public view returns (uint) {
+        (uint priceWad,) = ICore(core).poolStats();
+        if (loPrice >= upPrice) return 0;
+        uint p = priceWad < loPrice ? loPrice : (priceWad > upPrice ? upPrice : priceWad);
+        uint r1 = FixedPointMathLib.sqrt(FullMath.mulDiv(p, 1e36, upPrice));   // √(P/Pb) · 1e18
+        uint r2 = FixedPointMathLib.sqrt(FullMath.mulDiv(loPrice, 1e36, p));   // √(Pa/P) · 1e18
         uint denom = 2e18;
         if (r1 + r2 >= denom) return 0;
         denom -= (r1 + r2);
@@ -221,14 +225,13 @@ library VogueLib {
     }
 
     /// @notice The band's LIVE realized concavity α (WAD).
-    function realizedAlphaWad(address core, int24 lo, int24 up) public view returns (uint) {
-        (uint160 sqrtP,,) = ICore(core).poolStats(0, 0);
-        if (lo >= up) return 0;
-        uint sqrtPa = TickMath.getSqrtPriceAtTick(lo);
-        uint sqrtPb = TickMath.getSqrtPriceAtTick(up);
-        uint s = sqrtP < sqrtPa ? sqrtPa : (sqrtP > sqrtPb ? sqrtPb : sqrtP);
-        uint r1 = FullMath.mulDiv(s, 1e18, sqrtPb);
-        uint r2 = FullMath.mulDiv(sqrtPa, 1e18, s);
+    /// §DE-TICK — same conversion as `kLvrWad`: ratios of roots become roots of price ratios.
+    function realizedAlphaWad(address core, uint loPrice, uint upPrice) public view returns (uint) {
+        (uint priceWad,) = ICore(core).poolStats();
+        if (loPrice >= upPrice) return 0;
+        uint p = priceWad < loPrice ? loPrice : (priceWad > upPrice ? upPrice : priceWad);
+        uint r1 = FixedPointMathLib.sqrt(FullMath.mulDiv(p, 1e36, upPrice));   // √(P/Pb) · 1e18
+        uint r2 = FixedPointMathLib.sqrt(FullMath.mulDiv(loPrice, 1e36, p));   // √(Pa/P) · 1e18
         if (r1 >= 1e18 || r1 + r2 >= 2e18) return 0;
         return FullMath.mulDiv(1e18 - r1, 1e18, 2e18 - r1 - r2);
     }
@@ -300,10 +303,10 @@ library VogueLib {
     /// @dev `aux` was DROPPED (2026-07-27): the only thing that read it was the old `avgYield`
     ///      numerator, which #107/D3 replaced with the band-fee premium EWMA read off `core`. The
     ///      parameter has been dead since that change — the compiler flagged it as unused.
-    function derivedThetaWad(address core, int24 lo, int24 up) public view returns (uint) {
+    function derivedThetaWad(address core, uint loPrice, uint upPrice) public view returns (uint) {
         uint sigmaSq = ICore(core).realizedVarianceWad();   // §E59: ONE source, read from Core
         if (sigmaSq == 0) return 1e18;
-        uint kWad = kLvrWad(core, lo, up);
+        uint kWad = kLvrWad(core, loPrice, upPrice);
         if (kWad == 0) return 1e18;
         uint work = FullMath.mulDiv(kWad, sigmaSq, 1e18);
         if (work == 0) return 1e18;
@@ -391,10 +394,10 @@ library VogueLib {
     struct RebalIn {
         address core; address aux; address ev; address weth;
         bool token1isVol; uint lpShares; uint totalLevPooled; uint totalBuffer;
-        int24 lowerTick; int24 upperTick; uint bookmark;
+        uint lowerTick; uint upperTick; uint bookmark;   // §DE-TICK: band bounds as PRICES
     }
     struct RebalOut {
-        uint160 sqrtPriceX96; int24 tickLower; int24 tickUpper; uint128 myLiquidity; uint resolvedTwap;
+        uint    sqrtPriceX96; uint    tickLower; uint    tickUpper; uint    myLiquidity; uint resolvedTwap;   // §DE-TICK: uniform 256-bit
         uint feesPerShareInc; uint usdFeesInc; uint venueFeesPerShareInc; uint newBookmark;
         bool setLastRepack; bool reseatBump;
     }
@@ -519,10 +522,10 @@ library VogueLib {
         if (position.owner != owner) revert NotOwner();
         require(block.number >= position.created + 47, "too soon");
         if (percent == 0 || percent > 100) revert BadPercent();
-        uint closed = position.amt * uint(int(percent)) / 100;   // §V4-CUT: an AMOUNT, unsigned -- direction is the `closing` flag, not the sign
+        int closed = position.amt * percent / 100;
         if (closed == 0) revert Dust();
-        int24 lower = position.lower;
-        int24 upper = position.upper;
+        uint lower = position.lower;
+        uint upper = position.upper;
         uint[] storage myIds = positions[owner];
         uint lastIndex = myIds.length > 0 ? myIds.length - 1 : 0;
         if (percent == 100) {
@@ -537,7 +540,7 @@ library VogueLib {
             position.amt -= closed;
             if (position.amt == 0) revert Dust();
         }
-        ICore(core).outOfRange(owner, closed, true, lower, upper, token);
+        ICore(core).outOfRange(owner, -closed, lower, upper, token);
     }
 
     // ════════════════════════════════════════════════════════════════════
@@ -548,13 +551,13 @@ library VogueLib {
     // ════════════════════════════════════════════════════════════════════
     // §A.54: `OorTicks` was byte-identical to `SwapLib.Oor` — same four fields, same order, same
     // types — i.e. one concept under two names. Collapsed onto `SwapLib.Oor`, which is the better home:
-    // it already owns the `SwapLib.oorTicks(...)` factory that CONSTRUCTS the value, and this library
+    // it already owns the `SwapLib.oorBounds(...)` factory that CONSTRUCTS the value, and this library
     // already imports SwapLib.
 
     function sizeOutOfRange(
         address weth, address aux, address ev,
         uint amount, address token, bool token1isVol, SwapLib.Oor memory t
-    ) public returns (uint128 liquidity, uint placed) {
+    ) public returns (uint liquidity, uint placed) {
         // §A.56: both branches were an INLINE COPY of `SwapLib.sizeOorUsd` — the same helper the BTC
         // path (`BtcVaultLib.outOfRangeBtc`) already calls. Verified byte-identical: the USD side maps
         // to `sizeOorUsd(.., token1isVol)` and the ETH side is its MIRROR (`!token1isVol`), because
@@ -584,12 +587,12 @@ library VogueLib {
     ///      `renounceOwnership()` (Ownable's slot is Vogue's), the QUID back-pin check,
     ///      and the assignments of the value-type state this returns.
     function setupBody(address _aux, address _core)
-        external returns (address weth, bool token1isVol, int24 lower, int24 upper) {
+        external returns (address weth, bool token1isVol, uint lower, uint upper) {
         weth = IAux(_aux).WETH();
         IWETH9(weth).approve(_aux, type(uint).max);
-        (uint160 sqrtPriceX96,,) = ICore(_core).poolStats(0, 0);
+        (uint sqrtPriceX96,) = ICore(_core).poolStats();
         token1isVol = ICore(_core).token1isVol();
-        (lower,, upper,) = SwapLib.updateTicks(sqrtPriceX96, SwapLib.BAND_DELTA);
+        (lower, upper) = SwapLib.updateBounds(sqrtPriceX96, SwapLib.BAND_DELTA);
     }
 
     /// @dev Vogue's ETH delivery ladder, moved here for EIP-170 (E32). Native balance

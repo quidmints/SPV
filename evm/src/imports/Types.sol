@@ -11,18 +11,18 @@ library Types {
     ///         e0Eth vs e0Btc). ONE declaration now, per the shared-file rule.
     ///         ⚠️ FIELD ORDER IS ABI-VISIBLE: `pos` is a PUBLIC mapping, so its generated
     ///         getter is a 6-tuple. Reordering or retyping breaks every client that decodes it.
-    struct Pos { ILevVenue venue; uint64 targetLtvCapBps; uint128 entryPriceWad; uint128 e0; uint160 entrySqrtP; bool open; }
+    struct Pos { ILevVenue venue; uint64 targetLtvCapBps; uint128 entryPriceWad; uint128 e0; uint entryPrice; bool open; }
 
     /// @notice Vogue
     /// self-managed LP
     struct SelfManaged {
         uint created;
         address owner;
-        int24 lower;
-        int24 upper;
+        uint lower;
+        uint upper;
         // §V4-CUT — the token AMOUNT placed, not v4 liquidity units. Pro-rata maths is unchanged
         // (both scale linearly with position size); what changes is that this needs no AMM decode.
-        uint amt;
+        int amt;
     }
 
     /// @notice Vogue LP deposit...
@@ -204,7 +204,8 @@ library Types {
     }
 
     struct RouteParams {
-        uint160 sqrtPriceX96;
+        // §DE-TICK — `sqrtPriceX96` removed. It carried a packed band-edge PRICE LIMIT for v4's
+        // swap; settlement is at oracle bounded by inventory, so there is no limit to carry.
         bool    zeroForOne;
         address token;
         uint    amount;

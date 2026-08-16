@@ -50,8 +50,8 @@ contract Vogue is
 
     bool public token1isVol;
     // range = between ticks
-    int24 public UPPER_TICK;
-    int24 public LOWER_TICK;
+    uint public UPPER_PRICE;
+    uint public LOWER_PRICE;
     uint public LAST_REPACK;
     // ^ timestamp allows us
     // to measure APY% for
@@ -128,7 +128,7 @@ contract Vogue is
     mapping(address => uint) public levBufferUsd;
 
     /// @notice Bumped whenever the band ticks RECENTER (repack/reseat in `_rebalance`). A reseat realizes the
-    ///         band's IL and moves the ticks, so the IL-protect re-anchors its `entrySqrtP`/`E0` when this
+    ///         band's IL and moves the ticks, so the IL-protect re-anchors its `entryPrice`/`E0` when this
     ///         advances past a position's recorded epoch — otherwise the sold-fraction would be measured
     ///         across a tick-config change and mis-hedge.
 
@@ -251,7 +251,7 @@ contract Vogue is
         // seed read, and the initial tick derivation. Only the value-type state
         // writes stay here; they have no storage pointer to hand the library.
         address weth; bool t1;
-        (weth, t1, LOWER_TICK, UPPER_TICK) = VogueLib.setupBody(_aux, _core);
+        (weth, t1, LOWER_PRICE, UPPER_PRICE) = VogueLib.setupBody(_aux, _core);
         WETH = WETH9(payable(weth)); token1isVol = t1;
     }
 
@@ -270,27 +270,27 @@ contract Vogue is
     ///         attribution (there's no pledge): exits via pull() are served by
     ///         the generic withdraw ladder, which reaches every venue.
     function outOfRange(uint amount, address token,
-        int24 distance, int24 range) 
+        int distance, uint range) 
         external nonReentrant payable returns (uint next) {
         return _outOfRange(amount, token, distance, range);
     }
 
     function _outOfRange(uint amount, address token,
-        int24 distance, int24 range) internal
+        int distance, uint range) internal
         returns (uint next) {
         SwapLib.validateOorParams(range, distance);
 
         SwapLib.Oor memory t;
         {   // geometry in a scope so currentSqrtPrice frees before sizing.
-            // §J.8b: was an inline copy of `SwapLib.oorTicks` (identical branch structure, identical
+            // §J.8b: was an inline copy of `SwapLib.oorBounds` (identical branch structure, identical
             // alignment, same width 10) plus a local `_outOfRangeTicks`. The BTC path
             // (`BtcVaultLib.outOfRangeBtc`) already called the shared helper, so ONE definition now
             // computes the out-of-range geometry for both assets — the same consolidation §A.56 did
-            // for the SIZING half. NOTE: `oorTicks` negates `distance` internally from `token1is`,
+            // for the SIZING half. NOTE: `oorBounds` negates `distance` internally from `token1is`,
             // so the caller must NOT pre-negate it (doing both would place the order on the wrong
             // side of spot).
-            (uint160 currentSqrtPrice, int24 curLo, int24 curUp,,) = _rebalance();
-            t = SwapLib.oorTicks(currentSqrtPrice, range, distance, token1isVol, curLo, curUp);
+            (uint currentPrice, uint curLo, uint curUp,,) = _rebalance();
+            t = SwapLib.oorBounds(currentPrice, range, distance, token1isVol, curLo, curUp);
         }
         // Backing deposit + single-sided sizing lives in VogueLib (EIP-170
         // headroom); self-managed positions take no wall attribution (pledge==0).
@@ -304,7 +304,7 @@ contract Vogue is
         // closes behave identically. That is why this is a representation change, not a maths change.
         // `liquidity` is still computed and still gates on Dust, because it is the sizing function's
         // own validity check -- a range that can hold nothing yields zero liquidity.
-        (uint128 liquidity, uint placed) = VogueLib.sizeOutOfRange(
+        (uint liquidity, uint placed) = VogueLib.sizeOutOfRange(
             address(WETH), address(AUX), address(EV),
             amount, token, token1isVol, t);
         if (liquidity == 0) revert Dust();
@@ -313,9 +313,9 @@ contract Vogue is
         selfManaged[next] = Types.SelfManaged({
             created: block.number, owner: msg.sender,
             lower: t.newLo, upper: t.newUp,
-            amt: placed });
+            amt: int(placed) });
         positions[msg.sender].push(next);
-        V4.outOfRange(msg.sender, placed, false, t.newLo, t.newUp, address(0));
+        V4.outOfRange(msg.sender, int(placed), t.newLo, t.newUp, address(0));
     } // Re-audited 2026-07-24 (self-managed OOR position create): internally consistent.
     // tick ordering — newUpper-newLower == range, aligned to width=10 and range a multiple
     // of 50 ≥ 100, so lower<upper always (no degenerate/inverted band); liquidity cast
@@ -398,8 +398,8 @@ contract Vogue is
     ///      and unregisterBtcLp (BTC); the orchestration around it diverges
     ///      (fee model, native-vs-on-chain delivery, the BTC-only per-channel
     ///      claim), which is why the two callers stay distinct.
-    function _burnInRange(uint160 sqrtPriceX96, uint amount,
-        int24 tickLower, int24 tickUpper, address recipient)
+    function _burnInRange(uint sqrtPriceX96, uint amount,
+        uint tickLower, uint tickUpper, address recipient)
         internal returns (uint sent) {
         return SwapLib.burnInRange(address(V4), false, sqrtPriceX96, amount,
                                     tickLower, tickUpper, recipient);
@@ -480,7 +480,7 @@ contract Vogue is
     /// anything. Pay the LP's PRO-RATA share of the increment directly and let the burn govern only
     /// the ETH leg. `lpShares` is already debited by `claimAmt` at this point, so the pre-debit
     /// total is `lpShares + claimAmt` — using it un-restored would over-pay a partial exit.
-    function _burnAndDeliverUsdLeg(uint160 sqrtP, uint burnAmt, uint claimAmt, int24 lo, int24 hi, address recipient)
+    function _burnAndDeliverUsdLeg(uint sqrtP, uint burnAmt, uint claimAmt, uint lo, uint hi, address recipient)
         private returns (uint sent) {
         uint incrPre = _bandIncrement6();
         sent = _burnInRange(sqrtP, burnAmt, lo, hi, recipient);
@@ -563,7 +563,7 @@ contract Vogue is
         //    of price risk is a measurement nobody has taken (E146); do not raise 1→47 as a
         //    reflex, it changes LP UX and the 4626 redeem semantics.
         require(block.number > lastDepositBlock[msg.sender], "too soon");
-        (uint160 sqrtPriceX96, int24 tickLower, int24 tickUpper,,) = _rebalance();
+        (uint sqrtPriceX96, uint tickLower, uint tickUpper,,) = _rebalance();
         // §4.1 COMPOUND-not-transfer: settle with mintRecipient==0 so the USD fee leg
         // ACCRUES to `usd_owed` (a deferred, unrealized claim — strictly conservative, no
         // mint) rather than being minted out. The token (ETH) leg still compounds into
@@ -735,9 +735,9 @@ contract Vogue is
 
     /// @dev The 7-arg in-range modLP in its own frame so _depositImpl stays within
     ///      the legacy stack (no via_ir crutch). Mirrors Vault._modLpBtc.
-    function _modLpEth(uint160 sqrtP, uint deltaETH, uint deltaUSD,
-        int24 tickLower, int24 tickUpper, address pledge) private {
-        V4.modLP(sqrtP, deltaETH, deltaUSD, tickLower, tickUpper, pledge);
+    function _modLpEth(uint sqrtP, uint deltaETH, uint deltaUSD,
+        uint tickLower, uint tickUpper, address pledge) private {
+        V4.modLP(deltaETH, deltaUSD, pledge);
     }
     /// @notice Reconcile `lp`'s LEVERED band position to its LIVE net-equity — the IL-protect fee lane.
     ///         PERMISSIONLESS (keeper/monitor/anyone): when the leverage's net-equity GROWS, mint band depth
@@ -811,8 +811,8 @@ contract Vogue is
         // the pre-deposit balance. Otherwise the deposit is
         // misattributed as yield, inflating ETH_FEES.
         Types.Deposit storage LP = autoManaged[pledge];
-        (uint160 sqrtPriceX96, int24 tickLower,
-         int24 tickUpper,,) = _rebalance();
+        (uint sqrtPriceX96, uint tickLower,
+         uint tickUpper,,) = _rebalance();
 
         // _depositETH pulls WETH from msg.sender (payer), routes it to the
         // per-deposit chosen venue, and attributes the slice (hard-wall)...
@@ -894,50 +894,50 @@ contract Vogue is
     ///         number (front-end / probe / monitoring). 0 ⇒ band unset/degenerate (caller fails open).
     ///         Body in VogueLib (EIP-170 headroom); band ticks passed in.
     function kLvrWad() external view returns (uint) {
-        return VogueLib.kLvrWad(address(V4), LOWER_TICK, UPPER_TICK);
+        return VogueLib.kLvrWad(address(V4), LOWER_PRICE, UPPER_PRICE);
     }
 
     /// @notice (A) The band's LIVE realized concavity α (WAD). Body in VogueLib.
     function realizedAlphaWad() public view returns (uint) {
-        return VogueLib.realizedAlphaWad(address(V4), LOWER_TICK, UPPER_TICK);
+        return VogueLib.realizedAlphaWad(address(V4), LOWER_PRICE, UPPER_PRICE);
     }
 
-    /// @notice (B) The band's ACTUAL sold-volatile fraction (WAD) since `entrySqrtP` — the ground-truth IL the
+    /// @notice (B) The band's ACTUAL sold-volatile fraction (WAD) since `entryPrice` — the ground-truth IL the
     ///         hedge must cancel, straight from the concentrated-position geometry, so it reflects the real
     ///         (drifting) α with NO sqrt/pow and NO α parameter. Held-volatile amount is ∝ (1/√P − 1/√P_b)
     ///         when the volatile is token0 (sold as √P RISES) or ∝ (√P − √P_a) when it's token1 (sold as √P
     ///         FALLS); soldFrac = 1 − amount_now/amount_entry. VALID WITHIN ONE TICK-CONFIG ONLY — a reseat
-    ///         recenters the ticks and realizes IL, so the CALLER must re-anchor `entrySqrtP` on reseat.
+    ///         recenters the ticks and realizes IL, so the CALLER must re-anchor `entryPrice` on reseat.
     ///         Returns 0 on the non-IL side (up-side-only, matching the current target) or a degenerate band.
     ///         ETH band (the BTC parallel lives on the Vault with the BTC ticks/ordering).
-    function soldFractionWad(uint160 entrySqrtP) public view returns (uint) {
-        (uint160 sqrtP,,) = V4.poolStats(0, 0);
-        return SwapLib.soldFractionWad(entrySqrtP, sqrtP, LOWER_TICK, UPPER_TICK, token1isVol);
+    function soldFractionWad(uint entryPrice) public view returns (uint) {
+        (uint priceWad,) = V4.poolStats();
+        return SwapLib.soldFractionWad(entryPrice, priceWad, LOWER_PRICE, UPPER_PRICE);
     }
 
-    /// @notice The band's current spot √P (Q96) — the leverage records this as its `entrySqrtP` at open so
+    /// @notice The band's current spot √P (Q96) — the leverage records this as its `entryPrice` at open so
     ///         `soldFractionWad` can measure the IL from the true band price (not the oracle).
     /// @dev NO isBTC ARGUMENT, deliberately. Vogue is the ETH band manager, so it reads the ETH pool
-    ///      — full stop. It previously FORWARDED the caller's flag, meaning `bandSqrtP(true)` returned
-    ///      the BTC pool's price from the ETH contract, while `Vault.bandSqrtP` IGNORED the same flag
+    ///      — full stop. It previously FORWARDED the caller's flag, meaning `bandPrice(true)` returned
+    ///      the BTC pool's price from the ETH contract, while `Vault.bandPrice` IGNORED the same flag
     ///      and always read BTC. Two implementations disagreeing about one parameter is a silent
     ///      mis-pricing waiting on a hook mis-wiring: it returns the wrong asset's price rather than
     ///      reverting. Each side now names its own asset and cannot be asked for the other's.
-    function bandSqrtP() external view returns (uint160 sqrtP) {
-        (sqrtP,,) = V4.poolStats(0, 0);
+    function bandPrice() external view returns (uint priceWad) {
+        (priceWad,) = V4.poolStats();
     }
 
     /// @notice θ derived live: yield / (K·σ²), clamped to ≤1. Body in VogueLib
     ///         (EIP-170 headroom); band ticks + Core/Aux handles passed in.
     function derivedThetaWad() public view returns (uint) {
-        return VogueLib.derivedThetaWad(address(V4), LOWER_TICK, UPPER_TICK);
+        return VogueLib.derivedThetaWad(address(V4), LOWER_PRICE, UPPER_PRICE);
     }
 
     /// @notice θ for an EXPLICIT band range. The BTC band ticks live in the Vault (LOWER_TICK_BTC/
     ///         UPPER_TICK_BTC), so it passes them in here -- Vogue stays the single home of the band-θ
     ///         math for BOTH pools, and the Vault needs no VogueLib link of its own.
-    function derivedThetaWadAt(int24 lo, int24 up, bool isBTC) public view returns (uint) {
-        return VogueLib.derivedThetaWad(address(V4), lo, up);
+    function derivedThetaWadAt(uint loPrice, uint upPrice, bool isBTC) public view returns (uint) {
+        return VogueLib.derivedThetaWad(address(V4), loPrice, upPrice);
     }
 
     /// @notice Annualized realized variance (WAD) from Core's oracle ring. Body in VogueLib.
@@ -1027,7 +1027,7 @@ contract Vogue is
         uint usd6 = V4.POOLED_USD();     // band's in-range USD leg (6-dec)
         uint eth  = V4.POOLED();         // band's in-range ETH leg (18-dec)
         if (usd6 == 0 || eth == 0) return 0; // empty band -> free stables only
-        (uint160 sqrtP, int24 tickLower, int24 tickUpper,,) = _rebalance();
+        (uint sqrtP, uint tickLower, uint tickUpper,,) = _rebalance();
         // ROOT-PRECISE: size the ETH removal by the band's OWN in-range USD/ETH ratio, NOT an external TWAP.
         // Removing the fraction `usdWanted/(usd6·1e12)` of the position releases EXACTLY `usdWanted` USD (plus
         // the paired ETH, which stays in-venue). ETH to pull = usdWanted·eth/(usd6·1e12); _burnInRange caps at
@@ -1108,18 +1108,18 @@ contract Vogue is
     ///      rebalanceCore). It mutates only value-type accumulators, returned as increments/flags applied here.
     ///      Byte-identical: same ordering (_syncYield reads venue balance BEFORE rebalanceCore), same arithmetic;
     ///      the discarded `_calcYield` APY return is dropped. `_venueBalance` STAYS (its other callers use it).
-    function _rebalance() internal returns (uint160 sqrtPriceX96,
-        int24 tickLower, int24 tickUpper, uint128 myLiquidity, uint resolvedTwap) {
+    function _rebalance() internal returns (uint sqrtPriceX96,
+        uint tickLower, uint tickUpper, uint myLiquidity, uint resolvedTwap) {
         VogueLib.RebalOut memory o = VogueLib.rebalanceBody(VogueLib.RebalIn({
             core: address(V4), aux: address(AUX), ev: address(EV), weth: address(WETH),
             token1isVol: token1isVol, lpShares: lpShares, totalLevPooled: totalLevPooled,
-            totalBuffer: totalBuffer, lowerTick: LOWER_TICK, upperTick: UPPER_TICK, bookmark: bookmark}));
+            totalBuffer: totalBuffer, lowerTick: LOWER_PRICE, upperTick: UPPER_PRICE, bookmark: bookmark}));
         venueFeesPerShare += o.venueFeesPerShareInc;             // _syncYield accrual
         bookmark = o.newBookmark;
         feesPerShare += o.feesPerShareInc; USD_FEES += o.usdFeesInc; // _distributeV4Fees
         
         if (o.setLastRepack) LAST_REPACK = block.timestamp;      // _calcYield's live effect
-        LOWER_TICK = o.tickLower; UPPER_TICK = o.tickUpper;      // write the (possibly new) range back
+        LOWER_PRICE = o.tickLower; UPPER_PRICE = o.tickUpper;      // write the (possibly new) range back
         return (o.sqrtPriceX96, o.tickLower, o.tickUpper, o.myLiquidity, o.resolvedTwap);
     }
 
@@ -1127,8 +1127,8 @@ contract Vogue is
     ///         outside the LP range. The `bool` arg is retained only for the
     ///         Core IVogueRepack interface (BtcVault repacks the BTC
     ///         pool); Vogue is ETH-only. Returns the post-repack pool state.
-    function repack(bool /*isBTC*/) public onlyUs returns (uint160 sqrtPriceX96,
-        int24 tickLower, int24 tickUpper, uint128 myLiquidity, uint resolvedTwap) {
+    function repack(bool /*isBTC*/) public onlyUs returns (uint sqrtPriceX96,
+        uint tickLower, uint tickUpper, uint myLiquidity, uint resolvedTwap) {
         return _rebalance();
     }
 
@@ -1142,16 +1142,16 @@ contract Vogue is
         _rebalance();
     }
 
-    function paddedSqrtPrice(uint160 sqrtPriceX96,
+    function paddedSqrtPrice(uint sqrtPriceX96,
         bool up, uint delta) public pure returns (uint160) {
         return SwapLib.paddedSqrtPrice(sqrtPriceX96, up, delta);
     }
 
 
-    function _updateTicks(uint160 sqrtPriceX96, uint delta)
-        internal pure returns (int24 tickLower, uint160 lower,
-                             int24 tickUpper, uint160 upper) {
-        return SwapLib.updateTicks(sqrtPriceX96, delta);
+    /// §DE-TICK — forwards to the price-space band-bound helper. Was `_updateTicks`.
+    function _updateBounds(uint price, uint delta)
+        internal pure returns (uint lower, uint upper) {
+        return SwapLib.updateBounds(price, delta);
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -1206,7 +1206,7 @@ contract Vogue is
     // classes, so a single-asset 4626 on it would be dishonest". THAT PREMISE WAS MEASURED
     // FALSE (2026-08-15): Vogue declares NO BTC state — not one `Btc`/`BTC` member. Its
     // `isBTC` arguments were pass-throughs to VogueLib math bodies, and NOTHING supplied
-    // them. Vogue is, and was, the ETH band manager; `bandSqrtP` already said so in its own
+    // them. Vogue is, and was, the ETH band manager; `bandPrice` already said so in its own
     // docblock while the comments here said the opposite.
     //
     // So the face returns to the state instead of projecting through a call boundary. That
@@ -1514,7 +1514,7 @@ contract Vogue is
     function compound(address lp) external nonReentrant {
         Types.Deposit storage LP = autoManaged[lp];
         if (LP.pooled == 0) return;                  // nothing to compound — keeper-safe no-op
-        (uint160 sqrtP, int24 tickLower, int24 tickUpper,,) = _rebalance(); // repack-first: roll pool fees into feesPerShare
+        (uint sqrtP, uint tickLower, uint tickUpper,,) = _rebalance(); // repack-first: roll pool fees into feesPerShare
         uint eth_fees = feesPerShare;
         uint usd_fees = USD_FEES;
         (uint tokR, uint usdR) = _pendingFor(lp);    // token-leg (WETH-units) + USD-leg owed

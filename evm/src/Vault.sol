@@ -165,13 +165,13 @@ contract Vault is Ownable, ReentrancyGuard {
     // as it is earned (see `BtcVaultLib.settleBtcLp`), so there is no unsettled claim to hold,
     // no hop-funded grow-splice to settle it, and nothing to forfeit at close.
 
-    /// @dev NOT suffixed `_BTC`, deliberately. Vogue names its ETH band ticks `LOWER_TICK`/
-    ///      `UPPER_TICK`; this contract owns the BTC band and names its own the same. Each hook
+    /// @dev NOT suffixed `_BTC`, deliberately. Vogue names its ETH band ticks `LOWER_PRICE`/
+    ///      `UPPER_PRICE`; this contract owns the BTC band and names its own the same. Each hook
     ///      answers for ITS asset, so `reanchorCompute` calls ONE accessor instead of selecting a
     ///      NAME by flag — which is all that `isBTC` was doing there (hence the try/catch around
     ///      every call: the wrong name simply does not exist on the other side).
-    int24 public UPPER_TICK;
-    int24 public LOWER_TICK;
+    uint public UPPER_PRICE;
+    uint public LOWER_PRICE;
 
 
     error BtcChannelsPinned();
@@ -235,8 +235,8 @@ contract Vault is Ownable, ReentrancyGuard {
         if (msg.sender != owner()) revert Unauthorized();   // was front-runnable
         if (address(QUID) != address(0)) revert AlreadyInitialized();
         QUID = Basket(_quid);
-        (uint160 sqrtPriceX96,,) = CORE.poolStats(0, 0);
-        (LOWER_TICK,, UPPER_TICK,) = _updateTicks(sqrtPriceX96, 200);
+        (uint priceWad,) = CORE.poolStats();
+        (LOWER_PRICE, UPPER_PRICE) = _updateBounds(priceWad, 200);
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -346,18 +346,18 @@ contract Vault is Ownable, ReentrancyGuard {
         return CORE.token1isVol();   // §ISBTC-SPLIT: the instance IS the BTC one
     }
 
-    /// @notice (B) The BTC band's current spot √P (Q96) — recorded as `entrySqrtP` at `openBtcLev`. `isBTC` is
-    ///         accepted for interface-parity with `Vogue.bandSqrtP`; the Vault is BTC-only, so it always reads
+    /// @notice (B) The BTC band's current spot √P (Q96) — recorded as `entryPrice` at `openBtcLev`. `isBTC` is
+    ///         accepted for interface-parity with `Vogue.bandPrice`; the Vault is BTC-only, so it always reads
     ///         the BTC pool.
-    function bandSqrtP() external view returns (uint160 sqrtP) {
-        (sqrtP,,) = CORE.poolStats(0, 0);
+    function bandPrice() external view returns (uint priceWad) {
+        (priceWad,) = CORE.poolStats();
     }
 
-    /// @notice (B) The BTC band's ACTUAL sold-volatile fraction (WAD) since `entrySqrtP` — mirror of
+    /// @notice (B) The BTC band's ACTUAL sold-volatile fraction (WAD) since `entryPrice` — mirror of
     ///         `Vogue.soldFractionWad`, over the BTC ticks/ordering. Shared pure geometry lives in SwapLib.
-    function soldFractionWad(uint160 entrySqrtP) external view returns (uint) {
-        (uint160 sqrtP,,) = CORE.poolStats(0, 0);
-        return SwapLib.soldFractionWad(entrySqrtP, sqrtP, LOWER_TICK, UPPER_TICK, token1isVol());
+    function soldFractionWad(uint entryPrice) external view returns (uint) {
+        (uint priceWad,) = CORE.poolStats();
+        return SwapLib.soldFractionWad(entryPrice, priceWad, LOWER_PRICE, UPPER_PRICE);
     }
 
 
@@ -386,23 +386,23 @@ contract Vault is Ownable, ReentrancyGuard {
     /// @dev Thin forwarder: the fat body (rebalanceCore + fee distribution + reseat/tick writeback) moved to
     ///      BtcVaultLib.rebalanceBody (delegatecall — EIP-170). `feeDenom` = lpSharesBTC + totalBufferBTC (GROSS
     ///      fee weight); the value-type accumulators + ticks + reseat epoch are written back here. Logic unchanged.
-    function _rebalance(bool isBTC) internal returns (uint160 sqrtPriceX96,
-        int24 tickLower, int24 tickUpper, uint128 myLiquidity, uint resolvedTwap) {
+    function _rebalance(bool isBTC) internal returns (uint sqrtPriceX96,
+        uint tickLower, uint tickUpper, uint myLiquidity, uint resolvedTwap) {
         BtcVaultLib.RebalOut memory o = BtcVaultLib.rebalanceBody(
-            _btcCfg(), isBTC, LOWER_TICK, UPPER_TICK,
+            _btcCfg(), isBTC, LOWER_PRICE, UPPER_PRICE,
             feesPerShareBTC, USD_FEES_BTC, lpSharesBTC + totalBufferBTC);
         feesPerShareBTC = o.feesPerShareBTC; USD_FEES_BTC = o.usdFeesBtc;
-        LOWER_TICK = o.tickLower; UPPER_TICK = o.tickUpper;
+        LOWER_PRICE = o.tickLower; UPPER_PRICE = o.tickUpper;
         return (o.sqrtPriceX96, o.tickLower, o.tickUpper, o.myLiquidity, o.resolvedTwap);
     }
 
     // (S4) public paddedSqrtPrice removed — dead (Core uses VOGUE.paddedSqrtPrice;
     // _rebalance here calls SwapLib.paddedSqrtPrice directly).
 
-    function _updateTicks(uint160 sqrtPriceX96, uint delta)
-        internal pure returns (int24 tickLower, uint160 lower,
-                             int24 tickUpper, uint160 upper) {
-        return SwapLib.updateTicks(sqrtPriceX96, delta);
+    /// §DE-TICK — forwards to the price-space band-bound helper. Was `_updateTicks`.
+    function _updateBounds(uint price, uint delta)
+        internal pure returns (uint lower, uint upper) {
+        return SwapLib.updateBounds(price, delta);
     }
 
     // ──── BTC LP path (parallel to ETH) ────
@@ -469,7 +469,7 @@ contract Vault is Ownable, ReentrancyGuard {
     ///         (the band-θ math home) with the BTC ticks so BtcVaultLib.addLiqChannel can risk-budget the
     ///         BTC band exactly like the ETH band -- without VaultLib linking VogueLib.
     function derivedThetaWadBtc() external view returns (uint) {
-        return V4.derivedThetaWadAt(LOWER_TICK, UPPER_TICK, true);
+        return V4.derivedThetaWadAt(LOWER_PRICE, UPPER_PRICE, true);
     }
 
     /// @dev Vault's BTC-side immutables gathered for the delegatecalled VaultLib
@@ -575,13 +575,13 @@ contract Vault is Ownable, ReentrancyGuard {
     /// @param distance Ticks from current price (±100..±5000, step 100; sign = side).
     /// @param range   Order width in ticks (100..1000, step 50).
     /// @return next   The new position id.
-    function outOfRangeBtc(uint amount, address token, int24 distance, int24 range)
+    function outOfRangeBtc(uint amount, address token, int distance, uint range)
         external nonReentrant returns (uint next) {
         // _rebalance stays in the Vault; the rest is BtcVaultLib.outOfRangeBtc
         // (delegatecall) which writes selfManagedBtc/positionsBtc via the passed
         // refs and returns the new id (ID_BTC is value-type). A revert rolls back
         // the _rebalance, so validating inside the lib is behavior-identical.
-        (uint160 sqrtP, int24 curLo, int24 curUp,,) = _rebalance(true);
+        (uint sqrtP, uint curLo, uint curUp,,) = _rebalance(true);
         next = BtcVaultLib.outOfRangeBtc(_btcCfg(), selfManagedBtc, positionsBtc,
             BtcVaultLib.OorArgs({ amount: amount, token: token, distance: distance,
                 range: range, owner: msg.sender, sqrtP: sqrtP, curLo: curLo,
@@ -607,8 +607,8 @@ contract Vault is Ownable, ReentrancyGuard {
 
 
     /// @notice Repack the BTC pool's in-range LP position.
-    function repack(bool isBTC) public onlyUsBtc returns (uint160 sqrtPriceX96,
-        int24 tickLower, int24 tickUpper, uint128 myLiquidity, uint resolvedTwap) {
+    function repack(bool isBTC) public onlyUsBtc returns (uint sqrtPriceX96,
+        uint tickLower, uint tickUpper, uint myLiquidity, uint resolvedTwap) {
         return _rebalance(isBTC);
     }
 

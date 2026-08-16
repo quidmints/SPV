@@ -61,7 +61,7 @@ abstract contract LevBase {
     address public vogueSyncHook;
 
     event TargetSet(address indexed lp, uint256 targetLtvBps);
-    event ReanchoredToBand(address indexed lp, uint160 entrySqrtP, uint256 e0);
+    event ReanchoredToBand(address indexed lp, uint entryPrice, uint256 e0);
 
     error NotOpen();
     error BadTarget();
@@ -158,11 +158,11 @@ abstract contract LevBase {
     function _reanchorIfReseated(address lp) internal {
         Types.Pos storage p = pos[lp];
         if (!p.open) return;
-        (bool go, uint160 s) = LevMath.reanchorCompute(vogueSyncHook, p.entrySqrtP);
+        (bool go, uint s) = LevMath.reanchorCompute(vogueSyncHook, p.entryPrice);
         if (!go) return;
         uint256 px   = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         uint256 base = netEquity(lp);
-        p.entrySqrtP    = s;
+        p.entryPrice    = s;
         p.entryPriceWad = uint128(px);
         p.e0            = uint128(base);
         emit ReanchoredToBand(lp, s, base);
