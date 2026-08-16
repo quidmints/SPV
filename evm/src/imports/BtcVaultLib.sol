@@ -124,7 +124,7 @@ library BtcVaultLib {
     ///      structurally unrelated to the band's risk capital -- basing theta on it throttled the band to ~0
     ///      whenever donations were thin (the opposite of what scarcity should do).
     function _thetaClampBtc(address core, uint deltaTok, uint sats) private view returns (uint) {
-        uint thetaEff = IBandManager(address(this)).derivedThetaWadBtc();
+        uint thetaEff = IBandManager(address(this)).derivedThetaWad();
         if (thetaEff == 0) thetaEff = 1e18;
         // ONE principle (SwapLib.clampByBacking): bound by both the physical backing headroom AND theta —
         // shared verbatim with the reseat clamp (VogueLib.addLiq) and the ETH band. backing = the native

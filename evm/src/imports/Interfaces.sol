@@ -187,6 +187,10 @@ interface ILevHost {
 /// Canonical view — union of the former per-file variants (`ILevSyncHookM`). Two declarations
 /// described ONE contract, so a signature change had to be made twice and a missed one still compiled.
 interface ILevSyncHook {
+    /// §SLOP — ONE NAME. This interface declared BOTH `syncLev` and `syncLevBTC` for the same
+    /// operation, so the two bands could not be called through one method even though the
+    /// interface existed precisely to make that possible. The interface IS the polymorphism;
+    /// a second name for the same call defeats it.
     function syncLev(address lp) external;
     function soldFractionWad(uint entryPrice) external view returns (uint256);
     function bandPrice() external view returns (uint);
@@ -197,7 +201,6 @@ interface ILevSyncHook {
     // state (Vogue:92-93, Vault:214-215); no new contract code implements them.
     function LOWER_PRICE() external view returns (uint);
     function UPPER_PRICE() external view returns (uint);
-    function syncLevBTC(address lp) external;
 }
 
 /// Canonical ILevVenueColl — union of ILevVenueColl, ILevVenueCollB.
@@ -392,7 +395,7 @@ interface IBandManager {
     function repack() external returns (uint price, uint lower, uint upper, uint liquidity, uint);
     function feesPerShareBTC() external view returns (uint);
     function USD_FEES_BTC() external view returns (uint);
-    function derivedThetaWadBtc() external view returns (uint);
+    function derivedThetaWad() external view returns (uint);
     function setBTCChannels(address b) external;
 }
 

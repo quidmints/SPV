@@ -491,7 +491,7 @@ contract Vault is Ownable, ReentrancyGuard {
     ///         Permissionless (like Vogue.syncLev): it only moves the tokenless levered slice to match
     ///         the manager (the keeper pokes it via the manager's hook). GROW pairs net-equity in-range
     ///         as depth; SHRINK/liquidation burns it. No new channel sats — backed by vogueBTC.
-    function syncLevBTC(address lp) external nonReentrant {
+    function syncLev(address lp) external nonReentrant {   // §SLOP: one name across both bands
         // Whole body (skip-check + _rebalance-via-repack + fee-settle + FULL-RESYNC:
         // burn all, re-add gross as two legs) in BtcVaultLib.syncLevBTC (delegatecall)
         // over the Vault's storage via the passed refs (incl. levBufferUsdBTC).
@@ -506,7 +506,7 @@ contract Vault is Ownable, ReentrancyGuard {
     /// @notice Live θ for the BTC band (yield/(K·σ²)) at the Vault's CURRENT BTC band ticks. Asks Vogue
     ///         (the band-θ math home) with the BTC ticks so BtcVaultLib.addLiqChannel can risk-budget the
     ///         BTC band exactly like the ETH band -- without VaultLib linking VogueLib.
-    function derivedThetaWadBtc() external view returns (uint) {
+    function derivedThetaWad() external view returns (uint) {   // §SLOP: one name across both bands
         return VOGUE.derivedThetaWadAt(address(CORE), LOWER_PRICE, UPPER_PRICE);   // §ISBTC-SPLIT: OUR ring's variance, not the ETH band's
     }
 

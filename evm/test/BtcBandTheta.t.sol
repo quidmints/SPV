@@ -11,7 +11,7 @@ import {Alles} from "./Alles.t.sol";
 ///   The fork's mock venues accrue ~0 yield, so the LIVE theta = avgYield/(K*sigma^2) = 0 ->
 ///   fails OPEN (no clamp). That is exactly why every existing BTC test is unaffected (theta
 ///   inert on the fork). To prove the clamp FIRES we mock the ONE input the fork cannot produce
-///   -- a positive-yield theta<1 -- via Vault.derivedThetaWadBtc(), and show the in-range pairing
+///   -- a positive-yield theta<1 -- via Vault.derivedThetaWad(), and show the in-range pairing
 ///   is throttled, while the fail-open baseline pairs fully. The theta VALUE's live-ness itself is
 ///   covered by the same VogueLib.derivedThetaWad path DerivedTheta.t.sol exercises for ETH.
 contract BtcBandThetaProbe is Alles {
@@ -30,7 +30,7 @@ contract BtcBandThetaProbe is Alles {
         // theta*vogueAvail << current POOLED, the in-range headroom collapses to ~0, so the
         // second LP's sats are shed to the unpaired (off-chain-backed) share tracking instead of
         // being force-paired into the IL-bearing band.
-        vm.mockCall(address(BTC), abi.encodeWithSignature("derivedThetaWadBtc()"), abi.encode(uint(1e15)));
+        vm.mockCall(address(BTC), abi.encodeWithSignature("derivedThetaWad()"), abi.encode(uint(1e15)));
         uint p1 = CORE.POOLED();
         BTC.registerBtcLp(User02, 2e7);            // same sats, theta << 1
         uint d2 = CORE.POOLED() - p1;
