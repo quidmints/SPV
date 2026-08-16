@@ -1001,149 +1001,17 @@ contract Core is SafeCallback {
         Action a = Action(firstByte);
         bytes calldata payload = data[32:];
 
-        if (a == Action.RepackETH || a == Action.RepackBTC)
-            return _handleRepack(payload);
-        if (a == Action.ReseatETH || a == Action.ReseatBTC)
-            return _handleReseat(payload);
-        if (a == Action.ModLPETH || a == Action.ModLPBTC)
-            return _handleMod(payload);
+        // §V4-CUT — ONE ACTION LEFT. Swap settles at oracle; Repack/Reseat store a range;
+        // ModLP is a balance change; Collect has nothing to harvest. Only the self-managed
+        // boundary order still round-trips through v4, and only because it is still expressed
+        // in TICKS. Its handler is the last thing holding `_modifyLiquidity` alive.
         if (a == Action.OutsideRangeETH || a == Action.OutsideRangeBTC)
             return _handleOutsideRange(payload);
-        if (a == Action.CollectETH || a == Action.CollectBTC)
-            return _handleCollect(payload);
         return "";
     }
 
     function _key() internal view returns (PoolKey memory) {
         return IS_BTC ? VANILLA_BTC : VANILLA_ETH;
-    }
-
-    function _handleRepack(bytes calldata data)
-        internal returns (bytes memory) {
-        // Per-pool zeroing: clear only the side being repacked. The other
-        // pool's slice is independent and untouched.
-        if (IS_BTC) { POOLED_USD = 0; POOLED = 0; basketUsd = 0; }
-        else       { POOLED_USD = 0; POOLED = 0; basketUsd = 0; }
-
-        (Reseat memory rng, BalanceDelta fees, uint delta0, uint delta1) = _repackBurn(data);
-        uint price = BasketLib.getPrice(rng.sqrtP, token1isVol);
-        // Pull next-round liquidity from Vogue (own frame, IS_BTC selects path).
-        BalanceDelta addDelta = _repackAdd(delta0, delta1, price, rng);
-
-        (uint160 sqrtP,,,) = poolManager.getSlot0(_poolId());
-        _writeObservation(sqrtP);
-
-        return abi.encode(price, uint(int(fees.amount0())),
-            uint(int(fees.amount1())), uint(int(addDelta.amount0())),
-            uint(int(addDelta.amount1())));
-    }
-
-    /// @dev The repacked position's new range — bundled so the burn/add helpers
-    ///      pass one pointer (not 3 scalars) and stay within the legacy stack.
-    struct Reseat { uint160 sqrtP; int24 lower; int24 upper; }
-
-    /// @dev Decode the repack params, burn the old-range position and settle the
-    ///      removed amounts — own frame so the old-range ticks / myLiquidity / burn
-    ///      delta don't pin _handleRepack's legacy stack. Returns the NEW range +
-    ///      collected fees + the two settled token amounts.
-    function _repackBurn(bytes calldata data)
-        private returns (Reseat memory rng, BalanceDelta fees, uint delta0, uint delta1) {
-        int24 oldLo; int24 oldHi; uint128 myLiquidity;
-        (myLiquidity, rng.sqrtP, oldLo, oldHi, rng.lower, rng.upper) =
-            abi.decode(data, (uint128, uint160, int24, int24, int24, int24));
-        BalanceDelta delta;
-        (delta, fees) = _modifyLiquidity(-int(uint(myLiquidity)), oldLo, oldHi);
-        // TRUSTED-ARG CHECK (audit residual, §A.24). `myLiquidity` is supplied by the caller (from
-        // `poolStats`), and `onlyUs` puts it inside the Vogue keeper trust boundary — but a STALE value
-        // fails ASYMMETRICALLY: too HIGH already reverts inside `_modifyLiquidity` (cannot remove more
-        // than exists), while too LOW silently under-removes and STRANDS liquidity in the old range,
-        // where the repack then re-seats around it and POOLED_* no longer equals realized depth.
-        // Assert the burn actually emptied the old position — the cheap, direct invariant.
-        require(StateLibrary.getPositionLiquidity(poolManager, _poolId(),
-            keccak256(abi.encodePacked(address(this), oldLo, oldHi, bytes32(0)))) == 0, "repack:stale");
-        (delta0, delta1) = _handleDelta(Delta(int256(delta.amount0()), int256(delta.amount1())), false, true, address(0), address(0));
-    }
-
-    /// @dev Re-seat the repacked position with next-round liquidity pulled from
-    ///      Vogue (own frame so _handleRepack's burn locals don't pin the legacy
-    ///      stack). token1is(IS_BTC) selects which leg the volatile token is.
-    function _repackAdd(uint delta0, uint delta1, uint price, Reseat memory rng)
-        private returns (BalanceDelta addDelta) {
-        if (token1isVol) {
-            (delta0, delta1) = VOGUE.addLiq(delta1, price);
-            if (delta0 > 0 && delta1 > 0) {
-                addDelta = _modLP(delta0, delta1, rng.lower, rng.upper, rng.sqrtP);
-                _handleDelta(Delta(int256(addDelta.amount0()), int256(addDelta.amount1())), true, false, address(0), address(0), true);
-            }
-        } else {
-            (delta1, delta0) = VOGUE.addLiq(delta0, price);
-            if (delta1 > 0 && delta0 > 0) {
-                addDelta = _modLP(delta1, delta0, rng.lower, rng.upper, rng.sqrtP);
-                _handleDelta(Delta(int256(addDelta.amount0()), int256(addDelta.amount1())), true, false, address(0), address(0), true);
-            }
-        }
-    }
-
-    /// @dev Reseat params (one memory pointer — keeps _handleReseat within the
-    ///      legacy stack; no via_ir crutch). ABI-compatible with the flat tuple
-    ///      `reseat()` encodes (all-static struct ⇒ same encoding as the tuple).
-    struct ReseatParams {
-        uint128 myLiquidity; uint160 currentSqrt; uint160 targetSqrt;
-        int24 oldLo; int24 oldHi; int24 newLo; int24 newHi;
-    }
-
-    /// @dev Reseat handler: burn the stale-range position, MOVE slot0 onto the
-    ///      oracle target, then re-add liquidity around it. Mirrors _handleRepack
-    ///      but with the explicit spot-move. Mock-only — no AUX.take/VOGUE.takeETH
-    ///      (keep=true, who=0) — so basket/venue real assets are untouched; only
-    ///      the virtual POOLED slice + the curve spot move.
-    function _handleReseat(bytes calldata data)
-        internal returns (bytes memory) {
-        ReseatParams memory p = abi.decode(data, (ReseatParams));
-        // Per-pool zeroing — re-established by the re-add (as in _handleRepack).
-        if (IS_BTC) { POOLED_USD = 0; POOLED = 0; basketUsd = 0; }
-        else       { POOLED_USD = 0; POOLED = 0; basketUsd = 0; }
-
-        (BalanceDelta fees, uint d0, uint d1) = _reseatBurnMove(p);
-
-        uint price = BasketLib.getPrice(p.targetSqrt, token1isVol);
-        Reseat memory rng = Reseat({ sqrtP: p.targetSqrt, lower: p.newLo, upper: p.newHi });
-        BalanceDelta addDelta = _repackAdd(d0, d1, price, rng);
-
-        (uint160 sqrtP,,,) = poolManager.getSlot0(_poolId());
-        _writeObservation(sqrtP);
-        return abi.encode(price, uint(int(fees.amount0())),
-            uint(int(fees.amount1())), uint(int(addDelta.amount0())),
-            uint(int(addDelta.amount1())));
-    }
-
-    /// @dev Burn the stale-range position (keep=true → no payout; recover fees),
-    ///      then move slot0 onto the target. The move is an exact-input swap BOUNDED BY
-    ///      THE PRICE LIMIT (sqrtPriceLimitX96 = targetSqrt): with the protocol's in-range
-    ///      position burned the path is usually empty (≈0 traded), but a self-managed
-    ///      boundary order can sit in the dislocation gap (>5% is exactly the reseat
-    ///      regime). A 1-wei probe would STALL on that order — leaving slot0 stale while
-    ///      we report success, re-arming the very deadlock this heals. So drive a LARGE
-    ///      exact-input toward the limit: the swap walks all the way to targetSqrt,
-    ///      CONSUMING (filling) any boundary liquidity in the gap on the way — correct,
-    ///      those were limit orders at those prices, and the filled owner is credited in
-    ///      V4 + paid at pull. Direction + limit are unchanged from the probe; only the
-    ///      input cap grows. The price limit stops the swap at targetSqrt, so the realized
-    ///      delta stays int128-bounded by the (bounded) path liquidity. Settle mock-only.
-    function _reseatBurnMove(ReseatParams memory p)
-        private returns (BalanceDelta fees, uint d0, uint d1) {
-        if (p.myLiquidity > 0) {
-            BalanceDelta burnDelta;
-            (burnDelta, fees) = _modifyLiquidity(-int(uint(p.myLiquidity)), p.oldLo, p.oldHi);
-            (d0, d1) = _handleDelta(Delta(int256(burnDelta.amount0()), int256(burnDelta.amount1())), false, true, address(0), address(0));
-        }
-        if (p.targetSqrt != 0 && p.targetSqrt != p.currentSqrt) {
-            BalanceDelta moveDelta = poolManager.swap(_key(),
-                IPoolManager.SwapParams({ zeroForOne: p.targetSqrt < p.currentSqrt,
-                    amountSpecified: -int(uint(type(uint128).max)), sqrtPriceLimitX96: p.targetSqrt }),
-                ZERO_BYTES);
-            _handleDelta(Delta(int256(moveDelta.amount0()), int256(moveDelta.amount1())), false, true, address(0), address(0));
-        }
     }
 
     function _handleOutsideRange(bytes calldata data)
@@ -1158,65 +1026,10 @@ contract Core is SafeCallback {
         return abi.encode(delta);
     }
 
-    function _handleMod(bytes calldata data)
-        internal returns (bytes memory) {
-        // Buffer USD folds into POOLED_USD like any in-range USD (committedUsd18 recovers equity by subtracting
-        // min(live debt, pooled buffer)); the old no-op `levUsd` field has been removed from the modLP ABI.
-        (uint160 sqrtPriceX96, uint deltaTokenOut, uint deltaUSD,
-            int24 tickLower, int24 tickUpper, address sender)
-            = abi.decode(data,
-            (uint160, uint, uint, int24, int24, address));
-
-        BalanceDelta delta = _modLP(deltaUSD, deltaTokenOut,
-            tickLower, tickUpper, sqrtPriceX96);
-
-        _handleDelta(Delta(int256(delta.amount0()), int256(delta.amount1())), true, deltaUSD == 0, sender, address(0), true);
-        return abi.encode(delta);
-    }
-
-    /// @dev Fee-only collect handler. Calls modifyLiquidity with
-    ///      liquidityDelta = 0 — V4 still updates the position's fee
-    ///      growth and returns the delta credited for accrued fees.
-    ///      The position size is unchanged; only outstanding fees move
-    ///      from the pool into our balance. Then _handleDelta drains
-    ///      both currencies from poolManager (the USD side hits the
-    ///      mock-burn path; the token side bumps POOLED_X). The caller
-    ///      (Vogue) needs the raw fee magnitudes per currency to drive
-    ///      feesPerShare and USD_FEES, so we return them separately.
-    function _handleCollect(bytes calldata data)
-        internal returns (bytes memory) {
-        (int24 tickLower, int24 tickUpper) =
-            abi.decode(data, (int24, int24));
-
-        (BalanceDelta totalDelta, ) = _modifyLiquidity(
-            int(0), tickLower, tickUpper);
-
-        // With liquidityDelta=0, totalDelta IS the fee credit (V4
-        // composes callerDelta = liquidityDelta - feesAccrued; when
-        // the first term is zero, the second dominates as fees owed
-        // to the caller — positive amounts in both currencies).
-        _handleDelta(Delta(int256(totalDelta.amount0()), int256(totalDelta.amount1())), false, false, address(0), address(0));
-
-        bool token1isTok = token1isVol;
-        // Order the returned fees so caller can read them as
-        // (feesUSD, feesTok). Aligns with Vogue._calcYield's
-        // existing variable order.
-        uint fees0 = uint(int(totalDelta.amount0()));
-        uint fees1 = uint(int(totalDelta.amount1()));
-        if (token1isTok) return abi.encode(fees0, fees1);  // c0=USD, c1=tok
-        else             return abi.encode(fees1, fees0);  // c0=tok, c1=USD
-    }
-
-    /// @dev Per-pool delta handler. `inRange` controls whether the deltas
-    /// update POOLED_USD_{ETH|BTC} (only in-range positions count toward
-    /// the pool's active slice). The two pools' USD slices are
-    /// INDEPENDENT — a swap on the ETH side cannot move BTC-side USD.
-    /// §V4-CUT — the pair travels as ONE memory pointer, not two stack values.
-    /// `BalanceDelta` was a SINGLE PACKED int256 holding both amounts; replacing it with two
-    /// `int256` parameters added a stack slot at every call site and blew the limit at `:939`
-    /// (`via_ir = false`, deliberately). CLAUDE.md's documented remedy applies verbatim: move the
-    /// locals into struct fields, because one memory pointer costs less stack than two values.
-    /// ⚠️ Do NOT "simplify" this back to two parameters — it does not compile.
+    /// §V4-CUT — the pair travels as ONE memory pointer, not two stack values. `BalanceDelta` was a
+    /// SINGLE PACKED int256; two `int256` parameters added a stack slot per call site and blew the
+    /// limit (`via_ir = false`). CLAUDE.md's remedy verbatim: locals into struct fields, because one
+    /// memory pointer costs less stack than two values. Do NOT "simplify" it back — it will not compile.
     struct Delta { int256 amt0; int256 amt1; }
 
     function _handleDelta(Delta memory d, bool inRange, bool keep,
@@ -1357,40 +1170,6 @@ contract Core is SafeCallback {
                 tickLower: lowerTick, tickUpper: upperTick,
                 liquidityDelta: delta, salt: bytes32(0)}), ZERO_BYTES);
     }
-
-    function _modLP(uint deltaUSD, uint deltaTok,
-        int24 tickLower, int24 tickUpper, uint160 sqrtPriceX96) internal returns (BalanceDelta totalDelta) {
-        bool token1isTok = token1isVol;
-        int flip = deltaUSD > 0 ? int(1) : int(-1);
-        uint128 liquidity = token1isTok ? LiquidityAmounts.getLiquidityForAmount1(
-                   TickMath.getSqrtPriceAtTick(tickLower), sqrtPriceX96, deltaTok): 
-                    LiquidityAmounts.getLiquidityForAmount0(sqrtPriceX96,
-                      TickMath.getSqrtPriceAtTick(tickUpper), deltaTok);
-        // (deltaTok,
-        // deltaUSD) addLiq priced at the TWAP is geometrically exact only when
-        // spot is at the range center. Off-center, sizing from the volatile leg
-        // alone draws MORE USD than `deltaUSD` (the surplus-clamped budget). Cap
-        // liquidity to the smaller of what each single leg funds (the canonical
-        // two-sided add) so committedUsd ≤ budget ≤ surplus ≤ TVL and
-        // _handleDelta's backing invariant holds. No-op when the volatile leg
-        // binds (the usual case); only clips the USD-heavy, off-center case.
-        if (flip > 0) {
-            uint128 usdLiq = token1isTok ? LiquidityAmounts.getLiquidityForAmount0(
-                    sqrtPriceX96, TickMath.getSqrtPriceAtTick(tickUpper), deltaUSD): 
-                      LiquidityAmounts.getLiquidityForAmount1(
-                         TickMath.getSqrtPriceAtTick(tickLower), 
-                                        sqrtPriceX96, deltaUSD);
-
-            if (usdLiq < liquidity) liquidity = usdLiq;
-        } if (flip < 0) {
-            (,, uint128 posLiquidity) = poolStats(tickLower, tickUpper);
-            if (posLiquidity == 0) return BalanceDeltaLibrary.ZERO_DELTA;
-            if (liquidity > posLiquidity) liquidity = posLiquidity;
-        }
-        (totalDelta,) = _modifyLiquidity(
-             flip * int(uint(liquidity)), 
-            tickLower, tickUpper);
-    } 
 
     function poolStats(int24 tickLower, int24 tickUpper)
         public view returns (uint160 sqrtPriceX96, int24 currentTick,
