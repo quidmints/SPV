@@ -4,7 +4,6 @@ pragma solidity ^0.8.28;
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
-import {LiquidityAmounts} from "v4-periphery/src/libraries/LiquidityAmounts.sol";
 import {SwapLib} from "./SwapLib.sol";
 // §A.52: the SHARED WETH view (was a file-local `IWETH_VG` restating the same members).
 import {IWETH9} from "./ILevVenue.sol";

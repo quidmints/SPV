@@ -27,7 +27,6 @@ import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 
-import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 // §E5 — the shared per-band premium sink (rule 2: ONE declaration, in the canonical file).
 import {ISkewSink, ILevEquity, ILevEquityBtc} from "./imports/Interfaces.sol";
 // §E21: IERC20Min had TWO declarations (here and imports/ILevVenue.sol). One home now.
