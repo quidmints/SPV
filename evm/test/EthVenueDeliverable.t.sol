@@ -108,7 +108,7 @@ contract EthVenueDeliverableProbe is Alles {
         emit log_named_decimal_uint("idle WETH @EthVenue", IERC20(address(WETH)).balanceOf(address(EV)), 18);
         emit log_named_decimal_uint("idle WETH @Aux     ", IERC20(address(WETH)).balanceOf(address(AUX)), 18);
 
-        // The subtracted lev term (deliverableETH removes totalNetEquityEth).
+        // The subtracted lev term (deliverableETH removes totalNetEquity).
         address lm = EV.LEV_MANAGER();
         emit log_named_address("levManager         ", lm);
 

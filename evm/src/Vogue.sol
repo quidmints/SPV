@@ -5,14 +5,16 @@ pragma solidity ^0.8.28;
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 import {BandLib} from "./imports/BandLib.sol";
 // §A.52: the canonical view (was a file-local `IEthVenueV`).
-import {IEthVenue} from "./imports/Interfaces.sol";
+import {IDepositAdapter, ILevEquity} from "./imports/Interfaces.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 // §V4-CUT — 512-bit mulDiv from solady, not v4-core. `FullMath` is ordinary math, but it was
 // the LAST v4 import in this file; solady already ships the same full-precision operation and
 // is already a dependency (SwapLib imports it), so the v4 edge disappears at no cost.
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
+import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
+import {VaultLib} from "./imports/VaultLib.sol";
 import {SwapLib} from "./imports/SwapLib.sol";
 import {VogueLib} from "./imports/VogueLib.sol";
 
@@ -65,24 +67,124 @@ contract Vogue is
     uint public USD_FEES;
     Basket QUID; Aux AUX;
 
-    /// @notice EthVenue — the ETH yield-venue custody (AAVE + ether.fi),
-    ///         carved out of Aux. Vogue routes its WETH venue ops (vogueOp,
-    ///         supplyEtherFi/supplyAaveEth, offrampEtherFi, arbETH) here. Pinned
-    ///         once via setEthVenue (after EthVenue is deployed). vogueETH() is
-    ///         still read at AUX (a thin forwarder) so existing reads are intact.
-    IEthVenue public EV;
-    error EthVenuePinned();
-    function setEthVenueContract(address e) external {
-        // Kept as its own one-shot setter (NOT folded into setup): EthVenue is deployed
-        // AFTER Vogue.setup runs — setup sets WETH, which the max-approval below needs —
-        // so the pin is necessarily a post-setup deploy step, not mergeable into setup().
-        require(msg.sender == DEPLOYER, "403");   // Vogue is ownerless post-setup (renounced) → deployer-gate
-        if (address(EV) != address(0)) revert EthVenuePinned();
-        EV = IEthVenue(e);
-        // Standing WETH approval so EthVenue can pull the depositor's WETH on
-        // supplyEtherFi / supplyAaveEth / vogueOp (mirrors the
-        // prior AUX approval). WETH is set in setup(), which must run first.
-        WETH.approve(e, type(uint).max);
+    // ════════════════════════════════════════════════════════════════════════════════════════
+    //  §ETHVENUE-FOLD — the ETH yield venue IS this contract. `EthVenue` is deleted.
+    //
+    //  It was carved out of `Vault` for a good reason: `Vault` was ETH-VENUE CUSTODY and BTC BAND
+    //  ACCOUNTING fused, and `Vogue`'s real counterpart is the BTC-band slice, not the whole of
+    //  `Vault`. That argument said where the custody must NOT live; it never said it needed its own
+    //  address. It belongs to the ETH BAND, and the ETH band is this contract.
+    //
+    //  ⚠️ AND IT CANNOT LIVE IN THE MERGED BAND MANAGER LATER. One band manager with two instances
+    //  means every member exists on BOTH; ETH venue custody has NO BTC counterpart, because BTC
+    //  custody is Lightning channels and not 4626 venues. That asymmetry is real, so this state
+    //  stays on the ETH side however the band managers merge.
+    //
+    //  WHAT THE FOLD DELETES, which is why it fits: three of the five immutables (`VOGUE` is now
+    //  `this`; `AUX` and `WETH` already existed here), all eight `msg.sender != address(VOGUE)`
+    //  gates, the `IEthVenue` external-call stubs on this side, the standing WETH approval that
+    //  existed only so a separate address could pull, and one deployable contract.
+    // ════════════════════════════════════════════════════════════════════════════════════════
+
+    // ether.fi — fixed mainnet contracts. It is the ONLY ETH yield venue: `VaultLib.supplyVenueBody`
+    // routes every inflow here unconditionally.
+    address public constant ETHERFI_ADAPTER    = 0xcfC6d9Bd7411962Bfe7145451A7EF71A24b6A7A2;
+    address public constant ETHERFI_CURVE_POOL = 0xDB74dfDD3BB46bE8Ce6C33dC9D82777BCFc3dEd5;
+    address public constant ETHERFI_LP         = 0x308861A430be4cce5502d0A12724771Fc6DaF216;
+    address public constant ETHERFI_EETH       = 0x35fA164735182de50811E8e2E824cFb9B6118ac2;
+    /// Cached from the adapter when the venue is armed. NOT immutable any more: it is read in
+    /// `setup`, which runs after construction, and an immutable cannot be written there.
+    address public WEETH;
+
+    /// The IL-protect orchestrator. Its levered book's LIVE net-equity counts in `vogueETH`.
+    address public LEV_MANAGER;
+
+    error NotSelf();
+    error NotAux();
+    error LevManagerPinned();
+    error WrongBandManager();
+
+    /// @notice Pin the LevManager (one-shot, no repoint).
+    /// @dev §LEV-FOLD-2 — THE IDENTITY CHECK THAT REPLACES THE SUFFIXED SELECTORS. What used to stop
+    ///      a BTC lev manager being pinned to the ETH band was that the two managers exposed
+    ///      DIFFERENT selectors, so a wrong-band read reverted. That is a clamp: per call, forever,
+    ///      and only if the caller reaches for the suffixed name. With one `ILevEquity` the bad state
+    ///      is made UNCONSTRUCTIBLE here instead, once: a manager carries its band asset in
+    ///      `ORACLE_KEY` (immutable from construction), so the wrong one cannot be installed at all.
+    ///      Standing rule 17 — the root fix is the one that makes the previous guard DELETABLE.
+    function setLevManager(address m) external {
+        require(msg.sender == DEPLOYER, "403");
+        if (LEV_MANAGER != address(0)) revert LevManagerPinned();
+        if (ILevEquity(m).ORACLE_KEY() != address(WETH)) revert WrongBandManager();
+        LEV_MANAGER = m;
+    }
+
+    /// @dev ether.fi offramp config. Shared by `offrampEtherFi` and the opportunistic sourcing.
+    function _etherfiCfg() internal view returns (SwapLib.OfframpCfg memory) {
+        return SwapLib.OfframpCfg({
+            weeth: WEETH, weth: address(WETH), curvePool: ETHERFI_CURVE_POOL, lp: ETHERFI_LP
+        });
+    }
+
+    /// @dev Immutables gathered for the delegatecalled `VaultLib` (it cannot read them itself).
+    function _ethCfg() internal view returns (VaultLib.EthCfg memory) {
+        return VaultLib.EthCfg({
+            weth: address(WETH), aux: address(AUX), curvePool: ETHERFI_CURVE_POOL,
+            weeth: WEETH, eeth: ETHERFI_EETH, levManager: LEV_MANAGER
+        });
+    }
+
+    /// @notice Stake WETH into weETH (restaking yield), held HERE and valued in `vogueETH()`.
+    /// @dev No `msg.sender` gate: the caller is this contract. The gate existed to keep a separate
+    ///      address from being driven by anyone but Vogue, and there is no separate address now.
+    function supplyEtherFi(uint amount) public returns (uint) {
+        return VaultLib.supplyVenueBody(_ethCfg(), amount, address(this));
+    }
+
+    /// @notice OFFRAMP the ether.fi slice of a withdrawal: weETH → WETH, delivered to `recipient`.
+    function offrampEtherFi(uint amount, address recipient) public returns (uint served) {
+        return VaultLib.offrampBody(amount, recipient, _etherfiCfg());
+    }
+
+    /// @notice Current ETH-equivalent backing: weETH valued in ETH + idle WETH, PLUS the levered
+    ///         book's net-equity.
+    function vogueETH() public view returns (uint) {
+        return VaultLib.vogueETH(_ethCfg());
+    }
+
+    /// @notice Venue op selector. @param op 1 = take ETH, 2 = read the current claim.
+    function vogueOp(uint amount, uint8 op) public returns (uint sent) {
+        sent = SwapLib.vogueOpBody(amount, op, WETH, vogueETH());
+    }
+
+    /// @notice DELIVERABLE ETH backing for the redemption path — each leg capped at what is
+    ///         actually withdrawable, so the ETH leg DEFERS the undeliverable slice.
+    function deliverableETH() external view returns (uint total) {
+        return VaultLib.deliverableETH(_ethCfg());
+    }
+
+    /// @notice Self-gated wrapper. The DELEGATECALL'd library bodies reach back in via
+    ///         `IAux(address(this)).withdrawSelf(...)` — `msg.sender == address(this)`.
+    function withdrawSelf(address token, uint amount, address to) external returns (uint sent) {
+        if (msg.sender != address(this)) revert NotSelf();
+        return _withdrawETH(token, amount, to);
+    }
+
+    /// @notice Aux-gated WETH supply (the BOLD/SP liquidation re-supply leg).
+    function supplyFromAux(uint amount) external returns (uint) {
+        if (msg.sender != address(AUX)) revert NotAux();
+        return VaultLib.supplyVenueBody(_ethCfg(), amount, address(AUX));
+    }
+
+    /// @notice Aux-gated WETH withdraw (redemption / take / ETH-fallback legs).
+    function withdrawForAux(uint amount, address to) external returns (uint) {
+        if (msg.sender != address(AUX)) revert NotAux();
+        return _withdrawETH(address(WETH), amount, to);
+    }
+
+    /// @notice WETH withdraw — the ladder in `VaultLib.withdrawETH`. Only WETH is served.
+    function _withdrawETH(address token, uint amount, address to) internal returns (uint sent) {
+        return VaultLib.withdrawETH(_ethCfg(), _etherfiCfg(), token, amount, to);
     }
 
     /// @notice ETH-yield accounting. Single venue (Morpho 4626 wethVault
@@ -229,7 +331,7 @@ contract Vogue is
     mapping(address => uint[]) public positions;
     // ^ allows several selfManaged positions...
 
-    /// @notice The deployer — gates `setEthVenueContract`, the post-`setup` pin that grants EV an unlimited
+    /// @notice The deployer — gates `setLevManager`; the EthVenue pin is gone with the contract (§ETHVENUE-FOLD)
     ///         WETH approval + drives every WETH venue op. `setup` RENOUNCES ownership, so that pin can't use
     ///         onlyOwner; this immutable survives the renounce and keeps the pin front-run-proof (a hostile
     ///         pre-pin would drain Vogue's WETH). Captured at construction; equals the wiring caller in both
@@ -260,6 +362,11 @@ contract Vogue is
         address weth;
         (weth, LOWER_PRICE, UPPER_PRICE) = VogueLib.setupBody(_aux, _core);
         WETH = WETH9(payable(weth));
+        // §ETHVENUE-FOLD — arm the ether.fi venue here, where `EthVenue`'s constructor used to.
+        // The standing WETH approval to a SEPARATE venue address is gone with the address.
+        WEETH = IDepositAdapter(ETHERFI_ADAPTER).weETH();
+        IERC20(weth).approve(ETHERFI_ADAPTER, type(uint).max);
+        IERC20(ETHERFI_EETH).approve(ETHERFI_LP, type(uint).max);
     }
 
 
@@ -311,7 +418,7 @@ contract Vogue is
         // `liquidity` is still computed and still gates on Dust, because it is the sizing function's
         // own validity check -- a range that can hold nothing yields zero liquidity.
         (uint liquidity, uint placed) = VogueLib.sizeOutOfRange(
-            address(WETH), address(AUX), address(EV),
+            address(WETH), address(AUX), address(this),
             amount, token, t);
         if (liquidity == 0) revert Dust();
 
@@ -606,7 +713,7 @@ contract Vogue is
             uint ethfiPart = amount;
             if (ethfiPart > 0) {
                 uint incrPre = _bandIncrement6();          // BEFORE the burn shrinks it
-                uint served = EV.offrampEtherFi(ethfiPart, recipient);
+                uint served = offrampEtherFi(ethfiPart, recipient);
                 if (served > 0) {
                     _burnInRange(spotPrice, served,
                     loPrice, upPrice, address(0));
@@ -877,7 +984,7 @@ contract Vogue is
     ///      including it would (a) skim plain LPs' venue yield and (b) make a lev open/close appear
     ///      as fake venue yield in _syncYield. No-op when no leverage (totalNetEquity == 0).
     function _venueBalance() internal returns (uint) {
-        uint total = EV.vogueOp(0, 2);   // vogueETH (all plain venues + lev net-equity)
+        uint total = vogueOp(0, 2);   // vogueETH (all plain venues + lev net-equity)
         address lm = VogueLib.levManager(address(AUX));
         if (lm != address(0)) {
             try ILevEquity(lm).totalNetEquity() returns (uint n) { total = total > n ? total - n : 0; } catch {}
@@ -1015,7 +1122,7 @@ contract Vogue is
     ///      wrap + venue placement + per-LP wall attribution behave identically.
     function _depositETH(address sender, address pledge,
         uint amount) internal returns (uint sent) {
-        return VogueLib.depositETH(address(WETH), address(AUX), address(EV),
+        return VogueLib.depositETH(address(WETH), address(AUX), address(this),
             sender, pledge, amount);
     }
 
@@ -1085,13 +1192,12 @@ contract Vogue is
 
     /// @notice This band's leverage manager. `totalDebtUsd` is shared; only the LOOKUP differed.
     function levManager() external view returns (address) {
-        return address(EV) == address(0) ? address(0) : ILevHost(address(EV)).LEV_MANAGER();
+        return LEV_MANAGER;
     }
 
     /// @notice Gross levered collateral in the band's NATIVE unit (wei here, sats on the BTC side).
     function levGrossNative() external view returns (uint) {
-        if (address(EV) == address(0)) return 0;
-        address m = ILevHost(address(EV)).LEV_MANAGER();
+        address m = LEV_MANAGER;
         if (m == address(0)) return 0;
         try ILevEquity(m).totalGrossCollateral() returns (uint g) { return g; } catch { return 0; }
     }
@@ -1140,7 +1246,7 @@ contract Vogue is
     ///      send, on a path that already does a venue pull and an unwrap.
     function _sendETH(uint howMuch,
        address toWhom) internal returns (uint sent) {
-        return VogueLib.sendEth(address(WETH), address(EV),
+        return VogueLib.sendEth(address(WETH), address(this),
             address(AUX), howMuch, toWhom);
     }
 
@@ -1168,7 +1274,7 @@ contract Vogue is
     function _rebalance() internal returns (uint spotPrice,
         uint loPrice, uint upPrice, uint myLiquidity, uint resolvedTwap) {
         VogueLib.RebalOut memory o = VogueLib.rebalanceBody(VogueLib.RebalIn({
-            core: address(CORE), aux: address(AUX), ev: address(EV), weth: address(WETH),
+            core: address(CORE), aux: address(AUX), ev: address(this), weth: address(WETH),
             lpShares: lpShares, totalLevPooled: totalLevPooled,
             totalBuffer: totalBuffer, loPrice: LOWER_PRICE, upPrice: UPPER_PRICE, bookmark: bookmark}));
         venueFeesPerShare += o.venueFeesPerShareInc;             // _syncYield accrual

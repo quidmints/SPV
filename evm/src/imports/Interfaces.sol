@@ -69,8 +69,7 @@ interface IWeETH {
 /// change had to be made twice and a missed one still compiled.
 interface IVogue {
     function addLiq(uint deltaTok, uint price) external returns (uint usdOut, uint outDelta);
-    function unwindForRedeem(uint usdWanted) external returns (uint usdFreed);  // E21: was BasketLib.IVogueUnwind
-    function EV() external view returns (address);                              // E21: was BasketLib.IWiredVogue
+    function unwindForRedeem(uint usdWanted) external returns (uint usdFreed);  // E21: was BasketLib.IVogueUnwind                              // E21: was BasketLib.IWiredVogue
     function derivedThetaWad() external view returns (uint);
     function pendingRewards(address user) external view returns (uint ethReward, uint usdReward);
 }

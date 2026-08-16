@@ -13,7 +13,6 @@ import {Core} from "../src/Core.sol";
 import {Aux} from "../src/Aux.sol";
 import {Basket} from "../src/Basket.sol";
 import {Vault} from "../src/Vault.sol";
-import {EthVenue} from "../src/EthVenue.sol";
 import {SPVGateway} from "../src/spv/SPVGateway.sol";
 import {BTCChannels} from "../src/BTCChannels.sol";
 import {SorPath} from "../src/imports/SOR.sol";
@@ -181,17 +180,18 @@ library DeployLib {
         v4.setup(address(quid), address(aux), address(core));
         aux.setQuid(address(quid));
 
-        // ── Vault (BTC LP/hop side) + EthVenue (ETH yield-venue custody) ──
+        // ── Vault (BTC LP/hop side); ETH yield-venue custody now lives in Vogue ──
         // §ISBTC-SPLIT — THE BTC BAND MANAGER TAKES THE BTC CORE. This passed `core` (the ETH
         // instance) while `Vault.sol` states outright "the instance IS the BTC one", so the code
         // assumed one wiring and the deploy supplied another -- the comment was right and the
         // assignment was wrong, which is the exact shape CLAUDE.md records for this split.
         Vault eth = _newVault(cfg, address(v4), a.btcCore, address(aux));  // own frame (no via_ir)
         // The ETH-venue pointers now target the CUSTODY contract, not the Vault. Every
-        // `IEthVenue(...)` call site follows the pin, so nothing else moves.
-        EthVenue ev = new EthVenue(address(v4), address(aux), cfg.weth);
-        aux.setEthVenue(address(ev));            // MUST run after V4.setup (WETH set)
-        v4.setEthVenueContract(address(ev));
+        // `IBandManager(...)` call site follows the pin, so nothing else moves.
+        // §ETHVENUE-FOLD — the ETH yield venue IS Vogue. One fewer deployable contract, and one
+        // fewer pin: `setEthVenueContract` is gone with the separate address it existed to name.
+        // `aux.setEthVenue` still runs, now pointing at the band manager itself.
+        aux.setEthVenue(address(v4));            // MUST run after V4.setup (WETH set)
         eth.setup(address(quid));                // reads BTC pool slot0 (needs CORE.setup)
         core.setBtcVault(address(eth));
         Core(a.btcCore).setBtcVault(address(eth));   // the BTC instance needs the same pin
@@ -202,7 +202,7 @@ library DeployLib {
         a.aux = address(aux);
         a.quid = address(quid);
         a.vault = address(eth);
-        a.ethVenue = address(ev);
+        a.ethVenue = address(v4);
 
 
         // ── native BTC LP infrastructure (SPV gateway + per-LP channel registry) ──

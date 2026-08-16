@@ -1152,7 +1152,10 @@ library BasketLib {
         require(q != address(0),                                    "wire:quid");
         require(ethVenue != address(0),                             "wire:ethv");
         require(btcVault != address(0),                              "wire:vault");
-        require(IVogue(v4).EV() == ethVenue,                        "wire:vogue"); // Vogue→EthVenue
+        // §ETHVENUE-FOLD — was `IVogue(v4).EV() == ethVenue`, checking that Vogue's venue pointer and
+        // Aux's agreed. Vogue IS the venue now, so the pointer is gone; what still needs asserting is
+        // that Aux's pin names the band manager and not some other address.
+        require(ethVenue == v4,                                     "wire:vogue");
         require(btcChannels != address(0)
              && IWiredVault(btcVault).btcChannels() == btcChannels,  "wire:chan");  // Vault→Channels
         require(IWiredBasket(q).AUX() == address(this),             "wire:bAux");  // Basket→Aux

@@ -46,7 +46,7 @@ interface IMorphoOraclePrice { function price() external view returns (uint256);
 ///
 ///         The exercised path is `Vault.syncLev` → `VaultLib.syncLevBtc` → `levAddBtc`/`levBurnBtc`
 ///         (the BTC counterpart of `Vogue.syncLev`/`_levAdd`/`_levBurn`), driven by
-///         `BtcLevManager.netEquity(lp)`, plus the `totalNetEquityBtc()` backing read.
+///         `BtcLevManager.netEquity(lp)`, plus the `totalNetEquity()` backing read.
 ///
 ///         BTC-vs-ETH ADAPTATIONS (faithful, documented):
 ///           • Collateral is vBTC (8-dec, the Vault's own ERC-20 face minted `onlyBtcChannels`), not
@@ -855,14 +855,14 @@ contract VBtcLevFeeLane is Alles {
         // A channel gives the BTC band real depth + a non-zero POOLED_USD to prove "intact".
         (,, address lpEth,) = _open(ch, 2, 3e7); // 0.3 BTC
         uint pooledUsd0 = CORE.POOLED_USD();
-        assertEq(ETH.totalNetEquityBtc(), 0, "no lev book yet => zero net-equity backing");
+        assertEq(ETH.totalNetEquity(), 0, "no lev book yet => zero net-equity backing");
 
         // Open at zero leverage => net-equity == collateral (8-dec sats). Opening does NOT touch the
         // band (no syncLev), so POOLED_USD is untouched — but the backing term is recognized.
         _openLev(lpEth, 5_000_000); // expose 0.05 BTC of the 0.3 BTC channel
         assertEq(lm.netEquity(lpEth), 5_000_000, "net-equity == principal (zero leverage)");
-        assertEq(lm.totalNetEquityBtc(), 5_000_000, "book total == principal");
-        assertEq(ETH.totalNetEquityBtc(), 5_000_000, "vogueBTC counts the leveraged book's net-equity");
+        assertEq(lm.totalNetEquity(), 5_000_000, "book total == principal");
+        assertEq(ETH.totalNetEquity(), 5_000_000, "vogueBTC counts the leveraged book's net-equity");
         assertEq(CORE.POOLED_USD(), pooledUsd0, "open: basket POOLED_USD untouched (no band pairing)");
         _assertSolvent("open: solvent with lev backing");
 
@@ -874,10 +874,10 @@ contract VBtcLevFeeLane is Alles {
         _borrowMorpho(lpEth, (collUsd / 2) / 1e12);            // ~50% LTV of real Morpho debt
         uint neqBefore = lm.netEquity(lpEth);
         assertLt(neqBefore, 5_000_000, "debt reduces net-equity below the collateral");
-        assertEq(ETH.totalNetEquityBtc(), neqBefore, "vogueBTC counts the (now-levered) live net-equity");
+        assertEq(ETH.totalNetEquity(), neqBefore, "vogueBTC counts the (now-levered) live net-equity");
         _seizeRealBtc(lpEth, 1, 2);                            // REAL Morpho liquidation (repay half the debt)
         assertLt(lm.netEquity(lpEth), neqBefore, "seized: net-equity backing REDUCED by the real liquidation");
-        assertEq(ETH.totalNetEquityBtc(), lm.netEquity(lpEth), "seized: vogueBTC tracks the reduced live net-equity");
+        assertEq(ETH.totalNetEquity(), lm.netEquity(lpEth), "seized: vogueBTC tracks the reduced live net-equity");
         assertEq(CORE.POOLED_USD(), pooledUsd0, "seized: basket POOLED_USD FULLY INTACT (no socialization)");
         _assertSolvent("seized: solvent, no socialization");
     }

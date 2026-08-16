@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 import {ForkPin} from "./utils/ForkPin.sol";
-import {EthVenue} from "../src/EthVenue.sol";
 import {ICurvePool} from "../src/imports/Interfaces.sol";
 import {ChannelLib} from "../src/imports/ChannelLib.sol";
 import {BasketLib} from "../src/imports/BasketLib.sol";
@@ -481,7 +480,11 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
     // The merged Vault, viewed from its two faces: ETH (yield-venue ops) and
     // BTC (LP/hop ops). Same instance - BTC == ETH - named for readability.
     Vault    public ETH;
-    EthVenue EV;
+    /// §ETHVENUE-FOLD — the ETH yield venue IS Vogue, so this is `V4` under its venue-side name.
+    /// Kept as an alias rather than rewritten at 33 call sites: those calls read as venue calls
+    /// (`EV.vogueETH()`, `EV.setLevManager(...)`) and still are — the address simply stopped being
+    /// a second contract.
+    Vogue EV;
     Vault    public BTC;
     uint rack = 1000 * USDC_PRECISION;
 
@@ -616,7 +619,7 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         AUX = Aux(payable(A.aux));
         QUID = Basket(A.quid);
         ETH = Vault(payable(A.vault));
-        EV  = EthVenue(payable(A.ethVenue));   // ETH-venue custody (carved out of Vault)
+        EV  = V4;                              // ETH-venue custody now lives in the ETH band
         BTC = ETH;
 
         vm.startPrank(User01);

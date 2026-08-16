@@ -380,7 +380,7 @@ contract LevYbRealProbe is Alles {
         V4.syncLev(LP);
         uint buffer = V4.levBuf(LP);
         assertGt(buffer, 0, "leverage pairs a debt-funded buffer into the band");
-        assertLe(buffer, rlm.grossCollateralEth(LP), "buffer <= live gross collateral");
+        assertLe(buffer, rlm.grossCollateral(LP), "buffer <= live gross collateral");
         // Conservation: totalBuffer == the single levered LP's buffer.
         assertEq(V4.totalBuffer(), buffer, "totalBuffer == sum of levBuf");
         // The buffer is EXCLUDED from equity: balanceOf (redeemable net share) does not include it,

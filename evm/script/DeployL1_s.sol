@@ -19,7 +19,6 @@ import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 
 import {Aux} from "../src/Aux.sol";
 import {DeployLib} from "./DeployLib.sol";
-import {EthVenue} from "../src/EthVenue.sol";
 import {Vault} from "../src/Vault.sol";
 import {BTCChannels} from "../src/BTCChannels.sol";
 import {SPVGateway} from "../src/spv/SPVGateway.sol";
@@ -514,7 +513,7 @@ contract Deploy is Script {
         if (!vm.envOr("DEPLOY_LEV", false)) { console.log("[DEPLOY_LEV unset] leverage overlay skipped"); return; }
         address gov    = vm.envOr("YB_GOV", deployer);
         address morpho = vm.envOr("MORPHO", MORPHO_BLUE);
-        address weeth  = EthVenue(payable(AUX.ethVenue())).WEETH();
+        address weeth  = Vogue(payable(AUX.ethVenue())).WEETH();
 
         // ── ETH leverage: weETH-collateral leverage. Swaps reuse the basket SOR (stable↔WETH, sorSelfFunded) + the
         //    ether.fi adapter/redeemer (weETH↔WETH) — no bespoke swapper contract (RealWeethSwapper is gone). ──
@@ -526,7 +525,7 @@ contract Deploy is Script {
         // BACKING: vogueETH counts the ETH lev book. PINNED ON EthVenue, not the Vault — `_ethCfg`
         // lives there now, and `Core`/`VogueLib`/`BasketLib` all read `LEV_MANAGER()` THROUGH the
         // `ethVenue` pointer. Pinning the wrong one compiles and silently reads leverage as disabled.
-        EthVenue(payable(AUX.ethVenue())).setLevManager(address(lm));
+        Vogue(payable(AUX.ethVenue())).setLevManager(address(lm));
 
         // ── BTC lev: vBTC-collateral (vBTC == the Vault). External+async acquisition ⇒ no swapper/flash ──
         BtcLevManager bm = new BtcLevManager(address(ETH.VBTC()), address(AUX), address(WBTC), gov, address(QUID));

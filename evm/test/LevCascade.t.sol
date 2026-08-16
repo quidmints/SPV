@@ -564,9 +564,9 @@ contract LevCascadeProbe is Alles {
         // the debt-funded buffer, and the band CAPACITY = their sum == GROSS collateral (Vogue._reconcileLev:
         // `gross == levPooled[lp] + levBuf[lp]`). The old assertion compared levPooled ALONE to gross (missing
         // levBuf), so its gap grew with leverage. Assert the true identity: net leg + buffer == gross (full-2×).
-        assertApproxEqRel(V4.levPooled(lps[0]) + V4.levBuf(lps[0]), lm.grossCollateralEth(lps[0]), 0.05e18,
+        assertApproxEqRel(V4.levPooled(lps[0]) + V4.levBuf(lps[0]), lm.grossCollateral(lps[0]), 0.05e18,
             "(3b) full-2x: band CAPACITY (net leg levPooled + debt buffer levBuf) == GROSS collateral (2x)");
-        assertGt(lm.grossCollateralEth(lps[0]), lm.netEquity(lps[0]),
+        assertGt(lm.grossCollateral(lps[0]), lm.netEquity(lps[0]),
             "(3b) full-2x: gross > net => a real debt-funded buffer is in the band");
         assertGt(lm.totalDebtUsd(), 0, "(3b) full-2x: a real debt-funded buffer exists (live leverage debt > 0)");
         // §#12 RE-DERIVED: same claim — committed EXCLUDES the debt-funded buffer — but measured

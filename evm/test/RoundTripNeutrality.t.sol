@@ -81,13 +81,13 @@ contract RoundTripNeutrality is Alles {
 
 /// @notice §J.2 PREREQ, part 2 — the share-price identity UNDER LEVERAGE. Split into its own contract
 ///         because it needs the LevManager wiring, and because the unlevered version of this assertion
-///         is BLIND: with no position open, `totalNetEquityEth == 0`, so subtracting it changes nothing
+///         is BLIND: with no position open, `totalNetEquity == 0`, so subtracting it changes nothing
 ///         and the reverted-separation bug (§A.16d) passes unnoticed. MUTATION-CHECKED against exactly
 ///         that bug — reintroducing it must turn this RED.
 contract RoundTripNeutralityLevered is LevYbRealProbe {
 
     /// The numerator must read the levered book on the DENOMINATOR's clock: `pricingBacking` =
-    /// vogueETH − LIVE totalNetEquityEth + RECORDED totalLevPooled. In sync those two cancel, so the
+    /// vogueETH − LIVE totalNetEquity + RECORDED totalLevPooled. In sync those two cancel, so the
     /// price is EXACTLY vogueETH/lpShares — and that exact identity is what a separation-style
     /// regression breaks (it produced 0.1886 vs 0.614 when the recorded term was not restored).
     function testRT_SharePriceHoldsWithLeverageOpen() public {
@@ -97,7 +97,7 @@ contract RoundTripNeutralityLevered is LevYbRealProbe {
         V4.syncLev(LP);
 
         assertGt(V4.totalLevPooled(), 0, "precondition: a levered slice IS open, else this is blind");
-        assertGt(rlm.totalNetEquityEth(), 0, "precondition: live lev net-equity is non-zero");
+        assertGt(rlm.totalNetEquity(), 0, "precondition: live lev net-equity is non-zero");
 
         // §#12 RE-DERIVED: `_pricingBacking` is no longer `vogueETH` alone — it adds the LP-owned
         // USD leg (the band's USD beyond the basket's contribution) valued at the band's own
