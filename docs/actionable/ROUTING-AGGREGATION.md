@@ -220,3 +220,26 @@ internal to the router — the thing `keys.length` was approximating badly.
 ⚠️ COST TO WEIGH: scoring N candidates means N quotes per rebalance. Off-chain keeper work, cheap in
 gas, real in latency and API rate limits ⇒ score only the plausible candidates (the two or three
 most over-weight), not all eleven stables.
+
+### OOR AS A FUSION INTENT — the capital-efficiency case (owner, 2026-08-16)
+
+`outOfRange` is already a resting order. Expressed as a Fusion intent instead of as parked
+concentrated liquidity, the order rests as a SIGNED COMMITMENT rather than as DEPLOYED CAPITAL.
+
+⇒ **The backing can stay in weETH earning the ether.fi ratchet (+0.674 bps/day, 2.46%/yr) until a
+resolver fills it.** Today that inventory is committed to a price range and is NOT earning the
+ratchet. This is the same "all ETH into weETH, always" principle applied to resting orders, and it
+is a stronger argument for the mapping than execution quality is.
+
+Second gain: the fill goes through Pathfinder at fill time, so it clears against every venue rather
+than only against our own pool at our own range.
+
+⚠️ **THE TRADEOFF, STATED SO IT IS PRICED AND NOT ASSUMED AWAY:** an in-range OOR position EARNS SWAP
+FEES when price oscillates through it. A Fusion intent earns nothing while resting — it earns the
+ratchet on the backing instead. Which dominates depends on how often OOR orders SIT versus FILL, and
+on realised oscillation through the range. **That is measurable from history and HAS NOT BEEN
+MEASURED.** Do not adopt on the capital-efficiency argument until it is: the comparison is
+`ratchet on idle backing` vs `swap fees on oscillation`, and the second is not obviously smaller.
+
+Depends on the same unverified Fusion semantics flagged above (auction/partial-fill behaviour, and
+the ERC-1271 path for a contract-held intent).
