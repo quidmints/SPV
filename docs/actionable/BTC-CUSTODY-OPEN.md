@@ -154,6 +154,38 @@ documented, and the mnemonic kept as the system of record.
 
 ---
 
+## 4b. 🔴 THE LN SWAP-IN REMAINDER — owner calls it the biggest vulnerability
+
+`requireFull` makes the LN swap-in rail **all-or-nothing**, and `BTCChannels.sol:1160` says why:
+*"`requireFull` is preserved for the LN rail, **which cannot refund**"*. A Lightning payment is
+atomic — once the HTLC is claimed the sats are taken and there is no partial give-back — so a band
+that can absorb only `consumed < sats` must reject the whole swap (`:1179`).
+
+**Funds are safe** (the HTLC is never claimed; the payer keeps their sats) — **the swap simply does
+not happen.** It is a SERVICE failure, not fund loss, and scoping it as loss would mis-target the
+fix. The swap-OUT direction has real escapes (`reverseSwapOut`, `refundExpiredSwapOut`); the
+asymmetry is not an oversight, it is that Lightning cannot refund and the EVM can.
+
+**Why it compounds:** absorption is bounded by what LP channels can serve, and a swap-in split
+across N channels needs enough of them online *simultaneously*. Under option (c) LPs are online
+only sometimes, so as N grows the probability of a servable full amount FALLS — and every shortfall
+is a total rejection. **All-or-nothing turns a fragmentation problem into a binary availability
+problem.**
+
+**The fix is an extension of a pattern that already landed**, not a new design:
+`ROUTING-AGGREGATION.md` (`84d73b74`) — *"band fills what it can → 1inch splits the REMAINDER"* —
+and `SOR.sol`'s older `_v3Route`, the peer route *"tried when the V4 hops can't"*. Apply it to the
+swap-in absorption limit: the band absorbs what it can, the remainder's worth of BTC is sold as
+WBTC through 1inch to source the USD, and `requireFull` succeeds instead of reverting.
+
+⚠️ **`ROUTING-AGGREGATION.md` does NOT cover this** — checked: it mentions no Lightning, channel,
+LP-offline, swap-in or splice case. It solves the EVM-side remainder; this is the LN-side one.
+And it already warns 1inch does not close every case (API outage, volatile block, unclearable
+size), so the extension **raises the fill rate rather than guaranteeing it** — `requireFull` must
+still reject cleanly when the remainder cannot be sourced.
+
+---
+
 ## 5. THE PATTERN THIS THREAD KEPT HITTING (worth more than any single item)
 
 Five corrections landed, **four of them mine**, and all the same shape: **a conclusion built on
