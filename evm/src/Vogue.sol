@@ -59,8 +59,9 @@ contract Vogue is
     // §DE-TICK — `token1isVol` DELETED. It mirrored Core's v4 leg ordering, itself derived from
     // the lex order of freshly-deployed MOCK addresses. Nothing orders legs by token identity now.
     // range = between ticks
-    uint public UPPER_PRICE;
-    uint public LOWER_PRICE;
+    /// §ONE-ANCHOR — was `UPPER_PRICE` + `LOWER_PRICE`, always `updateBounds(anchor, BAND_DELTA)`
+    /// of one another. Two slots for one number; `bandBounds()` derives the pair on read.
+    uint public BAND_ANCHOR;
     uint public LAST_REPACK;
     // ^ timestamp allows us
     // to measure APY% for
@@ -360,7 +361,12 @@ contract Vogue is
         // seed read, and the initial tick derivation. Only the value-type state
         // writes stay here; they have no storage pointer to hand the library.
         address weth;
-        (weth, LOWER_PRICE, UPPER_PRICE) = VogueLib.setupBody(_aux, _core);
+        uint lo_; uint hi_;
+        (weth, lo_, hi_) = VogueLib.setupBody(_aux, _core);
+        // §ONE-ANCHOR — `setupBody` still returns the pair it derived; the midpoint of
+        // `p·(1−δ)`/`p·(1+δ)` recovers `p`. Exact enough HERE (and only here) because this is the
+        // deploy seed, immediately superseded by the first repack, which passes the anchor directly.
+        BAND_ANCHOR = (lo_ + hi_) / 2;
         WETH = WETH9(payable(weth));
         // §ETHVENUE-FOLD — arm the ether.fi venue here, where `EthVenue`'s constructor used to.
         // The standing WETH approval to a SEPARATE venue address is gone with the address.
@@ -1007,12 +1013,12 @@ contract Vogue is
     ///         number (front-end / probe / monitoring). 0 ⇒ band unset/degenerate (caller fails open).
     ///         Body in VogueLib (EIP-170 headroom); band ticks passed in.
     function kLvrWad() external view returns (uint) {
-        return VogueLib.kLvrWad(address(CORE), LOWER_PRICE, UPPER_PRICE);
+        return VogueLib.kLvrWad(address(CORE), _lo(), _hi());
     }
 
     /// @notice (A) The band's LIVE realized concavity α (WAD). Body in VogueLib.
     function realizedAlphaWad() public view returns (uint) {
-        return VogueLib.realizedAlphaWad(address(CORE), LOWER_PRICE, UPPER_PRICE);
+        return VogueLib.realizedAlphaWad(address(CORE), _lo(), _hi());
     }
 
     /// @notice (B) The band's ACTUAL sold-volatile fraction (WAD) since `entryPrice` — the ground-truth IL the
@@ -1025,7 +1031,7 @@ contract Vogue is
     ///         ETH band (the BTC parallel lives on the Vault with the BTC ticks/ordering).
     function soldFractionWad(uint entryPrice) public view returns (uint) {
         (uint priceWad,) = CORE.poolStats();
-        return SwapLib.soldFractionWad(entryPrice, priceWad, LOWER_PRICE, UPPER_PRICE);
+        return SwapLib.soldFractionWad(entryPrice, priceWad, _lo(), _hi());
     }
 
     /// @notice The band's current spot √P (Q96) — the leverage records this as its `entryPrice` at open so
@@ -1043,7 +1049,7 @@ contract Vogue is
     /// @notice θ derived live: yield / (K·σ²), clamped to ≤1. Body in VogueLib
     ///         (EIP-170 headroom); band ticks + Core/Aux handles passed in.
     function derivedThetaWad() public view returns (uint) {
-        return VogueLib.derivedThetaWad(address(CORE), LOWER_PRICE, UPPER_PRICE);
+        return VogueLib.derivedThetaWad(address(CORE), _lo(), _hi());
     }
 
     /// @notice θ for an EXPLICIT band range. The BTC band ticks live in the Vault (LOWER_TICK_BTC/
@@ -1276,13 +1282,13 @@ contract Vogue is
         VogueLib.RebalOut memory o = VogueLib.rebalanceBody(VogueLib.RebalIn({
             core: address(CORE), aux: address(AUX), ev: address(this), weth: address(WETH),
             lpShares: lpShares, totalLevPooled: totalLevPooled,
-            totalBuffer: totalBuffer, loPrice: LOWER_PRICE, upPrice: UPPER_PRICE, bookmark: bookmark}));
+            totalBuffer: totalBuffer, loPrice: _lo(), upPrice: _hi(), bookmark: bookmark}));
         venueFeesPerShare += o.venueFeesPerShareInc;             // _syncYield accrual
         bookmark = o.newBookmark;
         feesPerShare += o.feesPerShareInc; USD_FEES += o.usdFeesInc; // _distributeV4Fees
         
         if (o.setLastRepack) LAST_REPACK = block.timestamp;      // _calcYield's live effect
-        LOWER_PRICE = o.loPrice; UPPER_PRICE = o.upPrice;      // write the (possibly new) range back
+        BAND_ANCHOR = o.spotPrice;   // §ONE-ANCHOR: store the anchor; the range derives from it
         return (o.spotPrice, o.loPrice, o.upPrice, o.myLiquidity, o.resolvedTwap);
     }
 
@@ -1703,4 +1709,18 @@ contract Vogue is
         if (usdR > 0) LP.usd_owed += usdR;
         _refreshBookmarks(lp, eth_fees, usd_fees);   // rebaseline → next pending is 0
     }
+
+    /// @notice This band's range, DERIVED from the one stored anchor: `[p·(1−δ), p·(1+δ)]`.
+    /// @dev    §ONE-ANCHOR. Every consumer wanted the PAIR (`soldFractionWad`, `derivedThetaWad`,
+    ///         `kLvrWad`, the rebalance body), which is why storing two looked natural. But the pair
+    ///         is a function of ONE number, and two slots that must move together are two slots that
+    ///         can fail to. Deriving is also cheaper: two `mulDiv`s against a cold SLOAD, and a
+    ///         repack writes one slot instead of two.
+    function bandBounds() public view returns (uint lo, uint hi) {
+        return SwapLib.updateBounds(BAND_ANCHOR, SwapLib.BAND_DELTA);
+    }
+
+    function _lo() internal view returns (uint) { (uint l,) = bandBounds(); return l; }
+    function _hi() internal view returns (uint) { (, uint h) = bandBounds(); return h; }
+
 }

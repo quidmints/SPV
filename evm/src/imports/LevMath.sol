@@ -123,8 +123,11 @@ library LevMath {
         // ONE accessor pair. The hook is per-asset and answers for its own band, so there is no name
         // to select — which is all the removed `isBTC` did here.
         uint lo; uint hi;
-        try ILevSyncHook(hook).LOWER_PRICE() returns (uint l) { lo = l; } catch { return (false, 0); }
-        try ILevSyncHook(hook).UPPER_PRICE() returns (uint u) { hi = u; } catch { return (false, 0); }
+        // §ONE-ANCHOR — ONE call, ONE try/catch. Two reads meant two chances to half-fail and a
+        // caller left holding a lower bound with no upper; the pair now arrives together or not at
+        // all, which is the property the `catch` was there to protect in the first place.
+        try ILevSyncHook(hook).bandBounds() returns (uint l, uint u) { lo = l; hi = u; }
+        catch { return (false, 0); }
         if (lo >= hi) return (false, 0);                       // band unset/degenerate → nothing to compare against
         // §DE-TICK — a DIRECT price comparison. The bounds are prices; converting them through the
         // tick grid was the only reason this needed TickMath.

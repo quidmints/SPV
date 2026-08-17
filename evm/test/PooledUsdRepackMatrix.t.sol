@@ -271,11 +271,11 @@ contract PooledUsdRepackMatrix is Alles {
         _log("S3 t2 (one-shot on top)", s2);
         _oracleTrace("S3 t2 oracle");
 
-        bool outOfRange = s2.eth.price >= V4.UPPER_PRICE() || s2.eth.price < V4.LOWER_PRICE();
+        bool outOfRange = s2.eth.price >= _bHi(address(V4)) || s2.eth.price < _bLo(address(V4));
         emit log_named_uint("out of range?", outOfRange ? 1 : 0);
         emit log_named_uint("LAST_REPACK moved?", s2.eth.lastRepack != s0.eth.lastRepack ? 1 : 0);
-        emit log_named_uint("UPPER_PRICE", V4.UPPER_PRICE());
-        emit log_named_uint("LOWER_PRICE", V4.LOWER_PRICE());
+        emit log_named_uint("UPPER_PRICE", _bHi(address(V4)));
+        emit log_named_uint("LOWER_PRICE", _bLo(address(V4)));
 
         // ── ROOT-CAUSE TRACE. `rebalanceCore` has exactly three ways to decline a re-centre;
         //    read the inputs to each so the blocking branch is IDENTIFIED, not guessed at.
@@ -366,7 +366,7 @@ contract PooledUsdRepackMatrix is Alles {
         _log("S3b t2 (one-shot on top, ANCHORED)", s2);
         _oracleTrace("S3b t2 oracle (anchored)");
 
-        bool outOfRange = s2.eth.price >= V4.UPPER_PRICE() || s2.eth.price < V4.LOWER_PRICE();
+        bool outOfRange = s2.eth.price >= _bHi(address(V4)) || s2.eth.price < _bLo(address(V4));
         emit log_named_uint("out of range?", outOfRange ? 1 : 0);
         emit log_named_uint("LAST_REPACK moved?", s2.eth.lastRepack != s0.eth.lastRepack ? 1 : 0);
 
@@ -399,7 +399,7 @@ contract PooledUsdRepackMatrix is Alles {
         emit log_named_uint("opens landed", opens);
         emit log_named_uint("hours warped", (block.timestamp - s0.eth.lastRepack) / 3600);
 
-        bool outOfRange = s2.eth.price >= V4.UPPER_PRICE() || s2.eth.price < V4.LOWER_PRICE();
+        bool outOfRange = s2.eth.price >= _bHi(address(V4)) || s2.eth.price < _bLo(address(V4));
         emit log_named_uint("out of range?", outOfRange ? 1 : 0);
         emit log_named_uint("LAST_REPACK moved?", s2.eth.lastRepack != s0.eth.lastRepack ? 1 : 0);
 
@@ -482,8 +482,8 @@ contract PooledUsdRepackMatrix is Alles {
         emit log_named_uint("    USD leg after  ", CORE.POOLED_USD());
         emit log_named_uint("    ETH leg before ", eA);
         emit log_named_uint("    ETH leg after  ", CORE.POOLED());
-        emit log_named_uint("    UPPER_PRICE     ", V4.UPPER_PRICE());
-        emit log_named_uint("    LOWER_PRICE     ", V4.LOWER_PRICE());
+        emit log_named_uint("    UPPER_PRICE     ", _bHi(address(V4)));
+        emit log_named_uint("    LOWER_PRICE     ", _bLo(address(V4)));
         vm.roll(block.number + 1); vm.warp(block.timestamp + warpPerSwap);
     }
 
@@ -508,8 +508,8 @@ contract PooledUsdRepackMatrix is Alles {
         emit log_named_uint("price after opens", s1.eth.price);
         emit log_named_uint("USD leg after opens", s1.eth.usd);
         emit log_named_uint("ETH leg after opens", s1.eth.leg);
-        emit log_named_uint("UPPER_PRICE after opens", V4.UPPER_PRICE());
-        emit log_named_uint("LOWER_PRICE after opens", V4.LOWER_PRICE());
+        emit log_named_uint("UPPER_PRICE after opens", _bHi(address(V4)));
+        emit log_named_uint("LOWER_PRICE after opens", _bLo(address(V4)));
 
         for (uint i = 1; i <= 6; i++) _sellEthLogged(i, 30 ether);
     }

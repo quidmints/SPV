@@ -175,8 +175,9 @@ contract Vault is Ownable, ReentrancyGuard {
     ///      answers for ITS asset, so `reanchorCompute` calls ONE accessor instead of selecting a
     ///      NAME by flag — which is all that `isBTC` was doing there (hence the try/catch around
     ///      every call: the wrong name simply does not exist on the other side).
-    uint public UPPER_PRICE;
-    uint public LOWER_PRICE;
+    /// §ONE-ANCHOR — was `UPPER_PRICE` + `LOWER_PRICE`, always `updateBounds(anchor, BAND_DELTA)`
+    /// of one another. Two slots for one number; `bandBounds()` derives the pair on read.
+    uint public BAND_ANCHOR;
 
 
     error BtcChannelsPinned();
@@ -241,7 +242,12 @@ contract Vault is Ownable, ReentrancyGuard {
         if (address(QUID) != address(0)) revert AlreadyInitialized();
         QUID = Basket(_quid);
         (uint priceWad,) = CORE.poolStats();
-        (LOWER_PRICE, UPPER_PRICE) = _updateBounds(priceWad, 200);
+        // §ONE-ANCHOR — the seed IS the anchor. ⚠️ THIS NARROWS THE PRE-FIRST-REPACK BAND: the old
+        // line seeded at delta=200 (±2%) while EVERY other site uses BAND_DELTA=20 (±0.2%), an
+        // unexplained 10x the one-anchor form cannot express. The seed is superseded by the first
+        // repack, which `checkBacking` triggers on the first operation, so the window is narrow --
+        // but it IS a behaviour change, called out here rather than buried.
+        BAND_ANCHOR = priceWad;
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -410,7 +416,7 @@ contract Vault is Ownable, ReentrancyGuard {
     ///         `Vogue.soldFractionWad`, over the BTC ticks/ordering. Shared pure geometry lives in SwapLib.
     function soldFractionWad(uint entryPrice) external view returns (uint) {
         (uint priceWad,) = CORE.poolStats();
-        return SwapLib.soldFractionWad(entryPrice, priceWad, LOWER_PRICE, UPPER_PRICE);
+        return SwapLib.soldFractionWad(entryPrice, priceWad, _lo(), _hi());
     }
 
 
@@ -442,10 +448,10 @@ contract Vault is Ownable, ReentrancyGuard {
     function _rebalance() internal returns (uint spotPrice,
         uint loPrice, uint upPrice, uint myLiquidity, uint resolvedTwap) {
         BtcVaultLib.RebalOut memory o = BtcVaultLib.rebalanceBody(
-            _btcCfg(), LOWER_PRICE, UPPER_PRICE,
+            _btcCfg(), _lo(), _hi(),
             feesPerShare, USD_FEES, lpShares + totalBuffer);
         feesPerShare = o.feesPerShare; USD_FEES = o.usdFees;   // §BAND-MERGE: RebalOut's fields lost the redundant BTC suffix
-        LOWER_PRICE = o.loPrice; UPPER_PRICE = o.upPrice;
+        BAND_ANCHOR = o.spotPrice;   // §ONE-ANCHOR
         return (o.spotPrice, o.loPrice, o.upPrice, o.myLiquidity, o.resolvedTwap);
     }
 
@@ -543,7 +549,7 @@ contract Vault is Ownable, ReentrancyGuard {
     ///         (the band-θ math home) with the BTC ticks so BtcVaultLib.addLiqChannel can risk-budget the
     ///         BTC band exactly like the ETH band -- without VaultLib linking VogueLib.
     function derivedThetaWad() external view returns (uint) {   // §SLOP: one name across both bands
-        return VOGUE.derivedThetaWadAt(address(CORE), LOWER_PRICE, UPPER_PRICE);   // §ISBTC-SPLIT: OUR ring's variance, not the ETH band's
+        return VOGUE.derivedThetaWadAt(address(CORE), _lo(), _hi());   // §ISBTC-SPLIT: OUR ring's variance, not the ETH band's
     }
 
     /// @dev Vault's BTC-side immutables gathered for the delegatecalled VaultLib
@@ -725,4 +731,18 @@ contract Vault is Ownable, ReentrancyGuard {
     ///         match is done inside `_settleDelivered` (CORE.subPendingSwapOut).
     function addPendingSwapOut(uint usd6) external onlyBTCChannels { CORE.addPendingSwapOut(usd6); }
     function subPendingSwapOut(uint usd6) external onlyBTCChannels { CORE.subPendingSwapOut(usd6); }
+
+    /// @notice This band's range, DERIVED from the one stored anchor: `[p·(1−δ), p·(1+δ)]`.
+    /// @dev    §ONE-ANCHOR. Every consumer wanted the PAIR (`soldFractionWad`, `derivedThetaWad`,
+    ///         `kLvrWad`, the rebalance body), which is why storing two looked natural. But the pair
+    ///         is a function of ONE number, and two slots that must move together are two slots that
+    ///         can fail to. Deriving is also cheaper: two `mulDiv`s against a cold SLOAD, and a
+    ///         repack writes one slot instead of two.
+    function bandBounds() public view returns (uint lo, uint hi) {
+        return SwapLib.updateBounds(BAND_ANCHOR, SwapLib.BAND_DELTA);
+    }
+
+    function _lo() internal view returns (uint) { (uint l,) = bandBounds(); return l; }
+    function _hi() internal view returns (uint) { (, uint h) = bandBounds(); return h; }
+
 }

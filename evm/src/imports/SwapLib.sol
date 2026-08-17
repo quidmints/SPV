@@ -2107,13 +2107,13 @@ library SwapLib {
             if (BasketLib.isManipulated(spot, twap, 300)) {
                 return r;
             }
-            (uint newLower, uint newUpper) = updateBounds(r.spotPrice, BAND_DELTA);   // §DE-TICK: r.spotPrice now carries the PRICE
+            // §ONE-ANCHOR — hand the engine the ANCHOR; the bounds it implies are derived here and
+            // wherever else they are wanted, from that one number.
             if (r.myLiquidity > 0) {
-                r.price = ICore(v4).repack(newLower, newUpper);   // §V4-CUT: price only
+                r.price = ICore(v4).repack(r.spotPrice);
                 r.didRepack = true;
             }
-            r.loPrice = newLower;
-            r.upPrice = newUpper;
+            (r.loPrice, r.upPrice) = updateBounds(r.spotPrice, BAND_DELTA);
         } else if (r.myLiquidity > 0) {
             // JIT-snipe defense: force a fee-only collect so accrued fees land
             // in the accumulators BEFORE the caller's bookmark advances.
@@ -2150,12 +2150,12 @@ library SwapLib {
     ///      return doesn't pin _reseatIfStale's stack (legacy pipeline, no via_ir).
     function _doReseat(address v4, Rebalanced memory r, uint targetPrice)
         private {
-        (uint nlo, uint nhi) = updateBounds(targetPrice, BAND_DELTA);
         if (r.myLiquidity > 0) {
-            r.price = ICore(v4).repack(nlo, nhi);   // §V4-CUT: `reseat` folded into `repack` (identical bodies)
+            r.price = ICore(v4).repack(targetPrice);   // §ONE-ANCHOR: the anchor, not the pair
             r.didRepack = true;
         }
-        r.loPrice = nlo; r.upPrice = nhi; r.spotPrice = targetPrice;
+        (r.loPrice, r.upPrice) = updateBounds(targetPrice, BAND_DELTA);
+        r.spotPrice = targetPrice;
     }
 
 }

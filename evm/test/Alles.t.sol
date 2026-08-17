@@ -911,9 +911,9 @@ contract Alles is ForkPin, ExitFixture {
         // PREMISE: the swap saturated AT the band edge — it did not leave the band. This is what
         // makes the reseat a structural no-op below, so assert it rather than letting it hide.
         (uint priceBefore,) = CORE.poolStats();   // §DE-TICK: was a tick
-        assertLe(priceBefore, V4.UPPER_PRICE(), "PREMISE: swap saturates inside the band (upper)");
-        assertGe(priceBefore, V4.LOWER_PRICE(), "PREMISE: swap saturates inside the band (lower)");
-        uint loBefore = V4.LOWER_PRICE(); uint hiBefore = V4.UPPER_PRICE();
+        assertLe(priceBefore, _bHi(address(V4)), "PREMISE: swap saturates inside the band (upper)");
+        assertGe(priceBefore, _bLo(address(V4)), "PREMISE: swap saturates inside the band (lower)");
+        uint loBefore = _bLo(address(V4)); uint hiBefore = _bHi(address(V4));
 
         // The permissionless reseat must handle the skewed pool without reverting.
         V4.reseat();
@@ -942,7 +942,7 @@ contract Alles is ForkPin, ExitFixture {
         // the block comment above (that would be the FIX for the suspected defect, not a break).
         (uint priceAfter,) = CORE.poolStats();
         assertEq(priceAfter, priceBefore, "reseat did not move the spot (no branch fired)");
-        assertTrue(V4.LOWER_PRICE() == loBefore && V4.UPPER_PRICE() == hiBefore,
+        assertTrue(_bLo(address(V4)) == loBefore && _bHi(address(V4)) == hiBefore,
             "reseat did not re-center the band (no branch fired)");
     }
 
@@ -4743,4 +4743,10 @@ contract Alles is ForkPin, ExitFixture {
         emit log_named_uint("209 sats in 18-dec USD  ", feeUsd18);
         assertLt(feeUsd18, 1e18, "a 209-sat fee is sub-dollar; a 1e10 slip would make it millions");
     }
+
+    /// §ONE-ANCHOR — the band stores ONE anchor and derives `[lo, hi]`, so tests read the pair via
+    /// `bandBounds()`. These two exist so the files that want a single leg do not each destructure it.
+    function _bLo(address band) internal view returns (uint) { (uint l,) = IBandManager(band).bandBounds(); return l; }
+    function _bHi(address band) internal view returns (uint) { (, uint h) = IBandManager(band).bandBounds(); return h; }
+
 }

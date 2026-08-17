@@ -453,8 +453,14 @@ contract Core {
     /// §DE-TICK — the band's bounds are PRICES (USD per volatile, WAD), not ticks. Under inventory
     /// the range is a pricing parameter, and a price bound is what every consumer actually wanted:
     /// the tick grid only ever existed so v4 could index many positions on a shared curve.
-    uint public LOWER_PRICE;
-    uint public UPPER_PRICE;
+    /// §ONE-ANCHOR — was `LOWER_PRICE` + `UPPER_PRICE`. The two were ALWAYS
+    /// `updateBounds(anchor, BAND_DELTA)` of one another -- `lower = p·(1−δ)`, `upper = p·(1+δ)`,
+    /// symmetric about a SINGLE price -- so they were two slots holding one number, and two that
+    /// could drift apart if anything ever wrote one without the other. The anchor is the spot at the
+    /// LAST REPACK, not the live price, so it is still a snapshot; just one instead of two.
+    /// Deriving is CHEAPER than storing: two `mulDiv`s beat a cold SLOAD, and a repack writes one
+    /// slot instead of two.
+    uint public BAND_ANCHOR;
 
     // §BANDBACKING-FOLD — `BACKING` DELETED. The shared accountant held the ONE thing two instances
     // still share (the joint committed equity the backing gate reads, and the cross-band input
@@ -970,9 +976,14 @@ contract Core {
     /// with the collector gone all four were hard-coded ZERO. Callers destructured them, reordered
     /// them by token identity, and fed them to `feeIncrements` -- arithmetic on constants. Also
     /// absorbs `reseat`, whose body was identical.
-    function repack(uint newLower, uint newUpper) public onlyUs returns (uint price) {
-        LOWER_PRICE = newLower;
-        UPPER_PRICE = newUpper;
+    /// @dev §ONE-ANCHOR — takes the ANCHOR, not the two bounds it implies. The caller computed those
+    ///      as `updateBounds(spotPrice, BAND_DELTA)` and already held `spotPrice`, so passing the
+    ///      pair meant sending a derived value and reconstructing its source. Reconstructing it as
+    ///      the midpoint would be LOSSY: `p·(10000±δ)/10000` truncates on each leg, so the recovered
+    ///      anchor drifts a wei and every bound derived from it drifts with it. One argument, exact,
+    ///      and the derivation lives in exactly one place.
+    function repack(uint anchorPrice) public onlyUs returns (uint price) {
+        BAND_ANCHOR = anchorPrice;
         price = AUX.getTWAPforAsset(ASSET, 1800);
         _writeObservationPrice(price);    // §DETICK: no narrowing
     }

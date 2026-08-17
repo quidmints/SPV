@@ -213,8 +213,9 @@ interface ILevSyncHook {
     // the same information AND strictly more of it -- a reseat that leaves an anchor inside the new range
     // bumped the counter but needs no re-anchor. All four are auto-generated getters for existing public
     // state (Vogue:92-93, Vault:214-215); no new contract code implements them.
-    function LOWER_PRICE() external view returns (uint);
-    function UPPER_PRICE() external view returns (uint);
+    /// §ONE-ANCHOR — was `LOWER_PRICE()` + `UPPER_PRICE()`. One call returns the pair, derived from
+    /// the single stored anchor, so a reader cannot obtain one leg without the other.
+    function bandBounds() external view returns (uint lo, uint hi);
 }
 
 /// Canonical ILevVenueColl — union of ILevVenueColl, ILevVenueCollB.
@@ -365,7 +366,7 @@ interface ICore {
     function riskParams() external view returns (uint confFracWad, uint spliceFloor);
     function recordSkewPremium(uint256 premiumUsd) external;
     function refundUnfilled(address token, uint amount, address to) external;
-    function repack(uint newLower, uint newUpper) external returns (uint price);   // §V4-CUT: the four zero legs are gone, and `reseat` folded in here
+    function repack(uint anchorPrice) external returns (uint price);   // §ONE-ANCHOR: bounds derive from this
     function collectFees() external returns (uint, uint);
     
     function btcVault() external view returns (address);   // E21: was BasketLib.IWiredCore
@@ -407,6 +408,8 @@ interface ICore {
 interface IBandManager {
     /// §DE-TICK — uniform 256-bit: price, bounds, liquidity. The narrow widths were v4 packing.
     function repack() external returns (uint price, uint lower, uint upper, uint liquidity, uint);
+    /// §ONE-ANCHOR — the derived range, from the single stored anchor.
+    function bandBounds() external view returns (uint lo, uint hi);
     function feesPerShare() external view returns (uint);
     function USD_FEES() external view returns (uint);
     /// This band's engine. Without it a caller holding two band managers cannot reach the second
