@@ -530,6 +530,61 @@ E230 fixed it and `POOLED_USD` funds again (`Alles` went 71/33 → 89/13, and th
 
 ---
 
+## B9b. ITEMS THIS THREAD TOUCHED THAT PART B FIRST OMITTED
+
+Found by scanning the thread's five days rather than recalling it — the §HANDOFF-2026-08-15-BTC-THREAD
+row named three unfinished items and I had only carried one forward.
+
+### 🔴 B9b-i. ERC-7947 — the verdict was reached and NEVER WRITTEN DOWN WHERE IT BELONGS
+`../ibiza/TODO.md` has **0 mentions of 7947**. The analysis is complete and sits only in a QUEUE row:
+adopting it for `lpEth` would **reopen the attribution hole**, because `_lpPayoutScript(lpEth)`
+derives the BTC payout FROM `lpEth` and `btcRecipientOf` is one source of truth for both
+cooperative-close attribution and the splice path — so whoever compromises the recovery provider
+redirects an LP's payouts. It is also a **trusted off-chain attester accepting a `proof`**, the
+category ruled out wholesale, and the ERC's own security section concedes a malicious provider takes
+full account control. ⇒ **Verdict: do NOT adopt for `lpEth`.**
+▶️ **Write it into `ibiza/TODO.md` §3b, not here** — ibiza owns the mobile client and social recovery
+belongs there. This is the one item on the list that is CROSS-REPO, which is exactly how it gets lost.
+📌 And note what makes it redundant rather than merely risky: **Bitcoin and the EVM share secp256k1
+and this repo already pays for on-chain EC.** After §E183 item 1, `lpEth` IS the channel key's
+address — an LP can prove control of its own identity by signature, with no third party. A recovery
+provider would be buying, at the cost of a trusted attester, a primitive already owned.
+
+### ✅ B9b-ii. `quid-bridge-daemon` COMPILE — the control was never run. I ran it. It is CLEAN.
+The handoff recorded *"UNFINISHED 2 — `quid-bridge-daemon` DOES NOT COMPILE (31 × E0463)"* and named
+a control that nobody executed. Executed now: `cargo check -p quid-bridge --bins` in the pinned
+image → **exit 0, zero `E0463`.** ⇒ **Resolved; do not re-run it.** The other session's sprint
+independently calls it *"a FLAKE. Two sightings, both self-clearing"* — two threads now agree, from
+different evidence.
+
+### 🔴 B9b-iii. §LN-SWAPIN-REMAINDER / §NO-REJECT — the owner calls this the biggest vulnerability
+Absent from Part B entirely, and `BTC-CUSTODY-OPEN.md` §4b gives it its own section. `requireFull`
+makes the LN swap-in rail **all-or-nothing** because, as `BTCChannels.sol` says, that rail *"cannot
+refund"* — a Lightning payment is atomic and cannot be partially returned. The design agreed in this
+thread: **do not reject the remainder — route it.** Band fills what it can, the remainder goes out
+through 1inch, cleared as a **Khalani cross-chain intent against Perena**, with instantly-redeemable
+QU!D forcing the swap-out through 1inch to take in several stables and pack them into one at the end.
+⚠️ **The quote seam for this already exists** (§NO-REJECT records it), so the missing piece is intent
+emission on shortfall, not a new pricing path. **Two QUEUE rows carry the detail; neither is scoped
+to a task.**
+
+### 🟡 B9b-iv. `BandEquityCollapseEchidna` now guards a term that no longer exists
+The harness proved the `dust6` collapse safe (50,000 cases: `collapsed >= withDust`, identity when
+`dust6 == 0`, floors saturate, monotonicity). **The collapse has since landed — `dust6`/`_dustOf` are
+at 0 references in `Core`.** The harness is self-contained pure math, so it still runs and still
+passes; it is now archival rather than protective. **Decide: keep as a regression guard against the
+term returning, or delete under rule 1.** Do not leave it unexamined — a passing harness over deleted
+code is the shape that makes the next reader think the term is still live.
+
+### 📌 B9b-v. A suite-count discrepancy worth resolving before trusting either number
+The other session's sprint records a clean baseline of **4,316 passed / 3 failed**, the three being
+`testLeverage_LvrControlVsTreatment` in three suites, and calls it *"the ONLY failing test"*. I
+measured `BtcLpMintStress` alone at **13 passed / 8 failed** on unmodified `main`, with mint-accounting
+assertions failing (`deliver mints ~EXACTLY the swapper's USD`, etc.) — and confirmed them
+pre-existing by control. **Both cannot describe the same tree.** Different commits, or one run
+excluded a suite. ⇒ **Establish one baseline, on one commit, before either number is quoted as the
+state.**
+
 ## B10b. 🔴 THE PROCESS FAILURE THAT COST THE MOST
 
 **A scratch worktree is not storage.** I did verified work in one, removed it with `--force`, and
