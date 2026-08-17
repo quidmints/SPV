@@ -14442,7 +14442,7 @@ the accounting still looks healthy because the debt it holds is the debt it coul
 
 | id | state | item |
 |---|---|---|
-| §V-R1 | 🔴 OPEN | **ROUTE THE FOUR LEV SWAP LEGS THROUGH 1inch AggregationRouterV6 `0x111111125421cA6dc452d289314280a0f8842A65`** (VERIFIED LIVE 2026-08-16, codesize 24,294). All four, or the BTC band keeps the defect: `LevMath._stableToWethSor`, `_wethToStableDex`, `_stableToWbtc`, `_wbtcToStable`. ⚠️ `_wethToWeeth` must NOT be routed — ether.fi mints at the fair rate with zero price impact, so an aggregator only adds cost. |
+| §V-R1 | 🟡 **CONTRACT SIDE LANDED 2026-08-17 (§E248) — THE QUOTE FETCH IS THE REMAINDER, AND UNTIL IT LANDS THE ATOMIC HEDGE DOES NOT RUN.** All four legs now route through `LevMath._aggSwap`; `bytes route` threads through `SellCtx`/`WbtcCfg`/`ExtractCfg`, both managers, the Morpho flash payload and the batch entrypoints. Build clean, ABI gate 0/0. What remains is OFF-CHAIN: an HTTP client for 1inch's quote API with timeout + staleness handling, and wiring `MockAggRouter` into the tests that actually lever. Original text: **ROUTE THE FOUR LEV SWAP LEGS THROUGH 1inch AggregationRouterV6 `0x111111125421cA6dc452d289314280a0f8842A65`** (VERIFIED LIVE 2026-08-16, codesize 24,294). All four, or the BTC band keeps the defect: `LevMath._stableToWethSor`, `_wethToStableDex`, `_stableToWbtc`, `_wbtcToStable`. ⚠️ `_wethToWeeth` must NOT be routed — ether.fi mints at the fair rate with zero price impact, so an aggregator only adds cost. |
 | §V-R2 | 🔴 OPEN | **THE STRUCTURAL COST, WHICH IS WHY THIS IS NOT A LOCAL EDIT:** 1inch resolves routes OFF-CHAIN; the router cannot be called without API-supplied calldata. So a `bytes route` argument threads `openLev`/`rebalance` → `_leverUpBuy` → `stableToColl` → the swap helper. That is a signature change on TWO PUBLIC ENTRYPOINTS ⇒ the SPA and the Rust keeper move too, and `tools/check-client-abis.py` will flag it (the gate working, not a problem). There is no smaller version: dropping TriCrypto without the calldata path leaves the leg with NO route. |
 | §V-R3 | 🔴 OPEN — **DO NOT DEFAULT THIS** | **`rebalance` IS PERMISSIONLESS.** With caller-supplied calldata an arbitrary caller passes an arbitrary target + payload. PIN the router to an allowlist (constant or gov-set) or make the path keeper-only. An unpinned `call` on a permissionless entrypoint is a WORSE hole than the thin liquidity it fixes. Also: approve exact-amount per swap and zero after, rather than leaving standing allowance. |
 | §V-R4 | ✅ AXIOMATIC | **THE ORACLE FLOOR IS WHAT MAKES EXTERNAL ROUTING SAFE, AND IT ALREADY EXISTS.** Output must clear `TWAP × (10_000 − SELL_SLIP_BPS)/10_000` whatever route 1inch picks, so we never trust their path selection — only that the fill beats a price WE compute. Arbitrary or stale calldata cannot extract more than 100bp. KEEP IT EXACTLY WHERE IT IS. Closed because it is true by construction of the existing code, not by a decision that could reverse. |
@@ -14472,3 +14472,68 @@ the accounting still looks healthy because the debt it holds is the debt it coul
 | §E244-tri-tests | 🔴 **OPEN — TWO TESTS NOW FAIL `NoVolatileRoute()`, AND THAT IS THE CAPABILITY REMOVAL BECOMING VISIBLE, NOT A BUG (2026-08-17).** `LevCascade::test_Economic_LeversToProvenIlTarget` and `VBtcLevFeeLane::testReal_WbtcLev_FoldUp_Then_FlashDelever` both exercise a lever-up/flash-delever that needs the USDC↔volatile route TriCrypto used to provide. With it removed (§E240-tri) they revert by design. ⚠️ **DO NOT "FIX" THESE BY WEAKENING THE ASSERTION OR CATCHING THE REVERT** — that is rule 4 exactly, and it would hide that the automatic hedge does not currently execute. They are the honest signal that the IL-protect cannot lever or de-lever until §V-R1 (1inch) lands. ▶️ TWO ACCEPTABLE RESOLUTIONS, both explicit: delete them alongside the route with the property they asserted recorded at the site (as was done for the two SOR tests), or mark them `vm.expectRevert(NoVolatileRoute.selector)` so they assert the CURRENT truth — the hedge is unavailable — and flip back when the router lands. **The unacceptable resolution is a tolerance that makes them pass.** ⚠️ ALSO NOTE what these two prove that reasoning did not: they are the only two tests in the tree that actually drive a full lever-up through the swap, which is why the other ~55 pre-existing failures did not move. Everything else asserts on state that never gets that far. |
 | §E245-rate | 🟢 **THE EXTRACTION RATE, MEASURED AT THREE BODY SIZES — THIS IS THE NUMBER THAT MAKES THE MANAGER MERGE PLANNABLE (2026-08-17).** Library extraction frees bytes from the CALLER at a rate that scales with body size, so a plan can be costed instead of guessed: **2–5-line bodies ≈ 100 B each** (`trackOpen`/`untrackOpen`/`setTargetLtv`/`openPos`/`reanchorIfReseated`: −480 LevManager, −512 BtcLevManager over 5); **10–13-line bodies ≈ 514 B each** (the four venue legs: BtcLevManager **19,335 → 17,279, −2,056**). ⇒ **RUNNING TOTALS:** `LevManager` 23,311 → 22,831 (margin 1,745); `BtcLevManager` 20,323 → **17,279** (margin 7,297); `LevMath` 23,020 → **19,101**; `Aux` 22,955 → **20,996**; `BTCChannels` 24,433 → **23,761** (margin 144 → 815). `LevBookLib` 5,878, deployed once. ▶️ **WHAT REMAINS AND WHAT IT IS WORTH AT THESE RATES:** 23 `LevBase` bodies (~2,200/manager), `LevManager`'s 34 own bodies incl. `openLev` 20 / `deleverToVault` 19 / `_rebalanceBody` 16 / `_closeLev` 15 (~5,000 at the large-body rate), `BtcLevManager`'s 13 remaining. ⚠️ **THE TWO HARD BOUNDARIES, properties of delegatecall not preferences:** a library body cannot read the caller's IMMUTABLES (they live in its CODE) nor call its VIRTUALS — so `debtDeltaToTarget`, `_reanchorIfReseated`, `_collToBase` and `_syncBand` values must be computed by the wrapper and passed BY VALUE. And `_syncBand`'s ORDERING is load-bearing: the band poke must follow the venue move, so it stays in the wrapper. |
 | §E246-legs | 🟢 **THE FOUR "BTC" VENUE LEGS ARE ASSET-AGNOSTIC AND NOW SHARED — the naming hid it (2026-08-17).** `leverBorrow`, `leverSupply`, `deleverWithdraw`, `repay` lived only on `BtcLevManager` and read as BTC-specific. Every one is a generic venue operation whose ONLY asset-specific input is the collateral token, now a parameter, so the same library bodies serve weETH. **`leverBorrow`/`repay` never touch the collateral at all** — they move the venue's STABLE in and out — which is precisely why the BTC lever cycle survived TriCrypto's removal untouched while the ETH atomic path did not (§E240-tri). ⚠️ **THIS DOES NOT MEAN EXPOSE THEM ON THE ETH SIDE.** Earlier in this thread I proposed exactly that and withdrew it: `leverBorrow` on ETH would let an LP borrow WITHOUT supplying, walking its own position toward the liquidation the protocol promises to prevent. The BODIES are shared; which manager EXPOSES which entrypoint is a separate, security-bearing decision. ⚠️ Events are declared in the library and still emit from the MANAGER's address (delegatecall preserves `address(this)`), with byte-identical declarations so no client ABI moves — **editing an event there edits the manager's ABI.** |
+
+---
+
+## 🏁 THREAD CHECKPOINT — 2026-08-17, session `d669393d`. Closed at `09b68e45`.
+
+**Everything below is pushed to `origin/main`. Nothing remains in a worktree, stash, or branch:
+one remote branch, one local, zero stashes, zero backups (all 14 verified superseded and deleted).**
+
+**SIZE — 10,461 bytes freed from deployable contracts, and the binding constraint MOVED.**
+`LevMath` 23,020→19,101 · `BtcLevManager` 20,323→17,279 · `Aux` 22,955→20,996 ·
+`LevManager` 23,698→23,651 · `BTCChannels` 24,433→23,761. **`BTCChannels` was the tightest
+contract in the tree at 144 bytes for most of this thread; it now holds 815, and the new floor is
+`Vogue` at 558.** Any future size argument must be made against `Vogue`.
+
+**THE TWO MECHANISMS, MEASURED — this is the reusable result.**
+① *Library extraction* frees bytes from the CALLER at ~100 B per small body (2–5 lines) and
+**~514 B per large body** (10–13 lines). ② *De-inlining an internal-only library* frees bytes from
+EVERY consumer at once — `BitcoinTx` freed 1,985 B across four. ⚠️ ② only pays with MULTIPLE
+consumers: `SortedSetLib` has one, so converting it would ADD a seam and save nothing.
+⇒ **This overturns `CLAUDE.md`'s recorded conclusion** that "neither abstract-base hoisting nor
+delegatecalled-library extraction removes meaningful bytecode." Hoisting into an ABSTRACT base
+does nothing (+41 B, measured — the bodies are copied into both inheritors); moving into a
+DELEGATECALLED LIBRARY removes them from both. Same code, opposite sign.
+⚠️ **DO NOT ESTIMATE BYTECODE FROM LINE COUNTS.** I predicted a loss from body sizes and was wrong
+by 5×: solc's inlined output carries slot arithmetic, bounds checks and stack shuffling that source
+lines do not reveal. Build it.
+
+**⇒ THE MANAGER MERGE IS NOW COSTABLE, NOT BLOCKED.** The pair went 44,021 → 40,930. Remaining at
+the measured rates: 23 `LevBase` bodies (~2,200/manager) + `LevManager`'s 34 own bodies
+(`openLev` 20 lines, `deleverToVault` 19, `_rebalanceBody` 16, `_closeLev` 15 → ~5,000 at the
+large-body rate). After extraction each manager is THIN WRAPPERS over shared libraries, so a merged
+contract holds the union of WRAPPERS, not the union of implementations.
+⚠️ **THE CEILING IS STRUCTURAL AND MEASURED:** a library body cannot read the caller's IMMUTABLES
+(they live in its CODE, not its storage) nor call its VIRTUALS. Of `LevBase`'s 28 bodies: 5 moved,
+~7 movable but tiny, **16 blocked** — and `totalNetEquity` loops a virtual per LP, so it cannot move
+at all. Values must be computed by the wrapper and passed BY VALUE; `_syncBand`'s ORDERING is
+load-bearing (the poke must follow the venue move), so it stays in the wrapper.
+
+**OPEN, IN THE ORDER I WOULD TAKE THEM:**
+1. **§E248 / §V-R1 remainder** — the 1inch quote fetch. Contract side is done and gated; the keepers
+   pass EMPTY routes, which revert `NoVolatileRoute` by design. **The atomic hedge does not run until
+   this lands.** Per E223 the same integration also supplies the independent non-Chainlink price
+   source that E222's circular oracle needs — one piece of work, two problems.
+2. **§E247** — `rebalanceWbtc` was never in the enclave allowlist, so every WBTC-mode rebalance was
+   refused at the signing chokepoint. FIXED, but the DETECTION GAP is open: nothing gates "every
+   selector the keepers BUILD is in `HOP_SIGNED_FN_SIGS`". Mechanical to add, would have caught it.
+3. **§E244** — two tests fail `NoVolatileRoute()`. That is the hedge genuinely unavailable, not a
+   broken test. **Do not resolve with a tolerance** (rule 4); wire `MockAggRouter` or assert the revert.
+4. **`LevManager`'s 34 own bodies** → the merge.
+5. **§V-R11** — untouched. An all-or-nothing swap still reverts rather than partially filling.
+   Aggregation makes tracking DEEPER; partial fill makes it ROBUST. Both are needed.
+6. **Residual slop** — 8 unused parameters, 6 unused locals, 7 shadowed, 7 duplicate-name, 3
+   unchecked low-level calls. Unreachable-code warnings are at **0** (were 12).
+7. **A clean full-suite number.** Last run 407/72; the six `setUp` failures were HTTP 429 from
+   publicnode, not code. Re-run with `ETH_RPC_URL=$ANKR_RPC_URL`. Attribution held all session:
+   **57 shared pre-existing failures, 0 introduced.**
+
+**FOUR TIMES MY REASONING WAS WRONG AND MEASUREMENT CORRECTED IT** — recorded because the pattern
+matters more than the instances: library extraction "loses" (it wins); the four venue legs are
+"duplicated" (they existed once); `ExternalTwap` is an unbooked finding (it is `E222`, and I greped
+the code but never the queue); "no USDC↔volatile venue exists" (the BAND swaps USD↔volatile and
+always did — `Aux.swap`→`Core.swap`, the gas-minimal v4 replacement; the lever legs are the ONE
+permitted exception, by the no-encroachment invariant at `BtcLevManager:36`).
+Everything I caught, I caught by running something. Three of the four were caught because the owner
+pushed back, not because I checked.
