@@ -1064,11 +1064,33 @@ duplicated ids, 8 still ambiguous among open rows — see §16) · `E6` · `E50`
   ~272, so most of that came from the MODEL being corrected, not the mint being fixed.**
   ⚠️ Four of the eight failures are **PREMISE** assertions (*"priming created a free reserve: 0 <=
   0"*) — precondition guards firing because the fixture no longer builds the state, which is a
-  fixture problem and is them **working as designed**. And `test_SwapOutOnchain_DeliversViaSplice`
-  now fails differently from what the row records — *"the obligation is never recorded in
-  `pendingSwapOutUsd`: 0 != 499000000"* — **a swap-out accounting defect that needs its own row.**
-- **`E225-do-not-push-that-merge`** — still unverified; about a merge that was not pushed, likely
-  spent, but I have not checked it.
+  fixture problem and is them **working as designed**. ⛔ **And I got one call wrong here and corrected it the same
+  day:** I read `test_SwapOutOnchain_DeliversViaSplice`'s new failure (*"the obligation is never
+  recorded in `pendingSwapOutUsd`: 0 != 499000000"*) as a defect needing its own row. **It is wired** —
+  `BTCChannels.sol:2171` → `Vault.sol:735` → `Core.sol:673`. The recorder has callers; the fixture
+  does not reach it, so it belongs with the four PREMISE failures. **A zero measured by a test that
+  never ran the writing path is a fixture reading, not a contract reading** — the same mistake §E222's
+  author made an hour earlier reading `ExternalTwap`'s absence as the defect's presence.
+- **`E225-do-not-push-that-merge` — ✅ CLOSED, verified.** `b502b8e8`, the merge it forbids, is **not
+  an ancestor of `origin/main`**; it was never pushed. And the commits it complained about missing —
+  `0f22a6e4` and `19ee5ba7` — **are** ancestors. The hazard was one unpushed object and it stayed
+  unpushed.
+
+**FIVE MORE ORPHANS CLOSED THE SAME WAY, all verified in code on 2026-08-18** — see `QUEUE.md`:
+**`E130`** (fixed by §E138's proof-of-possession at `BTCChannels.sol:962` *and* `:2309`) · **`E91-ROOT`**
+(`ChannelLib.sol:328` delivers) · **`E91`** (`_unlockCallback` is zero hits — the code is gone) ·
+**`E135`** (guarded at `MIN_CONFIRMATIONS`, `:556`; the residual is an explicitly ACCEPTED risk, a
+decision not a defect) · plus `E225` above.
+
+⭐ **`E91-ROOT` IS THE ONE TO REMEMBER: ITS MECHANISM SENTENCE IS STILL LITERALLY TRUE AND IT IS
+FIXED.** `withdrawFromSP` still takes no `to` — deliberately, because the caller holds the recipient.
+**Checking only the signature named in a row would have left it open forever.** The missing parameter
+was the symptom I named, not the defect.
+
+⚠️ **`E91-r5` DOES NOT CLOSE with them:** `try aux.withdrawSelf(...)` is still at `BasketLib.sol:770`
+and `:823`. The `NothingDelivered` guard (`:663`, `:690`) catches all-venues-failed, and §E91-ROOT's
+own note says why that is not enough — *"`sent` being non-zero is exactly why the aggregate
+`NothingDelivered` guard could not see it either."*
 
 ⚠️ **THE LESSON FOR THE OTHER 32 ORPHANS: BOTH ROWS LOOKED STALE FROM THEIR HEADLINE AND NEITHER WAS.**
 `E92`'s number was stale while its mechanism had moved to a worse target; `E50`'s framing was stale
