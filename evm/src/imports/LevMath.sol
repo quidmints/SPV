@@ -181,6 +181,17 @@ library LevMath {
         // equivalent in outcome -- a revert undoes the `venue.borrow`/`withdraw`/`repay` this used
         // to do first -- and is both cheaper and honest about the capability being absent.
         // ▶️ Restore the body from git history when §V-R1 (1inch) lands; it is not lost.
+        // ⚠️ CORRECTED: an earlier draft of this note said "NO USDC<->VOLATILE VENUE EXISTS ANY MORE"
+        // FULL STOP, which is false and would tell the next reader the swap path is dead. THE
+        // PROTOCOL'S OWN BAND SWAPS USD<->VOLATILE AND ALWAYS DID: `Aux.swap`/`swapTo` -> `Core.swap`,
+        // settling at oracle bounded by inventory, with "no unlock, no callback, no curve traversal"
+        // -- that IS the gas-minimal replacement the v4/PoolManager removal delivered.
+        // ⇒ THE LEVER LEGS ARE THE ONE EXCEPTION, BY DESIGN, NOT BY OMISSION. `BtcLevManager:36`:
+        // "Acquisition is EXTERNAL (never the swap-out rail -> the band is never traded -> no
+        // encroachment on other LPs)." One LP's hedge buying volatile out of the SHARED band would
+        // drain the inventory every other LP's redeemability rests on, so the hedge must source
+        // outside. That is why §V-R1 needs an aggregator and cannot simply route through `Core.swap`,
+        // and why "band first, then 1inch" (ROUTING-AGGREGATION.md) describes USER flow, not this.
         revert NoVolatileRoute();
     }
 
@@ -435,7 +446,7 @@ library LevMath {
     ///      permissionless `rebalance` may pass 0 for it.
     function _stableToWethSor(SellCtx memory c, address stable, uint256 stableAmt) internal returns (uint256) {
         if (stable == c.weth) return stableAmt;          // already WETH: no venue needed, no route needed
-        // §E240-tri — NO USDC<->VOLATILE VENUE EXISTS ANY MORE. TriCrypto held 698 WETH / 20.72 WBTC and
+        // §E240-tri — NO USDC<->VOLATILE VENUE EXISTS *FOR LEVER ACQUISITION*. TriCrypto held 698 WETH / 20.72 WBTC and
         // BOTH legs breached the 1% floor between $10k and $25k, so it was not a venue at size; it was a
         // venue at dust. It is removed rather than clamped (the clamp would only rename the failure).
         // ⚠️ REVERT, NEVER `return 0`. A zero return would make a lever-up "succeed" having bought
