@@ -444,6 +444,25 @@ distinct identifiers** built from `evm/src`, `evm/script`, `evm/test`, `quid-ln`
   timelock?"* moved with it. Booked at §E238-scan, which is the open reconciliation with §E111.
 - **§E194** → the rescue above.
 
+### The same audit run over this thread's OWN transcript — one open hazard, closed by measurement
+
+The 21+ commits and the whole pre-08-13 half of this session were swept the same way: deferral
+statements paired with a symbol that **still exists in the tree** (a symbol that is gone means the
+work was superseded). **70 survived that filter, and every one is already booked in `QUEUE.md`** —
+`§A.55`, `§A.56` part 2 (row B8, `OorArgs` vs inline), `§A.57`, `§A.58`, `_take`, `SweepAuth`,
+`JIT-DEPTH §2`, `deliverableETH`, `closeLevFor`/#109, `forceDeallocate`, `_reconcileLev`, `C10`. ⇒
+**nothing this thread worked on is missing from both documents.**
+
+🔴 **EXCEPT ONE, WHICH WAS A LIVE ACCESS-CONTROL HAZARD AND IS NOW CLOSED BY MEASUREMENT.** On
+2026-08-12 I flagged, twice, that a stashed version of `supplyFromAux` **dropped its gate** —
+`if (msg.sender != address(AUX)) revert NotAux();` — and warned that removing an access gate during
+a cleanup is how a permissionless entrypoint ships. **Verified on `main` today: the gate is present,
+`Vogue.sol:177`.** The stash version never landed. ⇒ **Closed — and closed the only acceptable way,
+by reading the line rather than by reasoning that it was probably fine** (rule 13: a dismissal needs
+the same evidence as a finding). ⚠️ Worth keeping the shape in mind: the hazard was never in a
+commit, only in a stash, so **no diff review would ever have surfaced it** — it was visible only
+because the flag was written down at the time.
+
 ⚠️ **WHAT THIS METHOD CANNOT DO, stated so the number is not over-read.** Symbol-existence closes a
 row only when the row is *about a symbol*. Rows about a **behaviour**, a **measurement**, or a
 **decision** cite live code and score "still open" whether or not the work is done — so **165 minus
