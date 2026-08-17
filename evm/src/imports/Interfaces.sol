@@ -26,7 +26,8 @@ pragma solidity ^0.8.26;
 // `Error writing output JSON`, NOT as a redeclaration error — the message points at the wrong layer
 // entirely, and it has cost this repo hours on two separate days.
 
-library Interfaces {}   // no code — this file exists purely to host the declarations below
+// (there is no wrapper type here: a Solidity file may hold interfaces alone, and the empty
+//  `library Interfaces {}` that used to sit on this line was a no-op that only produced an artifact)
 
 /// Aave v4 spoke. Union of the five former variants: `IAaveV4Spoke` (Aux, Vault, BasketLib),
 /// `IAaveV4Spoke_V` (VaultLib), `IAaveV4SpokeCL` (ChannelLib).
@@ -537,7 +538,6 @@ interface IVaultExposeB {
 
 interface IVBtcToken { function VAULT() external view returns (address); }
 
-interface ISkewSink { function creditSkewPremium(uint premium6) external; }
 
 /// §ISBTC-SPLIT — THE BAND MANAGER'S FACE, SO `Core` STOPS ASKING WHICH ASSET IT IS.
 ///

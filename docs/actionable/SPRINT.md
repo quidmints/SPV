@@ -161,12 +161,22 @@ venue state move — so it stays in the wrapper.
 
 ---
 
-## 6b. 🔴 `contract Shares` IS UNWIRED — AND IT IS WHAT EVERY FOLD BLOCKS ON
+## 6b. ✅ `contract Shares` — DELETED 2026-08-17, ON THE OWNER'S RULE
 
-**Added 2026-08-17: this was measured on 08-16, said in chat, and left out of the first draft of this
-document.** `Shares.sol:90` declares `contract Shares is BandState` — **2,300 bytes of concrete
-contract that nothing deploys, imports, or tests.** Only `BandState` is imported (`Vault.sol:16`,
-`Vogue.sol:22`). `git grep` for `new Shares`, `Shares ` as a type, or `{Shares}` returns **nothing**.
+**Owner, 2026-08-17, closing this thread: *"anything that is unwired and dead code either needs to be
+wired all the way or deleted."*** Wiring it fully **is** §E255, which the owner is taking themselves,
+so the prototype goes. **`BandState` — the shared base, and the half that is actually wired
+(`Vault.sol:16`, `Vogue.sol:22`) — STAYS.** `Shares.sol` is now 88 lines of base and nothing else.
+
+▶️ **TO RESURRECT IT: `git show 5ada37f4:evm/src/Shares.sol`** (or any commit before this deletion).
+It was a written specification of the fold's target shape, not scratch work, and recovering it costs
+one command — which is the whole reason deleting it is cheap and leaving it was not.
+
+⚠️ **AND KEEP THE MEASUREMENT BELOW, BECAUSE IT IS THE PART THAT DOES NOT COME BACK FROM `git show`.**
+
+**What it was:** `Shares.sol:90` declared `contract Shares is BandState` — **2,300 bytes of concrete
+contract that nothing deploys, imports, or tests.** Only `BandState` was imported (`Vault.sol:16`,
+`Vogue.sol:22`). `git grep` for `new Shares`, `Shares ` as a type, or `{Shares}` returned **nothing**.
 
 ⇒ **RIGHT NOW IT IS A STANDING-RULE-1 VIOLATION** — unreachable code kept "for later" — and it is
 simultaneously the scaffold for moving `Vogue`'s 525-line share/position cluster out. Those are not
@@ -179,6 +189,27 @@ whether `Shares` should exist at all or `BandState` should stand alone. It exist
 its `totalSupply() = lpShares + oorShares` is the semantics that survives (§E256). ⇒ **out-of-range
 locked liquidity IS part of the share supply**, which is also what `ONE-ENGINE-TWO-SHARE-TOKENS.md`
 recorded in the owner's own words on 2026-08-16 — *"the remaining totalSupply being outOfRange"*.
+
+### The other two unwired things — CHECKED, AND NEITHER IS DELETABLE
+
+The owner's rule is "wire it or delete it", so I swept `evm/src` for every declaration with zero real
+references (excluding its own declaration line, import paths, and comments). **Exactly three came
+back, and all three are now deleted** — `contract Shares`, `interface ISkewSink`
+(`Interfaces.sol:540`, fully superseded: `Core.sol:367` calls `creditSkewPremium` through
+`IBandManager`, and both managers implement it), and `library Interfaces {}` (a literal empty
+no-op that existed only to produce an artifact).
+
+**Two more libraries have NO production caller, and I did not touch either. Both have evidence saying
+not to** — this repo has deleted a caller-less function as litter and had to restore it **twice**:
+
+| | status | why it stays |
+|---|---|---|
+| `ExternalTwap` | tested (`OneInchObserverIsIndependent.t.sol`), **no production caller** — `Core.sol:1280` names it in a **comment only** | It **is** the §E222 fix: the oracle ring currently records its own output, booked 🔴🔴 and live on `main`. **Deleting it deletes a written security fix**, and wiring it is a money-path change in the other session's lane (Part B, §B1). |
+| `FixedRateFill` | tested (`FillAndBatch.t.sol`), **no production caller** | Its own landing commit says so on purpose — `5d710605`: *"the fixed-rate fill, **unbuilt and with no callers**"*. It is the settlement primitive meant to replace the v4 AMM (§28, Phase 3 step 1). **A marker for work not yet built, which is exactly the `create_sweep_tx` shape.** |
+
+⇒ **"No caller" is not the test; "no caller AND no reason" is.** The three I deleted had neither a
+caller nor a job. These two have a job that has not been wired yet, and the reason is written down in
+a commit message or a queue row — one `git log -S "<symbol>"` away, both times.
 
 ▶️ **THE ORDER THIS FIXES.** §6's arithmetic says bodies cannot close a 15,532-byte gap. **State can:**
 wiring `Shares` moves the share/position cluster **out of both managers at once**, and it is the only
