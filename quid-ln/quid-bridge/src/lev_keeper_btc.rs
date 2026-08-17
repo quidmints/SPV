@@ -43,7 +43,9 @@ pub trait BtcLevKeeperEvm {
     /// `BtcLevManager.debtDeltaToTarget(lp)` → `(levUp, amountUsd_1e18)`: the stable move + direction to
     /// re-hit the IL target. Sizes both legs.
     async fn debt_delta(&self, lp: LpAddr) -> anyhow::Result<(bool, u128)>;
-    /// USD(1e18) value of ONE BTC (`vBtcValueUsd(1e8)`) — the live oracle price, for USD↔sats sizing.
+    /// USD(1e18) value of ONE BTC (`collValueUsd(1e8)`) — the live oracle price, for USD<->sats sizing.
+    /// §FOLD-COLL: was `vBtcValueUsd`; both lev managers now share one `collValueUsd` in `LevBase`,
+    /// the BTC side supplying the identity conversion because vBTC IS sats.
     async fn price_usd_per_btc(&self, lp: LpAddr) -> anyhow::Result<u128>;
     /// `leverBorrow(stableUsd)` — borrow toward the target; stable is sent to the keeper (for external BTC
     /// sourcing). Contract-clamped to the debt-delta room, so an over-ask can only reach the target.
@@ -299,8 +301,8 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> BtcLevKeeperEvm for Daemon
             let ne_raw = evm.eth_read(bm, "netEquity(address)", Some(&a))?;
             let ne_word = ne_raw.get(..32).ok_or_else(|| anyhow::anyhow!("netEquityBtc short return"))?;
             let ne_sats = U256::from_be_slice(ne_word);
-            let px_raw = evm.eth_read(bm, "vBtcValueUsd(uint256)", Some(&u64_word(100_000_000)))?; // USD18 per BTC
-            let px_word = px_raw.get(..32).ok_or_else(|| anyhow::anyhow!("vBtcValueUsd short return"))?;
+            let px_raw = evm.eth_read(bm, "collValueUsd(uint256)", Some(&u64_word(100_000_000)))?; // USD18 per BTC
+            let px_word = px_raw.get(..32).ok_or_else(|| anyhow::anyhow!("collValueUsd short return"))?;
             let px = U256::from_be_slice(px_word);
             // net-equity USD(1e18) = sats · px / 1e8  →  6-dec USD.
             let ne_usd6: u64 = (ne_sats.saturating_mul(px) / U256::from(100_000_000u64)
@@ -352,8 +354,8 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> BtcLevKeeperEvm for Daemon
     async fn price_usd_per_btc(&self, _lp: LpAddr) -> anyhow::Result<u128> {
         let (evm, bm) = (self.evm.clone(), self.btc_lev_manager);
         tokio::task::spawn_blocking(move || -> anyhow::Result<u128> {
-            let r = evm.eth_read(bm, "vBtcValueUsd(uint256)", Some(&u64_word(100_000_000)))?;
-            let w = r.get(..32).ok_or_else(|| anyhow::anyhow!("vBtcValueUsd short return"))?;
+            let r = evm.eth_read(bm, "collValueUsd(uint256)", Some(&u64_word(100_000_000)))?;
+            let w = r.get(..32).ok_or_else(|| anyhow::anyhow!("collValueUsd short return"))?;
             Ok(U256::from_be_slice(w).try_into().unwrap_or(u128::MAX))
         })
         .await?

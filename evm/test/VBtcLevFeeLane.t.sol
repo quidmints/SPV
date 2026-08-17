@@ -751,7 +751,7 @@ contract VBtcLevFeeLane is AllesFixture {
         uint collUsd = 2e8 * px / 1e18;                           // USD18 value of 2 BTC
         uint debtUsdc = (collUsd / 2) / 1e12;                     // ~50% LTV, USDC 6-dec
         _borrowMorpho(lp, debtUsdc);                              // REAL Morpho debt on the LP's isolated account
-        // C-2: the venue LTV is the true ~50%, NOT ~0 (before the fix vBtcValueUsd was 1e10 too big).
+        // C-2: the venue LTV is the true ~50%, NOT ~0 (before the fix collValueUsd was 1e10 too big).
         assertApproxEqAbs(lm.getCurrentLtvBps(lp), 5000, 400, "getCurrentLtvBps ~50%, not ~0 (C-2)");
         // C-1: net-equity = collateral − debt = ~1 BTC, NOT ~2 BTC (before the fix the debt leg was ~0).
         assertApproxEqAbs(lm.netEquity(lp), 1e8, 6e6, "netEquityBtc ~1 BTC = coll-debt, not ~2 (C-1)");
@@ -975,13 +975,13 @@ contract VBtcLevFeeLane is AllesFixture {
         _setupBtcLev();
         (,, address lpEth,) = _open(ch, 2, 3e7);          // 0.3 BTC channel
         _openLev(lpEth, 5_000_000);                        // expose 0.05 BTC as vBTC collateral
-        uint collUsd0 = lm.vBtcValueUsd(venue.collateralOf(lpEth));
+        uint collUsd0 = lm.collValueUsd(venue.collateralOf(lpEth));
         _borrowMorpho(lpEth, (collUsd0 / 2) / 1e12);       // ~50% LTV of REAL Morpho debt ⇒ net-equity < collateral
 
         // The de-lever-capacity view is real + conservatively bounded (min of net-equity and the margin edge).
         uint deliv = lm.deliverableDollars(lpEth);
         assertGt(deliv, 0, "levered position exposes real margin-bounded de-lever capacity");
-        assertLe(deliv, lm.vBtcValueUsd(venue.collateralOf(lpEth)), "deliverable <= collateral (conservative)");
+        assertLe(deliv, lm.collValueUsd(venue.collateralOf(lpEth)), "deliverable <= collateral (conservative)");
         assertLe(deliv, lm.totalDeliverableDollars(), "per-LP deliverable is within the book aggregate");
 
         ETH.syncLev(lpEth);
@@ -1088,7 +1088,7 @@ contract VBtcLevFeeLane is AllesFixture {
         _setupBtcLev();
         (d.channelId, d.fundingTxId, d.lp, d.lpPubkey) = _open(d.ch, 54, 3e8);       // 3 BTC channel
         _openLev(d.lp, 299_000_000);                                                 // expose 2.99 BTC ⇒ funded ~= 1e6
-        _borrowMorpho(d.lp, (lm.vBtcValueUsd(venue.collateralOf(d.lp)) / 2) / 1e12); // ~50% LTV real Morpho debt
+        _borrowMorpho(d.lp, (lm.collValueUsd(venue.collateralOf(d.lp)) / 2) / 1e12); // ~50% LTV real Morpho debt
         ETH.syncLev(d.lp);
         _snapLevPosition(d);
         assertGt(d.debt, 0, "position carries real Morpho debt");

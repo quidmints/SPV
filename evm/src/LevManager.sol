@@ -197,17 +197,6 @@ contract LevManager is LevBase {
     function _collToken(ILevVenue) internal view returns (address) {
         return address(WEETH);
     }
-    /// @notice Collateral units -> ETH (1e18) via the ether.fi staking rate. VIEW-safe, so the Vault's
-    ///         `vogueETH()` (which sums grossCollateral/netEquityEth) still reads it as a pure view.
-    function _collToEth(ILevVenue, uint256 units) internal view returns (uint256) {
-        if (units == 0) return 0;
-        return RATE.getEETHByWeETH(units);
-    }
-    /// @notice USD (1e18) value of `units` collateral on `venue` = coll->ETH x ETH->USD oracle.
-    function _collValueUsd(ILevVenue venue, uint256 units) internal returns (uint256) {
-        if (units == 0) return 0;
-        return (_collToEth(venue, units) * AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW)) / 1e18;
-    }
     /// @notice Pull `amount` of the venue's equity collateral (weETH OR WETH) from `lp` and supply it as `lp`'s
     ///         isolated collateral. Own frame so `openLev` stays under the no-via_ir stack limit.
     function _supplyCollFrom(ILevVenue venue, address lp, uint256 amount) internal {
@@ -236,29 +225,26 @@ contract LevManager is LevBase {
 
     /// @notice `lp`'s net equity in USD (1e18) = collateral − debt, floored at 0. The single clean read the
     ///         off-chain keeper uses to size the economic (gas-vs-benefit) floor.
+    /// @notice §FOLD-COLL — THE ETH SIDE'S ENTIRE PER-ASSET CONTRIBUTION TO THE VALUATION STACK.
+    ///         weETH units → ETH, at the ether.fi rate. Everything built on it (`collValueUsd`,
+    ///         `_collNative`, `debtUsd`, `getCurrentLtvBps`, `ilLtvBps`, `ilTargetLtvBps`) is shared
+    ///         in `LevBase`; this three-line override is what used to justify seven duplicated
+    ///         functions. Was `_collToEth(ILevVenue, uint)` whose venue parameter was never read.
+    function _collToBase(uint units) internal view override returns (uint) {
+        if (units == 0) return 0;
+        return RATE.getEETHByWeETH(units);
+    }
+
     function netEquityUsd(address lp) public returns (uint256) {
         if (!pos[lp].open) return 0;
         ILevVenue v = pos[lp].venue;
-        uint256 coll = _collValueUsd(v, v.collateralOf(lp));
+        uint256 coll = collValueUsd(v.collateralOf(lp));   // §FOLD-COLL — shared in LevBase
         uint256 d = debtUsd(lp);
         return coll > d ? coll - d : 0;
     }
 
-    /// @notice `lp`'s debt in USD (1e18), normalizing the venue loan token's decimals AND its PRICE.
-    function debtUsd(address lp) public view override returns (uint256) {
-        ILevVenue v = pos[lp].venue;
-        address loan = v.stable();
-        return LevMath._toUsd18(address(AUX),loan, v.debtOf(lp));
-    }
 
 
-    /// @notice VENUE-SAFETY LTV of `lp`, in bps = debt / ACTUAL collateral. The keeper uses THIS (and only
-    ///         this) for the liquidation-avoidance track — it must track the venue's own health basis.
-    function getCurrentLtvBps(address lp) public returns (uint256) {
-        ILevVenue v = pos[lp].venue;
-        uint256 coll = _collValueUsd(v, v.collateralOf(lp));
-        return LevMath.ltvBps(debtUsd(lp), coll);
-    }
 
     /// @notice Delegated QU!D-protect (autonomous layer): redeem the LP's OWN opted-in QUID to repay the LP's
     ///         OWN debt when the position nears venue liquidation. Moves NO value to the caller — proceeds only
@@ -279,16 +265,6 @@ contract LevManager is LevBase {
         emit ProtectedFromQuid(lp, pull, repaid);
     }
 
-    /// @notice IL-TARGET LTV of `lp`, in bps = debt / E0 (the FIXED band-only base the debt is sized to).
-    ///         The keeper's IL-track compares THIS to `ilTargetLtvBps` so it triggers on the same debt-vs-E0
-    ///         basis the sizing (`debtDeltaToTarget = E0·t`) uses — NOT the actual-collateral LTV, which
-    ///         would re-settle at the old 1/(1−t) over-hedge. Distinct from `getCurrentLtvBps` (venue safety).
-    function ilLtvBps(address lp) public returns (uint256) {
-        if (!pos[lp].open) return 0;
-        uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        uint256 e0Usd = LevMath.e0Usd(pos[lp].e0, px);
-        return LevMath.ltvBps(debtUsd(lp), e0Usd);
-    }
 
     /// @notice Stable delta (USD, 1e18) + direction to re-hit target LTV. Inside the band ⇒ (false,0).
     ///         Reads the oracle ONCE (price-consistent — avoids the getTWAPforAsset-mutates-mid-call flip).
@@ -306,15 +282,6 @@ contract LevManager is LevBase {
         return LevMath.debtDelta(e0Usd, curDebt, t, BAND_BPS);
     }
 
-    /// @notice The IL-cancelling target LTV (bps) = `1 − √(entryPrice / pxNow)` = the ETH the band has sold
-    ///         since entry, clamped to the LP's chosen LTV cap (≤ 7500 bps). ZERO when flat/down (no IL accrued ⇒ no leverage).
-    ///         PROVEN in test/LevYbPnl.t.sol. This REPLACES the static knob / the wrong `L=1/α`.
-    function ilTargetLtvBps(address lp) public returns (uint256) {
-        Types.Pos memory p = pos[lp];
-        if (!p.open) return 0;
-        uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        return _ilTargetLive(p, px);
-    }
 
 
     // ════════════════════════════ OPEN ════════════════════════════
@@ -345,14 +312,10 @@ contract LevManager is LevBase {
         // for capital efficiency; the whole deposit is levered.) SAFETY:
         // the up-side-only clamp de-levers this toward 0 debt below entry, so the deposit is never held at 2× into
         // a crash. `entryPrice` still tracks the band for the sold-fraction reference.
-        uint256 e0 = _collToEth(venue, collWeeth);   // (A): the deposit (weETH→ETH rate, or WETH 1:1) is the IL base
-        uint entryPrice;
-        if (BAND != address(0)) {
-            try ILevSyncHook(BAND).bandPrice() returns (uint s) { entryPrice = s; } catch {}
-        }
-        pos[msg.sender] = Types.Pos({venue: venue, targetLtvCapBps: targetLtvBps, entryPriceWad: uint128(entryPx),
-                               e0: uint128(e0), entryPrice: entryPrice, open: true});
-        _trackOpen(msg.sender);   // join the book the Vault sums net-equity over
+        uint256 e0 = _collToBase(collWeeth);   // (A) the deposit (weETH->ETH rate, or WETH 1:1) is the IL base
+        // §FOLD-OPEN — band-price read + Pos literal + book enrolment are `LevBase._openPos`, shared
+        // with the BTC side. Only `e0` above is per-asset.
+        _openPos(venue, targetLtvBps, entryPx, e0);   // joins the book the Vault sums net-equity over
 
         // 1. Pull equity collateral (weETH OR WETH, per the venue) and supply as isolated collateral.
         _supplyCollFrom(venue, msg.sender, collWeeth);
@@ -436,7 +399,7 @@ contract LevManager is LevBase {
         // Up-side-only is the correct design, not just the default. See docs §J.4 (settled verdict).
         // full-2×: reconcile the band to the NEW gross/debt atomically so each levBufferUsd ≤ its debt and the
         // band depth stay exact after a lever-up/de-lever — correct-by-construction, not reliant on a poke.
-        if (BAND != address(0)) { try ILevSyncHook(BAND).syncLev(lp) {} catch {} }
+        _syncBand(lp);
     }
 
     // ════════════════════════════ CASCADE DE-LEVER (the correlated-crash path) ════════════════════════════
@@ -464,7 +427,7 @@ contract LevManager is LevBase {
         emit Rebalanced(lp, false, 0, getCurrentLtvBps(lp));
         // full-2×: reconcile the band to the reduced gross/debt (levBufferUsd must not exceed the now-smaller
         // debt) — atomic, so the ≤Σdebt invariant holds continuously even mid-cascade. try/catch: never break it.
-        if (BAND != address(0)) { try ILevSyncHook(BAND).syncLev(lp) {} catch {} }
+        _syncBand(lp);
     }
 
     /// @notice SYSTEMIC cascade de-lever — the correlated-crash path. De-levers a batch in ONE tx,
@@ -534,7 +497,7 @@ contract LevManager is LevBase {
         _untrackOpen(lp);          // leave the book — net-equity contribution drops to 0
         // Burn the LP's levered band slice NOW (net-equity is 0 post-delete) so it can't keep earning band
         // fees on vanished backing. Non-fatal: the slice is also reconcilable permissionlessly via syncLev.
-        if (BAND != address(0)) { try ILevSyncHook(BAND).syncLev(lp) {} catch {} }
+        _syncBand(lp);
         emit Closed(lp, back);
     }
 
@@ -607,7 +570,7 @@ contract LevManager is LevBase {
 
         freed = _lastFreed; _lastFreed = 0;
         // Reconcile the shrunk net-equity into the band slice (try/catch: never block the settle).
-        if (BAND != address(0)) { try ILevSyncHook(BAND).syncLev(lp) {} catch {} }
+        _syncBand(lp);
     }
 
     /// @notice §M.1 #54-ETH funding quote: for `lp`, the venue stable + the EXACT native amount the Vault must
@@ -630,7 +593,7 @@ contract LevManager is LevBase {
         if (p.venue.debtOf(lp) != 0) return 0;                     // levered ⇒ use swapOutDelever (repay path)
         // withdraw net-equity collateral + MEV-floor + deliver-as-WETH: body in LevMath (delegatecall, EIP-170).
         wethDelivered = LevMath.swapOutDeliverUnleveredBody(p.venue, lp, wethWanted, recipient, minWethOut, _extractCfg());
-        if (BAND != address(0)) { try ILevSyncHook(BAND).syncLev(lp) {} catch {} }
+        _syncBand(lp);
     }
 
     /// @notice §M.1 ETH SWAP-OUT delivery-side de-lever (equity-preserving; mirrors `BtcLevManager.swapOutDelever`
@@ -650,7 +613,7 @@ contract LevManager is LevBase {
         (usedUsd, wethDelivered) = LevMath.swapOutDeleverBody(
             p.venue, lp, stableUsd, recipient, minWethOut, AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW), _extractCfg());
         // Reconcile the shrunk slice into the band (try/catch: never block the settle).
-        if (BAND != address(0)) { try ILevSyncHook(BAND).syncLev(lp) {} catch {} }
+        _syncBand(lp);
     }
 
     /// @notice §G.3/§G.6 REACTIVE de-lever sweep — the ONE mechanism the redeem AND swap-out settle paths share
@@ -764,8 +727,4 @@ contract LevManager is LevBase {
         (skimmed, gasReserve) = LevMath.reimburseKeeper(WETH, keeper, availWeth, gasReserve);
     }
 
-    /// @dev ETH: weETH is rate-bearing, so native units need the ether.fi conversion.
-    function _collNative(ILevVenue v, address lp) internal view override returns (uint) {
-        return _collToEth(v, v.collateralOf(lp));   // weETH → ETH via the ether.fi rate, or WETH 1:1
-    }
 }

@@ -50,12 +50,35 @@ contract SkewPatienceFloorTest is Test {
         assertGt(floored, 0, "a half-drained band must cost something even at sigma^2 = 1");
     }
 
-    /// @notice AND PATIENCE CANNOT REACH IT AT ALL. The depletion component is a function of the
-    ///         drain fraction only, so two arms taking the SAME amount owe the SAME depletion no
-    ///         matter how far apart their trades are spaced.
-    function test_DepletionIsIdenticalAcrossBothArms() public pure {
-        uint busyFloor    = SwapLib.skewWad(POOL, FLOW, 1, SwapLib.ethRisk(), DRAIN);
-        uint patientFloor = SwapLib.skewWad(POOL, FLOW, 1, SwapLib.ethRisk(), DRAIN);
-        assertEq(busyFloor, patientFloor, "same take must owe the same depletion regardless of spacing");
+    /// @notice §E234-vac — THIS TEST WAS VACUOUS AND IS REWRITTEN. It read:
+    ///
+    ///             uint busyFloor    = skewWad(POOL, FLOW, 1, ethRisk(), DRAIN);
+    ///             uint patientFloor = skewWad(POOL, FLOW, 1, ethRisk(), DRAIN);
+    ///             assertEq(busyFloor, patientFloor, ...);
+    ///
+    ///         — two BYTE-IDENTICAL calls asserted equal, which holds for any implementation of
+    ///         `skewWad` including one that returns a constant. It passed in the very run where its
+    ///         two siblings caught a genuinely missing term, so it collected credit for their work.
+    ///         Its NAME also misdescribed it: nothing about spacing was varied, because with σ² not
+    ///         an argument to either call there were never "both arms".
+    ///
+    ///         WHAT IT MEANS TO SAY AND NOW DOES: the depletion component is keyed on the FRACTION
+    ///         DRAINED (`inv0 != 0 && inv1 < inv0`, scaled by `(inv0-inv1)/inv0`). Two properties
+    ///         follow, and both are checked here WITHOUT a tolerance — each is a strict inequality
+    ///         between measured values, so neither can be satisfied by a constant or by luck:
+    ///           (1) a LARGER drain owes strictly MORE at the same σ² — so the term tracks the
+    ///               fraction rather than being a flat floor;
+    ///           (2) a ZERO drain owes strictly LESS than any real drain — so a band nobody depleted
+    ///               is not charged for depletion, which is the bootstrap property the constant's
+    ///               derivation claims (`inv0 == 0` ⇒ no fall ⇒ no charge, BY CONSTRUCTION).
+    ///         σ² is pinned at 1 for all three so the adverse-selection kernel is as close to zero
+    ///         as the sentinel allows and what moves is the depletion term.
+    function test_DepletionTracksTheDrainFractionAndSparesAnUndrainedBand() public pure {
+        uint none = SwapLib.skewWad(POOL, FLOW, 1, SwapLib.ethRisk(), 0);
+        uint half = SwapLib.skewWad(POOL, FLOW, 1, SwapLib.ethRisk(), DRAIN);
+        uint most = SwapLib.skewWad(POOL, FLOW, 1, SwapLib.ethRisk(), DRAIN * 3 / 2);
+
+        assertGt(half, none, "a drained band must owe MORE than one nobody touched");
+        assertGt(most, half, "a bigger drain must owe MORE: the term tracks the fraction, not a flat floor");
     }
 }

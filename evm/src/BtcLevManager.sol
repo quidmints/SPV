@@ -109,28 +109,22 @@ contract BtcLevManager is LevBase {
     // the ×1e10 lift cancels the 8↔18 dec gap. The ENTIRE rest of the codebase uses /1e18; this manager must
     // too (the former /1e8 & /1e10 were a 1e10 mis-scale masked by zero-debt-only tests).
 
-    /// @notice USD (1e18) value of `vbtc` (8-dec) collateral: `vbtc · px / 1e18` (px is USD18/1e18-raw, WBTC-lifted).
-    function vBtcValueUsd(uint vbtc) public view returns (uint) {
-        if (vbtc == 0) return 0;
-        return (vbtc * AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW)) / 1e18;
-    }
+    /// @notice §FOLD-COLL — THE BTC SIDE'S ENTIRE PER-ASSET CONTRIBUTION: **nothing to convert.**
+    ///         vBTC IS sats, and per the scale note directly above, the WBTC TWAP already carries the
+    ///         ×1e10 lift that closes the 8↔18 gap — so the identity here is not a stub, it is the
+    ///         statement that a second conversion would double-count (the exact 1e10 mis-scale that
+    ///         note records as having shipped once already).
+    ///         `collValueUsd`, `_collNative`, `debtUsd`, `getCurrentLtvBps`, `ilLtvBps` and
+    ///         `ilTargetLtvBps` are all shared in `LevBase` on top of this.
+    function _collToBase(uint units) internal view override returns (uint) { return units; }
 
-    /// @notice `lp`'s debt in USD (1e18), normalizing the venue stable's decimals.
-    function debtUsd(address lp) public view override returns (uint) {
-        ILevVenue v = pos[lp].venue;
-        return LevMath._toUsd18(address(AUX),v.stable(), v.debtOf(lp));          // canonical decimal-normalize (dedup)
-    }
+
 
 
 
     /// @notice LIVE sum of every open position's deliverableDollars — the aggregate #67 counts as available USD
     ///         backing in the band-pairing sizer (sizeBySurplus addend). Reads the oracle ONCE (price-consistent).
 
-    /// @notice VENUE-SAFETY LTV (bps) = debt / ACTUAL collateral. The keeper uses THIS only for the
-    ///         liquidation-avoidance track (it tracks the venue's health basis).
-    function getCurrentLtvBps(address lp) public view returns (uint) {
-        return LevMath.ltvBps(debtUsd(lp), vBtcValueUsd(pos[lp].venue.collateralOf(lp)));
-    }
 
     /// @notice Delegated QU!D-protect for a BTC-levered LP — the BTC counterpart of `LevManager.protectFromQuid`
     ///         — the previously-stubbed keeper path. Redeems the LP's OWN opted-in QUID (`approve` = opt-in) to
@@ -143,19 +137,6 @@ contract BtcLevManager is LevBase {
         (pull, repaid) = LevMath.protectExec(
             QUID, address(AUX), address(pos[lp].venue), lp, getCurrentLtvBps(lp), minStableOut);
         emit ProtectedFromQuid(lp, pull, repaid);
-    }
-    /// @notice IL-TARGET LTV (bps) = debt / E0 (the FIXED band-only base) — the keeper's IL-track basis,
-    ///         consistent with the debt=E0·t sizing. Distinct from getCurrentLtvBps (venue safety).
-    function ilLtvBps(address lp) public view returns (uint) {
-        uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        uint e0Usd = LevMath.e0Usd(pos[lp].e0, px);   // shared scale layer (WBTC-lifted px ⇒ /1e18)
-        return LevMath.ltvBps(debtUsd(lp), e0Usd);
-    }
-    /// @notice IL-cancelling target LTV (bps) = `1 − √(entry/now)`, clamped to the LP's cap. 0 flat/down.
-    function ilTargetLtvBps(address lp) public returns (uint) {
-        Types.Pos memory p = pos[lp];
-        uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        return _ilTargetLive(p, px);
     }
 
 
@@ -192,13 +173,9 @@ contract BtcLevManager is LevBase {
         // NOT a separate unlevered band-BTC position. FIXED at open (over-hedge fix): collateral grows as the
         // keeper levers, but E0 stays = the deposit. SAFETY: the up-side clamp de-levers toward 0 debt below entry.
         uint e0 = initialVbtc;                                         // (A): the deposit (vBTC sats) is the IL base
-        uint entryPrice;
-        if (BAND != address(0)) {
-            try ILevSyncHook(BAND).bandPrice() returns (uint s) { entryPrice = s; } catch {}
-        }
-        pos[msg.sender] = Types.Pos({venue: venue, targetLtvCapBps: cap, entryPriceWad: uint128(entryPx),
-                               e0: uint128(e0), entryPrice: entryPrice, open: true});
-        _trackOpen(msg.sender);
+        // §FOLD-OPEN — shared tail in `LevBase._openPos`. Only `e0` above is per-asset (sats as-is,
+        // because vBTC IS sats and needs no conversion).
+        _openPos(venue, cap, entryPx, e0);
         // SAME-BTC: expose `initialVbtc` of the LP's OWN free channel band BTC as the levered slice — the Vault
         // mints the vBTC face straight to this manager (no LP pre-mint / transferFrom roundtrip). Opens at zero
         // debt; the band isn't re-paired here (levPooled marks it withdrawal-excluded, LP.pooled unchanged),
@@ -240,7 +217,7 @@ contract BtcLevManager is LevBase {
         got = p.venue.borrow(lp, LevMath._fromUsd(address(AUX),p.venue.stable(), want));    // stable → this
         if (got > 0) IERC20Min(p.venue.stable()).transfer(lp, got);      // → LP/keeper for external BTC sourcing
         emit Borrowed(lp, got);
-        if (BAND != address(0)) { try ILevSyncHook(BAND).syncLev(lp) {} catch {} } // full-2× reconcile
+        _syncBand(lp); // full-2× reconcile
     }
 
     /// @notice Supply `vbtc` (minted against the LP's dedicated UTXO, approved here) as additional collateral —
@@ -253,7 +230,7 @@ contract BtcLevManager is LevBase {
         VBTC.transfer(address(p.venue), vbtc);
         p.venue.supply(lp, vbtc);
         emit Supplied(lp, vbtc);
-        if (BAND != address(0)) { try ILevSyncHook(BAND).syncLev(lp) {} catch {} } // full-2× reconcile
+        _syncBand(lp); // full-2× reconcile
     }
 
     /// @notice Withdraw `vbtc` collateral to the LP/keeper (for delever/close: burn + enclave-spend the UTXO →
@@ -265,7 +242,7 @@ contract BtcLevManager is LevBase {
         out = pos[lp].venue.withdraw(lp, vbtc);                        // vBTC → this
         if (out > 0) VBTC.transfer(lp, out);                           // → LP/keeper
         emit Withdrawn(lp, out);
-        if (BAND != address(0)) { try ILevSyncHook(BAND).syncLev(lp) {} catch {} } // full-2× reconcile
+        _syncBand(lp); // full-2× reconcile
     }
 
     /// @notice Repay `stableUsd`-worth of the position's debt (stable already transferred in / approved).
@@ -287,7 +264,7 @@ contract BtcLevManager is LevBase {
         emit Repaid(lp, repaid);
         // full-2×: repay REDUCES debt → levBufferUsd must be re-capped at the smaller debt (else the ≤Σdebt
         // invariant transiently breaks). Reconcile atomically. try/catch: never block a repay.
-        if (BAND != address(0)) { try ILevSyncHook(BAND).syncLev(lp) {} catch {} }
+        _syncBand(lp);
     }
 
     // ═══════════════════════ ATOMIC WBTC-MODE (on-chain swap, no external BTC sourcing) ═══════════════════════
@@ -314,7 +291,7 @@ contract BtcLevManager is LevBase {
             else if (flashProvider != address(0)) _flashDeleverWbtc(p.venue, lp, stable, deltaUsd, minOut); // repay-FIRST: always health-safe
             else       _deleverWbtc(p.venue, lp, stable, deltaUsd, minOut);                                 // graceful fallback (no flash provider)
         }
-        if (BAND != address(0)) { try ILevSyncHook(BAND).syncLev(lp) {} catch {} }
+        _syncBand(lp);
     }
 
     /// @notice #10 SYSTEMIC batch de-lever for WBTC-mode positions — the BTC analog of ETH `LevManager.cascadeDelever`.
@@ -369,7 +346,7 @@ contract BtcLevManager is LevBase {
         LevMath.flashDeleverWbtcSettle(assets, lp, venueAddr, stable, minOut, flashProvider,
             LevMath.WbtcCfg(address(AUX), WBTC, uint32(TWAP_WINDOW), uint16(MAX_SLIPPAGE_BPS)));
         emit Repaid(lp, assets);
-        if (BAND != address(0)) { try ILevSyncHook(BAND).syncLev(lp) {} catch {} }
+        _syncBand(lp);
     }
 
     /// @notice #54 DELIVERY-SIDE de-lever (partial-burn vBTC deliverability). When a native-BTC swap-out is
@@ -425,7 +402,7 @@ contract BtcLevManager is LevBase {
         if (!p.open) revert NotOpen();
         if (p.venue.debtOf(lp) != 0) revert BadTarget();               // repay first (keeper unwinds async)
         // Mark the levered slice to the live (now zero-debt) net-equity BEFORE unwinding, so it == `back`.
-        if (BAND != address(0)) { try ILevSyncHook(BAND).syncLev(lp) {} catch {} }
+        _syncBand(lp);
         uint rem = p.venue.collateralOf(lp);
         uint back = rem > 0 ? p.venue.withdraw(lp, rem) : 0;           // vBTC → this manager
         delete pos[lp];
@@ -438,9 +415,4 @@ contract BtcLevManager is LevBase {
         emit Closed(lp, back);
     }
 
-    /// @dev BTC: vBTC is sats already; there is no rate to apply and _collToEth would MIS-CONVERT (it tests
-    ///      COLLATERAL() == WETH, false here, and would route sats through getEETHByWeETH).
-    function _collNative(ILevVenue v, address lp) internal view override returns (uint) {
-        return v.collateralOf(lp);                  // vBTC IS sats — no conversion exists to apply
-    }
 }
