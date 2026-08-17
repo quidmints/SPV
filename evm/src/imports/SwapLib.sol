@@ -853,6 +853,52 @@ library SwapLib {
     ///         skew = Γ·σ²·q — both σ² and q enter LINEARLY (no scarcity², no separate vol
     ///         steepening term). The flush guard (inv≥target ⇒ 0, band owns the common case)
     ///         and the MAX_WELL_SKEW hard cap are preserved.
+    /// @notice §UNIT-C — THE REFILL TRIGGER, AND IT IS THE SKEW'S OWN PREDICATE (owner, 2026-08-16:
+    ///         *"the threshold that fires a refill swap [is] the same threshold that triggers a skew
+    ///         price — if it's an imbalance to be balanced profitably it must trigger."*)
+    ///         ⭐ **NO NEW CONSTANT AND NO SECOND DEFINITION OF "IMBALANCED".** This is `skewWad`'s
+    ///         own flush test, character for character (`inv1 >= target ⇒ no scarcity`), so the thing
+    ///         we CHARGE for and the thing we FIX cannot drift apart. A separate threshold would be
+    ///         two definitions of one condition, and the one that drifts is always the one nobody
+    ///         tests.
+    ///         `shortfallUsd6` is what must be sourced to clear the imbalance — the input to the
+    ///         profitability half (fire when the retained premium covers the cost of sourcing).
+    /// @param poolVolUsd  pre-swap deliverable inventory, 6-dec USD (`inv0`)
+    /// @param flowUsd     the shed target the band is measured against (`target`)
+    /// @param drainUsd6   the swap's volatile-side draw, 6-dec USD
+    function refillNeeded(uint poolVolUsd, uint flowUsd, uint drainUsd6)
+        internal pure returns (bool fire, uint shortfallUsd6)
+    {
+        if (flowUsd == 0) return (false, 0);          // no target ⇒ no scarcity to measure
+        uint inv1 = drainUsd6 >= poolVolUsd ? 0 : poolVolUsd - drainUsd6;
+        fire = inv1 < flowUsd;                        // IDENTICAL to skewWad's flush test
+        shortfallUsd6 = fire ? flowUsd - inv1 : 0;
+    }
+
+    /// @notice §UNIT-ROUNDTRIP-LIVE — PRO-RATA SHORTFALL. Decided on evidence 2026-08-16 after the
+    ///         owner could not pick between this and the forella brake.
+    ///         **THE MECHANISM IS THE EXIT RACE, NOT THE PATH.** An entrant buys volatile out, redeposits
+    ///         as an LP, and EXITS FIRST — escaping a shortfall the incumbent then eats. MEASURED:
+    ///         incumbent seeds 500 ETH and withdraws 499.2385, i.e. **15.2 bps of principal** taken.
+    ///         ⛔ THE FORELLA BRAKE IS REFUTED BY ITS OWN FRAME-CHECK (§UNIT-FORELLA-FRAMECHECK: *"the
+    ///         coincide-on-monotone premise is refuted"*) — a total-variation charge does NOT leave
+    ///         honest monotone flow untouched, so it taxes everyone to stop one attack, and it prices
+    ///         a symptom.
+    ///         ⭐ SHARING THE SHORTFALL REMOVES THE PRIZE INSTEAD OF PRICING IT (rule 17: make the bad
+    ///         state UNCONSTRUCTIBLE, not merely costly). With no first-out advantage the round trip
+    ///         has nothing to extract, and the brake becomes unnecessary rather than tuned.
+    /// @param shortfallUsd6  the whole shortfall to be shared, 6-dec USD
+    /// @param exitShares     the shares this exiter is redeeming
+    /// @param totalShares    total shares outstanding BEFORE this exit
+    function proRataShortfall(uint shortfallUsd6, uint exitShares, uint totalShares)
+        internal pure returns (uint bornUsd6)
+    {
+        if (totalShares == 0 || exitShares == 0 || shortfallUsd6 == 0) return 0;
+        // Cap at the full shortfall: an exiter redeeming everything bears all of it, never more.
+        if (exitShares >= totalShares) return shortfallUsd6;
+        bornUsd6 = SoladyMath.mulDiv(shortfallUsd6, exitShares, totalShares);
+    }
+
     function skewWad(uint poolVolUsd, uint flowUsd, uint sigmaSqWad, Risk memory rk, uint drainUsd6)
         public pure returns (uint skew)
     {
