@@ -170,40 +170,32 @@ library LevMath {
     /// @dev (WBTC-mode) config bundle — keeps the leg fns under the no-via_ir 16-slot stack limit (6 params, not 9).
     struct WbtcCfg { address aux; address wbtc; uint32 twapWindow; uint16 slipBps; }
 
-    function leverUpBuyWbtc(ILevVenue venue, address lp, address stable, uint256 usd, uint256 minOut, WbtcCfg memory cfg)
-        public returns (uint256 borrowed, uint256 wbtcBought) {
-        borrowed = venue.borrow(lp, _fromUsd(cfg.aux,stable, usd));                       // stable → manager (delegatecall ctx)
-        if (borrowed == 0) return (0, 0);
-        {   // anti-sandwich oracle floor — own frame so the local releases (stack)
-            uint256 floorWbtc = (usd * 1e18 / IAux(cfg.aux).getTWAPforAsset(cfg.wbtc, cfg.twapWindow))
-                                * (10_000 - cfg.slipBps) / 10_000;
-            if (minOut < floorWbtc) minOut = floorWbtc;
-        }
-        IERC20Min(stable).approve(cfg.aux, borrowed);
-        wbtcBought = _stableToWbtc(stable, borrowed, minOut);   // Curve: stable → USDC → WBTC
-        IERC20Min(cfg.wbtc).transfer(address(venue), wbtcBought);                 // manager → venue
-        venue.supply(lp, wbtcBought);                                            // venue → escrow
+    /// @dev §E240-tri — PARAMETER NAMES ARE COMMENTED OUT, NOT REMOVED. The body reverts, so the
+    ///      names are unused (solc 5667) -- but they are the restore contract for §V-R1 and deleting
+    ///      them would lose the signature's meaning. Commenting is solc's own prescribed remedy.
+    function leverUpBuyWbtc(ILevVenue /*venue*/, address /*lp*/, address /*stable*/, uint256 /*usd*/, uint256 /*minOut*/, WbtcCfg memory /*cfg*/)
+        public pure returns (uint256 /*borrowed*/, uint256 /*wbtcBought*/) {
+        // §E240-tri — BODY DELETED, NOT LEFT WITH AN UNREACHABLE TAIL. The swap this performed
+        // routed USDC<->volatile through TriCrypto, which is removed; the call always reverts, so
+        // solc marked everything after it `Unreachable code` (rule 1). Reverting AT THE TOP is
+        // equivalent in outcome -- a revert undoes the `venue.borrow`/`withdraw`/`repay` this used
+        // to do first -- and is both cheaper and honest about the capability being absent.
+        // ▶️ Restore the body from git history when §V-R1 (1inch) lands; it is not lost.
+        revert NoVolatileRoute();
     }
 
     /// @notice (WBTC-mode) De-lever: withdraw `repayUsd`-worth WBTC → reverse-SOR to stable → repay (clamp-before-
     ///         transfer). ON-CHAIN oracle floor (anti-sandwich). DIRECT — health-safe at the IL-target LTV. Returns
     ///         (pulled, repaid) for the manager to emit.
-    function deleverWbtc(ILevVenue venue, address lp, address stable, uint256 repayUsd, uint256 minOut, WbtcCfg memory cfg)
-        public returns (uint256 pulled, uint256 repaid) {
-        if (repayUsd == 0) return (0, 0);
-        uint256 px = IAux(cfg.aux).getTWAPforAsset(cfg.wbtc, cfg.twapWindow);    // USD18 per 1e18 WBTC-raw
-        pulled = venue.withdraw(lp, repayUsd * 1e18 / px);                        // WBTC → manager (venue caps at position/health)
-        if (pulled == 0) return (0, 0);
-        {   // anti-sandwich oracle floor — own frame
-            uint256 floorStable = _fromUsd(cfg.aux,stable, pulled * px / 1e18) * (10_000 - cfg.slipBps) / 10_000;
-            if (minOut < floorStable) minOut = floorStable;
-        }
-        IERC20Min(cfg.wbtc).approve(cfg.aux, pulled);
-        uint256 got = _wbtcToStable(cfg.wbtc, stable, pulled, minOut);  // Curve: WBTC → USDC → stable
-        { uint256 debt = venue.debtOf(lp); if (got > debt) got = debt; }          // never over-repay — own frame
-        if (got == 0) return (pulled, 0);
-        IERC20Min(stable).transfer(address(venue), got);
-        repaid = venue.repay(lp, got);
+    function deleverWbtc(ILevVenue /*venue*/, address /*lp*/, address /*stable*/, uint256 /*repayUsd*/, uint256 /*minOut*/, WbtcCfg memory /*cfg*/)
+        public pure returns (uint256 /*pulled*/, uint256 /*repaid*/) {
+        // §E240-tri — BODY DELETED, NOT LEFT WITH AN UNREACHABLE TAIL. The swap this performed
+        // routed USDC<->volatile through TriCrypto, which is removed; the call always reverts, so
+        // solc marked everything after it `Unreachable code` (rule 1). Reverting AT THE TOP is
+        // equivalent in outcome -- a revert undoes the `venue.borrow`/`withdraw`/`repay` this used
+        // to do first -- and is both cheaper and honest about the capability being absent.
+        // ▶️ Restore the body from git history when §V-R1 (1inch) lands; it is not lost.
+        revert NoVolatileRoute();
     }
 
     /// @notice (WBTC-mode) FLASH-repay-first de-lever settle (mirror of LevManager._deleverSettle) — runs inside the
@@ -212,22 +204,15 @@ library LevMath {
     ///         the freed WBTC (grossed up by the slippage buffer so the sale covers `assets`), reverse-SOR to stable
     ///         (ON-CHAIN oracle floor), return exactly `assets` to the flash provider (zero-fee pull-back), and hand any
     ///         realized surplus to the LP. Body HERE (delegatecall) so the manager's callback stays thin under EIP-170.
-    function flashDeleverWbtcSettle(uint256 assets, address lp, address venueAddr, address stable,
-                                    uint256 minOut, address flashProvider, WbtcCfg memory cfg) public {
-        ILevVenue venue = ILevVenue(venueAddr);
-        IERC20Min(stable).transfer(address(venue), assets);
-        uint256 pulled;
-        {   // repay-FIRST → size + withdraw the freed WBTC → oracle floor (own frame for the stack, no via_ir)
-            uint256 repaid = venue.repay(lp, assets);                            // == assets (capped ≤ debt upstream)
-            uint256 px = IAux(cfg.aux).getTWAPforAsset(cfg.wbtc, cfg.twapWindow);
-            pulled = venue.withdraw(lp, (_toUsd18(cfg.aux,stable, repaid) * 1e18 / px) * 10_000 / (10_000 - cfg.slipBps));
-            uint256 floorStable = _fromUsd(cfg.aux,stable, pulled * px / 1e18) * (10_000 - cfg.slipBps) / 10_000;
-            if (minOut < floorStable) minOut = floorStable;
-        }
-        IERC20Min(cfg.wbtc).approve(cfg.aux, pulled);
-        uint256 stableOut = _wbtcToStable(cfg.wbtc, stable, pulled, minOut);   // Curve
-        IERC20Min(stable).approve(flashProvider, assets);                        // provider pulls `assets` back; short approve ⇒ whole op reverts (underwater-safe)
-        if (stableOut > assets) IERC20Min(stable).transfer(lp, stableOut - assets); // realized surplus → LP
+    function flashDeleverWbtcSettle(uint256 /*assets*/, address /*lp*/, address /*venueAddr*/, address /*stable*/,
+                                    uint256 /*minOut*/, address /*flashProvider*/, WbtcCfg memory /*cfg*/) public pure {
+        // §E240-tri — BODY DELETED, NOT LEFT WITH AN UNREACHABLE TAIL. The swap this performed
+        // routed USDC<->volatile through TriCrypto, which is removed; the call always reverts, so
+        // solc marked everything after it `Unreachable code` (rule 1). Reverting AT THE TOP is
+        // equivalent in outcome -- a revert undoes the `venue.borrow`/`withdraw`/`repay` this used
+        // to do first -- and is both cheaper and honest about the capability being absent.
+        // ▶️ Restore the body from git history when §V-R1 (1inch) lands; it is not lost.
+        revert NoVolatileRoute();
     }
 
     /// @notice Net-equity in BASE-asset units (1e18) = `collBase − debtUsd/pxBase`, floored at 0.
@@ -355,18 +340,12 @@ library LevMath {
     function sellColl(SellCtx memory c, address stable, uint256 pulled, uint256 minOut, uint256 assets)
         public returns (uint256 stableOut, uint256 reserveOut)
     {
+        // §SLOP — NINE DEAD LINES DELETED BELOW THIS `return`: the OLD body, left behind when it
+        // was replaced by the `sellWeeth` delegation. An UNCONDITIONAL return followed by an
+        // orphaned implementation — solc reported `Unreachable code` and it shipped as bytecode
+        // nobody could reach. PRE-EXISTING, not the TriCrypto removal: the reimburse/floor/
+        // `_wethToStableDex` sequence it held all lives inside `sellWeeth`.
         return sellWeeth(c, stable, pulled, minOut, assets);
-        reserveOut = c.reserveIn;
-        // Peel the keeper-gas sliver (WETH) from headroom BEFORE selling — never the flash-repay amount.
-        uint256 need = _wethForAssets(c, stable, assets);
-        uint256 skimmed;
-        (skimmed, reserveOut) = _reimburse(c.weth, c.keeper, pulled > need ? pulled - need : 0, reserveOut);
-        pulled -= skimmed;
-        // WETH branch: floor at the ETH oracle value of what's LEFT (WETH==ETH, 1:1) − MAX_SLIPPAGE.
-        uint256 usd18 = (pulled * IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M)) / 1e18;
-        uint256 floorOut = (_fromUsd(c.aux, stable, usd18) * (10_000 - SELL_SLIP_BPS)) / 10_000;
-        uint256 useMin = minOut > floorOut ? minOut : floorOut;
-        stableOut = _wethToStableDex(c, stable, pulled, useMin);
     }
 
     /// weETH → WETH (Curve pool) → peel keeper gas →
@@ -410,10 +389,9 @@ library LevMath {
     function stableToColl(SellCtx memory c, address stable, uint256 stableAmt, uint256 minOut)
         public returns (uint256)
     {
+        // §SLOP — three dead lines deleted below this `return`, same shape as `sellColl`: the old
+        // WETH-terminal body outlived its replacement by `_stableToWeeth`.
         return _stableToWeeth(c, stable, stableAmt, minOut);
-        uint256 wethGot = _stableToWethSor(c, stable, stableAmt);
-        if (wethGot < minOut) revert Slippage();
-        return wethGot;
     }
 
     /// @dev stable → weETH. THE ONLY COLLATERAL PATH: raw-WETH collateral is strictly dominated — same

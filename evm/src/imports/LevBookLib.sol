@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Types} from "./Types.sol";
 import {LevMath} from "./LevMath.sol";
+import {ILevVenue, IERC20Min} from "./ILevVenue.sol";
 
 /// @title  LevBookLib — the open-position BOOK, as a delegatecalled library
 /// @notice §FOLD-MEASURE. `LevBase` is an ABSTRACT BASE, so every body in it is COMPILED INTO BOTH
@@ -108,5 +109,88 @@ library LevBookLib {
         q.e0            = uint128(base);
         emit ReanchoredToBand(lp, s, base);
         return true;
+    }
+
+    // ── §FOLD-LEGS — THE FOUR VENUE LEGS, ASSET-AGNOSTIC ─────────────────────────────────────────
+    // These lived ONLY on `BtcLevManager` and read as BTC-specific. They are not: every one is a
+    // generic venue operation whose sole asset-specific input is the COLLATERAL TOKEN, which is now a
+    // parameter. `leverBorrow`/`repay` do not touch the collateral at all -- they move the venue's
+    // STABLE in and out -- which is why the BTC lever cycle survived TriCrypto's removal untouched
+    // while the ETH atomic path did not.
+    //
+    // ⚠️ EVENTS ARE DECLARED HERE AND STILL EMIT FROM THE MANAGER'S ADDRESS -- delegatecall preserves
+    // `address(this)`. The topics are unchanged because the declarations are byte-identical to the
+    // manager's, so no client ABI moves. If you edit an event here, you have edited the manager's ABI.
+    //
+    // ⚠️ `_syncBand` IS NOT CALLED FROM HERE. It try/catches a call to `BAND` and returning a flag for
+    // the caller to act on would be the same code in a worse place, so the WRAPPER pokes the band
+    // after this returns. That ordering matters: the poke must happen AFTER the venue state moves.
+
+    event Borrowed(address indexed lp, uint stableOut);
+    event Supplied(address indexed lp, uint vbtcIn);
+    event Withdrawn(address indexed lp, uint vbtcOut);
+    event Repaid(address indexed lp, uint stableIn);
+
+    /// @notice Borrow the venue's stable toward the IL target and hand it to the LP.
+    /// @dev    `room` is computed by the CALLER (`debtDeltaToTarget` routes through the `_collToBase`
+    ///         virtual). Clamping `want` to `room` is what makes an over-ask harmless: it can only
+    ///         reach the target, never pass it -- so this stays safe even though `stableUsd` is
+    ///         caller-supplied.
+    function leverBorrow(
+        mapping(address => Types.Pos) storage pos,
+        address aux, address lp, uint stableUsd, bool levUp, uint room
+    ) external returns (uint got) {
+        Types.Pos memory q = pos[lp];
+        if (!q.open) revert NotOpen();
+        if (!levUp || room == 0) revert BadTarget();
+        uint want = stableUsd > room ? room : stableUsd;
+        got = q.venue.borrow(lp, LevMath._fromUsd(aux, q.venue.stable(), want));
+        if (got > 0) IERC20Min(q.venue.stable()).transfer(lp, got);
+        emit Borrowed(lp, got);
+    }
+
+    /// @notice Pull `amount` of COLLATERAL from the LP and supply it as isolated collateral.
+    /// @param  coll the collateral token — weETH on the ETH side, vBTC on the BTC side. The ONLY
+    ///         asset-specific input, and the reason this body was never BTC-specific.
+    function leverSupply(
+        mapping(address => Types.Pos) storage pos,
+        address coll, address lp, uint amount
+    ) external {
+        Types.Pos memory q = pos[lp];
+        if (!q.open) revert NotOpen();
+        IERC20Min(coll).transferFrom(lp, address(this), amount);
+        IERC20Min(coll).transfer(address(q.venue), amount);
+        q.venue.supply(lp, amount);
+        emit Supplied(lp, amount);
+    }
+
+    /// @notice Withdraw collateral from the venue to the LP (to burn/sell externally, then repay).
+    function deleverWithdraw(
+        mapping(address => Types.Pos) storage pos,
+        address coll, address lp, uint amount
+    ) external returns (uint out) {
+        if (!pos[lp].open) revert NotOpen();
+        out = pos[lp].venue.withdraw(lp, amount);
+        if (out > 0) IERC20Min(coll).transfer(lp, out);
+        emit Withdrawn(lp, out);
+    }
+
+    /// @notice Repay debt from the LP's own stable.
+    /// @dev    CAPPED AT `debtOf` BEFORE the transfer, so an over-repay cannot pull more stable than
+    ///         the debt needs — the LP is never charged for value the venue will not credit. The
+    ///         `amt == 0` early return still emits, so a no-op repay is observable rather than silent.
+    function repay(
+        mapping(address => Types.Pos) storage pos,
+        address aux, address lp, uint stableUsd
+    ) external returns (uint repaid) {
+        Types.Pos memory q = pos[lp];
+        if (!q.open) revert NotOpen();
+        uint amt = LevMath._fromUsd(aux, q.venue.stable(), stableUsd);
+        uint debt = q.venue.debtOf(lp);
+        if (amt > debt) amt = debt;
+        if (amt == 0) { emit Repaid(lp, 0); return 0; }
+        IERC20Min(q.venue.stable()).transferFrom(lp, address(q.venue), amt);
+        repaid = q.venue.repay(lp, amt);
+        emit Repaid(lp, repaid);
     }
 }

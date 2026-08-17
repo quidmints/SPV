@@ -5,6 +5,7 @@ import {IVaultExposeB, IVBtcToken} from "./imports/Interfaces.sol";
 import {LevBase} from "./imports/LevBase.sol";
 import {Types} from "./imports/Types.sol";
 import {LevMath} from "./imports/LevMath.sol";
+import {LevBookLib} from "./imports/LevBookLib.sol";
 import {ILevVenue, IERC20Min} from "./imports/ILevVenue.sol";
 import {IMorphoFlash} from "./imports/Interfaces.sol";
 import {ILevSyncHook} from "./imports/Interfaces.sol";
@@ -206,65 +207,39 @@ contract BtcLevManager is LevBase {
     /// @notice Borrow `stableUsd`-worth of the venue stable against the position; sent to the LP/keeper to
     ///         source BTC externally. Clamped to the debt-delta-to-target so it can only move toward the IL
     ///         target (never past the LP's LTV cap, ≤ 7500 bps).
+    /// @notice §FOLD-LEGS — body in `LevBookLib`. `debtDeltaToTarget` is resolved HERE because it
+    ///         routes through the `_collToBase` virtual, which a library cannot call on its caller.
     function leverBorrow(uint stableUsd) external nonReentrant returns (uint got) {
-        address lp = msg.sender;
-        _reanchorIfReseated(lp);                 // (B) realize + re-anchor if the BTC band recentered
-        Types.Pos memory p = pos[lp];
-        if (!p.open) revert NotOpen();
-        (bool levUp, uint room) = debtDeltaToTarget(lp);
-        if (!levUp || room == 0) revert BadTarget();                   // only toward target
-        uint want = stableUsd > room ? room : stableUsd;
-        got = p.venue.borrow(lp, LevMath._fromUsd(address(AUX),p.venue.stable(), want));    // stable → this
-        if (got > 0) IERC20Min(p.venue.stable()).transfer(lp, got);      // → LP/keeper for external BTC sourcing
-        emit Borrowed(lp, got);
-        _syncBand(lp); // full-2× reconcile
+        _reanchorIfReseated(msg.sender);
+        (bool levUp, uint room) = debtDeltaToTarget(msg.sender);
+        got = LevBookLib.leverBorrow(pos, address(AUX), msg.sender, stableUsd, levUp, room);
+        _syncBand(msg.sender);
     }
 
     /// @notice Supply `vbtc` (minted against the LP's dedicated UTXO, approved here) as additional collateral —
     ///         the second half of a lever-up step, after the keeper has sourced+minted the BTC.
+    /// @notice §FOLD-LEGS — body in `LevBookLib`. `VBTC` is passed as the collateral token; the same
+    ///         library body serves weETH on the ETH side, which is why this was never BTC-specific.
     function leverSupply(uint vbtc) external nonReentrant {
-        address lp = msg.sender;
-        Types.Pos memory p = pos[lp];
-        if (!p.open) revert NotOpen();
-        VBTC.transferFrom(lp, address(this), vbtc);
-        VBTC.transfer(address(p.venue), vbtc);
-        p.venue.supply(lp, vbtc);
-        emit Supplied(lp, vbtc);
-        _syncBand(lp); // full-2× reconcile
+        LevBookLib.leverSupply(pos, address(VBTC), msg.sender, vbtc);
+        _syncBand(msg.sender);
     }
 
     /// @notice Withdraw `vbtc` collateral to the LP/keeper (for delever/close: burn + enclave-spend the UTXO →
     ///         sell BTC → repay). Capped at the position by the venue.
+    /// @notice §FOLD-LEGS — body in `LevBookLib`, parameterised by the collateral token.
     function deleverWithdraw(uint vbtc) external nonReentrant returns (uint out) {
-        address lp = msg.sender;
-        _reanchorIfReseated(lp);                 // (B) realize + re-anchor if the BTC band recentered (down-leg start)
-        if (!pos[lp].open) revert NotOpen();
-        out = pos[lp].venue.withdraw(lp, vbtc);                        // vBTC → this
-        if (out > 0) VBTC.transfer(lp, out);                           // → LP/keeper
-        emit Withdrawn(lp, out);
-        _syncBand(lp); // full-2× reconcile
+        _reanchorIfReseated(msg.sender);
+        out = LevBookLib.deleverWithdraw(pos, address(VBTC), msg.sender, vbtc);
+        _syncBand(msg.sender);
     }
 
     /// @notice Repay `stableUsd`-worth of the position's debt (stable already transferred in / approved).
+    /// @notice §FOLD-LEGS — body in `LevBookLib`. A WRAPPER: reentrancy lock, then the shared leg,
+    ///         then the band poke. The poke must follow the venue move, which is why it stays here.
     function repay(uint stableUsd) external nonReentrant returns (uint repaid) {
-        address lp = msg.sender;
-        Types.Pos memory p = pos[lp];
-        if (!p.open) revert NotOpen();
-        uint amt = LevMath._fromUsd(address(AUX),p.venue.stable(), stableUsd);
-        // Clamp to the current debt BEFORE the transfer. `venue.repay` already caps the repaid amount at
-        // the position's debt, but the transfer above moves the full `amt` in — so an over-repay
-        // (`amt > debt`) would leave `amt − debt` stranded on the venue adapter permanently (subsequent
-        // borrow forwards only the balance delta, so the excess is never swept and is unrecoverable).
-        // Mirror LevManager: clamp-before-transfer so exactly the repaid amount is ever moved.
-        uint debt = p.venue.debtOf(lp);                 // stable native units (== LevMath._fromUsd output units)
-        if (amt > debt) amt = debt;
-        if (amt == 0) { emit Repaid(lp, 0); return 0; } // nothing owed — skip the transfer + sync entirely
-        IERC20Min(p.venue.stable()).transferFrom(lp, address(p.venue), amt);
-        repaid = p.venue.repay(lp, amt);
-        emit Repaid(lp, repaid);
-        // full-2×: repay REDUCES debt → levBufferUsd must be re-capped at the smaller debt (else the ≤Σdebt
-        // invariant transiently breaks). Reconcile atomically. try/catch: never block a repay.
-        _syncBand(lp);
+        repaid = LevBookLib.repay(pos, address(AUX), msg.sender, stableUsd);
+        _syncBand(msg.sender);
     }
 
     // ═══════════════════════ ATOMIC WBTC-MODE (on-chain swap, no external BTC sourcing) ═══════════════════════
