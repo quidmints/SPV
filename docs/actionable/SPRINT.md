@@ -1110,3 +1110,102 @@ latter names the cause; failing on both clears the route and moves the hunt to t
   ⇒ **If the signer is present at the delivery, the registry is plumbing for an absence that does
   not exist.** Simplification is likely DELETION, not refactor — but it is `1a620c05`'s file.
 - **`testBtcLp_swapInAccruesTheBtcLegFee`** — the BTC fee leg is unfunded while the ETH side works.
+---
+---
+
+# PART D — **THE QUEUE DIGEST + THE COMPLETE BITCOIN REMAINDER** (session `391df7b6`, written 2026-08-17)
+
+Written because `QUEUE.md` is 2.65 MB and nobody reads 14,642 lines to find out what is open. This
+part is the **index to that file**, plus the one thing the queue does not organise by: **everything
+Bitcoin-side this thread started and did not finish, in dependency order.**
+
+## D0. HOW TO COUNT THIS FILE — the rule, because every previous number used a different one
+
+An **item** is a row whose **FIRST CELL** is a `§id`, or a heading containing one. `§id`s appear
+**2,583 times across 630 distinct ids**, but the overwhelming majority are **cross-references inside
+other rows' bodies**. Counting ids that appear *anywhere* gives **328**; counting items gives **161**.
+
+| measure | count |
+|---|---|
+| items (`§id` is the row key or a heading) | **161** |
+| ✅ closed | 59 |
+| 🔴/🟡/🟠/⏸️ **open** | **49** |
+| ⛔ withdrawn | 11 |
+| unmarked **headings** (real items, mostly settled analysis) | 15 |
+| unmarked **table rows** — ⚠️ **NOT items: measurement/evidence cells** (`"380,432 → 467,694"`, `"24,472 104"`) | 27 |
+
+⚠️ **This audit produced 65, then 58, then 49 for the same file in one day**, as the rule tightened
+(any-marker → leading-marker → after verifying closures). **A status count without its counting rule
+is noise.** 27 of the 42 "unmarked" rows are data cells that were never items at all.
+
+⛔ **DO NOT REBUILD THE AUTOMATED CLOSURE TEST.** Indexing 30,929 identifiers and flagging open rows
+that cite only dead symbols returned **zero** rows, and the control killed it: **closed rows cite MORE
+dead symbols (0.132) than open ones (0.099).** Anti-correlated with what it detects. Reconciliation
+here is READING. Full write-up: `§QUEUE-RECONCILED-2026-08-17` at the end of `QUEUE.md`.
+
+## D1. THE 49 OPEN ITEMS, GROUPED. **Bold = verified against code this pass.**
+
+### 🔴 Money-path defects, live
+- **`§V-R10`** — **sUSDE is counted as backing but cannot be redeemed** (Ethena `cooldownDuration()`
+  == 86400). **VERIFIED STILL LIVE:** `DeployLib.sol:68 address susde`, `DriverE2E.s.sol:69`
+  `SUSDE = 0x9D39A5DE…`, registered at `vaults[8]`. The venue is wired; the cooldown is real.
+- **`§E233-ladder`** — **2 of 5 rotation sites arm no exit ladder. VERIFIED CURRENT:** `_applySplice`
+  at `:1094` (splice) and `:1212` (rekey) re-arm; **`parkProvenSats` (`:1335`) and `_deliverSwapOut`
+  (`:2226`) do not.** ⛔ Do NOT fix by threading a 4th/5th `ExitArming[]` parameter — `_deliverSwapOut`
+  needs its calldata params DEAD before the settlement tail or the legacy stack overflows.
+- `§V-R11` — the hedge swap is all-or-nothing; owner: *"it must never stop tracking like this."*
+- `§E59-REOPENED`, `§E55`/`§UNIT-B-MIN-IS-NOOP` — `min(fast, slow)` is unconditionally the fast leg.
+- `§E247-allowlist-gate`, `§E251-vbtc-scope`, `§E244-tri-tests` (partly closed), `§A.65`, `§AAVE_SPOKE`.
+
+### 🔴 Suite / tree state — **needs one clean run to settle, not analysis**
+`§MAIN-IS-RED-RECHECKED`, `§MAIN-IS-RED-POOLED-USD`, `§POOLED-USD-ROOT-CORRECTED`,
+`§OVERCOMMITTED-MEASURED`, `§V-R8`, `§V-R6` (the 4-gate verification bar), `§TREE-UNSTABLE`.
+⇒ **These are one measurement, not seven items.** See `§9`/PART A: nobody has a clean full-suite
+number on a single commit, and a shared tree invalidates every number that is not from a pinned
+worktree.
+
+### 🟡 Structure / size
+`§E242-inline` (seven "libraries" are inlined into every consumer — targets the binding contract),
+`§E236-shares` (three copies of the same band state), `§E255-two-instances` (the architecture target),
+`§E238-scan`, `§REGIME-TWO-CLASSIFIERS` (**verified: `spa/src/lib/regime.ts` still exists, 3 refs to
+`classifyRegime`** — one design decision, then a deletion), `§MINT-SITE-COUNT`, `§UNIT-*` cluster.
+
+### 🔴 Owner decisions — **blocked on a person, not on work**
+`§LP-SEED-ENTROPY`, `§LADDER-REMOVAL`, `§A.51`, `§A.19b` (`redeemVBtc` — and see `CLAUDE.md`: ibiza
+analysed it as cross-LP theft), `§NO-REJECT`, `§PHASE-ORDER`, `§MSIG-NOT-SAFE`.
+
+### ✅ Closed this pass — 9 rows, each against code, not against the row
+`§E182-REKEY` + `§E182-BUILT-AND-MEASURED` (rekey landed, delegatecall bought the bytes) ·
+`§E231-MODLP-DIRECTION` (`Core.sol:732` signed form) · `§E233-sor` (`SOR.sol` absent; 5-arg `auxSwap`
+survived) · `§E232-tri` (TriCrypto zero code hits; all four legs on pinned V3 — **discharged by
+§V-R1-MIN, not by the 1inch work it named**) · `§HOP-PARTITION-IS-GONE` (owner) · `§E222-IS-NOW-LIVE`
+(**one write chain, external source only**) · `§E234-vac` (vacuous test replaced by a falsifiable one)
+· `§E235-spa` (ABI gate 111 Rust + 69 SPA, 0 drifted) · `§E249-close` (`489a9bb5`).
+
+## D2. 🔴 THE COMPLETE BITCOIN REMAINDER FROM THIS THREAD — in dependency order
+
+**Two are closed and stay listed so nobody redoes them:** `B0` the fleet no longer co-hosts a vault
+(`99fda5e9`), `B1` §E222's ring records an independent source (`1e54a2fc`).
+
+| # | item | state | the blocker, precisely |
+|---|---|---|---|
+| **1** | **`§E233-ladder` — 2 of 5 rotation sites** | 🔴 **verified live today** | A design choice, not effort: the rung must declare its target outpoint so each rotation site becomes one call. Threading more `ExitArming[]` params overflows `_deliverSwapOut`'s stack. **Highest-value Bitcoin item: a splice can still leave a channel escape-less.** |
+| **2** | **`§T2` terms commitment** (`B2`) | 🔴 **I destroyed the working Solidity** | Design intact, constants preserved: `TERMS = 0xa96ad576…`, `EXPECTED_Q = 0xcd5f8505…`, control = the no-terms leaf must reproduce `0xd0d16740…`. Redo as a **`Terms` struct fold**, not by threading a raw `[u8;32]` through four Rust signatures (that was the slop the owner rejected). |
+| **3** | **`§T3`** (`B3`) | 🔴 inexpressible | Strictly gated on **per-channel freshness** (§2.1). A COST trade, and the owner asked for BOTH branches — the fix and the deletion — to be priced. |
+| **4** | **`§LN-SWAPIN-REMAINDER` / `§NO-REJECT`** | 🔴 **owner calls it the biggest vulnerability** | The missing piece is **intent EMISSION on shortfall**, not pricing. Route: band → 1inch → Khalani → Perena. Not covered by ROUTING-AGGREGATION. |
+| **5** | `§DEPOSIT-VERIFIER-BLOCKED-ON-ITS-OWN-COMMITMENT` | 🔴 ordering bug | **Protocol side must land FIRST.** Client work was audited and is ahead of the contract. Same commitment as #2 — do them together. |
+| **6** | `B4` ladder depth · `B5` lazy `openChannel` | 🟡 never started | `B5`'s earlier ✅ was conditional and is therefore ⏸️, per standing rule 16. |
+| **7** | `B7` ratify the smart-wallet narrowing (§E183 item 1) | 🟡 | The LP now signs nothing on the EVM and `lpEth` is derived from `lpPubkey`. **Needs ratification, not code** — confirm no smart-wallet LP is excluded by construction. |
+| **8** | `B8` the **ERC-7540 fold** | 🟡 | The owner's *"too many slop variables"* and the trust hole are ONE change: the async-vault shape absorbs `swapInDepositKey` et al. **`B2`'s `Terms` fold is the first instance of this, not a separate task.** |
+| **9** | `B9b-i` **ERC-7947 verdict → `ibiza/TODO.md` §3b** | 🔴 cross-repo | **0 mentions in ibiza today.** The verdict was reached here and never written where the mobile client is owned. It dies with this context window otherwise. |
+| **10** | `B9b-iv` `BandEquityCollapseEchidna` · `B9b-v` one suite baseline | 🟡 / 📌 | The Echidna guard now watches a term that no longer exists — keep or delete. The baseline is D1's "suite state" cluster. |
+| **11** | `§LP-SEED-ENTROPY` · `§LADDER-REMOVAL` · `§MSIG-NOT-SAFE` · `§PHASE-ORDER` | 🔴 owner | Blocked on a person. `§LP-SEED-ENTROPY`: owner says *"it cant be deterministic, we need real randomness"* — the ask is right and the REASON matters, so do not implement it from the shape. |
+
+## D3. WHAT THIS PASS DID **NOT** DO — stated so the next thread does not inherit a false floor
+
+- **Nine rows were verified and closed. The other 49 were classified from their own text**, and only
+  the ones marked **bold** in D1 were re-derived against code. A marker is not a verdict.
+- **The 15 unmarked headings were classified as items but not individually verified.** Most are
+  settled analysis (`§A.71` dedup status, `§4a` a self-correction, `§E83` a design conclusion), not work.
+- **No suite was run this pass.** Every row in D1's "suite state" group is therefore unresolved BY
+  CONSTRUCTION, and the one clean number that would settle seven items at once still does not exist.
