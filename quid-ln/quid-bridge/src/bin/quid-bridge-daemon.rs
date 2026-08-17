@@ -336,48 +336,81 @@ async fn main() -> anyhow::Result<()> {
     // ⇒ Derivation is the honest encoding of a single-custodian deployment, and the knob is gone
     // so nothing can claim otherwise. A REAL second half is a different party on a different
     // host passing its own seed to `boot_vault` — a topology, not a setting (§E175 remainder).
-    let vault_seed = quid_bridge::vault::derive_vault_seed(&root_seed);
-    let mut vault = quid_bridge::vault::boot_vault(
-        network,
-        env("QUID_ESPLORA_URL")?,
-        &vault_seed,
-        data_dir.join("vault"),
-        hop_pk,
-        // The fleet co-hosts this vault, so the hop is on this machine. An LP-hosted vault
-        // passes the fleet's address here instead — that parameter IS the split (M1#2).
-        std::net::Ipv4Addr::LOCALHOST,
-        vault_port,
-        quid_hop::rebalancer::SPLICE_FUNDING_FEERATE_SAT_PER_KW,
-        store.clone(), // durable by_funding: reload in-flight opens on restart
-        vault_anchor,
-    )
-    .await
-    .context("boot vault node")?;
-    // Take the vault's lifecycle stream for the delivery correlator BEFORE sharing the
-    // node behind an Arc (the hop mirrors vault opens/closes on the EVM, so the vault's
-    // own lifecycle stream is otherwise unconsumed — this is its sole consumer).
-    let vault_lifecycle_rx = vault.take_lifecycle_rx();
-    let vault = std::sync::Arc::new(vault);
-    // (B) Delivery correlator: resolves each swapper-directed delivery SpliceOut's lock
-    // to the awaiting `deliver_swap_out`.
-    tokio::spawn(quid_bridge::vault::run_vault_delivery_correlator(
-        vault_lifecycle_rx,
-        vault.deliveries.clone(),
-    ));
-    tokio::spawn(quid_bridge::vault::run_vault_open_orchestrator(
-        vault.clone(),
-        hop_pk,
-        cfg.min_confirmations as u32,
-        env_parse("QUID_VAULT_POLL_SECS", 30u64)?,
-    ));
+    // 🔑 (§M1#2) THE FLEET NO LONGER CO-HOSTS A VAULT BY DEFAULT — THIS IS THE HOLE CLOSING.
+    //
+    // While this binary booted a vault unconditionally, ONE CUSTODIAN HELD BOTH HALVES of every
+    // 2-of-2, and `vault.rs` said so outright: *"one custodian, one secret … SO THE 2-of-2 IS
+    // NOMINAL IN THIS DEPLOYMENT, AND NOTHING SHOULD CLAIM OTHERWISE."* A compromised enclave could
+    // spend every channel's funding output, and no contract change reaches that — the Bitcoin UTXO
+    // does not care what Solidity believes. §E171's trichotomy is arithmetic: to stop a compromised
+    // fleet spending an LP's UTXO it must be UNABLE to produce a valid spend alone.
+    //
+    // ⚠️ THE FIX IS NOT A DIFFERENT SEED. The note below explains why derivation is the honest
+    // encoding of a co-hosted deployment: an independently-generated seed is not a function of
+    // `root_seed`, so it is ABSENT after an enclave rotation and every channel's vault half becomes
+    // unusable — and it buys nothing, since both seeds sit in one process's memory sealed to the
+    // same enclave. That reasoning is correct and stands. **The fix is the TOPOLOGY the same note
+    // names: "a different party on a different host passing its own seed to `boot_vault`."**
+    //
+    // ⇒ So the fleet simply STOPS BOOTING ONE. `quid-lp-daemon` (phase 1b) is that different party;
+    // `daemon::run` already accepts `None` (phase 1a). Default OFF, because a security property
+    // that depends on remembering to disable something is not a property. Set
+    // `QUID_FLEET_COHOSTS_VAULT=true` ONLY for a single-custodian deployment that has accepted, in
+    // writing, that its 2-of-2 is nominal.
+    let cohost_vault: bool = env_parse("QUID_FLEET_COHOSTS_VAULT", false)?;
+    let vault = if cohost_vault {
+        tracing::warn!(
+            "QUID_FLEET_COHOSTS_VAULT=true: this fleet holds BOTH halves of every 2-of-2. \
+             The multisig is nominal in this deployment (M1#2)."
+        );
+        let vault_seed = quid_bridge::vault::derive_vault_seed(&root_seed);
+        let mut vault = quid_bridge::vault::boot_vault(
+            network,
+            env("QUID_ESPLORA_URL")?,
+            &vault_seed,
+            data_dir.join("vault"),
+            hop_pk,
+            // The fleet co-hosts this vault, so the hop is on this machine. An LP-hosted vault
+            // passes the fleet's address here instead — that parameter IS the split (M1#2).
+            std::net::Ipv4Addr::LOCALHOST,
+            vault_port,
+            quid_hop::rebalancer::SPLICE_FUNDING_FEERATE_SAT_PER_KW,
+            store.clone(), // durable by_funding: reload in-flight opens on restart
+            vault_anchor,
+        )
+        .await
+        .context("boot vault node")?;
+        // Take the vault's lifecycle stream for the delivery correlator BEFORE sharing the
+        // node behind an Arc (the hop mirrors vault opens/closes on the EVM, so the vault's
+        // own lifecycle stream is otherwise unconsumed — this is its sole consumer).
+        let vault_lifecycle_rx = vault.take_lifecycle_rx();
+        let vault = std::sync::Arc::new(vault);
+        // (B) Delivery correlator: resolves each swapper-directed delivery SpliceOut's lock
+        // to the awaiting `deliver_swap_out`.
+        tokio::spawn(quid_bridge::vault::run_vault_delivery_correlator(
+            vault_lifecycle_rx,
+            vault.deliveries.clone(),
+        ));
+        tokio::spawn(quid_bridge::vault::run_vault_open_orchestrator(
+            vault.clone(),
+            hop_pk,
+            cfg.min_confirmations as u32,
+            env_parse("QUID_VAULT_POLL_SECS", 30u64)?,
+        ));
+        Some(vault)
+    } else {
+        tracing::info!(
+            "vault NOT co-hosted (M1#2): the LP half lives on the LP's own host via \
+             quid-lp-daemon. This fleet cannot unilaterally spend a channel's funding output."
+        );
+        None
+    };
 
     daemon::run(
         node, cfg, evm, store, start_block, swap_in_listen, swap_in_token,
-        // (M1#2 phase 1a) `Some` — THIS binary is the co-hosted fleet, which by definition
-        // holds both halves. `daemon::run` now also accepts `None`, and the LP-hosted
-        // daemon (phase 1b) is what will pass it: same `run`, no vault, LP-side keys on the
-        // LP's own host. Keeping this `Some` is what makes phase 1a a pure capability add.
-        Some(vault),
+        // (§M1#2) The Option built above: `None` unless this deployment explicitly opted into
+        // co-hosting. Phase 1a made `run` accept `None`; this is what finally passes it.
+        vault,
     )
     .await
 }
