@@ -59,9 +59,6 @@ contract Aux is // Auxiliary
     // to answer a question two immutable comparisons answer for free. `_bandOf` below replaces it.
     WETH9 public immutable WETH;
     IERC20 public immutable WBTC;
-    // §V4-ZERO — the inherited `poolManager` immutable is GONE with `SafeCallback`. Nothing in this
-    // tree unlocks a PoolManager, so the base class was holding an address for a call that never
-    // happens.
 
     // QUID (Basket) is set in setQuid after Basket itself is deployed —
     // can't be immutable (circular construction). Pinned-after-set
@@ -250,12 +247,6 @@ contract Aux is // Auxiliary
             revert Unauthorized();
     }
     modifier onlyUs { _requireUs(); _; }
-
-    /// @notice V4 unlock callback. Walks UnlockData.keys hop-by-hop.
-    // §V4-ZERO — `_unlockCallback` DELETED with the `SafeCallback` base. It existed so a v4
-    // PoolManager could call back into Aux mid-unlock to settle/take. Nothing unlocks a PoolManager
-    // here, so the override was an entrypoint for a caller that does not exist. The v4 hop routing it
-    // forwarded to (`SOR.unlockBody`) goes with the 1inch replacement.
 
     /// @notice init (plug) Aux with addresses
     /// @param _vogue       Vogue contract (V4 LP wrapper)

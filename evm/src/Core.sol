@@ -13,14 +13,6 @@ import {FeeLib} from "./imports/FeeLib.sol";
 import {SwapLib} from "./imports/SwapLib.sol";
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-// §V4-CUT — WHAT IS LEFT OF v4 IN THIS FILE, AND WHY.
-// `Core` makes ZERO calls to the PoolManager now. These survive as TYPES only:
-//   SafeCallback  — the base class still requires the `_unlockCallback` override. Unreachable in
-//                   practice (nothing unlocks); it goes when the base class does.
-//   IPoolManager  — the constructor still takes one, purely to satisfy SafeCallback.
-//   PoolKey/PoolId/Currency/BalanceDelta — vestigial identity for VANILLA_ETH/VANILLA_BTC.
-// Deleted here as unused: LiquidityAmounts, TickMath, IHooks, TransientStateLibrary,
-// CurrencySettler, StateLibrary, and the five `using` directives that bound them.
 
 
 
@@ -53,12 +45,6 @@ import {IERC20Min} from "./imports/ILevVenue.sol";
 /// mockUSD_ETH and mockUSD_BTC stay as separate mocks because each pool
 /// can have its own out-of-range positions (limit orders) — those are
 /// not in POOLED_USD_{ETH,BTC} (which is the active in-range slice).
-/// §V4-CUT — NO LONGER A `SafeCallback`. The base class existed to receive `unlock` callbacks from
-/// the PoolManager; nothing in this tree unlocks, so its required `_unlockCallback` override was
-/// unreachable and its constructor argument was taken "purely to satisfy SafeCallback" (this file's
-/// own header said so). The PoolManager handle SURVIVES as a plain immutable because `prepRefs`
-/// still reads the REFERENCE pools' slot0 -- that is the independent v3/v4 observation the Chainlink
-/// cross-check is measured against, and it is a read of pools we do not own.
 contract Core {
 
     /// Per-pool oracle rings — the engine now lives in OracleLib (delegatecall),
@@ -601,10 +587,6 @@ contract Core {
         return address(BTCVAULT) == address(0) ? 0 : BTCVAULT.totalShares() + BTCVAULT.totalBuffer();
     }
 
-    // §V4-CUT — `enum Action` DELETED. It tagged the twelve operations that used to travel
-    // through `unlock`, and its only remaining reader was the dead decode in `_unlockCallback`.
-    // Nothing unlocks, so nothing is dispatched.
-
     /// @dev §CORE-ONLYUS — THE CHECK IS A `private view`; THE MODIFIER STAYS THE GATE. A modifier
     ///      body is INLINED AT EVERY USE SITE (18 here), so three SLOADs + a revert string inline
     ///      cost 18 copies. One routine + 18 calls instead: **907 bytes** (24,472 → 23,565), taking
@@ -821,21 +803,6 @@ contract Core {
     function swap(address sender,
         bool inputIsUsd, address token, uint amount)
         onlyUs public returns (uint out) {
-        // §V4-CUT — THE CUSTODY HAZARD THIS BANNER WARNED ABOUT IS CLOSED (verified 2026-08-16).
-        // It read "DO NOT MERGE THIS WORKTREE -- TRANSITIONAL SOLVENCY HAZARD": swaps had stopped
-        // being v4 operations while LIQUIDITY had not, so `POOLED_*` claimed inventory sitting in a
-        // PoolManager position while payouts came from a different pot. Its own closing condition
-        // was "delete `_modifyLiquidity`, so custody and accounting are one thing again".
-        // THAT IS DONE, AND CHECKED BY CALL SITE RATHER THAN BY TRUSTING A COMMENT:
-        //   • `modifyLiquidity` — SEVEN occurrences in `src`, ALL of them comments. Zero calls.
-        //   • `poolManager.unlock` — one, in `SOR.sol`, whose callback lands on `Aux`; it routes
-        //     through EXTERNAL pools and never held band liquidity.
-        //   • `OracleLib.initPool` stopped calling `pm.initialize` entirely, so no pool of ours is
-        //     ever created — nothing can be deposited into one.
-        // `Core.sol:779` in this same file already recorded "THIS WAS THE LAST `poolManager.unlock`
-        // AND THE LAST `_modifyLiquidity`", so two comments here disagreed and the newer was right.
-        // ⚠️ This closes the CUSTODY axis only. It is not a blanket merge approval: the suite result
-        // and the remaining `isBTC` work are separate questions, tracked separately.
 
         // ═══════════════ §V4-CUT — SETTLE AT ORACLE, BOUNDED BY INVENTORY ═══════════════
         // No unlock, no callback, no curve traversal, no price discovery. ONE price for the whole
@@ -1010,8 +977,6 @@ contract Core {
     function collectFees() public view onlyUs returns (uint, uint) {
         return (0, 0);
     }
-
-    // §V4-CUT — `_unlockCallback` DELETED with the SafeCallback base. Nothing unlocks.
 
     // §V4-CUT — `_key()` DELETED: no callers. It returned the PoolKey of a pool never created.
 
