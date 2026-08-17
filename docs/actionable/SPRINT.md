@@ -485,6 +485,38 @@ the same evidence as a finding). ⚠️ Worth keeping the shape in mind: the haz
 commit, only in a stash, so **no diff review would ever have surfaced it** — it was visible only
 because the flag was written down at the time.
 
+### The two scans the owner asked for, run properly this time
+
+**(1) EVERY UNREACHABLE COMMIT, not just §E194's.** `git fsck --unreachable --no-reflogs` returned
+**449 commits**. Dropping stash triples, merges, and commits whose subject already appears on `main`
+(rebase copies) left **22 hand-authored ones**. Each was checked by looking for its *content* on
+`main`, not its SHA:
+
+| | |
+|---|---|
+| landed under another SHA | **21** — E154's avgYield row, `LevBase`'s `totalDeliverableDollars`/`TWAP_WINDOW` lift, `DEPLETION_RATE_WAD`, the E182 rekey's 523-byte figure, `DeployL1_s`'s `btcCore`, the `USDC` declaration, E231's row |
+| superseded by a later deliberate deletion | `VEth.sol` / `LevOracles.sol` restores — both later folded away on purpose |
+| 8 × "WIP snapshot … NOT REVIEWED, NOT for merge" | backups by design |
+| **LOST** | **1 — `§E232-1inch-is-unusable-on-chain`** |
+
+⇒ **The branch cleanup was 21-for-22 on code and lost one 🔴🔴 row** — now landed, with
+`rescue/E232-1inch-unusable` and `rescue/E222-revert` pushed as tags.
+
+**(2) EVERY DELETION, to see whether §E109/§E116 were the only rows closable that way.** All **35
+deleted `.sol` files** in `evm/src` were enumerated from history and each cross-referenced against
+the open rows: `AaveV3Venue` `AaveV4Venue` `BandBacking` `BatchLedger` `EthVenue` `EulerEscrowVenue`
+`SOR` `LevOracles` `LiquityTroveVenue` `MorphoEscrowVenue` `QuidLens` `Rover` `SorExchange` `VEth`
+`mock` `AttestedHopRegistry`, plus the 13 v3 `TickMath`/`LiquidityAmounts`/`FullMath`/pool-interface
+files.
+
+**Answer: yes — `AttestedHopRegistry` was the only one.** Every other deleted name that still appears
+in an open row appears there **incidentally**, not as the row's subject: §E155 is about
+`BasketLib._valueStable:265` (alive), §E201 about the oracle posture, `VENUE-COLLAPSE-REFUTED` about
+four branches. ⭐ **And every surviving mention of a deleted contract inside `evm/src` is a COMMENT
+recording the deletion and why** — `Aux.sol:201` on `SorPath`, `Vogue.sol:1323` on the `VEth`
+premise, `ExternalTwap.sol:27` on `TickMath`. That is the good case: prose that outlives the code
+**on purpose**, and the exact opposite of the stale-comment failure this repo keeps paying for.
+
 ⚠️ **WHAT THIS METHOD CANNOT DO, stated so the number is not over-read.** Symbol-existence closes a
 row only when the row is *about a symbol*. Rows about a **behaviour**, a **measurement**, or a
 **decision** cite live code and score "still open" whether or not the work is done — so **165 minus
