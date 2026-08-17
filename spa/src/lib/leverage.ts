@@ -63,7 +63,7 @@ export async function readLevPosition(address: string | null): Promise<LevPositi
     readOne(lm, 'ilTargetLtvBps', [address]),
     readOne(lm, 'netEquityUsd', [address]),
     readOne(lm, 'debtUsd', [address]),
-    readOne(lm, 'grossCollateralEth', [address]),
+    readOne(lm, 'grossCollateral', [address]),   // §E235-spa — hoisted to LevBase, suffix dropped
     readOne(venue, 'liqThresholdBps', []),
   ])
   return {

@@ -39,7 +39,7 @@ export default function InfoTab({ address }: { address?: string | null }) {
   const [market, setMarket] = useState<MarketSignal | null>(null)
   // ── REAL internal numbers (the actual on-chain state, not proxies) ──
   const [headroom, setHeadroom] = useState<number | null>(null)   // (totalLiquid−committed)/totalLiquid
-  const [theta, setTheta] = useState<number | null>(null)         // POOLED_ETH / vogueETH (in-range share)
+  const [theta, setTheta] = useState<number | null>(null)         // POOLED / vogueETH (in-range share)
   const [poolEth, setPoolEth] = useState<number | null>(null)     // pool ETH TWAP (USD) — vs external price
   const [inv, setInv] = useState<number | null>(null)             // live inventory skew q ∈ [−1,1]: + = long ETH
   const [btcDelivered, setBtcDelivered] = useState<number | null>(null)  // live undelivered swap-out USD (BTC demand)
@@ -74,8 +74,10 @@ export default function InfoTab({ address }: { address?: string | null }) {
       const committed = Number(BigInt(cb[0])), total = Number(BigInt(cb[1]))
       setHeadroom(total > 0 ? (total - committed) / total : null)
     }
-    // ── In-range share θ = POOLED_ETH / vogueETH (the short-gamma slice) ──
-    const pooledEth = n(await readOne(CONTRACTS.vogueCore, 'POOLED_ETH'))
+    // ── In-range share θ = POOLED / vogueETH (the short-gamma slice) ──
+    // §E235-spa — `POOLED()` on the ETH engine. Was `POOLED_ETH` on a contract that carried both
+    // bands; the band is now the instance, so `vogueCore` IS the ETH selection.
+    const pooledEth = n(await readOne(CONTRACTS.vogueCore, 'POOLED'))
     const vEth = n(await readOne(CONTRACTS.vogue, 'vogueETH'))
     if (pooledEth != null && vEth && vEth > 0) setTheta(pooledEth / vEth)
     // ── Pool ETH price (TWAP) — for the internal-vs-external comparison ──
@@ -83,9 +85,10 @@ export default function InfoTab({ address }: { address?: string | null }) {
     setPoolEth(ethPx)
     // ── LIVE inventory skew q ∈ [−1,1] of the in-range (actively-quoting) slice:
     //    + = overweight ETH (long the volatile asset), − = overweight USD. Compare
-    //    the ETH leg (POOLED_ETH × price) to the USD leg (POOLED_USD_ETH, 6-dec).
+    //    the ETH leg (POOLED × price) to the USD leg (POOLED_USD, 6-dec), BOTH read off the
+    //    SAME instance — which is what makes the ratio a single band's skew rather than a mix.
     //    This is the real q the A-S reservation price skews on. Null pre-deploy. ──
-    const usdSide = n(await readOne(CONTRACTS.vogueCore, 'POOLED_USD_ETH'), 6)
+    const usdSide = n(await readOne(CONTRACTS.vogueCore, 'POOLED_USD'), 6)
     if (pooledEth != null && ethPx != null && usdSide != null) {
       const ethVal = pooledEth * ethPx, tot = ethVal + usdSide
       setInv(tot > 0 ? Math.max(-1, Math.min(1, (ethVal - usdSide) / tot)) : null)

@@ -69,7 +69,9 @@ const enc = {
   vogueWithdraw: (a: bigint, r: string, o: string) =>
                 iface.encodeFunctionData('withdraw(uint256,address,address)', [a, r, o]),
   autoManaged:    (u: string) => iface.encodeFunctionData('autoManaged', [u]),
-  autoManagedBTC: (u: string) => iface.encodeFunctionData('autoManagedBTC', [u]),
+  // §E235-spa — `autoManagedBTC` encoder DELETED, not kept as an alias: with the band selected by
+  // address, `enc.autoManaged` serves both sides and a second entry could only encode a selector
+  // no contract has. One name, two addresses.
   vogueTotalShares: () => iface.encodeFunctionData('totalShares', []),
   vogueLpShares:    () => iface.encodeFunctionData('lpShares', []),
   // Self-managed
@@ -619,10 +621,16 @@ export default function QuidApp() {
         rows.push({ id, sats: BigInt(dec[0]), status })
       }
       setMyChannels(rows)
-      // BTC-LP fees/position: autoManagedBTC(user) = (pooled sats, usd_owed, fees_tok=sats, fees_usd).
+      // BTC-LP fees/position: autoManaged(user) = (pooled sats, usd_owed, fees_tok=sats, fees_usd).
       // BTC-leg fees accrue as native sats, settled by the hop at channel close.
+      // §E235-spa — `autoManaged` ON `vault`, NOT `autoManagedBTC` ON `vogue`. The BTC band's LP
+      // state moved to its own contract, so the suffix that used to select the band is now an
+      // address. ⚠️ NOTE THE `catch` BELOW, WHICH IS WHY THIS BREAK WAS INVISIBLE: a missing
+      // selector or a wrong address lands in `setBtcLp(null)`, and the UI renders that as "no BTC
+      // position" — indistinguishable from a user who genuinely has none. The ABI gate is the only
+      // thing that could have caught it, which is the argument for keeping that gate blocking.
       try {
-        const am = iface.decodeFunctionResult('autoManagedBTC', await ethCall(CONTRACTS.vogue, enc.autoManagedBTC(address)))
+        const am = iface.decodeFunctionResult('autoManaged', await ethCall(CONTRACTS.vault, enc.autoManaged(address)))
         setBtcLp({
           pooledSats: Number(BigInt(am[0])) / 1e8,
           usdOwed:    Number(BigInt(am[1])) / 1e18,

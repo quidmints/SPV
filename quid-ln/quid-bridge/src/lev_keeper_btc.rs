@@ -440,7 +440,9 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> DaemonBtcLevKeeper<R, S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy_primitives::keccak256;
+    // §E237-rust — `keccak256` import DROPPED: its only uses were the three self-referential
+    // selector assertions, which are now pinned to literal bytes. Keeping it would be an unused
+    // import, and the reason it is gone is the point — nothing here recomputes what it is testing.
     use std::cell::RefCell;
 
     fn base() -> PositionView {
@@ -469,9 +471,30 @@ mod tests {
 
     #[test]
     fn calldata_selectors_and_words() {
-        assert_eq!(selector4("syncLev(address)"), keccak256(b"syncLev(address)")[..4].to_vec());
-        assert_eq!(selector4("leverBorrow(uint256)"), keccak256(b"leverBorrow(uint256)")[..4].to_vec());
-        assert_eq!(selector4("deleverWithdraw(uint256)"), keccak256(b"deleverWithdraw(uint256)")[..4].to_vec());
+        // §E237-rust — THESE THREE USED TO ASSERT `selector4(s) == keccak256(s)[..4]` FOR THE SAME
+        // `s`, WHICH IS A TEST OF `selector4` AND OF NOTHING ELSE. It passes for ANY string,
+        // including a selector no contract declares — which is exactly what happened: it went on
+        // passing while `syncLevBTC` was renamed out of existence on-chain, so the one test named
+        // after calldata correctness could not observe the calldata becoming unroutable.
+        //   Pinned to LITERAL BYTES instead. Now the assertion is about the CHAIN's identity for
+        // these functions, so a rename on either side fails here — which is the property the test
+        // was named for. Values from `cast sig`.
+        assert_eq!(selector4("syncLev(address)"),        vec![0x94, 0x57, 0xdc, 0xbf]);
+        assert_eq!(selector4("leverBorrow(uint256)"),    vec![0xdc, 0x2e, 0xcd, 0x34]);
+        assert_eq!(selector4("deleverWithdraw(uint256)"), vec![0x8b, 0x22, 0x46, 0x17]);
+        // ⚠️ NO ASSERTION HERE ABOUT THE RETIRED BTC-SUFFIXED NAME. I wrote one and deleted it:
+        // pinning `selector4` of a literal string to its own keccak can never fail, so it would
+        // have been the same empty gesture this comment is about. Whether a name still EXISTS
+        // on-chain is not knowable from this crate — that is `check-client-abis.py`'s job, and it
+        // is the tool that caught this defect.
+        //   ⚠️ AND THE RETIRED SIGNATURE IS DELIBERATELY NOT WRITTEN AS A DOUBLE-QUOTED STRING
+        // ANYWHERE. MEASURED, not assumed: the checker matches Rust STRING LITERALS, and it does so
+        // wherever they appear — INCLUDING INSIDE A COMMENT. My first version of this note quoted
+        // `selector4("<the dead name>")` verbatim and the gate reported it as live drift at this
+        // line; the backtick-quoted mentions above and in `evm_validating_signer.rs` do NOT trip
+        // it. That is the right sensitivity, not a false positive to suppress: a commented-out call
+        // is still a call someone will uncomment. ⇒ Describe retired selectors in backticks; never
+        // in double quotes, not even in a comment explaining that they are dead.
         // uint128/uint64 words are right-aligned in the 32-byte slot
         assert_eq!(u64_word(50_000_000)[24..], 50_000_000u64.to_be_bytes());
         assert_eq!(u128_word(30_000)[16..], 30_000u128.to_be_bytes());

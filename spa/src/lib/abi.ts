@@ -31,13 +31,19 @@ export const CORE_ABI = [
   // each price as a signed 56-bit value, wrapping large prices into wrong and possibly
   // NEGATIVE numbers in the UI. Silent, which is why the ABI gate is the only thing that
   // catches it here: `spa/` has no node_modules, so `tsc` cannot run in this tree.
-  'function observe(uint32[] secondsAgos, bool isBTC) view returns (uint192[] prices)',
+  // §E235-spa — THE `isBTC` ARGUMENT IS GONE, AND SO IS THE DISPATCH IT SELECTED. §E63 folded two
+  // observes into one that "takes the band as an argument"; the isBTC split then went further and
+  // made the band an INSTANCE, so `Core.observe(uint32[])` reads its own ring and there is nothing
+  // left to select. Call it on `vogueCore` for ETH and `vogueCoreBtc` for BTC.
+  'function observe(uint32[] secondsAgos) view returns (uint192[] prices)',
   // Internal pool state — the REAL committed-vs-backing + in-range fractions.
   'function committedUsd18() view returns (uint)',     // USD committed to the in-range pools
-  'function POOLED_ETH() view returns (uint)',          // in-range ETH (short-gamma slice)
-  'function POOLED_BTC() view returns (uint)',          // in-range BTC
-  'function POOLED_USD_ETH() view returns (uint)',      // USD committed, ETH pool
-  'function POOLED_USD_BTC() view returns (uint)',      // USD committed, BTC pool
+  // §E235-spa — ONE PAIR, NOT FOUR ACCESSORS. `POOLED_ETH`/`POOLED_BTC`/`POOLED_USD_ETH`/
+  // `POOLED_USD_BTC` were four selectors on one contract; they are now two on each of two
+  // instances. The band comes from WHICH ADDRESS you call, which is why `chains.ts` grew a second
+  // field rather than this file growing a flag back.
+  'function POOLED() view returns (uint)',              // in-range volatile leg (this instance's asset)
+  'function POOLED_USD() view returns (uint)',          // USD committed, this instance's pool
   // BTC LP is delivery/fee-driven (no continuous LVR). Proceeds settle EXACTLY at
   // on-chain swap-out delivery, so there's no global delivered/proceeds counter;
   // pendingSwapOutUsd = 6-dec USD of UNDELIVERED swap-out obligations — a live
@@ -139,23 +145,35 @@ export const VOGUE_ABI = [
   // order is (pooled, usd_owed, fees_tok, fees_usd) — fees_tok is the token-side
   // fee leg (ETH for the ETH pool, BTC for the BTC pool). DO NOT reorder.
   'function autoManaged(address user) view returns (uint pooled, uint usd_owed, uint fees_tok, uint fees_usd)',
-  'function autoManagedBTC(address user) view returns (uint pooled, uint usd_owed, uint fees_tok, uint fees_usd)',
+  // §E235-spa — `autoManagedBTC` AND `lpSharesBTC` ARE THE SAME NAMES ON A DIFFERENT ADDRESS NOW.
+  // Both band managers declare `autoManaged` / `lpShares` (Vogue.sol:267/201, Vault.sol:116/117),
+  // so the BTC entries stop being separate selectors and become the ETH ones called on `vault`.
+  'function autoManaged(address user) view returns (uint pooled, uint usd_owed, uint fees_tok, uint fees_usd)',
   'function totalShares() view returns (uint)',
   'function lpShares() view returns (uint)',
-  'function lpSharesBTC() view returns (uint)',
-  // Self-managed (per-position, ETH-pool only; non-fungible)
-  //   distance: -5000..5000 in increments of 100 (positive = above current tick)
-  //   range:    100..1000 in increments of 50 (width in ticks)
-  //   token:    0x0 for ETH side, stable address for USD side
-  // outOfRange gained a uint8 venue (5th arg) — same ETH yield-venue enum as deposit
-  // (0=Split 1=ether.fi 2=AAVE 3=Galaxy 4=Rover 5=Euler). 4-arg encoding now reverts.
-  'function outOfRange(uint amount, address token, int24 distance, int24 range) payable returns (uint next)',
+  // Self-managed (per-position, non-fungible)
+  //   distance: signed offset from the band anchor
+  //   range:    width, same units as the anchor
+  //   token:    0x0 for the volatile side, stable address for the USD side
+  // ⚠️ §E235-spa — THIS DECLARATION WAS TWICE WRONG AND THE COMMENT ABOVE IT WAS TOO.
+  // (1) `int24 distance, int24 range` are TICKS, and ticks left with v4: `Vogue.outOfRange` is
+  //     `(uint amount, address token, int distance, uint range)` — `int256`/`uint256`. int24 is a
+  //     narrower ABI word, so the old encoding was not merely mislabelled, it truncated.
+  // (2) The comment claimed "outOfRange gained a uint8 venue (5th arg) … 4-arg encoding now
+  //     reverts." The live function IS 4-arg (`Vogue.sol:392-393`). The prose described a change
+  //     that either never landed or was undone, and it would have sent the next reader to add a
+  //     fifth argument to a call that is already correct in arity and wrong only in width.
+  'function outOfRange(uint amount, address token, int distance, uint range) payable returns (uint next)',
   // percent: 1..100 (signed int per Solidity decl, but contract validates 1..100)
   // token: 0x0 = receive as ETH, stable addr = receive as that stable
   'function pull(uint id, int percent, address token)',
   // Storage getters
   'function positions(address user, uint index) view returns (uint id)',
-  'function selfManaged(uint id) view returns (uint created, address owner, int24 lower, int24 upper, int liq)',
+  // §E235-spa — `Types.SelfManaged { uint created; address owner; uint lower; uint upper; int amt; }`
+  // (`Types.sol:41-49`). Was `int24 lower, int24 upper` from the tick era, and the last member is
+  // `amt` — "the token AMOUNT placed, not v4 liquidity units" per its own comment — so calling it
+  // `liq` named a quantity the contract stopped storing.
+  'function selfManaged(uint id) view returns (uint created, address owner, uint lower, uint upper, int amt)',
   'function totalShares() view returns (uint)',
   'function feesPerShare() view returns (uint)',
 
@@ -253,12 +271,18 @@ export const BTCCHANNELS_ABI = [
 //   returns the value without persisting, so readOne() reads them fine.
 export const LEV_MANAGER_ABI = [
   // pos(address) public mapping getter — Pos is a stable 6-tuple.
-  'function pos(address lp) view returns (address venue, uint64 targetLtvCapBps, uint128 entryPriceWad, uint128 e0Eth, uint160 entrySqrtP, bool open)',
+  // §E235-spa — `Types.Pos` last non-bool member is `uint entryPrice`, not `uint160 entrySqrtP`
+  // (`Types.sol:14`). A sqrtPriceX96 is a v4 quantity and the position now records a plain price,
+  // so both the width and the name were carrying the old model.
+  'function pos(address lp) view returns (address venue, uint64 targetLtvCapBps, uint128 entryPriceWad, uint128 e0Eth, uint entryPrice, bool open)',
   'function getCurrentLtvBps(address lp) returns (uint256)',   // venue-safety LTV (debt / actual collateral), bps
   'function ilTargetLtvBps(address lp) returns (uint256)',     // IL-cancelling target (band's sold fraction, capped), bps
   'function netEquityUsd(address lp) returns (uint256)',       // collateral − debt, USD 1e18
   'function debtUsd(address lp) view returns (uint256)',       // outstanding debt, USD 1e18
-  'function grossCollateralEth(address lp) view returns (uint256)', // gross collateral, ETH 1e18
+  // §E235-spa — hoisted to `LevBase` as `grossCollateral` when both lev managers took a shared base:
+  // the `Eth` suffix was the one-contract-per-asset naming, and the base serves both. Units are
+  // still the instance's own asset (1e18 ETH here), which is why the TS field keeps its name.
+  'function grossCollateral(address lp) view returns (uint256)', // gross collateral, ETH 1e18
   'function netEquity(address lp) view returns (uint256)',          // net equity, ETH 1e18
   'function TARGET_LTV_CAP_BPS() view returns (uint256)',      // hard leverage cap (bps LTV)
   // ── WRITE (the #65 leverage-choice txs). openLev opens a position at ZERO leverage on the chosen borrow venue

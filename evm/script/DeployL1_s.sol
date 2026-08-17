@@ -463,6 +463,16 @@ contract Deploy is Script {
         vm.serializeAddress(j, "aux", address(AUX));
         vm.serializeAddress(j, "vogue", address(VOGUE));
         vm.serializeAddress(j, "core", address(CORE));
+        // §E235-spa — THE BTC ENGINE'S ADDRESS WAS NEVER RECORDED, AND THAT IS WHY THE SPA BROKE.
+        // The isBTC split made two `Core` instances (`DeployLib:137-138`: one on WETH/ethRisk, one on
+        // WBTC/btcRisk), each exposing ONE `POOLED()`/`POOLED_USD()` instead of the old per-asset pair
+        // on a single contract. The SPA still reads `POOLED_ETH`/`POOLED_BTC`/`POOLED_USD_*` off the
+        // ONE `vogueCore` address, so after the rename it calls four selectors that no longer exist —
+        // and it had no way to do better, because the second instance was not in this file. Recording
+        // it is the PRECONDITION for the client fix, not a nice-to-have: a rename in the SPA alone
+        // would point the BTC reads at the ETH engine, which ANSWERS — with the wrong band's numbers.
+        // That is the failure this key exists to prevent: silent, plausible, and wrong.
+        vm.serializeAddress(j, "btcCore", address(ETH.CORE()));
         vm.serializeAddress(j, "vault", address(ETH));
         vm.serializeAddress(j, "spvGateway", address(spvGateway));
         vm.serializeAddress(j, "btcChannels", address(btcChannels));
