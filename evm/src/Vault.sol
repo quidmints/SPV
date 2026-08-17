@@ -58,9 +58,15 @@ import {ILevEquity} from "./imports/Interfaces.sol";
 /// Aux read surface the Vault needs: WBTC handle (for the shared arbBody
 /// signature); vault-health state stays Aux-owned.
 
-/// LevManager read surface: the leveraged book's collateral (ETH, 1e18). The weETH lives on external
-/// Euler/Morpho as per-LP collateral (the Vault never holds it). The book is counted at NET equity
-/// (gross − debt) in both `vogueETH` and `lpShares`; the debt-funded buffer (gross − net) is EXCLUDED from
+/// §SLOP — THIS PARAGRAPH WAS ETH-SIDE TEXT LEFT IN THE BTC CONTRACT by the EthVenue fusion. It said
+/// the book's collateral is "ETH, 1e18", that "the weETH lives on external Euler/Morpho", and that net
+/// equity counts "in `vogueETH`". None of that is this contract: `vogueETH` is VOGUE's accessor, and
+/// line 70 below states what actually happens here — `syncLev` pairs the BTC book as tokenless depth
+/// INTO `POOLED`. Corrected rather than deleted, because the SHAPE it describes is right and is what
+/// makes the two bands mirror images.
+/// BtcLevManager read surface: the leveraged book's collateral (vBTC, 8-dec sats). The collateral lives
+/// on external Euler/Morpho per-LP (the Vault never holds it). The book is counted at NET equity
+/// (gross − debt) in both `POOLED` and `lpShares`; the debt-funded buffer (gross − net) is EXCLUDED from
 /// equity and tracked separately as fee-earning band depth (`Vogue.levBuf`/`Vault.levBuf` + `totalBuffer`),
 /// so it earns fees on the gross weight but never inflates the LP's redeemable claim. The buffer's debt is
 /// excluded from committed via `committedUsd18`'s live-debt subtraction (no separate POOLED_USD_*_LEV bucket),
@@ -97,7 +103,8 @@ contract Vault is Ownable, ReentrancyGuard {
 
 
 
-    /// @notice The IL-protect orchestrator. Its leveraged book's LIVE net-equity counts in `vogueETH`.
+    /// @notice The IL-protect orchestrator. Its leveraged book's LIVE net-equity counts in `POOLED`
+    ///         (§SLOP: said `vogueETH`, which is Vogue's ETH-side accessor, not this contract's).
     ///         Pinned once post-deploy (LevManager needs Aux/weETH first). 0 = leverage disabled.
 
     // §SLOP — `NotVogueCore` DELETED: zero reverts. `git log -S` traces it to `a3225031`
