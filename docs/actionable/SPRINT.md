@@ -18,6 +18,76 @@ and this is the summary.
 
 ---
 
+## 0-BUILD. 🔴🔴 §E258 — `fillOOR` + THE SORTED SET: THE BUILD SPEC
+
+**This is the top of the document because it is the one piece of DESIGN work this thread produced,
+chose, and then failed to build.** Everything else here is a finding; this is a specification.
+
+**The problem, measured:** `selfManaged` positions are created (`Vogue.outOfRange`,
+`BtcVaultLib.outOfRangeBtc`) and closed by their owner (`BandLib.pull`, behind
+`if (position.owner != owner) revert NotOwner()`). **Nothing consumes one when price crosses it** —
+`fillOOR` is zero hits repo-wide. Under v4 the PoolManager did this on every swap that crossed the
+range; `FixedRateFill` is *"ONE PRICE, NO TRAVERSAL … no tick to cross"*, so the crossing is gone.
+A boundary order is now **an option the owner must exercise**, which is not what was sold.
+
+### The pieces that already exist — none of this is greenfield
+
+| piece | where | shape |
+|---|---|---|
+| the index | `evm/src/imports/SortedSet.sol` | `SortedSetLib.Set { uint[] sortedArray; mapping(uint => bool) exists; }` with `insert` / `remove` / `binarySearch(value) → (index, found)` / `compactArray` / `getSortedSet`. Already used by `Basket` for `perMonth`. |
+| the order | `Types.SelfManaged` | `{ uint created; address owner; uint lower; uint upper; int amt; }` — **`amt` is the token AMOUNT since §V4-CUT, not liquidity**, which is exactly what settling against our own inventory needs. |
+| the fill | `Core.swap()` → `_fillDelta(inputIsUsd, amount, px)` | returns `(delta, out)` at ONE price. The old price is known at entry, the new one on return: **that pair is the interval to sweep.** |
+
+### The design
+
+**1. Index by TRIGGER PRICE, and pack the key.** The trigger is the order's *near* edge — `lower`
+for an order resting above spot, `upper` for one resting below. ⚠️ **`SortedSetLib.insert` IGNORES
+DUPLICATES (`if (self.exists[value]) return;`), so two orders at the same price would silently
+collapse into one and the second would become unfillable — a silent fund-stranding bug.** Key on
+`(triggerPrice << 96) | id` instead: unique per order, still sorts by price, and `id` is `++ID` so it
+fits. **Do not add a parallel `mapping(price => id[])`** — that is a second structure to keep in sync
+with the first, which is the shape §E194 and the `poolOwnedSats` lesson both warn about.
+
+**2. Consume inside the fill.** After `_fillDelta` returns, `binarySearch` the packed keys for
+`pxOld` and `pxNew` and walk the index range between them. Each order in that interval settles **at
+its own limit price, not at `px`** — that is precisely what makes it a limit order rather than a
+participant in the swap. Then `remove` from the set, `delete selfManaged[id]`, credit the owner.
+**Gas is bounded by how many orders lie between the two prices, which for a ±0.2% band and a
+two-observation move is usually ZERO** — that is the whole reason a sorted set over *our* resting
+orders replaces a global tick bitmap over *all* prices.
+
+**3. Bound the loop, and that is WHY the poke exists.** An unbounded sweep is a griefing vector:
+anyone can place many cheap orders in the path and make the next swapper pay for all of them. Cap it
+(`MAX_FILLS_PER_SWAP`), and let **`fillOOR(uint id)` — permissionless, callable once price is past
+the trigger, tipped from the fill** — drain the remainder. ⇒ **The poke is a LIVENESS REQUIREMENT
+created by the cap, not a convenience.** It also covers the case a swap cannot: **`repack` moves the
+band without a fill**, so orders can be crossed with no swapper present to sweep them.
+
+**4. `pull`'s 47-block guard must NOT gate an auto-fill.** `require(block.number >= position.created
++ 47, "too soon")` is an anti-gaming rule on *owner-initiated* close. An execution is not a
+withdrawal, and applying that guard to it would make an order unfillable for its first 47 blocks —
+reintroducing exactly the "no execution guarantee at the moment of crossing" defect this fixes.
+
+**5. It cannot live in `Vogue`.** 547 bytes of margin. This is a delegatecalled library — consistent
+with §E245's measured extraction rate, and the reason `BandLib` already holds `pull`.
+
+### The one thing this spec does NOT decide, deliberately
+
+**Where the difference between the order's limit price and the band's fill price accrues.** That is
+the *same* question as `FixedRateFill`'s header — two suppliers, LP inventory and basket capital, and
+*"causation is only one axis"* — and it is flagged there as 🔴 *"THE SAME QUESTION AS #12 (count-once)
+AND MUST BE SETTLED WITH IT."* **Do not invent an answer while building the mechanism.** Ship the
+execution path with the split parameterised and settle it with #12.
+
+### Why this outranks the rest of the document
+
+§E255 puts `oorShares` into `totalSupply`; §E251 wants out-of-range BTC minted as vBTC and lent on
+Morpho. **Both price out-of-range liquidity as live inventory.** Until orders can execute, that
+inventory has no settlement path — so both items are valuing a claim that cannot be realised, and
+building either first bakes the wrong assumption into the share maths.
+
+---
+
 ## 0-CRITICAL. 🔴🔴🔴 §E257 — `main` SHIPS A SWAP PATH THAT CANNOT FIT IN A BLOCK
 
 **Found 2026-08-17 while auditing the queue. It is one hour old, it is on `main`, and it is not mine
@@ -885,6 +955,51 @@ removing it from HEAD does not un-leak git history"*, in a repo with a public-sn
 owner question, and it is the one item in this document nobody can close by reading code.**
 
 ---
+
+## 17. 🔴 FIVE ROWS POINT AT WORKING COPIES THAT NO LONGER EXIST
+
+**Found 2026-08-17 while checking this thread for unfinished work. It is not this thread's work — it
+is worse: it is five other threads' work, and the rows still say it is recoverable.**
+
+These rows each say some version of *"written, measured, and NOT committed — working copy preserved
+at `scratchpad/…`"*:
+
+| row | cited artefact | exists? |
+|---|---|---|
+| **E81** (🟠 cap-to-base inversion) | `scratchpad/SwapLib-E81…` | ⛔ gone |
+| **E89** (🟠 the base must ADD, not floor) | `scratchpad/SwapLib-…` | ⛔ gone |
+| **E89b** (🟠 amplifier multiplies the base — *"still live in main"*) | `scratchpad/SwapLib-E89b-amplifier.sol` | ⛔ gone |
+| **E89b-r** / **E89b-r2** (⏸️ *"written, builds, and is NOT in the tree"*) | same file | ⛔ gone |
+| **§A.56 part 2** | `/tmp/A56-partial.patch` | ⛔ gone — **and this row already records the loss**, which is how we know the failure mode was understood and then repeated |
+| **open33** working list | `scratchpad/open33.txt` | ⛔ gone |
+
+**Searched every surviving session scratchpad (14 of them) and `/tmp`: zero hits for all of them.**
+
+⚠️ **THIS IS THE SAME FAILURE AS §E194 WITH A DIFFERENT STORAGE MEDIUM.** There, work lived on a
+branch that was deleted; here it lives in a per-session temp directory that does not outlive the
+session. **Both look preserved from inside the row that cites them.** §A.56's row states the lesson
+outright — *"`/tmp` does not survive a reboot and the file is gone"* — and five later rows made the
+same bet anyway.
+
+⇒ **THE REASONING IN THOSE ROWS SURVIVES AND IS THE VALUABLE HALF** — E89b even carries its own
+falsification (*"there is evidence it may break two solvency sims"*). **The CODE must be rewritten
+from the row, not recovered.** Do not plan on opening those files.
+
+⇒ **AND THE RULE THAT FOLLOWS: a working copy is not a location, it is a COMMIT.** If a change is
+worth a row, it is worth a branch or a tag — `rescue/E194-rover-open-14-18` cost one command. **A
+citation to a path outside the repository is a promise the repository cannot keep.**
+
+🔴 **E89b IS THE URGENT ONE, because its row says the regression it fixes is LIVE:** *"I INTRODUCED A
+REGRESSION IN E89 AND IT IS STILL LIVE IN MAIN: THE E53 AMPLIFIER NOW MULTIPLIES THE BASE."* The fix
+is gone; the defect is not. **That is an open money-path bug with its remedy deleted.**
+
+⚠️ Also spotted while searching, and NOT mine to touch: two uncommitted test files sit in another
+session's scratchpad — `AaveReserveHealthKey.t.sol` and `VaultHealthOnTraffic.t.sol` — plus a stash
+`stash@{0}: On (no branch): ladder-complete + vault fixture` that appeared during this session. **Same
+exposure, different owner.**
+
+---
+
 
 # PART B — session `391df7b6` (the Bitcoin / secp256k1 thread)
 
