@@ -384,6 +384,75 @@ rather than from the tree will re-open finished work and under-report the one ga
 
 ---
 
+## 14. 🔴🔴 THE BRANCH CLEANUP LOST HALF A COMMIT — RESCUED, NOT YET RESOLVED
+
+**Found 2026-08-17 while auditing every open `QUEUE.md` row. This is the one item in this document
+that is a LIVE RISK created BY this thread rather than merely left open by it.**
+
+This thread deleted every branch and backup after *"verifying the content landed"*. **That check was
+run per BRANCH and the loss was per FILE-KIND.** `origin/worktree-rover-weeth-ship-decision` held
+three hand-authored commits (`288b9f2`, `f6c3a9f`, `61b1fbc` — §E194). After deletion they were
+reachable from **no branch and no remote**, and are **not ancestors of `origin/main`**: unreferenced
+objects, one `git gc` from gone.
+
+▶️ **RESCUED: pushed as the tag `rescue/E194-rover-open-14-18`**, verified on the remote, all three
+reachable. **Do not delete that tag until the question below is answered.**
+
+**Why the original check passed anyway:**
+
+| half of `61b1fbc` | landed? |
+|---|---|
+| the **doc** half — `OPEN 14`…`OPEN 18` | ✅ all five present in `main`'s `QUEUE.md` |
+| the **code** half — `evm/src/imports/SwapLib.sol` | ⛔ **never landed** |
+
+The code half halved `BAND_FRAC_WAD`: *"IT IS HALF THE BAND WIDTH, NOT THE WIDTH … it credited twice
+what the band can actually charge and made the skew **UNDER-collect by ~10bps on every trade above
+the band**"* — carrying the derivation that average execution across a traversal is the **geometric
+mean** of pre- and post-trade marginal price, `1 − (P_a/P_b)^(1/4) ≈ δ/2`, control-validated against
+the v3 whitepaper's own 200× and 2000× capital-efficiency figures.
+
+⚠️ **`BAND_FRAC_WAD` DOES NOT EXIST ON `main`.** `8dc68cf0` rebuilt the well skew, `29f0cb01`
+reverted that rebuild to the known-green state, and the constant left with it. ⇒ **DO NOT RE-APPLY
+THE DIFF** — it patches something that is gone.
+
+🔴 **THE SURVIVING QUESTION IS A MONEY-PATH ONE:** does today's skew formula credit the swapper for
+band slippage at all — and if it does, does it credit the **full width** (the ~10bps under-collection
+this commit found) or the **half**? Re-derive against the current formula; do not assume the revert
+carried the correction with it.
+
+⇒ **THE TRANSFERABLE RULE: "the content landed" must be verified PER FILE-KIND, NOT PER COMMIT.** A
+commit touching docs *and* code can have its docs arrive through somebody's later edit while its code
+never does — and grepping for the prose finds precisely the half that survived, which is what makes
+the check feel conclusive when it is not.
+
+---
+
+## 15. THE QUEUE AUDIT — 165 open rows, mechanically scored
+
+Every row in `QUEUE.md` carrying 🔴 / 🔴🔴 / 🟡 / 🟢 / ⏸️ was extracted (**165 of 663 row-shaped
+lines**), its backticked symbols and paths pulled out, and each tested against a set of **31,430
+distinct identifiers** built from `evm/src`, `evm/script`, `evm/test`, `quid-ln`, `tools` and
+`spa/src`. A row every one of whose cited symbols has vanished is a row about deleted code.
+
+**Result: the queue is largely honest — only two rows were stale-open, and both for the same reason.**
+
+- **§E109** and **§E116** → ⛔. Both are about `AttestedHopRegistry`; `812e6822` (*"Attestation is
+  fully phased out"*) deleted the contract, and `setMrenclave`, `revokeHop`, `expectedMrenclave`,
+  `hopMrenclave`, `setHopRegistry`, `onlyGovernance` now return **zero hits** repo-wide. ⚠️ **The
+  governance question underneath them did not die with the contract** — if enclave identity is pinned
+  anywhere today, *"can one compromised key change which code is trusted, in one tx, with no
+  timelock?"* moved with it. Booked at §E238-scan, which is the open reconciliation with §E111.
+- **§E194** → the rescue above.
+
+⚠️ **WHAT THIS METHOD CANNOT DO, stated so the number is not over-read.** Symbol-existence closes a
+row only when the row is *about a symbol*. Rows about a **behaviour**, a **measurement**, or a
+**decision** cite live code and score "still open" whether or not the work is done — so **165 minus
+these is not "163 confirmed open"**, it is "163 not closable by this test". The false-positive
+direction was checked too: most flagged tokens were commit SHAs, `file:line` fragments, `T/4`, and
+gitignored paths like `evm/.env` — noise, not deletions.
+
+---
+
 # PART B — session `391df7b6` (the Bitcoin / secp256k1 thread)
 
 **Ordered by what it protects, not by how nearly finished it is.** Item 1 is worth more than
