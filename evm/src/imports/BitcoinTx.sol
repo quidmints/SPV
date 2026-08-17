@@ -23,7 +23,7 @@ library BitcoinTx {
     // ─── txid + byte-order ─────────────────────────────────────────────
 
     /// @dev Compute the Bitcoin txid from raw legacy-serialized tx bytes.
-    function txid(bytes calldata rawLegacy) internal pure returns (bytes32) {
+    function txid(bytes calldata rawLegacy) public pure returns (bytes32) {
         return sha256(abi.encodePacked(sha256(rawLegacy)));
     }
 
@@ -82,14 +82,14 @@ library BitcoinTx {
     }
 
     /// @dev Number of inputs (the input-count varint following the 4-byte version).
-    function inputCount(bytes calldata raw) internal pure returns (uint count) {
+    function inputCount(bytes calldata raw) public pure returns (uint count) {
         _assertLegacy(raw);
         (count, ) = readVarInt(raw, 4);
     }
 
     /// @dev Extract input[i].prev_outpoint = (hash, index).
     function extractInputPrevOutpoint(bytes calldata raw, uint inputIndex)
-        internal pure returns (bytes32 hash, uint32 vout)
+        public pure returns (bytes32 hash, uint32 vout)
     {
         _assertLegacy(raw);
         uint offset = 4;  // skip version
@@ -111,14 +111,14 @@ library BitcoinTx {
     }
 
     /// @dev Extract the locktime (last 4 bytes, little-endian).
-    function extractLocktime(bytes calldata raw) internal pure returns (uint32 locktime) {
+    function extractLocktime(bytes calldata raw) public pure returns (uint32 locktime) {
         if (raw.length < 4) revert TruncatedTx();
         locktime = uint32(_readLE(raw, raw.length - 4, 4));
     }
 
     /// @dev Extract input[0]'s nSequence (the 4 LE bytes after the first input's
     ///      36-byte outpoint + its script_sig).
-    function extractInput0Sequence(bytes calldata raw) internal pure returns (uint32 seq) {
+    function extractInput0Sequence(bytes calldata raw) public pure returns (uint32 seq) {
         _assertLegacy(raw);
         uint offset = 4; // skip version
         (uint inputCount, uint consumed) = readVarInt(raw, offset);
@@ -141,7 +141,7 @@ library BitcoinTx {
     ///      force-retire gated on it cannot be abused by replaying a splice/coop/
     ///      deliver tx to retire a LIVE channel. (A force-close commitment tx is
     ///      public on-chain once broadcast, so any keeper can prove it.)
-    function isCommitmentTx(bytes calldata raw) internal pure returns (bool) {
+    function isCommitmentTx(bytes calldata raw) public pure returns (bool) {
         return (extractLocktime(raw) >> 24) == 0x20
             && (extractInput0Sequence(raw) >> 24) == 0x80;
     }
@@ -158,7 +158,7 @@ library BitcoinTx {
     function sumOutputValuesToScript(
         bytes calldata raw,
         bytes memory spk
-    ) internal pure returns (uint satoshis) {
+    ) public pure returns (uint satoshis) {
         uint offset = _skipInputs(raw);
         (uint outputCount, uint consumed) = readVarInt(raw, offset);
         offset += consumed;
@@ -192,7 +192,7 @@ library BitcoinTx {
         bytes calldata raw,
         uint32 exceptVout,
         bytes memory spk
-    ) internal pure returns (uint satoshis) {
+    ) public pure returns (uint satoshis) {
         uint offset = _skipInputs(raw);
         (uint outputCount, uint consumed) = readVarInt(raw, offset);
         offset += consumed;
@@ -234,7 +234,7 @@ library BitcoinTx {
     function findOutputByScript(
         bytes calldata raw,
         bytes memory expectedScriptPubKey
-    ) internal pure returns (uint32 vout, uint satoshis) {
+    ) public pure returns (uint32 vout, uint satoshis) {
         uint offset = _skipInputs(raw);
         (uint outputCount, uint consumed) = readVarInt(raw, offset);
         offset += consumed;
@@ -286,7 +286,7 @@ library BitcoinTx {
     ///      A key-path close carries only a 64-byte Schnorr sig (no witnessScript),
     ///      so the funding output can only ever be identified by this scriptPubKey,
     ///      never by reconstructing a redeem script from a spend witness.
-    function buildTaprootScriptPubKey(bytes32 q) internal pure returns (bytes memory) {
+    function buildTaprootScriptPubKey(bytes32 q) public pure returns (bytes memory) {
         // OP_1 PUSH32 <32-byte x-only Q>.
         return abi.encodePacked(hex"5120", q);
     }
@@ -333,7 +333,7 @@ library BitcoinTx {
     ///         `y = (x³+7)^((p+1)/4)`, and verify `y² == x³+7`. The verification is what makes
     ///         it a decision rather than a guess — for a non-residue the exponentiation still
     ///         returns a value, it just does not square back.
-    function isValidXOnlyKey(bytes32 xOnly) internal pure returns (bool) {
+    function isValidXOnlyKey(bytes32 xOnly) public pure returns (bool) {
         uint256 x = uint256(xOnly);
         if (x == 0 || x >= FIELD_SIZE) return false;
         uint256 ySq = addmod(mulmod(mulmod(x, x, FIELD_SIZE), x, FIELD_SIZE), 7, FIELD_SIZE);
