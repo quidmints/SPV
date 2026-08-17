@@ -202,9 +202,9 @@ pub async fn spawn_p2p_listener(
 /// cannot produce for itself.
 ///
 /// After §E175 the LP funding half lives on the LP's own box, so both fields are made
-/// there and relayed: `auth.lp_sig` signs `openAuthDigest`, and each `exits` rung is a
-/// pre-signed spend of the 2-of-2. A fleet that could construct these would, by
-/// definition, still hold the LP half.
+/// there and relayed: `auth.btc_recipient_pop` is a BIP-340 proof-of-possession over
+/// `btcRecipientPoPDigest(lpEth)`, and each `exits` rung is a pre-signed spend of the
+/// 2-of-2. A fleet that could construct these would, by definition, still hold the LP half.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LpConsent {
     pub auth: quid_hop::evm_codec::OpenAuth,
@@ -240,9 +240,16 @@ pub struct VaultRegistry {
     /// 🔑 **WHY THIS EXISTS AND WHY THE FLEET CANNOT SYNTHESISE IT.** §E157 deleted
     /// `registerDelegation` precisely so consent rides WITH the open instead of being
     /// pre-granted to the fleet, and §E165 made a pre-signed exit ladder mandatory at open.
-    /// `OpenAuth.lp_sig` is the LP's signature over `openAuthDigest`, and the ladder rungs
-    /// are spends of the 2-of-2 — **both require the LP funding half, which after §E175 the
-    /// fleet does not have.** So the fleet RELAYS consent; it never manufactures it.
+    /// `OpenAuth.btc_recipient_pop` is the LP's BIP-340 proof-of-possession, and the ladder
+    /// rungs are spends of the 2-of-2 — **both require the LP funding half, which after §E175
+    /// the fleet does not have.** So the fleet RELAYS consent; it never manufactures it.
+    ///
+    /// ⚠️ This said `OpenAuth.lp_sig ... over openAuthDigest` until §E183 item 1 deleted that
+    /// field. The CLAIM survived the deletion unchanged and is still true — consent is still
+    /// unforgeable without the LP half — but the WITNESS moved, from an ECDSA signature over
+    /// an EVM digest to a Schnorr PoP, because `lpEth` is now DERIVED from `lpPubkey` on chain
+    /// rather than asserted next to a signature. A right conclusion resting on a deleted
+    /// mechanism is the shape that reads as verified and is not.
     ///
     /// ⚠️ Same lifecycle as `by_funding`: only IN-FLIGHT opens AND SPLICES (§E233-ladder — a splice's
     /// rotated outpoint needs its own fresh ladder, and it binds here under the same
@@ -1116,13 +1123,17 @@ mod tests {
 mod e166_consent_tests {
     use super::*;
 
-    fn a_consent(sig_byte: u8) -> LpConsent {
+    /// ⚠️ The varying field is the **PoP**, because after §E183 that is the only thing in an
+    /// `OpenAuth` the LP signs. It used to be `lp_sig`, an ECDSA signature over an EVM digest;
+    /// that field is gone precisely because the LP now signs NOTHING on the EVM side — its
+    /// address is DERIVED from `lpPubkey` on chain rather than asserted alongside a signature.
+    /// So a "conflicting consent" is now a conflicting BIP-340 proof-of-possession, which is
+    /// the authorisation that actually exists. Same test, current binding.
+    fn a_consent(pop_byte: u8) -> LpConsent {
         LpConsent {
             auth: quid_hop::evm_codec::OpenAuth {
-                lp_eth: Address::repeat_byte(0xCC),
                 btc_recipient: [0x11u8; 32],
-                lp_sig: vec![sig_byte; 65],
-                btc_recipient_pop: vec![0x33u8; 64],
+                btc_recipient_pop: vec![pop_byte; 64],
             },
             exits: vec![quid_hop::evm_codec::ExitArming {
                 cltv_deadline: 800_000,
@@ -1154,7 +1165,7 @@ mod e166_consent_tests {
         assert!(r.bind_consent("aa", 0, a_consent(0x22)), "identical re-bind is a no-op");
         assert!(!r.bind_consent("aa", 0, a_consent(0x99)),
                 "a CONFLICTING consent must be refused, not swapped in");
-        assert_eq!(r.consent_for_funding("aa", 0).unwrap().auth.lp_sig, vec![0x22u8; 65],
+        assert_eq!(r.consent_for_funding("aa", 0).unwrap().auth.btc_recipient_pop, vec![0x22u8; 64],
                    "the original consent survives");
     }
 
