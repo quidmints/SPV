@@ -549,7 +549,7 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLev
     async fn rebalance_many(&self, lps: &[LpAddr]) -> anyhow::Result<()> {
         let (evm, lm, gas, lps) = (self.evm.clone(), self.lev_manager, self.gas_limit, lps.to_vec());
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
-            evm.send_tx(lm, encode_batch("rebalanceMany(address[],uint256[])", &lps), batch_gas(gas, lps.len()))?;
+            evm.send_tx(lm, encode_batch("rebalanceMany(address[],uint256[],bytes[])", &lps), batch_gas(gas, lps.len()))?;
             Ok(())
         })
         .await?
@@ -662,15 +662,40 @@ fn batch_gas(per_lp: u64, n: usize) -> u64 {
 
 /// ABI-encode a `fn(address[] lps, uint256[] minOuts)` batch with `minOuts` all 0 (the contract's oracle floor
 /// protects each swap). Shared by `cascadeDelever` + `rebalanceMany` — same two-dynamic-array shape.
+/// §V-R1 — `rebalanceMany(address[],uint256[],bytes[])`. THREE dynamic arrays now, and the third is
+/// an array of BYTES, which nests one level deeper than the other two.
+///
+/// LAYOUT, written out because an offset error here does not revert — the callee reads a length from
+/// whatever word the offset lands on and fails somewhere unrelated:
+///   head:  [off_lps] [off_minOuts] [off_routes]                      (3 words)
+///   lps:      [n] [addr]*n
+///   minOuts:  [n] [0]*n
+///   routes:   [n] [off_0 .. off_{n-1}] [len_0] .. [len_{n-1}]
+/// For an EMPTY route each element is just a length word of 0, and element offsets are measured
+/// FROM THE START OF THE ROUTES BLOCK (not from the argument block) — that relative base is the part
+/// that is easy to get wrong when nesting.
+///
+/// ⚠️ ALL ROUTES ARE EMPTY HERE. That is not a placeholder that "works for now": an empty route makes
+/// `_aggSwap` revert `NoVolatileRoute`, so a batch rebalance cannot execute a swap until the quote
+/// fetch lands (§E248). It is encoded correctly so the SHAPE is right and only the CONTENT is
+/// missing — which is what lets the fetch be added without touching this encoder.
 fn encode_batch(sig: &str, lps: &[LpAddr]) -> Vec<u8> {
     let n = lps.len() as u64;
     let mut d = selector4(sig);
-    d.extend_from_slice(&u64_word(0x40)); // offset to lps (after the 2 head words)
-    d.extend_from_slice(&u64_word(0x40 + 32 * (1 + n))); // offset to minOuts (after lps: len + n elems)
+    let off_lps     = 3 * 32u64;                       // after the 3 head words
+    let off_minouts = off_lps + 32 * (1 + n);          // after lps: len + n elems
+    let off_routes  = off_minouts + 32 * (1 + n);      // after minOuts: len + n elems
+    d.extend_from_slice(&u64_word(off_lps));
+    d.extend_from_slice(&u64_word(off_minouts));
+    d.extend_from_slice(&u64_word(off_routes));
     d.extend_from_slice(&u64_word(n));
     for lp in lps { d.extend_from_slice(&addr_word(*lp)); }
     d.extend_from_slice(&u64_word(n));
     for _ in 0..n { d.extend_from_slice(&u64_word(0)); }
+    // routes: length, then n element-offsets (relative to the routes block), then n empty lengths
+    d.extend_from_slice(&u64_word(n));
+    for i in 0..n { d.extend_from_slice(&u64_word(32 * (n + i))); }   // head of routes = n offset words
+    for _ in 0..n { d.extend_from_slice(&u64_word(0)); }              // each element: length 0, no data
     d
 }
 
