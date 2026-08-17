@@ -94,14 +94,32 @@ interface ICurvePool {
 // The ORDERING was read from the chain, not assumed — a wrong index swaps the wrong pair at size and
 // there is no id to assert against, unlike the Morpho markets.
 // (Plain `//`, not NatSpec — solc rejects @notice/@dev on file-level variables.)
-// §V-R1 — 1inch AggregationRouterV6. VERIFIED LIVE 2026-08-16 (codesize 24,294).
-// ⚠️ PINNED AS A CONSTANT, NEVER A PARAMETER. The route bytes are supplied by the CALLER and
-// `rebalance` is permissionless, so the destination is the one thing that must not be caller-
-// controlled: with the address fixed, hostile calldata can only mis-route WITHIN the router, and the
-// balance-delta floor catches that. A caller-supplied target would let it call anything.
-// (`//` not `///`: natspec on a file-level constant is a compile ERROR — the same trap the `USDC`
-//  constant below already records. I walked into it anyway.)
-address constant AGG_ROUTER_V6 = 0x111111125421cA6dc452d289314280a0f8842A65;
+// §V-R1-MIN — THE VOLATILE VENUE, PINNED ON-CHAIN. Uniswap V3 SwapRouter02.
+// MEASURED 2026-08-17, which is the whole argument for choosing these over TriCrypto:
+//     USDC/WETH 0.05%  32,497 WETH + 36.9M USDC   — 46x TriCrypto's 698 WETH
+//     WBTC/USDC 0.30%   262.9 WBTC + 10.3M USDC   — 12.7x TriCrypto's 20.72 WBTC
+// TriCrypto was removed because BOTH legs breached the 1% floor between $10k and $25k. That was a
+// DEPTH problem, and a deeper pool solves it. It did NOT require an aggregator.
+//
+// ⚠️ WHY PINNED AND NOT AGGREGATED — THIS IS A KEEPER-SCOPE DECISION, NOT A ROUTING PREFERENCE.
+// 1inch resolves routes OFF-CHAIN, so routing through it forces a `bytes route` argument, which
+// forces the KEEPER to run an HTTP client, hold API access, handle quote staleness, and choose the
+// execution path. That moves the keeper from "picks WHEN" to "picks HOW", and every one of those is
+// a new moving part that can fail independently of the chain. A pinned pool needs none of it: the
+// keeper passes NOTHING and its entire role stays "decide the moment".
+// ⇒ The cost of pinning is that a pinned pool can be thin at size. The measurement above is what
+// makes that acceptable HERE and it is what must be re-checked before trusting this again.
+address constant V3_SWAP_ROUTER = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45;
+uint24  constant V3_FEE_WETH    = 500;    // USDC/WETH 0.05%
+uint24  constant V3_FEE_WBTC    = 3000;   // WBTC/USDC 0.30%
+
+interface IV3Router {
+    struct ExactInputSingleParams {
+        address tokenIn; address tokenOut; uint24 fee; address recipient;
+        uint256 amountIn; uint256 amountOutMinimum; uint160 sqrtPriceLimitX96;
+    }
+    function exactInputSingle(ExactInputSingleParams calldata p) external payable returns (uint256);
+}
 
 // §E240-tri — TriCrypto's POOL ADDRESS and its three coin indices are DELETED with the four legs
 // that used them. It held 698 WETH / 20.72 WBTC, so BOTH legs breached the 1% floor between $10k and

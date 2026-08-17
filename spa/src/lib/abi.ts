@@ -289,10 +289,7 @@ export const LEV_MANAGER_ABI = [
   //    with `collWeeth` of the venue's collateral (weETH or WETH) already approved+pulled; the keeper then levers
   //    it to the LP's cap as the band sells. setTargetLtv picks the leverage level (≤ TARGET_LTV_CAP_BPS; 5000 =
   //    2× IL-neutral, higher = opt-in directional). closeLev fully unwinds (short first, then long) back to the LP.
-  // §V-R1 — gained a trailing `bytes route`: 1inch resolves routes off-chain, so the calldata cannot
-  // be computed on-chain. An EMPTY route is legal and means "no aggregator hop"; any path that
-  // actually swaps reverts `NoVolatileRoute` until the quote fetch lands (§E248).
-  'function openLev(uint64 targetLtvBps, address venue, uint256 collWeeth, uint256[] minWethOut, bytes route)',
+  'function openLev(uint64 targetLtvBps, address venue, uint256 collWeeth, uint256[] minWethOut)',
   'function setTargetLtv(uint64 capBps)',
   'function closeLev(uint256 minOut)',
 ] as const

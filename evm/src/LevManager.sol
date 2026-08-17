@@ -290,8 +290,7 @@ contract LevManager is LevBase {
     ///         equity; the loop borrows the venue stable, buys weETH via Curve + the converter, and supplies it
     ///         back until LTV reaches `targetLtvBps`. `minWethOut[i]` bounds each loop's stable→WETH swap
     ///         (off-chain quoted). `targetLtvBps` must sit inside `[1, TARGET_LTV_CAP_BPS]` (7500 bps = 75% LTV → up to ~4×).
-    function openLev(uint64 targetLtvBps, ILevVenue venue, uint256 collWeeth, uint256[] calldata minWethOut,
-                     bytes calldata route)
+    function openLev(uint64 targetLtvBps, ILevVenue venue, uint256 collWeeth, uint256[] calldata minWethOut)
         external nonReentrant
     {
         if (pos[msg.sender].open) revert AlreadyOpen();
@@ -327,7 +326,7 @@ contract LevManager is LevBase {
             (bool levUp, uint256 needUsd) = debtDeltaToTarget(msg.sender);
             if (!levUp || needUsd == 0) break;
             uint256 minOut = i < minWethOut.length ? minWethOut[i] : 0;
-            _leverUpBuy(venue, msg.sender, stable, needUsd, minOut, route);
+            _leverUpBuy(venue, msg.sender, stable, needUsd, minOut);
         }
         // No MIN-debt floor: the corrected design opens at ZERO leverage (IL target = 0 at entry) and levers
         // up only as the band sells. The MAX bound is the per-position LTV cap (≤ 7500 bps ≈ 4×), enforced by the target.
@@ -343,25 +342,21 @@ contract LevManager is LevBase {
     ///         liquidation-avoidance): withdraw weETH→sell→repay. `minOut` bounds the single swap this call
     ///         performs (off-chain quoted by the keeper). Permissionless: only moves toward target.
     /// PERMISSIONLESS single-LP rebalance toward the IL target. Sets `_activeKeeper` so the flash reimburses the caller.
-    /// @param route §V-R1 — the keeper's off-chain 1inch calldata. UNTRUSTED by construction: the
-    ///        router address is pinned, the allowance is exact and zeroed, and the result is checked
-    ///        against a MEASURED balance delta floored at the oracle. Caller picks WHEN, not the price.
-    function rebalance(address lp, uint256 minOut, bytes calldata route) external nonReentrant {
+    function rebalance(address lp, uint256 minOut) external nonReentrant {
         _activeKeeper = msg.sender;
-        _rebalanceBody(lp, minOut, route);
+        _rebalanceBody(lp, minOut);
     }
 
     /// @notice BATCH rebalance — hold every out-of-band LP at its IL target in ONE tx (mirrors `cascadeDelever`),
     ///         FAULT-TOLERANT: an LP whose rebalance reverts is SKIPPED (emit `RebalanceFailed`) and the loop
     ///         continues. PERMISSIONLESS + only moves toward target. Lets the keeper fire ONE tx for the whole book
     ///         instead of N per-LP txs — the central-rebalancer path.
-    function rebalanceMany(address[] calldata lps, uint256[] calldata minOuts, bytes[] calldata routes) external nonReentrant {
+    function rebalanceMany(address[] calldata lps, uint256[] calldata minOuts) external nonReentrant {
         if (lps.length != minOuts.length) revert LenMismatch();
         _activeKeeper = msg.sender;              // set ONCE for the batch (transient; each rebalanceOne's flash reads it)
         for (uint256 i; i < lps.length; i++) {
             if (!pos[lps[i]].open) continue;
-            try this.rebalanceOne(lps[i], minOuts[i], routes[i]) {}   // §V-R1 — one route PER LP: each
-            //   swap is a different size and pair, so a shared route would be wrong for all but one.
+            try this.rebalanceOne(lps[i], minOuts[i]) {}
             catch { emit RebalanceFailed(lps[i], getCurrentLtvBps(lps[i])); }
         }
     }
@@ -370,15 +365,12 @@ contract LevManager is LevBase {
     ///         permissionless entries are `rebalance`/`rebalanceMany`. NO `nonReentrant` (the entrypoint holds the
     ///         guard); `_activeKeeper` is set by that entrypoint before the loop, so the flash-callback
     ///         reimbursement still targets the real keeper.
-    function rebalanceOne(address lp, uint256 minOut, bytes calldata route) external {
+    function rebalanceOne(address lp, uint256 minOut) external {
         if (msg.sender != address(this) && msg.sender != lp) revert Auth();
-        _rebalanceBody(lp, minOut, route);
+        _rebalanceBody(lp, minOut);
     }
 
-    /// §V-R1 — `route` is the keeper's 1inch calldata; see `LevMath._aggSwap` for why it is safe
-    /// to accept from an untrusted caller (pinned target, exact+zeroed allowance, oracle-floored
-    /// balance-delta check). Empty route is legal for paths that need no aggregator hop.
-    function _rebalanceBody(address lp, uint256 minOut, bytes memory route) internal {
+    function _rebalanceBody(address lp, uint256 minOut) internal {
         if (!pos[lp].open) revert NotOpen();
         _reanchorIfReseated(lp);                 // (B) realize + re-anchor E0/entryPrice if the band recentered
         ILevVenue venue = pos[lp].venue;
@@ -390,7 +382,7 @@ contract LevManager is LevBase {
         // function is the only remaining reason there is no early return.)
         if (deltaUsd != 0) {
             if (levUp) {
-                _leverUpBuy(venue, lp, stable, deltaUsd, minOut, route);
+                _leverUpBuy(venue, lp, stable, deltaUsd, minOut);
             } else {
                 // Flash-repay-first: `deleverRepayUsd` is the closed-form `Δ/(1−t)`, so one flash lands on target
                 // with NO withdraw-before-repay health breach. (It used to also return 0 while a SHORT was open,
@@ -544,7 +536,7 @@ contract LevManager is LevBase {
     function _extractCfg() internal view returns (LevMath.ExtractCfg memory) {
         return LevMath.ExtractCfg({ weth: WETH, weeth: address(WEETH), aux: address(AUX),
             flashProvider: flashProvider, keeper: _activeKeeper, gasReserve: gasReserve,
-            maxSlippageBps: uint16(MAX_SLIPPAGE_BPS) , route: ""});
+            maxSlippageBps: uint16(MAX_SLIPPAGE_BPS) });
     }
 
     /// @notice §G.3 REDEEM/SWAP-OUT value-neutral extraction: free up to `extractUsd` (USD 1e18) of THIS LP's
@@ -704,19 +696,15 @@ contract LevManager is LevBase {
     /// The ETH sell/buy machinery lives in LevMath now (delegatecall, bytecode OUTSIDE this contract, so the
     /// manager fits EIP-170). This builds the context it needs: the manager's runtime addresses + the crank keeper
     /// + the live WETH gas-reserve (threaded in, returned updated).
-    /// @dev §V-R1 — `route` is the 1inch calldata, threaded through the ctx rather than added to six
-    ///      signatures. An EMPTY route is legal and means "no aggregator hop needed" — the only path
-    ///      that reaches `_aggSwap` with one would revert `NoVolatileRoute`, which is the correct
-    ///      answer for a caller that forgot to fetch a quote.
-    function _sellCtx(address keeper, bytes memory route) internal view returns (LevMath.SellCtx memory) {
-        return LevMath.SellCtx({ weth: WETH, weeth: address(WEETH), aux: address(AUX), keeper: keeper, reserveIn: gasReserve, route: route });
+    function _sellCtx(address keeper) internal view returns (LevMath.SellCtx memory) {
+        return LevMath.SellCtx({ weth: WETH, weeth: address(WEETH), aux: address(AUX), keeper: keeper, reserveIn: gasReserve });
     }
 
     /// Lever-UP BUY (own frame, no via_ir): borrow `usd` stable, swap → collateral (LevMath.stableToColl), supply
     /// it to the venue for `who`. Shared by openLev's ladder + rebalance's up-leg (dedup).
-    function _leverUpBuy(ILevVenue venue, address who, address stable, uint256 usd, uint256 minOut, bytes memory route) internal {
+    function _leverUpBuy(ILevVenue venue, address who, address stable, uint256 usd, uint256 minOut) internal {
         uint256 coll = LevMath.stableToColl(
-            _sellCtx(address(0), route), stable, venue.borrow(who, LevMath._fromUsd(address(AUX),stable, usd)), minOut);
+            _sellCtx(address(0)), stable, venue.borrow(who, LevMath._fromUsd(address(AUX),stable, usd)), minOut);
         IERC20Min(_collToken(venue)).transfer(address(venue), coll);
         venue.supply(who, coll);
     }

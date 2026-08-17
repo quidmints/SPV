@@ -48,15 +48,7 @@ const HOP_SIGNED_FN_SIGS: &[&str] = &[
     // --- SPV gateway ---
     "addBlockHeaderBatch(bytes[])",
     // --- ETH leverage keeper (LevManager / Vogue / Rover) ---
-    // §V-R1 — WAS `rebalance(address,uint256)`. The signature gained a trailing `bytes route` when
-    // the lever legs moved to the 1inch aggregator, so the old selector 0x3da9b9d0 is unroutable and
-    // the new one is 0xbbcbafd1.
-    // ⚠️ THIS ENTRY AND THE KEEPER'S BUILDER MUST MOVE TOGETHER — the exact §E237 failure from the
-    // `syncLevBTC` rename earlier today: an allowlist naming the OLD selector while the keeper sends
-    // the NEW one makes the enclave REFUSE every rebalance, and the reverse authorises a selector no
-    // contract declares. Both halves are in this same commit for that reason.
-    "rebalance(address,uint256,bytes)",
-    "rebalanceWbtc(address,uint256,bytes)",
+    "rebalance(address,uint256)",
     "syncLev(address)",
     "protectFromQuid(address,uint256)",
     // (2026-08-15) `repackNFT()` was here and is DELETED. It was the only entry in this

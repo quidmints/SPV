@@ -21,7 +21,7 @@
 //! de-lever `warn!`s loudly (the position falls to the venue's OWN isolated liquidation — that LP only, never
 //! the basket).
 
-use crate::abi::{addr_word, bytes_tail, selector4, u64_word, word_to_lpaddr};
+use crate::abi::{addr_word, selector4, u64_word, word_to_lpaddr};
 use crate::lev_keeper::{
     decide, out_of_band, DwellTracker, KeeperAction, LevKeeperConfig, LpAddr, PositionView,
 };
@@ -412,14 +412,9 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> BtcLevKeeperEvm for Daemon
         // `debtDeltaToTarget`; a revert is fail-safe (retried next tick).
         let (evm, bm, gas) = (self.evm.clone(), self.btc_lev_manager, self.gas_limit);
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
-            // §V-R1 — trailing `bytes route`; see `lev_keeper.rs` for why an empty route reverts.
-            let route: Vec<u8> = Vec::new();
-            let (off, tail) = bytes_tail(3, &route);
-            let mut d = selector4("rebalanceWbtc(address,uint256,bytes)");
+            let mut d = selector4("rebalanceWbtc(address,uint256)");
             d.extend_from_slice(&addr_word(lp));
             d.extend_from_slice(&[0u8; 32]);   // minStableOut = 0 (contract floors against the oracle)
-            d.extend_from_slice(&off);
-            d.extend_from_slice(&tail);
             evm.send_tx(bm, d, gas)?;
             Ok(())
         })

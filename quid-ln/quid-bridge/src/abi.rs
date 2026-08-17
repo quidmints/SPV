@@ -65,32 +65,3 @@ pub fn word_to_uint<T: TryFrom<U256>>(bytes: &[u8], what: &str) -> anyhow::Resul
         .try_into()
         .map_err(|_| anyhow::anyhow!("{what} (adversarial RPC?)"))
 }
-
-/// §V-R1 — ABI-encode a trailing dynamic `bytes` argument.
-///
-/// A `bytes` parameter is NOT inline: the head carries a 32-byte OFFSET to where the data begins
-/// (measured from the start of the argument block, not from the selector), and the tail carries a
-/// 32-byte LENGTH followed by the payload right-padded to a 32-byte boundary.
-///
-/// ⚠️ THE OFFSET IS THE PART THAT IS EASY TO GET WRONG AND HARD TO NOTICE. It counts the HEAD words
-/// only. For `f(address,uint256,bytes)` the head is 3 words, so the offset is 0x60 — not 0x40 (which
-/// would point at the third head slot) and not the byte length of anything. An off-by-one-word offset
-/// does not revert: the callee reads a length from whatever word the offset lands on, and either
-/// decodes garbage or reverts far downstream with an unrelated message.
-///
-/// `head_words` is therefore passed EXPLICITLY rather than inferred: the caller knows its own
-/// signature and a wrong value here is a silent mis-encode.
-pub fn bytes_tail(head_words: usize, data: &[u8]) -> (Vec<u8>, Vec<u8>) {
-    let mut offset = [0u8; 32];
-    let off = (head_words * 32) as u64;
-    offset[24..].copy_from_slice(&off.to_be_bytes());
-
-    let mut tail = Vec::with_capacity(32 + data.len() + 31);
-    let mut len = [0u8; 32];
-    len[24..].copy_from_slice(&(data.len() as u64).to_be_bytes());
-    tail.extend_from_slice(&len);
-    tail.extend_from_slice(data);
-    let pad = (32 - (data.len() % 32)) % 32;      // right-pad to a word boundary; 0 when already aligned
-    tail.extend(std::iter::repeat(0u8).take(pad));
-    (offset.to_vec(), tail)
-}

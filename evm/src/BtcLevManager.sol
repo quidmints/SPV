@@ -253,10 +253,7 @@ contract BtcLevManager is LevBase {
     // venues — Morpho vBTC and AaveV3 WBTC. Euler and Aave-v4 borrowing were REMOVED.
 
     /// @notice Atomic rebalance toward the IL target for a WBTC-collateral position (native vBTC uses the async legs).
-    /// @param route §V-R1 — 1inch calldata the keeper fetched off-chain. UNTRUSTED: the router address
-    ///        is pinned, the allowance is exact and zeroed, and the outcome is checked against a
-    ///        MEASURED balance delta floored at the oracle. The caller picks WHEN, never the price.
-    function rebalanceWbtc(address lp, uint minOut, bytes calldata route) external nonReentrant {
+    function rebalanceWbtc(address lp, uint minOut) external nonReentrant {
         _reanchorIfReseated(lp);                                          // (B) realize + re-anchor on a band reseat
         Types.Pos memory p = pos[lp];
         if (!p.open) revert NotOpen();
@@ -265,9 +262,9 @@ contract BtcLevManager is LevBase {
         address stable = p.venue.stable();
         (bool levUp, uint deltaUsd) = debtDeltaToTarget(lp);             // deltaUsd = curDebt−targetDebt on the FIXED E0
         if (deltaUsd != 0) {
-            if (levUp) _leverUpBuyWbtc(p.venue, lp, stable, deltaUsd, minOut, route);
-            else if (flashProvider != address(0)) _flashDeleverWbtc(p.venue, lp, stable, deltaUsd, minOut, route); // repay-FIRST: always health-safe
-            else       _deleverWbtc(p.venue, lp, stable, deltaUsd, minOut, route);                                 // graceful fallback (no flash provider)
+            if (levUp) _leverUpBuyWbtc(p.venue, lp, stable, deltaUsd, minOut);
+            else if (flashProvider != address(0)) _flashDeleverWbtc(p.venue, lp, stable, deltaUsd, minOut); // repay-FIRST: always health-safe
+            else       _deleverWbtc(p.venue, lp, stable, deltaUsd, minOut);                                 // graceful fallback (no flash provider)
         }
         _syncBand(lp);
     }
@@ -280,20 +277,20 @@ contract BtcLevManager is LevBase {
     ///         and the loop continues; one stuck LP can NEVER block the rest (it falls to its venue's own isolated
     ///         liquidation). NOT `nonReentrant`: each `this.rebalanceWbtc` self-locks (mirrors ETH's cascade calling
     ///         the per-LP entry). Keeper ranks by LTV off-chain and supplies the descending list + per-position minOut.
-    function cascadeDeleverMany(address[] calldata lps, uint[] calldata minOuts, bytes[] calldata routes) external {
+    function cascadeDeleverMany(address[] calldata lps, uint[] calldata minOuts) external {
         require(lps.length == minOuts.length, "len");
         for (uint i; i < lps.length; i++) {
             address lp = lps[i];
             if (!pos[lp].open) continue;
-            try this.rebalanceWbtc(lp, minOuts[i], routes[i]) {}
+            try this.rebalanceWbtc(lp, minOuts[i]) {}
             catch { emit DeleverFailed(lp, getCurrentLtvBps(lp)); }
         }
     }
 
     /// @dev Lever-UP: borrow stable → Curve to WBTC → supply. EXACT 4-step custody of `LevManager._leverUpBuy`
     ///      (borrow→manager, swap→manager, manager→venue transfer, venue.supply→escrow), collateral = WBTC.
-    function _leverUpBuyWbtc(ILevVenue venue, address lp, address stable, uint usd, uint minOut, bytes memory route) internal {
-        (uint borrowed, uint wbtc) = LevMath.leverUpBuyWbtc(venue, lp, stable, usd, minOut, LevMath.WbtcCfg(address(AUX), WBTC, uint32(TWAP_WINDOW), uint16(MAX_SLIPPAGE_BPS), route));
+    function _leverUpBuyWbtc(ILevVenue venue, address lp, address stable, uint usd, uint minOut) internal {
+        (uint borrowed, uint wbtc) = LevMath.leverUpBuyWbtc(venue, lp, stable, usd, minOut, LevMath.WbtcCfg(address(AUX), WBTC, uint32(TWAP_WINDOW), uint16(MAX_SLIPPAGE_BPS)));
         if (borrowed > 0) { emit Borrowed(lp, borrowed); emit Supplied(lp, wbtc); }   // body + oracle floor in LevMath (EIP-170)
     }
 
@@ -301,22 +298,18 @@ contract BtcLevManager is LevBase {
     ///      DIRECT — health-safe at the low LTV the IL target holds (opens at 0, levers as IL accrues). A near-liq
     ///      flash-repay-first hardening (mirror `LevManager._deleverFlash`) is the follow-on if the venue's withdraw
     ///      LTV-gate ever blocks the pre-repay withdraw. Swap slippage ⇒ slightly under-target; next tick finishes.
-    function _deleverWbtc(ILevVenue venue, address lp, address stable, uint repayUsd, uint minOut, bytes memory route) internal {
-        (uint pulled, uint repaid) = LevMath.deleverWbtc(venue, lp, stable, repayUsd, minOut, LevMath.WbtcCfg(address(AUX), WBTC, uint32(TWAP_WINDOW), uint16(MAX_SLIPPAGE_BPS), route));
+    function _deleverWbtc(ILevVenue venue, address lp, address stable, uint repayUsd, uint minOut) internal {
+        (uint pulled, uint repaid) = LevMath.deleverWbtc(venue, lp, stable, repayUsd, minOut, LevMath.WbtcCfg(address(AUX), WBTC, uint32(TWAP_WINDOW), uint16(MAX_SLIPPAGE_BPS)));
         if (pulled > 0) { emit Withdrawn(lp, pulled); emit Repaid(lp, repaid); }       // body + oracle floor in LevMath (EIP-170)
     }
 
     /// @dev FLASH-repay-first de-lever: flash `repayUsd`-worth stable from the provider; the callback repays FIRST
     ///      (LTV drops ⇒ withdraw always health-safe — kills the direct path's near-liq wall), then withdraws freed
     ///      WBTC → Curve→stable → returns the flash + surplus. `repayUsd` (= deltaUsd) is already ≤ debt.
-    /// @dev §V-R1 — THE ROUTE RIDES INSIDE THE FLASH CALLBACK DATA. The aggregator call happens in
-    ///      `onMorphoFlashLoan`, one frame removed from the caller, so the calldata has to travel with
-    ///      the loan or the settle leg has no route. Encoded last so the existing 4 fields decode
-    ///      unchanged if anything else reads this payload positionally.
-    function _flashDeleverWbtc(ILevVenue venue, address lp, address stable, uint repayUsd, uint minOut, bytes memory route) internal {
+    function _flashDeleverWbtc(ILevVenue venue, address lp, address stable, uint repayUsd, uint minOut) internal {
         if (repayUsd == 0) return;
         IMorphoFlash(flashProvider).flashLoan(stable, LevMath._fromUsd(address(AUX),stable, repayUsd),
-            abi.encode(lp, address(venue), stable, minOut, route));
+            abi.encode(lp, address(venue), stable, minOut));
     }
 
     /// @notice Flash-loan callback — ONLY the pinned provider, and the provider invokes it solely on the flashLoan
@@ -324,10 +317,9 @@ contract BtcLevManager is LevBase {
     ///         attacker, not us). NOT `nonReentrant`: it runs INSIDE `rebalanceWbtc`'s lock. Body in LevMath (EIP-170).
     function onMorphoFlashLoan(uint256 assets, bytes calldata data) external {
         if (msg.sender != flashProvider) revert NotFlash();
-        (address lp, address venueAddr, address stable, uint minOut, bytes memory route)
-            = abi.decode(data, (address, address, address, uint256, bytes));
+        (address lp, address venueAddr, address stable, uint minOut) = abi.decode(data, (address, address, address, uint256));
         LevMath.flashDeleverWbtcSettle(assets, lp, venueAddr, stable, minOut, flashProvider,
-            LevMath.WbtcCfg(address(AUX), WBTC, uint32(TWAP_WINDOW), uint16(MAX_SLIPPAGE_BPS), route));
+            LevMath.WbtcCfg(address(AUX), WBTC, uint32(TWAP_WINDOW), uint16(MAX_SLIPPAGE_BPS)));
         emit Repaid(lp, assets);
         _syncBand(lp);
     }
