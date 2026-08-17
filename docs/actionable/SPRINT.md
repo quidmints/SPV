@@ -129,7 +129,21 @@ take.** A function having "a test" is not coverage of its branches.
 
 ## 6. 🟡 THE MANAGER MERGE — REMAINING EXTRACTION
 
-Measured rates make this costable rather than aspirational.
+🔴 **CORRECTION, ADDED 2026-08-17 AFTER RE-MEASURING — THIS SECTION AS FIRST WRITTEN MADE THE MERGE
+LOOK REACHABLE AND IT IS NOT.** `LevManager` **22,830** + `BtcLevManager` **17,278** = **40,108**
+against the 24,576 limit: **the folded contract is 15,532 bytes OVER.** Extracting *every* body named
+below is worth ~5,000, which leaves **~10,500 still over**. ⇒ **EXTRACTION ALONE CANNOT LAND THIS
+FOLD**, and any plan that treats §6 as the remaining distance is wrong by a factor of three.
+
+⚠️ **THE FIGURE MOVES, SO RE-MEASURE IT — DO NOT QUOTE THIS ONE EITHER.** The same gap read
+**19,443** on 2026-08-16; the extractions that landed since closed ~3,900 of it. That is real
+progress on a distance that is still not crossable this way, which is exactly the shape that makes
+a stale number dangerous: it flatters the trend and hides the ceiling.
+
+⇒ **THE FOLD IS BLOCKED ON MOVING STATE OUT, NOT ON MOVING BODIES OUT** — see §6b, and
+`ONE-ENGINE-TWO-SHARE-TOKENS.md`, which is the measured state map for precisely that.
+
+Measured rates make the extraction itself costable rather than aspirational.
 
 | target | count | worth at measured rate |
 |---|---|---|
@@ -144,6 +158,31 @@ cannot move at all. And `_syncBand`'s **ordering** is load-bearing — the band 
 venue state move — so it stays in the wrapper.
 
 `LevManager` is the tightest of the pair at **1,746 bytes** of margin.
+
+---
+
+## 6b. 🔴 `contract Shares` IS UNWIRED — AND IT IS WHAT EVERY FOLD BLOCKS ON
+
+**Added 2026-08-17: this was measured on 08-16, said in chat, and left out of the first draft of this
+document.** `Shares.sol:90` declares `contract Shares is BandState` — **2,300 bytes of concrete
+contract that nothing deploys, imports, or tests.** Only `BandState` is imported (`Vault.sol:16`,
+`Vogue.sol:22`). `git grep` for `new Shares`, `Shares ` as a type, or `{Shares}` returns **nothing**.
+
+⇒ **RIGHT NOW IT IS A STANDING-RULE-1 VIOLATION** — unreachable code kept "for later" — and it is
+simultaneously the scaffold for moving `Vogue`'s 525-line share/position cluster out. Those are not
+in tension by accident: **it is a marker for a gap that has not opened yet**, the same shape as
+`create_sweep_tx` and the deleted `IBtcVault`, and this repo has twice deleted such a thing and twice
+restored it. **Do not delete it as litter. Either wire it or record why it waits.**
+
+✅ **THE QUESTION IS ANSWERED — owner, 2026-08-17: *"yes it's better to use that base."*** I had asked
+whether `Shares` should exist at all or `BandState` should stand alone. It exists, it is the base, and
+its `totalSupply() = lpShares + oorShares` is the semantics that survives (§E256). ⇒ **out-of-range
+locked liquidity IS part of the share supply**, which is also what `ONE-ENGINE-TWO-SHARE-TOKENS.md`
+recorded in the owner's own words on 2026-08-16 — *"the remaining totalSupply being outOfRange"*.
+
+▶️ **THE ORDER THIS FIXES.** §6's arithmetic says bodies cannot close a 15,532-byte gap. **State can:**
+wiring `Shares` moves the share/position cluster **out of both managers at once**, and it is the only
+lever measured to be large enough. So the sequence is **wire `Shares` → then fold**, not fold-then-tidy.
 
 ---
 
@@ -471,3 +510,43 @@ is not.
 
 ⇒ **Before acting on any claim in this file, run the check it names.** Each one is cheap, and each
 of those five cost a wrong turn that a single command would have prevented.
+
+---
+
+## 13. THE FIVE-DAY SWEEP — what I re-checked, and what closed itself
+
+Added 2026-08-17 on the owner's question *"what else did this thread work on before but not finish"*.
+I scanned 2026-08-13 → 08-17 of this session's own transcript for deferral statements with a concrete
+anchor, then **re-measured each against today's `main` rather than trusting what I wrote at the time.**
+That order matters: **five of the eight had already been closed by later work in this same session,
+and I would have re-opened every one of them by reporting from my own notes.**
+
+**STILL OPEN — and the first two were absent from this document entirely:**
+
+- **`contract Shares` unwired, and the fold gap** — §6b and the §6 correction above. The big one.
+- **14 v4 references remain in `evm/src` + `evm/script`, and every one is PROSE.** No `IPoolManager`,
+  `SafeCallback` or `_unlockCallback` survives in code — the cut is complete and the comments are not.
+  ⚠️ Per `CLAUDE.md`, **a comment describes past state**, and four wrong conclusions in this repo have
+  come from trusting one. Fourteen comments still describe an architecture that was removed.
+- **The ABI gate is RED on `main` itself, and it is not from this thread.** `openChannel` at
+  `quid-ln/quid-hop/src/evm_codec.rs:78` still encodes `(bytes32,bytes)` where the contract now has
+  `(address,bytes32,bytes,bytes)`. Committed on both sides — the Rust line is byte-identical in HEAD
+  and in the working tree, so it is **not** the BTC thread's uncommitted edit; the contract change is
+  `7d11fe22` ("E183 item 1 lands: the LP signs nothing on the EVM"). **Flagged, not touched — it is
+  another thread's live lane.** But it means the gate cannot currently certify anyone's commit.
+
+**CLOSED BY LATER WORK IN THIS SAME SESSION — verified on today's `main`, not assumed:**
+
+| what I wrote, and when | state today |
+|---|---|
+| *"366 `isBTC` references, 182 in `Core.sol` alone — 53% in one file"* (08-15) | **36 total.** `SwapLib` 17, `Vogue` 8, `Vault` 3, `Interfaces` 2, `Shares` 1. **Core: zero.** |
+| *"`Core` still carries BOTH bands' state — `obsBTC`/`obsETH`, `_flowBTC`/`_flowETH`. That's the unfinished half"* (08-16) | **Zero matches in `Core.sol`.** |
+| *"the `LEV_MANAGER` duplication — one fact with two homes"* (08-14) | **Dissolved by `BandState`**: one declaration (`Shares.sol:62`), inherited by both. |
+| *"`#32` — the per-LP `COLLATERAL()` STATICCALL inside two loops"* (08-13) | **Not in any loop.** Three single-shot branch sites remain. |
+| *"`Alles` inherits `Fixtures` while using not one member of it"* (08-17) | v4 `Fixtures.sol` **gone**. ⚠️ `evm/test/SPVFixtures.sol` is a **different, live** file — Bitcoin header fixtures for `SPVGateway.t.sol`. **Similar name, unrelated thing: do not delete it on the strength of that note.** |
+
+⇒ **THE LESSON, AND IT IS THE SAME ONE AS §12'S FIRST BULLET.** My own transcript is a record of what
+was true when written, and it goes stale faster than anything else because *I* am the one invalidating
+it. **Every item above that I could still see was one I re-measured; every item I "remembered" was
+wrong in the direction of being more open than it is.** A hand-off document assembled from notes
+rather than from the tree will re-open finished work and under-report the one gap that matters.
