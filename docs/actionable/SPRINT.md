@@ -587,6 +587,8 @@ three hand-authored commits (`288b9f2`, `f6c3a9f`, `61b1fbc` — §E194). After 
 reachable from **no branch and no remote**, and are **not ancestors of `origin/main`**: unreferenced
 objects, one `git gc` from gone.
 
+⚠️ **THE TAG IS GONE, DELETED BY ANOTHER THREAD ON 2026-08-18 (`c4230df5`), AND THEY WERE RIGHT TO — THIS IS A SEQUENCE, NOT A DISAGREEMENT.** Their check: every section id the tags carried exists on `main`, `rescue/E194`'s `SwapLib` lineage is **1,099 lines behind** `main` (a stale branch, not unlanded work), and the E222 gas refutation was **re-derived here from a fresh reproduction** rather than copied across. Their reasoning is the sharper one: *"a negative result parked on a side ref does not reach the lineage that ships — main kept the unexecutable version for a day because nothing carried the refutation back."* ⇒ **THE TAG WAS CORRECT WHILE THE CONTENT WAS ONLY ON THE TAG, AND WRONG ONCE THE CONTENT WAS ON `main`.** ⭐ **What made the deletion safe is precisely the work below: the geometric-mean derivation was copied into §E194's ROW before the tag went, so the valuable half — the reasoning — is on `main` in prose. The patch itself must not be re-applied anyway.** ⚠️ The commits are unreferenced again and will be collected. That is acceptable ONLY because the derivation survives in text; **do not read this as "tags are a mistake" — read it as "a ref buys time to copy the reasoning, and is spent once you have."**
+
 ▶️ **RESCUED: pushed as the tag `rescue/E194-rover-open-14-18`**, verified on the remote, all three
 reachable. **Do not delete that tag until the question below is answered.**
 
