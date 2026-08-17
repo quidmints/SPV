@@ -55,7 +55,22 @@ library ExternalTwap {
     error NoExternalPrice();
 
     /// @notice Curve's EMA price for a pool coin, in WAD.
-    /// @param  k  coin index for multi-coin pools (TriCrypto: 1 = WBTC, 2 = WETH against coin0 USDC).
+    /// @param  k  Curve indexes coin `k+1` against coin 0 — so on TriCrypto USDC (coins: 0 USDC,
+    ///            1 WBTC, 2 WETH) it is **k=0 → WBTC/USDC, k=1 → WETH/USDC**, and k=2 REVERTS.
+    ///            🔴 CORRECTED 2026-08-17: this said "1 = WBTC, 2 = WETH", which is off by one.
+    ///            Wiring ETH from it returns **WBTC's** price — measured `price_oracle(0)` =
+    ///            $64,280.15 vs `price_oracle(1)` = $1,906.53 — a 34x error that reverts nothing
+    ///            and prices everything. Verified against `coins()` on-chain, not inferred.
+    ///
+    /// @dev  DEVIATION BOUND: DERIVE IT AGAINST THIS POOL'S HALF-LIFE, DO NOT INHERIT
+    ///       `TWAP_MAX_DEVIATION_BPS`. Measured `ma_time() = 600s`. Our internal reading is a
+    ///       **1800s window**, whose average lags spot by ~900s; a 600s EMA lags by ~600s. So the two
+    ///       legitimately diverge on a **~300s lag difference**, which at 60% annualised vol is
+    ///       **~18.5 bps (1σ)** — i.e. ~37 bps at 2σ, ~56 bps at 3σ. **`TWAP_MAX_DEVIATION_BPS` is
+    ///       500 bps**, calibrated as "manipulation territory" for a 30-minute window: against a
+    ///       10-minute EMA that is **~27σ**, so it would never fire and the check would be
+    ///       decorative. A bound for this source belongs in the 37–74 bps band and must be restated
+    ///       if the pool's `ma_time` changes — it is the POOL's parameter, not ours.
     function curvePriceWad(address pool, uint256 k) internal view returns (uint priceWad) {
         priceWad = ICurveOracle(pool).price_oracle(k);
         if (priceWad == 0) revert NoExternalPrice();
