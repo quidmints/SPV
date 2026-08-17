@@ -194,7 +194,7 @@ checks and stack shuffling that source does not reveal. This overturns `CLAUDE.m
 that "neither abstract-base hoisting nor delegatecalled-library extraction removes meaningful
 bytecode": hoisting into an **abstract base** genuinely does nothing (+41 B, measured — the bodies
 are copied into every inheritor); moving into a **delegatecalled library** removes them from all
-callers. Same code, opposite sign.
+callers. Same code, opposite sign. **Booked as `§E241-lib` (🟢) — cite that id; its row also carries an ordered open-items list that is a SECOND priority list competing with this document, and §V-R1's entry in it was the stale one corrected today.**
 
 **A BASE CLASS IS NOT FREE — WEIGH WHAT IT CARRIES.** Standing rule 8 says don't hand-roll what a
 library does. Applying it to `VBtc` cost **+1,195 bytes and three new signature-verifying
@@ -1000,6 +1000,60 @@ is gone; the defect is not. **That is an open money-path bug with its remedy del
 session's scratchpad — `AaveReserveHealthKey.t.sol` and `VaultHealthOnTraffic.t.sol` — plus a stash
 `stash@{0}: On (no branch): ladder-complete + vault fixture` that appeared during this session. **Same
 exposure, different owner.**
+
+---
+
+
+## 18. 🔴🔴 THE 35 ORPHANED CRITICALS — every double-red row NO part of this document treats
+
+**The owner asked whether anything in `QUEUE.md` still needs to be in here. It does, and this is the
+honest measurement: of 45 🔴🔴 rows, 35 are discussed in NO part's prose.** They exist here only as
+one line in §16's digest. That is not the same as being covered — a digest line tells you a row
+exists, not what to do about it or who owns it.
+
+⚠️ **I am NOT promoting all 35 into Part A.** Most belong to a lane another session owns, and copying
+them here would create the second copy that always drifts. **What was missing was the ROUTING**, so
+that is what this is: every orphan, assigned, so none is invisible.
+
+**BTC / channels / enclave — Part B's lane (`391df7b6`).** `E129` grow-splice can migrate custody ·
+`E130` `btcRecipientOf` never validated as a curve point, an invalid key **permanently burns the LP's
+BTC** · `E132` swap-out writes the hop a free ~24h American option · `E135` **an ordinary Bitcoin
+reorg permanently bricks the gateway** (unguarded checkpoint depth) · `E158-upgrade-authority` ·
+`E158-freshness-killswitch` (the fleet holds a global kill switch on every LP's escape) ·
+`E158-worst-case` 🔴🔴🔴 · `E160-monoculture-loop` 🔴🔴🔴 · `E162-splice-bricks-retirement` ·
+`E163-fallback-cannot-act` · `T1-f-UNATTRIBUTED-SATS-GENERAL` · `BUFFER-ALLOWANCE-OUTLIVED-CUSTODY` ·
+`E125-r`.
+
+**Delivery / payout — no session claims this, and it is the largest cluster.** `E26` double-credit in
+#12's delivery leg · `E74` proceeds arrive at `Aux` and are never forwarded · `E91` the USD leg takes
+to `address(this)` · `E91-r5` **delivery calls are wrapped in `try/catch`, so a failed delivery is
+silently swallowed** · `E91-ROOT` 🔴🔴🔴 `ChannelLib.withdrawFromSP` has no `to` parameter.
+⇒ **`E91-ROOT` IS THE ROOT OF FOUR OTHERS AND NOBODY OWNS IT.** Read that one first; the rest are
+layers above it.
+
+**Skew calibration — the cluster §E137-skew already triaged.** `E79` the skew's real job is
+stale-oracle protection (LVR) · `E99` the skew *rewards* persistence · `E104` 🔴🔴🔴 overflow: a full
+drain reverts instead of pricing at the ceiling · `E121` / `E122` where the premium lands · `E128`
+breakeven-vs-variance is the wrong test · `SIGMA-ESTIMATOR-NOT-PATCHABLE` 🔴🔴🔴 · `E106` · `E108b-r2`
+1:1 is structurally unreachable by LP deposit (asymptotes at ~0.758) · `E108-EXPLAINED`.
+▶️ **START AT `E137-skew`**, which says outright: *"my 'ten skew-critical items' was an eyeballed pick
+from 84, and the real open-critical set is 26."* **A triage that supersedes an earlier triage is the
+right entry point, not the individual rows.**
+
+**Process / bookkeeping — mine to name, since they bite everyone.** `E124` the ID collision (28
+duplicated ids, 8 still ambiguous among open rows — see §16) · `E6` · `E50` · `E92` · `E225-do-not-push-that-merge` · `E145-p`.
+
+⚠️ **THREE OF THOSE LOOK STALE AND I AM NOT CLOSING THEM — a dismissal needs the same evidence as a
+finding, and I did not gather it:**
+- **`E92`** — *"`Core` IS 38 BYTES FROM EIP-170 AND ITS SIZE IS COMPLETELY UNENFORCED"*. Both halves
+  look overtaken: `Core` measured **551 bytes** spare on 2026-08-15, and `tools/check-contract-sizes.py`
+  now exists precisely because `forge build --sizes` omits it. **Verify and close, or say why not.**
+- **`E50`** — *"MAIN IS RED"*, from a merge in early August. `main` builds today.
+- **`E225-do-not-push-that-merge`** — about a specific merge that was not pushed; likely spent.
+
+⇒ **THE POINT OF THIS SECTION IS THAT "IT IS IN THE QUEUE" AND "SOMEBODY IS GOING TO DO IT" ARE
+DIFFERENT CLAIMS**, and only the first was true for 35 double-red rows — including a permanent
+BTC burn, a gateway bricked by an ordinary reorg, and a delivery root cause under four other rows.
 
 ---
 
