@@ -1519,7 +1519,23 @@ Raised early in this session and **never executed**. The rate estimator became t
 §E155 (dimensionless factor) and §E190 (tranche distortion); a cross-sectional filter over the
 per-stable rates, and a cap on any single curator's weight, were both booked and neither was built.
 
-### C9e. §E226 — `swapFeePpm() = 420` (tagged, since C2 mentions it only in passing)
+### C9e. §E226 — `swapFeePpm() = 420` **IS STILL LIVE, AND IT IS DECLARED TWICE** (checked 2026-08-18)
+🔴 **Answering "is there no 420ppm, just the skew premium?" — NO. BOTH charge, and the 420 is now a
+HARDCODED LITERAL on the fill path:** `Core.sol:1221` — `out -= (out * 420) / 1_000_000;` — while
+`Aux.sol:714` separately returns `420` from `swapFeePpm()`. **One number, two declarations, no link
+between them** (rule 2): change the accessor and the charge does not move. The skew is separate
+machinery (`MAX_WELL_SKEW = 3e16`, `_maxWellSkew`), so **the same flow pays both**, which is exactly
+the tension §E202 records as unmeasured.
+⚠️ **It cannot simply be deleted — the comment at `Core:1214-1220` says why:** v4 charged it as the
+pool tier and `Collect` harvested it into `feesPerShare`/`USD_FEES`; deleting v4 deleted the
+collector, so **without this the fill charges NOTHING — the LP fee lane earns zero and the
+anti-grinding bound `w >= 1 - fee/C` degenerates to w = 100%.** It is retained in `POOLED_*` and so
+reaches LP claims by COMPOUNDING rather than per-share accrual — a TIMING difference (holder at claim
+vs holder at swap) explicitly deferred until `Collect` goes.
+⇒ Three things, in order: **unify the two declarations**, then decide the timing question with
+`Collect`, then §C10c's deploy-time zeroing — which cannot be judged until the first two are settled.
+
+--- (original note follows) ---
 It used to MIRROR `k.fee = 420` on the v4 pool key and be harvested by `_handleCollect`. **With v4
 gone the FILL charges it**, so 420 is now a parameter we own and must justify rather than a reflection
 of someone else's tier. It never has been. Belongs with §E227's recalibration, not separate from it.
