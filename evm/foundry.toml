@@ -75,6 +75,11 @@ mainnet = "${ETH_RPC_URL}"
 mainnet = { key = "${ETHERSCAN_L1}" }
 
 [profile.dependencies]
-v4-core = { git = "https://github.com/uniswap/v4-core" }
-v4-periphery = { git = "https://github.com/uniswap/v4-periphery" }
+# (§V4-CUT, completed 2026-08-18) `v4-core` and `v4-periphery` are DELETED from here. The cut
+# removed every import, type and remapping — verified: zero non-comment references to `v4-core`,
+# `v4-periphery`, `IPoolManager`, `PoolKey`, `BalanceDelta` or `Currency` anywhere in `src`, `test`
+# or `script`, and no `v4` line in `remappings.txt` — but these two DECLARATIONS survived the cut in
+# a committed file, so every fresh checkout still fetched ~70 MB of Uniswap v4 to satisfy a
+# dependency nothing imports. Worse than dead weight: while the trees are present, a stray import or
+# an alias can still RESOLVE into them, so the cut is only enforceable once they cannot be found.
 solady = { git = "https://github.com/Vectorized/solady" }
