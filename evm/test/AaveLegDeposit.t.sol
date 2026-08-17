@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 
 /// @notice §E199. THE DUAL-VENUE AAVE LEG IS WIRED IN PRODUCTION AND EXERCISED BY NOTHING.
 ///
@@ -14,7 +14,7 @@ import {Alles} from "./Alles.t.sol";
 ///         first version of this probe hit that and I mis-read it as the SUPPLY PATH failing — and
 ///         booked that in §E199 as a defect. It is not: with a low-level approve the mint succeeds.
 ///         The retraction is the reason this file exists as a test rather than a finding.
-contract AaveLegDeposit is Alles {
+contract AaveLegDeposit is AllesFixture {
     function test_aaveLegDepositCompletes_withTheSpokeInTheSet() public {
         address spoke = AUX.AAVE_SPOKE();
         vm.startPrank(AUX.owner());

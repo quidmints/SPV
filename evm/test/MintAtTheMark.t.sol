@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 
 /// @title §E2-#1 — a mint must ENTER AT THE MARK a redeem will pay.
@@ -24,7 +24,7 @@ import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLi
 ///         vests it, and `matureSupply` then exceeds `solvent` by construction. This is the protocol
 ///         over-minting its own forward yield — the exact state `Basket.sol:332-340` says the
 ///         "SHARED solvency haircut" absorbs.
-contract MintAtTheMark is Alles {
+contract MintAtTheMark is AllesFixture {
     function _seedBasket() internal {
         deal(address(USDC), User01, 2_000_000 * USDC_PRECISION);
         vm.startPrank(User01);
@@ -321,7 +321,7 @@ contract MintAtTheMark is Alles {
 ///    (b) **Holding ACROSS a vesting event is still exposed.** At month 13 B's 208,333 becomes
 ///        mature; if realised yield < $110,378 the mark falls for everyone then holding. That is
 ///        the open item — the VEST BOUNDARY, not a ranking of claims.
-contract MintAtTheMarkDayOne is Alles {
+contract MintAtTheMarkDayOne is AllesFixture {
     function test_E2_DayOne_ImmediateRedeemerGetsPar() public {
         deal(address(USDC), User01, 2_000_000 * USDC_PRECISION);
         deal(address(USDC), User02, 2_000_000 * USDC_PRECISION);

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
 /// §E58 — WHAT DID THE SKEW CHANGES DO TO THE PRICE?
@@ -14,7 +14,7 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 ///   E53 shared amplifier      -> RAISES (1x -> 2x)
 /// Two raises against one cut, partially cancelling BY ACCIDENT. This prints the number so the
 /// same fixture can be run at the pre-session commit and the two compared.
-contract SkewCalibration is Alles {
+contract SkewCalibration is AllesFixture {
     address lpA = User02;
     address trader = address(0xBEEF01);
     address bold;

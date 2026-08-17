@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 import {LevManager} from "../src/LevManager.sol";
 import {ILevVenue} from "../src/imports/ILevVenue.sol";
 import {MorphoEscrowVenue, MarketParams} from "../src/imports/LevVenueBase.sol";
@@ -119,7 +119,7 @@ interface IAuxSorSelf { function sorSelfFunded(address sourceAsset, uint amountI
 ///   perform a genuine stable↔weETH round-trip over LIVE markets — caller-funded SOR (stable→WETH via the
 ///   basket's real Uniswap-V4 hops) + ether.fi adapter mint UP / v3-pool sale DOWN (WETH↔weETH) — NOT our internal
 ///   band. (No sims; the bespoke RealWeethSwapper is gone, folded into LevManager.)
-contract LevYbRealProbe is Alles {
+contract LevYbRealProbe is AllesFixture {
     // KEPT when the Euler section was removed: this feed is the price anchor for the MORPHO tests
     // (RealRateMorphoOracle + the staleness cases), not Euler-specific. It merely happened to be
     // declared inside the Euler block.

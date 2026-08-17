@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {Alles, MockSPV} from "../Alles.t.sol";
+import {AllesFixture, MockSPV} from "../Alles.t.sol";
 import {BTCChannels} from "../../src/BTCChannels.sol";
 import {SPVGateway} from "../../src/spv/SPVGateway.sol";
 import {Types} from "../../src/imports/Types.sol";
@@ -12,7 +12,7 @@ import {Vault} from "../../src/Vault.sol";
 ///         the USD-funded BTC twin of the ETH `Vogue.outOfRange`/`pull` path. Mirrors
 ///         `Alles.testOutOfRangeUSDPosition` on the BTC (USD/WBTC) curve: place a
 ///         single-sided USD limit order outside range, then pull it back.
-contract BtcSelfManagedTest is Alles {
+contract BtcSelfManagedTest is AllesFixture {
     /// Create a USD-funded boundary order on the BTC curve, then fully pull it.
     function testOutOfRangeBtc_USDPosition() public {
         vm.startPrank(User01);

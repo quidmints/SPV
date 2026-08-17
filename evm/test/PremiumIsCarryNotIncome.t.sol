@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 
@@ -56,7 +56,7 @@ import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLi
 ///
 /// §E120 still bars quoting the magnitude as a protocol property — the fork cannot support it.
 /// THE SIGN IS WHAT THIS TEST OWNS: holding an imbalance does not out-earn the exposure it creates.
-contract PremiumIsCarryNotIncome is Alles {
+contract PremiumIsCarryNotIncome is AllesFixture {
     address lp = User02;
     address drainer = address(0xBEEF04);
     address bold;

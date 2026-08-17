@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {Alles, MockSPV} from "./Alles.t.sol";
+import {AllesFixture, MockSPV} from "./Alles.t.sol";
 import {ExitFixture} from "./btc/ExitFixture.sol";
 import {Basket} from "../src/Basket.sol";
 import {BTCChannels} from "../src/BTCChannels.sol";
@@ -19,7 +19,7 @@ import {BitcoinTx} from "../src/imports/BitcoinTx.sol";
 ///         Inherits `Alles` to reuse its mainnet-fork `setUp`, wired stack, and
 ///         `_le` helper WITHOUT editing the (separately-owned) Alles.t.sol. Runs in
 ///         the `test_RunSim_*` family style: hard asserts on the invariant.
-contract BtcLpMintStress is Alles {
+contract BtcLpMintStress is AllesFixture {
     // Fixed hop pubkey the BTCChannels deployment is bound to (33-byte compressed).
     /// (E128) A fixed dead-man deadline. `block.number + n` cannot be used: the sighash commits
     /// to nLockTime, so the exit must be signed for a height known before the tx is built.

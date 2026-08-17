@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {IBandManager} from "../src/imports/Interfaces.sol";
 import {Core} from "../src/Core.sol";
@@ -38,7 +38,7 @@ import {Core} from "../src/Core.sol";
 /// DECIMALS (`CLAUDE.md`): the WBTC price carries a ×1e10 lift (`usd·1e28`) which closes the
 /// 8↔18 gap, so `leg * px / 1e18` is the correct USD18 valuation for BOTH assets — sats×1e28/1e18
 /// lands on 1e18 exactly as wei×1e18/1e18 does. Do NOT add a second ×1e10 "to fix BTC".
-contract PooledUsdRepackMatrix is Alles {
+contract PooledUsdRepackMatrix is AllesFixture {
     address bold; address lp = User02; address trader = User03;
     /// Per-swap warp. 20 min is the default the sibling probes use (lets the observation ring
     /// absorb the move). Scenarios that must keep the Chainlink anchor FRESH lower it: 18 swaps

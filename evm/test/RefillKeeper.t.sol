@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
 /// @notice Asserts the TOXIC make-whole cluster is GONE: an ETH-pool shortfall no
@@ -10,7 +10,7 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 ///   safety margin is "what we owe back", not a reserve to compensate one party — so no
 ///   path may spend it to patch a (usually impermanent) inventory shortfall. IL is borne
 ///   fairly via the share price (convertToAssets = pro-rata of vogueETH).
-contract RefillKeeperProbe is Alles {
+contract RefillKeeperProbe is AllesFixture {
     address lp = User01; address adv = User03;
 
     function _backing() internal returns (uint) { (uint[15] memory d,,,) = AUX.get_deposits(); return d[14]; }

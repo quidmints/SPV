@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {LevManager} from "../src/LevManager.sol";
 import {ILevVenue} from "../src/imports/ILevVenue.sol";
@@ -53,7 +53,7 @@ contract RealRateMorphoOracle {
 ///   The mocks (MockWeeth/MockSwapper/MaliciousSwapper/MockBandHost/MockFlashLender/TestLevVenue) are DELETED; the
 ///   folded LevManager mints/redeems real weETH via ether.fi + routes stable legs through the basket SOR, and the
 ///   venue/flash/liquidation are the LIVE Morpho singleton. Mirrors LevYbReal's real-venue scaffolding.
-contract LevCascadeProbe is Alles {
+contract LevCascadeProbe is AllesFixture {
     // Real mainnet addresses (same fork Alles pins).
     address constant WEETH        = 0xCd5fE23C85820F7B72D0926FC9b05b43E359b7ee;
     address constant MORPHO       = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;

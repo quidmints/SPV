@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {Alles, MockSPV} from "./Alles.t.sol";
+import {AllesFixture, MockSPV} from "./Alles.t.sol";
 import {BTCChannels} from "../src/BTCChannels.sol";
 import {Types} from "../src/imports/Types.sol";
 
@@ -26,7 +26,7 @@ contract EvilToken {
 /// Deliveries are standard ERC20 / WETH (no native-ETH `call{value}`), so the
 /// protocol never hands control to attacker code — the guards have nothing to
 /// fire against.
-contract ReentrancyProbe is Alles {
+contract ReentrancyProbe is AllesFixture {
     bytes constant HOP_PUBKEY =
         hex"03a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0";
 

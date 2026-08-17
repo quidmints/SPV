@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 
 interface IV4626 { function convertToAssets(uint) external view returns (uint); function balanceOf(address) external view returns (uint); }
 
@@ -23,7 +23,7 @@ interface IV4626 { function convertToAssets(uint) external view returns (uint); 
 ///         (which reports a V2 position as fully withdrawable by design), and `maxWithdraw` then reports a
 ///         genuinely rationed vault. Everything under test — the loop, the ratio, the gate, the storage
 ///         write — is the real code.
-contract VaultHealthOnTraffic is Alles {
+contract VaultHealthOnTraffic is AllesFixture {
     function _seed() internal {
         deal(address(USDC), User01, 100_000 * USDC_PRECISION);
         vm.startPrank(User01);

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {IBasketTurn} from "../src/imports/Interfaces.sol";
 
@@ -22,7 +22,7 @@ interface ISPq { function getCompoundedBoldDeposit(address) external view return
 ///   the scenario price sidesteps pool-reseat machinery AND the forked-SP BOLD-out
 ///   limitation (no unwind leg needed — the open + revaluation already captures the
 ///   directional transfer, since the open converts the LP's ETH-side to USD-side).
-contract LeveragePnLProbe is Alles {
+contract LeveragePnLProbe is AllesFixture {
     address bold; address sp; address lp = User02; address trader = User03;
     uint lpShares;
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {Alles, MockSPV} from "./Alles.t.sol";
+import {AllesFixture, MockSPV} from "./Alles.t.sol";
 import {LevBase} from "../src/imports/LevBase.sol";
 import {ExitFixture} from "./btc/ExitFixture.sol";
 import {BTCChannels} from "../src/BTCChannels.sol";
@@ -63,7 +63,7 @@ interface IMorphoOraclePrice { function price() external view returns (uint256);
 ///             acquisition crosses Bitcoin confirmation), so net-equity is proven at ZERO leverage
 ///             (net-equity == collateral); the "levered-but-equity-intact" self-financing sub-step
 ///             from the ETH test has no synchronous analogue and is out of scope for a unit test.
-contract VBtcLevFeeLane is Alles {
+contract VBtcLevFeeLane is AllesFixture {
     /// (E128) A FIXED dead-man deadline. `block.number + n` cannot be used: the BIP-341 sighash
     /// commits to nLockTime, so the exit must be signed for a height known before the tx is built.
     uint64 constant EXIT_DEADLINE = 900_000;

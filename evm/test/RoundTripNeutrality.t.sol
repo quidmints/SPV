@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 import {LevYbRealProbe} from "./LevYbReal.t.sol";
 
 /// @notice §J.2 PREREQ — the deposit→band→withdraw round-trip CHARACTERISATION.
@@ -16,7 +16,7 @@ import {LevYbRealProbe} from "./LevYbReal.t.sol";
 ///         69% share-price under-valuation survived a green 123/0 suite earlier in this session. Every
 ///         claim here is either an exact identity or a bound derived from live state, never a
 ///         hardcoded constant (§A.22).
-contract RoundTripNeutrality is Alles {
+contract RoundTripNeutrality is AllesFixture {
 
     /// (1) ENTRY IDENTITY — a deposit credits `pooled` 1:1 with assets, and `lpShares` moves by exactly
     ///     that amount. This is the invariant the refactor must not disturb: `pooled` IS the share unit.

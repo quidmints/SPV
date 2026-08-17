@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 interface ISPq2 { function getCompoundedBoldDeposit(address) external view returns (uint); }
-contract ZZBoldProbe is Alles {
+contract ZZBoldProbe is AllesFixture {
     function test_probe() public {
         address bold = AUX.getStables()[AUX.getStables().length - 1];
         address sp = AUX.getVaults(bold)[0];

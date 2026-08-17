@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 import {Vogue} from "../src/Vogue.sol";
 
 /// @notice §A.5f (subset) — the TIMELOCKED withdrawal-recipient pin.
@@ -16,7 +16,7 @@ import {Vogue} from "../src/Vogue.sol";
 ///         closed nothing — an attacker holding the key would simply re-point and withdraw in the
 ///         same transaction. `test_StolenKey_CannotRepointAndDrainImmediately` is the test that would
 ///         fail against that naive design, so it is the one that must never be weakened.
-contract RecipientPin is Alles {
+contract RecipientPin is AllesFixture {
 
     address constant ATTACKER = address(0xBAD);
 

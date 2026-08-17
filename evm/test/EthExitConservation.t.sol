@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 pragma solidity ^0.8.28;
 
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @title Is ETH-exit value actually LOST, or do the failing assertions assume a pure-ETH burn?
@@ -18,7 +18,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 ///         POOLED delta against ETH-only payout and so implicitly assume the band is 100% ETH,
 ///         which stops being true the moment any swap moves price into the range.
 ///         If conservation FAILS, the gap is real and this prints exactly where it went.
-contract EthExitConservationProbe is Alles {
+contract EthExitConservationProbe is AllesFixture {
     function test_Diag_ExitConservation() public {
         vm.prank(User01);
         V4.deposit{value: 10 ether}(0, User01);

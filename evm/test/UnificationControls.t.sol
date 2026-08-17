@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
 interface IProtoFees { function protocolFeeController() external view returns (address); }
@@ -34,7 +34,7 @@ interface IProtoFeeAccrued {
 ///   V5  withdraw: committed accounting, full-vs-partial exit, over-ask, slot clearing
 /// Swap pricing (V3) is covered by `PooledUsdRepackMatrix` + the `testGrindRemoval_*` family;
 /// redemption (V6) and BTC swap-in/out (V7) are NOT yet covered and are tracked in QUEUE.
-contract UnificationControls is Alles {
+contract UnificationControls is AllesFixture {
     address lpA = User02;
     address lpB = User03;
     address trader = address(0xBEEF01);

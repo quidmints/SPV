@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 import {BasketLib} from "../src/imports/BasketLib.sol";
 
 /// @notice §E191. A DUST REDEEM MUST SAY IT IS DUST, NOT CLAIM EVERY VENUE FAILED.
@@ -14,7 +14,7 @@ import {BasketLib} from "../src/imports/BasketLib.sol";
 ///         Before that, supply exceeded backing, `perShare` sat below par, a 1-wei burn rounded to zero
 ///         BEFORE reaching delivery, and the dust path was a silent no-op whose assertion passed
 ///         vacuously. Two defects were cancelling.
-contract SubUnitRedeem is Alles {
+contract SubUnitRedeem is AllesFixture {
     function test_dustRedeemRevertsAsTooSmall_notAsAVenueOutage() public {
         deal(address(USDC), User01, 50_000 * USDC_PRECISION);
         vm.startPrank(User01);

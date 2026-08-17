@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 pragma solidity ^0.8.28;
 
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 import {VaultLib} from "../src/imports/VaultLib.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
@@ -21,7 +21,7 @@ interface I4626Depth {
 
 interface IDecimals { function decimals() external view returns (uint8); }
 
-contract EthVenueDeliverableProbe is Alles {
+contract EthVenueDeliverableProbe is AllesFixture {
     struct Acc {
         uint own18;          // par value of every vault position we hold
         uint deliv18;        // the slice withdrawable NOW, same state

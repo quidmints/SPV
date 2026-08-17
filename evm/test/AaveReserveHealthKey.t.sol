@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 
 /// @notice §E198. AAVE HEALTH MUST BE KEYED PER RESERVE, NOT PER SPOKE.
 ///
@@ -13,7 +13,7 @@ import {Alles} from "./Alles.t.sol";
 ///         The falsifiable claim: blocking one reserve leaves the others routable. Under the old shared
 ///         key both stables resolve to the SAME address, so `blockedOther` below would be true and this
 ///         test fails — which is exactly what makes it worth writing.
-contract AaveReserveHealthKey is Alles {
+contract AaveReserveHealthKey is AllesFixture {
     /// Mirrors `BasketLib.aaveHealthKey` (internal, so it cannot be called from here). The BEHAVIOURAL
     /// assertions below do not depend on this formula being right — they depend on the two stables
     /// resolving to DIFFERENT keys, which is the property under test.

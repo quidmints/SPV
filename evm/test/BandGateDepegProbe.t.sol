@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 import {console} from "forge-std/console.sol";
 
 /// Probe: the LP-band backing gate (Core._poolUsdInRange → `committedUsd18() <=
@@ -16,7 +16,7 @@ import {console} from "forge-std/console.sol";
 /// (`CORE.committedUsd18()`, `AUX.get_deposits()`), so the gate-decision flip it
 /// asserts IS the deployed require()'s decision. The end-to-end regime sims
 /// (test_RunSim_A/IL_*/C_DepegFee) exercise the live require() on the happy path.
-contract BandGateDepegProbe is Alles {
+contract BandGateDepegProbe is AllesFixture {
     /// Gate over-permit == depegLoss; the fixed basis (par − depegLoss) equals the
     /// redeem/mint basis; and non-depeg operation is unchanged (depegLoss == 0).
     function test_bandGate_overpermits_committed_by_depegLoss() public {

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 import {LevManager} from "../src/LevManager.sol";
 import {ILevVenue} from "../src/imports/ILevVenue.sol";
 import {MorphoEscrowVenue, MarketParams} from "../src/imports/LevVenueBase.sol";
@@ -45,7 +45,7 @@ contract RealRateMorphoOracle {
 ///   LP: measured at a MATCHED price (to strip the price move the lever's rally drives), the passive LP's
 ///   redeemable value and the basket's real backing (TVL) are intact. (The dead Liquity-Trove design this probe
 ///   used to model is gone; this is the real-venue replacement.)
-contract LeverageCrossSubsidyProbe is Alles {
+contract LeverageCrossSubsidyProbe is AllesFixture {
     address constant WEETH        = 0xCd5fE23C85820F7B72D0926FC9b05b43E359b7ee;
     address constant MORPHO       = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;
     address constant ADAPTIVE_IRM = 0x870aC11D48B15DB9a138Cf899d20F13F79Ba00BC;

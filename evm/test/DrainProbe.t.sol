@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 
 /// @notice Empirical probe of the "mint QUI → swap 1:1 for ETH → repeat" drain thesis.
 ///         Three structural defenses are claimed; this confirms them by simulation:
@@ -9,7 +9,7 @@ import {Alles} from "./Alles.t.sol";
 ///         immature and a swap (turn=burn) consumes MATURED vintages only, so the rapid
 ///         loop can't consume just-minted QUI, (3) oracle-pinned + fee'd swap, so even with
 ///         matured QUI a buy-ETH loop is fair (attacker nets a LOSS, pool stays solvent).
-contract DrainProbe is Alles {
+contract DrainProbe is AllesFixture {
     // Value a holder's position in 18-dec USD: USDC(6) + QUI(18) + WETH·price.
     function _valueUSD18(address who) internal returns (uint v) {
         v += USDC.balanceOf(who) * 1e12;          // 6 → 18

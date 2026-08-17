@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 
 /// @notice Proves the BTC band now gets the SAME theta risk-budget clamp as the ETH band.
 ///   Before this change BtcVaultLib.addLiqChannel omitted theta entirely -- a real asymmetry
@@ -14,7 +14,7 @@ import {Alles} from "./Alles.t.sol";
 ///   -- a positive-yield theta<1 -- via Vault.derivedThetaWad(), and show the in-range pairing
 ///   is throttled, while the fail-open baseline pairs fully. The theta VALUE's live-ness itself is
 ///   covered by the same VogueLib.derivedThetaWad path DerivedTheta.t.sol exercises for ETH.
-contract BtcBandThetaProbe is Alles {
+contract BtcBandThetaProbe is AllesFixture {
     function test_BtcBand_ThetaThrottlesInRangePairing() public {
         AUX.setBTCChannels(address(this)); // impersonate BTCChannels (requestDeposit is gated)
 

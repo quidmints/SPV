@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 import {console} from "forge-std/console.sol";
 
 /// Probe: when a basket stable is DETECTED-depegged (riskFactor < 10000), does the
@@ -11,7 +11,7 @@ import {console} from "forge-std/console.sol";
 /// contract "knows" the stable is at 80% for minting yet "believes" it's $1 for
 /// backing. This isolates the claim with severity injected via the CRE hook mock
 /// (no external oracle assumption).
-contract DepegBackingProbe is Alles {
+contract DepegBackingProbe is AllesFixture {
     function test_detected_depeg_haircuts_mint_but_backing_counts_par() public {
         address link = address(AUX); // getDepegSeverityBps now lives on Aux (CRE removed)
         bytes4 sevSel = bytes4(keccak256("getDepegSeverityBps(address)"));

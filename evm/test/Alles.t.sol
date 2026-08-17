@@ -113,7 +113,14 @@ interface IAngelF8N {
 // v4-core's `Deployers`) and this contract used NOT ONE member of it: no `deployFreshManager`, no
 // `manager`, no `permit2`. It carried a whole submodule's test harness into every suite inheriting
 // Alles, for nothing.
-contract Alles is ForkPin, ExitFixture {
+/// §FIXTURE-SPLIT — THE FIXTURE, WITHOUT THE TESTS. 37 probe suites inherit this for `setUp` and the
+/// helpers, and they used to inherit `Alles` -- which carried 102 TEST FUNCTIONS with it. Those 102
+/// therefore ran 38 TIMES: 3,774 of the suite's 4,091 tests were RE-RUNS of the same bodies. That is
+/// why a single defect surfaced as 41 or 82 failures and why one full run took over ten minutes.
+///
+/// ⚠️ NOT A DELETION -- every test still runs, exactly once, in `Alles` below. Dropping tests to make
+/// a suite fast is how coverage disappears; separating the fixture from the tests costs nothing.
+contract AllesFixture is ForkPin, ExitFixture {
     /// (E128) FIXED dead-man deadline — the BIP-341 sighash commits to nLockTime, so the exit must
     /// be signed for a height known before the funding tx is built. `block.number + n` cannot work.
     uint64 constant EXIT_DEADLINE_ALLES = 900_000;
@@ -343,7 +350,7 @@ contract Alles is ForkPin, ExitFixture {
     ///     `fundingTxidDisplay`, which is byte-reversed.
     function _armFixture(
         Types.OpenParams memory p, bytes memory fundingTx, uint seed, bytes32 payout
-    ) private returns (Types.ExitArming memory) {
+    ) internal returns (Types.ExitArming memory) {
         uint32 vout = ChannelLib.locateChannelOutput(
             fundingTx, p.lpPubkey, p.hopPubkey, p.fundingTaproot, p.amountSats);
         return Types.ExitArming({
@@ -363,7 +370,7 @@ contract Alles is ForkPin, ExitFixture {
     function _finishHopOpen(
         BTCChannels ch, address hop, Types.OpenParams memory p, bytes memory fundingTx, uint seed,
         bytes32[] memory merkleBranch
-    ) private returns (bytes32 cid) {
+    ) internal returns (bytes32 cid) {
         (address lpEth, uint lpPk) = makeAddrAndKey(string(abi.encodePacked("hop-lp-", seed)));
         // Realistic btcRecipientOf: a full 32-byte x-only shutdown key distinct from the
         // funding material (this helper's callers never close/splice, so it is only
@@ -389,7 +396,7 @@ contract Alles is ForkPin, ExitFixture {
     function _openWithConsent(
         BTCChannels ch_, address hop_, uint lpPk_, address lpEth_, bytes32 payout_,
         Types.OpenParams memory p_, bytes memory fundingTx_, string memory label_
-    ) private returns (bytes32 cid) {
+    ) internal returns (bytes32 cid) {
         bytes memory dsig =
             _signDigest(lpPk_, ch_.openAuthDigest(hop_, payout_));
         // ⚠️ THE ARMING MUST BE BUILT BEFORE `vm.prank`. `armingFor` runs an FFI cheatcode, and a
@@ -407,13 +414,13 @@ contract Alles is ForkPin, ExitFixture {
     /// (E128) Own frame — building the arming inline pushes `_openWithConsent` over the legacy
     /// stack. House fix is a frame, never `via_ir`.
     function _armAlles(string memory label_, bytes memory fundingTx_, uint sats_, bytes32 payout_)
-        private returns (Types.ExitArming memory)
+        internal returns (Types.ExitArming memory)
     {
         return armingFor(label_, sha256(abi.encodePacked(sha256(fundingTx_))), 0, sats_,
                          abi.encodePacked(hex"5120", payout_), EXIT_DEADLINE_ALLES, 1_000);
     }
 
-    function _signDigest(uint pk, bytes32 digest) private pure returns (bytes memory) {
+    function _signDigest(uint pk, bytes32 digest) internal pure returns (bytes memory) {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);
     }
@@ -632,6 +639,676 @@ contract Alles is ForkPin, ExitFixture {
     // resolved, so every call site was converting a price a SECOND time -- a wrong number that still
     // looked like a price. Deleted rather than adapted: there is no sqrt left for it to consume.
 
+
+
+
+
+
+    // DELETED 2026-08-13 — testGalaxyFallback_RevertReroutes_ZeroSharesReverts. It mocked
+    // `Galaxy.deposit` reverting and asserted `_supplyETH` caught it and rerouted to AAVE/hold. ETH
+    // deposits no longer reach Galaxy (or AAVE, or any WETH-4626 curator) at all, so there is no
+    // fallback to exercise — the subject is gone, not the assertion wrong.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    /// @dev Make a REAL ERC-4626 curator vault report only 30% of the holder's position as
+    ///      withdrawable — illiquid but SOLVENT (`maxWithdraw < convertToAssets`), which is the
+    ///      condition `pokeVaultHealth` / the Strand-2 cap / the liquidity-race sims all probe.
+    ///
+    ///      slot 0 / totalSupply in slot 1 of a hand-written mock). The venues are now the REAL
+    ///      mainnet curator vaults, so an etch silently corrupts every balance read instead — which
+    ///      is exactly what it did: 4 tests degraded to bare `EvmError: Revert` and 2 more to
+    ///      "nothing moved" assertions. Mocking the ONE view under test is layout-independent, and
+    ///      `vm.clearMockedCalls()` is the thaw (no code to restore).
+    /// @dev Report only 30% of the Vault's position in `venue` as withdrawable — illiquid but SOLVENT.
+    ///
+    ///      TWO mocks, because `VaultLib._withdrawableOf` deliberately IGNORES the ERC-4626 max-views on
+    ///      a Morpho-V2 impl (they report 0 against a fully withdrawable position, so trusting them let
+    ///      any caller block a healthy venue). Mocking `maxWithdraw` alone on Galaxy/Gauntlet is a
+    ///      NON-EVENT — it silently makes the "illiquid" premise inert and the test passes for the wrong
+    ///      reason. Neutralising the V2 MARKER (`liquidityAdapter() -> address(0)`) makes the venue take
+    ///      the honest-view branch, so the 30% below is a real constraint again. Solvency
+    ///      (`convertToAssets`) is untouched, so this stays "illiquid but solvent" as intended.
+    ///
+    ///      Do NOT use this to test the permissionless poke on a V2 venue: neutralising the marker is
+    ///      precisely the false signal `_withdrawableOf` exists to reject (see
+    ///      test_PokeVaultHealth_HealthyMorphoV2_NotBlocked).
+    /// @dev Stage the ONE way an ETH exit can now be short: a DRAINED CURVE POOL.
+    ///      Replaces `_mockVenueIlliquid`, which mocked a WETH-4626 curator at 30% liquid — a scenario
+    ///      that no longer exists, because ETH deposits no longer reach any curated vault. The property
+    ///      under test is unchanged (an unservable slice must DEFER and stay RECOVERABLE); only the
+    ///      route that can be short has moved from a 4626 max-view to the pool's WETH balance.
+    ///      `offrampBody` shrinks the sale to what `balances(0)` can pay, so mocking it low forces a
+    ///      partial fill and leaves the remainder in the LP's position — which is the deferral.
+    /// @param payable_ absolute WETH the pool can still pay, in wei.
+    /// @dev  ⚠️ TAKE AN ABSOLUTE AMOUNT, NOT A PERCENTAGE OF THE POOL. A first attempt mocked
+    ///       `balances(0)` at 30% of the real pool, which is ~614 WETH — not remotely binding on an
+    ///       8 ETH exit, so nothing deferred and the "recoverable" assertions failed against a residual
+    ///       of THREE WEI. The trace showed it: `exchange(1, 0, 7.263e18, ...)` filled in full, then the
+    ///       retry asked for `offrampEtherFi(3)`. The predecessor `_mockVenueIlliquid` capped a venue at
+    ///       30% of THE VAULT'S OWN POSITION, which binds; a fraction of the venue's own depth does not.
+    ///       Size this against the EXIT, not against the pool.
+    function _mockCurveDrained(uint payable_) internal {
+        address pool = EV.ETHERFI_CURVE_POOL();
+        vm.mockCall(pool, abi.encodeWithSelector(ICurvePool.balances.selector, uint(0)),
+            abi.encode(payable_));
+    }
+
+
+
+    // DELETED 2026-08-13 — test_PokeVaultHealth_HealthyMorphoV2_NotBlocked. It required the Vault to
+    // hold a Galaxy WETH position, which no ETH deposit now creates.
+    // ⚠️ COVERAGE LOST, SAY SO RATHER THAN LET IT VANISH: the property it guarded is still real and
+    // still live — a Morpho-V2 vault's max-view reports 0 against a fully recoverable position, so
+    // `pokeVaultHealth` must not block a HEALTHY V2 venue off that idle-only read. That path now exists
+    // only on the STABLE side (galaxy/gauntlet USDC are Morpho V2 and Aux holds those positions), where
+    // it is UNTESTED. Re-establish it against a stable vault rather than treating the deletion as a
+    // closure.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    /// EXTREME: a deep 60% depeg must not brick redemption nor let over-extraction — liveness + burned/delivered
+    /// both > 0, no revert (the write-down magnitude is covered by C_DepegFee's redeemableAmount monotonicity).
+    /// @notice Every AAVE-v4-spoke stable round-trips: mint against it, then redeem and prove the
+    ///         dollars come back out THROUGH THE SPOKE.
+    /// @dev  NEW 2026-08-15, EXTENDED TO USDG the same day. GHO and USDG are the ONLY two basket
+    ///       stables whose VAULTS slot is `address(0)` -- both route through the AAVE-v4 SPOKE, not a
+    ///       4626 -- and nothing exercised that withdrawal path. The two loops that walk every venue
+    ///       both `continue` past `aaveSpoke`, CORRECTLY (they mock `maxWithdraw`, which a non-4626
+    ///       does not have), so the leg was stepped over everywhere and covered nowhere. Aave v4
+    ///       BORROWING was removed 2026-08-13; this SUPPLY path deliberately survived.
+    ///       ⚠️ COVERING ONLY GHO WOULD HAVE BEEN A HALF-FIX: the two share one code path but are
+    ///       DIFFERENT RESERVES with independent ids resolved in `Aux`'s constructor, so a wiring
+    ///       defect can hit one and not the other. Both, or the pair is untested.
+    function _assertSpokeStableRoundTrips(IERC20 stable, string memory name) internal {
+        for (uint i = 0; i < AUX.getStables().length; i++)
+            vm.mockCall(address(AUX), abi.encodeWithSignature("getDepegSeverityBps(address)", AUX.getStables()[i]), abi.encode(uint(0)));
+
+        // Precondition, asserted rather than assumed: this really is spoke-routed here. If a later
+        // rewiring gives it a 4626, the test would be measuring something else and should say so.
+        address[] memory vs = AUX.getVaults(address(stable));
+        assertTrue(vs.length == 0 || vs[0] == address(0) || vs[0] == AUX.AAVE_SPOKE(),
+            string.concat("precondition: ", name, " is AAVE-v4-spoke routed, not 4626-routed"));
+
+        uint d = IERC20(address(stable)).decimals();
+        uint amountIn = 50_000 * (10 ** d);
+        deal(address(stable), User01, amountIn);
+        vm.startPrank(User01);
+        stable.approve(address(AUX), amountIn);
+        QUID.mint(User01, amountIn, address(stable), 0);
+        vm.stopPrank();
+        assertGt(QUID.balanceOf(User01), 0, string.concat("minting against ", name, " produced QD"));
+
+        vm.warp(block.timestamp + 35 days);
+        uint bal = QUID.balanceOf(User01);
+        // ISOLATE THE SPOKE. `_redeemValue` sums deltas across EVERY stable, so its `red > 0` is
+        // satisfied by USDC or DAI coming back while the AAVE-v4 leg delivers nothing -- it would
+        // pass for the exact defect this test exists to catch. Measure THIS stable's OWN delta,
+        // the only number that distinguishes "the spoke paid" from "something paid".
+        uint before = stable.balanceOf(User01);
+        (uint red, uint burn) = _redeemValue(User01, bal);
+        uint delta = stable.balanceOf(User01) - before;
+        assertGt(burn, 0, "redeem burned mature QD");
+        assertGt(red, 0, "redeem delivered something");
+        assertGt(delta, 0, string.concat(
+            name, " supplied through the AAVE-v4 spoke must come BACK OUT through it -- a pro-rata "
+            "redeem that pays only the 4626 legs means the spoke's balance is bookable, not deliverable"));
+        assertLe(red, burn + burn / 100, "spoke redeem never over-delivers");
+    }
+
+
+
+
+
+    function getAutoManaged(address who) internal view returns (Types.Deposit memory) {
+        (uint pooled, uint fees_tok, uint fees_usd, uint usd_owed) = V4.autoManaged(who);
+        return Types.Deposit({
+            pooled: pooled,
+            fees_tok: fees_tok,
+            fees_usd: fees_usd,
+            usd_owed: usd_owed
+        });
+    }
+
+
+
+
+
+
+
+
+    // ════════════════════════════════════════════════════════════════════
+    //  #2 RUN-SIM - the protocol's two existential measurements (NOW-TODO §2)
+    //  (A) SOLVENCY: at what procyclical-crash depth does the LP first-loss
+    //      buffer exhaust (deliverable redeemable < outstanding QUI ⇒ par
+    //      redemption fails)? The crash is driven THROUGH the pool (dip-sells
+    //      the √p pool buys with POOLED_USD) - scenario (c) by construction.
+    //  (B) LIQUIDITY ORDERING: redeemers AND LPs rush the same partly-frozen
+    //      TVL. Measured: who gets the liquid slice, the first-mover edge, and
+    //      the PASS CONDITION - every shortfall is a RECOVERABLE DEFERRAL
+    //      (claims retained; thaw ⇒ recovery), never a permanent bag.
+    // ════════════════════════════════════════════════════════════════════
+
+    uint constant RUNSIM_FACE = 50_000e18; // each redeemer's matured face
+
+    /// Common world: healed depegs, two matured QUI holders (50k USDC face
+    /// each - the FACE matures at month+1, only the yield credit is forward,
+    /// and `turn` burns against the MATURED balance), then two all-Galaxy ETH
+    /// LPs sized so they commit a meaningful-but-partial share of the TVL
+    /// (committing it ALL zeroes senior redeemability - a real dynamic the
+    /// (A) baseline assert would otherwise trip on).
+    function _stageRunSim(uint lpEth) internal returns (address lp1, address lp2) {
+        address[] memory stables = AUX.getStables();
+        for (uint i = 0; i < stables.length; i++) {
+            vm.mockCall(address(AUX),
+                abi.encodeWithSignature("getDepegSeverityBps(address)", stables[i]),
+                abi.encode(uint(0)));
+        }
+        // Mint 50_500 (= RUNSIM_FACE + 500 headroom), NOT exactly 50_000. The
+        // mint seed fee (BasketLib.seedFee ≤ usd·avgYield/12, fork-sensitive via
+        // live avgYield) shaves a sliver off the minted QUI, so a flat 50_000 mint
+        // can leave the holder a hair under RUNSIM_FACE. redeem(RUNSIM_FACE) then
+        // burns the full balance and the redeem's seed-untip turn() finds nothing
+        // left → InsufficientUnlocked, flaky run-to-run on the unpinned `latest`
+        // fork. The 500-QUI buffer (≫ any realistic seed fee at stable yields)
+        // guarantees the holder always carries ≥ RUNSIM_FACE + seed-untip headroom.
+        vm.startPrank(User01);
+        USDC.approve(address(AUX), 50_500 * USDC_PRECISION);
+        QUID.mint(User01, 50_500 * USDC_PRECISION, address(USDC), 0);
+        vm.stopPrank();
+        vm.startPrank(User02);
+        USDC.approve(address(AUX), 50_500 * USDC_PRECISION);
+        QUID.mint(User02, 50_500 * USDC_PRECISION, address(USDC), 0);
+        vm.stopPrank();
+        vm.warp(block.timestamp + 35 days); // mature the face
+
+        lp1 = makeAddr("runsim-lp1"); lp2 = makeAddr("runsim-lp2");
+        vm.deal(lp1, lpEth); vm.deal(lp2, lpEth);
+        vm.prank(lp1); V4.deposit{value: lpEth}(0, lp1); // all-Galaxy
+        vm.prank(lp2); V4.deposit{value: lpEth}(0, lp2);
+        vm.roll(block.number + 1); // JIT-lock: withdraws below must be a later block than these deposits
+    }
+
+    /// Freeze every Aux-held USDC 4626 leg (maxWithdraw->0, solvent) so the
+    /// REDEEMER side of the race is liquidity-bound too (the Galaxy etch only
+    /// binds the LP side). Other stables stay liquid - the contested slice.
+    function _freezeUsdcLegs() internal {
+        address aaveSpoke = AUX.AAVE_SPOKE();
+        address[] memory vs = AUX.getVaults(address(USDC));
+        for (uint j = 0; j < vs.length; j++) {
+            if (vs[j] == aaveSpoke) continue;
+            if (IERC4626(vs[j]).balanceOf(address(AUX)) == 0) continue;
+            vm.mockCall(vs[j],
+                abi.encodeWithSignature("maxWithdraw(address)", address(AUX)),
+                abi.encode(uint(0)));
+        }
+    }
+
+    /// Dip-sell THROUGH the pool: the √p pool buys the falling ETH with
+    /// POOLED_USD (real basket dollars leave to the seller), price + our TWAP
+    /// grind down - the procyclical drain. Each step is sized to a FRACTION of
+    /// the pool's current in-range USD so the move is a realistic multi-block
+    /// grind, not a single-block slam to the tick floor (a degenerate state
+    /// that breaks any TWAP and isn't what a real crash looks like). Strand-3
+    /// (max==0) / a manip-gate revert ends the loop; returns ETH absorbed.
+    function _dipSell(uint steps) internal returns (uint absorbed) {
+        address seller = makeAddr("runsim-dipseller");
+        vm.deal(seller, 10_000 ether);
+        for (uint i = 0; i < steps; i++) {
+            uint px;
+            // Guard the raw TWAP read: at extreme crash depth the no-Chainlink-
+            // anchor fork's raw observation math can underflow (panic) — that is
+            // the boundary of the realistic-depth regime, so STOP the drain here.
+            try AUX.getTWAPforAsset(address(WETH), 1800) returns (uint p) { px = p; }
+            catch { break; }
+            uint poolUsd6 = CORE.POOLED_USD();
+            if (px == 0 || poolUsd6 == 0) break;
+            // ~10% of in-range USD per step, in ETH at the live price.
+            uint ethStep = SoladyMath.fullMulDiv(poolUsd6 / 10 * 1e12, 1e18, px);
+            if (ethStep == 0) ethStep = 0.01 ether;
+            vm.prank(seller);
+            try AUX.swap{value: ethStep}(address(USDC), address(WETH), false, 0, 0) {
+                absorbed += ethStep;
+            } catch { break; } // pool USD exhausted / gate - drain complete
+            vm.roll(block.number + 1); vm.warp(block.timestamp + 16 minutes);
+        }
+    }
+
+    /// Per-tranche drain telemetry. Returns (exhausted, twapAlive). The TWAP
+    /// reads are try/catch'd: an EXTREME single-pool crater can drive the V4
+    /// observation ring past where its raw (no-Chainlink-anchor on this fork)
+    /// math stays valid - we RECORD that as a data point ("TWAP broke at
+    /// tranche N") rather than crash the measurement, since it's the boundary
+    /// of the realistic-depth regime this test targets.
+    function _logTranche(uint t, uint absorbed, uint p0, uint qdOut)
+        internal returns (bool exhausted, bool twapAlive) {
+        console.log("tranche", t);
+        console.log("  ETH absorbed by pool (wei)", absorbed);
+        console.log("  POOLED_USD (6-dec)", CORE.POOLED_USD());
+        try AUX.getTWAPforAsset(address(WETH), 1800) returns (uint px) {
+            console.log("  TWAP bps of start", p0 == 0 ? 0 : px * 10000 / p0);
+        } catch { console.log("  TWAP READ REVERTED (ring past raw-valid range)"); return (exhausted, false); }
+        try AUX.redeemableAmount() returns (uint r) {
+            console.log("  redeemable (18-dec)", r);
+            return (r < qdOut, true);
+        } catch { console.log("  redeemableAmount REVERTED"); return (exhausted, false); }
+    }
+
+
+    // ════════════════════════════════════════════════════════════════════
+    //  IL-STRESS BASELINE (run-sim "A"), anchor-wired (WETH Chainlink feed mock
+    //  so swaps are production-faithful: the feed moves WITH the pool). NOTE:
+    //  these two assert SOLVENCY + CLEAN EXIT through chop / trend on the real
+    //  fork - NOT IL magnitude. IL is a value concept the thin fork pool can't
+    //  model faithfully (it manufactures excursion IL on oversized trades, and
+    //  the lone LP collects outsized one-way fees) - so the benign-chop claim is
+    //  a value concept best modeled with controlled price paths in clean
+    //  USD-value space, not on the thin fork pool.
+    // ════════════════════════════════════════════════════════════════════
+    address constant ETH_FEED = address(0xE7F0FEED);
+
+    /// Mock the WETH Chainlink feed at `usd8` (8-dec). Re-mock to move it.
+    function _setEthFeed(uint usd8) internal {
+        vm.mockCall(ETH_FEED, abi.encodeWithSignature("decimals()"), abi.encode(uint8(8)));
+        vm.mockCall(ETH_FEED, abi.encodeWithSignature("latestRoundData()"),
+            abi.encode(uint80(1), int256(usd8), uint(0), block.timestamp, uint80(1)));
+    }
+
+    /// Push the ETH pool one direction via real swaps, feed tracking the pool
+    /// pre-swap each step (so the 5% anchor never false-trips). down=true sells
+    /// ETH (price down); else buys ETH with USDC (price up). Returns steps that
+    /// landed (a revert = pool exhausted / observe-underflow boundary).
+    function _moveEth(bool down, uint perStep, uint steps, address actor) internal returns (uint moved) {
+        for (uint i; i < steps; i++) {
+            uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+            if (px == 0) break;
+            _setEthFeed(px / 1e10);                 // feed = pre-swap pool price (no deviation)
+            vm.prank(actor);
+            if (down) {
+                try AUX.swap{value: perStep}(address(USDC), address(WETH), false, 0, 0) { moved++; }
+                catch { break; }
+            } else {
+                try AUX.swap(address(USDC), address(WETH), true, perStep, 0) { moved++; }
+                catch { break; }
+            }
+            vm.roll(block.number + 1); vm.warp(block.timestamp + 16 minutes);
+        }
+    }
+
+    /// Stage: heal depegs, fund the basket (QUI vs USDC → POOLED_USD surplus),
+    /// wire the WETH anchor feed, and place ONE measured ETH LP.
+    function _stageIL(address lp, uint lpEth) internal {
+        address[] memory st = AUX.getStables();
+        for (uint i; i < st.length; i++) _healDepeg(st[i]);
+        vm.startPrank(User01);
+        USDC.approve(address(AUX), type(uint).max);
+        QUID.mint(User01, 200_000 * USDC_PRECISION, address(USDC), 0);
+        vm.stopPrank();
+        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        _setEthFeed(px / 1e10);
+        AUX.setAssetFeed(address(WETH), ETH_FEED);   // pin the anchor (owner, pre-renounce)
+        vm.deal(lp, lpEth);
+        vm.prank(lp); V4.deposit{value: lpEth}(0, lp); // all-Galaxy ETH LP
+    }
+
+
+
+    /// @dev INDEPENDENT recomputation of ONE stable's LIVE vault-sum: Σ over the
+    ///      stable's venues of (Aave-v4 `aaveBalance` | 4626 `convertToAssets(balanceOf(AUX))`),
+    ///      decimal-scaled to 18 — i.e. the exact unit `BasketLib._valueStable`
+    ///      (src/imports/BasketLib.sol:243) computes and caches into `storedHoldings`.
+    ///
+    ///      WHY IT IS HAND-ROLLED HERE AND NOT READ BACK THROUGH `Aux`: the step-5 read
+    ///      flip landed. `BasketLib.get_deposits` no longer recomputes anything — it
+    ///      SERVES `amounts[i+1]` straight from `storedHoldings[stable].balance` minus
+    ///      the live tranche (BasketLib.sol:158-183). So the old form of
+    ///      `_reconcileCache`, which compared `get_deposits()` against
+    ///      `storedHoldings - tranche`, was comparing the cache to ITSELF: an algebraic
+    ///      identity that no missed mutator, and no amount of staleness, could ever
+    ///      break. This function is the only thing in the reconciliation that still
+    ///      touches a venue, so it is the only thing that can catch a stale cache.
+    ///      It mirrors `_valueStable`'s try/catch skip semantics deliberately (a
+    ///      reverting vault contributes 0 on both sides).
+    function _liveVaultSum(address stable) internal view returns (uint balance) {
+        address[] memory vs = AUX.getVaults(stable);
+        if (vs.length == 0) {
+            // GHO/USDG are Aave-native (vault slot 0); any other unwired stable is 0.
+            if (stable == AUX.GHO() || stable == AUX.USDG()) balance = AUX.aaveBalance(stable);
+        } else {
+            address spoke = AUX.AAVE_SPOKE();
+            for (uint j; j < vs.length; j++) {
+                if (vs[j] == spoke) { balance += AUX.aaveBalance(stable); continue; }
+                try IERC4626(vs[j]).balanceOf(address(AUX)) returns (uint sh) {
+                    if (sh == 0) continue;
+                    try IERC4626(vs[j]).convertToAssets(sh) returns (uint a) { balance += a; }
+                    catch { continue; }
+                } catch { continue; }
+            }
+        }
+        if (balance == 0) return 0;
+        uint dec = IERC20(stable).decimals();
+        if (dec < 18) balance *= 10 ** (18 - dec);
+    }
+
+    /// @notice #3 cache reconciliation: `storedHoldings` is maintained on every mutator
+    ///         and `get_deposits` now SERVES from it, so the cache IS the protocol's
+    ///         belief about its own backing. A missed mutator therefore does not merely
+    ///         desynchronise a shadow copy — it silently mis-states backing on every
+    ///         mint, redeem, swap and `checkBacking`. The guardrail is: cache == the
+    ///         LIVE venue sum (`_liveVaultSum`, which is not derived from the cache).
+    function _reconcileCache(string memory tag) internal {
+        address[] memory st = AUX.getStables();
+        (uint[15] memory amounts,,,) = AUX.get_deposits();
+        for (uint i; i + 1 < st.length; i++) {        // skip BOLD (last; SP path)
+            (uint cb,,,,) = AUX.storedHoldings(st[i]);
+            uint live = _liveVaultSum(st[i]);
+            // (1) THE INVARIANT THE NAME CLAIMS: the cached vault-sum must equal the
+            // sum the venues actually report right now. Tolerance is for 6-dec
+            // FullMath/decimal rounding only; a missed mutator is off by a whole
+            // deposit (~1e21), orders of magnitude outside this.
+            assertApproxEqAbs(cb, live, 1e13,
+                string.concat("storedHoldings != LIVE venue sum (missed mutator?): ", tag));
+            // (2) and the read path must apply the tranche cap on top of the LIVE
+            // number — the seed reserve is never counted as redeemable backing.
+            uint resv = AUX.tranche(st[i]);
+            uint expected = live > resv ? live - resv : 0;
+            assertApproxEqAbs(amounts[i + 1], expected, 1e13,
+                string.concat("get_deposits != live - tranche: ", tag));
+        }
+    }
+
+
+
+
+
+    // ════════════════════════════════════════════════════════════════════
+    //  #2 RUN-SIM (C) - DEPEG / OUTFLOW-FEE EVALUATION (calcRisk)
+    //  Objective: does the stablecoin outflow-fee + depeg-haircut system make
+    //  sense? It has THREE interlocking pieces:
+    //    1. calcFeeL1  - yield-vs-baseline outflow fee, BASE(0.03%)..MAX(0.3%).
+    //                    A depegged stable's yield is pre-discounted upstream
+    //                    so it lands at BASE: CHEAP to drain bad collateral.
+    //    2. riskFactor/_depegLoss - writes the depegged face DOWN on the
+    //                    redemption total (Sigma face_i x (1 - riskFactor_i)) at
+    //                    FULL live severity (#2: the old 6500/35% floor is gone).
+    //                    The anti-par-arb spread-the-loss mechanism.
+    //    3. calcRisk   - grosses up DELIVERED units of the depegged token so the
+    //                    redeemer nets par VALUE (full severity; div guarded by sev<10000).
+    //  This measures all three across severities: full write-down, no phantom-backing
+    //  first-out advantage, and no over-par redemption.
+    // ════════════════════════════════════════════════════════════════════
+
+    /// Lean stage: two QUI holders mint 50k each against USDC, matured, all
+    /// depegs healed. (No ETH LPs - keep the USDC depeg's effect on the
+    /// redeemable backing undiluted and legible.)
+    function _stageDepeg() internal {
+        address[] memory stables = AUX.getStables();
+        for (uint i = 0; i < stables.length; i++) _healDepeg(stables[i]);
+        vm.startPrank(User01);
+        USDC.approve(address(AUX), 50_000 * USDC_PRECISION);
+        QUID.mint(User01, 50_000 * USDC_PRECISION, address(USDC), 0);
+        vm.stopPrank();
+        vm.startPrank(User02);
+        USDC.approve(address(AUX), 50_000 * USDC_PRECISION);
+        QUID.mint(User02, 50_000 * USDC_PRECISION, address(USDC), 0);
+        vm.stopPrank();
+        vm.warp(block.timestamp + 35 days);
+    }
+
+    function _healDepeg(address stable) internal {
+        vm.mockCall(address(AUX),
+            abi.encodeWithSignature("getDepegSeverityBps(address)", stable), abi.encode(uint(0)));
+    }
+    function _setDepeg(address stable, uint sevBps) internal {
+        vm.mockCall(address(AUX),
+            abi.encodeWithSignature("getDepegSeverityBps(address)", stable), abi.encode(sevBps));
+    }
+
+    /// Redeem `amount` QUI and sum the value delivered across ALL basket stables
+    /// (redemption pays out pro-rata, not in one token) - returns (value18,
+    /// burned18). Measuring only one leg understates the payout.
+    function _redeemValue(address who, uint amount) internal returns (uint value18, uint burned) {
+        address[] memory st = AUX.getStables();
+        uint[] memory pre = new uint[](st.length);
+        for (uint i; i < st.length; i++) pre[i] = IERC20(st[i]).balanceOf(who);
+        uint qb = QUID.balanceOf(who);
+        vm.prank(who); AUX.redeem(amount);
+        burned = qb - QUID.balanceOf(who);
+        for (uint i; i < st.length; i++) {
+            uint bal = IERC20(st[i]).balanceOf(who);
+            if (bal > pre[i]) {
+                uint dec = IERC20(st[i]).decimals();
+                value18 += dec < 18 ? (bal - pre[i]) * 10 ** (18 - dec) : (bal - pre[i]);
+            }
+        }
+    }
+
+
+    // (C2) test_RunSim_C2_OutflowBaseRate REMOVED — it measured the baseRate directional velocity toll's
+    // rise/cap/decay. baseRate is gone (no peg-arb loop; see Aux._takeArgs). Nothing replaces it here.
+
+
+
+
+    /// One redeem turn: burn up to `RUNSIM_FACE` matured QUI, return
+    /// (deliveredUsd18, burned18). `redeem` clips internally - burned tracks
+    /// the aggregate balance drop, so unserved face is NEVER burned.
+    function _redeemTurn(address who) internal returns (uint delivered, uint burned) {
+        uint qdB = QUID.balanceOf(who);
+        uint usdcB = USDC.balanceOf(who);
+        uint usdtB = USDT.balanceOf(who);
+        uint daiB = DAI.balanceOf(who);
+        vm.prank(who); AUX.redeem(RUNSIM_FACE);
+        burned = qdB - QUID.balanceOf(who);
+        delivered = (USDC.balanceOf(who) - usdcB) * 1e12
+                  + (USDT.balanceOf(who) - usdtB) * 1e12
+                  + (DAI.balanceOf(who) - daiB);
+    }
+
+
+
+    /// Total value an LP received from a withdraw, in ETH-wei: native ETH +
+    /// WETH (burn-in-range may deliver wrapped) + QU!D fee-leg at TWAP. Catches
+    /// value regardless of delivery form so a "bag" is real, not a miss.
+    function _lpReceived(address lp, uint ethBefore, uint wethBefore, uint qdBefore)
+        internal returns (uint) {
+        return (lp.balance - ethBefore)
+             + (WETH.balanceOf(lp) - wethBefore)
+             + _ethEquiv(QUID.balanceOf(lp) - qdBefore);
+    }
+
+    /// USD-18 value -> ETH-wei at the live TWAP (for unit-consistent coverage).
+    function _ethEquiv(uint usd18) internal returns (uint) {
+        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        return px == 0 ? 0 : SoladyMath.fullMulDiv(usd18, 1e18, px);
+    }
+
+    function _lpRemainders(address a, address b) internal view returns (uint, uint) {
+        (uint ra,,,) = V4.autoManaged(a);
+        (uint rb,,,) = V4.autoManaged(b);
+        return (ra, rb);
+    }
+
+
+
+
+
+    // ─── SOR paths (copied from DeployL1_s.sol) so AUX.arbETH can
+    //     recover ETH-withdrawal shortfalls from the stable basket ───
+    // Covers Aux's SOR stable->WETH path: auxSwap -> PoolManager.unlock ->
+    // Aux.unlockCallback -> SOR.unlockBody (the V4 unlock body extracted to
+    // a library). No other test exercises Aux's unlock path.
+
+    // ════════════════════════════════════════════════════════════════════
+    //  BTC scope - forkable parts (no Lightning required)
+    // ════════════════════════════════════════════════════════════════════
+
+    /// @notice BTC LP deposit: pulls WBTC, grows lpShares + the LP's
+    ///         per-user autoManaged.pooled bucket.
+    // testBTC_LPDeposit / testBTC_LPWithdraw REMOVED - they exercised the
+    // deleted WBTC-as-internal-liquidity LP path (depositBTC/withdrawBTC).
+    // Replaced by the channel-lock-LP flow below.
+
+    // Test doubles as BTCChannels (set via AUX.setBTCChannels): Aux reads
+    // btcRecipientOf during USD->BTC swap validation. Non-zero ⇒ native path.
+    function btcRecipientOf(address) external pure returns (bytes32) {
+        return bytes32(uint256(0xB7C));
+    }
+
+
+
+
+
+
+
+
+    /// @dev Little-endian encode `v` into `n` bytes (Bitcoin tx field order).
+    function _le(uint v, uint n) internal pure returns (bytes memory b) {
+        b = new bytes(n);
+        for (uint i = 0; i < n; i++) b[i] = bytes1(uint8(v >> (8 * i)));
+    }
+
+
+    // §9b: testBtcChannels_ForceCloseByLP_EndToEnd REMOVED - forceCloseByLP no
+    // longer exists (the CLTV-whole-UTXO grief is gone; unilateral recovery is an
+    // LDK force-close on Bitcoin, enforcing the fair split, not an EVM entrypoint).
+
+
+
+    /// @notice WBTC-terminal SOR unlock: forces auxSwap -> PoolManager.unlock
+    ///         -> Aux.unlockCallback -> SOR.unlockBody's isWbtcTerm branch.
+    ///         Covers paths[6..11] (arbBTC paths) in _buildSORPaths.
+
+
+
+
+
+    // ─── Deploy finalize: all-or-nothing assert + renounce Aux & Basket ───
+    // The finalize is two DEPLOYER (owner) calls: AUX.finalize() asserts every cross-contract linkage, burns the
+    // committed ANGEL NFT (owner→DEAD via Aux's approval), then renounces Aux; QUID.renounceOwnership() renounces
+    // Basket. No transferOwnership(Basket->Aux) — each contract self-renounces as its own owner (here the test ==
+    // deployer/owner). The ANGEL burn is REAL here: setUp handed the deployer the live ANGEL and DeployLib
+    // approved Aux. setUp already wires Vogue/Core/Basket->Vault + setQuid; we add the two it omits (BTCChannels +
+    // a mocked Rover).
+    function _wireFinalizeLinkages() internal {
+        AUX.setBTCChannels(address(0xBC));   // sets Aux._btcChannels + Vault.btcChannels
+        vm.mockCall(address(ETH), abi.encodeWithSignature("ROVER()"), abi.encode(address(0xB0)));
+        vm.mockCall(address(0xB0), abi.encodeWithSignature("AUX()"), abi.encode(address(ETH)));
+    }
+
+
+
+
+
+
+
+
+
+    /// §ONE-ANCHOR — the band stores ONE anchor and derives `[lo, hi]`, so tests read the pair via
+    /// `bandBounds()`. These two exist so the files that want a single leg do not each destructure it.
+    function _bLo(address band) internal view returns (uint) { (uint l,) = IBandManager(band).bandBounds(); return l; }
+    function _bHi(address band) internal view returns (uint) { (, uint h) = IBandManager(band).bandBounds(); return h; }
+
+
+    // ════════════════════════════════════════════════════════════════════════════════════════
+    //  §V4-ZERO — `testSOR_StableToWeth_Unlock` and `testBTC_SOR_StableToWbtc_Unlock` DELETED.
+    //
+    //  They asserted "auxSwap delivers WETH through Aux.unlockCallback" -- the v4 unlock path, which
+    //  no longer exists (`SafeCallback` and `_unlockCallback` went with the v4 cut). With no
+    //  PoolManager the route cannot complete, so both surfaced as `NoSorPath()` three frames down:
+    //  164 failures across the suites that inherit this fixture.
+    //
+    //  🔴 BUT THEY WERE NOT TESTS OF A v4 DETAIL, AND THIS IS BOOKED SO THE DELETION DOES NOT ERASE
+    //  IT. They covered a REAL CAPABILITY: the basket's stable -> VOLATILE route, which is what
+    //  `arbETH` uses for the basket->WETH shortfall arb. That capability is currently
+    //  UNIMPLEMENTED, not merely untested -- `Aux`'s 4-arg `auxSwap` is its only entrypoint and its
+    //  body needs a router. The 5-arg `auxSwap` cannot substitute: `SwapLib.auxSwapBody` opens
+    //  `if (idxIn == 0 || idxOut == 0) revert NotBasketStable()` and WETH/WBTC have no basket index.
+    //
+    //  ⇒ WHEN 1INCH LANDS, THESE TWO COME BACK, pointed at it: ungated caller reverts
+    //  `Unauthorized`, Aux's own self-call delivers, recipient balance moves by exactly `got`. Until
+    //  then the capability has NO coverage, which is a known hole and not a green light.
+    //  Tracked in docs/actionable/ROUTING-AGGREGATION.md.
+    // ════════════════════════════════════════════════════════════════════════════════════════
+
+
+
+    /// §WRONG-BAND — the BTC band's ENGINE. `Aux.swap(USDC, WBTC, ...)` settles on
+    /// `_bandOf(WBTC) == BTC_CORE`, so a test that primes with WBTC swaps and then reads
+    /// `CORE.POOLED_USD()` is reading the ETH engine and can only ever see 0. That was 246
+    /// `priming funded POOLED_USD: 0 <= 0` failures plus four sibling buckets -- an assertion about
+    /// the wrong contract, not a defect in the code under test.
+    ///
+    /// ⚠️ It was UNREACHABLE until `Vault.CORE` was made public: with no handle for the second
+    /// engine, the fixture had nothing to read but `CORE`. `Aux.sol` warns about exactly this two
+    /// lines above the dispatch -- splitting read from write "is what let reads and settlement
+    /// disagree about which band they were talking to".
+    function BCORE() internal view returns (Core) { return BTC.CORE(); }
+
+}
+
+/// §FIXTURE-SPLIT — the 102 tests, now run ONCE. Inherits the fixture like every other probe.
+contract Alles is AllesFixture {
     function testRegularSwaps() public {
         console.log("=== testRegularSwaps ===");
 
@@ -772,14 +1449,6 @@ contract Alles is ForkPin, ExitFixture {
         assertLt(redeemableAfter, redeemableBefore,
             "frozen-but-solvent 4626 leg no longer inflates redeemable (Strand-1/Gov-C)");
     }
-
-
-
-    // DELETED 2026-08-13 — testGalaxyFallback_RevertReroutes_ZeroSharesReverts. It mocked
-    // `Galaxy.deposit` reverting and asserted `_supplyETH` caught it and rerouted to AAVE/hold. ETH
-    // deposits no longer reach Galaxy (or AAVE, or any WETH-4626 curator) at all, so there is no
-    // fallback to exercise — the subject is gone, not the assertion wrong.
-
 
     /// @notice TODO #1 char test - Strand-3 (Batch-1 `b554c7d`). A swap-OUT to a
     ///         volatile asset against a DRY pool (POOLED==0, no LP) delivers
@@ -1421,50 +2090,6 @@ contract Alles is ForkPin, ExitFixture {
         assertGt(WETH.balanceOf(User01) - wethBefore, 0, "offramp delivered WETH");
     }
 
-    /// @dev Make a REAL ERC-4626 curator vault report only 30% of the holder's position as
-    ///      withdrawable — illiquid but SOLVENT (`maxWithdraw < convertToAssets`), which is the
-    ///      condition `pokeVaultHealth` / the Strand-2 cap / the liquidity-race sims all probe.
-    ///
-    ///      slot 0 / totalSupply in slot 1 of a hand-written mock). The venues are now the REAL
-    ///      mainnet curator vaults, so an etch silently corrupts every balance read instead — which
-    ///      is exactly what it did: 4 tests degraded to bare `EvmError: Revert` and 2 more to
-    ///      "nothing moved" assertions. Mocking the ONE view under test is layout-independent, and
-    ///      `vm.clearMockedCalls()` is the thaw (no code to restore).
-    /// @dev Report only 30% of the Vault's position in `venue` as withdrawable — illiquid but SOLVENT.
-    ///
-    ///      TWO mocks, because `VaultLib._withdrawableOf` deliberately IGNORES the ERC-4626 max-views on
-    ///      a Morpho-V2 impl (they report 0 against a fully withdrawable position, so trusting them let
-    ///      any caller block a healthy venue). Mocking `maxWithdraw` alone on Galaxy/Gauntlet is a
-    ///      NON-EVENT — it silently makes the "illiquid" premise inert and the test passes for the wrong
-    ///      reason. Neutralising the V2 MARKER (`liquidityAdapter() -> address(0)`) makes the venue take
-    ///      the honest-view branch, so the 30% below is a real constraint again. Solvency
-    ///      (`convertToAssets`) is untouched, so this stays "illiquid but solvent" as intended.
-    ///
-    ///      Do NOT use this to test the permissionless poke on a V2 venue: neutralising the marker is
-    ///      precisely the false signal `_withdrawableOf` exists to reject (see
-    ///      test_PokeVaultHealth_HealthyMorphoV2_NotBlocked).
-    /// @dev Stage the ONE way an ETH exit can now be short: a DRAINED CURVE POOL.
-    ///      Replaces `_mockVenueIlliquid`, which mocked a WETH-4626 curator at 30% liquid — a scenario
-    ///      that no longer exists, because ETH deposits no longer reach any curated vault. The property
-    ///      under test is unchanged (an unservable slice must DEFER and stay RECOVERABLE); only the
-    ///      route that can be short has moved from a 4626 max-view to the pool's WETH balance.
-    ///      `offrampBody` shrinks the sale to what `balances(0)` can pay, so mocking it low forces a
-    ///      partial fill and leaves the remainder in the LP's position — which is the deferral.
-    /// @param payable_ absolute WETH the pool can still pay, in wei.
-    /// @dev  ⚠️ TAKE AN ABSOLUTE AMOUNT, NOT A PERCENTAGE OF THE POOL. A first attempt mocked
-    ///       `balances(0)` at 30% of the real pool, which is ~614 WETH — not remotely binding on an
-    ///       8 ETH exit, so nothing deferred and the "recoverable" assertions failed against a residual
-    ///       of THREE WEI. The trace showed it: `exchange(1, 0, 7.263e18, ...)` filled in full, then the
-    ///       retry asked for `offrampEtherFi(3)`. The predecessor `_mockVenueIlliquid` capped a venue at
-    ///       30% of THE VAULT'S OWN POSITION, which binds; a fraction of the venue's own depth does not.
-    ///       Size this against the EXIT, not against the pool.
-    function _mockCurveDrained(uint payable_) internal {
-        address pool = EV.ETHERFI_CURVE_POOL();
-        vm.mockCall(pool, abi.encodeWithSelector(ICurvePool.balances.selector, uint(0)),
-            abi.encode(payable_));
-    }
-
-
     /// @notice A HEALTHY Morpho-V2 vault must not be blockable off its idle-only max-view — on the
     ///         STABLE side, where the property now lives.
     /// @dev  RE-ESTABLISHED 2026-08-13. The ETH-side version of this test was deleted with the ETH
@@ -1499,25 +2124,6 @@ contract Alles is ForkPin, ExitFixture {
         assertFalse(AUX.vaultBlocked(venue),
             "a HEALTHY Morpho-V2 stable venue must NOT be blockable off its idle-only max-view");
     }
-
-    // DELETED 2026-08-13 — test_PokeVaultHealth_HealthyMorphoV2_NotBlocked. It required the Vault to
-    // hold a Galaxy WETH position, which no ETH deposit now creates.
-    // ⚠️ COVERAGE LOST, SAY SO RATHER THAN LET IT VANISH: the property it guarded is still real and
-    // still live — a Morpho-V2 vault's max-view reports 0 against a fully recoverable position, so
-    // `pokeVaultHealth` must not block a HEALTHY V2 venue off that idle-only read. That path now exists
-    // only on the STABLE side (galaxy/gauntlet USDC are Morpho V2 and Aux holds those positions), where
-    // it is UNTESTED. Re-establish it against a stable vault rather than treating the deletion as a
-    // closure.
-
-
-
-
-
-
-
-
-
-
 
     /// @notice Vault health is BINARY (blocked) + evac — the graded haircut was
     ///         the dead CRE-onReport vestige (removed). A blocked vault is valued
@@ -2598,55 +3204,6 @@ contract Alles is ForkPin, ExitFixture {
         assertLe(wRed, wBurn + wBurn / 100, "whole-balance redeem never over-delivers (<= par/QD, no depeg)");
     }
 
-    /// EXTREME: a deep 60% depeg must not brick redemption nor let over-extraction — liveness + burned/delivered
-    /// both > 0, no revert (the write-down magnitude is covered by C_DepegFee's redeemableAmount monotonicity).
-    /// @notice Every AAVE-v4-spoke stable round-trips: mint against it, then redeem and prove the
-    ///         dollars come back out THROUGH THE SPOKE.
-    /// @dev  NEW 2026-08-15, EXTENDED TO USDG the same day. GHO and USDG are the ONLY two basket
-    ///       stables whose VAULTS slot is `address(0)` -- both route through the AAVE-v4 SPOKE, not a
-    ///       4626 -- and nothing exercised that withdrawal path. The two loops that walk every venue
-    ///       both `continue` past `aaveSpoke`, CORRECTLY (they mock `maxWithdraw`, which a non-4626
-    ///       does not have), so the leg was stepped over everywhere and covered nowhere. Aave v4
-    ///       BORROWING was removed 2026-08-13; this SUPPLY path deliberately survived.
-    ///       ⚠️ COVERING ONLY GHO WOULD HAVE BEEN A HALF-FIX: the two share one code path but are
-    ///       DIFFERENT RESERVES with independent ids resolved in `Aux`'s constructor, so a wiring
-    ///       defect can hit one and not the other. Both, or the pair is untested.
-    function _assertSpokeStableRoundTrips(IERC20 stable, string memory name) internal {
-        for (uint i = 0; i < AUX.getStables().length; i++)
-            vm.mockCall(address(AUX), abi.encodeWithSignature("getDepegSeverityBps(address)", AUX.getStables()[i]), abi.encode(uint(0)));
-
-        // Precondition, asserted rather than assumed: this really is spoke-routed here. If a later
-        // rewiring gives it a 4626, the test would be measuring something else and should say so.
-        address[] memory vs = AUX.getVaults(address(stable));
-        assertTrue(vs.length == 0 || vs[0] == address(0) || vs[0] == AUX.AAVE_SPOKE(),
-            string.concat("precondition: ", name, " is AAVE-v4-spoke routed, not 4626-routed"));
-
-        uint d = IERC20(address(stable)).decimals();
-        uint amountIn = 50_000 * (10 ** d);
-        deal(address(stable), User01, amountIn);
-        vm.startPrank(User01);
-        stable.approve(address(AUX), amountIn);
-        QUID.mint(User01, amountIn, address(stable), 0);
-        vm.stopPrank();
-        assertGt(QUID.balanceOf(User01), 0, string.concat("minting against ", name, " produced QD"));
-
-        vm.warp(block.timestamp + 35 days);
-        uint bal = QUID.balanceOf(User01);
-        // ISOLATE THE SPOKE. `_redeemValue` sums deltas across EVERY stable, so its `red > 0` is
-        // satisfied by USDC or DAI coming back while the AAVE-v4 leg delivers nothing -- it would
-        // pass for the exact defect this test exists to catch. Measure THIS stable's OWN delta,
-        // the only number that distinguishes "the spoke paid" from "something paid".
-        uint before = stable.balanceOf(User01);
-        (uint red, uint burn) = _redeemValue(User01, bal);
-        uint delta = stable.balanceOf(User01) - before;
-        assertGt(burn, 0, "redeem burned mature QD");
-        assertGt(red, 0, "redeem delivered something");
-        assertGt(delta, 0, string.concat(
-            name, " supplied through the AAVE-v4 spoke must come BACK OUT through it -- a pro-rata "
-            "redeem that pays only the 4626 legs means the spoke's balance is bookable, not deliverable"));
-        assertLe(red, burn + burn / 100, "spoke redeem never over-delivers");
-    }
-
     function test_Redeem_GhoViaAaveSpoke_ActuallyDelivers() public {
         _assertSpokeStableRoundTrips(GHO, "GHO");
     }
@@ -2706,16 +3263,6 @@ contract Alles is ForkPin, ExitFixture {
         assertGe(got1 + got2 + rem1 + rem2, 200 ether, "delivered + retained >= total in");
         // CONSERVATION: cannot conjure more than principal + realized fees.
         assertLt(got1 + got2 + rem1 + rem2, 215 ether, "total bounded (no value created from nowhere)");
-    }
-
-    function getAutoManaged(address who) internal view returns (Types.Deposit memory) {
-        (uint pooled, uint fees_tok, uint fees_usd, uint usd_owed) = V4.autoManaged(who);
-        return Types.Deposit({
-            pooled: pooled,
-            fees_tok: fees_tok,
-            fees_usd: fees_usd,
-            usd_owed: usd_owed
-        });
     }
 
     function testInvariant_TotalSharesMatchesSum() public {
@@ -2834,123 +3381,6 @@ contract Alles is ForkPin, ExitFixture {
         assertLe(total3, 100.1 ether, "User03 overpaid");
     }
 
-    // ════════════════════════════════════════════════════════════════════
-    //  #2 RUN-SIM - the protocol's two existential measurements (NOW-TODO §2)
-    //  (A) SOLVENCY: at what procyclical-crash depth does the LP first-loss
-    //      buffer exhaust (deliverable redeemable < outstanding QUI ⇒ par
-    //      redemption fails)? The crash is driven THROUGH the pool (dip-sells
-    //      the √p pool buys with POOLED_USD) - scenario (c) by construction.
-    //  (B) LIQUIDITY ORDERING: redeemers AND LPs rush the same partly-frozen
-    //      TVL. Measured: who gets the liquid slice, the first-mover edge, and
-    //      the PASS CONDITION - every shortfall is a RECOVERABLE DEFERRAL
-    //      (claims retained; thaw ⇒ recovery), never a permanent bag.
-    // ════════════════════════════════════════════════════════════════════
-
-    uint constant RUNSIM_FACE = 50_000e18; // each redeemer's matured face
-
-    /// Common world: healed depegs, two matured QUI holders (50k USDC face
-    /// each - the FACE matures at month+1, only the yield credit is forward,
-    /// and `turn` burns against the MATURED balance), then two all-Galaxy ETH
-    /// LPs sized so they commit a meaningful-but-partial share of the TVL
-    /// (committing it ALL zeroes senior redeemability - a real dynamic the
-    /// (A) baseline assert would otherwise trip on).
-    function _stageRunSim(uint lpEth) internal returns (address lp1, address lp2) {
-        address[] memory stables = AUX.getStables();
-        for (uint i = 0; i < stables.length; i++) {
-            vm.mockCall(address(AUX),
-                abi.encodeWithSignature("getDepegSeverityBps(address)", stables[i]),
-                abi.encode(uint(0)));
-        }
-        // Mint 50_500 (= RUNSIM_FACE + 500 headroom), NOT exactly 50_000. The
-        // mint seed fee (BasketLib.seedFee ≤ usd·avgYield/12, fork-sensitive via
-        // live avgYield) shaves a sliver off the minted QUI, so a flat 50_000 mint
-        // can leave the holder a hair under RUNSIM_FACE. redeem(RUNSIM_FACE) then
-        // burns the full balance and the redeem's seed-untip turn() finds nothing
-        // left → InsufficientUnlocked, flaky run-to-run on the unpinned `latest`
-        // fork. The 500-QUI buffer (≫ any realistic seed fee at stable yields)
-        // guarantees the holder always carries ≥ RUNSIM_FACE + seed-untip headroom.
-        vm.startPrank(User01);
-        USDC.approve(address(AUX), 50_500 * USDC_PRECISION);
-        QUID.mint(User01, 50_500 * USDC_PRECISION, address(USDC), 0);
-        vm.stopPrank();
-        vm.startPrank(User02);
-        USDC.approve(address(AUX), 50_500 * USDC_PRECISION);
-        QUID.mint(User02, 50_500 * USDC_PRECISION, address(USDC), 0);
-        vm.stopPrank();
-        vm.warp(block.timestamp + 35 days); // mature the face
-
-        lp1 = makeAddr("runsim-lp1"); lp2 = makeAddr("runsim-lp2");
-        vm.deal(lp1, lpEth); vm.deal(lp2, lpEth);
-        vm.prank(lp1); V4.deposit{value: lpEth}(0, lp1); // all-Galaxy
-        vm.prank(lp2); V4.deposit{value: lpEth}(0, lp2);
-        vm.roll(block.number + 1); // JIT-lock: withdraws below must be a later block than these deposits
-    }
-
-    /// Freeze every Aux-held USDC 4626 leg (maxWithdraw->0, solvent) so the
-    /// REDEEMER side of the race is liquidity-bound too (the Galaxy etch only
-    /// binds the LP side). Other stables stay liquid - the contested slice.
-    function _freezeUsdcLegs() internal {
-        address aaveSpoke = AUX.AAVE_SPOKE();
-        address[] memory vs = AUX.getVaults(address(USDC));
-        for (uint j = 0; j < vs.length; j++) {
-            if (vs[j] == aaveSpoke) continue;
-            if (IERC4626(vs[j]).balanceOf(address(AUX)) == 0) continue;
-            vm.mockCall(vs[j],
-                abi.encodeWithSignature("maxWithdraw(address)", address(AUX)),
-                abi.encode(uint(0)));
-        }
-    }
-
-    /// Dip-sell THROUGH the pool: the √p pool buys the falling ETH with
-    /// POOLED_USD (real basket dollars leave to the seller), price + our TWAP
-    /// grind down - the procyclical drain. Each step is sized to a FRACTION of
-    /// the pool's current in-range USD so the move is a realistic multi-block
-    /// grind, not a single-block slam to the tick floor (a degenerate state
-    /// that breaks any TWAP and isn't what a real crash looks like). Strand-3
-    /// (max==0) / a manip-gate revert ends the loop; returns ETH absorbed.
-    function _dipSell(uint steps) internal returns (uint absorbed) {
-        address seller = makeAddr("runsim-dipseller");
-        vm.deal(seller, 10_000 ether);
-        for (uint i = 0; i < steps; i++) {
-            uint px;
-            // Guard the raw TWAP read: at extreme crash depth the no-Chainlink-
-            // anchor fork's raw observation math can underflow (panic) — that is
-            // the boundary of the realistic-depth regime, so STOP the drain here.
-            try AUX.getTWAPforAsset(address(WETH), 1800) returns (uint p) { px = p; }
-            catch { break; }
-            uint poolUsd6 = CORE.POOLED_USD();
-            if (px == 0 || poolUsd6 == 0) break;
-            // ~10% of in-range USD per step, in ETH at the live price.
-            uint ethStep = SoladyMath.fullMulDiv(poolUsd6 / 10 * 1e12, 1e18, px);
-            if (ethStep == 0) ethStep = 0.01 ether;
-            vm.prank(seller);
-            try AUX.swap{value: ethStep}(address(USDC), address(WETH), false, 0, 0) {
-                absorbed += ethStep;
-            } catch { break; } // pool USD exhausted / gate - drain complete
-            vm.roll(block.number + 1); vm.warp(block.timestamp + 16 minutes);
-        }
-    }
-
-    /// Per-tranche drain telemetry. Returns (exhausted, twapAlive). The TWAP
-    /// reads are try/catch'd: an EXTREME single-pool crater can drive the V4
-    /// observation ring past where its raw (no-Chainlink-anchor on this fork)
-    /// math stays valid - we RECORD that as a data point ("TWAP broke at
-    /// tranche N") rather than crash the measurement, since it's the boundary
-    /// of the realistic-depth regime this test targets.
-    function _logTranche(uint t, uint absorbed, uint p0, uint qdOut)
-        internal returns (bool exhausted, bool twapAlive) {
-        console.log("tranche", t);
-        console.log("  ETH absorbed by pool (wei)", absorbed);
-        console.log("  POOLED_USD (6-dec)", CORE.POOLED_USD());
-        try AUX.getTWAPforAsset(address(WETH), 1800) returns (uint px) {
-            console.log("  TWAP bps of start", p0 == 0 ? 0 : px * 10000 / p0);
-        } catch { console.log("  TWAP READ REVERTED (ring past raw-valid range)"); return (exhausted, false); }
-        try AUX.redeemableAmount() returns (uint r) {
-            console.log("  redeemable (18-dec)", r);
-            return (r < qdOut, true);
-        } catch { console.log("  redeemableAmount REVERTED"); return (exhausted, false); }
-    }
-
     /// (A) SOLVENCY under a procyclical crash. Two matured QUI holders + two
     /// all-Galaxy ETH LPs; the crash is driven THROUGH the pool (_dipSell drains
     /// POOLED_USD to the seller).
@@ -3016,62 +3446,6 @@ contract Alles is ForkPin, ExitFixture {
             console.log("redeem fully deferred (clean revert, QUI retained)");
         }
         lp1; lp2;
-    }
-
-    // ════════════════════════════════════════════════════════════════════
-    //  IL-STRESS BASELINE (run-sim "A"), anchor-wired (WETH Chainlink feed mock
-    //  so swaps are production-faithful: the feed moves WITH the pool). NOTE:
-    //  these two assert SOLVENCY + CLEAN EXIT through chop / trend on the real
-    //  fork - NOT IL magnitude. IL is a value concept the thin fork pool can't
-    //  model faithfully (it manufactures excursion IL on oversized trades, and
-    //  the lone LP collects outsized one-way fees) - so the benign-chop claim is
-    //  a value concept best modeled with controlled price paths in clean
-    //  USD-value space, not on the thin fork pool.
-    // ════════════════════════════════════════════════════════════════════
-    address constant ETH_FEED = address(0xE7F0FEED);
-
-    /// Mock the WETH Chainlink feed at `usd8` (8-dec). Re-mock to move it.
-    function _setEthFeed(uint usd8) internal {
-        vm.mockCall(ETH_FEED, abi.encodeWithSignature("decimals()"), abi.encode(uint8(8)));
-        vm.mockCall(ETH_FEED, abi.encodeWithSignature("latestRoundData()"),
-            abi.encode(uint80(1), int256(usd8), uint(0), block.timestamp, uint80(1)));
-    }
-
-    /// Push the ETH pool one direction via real swaps, feed tracking the pool
-    /// pre-swap each step (so the 5% anchor never false-trips). down=true sells
-    /// ETH (price down); else buys ETH with USDC (price up). Returns steps that
-    /// landed (a revert = pool exhausted / observe-underflow boundary).
-    function _moveEth(bool down, uint perStep, uint steps, address actor) internal returns (uint moved) {
-        for (uint i; i < steps; i++) {
-            uint px = AUX.getTWAPforAsset(address(WETH), 1800);
-            if (px == 0) break;
-            _setEthFeed(px / 1e10);                 // feed = pre-swap pool price (no deviation)
-            vm.prank(actor);
-            if (down) {
-                try AUX.swap{value: perStep}(address(USDC), address(WETH), false, 0, 0) { moved++; }
-                catch { break; }
-            } else {
-                try AUX.swap(address(USDC), address(WETH), true, perStep, 0) { moved++; }
-                catch { break; }
-            }
-            vm.roll(block.number + 1); vm.warp(block.timestamp + 16 minutes);
-        }
-    }
-
-    /// Stage: heal depegs, fund the basket (QUI vs USDC → POOLED_USD surplus),
-    /// wire the WETH anchor feed, and place ONE measured ETH LP.
-    function _stageIL(address lp, uint lpEth) internal {
-        address[] memory st = AUX.getStables();
-        for (uint i; i < st.length; i++) _healDepeg(st[i]);
-        vm.startPrank(User01);
-        USDC.approve(address(AUX), type(uint).max);
-        QUID.mint(User01, 200_000 * USDC_PRECISION, address(USDC), 0);
-        vm.stopPrank();
-        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
-        _setEthFeed(px / 1e10);
-        AUX.setAssetFeed(address(WETH), ETH_FEED);   // pin the anchor (owner, pre-renounce)
-        vm.deal(lp, lpEth);
-        vm.prank(lp); V4.deposit{value: lpEth}(0, lp); // all-Galaxy ETH LP
     }
 
     /// (IL-A) CHOP through a price round-trip. On the fork this asserts the LP
@@ -3181,70 +3555,6 @@ contract Alles is ForkPin, ExitFixture {
             console.log("trend LP USD exit vs HODL USD (IL = the gap)", exitUsd, hodlUsd);
         } else {
             console.log("trend: valuation TWAP at boundary - USD IL deferred to pure sims");
-        }
-    }
-
-    /// @dev INDEPENDENT recomputation of ONE stable's LIVE vault-sum: Σ over the
-    ///      stable's venues of (Aave-v4 `aaveBalance` | 4626 `convertToAssets(balanceOf(AUX))`),
-    ///      decimal-scaled to 18 — i.e. the exact unit `BasketLib._valueStable`
-    ///      (src/imports/BasketLib.sol:243) computes and caches into `storedHoldings`.
-    ///
-    ///      WHY IT IS HAND-ROLLED HERE AND NOT READ BACK THROUGH `Aux`: the step-5 read
-    ///      flip landed. `BasketLib.get_deposits` no longer recomputes anything — it
-    ///      SERVES `amounts[i+1]` straight from `storedHoldings[stable].balance` minus
-    ///      the live tranche (BasketLib.sol:158-183). So the old form of
-    ///      `_reconcileCache`, which compared `get_deposits()` against
-    ///      `storedHoldings - tranche`, was comparing the cache to ITSELF: an algebraic
-    ///      identity that no missed mutator, and no amount of staleness, could ever
-    ///      break. This function is the only thing in the reconciliation that still
-    ///      touches a venue, so it is the only thing that can catch a stale cache.
-    ///      It mirrors `_valueStable`'s try/catch skip semantics deliberately (a
-    ///      reverting vault contributes 0 on both sides).
-    function _liveVaultSum(address stable) internal view returns (uint balance) {
-        address[] memory vs = AUX.getVaults(stable);
-        if (vs.length == 0) {
-            // GHO/USDG are Aave-native (vault slot 0); any other unwired stable is 0.
-            if (stable == AUX.GHO() || stable == AUX.USDG()) balance = AUX.aaveBalance(stable);
-        } else {
-            address spoke = AUX.AAVE_SPOKE();
-            for (uint j; j < vs.length; j++) {
-                if (vs[j] == spoke) { balance += AUX.aaveBalance(stable); continue; }
-                try IERC4626(vs[j]).balanceOf(address(AUX)) returns (uint sh) {
-                    if (sh == 0) continue;
-                    try IERC4626(vs[j]).convertToAssets(sh) returns (uint a) { balance += a; }
-                    catch { continue; }
-                } catch { continue; }
-            }
-        }
-        if (balance == 0) return 0;
-        uint dec = IERC20(stable).decimals();
-        if (dec < 18) balance *= 10 ** (18 - dec);
-    }
-
-    /// @notice #3 cache reconciliation: `storedHoldings` is maintained on every mutator
-    ///         and `get_deposits` now SERVES from it, so the cache IS the protocol's
-    ///         belief about its own backing. A missed mutator therefore does not merely
-    ///         desynchronise a shadow copy — it silently mis-states backing on every
-    ///         mint, redeem, swap and `checkBacking`. The guardrail is: cache == the
-    ///         LIVE venue sum (`_liveVaultSum`, which is not derived from the cache).
-    function _reconcileCache(string memory tag) internal {
-        address[] memory st = AUX.getStables();
-        (uint[15] memory amounts,,,) = AUX.get_deposits();
-        for (uint i; i + 1 < st.length; i++) {        // skip BOLD (last; SP path)
-            (uint cb,,,,) = AUX.storedHoldings(st[i]);
-            uint live = _liveVaultSum(st[i]);
-            // (1) THE INVARIANT THE NAME CLAIMS: the cached vault-sum must equal the
-            // sum the venues actually report right now. Tolerance is for 6-dec
-            // FullMath/decimal rounding only; a missed mutator is off by a whole
-            // deposit (~1e21), orders of magnitude outside this.
-            assertApproxEqAbs(cb, live, 1e13,
-                string.concat("storedHoldings != LIVE venue sum (missed mutator?): ", tag));
-            // (2) and the read path must apply the tranche cap on top of the LIVE
-            // number — the seed reserve is never counted as redeemable backing.
-            uint resv = AUX.tranche(st[i]);
-            uint expected = live > resv ? live - resv : 0;
-            assertApproxEqAbs(amounts[i + 1], expected, 1e13,
-                string.concat("get_deposits != live - tranche: ", tag));
         }
     }
 
@@ -3397,69 +3707,6 @@ contract Alles is ForkPin, ExitFixture {
         }
     }
 
-
-    // ════════════════════════════════════════════════════════════════════
-    //  #2 RUN-SIM (C) - DEPEG / OUTFLOW-FEE EVALUATION (calcRisk)
-    //  Objective: does the stablecoin outflow-fee + depeg-haircut system make
-    //  sense? It has THREE interlocking pieces:
-    //    1. calcFeeL1  - yield-vs-baseline outflow fee, BASE(0.03%)..MAX(0.3%).
-    //                    A depegged stable's yield is pre-discounted upstream
-    //                    so it lands at BASE: CHEAP to drain bad collateral.
-    //    2. riskFactor/_depegLoss - writes the depegged face DOWN on the
-    //                    redemption total (Sigma face_i x (1 - riskFactor_i)) at
-    //                    FULL live severity (#2: the old 6500/35% floor is gone).
-    //                    The anti-par-arb spread-the-loss mechanism.
-    //    3. calcRisk   - grosses up DELIVERED units of the depegged token so the
-    //                    redeemer nets par VALUE (full severity; div guarded by sev<10000).
-    //  This measures all three across severities: full write-down, no phantom-backing
-    //  first-out advantage, and no over-par redemption.
-    // ════════════════════════════════════════════════════════════════════
-
-    /// Lean stage: two QUI holders mint 50k each against USDC, matured, all
-    /// depegs healed. (No ETH LPs - keep the USDC depeg's effect on the
-    /// redeemable backing undiluted and legible.)
-    function _stageDepeg() internal {
-        address[] memory stables = AUX.getStables();
-        for (uint i = 0; i < stables.length; i++) _healDepeg(stables[i]);
-        vm.startPrank(User01);
-        USDC.approve(address(AUX), 50_000 * USDC_PRECISION);
-        QUID.mint(User01, 50_000 * USDC_PRECISION, address(USDC), 0);
-        vm.stopPrank();
-        vm.startPrank(User02);
-        USDC.approve(address(AUX), 50_000 * USDC_PRECISION);
-        QUID.mint(User02, 50_000 * USDC_PRECISION, address(USDC), 0);
-        vm.stopPrank();
-        vm.warp(block.timestamp + 35 days);
-    }
-
-    function _healDepeg(address stable) internal {
-        vm.mockCall(address(AUX),
-            abi.encodeWithSignature("getDepegSeverityBps(address)", stable), abi.encode(uint(0)));
-    }
-    function _setDepeg(address stable, uint sevBps) internal {
-        vm.mockCall(address(AUX),
-            abi.encodeWithSignature("getDepegSeverityBps(address)", stable), abi.encode(sevBps));
-    }
-
-    /// Redeem `amount` QUI and sum the value delivered across ALL basket stables
-    /// (redemption pays out pro-rata, not in one token) - returns (value18,
-    /// burned18). Measuring only one leg understates the payout.
-    function _redeemValue(address who, uint amount) internal returns (uint value18, uint burned) {
-        address[] memory st = AUX.getStables();
-        uint[] memory pre = new uint[](st.length);
-        for (uint i; i < st.length; i++) pre[i] = IERC20(st[i]).balanceOf(who);
-        uint qb = QUID.balanceOf(who);
-        vm.prank(who); AUX.redeem(amount);
-        burned = qb - QUID.balanceOf(who);
-        for (uint i; i < st.length; i++) {
-            uint bal = IERC20(st[i]).balanceOf(who);
-            if (bal > pre[i]) {
-                uint dec = IERC20(st[i]).decimals();
-                value18 += dec < 18 ? (bal - pre[i]) * 10 ** (18 - dec) : (bal - pre[i]);
-            }
-        }
-    }
-
     /// (C) - the objective calcRisk evaluation.
     function test_RunSim_C_DepegFee_Evaluation() public {
         _stageDepeg();
@@ -3523,9 +3770,6 @@ contract Alles is ForkPin, ExitFixture {
                 "no first-out advantage: equal value-per-QUI at a fixed depeg");
         }
     }
-
-    // (C2) test_RunSim_C2_OutflowBaseRate REMOVED — it measured the baseRate directional velocity toll's
-    // rise/cap/decay. baseRate is gone (no peg-arb loop; see Aux._takeArgs). Nothing replaces it here.
 
     /// NORMAL all-exit liveness - the core of #2: with NO freeze and NO crash,
     /// EVERY QUI holder redeems their full matured face AND every ETH LP
@@ -3639,22 +3883,6 @@ contract Alles is ForkPin, ExitFixture {
             "only fee dust + retained premium minted (no proceeds claim when delivered==0)");
         // Virtual consistency: the shared POOLED didn't go negative / wrap.
         assertLe(CORE.POOLED(), pooledBtc0, "POOLED only shrank - no over-burn across LPs");
-    }
-
-
-    /// One redeem turn: burn up to `RUNSIM_FACE` matured QUI, return
-    /// (deliveredUsd18, burned18). `redeem` clips internally - burned tracks
-    /// the aggregate balance drop, so unserved face is NEVER burned.
-    function _redeemTurn(address who) internal returns (uint delivered, uint burned) {
-        uint qdB = QUID.balanceOf(who);
-        uint usdcB = USDC.balanceOf(who);
-        uint usdtB = USDT.balanceOf(who);
-        uint daiB = DAI.balanceOf(who);
-        vm.prank(who); AUX.redeem(RUNSIM_FACE);
-        burned = qdB - QUID.balanceOf(who);
-        delivered = (USDC.balanceOf(who) - usdcB) * 1e12
-                  + (USDT.balanceOf(who) - usdtB) * 1e12
-                  + (DAI.balanceOf(who) - daiB);
     }
 
     /// (B1) - SIMULTANEOUS rush, BOTH cohorts liquidity-bound (Galaxy etched
@@ -3780,28 +4008,6 @@ contract Alles is ForkPin, ExitFixture {
         }
     }
 
-    /// Total value an LP received from a withdraw, in ETH-wei: native ETH +
-    /// WETH (burn-in-range may deliver wrapped) + QU!D fee-leg at TWAP. Catches
-    /// value regardless of delivery form so a "bag" is real, not a miss.
-    function _lpReceived(address lp, uint ethBefore, uint wethBefore, uint qdBefore)
-        internal returns (uint) {
-        return (lp.balance - ethBefore)
-             + (WETH.balanceOf(lp) - wethBefore)
-             + _ethEquiv(QUID.balanceOf(lp) - qdBefore);
-    }
-
-    /// USD-18 value -> ETH-wei at the live TWAP (for unit-consistent coverage).
-    function _ethEquiv(uint usd18) internal returns (uint) {
-        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
-        return px == 0 ? 0 : SoladyMath.fullMulDiv(usd18, 1e18, px);
-    }
-
-    function _lpRemainders(address a, address b) internal view returns (uint, uint) {
-        (uint ra,,,) = V4.autoManaged(a);
-        (uint rb,,,) = V4.autoManaged(b);
-        return (ra, rb);
-    }
-
     function test_Vogue_PendingRewards_NonDepositor() public {
         (uint eth, uint usd) = V4.pendingRewards(User03);
         assertEq(eth, 0);
@@ -3847,28 +4053,6 @@ contract Alles is ForkPin, ExitFixture {
             assertGt(received, toWithdraw * 99 / 100, "Received too little");
         }
         vm.stopPrank();
-    }
-
-    // ─── SOR paths (copied from DeployL1_s.sol) so AUX.arbETH can
-    //     recover ETH-withdrawal shortfalls from the stable basket ───
-    // Covers Aux's SOR stable->WETH path: auxSwap -> PoolManager.unlock ->
-    // Aux.unlockCallback -> SOR.unlockBody (the V4 unlock body extracted to
-    // a library). No other test exercises Aux's unlock path.
-
-    // ════════════════════════════════════════════════════════════════════
-    //  BTC scope - forkable parts (no Lightning required)
-    // ════════════════════════════════════════════════════════════════════
-
-    /// @notice BTC LP deposit: pulls WBTC, grows lpShares + the LP's
-    ///         per-user autoManaged.pooled bucket.
-    // testBTC_LPDeposit / testBTC_LPWithdraw REMOVED - they exercised the
-    // deleted WBTC-as-internal-liquidity LP path (depositBTC/withdrawBTC).
-    // Replaced by the channel-lock-LP flow below.
-
-    // Test doubles as BTCChannels (set via AUX.setBTCChannels): Aux reads
-    // btcRecipientOf during USD->BTC swap validation. Non-zero ⇒ native path.
-    function btcRecipientOf(address) external pure returns (bytes32) {
-        return bytes32(uint256(0xB7C));
     }
 
     /// @notice The core BTC-LP lifecycle the user asked to confirm: deposit
@@ -4195,12 +4379,6 @@ contract Alles is ForkPin, ExitFixture {
         assertEq(BTC.lpShares(), sharesBefore, "lpShares returns to baseline on close");
     }
 
-    /// @dev Little-endian encode `v` into `n` bytes (Bitcoin tx field order).
-    function _le(uint v, uint n) internal pure returns (bytes memory b) {
-        b = new bytes(n);
-        for (uint i = 0; i < n; i++) b[i] = bytes1(uint8(v >> (8 * i)));
-    }
-
     /// @notice END-TO-END through the REAL BTCChannels boundary (mock SPV only -
     ///         the SPV cryptography is covered by SPVGateway.t.sol). Exercises
     ///         openChannel -> requestDeposit and recordClose -> requestRedeem
@@ -4302,10 +4480,6 @@ contract Alles is ForkPin, ExitFixture {
         assertLt(QUID.totalSupply() - supBefore, poolUsd / 100 * 1e12,
             "close minted ~no QUI (all-native, no proceeds)");
     }
-
-    // §9b: testBtcChannels_ForceCloseByLP_EndToEnd REMOVED - forceCloseByLP no
-    // longer exists (the CLTV-whole-UTXO grief is gone; unilateral recovery is an
-    // LDK force-close on Bitcoin, enforcing the fair split, not an EVM entrypoint).
 
     /// @notice A UNILATERAL (commitment-tx, locktime!=0) close goes through the
     ///         SAME recordClose entrypoint — its internal non-coop branch RETIRES the
@@ -4443,10 +4617,6 @@ contract Alles is ForkPin, ExitFixture {
             "HTLC outputs do NOT inflate delivered: force-close mints NO proceeds");
     }
 
-    /// @notice WBTC-terminal SOR unlock: forces auxSwap -> PoolManager.unlock
-    ///         -> Aux.unlockCallback -> SOR.unlockBody's isWbtcTerm branch.
-    ///         Covers paths[6..11] (arbBTC paths) in _buildSORPaths.
-
     /// @notice BTC load-balance arb (the `btcShortfall` fallback when an LP has
     ///         no BTC recipient) must size the WBTC buy to the SHORTFALL - not
     ///         drain all free backing. Pre-fix the `isBTC?1e8` divisor overstated
@@ -4472,7 +4642,6 @@ contract Alles is ForkPin, ExitFixture {
         uint freeAfter = lA > cA ? lA - cA : 0;
         assertEq(freeAfter, freeBefore, "shared backing untouched by no-recipient BTC shortfall");
     }
-
 
     // ─── (B) Depegged stable is accepted at FAIR value, not blocked ───────
     function testDepeg_DepositCreditedAtFairValue() public {
@@ -4530,19 +4699,6 @@ contract Alles is ForkPin, ExitFixture {
             "haircut substantial (~USDC backing x 20%)");
     }
 
-    // ─── Deploy finalize: all-or-nothing assert + renounce Aux & Basket ───
-    // The finalize is two DEPLOYER (owner) calls: AUX.finalize() asserts every cross-contract linkage, burns the
-    // committed ANGEL NFT (owner→DEAD via Aux's approval), then renounces Aux; QUID.renounceOwnership() renounces
-    // Basket. No transferOwnership(Basket->Aux) — each contract self-renounces as its own owner (here the test ==
-    // deployer/owner). The ANGEL burn is REAL here: setUp handed the deployer the live ANGEL and DeployLib
-    // approved Aux. setUp already wires Vogue/Core/Basket->Vault + setQuid; we add the two it omits (BTCChannels +
-    // a mocked Rover).
-    function _wireFinalizeLinkages() internal {
-        AUX.setBTCChannels(address(0xBC));   // sets Aux._btcChannels + Vault.btcChannels
-        vm.mockCall(address(ETH), abi.encodeWithSignature("ROVER()"), abi.encode(address(0xB0)));
-        vm.mockCall(address(0xB0), abi.encodeWithSignature("AUX()"), abi.encode(address(ETH)));
-    }
-
     function testFinalize_RenouncesAuxAndBasket() public {
         _wireFinalizeLinkages();
         AUX.finalize();            // assert full wiring + burn ANGEL (owner→DEAD via Aux's approval) + renounce Aux
@@ -4572,8 +4728,6 @@ contract Alles is ForkPin, ExitFixture {
         AUX.finalize();
         assertEq(AUX.owner(), address(this), "Aux NOT renounced on a mis-wire");
     }
-
-
 
     /// (E145-p) DOES A SWAP-IN ACCRUE A BTC-LEG FEE? The question that reopened E145.
     ///
@@ -4721,46 +4875,4 @@ contract Alles is ForkPin, ExitFixture {
         emit log_named_uint("209 sats in 18-dec USD  ", feeUsd18);
         assertLt(feeUsd18, 1e18, "a 209-sat fee is sub-dollar; a 1e10 slip would make it millions");
     }
-
-    /// §ONE-ANCHOR — the band stores ONE anchor and derives `[lo, hi]`, so tests read the pair via
-    /// `bandBounds()`. These two exist so the files that want a single leg do not each destructure it.
-    function _bLo(address band) internal view returns (uint) { (uint l,) = IBandManager(band).bandBounds(); return l; }
-    function _bHi(address band) internal view returns (uint) { (, uint h) = IBandManager(band).bandBounds(); return h; }
-
-
-    // ════════════════════════════════════════════════════════════════════════════════════════
-    //  §V4-ZERO — `testSOR_StableToWeth_Unlock` and `testBTC_SOR_StableToWbtc_Unlock` DELETED.
-    //
-    //  They asserted "auxSwap delivers WETH through Aux.unlockCallback" -- the v4 unlock path, which
-    //  no longer exists (`SafeCallback` and `_unlockCallback` went with the v4 cut). With no
-    //  PoolManager the route cannot complete, so both surfaced as `NoSorPath()` three frames down:
-    //  164 failures across the suites that inherit this fixture.
-    //
-    //  🔴 BUT THEY WERE NOT TESTS OF A v4 DETAIL, AND THIS IS BOOKED SO THE DELETION DOES NOT ERASE
-    //  IT. They covered a REAL CAPABILITY: the basket's stable -> VOLATILE route, which is what
-    //  `arbETH` uses for the basket->WETH shortfall arb. That capability is currently
-    //  UNIMPLEMENTED, not merely untested -- `Aux`'s 4-arg `auxSwap` is its only entrypoint and its
-    //  body needs a router. The 5-arg `auxSwap` cannot substitute: `SwapLib.auxSwapBody` opens
-    //  `if (idxIn == 0 || idxOut == 0) revert NotBasketStable()` and WETH/WBTC have no basket index.
-    //
-    //  ⇒ WHEN 1INCH LANDS, THESE TWO COME BACK, pointed at it: ungated caller reverts
-    //  `Unauthorized`, Aux's own self-call delivers, recipient balance moves by exactly `got`. Until
-    //  then the capability has NO coverage, which is a known hole and not a green light.
-    //  Tracked in docs/actionable/ROUTING-AGGREGATION.md.
-    // ════════════════════════════════════════════════════════════════════════════════════════
-
-
-
-    /// §WRONG-BAND — the BTC band's ENGINE. `Aux.swap(USDC, WBTC, ...)` settles on
-    /// `_bandOf(WBTC) == BTC_CORE`, so a test that primes with WBTC swaps and then reads
-    /// `CORE.POOLED_USD()` is reading the ETH engine and can only ever see 0. That was 246
-    /// `priming funded POOLED_USD: 0 <= 0` failures plus four sibling buckets -- an assertion about
-    /// the wrong contract, not a defect in the code under test.
-    ///
-    /// ⚠️ It was UNREACHABLE until `Vault.CORE` was made public: with no handle for the second
-    /// engine, the fixture had nothing to read but `CORE`. `Aux.sol` warns about exactly this two
-    /// lines above the dispatch -- splitting read from write "is what let reads and settlement
-    /// disagree about which band they were talking to".
-    function BCORE() internal view returns (Core) { return BTC.CORE(); }
-
 }

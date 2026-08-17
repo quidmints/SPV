@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
 /// §E69 — IS RESTORING THE BAND'S BALANCE NATURALLY PROFITABLE?
@@ -28,7 +28,7 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 ///   > 0 => the curve pays the restorer; an external arb closes the imbalance unaided.
 ///  == 0 => restoration is priced AT oracle; the restorer is gas + fee NEGATIVE, nobody does it,
 ///          and the imbalance persists until someone is PAID to fix it.
-contract RestoreProfitability is Alles {
+contract RestoreProfitability is AllesFixture {
     address lpA = User02;
     address drainer = address(0xBEEF02);
     address restorer = address(0xBEEF03);

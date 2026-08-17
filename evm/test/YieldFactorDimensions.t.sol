@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 
 /// @notice §E155. The yield factor `yieldW[i]/amounts[i]` is a SHARE PRICE and must therefore be
 ///         DIMENSIONLESS — a number near 1.0, whatever decimals the stable or its vault happen to use.
@@ -17,7 +17,7 @@ import {Alles} from "./Alles.t.sol";
 ///         venue whose factor is off by a decimal power, in either direction, including venues not yet
 ///         wired. The SECOND pins the consequence, so a future regression that re-zeroes the yield is
 ///         caught at the number the bond curve actually consumes rather than at a vault read.
-contract YieldFactorDimensions is Alles {
+contract YieldFactorDimensions is AllesFixture {
     /// Band around 1.0. Wide on purpose: this is a DIMENSIONAL check, not a yield-value check —
     /// it must not need updating when a vault's real APY moves. A decimals error is off by 1e6+,
     /// so nothing near this boundary is ambiguous.

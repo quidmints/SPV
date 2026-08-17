@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
 /// §E63 — WHAT DOES A CALMLY-TRADING BAND ACTUALLY MEASURE?
@@ -11,7 +11,7 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 /// SCALE problem (small moves truncating), a SAMPLE-COUNT problem (too few real updates in the
 /// window), or a genuine "the ticks did not move" — those need different fixes and only the
 /// numbers can tell them apart.
-contract VarPrecision is Alles {
+contract VarPrecision is AllesFixture {
     address lpA = User02;
     address trader = address(0xBEEF01);
     address bold;

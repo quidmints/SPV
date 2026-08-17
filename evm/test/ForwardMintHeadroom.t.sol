@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 import {Aux} from "../src/Aux.sol";
 import {console} from "forge-std/console.sol";
 
@@ -14,7 +14,7 @@ import {console} from "forge-std/console.sol";
 /// The maturity BUCKET a far-dated mint lands in is the clean observable: the 1:1
 /// cap only changes the AMOUNT minted, never the `month` bucket, so reading
 /// balanceOf[who][month] isolates the horizon clamp from the cap entirely.
-contract ForwardMintHeadroom is Alles {
+contract ForwardMintHeadroom is AllesFixture {
     uint constant MONTH = 2_420_000; // BasketLib.MONTH
 
     /// The `when` a caller requested, reconstructed from the same inputs `_mintFarDated` uses.

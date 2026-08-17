@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 import {console} from "forge-std/console.sol";
 import {Core} from "../src/Core.sol";
 
@@ -25,7 +25,7 @@ import {Core} from "../src/Core.sol";
 ///         EXACT public quantities the deployed gate uses (`Aux.committedOf`,
 ///         `Core.bandEquityUsd18`, `AUX.get_deposits()[14]`) so its numbers ARE the gate's.
 ///         Asserting a conclusion here is how a probe stops being able to disprove it.
-contract BackingGateSplit is Alles {
+contract BackingGateSplit is AllesFixture {
 
     function test_backingGate_perBandSplit() public {
         _stageDepeg();  // heal the fork's default depeg; build real basket backing

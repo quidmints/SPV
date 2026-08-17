@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 
 /// @notice End-to-end verification of the TWAP-anchor deadlock FIX (A+B+C).
 ///
@@ -23,7 +23,7 @@ import {Alles} from "./Alles.t.sol";
 ///
 /// Run isolated:
 ///   forge test --match-contract TwapAnchorDeadlock -vv
-contract TwapAnchorDeadlockTest is Alles {
+contract TwapAnchorDeadlockTest is AllesFixture {
     function _mockFeed(address feed, int256 answer, uint80 round) internal {
         vm.mockCall(feed, abi.encodeWithSignature("decimals()"), abi.encode(uint8(8)));
         vm.mockCall(feed, abi.encodeWithSignature("latestRoundData()"),

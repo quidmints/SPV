@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
@@ -32,7 +32,7 @@ import {SwapLib} from "../src/imports/SwapLib.sol";
 /// A RATIO. `skewWad` clamps to `_maxWellSkew` at the end. If BOTH legs pin to the cap, the two
 /// numbers converge and the test says NOTHING about the integral — it would look identical whether
 /// or not E68 works. That is the control, and it is checked explicitly below.
-contract DrainAtomicity is Alles {
+contract DrainAtomicity is AllesFixture {
     address lpA = User02;
     address drainer = address(0xBEEF04);
     address bold;

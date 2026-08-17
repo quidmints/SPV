@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 
 /// §A.5e PIN. The refresh MARKER cannot discriminate (the post-redeem refresh runs regardless), so this
@@ -8,7 +8,7 @@ import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 /// values the same loss through a FRESH cache. With the guard they match — the stale path heals itself
 /// before valuing. Devalues via balanceOf, NOT convertToAssets: an arg-matched convertToAssets mock does
 /// not bite, because the code calls it with different share amounts (§A.20's inert-mock class).
-contract A5eStaleCache is Alles {
+contract A5eStaleCache is AllesFixture {
     uint constant MONTH = 2_420_000; // BasketLib.MONTH
 
     function testA5e_StaleCacheCannotOverDraw() public {

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Alles} from "./Alles.t.sol";
+import {AllesFixture} from "./Alles.t.sol";
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
@@ -12,7 +12,7 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 ///   B) Backing inflation: donate the underlying to a venue 4626 vault -> does measured
 ///      basket backing (get_metrics) rise, opening mint headroom against value not deposited?
 /// Run: forge test --match-contract EconAttackProbe -vv
-contract EconAttackProbe is Alles {
+contract EconAttackProbe is AllesFixture {
     uint constant MONTH = 2420000;
     /// Mirrors `Basket.CAP` (src/Basket.sol:25), which is `internal constant` and so has no
     /// getter to read live. This is the SPEC value the tests below are written against, not a
