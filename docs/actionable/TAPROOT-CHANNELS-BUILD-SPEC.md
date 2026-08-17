@@ -339,14 +339,21 @@ offline/adversarial branches.
   new HTLCs and the close waits for the in-flight ones to resolve. `_finalizeClose` then clamps the
   payout to `lpEntitled = totalSats − poolOwnedSats[channelId]` and emits `PoolSatsLeftWithLp` on
   any excess rather than absorbing it silently.
-  ⚠️ **A NARROWER SUCCESSOR, NOT A CLOSURE OF IT: the clamp is against `poolOwnedSats`, which
-  tracks BOOKED pool inventory, not value in flight.** For the on-chain swap-in rail there is no
-  window — `parkProvenSats` credits `poolOwnedSats` in the same transaction as the splice that
-  brings the sats in (`:1319`). Whether an **off-chain (LN) swap-in** HTLC that is accepted but not
-  yet settled is booked anywhere before it resolves is **NOT MEASURED** — stated as the open
-  question rather than answered, because the force-close-with-in-flight-HTLC case is exactly where
-  a wrong answer credits pool sats to the LP. Check `poolOwnedSats`/`provenSatsAvailable` against
-  the LN settle path before treating this bullet as fully closed.
+  ✅ **AND THE NARROWER SUCCESSOR IS ALSO CLOSED — CHECKED, not booked.** The worry was that the
+  clamp reads `poolOwnedSats` (BOOKED inventory) while an in-flight LN swap-in might be unbooked.
+  **It cannot be, because the LN rail cannot increase channel sats at all.**
+  `settleSwapInBuffered` (`:1343`) does not add sats — it **draws down**
+  `provenSatsAvailable[hop]`, inventory that `parkProvenSats` (`:1317-1320`) credited to BOTH
+  `poolOwnedSats[channelId]` and `provenSatsAvailable[hop]` **in the same transaction as the
+  SPV-proven splice that brought the sats in**. The entrypoint that could once conjure sats without
+  a splice was the phantom `settleSwapIn`, and it is deleted. So there is no state in which LN-side
+  value sits in the channel unbooked; the sequence is always *splice in (booked) → later sell out of
+  that inventory*.
+  🔑 **The two ledgers differ in MEANING, not in accuracy, and that is the thing to not misread:**
+  a swap-in decrements `provenSatsAvailable` (those sats can no longer be sold again) and correctly
+  leaves `poolOwnedSats` alone (the sats never left the channel — the pool paid USD and kept them).
+  `_releasePoolSats` is what decrements the latter, when pool sats actually leave. ⇒ The close-side
+  clamp `lpEntitled = totalSats − poolOwnedSats` is complete.
 - **On-chain-preimage → bridge settlement:** if a swap HTLC resolves on-chain (success spend reveals the preimage) instead of off-chain, the bridge/EVM must detect + settle without double-counting (interacts with `settleSwapIn/Out` + `swapInUsed/swapOutUsed`).
 - **Restart durability:** the signer's shachain root + per-height nonce derivation + the LDK→on-chain cid map must survive a node reboot (a force-close can fire post-reboot).
 - **Weight/dust constants P2WSH-derived (LOW sev, exactness):** chan_utils HTLC tx weights (703/663) + `COMMITMENT_TX_WEIGHT_PER_HTLC=172` + base weight key only on `anchors_zero_fee_htlc_tx`, not taproot; a taproot key-path funding witness (64B) is lighter than P2WSH 2-of-2 (~220B). NOT a safety vuln — both parties use identical constants (no trim/commitment mismatch), QU!D runs anchors-zero-fee-htlc (fees≈0, CPFP-bumped), and the error is overestimate (overpay-safe). Tighten to taproot-exact weights for correctness; verify no dust-boundary trim disagreement.
