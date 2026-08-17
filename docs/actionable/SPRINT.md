@@ -313,9 +313,30 @@ because a real source beside a surviving self-write re-creates the circularity a
 
 ---
 
-## B2. 🔴 §T2 — TERMS COMMITMENT: SOLIDITY DONE, **RUST LEFT BROKEN**, AND THE SHAPE IS WRONG
+## B2. 🔴 §T2 — TERMS COMMITMENT: **I DESTROYED THE WORKING SOLIDITY HALF.** Design intact, code gone.
 
-**Solidity half is done and verified.** `ExitLib._cltvRefundLeaf` now prefixes
+🔴 **READ THIS BEFORE BELIEVING THE PARAGRAPH BELOW: THE CODE NO LONGER EXISTS.** I built and
+verified the Solidity half in a scratch worktree, **never committed it**, and then removed that
+worktree with `git worktree remove --force`. It is not on `main`, not in the shared tree, not on
+disk. That is a straight violation of the standing rule to commit every completed unit immediately —
+the rule exists for exactly this, and I had a green 7/7 in hand when I broke it.
+
+**What survives is the DESIGN and the CONSTANTS, which is most of the cost.** Redoing it is
+mechanical; re-deriving the known-answer values would not be. They are recorded here so the next
+attempt starts from a checkable fixture rather than a guess:
+
+- leaf: `<termsCommitment> OP_DROP` prefixed to `<cltv> OP_CLTV OP_DROP <userRefund> OP_CHECKSIG`
+  — i.e. `0x20 ‖ terms ‖ 0x75` in front of the existing script (ONE leaf, no `tapBranch`).
+- `termsCommitment = sha256(abi.encode(seller, token, minDeliveredUsd))`.
+- For the existing `SwapInDeposit.t.sol` fixture (`INTERNAL` = G.x, `REFUND` =
+  `0x2F8BDE4D…EFE4`, `CLTV` = 800001) and terms (seller `0xA1`, token `0xB2`, floor `1_500_000`):
+  - `TERMS      = 0xa96ad576c2997494f5819848b392d6c312c02ee52ec7a0c3f3d5ae6d613a86fc`
+  - `EXPECTED_Q = 0xcd5f8505d5404088c26ea8f237bc8479ff326a8dabd258e6b8672c9c76bf66c6`
+- **The control that validates any re-derivation:** the same Python, run with NO terms prefix, must
+  reproduce the currently-pinned `0xd0d16740ae143319f7883497b4b76efd9bb829725cf7e885c37dacff3be4e4ca`.
+  It did. If a reimplementation cannot reproduce that, the reimplementation is wrong, not the pin.
+
+**What it looked like when it worked (do not treat as present tense):** `ExitLib._cltvRefundLeaf` now prefixes
 `<termsCommitment> OP_DROP` to the refund leaf; `swapInDepositKey` / `verifySwapInDeposit` /
 `_provenDeposit` thread it; `settleSwapInProven` computes
 `sha256(abi.encode(seller, token, minDeliveredUsd))`. `test/btc/SwapInDeposit.t.sol` is **7 passed /
@@ -324,10 +345,10 @@ different deposit address, and a known-answer `EXPECTED_Q` computed in Python �
 reproduced the OLD pinned `0xd0d16740…` for the no-terms leaf, which is what makes it a known
 answer rather than a round-trip.
 
-🔴 **THE RUST HALF IS MID-MIGRATION AND DOES NOT COMPILE.** `quid-hop` fails with cascading
-`E0061`: `refund_leaf` → `deposit_spend_info` → `deposit_for` → `sign_claim` went 4→5→6→7
-arguments. **That work is IN THE WORKING TREE ONLY — it is not committed and not pushed.** Either
-finish it or discard it; do not leave it half-applied.
+✅ **THE HALF-APPLIED RUST IS REVERTED.** It had cascaded to `E0061` across
+`refund_leaf` → `deposit_spend_info` → `deposit_for` → `sign_claim` (4→5→6→7 arguments) and did not
+compile. Discarded rather than left in a shared tree for someone else to inherit — and the shape was
+wrong anyway, per the note below.
 
 ⚠️ **AND THE OWNER IS RIGHT THAT THE SHAPE IS WRONG.** Threading a raw `[u8; 32]` through five
 signatures is *adding* parameter slop to fix a trust problem. The fix should REMOVE parameters:
@@ -428,6 +449,17 @@ E230 fixed it and `POOLED_USD` funds again (`Alles` went 71/33 → 89/13, and th
 | **closures** | §E166 (conditional — see B5), §VAULT-RENOUNCE (my own false gap), §SECOND-FUNDING-HALF, §HOP-PARTITION |
 
 ---
+
+## B10b. 🔴 THE PROCESS FAILURE THAT COST THE MOST
+
+**A scratch worktree is not storage.** I did verified work in one, removed it with `--force`, and
+lost it. The standing rule — *commit every completed unit immediately* — is usually argued from
+tool-timeouts; this is the other reason, and it is sharper: **`git worktree remove --force`
+silently discards uncommitted work, and a green test run is exactly when you feel least like
+stopping to commit.**
+
+⇒ **Commit inside the worktree the moment a gate passes, before running the next thing.** A commit
+on a detached HEAD is recoverable via reflog; a removed worktree is not.
 
 ## B11. THE PATTERN THIS SESSION KEPT PAYING FOR
 
