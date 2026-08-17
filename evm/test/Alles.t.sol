@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 import {ForkPin} from "./utils/ForkPin.sol";
-import {ICurvePool} from "../src/imports/Interfaces.sol";
+import {ICurvePool, IBandManager} from "../src/imports/Interfaces.sol";
 import {ChannelLib} from "../src/imports/ChannelLib.sol";
 import {BasketLib} from "../src/imports/BasketLib.sol";
 import {ExitFixture} from "./btc/ExitFixture.sol";
