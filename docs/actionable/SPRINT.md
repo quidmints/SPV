@@ -205,6 +205,22 @@ not to** — this repo has deleted a caller-less function as litter and had to r
 | | status | why it stays |
 |---|---|---|
 | `ExternalTwap` | tested (`OneInchObserverIsIndependent.t.sol`), **no production caller** — `Core.sol:1280` names it in a **comment only** | It **is** the §E222 fix: the oracle ring currently records its own output, booked 🔴🔴 and live on `main`. **Deleting it deletes a written security fix**, and wiring it is a money-path change in the other session's lane (Part B, §B1). |
+
+⭐ **AND CHECKING IT OVERTURNED SOMETHING I WROTE EARLIER TODAY, IN §E222's FAVOUR.** I had recorded
+that the reversal of the 1inch integration (§E248/§V-R1) orphaned E222's independent non-Chainlink
+price source. **It did not, because those are two different 1inch contracts:**
+
+- **AggregationRouterV6 `0x111111125421cA6dc452d289314280a0f8842A65`** — the **swap venue**. That is
+  what was wired and withdrawn, and the one that would have needed an HTTP quote client.
+- **OffchainOracle `0x0AdDd25a91563696D8567Df78D5A01C9a991F9B8`** — a **read-only `getRate`
+  staticcall**. That is what `ExternalTwap.oneInchRateWad` already calls, and **the router address
+  appears nowhere in `ExternalTwap.sol`** (grep: 0 hits).
+
+⇒ **§E222's price source needs nothing from the withdrawn work** — no aggregator, no API key, no
+off-chain client, no `bytes route`. One staticcall to a contract that is live today, already
+exercised by a test. ⚠️ **The error was reasoning from the vendor's NAME instead of the ADDRESS**:
+"1inch was removed" is true of one of these and false of the other, and the two sit one letter apart
+in prose. Same shape as this repo's rule about auditing by structure rather than by type name.
 | `FixedRateFill` | tested (`FillAndBatch.t.sol`), **no production caller** | Its own landing commit says so on purpose — `5d710605`: *"the fixed-rate fill, **unbuilt and with no callers**"*. It is the settlement primitive meant to replace the v4 AMM (§28, Phase 3 step 1). **A marker for work not yet built, which is exactly the `create_sweep_tx` shape.** |
 
 ⇒ **"No caller" is not the test; "no caller AND no reason" is.** The three I deleted had neither a
@@ -415,6 +431,18 @@ produces**. The guards did not break; they became vacuous.
 
 `ExternalTwap` is the written, tested replacement and is wired to **nothing** — its only call sites
 anywhere are in `test/OneInchObserverIsIndependent.t.sol`.
+
+> **Note added by session `d669393d` (Part A), 2026-08-17 — two facts that belong on this item.**
+> ① **`ExternalTwap` deliberately survived a dead-code sweep today.** The owner's rule is now
+> *"anything that is unwired and dead code either needs to be wired all the way or deleted"*, and this
+> is the likeliest casualty of a literal reading — zero production callers, one comment mention at
+> `Core.sol:1280`. It was kept because the test is *"no caller **and no job**"*, not "no caller".
+> **Wire it or it will keep looking deletable to whoever sweeps next.**
+> ② **The source needs NOTHING from the withdrawn 1inch work** — those are two different contracts.
+> The reversed integration was **AggregationRouterV6 `0x1111…2A65`** (a swap venue); this reads
+> **OffchainOracle `0x0AdDd25a…F9B8`** (read-only `getRate`), and the router address appears nowhere
+> in `ExternalTwap.sol`. So step (1) below is **one staticcall to a live contract**, not an
+> integration. This corrects a note I wrote earlier today claiming the source was orphaned.
 
 ▶️ **Order:** (1) wire the ETH ring to an external observation; (2) DECIDE what the BTC ring
 records, given §E223 proved there is **no wrapper-free BTC spot on-chain** and a WBTC cross would
