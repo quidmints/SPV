@@ -54,7 +54,7 @@ pub trait BtcLevKeeperEvm {
     async fn delever_withdraw(&self, lp: LpAddr, vbtc_sats: u64) -> anyhow::Result<()>;
     /// `repay(stableUsd)` — repay debt (the keeper must have approved the manager to pull the stable).
     async fn repay(&self, lp: LpAddr, stable_usd: u128) -> anyhow::Result<()>;
-    /// Reconcile the LEVERED band slice to live net-equity (`Vault.syncLevBTC`) after any position change,
+    /// Reconcile the LEVERED band slice to live net-equity (`Vault.syncLev`) after any position change,
     /// so the fee lane (`levPooledBTC`) tracks the equity promptly. Permissionless ⇒ non-fatal on failure.
     async fn sync_lev_btc(&self, lp: LpAddr) -> anyhow::Result<()>;
     /// Protect `lp` by repaying `repay_usd` (6-dec USD) from the LP's MATURE QUID — redeem mature QUID →
@@ -263,7 +263,7 @@ fn u128_word(n: u128) -> [u8; 32] {
 pub struct DaemonBtcLevKeeper<R: JsonRpc, S: TxSigner> {
     pub evm: Arc<JsonRpcEvmClient<R, S>>,
     pub btc_lev_manager: Address,
-    /// `Vault.syncLevBTC` target (the merged Vault == the vBTC token == the sync hook).
+    /// `Vault.syncLev` target (the merged Vault == the vBTC token == the sync hook).
     pub vault: Address,
     /// The vBTC market's liquidation LTV (bps) — a deployment constant; the safety margin comes off it. The
     /// per-LP `pos(lp).venue.liqThresholdBps()` live read overrides it when available.
@@ -375,7 +375,7 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> BtcLevKeeperEvm for Daemon
     async fn sync_lev_btc(&self, lp: LpAddr) -> anyhow::Result<()> {
         let (evm, vault, gas) = (self.evm.clone(), self.vault, self.gas_limit);
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
-            let mut data = selector4("syncLevBTC(address)");
+            let mut data = selector4("syncLev(address)");
             data.extend_from_slice(&addr_word(lp));
             evm.send_tx(vault, data, gas)?;
             Ok(())
@@ -469,7 +469,7 @@ mod tests {
 
     #[test]
     fn calldata_selectors_and_words() {
-        assert_eq!(selector4("syncLevBTC(address)"), keccak256(b"syncLevBTC(address)")[..4].to_vec());
+        assert_eq!(selector4("syncLev(address)"), keccak256(b"syncLev(address)")[..4].to_vec());
         assert_eq!(selector4("leverBorrow(uint256)"), keccak256(b"leverBorrow(uint256)")[..4].to_vec());
         assert_eq!(selector4("deleverWithdraw(uint256)"), keccak256(b"deleverWithdraw(uint256)")[..4].to_vec());
         // uint128/uint64 words are right-aligned in the 32-byte slot

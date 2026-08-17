@@ -552,12 +552,12 @@ pub async fn run(
     // end-to-end. NATIVE channel-vBTC positions would use the async acquirer legs (BTC↔stable), which are the
     // #59/#74 native-path rail; until that's wired the acquirer fails SAFE (a native de-lever re-supplies the
     // pulled vBTC; a native re-lever logs loud), and WBTC-mode positions never touch it. Enabled by
-    // QUID_BTC_LEV_MANAGER (+ QUID_WBTC for the collateral-mode detection, QUID_VAULT for syncLevBTC).
+    // QUID_BTC_LEV_MANAGER (+ QUID_WBTC for the collateral-mode detection, QUID_VAULT for syncLev).
     match std::env::var("QUID_BTC_LEV_MANAGER") {
         Ok(bm_str) => {
             let btc_lev_manager: Address = bm_str.parse().context("QUID_BTC_LEV_MANAGER not a valid address")?;
             let vault: Address = std::env::var("QUID_VAULT")
-                .context("QUID_BTC_LEV_MANAGER set without QUID_VAULT (the Vault addr for syncLevBTC)")?
+                .context("QUID_BTC_LEV_MANAGER set without QUID_VAULT (the Vault addr for syncLev)")?
                 .parse()
                 .context("QUID_VAULT not a valid address")?;
             let wbtc: Address = std::env::var("QUID_WBTC")
