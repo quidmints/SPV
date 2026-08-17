@@ -217,8 +217,30 @@ price source. **It did not, because those are two different 1inch contracts:**
   appears nowhere in `ExternalTwap.sol`** (grep: 0 hits).
 
 ⇒ **§E222's price source needs nothing from the withdrawn work** — no aggregator, no API key, no
-off-chain client, no `bytes route`. One staticcall to a contract that is live today, already
-exercised by a test. ⚠️ **The error was reasoning from the vendor's NAME instead of the ADDRESS**:
+off-chain client, no `bytes route`.
+
+⛔⛔ **AND THEN I GOT THE NEXT STEP WRONG TOO. I wrote that this makes it "one staticcall to a
+contract that is live today". It does not — the call COSTS MORE THAN A BLOCK.** Another session had
+already measured it: `OffchainOracle.getRate` iterates **all 14 registered DEX oracles and their
+connectors**, so one read is a full multi-venue aggregation — **31,722,803 gas against a 30M block
+limit**. They wired it, saw every ETH swap and repack exceed a whole block, and reverted
+(`82662f19` → `df3c5e13`). **Their row never reached `main`; I found it as an unreachable commit
+and landed it as `§E232-1inch-is-unusable-on-chain`.**
+
+▶️ **THE VIABLE SOURCE IS `ExternalTwap.curvePriceWad`** — a Curve `price_oracle()` storage read at
+~2–3k gas, and a genuinely different *mechanism* from Chainlink (an EMA over executed trades vs a
+signed off-chain report). Its open questions are its own: which pool per instance, and a deviation
+bound derived from Curve's EMA **half-life** rather than inherited from a 30-minute-window bound.
+
+🔴 **THE LESSON IS SHARPER THAN THE FIRST ONE, BECAUSE IT IS THE SAME MISTAKE ONE LEVEL DOWN.** I
+corrected "reasoned from the vendor's NAME instead of the ADDRESS" — and then reasoned from the
+ADDRESS **without pricing the CALL**. Deployed, correct and unit-tested says nothing about whether
+invoking it is affordable. ⚠️ **And the refutation was inside the passing test the whole time:** the
+run that proved `getRate` works is the run that printed 31.7M gas. **A green test whose gas number
+exceeds a block is not a pass — it is a design refutation wearing a green tick.**
+
+⚠️ **The original error, kept because it is still worth avoiding — reasoning from the vendor's NAME
+instead of the ADDRESS**:
 "1inch was removed" is true of one of these and false of the other, and the two sit one letter apart
 in prose. Same shape as this repo's rule about auditing by structure rather than by type name.
 | `FixedRateFill` | tested (`FillAndBatch.t.sol`), **no production caller** | Its own landing commit says so on purpose — `5d710605`: *"the fixed-rate fill, **unbuilt and with no callers**"*. It is the settlement primitive meant to replace the v4 AMM (§28, Phase 3 step 1). **A marker for work not yet built, which is exactly the `create_sweep_tx` shape.** |
@@ -551,8 +573,16 @@ anywhere are in `test/OneInchObserverIsIndependent.t.sol`.
 > ② **The source needs NOTHING from the withdrawn 1inch work** — those are two different contracts.
 > The reversed integration was **AggregationRouterV6 `0x1111…2A65`** (a swap venue); this reads
 > **OffchainOracle `0x0AdDd25a…F9B8`** (read-only `getRate`), and the router address appears nowhere
-> in `ExternalTwap.sol`. So step (1) below is **one staticcall to a live contract**, not an
-> integration. This corrects a note I wrote earlier today claiming the source was orphaned.
+> in `ExternalTwap.sol`. This corrects a note I wrote earlier today claiming the source was orphaned.
+> ⛔⛔ **BUT DO NOT WIRE THE RING TO `getRate`. I first wrote that step (1) was "one staticcall to a
+> live contract"; another session had already measured it at 31,722,803 GAS against a 30M block
+> limit** — it iterates all 14 registered DEX oracles — **and reverted after every ETH swap and
+> repack exceeded a whole block** (`82662f19` → `df3c5e13`). Their row was lost off `main`; it is now
+> landed as **`§E232-1inch-is-unusable-on-chain`**, and it should be read before step (1) is started.
+> ▶️ **Use `ExternalTwap.curvePriceWad`** (Curve `price_oracle()`, ~2–3k gas, a different mechanism
+> from Chainlink). ⚠️ **BTC gains nothing from that change of venue** — Curve quotes WBTC, so §E223's
+> wrapper objection survives, and step (2)'s "record nothing, delete the BTC deviation guard" option
+> stays on the table.
 
 ▶️ **Order:** (1) wire the ETH ring to an external observation; (2) DECIDE what the BTC ring
 records, given §E223 proved there is **no wrapper-free BTC spot on-chain** and a WBTC cross would
