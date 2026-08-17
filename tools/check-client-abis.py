@@ -227,7 +227,29 @@ for base in RUST_ROOTS:
             text = p.read_text(errors="ignore")
         except OSError:
             continue
+        # (§E233) JOIN RUST STRING-LITERAL LINE CONTINUATIONS BEFORE MATCHING.
+        # ⚠️ THIS SCANNED `splitlines()` DIRECTLY, so a signature constant wrapped across lines
+        # with a trailing `\` could never match — the regex's class allows neither backslash nor
+        # newline. `SIG_OPEN_CHANNEL` and `SIG_SPLICE` are both wrapped, and they are wrapped
+        # BECAUSE they carry structs, so the gate was blind exactly where the risk is highest.
+        # MEASURED: with the compiled `OpenAuth` tuple at `(bytes32,bytes)` and the Rust constant
+        # still declaring `(address,bytes32,bytes,bytes)`, this reported **0 drifted**.
+        logical, buf, buf_no = [], None, 0
         for i, line in enumerate(text.splitlines(), 1):
+            if buf is not None:
+                buf += line.lstrip()
+                if buf.rstrip().endswith("\\"):
+                    buf = buf.rstrip()[:-1]
+                    continue
+                logical.append((buf_no, buf)); buf = None
+                continue
+            if line.rstrip().endswith("\\"):
+                buf, buf_no = line.rstrip()[:-1], i
+                continue
+            logical.append((i, line))
+        if buf is not None:
+            logical.append((buf_no, buf))
+        for i, line in logical:
             for m in rust_sig.finditer(line):
                 key = m.group(1)
                 if ")(" in key:          # cast-style return suffix, not a call signature
