@@ -217,8 +217,30 @@ price source. **It did not, because those are two different 1inch contracts:**
   appears nowhere in `ExternalTwap.sol`** (grep: 0 hits).
 
 ⇒ **§E222's price source needs nothing from the withdrawn work** — no aggregator, no API key, no
-off-chain client, no `bytes route`. One staticcall to a contract that is live today, already
-exercised by a test. ⚠️ **The error was reasoning from the vendor's NAME instead of the ADDRESS**:
+off-chain client, no `bytes route`.
+
+⛔⛔ **AND THEN I GOT THE NEXT STEP WRONG TOO. I wrote that this makes it "one staticcall to a
+contract that is live today". It does not — the call COSTS MORE THAN A BLOCK.** Another session had
+already measured it: `OffchainOracle.getRate` iterates **all 14 registered DEX oracles and their
+connectors**, so one read is a full multi-venue aggregation — **31,722,803 gas against a 30M block
+limit**. They wired it, saw every ETH swap and repack exceed a whole block, and reverted
+(`82662f19` → `df3c5e13`). **Their row never reached `main`; I found it as an unreachable commit
+and landed it as `§E232-1inch-is-unusable-on-chain`.**
+
+▶️ **THE VIABLE SOURCE IS `ExternalTwap.curvePriceWad`** — a Curve `price_oracle()` storage read at
+~2–3k gas, and a genuinely different *mechanism* from Chainlink (an EMA over executed trades vs a
+signed off-chain report). Its open questions are its own: which pool per instance, and a deviation
+bound derived from Curve's EMA **half-life** rather than inherited from a 30-minute-window bound.
+
+🔴 **THE LESSON IS SHARPER THAN THE FIRST ONE, BECAUSE IT IS THE SAME MISTAKE ONE LEVEL DOWN.** I
+corrected "reasoned from the vendor's NAME instead of the ADDRESS" — and then reasoned from the
+ADDRESS **without pricing the CALL**. Deployed, correct and unit-tested says nothing about whether
+invoking it is affordable. ⚠️ **And the refutation was inside the passing test the whole time:** the
+run that proved `getRate` works is the run that printed 31.7M gas. **A green test whose gas number
+exceeds a block is not a pass — it is a design refutation wearing a green tick.**
+
+⚠️ **The original error, kept because it is still worth avoiding — reasoning from the vendor's NAME
+instead of the ADDRESS**:
 "1inch was removed" is true of one of these and false of the other, and the two sit one letter apart
 in prose. Same shape as this repo's rule about auditing by structure rather than by type name.
 | `FixedRateFill` | tested (`FillAndBatch.t.sol`), **no production caller** | Its own landing commit says so on purpose — `5d710605`: *"the fixed-rate fill, **unbuilt and with no callers**"*. It is the settlement primitive meant to replace the v4 AMM (§28, Phase 3 step 1). **A marker for work not yet built, which is exactly the `create_sweep_tx` shape.** |
@@ -463,6 +485,38 @@ the same evidence as a finding). ⚠️ Worth keeping the shape in mind: the haz
 commit, only in a stash, so **no diff review would ever have surfaced it** — it was visible only
 because the flag was written down at the time.
 
+### The two scans the owner asked for, run properly this time
+
+**(1) EVERY UNREACHABLE COMMIT, not just §E194's.** `git fsck --unreachable --no-reflogs` returned
+**449 commits**. Dropping stash triples, merges, and commits whose subject already appears on `main`
+(rebase copies) left **22 hand-authored ones**. Each was checked by looking for its *content* on
+`main`, not its SHA:
+
+| | |
+|---|---|
+| landed under another SHA | **21** — E154's avgYield row, `LevBase`'s `totalDeliverableDollars`/`TWAP_WINDOW` lift, `DEPLETION_RATE_WAD`, the E182 rekey's 523-byte figure, `DeployL1_s`'s `btcCore`, the `USDC` declaration, E231's row |
+| superseded by a later deliberate deletion | `VEth.sol` / `LevOracles.sol` restores — both later folded away on purpose |
+| 8 × "WIP snapshot … NOT REVIEWED, NOT for merge" | backups by design |
+| **LOST** | **1 — `§E232-1inch-is-unusable-on-chain`** |
+
+⇒ **The branch cleanup was 21-for-22 on code and lost one 🔴🔴 row** — now landed, with
+`rescue/E232-1inch-unusable` and `rescue/E222-revert` pushed as tags.
+
+**(2) EVERY DELETION, to see whether §E109/§E116 were the only rows closable that way.** All **35
+deleted `.sol` files** in `evm/src` were enumerated from history and each cross-referenced against
+the open rows: `AaveV3Venue` `AaveV4Venue` `BandBacking` `BatchLedger` `EthVenue` `EulerEscrowVenue`
+`SOR` `LevOracles` `LiquityTroveVenue` `MorphoEscrowVenue` `QuidLens` `Rover` `SorExchange` `VEth`
+`mock` `AttestedHopRegistry`, plus the 13 v3 `TickMath`/`LiquidityAmounts`/`FullMath`/pool-interface
+files.
+
+**Answer: yes — `AttestedHopRegistry` was the only one.** Every other deleted name that still appears
+in an open row appears there **incidentally**, not as the row's subject: §E155 is about
+`BasketLib._valueStable:265` (alive), §E201 about the oracle posture, `VENUE-COLLAPSE-REFUTED` about
+four branches. ⭐ **And every surviving mention of a deleted contract inside `evm/src` is a COMMENT
+recording the deletion and why** — `Aux.sol:201` on `SorPath`, `Vogue.sol:1323` on the `VEth`
+premise, `ExternalTwap.sol:27` on `TickMath`. That is the good case: prose that outlives the code
+**on purpose**, and the exact opposite of the stale-comment failure this repo keeps paying for.
+
 ⚠️ **WHAT THIS METHOD CANNOT DO, stated so the number is not over-read.** Symbol-existence closes a
 row only when the row is *about a symbol*. Rows about a **behaviour**, a **measurement**, or a
 **decision** cite live code and score "still open" whether or not the work is done — so **165 minus
@@ -528,7 +582,20 @@ naming itself as the LP. It protects the pool credit. **This protects the sats.*
 
 ---
 
-## B1. 🔴🔴 §E222 — THE ORACLE RING RECORDS ITS OWN OUTPUT, LIVE ON `main`
+## B1. ✅ CLOSED — §E222's RING NOW RECORDS AN INDEPENDENT SOURCE (`1e54a2fc`)
+
+✅ **CLOSED 2026-08-17, BY ANOTHER THREAD, AND ALL THREE PARTS THIS ROW ASKED FOR ARE DONE.**
+`1e54a2fc` wired the ETH ring to 1inch's OffchainOracle (`DeployLib.sol:170`), deleted the self-write,
+and **answered the BTC question rather than deferring it**: the BTC ring is left UNSET on purpose,
+because 1inch can only quote wrapped BTC and observing it would make a WBTC depeg indistinguishable
+from bitcoin moving — so σ² stays unmeasured and §E213 prices at the ceiling, which is the honest
+reading. Verified by enumerating the write path (`OracleLib.writeObservation` ← `_writeObservationPrice`
+← `_observeIfSourced`, one chain, external `staticcall` only), not by grepping for a library name.
+⚠️ **I re-confirmed this item OPEN earlier the same day on the strength of `ExternalTwap` having zero
+references.** That measurement was correct and the inference was wrong: the fix deliberately avoids
+`ExternalTwap`, whose `oneInchRateWad` reverts on a bad read and would turn an oracle outage into a
+halted swap path. **`ExternalTwap` being unwired is a separate live observation, not this defect.**
+
 
 `Core.sol:866` reads `px = AUX.getTWAPforAsset(ASSET, 1800)` — which reads the observation ring —
 and `:878` writes that same value back via `_writeObservationPrice(px)`. The identical pair repeats
@@ -551,8 +618,16 @@ anywhere are in `test/OneInchObserverIsIndependent.t.sol`.
 > ② **The source needs NOTHING from the withdrawn 1inch work** — those are two different contracts.
 > The reversed integration was **AggregationRouterV6 `0x1111…2A65`** (a swap venue); this reads
 > **OffchainOracle `0x0AdDd25a…F9B8`** (read-only `getRate`), and the router address appears nowhere
-> in `ExternalTwap.sol`. So step (1) below is **one staticcall to a live contract**, not an
-> integration. This corrects a note I wrote earlier today claiming the source was orphaned.
+> in `ExternalTwap.sol`. This corrects a note I wrote earlier today claiming the source was orphaned.
+> ⛔⛔ **BUT DO NOT WIRE THE RING TO `getRate`. I first wrote that step (1) was "one staticcall to a
+> live contract"; another session had already measured it at 31,722,803 GAS against a 30M block
+> limit** — it iterates all 14 registered DEX oracles — **and reverted after every ETH swap and
+> repack exceeded a whole block** (`82662f19` → `df3c5e13`). Their row was lost off `main`; it is now
+> landed as **`§E232-1inch-is-unusable-on-chain`**, and it should be read before step (1) is started.
+> ▶️ **Use `ExternalTwap.curvePriceWad`** (Curve `price_oracle()`, ~2–3k gas, a different mechanism
+> from Chainlink). ⚠️ **BTC gains nothing from that change of venue** — Curve quotes WBTC, so §E223's
+> wrapper objection survives, and step (2)'s "record nothing, delete the BTC deviation guard" option
+> stays on the table.
 
 ▶️ **Order:** (1) wire the ETH ring to an external observation; (2) DECIDE what the BTC ring
 records, given §E223 proved there is **no wrapper-free BTC spot on-chain** and a WBTC cross would
@@ -971,3 +1046,67 @@ It used to MIRROR `k.fee = 420` on the v4 pool key and be harvested by `_handleC
 gone the FILL charges it**, so 420 is now a parameter we own and must justify rather than a reflection
 of someone else's tier. It never has been. Belongs with §E227's recalibration, not separate from it.
 
+
+---
+
+## PART C2 — **THE VOLATILE ROUTE IS THE BLOCKER, AND REMOVING V3 LEAVES A HOLE (2026-08-17)**
+
+### 🔴 C2.1 — **OWNER: "there should be no v3 in this code at all." Complying leaves the volatile leg with NO ROUTE.**
+**14 live V3 references** (`V3_SWAP_ROUTER`, `IV3Router`, `V3_FEE_*`). `_poolSwap` (`LevMath:490`)
+is a V3 `exactInputSingle`, and its `catch` is where **`NoVolatileRoute()`** comes from.
+**MEASURED — what remains in `LevMath` once V3 goes:**
+| leg | route left |
+|---|---|
+| weETH → WETH | ✅ `ETHERFI_CURVE_POOL` (`:417`) |
+| stable ↔ USDC | ✅ `pool.exchange` (`:547`, `:565`) |
+| **USDC ↔ WETH / WBTC** | 🔴 **NONE** |
+⇒ **THE VOLATILE HOP HAS ONLY EVER HAD TWO CANDIDATES AND BOTH ARE NOW EXCLUDED:**
+**TriCrypto** was deleted with §V-R1/§E232-tri on a MEASUREMENT — **698 WETH / 20.72 WBTC, both legs
+breaching the 1% floor between $10k and $25k**; and **V3** is now banned by instruction.
+⛔ **THIS IS WHY `e4f9c512` RE-PINNED V3 DAYS AFTER `9eef279a` CUT IT** (*"Curve already superseded
+it"*). The reversal was not carelessness — it was the hole reasserting itself. **Deleting V3 without
+naming a replacement re-opens it.**
+▶️ **DECISION REQUIRED BEFORE ANY CODE MOVES** — the options are the whole space:
+(a) a deeper Curve pool for USDC↔WETH/WBTC, sized against the same 1% floor TriCrypto failed;
+(b) accept TriCrypto WITH a size cap below its measured breach point;
+(c) source the volatile leg off-chain via the fleet (flash → serve → repay), which is already the
+refill's own shape;
+(d) keep V3 solely for this hop, which the instruction excludes.
+📌 **DO NOT "fix" the 73 failures by deleting `_poolSwap`.** They are `PREMISE` assertions —
+*"rally must lever the position (debt > 0): 0 <= 0"* — i.e. **the position never opens.** Removing the
+route makes them fail earlier, not pass.
+⚠️ **AND THE CAUSAL LINK IS NOT PROVEN:** `NoVolatileRoute` appeared **twice** in the last clean run
+while ~73 failures were premise assertions. **The discriminator is one two-point run:** a single
+leverage test at `9eef279a` (Curve) vs `e4f9c512` (V3). Passing on the former and failing on the
+latter names the cause; failing on both clears the route and moves the hunt to the borrow path.
+
+### 📋 C2.2 — DIGEST OF `QUEUE.md` (what a fresh session must know without reading 13k lines)
+| area | state |
+|---|---|
+| **v4 removal** | ✅ COMPLETE — `IPoolManager`/`PoolKey`/`unlockCallback`/`SafeCallback`/`BalanceDelta`/`TickMath`/`sqrtPriceX96` **all 0**; `SOR.sol` deleted |
+| **skew** | ✅ COMPLETE and LIVE — σ²=0 free drain, size-blind quote (a 90% drain filled **4.12×** worse), depletion σ²-free keyed on `inv0`, patience **93.3% → 1.37%**. `skewWad` is called by `_fillDelta` on every swap |
+| **refill** | 🔴 **POTEMKIN** — 4 primitives on main, **0 call sites**, pure-arithmetic proof only |
+| **UNIT rows** | ✅ all 27 red markers audited individually and flipped ⏹; none was open work |
+| **`POOLED_USD`** | ✅ funded again (§E230's `basketUsd`/`basketLeg` fix); `testSwapIn_QuidOrStrictStable` passes |
+| **BTC fee leg** | 🔴 `testBtcLp_swapInAccruesTheBtcLegFee` still 0 |
+| **suite** | 414 / **73 failed** / 487, archive endpoint, **0 environmental** — one root (above), not 73 problems |
+| **sizes** | `BTCChannels` **138 bytes** — tightest, near a deploy blocker |
+| **split weights** | 🔴 owner's call; rate/who-pays/routing already settled, only proportions open |
+
+### ₿ C2.3 — BITCOIN WORK THIS THREAD TOUCHED AND DID NOT FINISH
+- **§E233-ladder (session `1a620c05`, RESTORED by me after I destroyed it with `reset --hard`)** —
+  a delivery is the **FIFTH rotation site**; `evm_codec.rs` ABI gains
+  `(uint64[],bytes[],uint64,uint256,bytes)[]`, `daemon.rs` threads `vault_registry` to the swap-out
+  watcher, `swap_out_onchain.rs` sources the ladder and treats absent consent as **dormancy**.
+  ⚠️ **RUN `tools/check-client-abis.py`** — this changes a contract ABI signature.
+- 🔴 **`VaultRegistry` — THREE INDEPENDENT DOUBTS, none resolved:**
+  ① **no production writer** — `bind_consent` has only TEST callers, so `consent_for_funding` can
+  only return `None` and the dormancy branch is the only reachable one *(empty-grep caveat: confirm
+  with `git log -S "bind_consent"` before acting)*;
+  ② **its justification is false in the deployed model** — `vault.rs:244` says *"the fleet does not
+  have the LP funding half"*, but `taproot_signer.rs:439` says *"the fleet holds BOTH funding
+  halves"* **under Option B**, and `validating_signer.rs:22` says Option B is what is deployed;
+  ③ **§SPRINT-B5** records that §E183 removed the premise (*"the LP signs nothing at open"*).
+  ⇒ **If the signer is present at the delivery, the registry is plumbing for an absence that does
+  not exist.** Simplification is likely DELETION, not refactor — but it is `1a620c05`'s file.
+- **`testBtcLp_swapInAccruesTheBtcLegFee`** — the BTC fee leg is unfunded while the ETH side works.
