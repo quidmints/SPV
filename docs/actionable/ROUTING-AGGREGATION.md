@@ -377,3 +377,53 @@ messages. Now measured — `get_dy(0 → 1)`, USDC → WBTC, on `CURVE_TRICRYPTO
 ⇒ `_stableToWbtc` / `_wbtcToStable` are constrained EXACTLY as tightly as their ETH twins. The BTC
 IL-protect hedge and the WBTC de-lever share the same ceiling, so the BTC pair is not a follow-up to
 the ETH work — it is the same defect in a second place and belongs in the same change.
+
+
+## 🔴 WHY SOR CANNOT BE DELETED ON ITS OWN — measured 2026-08-17
+
+The v4 cut took `src/` from 47 v4 references to 7, and all 7 are SOR's. The obvious next step is to
+delete `SOR.sol`. **It is not deletable yet, and the reason is not the one it looks like.**
+
+### No production code calls any SOR path
+
+| SOR entrypoint on `Aux` | callers in `src/` | callers in `test/` |
+|---|---|---|
+| `auxSwap(amountIn, output, recipient, minOut)` — 4-arg | **0** | 5 (`Alles.t.sol`) |
+| `sorSelfFunded` / `sorSelfFundedReverse` | **0** | 2 (`LevYbReal.t.sol`, via a hand-rolled `IAuxSorSelf`) |
+| `executePath` | Aux's own self-call, only from the 4-arg `auxSwap` | — |
+| `unlockBody` | none — removed with `_unlockCallback` and the `SafeCallback` base | — |
+
+The code already records WHY the callers left: `BtcLevManager.sol:299` — *"Neither is on this path
+any more; the SOR is now the BAND's AMM only"* — and `LevMath.sol:550`, where
+`sorSelfFundedReverse` was replaced by `_wethToStableCurve`. The lev de-lever legs and the BTC path
+migrated to Curve.
+
+### But it is a CAPABILITY, not dead code — and I nearly got this wrong
+
+`Aux` has TWO `auxSwap` overloads and they are not versions of each other:
+
+| overload | route | backed by |
+|---|---|---|
+| 4-arg `auxSwap(amountIn, output, recipient, minOut)` | stable → **VOLATILE** (WETH/WBTC), multi-hop | SOR |
+| 5-arg `auxSwap(tokenIn, tokenOut, amountIn, recipient, minOut)` | stable ↔ **stable**, inside the basket | `SwapLib.auxSwapBody` |
+
+It is tempting to read the 5-arg one as the modern replacement and repoint the tests at it. **It
+cannot serve them:** `auxSwapBody` opens with `if (idxIn == 0 || idxOut == 0) revert
+NotBasketStable();` and WETH/WBTC have no basket index, so every such call reverts. Checked before
+concluding — the two overloads share a name and nothing else.
+
+⇒ **Deleting SOR removes the basket's ONLY stable→volatile router.** That is a capability
+regression, which is why the deletion has to land WITH the 1inch replacement (standing rule 14b: a
+deletion and its replacement are one commit) rather than ahead of it.
+
+⇒ And it is the same gap this document already measures: TriCrypto holds 698 WETH, so a $25k hop
+slips 128bp against a 100bp floor and REVERTS. The basket's stable→volatile leg does not work at
+size on the current route either. Band-first-then-1inch is what makes it work AND what makes SOR
+deletable; the two are one job.
+
+### Where it goes
+
+`SwapLib`, not a new file. The venue seam already exists there: `curveSellWeeth` is approve → `try`
+external call → `catch` and unwind the approval, which is the shape a 1inch router call takes. And
+`Aux.swap` — the `ISwap` surface an integrator calls — routes through `SwapLib` and has NEVER
+touched SOR, so this replaces an INTERNAL rebalancing router without touching the user path.
