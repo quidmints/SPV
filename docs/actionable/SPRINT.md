@@ -1892,3 +1892,24 @@ and a dial policy, so state it in the deletion commit and let it be attacked.
 `manually_accept_inbound_channels` handling gaining a second allowed peer, or the vault opening a
 channel to anything but the hop. All three are one-line changes, so **the argument must be re-run if
 `event_handler.rs`'s gate is touched.**
+
+### D4b. The transcript sweep — what it found beyond the commit sweep
+
+Scanned all 26,415 transcript lines for admissions in my own messages (*"I have not enumerated"*,
+*"never ran"*, *"worth checking"*): 45 hits, most from other threads sharing the file. Three SPV items
+resolved to a real question, and **all three closed themselves by measurement rather than becoming
+tasks** — recorded so nobody re-opens them:
+
+- **The `feesPerShareBTC` credit-site enumeration is MOOT.** This is the check `CLAUDE.md`
+  memorialises as *written down three times and run zero times*. **`feesPerShareBTC` and
+  `USD_FEES_BTC` now have ZERO references in `evm/src`** — they were fed by v4 pool trading fees only
+  and died with the v4 cut. There are no credit sites of a deleted accumulator to enumerate.
+  ⇒ **Fixed on detect:** `CLAUDE.md`'s per-share-accumulator trap-note named 4 symbols that no longer
+  exist and cited a line that is now `uint q;`. Re-derived in place — the hazard is unchanged, only
+  its coordinates rotted, and a trap-note pointing at deleted symbols causes the very misreading it
+  exists to prevent.
+- **The attestation gate is GONE, as required.** `_requireAttested` has **0 non-comment references**
+  in `evm/src`; the five hits in `BTCChannels.sol` are historical notes. Matches the standing
+  instruction that no attestation gate may exist anywhere.
+- **LDK's `TODO(dual_funding)`** — superseded: `§SECOND-FUNDING-HALF` was closed by owner decision
+  (the phone SIGNS, the daemon FUNDS).
