@@ -290,7 +290,13 @@ library SOR {
             SorPath memory p = abi.decode(pathEncodings[i], (SorPath));
             if (p.output != output) continue;
             if (aux.toIndex(p.sourceAsset) == 0) continue;   // 0 ⇒ not a basket stable
-            uint hops = p.keys.length;
+            // §V4-ZERO — was `p.keys.length`. `keys` is gone with the v4 hop chain; `tokens.length`
+            // is MONOTONIC with it (the old shape invariant was `tokens == keys + 1`), so the
+            // ranking this produces is IDENTICAL and no ordering changed. ⚠️ Worth knowing the rank
+            // is now advisory: `_v3Route` discovers its own path, so a "fewest hops" preference over
+            // the ENCODED paths no longer describes what will execute -- it still picks which SOURCE
+            // STABLE to shed, which is the part `_pickBestPath` is actually for.
+            uint hops = p.tokens.length;
             if (hops < leastHops) { leastHops = hops; bestIdx = i; }
         }
     }

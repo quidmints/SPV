@@ -313,15 +313,15 @@ library DeployLib {
     ///      DAI/USDT=68/1, USDT/USDS=5/1, ETH/USDT=500/10, USDC/ETH=500/10).
     function _ethPaths(StackConfig memory cfg, bytes[] memory paths) private pure {
         paths[0] = _hop2(cfg.usdc, cfg.morphoUsdcVault,
-            _pk(address(0), cfg.usdt, 500, 10), cfg.usdt, cfg.weth);
+            cfg.usdt, cfg.weth);
         paths[1] = _hop2(cfg.usds, cfg.morphoUsdsVault,
-            _pk(address(0), cfg.usdt, 500, 10), cfg.usdt, cfg.weth);
+            cfg.usdt, cfg.weth);
         paths[2] = _hop2(cfg.dai, cfg.sdai,
-            _pk(address(0), cfg.usdt, 500, 10), cfg.usdt, cfg.weth);
+            cfg.usdt, cfg.weth);
         paths[3] = _hop2(cfg.usde, cfg.susde,
-            _pk(address(0), cfg.usdt, 500, 10), cfg.usdt, cfg.weth);
-        paths[4] = _hop1(cfg.usdt, cfg.morphoUsdtVault, _pk(address(0), cfg.usdt, 500, 10), cfg.weth);
-        paths[5] = _hop1(cfg.usdc, cfg.morphoUsdcVault, _pk(address(0), cfg.usdc, 500, 10), cfg.weth);
+            cfg.usdt, cfg.weth);
+        paths[4] = _hop1(cfg.usdt, cfg.morphoUsdtVault, cfg.weth);
+        paths[5] = _hop1(cfg.usdc, cfg.morphoUsdcVault, cfg.weth);
     }
 
     /// @dev WBTC-terminal SOR paths (arbBTC iterates these), cheapest first
@@ -329,18 +329,15 @@ library DeployLib {
     function _btcPaths(StackConfig memory cfg, bytes[] memory paths) private pure {
         paths[6] = _hop1B(cfg.usdc, cfg.morphoUsdcVault, cfg.wbtc);
         paths[7] = _hop2B(cfg.usdc, cfg.morphoUsdcVault,
-            _pk(address(0), cfg.usdc, 500, 10), _pk(address(0), cfg.wbtc, 3000, 60), cfg.wbtc);
+            cfg.wbtc);
         paths[8] = _hop2B(cfg.usdt, cfg.morphoUsdtVault,
-            _pk(address(0), cfg.usdt, 500, 10), _pk(address(0), cfg.wbtc, 3000, 60), cfg.wbtc);
+            cfg.wbtc);
         paths[9] = _hop3B(cfg.usds, cfg.morphoUsdsVault,
-            _pk(address(0), cfg.usdt, 500, 10),
-            _pk(address(0), cfg.wbtc, 3000, 60), cfg.usdt, cfg.wbtc);
+                        cfg.usdt, cfg.wbtc);
         paths[10] = _hop3B(cfg.dai, cfg.sdai,
-            _pk(address(0), cfg.usdt, 500, 10),
-            _pk(address(0), cfg.wbtc, 3000, 60), cfg.usdt, cfg.wbtc);
+                        cfg.usdt, cfg.wbtc);
         paths[11] = _hop3B(cfg.usde, cfg.susde,
-            _pk(address(0), cfg.usdt, 500, 10),
-            _pk(address(0), cfg.wbtc, 3000, 60), cfg.usdt, cfg.wbtc);
+                        cfg.usdt, cfg.wbtc);
     }
 
     /// @dev 2-hop path: sourceStable → USDT → ETH (native, wrapped at Aux).
