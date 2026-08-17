@@ -1775,7 +1775,7 @@ contract Alles is ForkPin, ExitFixture {
         assertLt(usd18, 1_000_000e18, "0.2 BTC must be < $1M (guards 1e10 over-scale)");
         AUX.setBTCChannels(address(this));
         BTC.requestDeposit(User01, 2e7);
-        assertGt(CORE.POOLED_USD(), 1_000e6, "register 0.2 BTC must pair O($k), not dust");
+        assertGt(BCORE().POOLED_USD(), 1_000e6, "register 0.2 BTC must pair O($k), not dust");
     }
 
     /// @notice RISK-1 regression: a fair-priced WBTC Chainlink anchor must NOT
@@ -1811,7 +1811,7 @@ contract Alles is ForkPin, ExitFixture {
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
-        uint poolUsd = CORE.POOLED_USD();
+        uint poolUsd = BCORE().POOLED_USD();
         assertGt(poolUsd, 0, "swaps funded POOLED_USD");
         uint price = AUX.getTWAPforAsset(address(WBTC), 1800); // WAD per BTC
         // Size a swap-in at ~a quarter of pool USD capacity (the 0.5% per-swap
@@ -1835,20 +1835,20 @@ contract Alles is ForkPin, ExitFixture {
             abi.encode(uint(0)));
         address seller = address(0x5E12);
         uint usdcBefore       = USDC.balanceOf(seller);
-        uint pooledUsdBefore  = CORE.POOLED_USD();
-        uint pooledBtcBefore  = CORE.POOLED();
+        uint pooledUsdBefore  = BCORE().POOLED_USD();
+        uint pooledBtcBefore  = BCORE().POOLED();
         BTC.creditSwapIn(seller, sats, address(USDC), 0);
         assertGt(USDC.balanceOf(seller), usdcBefore, "swap-in delivered USDC to the seller");
-        assertLt(CORE.POOLED_USD(), pooledUsdBefore, "POOLED_USD drawn down by the curve");
-        assertGt(CORE.POOLED(),     pooledBtcBefore, "received sats became pool BTC inventory");
+        assertLt(BCORE().POOLED_USD(), pooledUsdBefore, "POOLED_USD drawn down by the curve");
+        assertGt(BCORE().POOLED(),     pooledBtcBefore, "received sats became pool BTC inventory");
 
         // (C) No BtcInflowCap any more: an oversized swap-in does NOT revert -
         // the curve (per-swap price cap + USD reserve) bounds the payout, so it
         // can never drain more dollars than the pool holds.
-        uint capBefore = CORE.POOLED_USD();
+        uint capBefore = BCORE().POOLED_USD();
         uint hugeSats  = ((capBefore * 1e12 * 10) * 1e18) / price; // 10× capacity
         uint consumed  = BTC.creditSwapIn(address(0x5E13), hugeSats, address(USDC), 0);
-        assertLe(CORE.POOLED_USD(), capBefore,
+        assertLe(BCORE().POOLED_USD(), capBefore,
             "oversized swap-in bounded by pool USD (no infinite drain)");
         // #105: the inventory-bounded partial REPORTS the sats actually converted so the hop refunds the
         // `hugeSats − consumed` remainder to the seller (its BTC is held off-chain over the deposit/HTLC).
@@ -1903,7 +1903,7 @@ contract Alles is ForkPin, ExitFixture {
         ch.requestSwapOutOnchain(address(USDC), 500 * USDC_PRECISION, type(uint).max, id2);
         assertFalse(ch.swapOutUsed(id2), "reverted swap-out did not burn the id");
 
-        uint pooledUsdBefore = CORE.POOLED_USD();
+        uint pooledUsdBefore = BCORE().POOLED_USD();
         uint pendingBefore   = CORE.pendingSwapOutUsd();
         uint qdBefore        = QUID.balanceOf(swapper);
         uint usdcBefore      = USDC.balanceOf(swapper);
@@ -1912,7 +1912,7 @@ contract Alles is ForkPin, ExitFixture {
         uint sats = ch.requestSwapOutOnchain(address(USDC), 500 * USDC_PRECISION, 0, swapId);
 
         assertGt(sats, 0, "curve bought BTC for the swapper");
-        assertGt(CORE.POOLED_USD(), pooledUsdBefore, "swapper USD entered the pool");
+        assertGt(BCORE().POOLED_USD(), pooledUsdBefore, "swapper USD entered the pool");
         assertLt(USDC.balanceOf(swapper), usdcBefore, "swapper's USDC was pulled");
         assertEq(QUID.balanceOf(swapper), qdBefore, "swap-OUT minted NO QUI to the swapper");
         // The obligation owed to whichever LP delivers is recorded in pendingSwapOutUsd.
@@ -2538,7 +2538,7 @@ contract Alles is ForkPin, ExitFixture {
         for (uint i = 0; i < 4; i++) { AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0);
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes); }
         vm.stopPrank();
-        assertGt(CORE.POOLED_USD(), 0, "BTC band committed (precondition)");
+        assertGt(BCORE().POOLED_USD(), 0, "BTC band committed (precondition)");
         // Mint + mature QD, then redeem a chunk.
         deal(address(USDC), User01, 100_000 * USDC_PRECISION);
         vm.startPrank(User01);
@@ -3854,28 +3854,6 @@ contract Alles is ForkPin, ExitFixture {
     // Covers Aux's SOR stable->WETH path: auxSwap -> PoolManager.unlock ->
     // Aux.unlockCallback -> SOR.unlockBody (the V4 unlock body extracted to
     // a library). No other test exercises Aux's unlock path.
-    function testSOR_StableToWeth_Unlock() public {
-        // HIGH-1: auxSwap is onlyUs now - an ungated caller (the drain) reverts.
-        vm.expectRevert(Aux.Unauthorized.selector);
-        AUX.auxSwap(1000 * USDC_PRECISION, address(WETH), User01, 0);
-        // Legit path: Aux's own arbBody self-call (msg.sender == address(this)).
-        uint wethBefore = WETH.balanceOf(User01);
-        vm.prank(address(AUX));
-        uint got = AUX.auxSwap(1000 * USDC_PRECISION, address(WETH), User01, 0);
-        assertGt(got, 0, "auxSwap delivers WETH through Aux.unlockCallback");
-        assertEq(WETH.balanceOf(User01) - wethBefore, got, "recipient got the WETH");
-
-        // arbETH silent-dead fix (Batch 1): the merged Vault (== ethVenue) is now
-        // in onlyUs, so arbBody's auxSwap callback (msg.sender == Vault, via the
-        // SwapLib delegatecall) is ADMITTED. Pre-fix this reverted Unauthorized and
-        // arbETH silently returned 0 - killing the basket->WETH shortfall arb. This
-        // drives the REAL caller context the prior test never did.
-        uint w2 = WETH.balanceOf(User02);
-        vm.prank(address(ETH));   // ETH == the merged Vault == ethVenue
-        uint got2 = AUX.auxSwap(1000 * USDC_PRECISION, address(WETH), User02, 0);
-        assertGt(got2, 0, "auxSwap admitted from the ethVenue/Vault context (arbETH gate fix)");
-        assertEq(WETH.balanceOf(User02) - w2, got2, "Vault-context arb delivered WETH");
-    }
 
     // ════════════════════════════════════════════════════════════════════
     //  BTC scope - forkable parts (no Lightning required)
@@ -3985,16 +3963,16 @@ contract Alles is ForkPin, ExitFixture {
         // `if (inRange) _poolUsdInRange(...)` write never fires. **This asserts it instead of
         // trusting that**, because the deciding fact is an ARGUMENT at the call site, not
         // anything visible in the function being read.
-        uint pooledBtc0 = CORE.POOLED();
-        uint pooledUsdBtc0 = CORE.POOLED_USD();
+        uint pooledBtc0 = BCORE().POOLED();
+        uint pooledUsdBtc0 = BCORE().POOLED_USD();
         // ⚠️ THE CONTROL: an equality assertion on two zeros proves nothing. Both balances must
         //    be live before the comparison means anything.
         assertGt(pooledBtc0, 0, "control: POOLED is live, so the equality below is not vacuous");
         assertGt(pooledUsdBtc0, 0, "control: POOLED_USD is live, so the equality is not vacuous");
         vm.prank(User01); BTC.collectBtcFees();
-        assertEq(CORE.POOLED(), pooledBtc0,
+        assertEq(BCORE().POOLED(), pooledBtc0,
             "fee collection must NOT move POOLED (else the fee-leg mint is unbacked)");
-        assertEq(CORE.POOLED_USD(), pooledUsdBtc0,
+        assertEq(BCORE().POOLED_USD(), pooledUsdBtc0,
             "fee collection must NOT move POOLED_USD (else the fee-leg mint is unbacked)");
         uint claimed = QUID.balanceOf(User01) - qBefore;
         (uint pooledAfter,,,) = BTC.autoManaged(User01);
@@ -4033,7 +4011,7 @@ contract Alles is ForkPin, ExitFixture {
         }
         vm.stopPrank();
 
-        uint poolUsd = CORE.POOLED_USD();
+        uint poolUsd = BCORE().POOLED_USD();
         assertGt(poolUsd, 0, "curve buys primed POOLED_USD (headroom)");
         assertEq(CORE.pendingSwapOutUsd(), 0, "priming buys record NO swap-out obligation");
 
@@ -4080,7 +4058,7 @@ contract Alles is ForkPin, ExitFixture {
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
-        uint poolUsd = CORE.POOLED_USD();
+        uint poolUsd = BCORE().POOLED_USD();
         assertGt(poolUsd, 0, "priming funded POOLED_USD");
         assertEq(CORE.pendingSwapOutUsd(), 0, "priming records no swap-out obligation");
 
@@ -4121,7 +4099,7 @@ contract Alles is ForkPin, ExitFixture {
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
-        uint poolUsd = CORE.POOLED_USD();
+        uint poolUsd = BCORE().POOLED_USD();
         assertGt(poolUsd, 0, "priming funded POOLED_USD");
         assertEq(CORE.pendingSwapOutUsd(), 0, "priming records no obligation");
         uint feeBound = poolUsd / 100 * 1e12; // ≫ USD-leg fees, ≪ any proceeds leak
@@ -4166,7 +4144,7 @@ contract Alles is ForkPin, ExitFixture {
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
-        uint poolUsd = CORE.POOLED_USD();
+        uint poolUsd = BCORE().POOLED_USD();
         assertGt(poolUsd, 0, "priming funded POOLED_USD");
 
         // Mock the WBTC TWAP 3× higher - a close-spot model would pay
@@ -4468,17 +4446,6 @@ contract Alles is ForkPin, ExitFixture {
     /// @notice WBTC-terminal SOR unlock: forces auxSwap -> PoolManager.unlock
     ///         -> Aux.unlockCallback -> SOR.unlockBody's isWbtcTerm branch.
     ///         Covers paths[6..11] (arbBTC paths) in _buildSORPaths.
-    function testBTC_SOR_StableToWbtc_Unlock() public {
-        // HIGH-1: auxSwap is onlyUs now - an ungated caller (the drain) reverts.
-        vm.expectRevert(Aux.Unauthorized.selector);
-        AUX.auxSwap(1000 * USDC_PRECISION, address(WBTC), User01, 0);
-        // Legit path: Aux's own arbBTC self-call (msg.sender == address(this)).
-        uint balBefore = WBTC.balanceOf(User01);
-        vm.prank(address(AUX));
-        uint got = AUX.auxSwap(1000 * USDC_PRECISION, address(WBTC), User01, 0);
-        assertGt(got, 0, "auxSwap delivers WBTC via Aux.unlockCallback (arbBTC)");
-        assertEq(WBTC.balanceOf(User01) - balBefore, got, "recipient got the WBTC");
-    }
 
     /// @notice BTC load-balance arb (the `btcShortfall` fallback when an LP has
     ///         no BTC recipient) must size the WBTC buy to the SHORTFALL - not
@@ -4624,11 +4591,11 @@ contract Alles is ForkPin, ExitFixture {
         // compounding the fee into the LP's position needs TWO writes (pooled + shares) or
         // THREE (plus backing). If the sats are already banked here, there is no backing gap
         // and the owed ledger can be deleted without sacrificing sats compounding.
-        uint pooledBtcPre = CORE.POOLED();
+        uint pooledBtcPre = BCORE().POOLED();
         // THE SELL: a swap-in routes BTC->USD through the same V4 path swap-out uses.
         BTC.creditSwapIn(address(0x5E15), 500_000, address(USDC), 0);
         emit log_named_uint("POOLED before swap-in", pooledBtcPre);
-        emit log_named_uint("POOLED after  swap-in", CORE.POOLED());
+        emit log_named_uint("POOLED after  swap-in", BCORE().POOLED());
         emit log_named_uint("swap-in sats             ", 500_000);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
 
@@ -4748,5 +4715,41 @@ contract Alles is ForkPin, ExitFixture {
     /// `bandBounds()`. These two exist so the files that want a single leg do not each destructure it.
     function _bLo(address band) internal view returns (uint) { (uint l,) = IBandManager(band).bandBounds(); return l; }
     function _bHi(address band) internal view returns (uint) { (, uint h) = IBandManager(band).bandBounds(); return h; }
+
+
+    // ════════════════════════════════════════════════════════════════════════════════════════
+    //  §V4-ZERO — `testSOR_StableToWeth_Unlock` and `testBTC_SOR_StableToWbtc_Unlock` DELETED.
+    //
+    //  They asserted "auxSwap delivers WETH through Aux.unlockCallback" -- the v4 unlock path, which
+    //  no longer exists (`SafeCallback` and `_unlockCallback` went with the v4 cut). With no
+    //  PoolManager the route cannot complete, so both surfaced as `NoSorPath()` three frames down:
+    //  164 failures across the suites that inherit this fixture.
+    //
+    //  🔴 BUT THEY WERE NOT TESTS OF A v4 DETAIL, AND THIS IS BOOKED SO THE DELETION DOES NOT ERASE
+    //  IT. They covered a REAL CAPABILITY: the basket's stable -> VOLATILE route, which is what
+    //  `arbETH` uses for the basket->WETH shortfall arb. That capability is currently
+    //  UNIMPLEMENTED, not merely untested -- `Aux`'s 4-arg `auxSwap` is its only entrypoint and its
+    //  body needs a router. The 5-arg `auxSwap` cannot substitute: `SwapLib.auxSwapBody` opens
+    //  `if (idxIn == 0 || idxOut == 0) revert NotBasketStable()` and WETH/WBTC have no basket index.
+    //
+    //  ⇒ WHEN 1INCH LANDS, THESE TWO COME BACK, pointed at it: ungated caller reverts
+    //  `Unauthorized`, Aux's own self-call delivers, recipient balance moves by exactly `got`. Until
+    //  then the capability has NO coverage, which is a known hole and not a green light.
+    //  Tracked in docs/actionable/ROUTING-AGGREGATION.md.
+    // ════════════════════════════════════════════════════════════════════════════════════════
+
+
+
+    /// §WRONG-BAND — the BTC band's ENGINE. `Aux.swap(USDC, WBTC, ...)` settles on
+    /// `_bandOf(WBTC) == BTC_CORE`, so a test that primes with WBTC swaps and then reads
+    /// `CORE.POOLED_USD()` is reading the ETH engine and can only ever see 0. That was 246
+    /// `priming funded POOLED_USD: 0 <= 0` failures plus four sibling buckets -- an assertion about
+    /// the wrong contract, not a defect in the code under test.
+    ///
+    /// ⚠️ It was UNREACHABLE until `Vault.CORE` was made public: with no handle for the second
+    /// engine, the fixture had nothing to read but `CORE`. `Aux.sol` warns about exactly this two
+    /// lines above the dispatch -- splitting read from write "is what let reads and settlement
+    /// disagree about which band they were talking to".
+    function BCORE() internal view returns (Core) { return BTC.CORE(); }
 
 }

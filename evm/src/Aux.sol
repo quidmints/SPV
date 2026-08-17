@@ -54,7 +54,10 @@ contract Aux is // Auxiliary
     /// re-decided on every quote. The pairing is a WIRING fact, so it is stated ONCE here, at
     /// construction, and every call site is a lookup. Adding a third band is then a wiring change,
     /// not an edit to every read.
-    mapping(address => Core) internal bandOf;
+    // §BANDOF-DELETE — was `mapping(address => Core) bandOf`, a mapping with exactly TWO entries,
+    // written once at construction, in a contract that ALREADY holds both values as immutables
+    // (`CORE`, `BTC_CORE`). A storage slot, two SSTOREs at deploy and an SLOAD on every price read,
+    // to answer a question two immutable comparisons answer for free. `_bandOf` below replaces it.
     WETH9 public immutable WETH;
     IERC20 public immutable WBTC;
     // §V4-ZERO — the inherited `poolManager` immutable is GONE with `SafeCallback`. Nothing in this
@@ -297,8 +300,6 @@ contract Aux is // Auxiliary
         // `a.wbtc` is optional (guarded above), so the BTC row is only written when there IS a BTC
         // asset — an unwired asset then resolves to address(0) and the read reverts LOUDLY rather
         // than silently answering from the wrong band, which is the failure this replaces.
-        bandOf[a.weth] = CORE;
-        if (a.wbtc != address(0)) bandOf[a.wbtc] = BTC_CORE;
 
         // GHO + USDG + WETH AAVE wiring. All are first-class assets on the
         // AAVE v4 spoke; reserve ids are deterministic per (hub, asset),
@@ -632,9 +633,24 @@ contract Aux is // Auxiliary
     // the approval) and renounces Aux. Reverts (no burn/renounce) if anything is mis-wired → all-or-nothing.
     address constant F8N  = 0x3B3ee1931Dc30C1957379FAc9aba94D1C48a5405;
     address constant DEAD = 0x000000000000000000000000000000000000dEaD; // ANGEL burn sink (ERC-721 reverts on address(0))
+
+    /// @dev §BANDOF-DELETE — the asset picks its band, from immutables rather than a mapping.
+    /// @dev ⚠️ IT REVERTS ON AN UNKNOWN ASSET, AND THAT IS THE POINT. The mapping returned
+    ///      `address(0)` for anything unwired, which failed loudly downstream. A bare
+    ///      `asset == WBTC ? BTC_CORE : CORE` would instead return the ETH band for an unknown
+    ///      asset -- a VALID-LOOKING handle carrying the wrong band's price and pooled state, which
+    ///      is the silent-wrong-band class this tree has already shipped three times. So the
+    ///      replacement is stricter than what it replaces, not merely cheaper.
+    ///      A `private view`, not a modifier: a modifier inlines at every use site (rule 8c).
+    function _bandOf(address asset) private view returns (Core) {
+        if (asset == address(WBTC)) return BTC_CORE;
+        if (asset == address(WETH)) return CORE;
+        revert BadAsset();
+    }
+
     function getTWAPforAsset(address asset, uint32 period)
         public view returns (uint price) {
-        price = SwapLib.twapBody(address(bandOf[asset]), period);   // §ISBTC-SPLIT: the asset picks the band
+        price = SwapLib.twapBody(address(_bandOf(asset)), period);   // §ISBTC-SPLIT: the asset picks the band
 
         (price,) = SwapLib.twapResolve(assetPriceFeed[asset], price, 
                     asset == address(WBTC), TWAP_MAX_DEVIATION_BPS, 
@@ -647,7 +663,7 @@ contract Aux is // Auxiliary
     ///         move the pool spot onto `price` only in this dislocation regime.
     function resolvedTwap(address asset, uint32 period)
         public view returns (uint price, bool stale) {
-        price = SwapLib.twapBody(address(bandOf[asset]), period);   // §ISBTC-SPLIT: the asset picks the band
+        price = SwapLib.twapBody(address(_bandOf(asset)), period);   // §ISBTC-SPLIT: the asset picks the band
 
         (price, stale) = SwapLib.twapResolve(assetPriceFeed[asset], price,
             asset == address(WBTC), TWAP_MAX_DEVIATION_BPS, ASSET_FEED_MAX_AGE);
@@ -683,7 +699,7 @@ contract Aux is // Auxiliary
     function wellSkew(address asset, uint drainUsd6) public view returns (uint) {
         // §ISBTC-SPLIT: the asset picks the BAND INSTANCE via the wiring-time lookup, and the
         // `isBTC` argument is gone -- the instance knows what it is.
-        return SwapLib.wellSkew(address(bandOf[asset]), getTWAPforAsset(asset, 1800), drainUsd6);
+        return SwapLib.wellSkew(address(_bandOf(asset)), getTWAPforAsset(asset, 1800), drainUsd6);
     }
 
     /// @notice The flat swap fee (parts-per-million — 420 = 0.042%) every stable↔volatile swap pays,
@@ -746,7 +762,7 @@ contract Aux is // Auxiliary
                 // The read paths (`getTWAPforAsset`, `resolvedTwap`, `wellSkew`) were dispatched by
                 // `bandOf` already; this is the WRITE half of the same dispatch, and splitting them
                 // is what let reads and settlement disagree about which band they were talking to.
-                core: address(bandOf[asset]),
+                core: address(_bandOf(asset)),
                 // §SLOP: the asset picks the BAND MANAGER too, through the same wiring-time knowledge.
                 band: asset == address(WBTC) ? CORE.btcVault() : address(VOGUE),
                 btcChannels: _btcChannels
