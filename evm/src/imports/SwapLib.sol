@@ -2076,8 +2076,8 @@ library SwapLib {
         // range must lie WHOLLY outside the active band, on either side. The side itself is the
         // caller's choice, carried by the sign of `distance`.
         // The strict comparisons are unchanged: a range that merely TOUCHES an edge is invalid.
-        if (!(t.newUp < t.curLo || t.newLo > t.curUp)) revert TickOutOfRange();
-        if (t.newLo >= t.newUp) revert TickOutOfRange();       // degenerate range holds nothing
+        if (!(t.newUp < t.curLo || t.newLo > t.curUp)) revert RangeNotOutsideBand();
+        if (t.newLo >= t.newUp) revert RangeNotOutsideBand();       // degenerate range holds nothing
         placeable = amount6;
     }
 
@@ -2088,7 +2088,13 @@ library SwapLib {
     //  event. If that signal is wanted back it must be re-armed on the rung-1 catch in
     //  `VaultLib.offrampBody`, not here — see QUEUE §E152-nerve.)
 
-    error TickOutOfRange();
+    /// §DE-TICK COMPLETION (owner, 2026-08-17: *"there should be no tickmath"*) — was
+    /// `TickOutOfRange`, the LAST tick identifier left in code anywhere in `evm/src`. It never
+    /// guarded a tick: both call sites compare PRICES (`t.newUp < t.curLo`, `t.newLo >= t.newUp`).
+    /// The name outlived the grid by seven commits and would have read as evidence that tick math
+    /// survives the v4 cut. No client decodes it — zero hits in `spa/src`, `quid-ln`, `tools` — so
+    /// the selector change costs nothing.
+    error RangeNotOutsideBand();
     /// §DE-TICK — THE BAND IS ±δ AROUND THE PRICE, AND THAT IS THE WHOLE COMPUTATION.
     /// This used to pad in SQRT space (`spotPrice · √((10000±δ)/10000)`), then look the result up in the
     /// tick grid and align to a spacing of 10. In price space the root cancels — padding a price by
