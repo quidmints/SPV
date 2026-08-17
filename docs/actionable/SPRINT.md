@@ -643,6 +643,19 @@ here. Read this to decide *what to open*, never to decide *what is true*.
 3. **The subject of a row can outlive its own text.** §E244 said "two tests"; one had been fixed by an
    unrelated change.
 
+🔴 **AND THE LIST BELOW HAS EIGHT AMBIGUOUS LABELS — §E124'S ID COLLISION IS STILL LIVE.** Two
+threads independently numbered from E96, so **`E6` `E99` `E115-b` `E119` `E121` `E122` `E124` `E128`
+each name TWO DIFFERENT OPEN ROWS.** Worked example: `E122` is simultaneously 🟢 *"LP-named fallback
+hop"* (`QUEUE.md:8396`) and 🔴🔴 *"the premium reaches the LPs"* (`:8591`) — unrelated subjects, one
+label. ⇒ **CITE BY LINE NUMBER, NOT BY ID, for any of those eight.** Per §E124 the fix is a SUFFIX on
+the newer row, never renumbering — renumbering breaks every citation already written elsewhere.
+
+⚠️ **ONE ROW CONTRADICTS ITS OWN MARKER AND I HAVE NOT RESOLVED IT: `E122` at `:8591` is 🔴🔴 while
+its text opens *"…THAT CLOSES THE REFILL FUNDING GAP I SPENT THE SESSION TRYING TO OPEN"* and carries
+a ✅ inside.** It is a candidate stale-open, not a confirmed one — a dismissal needs the same evidence
+as a finding, and I did not read the body far enough to give it. **Read `:8591` before planning
+around either the marker or the sentence.**
+
 ⇒ **Re-read the row body before acting on any line below.** Ten for ten, on the last audit, re-reading
 a row overturned the plan built from its marker.
 
