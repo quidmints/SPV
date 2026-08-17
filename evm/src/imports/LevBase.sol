@@ -5,6 +5,7 @@ import {Types} from "./Types.sol";
 import {ILevVenue} from "./ILevVenue.sol";
 import {IAux, ILevSyncHook} from "./Interfaces.sol";
 import {LevMath} from "./LevMath.sol";
+import {LevBookLib} from "./LevBookLib.sol";
 
 /// @title  LevBase — the per-LP position registry both lev managers duplicated
 ///
@@ -115,32 +116,30 @@ abstract contract LevBase {
     ///         shape written twice, and a struct literal is not cheap in bytecode.
     /// @param  e0  the IL base, FIXED at open. Caller computes it because it is the one genuinely
     ///             per-asset quantity here; passing it in is what lets the rest be shared.
+    /// @notice §FOLD-MEASURE — body in `LevBookLib`. `_bandPrice()` is resolved HERE because it
+    ///         try/catches a call to `BAND`, and the struct is built here so the library takes one
+    ///         memory pointer rather than five scalars (cheaper seam, and `Types.Pos`'s field order
+    ///         stays owned by one place).
     function _openPos(ILevVenue venue, uint64 capBps, uint entryPx, uint e0) internal {
-        pos[msg.sender] = Types.Pos({venue: venue, targetLtvCapBps: capBps,
-                                     entryPriceWad: uint128(entryPx), e0: uint128(e0),
-                                     entryPrice: _bandPrice(), open: true});
-        _trackOpen(msg.sender);
+        LevBookLib.openPos(pos, _openLps, _lpIdx, msg.sender,
+            Types.Pos({venue: venue, targetLtvCapBps: capBps, entryPriceWad: uint128(entryPx),
+                       e0: uint128(e0), entryPrice: _bandPrice(), open: true}));
     }
 
     function _trackOpen(address lp) internal {
-        if (_lpIdx[lp] == 0) { _openLps.push(lp); _lpIdx[lp] = _openLps.length; }
+        LevBookLib.trackOpen(_openLps, _lpIdx, lp);   // §FOLD-MEASURE
     }
 
     function _untrackOpen(address lp) internal {
-        uint256 idx = _lpIdx[lp];
-        if (idx == 0) return;
-        uint256 last = _openLps.length;
-        if (idx != last) { address moved = _openLps[last - 1]; _openLps[idx - 1] = moved; _lpIdx[moved] = idx; }
-        _openLps.pop();
-        _lpIdx[lp] = 0;
+        LevBookLib.untrackOpen(_openLps, _lpIdx, lp);   // §FOLD-MEASURE
     }
 
     /// @notice Adjust the caller's max-leverage CAP (bps LTV, ≤ TARGET_LTV_CAP_BPS).
+    /// @notice §FOLD-MEASURE — body in `LevBookLib`. The ceiling is PASSED, not duplicated there:
+    ///         `TARGET_LTV_CAP_BPS` is a constant and constants live in the caller's code, so one
+    ///         definition stays here and the library reads whatever it is given.
     function setTargetLtv(uint64 capBps) external {
-        if (!pos[msg.sender].open) revert NotOpen();
-        if (capBps == 0 || capBps > TARGET_LTV_CAP_BPS) revert BadTarget();
-        pos[msg.sender].targetLtvCapBps = capBps;
-        emit TargetSet(msg.sender, capBps);
+        LevBookLib.setTargetLtv(pos, msg.sender, capBps, TARGET_LTV_CAP_BPS);
     }
 
     /// @notice Venue + stable + native amount for a swap-out-driven delever of `lp`.
@@ -364,17 +363,16 @@ abstract contract LevBase {
     /// @dev    The over-hedge fix still holds: `E0` tracks NET-EQUITY, never the growing collateral.
     ///         IDENTICAL on both sides once `netEquity` replaced the two per-asset accessors — the
     ///         bodies differed only in `uint` vs `uint256` spelling and comment framing.
+    /// @notice §FOLD-MEASURE — body in `LevBookLib`. `px` and `base` are computed HERE and passed BY
+    ///         VALUE because a library cannot reach the caller's immutables (`AUX`, `ORACLE_KEY`) or
+    ///         its virtuals (`netEquity` routes through `_collToBase`). That is the hard boundary on
+    ///         what can move, and it is why the guard is re-checked in the library rather than here:
+    ///         computing `px`/`base` for a closed position is wasted gas but never wrong, and one
+    ///         `open` check in the library is cheaper than two.
     function _reanchorIfReseated(address lp) internal {
-        Types.Pos storage p = pos[lp];
-        if (!p.open) return;
-        (bool go, uint s) = LevMath.reanchorCompute(BAND, p.entryPrice);
-        if (!go) return;
-        uint256 px   = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        uint256 base = netEquity(lp);
-        p.entryPrice    = s;
-        p.entryPriceWad = uint128(px);
-        p.e0            = uint128(base);
-        emit ReanchoredToBand(lp, s, base);
+        if (!pos[lp].open) return;   // cheap pre-filter: skip the two oracle/equity reads entirely
+        LevBookLib.reanchorIfReseated(pos, BAND, lp,
+            AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW), netEquity(lp));
     }
 }
 
