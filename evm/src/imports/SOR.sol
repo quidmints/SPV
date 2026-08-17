@@ -227,6 +227,13 @@ library SOR {
                 path: paths[i], recipient: recipient, amountIn: amountIn, amountOutMinimum: minOut
             })) returns (uint out) { if (out > 0) return out; } catch { /* try next route */ }
         }
+        // §PM-INVARIANT-3 — ZERO THE APPROVAL ON THE FAILURE PATH. On success `exactInput` consumes
+        // exactly `amountIn` and the allowance lands on zero by itself; when ALL FOUR paths fail,
+        // nothing consumed it and an exact-amount approval to the router was left STANDING. The V4
+        // lock made outstanding approvals structurally impossible for the duration of a swap; with
+        // an external router it is discipline, and this was the one place missing it. The sibling
+        // call `SwapLib.curveSellWeeth` already zeroes in its `catch` -- the two are now consistent.
+        IERC20OZ(tokenIn).forceApprove(V3_SWAP_ROUTER, 0);
         return 0;
     }
 
