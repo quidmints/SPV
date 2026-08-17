@@ -717,6 +717,14 @@ library SwapLib {
     /// clamping a measured expected cost at an asserted number could only make us UNDER-charge, and
     /// it bound precisely in the high-vol regime where the skew matters most.
     uint internal constant MAX_WELL_SKEW = 3e16;   // 3% — the UNKNOWN-variance value
+    /// §E216 — the σ²-FREE component: the cost of inventory that WAS there and LEFT.
+    /// **NOT A NEW CONSTANT.** 210 ppm = 2.1e14 WAD is `Aux.swapFeePpm()/2`, already derived and
+    /// tested for `imbalanceFeeUsd6` (half the pool tier; revenue-neutral because a drain from
+    /// balance creates exactly 2× its own value in idle inventory). Reused so the kernel and the
+    /// imbalance fee price the same thing at the same rate rather than disagreeing.
+    /// Scaled by the FRACTION DRAINED, so it is bounded BY this value: a full drain owes 2.1 bps,
+    /// half a drain 1.05 bps, and a band that was never funded owes nothing at all.
+    uint internal constant DEPLETION_RATE_WAD = 2.1e14;   // 210 ppm — see imbalanceFeeUsd6
     // Avellaneda–Stoikov calibration. `realizedVarianceWad` is ANNUALIZED realized
     // variance in WAD (VogueLib:294-318: tickVar·(SECS_PER_YEAR/THETA_STEP)·1e10 ⇒ a
     // fraction² scaled 1e18; e.g. 80%-annualized vol ⇒ σ²≈0.64 ⇒ ~6.4e17). SIGMA_REF is
@@ -1089,6 +1097,32 @@ library SwapLib {
         // The principle is right and the constant is unknown, which makes this a calibration
         // question (§UNIT-B-PATIENCE-STEP2), not a patch.
         skew += _maxWellSkew(sigmaSqWad, rk);
+        // §E216 — DEPLETION IS AN INVENTORY FACT, NOT A VOLATILITY RISK. Additive, σ²-free, and
+        // keyed on `inv0` rather than `q`. Every clause there was learned by a failed attempt.
+        //
+        // WHY. The kernel is `Γ·σ²·qBar`: ONE product fusing TWO different costs, so σ²→0 kills
+        // both. Adverse selection IS ∝ σ² (the band is picked off in proportion to how far price
+        // travels before repair) and stays there. Depletion is not: at `inv → 0` you cannot serve,
+        // you must SOURCE, and you pay settlement — true on the flattest tape there is.
+        // MEASURED: the patience instrument logs σ² = **1** — real data, so the `== 0` sentinel does
+        // NOT fire — with `wellSkew` = 0 at every slice. A free drain needing no patience, only calm.
+        //
+        // ⛔ ATTEMPT 1 FOLDED THIS INTO THE KERNEL'S RATE (`Γ·σ² + rate`, all × `qBar`) AND WAS
+        // REFUTED. `qBar` is scarcity against the TARGET, so a FRESH, UNFUNDED band — `inv0 = 0`
+        // against a positive target — sits at the pole and got charged the CEILING: bootstrap priced
+        // out of existence. It could not tell DRAINED from NEVER FUNDED, and only the first is a
+        // depletion cost — nobody depleted a band that was never filled.
+        // ⇒ SO THE DISCRIMINATOR IS `inv0`, NOT `q`: charge the FALL FROM WHAT WAS ACTUALLY THERE.
+        //   `inv0 == 0` ⇒ no fall ⇒ no charge ⇒ **bootstrap untouched BY CONSTRUCTION**, not by a
+        //   special case. And ADDITIVE + bounded by `DEPLETION_RATE_WAD`, so unlike attempt 1 it
+        //   cannot blow up at the pole.
+        // ⚠️ THE `sigmaSqWad == 0` SENTINEL STAYS AND IS NOT REDUNDANT: `== 0` means NO DATA (charge
+        // the ceiling, conservative); this handles data that is real and tiny. Different inputs.
+        if (inv0 != 0 && inv1 < inv0) {
+            // `SoladyMath`, not `FullMath` (which left with v4-core) and not OZ `Math`: solady is
+            // this file's convention — 32 call sites to OZ's 2.
+            skew += SoladyMath.mulDiv(DEPLETION_RATE_WAD, inv0 - inv1, inv0);
+        }
         if (skew > MAX_WELL_SKEW) skew = MAX_WELL_SKEW;
     }
 
