@@ -8639,6 +8639,28 @@ weakens a guard that is currently doing real work — it caught this three times
 ⇒ **SO "FINISH THE REMOVALS" IS ONE DEX RE-ROUTE PLUS ONE DEPLOY-TIME PRICE SOURCE.** Nothing vestigial is left to sweep — a grep-count plan would badly misjudge this, which is the same error §E200-UNBLOCKED warns about (*"test the INVARIANT, not a reference count"*).
 ⛔ **AND IT CANNOT BE VERIFIED TODAY: `main` MEASURES 3,597 passed / 954 FAILED** on a clean checkout with nothing uncommitted (was 4,528/1 this morning). Failures are *"swaps funded POOLED_USD: 0 <= 0"* and *"unfilled swap ETH must NOT all land in POOLED"* — i.e. **the booked transitional hazard**, swaps settling against `POOLED_*` while custody moves. **There is no green baseline to land a DEX re-route against.**
 
+## 🔓 STATE CHANGE 2026-08-17 — **`POOLED_USD` IS FUNDED AGAIN; THE WIRING IS UNBLOCKED**
+`testSwapIn_QuidOrStrictStable` **PASSES** — §E230's `basketUsd`/`basketLeg` fix landed, so the
+quantity every remaining refill step reads is live again. ⚠️ **STILL RED: `testBtcLp_swapInAccruesTheBtcLegFee`
+(`the BTC-leg fee is still earned on a swap-in: 0 <= 0`)** — the ETH side is unblocked, the BTC fee leg is not.
+✅ **AND THE V4 REMOVAL IS COMPLETE ON PUSHED MAIN:** `IPoolManager` · `PoolKey` · `unlockCallback` ·
+`SafeCallback` · `BalanceDelta` · `TickMath` · `sqrtPriceX96` **all 0**, `SOR.sol` deleted (`09fedf18`,
+Aux −1,959 bytes). **The skew survived it intact** — gate clean, 8/8 functions v4-free, and the seam
+SHRANK 8 → 7 accessors.
+
+## 🔴 §SPLIT-WEIGHTS — **THE ONE ITEM THIS THREAD RAISED AND NEVER BOOKED (found by scanning the transcript, 2026-08-17).**
+**The reshaped fee's division between SWAPPER / LP / BASKET was flagged as the owner's call early in
+the thread and then dropped from every summary.** It is not in any row above; 181 open-item flags were
+scanned and this was the only one with no home.
+📌 **WHAT IS ALREADY SETTLED, so the decision is narrow:** the RATE is derived (210 ppm on imbalance
+created ≡ 420 ppm on notional, `swapFeePpm()/2`, revenue-neutral because a drain from balance creates
+exactly 2× its value in idle inventory); WHO PAYS is settled (the swapper — §WHO-PAYS closed both
+alternatives, LPs refuted by grinding arithmetic at −1.6 to −43.6 bp per round trip, the basket
+refuted as a pattern deleted twice as toxic); and the ROUTING already credits LPs
+(`recordSkewPremium` → `creditSkewPremium` + `_addPooledUsd`, so a change here would DOUBLE-CREDIT).
+▶️ **SO THE OPEN QUESTION IS ONLY THE PROPORTIONS**, and it is a policy call with no measurement
+pending behind it — unlike everything else left in this file.
+
 ## 📕 SKEW/REFILL THREAD — CLOSE-OUT RECORD (2026-08-16). **Everything this thread started, landed or open, so it can be closed.**
 
 ### ✅ LANDED AND VERIFIED
