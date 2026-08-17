@@ -94,6 +94,15 @@ interface ICurvePool {
 // The ORDERING was read from the chain, not assumed — a wrong index swaps the wrong pair at size and
 // there is no id to assert against, unlike the Morpho markets.
 // (Plain `//`, not NatSpec — solc rejects @notice/@dev on file-level variables.)
+// §V-R1 — 1inch AggregationRouterV6. VERIFIED LIVE 2026-08-16 (codesize 24,294).
+// ⚠️ PINNED AS A CONSTANT, NEVER A PARAMETER. The route bytes are supplied by the CALLER and
+// `rebalance` is permissionless, so the destination is the one thing that must not be caller-
+// controlled: with the address fixed, hostile calldata can only mis-route WITHIN the router, and the
+// balance-delta floor catches that. A caller-supplied target would let it call anything.
+// (`//` not `///`: natspec on a file-level constant is a compile ERROR — the same trap the `USDC`
+//  constant below already records. I walked into it anyway.)
+address constant AGG_ROUTER_V6 = 0x111111125421cA6dc452d289314280a0f8842A65;
+
 // §E240-tri — TriCrypto's POOL ADDRESS and its three coin indices are DELETED with the four legs
 // that used them. It held 698 WETH / 20.72 WBTC, so BOTH legs breached the 1% floor between $10k and
 // $25k: shallow enough that the venue was the defect, not the sizing. The stableswap hub constants

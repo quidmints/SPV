@@ -124,7 +124,7 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
         uint[] memory mins = new uint[](8);
         vm.startPrank(lp);
         IERC20R(WEETH).approve(address(lm), sizeEth);
-        lm.openLev(5000, ILevVenue(address(venue)), sizeEth, mins);
+        lm.openLev(5000, ILevVenue(address(venue)), sizeEth, mins, "");
         vm.stopPrank();
     }
 
@@ -178,7 +178,7 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
         _bandE0(LEVR, 5 ether);
         _openLevOnly(LEVR, 5 ether);
         _rallyBand(startSqrt, 0.2e18, 20, 8_000 * USDC_PRECISION);
-        lm.rebalance(LEVR, 0);                              // real Morpho borrow + external Uniswap buy (NOT the band)
+        lm.rebalance(LEVR, 0, "");                              // real Morpho borrow + external Uniswap buy (NOT the band)
         require(venue.debtOf(LEVR) > 0, "precondition: levered position took real debt");
         _seizeReal(LEVR, 1, 1);                             // REAL Morpho liquidation of the levered LP
         _realignBandToReal();

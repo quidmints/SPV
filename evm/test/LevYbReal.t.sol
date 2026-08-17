@@ -261,11 +261,11 @@ contract LevYbRealProbe is AllesFixture {
         // Open at the CURRENT real band price (entry pinned from V4.bandSqrtP); zero leverage at entry.
         vm.startPrank(LP);
         IERC20R(WEETH).approve(address(rlm), 5 ether);
-        rlm.openLev(5000, ILevVenue(address(rvenue)), 5 ether, mins); // cap = 2×
+        rlm.openLev(5000, ILevVenue(address(rvenue)), 5 ether, mins, ""); // cap = 2×
         vm.stopPrank();
         // Real rally: buy ETH out of the band so it sells ETH ⇒ real IL accrues since the pinned entry.
         _rallyBand(_entryPrice(rlm, LP), 0.2e18, 20, 8_000 * USDC_PRECISION);
-        rlm.rebalance(LP, 0);         // lever up to the IL target (real Morpho borrow + real Uniswap buy)
+        rlm.rebalance(LP, 0, "");         // lever up to the IL target (real Morpho borrow + real Uniswap buy)
     }
 
     /// @notice #55/#1 fork proof: the levered slice is STRUCTURALLY excluded from the VENUE-yield

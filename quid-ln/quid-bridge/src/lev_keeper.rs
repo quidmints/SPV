@@ -413,7 +413,7 @@ pub async fn run_lev_keeper<E: LevKeeperEvm + CompoundEvm>(evm: E, cfg: LevKeepe
 }
 
 // ════════════════════════════ concrete EVM binding (the live keeper arm) ════════════════════════════
-use crate::abi::{addr_word, selector4, u64_word, word_to_lpaddr, word_to_uint};
+use crate::abi::{bytes_tail, addr_word, selector4, u64_word, word_to_lpaddr, word_to_uint};
 use crate::client::{JsonRpcEvmClient, TxSigner};
 use crate::transport::JsonRpc;
 use alloy_primitives::{Address, U256};
@@ -516,9 +516,19 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLev
         let (evm, lm, gas) = (self.evm.clone(), self.lev_manager, self.gas_limit);
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
             // minOut=0: the contract's oracle-derived MAX_SLIPPAGE floor protects every swap (anti-MEV).
-            let mut data = selector4("rebalance(address,uint256)");
+            // §V-R1 — the signature gained a trailing `bytes route`: 1inch resolves routes OFF-CHAIN,
+            // so the calldata cannot be computed on-chain and must travel with the call.
+            // ⚠️ AN EMPTY ROUTE REVERTS `NoVolatileRoute` ON ANY PATH THAT ACTUALLY SWAPS. That is
+            // deliberate and it is the correct failure: a keeper that has not fetched a quote must not
+            // be able to trigger an unbounded swap. Wiring the quote fetch is the remaining §V-R1 step.
+            // minOut=0: the contract floors it at the oracle price, so the caller picks WHEN, not price.
+            let route: Vec<u8> = Vec::new();
+            let (off, tail) = bytes_tail(3, &route);
+            let mut data = selector4("rebalance(address,uint256,bytes)");
             data.extend_from_slice(&addr_word(lp));
             data.extend_from_slice(&u64_word(0));
+            data.extend_from_slice(&off);
+            data.extend_from_slice(&tail);
             evm.send_tx(lm, data, gas)?;
             Ok(())
         })
@@ -791,7 +801,11 @@ mod tests {
     fn calldata_encoding_is_abi_correct() {
         // selectors match keccak256(sig)[..4]
         assert_eq!(selector4("syncLev(address)"), keccak256(b"syncLev(address)")[..4].to_vec());
-        assert_eq!(selector4("rebalance(address,uint256)"), keccak256(b"rebalance(address,uint256)")[..4].to_vec());
+        // §V-R1 — pinned to LITERAL BYTES, not to keccak of the same string. The old form asserted
+        // `selector4(s) == keccak256(s)[..4]` for one `s`, which tests `selector4` and passes for ANY
+        // string including a signature no contract declares -- the identical defect fixed in
+        // `lev_keeper_btc.rs` earlier today. Value from `cast sig`.
+        assert_eq!(selector4("rebalance(address,uint256,bytes)"), vec![0xbb, 0xcb, 0xaf, 0xd1]);
         // address word = 12 zero bytes + 20-byte address (right-aligned)
         let lp: LpAddr = [0x11; 20];
         let w = addr_word(lp);
