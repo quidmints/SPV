@@ -294,6 +294,47 @@ threaded through two managers and three structs, an ABI break on four entrypoint
   keccak256(s)[..4]` for the same `s`; one asserted `assertEq(dust, 0)` on tokens nothing ever
   minted. All four passed for reasons unrelated to what their names claimed.
 
+
+---
+
+## 13. THE FIVE-DAY SWEEP — what I re-checked, and what closed itself
+
+Added 2026-08-17 on the owner's question *"what else did this thread work on before but not finish"*.
+I scanned 2026-08-13 → 08-17 of this session's own transcript for deferral statements with a concrete
+anchor, then **re-measured each against today's `main` rather than trusting what I wrote at the time.**
+That order matters: **five of the eight had already been closed by later work in this same session,
+and I would have re-opened every one of them by reporting from my own notes.**
+
+**STILL OPEN — and the first two were absent from this document entirely:**
+
+- **`contract Shares` unwired, and the fold gap** — §6b and the §6 correction above. The big one.
+- **14 v4 references remain in `evm/src` + `evm/script`, and every one is PROSE.** No `IPoolManager`,
+  `SafeCallback` or `_unlockCallback` survives in code — the cut is complete and the comments are not.
+  ⚠️ Per `CLAUDE.md`, **a comment describes past state**, and four wrong conclusions in this repo have
+  come from trusting one. Fourteen comments still describe an architecture that was removed.
+- **The ABI gate is RED on `main` itself, and it is not from this thread.** `openChannel` at
+  `quid-ln/quid-hop/src/evm_codec.rs:78` still encodes `(bytes32,bytes)` where the contract now has
+  `(address,bytes32,bytes,bytes)`. Committed on both sides — the Rust line is byte-identical in HEAD
+  and in the working tree, so it is **not** the BTC thread's uncommitted edit; the contract change is
+  `7d11fe22` ("E183 item 1 lands: the LP signs nothing on the EVM"). **Flagged, not touched — it is
+  another thread's live lane.** But it means the gate cannot currently certify anyone's commit.
+
+**CLOSED BY LATER WORK IN THIS SAME SESSION — verified on today's `main`, not assumed:**
+
+| what I wrote, and when | state today |
+|---|---|
+| *"366 `isBTC` references, 182 in `Core.sol` alone — 53% in one file"* (08-15) | **36 total.** `SwapLib` 17, `Vogue` 8, `Vault` 3, `Interfaces` 2, `Shares` 1. **Core: zero.** |
+| *"`Core` still carries BOTH bands' state — `obsBTC`/`obsETH`, `_flowBTC`/`_flowETH`. That's the unfinished half"* (08-16) | **Zero matches in `Core.sol`.** |
+| *"the `LEV_MANAGER` duplication — one fact with two homes"* (08-14) | **Dissolved by `BandState`**: one declaration (`Shares.sol:62`), inherited by both. |
+| *"`#32` — the per-LP `COLLATERAL()` STATICCALL inside two loops"* (08-13) | **Not in any loop.** Three single-shot branch sites remain. |
+| *"`Alles` inherits `Fixtures` while using not one member of it"* (08-17) | v4 `Fixtures.sol` **gone**. ⚠️ `evm/test/SPVFixtures.sol` is a **different, live** file — Bitcoin header fixtures for `SPVGateway.t.sol`. **Similar name, unrelated thing: do not delete it on the strength of that note.** |
+
+⇒ **THE LESSON, AND IT IS THE SAME ONE AS §12'S FIRST BULLET.** My own transcript is a record of what
+was true when written, and it goes stale faster than anything else because *I* am the one invalidating
+it. **Every item above that I could still see was one I re-measured; every item I "remembered" was
+wrong in the direction of being more open than it is.** A hand-off document assembled from notes
+rather than from the tree will re-open finished work and under-report the one gap that matters.
+
 ---
 
 # PART B — session `391df7b6` (the Bitcoin / secp256k1 thread)
@@ -510,43 +551,3 @@ is not.
 
 ⇒ **Before acting on any claim in this file, run the check it names.** Each one is cheap, and each
 of those five cost a wrong turn that a single command would have prevented.
-
----
-
-## 13. THE FIVE-DAY SWEEP — what I re-checked, and what closed itself
-
-Added 2026-08-17 on the owner's question *"what else did this thread work on before but not finish"*.
-I scanned 2026-08-13 → 08-17 of this session's own transcript for deferral statements with a concrete
-anchor, then **re-measured each against today's `main` rather than trusting what I wrote at the time.**
-That order matters: **five of the eight had already been closed by later work in this same session,
-and I would have re-opened every one of them by reporting from my own notes.**
-
-**STILL OPEN — and the first two were absent from this document entirely:**
-
-- **`contract Shares` unwired, and the fold gap** — §6b and the §6 correction above. The big one.
-- **14 v4 references remain in `evm/src` + `evm/script`, and every one is PROSE.** No `IPoolManager`,
-  `SafeCallback` or `_unlockCallback` survives in code — the cut is complete and the comments are not.
-  ⚠️ Per `CLAUDE.md`, **a comment describes past state**, and four wrong conclusions in this repo have
-  come from trusting one. Fourteen comments still describe an architecture that was removed.
-- **The ABI gate is RED on `main` itself, and it is not from this thread.** `openChannel` at
-  `quid-ln/quid-hop/src/evm_codec.rs:78` still encodes `(bytes32,bytes)` where the contract now has
-  `(address,bytes32,bytes,bytes)`. Committed on both sides — the Rust line is byte-identical in HEAD
-  and in the working tree, so it is **not** the BTC thread's uncommitted edit; the contract change is
-  `7d11fe22` ("E183 item 1 lands: the LP signs nothing on the EVM"). **Flagged, not touched — it is
-  another thread's live lane.** But it means the gate cannot currently certify anyone's commit.
-
-**CLOSED BY LATER WORK IN THIS SAME SESSION — verified on today's `main`, not assumed:**
-
-| what I wrote, and when | state today |
-|---|---|
-| *"366 `isBTC` references, 182 in `Core.sol` alone — 53% in one file"* (08-15) | **36 total.** `SwapLib` 17, `Vogue` 8, `Vault` 3, `Interfaces` 2, `Shares` 1. **Core: zero.** |
-| *"`Core` still carries BOTH bands' state — `obsBTC`/`obsETH`, `_flowBTC`/`_flowETH`. That's the unfinished half"* (08-16) | **Zero matches in `Core.sol`.** |
-| *"the `LEV_MANAGER` duplication — one fact with two homes"* (08-14) | **Dissolved by `BandState`**: one declaration (`Shares.sol:62`), inherited by both. |
-| *"`#32` — the per-LP `COLLATERAL()` STATICCALL inside two loops"* (08-13) | **Not in any loop.** Three single-shot branch sites remain. |
-| *"`Alles` inherits `Fixtures` while using not one member of it"* (08-17) | v4 `Fixtures.sol` **gone**. ⚠️ `evm/test/SPVFixtures.sol` is a **different, live** file — Bitcoin header fixtures for `SPVGateway.t.sol`. **Similar name, unrelated thing: do not delete it on the strength of that note.** |
-
-⇒ **THE LESSON, AND IT IS THE SAME ONE AS §12'S FIRST BULLET.** My own transcript is a record of what
-was true when written, and it goes stale faster than anything else because *I* am the one invalidating
-it. **Every item above that I could still see was one I re-measured; every item I "remembered" was
-wrong in the direction of being more open than it is.** A hand-off document assembled from notes
-rather than from the tree will re-open finished work and under-report the one gap that matters.
