@@ -8731,6 +8731,46 @@ pending behind it — unlike everything else left in this file.
 5. **Counted `isBTC` at 12 when the real count is 0** — 3 were `§ISBTC-SPLIT` obituaries and 8 were same-named locals. *A name matches its own obituary.*
 ⇒ **Every finding that held, I got by RUNNING something. Every one I withdrew, I reasoned to.**
 
+## 🧾 ALL 27 RED `UNIT-*` MARKERS AUDITED ONE BY ONE (2026-08-17) — **none is open work.**
+Owner asked for each of the 27 to be checked rather than waved off by the chain rule. Every one
+resolves to a terminal row that closes, refutes or subsumes it. **The markers are stale; the bodies
+are correct.** This table is the authority — do NOT plan from the 🔴 glyphs below it.
+
+| red row | resolves to | why |
+|---|---|---|
+| `UNIT-A` | UNIT-A-FALL-EXPLAINED ✅ | no fall — stale cache; original diagnosis restored |
+| `UNIT-B` | UNIT-B-RATCHET-IS-A-DEFENCE ✅ | whale discount gone; ratchet is protective |
+| `UNIT-C` | §E48 + `refillNeeded` landed ✅ | trigger = the skew's own predicate (owner) |
+| `UNIT-D` | closed 2026-08-16 ✅ | `DeployLib:210` REQUIRES burial; prod waiver off; `cumulativeWork` never compared |
+| `UNIT-C-DISAMBIG` | UNIT-C-OWNER-SPEC → §E48 ✅ | subsumed |
+| `UNIT-C-OWNER-SPEC` | §E48 ✅ | its three opens: 2 closed, trigger decided |
+| `UNIT-B-BLOCKS-C` | UNIT-B closed ⇒ unblocked ✅ | the gate it named is gone |
+| `UNIT-ASYM` | UNIT-ASYM-MEASURED ✅ | both checks run; asymmetry classified REAL |
+| `UNIT-B-PATIENCE` | closed 2026-08-17 ✅ | waiting bought 93.3%, now **1.37%** (`c9cbe504`) |
+| `UNIT-B-PATIENCE-STEP2` | closed with it ✅ | Γ's horizon was already derived — blocker was satisfied |
+| `UNIT-VENUE-CEILING` | closed 2026-08-16 ✅ | premise refuted: we never elevate a bid, so there is no arb to compete it away |
+| `UNIT-BOUND-NOT-DELETE` | closed 2026-08-16 ✅ | overshoot harmless — tiers 1–2 have no bonus recipient |
+| `UNIT-B-VERIFIED` | UNIT-B-VERIFIED-REFUTED ⛔ | the 1000× gap was a decimal error; recorded == paid to 0.2% |
+| `UNIT-SKEW-IS-NOISE` | answered 2026-08-16 🟠 | noise as REVENUE; its weight is correctness, not revenue |
+| `UNIT-A-FIXTURE` | UNIT-A-FIXTURE-CORR ⛔ | diagnosis corrected — estimator is spacing-immune |
+| `UNIT-FORK-UNPINNED` | UNIT-FORK-PINNED ✅ | pin works; drift refuted |
+| `UNIT-PRICE-LOOP` | closed 2026-08-16 ✅ | empty-ring signature refuted; self-reference bounded by the anchor |
+| `UNIT-DEADBAND-COUNT` | UNIT-REPEG-CADENCE ✅ | 25–50 bps re-pegs every ~3h |
+| `UNIT-DEADBAND-NEVER-OPENS` | UNIT-DEADBAND-POPULATES ✅ | ring populates; fix viable |
+| `UNIT-A-CAP-QUESTION` | UNIT-A-FALL-EXPLAINED ✅ | same chain |
+| `UNIT-A-OVERMINT` | UNIT-A-OVERMINT-RESOLVED ✅ | no over-mint — mint is draw-matched |
+| `UNIT-RESEAT-SELFREF` | UNIT-RESEAT-CONFIRMED ✅ | self-ref refuted; auto-heal is 5%-gated by design |
+| `UNIT-RESEAT-GAS` | conclusion, not an open item ✅ | *"keeper-amortised is correct, rail already exists"* — it ends in its own answer |
+| `UNIT-ROUNDTRIP-LIVE` | decided + landed 2026-08-17 ✅ | pro-rata exit; `proRataShortfall` pins that exit ORDER cannot change what you bear |
+| `UNIT-A-OVERMINT-ATTRIBUTED` | UNIT-A-OVERMINT-RESOLVED ✅ | same chain |
+| `UNIT-A-ATTRIBUTED-FINAL` | UNIT-A-RATELIMIT-CONTAM ⛔ | 4 of 5 'failures' were 429s |
+| `UNIT-A-DOUBLE-COUNT` | UNIT-A-DOUBLE-COUNT-INVERTED ⛔ → UNIT-A-FALL-EXPLAINED ✅ | redeemable went to 0, not up; fix reverted |
+
+⚠️ **WHY THEY WERE NEVER FLIPPED IN PLACE:** this file is append-only for evidence and three
+sessions write to it concurrently; 27 in-place edits would collide. CLAUDE.md already records that
+**the status-marker column is unreliable and one must plan from row bodies** — this table is that
+instruction made executable rather than a second thing to remember.
+
 ## 🧭 UNIT STATUS INDEX — **READ THIS BEFORE PLANNING FROM ANY `UNIT-*` MARKER BELOW (2026-08-16, owner: *"make sure every UNIT is no longer misleading"*).**
 **MEASURED: 241 distinct `UNIT-*` identifiers, but only 105 are TABLE ROWS.** The other **136 are inline
 evidence tags** inside other rows' prose — they are citations, not tasks, and were never work items.
