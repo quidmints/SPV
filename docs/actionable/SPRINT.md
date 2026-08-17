@@ -464,7 +464,7 @@ the summary.
 
 ---
 
-## B0. 🔴🔴 THE BIGGEST HOLE IS STILL OPEN — `derive_vault_seed`
+## B0. ✅ CLOSED — THE FLEET NO LONGER BOOTS A VAULT (`99fda5e9`)
 
 **`quid-ln/quid-bridge/src/bin/quid-bridge-daemon.rs:339` still calls
 `quid_bridge::vault::derive_vault_seed(&root_seed)`**, and `vault.rs` still says it in its own
@@ -481,6 +481,28 @@ blocker. So the split is now deployable. **It is not deployed.**
 
 ▶️ **The fix is one change: the vault's key stops coming from `derive_vault_seed`.** Everything else
 in this sprint is around that, not it.
+
+✅ **LANDED 2026-08-17 in `99fda5e9` — AND THE ONE-CHANGE FRAMING ABOVE WAS SLIGHTLY WRONG, IN A WAY
+WORTH KEEPING.** The fix is not that the vault's key changes source. It is that **the fleet stops
+booting a vault at all**: `derive_vault_seed` is still there and still correct for the deployment it
+describes. The whole boot — `boot_vault`, `take_lifecycle_rx`, `Arc::new`, the delivery correlator
+and the open orchestrator — now sits behind `QUID_FLEET_COHOSTS_VAULT`, **default OFF**, and
+`daemon::run` receives the `None` it has accepted since phase 1a. Nothing in this sprint needed a new
+key-derivation scheme; it needed a topology, which is what the code comment said all along.
+
+⚠️ **A SECOND-ORDER EFFECT THAT IS NOT A REGRESSION, AND MUST NOT BE "FIXED" BY RE-ENABLING THE
+VAULT.** Vault-less, `onchain_rail_enabled` is false, so **Rail B and `/swap-in/onchain` are both
+DISABLED by default now.** That is correct and was built deliberately (the toggle and the
+deposit-accepting endpoint disable *together*, so nothing accepts BTC it cannot service, and the
+daemon warns loudly if the rail was requested). Those rails genuinely require an LP-side key; until
+an LP actually runs `quid-lp-daemon`, the only way to serve them was one custodian holding both
+halves. **Disabled is the honest state, not a capability loss.** Re-read `daemon.rs:405-425` before
+touching this — the coupling is executable there, not asserted in prose.
+
+📌 What remains is deployment, not code: an LP must run `quid-lp-daemon` with its own seed. The
+`QUID_FLEET_COHOSTS_VAULT=true` escape hatch exists for a single-custodian deployment and **logs a
+warning stating the multisig is nominal**, so the old posture is still reachable but can no longer be
+occupied silently — which was the actual defect. Verified `cargo test -p quid-bridge`: 170 passed.
 
 ⚠️ Do NOT confuse this with §E183 item 1 (below). That closed an EVM *attribution* hole — a hop
 naming itself as the LP. It protects the pool credit. **This protects the sats.**
@@ -678,12 +700,21 @@ and this repo already pays for on-chain EC.** After §E183 item 1, `lpEth` IS th
 address — an LP can prove control of its own identity by signature, with no third party. A recovery
 provider would be buying, at the cost of a trusted attester, a primitive already owned.
 
-### ✅ B9b-ii. `quid-bridge-daemon` COMPILE — the control was never run. I ran it. It is CLEAN.
+### ⚠️ B9b-ii. `quid-bridge-daemon` COMPILE — CLEAN, **but I ran the wrong control and the ✅ was premature**
 The handoff recorded *"UNFINISHED 2 — `quid-bridge-daemon` DOES NOT COMPILE (31 × E0463)"* and named
 a control that nobody executed. Executed now: `cargo check -p quid-bridge --bins` in the pinned
-image → **exit 0, zero `E0463`.** ⇒ **Resolved; do not re-run it.** The other session's sprint
-independently calls it *"a FLAKE. Two sightings, both self-clearing"* — two threads now agree, from
-different evidence.
+image → **exit 0, zero `E0463`.** The other session's sprint independently calls it *"a FLAKE. Two
+sightings, both self-clearing"* — two threads agree, from different evidence, and that much stands.
+
+🔴 **BUT `cargo check --bins` DOES NOT BUILD TEST TARGETS, AND `main` HAD A `quid-bridge` WHOSE TESTS
+DID NOT COMPILE FOR THE WHOLE INTERVAL THIS ROW CALLED IT CLEAN.** §E183 item 1 deleted `lp_eth` and
+`lp_sig` from `OpenAuth`; three uses survived in `vault.rs`'s `e166_consent_tests` and were never
+compiled by any command I ran. `cargo test -p quid-bridge` found them in one run (`E0560` ×2,
+`E0609`). Fixed in `26ea9097`; suite now **170 passed, 0 failed**.
+⇒ **CLAUDE.md already carries this trap verbatim — "TEST THE CRATE YOU EDITED", from a green run that
+had never compiled the crate.** This is the same failure with `check` standing in for the wrong `-p`.
+**A ✅ is only as strong as the command behind it: name the command, and check it builds the code the
+claim is about.** The row was not wrong about `E0463`; it was wrong about what "compiles" covers.
 
 ### 🔴 B9b-iii. §LN-SWAPIN-REMAINDER / §NO-REJECT — the owner calls this the biggest vulnerability
 Absent from Part B entirely, and `BTC-CUSTODY-OPEN.md` §4b gives it its own section. `requireFull`
