@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 import {Currency} from "v4-core/src/types/Currency.sol";
 import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
@@ -50,7 +49,11 @@ library DeployLib {
     ///      own env/constants. Token/vault addresses are inputs (they legitimately
     ///      use a different Morpho USDC vault than production).
     struct StackConfig {
-        IPoolManager poolManager;
+        // §V4-ZERO — was `IPoolManager poolManager`. The stack needed it for ONE deploy-time read:
+        // two reference-pool `slot0`s, to seed each band's ring. That read is Chainlink now, so the
+        // config carries the two feeds and no v4 type appears in the deploy at all.
+        address ethFeed;
+        address btcFeed;
         // ── tokens (canonical mainnet in every caller) ──
         address weth;
         address wbtc;
@@ -140,7 +143,6 @@ library DeployLib {
         }
         Aux aux = new Aux(Aux.AuxInit({
             vogue: address(v4), core: address(core), btcCore: a.btcCore,
-            poolManager: address(cfg.poolManager),
             weth: cfg.weth, wbtc: cfg.wbtc,
             gho: cfg.gho, usdg: cfg.usdg,
             aaveSpoke: cfg.aaveSpoke, aaveHub: cfg.aaveHub,
@@ -163,9 +165,7 @@ library DeployLib {
         // both setups have run, and this frame is already at the stack limit -- MEASURED, it
         // overflowed at `_newVault` before the block was added.
         {
-        (PoolKey memory refKeyETH, PoolKey memory refKeyBTC) = _refKeys(cfg);
-        (uint seedEth, uint seedBtc) = OracleLib.prepRefs(
-            cfg.poolManager, refKeyETH, refKeyBTC, cfg.wbtc);
+        (uint seedEth, uint seedBtc) = OracleLib.seedPrices(cfg.ethFeed, cfg.btcFeed);
         core.setup(address(v4), address(v4), address(aux), address(quid), seedEth);   // ETH band manager IS Vogue
         // 🔴 THE BTC INSTANCE WAS NEVER SET UP, AND IT COST 1,828 TEST FAILURES. The isBTC split
         // built both bands (above) but only the ETH one was
@@ -289,20 +289,9 @@ library DeployLib {
 
     /// @dev The two reference PoolKeys (ETH/USDT + USDC/WBTC), built in their own
     ///      frame to keep `deployQuidStack`'s stack shallow (no via_ir).
-    function _refKeys(StackConfig memory cfg)
-        private pure returns (PoolKey memory refKeyETH, PoolKey memory refKeyBTC)
-    {
-        refKeyETH = PoolKey({
-            currency0: Currency.wrap(address(0)),
-            currency1: Currency.wrap(cfg.usdt),
-            fee: uint24(500), tickSpacing: int24(10), hooks: IHooks(address(0))
-        });
-        refKeyBTC = PoolKey({
-            currency0: Currency.wrap(cfg.wbtc),
-            currency1: Currency.wrap(cfg.usdc),
-            fee: uint24(3000), tickSpacing: int24(60), hooks: IHooks(address(0))
-        });
-    }
+    // §V4-ZERO — `_refKeys` DELETED. It built two `PoolKey`s naming Uniswap pools this protocol does
+    // not own, trade on, or validate, purely so a deploy could read their `slot0` once. The seed now
+    // comes from the same Chainlink feeds every runtime TWAP is anchored against.
 
     // ─── SOR paths for `auxSwap` — multi-hop V4 routes through the stable-stable
     //     pools. Passed straight into Aux's constructor (no on-chain mutation

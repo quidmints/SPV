@@ -3,7 +3,6 @@ pragma solidity ^0.8.28;
 
 import {Script, console} from "forge-std/Script.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
-import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 
 import {DeployLib} from "./DeployLib.sol";
 import {Basket} from "../src/Basket.sol";
@@ -52,7 +51,6 @@ contract Deploy is Script {
         hex"0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4adae5494dffff7f2002000000";
 
     // ── Canonical mainnet addresses (same set as DeployL1_s.sol / Alles.t.sol) ──
-    IPoolManager constant POOL_MANAGER = IPoolManager(0x000000000004444c5dc75cB358380D2e3dE08A90);
     address constant WETH  = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
     address constant WBTC  = 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599;
     address constant USDC  = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
@@ -98,9 +96,10 @@ contract Deploy is Script {
 
         // ── The ONE shared deploy (same as production / the forge suite) ──
         DeployLib.StackAddrs memory A = DeployLib.deployQuidStack(DeployLib.StackConfig({
+            ethFeed: 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419,
+            btcFeed: 0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c,   // Chainlink BTC/USD
             mainHop: msg.sender, fallbackHop: address(uint160(msg.sender) + 1),
             btcDepositKey: bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)),
-            poolManager: POOL_MANAGER,
             weth: WETH, wbtc: WBTC, gho: GHO, usdg: USDG,
             usdc: USDC, usdt: USDT, dai: DAI, usde: USDE, usds: USDS,
             morphoUsdcVault: morphoUsdcVault, morphoUsdtVault: morphoUsdtVault,

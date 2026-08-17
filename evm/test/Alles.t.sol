@@ -9,23 +9,14 @@ import {ExitFixture} from "./btc/ExitFixture.sol";
 import "forge-std/Test.sol";
 import "forge-std/console.sol";
 
-import {Fixtures} from "./utils/Fixtures.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 
-import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
-import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
-import {PoolId, PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
-import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
-import {CurrencyLibrary, Currency} from "v4-core/src/types/Currency.sol";
-import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 
-import {IPositionManager} from "v4-periphery/src/interfaces/IPositionManager.sol";
 
 import {SwapLib} from "../src/imports/SwapLib.sol";
 import {Aux} from "../src/Aux.sol";
@@ -118,7 +109,11 @@ interface IAngelF8N {
     function transferFrom(address, address, uint256) external;
 }
 
-contract Alles is ForkPin, Fixtures, ExitFixture {
+// §V4-ZERO — `Fixtures` DROPPED from the inheritance. It was the Uniswap v4 test base (extending
+// v4-core's `Deployers`) and this contract used NOT ONE member of it: no `deployFreshManager`, no
+// `manager`, no `permit2`. It carried a whole submodule's test harness into every suite inheriting
+// Alles, for nothing.
+contract Alles is ForkPin, ExitFixture {
     /// (E128) FIXED dead-man deadline — the BIP-341 sighash commits to nLockTime, so the exit must
     /// be signed for a height known before the funding tx is built. `block.number + n` cannot work.
     uint64 constant EXIT_DEADLINE_ALLES = 900_000;
@@ -131,10 +126,6 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
         while (!BitcoinTx.isValidXOnlyKey(k)) k = keccak256(abi.encodePacked(k));
     }
 
-    using PoolIdLibrary for PoolKey;
-    using CurrencyLibrary for Currency;
-    using StateLibrary for IPoolManager;
-
     uint public constant WAD = 1e18;
     uint public constant USDC_PRECISION = 1e6;
     address public User01 = address(0x1001);
@@ -143,8 +134,6 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
 
     address public LP_Alice = address(0xA11CE);
     address public Swapper_Bob = address(0xB0B);
-
-    IPoolManager public poolManager = IPoolManager(0x000000000004444c5dc75cB358380D2e3dE08A90);
 
     // Arb : 0xa6147867264374F324524E30C02C331cF28aa879
     address constant JAM = 0xbeb0b0623f66bE8cE162EbDfA2ec543A522F4ea6;
@@ -597,7 +586,8 @@ contract Alles is ForkPin, Fixtures, ExitFixture {
             // (E164) MAIN_HOP must be the address tests prank as, or every channel op reverts.
             mainHop: makeAddr("hop"), fallbackHop: makeAddr("hop-fallback"),
             btcDepositKey: bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)),
-            poolManager: poolManager,
+            ethFeed: 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419,   // Chainlink ETH/USD
+            btcFeed: 0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c,   // Chainlink BTC/USD
             weth: address(WETH), wbtc: address(WBTC), gho: address(GHO), usdg: address(USDG),
             usdc: address(USDC), usdt: address(USDT), dai: address(DAI),
             usde: address(USDE), usds: address(USDS),

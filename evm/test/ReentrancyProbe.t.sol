@@ -85,15 +85,8 @@ contract ReentrancyProbe is Alles {
         ch.settleSwapInBuffered(address(0x5E), 1_000_000, evil, bytes32(uint(7)), 0, false);
     }
 
-    // (4) The Uniswap-v4 unlock callback is PoolManager-gated. An attacker can't
-    //     forge it to re-enter the swap path mid-unlock.
-    function test_unlockCallback_only_poolManager() public {
-        vm.prank(address(0xBAD));
-        // SafeCallback.onlyPoolManager (ImmutableState.NotPoolManager) — pin the
-        // exact selector so this proves the GATE, not an ABI-decode failure. The
-        // modifier checks msg.sender BEFORE decoding, so even well-formed callback
-        // args revert here on the caller gate.
-        vm.expectRevert(bytes4(keccak256("NotPoolManager()")));
-        AUX.unlockCallback(abi.encode(uint8(0), bytes("")));
-    }
+    // §V4-ZERO — the unlock-callback reentrancy probe is DELETED WITH THE CALLBACK. It asserted
+    // `Aux.unlockCallback` reverts `NotPoolManager()` for a forged caller, a real property of the
+    // `SafeCallback` base. There is no PoolManager, no unlock and no callback to forge: the surface
+    // it guarded does not exist, so the test could only assert that a missing function is missing.
 }

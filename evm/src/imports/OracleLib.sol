@@ -3,12 +3,8 @@
 pragma solidity ^0.8.28;
 
 import {mock} from "../mock.sol";
-import {PoolKey} from "v4-core/src/types/PoolKey.sol";
-import {PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
-import {Currency} from "v4-core/src/types/Currency.sol";
-import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
-import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 import {BasketLib} from "./BasketLib.sol";
+import {IAggregatorV3} from "./Interfaces.sol";
 
 // §RING-SIZE — 1024, NOT 65,535. The old size was Uniswap v3's MAXIMUM CARDINALITY, inherited
 // wholesale; nothing here ever needed it. The ring advances AT MOST once per block (a
@@ -212,14 +208,34 @@ library OracleLib {
     /// tokens, which mattered while v4 hosted the band. No pool of ours is ever created now, so the
     /// allowances had no spender that could use them -- and granting `type(uint).max` to a contract
     /// that will never call `transferFrom` is a standing approval for no reason.
-    function prepRefs(IPoolManager pm, PoolKey calldata refETH, PoolKey calldata refBTC,
-        address wbtc)
+    /// @notice Deploy-time seed price for each band, read from CHAINLINK.
+    /// @dev    §V4-ZERO — was `prepRefs`, which read `slot0` from two UNISWAP V4 REFERENCE POOLS and
+    ///         was the last thing in `src/` needing `IPoolManager`, `PoolKey`, `PoolIdLibrary`,
+    ///         `Currency` and `StateLibrary`. Five v4 types and a `PoolKey` field on the deploy
+    ///         config, so a band could learn its starting price ONCE.
+    ///
+    ///         Chainlink is where that price comes from at RUNTIME anyway: `SwapLib.twapResolve`
+    ///         anchors every internal TWAP against `assetPriceFeed[asset]` and falls back to it
+    ///         outright when the internal reading is unusable. Seeding from the anchor the protocol
+    ///         already trusts is strictly more consistent than seeding from a third-party pool
+    ///         nobody here validates.
+    ///
+    ///         SCALING MIRRORS `twapResolve` EXACTLY, and must: `ans * 10**(18-d)`, then the ×1e10
+    ///         WBTC lift that closes the 8↔18-decimal gap. Copied from there rather than
+    ///         re-derived -- getting it wrong seeds the ring ten orders of magnitude out.
+    function seedPrices(address ethFeed, address btcFeed)
         external view returns (uint priceETH, uint priceBTC) {
-        (uint160 spETH, , , ) = StateLibrary.getSlot0(pm, PoolIdLibrary.toId(refETH));
-        (uint160 spBTC, , , ) = StateLibrary.getSlot0(pm, PoolIdLibrary.toId(refBTC));
-        // `volIsC0` says the VOLATILE asset is currency0, so token0 is NOT the USD side.
-        priceETH = BasketLib.getPrice(spETH, !(Currency.unwrap(refETH.currency0) == address(0)));
-        priceBTC = BasketLib.getPrice(spBTC, !(Currency.unwrap(refBTC.currency0) == wbtc));
+        priceETH = _feed18(ethFeed, false);
+        priceBTC = _feed18(btcFeed, true);
+    }
+
+    function _feed18(address feed, bool isWbtc) private view returns (uint) {
+        (, int256 ans, , , ) = IAggregatorV3(feed).latestRoundData();
+        require(ans > 0, "seed feed");
+        uint8 d = IAggregatorV3(feed).decimals();
+        require(d <= 18, "seed dec");
+        uint p = uint(ans) * (10 ** (18 - d));
+        return isWbtc ? p * 1e10 : p;
     }
 
     /// §ISBTC-SPLIT — ONE PAIR, AND THE CALLER PASSES THE NUMBER RATHER THAN A FLAG. This built

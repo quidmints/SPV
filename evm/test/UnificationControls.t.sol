@@ -3,17 +3,15 @@ pragma solidity ^0.8.28;
 
 import {Alles} from "./Alles.t.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
-import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
-import {PoolKey} from "v4-core/src/types/PoolKey.sol";
-import {Currency} from "v4-core/src/types/Currency.sol";
-import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 
 interface IProtoFees { function protocolFeeController() external view returns (address); }
 interface IProtoFeeAccrued {
     function protocolFeesAccrued(address currency) external view returns (uint256);
     function collectProtocolFees(address recipient, address currency, uint256 amount) external returns (uint256);
 }
-interface IProtoFeeCtrl { function protocolFeeForPool(PoolKey memory key) external view returns (uint24); }
+// §V4-ZERO — `IProtoFeeCtrl` DELETED. It declared v4's `protocolFeeForPool(PoolKey)` so a probe
+// could measure whether the PoolManager retained a protocol-fee cut. There is no PoolManager and no
+// fee switch, so the interface described a call that cannot be made.
 
 /// @notice CONTROL SUITE for the `POOLED_USD` unification — written BEFORE the change and
 ///         required to be GREEN on unmodified code. That is what makes it a control rather

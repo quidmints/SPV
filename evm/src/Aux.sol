@@ -20,8 +20,6 @@ import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLi
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 
-import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
-import {SafeCallback} from "v4-periphery/src/base/SafeCallback.sol";
 import {IAaveV4Spoke, IAaveV4Hub, ICollection, IEthVenue, IBandManager, IBTCChannels} from "./imports/Interfaces.sol";
 
 
@@ -36,7 +34,7 @@ import {IAaveV4Spoke, IAaveV4Hub, ICollection, IEthVenue, IBandManager, IBTCChan
 // (ether.fi interfaces moved to EthVenue with the venue custody; the
 //  Chainlink IAggregatorV3 anchor interface moved to SwapLib with twapAnchorBody.)
 contract Aux is // Auxiliary
-    Ownable, ReentrancyGuard, SafeCallback, ISwap {
+    Ownable, ReentrancyGuard, ISwap {
     address[] public stables;
 
     // Immutable handles. USDC is stables[0] by convention; anywhere
@@ -59,8 +57,9 @@ contract Aux is // Auxiliary
     mapping(address => Core) internal bandOf;
     WETH9 public immutable WETH;
     IERC20 public immutable WBTC;
-    // The pool manager lives in SafeCallback's base (ImmutableState) as the
-    // inherited `poolManager` immutable — used directly, no local duplicate.
+    // §V4-ZERO — the inherited `poolManager` immutable is GONE with `SafeCallback`. Nothing in this
+    // tree unlocks a PoolManager, so the base class was holding an address for a call that never
+    // happens.
 
     // QUID (Basket) is set in setQuid after Basket itself is deployed —
     // can't be immutable (circular construction). Pinned-after-set
@@ -252,18 +251,10 @@ contract Aux is // Auxiliary
     modifier onlyUs { _requireUs(); _; }
 
     /// @notice V4 unlock callback. Walks UnlockData.keys hop-by-hop.
-    ///         Source vault routes blacklistable stables PM-direct (vault →
-    ///         PoolManager via 4626.redeem with receiver=PM, so Aux never
-    ///         holds the underlying). Terminal must be WETH or WBTC.
-    ///         Gate (msg.sender == poolManager) is in SafeCallback's
-    ///         onlyPoolManager modifier on the public `unlockCallback`;
-    ///         this override does the routing work.
-    function _unlockCallback(bytes calldata data) internal override returns (bytes memory) {
-        // Body extracted to SOR.unlockBody (delegatecall — address(this)
-        // stays Aux, so PoolManager settle/take/swap are attributed to
-        // the unlock initiator). Keeps Aux under the EIP-170 limit.
-        return SOR.unlockBody(data, address(WETH), address(WBTC), poolManager);
-    }
+    // §V4-ZERO — `_unlockCallback` DELETED with the `SafeCallback` base. It existed so a v4
+    // PoolManager could call back into Aux mid-unlock to settle/take. Nothing unlocks a PoolManager
+    // here, so the override was an entrypoint for a caller that does not exist. The v4 hop routing it
+    // forwarded to (`SOR.unlockBody`) goes with the 1inch replacement.
 
     /// @notice init (plug) Aux with addresses
     /// @param _vogue       Vogue contract (V4 LP wrapper)
@@ -282,7 +273,6 @@ contract Aux is // Auxiliary
         address vogue;
         address core;
         address btcCore;
-        address poolManager;
         address weth;
         address wbtc;
         address gho;
@@ -296,7 +286,7 @@ contract Aux is // Auxiliary
 
     constructor(AuxInit memory a)
         Ownable(msg.sender)
-        SafeCallback(IPoolManager(a.poolManager)) {
+        {
         WETH = WETH9(payable(a.weth));
         if (a.wbtc != address(0)) WBTC = IERC20(a.wbtc);
 
@@ -826,11 +816,8 @@ contract Aux is // Auxiliary
         address recipient, uint minOut
     ) external returns (uint outAmount) {
         if (msg.sender != address(this)) revert NotSelf();
-        // SOR executes in Aux's context (library); the unlock callback
-        // for any V4 hops hits Aux.unlockCallback.
-        return SOR.executePath(
-            encodedPath, amountIn, recipient, minOut, poolManager
-        );
+        // §V4-ZERO — no PoolManager argument: there is no unlock callback left to hit.
+        return SOR.executePath(encodedPath, amountIn, recipient, minOut, address(0));
     }
 
     error NoSelfFundedPath();

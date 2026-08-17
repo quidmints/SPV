@@ -5,7 +5,6 @@ pragma solidity ^0.8.28;
 import "forge-std/console.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 
 import {Vogue} from "../src/Vogue.sol";
 
@@ -22,9 +21,6 @@ import {DeployLib} from "./DeployLib.sol";
 import {Vault} from "../src/Vault.sol";
 import {BTCChannels} from "../src/BTCChannels.sol";
 import {SPVGateway} from "../src/spv/SPVGateway.sol";
-import {PoolKey} from "v4-core/src/types/PoolKey.sol";
-import {Currency} from "v4-core/src/types/Currency.sol";
-import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 
 // ─── IL-protect (leverage overlay) — deployed IN THIS SAME SCRIPT, gated by DEPLOY_LEV ───
 import {LevManager} from "../src/LevManager.sol";
@@ -43,8 +39,6 @@ interface IMorphoMkt {
 }
 
 contract Deploy is Script {
-
-    IPoolManager public poolManager = IPoolManager(0x000000000004444c5dc75cB358380D2e3dE08A90);
 
     // Morpho 4626 vault addresses for blacklistable stables that
     // don't have a natural integration with a specific lender
@@ -321,7 +315,8 @@ contract Deploy is Script {
         address fallbackHop_ = vm.envOr("HOP_FALLBACK", deployer);
 
         DeployLib.StackAddrs memory A = DeployLib.deployQuidStack(DeployLib.StackConfig({
-            poolManager: poolManager,
+            ethFeed: CL_ETH_USD,
+            btcFeed: 0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c,   // Chainlink BTC/USD
             mainHop: mainHop_, fallbackHop: fallbackHop_,
             btcDepositKey: vm.envOr("BTC_DEPOSIT_KEY", bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798))),
             weth: address(WETH), wbtc: address(WBTC), gho: address(GHO), usdg: address(USDG),

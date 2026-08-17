@@ -162,7 +162,10 @@ library SOR {
     function executePath(
         bytes calldata encodedPath,
         uint amountIn, address recipient, uint minOut,
-        IPoolManager poolManager
+        // §V4-ZERO — `address`, not `IPoolManager`. Aux no longer holds a PoolManager handle, so a
+        // v4-typed parameter here would drag the import back into Aux for a value that is now
+        // always zero. The v4 hop path this reaches cannot fire without an unlock callback.
+        address poolManager
     ) external returns (uint amountOut) {
         SorPath memory p = abi.decode(encodedPath, (SorPath));
         if (p.tokens.length != p.keys.length + 1) revert PathShape();
@@ -176,7 +179,7 @@ library SOR {
             tokens:      p.tokens,
             keys:        p.keys
         });
-        bytes memory ret = poolManager.unlock(abi.encode(u));
+        bytes memory ret = IPoolManager(poolManager).unlock(abi.encode(u));
         amountOut = abi.decode(ret, (uint));
         if (amountOut < minOut) revert Slippage();
     }
