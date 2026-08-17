@@ -1189,7 +1189,7 @@ survived) · `§E232-tri` (TriCrypto zero code hits; all four legs on pinned V3 
 
 | # | item | state | the blocker, precisely |
 |---|---|---|---|
-| **1** | **`§E233-ladder` — 2 of 5 rotation sites** | 🔴 **verified live today** | A design choice, not effort: the rung must declare its target outpoint so each rotation site becomes one call. Threading more `ExitArming[]` params overflows `_deliverSwapOut`'s stack. **Highest-value Bitcoin item: a splice can still leave a channel escape-less.** |
+| **1** | **`§E233-ladder` — 2 of 5 rotation sites** | 🔴🔴🔴 **FUND-LOSS under B0's default — see D2-ALERT** | A design choice, not effort: the rung must declare its target outpoint so each rotation site becomes one call. Threading more `ExitArming[]` params overflows `_deliverSwapOut`'s stack. **Highest-value Bitcoin item: a splice can still leave a channel escape-less.** |
 | **2** | **`§T2` terms commitment** (`B2`) | 🔴 **I destroyed the working Solidity** | Design intact, constants preserved: `TERMS = 0xa96ad576…`, `EXPECTED_Q = 0xcd5f8505…`, control = the no-terms leaf must reproduce `0xd0d16740…`. Redo as a **`Terms` struct fold**, not by threading a raw `[u8;32]` through four Rust signatures (that was the slop the owner rejected). |
 | **3** | **`§T3`** (`B3`) | 🔴 inexpressible | Strictly gated on **per-channel freshness** (§2.1). A COST trade, and the owner asked for BOTH branches — the fix and the deletion — to be priced. |
 | **4** | **`§LN-SWAPIN-REMAINDER` / `§NO-REJECT`** | 🔴 **owner calls it the biggest vulnerability** | The missing piece is **intent EMISSION on shortfall**, not pricing. Route: band → 1inch → Khalani → Perena. Not covered by ROUTING-AGGREGATION. |
@@ -1200,6 +1200,39 @@ survived) · `§E232-tri` (TriCrypto zero code hits; all four legs on pinned V3 
 | **9** | `B9b-i` **ERC-7947 verdict → `ibiza/TODO.md` §3b** | 🔴 cross-repo | **0 mentions in ibiza today.** The verdict was reached here and never written where the mobile client is owned. It dies with this context window otherwise. |
 | **10** | `B9b-iv` `BandEquityCollapseEchidna` · `B9b-v` one suite baseline | 🟡 / 📌 | The Echidna guard now watches a term that no longer exists — keep or delete. The baseline is D1's "suite state" cluster. |
 | **11** | `§LP-SEED-ENTROPY` · `§LADDER-REMOVAL` · `§MSIG-NOT-SAFE` · `§PHASE-ORDER` | 🔴 owner | Blocked on a person. `§LP-SEED-ENTROPY`: owner says *"it cant be deterministic, we need real randomness"* — the ask is right and the REASON matters, so do not implement it from the shape. |
+
+## 🔴🔴🔴 D2-ALERT. **B0 ESCALATED `§E233-ladder` FROM A GAP INTO A FUND-LOSS PATH, AND ONLY THE JOINT READING SHOWS IT**
+
+Found 2026-08-17 while checking a *different* thread's note. **Neither half is new. The interaction is,
+and it was created by this session's own B0 change.**
+
+**The two facts, each already written down and each verified today:**
+1. `§E233-ladder` — of the five outpoint-rotation sites, **`parkProvenSats` (`BTCChannels.sol:1335`)
+   and `_deliverSwapOut` (`:2226`) arm no new `ExitArming[]`.** Verified: `_applySplice` at `:1094`
+   (splice) and `:1212` (rekey) re-arm; those two do not. A rung is only spendable against the ONE
+   funding outpoint it was signed for (BIP-341 `Prevouts::All`), so a rotation retires the old ladder.
+2. `run_deadman_exit_heartbeat` takes `vault: Option<…>` and **with `None` "does not run at all"**
+   (its own docstring, `deadman_exit.rs:230`), leaving *"a channel's exits from the §E165 ladder the
+   LP pre-signed at open."* Its spawn comment says the heartbeat is what covers *"a fresh open/splice
+   … on the next tick."*
+
+⇒ **While the fleet co-hosted a vault, the heartbeat re-armed after EVERY rotation, so fact 1 was
+masked — the ladder gap was survivable because something else kept filling it.** `99fda5e9` made
+vault-less the DEFAULT. In that deployment the heartbeat is inert, the §E165 open ladder is the only
+source, and a rotation through those two sites leaves the channel **permanently escape-less** — no
+re-arm, no heartbeat, and the LP's unilateral exit gone. **Fund-loss, not cosmetics.**
+
+⚠️ **B0 IS NOT WRONG AND MUST NOT BE REVERTED.** `deadman_exit.rs:236` forbids the tempting fix in
+advance: *"Do NOT 'fix' a `None` vault by deriving the half locally — any code that can reconstruct
+the vault signer inside the fleet process re-creates the exact capability this removes."* The design
+intends heartbeat-off; it also says §E165 and this split *"land together"*. **`§E233-ladder`'s
+remaining 2 sites are what makes that pairing incomplete**, so the fix is #1 in D2, not a rollback.
+
+📌 **The method note, because this is the second time today it paid:** both facts sat in the repo,
+each in a row calling itself partly-closed and low-drama. Reading them SERIALLY, each is fine.
+The severity exists only in the product, and the thing that surfaced it was checking the second-order
+effect of my OWN landed change rather than the change itself. Standing rule 9's "the regression is
+always on the axis nobody measured" — here the axis was *another item's severity*.
 
 ## D3. WHAT THIS PASS DID **NOT** DO — stated so the next thread does not inherit a false floor
 

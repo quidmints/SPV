@@ -8,6 +8,18 @@ several re-framed two or three times. Detail and evidence still live there and i
 
 ## §E233-ladder — **A ROTATION DESTROYED THE LP'S ESCAPE AND THE FLAG SAID OTHERWISE (2026-08-17). PARTLY FIXED — 3 of 5 sites.**
 
+🔴🔴🔴 **SEVERITY RAISED 2026-08-17 — THE REMAINING 2 SITES ARE NOW A FUND-LOSS PATH, BECAUSE THE THING
+THAT MASKED THEM WAS TURNED OFF.** `99fda5e9` made the fleet vault-less BY DEFAULT (§M1#2), and
+`run_deadman_exit_heartbeat` **"does not run at all"** without a vault (`deadman_exit.rs:230`), leaving
+*"a channel's exits from the §E165 ladder the LP pre-signed at open."* Until then the heartbeat re-armed
+after EVERY rotation and covered these two sites for free. Now it does not: a rotation through
+`parkProvenSats` (`:1335`) or `_deliverSwapOut` (`:2226`) leaves the channel **permanently escape-less**.
+⚠️ **Do NOT respond by reverting the vault split or by deriving the vault half in-process** —
+`deadman_exit.rs:236` rules that out explicitly (*"re-creates the exact capability this removes"*).
+The design says §E165 and the split *"land together"*; these two unarmed sites are the gap in that
+pairing. **Fix the sites.** Full analysis: `SPRINT.md` §D2-ALERT.
+
+
 ⚠️ **ID note:** numbered §E233-**ladder** because §E216 is already taken twice (`SwapLib`'s
 depletion component and `E216-bold-was-missed-by-my-depth-sweep`) — suffixed rather than renumbered,
 per `[[reserve-id-ranges-when-threads-share-a-log]]`.
