@@ -1043,8 +1043,38 @@ right entry point, not the individual rows.**
 **Process / bookkeeping — mine to name, since they bite everyone.** `E124` the ID collision (28
 duplicated ids, 8 still ambiguous among open rows — see §16) · `E6` · `E50` · `E92` · `E225-do-not-push-that-merge` · `E145-p`.
 
-⚠️ **THREE OF THOSE LOOK STALE AND I AM NOT CLOSING THEM — a dismissal needs the same evidence as a
-finding, and I did not gather it:**
+✅ **THE EVIDENCE IS NOW GATHERED, AND IT REFUTED BOTH CLOSURES (owner asked to close E92 and E50,
+2026-08-18). NEITHER CLOSES — and that is the result, not a failure to finish:**
+
+- **`E92` — RE-POINTED, NOT CLOSED.** `Core` is now **9,890 bytes ⇒ 14,686 spare** (was 24,538 ⇒ 38),
+  so that half is dead. But `forge build --sizes` on a clean build of `origin/main` lists **74
+  contracts and omits `Core`, `Vogue` AND `Vault`**, while `BTCChannels`, `LevManager`, `LevMath`,
+  `Aux` and `Basket` all appear. 🔴 **`Vogue` is the TIGHTEST contract in the tree at 547 bytes and
+  forge does not report it** — so the row's sentence *"the contract closest to the ceiling has no
+  enforcement"* is still exactly true; only the contract's name changed. ⇒ **Do not close a row
+  because the example it used got smaller.** ⭐ One thing narrowed: `LevManager`, `LevMath` and `Aux`
+  are also library-linked and DO appear, so **linking is confirmed not to be the discriminator** —
+  three contracts, one shared property, still unidentified. The enforcement gap itself IS closed, by
+  `tools/check-contract-sizes.py`, never by forge.
+- **`E50` — STAYS 🔴🔴. The over-mint class is live and reproduced today.** `BtcLpMintStress` 13
+  passed / 8 failed; `test_RunSim_AllExit_BtcLp` failed. Three direct over-mint assertions:
+  **1,199.999997 vs 1,197.6**; **2,499.999995 vs 2,495.0**; cumulative **5,699.99998 > 5,691.1**.
+  And QU!D still minted on a delivery of **zero** (2.0 >= 1.0). ⭐ The gap narrowed ~97% — the
+  cumulative bound was 283 over when written and is 8.9 over now — **but the bound itself moved up by
+  ~272, so most of that came from the MODEL being corrected, not the mint being fixed.**
+  ⚠️ Four of the eight failures are **PREMISE** assertions (*"priming created a free reserve: 0 <=
+  0"*) — precondition guards firing because the fixture no longer builds the state, which is a
+  fixture problem and is them **working as designed**. And `test_SwapOutOnchain_DeliversViaSplice`
+  now fails differently from what the row records — *"the obligation is never recorded in
+  `pendingSwapOutUsd`: 0 != 499000000"* — **a swap-out accounting defect that needs its own row.**
+- **`E225-do-not-push-that-merge`** — still unverified; about a merge that was not pushed, likely
+  spent, but I have not checked it.
+
+⚠️ **THE LESSON FOR THE OTHER 32 ORPHANS: BOTH ROWS LOOKED STALE FROM THEIR HEADLINE AND NEITHER WAS.**
+`E92`'s number was stale while its mechanism had moved to a worse target; `E50`'s framing was stale
+while its blocking class was live. **A row whose example has aged is not a row whose finding has.**
+
+Previously recorded here, before the run:
 - **`E92`** — *"`Core` IS 38 BYTES FROM EIP-170 AND ITS SIZE IS COMPLETELY UNENFORCED"*. Both halves
   look overtaken: `Core` measured **551 bytes** spare on 2026-08-15, and `tools/check-contract-sizes.py`
   now exists precisely because `forge build --sizes` omits it. **Verify and close, or say why not.**
