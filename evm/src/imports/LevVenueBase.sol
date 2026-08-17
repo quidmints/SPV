@@ -255,7 +255,16 @@ contract AaveV3Escrow {
     constructor(IAaveV3Pool pool, address coll, address stable) {
         VENUE = msg.sender;
         POOL = pool; COLLATERAL = coll; STABLE = stable;
-        // Max-approve the POOL once: supply/repay pull the tokens via transferFrom in the Pool's context.
+        // §PM-INVARIANT-3 — AN INFINITE APPROVAL, AND A DELIBERATE EXCEPTION TO THE EXACT-AMOUNT
+        // RULE. Recorded here rather than left to be rediscovered as an oversight:
+        //   · the spender is PINNED AND IMMUTABLE (`POOL`, set in this constructor, never rotatable),
+        //     so there is no address a later caller can point this allowance at;
+        //   · this escrow holds NOTHING between operations -- the venue transfers the tokens in
+        //     immediately before supply/repay, so a live allowance covers a zero balance;
+        //   · Aave's Pool pulls by `transferFrom` in its OWN context, so a per-op exact approval
+        //     would be two extra SSTOREs per leg for no reachable state a max approval exposes.
+        // ⚠️ THE EXCEPTION RESTS ON THE SECOND BULLET. If this contract ever holds an idle balance,
+        // the infinite approval stops being covered by "nothing to take" and must become exact.
         IERC20Min(coll).approve(address(pool), type(uint256).max);
         IERC20Min(stable).approve(address(pool), type(uint256).max);
     }

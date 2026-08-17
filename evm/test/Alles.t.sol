@@ -4553,11 +4553,22 @@ contract Alles is ForkPin, ExitFixture {
                  0x000000000000000000000000000000000000dEaD, "ANGEL burned to DEAD");
     }
 
+    /// @dev §ETHVENUE-FOLD — REPOINTED, not deleted. This mocked `V4.EV()` to a bad address and
+    ///      expected `wire:vogue`. That pointer is GONE: the ETH venue folded into Vogue, so
+    ///      `assertFullyWired` now checks `ethVenue == v4` -- and BOTH sides are fixed at deploy
+    ///      (Aux storage pinned once, `VOGUE` an immutable), so the miswire this simulated is
+    ///      UNCONSTRUCTIBLE. That is the fold working, not the test becoming wrong.
+    ///
+    ///      The INTENT survives and is what matters: a miswire must make `finalize` revert and must
+    ///      NOT renounce ownership. So it is aimed at a miswire that IS still reachable --
+    ///      `btcChannels()` on the BTC vault, an external call on ANOTHER contract, which
+    ///      `vm.mockCall` can actually influence. Deleting the test would have removed coverage of
+    ///      the renounce-on-miswire property, which no other test asserts.
     function testFinalize_RevertsOnMiswire() public {
         _wireFinalizeLinkages();
-        // front-run sim: Vogue's UNGATED EV pinned to a wrong (non-zero) addr — the assert in finalize catches it.
-        vm.mockCall(address(V4), abi.encodeWithSignature("EV()"), abi.encode(address(0xBAD)));
-        vm.expectRevert(bytes("wire:vogue"));
+        // front-run sim: the Vault→Channels pin disagrees with Aux's — finalize must catch it.
+        vm.mockCall(address(BTC), abi.encodeWithSignature("btcChannels()"), abi.encode(address(0xBAD)));
+        vm.expectRevert(bytes("wire:chan"));
         AUX.finalize();
         assertEq(AUX.owner(), address(this), "Aux NOT renounced on a mis-wire");
     }

@@ -97,6 +97,28 @@ library SOR {
         SorPath memory p = abi.decode(encodedPath, (SorPath));
         // §V4-ZERO — the `tokens == keys + 1` shape check went with `keys`. V3 routes from the
         // endpoints, so a hop-count invariant has nothing left to constrain.
+        if (p.sourceVault == address(0)) revert BadV4SourceVault();
+
+        // 🔴 §PM-INVARIANT-1 — SOURCE THE FUNDS BEFORE ROUTING. `unlockBody` did this, and deleting
+        // it nearly took the logic with it. For a NON-self-funded path the source stable sits in a
+        // 4626 VAULT, and the router pulls from whoever granted the allowance. `_v3Route` approves
+        // from `address(this)` (Aux, under delegatecall), so without this redeem Aux holds nothing,
+        // the approval covers nothing, every fee tier fills nothing, and the call returns 0 -- a
+        // route that RAN and moved NO VALUE. Precisely the shape invariant 1 exists to catch, and
+        // precisely why `sourceVault` had become a field WRITTEN AND NEVER READ. That is the tell.
+        //
+        // ⚠️ THE RECEIVER CHANGED, AND THAT IS THE WHOLE ADAPTATION. `unlockBody` redeemed with
+        // `receiver = PoolManager`, so Aux never touched the underlying: the PM was the counterparty
+        // and settled its own delta. There is no PM. The ROUTER is the counterparty and it pulls by
+        // ALLOWANCE, so the redeem must land HERE and be approved -- same funds, one extra hop
+        // through our own balance. That hop is exactly why zeroing the approval is not optional.
+        //
+        // `SELF_FUNDED` keeps its meaning: the caller already delivered `amountIn`, so no redeem.
+        if (p.sourceVault != SELF_FUNDED) {
+            uint shares = IERC4626(p.sourceVault).convertToShares(amountIn);
+            IERC4626(p.sourceVault).redeem(shares, address(this), address(this));
+        }
+
         amountOut = _v3Route(p.sourceAsset, p.output, amountIn, recipient, minOut);
         if (amountOut < minOut) revert Slippage();
     }

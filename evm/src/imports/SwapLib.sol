@@ -570,6 +570,9 @@ library SwapLib {
     ///       inventory exposed to a pool upgrade.
     function curveSellWeeth(OfframpCfg memory c, uint weethIn, uint minOut) internal returns (uint) {
         if (c.curvePool == address(0) || weethIn == 0) return 0;
+        // §PM-INVARIANT-3 — exact-amount in, zeroed in the `catch`. This is the SHAPE every external
+        // venue call in this tree follows, and it is the one `SOR._v3Route` was measured against and
+        // found missing its zeroing.
         IERC20(c.weeth).approve(c.curvePool, weethIn);
         try ICurvePool(c.curvePool).exchange(int128(1), int128(0), weethIn, minOut) returns (uint out) {
             return out;

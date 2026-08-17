@@ -1132,12 +1132,9 @@ contract Vogue is
             sender, pledge, amount);
     }
 
-    /// @notice Pull ETH from the basket and send to recipient. Used by
-    /// Core for swap-out flows.
-    function takeETH(uint howMuch, address recipient)
-       external onlyUs returns (uint sent) {
-       return _sendETH(howMuch, recipient);
-    }
+    // §RULE-1 — `takeETH` DELETED. `external`, declared in NO interface, and ZERO references
+    // anywhere in src/, test/ or script/ -- inside this contract or out. A one-line forwarder to
+    // `_sendETH` that nothing could reach.
 
     /// @notice Redemption unwind. QU!D's dollars work as the band's USD side (capital
     ///         efficiency); when a redemption exceeds the FREE stables, free them back out by
@@ -1317,11 +1314,10 @@ contract Vogue is
     }
 
 
-    /// §DE-TICK — forwards to the price-space band-bound helper. Was `_updateTicks`.
-    function _updateBounds(uint price, uint delta)
-        internal pure returns (uint lower, uint upper) {
-        return SwapLib.updateBounds(price, delta);
-    }
+    // §ONE-ANCHOR — `_updateBounds` DELETED. It forwarded to `SwapLib.updateBounds`, and every
+    // caller went away when the band bounds became derived from `BAND_ANCHOR`: `bandBounds()` calls
+    // the library directly. Zero call sites left in this contract. (The BTC band manager has its own
+    // copy, which is a separate contract's business.)
 
     // ════════════════════════════════════════════════════════════════
     //          ERC-20 TRANSFER FACE + NATIVE LP ENTRYPOINTS
