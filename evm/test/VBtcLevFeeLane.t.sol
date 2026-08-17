@@ -1021,8 +1021,26 @@ contract VBtcLevFeeLane is AllesFixture {
             amountSats:         newAmount,
             fundingTaproot:     _taprootQ(lpPubkey, hopKey_)
         });
+        // (§E233-ladder) A delivery rotates the funding outpoint, so it carries its own ladder.
+        // ⚠️ IN ITS OWN FRAME — inlining the `armingSet(...)` call here overflowed the legacy stack
+        // at `payoutKeyOnly(abi.encode(seed))`, and the house fix in this repo is a frame, never
+        // `via_ir`. Called before the prank: it shells out over FFI and would consume it.
+        Types.ExitArming[] memory dex = _deliveryLadder(seed, spliceTx, newAmount);
         vm.prank(makeAddr("hop"));
-        ch.deliverSwapOutOnchain(swapId, channelId, p, spliceTx, new bytes32[](0), swapperScript);
+        ch.deliverSwapOutOnchain(
+            swapId, channelId, p, spliceTx, new bytes32[](0), swapperScript, dex);
+    }
+
+    /// (§E233-ladder) The delivery's fresh ladder, in its OWN frame (legacy stack, no `via_ir`).
+    /// TWO outputs on a delivery splice — the continuing funding, then the swapper's — so the new
+    /// funding is vout 0.
+    function _deliveryLadder(uint seed, bytes memory spliceTx, uint newAmount)
+        private returns (Types.ExitArming[] memory)
+    {
+        return armingSet(
+            _label(seed), sha256(abi.encodePacked(sha256(spliceTx))), 0, newAmount,
+            abi.encodePacked(hex"5120", payoutKeyOnly(abi.encode(seed))),
+            EXIT_DEADLINE + 3, 1_000);
     }
 
     struct LevDelivery {

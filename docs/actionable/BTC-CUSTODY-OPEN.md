@@ -126,25 +126,26 @@ documented, and the mnemonic kept as the system of record.
   **Measured:** `BTCChannels` 24,438 → **24,432 bytes** (144 spare). It fits only because the
   `whenOpen` MODIFIER became `_whenOpen()` (standing rule 8c) — inlined at 8 sites it cost more than
   the whole feature.
-* 🔴 **STILL OPEN, AND IT IS THE OTHER HALF OF THE SAME HOLE: TWO OF THE FIVE ROTATION SITES DO NOT
-  ARM.** Enumerated by grepping every `_applySplice`/`_useOutpoint` caller rather than the two I had
-  in mind — `openChannel` ✅, `splice` ✅, `rekey` ✅, but **`parkProvenSats` (`:1317`) and
-  `_deliverSwapOut` (`:2208`) rotate the outpoint and arm nothing.** After either, the channel has no
-  valid rung — now *honestly reported* as `false` by (1), but still absent.
-  ⛔ **DO NOT FIX IT BY THREADING A FOURTH AND FIFTH `ExitArming[]` PARAMETER.** `_deliverSwapOut`
-  documents that `p`/`rawSpliceTx`/`proof` must go DEAD before its settlement tail or the legacy
-  stack overflows, and that a prior attempt to extend one live range there reverted four tests. A
-  fifth calldata parameter fights that constraint, and `BTCChannels` has 144 bytes.
-  ▶️ **THE SUCCESSOR DESIGN, which deletes the per-site threading rather than extending it
-  (standing rule 17):** let a rung declare the outpoint it commits to, arm it in its own transaction
-  ahead of the rotation, and reduce every rotation site to **one line** — `if (!ladderArmed[newKey])
-  revert`. One counter (`mapping(bytes32 => bool) ladderArmed`, set by `_armDeadManExit`), no
-  calldata array at any rotation site, no stack pressure, and the invariant holds *continuously*:
-  the OLD ladder stays valid right up to the rotation, and the rotation is refused unless the next
-  one is already in place. Pre-arming an arbitrary outpoint is safe — a rung is only ever read under
-  the key of the outpoint its own sighash commits to. Costs: `Types.ExitArming` gains the target
-  outpoint (⇒ the Rust `ExitArming` encoder and `emitDeadManExit` change), and arming becomes a
-  separate tx before a splice.
+* ✅ **ALL FIVE ROTATION SITES NOW ARM — closed 2026-08-18, and the blocker I published was my own
+  misreading.** `openChannel`, `splice`, `rekey`, and now `parkProvenSats` and the swap-out delivery.
+  Audited by ASSIGNMENT, not by call site: every write to `fundingTxId`/`fundingVout`
+  (`_applySplice`, `_deliverSwapOut`) plus the open, matched one-for-one against every `_armLadder`.
+  ⛔ **I WROTE THAT A 4TH/5TH `ExitArming[]` PARAMETER WAS THE WRONG FIX AND THAT WAS WRONG.** The
+  note I cited — `_deliverSwapOut`'s calldata must go DEAD before its settlement tail or the legacy
+  stack overflows — is about that function's **INNER** frame. The rotation is COMPLETE when it
+  returns, so the arming needs nothing from it: `deliverSwapOutOnchain` takes the ladder in the
+  **OUTER** frame and calls `_armLadder` after the inner call returns, reading the already-rotated
+  outpoint from storage. The inner constraint is untouched. I generalised "this frame cannot" into
+  "this path cannot", and that is the only reason this sat open for a session.
+  ⇒ **The `ladderArmed`/pre-arm successor design below is therefore NOT NEEDED and was not built** —
+  it existed to route around a constraint that does not apply. Kept only as the record of the
+  reasoning, per standing rule 17's test: the root fix made the workaround deletable.
+  **Measured:** the fix came out NEGATIVE in bytes — `BTCChannels` 23,276 → 23,209 (margin 1,300 →
+  1,367), because `_armLadder` reaching five call sites stopped solc inlining it.
+  **Verified:** full suite, my run vs an unmodified pinned-worktree baseline at the same commit —
+  every non-environmental failure was already failing at baseline, the only three names unique to my
+  run are `HTTP 403` archive-gating, and `ExitSignatureInvalid`/`ExitUnderpaysCheckpoint`/
+  `BufferOverflow`/`NotDeadManExit` appear **zero** times across 482 tests. Rust 712/0.
 * **per-channel freshness per-channel freshness (phase 3)** — not started. It changes *what an exit commits to*
   (`Prevouts::All` binds the freshness UTXO), so it must not be designed against a rung model that
   §2.1 may invalidate.

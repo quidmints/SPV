@@ -275,6 +275,9 @@ pub async fn run(
         .map(|v| v.registry.clone())
         .unwrap_or_else(crate::vault::VaultRegistry::new);
     let channel_vault_registry = vault_registry.clone();
+    // (§E233-ladder) The on-chain swap-out watcher needs it too: a delivery rotates the funding
+    // outpoint, so it must carry the LP's fresh exit ladder like any other rotation.
+    let swapout_vault_registry = vault_registry.clone();
     let reconcile_vault_registry = vault_registry;
     let reconcile_wallet = node.wallet.clone(); // hop-funded fee splice-in
     // On-chain swap-out (rail B) delivery-watcher handles (env-gated spawn below).
@@ -436,6 +439,7 @@ pub async fn run(
             swapout_chain_monitor,
             swapout_channel_manager,
             swapout_vault,
+            swapout_vault_registry,
             swap_in_master,
             swap_in_registry.clone(),
             swap_in_claim_dest,

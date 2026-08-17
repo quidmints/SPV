@@ -1319,11 +1319,24 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///
     /// ⚠️ Credits NO LP position — §T1-f. The parked sats are not a deposit anyone owns; they are
     /// inventory awaiting a credit that will move them into `POOLED`.
+    /// @param exits (§E233-ladder) THE FRESH LADDER FOR THE ROTATED OUTPOINT — mandatory, exactly as
+    ///        on `splice`/`rekey`/`openChannel`. This grow rotates the funding outpoint like any
+    ///        other, so the rungs armed before it spend a spent output and are dead the moment it
+    ///        confirms. Arming here is what makes an escape-less channel UNCONSTRUCTIBLE at THIS
+    ///        site too, rather than merely visible (the outpoint-keyed map reports the absence
+    ///        honestly, which is not the same as there being an escape).
+    ///        ⚠️ WHAT THE RUNGS MUST PAY IS THE LP'S ENTITLEMENT, NOT `amountSats`. A park grows the
+    ///        channel with POOL inventory that credits no LP position (§T1-f), so a rung paying the
+    ///        whole funding output hands the LP sats the pool owns. `_finalizeClose` clamps the
+    ///        ACCOUNTING to `lpEntitled` and emits `PoolSatsLeftWithLp`, but the BTC has already
+    ///        moved — the clamp cannot claw it back. The signer chooses the amount, and
+    ///        `checkpointSats` is where it is recorded.
     function parkProvenSats(
         bytes32 channelId,
         Types.OpenParams calldata p,
         bytes calldata rawSpliceTx,
-        bytes32[] calldata spliceMerkleProof
+        bytes32[] calldata spliceMerkleProof,
+        Types.ExitArming[] calldata exits
     ) external nonReentrant {
         _whenOpen(channelId);
         _onlyHop();
@@ -1334,6 +1347,8 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         if (p.amountSats == channels[channelId].amountSats) revert SpliceUnchanged();
         uint grewBy = _applySplice(channelId, p, rawSpliceTx, spliceMerkleProof);
         if (grewBy == 0) revert NotAGrow();   // a shrink proves sats LEFT, not arrived
+        // (§E233-ladder) Re-arm against the outpoint `_applySplice` just rotated to.
+        _armLadder(channelId, p, exits);
         poolOwnedSats[channelId] += grewBy;    // parked inventory: no LP claim (§T1-f-general)
         poolSatsParker[channelId] = msg.sender; // whose allowance falls when it leaves
         uint bal = provenSatsAvailable[msg.sender] + grewBy;
@@ -2181,7 +2196,10 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         Types.OpenParams calldata p,
         bytes calldata rawSpliceTx,
         bytes32[] calldata spliceMerkleProof,
-        bytes calldata swapperScript
+        bytes calldata swapperScript,
+        // (§E233-ladder) The fresh ladder for the rotated outpoint — see the note at the arming
+        // call below for why this parameter lives on the OUTER frame and not on `_deliverSwapOut`.
+        Types.ExitArming[] calldata exits
     ) external nonReentrant {
         _whenOpen(channelId);
         _onlyHop();
@@ -2202,6 +2220,19 @@ contract BTCChannels is Ownable, ReentrancyGuard {
             revert SwapOutNotDelivered();
         // Gate + SPV-verify + settle in its own frame (legacy stack, no via_ir).
         _deliverSwapOut(swapId, channelId, p, rawSpliceTx, spliceMerkleProof);
+        // (§E233-ladder) THE FIFTH AND LAST ROTATION SITE. A delivery shrink rotates the funding
+        // outpoint (`_deliverSwapOut` assigns `fundingTxId`/`fundingVout` and calls `_useOutpoint`),
+        // so every rung armed before it is dead, exactly as on `splice`.
+        //
+        // ⚠️ **IT ARMS HERE, IN THE OUTER FRAME — AND I FIRST CONCLUDED IT COULD NOT.** The note in
+        // `_deliverSwapOut` says its calldata params must go DEAD before the settlement tail or the
+        // legacy stack overflows, and that a prior attempt to extend one live range there reverted
+        // four tests. That is TRUE OF THE INNER FRAME and I over-read it as "this path cannot take a
+        // ladder at all", which is what left this site open. The rotation is COMPLETE when
+        // `_deliverSwapOut` returns, so the arming needs nothing from the inner frame: it runs
+        // afterwards, out here, and `_armLadder` reads the ALREADY-ROTATED outpoint from storage.
+        // The inner constraint is untouched.
+        _armLadder(channelId, p, exits);
     }
 
     /// @dev Delivery body in its own frame: same lpAuth + SPV-spend authentication as

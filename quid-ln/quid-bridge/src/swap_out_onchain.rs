@@ -185,6 +185,10 @@ pub async fn drive_swap_out_onchain<R: JsonRpc + Send + Sync + 'static>(
     chain_monitor: Arc<HopChainMonitor>,
     channel_manager: Arc<HopChannelManager>,
     vault: Arc<crate::vault::VaultNode>,
+    // (§E233-ladder) The same consent map `drive_splice` reads, keyed the same way — by funding
+    // OUTPOINT. A delivery splice's new outpoint IS a funding outpoint, so the LP's ladder for it
+    // binds under `bind_consent(splice_txid, splice_vout, ..)` with no new plumbing.
+    vault_registry: Arc<crate::vault::VaultRegistry>,
     req: OnchainSwapOutRequest,
 ) -> anyhow::Result<()> {
     let btc_channels = cfg.btc_channels;
@@ -257,7 +261,21 @@ pub async fn drive_swap_out_onchain<R: JsonRpc + Send + Sync + 'static>(
         .with_context(|| format!("gateway never reached delivery-block confs for {splice_txid}"))?;
 
     let calldata =
-        encode_deliver_swap_out_onchain(swap_id, cid, &params, &raw, &proof, &req.swapper_script);
+        {
+        // (§E233-ladder) A DELIVERY IS A ROTATION, so the contract now requires the fresh ladder
+        // for the outpoint it rotates to. Absent consent is DORMANCY, not failure — the shape
+        // `drive_open`/`drive_splice` use: the LP signs the delivery splice itself, so it CAN
+        // produce these in that session, and a gap means it has not posted them yet.
+        let Some(consent) =
+            vault_registry.consent_for_funding(&splice_txid.to_string(), splice_vout)
+        else {
+            tracing::debug!(%splice_txid, splice_vout,
+                "swap-out delivery: no LP ExitArming ladder for the rotated outpoint yet; skip (retried)");
+            return Ok(());
+        };
+        encode_deliver_swap_out_onchain(
+            swap_id, cid, &params, &raw, &proof, &req.swapper_script, &consent.exits)
+        };
     let gas = {
         let rpc2 = rpc.clone();
         let cd = calldata.clone();
@@ -346,6 +364,9 @@ pub async fn run_swap_out_onchain_watcher<R: JsonRpc + Send + Sync + 'static>(
     chain_monitor: Arc<HopChainMonitor>,
     channel_manager: Arc<HopChannelManager>,
     vault: Arc<crate::vault::VaultNode>,
+    // (§E233-ladder) Forwarded to `drive_swap_out_onchain` — a delivery rotates the funding
+    // outpoint, so it needs the LP's fresh exit ladder exactly as a splice does.
+    vault_registry: Arc<crate::vault::VaultRegistry>,
     // Unified on-chain rail: this one task/timer/esplora-client also services the
     // registered on-chain SWAP-IN deposits each pass (settle-then-claim), so there is no
     // second polling loop. See `swap_in_onchain::drive_swap_in_pass`.
@@ -384,7 +405,8 @@ pub async fn run_swap_out_onchain_watcher<R: JsonRpc + Send + Sync + 'static>(
                     let swap_id = req.swap_id;
                     match drive_swap_out_onchain(
                         cfg.clone(), evm.clone(), rpc.clone(), esplora.clone(),
-                        chain_monitor.clone(), channel_manager.clone(), vault.clone(), req,
+                        chain_monitor.clone(), channel_manager.clone(), vault.clone(),
+                        vault_registry.clone(), req,
                     )
                     .await
                     {

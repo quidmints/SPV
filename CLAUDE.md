@@ -181,9 +181,17 @@ environment actually is*. Every line below was verified in-repo, not recalled.
   at `499224755743233795668` — pre-existing, and byte-identical across every arm all day.
 - **`redeemableAmount()` IS CACHE-SENSITIVE** — `get_metrics`/`get_deposits` are NOT `view`. Without
   refreshing first it reports a collapse to **0** indistinguishable from a real defect.
-- **`USD_FEES`, `USD_FEES_BTC`, `feesPerShareBTC` ARE PER-SHARE ACCUMULATORS, NOT DOLLARS**
-  (`SwapLib.sol:1392` credits `mulDiv(usd6, WAD, totalShares)`). For dollars, multiply back by the
-  credit site's OWN share base (`Vault.sol:640`: `lpSharesBTC + totalBufferBTC`).
+- **`USD_FEES` AND `feesPerShare` ARE PER-SHARE ACCUMULATORS, NOT DOLLARS.** For dollars, multiply
+  back by the credit site's OWN share base — never read one as a dollar figure.
+  ⚠️ **RE-DERIVED 2026-08-18: FOUR OF THIS NOTE'S FIVE SYMBOLS NO LONGER EXIST.** It named
+  `USD_FEES_BTC`, `feesPerShareBTC`, `lpSharesBTC` and `totalBufferBTC` — **all now 0 references in
+  `evm/src`** — and cited `SwapLib.sol:1392`, which today is the line `uint q;`. The BTC-side
+  accumulators were fed by **v4 pool trading fees only**, so the v4 cut deleted them along with the
+  `isBTC` fork; `USD_FEES` (32 refs) and `feesPerShare` survive without the suffix.
+  **Live credit sites: `Vault.sol:351`, `Vogue.sol:1180`, `Vogue.sol:1276`** (`USD_FEES += usdInc`).
+  ⇒ The hazard this note exists to prevent is unchanged and still real; only its coordinates rotted.
+  **A trap-note that points at deleted symbols causes the exact misreading it was written to stop**,
+  because the reader concludes the concern is obsolete rather than that the names moved.
 - **`docs/actionable/QUEUE.md`'s STATUS-MARKER COLUMN IS UNRELIABLE — PLAN FROM ROW BODIES.**
   `UNIT-A` still read 🔴🔴🔴 after it landed. Re-reading two rows overturned the plan twice running.
 - **`Core` CANNOT AFFORD A GETTER.** Measured: a two-address getter costs **91 bytes**, a

@@ -194,7 +194,7 @@ checks and stack shuffling that source does not reveal. This overturns `CLAUDE.m
 that "neither abstract-base hoisting nor delegatecalled-library extraction removes meaningful
 bytecode": hoisting into an **abstract base** genuinely does nothing (+41 B, measured — the bodies
 are copied into every inheritor); moving into a **delegatecalled library** removes them from all
-callers. Same code, opposite sign.
+callers. Same code, opposite sign. **Booked as `§E241-lib` (🟢) — cite that id; its row also carries an ordered open-items list that is a SECOND priority list competing with this document, and §V-R1's entry in it was the stale one corrected today.**
 
 **A BASE CLASS IS NOT FREE — WEIGH WHAT IT CARRIES.** Standing rule 8 says don't hand-roll what a
 library does. Applying it to `VBtc` cost **+1,195 bytes and three new signature-verifying
@@ -1004,6 +1004,112 @@ exposure, different owner.**
 ---
 
 
+## 18. 🔴🔴 THE 35 ORPHANED CRITICALS — every double-red row NO part of this document treats
+
+**The owner asked whether anything in `QUEUE.md` still needs to be in here. It does, and this is the
+honest measurement: of 45 🔴🔴 rows, 35 are discussed in NO part's prose.** They exist here only as
+one line in §16's digest. That is not the same as being covered — a digest line tells you a row
+exists, not what to do about it or who owns it.
+
+⚠️ **I am NOT promoting all 35 into Part A.** Most belong to a lane another session owns, and copying
+them here would create the second copy that always drifts. **What was missing was the ROUTING**, so
+that is what this is: every orphan, assigned, so none is invisible.
+
+**BTC / channels / enclave — Part B's lane (`391df7b6`).** `E129` grow-splice can migrate custody ·
+`E130` `btcRecipientOf` never validated as a curve point, an invalid key **permanently burns the LP's
+BTC** · `E132` swap-out writes the hop a free ~24h American option · `E135` **an ordinary Bitcoin
+reorg permanently bricks the gateway** (unguarded checkpoint depth) · `E158-upgrade-authority` ·
+`E158-freshness-killswitch` (the fleet holds a global kill switch on every LP's escape) ·
+`E158-worst-case` 🔴🔴🔴 · `E160-monoculture-loop` 🔴🔴🔴 · `E162-splice-bricks-retirement` ·
+`E163-fallback-cannot-act` · `T1-f-UNATTRIBUTED-SATS-GENERAL` · `BUFFER-ALLOWANCE-OUTLIVED-CUSTODY` ·
+`E125-r`.
+
+**Delivery / payout — no session claims this, and it is the largest cluster.** `E26` double-credit in
+#12's delivery leg · `E74` proceeds arrive at `Aux` and are never forwarded · `E91` the USD leg takes
+to `address(this)` · `E91-r5` **delivery calls are wrapped in `try/catch`, so a failed delivery is
+silently swallowed** · `E91-ROOT` 🔴🔴🔴 `ChannelLib.withdrawFromSP` has no `to` parameter.
+⇒ **`E91-ROOT` IS THE ROOT OF FOUR OTHERS AND NOBODY OWNS IT.** Read that one first; the rest are
+layers above it.
+
+**Skew calibration — the cluster §E137-skew already triaged.** `E79` the skew's real job is
+stale-oracle protection (LVR) · `E99` the skew *rewards* persistence · `E104` 🔴🔴🔴 overflow: a full
+drain reverts instead of pricing at the ceiling · `E121` / `E122` where the premium lands · `E128`
+breakeven-vs-variance is the wrong test · `SIGMA-ESTIMATOR-NOT-PATCHABLE` 🔴🔴🔴 · `E106` · `E108b-r2`
+1:1 is structurally unreachable by LP deposit (asymptotes at ~0.758) · `E108-EXPLAINED`.
+▶️ **START AT `E137-skew`**, which says outright: *"my 'ten skew-critical items' was an eyeballed pick
+from 84, and the real open-critical set is 26."* **A triage that supersedes an earlier triage is the
+right entry point, not the individual rows.**
+
+**Process / bookkeeping — mine to name, since they bite everyone.** `E124` the ID collision (28
+duplicated ids, 8 still ambiguous among open rows — see §16) · `E6` · `E50` · `E92` · `E225-do-not-push-that-merge` · `E145-p`.
+
+✅ **THE EVIDENCE IS NOW GATHERED, AND IT REFUTED BOTH CLOSURES (owner asked to close E92 and E50,
+2026-08-18). NEITHER CLOSES — and that is the result, not a failure to finish:**
+
+- **`E92` — RE-POINTED, NOT CLOSED.** `Core` is now **9,890 bytes ⇒ 14,686 spare** (was 24,538 ⇒ 38),
+  so that half is dead. But `forge build --sizes` on a clean build of `origin/main` lists **74
+  contracts and omits `Core`, `Vogue` AND `Vault`**, while `BTCChannels`, `LevManager`, `LevMath`,
+  `Aux` and `Basket` all appear. 🔴 **`Vogue` is the TIGHTEST contract in the tree at 547 bytes and
+  forge does not report it** — so the row's sentence *"the contract closest to the ceiling has no
+  enforcement"* is still exactly true; only the contract's name changed. ⇒ **Do not close a row
+  because the example it used got smaller.** ⭐ One thing narrowed: `LevManager`, `LevMath` and `Aux`
+  are also library-linked and DO appear, so **linking is confirmed not to be the discriminator** —
+  three contracts, one shared property, still unidentified. The enforcement gap itself IS closed, by
+  `tools/check-contract-sizes.py`, never by forge.
+- **`E50` — STAYS 🔴🔴. The over-mint class is live and reproduced today.** `BtcLpMintStress` 13
+  passed / 8 failed; `test_RunSim_AllExit_BtcLp` failed. Three direct over-mint assertions:
+  **1,199.999997 vs 1,197.6**; **2,499.999995 vs 2,495.0**; cumulative **5,699.99998 > 5,691.1**.
+  And QU!D still minted on a delivery of **zero** (2.0 >= 1.0). ⭐ The gap narrowed ~97% — the
+  cumulative bound was 283 over when written and is 8.9 over now — **but the bound itself moved up by
+  ~272, so most of that came from the MODEL being corrected, not the mint being fixed.**
+  ⚠️ Four of the eight failures are **PREMISE** assertions (*"priming created a free reserve: 0 <=
+  0"*) — precondition guards firing because the fixture no longer builds the state, which is a
+  fixture problem and is them **working as designed**. ⛔ **And I got one call wrong here and corrected it the same
+  day:** I read `test_SwapOutOnchain_DeliversViaSplice`'s new failure (*"the obligation is never
+  recorded in `pendingSwapOutUsd`: 0 != 499000000"*) as a defect needing its own row. **It is wired** —
+  `BTCChannels.sol:2171` → `Vault.sol:735` → `Core.sol:673`. The recorder has callers; the fixture
+  does not reach it, so it belongs with the four PREMISE failures. **A zero measured by a test that
+  never ran the writing path is a fixture reading, not a contract reading** — the same mistake §E222's
+  author made an hour earlier reading `ExternalTwap`'s absence as the defect's presence.
+- **`E225-do-not-push-that-merge` — ✅ CLOSED, verified.** `b502b8e8`, the merge it forbids, is **not
+  an ancestor of `origin/main`**; it was never pushed. And the commits it complained about missing —
+  `0f22a6e4` and `19ee5ba7` — **are** ancestors. The hazard was one unpushed object and it stayed
+  unpushed.
+
+**FIVE MORE ORPHANS CLOSED THE SAME WAY, all verified in code on 2026-08-18** — see `QUEUE.md`:
+**`E130`** (fixed by §E138's proof-of-possession at `BTCChannels.sol:962` *and* `:2309`) · **`E91-ROOT`**
+(`ChannelLib.sol:328` delivers) · **`E91`** (`_unlockCallback` is zero hits — the code is gone) ·
+**`E135`** (guarded at `MIN_CONFIRMATIONS`, `:556`; the residual is an explicitly ACCEPTED risk, a
+decision not a defect) · plus `E225` above.
+
+⭐ **`E91-ROOT` IS THE ONE TO REMEMBER: ITS MECHANISM SENTENCE IS STILL LITERALLY TRUE AND IT IS
+FIXED.** `withdrawFromSP` still takes no `to` — deliberately, because the caller holds the recipient.
+**Checking only the signature named in a row would have left it open forever.** The missing parameter
+was the symptom I named, not the defect.
+
+⚠️ **`E91-r5` DOES NOT CLOSE with them:** `try aux.withdrawSelf(...)` is still at `BasketLib.sol:770`
+and `:823`. The `NothingDelivered` guard (`:663`, `:690`) catches all-venues-failed, and §E91-ROOT's
+own note says why that is not enough — *"`sent` being non-zero is exactly why the aggregate
+`NothingDelivered` guard could not see it either."*
+
+⚠️ **THE LESSON FOR THE OTHER 32 ORPHANS: BOTH ROWS LOOKED STALE FROM THEIR HEADLINE AND NEITHER WAS.**
+`E92`'s number was stale while its mechanism had moved to a worse target; `E50`'s framing was stale
+while its blocking class was live. **A row whose example has aged is not a row whose finding has.**
+
+Previously recorded here, before the run:
+- **`E92`** — *"`Core` IS 38 BYTES FROM EIP-170 AND ITS SIZE IS COMPLETELY UNENFORCED"*. Both halves
+  look overtaken: `Core` measured **551 bytes** spare on 2026-08-15, and `tools/check-contract-sizes.py`
+  now exists precisely because `forge build --sizes` omits it. **Verify and close, or say why not.**
+- **`E50`** — *"MAIN IS RED"*, from a merge in early August. `main` builds today.
+- **`E225-do-not-push-that-merge`** — about a specific merge that was not pushed; likely spent.
+
+⇒ **THE POINT OF THIS SECTION IS THAT "IT IS IN THE QUEUE" AND "SOMEBODY IS GOING TO DO IT" ARE
+DIFFERENT CLAIMS**, and only the first was true for 35 double-red rows — including a permanent
+BTC burn, a gateway bricked by an ordinary reorg, and a delivery root cause under four other rows.
+
+---
+
+
 # PART B — session `391df7b6` (the Bitcoin / secp256k1 thread)
 
 **Ordered by what it protects, not by how nearly finished it is.** Item 1 is worth more than
@@ -1015,7 +1121,7 @@ the summary.
 
 ---
 
-## B0. ✅ CLOSED — THE FLEET NO LONGER BOOTS A VAULT (`99fda5e9`)
+## B0. ✅ CLOSED — THE FLEET NO LONGER BOOTS A VAULT (`99fda5e9`) — **this is `§M1#2`**
 
 **`quid-ln/quid-bridge/src/bin/quid-bridge-daemon.rs:339` still calls
 `quid_bridge::vault::derive_vault_seed(&root_seed)`**, and `vault.rs` still says it in its own
@@ -1722,21 +1828,31 @@ survived) · `§E232-tri` (TriCrypto zero code hits; all four legs on pinned V3 
 **Two are closed and stay listed so nobody redoes them:** `B0` the fleet no longer co-hosts a vault
 (`99fda5e9`), `B1` §E222's ring records an independent source (`1e54a2fc`).
 
-| # | item | state | the blocker, precisely |
+| # | item | state — **re-derived against code 2026-08-18** | the blocker, precisely |
 |---|---|---|---|
-| **1** | **`§E233-ladder` — 2 of 5 rotation sites** | 🔴🔴🔴 **FUND-LOSS under B0's default — see D2-ALERT** | A design choice, not effort: the rung must declare its target outpoint so each rotation site becomes one call. Threading more `ExitArming[]` params overflows `_deliverSwapOut`'s stack. **Highest-value Bitcoin item: a splice can still leave a channel escape-less.** |
-| **2** | **`§T2` terms commitment** (`B2`) | 🔴 **I destroyed the working Solidity** | Design intact, constants preserved: `TERMS = 0xa96ad576…`, `EXPECTED_Q = 0xcd5f8505…`, control = the no-terms leaf must reproduce `0xd0d16740…`. Redo as a **`Terms` struct fold**, not by threading a raw `[u8;32]` through four Rust signatures (that was the slop the owner rejected). |
-| **3** | **`§T3`** (`B3`) | 🟢 **UNGATED 2026-08-18 — the deletion branch is evidenced, see §D4** | The gating question (*does the vault route third-party HTLCs?*) is answered **NO**, structurally: one permitted counterparty, so no forward is constructible. **T3 was never gated on per-channel freshness** — that was the price of the FIX, and the fix addresses a case that cannot arise. Remaining work is to write the deletion up and let it be attacked. |
+| **1** | ~~`§E233-ladder`~~ | ✅ **CLOSED `d13fde00`** | 5/5 rotation sites arm; verified by assignment + ordering. See D2-ALERT. |
+| **2** | **`§T2` terms commitment** (`B2`) | 🔴 **NOT BUILT — verified: `termsCommitment`, `termsLeaf`, `tapBranch` have ZERO references in `evm/src` AND in `quid-hop`/`quid-bridge`** | I destroyed the working Solidity; the design and its constants survive: `TERMS = 0xa96ad576…`, `EXPECTED_Q = 0xcd5f8505…`, **control = the no-terms leaf must reproduce `0xd0d16740…`**. Redo as a **`Terms` struct fold** — threading a raw `[u8;32]` through four Rust signatures is the slop the owner rejected. **Do this WITH #5: same commitment, and #5 is blocked on it.** |
+| **3** | **`§T3`** (`B3`) | 🟢 **UNGATED — the deletion branch is evidenced (§D4)** | *Does the vault route third-party HTLCs?* **No, structurally**: one permitted counterparty (`event_handler.rs:474`). T3 was never gated on per-channel freshness — freshness was the price of the FIX, and the fix addresses a case that cannot arise. **Remaining work is to write the deletion up and let it be attacked**, naming the three one-line falsifiers. |
 | **4** | **`§LN-SWAPIN-REMAINDER` / `§NO-REJECT`** | 🔴 **owner calls it the biggest vulnerability** | The missing piece is **intent EMISSION on shortfall**, not pricing. Route: band → 1inch → Khalani → Perena. Not covered by ROUTING-AGGREGATION. |
-| **5** | `§DEPOSIT-VERIFIER-BLOCKED-ON-ITS-OWN-COMMITMENT` | 🔴 ordering bug | **Protocol side must land FIRST.** Client work was audited and is ahead of the contract. Same commitment as #2 — do them together. |
-| **6** | `B4` ladder depth · `B5` lazy `openChannel` | 🟡 never started | `B5`'s earlier ✅ was conditional and is therefore ⏸️, per standing rule 16. |
-| **7** | `B7` ratify the smart-wallet narrowing (§E183 item 1) | 🟡 | The LP now signs nothing on the EVM and `lpEth` is derived from `lpPubkey`. **Needs ratification, not code** — confirm no smart-wallet LP is excluded by construction. |
-| **8** | `B8` the **ERC-7540 fold** | 🟡 | The owner's *"too many slop variables"* and the trust hole are ONE change: the async-vault shape absorbs `swapInDepositKey` et al. **`B2`'s `Terms` fold is the first instance of this, not a separate task.** |
-| **9** | `B9b-i` **ERC-7947 verdict → `ibiza/TODO.md` §3b** | 🔴 cross-repo | **0 mentions in ibiza today.** The verdict was reached here and never written where the mobile client is owned. It dies with this context window otherwise. |
-| **10** | `B9b-iv` `BandEquityCollapseEchidna` · `B9b-v` one suite baseline | 🟡 / 📌 | The Echidna guard now watches a term that no longer exists — keep or delete. The baseline is D1's "suite state" cluster. |
-| **11** | `§LP-SEED-ENTROPY` · `§LADDER-REMOVAL` · `§MSIG-NOT-SAFE` · `§PHASE-ORDER` | 🔴 owner | Blocked on a person. `§LP-SEED-ENTROPY`: owner says *"it cant be deterministic, we need real randomness"* — the ask is right and the REASON matters, so do not implement it from the shape. |
+| **5** | `§DEPOSIT-VERIFIER-BLOCKED-ON-ITS-OWN-COMMITMENT` | 🔴 **ORDERING — protocol side must land FIRST; verified unbuilt (same zero refs as #2)** | The client work is AHEAD of the contract. Landing the client first ships a verifier committing to a shape the chain cannot check. |
+| **6** | **`B4` LADDER DEPTH** | 🟡 never started — **and now precisely statable** | `_armLadder` enforces **only `if (exits.length == 0) revert InvalidParam()`** (`BTCChannels.sol:1530`). **A ONE-rung ladder is accepted**, so a single missed CLTV window leaves the LP with no escape. ⚠️ **B0 RAISED THIS ITEM'S STAKES**: vault-less, the heartbeat does not run, so the open ladder + per-rotation arming is the ONLY escape — depth is no longer a nicety. Bounds the one thing that cannot be prevented: a hop declining to settle, emit or route. |
+| **7** | `B5` lazy `openChannel` | ⏸️ **not ✅ — the closure was conditional** | §E183 item 1 removed its premise: with the LP signing nothing at open, the open no longer carries LP consent *when it happens*, which is when deferring the CLAIM starts to matter. |
+| **8** | `B7` ratify the smart-wallet narrowing (§E183 item 1) | 🟡 **ratification, not code** | Confirm no smart-wallet LP is excluded by construction now that `lpEth` is DERIVED from `lpPubkey`. |
+| **9** | `B8` the **ERC-7540 fold** | 🟡 | The owner's *"too many slop variables"* and the trust hole are ONE change. **#2's `Terms` fold is the first instance of this, not a separate task.** |
+| **10** | `B9b-i` **ERC-7947 verdict → `ibiza/TODO.md` §3b** | 🔴 **cross-repo, 0 mentions in ibiza** | Reached here, never written where the mobile client is owned. Dies with this context window otherwise. |
+| **11** | `§LADDER-REMOVAL` | 🟢 **RESOLVABLE BY EVIDENCE NOW — the ladder STAYS, and B0 is the reason** | The row already retracted itself in full; its "real item" was #1, now closed. Its open half asked whether phase 1b dissolves the ladder's two justifications. **It does the opposite:** vault-less, `run_deadman_exit_heartbeat` does not run, so the ladder is the ONLY escape mechanism left. Close it with that. |
+| **12** | `§LP-SEED-ENTROPY` · `§MSIG-NOT-SAFE` · `§PHASE-ORDER` | 🔴 **owner decisions — blocked on a person** | `§LP-SEED-ENTROPY`: owner says *"it cant be deterministic, we need real randomness"* — the ask is right and the REASON matters, so do not implement it from the shape. |
+| **13** | `B9b-iv` `BandEquityCollapseEchidna` · `B9b-v` one suite baseline | 🟡 / 📌 | The Echidna guard watches a term that no longer exists — keep or delete. The baseline is D1's suite cluster: **one clean run on one commit settles seven rows at once.** |
+| **14** | **`§HANDOFF-2026-08-16-SEED-THREAD` OPEN 1 — an ENCLAVE-HOSTED LP has no recovery path at all** | 🔴 **was in QUEUE only; booked here 2026-08-18** | It correctly gets no export (the backend gate refuses a custody-ready seal) and the fleet's `MigrationAuth` cannot reach it, *"having never been in the fleet's enclave to migrate."* **It needs a migration trust anchor OF ITS OWN.** ⚠️ **`migration.rs` LOOKS like the answer and is not** — `verify_migration_auth` takes the owner set as a PARAMETER against a sealed-config snapshot. Anyone re-deriving this reaches for migration first. 📌 The row's *"or family"* half is retired by the owner's *"no self/family"*; the enclave-hosted-LP half stands. |
+| **15** | **`§HANDOFF-2026-08-16-SEED-THREAD` OPEN 3 — a words-only restore is not a restore** | 🔴 **was in QUEUE only; booked here 2026-08-18** | The seed roots the KEYS; the channel MONITORS (`lp-store.json`, `vault/`) sit in the same data dir and die with the same disk. **Nothing tells an operator to back that directory up, and no test covers restore-then-reconnect.** The backup makes the irreplaceable part recoverable and leaves the replaceable part undone. ⏸️ Do NOT double-file the `PolicyState` cross-reboot reset — that is booked on the `§M1#2-PHASE-2` row. |
+| ~~16~~ | ~~`§HANDOFF…` OPEN 2 — the escape meant to survive a dead LP is not public~~ | ✅ **CLOSED 2026-08-18 by evidence, both halves** | It blocked on *"until the four-entrypoint on-chain arming lands, nobody else can broadcast it"* — **that arming landed** (`d13fde00`, row #1), and its second half (*"a splice rotates the outpoint and invalidates every rung at once"*) went with it. **And the escape IS public:** `event DeadManExitEmitted(..., bytes signedExitTx)` (`:512`) carries the FULLY-SIGNED exit tx and fires from `_armDeadManExit` inside the shared `_armLadder`, so **every rung at all five sites publishes broadcastable bytes on-chain.** Anyone watching can send it after the CLTV. |
 
-## 🔴🔴🔴 D2-ALERT. **B0 ESCALATED `§E233-ladder` FROM A GAP INTO A FUND-LOSS PATH, AND ONLY THE JOINT READING SHOWS IT**
+▶️ **THE ORDER, IF YOU WANT ONE:** #2+#5 together (one commitment, and #5 is blocked on #2) → #6
+(cheap, and B0 made it load-bearing) → #11 and #3 are write-ups of conclusions already reached →
+#4 is the largest and the owner's stated priority → #10 costs one edit in another repo and is the
+likeliest to be lost.
+
+## ✅ D2-ALERT — **DISCHARGED 2026-08-18 by `d13fde00`. Kept in full: the escalation was right, and the BLOCKER I attached to it was wrong.**
 
 Found 2026-08-17 while checking a *different* thread's note. **Neither half is new. The interaction is,
 and it was created by this session's own B0 change.**
@@ -1762,6 +1878,27 @@ advance: *"Do NOT 'fix' a `None` vault by deriving the half locally — any code
 the vault signer inside the fleet process re-creates the exact capability this removes."* The design
 intends heartbeat-off; it also says §E165 and this split *"land together"*. **`§E233-ladder`'s
 remaining 2 sites are what makes that pairing incomplete**, so the fix is #1 in D2, not a rollback.
+
+✅ **CLOSED — ALL FIVE ROTATION SITES NOW ARM (`d13fde00`), AND I VERIFIED IT INDEPENDENTLY RATHER
+THAN TAKING THE COMMIT'S WORD.** Enumerated every write that rotates the outpoint —
+`_applySplice:1416-1417` and `_deliverSwapOut:2254-2255`, the only two — against every
+`_armLadder`: `996` open, `1104` splice, `1221` rekey, `1351` park, `2235` delivery. **Two rotations,
+five armings, and the ORDERING checked at the site that could silently fail:**
+`deliverSwapOutOnchain` calls `_deliverSwapOut(...)` FIRST and `_armLadder` after, so the rungs are
+verified against the already-rotated outpoint. Armed before the rotation they would have been
+retired on arrival — a fix that looks identical in a diff and protects nothing.
+
+⛔ **AND THE BLOCKER IN THIS ALERT WAS MINE, AND IT WAS WRONG — IT IS THE ONLY REASON THIS SAT OPEN.**
+I wrote *"do NOT fix by threading a 4th/5th `ExitArming[]` parameter"* and propagated it into this
+file and the queue row. `_deliverSwapOut`'s note — calldata params must go dead before the settlement
+tail — **governs that function's INNER frame**. The rotation is COMPLETE when it returns, so the
+entrypoint takes the ladder in the OUTER frame and arms after. **I generalised "this frame cannot"
+into "this path cannot"**, which is a whole class of error: a real constraint, correctly cited, and
+silently widened past its scope. ⇒ The `ladderArmed`/pre-arm successor design I proposed was never
+needed and was not built — standing rule 17 applied to my own proposal, the root fix made the
+workaround deletable. **Measured: it cost NEGATIVE bytes** (`BTCChannels` 23,276 → 23,209, margin
+1,300 → 1,367), because `_armLadder` reaching five call sites stopped solc inlining it — the opposite
+of the "two more array-decoding entrypoints will cost hundreds" I assumed.
 
 📌 **The method note, because this is the second time today it paid:** both facts sat in the repo,
 each in a row calling itself partly-closed and low-drama. Reading them SERIALLY, each is fine.
@@ -1893,6 +2030,26 @@ and a dial policy, so state it in the deletion commit and let it be attacked.
 channel to anything but the hop. All three are one-line changes, so **the argument must be re-run if
 `event_handler.rs`'s gate is touched.**
 
+### D4b. The transcript sweep — what it found beyond the commit sweep
+
+Scanned all 26,415 transcript lines for admissions in my own messages (*"I have not enumerated"*,
+*"never ran"*, *"worth checking"*): 45 hits, most from other threads sharing the file. Three SPV items
+resolved to a real question, and **all three closed themselves by measurement rather than becoming
+tasks** — recorded so nobody re-opens them:
+
+- **The `feesPerShareBTC` credit-site enumeration is MOOT.** This is the check `CLAUDE.md`
+  memorialises as *written down three times and run zero times*. **`feesPerShareBTC` and
+  `USD_FEES_BTC` now have ZERO references in `evm/src`** — they were fed by v4 pool trading fees only
+  and died with the v4 cut. There are no credit sites of a deleted accumulator to enumerate.
+  ⇒ **Fixed on detect:** `CLAUDE.md`'s per-share-accumulator trap-note named 4 symbols that no longer
+  exist and cited a line that is now `uint q;`. Re-derived in place — the hazard is unchanged, only
+  its coordinates rotted, and a trap-note pointing at deleted symbols causes the very misreading it
+  exists to prevent.
+- **The attestation gate is GONE, as required.** `_requireAttested` has **0 non-comment references**
+  in `evm/src`; the five hits in `BTCChannels.sol` are historical notes. Matches the standing
+  instruction that no attestation gate may exist anywhere.
+- **LDK's `TODO(dual_funding)`** — superseded: `§SECOND-FUNDING-HALF` was closed by owner decision
+  (the phone SIGNS, the daemon FUNDS).
 ### C10e. 🔴 THE 6909 VINTAGE'S *PURPOSE* EXISTS ONLY IN AGENT MEMORY — grep "midnight" returns NOTHING
 **Checked 2026-08-18: `midnight` appears in NO file under `docs/`, `evm/src/` or `CLAUDE.md`.** The
 rationale below was stated by the owner on 2026-08-16 and was living **only** in a machine-local
