@@ -11,7 +11,6 @@ import {Basket} from "../src/Basket.sol";
 import {Vault} from "../src/Vault.sol";
 import {SPVGateway} from "../src/spv/SPVGateway.sol";
 import {BTCChannels} from "../src/BTCChannels.sol";
-import {SorPath} from "../src/imports/SOR.sol";
 
 /// @dev The Foundation (F8N) ANGEL seed NFT: the Safe approves Aux for it mid-deploy (below), and Basket's
 ///      constructor requires that approval — so the seed commitment is atomic with Basket's birth, with NO
@@ -143,8 +142,7 @@ library DeployLib {
             weth: cfg.weth, wbtc: cfg.wbtc,
             gho: cfg.gho, usdg: cfg.usdg,
             aaveSpoke: cfg.aaveSpoke, aaveHub: cfg.aaveHub,
-            stables: cfg.stables, vaults: cfg.vaults,
-            paths: _buildSORPaths(cfg)
+            stables: cfg.stables, vaults: cfg.vaults
         }));
         // Seed commitment: the Safe (this deploy's caller, ANGEL's owner) approves the now-deployed Aux for the
         // ANGEL NFT — no predicted address needed. Basket's constructor requires this approval, so it can't be
@@ -290,114 +288,10 @@ library DeployLib {
     // not own, trade on, or validate, purely so a deploy could read their `slot0` once. The seed now
     // comes from the same Chainlink feeds every runtime TWAP is anchored against.
 
-    // ─── SOR paths for `auxSwap` — multi-hop V4 routes through the stable-stable
-    //     pools. Passed straight into Aux's constructor (no on-chain mutation
-    //     surface). USDT is the ETH-hub; ETH is the BTC-hub. See the extensive
-    //     PoolId-verification notes in git history (DeployL1_s pre-extraction). ───
-    function _buildSORPaths(StackConfig memory cfg) internal pure returns (bytes[] memory paths) {
-        // PoolKeys are built inline via `_pk` (each consumed immediately by the
-        // `_hop*` call), and the ETH / BTC path halves run in their OWN frames, so
-        // no long-lived PoolKey local accumulates — keeps within the legacy stack
-        // (no via_ir; fixed by extraction per repo LAW).
-        paths = new bytes[](12);
-        _ethPaths(cfg, paths);
-        _btcPaths(cfg, paths);
-    }
+    // §E233-sor — THE 8 SOR PATH BUILDERS ARE DELETED (`_buildSORPaths`, `_ethPaths`, `_btcPaths`,
+    // `_hop1`/`_hop2`/`_hop1B`/`_hop2B`/`_hop3B`) along with `imports/SOR.sol` and the four `Aux`
+    // entrypoints that consumed them. They encoded multi-hop routes for a router that no longer
+    // exists, into an `_pathEncodings` array nothing read.
+    // The stable->volatile route the basket still needs is §V-R1 (1inch AggregationRouterV6).
 
-    // §V4-ZERO — `_pk` DELETED with the last `PoolKey`. It built a v4 pool key for `SorPath.keys`,
-    // the hop chain `unlockBody` walked. Routing is `_v3Route` now, which discovers its own path at
-    // call time, so the deploy-time encoding had nothing left to encode.
-
-    /// @dev WETH-terminal SOR paths (arbETH iterates these). Fees/tickSpacings are
-    ///      the deployer-verified mainnet pool params (USDe/USDT=45/1, USDC/USDT=8/1,
-    ///      DAI/USDT=68/1, USDT/USDS=5/1, ETH/USDT=500/10, USDC/ETH=500/10).
-    function _ethPaths(StackConfig memory cfg, bytes[] memory paths) private pure {
-        paths[0] = _hop2(cfg.usdc, cfg.morphoUsdcVault,
-            cfg.usdt, cfg.weth);
-        paths[1] = _hop2(cfg.usds, cfg.morphoUsdsVault,
-            cfg.usdt, cfg.weth);
-        paths[2] = _hop2(cfg.dai, cfg.sdai,
-            cfg.usdt, cfg.weth);
-        paths[3] = _hop2(cfg.usde, cfg.susde,
-            cfg.usdt, cfg.weth);
-        paths[4] = _hop1(cfg.usdt, cfg.morphoUsdtVault, cfg.weth);
-        paths[5] = _hop1(cfg.usdc, cfg.morphoUsdcVault, cfg.weth);
-    }
-
-    /// @dev WBTC-terminal SOR paths (arbBTC iterates these), cheapest first
-    ///      (USDC/WBTC=3000/60, ETH/WBTC=3000/60).
-    function _btcPaths(StackConfig memory cfg, bytes[] memory paths) private pure {
-        paths[6] = _hop1B(cfg.usdc, cfg.morphoUsdcVault, cfg.wbtc);
-        paths[7] = _hop2B(cfg.usdc, cfg.morphoUsdcVault,
-            cfg.wbtc);
-        paths[8] = _hop2B(cfg.usdt, cfg.morphoUsdtVault,
-            cfg.wbtc);
-        paths[9] = _hop3B(cfg.usds, cfg.morphoUsdsVault,
-                        cfg.usdt, cfg.wbtc);
-        paths[10] = _hop3B(cfg.dai, cfg.sdai,
-                        cfg.usdt, cfg.wbtc);
-        paths[11] = _hop3B(cfg.usde, cfg.susde,
-                        cfg.usdt, cfg.wbtc);
-    }
-
-    /// @dev 2-hop path: sourceStable → USDT → ETH (native, wrapped at Aux).
-    function _hop2(address sourceStable, address sourceVault,
-                   address usdt, address weth) private pure returns (bytes memory)
-    {
-        address[] memory tokens = new address[](3);
-        tokens[0] = sourceStable; tokens[1] = usdt; tokens[2] = address(0);
-        return abi.encode(SorPath({
-            sourceAsset: sourceStable, sourceVault: sourceVault,
-            tokens: tokens, output: weth
-        }));
-    }
-
-    /// @dev 1-hop path: sourceStable → ETH directly.
-    function _hop1(address sourceStable, address sourceVault, address weth)
-        private pure returns (bytes memory)
-    {
-        address[] memory tokens = new address[](2);
-        tokens[0] = sourceStable; tokens[1] = address(0);
-        return abi.encode(SorPath({
-            sourceAsset: sourceStable, sourceVault: sourceVault,
-            tokens: tokens, output: weth
-        }));
-    }
-
-    /// @dev 1-hop BTC path: sourceStable → WBTC directly (e.g. USDC/WBTC).
-    function _hop1B(address sourceStable, address sourceVault, address wbtc)
-        private pure returns (bytes memory)
-    {
-        address[] memory tokens = new address[](2);
-        tokens[0] = sourceStable; tokens[1] = wbtc;
-        return abi.encode(SorPath({
-            sourceAsset: sourceStable, sourceVault: sourceVault,
-            tokens: tokens, output: wbtc
-        }));
-    }
-
-    /// @dev 2-hop BTC path: sourceStable → ETH → WBTC.
-    function _hop2B(address sourceStable, address sourceVault, address wbtc)
-        private pure returns (bytes memory)
-    {
-        address[] memory tokens = new address[](3);
-        tokens[0] = sourceStable; tokens[1] = address(0); tokens[2] = wbtc;
-        return abi.encode(SorPath({
-            sourceAsset: sourceStable, sourceVault: sourceVault,
-            tokens: tokens, output: wbtc
-        }));
-    }
-
-    /// @dev 3-hop BTC path: sourceStable → USDT → ETH → WBTC.
-    function _hop3B(address sourceStable, address sourceVault, address usdt, address wbtc)
-        private pure returns (bytes memory)
-    {
-        address[] memory tokens = new address[](4);
-        tokens[0] = sourceStable; tokens[1] = usdt;
-        tokens[2] = address(0);   tokens[3] = wbtc;
-        return abi.encode(SorPath({
-            sourceAsset: sourceStable, sourceVault: sourceVault,
-            tokens: tokens, output: wbtc
-        }));
-    }
 }

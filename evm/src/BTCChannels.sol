@@ -254,26 +254,33 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     // every channel. Non-channel swap users are never locked.
     mapping(address => bool) public btcRecipientLocked;
 
-    // (B) LP DELEGATION — the LP runs NOTHING. Instead of signing an lpAuth per
-    // open/splice/deliver over a live LN round-trip (the retired responder), the LP
-    // signs ONE cold delegation (EIP-712, submitted gaslessly by the operator): it
-    // names the single `hop` allowed to open/splice/deliver channels owned by the
-    // LP's `lpEth`, and the `btcRecipientOf` payout script every payout pins to.
-    // Security is UNCHANGED vs the responder: the contract still SPV-proves + taproot
-    // byte-matches (`0x5120||Q`) every funding/splice tx, and every BTC payout still
-    // pins to `btcRecipientOf`, so a compromised hop can only fund positions credited
-    // to the LP with payouts to the LP — bounded, never theft. `version` is monotonic:
-    // the LP revokes/rotates by signing a higher one (guards replay of an old
-    // delegation over a newer). delegatedHop==0 ⇒ no delegation ⇒ no open.
-    // (E157) `delegationVersion` / `delegatedAuthority` ARE DELETED with the standing grant they
-    // described. The LP signs for THIS funding outpoint (`openAuthDigest`), which is what makes the
-    // grant single-use. ⚠️ CORRECTED 2026-08-16: this used to continue "and afterwards only
+    // (B) LP DELEGATION — THE LP RUNS NOTHING, AND THE CONSENT IS PER-OPEN, NOT A STANDING GRANT.
+    // The LP cold-signs `auth.lpSig` over `openAuthDigest(msg.sender, auth.btcRecipient)`; the hop
+    // submits it gaslessly. Because the digest COMMITS TO `msg.sender`, that signature authorises
+    // exactly one hop to open exactly one funding outpoint, and `_useOutpoint` spends it.
+    // Security: the contract SPV-proves + taproot byte-matches (`0x5120||Q`) every funding/splice
+    // tx, and every BTC payout pins to `btcRecipientOf`, so a compromised hop can only fund
+    // positions credited to the LP with payouts to the LP — bounded, never theft.
+    //
+    // §SLOP — THIS BLOCK DESCRIBED THE RETIRED REGISTRATION MODEL AS CURRENT, then corrected itself
+    // eleven lines later. Deleted from it: "signs ONE cold delegation (EIP-712) [...] names the
+    // single `hop` allowed to open/splice/deliver", "`version` is monotonic: the LP revokes/rotates
+    // by signing a higher one", and "delegatedHop==0 ⇒ no delegation ⇒ no open". All three named
+    // deleted state — `delegatedHop`, `delegationVersion`, `delegatedAuthority` and
+    // `registerDelegation` are at ZERO live-code references (verified by a comments-stripped sweep,
+    // not a word grep). Leaving a stale description above its own correction means whichever half a
+    // reader stops at decides what they believe.
+    // ⚠️ WHAT DID **NOT** CHANGE, and must not be mistaken for slop: the delegated-hop
+    // AUTHENTICATION is LIVE. §E157's title is exact — "the registration tx goes, the authentication
+    // stays". `auth.lpSig` IS the delegation. Without it any caller could open a channel pinning an
+    // arbitrary LP's `btcRecipient`, which close, splice-out and the dead-man exit all key on.
+    // (E157) The monotonic counter had nothing left to guard: a signature bound to a single-use
+    // outpoint cannot be replayed, and `_useOutpoint` enforces that.
+    // ⚠️ CORRECTED 2026-08-16: this used to continue "and afterwards only
     // `channel.hop` — the hop that opened it — may act." `channel.hop` IS DELETED (§E164);
     // afterwards `_onlyHop()` lets EITHER immutable hop address act, on any channel. The
     // authorization is per-OUTPOINT, not per-hop — see the `_onlyHop` note for why that is
     // deliberate and what it costs.
-    // The monotonic counter had nothing left to guard: a signature bound to a single-use outpoint
-    // cannot be replayed, and `_useOutpoint` is what enforces that.
     // (E156) THE E122 LP-NAMED FALLBACK IS DELETED — `fallbackAuthority`, `registerFallback[For]`,
     // `fallbackDigest`, `lastHeartbeatBlock`, `FALLBACK_STALENESS_BLOCKS` and
     // `_authorizedHopForChannel` are all gone. It asked the LP to nominate a rescuer in advance,
@@ -445,7 +452,10 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     error FreshnessNotMonotonic();    // a freshness commit must strictly increase (rollback/replay guard)
     error ManagerFreshnessNotMonotonic(); // a channel-manager freshness commit must strictly increase
     error MigrationNonceAlreadyUsed();    // a MigrationAuth nonce may be consumed at most once (anti-replay)
-    error NotDelegatedHop();          // (B) caller is not the LP's delegated hop (open) — see registerDelegation
+    // §SLOP — `NotDelegatedHop` DELETED: zero reverts, and it named `registerDelegation`, itself
+    // deleted by §E157. The live open authenticates `auth.lpSig` and reverts `InvalidParam()`, so this
+    // error could not fire. `git log -S` first (this repo has twice deleted a symbol that was a
+    // deliberate gap marker): it traces to E156/E157, the commits that REMOVED its check.
 
     event ChannelOpened(
         bytes32 indexed channelId,

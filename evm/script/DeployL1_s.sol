@@ -10,7 +10,6 @@ import {Vogue} from "../src/Vogue.sol";
 
 import {Basket} from "../src/Basket.sol";
 import {Core} from "../src/Core.sol";
-import {SorPath} from "../src/imports/SOR.sol";
 
 import {Script} from "forge-std/Script.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";

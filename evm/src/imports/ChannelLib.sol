@@ -488,12 +488,11 @@ library ChannelLib {
     ///         only these storage-writing loops move. Selector-encoded approve
     ///         (NOT typed) tolerates USDT-style no-returndata approve.
     function initVaultsBody(
-        address[] memory stables_, address[] memory vaults_, bytes[] memory paths_,
+        address[] memory stables_, address[] memory vaults_,
         mapping(address => uint) storage toIndex,
         mapping(address => address) storage tokens,
         mapping(address => address) storage vaults,
-        mapping(address => address[]) storage vaultsOf,
-        bytes[] storage pathEncodings
+        mapping(address => address[]) storage vaultsOf
     ) external {
         uint len = vaults_.length - 1;
         for (uint i; i <= len; i++) {
@@ -506,9 +505,6 @@ library ChannelLib {
                 stable.call(abi.encodeWithSelector(0x095ea7b3,
                                     vault, type(uint).max));
             }
-        }
-        for (uint i; i < paths_.length; i++) {
-            pathEncodings.push(paths_[i]);
         }
     }
 

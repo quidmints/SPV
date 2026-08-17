@@ -10,7 +10,6 @@ import {FeeLib} from "./imports/FeeLib.sol";
 import {BasketLib} from "./imports/BasketLib.sol";
 import {ChannelLib} from "./imports/ChannelLib.sol";
 import {ISwap} from "./imports/ISwap.sol";
-import {SOR} from "./imports/SOR.sol";
 import {SwapLib} from "./imports/SwapLib.sol";
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
@@ -201,10 +200,9 @@ contract Aux is // Auxiliary
     }
 
 
-    /// @notice SOR path encodings. Each = abi.encode(SorPath) — drains one
-    ///         source stable through V4 hops to a terminal (typically WETH).
-    ///         Set once at deploy; auxSwap picks best path per call.
-    bytes[] internal _pathEncodings;
+    // §E233-sor — the `_pathEncodings` doc block stood here, describing state that is deleted.
+    // `SorPath` was its element type and died with `SOR.sol`; nothing replaced either, because the
+    // array had no reader outside the three SOR bodies.
 
     error LengthMismatch();
     error Unauthorized();
@@ -216,9 +214,9 @@ contract Aux is // Auxiliary
     error BtcChannelsPinned();
     error BtcInflowsViaChannels();
     error GHONotOnAAVE();
-    error BadV4Terminal();
-    error BadV4SourceVault();
-    error BadV4Last();
+    // §SLOP — `BadV4Terminal`, `BadV4SourceVault`, `BadV4Last` DELETED: all three were SOR's
+    // path-VALIDATION errors (`git log -S` traces them to the v4-cut commits `4d1256fa`/`22c67108`),
+    // and with `SOR.sol` gone none can be reverted. Zero reverts each, verified comments-stripped.
     error GHOIsAaveWired();
     error UnknownStable();
     // Body extracted to a private function (deployed ONCE) so the 13 onlyUs sites carry a cheap CALL
@@ -284,7 +282,6 @@ contract Aux is // Auxiliary
         address aaveHub;
         address[] stables;
         address[] vaults;
-        bytes[] paths;
     }
 
     constructor(AuxInit memory a)
@@ -334,11 +331,11 @@ contract Aux is // Auxiliary
         metrics.trackingStart = block.timestamp;
         // Storage-writing wiring loops extracted to ChannelLib.initVaultsBody
         // (delegatecall works from a constructor; runs in Aux's storage context).
-        // Writes toIndex/tokens/vaults/vaultsOf + copies the SOR _pathEncodings;
+        // Writes toIndex/tokens/vaults/vaultsOf. §E233-sor: the SOR path copy is gone with
+        // `_pathEncodings` -- three parameters narrower, because nothing reads them any more.
         // selector-encoded approve (tolerates USDT-style no-returndata) preserved.
         ChannelLib.initVaultsBody(
-            a.stables, a.vaults, a.paths,
-            toIndex, tokens, vaults, vaultsOf, _pathEncodings);
+            a.stables, a.vaults, toIndex, tokens, vaults, vaultsOf);
         // ETH venue wiring (approvals, weETH cache) moved to EthVenue, which
         // now custodies the ETH-side positions.
     } receive() external payable {}
@@ -792,84 +789,26 @@ contract Aux is // Auxiliary
     error VaultBlocked();
 
 
-    // ─── SOR auxSwap ─────────────────────────────────────────────────────
-    /// @notice SOR swap entry. Picks the source path whose stable carries the
-    ///         highest basket concentration/outflow fee FIRST — `FeeLib.calcFeeL1`,
-    ///         computed LIVE from current deposits (see SwapLib._pickBestPath). This
-    ///         "fee" is the basket-concentration signal, NOT a V4 pool fee tier (all
-    ///         path pools are fee=100); the highest-fee source = the stable the
-    ///         protocol is most over-weight in / most wants to shed, so every
-    ///         ETH-sourcing op doubles as a rebalance toward target weights. If that
-    ///         path fails or is under minOut, falls back to iterating `_pathEncodings`
-    ///         in DEPLOY ORDER (most-blacklistable-source-first, per SOR.sol) — the
-    ///         runtime fee-pick and the deploy-order fallback are consistent layers,
-    ///         not a contradiction. Each attempt try/catch'd; all-fail reverts.
-    ///         Caller-agnostic recipient. Used by user routes + internal arbETH/arbBTC.
-    ///         Body extracted to SOR.sorAuxSwapBody; wrapper holds the
-    ///         nonReentrant lock and passes `_pathEncodings` (memory copy
-    ///         of the state array) plus `stables` and `LINK`.
-    function auxSwap(
-        uint amountIn,
-        address output,
-        address recipient,
-        uint    minOut
-    ) external onlyUs nonReentrant returns (uint outAmount) {
-        // onlyUs. This overload redeems the protocol's OWN 4626
-        // shares and delivers `output` to `recipient` WITHOUT charging msg.sender
-        // — ungated it was a direct drain of all routable backing. Every real
-        // caller (arbBody's self-call msg.sender==this, Core/Vogue) is onlyUs.
-        return SOR.sorAuxSwapBody(
-            amountIn, output, recipient, minOut,
-            _pathEncodings
-        );
-    }
-
-    /// @dev External-but-self-only wrapper around the path execution.
-    ///      try/catch in auxSwap catches reverts from any path attempt.
-    function _tryPath(
-        bytes calldata encodedPath,
-        uint amountIn, address /*unused*/,
-        address recipient, uint minOut
-    ) external returns (uint outAmount) {
-        if (msg.sender != address(this)) revert NotSelf();
-        // §V4-ZERO — NO PoolManager ARGUMENT AT ALL, not a null one. Passing `address(0)` would
-        // have kept the parameter and moved the failure inward; the PoolManager's JOB was delta
-        // accounting -- it returned the signed deltas telling the band which way value moved -- and
-        // that job now lives in `Core.Delta`/`_handleDelta`, where the caller supplies the sign.
-        // There is nothing for the argument to carry, so it is gone rather than zeroed.
-        return SOR.executePath(encodedPath, amountIn, recipient, minOut);
-    }
-
-    error NoSelfFundedPath();
-    /// @notice CALLER-FUNDED SOR swap for the leverage — the caller sends its OWN `amountIn` of
-    ///         `sourceAsset` (externally-borrowed dollars), routed through the SAME deployed real-Uniswap-V4
-    ///         SOR hops to `output` (WETH), WITHOUT redeeming any basket 4626: it overrides the path source to
-    ///         `SOR.SELF_FUNDED` so `unlockBody` settles the provided funds directly. Never touches the
-    ///         reserve — the toxicity boundary. This lets `LevManager` delete its bespoke `RealWeethSwapper`
-    ///         and reuse the basket's routing (multi-pool, best-path). Output → msg.sender; minOut bounds it.
-    function sorSelfFunded(address sourceAsset, uint amountIn, address output, uint minOut)
-        external nonReentrant returns (uint outAmount) {
-        IERC20(sourceAsset).transferFrom(msg.sender, address(this), amountIn);
-        // Body reused from SOR.sorSelfFundedBody (delegatecall — the SAME `_pathEncodings` → `_tryPath` loop
-        // as sorAuxSwapBody, no duplicate) for EIP-170 relief; `_pathEncodings` passed as a memory copy exactly
-        // as the sorAuxSwapBody wrapper does. Returns 0 if no path matched.
-        outAmount = SOR.sorSelfFundedBody(sourceAsset, amountIn, output, msg.sender, minOut, _pathEncodings);
-        if (outAmount == 0) revert NoSelfFundedPath();
-    }
-
-    error NoReversePath();
-    /// @notice CALLER-FUNDED **REVERSE** SOR swap: `sourceVol` (WETH or WBTC) -> `targetStable` via the SAME
-    ///         real-Uniswap-V4 hops as the stable's forward path, run backwards (the leverage de-lever leg — sell
-    ///         freed volatile back to the borrowed stable). The caller sends its OWN `amountIn` of `sourceVol`;
-    ///         routed WITHOUT touching the reserve (the toxicity boundary), multi-hop. Output -> msg.sender; minOut
-    ///         bounds it. Symmetric to `sorSelfFunded` (stable -> volatile) — one bidirectional caller-funded SOR
-    ///         serving BOTH the ETH (WETH) and BTC (WBTC) de-lever, no bespoke DEX code.
-    function sorSelfFundedReverse(address sourceVol, address targetStable, uint amountIn, uint minOut)
-        external nonReentrant returns (uint outAmount) {
-        IERC20(sourceVol).transferFrom(msg.sender, address(this), amountIn);
-        outAmount = SOR.sorSelfFundedReverseBody(sourceVol, targetStable, amountIn, msg.sender, minOut, _pathEncodings);
-        if (outAmount == 0) revert NoReversePath();
-    }
+    // ─── §E233-sor — THE SOR IS DELETED: PLUMBING FOR A CAPABILITY THAT WAS ALREADY GONE ───
+    // Removed: `auxSwap(uint,address,address,uint)` (the `onlyUs` 4-arg overload), `_tryPath`,
+    // `sorSelfFunded`, `sorSelfFundedReverse`, the `_pathEncodings` array they iterated, and
+    // `imports/SOR.sol`.
+    //
+    // ⚠️ WHAT SURVIVES, AND WHY THE NAME IS A TRAP: `auxSwap(address,address,uint,address,uint)`
+    // directly below shares ONLY its name. It is SwapLib-backed, permissionless, and LIVE
+    // CLIENT-FACING -- the SPA encodes it by full signature for stable->stable. Deleting
+    // `auxSwap` BY NAME would have taken out the app's swap.
+    //
+    // RULE 1 (unreachable), measured not assumed: zero callers in src/test/script of
+    // `executePath`/`sorSelfFunded*` and zero selector-encoded references; checked for INTERNAL
+    // dot-less calls too, which a `.auxSwap(` grep structurally cannot see, and only the
+    // declarations matched. The 4-arg overload was `onlyUs`, so with no protocol caller nothing
+    // COULD reach it. `_pathEncodings` was written once at construction and read only by the
+    // three SOR bodies -- write-only state after this.
+    //
+    // ▶️ THE ROUTE THAT MUST COME BACK IS BOOKED, NOT DROPPED: a stable->volatile path for the
+    // basket is §V-R1 (1inch AggregationRouterV6). Recorded at the site the code occupied, so the
+    // gap is visible here and not only in the queue.
 
     /// @notice Stable→stable swap leg. Same surface name as the
     /// @notice Stable→stable leg via basket vaults (not V4): user → vault →
@@ -898,8 +837,13 @@ contract Aux is // Auxiliary
     // ─── ETH yield venue (AAVE/ether.fi) — REGROUPED into EthVenue ──────────
     // The WETH-side custody (AAVE WETH, weETH) + its ops
     // (supplyETH/withdrawETH, supplyEtherFi/supplyAaveEth, offrampEtherFi,
-    // aaveEthBalance, arbETH) now live on EthVenue. Aux keeps a pinned handle +
+    // aaveEthBalance) now live on the ETH band manager. Aux keeps a pinned handle +
     // thin forwarders only where callers must not change target.
+    // §E233-sor — THIS LINE LISTED `arbETH` AS ONE OF THEM, TWICE WRONG: `arbETH` does not exist
+    // (its forwarder and both callers -- Core.refillETH, Vogue._withdraw -- were removed, as noted
+    // below), and `EthVenue` no longer exists either, having been folded into `Vogue`. A comment
+    // naming a deleted function AND a deleted contract is how a reader concludes a capability is
+    // present when nothing implements it.
 
     /// @notice EthVenue — pinned once, then driven for the ETH-venue ops.
     address public ethVenue;
@@ -957,7 +901,9 @@ contract Aux is // Auxiliary
 
     /// @notice Targeted redemption: shed `preferred` (a basket stable) FIRST, then
     ///         pro-rata for any remainder. The strict pro-rata default (the 1-arg
-    ///         redeem) is cherry-pick-free and pays only the directional baseRate;
+    ///         redeem) is cherry-pick-free. §SCRUB: this said it "pays only the directional
+    ///         baseRate" -- `baseRate` was REMOVED (recorded below in this same file) and no code
+    ///         implements it, so the sentence described a toll that is not charged.
     ///         naming a `preferred` stable additionally pays the per-stable
     ///         concentration fee on that leg — the redemption mirror of choosing an
     ///         output stable on a swap. Lets a holder shed a depegged/low-yield leg.
@@ -1077,14 +1023,17 @@ contract Aux is // Auxiliary
         // (all self-gated) and reads depeg severity via getDepegSeverityBps on Aux
         // (handed `address(this)`).
         // DIRECTIONAL fee: the redemption path (token==QUID) accrues the decaying
-        // baseRate for BOTH draw modes (pro-rata AND targeted) — a targeted redeem is
+        // §SCRUB: this said the fee covered `baseRate` for BOTH draw modes. `baseRate` is gone; the
+        // pro-rata/targeted distinction below is real, the toll is not. A targeted redeem is
         // still a redemption. A swap taking USD out as one specific stable
         // (token!=QUID) is normal flow, not a redemption, so brBps=0.
         return BasketLib.takeBody(_takeArgs(who, amount, token, seed, preferred));
     }
 
     /// @dev Shared TakeArgs builder for take()/5 and takeWith()/7 (identical
-    ///      12-field construction). Accrues the directional baseRate HERE (state
+    ///      12-field construction). §SCRUB: claimed it "accrues the directional baseRate HERE" --
+    ///      nothing accrues, `baseRate` having been removed. Kept the construction note, which is
+    ///      true, and dropped the accrual, which named a deleted mechanism at a specific site (state
     ///      mutation) so both callers stay thin — one copy of the struct build.
     function _takeArgs(address who, uint amount, address token, uint seed, address preferred)
         internal view returns (BasketLib.TakeArgs memory) {
@@ -1120,14 +1069,15 @@ contract Aux is // Auxiliary
     ///         (amounts, yieldW) here lets takeBodyWith skip a second full basket scan.
     ///         Only used when no seed was burned (tranche unchanged by the turn,
     ///         so the pre-burn fetch is exactly what a fresh fetch would return). Builds
-    ///         the same TakeArgs as take()/5 — the directional baseRate still accrues.
+    ///         the same TakeArgs as take()/5. §SCRUB: "the directional baseRate still accrues" was
+    ///         the strongest of the four stale claims -- "still" asserts a live mechanism by name.
     function takeWith(address who, uint amount, address token, uint seed, address preferred,
         uint[15] memory amounts, uint[15] memory yieldW) public onlyUs returns (uint sent) {
         return BasketLib.takeBodyWith(
             _takeArgs(who, amount, token, seed, preferred), amounts, yieldW);
     }
 
-    // ─── Directional redemption fee: Liquity-style decaying baseRate ──────────
+    // ─── REMOVED: the directional redemption fee (Liquity-style decaying baseRate) ────────────
     // baseRate storage (`_br`) + `_touchBaseRate` + BR_DECAY/BR_MAX_MIN REMOVED here — the Liquity-style
     // directional redemption velocity toll. See `_takeArgs` above for the full rationale: QU!D has no peg-arb
     // loop to defend (unlike Liquity), so the toll had no peg to protect; peg-defense redemptions are scheduled

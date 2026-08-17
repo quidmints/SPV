@@ -32,7 +32,10 @@ import {ILevEquity} from "./imports/Interfaces.sol";
 //  lev-manager slots are pinned — they are the only owner-gated functions here.
 //
 //  GATES stay SPLIT, byte-for-byte with the originals — no widening:
-//    • onlyUs    = {Vogue(V4), AUX, this}      → arbETH (ETH side)
+//    • onlyUs    = {Vogue(V4), AUX, this}      → ETH-side venue ops (supply/withdraw/deliverable)
+//      §E233-sor: this line named `arbETH`, which DOES NOT EXIST -- `Aux` states its forwarder was
+//      REMOVED along with its only callers (Core.refillETH, Vogue._withdraw). The gate is real; the
+//      consumer it cited is not, and a gate documented by a dead caller reads as dead surface.
 //    • onlyUsBtc = {Core(CORE), AUX, this} → repack / setBTCChannels
 //    • onlyBtcChannels / onlyBTCChannels       → BTC LP register/close + swap
 //  Address-specific gates mean every interface-wired caller (Aux.ethVenue /
@@ -97,7 +100,9 @@ contract Vault is Ownable, ReentrancyGuard {
     /// @notice The IL-protect orchestrator. Its leveraged book's LIVE net-equity counts in `vogueETH`.
     ///         Pinned once post-deploy (LevManager needs Aux/weETH first). 0 = leverage disabled.
 
-    error NotVogueCore();
+    // §SLOP — `NotVogueCore` DELETED: zero reverts. `git log -S` traces it to `a3225031`
+    // ("Extract ETH-venue custody out of Vault into EthVenue") and `8720a35d` ("EthVenue IS Vogue"),
+    // i.e. it gated a split that was subsequently folded back -- the gate went, the error stayed.
     error NotSelf();
     error Unauthorized();
     error LevManagerPinned();

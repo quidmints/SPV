@@ -29,7 +29,6 @@ import {BasketLib} from "../src/imports/BasketLib.sol";
 import {Types} from "../src/imports/Types.sol";
 import {Core} from "../src/Core.sol";
 import {DeployLib} from "../script/DeployLib.sol";
-import {SorPath} from "../src/imports/SOR.sol";
 import {BTCChannels} from "../src/BTCChannels.sol";
 import {BitcoinTx} from "../src/imports/BitcoinTx.sol";
 import {MuSig2Agg} from "../src/imports/MuSig2Agg.sol";
@@ -1193,8 +1192,11 @@ contract AllesFixture is ForkPin, ExitFixture {
 
 
 
-    // ─── SOR paths (copied from DeployL1_s.sol) so AUX.arbETH can
-    //     recover ETH-withdrawal shortfalls from the stable basket ───
+    // ─── §E233-sor — THE SOR PATH FIXTURE IS GONE, and so is the reason it existed.
+    //     This block said the paths were here "so AUX.arbETH can recover ETH-withdrawal
+    //     shortfalls from the stable basket". `arbETH` DOES NOT EXIST: `Aux` records
+    //     "REMOVED: arbETH forwarder -- its only callers (Core.refillETH, Vogue._withdraw)"
+    //     and `SwapLib` records "Both callers were removed as the toxic surplus-..." ───
     // Covers Aux's SOR stable->WETH path: auxSwap -> PoolManager.unlock ->
     // Aux.unlockCallback -> SOR.unlockBody (the V4 unlock body extracted to
     // a library). No other test exercises Aux's unlock path.
@@ -1279,10 +1281,13 @@ contract AllesFixture is ForkPin, ExitFixture {
     //  164 failures across the suites that inherit this fixture.
     //
     //  🔴 BUT THEY WERE NOT TESTS OF A v4 DETAIL, AND THIS IS BOOKED SO THE DELETION DOES NOT ERASE
-    //  IT. They covered a REAL CAPABILITY: the basket's stable -> VOLATILE route, which is what
-    //  `arbETH` uses for the basket->WETH shortfall arb. That capability is currently
-    //  UNIMPLEMENTED, not merely untested -- `Aux`'s 4-arg `auxSwap` is its only entrypoint and its
-    //  body needs a router. The 5-arg `auxSwap` cannot substitute: `SwapLib.auxSwapBody` opens
+    //  IT. They covered a REAL CAPABILITY: the basket's stable -> VOLATILE route, which served the
+    //  basket->WETH shortfall arb. That capability is UNIMPLEMENTED, not merely untested.
+    //  §E233-sor UPDATE: the 4-arg `auxSwap` this note called "its only entrypoint" is now DELETED
+    //  together with `SOR.sol` -- it was `onlyUs` with no protocol caller, so nothing could reach
+    //  it, and the arb it existed for (`arbETH`) had already been removed. So the gap is unchanged
+    //  in substance and the entrypoint no longer exists to point at.
+    //  The 5-arg `auxSwap` still cannot substitute: `SwapLib.auxSwapBody` opens
     //  `if (idxIn == 0 || idxOut == 0) revert NotBasketStable()` and WETH/WBTC have no basket index.
     //
     //  ⇒ WHEN 1INCH LANDS, THESE TWO COME BACK, pointed at it: ungated caller reverts

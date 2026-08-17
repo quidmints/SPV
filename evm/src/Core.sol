@@ -812,8 +812,12 @@ contract Core {
 
     /// @notice Fused swap — IS_BTC selects which V4 pool. The shortfall signal is
     ///         ASYNC per-pool (in-frame refill is unsafe — re-enters Aux on
-    ///         half-settled backing): ETH emits ETHRefillRequest (keeper → refillETH
-    ///         buys back from free surplus); BTC emits a hop request (we don't mint WBTC).
+    ///         half-settled backing); BTC emits a hop request (we don't mint WBTC).
+    /// @dev    §SCRUB: this said "ETH emits ETHRefillRequest (keeper → refillETH buys back from free
+    ///         surplus)". BOTH are deleted -- this same file records "REMOVED: refillETH() /
+    ///         ETHRefillRequest — the eager, permissionless ETH-pool [...]". The BTC hop request is
+    ///         real and stays; the ETH half named an event no contract emits and a function no
+    ///         contract declares, which is how a reader concludes the ETH shortfall path is wired.
     function swap(address sender,
         bool inputIsUsd, address token, uint amount)
         onlyUs public returns (uint out) {

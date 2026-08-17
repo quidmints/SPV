@@ -22,8 +22,12 @@ library FeeLib {
     uint public constant WAD = 1e18;
 
     /// @dev x^n by binary exponentiation in 1e18 fixed point (Liquity _decPow).
-    ///      Extracted from Aux (baseRate decay) to free Aux bytecode. `cap` is
-    ///      the decay-exponent ceiling (Aux passes BR_MAX_MIN).
+    ///      Extracted from Aux (baseRate decay) to free Aux bytecode -- that is why it lives here,
+    ///      and it OUTLIVED the thing it was extracted for. `cap` is the decay-exponent ceiling.
+    ///      §SCRUB: this said "Aux passes BR_MAX_MIN". Neither half is true any more: `BR_MAX_MIN`
+    ///      exists only inside removal records, and the ONLY caller is `Core` (`:247`) passing
+    ///      `FLOW_MAX_MIN` for the 48h flow-EWMA decay. A doc naming a deleted constant and a caller
+    ///      that no longer calls is worse than none -- it sends a reader to Aux for a live use.
     function decPow(uint base, 
         uint mins, uint cap) public 
         pure returns (uint) {

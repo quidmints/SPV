@@ -47,7 +47,11 @@ contract Basket is ERC20, ERC6909,
     }
     function auth(address who) public view returns (bool) {
         // AUDIT (2026-06): LINK removed — it is the depeg-oracle forwarder and
-        // NEVER mints (onReport/isDepegged/getDepegSeverityBps only). Granting a
+        // NEVER mints (it only ever read depeg state). §SCRUB: this named `onReport` alongside
+        // `isDepegged`/`getDepegSeverityBps` as the forwarder's calls; that CRE `onReport` path is
+        // RETIRED (see `Aux`: "the `onReport` forwarder path was RETIRED -- vault health is now
+        // driven [...]"), and Basket never declared it. The audit conclusion below is unchanged --
+        // the over-privilege was real and LINK is still correctly absent. Granting a
         // rotatable forwarder address an (unused) mint capability was an
         // over-privilege; minting is AUX (creditLPForSwap) + V4 (fees) +
         // BTC_VAULT (the regrouped BTC-LP fee/close mints, previously V4's).

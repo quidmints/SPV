@@ -5478,11 +5478,38 @@ the fee-splice landed, and it caused a downstream doc error); two short-subsyste
 `BTCChannels` header calling the bridge `Vogue.registerBtcLp`; `QuidLens` baseRate NatSpec;
 `spa/src/lib/quant.ts` "leverage overlay not built yet".
 
-**Still outstanding:** `Aux.sol:52` advertises an `arbETH` forwarder the same file records as removed ·
-`Aux.sol:735` "used by internal arbETH/arbBTC" · `Aux.sol:888`, `:1008`, `:1015` describe `baseRate` as
-live where the same file records its removal · `Vault.sol:43` justifies the `onlyUs` set by arbETH ·
-`Core.sol:568` points at `refillETH`/`ETHRefillRequest` · `DeployLib.sol:236` and `:252` describe SOR
-path arrays as "arbETH/arbBTC iterates these" · `Basket.sol:50` names `onReport`.
+**✅ DISCHARGED 2026-08-17 — all nine sites, verified by a live-code sweep, not by reading.** Before
+editing any comment I checked whether the symbol it named exists as CODE (comments stripped) anywhere in
+`evm/src`: `baseRate`, `BR_MAX_MIN`, `refillETH`, `ETHRefillRequest`, `arbETH`, `SOR`, `sorSelfFunded`,
+`_pathEncodings`, `onReport` — **all nine at zero.** That check is the whole discipline here: a comment
+is only stale if the thing it describes is gone, and "audit by structure, never by a type name — a name
+matches its own obituary" is why every one of these needed the code sweep rather than a grep for the word.
+
+Original list (line numbers were already stale when written — located by content instead):
+`Aux.sol` advertised an `arbETH` forwarder the same file records as removed · `Aux.sol` "used by internal
+arbETH/arbBTC" (went with the deleted 4-arg `auxSwap`) · FOUR `baseRate` sites in `Aux.sol` describing a
+removed toll as live, the worst being "the directional baseRate **still** accrues" — "still" asserts a
+live mechanism by name · `Vault.sol` justified the `onlyUs` set by `arbETH`, documenting a real gate with
+a dead caller · `Core.sol` said "ETH emits ETHRefillRequest (keeper → refillETH buys back from free
+surplus)" while the same file records both as REMOVED · `DeployLib.sol`'s "arbETH/arbBTC iterates these"
+(deleted with the eight path builders) · `Basket.sol` named `onReport`, a CRE forwarder path since
+RETIRED and never declared by Basket.
+
+TWO FOUND BEYOND THE LIST, both by the sweep rather than the list: `Aux.sol`'s section BANNER read
+"─── Directional redemption fee: Liquity-style decaying baseRate ───" as a feature heading directly above
+its own removal record; and `FeeLib.decPow`'s doc said "`cap` is the decay-exponent ceiling (Aux passes
+BR_MAX_MIN)" when `BR_MAX_MIN` exists only inside removal records and the ONLY caller is `Core:247`
+passing `FLOW_MAX_MIN`. `decPow` itself is correctly KEPT — it outlived the `baseRate` decay it was
+extracted for and now serves the 48h flow-EWMA.
+
+⚠️ **DELIBERATELY NOT TOUCHED, and this is a decision rather than an omission:** the ACCURATE historical
+records ("REMOVED: arbETH forwarder — its only callers (Core.refillETH, Vogue._withdraw)", "Both callers
+were removed as the toxic surplus-...", `spa/src/lib/quant.ts`'s "was REMOVED"). Those are what let this
+purge PROVE the capability was already gone rather than being removed by this thread — deleting them
+would destroy the evidence and leave the next reader unable to tell a removal from an absence.
+`docs/actionable/BUILD-QUEUE-AND-107.md` is append-only and `docs/informational/` already carries a
+staleness banner naming arbETH/refillETH as removed, so both are left alone; `docs/FAQ.md` still narrates
+`arbETH` in the past tense as design history, which is what a FAQ is for.
 
 ## E6. Review the built-but-gated surface as a set
 Each is off for a stated reason; the point is to decide them together rather than rediscover them one at

@@ -306,7 +306,9 @@ interface IAux {
     function withdrawSelf(address token, uint amount, address to) external returns (uint);
     function checkBacking() external returns (uint committedSum, uint totalLiquid);
     function takeToSettle(address who, uint amount, address token) external returns (uint);
-    function auxSwap(uint amountIn, address output, address recipient, uint minOut) external returns (uint);
+    // §E233-sor — `auxSwap(uint,address,address,uint)` DECLARATION DELETED with the SOR. The
+    // surviving `auxSwap(address,address,uint,address,uint)` is a DIFFERENT, SwapLib-backed function
+    // that shares only the name; it is client-facing and is deliberately not declared here.
     function WBTC() external view returns (address);
     /// Rule 2: declared HERE, not as a file-local restatement. `Aux.WETH` is a public
     /// `WETH9` state var; over the ABI that is an address, which is all any caller needs.
@@ -333,8 +335,10 @@ interface IAux {
     /// dangerous: it drifts silently and only breaks the first time someone uses it.
     function redeem(uint amount) external;
     function swap(address token, address asset, bool forVolatile, uint amount, uint minOut) external returns (uint);
-    function sorSelfFunded(address sourceAsset, uint amountIn, address output, uint minOut) external returns (uint);
-    function sorSelfFundedReverse(address sourceVol, address targetStable, uint amountIn, uint minOut) external returns (uint);
+    // §E233-sor — `sorSelfFunded` / `sorSelfFundedReverse` DECLARATIONS DELETED with `SOR.sol`.
+    // Their only callers anywhere were two tests, deleted with them; nothing in `src` ever called
+    // either. A live interface declaration for a removed function is a promise this codebase cannot
+    // keep, and it is exactly what `check-client-abis.py` flags as an ORPHAN.
 }
 
 /// Canonical ICore — union of ICore_V, ICore_VG.
