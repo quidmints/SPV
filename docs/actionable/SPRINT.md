@@ -497,6 +497,9 @@ were HTTP 429, which knocked out three whole suites and 11 tests.
 | `RING` 1024 → 256, raw slots 1030/1031 → 262/263 from `forge inspect` | layout |
 | `BandState` — 26 declarations → 13 | **+11 B**; buys layout alignment, not size |
 | clients repaired | 11 SPA signatures, 2 Rust selectors |
+| `TickOutOfRange` → `RangeNotOutsideBand` | **the last tick identifier in code.** Both call sites compare PRICES (`t.newUp < t.curLo`, `t.newLo >= t.newUp`) — it never guarded a tick, and left in place it read as evidence that tick math survived the v4 cut. Zero client references, so the selector change was free. **Residual tick identifiers in code: 0**; every remaining mention is a `§DE-TICK`/`§TICK-REMOVAL`/`§V4-CUT` block recording the removal on purpose. |
+| 3 unreferenced declarations deleted | `contract Shares` (2,300 B, the §E255 prototype — `git show 5ada37f4:evm/src/Shares.sol`), `interface ISkewSink` (superseded; `Core.sol:367` reaches `creditSkewPremium` through `IBandManager`), `library Interfaces {}` (an empty no-op that only produced an artifact). **`BandState` stays** — it is the wired half and the base §E256 confirms. |
+| 3 rescue tags pushed | `rescue/E194-rover-open-14-18`, `rescue/E232-1inch-unusable`, `rescue/E222-revert` — commits that were reachable from no branch and no remote |
 
 **The venue choice is measured, and the measurement is the reason it works:** Uni V3 USDC/WETH 0.05%
 holds **32,497 WETH** and WBTC/USDC 0.30% holds **262.9 WBTC** — **46×** and **12.7×** TriCrypto's
