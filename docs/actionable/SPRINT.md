@@ -606,3 +606,61 @@ is not.
 
 ⇒ **Before acting on any claim in this file, run the check it names.** Each one is cheap, and each
 of those five cost a wrong turn that a single command would have prevented.
+
+
+---
+
+## PART C — session `337ea6d3` (skew + refill). **Written at `7ac75692`.**
+
+### 🔴 THE HEADLINE: **THE REFILL ON MAIN IS POTEMKIN. Its arithmetic is proven; its behaviour is not.**
+**MEASURED: all four callable refill primitives have ZERO production call sites.**
+| primitive | on main | call sites | proof it has |
+|---|---|---|---|
+| `refillPlacement` | ✅ | **0** | pure-arithmetic only |
+| `refillNeeded` | ✅ | **0** | pure-arithmetic only |
+| `proRataShortfall` | ✅ | **0** | pure-arithmetic only |
+| `imbalanceFeeUsd6` | ✅ | **0** | pure-arithmetic only |
+⇒ **NOT ONE OF THEM HAS EVER PRICED A REAL SWAP AGAINST A SEEDED POOL.** Owner named this exactly:
+*"potemkin code that has never confirmed proper swap calculation amounts after seeding the pool."*
+✅ **THE SKEW IS NOT IN THIS CATEGORY, AND THE DISTINCTION IS THE WHOLE POINT:** `DEPLETION_RATE_WAD`
+lives INSIDE `skewWad`, which `_fillDelta` calls on **every swap** — so it is live, exercised, and
+covered by the fixture suite. Skew = wired. Refill = not.
+
+### ▶️ WHERE TO KICK OFF, IN ORDER
+1. **RESTORE THE VOLATILE ROUTE — do this first, it blocks the rest.** `SOR` was deleted (`09fedf18`)
+   BEFORE Aux's execution was re-pointed, so `NoVolatileRoute()` fires and **leverage debt is never
+   taken on**. That is **73 of the 77 failures** in the last clean run (414 passed / 73 failed / 487
+   total, archive endpoint, **0 environmental**) — every one a PREMISE like *"rally must lever the
+   position (debt > 0): 0 <= 0"*. **One root, not 73 problems.** Destination already exists in-tree:
+   `ICurvePool.exchange` (`LevMath:401` etherFi, `:464` TriCrypto USDC→WETH).
+2. **Wire `refillPlacement` into repack.** `VogueLib.addLiq` ALREADY ends `targetUSD = deltaTok·price`
+   — that IS `tok·px == usd`. The fold replaces an implicit step with the explicit one; it is not new
+   behaviour. ✅ **UNBLOCKED: `POOLED_USD` is funded again** (`testSwapIn_QuidOrStrictStable` passes
+   after §E230's `basketUsd`/`basketLeg` fix).
+3. **Wire `refillNeeded`** into a daemon task over the EXISTING rail (`BTCChannels.creditSwapIn` →
+   `Vault.creditSwapIn` → `SwapLib.creditSwapInBody`). `daemon.rs` spawns TEN tasks and **none reads
+   band inventory**. Docker builds `quid-ln`; macOS cannot.
+4. **Wire `proRataShortfall`** into the redeem path + the owner's **1inch conversion to destination
+   token**. ⚠️ 1inch is currently a CONSUMER (`Core:1228` *"we feed 1inch / Khalani"*) and a price
+   reader (`ExternalTwap:45`) — **never a liquidity source**. Sourcing is Morpho flash + Curve.
+5. **THE ACCEPTANCE TEST THE OWNER SPECIFIED, and nothing above is done until it passes:** seed the
+   pool → a swap of known size depletes as expected → the refill rebalances **immediately** → **zero
+   skew at the end** → the charge reached LPs as a dynamic fee → priced **independently for BTC and
+   ETH** → against **one pool of dollars**.
+
+### 🟠 DELETION CANDIDATE, by my own rule-17 argument
+**`imbalanceFeeUsd6` is probably redundant.** The depletion term charges the same event at the same
+210 ppm — its docblock says it reuses that figure so the two "price the same thing at the same rate"
+— but depletion is charged LIVE inside the swap price while `imbalanceFeeUsd6` was written for
+separate refill accounting that may no longer need to exist. Different denominators (idle-created vs
+drain-fraction), one economic event. **Decide before wiring it, or two charges bill one thing.**
+
+### ⚠️ HAZARDS TO CARRY
+- **`77cd3631`** — another thread's **14 autostashed files**, never safely reapplied. My rebase
+  autostashed them; reapplying conflicts because origin moved. **`rebase.autoStash` is unsafe in a
+  shared tree.**
+- **`BTCChannels` margin was 138 bytes** at last measure — tightest in the tree.
+- **`testBtcLp_swapInAccruesTheBtcLegFee`** still red: the BTC fee leg is not funded even though the
+  ETH side is.
+- **Reading `HEAD` for your own SHA is unsafe here** — another session committed between my `commit`
+  and my `log`, and I pushed their commit by mistake. Capture the SHA from the commit itself.
