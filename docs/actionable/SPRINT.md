@@ -582,7 +582,20 @@ naming itself as the LP. It protects the pool credit. **This protects the sats.*
 
 ---
 
-## B1. 🔴🔴 §E222 — THE ORACLE RING RECORDS ITS OWN OUTPUT, LIVE ON `main`
+## B1. ✅ CLOSED — §E222's RING NOW RECORDS AN INDEPENDENT SOURCE (`1e54a2fc`)
+
+✅ **CLOSED 2026-08-17, BY ANOTHER THREAD, AND ALL THREE PARTS THIS ROW ASKED FOR ARE DONE.**
+`1e54a2fc` wired the ETH ring to 1inch's OffchainOracle (`DeployLib.sol:170`), deleted the self-write,
+and **answered the BTC question rather than deferring it**: the BTC ring is left UNSET on purpose,
+because 1inch can only quote wrapped BTC and observing it would make a WBTC depeg indistinguishable
+from bitcoin moving — so σ² stays unmeasured and §E213 prices at the ceiling, which is the honest
+reading. Verified by enumerating the write path (`OracleLib.writeObservation` ← `_writeObservationPrice`
+← `_observeIfSourced`, one chain, external `staticcall` only), not by grepping for a library name.
+⚠️ **I re-confirmed this item OPEN earlier the same day on the strength of `ExternalTwap` having zero
+references.** That measurement was correct and the inference was wrong: the fix deliberately avoids
+`ExternalTwap`, whose `oneInchRateWad` reverts on a bad read and would turn an oracle outage into a
+halted swap path. **`ExternalTwap` being unwired is a separate live observation, not this defect.**
+
 
 `Core.sol:866` reads `px = AUX.getTWAPforAsset(ASSET, 1800)` — which reads the observation ring —
 and `:878` writes that same value back via `_writeObservationPrice(px)`. The identical pair repeats
