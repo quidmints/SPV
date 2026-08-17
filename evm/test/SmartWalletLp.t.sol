@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {ExitFixture} from "./btc/ExitFixture.sol";
 import {BTCChannels} from "../src/BTCChannels.sol";
 import {Types} from "../src/imports/Types.sol";
+import {ChannelLib} from "../src/imports/ChannelLib.sol";
 
 /// @notice A REAL ERC-1271 wallet, not a stub: it validates the signature against a stored
 ///         owner exactly as a Safe does for a 1-of-1. A stub returning `true` unconditionally
@@ -89,7 +90,7 @@ contract SmartWalletLpTest is Test, ExitFixture {
         bytes32[] memory proof;
         vm.prank(makeAddr("hop"));   // the MAIN_HOP this suite's `setUp` constructs with
         ch.openChannel(_params(), hex"00", proof,
-            Types.OpenAuth({lpEth: lpEth, btcRecipient: payoutKey, lpSig: sig,
+            Types.OpenAuth({ btcRecipient: payoutKey,
                             btcRecipientPoP: popFor[lpEth]}),
             _ladder(Types.ExitArming({prevValues: new uint64[](1), prevScripts: new bytes[](1), cltvDeadline: uint64(block.number + 144), checkpointSats: 0,
                               signedExitTx: hex"00"}))); 
@@ -97,35 +98,42 @@ contract SmartWalletLpTest is Test, ExitFixture {
 
     /// A Safe's ERC-1271 signature is ACCEPTED: the open gets past consent and dies on the funding
     /// proof instead. If 1271 were unsupported this would revert `InvalidParam` right here.
-    function test_smartWalletLp_consentIsAccepted() public {
-        bytes32 d = ch.openAuthDigest(address(this), _payout());
-        vm.expectRevert();   // reverts BEYOND consent, on the absent SPV proof
-        _open(address(wallet), _sign(ownerPk, d));
-        // The discriminating half: a signature from a NON-owner is refused AT consent.
-        (, uint strangerPk) = makeAddrAndKey("stranger");
-        vm.expectRevert(BTCChannels.InvalidParam.selector);
-        _open(address(wallet), _sign(strangerPk, d));
+    // ⛔ (§E183 item 1) THE THREE TESTS THAT STOOD HERE ARE DELETED, AND THEY WERE ALREADY VACUOUS.
+    // They asserted that an ERC-1271 signature "gets past consent" while a stranger's is "refused AT
+    // consent". `openChannel` no longer takes ANY LP signature, so `sig` was unused and BOTH calls
+    // took the identical path — the discriminating half discriminated nothing, and both passed on a
+    // bare `vm.expectRevert()`. Left in place they would have certified a property that no longer
+    // exists, which is worse than no test.
+    //
+    // 🔴 AND THE CAPABILITY THEY GUARDED IS GONE, DELIBERATELY: `lpEth` is DERIVED from
+    // `p.lpPubkey`, so it is necessarily the EOA address of that secp256k1 key. A contract wallet's
+    // address comes from CREATE2 and cannot equal it, so A SMART-WALLET LP CAN NO LONGER OPEN A
+    // CHANNEL. That is the price of "the LP signs nothing on the EVM" and it should be a decision,
+    // not a discovery — see the queue row.
+
+    /// The derivation itself, against a known-answer fixture rather than a round-trip of our own
+    /// code: the generator point G is private key 1, so its compressed encoding must derive the
+    /// address `vm.addr(1)`. If the parity branch or the keccak input were wrong this fails.
+    function test_lpEthIsDerivedFromTheChannelKey() public view {
+        bytes memory gCompressed =
+            hex"0279BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798";
+        assertEq(ChannelLib.lpEthOf(gCompressed), vm.addr(1), "G must derive private key 1's address");
     }
 
-    /// The EOA path is untouched — that is the whole point of one shared verifier.
-    function test_eoaPathStillWorksUnchanged() public {
-        (address lp, uint lpPk) = makeAddrAndKey("eoa-lp");
-        bytes32 d = ch.openAuthDigest(address(this), _payout());
-        vm.expectRevert();   // past consent, dies on the funding proof
-        _open(lp, _sign(lpPk, d));
-        vm.expectRevert(BTCChannels.InvalidParam.selector);
-        _open(lp, _sign(uint(0xBAD), d));
-    }
-
-    /// (E125-d) ERC-1271 validity is STATEFUL, and that is the revocation `delegationVersion` used
-    /// to simulate: rotating the wallet's owner invalidates a signature that verified a moment ago.
-    /// E157 deleted the counter, so this is now the ONLY revocation a smart-wallet LP has — which
-    /// is exactly why it is asserted rather than assumed.
-    function test_ownerRotationRevokesAPriorSignature() public {
-        bytes32 d = ch.openAuthDigest(address(this), _payout());
-        bytes memory sig = _sign(ownerPk, d);
-        wallet.setOwner(address(0xDEAD));           // the Safe rotates owners
-        vm.expectRevert(BTCChannels.InvalidParam.selector);
-        _open(address(wallet), sig);                // the same bytes no longer verify
+    /// An `x` with no square root is not a public key. Without this check a caller supplies junk,
+    /// gets a junk `y`, and derives an address IT controls — crediting itself for another LP's sats.
+    function test_offCurveKeyDerivesNothing() public view {
+        // x = 5 is the SMALLEST off-curve x: 5^3+7 = 132 is a non-residue mod p (Euler's
+        // criterion). ⚠️ x = 1 is NOT off-curve — 8 IS a residue here — and my first draft of this
+        // test asserted it was. The fixture was wrong, not the contract; computing the residue
+        // rather than guessing is what caught it.
+        bytes memory offCurve =
+            hex"020000000000000000000000000000000000000000000000000000000000000005";
+        assertEq(ChannelLib.lpEthOf(offCurve), address(0), "off-curve x must derive nothing");
+        // A malformed prefix is rejected outright rather than silently treated as even-y.
+        bytes memory badPrefix =
+            hex"0479BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798";
+        assertEq(ChannelLib.lpEthOf(badPrefix), address(0), "prefix must be 0x02 or 0x03");
+        assertEq(ChannelLib.lpEthOf(hex"02"), address(0), "short key must derive nothing");
     }
 }

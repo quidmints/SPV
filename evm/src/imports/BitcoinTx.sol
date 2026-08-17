@@ -333,6 +333,38 @@ library BitcoinTx {
     ///         `y = (x³+7)^((p+1)/4)`, and verify `y² == x³+7`. The verification is what makes
     ///         it a decision rather than a guess — for a non-residue the exponentiation still
     ///         returns a value, it just does not square back.
+    /// (§E183 item 1) THE EVM ADDRESS OF A 33-BYTE COMPRESSED secp256k1 KEY — DERIVED, NOT SUPPLIED.
+    ///
+    /// Bitcoin and Ethereum share secp256k1, so an LP's channel key already determines its EVM
+    /// address; supplying `lpEth` alongside it was asking for a fact the key states. Deriving it is
+    /// what lets `openChannel` drop the LP's ECDSA signature entirely — the goal §E183 item 1 set
+    /// and §E157 did not reach: *prove `Q == KeyAgg(lpPubkey, hopPubkey)` ⇒ `lpPubkey` is proven ⇒
+    /// `lpEth` is DERIVABLE ⇒ the LP signs NOTHING on the EVM.*
+    ///
+    /// ⚠️ **THE ON-CURVE CHECK IS NOT OPTIONAL AND IS NOT DECORATION.** `y` is recovered as a
+    /// modular square root and then VERIFIED (`y*y == ySq`). Skip it and a caller supplies an `x`
+    /// with no square root, gets a junk `y`, and derives an address IT controls — crediting itself
+    /// for someone else's sats. That is the same class §E130 closed for payout keys, arriving
+    /// through the identity side instead.
+    ///
+    /// Returns `address(0)` on any malformed input so the caller decides the revert. Costs one
+    /// square-and-multiply (~256 `mulmod`s), which is noise beside the ~631k of the KeyAgg gate
+    /// this open already pays.
+    function evmAddressOfCompressed(bytes memory compressed) internal pure returns (address) {
+        if (compressed.length != 33) return address(0);
+        uint8 prefix = uint8(compressed[0]);
+        if (prefix != 0x02 && prefix != 0x03) return address(0);
+        uint256 x;
+        assembly { x := mload(add(compressed, 33)) }   // 32 length + 1 prefix byte
+        if (x == 0 || x >= FIELD_SIZE) return address(0);
+        uint256 ySq = addmod(mulmod(mulmod(x, x, FIELD_SIZE), x, FIELD_SIZE), 7, FIELD_SIZE);
+        uint256 y = _modExp(ySq, SQRT_POWER);
+        if (mulmod(y, y, FIELD_SIZE) != ySq) return address(0);   // x has no square root: not a key
+        // The prefix names the parity of `y`; the root we computed may be the other one.
+        if ((y & 1) != (uint256(prefix) & 1)) y = FIELD_SIZE - y;
+        return address(uint160(uint256(keccak256(abi.encodePacked(x, y)))));
+    }
+
     function isValidXOnlyKey(bytes32 xOnly) public pure returns (bool) {
         uint256 x = uint256(xOnly);
         if (x == 0 || x >= FIELD_SIZE) return false;

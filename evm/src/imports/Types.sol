@@ -165,14 +165,21 @@ library Types {
     /// because `ECDSA.recover` RETURNS a signer while ERC-1271 can only CONFIRM one; supplying
     /// `lpEth` explicitly (as the `For` variant already did) removes the asymmetry that forced two.
     struct OpenAuth {
-        address lpEth;         // the position's owner — supplied, then authenticated against lpSig
         bytes32 btcRecipient;  // x-only P2TR payout key, pinned + locked at open
-        bytes   lpSig;
         /// (E138) BIP-340 signature BY `btcRecipient` over `btcRecipientPoPDigest(lpEth)`.
-        /// `_registerBtcRecipient` proves the key is ON THE CURVE (§E130), never that the LP
+        /// `_registerBtcRecipient` proves the key is ON THE CURVE (§E130), never that the holder
         /// CONTROLS it — and close, splice-out and the dead-man exit ALL pin to it, so a wrong
         /// key takes every escape at once and is found only after the sats are gone.
-        bytes   btcRecipientPoP;         // over `openAuthDigest(hop, btcRecipient, fundingTxId, fundingVout)`
+        ///
+        /// 🔑 (§E183 item 1) THIS IS NOW THE ONLY LP CONSENT IN THE OPEN, AND IT IS A BITCOIN
+        /// SIGNATURE. `lpEth` and `lpSig` are DELETED: the address is derived from `p.lpPubkey`
+        /// (`ChannelLib.lpEthOf`) rather than supplied, and the EVM signature that used to bind
+        /// the submitter and the payout is redundant — `_onlyHop()` binds the first (§E185) and
+        /// this PoP binds the second, because its digest COMMITS TO `lpEth`. The LP therefore
+        /// signs nothing on the EVM, which is what item 1 asked for.
+        /// ⚠️ The previous comment here said this signature was "over `openAuthDigest(hop, …)`".
+        /// It never was: `_requireRecipientPoP` verifies it over `btcRecipientPoPDigest(lpEth)`.
+        bytes   btcRecipientPoP;
     }
 
     /// @notice (E156) The pre-signed dead-man exit that ARMS a channel — supplied at `openChannel`

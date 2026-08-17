@@ -110,13 +110,10 @@ contract VBtcLevFeeLane is AllesFixture {
     function _openWithConsent(
         BTCChannels ch_, Types.OpenParams memory p_, bytes memory fundingTx_, uint seed_
     ) private returns (bytes32 cid) {
-        (address lpEth_, uint lpPk_) =
-            makeAddrAndKey(string(abi.encodePacked("btc-lp-", seed_)));
+        address lpEth_ = _lpEthOfLabel(_label(seed_));
         bytes32 payout_ = payoutKeyOnly(abi.encode(seed_));
         _btcChannels = address(ch_);
-        Types.OpenAuth memory auth_ = Types.OpenAuth({
-            lpEth: lpEth_, btcRecipient: payout_,
-            lpSig: _signOpen(lpPk_, ch_.openAuthDigest(makeAddr("hop"), payout_)),
+        Types.OpenAuth memory auth_ = Types.OpenAuth({ btcRecipient: payout_,
             btcRecipientPoP: _popFor(payout_, lpEth_)});
         // (E128) A REAL signed exit for the funding tx this call is about to prove. Built BEFORE
         // the prank so the FFI round-trip cannot consume it.
@@ -163,7 +160,7 @@ contract VBtcLevFeeLane is AllesFixture {
         // whose aggregate secret we hold.
         bytes memory hopKey_;
         (lpPubkey, hopKey_, ) = ownedChannelKeys(_label(seed));
-        (lpEth, ) = makeAddrAndKey(string(abi.encodePacked("btc-lp-", seed)));
+        lpEth = _lpEthOfLabel(_label(seed));
 
         Types.OpenParams memory p;
         bytes memory fundingTx;
@@ -229,7 +226,7 @@ contract VBtcLevFeeLane is AllesFixture {
         // whose aggregate secret we hold.
         bytes memory hopKey_;
         (lpPubkey, hopKey_, ) = ownedChannelKeys(_label(seed));
-        (address lpEth, uint lpPk) = makeAddrAndKey(string(abi.encodePacked("btc-lp-", seed)));
+        address lpEth = _lpEthOfLabel(_label(seed));
         bytes memory spk = buildTaprootFundingSpk(lpPubkey, hopKey_);
         bytes memory fundingTx = abi.encodePacked(
             hex"02000000", hex"01", bytes32(0), hex"00000000", hex"00", hex"ffffffff",
@@ -365,10 +362,10 @@ contract VBtcLevFeeLane is AllesFixture {
 
     /// The LP's consent to THIS rotation. Domain tag `rekey.v1`, so a `splice.v1` signature over
     /// the same arguments is not accepted here — that separation is the point of the tag.
-    function _signRekey(uint pk, address ch, bytes32 cid, Types.OpenParams memory p, bytes memory tx_)
-        internal view returns (bytes memory)
+    function _signRekey(string memory label, address ch, bytes32 cid, Types.OpenParams memory p, bytes memory tx_)
+        internal returns (bytes memory)
     {
-        return _signOpen(pk, keccak256(abi.encode(
+        return _lpSign(label, keccak256(abi.encode(
             keccak256("BTCChannels.rekey.v1"), block.chainid, ch, cid,
             keccak256(tx_), keccak256(abi.encode(p)))));
     }
@@ -385,7 +382,7 @@ contract VBtcLevFeeLane is AllesFixture {
         bytes   oldHop;     // the hop key pinned at open
         bytes   newHop;     // the hop key being rotated in
         uint    sats;
-        uint    signerPk;   // whoever signs the consent — deliberately not always the LP
+        string  signerLabel; // whose CHANNEL key signs the consent — deliberately not always the LP's
         // (§E233-ladder) The fresh ladder's provenance. A rekey rotates the outpoint AND the aggregate, so
         // its rungs must be signed under the MIXED pair (this channel's LP half, the INCOMING hop
         // half) — which is what `signedExitFull` takes two labels for. `lpLabel` is the seed label
@@ -405,7 +402,7 @@ contract VBtcLevFeeLane is AllesFixture {
     function _submitRekey(BTCChannels ch, RekeyCase memory c, bool expectRevert_) internal {
         bytes memory tx_ = _buildRekey(c.ftx, c.lpPubkey, c.newHop, c.sats);
         Types.OpenParams memory p = _rekeyParams(c.lpPubkey, c.newHop, c.sats);
-        bytes memory sig = _signRekey(c.signerPk, address(ch), c.cid, p, tx_);
+        bytes memory sig = _signRekey(c.signerLabel, address(ch), c.cid, p, tx_);
         // (§E233-ladder) THE LADDER IS CHOSEN BY WHETHER ARMING IS REACHABLE, and that is a statement
         // about the contract, not a convenience. All three rejection cases are refused by
         // `_authorizeRekey`/`_applySplice`, i.e. strictly upstream of `_armLadder`, so a
@@ -424,9 +421,6 @@ contract VBtcLevFeeLane is AllesFixture {
         ch.rekey(c.cid, p, c.oldHop, tx_, new bytes32[](0), sig, exits_);
     }
 
-    function _lpPkFor(uint seed) internal returns (uint pk) {
-        ( , pk) = makeAddrAndKey(string(abi.encodePacked("btc-lp-", seed)));
-    }
 
     /// 🔴 (§E233-ladder) THE DEFECT THIS EXISTS TO CATCH: a splice rotated the funding outpoint, every rung
     /// pre-signed at open became a spend of a SPENT output, and `exitArmedAt[channelId][deadline]`
@@ -474,7 +468,7 @@ contract VBtcLevFeeLane is AllesFixture {
         ( , c.oldHop, ) = ownedChannelKeys(_label(93));
         ( , c.newHop, ) = ownedChannelKeys(_label(94));
         c.sats = 2e6;
-        c.signerPk = _lpPkFor(93);
+        c.signerLabel = _label(93);
         // (§E233-ladder) The rotation must carry a ladder valid under the NEW aggregate, so the fixture
         // needs both halves' provenance and the payout the exit pays. Seed 93 opened the channel.
         // ⚠️ THE ROLE SUFFIX IS PART OF THE LABEL HERE. `signedExitFull` → the generator's
@@ -518,7 +512,7 @@ contract VBtcLevFeeLane is AllesFixture {
         c.sats = 2e6;
         // Signed by the REAL LP, so this cannot pass merely because the signature is bad: the
         // rejection has to come from the pair check.
-        c.signerPk = _lpPkFor(95);
+        c.signerLabel = _label(95);
         assertTrue(keccak256(c.lpPubkey) != keccak256(realLp), "must actually differ");
 
         _submitRekey(ch, c, true);   // ChannelLib.ChannelKeysMismatch
@@ -534,7 +528,7 @@ contract VBtcLevFeeLane is AllesFixture {
         ( , c.oldHop, ) = ownedChannelKeys(_label(97));
         c.newHop = c.oldHop;                 // the "rotation" that rotates nothing
         c.sats = 2e6;
-        c.signerPk = _lpPkFor(97);
+        c.signerLabel = _label(97);
 
         _submitRekey(ch, c, true);   // ChannelLib.RekeyUnchanged
     }
@@ -551,7 +545,7 @@ contract VBtcLevFeeLane is AllesFixture {
         c.sats = 2e6;
         // A WELL-FORMED signature from the wrong key — the hop signing for itself. The rejection
         // must come from WHOSE key it is, not from the signature being malformed.
-        ( , c.signerPk) = makeAddrAndKey("not-the-lp");
+        c.signerLabel = _label(99);   // a REAL channel key, just not this channel's LP
 
         _submitRekey(ch, c, true);   // ChannelLib.InvalidParam
     }

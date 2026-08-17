@@ -3,6 +3,7 @@ pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 import {Types} from "../../src/imports/Types.sol";
+import {ChannelLib} from "../../src/imports/ChannelLib.sol";
 
 interface BTCChannelsLike {
     function setBtcRecipient(bytes32, bytes calldata) external;
@@ -45,6 +46,28 @@ abstract contract ExitFixture is Test {
 
     /// The channel's per-channel funding pubkeys AND their MuSig2/taproot aggregate `Q`, all
     /// derived from secrets this repo owns.
+    /// (§E183 item 1) THE LP'S EVM ADDRESS IS NO LONGER A FREE PARAMETER — it is the EVM address
+    /// of the channel's own secp256k1 key, derived by the contract. Fixtures used to invent one
+    /// with `makeAddrAndKey("btc-lp-<seed>")`, which now disagrees with what `openChannel` derives
+    /// and fails the PoP as `NotPubkeyHash()`. Derive it from the SAME seed's channel key instead.
+    /// (§E183 item 1) An EVM ECDSA signature BY THE CHANNEL KEY of `label`. Since `lpEth` is now
+    /// the address OF that key, anything the contract checks against `lpEth` must be signed with it
+    /// — there is no separate EVM key left to sign with.
+    function _lpSign(string memory label, bytes32 digest) internal returns (bytes memory sig) {
+        string[] memory cmd = new string[](4);
+        cmd[0] = "python3"; cmd[1] = _gen(); cmd[2] = "lpsign"; cmd[3] = label;
+        // the digest is passed hex-encoded; `vm.toString` yields the 0x form the tool accepts
+        string[] memory c = new string[](5);
+        c[0] = cmd[0]; c[1] = cmd[1]; c[2] = cmd[2]; c[3] = label; c[4] = vm.toString(digest);
+        sig = vm.ffi(c);
+        require(sig.length == 65, "lpsign: expected 65-byte r||s||v");
+    }
+
+    function _lpEthOfLabel(string memory label) internal returns (address) {
+        (bytes memory lp33,,) = ownedChannelKeys(label);
+        return ChannelLib.lpEthOf(lp33);
+    }
+
     function ownedChannelKeys(string memory label)
         internal returns (bytes memory lp33, bytes memory hop33, bytes32 q)
     {
@@ -142,8 +165,7 @@ abstract contract ExitFixture is Test {
     function mkAuth(address lpEth, bytes32 payout, bytes memory lpSig)
         internal returns (Types.OpenAuth memory)
     {
-        return Types.OpenAuth({
-            lpEth: lpEth, btcRecipient: payout, lpSig: lpSig,
+        return Types.OpenAuth({ btcRecipient: payout,
             btcRecipientPoP: _popFor(payout, lpEth)});
     }
 

@@ -37,6 +37,38 @@ def _le(v, k):
     return v.to_bytes(k, "little")
 
 
+def _ecdsa_sign_eth(d, digest32):
+    """(E183 item 1) EVM ECDSA (r,s,v) over `digest32` with the LP's CHANNEL key.
+
+    Item 1 made the LP's EVM address the address OF THIS KEY, so anything the contract verifies
+    against `lpEth` -- the E182 rekey consent, for instance -- must be signed by the same secret
+    that holds the Bitcoin half. There is no separate EVM key to reach for any more.
+
+    Deterministic k (not RFC6979, but domain-separated and secret-dependent, which is all a
+    fixture needs), low-s per EIP-2, and v as the parity of R.y adjusted when s is negated.
+    """
+    z = int.from_bytes(digest32, "big")
+    ctr = 0
+    while True:
+        k = int.from_bytes(
+            sha256(d.to_bytes(32, "big") + digest32 + ctr.to_bytes(4, "big")).digest(), "big") % N
+        ctr += 1
+        if k == 0:
+            continue
+        rx, ry = _pt_mul(k, (GX, GY))
+        r = rx % N
+        if r == 0:
+            continue
+        s_ = (pow(k, N - 2, N) * (z + r * d)) % N
+        if s_ == 0:
+            continue
+        parity = ry & 1
+        if s_ > N // 2:                     # EIP-2: canonical low-s, which flips the recovery bit
+            s_ = N - s_
+            parity ^= 1
+        return r, s_, 27 + parity
+
+
 def _bip340_sign(d, msg):
     """BIP-340 sign with aux = 32 zero bytes. `d` is the secret for the EVEN-Y point."""
     px, py = _pt_mul(d, (GX, GY))
@@ -123,6 +155,14 @@ def _cli():
         d_lp, lp33 = channel_keypair(f"{a[1]}-lp")
         d_hop, hop33 = channel_keypair(f"{a[2]}-hop")
         print("0x" + (lp33 + hop33 + taproot_2of2_output_key(lp33, hop33)).hex())
+        return True
+    if a and a[0] == "lpsign":
+        # (E183 item 1) An EVM ECDSA signature by the LP's CHANNEL key over a digest the contract
+        # will verify against the DERIVED `lpEth`. Returns 0x<r32><s32><v1>.
+        _, label, digest_hex = a
+        d, _pk = channel_keypair(f"{label}-lp")
+        r, s_, v = _ecdsa_sign_eth(d, bytes.fromhex(digest_hex[2:] if digest_hex.startswith("0x") else digest_hex))
+        print("0x" + r.to_bytes(32, "big").hex() + s_.to_bytes(32, "big").hex() + bytes([v]).hex())
         return True
     if a and a[0] == "payoutpop":
         # (E138) An OWNED payout key plus a BIP-340 proof-of-possession over the contract's

@@ -76,7 +76,7 @@ pub fn keys_hash(lp_pubkey: &[u8; 33], hop_pubkey: &[u8; 33]) -> [u8; 32] {
 
 pub const SIG_OPEN_CHANNEL: &str =
     "openChannel((bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32[],\
-(address,bytes32,bytes,bytes),(uint64[],bytes[],uint64,uint256,bytes)[])";
+(bytes32,bytes),(uint64[],bytes[],uint64,uint256,bytes)[])";
 pub const SIG_SPLICE: &str =
     "splice(bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32[],\
 (uint64[],bytes[],uint64,uint256,bytes)[])";
@@ -480,26 +480,30 @@ pub struct OpenParams {
 /// (E157/E138) `Types.OpenAuth` — the LP's consent, carried BY the open instead of
 /// pre-registered. `registerDelegation` is GONE; this replaced it.
 ///
-/// `lp_sig` is checked with `SignatureChecker`, so one path serves EOAs (ECDSA) and smart
-/// wallets (ERC-1271). `btc_recipient_pop` is a BIP-340 signature BY `btc_recipient` over
+/// ⛔ (§E183 item 1) `lp_sig` IS DELETED, and with it the ERC-1271 path this line described.
+/// The contract derives `lpEth` from `p.lp_pubkey`, so an LP is necessarily the EOA of its own
+/// channel key and a smart-wallet LP is no longer expressible — a deliberate narrowing, not an
+/// oversight. `btc_recipient_pop` is a BIP-340 signature BY `btc_recipient` over
 /// `btcRecipientPoPDigest(lpEth)` — §E138 added it because registration proved the payout
 /// key was ON THE CURVE but never that the LP CONTROLLED it, and close, splice-out and the
 /// dead-man exit all pin to it, so a wrong key loses every escape at once.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct OpenAuth {
-    pub lp_eth: Address,
     pub btc_recipient: [u8; 32],
-    pub lp_sig: Vec<u8>,
     pub btc_recipient_pop: Vec<u8>,
 }
 
 impl OpenAuth {
-    /// `(address,bytes32,bytes,bytes)` in `Types.OpenAuth` field order.
+    /// `(bytes32,bytes)` in `Types.OpenAuth` field order.
+    ///
+    /// (§E183 item 1) `lp_eth` and `lp_sig` are GONE. The contract DERIVES the LP's address from
+    /// `p.lp_pubkey` — Bitcoin and the EVM share secp256k1, so the channel key already states it —
+    /// and the ECDSA signature that used to bind the submitter and the payout is redundant:
+    /// `_onlyHop()` binds the first and this PoP binds the second, since its digest commits to the
+    /// derived `lpEth`. The LP therefore signs nothing EVM-shaped at open.
     pub fn tokens(&self) -> Vec<Tok> {
         vec![
-            Tok::Address(self.lp_eth),
             Tok::FixedBytes32(self.btc_recipient),
-            Tok::Bytes(self.lp_sig.clone()),
             Tok::Bytes(self.btc_recipient_pop.clone()),
         ]
     }
@@ -1047,9 +1051,7 @@ pub async fn build_splice_params(
 #[cfg(test)]
 fn t_auth() -> OpenAuth {
     OpenAuth {
-        lp_eth: Address::repeat_byte(0xCC),
         btc_recipient: [0x11u8; 32],
-        lp_sig: vec![0x22u8; 65],
         btc_recipient_pop: vec![0x33u8; 64],
     }
 }
@@ -1566,10 +1568,12 @@ mod proptests {
             lp in proptest::array::uniform20(any::<u8>()),
         ) {
             let proof = vec![[0xABu8; 32]; proof_len];
-            // `lp` is USED, not dropped: it was generated and then ignored, so this property
-            // held the LP address fixed at `t_auth()`'s 0xCC while claiming to fuzz the open.
-            // Threading it in is what makes the generator mean anything.
-            let auth = OpenAuth { lp_eth: Address::from(lp), ..t_auth() };
+            // (§E183 item 1) THE LP ADDRESS IS NO LONGER AN INPUT TO FUZZ. It used to be
+            // `OpenAuth.lp_eth`, and a previous fix threaded the generator in because the property
+            // had been holding it fixed while claiming to fuzz it. The contract now DERIVES it from
+            // `p.lp_pubkey`, which `arb_open_params()` already varies — so the LP identity is still
+            // fuzzed, one field further up. Dropping the generator here is not losing coverage.
+            let auth = t_auth();
             let cd = encode_open_channel(&p, &raw, &proof, &auth, &t_exits());
             prop_assert_eq!(&cd[..4], &keccak256(
                 SIG_OPEN_CHANNEL

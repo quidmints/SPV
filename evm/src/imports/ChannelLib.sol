@@ -526,6 +526,13 @@ library ChannelLib {
     /// `keysHash` and `lpEth` are passed BY VALUE rather than read through a storage pointer: the
     /// library then has no dependency on `BTCChannels`' storage LAYOUT, which is the coupling that
     /// made the dust monitor fragile (`Core` slot-order note in CLAUDE.md).
+    /// (§E183 item 1) External face for `BitcoinTx.evmAddressOfCompressed`, so the square-root
+    /// derivation deploys with THIS library rather than inside the size-constrained `BTCChannels`.
+    /// Same reason `rekeyAuthBody` lives here.
+    function lpEthOf(bytes calldata lpPubkey) external pure returns (address) {
+        return BitcoinTx.evmAddressOfCompressed(lpPubkey);
+    }
+
     function rekeyAuthBody(
         bytes32 channelId,
         Types.OpenParams calldata p,      // the NEW pair

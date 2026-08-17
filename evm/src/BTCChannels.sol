@@ -931,7 +931,12 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // `openChannelBody` SPV-proves + taproot byte-matches (0x5120||Q) the funding, and
         // `btcRecipient` is pinned here as the sole payout — so no hop can redirect funds.
         _onlyHop();   // (E185) a real gate; this line used to be a no-op registry check
-        address lpEth = auth.lpEth;
+        // (§E183 item 1) DERIVED FROM THE CHANNEL KEY, NOT SUPPLIED. Bitcoin and the EVM share
+        // secp256k1, so `p.lpPubkey` already states the LP's address; taking it as a parameter was
+        // accepting a fact the key proves. The KeyAgg gate below binds `p.lpPubkey` to the
+        // SPV-proven funding output, so a hop can only ever be credited for sats it truly funded
+        // under a key it controls. `address(0)` = malformed or off-curve key.
+        address lpEth = ChannelLib.lpEthOf(p.lpPubkey);
         if (lpEth == address(0)) revert InvalidParam();
         // ONE OPEN CHANNEL PER lpEth (see hasOpenBtcChannel): a 2nd open for an LP
         // that already has one would form the aggregate position the per-channel
@@ -944,10 +949,13 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // already gives for sitting after the merkle proof: both must pass, and the order decides
         // only what a FAILING open pays. `SignatureChecker` serves BOTH LP kinds, so the
         // EOA/smart-wallet entrypoint split is gone with the standing registration that forced it.
-        if (!SignatureChecker.isValidSignatureNow(lpEth,
-                openAuthDigest(msg.sender, auth.btcRecipient),
-                auth.lpSig))
-            revert InvalidParam();
+        // ⛔ (§E183 item 1) THE LP'S ECDSA SIGNATURE IS DELETED — the LP now signs NOTHING on the
+        // EVM, which is what item 1 asked for and §E157 did not deliver. It bound two things and
+        // BOTH are carried elsewhere now: the SUBMITTER, by `_onlyHop()` above (§E185) — one of two
+        // immutable addresses, so the replay-through-another-submitter attack is unreachable; and
+        // the PAYOUT SCRIPT, by the BIP-340 proof-of-possession below, whose digest
+        // `btcRecipientPoPDigest(lpEth)` ALREADY COMMITS TO `lpEth` (§E138). A hop therefore cannot
+        // pair a recipient it controls with another LP's funding — the PoP names whose payout it is.
         // Pin + LOCK the payout — the sole destination recordClose/_withdrawalPayout will enforce.
         if (btcRecipientLocked[lpEth] && btcRecipientOf[lpEth] != auth.btcRecipient)
             revert WrongBtcRecipient();

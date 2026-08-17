@@ -6,6 +6,7 @@ import {ExitFixture} from "./btc/ExitFixture.sol";
 import {Basket} from "../src/Basket.sol";
 import {BTCChannels} from "../src/BTCChannels.sol";
 import {Types} from "../src/imports/Types.sol";
+import {ChannelLib} from "../src/imports/ChannelLib.sol";
 import {BitcoinTx} from "../src/imports/BitcoinTx.sol";
 
 /// @notice STRESS the close-path QUID mint in `Vault._resize` (the deferred
@@ -78,13 +79,13 @@ contract BtcLpMintStress is AllesFixture {
     /// stack. House fix is a frame, never `via_ir`.
     function _submitOpen(
         BTCChannels ch, Types.OpenParams memory p, bytes memory fundingTx,
-        address lpEth, uint lpPk, uint seed, bytes32 fundingTxId
+        address lpEth, uint seed, bytes32 fundingTxId
     ) private returns (bytes32 cid) {
         // REALISTIC (post-taproot): btcRecipientOf = the LP's SHUTDOWN key — a full 32-byte x-only
         // taproot key DISTINCT from the funding key material, exactly as production separates the
         // per-channel MuSig2 funding key from the wallet's stable external-0 P2TR shutdown key.
         bytes32 payout = payoutKeyOnly(abi.encode(p.lpPubkey));
-        Types.OpenAuth memory auth = _mkAuth(ch, lpEth, lpPk, payout);
+        Types.OpenAuth memory auth = _mkAuth(ch, lpEth, payout);
         // (E128) A REAL signed exit for THIS funding outpoint, built before the prank so the FFI
         // call cannot consume it.
         Types.ExitArming memory arm = _armFor(seed, fundingTxId, p.amountSats, payout);
@@ -94,11 +95,10 @@ contract BtcLpMintStress is AllesFixture {
 
     /// (E157) The LP signs ONCE for THIS channel; the hop submits that consent with the open.
     /// Own frame so `openAuthDigest`'s external call does not consume the caller's prank.
-    function _mkAuth(BTCChannels ch, address lpEth, uint lpPk, bytes32 payout)
+    function _mkAuth(BTCChannels ch, address lpEth, bytes32 payout)
         private returns (Types.OpenAuth memory)
     {
-        return Types.OpenAuth({lpEth: lpEth, btcRecipient: payout,
-            lpSig: _signOpen(lpPk, ch.openAuthDigest(makeAddr("hop"), payout)), btcRecipientPoP: _popFor(payout, lpEth)});
+        return Types.OpenAuth({ btcRecipient: payout, btcRecipientPoP: _popFor(payout, lpEth)});
     }
 
     /// (E128) Own frame — building the arming inline pushed `_open` over the legacy stack, and
@@ -124,13 +124,13 @@ contract BtcLpMintStress is AllesFixture {
         // holding the aggregate secret.
         bytes memory hopPubkey_;
         (lpPubkey, hopPubkey_, ) = ownedChannelKeys(string.concat("mintstress-", vm.toString(seed)));
-        uint lpPk;
-        (lpEth, lpPk) = makeAddrAndKey(string(abi.encodePacked("btc-lp-", seed)));
+        // (§E183 item 1) lpEth is the EVM address OF the channel key now, not a free choice.
+        lpEth = ChannelLib.lpEthOf(lpPubkey);
 
         bytes memory fundingTx;
         Types.OpenParams memory p_;
         (p_, fundingTx, fundingTxId) = _mkFunding(seed, amountSats, lpPubkey, hopPubkey_);
-        channelId = _submitOpen(ch, p_, fundingTx, lpEth, lpPk, seed, fundingTxId);
+        channelId = _submitOpen(ch, p_, fundingTx, lpEth, seed, fundingTxId);
         _hopKeyOf[channelId] = hopPubkey_;
     }
 
@@ -1017,9 +1017,14 @@ contract BtcLpMintStress is AllesFixture {
         // the LP signature (and before the SPV/KeyAgg work), so this must revert on the one-channel
         // rule rather than on consent. If that ordering ever changes this test fails LOUDLY with a
         // different selector, which is the point of asserting the exact one.
-        address lpEth = makeAddr(string(abi.encodePacked("btc-lp-", uint(7))));
-        // A different LP pubkey → a different funding key than channel A's.
-        bytes memory lpPubkeyB = _validCompressedPubkey("different-pk");
+        // (§E183 item 1) THE PREMISE OF THIS TEST CHANGED WITH DERIVED IDENTITY, and the old
+        // shape can no longer express it. It used to pair channel A's SUPPLIED `lpEth` with a
+        // DIFFERENT `lpPubkey`; now `lpEth` IS the address of the pubkey, so a different pubkey is
+        // a different LP by construction and `OneChannelPerLp` correctly does not fire — it failed
+        // on the PoP instead. To still test the rule, the second open must reuse THE SAME CHANNEL
+        // KEY, which is what "the same LP" now means.
+        (bytes memory lpPubkeyB,,) = ownedChannelKeys(string.concat("mintstress-", vm.toString(uint(7))));
+        address lpEth = ChannelLib.lpEthOf(lpPubkeyB);
         bytes memory p2wsh =
             buildTaprootFundingSpk(lpPubkeyB, HOP_PUBKEY);
         bytes memory fundingTx = abi.encodePacked(
@@ -1034,7 +1039,7 @@ contract BtcLpMintStress is AllesFixture {
         // be armed. The auth may be empty here because `OneChannelPerLp` is checked BEFORE both the
         // LP signature and the PoP, which is exactly the ordering this asserts.
         Types.OpenAuth memory emptyAuth_ =
-            Types.OpenAuth({lpEth: lpEth, btcRecipient: bytes32(0), lpSig: "", btcRecipientPoP: ""});
+            Types.OpenAuth({ btcRecipient: bytes32(0), btcRecipientPoP: ""});
         vm.prank(makeAddr("hop"));
         vm.expectRevert(BTCChannels.OneChannelPerLp.selector); // 2nd open for the same lpEth
         ch.openChannel(p, fundingTx, new bytes32[](0), emptyAuth_,
