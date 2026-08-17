@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
@@ -12,13 +11,16 @@ import {IAux} from "./Interfaces.sol";
 
 /// @notice A swap path is a chain of V4 hops sharing an entry stable +
 ///         4626 source vault. The token sequence has length N+1; the
-///         V4 PoolKey chain has length N. The terminal token is always
+///         The terminal token is always
 ///         native ETH (Aux wraps to WETH inside unlockCallback).
 struct SorPath {
     address sourceAsset;
     address sourceVault;          // 4626 vault for the source stable
     address[] tokens;             // length N+1; tokens[0] = source, tokens[N] = address(0) (ETH)
-    PoolKey[] keys;               // length N — V4 swap chain
+    // §V4-ZERO — `PoolKey[] keys` DELETED, and it was the LAST v4 symbol in src/. It encoded the
+    // Uniswap-v4 hop chain that `unlockBody` walked; with routing on `_v3Route` (which discovers its
+    // own path at call time) nothing read it, and its only remaining use was being REVERSED in
+    // `_reversePath` to fill itself. A field whose sole consumer is its own mirror image.
     address output;               // always address(WETH); Aux wraps the ETH terminal
 }
 
@@ -93,7 +95,8 @@ library SOR {
         uint amountIn, address recipient, uint minOut
     ) external returns (uint amountOut) {
         SorPath memory p = abi.decode(encodedPath, (SorPath));
-        if (p.tokens.length != p.keys.length + 1) revert PathShape();
+        // §V4-ZERO — the `tokens == keys + 1` shape check went with `keys`. V3 routes from the
+        // endpoints, so a hop-count invariant has nothing left to constrain.
         amountOut = _v3Route(p.sourceAsset, p.output, amountIn, recipient, minOut);
         if (amountOut < minOut) revert Slippage();
     }
@@ -232,13 +235,10 @@ library SOR {
     ///      stable (isStableTerm), and mark SELF_FUNDED (the caller brought the WETH; skip the 4626 redeem).
     function _reversePath(SorPath memory p, address weth, address targetStable) internal pure returns (bytes memory) {
         uint nT = p.tokens.length;
-        uint nK = p.keys.length;
         address[] memory toks = new address[](nT);
-        PoolKey[] memory ks = new PoolKey[](nK);
         for (uint i; i < nT; i++) toks[i] = p.tokens[nT - 1 - i];   // [stable,..,ETH] -> [ETH,..,stable]
-        for (uint i; i < nK; i++) ks[i] = p.keys[nK - 1 - i];       // key chain reversed
         return abi.encode(SorPath({
-            sourceAsset: weth, sourceVault: SELF_FUNDED, tokens: toks, keys: ks, output: targetStable }));
+            sourceAsset: weth, sourceVault: SELF_FUNDED, tokens: toks, output: targetStable }));
     }
 
     /// @dev Path pick in its own frame (the loop would overflow sorAuxSwapBody's legacy stack).

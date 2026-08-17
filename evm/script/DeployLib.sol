@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {PoolKey} from "v4-core/src/types/PoolKey.sol";
-import {Currency} from "v4-core/src/types/Currency.sol";
-import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 
 import {Vogue} from "../src/Vogue.sol";
 import {OracleLib} from "../src/imports/OracleLib.sol";
@@ -307,28 +304,22 @@ library DeployLib {
         _btcPaths(cfg, paths);
     }
 
-    /// @dev A V4 PoolKey with sorted currencies + given (fee, tickSpacing), no hooks.
-    function _pk(address c0, address c1, uint24 fee, int24 tickSpacing)
-        private pure returns (PoolKey memory)
-    {
-        return PoolKey({
-            currency0: Currency.wrap(c0), currency1: Currency.wrap(c1),
-            fee: fee, tickSpacing: tickSpacing, hooks: IHooks(address(0))
-        });
-    }
+    // §V4-ZERO — `_pk` DELETED with the last `PoolKey`. It built a v4 pool key for `SorPath.keys`,
+    // the hop chain `unlockBody` walked. Routing is `_v3Route` now, which discovers its own path at
+    // call time, so the deploy-time encoding had nothing left to encode.
 
     /// @dev WETH-terminal SOR paths (arbETH iterates these). Fees/tickSpacings are
     ///      the deployer-verified mainnet pool params (USDe/USDT=45/1, USDC/USDT=8/1,
     ///      DAI/USDT=68/1, USDT/USDS=5/1, ETH/USDT=500/10, USDC/ETH=500/10).
     function _ethPaths(StackConfig memory cfg, bytes[] memory paths) private pure {
         paths[0] = _hop2(cfg.usdc, cfg.morphoUsdcVault,
-            _pk(cfg.usdc, cfg.usdt, 8, 1), _pk(address(0), cfg.usdt, 500, 10), cfg.usdt, cfg.weth);
+            _pk(address(0), cfg.usdt, 500, 10), cfg.usdt, cfg.weth);
         paths[1] = _hop2(cfg.usds, cfg.morphoUsdsVault,
-            _pk(cfg.usdt, cfg.usds, 5, 1), _pk(address(0), cfg.usdt, 500, 10), cfg.usdt, cfg.weth);
+            _pk(address(0), cfg.usdt, 500, 10), cfg.usdt, cfg.weth);
         paths[2] = _hop2(cfg.dai, cfg.sdai,
-            _pk(cfg.dai, cfg.usdt, 68, 1), _pk(address(0), cfg.usdt, 500, 10), cfg.usdt, cfg.weth);
+            _pk(address(0), cfg.usdt, 500, 10), cfg.usdt, cfg.weth);
         paths[3] = _hop2(cfg.usde, cfg.susde,
-            _pk(cfg.usde, cfg.usdt, 45, 1), _pk(address(0), cfg.usdt, 500, 10), cfg.usdt, cfg.weth);
+            _pk(address(0), cfg.usdt, 500, 10), cfg.usdt, cfg.weth);
         paths[4] = _hop1(cfg.usdt, cfg.morphoUsdtVault, _pk(address(0), cfg.usdt, 500, 10), cfg.weth);
         paths[5] = _hop1(cfg.usdc, cfg.morphoUsdcVault, _pk(address(0), cfg.usdc, 500, 10), cfg.weth);
     }
@@ -336,94 +327,80 @@ library DeployLib {
     /// @dev WBTC-terminal SOR paths (arbBTC iterates these), cheapest first
     ///      (USDC/WBTC=3000/60, ETH/WBTC=3000/60).
     function _btcPaths(StackConfig memory cfg, bytes[] memory paths) private pure {
-        paths[6] = _hop1B(cfg.usdc, cfg.morphoUsdcVault, _pk(cfg.wbtc, cfg.usdc, 3000, 60), cfg.wbtc);
+        paths[6] = _hop1B(cfg.usdc, cfg.morphoUsdcVault, cfg.wbtc);
         paths[7] = _hop2B(cfg.usdc, cfg.morphoUsdcVault,
             _pk(address(0), cfg.usdc, 500, 10), _pk(address(0), cfg.wbtc, 3000, 60), cfg.wbtc);
         paths[8] = _hop2B(cfg.usdt, cfg.morphoUsdtVault,
             _pk(address(0), cfg.usdt, 500, 10), _pk(address(0), cfg.wbtc, 3000, 60), cfg.wbtc);
         paths[9] = _hop3B(cfg.usds, cfg.morphoUsdsVault,
-            _pk(cfg.usdt, cfg.usds, 5, 1), _pk(address(0), cfg.usdt, 500, 10),
+            _pk(address(0), cfg.usdt, 500, 10),
             _pk(address(0), cfg.wbtc, 3000, 60), cfg.usdt, cfg.wbtc);
         paths[10] = _hop3B(cfg.dai, cfg.sdai,
-            _pk(cfg.dai, cfg.usdt, 68, 1), _pk(address(0), cfg.usdt, 500, 10),
+            _pk(address(0), cfg.usdt, 500, 10),
             _pk(address(0), cfg.wbtc, 3000, 60), cfg.usdt, cfg.wbtc);
         paths[11] = _hop3B(cfg.usde, cfg.susde,
-            _pk(cfg.usde, cfg.usdt, 45, 1), _pk(address(0), cfg.usdt, 500, 10),
+            _pk(address(0), cfg.usdt, 500, 10),
             _pk(address(0), cfg.wbtc, 3000, 60), cfg.usdt, cfg.wbtc);
     }
 
     /// @dev 2-hop path: sourceStable → USDT → ETH (native, wrapped at Aux).
     function _hop2(address sourceStable, address sourceVault,
-                   PoolKey memory firstHop, PoolKey memory ethUsdtHop,
                    address usdt, address weth) private pure returns (bytes memory)
     {
-        PoolKey[] memory keys = new PoolKey[](2);
-        keys[0] = firstHop; keys[1] = ethUsdtHop;
         address[] memory tokens = new address[](3);
         tokens[0] = sourceStable; tokens[1] = usdt; tokens[2] = address(0);
         return abi.encode(SorPath({
             sourceAsset: sourceStable, sourceVault: sourceVault,
-            tokens: tokens, keys: keys, output: weth
+            tokens: tokens, output: weth
         }));
     }
 
     /// @dev 1-hop path: sourceStable → ETH directly.
-    function _hop1(address sourceStable, address sourceVault, PoolKey memory ethUsdtHop, address weth)
+    function _hop1(address sourceStable, address sourceVault, address weth)
         private pure returns (bytes memory)
     {
-        PoolKey[] memory keys = new PoolKey[](1);
-        keys[0] = ethUsdtHop;
         address[] memory tokens = new address[](2);
         tokens[0] = sourceStable; tokens[1] = address(0);
         return abi.encode(SorPath({
             sourceAsset: sourceStable, sourceVault: sourceVault,
-            tokens: tokens, keys: keys, output: weth
+            tokens: tokens, output: weth
         }));
     }
 
     /// @dev 1-hop BTC path: sourceStable → WBTC directly (e.g. USDC/WBTC).
-    function _hop1B(address sourceStable, address sourceVault, PoolKey memory stableWbtcHop, address wbtc)
+    function _hop1B(address sourceStable, address sourceVault, address wbtc)
         private pure returns (bytes memory)
     {
-        PoolKey[] memory keys = new PoolKey[](1);
-        keys[0] = stableWbtcHop;
         address[] memory tokens = new address[](2);
         tokens[0] = sourceStable; tokens[1] = wbtc;
         return abi.encode(SorPath({
             sourceAsset: sourceStable, sourceVault: sourceVault,
-            tokens: tokens, keys: keys, output: wbtc
+            tokens: tokens, output: wbtc
         }));
     }
 
     /// @dev 2-hop BTC path: sourceStable → ETH → WBTC.
-    function _hop2B(address sourceStable, address sourceVault,
-                    PoolKey memory stableEthHop, PoolKey memory ethWbtcHop, address wbtc)
+    function _hop2B(address sourceStable, address sourceVault, address wbtc)
         private pure returns (bytes memory)
     {
-        PoolKey[] memory keys = new PoolKey[](2);
-        keys[0] = stableEthHop; keys[1] = ethWbtcHop;
         address[] memory tokens = new address[](3);
         tokens[0] = sourceStable; tokens[1] = address(0); tokens[2] = wbtc;
         return abi.encode(SorPath({
             sourceAsset: sourceStable, sourceVault: sourceVault,
-            tokens: tokens, keys: keys, output: wbtc
+            tokens: tokens, output: wbtc
         }));
     }
 
     /// @dev 3-hop BTC path: sourceStable → USDT → ETH → WBTC.
-    function _hop3B(address sourceStable, address sourceVault,
-                    PoolKey memory stableUsdtHop, PoolKey memory usdtEthHop,
-                    PoolKey memory ethWbtcHop, address usdt, address wbtc)
+    function _hop3B(address sourceStable, address sourceVault, address usdt, address wbtc)
         private pure returns (bytes memory)
     {
-        PoolKey[] memory keys = new PoolKey[](3);
-        keys[0] = stableUsdtHop; keys[1] = usdtEthHop; keys[2] = ethWbtcHop;
         address[] memory tokens = new address[](4);
         tokens[0] = sourceStable; tokens[1] = usdt;
         tokens[2] = address(0);   tokens[3] = wbtc;
         return abi.encode(SorPath({
             sourceAsset: sourceStable, sourceVault: sourceVault,
-            tokens: tokens, keys: keys, output: wbtc
+            tokens: tokens, output: wbtc
         }));
     }
 }
