@@ -37,7 +37,7 @@ getRate(WETH, USDC, false)  →  Error -32003: out of gas: gas required exceeds 
 ```
 
 The node refuses at its own 2^24 estimation ceiling. `§E232` independently measured the same call at
-**31,722,803 gas against a 30M block limit** — it iterates all 14 registered DEX oracles and their
+**31,722,803 gas against a 30M block limit**, and I re-ran their test today: **`test_EthUsd_ScalingIsCorrect_andTracksChainlink() (gas: 33,084,355)` — 3 passed, 0 failed.** Three green tests, every one of them over a block — it iterates all 14 registered DEX oracles and their
 connectors, so one "read" is a full multi-venue aggregation executed on-chain. ⚠️ **`cast call`
 RETURNS A VALUE (1906014527), WHICH IS EXACTLY WHY THIS PASSED REVIEW: `eth_call` runs with an
 effectively unbounded gas allowance, so the oracle looks perfectly healthy from a console.**
@@ -68,6 +68,50 @@ us verified that the contract EXISTS and RETURNS THE RIGHT NUMBER. Nobody priced
 `cast call` is not a gas measurement, a green fork test is not a gas measurement, and an address being
 live says nothing about whether invoking it fits in a block. **`cast estimate` costs one second and
 would have caught it at any of the three points.**
+
+---
+
+## 0-CRITICAL-B. 🔴🔴 §E258 — THE v4 CUT TURNED LIMIT ORDERS INTO OPTIONS, SILENTLY
+
+**Owner asked, 2026-08-17: *"you planned a replacement method for outofrange orders that would
+autoexecute them?"* Yes. It was designed, it was the right design, and it was never built — and what
+shipped is the variant I had rejected in writing, in the same paragraph.**
+
+**MEASURED.** `selfManaged` has exactly two kinds of consumer in `evm/src`: `Vogue.outOfRange` /
+`BtcVaultLib.outOfRangeBtc` **create** a position, and `BandLib.pull` **closes** it behind
+`if (position.owner != owner) revert NotOwner()`. **`fillOOR` returns zero hits repo-wide.** Nothing
+consumes a resting order when price crosses it.
+
+Under v4 the PoolManager filled a boundary order automatically as part of any swap that crossed the
+range. `FixedRateFill` is explicitly *"ONE PRICE, NO TRAVERSAL … no tick to cross"* — so **the
+crossing that used to execute these orders no longer happens anywhere.** A boundary order placed
+below spot will not execute when price falls through it; the owner pulls back what they put in.
+
+**THE DESIGN, from 2026-08-13, and it holds up:** *"**fill-on-touch backed by the sorted set**, with
+the poke as the liveness backstop for orders nobody's swap happens to cross. That preserves the
+automatic-fill property, **which is the thing users actually bought**."* Resting orders between the
+old and new price are consumed as part of the fill, findable by price via **`SortedSetLib`
+(`evm/src/imports/SortedSet.sol`) — which already exists**, `Basket` uses it for `perMonth` — with
+gas *"bounded by how many orders lie between old and new price, which for a ±20 bps band and two-tick
+moves is usually **zero**"*, plus a permissionless **`fillOOR(id)`** tipped from the fill. Restated
+on 08-15 as the unification: *"a boundary order is a fill with a limit rate, quoted but not yet
+executed."*
+
+🔴 **WHAT SHIPPED IS THE REJECTED OPTION, and the rejection is in the same paragraph as the choice:**
+*"Claims rather than liquidity … Simplest, but it **stops being a limit order** (no execution
+guarantee at the moment of crossing) and becomes **an option the owner must exercise**."*
+
+⚠️ **WHY IT SURVIVED A FULL QUEUE AUDIT, A DELETIONS SCAN AND A FIVE-DAY TRANSCRIPT SWEEP — and this
+is the part worth carrying: A CAPABILITY REGRESSION LEAVES NO BROKEN SYMBOL TO FIND.** `outOfRange`
+still compiles, still stores, still tests. Every tool I used looks for a name that vanished or a row
+that went stale; **nothing looks for a behaviour that used to be supplied by a dependency you
+deleted.** The v4 rows carefully record what was removed and what replaced it — this is the one thing
+removed with **no replacement built and no row saying so**.
+
+▶️ **AND IT GATES TWO OPEN ITEMS ABOVE.** §E255 puts `oorShares` into `totalSupply`; §E251 wants
+out-of-range BTC mintable as vBTC and lent on Morpho. **Both treat OOR as live inventory.** If those
+orders can never execute, "locked liquidity" is permanently locked rather than resting — and both
+items are pricing a claim with no settlement path. **Settle §E258 before either.**
 
 ---
 
