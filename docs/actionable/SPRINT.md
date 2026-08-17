@@ -1121,7 +1121,7 @@ the summary.
 
 ---
 
-## B0. ✅ CLOSED — THE FLEET NO LONGER BOOTS A VAULT (`99fda5e9`)
+## B0. ✅ CLOSED — THE FLEET NO LONGER BOOTS A VAULT (`99fda5e9`) — **this is `§M1#2`**
 
 **`quid-ln/quid-bridge/src/bin/quid-bridge-daemon.rs:339` still calls
 `quid_bridge::vault::derive_vault_seed(&root_seed)`**, and `vault.rs` still says it in its own
@@ -1843,6 +1843,9 @@ survived) · `§E232-tri` (TriCrypto zero code hits; all four legs on pinned V3 
 | **11** | `§LADDER-REMOVAL` | 🟢 **RESOLVABLE BY EVIDENCE NOW — the ladder STAYS, and B0 is the reason** | The row already retracted itself in full; its "real item" was #1, now closed. Its open half asked whether phase 1b dissolves the ladder's two justifications. **It does the opposite:** vault-less, `run_deadman_exit_heartbeat` does not run, so the ladder is the ONLY escape mechanism left. Close it with that. |
 | **12** | `§LP-SEED-ENTROPY` · `§MSIG-NOT-SAFE` · `§PHASE-ORDER` | 🔴 **owner decisions — blocked on a person** | `§LP-SEED-ENTROPY`: owner says *"it cant be deterministic, we need real randomness"* — the ask is right and the REASON matters, so do not implement it from the shape. |
 | **13** | `B9b-iv` `BandEquityCollapseEchidna` · `B9b-v` one suite baseline | 🟡 / 📌 | The Echidna guard watches a term that no longer exists — keep or delete. The baseline is D1's suite cluster: **one clean run on one commit settles seven rows at once.** |
+| **14** | **`§HANDOFF-2026-08-16-SEED-THREAD` OPEN 1 — an ENCLAVE-HOSTED LP has no recovery path at all** | 🔴 **was in QUEUE only; booked here 2026-08-18** | It correctly gets no export (the backend gate refuses a custody-ready seal) and the fleet's `MigrationAuth` cannot reach it, *"having never been in the fleet's enclave to migrate."* **It needs a migration trust anchor OF ITS OWN.** ⚠️ **`migration.rs` LOOKS like the answer and is not** — `verify_migration_auth` takes the owner set as a PARAMETER against a sealed-config snapshot. Anyone re-deriving this reaches for migration first. 📌 The row's *"or family"* half is retired by the owner's *"no self/family"*; the enclave-hosted-LP half stands. |
+| **15** | **`§HANDOFF-2026-08-16-SEED-THREAD` OPEN 3 — a words-only restore is not a restore** | 🔴 **was in QUEUE only; booked here 2026-08-18** | The seed roots the KEYS; the channel MONITORS (`lp-store.json`, `vault/`) sit in the same data dir and die with the same disk. **Nothing tells an operator to back that directory up, and no test covers restore-then-reconnect.** The backup makes the irreplaceable part recoverable and leaves the replaceable part undone. ⏸️ Do NOT double-file the `PolicyState` cross-reboot reset — that is booked on the `§M1#2-PHASE-2` row. |
+| ~~16~~ | ~~`§HANDOFF…` OPEN 2 — the escape meant to survive a dead LP is not public~~ | ✅ **CLOSED 2026-08-18 by evidence, both halves** | It blocked on *"until the four-entrypoint on-chain arming lands, nobody else can broadcast it"* — **that arming landed** (`d13fde00`, row #1), and its second half (*"a splice rotates the outpoint and invalidates every rung at once"*) went with it. **And the escape IS public:** `event DeadManExitEmitted(..., bytes signedExitTx)` (`:512`) carries the FULLY-SIGNED exit tx and fires from `_armDeadManExit` inside the shared `_armLadder`, so **every rung at all five sites publishes broadcastable bytes on-chain.** Anyone watching can send it after the CLTV. |
 
 ▶️ **THE ORDER, IF YOU WANT ONE:** #2+#5 together (one commitment, and #5 is blocked on #2) → #6
 (cheap, and B0 made it load-bearing) → #11 and #3 are write-ups of conclusions already reached →
