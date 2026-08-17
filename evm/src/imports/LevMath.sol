@@ -36,7 +36,11 @@ import {IMorphoFlash} from "../imports/Interfaces.sol";
 ///         `public` (delegatecall-linked, bytecode OUTSIDE the manager) so the managers fit EIP-170. Only the
 ///         *acquisition/exit rails* differ between assets — the economics don't — so both managers reuse this. Leg
 ///         funcs run in the MANAGER's context (`address(this)`==manager); immutables the manager owns (AUX/volatile)
-///         come in via the cfg structs; every swap routes on CURVE (stableswap + TriCrypto).
+///         come in via the cfg structs. Routing is SPLIT BY LEG TYPE and no longer "all Curve":
+///         the STABLE hops (stable↔USDC) are Curve stableswap, and every VOLATILE hop
+///         (USDC↔WETH, USDC↔WBTC) is a pinned Uniswap V3 pool via `_poolSwap` (§V-R1-MIN).
+///         TriCrypto is GONE from this file — only weETH→WETH (`ETHERFI_CURVE_POOL`) remains
+///         Curve-on-a-volatile-pair, and that is a dedicated LST pool, not a router.
 ///         (The below-entry SHORT / inverse-venue subsystem was removed — up-side-only is the design.)
 library LevMath {
 
@@ -459,9 +463,13 @@ library LevMath {
     ///      This short-circuit makes the lever WETH-LOAN-READY with zero behaviour change while the
     ///      market still lends a stable. Registering a weETH-collateral / WETH-loan market then
     ///      removes both legs by itself.
-    /// @dev Borrowed stable → WETH, ENTIRELY ON CURVE (no Uniswap on this path). Two hops, because the
-    ///      deep dollar markets are RLUSD/PYUSD and the deep volatile book is TriCrypto's USDC leg:
-    ///          stable →(stableswap, int128)→ USDC →(TriCrypto, uint256)→ WETH
+    /// @dev Borrowed stable → WETH. Two hops, because the deep dollar markets are RLUSD/PYUSD
+    ///      while the volatile book is a pinned Uniswap V3 pool:
+    ///          stable →(Curve stableswap, int128)→ USDC →(Uniswap V3, `_poolSwap`)→ WETH
+    /// ⛔ THIS SAID "ENTIRELY ON CURVE (no Uniswap on this path)" UNTIL 2026-08-17, DIRECTLY ABOVE A
+    ///      `_poolSwap` CALL — the exact inverse of the truth, and on the money path. §V-R1-MIN
+    ///      replaced TriCrypto's USDC leg with the pinned pool and the header was never updated.
+    ///      A comment describes past state; this one described a venue the code had stopped using.
     ///      The caller mints the result straight into weETH; WETH never rests as collateral.
     /// ⚠️ THE FLOOR IS ORACLE-DERIVED AND APPLIED TO THE WHOLE ROUTE, not per hop. A per-hop floor
     ///      would let the pair of hops lose more than the stated slippage between them. This is the
@@ -565,7 +573,10 @@ library LevMath {
         return ICurvePool(pool).exchange(iUsdc, iStable, usdcAmt, 0);
     }
 
-    /// @dev stable → WBTC (BTC lev open) and WBTC → stable (close), both via USDC on Curve.
+    /// @dev stable → WBTC (BTC lev open) and WBTC → stable (close), both VIA USDC — and the two
+    ///      hops sit on DIFFERENT venues: stable↔USDC is Curve stableswap, USDC↔WBTC is a pinned
+    ///      Uniswap V3 pool. It read "both via USDC on Curve" until 2026-08-17, which was true of
+    ///      the TriCrypto route this replaced.
     ///      `minOut` is applied on the LAST hop so it bounds the whole route.
     /// @dev §V-R1-MIN — TWO HOPS, AND THE FIRST IS NOT OPTIONAL. The pinned pools are USDC-paired
     ///      (USDC/WETH, WBTC/USDC), so a venue stable that is NOT USDC has no direct pool and the
@@ -587,8 +598,9 @@ library LevMath {
         return out;
     }
 
-    /// @dev WETH → stable (the sell leg's down-leg tail), via USDC on Curve.
-    function _wethToStableCurve(address weth, address stable, uint256 amt, uint256 minOut) internal returns (uint256) {
+    /// @dev WETH → stable (the sell leg's down-leg tail), via USDC: Uniswap V3 on the WETH→USDC
+    ///      hop, Curve stableswap on USDC→stable.
+    function _wethToStable(address weth, address stable, uint256 amt, uint256 minOut) internal returns (uint256) {
         uint256 usdc = _poolSwap(weth, USDC, V3_FEE_WETH, amt, 0);
         uint256 out = _fromUsdc(stable, usdc);
         if (out < minOut) revert Slippage();
@@ -601,11 +613,12 @@ library LevMath {
         if (stable == c.weth) return wethIn;              // loan token IS WETH — nothing to convert
         // (2026-08-16) The `approve(c.aux, wethIn)` that stood here is DELETED. It was vestigial from
         // the pre-`084bc5c` SOR version, where the swap really did go through Aux
-        // (`sorSelfFundedReverse`). `_wethToStableCurve` approves CURVE_TRICRYPTO_USDC itself and
-        // never touches Aux, so the allowance was granted on EVERY de-lever and never consumed —
+        // (`sorSelfFundedReverse`). `_wethToStable` approves the V3 router itself (and zeroes the
+        // allowance after) and never touches Aux, so the grant was made on EVERY de-lever and never
+        // consumed —
         // a standing WETH approval accruing as a side effect of a line that read as necessary.
         // The buy-side twin `_stableToWethSor` never had it: it approves the pool directly.
-        return _wethToStableCurve(c.weth, stable, wethIn, minOut);   // Curve: WETH → USDC → stable
+        return _wethToStable(c.weth, stable, wethIn, minOut);   // V3: WETH→USDC, Curve: USDC→stable
     }
 
     function _stableFloor(SellCtx memory c, address stable, uint256 weethAmt) internal returns (uint256) {

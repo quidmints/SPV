@@ -17,7 +17,7 @@ import {ILevSyncHook} from "./imports/Interfaces.sol";
 
 
 /// @notice weETH↔WETH legs of the leverage swap (stable↔WETH is routed through CURVE —
-///         `LevMath._wethToStableCurve` / `_toUsdc`; it was the basket SOR until 084bc5c).
+///         `LevMath._wethToStable` / `_toUsdc`; it was the basket SOR until 084bc5c).
 ///         UP: MINT weETH via the ether.fi adapter at the fair rate (zero-slippage; never the thin pool).
 ///         DOWN: SELL weETH → WETH on the deep v3 pool (`LevMath._weethToWethDex`, two tiers cheapest-first,
 ///         floored at `getEETHByWeETH` − `SELL_SLIP_BPS`). ⚠️ THE LEGS ARE NOT SYMMETRIC: the up-leg mints at
