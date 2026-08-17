@@ -36,10 +36,20 @@ V4_TOKENS = ["PoolKey", "IPoolManager", "poolManager", "sqrtPrice", "SqrtPrice",
 # The seam: the ONLY Core surface the skew is allowed to read. Each entry is a plain
 # number in our own units, so a replacement PM can back it without inheriting v4's model.
 ALLOWED_SEAM = {
-    "POOLED_ETH", "POOLED_BTC",          # inventory, raw
+    # §ISBTC-SPLIT — `POOLED`, not `POOLED_ETH`/`POOLED_BTC`. The seam did NOT grow: one contract
+    # held both bands, so it needed a name per band; with an instance PER band there is one
+    # `POOLED` and two of it. The old pair is REMOVED rather than kept alongside -- leaving dead
+    # names in an allowlist is how a genuinely new accessor slips through wearing a retired one.
+    "POOLED",                            # inventory, raw
     "flowEwmaUsd",                       # the target
-    "realizedVarianceWad",               # the only one still v4-BACKED (ring via getSlot0)
-    "committedUsd18", "btcBandEquityUsd18",   # shared-scarcity coupling
+    # §V4-ZERO — no longer v4-backed. This read "the only one still v4-BACKED (ring via getSlot0)",
+    # which was true while the observation ring was seeded from a v4 pool's slot0. The ring is
+    # seeded from CHAINLINK (`OracleLib.seedPrices`) and advanced by `_writeObservationPrice`, so
+    # nothing in the seam is v4-backed any more -- the whole point of the gate is now satisfiable.
+    "realizedVarianceWad",
+    # §ISBTC-SPLIT — `bandEquityUsd18`, was `btcBandEquityUsd18`. Same accessor, same units; the
+    # `btc` prefix existed only because ONE contract named the BTC band's figure either way.
+    "committedUsd18", "bandEquityUsd18",      # shared-scarcity coupling
     "recordSkewPremium", "skewPremiumCum",    # the premium ledger
 }
 
