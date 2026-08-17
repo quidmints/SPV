@@ -928,3 +928,46 @@ scrub; and the `USDC` declaration that **unbroke `main`** after its uses shipped
 - **`///` natspec on a file-level constant is a COMPILE ERROR**, not a lint warning.
 - **A shared tree eats uncommitted work** — three sets of edits lost to other threads' `autostash`,
   once *between* a green build and reading its result. **Commit first, verify second.**
+
+## C9. Items PART A/B do NOT cover — added after an audit found them missing
+
+I wrote PART C, then grepped it against every open item this session produced. **Five were absent.**
+Recording that because a sprint doc whose completeness is assumed is worth less than none.
+
+### C9a. 🟡 §E207 — the ring is sized 65535, its sole reader asks for 9
+`Observation[65535]`, and the only consumer is `ringVariance(..., 9)`. Storage is sparse so the unused
+slots cost **nothing at deploy** — do not book this as a size win. The real, mechanical gain is that
+**65535 is not a power of two**, so `% 65535` emits a full `MOD` on the swap hot path where a `[32]`
+ring emits `AND`. ⚠️ **PART A line 308 records `RING 1024 → 256` — so this may already be partly done;
+verify what actually landed before touching it.** Falsifiable: resizing changes **no** observable
+value, since `9 ≤ 32`. If any variance-dependent test moves, the ring has a second consumer nobody
+found.
+
+### C9b. 🟡 §E219/§E231 — Core + Vogue, the numbers PART A's §6 does not carry
+PART A §6 owns the manager merge. What this session measured and it lacks: `Core` **10,073** +
+`Vogue` **21,925** = **31,998, over EIP-170 by 7,422** naively — but the EthVenue fold cost **1,984
+against 3,836 standalone (~52%)**, because a separate contract carries dispatch + interface overhead
+that vanishes. At that ratio ≈ **27,135, over by ~2,559**. ⚠️ **52% is NOT linear** — the saving is
+mostly FIXED overhead, so it is optimistic for large contracts; only doing the fold gives an honest
+number. ⚠️ **`LevManager` + `BtcLevManager`**: 23,753 + 20,617 = **44,370** naively, ≈ **34,416** at
+52%. That sum **double-counts `LevBase`**, which is `abstract` and inlined into BOTH bytecodes.
+Overlap: **16 shared function names, 33 ETH-only, 15 BTC-only**. `LevBase` and `LevVenueBase` are
+**not** duplicates — manager-base vs venue-base, different layers.
+
+### C9c. 🟡 v4-core dependency removal — backed out once as premature
+**11 symbols across 7 files** still need it: `IPoolManager`×3, `PoolKey`×2, `Currency`×2,
+`StateLibrary`, `SafeCallback`, `PoolIdLibrary`, `BalanceDelta`. Order: retire the last
+**`SafeCallback`** user → relocate **`FullMath`** (pure 512-bit math with nothing v4 about it, and it
+pins the whole library on its own) → the pool-shaped types go with the last interfaces. A deletion
+attempt mid-session left the tree uncompilable and was correctly reverted.
+
+### C9d. 🟠 §E196 — the cross-sectional rate filter and per-curator weight cap
+Raised early in this session and **never executed**. The rate estimator became trustworthy only after
+§E155 (dimensionless factor) and §E190 (tranche distortion); a cross-sectional filter over the
+per-stable rates, and a cap on any single curator's weight, were both booked and neither was built.
+
+### C9e. §E226 — `swapFeePpm() = 420` (tagged, since C2 mentions it only in passing)
+It used to MIRROR `k.fee = 420` on the v4 pool key and be harvested by `_handleCollect`. **With v4
+gone the FILL charges it**, so 420 is now a parameter we own and must justify rather than a reflection
+of someone else's tier. It never has been. Belongs with §E227's recalibration, not separate from it.
+
