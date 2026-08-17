@@ -1171,7 +1171,14 @@ naming itself as the LP. It protects the pool credit. **This protects the sats.*
 
 🔴🔴🔴 **REOPENED 2026-08-18 — `main` CARRIES AN UNEXECUTABLE SWAP PATH, AND I CLOSED THIS ITEM WITHOUT MEASURING IT.** The fix's SHAPE is right and its SOURCE is fatal: `Core._observeIfSourced` raw-staticcalls 1inch OffchainOracle `getRate(address,address,bool)` (pinned at `DeployLib.sol:170`, `0x0AdDd25a…`) **on the swap path**. `getRate` iterates all fourteen registered DEX oracles and their connectors — a full multi-venue aggregation, not a quote lookup — **measured at 31,722,803 gas against a 30M block limit**, so every ETH swap and repack exceeds a whole block. ⇒ **REPRODUCED ON `main` 2026-08-18**, running the two suites the refutation names: `SkewCalibration::test_E58_SkewMagnitudeOnAFixedFixture` → `EvmError: OutOfGas`, `VarPrecision::test_E63_WhatCalmTradingMeasures` → `EvmError: ReentrancySentryOOG`. Both FAILED. ⚠️ **HOW IT REACHED `main`: TWO THREADS IMPLEMENTED E222 INDEPENDENTLY.** One landed `1e54a2fc`; the other landed its own `82662f19`, MEASURED the gas, and reverted in `df3c5e13` — on a lineage that never merged. **The refutation exists only on the tag `rescue/E222-revert`.** Divergent lineages do not exchange negative results, and the one that measured is the one that did not ship. ⛔ **AND MY OWN CLOSURE IS THE SECOND HALF OF THE FAILURE.** I marked this ✅ after enumerating the write path — one chain, external source only — which is a proof about SHAPE and says nothing about COST. *A passing test whose gas number exceeds a block is not a pass; it is a design refutation wearing a green tick.* I never ran one. ▶️ **THE VIABLE SOURCE IS ALREADY WRITTEN AND STILL UNWIRED:** `ExternalTwap.curvePriceWad` reads a Curve pool's `price_oracle` — a single storage read of a few thousand gas, a plain WAD price needing no decoding, and a mechanism genuinely independent of Chainlink's pushed feeds. **This is why `ExternalTwap` looks deletable and must not be deleted.**
 
-⛔ **THE TAG `rescue/E222-revert` IS THE ONLY COPY OF THIS REFUTATION — DO NOT DELETE IT UNTIL THE FIX LANDS.**
+✅ **THE REFUTATION IS NOW ON `main` AND THE `rescue/*` TAGS ARE GONE.** It reached this file only
+because three `rescue/*` tags on the remote turned out to hold commits that existed nowhere else —
+which is exactly the hazard of parking work off `main`: **a negative result on a side ref does not
+reach the lineage that shipped.** Before deleting them I checked all three: every `§id` they carry
+exists on `main`, `rescue/E194`'s `SwapLib.sol` is **1,099 lines BEHIND** `main` (a stale lineage, not
+unlanded work), and this refutation was re-derived here from a fresh reproduction rather than copied.
+⇒ **No off-`main` refs. If a result matters, it lands on `main`;** if it does not matter, it does not
+need a ref. The measurement, the mechanism, the cause and the remedy are all above.
 
 ✅ **CLOSED 2026-08-17, BY ANOTHER THREAD, AND ALL THREE PARTS THIS ROW ASKED FOR ARE DONE.**
 `1e54a2fc` wired the ETH ring to 1inch's OffchainOracle (`DeployLib.sol:170`), deleted the self-write,
