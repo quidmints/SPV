@@ -1830,7 +1830,7 @@ survived) · `§E232-tri` (TriCrypto zero code hits; all four legs on pinned V3 
 
 | # | item | state | the blocker, precisely |
 |---|---|---|---|
-| **1** | **`§E233-ladder` — 2 of 5 rotation sites** | 🔴🔴🔴 **FUND-LOSS under B0's default — see D2-ALERT** | A design choice, not effort: the rung must declare its target outpoint so each rotation site becomes one call. Threading more `ExitArming[]` params overflows `_deliverSwapOut`'s stack. **Highest-value Bitcoin item: a splice can still leave a channel escape-less.** |
+| **1** | ~~`§E233-ladder` — 2 of 5 rotation sites~~ | ✅ **CLOSED `d13fde00` — 5/5 arm, verified independently (see D2-ALERT)** | A design choice, not effort: the rung must declare its target outpoint so each rotation site becomes one call. Threading more `ExitArming[]` params overflows `_deliverSwapOut`'s stack. **Highest-value Bitcoin item: a splice can still leave a channel escape-less.** |
 | **2** | **`§T2` terms commitment** (`B2`) | 🔴 **I destroyed the working Solidity** | Design intact, constants preserved: `TERMS = 0xa96ad576…`, `EXPECTED_Q = 0xcd5f8505…`, control = the no-terms leaf must reproduce `0xd0d16740…`. Redo as a **`Terms` struct fold**, not by threading a raw `[u8;32]` through four Rust signatures (that was the slop the owner rejected). |
 | **3** | **`§T3`** (`B3`) | 🟢 **UNGATED 2026-08-18 — the deletion branch is evidenced, see §D4** | The gating question (*does the vault route third-party HTLCs?*) is answered **NO**, structurally: one permitted counterparty, so no forward is constructible. **T3 was never gated on per-channel freshness** — that was the price of the FIX, and the fix addresses a case that cannot arise. Remaining work is to write the deletion up and let it be attacked. |
 | **4** | **`§LN-SWAPIN-REMAINDER` / `§NO-REJECT`** | 🔴 **owner calls it the biggest vulnerability** | The missing piece is **intent EMISSION on shortfall**, not pricing. Route: band → 1inch → Khalani → Perena. Not covered by ROUTING-AGGREGATION. |
@@ -1842,7 +1842,7 @@ survived) · `§E232-tri` (TriCrypto zero code hits; all four legs on pinned V3 
 | **10** | `B9b-iv` `BandEquityCollapseEchidna` · `B9b-v` one suite baseline | 🟡 / 📌 | The Echidna guard now watches a term that no longer exists — keep or delete. The baseline is D1's "suite state" cluster. |
 | **11** | `§LP-SEED-ENTROPY` · `§LADDER-REMOVAL` · `§MSIG-NOT-SAFE` · `§PHASE-ORDER` | 🔴 owner | Blocked on a person. `§LP-SEED-ENTROPY`: owner says *"it cant be deterministic, we need real randomness"* — the ask is right and the REASON matters, so do not implement it from the shape. |
 
-## 🔴🔴🔴 D2-ALERT. **B0 ESCALATED `§E233-ladder` FROM A GAP INTO A FUND-LOSS PATH, AND ONLY THE JOINT READING SHOWS IT**
+## ✅ D2-ALERT — **DISCHARGED 2026-08-18 by `d13fde00`. Kept in full: the escalation was right, and the BLOCKER I attached to it was wrong.**
 
 Found 2026-08-17 while checking a *different* thread's note. **Neither half is new. The interaction is,
 and it was created by this session's own B0 change.**
@@ -1868,6 +1868,27 @@ advance: *"Do NOT 'fix' a `None` vault by deriving the half locally — any code
 the vault signer inside the fleet process re-creates the exact capability this removes."* The design
 intends heartbeat-off; it also says §E165 and this split *"land together"*. **`§E233-ladder`'s
 remaining 2 sites are what makes that pairing incomplete**, so the fix is #1 in D2, not a rollback.
+
+✅ **CLOSED — ALL FIVE ROTATION SITES NOW ARM (`d13fde00`), AND I VERIFIED IT INDEPENDENTLY RATHER
+THAN TAKING THE COMMIT'S WORD.** Enumerated every write that rotates the outpoint —
+`_applySplice:1416-1417` and `_deliverSwapOut:2254-2255`, the only two — against every
+`_armLadder`: `996` open, `1104` splice, `1221` rekey, `1351` park, `2235` delivery. **Two rotations,
+five armings, and the ORDERING checked at the site that could silently fail:**
+`deliverSwapOutOnchain` calls `_deliverSwapOut(...)` FIRST and `_armLadder` after, so the rungs are
+verified against the already-rotated outpoint. Armed before the rotation they would have been
+retired on arrival — a fix that looks identical in a diff and protects nothing.
+
+⛔ **AND THE BLOCKER IN THIS ALERT WAS MINE, AND IT WAS WRONG — IT IS THE ONLY REASON THIS SAT OPEN.**
+I wrote *"do NOT fix by threading a 4th/5th `ExitArming[]` parameter"* and propagated it into this
+file and the queue row. `_deliverSwapOut`'s note — calldata params must go dead before the settlement
+tail — **governs that function's INNER frame**. The rotation is COMPLETE when it returns, so the
+entrypoint takes the ladder in the OUTER frame and arms after. **I generalised "this frame cannot"
+into "this path cannot"**, which is a whole class of error: a real constraint, correctly cited, and
+silently widened past its scope. ⇒ The `ladderArmed`/pre-arm successor design I proposed was never
+needed and was not built — standing rule 17 applied to my own proposal, the root fix made the
+workaround deletable. **Measured: it cost NEGATIVE bytes** (`BTCChannels` 23,276 → 23,209, margin
+1,300 → 1,367), because `_armLadder` reaching five call sites stopped solc inlining it — the opposite
+of the "two more array-decoding entrypoints will cost hundreds" I assumed.
 
 📌 **The method note, because this is the second time today it paid:** both facts sat in the repo,
 each in a row calling itself partly-closed and low-drama. Reading them SERIALLY, each is fine.

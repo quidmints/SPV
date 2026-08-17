@@ -8,6 +8,20 @@ several re-framed two or three times. Detail and evidence still live there and i
 
 ## §E233-ladder — **A ROTATION DESTROYED THE LP'S ESCAPE AND THE FLAG SAID OTHERWISE (2026-08-17). PARTLY FIXED — 3 of 5 sites.**
 
+✅ **CLOSED 2026-08-18 (`d13fde00`) — ALL FIVE ROTATION SITES ARM.** Independently re-audited by
+ASSIGNMENT rather than by call site: the only writes that rotate the outpoint are `_applySplice`
+(`:1416-1417`) and `_deliverSwapOut` (`:2254-2255`); the armings are `:996` open, `:1104` splice,
+`:1221` rekey, `:1351` `parkProvenSats`, `:2235` delivery. **Ordering verified at the one site that
+could fail silently:** `deliverSwapOutOnchain` arms AFTER `_deliverSwapOut` returns, so the rungs
+bind the rotated outpoint — arming first would retire them on arrival and look identical in a diff.
+⛔ **THE ⛔ NOTE THIS ROW CARRIED — "do NOT thread a 4th/5th `ExitArming[]` parameter" — WAS WRONG,
+and it is why this stayed open for a session.** `_deliverSwapOut`'s stack constraint governs its
+INNER frame; the entrypoint takes the ladder in the OUTER frame and arms after the rotation
+completes. A correctly-cited constraint, silently widened past its scope. The `ladderArmed` successor
+design it motivated was never needed. **Cost: −67 bytes** (23,276 → 23,209), because `_armLadder`
+reaching five call sites stopped solc inlining it.
+
+
 🔴🔴🔴 **SEVERITY RAISED 2026-08-17 — THE REMAINING 2 SITES ARE NOW A FUND-LOSS PATH, BECAUSE THE THING
 THAT MASKED THEM WAS TURNED OFF.** `99fda5e9` made the fleet vault-less BY DEFAULT (§M1#2), and
 `run_deadman_exit_heartbeat` **"does not run at all"** without a vault (`deadman_exit.rs:230`), leaving
