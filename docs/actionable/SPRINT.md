@@ -1710,7 +1710,7 @@ survived) · `§E232-tri` (TriCrypto zero code hits; all four legs on pinned V3 
 |---|---|---|---|
 | **1** | **`§E233-ladder` — 2 of 5 rotation sites** | 🔴🔴🔴 **FUND-LOSS under B0's default — see D2-ALERT** | A design choice, not effort: the rung must declare its target outpoint so each rotation site becomes one call. Threading more `ExitArming[]` params overflows `_deliverSwapOut`'s stack. **Highest-value Bitcoin item: a splice can still leave a channel escape-less.** |
 | **2** | **`§T2` terms commitment** (`B2`) | 🔴 **I destroyed the working Solidity** | Design intact, constants preserved: `TERMS = 0xa96ad576…`, `EXPECTED_Q = 0xcd5f8505…`, control = the no-terms leaf must reproduce `0xd0d16740…`. Redo as a **`Terms` struct fold**, not by threading a raw `[u8;32]` through four Rust signatures (that was the slop the owner rejected). |
-| **3** | **`§T3`** (`B3`) | 🔴 inexpressible | Strictly gated on **per-channel freshness** (§2.1). A COST trade, and the owner asked for BOTH branches — the fix and the deletion — to be priced. |
+| **3** | **`§T3`** (`B3`) | 🟢 **UNGATED 2026-08-18 — the deletion branch is evidenced, see §D4** | The gating question (*does the vault route third-party HTLCs?*) is answered **NO**, structurally: one permitted counterparty, so no forward is constructible. **T3 was never gated on per-channel freshness** — that was the price of the FIX, and the fix addresses a case that cannot arise. Remaining work is to write the deletion up and let it be attacked. |
 | **4** | **`§LN-SWAPIN-REMAINDER` / `§NO-REJECT`** | 🔴 **owner calls it the biggest vulnerability** | The missing piece is **intent EMISSION on shortfall**, not pricing. Route: band → 1inch → Khalani → Perena. Not covered by ROUTING-AGGREGATION. |
 | **5** | `§DEPOSIT-VERIFIER-BLOCKED-ON-ITS-OWN-COMMITMENT` | 🔴 ordering bug | **Protocol side must land FIRST.** Client work was audited and is ahead of the contract. Same commitment as #2 — do them together. |
 | **6** | `B4` ladder depth · `B5` lazy `openChannel` | 🟡 never started | `B5`'s earlier ✅ was conditional and is therefore ⏸️, per standing rule 16. |
@@ -1825,3 +1825,54 @@ assertion). `SysRng` would keep it passing while silently discarding that.
 satisfies the bound with no test-only shim. `rand_chacha` is already in the workspace graph
 (`quid-ln/Cargo.toml:425` profile entry) but may need adding as a dev-dependency.
 ⚠️ **UNCOMPILED — quid-ln does not build on macOS (quid-cvm is Linux-only); verify in Docker.**
+
+---
+
+## D4. 🔎 THE UNBOOKED-WORK SWEEP — **three items this thread started were absent from this file, and one of them was the ONLY thing gating `§T3`**
+
+Method that discriminates (unlike the symbol test in D0): **my own commit messages are where I
+confessed unfinished work.** Scanned all 37 commits of session `391df7b6` for admission phrases
+(*"still needs"*, *"next step"*, *"did not reach"*, *"unverified"*, *"TODO"*), then checked each hit
+against this file. **18 admission lines → 3 real items → all 3 missing from SPRINT.**
+
+| item | in QUEUE? | was in SPRINT? |
+|---|---|---|
+| the routed-HTLC check gating `§T3` | yes — **buried in the body of a ✅ row** | **no** |
+| the Alles 22→33 bisect (`8466af45`: *"the fixture is deterministic, so the next step is a bisect"*) | yes — `§MAIN-IS-RED-RECHECKED` | only as part of D1's suite cluster; **the bisect is not named** |
+| LDK's `TODO(dual_funding)` on the acceptor-contributes path | yes | **no** — but ✅ **settled**: `§SECOND-FUNDING-HALF` was closed by owner decision (the phone SIGNS, the daemon FUNDS) |
+
+⚠️ **The first one is the rule-16 failure in the wild.** The check was written into
+`§T3-ENUMERATION-CORRECTED`, a row whose marker is **✅** — so every status scan skipped it, including
+mine in D1. The row's own last sentence says *"it is now the ONLY thing between here and deleting
+T3."* **A ✅ row containing the sentence "what still must be checked" is a contradiction, and it hid
+the gating question of an entire item.**
+
+### ✅ AND THE CHECK IS NOW RUN — the answer is NO, so `§T3`'s DELETION branch is the evidenced one
+
+**Question** (from the row): *does the vault node ever ROUTE THIRD-PARTY HTLCs, as opposed to serving
+swap flow?* A routed forward landing in a settled commitment would move the LP's claim without a
+splice, which is the only way T3's concern survives.
+
+**Answer: it cannot, structurally — the vault has exactly ONE channel counterparty.**
+- `quid-hop/src/event_handler.rs:474-520` — the inbound-channel gate: `if counterparty_node_id !=
+  ctx.lsp_node_pk.0` → **`"rejecting inbound channel from non-LP peer"`**, rejected before any
+  commitment exists. Channels are accepted from the designated counterparty ONLY.
+- `quid-bridge/src/vault.rs:879,901` — the vault only ever *dials* `hop_node_id`.
+- `quid-bridge/src/vault.rs:607` — the hop is *"the counterparty of every vault channel."*
+- **Control run** (the thing that would break the argument): the vault could have used a different
+  event handler without that gate. It does not — `vault.rs:34` imports
+  `quid_hop::event_handler::ChannelLifecycleEvent` and boots via *"the same boot the hop uses"*
+  (`vault.rs:13`), with `lsp_node_pk` from `node::boot` (`node.rs:710,1051`).
+
+⇒ **Forwarding requires an inbound channel from peer A and an outbound to peer B ≠ A. With one
+permitted counterparty there is no B.** No routed forward can move claim without a splice.
+
+▶️ **CONSEQUENCE FOR `B3`/`§T3`:** the owner asked for both branches — fix and deletion — to be
+priced. **This evidences the DELETION branch**, and it means T3 is *not* gated on per-channel
+freshness after all: the freshness cost was the price of the FIX, and the fix is for a case that
+cannot arise. **Do not delete T3 on this note alone** — it is a structural argument from two configs
+and a dial policy, so state it in the deletion commit and let it be attacked.
+⚠️ **What would falsify it, precisely:** a second permitted counterparty (any change to that gate),
+`manually_accept_inbound_channels` handling gaining a second allowed peer, or the vault opening a
+channel to anything but the hop. All three are one-line changes, so **the argument must be re-run if
+`event_handler.rs`'s gate is touched.**
