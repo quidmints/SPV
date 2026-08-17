@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
-import {Currency} from "v4-core/src/types/Currency.sol";
-import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
@@ -25,19 +22,8 @@ struct SorPath {
     address output;               // always address(WETH); Aux wraps the ETH terminal
 }
 
-/// @notice Unlock-callback payload. Aux's `unlockCallback` decodes
-///         this and walks the V4 hop chain. Blacklist-safety invariants
-///         are enforced there: source vault redeems direct to
-///         PoolManager (skipping Aux), and the terminal is native ETH.
-struct UnlockData {
-    address sourceAsset;
-    address sourceVault;
-    uint256 amountIn;
-    address output;
-    address recipient;
-    address[] tokens;
-    PoolKey[] keys;
-}
+// §V4-ZERO — `UnlockData` DELETED with `unlockBody`: it was the ABI of a callback payload for a
+// callback that no longer exists.
 
 /// @notice Subset of Aux's public surface the SOR-routing bodies call back into
 ///         via DELEGATECALL -> external self-CALL (address(this)==Aux). Mirrors the
@@ -79,108 +65,36 @@ library SOR {
     /// address(this) == Aux and the PoolManager settle/take/swap are
     /// attributed to Aux (the unlock initiator). Touches no Aux storage —
     /// only the decoded payload + the three passed addresses.
-    function unlockBody(bytes memory data, address weth, address wbtc, IPoolManager pm)
-        external returns (bytes memory)
-    {
-        UnlockData memory u = abi.decode(data, (UnlockData));
-        if (u.sourceVault == address(0)) revert BadV4SourceVault();
-        bool isEthTerm  = (u.output == weth);
-        bool isWbtcTerm = (u.output == wbtc);
-        bool isStableTerm = !isEthTerm && !isWbtcTerm;
-        if (!(isEthTerm || isWbtcTerm || isStableTerm)) revert BadV4Terminal();
-        address last = u.tokens[u.tokens.length - 1];
-        if (isEthTerm)       { if (last != address(0)) revert BadV4Last(); }
-        else if (isWbtcTerm) { if (last != wbtc)       revert BadV4Last(); }
-
-        bool ethSource = (u.sourceAsset == weth &&
-                          Currency.unwrap(u.keys[0].currency0) == address(0));
-        // `flowing` MUST be the amount actually settled into the
-        // PoolManager, not the requested amountIn: an ERC4626 redeem of
-        // convertToShares(amountIn) rounds DOWN, so the vault delivers
-        // <= amountIn. Using amountIn as the first-hop exact input then
-        // leaves a 1-wei (rounding) source-currency deficit and the
-        // unlock fails CurrencyNotSettled. `settle()` returns the true
-        // paid amount.
-        uint256 flowing;
-        if (ethSource) {
-            // ETH-source = the redemption ETH-fallback (ethToStableFallback). The
-            // caller (Aux) has ALREADY pulled `amountIn` WETH to itself from the
-            // ETH venue (withdrawSelf → EthVenue.withdrawForAux) before this
-            // unlock, since the venue position is custodied on EthVenue and is
-            // not Aux's to redeem here. So just unwrap the WETH already held
-            // and settle the native ETH. (sourceVault retained in UnlockData for
-            // shape/back-compat; no longer redeemed from in this branch.)
-            WETH9(payable(weth)).withdraw(u.amountIn);
-            pm.sync(Currency.wrap(address(0)));
-            (bool ok,) = address(pm).call{value: u.amountIn}("");
-            if (!ok) revert BadV4SourceVault();
-            flowing = pm.settle();
-        } else if (u.sourceVault == SELF_FUNDED) {
-            // CALLER-FUNDED (see SELF_FUNDED): Aux already holds `amountIn` of the source stable — settle it
-            // straight into the PoolManager, no 4626 redeem. `settle()` returns the true paid amount.
-            pm.sync(Currency.wrap(u.sourceAsset));
-            IERC20(u.sourceAsset).transfer(address(pm), u.amountIn);
-            flowing = pm.settle();
-        } else {
-            pm.sync(Currency.wrap(u.sourceAsset));
-            uint256 shares = IERC4626(u.sourceVault).convertToShares(u.amountIn);
-            IERC4626(u.sourceVault).redeem(shares, address(pm), address(this));
-            flowing = pm.settle();
-        }
-        for (uint256 i; i < u.keys.length; i++) {
-            PoolKey memory key = u.keys[i];
-            bool zeroForOne = Currency.unwrap(key.currency0) == u.tokens[i];
-            BalanceDelta delta = pm.swap(
-                key,
-                IPoolManager.SwapParams({
-                    zeroForOne: zeroForOne,
-                    amountSpecified: -int256(flowing),
-                    sqrtPriceLimitX96: zeroForOne ? 4295128740 : 1461446703485210103287273052203988822378723970341
-                }),
-                ""
-            );
-            flowing = uint256(int256(zeroForOne ? delta.amount1() : delta.amount0()));
-        }
-        if (isEthTerm) {
-            pm.take(Currency.wrap(address(0)), address(this), flowing);
-            WETH9(payable(weth)).deposit{value: flowing}();
-            if (u.recipient != address(this))
-                IERC20(weth).transfer(u.recipient, flowing);
-        } else if (isWbtcTerm) {
-            pm.take(Currency.wrap(wbtc), address(this), flowing);
-            if (u.recipient != address(this))
-                IERC20OZ(wbtc).safeTransfer(u.recipient, flowing);
-        } else {
-            pm.take(Currency.wrap(u.output), address(this), flowing);
-            if (u.recipient != address(this))
-                IERC20OZ(u.output).safeTransfer(u.recipient, flowing);
-        }
-        return abi.encode(flowing);
-    }
+    // §V4-ZERO — `unlockBody` DELETED. It was the v4 unlock callback's body: settle/take/swap
+    // against a PoolManager, walking `SorPath.keys`. Nothing unlocks a PoolManager in this tree, so
+    // its only caller (`Aux._unlockCallback`) went with the `SafeCallback` base and this became
+    // unreachable. Routing moved to `_v3Route` in `executePath`.
 
     /// @notice Execute a path via V4 unlock. Returns amountOut.
+    /// @notice Execute one encoded path. §V4-ZERO — NO POOL MANAGER, NO UNLOCK.
+    /// @dev    This used to build an `UnlockData` and call `poolManager.unlock(...)`, with the
+    ///         callback landing on `Aux.unlockCallback` to walk a v4 hop chain. That callback is
+    ///         gone with the `SafeCallback` base, so the unlock could not complete -- it surfaced as
+    ///         `NoSorPath()` 164 times, because `sorAuxSwapBody` had no fallback while
+    ///         `sorSelfFundedBody` did.
+    ///
+    ///         THE REPLACEMENT WAS ALREADY IN THIS FILE. `_v3Route` is a complete stable<->volatile
+    ///         router -- four Uniswap V3 fee-tier paths including a two-hop through the USDC hub --
+    ///         and `sorSelfFundedBody` already called it, with a comment calling it "a FIRST-CLASS
+    ///         PEER ROUTE ... not a hardcoded caller bypass". Routing HERE means both bodies get it,
+    ///         so the v4 hops are not replaced by a fallback but by the peer that outlived them.
+    ///
+    ///         ⚠️ `p.keys` (the `PoolKey[]` hop chain) is now UNREAD. V3 discovers its own route at
+    ///         call time, which is why the deploy-time path encoding can follow: `_buildSORPaths`,
+    ///         `_pk` and the `_hop*` builders in DeployLib exist only to fill that field. Left in
+    ///         place here so this change is one thing; the struct and the builders go together.
     function executePath(
         bytes calldata encodedPath,
-        uint amountIn, address recipient, uint minOut,
-        // §V4-ZERO — `address`, not `IPoolManager`. Aux no longer holds a PoolManager handle, so a
-        // v4-typed parameter here would drag the import back into Aux for a value that is now
-        // always zero. The v4 hop path this reaches cannot fire without an unlock callback.
-        address poolManager
+        uint amountIn, address recipient, uint minOut
     ) external returns (uint amountOut) {
         SorPath memory p = abi.decode(encodedPath, (SorPath));
         if (p.tokens.length != p.keys.length + 1) revert PathShape();
-
-        UnlockData memory u = UnlockData({
-            sourceAsset: p.sourceAsset,
-            sourceVault: p.sourceVault,
-            amountIn:    amountIn,
-            output:      p.output,
-            recipient:   recipient,
-            tokens:      p.tokens,
-            keys:        p.keys
-        });
-        bytes memory ret = IPoolManager(poolManager).unlock(abi.encode(u));
-        amountOut = abi.decode(ret, (uint));
+        amountOut = _v3Route(p.sourceAsset, p.output, amountIn, recipient, minOut);
         if (amountOut < minOut) revert Slippage();
     }
 

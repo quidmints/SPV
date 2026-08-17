@@ -832,8 +832,12 @@ contract Aux is // Auxiliary
         address recipient, uint minOut
     ) external returns (uint outAmount) {
         if (msg.sender != address(this)) revert NotSelf();
-        // §V4-ZERO — no PoolManager argument: there is no unlock callback left to hit.
-        return SOR.executePath(encodedPath, amountIn, recipient, minOut, address(0));
+        // §V4-ZERO — NO PoolManager ARGUMENT AT ALL, not a null one. Passing `address(0)` would
+        // have kept the parameter and moved the failure inward; the PoolManager's JOB was delta
+        // accounting -- it returned the signed deltas telling the band which way value moved -- and
+        // that job now lives in `Core.Delta`/`_handleDelta`, where the caller supplies the sign.
+        // There is nothing for the argument to carry, so it is gone rather than zeroed.
+        return SOR.executePath(encodedPath, amountIn, recipient, minOut);
     }
 
     error NoSelfFundedPath();
