@@ -114,6 +114,19 @@ contract BtcLpMintStress is AllesFixture {
                          abi.encodePacked(hex"5120", payout), EXIT_DEADLINE, 1_000);
     }
 
+    /// (§E233-ladder) cid -> the label seed it was opened under (see `_open`).
+    mapping(bytes32 => uint) internal _seedOf;
+
+    /// (§E233-ladder) A ladder for the outpoint a park/delivery splice rotates TO. Single-output
+    /// splice ⇒ the new funding is vout 0, which is what `_armFor` assumes.
+    /// ⚠️ Build it BEFORE any `vm.prank` — `_armFor` shells out over FFI and consumes a one-shot prank.
+    function _armAt(bytes32 cid, bytes memory stx, uint newSats, bytes memory lpPubkey)
+        internal returns (Types.ExitArming[] memory)
+    {
+        return _ladder(_armFor(_seedOf[cid], sha256(abi.encodePacked(sha256(stx))), newSats,
+                               payoutKeyOnly(abi.encode(lpPubkey))));
+    }
+
     function _open(BTCChannels ch, uint seed, uint amountSats)
         internal
         returns (bytes32 channelId, bytes32 fundingTxId, address lpEth, bytes memory lpPubkey)
@@ -132,6 +145,11 @@ contract BtcLpMintStress is AllesFixture {
         (p_, fundingTx, fundingTxId) = _mkFunding(seed, amountSats, lpPubkey, hopPubkey_);
         channelId = _submitOpen(ch, p_, fundingTx, lpEth, seed, fundingTxId);
         _hopKeyOf[channelId] = hopPubkey_;
+        // (§E233-ladder) The channel's LABEL seed. Every rotation site now arms a fresh ladder, and
+        // the rungs must be signed by THIS channel's keypair — which the generator keys on
+        // `mintstress-{seed}`. The `seed` the splice helpers take is a BLOCK differentiator, not
+        // this one; using it would sign under a pair that is not the channel's.
+        _seedOf[channelId] = seed;
     }
 
     // Per-channel running funding outpoint, so successive deliveries on the same
@@ -451,8 +469,9 @@ contract BtcLpMintStress is AllesFixture {
             // using the opening txid fails `WrongPrevOutpoint` (§E166-2 hit this too).
             (bytes memory stx, Types.OpenParams memory sp) =
                 _growSpliceArgs(ch, cid, _liveFundingTxId[cid], 31, lp, cur + parked);
+            Types.ExitArming[] memory pex = _armAt(cid, stx, cur + parked, lp);
             vm.prank(makeAddr("hop"));
-            ch.parkProvenSats(cid, sp, stx, new bytes32[](0));
+            ch.parkProvenSats(cid, sp, stx, new bytes32[](0), pex);
         }
         assertEq(ch.provenSatsAvailable(makeAddr("hop")), parked, "premise: a small proven balance");
 
@@ -487,7 +506,9 @@ contract BtcLpMintStress is AllesFixture {
         // fund anything — and it now guards the ONE path by which pool sats enter a channel.
         vm.prank(makeAddr("hop"));
         vm.expectRevert(BTCChannels.NotAGrow.selector);
-        ch.parkProvenSats(channelId, p, spliceTx, new bytes32[](0));
+        // (§E233-ladder) `stubLadder` — `NotAGrow` fires before the arming, so a signed rung would
+        // be paid for and never verified; an unsignable stub keeps that true loudly.
+        ch.parkProvenSats(channelId, p, spliceTx, new bytes32[](0), stubLadder());
     }
 
     /// spliceChannel grows the LP's BTC pool position + the channel's funded total
@@ -712,8 +733,12 @@ contract BtcLpMintStress is AllesFixture {
             amountSats:         newAmount,
             fundingTaproot:     _taprootQ(s.lpPubkey, _hopKeyOf[s.channelId])
         });
+        // (§E233-ladder) A delivery is the fifth rotation site and carries its own ladder.
+        Types.ExitArming[] memory dex =
+            _armAt(s.channelId, spliceTx, newAmount, s.lpPubkey);
         vm.prank(makeAddr("hop"));
-        ch.deliverSwapOutOnchain(s.swapId, s.channelId, p, spliceTx, new bytes32[](0), s.swapperScript);
+        ch.deliverSwapOutOnchain(
+            s.swapId, s.channelId, p, spliceTx, new bytes32[](0), s.swapperScript, dex);
     }
 
     /// Dual-venue: wire the AAVE-v4 spoke as a router venue for USDC, then a USDC
@@ -950,8 +975,9 @@ contract BtcLpMintStress is AllesFixture {
             (uint cur9,,,,,) = ch.channels(cid9);
             (bytes memory stx9, Types.OpenParams memory sp9) =
                 _growSpliceArgs(ch, cid9, ftx9, 9, lp9, cur9 + fixedSats * 501);
+            Types.ExitArming[] memory pex9 = _armAt(cid9, stx9, cur9 + fixedSats * 501, lp9);
             vm.prank(makeAddr("hop"));
-            ch.parkProvenSats(cid9, sp9, stx9, new bytes32[](0));
+            ch.parkProvenSats(cid9, sp9, stx9, new bytes32[](0), pex9);
         }
         uint pooledStart = CORE.POOLED_USD();
         bool gateFired; bool curveSelfLimited; uint accepted;
@@ -1109,8 +1135,9 @@ contract BtcLpMintStress is AllesFixture {
             (uint curB,,,,,) = ch.channels(k[1].id);
             (bytes memory stxB, Types.OpenParams memory spB) = _growSpliceArgs(
                 ch, k[1].id, _liveFundingTxId[k[1].id], 202, k[1].pk, curB + 60_000);
+            Types.ExitArming[] memory pexB = _armAt(k[1].id, stxB, curB + 60_000, k[1].pk);
             vm.prank(makeAddr("hop"));
-            ch.parkProvenSats(k[1].id, spB, stxB, new bytes32[](0));
+            ch.parkProvenSats(k[1].id, spB, stxB, new bytes32[](0), pexB);
             // ⚠️ A PARK IS A SPLICE, SO IT ROTATES THE FUNDING OUTPOINT. Without tracking that,
             // every later step on this channel builds against a stale outpoint and dies on
             // `WrongPrevOutpoint` — which is exactly how this test failed once.

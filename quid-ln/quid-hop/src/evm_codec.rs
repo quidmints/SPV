@@ -87,7 +87,7 @@ pub const SIG_RECORD_FORCE_CLOSE_PERMISSIONLESS: &str =
     "recordForceClosePermissionless(bytes32,bytes,bytes32,bytes32[],uint256)";
 pub const SIG_DELIVER_SWAP_OUT_ONCHAIN: &str =
     "deliverSwapOutOnchain(bytes32,bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),\
-bytes,bytes32[],bytes)";
+bytes,bytes32[],bytes,(uint64[],bytes[],uint64,uint256,bytes)[])";
 pub const SIG_EMIT_DEAD_MAN_EXIT: &str =
     "emitDeadManExit(bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),\
 (uint64[],bytes[],uint64,uint256,bytes))";
@@ -839,6 +839,11 @@ pub fn encode_deliver_swap_out_onchain(
     raw_splice_tx: &[u8],
     splice_merkle_proof: &[[u8; 32]],
     swapper_script: &[u8],
+    // (§E233-ladder) The fresh ladder for the outpoint this delivery splice rotates to. A delivery
+    // is the FIFTH rotation site; without it the rungs armed before this tx are dead and nothing
+    // replaces them. Sourced exactly as `drive_splice` sources its own — relayed LP consent keyed
+    // on the new `txid:vout`.
+    exits: &[ExitArming],
 ) -> Vec<u8> {
     encode_call(
         SIG_DELIVER_SWAP_OUT_ONCHAIN,
@@ -849,6 +854,7 @@ pub fn encode_deliver_swap_out_onchain(
             Tok::Bytes(raw_splice_tx.to_vec()),
             Tok::FixedBytes32Array(splice_merkle_proof.to_vec()),
             Tok::Bytes(swapper_script.to_vec()),
+            Tok::TupleArray(exits.iter().map(ExitArming::tokens).collect()),
         ],
     )
 }
@@ -1441,7 +1447,7 @@ mod tests {
             lp_pubkey: [2u8; 33], hop_pubkey: [3u8; 33], amount_sats: 0,
             funding_taproot: [0u8; 32],
         };
-        let cd = encode_deliver_swap_out_onchain([1u8; 32], [2u8; 32], &p, &[], &[], &[0x00, 0x14]);
+        let cd = encode_deliver_swap_out_onchain([1u8; 32], [2u8; 32], &p, &[], &[], &[0x00, 0x14], &t_exits());
         let sig = SIG_DELIVER_SWAP_OUT_ONCHAIN;
         assert_eq!(hex_encode(&cd[..4]), hex_encode(&keccak256(sig)[..4]));
         assert_eq!(cd.len() % 32, 4); // well-formed

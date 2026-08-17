@@ -49,14 +49,15 @@ freed more than the feature cost. **`BTCChannels` 24,438 → 24,432 bytes (144 s
 LevManager 23,697 (879) / Aux 23,534 (1,042) / LevMath 23,092 (1,484). Re-run
 `tools/check-contract-sizes.py`; do not plan an addition against any number written down.
 
-🔴 **STILL OPEN — 2 of 5 rotation sites arm nothing:** `parkProvenSats` (`:1317`) and
-`_deliverSwapOut` (`:2208`). Found by enumerating every `_applySplice`/`_useOutpoint` caller instead
-of the two I had in mind. ⛔ **Do NOT fix by threading a 4th/5th `ExitArming[]` parameter** —
-`_deliverSwapOut` documents that its calldata params must go DEAD before the settlement tail or the
-legacy stack overflows (a prior live-range extension there reverted four tests), and there are 144
-bytes. The successor design (rung declares its target outpoint; each rotation site becomes one
-`if (!ladderArmed[newKey]) revert`) is written up in `BTC-CUSTODY-OPEN.md` §3 and **deletes** the
-per-site threading rather than extending it (standing rule 17).
+✅ **ALL FIVE ROTATION SITES NOW ARM (2026-08-18).** `parkProvenSats` and the swap-out delivery
+joined `openChannel`/`splice`/`rekey`. ⛔ **My own "do NOT thread a 4th/5th `ExitArming[]`" warning
+was wrong**: `_deliverSwapOut`'s stack note governs its INNER frame, and the rotation is complete
+when it returns — so `deliverSwapOutOnchain` takes the ladder in the OUTER frame and arms after the
+inner call. The pre-arm/`ladderArmed` successor design was therefore never needed and never built.
+**It cost NEGATIVE bytes:** 23,276 → 23,209 (margin 1,300 → 1,367), because `_armLadder` at five
+call sites stopped being inlined. Verified against an unmodified baseline at the same commit: zero
+code-caused new failures across 482 tests (the only three names unique to the run are `HTTP 403`
+archive-gating), zero arming-verification errors, Rust 712/0.
 
 ### 🔴 THE `isBTC`-FOLD RENAMES NEVER REACHED THE CLIENTS — `check-client-abis.py` IS RED, AND ONE HALF WAS A LIVE MONEY-PATH CALL (2026-08-17)
 

@@ -288,8 +288,24 @@ contract AllesFixture is ForkPin, ExitFixture {
         cid = _openHopChannel(ch, hop, seed, sats);
         (bytes memory spliceTx, Types.OpenParams memory p) =
             _parkSpliceArgs(ch, cid, seed, sats, sats + growBy);
+        // (§E233-ladder) The park rotates the outpoint, so it carries its own ladder. Single-output
+        // splice ⇒ vout 0. Built before the prank: `signedExitFull` is an FFI cheatcode and would
+        // consume it.
+        Types.ExitArming[] memory exits_ = _armFixtureAt(
+            seed, sats, sha256(abi.encodePacked(sha256(spliceTx))), 0, sats + growBy,
+            payoutKeyOnly(abi.encode(p.lpPubkey)), EXIT_DEADLINE_ALLES + 1);
         vm.prank(hop);
-        ch.parkProvenSats(cid, p, spliceTx, new bytes32[](0));
+        ch.parkProvenSats(cid, p, spliceTx, new bytes32[](0), exits_);
+        // (§E233-ladder) THE FOURTH ROTATION SITE, ASSERTED WHERE EVERY PARKING TEST RUNS THROUGH.
+        // A park is a splice: it rotates the funding outpoint, so the rungs armed at open spend a
+        // spent output. Until this landed the map still reported them armed and nothing replaced
+        // them — in the LP-hosted deployment that left the channel with no escape at all. Both
+        // halves are checked: the old deadline is RETIRED for the channel's current scope, and the
+        // park's own ladder IS armed, so there is no block in which the channel is unescaped.
+        assertFalse(armedNow(address(ch), cid, EXIT_DEADLINE_ALLES),
+            "a park RETIRES the rungs signed against the pre-park outpoint");
+        assertTrue(armedNow(address(ch), cid, EXIT_DEADLINE_ALLES + 1),
+            "a park arms its own ladder against the rotated outpoint");
     }
 
     /// The splice half of [`_parkSats`], in its OWN frame. Inlining it overflowed the legacy
@@ -337,6 +353,31 @@ contract AllesFixture is ForkPin, ExitFixture {
         cid = _finishHopOpen(ch, hop, p,
             vm.parseJsonBytes(j, string.concat(b, "rawFundingTx")), seed,
             vm.parseJsonBytes32Array(j, string.concat(b, "merkleBranch")));
+    }
+
+    /// (§E233-ladder) The fixture channel's ladder for an ARBITRARY outpoint.
+    ///
+    /// A park / delivery splice ROTATES the funding UTXO, and every rotation site now arms a fresh
+    /// ladder in the same transaction — so the rungs must be signed over the ROTATED outpoint and
+    /// the NEW size. `_armFixture` cannot express that: it derives both from the OPEN params.
+    /// ⚠️ THE LABELS STILL EMBED THE *OPEN* SIZE. The generator keys the channel's keypair on
+    /// `quid-fixture-{lp,hop}-{seed}-{openSats}`, and a splice does not re-key — passing the new
+    /// size here asks Python for a DIFFERENT pair, and the contract then rejects a perfectly valid
+    /// signature over the wrong `Q` with `ExitSignatureInvalid()`, which reads as a contract bug.
+    function _armFixtureAt(
+        uint seed, uint openSats, bytes32 txid, uint32 vout, uint newSats,
+        bytes32 payout, uint64 deadline
+    ) internal returns (Types.ExitArming[] memory) {
+        return _ladder(Types.ExitArming({
+            prevValues:  new uint64[](1),
+            prevScripts: new bytes[](1),
+            cltvDeadline: deadline,
+            checkpointSats: 0,
+            signedExitTx: signedExitFull(
+                string.concat("quid-fixture-lp-",  vm.toString(seed), "-", vm.toString(openSats)),
+                string.concat("quid-fixture-hop-", vm.toString(seed), "-", vm.toString(openSats)),
+                txid, vout, newSats, abi.encodePacked(hex"5120", payout), deadline, 1_000)
+        }));
     }
 
     /// (E128) Arm the REGTEST-FIXTURE channel. Three things differ from a synthetic one, and all
