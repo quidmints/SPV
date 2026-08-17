@@ -1602,3 +1602,67 @@ always on the axis nobody measured" — here the axis was *another item's severi
   settled analysis (`§A.71` dedup status, `§4a` a self-correction, `§E83` a design conclusion), not work.
 - **No suite was run this pass.** Every row in D1's "suite state" group is therefore unresolved BY
   CONSTRUCTION, and the one clean number that would settle seven items at once still does not exist.
+
+
+---
+
+## PART C3 — **THE LAST SIX. Found by re-scanning this thread against SPRINT; each was worked on and never booked.**
+
+### 🔴 C3.1 — `testLeverage_LvrControlVsTreatment` IS STILL RED, DELIBERATELY, AND ITS DIAGNOSIS WAS WRONG TWICE
+**NO HAIRCUT EVER FIRES. MEASURED: `matureSupply == 0`**, so `ShareMath:25` returns PAR and the
+solvency haircut never runs; there is no depeg either, so **both** haircut paths in `_redeemQuote`
+are inert. The queue's *"redemption pays 92.1 cents on the dollar"* headline named a mechanism that
+is not running — **that fork is VOID, do not plan from it, and do not "fix" `Basket._finishMint` on
+its strength.**
+⇒ What IS live is `freeUsd = solvent − max(il, committedUsd18)` with `committedUsd18 ≈ $251k` — a
+**CAPACITY/COMMITMENT bound, not a price** — which reconciles with burn-exact leaving **31.833
+shares**: the unpaid remainder, not a loss.
+▶️ **TWO MEASUREMENT QUESTIONS REMAIN (not decisions):** ① is `committedUsd18` locking that USD
+*correctly*, or OVER-locking it? ② is a capacity-bounded redeem that leaves live shares intended —
+in which case `_lpValueUsd` measures the wrong thing, since it values only what LEAVES the redeem and
+**structurally cannot see the residual**?
+⚠️ **HOW IT SURVIVED, because the mechanism matters more than the fix:** I reached partial-settlement
+FIRST, then refuted it on a $25 residue from post-redeem `convertToAssets` — the accessor later shown
+unreliable on a drained vault. **A broken instrument killed the correct hypothesis**, and the wrong
+mechanism then propagated into three documents.
+
+### 🔴 C3.2 — THE SKEW GATE IS RED, FOR SOMEONE ELSE'S RENAME
+`tools/check-skew-agnostic.py`: *"skew reads NEW Core accessor **`bandEquityUsd18`** — the seam
+grew."* The isBTC removal renamed `btcBandEquityUsd18`; **`ALLOWED_SEAM` needs one word added by
+whoever did the rename.** Not silenced deliberately — every new accessor is another thing a
+replacement PM must back, which is exactly what the gate exists to force a decision on.
+
+### 🔴 C3.3 — RUST-AUTOMATIC vs ON-CHAIN TRIGGER: **NEVER COMPARED**
+The owner asked for these to be **COMPARED, not chosen**, and the comparison was never run. The
+predicate is now landed (`refillNeeded`), so the question is purely *where it is evaluated*.
+📌 **The trade is already visible:** on-chain = no liveness dependency but pays gas in the swap path;
+off-chain = a daemon that must stay up, and §E48's *"who pays the gas"* is answered for the fleet op
+(#87) but not for a keeper that fires on a predicate.
+
+### 🟠 C3.4 — `RedeemQuoteEchidna` IS COMPILE-VERIFIED ONLY, NOT FUZZ-VERIFIED
+Ten properties over `_redeemQuote`'s arithmetic, incl. the one encoding C3.1's confusion: **par and
+liquidity are INDEPENDENT — a full-par share can still be payout-bounded.**
+⛔ **ECHIDNA CANNOT RUN IN THIS TREE:** *"Unlinked libraries detected … `script/DeployL1_s.sol:Deploy`"*.
+✅ **CONTROLLED:** the EXISTING `BandEquityCollapseEchidna` (green at 50k for another thread) fails
+**identically**, so the blocker is the project-level echidna config, **not this harness**.
+
+### 📄 C3.5 — `docs/informational/POSITIONING.md` LANDED, WITH FOUR CORRECTIONS AGAINST CODE
+The bill/bankers-acceptance framing, the levered-vs-unlevered regime table (**path length, not
+destination**), the socialised-LVR externality as an open tension, and the field (Cork/Bunni/Pendle/
+mStable). **Corrections it carries so they stop propagating:** the band is **±0.2%** not ~2% (and
+`_updateTicks(sqrtPriceX96, 200)` does not exist); the **swap-in bonus is a removed instrument**
+(`payRefillBonus`, 2026-07-22, *"do NOT rebuild it"*); *"we froze the fee and built a separate
+adaptive scalar"* is historical since the skew now carries a base on all flow; and the size-blind
+quote is fixed.
+
+### 🔴 C3.6 — `quid-bridge` TEST TARGET DOES NOT COMPILE (reported by session `spv-a0`, never booked)
+Nine `error[E0277]: the trait bound 'FastRng: Crng' is not satisfied` in
+`quid-bridge/src/lp_seed.rs` (`:329`, `:348`, `:349`), from `28a80ee3`. **`cargo build -p quid-bridge
+--bins` is CLEAN — it is the TEST target only.**
+📌 **The intent is visible in the call site and resolves the fix:** `FastRng::from_u64(0xB17C0)` is a
+HARDCODED SEED, so the author wanted **determinism** (for reproducible failures, not for the
+assertion). `SysRng` would keep it passing while silently discarding that.
+▶️ **Candidate: `rand_chacha::ChaCha20Rng::seed_from_u64`** — `CryptoRng` **and** deterministic, so it
+satisfies the bound with no test-only shim. `rand_chacha` is already in the workspace graph
+(`quid-ln/Cargo.toml:425` profile entry) but may need adding as a dev-dependency.
+⚠️ **UNCOMPILED — quid-ln does not build on macOS (quid-cvm is Linux-only); verify in Docker.**
