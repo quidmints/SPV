@@ -426,7 +426,10 @@ contract BtcSelfManagedTest is AllesFixture {
         // `EXIT_DEADLINE_ALLES` (900_000), which is what the *synthetic* Alles armings use —
         // but this channel is armed from the Rust bundle, whose deadline is a real regtest
         // height. The assertion passed only while the arming was a stub that never verified.
-        assertTrue(ch.exitArmedAt(channelId, uint64(b.exitCltvDeadline)),
+        // (§E233-ladder) Read through `armedNow`, which hashes the channel's CURRENT funding outpoint —
+        // the map is keyed on the outpoint now, so this asserts "armed for the scope the channel is
+        // actually in", which is the only form of the claim that stays true across a splice.
+        assertTrue(armedNow(address(ch), channelId, uint64(b.exitCltvDeadline)),
                    "openChannel ARMS the pre-signed exit ladder");
 
         // (E166-4) A REFRESH MUST CARRY A REAL SIGNED EXIT TOO. This passed a `hex"00"`

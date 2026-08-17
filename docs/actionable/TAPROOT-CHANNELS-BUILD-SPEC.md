@@ -10,6 +10,80 @@
 >   inherited, overridden only where it says so.
 > - Cross-check: Optech simple-taproot-channels topic; LND #7904/#9982/#9985.
 
+---
+
+## ⚠️ STATUS AS MEASURED 2026-08-17 — READ THIS BEFORE ANY MILESTONE BODY BELOW
+
+**Every per-milestone status in §7 and §9 is written in the present tense and MOST OF IT IS NOW
+FALSE.** The bodies were authored 2026-06-21/22; the work landed over the following weeks and nobody
+came back to re-mark them. They still read as live gaps, including three marked 🔴 CRITICAL. Their
+DESIGNS remain the reference — the value is in the design text, not the status.
+⇒ Measured today by grepping structure (not by trusting a marker), plus one full suite run:
+
+| claim in the body below | measured state 2026-08-17 | evidence |
+|---|---|---|
+| **M9f-0** 🔴🔴 "coop-close nonce reuse leaks the funding private key … CONFIRMED, not to verify" | ✅ **FIXED** — the closing nonce is per-ROUND | `lightning::sign::closing_nonce_height(round)` + `CLOSING_NONCE_BASE` (`sign/mod.rs:2525-2536`), mirrored in `quid_ln::validating_signer:1717-1726`; used at `channel.rs:6553/11304/11359`; a test asserts round-0 vs round-1 pubnonces DIFFER (`validating_signer.rs:2929-3037`) |
+| **M9a** "the real aggregated key-path sig … is DISCARDED, so a holder can never broadcast its own commitment" | ✅ **stored + persisted** | `HolderCommitmentTransaction.taproot_key_path_sig: Option<schnorr::Signature>` + `with_taproot_key_path_sig` (`chan_utils.rs:2211/2327`), serialized as TLV 8 (`:2243`) — so it survives a reboot, which is the whole point |
+| **M9b** 🔴 "the taproot tx-builder emits no HTLC outputs/sigs" | ✅ **built** | `taproot_htlc_leaves` / `get_taproot_htlc_spk` / `taproot_htlc_leaf_sighash` / `build_taproot_htlc_input_witness` / `with_taproot_htlc_sigs`; `channel.rs:5374` handles `msg.htlc_partial_signatures` |
+| **M9c** "`sign_splice_shared_input` … `Taproot(_) => todo!()`" | ✅ **implemented + tested** | `ValidatingChannelSigner::partially_sign_splice_shared_input` (`:1652`) with a round-trip test (`:3343-3428`) |
+| **M9d** "`ChannelReestablish` has NO nonce field" | ✅ **wired** | `msgs.rs:1036/1043` — `next_local_nonce` **and** `next_local_nonces: Vec<(Txid, PubNonce)>` for spliced channels |
+| **M9e-4** 🔴 "the anchor zero-fee holder-HTLC claim signs ECDSA/P2WSH" | ✅ **taproot-aware** | `events/bump_transaction/mod.rs:100-163, 1027-1036` — `get_taproot_anchor_spk`, `taproot_tx_input_witness`, taproot-specific HTLC satisfaction weights |
+| **M9g** 🟠 "QU!D's taproot channels carry NO anchor outputs" | ✅ **anchors negotiated** | `get_initial_channel_type` (`channel.rs:15466-15478`) layers `set_anchors_zero_fee_htlc_tx_required()` into the taproot branch |
+| **M6** "REMAINING — BLOCKED on a signer-variant change; nothing ever builds `::Taproot`" | ✅ **unblocked** | `channel.rs:3570/3982` — `let holder_signer = if channel_type.supports_simple_taproot()` |
+| **M9-final #1** "zero `todo!()`" | ✅ **zero real ones** | `grep -rn "todo!(" quid-ln --include=*.rs` = **7 hits, all inside comments/doc-prose**; the vendored `lightning` tree has **one**, and it is a comment |
+
+**Suite, run today in the pinned Docker image** (`cargo test --workspace`, the only way it builds —
+`quid-cvm` is Linux-only): **712 passed / 0 failed / 43 ignored, 66 suites**, exit 0. Was recorded as
+624 on 2026-08-07.
+⚠️ **The 43 ignored were enumerated, not waved past** — they are doc-examples, snapshot *dumpers*
+(`dump_*`/`take_*_snapshot`) and one live-network test (`transport::tests::live_l1_chain_id_and_block_number`).
+**None is a taproot or channel-lifecycle test**, so the green run is not hiding the M9 coverage. That
+check matters because §9's own meta-rule is that a passing interactive test proves nothing about the
+offline/adversarial branches.
+
+### ⇒ WHAT IS ACTUALLY LEFT (the honest remainder)
+
+1. **§9 M9f — the four VERIFY bullets.** One is now answered; see the note added to M9f itself.
+2. **M9-final #2 — "Bucket 2" dead-P2WSH removal (QU!D side). Not done; the READ-ONLY AUDIT IT ASKS
+   FOR IS NOW DONE for the main symbol, and the answer is "test-only".** `quid-hop/src/funding.rs:37`
+   defines `p2wsh_script_pubkey`; its only two callers (`funding.rs:139`, `evm_codec.rs:1484`) are
+   **both inside `#[cfg(test)]` modules**, and what they assert is the *P2WSH shape itself* — the
+   pre-taproot format QU!D no longer negotiates. Same for `channel_redeem_script` (the 71-byte 2-of-2).
+   ⚠️ **Reachability is not the whole test — `create_sweep_tx` was deleted twice on exactly this
+   evidence and restored twice** (`CLAUDE.md`: `git log -S` the symbol before deleting it). So this is
+   reported as MEASURED, not as authorisation: a symbol whose only callers are tests asserting a
+   retired wire format is a genuine removal candidate, but the decision belongs with whoever owns the
+   e2e fixtures, and the spec's PROCEDURE ("do not yank `e2e_ffi` out from under a still-used test")
+   is the constraint.
+3. **§10 FINAL AUDIT — the COVERAGE largely exists; what has no recorded output is the audit as a
+   PROCESS.**
+   ⚠️ **I first wrote "not started" here, and that was an absence claim from the doc's silence — the
+   move `CLAUDE.md` forbids ("never assert absence from a search"). Corrected by enumerating the
+   tests.** There are **40 taproot test functions** across the vendored `lightning` tree and
+   `quid-ln`, and they land squarely on §10's areas rather than on the happy path:
+   `taproot_splice_shared_input_signatures_verify` (area 7),
+   `taproot_closing_and_splice_nonce_heights_disjoint_and_distinct` +
+   `taproot_splice_nonce_distinct_per_prev_funding_txid` + `taproot_ctx_rejects_closing_round_regression`
+   (area 11, no-nonce-reuse), `taproot_resolution_htlc_sighash` / `taproot_sweep_keyspend_sighash` /
+   `taproot_sweep_leaf_sighash` / `taproot_to_remote_spend_info` / `taproot_to_local_spend_info`
+   (areas 4–6, on-chain resolution), `taproot_ctx_rejects_counterparty_funding_key_swap` +
+   `taproot_ctx_rejects_funding_value_change` (adversarial context substitution),
+   `taproot_builder_commitment_and_close_signatures_verify` (areas 1–3).
+   ⇒ **What is genuinely missing is §10's METHOD, not its subject matter:** the fan-out of independent
+   readers per area, each finding adversarially verified, with a completeness critic asking which
+   modality is unexercised — and a written record of the result. That is worth doing, and it is
+   cheaper than the doc implies, because the per-area tests it would look for mostly already exist.
+   ⚠️ **Do NOT read the list above as area-by-area sign-off.** These are *signer- and
+   builder-level* tests; §10 asks for the **monitor-detection → package → broadcast** path and
+   two-node/offline branches (its own meta-rule: "a passing interactive test proves nothing about
+   these"). Mapping the 40 onto the 12 areas and naming the empty cells IS the audit's first step.
+4. **§11 M11 — SGX BUILD done (2026-07-11), in-enclave EXECUTION still unproven on real hardware.**
+   Unchanged and correctly last.
+5. **Outside this spec:** the EVM-side rotation/ladder gap — two of five outpoint-rotation sites still
+   arm nothing (`BTC-CUSTODY-OPEN.md` §3, §E233-ladder).
+
+---
+
 ## 0. Dependency foundation (DECIDED: stay on bitcoin 0.32 + conduition musig2 — path of least resistance)
 - **STAY on `bitcoin 0.32` / `secp256k1 0.29`** — the whole workspace (LDK fork +
   the BDK/esplora/miniscript wallet stack the hop/bridge uses) is already here and
@@ -254,7 +328,25 @@
 **Confirmed, not "to verify."** `sign/taproot_signer.rs::local_pubnonce`/`our_key_path_partial` derive the secret nonce via `derive_secnonce_seed(shachain_root, height)` with EMPTY `SecNonceSpices` — the message/sighash is NOT folded into the nonce (it enters only the 2nd round `finalize(seckey, message)`). The closing path pins `height = CLOSING_NONCE_HEIGHT = u64::MAX` (sign/mod.rs:1970) at all sites (channel.rs:6445/10915/10950). ⇒ EVERY closing partial sig reuses the SAME nonce `k`. `closing_signed` is a multi-round FEE negotiation: each round signs a different close tx (different fee ⇒ different message `m`), and our partials are SENT to the counterparty. Two partials with the same `k` over `m1≠m2` ⇒ `x = (s1−s2)/(H(R,Q,m1)−H(R,Q,m2))` = our funding privkey ⇒ counterparty controls the 2-of-2 ⇒ DRAINS the channel. Commitment-path nonces are fine (per-state height varies); the bug is the fixed CLOSING_NONCE_HEIGHT. Violates the spec's OWN §5/§8 "fresh closer nonce per round". M8/M9b e2e missed it (single-round closes ⇒ one `m`). **FIX (mandatory, top of M9 queue):** the closing nonce must be FRESH per round. NOTE you CANNOT message-bind it (MuSig2 exchanges the nonce in round 1 BEFORE the message/fee is known in round 2; the nonce is advertised via `shutdown_nonce`/`next_closee_nonce` before the close tx is final). Correct fix = a distinct, re-derivable nonce per closing round via a monotonic per-round index used as the derivation `height` (e.g. `CLOSING_NONCE_BASE − round`), advertised each round through `shutdown_nonce` (round 0) + `next_closee_nonce` (subsequent rounds) per §4/§5, so no two distinct close txs ever share a nonce. Crash-safe because the round index is deterministic/re-derivable. Audit ALL fixed-height nonce uses for the same flaw (any path that can sign >1 distinct tx at a fixed height).
 
 ### M9f — remaining edge cases to VERIFY (not yet confirmed; resolve during/before the final audit)
-- **EVM `recordClose` with HTLC outputs present** on a force-closed commitment: the delivered/payout split assumes `funded − lpPayout`; in-flight HTLC value must be accounted (not silently mis-attributed). Solidity-side.
+- ✅ **EVM `recordClose` with HTLC outputs present — CHECKED 2026-08-17, AND THE PREMISE DOES NOT
+  APPLY.** The concern was that "the delivered/payout split assumes `funded − lpPayout`" so HTLC
+  value could be mis-attributed. It cannot, because **the force branch never reads a per-output
+  value at all**: `recordClose` sets `lpPayoutSats = channels[channelId].amountSats` on
+  `!coop`, i.e. the full funded total, so `delivered = funded − lpPayout = 0` identically
+  (`BTCChannels.sol:1712`, and the header at `:101-104` states this as the design — "a solvency
+  reconciliation of a unilateral close"). Only the COOP branch reads outputs
+  (`_lpFinalBalance`), and a cooperative close cannot carry HTLC outputs — BOLT `shutdown` blocks
+  new HTLCs and the close waits for the in-flight ones to resolve. `_finalizeClose` then clamps the
+  payout to `lpEntitled = totalSats − poolOwnedSats[channelId]` and emits `PoolSatsLeftWithLp` on
+  any excess rather than absorbing it silently.
+  ⚠️ **A NARROWER SUCCESSOR, NOT A CLOSURE OF IT: the clamp is against `poolOwnedSats`, which
+  tracks BOOKED pool inventory, not value in flight.** For the on-chain swap-in rail there is no
+  window — `parkProvenSats` credits `poolOwnedSats` in the same transaction as the splice that
+  brings the sats in (`:1319`). Whether an **off-chain (LN) swap-in** HTLC that is accepted but not
+  yet settled is booked anywhere before it resolves is **NOT MEASURED** — stated as the open
+  question rather than answered, because the force-close-with-in-flight-HTLC case is exactly where
+  a wrong answer credits pool sats to the LP. Check `poolOwnedSats`/`provenSatsAvailable` against
+  the LN settle path before treating this bullet as fully closed.
 - **On-chain-preimage → bridge settlement:** if a swap HTLC resolves on-chain (success spend reveals the preimage) instead of off-chain, the bridge/EVM must detect + settle without double-counting (interacts with `settleSwapIn/Out` + `swapInUsed/swapOutUsed`).
 - **Restart durability:** the signer's shachain root + per-height nonce derivation + the LDK→on-chain cid map must survive a node reboot (a force-close can fire post-reboot).
 - **Weight/dust constants P2WSH-derived (LOW sev, exactness):** chan_utils HTLC tx weights (703/663) + `COMMITMENT_TX_WEIGHT_PER_HTLC=172` + base weight key only on `anchors_zero_fee_htlc_tx`, not taproot; a taproot key-path funding witness (64B) is lighter than P2WSH 2-of-2 (~220B). NOT a safety vuln — both parties use identical constants (no trim/commitment mismatch), QU!D runs anchors-zero-fee-htlc (fees≈0, CPFP-bumped), and the error is overestimate (overpay-safe). Tighten to taproot-exact weights for correctness; verify no dust-boundary trim disagreement.

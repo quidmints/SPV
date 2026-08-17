@@ -244,8 +244,11 @@ pub struct VaultRegistry {
     /// are spends of the 2-of-2 — **both require the LP funding half, which after §E175 the
     /// fleet does not have.** So the fleet RELAYS consent; it never manufactures it.
     ///
-    /// ⚠️ Same lifecycle as `by_funding`: only IN-FLIGHT opens, dropped once mirrored
-    /// on-chain, so it cannot grow without bound over the daemon's lifetime.
+    /// ⚠️ Same lifecycle as `by_funding`: only IN-FLIGHT opens AND SPLICES (§E233-ladder — a splice's
+    /// rotated outpoint needs its own fresh ladder, and it binds here under the same
+    /// `txid:vout` key), dropped once mirrored on-chain, so it cannot grow without bound over
+    /// the daemon's lifetime. 🔴 THAT WAS PROSE ONLY UNTIL 2026-08-17 — see `clear_inflight`,
+    /// which is now the call that makes this sentence true.
     consent: Mutex<HashMap<String, LpConsent>>,
     /// vault deposit address string → the LP's funding intent + how long to keep POLLING it.
     ///
@@ -480,13 +483,27 @@ impl VaultRegistry {
             .copied()
     }
 
-    /// Drop a funding→lpEth binding once its open is mirrored on-chain — `by_funding`
-    /// only ever holds IN-FLIGHT opens, never every channel ever opened (no unbounded
-    /// memory growth over the daemon's lifetime). drive_open calls this after a
-    /// successful openChannel.
-    pub fn clear_funding(&self, funding_txid_hex: &str, vout: u32) {
+    /// Drop everything held ONLY for an in-flight open or splice, once it is mirrored on-chain:
+    /// the funding→lpEth binding AND the LP's relayed consent. Neither map should ever hold every
+    /// channel ever opened (no unbounded memory growth over the daemon's lifetime). `drive_open`
+    /// calls this after a successful `openChannel`, `drive_splice` after a successful `splice`.
+    ///
+    /// 🔴 **`consent` WAS NEVER CLEARED, AND ITS OWN DOC CLAIMED IT WAS.** The field comment on
+    /// [`VaultRegistry::consent`] read *"Same lifecycle as `by_funding`: only IN-FLIGHT opens,
+    /// dropped once mirrored on-chain, so it cannot grow without bound"* — and the only remover
+    /// touched `by_funding`. Every LP consent ever relayed stayed resident for the daemon's life,
+    /// each holding a full pre-signed exit tx. Same shape as the `Watch` leak documented above:
+    /// **no adversary involved, and invisible because the invariant was asserted in prose rather
+    /// than enforced by a call.** Found 2026-08-17 while threading this map into `drive_splice`.
+    ///
+    /// ⚠️ RENAMED FROM `clear_funding` deliberately — it clears two maps now, and a name that
+    /// says "funding" would be the same prose-vs-code drift that hid the leak.
+    pub fn clear_inflight(&self, funding_txid_hex: &str, vout: u32) {
         let key = format!("{funding_txid_hex}:{vout}");
         self.by_funding.lock().unwrap().remove(&key);
+        if let Ok(mut m) = self.consent.lock() {
+            m.remove(&key);
+        }
         if let Some(s) = &self.store {
             s.forget_funding_lp(&key);
         }

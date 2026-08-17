@@ -99,11 +99,52 @@ documented, and the mnemonic kept as the system of record.
 
 ## 3. OPEN — REAL WORK, BLOCKED ONLY BY §2.1
 
-* **`exitArmedAt` reports `true` for rungs that cannot confirm.** A splice rotates the funding
-  outpoint (documented at `BTCChannels.sol:301-302`), pre-signed rungs then spend a spent output,
-  and the map is never cleared. **Not exploitable** — `recordDeadManExit` needs a *confirmed* tx —
-  but it is a security-relevant flag that is silently false. Fixing it is correct under every
-  branch of §2.1.
+* ✅⚠️ **`exitArmedAt` reports `true` for rungs that cannot confirm — FIXED 2026-08-17 (§E233-ladder),
+  AND THE ROOT WAS WORSE THAN THIS ROW RECORDED.** The row scoped it as a cosmetic flag
+  ("not exploitable"). It is that, but the same rotation that falsifies the flag also **destroys the
+  LP's only escape**, and in the LP-hosted deployment nothing restores it:
+  `run_deadman_exit_heartbeat`'s own docstring says it does **not run** when the fleet has no vault
+  seed, and that "a channel's exits come from the §E165 ladder the LP pre-signed at open". Splice is
+  the only capacity mechanism, so **one resize left that channel permanently escape-less** while the
+  map said otherwise. `emitDeadManExit`'s comment already stated the mechanism ("the fleet re-signs
+  against the new UTXO on its next heartbeat") — true in FLEET mode, vacuous in LP-hosted mode. Two
+  correct comments, one absent deployment case: the §5 pattern again.
+  **What landed:**
+  1. `exitArmedAt` → **`exitArmedOnOutpoint`, keyed on the funding OUTPOINT** (`keccak256(txid,vout)`,
+     the key `_useOutpoint` already computes). Rotation retires the stale rungs by making them
+     UNREACHABLE — zero writes, cannot miss a rung, and no clearing loop over an unenumerable
+     mapping. **This half fixes the false flag at ALL FIVE rotation sites at once.** Renamed
+     deliberately: the getter's ABI shape is unchanged, so a caller still passing `channelId` would
+     compile and silently read `false`.
+  2. **`splice` and `rekey` now REQUIRE a fresh `ExitArming[]` ladder** and arm it in the same
+     transaction that rotates, so no block exists in which those paths leave the channel unescaped.
+     🔑 It costs the LP nothing new: a splice SPENDS the 2-of-2, so the LP's funding half is already
+     in that signing session, and the rungs spend the splice tx's own output (txid fixed at signing).
+  3. Rust: `SIG_SPLICE`/`encode_splice` carry the ladder; `drive_splice` reads it from the same
+     `VaultRegistry` consent map the open path uses (keyed by `txid:vout`, so the rotated outpoint
+     needs no new plumbing) and treats absence as **DORMANT, not failure** — `drive_open`'s shape.
+  **Measured:** `BTCChannels` 24,438 → **24,432 bytes** (144 spare). It fits only because the
+  `whenOpen` MODIFIER became `_whenOpen()` (standing rule 8c) — inlined at 8 sites it cost more than
+  the whole feature.
+* 🔴 **STILL OPEN, AND IT IS THE OTHER HALF OF THE SAME HOLE: TWO OF THE FIVE ROTATION SITES DO NOT
+  ARM.** Enumerated by grepping every `_applySplice`/`_useOutpoint` caller rather than the two I had
+  in mind — `openChannel` ✅, `splice` ✅, `rekey` ✅, but **`parkProvenSats` (`:1317`) and
+  `_deliverSwapOut` (`:2208`) rotate the outpoint and arm nothing.** After either, the channel has no
+  valid rung — now *honestly reported* as `false` by (1), but still absent.
+  ⛔ **DO NOT FIX IT BY THREADING A FOURTH AND FIFTH `ExitArming[]` PARAMETER.** `_deliverSwapOut`
+  documents that `p`/`rawSpliceTx`/`proof` must go DEAD before its settlement tail or the legacy
+  stack overflows, and that a prior attempt to extend one live range there reverted four tests. A
+  fifth calldata parameter fights that constraint, and `BTCChannels` has 144 bytes.
+  ▶️ **THE SUCCESSOR DESIGN, which deletes the per-site threading rather than extending it
+  (standing rule 17):** let a rung declare the outpoint it commits to, arm it in its own transaction
+  ahead of the rotation, and reduce every rotation site to **one line** — `if (!ladderArmed[newKey])
+  revert`. One counter (`mapping(bytes32 => bool) ladderArmed`, set by `_armDeadManExit`), no
+  calldata array at any rotation site, no stack pressure, and the invariant holds *continuously*:
+  the OLD ladder stays valid right up to the rotation, and the rotation is refused unless the next
+  one is already in place. Pre-arming an arbitrary outpoint is safe — a rung is only ever read under
+  the key of the outpoint its own sighash commits to. Costs: `Types.ExitArming` gains the target
+  outpoint (⇒ the Rust `ExitArming` encoder and `emitDeadManExit` change), and arming becomes a
+  separate tx before a splice.
 * **per-channel freshness per-channel freshness (phase 3)** — not started. It changes *what an exit commits to*
   (`Prevouts::All` binds the freshness UTXO), so it must not be designed against a rung model that
   §2.1 may invalidate.

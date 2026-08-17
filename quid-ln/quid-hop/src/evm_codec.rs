@@ -78,7 +78,8 @@ pub const SIG_OPEN_CHANNEL: &str =
     "openChannel((bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32[],\
 (address,bytes32,bytes,bytes),(uint64[],bytes[],uint64,uint256,bytes)[])";
 pub const SIG_SPLICE: &str =
-    "splice(bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32[])";
+    "splice(bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32[],\
+(uint64[],bytes[],uint64,uint256,bytes)[])";
 pub const SIG_RECORD_CLOSE: &str =
     "recordClose(bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32,\
 bytes32[],uint256)";
@@ -714,8 +715,18 @@ pub fn encode_open_channel(
     )
 }
 
-/// `splice(bytes32,OpenParams,bytes,bytes32[])` calldata — FOUR parameters, matching
+/// `splice(bytes32,OpenParams,bytes,bytes32[],ExitArming[])` calldata — FIVE parameters, matching
 /// [`SIG_SPLICE`] and the tokens encoded below.
+///
+/// 🔑 **(§E233-ladder) THE `exits` LADDER IS THE FIFTH PARAMETER AND IT IS MANDATORY.** A splice spends
+/// the funding UTXO, so every rung armed before it is unspendable — the contract's own header said
+/// so and left re-arming to `emitDeadManExit` "on the next heartbeat". **In the LP-hosted
+/// deployment there is no heartbeat** (`run_deadman_exit_heartbeat` does not run without a vault
+/// seed, by design), so one splice used to leave that channel with no escape at all, permanently.
+/// The rungs spend the SPLICE tx's own output, so they are producible in the very MuSig2 session
+/// that signs the splice — the LP is already in it, because a splice cannot exist without the LP's
+/// funding half. `drive_splice` therefore treats a missing ladder as DORMANT (retry), never as a
+/// failure: the same shape `drive_open` uses for absent consent.
 ///
 /// ⚠️ CORRECTED 2026-08-16. This header declared a SIX-parameter ABI,
 /// `splice(bytes32,OpenParams,bytes,bytes32[],bytes,uint256)`, and documented both extra
@@ -760,6 +771,7 @@ pub fn encode_splice(
     params: &OpenParams,
     raw_splice_tx: &[u8],
     splice_merkle_proof: &[[u8; 32]],
+    exits: &[ExitArming],
 ) -> Vec<u8> {
     encode_call(
         SIG_SPLICE,
@@ -768,6 +780,7 @@ pub fn encode_splice(
             Tok::Tuple(params.tokens()),
             Tok::Bytes(raw_splice_tx.to_vec()),
             Tok::FixedBytes32Array(splice_merkle_proof.to_vec()),
+            Tok::TupleArray(exits.iter().map(ExitArming::tokens).collect()),
         ],
     )
 }
@@ -1302,7 +1315,7 @@ mod tests {
         );
         for proof_len in [0usize, 1, 12, 1000] {
             let proof = vec![[0xABu8; 32]; proof_len];
-            let sp = encode_splice([0xCDu8; 32], &p, &vec![0u8; 4096], &proof);
+            let sp = encode_splice([0xCDu8; 32], &p, &vec![0u8; 4096], &proof, &t_exits());
             assert_eq!(&sp[..4], &sp_sel[..4]);
             assert_eq!(sp.len() % 32, 4);
         }
@@ -1324,7 +1337,7 @@ mod tests {
             funding_taproot: [0u8; 32],
         };
         assert_eq!(
-            hex_encode(&encode_splice([0u8; 32], &p, &[], &[])[..4]),
+            hex_encode(&encode_splice([0u8; 32], &p, &[], &[], &t_exits())[..4]),
             hex_encode(
                 &keccak256(
                     SIG_SPLICE
@@ -1374,15 +1387,19 @@ mod tests {
             funding_taproot: [0u8; 32],
         };
         let cid = [0x7Au8; 32];
-        let cd = encode_splice(cid, &p, &[0xAAu8; 64], &[[0xBBu8; 32]]);
+        let cd = encode_splice(cid, &p, &[0xAAu8; 64], &[[0xBBu8; 32]], &t_exits());
         // head word0 = channelId (static, inlined verbatim).
         assert_eq!(&cd[4..36], &cid);
-        // head word1 = offset to arg1 (the dynamic OpenParams tuple) = 0x80: the head is
-        // 4 words (channelId, params-offset, raw-offset, proof-offset). The dead
-        // `feeSettleSats` word that made this 0xA0 is gone (§E191).
+        // head word1 = offset to arg1 (the dynamic OpenParams tuple) = 0xA0: the head is
+        // 5 words (channelId, params-offset, raw-offset, proof-offset, exits-offset).
+        // ⚠️ IT WAS 0x80 AND IS 0xA0 AGAIN — for a LIVE reason this time. §E191 removed the dead
+        // `feeSettleSats` word that had made it 0xA0; §E233-ladder adds the mandatory `ExitArming[]`
+        // ladder, so the head is five words once more. Same number, opposite meaning: the point
+        // of asserting the offset is that a head-word count change is what silently shifts every
+        // dynamic argument, so it must be re-derived rather than pattern-matched against history.
         assert_eq!(
             hex_encode(&cd[36..68]),
-            "0000000000000000000000000000000000000000000000000000000000000080",
+            "00000000000000000000000000000000000000000000000000000000000000a0",
         );
     }
 
@@ -1568,7 +1585,7 @@ mod proptests {
             proof_len in 0usize..40,
         ) {
             let proof = vec![[0xABu8; 32]; proof_len];
-            let cd = encode_splice(cid, &p, &raw, &proof);
+            let cd = encode_splice(cid, &p, &raw, &proof, &t_exits());
             prop_assert_eq!(&cd[..4], &keccak256(
                 SIG_SPLICE
             )[..4]);

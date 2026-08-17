@@ -373,8 +373,13 @@ contract BtcLpMintStress is AllesFixture {
             amountSats:         newAmountSats,
             fundingTaproot:     _taprootQ(lpPubkey, _hopKeyOf[channelId])
         });
+        // (§E233-ladder) The rotated outpoint needs its own ladder — the rungs armed at open spend the
+        // UTXO this tx consumes. Single-output splice ⇒ the new funding is vout 0. Built before the
+        // prank: `_armFor` shells out over FFI and would consume a one-shot prank.
+        Types.ExitArming[] memory exits_ = _ladder(
+            _armFor(seed, newTxId, newAmountSats, payoutKeyOnly(abi.encode(lpPubkey))));
         vm.prank(makeAddr("hop")); // splice is hop-gated (channel.hop pinned at open)
-        ch.splice(channelId, p, spliceTx, new bytes32[](0));
+        ch.splice(channelId, p, spliceTx, new bytes32[](0), exits_);
     }
 
     /// (E166-2) Build a splice tx + its `OpenParams` WITHOUT submitting — the proven swap-in
@@ -522,7 +527,9 @@ contract BtcLpMintStress is AllesFixture {
             fundingTaproot: _taprootQ(lpPubkey, _hopKeyOf[channelId]) }); // same total = not growing
         vm.prank(makeAddr("hop"));
         vm.expectRevert(BTCChannels.SpliceUnchanged.selector);
-        ch.splice(channelId, p, spliceTx, new bytes32[](0));
+        // (§E233-ladder) `stubLadder` — `SpliceUnchanged` fires before the rotation, so arming is
+        // unreachable here; an unsignable stub keeps it that way loudly.
+        ch.splice(channelId, p, spliceTx, new bytes32[](0), stubLadder());
     }
 
     /// Build + submit a SPLICE-OUT (partial withdrawal) shrinking `channelId` to
@@ -552,8 +559,13 @@ contract BtcLpMintStress is AllesFixture {
             amountSats:         newAmountSats,
             fundingTaproot:     _taprootQ(lpPubkey, _hopKeyOf[channelId])
         });
+        // (§E233-ladder) The rotated outpoint needs its own ladder — the rungs armed at open spend the
+        // UTXO this tx consumes. Single-output splice ⇒ the new funding is vout 0. Built before the
+        // prank: `_armFor` shells out over FFI and would consume a one-shot prank.
+        Types.ExitArming[] memory exits_ = _ladder(
+            _armFor(seed, newTxId, newAmountSats, payoutKeyOnly(abi.encode(lpPubkey))));
         vm.prank(makeAddr("hop")); // splice is hop-gated (channel.hop pinned at open)
-        ch.splice(channelId, p, spliceTx, new bytes32[](0));
+        ch.splice(channelId, p, spliceTx, new bytes32[](0), exits_);
     }
 
     /// splice (shrink) reduces the LP's BTC pool position + the channel's funded total

@@ -155,6 +155,34 @@ contract OpenChannelE2ETest is Test, ExitFixture {
         });
     }
 
+    /// (§E233-ladder) Arm the ROTATED outpoint of the fixture's splice tx.
+    ///
+    /// ⚠️ **THE LABELS CARRY THE *ORIGINAL* SIZE, NOT THE NEW ONE.** The generator bakes
+    /// `quid-fixture-{lp,hop}-{seed}-{amountSats}` where `amountSats` is the size the CHANNEL KEYS
+    /// were derived at; a splice does not re-key, so using `.splice.newAmountSats` here would ask
+    /// Python for a different pair and the signature would verify against the wrong `Q` — failing
+    /// in a way that looks like a broken fixture rather than a wrong label.
+    /// The funding output is LOCATED, never assumed to be vout 0: a real splice tx has a withdrawal
+    /// output too, and which index the 2-of-2 lands on is the tx's business.
+    function _armRegtestSplice(
+        Types.OpenParams memory sp, string memory json, bytes32 payout
+    ) private returns (Types.ExitArming memory) {
+        uint seed = vm.parseJsonUint(json, ".seed");
+        uint openSats = vm.parseJsonUint(json, ".amountSats");
+        bytes memory raw = vm.parseJsonBytes(json, ".splice.spliceRawTx");
+        uint32 vout = ChannelLib.locateChannelOutput(
+            raw, sp.lpPubkey, sp.hopPubkey, sp.fundingTaproot, sp.amountSats);
+        return Types.ExitArming({
+            prevValues: new uint64[](1), prevScripts: new bytes[](1),
+            cltvDeadline: 900_001, checkpointSats: 0,
+            signedExitTx: signedExitFull(
+                string.concat("quid-fixture-lp-", vm.toString(seed), "-", vm.toString(openSats)),
+                string.concat("quid-fixture-hop-", vm.toString(seed), "-", vm.toString(openSats)),
+                sha256(abi.encodePacked(sha256(raw))), vout, sp.amountSats,
+                abi.encodePacked(hex"5120", payout), 900_001, 1_000)
+        });
+    }
+
     function test_openChannel_realRegtestFundingTx() public {
         // §9b/SIMPLE-TAPROOT: funding output is a real P2TR `0x5120||Q` (the MuSig2
         // key-path aggregate), NOT a P2WSH 2-of-2. The fixture is regenerated from a
@@ -268,9 +296,13 @@ contract OpenChannelE2ETest is Test, ExitFixture {
             amountSats:         vm.parseJsonUint(json, ".splice.newAmountSats"),
             fundingTaproot:     vm.parseJsonBytes32(json, ".fundingTaproot")
         });
+        // (§E233-ladder) The splice rotates the funding outpoint, so the rungs armed at open are dead the
+        // moment it confirms — the contract requires a fresh ladder in the same call. Built BEFORE
+        // the prank (`signedExitFull` is an FFI cheatcode and would consume it).
+        Types.ExitArming[] memory sexits_ = _ladder(_armRegtestSplice(sp, json, payoutKey));
         vm.prank(address(0xB0B));   // the delegated authority registered at open
         ch.splice(channelId, sp, vm.parseJsonBytes(json, ".splice.spliceRawTx"),
-                  vm.parseJsonBytes32Array(json, ".splice.spliceMerkleBranch"));
+                  vm.parseJsonBytes32Array(json, ".splice.spliceMerkleBranch"), sexits_);
 
         (uint afterSats, , , , , ) = ch.channels(channelId);
         assertEq(afterSats, vm.parseJsonUint(json, ".splice.newAmountSats"),

@@ -212,7 +212,7 @@ pub(crate) struct ChannelState {
     pub(crate) amount_sats: u128,
     pub(crate) status: u8,
     /// The LP's EVM address (`channels().lpEth`) — the fee-owed key + the account
-    /// registerBtcLp credits. Needed hop-side to look up `btcFeesOwedSats`.
+    /// requestDeposit credits. Needed hop-side to look up `btcFeesOwedSats`.
     pub(crate) lp_eth: Address,
 }
 
@@ -775,7 +775,7 @@ pub async fn drive_open<R: JsonRpc + Send + Sync + 'static>(
     info!(cid = %hex::encode(cid), %funding_txid, "opened channel on EVM");
     // (B) Prune the funding→lpEth binding now the open is mirrored — `by_funding` only
     // holds in-flight opens, so it can't grow unbounded over the daemon's lifetime.
-    registry.clear_funding(&funding_txid.to_string(), funding_vout);
+    registry.clear_inflight(&funding_txid.to_string(), funding_vout);
     Ok(())
 }
 
@@ -812,6 +812,10 @@ pub async fn drive_splice<R: JsonRpc + Send + Sync + 'static>(
     channel_id: [u8; 32],
     splice_txid: Txid,
     splice_vout: u32,
+    // (§E233-ladder) Same registry `drive_open` reads, and keyed the same way — by FUNDING OUTPOINT.
+    // A splice's new outpoint IS a funding outpoint, so the LP's ladder for it binds under
+    // `bind_consent(splice_txid, splice_vout, ..)` with no new plumbing.
+    registry: Arc<crate::vault::VaultRegistry>,
 ) -> anyhow::Result<()> {
     let btc_channels = cfg.btc_channels;
     let cid = channel_id;
@@ -887,7 +891,7 @@ pub async fn drive_splice<R: JsonRpc + Send + Sync + 'static>(
     // BTC-leg fees (`Vault.btcFeesOwedSats`) INTO the position instead of paying them out
     // via a separate settler tx. The hop funds `grew_by` real sats into the splice; up to
     // that much is marked `fee_settle_sats`, which the contract clamps to the real owed
-    // (BtcVaultLib) and clears — the fees COMPOUND into `LP.pooled` via registerBtcLp
+    // (BtcVaultLib) and clears — the fees COMPOUND into `LP.pooled` via requestDeposit
     // (which already grew pooled by the full delta), and a bigger POOLED share grows the
     // LP's coop-close payout to btcRecipientOf, so `delivered` stays invariant with NO
     // LN-balance leg (under B the LP has no LN node — the old keysend is obsolete). A
@@ -898,7 +902,23 @@ pub async fn drive_splice<R: JsonRpc + Send + Sync + 'static>(
     // `.unwrap_or(0)`, and passed the zero to a `splice` parameter the contract explicitly
     // ignored. Both halves failed quietly, so the waste was invisible from either side.
     // 6. Build + submit splice (channelId is the STABLE original). No lpAuth (B).
-    let calldata = encode_splice(cid, &params, &raw, &proof);
+    //
+    // (§E233-ladder) THE FRESH EXIT LADDER FOR THE ROTATED OUTPOINT, and it is MANDATORY on-chain. A
+    // splice spends the funding UTXO, so every rung armed against the OLD one is unspendable; the
+    // contract now arms the new set inside `splice` itself so there is no block in which the
+    // channel has no escape. The rungs are spends of the 2-of-2, so only the LP half can produce
+    // them — the fleet relays, exactly as at open.
+    //
+    // ⚠️ ABSENT LADDER IS DORMANCY, NOT FAILURE — the same shape `drive_open` uses. The LP signs
+    // the splice tx itself, so it CAN produce these in the same session; a gap here means it has
+    // not posted them yet, and the reconciler's next pass retries. Bailing would log an error on
+    // every tick for an ordinary waiting state.
+    let Some(consent) = registry.consent_for_funding(&splice_txid.to_string(), splice_vout) else {
+        debug!(cid = %hex::encode(cid), %splice_txid, splice_vout,
+            "splice: no LP ExitArming ladder for the rotated outpoint yet; skip (reconciler retries)");
+        return Ok(());
+    };
+    let calldata = encode_splice(cid, &params, &raw, &proof, &consent.exits);
     let ok = estimate_gas_and_send(&evm, &rpc, btc_channels, calldata, cfg.gas_limit).await?;
     if !ok {
         // A concurrent splice may have raced us in; re-read and treat the
@@ -921,6 +941,9 @@ pub async fn drive_splice<R: JsonRpc + Send + Sync + 'static>(
         cid = %hex::encode(cid), %splice_txid,
         new_total = params.amount_sats, "spliced channel on EVM"
     );
+    // (§E233-ladder) The ladder is armed on-chain now, so drop the relayed copy — `consent` holds only
+    // IN-FLIGHT consent, the same lifecycle bound `drive_open` keeps with `clear_inflight`.
+    registry.clear_inflight(&splice_txid.to_string(), splice_vout);
     Ok(())
 }
 
@@ -1152,6 +1175,9 @@ pub async fn run_channel_driver<R: JsonRpc + Send + Sync + 'static>(
                 let esplora = esplora.clone();
                 let chain_monitor = chain_monitor.clone();
                 let channel_manager = channel_manager.clone();
+                // (§E233-ladder) The splice now carries the LP's fresh exit ladder, read from the same
+                // registry the open path reads — keyed on the ROTATED outpoint.
+                let registry = vault_registry.clone();
                 tokio::spawn(async move {
                     // Hold the slot for the whole drive; Drop frees it on every exit
                     // path (return, error, or panic-unwind).
@@ -1166,6 +1192,7 @@ pub async fn run_channel_driver<R: JsonRpc + Send + Sync + 'static>(
                         oc,
                         new_funding_txid,
                         new_funding_vout,
+                        registry,
                     )
                     .await
                     {
@@ -1180,7 +1207,7 @@ pub async fn run_channel_driver<R: JsonRpc + Send + Sync + 'static>(
 
 /// Hop-side BTC-leg **fee flush**: when a channel is caught up (nothing to
 /// mirror) and has accrued `Vault.btcFeesOwedSats` worth splicing, initiate a
-/// HOP-FUNDED splice-in of exactly the owed sats. `registerBtcLp` (in the splice
+/// HOP-FUNDED splice-in of exactly the owed sats. `requestDeposit` (in the splice
 /// mirror) then grows the LP's `POOLED` by that delta — the fees COMPOUND into the
 /// position. This is the fleet doing the keeping for every channel it serves;
 /// nothing runs LP-side.
@@ -1534,9 +1561,11 @@ pub async fn run_channel_reconciler<R: JsonRpc + Send + Sync + 'static>(
                         None => Ok(()),
                     },
                     ReconcileAction::Splice => {
+                        // (§E233-ladder) `reg2` is moved here as well as in the Open arm — match arms are
+                        // exclusive, so exactly one move happens per pass.
                         drive_splice(
                             cfg2, evm2, rpc2, esp2, chm2, cm2, cid, funding_txid,
-                            funding_vout,
+                            funding_vout, reg2,
                         )
                         .await
                     }

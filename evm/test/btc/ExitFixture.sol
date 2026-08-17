@@ -9,6 +9,16 @@ interface BTCChannelsLike {
     function btcRecipientOf(address) external view returns (bytes32);
 }
 
+/// (§E233-ladder) The two reads an OBSERVER needs to answer "does this channel have a live escape".
+/// Declared here rather than importing `BTCChannels` so the helper stays usable from fixtures that
+/// only hold an address.
+interface ArmedLike {
+    function channels(bytes32) external view
+        returns (uint amountSats, bytes32 fundingTxId, address lpEth,
+                 uint32 fundingVout, uint8 status, bytes32 keysHash);
+    function exitArmedOnOutpoint(bytes32 outpointKey, uint64 deadline) external view returns (bool);
+}
+
 /// @notice (E128) Test-side helper for channels that must be opened with a GENUINELY SIGNED
 ///         dead-man exit.
 ///
@@ -199,6 +209,38 @@ abstract contract ExitFixture is Test {
         for (uint i; i < 64; ++i) pop[i] = out[32 + i];
     }
 
+    /// (§E233-ladder) Is `deadline` armed for the channel's CURRENT funding scope?
+    ///
+    /// 🔑 **THIS IS THE OBSERVER'S READ, WRITTEN ONCE.** `exitArmedOnOutpoint` is keyed on the
+    /// funding OUTPOINT, not on `channelId`, precisely so that a rotation retires its rungs instead
+    /// of leaving the map asserting escapes that cannot confirm. The cost is that a caller must
+    /// hash the channel's current `(fundingTxId, fundingVout)` the way `_outpointKey` does — so
+    /// this helper exists to have exactly ONE copy of that derivation in the test tree, and to be
+    /// the reference an off-chain watcher mirrors.
+    function armedNow(address ch, bytes32 channelId, uint64 deadline)
+        internal view returns (bool)
+    {
+        (, bytes32 txid, , uint32 vout, , ) = ArmedLike(ch).channels(channelId);
+        return ArmedLike(ch).exitArmedOnOutpoint(keccak256(abi.encode(txid, vout)), deadline);
+    }
+
+    /// (§E233-ladder) A ladder for call sites asserted to revert BEFORE the arming runs — an invalid
+    /// splice tx, a mismatched key pair, a foreign output. `splice`/`rekey` require the parameter,
+    /// but on these paths `_applySplice` reverts first, so paying for an FFI-signed rung would buy
+    /// nothing.
+    ///
+    /// ⚠️ **IT IS DELIBERATELY UNSIGNABLE, AND THAT IS WHAT MAKES IT SAFE TO USE.** If the revert
+    /// order ever changes and arming IS reached, `_armDeadManExit` fails on these bytes
+    /// (`BufferOverflow`) rather than accepting them — so the test breaks loudly instead of passing
+    /// for a new reason. A stub that verified would silently convert these into coverage of the
+    /// wrong branch. NEVER use it where the splice is expected to SUCCEED.
+    function stubLadder() internal pure returns (Types.ExitArming[] memory) {
+        return _ladder(Types.ExitArming({
+            prevValues: new uint64[](1), prevScripts: new bytes[](1),
+            cltvDeadline: 1, checkpointSats: 0, signedExitTx: hex"00"
+        }));
+    }
+
     /// (E165) Wrap one already-built rung as a ladder. Kept separate from `armingSet` because
     /// several helpers build their arming from context the fixture base cannot see.
     function _ladder(Types.ExitArming memory one)
@@ -232,6 +274,29 @@ abstract contract ExitFixture is Test {
         bytes memory payoutScript, uint64 deadline, uint fee
     ) internal returns (Types.ExitArming memory) {
         return armingWithCheckpoint(label, txid, vout, sats, payoutScript, deadline, fee, 0);
+    }
+
+    /// (§E233-ladder) An arming whose two funding halves come from DIFFERENT labels — the rekey shape,
+    /// where the rungs must verify under `Q'` = agg(this channel's LP half, the INCOMING hop half).
+    /// `armingFor`'s single-label form cannot express that pair, and a rung signed under the OLD
+    /// aggregate fails verification for a reason that looks like a broken fixture.
+    ///
+    /// ⚠️ **PASS FULL LABELS INCLUDING THE `-lp` / `-hop` SUFFIX.** This reaches the generator's
+    /// `signfull`, which calls `channel_keypair(label)` on what it is given; only `sign` appends the
+    /// role itself. The two conventions differ and nothing enforces it — bare base labels produce a
+    /// valid signature over a DIFFERENT `Q`, so the contract rejects with `ExitSignatureInvalid()`
+    /// and the fault looks like the contract's.
+    function signedExitFullArming(
+        string memory lpLabel, string memory hopLabel, bytes32 txid, uint32 vout, uint sats,
+        bytes memory payoutScript, uint64 deadline, uint fee
+    ) internal returns (Types.ExitArming memory) {
+        return Types.ExitArming({
+            prevValues:   new uint64[](1),
+            prevScripts:  new bytes[](1),
+            cltvDeadline: deadline,
+            checkpointSats: 0,
+            signedExitTx: signedExitFull(lpLabel, hopLabel, txid, vout, sats, payoutScript, deadline, fee)
+        });
     }
 
     function armingWithCheckpoint(

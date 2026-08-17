@@ -199,8 +199,16 @@ contract VBtcLevFeeLane is AllesFixture {
             amountSats:         newAmountSats,
             fundingTaproot:     _taprootQ(lpPubkey, hopKey_)
         });
+        // (§E233-ladder) THE SPLICE CARRIES ITS OWN FRESH LADDER, signed against the ROTATED outpoint
+        // (`newTxId`:0) and the POST-shrink amount — the rungs armed at open spend the outpoint this
+        // very tx consumes, so they are dead the moment it confirms. Built BEFORE the prank because
+        // `armingSet` shells out over FFI and the round-trip consumes a one-shot prank.
+        Types.ExitArming[] memory exits_ = armingSet(
+            _label(seed), newTxId, 0, newAmountSats,
+            abi.encodePacked(hex"5120", payoutKeyOnly(abi.encode(seed))),
+            EXIT_DEADLINE + 1, 1_000);
         vm.prank(makeAddr("hop"));
-        ch.splice(channelId, p, spliceTx, new bytes32[](0));
+        ch.splice(channelId, p, spliceTx, new bytes32[](0), exits_);
     }
 
     // ── Cross-side SEAM coverage: distinct funding vs shutdown/payout keys + a real
@@ -268,15 +276,23 @@ contract VBtcLevFeeLane is AllesFixture {
             _buildShrink(ch, cid, 77, lpPubkey, 15e6, 5e6, payoutScript, ftx);
         vm.prank(makeAddr("hop"));
         vm.expectRevert(BTCChannels.ForeignSpliceOutput.selector);
-        ch.splice(cid, p, tx_, new bytes32[](0));
+        // (§E233-ladder) `stubLadder` — `_applySplice` rejects the foreign output before any arming runs.
+        ch.splice(cid, p, tx_, new bytes32[](0), stubLadder());
     }
 
     function _shrinkExpectOk(BTCChannels ch, bytes32 cid, bytes32 ftx,
         bytes memory lpPubkey, bytes memory payoutScript) internal {
         (Types.OpenParams memory p, bytes memory tx_) =
             _buildShrink(ch, cid, 77, lpPubkey, 15e6, 5e6, payoutScript, ftx);
+        // (§E233-ladder) A SUCCEEDING splice must carry a REAL ladder for the rotated outpoint — the
+        // shrink tx's funding output is vout 0 (the LP payout is vout 1), and the post-shrink
+        // amount is what the rungs must attest. Built before the prank: `armingSet` goes out over
+        // FFI and the round-trip would consume a one-shot prank.
+        Types.ExitArming[] memory exits_ = armingSet(
+            _label(77), sha256(abi.encodePacked(sha256(tx_))), 0, 15e6,
+            payoutScript, EXIT_DEADLINE + 1, 1_000);
         vm.prank(makeAddr("hop"));
-        ch.splice(cid, p, tx_, new bytes32[](0));
+        ch.splice(cid, p, tx_, new bytes32[](0), exits_);
     }
 
     /// (E162) A SPLICE MAY RESIZE A CHANNEL; IT MAY NOT REKEY ONE.
@@ -306,7 +322,8 @@ contract VBtcLevFeeLane is AllesFixture {
 
         vm.prank(makeAddr("hop"));
         vm.expectRevert(BTCChannels.ChannelKeysMismatch.selector);
-        ch.splice(cid, p, hex"00", new bytes32[](0));
+        // (§E233-ladder) `stubLadder` — `_requireChannelKeys` fires before the rotation, let alone arming.
+        ch.splice(cid, p, hex"00", new bytes32[](0), stubLadder());
     }
 
     /// The companion: the SAME pair still splices. Without this the rejection above could be
@@ -369,6 +386,13 @@ contract VBtcLevFeeLane is AllesFixture {
         bytes   newHop;     // the hop key being rotated in
         uint    sats;
         uint    signerPk;   // whoever signs the consent — deliberately not always the LP
+        // (§E233-ladder) The fresh ladder's provenance. A rekey rotates the outpoint AND the aggregate, so
+        // its rungs must be signed under the MIXED pair (this channel's LP half, the INCOMING hop
+        // half) — which is what `signedExitFull` takes two labels for. `lpLabel` is the seed label
+        // the channel was opened with; `hopLabel` is the label the new hop key came from.
+        string  lpLabel;
+        string  hopLabel;
+        bytes   payoutScript;   // the LP's committed P2TR the exit must pay
     }
 
     /// Build + sign + submit a rotation, in its own frame.
@@ -382,13 +406,60 @@ contract VBtcLevFeeLane is AllesFixture {
         bytes memory tx_ = _buildRekey(c.ftx, c.lpPubkey, c.newHop, c.sats);
         Types.OpenParams memory p = _rekeyParams(c.lpPubkey, c.newHop, c.sats);
         bytes memory sig = _signRekey(c.signerPk, address(ch), c.cid, p, tx_);
+        // (§E233-ladder) THE LADDER IS CHOSEN BY WHETHER ARMING IS REACHABLE, and that is a statement
+        // about the contract, not a convenience. All three rejection cases are refused by
+        // `_authorizeRekey`/`_applySplice`, i.e. strictly upstream of `_armLadder`, so a
+        // real FFI-signed rung would be paid for and never verified. `stubLadder` is unsignable, so
+        // if that order ever changes the test fails on `BufferOverflow` instead of passing for a new
+        // reason.
+        Types.ExitArming[] memory exits_ = expectRevert_
+            ? stubLadder()
+            // The positive case: signed under the MIXED pair — this channel's LP half and the
+            // INCOMING hop half — against the rotated outpoint (`tx_`'s vout 0) and the new amount.
+            : _ladder(signedExitFullArming(
+                c.lpLabel, c.hopLabel, sha256(abi.encodePacked(sha256(tx_))), 0, c.sats,
+                c.payoutScript, EXIT_DEADLINE + 2, 1_000));
         if (expectRevert_) vm.expectRevert();
         vm.prank(makeAddr("hop"));
-        ch.rekey(c.cid, p, c.oldHop, tx_, new bytes32[](0), sig);
+        ch.rekey(c.cid, p, c.oldHop, tx_, new bytes32[](0), sig, exits_);
     }
 
     function _lpPkFor(uint seed) internal returns (uint pk) {
         ( , pk) = makeAddrAndKey(string(abi.encodePacked("btc-lp-", seed)));
+    }
+
+    /// 🔴 (§E233-ladder) THE DEFECT THIS EXISTS TO CATCH: a splice rotated the funding outpoint, every rung
+    /// pre-signed at open became a spend of a SPENT output, and `exitArmedAt[channelId][deadline]`
+    /// went on reading `true` for all of them. The flag an observer checks to decide whether an LP
+    /// has a non-custodial escape was SILENTLY FALSE — and in the LP-hosted deployment, where
+    /// `run_deadman_exit_heartbeat` does not run at all, the channel genuinely had no escape from
+    /// the first splice onward, permanently. Splice is the only capacity mechanism there is.
+    ///
+    /// Three assertions, and the third is the one that distinguishes a fix from a mask:
+    ///  1. the open-time deadline is armed for the channel's scope at open;
+    ///  2. after the splice it is NOT — and the splice's OWN ladder is, so there is no block in
+    ///     which the channel is escape-less (`splice` arms in the same transaction that rotates);
+    ///  3. the old entry is still THERE under the OLD outpoint key. It was retired by being made
+    ///     UNREACHABLE, not by a clearing loop over a mapping nobody can enumerate — which is why
+    ///     the fix costs zero writes and cannot miss a rung.
+    ///
+    /// ⚠️ 2 IS ASSERTED VIA `armedNow`, WHICH HASHES THE CHANNEL'S CURRENT OUTPOINT. Reading the
+    /// raw getter with `channelId` would return `false` for every input and the test would pass for
+    /// the wrong reason — the same trap the rename to `exitArmedOnOutpoint` exists to make loud.
+    function test_spliceRetiresTheOldLadderAndArmsTheNew() public {
+        BTCChannels ch = _deployChannels();
+        (bytes32 cid, bytes32 ftx,, bytes memory lpPubkey) = _open(ch, 88, 20e6);
+        assertTrue(armedNow(address(ch), cid, EXIT_DEADLINE),
+            "precondition: openChannel arms the ladder for the OPEN outpoint");
+
+        _spliceOut(ch, cid, ftx, 88, lpPubkey, 15e6);
+
+        assertFalse(armedNow(address(ch), cid, EXIT_DEADLINE),
+            "a rotation RETIRES the rungs signed against the pre-splice outpoint");
+        assertTrue(armedNow(address(ch), cid, EXIT_DEADLINE + 1),
+            "the splice arms its own ladder, so the channel is never without an escape");
+        assertTrue(ch.exitArmedOnOutpoint(keccak256(abi.encode(ftx, uint32(0))), EXIT_DEADLINE),
+            "the old rung is unreachable, not deleted -- retirement costs zero writes");
     }
 
     /// ✅ THE POSITIVE CASE, and it asserts the thing §E153 got wrong rather than just "no revert".
@@ -404,6 +475,16 @@ contract VBtcLevFeeLane is AllesFixture {
         ( , c.newHop, ) = ownedChannelKeys(_label(94));
         c.sats = 2e6;
         c.signerPk = _lpPkFor(93);
+        // (§E233-ladder) The rotation must carry a ladder valid under the NEW aggregate, so the fixture
+        // needs both halves' provenance and the payout the exit pays. Seed 93 opened the channel.
+        // ⚠️ THE ROLE SUFFIX IS PART OF THE LABEL HERE. `signedExitFull` → the generator's
+        // `signfull`, which calls `channel_keypair(label)` VERBATIM; `signedExit` → `sign`, which
+        // appends `-lp`/`-hop` itself. Passing the bare base label derives two keys that are not
+        // this channel's, and the failure is `ExitSignatureInvalid()` — a correct rejection of a
+        // signature over the wrong `Q`, which reads exactly like a broken contract. Measured.
+        c.lpLabel = string.concat(_label(93), "-lp");
+        c.hopLabel = string.concat(_label(94), "-hop");
+        c.payoutScript = abi.encodePacked(hex"5120", payoutKeyOnly(abi.encode(uint(93))));
         assertTrue(keccak256(c.newHop) != keccak256(c.oldHop), "hop half must actually move");
 
         _submitRekey(ch, c, false);
@@ -420,7 +501,8 @@ contract VBtcLevFeeLane is AllesFixture {
         Types.OpenParams memory stalePair = _rekeyParams(c.lpPubkey, c.oldHop, 1e6);
         vm.prank(makeAddr("hop"));
         vm.expectRevert(BTCChannels.ChannelKeysMismatch.selector);
-        ch.splice(c.cid, stalePair, hex"00", new bytes32[](0));
+        // (§E233-ladder) `stubLadder` — the stale pair is refused on the pin, upstream of arming.
+        ch.splice(c.cid, stalePair, hex"00", new bytes32[](0), stubLadder());
     }
 
     /// TO WHAT, enforced: the LP half may not move. This is the exact attack the

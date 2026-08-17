@@ -386,6 +386,17 @@ lies. ⇒ **VERIFY THE EFFECT WITH AN INDEPENDENT GREP, NEVER THE TOOL'S EXIT CO
   reaches codegen and you see normal diagnostics — so "the JSON error went away" after an edit can
   simply mean you introduced an earlier error. It reappears the moment analysis passes.
 
+- 🔴 **`gen_deadman_exit_fixture.py`'s TWO SIGNING MODES TAKE LABELS UNDER DIFFERENT CONVENTIONS, AND
+  MIXING THEM UP REPORTS AS A CONTRACT BUG** (measured 2026-08-17). `sign <lp> <hop> …` appends the
+  role itself — `channel_keypair(f"{lp}-lp")` — while `signfull <lp> <hop> …` uses what it is given
+  **verbatim** (it exists for `open_channel_fixture.json`'s `quid-fixture-{lp,hop}-{seed}-{sats}`
+  labels, which already carry the role). So `signedExitFull(_label(93), _label(94), …)` signs under
+  the aggregate of two keys that are **not the channel's**, and `_armDeadManExit` rejects it with
+  **`ExitSignatureInvalid()`** — a *correct* rejection of a signature over the wrong `Q`, which reads
+  exactly like a broken contract or a broken taproot tweak. Pass `string.concat(label, "-lp")` /
+  `"-hop"` to `signedExitFull`. ⚠️ The tell is that `ownedChannelKeys(label)` (which calls `keys
+  <label> <label>`) DOES append the roles, so the same base label means different keys depending on
+  which helper consumes it, and nothing in either signature says so.
 - **USE THE `Edit` TOOL FOR EDITS, NOT `python3 - <<EOF` OR `sed`.** `Edit` does exact string
   replacement and **ERRORS IF THE STRING IS NOT FOUND** — which is exactly the verification that
   python `assert`s were hand-rolling and that `sed` cannot do at all. One call, no interpreter spawn,

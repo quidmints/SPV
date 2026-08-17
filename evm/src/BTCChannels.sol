@@ -343,7 +343,23 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///
     /// ⚠️ `deadManDeadline` was ONE `uint64` and is now this map. A zero value means NOT ARMED,
     /// which is why arming rejects a zero deadline — the two would otherwise be indistinguishable.
-    mapping(bytes32 => mapping(uint64 => bool)) public exitArmedAt;
+    ///
+    /// 🔑 **KEYED ON THE FUNDING OUTPOINT, NOT ON `channelId` — a CORRECTNESS key, not a naming
+    /// choice.** A rung is only ever valid against the ONE outpoint it was signed to spend; the
+    /// note above already says so ("any prior exit is invalid on-chain ⇒ ONE live exit per current
+    /// funding UTXO"). Keyed on `channelId` this map OUTLIVED its rungs: a splice rotates the
+    /// funding outpoint, every armed shape becomes unspendable, and the map still read `true` for
+    /// each of them. That is a security-relevant flag that is SILENTLY FALSE — and it is precisely
+    /// the flag an observer reads to decide whether an LP has an escape at all, so the failure is
+    /// the plausible-but-wrong kind a check is supposed to prevent.
+    /// Keyed on the outpoint, rotation RETIRES the stale entries with zero writes: they become
+    /// unreachable rather than wrong, and a spliced channel with no fresh ladder reads `false`,
+    /// which is the truth. Observers read `channels[id].fundingTxId`/`fundingVout` and hash the
+    /// pair exactly as `_outpointKey` does.
+    /// ⚠️ RENAMED FROM `exitArmedAt` DELIBERATELY. The getter's ABI shape is unchanged
+    /// (`(bytes32,uint64)`), so a caller still passing `channelId` would compile and silently read
+    /// `false` for a live ladder. Renaming makes every stale call site a compile error instead.
+    mapping(bytes32 => mapping(uint64 => bool)) public exitArmedOnOutpoint;
 
     /// (E165) There is NO per-deadline checkpoint map. One was added with the ladder and NOTHING
     /// EVER READ IT — the stale-close guard lives in `recordClose` (a cooperative close has no
@@ -497,10 +513,20 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     error SwapOutNotDelivered(); // splice tx doesn't pay the swapper's script ≥ sats
     error NotAShrink();      // an on-chain swap-out delivery must REDUCE the channel
 
-    // ─── Modifiers ────────────────────────────────────────────────────
-    modifier whenOpen(bytes32 channelId) {
+    /// @dev (§E233-ladder) The live-channel gate. **A `private view`, NOT a modifier — standing rule 8c,
+    ///      and here it is the reason the §E233-ladder ladder fits at all.** As `modifier whenOpen` this
+    ///      check was INLINED at all EIGHT of its use sites; `_onlyHop`'s note directly below
+    ///      records the same conversion measured at **+968 bytes for six uses**, and `BTCChannels`
+    ///      had **138 bytes of margin** when this was measured (2026-08-17), having overtaken
+    ///      `Vogue` as the binding contract. One routine plus eight JUMPs paid for the mandatory
+    ///      splice/rekey re-arming instead of blocking it.
+    ///      ⚠️ CALL IT AS THE FIRST STATEMENT OF THE BODY. As a modifier it ran BEFORE everything
+    ///      including `_onlyHop()`, so which revert a caller sees is part of the observed behaviour
+    ///      (tests assert `WrongStatus` vs `NotChannelHop` on specific paths). Ordering it after any
+    ///      other check silently swaps those, which is a behaviour change wearing a refactor's
+    ///      clothes.
+    function _whenOpen(bytes32 channelId) private view {
         if (channels[channelId].status != ChannelLib.STATUS_OPEN) revert WrongStatus();
-        _;
     }
 
     // ─── Shared close helper ──────────────────────────────────────────
@@ -540,9 +566,29 @@ contract BTCChannels is Ownable, ReentrancyGuard {
 
     /// @dev Claim a funding UTXO for exactly one channel (open + every rotation).
     function _useOutpoint(bytes32 fundingTxId, uint32 vout) internal {
-        bytes32 op = keccak256(abi.encode(fundingTxId, vout));
+        bytes32 op = _outpointKey(fundingTxId, vout);
         if (fundingOutpointUsed[op]) revert OutpointReused();
         fundingOutpointUsed[op] = true;
+    }
+
+    /// @dev The ONE identity of a funding UTXO, used by both things keyed on one:
+    ///      `fundingOutpointUsed` (claimed once, ever) and `exitArmedOnOutpoint` (which rungs are
+    ///      valid right now). Two callers, one routine — a modifier or a second inline `keccak256`
+    ///      would put the same preimage in two places, and a divergence between them is exactly the
+    ///      silent kind: the arming would write a key the recording path never reads.
+    ///      ⚠️ `abi.encode` (not `encodePacked`) so the 32-byte txid and the `uint32` vout are each
+    ///      padded to a word; the packed form of a 32-byte value followed by 4 bytes is ambiguous
+    ///      with other splits. `_useOutpoint` used `abi.encode`, so this preserves every key
+    ///      already written to `fundingOutpointUsed` on a live deployment.
+    function _outpointKey(bytes32 fundingTxId, uint32 vout) private pure returns (bytes32) {
+        return keccak256(abi.encode(fundingTxId, vout));
+    }
+
+    /// @dev The current funding scope of `channelId` as an `exitArmedOnOutpoint` key. One reader
+    ///      for the arming and the recording path so the two cannot drift apart.
+    function _currentOutpointKey(bytes32 channelId) private view returns (bytes32) {
+        Types.BTCChannel storage ch = channels[channelId];
+        return _outpointKey(ch.fundingTxId, ch.fundingVout);
     }
 
     /// @param lpPayoutSats the BTC the LP took in the close tx — Vogue uses
@@ -972,12 +1018,29 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///                    pubkeys are the channel's 2-of-2 pair.
     /// @param rawSpliceTx The Bitcoin splice tx (input 0 spends the prior UTXO; on a
     ///                    SHRINK it also pays the LP's withdrawal output to btcRecipientOf).
+    /// @param exits (§E233-ladder) THE FRESH LADDER FOR THE ROTATED OUTPOINT — mandatory, exactly as at
+    ///        open. A splice spends the funding UTXO, so every rung armed before it is unspendable;
+    ///        the header on `exitArmedOnOutpoint` documented that and left the re-arming to
+    ///        `emitDeadManExit` "on the next heartbeat". **In the LP-HOSTED deployment there is no
+    ///        heartbeat** — `run_deadman_exit_heartbeat`'s own docstring says it does not run when
+    ///        the fleet has no vault seed, and that "a channel's exits come from the §E165 ladder
+    ///        the LP pre-signed at open". So a single splice left that channel with NO escape at
+    ///        all, permanently, and splice is the only capacity mechanism there is.
+    ///        ⇒ Arming here makes the escape-less state UNCONSTRUCTIBLE rather than merely
+    ///        detectable (standing rule 17): there is no block between the rotation and the arming.
+    ///        🔑 **AND IT COSTS THE LP NOTHING NEW.** A splice SPENDS the 2-of-2, so it already
+    ///        requires the LP's funding half to sign — the LP is in this signing session by
+    ///        construction. The rungs spend the splice tx's own output, whose txid is fixed the
+    ///        moment that tx is signed, so they are producible in the SAME session. This is the
+    ///        one place where "re-arming costs LP participation" is free.
     function splice(
         bytes32 channelId,
         Types.OpenParams calldata p,
         bytes calldata rawSpliceTx,
-        bytes32[] calldata spliceMerkleProof
-    ) external nonReentrant whenOpen(channelId) {
+        bytes32[] calldata spliceMerkleProof,
+        Types.ExitArming[] calldata exits
+    ) external nonReentrant {
+        _whenOpen(channelId);
         _onlyHop();
         // (B) Authorization. ⚠️ UPDATED 2026-08-07 (E122), AGAIN 2026-08-10 (E156): this said
         // "`channel.hop` … so ONLY that hop can resize" — and (E157) that is TRUE AGAIN: both the
@@ -1011,6 +1074,16 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         if (p.amountSats == channels[channelId].amountSats) revert SpliceUnchanged();
         // Verify + rotate + (grow|shrink) in its own frame (legacy stack, no via_ir); returns the grow delta.
         uint grewBy = _applySplice(channelId, p, rawSpliceTx, spliceMerkleProof);
+        // (§E233-ladder) RE-ARM AGAINST THE ROTATED OUTPOINT — after `_applySplice` (which is what rotates
+        // it) and BEFORE the external `registerBtcLp`, so a ladder that does not verify reverts the
+        // whole splice with no accounting moved.
+        // ⚠️ THE `paidOutSinceCheckpoint` RESET IS INTENTIONAL AND ORDER-DEPENDENT. `_shrinkSplice`
+        // has just ADDED this splice's withdrawal to that tally; `_armDeadManExit` then zeroes it.
+        // That is correct and is the arming rule already written there — "the tally restarts because
+        // the new attestation already reflects every payout before it". The fresh rungs attest the
+        // POST-shrink balance, so carrying the pre-shrink tally forward would double-count the
+        // withdrawal against the stale-close guard and reject legitimate closes.
+        _armLadder(channelId, p, exits);
         // (T1-f) THE CLAIM, decided here rather than inside the splice: an ordinary grow is
         // funded BY this LP, so it is a deposit and earns the LP its shares. The swap-in path
         // deliberately does NOT do this — see `settleSwapInSpliced`.
@@ -1065,8 +1138,10 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         bytes calldata oldHopPubkey,        // the hop key being rotated OUT
         bytes calldata rawSpliceTx,
         bytes32[] calldata spliceMerkleProof,
-        bytes calldata lpSig                // the LP's consent to THIS rotation
-    ) external nonReentrant whenOpen(channelId) {
+        bytes calldata lpSig,               // the LP's consent to THIS rotation
+        Types.ExitArming[] calldata exits   // (§E233-ladder) the fresh ladder under the NEW pair's Q'
+    ) external nonReentrant {
+        _whenOpen(channelId);
         // ⚠️ THREE FRAMES, NOT ONE — and this is a legacy-stack requirement, not a style choice.
         // Six parameters of which four are dynamic (`bytes`/`bytes32[]` each occupy TWO stack
         // slots as offset+length) put this body at ten slots before a single local, and the first
@@ -1078,7 +1153,12 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         _authorizeRekey(channelId, p, oldHopPubkey, rawSpliceTx, lpSig);
         // Custody: SPV-prove, rotate the outpoint, resize. A rekey MAY also resize — the LP signs
         // the whole of `p`, so it consents to the amount as well as to the key.
-        _finishRekey(channelId, p, _applySplice(channelId, p, rawSpliceTx, spliceMerkleProof));
+        // ⚠️ (§E233-ladder) NOT `_finishRekey(…, _applySplice(…))`. Nesting them needs every argument of
+        // both calls live at once and solc's legacy pipeline reports `Stack too deep` at the inner
+        // call — measured, not guessed, once `exits` became the seventh parameter. The house fix is
+        // one more frame (never `via_ir`): `_finishRekey` now performs the rotation itself, so this
+        // site pushes ONE call's arguments.
+        _finishRekey(channelId, p, rawSpliceTx, spliceMerkleProof, exits);
     }
 
     /// (§E182) The gate, in its own frame — a forwarder, deliberately.
@@ -1102,8 +1182,25 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     }
 
     /// (§E182) The claim + the re-pin, in their own frame.
-    function _finishRekey(bytes32 channelId, Types.OpenParams calldata p, uint grewBy) private {
+    function _finishRekey(
+        bytes32 channelId,
+        Types.OpenParams calldata p,
+        bytes calldata rawSpliceTx,
+        bytes32[] calldata spliceMerkleProof,
+        Types.ExitArming[] calldata exits
+    ) private {
+        // Custody: SPV-prove, rotate the outpoint, resize. Done HERE rather than at the call site
+        // so `rekey` never holds two calls' arguments at once (see the note there).
+        uint grewBy = _applySplice(channelId, p, rawSpliceTx, spliceMerkleProof);
         Types.BTCChannel storage ch = channels[channelId];
+        // (§E233-ladder) A REKEY INVALIDATES THE LADDER TWICE OVER — it rotates the outpoint AND changes
+        // the aggregate the rungs must be spendable under (`p` carries the NEW pair, so
+        // `_armDeadManExit` verifies against the new `Q'`). Arming here is what keeps the LP's
+        // escape alive across a rotation it consented to; without it, §E182's "the rotated output is
+        // still a 2-of-2 REQUIRING the LP, so no unilateral spend exists to gain" holds while the
+        // LP's own unilateral escape silently does not. Before the external call, so a ladder that
+        // fails to verify reverts the rotation with nothing moved.
+        _armLadder(channelId, p, exits);
         // Same claim rule as `splice`: an ordinary grow is LP-funded, so it earns the LP its shares.
         if (grewBy != 0) btcVault.requestDeposit(ch.lpEth, grewBy);
 
@@ -1209,7 +1306,8 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         Types.OpenParams calldata p,
         bytes calldata rawSpliceTx,
         bytes32[] calldata spliceMerkleProof
-    ) external nonReentrant whenOpen(channelId) {
+    ) external nonReentrant {
+        _whenOpen(channelId);
         _onlyHop();
         _requireChannelKeys(channelId, p);
         bytes32 spliceTxId = BitcoinTx.txid(rawSpliceTx);
@@ -1378,7 +1476,8 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         bytes32 channelId,
         Types.OpenParams calldata p,
         Types.ExitArming calldata exit
-    ) external whenOpen(channelId) {
+    ) external {
+        _whenOpen(channelId);
         _onlyHop();
         // (E128) `p` is needed to recompute `Q`; `_requireChannelKeys` is what stops a hop naming
         // a key pair whose aggregate it controls and verifying the exit against THAT.
@@ -1463,7 +1562,10 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         );
         if (paid < exit.checkpointSats) revert ExitUnderpaysCheckpoint();
 
-        exitArmedAt[channelId][exit.cltvDeadline] = true;
+        // Armed against the channel's CURRENT funding scope — the same outpoint
+        // `ExitLib.verifyDeadManExit` just proved these bytes spend. A later rotation makes this
+        // entry unreachable rather than stale (see `exitArmedOnOutpoint`).
+        exitArmedOnOutpoint[_currentOutpointKey(channelId)][exit.cltvDeadline] = true;
         paidOutSinceCheckpoint[channelId] = 0;
         emit DeadManExitEmitted(channelId, channels[channelId].lpEth,
             exit.cltvDeadline, exit.checkpointSats, exit.signedExitTx);
@@ -1663,7 +1765,8 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         bytes32 closeBlockHash,
         bytes32[] calldata merkleProof,
         uint    txIndex
-    ) external nonReentrant whenOpen(channelId) {
+    ) external nonReentrant {
+        _whenOpen(channelId);
         // (E153) THE SPLICE-VS-CLOSE DISCRIMINATOR, REPLACING THE PARTICIPANT GATE.
         // This used to read: "recordClose has no on-chain splice-vs-close discriminator (it
         // can't reconstruct the rotated 2-of-2 keys of the splice's CONTINUING output)" — and
@@ -1762,7 +1865,8 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         bytes32 exitBlockHash,
         bytes32[] calldata merkleProof,
         uint    txIndex
-    ) external nonReentrant whenOpen(channelId) {
+    ) external nonReentrant {
+        _whenOpen(channelId);
         address lpEth = channels[channelId].lpEth;
         // (E156/E165) NO `deadline == 0` CHECK: `exitArmedAt` is false for an unarmed deadline,
         // and zero is rejected at arming — so a zero locktime simply fails the membership test
@@ -1770,7 +1874,11 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         uint64 deadline = BitcoinTx.extractLocktime(rawExitTx);
         // (E165) ANY armed deadline retires the channel — the LP pre-signed a ladder at open, so
         // there is no single "current" one. An unarmed locktime is not a dead-man exit at all.
-        if (!exitArmedAt[channelId][deadline]) revert NotDeadManExit();
+        // (E165) Membership is checked against the channel's CURRENT funding scope, so a rung armed
+        // against a PRE-SPLICE outpoint fails HERE — with `NotDeadManExit`, naming the real reason
+        // — instead of passing this test and dying four frames later inside `_verifyTxSpendsChannel`
+        // on a mismatched prevout, which reads as a malformed proof rather than a retired rung.
+        if (!exitArmedOnOutpoint[_currentOutpointKey(channelId)][deadline]) revert NotDeadManExit();
         _requireNotSplice(channelId, p, rawExitTx);
         _verifyTxSpendsChannel(channelId, rawExitTx, exitBlockHash, merkleProof, txIndex);
         // (E165) NO second locktime comparison: `deadline` IS `extractLocktime(rawExitTx)`, so the
@@ -1812,7 +1920,8 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         bytes32 closeBlockHash,
         bytes32[] calldata merkleProof,
         uint    txIndex
-    ) external nonReentrant whenOpen(channelId) {
+    ) external nonReentrant {
+        _whenOpen(channelId);
         if (!BitcoinTx.isCommitmentTx(rawCloseTx)) revert NotForceClose();
         _verifyTxSpendsChannel(channelId, rawCloseTx, closeBlockHash, merkleProof, txIndex);
         // delivered=0: lpPayout := the full funded amount (a force close realizes no
@@ -2055,7 +2164,8 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         bytes calldata rawSpliceTx,
         bytes32[] calldata spliceMerkleProof,
         bytes calldata swapperScript
-    ) external nonReentrant whenOpen(channelId) {
+    ) external nonReentrant {
+        _whenOpen(channelId);
         _onlyHop();
         // (B) Authorization = the channel's HOP GATE (channel.hop was fixed at open to a
         // delegated hop). The retired per-delivery lpAuth was redundant: the swapper's BTC

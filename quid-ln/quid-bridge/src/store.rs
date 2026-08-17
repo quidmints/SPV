@@ -175,7 +175,7 @@ struct Persisted {
     /// `drive_open` reads it to mirror `openChannel(…, lpEth)` on-chain with NO lpAuth.
     /// Without durability a crash between `create_channel` (prior run) and `drive_open`
     /// loses the binding → the LP's open is stuck until re-deposit. Pruned by
-    /// `clear_funding` once the open is mirrored, so it only ever holds IN-FLIGHT opens.
+    /// `clear_inflight` once the open is mirrored, so it only ever holds IN-FLIGHT opens.
     /// `#[serde(default)]` so pre-field stores load with an empty map.
     #[serde(default)]
     funding_lp: HashMap<String, String>,
