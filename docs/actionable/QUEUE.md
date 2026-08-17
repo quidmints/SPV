@@ -8639,6 +8639,43 @@ weakens a guard that is currently doing real work — it caught this three times
 ⇒ **SO "FINISH THE REMOVALS" IS ONE DEX RE-ROUTE PLUS ONE DEPLOY-TIME PRICE SOURCE.** Nothing vestigial is left to sweep — a grep-count plan would badly misjudge this, which is the same error §E200-UNBLOCKED warns about (*"test the INVARIANT, not a reference count"*).
 ⛔ **AND IT CANNOT BE VERIFIED TODAY: `main` MEASURES 3,597 passed / 954 FAILED** on a clean checkout with nothing uncommitted (was 4,528/1 this morning). Failures are *"swaps funded POOLED_USD: 0 <= 0"* and *"unfilled swap ETH must NOT all land in POOLED"* — i.e. **the booked transitional hazard**, swaps settling against `POOLED_*` while custody moves. **There is no green baseline to land a DEX re-route against.**
 
+## 🤝 HANDOFF FOLD (2026-08-17) — **four edits completed for a session whose worktree was deleted mid-run.**
+Its claims were verified before acting, and one needed correcting.
+
+### ✅ §V-R1 / §E232-tri — **CLOSED. TriCrypto is gone from LIVE CODE.**
+**VERIFIED: zero NON-COMMENT references in `evm/src`.** ⚠️ **Correction to the handoff, which said
+"only two comments remain": there are 21 comment lines**, all recording the removal. The substance
+was right and the count was not — and a row closed on a miscount is how a live thing gets retired.
+📌 **THE MEASUREMENTS ARE THE CLOSURE'S EVIDENCE, kept because they are why it was removed rather
+than a note that it was:** **698 WETH / 20.72 WBTC**, both legs breaching the **1% floor between
+$10k and $25k**. TriCrypto could not carry the size the route needed.
+
+### ⛔ §V-RES1 / §V-RES2 — **DELIBERATELY NOT ADDED.**
+Duplicates of **§E222**, and **§E224 refutes the reasoning behind them**. Recorded as a decision so
+nobody re-derives them from the handoff and files them a second time — an unfiled duplicate is
+invisible, a filed one outlives its refutation.
+
+### 🔴 §AAVE_SPOKE — **DELIVERABILITY IS A PER-VENUE PREDICATE, DISTINCT FROM VALUATION.**
+**The only gap found by scanning all 20 subjects of that thread against this queue.** Generalised
+deliberately: it is NOT an Ethena/sUSDe special case.
+| source | what makes it undeliverable |
+|---|---|
+| **sUSDe** | cooldown window |
+| **Aave V4** | reserve **utilisation** — the spoke can be solvent and still unable to pay now |
+| **Lightning** | free **channel capacity** |
+⇒ **Checked on SWAP-OUT and REDEEM, NOT via `_withdrawableOf`.** A venue can be fully SOLVENT and
+still undeliverable this block; conflating the two is what lets a redemption promise value it cannot
+source. This is the same distinction §E216 drew for the skew — **valuation and liquidity are
+independent bounds** — arriving on the venue side.
+
+### ✅ §V-R10 — **`pokeVaultHealth` FOLDED IN, AND UN-SCOPED FROM ETHENA.**
+The vehicle was written as an sUSDe fix. The predicate above has **three** sources, so scoping the
+poke to one venue leaves the other two undetected. Folded so the fix covers the class.
+
+📌 `ROUTING-AGGREGATION.md` needs nothing — rewritten to 429 lines by another thread today.
+⚠️ **HAZARD CARRIED FORWARD: `77cd3631`** — another thread's **14 autostashed files**, never safely
+reapplied. Recoverable via `git stash apply 77cd3631`; conflicts, because origin moved underneath.
+
 ## 🔓 STATE CHANGE 2026-08-17 — **`POOLED_USD` IS FUNDED AGAIN; THE WIRING IS UNBLOCKED**
 `testSwapIn_QuidOrStrictStable` **PASSES** — §E230's `basketUsd`/`basketLeg` fix landed, so the
 quantity every remaining refill step reads is live again. ⚠️ **STILL RED: `testBtcLp_swapInAccruesTheBtcLegFee`
