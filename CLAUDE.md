@@ -134,6 +134,15 @@ environment actually is*. Every line below was verified in-repo, not recalled.
   `cargo test -p quid-hop -p quid-bridge` while the edit was in **`quid-ln`**, whose test at
   `wallet.rs:2701` calls the deleted function. The run was green because the crate was never
   compiled. A green suite is what an uncompiled crate produces.
+- ⛔ **AND `cargo check` NEVER BUILDS TEST TARGETS — SO IT CANNOT SEE A BROKEN TEST, EVER.** Same
+  trap as above, different mechanism, and it caught the same author again on 2026-08-17. §E183
+  deleted `lp_eth`/`lp_sig` from `OpenAuth`; the change was verified with
+  `cargo check -p quid-bridge --bins` → **exit 0**, and `main` then carried a `quid-bridge` whose
+  tests did not compile (`E0560` ×2, `E0609` in `vault.rs`'s `e166_consent_tests`) until someone
+  ran `cargo test`. **`--bins` is not a narrower `cargo test`; `check` is a different question.**
+  ⇒ **Deleting a struct field is a whole-crate edit no matter how local it looks** — the fields you
+  remove are constructed in fixtures, and fixtures live in the one target `check` skips. Use
+  `cargo test -p <crate>`, or at minimum `cargo check -p <crate> --all-targets`.
 - **EXISTING MACHINERY IS POSITIVE EVIDENCE. Weigh it against your own search.** If you conclude a
   path is unreachable, ask what the code that serves it is *for* — nobody builds an owed ledger, a
   settlement entrypoint, an event and a daemon for a case that cannot occur. On 2026-08-09 three
