@@ -482,7 +482,7 @@ library VogueLib {
         // to `sizeOorUsd(.., token1isVol)` and the ETH side is its MIRROR (`!token1isVol`), because
         // depositing the ASSET places the order on the opposite side of spot from depositing USD.
         // One definition now sizes every out-of-range order, ETH and BTC alike. The bare `require`s
-        // became `TickOutOfRange()` (the helper's named error) — same guard, better diagnostics.
+        // became `RangeNotOutsideBand()` (the helper's named error) — same guard, better diagnostics.
         if (token == address(0)) {
             amount = depositETH(weth, aux, ev, msg.sender, address(0), amount);
             liquidity = SwapLib.sizeOorUsd(amount, t);
