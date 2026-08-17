@@ -1110,3 +1110,44 @@ latter names the cause; failing on both clears the route and moves the hunt to t
   ⇒ **If the signer is present at the delivery, the registry is plumbing for an absence that does
   not exist.** Simplification is likely DELETION, not refactor — but it is `1a620c05`'s file.
 - **`testBtcLp_swapInAccruesTheBtcLegFee`** — the BTC fee leg is unfunded while the ETH side works.
+
+## C10. Second sweep — items this thread STARTED and never finished, absent from every part above
+
+A grep of this thread's work against the whole file found nine absences. Five were correct (§E197,
+§E198 landed; §E202/§E203 are covered by C3 and dormant; the device lifecycle is not SPV's — it is
+`../ibiza/TODO.md` §3b). **Four are real gaps, and the first is the thread's ORIGINAL ASK.**
+
+### C10a. 🔴 THE EXCESS-STABLES REBALANCE — never built, and its stated objective was REFUTED
+**The task this thread opened with:** route stables **above the total redeemable QU!D claim** out via
+1inch to correct basket imbalance, *"which we can measure by seeing how the skew price changes —
+double duty reuse of the same measurements."* **`grep` confirms nothing was implemented.**
+🔴 **The measurement half is refuted (§E206): `skewWad` takes four band-side inputs — deliverable
+volatile inventory, the flow EWMA, ring variance, this swap's size — so swapping USDC→PYUSD moves
+NONE of them.** A loop keyed on skew would optimise against a signal that only moves for unrelated
+reasons.
+🔴 **And the objective half is undefined (§E218): the basket has NO TARGET RATIO**, so "imbalance" has
+no referent to correct toward. `calcFeeL1` measures **yield-vs-average**, not concentration.
+⇒ **Restate the objective before building anything.** Live candidates: shed the WEAKEST yielders to
+protect `avgYield` (`SOR-SIGNIFICANCE-DESIGN.md:14-16`), or size the surplus against redeemable claim
+and let EXECUTION pick the leg. Both need §C2's `calcFeeL1` fix first, since the ranking is currently
+inverted, saturating and — pre-§E155 — sorted by token decimals.
+⚠️ `ROUTING-AGGREGATION.md`'s §V-R1–R11 still specifies router pinning and the four call sites; that
+spec is unaffected by the objective being wrong.
+
+### C10b. 🟠 weETH ERC-6909 MINT, **ETH-denominated** — considered, never built
+Owner asked for it to be **considered before building** (EIP-8363 context), and corrected the unit
+explicitly: *"not usd denominated… **eth denominated**."* Nothing landed — `grep` finds no weETH 6909
+path in `src`. **This never got past consideration and has no row anywhere else.** Note it interacts
+with §C3: an ETH-denominated 6909 leg is the ETH-side mirror of the question vBTC answers on the BTC
+side (what does the vault's `asset()` actually denominate?).
+
+### C10c. 🟠 §E205 — zero the 420ppm tier at deploy (a DEPLOY-TIME decision, still unmade)
+Distinct from §C9e's "justify 420": this is whether the tier is **set to zero at deployment**.
+§E202 records the tension unmeasured — *"the tier and the skew base now both charge the same flow"* —
+so leaving both live may double-charge. **Arguments both ways and neither measured.**
+
+### C10d. 🟢 §E206's dissolved question — recorded so nobody re-opens it
+E206 left *"does yield dispersion track over-weighting?"* as the discriminator. **§E218 dissolved it:
+with no target ratio, over-weighting is undefined.** Do not re-derive it — the question cannot be
+answered because one of its terms does not exist.
+
