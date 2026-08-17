@@ -9,6 +9,7 @@ import {Vault} from "./Vault.sol";
 import {Basket} from "./Basket.sol";
 import {BasketLib} from "./imports/BasketLib.sol";
 import {OracleLib, RING} from "./imports/OracleLib.sol";
+import {USDC} from "./imports/Interfaces.sol";
 import {FeeLib} from "./imports/FeeLib.sol";
 import {SwapLib} from "./imports/SwapLib.sol";
 
@@ -838,7 +839,7 @@ contract Core {
         // (1) OBSERVATION. `_writeObservation` took a sqrt-price only because v4's API handed one
         // over; the ring has stored PLAIN PRICE since §TICK-REMOVAL, and we now HAVE the price, so
         // it goes in directly with no conversion. This is the whole of the oracle repoint.
-        _writeObservationPrice(px);       // §DETICK: no narrowing -- the ring stores a 256-bit WAD price
+        _observeIfSourced();   // §E222: an independent OBSERVATION -- never `px`, which READ this ring
 
         // (2) SETTLEMENT. Without this `POOLED_*` never moves and nobody is paid.
         _handleDelta(delta, true, false, sender, token);
@@ -948,7 +949,7 @@ contract Core {
     function repack(uint anchorPrice) public onlyUs returns (uint price) {
         BAND_ANCHOR = anchorPrice;
         price = AUX.getTWAPforAsset(ASSET, 1800);
-        _writeObservationPrice(price);    // §DETICK: no narrowing
+        _observeIfSourced();   // §E222: `price` is RETURNED for pricing; the ring records an independent read
     }
 
     // §V4-CUT — `reseat` DELETED: it had become BYTE-IDENTICAL to `repack` above. Both stored the
@@ -1260,6 +1261,62 @@ contract Core {
     /// variance estimator was already price-based, so nothing downstream needs re-deriving.
     /// The sqrt-taking variant above survives only while Repack/Reseat/Collect still read `getSlot0`,
     /// and deletes with them.
+    /// @notice The ring's INDEPENDENT observation source for THIS instance. `address(0)` = none,
+    ///         and this instance then records NO observations at all.
+    ///
+    /// @dev §E222 — WHY THE RING NEEDED A SOURCE AT ALL. Both ring writes used to pass
+    ///      `AUX.getTWAPforAsset(ASSET, 1800)`, which READS this ring via `twapBody`→`observe` and
+    ///      then anchors to Chainlink. The ring therefore recorded a value derived from ITSELF plus
+    ///      Chainlink: `twapResolve`'s deviation test and `BasketLib.isManipulated` were comparing
+    ///      one source against a smoothed copy of itself. Nothing reverted — the guards still ran and
+    ///      still computed; they had simply lost the ability to DISAGREE. Before the v4 cut the ring
+    ///      recorded the POOL'S SPOT PRICE, a real observation of executed trades, with Chainlink as
+    ///      the anchor checking it. Removing the AMM removed the observation, not the anchor.
+    ///
+    /// @dev ETH instance: 1inch's OffchainOracle. Aggregated spot across many venues, and verified
+    ///      on-chain (not assumed) to DISAGREE with Chainlink — 0.08% on ETH/USD — which is exactly
+    ///      what makes it a second source rather than an echo. A plain rate, so no `TickMath`.
+    ///
+    /// 🔴 BTC instance: DELIBERATELY UNSET, AND THE CHECK IS DELETED RATHER THAN POINTED AT A
+    ///      WRAPPER. 1inch can only quote `getRate(WBTC, USDC)` — WRAPPED BTC — and there is no
+    ///      wrapper-free BTC spot on-chain at all, because native BTC has no EVM presence. Observing
+    ///      WBTC would import the wrapper's basis and, far worse, make a WBTC DEPEG
+    ///      INDISTINGUISHABLE FROM BITCOIN MOVING: custodial failure arriving dressed as price, which
+    ///      σ², the skew and liquidation would each read as a market event.
+    ///      ⚠️ A WRONG GUARD IS WORSE THAN NO GUARD — a vacuous one reports nothing you can act on,
+    ///      a wrong one reports something you WILL act on. With no source the ring is simply not
+    ///      written, `ringVariance` returns 0, and §E213's sentinel prices unmeasured variance at the
+    ///      CEILING. That is honest: we cannot observe BTC independently, so we do not pretend to.
+    ///      ▶️ If a wrapper-free BTC source ever exists it is pinned HERE, and the check is written
+    ///      against it fresh — never revived from history.
+    address public observationSource;
+
+    function setObservationSource(address src) external {
+        require(msg.sender == DEPLOYER, "403");
+        require(observationSource == address(0), "!");
+        observationSource = src;
+    }
+
+    /// @dev THE READ MUST NOT BE ABLE TO HALT THE BAND. `ExternalTwap.oneInchRateWad` reverts on a
+    ///      zero/failed read, and this sits on the SWAP path — using it directly would turn an
+    ///      oracle outage into "every swap and repack reverts", trading a silent measurement fault
+    ///      for a hard liveness one. So the call is a raw `staticcall` and ANY failure (revert, short
+    ///      return, zero) simply SKIPS the write: the ring goes stale, σ² decays to unmeasured, and
+    ///      the same §E213 sentinel prices at the ceiling. Degrade to unmeasured, never halt.
+    ///      `getRate` is defined on RAW units (`dstRaw = srcRaw·rate/1e18`), so
+    ///      `priceWad = rate · 10^srcDec / 10^dstDec`; USDC is 6-dec.
+    function _observeIfSourced() internal {
+        address src = observationSource;
+        if (src == address(0)) return;
+        (bool ok, bytes memory out) = src.staticcall(
+            abi.encodeWithSignature("getRate(address,address,bool)", ASSET, USDC, false));
+        if (!ok || out.length < 32) return;
+        uint rate = abi.decode(out, (uint));
+        if (rate == 0) return;
+        uint priceWad = Math.mulDiv(rate, 10 ** VOL_DECIMALS, 1e6);
+        if (priceWad != 0) _writeObservationPrice(priceWad);
+    }
+
     function _writeObservationPrice(uint price) internal {
         OracleLib.writeObservation(observations, obsState, price);
     }

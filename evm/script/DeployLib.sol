@@ -162,6 +162,12 @@ library DeployLib {
         {
         (uint seedEth, uint seedBtc) = OracleLib.seedPrices(cfg.ethFeed, cfg.btcFeed);
         core.setup(address(v4), address(v4), address(aux), address(quid), seedEth);   // ETH band manager IS Vogue
+        // §E222 — the ring's independent observation source. ETH INSTANCE ONLY: 1inch's
+        // OffchainOracle. The BTC instance is deliberately left unset — 1inch can only quote WRAPPED
+        // BTC, and observing it would make a WBTC depeg indistinguishable from bitcoin moving. Unset
+        // ⇒ no observations ⇒ σ² unmeasured ⇒ §E213 prices at the ceiling, which is the honest
+        // reading. The BTC ANCHOR is unaffected and already wrapper-free (Chainlink "BTC / USD").
+        core.setObservationSource(0x0AdDd25a91563696D8567Df78D5A01C9a991F9B8);
         // 🔴 THE BTC INSTANCE WAS NEVER SET UP, AND IT COST 1,828 TEST FAILURES. The isBTC split
         // built both bands (above) but only the ETH one was
         // ever configured -- so the BTC Core had no AUX, no BASKET and, decisively, an UNSEEDED
