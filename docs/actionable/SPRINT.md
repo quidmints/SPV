@@ -1892,3 +1892,26 @@ and a dial policy, so state it in the deletion commit and let it be attacked.
 `manually_accept_inbound_channels` handling gaining a second allowed peer, or the vault opening a
 channel to anything but the hop. All three are one-line changes, so **the argument must be re-run if
 `event_handler.rs`'s gate is touched.**
+
+### C10e. 🔴 THE 6909 VINTAGE'S *PURPOSE* EXISTS ONLY IN AGENT MEMORY — grep "midnight" returns NOTHING
+**Checked 2026-08-18: `midnight` appears in NO file under `docs/`, `evm/src/` or `CLAUDE.md`.** The
+rationale below was stated by the owner on 2026-08-16 and was living **only** in a machine-local
+agent-memory directory — which is verbatim the failure `CLAUDE.md`'s own opening line exists to
+prevent (*"these facts were living only in one machine's agent-memory directory"*).
+
+> *"the point of the midnight integration is so 6909 vintage has a definition with `avgYield` and
+> upfront mint for input into morpho midnight, once duration is tradeable you can rebuild repo,
+> commercial paper and structured credit onchain without asking anyone's permission."*
+
+**The chain, which is NOT visible from the contracts:** a 6909 token id **is a monthly vintage** (a
+dated cohort, not a bucket) → a vintage needs a **definition** to be a tradeable instrument, namely
+`avgYield` **plus an upfront mint** → that definition is the **input to Morpho Midnight** → once
+duration is tradeable, repo / commercial paper / structured credit are rebuildable onchain
+permissionlessly.
+
+⇒ **This is the WHY behind the `avgYield` work this thread spent days on** (§E155's dimensionless
+factor, §E190's tranche fix, §E196's unbuilt cross-sectional filter). Without it those read as
+accuracy chores rather than as making a vintage *definable*. **Nothing about Midnight is built, and
+no row anywhere tracks it.** It also frames §C10b: an ETH-denominated 6909 leg is part of this, not a
+separate feature.
+
