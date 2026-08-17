@@ -1003,3 +1003,68 @@ scrub; and the `USDC` declaration that **unbroke `main`** after its uses shipped
 - **`///` natspec on a file-level constant is a COMPILE ERROR**, not a lint warning.
 - **A shared tree eats uncommitted work** — three sets of edits lost to other threads' `autostash`,
   once *between* a green build and reading its result. **Commit first, verify second.**
+
+
+---
+
+## PART C2 — **THE VOLATILE ROUTE IS THE BLOCKER, AND REMOVING V3 LEAVES A HOLE (2026-08-17)**
+
+### 🔴 C2.1 — **OWNER: "there should be no v3 in this code at all." Complying leaves the volatile leg with NO ROUTE.**
+**14 live V3 references** (`V3_SWAP_ROUTER`, `IV3Router`, `V3_FEE_*`). `_poolSwap` (`LevMath:490`)
+is a V3 `exactInputSingle`, and its `catch` is where **`NoVolatileRoute()`** comes from.
+**MEASURED — what remains in `LevMath` once V3 goes:**
+| leg | route left |
+|---|---|
+| weETH → WETH | ✅ `ETHERFI_CURVE_POOL` (`:417`) |
+| stable ↔ USDC | ✅ `pool.exchange` (`:547`, `:565`) |
+| **USDC ↔ WETH / WBTC** | 🔴 **NONE** |
+⇒ **THE VOLATILE HOP HAS ONLY EVER HAD TWO CANDIDATES AND BOTH ARE NOW EXCLUDED:**
+**TriCrypto** was deleted with §V-R1/§E232-tri on a MEASUREMENT — **698 WETH / 20.72 WBTC, both legs
+breaching the 1% floor between $10k and $25k**; and **V3** is now banned by instruction.
+⛔ **THIS IS WHY `e4f9c512` RE-PINNED V3 DAYS AFTER `9eef279a` CUT IT** (*"Curve already superseded
+it"*). The reversal was not carelessness — it was the hole reasserting itself. **Deleting V3 without
+naming a replacement re-opens it.**
+▶️ **DECISION REQUIRED BEFORE ANY CODE MOVES** — the options are the whole space:
+(a) a deeper Curve pool for USDC↔WETH/WBTC, sized against the same 1% floor TriCrypto failed;
+(b) accept TriCrypto WITH a size cap below its measured breach point;
+(c) source the volatile leg off-chain via the fleet (flash → serve → repay), which is already the
+refill's own shape;
+(d) keep V3 solely for this hop, which the instruction excludes.
+📌 **DO NOT "fix" the 73 failures by deleting `_poolSwap`.** They are `PREMISE` assertions —
+*"rally must lever the position (debt > 0): 0 <= 0"* — i.e. **the position never opens.** Removing the
+route makes them fail earlier, not pass.
+⚠️ **AND THE CAUSAL LINK IS NOT PROVEN:** `NoVolatileRoute` appeared **twice** in the last clean run
+while ~73 failures were premise assertions. **The discriminator is one two-point run:** a single
+leverage test at `9eef279a` (Curve) vs `e4f9c512` (V3). Passing on the former and failing on the
+latter names the cause; failing on both clears the route and moves the hunt to the borrow path.
+
+### 📋 C2.2 — DIGEST OF `QUEUE.md` (what a fresh session must know without reading 13k lines)
+| area | state |
+|---|---|
+| **v4 removal** | ✅ COMPLETE — `IPoolManager`/`PoolKey`/`unlockCallback`/`SafeCallback`/`BalanceDelta`/`TickMath`/`sqrtPriceX96` **all 0**; `SOR.sol` deleted |
+| **skew** | ✅ COMPLETE and LIVE — σ²=0 free drain, size-blind quote (a 90% drain filled **4.12×** worse), depletion σ²-free keyed on `inv0`, patience **93.3% → 1.37%**. `skewWad` is called by `_fillDelta` on every swap |
+| **refill** | 🔴 **POTEMKIN** — 4 primitives on main, **0 call sites**, pure-arithmetic proof only |
+| **UNIT rows** | ✅ all 27 red markers audited individually and flipped ⏹; none was open work |
+| **`POOLED_USD`** | ✅ funded again (§E230's `basketUsd`/`basketLeg` fix); `testSwapIn_QuidOrStrictStable` passes |
+| **BTC fee leg** | 🔴 `testBtcLp_swapInAccruesTheBtcLegFee` still 0 |
+| **suite** | 414 / **73 failed** / 487, archive endpoint, **0 environmental** — one root (above), not 73 problems |
+| **sizes** | `BTCChannels` **138 bytes** — tightest, near a deploy blocker |
+| **split weights** | 🔴 owner's call; rate/who-pays/routing already settled, only proportions open |
+
+### ₿ C2.3 — BITCOIN WORK THIS THREAD TOUCHED AND DID NOT FINISH
+- **§E233-ladder (session `1a620c05`, RESTORED by me after I destroyed it with `reset --hard`)** —
+  a delivery is the **FIFTH rotation site**; `evm_codec.rs` ABI gains
+  `(uint64[],bytes[],uint64,uint256,bytes)[]`, `daemon.rs` threads `vault_registry` to the swap-out
+  watcher, `swap_out_onchain.rs` sources the ladder and treats absent consent as **dormancy**.
+  ⚠️ **RUN `tools/check-client-abis.py`** — this changes a contract ABI signature.
+- 🔴 **`VaultRegistry` — THREE INDEPENDENT DOUBTS, none resolved:**
+  ① **no production writer** — `bind_consent` has only TEST callers, so `consent_for_funding` can
+  only return `None` and the dormancy branch is the only reachable one *(empty-grep caveat: confirm
+  with `git log -S "bind_consent"` before acting)*;
+  ② **its justification is false in the deployed model** — `vault.rs:244` says *"the fleet does not
+  have the LP funding half"*, but `taproot_signer.rs:439` says *"the fleet holds BOTH funding
+  halves"* **under Option B**, and `validating_signer.rs:22` says Option B is what is deployed;
+  ③ **§SPRINT-B5** records that §E183 removed the premise (*"the LP signs nothing at open"*).
+  ⇒ **If the signer is present at the delivery, the registry is plumbing for an absence that does
+  not exist.** Simplification is likely DELETION, not refactor — but it is `1a620c05`'s file.
+- **`testBtcLp_swapInAccruesTheBtcLegFee`** — the BTC fee leg is unfunded while the ETH side works.
