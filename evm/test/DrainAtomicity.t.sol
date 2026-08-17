@@ -307,20 +307,29 @@ contract DrainAtomicity is AllesFixture {
     /// no LP timestamp is needed, because adds can only move inventory TOWARD repair — leaving BURNS
     /// as the one residual hole. I INFERRED the burn behaves like the add. **Inferring from the add
     /// case is exactly what produced a no-op fix in E93-HOLE-CLOSED**, so this measures it instead.
-    /// §E102 — READ `flow.ts` DIRECTLY. `Flow internal _flow` (slot 1030) is not publicly
+    /// §E102 — READ `flow.ts` DIRECTLY. `Flow internal _flow` (slot 262) is not publicly
     /// readable, and E100/E101 inferred "ts did not bump" from `flowEwmaUsd` NOT CHANGING. That
     /// inference is only valid when the FAST leg is binding, because `flowEwmaUsd` returns
     /// `min(fast, slow)` (E55) — if the slow leg pins the minimum, a fast-leg bump moves NOTHING and
     /// the inference is SILENTLY WRONG. `Flow{uint128 vol; uint64 ts}` packs into one slot: `vol` in
     /// the low 128 bits, `ts` in the next 64. Reading the slot removes the inference entirely.
     function _flowTs(bool slow) internal view returns (uint64) {
-        // §ISBTC-SPLIT — RE-DERIVED FROM `forge inspect Core storageLayout`, NOT ADJUSTED BY HAND.
-        // Core held BOTH bands' state and each instance now holds one, which removed an entire
-        // `Observation[65535]` array and moved everything after it DOWN BY 65,535 SLOTS:
-        // `_flowETH` 131088 -> `_flow` 1030 (the ring shrank 65535 -> 1024 too). `slow` reads 1031,
-        // formerly `_flowSlow*`), which is what it was already reading -- the slow leg is dead by
-        // §UNIT-B-MIN-STRUCTURAL and the test asserts it does not move.
-        uint slot = slow ? 1031 : 1030;
+        // §RING-SIZE — RE-DERIVED FROM `forge inspect Core storageLayout`, NOT ADJUSTED BY HAND.
+        // `Observation` packs into ONE slot (uint32+uint192+bool = 232 bits), so `Observation[RING]`
+        // occupies exactly RING slots and EVERY variable after it moves when RING moves. History of
+        // this number, each step measured: `_flowETH` 131088 (RING 65535, two bands in one Core) ->
+        // `_flow` 1030 (RING 1024, one band per instance) -> `_flow` 262 (RING 256). The shift from
+        // the last step is 1024-256 = 768, and 1030-768 = 262 as solc reports.
+        // ⚠️ A STALE SLOT HERE DOES NOT FAIL -- `vm.load`/`vm.store` happily read and write the
+        // WRONG variable, so the test would pass while measuring something else. That is why this is
+        // read off `storageLayout` every time RING changes and never adjusted by arithmetic alone.
+        // ⚠️ AND THE `slow` BRANCH WAS MISLABELLED: slot 263 (formerly 1031) is `_prem`, the PREMIUM
+        // EWMA -- not a "slow flow" register. There is no slow flow leg (dead by
+        // §UNIT-B-MIN-STRUCTURAL); the comment here claimed one "formerly `_flowSlow*`". The branch
+        // still reads what it always read and the assertion that it does not move still holds, but it
+        // is asserting that about `_prem`. Named so the next reader is not misled about which
+        // register they are pinning.
+        uint slot = slow ? 263 : 262;
         uint raw = uint(vm.load(address(CORE), bytes32(slot)));
         return uint64(raw >> 128);
     }
@@ -1370,16 +1379,17 @@ contract DrainAtomicity is AllesFixture {
     /// discounts were never comparable. Two experiments were void on that broken control.
     ///
     /// `Flow` is `{uint128 vol; uint64 ts}` in ONE slot ⇒ `(ts << 128) | vol`. Slots from
-    /// `forge inspect Core storageLayout`: 1030 `_flow` (ONE register per instance since the isBTC
+    /// `forge inspect Core storageLayout`: 262 `_flow` (ONE register per instance since the isBTC
     /// split; the sibling band is a separate contract), followed by the retained dead slow-flow
     /// slots (§UNIT-B-SLOWDEL-PADDING). `ts = now` ⇒ zero decay ⇒ the value is exactly what was
     /// written.
     function _pinFlow(uint128 vol) internal {
         bytes32 packed = bytes32((uint(block.timestamp) << 128) | uint(vol));
-        // §ISBTC-SPLIT — ONE flow register per instance now (was `_flowBTC` + `_flowETH`), and it
-        // moved to 1030 as the second ring went and the ring itself shrank to 1024. Pinning the single live
-        // register is the whole job; there is no sibling band's copy to keep in step.
-        vm.store(address(CORE), bytes32(uint(1030)), packed);
+        // §RING-SIZE — ONE flow register per instance (was `_flowBTC` + `_flowETH`); it moved to 1030
+        // when the second ring went and RING became 1024, and to 262 now RING is 256. Pinning the
+        // single live register is the whole job; there is no sibling band's copy to keep in step.
+        // Authoritative source: `forge inspect Core storageLayout` -> `_flow` slot 262.
+        vm.store(address(CORE), bytes32(uint(262)), packed);
     }
 
     /// The instrument §UNIT-B needs. Same shape as §E71 (one big drain vs the same volume split),

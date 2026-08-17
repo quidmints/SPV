@@ -177,36 +177,28 @@ contract Core {
     // through it). Read DECAYED via flowEwmaUsd(). One register per pool.
     struct Flow { uint128 vol; uint64 ts; }   // vol: 6-dec USD EWMA · ts: last touch
     Flow internal _flow;   // §ISBTC-SPLIT: one per instance
-    /// @notice §E55 — the SLOW half of the adaptive flow estimate. Same `Flow` shape, same
-    ///         `FLOW_DECAY`, decayed at 1/`FLOW_SLOW_N` the rate ⇒ an N× longer half-life with
-    ///         **NO THIRD DECAY CONSTANT** (this file already warns that one would be "an
-    ///         unjustified magic number"). Only an integer ratio is added.
-    /// ⛔ §UNIT-B-MIN-STRUCTURAL — DEAD SLOTS, DELIBERATELY RETAINED. These were `_flowSlowBTC` /
-    ///    `_flowSlowETH`, the slow half of §E55's `min(fast, slow)`. That min could NEVER bind:
-    ///    `_bumpFlow` added the FULL notional to BOTH legs and these are decaying SUMS, so a slower
-    ///    decay retains MORE ⇒ `slow >= fast` at any ratio ⇒ `min` was identically the fast leg.
-    ///    The logic is gone; the SLOTS STAY because `Core`'s state ORDER IS LOAD-BEARING — deleting
-    ///    them outright shifted every later slot and a getter returned the wrong contract
-    ///    (`balanceOf` on a non-token). Do NOT reclaim these without proving nothing addresses
-    ///    `Core`'s storage absolutely.
-    /// ⛔ §SKEW-NOT-FINISHED-AND-NET-ADDED — DEAD SLOTS, DELIBERATELY RETAINED. These held the
-    ///    realized-LVR register (loss/gain/pending) built for §SIGMA-REMOVE Phase 1. Its RESULTS are
-    ///    measured and booked (history gap 1.100x, LVR 1.692x, noise 1.006x, units 0.991, one accrual
-    ///    per swap, plus the 12.000x and 439,492% refutations); the IMPLEMENTATION is superseded by
-    ///    §ARCH-VARIANCE-VARIABLE, which uses the REALIZED EXECUTION PRICE (bounded by construction)
-    ///    instead of `POOLED_USD/inv` (which diverges as inventory drains). It was never wired to
-    ///    pricing, so it was per-swap gas buying nothing.
-    ///    ✅ RECLAIMED 2026-08-16. The retention condition was "do NOT reclaim without proving
-    ///    nothing addresses `Core`'s storage absolutely", and both absolute readers it named are
-    ///    gone or already moved: the dust monitor reads the `mocks()` GETTER now (no raw slots), and
-    ///    the only remaining raw-slot reads (`_pinFlow`/`_flowTs`) were re-derived from
-    ///    `forge inspect` when the isBTC split removed a whole `Observation[65535]` and shifted the
-    ///    layout by 65,535 slots anyway. Six words of padding held for a compatibility that a fresh
-    ///    deploy does not need, guarding an order that had already changed.
-    /// @dev The slow register's half-life as a MULTIPLE of the fast one (48h × 7 ≈ 14 days). Its
-    ///      exact value is deliberately NOT load-bearing: `flowEwmaUsd` takes the MIN of the two,
-    ///      so the slow leg acts only as a CEILING. Being roughly right is enough, and erring LONG
-    ///      is safe — which is the property a single fitted half-life does not have.
+    /// §SLOP — A 30-LINE DOC BLOCK STOOD HERE FOR STATE THAT NO LONGER EXISTS, and its last four
+    /// lines were attached to the WRONG CONSTANT. Removed, with what it actually said recorded once:
+    ///   • `§E55 — the SLOW half of the adaptive flow estimate`: described `_flowSlowBTC`/
+    ///     `_flowSlowETH`. Both are DELETED, and so is `FLOW_SLOW_N`, the ratio constant the text
+    ///     names (zero live references, verified comments-stripped).
+    ///   • `DEAD SLOTS, DELIBERATELY RETAINED` (twice): the slow-leg and realized-LVR padding, kept
+    ///     because `Core`'s state ORDER IS LOAD-BEARING. That retention was RECLAIMED 2026-08-16
+    ///     once both absolute readers were shown gone -- so the block argued for keeping something
+    ///     that had already been removed, in the same breath as recording its removal.
+    ///   • `@dev The slow register's half-life as a MULTIPLE of the fast one (48h x 7 ~ 14 days)`,
+    ///     sitting DIRECTLY ABOVE `FLOW_DECAY`. It documented `FLOW_SLOW_N`, so a reader took it as
+    ///     `FLOW_DECAY`'s doc and would conclude the 48h constant is a 14-day one.
+    ///   • `flowEwmaUsd` takes the MIN of the two` -- FALSE. `flowEwmaUsd()` returns
+    ///     `_decayed(_flow)`; there is no second leg to take a min against.
+    /// WHY THIS MATTERED BEYOND TIDINESS: `DrainAtomicity._flowTs` called slot 263 "formerly
+    /// `_flowSlow*`" ON THE STRENGTH OF THIS BLOCK. It is `_prem`, the premium EWMA. A stale
+    /// declaration doc propagated into a test's belief about which register it was pinning, and a
+    /// raw-slot read that names the wrong variable still passes.
+    /// ⇒ §E55's REAL conclusion, which IS worth keeping: the `min(fast, slow)` could never bind.
+    /// `_bumpFlow` added the full notional to BOTH legs and these are decaying SUMS, so a slower
+    /// decay retains MORE ⇒ `slow >= fast` at every ratio ⇒ the min was identically the fast leg.
+    /// That is why one register is correct, and why no third decay constant is needed.
     uint internal constant FLOW_DECAY   = 999759352855809024; // per-min → 48h half-life (0.5^(1/2880)). The well's flow-EWMA / inventory-skew target wants a wide, manipulation-resistant memory. (The Aux redeem-fee `baseRate`, a separate 12h register, was REMOVED — QU!D has no peg-arb loop; this 48h flow decay is unrelated and stays.)
     uint internal constant FLOW_MAX_MIN = 525600000;          // decay-exponent cap (Liquity)
 

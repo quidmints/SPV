@@ -6,8 +6,7 @@ import {FixedPointMathLib} from "solady/src/utils/FixedPointMathLib.sol";
 import {ILevSyncHook, IAux, IWeETH, IWiredVault,
         IDepositAdapter, ILevVenueColl, ILevMintVenue} from "./Interfaces.sol";
 import {ILevVenue, IERC20Min, IWETH9} from "../imports/ILevVenue.sol";
-import {ICurvePool, ICurveTriCrypto, CURVE_TRICRYPTO_USDC, TRICRYPTO_USDC_IDX, TRICRYPTO_WETH_IDX,
-        TRICRYPTO_WBTC_IDX,
+import {ICurvePool,
         CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX,
         CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN} from "./Interfaces.sol";
 
@@ -307,6 +306,10 @@ library LevMath {
     error NoStableRoute();
     error NoOptIn();
     error Slippage();
+    /// §E240-tri — no on-chain USDC<->volatile venue exists. TriCrypto is removed (too shallow: both
+    /// legs breached the 1% floor between $10k and $25k) and no replacement is wired. §V-R1 (1inch
+    /// AggregationRouterV6) is the route that closes this.
+    error NoVolatileRoute();
     error NotNearLiq();
     error NoDebt();
     /// Protect only a position within PROTECT_MARGIN_BPS (LTV) of its venue liquidation threshold — anti-grief
@@ -453,15 +456,15 @@ library LevMath {
     ///      only real protection on the leg — the caller's `minOut` is an ADDITIONAL check, and a
     ///      permissionless `rebalance` may pass 0 for it.
     function _stableToWethSor(SellCtx memory c, address stable, uint256 stableAmt) internal returns (uint256) {
-        if (stable == c.weth) return stableAmt;          // loan token IS WETH — nothing to convert
-        uint256 wethFloor = (_toUsd18(c.aux,stable, stableAmt) * 1e18 / IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M))
-            * (10_000 - SELL_SLIP_BPS) / 10_000;
-
-        // Hop 2's floor guards the COMBINED route, so hop 1 passes 0.
-        uint256 usdc = _toUsdc(stable, stableAmt);
-        IERC20Min(USDC).approve(CURVE_TRICRYPTO_USDC, usdc);
-        return ICurveTriCrypto(CURVE_TRICRYPTO_USDC)
-            .exchange(TRICRYPTO_USDC_IDX, TRICRYPTO_WETH_IDX, usdc, wethFloor);
+        if (stable == c.weth) return stableAmt;          // already WETH: no venue needed, no route needed
+        // §E240-tri — NO USDC<->VOLATILE VENUE EXISTS ANY MORE. TriCrypto held 698 WETH / 20.72 WBTC and
+        // BOTH legs breached the 1% floor between $10k and $25k, so it was not a venue at size; it was a
+        // venue at dust. It is removed rather than clamped (the clamp would only rename the failure).
+        // ⚠️ REVERT, NEVER `return 0`. A zero return would make a lever-up "succeed" having bought
+        // nothing and a de-lever "succeed" having sold nothing -- silent, plausible, and the LP's
+        // position mispriced against a fill that never happened. This is the one shape of guard
+        // standing rule 3 REQUIRES: the failure announces itself.
+        revert NoVolatileRoute();
     }
 
     /// @dev THE routing table — the single place a Curve stable route is written down. Maps a stable
@@ -515,30 +518,17 @@ library LevMath {
 
     /// @dev stable → WBTC (BTC lev open) and WBTC → stable (close), both via USDC on Curve.
     ///      `minOut` is applied on the LAST hop so it bounds the whole route.
-    function _stableToWbtc(address stable, uint256 amt, uint256 minOut) internal returns (uint256) {
-        uint256 usdc = _toUsdc(stable, amt);
-        IERC20Min(USDC).approve(CURVE_TRICRYPTO_USDC, usdc);
-        return ICurveTriCrypto(CURVE_TRICRYPTO_USDC)
-            .exchange(TRICRYPTO_USDC_IDX, TRICRYPTO_WBTC_IDX, usdc, minOut);
+    function _stableToWbtc(address, uint256, uint256) internal pure returns (uint256) {
+        revert NoVolatileRoute();   // §E240-tri — see `_stableToWethSor`
     }
 
-    function _wbtcToStable(address wbtc, address stable, uint256 amt, uint256 minOut) internal returns (uint256) {
-        IERC20Min(wbtc).approve(CURVE_TRICRYPTO_USDC, amt);
-        uint256 usdc = ICurveTriCrypto(CURVE_TRICRYPTO_USDC)
-            .exchange(TRICRYPTO_WBTC_IDX, TRICRYPTO_USDC_IDX, amt, 0);
-        uint256 out = _fromUsdc(stable, usdc);
-        if (out < minOut) revert Slippage();
-        return out;
+    function _wbtcToStable(address, address, uint256, uint256) internal pure returns (uint256) {
+        revert NoVolatileRoute();   // §E240-tri — see `_stableToWethSor`
     }
 
     /// @dev WETH → stable (the sell leg's down-leg tail), via USDC on Curve.
-    function _wethToStableCurve(address weth, address stable, uint256 amt, uint256 minOut) internal returns (uint256) {
-        IERC20Min(weth).approve(CURVE_TRICRYPTO_USDC, amt);
-        uint256 usdc = ICurveTriCrypto(CURVE_TRICRYPTO_USDC)
-            .exchange(TRICRYPTO_WETH_IDX, TRICRYPTO_USDC_IDX, amt, 0);
-        uint256 out = _fromUsdc(stable, usdc);
-        if (out < minOut) revert Slippage();
-        return out;
+    function _wethToStableCurve(address, address, uint256, uint256) internal pure returns (uint256) {
+        revert NoVolatileRoute();   // §E240-tri — see `_stableToWethSor`
     }
 
     /// @dev IDENTITY WHEN THE LOAN TOKEN IS ALREADY WETH — the close-side twin of the note on

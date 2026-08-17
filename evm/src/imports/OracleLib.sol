@@ -6,18 +6,32 @@ import {mock} from "../mock.sol";
 import {BasketLib} from "./BasketLib.sol";
 import {IAggregatorV3} from "./Interfaces.sol";
 
-// §RING-SIZE — 1024, NOT 65,535. The old size was Uniswap v3's MAXIMUM CARDINALITY, inherited
-// wholesale; nothing here ever needed it. The ring advances AT MOST once per block (a
-// same-timestamp write only updates `lastPrice`), so the requirement is
-//     window / blockTime = 1800s / 12s = 150 observations
-// for the default TWAP window. 1024 is ~3.4 HOURS of one-per-block history -- 6.8x the default --
-// and keeps `cardinality`/`index` inside `uint16`.
-// ⚠️ THE WIN IS LAYOUT, NOT GAS: unwritten storage slots cost nothing, so 65,535 was never paying
-// rent. What it DID do was reserve 65,535 slots, pushing every later variable past slot 65,541 and
-// making the harness's raw-slot arithmetic absurd.
+// §RING-SIZE — 256, DERIVED FROM WHAT IS ACTUALLY ASKED FOR. 65,535 was Uniswap v3's MAXIMUM
+// CARDINALITY, inherited wholesale; 1024 was an intermediate pass -- a round number, not a measured
+// one. The requirement, measured:
+//   • the ring advances AT MOST once per block (a same-timestamp write only updates `lastPrice`),
+//     so a 1800s window needs 1800/12 = 150 observations, worst case;
+//   • `ringVariance` needs only `cardinality >= 3` (`:269`), subsumed entirely by that.
+// 256 covers the 150 with ~70% headroom (3,072s ≈ 51 min of one-per-block history) and keeps
+// `index`/`cardinality` inside `uint16`. Raise it only when a LONGER window is actually requested:
+// the number follows the requirement, not the other way round.
+//
+// ⚠️ THE CLAIM "THE ONLY WINDOW REQUESTED IS 1800" IS THE LOAD-BEARING ONE, AND A GREP FOR LITERALS
+// DOES NOT ESTABLISH IT -- two indirections hide the value and both were resolved before this landed:
+//   • `TWAP_WINDOW` (`LevBase:37`) = 1800 and `TWAP_WIN_M` (`LevMath:341`) = 1800;
+//   • `WbtcCfg.twapWindow` is a STRUCT FIELD, i.e. potentially any value -- but all three
+//     construction sites (`BtcLevManager:318/327/347`) pass `TWAP_WINDOW`.
+// So no caller asks for more than 1800s. A config field that COULD exceed 3,072s is the thing to
+// re-check before trusting this number again: if one ever does, the ring silently covers less span
+// than the window requests, and `twapResolve`'s Chainlink cross-check is then the only thing
+// bounding the answer -- a backstop, not a substitute.
+//
+// ⚠️ THE WIN IS LAYOUT, NOT GAS: unwritten storage slots cost nothing, so 65,535 never paid rent.
+// What it DID do was reserve 65,535 slots, pushing every later variable past slot 65,541 and making
+// the harness's raw-slot arithmetic absurd.
 // FILE-LEVEL because an array length must be a compile-time constant visible at the declaration
 // site, and `Core` declares the ring too.
-uint256 constant RING = 1024;
+uint256 constant RING = 256;
 
 
 /// @title  OracleLib — the per-pool V4 TWAP observation ring, extracted from

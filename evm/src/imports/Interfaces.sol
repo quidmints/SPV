@@ -94,10 +94,10 @@ interface ICurvePool {
 // The ORDERING was read from the chain, not assumed — a wrong index swaps the wrong pair at size and
 // there is no id to assert against, unlike the Morpho markets.
 // (Plain `//`, not NatSpec — solc rejects @notice/@dev on file-level variables.)
-address constant CURVE_TRICRYPTO_USDC = 0x7F86Bf177Dd4F3494b841a37e810A34dD56c829B;
-uint256 constant TRICRYPTO_USDC_IDX = 0;
-uint256 constant TRICRYPTO_WBTC_IDX = 1;
-uint256 constant TRICRYPTO_WETH_IDX = 2;
+// §E240-tri — TriCrypto's POOL ADDRESS and its three coin indices are DELETED with the four legs
+// that used them. It held 698 WETH / 20.72 WBTC, so BOTH legs breached the 1% floor between $10k and
+// $25k: shallow enough that the venue was the defect, not the sizing. The stableswap hub constants
+// below STAY -- stable<->USDC is a different, deep market and those legs still work.
 
 // Stableswap legs: the borrowed stable → USDC, before TriCrypto takes USDC → WETH/WBTC.
 // 🔴 THE TWO POOLS ARE ORDERED OPPOSITELY. Read from mainnet 2026-08-15:
@@ -130,11 +130,8 @@ int128  constant CRV_PYUSD_USDC_IDX    = 1;
 ///         pool). Overloading both on one interface would let a caller pick the wrong ABI by
 ///         integer-literal inference. Two named types make the choice explicit, and reverting is the
 ///         SAFE failure: a mis-encoded index would otherwise swap the wrong pair.
-interface ICurveTriCrypto {
-    function exchange(uint256 i, uint256 j, uint256 dx, uint256 min_dy) external payable returns (uint256);
-    function get_dy(uint256 i, uint256 j, uint256 dx) external view returns (uint256);
-    function coins(uint256 i) external view returns (address);
-}
+// §E240-tri — `ICurveTriCrypto` DELETED: no caller. `ICurvePool` (int128 stableswap) stays, and
+// `ICurveOracle` in `ExternalTwap` is a separate, still-live price surface -- do not confuse them.
 
 /// Canonical ether.fi LiquidityPool view — was `SwapLib::ILiq_L`.
 interface IEtherFiLiquidityPool { function requestWithdraw(address r, uint a) external returns (uint); }
@@ -248,20 +245,11 @@ interface IAggregatorV3 {
 }
 
 // Uniswap V3 SwapRouter02. Plain `//`, not NatSpec — solc rejects @notice/@dev on file-level variables.
-address constant V3_SWAP_ROUTER = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45;
+// §SLOP — `V3_SWAP_ROUTER` DELETED: its only consumer was `SOR._v3Route`, removed with `SOR.sol`.
 
 /// @notice Uniswap V3 SwapRouter02 — the SOR's multi-hop route. Callers here only INITIATE swaps, so
 ///         `IUniswapV3SwapCallback` (implemented by pools) is deliberately not inherited.
-interface IV3Router {
-    struct ExactInputSingleParams {
-        address tokenIn; address tokenOut; uint24 fee; address recipient;
-        uint256 amountIn; uint256 amountOutMinimum; uint160 sqrtPriceLimitX96;
-    }
-    function exactInputSingle(ExactInputSingleParams calldata params) external payable returns (uint256 amountOut);
-
-    struct ExactInputParams { bytes path; address recipient; uint256 amountIn; uint256 amountOutMinimum; }
-    function exactInput(ExactInputParams calldata params) external payable returns (uint256 amountOut);
-}
+// §SLOP — `IV3Router` DELETED with the router constant above: zero references after the SOR cut.
 
 /// Canonical IAux — union of IAux, IAux_VG.
 /// Canonical Aux view — union of the former per-file variants (`IAux`, `IAux`,
