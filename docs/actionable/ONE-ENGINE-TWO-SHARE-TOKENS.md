@@ -234,3 +234,53 @@ observations and stays 256; the snapshot series is its own storage, one entry pe
 vintage is 30 days of them. Reading "256" as the snapshot capacity is the error to avoid.
 A 6909 token id IS the monthly cohort, which is what ties this to the dated-liability curve.
 ⚠️ `OracleLib.RING` is **1024 today**, not 256 — the reduction is still open.
+
+
+## 🔴 LIBRARY EXTRACTION CANNOT MAKE THE FOLD FIT — measured 2026-08-17, and it refuted the plan
+
+The plan of record was: Vogue's SHARE cluster is 32 functions / 273 code lines (48% of the
+contract), Vogue is 23,951 bytes, so ~42 bytes per code line ⇒ moving the cluster into a
+delegatecalled library frees ~11,400, and Core+Vogue (needing 9,337) fits. **The 42 bytes/line came
+from dividing total size by total lines, and it is wrong by a factor of eight.**
+
+### The experiment
+
+`_settlePending` + `_pendingFor` were extracted into `VogueLib` — chosen because they are the one
+self-contained pair (`_settlePending`'s ONLY internal call is `_pendingFor`, so neither needed
+promoting to `external` to be reachable). 28 code lines, build green.
+
+| | before | after | delta |
+|---|---|---|---|
+| `Vogue` | 23,951 | 23,808 | **−143** |
+| `VogueLib` | 12,277 | 13,270 | **+993** |
+| `Core` + `Vogue` | | 33,712 | still **over by 9,136** |
+
+**143 bytes for 28 lines = 5 bytes/line.** At that rate the remaining 9,136 needs ~1,789 code lines
+and the whole share cluster is 273. Extraction is off by more than an order of magnitude.
+
+### Why — and it generalises
+
+The bytes do not live in the body. They live in the SEAM: the forwarder, the external delegatecall
+dispatch, the struct construction for the value-type context (ten loose params overflow the legacy
+stack), and the storage-pointer marshalling. `VogueLib` GREW 993 for the same 28 lines, so the code
+moved without shrinking; Vogue only shed the difference between an inlined body and a call to it.
+
+⚠️ This is the same lesson as the `LevBase` hoist, in the opposite direction and worse. There, nine
+bodies moved into an abstract base and freed 351 bytes total, because an abstract base is COPIED into
+every inheritor. Here a delegatecalled library deploys once — and it STILL barely helps, because the
+caller keeps a full call site. ⇒ **Neither an abstract base nor a delegatecalled library removes
+meaningful bytecode from the caller. Do not size an EIP-170 plan on "we moved N functions".**
+
+### What this leaves, and it is the architecture that was specified all along
+
+The fold needs the share state and its functions to genuinely LEAVE Vogue — `Shares` as a separate
+DEPLOYED contract that OWNS `autoManaged`/`lpShares`/`feesPerShare`/`selfManaged`, with Vogue holding
+only a handle. Then Vogue does not contain them at any level and the bytes are gone rather than
+relocated. That is the owner's original description (*"each 4626 instance has feesPerShare and
+selfManaged"*), and this measurement is why there is no cheaper route to it.
+
+⚠️ THE COST THAT MAKES IT HARD IS NOW EXPLICIT: `autoManaged` is read or written by most of Vogue,
+so moving it converts those touches into EXTERNAL CALLS. `_withdraw` alone calls seven Vogue
+internals. That is a real gas regression on the deposit/withdraw path and a large rewrite, and it
+cannot be verified against the current suite (1,014 pre-existing failures), so it is not a change to
+make blind. Sequence it AFTER the suite has a clean baseline.
