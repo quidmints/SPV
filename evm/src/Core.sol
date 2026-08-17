@@ -3,7 +3,6 @@
 pragma solidity ^0.8.28;
 
 import {Aux} from "./Aux.sol";
-import {mock} from "./mock.sol";
 import {Vogue} from "./Vogue.sol";
 import {Vault} from "./Vault.sol";
 import {Basket} from "./Basket.sol";
@@ -118,9 +117,13 @@ contract Core {
         // throughput indefinitely. Those dollars are gone from the band but `basketUsd*` still
         // claims them, so every LP claim and the backing gate would price against backing that is
         // no longer there. Subtracting the dust is what makes "committed" mean committed.
-        uint dust6 = _dustOf(address(_mockUsd()));
-        uint base6 = basketUsd;
-        uint pooled18 = (base6 > dust6 ? base6 - dust6 : 0) * 1e12;   // §#12: BASKET contribution
+        // §E253-mock — THE DUST SUBTRACTION IS DELETED, AND IT HAD BEEN A NO-OP SINCE THE v4 CUT.
+        // It subtracted `mockUSD.totalSupply() - balanceOf(Core)`: value stranded IN THE POOLMANAGER
+        // during a v4 swap. There is no PoolManager, nothing ever mints the mocks (their `mint` is
+        // gated to Core and Core never calls it), so `totalSupply` is permanently 0 and the term was
+        // `base6 - 0` on every call. The comment above it described a REAL measurement ($120 of
+        // mockUSD on $120,000 of volume) of a mechanism that no longer exists.
+        uint pooled18 = basketUsd * 1e12;   // §#12: BASKET contribution
         uint debt18 = _levDebtUsd18();
         return pooled18 > debt18 ? pooled18 - debt18 : 0;
     }
@@ -395,8 +398,6 @@ contract Core {
 
     // §ISBTC-SPLIT — ONE PAIR PER INSTANCE. Four mocks existed because one contract hosted two
     // pools; an instance hosts one band, so it needs one volatile mock and one USD mock.
-    mock internal mockVol;
-    mock internal mockUsd;
 
     /// §ISBTC-SPLIT — WHAT THIS INSTANCE IS. Not a parameter threaded through every call: an
     /// IMMUTABLE the contract holds about itself. That distinction is the point of the split — a
@@ -483,32 +484,14 @@ contract Core {
     // over EIP-170, and the production path must not pay for the observability one. Tests read the
     // mock addresses straight from storage (they already do for the fee flip) and compute it there.
 
-    function _dustOf(address m) internal view returns (uint) {
-        // §V4-CUT — THE PoolManager TERM IS GONE BECAUSE IT CAN ONLY BE ZERO. It counted mocks
-        // custodied by the PoolManager, which mattered while v4 hosted the band. No pool of ours is
-        // ever created, the four `type(uint).max` approvals to the PM were deleted, and nothing
-        // transfers a mock there -- so the term was a guaranteed 0 and an external call to fetch it.
-        uint held = IERC20Min(m).balanceOf(address(this));
-        uint supply = IERC20Min(m).totalSupply();
-        return supply > held ? supply - held : 0;   // never counted toward shares or P&L
-    }
 
-    function _mockUsd() internal view returns (mock) {
-        return mockUsd;
-    }
-    function _mockTok() internal view returns (mock) {
-        return mockVol;
-    }
 
-    /// @notice The pool's two synthetic mocks. EXISTS SO THE HARNESS STOPS READING RAW SLOTS: §E60's
-    ///         dust monitor resolved these with `vm.load` on HARDCODED slots 131095-131098 because
-    ///         `Core` was "37 bytes short of affording" a getter — which coupled the TESTS to `Core`'s
-    ///         storage ORDER, so deleting two state vars made `vm.load` return a non-token and
-    ///         `balanceOf` revert (§UNIT-B-SLOWDEL-CAUSE). §CORE-ONLYUS freed 907 bytes; measured cost
-    ///         of this getter is 91, against 1,011 free. The constraint that forced raw slots is gone.
-    function mocks() external view returns (address tok, address usd) {
-        return (address(_mockTok()), address(_mockUsd()));
-    }
+    // §E253-mock — `mocks()` DELETED. Its only caller anywhere was a TEST
+    // (`UnificationControls._mockDust`), and its own doc said it "EXISTS SO THE HARNESS STOPS
+    // READING RAW SLOTS" — a production getter kept alive to serve a harness, measuring a quantity
+    // that is structurally zero. The harness's own comment already conceded the mechanism was gone:
+    // "no pool of ours exists, the approvals to the PM were deleted, and nothing can transfer a mock
+    // there." Deleting the mocks deletes the reason the getter existed.
     // §ISBTC-SPLIT — THESE WERE `if (IS_BTC) x; else x;`: BOTH ARMS IDENTICAL. An earlier pass
     // collapsed POOLED/POOLED_USD to one field per instance but left the selector standing over
     // arms that no longer differed, so the branch cost bytecode and gas to decide nothing. The
@@ -640,11 +623,8 @@ contract Core {
         // auth-wiring pin (deployer only) anti-frontrun
         require(address(VOGUE) == address(0), "!");
 
-        // Mocks are deployed through OracleLib (delegatecall) so the ~3.9 KB of
-        // `mock` creation-code lives in the library, not Core's bytecode (EIP-170).
-        // address(this) under delegatecall is Core, so ownership is identical.
-        (address mV, address mU) = OracleLib.deployMocks(VOL_DECIMALS);
-        mockVol = mock(mV); mockUsd = mock(mU);
+        // §E253-mock — the two `mock` ERC20s are no longer deployed. They were the v4 pool's two
+        // currencies; with no PoolManager nothing mints, holds or moves them.
         
         VOGUE = Vogue(payable(_vogue));
         AUX = Aux(payable(_aux));

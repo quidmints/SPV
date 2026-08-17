@@ -40,18 +40,12 @@ contract UnificationControls is AllesFixture {
     address trader = address(0xBEEF01);
     address bold;
 
-    /// §E60 — the dust monitor lives here now, not on Core (which is 37 bytes short of affording
-    /// it). Mock addresses come from Core's storage layout; 's logic, restated once.
-    function _mockDust(bool isBTC) internal view returns (uint usdDust, uint tokDust) {
-        // §V4-CUT — Core no longer holds a PoolManager, so the dust term that counted mocks
-        // custodied BY the PM is gone with it: no pool of ours exists, the approvals to the PM were
-        // deleted, and nothing can transfer a mock there. Dust is now what is NOT held by Core.
-        (address mTok, address mUsd) = CORE.mocks();
-        assertGt(mUsd.code.length, 0, "STALE SLOT: Core's storage layout moved -- re-read slots from "
-            "`forge inspect Core storageLayout` and update _mockDust (see UNIT-B-SLOTS-RECLAIM)");
-        usdDust = IERC20(mUsd).totalSupply() - IERC20(mUsd).balanceOf(address(CORE));
-        tokDust = IERC20(mTok).totalSupply() - IERC20(mTok).balanceOf(address(CORE));
-    }
+    // §E253-mock — `_mockDust` DELETED with the mocks themselves. It computed
+    // `totalSupply - balanceOf(Core)` on two ERC20s that nothing ever minted, so it logged 0 and 0.
+    // Its own comment had already conceded why: "no pool of ours exists, the approvals to the PM were
+    // deleted, and nothing can transfer a mock there." A harness that measures a structurally-zero
+    // quantity is not a control -- it is a control-shaped no-op, and it kept a getter alive in
+    // production to feed it.
 
     function _seedBasket() internal {
         bold = AUX.getStables()[AUX.getStables().length - 1];
@@ -680,29 +674,13 @@ contract UnificationControls is AllesFixture {
             "the USD mirror must equal the volatile inventory priced at the band price");
     }
 
-    /// DUST SWEEP — mocks held outside the allowed set {PoolManager, Core} must be ZERO today, and
-    /// must never be counted toward shares or P&L. A v4 protocol fee is the only path that creates
-    /// an external holder: the slice is taken out of the LP fee, accrues to
-    /// `protocolFeesAccrued[ourMock]`, and `collectProtocolFees` transfers it out. This asserts
-    /// containment now and fails loudly the day it breaks.
-    function test_DUST_MocksAreContainedToAllowedHolders() public {
-        _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 100 ether}(0, lpA);
-        vm.roll(block.number + 1);
-        for (uint i; i < 4; i++) _trade(3_000e18);
-
-        (uint usdDustEth, uint tokDustEth) = _mockDust(false);
-        (uint usdDustBtc, uint tokDustBtc) = _mockDust(true);
-        emit log_named_uint("ETH-band mockUSD dust", usdDustEth);
-        emit log_named_uint("ETH-band mockETH dust", tokDustEth);
-        emit log_named_uint("BTC-band mockUSD dust", usdDustBtc);
-        emit log_named_uint("BTC-band mockBTC dust", tokDustBtc);
-
-        assertEq(usdDustEth, 0, "mockUSD_ETH escaped the allowed holder set");
-        assertEq(tokDustEth, 0, "mockETH escaped the allowed holder set");
-        assertEq(usdDustBtc, 0, "mockUSD_BTC escaped the allowed holder set");
-        assertEq(tokDustBtc, 0, "mockBTC escaped the allowed holder set");
-    }
+    // §E253-mock — `test_DUST_MocksAreContainedToAllowedHolders` DELETED with the mocks.
+    // It asserted `assertEq(dust, 0)` four times on two ERC20s that NOTHING EVER MINTED, so every
+    // assertion held for the same reason a test of an empty set holds: there was nothing to escape.
+    // ⚠️ IT READ AS A REAL CONTAINMENT CONTROL -- 'mocks are contained to allowed holders' -- which
+    // is exactly why it survived the v4 cut that made it vacuous. A test whose subject has become
+    // structurally impossible does not fail; it passes louder, and its NAME keeps asserting that a
+    // property is guarded when nothing guards anything.
 
     /// SETTLE THE -31.21. The LVR probe redeems ONCE inside a snapshot. If the shortfall is a
     /// correct deferral, `pooled` is non-zero after and a SECOND redeem collects it. If `pooled`

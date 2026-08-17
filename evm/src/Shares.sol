@@ -36,14 +36,64 @@ import {Types} from "./imports/Types.sol";
 /// ⚠️ NOT YET WIRED. The state and the share face live here; the engine still owns the band
 ///    (`POOLED`, the ring, skew, settlement). Migration order is in
 ///    `docs/actionable/ONE-ENGINE-TWO-SHARE-TOKENS.md`.
-contract Shares {
+
+/// @title  BandState — the 13 per-LP declarations both band managers had a private copy of
+///
+/// @notice §E252. `Vogue` (ETH) and `Vault` (BTC) each declared these THIRTEEN names, and a
+///         declaration-by-declaration diff showed them BYTE-IDENTICAL — same types, same visibility,
+///         differing only in the order they appeared in their own file. One declaration now, two
+///         instances, which is the same argument `Core` already won one level down.
+///
+/// @dev    ⚠️ WHAT THIS BUYS IS NOT BYTECODE — IT IS STORAGE LAYOUT, and that distinction is the
+///         whole point. State variables emit no runtime code, so hoisting them frees ZERO bytes
+///         (unlike the function-body extractions in §E241/§E245, which freed ~100–514 B each).
+///         What it buys is that both managers now lay these members out IDENTICALLY, in the same
+///         order, at the same slots relative to the base — which is the PRECONDITION for one
+///         implementation with two instances. Merging the managers while their slots disagreed
+///         would produce two contracts that cannot share an implementation at all.
+///
+/// @dev    ⚠️ DELIBERATELY EXCLUDES THE ERC-20 FACE. `name`, `symbol`, `decimals`, `totalSupply`
+///         and `allowance` are declared in `Shares` AND in `Vogue`, but NOT in `Vault` — the BTC
+///         band's share face is `VBtc`, a separate token. Hoisting those five would collide with
+///         Vogue and give Vault a face it does not use. The band STATE is shared; the share FACE
+///         is per-asset, and that asymmetry is real (§A.19b: vBTC has no bearer redemption).
+abstract contract BandState {
+    /// The band's leverage manager. GOV pin-once, then frozen.
+    address public LEV_MANAGER;
+
+    // ─── the position book: `pooled` IS the LP's balance ───
+    mapping(address => Types.Deposit) public autoManaged;
+    /// In-range shares, against the engine's `POOLED`.
+    uint public lpShares;
+
+    // ─── out-of-range boundary orders (disjoint from the in-range book by construction) ───
+    mapping(uint => Types.SelfManaged) public selfManaged;
+    mapping(address => uint[])         public positions;
+    uint internal ID;
+
+    // ─── fee accumulators — PER-SHARE, not dollars (see CLAUDE.md: multiply back by the
+    //     credit site's own share base before reading either as an amount) ───
+    uint public feesPerShare;
+    uint public USD_FEES;
+
+    // ─── the levered slice: SUBSET MARKERS over `autoManaged[lp].pooled`, never a second
+    //     bucket (§E250 verified every consumer subtracts via `plainNet` and none adds) ───
+    mapping(address => uint) public levPooled;
+    mapping(address => uint) public levBuf;
+    mapping(address => uint) public levBufferUsd;
+    uint public totalBuffer;
+
+    /// The band's price anchor; bounds are `updateBounds(anchor, BAND_DELTA)` about it.
+    uint public BAND_ANCHOR;
+}
+
+contract Shares is BandState {
     // ─── identity: what makes the BTC suffix unwritable ───────────────────
     /// The band's volatile asset (WETH or WBTC). The instance IS the asset.
     address public immutable ASSET;
     /// The engine that owns this band's `POOLED`/ring/settlement.
     address public immutable ENGINE;
     /// The band's leverage manager. Was `LEV_MANAGER` ∥ `LEV_MANAGER`.
-    address public LEV_MANAGER;
 
     string  public name;
     string  public symbol;
@@ -51,30 +101,19 @@ contract Shares {
     uint8   public immutable decimals;
 
     // ─── the position book: `pooled` IS the balance ───────────────────────
-    mapping(address => Types.Deposit) public autoManaged;
     /// In-range shares. The FIRST half of `totalSupply`.
-    uint public lpShares;
 
     // ─── out-of-range boundary orders: the SECOND half of `totalSupply` ───
-    mapping(uint => Types.SelfManaged) public selfManaged;
-    mapping(address => uint[])         public positions;
-    uint internal ID;
     /// Running total of out-of-range amounts, so `totalSupply` needs no iteration.
     uint public oorShares;
 
     // ─── fee accrual ──────────────────────────────────────────────────────
-    uint public feesPerShare;
-    uint public USD_FEES;
     uint public bookmark;
     uint public venueFeesPerShare;
     mapping(address => uint) public venueBm;
 
     // ─── leverage slices (debt-funded depth, never equity) ────────────────
-    mapping(address => uint) public levPooled;
-    mapping(address => uint) public levBuf;
-    mapping(address => uint) public levBufferUsd;
     uint public totalLevPooled;
-    uint public totalBuffer;
 
     // ─── recipient pinning ────────────────────────────────────────────────
     /// 🔴 KEEP. This looks like deletable ceremony and is the cross-LP-theft invariant:

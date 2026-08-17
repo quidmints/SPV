@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {mock} from "../mock.sol";
 import {BasketLib} from "./BasketLib.sol";
 import {IAggregatorV3} from "./Interfaces.sol";
 
@@ -252,15 +251,9 @@ library OracleLib {
         return isWbtc ? p * 1e10 : p;
     }
 
-    /// §ISBTC-SPLIT — ONE PAIR, AND THE CALLER PASSES THE NUMBER RATHER THAN A FLAG. This built
-    /// FOUR mocks because one contract hosted two pools; an instance hosts one band and used half
-    /// of them. `volDecimals` is the only thing that differed between the two volatile mocks (18
-    /// for ether, 8 for sats), so it is passed as a NUMBER -- a boolean here would be the same
-    /// hand-rolled dispatch this refactor removes, one layer down.
-    function deployMocks(uint8 volDecimals) external returns (address volMock, address usdMock) {
-        volMock = address(new mock(address(this), volDecimals));
-        usdMock = address(new mock(address(this), 6));
-    }
+    // §E253-mock — `deployMocks` DELETED with `mock.sol`. Its own doc noted the ~3.9 KB of `mock`
+    // creation-code lived in THIS library's bytecode to keep it out of Core; that 3.9 KB now leaves
+    // the tree entirely rather than moving somewhere else.
 
     /// @notice §E59 — REALIZED TICK VARIANCE FROM THE **STORED OBSERVATIONS**, not a wall-clock grid.
     ///

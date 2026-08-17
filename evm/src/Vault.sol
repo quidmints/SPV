@@ -13,6 +13,7 @@ import {SwapLib} from "./imports/SwapLib.sol";
 import {BtcVaultLib} from "./imports/BtcVaultLib.sol";
 import {VBtc} from "./VBtc.sol";
 import {Types} from "./imports/Types.sol";
+import {BandState} from "./Shares.sol";
 
 import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
 
@@ -79,7 +80,10 @@ import {ILevEquity} from "./imports/Interfaces.sol";
 /// (not gross): a venue liquidation can't strand POOLED_USD. Mirrors the ETH `ILevEquity` over the BTC band.
 /// Declared once, in imports/Interfaces.sol (it was also BtcVaultLib's `ILevBtc_V`).
 
-contract Vault is Ownable, ReentrancyGuard {
+    // §E252 — the THIRTEEN shared band-state declarations moved to `BandState` (Shares.sol).
+    // They were byte-identical in both managers; the merge aligns STORAGE LAYOUT, which is the
+    // precondition for one implementation with two instances. No bytecode changes: state emits none.
+contract Vault is Ownable, ReentrancyGuard, BandState {
 
     // ─── ETH-venue immutables (formerly EthVenue) ───────────────────────
     Vogue     internal immutable VOGUE;    // the ETH LP contract
@@ -125,34 +129,22 @@ contract Vault is Ownable, ReentrancyGuard {
     /// (8-dec, type-reused from Types.Deposit). `lpShares` is the sum.
     /// `feesPerShare` accumulates V4 BTC-side trading fees (in WBTC);
     /// `USD_FEES` accumulates V4 USD-side trading fees from the BTC pool.
-    mapping(address => Types.Deposit) public autoManaged;
-    uint public lpShares;
-    uint public feesPerShare;
-    uint public USD_FEES;
 
     /// BTC IL-protect: per-LP LEVERED band slice (8-dec sats) — the mirror of Vogue's `levPooled`.
     /// Backed by the BtcLevManager net-equity (not real channel sats), it earns V4 fees but is
     /// UNWIND-ONLY: it never leaves via a channel splice/close (there's no channel BTC behind it), only
     /// via `syncLev` shrinking to match the manager. Excluded from the LP's withdrawable balance.
-    mapping(address => uint) public levPooled;
     /// @notice full-2×: 6-dec USD counterpart of an LP's DEBT-funded BTC buffer leg. Post-fold it folds
     ///         into POOLED_USD (no separate LEV bucket) and is excluded from committed via the live-debt
     ///         subtraction in committedUsd18. Bounded by the LP's own debt (enforced in BtcVaultLib.levAddBufBtc).
-    mapping(address => uint) public levBufferUsd;
     /// @notice NET model (mirror of Vogue.levBuf): per-LP debt-funded BTC BUFFER depth (8-dec sats). It is
     ///         fee-earning V4 depth but NOT equity — EXCLUDED from lpShares/pooled, INCLUDED in the GROSS
     ///         fee weight (pooled + levBuf) and the fee denominator (lpShares + totalBuffer).
-    mapping(address => uint) public levBuf;
     /// @notice Sum of every BTC LP's levBuf — the gross buffer total. Fee denom = lpShares + this.
-    uint public totalBuffer;
-    address public LEV_MANAGER;     // pin-once (setLevManager), distinct from the ETH LEV_MANAGER
 
     /// Self-managed BTC boundary positions (out-of-range single-sided orders),
     /// keyed by an ID counter; `positions` maps an owner to its position
     /// ids. These are user-facing and exit via the self-managed pull/close path.
-    mapping(uint => Types.SelfManaged) public selfManaged;
-    mapping(address => uint[]) public positions;
-    uint internal ID;
 
     /// @notice BTC-leg trading fees ACCRUED to each LP, in native sats.
     ///
@@ -189,7 +181,6 @@ contract Vault is Ownable, ReentrancyGuard {
     ///      every call: the wrong name simply does not exist on the other side).
     /// §ONE-ANCHOR — was `UPPER_PRICE` + `LOWER_PRICE`, always `updateBounds(anchor, BAND_DELTA)`
     /// of one another. Two slots for one number; `bandBounds()` derives the pair on read.
-    uint public BAND_ANCHOR;
 
 
     error BtcChannelsPinned();

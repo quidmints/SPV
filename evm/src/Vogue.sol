@@ -19,6 +19,7 @@ import {SwapLib} from "./imports/SwapLib.sol";
 import {VogueLib} from "./imports/VogueLib.sol";
 
 import {Types} from "./imports/Types.sol";
+import {BandState} from "./Shares.sol";
 import {Core} from "./Core.sol";
 import {Basket} from "./Basket.sol";
 import {Aux} from "./Aux.sol";
@@ -34,7 +35,10 @@ import {ILevHost, ILevEquity, ILevClose} from "./imports/Interfaces.sol";
 // §4.2 / #109: force-close an LP's OWN in-band levered slice on band-exit (gated to the BAND == this
 // Vogue). Repays debt + hands the freed collateral (LP's full residual) back to the LP. See §G.7.
 
-contract Vogue is
+    // §E252 — the THIRTEEN shared band-state declarations moved to `BandState` (Shares.sol).
+    // They were byte-identical in both managers; the merge aligns STORAGE LAYOUT, which is the
+    // precondition for one implementation with two instances. No bytecode changes: state emits none.
+contract Vogue is BandState,
     Ownable, ReentrancyGuard {
     error AlreadyInitialized();
     error WrongVogue();
@@ -61,11 +65,9 @@ contract Vogue is
     // range = between ticks
     /// §ONE-ANCHOR — was `UPPER_PRICE` + `LOWER_PRICE`, always `updateBounds(anchor, BAND_DELTA)`
     /// of one another. Two slots for one number; `bandBounds()` derives the pair on read.
-    uint public BAND_ANCHOR;
     uint public LAST_REPACK;
     // ^ timestamp allows us
     // to measure APY% for
-    uint public USD_FEES;
     Basket QUID; Aux AUX;
 
     // ════════════════════════════════════════════════════════════════════════════════════════
@@ -98,7 +100,6 @@ contract Vogue is
     address public WEETH;
 
     /// The IL-protect orchestrator. Its levered book's LIVE net-equity counts in `vogueETH`.
-    address public LEV_MANAGER;
 
     error NotSelf();
     error NotAux();
@@ -196,9 +197,7 @@ contract Vogue is
     /// every keyed access was uniformly `[VENUE_MORPHO]`. Collapsed to
     /// plain uints. If multi-venue support is ever needed, the
     /// mapping form can be re-introduced.
-    uint public feesPerShare;
     uint public bookmark;
-    uint public lpShares;
 
     /// @notice SEPARATE accumulator for VENUE (Morpho WETH) appreciation, distinct from the
     ///         CORE-trading-fee `feesPerShare`. Venue yield is funded ONLY by PLAIN LP deposits (the
@@ -218,16 +217,13 @@ contract Vogue is
     ///         net leg IS counted in them, but is UNWIND-ONLY: `_withdraw` excludes it (redeemed via
     ///         `LevManager.closeLev`, never the free ladder), so a levered claim never competes with unlevered
     ///         LPs for deliverable ETH.
-    mapping(address => uint) public levPooled;
 
     /// @notice The DEBT-FUNDED BUFFER band depth of a levered LP (gross collateral - net equity), in band-ETH.
     ///         It is NOT equity, so it is EXCLUDED from `pooled`/`lpShares` (net), but it IS real CORE band depth,
     ///         so it earns band fees: the per-LP fee WEIGHT is `pooled + levBuf` and the fee denominator is
     ///         `lpShares + totalBuffer` (both GROSS). This is how the leverage keeps its yield on the 2x depth
     ///         while the LP's share accounting stays net. Cleared (with the net leg) on reconcile/close.
-    mapping(address => uint) public levBuf;
     /// @notice Sum of every levered LP's `levBuf` — the gross buffer total. Fee denominator = lpShares + this.
-    uint public totalBuffer;
 
     /// @notice The 6-dec USD counterpart of an LP's DEBT-funded BUFFER band leg. Post-fold there is no
     ///         separate POOLED_USD_ETH_LEV bucket: the buffer USD folds into POOLED_USD like any in-range USD
@@ -235,7 +231,6 @@ contract Vogue is
     ///         subtracts live debt (committed = POOLED_USD − debt = net equity). A venue liquidation un-pairs
     ///         it without stranding basket USD. Bounded by the LP's own debt by construction (`levAddBuf`
     ///         sizes it to the buffer collateral at the band price, capped at debtUsd).
-    mapping(address => uint) public levBufferUsd;
 
     /// @notice Bumped whenever the band ticks RECENTER (repack/reseat in `_rebalance`). A reseat realizes the
     ///         band's IL and moves the ticks, so the IL-protect re-anchors its `entryPrice`/`E0` when this
@@ -264,7 +259,6 @@ contract Vogue is
     // btcFeesOwedSats + UPPER_TICK_BTC/LOWER_TICK_BTC) lives entirely in
     // BtcVault.sol — Vogue is the ETH vault; its helpers are ETH-only now.
 
-    mapping(address => Types.Deposit) public autoManaged;
 
     // ─── §A.5f (subset): TIMELOCKED WITHDRAWAL-RECIPIENT PIN ────────────────
     // THREAT: the hosted fleet keeper HOLDS THE LP KEY (BtcLevManager:361), and `withdraw`/`redeem`
@@ -321,15 +315,12 @@ contract Vogue is
         if (pin != address(0) && receiver != pin) revert RecipientNotPinned();
     }
 
-    mapping(uint => Types.SelfManaged) public selfManaged;
     /// (JIT-lock) block of the position's most recent auto-managed deposit; `_withdraw`
     /// refuses a same-block exit so an atomic deposit→swap→withdraw can't snipe a swap fee.
     mapping(address => uint) public lastDepositBlock;
     // ^ key is tokenId of ID++ for that position
-    uint internal ID;
     // ^ always grows
 
-    mapping(address => uint[]) public positions;
     // ^ allows several selfManaged positions...
 
     /// @notice The deployer — gates `setLevManager`; the EthVenue pin is gone with the contract (§ETHVENUE-FOLD)
