@@ -62,7 +62,27 @@ whose revert nobody sees. 🔑 **AND THE ALLOWLIST HAD TO MOVE WITH IT:**
 the signer reject every reconcile instead — one bug replaced by its mirror image. Both moved in one
 change; **Rust drift 4 → 0.**
 
-🔴 **THE SPA HALF IS OPEN, AND DELIBERATELY NOT BLIND-FIXED — IT IS NOT A RENAME.** The 11:
+🔴 **AND THE SPA HALF HAS A ROOT CAUSE ONE LEVEL DOWN — 4 OF THE 11 WERE UNFIXABLE BY ANY CLIENT
+EDIT, BECAUSE THE ADDRESS DID NOT EXIST IN THE RECORD.** I first wrote this row as "not a rename,
+call it on the right band's address" and stopped there. Followed the address, and there was none:
+`DeployLib.sol:137-138` builds **TWO Cores** (*"one instance, one asset"* — `new Core(cfg.weth,
+ethRisk())` and `new Core(cfg.wbtc, btcRisk())`), assigns the second into `a.btcCore`, and
+`DeployL1_s.sol` **never serialized it**. `POOLED`/`POOLED_USD` are per-Core state
+(`Core.sol:96-98`), so the successor to `POOLED_BTC` is `POOLED()` **on a contract no consumer could
+address**. ✅ **FIXED: the deployment record now carries `btcCore`.**
+⚠️ **AND THE CLIENT EDIT MUST STILL WAIT FOR A DEPLOY — this is the trap in the fix, not in the
+bug.** `chains.ts` falls back to the ZERO address for a missing key and its own comment warns that
+"would silently zero every address", so a client repointed to `btcCore` before a run regenerates
+`l1.json` reads **0** rather than erroring: exactly the plausible-but-wrong output the whole row is
+about. Either land it against a regenerated record, or read `Vault.CORE()` (public immutable,
+`Vault.sol:85`), which works against the addresses already committed.
+📌 The naming here is a live instance of `CLAUDE.md`'s split-a-contract warning and is worth reading
+before touching it: `DeployL1_s.sol:226/351-352` declares `Vault public BTC` and then sets
+`BTC = ETH` — *"same instance, BTC == ETH"*. **Two faces sharing one address is indistinguishable
+from duplication right up until they separate**, which is precisely how `ethVenue` once got passed
+into a parameter named `btcVault`.
+
+🔴 **THE REST OF THE SPA HALF IS OPEN, AND DELIBERATELY NOT BLIND-FIXED.** The 11:
 `POOLED_ETH`, `POOLED_BTC`, `POOLED_USD_ETH`, `POOLED_USD_BTC`, `autoManagedBTC`, `lpSharesBTC`,
 `grossCollateralEth` (ORPHANs), plus `observe(uint32[],bool)`, `outOfRange(uint256,address,int24,int24)`,
 `selfManaged(uint256)`, `pos(address)` (shape drift).

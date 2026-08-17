@@ -472,6 +472,23 @@ contract Deploy is Script {
         // would point the BTC reads at the ETH engine, which ANSWERS — with the wrong band's numbers.
         // That is the failure this key exists to prevent: silent, plausible, and wrong.
         vm.serializeAddress(j, "btcCore", address(ETH.CORE()));
+        // ⚠️ TWO ADDITIONS TO THE ABOVE, both checked rather than assumed (§E233-ladder thread,
+        // which found this independently and landed the equivalent `A.btcCore`):
+        // 1. **`ETH.CORE()` IS the BTC engine, by CONSTRUCTION** — `DeployLib:183` passes
+        //    `a.btcCore` as the Vault's `core` argument (`Vault eth = _newVault(cfg, v4,
+        //    a.btcCore, aux)`), and `Vault.sol:85` declares it `immutable`. So this line and
+        //    `A.btcCore` record the same address. ⚠️ Worth stating because the READ looks wrong:
+        //    a variable named `ETH` yielding the BTC core, out of a DeployLib local itself named
+        //    `eth` that receives `a.btcCore`. That is the `ethVenue`-into-a-parameter-named-
+        //    `btcVault` shape from CLAUDE.md — benign here (the Vault IS the BTC band; the name is
+        //    the stale half), and exactly why it must be asserted from the constructor argument
+        //    rather than read off the name.
+        // 2. **THE CLIENT EDIT MUST WAIT FOR A DEPLOY, and that trap is in the FIX.** `chains.ts`
+        //    falls back to the ZERO address for a missing key, and its own comment warns that
+        //    "would silently zero every address". `l1.json` gains `btcCore` only when this script
+        //    RUNS, so an SPA repointed first reads **0** rather than erroring — the same silent,
+        //    plausible, wrong output this key exists to prevent. Land the client change against a
+        //    regenerated record, or read `Vault.CORE()` on the already-recorded `vault` address.
         vm.serializeAddress(j, "vault", address(ETH));
         vm.serializeAddress(j, "spvGateway", address(spvGateway));
         vm.serializeAddress(j, "btcChannels", address(btcChannels));
