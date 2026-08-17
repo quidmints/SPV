@@ -1,4 +1,12 @@
-# SPRINT — everything session `d669393d` leaves open
+# SPRINT — what two sessions leave open
+
+⚠️ **TWO SESSIONS WRITE HERE.** Part A is session `d669393d` (band-manager merge, bytecode).
+Part B is session `391df7b6` (the Bitcoin/secp256k1 thread). Kept in ONE file deliberately:
+two sprint files drift, and this repo has paid for that twice today.
+
+---
+
+## PART A — session `d669393d`
 
 Written at `770749ca`. **Every item below is work this thread started, scoped, or measured but did
 not finish.** Each carries its evidence and, where I got something wrong, what corrected me — because
@@ -246,3 +254,188 @@ threaded through two managers and three structs, an ABI break on four entrypoint
 - **Four vacuous tests found.** Two compared an expression to itself; one asserted `selector4(s) ==
   keccak256(s)[..4]` for the same `s`; one asserted `assertEq(dust, 0)` on tokens nothing ever
   minted. All four passed for reasons unrelated to what their names claimed.
+
+---
+
+# PART B — session `391df7b6` (the Bitcoin / secp256k1 thread)
+
+**Ordered by what it protects, not by how nearly finished it is.** Item 1 is worth more than
+everything below it combined, and I spent the session around it rather than on it — that is the
+single most useful thing to inherit from here.
+
+`QUEUE.md` stays canonical. Where a row below names a `§…` id, that row is the record and this is
+the summary.
+
+---
+
+## B0. 🔴🔴 THE BIGGEST HOLE IS STILL OPEN — `derive_vault_seed`
+
+**`quid-ln/quid-bridge/src/bin/quid-bridge-daemon.rs:339` still calls
+`quid_bridge::vault::derive_vault_seed(&root_seed)`**, and `vault.rs` still says it in its own
+words: *"one custodian, one secret"* and **"SO THE 2-of-2 IS NOMINAL IN THIS DEPLOYMENT, AND
+NOTHING SHOULD CLAIM OTHERWISE."**
+
+⇒ **A compromised fleet enclave can spend every channel's funding output.** No Solidity change
+touches this; the Bitcoin UTXO does not care what the contract believes.
+
+**What this session actually delivered here is the CAPABILITY, not the fix.** `bin/quid-lp-daemon.rs`
+boots the same vault from a seed the fleet cannot derive, against a REMOTE hop — and the
+`boot_vault` `LOCALHOST` hardcode that made a remote hop undialable is fixed, which was the real
+blocker. So the split is now deployable. **It is not deployed.**
+
+▶️ **The fix is one change: the vault's key stops coming from `derive_vault_seed`.** Everything else
+in this sprint is around that, not it.
+
+⚠️ Do NOT confuse this with §E183 item 1 (below). That closed an EVM *attribution* hole — a hop
+naming itself as the LP. It protects the pool credit. **This protects the sats.**
+
+---
+
+## B1. 🔴🔴 §E222 — THE ORACLE RING RECORDS ITS OWN OUTPUT, LIVE ON `main`
+
+`Core.sol:866` reads `px = AUX.getTWAPforAsset(ASSET, 1800)` — which reads the observation ring —
+and `:878` writes that same value back via `_writeObservationPrice(px)`. The identical pair repeats
+at `:987`/`:988`.
+
+**§E222 predicted this and said main was safe ONLY because it still had the pool. I merged the v4
+cut. The pool is gone, so the prediction is now the state.** Nothing reverts: the deviation test
+compares a value against a smoothed copy of itself, so **a green suite is exactly what this
+produces**. The guards did not break; they became vacuous.
+
+`ExternalTwap` is the written, tested replacement and is wired to **nothing** — its only call sites
+anywhere are in `test/OneInchObserverIsIndependent.t.sol`.
+
+▶️ **Order:** (1) wire the ETH ring to an external observation; (2) DECIDE what the BTC ring
+records, given §E223 proved there is **no wrapper-free BTC spot on-chain** and a WBTC cross would
+undo §E221 — including the option that it records nothing and the BTC deviation guard is *removed*
+rather than left looking live; (3) delete the self-write at `:878`/`:988` **in the same commit**,
+because a real source beside a surviving self-write re-creates the circularity at the next refactor.
+
+---
+
+## B2. 🔴 §T2 — TERMS COMMITMENT: SOLIDITY DONE, **RUST LEFT BROKEN**, AND THE SHAPE IS WRONG
+
+**Solidity half is done and verified.** `ExitLib._cltvRefundLeaf` now prefixes
+`<termsCommitment> OP_DROP` to the refund leaf; `swapInDepositKey` / `verifySwapInDeposit` /
+`_provenDeposit` thread it; `settleSwapInProven` computes
+`sha256(abi.encode(seller, token, minDeliveredUsd))`. `test/btc/SwapInDeposit.t.sol` is **7 passed /
+0 failed**, including a NEW property test that a changed floor *or* a changed seller yields a
+different deposit address, and a known-answer `EXPECTED_Q` computed in Python — which first
+reproduced the OLD pinned `0xd0d16740…` for the no-terms leaf, which is what makes it a known
+answer rather than a round-trip.
+
+🔴 **THE RUST HALF IS MID-MIGRATION AND DOES NOT COMPILE.** `quid-hop` fails with cascading
+`E0061`: `refund_leaf` → `deposit_spend_info` → `deposit_for` → `sign_claim` went 4→5→6→7
+arguments. **That work is IN THE WORKING TREE ONLY — it is not committed and not pushed.** Either
+finish it or discard it; do not leave it half-applied.
+
+⚠️ **AND THE OWNER IS RIGHT THAT THE SHAPE IS WRONG.** Threading a raw `[u8; 32]` through five
+signatures is *adding* parameter slop to fix a trust problem. The fix should REMOVE parameters:
+fold `seller`/`token`/`minDeliveredUsd` into one `Terms` value, so
+`settleSwapInProven(seller, token, minDeliveredUsd, proof, rawTx)` becomes
+`settleSwapInProven(Terms, DepositProof, rawTx)` — **5 params → 3** — with the commitment derived
+inside. Same for Rust: thread one `Terms`, not a bare hash. **Redo the Rust half in that shape
+rather than patching arity errors.**
+
+---
+
+## B3. 🔴 §T3 — THE FIX IS INEXPRESSIBLE UNTIL FRESHNESS IS PER-CHANNEL
+
+`deadman_exit.rs` defines the freshness input as *"an OPTIONAL second input spending a
+**fleet-controlled UTXO SHARED BY EVERY CHANNEL**"*, and `Prevouts::All` means **spending it renders
+every previously emitted exit invalid at once** — *"ONE small on-chain tx per period GLOBALLY rather
+than one splice per channel."*
+
+⇒ **T3's hazard is the flip side of that efficiency.** Shared + fleet-controlled is what makes
+invalidation cheap AND what lets one transaction revoke every LP's exits.
+
+🔴 **So "make it a 2-of-2 with the LP" cannot be built as written** — there is no single LP; the
+counterparty set is every LP at once. **Per-channel freshness (phase 3) is the PRECONDITION**, and
+it costs exactly what the shared design bought: one tx per period globally becomes one per channel
+per period. **That is a cost decision, and it should be priced before anyone starts**, because the
+deletion branch (below) makes the whole mechanism disappear.
+
+✅ **The deletion branch is unblocked and is the cheaper outcome:** if the vault↔hop channel does
+not forward, every LP-*claim* change is an on-chain splice, no rung can be stale, and the freshness
+UTXO deletes itself along with the whole invalidation problem.
+
+📌 **Two corrections banked here, both mine.** (1) I claimed the enumeration failed because *"every
+swap-in moves the LP's balance off-chain"* — wrong: that is channel **capacity**, not **claim**.
+`paidOutSinceCheckpoint` has exactly two writers (`:1349`, `:2151`), both on-chain splices, and no
+sink for forwarding; if forwarding moved the claim, every honest close would trip `StaleClose`.
+(2) There are **two different things called freshness** — the EVM **counter**
+(`freshnessSeq`/`commitFreshness`, anti-rollback for the enclave's own monitor store, never read by
+any exit path) and this Bitcoin **UTXO**. Conflating them makes T3 look either already-solved or
+already-absent. I did both, in one turn.
+
+---
+
+## B4. 🟡 LADDER DEPTH — never started
+
+Phase 2's second half. `§PHASE-ORDER` reads *"§T9/§M1#5 as an LP-SIDE SIGNER REFUSAL, **then ladder
+depth**"*. I delivered the signer refusal (it needed no new code — `ValidatingChannelSigner` was
+already wired) and reported the phase complete. **Ladder depth was never begun.** It is what bounds
+the one thing that cannot be prevented: a hop declining to settle, emit or route.
+
+## B5. 🟡 LAZY `openChannel` — never started, and my ✅ was conditional
+
+Phase 4's second half. I closed §E166 arguing every open is LP-funded so there is nothing to defer.
+**§E183 item 1 removes that premise**: with the LP signing nothing at open, the open no longer
+carries LP consent *at the moment it happens*, which is exactly when deferring the CLAIM starts to
+matter. Under rule 16 that closure should have been ⏸️, not ✅.
+
+## B6. 🟡 REGIME — TWO CLASSIFIERS, ONE UNREACHABLE
+
+`marketRegime(σ, φ)` is live (`market/route.ts:150`,`:152`). **Every function in
+`spa/src/lib/regime.ts` has zero call sites** — including the ones I de-ticked earlier in the
+session without checking for a caller. Only the `Regime` *type* is imported. **Not a deletion —
+a decision**: on-chain TWAP or off-chain σ/φ as the source of truth. Then delete the loser.
+
+## B7. 🟡 RATIFY THE SMART-WALLET NARROWING (§E183 item 1)
+
+`lpEth` is now derived from the channel key, so **an LP is necessarily the EOA of that key and a
+smart-wallet LP is no longer expressible**. This is a deliberate consequence, recorded in the commit
+and in `Types.OpenAuth`, but it is a capability removal and should be ratified rather than inherited.
+It also means the LP's Bitcoin channel key **is** its EVM signing key — one secret authorising both.
+
+## B8. 🟡 THE 7540 FOLD — the slop and the trust hole are ONE change
+
+`openChannel` 5 params, `splice` 5, `recordClose` 6, `deliverSwapOutOnchain` 6. **These are exactly
+the signatures that wrap across lines — which is why the ABI gate could not see them** (§B9). The
+underlying shape is already 7540: `openChannel` and a grow-`splice` are both **requestDeposit**; a
+shrink-`splice` and `recordClose` are **requestRedeem** + claim; `requestSwapOutOnchain` /
+`deliverSwapOutOnchain` are already request/fulfil. Only `emitDeadManExit` and
+`recordForceClosePenalty` sit outside — escape paths, not vault operations; do not force them in.
+**B2's `Terms` fold is the first instance of this, not a separate task.**
+
+## B9. 🟡 STALE MARKER — `§OVERCOMMITTED-MEASURED` still reads 🔴
+
+E230 fixed it and `POOLED_USD` funds again (`Alles` went 71/33 → 89/13, and the canary
+`testSwapIn_QuidOrStrictStable` passes). The row needs updating, not work.
+
+---
+
+## B10. LANDED THIS SESSION — do not redo
+
+| what | evidence |
+|---|---|
+| **§E182 rekey** | hop half rotates, LP half immutable, LP co-signs, `keysHash` re-pinned in the same tx; 4 tests |
+| **§E183 item 1** | `lpEth` derived; `auth.lpSig` deleted; `OpenAuth` 4 fields → 2; **614 bytes spare**, no longer the tightest contract |
+| **§E231 modLP direction** | `modLP` could not express a removal, so withdrawals GREW `POOLED`; signed now, verified by its own prediction |
+| **ABI gate blindness** | the scanner walked `splitlines()`, so **every wrapped signature was invisible** — all nine are money-path entrypoints. 106 → 111 checked |
+| **v4 cut completion** | `FullMath` → `SoladyMath.fullMulDiv` (124 sites) — and **11 Vogue calls had been NARROWED to 256-bit `mulDiv`**, silently reverting where `FullMath` absorbed |
+| **41 lines of dead v4 commentary** | four had become false, incl. one citing the deleted `SOR.sol` |
+| **closures** | §E166 (conditional — see B5), §VAULT-RENOUNCE (my own false gap), §SECOND-FUNDING-HALF, §HOP-PARTITION |
+
+---
+
+## B11. THE PATTERN THIS SESSION KEPT PAYING FOR
+
+**Every wrong conclusion came from reading a comment or a row; every correction came from running
+something.** `channel.hop` "authority" — deleted, prose only. `Vault` "never renounced" — the
+variable is named `ETH`. The T3 enumeration — read a module header, not the ledger. The gate
+"compares tuples as opaque" — it expands them; it never *saw* the constant. `x=1` is off-curve — it
+is not.
+
+⇒ **Before acting on any claim in this file, run the check it names.** Each one is cheap, and each
+of those five cost a wrong turn that a single command would have prevented.
