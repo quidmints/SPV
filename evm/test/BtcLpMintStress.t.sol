@@ -86,11 +86,11 @@ contract BtcLpMintStress is AllesFixture {
         // per-channel MuSig2 funding key from the wallet's stable external-0 P2TR shutdown key.
         bytes32 payout = payoutKeyOnly(abi.encode(p.lpPubkey));
         Types.OpenAuth memory auth = _mkAuth(ch, lpEth, payout);
-        // (E128) A REAL signed exit for THIS funding outpoint, built before the prank so the FFI
-        // call cannot consume it.
-        Types.ExitArming memory arm = _armFor(seed, fundingTxId, p.amountSats, payout);
+        // (E128) A REAL signed ladder for THIS funding outpoint, built before the prank so the FFI
+        // calls cannot consume it. (§SPRINT-B4) Two rungs — `_armLadder` rejects a single window.
+        Types.ExitArming[] memory exits = _ladderFor(seed, fundingTxId, p.amountSats, payout);
         vm.prank(makeAddr("hop"));
-        cid = ch.openChannel(p, fundingTx, new bytes32[](0), auth, _ladder(arm));
+        cid = ch.openChannel(p, fundingTx, new bytes32[](0), auth, exits);
     }
 
     /// (E157) The LP signs ONCE for THIS channel; the hop submits that consent with the open.
@@ -102,29 +102,73 @@ contract BtcLpMintStress is AllesFixture {
     }
 
     /// (E128) Own frame — building the arming inline pushed `_open` over the legacy stack, and
-    /// the house fix is a frame, never `via_ir`.
-    function _armFor(uint seed, bytes32 fundingTxId, uint amountSats, bytes32 payout)
-        private returns (Types.ExitArming memory)
+    /// the house fix is a frame, never `via_ir`. (§SPRINT-B4) Returns the full 2-rung ladder —
+    /// `armingSet` signs at `EXIT_DEADLINE` and one spacing later.
+    function _ladderFor(uint seed, bytes32 fundingTxId, uint amountSats, bytes32 payout)
+        private returns (Types.ExitArming[] memory)
     {
         // ⚠️ `vm.toString`, NOT `abi.encodePacked`: packing a uint appends 32 RAW BYTES, which
         // makes a fine hash input but not a shell argument — the FFI call fails with an opaque
         // "failed to execute command" rather than anything pointing at the label.
-        return armingFor(string.concat("mintstress-", vm.toString(seed)),
+        return armingSet(string.concat("mintstress-", vm.toString(seed)),
                          fundingTxId, 0, amountSats,
                          abi.encodePacked(hex"5120", payout), EXIT_DEADLINE, 1_000);
+    }
+
+    /// (§SPRINT-B4) DEPTH IS ENFORCED: a channel cannot open behind a single CLTV window.
+    /// Two shallow shapes, both with REAL, individually verifiable rungs — the revert must
+    /// come from the depth check, not from a signature failure wearing its selector:
+    ///   • one rung — one window;
+    ///   • two rungs at the SAME deadline — still one window (the deadline lives inside the
+    ///     signed bytes, so equal deadlines are equal escapes, not depth).
+    function test_openChannel_shallowLadder_reverts() public {
+        // ONE instance (`setBTCChannels` pins once). Both attempts revert at the depth check
+        // BEFORE any channel is created, so different seeds on the same contract is fine.
+        BTCChannels ch = _deployChannels();
+        _openExpectShallow(ch, 777_001, false);
+        _openExpectShallow(ch, 777_002, true);
+    }
+
+    /// Own frame per attempt (legacy stack, no `via_ir`).
+    function _openExpectShallow(BTCChannels ch, uint seed, bool twoSameDeadline) private {
+        (bytes memory lpPubkey, bytes memory hopPubkey_, ) =
+            ownedChannelKeys(string.concat("mintstress-", vm.toString(seed)));
+        (Types.OpenParams memory p_, bytes memory fundingTx, bytes32 fundingTxId) =
+            _mkFunding(seed, 1_000_000, lpPubkey, hopPubkey_);
+        _submitShallow(ch, p_, fundingTx, ChannelLib.lpEthOf(lpPubkey), seed, fundingTxId,
+                       twoSameDeadline);
+    }
+
+    /// ⚠️ EVERY FFI RUNS BEFORE `expectRevert` — `armingFor`/`_mkAuth` shell out, and a
+    /// cheatcode call consumes a pending expectRevert (the same trap this suite documents
+    /// for pranks).
+    function _submitShallow(
+        BTCChannels ch, Types.OpenParams memory p, bytes memory fundingTx, address lpEth,
+        uint seed, bytes32 fundingTxId, bool twoSameDeadline
+    ) private {
+        bytes32 payout = payoutKeyOnly(abi.encode(p.lpPubkey));
+        Types.OpenAuth memory auth = _mkAuth(ch, lpEth, payout);
+        Types.ExitArming memory rung = armingFor(
+            string.concat("mintstress-", vm.toString(seed)), fundingTxId, 0, p.amountSats,
+            abi.encodePacked(hex"5120", payout), EXIT_DEADLINE, 1_000);
+        Types.ExitArming[] memory exits =
+            twoSameDeadline ? ladder2(rung, rung) : _ladder(rung);
+        vm.prank(makeAddr("hop"));
+        vm.expectRevert(BTCChannels.LadderTooShallow.selector);
+        ch.openChannel(p, fundingTx, new bytes32[](0), auth, exits);
     }
 
     /// (§E233-ladder) cid -> the label seed it was opened under (see `_open`).
     mapping(bytes32 => uint) internal _seedOf;
 
     /// (§E233-ladder) A ladder for the outpoint a park/delivery splice rotates TO. Single-output
-    /// splice ⇒ the new funding is vout 0, which is what `_armFor` assumes.
-    /// ⚠️ Build it BEFORE any `vm.prank` — `_armFor` shells out over FFI and consumes a one-shot prank.
+    /// splice ⇒ the new funding is vout 0, which is what `_ladderFor` assumes.
+    /// ⚠️ Build it BEFORE any `vm.prank` — `_ladderFor` shells out over FFI and consumes a one-shot prank.
     function _armAt(bytes32 cid, bytes memory stx, uint newSats, bytes memory lpPubkey)
         internal returns (Types.ExitArming[] memory)
     {
-        return _ladder(_armFor(_seedOf[cid], sha256(abi.encodePacked(sha256(stx))), newSats,
-                               payoutKeyOnly(abi.encode(lpPubkey))));
+        return _ladderFor(_seedOf[cid], sha256(abi.encodePacked(sha256(stx))), newSats,
+                          payoutKeyOnly(abi.encode(lpPubkey)));
     }
 
     function _open(BTCChannels ch, uint seed, uint amountSats)
@@ -394,8 +438,8 @@ contract BtcLpMintStress is AllesFixture {
         // (§E233-ladder) The rotated outpoint needs its own ladder — the rungs armed at open spend the
         // UTXO this tx consumes. Single-output splice ⇒ the new funding is vout 0. Built before the
         // prank: `_armFor` shells out over FFI and would consume a one-shot prank.
-        Types.ExitArming[] memory exits_ = _ladder(
-            _armFor(seed, newTxId, newAmountSats, payoutKeyOnly(abi.encode(lpPubkey))));
+        Types.ExitArming[] memory exits_ =
+            _ladderFor(seed, newTxId, newAmountSats, payoutKeyOnly(abi.encode(lpPubkey)));
         vm.prank(makeAddr("hop")); // splice is hop-gated (channel.hop pinned at open)
         ch.splice(channelId, p, spliceTx, new bytes32[](0), exits_);
     }
@@ -583,8 +627,8 @@ contract BtcLpMintStress is AllesFixture {
         // (§E233-ladder) The rotated outpoint needs its own ladder — the rungs armed at open spend the
         // UTXO this tx consumes. Single-output splice ⇒ the new funding is vout 0. Built before the
         // prank: `_armFor` shells out over FFI and would consume a one-shot prank.
-        Types.ExitArming[] memory exits_ = _ladder(
-            _armFor(seed, newTxId, newAmountSats, payoutKeyOnly(abi.encode(lpPubkey))));
+        Types.ExitArming[] memory exits_ =
+            _ladderFor(seed, newTxId, newAmountSats, payoutKeyOnly(abi.encode(lpPubkey)));
         vm.prank(makeAddr("hop")); // splice is hop-gated (channel.hop pinned at open)
         ch.splice(channelId, p, spliceTx, new bytes32[](0), exits_);
     }

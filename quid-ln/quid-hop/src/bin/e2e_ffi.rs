@@ -339,7 +339,7 @@ async fn run(chain_id: u64, btc_channels: Address, payout_xonly: [u8; 32]) -> Ve
     // (`derive_taproot_channel_signer` + `provide_taproot_context`), so the bytes the
     // contract verifies are produced by the SAME path the fleet uses — not a test-only
     // shortcut that could pass while production is broken.
-    let (exit_raw, exit_cltv, exit_checkpoint) = presign_e2e_exit(
+    let (exit_raw, exit_cltv, exit2_raw, exit2_cltv, exit_checkpoint) = presign_e2e_exit(
         &node_a, &node_b, funding_txid, funding_vout, funding.height,
         amount_sats_open, payout_xonly,
     );
@@ -381,6 +381,9 @@ async fn run(chain_id: u64, btc_channels: Address, payout_xonly: [u8; 32]) -> Ve
         Tok::Bytes(exit_raw),                        // 21 signedExitTx
         Tok::Uint(U256::from(exit_cltv)),            // 22 exitCltvDeadline
         Tok::Uint(U256::from(exit_checkpoint)),      // 23 exitCheckpointSats
+        // (§SPRINT-B4) the second rung — a later, independently signed window
+        Tok::Bytes(exit2_raw),                       // 24 signedExitTx2
+        Tok::Uint(U256::from(exit2_cltv)),           // 25 exitCltvDeadline2
     ];
     let bundle = encode_struct(&toks);
 
@@ -414,7 +417,8 @@ async fn wait_until<F: Fn() -> bool>(tries: u32, delay: Duration, cond: F) {
 /// deployment. §E175-a removed that capability from the FLEET, not from a test that plays
 /// both parties.
 ///
-/// Returns `(raw_signed_tx, cltv_deadline, checkpoint_sats)`.
+/// Returns `(raw_signed_tx, cltv_deadline, raw_signed_tx2, cltv_deadline2, checkpoint_sats)` —
+/// (§SPRINT-B4) two rungs at distinct deadlines, the minimum `_armLadder` accepts.
 fn presign_e2e_exit(
     node_a: &quid_hop::node::HopNode,
     node_b: &quid_hop::node::HopNode,
@@ -423,7 +427,7 @@ fn presign_e2e_exit(
     funding_height: u64,
     amount_sats: u64,
     payout_xonly: [u8; 32],
-) -> (Vec<u8>, u64, u64) {
+) -> (Vec<u8>, u64, Vec<u8>, u64, u64) {
     use quid_ln::validating_signer::TaprootSignerContext;
 
     let secp = bitcoin::secp256k1::Secp256k1::new();
@@ -450,9 +454,6 @@ fn presign_e2e_exit(
         });
         signer
     };
-    let hop_signer = arm(node_a);
-    let vault_signer = arm(node_b);
-
     // The payout key the exit pays: the LP's x-only shutdown key. The Solidity side pins
     // `btcRecipientOf` to the SAME value via `OpenAuth`, so a mismatch fails on-chain
     // rather than silently paying elsewhere.
@@ -460,31 +461,42 @@ fn presign_e2e_exit(
     // must pay `btcRecipientOf`, and only the test knows which key it will register.
     let recipient = bitcoin::key::XOnlyPublicKey::from_slice(&payout_xonly)
         .expect("payout x-only");
-
-    // Far enough ahead that the exit is NOT broadcastable while the harness runs — the
-    // contract only records it; nothing may confirm.
-    let cltv = bitcoin::absolute::LockTime::from_height(funding_height as u32 + 144)
-        .expect("cltv height");
     let fee_sats = 1_000u64;
 
-    let raw = quid_ln::deadman_exit::presign_deadman_exit(
-        &hop_signer,
-        &vault_signer,
-        outpoint,
-        amount_sats,
-        fee_sats,
-        recipient,
-        cltv,
-        funding_height,
-        &secp,
-        None, // no freshness input in the harness — reproduces the single-input exit
-    )
-    .expect("e2e: pre-signing the dead-man exit must succeed");
+    // (§SPRINT-B4) TWO rungs at distinct deadlines — `_armLadder` now rejects a single
+    // window, so the bundle carries a real (minimal) ladder rather than one exit. Signers
+    // are re-armed per rung: `derive_taproot_channel_signer` is a derivation (idempotent),
+    // and fresh signers per MuSig2 session keep each rung independent of any per-session
+    // state in the previous one.
+    let sign_at = |offset: u32| -> (Vec<u8>, u64) {
+        let hop_signer = arm(node_a);
+        let vault_signer = arm(node_b);
+        // Far enough ahead that the exit is NOT broadcastable while the harness runs — the
+        // contract only records it; nothing may confirm.
+        let cltv = bitcoin::absolute::LockTime::from_height(funding_height as u32 + offset)
+            .expect("cltv height");
+        let raw = quid_ln::deadman_exit::presign_deadman_exit(
+            &hop_signer,
+            &vault_signer,
+            outpoint,
+            amount_sats,
+            fee_sats,
+            recipient,
+            cltv,
+            funding_height,
+            &secp,
+            None, // no freshness input in the harness — reproduces the single-input exit
+        )
+        .expect("e2e: pre-signing the dead-man exit must succeed");
+        (raw, cltv.to_consensus_u32() as u64)
+    };
+    let (raw, cltv) = sign_at(144);
+    let (raw2, cltv2) = sign_at(288);
 
     // ⚠️ (E165-b) THE CHECKPOINT IS WHAT THE EXIT PAYS, NOT THE CHANNEL SIZE. `presign_deadman_exit`
     // deducts `fee_sats` from the output, so attesting the full `amount_sats` makes the bytes pay
     // LESS than they claim and `_armDeadManExit` correctly rejects with `ExitUnderpaysCheckpoint`.
     // That guard fired on the first real run of this harness — it is doing exactly its job, which
     // is refusing an exit that over-states the balance it delivers.
-    (raw, cltv.to_consensus_u32() as u64, amount_sats - fee_sats)
+    (raw, cltv, raw2, cltv2, amount_sats - fee_sats)
 }

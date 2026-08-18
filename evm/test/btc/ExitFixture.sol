@@ -263,8 +263,11 @@ abstract contract ExitFixture is Test {
         }));
     }
 
-    /// (E165) Wrap one already-built rung as a ladder. Kept separate from `armingSet` because
-    /// several helpers build their arming from context the fixture base cannot see.
+    /// (E165) Wrap one already-built rung as a ONE-RUNG array. ⚠️ (§SPRINT-B4) `_armLadder` now
+    /// REJECTS this shape (`LadderTooShallow`) — a single rung is a single CLTV window. Valid uses
+    /// are only (a) paths asserted to revert BEFORE arming runs (see `stubLadder`) and (b) the
+    /// `emitDeadManExit` refresh, which takes ONE rung and never goes through `_armLadder`.
+    /// For a ladder a success path can arm, use `ladder2` / `armingSet`.
     function _ladder(Types.ExitArming memory one)
         internal pure returns (Types.ExitArming[] memory set)
     {
@@ -272,14 +275,34 @@ abstract contract ExitFixture is Test {
         set[0] = one;
     }
 
+    /// (§SPRINT-B4) Wrap two rungs as a ladder — the minimum `_armLadder` accepts, provided their
+    /// deadlines differ. Callers that build custom rungs (rekey pairs, rotated outpoints) sign a
+    /// companion at a later deadline and wrap both here.
+    function ladder2(Types.ExitArming memory a, Types.ExitArming memory b)
+        internal pure returns (Types.ExitArming[] memory set)
+    {
+        set = new Types.ExitArming[](2);
+        set[0] = a;
+        set[1] = b;
+    }
+
+    /// (§SPRINT-B4) The spacing between a test ladder's two windows, in BTC blocks. The value is
+    /// arbitrary for tests (the contract requires only DISTINCT deadlines); ~one day reads as a
+    /// plausible escalation policy rather than a magic +1.
+    uint64 internal constant LADDER_SPACING = 144;
+
     /// (E165) `openChannel` takes a LADDER now — the LP pre-signs every shape it will ever need in
-    /// ONE act, then goes offline. Most tests only need a single rung, so this wraps one.
+    /// ONE act, then goes offline. (§SPRINT-B4) TWO rungs at distinct deadlines: `_armLadder`
+    /// rejects a single window, so the minimal honest set is a rung at `deadline` and a companion
+    /// one spacing later — each independently signed, since the deadline lives inside the signed
+    /// bytes.
     function armingSet(
         string memory label, bytes32 txid, uint32 vout, uint sats,
         bytes memory payoutScript, uint64 deadline, uint fee
     ) internal returns (Types.ExitArming[] memory set) {
-        set = new Types.ExitArming[](1);
+        set = new Types.ExitArming[](2);
         set[0] = armingFor(label, txid, vout, sats, payoutScript, deadline, fee);
+        set[1] = armingFor(label, txid, vout, sats, payoutScript, deadline + LADDER_SPACING, fee);
     }
 
     /// The whole arming struct, ready to hand to `openChannel` / `emitDeadManExit`.

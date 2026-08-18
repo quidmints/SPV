@@ -452,6 +452,9 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     error FreshnessNotMonotonic();    // a freshness commit must strictly increase (rollback/replay guard)
     error ManagerFreshnessNotMonotonic(); // a channel-manager freshness commit must strictly increase
     error MigrationNonceAlreadyUsed();    // a MigrationAuth nonce may be consumed at most once (anti-replay)
+    error LadderTooShallow();             // (§SPRINT-B4) a ladder needs ≥2 rungs at ≥2 distinct
+                                          // CLTV deadlines — one rung is one window, and vault-less
+                                          // (B0) the ladder is the LP's only escape
     // §SLOP — `NotDelegatedHop` DELETED: zero reverts, and it named `registerDelegation`, itself
     // deleted by §E157. The live open authenticates `auth.lpSig` and reverts `InvalidParam()`, so this
     // error could not fire. `git log -S` first (this repo has twice deleted a symbol that was a
@@ -1537,22 +1540,35 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     /// @dev (E165) ARM THE WHOLE LADDER, in its own frame — `openChannel` is already at the legacy
     ///      stack limit, and the house fix is a frame, never `via_ir`. Each shape is verified
     ///      (structure, sighash, signature), so the LP's ONE-TIME participation buys every exit it
-    ///      will ever need. At least one is required: a channel with no armed escape is precisely
-    ///      the window §E156 closed.
+    ///      will ever need. (§SPRINT-B4) At least TWO are required, at distinct deadlines: a
+    ///      channel with no armed escape is precisely the window §E156 closed, and a channel with
+    ///      ONE window is that same channel after one missed deadline.
     function _armLadder(
         bytes32 channelId, Types.OpenParams calldata p, Types.ExitArming[] calldata exits
     ) private {
-        if (exits.length == 0) revert InvalidParam();
+        // (§SPRINT-B4) DEPTH IS LOAD-BEARING, NOT A NICETY. Since B0 (`99fda5e9`) the fleet is
+        // vault-less by default, the heartbeat does not run, and this ladder is the LP's ONLY
+        // escape — a single rung is a single CLTV window, and one missed window would leave the
+        // channel permanently escape-less. Two rungs at the SAME deadline are still one window
+        // (the deadline is committed inside the signed bytes via the BIP-341 sighash, so a
+        // distinct deadline is necessarily a distinct, independently usable exit). The chain
+        // enforces only "more than one window"; HOW deep and how spaced stays the signer's
+        // policy. Extra same-deadline rungs (fee variants) remain legal beyond the first two.
+        if (exits.length < 2) revert LadderTooShallow();
         // ⚠️ THE LADDER IS ONE ATTESTATION SET, so its rungs must not overwrite each other's
         // checkpoint — arming N of them used to write `checkpointOf` N times and keep whichever
         // came LAST, i.e. an arbitrary rung. Take the HIGHEST: the stale-close guard rejects a
         // cooperative close paying less than the attested balance, so the highest attestation is
         // the most protective of the LP.
         uint hi;
+        bool distinct;
+        uint64 first = exits[0].cltvDeadline;
         for (uint i; i < exits.length; ++i) {
             _armDeadManExit(channelId, p, exits[i]);
+            if (exits[i].cltvDeadline != first) distinct = true;
             if (exits[i].checkpointSats > hi) hi = exits[i].checkpointSats;
         }
+        if (!distinct) revert LadderTooShallow();
         checkpointOf[channelId] = hi;
     }
 

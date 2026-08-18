@@ -698,8 +698,10 @@ pub fn evm_address_of(pk: &bitcoin::secp256k1::PublicKey) -> Address {
 /// string or the allowlist in `quid-bridge/src/evm_validating_signer.rs` without running it.
 ///
 /// `auth` carries `lpEth` + the pinned payout key + the LP signature + the §E138
-/// proof-of-possession. `exits` is the ladder: at least one shape, each fully verified
-/// on-chain (structure + BIP-341 sighash + BIP-340 signature) before the channel exists.
+/// proof-of-possession. `exits` is the ladder: (§SPRINT-B4) at least TWO shapes at DISTINCT
+/// CLTV deadlines — `_armLadder` rejects a single window (`LadderTooShallow`) — each fully
+/// verified on-chain (structure + BIP-341 sighash + BIP-340 signature) before the channel
+/// exists.
 pub fn encode_open_channel(
     params: &OpenParams,
     raw_funding_tx: &[u8],

@@ -239,21 +239,34 @@ contract BtcSelfManagedTest is AllesFixture {
         bytes     signedExitTx;      // 21
         uint256   exitCltvDeadline;  // 22
         uint256   exitCheckpointSats;// 23
+        // (§SPRINT-B4) the second rung — `_armLadder` rejects a single window, so the
+        // harness pre-signs two exits at distinct deadlines (funding_height +144 / +288).
+        bytes     signedExitTx2;     // 24
+        uint256   exitCltvDeadline2; // 25
     }
 
     /// (E166-4) Own FRAME — building this arming inline blew the legacy stack
     /// (`Stack too deep` at `cltvDeadline`), and the house fix here is a frame, never
     /// `via_ir` (CLAUDE.md build-environment rules).
+    /// (§SPRINT-B4) Two rungs; the checkpoint rides on the first (the ladder takes the max,
+    /// and both attest the same balance).
     function _ladderFromBundle(Bundle memory b)
         private pure returns (Types.ExitArming[] memory)
     {
-        Types.ExitArming[] memory set = new Types.ExitArming[](1);
+        Types.ExitArming[] memory set = new Types.ExitArming[](2);
         set[0] = Types.ExitArming({
             prevValues: new uint64[](1),
             prevScripts: new bytes[](1),
             cltvDeadline: uint64(b.exitCltvDeadline),
             checkpointSats: b.exitCheckpointSats,
             signedExitTx: b.signedExitTx
+        });
+        set[1] = Types.ExitArming({
+            prevValues: new uint64[](1),
+            prevScripts: new bytes[](1),
+            cltvDeadline: uint64(b.exitCltvDeadline2),
+            checkpointSats: b.exitCheckpointSats,
+            signedExitTx: b.signedExitTx2
         });
         return set;
     }

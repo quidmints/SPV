@@ -368,7 +368,19 @@ contract AllesFixture is ForkPin, ExitFixture {
         uint seed, uint openSats, bytes32 txid, uint32 vout, uint newSats,
         bytes32 payout, uint64 deadline
     ) internal returns (Types.ExitArming[] memory) {
-        return _ladder(Types.ExitArming({
+        // (§SPRINT-B4) Two rungs at distinct deadlines — `_armLadder` rejects a single window.
+        return ladder2(
+            _fixtureRung(seed, openSats, txid, vout, newSats, payout, deadline),
+            _fixtureRung(seed, openSats, txid, vout, newSats, payout, deadline + LADDER_SPACING));
+    }
+
+    /// (§SPRINT-B4) One signed rung for the fixture channel over an arbitrary outpoint — the
+    /// per-rung half of `_armFixtureAt`, in its own frame (legacy stack, no `via_ir`).
+    function _fixtureRung(
+        uint seed, uint openSats, bytes32 txid, uint32 vout, uint newSats,
+        bytes32 payout, uint64 deadline
+    ) private returns (Types.ExitArming memory) {
+        return Types.ExitArming({
             prevValues:  new uint64[](1),
             prevScripts: new bytes[](1),
             cltvDeadline: deadline,
@@ -377,7 +389,7 @@ contract AllesFixture is ForkPin, ExitFixture {
                 string.concat("quid-fixture-lp-",  vm.toString(seed), "-", vm.toString(openSats)),
                 string.concat("quid-fixture-hop-", vm.toString(seed), "-", vm.toString(openSats)),
                 txid, vout, newSats, abi.encodePacked(hex"5120", payout), deadline, 1_000)
-        }));
+        });
     }
 
     /// (E128) Arm the REGTEST-FIXTURE channel. Three things differ from a synthetic one, and all
@@ -390,20 +402,15 @@ contract AllesFixture is ForkPin, ExitFixture {
     ///     `fundingTxidDisplay`, which is byte-reversed.
     function _armFixture(
         Types.OpenParams memory p, bytes memory fundingTx, uint seed, bytes32 payout
-    ) internal returns (Types.ExitArming memory) {
+    ) internal returns (Types.ExitArming[] memory) {
+        // (§SPRINT-B4) The open ladder: two rungs at distinct deadlines, both signed over the
+        // located funding outpoint. Reuses `_fixtureRung` — the open is just the rotated-outpoint
+        // shape with the outpoint being the funding tx itself.
         uint32 vout = ChannelLib.locateChannelOutput(
             fundingTx, p.lpPubkey, p.hopPubkey, p.fundingTaproot, p.amountSats);
-        return Types.ExitArming({
-            prevValues:  new uint64[](1),
-            prevScripts: new bytes[](1),
-            cltvDeadline: EXIT_DEADLINE_ALLES,
-            checkpointSats: 0,
-            signedExitTx: signedExitFull(
-                string.concat("quid-fixture-lp-", vm.toString(seed), "-", vm.toString(p.amountSats)),
-                string.concat("quid-fixture-hop-", vm.toString(seed), "-", vm.toString(p.amountSats)),
-                sha256(abi.encodePacked(sha256(fundingTx))), vout, p.amountSats,
-                abi.encodePacked(hex"5120", payout), EXIT_DEADLINE_ALLES, 1_000)
-        });
+        return _armFixtureAt(
+            seed, p.amountSats, sha256(abi.encodePacked(sha256(fundingTx))), vout,
+            p.amountSats, payout, EXIT_DEADLINE_ALLES);
     }
 
     /// Sign (LP binds the submitter `hop` into the digest) + open, in its own frame.
@@ -422,12 +429,12 @@ contract AllesFixture is ForkPin, ExitFixture {
         // (E128) Built BEFORE the prank: `armingFor` runs an FFI cheatcode, and a cheatcode call
         // consumes a pending prank — evaluating it as a call argument would send `openChannel`
         // from the test contract instead of `hop`.
-        Types.ExitArming memory arm_ = _armFixture(p, fundingTx, seed, payout);
+        Types.ExitArming[] memory exits_ = _armFixture(p, fundingTx, seed, payout);
         // (E138) `mkAuth` ALSO shells out now — it derives the payout key's proof-of-possession —
         // so it is subject to the same rule as the arming above and must be built before the prank.
         Types.OpenAuth memory auth_ = mkAuth(lpEth, payout, dsig);
         vm.prank(hop);
-        cid = ch.openChannel(p, fundingTx, merkleBranch, auth_, _ladder(arm_));
+        cid = ch.openChannel(p, fundingTx, merkleBranch, auth_, exits_);
     }
 
     /// (E157) One open, one consent — extracted to its OWN FRAME. Inlining it a third time blew the
@@ -444,19 +451,20 @@ contract AllesFixture is ForkPin, ExitFixture {
         // `openChannel` arrived from the test contract, not from `hop_`. The contract then hashed
         // the digest over a different hop and the LP signature failed to recover, surfacing as a
         // bare `InvalidParam()` with nothing pointing at the prank.
-        Types.ExitArming memory arm_ = _armAlles(label_, fundingTx_, p_.amountSats, payout_);
+        Types.ExitArming[] memory exits_ = _armAlles(label_, fundingTx_, p_.amountSats, payout_);
         // (E138) Same rule, second FFI: `mkAuth` derives the payout PoP by shelling out.
         Types.OpenAuth memory auth_ = mkAuth(lpEth_, payout_, dsig);
         vm.prank(hop_);
-        cid = ch_.openChannel(p_, fundingTx_, new bytes32[](0), auth_, _ladder(arm_));
+        cid = ch_.openChannel(p_, fundingTx_, new bytes32[](0), auth_, exits_);
     }
 
     /// (E128) Own frame — building the arming inline pushes `_openWithConsent` over the legacy
-    /// stack. House fix is a frame, never `via_ir`.
+    /// stack. House fix is a frame, never `via_ir`. (§SPRINT-B4) Returns the 2-rung ladder —
+    /// `armingSet` signs at `EXIT_DEADLINE_ALLES` and one spacing later.
     function _armAlles(string memory label_, bytes memory fundingTx_, uint sats_, bytes32 payout_)
-        internal returns (Types.ExitArming memory)
+        internal returns (Types.ExitArming[] memory)
     {
-        return armingFor(label_, sha256(abi.encodePacked(sha256(fundingTx_))), 0, sats_,
+        return armingSet(label_, sha256(abi.encodePacked(sha256(fundingTx_))), 0, sats_,
                          abi.encodePacked(hex"5120", payout_), EXIT_DEADLINE_ALLES, 1_000);
     }
 

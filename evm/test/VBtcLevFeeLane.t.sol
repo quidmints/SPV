@@ -115,13 +115,14 @@ contract VBtcLevFeeLane is AllesFixture {
         _btcChannels = address(ch_);
         Types.OpenAuth memory auth_ = Types.OpenAuth({ btcRecipient: payout_,
             btcRecipientPoP: _popFor(payout_, lpEth_)});
-        // (E128) A REAL signed exit for the funding tx this call is about to prove. Built BEFORE
-        // the prank so the FFI round-trip cannot consume it.
-        Types.ExitArming memory arm_ = armingFor(
+        // (E128) A REAL signed ladder for the funding tx this call is about to prove. Built BEFORE
+        // the prank so the FFI round-trips cannot consume it. (§SPRINT-B4) `armingSet` signs TWO
+        // rungs at distinct deadlines — `_armLadder` rejects a single window.
+        Types.ExitArming[] memory exits_ = armingSet(
             _label(seed_), sha256(abi.encodePacked(sha256(fundingTx_))), 0, p_.amountSats,
             abi.encodePacked(hex"5120", payout_), EXIT_DEADLINE, 1_000);
         vm.prank(makeAddr("hop"));
-        cid = ch_.openChannel(p_, fundingTx_, new bytes32[](0), auth_, _ladder(arm_));
+        cid = ch_.openChannel(p_, fundingTx_, new bytes32[](0), auth_, exits_);
     }
 
     function _signOpen(uint pk, bytes32 digest) internal pure returns (bytes memory) {
@@ -413,14 +414,25 @@ contract VBtcLevFeeLane is AllesFixture {
             ? stubLadder()
             // The positive case: signed under the MIXED pair — this channel's LP half and the
             // INCOMING hop half — against the rotated outpoint (`tx_`'s vout 0) and the new amount.
-            : _ladder(signedExitFullArming(
-                c.lpLabel, c.hopLabel, sha256(abi.encodePacked(sha256(tx_))), 0, c.sats,
-                c.payoutScript, EXIT_DEADLINE + 2, 1_000));
+            // (§SPRINT-B4) Two rungs at distinct deadlines, each independently signed.
+            : _rekeyLadder(c, tx_);
         if (expectRevert_) vm.expectRevert();
         vm.prank(makeAddr("hop"));
         ch.rekey(c.cid, p, c.oldHop, tx_, new bytes32[](0), sig, exits_);
     }
 
+    /// (§SPRINT-B4) The rekey's 2-rung ladder in its OWN frame (legacy stack, no `via_ir`):
+    /// two mixed-pair `signedExitFull` signatures over the rotated outpoint, one spacing apart.
+    function _rekeyLadder(RekeyCase memory c, bytes memory tx_)
+        private returns (Types.ExitArming[] memory)
+    {
+        bytes32 txid = sha256(abi.encodePacked(sha256(tx_)));
+        return ladder2(
+            signedExitFullArming(c.lpLabel, c.hopLabel, txid, 0, c.sats,
+                c.payoutScript, EXIT_DEADLINE + 2, 1_000),
+            signedExitFullArming(c.lpLabel, c.hopLabel, txid, 0, c.sats,
+                c.payoutScript, EXIT_DEADLINE + 2 + LADDER_SPACING, 1_000));
+    }
 
     /// 🔴 (§E233-ladder) THE DEFECT THIS EXISTS TO CATCH: a splice rotated the funding outpoint, every rung
     /// pre-signed at open became a spend of a SPENT output, and `exitArmedAt[channelId][deadline]`

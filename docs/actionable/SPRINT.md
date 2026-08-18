@@ -265,7 +265,7 @@ current truth. ⚠️ **The unacceptable resolution is a tolerance that makes th
 
 ---
 
-## 4. 🔴 §E247 — THE ALLOWLIST DETECTION GAP
+## 4. ✅ §E247 — THE ALLOWLIST DETECTION GAP — CLOSED 2026-08-18 (session `0131QZjc`, `70fa49cd`)
 
 `rebalanceWbtc` was **never** in `HOP_SIGNED_FN_SIGS`, and the enclave policy **fails closed** — so
 every WBTC-mode atomic rebalance the keeper attempted was refused at the signing chokepoint. Fixed.
@@ -277,6 +277,16 @@ is correct on-chain and merely absent from a policy list. The check is mechanica
 
 ⚠️ This is §E237 inverted — there the allowlist named a **dead** selector; here it **omitted a live**
 one. Both are allowlist-and-builder drift, and neither is visible from either file alone.
+
+✅ **BUILT the gate AND it found MORE than `rebalanceWbtc`.** `tools/check-signer-allowlist.py`
+enumerates every signature-shaped literal in production Rust (builders reach the selector through
+`encode_batch`/`send_leg`, so the LITERAL is the invariant, not the `selector4` call site), strips
+test modules, and forces each into hop-signed / READ_ONLY / FAIL; the reverse direction fails an
+allowlist entry with no builder (the `repackNFT` class). Running it exposed **four** omitted live
+selectors, not one: `rebalanceWbtc` (re-lost when the 1inch revert `e4f9c512` dropped the route form
+one commit after `86ca80ec` added it), plus `compound`, `rebalanceMany` and `repay` — none ever
+listed. It also deleted a duplicate `settleSwapInBuffered` (already arriving via the codec's
+`HOP_BTCCHANNELS_SIGS`). Verified: `cargo test -p quid-bridge` 174/0, gate clean both directions.
 
 ---
 
@@ -1349,12 +1359,25 @@ already-absent. I did both, in one turn.
 
 ---
 
-## B4. 🟡 LADDER DEPTH — never started
+## B4. ✅ LADDER DEPTH — DONE 2026-08-18 (session `0131QZjc`)
 
 Phase 2's second half. `§PHASE-ORDER` reads *"§T9/§M1#5 as an LP-SIDE SIGNER REFUSAL, **then ladder
 depth**"*. I delivered the signer refusal (it needed no new code — `ValidatingChannelSigner` was
 already wired) and reported the phase complete. **Ladder depth was never begun.** It is what bounds
 the one thing that cannot be prevented: a hop declining to settle, emit or route.
+
+✅ **BUILT.** `_armLadder` (`BTCChannels.sol`) now reverts `LadderTooShallow` unless the ladder has
+**≥2 rungs at ≥2 DISTINCT CLTV deadlines** — a single window (or N rungs sharing one deadline, which
+is the same window since the deadline is committed inside the BIP-341 sighash) is refused. This is
+load-bearing after B0: vault-less, the heartbeat does not run, so the open/rotation ladder is the
+LP's ONLY escape, and one rung is one missed-window from escape-less. Extra same-deadline fee
+variants stay legal beyond the first two. Fixtures updated across all six openers/rotators
+(`armingSet`/`ladder2` in `ExitFixture`, the regtest + rekey + delivery + mintstress helpers) and the
+`e2e_ffi` harness now pre-signs two rungs (+144/+288). New negative test
+`test_openChannel_shallowLadder_reverts` (one-rung AND two-same-deadline → `LadderTooShallow`, PASS).
+`forge build` clean, `BTCChannels` 23,381 B / 1,195 spare, `cargo check` harness clean. The residual
+here — a full regtest run of `testCrossChain_FullE2E` — is compile-verified only (needs the
+`quid-ln:dev` image / native bitcoind).
 
 ## B5. 🟡 LAZY `openChannel` — never started, and my ✅ was conditional
 
@@ -1992,11 +2015,14 @@ FIRST, then refuted it on a $25 residue from post-redeem `convertToAssets` — t
 unreliable on a drained vault. **A broken instrument killed the correct hypothesis**, and the wrong
 mechanism then propagated into three documents.
 
-### 🔴 C3.2 — THE SKEW GATE IS RED, FOR SOMEONE ELSE'S RENAME
+### ✅ C3.2 — THE SKEW GATE — CLOSED 2026-08-18 (session `0131QZjc`)
 `tools/check-skew-agnostic.py`: *"skew reads NEW Core accessor **`bandEquityUsd18`** — the seam
 grew."* The isBTC removal renamed `btcBandEquityUsd18`; **`ALLOWED_SEAM` needs one word added by
 whoever did the rename.** Not silenced deliberately — every new accessor is another thing a
 replacement PM must back, which is exactly what the gate exists to force a decision on.
+✅ **Already reconciled on `main`** — `bandEquityUsd18` sits in `ALLOWED_SEAM` (`:52`, with the
+§ISBTC-SPLIT rename note) and the gate runs GREEN (`checked 8/8 skew functions; seam is 7 accessors;
+clean`). Verified 2026-08-18; the row was stale-open. No code change needed.
 
 ### 🔴 C3.3 — RUST-AUTOMATIC vs ON-CHAIN TRIGGER: **NEVER COMPARED**
 The owner asked for these to be **COMPARED, not chosen**, and the comparison was never run. The
@@ -2021,7 +2047,7 @@ mStable). **Corrections it carries so they stop propagating:** the band is **±0
 adaptive scalar"* is historical since the skew now carries a base on all flow; and the size-blind
 quote is fixed.
 
-### 🔴 C3.6 — `quid-bridge` TEST TARGET DOES NOT COMPILE (reported by session `spv-a0`, never booked)
+### ✅ C3.6 — `quid-bridge` TEST TARGET — CLOSED 2026-08-18 (session `0131QZjc`)
 Nine `error[E0277]: the trait bound 'FastRng: Crng' is not satisfied` in
 `quid-bridge/src/lp_seed.rs` (`:329`, `:348`, `:349`), from `28a80ee3`. **`cargo build -p quid-bridge
 --bins` is CLEAN — it is the TEST target only.**
@@ -2031,7 +2057,10 @@ assertion). `SysRng` would keep it passing while silently discarding that.
 ▶️ **Candidate: `rand_chacha::ChaCha20Rng::seed_from_u64`** — `CryptoRng` **and** deterministic, so it
 satisfies the bound with no test-only shim. `rand_chacha` is already in the workspace graph
 (`quid-ln/Cargo.toml:425` profile entry) but may need adding as a dev-dependency.
-⚠️ **UNCOMPILED — quid-ln does not build on macOS (quid-cvm is Linux-only); verify in Docker.**
+✅ **ALREADY FIXED on `main` exactly as recommended** — `lp_seed.rs:267-268` uses
+`rand_chacha::ChaCha20Rng::seed_from_u64` and `Cargo.toml:120` carries `rand_chacha = "0.3"` as a
+dev-dep. Verified NATIVELY (this box is Linux; the macOS/Docker caveat does not apply here):
+`cargo test -p quid-bridge` → **174 passed / 0 failed**. The row was stale-open; no change needed.
 
 ---
 

@@ -126,12 +126,12 @@ contract OpenChannelE2ETest is Test, ExitFixture {
         // (E128) Built BEFORE the prank: `signedExitFull` runs an FFI cheatcode, and a cheatcode
         // call CONSUMES a pending prank — as a call argument it would send `openChannel` from the
         // test contract instead of 0xB0B, and the LP signature would fail to recover.
-        Types.ExitArming memory arm_ = _armRegtest(p, rawTx, json, payout);
+        Types.ExitArming[] memory arm_ = _armRegtest(p, rawTx, json, payout);
         // (E138) `mkAuth` is a second FFI caller now (the payout PoP) — same hoist, same reason.
         Types.OpenAuth memory auth_ = mkAuth(lpEth, payout, dsig);
         bytes32[] memory branch_ = vm.parseJsonBytes32Array(json, ".merkleBranch");
         vm.prank(address(0xB0B)); // must be the hop the LP signed for
-        channelId = ch.openChannel(p, rawTx, branch_, auth_, _ladder(arm_));
+        channelId = ch.openChannel(p, rawTx, branch_, auth_, arm_);
     }
 
     /// (E128) Arm the REGTEST channel with a genuinely signed exit. Its keys come from the
@@ -140,18 +140,32 @@ contract OpenChannelE2ETest is Test, ExitFixture {
     /// INTERNAL-order double-SHA — not the fixture's byte-reversed `fundingTxidDisplay`.
     function _armRegtest(
         Types.OpenParams memory p, bytes memory rawTx, string memory json, bytes32 payout
-    ) private returns (Types.ExitArming memory) {
-        uint seed = vm.parseJsonUint(json, ".seed");
+    ) private returns (Types.ExitArming[] memory) {
         uint32 vout = ChannelLib.locateChannelOutput(
             rawTx, p.lpPubkey, p.hopPubkey, p.fundingTaproot, p.amountSats);
+        // (§SPRINT-B4) Two rungs at distinct deadlines — `_armLadder` rejects a single window.
+        return ladder2(
+            _regtestRung(json, sha256(abi.encodePacked(sha256(rawTx))), vout,
+                         p.amountSats, payout, 900_000),
+            _regtestRung(json, sha256(abi.encodePacked(sha256(rawTx))), vout,
+                         p.amountSats, payout, 900_000 + LADDER_SPACING));
+    }
+
+    /// (§SPRINT-B4) One signed rung for the regtest-fixture channel, in its own frame (legacy
+    /// stack, no `via_ir`). The labels carry the fixture's OPEN size — the keypair is derived at
+    /// that size and a splice does not re-key.
+    function _regtestRung(
+        string memory json, bytes32 txid, uint32 vout, uint sats, bytes32 payout, uint64 deadline
+    ) private returns (Types.ExitArming memory) {
+        uint seed = vm.parseJsonUint(json, ".seed");
+        uint openSats = vm.parseJsonUint(json, ".amountSats");
         return Types.ExitArming({
             prevValues: new uint64[](1), prevScripts: new bytes[](1),
-            cltvDeadline: 900_000, checkpointSats: 0,
+            cltvDeadline: deadline, checkpointSats: 0,
             signedExitTx: signedExitFull(
-                string.concat("quid-fixture-lp-", vm.toString(seed), "-", vm.toString(p.amountSats)),
-                string.concat("quid-fixture-hop-", vm.toString(seed), "-", vm.toString(p.amountSats)),
-                sha256(abi.encodePacked(sha256(rawTx))), vout, p.amountSats,
-                abi.encodePacked(hex"5120", payout), 900_000, 1_000)
+                string.concat("quid-fixture-lp-", vm.toString(seed), "-", vm.toString(openSats)),
+                string.concat("quid-fixture-hop-", vm.toString(seed), "-", vm.toString(openSats)),
+                txid, vout, sats, abi.encodePacked(hex"5120", payout), deadline, 1_000)
         });
     }
 
@@ -166,21 +180,17 @@ contract OpenChannelE2ETest is Test, ExitFixture {
     /// output too, and which index the 2-of-2 lands on is the tx's business.
     function _armRegtestSplice(
         Types.OpenParams memory sp, string memory json, bytes32 payout
-    ) private returns (Types.ExitArming memory) {
-        uint seed = vm.parseJsonUint(json, ".seed");
-        uint openSats = vm.parseJsonUint(json, ".amountSats");
+    ) private returns (Types.ExitArming[] memory) {
         bytes memory raw = vm.parseJsonBytes(json, ".splice.spliceRawTx");
         uint32 vout = ChannelLib.locateChannelOutput(
             raw, sp.lpPubkey, sp.hopPubkey, sp.fundingTaproot, sp.amountSats);
-        return Types.ExitArming({
-            prevValues: new uint64[](1), prevScripts: new bytes[](1),
-            cltvDeadline: 900_001, checkpointSats: 0,
-            signedExitTx: signedExitFull(
-                string.concat("quid-fixture-lp-", vm.toString(seed), "-", vm.toString(openSats)),
-                string.concat("quid-fixture-hop-", vm.toString(seed), "-", vm.toString(openSats)),
-                sha256(abi.encodePacked(sha256(raw))), vout, sp.amountSats,
-                abi.encodePacked(hex"5120", payout), 900_001, 1_000)
-        });
+        // (§SPRINT-B4) Two rungs over the ROTATED outpoint, distinct deadlines. The labels carry
+        // the OPEN size (see `_regtestRung`); the tx amount is the spliced size.
+        return ladder2(
+            _regtestRung(json, sha256(abi.encodePacked(sha256(raw))), vout,
+                         sp.amountSats, payout, 900_001),
+            _regtestRung(json, sha256(abi.encodePacked(sha256(raw))), vout,
+                         sp.amountSats, payout, 900_001 + LADDER_SPACING));
     }
 
     function test_openChannel_realRegtestFundingTx() public {
@@ -299,7 +309,7 @@ contract OpenChannelE2ETest is Test, ExitFixture {
         // (§E233-ladder) The splice rotates the funding outpoint, so the rungs armed at open are dead the
         // moment it confirms — the contract requires a fresh ladder in the same call. Built BEFORE
         // the prank (`signedExitFull` is an FFI cheatcode and would consume it).
-        Types.ExitArming[] memory sexits_ = _ladder(_armRegtestSplice(sp, json, payoutKey));
+        Types.ExitArming[] memory sexits_ = _armRegtestSplice(sp, json, payoutKey);
         vm.prank(address(0xB0B));   // the delegated authority registered at open
         ch.splice(channelId, sp, vm.parseJsonBytes(json, ".splice.spliceRawTx"),
                   vm.parseJsonBytes32Array(json, ".splice.spliceMerkleBranch"), sexits_);
