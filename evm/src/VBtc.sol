@@ -71,6 +71,11 @@ contract VBtc {
 
     error NotVault();
     error InsufficientBalance();
+    /// §E254 (2026-08-18) — `transferFrom` reverted `InsufficientBalance()` when the ALLOWANCE was
+    /// short, and this error did not exist. A caller holding plenty of tokens but under-approved was
+    /// told their BALANCE was insufficient: a diagnosis that is not merely unhelpful but points the
+    /// reader at the wrong account. `Vogue` already distinguishes the two.
+    error InsufficientAllowance();
 
     constructor(address vault, address wbtc) { VAULT = vault; WBTC = wbtc; }
 
@@ -95,7 +100,7 @@ contract VBtc {
     function transferFrom(address from, address to, uint amt) external returns (bool) {
         uint allowed = allowance[from][msg.sender];
         if (allowed != type(uint).max) {
-            if (allowed < amt) revert InsufficientBalance();
+            if (allowed < amt) revert InsufficientAllowance();
             unchecked { allowance[from][msg.sender] = allowed - amt; }
         }
         uint bal = balanceOf[from];
