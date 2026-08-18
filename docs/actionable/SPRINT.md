@@ -2829,3 +2829,43 @@ controlling force"*. **Confirm, then the edit is mechanical.**
   (recovered from their worktree). **Sync via a throwaway worktree; never touch the main tree.**
 - **Reading `HEAD` for your own SHA is unsafe** — another session committed between my `commit` and my
   `log`, and I pushed their commit by mistake.
+
+---
+
+## 🔴 HANDOFF ADDENDUM — **`refillRealisable` WAS DELETED FOR THE WRONG REASON, AND MY PRECONDITION IS WRONG (owner, 2026-08-18)**
+
+**OWNER:** *"`refillRealisable` is just the imbalance in the `POOLED_USD` and the `POOLED_ETH` and
+`POOLED_BTC` — without including the whole supply in `POOLED_USD` or reducing what is included in
+there."*
+
+⛔ **THAT CONTRADICTS THE PRECONDITION I WROTE ON `refillPlacement`.** Its docblock currently says:
+*"🔴 PRECONDITION — `invTok`/`invUsd6` MUST BE DELIVERABLE FIGURES, NOT NOMINAL ONES … Feed this
+`vogueETH()` and the band quotes depth it cannot honour."* **That is the wrong quantity for this
+job**, and the two must not be conflated:
+| quantity | what it is | where it belongs |
+|---|---|---|
+| **the band's IMBALANCE** | `POOLED` valued at px vs `POOLED_USD`, **as they stand** | the refill / the skew's own inputs |
+| **DELIVERABILITY** (`deliverableETH`) | venue-sourceable subset, net of the weETH-beyond-Curve slice and unwind-only lev equity | **REDEMPTION**, where you must actually pay |
+⇒ **THE IMBALANCE IS A PLAIN TWO-REGISTER COMPARISON.** Do NOT haircut `POOLED_USD` on the way in,
+and do NOT swell it toward total QU!D supply — **the band's dollars are the band's dollars.**
+Narrowing it by a venue haircut imports a redemption constraint into a PAIRING question and
+understates the imbalance the band actually has.
+
+📌 **CONSEQUENCE FOR THE DELETION LOG.** `refillRealisable` was removed under rule 17 as *"a second
+bound over what `deliverableETH` already bounds"*. **The rule-17 reasoning was sound for a
+DELIVERABILITY clamp; it was the wrong frame for an IMBALANCE MEASURE.** ⇒ Of the "four components
+built then deleted", **three stand** (the stored bounds duplicated a width the arithmetic never read;
+`refillQuote` duplicated repack-first; `imbalanceFeeUsd6` is redundant against the live depletion
+term). **This one does not — what it named is a real quantity nothing else computes.**
+
+▶️ **WHAT THE SUCCESSOR SHOULD DO:**
+1. **Strike the deliverability precondition** from `refillPlacement`'s docblock — it sends the caller
+   to the wrong register.
+2. **Feed it `POOLED` and `POOLED_USD` directly**, per instance (the BTC band is a SEPARATE `Core`,
+   `DeployLib:136-137`, so `POOLED` at the BTC address IS the sats leg — no suffix, no `isBTC`).
+3. **Keep `deliverableETH` where it earns its place** — the redemption path, which must source what it
+   pays. That distinction is the same one §E216 drew for the skew: **valuation and liquidity are
+   independent bounds**, and this is the third place the pair has been conflated.
+⚠️ **ONE OPEN QUESTION THE OWNER'S PHRASING RAISES AND I DID NOT RESOLVE:** `POOLED_USD` also carries
+the debt-funded buffer and the LP-owned increment. *"Without reducing what is included in there"* reads
+as **take it whole**. Confirm before anyone starts subtracting a buffer term.
