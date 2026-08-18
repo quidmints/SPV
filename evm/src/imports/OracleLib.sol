@@ -143,38 +143,37 @@ library OracleLib {
     ) internal view returns (uint192) {
         uint16 card = st.cardinality;
 
+        // §DEDUP-INTERPOLATE (2026-08-18) — the two branches DIFFERED ONLY IN WHICH PAIR OF
+        // OBSERVATIONS THEY READ. Both then computed the same three deltas and ran byte-identical
+        // arithmetic, and solc had been reporting that as three shadowed declarations for as long
+        // as the duplicate existed: the warning was the SYMPTOM, the duplicated tail was the defect.
+        // Now the branch PICKS the pair and one computation serves both.
+        Observation memory before_;
+        Observation memory later_;
         if (card <= 2) {
-            uint32 totalDelta = latest.blockTimestamp - oldest.blockTimestamp;
-            uint32 targetDelta = target - oldest.blockTimestamp;
-            if (totalDelta == 0) return oldest.priceCumulative;
-            uint192 cumulativeDelta = latest.priceCumulative - oldest.priceCumulative;
-            // Widen to int256 for the multiply-before-divide: across a long
-            // observation gap (e.g. a quiet market then a swap/reseat),
-            // cumulativeDelta·targetDelta overflows int56 (~3.6e16) even though
-            // the interpolated RESULT fits int56. Compute in 256-bit, cast back.
-            return oldest.priceCumulative + uint192(
-                uint256(cumulativeDelta) * uint256(targetDelta)
-                    / uint256(totalDelta));
-        }
+            before_ = oldest;
+            later_  = latest;
+        } else {
+            uint16 oldestIdx = (st.index + 1) % card;
+            if (!obs[oldestIdx].initialized) oldestIdx = 0;
 
-        uint16 oldestIdx = (st.index + 1) % card;
-        if (!obs[oldestIdx].initialized) oldestIdx = 0;
-
-        uint16 lo = 0; uint16 hi = card - 1;
-        while (lo < hi) {
-            uint16 mid = lo + (hi - lo + 1) / 2;
-            if (obs[(oldestIdx + mid) % card].blockTimestamp <= target) lo = mid;
-            else hi = mid - 1;
+            uint16 lo = 0; uint16 hi = card - 1;
+            while (lo < hi) {
+                uint16 mid = lo + (hi - lo + 1) / 2;
+                if (obs[(oldestIdx + mid) % card].blockTimestamp <= target) lo = mid;
+                else hi = mid - 1;
+            }
+            before_ = obs[(oldestIdx + lo) % card];
+            later_  = obs[(oldestIdx + lo + 1) % card];
         }
-        Observation memory before_ = obs[(oldestIdx + lo) % card];
-        Observation memory later_  = obs[(oldestIdx + lo + 1) % card];
 
         uint32 totalDelta = later_.blockTimestamp - before_.blockTimestamp;
         if (totalDelta == 0) return before_.priceCumulative;
         uint32 targetDelta = target - before_.blockTimestamp;
         uint192 cumulativeDelta = later_.priceCumulative - before_.priceCumulative;
-        // 256-bit intermediate — see the card<=2 branch above (int56 overflow on
-        // a long observation gap).
+        // Widen to 256-bit for the multiply-before-divide: across a long observation gap (a quiet
+        // market then a swap/reseat), cumulativeDelta·targetDelta overflows int56 (~3.6e16) even
+        // though the interpolated RESULT fits int56. Compute in 256-bit, cast back.
         return before_.priceCumulative + uint192(
             uint256(cumulativeDelta) * uint256(targetDelta)
                 / uint256(totalDelta));

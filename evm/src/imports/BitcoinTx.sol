@@ -93,8 +93,8 @@ library BitcoinTx {
     {
         _assertLegacy(raw);
         uint offset = 4;  // skip version
-        (uint inputCount, uint consumed) = readVarInt(raw, offset);
-        if (inputIndex >= inputCount) revert InputOutOfRange();
+        (uint nIn, uint consumed) = readVarInt(raw, offset);   // §DEDUP-NAMES: was `inputCount`, which shadowed the FUNCTION `inputCount()` in this same library
+        if (inputIndex >= nIn) revert InputOutOfRange();
         offset += consumed;
 
         for (uint i = 0; i < inputIndex; i++) {
@@ -121,8 +121,8 @@ library BitcoinTx {
     function extractInput0Sequence(bytes calldata raw) public pure returns (uint32 seq) {
         _assertLegacy(raw);
         uint offset = 4; // skip version
-        (uint inputCount, uint consumed) = readVarInt(raw, offset);
-        if (inputCount == 0) revert TruncatedTx();
+        (uint nIn, uint consumed) = readVarInt(raw, offset);   // §DEDUP-NAMES: was `inputCount`, which shadowed the FUNCTION `inputCount()` in this same library
+        if (nIn == 0) revert TruncatedTx();
         offset += consumed;
         offset += 36; // input[0] prev_outpoint (txid 32 + vout 4)
         (uint sigLen, uint sigLenBytes) = readVarInt(raw, offset);
@@ -261,9 +261,9 @@ library BitcoinTx {
     function _skipInputs(bytes calldata raw) private pure returns (uint offset) {
         _assertLegacy(raw);
         offset = 4;
-        (uint inputCount, uint consumed) = readVarInt(raw, offset);
+        (uint nIn, uint consumed) = readVarInt(raw, offset);   // §DEDUP-NAMES: was `inputCount`, which shadowed the FUNCTION `inputCount()` in this same library
         offset += consumed;
-        for (uint i = 0; i < inputCount; i++) {
+        for (uint i = 0; i < nIn; i++) {
             offset += 32 + 4;
             (uint sigLen, uint sigLenBytes) = readVarInt(raw, offset);
             offset += sigLenBytes + sigLen + 4;

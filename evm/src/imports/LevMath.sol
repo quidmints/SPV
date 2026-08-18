@@ -161,9 +161,14 @@ library LevMath {
 
     /// @notice (§3) The stable (USD 1e18) to REPAY to bring a position to target LTV on the FIXED E0 (over-hedge
     ///         fix): `curDebt − targetDebt`, ZERO inside the de-lever band. Pure; folded out of `deleverRepayUsd`.
-    function deleverRepay(uint256 e0Usd, uint256 curDebt, uint256 tBps, uint256 bandBps) public pure returns (uint256) {
-        uint256 targetDebt = (e0Usd * tBps) / 10_000;
-        if (curDebt <= targetDebt + (e0Usd * bandBps) / 10_000) return 0;
+    /// §DEDUP-NAMES (2026-08-18) — the first parameter was `e0Usd`, which SHADOWED the library's own
+    /// `e0Usd(e0Base, pxBase)` helper thirty lines below. Inside this body `e0Usd` was the number, not
+    /// the function, and nothing said so — the same read-ambiguity that made `inputCount` worth
+    /// renaming in `BitcoinTx`. `equityUsd` is what the value actually is: the position's equity,
+    /// already converted, which is precisely what `e0Usd()` RETURNS.
+    function deleverRepay(uint256 equityUsd, uint256 curDebt, uint256 tBps, uint256 bandBps) public pure returns (uint256) {
+        uint256 targetDebt = (equityUsd * tBps) / 10_000;
+        if (curDebt <= targetDebt + (equityUsd * bandBps) / 10_000) return 0;
         return curDebt - targetDebt;
     }
 

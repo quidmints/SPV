@@ -86,7 +86,7 @@ library BasketLib {
     function get_deposits(address aux, address[] memory stables,
         mapping(address => Holding) storage storedHoldings,
         mapping(address => uint) storage tranche) external
-        returns (uint[15] memory amounts, uint[15] memory yieldW, uint depegLoss) {
+        returns (uint[15] memory amounts, uint[15] memory yieldW, uint depegLossOut) {
         // GAS: the per-stable seed-reserve (tranche) is a direct SLOAD through
         // a storage-reference param (this runs in Aux's context via delegatecall) —
         // NOT an external IAux(aux) self-call. Depeg severity is read via the SINGLE
@@ -168,7 +168,7 @@ library BasketLib {
                 uint lossFrac = sev > 10000 ? 10000 : sev;   // clamp to 100% (worthless)
                 uint loss = SoladyMath.fullMulDiv(balance, lossFrac, 10000);
                 yieldWeighted = yieldWeighted > loss ? yieldWeighted - loss : 0;
-                depegLoss += loss; // SAME per-stable loss redemption applies; returned
+                depegLossOut += loss; // SAME per-stable loss redemption applies; returned
                                    // so _depegLoss needn't re-loop the feeds (2nd pass).
             }
             amounts[i + 1] = balance;
@@ -400,9 +400,9 @@ library BasketLib {
     ///      annualised RATE (mean 3.10%) — the fee moved 1.56% → 0.26% of deposit on its own.
     function seedFee(uint usd,
         uint trancheTotal, uint target,
-        uint avgYield) internal pure returns (uint) {
-        if (target == 0 || trancheTotal >= target || avgYield == 0) return 0;
-        return Math.min(SoladyMath.fullMulDiv(usd, avgYield, WAD * 12),
+        uint avgYieldIn) internal pure returns (uint) {
+        if (target == 0 || trancheTotal >= target || avgYieldIn == 0) return 0;
+        return Math.min(SoladyMath.fullMulDiv(usd, avgYieldIn, WAD * 12),
                         target - trancheTotal);
     }
 
@@ -584,7 +584,7 @@ library BasketLib {
     /// near 100%. Corrected here.
     function calcMintYield(uint deposited, uint decimals,
         uint when, uint nextMonth,
-        uint avgYield, bool isSeed) external pure
+        uint avgYieldIn, bool isSeed) external pure
         returns (uint normalized, uint month) {
         normalized = decimals < 18 ? deposited
             * (10 ** (18 - decimals)) : deposited;
@@ -598,7 +598,7 @@ library BasketLib {
         // reaches CAP, isSeed flips false permanently and the regular
         // flow takes over (yield = avgYield, a function of the
         // constituent vault yields).
-        uint yield = isSeed ? WAD : avgYield;
+        uint yield = isSeed ? WAD : avgYieldIn;
         normalized += SoladyMath.fullMulDiv(normalized * yield,
                         month - (nextMonth - 1), WAD * 12);
     }
@@ -1011,10 +1011,10 @@ library BasketLib {
     ///          `committed` OVERLAP (band-committed USD shows as throttled maxWithdraw, counted in `il`), so
     ///          subtract the MAX not the sum; `committed` can exceed `il` when the band's USD leg > vault-missing.
     ///          BOTH bands are excluded here; redeemAsBody unwinds ONLY the ETH band for the remainder.
-    function _redeemQuote(RedeemArgs memory r, uint raw, uint rateWeighted, uint depegLoss)
+    function _redeemQuote(RedeemArgs memory r, uint raw, uint rateWeighted, uint depegLossIn)
         private returns (uint perShare, uint freeUsd) {
         (uint solvent,) = IAux(address(this)).get_metricsWith(raw, rateWeighted);
-        solvent = solvent > depegLoss ? solvent - depegLoss : 0;
+        solvent = solvent > depegLossIn ? solvent - depegLossIn : 0;
         uint mature = IBasketTurn(r.quid).matureSupply();
         // ONE valuation for redeem AND swap (no swap↔redeem arb): per-share = qdShareValue of a single share.
         // Byte-equivalent to the old `min(WAD, solvent·WAD/mature)` incl. the mature==0→WAD guard. #U1.
@@ -1032,10 +1032,10 @@ library BasketLib {
 
     function redeemAsBody(RedeemArgs memory r) external {
         // DEDUP: fetch the basket deposit vectors ONCE here (pre-burn) for the depeg haircut + the take leg.
-        (uint[15] memory amts, uint[15] memory yW,, uint depegLoss) =
+        (uint[15] memory amts, uint[15] memory yW,, uint depegLossOut) =
             IAux(address(this)).get_deposits();
         // yW[0] (Σ balance×rate), NOT amts[0] (Σ yieldWeighted) — see computeMetrics's @param.
-        (uint perShare, uint freeUsd) = _redeemQuote(r, amts[14], yW[0], depegLoss);
+        (uint perShare, uint freeUsd) = _redeemQuote(r, amts[14], yW[0], depegLossOut);
         // UNWIND-FIRST, BURN-EXACT (own frame): free what this redemption can ACTUALLY deliver, then burn ONLY
         // that — burn follows delivery, so there is never a burn without delivery and never an over-unwind.
         (uint usdPart, uint seedBurned, bool unwound) = _settleRedeem(r, perShare, freeUsd);

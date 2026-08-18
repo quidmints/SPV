@@ -953,8 +953,8 @@ contract Aux is // Auxiliary
     }
 
     function get_deposits() public
-        returns (uint[15] memory amounts, uint[15] memory yieldW, uint avgYield, uint depegLoss) {
-        (amounts, yieldW, depegLoss) = BasketLib.get_deposits(
+        returns (uint[15] memory amounts, uint[15] memory yieldW, uint avgYieldOut, uint depegLossOut) {
+        (amounts, yieldW, depegLossOut) = BasketLib.get_deposits(
             address(this), stables, storedHoldings, tranche);
 
         // BOLD is convention-pinned as the LAST entry in `stables`
@@ -975,13 +975,13 @@ contract Aux is // Auxiliary
                 if (sev > 0) {
                     uint loss = SoladyMath.fullMulDiv(spTotal, sev > 10000 ? 10000 : sev, 10000);
                     spYieldWeighted = spYieldWeighted > loss ? spYieldWeighted - loss : 0;
-                    depegLoss += loss; // include BOLD/SP's depeg slice in the returned total
+                    depegLossOut += loss; // include BOLD/SP's depeg slice in the returned total
                 }
                 amounts[0]  += spYieldWeighted;
                 yieldW[13]   = spYieldWeighted;
             }
         }
-        avgYield = metrics.yield;
+        avgYieldOut = metrics.yield;
     }
 
     function avgYield()
