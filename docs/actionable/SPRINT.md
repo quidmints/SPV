@@ -2560,6 +2560,63 @@ rule 17: prefer making the bad state unconstructible over making it detectable.
 ⇒ **Neither question is answered by "B0 made it necessary".** Both need the check above, and the
 registry needs an owner decision on whether the phone is a signer at all.
 
+
+## D8. 🔴🔴 **`origin/main` DOES NOT BUILD — and four answers from the owner's questions** (2026-08-18)
+
+### 🔴🔴 FIRST, THE URGENT ONE: `main` fails `forge build`, and the fix is UNCOMMITTED in the shared tree
+Measured on a worktree pinned at `origin/main` with **nothing of mine in it**: the compile aborts on
+**shadowed declarations under `deny_warnings`** — `test/Alles.t.sol:945` (`address aaveSpoke` shadows
+the `public aaveSpoke` at `:482`) and `test/btc/BtcSelfManaged.t.sol:372` (`address lpEth`). ⚠️ **A
+build in the SHARED tree passes**, because `Alles.t.sol` is dirty there with someone's fix. ⇒ **The
+source is committed and the adaptation is not** — the exact shape of
+`[[clean-merge-of-a-midrefactor-branch-need-not-build]]`, and it means a fresh clone of `main` does
+not compile. **Not mine to fix** (their file, their in-flight edit): it is one commit in that lane's
+tree. 📌 **It also BLOCKS `#13b`** — no suite number can be taken until `main` compiles.
+
+### 📌 `#13b` — the baseline I did take is ENVIRONMENT-LIMITED and must not be quoted
+Pinned worktree, keyless node: **233 passed / 60 failed / 294 total across 73 suites.** ⛔ **Do not
+read those 60 as code failures.** 79 lines match 403/429/fork-instantiation, and the failure shapes
+are RPC, not assertions: `EVM error; database error: failed to get account` ×42, `vm.deal: failed to
+get account` ×8, `vm.prank` ×6, `failed to get storage` ×4. **50 suites died in `setUp`**, which is
+why only 294 tests ran against a historical ~4,400 — a reverting `setUp` drops its whole suite from
+the count. **At most ~10 look like real assertions** (`NotPubkeyHash()` ×4, a USDC pull, the tick
+driver, a DeleverFail, a recorded premium, the debt-funded buffer). ⇒ Re-run needs the ARCHIVE
+endpoint **and** a `main` that compiles.
+
+### ✅ `§E141` IS EXPLAINED — the math is identical, so the blocker was never the primitive
+`BitcoinTx.sol` says converting its in-EVM square root to `Math.modExp` reproduces `NoBtcRecipient()`
+*"even with the precompile reachable"*, and calls the asymmetry with `MuSig2Agg.decompress`
+**"REAL and UNEXPLAINED"**. **Both halves checked:**
+- **The arithmetic is the same.** `BitcoinTx.SQRT_POWER` is `0x3FFF…BFFFFF0C`, and `(p+1)/4` computes
+  to **exactly that**; `decompress` uses `Math.modExp(ySq, (p+1)>>2, p)`. Same exponent, same
+  modulus, same result. **No arithmetic difference exists to explain a different derived address.**
+- **The real difference is MUTABILITY, and it is structural.** `decompress` is `internal **view**`;
+  `evmAddressOfCompressed` and `isValidXOnlyKey` are **`pure`**. `Math.modExp` `staticcall`s the
+  `0x05` precompile, which **`pure` forbids** — so the swap is not a one-line substitution, it forces
+  a `pure → view` cascade through every caller, and `isValidXOnlyKey` is `public`, so that is an ABI
+  mutability change.
+⇒ **The two sibling paths differ because one may call a precompile and the other may not.** Whatever
+produced `NoBtcRecipient()` came from the plumbing that cascade required, not from the square root.
+▶️ The conversion is viable (the `ForkPin` ordering the comment already documents makes `0x05`
+reachable on a fork) — **price it as a mutability change, not a gas optimisation.**
+
+### ✅ `ExitLib` IS JUSTIFIED — it is not a gratuitous library
+`197f70b1`: *"Split ExitLib out of ChannelLib: it was **1,292 bytes past EIP-170, undeployable**,
+suite green."* ⇒ The split is an EIP-170 remedy. Folding it back re-breaks the deploy unless
+something else leaves `ChannelLib` first.
+
+### 🟡 INTRA-LIBRARY DUPLICATION — YES, AND ONE SITE SELF-IDENTIFIES AS SLOP
+Two distinct kinds, both real:
+- **Double DECLARATIONS inside the shared file**, which is standing rule 2 violated in the one place
+  it was meant to be enforced: `derivedThetaWad` at `Interfaces.sol:74` **and** `:441`;
+  `deliverableETH` at `:307` **and** `:451`; `swapOutDeleverAmt` at `:494` **and** `:505`.
+- **Triplicated IMPLEMENTATIONS** that need classifying as wrapper-vs-copy before anything merges:
+  `deliverableETH` in `Aux.sol:857`, `Quid.sol:163` and `QuidLib.sol:727`; `derivedThetaWad` in
+  `Vault.sol:555`, `Quid.sol:1040` and `QuidLib.sol:268` — **and `Vault.sol:555` is already annotated
+  `§SLOP:` in its own comment.** ⚠️ Classify each as a thin forwarder or a second copy of the
+  arithmetic **before** deleting: a forwarder that exists to keep a caller off a delegatecall path is
+  not duplication.
+
 ## D4. 🔎 THE UNBOOKED-WORK SWEEP — **three items this thread started were absent from this file, and one of them was the ONLY thing gating `§T3`**
 
 Method that discriminates (unlike the symbol test in D0): **my own commit messages are where I
