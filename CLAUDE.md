@@ -186,8 +186,15 @@ environment actually is*. Every line below was verified in-repo, not recalled.
   ⚠️ **RE-DERIVED 2026-08-18: FOUR OF THIS NOTE'S FIVE SYMBOLS NO LONGER EXIST.** It named
   `USD_FEES_BTC`, `feesPerShareBTC`, `lpSharesBTC` and `totalBufferBTC` — **all now 0 references in
   `evm/src`** — and cited `SwapLib.sol:1392`, which today is the line `uint q;`. The BTC-side
-  accumulators were fed by **v4 pool trading fees only**, so the v4 cut deleted them along with the
-  `isBTC` fork; `USD_FEES` (32 refs) and `feesPerShare` survive without the suffix.
+  accumulators were fed by **v4 pool trading fees only**, so the v4 cut removed that FEED along with
+  the `isBTC` fork; `USD_FEES` (32 refs) and `feesPerShare` survive without the suffix.
+  ⛔ **DO NOT READ THAT AS "THE BTC ACCUMULATORS WERE DELETED" (owner's correction, 2026-08-18).**
+  They exist on **BOTH instances** — the BTC band is `new Core(cfg.wbtc, …)` (`DeployLib.sol:137`), so **the
+  BTC accumulator is `feesPerShare` READ AT THE BTC ADDRESS.** The v4 cut ended the trading-fee SOURCE that
+  fed it, not the accumulator. ⚠️ **AND THE RENAME CREATED A NEW WAY TO GET THE UNITS WRONG: the warning says
+  multiply by the credit site's OWN share base, and "own" now means THAT INSTANCE'S — which the name used to
+  tell you and no longer does. Reading the ETH instance's base against the BTC instance's accumulator is the
+  successor to the exact bug this warning was written for.**
   **Live credit sites: `Vault.sol:351`, `Vogue.sol:1180`, `Vogue.sol:1276`** (`USD_FEES += usdInc`).
   ⇒ The hazard this note exists to prevent is unchanged and still real; only its coordinates rotted.
   **A trap-note that points at deleted symbols causes the exact misreading it was written to stop**,
@@ -270,7 +277,7 @@ lev distinction, or the socialised-liquidation race in `§A.16b` reopens.
 | slice | what it is | members |
 |---|---|---|
 | **ETH venue custody** | 4626 venue positions | `supplyEtherFi` `supplyAaveEth` `supplyEulerEth` `offrampEtherFi` `_supplyETH` `_withdrawETH` `aaveEthBalance` `vogueETH` (`:444`) `deliverableETH` `_ethCfg` + every venue address (`AAVE_SPOKE` `ETHERFI_*` `WEETH`) |
-| **BTC band accounting** | the actual counterpart of `Vogue` | `registerBtcLp` `resize` `unregisterBtcLp` `exposeBtcToLev` `unexposeBtcFromLev` `syncLev` `_settleBtcLp` `settleBtcFeesOwed` `derivedThetaWadBtc` — plus the band state now inherited from `Shares.sol`'s `BandState`: `lpShares` `autoManaged` `levPooled` `totalBuffer` ⚠️ **SIX NAMES IN THIS ROW WENT STALE ON 2026-08-17/18 AND ARE CORRECTED ABOVE — `resizeBtcLp`→`resize`, `syncLevBTC`→`syncLev`, and `totalSharesBTC` `bandBtcOf` `lpSharesBTC` `autoManagedBTC` `levPooledBTC` all now **0 references in `evm/src`**.** The BTC suffix was deleted (`d2dc8b78` *one name per concept, two instances*, `088d2640`, `e0d72836`) and the per-band state moved into `BandState`, so the suffixed names describe a shape that no longer exists. ⚠️ **THE ROW'S POINT SURVIVES INTACT AND IS WHY IT IS CORRECTED RATHER THAN DELETED: `Vault` IS still two things fused, and this list is still the BTC-band slice.** Only the spelling moved. |
+| **BTC band accounting** | the actual counterpart of `Vogue` | `registerBtcLp` `resize` `unregisterBtcLp` `exposeBtcToLev` `unexposeBtcFromLev` `syncLev` `_settleBtcLp` `settleBtcFeesOwed` `derivedThetaWadBtc` — plus the band state now inherited from `Shares.sol`'s `BandState`: `lpShares` `autoManaged` `levPooled` `totalBuffer` ⚠️ **SIX NAMES IN THIS ROW WENT STALE ON 2026-08-17/18 AND ARE CORRECTED ABOVE — `resizeBtcLp`→`resize`, `syncLevBTC`→`syncLev`, and `totalSharesBTC` `bandBtcOf` `lpSharesBTC` `autoManagedBTC` `levPooledBTC` all now **0 references in `evm/src`**.** The BTC suffix was deleted (`d2dc8b78` *one name per concept, two instances*, `088d2640`, `e0d72836`) and the per-band state moved into `BandState`, ⛔ **AND "0 REFERENCES" MEANS RENAMED, NOT REMOVED — READ THIS BEFORE CONCLUDING ANYTHING FROM SUCH A GREP (owner's correction, 2026-08-18).** The BTC band is a SEPARATE INSTANCE carrying the SAME names without the suffix: `DeployLib.sol:136-137` constructs `new Core(cfg.weth, …)` **and** `new Core(cfg.wbtc, …)`, so **`lpShares` ON THE BTC INSTANCE *IS* WHAT `lpSharesBTC` NAMED** — same slot, same meaning, different address. ⇒ **THE DISCRIMINATOR MOVED FROM THE NAME TO THE ADDRESS, WHICH IS THE ENTIRE POINT OF THE `isBTC` REFACTOR.** Nothing was deleted; the suffix was, because the instance already carries the distinction. ⚠️ **A ZERO-HIT GREP FOR A SUFFIXED NAME IS EVIDENCE OF A RENAME, NEVER OF A REMOVAL — this file asserted the opposite until the owner caught it.** ⚠️ **THE ROW'S POINT SURVIVES INTACT AND IS WHY IT IS CORRECTED RATHER THAN DELETED: `Vault` IS still two things fused, and this list is still the BTC-band slice.** Only the spelling moved. |
 
 ⇒ **`Vogue`'s pair is the BTC-band SLICE of `Vault`, not `Vault`.** The ETH-venue slice is a THIRD
 concern with **no BTC counterpart — correctly**, because ETH venues are 4626 vaults while BTC custody
