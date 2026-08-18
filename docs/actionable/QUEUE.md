@@ -14773,13 +14773,29 @@ boundary.** Full write-up: `SPRINT.md` §0-TOPOLOGY.
 
 ## §HOST-AGGREGATOR-EXTRACTION — **the aggregator moves to SPV's host, and it is a BUILD, not a lift-and-shift**
 
-🔴 **OPEN.** ibiza has the aggregation *machinery* — `backend/circuits/build-recursion-tree.py`,
-`backend/circuits/batch-witnesses/`, `contracts/pool/lib/BatchCommitmentLib.sol`,
-`PrivacyPool.verifyBatch`, the `TreeRoot{8,16,32}` verifiers — and **no service driving it**. Its own
-TODO says so: *"Decide the FILL POLICY: settle singly below 2 pending, batch above. **Nothing does
-this today**"* (`ibiza/TODO.md:570`) and *"Wire elect-to-wait at deposit: a queue the batcher serves"*
-(`:536`). ⇒ **Budget it as a build**: queue + fill-policy decider, proof collection, tree assembly,
-on-chain submission (the last is the shape `lev_keeper` already has).
+🔴 **OPEN — but SMALLER THAN THIS ROW FIRST SAID.** ⛔ **CORRECTED 2026-08-19 (owner: *"the
+aggregator was already built"*). MY ORIGINAL CLAIM — *"no service driving it, budget it as a build"* —
+WAS WRONG, AND THE ERROR IS INSTRUCTIVE.** `build-recursion-tree.py` is not a fixture generator; its
+first line is *"Build **and run** the recursion TREE that settles a batch of withdrawals on-chain"*,
+for any `N >= 2`. The on-chain half is checked in: `TreeRoot{8,16,32}HonkVerifier.sol` under
+`contracts/pool/verifiers/`, plus `BatchCommitmentLib` and `PrivacyPool.verifyBatch`.
+⚠️ **AND THE "NO SERVER" READING IS BACKWARDS — the tree exists PRECISELY to remove the server.**
+Its own header: *"The retired flat aggregator verified all N withdrawal proofs inside ONE circuit,
+which was 12,720,801 gates and ~21.7 GB at N=16 — **a batcher had to be a server**. This builds the
+same guarantee as a TREE of two-proof nodes instead… peak memory is ~2.1 GB no matter how big the
+batch is."* So *"a batcher had to be a server"* is a statement about the **retired** design.
+🔴 **THE ERROR'S SHAPE, worth more than the correction:** I quoted `ibiza/TODO.md:570` — *"Decide the
+FILL POLICY: settle singly below 2 pending, batch above. **Nothing does this today**"* — and
+generalised it into *"the aggregator does not exist."* **The fill policy is a SCHEDULING decision;
+the aggregator is the PROOF MACHINERY.** One is unbuilt, the other is built, and the TODO line was
+only ever about the first. ⇒ **This is "reasoning from a TODO instead of from the code"**, which is
+the same class as trusting a stale comment — a planning document describes what someone intended to
+do next, never what exists.
+▶️ **SO WHAT ACTUALLY REMAINS:** the tree removed the need for a *big* server, not the need for
+something to **run it on a cadence**. The extraction is the **operational wrapper**: what pending
+withdrawals to collect, the fill-policy decider (the genuinely unbuilt piece), invoking the existing
+tree build, and submitting the root — the last being the shape `lev_keeper` already has. **Do not
+re-derive or re-implement the aggregation itself.**
 ⚠️ **BLOCKED-ADJACENT, do not carry it across:** `build-recursion-tree.py:127` folds `2 × 7` signals
 and `BatchVerifierLib.PUB_LEN` is still **7**, a live **non-association bypass on the batch path**.
 That is ibiza's booked item and must land THERE first — a runner extracted while it is open ships

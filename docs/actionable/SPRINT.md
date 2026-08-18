@@ -25,19 +25,29 @@ circuits, contracts and a frontend; it has **no daemon and no host**. ⇒ The se
 preference about code layout — **the repo boundary is the process boundary**, and folding SPV into
 ibiza would put a 24/7 signing process inside a repo whose deploy target is a web app.
 
-### 🔴 §HOST-AGGREGATOR-EXTRACTION — the aggregator has to move, and it does not exist as a service on EITHER side
+### 🔴 §HOST-AGGREGATOR-EXTRACTION — the aggregator moves to SPV's host. **IT IS ALREADY BUILT.**
 
-**Checked in `../ibiza` today.** What exists there is the aggregation *machinery*:
-`backend/circuits/build-recursion-tree.py`, `backend/circuits/batch-witnesses/` (the `Prover.N.toml`
-fixtures), `contracts/pool/lib/BatchCommitmentLib.sol`, `PrivacyPool.verifyBatch`, and the
-`TreeRoot{8,16,32}` verifiers. What does **not** exist is the standing service that drives them —
-ibiza's own TODO says so twice: *"Decide the FILL POLICY: settle singly below 2 pending, batch above.
-**Nothing does this today**"* (`ibiza/TODO.md:570`) and *"Wire elect-to-wait at deposit: a queue the
-batcher serves"* (`:536`).
-⇒ **This is an extraction of a DESIGN plus its artifacts, not a lift-and-shift of a running service.
-Budget it as a build.** The pieces to carry: the fill policy (a queue plus a
-settle-singly-vs-batch decider), proof collection, tree assembly, and on-chain submission — the last
-of which is the shape `lev_keeper` already has, which is the second reason the host is SPV's.
+⛔ **CORRECTED 2026-08-19 (owner: *"the aggregator was already built"*). THIS SECTION PREVIOUSLY SAID
+IT DID NOT EXIST AND TOLD THE NEXT THREAD TO BUDGET A BUILD. THAT WAS WRONG.**
+**What is built, in `../ibiza`:** `build-recursion-tree.py` — first line, *"Build **and run** the
+recursion TREE that settles a batch of withdrawals on-chain"*, any `N >= 2` — with the on-chain half
+checked in: `TreeRoot{8,16,32}HonkVerifier.sol` under `contracts/pool/verifiers/`, plus
+`BatchCommitmentLib` and `PrivacyPool.verifyBatch`.
+⚠️ **AND "IT NEEDS A SERVER" IS BACKWARDS — THE TREE EXISTS PRECISELY TO REMOVE ONE.** Its header:
+*"The retired flat aggregator verified all N withdrawal proofs inside ONE circuit, which was
+12,720,801 gates and ~21.7 GB at N=16 — **a batcher had to be a server**. This builds the same
+guarantee as a TREE of two-proof nodes instead… peak memory is ~2.1 GB no matter how big the batch
+is."* That sentence is about the **retired** design; I read it as a present-tense requirement.
+🔴 **THE ERROR'S SHAPE IS WORTH MORE THAN THE CORRECTION.** I quoted `ibiza/TODO.md:570` — *"Decide
+the FILL POLICY… **Nothing does this today**"* — and generalised it into *"the aggregator does not
+exist."* **The fill policy is a SCHEDULING decision; the aggregator is the PROOF MACHINERY.** One is
+unbuilt, the other is built, and that TODO line was only ever about the first. ⇒ **I reasoned from a
+planning document instead of from the code** — the same class as trusting a stale comment, and it
+would have cost the next thread a rebuild of something that works.
+▶️ **WHAT ACTUALLY REMAINS is the operational wrapper**, and only that: which pending withdrawals to
+collect, the fill-policy decider (the genuinely unbuilt piece), invoking the existing tree build, and
+submitting the root — the last being the shape `lev_keeper` already has, which is the second reason
+the host is SPV's. **Do not re-derive or re-implement the aggregation itself.**
 ⚠️ **Do not widen ibiza's leaf template as part of this.** `build-recursion-tree.py:127` folds
 `2 × 7` signals and `BatchVerifierLib.PUB_LEN` is still 7, which is a live **non-association bypass
 on the batch path** — ibiza's own booked item, and it must land there *before* batching is enabled on
@@ -199,8 +209,16 @@ is parked** (`git log origin/main..HEAD` → 0, `git worktree list` → none, `g
   Reconciled: `§D6` is the mapping of record, `§D2-PHASES` is the delta, and phase 3's ✅ is
   withdrawn in both plus at its root (`QUEUE.md` `§PHASE-1-4-STATUS`). **If a third mapping appears,
   fold it in rather than adding it** — this file has now paid for the duplicate twice in one day.
-- **The `§HOST-*` rows are scoped, not designed.** The aggregator extraction has a parts list and no
-  design; `§HOST-RUNTIME-IMAGE` has a gap and no Dockerfile. Neither has been priced.
+- **The `§HOST-*` rows are scoped, not designed**, and `§HOST-RUNTIME-IMAGE` has a gap and no
+  Dockerfile. Neither has been priced.
+- ⛔ **I GOT `§HOST-AGGREGATOR-EXTRACTION` WRONG AND THE OWNER CAUGHT IT — the aggregator IS built.**
+  I read *"Nothing does this today"* out of ibiza's TODO, where it refers to the **fill policy**, and
+  generalised it into *"no aggregator exists"*. `build-recursion-tree.py` builds **and runs** the
+  tree, and `TreeRoot{8,16,32}HonkVerifier.sol` are checked in. **Only the operational wrapper is
+  left.** ⇒ **The lesson generalises past this row: I reasoned from a planning document rather than
+  from code, which is the stale-comment failure wearing different clothes.** Anywhere below that
+  cites `TODO.md` or `QUEUE.md` for what EXISTS rather than for what was INTENDED is suspect on the
+  same grounds — **this is the only one I have re-checked.**
 - ⚠️ **The seal caveat is measured; its CONSEQUENCES are not enumerated.** I read
   `MockKeyRequest` and `boot.rs:84`. I did **not** sweep for every place the enclave's guarantee is
   currently *claimed* in prose or in a comment — and under `§HOST-SEPARATION` each of those is now
