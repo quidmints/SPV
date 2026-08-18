@@ -15056,6 +15056,25 @@ cannot change behaviour today; it only restores compilation. Repaired as:
   • `BtcLib.sol` — `usdFunded: true`, unconditionally. `outOfRangeBtc` reverts `NotAStable()` on a
     non-stable and deposits stable backing normalised to 6-dec USD, so that path cannot be
     volatile-funded.
+🔴 **AND THE SAME FIELD BREAKS THE SPA CLIENT — FOUND ONLY ONCE THE REPAIR MADE THE TREE COMPILE.**
+`tools/check-client-abis.py` → **`ABI_EXIT=1`**, 1 drifted of 69 SPA signatures (Rust: 114 checked, 0
+drifted):
+```
+DRIFT  selfManaged(uint256)
+   spa declares: (uint256,address,uint256,uint256,int256)
+   contract has: (uint256,address,bool,uint256,uint256,int256)
+```
+`selfManaged` is a PUBLIC mapping, so adding `usdFunded` changed its auto-generated getter's return
+tuple. The SPA decodes the old 5-tuple and will mis-read every field after `owner` — `lower`/`upper`
+shift by one and the last read runs off the end.
+⚠️ **THE ORDERING IS THE LESSON: A BROKEN BUILD HIDES ITS OWN DOWNSTREAM DAMAGE.** The checker reads
+`evm/out`, so while `main` did not compile it had nothing to compare and reported nothing wrong. The
+drift existed from the moment the field landed and was INVISIBLE until compilation was restored. CLAUDE.md
+already says the ABI checker is the ONLY client-side gate in this tree (`spa/` has no `node_modules`,
+so `tsc` cannot run at all) — a gate that silently no-ops on a red tree is worth knowing about.
+⇒ Fix the SPA's `selfManaged` decode as part of §E258, in the same change that gives `usdFunded` a
+reader. Do not close §E265 on the Solidity repair alone.
+
 ⚠️ **§E258 OWNS THE FINAL SEMANTICS.** When `fillOOR` lands and actually READS `usdFunded`, re-derive
 both values against what the consumer needs — a field with no reader cannot be validated by any test,
 so these two are consistent-by-derivation, not verified-by-execution.
