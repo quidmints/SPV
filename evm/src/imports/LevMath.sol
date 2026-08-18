@@ -119,8 +119,10 @@ library LevMath {
     ///       a position anchored exactly at a boundary would flip on rounding.
     /// @dev Same `active` deletion as `ilTargetLive` — this gate is why re-anchoring NEVER FIRED in
     ///      production, including after the 2026-08-09 bounds-check rewrite.
+    /// §MUTABILITY 2026-08-18 — `view`: body reads only, verified it touches none of the
+    /// cache-sensitive family (`get_deposits`/`get_metrics`/`refreshHoldings`/`redeemableAmount`).
     function reanchorCompute(address hook, uint entryPrice)
-        public returns (bool go, uint newSqrtP) {
+        public view returns (bool go, uint newSqrtP) {
         if (hook == address(0) || entryPrice == 0) return (false, 0);
         try ILevSyncHook(hook).bandPrice() returns (uint v) { newSqrtP = v; } catch { return (false, 0); }
         if (newSqrtP == 0) return (false, 0);
@@ -150,7 +152,7 @@ library LevMath {
     ///      (`entryPrice != 0 && hook != address(0)`) already ARE the availability test the flag stood in for:
     ///      use ground truth whenever it can be obtained, else the estimate. Adaptive by construction, no latch.
     function ilTargetLive(address hook, uint entryPrice, uint128 entryPriceWad, uint256 px, uint64 capBps)
-        public returns (uint256) {
+        public view returns (uint256) {
         if (entryPrice != 0 && hook != address(0)) {
             try ILevSyncHook(hook).soldFractionWad(entryPrice) returns (uint256 sf) {
                 if (sf != 0) { uint256 bps = sf / 1e14; return bps > capBps ? capBps : bps; }
@@ -627,13 +629,13 @@ library LevMath {
         return _wethToStable(c.weth, stable, wethIn, minOut);   // V3: WETH→USDC, Curve: USDC→stable
     }
 
-    function _stableFloor(SellCtx memory c, address stable, uint256 weethAmt) internal returns (uint256) {
+    function _stableFloor(SellCtx memory c, address stable, uint256 weethAmt) internal view returns (uint256) {
         uint256 usd18 = (IWeETH(c.weeth).getEETHByWeETH(weethAmt) * IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M)) / 1e18;
         return (_fromUsd(c.aux,stable, usd18) * (10_000 - SELL_SLIP_BPS)) / 10_000;
     }
 
     /// The WETH that must remain to repay `assets` (flashed stable) at worst-case slippage — above it is skimmable headroom.
-    function _wethForAssets(SellCtx memory c, address stable, uint256 assets) internal returns (uint256) {
+    function _wethForAssets(SellCtx memory c, address stable, uint256 assets) internal view returns (uint256) {
         uint256 weth = (_toUsd18(c.aux,stable, assets) * 1e18) / IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M);
         return (weth * 10_000) / (10_000 - SELL_SLIP_BPS);
     }

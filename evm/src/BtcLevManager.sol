@@ -117,7 +117,9 @@ contract BtcLevManager is LevBase {
     ///         note records as having shipped once already).
     ///         `collValueUsd`, `_collNative`, `debtUsd`, `getCurrentLtvBps`, `ilLtvBps` and
     ///         `ilTargetLtvBps` are all shared in `LevBase` on top of this.
-    function _collToBase(uint units) internal view override returns (uint) { return units; }
+    /// §MUTABILITY 2026-08-18 — `pure`, not `view`: vBTC IS sats, so this is the identity and reads
+    /// nothing. Narrowing an override below its `view` virtual is legal and is what solc asked for.
+    function _collToBase(uint units) internal pure override returns (uint) { return units; }
 
 
 
@@ -142,7 +144,7 @@ contract BtcLevManager is LevBase {
 
 
     /// @notice Stable delta (USD 1e18) + direction to re-hit the IL target; oracle read ONCE.
-    function debtDeltaToTarget(address lp) public returns (bool levUp, uint amountUsd) {
+    function debtDeltaToTarget(address lp) public view returns (bool levUp, uint amountUsd) {
         Types.Pos memory p = pos[lp];
         uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         // Size to the FIXED, BAND-ONLY E0 (band sats at entry) valued at px — NOT band+buffer (over-hedge) and

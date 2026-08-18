@@ -209,7 +209,7 @@ contract LevManager is LevBase {
     // ════════════════════════════ VALUATION ════════════════════════════
 
     /// @notice USD (1e18) value of `weethUnits` weETH = weETH→ETH (rate) × ETH→USD (oracle).
-    function weethValueUsd(uint256 weethUnits) public returns (uint256) {
+    function weethValueUsd(uint256 weethUnits) public view returns (uint256) {
         if (weethUnits == 0) return 0;
         uint256 ethAmt = RATE.getEETHByWeETH(weethUnits);           // 1e18 ETH
         uint256 pxUsd  = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);    // 1e18 USD/ETH
@@ -235,7 +235,7 @@ contract LevManager is LevBase {
         return RATE.getEETHByWeETH(units);
     }
 
-    function netEquityUsd(address lp) public returns (uint256) {
+    function netEquityUsd(address lp) public view returns (uint256) {
         if (!pos[lp].open) return 0;
         ILevVenue v = pos[lp].venue;
         uint256 coll = collValueUsd(v.collateralOf(lp));   // §FOLD-COLL — shared in LevBase
@@ -268,7 +268,7 @@ contract LevManager is LevBase {
 
     /// @notice Stable delta (USD, 1e18) + direction to re-hit target LTV. Inside the band ⇒ (false,0).
     ///         Reads the oracle ONCE (price-consistent — avoids the getTWAPforAsset-mutates-mid-call flip).
-    function debtDeltaToTarget(address lp) public returns (bool levUp, uint256 amountUsd) {
+    function debtDeltaToTarget(address lp) public view returns (bool levUp, uint256 amountUsd) {
         Types.Pos memory p = pos[lp];
         if (!p.open) return (false, 0);
         uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
@@ -505,7 +505,7 @@ contract LevManager is LevBase {
     ///         collateral too, so the naive `curDebt−targetDebt` UNDERSHOOTS (that's exactly why the old
     ///         chunked path had to loop); the closed form that lands ON target is `Δ/(1−t)`. Zero when the
     ///         position is inside the de-lever band (or below target). One consistent oracle read.
-    function deleverRepayUsd(address lp) internal returns (uint256) {
+    function deleverRepayUsd(address lp) internal view returns (uint256) {
         Types.Pos memory p = pos[lp];
         if (!p.open) return 0;
         // (Self-funded short holds stable collateral, not debt, so the keeper de-lever no longer needs to be gated

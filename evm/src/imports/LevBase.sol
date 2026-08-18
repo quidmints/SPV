@@ -239,7 +239,7 @@ abstract contract LevBase {
 
     /// @notice The live IL target in bps. §FOLD-LTV. NOT `view`: `_ilTargetLive` reaches the band's
     ///         `soldFractionWad`, which is not a view call on that side.
-    function ilTargetLtvBps(address lp) public returns (uint) {
+    function ilTargetLtvBps(address lp) public view returns (uint) {
         return _ilTargetLive(pos[lp], AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW));
     }
 
@@ -314,7 +314,10 @@ abstract contract LevBase {
     }
 
     /// @dev The IL target at the live price, for a position already in memory.
-    function _ilTargetLive(Types.Pos memory p, uint256 px) internal returns (uint256) {
+    /// §MUTABILITY 2026-08-18 — `view` CASCADED here: it became restrictable only once
+    /// `LevMath.ilTargetLive` was, which is the same shape as the dead-variable cascade earlier
+    /// today. Tightening a callee is what lets the caller tighten.
+    function _ilTargetLive(Types.Pos memory p, uint256 px) internal view returns (uint256) {
         return LevMath.ilTargetLive(BAND, p.entryPrice, p.entryPriceWad, px, p.targetLtvCapBps);
     }
 
