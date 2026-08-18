@@ -3057,3 +3057,35 @@ Each is a multi-file structural edit on a tree at **73 failing tests** with the 
 unresolved, so a post-edit failure is unattributable in both directions — the exact condition under
 which I misread 982 failures as mine and reverted a sound change. **Volatile route first; then all
 three are mechanical and verifiable.**
+
+---
+
+## 🎯 THE BAND AS AN ORDER-BOOK SLOT — **owner, 2026-08-19: *"use the morpho order book for all modLP delta (that is our band a slot in the OB)"***
+
+### ✅ THE FIT IS REAL, AND IT EXPLAINS WHY `TickLib` SURVIVED THE TICK REMOVAL
+Uniswap's tick machinery is **gone** (`TickMath` 0, `tickLower`/`tickUpper` 0 in src AND test), but
+**`TickLib` stays at `evm/src/midnight/libraries/TickLib.sol`** (`Midnight.sol:389`,
+`TickLib.tickToPrice(offer.tick)`) — because the ORDER BOOK is genuinely tick-priced. **That is the
+distinction the removal got right: we deleted a curve's coordinate system, not an order book's.**
+
+### 🔴 BUT `SortedSetLib` SERVES **TWO** ORDERINGS — FOLD ONE, KEEP THE OTHER
+| consumer | key | what it is | fate |
+|---|---|---|---|
+| **`BandLib`** | `(triggerPrice << 96) \| id` (`Shares.sol:81`) | **price-ordered triggers — this IS an order book** | ✅ **FOLD into the Midnight OB** |
+| **`Basket:166`** | `mapping(address => Set) perMonth` | the **6909 maturity ladder** — TIME-ordered | ⛔ **KEEP.** A tenor schedule is not a book; there is no price to index |
+⛔ **FOLDING BOTH WOULD BREAK THE LADDER.** *"Delete `SortedSetLib`"* is right for the band and wrong
+for the basket — the two uses share a data structure, not a purpose. **This is the repo's own
+most-expensive defect class arriving one level up: two different things behind one name.**
+
+### ▶️ WHAT THE FOLD ACTUALLY BUYS
+- `modLP`'s delta becomes a **slot in the OB** — one representation for the band instead of band state
+  + a parallel sorted set, and the OB already carries ordering, so `insert`/`remove`/`binarySearch`/
+  `compactArray` delete themselves for that consumer.
+- It lands **`fillOOR` (§E258) for free**: the other thread's spec is a price-keyed ladder with an
+  in-swap loop cap — which is what an OB fill already is.
+⚠️ **CARRY THE TRAP FORWARD:** the key is `(triggerPrice << 96) | id` and **NEVER the bare price**,
+because `SortedSetLib.insert` **silently ignores duplicates**. Whatever the OB keys on must preserve
+that uniqueness or two triggers at one price collapse into one — silently.
+📌 **SEQUENCING:** this supersedes dedup item 2 (*"fold `SortedSetLib` into its one consumer"*) —
+there are two consumers, so the correct move is fold-band-into-OB, then the library is left serving
+`Basket` alone and can be inlined there or kept as the ladder's own structure.
