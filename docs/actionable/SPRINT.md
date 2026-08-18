@@ -3089,3 +3089,33 @@ that uniqueness or two triggers at one price collapse into one — silently.
 📌 **SEQUENCING:** this supersedes dedup item 2 (*"fold `SortedSetLib` into its one consumer"*) —
 there are two consumers, so the correct move is fold-band-into-OB, then the library is left serving
 `Basket` alone and can be inlined there or kept as the ladder's own structure.
+
+### ⭐ CORRECTION TO THE ABOVE — **THE OB IS THE EXECUTION VENUE, NOT THE PRICER** (owner, 2026-08-19)
+> *"modLP delta would be treated like the PM but morpho does it without needing uniswap — the skew is
+> already the pricing the OB executes."*
+
+⛔ **I READ THIS BACKWARDS AND OBJECTED TO THE WRONG THING.** I took *"band as a slot in the OB"* to
+mean the band becomes a **resting credit offer** (maker, expiry, `group`, rate tick) and objected that
+standing two-sided inventory has no maker and no expiry. **That objection is void.** The proposal is
+the other direction: **Morpho does what the PoolManager did** — hold, match, settle — while **the
+price is OURS**.
+| layer | before | now |
+|---|---|---|
+| **pricing** | v4 curve (stale ⇒ LVR) | **the skew** — already live in `_fillDelta:1222`, a FIRM quote |
+| **custody + settlement** | `PoolManager` + `unlockCallback` | `modLP` → `_handleDelta` (**already ours**) |
+| **matching / execution** | v4 pool | **Midnight OB — without Uniswap** |
+⇒ **THE CURVE WAS ONLY EVER SUPPLYING A PRICE, AND WE ALREADY HAVE ONE.** That is why the venue can be
+swapped without re-importing tick pricing: `TickLib` prices a RATE tick for credit offers and is NOT
+our price — **the skew is.** Nothing about the band's coordinate system comes back.
+✅ **CONSISTENT WITH WHAT ALREADY LANDED:** the quote is firm with no true-up (*"we feed 1inch /
+Khalani, the counterparty is a SOLVER that has ALREADY committed a price"*, `Core:1228`), and
+`_handleDelta` is already the single settler across four entries.
+▶️ **SO THE WORK IS:** route `modLP`'s delta into the OB as the execution leg, quoting at
+`base·(1 − wellSkew(asset, size))`. **No new pricing, no `SortedSetLib` for the band** (the OB carries
+ordering), and `fillOOR` becomes an OB fill.
+⚠️ **STILL TRUE AND STILL FIRST:** the volatile route has no candidate, the refill has zero call
+sites, and `deltaTok` is unremoved — this changes the venue, not those three blockers.
+📌 **METHOD NOTE — THIS IS THE FIFTH FOLD I MISJUDGED BY INSPECTING THE TARGET INSTEAD OF THE
+PROPOSAL.** Four dissolved on inspection and were right to; this one I nearly killed by checking what
+Midnight IS (a lender) without asking which LAYER it was being asked to supply. **Read the proposal's
+layer before reading the target's identity.**
