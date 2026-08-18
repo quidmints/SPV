@@ -15123,3 +15123,39 @@ current shape.
 ratifier runs: a maker must authorise the ratifier ON MIDNIGHT first. That is one extra on-chain step
 per maker (not per order) and it has no analogue in our current flow, so it must appear in whatever
 onboarding the SPA does.
+
+## §E267 — 🔴 **`compilation_restrictions` PROPAGATE THROUGH IMPORTS — THE VENDORED FORK IS QUARANTINED**
+🔴 OPEN (a constraint to design around, not a bug to fix) — measured 2026-08-19.
+
+`evm/foundry.toml` scopes `via_ir = true` / `optimizer_runs = 50` to the 18 vendored Midnight sources
+in `src/imports/`. **That boundary is not a property of those files — it is inherited by anything that
+IMPORTS them.** Importing ONE constant (`WAD`) from `ConstantsLib.sol` pulled nine money-path files
+(`Quid`, `LevManager`, `BtcLevManager`, `LevMath`, `SwapLib`, `QuidLib`, `BasketLib`, `FeeLib`,
+`ChannelLib`) and transitively most of `test/` into that profile, and the build died with:
+```
+Error: Cannot swap Variable expr_7 with Variable expr_mpos_3: too deep in the stack by 4 slots
+  --> test/Alles.t.sol:641      (a large DeployLib.StackConfig({...}) literal)
+No memoryguard was present. Consider using memory-safe assembly only and annotating it via
+'assembly ("memory-safe") { ... }'.
+```
+⇒ **OUR CODE MUST NOT IMPORT FROM THE VENDORED MIDNIGHT FILES WHILE THIS BOUNDARY EXISTS.** `WAD` is
+therefore declared in our own `Types.sol` (nine copies → one) even though `ConstantsLib` declares the
+identical value. Two files that look interchangeable are not, and nothing in the source says so.
+
+🔴 **THE OWNER'S "ONE MASTER SETTING FOR ALL" IS BLOCKED BY 15 UNANNOTATED `assembly` BLOCKS, NOT BY
+PREFERENCE.** A global `via_ir = true` + `runs = 50` (which would delete both profile blocks and let our
+libraries and theirs mix freely) fails with the SAME error: each unannotated `assembly {` in `src/` +
+`test/` disables via_ir's memory optimisation for its unit, and ordinary struct construction then
+exhausts the stack. **Count them before planning: 15.**
+⚠️ **DO NOT BULK-ANNOTATE THEM.** `assembly ("memory-safe")` is a PROMISE to the optimiser; if any block
+touches memory outside Solidity's model the result is **silent miscompilation on a money path**. The
+honest sequence is (1) audit all 15 individually, (2) annotate, (3) set the global pair and delete both
+blocks, (4) re-measure EVERY contract, because `runs = 50` moves every margin (`Quid` has 562 today).
+⇒ **Until (1) is done, "a better mix of our libs and the morpho libs" is not available.** The two asks
+are one ask.
+
+⚠️ **AND THE RESTRICTION NEEDS ITS PARTNER BLOCK.** `[[profile.default.compilation_restrictions]]` only
+CONSTRAINS; it does not CREATE a profile. Without a matching
+`[[profile.default.additional_compiler_profiles]]` the build fails with *"Missing profile satisfying
+settings restrictions for src/imports/Midnight.sol"*. Landing the first without the second broke `main`
+once already (fixed in `de5b65fa`). Keep them in sync — same `via_ir`, same `optimizer_runs`.
