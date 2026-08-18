@@ -2475,6 +2475,47 @@ reopen."* It did.
 row's premise. Two ledgers agreeing on a word and disagreeing on the referent is the failure that a
 `§id` is supposed to prevent and does not.
 
+
+## D7. 🔴 **THE OWNER IS RIGHT TO REFUSE BOTH: "why is the registry needed, why can it not be removed, same for the ladder"**
+
+I answered *"B0 removed the alternative, so the redundant-looking thing becomes necessary"* for the
+consent registry AND, in `#11`, for the exit ladder. **That is a shape, not an argument, and I used it
+twice without testing it. Checked now, it does not hold for either — for DIFFERENT reasons.**
+
+### The registry — removable, and what actually blocks it is not SPV
+Its only job is to bridge the gap between *the LP signs* and *the fleet opens*. That gap exists
+because `drive_open` is a RECONCILER that retries on ticks, and because the LP is assumed to be
+push-only. **Neither is forced:**
+- **`quid-lp-daemon` is a server.** It holds a p2p link to the hop already (`connect_peer_if_necessary`,
+  re-dialled on drop). A fleet that is ready to open can **ASK** it and open in the same flow —
+  request/response, no stored state, nothing to synchronise.
+- ⇒ **For a daemon LP the registry is removable.** What needs it is **ibiza's phone**: a react-native
+  client behind NAT cannot be dialled, so it must PUSH consent and something must hold it until the
+  fleet next ticks. **The registry is a concession to the mobile signer, not a protocol requirement**,
+  and it should be described that way or deleted with the phone model.
+📌 So the honest statement is: **SPV does not need to synchronise a vault registry with a daemon LP.**
+Booking `#18`'s endpoint as "the intake was missing" is true of the phone topology only.
+
+### The ladder — my `#11` reasoning was backwards, and B0 is the reason
+`§LADDER-REMOVAL` was closed on *"vault-less, the heartbeat does not run, so the ladder is the only
+escape."* **The LP's node is a full LDK node.** `VaultNode` wraps `HopNode`, which owns a
+`ChainMonitor` (`quid-hop/src/node.rs:126`), so **the LP can FORCE-CLOSE unilaterally like any
+Lightning node** — the ordinary escape, needing no pre-signed anything. The ladder was designed for
+the model where *"the LP runs nothing"* (`vault.rs:612`). **§E175/B0 retired that model, so B0 is an
+argument for removing the ladder, not for keeping it.**
+▶️ **The ONE thing that could still justify it, and it must be settled before deletion:** a raw
+force-close pays the LP its whole channel-side balance, and the channel also carries **pool
+inventory** (`poolOwnedSats`). `BTCChannels.sol:623-632` computes `lpEntitled = totalSats − pool` and,
+when a close overpays, can only **emit `PoolSatsLeftWithLp` and clamp its own books** — *"The BTC has
+already moved — this cannot claw it back."* So the question is precisely: **does the ladder's attested
+`checkpointSats` actually PREVENT that overpayment, or does it merely make the same divergence
+observable one step earlier?** ⚠️ **If it only observes, the ladder is not buying enforcement and
+both it and the heartbeat are deletable** — and the pool/LP commingling is the real defect, which is
+rule 17: prefer making the bad state unconstructible over making it detectable.
+
+⇒ **Neither question is answered by "B0 made it necessary".** Both need the check above, and the
+registry needs an owner decision on whether the phone is a signer at all.
+
 ## D4. 🔎 THE UNBOOKED-WORK SWEEP — **three items this thread started were absent from this file, and one of them was the ONLY thing gating `§T3`**
 
 Method that discriminates (unlike the symbol test in D0): **my own commit messages are where I
