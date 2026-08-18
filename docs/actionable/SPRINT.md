@@ -2268,3 +2268,33 @@ authors have not agreed to this convention.
 ### 6. `§E222-IS-NOW-LIVE`
 
 | **🔴🔴 §E222-IS-NOW-LIVE — THE ORACLE RING RECORDS ITS OWN OUTPUT ON `main`. A silent pricing regression, and merging the v4 cut is what armed it.** | ✅ **CLOSED 2026-08-18 — REPOINTED TO CURVE IN `b84f7e00`, AND THE GAS IS NOW ASSERTED RATHER THAN ASSUMED.** `Core._observeIfSourced` reads the pinned pool's `price_oracle(1)` (one storage read) instead of 1inch's `getRate` (**31,722,803 gas vs a 30M block** — every ETH swap and repack exceeded an entire block). Index DERIVED, not guessed: Curve prices coin `k+1` in coin-0 units and this pool is USDC=0, WBTC=1, WETH=2 ⇒ `1` = WETH/USDC, already USD·1e18, so the old `VOL_DECIMALS` scaling was DELETED (carrying it would double-count by 1e18). **Reproduced before AND after:** `SkewCalibration::test_E58` and `VarPrecision::test_E63` failed `OutOfGas`/`ReentrancySentryOOG` on `main`; both PASS now, alongside 4 new tests in `CurveObserverIsCheapAndSane.t.sol` whose real assertion is the GAS BOUND — the correctness assertions all passed against 1inch too. ⚠️ **The independence claim is WEAKER and is stated as such:** one Curve pool is one venue with one depeg mode (`ExternalTwap`'s own objection, and correct) — but an aggregation that cannot be called is not a source. The mechanism is still genuinely different from Chainlink's pushed feeds. **`ExternalTwap` MUST NOT be deleted — it is the home of this reader.** | **§E222 predicted this exactly and said main was safe ONLY because it still had the pool: *'that makes the merge a pricing regression on main, which today does not have the problem, because main still has the pool and its ring records real executed spot.'* **I merged the v4 cut. The pool is gone. The prediction is now the state.** 🔎 **MEASURED ON `origin/main`, both halves of the loop in one function:** `Core.sol:866` reads `uint px = AUX.getTWAPforAsset(ASSET, 1800)` — which reads the observation ring — and `:878` then calls `_writeObservationPrice(px)`, writing that same value back INTO the ring. The identical pair repeats at `:987`/`:988`. ⇒ **THE RING RECORDS ITS OWN OUTPUT.** ⚠️ **WHY NOTHING FAILS, AND WHY THAT IS THE DANGER** (§E222's words): *'the ring records itself plus Chainlink and the deviation test compares one source against a smoothed copy of itself. Nothing reverts; the guards simply lost the ability to disagree.'* **Every guard still computes, so a green suite is exactly what this produces.** This is the `green-suites-prove-only-what-they-cover` shape at its worst: the check did not break, it became vacuous. ✅ **THE REPLACEMENT EXISTS AND IS TESTED BUT IS WIRED TO NOTHING.** `ExternalTwap` offers `curvePriceWad(pool[,k])` (Curve's own `price_oracle` — an EMA over REAL EXECUTED trades, on a pool this repo already routes through) and `oneInchRateWad(...)`, plus `requireAgrees(ours, theirs, maxBps)`. **Its only call sites anywhere are in `test/OneInchObserverIsIndependent.t.sol`** — zero in `evm/src`. §E223 verified 1inch is genuinely independent of Chainlink (14 registered oracles, DEX-wrapper pattern, and the decisive evidence that they DISAGREE). 🔴 **BUT THE FIX IS NOT UNIFORM ACROSS THE TWO LEGS, AND THAT IS WHY IT MUST NOT BE WIRED BLIND.** §E223: *'getRate(WETH, WBTC) prices WRAPPED BTC. There is no wrapper-free BTC spot on-chain at all… wiring the cross from 1inch would undo §E221, whose whole point is that a WBTC depeg must not arrive dressed as bitcoin moving.'* Curve's `price_oracle` for WBTC carries the same wrapper basis. ⇒ **The ETH leg has an independent external source available today; the BTC leg structurally does not.** Feeding the BTC ring a wrapper price would replace a vacuous guard with a WRONG one, which is worse. ▶️ **DO IN THIS ORDER:** (1) wire the ETH ring to an external observation so the deviation test regains the ability to disagree; (2) decide explicitly what the BTC ring records given no wrapper-free source exists — including the option that it records nothing and the BTC deviation guard is removed rather than left looking live; (3) delete the self-write at `:878`/`:988` in the same commit, because leaving it beside a real source re-creates the circularity at the next refactor. **Do not close this by adding a source while the self-write stays.** |
+
+---
+
+## PART C4 — **WHY THE REPACK FOLD WAS NOT BUILT: one design question, and it is not caution (2026-08-18)**
+
+### 🔴 C4.1 — DOES "PLACEMENT" STILL EXIST AS AN OPERATION AFTER THE V4 CUT?
+**MEASURED, and it is why the fold stalled.** `refillPlacement` and `addLiq` are **NOT redundant** —
+that was checked and refuted:
+| | shape | input |
+|---|---|---|
+| `VogueLib.addLiq` | **ONE-SIDED** — caller already chose `deltaTok`; derives `targetUSD = deltaTok·price`, then clamps by surplus / backing / θ | its two callers pass **NEW inventory arriving**: `Vogue:948` an LP deposit `amount`, `BandLib:77` lev `netEq` |
+| `SwapLib.refillPlacement` | **TWO-SIDED** — picks the SCARCER leg from both inventories and reports `idle` | the band's whole standing inventory |
+⇒ Different events: `addLiq` = *"someone added X, pair it"*; `refillPlacement` = *"given everything we
+hold, what is the max 1:1 and what cannot be represented"*.
+🔴 **BUT POST-CUT, `POOLED` AND `POOLED_USD` *ARE* THE BAND.** Swaps settle against inventory, so the
+composition is not something anyone SETS — it is whatever the deltas left. **If that is right,
+`refillPlacement` is not a placement instruction at all; it is a MEASUREMENT**, and its `idle` output
+feeds the imbalance charge — which `DEPLETION_RATE_WAD` **already levies live inside `skewWad`**.
+▶️ **THE QUESTION THAT GATES THE FOLD, and it is one question:** *is there still a WRITE to perform,
+or did the cut turn placement into a READ?*
+- **If a write exists** → fold `refillPlacement` in so it DECIDES `deltaTok` from two-sided inventory
+  instead of the caller choosing it one-sided.
+- **If it does not** → `refillPlacement` is a view feeding attribution, `imbalanceFeeUsd6` is likely
+  **redundant with the depletion term** (rule 17 — same 210 ppm, same event, charged live), and the
+  "fold" is a DELETION, not a wiring job.
+⛔ **DO NOT BUILD EITHER BRANCH BEFORE ANSWERING THIS.** Wiring a write that has nothing to write is
+how `refillRealisable`, the stored bounds and `refillQuote` were each built and then deleted in this
+same thread — three components added where a mechanism already existed.
+📌 **DISCRIMINATOR:** after a swap settles, is there any code path that CHANGES the ratio of
+`POOLED` to `POOLED_USD` other than a further delta? If no, placement is a read.
