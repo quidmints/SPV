@@ -2106,7 +2106,7 @@ survived) · `§E232-tri` (TriCrypto zero code hits; all four legs on pinned V3 
 | **4** | **`§LN-SWAPIN-REMAINDER` / `§NO-REJECT`** | 🔴 **owner calls it the biggest vulnerability** | The missing piece is **intent EMISSION on shortfall**, not pricing. Route: band → 1inch → Khalani → Perena. Not covered by ROUTING-AGGREGATION. |
 | **5** | `§DEPOSIT-VERIFIER-BLOCKED-ON-ITS-OWN-COMMITMENT` | 🔴 **ORDERING — protocol side must land FIRST; verified unbuilt (same zero refs as #2)** | The client work is AHEAD of the contract. Landing the client first ships a verifier committing to a shape the chain cannot check. |
 | ~~6~~ | ~~`B4` LADDER DEPTH~~ | ✅ **CLOSED `5295995f` — another thread built it FROM THIS BOOKING.** `_armLadder` now rejects `exits.length < 2` AND a ladder whose rungs share one deadline (`LadderTooShallow`), which is exactly the property booked here: two rungs at one deadline are one window. Tested in `BtcLpMintStress` + `ExitFixture` | `_armLadder` enforces **only `if (exits.length == 0) revert InvalidParam()`** (`BTCChannels.sol:1530`). **A ONE-rung ladder is accepted**, so a single missed CLTV window leaves the LP with no escape. ⚠️ **B0 RAISED THIS ITEM'S STAKES**: vault-less, the heartbeat does not run, so the open ladder + per-rotation arming is the ONLY escape — depth is no longer a nicety. Bounds the one thing that cannot be prevented: a hop declining to settle, emit or route. |
-| **7** | `B5` lazy `openChannel` | ⏸️ **not ✅ — the closure was conditional** | §E183 item 1 removed its premise: with the LP signing nothing at open, the open no longer carries LP consent *when it happens*, which is when deferring the CLAIM starts to matter. |
+| **7** | `B5` lazy `openChannel` | ⏸️ **AND MY LEDGERS CONTRADICTED EACH OTHER — resolved in D6: two different senses of "lazy"** | §E183 item 1 removed its premise: with the LP signing nothing at open, the open no longer carries LP consent *when it happens*, which is when deferring the CLAIM starts to matter. |
 | ~~8~~ | ~~`B7` ratify the smart-wallet narrowing~~ | ✅ **RATIFIED 2026-08-18 — AND THE ANSWER IS "YES, EXCLUDED", WHICH IS THE OPPOSITE OF WHAT THE ROW HOPED** | **Contract-account LPs (a Safe, a 4337 account) ARE excluded BY CONSTRUCTION, not by policy.** `openChannel` sets `lpEth = ChannelLib.lpEthOf(p.lpPubkey)` (`BTCChannels.sol:942`) → `BitcoinTx.evmAddressOfCompressed`, so `lpEth` is necessarily the key-derived address of the channel key; a Safe's address is not derivable that way, so it can never BE the `lpEth`. ⛔ **BUT DO NOT THEREFORE DELETE `SignatureChecker` FROM `rekeyAuthBody` AS UNREACHABLE — I nearly booked exactly that.** The reasoning was: `ch.lpEth` is key-derived ⇒ has no code ⇒ ERC-1271's branch can never fire. **EIP-7702 falsifies it** — since Pectra an EOA carries a delegation indicator, so that same derived address CAN have code, and ERC-1271 is then the CORRECT path for an LP that has delegated. The repo has **zero** genuine 7702 references (the greps that look like hits are hex fixture data), which is why this is worth writing down: the justification is off-chain of this repo entirely. **Same shape as `create_sweep_tx`** — a maintained function whose caller is a capability nobody has exercised here yet. 📌 **Stale comment found and left for the owner of that line:** `BTCChannels.sol:953` still says *"`SignatureChecker` serves BOTH LP kinds, so the EOA/smart-wallet entrypoint split is gone"* — true of `rekey`, but the OPEN path it sits on now verifies **no signature at all**. |
 | **9** | `B8` the **ERC-7540 fold** | 🟡 | The owner's *"too many slop variables"* and the trust hole are ONE change. **#2's `Terms` fold is the first instance of this, not a separate task.** |
 | ~~10~~ | ~~`B9b-i` ERC-7947 → ibiza~~ | ✅ **WRITTEN INTO `ibiza/TODO.md` (`bb268a2`), AND IT CARRIED A BIGGER CORRECTION WITH IT.** That repo's LP-SIGNER item still told ibiza to build `auth.lp_sig` — **the field §E183 item 1 deleted** — and called it the easy half to land first. It no longer exists, so the item is now blocked on `@scure/btc-signer` rather than having an easy first step: a SCHEDULE change, not a scope cut | Reached here, never written where the mobile client is owned. Dies with this context window otherwise. |
@@ -2364,6 +2364,47 @@ dev-dep. Verified NATIVELY (this box is Linux; the macOS/Docker caveat does not 
 `cargo test -p quid-bridge` → **174 passed / 0 failed**. The row was stale-open; no change needed.
 
 ---
+
+
+## D6. PHASES 1–4 — **the frame the owner thinks in, which SPRINT had no map for**
+
+`QUEUE.md`'s `§PHASE-1-4-STATUS` verified all four **from code, not from labels**, and SPRINT never
+carried that mapping — so every answer I gave was item-shaped against a question that was phase-shaped.
+
+| phase | state | the evidence, re-checked 2026-08-18 |
+|---|---|---|
+| **1a** fleet runs vault-less | ✅ | `daemon::run` takes `Option<Arc<VaultNode>>`; every vault-dependent subsystem disables itself; the on-chain rail folds `vault.is_some()` into its toggle so `/swap-in/onchain` cannot accept deposits nothing can service. **B0 (`99fda5e9`) then made it the DEFAULT** — 1a built the capability, B0 flipped the posture. |
+| **1b** LP-hosted vault | ✅ | `bin/quid-lp-daemon.rs` — same `boot_vault`, LP's own seed, remote hop. The fleet's `derive_vault_seed` *"is not involved and cannot reach it"*. |
+| **1c** LP seed provisioning | ✅ | `load_or_provision_from_env`, mnemonic backup, `Individual` role, `QUID_SEED` restore. |
+| **2** LP-side signer refusal | ✅ **needed no new code** | `QuidKeysManager` declares `type EcdsaSigner = ValidatingChannelSigner` and wraps EVERY channel. **1b is what made it non-vacuous** — before it, the fleet was refusing to sign closes that do not pay the fleet's own address. |
+| **3** per-channel freshness | ✅ **already built** | `BTCChannels.commitFreshness(bytes32,uint64)` (`:1666`), `freshnessSeq` (`:213`), `_onlyHop()`-gated, strictly monotonic. ⚠️ **This independently corroborates D2 #3:** I closed §T3 on the routed-HTLC argument, and the freshness it was supposedly *gated on* turns out to exist anyway. Two unrelated reasons, same conclusion. |
+| **4** attestation removal | ✅ | `AttestedHopRegistry` and every `_requireAttested` call deleted; **0 non-comment references** re-verified 2026-08-18. |
+
+### The remainder that row named — three of four are now closed
+*"The remaining §BTC items are DECISIONS (forwarding, routing-fee attribution, seed-entropy shape)
+and the v4cut merge — not unbuilt phases."*
+- **forwarding → ✅ ANSWERED (D2 #3 / §D4).** The vault cannot route third-party HTLCs: one permitted
+  counterparty, so no forward is constructible.
+- **routing-fee attribution → ✅ MOOT, and it follows from the same fact.** Routing fees exist only if
+  you route. Channels are **unannounced** (`node.rs:535` builds route hints precisely *"so the payer
+  can reach us over unannounced channels"*), so the node is not in the graph and earns none. **There
+  is nothing to attribute** — which is why the QUEUE thread on this kept finding no credit site.
+- **v4cut merge → ✅ DONE**, and finished on 2026-08-18 by deleting the dependency declarations that
+  outlived the code.
+- **seed-entropy shape → 🔴 OPEN, and it is D2 #12 — blocked on the OWNER, not on work.**
+
+### ⚠️ THE ONE CONTRADICTION BETWEEN MY OWN TWO LEDGERS, AND ITS RESOLUTION
+`QUEUE` says lazy `openChannel` is **✅ by design**; `SPRINT` D2 #7 says **⏸️ never started**. Both are
+right, about different things — **and the QUEUE row PREDICTED this**: *"Marked from the mechanism, not
+from a row naming it 'lazy'; if 'lazy' meant something else, that is the one item here that would
+reopen."* It did.
+- **QUEUE's sense — TIMING: built.** `run_vault_open_orchestrator` PHASE A opens only on a CONFIRMED,
+  sized deposit, so the on-chain open is deposit-triggered rather than eager.
+- **SPRINT's sense — CLAIM: open.** §E166 was closed by arguing every open is LP-funded so there is
+  nothing to defer; **§E183 item 1 removed that premise** by making the LP sign nothing at open.
+⇒ **#7 must be RE-DERIVED before it is built** — building it from either row alone builds on the other
+row's premise. Two ledgers agreeing on a word and disagreeing on the referent is the failure that a
+`§id` is supposed to prevent and does not.
 
 ## D4. 🔎 THE UNBOOKED-WORK SWEEP — **three items this thread started were absent from this file, and one of them was the ONLY thing gating `§T3`**
 
