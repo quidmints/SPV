@@ -161,6 +161,54 @@ Verify with `git log origin/main..HEAD` (0), `git worktree list` (none), `git st
    declaring `SortedSetLib`. **A file's name is not its library's name; a matching header is not
    identity; a zero-hit grep on a suffixed name means RENAMED, not removed.**
 
+### And what the next thread inherits from the HOST / BITCOIN lane (session `5fc85766`, 2026-08-18)
+
+**A second inheritance, deliberately filed inside this one entry point rather than as a 21st
+section.** It does not overlap the list above: that lane is bytecode and the swap path, this one is
+*who runs the code and whether a channel can be opened at all.* **Everything is on `main`; nothing
+is parked** (`git log origin/main..HEAD` → 0, `git worktree list` → none, `git stash list` → 0).
+
+1. 🔵 **READ `§0-TOPOLOGY` BEFORE PROPOSING ANY REPO OR DEPLOYMENT CHANGE.** SPV stays separate
+   from `../ibiza` **by owner decision**, because it is the repo that has a host: the Solidity
+   keeper runs 24/7 on a Linux box, the fallback is a Docker container here, and **the same host
+   runs the aggregator service, which must be extracted out of ibiza**. It is a decision, not a
+   task — but three tasks hang off it (`§HOST-AGGREGATOR-EXTRACTION`, `§HOST-SEAL-IS-A-NOOP-OFF-SGX`,
+   `§HOST-RUNTIME-IMAGE`), and any *"why not merge the repos"* proposal is already answered.
+2. 🔴🔴 **`§OPEN-PATH-HAS-NO-PRODUCER` outranks everything in `D2`.** In the default (vault-less)
+   deployment **no channel can be opened at all**, silently: `_armLadder` is on the open path and
+   requires ≥2 rungs at ≥2 deadlines, `drive_open` refuses to synthesise a ladder, `bind_consent`
+   has no production caller, and the only non-test `ExitArming` constructor is the heartbeat that
+   `B0` made inert. **`D2#18` is the same hole seen from one side; read `D2-PHASES` for the joint
+   reading before sizing it.** ▶️ Its acceptance test is **one channel opened end-to-end from an
+   LP-supplied consent** — not the existence of an endpoint.
+3. 🔴 **`§PHASE-3-NOT-BUILT` — do not re-close it from the name.** `commitFreshness`/`freshnessSeq`
+   is the EVM anti-rollback counter for the enclave's sealed monitor store and **no exit path reads
+   it**; phase 3 is the *Bitcoin* freshness UTXO, still shared by every channel
+   (`FRESHNESS_SHARD = 0`). Two mechanisms, one word, two crates, **files with the same name**.
+   The discriminator is **what reads it** — an enclave at boot, or a consensus rule at spend time.
+
+**What only LOOKS verified in this lane:**
+- **`D2-PHASES` is derived from code; `§PHASE-ORDER` itself is not re-derived.** The mapping says
+  where each phase lives and what state it is in. It does **not** re-litigate whether the owner's
+  ordering is still right after `B0` — and `B0` changed what phase 2 and 3 mean, so that is a live
+  question, not a settled one.
+- **Phase 0 (`§F5`, `§W1`) and phase 4's attestation half have NO ROW anywhere in this file.** They
+  are named only in `QUEUE.md:14103`. A reader working from SPRINT alone will not see them.
+- **The `§HOST-*` rows are scoped, not designed.** The aggregator extraction has a parts list and no
+  design; `§HOST-RUNTIME-IMAGE` has a gap and no Dockerfile. Neither has been priced.
+- ⚠️ **The seal caveat is measured; its CONSEQUENCES are not enumerated.** I read
+  `MockKeyRequest` and `boot.rs:84`. I did **not** sweep for every place the enclave's guarantee is
+  currently *claimed* in prose or in a comment — and under `§HOST-SEPARATION` each of those is now
+  a wrong statement. **That sweep is unbooked work and it is the first thing I would do.**
+
+**One method note, because it is the only reason this lane found anything:**
+**Three rows that each read as low-drama — `B0` ✅, `B4` ✅, `D2#18` booked — jointly describe a
+system that cannot open a channel.** Nothing in any one of them is wrong. The severity exists only
+in the product, and the thing that surfaced it was checking the second-order effect of *our own
+landed change* rather than the change itself. That is the same shape as `D2-ALERT`, found the same
+way, one day apart. ⇒ **When two adjacent rows both close, read them together before believing
+either closure.**
+
 ---
 
 ## 0-BUILD. 🔴🔴 §E258 — `fillOOR` + THE SORTED SET: THE BUILD SPEC
