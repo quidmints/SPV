@@ -2278,16 +2278,32 @@ strictly worse statement. **Every step below was enumerated today.**
    (`vault.rs`, 6 hits — the struct, the fixture, and the two registry methods) and in no route
    handler. The control is that the *same* search method **does** find the routes that exist —
    `/lp/onboard`, `/lp/withdraw`, `/provision` — so it can see a route when there is one.
-4. **And nothing constructs an `ExitArming` in production either.** Every construction site, not a
-   sample: `quid-bridge/deadman_exit.rs:202` (the heartbeat), `quid-bridge/vault.rs:1138`
-   (`a_consent`, a test fixture), `quid-hop/evm_codec.rs:1068` (`#[cfg(test)] t_exits`).
-   **The only non-test one is the heartbeat — and `B0` made it inert:** `run_deadman_exit_heartbeat`
-   takes `vault: Option<…>` and with `None` *"does not run at all"* (`:230`), which `99fda5e9` made
-   the default.
+4. **And the consent types have NO WIRE FORMAT AT ALL** — the sharpest evidence, found on review
+   2026-08-18 and stronger than "no route was wired". `LpConsent` derives only
+   `(Clone, Debug, PartialEq)` (`vault.rs:208`); `OpenAuth` and `ExitArming` derive
+   `(Clone, Debug, Default, PartialEq, Eq)` (`evm_codec.rs`). **No `Serialize`, no `Deserialize`,
+   anywhere in the family** — so no HTTP body, no JSON, no file can carry one. And
+   `bin/quid-lp-daemon.rs` — the box that is supposed to PRODUCE consent — mentions it only in
+   **doc comments**; it constructs nothing. ⇒ **`#18` is not "add an endpoint". It is three pieces:
+   a wire format, a producer on the LP daemon, and the intake.** Size it accordingly.
+
+⛔ **CORRECTION TO MY OWN CHAIN (review, 2026-08-18) — I had a fourth step here that belongs to a
+DIFFERENT entrypoint, and removing it makes the finding STRONGER, not weaker.** I originally listed
+*"the only non-test `ExitArming` constructor is the heartbeat, which `B0` made inert."* True, but the
+heartbeat's rung is encoded into **`emitDeadManExit`** (`deadman_exit.rs:212`,
+`encode_emit_dead_man_exit`) — a different entrypoint from `openChannel`, for a channel that already
+exists. It was never going to feed `drive_open`, which reads consent from the registry and nothing
+else. ⇒ **The open is blocked by ①②③ alone, and those are INDEPENDENT of the vault flag.** Verified:
+`QUID_FLEET_COHOSTS_VAULT` defaults `false` (`bin/quid-bridge-daemon.rs:360`), but setting it `true`
+**does not unblock the open** — it revives the heartbeat, not the consent producer. **So the escape
+hatch that looks like a mitigation is not one**, and the only configuration that opens a channel is
+one that does not exist. ✅ **Falsifier checked:** no deploy script and no operator CLI calls
+`openChannel` — the only non-test encoder is `drive_open`'s (`channel_driver.rs:748`).
 
 ⇒ **Chain: no intake → no consent → `drive_open` dormant → `openChannel` never called → no channel.**
 It is silent at every step, because dormancy is the correct local behaviour at each one.
-⇒ **And the SAME step 4 kills the freshness mechanism:** the heartbeat is also the only production
+⇒ **And the heartbeat — the step just corrected OUT of the open chain — is what kills the SECOND
+mechanism, which is where it did belong all along:** the heartbeat is the only production
 site that RESOLVES a freshness outpoint (`quid-bridge/deadman_exit.rs:344-377`, `set_freshness`,
 retire-previous at `:503-522`). Vault-less, **no exit is bound to a freshness UTXO at all** — so the
 `§T3` revocation hazard *and* the invalidation property it was the price of are **both** currently
@@ -2928,3 +2944,41 @@ term). **This one does not — what it named is a real quantity nothing else com
 ⚠️ **ONE OPEN QUESTION THE OWNER'S PHRASING RAISES AND I DID NOT RESOLVE:** `POOLED_USD` also carries
 the debt-funded buffer and the LP-owned increment. *"Without reducing what is included in there"* reads
 as **take it whole**. Confirm before anyone starts subtracting a buffer term.
+
+---
+
+## 🧹 THE DEDUP PASS — **three removals, measured on `d43c99d2`, NONE done (owner, 2026-08-18)**
+
+### 1. 🔴 `deltaTok` — **NOT REMOVED** (believed landed twice; it has not)
+**30 occurrences / 6 files:** `QuidLib` 9 · `BtcLib` 8 · `Quid` 4 · `SwapLib` 4 · `Interfaces` 3 ·
+`Vault` 2. `QuidLib.addLiq:307` still takes it.
+▶️ **One decision, not effort:** `addLiq` **SIZES** (`sizeBySurplus`, `clampByBacking`, θ); `modLP`
+**SETTLES**. Removing the param relocates those clamps. **Owner's framing puts them in `modLP`** — it
+already receives the delta and calls `_handleDelta`, so one place sizes and settles.
+
+### 2. 🔴 `SortedSetLib` — **DOES NOT NEED ITS OWN LIBRARY** (owner: *"stop duplicating"*)
+`imports/SortedSet.sol` declares `SortedSetLib`; consumers: `Shares.sol`, `Basket.sol`, `BandLib.sol`.
+**The file/library name disagreement IS the repo's most expensive defect class** (two things, one
+name — cf. BAND/VOGUE, `avgYield`, `inputCount`).
+▶️ Fold the set ops into the one consumer that truly needs ordering and **delete the library**. Do NOT
+merely rename the file — that preserves the duplication while hiding it.
+
+### 3. 🔴 `ringVariance` / the σ² APPARATUS — **UNNECESSARY UNDER THE IMBALANCE CHARGE** (owner)
+**LIVE:** `Core.sol:321` — `Math.mulDiv(OracleLib.ringVariance(observations, obsState, 9), …)`.
+⭐ **IT FOLLOWS FROM THE DESIGN, it is not a cut for its own sake.** The charge is *"the imbalance
+created"* — `POOLED` at px vs `POOLED_USD`. **§E216 already made DEPLETION σ²-free** (keyed on `inv0`),
+and patience closed **93.3% → 1.37%** precisely because the σ²-linear part stopped carrying the charge.
+**All that stays σ²-dependent is the adverse-selection base `σ²·confFrac/8`** — and if the charge is
+the imbalance, that base has nothing left to price.
+⇒ **Deletes, in order:** the base · `ringVariance` · the ring's variance role · §E213's sentinel ·
+**and all of §UNIT-B-PATIENCE, which exists only because σ² is attacker-stretchable.** *A quantity
+nobody prices from cannot be gamed.*
+⚠️ **MEASURE FIRST:** `Core:1271` records `observe`, `ringVariance` and **~54 `getTWAPforAsset` sites**
+as entangled — the ring still serves the TWAP after variance goes. **Cut the variance CONSUMER, confirm
+the ring survives for pricing, then delete `ringVariance`.**
+
+### 📌 RECORDED, NOT EXECUTED — and why
+Each is a multi-file structural edit on a tree at **73 failing tests** with the volatile route
+unresolved, so a post-edit failure is unattributable in both directions — the exact condition under
+which I misread 982 failures as mine and reverted a sound change. **Volatile route first; then all
+three are mechanical and verifiable.**
