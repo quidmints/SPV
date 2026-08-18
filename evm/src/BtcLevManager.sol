@@ -155,8 +155,11 @@ contract BtcLevManager is LevBase {
         // (A) INTRINSIC deposit model (2026-07-03, mirror of LevManager): the LP's ONE deposit (`initialVbtc`)
         // IS the levered position — its net-equity is synced into the BTC band (levPooled) as delta-1 depth by
         // the 2× leverage, so E0 (the FIXED IL base) = the DEPOSIT ITSELF (in sats — vBTC IS sats, no conversion),
-        // NOT a separate unlevered band-BTC position. FIXED at open (over-hedge fix): collateral grows as the
-        // keeper levers, but E0 stays = the deposit. SAFETY: the up-side clamp de-levers toward 0 debt below entry.
+        // NOT a separate unlevered band-BTC position. LEVERAGE-INVARIANT (over-hedge fix): collateral grows as the
+        // keeper levers, but E0 does not. ⚠️ E0 IS NOT FIXED AT OPEN — `_reanchorIfReseated` re-bases it to
+        // `netEquity(lp)` (LevBookLib:109) on every band reseat. SAFE because levering moves collateral and debt
+        // by the SAME amount, so net equity is leverage-invariant; sizing against GROSS collateral is what
+        // re-opens the 1/(1−t) over-hedge. SAFETY: the up-side clamp de-levers toward 0 debt below entry.
         uint e0 = initialVbtc;                                         // (A): the deposit (vBTC sats) is the IL base
         // §FOLD-OPEN — shared tail in `LevBase._openPos`. Only `e0` above is per-asset (sats as-is,
         // because vBTC IS sats and needs no conversion).

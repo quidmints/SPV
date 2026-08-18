@@ -287,8 +287,12 @@ contract LevManager is LevBase {
         // (A) INTRINSIC deposit model (2026-07-03): the LP's ONE deposit (`collWeeth`) IS the levered position.
         // Its net-equity is synced into the concentrated band (`levPooled`) as delta-1 (IL-free) depth by the 2×
         // leverage — so E0, the FIXED IL base the hedge sizes against, is the DEPOSIT ITSELF (in ETH), NOT a
-        // separate unlevered band position. FIXED at open (the over-hedge fix): the collateral grows as the keeper
-        // levers, but E0 stays = the deposit, so `targetDebt = E0·soldFrac` cancels the band's IL exactly. (Unlike
+        // separate unlevered band position. LEVERAGE-INVARIANT (the over-hedge fix): the collateral grows as the keeper
+        // levers, but E0 does not, so `targetDebt = E0·soldFrac` cancels the band's IL exactly instead of chasing a
+        // 1/(1−t) fixed point. ⚠️ E0 IS NOT FIXED AT OPEN — `_reanchorIfReseated` re-bases it to `netEquity(lp)`
+        // (LevBookLib:109) whenever the band reseats. That is SAFE and is the actual invariant: levering moves
+        // collateral and debt by the SAME amount, so net equity is LEVERAGE-INVARIANT. Sizing against GROSS
+        // collateral is what re-opens the over-hedge; any future base must be leverage-invariant, not "fixed". (Unlike
         // the old (B) two-pool model, there is no separate deliverable principal band — that isolation is traded
         // for capital efficiency; the whole deposit is levered.) SAFETY:
         // the up-side-only clamp de-levers this toward 0 debt below entry, so the deposit is never held at 2× into
