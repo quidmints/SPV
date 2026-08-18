@@ -513,7 +513,7 @@ contract Core {
     // announce itself. Keeping it is correct for now; it is ALSO the thing to revisit first if
     // pooled state ever disagrees with the basket (see §V4-REMOVAL-POOLED-STATE).
 
-    Aux AUX; Vogue VOGUE; Basket BASKET; Vault BTCVAULT;
+    Aux AUX; Basket BASKET; Vault BTCVAULT;
 
     /// @notice BtcVault — the BTC LP/swap side, regrouped out of Vogue/Aux.
     /// Pinned once (post-deploy, like Vogue's btcChannels) since BtcVault is
@@ -572,16 +572,27 @@ contract Core {
     ///      (CLAUDE.md 8c, measured independently on `BTCChannels` by a concurrent thread.)
     ///      VERIFIED against a same-worktree control, only this change differing: both arms
     ///      4,400 passed / 1 failed / 2 skipped — the failure pre-existing, the skips environmental.
+    /// §DEDUP-BAND (2026-08-18) — was `address(VOGUE)`, and `VOGUE` is DELETED. It duplicated `BAND`
+    /// on the ETH instance and MIS-POINTED on the BTC one:
+    ///   • ETH: `setup(v4, v4, …)` pinned the SAME ADDRESS to both `VOGUE` and `BAND`. Two fields,
+    ///     two types, one address — the shape CLAUDE.md records as having planted three bugs in the
+    ///     EthVenue split, where the call site was right and the ASSIGNMENT was wrong.
+    ///   • BTC: `setup(v4, 0, …)` pinned `VOGUE` to the **ETH** band manager, so the BTC engine's
+    ///     `onlyUs` admitted a FOREIGN band. `Quid` holds ONE `Core` handle (`:57`) and no BTC-core
+    ///     reference, so it never used that privilege — an unexercised grant, which is the kind that
+    ///     survives review because nothing fails when you remove it and nothing fails when you don't.
+    /// ⇒ `BAND` is THIS instance's band manager on BOTH: ETH `BAND = v4`, BTC `BAND = Vault` (pinned
+    ///   in `setBtcVault`). Gating on it is identical for ETH and strictly TIGHTER for BTC.
     function _onlyUs() private view {
         require(msg.sender == address(AUX)
-             || msg.sender == address(VOGUE)
+             || msg.sender == address(BAND)
              || msg.sender == address(BTCVAULT), "403");
     }
 
     modifier onlyUs { _onlyUs(); _; } bytes internal constant ZERO_BYTES = bytes("");
 
     /// @notice The deployer — the ONLY address that may run `setup`/`setBtcVault`, the authority-wiring pins
-    ///         that admit VOGUE/AUX/BASKET/BTCVAULT into `onlyUs`. Captured at construction so a hostile
+    ///         that admit BAND/AUX/BASKET/BTCVAULT into `onlyUs`. Captured at construction so a hostile
     ///         party can't FRONT-RUN an un-pinned wiring call in the deploy window and inject a malicious
     ///         `onlyUs` member (Core isn't Ownable; this is the immutable analog of the owner-gate the
     ///         siblings Basket.setBtcVault / Aux.setEthVenue already carry).
@@ -613,20 +624,18 @@ contract Core {
         SPLICE       = risk.spliceFloor;
     }
 
-    /// @param _vogue            Vogue contract (LP wrapper)
     /// @param _aux              Aux (settlement adapter)
     /// @param _basket           Basket (settlement target)
     /// @param seedPrice         This band's reference price at deploy (WAD USD per unit volatile),
     ///                          read from the REAL on-chain pool by the DEPLOYER and passed in.
-    function setup(address _vogue, address _band, address _aux, address _basket, uint seedPrice)
+    function setup(address _band, address _aux, address _basket, uint seedPrice)
         external { require(msg.sender == DEPLOYER, "403");   
         // auth-wiring pin (deployer only) anti-frontrun
-        require(address(VOGUE) == address(0), "!");
+        require(address(AUX) == address(0), "!");   // §DEDUP-BAND: was `VOGUE`, which is gone
 
         // §E253-mock — the two `mock` ERC20s are no longer deployed. They were the v4 pool's two
         // currencies; with no PoolManager nothing mints, holds or moves them.
         
-        VOGUE = Vogue(payable(_vogue));
         AUX = Aux(payable(_aux));
         // §ISBTC-ZERO: the BAND is whatever the deployer pins here. The ETH band (Vogue) exists by
         // now; the BTC band (Vault) is deployed AFTER Core and pins later via `setBtcVault`, so a

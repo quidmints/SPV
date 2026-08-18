@@ -161,7 +161,7 @@ library DeployLib {
         // overflowed at `_newVault` before the block was added.
         {
         (uint seedEth, uint seedBtc) = OracleLib.seedPrices(cfg.ethFeed, cfg.btcFeed);
-        core.setup(address(v4), address(v4), address(aux), address(quid), seedEth);   // ETH band manager IS Vogue
+        core.setup(address(v4), address(aux), address(quid), seedEth);   // ETH band manager IS Vogue
         // §E222 — the ring's independent observation source. ETH INSTANCE ONLY: 1inch's
         // OffchainOracle. The BTC instance is deliberately left unset — 1inch can only quote WRAPPED
         // BTC, and observing it would make a WBTC depeg indistinguishable from bitcoin moving. Unset
@@ -179,7 +179,7 @@ library DeployLib {
         // hit. `setup` is instance-aware (it seeds only ITS OWN ring), so this is the missing call,
         // not a workaround. Nothing else routed to the BTC instance until `Aux.bandOf` started
         // dispatching WBTC to it, which is why the gap stayed invisible.
-        Core(a.btcCore).setup(address(v4), address(0), address(aux), address(quid), seedBtc);   // BTC band pins in setBtcVault (Vault deployed later)
+        Core(a.btcCore).setup(address(0), address(aux), address(quid), seedBtc);   // BTC band pins in setBtcVault (Vault deployed later)
         }
         v4.setup(address(quid), address(aux), address(core));
         aux.setQuid(address(quid));
