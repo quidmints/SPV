@@ -13,7 +13,7 @@ import {SwapLib} from "./imports/SwapLib.sol";
 import {BtcLib} from "./imports/BtcLib.sol";
 import {VBtc} from "./VBtc.sol";
 import {Types} from "./imports/Types.sol";
-import {State} from "./Shares.sol";
+import {State} from "./State.sol";
 
 import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
 
@@ -81,7 +81,7 @@ import {QuidLib} from "./imports/QuidLib.sol";
 /// (not gross): a venue liquidation can't strand POOLED_USD. Mirrors the ETH `ILevEquity` over the BTC band.
 /// Declared once, in imports/Interfaces.sol (it was also BtcLib's `ILevBtc_V`).
 
-    // §E252 — the THIRTEEN shared band-state declarations moved to `State` (Shares.sol).
+    // §E252 — the THIRTEEN shared band-state declarations moved to `State` (State.sol).
     // They were byte-identical in both managers; the merge aligns STORAGE LAYOUT, which is the
     // precondition for one implementation with two instances. No bytecode changes: state emits none.
 contract Vault is Ownable, ReentrancyGuard, State {

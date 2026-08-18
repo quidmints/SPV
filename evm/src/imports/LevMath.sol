@@ -8,7 +8,8 @@ import {ILevSyncHook, IAux, IWeETH, IWiredVault,
 import {ILevVenue, IERC20Min, IWETH9} from "../imports/ILevVenue.sol";
 import {V3_SWAP_ROUTER, V3_FEE_WETH, V3_FEE_WBTC, IV3Router, ICurvePool,
         CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX,
-        CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN} from "./Interfaces.sol";
+        CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN,
+        BOLD_TOKEN, CURVE_BOLD_USDC, CRV_BOLD_IDX, CRV_BOLD_USDC_IDX} from "./Interfaces.sol";
 
 // ether.fi weETH/WETH Curve pool (weETH is coin1, WETH coin0). Same address as Vault.ETHERFI_CURVE_POOL.
 address constant ETHERFI_CURVE_POOL = 0xDB74dfDD3BB46bE8Ce6C33dC9D82777BCFc3dEd5;
@@ -549,6 +550,7 @@ library LevMath {
     {
         if (stable == RLUSD_TOKEN) return (CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX);
         if (stable == PYUSD_TOKEN) return (CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX);
+        if (stable == BOLD_TOKEN)  return (CURVE_BOLD_USDC,  CRV_BOLD_IDX,  CRV_BOLD_USDC_IDX);
         // Absent ⇒ (0,0,0). Deliberately does NOT revert: this predicate serves `_routableStable`,
         // which must be able to ASK without failing (an unroutable slice is skipped and refunded).
     }

@@ -18,7 +18,7 @@ import {SwapLib} from "./imports/SwapLib.sol";
 import {QuidLib} from "./imports/QuidLib.sol";
 
 import {Types} from "./imports/Types.sol";
-import {State} from "./Shares.sol";
+import {State} from "./State.sol";
 import {Core} from "./Core.sol";
 import {Basket} from "./Basket.sol";
 import {Aux} from "./Aux.sol";
@@ -34,7 +34,7 @@ import {ILevHost, ILevEquity, ILevClose} from "./imports/Interfaces.sol";
 // §4.2 / #109: force-close an LP's OWN in-band levered slice on band-exit (gated to the BAND == this
 // Quid). Repays debt + hands the freed collateral (LP's full residual) back to the LP. See §G.7.
 
-    // §E252 — the THIRTEEN shared band-state declarations moved to `State` (Shares.sol).
+    // §E252 — the THIRTEEN shared band-state declarations moved to `State` (State.sol).
     // They were byte-identical in both managers; the merge aligns STORAGE LAYOUT, which is the
     // precondition for one implementation with two instances. No bytecode changes: state emits none.
 contract Quid is State,
@@ -331,7 +331,15 @@ contract Quid is State,
     constructor()
         Ownable(msg.sender) {
         DEPLOYER = msg.sender;
-    }   fallback() external payable {}
+    }
+    /// §MUTABILITY 2026-08-18 — `receive()` ADDED to match `Vault` (`:238-239`), which declares both.
+    /// ⚠️ THE `fallback` IS LOAD-BEARING, NOT DECORATION: `WETH.withdraw()` returns bare ETH with EMPTY
+    /// calldata, and with no `receive()` that lands on the payable fallback — so deleting it would
+    /// revert every unwrap on the ETH band. solc's warning was about INTENT, not correctness: a
+    /// contract that means to accept ether should say so with `receive`, and route the empty-calldata
+    /// case there instead of through the catch-all.
+    receive() external payable {}
+    fallback() external payable {}
 
      modifier onlyUs {
         require(msg.sender == address(AUX)

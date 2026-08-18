@@ -74,7 +74,7 @@ directory — one row names it, the other must mount it, and they should be sett
 
 ### What this decision does NOT change
 
-- `../ibiza` still consumes SPV as a **pinned git submodule**, and the four Vogue/Basket signatures
+- `../ibiza` still consumes SPV as a **pinned git submodule**, and the four Quid/Basket signatures
   it depends on stay permissionless and stable. ⚠️ **That submodule copy is STALE** — it still
   carries `evm/src/VEth.sol`, which no longer exists here.
 - The LP-signer split is unaffected: ibiza owns the mobile **producer** (`ibiza/TODO.md` §3b), SPV
@@ -150,12 +150,12 @@ Verify with `git log origin/main..HEAD` (0), `git worktree list` (none), `git st
    bodies are copied into every inheritor); moving into a delegatecalled library frees ~100 B per
    small body and ~514 B per large one. **Same code, opposite sign.**
 2. **Check the callers before moving anything.** Three of four folds opened this session dissolved on
-   measurement — §E254, §E259, `ShareMath`. The one that survived (`VaultLib`) survived because the
+   measurement — §E254, §E259, `ShareMath`. The one that survived (`QuidLib`) survived because the
    callers were checked first: every non-`Quid` reference to it was a **comment**.
 3. **A green gate proves less than it looks, in both directions.** A size/ABI gate run after a FAILED
    build reports on stale artifacts. A RED test can be the harness: `vm.expectRevert` cannot see an
    inlined `internal` call, and `_forkMainnet()` **creates** a fork without **selecting** it.
-4. **Two things sharing one name is this repo's most expensive defect class.** `BAND`/`VOGUE` (same
+4. **Two things sharing one name is this repo's most expensive defect class.** `BAND`/`BAND` (same
    address on ETH, a foreign band on BTC), `QUID` (token vs the rename target), `avgYield`/`depegLoss`
    (accessor vs parameter), `inputCount` (function vs local), two `E115-b` rows, `SortedSet.sol`
    declaring `SortedSetLib`. **A file's name is not its library's name; a matching header is not
@@ -221,8 +221,8 @@ either closure.**
 **This is the top of the document because it is the one piece of DESIGN work this thread produced,
 chose, and then failed to build.** Everything else here is a finding; this is a specification.
 
-**The problem, measured:** `selfManaged` positions are created (`Vogue.outOfRange`,
-`BtcVaultLib.outOfRangeBtc`) and closed by their owner (`BandLib.pull`, behind
+**The problem, measured:** `selfManaged` positions are created (`Quid.outOfRange`,
+`BtcLib.outOfRangeBtc`) and closed by their owner (`BandLib.pull`, behind
 `if (position.owner != owner) revert NotOwner()`). **Nothing consumes one when price crosses it** —
 `fillOOR` is zero hits repo-wide. Under v4 the PoolManager did this on every swap that crossed the
 range; `FixedRateFill` is *"ONE PRICE, NO TRAVERSAL … no tick to cross"*, so the crossing is gone.
@@ -266,7 +266,7 @@ band without a fill**, so orders can be crossed with no swapper present to sweep
 withdrawal, and applying that guard to it would make an order unfillable for its first 47 blocks —
 reintroducing exactly the "no execution guarantee at the moment of crossing" defect this fixes.
 
-**5. It cannot live in `Vogue`.** 547 bytes of margin. This is a delegatecalled library — consistent
+**5. It cannot live in `Quid`.** 547 bytes of margin. This is a delegatecalled library — consistent
 with §E245's measured extraction rate, and the reason `BandLib` already holds `pull`.
 
 ### The one thing this spec does NOT decide, deliberately
@@ -345,8 +345,8 @@ would have caught it at any of the three points.**
 autoexecute them?"* Yes. It was designed, it was the right design, and it was never built — and what
 shipped is the variant I had rejected in writing, in the same paragraph.**
 
-**MEASURED.** `selfManaged` has exactly two kinds of consumer in `evm/src`: `Vogue.outOfRange` /
-`BtcVaultLib.outOfRangeBtc` **create** a position, and `BandLib.pull` **closes** it behind
+**MEASURED.** `selfManaged` has exactly two kinds of consumer in `evm/src`: `Quid.outOfRange` /
+`BtcLib.outOfRangeBtc` **create** a position, and `BandLib.pull` **closes** it behind
 `if (position.owner != owner) revert NotOwner()`. **`fillOOR` returns zero hits repo-wide.** Nothing
 consumes a resting order when price crosses it.
 
@@ -404,22 +404,22 @@ just is not the only term.
 
 ## 1. 🔴 §E255 — ONE BAND MANAGER, TWO `Shares` INSTANCES
 
-**The architecture this thread was driving toward** (owner, 2026-08-17): *"vogue must control two
+**The architecture this thread was driving toward** (owner, 2026-08-17): *"quid must control two
 shares contracts that each do their delever etc for each band, calling each lev library it needs."*
 
 Today the share **face is implemented three times instead of instantiated twice** — inline in
-`Vogue`, as `VBtc` for BTC, and in `Shares` (unwired). That is the duplication, and it is the same
+`Quid`, as `VBtc` for BTC, and in `Shares` (unwired). That is the duplication, and it is the same
 `isBTC` argument one level up from `Core`, which already **is** one implementation with two instances.
 
 **Already in place:**
-- `BandState` (§E252) — 13 declarations shared, so both bands lay out **identically**. This was the
+- `State` (§E252) — 13 declarations shared, so both bands lay out **identically**. This was the
   precondition, and it is done.
 - `LevBookLib` (§E246) — the four venue legs, parameterised by collateral token.
 - `Core` — the working precedent for one implementation, two instances.
 
 **🔴 THE BLOCKER IS SEMANTIC, NOT PLUMBING.** `Shares.totalSupply()` returns `lpShares + oorShares`
 and spans both position kinds (*"disjoint by construction … the sum cannot double-count"*).
-`Vogue.totalSupply()` returns `lpShares` alone, and **`oorShares` does not exist in `Vogue` at all**
+`Quid.totalSupply()` returns `lpShares` alone, and **`oorShares` does not exist in `Quid` at all**
 — out-of-range positions are absent from the share supply. The owner's design says totalSupply
 *includes* the out-of-range locked liquidity. Instantiating `Shares` twice **adopts its semantics and
 changes what every ERC-20/4626 client reads.**
@@ -540,27 +540,27 @@ venue state move — so it stays in the wrapper.
 
 **Owner, 2026-08-17, closing this thread: *"anything that is unwired and dead code either needs to be
 wired all the way or deleted."*** Wiring it fully **is** §E255, which the owner is taking themselves,
-so the prototype goes. **`BandState` — the shared base, and the half that is actually wired
-(`Vault.sol:16`, `Vogue.sol:22`) — STAYS.** `Shares.sol` is now 88 lines of base and nothing else.
+so the prototype goes. **`State` — the shared base, and the half that is actually wired
+(`Vault.sol:16`, `Quid.sol:22`) — STAYS.** `State.sol` is now 88 lines of base and nothing else.
 
-▶️ **TO RESURRECT IT: `git show 5ada37f4:evm/src/Shares.sol`** (or any commit before this deletion).
+▶️ **TO RESURRECT IT: `git show 5ada37f4:evm/src/State.sol`** (or any commit before this deletion).
 It was a written specification of the fold's target shape, not scratch work, and recovering it costs
 one command — which is the whole reason deleting it is cheap and leaving it was not.
 
 ⚠️ **AND KEEP THE MEASUREMENT BELOW, BECAUSE IT IS THE PART THAT DOES NOT COME BACK FROM `git show`.**
 
-**What it was:** `Shares.sol:90` declared `contract Shares is BandState` — **2,300 bytes of concrete
-contract that nothing deploys, imports, or tests.** Only `BandState` was imported (`Vault.sol:16`,
-`Vogue.sol:22`). `git grep` for `new Shares`, `Shares ` as a type, or `{Shares}` returned **nothing**.
+**What it was:** `State.sol:90` declared `contract Shares is State` — **2,300 bytes of concrete
+contract that nothing deploys, imports, or tests.** Only `State` was imported (`Vault.sol:16`,
+`Quid.sol:22`). `git grep` for `new Shares`, `Shares ` as a type, or `{Shares}` returned **nothing**.
 
 ⇒ **RIGHT NOW IT IS A STANDING-RULE-1 VIOLATION** — unreachable code kept "for later" — and it is
-simultaneously the scaffold for moving `Vogue`'s 525-line share/position cluster out. Those are not
+simultaneously the scaffold for moving `Quid`'s 525-line share/position cluster out. Those are not
 in tension by accident: **it is a marker for a gap that has not opened yet**, the same shape as
 `create_sweep_tx` and the deleted `IBtcVault`, and this repo has twice deleted such a thing and twice
 restored it. **Do not delete it as litter. Either wire it or record why it waits.**
 
 ✅ **THE QUESTION IS ANSWERED — owner, 2026-08-17: *"yes it's better to use that base."*** I had asked
-whether `Shares` should exist at all or `BandState` should stand alone. It exists, it is the base, and
+whether `Shares` should exist at all or `State` should stand alone. It exists, it is the base, and
 its `totalSupply() = lpShares + oorShares` is the semantics that survives (§E256). ⇒ **out-of-range
 locked liquidity IS part of the share supply**, which is also what `ONE-ENGINE-TWO-SHARE-TOKENS.md`
 recorded in the owner's own words on 2026-08-16 — *"the remaining totalSupply being outOfRange"*.
@@ -634,7 +634,7 @@ lever measured to be large enough. So the sequence is **wire `Shares` → then f
 
 An **internal-only** library is copied into every consumer; making it `external` deploys it once.
 `BitcoinTx` proved it: **−1,985 B across four consumers**, and `BTCChannels` went 144 → 815 bytes of
-headroom, moving the binding constraint to `Vogue` (558).
+headroom, moving the binding constraint to `Quid` (558).
 
 ⚠️ **Only pays with MULTIPLE consumers.** Measured: `ShareMath` 2 consumers but ONE function of 29
 lines (marginal); `SortedSetLib` 1 consumer (converting would **add** a seam and save nothing);
@@ -652,7 +652,7 @@ Unreachable-code warnings are at **0** (were 12; −2,652 B on `LevMath`). Remai
 - 7 shadowed declarations
 - 7 duplicate-name declarations
 - 3 unchecked low-level calls
-- the stock `approve` body, **triplicated byte-for-byte** across `Shares`/`Vogue`/`VBtc` — the fix is
+- the stock `approve` body, **triplicated byte-for-byte** across `Shares`/`Quid`/`VBtc` — the fix is
   a *minimal* shared base (no permit), **or nothing at all if §E255 lands**, which deletes the
   duplicate face outright. Do not build it twice.
 
@@ -677,7 +677,7 @@ were HTTP 429, which knocked out three whole suites and 11 tests.
   pool does not close it.
 - **§E235-spa** — `evm/deployments/l1.json` has no `btcCore` key. `DeployL1_s` now writes it, but
   that file is **regenerated by a deploy run** and must not be hand-edited (CREATE addresses are
-  `f(deployer, nonce)`). Until a deploy rewrites it, `vogueCoreBtc` resolves to ZERO and the BTC
+  `f(deployer, nonce)`). Until a deploy rewrites it, `quidCoreBtc` resolves to ZERO and the BTC
   panels are down **by construction** — loudly, which is the correct failure. Close only after: run
   the deploy, confirm `btcCore` ∈ `l1.json` and ≠ `core`, re-run the ABI gate.
 - **§E238-scan** — `AttestedHopRegistry.sol` was deleted by `812e6822` ("Attestation is fully phased
@@ -692,7 +692,7 @@ were HTTP 429, which knocked out three whole suites and 11 tests.
 
 ## 11. WHAT LANDED, SO NOBODY REDOES IT
 
-**10,461+ bytes freed**, binding constraint moved from `BTCChannels` (144 → 815) to `Vogue` (558).
+**10,461+ bytes freed**, binding constraint moved from `BTCChannels` (144 → 815) to `Quid` (558).
 
 | change | effect |
 |---|---|
@@ -703,10 +703,10 @@ were HTTP 429, which knocked out three whole suites and 11 tests.
 | mock ERC20 deleted (inert since the v4 cut) | `OracleLib` −4,187, 2 fewer genesis deploys |
 | 15 inlined duplicates + 4 venue legs → `LevBookLib` | `LevManager` −480, `BtcLevManager` −3,044 |
 | `RING` 1024 → 256, raw slots 1030/1031 → 262/263 from `forge inspect` | layout |
-| `BandState` — 26 declarations → 13 | **+11 B**; buys layout alignment, not size |
+| `State` — 26 declarations → 13 | **+11 B**; buys layout alignment, not size |
 | clients repaired | 11 SPA signatures, 2 Rust selectors |
 | `TickOutOfRange` → `RangeNotOutsideBand` | **the last tick identifier in code.** Both call sites compare PRICES (`t.newUp < t.curLo`, `t.newLo >= t.newUp`) — it never guarded a tick, and left in place it read as evidence that tick math survived the v4 cut. Zero client references, so the selector change was free. **Residual tick identifiers in code: 0**; every remaining mention is a `§DE-TICK`/`§TICK-REMOVAL`/`§V4-CUT` block recording the removal on purpose. |
-| 3 unreferenced declarations deleted | `contract Shares` (2,300 B, the §E255 prototype — `git show 5ada37f4:evm/src/Shares.sol`), `interface ISkewSink` (superseded; `Core.sol:367` reaches `creditSkewPremium` through `IBandManager`), `library Interfaces {}` (an empty no-op that only produced an artifact). **`BandState` stays** — it is the wired half and the base §E256 confirms. |
+| 3 unreferenced declarations deleted | `contract Shares` (2,300 B, the §E255 prototype — `git show 5ada37f4:evm/src/State.sol`), `interface ISkewSink` (superseded; `Core.sol:367` reaches `creditSkewPremium` through `IBandManager`), `library Interfaces {}` (an empty no-op that only produced an artifact). **`State` stays** — it is the wired half and the base §E256 confirms. |
 | 3 rescue tags pushed | `rescue/E194-rover-open-14-18`, `rescue/E232-1inch-unusable`, `rescue/E222-revert` — commits that were reachable from no branch and no remote |
 
 **The venue choice is measured, and the measurement is the reason it works:** Uni V3 USDC/WETH 0.05%
@@ -770,9 +770,9 @@ and I would have re-opened every one of them by reporting from my own notes.**
 
 | what I wrote, and when | state today |
 |---|---|
-| *"366 `isBTC` references, 182 in `Core.sol` alone — 53% in one file"* (08-15) | **36 total.** `SwapLib` 17, `Vogue` 8, `Vault` 3, `Interfaces` 2, `Shares` 1. **Core: zero.** |
+| *"366 `isBTC` references, 182 in `Core.sol` alone — 53% in one file"* (08-15) | **36 total.** `SwapLib` 17, `Quid` 8, `Vault` 3, `Interfaces` 2, `Shares` 1. **Core: zero.** |
 | *"`Core` still carries BOTH bands' state — `obsBTC`/`obsETH`, `_flowBTC`/`_flowETH`. That's the unfinished half"* (08-16) | **Zero matches in `Core.sol`.** |
-| *"the `LEV_MANAGER` duplication — one fact with two homes"* (08-14) | **Dissolved by `BandState`**: one declaration (`Shares.sol:62`), inherited by both. |
+| *"the `LEV_MANAGER` duplication — one fact with two homes"* (08-14) | **Dissolved by `State`**: one declaration (`State.sol:62`), inherited by both. |
 | *"`#32` — the per-LP `COLLATERAL()` STATICCALL inside two loops"* (08-13) | **Not in any loop.** Three single-shot branch sites remain. |
 | *"`Alles` inherits `Fixtures` while using not one member of it"* (08-17) | v4 `Fixtures.sol` **gone**. ⚠️ `evm/test/SPVFixtures.sol` is a **different, live** file — Bitcoin header fixtures for `SPVGateway.t.sol`. **Similar name, unrelated thing: do not delete it on the strength of that note.** |
 
@@ -859,7 +859,7 @@ work was superseded). **70 survived that filter, and every one is already booked
 2026-08-12 I flagged, twice, that a stashed version of `supplyFromAux` **dropped its gate** —
 `if (msg.sender != address(AUX)) revert NotAux();` — and warned that removing an access gate during
 a cleanup is how a permissionless entrypoint ships. **Verified on `main` today: the gate is present,
-`Vogue.sol:177`.** The stash version never landed. ⇒ **Closed — and closed the only acceptable way,
+`Quid.sol:177`.** The stash version never landed. ⇒ **Closed — and closed the only acceptable way,
 by reading the line rather than by reasoning that it was probably fine** (rule 13: a dismissal needs
 the same evidence as a finding). ⚠️ Worth keeping the shape in mind: the hazard was never in a
 commit, only in a stash, so **no diff review would ever have surfaced it** — it was visible only
@@ -893,7 +893,7 @@ files.
 in an open row appears there **incidentally**, not as the row's subject: §E155 is about
 `BasketLib._valueStable:265` (alive), §E201 about the oracle posture, `VENUE-COLLAPSE-REFUTED` about
 four branches. ⭐ **And every surviving mention of a deleted contract inside `evm/src` is a COMMENT
-recording the deletion and why** — `Aux.sol:201` on `SorPath`, `Vogue.sol:1323` on the `VEth`
+recording the deletion and why** — `Aux.sol:201` on `SorPath`, `Quid.sol:1323` on the `VEth`
 premise, `ExternalTwap.sol:27` on `TickMath`. That is the good case: prose that outlives the code
 **on purpose**, and the exact opposite of the stale-comment failure this repo keeps paying for.
 
@@ -1071,7 +1071,7 @@ a row overturned the plan built from its marker.
 - **§E244-tri-tests** — PARTLY CLOSED — ONE OF THE TWO IS FIXED, AND BY THE VENUE PIN RATHER THAN BY THE TEST (2026-08-17).
 - **§E249-close** — LIVE FUND-STUCK DEFECT ON THE WBTC-MODE CLOSE — FIXED 2026-08-17, AND IT WAS INVISIBLE BY CONSTRUCTION.
 - **§E251-vbtc-scope** — OPEN — DESIGN vs IMPLEMENTATION GAP: vBTC CAN ONLY BE MINTED AGAINST THE LEVERED SLICE, AND THE DESIGN WANTS MORE (owner, 2026-08-17).
-- **§E255-two-instances** — **THE ARCHITECTURE THIS THREAD WAS DRIVING TOWARD, STATED BY THE OWNER 2026-08-17: *"vogue must control two shares contracts that each do their delever etc for each band,
+- **§E255-two-instances** — **THE ARCHITECTURE THIS THREAD WAS DRIVING TOWARD, STATED BY THE OWNER 2026-08-17: *"quid must control two shares contracts that each do their delever etc for each band,
 - **§E247-allowlist-gate** — OPEN, AND IT ONLY EVER LIVED IN PROSE INSIDE ANOTHER ROW'S BODY UNTIL NOW (booked retroactively 2026-08-17).
 
 #### 🟠  (38)
@@ -1258,8 +1258,8 @@ duplicated ids, 8 still ambiguous among open rows — see §16) · `E6` · `E50`
 
 - **`E92` — RE-POINTED, NOT CLOSED.** `Core` is now **9,890 bytes ⇒ 14,686 spare** (was 24,538 ⇒ 38),
   so that half is dead. But `forge build --sizes` on a clean build of `origin/main` lists **74
-  contracts and omits `Core`, `Vogue` AND `Vault`**, while `BTCChannels`, `LevManager`, `LevMath`,
-  `Aux` and `Basket` all appear. 🔴 **`Vogue` is the TIGHTEST contract in the tree at 547 bytes and
+  contracts and omits `Core`, `Quid` AND `Vault`**, while `BTCChannels`, `LevManager`, `LevMath`,
+  `Aux` and `Basket` all appear. 🔴 **`Quid` is the TIGHTEST contract in the tree at 547 bytes and
   forge does not report it** — so the row's sentence *"the contract closest to the ceiling has no
   enforcement"* is still exactly true; only the contract's name changed. ⇒ **Do not close a row
   because the example it used got smaller.** ⭐ One thing narrowed: `LevManager`, `LevMath` and `Aux`
@@ -1365,9 +1365,9 @@ as if the thread stopped before it.**
 
 | | |
 |---|---|
-| `VaultLib` → `QuidLib`, deleted | **8 libraries → 7.** Predicted 17,935 as an upper bound, measured **17,507** — shared code deduped. Every non-`Quid` reference to either library was a COMMENT, so both were already the ETH band manager's libraries and only one said so. |
-| `Vogue`→`Quid`, `BandState`→`State`, `BtcVaultLib`→`BtcLib`, `VOGUE`→`BAND`, `vogue`→`band` | 65 files. **`QUID` stays the token** — it means the Basket in 47 files (~470 uses), so freeing it would have been the tail wagging the dog. |
-| `Core`'s `BAND`/`VOGUE` duplication | Deleted. On ETH they were the SAME ADDRESS; on BTC `VOGUE` was the **ETH** band manager, so the BTC engine's `onlyUs` admitted a foreign band. Unexercised, now impossible. |
+| `QuidLib` → `QuidLib`, deleted | **8 libraries → 7.** Predicted 17,935 as an upper bound, measured **17,507** — shared code deduped. Every non-`Quid` reference to either library was a COMMENT, so both were already the ETH band manager's libraries and only one said so. |
+| `Quid`→`Quid`, `State`→`State`, `BtcLib`→`BtcLib`, `BAND`→`BAND`, `quid`→`band` | 65 files. **`QUID` stays the token** — it means the Basket in 47 files (~470 uses), so freeing it would have been the tail wagging the dog. |
+| `Core`'s `BAND`/`BAND` duplication | Deleted. On ETH they were the SAME ADDRESS; on BTC `BAND` was the **ETH** band manager, so the BTC engine's `onlyUs` admitted a foreign band. Unexercised, now impossible. |
 | 17 dead variables, +76 bytes on `Quid` | One dead concept (`spotPrice`/`loPrice`/`upPrice`) propagated through **four** functions. |
 | 14 shadow/duplicate names | Including `OracleLib._interpolate`, where the shadow was the SYMPTOM of a duplicated arithmetic tail. |
 | `ApproveFailed` invariant + its reject-path test | Three ignored `approve` returns. **The first version had the hole it was written to close** — a codeless address returns `ok=true` with empty returndata, indistinguishable from USDT. Control-verified: removing the `extcodesize` leg makes the test fail. |
@@ -1399,7 +1399,7 @@ I reach for structure before checking what already carries the quantity.** §E25
 (only `approve` duplicates, and a base COPIES bodies). §E259 was not a fold (`Quid`'s face is a
 PROJECTION of band state, `VBtc`'s is a LEDGER — folding them would CREATE duplicated state).
 `ShareMath` was not worth extracting (a 29-line FILE is a 4-line BODY). **Three of the four folds I
-opened this pass dissolved on measurement, and the one that survived — `VaultLib` — survived because
+opened this pass dissolved on measurement, and the one that survived — `QuidLib` — survived because
 I checked the callers first.**
 
 ---
@@ -1672,7 +1672,7 @@ E230 fixed it and `POOLED_USD` funds again (`Alles` went 71/33 → 89/13, and th
 | **§E183 item 1** | `lpEth` derived; `auth.lpSig` deleted; `OpenAuth` 4 fields → 2; **614 bytes spare**, no longer the tightest contract |
 | **§E231 modLP direction** | `modLP` could not express a removal, so withdrawals GREW `POOLED`; signed now, verified by its own prediction |
 | **ABI gate blindness** | the scanner walked `splitlines()`, so **every wrapped signature was invisible** — all nine are money-path entrypoints. 106 → 111 checked |
-| **v4 cut completion** | `FullMath` → `SoladyMath.fullMulDiv` (124 sites) — and **11 Vogue calls had been NARROWED to 256-bit `mulDiv`**, silently reverting where `FullMath` absorbed |
+| **v4 cut completion** | `FullMath` → `SoladyMath.fullMulDiv` (124 sites) — and **11 Quid calls had been NARROWED to 256-bit `mulDiv`**, silently reverting where `FullMath` absorbed |
 | **41 lines of dead v4 commentary** | four had become false, incl. one citing the deleted `SOR.sol` |
 | **closures** | §E166 (conditional — see B5), §VAULT-RENOUNCE (my own false gap), §SECOND-FUNDING-HALF, §HOP-PARTITION |
 
@@ -1904,7 +1904,7 @@ Chainlink feeds all verified live; the SOR shed-rank **deleted** (wrong six ways
 scrub; and the `USDC` declaration that **unbroke `main`** after its uses shipped without it.
 
 ## C8. Environment facts
-- **The binding contract MOVES**: `BTCChannels` 24,438/138 → 23,760/816 while `Vogue` went
+- **The binding contract MOVES**: `BTCChannels` 24,438/138 → 23,760/816 while `Quid` went
   21,925 → 24,018/558. **Never quote a margin from a document.**
 - **`///` natspec on a file-level constant is a COMPILE ERROR**, not a lint warning.
 - **A shared tree eats uncommitted work** — three sets of edits lost to other threads' `autostash`,
@@ -1924,10 +1924,10 @@ verify what actually landed before touching it.** Falsifiable: resizing changes 
 value, since `9 ≤ 32`. If any variance-dependent test moves, the ring has a second consumer nobody
 found.
 
-### C9b. 🟡 §E217/§E219/§E231 — Core + Vogue, the numbers PART A's §6 does not carry
+### C9b. 🟡 §E217/§E219/§E231 — Core + Quid, the numbers PART A's §6 does not carry
 **§E217's hook half LANDED** (`f22fbce3`: Core has zero SafeCallback/unlockCallback/poolManager/modifyLiquidity/TickMath). **Only the COLLAPSE half is open, and it is this row.**
 PART A §6 owns the manager merge. What this session measured and it lacks: `Core` **10,073** +
-`Vogue` **21,925** = **31,998, over EIP-170 by 7,422** naively — but the EthVenue fold cost **1,984
+`Quid` **21,925** = **31,998, over EIP-170 by 7,422** naively — but the EthVenue fold cost **1,984
 against 3,836 standalone (~52%)**, because a separate contract carries dispatch + interface overhead
 that vanishes. At that ratio ≈ **27,135, over by ~2,559**. ⚠️ **52% is NOT linear** — the saving is
 mostly FIXED overhead, so it is optimistic for large contracts; only doing the fold gives an honest
@@ -2170,7 +2170,7 @@ survived) · `§E232-tri` (TriCrypto zero code hits; all four legs on pinned V3 
 | **14** | **`§HANDOFF-2026-08-16-SEED-THREAD` OPEN 1 — an ENCLAVE-HOSTED LP has no recovery path at all** | 🔴 **was in QUEUE only; booked here 2026-08-18** | It correctly gets no export (the backend gate refuses a custody-ready seal) and the fleet's `MigrationAuth` cannot reach it, *"having never been in the fleet's enclave to migrate."* **It needs a migration trust anchor OF ITS OWN.** ⚠️ **`migration.rs` LOOKS like the answer and is not** — `verify_migration_auth` takes the owner set as a PARAMETER against a sealed-config snapshot. Anyone re-deriving this reaches for migration first. 📌 The row's *"or family"* half is retired by the owner's *"no self/family"*; the enclave-hosted-LP half stands. |
 | **15** | **`§HANDOFF-2026-08-16-SEED-THREAD` OPEN 3 — a words-only restore is not a restore** | 🔴 **was in QUEUE only; booked here 2026-08-18** | The seed roots the KEYS; the channel MONITORS (`lp-store.json`, `vault/`) sit in the same data dir and die with the same disk. **Nothing tells an operator to back that directory up, and no test covers restore-then-reconnect.** The backup makes the irreplaceable part recoverable and leaves the replaceable part undone. ⏸️ Do NOT double-file the `PolicyState` cross-reboot reset — that is booked on the `§M1#2-PHASE-2` row. |
 | ~~16~~ | ~~`§HANDOFF…` OPEN 2 — the escape meant to survive a dead LP is not public~~ | ✅ **CLOSED 2026-08-18 by evidence, both halves** | It blocked on *"until the four-entrypoint on-chain arming lands, nobody else can broadcast it"* — **that arming landed** (`d13fde00`, row #1), and its second half (*"a splice rotates the outpoint and invalidates every rung at once"*) went with it. **And the escape IS public:** `event DeadManExitEmitted(..., bytes signedExitTx)` (`:512`) carries the FULLY-SIGNED exit tx and fires from `_armDeadManExit` inside the shared `_armLadder`, so **every rung at all five sites publishes broadcastable bytes on-chain.** Anyone watching can send it after the CLTV. |
-| ~~17~~ | ~~fee-accumulator credit-site enumeration~~ | ✅ **RUN 2026-08-18, AT LAST — AND THE CONCLUSION IT WAS MEANT TO FALSIFY SURVIVES** | **Every write enumerated, not sampled.** Credits: `Vault.creditSkewPremium` (`:351`, `onlyUsBtc`), `Vogue.creditSkewPremium` (`:1178`, `onlyUs`), `Vogue._rebalance` (`:1274`), and the BTC rebalance via `BtcVaultLib` (`:491,495`) written back at `Vault.sol:456`. Resets: `Vault.sol:634`, `Vogue.sol:835`. **Of the three paths the note feared — swap-out delivery, liquidation, a rebalance leg — TWO have no credit site at all** (`BTCChannels`, `LevManager`, `BtcLevManager`: **zero** hits) **and the third, the rebalance leg, DOES credit** — which is the one that was never enumerated and the reason the check existed. ✅ **Per-instance correctness holds at every site:** `Core.sol:367` dispatches `BAND.creditSkewPremium` through per-instance storage (`BAND` pinned once at `:539`), and the rebalance passes **its own** base — `Vault.sol:455` hands `feesPerShare, USD_FEES, lpShares + totalBuffer` from the BTC instance's inherited `Shares` state and writes back to it. **No site reads one instance's base against another's accumulator**, which is the successor bug the owner named. | Enumerate every site crediting `feesPerShare`/`USD_FEES` across the full lifecycle (swap-out delivery, liquidation, rebalance leg) **per INSTANCE**, since the BTC band is `new Core(cfg.wbtc,…)` and carries the same names at a different address. `CLAUDE.md` memorialises this as the check written down three times and run zero times; do not let a zero-hit grep on the old suffixed name close it a fourth. |
+| ~~17~~ | ~~fee-accumulator credit-site enumeration~~ | ✅ **RUN 2026-08-18, AT LAST — AND THE CONCLUSION IT WAS MEANT TO FALSIFY SURVIVES** | **Every write enumerated, not sampled.** Credits: `Vault.creditSkewPremium` (`:351`, `onlyUsBtc`), `Quid.creditSkewPremium` (`:1178`, `onlyUs`), `Quid._rebalance` (`:1274`), and the BTC rebalance via `BtcLib` (`:491,495`) written back at `Vault.sol:456`. Resets: `Vault.sol:634`, `Quid.sol:835`. **Of the three paths the note feared — swap-out delivery, liquidation, a rebalance leg — TWO have no credit site at all** (`BTCChannels`, `LevManager`, `BtcLevManager`: **zero** hits) **and the third, the rebalance leg, DOES credit** — which is the one that was never enumerated and the reason the check existed. ✅ **Per-instance correctness holds at every site:** `Core.sol:367` dispatches `BAND.creditSkewPremium` through per-instance storage (`BAND` pinned once at `:539`), and the rebalance passes **its own** base — `Vault.sol:455` hands `feesPerShare, USD_FEES, lpShares + totalBuffer` from the BTC instance's inherited `Shares` state and writes back to it. **No site reads one instance's base against another's accumulator**, which is the successor bug the owner named. | Enumerate every site crediting `feesPerShare`/`USD_FEES` across the full lifecycle (swap-out delivery, liquidation, rebalance leg) **per INSTANCE**, since the BTC band is `new Core(cfg.wbtc,…)` and carries the same names at a different address. `CLAUDE.md` memorialises this as the check written down three times and run zero times; do not let a zero-hit grep on the old suffixed name close it a fourth. |
 
 | ~~18~~ | ~~LP consent intake~~ | ✅ **BUILT 2026-08-18 (`/lp/consent`) — AFTER THE DELETION ARGUMENT WAS TESTED AND FAILED** | **The arc, because the reversal is the point.** (1) Found: `bind_consent` had **zero production callers**, so the fleet's *"the fleet RELAYS consent"* relayed into nothing, failing silently because absence reads as DORMANT. (2) The owner pushed back — *"i thought a registry was not need"* — and a second lane had independently written *"the registry is plumbing for an absence that does not exist… simplification is likely DELETION."* I reverted my half-built endpoint and reframed the row as a deletion question. (3) **Then I ran the falsifier I had recorded, and it FIRED.** `drive_open` runs against a funding tx **already confirmed on Bitcoin** (it carries the raw tx and its merkle proof) and is retried by the reconciler every tick, while the LP signs its ladder against that outpoint at some other moment — **signing and opening are separated in time, so consent must live somewhere in between.** (4) **The other lane's premise was stale, and MY OWN CHANGE staled it:** their argument rests on `taproot_signer.rs`/`validating_signer.rs` saying the fleet holds BOTH halves under "Option B, which is what is deployed" — true when written, and false since `99fda5e9` made the fleet vault-less by default. ⇒ **`§M1#2` is what made the registry load-bearing**, exactly as it made the exit ladder load-bearing in `#11`: B0 removes the alternative and the thing it looked redundant against becomes necessary. **Both comments corrected in the same commit** — they were telling every reader that the fleet holds both halves, which is the posture B0 exists to remove. 📌 The endpoint validates only what it must to construct the types; `_armLadder` and `_armDeadManExit` already reject shallow or badly-signed ladders LOUDLY at `openChannel`, so re-checking here would clamp a failure that announces itself. |
 
@@ -2686,13 +2686,13 @@ Method: all 148 identified 🔴 rows in `QUEUE.md` were matched against `SPRINT.
 code-symbol. 120 matched by id; of the 28 that did not, most matched by SYMBOL (they migrated under
 different names — `§E257`, `§E258`, `E219`, `W1-sweep…` and others are all present). **Four did not
 match either way. Three are real and are reproduced below. `§A.59` was checked and is RESOLVED**
-(contradiction → resolved → corrected, evidenced live at `Vogue.sol:36` and `:483`) — historical.
+(contradiction → resolved → corrected, evidenced live at `Quid.sol:36` and `:483`) — historical.
 
 | id | item |
 |---|---|
 | **A8** | 🔗 **CROSS-TRACK — sizing constraint on any E2 fix.** #12 and E5 BOTH remove subsidies that flow silently to QU!D holders today (the LP's sale proceeds; the retained skew premium). Both make `perShare` run **LOWER** than today. ⇒ **Track B makes Track A's bleed WORSE.** Any E2 fix must be sized against **POST-#12 `perShare`, never today's**, or it is calibrated against a number that is about to move. |
 | **F1** | 🔴 **control-LP redeem delivers 0.** Likely a FIXTURE warp — **verify before fixing.** (Same family as the refill zero-return and the sUSDE valuation/delivery split: a path that reports success and delivers nothing.) |
-| **E93-KILLER** | 🔴 The decided part (`skewPremiumCum` over a tick measure, because `reseat()` is permissionless so tick history is adversarially destructible — monotonicity IS the history-preservation property) is ✅. **The 🔴 remainder is a defect at `Vogue.sol:1138`, found by the verification pass rather than by reasoning.** Re-read that line before treating E93 as closed. |
+| **E93-KILLER** | 🔴 The decided part (`skewPremiumCum` over a tick measure, because `reseat()` is permissionless so tick history is adversarially destructible — monotonicity IS the history-preservation property) is ✅. **The 🔴 remainder is a defect at `Quid.sol:1138`, found by the verification pass rather than by reasoning.** Re-read that line before treating E93 as closed. |
 
 ⚠️ **`QUEUE.md` IS THEREFORE NOT PURELY HISTORICAL YET.** 120/148 migrated by id, most of the rest by
 symbol, and the three above by hand. Anyone declaring the queue archive-only should re-run the
@@ -2820,8 +2820,8 @@ arithmetic above rather than chosen.
 
 
 ### 📌 C5.3 — **ANCHORS RE-POINTED AFTER THE RENAME (2026-08-18). Read this before trusting any `file:line` in C4/C5.**
-`dc044378` / `22ec766f` renamed the tree WHILE C4/C5 were being written: **`VogueLib`→`QuidLib`,
-`Vogue`→`Quid`, `BtcVaultLib`→`BtcLib`, and `VaultLib` folded into `QuidLib` and deleted.**
+`dc044378` / `22ec766f` renamed the tree WHILE C4/C5 were being written: **`QuidLib`→`QuidLib`,
+`Quid`→`Quid`, `BtcLib`→`BtcLib`, and `QuidLib` folded into `QuidLib` and deleted.**
 **CURRENT, VERIFIED anchors for the fold:**
 | what | where now |
 |---|---|
@@ -2909,7 +2909,7 @@ there."*
 
 ⛔ **THAT CONTRADICTS THE PRECONDITION I WROTE ON `refillPlacement`.** Its docblock currently says:
 *"🔴 PRECONDITION — `invTok`/`invUsd6` MUST BE DELIVERABLE FIGURES, NOT NOMINAL ONES … Feed this
-`vogueETH()` and the band quotes depth it cannot honour."* **That is the wrong quantity for this
+`quidETH()` and the band quotes depth it cannot honour."* **That is the wrong quantity for this
 job**, and the two must not be conflated:
 | quantity | what it is | where it belongs |
 |---|---|---|
