@@ -1235,6 +1235,55 @@ three was mechanical — cross-reference rows touched against rows discussed —
 ---
 
 
+## 20. THE FOLD/RENAME PASS — what landed, and the four things it leaves
+
+**Added 2026-08-18. Everything above predates this pass, so without this section the document reads
+as if the thread stopped before it.**
+
+### Landed and verified (build + size + ABI + money-path suites each time)
+
+| | |
+|---|---|
+| `VaultLib` → `QuidLib`, deleted | **8 libraries → 7.** Predicted 17,935 as an upper bound, measured **17,507** — shared code deduped. Every non-`Quid` reference to either library was a COMMENT, so both were already the ETH band manager's libraries and only one said so. |
+| `Vogue`→`Quid`, `BandState`→`State`, `BtcVaultLib`→`BtcLib`, `VOGUE`→`BAND`, `vogue`→`band` | 65 files. **`QUID` stays the token** — it means the Basket in 47 files (~470 uses), so freeing it would have been the tail wagging the dog. |
+| `Core`'s `BAND`/`VOGUE` duplication | Deleted. On ETH they were the SAME ADDRESS; on BTC `VOGUE` was the **ETH** band manager, so the BTC engine's `onlyUs` admitted a foreign band. Unexercised, now impossible. |
+| 17 dead variables, +76 bytes on `Quid` | One dead concept (`spotPrice`/`loPrice`/`upPrice`) propagated through **four** functions. |
+| 14 shadow/duplicate names | Including `OracleLib._interpolate`, where the shadow was the SYMPTOM of a duplicated arithmetic tail. |
+| `ApproveFailed` invariant + its reject-path test | Three ignored `approve` returns. **The first version had the hole it was written to close** — a codeless address returns `ok=true` with empty returndata, indistinguishable from USDT. Control-verified: removing the `extcodesize` leg makes the test fail. |
+| §E254, §E259 | Both closed as **measured-not-worth-doing**, not as done. |
+
+**Warnings 41 → 10.** Zero unused variables, zero shadows, zero duplicate names, zero unchecked
+low-level calls, zero unreachable code.
+
+### What this pass leaves open
+
+1. 🟡 **9 mutability hints + 1 payable-fallback note** — the entire remaining warning surface. Each
+   `view`/`pure` restriction is free gas and free clarity; none is structural. **Not booked anywhere
+   else — this is its only record.**
+2. 🔴 **The band merge (§E255) and the manager merge are blocked by BYTECODE, not design.** ~11,986
+   and 15,532 bytes over. ⚠️ **§E255's recorded blocker was STALE and is corrected in its row:**
+   *"`Vault` is two things fused"* is false — §E231's EthVenue fold resolved it by going the other
+   way, into `Quid`. Every design question is settled (§E256). **The next step is ~12k of
+   delegatecalled-library extraction, not the merge.**
+3. 🔴 **§E258's `fillOOR` spec is written and not built** — see §0-BUILD.
+4. ⏸️ **The `addLiq`/`modLP` sizing question is parked, correctly.** `addLiq` is the SIZER — it
+   applies `sizeBySurplus`, `clampByBacking` and the θ budget — and `modLP` carries the result as a
+   delta. So removing `deltaTok` leaves the sizer with no input; the real change is moving sizing
+   into the delta path, which relocates three clamps on the settlement path every LP entry and exit
+   runs through. **Blocked on two cheap things: the volatile-route decision (so a failure is
+   attributable against a green baseline) and where the three clamps should live.**
+
+⭐ **THE PATTERN THIS PASS KEPT PAYING FOR, and it is the same one four earlier components hit:
+I reach for structure before checking what already carries the quantity.** §E254 was not a fold
+(only `approve` duplicates, and a base COPIES bodies). §E259 was not a fold (`Quid`'s face is a
+PROJECTION of band state, `VBtc`'s is a LEDGER — folding them would CREATE duplicated state).
+`ShareMath` was not worth extracting (a 29-line FILE is a 4-line BODY). **Three of the four folds I
+opened this pass dissolved on measurement, and the one that survived — `VaultLib` — survived because
+I checked the callers first.**
+
+---
+
+
 # PART B — session `391df7b6` (the Bitcoin / secp256k1 thread)
 
 **Ordered by what it protects, not by how nearly finished it is.** Item 1 is worth more than
