@@ -377,6 +377,7 @@ library ChannelLib {
     error VaultAlreadySet();
     error GHONotOnAAVE();
     error VaultAssetMismatch();
+    error ApproveFailed();       // §APPROVE-INVARIANT: approve reverted, or returned false
     error UnknownStable();
     error ZeroDeposit();
     error VaultBlocked();
@@ -466,8 +467,7 @@ library ChannelLib {
             uint256 rid = IAaveV4Spoke(cfg.aaveSpoke).getReserveId(cfg.aaveHub, assetId);
             if (rid == 0) revert GHONotOnAAVE();
             aaveReserveId[stable] = rid;
-            stable.call(abi.encodeWithSelector(0x095ea7b3,
-                                cfg.aaveSpoke, type(uint).max));
+            _approveMax(stable, cfg.aaveSpoke);
             if (vaults[stable] == address(0)) vaults[stable] = cfg.aaveSpoke; // primary
             set.push(cfg.aaveSpoke);
             return;
@@ -478,9 +478,28 @@ library ChannelLib {
         tokens[vault] = stable;
         if (vaults[stable] == address(0)) vaults[stable] = vault; // primary
         set.push(vault);
-        stable.call(abi.encodeWithSelector(0x095ea7b3,
-                            vault, type(uint).max));
+        _approveMax(stable, vault);
     }
+
+    /// §APPROVE-INVARIANT (2026-08-18) — the three `stable.call(approve(...))` sites dropped their
+    /// return value, which solc flagged three times and nobody actioned. The RAW call is deliberate
+    /// and must stay: a typed `IERC20.approve` reverts against USDT-style tokens that return NO
+    /// returndata. What was wrong is ignoring the OUTCOME.
+    /// ⚠️ THE FAILURE THIS MAKES LOUD IS THE SILENT KIND. An approve that reverts, or returns
+    /// `false`, left the venue wired with a ZERO allowance and no signal — the wiring "succeeded",
+    /// and the first supply into that venue failed much later, somewhere else, with an error naming
+    /// the transfer rather than the missing approval. That is standing rule 3's own test for a check
+    /// that earns its place: the violation would otherwise be silent and produce plausible-but-wrong
+    /// state.
+    /// @dev Accepts BOTH shapes: success with empty returndata (USDT), and success with `true`.
+    ///      Rejects a revert and an explicit `false`. Same predicate as OZ's `SafeERC20`, kept
+    ///      inline because vendoring it here costs a delegatecall seam for six lines.
+    function _approveMax(address token, address spender) private {
+        (bool ok, bytes memory ret) =
+            token.call(abi.encodeWithSelector(0x095ea7b3, spender, type(uint).max));
+        if (!ok || (ret.length != 0 && !abi.decode(ret, (bool)))) revert ApproveFailed();
+    }
+
 
     /// @notice Body of Aux's constructor stable/vault wiring loops (delegatecall
     ///         works from a constructor too; runs in Aux's storage context). The
@@ -502,8 +521,7 @@ library ChannelLib {
             if (vault != address(0)) {
                 tokens[vault] = stable; vaults[stable] = vault;
                 vaultsOf[stable].push(vault);
-                stable.call(abi.encodeWithSelector(0x095ea7b3,
-                                    vault, type(uint).max));
+                _approveMax(stable, vault);
             }
         }
     }
