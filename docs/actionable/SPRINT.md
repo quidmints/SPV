@@ -3119,3 +3119,33 @@ sites, and `deltaTok` is unremoved — this changes the venue, not those three b
 PROPOSAL.** Four dissolved on inspection and were right to; this one I nearly killed by checking what
 Midnight IS (a lender) without asking which LAYER it was being asked to supply. **Read the proposal's
 layer before reading the target's identity.**
+
+### 🔗 CROSS-COMPATIBILITY — **THE QD VINTAGE *IS* A FIXED-RATE CREDIT OFFER** (owner, 2026-08-19)
+Owner asked to translate Midnight's *"maker offering to lend or borrow at a rate tick, with an
+expiry"* into the basket interfaces. **They are the same instrument, and the 6909 ladder was already
+built for it** — the vintage needs `avgYield` + an upfront mint *"so Morpho Midnight can price it"*.
+
+| Midnight `Offer` | basket equivalent | where it lives |
+|---|---|---|
+| `expiry` | **the 6909 tenor** — the month a batch unlocks | `matureSupply()`, `immatureBalanceOf()` (`Interfaces:485-486`); ladder in `Basket:166 perMonth` |
+| `tick` (the RATE) | **`avgYield` at entry** — the forward-accrued entitlement fixed on deposit | `avgYield()` (`Interfaces:317`), `get_metrics` / `get_metricsWith` |
+| `maker` | the depositor who bought the vintage | 6909 balance holder |
+| `buy` (direction) | **mint = lend to the basket · `turn` = redeem** | `turn(from, value)` (`Interfaces:485`) |
+| `group` (one-cancels-other) | **the token-id** — one id per vintage, so a batch shares one offered amount | 6909 id |
+| `maxAssets`/`maxUnits` | the batch's outstanding balance | 6909 `totalSupply` per id |
+| `market` | the basket itself (one loan token, one collateral set) | `Aux` |
+
+⇒ **THE MAPPING IS TOTAL, WHICH IS WHY IT IS WORTH DOING:** every field of a credit offer has a
+basket counterpart already implemented. **A QD vintage posted to Midnight is a fixed-rate loan with a
+known maturity and a known coupon** — which is exactly what the dated-liability curve already is,
+expressed in someone else's book.
+⭐ **WHAT IT BUYS: TRADEABLE DURATION.** The vintage stops being redeemable-at-tenor-only and becomes
+a *transferable* fixed-rate claim — which is what rebuilds repo, commercial paper and structured
+credit permissionlessly, and it needs **no new instrument on our side**, only the interface adapter.
+⚠️ **THE ONE FIELD WITH NO CLEAN COUNTERPART: `callback`.** Midnight lets a maker hook execution.
+Decide deliberately whether a vintage exposes one — it is a re-entrancy surface into the basket, and
+the repo's standing posture is no hooks (`7a53747`).
+📌 **AND THE DIRECTION MATTERS:** this is the basket meeting Midnight's *credit* model, which is
+SEPARATE from the band meeting Midnight's *execution* model above. **Two different couplings to one
+protocol — do not let them share an adapter**, or the two things behind one name repeats at the
+integration layer.
