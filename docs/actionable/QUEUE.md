@@ -15078,3 +15078,48 @@ reader. Do not close §E265 on the Solidity repair alone.
 ⚠️ **§E258 OWNS THE FINAL SEMANTICS.** When `fillOOR` lands and actually READS `usdFunded`, re-derive
 both values against what the consumer needs — a field with no reader cannot be validated by any test,
 so these two are consistent-by-derivation, not verified-by-execution.
+
+## §E266 — **OUR OOR ORDER BOOK IS A MIDNIGHT OFFER TREE; `SelfManaged` AND MOST OF §E258 DELETE**
+🟡 OPEN — design measured 2026-08-19 against `evm/lib/morpho-v2` @ `709dab35`. Supersedes the storage
+half of §E258 and removes the root cause of BOTH defects in §E265.
+
+**Midnight does NOT store offers.** There is no `mapping(hash => Offer)`. An `Offer` travels as CALLDATA
+to `take()` (`Midnight.sol:363`), is authenticated by a pluggable `IRatifier`, and the only per-offer
+on-chain state is `mapping(address maker => mapping(bytes32 group => uint128)) consumed` (`:198`).
+The on-chain resting variant is `SetterRatifier`:
+```solidity
+mapping(address maker => mapping(bytes32 root => bool)) public isRootRatified;
+```
+A maker ratifies ONE Merkle root and thereby rests an ENTIRE TREE of offers — **one `SSTORE` for
+arbitrarily many orders**. `take` supplies the offer plus a proof, checked by `HashLib.isLeaf` /
+`HashLib.hashOffer` (the same `HashLib` already earmarked for the Bitcoin side; it is `>=0.5.0` and
+compiles here unchanged).
+
+| per resting order | ours today | Midnight |
+|---|---|---|
+| storage | `Types.SelfManaged` struct + `positions[owner]` push + `ID` bump | **zero** — covered by the root |
+| which side funded | `usdFunded` | `Offer.buy` |
+| partial fill | §E258 `fillOOR`, UNBUILT | `consumed[maker][group]` vs `maxAssets`/`maxUnits` |
+| start / expiry | none | `offer.start`, `offer.expiry` |
+| price | `lower`/`upper` absolute | `offer.tick` → `TickLib.tickToPrice` |
+
+⇒ **DELETES:** `Types.SelfManaged`, the `selfManaged` mapping, `positions[]`, `ID`, and the matching /
+partial-fill half of §E258. ⚠️ **AND IT DISSOLVES §E265 RATHER THAN FIXING IT** — both defects there
+(the 5-vs-6 constructor arity that stops `main` compiling, and the `selfManaged(uint256)` SPA tuple
+drift) are properties of a struct that would no longer exist. Weigh that before investing in §E258's
+current shape.
+
+🔴 **TWO THINGS ARE NOT A RENAME — settle them before writing any code.**
+1. **RANGE vs LIMIT.** `SelfManaged` carries `lower`+`upper`; an `Offer` carries ONE `tick`. Since
+   §V4-CUT the position is just the AMOUNT placed, so a range becomes a LADDER of offers at N ticks —
+   and because they share one root that is still ONE `SSTORE`, so the tree shape suits range orders
+   BETTER than our struct. But it is N leaves, not one, and the ladder's spacing is a design choice.
+2. **THE TICK IS A DISCOUNT, NOT A PRICE.** `TickLib.tickToPrice` has domain **(0,1)** — it errors
+   `PriceGreaterThanOne()` — so it quotes a discount to FACE, while our OOR bounds are absolute prices.
+   `take` also enforces `offer.tick % marketState.tickSpacing == 0` (`DEFAULT_TICK_SPACING = 4`).
+   Mapping our bounds onto that domain is a real conversion with a rounding policy, not a field rename.
+
+⚠️ **`isAuthorized[offer.maker][offer.ratifier]` IS A PREREQUISITE**, checked in `take` before the
+ratifier runs: a maker must authorise the ratifier ON MIDNIGHT first. That is one extra on-chain step
+per maker (not per order) and it has no analogue in our current flow, so it must appear in whatever
+onboarding the SPA does.
