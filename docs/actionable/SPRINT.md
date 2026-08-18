@@ -1899,6 +1899,7 @@ survived) · `§E232-tri` (TriCrypto zero code hits; all four legs on pinned V3 
 | **14** | **`§HANDOFF-2026-08-16-SEED-THREAD` OPEN 1 — an ENCLAVE-HOSTED LP has no recovery path at all** | 🔴 **was in QUEUE only; booked here 2026-08-18** | It correctly gets no export (the backend gate refuses a custody-ready seal) and the fleet's `MigrationAuth` cannot reach it, *"having never been in the fleet's enclave to migrate."* **It needs a migration trust anchor OF ITS OWN.** ⚠️ **`migration.rs` LOOKS like the answer and is not** — `verify_migration_auth` takes the owner set as a PARAMETER against a sealed-config snapshot. Anyone re-deriving this reaches for migration first. 📌 The row's *"or family"* half is retired by the owner's *"no self/family"*; the enclave-hosted-LP half stands. |
 | **15** | **`§HANDOFF-2026-08-16-SEED-THREAD` OPEN 3 — a words-only restore is not a restore** | 🔴 **was in QUEUE only; booked here 2026-08-18** | The seed roots the KEYS; the channel MONITORS (`lp-store.json`, `vault/`) sit in the same data dir and die with the same disk. **Nothing tells an operator to back that directory up, and no test covers restore-then-reconnect.** The backup makes the irreplaceable part recoverable and leaves the replaceable part undone. ⏸️ Do NOT double-file the `PolicyState` cross-reboot reset — that is booked on the `§M1#2-PHASE-2` row. |
 | ~~16~~ | ~~`§HANDOFF…` OPEN 2 — the escape meant to survive a dead LP is not public~~ | ✅ **CLOSED 2026-08-18 by evidence, both halves** | It blocked on *"until the four-entrypoint on-chain arming lands, nobody else can broadcast it"* — **that arming landed** (`d13fde00`, row #1), and its second half (*"a splice rotates the outpoint and invalidates every rung at once"*) went with it. **And the escape IS public:** `event DeadManExitEmitted(..., bytes signedExitTx)` (`:512`) carries the FULLY-SIGNED exit tx and fires from `_armDeadManExit` inside the shared `_armLadder`, so **every rung at all five sites publishes broadcastable bytes on-chain.** Anyone watching can send it after the CLTV. |
+| **16** | **fee-accumulator credit-site enumeration** (`§FEE-CREDIT`) | 🔴 **restored 2026-08-18 — I had wrongly closed it** | Enumerate every site crediting `feesPerShare`/`USD_FEES` across the full lifecycle (swap-out delivery, liquidation, rebalance leg) **per INSTANCE**, since the BTC band is `new Core(cfg.wbtc,…)` and carries the same names at a different address. `CLAUDE.md` memorialises this as the check written down three times and run zero times; do not let a zero-hit grep on the old suffixed name close it a fourth. |
 
 ▶️ **THE ORDER, IF YOU WANT ONE:** #2+#5 together (one commitment, and #5 is blocked on #2) → #6
 (cheap, and B0 made it load-bearing) → #11 and #3 are write-ups of conclusions already reached →
@@ -2090,10 +2091,22 @@ Scanned all 26,415 transcript lines for admissions in my own messages (*"I have 
 resolved to a real question, and **all three closed themselves by measurement rather than becoming
 tasks** — recorded so nobody re-opens them:
 
-- **The `feesPerShareBTC` credit-site enumeration is MOOT.** This is the check `CLAUDE.md`
-  memorialises as *written down three times and run zero times*. **`feesPerShareBTC` and
-  `USD_FEES_BTC` now have ZERO references in `evm/src`** — they were fed by v4 pool trading fees only
-  and died with the v4 cut. There are no credit sites of a deleted accumulator to enumerate.
+- 🔴 **THE `feesPerShareBTC` CREDIT-SITE ENUMERATION IS **NOT** MOOT — I CALLED IT MOOT FROM A
+  ZERO-HIT GREP, AND THE OWNER CORRECTED IT (2026-08-18).** I wrote that `feesPerShareBTC` and
+  `USD_FEES_BTC` have zero references in `evm/src` and concluded the accumulator was deleted with the
+  v4 cut. **The grep was right and the conclusion was wrong.** The BTC band is a SEPARATE INSTANCE —
+  `DeployLib.sol:136-137` constructs `new Core(cfg.weth, …)` **and** `new Core(cfg.wbtc, …)` — so
+  **`feesPerShare` READ AT THE BTC ADDRESS *is* what `feesPerShareBTC` named**: same slot, same
+  meaning, different address. The v4 cut ended the trading-fee **SOURCE** that fed it, not the
+  accumulator. ⇒ **A ZERO-HIT GREP FOR A SUFFIXED NAME IS EVIDENCE OF A RENAME, NEVER OF A REMOVAL.**
+  ⚠️ **So the original check is LIVE AGAIN, and it is still the one `CLAUDE.md` memorialises as
+  *written down three times and run zero times*:** enumerate every site that credits the fee
+  accumulator across the FULL lifecycle — swap-out delivery, liquidation, a rebalance leg — because
+  any one of them would falsify the conclusion built on it. **Booked as D2 #16.**
+  ⚠️ **AND THE RENAME ADDED A NEW WAY TO GET IT WRONG:** the standing warning says multiply back by
+  the credit site's OWN share base, and *"own"* now means THAT INSTANCE'S — which the suffixed name
+  used to tell you and the bare name does not. Reading the ETH instance's base against the BTC
+  instance's accumulator is the direct successor to the bug that warning exists for.
   ⇒ **Fixed on detect:** `CLAUDE.md`'s per-share-accumulator trap-note named 4 symbols that no longer
   exist and cited a line that is now `uint q;`. Re-derived in place — the hazard is unchanged, only
   its coordinates rotted, and a trap-note pointing at deleted symbols causes the very misreading it
