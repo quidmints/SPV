@@ -1112,6 +1112,42 @@ BTC burn, a gateway bricked by an ordinary reorg, and a delivery root cause unde
 ---
 
 
+## 19. THE THREE ROWS I RE-POINTED TODAY AND LEFT OUT OF THIS DOCUMENT
+
+**Caught 2026-08-18 by the owner's own invariant** — *"work started here is finished, or recorded
+here, and marked in the queue accordingly."* 50 queue rows were touched in the 5-day window: **27 are
+marked ✅/⛔, 23 stay open, and 20 of those 23 are treated above.** These three were not. All three
+are rows I **re-pointed today**, which is exactly the state most likely to be dropped: not new enough
+to feel like a finding, not closed enough to need no entry.
+
+- **`E17` 🟢 — the θ clamp.** `applyTheta:1751` already short-circuits the inert case with
+  `if (thetaEff >= 1e18) return available;`, so the clamp costs one comparison where it cannot bind.
+  ⛔ **But the deletion the row proposed would be wrong on its own evidence:** *"never binds"* was
+  measured in **two states, both with θ ≥ 1**, and θ = avgYield/(K·σ²) drops below 1 when volatility
+  is high enough — precisely when a risk budget *should* bind. **Dead in the measured regimes is not
+  dead by construction**, which is standing rule 3's own discriminator. ▶️ Settles with §E213 and
+  §SIGMA-ESTIMATOR, not before. **Do not delete the branch first.**
+- **`E120` 🟠 — `ForkPin`.** Two complaints wearing one symbol. ✅ Reproducibility is answered by
+  design: `FORK_BLOCK` unset ⇒ latest block, set ⇒ every fork in the run uses that block, with the A/B
+  recipe written into the docblock, and refusing to pin a *historical* block is reasoned (§A.22 wants
+  expectations derived from live state). ⛔ **The row's actual complaint — refetch and self-rate-limit
+  — is unchanged**, because unset is still the default. The mitigation is environmental
+  (`ANKR_RPC_URL`), not structural. **Do not read the docblock as the fix; it answers a later problem.**
+- **`E228` 🟠 — stable shedding is inverted.** Both cited sites are in `SOR.sol`, which **this thread
+  deleted**, so the inverted logic cannot fire. ⛔ **That is not the fix.** The requirement the owner
+  stated and `SOR-SIGNIFICANCE-DESIGN.md:14-16` records — *shed LOW-yield stables to protect
+  `avgYield`* — is now implemented by **nothing**. **Deleting an implementation that had the direction
+  backwards removed the bug and the feature together**, and this row is the evidence that the obvious
+  rebuild gets the direction wrong.
+
+⇒ **THE PATTERN WORTH KEEPING: a RE-POINTED row is the easiest kind to lose.** A new finding gets
+written up and a closed one gets a ✅; a row whose target moved has already been "handled" in the
+author's head, so it silently ends up in the digest and nowhere else. **The invariant that caught all
+three was mechanical — cross-reference rows touched against rows discussed — not memory.**
+
+---
+
+
 # PART B — session `391df7b6` (the Bitcoin / secp256k1 thread)
 
 **Ordered by what it protects, not by how nearly finished it is.** Item 1 is worth more than
