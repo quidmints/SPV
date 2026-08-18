@@ -2298,3 +2298,42 @@ how `refillRealisable`, the stored bounds and `refillQuote` were each built and 
 same thread — three components added where a mechanism already existed.
 📌 **DISCRIMINATOR:** after a swap settles, is there any code path that CHANGES the ratio of
 `POOLED` to `POOLED_USD` other than a further delta? If no, placement is a read.
+
+---
+
+## PART C5 — **THE FOLD IS A DELETION, AND THE SPLIT IS DECIDED (owner, 2026-08-18)**
+
+### ✅ C5.1 — `deltaTok` GOES: **"it's already the delta in the modLP"**
+**VERIFIED.** `Core.modLP(int256 delta, int256 deltaUSD, …)` builds `Delta(deltaUSD, delta)` and
+settles it through `_handleDelta`. `Vogue:948` separately calls `this.addLiq(amount, price)` and gets
+back `(deltaUSD, deltaETH)`, which it then applies as `LP.pooled += deltaETH`. **Same two quantities,
+computed twice, on two paths.**
+⇒ **THIS ANSWERS §C4.1'S GATING QUESTION: PLACEMENT IS THE DELTA.** There is no separate placement
+write to fold `refillPlacement` into — `modLP` already carries the delta and `_handleDelta` already
+settles it against `POOLED`/`POOLED_USD`. **So the fold is a DELETION, not a wiring job:** drop
+`deltaTok` from `addLiq` and read the delta `modLP` already has.
+📌 Consistent with the rest of this thread — `refillRealisable`, the stored bounds and `refillQuote`
+were each BUILT and then deleted once the existing mechanism was found. This is the fourth.
+⇒ **AND IT DOWNGRADES `refillPlacement` TO A MEASUREMENT** (the C4.1 branch): its `idle` output feeds
+attribution, not a write. **Re-examine `imbalanceFeeUsd6` for redundancy with the depletion term**
+before wiring either — same 210 ppm, same event, and depletion is already charged live in `skewWad`.
+
+### 🎯 C5.2 — §SPLIT-WEIGHTS **DECIDED: split on REBALANCED-AMOUNT vs POOL LIQUIDITY, pool-favoured**
+Owner: *"split skew with amount rebalanced and amount of liquidity in the pool so the pool always
+keeps a bigger share till only the whales earn from the arb."*
+⇒ **THE SPLIT IS A FUNCTION OF SIZE, NOT A FIXED WEIGHT** — `rebalanced / poolLiquidity`. The pool
+retains the majority at small sizes; the arber's share rises with the ratio, so **only a trade large
+enough to matter earns from the arb.**
+⭐ **WHY THIS SHAPE IS RIGHT, and it is the same principle three other decisions landed on:** it makes
+grinding unprofitable **by construction** rather than by a threshold — a small imbalance simply does
+not pay enough to be worth manufacturing. Compare §WHO-PAYS (LPs refuted by grinding arithmetic at
+−1.6 to −43.6 bp per round trip) and §UNIT-ROUNDTRIP-LIVE (pro-rata removes the first-out prize
+rather than pricing it). **Remove the incentive, do not tax it.**
+📌 **ALREADY SETTLED, so this completes the item:** the RATE (210 ppm on imbalance ≡ 420 ppm on
+notional, `swapFeePpm()/2`, no new constant), WHO PAYS (the swapper — both alternatives closed), and
+the ROUTING (`recordSkewPremium` → `creditSkewPremium` + `_addPooledUsd`; changing it would
+DOUBLE-CREDIT). **Only the proportions were open, and this is them.**
+▶️ **TO BUILD:** the share is `f(drainUsd6 / poolVolUsd)` — both already arguments to `skewWad`, so
+**no new state and no new accessor.** Monotone in the ratio, pool-majority below the crossover. The
+crossover point is the one number still to pick, and it should be MEASURED against the grinding
+arithmetic above rather than chosen.
