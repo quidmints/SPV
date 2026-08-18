@@ -98,3 +98,11 @@ solady = { git = "https://github.com/Vectorized/solady" }
 paths = "src/midnight/**"
 via_ir = true
 optimizer_runs = 50
+
+# A `compilation_restrictions` entry only CONSTRAINS; it does not CREATE a profile. Without a
+# matching entry here the build fails with "Missing profile satisfying settings restrictions for
+# src/midnight/...". The two blocks must be kept in sync — same via_ir, same optimizer_runs.
+[[profile.default.additional_compiler_profiles]]
+name = "midnight-viair-50"
+via_ir = true
+optimizer_runs = 50
